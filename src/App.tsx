@@ -68,7 +68,7 @@ export default function App() {
                 textAnchor="middle"
                 dominantBaseline="central"
                 fill="var(--ink)"
-                style={{ font: "500 var(--atom-label-size) var(--font-sans)" }}
+                style={{ font: "var(--atom-label-size) var(--atom-label-font)" }}
               >
                 {a.label}
               </text>

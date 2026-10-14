@@ -37,7 +37,8 @@ Octet draws structures itself as SVG. The app icon source is
   sync and sharing. Files always save locally.
 - Signed and notarised installers.
 - CDXML import and export from version 1, with a round-trip test suite.
-- ACS Document 1996 is the default drawing style.
+- New documents use ACS Document 1996 by the book (Arial 10 pt labels).
+  Users can change the style. Export matches the page exactly.
 - When a question in section 11 of the brief blocks you, ask Sam. Don't
   guess.
 

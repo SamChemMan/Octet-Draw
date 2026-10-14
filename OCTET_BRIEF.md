@@ -33,7 +33,7 @@ These are product decisions. Do not trade them away for convenience.
 3. **Near-zero friction.** Download, install, draw. No account. The first launch opens straight to a blank canvas. An account is optional and only adds cloud sync and sharing. Files always save locally.
 4. **Signed and notarised installers.** macOS notarisation and Windows code signing, so users never see an "unidentified developer" warning. A small download that starts in seconds.
 5. **ChemDraw files in and out.** Import and export `.cdxml` (and read `.cdx` where possible) with high fidelity from version 1. Users have decades of files. Without this, nobody switches.
-6. **ACS Document 1996 is the default style.** Bond length 14.4 pt, line width 0.6 pt, bold width 2 pt, bond spacing 18%, hash spacing 2.5 pt, atom labels 10 pt. See `brand/tokens.json` → `drawing`.
+6. **ACS Document 1996 is the default style.** Bond length 14.4 pt, line width 0.6 pt, bold width 2 pt, bond spacing 18%, hash spacing 2.5 pt, margin width 1.6 pt, chain angle 120°, atom labels and captions Arial 10 pt. It is the canvas default, by the book, not an export option. Users can change the style. Export matches the page exactly. See `brand/tokens.json` → `drawing`.
 7. **British English for all user-facing text**, with chemistry spelling per IUPAC and the RSC: sulfur, sulfate, aluminium, caesium. Code identifiers keep standard spellings (`color`).
 8. **ASD-STE100 Simplified Technical English** for guides, help, tooltips, error messages and onboarding.
 9. **No serif fonts anywhere.** No Times New Roman atom labels.
@@ -92,7 +92,7 @@ Evidence gathered on 14 October 2026:
 - **Catalytic cycle object.** Choose N steps. Intermediates sit on nodes around a ring. Arc arrows join the nodes. Reagents enter and products leave on side arrows. Edit any intermediate and the cycle reflows and keeps its spacing. Clockwise by default; option for counter-clockwise. Optional centre label (catalyst name).
 - **Scheme grid.** Structures, reaction arrows, conditions text and compound numbers snap into rows and columns with even spacing. Wrapping for long schemes. Automatic bold compound numbers (**1**, **2a**) under structures.
 - **Smart snapping and alignment.** Snap to atoms, bond midpoints, structure centres and baselines. Live guides like a design tool. Distribute evenly. Align to page or journal column width (ACS single column 3.25 in / 8.25 cm, double column 7 in / 17.8 cm).
-- **Text and boxes.** Styled title, subtitle, caption and annotation styles. Rounded and square callout boxes, highlight boxes around parts of a scheme, brackets. All use the brand type and colours, and can switch to the journal style on export.
+- **Text and boxes.** Styled title, subtitle, caption and annotation styles. Rounded and square callout boxes, highlight boxes around parts of a scheme, brackets. All follow the document style (ACS 1996 by default). Export matches the page exactly.
 - **Arrows.** Reaction, equilibrium, retrosynthetic, resonance, curly (two-electron) and fishhook (one-electron) arrows. Curly arrows snap from a bond or lone pair to an atom or bond, with editable curvature.
 
 **Files and export**
@@ -166,14 +166,14 @@ Full detail: `brand/BRAND.md`. Use `brand/tokens.css` for every value. Never har
 | Name | Octet (wordmark lowercase: "octet") |
 | Mark | Kekulé benzene ring with one ring bond replaced by a dashed arrow. Drafts in `brand/logos/`. Use them as they are; Sam will redraw the final logo |
 | Colours | Octet Blue `#1D49A7` (primary), Bright Blue `#2C6FFF` (logo arrow, focus, selection), Brand Mist `#DCE4F5`, Navy `#000E2F` (app icon tile), white canvas, cool neutrals. No other hues except status |
-| Type | Instrument Sans for UI, display and atom labels. IBM Plex Mono for SMILES, InChI, formulae and coordinates. Both SIL Open Font License; bundle the font files with the app (no network fetch) and include the OFL licence |
+| Type | Instrument Sans for UI and display. Canvas labels follow the document style (ACS 1996: Arial 10 pt). IBM Plex Mono for SMILES, InChI, formulae and coordinates. Both SIL Open Font License; bundle the font files with the app (no network fetch) and include the OFL licence |
 | UI size | 13 px base UI text, like macOS |
 | Shape | 4 px grid. Radii 6 / 10 / 16 px. One shadow (`--shadow-float`) for floating palettes and menus only |
 | Motion | 150–200 ms ease-out. No bounce, no spring overshoot |
 | Icons | 20 px line icons, 1.5 px stroke, round caps. Tools draw the real object (bond, hexagon, curly arrow) |
 | Feel | Calm, precise, chill. Not academic, not a generic startup template (no Geist/Inter, no shadcn look, no gradient heroes) |
 
-Note: `brand/tokens.css` imports the fonts from Google Fonts for convenience. In the app, replace that import with bundled local font files, because the app must work offline.
+Note: the app bundles both fonts locally (OFL-1.1). `brand/tokens.css` has no web font import.
 
 ---
 
@@ -192,7 +192,7 @@ Note: `brand/tokens.css` imports the fonts from Google Fonts for convenience. In
 Ask Sam these when they block you. Do not guess.
 
 1. Linux support in version 1, or later?
-2. Open source the app, or keep it closed source but free?
+2. ~~Open source the app, or keep it closed source but free?~~ Answered 14 October 2026: open source, Apache-2.0.
 3. Which funding route comes first (grants, sponsorship, donations, institutional tier)? This decides whether to build accounts and sync early.
 4. Final logo and app icon: when will they arrive? Use the drafts until then.
 5. Auto-update: on by default, or ask on first launch?

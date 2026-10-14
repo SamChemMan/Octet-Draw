@@ -10,7 +10,7 @@ Octet shares Steps Blue with The Steps Foundation, so the two read as one family
 1. **Chill by default.** Soft neutral chrome (`surface`, `hairline`), generous space, one colour family. Nothing flashes, bounces or competes with the drawing.
 2. **The structure is the hero.** The canvas is white (`canvas`). Colour in the UI is for state (active tool, selection, focus), not decoration.
 3. **Blue only.** `brand` does the work, `brand-bright` marks live interaction, `brand-mist` is the soft tint. Status colours appear only when something needs attention.
-4. **Instrument, not paperwork.** No serif faces anywhere in the product, no Times New Roman atom labels, no grey bevelled toolbars. Instrument Sans for everything, IBM Plex Mono for machine strings.
+4. **Instrument, not paperwork.** No serif faces anywhere in the product, no Times New Roman atom labels, no grey bevelled toolbars. Instrument Sans for the interface, IBM Plex Mono for machine strings.
 6. **Crafted, not templated.** Octet must not look like a generic startup template (Geist or Inter, shadcn cards, gradient hero). The type, the hexagon motif and the ACS-correct canvas are what make it ours.
 5. **Journal-correct by default.** The `drawing` tokens match the ACS 1996 document style, so an export drops straight into a manuscript.
 
@@ -48,13 +48,13 @@ Rules:
 
 ## Typography
 
-**Instrument Sans** (UI, display, atom labels) and **IBM Plex Mono** (machine strings). Both are under the SIL Open Font License 1.1: free for commercial use, embedding in the app and redistribution. Load them from Google Fonts on the web, or bundle the official release files in the desktop app (keep the OFL licence file with them).
+**Instrument Sans** (UI and display) and **IBM Plex Mono** (machine strings). Both are under the SIL Open Font License 1.1: free for commercial use, embedding in the app and redistribution. Load them from Google Fonts on the web, or bundle the official release files in the desktop app (keep the OFL licence file with them).
 
 Why Instrument Sans: it is a clean, precise grotesque with the polish of San Francisco but a little more character, and it is not the default face of every startup template. IBM Plex Mono brings quiet scientific credibility to SMILES, InChI and formulae without looking like a code editor.
 
 - App UI runs at 13px (`ui`), the same as macOS system UI.
 - Headlines use weight 600 and negative tracking. Never use 800 or 900.
-- Atom labels use Instrument Sans 500 at `atom-label-size`. Subscripts at 70% size, dropped 0.25em.
+- Atom labels and captions on the canvas follow the document style. The default is ACS Document 1996, by the book: Arial at 10 pt (`atom-label-font`, `atom-label-size`). Export matches the page exactly. Subscripts at 70% size, dropped 0.25em.
 - SMILES, InChI, formulae and coordinates use IBM Plex Mono (`smiles`, `formula`).
 - The system stack (`-apple-system`, SF Pro) is the fallback, so the app still looks native before the fonts load.
 

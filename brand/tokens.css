@@ -115,7 +115,12 @@
   --bond-bold: 2pt;
   --bond-spacing: 18%;
   --hash-spacing: 2.5pt;
+  --chain-angle: 120deg;
+  --margin-width: 1.6pt;
+  --atom-label-font: Arial, Helvetica, sans-serif;
   --atom-label-size: 10pt;
+  --caption-font: Arial, Helvetica, sans-serif;
+  --caption-size: 10pt;
   --arrow-head: 6pt;
 }
 
