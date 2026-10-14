@@ -16,7 +16,7 @@ npm run tauri dev
 ## Sam
 
 Hello everyone, 
-I'm currently a student in the [Nitschke]([url](https://www.nitschkegroup-cambridge.com/)) group at The University Of Cambridge. 
+I'm currently a student in the [Nitschke]([https://www.nitschkegroup-cambridge.com/]) group at The University Of Cambridge. 
 Previously, I was an undergraduate at The University Of Manchester.
 
 Chemistry is fantastic, but communicating it is extremely difficult. This is my first attempt to make it
