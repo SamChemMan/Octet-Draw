@@ -18,9 +18,8 @@ Mac and in cloud sessions.
 ## Project
 
 Octet is a free, open-source (Apache-2.0), native, offline desktop app for
-drawing chemical structures. It replaces ChemDraw. Platforms: Mac and
-Windows. Linux is an open question (brief section 11). Status: brief build
-step 1 (foundation).
+drawing chemical structures. It replaces ChemDraw. Platforms: Mac, Windows and
+Linux. Status: brief build step 1 (foundation).
 
 Stack: Tauri 2 (Rust) shell, React + TypeScript + Vite for the UI, and
 Indigo (`indigo-ketcher`, WASM) for chemistry and CDX/CDXML (see

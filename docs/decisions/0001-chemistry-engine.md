@@ -29,8 +29,23 @@ Use Indigo as the only chemistry engine for now. It runs offline in the
 webview, and it covers CDX and CDXML, which RDKit's WebAssembly build does
 not.
 
+## Corpus test
+
+On 14 October 2026 we ran 35 real CDXML files made in ChemDraw 22.2
+(schemes, catalytic cycles, metal complexes, posters) through Indigo:
+
+- Indigo loaded all 35 files. The molecules came through.
+- Indigo's CDXML output dropped drawing objects in 25 of 35 files: boxes,
+  lines, arc arrows, freehand curves, images and some text.
+- Indigo's CDXML output replaced the ACS 1996 document settings in all 35.
+
 ## Consequences
 
+- Indigo handles chemistry only: valence, stereo, aromaticity, layout,
+  SMILES, InChI and MOL.
+- Octet reads and writes the CDXML document layer itself: graphics,
+  arrows, text, colours, fonts, images, schemes and document settings. This
+  matches the brief, which makes the layout engine Octet's own code.
 - Indigo has open CDXML bugs (text, CIP labels, implicit hydrogens,
   S-groups). Octet will need its own CDXML test suite and will likely send
   fixes upstream.

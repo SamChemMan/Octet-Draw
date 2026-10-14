@@ -29,7 +29,7 @@ Its edge is **chemistry-aware layout**. ChemDraw and every competitor treat layo
 These are product decisions. Do not trade them away for convenience.
 
 1. **Free for every individual. A hard promise.** No trial timers, watermarks, export limits, licence keys or "Pro" locks on any individual feature. Never design a sign-up gate or upsell modal.
-2. **Native desktop, offline-first.** Mac and Windows. Every feature works with no internet. Not a web app. It must feel official.
+2. **Native desktop, offline-first.** Mac, Windows and Linux. Every feature works with no internet. Not a web app. It must feel official.
 3. **Near-zero friction.** Download, install, draw. No account. The first launch opens straight to a blank canvas. An account is optional and only adds cloud sync and sharing. Files always save locally.
 4. **Signed and notarised installers.** macOS notarisation and Windows code signing, so users never see an "unidentified developer" warning. A small download that starts in seconds.
 5. **ChemDraw files in and out.** Import and export `.cdxml` (and read `.cdx` where possible) with high fidelity from version 1. Users have decades of files. Without this, nobody switches.
@@ -103,7 +103,7 @@ Evidence gathered on 14 October 2026:
 - Paste a SMILES or name onto the canvas to draw the structure (name-to-structure can use an offline engine such as OPSIN; check its licence).
 
 **App**
-- Mac (Apple Silicon and Intel) and Windows 10/11.
+- Mac (Apple Silicon and Intel), Windows 10/11 and Linux.
 - Light and dark mode chrome; the canvas stays white for print fidelity.
 - Full keyboard shortcuts, with a command palette.
 - Undo and redo with unlimited history.
@@ -150,7 +150,7 @@ Show Sam a working build at the end of steps 2, 5 and 6.
 - An expert draws a four-step Suzuki catalytic cycle in under 3 minutes.
 - A CDXML scheme from ChemDraw opens, is edited and saved, and reopens in ChemDraw with no visible change.
 - Default export matches ACS 1996 measurements exactly.
-- The app installs and opens on clean Mac and Windows machines with no warning and no account prompt.
+- The app installs and opens on clean Mac, Windows and Linux machines with no warning and no account prompt.
 - It works fully with the network turned off.
 - All user-facing text passes a British English and STE check.
 - All text meets 4.5:1 contrast in light and dark chrome, and every control shows a visible focus ring.
@@ -191,7 +191,7 @@ Note: the app bundles both fonts locally (OFL-1.1). `brand/tokens.css` has no we
 
 Ask Sam these when they block you. Do not guess.
 
-1. Linux support in version 1, or later?
+1. ~~Linux support in version 1, or later?~~ Answered 14 October 2026: Linux in version 1.
 2. ~~Open source the app, or keep it closed source but free?~~ Answered 14 October 2026: open source, Apache-2.0.
 3. Which funding route comes first (grants, sponsorship, donations, institutional tier)? This decides whether to build accounts and sync early.
 4. Final logo and app icon: when will they arrive? Use the drafts until then.
