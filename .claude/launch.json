@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "octet",
+      "runtimeExecutable": "/bin/zsh",
+      "runtimeArgs": ["-lc", "npm run tauri dev"],
+      "port": 1420
+    },
+    {
+      "name": "octet-ui-only",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 1420
+    }
+  ]
+}

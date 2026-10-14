@@ -166,5 +166,7 @@ better, modern way to do it. This repository is public.
 
 Never force-push or rewrite history on `main`.
 
-Preview command: `npm run tauri dev` (needs Node and Rust). Cloud sessions
-without Rust can run `npm run dev` to serve the UI at http://localhost:1420.
+Preview command: `npm run tauri dev` (needs Node and Rust). In the Claude
+app, start the `octet` preview from `.claude/launch.json`: it opens the app
+window and shows the UI in the preview pane. Cloud sessions without Rust use
+the `octet-ui-only` preview (`npm run dev`, http://localhost:1420).
