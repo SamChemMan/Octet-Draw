@@ -30,6 +30,8 @@ Developer Certificate of Origin sign-off (`git commit -s`).
 Every library in Octet must have a licence that is compatible with
 Apache-2.0.
 
+- **Allowed for fonts only:** SIL Open Font License 1.1 (OFL-1.1). Keep
+  each font's licence file with the app.
 - **Allowed:** MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, ISC. For
   example: RDKit (BSD-3-Clause), OPSIN (MIT), Ketcher (Apache-2.0),
   Indigo (Apache-2.0), OpenChemLib (BSD-3-Clause).
@@ -48,6 +50,8 @@ Keep this list current and ship each library's licence notice with Octet.
 | vite, @vitejs/plugin-react | 8.3, 6.1 | MIT | Bundler (dev only) |
 | typescript | 7.0 | Apache-2.0 | Type checking (dev only) |
 | @types/react, @types/react-dom | 19.3 | MIT | Type definitions (dev only) |
+| Instrument Sans (@fontsource/instrument-sans) | 5.3 | OFL-1.1 | UI and atom label font |
+| IBM Plex Mono (@fontsource/ibm-plex-mono) | 5.3 | OFL-1.1 | SMILES, InChI and formula font |
 
 ## Clean-room rules for studying ChemDraw
 

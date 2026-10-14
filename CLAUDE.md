@@ -17,6 +17,54 @@ structures itself as SVG from Indigo's coordinates.
 Read [docs/licence.md](docs/licence.md) before you add a dependency or
 anything that comes from studying ChemDraw.
 
+Read [brand/CLAUDE.md](brand/CLAUDE.md) before any UI, icon or user-facing
+text work. Use the tokens in `brand/tokens.css`. The app icon source is
+`src-tauri/icons/app-icon.svg`.
+
+## Product priorities
+
+The top priority is that Octet is a pleasure to use: super smooth and
+snappy with no lag, well designed and really well animated (within the
+motion rules in `brand/`), better looking than ChemDraw, with better
+features and good templates. It caters for everyone. It isn't daunting at
+first sight, but it has a huge depth of features for people who go looking.
+Final Cut Pro is the model for this.
+
+Important features from the ChemDraw complaints research (October 2026),
+in no strict order:
+
+- Paste into Word and PowerPoint as a sharp vector picture that resizes
+  cleanly, copy it back into Octet to edit, and change atom colours inside
+  Office.
+- Keyboard drawing as fast as ChemDraw's hotkeys.
+- CDX and CDXML read and write that ChemDraw opens cleanly.
+- ACS 1996 output and exact-size export.
+- Crash safety: autosave, recovery and atomic saves.
+
+Ideas to explore:
+
+- A radial menu at the cursor, like Vorssaint's: hold a key or mouse
+  button, point, release. Use it for quick molecules and templates, and
+  quick actions such as clean-up. Keep item positions fixed so experts can
+  flick without looking, as in Maya's marking menus and Blender's pie
+  menus.
+
+## How to build
+
+- Code: use `/ponytail ultra`. Write the smallest change that works.
+  Ponytail never removes accessibility, data safety or anything Sam asked
+  for.
+- UI: load `/impeccable`, `/emil-design-eng` and `/design-taste-frontend`
+  before UI work. Measure interactions against the best apps for each job:
+  Apple's Human Interface Guidelines for Mac conventions, Final Cut Pro for
+  a simple surface over deep features, Figma and Sketch for canvas
+  selection, snapping, zoom and nudging, and Linear and Things for calm,
+  keyboard-first chrome.
+- When they disagree: `brand/` decides look and copy, then accessibility,
+  then the design skills, then ponytail on code size.
+- These skills are installed on Sam's Mac only. Cloud sessions follow
+  `brand/`.
+
 ## Licences
 
 - Add only dependencies with Apache-compatible permissive licences: MIT,
