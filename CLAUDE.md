@@ -47,8 +47,16 @@ This repository is public.
   executable is x86_64 only.
 - Cloud sessions have no ChemDraw, Ghidra or IDA.
 
-## Git
+## Workflow
 
-- Local and cloud sessions share this repository through GitHub. Pull
-  before you start and push when you finish.
-- Work on a branch. Merge into `main` only when Sam asks.
+1. Pull before you start. Local and cloud sessions share this repository
+   through GitHub.
+2. Make the change.
+3. Show Sam a preview: run the app and open it with Claude in Chrome, or
+   show the diff when there is nothing to run.
+4. When Sam approves, commit and push straight to `main`. No branches or
+   pull requests are needed. This is standing permission from Sam.
+
+Never force-push or rewrite history on `main`.
+
+Preview command: none yet. Add it here when the app exists.
