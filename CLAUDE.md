@@ -107,6 +107,8 @@ Security is a top priority.
 - These skills are installed on Sam's Mac only. Cloud sessions follow
   `brand/`.
 - Record significant technical decisions in `docs/decisions/`.
+- Check every feature against ChemDraw side by side (same input, compare
+  the output, the speed and the number of steps) so Octet is never worse.
 
 ## Licences
 
