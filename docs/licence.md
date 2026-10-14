@@ -43,32 +43,35 @@ Ship each library's licence notice with Octet.
 
 Each dependency and its licence is listed in [THIRD_PARTY.md](../THIRD_PARTY.md).
 
-## Clean-room rules for studying ChemDraw
+## Using ChemDraw as the baseline
 
-The repository is public. Octet must contain no ChemDraw code or assets,
-and nothing learned by decompiling ChemDraw may be published.
+Octet takes ChemDraw's functionality as the minimum and builds on it, with
+its own look and feel. Nobody owns chemical drawings, and functionality,
+keyboard shortcuts and data file formats are not protected by copyright
+(SAS Institute v World Programming, Court of Justice of the EU, 2012). The
+repository is public, so ChemDraw's own code and assets stay out of it.
 
 - Study ChemDraw only with your own licensed copy.
-- Observe and test its behaviour freely. You can describe behaviour in
-  public specifications, in your own words.
+- Match its behaviour, workflow logic and keyboard shortcuts freely. Learn
+  them by using and testing ChemDraw and from its public documentation.
 - Decompile only for compatibility: CDX and CDXML files, and clipboard
-  formats.
-- Keep decompiled code, disassembly, REA output and all notes from
-  decompiling in `~/octet-research/`, outside this repository. Never put
-  them in code, docs, commits, issues or pull requests.
-- Write specifications in `docs/` only from public documentation and
-  observed behaviour. Build Octet from those specifications.
-- Never copy ChemDraw code, icons, templates, text, sample files or data.
+  formats. Format facts learned this way (tags, meanings, clipboard types)
+  can go into Octet's code, because Octet needs them to read and write
+  ChemDraw files.
+- Keep raw decompiled code, disassembly, REA output and decompiling notes
+  in `~/octet-research/`, outside this repository.
+- Never copy ChemDraw code, icons, templates, documentation text, sample
+  files or data. Write our own code.
 - Never touch licence or activation code.
 - Use only files you created yourself as test files.
 - Do not use "ChemDraw" in Octet's name or logo. Every comparison in
   marketing must be true.
 
-Why the decompiling notes stay private: UK law (Copyright, Designs and
-Patents Act 1988, section 50B) and EU law (Directive 2009/24/EC,
-article 6) allow decompiling for interoperability, but they restrict
-giving the information obtained to others beyond what interoperability
-needs.
+Why raw decompiling notes stay private: UK law (Copyright, Designs and
+Patents Act 1988, section 50B) and EU law (Directive 2009/24/EC, article 6)
+allow decompiling to make an independent program work with ChemDraw's
+files, and allow using what is learned for that purpose. They restrict
+passing the decompiled material on beyond what interoperability needs.
 
 ## Open decisions
 

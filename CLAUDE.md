@@ -55,9 +55,11 @@ Final Cut Pro is the model for this.
 
 Sam's additions to the brief (14 October 2026), in no strict order:
 
-- Paste into Word, PowerPoint and Keynote as a sharp vector picture that
-  resizes cleanly, copy it back into Octet to edit, and change atom colours
-  inside Office.
+- Paste into Word, PowerPoint and Keynote. Version 1 mirrors ChemDraw's
+  clipboard: a vector PDF at true size with fonts embedded, then CDX, MOL
+  and SMILES. Later: hide the structure in the PDF so pictures copied back
+  out of Word stay editable (tested on Mac 14 October 2026: it survives
+  copy, save and reopen), and atom recolouring inside Office.
 - Keyboard drawing as fast as ChemDraw's hotkeys.
 - Crash safety: autosave, recovery and atomic saves.
 
@@ -113,19 +115,27 @@ Security is a top priority.
 - Never add GPL or AGPL code, for example Open Babel.
 - Record each dependency in [THIRD_PARTY.md](THIRD_PARTY.md).
 
-## Clean room (ChemDraw)
+## ChemDraw: what we can use
 
-This repository is public.
+Octet takes ChemDraw's functionality as the minimum and builds on it, with
+its own look and feel. Study how ChemDraw does something, then design a
+better, modern way to do it. This repository is public.
 
-- Never commit, paste or quote ChemDraw code, disassembly, decompiler
-  output, REA Evidence, icons, templates, text or files. This applies to
-  code, docs, commit messages, issues and pull requests.
-- Put all reverse-engineering output and notes in `~/octet-research/` on
-  Sam's Mac, outside this repository.
-- Write specifications in `docs/` only from public documentation and
-  observed behaviour, in your own words.
-- Decompile only for compatibility: CDX, CDXML and clipboard formats.
-  Never touch licence or activation code.
+- Free to use: ChemDraw's behaviour, workflow logic, keyboard shortcuts and
+  file formats. Functionality and data file formats are not protected by
+  copyright (SAS Institute v World Programming, CJEU, 2012). Learn them by
+  using and testing ChemDraw, and from its public documentation.
+- Format facts learned by decompiling (CDX/CDXML tags and meanings,
+  clipboard types) can go into Octet's code, because Octet needs them to
+  read and write ChemDraw files.
+- Never put ChemDraw's code, decompiler output, disassembly, REA Evidence,
+  icons, templates, documentation text or sample files in this repository.
+  Write our own code.
+- Keep raw reverse-engineering output and notes in `~/octet-research/` on
+  Sam's Mac.
+- Decompile only for file and clipboard compatibility. For shortcuts,
+  behaviour and algorithms, observe and test instead. Never touch licence
+  or activation code.
 - Use only files Sam created as test files.
 
 ## Reverse-engineering tools (Sam's Mac only)
