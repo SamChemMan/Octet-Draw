@@ -170,7 +170,7 @@ Full detail: `brand/BRAND.md`. Use `brand/tokens.css` for every value. Never har
 | UI size | 13 px base UI text, like macOS |
 | Shape | 4 px grid. Radii 6 / 10 / 16 px. One shadow (`--shadow-float`) for floating palettes and menus only |
 | Motion | 150–200 ms ease-out. No bounce, no spring overshoot |
-| Icons | 20 px line icons, 1.5 px stroke, round caps. Tools draw the real object (bond, hexagon, curly arrow) |
+| Icons | Phosphor Icons (MIT), Regular weight, 20 px. Missing chemistry tool icons are drawn in Phosphor's style. Tools draw the real object (bond, hexagon, curly arrow) |
 | Feel | Calm, precise, chill. Not academic, not a generic startup template (no Geist/Inter, no shadcn look, no gradient heroes) |
 
 Note: the app bundles both fonts locally (OFL-1.1). `brand/tokens.css` has no web font import.
