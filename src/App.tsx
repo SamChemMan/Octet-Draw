@@ -1,80 +1,71 @@
 import { useEffect, useState } from "react";
 import Indigo from "indigo-ketcher/binaryWasmNoRender";
-
-type Atom = { label: string; location: [number, number, number] };
-type Bond = { type: number; atoms: [number, number] };
-type Mol = { atoms: Atom[]; bonds: Bond[] };
+import { render, type Mol } from "./render";
 
 const indigo = Indigo();
-// Drawing sizes come from brand/tokens.css (ACS 1996). KET bonds are 1 unit long.
+// Drawing sizes come from brand/tokens.css (ACS 1996).
 const token = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name);
 const pt = (name: string) => (parseFloat(token(name)) * 4) / 3; // pt to px
 const BOND = pt("--bond-length");
-const LABEL = pt("--atom-label-size");
-const SPACING = (parseFloat(token("--bond-spacing")) / 100) * BOND;
+const STYLE = {
+  bond: BOND,
+  spacing: (parseFloat(token("--bond-spacing")) / 100) * BOND,
+  margin: pt("--margin-width"),
+  bold: pt("--bond-bold"),
+  hash: pt("--hash-spacing"),
+  size: pt("--atom-label-size"),
+};
+const ctx = document.createElement("canvas").getContext("2d")!;
+ctx.font = `${STYLE.size}px ${token("--atom-label-font")}`;
+const measure = (text: string) => {
+  const m = ctx.measureText(text);
+  return { left: m.actualBoundingBoxLeft, right: m.actualBoundingBoxRight, ascent: m.actualBoundingBoxAscent, descent: m.actualBoundingBoxDescent, width: m.width };
+};
 
 // ponytail: reads the first fragment only; multi-fragment KET comes with file open
 async function toMol(smiles: string): Promise<Mol> {
   const ind = await indigo;
   const opts = new ind.MapStringString();
   opts.set("output-content-type", "application/json");
-  const ket = JSON.parse(JSON.parse(ind.convert(smiles, "ket", opts)).struct);
+  opts.set("dearomatize-on-load", "true"); // Kekulé bonds: ACS draws aromatic rings with alternating double bonds
+  const ket = JSON.parse(JSON.parse(ind.layout(smiles, "ket", opts)).struct); // layout also adds stereo wedges
   opts.delete();
   return ket.mol0;
 }
+
+// Dev preview: ?smiles=… draws another molecule.
+const SMILES = new URLSearchParams(location.search).get("smiles") ?? "CN1C=NC2=C1C(=O)N(C(=O)N2C)C";
 
 export default function App() {
   const [mol, setMol] = useState<Mol>();
   const [error, setError] = useState<string>();
 
   useEffect(() => {
-    toMol("CN1C=NC2=C1C(=O)N(C(=O)N2C)C").then(setMol, (e) => setError(String(e)));
+    toMol(SMILES).then(setMol, (e) => setError(String(e)));
   }, []);
 
   if (error) return <p>{error}</p>;
   if (!mol) return <p>Loading Indigo…</p>;
 
-  const pts = mol.atoms.map((a) => [a.location[0] * BOND, -a.location[1] * BOND]); // KET y points up
-  const xs = pts.map((p) => p[0]);
-  const ys = pts.map((p) => p[1]);
-  const [x0, y0] = [Math.min(...xs) - BOND, Math.min(...ys) - BOND];
-  const [w, h] = [Math.max(...xs) - x0 + BOND, Math.max(...ys) - y0 + BOND];
-
+  const d = render(mol, STYLE, measure);
+  const [x0, y0, x1, y1] = d.box;
   return (
     // data-theme="light": the canvas stays white in dark mode, for print fidelity.
     <svg
       data-theme="light"
-      viewBox={`${x0} ${y0} ${w} ${h}`}
+      viewBox={`${x0} ${y0} ${x1 - x0} ${y1 - y0}`}
       style={{ width: "100vw", height: "100vh", display: "block", background: "var(--canvas)" }}
     >
-      <g stroke="var(--ink)" strokeLinecap="round" style={{ strokeWidth: "var(--bond-width)" }}>
-        {mol.bonds.flatMap((b, i) => {
-          const [[px, py], [qx, qy]] = [pts[b.atoms[0]], pts[b.atoms[1]]];
-          const len = Math.hypot(qx - px, qy - py);
-          const [nx, ny] = [(py - qy) / len, (qx - px) / len];
-          // ponytail: centred multiple bonds; ChemDraw-style inner ring lines come with the real renderer
-          const offsets = b.type === 2 ? [-SPACING / 2, SPACING / 2] : b.type === 3 ? [-SPACING, 0, SPACING] : [0];
-          return offsets.map((o) => (
-            <line key={`${i}:${o}`} x1={px + nx * o} y1={py + ny * o} x2={qx + nx * o} y2={qy + ny * o} />
-          ));
-        })}
+      <g fill="none" stroke="var(--ink)" strokeLinecap="butt" strokeLinejoin="miter" style={{ strokeWidth: "var(--bond-width)" }}>
+        {d.paths.map((path, i) => <path key={i} d={path} />)}
+        {d.lines.map(([p, q], i) => <line key={i} x1={p[0]} y1={p[1]} x2={q[0]} y2={q[1]} />)}
       </g>
-      {mol.atoms.map(
-        (a, i) =>
-          a.label !== "C" && (
-            <g key={i} transform={`translate(${pts[i][0]} ${pts[i][1]})`}>
-              <circle r={LABEL * 0.6} fill="var(--canvas)" />
-              <text
-                textAnchor="middle"
-                dominantBaseline="central"
-                fill="var(--ink)"
-                style={{ font: "var(--atom-label-size) var(--atom-label-font)" }}
-              >
-                {a.label}
-              </text>
-            </g>
-          ),
-      )}
+      {d.wedges.map((w, i) => <polygon key={i} points={w.map((p) => p.join(",")).join(" ")} fill="var(--ink)" />)}
+      {d.labels.map((l, i) => (
+        <text key={i} x={l.x} y={l.y} fill="var(--ink)" style={{ font: `${l.size}px var(--atom-label-font)` }}>
+          {l.text}
+        </text>
+      ))}
     </svg>
   );
 }
