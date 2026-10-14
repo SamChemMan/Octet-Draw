@@ -41,7 +41,12 @@ export default function App() {
   const [w, h] = [Math.max(...xs) - x0 + BOND, Math.max(...ys) - y0 + BOND];
 
   return (
-    <svg viewBox={`${x0} ${y0} ${w} ${h}`} style={{ width: "100vw", height: "100vh", display: "block" }}>
+    // data-theme="light": the canvas stays white in dark mode, for print fidelity.
+    <svg
+      data-theme="light"
+      viewBox={`${x0} ${y0} ${w} ${h}`}
+      style={{ width: "100vw", height: "100vh", display: "block", background: "var(--canvas)" }}
+    >
       <g stroke="var(--ink)" strokeLinecap="round" style={{ strokeWidth: "var(--bond-width)" }}>
         {mol.bonds.flatMap((b, i) => {
           const [[px, py], [qx, qy]] = [pts[b.atoms[0]], pts[b.atoms[1]]];

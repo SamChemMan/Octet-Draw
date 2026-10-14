@@ -6,6 +6,7 @@ Octet shares Steps Blue with The Steps Foundation, so the two read as one family
 
 ## Principles
 
+1. **Free for every individual, near-zero friction.** A hard promise. Octet is a native desktop app (Mac and Windows) that works fully offline. Download, install, draw: no account, no email wall, no licence key, no watermarks, no export limits, no trial timers. First launch opens straight to a blank canvas. An account is optional and only adds sync and sharing. Never design a sign-up gate, upsell modal or "Pro" lock in front of an individual feature.
 1. **Chill by default.** Soft neutral chrome (`surface`, `hairline`), generous space, one colour family. Nothing flashes, bounces or competes with the drawing.
 2. **The structure is the hero.** The canvas is white (`canvas`). Colour in the UI is for state (active tool, selection, focus), not decoration.
 3. **Blue only.** `brand` does the work, `brand-bright` marks live interaction, `brand-mist` is the soft tint. Status colours appear only when something needs attention.

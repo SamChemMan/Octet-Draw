@@ -2,8 +2,8 @@
 
 A chemical structure drawing editor for the 21st century.
 
-Status: early development. Octet will be a downloadable app for Mac,
-Windows and Linux.
+Status: early development. Octet will be a free, offline desktop app for
+Mac and Windows.
 
 ## Run from source
 

@@ -3,23 +3,46 @@
 Guidance for Claude Code sessions in this repository, both local on Sam's
 Mac and in cloud sessions.
 
+## Read first
+
+1. [OCTET_BRIEF.md](OCTET_BRIEF.md): product, scope, build order and
+   definition of done. Read it fully before any work.
+2. [brand/CLAUDE.md](brand/CLAUDE.md) and [brand/BRAND.md](brand/BRAND.md)
+   before any UI, icon or user-facing text work. Every value lives in
+   `brand/tokens.json` and `brand/tokens.css`. There is no generator yet, so
+   change both and keep them in step.
+3. [docs/licence.md](docs/licence.md) before you add a dependency or
+   anything that comes from studying ChemDraw.
+4. [docs/decisions/](docs/decisions/): decisions that change the brief.
+
 ## Project
 
-Octet is a free, open-source (Apache-2.0) chemical structure drawing
-editor that aims to be a better alternative to ChemDraw. It ships as a
-downloadable desktop app for Mac, Windows and Linux. Status: early
-development.
+Octet is a free, open-source (Apache-2.0), native, offline desktop app for
+drawing chemical structures. It replaces ChemDraw. Platforms: Mac and
+Windows. Linux is an open question (brief section 11). Status: brief build
+step 1 (foundation).
 
-Stack: Tauri 2 (Rust) desktop shell, React + TypeScript + Vite for the UI,
-and Indigo (`indigo-ketcher`, WASM) for chemistry and CDX/CDXML. Octet draws
-structures itself as SVG from Indigo's coordinates.
-
-Read [docs/licence.md](docs/licence.md) before you add a dependency or
-anything that comes from studying ChemDraw.
-
-Read [brand/CLAUDE.md](brand/CLAUDE.md) before any UI, icon or user-facing
-text work. Use the tokens in `brand/tokens.css`. The app icon source is
+Stack: Tauri 2 (Rust) shell, React + TypeScript + Vite for the UI, and
+Indigo (`indigo-ketcher`, WASM) for chemistry and CDX/CDXML (see
+[docs/decisions/0001-chemistry-engine.md](docs/decisions/0001-chemistry-engine.md)).
+Octet draws structures itself as SVG. The app icon source is
 `src-tauri/icons/app-icon.svg`.
+
+## Hard rules (from the brief)
+
+- Free for every individual. No trial timers, watermarks, export limits,
+  licence keys, sign-up gates, upsell modals or Pro locks.
+- Offline-first. Every feature works with no network. No account to start:
+  first launch opens a blank canvas. Accounts are optional and only add
+  sync and sharing. Files always save locally.
+- Signed and notarised installers.
+- CDXML import and export from version 1, with a round-trip test suite.
+- ACS Document 1996 is the default drawing style.
+- When a question in section 11 of the brief blocks you, ask Sam. Don't
+  guess.
+
+Colours, fonts, British English, STE and accessibility rules are in
+`brand/CLAUDE.md`.
 
 ## Product priorities
 
@@ -30,15 +53,12 @@ features and good templates. It caters for everyone. It isn't daunting at
 first sight, but it has a huge depth of features for people who go looking.
 Final Cut Pro is the model for this.
 
-Important features from the ChemDraw complaints research (October 2026),
-in no strict order:
+Sam's additions to the brief (14 October 2026), in no strict order:
 
-- Paste into Word and PowerPoint as a sharp vector picture that resizes
-  cleanly, copy it back into Octet to edit, and change atom colours inside
-  Office.
+- Paste into Word, PowerPoint and Keynote as a sharp vector picture that
+  resizes cleanly, copy it back into Octet to edit, and change atom colours
+  inside Office.
 - Keyboard drawing as fast as ChemDraw's hotkeys.
-- CDX and CDXML read and write that ChemDraw opens cleanly.
-- ACS 1996 output and exact-size export.
 - Crash safety: autosave, recovery and atomic saves.
 
 Ideas to explore:
@@ -48,6 +68,26 @@ Ideas to explore:
   quick actions such as clean-up. Keep item positions fixed so experts can
   flick without looking, as in Maya's marking menus and Blender's pie
   menus.
+
+## Security
+
+Security is a top priority.
+
+- No account required, no licence checks, no telemetry. Crash reports and
+  sync are opt-in. The auto-update default is an open question (brief
+  section 11).
+- Treat every opened or pasted file as hostile. Parse it with bounds
+  checks and limits on size and nesting. No `unsafe` Rust for parsing.
+- Keep the CSP in `src-tauri/tauri.conf.json` strict. No remote scripts,
+  styles or fonts.
+- Grant Tauri capabilities per feature, with the narrowest scope that
+  works (for example, file access only to files the user picked).
+- Never pass file or clipboard content to `eval`, `innerHTML` or
+  `dangerouslySetInnerHTML`.
+- `.npmrc` blocks install scripts. Commit lockfiles. Run `npm audit` and
+  `cargo audit` before each release. Check the maintainer and licence of
+  every new dependency.
+- Releases: signed and notarised installers, and signed updates.
 
 ## How to build
 
@@ -64,13 +104,14 @@ Ideas to explore:
   then the design skills, then ponytail on code size.
 - These skills are installed on Sam's Mac only. Cloud sessions follow
   `brand/`.
+- Record significant technical decisions in `docs/decisions/`.
 
 ## Licences
 
-- Add only dependencies with Apache-compatible permissive licences: MIT,
-  BSD, Apache-2.0, ISC. Ask Sam before you add anything else.
+- Add only dependencies with permissive licences: MIT, BSD, Apache-2.0,
+  ISC. Fonts may use OFL-1.1. Ask Sam before you add anything else.
 - Never add GPL or AGPL code, for example Open Babel.
-- Record each dependency in the table in `docs/licence.md`.
+- Record each dependency in [THIRD_PARTY.md](THIRD_PARTY.md).
 
 ## Clean room (ChemDraw)
 
@@ -99,6 +140,7 @@ This repository is public.
 - ChemDraw 22.2.0 is at `/Applications/ChemDraw 22.2.0.app`. Its main
   executable is x86_64 only.
 - Cloud sessions have no ChemDraw, Ghidra or IDA.
+- Guide: `~/octet-research/REA-GUIDE.md`.
 
 ## Workflow
 
