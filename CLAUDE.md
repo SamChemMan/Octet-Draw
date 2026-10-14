@@ -6,8 +6,13 @@ Mac and in cloud sessions.
 ## Project
 
 Octet is a free, open-source (Apache-2.0) chemical structure drawing
-editor that aims to be a better alternative to ChemDraw. Status: planning.
-There is no code and no chosen tech stack yet.
+editor that aims to be a better alternative to ChemDraw. It ships as a
+downloadable desktop app for Mac, Windows and Linux. Status: early
+development.
+
+Stack: Tauri 2 (Rust) desktop shell, React + TypeScript + Vite for the UI,
+and Indigo (`indigo-ketcher`, WASM) for chemistry and CDX/CDXML. Octet draws
+structures itself as SVG from Indigo's coordinates.
 
 Read [docs/licence.md](docs/licence.md) before you add a dependency or
 anything that comes from studying ChemDraw.
@@ -52,11 +57,12 @@ This repository is public.
 1. Pull before you start. Local and cloud sessions share this repository
    through GitHub.
 2. Make the change.
-3. Show Sam a preview: run the app and open it with Claude in Chrome, or
+3. Show Sam a preview: run the app so its window opens on Sam's Mac, or
    show the diff when there is nothing to run.
 4. When Sam approves, commit and push straight to `main`. No branches or
    pull requests are needed. This is standing permission from Sam.
 
 Never force-push or rewrite history on `main`.
 
-Preview command: none yet. Add it here when the app exists.
+Preview command: `npm run tauri dev` (needs Node and Rust). Cloud sessions
+without Rust can run `npm run dev` to serve the UI at http://localhost:1420.

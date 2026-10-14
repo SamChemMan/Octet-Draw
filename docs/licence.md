@@ -41,7 +41,13 @@ Keep this list current and ship each library's licence notice with Octet.
 
 | Library | Version | Licence | Used for |
 | ------- | ------- | ------- | -------- |
-| (none yet) |  |  |  |
+| tauri, tauri-build (Rust) | 2.12 | Apache-2.0 OR MIT | Desktop shell and installers |
+| @tauri-apps/cli | 2.12 | Apache-2.0 OR MIT | Build tool (dev only) |
+| indigo-ketcher | 1.46 | Apache-2.0 | Chemistry engine, CDX/CDXML |
+| react, react-dom | 19.3 | MIT | UI |
+| vite, @vitejs/plugin-react | 8.3, 6.1 | MIT | Bundler (dev only) |
+| typescript | 7.0 | Apache-2.0 | Type checking (dev only) |
+| @types/react, @types/react-dom | 19.3 | MIT | Type definitions (dev only) |
 
 ## Clean-room rules for studying ChemDraw
 
@@ -78,4 +84,5 @@ needs.
       Hex-Rays' terms before using it for Octet. Ghidra has no such limit.
 - [ ] **Funding (optional):** donations, grants, sponsorship, or a paid
       hosted version.
-- [ ] **Tech stack.**
+- [x] **Tech stack.** Decided 14 October 2026: Tauri 2, React,
+      TypeScript, Vite and Indigo. See `CLAUDE.md`.

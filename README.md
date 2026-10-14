@@ -2,7 +2,17 @@
 
 A chemical structure drawing editor for the 21st century.
 
-Status: planning. There is no code yet.
+Status: early development. Octet will be a downloadable app for Mac,
+Windows and Linux.
+
+## Run from source
+
+You need [Node.js](https://nodejs.org) and [Rust](https://rustup.rs).
+
+```bash
+npm install
+npm run tauri dev
+```
 
 ## Licence
 
