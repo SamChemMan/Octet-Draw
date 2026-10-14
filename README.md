@@ -6,7 +6,10 @@ Status: planning. There is no code yet.
 
 ## Licence
 
-Copyright © 2026 Sam Ellis. All rights reserved. Built with love in Manchester and Cambridge
+Octet is free and open-source software under the
+[Apache License 2.0](LICENSE).
 
-A free licence for personal use and paid licences for institutions are
-planned. See [Licence and pricing plan](docs/licence-and-pricing.md).
+Copyright © 2026 Sam Ellis. Built with love in Manchester and Cambridge
+
+See the [licence plan](docs/licence.md) for the rules on third-party
+libraries and on studying other software.
