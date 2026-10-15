@@ -1,33 +1,58 @@
-// Run: node src/render.check.ts — fails loudly if the ACS drawing rules break.
+// Run: node src/render.check.ts. Fails loudly if the ACS drawing rules break.
 import assert from "node:assert/strict";
-import { render, type Mol } from "./render.ts";
+import { render, type Ink, type Mol } from "./render.ts";
 
-const S = { bond: 19.2, spacing: 0.18 * 19.2, margin: 1.6 * 4 / 3, bold: 2 * 4 / 3, hash: 2.5 * 4 / 3, size: 10 * 4 / 3 };
-const ink = () => ({ left: 4, right: 4, ascent: 9.5, descent: 0, width: 9.6 }); // roughly an Arial capital at 10 pt
+type P = [number, number];
+const pt = 4 / 3;
+const S = { bond: 14.4 * pt, line: 0.6 * pt, bold: 2 * pt, spacing: 0.18 * 14.4 * pt, hash: 2.5 * pt, margin: 1.69 * pt, size: 10 * pt };
+// Every glyph is a 9.6 x 9.5 px box (roughly an Arial capital at 10 pt); its outline is the box edge.
+const box: P[] = [];
+for (let i = 0; i <= 40; i++) { const f = i / 40; box.push([9.6 * f, 0], [9.6 * f, -9.5], [0, -9.5 * f], [9.6, -9.5 * f]); }
+const ink = (): Ink => ({ width: 9.6, ascent: 9.5, outline: box });
+const has = (poly: P[], q: P) => poly.some((p) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 1e-6);
+const centroid = (poly: P[]) => poly.reduce<P>((c, p) => [c[0] + p[0] / poly.length, c[1] + p[1] / poly.length], [0, 0]);
+
 // Pyridine: N at atom 0, double bonds 0=1, 2=3, 4=5, hexagon of unit bonds.
 const hex = [...Array(6)].map((_, i) => [Math.cos((Math.PI / 3) * i + Math.PI / 6), Math.sin((Math.PI / 3) * i + Math.PI / 6), 0] as [number, number, number]);
-const mol: Mol = {
+const pyridine: Mol = {
   atoms: hex.map((location, i) => ({ label: i ? "C" : "N", location })),
   bonds: [0, 1, 2, 3, 4, 5].map((i) => ({ type: i % 2 ? 1 : 2, atoms: [i, (i + 1) % 6] as [number, number] })),
 };
-const d = render(mol, S, ink);
-const centre = [0, 0];
-const dist = (p: number[]) => Math.hypot(p[0] - centre[0], p[1] - centre[1]);
-// Three inner lines, each closer to the ring centre than the bond they belong to, and shorter than a bond.
-assert.equal(d.lines.length, 3);
-for (const [p, q] of d.lines) {
-  assert.ok(dist([(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]) < S.bond * Math.cos(Math.PI / 6) - 1, "inner line sits inside the ring");
-  assert.ok(Math.hypot(q[0] - p[0], q[1] - p[1]) < S.bond, "inner line is shorter than the bond");
-}
-// One closed path (the ring) broken at N, and nothing drawn inside N's ink box plus margin.
-const [nx, ny] = [hex[0][0] * S.bond, -hex[0][1] * S.bond];
-const coords = d.paths.join(" ").match(/-?\d+\.\d+/g)!.map(Number);
-for (let i = 0; i < coords.length; i += 2) {
-  const inside = Math.abs(coords[i] - nx) < 4 + S.margin - 0.01 && Math.abs(coords[i + 1] - ny) < 4.75 + S.margin - 0.01;
-  assert.ok(!inside, "bonds stop outside the label box");
+const d = render(pyridine, S, ink);
+const L = S.bond, at = (i: number): P => [hex[i][0] * L, -hex[i][1] * L];
+// Six axis polygons and three inner lines, each inner line inside the ring and shorter than a bond.
+assert.equal(d.polygons.length, 9);
+const inner = d.polygons.filter((poly) => Math.hypot(...centroid(poly)) < L * Math.cos(Math.PI / 6) - 1);
+assert.equal(inner.length, 3, "three inner lines sit inside the ring");
+for (const poly of inner) assert.ok(Math.hypot(poly[2][0] - poly[1][0], poly[2][1] - poly[1][1]) < L * 0.85, "inner line is trimmed");
+// Carbons meet in a mitred fan through the atom centre: atom 3 is shared by both of its bond polygons.
+assert.equal(d.polygons.filter((poly) => has(poly, at(3))).length, 2, "both bonds at C3 pass through its centre");
+// Nothing is drawn within the margin of N's glyph box.
+const [nx, ny] = at(0), [bx, by] = [nx - 4.8, ny + 4.75];
+for (const [x, y] of d.polygons.flat()) {
+  const dx = Math.max(bx - x, 0, x - (bx + 9.6)), dy = Math.max(by - 9.5 - y, 0, y - by);
+  assert.ok(Math.hypot(dx, dy) > S.margin - 0.01, "bonds stop outside the label margin");
 }
 assert.equal(d.labels.length, 1);
-console.log("render.check: ok");
+console.log("render.check: pyridine ok");
+
+// Isobutane centre: three bonds share the atom-centre vertex.
+const iso = render({
+  atoms: [{ label: "C", location: [0, 0, 0] }, ...[90, 210, 330].map((a) => ({ label: "C", location: [Math.cos((a * Math.PI) / 180), Math.sin((a * Math.PI) / 180), 0] as [number, number, number] }))],
+  bonds: [1, 2, 3].map((j) => ({ type: 1, atoms: [0, j] as [number, number] })),
+}, S, ink);
+assert.equal(iso.polygons.filter((poly) => has(poly, [0, 0])).length, 3, "fan shares the centre");
+console.log("render.check: fan ok");
+
+// Acetone: the centred C=O lines run 0.748 pt past the carbonyl carbon (h · cot 120°).
+const acetone = render({
+  atoms: [{ label: "C", location: [0, 0, 0] }, { label: "O", location: [0, 1, 0] }, { label: "C", location: [-0.866, -0.5, 0] }, { label: "C", location: [0.866, -0.5, 0] }],
+  bonds: [{ type: 2, atoms: [0, 1] }, { type: 1, atoms: [0, 2] }, { type: 1, atoms: [0, 3] }],
+}, S, ink);
+const co = acetone.polygons.filter((poly) => poly.length === 4 && Math.abs(poly[0][1] - poly[3][1]) > 5);
+assert.equal(co.length, 2, "two C=O lines");
+for (const poly of co) assert.ok(Math.abs(poly[0][1] - 0.748 * pt) < 0.01, "C=O line starts 0.748 pt past the carbon");
+console.log("render.check: carbonyl ok");
 
 // Methylamine drawn left to right: NH2 reads N, H, then a smaller subscript 2, all to the right of the atom.
 const amine = render({ atoms: [{ label: "C", location: [0, 0, 0] }, { label: "N", location: [1, 0, 0] }], bonds: [{ type: 1, atoms: [0, 1] }] }, S, ink);
@@ -36,10 +61,19 @@ assert.ok(amine.labels[1].x > amine.labels[0].x && amine.labels[2].x > amine.lab
 assert.ok(amine.labels[2].size < amine.labels[1].size && amine.labels[2].y > amine.labels[1].y, "2 is a subscript");
 console.log("render.check: amine ok");
 
-// Nitro group: N+ and O− get their charge signs; no H on either.
+// Nitro group: N+ and O– get their charge signs; neither gets an H.
 const nitro = render({
   atoms: [{ label: "C", location: [0, 0, 0] }, { label: "N", location: [1, 0, 0], charge: 1 }, { label: "O", location: [1.5, 0.87, 0] }, { label: "O", location: [1.5, -0.87, 0], charge: -1 }],
   bonds: [{ type: 1, atoms: [0, 1] }, { type: 2, atoms: [1, 2] }, { type: 1, atoms: [1, 3] }],
 }, S, ink);
-assert.deepEqual(nitro.labels.map((l) => l.text).sort(), ["+", "N", "O", "O", "−"].sort());
+assert.deepEqual(nitro.labels.map((l) => l.text).sort(), ["+", "N", "O", "O", "–"].sort());
 console.log("render.check: charges ok");
+
+// Carbocation: no C label, just the + beside the vertex, and the carbon still joins its bonds in a fan.
+const cation = render({
+  atoms: [{ label: "C", location: [0, 0, 0], charge: 1 }, ...[90, 210, 330].map((a) => ({ label: "C", location: [Math.cos((a * Math.PI) / 180), Math.sin((a * Math.PI) / 180), 0] as [number, number, number] }))],
+  bonds: [1, 2, 3].map((j) => ({ type: 1, atoms: [0, j] as [number, number] })),
+}, S, ink);
+assert.deepEqual(cation.labels.map((l) => l.text), ["+"]);
+assert.equal(cation.polygons.filter((poly) => has(poly, [0, 0])).length, 3, "charged carbon keeps its fan");
+console.log("render.check: carbocation ok");

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Indigo from "indigo-ketcher/binaryWasmNoRender";
-import { render, type Mol } from "./render";
+import { render, type Ink, type Mol } from "./render";
 
 const indigo = Indigo();
 // Drawing sizes come from brand/tokens.css (ACS 1996).
@@ -9,18 +9,41 @@ const pt = (name: string) => (parseFloat(token(name)) * 4) / 3; // pt to px
 const BOND = pt("--bond-length");
 const STYLE = {
   bond: BOND,
-  spacing: (parseFloat(token("--bond-spacing")) / 100) * BOND,
-  margin: pt("--margin-width"),
+  line: pt("--bond-width"),
   bold: pt("--bond-bold"),
+  spacing: (parseFloat(token("--bond-spacing")) / 100) * BOND,
   hash: pt("--hash-spacing"),
+  // ChemDraw's bonds clear the glyph outlines by 1.69 pt for a 1.6 pt margin (measured).
+  margin: (pt("--margin-width") * 1.69) / 1.6,
   size: pt("--atom-label-size"),
 };
-const ctx = document.createElement("canvas").getContext("2d")!;
-ctx.font = `${STYLE.size}px ${token("--atom-label-font")}`;
-const measure = (text: string) => {
-  const m = ctx.measureText(text);
-  return { left: m.actualBoundingBoxLeft, right: m.actualBoundingBoxRight, ascent: m.actualBoundingBoxAscent, descent: m.actualBoundingBoxDescent, width: m.width };
-};
+
+// Glyph metrics and outlines. The outline is the edge pixels of the text drawn 8x larger, scaled back.
+const FONT = token("--atom-label-font");
+const SCALE = 8;
+const inks = new Map<string, Ink>();
+function measure(text: string): Ink {
+  const cached = inks.get(text);
+  if (cached) return cached;
+  const canvas = document.createElement("canvas");
+  const g = canvas.getContext("2d", { willReadFrequently: true })!;
+  g.font = `${STYLE.size}px ${FONT}`;
+  const m = g.measureText(text);
+  const pad = 2, baseline = STYLE.size * 1.2;
+  const w = (canvas.width = Math.ceil((m.width + 2 * pad) * SCALE)), h = (canvas.height = Math.ceil(STYLE.size * 1.6 * SCALE));
+  g.font = `${STYLE.size * SCALE}px ${FONT}`;
+  g.fillText(text, pad * SCALE, baseline * SCALE);
+  const alpha = g.getImageData(0, 0, w, h).data;
+  const on = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && alpha[(y * w + x) * 4 + 3] > 127;
+  const outline: [number, number][] = [];
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++)
+      if (on(x, y) && !(on(x - 1, y) && on(x + 1, y) && on(x, y - 1) && on(x, y + 1)))
+        outline.push([(x + 0.5) / SCALE - pad, (y + 0.5) / SCALE - baseline]);
+  const ink = { width: m.width, ascent: m.actualBoundingBoxAscent, outline };
+  inks.set(text, ink);
+  return ink;
+}
 
 // ponytail: reads the first fragment only; multi-fragment KET comes with file open
 async function toMol(smiles: string): Promise<Mol> {
@@ -63,11 +86,7 @@ function Structure({ smiles }: { smiles: string }) {
   const [x0, y0, x1, y1] = d.box;
   return (
     <svg viewBox={`${x0} ${y0} ${x1 - x0} ${y1 - y0}`} width={(x1 - x0) * ZOOM} height={(y1 - y0) * ZOOM} style={{ display: "block" }}>
-      <g fill="none" stroke="var(--ink)" strokeLinecap="butt" strokeLinejoin="miter" style={{ strokeWidth: "var(--bond-width)" }}>
-        {d.paths.map((path, i) => <path key={i} d={path} />)}
-        {d.lines.map(([p, q], i) => <line key={i} x1={p[0]} y1={p[1]} x2={q[0]} y2={q[1]} />)}
-      </g>
-      {d.wedges.map((w, i) => <polygon key={i} points={w.map((p) => p.join(",")).join(" ")} fill="var(--ink)" />)}
+      <path d={d.polygons.map((poly) => "M" + poly.map(([x, y]) => `${x.toFixed(3)} ${y.toFixed(3)}`).join("L") + "Z").join("")} fill="var(--ink)" />
       {d.labels.map((l, i) => (
         <text key={i} x={l.x} y={l.y} fill="var(--ink)" style={{ font: `${l.size}px var(--atom-label-font)` }}>
           {l.text}

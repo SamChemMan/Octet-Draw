@@ -1,52 +1,57 @@
-// ACS 1996 molecule renderer: a KET molecule in, SVG primitives out. Units are px (1 pt = 4/3 px).
-// Rules: ring double bonds keep one line on the bond and put a shorter inner line inside the ring;
-// terminal double bonds (C=O) are centred; bonds stop a margin short of label ink; corners are mitred.
-// Heteroatoms get their implicit H on the side away from their bonds; subscripts follow ChemDraw's ACS output
-// (75% size, baseline 0.21 em lower). Charges sit after a right-hand H, otherwise in the first free corner.
+// ACS 1996 structure renderer: a KET molecule in, filled outlines and text runs out. Units are px.
+// The geometry follows ChemDraw's ACS 1996 output, measured to about 1e-5 pt on a reference drawing:
+// - Every bond line is a filled polygon. At an unlabelled atom the polygons meet in a mitred fan.
+// - Bonds stop a margin short of the label's glyph outlines, with one cut per bond.
+// - Ring double bonds keep the axis line and add an inner line, trimmed back to the ring-angle bisector.
+// - Terminal double bonds (C=O) are centred and run on until they meet the neighbouring bonds.
+// - Labels are anchored on the advance centre and half the ink height of their first glyph.
 
+type P = [number, number];
 export type Atom = { label: string; location: [number, number, number]; charge?: number; implicitHCount?: number };
 export type Bond = { type: number; atoms: [number, number]; stereo?: number }; // KET stereo: 1 wedge, 6 hash
 export type Mol = { atoms: Atom[]; bonds: Bond[] };
-export type Style = { bond: number; spacing: number; margin: number; bold: number; hash: number; size: number };
-export type Ink = { left: number; right: number; ascent: number; descent: number; width: number };
-type P = [number, number];
-type Rect = [number, number, number, number]; // x0, y0, x1, y1
-export type Drawing = {
-  paths: string[];
-  lines: [P, P][];
-  wedges: P[][];
-  labels: { text: string; x: number; y: number; size: number }[];
-  box: Rect;
-};
+// Sizes in px: bond length, line width, bold width, double-bond spacing, hash spacing, label margin, label font size.
+export type Style = { bond: number; line: number; bold: number; spacing: number; hash: number; margin: number; size: number };
+// width: advance; ascent: ink top above the baseline; outline: glyph edge points relative to the text origin (y down).
+export type Ink = { width: number; ascent: number; outline: P[] };
+export type Label = { text: string; x: number; y: number; size: number };
+export type Drawing = { polygons: P[][]; labels: Label[]; box: [number, number, number, number] };
 
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
 const add = (a: P, b: P): P => [a[0] + b[0], a[1] + b[1]];
 const mul = (a: P, k: number): P => [a[0] * k, a[1] * k];
 const len = (a: P) => Math.hypot(a[0], a[1]);
 const unit = (a: P): P => mul(a, 1 / len(a));
+const perp = (a: P): P => [-a[1], a[0]];
 const dot = (a: P, b: P) => a[0] * b[0] + a[1] * b[1];
 const cross = (a: P, b: P) => a[0] * b[1] - a[1] * b[0];
-const SUB = 0.75, DROP = 0.21, RISE = 0.4;
-const VALENCE: Record<string, number> = { C: 4, N: 3, P: 3, O: 2, S: 2, Se: 2, B: 3, F: 1, Cl: 1, Br: 1, I: 1 };
-const angle = (a: P, b: P) => Math.acos(Math.max(-1, Math.min(1, (a[0] * b[0] + a[1] * b[1]) / (len(a) * len(b)))));
+const angle = (a: P, b: P) => Math.acos(Math.max(-1, Math.min(1, dot(a, b) / (len(a) * len(b)))));
 
-// Trims the parts of segment pq that lie inside rect r (Liang–Barsky). Returns null if it is all inside.
-function clip(p: P, q: P, r: Rect): [P, P] | null {
-  const d = sub(q, p);
-  let t0 = 0, t1 = 1;
-  for (const [num, den] of [[p[0] - r[0], -d[0]], [r[2] - p[0], d[0]], [p[1] - r[1], -d[1]], [r[3] - p[1], d[1]]]) {
-    if (den === 0) { if (num < 0) return [p, q]; continue; }
-    const t = num / den;
-    if (den < 0) t0 = Math.max(t0, t); else t1 = Math.min(t1, t);
-  }
-  if (t0 > t1) return [p, q]; // the segment misses the rect
-  if (t0 <= 0 && t1 >= 1) return null;
-  if (t0 <= 0) return [add(p, mul(d, t1)), q];
-  if (t1 >= 1) return [p, add(p, mul(d, t0))];
-  return [p, q]; // passes through the middle: leave it
+// Label type: subscripts 75% and 0.212 em down, charges 75% and 0.33 em up.
+const SUB = 0.75, DROP = 0.212, RISE = 0.33;
+const TIP = 0.0165; // wedge half-width at the stereocentre, as a fraction of the bond length
+const MAX_TRIM = 0.67; // an inner-line trim longer than this (times the bond length) is skipped
+const H_FIRST = new Set(['O', 'F', 'S', 'Cl', 'Se', 'Br', 'Te', 'I']); // H2O, HCl; but NH3, CH4
+const VALENCE: Record<string, number> = { C: 4, Si: 4, N: 3, P: 3, As: 3, B: 3, Al: 3, O: 2, S: 2, Se: 2, Te: 2, F: 1, Cl: 1, Br: 1, I: 1 };
+const ORDER: Record<number, number> = { 1: 1, 2: 2, 3: 3, 4: 1.5 };
+
+function hydrogens(label: string, charge: number, used: number) {
+  const v = VALENCE[label];
+  if (v === undefined) return 0;
+  const target = v === 4 ? v - Math.abs(charge) : label === 'B' || label === 'Al' ? v - charge : v + charge;
+  return Math.max(0, Math.round(target - used));
 }
 
-const clipAll = (p: P, q: P, rects: Rect[]) => rects.reduce<[P, P] | null>((seg, r) => seg && clip(seg[0], seg[1], r), [p, q]);
+const segDist = (q: P, a: P, b: P) => {
+  const ab = sub(b, a), t = Math.max(0, Math.min(1, dot(sub(q, a), ab) / (dot(ab, ab) || 1)));
+  return len(sub(q, add(a, mul(ab, t))));
+};
+
+// Where line p + r·t meets line q + s·t; null if they are parallel.
+const meet = (p: P, r: P, q: P, s: P): P | null => {
+  const d = cross(r, s);
+  return Math.abs(d) < 1e-9 ? null : add(p, mul(r, cross(sub(q, p), s) / d));
+};
 
 // Small rings through bond a–b (simple paths from a back to b, up to 8 atoms).
 function ringsThrough(a: number, b: number, nbrs: number[][]): number[][] {
@@ -56,12 +61,23 @@ function ringsThrough(a: number, b: number, nbrs: number[][]): number[][] {
     if (path.length > 8) return;
     for (const n of nbrs[at]) {
       if (n === b) out.push([...path, b]);
-      else if (n !== b && !path.includes(n)) walk([...path, n]);
+      else if (!path.includes(n)) walk([...path, n]);
     }
   };
   for (const n of nbrs[a]) if (n !== b) walk([a, n]);
   return out;
 }
+
+// A bond, planned. Kinds 'line' and 'wedge' join the fans; 'none' is a centred double bond (its two lines only).
+// lines: extra lines parallel to the axis at offset o, trimmed t0 at a and t1 at b (negative runs past the atom).
+// cut: distance from a and from b at which a label stops the bond.
+type Plan = {
+  a: number; b: number; u: P; n: P; length: number;
+  kind: 'line' | 'wedge' | 'hash' | 'none';
+  lines: { o: number; t0: number; t1: number }[];
+  cut: [number, number];
+  hidden?: boolean;
+};
 
 export function render(mol: Mol, s: Style, measure: (text: string) => Ink): Drawing {
   const raw = mol.bonds.map((b) => len(sub(mol.atoms[b.atoms[0]].location as unknown as P, mol.atoms[b.atoms[1]].location as unknown as P)));
@@ -70,133 +86,195 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink): Draw
   const pts: P[] = mol.atoms.map((a) => [a.location[0] * k, -a.location[1] * k]); // KET y points up
   const nbrs: number[][] = mol.atoms.map(() => []);
   mol.bonds.forEach((b) => { nbrs[b.atoms[0]].push(b.atoms[1]); nbrs[b.atoms[1]].push(b.atoms[0]); });
+  const bondAt = new Map<string, Bond>();
+  const key = (i: number, j: number) => (i < j ? `${i} ${j}` : `${j} ${i}`);
+  mol.bonds.forEach((b) => bondAt.set(key(b.atoms[0], b.atoms[1]), b));
+  const L = s.bond, hw = s.line / 2, wide = s.bold * 0.75, tip = TIP * L;
+  const deg = (i: number) => nbrs[i].length;
+  const dir = (i: number, j: number) => unit(sub(pts[j], pts[i]));
 
-  // Labels: centre the ink of the element symbol on the atom; each run's bond-stop box is its ink plus the margin.
-  const labels: Drawing['labels'] = [];
-  const order = (b: Bond) => (b.type === 4 ? 1.5 : b.type);
-  const labelled = mol.atoms.map((a, i) => a.label !== 'C' || !nbrs[i].length);
-  const boxes: Rect[][] = mol.atoms.map((a, i) => {
-    const rects: Rect[] = [];
-    const run = (text: string, x: number, y: number, k = 1, clips = true) => {
-      const m = measure(text);
-      labels.push({ text, x, y, size: s.size * k });
-      if (clips) rects.push([x - m.left * k - s.margin, y - m.ascent * k - s.margin, x + m.right * k + s.margin, y + m.descent * k + s.margin]);
-      return m.width * k;
+  // Labels. Heteroatoms and lone carbons get one; skeletal carbons don't, even when charged.
+  const labelled = mol.atoms.map((a, i) => a.label !== 'C' || !deg(i));
+  const labels: Label[] = [];
+  const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
+  const shapes: P[][] = mol.atoms.map((a, i) => {
+    if (!labelled[i]) {
+      // A charged skeletal carbon: the sign alone, in the direction furthest from its bonds (up-right on a tie).
+      if (a.charge) {
+        const t = sign(a.charge), m = measure(t), dirs = nbrs[i].map((j) => dir(i, j));
+        const gap = (c: P) => Math.min(...dirs.map((b) => angle(b, c)));
+        const d = ([[1, -1], [-1, -1], [1, 1], [-1, 1], [0, -1], [1, 0], [0, 1], [-1, 0]] as P[]).map(unit).reduce((best, c) => (gap(c) > gap(best) + 0.01 ? c : best));
+        const c = add(pts[i], mul(d, 0.6 * s.size));
+        labels.push({ text: t, x: c[0] - (m.width * SUB) / 2, y: c[1] + (m.ascent * SUB) / 2, size: s.size * SUB });
+      }
+      return [];
+    }
+    const shape: P[] = [];
+    const run = (text: string, x: number, y: number, f = 1) => {
+      labels.push({ text, x, y, size: s.size * f });
+      for (const [px, py] of measure(text).outline) shape.push([x + px * f, y + py * f]);
     };
     const [x, y] = pts[i];
-    const dirs = nbrs[i].map((j) => unit(sub(pts[j], pts[i])));
-    const charge = a.charge ?? 0;
-    const sign = charge ? (Math.abs(charge) > 1 ? Math.abs(charge) : '') + (charge > 0 ? '+' : '\u2212') : '';
-    // Charge in the direction furthest from every bond; ties go to the earlier direction (up-right first).
-    // Charges sit in free space, so they don't trim bonds.
-    const corner = (r: number) => {
-      const gap = (c: P) => Math.min(...dirs.map((b) => Math.acos(Math.min(1, dot(b, c)))));
-      const d = ([[1, -1], [-1, -1], [1, 1], [-1, 1], [0, -1], [1, 0], [0, 1], [-1, 0]] as P[]).map(unit).reduce((best, c) => (gap(c) > gap(best) + 0.01 ? c : best));
-      const m = measure(sign), c = add(pts[i], mul(d, r));
-      run(sign, c[0] + ((m.left - m.right) / 2) * SUB, c[1] + ((m.ascent - m.descent) / 2) * SUB, SUB, false);
-    };
-    if (!labelled[i]) { if (sign) corner(0.6 * s.size); return rects; }
-    const m = measure(a.label);
-    const ox = x + (m.left - m.right) / 2, base = y + (m.ascent - m.descent) / 2;
+    const first = measure(a.label[0]);
+    const ox = x - first.width / 2, base = y + first.ascent / 2;
     run(a.label, ox, base);
-    const used = mol.bonds.reduce((n, b) => n + (b.atoms.includes(i) ? order(b) : 0), 0);
-    const h = a.implicitHCount ?? Math.max(0, (VALENCE[a.label] ?? 0) + charge - used);
-    // H goes right, else left, else below, else above: the first side no bond points to.
-    const sub2 = h > 1 ? String(h) : '';
-    const hw = measure('H').width + (sub2 ? measure(sub2).width * SUB : 0);
-    const hydrogens = (hx: number, hy: number) => { const w = run('H', hx, hy); if (sub2) run(sub2, hx + w, hy + DROP * s.size, SUB); };
-    const right = !dirs.some((d) => d[0] > 0.1);
-    if (h && right) hydrogens(ox + m.width, base);
-    else if (h && !dirs.some((d) => d[0] < -0.1)) hydrogens(ox - hw, base);
-    else if (h) hydrogens(x - measure('H').width / 2, base + (dirs.some((d) => d[1] > 0.1) ? -s.size : s.size));
-    if (sign && h && right) run(sign, ox + m.width + hw, base - RISE * s.size, SUB, false);
-    else if (sign) corner(0.7 * s.size);
-    return rects;
+    const charge = a.charge ?? 0;
+    const used = nbrs[i].reduce((n, j) => n + (ORDER[bondAt.get(key(i, j))!.type] ?? 1), 0);
+    const h = a.implicitHCount ?? hydrogens(a.label, charge, used);
+    const count = h > 1 ? String(h) : '';
+    const hW = measure('H').width, cW = count ? measure(count).width * SUB : 0;
+    const hs = (hx: number, hy: number) => { run('H', hx, hy); if (count) run(count, hx + hW, hy + DROP * s.size, SUB); };
+    let end = ox + measure(a.label).width; // the charge goes here
+    if (h) {
+      // Sum of the bond directions: within 70° of horizontal, H goes on the far side; steeper, H stacks (indole NH).
+      const v = nbrs[i].reduce<P>((acc, j) => add(acc, dir(i, j)), [0, 0]);
+      const steep = len(v) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180);
+      if (deg(i) ? !steep && v[0] > 1e-6 : H_FIRST.has(a.label)) hs(ox - hW - cW, base); // HO, H2N
+      else if (!steep || deg(i) < 2) { hs(end, base); end += hW + cW; } // OH, NH2
+      else { const pitch = 1.1 * measure('H').ascent; hs(x - hW / 2, base + (v[1] > 0 ? -pitch : pitch)); }
+    }
+    if (charge) run(sign(charge), end, base - RISE * s.size, SUB);
+    return shape;
   });
 
-  const axis: { a: number; b: number; p: P; q: P }[] = [];
-  const lines: [P, P][] = [];
-  const wedges: P[][] = [];
-  const pushLine = (p: P, q: P, a: number, b: number) => {
-    const c = clipAll(p, q, [...boxes[a], ...boxes[b]]);
-    if (c) lines.push(c);
-  };
+  const plans: Plan[] = mol.bonds.map((bond) => {
+    const [a, b] = bond.atoms, p = pts[a], q = pts[b];
+    const length = len(sub(q, p)), u = unit(sub(q, p)), n = perp(u);
+    const plan: Plan = { a, b, u, n, length, kind: 'line', lines: [], cut: [0, 0] };
+    const side = (j: number) => Math.sign(dot(sub(pts[j], p), n));
+    // Angles at x from the bond to x's other neighbours on one side, smallest first.
+    const near = (x: number, y: number, sd: number) =>
+      nbrs[x].filter((j) => j !== y && side(j) === sd).map((j) => angle(sub(pts[y], pts[x]), sub(pts[j], pts[x]))).sort((m, l) => m - l);
 
-  for (const bond of mol.bonds) {
-    const [a, b] = bond.atoms;
-    const p = pts[a], q = pts[b];
-    const n = unit([p[1] - q[1], q[0] - p[0]]); // left normal of a→b
-    const centred = (offsets: number[]) => offsets.forEach((o) => pushLine(add(p, mul(n, o)), add(q, mul(n, o)), a, b));
-    if (bond.type === 3) { centred([-s.spacing, 0, s.spacing]); continue; }
-    if (bond.type === 1 && (bond.stereo === 1 || bond.stereo === 6)) {
-      // Wedge (solid) or hash: narrow at the stereocentre (a), bold width at b.
-      const c = clipAll(p, q, boxes[b]) ?? [p, q], end = c[1], half = mul(n, s.bold / 2);
-      if (bond.stereo === 1) wedges.push([p, add(end, half), sub(end, half)]);
-      else {
-        const L = len(sub(end, p)), steps = Math.max(2, Math.floor(L / s.hash));
-        for (let i = 1; i <= steps; i++) {
-          const t = i / steps, c0 = add(p, mul(sub(end, p), t)), w = mul(half, t);
-          lines.push([add(c0, w), sub(c0, w)]);
-        }
+    if (bond.type === 1 && (bond.stereo === 1 || bond.stereo === 6)) { plan.kind = bond.stereo === 1 ? 'wedge' : 'hash'; return plan; }
+    if (bond.type === 3) { plan.lines = [s.spacing, -s.spacing].map((o) => ({ o, t0: 0, t1: 0 })); return plan; }
+    if (bond.type !== 2) return plan;
+
+    // Side of the second line: into the ring with the most double bonds (then six-membered, then smallest),
+    // toward the inside of the angle at an unlabelled degree-2 end, or toward more substituents. 0 = centred.
+    let sd = 0, ring: number[] | undefined;
+    const rings = ringsThrough(a, b, nbrs);
+    if (rings.length) {
+      const doubles = (r: number[]) => r.reduce((c, at, i) => c + (i && bondAt.get(key(r[i - 1], at))?.type === 2 ? 1 : 0), 0);
+      ring = rings.sort((x, y) => doubles(y) - doubles(x) || Number(y.length === 6) - Number(x.length === 6) || x.length - y.length)[0];
+      const centre = mul(ring.reduce<P>((c, i) => add(c, pts[i]), [0, 0]), 1 / ring.length);
+      sd = Math.sign(dot(sub(centre, p), n));
+    } else if (deg(a) === 1 || deg(b) === 1) {
+      const inner = deg(a) === 1 ? b : a, outer = inner === a ? b : a;
+      if (deg(inner) === 2 && !labelled[inner]) sd = side(nbrs[inner].find((j) => j !== outer)!);
+    } else {
+      const linear = (x: number, y: number) =>
+        deg(x) === 2 && nbrs[x].every((j) => bondAt.get(key(x, j))!.type === 2) &&
+        angle(sub(pts[y], pts[x]), sub(pts[nbrs[x].find((j) => j !== y)!], pts[x])) > (161.8 * Math.PI) / 180;
+      if (!(labelled[a] && labelled[b]) && !linear(a, b) && !linear(b, a)) {
+        const others = [...nbrs[a].filter((j) => j !== b), ...nbrs[b].filter((j) => j !== a)];
+        sd = Math.sign(others.reduce((c, j) => c + side(j), 0)) || side(nbrs[a].find((j) => j !== b)!);
       }
-      continue;
     }
-    if (bond.type !== 2) { axis.push({ a, b, p, q }); continue; }
 
-    // Double bond: inside a ring, or toward the side with more substituents; centred if either end is terminal.
-    // Each ring is a path [a, …, b]; prefer six-membered rings, then the smallest.
-    const ring = ringsThrough(a, b, nbrs).sort((x, y) => Number(y.length === 6) - Number(x.length === 6) || x.length - y.length)[0];
-    let side = 0, na: number | undefined, nb: number | undefined;
-    if (ring) {
-      const c = mul(ring.reduce((acc, i) => add(acc, pts[i]), [0, 0] as P), 1 / ring.length);
-      side = Math.sign(cross(sub(q, p), sub(c, p)));
-      na = ring[1];
-      nb = ring[ring.length - 2];
-    } else if (nbrs[a].length > 1 && nbrs[b].length > 1) {
-      const count = (i: number, other: number) => nbrs[i].filter((j) => j !== other).map((j) => Math.sign(cross(sub(q, p), sub(pts[j], p))));
-      const votes = [...count(a, b), ...count(b, a)].reduce((x, y) => x + y, 0);
-      side = Math.sign(votes);
-      na = nbrs[a].find((j) => j !== b && Math.sign(cross(sub(q, p), sub(pts[j], p))) === side);
-      nb = nbrs[b].find((j) => j !== a && Math.sign(cross(sub(q, p), sub(pts[j], p))) === side);
+    if (!sd) {
+      // Centred: lines at ±spacing/2 that stay out of the fan and run on to the neighbouring bond's axis.
+      plan.kind = 'none';
+      const h = s.spacing / 2;
+      const reach = (x: number, y: number, o: number) => {
+        const phi = labelled[x] ? undefined : near(x, y, Math.sign(o))[0];
+        return phi === undefined ? 0 : h / Math.tan(phi);
+      };
+      plan.lines = [h, -h].map((o) => ({ o, t0: reach(a, b, o), t1: reach(b, a, o) }));
+      return plan;
     }
-    if (!side) { centred([-s.spacing / 2, s.spacing / 2]); continue; }
-    axis.push({ a, b, p, q });
-    // Inner line: offset toward the ring/substituents, shortened where it meets the neighbouring bonds.
-    const trim = (at: number, other: number, nb?: number) =>
-      labelled[at] || nb === undefined ? 0 : s.spacing / Math.tan(angle(sub(pts[other], pts[at]), sub(pts[nb], pts[at])) / 2);
-    const u = unit(sub(q, p)), off = mul(n, side * s.spacing);
-    pushLine(add(add(p, off), mul(u, trim(a, b, na))), add(add(q, off), mul(u, -trim(b, a, nb))), a, b);
+    // Offset: the axis joins the fan; the inner line is trimmed back to the angle bisector at unlabelled ends.
+    const trim = (x: number, y: number, ringNbr?: number) => {
+      if (labelled[x]) return 0;
+      const theta = ringNbr !== undefined ? angle(sub(pts[y], pts[x]), sub(pts[ringNbr], pts[x])) : near(x, y, sd)[0];
+      if (theta === undefined) return 0;
+      const t = s.spacing / Math.tan(theta / 2);
+      return t > MAX_TRIM * L ? 0 : t;
+    };
+    plan.lines = [{ o: sd * s.spacing, t0: trim(a, b, ring?.[1]), t1: trim(b, a, ring?.[ring.length - 2]) }];
+    return plan;
+  });
+
+  // Label cuts: the shortest cut along the axis at which every line of the bond clears the glyph outlines.
+  const widths = (pl: Plan, x: number): [number, number] =>
+    pl.kind === 'wedge' || pl.kind === 'hash' ? (x === pl.a ? [tip, wide] : [wide, tip]) : [hw, hw];
+  for (const pl of plans) {
+    for (const end of [0, 1] as const) {
+      const x = end ? pl.b : pl.a, shape = shapes[x];
+      if (!shape.length) continue;
+      const u = end ? mul(pl.u, -1) : pl.u, w = widths(pl, x)[0];
+      const offsets = [...(pl.kind === 'none' ? [] : [0]), ...pl.lines.map((l) => l.o)];
+      const clear = (t: number) => offsets.every((o) => {
+        const from = add(add(pts[x], mul(u, t)), mul(pl.n, o)), to = add(add(pts[x], mul(u, pl.length)), mul(pl.n, o));
+        return shape.every((q) => segDist(q, from, to) >= s.margin + w);
+      });
+      if (clear(0)) continue;
+      if (!clear(pl.length)) { pl.hidden = true; break; }
+      let lo = 0, hi = pl.length;
+      for (let i = 0; i < 30; i++) { const mid = (lo + hi) / 2; if (clear(mid)) hi = mid; else lo = mid; }
+      pl.cut[end] = hi;
+    }
   }
 
-  // Join axis lines that meet at unlabelled atoms into paths, so ring and chain corners get mitred joins.
-  const clipped = axis.map(({ a, b, p, q }) => clipAll(p, q, [...boxes[a], ...boxes[b]]));
-  const used = new Set<number>();
-  const at = (atom: number) => axis.map((_, i) => i).filter((i) => !used.has(i) && clipped[i] && !labelled[atom] && (axis[i].a === atom || axis[i].b === atom));
-  const paths: string[] = [];
-  axis.forEach((_, start) => {
-    if (used.has(start) || !clipped[start]) return;
-    used.add(start);
-    const chain: P[] = [...clipped[start]!];
-    const atoms = [axis[start].a, axis[start].b];
-    for (const forward of [true, false]) {
-      for (;;) {
-        const end = forward ? atoms[atoms.length - 1] : atoms[0];
-        const next = at(end)[0];
-        if (next === undefined) break;
-        used.add(next);
-        const e = axis[next], far = e.a === end ? e.b : e.a;
-        const [p, q] = clipped[next]!;
-        const farPoint = e.a === end ? q : p;
-        if (forward) { chain.push(farPoint); atoms.push(far); } else { chain.unshift(farPoint); atoms.unshift(far); }
+  // Mitred fans at unlabelled atoms. Each end is a list of points from the -n to the +n side of the
+  // bond as seen from that atom; with two or more members it passes through the atom centre.
+  const drawnEnd = (pl: Plan, x: number): P => (x === pl.a ? add(pts[pl.a], mul(pl.u, pl.cut[0])) : add(pts[pl.b], mul(pl.u, -pl.cut[1])));
+  const ends = new Map<string, P[]>();
+  mol.atoms.forEach((_, x) => {
+    if (labelled[x]) return;
+    const X = pts[x];
+    const members = plans
+      .map((pl, i) => ({ pl, i }))
+      .filter(({ pl }) => !pl.hidden && (pl.kind === 'line' || pl.kind === 'wedge') && (pl.a === x || pl.b === x))
+      .map(({ pl, i }) => {
+        const f = drawnEnd(pl, x === pl.a ? pl.b : pl.a), u = unit(sub(f, X)), [w0, w1] = widths(pl, x);
+        return { i, u, n: perp(u), w0, w1, f, ang: Math.atan2(u[1], u[0]) };
+      })
+      .sort((m, l) => m.ang - l.ang);
+    type M = (typeof members)[number];
+    // Where m's +n edge meets l's -n edge. Parallel, or too far out (very acute angles): square corners instead.
+    const miter = (m: M, l: M): [P, P] => {
+      const pm = add(X, mul(m.n, m.w0)), pl = add(X, mul(l.n, -l.w0));
+      const c = meet(pm, sub(add(m.f, mul(m.n, m.w1)), pm), pl, sub(add(l.f, mul(l.n, -l.w1)), pl));
+      return c && len(sub(c, X)) < 6 * Math.max(m.w0, l.w0, hw) ? [c, c] : [pm, pl];
+    };
+    members.forEach((m, j) => {
+      if (members.length === 1) { ends.set(`${m.i} ${x}`, [add(X, mul(m.n, -m.w0)), add(X, mul(m.n, m.w0))]); return; }
+      const prev = members[(j + members.length - 1) % members.length], next = members[(j + 1) % members.length];
+      ends.set(`${m.i} ${x}`, [miter(prev, m)[1], X, miter(m, next)[0]]);
+    });
+  });
+  // An end with no fan (at a labelled atom): square, at the label cut.
+  const endOf = (pl: Plan, i: number, x: number): P[] => {
+    const fan = ends.get(`${i} ${x}`);
+    if (fan) return fan;
+    const n = x === pl.a ? pl.n : mul(pl.n, -1), c = drawnEnd(pl, x), w = widths(pl, x)[0];
+    return [add(c, mul(n, -w)), add(c, mul(n, w))];
+  };
+
+  // Every polygon winds the same way (-n to +n at its start, then back along +n), so one nonzero path fills them all.
+  const polygons: P[][] = [];
+  const bar = (S: P, E: P, n: P, w: number) => polygons.push([add(S, mul(n, -w)), add(S, mul(n, w)), add(E, mul(n, w)), add(E, mul(n, -w))]);
+  plans.forEach((pl, i) => {
+    if (pl.hidden) return;
+    if (pl.kind === 'line' || pl.kind === 'wedge') polygons.push([...endOf(pl, i, pl.a), ...endOf(pl, i, pl.b)]);
+    if (pl.kind === 'hash') {
+      // round(length / hash spacing) marks at even pitch, the last one flush with the wide end.
+      const start = drawnEnd(pl, pl.a), D = pl.length - pl.cut[0] - pl.cut[1], marks = Math.max(1, Math.round(D / s.hash)), pitch = D / marks;
+      for (let j = 1; j <= marks; j++) {
+        const t = j * pitch - hw, c = add(start, mul(pl.u, t));
+        bar(add(c, mul(pl.u, -hw)), add(c, mul(pl.u, hw)), pl.n, tip + ((wide - tip) * t) / D);
       }
     }
-    const closed = atoms.length > 2 && atoms[0] === atoms[atoms.length - 1];
-    const d = (closed ? chain.slice(0, -1) : chain).map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(2)} ${y.toFixed(2)}`).join('');
-    paths.push(closed ? d + 'Z' : d);
+    for (const { o, t0, t1 } of pl.lines) {
+      const from = labelled[pl.a] ? pl.cut[0] : t0, to = pl.length - (labelled[pl.b] ? pl.cut[1] : t1);
+      if (to - from < 0.1) continue;
+      bar(add(add(pts[pl.a], mul(pl.u, from)), mul(pl.n, o)), add(add(pts[pl.a], mul(pl.u, to)), mul(pl.n, o)), pl.n, hw);
+    }
   });
 
-  const xs = [...pts.map((p) => p[0]), ...boxes.flat().flatMap((r) => [r[0], r[2]])];
-  const ys = [...pts.map((p) => p[1]), ...boxes.flat().flatMap((r) => [r[1], r[3]])];
-  const pad = s.bond / 2;
-  return { paths, lines, wedges, labels, box: [Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) + pad, Math.max(...ys) + pad] };
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const [x, y] of [...pts, ...polygons.flat(), ...shapes.flat()]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  const pad = L / 2;
+  return { polygons, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad] };
 }
