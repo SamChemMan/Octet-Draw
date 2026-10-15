@@ -1,0 +1,25 @@
+// Run: node src/keys.check.ts. Fails loudly if shortcut lookup breaks.
+import assert from "node:assert/strict";
+import { actionFor, clashes, keyOf, keymap } from "./keys.ts";
+
+const press = (key: string, mods: Partial<{ shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean }> = {}) =>
+  keyOf({ key, shiftKey: false, altKey: false, metaKey: false, ctrlKey: false, ...mods });
+assert.equal(press("N", { shiftKey: true }), "shift+n");
+assert.equal(press("+", { shiftKey: true }), "+");
+assert.equal(press("Backspace"), "backspace");
+assert.equal(press("Shift"), undefined);
+
+const map = keymap();
+// The same key means different things over an atom and over a bond.
+assert.equal(actionFor(map, "h", "atom"), "element.H");
+assert.equal(actionFor(map, "h", "bond"), "bond.hash");
+// Keys that work anywhere still work over an atom when the atom has no use for them.
+assert.equal(actionFor(map, "]", "atom"), "eraser.bigger");
+assert.equal(actionFor(map, "n", "none"), undefined);
+// A user change replaces the default, and clashes are found in the same place only.
+const mine = keymap({ "element.N": ["m"] });
+assert.equal(actionFor(mine, "m", "atom"), "element.N");
+assert.equal(actionFor(mine, "n", "atom"), undefined);
+assert.deepEqual(clashes(map, "element.N", "o"), ["element.O"]);
+assert.deepEqual(clashes(map, "element.N", "2"), []);
+console.log("keys.check: ok");

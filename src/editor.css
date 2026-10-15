@@ -1,0 +1,273 @@
+/* Editor chrome. Every value comes from brand/tokens.css. */
+
+/* No page selection anywhere: WebKit (the Mac and Linux app) needs the prefixed property too. */
+.editor {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  font-family: var(--font-sans);
+  color: var(--ink);
+}
+
+/* The canvas stays white in dark mode (data-theme="light" on the element), for print fidelity. */
+.canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: var(--canvas);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.canvas[data-tool="select"] {
+  cursor: default;
+}
+
+/* The Eraser shows its real size instead of a pointer, like a brush in Photoshop. [ and ] resize it. */
+.canvas[data-tool="erase"] {
+  cursor: none;
+}
+.brush {
+  fill: none;
+  stroke: var(--ink-muted);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+/* Hover: a light tint under the atom or bond. */
+.mark {
+  fill: var(--selection);
+  stroke: var(--selection);
+  stroke-linecap: round;
+}
+circle.mark {
+  stroke: none;
+}
+
+/* Selection: a stronger tint. */
+.selection-marks {
+  opacity: 0.28;
+}
+.selection-marks circle {
+  fill: var(--brand-bright);
+}
+.selection-marks line {
+  stroke: var(--brand-bright);
+  stroke-linecap: round;
+}
+
+/* Eraser stroke: the trail, and what it will remove in the error colour. */
+.trail {
+  fill: none;
+  stroke: var(--ink);
+  stroke-opacity: 0.08;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.erase-marks {
+  opacity: 0.3;
+}
+.erase-marks circle {
+  fill: var(--error);
+}
+.erase-marks line {
+  stroke: var(--error);
+  stroke-linecap: round;
+}
+
+/* Snapping: guides and the atom a moved atom will land on. */
+.guide {
+  stroke: var(--brand-bright);
+  stroke-width: 1;
+}
+.snap-point {
+  fill: none;
+  stroke: var(--brand-bright);
+  stroke-width: 1.5;
+}
+
+.box {
+  fill: var(--selection);
+  stroke: var(--brand-bright);
+  stroke-width: 1;
+}
+
+/* The ring that pops at the pointer when a hold switches to Select. */
+.halo {
+  position: fixed;
+  width: 32px;
+  height: 32px;
+  margin: -16px 0 0 -16px;
+  border: 2px solid var(--brand-bright);
+  border-radius: var(--radius-pill);
+  opacity: 0;
+  pointer-events: none;
+  animation: halo 200ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@keyframes halo {
+  from {
+    transform: scale(0.4);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+.palette {
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  isolation: isolate;
+}
+
+/* The active tool's background slides between tools, so a switch reads as one move. */
+.indicator {
+  position: absolute;
+  top: var(--space-1);
+  left: var(--space-1);
+  z-index: -1;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: var(--brand-mist);
+  pointer-events: none;
+  transition: transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.glyph {
+  display: grid;
+  place-items: center;
+}
+
+/* The Select icon pops in when a hold switches to it. No overshoot (brand motion rules). */
+.pop {
+  animation: pop 200ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@keyframes pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+
+.palette hr {
+  width: 100%;
+  margin: var(--space-1) 0;
+  border: 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.tool {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-muted);
+  transition: transform 160ms ease-out;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .tool:hover:not(:disabled):not([aria-pressed="true"]) {
+    background: var(--surface-sunken);
+    color: var(--ink);
+  }
+}
+
+.tool:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.tool[aria-pressed="true"] {
+  color: var(--brand);
+}
+
+.tool:disabled {
+  color: var(--outline);
+}
+
+.tool:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* Empty-canvas hint: on the white canvas, so it uses the light tokens. */
+.hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin: 0;
+  transform: translate(-50%, -50%);
+  color: var(--ink-faint);
+  text-align: center;
+  pointer-events: none;
+}
+
+.notice {
+  position: absolute;
+  bottom: var(--space-6);
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  transform: translateX(-50%);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-float);
+  animation: fade-in 150ms ease-out;
+}
+
+.notice svg {
+  flex: none;
+  color: var(--error);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .indicator {
+    transition: none;
+  }
+  .pop {
+    animation: fade-in 150ms ease-out;
+  }
+  .halo {
+    animation: halo-fade 200ms ease-out;
+  }
+}
+
+@keyframes halo-fade {
+  from {
+    opacity: 0.9;
+  }
+  to {
+    opacity: 0;
+  }
+}

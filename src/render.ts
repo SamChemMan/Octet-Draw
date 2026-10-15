@@ -79,10 +79,11 @@ type Plan = {
   hidden?: boolean;
 };
 
-export function render(mol: Mol, s: Style, measure: (text: string) => Ink): Drawing {
+// scale: px per input unit. By default the median bond is drawn at the style's bond length.
+export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale?: number): Drawing {
   const raw = mol.bonds.map((b) => len(sub(mol.atoms[b.atoms[0]].location as unknown as P, mol.atoms[b.atoms[1]].location as unknown as P)));
   const median = [...raw].sort((x, y) => x - y)[Math.floor(raw.length / 2)] || 1;
-  const k = s.bond / median;
+  const k = scale ?? s.bond / median;
   const pts: P[] = mol.atoms.map((a) => [a.location[0] * k, -a.location[1] * k]); // KET y points up
   const nbrs: number[][] = mol.atoms.map(() => []);
   mol.bonds.forEach((b) => { nbrs[b.atoms[0]].push(b.atoms[1]); nbrs[b.atoms[1]].push(b.atoms[0]); });

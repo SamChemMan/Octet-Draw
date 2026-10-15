@@ -1,8 +1,154 @@
 // Prevents an extra console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::collections::HashSet;
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::{AppHandle, Emitter, Manager, State, Wry};
+use tauri_plugin_dialog::DialogExt;
+
+// Files the user picked in an Open or Save dialog this session. The webview can only save to these,
+// so a compromised page can't write anywhere else.
+#[derive(Default)]
+struct Picked(Mutex<HashSet<PathBuf>>);
+
+// Tickable menu items, so the page can set their ticks from the user's saved settings.
+struct Checks(Vec<CheckMenuItem<Wry>>);
+
+#[tauri::command]
+fn set_check(checks: State<'_, Checks>, id: String, checked: bool) -> Result<(), String> {
+    let item = checks.0.iter().find(|c| c.id().0 == id).ok_or("no such menu item")?;
+    item.set_checked(checked).map_err(|e| e.to_string())
+}
+
+const MAX_BYTES: u64 = 64 * 1024 * 1024;
+const FILTER: (&str, &[&str]) = ("Octet drawing", &["octet"]);
+
+// Write to a temporary file next to the target, flush it to disk, then rename it over the target.
+// A crash mid-save leaves the old file intact.
+fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    let dir = path.parent().unwrap_or(Path::new("."));
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let tmp = dir.join(format!(".{name}.saving-{}", std::process::id()));
+    let result = (|| {
+        let mut file = fs::File::create(&tmp)?;
+        file.write_all(data)?;
+        file.sync_all()?;
+        fs::rename(&tmp, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
+}
+
+#[tauri::command]
+async fn open_drawing(app: AppHandle, picked: State<'_, Picked>) -> Result<Option<(String, String)>, String> {
+    let Some(file) = app.dialog().file().add_filter(FILTER.0, FILTER.1).blocking_pick_file() else {
+        return Ok(None);
+    };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    let size = fs::metadata(&path).map_err(|e| e.to_string())?.len();
+    if size > MAX_BYTES {
+        return Err("This file is larger than 64 MB. Octet cannot open it.".into());
+    }
+    let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    picked.0.lock().unwrap().insert(path.clone());
+    Ok(Some((path.to_string_lossy().into_owned(), text)))
+}
+
+// Saves to `path` if the user picked it earlier, otherwise asks where to save. Returns the path, or None if cancelled.
+#[tauri::command]
+async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<String>, contents: String) -> Result<Option<String>, String> {
+    if contents.len() as u64 > MAX_BYTES {
+        return Err("This drawing is larger than 64 MB. Octet cannot save it.".into());
+    }
+    let known = path.map(PathBuf::from).filter(|p| picked.0.lock().unwrap().contains(p));
+    let target = match known {
+        Some(p) => p,
+        None => {
+            let Some(file) = app.dialog().file().add_filter(FILTER.0, FILTER.1).set_file_name("Untitled.octet").blocking_save_file() else {
+                return Ok(None);
+            };
+            let mut p = file.into_path().map_err(|e| e.to_string())?;
+            if p.extension().is_none_or(|e| e != "octet") {
+                p.set_extension("octet");
+            }
+            p
+        }
+    };
+    write_atomic(&target, contents.as_bytes()).map_err(|e| e.to_string())?;
+    picked.0.lock().unwrap().insert(target.clone());
+    Ok(Some(target.to_string_lossy().into_owned()))
+}
+
+// File and Edit menus. Custom items send their id to the page as a "menu" event; Cut, Copy and Paste
+// stay native so the page gets ordinary clipboard events. Select All selects the drawing, not the page.
+fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> {
+    let item = |id: &str, text: &str, keys: &str| MenuItem::with_id(app, id, text, true, Some(keys));
+    let sep = || PredefinedMenuItem::separator(app);
+    let file = Submenu::with_items(app, "File", true, &[
+        &item("new", "New", "CmdOrCtrl+N")?,
+        &item("open", "Open…", "CmdOrCtrl+O")?,
+        &sep()?,
+        &item("save", "Save", "CmdOrCtrl+S")?,
+        &item("save_as", "Save As…", "CmdOrCtrl+Shift+S")?,
+        &sep()?,
+        &PredefinedMenuItem::close_window(app, None)?,
+    ])?;
+    let edit = Submenu::with_items(app, "Edit", true, &[
+        &item("undo", "Undo", "CmdOrCtrl+Z")?,
+        &item("redo", "Redo", "CmdOrCtrl+Shift+Z")?,
+        &sep()?,
+        &PredefinedMenuItem::cut(app, None)?,
+        &PredefinedMenuItem::copy(app, None)?,
+        &PredefinedMenuItem::paste(app, None)?,
+        &item("select_all", "Select All", "CmdOrCtrl+A")?,
+    ])?;
+    let snap = CheckMenuItem::with_id(app, "snap", "Snap to Objects", true, true, None::<&str>)?;
+    let view = Submenu::with_items(app, "View", true, &[&snap])?;
+    let window = Submenu::with_items(app, "Window", true, &[
+        &PredefinedMenuItem::minimize(app, None)?,
+        &PredefinedMenuItem::fullscreen(app, None)?,
+    ])?;
+    #[cfg(target_os = "macos")]
+    let octet = Submenu::with_items(app, "Octet", true, &[
+        &PredefinedMenuItem::about(app, None, None)?,
+        &sep()?,
+        &PredefinedMenuItem::services(app, None)?,
+        &sep()?,
+        &PredefinedMenuItem::hide(app, None)?,
+        &PredefinedMenuItem::hide_others(app, None)?,
+        &PredefinedMenuItem::show_all(app, None)?,
+        &sep()?,
+        &PredefinedMenuItem::quit(app, None)?,
+    ])?;
+    let mut items: Vec<&dyn IsMenuItem<Wry>> = Vec::new();
+    #[cfg(target_os = "macos")]
+    items.push(&octet);
+    items.extend([&file as &dyn IsMenuItem<Wry>, &edit, &view, &window]);
+    Ok((Menu::with_items(app, &items)?, vec![snap]))
+}
+
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .manage(Picked::default())
+        .invoke_handler(tauri::generate_handler![open_drawing, save_drawing, set_check])
+        .setup(|app| {
+            let handle = app.handle();
+            let (bar, checks) = menu(handle)?;
+            app.set_menu(bar)?;
+            app.manage(Checks(checks));
+            app.on_menu_event(|app, event| {
+                let _ = app.emit("menu", event.id().0.as_str());
+            });
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running Octet");
 }
