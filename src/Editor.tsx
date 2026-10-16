@@ -25,6 +25,7 @@ import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { acsText, multiplicity, quality } from "./nmr";
 import { nmrReady, predict, type Nucleus } from "./nmr";
 import { rings } from "./rings";
+import { formatAmount, formulaWeight, parseAmount, solve, type Field } from "./stoich";
 import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
 import { CommandPalette, type Command } from "./CommandPalette";
@@ -174,6 +175,15 @@ function richSpans(runs: TextRun[], size: number, PT: number) {
 
 // Octet's own clipboard type: a copied part of a drawing in Octet's file form (read back with the file checks).
 const OCTET_CLIP = "application/x-octet+json";
+// The stoichiometry grid's rows, as ChemDraw's: what each component is, then amounts. shown: rows that appear only
+// once one of these was typed somewhere; product: rows for products (true) or reactants (false) only.
+const GRID_ROWS: { id: string; name: string; field?: Field; product?: boolean; shown?: Field[] }[] = [
+  { id: "formula", name: "Formula" }, { id: "mw", name: "MW" }, { id: "limiting", name: "Limiting?", product: false },
+  { id: "equiv", name: "Equivalents", field: "equiv", product: false }, { id: "mass", name: "Mass", field: "mass", product: false }, { id: "moles", name: "Moles", field: "moles", product: false },
+  { id: "volume", name: "Volume", field: "volume", product: false, shown: ["volume", "density", "molarity"] }, { id: "density", name: "Density", field: "density", product: false, shown: ["density"] },
+  { id: "molarity", name: "Molarity", field: "molarity", product: false, shown: ["molarity"] }, { id: "purity", name: "Purity", field: "purity", shown: ["purity"] },
+  { id: "expected", name: "Expected mass", product: true }, { id: "measured", name: "Measured mass", field: "measured", product: true }, { id: "yield", name: "Yield", product: true },
+];
 
 // A pen point: a corner, or (dragged out) a smooth point with its incoming handle mirroring its outgoing one.
 const penPoint = (at: P, out?: P): CurvePoint => (out ? { at, c1: [2 * at[0] - out[0], 2 * at[1] - out[1]], c2: out } : { at });
@@ -1674,7 +1684,7 @@ export default function Editor() {
       return { kind: "caption", mode: "next", convertible: false, colour: textStyle.colour ?? style.colour, count: 1, bold: !!textStyle.bold, italic: !!textStyle.italic, underline: !!textStyle.underline, size: textStyle.size ?? style.captionSize, align: textStyle.align ?? "left", attached: false, attachable: false, font: textStyle.font ?? style.captionFont, fonts: FONTS };
     // A whole reaction picked (as a double-click on its arrow picks it).
     const reaction = reactionPicked();
-    if (reaction) return { kind: "reaction", steps: reaction.arrows.length, structures: reaction.steps.filter((x) => x.kind === "structure").length, clean: reactionClean(reaction, arrows), mapped: reaction.atoms.some((i) => doc.atoms[i]?.map) };
+    if (reaction) return { kind: "reaction", grid: !!doc.grids?.some((g) => reaction.arrows.includes(g.arrow)), steps: reaction.arrows.length, structures: reaction.steps.filter((x) => x.kind === "structure").length, clean: reactionClean(reaction, arrows), mapped: reaction.atoms.some((i) => doc.atoms[i]?.map) };
     // A cycle picked (with its intermediates).
     const pickedCycle = (doc.cycles ?? []).find((c) => picked.has(c.id));
     if (pickedCycle) return { kind: "cycle", clockwise: pickedCycle.clockwise, steps: pickedCycle.nodes.length, centre: !!doc.captions?.some((c) => c.cycle?.cycle === pickedCycle.id && c.cycle.side === "centre") };
@@ -1882,6 +1892,79 @@ export default function Editor() {
     m = addCaption(m, { text: plainOf(normalise(runs)), x: 0, y: 0, under: atoms, runs: normalise(runs) })[0];
     set(m, true);
   }
+  // Stoichiometry grids, each laid out under its reaction: a column under each reactant and product (text reagents
+  // such as H2O too, their molar mass from the formula), the row names on the left, the amounts worked out from what
+  // was typed (stoich.ts). Typed values show bold, worked-out ones plain, as ChemDraw's grid does.
+  const gridViews = useMemo(() => (loaded ? doc.grids ?? [] : []).flatMap((g) => {
+    const r = reactionOf(g.arrow);
+    if (!r) return [];
+    const at = r.steps.map((s, i) => (s.kind === "arrow" ? i : -1)).filter((i) => i >= 0), first = at[0], last = at[at.length - 1];
+    let nr = 0, np = 0;
+    const cols = r.steps.flatMap((s, i) => {
+      if ((s.kind !== "structure" && s.kind !== "text") || (i > first && i < last)) return [];
+      const product = i > last, key = product ? `p${np++}` : `r${nr++}`;
+      let formula = "", mw = 0;
+      if (s.kind === "structure") { const a = analyse(subset(doc, new Set(s.atoms)))?.[0]; if (a) { formula = a.formula; mw = a.weight; } }
+      else { const text = doc.captions?.find((c) => c.id === s.id)?.text ?? ""; mw = formulaWeight(text) ?? 0; formula = mw ? text.replace(/\s+/g, "") : ""; }
+      return [{ key, product, formula, mw, x: (s.box[0] + s.box[2]) / 2, low: s.box[1], typed: g.typed[key] ?? {} }];
+    });
+    if (!cols.length) return [];
+    const solved = solve(cols, g.limiting), limiting = g.limiting && cols.some((c) => c.key === g.limiting) ? g.limiting : cols.find((c) => !c.product)?.key;
+    const used = (f: Field) => cols.some((c) => c.typed[f] !== undefined), products = cols.some((c) => c.product);
+    const rows = GRID_ROWS.filter((row) => (row.product ? products : row.shown ? row.shown.some(used) : true));
+    // Below the components and the numbers under them.
+    const under = (doc.captions ?? []).filter((c) => c.under?.some((i) => r.atoms.includes(i))).map((c) => placed.find((p) => p.id === c.id)).filter(Boolean).map((p) => -p!.box[3] / L);
+    const top = Math.min(...cols.map((c) => c.low), ...under) - 0.9, rh = (style.captionSize * pt * 0.9 * 1.6) / L;
+    // The row names end a little before the first column; the rules start at the longest name.
+    const width = 3.4, left = Math.min(...cols.map((c) => c.x)) - width / 2 - 0.3, size = style.captionSize * pt * 0.9;
+    const names = Math.max(...rows.map((row) => formulaWidth(row.name, size, false, false, fontStack(style.captionFont)) / L));
+    return [{ arrow: g.arrow, cols, rows, solved, limiting, top, rh, left, width, start: left - names - 0.2 }];
+  }), [loaded, doc, drawing, placed]); // eslint-disable-line react-hooks/exhaustive-deps
+  type GridView = (typeof gridViews)[number];
+  // A cell's text, and whether it was typed.
+  const gridText = (v: GridView, c: GridView["cols"][number], row: (typeof GRID_ROWS)[number]): { text: string; typed?: boolean } => {
+    const s = v.solved[c.key];
+    if (row.id === "formula") return { text: c.formula };
+    if (row.id === "mw") return { text: c.mw ? formatAmount(c.mw, "mw") : "" };
+    if (row.id === "limiting") return { text: c.product ? "" : v.limiting === c.key ? "Yes" : "" };
+    if (row.product !== c.product && row.product !== undefined) return { text: "" };
+    if (row.id === "expected") return { text: formatAmount(s?.expectedMass, "mass") };
+    if (row.id === "yield") return { text: formatAmount(s?.yield, "yield") };
+    if (!row.field || (c.product && row.field !== "purity" && row.field !== "measured")) return { text: "" };
+    return { text: formatAmount(s?.[row.field as keyof typeof s] as number | undefined, row.field), typed: c.typed[row.field] !== undefined };
+  };
+  // The grid cell under a point (drawing units), if any.
+  const gridCellAt = (p: P) => {
+    for (const v of gridViews) {
+      const k = Math.floor((v.top - p[1]) / v.rh), c = v.cols.find((col) => Math.abs(p[0] - col.x) < v.width / 2);
+      if (k >= 0 && k < v.rows.length && c) return { arrow: v.arrow, key: c.key, row: v.rows[k].id, x: c.x, y: v.top - k * v.rh, product: c.product };
+    }
+    return undefined;
+  };
+  const [gridEdit, setGridEdit] = useState<{ arrow: number; key: string; row: string; x: number; y: number; product: boolean; value: string }>();
+  // Typing in a cell: the unit says what it is (250 mg a mass, 0.5 mL a volume, 1.2 eq equivalents), a bare number is
+  // the row's own quantity, and an empty cell clears it. A reactant's mass, moles, volume or equivalents replaces the
+  // others (they are four ways to say how much). Limiting? sets the limiting reactant.
+  function commitGridCell(text: string) {
+    const w = gridEdit;
+    setGridEdit(undefined);
+    if (!w) return;
+    const grids = doc.grids ?? [], g = grids.find((x) => x.arrow === w.arrow);
+    if (!g) return;
+    const row = GRID_ROWS.find((r) => r.id === w.row)!, typed = { ...(g.typed[w.key] ?? {}) };
+    if (row.id === "limiting") return w.product ? undefined : set({ ...doc, grids: grids.map((x) => (x === g ? { ...x, limiting: w.key } : x)) }, true);
+    if (!row.field) return;
+    if (!text.trim()) delete typed[row.field];
+    else {
+      const fields: Field[] = w.product ? ["measured", "purity"] : [row.field, "mass", "moles", "volume", "equiv", "density", "molarity", "purity"];
+      const bare = /^\s*[\d.,]+(e[+-]?\d+)?\s*$/i.test(text), field = bare ? (w.product && row.field !== "purity" ? "measured" : row.field) : fields.find((f) => parseAmount(text, f) !== undefined);
+      const value = field && parseAmount(text, field);
+      if (!field || value === undefined) return setNotice("Type an amount with its unit, such as 250 mg, 1.2 eq or 0.5 mL.");
+      if (["mass", "moles", "volume", "equiv"].includes(field)) for (const f of ["mass", "moles", "volume", "equiv"] as Field[]) delete typed[f];
+      typed[field] = value;
+    }
+    set({ ...doc, grids: grids.map((x) => (x === g ? { ...x, typed: { ...x.typed, [w.key]: typed } } : x)) }, true);
+  }
   // Add to drawing: the chosen rows as a caption under each structure, the formula's counts as subscripts.
   function addProperties() {
     if (!properties) return;
@@ -2051,6 +2134,13 @@ export default function Editor() {
     if (command === "delete" && context.kind === "spot") return runAction("spot.delete");
     if (command === "delete") return selection.size || picked.size ? set(deleteGraphics(deleteAtoms(doc, selection), picked)) : undefined;
     if (command === "number") return numberStructures();
+    // Analyze Stoichiometry: a grid under the picked reaction, or off again.
+    if (command === "stoichiometry") {
+      const arrow = reactionPicked()?.arrows[0] ?? [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
+      if (arrow === undefined) return setNotice("Pick a reaction first.");
+      const has = doc.grids?.some((g) => reactionOf(g.arrow)?.arrows.includes(arrow));
+      return set({ ...doc, grids: has ? doc.grids!.filter((g) => !reactionOf(g.arrow)?.arrows.includes(arrow)) : [...(doc.grids ?? []), { arrow, typed: {} }] }, true);
+    }
     if (command === "reaction.clean") { const r = reactionPicked(); return r ? set(cleanUpReaction(doc, r, arrows), true) : undefined; }
     // Atom mapping: the first step of the picked reaction (what stands before its first arrow, and between that
     // arrow and the next), numbered by Indigo; or every number cleared.
@@ -2597,6 +2687,13 @@ export default function Editor() {
           // With Select, double-click an atom to type its label (other tools would draw on each click).
           // Double-click a caption with any tool to type into it.
           const t = hit(toDoc(e.clientX, e.clientY));
+          // Double-click a stoichiometry cell to type in it (Limiting? sets the limiting reactant at once).
+          const gc = tool !== "erase" ? gridCellAt(toDoc(e.clientX, e.clientY)) : undefined;
+          if (gc && gc.row === "limiting") { const g = doc.grids?.find((x) => x.arrow === gc.arrow); if (g && !gc.product) set({ ...doc, grids: doc.grids!.map((x) => (x === g ? { ...x, limiting: gc.key } : x)) }, true); return; }
+          if (gc && !["formula", "mw", "expected", "yield"].includes(gc.row)) {
+            const v = gridViews.find((x) => x.arrow === gc.arrow)!, c = v.cols.find((x) => x.key === gc.key)!, row = GRID_ROWS.find((r) => r.id === gc.row)!;
+            return setGridEdit({ ...gc, value: c.typed[row.field as Field] !== undefined ? gridText(v, c, row).text : "" });
+          }
           // Double-click a table to type in the cell.
           const table = tool !== "erase" ? tableAt(toDoc(e.clientX, e.clientY)) : undefined;
           if (table) return openCell(table, toDoc(e.clientX, e.clientY));
@@ -2708,6 +2805,24 @@ export default function Editor() {
               </g>
             );
           })()}
+          {gridViews.map((v) => {
+            // The grid: a rule above and below, row names right-aligned on the left, each column centred under its component.
+            const size = style.captionSize * pt * 0.9, font = `${size}px ${fontStack(style.captionFont)}`, y = (k: number) => -(v.top - (k + 0.5) * v.rh) * L + 0.35 * size;
+            const x0 = v.start * L, x1 = (Math.max(...v.cols.map((c) => c.x)) + v.width / 2) * L;
+            return (
+              <g key={`grid${v.arrow}`} className="stoich" fill="var(--ink)" style={{ font }}>
+                <line x1={x0} x2={x1} y1={-v.top * L} y2={-v.top * L} stroke="var(--ink)" strokeWidth={frame.line} />
+                <line x1={x0} x2={x1} y1={-(v.top - v.rows.length * v.rh) * L} y2={-(v.top - v.rows.length * v.rh) * L} stroke="var(--ink)" strokeWidth={frame.line} />
+                {v.rows.map((row, k) => <text key={row.id} x={v.left * L} y={y(k)} textAnchor="end">{row.name}</text>)}
+                {v.rows.flatMap((row, k) => v.cols.map((c) => {
+                  const t = gridText(v, c, row);
+                  return t.text && !(gridEdit?.arrow === v.arrow && gridEdit.key === c.key && gridEdit.row === row.id) ? (
+                    <text key={`${row.id}${c.key}`} x={c.x * L} y={y(k)} textAnchor="middle" fontWeight={t.typed ? 700 : 400}>{row.id === "formula" ? formula(t.text, size) : t.text}</text>
+                  ) : null;
+                }))}
+              </g>
+            );
+          })}
           {stereoMarks().map((m) => <text key={m.key} className="stereo-label" x={m.x} y={m.y} textAnchor={m.anchor} dominantBaseline="middle" fill={m.colour ?? "var(--ink)"} style={{ font: `italic ${style.captionSize * pt * 0.8}px ${fontStack(style.captionFont)}` }}>{m.text}</text>)}
           {found.map((p) => doc.atoms[p.atom] && <circle key={`p${p.atom}`} className="problem-mark" cx={pos(shown, p.atom)[0] * L} cy={-pos(shown, p.atom)[1] * L} r={0.42 * L} vectorEffect="non-scaling-stroke" />)}
           {/* One group with one opacity, so overlapping marks don't stack up darker. */}
@@ -2908,6 +3023,20 @@ export default function Editor() {
               if (e.key === "Escape") { e.preventDefault(); commit(); }
             }}
             onBlur={commit}
+          />
+        );
+      })()}
+      {gridEdit && (() => {
+        // The stoichiometry cell box, over the cell; Enter keeps it, Escape leaves it as it was.
+        const v = gridViews.find((x) => x.arrow === gridEdit.arrow);
+        if (!v) return null;
+        const z = view.zoom, w = v.width * L * z, h = v.rh * L * z;
+        return (
+          <input
+            className="cell-box" aria-label="Amount" autoFocus spellCheck={false} defaultValue={gridEdit.value}
+            style={{ left: view.x + gridEdit.x * L * z - w / 2, top: view.y - gridEdit.y * L * z, width: w, height: h, font: `${style.captionSize * pt * 0.9 * z}px ${fontStack(style.captionFont)}` }}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitGridCell(e.currentTarget.value); } if (e.key === "Escape") { e.preventDefault(); setGridEdit(undefined); } }}
+            onBlur={(e) => commitGridCell(e.currentTarget.value)}
           />
         );
       })()}

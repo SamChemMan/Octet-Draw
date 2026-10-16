@@ -134,7 +134,11 @@ export const isBracket = (sh: Pick<Shape, "kind">) => sh.kind === "brackets" || 
 export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "table"];
 export const HIGHLIGHT = "#DCE4F5";
 // Captions, arrows, shapes and cycles share one set of ids.
-export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; style?: DocStyle };
+export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; style?: DocStyle };
+// A stoichiometry grid (Structure > Analyze Stoichiometry) under the reaction an arrow belongs to: what was typed for
+// each component ("r0", "r1"… reactants, "p0"… products, in reading order), in base units, and the limiting reactant.
+// Everything else is worked out from the reaction as it is drawn (stoich.ts).
+export type Grid = { arrow: number; typed: Record<string, Partial<Record<"mass" | "moles" | "equiv" | "volume" | "density" | "molarity" | "purity" | "measured", number>>>; limiting?: string };
 // A group (Object > Group): atoms and other objects (captions, arrows, shapes, cycles, by id) that select and move as
 // one. An integral group is never split: a click on any part picks all of it.
 export type Group = { id: number; atoms: number[]; items: number[]; integral?: true };

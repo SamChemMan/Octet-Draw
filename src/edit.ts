@@ -693,6 +693,7 @@ export const deleteGraphics = (m: Mol, ids: Set<number>): Mol => ({
   arrows: m.arrows?.filter((a) => !ids.has(a.id)),
   shapes: m.shapes?.filter((x) => !ids.has(x.id)),
   cycles: m.cycles?.filter((c) => !ids.has(c.id)),
+  ...(m.grids ? { grids: m.grids.filter((g) => !ids.has(g.arrow)) } : {}),
   groups: tidyGroups(m.groups?.map((g) => ({ ...g, items: g.items.filter((id) => !ids.has(id) && !(m.captions?.some((c) => c.id === id && ((c.on && ids.has(c.on.arrow)) || (c.cycle && ids.has(c.cycle.cycle)))))) }))),
 });
 // The next compound number in the drawing: one more than the highest bold number already there.
