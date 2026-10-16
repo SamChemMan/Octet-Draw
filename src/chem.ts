@@ -123,13 +123,17 @@ export function parseStructure(text: string): Mol {
 
 // Written labels (OMe, CO2Et, Ph) as real atoms, for chemistry. Each label's group is read by Indigo and joined
 // where the label atom was. A label Octet cannot read stays as a pseudo-atom ("*").
-export function expandLabels(mol: Mol): Mol {
+export const expandLabels = (mol: Mol): Mol => expandWithOrigins(mol).mol;
+// The same, with the drawn atom each expanded atom came from (a label's atoms all come from the label).
+export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
   let out: Mol = { atoms: mol.atoms.map((a) => ({ ...a })), bonds: mol.bonds.map((b) => ({ ...b })) };
+  const origin = mol.atoms.map((_, i) => i);
   mol.atoms.forEach((a, i) => {
     if (!a.text) return;
     const smiles = labelSmiles(a.text);
     if (!smiles) { out.atoms[i] = { ...out.atoms[i], label: "*", text: undefined }; return; }
     const frag = parseStructure(smiles), base = out.atoms.length;
+    origin.push(...frag.atoms.map(() => i));
     // The group's first atom takes the label atom's place: bonds to the label atom move to it.
     out = {
       atoms: [...out.atoms, ...frag.atoms],
@@ -145,7 +149,10 @@ export function expandLabels(mol: Mol): Mol {
   const keep = out.atoms.map((a) => !(a as { removed?: boolean }).removed), map: number[] = [];
   let next = 0;
   out.atoms.forEach((_, k) => { if (keep[k]) map[k] = next++; });
-  return { atoms: out.atoms.filter((_, k) => keep[k]), bonds: out.bonds.map((b) => ({ ...b, atoms: [map[b.atoms[0]], map[b.atoms[1]]] as [number, number] })) };
+  return {
+    mol: { atoms: out.atoms.filter((_, k) => keep[k]), bonds: out.bonds.map((b) => ({ ...b, atoms: [map[b.atoms[0]], map[b.atoms[1]]] as [number, number] })) },
+    from: origin.filter((_, k) => keep[k]),
+  };
 }
 
 // The drawing as SMILES. Throws if Indigo can't read it (for example, a valence it rejects).

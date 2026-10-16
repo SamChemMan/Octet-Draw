@@ -2969,3 +2969,131 @@ button.variant.add {
     animation: none;
   }
 }
+
+/* The Spectrum panel: docked along the bottom of the canvas, between the toolbar and the Actions panel. */
+.spectrum {
+  position: absolute;
+  left: calc(var(--space-4) * 2 + 48px);
+  right: calc(var(--space-4) * 2 + 248px);
+  bottom: var(--space-4);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1) var(--space-2) var(--space-2);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  transform-origin: bottom center;
+  animation: panel-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.spectrum header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+}
+.spectrum header .select-field select {
+  min-width: 0;
+}
+.spectrum-gap {
+  flex: 1;
+}
+.spectrum-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: 12px var(--font-sans);
+}
+.spectrum-button:hover:not(:disabled) {
+  background: var(--surface-sunken);
+}
+.spectrum-plot {
+  min-width: 0;
+  cursor: crosshair;
+  touch-action: none;
+}
+.spectrum-plot svg {
+  display: block;
+  font: 11px var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+.spectrum-axis,
+.spectrum-tick line {
+  stroke: var(--ink-faint);
+  stroke-width: 1;
+}
+.spectrum-tick text,
+.spectrum-unit {
+  fill: var(--ink-muted);
+}
+.spectrum-trace {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.25;
+  stroke-linejoin: round;
+}
+.spectrum-stick {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+.spectrum-stick.lit {
+  stroke: var(--brand);
+}
+.spectrum-signal text {
+  fill: var(--ink);
+}
+.spectrum-signal .spectrum-integral {
+  fill: var(--ink-muted);
+  font-size: 10px;
+}
+.spectrum-leader {
+  fill: none;
+  stroke: var(--ink-faint);
+  stroke-width: 0.75;
+}
+.spectrum-lit {
+  fill: var(--brand-mist);
+}
+.spectrum-signal.lit text {
+  fill: var(--brand);
+}
+.spectrum-text {
+  margin: var(--space-1) 0 0;
+  font: 12px/18px var(--font-sans);
+  color: var(--ink);
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+.spectrum-button:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+@media (prefers-reduced-motion: reduce) {
+  .spectrum {
+    animation: none;
+  }
+}
+/* Predicted shifts beside their atoms while the Spectrum panel is open, and the atoms lit from a peak. */
+.nmr-shift {
+  font: 600 9px var(--font-sans);
+  fill: var(--brand);
+  paint-order: stroke;
+  stroke: var(--canvas);
+  stroke-width: 3px;
+  pointer-events: none;
+}
+.nmr-marks rect,
+.nmr-marks circle {
+  fill: var(--brand-mist);
+  stroke: var(--brand-bright);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}

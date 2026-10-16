@@ -21,5 +21,10 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | TeaVM class library and runtime | 0.16.0 | Apache-2.0 | Runs OPSIN's Java as JavaScript |
 | StAX API | 1.0.1 | Apache-2.0 | XML interfaces used by OPSIN |
 | Unicode character data (in TeaVM) | TeaVM 0.16.0's copy | Unicode-3.0 | Case mapping in the OPSIN build. Sam approved, 16 October 2026 |
+| nmrshiftdb2 data (measured spectra) | Download of 16 October 2026 | nmrshiftdb2 Database License (ODbL 1.0 with clause 4.5) | The ¹H and ¹³C shift table in [data/nmr/](data/nmr/README.md). Sam approved, 16 October 2026 (decision 0006) |
+| thermo (Caleb Bell), Joback group values | 0.6.1, `thermo/group_contribution/joback.py` | MIT | The Joback & Reid group contribution table in `src/props.ts` (values only; Octet's own group typer) |
+| Dimorphite-DL site table (Durrant lab) | 2.1.0, `dimorphite_dl/smarts/site_substructures.smarts` | Apache-2.0 | Ionisable groups with mean pKa and SD in `src/props.ts` (values only; Octet's own group tests) |
+| PatWalters/solubility, ESOL coefficients | `esol.py`, master of 16 October 2026 | MIT | ESOL logS coefficients refitted for Crippen logP in `src/props.ts` |
+| RDKit | 2026.09.1 | BSD-3-Clause | Reference values in `src/props.check.ts` (TPSA, rotatable bonds, aromatic atoms, logP, weight). Not shipped |
 
 The OPSIN build's notices are in [src/vendor/opsin/NOTICES.txt](src/vendor/opsin/NOTICES.txt). The app ships them as `licences/opsin.txt`.

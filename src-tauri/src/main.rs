@@ -162,6 +162,9 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
         &item("clean_reaction", "Clean Up Reaction", "CmdOrCtrl+Shift+X")?,
         &item("structure_perspective", "Structure Perspective", "Alt+CmdOrCtrl+S")?,
         &sep()?,
+        &MenuItem::with_id(app, "predict_1h", "Predict ¹H-NMR Shifts", true, None::<&str>)?,
+        &MenuItem::with_id(app, "predict_13c", "Predict ¹³C-NMR Shifts", true, None::<&str>)?,
+        &sep()?,
         &item("name_to_structure", "Convert Name to Structure", "CmdOrCtrl+Shift+N")?,
         &item("structure_to_name", "Convert Structure to Name", "Alt+CmdOrCtrl+N")?,
     ])?;

@@ -2,8 +2,9 @@
 // modules (Document, Keyboard shortcuts, Import and export) under a search field that is always there. With text
 // in it, every matching setting from every module shows on the right, grouped by module and ready to use.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowsDownUp, CaretDown, CaretUpDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, Plus, X } from "@phosphor-icons/react";
+import { ArrowsDownUp, CaretDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, Plus, X } from "@phosphor-icons/react";
 import { ColourPicker } from "./ColourPicker";
+import { Select } from "./Select";
 import type { Swatch } from "./settings";
 import { BACKGROUNDS, COLOURS, FONTS, PAGE_NAMES, PAGES, PRESETS, pageSize, presetOf, type DocStyle, type PageName } from "./docstyle";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
@@ -96,18 +97,6 @@ function NumberField({ value, unit, label, onChange }: { value: number; unit: st
         }}
       />
       <span className="unit">{unit}</span>
-    </span>
-  );
-}
-
-// A select with Octet's look over the native control (which keeps keyboard and screen reader behaviour).
-function Select({ value, label, options, onChange }: { value: string; label: string; options: [string, string][]; onChange: (v: string) => void }) {
-  return (
-    <span className="select-field">
-      <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map(([v, name]) => <option key={v} value={v}>{name}</option>)}
-      </select>
-      <CaretUpDown size={12} aria-hidden />
     </span>
   );
 }

@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
-  ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
+  ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Waveform, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
   FrameCorners, GearSix, Keyboard, Lasso, LinkSimple, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
   TextAlignCenter, TextAlignLeft, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Warning, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { analyse, structures, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
+import { analyse, structures, expandWithOrigins, type Structure, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
 import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, FONTS, type DocStyle, type PageName } from "./docstyle";
 import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
@@ -21,6 +21,11 @@ import { loadSettings, saveSettings } from "./settings";
 import { actionFor, keyOf, keymap, label as keyLabel } from "./keys";
 import { Actions, actionItems, type Context } from "./Actions";
 import { Properties, propertyValues, PROPERTY_ROWS } from "./Properties";
+import { SpectrumPanel } from "./Spectrum";
+import { nmrReady, predict, type Nucleus } from "./nmr";
+import { rings } from "./rings";
+import { logS, properties as calculate } from "./props";
+import type { Graph } from "./naming";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb } from "./TemplateLibrary";
 import { cleanUpReaction, findReaction, GAP, layoutRow, reactionClean, rowOf } from "./reaction";
@@ -35,7 +40,7 @@ import {
 import { arrowPath, arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, orbitalPaths, straightArrow, shapeInk, shapePaths, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, type Arrow, type ArrowKind, type Box, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
 import { loadNames, nameToSmiles, suggestName } from "./names";
-import { checkedName, setNamer } from "./naming";
+import { checkedName, graphOf, setNamer } from "./naming";
 import { iupacName } from "./namer";
 
 setNamer(iupacName);
@@ -515,6 +520,8 @@ export default function Editor() {
     zoom_actual: () => zoomTo(1 / frame.k),
     actions: () => setSettings((s) => ({ ...s, actions: !s.actions })),
     properties: () => setSettings((s) => ({ ...s, properties: !s.properties })),
+    predict_1h: () => setSpectrum("1H"),
+    predict_13c: () => setSpectrum("13C"),
     name_to_structure: () => nameToStructure(),
     document: () => setSettingsOpen("document"),
     settings: () => setSettingsOpen((settings.settingsModule as ModuleId) ?? "document"),
@@ -1726,8 +1733,69 @@ export default function Editor() {
     const base = selection.size ? subset(doc, selection) : doc, groups = fragments(base), found = structures(base, groups);
     if (!found) return undefined;
     const kept = groups.map((g, k) => ({ atoms: g.map((i) => ids[i]), s: found[k] })).filter((x) => x.s).slice(0, 12);
-    return { atoms: kept.map((x) => x.atoms), values: propertyValues(kept.map((x) => x.s!)) };
+    // Octet's own calculators; pKa sites above 13 (alcohols, amides) are left out.
+    const calc = (s: Structure, g: Graph) => { const p = calculate(g); return { ...p, pka: p.pka.filter((x) => x.pka < 13), logS: s.logP !== undefined ? logS(s.logP, s.weight, p) : undefined }; };
+    return { atoms: kept.map((x) => x.atoms), values: propertyValues(kept.map((x) => x.s!), calc) };
   }, [loaded, settings.properties, doc, selection]);
+  // The Spectrum panel's structure (the first in the selection, or the drawing's largest), its predicted spectrum
+  // once the shift tables are loaded, and which drawn atom each of the prediction's atoms is.
+  const [spectrum, setSpectrum] = useState<Nucleus>();
+  const [nmrTables, setNmrTables] = useState(false);
+  const [nmrPoint, setNmrPoint] = useState<number[]>();
+  useEffect(() => { if (spectrum && !nmrTables) void nmrReady().then(() => setNmrTables(true)); }, [spectrum, nmrTables]);
+  const nmr = useMemo(() => {
+    if (!spectrum || !loaded || !doc.atoms.length) return undefined;
+    const groups = fragments(doc);
+    const pick = (selection.size ? groups.find((g) => g.some((i) => selection.has(i))) : undefined) ?? [...groups].sort((a, b) => b.length - a.length)[0];
+    const ids = [...pick].sort((a, b) => a - b), { mol, from } = expandWithOrigins(subset(doc, new Set(ids))), g = graphOf(mol);
+    return { prediction: g && nmrTables ? predict(g, spectrum) : undefined, toDoc: from.map((i) => ids[i]) };
+  }, [spectrum, loaded, doc, selection, nmrTables]);
+  // The prediction's atoms lit by pointing at an atom on the canvas, and the drawn atoms lit from the spectrum.
+  const nmrLit = useMemo(() => new Set(nmr && hover.atom !== undefined ? nmr.toDoc.flatMap((d, k) => (d === hover.atom ? [k] : [])) : []), [nmr, hover.atom]);
+  const nmrMarks = new Set(nmr && nmrPoint ? nmrPoint.map((k) => nmr.toDoc[k]) : []);
+  // Each drawn atom's predicted shifts, shown beside it while the panel is open.
+  const nmrShifts = new Map<number, number[]>();
+  const ringsOf = useMemo(() => (spectrum ? rings({ atoms: shown.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: shown.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) }) : []), [spectrum, shown]);
+  // Opening the panel scrolls the canvas up if the panel would cover the structure (again once the spectrum is in,
+  // as the panel grows).
+  useEffect(() => {
+    if (!spectrum || !nmr) return;
+    const panel = document.querySelector(".spectrum")?.getBoundingClientRect(), box = svg.current?.getBoundingClientRect();
+    const low = Math.min(...[...new Set(nmr.toDoc)].map((i) => pos(doc, i)[1]));
+    if (!panel || !box || !Number.isFinite(low)) return;
+    const over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
+    if (over > 0) setView((v) => ({ ...v, y: v.y - over }));
+  }, [spectrum, !!nmr?.prediction]); // eslint-disable-line react-hooks/exhaustive-deps
+  for (const s of nmr?.prediction?.signals ?? []) for (const d of new Set(s.atoms.map((k) => nmr!.toDoc[k]))) nmrShifts.set(d, [...(nmrShifts.get(d) ?? []), s.shift]);
+  // Where each predicted shift goes on the canvas (px): in a gap between the atom's bonds, out of its rings (or away
+  // from the atoms within two bonds), clear of its own label and of the shift labels already placed.
+  function shiftLabels() {
+    const out: { atom: number; x: number; y: number; anchor: "start" | "middle" | "end"; text: string }[] = [], boxes: number[][] = [];
+    for (const [i, shifts] of nmrShifts) {
+      if (i >= shown.atoms.length) continue;
+      const at = pos(shown, i), bonded = shown.bonds.filter((b) => b.atoms.includes(i)).map((b) => (b.atoms[0] === i ? b.atoms[1] : b.atoms[0]));
+      const mine = ringsOf.filter((r) => r.includes(i)), two = new Set(bonded.flatMap((k) => shown.bonds.filter((b) => b.atoms.includes(k)).flatMap((b) => b.atoms)));
+      two.delete(i);
+      const around = (mine.length ? mine.flat() : [...two]).map((k) => pos(shown, k));
+      const away = around.length ? Math.atan2(at[1] - around.reduce((s, q) => s + q[1], 0) / around.length, at[0] - around.reduce((s, q) => s + q[0], 0) / around.length) : Math.PI / 2;
+      const angles = bonded.map((k) => Math.atan2(pos(shown, k)[1] - at[1], pos(shown, k)[0] - at[0])).sort((a, b) => a - b);
+      // Each gap's middle, best first: wider gaps, then those facing away.
+      const gaps = angles.length === 0 ? [{ m: Math.PI / 2, score: 0 }] : angles.length === 1 ? [{ m: angles[0] + Math.PI, score: 1 }, { m: angles[0] + Math.PI / 2, score: 0 }, { m: angles[0] - Math.PI / 2, score: 0 }]
+        : angles.map((a, k) => { const next = k + 1 < angles.length ? angles[k + 1] : angles[0] + 2 * Math.PI, m = (a + next) / 2; return { m, score: next - a + 0.3 * Math.cos(m - away) }; });
+      gaps.sort((a, b) => b.score - a.score);
+      const text = [...shifts].sort((a, b) => b - a).map((v) => v.toFixed(spectrum === "1H" ? 2 : 1)).join(", "), w = text.length * 5.2, h = 10;
+      const box = drawing.label[i], r = box ? Math.max(0.62 * L, Math.hypot(box[2] - box[0], box[3] - box[1]) / 2 + 0.25 * L) : 0.62 * L;
+      const place = (m: number) => {
+        const ux = Math.cos(m), uy = Math.sin(m), x = at[0] * L + ux * r, y = -(at[1] * L + uy * r), anchor = ux > 0.4 ? "start" as const : ux < -0.4 ? "end" as const : "middle" as const;
+        const left = anchor === "start" ? x : anchor === "end" ? x - w : x - w / 2;
+        return { x, y, anchor, rect: [left, y - h / 2, left + w, y + h / 2] };
+      };
+      const free = gaps.map((g) => place(g.m)).find((c) => !boxes.some((b) => c.rect[0] < b[2] && c.rect[2] > b[0] && c.rect[1] < b[3] && c.rect[3] > b[1])) ?? place(gaps[0].m);
+      boxes.push(free.rect);
+      out.push({ atom: i, x: free.x, y: free.y, anchor: free.anchor, text });
+    }
+    return out;
+  }
   // Add to drawing: the chosen rows as a caption under each structure, the formula's counts as subscripts.
   function addProperties() {
     if (!properties) return;
@@ -1794,7 +1862,7 @@ export default function Editor() {
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDisk size={18} />],
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <MagicWand size={18} />],
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
-    properties: ["Properties", "", <Flask size={18} />], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />],
+    properties: ["Properties", "", <Flask size={18} />], predict_1h: ["Predict ¹H NMR shifts", "", <Waveform size={18} />], predict_13c: ["Predict ¹³C NMR shifts", "", <Waveform size={18} />], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />],
     rotate_dialog: ["Rotate…", `${MOD}R`, <ArrowClockwise size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <ArrowsOutSimple size={18} />],
     group: ["Group", `${MOD}G`, <BoundingBox size={18} />], ungroup: ["Ungroup", `⇧${MOD}G`, <SelectionSlash size={18} />],
     arrange_left: ["Align left edges", `⇧⌥${MOD}L`, <AlignLeft size={18} />], arrange_centre: ["Align left-right centres", `⇧⌥${MOD}C`, <AlignCenterHorizontal size={18} />],
@@ -2529,6 +2597,10 @@ export default function Editor() {
           {found.map((p) => doc.atoms[p.atom] && <circle key={`p${p.atom}`} className="problem-mark" cx={pos(shown, p.atom)[0] * L} cy={-pos(shown, p.atom)[1] * L} r={0.42 * L} vectorEffect="non-scaling-stroke" />)}
           {/* One group with one opacity, so overlapping marks don't stack up darker. */}
           <g className="selection-marks">{selected}</g>
+          {nmrMarks.size > 0 && <g className="nmr-marks">{[...nmrMarks].filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `nmr${i}`, ""))}</g>}
+          {shiftLabels().map((l) => (
+            <text key={`shift${l.atom}`} className={`nmr-shift${nmrMarks.has(l.atom) ? " lit" : ""}`} x={l.x} y={l.y} textAnchor={l.anchor} dominantBaseline="middle">{l.text}</text>
+          ))}
           {hovered}
           {drawing.beads.length > 0 && (
             // Polymer beads: spheres lit from the top left.
@@ -2931,6 +3003,21 @@ export default function Editor() {
         onStripWidth={(t, width) => setSettings((s) => ({ ...s, strips: { ...s.strips, [t]: width } }))}
       />
 
+      {spectrum && (
+        <SpectrumPanel
+          prediction={nmr?.prediction}
+          nucleus={spectrum}
+          mhz={settings.nmrMhz}
+          solvent={settings.nmrSolvent}
+          lit={nmrLit}
+          onNucleus={setSpectrum}
+          onMhz={(mhz) => setSettings((s) => ({ ...s, nmrMhz: mhz }))}
+          onSolvent={(solvent) => setSettings((s) => ({ ...s, nmrSolvent: solvent }))}
+          onPoint={setNmrPoint}
+          onCopy={(text) => runAction(`copy_text:${text}`)}
+          onClose={() => { setSpectrum(undefined); setNmrPoint(undefined); }}
+        />
+      )}
       {settings.properties && properties && (
         <Properties
           values={properties.values}
