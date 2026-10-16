@@ -10,7 +10,9 @@ export type Nucleus = "1H" | "13C";
 // (ppm), how many nuclei it counts (¹H: hydrogens; ¹³C: carbons), its couplings to neighbouring hydrogens (¹H: each
 // coupling constant in Hz with the number of equivalent hydrogens it couples to), whether it is broad (OH, NH), and
 // how sure the prediction is (the spread of the shifts it was based on, in ppm, and how many there were).
-export type Signal = { atoms: number[]; shift: number; nuclei: number; couplings: { j: number; n: number }[]; broad?: boolean; sd: number; based: number };
+// group: what the signal comes from, as chemists name it ("CH3", "2 × CH"); level: how many spheres of the atom's
+// surroundings matched the table (1 to 6); each coupling also names the groups it couples to (graph indices).
+export type Signal = { atoms: number[]; shift: number; nuclei: number; couplings: { j: number; n: number; with?: number[] }[]; broad?: boolean; sd: number; based: number; group?: string; level?: number };
 export type Prediction = { nucleus: Nucleus; signals: Signal[] };
 
 export const LEVELS = 6; // spheres in the longest code
@@ -214,22 +216,45 @@ export function predict(drawn: Graph, nucleus: Nucleus): Prediction | undefined 
     const nuclei = nucleus === "13C" ? members.length : members.reduce((s, i) => s + g.atoms[i].h, 0);
     // ¹H couplings: to the hydrogens on each neighbouring heavy atom (vicinal), and meta on aromatic rings, each J
     // with the number of hydrogens it couples to; none to equivalent hydrogens or across O, N and S.
-    const couplings: { j: number; n: number }[] = [];
+    const couplings: Signal["couplings"] = [];
     if (nucleus === "1H" && !exchange(c)) {
-      const add = (j: number, n: number) => { const same = couplings.find((x) => Math.abs(x.j - j) < 0.6); if (same) same.n += n; else couplings.push({ j, n }); };
-      for (const e of env.edges[c]) if (g.atoms[e.to].h && !exchange(e.to) && env.cls[e.to] !== env.cls[c]) add(vicinal(env, c, e.to), g.atoms[e.to].h);
+      const add = (j: number, n: number, to: number) => {
+        const same = couplings.find((x) => Math.abs(x.j - j) < 0.6);
+        if (same) { same.n += n; same.with!.push(from[to]); } else couplings.push({ j, n, with: [from[to]] });
+      };
+      for (const e of env.edges[c]) if (g.atoms[e.to].h && !exchange(e.to) && env.cls[e.to] !== env.cls[c]) add(vicinal(env, c, e.to), g.atoms[e.to].h, e.to);
       if (env.aromatic[c]) {
         const meta = new Set<number>();
         for (const e of env.edges[c]) if (e.bond === "*") for (const f of env.edges[e.to]) if (f.bond === "*" && f.to !== c && env.edges[c].every((x) => x.to !== f.to)) meta.add(f.to);
-        for (const m of meta) if (g.atoms[m].h && env.cls[m] !== env.cls[c]) add(2, g.atoms[m].h);
+        for (const m of meta) if (g.atoms[m].h && env.cls[m] !== env.cls[c]) add(2, g.atoms[m].h, m);
       }
     }
     signals.push({
       atoms: members.map((i) => from[i]), shift: found.shift, nuclei, couplings: couplings.sort((a, b) => b.j - a.j),
-      ...(nucleus === "1H" && exchange(c) ? { broad: true } : {}), sd: found.sd, based: found.based,
+      ...(nucleus === "1H" && exchange(c) ? { broad: true } : {}), sd: found.sd, based: found.based, level: found.level,
+      group: `${members.length > 1 ? `${members.length} × ` : ""}${g.atoms[c].el}${g.atoms[c].h ? `H${g.atoms[c].h > 1 ? g.atoms[c].h : ""}` : ""}`,
     });
   }
   return signals.length ? { nucleus, signals: signals.sort((a, b) => b.shift - a.shift) } : undefined;
+}
+
+// How far to trust a shift, as ChemDraw rates its estimates. Good: four or more spheres of the atom's surroundings
+// matched, the measured shifts agree (spread up to 0.15 ppm for ¹H, 1.5 for ¹³C), and there were two or more of them
+// (one is enough when all six spheres matched). Rough: two spheres or fewer matched, or the shifts spread more than
+// twice that. Medium otherwise.
+export function quality(s: Signal, nucleus: Nucleus): "good" | "medium" | "rough" {
+  const level = s.level ?? 0, tight = nucleus === "1H" ? 0.15 : 1.5;
+  if (level <= 2 || s.sd > 2 * tight) return "rough";
+  return level >= 4 && s.sd <= tight && (s.based >= 2 || level === 6) ? "good" : "medium";
+}
+// The details as a table (tab-separated, for a spreadsheet): one row per signal.
+export function detailsTable(p: Prediction): string {
+  const head = p.nucleus === "1H" ? ["Group", "δ (ppm)", "Multiplicity", "J (Hz)", "Integral", "Spheres matched", "Measured shifts", "Spread (ppm)", "Quality"]
+    : ["Group", "δ (ppm)", "Carbons", "Spheres matched", "Measured shifts", "Spread (ppm)", "Quality"];
+  const rows = [...p.signals].sort((a, b) => b.shift - a.shift).map((s) => (p.nucleus === "1H"
+    ? [s.group ?? "", s.shift.toFixed(2), multiplicity(s), s.couplings.map((c) => c.j.toFixed(1)).join(", "), `${s.nuclei}H`, String(s.level ?? ""), String(s.based), s.sd.toFixed(2), quality(s, p.nucleus)]
+    : [s.group ?? "", s.shift.toFixed(1), String(s.nuclei), String(s.level ?? ""), String(s.based), s.sd.toFixed(1), quality(s, p.nucleus)]));
+  return [head, ...rows].map((r) => r.join("\t")).join("\n");
 }
 
 // --- Text --------------------------------------------------------------------------------------------------------

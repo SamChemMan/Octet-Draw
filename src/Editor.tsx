@@ -22,7 +22,7 @@ import { actionFor, keyOf, keymap, label as keyLabel } from "./keys";
 import { Actions, actionItems, type Context } from "./Actions";
 import { Properties, propertyValues, PROPERTY_ROWS } from "./Properties";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
-import { acsText, multiplicity } from "./nmr";
+import { acsText, multiplicity, quality } from "./nmr";
 import { nmrReady, predict, type Nucleus } from "./nmr";
 import { rings } from "./rings";
 import { logS, properties as calculate } from "./props";
@@ -1784,7 +1784,7 @@ export default function Editor() {
   const nmrLit = useMemo(() => new Set(nmr && hover.atom !== undefined ? nmr.toDoc.flatMap((d, k) => (d === hover.atom ? [k] : [])) : []), [nmr, hover.atom]);
   const nmrMarks = new Set(nmr && nmrPoint ? nmrPoint.map((k) => nmr.toDoc[k]) : []);
   // Each drawn atom's predicted shifts, shown beside it while the panel is open.
-  const nmrShifts = new Map<number, number[]>();
+  const nmrShifts = new Map<number, number[]>(), nmrQuality = new Map<number, string>();
   const stereo = useMemo(() => (loaded && doc.atoms.some((a) => a.cip) ? stereoLabels(doc) : undefined), [loaded, doc]);
   const ringsOf = useMemo(() => (spectrum || doc.atoms.some((a) => a.cip) ? rings({ atoms: shown.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: shown.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) }) : []), [spectrum, shown, doc]);
   // Opening the panel scrolls the canvas up if the panel would cover the structure (again once the spectrum is in,
@@ -1796,8 +1796,8 @@ export default function Editor() {
     if (!panel || !box || !Number.isFinite(low)) return;
     const over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
     if (over > 0) setView((v) => ({ ...v, y: v.y - over }));
-  }, [spectrum, !!nmr?.prediction]); // eslint-disable-line react-hooks/exhaustive-deps
-  for (const s of nmr?.prediction?.signals ?? []) for (const d of new Set(s.atoms.map((k) => nmr!.toDoc[k]))) nmrShifts.set(d, [...(nmrShifts.get(d) ?? []), s.shift]);
+  }, [spectrum, !!nmr?.prediction, settings.nmrDetails]); // eslint-disable-line react-hooks/exhaustive-deps
+  for (const s of nmr?.prediction?.signals ?? []) for (const d of new Set(s.atoms.map((k) => nmr!.toDoc[k]))) { nmrShifts.set(d, [...(nmrShifts.get(d) ?? []), s.shift]); nmrQuality.set(d, quality(s, spectrum!)); }
   // Where each predicted shift goes on the canvas (px): in a gap between the atom's bonds, out of its rings (or away
   // from the atoms within two bonds), clear of its own label and of the shift labels already placed.
   function shiftLabels() {
@@ -2691,7 +2691,7 @@ export default function Editor() {
           <g className="selection-marks">{selected}</g>
           {nmrMarks.size > 0 && <g className="nmr-marks">{[...nmrMarks].filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `nmr${i}`, ""))}</g>}
           {shiftLabels().map((l) => (
-            <text key={`shift${l.atom}`} className={`nmr-shift${nmrMarks.has(l.atom) ? " lit" : ""}`} x={l.x} y={l.y} textAnchor={l.anchor} dominantBaseline="middle">{l.text}</text>
+            <text key={`shift${l.atom}`} className={`nmr-shift${nmrMarks.has(l.atom) ? " lit" : ""}${settings.nmrDetails ? ` q-${nmrQuality.get(l.atom)}` : ""}`} x={l.x} y={l.y} textAnchor={l.anchor} dominantBaseline="middle">{l.text}</text>
           ))}
           {hovered}
           {drawing.beads.length > 0 && (
@@ -3118,6 +3118,8 @@ export default function Editor() {
           })()}
           solventPeaks={settings.nmrSolventPeaks}
           colours={nmrColours}
+          details={settings.nmrDetails}
+          onDetails={(on) => setSettings((s) => ({ ...s, nmrDetails: on }))}
           onColour={(k, c) => haloSignals(() => c, k)}
           onColourAll={(on) => haloSignals((k) => (on ? PEAK_COLOURS[k % PEAK_COLOURS.length] : undefined))}
           onKey={addKey}

@@ -2999,6 +2999,7 @@ button.variant.add {
 }
 .spectrum header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-1) 0;
@@ -3076,6 +3077,7 @@ button.variant.add {
   background: transparent;
   color: var(--ink);
   font: 12px var(--font-sans);
+  white-space: nowrap;
 }
 .spectrum-button:hover:not(:disabled) {
   background: var(--surface-sunken);
@@ -3217,4 +3219,69 @@ button.variant.add {
   display: grid;
   place-items: center;
   width: 32px;
+}
+/* The spectrum's details: how each shift was found, and how far to trust it. */
+.spectrum-details {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  max-height: 150px;
+  margin-top: var(--space-1);
+  overflow: auto;
+  border-top: 1px solid var(--hairline);
+}
+.spectrum.expanded .spectrum-details {
+  max-height: 32%;
+}
+.spectrum-details table {
+  flex: 1;
+  border-collapse: collapse;
+  font: 12px/18px var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.spectrum-details th {
+  position: sticky;
+  top: 0;
+  padding: var(--space-1) var(--space-2);
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+.spectrum-details td {
+  padding: 2px var(--space-2);
+  border-top: 1px solid var(--hairline);
+}
+.spectrum-details td.num {
+  text-align: right;
+}
+.spectrum-details tr.lit td {
+  background: var(--brand-mist);
+}
+.spectrum-details .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: var(--space-1);
+  border-radius: 50%;
+}
+.spectrum-details > .spectrum-button {
+  position: sticky;
+  top: var(--space-1);
+  margin-top: var(--space-1);
+}
+/* Quality, as ChemDraw colours its estimates: good, medium, rough. */
+.quality.good, .nmr-shift.q-good {
+  color: var(--brand);
+  fill: var(--brand);
+}
+.quality.medium, .nmr-shift.q-medium {
+  color: #B7791F;
+  fill: #B7791F;
+}
+.quality.rough, .nmr-shift.q-rough {
+  color: var(--error);
+  fill: var(--error);
 }

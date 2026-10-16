@@ -4,7 +4,7 @@
 // the panel fills the canvas with the structure beside the spectrum (the canvas's own drawing, shown again).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowsIn, ArrowsOut, CopySimple, X } from "@phosphor-icons/react";
-import { acsText, multiplicity, type Nucleus, type Prediction, type Signal } from "./nmr";
+import { acsText, detailsTable, multiplicity, quality, type Nucleus, type Prediction, type Signal } from "./nmr";
 import { Select } from "./Select";
 
 export const SOLVENTS = ["CDCl₃", "DMSO-d₆", "CD₃OD", "D₂O", "C₆D₆", "Acetone-d₆", "CD₃CN"];
@@ -37,6 +37,7 @@ export const PEAK_COLOURS = ["#2F6FED", "#F28C28", "#2BA84A", "#E5484D", "#8E4EC
 type Props = {
   prediction?: Prediction; nucleus: Nucleus; mhz: number; solvent: string; lit: Set<number>; solventPeaks: boolean;
   colours: (string | undefined)[]; // each signal's colour (its atoms' highlight)
+  details: boolean; onDetails: (on: boolean) => void; // the table of how each shift was found
   onColour: (signal: number, colour?: string) => void; onColourAll: (on: boolean) => void; onKey: () => void;
   inset?: [number, number, number, number]; // the structure's box on the canvas (px), shown beside the spectrum when expanded
   onNucleus: (n: Nucleus) => void; onMhz: (mhz: number) => void; onSolvent: (s: string) => void; onSolventPeaks: (on: boolean) => void;
@@ -166,6 +167,7 @@ export function SpectrumPanel(p: Props) {
         <Select label="Frequency" value={String(p.mhz)} options={FIELDS.map((f) => [String(f), `${f} MHz`])} onChange={(v) => p.onMhz(Number(v))} />
         <Select label="Solvent" value={p.solvent} options={SOLVENTS.map((s) => [s, s])} onChange={p.onSolvent} />
         <button className="spectrum-button" aria-pressed={p.solventPeaks} onClick={() => p.onSolventPeaks(!p.solventPeaks)} title={p.solventPeaks ? "Hide the solvent's peaks" : "Show the solvent's peaks"}>Solvent peaks</button>
+        <button className="spectrum-button" aria-pressed={p.details} onClick={() => p.onDetails(!p.details)} title={p.details ? "Hide the details" : "How each shift was predicted, and how far to trust it"}>Details</button>
         <span className="spectrum-gap" />
         {chosen !== undefined && (
           // The clicked peak's colour, which its atoms take as a highlight too.
@@ -260,6 +262,43 @@ export function SpectrumPanel(p: Props) {
         </svg>
       )}
       </div>
+      {p.details && p.prediction && (() => {
+        // How each shift was found: the group, its shift and couplings (with the groups they couple to), how many
+        // spheres of its surroundings matched measured shifts, how many there were and how far they spread, and so how
+        // far to trust it. Pointing at a row lights its atoms and peak, as pointing at the peak does.
+        const groupOf = (atom: number) => signals.find((s) => s.atoms.includes(atom))?.group ?? "";
+        const order = signals.map((_, k) => k).sort((a, b) => signals[b].shift - signals[a].shift);
+        return (
+          <div className="spectrum-details">
+            <table>
+              <thead>
+                <tr><th>Group</th><th>δ (ppm)</th>{p.nucleus === "1H" ? <><th>Multiplicity</th><th>J (Hz)</th><th>Integral</th></> : <th>Carbons</th>}<th>Based on</th><th>Quality</th></tr>
+              </thead>
+              <tbody>
+                {order.map((k) => {
+                  const s = signals[k], q = quality(s, p.nucleus);
+                  return (
+                    <tr key={k} className={pointed === k ? "lit" : undefined} onPointerEnter={() => { setPointed(k); p.onPoint(s.atoms); }} onPointerLeave={() => { setPointed(undefined); p.onPoint(undefined); }}>
+                      <td>{p.colours[k] && <span className="dot" style={{ background: p.colours[k] }} />}{s.group}</td>
+                      <td className="num">{s.shift.toFixed(p.nucleus === "1H" ? 2 : 1)}</td>
+                      {p.nucleus === "1H" ? (
+                        <>
+                          <td>{multiplicity(s)}</td>
+                          <td>{s.couplings.length ? s.couplings.map((c) => `${c.j.toFixed(1)} to ${[...new Set((c.with ?? []).map(groupOf))].join(", ")}`).join("; ") : "–"}</td>
+                          <td className="num">{s.nuclei}H</td>
+                        </>
+                      ) : <td className="num">{s.nuclei}</td>}
+                      <td>{s.level} {s.level === 1 ? "sphere" : "spheres"} matched, {s.based} measured, ±{s.sd.toFixed(p.nucleus === "1H" ? 2 : 1)}</td>
+                      <td><span className={`quality ${q}`}>{q[0].toUpperCase() + q.slice(1)}</span></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <button className="spectrum-button" onClick={() => p.onCopy(detailsTable(p.prediction!))}><CopySimple size={14} /> Copy table</button>
+          </div>
+        );
+      })()}
       <footer className="spectrum-foot">
         <p className="spectrum-text">{text}</p>
         <span className="spectrum-credit" title="Contains information from nmrshiftdb2 (www.nmrshiftdb.org), made available under the nmrshiftdb2 Database License">nmrshiftdb2</span>
