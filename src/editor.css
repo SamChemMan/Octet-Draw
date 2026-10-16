@@ -2647,13 +2647,100 @@ button.variant.add {
 .pen-points rect, .pen-points circle { fill: var(--canvas); stroke: var(--brand-bright); stroke-width: 1.2px; vector-effect: non-scaling-stroke; }
 .pen-points circle { fill: var(--brand-bright); }
 .pen-points line { stroke: var(--brand-bright); stroke-width: 1px; vector-effect: non-scaling-stroke; }
-/* The system colour picker that Colour > Other Colour… opens: present for the click, but not seen. */
-.picker-input {
-  position: fixed;
-  left: 0;
-  bottom: 0;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
+
+/* Octet's colour picker: a square for strength and lightness, a hue strip, and the hex. */
+.colour-picker {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-2);
+  width: 240px;
+  padding: var(--space-2) 0 var(--space-1);
+}
+.picker-square {
+  position: relative;
+  height: 140px;
+  border-radius: var(--radius-sm);
+  background-image: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent);
+  cursor: crosshair;
+  touch-action: none;
+}
+.picker-hue {
+  position: relative;
+  height: 12px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+  cursor: ew-resize;
+  touch-action: none;
+}
+.picker-knob {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.25), 0 1px 3px rgb(0 0 0 / 0.25);
   pointer-events: none;
+}
+.picker-square:focus-visible,
+.picker-hue:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.picker-hex {
+  width: 96px;
+  padding: 4px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 13px/18px var(--font-mono);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Settings > Colours: Octet's colours, then the user's, each with its name; Add a colour under them. */
+.palette-editor {
+  display: grid;
+  gap: var(--space-2);
+}
+.palette-builtin {
+  display: flex;
+  gap: 6px;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--hairline);
+}
+.palette-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.palette-name {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: 13px/18px var(--font-sans);
+  -webkit-user-select: text;
+  user-select: text;
+}
+.palette-name:hover,
+.palette-name:focus {
+  border-color: var(--hairline);
+  outline: none;
+}
+.palette-add {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  color: var(--ink);
+  font: 13px/18px var(--font-sans);
 }

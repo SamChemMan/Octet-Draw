@@ -44,6 +44,7 @@ type Props = {
   layout: Record<string, { order: string[]; rows: number }>;
   onLayout: (kind: string, layout: { order: string[]; rows: number }) => void;
   colour?: { value: string; tints?: boolean }; // the selection's colour, shown in the one colour row every selection gets
+  palette: { name: string; hex: string }[]; // the user's own colours, after Octet's
 };
 
 const ELEMENTS = ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"];
@@ -131,7 +132,8 @@ export function actionItems(context: Context, messy: boolean): Item[] {
   const clean = it(<MagicWand size={18} />, "Clean up", "clean_up", messy);
   const nameIt = it(<TagSimple size={18} />, "Structure to name", "structure_to_name");
   const del = it(<Trash size={18} />, "Delete", "delete");
-  const flips = [it(<FlipHorizontal size={18} />, "Flip horizontal", "flip_h", false, true), it(<FlipVertical size={18} />, "Flip vertical", "flip_v", false, true)];
+  const flips = [it(<FlipHorizontal size={18} />, "Rotate 180° horizontal", "flip_h", false, true), it(<FlipVertical size={18} />, "Rotate 180° vertical", "flip_v", false, true)];
+  const mirrors = [it(<FlipHorizontal size={18} />, "Flip horizontal", "mirror_h", false, true), it(<FlipVertical size={18} />, "Flip vertical", "mirror_v", false, true)];
 
   switch (context.kind) {
     case "empty":
@@ -146,7 +148,7 @@ export function actionItems(context: Context, messy: boolean): Item[] {
     case "structure":
       // Sam's order (16 October 2026): Clean up, Structure to name and the flips as rows; then lone pairs, number,
       // caption, the turns, Copy as SMILES, Add to rings and Delete as small buttons.
-      items.push(clean, ...(context.nameable ? [nameIt] : []), it(<FlipVertical size={18} />, "Flip vertical", "flip_v"), it(<FlipHorizontal size={18} />, "Flip horizontal", "flip_h"));
+      items.push(clean, ...(context.nameable ? [nameIt] : []), it(<FlipVertical size={18} />, "Rotate 180° vertical", "flip_v"), it(<FlipHorizontal size={18} />, "Rotate 180° horizontal", "flip_h"));
       if (context.pairs) items.push(small(it(<SymbolGlyph kind="pair" />, context.pairs === "shown" ? "Hide lone pairs" : "Show lone pairs", "pairs")));
       items.push(small(it(<ListNumbers size={18} />, context.structures > 1 ? "Number these compounds" : "Number this compound", "number")),
         small(it(<TextT size={18} />, "Add a caption", "caption.add")),
@@ -154,7 +156,7 @@ export function actionItems(context: Context, messy: boolean): Item[] {
         small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")));
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<AlignCenterHorizontal size={18} />, "Line up in a row", "align.row")),
         small(it(<AlignCenterVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
-      items.push(small(del));
+      items.push(...mirrors, small(del));
       break;
     case "atom":
       items.push(it(<TextAa size={18} />, "Type a label", "atom.label"), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"), del);
@@ -222,7 +224,7 @@ function Row({ icon, name, command, hint, run, accent }: { icon: React.ReactNode
   );
 }
 
-export function Actions({ open, context, analysis, problems, messy, hint, onOpen, run, layout, onLayout, colour }: Props) {
+export function Actions({ open, context, analysis, problems, messy, hint, onOpen, run, layout, onLayout, colour, palette }: Props) {
   // An action being dragged to a new place: in the rows (index among rows) or the small buttons (index among them).
   const [carry, setCarry] = useState<{ command: string; x: number; y: number; to?: { rows: boolean; index: number } }>();
   const dragged = useRef(false);
@@ -565,13 +567,10 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
       {colour && (
         // One colour row for every kind of selection. A highlight takes a pale fill; anything else an ink colour.
         <div className="swatches small" role="radiogroup" aria-label="Colour">
-          {(colour.tints ? TINTS : COLOURS).map(([name, hex]) => (
-            <button key={hex} role="radio" aria-checked={colour.value.toLowerCase() === hex.toLowerCase()} aria-label={name} title={name} className="swatch" style={{ background: hex }} onClick={() => run(`colour.${hex}`)} />
+          {[...(colour.tints ? TINTS : COLOURS), ...palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => (
+            <button key={`${name}${hex}`} role="radio" aria-checked={colour.value.toLowerCase() === hex.toLowerCase()} aria-label={name} title={name} className="swatch" style={{ background: hex }} onClick={() => run(`colour.${hex}`)} />
           ))}
-          <label className="swatch custom" title="Any colour">
-            <PlusIcon size={10} weight="bold" aria-hidden />
-            <input type="color" aria-label="Any colour" value={colour.value} onChange={(e) => run(`colour.${e.target.value}`)} />
-          </label>
+          <button className="swatch custom" title="Add a colour" aria-label="Add a colour" onClick={() => run("colours_add")}><PlusIcon size={10} weight="bold" aria-hidden /></button>
         </div>
       )}
 

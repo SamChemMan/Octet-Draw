@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
-  ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
+  ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
   FrameCorners, GearSix, Keyboard, Lasso, LinkSimple, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
   TextAlignCenter, TextAlignLeft, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Warning, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
 } from "@phosphor-icons/react";
@@ -255,7 +255,6 @@ export default function Editor() {
   const [cell, setCell] = useState<{ id: number; r: number; c: number; value: string }>();
   const cellOpen = useRef(false);
   const cellInput = useRef<HTMLInputElement>(null);
-  const otherColour = useRef<HTMLInputElement>(null); // the system colour picker, for Colour > Other Colour…
   useEffect(() => { cellInput.current?.select(); }, [cell?.id, cell?.r, cell?.c]);
   useEffect(() => { selectCursor.then(setCursor); }, []);
   const [turnCursor, setTurnCursor] = useState<string>();
@@ -405,8 +404,22 @@ export default function Editor() {
       }
       set(m, true);
     },
+    // ChemDraw's Rotate 180° Horizontal and Vertical (⇧⌘H, ⇧⌘V: stereo kept), and its Flip (a mirror image).
     flip_h: () => set(flipAtoms(doc, selection.size ? selection : new Set(doc.atoms.map((_, i) => i)), "horizontal"), true),
     flip_v: () => set(flipAtoms(doc, selection.size ? selection : new Set(doc.atoms.map((_, i) => i)), "vertical"), true),
+    mirror_h: () => set(flipAtoms(doc, selection.size ? selection : new Set(doc.atoms.map((_, i) => i)), "horizontal", true), true),
+    mirror_v: () => set(flipAtoms(doc, selection.size ? selection : new Set(doc.atoms.map((_, i) => i)), "vertical", true), true),
+    // Invert Selection (⇧⌘I): everything that was not selected is, and the rest is not.
+    invert_selection: () => {
+      setSelection(new Set(doc.atoms.map((_, i) => i).filter((i) => !selection.has(i))));
+      setPicked(new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id).filter((id) => !picked.has(id))));
+    },
+    // Clean Up Reaction (⇧⌘X): the picked reaction, or the reaction around the one arrow picked.
+    clean_reaction: () => {
+      const arrow = reactionPicked()?.arrows[0] ?? [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
+      const r = arrow !== undefined ? reactionOf(arrow) : undefined;
+      return r ? set(cleanUpReaction(doc, r, arrows), true) : setNotice("Pick a reaction arrow first.");
+    },
     // Zoom about the middle of the window. Actual size is 100%: bonds at their true 14.4 pt.
     zoom_in: () => zoomTo(view.zoom * 1.25),
     zoom_out: () => zoomTo(view.zoom / 1.25),
@@ -434,7 +447,9 @@ export default function Editor() {
     ...Object.fromEntries(["solid", "shaded", "faded"].map((f) => [`curves_${f}`, () => runAction(`arrow.fill.${f}`)])),
     // The Colour menu: each colour in COLOURS by its place, and Other Colour… for the system picker.
     ...Object.fromEntries(COLOURS.map(([, hex], k) => [`colour_${k}`, () => runAction(`colour.${hex}`)])),
-    colour_other: () => otherColour.current?.click(),
+    ...Object.fromEntries(settings.palette.map((c, k) => [`colour_user_${k}`, () => runAction(`colour.${c.hex}`)])),
+    colour_other: () => setSettingsOpen("colours"),
+    colours_add: () => { setAddingColour(true); setSettingsOpen("colours"); },
     ...Object.fromEntries([8, 9, 10, 12, 14, 18, 24].map((pt) => [`size_${pt}`, () => restyle(() => ({ size: pt === style.captionSize ? undefined : pt }))])),
     zoom_fit: () => {
       const b = bounds(doc);
@@ -453,6 +468,11 @@ export default function Editor() {
     saveSettings(settings);
     if (TAURI) invoke("set_check", { id: "snap", checked: settings.snap }).catch(() => {});
   }, [settings]);
+  // The Colour menu lists the user's colours by name: the menu bar is built again when they change.
+  const paletteNames = settings.palette.map((c) => c.name).join("\n");
+  useEffect(() => {
+    if (TAURI) invoke("set_palette", { names: settings.palette.map((c) => c.name) }).then(() => invoke("set_check", { id: "snap", checked: settings.snap })).catch(() => {});
+  }, [paletteNames]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!TAURI) return;
     const off = listen<string>("menu", (e) => commands.current[e.payload]?.());
@@ -512,6 +532,7 @@ export default function Editor() {
   const [pageHover, setPageHover] = useState<string>();
   // The Settings window, open at a module.
   const [settingsOpen, setSettingsOpen] = useState<ModuleId>();
+  const [addingColour, setAddingColour] = useState(false); // Settings opened from a colour row's +, to add a colour
   const [commandsOpen, setCommandsOpen] = useState(false);
   // An arrow Octet offers after a row of starting materials (from Clean up). Tab draws it; any other change drops it.
   const [offer, setOffer] = useState<{ from: P; to: P; doc: Mol }>();
@@ -1320,7 +1341,7 @@ export default function Editor() {
 
   // The key to show beside an action: menu shortcuts, then the user's shortcut table.
   const MENU_KEYS: Record<string, string> = {
-    import: `⇧${MOD}I`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}/`, copy_smiles: `⌥${MOD}C`, delete: "⌫",
+    invert_selection: `⇧${MOD}I`, clean_reaction: `⇧${MOD}X`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}/`, copy_smiles: `⌥${MOD}C`, delete: "⌫",
     structure_to_name: `⌥${MOD}N`, "shape.front": `${MOD}[`, "shape.back": `${MOD}]`,
     settings: `${MOD},`, name_to_structure: `⇧${MOD}N`, "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.edit": keyLabel("enter"),
   };
@@ -1352,12 +1373,13 @@ export default function Editor() {
   // Everything the command palette offers: the actions for the selection, the menu commands, every tool and
   // variant (templates too), and the Settings modules. Each shows its shortcut where it has one.
   const MENU_NAMES: Record<string, [string, string | undefined, React.ReactNode]> = {
-    new: ["New drawing", `${MOD}N`, <FilePlus size={18} />], open: ["Open…", `${MOD}O`, <FolderOpen size={18} />], import: ["Import a structure…", `⇧${MOD}I`, <FileArrowDown size={18} />],
+    new: ["New drawing", `${MOD}N`, <FilePlus size={18} />], open: ["Open…", `${MOD}O`, <FolderOpen size={18} />], import: ["Import a structure…", "", <FileArrowDown size={18} />],
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDisk size={18} />],
-    undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `⇧${MOD}Z`, <ArrowClockwise size={18} />], select_all: ["Select all", `${MOD}A`, <SelectionAll size={18} />],
-    clean_up: ["Clean up", `⇧${MOD}K`, <MagicWand size={18} />], flip_h: ["Flip horizontal", `⇧${MOD}H`, <FlipHorizontal size={18} />], flip_v: ["Flip vertical", `⇧${MOD}V`, <FlipVertical size={18} />],
+    undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <MagicWand size={18} />],
+    mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />], select_all: ["Select all", `${MOD}A`, <SelectionAll size={18} />],
+    clean_up: ["Clean up", `⇧${MOD}K`, <MagicWand size={18} />], flip_h: ["Rotate 180° horizontal", `⇧${MOD}H`, <FlipHorizontal size={18} />], flip_v: ["Rotate 180° vertical", `⇧${MOD}V`, <FlipVertical size={18} />],
     zoom_in: ["Magnify", `⇧${MOD}>`, <MagnifyingGlassPlus size={18} />], zoom_out: ["Reduce", `⇧${MOD}<`, <MagnifyingGlassMinus size={18} />],
-    zoom_actual: ["Actual size", `${MOD}0`, <FrameCorners size={18} />], zoom_fit: ["Fit to window", `${MOD}/`, <ArrowsOutSimple size={18} />],
+    zoom_actual: ["Actual size", `${MOD}\\`, <FrameCorners size={18} />], zoom_fit: ["Fit to window", `${MOD}/`, <ArrowsOutSimple size={18} />],
     name_to_structure: ["Name to structure", `⇧${MOD}N`, <AtomIcon size={18} />],
     snap: [settings.snap ? "Turn snapping off" : "Turn snapping on", undefined, <LinkSimple size={18} />],
     actions: [settings.actions ? "Hide the Actions panel" : "Show the Actions panel", undefined, <SlidersHorizontal size={18} />],
@@ -1740,8 +1762,10 @@ export default function Editor() {
       // Drawing with the Pen: Return or Escape ends the curve; Delete takes back the last point.
       if (pen && (e.key === "Enter" || e.key === "Escape")) { e.preventDefault(); return finishPen(); }
       if (pen && (e.key === "Backspace" || e.key === "Delete")) { e.preventDefault(); return setPen(pen.length > 1 ? pen.slice(0, -1) : undefined); }
+      // Redo is ⌘Y (ChemDraw's) in the menu; ⇧⌘Z, the Mac's own, works too.
       if (!TAURI && mod && key === "z") { e.preventDefault(); return undo(e.shiftKey); }
-      if (!TAURI && mod && key === "y") { e.preventDefault(); return undo(true); }
+      if (mod && key === "y") { e.preventDefault(); return undo(true); }
+      if (TAURI && mod && e.shiftKey && key === "z") { e.preventDefault(); return undo(true); }
       if (!TAURI && mod && key === "a" && !e.shiftKey) { e.preventDefault(); return commands.current.select_all(); }
       if (!TAURI && mod && key === "a" && e.shiftKey) { e.preventDefault(); return commands.current.command_palette(); }
       if (mod || e.altKey) return;
@@ -2324,7 +2348,10 @@ export default function Editor() {
           onKeys={(keys) => setSettings((s) => ({ ...s, keys }))}
           files={settings.files}
           onFiles={(files) => setSettings((s) => ({ ...s, files }))}
-          onClose={() => setSettingsOpen(undefined)}
+          palette={settings.palette}
+          onPalette={(palette) => setSettings((s) => ({ ...s, palette }))}
+          adding={addingColour}
+          onClose={() => { setSettingsOpen(undefined); setAddingColour(false); }}
         />
       )}
       {pop && <span key={pop.n} className="halo" style={{ left: pop.x, top: pop.y }} aria-hidden />}
@@ -2381,9 +2408,9 @@ export default function Editor() {
         layout={settings.actionLayout}
         onLayout={(kind, layout) => setSettings((s) => ({ ...s, actionLayout: { ...s.actionLayout, [kind]: layout } }))}
         colour={selectionColour()}
+        palette={settings.palette}
         run={runAction}
       />
-      <input ref={otherColour} type="color" className="picker-input" aria-label="Other colour" tabIndex={-1} onChange={(e) => runAction(`colour.${e.target.value}`)} />
       {commandsOpen && <CommandPalette commands={paletteCommands()} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}
       {notice && (
         <p className="notice text-ui" role="status">

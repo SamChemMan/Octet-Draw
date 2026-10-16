@@ -17,12 +17,24 @@ use tauri_plugin_dialog::DialogExt;
 struct Picked(Mutex<HashSet<PathBuf>>);
 
 // Tickable menu items, so the page can set their ticks from the user's saved settings.
-struct Checks(Vec<CheckMenuItem<Wry>>);
+struct Checks(Mutex<Vec<CheckMenuItem<Wry>>>);
 
 #[tauri::command]
 fn set_check(checks: State<'_, Checks>, id: String, checked: bool) -> Result<(), String> {
-    let item = checks.0.iter().find(|c| c.id().0 == id).ok_or("no such menu item")?;
+    let checks = checks.0.lock().unwrap();
+    let item = checks.iter().find(|c| c.id().0 == id).ok_or("no such menu item")?;
     item.set_checked(checked).map_err(|e| e.to_string())
+}
+
+// The user's own colours, by name, in the Colour menu: the menu bar is built again with them (20 at most, names
+// cut to 40 characters). The frontend sets its check marks again afterwards.
+#[tauri::command]
+fn set_palette(app: AppHandle, checks: State<'_, Checks>, names: Vec<String>) -> Result<(), String> {
+    let names: Vec<String> = names.into_iter().take(20).map(|n| n.chars().filter(|c| !c.is_control()).take(40).collect()).collect();
+    let (bar, items) = menu(&app, &names).map_err(|e| e.to_string())?;
+    app.set_menu(bar).map_err(|e| e.to_string())?;
+    *checks.0.lock().unwrap() = items;
+    Ok(())
 }
 
 const MAX_BYTES: u64 = 64 * 1024 * 1024;
@@ -103,13 +115,13 @@ async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<St
 
 // File and Edit menus. Custom items send their id to the page as a "menu" event; Cut, Copy and Paste
 // stay native so the page gets ordinary clipboard events. Select All selects the drawing, not the page.
-fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> {
+fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> {
     let item = |id: &str, text: &str, keys: &str| MenuItem::with_id(app, id, text, true, Some(keys));
     let sep = || PredefinedMenuItem::separator(app);
     let file = Submenu::with_items(app, "File", true, &[
         &item("new", "New", "CmdOrCtrl+N")?,
         &item("open", "Open…", "CmdOrCtrl+O")?,
-        &item("import", "Import a Structure…", "CmdOrCtrl+Shift+I")?,
+        &MenuItem::with_id(app, "import", "Import a Structure…", true, None::<&str>)?,
         &sep()?,
         &item("save", "Save", "CmdOrCtrl+S")?,
         &item("save_as", "Save As…", "CmdOrCtrl+Shift+S")?,
@@ -120,19 +132,20 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
     ])?;
     let edit = Submenu::with_items(app, "Edit", true, &[
         &item("undo", "Undo", "CmdOrCtrl+Z")?,
-        &item("redo", "Redo", "CmdOrCtrl+Shift+Z")?,
+        &item("redo", "Redo", "CmdOrCtrl+Y")?,
         &sep()?,
         &PredefinedMenuItem::cut(app, None)?,
         &PredefinedMenuItem::copy(app, None)?,
         &PredefinedMenuItem::paste(app, None)?,
         &item("select_all", "Select All", "CmdOrCtrl+A")?,
+        &item("invert_selection", "Invert Selection", "CmdOrCtrl+Shift+I")?,
         &sep()?,
         &item("copy_smiles", "Copy As SMILES", "Alt+CmdOrCtrl+C")?,
     ])?;
     let snap = CheckMenuItem::with_id(app, "snap", "Snap to Objects", true, true, None::<&str>)?;
     let view = Submenu::with_items(app, "View", true, &[
         // ChemDraw's keys: Magnify, Reduce and Fit to Window.
-        &item("zoom_actual", "Actual Size", "CmdOrCtrl+0")?,
+        &item("zoom_actual", "Actual Size", "CmdOrCtrl+\\")?,
         &item("zoom_fit", "Fit to Window", "CmdOrCtrl+/")?,
         &item("zoom_in", "Magnify", "CmdOrCtrl+Shift+.")?,
         &item("zoom_out", "Reduce", "CmdOrCtrl+Shift+,")?,
@@ -145,9 +158,7 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
     // Structure commands keep ChemDraw's shortcuts.
     let structure = Submenu::with_items(app, "Structure", true, &[
         &item("clean_up", "Clean Up Structure", "CmdOrCtrl+Shift+K")?,
-        &sep()?,
-        &item("flip_h", "Flip Horizontal", "CmdOrCtrl+Shift+H")?,
-        &item("flip_v", "Flip Vertical", "CmdOrCtrl+Shift+V")?,
+        &item("clean_reaction", "Clean Up Reaction", "CmdOrCtrl+Shift+X")?,
         &sep()?,
         &item("name_to_structure", "Convert Name to Structure", "CmdOrCtrl+Shift+N")?,
         &item("structure_to_name", "Convert Structure to Name", "Alt+CmdOrCtrl+N")?,
@@ -155,6 +166,12 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
     let object = Submenu::with_items(app, "Object", true, &[
         &item("bring_front", "Bring to Front", "CmdOrCtrl+[")?,
         &item("send_back", "Send to Back", "CmdOrCtrl+]")?,
+        &sep()?,
+        // ChemDraw's Flip (a mirror image, no key) and Rotate 180° (stereo kept, ⇧⌘H and ⇧⌘V).
+        &MenuItem::with_id(app, "mirror_h", "Flip Horizontal", true, None::<&str>)?,
+        &MenuItem::with_id(app, "mirror_v", "Flip Vertical", true, None::<&str>)?,
+        &item("flip_h", "Rotate 180° Horizontal", "CmdOrCtrl+Shift+H")?,
+        &item("flip_v", "Rotate 180° Vertical", "CmdOrCtrl+Shift+V")?,
     ])?;
     // Text commands style the caption being typed, or the picked captions.
     let sizes = [8, 9, 10, 12, 14, 18, 24]
@@ -194,17 +211,23 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
         &MenuItem::with_id(app, "curves_faded", "Faded", true, None::<&str>)?,
     ])?;
     // Colour, as ChemDraw's Color menu: it colours whatever is selected. The colours are docstyle.ts's COLOURS.
-    let colour = Submenu::with_items(app, "Colour", true, &[
-        &MenuItem::with_id(app, "colour_0", "Black", true, None::<&str>)?,
-        &MenuItem::with_id(app, "colour_1", "Ink", true, None::<&str>)?,
-        &MenuItem::with_id(app, "colour_2", "Octet Blue", true, None::<&str>)?,
-        &MenuItem::with_id(app, "colour_3", "Bright Blue", true, None::<&str>)?,
-        &MenuItem::with_id(app, "colour_4", "Green", true, None::<&str>)?,
-        &MenuItem::with_id(app, "colour_5", "Amber", true, None::<&str>)?,
-        &MenuItem::with_id(app, "colour_6", "Red", true, None::<&str>)?,
-        &sep()?,
-        &MenuItem::with_id(app, "colour_other", "Other Colour…", true, None::<&str>)?,
-    ])?;
+    // Then the user's own colours by name, and Edit Colours…, which opens them in Settings.
+    let builtin = ["Black", "Ink", "Octet Blue", "Bright Blue", "Green", "Amber", "Red"].iter().enumerate()
+        .map(|(k, name)| MenuItem::with_id(app, format!("colour_{k}"), *name, true, None::<&str>))
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let mine = palette.iter().enumerate()
+        .map(|(k, name)| MenuItem::with_id(app, format!("colour_user_{k}"), name, true, None::<&str>))
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let (sep1, sep2) = (sep()?, sep()?);
+    let edit_colours = MenuItem::with_id(app, "colour_other", "Edit Colours…", true, None::<&str>)?;
+    let mut colour_items: Vec<&dyn IsMenuItem<Wry>> = builtin.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
+    if !mine.is_empty() {
+        colour_items.push(&sep1);
+        colour_items.extend(mine.iter().map(|m| m as &dyn IsMenuItem<Wry>));
+    }
+    colour_items.push(&sep2);
+    colour_items.push(&edit_colours);
+    let colour = Submenu::with_items(app, "Colour", true, &colour_items)?;
     let window = Submenu::with_items(app, "Window", true, &[
         &PredefinedMenuItem::minimize(app, None)?,
         &PredefinedMenuItem::fullscreen(app, None)?,
@@ -234,12 +257,12 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Picked::default())
-        .invoke_handler(tauri::generate_handler![open_drawing, save_drawing, set_check, import_structure])
+        .invoke_handler(tauri::generate_handler![open_drawing, save_drawing, set_check, set_palette, import_structure])
         .setup(|app| {
             let handle = app.handle();
-            let (bar, checks) = menu(handle)?;
+            let (bar, checks) = menu(handle, &[])?;
             app.set_menu(bar)?;
-            app.manage(Checks(checks));
+            app.manage(Checks(Mutex::new(checks)));
             app.on_menu_event(|app, event| {
                 let _ = app.emit("menu", event.id().0.as_str());
             });

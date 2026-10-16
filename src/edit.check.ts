@@ -213,3 +213,13 @@ console.log("edit.check: align ok");
   assert.equal(clearMap(m, 4).atoms[4].map, undefined);
   console.log("edit.check: atom maps ok");
 }
+
+// ChemDraw's two turns: Rotate 180° (⇧⌘H) turns a wedge into a hash, keeping the configuration; Flip mirrors it.
+{
+  let m = sprout(sprout(EMPTY, [0, 0]), 1);
+  m = setBondSpec(m, 0, { type: 1, stereo: 1 });
+  const all = new Set(m.atoms.map((_, i) => i));
+  assert.equal(flipAtoms(m, all, "horizontal").bonds[0].stereo, 6, "Rotate 180° swaps wedge for hash");
+  assert.equal(flipAtoms(m, all, "horizontal", true).bonds[0].stereo, 1, "Flip keeps the wedge: a mirror image");
+  console.log("edit.check: flips ok");
+}

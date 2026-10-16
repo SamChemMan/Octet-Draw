@@ -2,11 +2,13 @@
 // modules (Document, Keyboard shortcuts, Import and export) under a search field that is always there. With text
 // in it, every matching setting from every module shows on the right, grouped by module and ready to use.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowsDownUp, CaretDown, CaretUpDown, Check, FileText, Keyboard, MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
+import { ArrowsDownUp, CaretDown, CaretUpDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, Plus, X } from "@phosphor-icons/react";
+import { ColourPicker } from "./ColourPicker";
+import type { Swatch } from "./settings";
 import { BACKGROUNDS, COLOURS, FONTS, PAGE_NAMES, PAGES, PRESETS, pageSize, presetOf, type DocStyle, type PageName } from "./docstyle";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
 
-export type ModuleId = "document" | "keys" | "files";
+export type ModuleId = "document" | "keys" | "files" | "colours";
 export type FilePrefs = {
   format: "pdf" | "svg" | "png" | "cdxml"; scale: number; background: "white" | "transparent"; margin: number;
   clipboard: { pdf: boolean; cdxml: boolean; mol: boolean; smiles: boolean }; keepStyle: boolean;
@@ -25,8 +27,43 @@ type Props = {
   onKeys: (keys: Keymap) => void;
   files: FilePrefs;
   onFiles: (files: FilePrefs) => void;
+  palette: Swatch[]; // the user's own colours
+  onPalette: (palette: Swatch[]) => void;
+  adding?: boolean; // opened to add a colour: a new one is made, ready to set
   onClose: () => void;
 };
+
+// The user's colours: each one's swatch, name and remove button; the one chosen opens Octet's picker under it.
+// Add a colour makes a new one from the last colour picked and opens it.
+function PaletteEditor({ palette, onPalette, adding }: { palette: Swatch[]; onPalette: (p: Swatch[]) => void; adding?: boolean }) {
+  const [open, setOpen] = useState<number>();
+  const add = () => {
+    if (palette.length >= 20) return;
+    onPalette([...palette, { name: `Colour ${palette.length + 1}`, hex: palette[palette.length - 1]?.hex ?? "#1D49A7" }]);
+    setOpen(palette.length);
+  };
+  const started = useRef(false);
+  useEffect(() => { if (adding && !started.current) { started.current = true; add(); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const change = (k: number, patch: Partial<Swatch>) => onPalette(palette.map((c, i) => (i === k ? { ...c, ...patch } : c)));
+  return (
+    <div className="palette-editor">
+      <div className="palette-builtin" role="list" aria-label="Octet's colours">
+        {COLOURS.map(([name, hex]) => <span key={hex} role="listitem" className="swatch" style={{ background: hex }} title={name} aria-label={name} />)}
+      </div>
+      {palette.map((c, k) => (
+        <div key={k} className={open === k ? "palette-row open" : "palette-row"}>
+          <div className="palette-line">
+            <button className="swatch" style={{ background: c.hex }} aria-label={`Change ${c.name}`} aria-expanded={open === k} onClick={() => setOpen(open === k ? undefined : k)} />
+            <input className="palette-name" aria-label="Name" value={c.name} maxLength={40} onChange={(e) => change(k, { name: e.target.value })} onBlur={(e) => { if (!e.target.value.trim()) change(k, { name: `Colour ${k + 1}` }); }} />
+            <button className="text-button" aria-label={`Remove ${c.name}`} title="Remove" onClick={() => { onPalette(palette.filter((_, i) => i !== k)); setOpen(undefined); }}><X size={12} weight="bold" /></button>
+          </div>
+          {open === k && <ColourPicker value={c.hex} onChange={(hex) => change(k, { hex })} />}
+        </div>
+      ))}
+      {palette.length < 20 && <button className="palette-add" onClick={add}><Plus size={12} weight="bold" aria-hidden /> Add a colour</button>}
+    </div>
+  );
+}
 
 // ——— Fields ———
 
@@ -172,6 +209,7 @@ const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: strin
   { id: "document", name: "Document", icon: <FileText size={16} />, words: "document style page text" },
   { id: "keys", name: "Keyboard shortcuts", icon: <Keyboard size={16} />, words: "keyboard shortcut hotkey keys" },
   { id: "files", name: "Import and export", icon: <ArrowsDownUp size={16} />, words: "import export file clipboard" },
+  { id: "colours", name: "Colours", icon: <Palette size={16} />, words: "colour colours palette custom swatch named" },
 ];
 // Words people use for the same thing.
 const SYNONYMS: Record<string, string> = {
@@ -277,7 +315,6 @@ export function SettingsWindow(p: Props) {
 
   const fontOptions = FONTS.map((f): [string, string] => [f, f]);
   const presets: [string, string][] = [...Object.keys(PRESETS).map((x): [string, string] => [x, x]), ...(style.preset === "Custom" ? [["Custom", "Custom"] as [string, string]] : [])];
-  const customColour = !COLOURS.some(([, hex]) => hex.toLowerCase() === style.colour.toLowerCase());
   const files = p.files, setFiles = (patch: Partial<FilePrefs>) => p.onFiles({ ...files, ...patch });
 
   const defs: Def[] = useMemo(() => {
@@ -294,13 +331,10 @@ export function SettingsWindow(p: Props) {
       num("captionSize", "Caption size", "pt", "caption text font size", "Text"),
       d("document", "Text", "Colour", "text colour caption", (
         <span className="swatches" role="radiogroup" aria-label="Text colour">
-          {COLOURS.map(([name, hex]) => (
-            <button key={hex} role="radio" aria-checked={style.colour.toLowerCase() === hex.toLowerCase()} aria-label={name} title={name} className="swatch" style={{ background: hex }} onClick={() => change({ colour: hex })} />
+          {[...COLOURS, ...p.palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => (
+            <button key={`${name}${hex}`} role="radio" aria-checked={style.colour.toLowerCase() === hex.toLowerCase()} aria-label={name} title={name} className="swatch" style={{ background: hex }} onClick={() => change({ colour: hex })} />
           ))}
-          <label className="swatch custom" title="Any colour" data-checked={customColour || undefined} style={customColour ? { background: style.colour } : undefined}>
-            {!customColour && <Plus size={10} weight="bold" aria-hidden />}
-            <input type="color" aria-label="Any colour" value={style.colour} onChange={(e) => change({ colour: e.target.value })} />
-          </label>
+          <button className="swatch custom" title="Add a colour" aria-label="Add a colour" onClick={() => p.onModule("colours")}><Plus size={10} weight="bold" aria-hidden /></button>
         </span>
       ), true),
       d("document", "Page", "Size", "page paper size a4 a3 letter custom half column", <PageSize style={style} change={change} />),
@@ -336,9 +370,10 @@ export function SettingsWindow(p: Props) {
       d("files", "Export", "Margin", "export margin padding border", <NumberField label="Margin" unit="pt" value={files.margin} onChange={(n) => setFiles({ margin: n })} />),
       ...([["pdf", "PDF, with the structure inside", "pdf word powerpoint keynote office"], ["cdxml", "CDXML", "cdxml chemdraw"], ["mol", "MOL", "mol molfile"], ["smiles", "SMILES", "smiles text"]] as const).map(([k, name, words]) =>
         d("files", "Copy", name, `clipboard copy paste ${words}`, <Switch on={files.clipboard[k]} label={name} onChange={(on) => setFiles({ clipboard: { ...files.clipboard, [k]: on } })} />)),
+      d("colours", "Colours", "Your colours", "colour colours palette custom swatch named add", <PaletteEditor palette={p.palette} onPalette={p.onPalette} adding={p.adding} />, true),
       d("files", "Import", "Keep ChemDraw styles", "import open cdxml chemdraw style keep", <Switch on={files.keepStyle} label="Keep ChemDraw styles" onChange={(on) => setFiles({ keepStyle: on })} />),
     ];
-  }, [style, map, recording, note, files, customColour]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.adding]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query)) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));

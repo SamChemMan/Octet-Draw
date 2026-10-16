@@ -492,7 +492,10 @@ export const atomsInPolygon = (m: Mol, poly: P[]): number[] => m.atoms.flatMap((
 
 // Flip Horizontal and Flip Vertical: a 180° turn in 3D about the vertical or horizontal axis, so wedges become
 // hashed wedges and the stereochemistry is kept (as ChemDraw's "Rotate 180°"). Double-bond sides swap too.
-export function flipAtoms(m: Mol, ids: Set<number>, axis: "horizontal" | "vertical"): Mol {
+// Turns atoms over about the middle of their box. As ChemDraw's Rotate 180° (the default) the turn is in 3D, so
+// wedges become hashes and each stereocentre keeps its configuration; as its Flip (mirror) wedges stay wedges and
+// the configuration inverts.
+export function flipAtoms(m: Mol, ids: Set<number>, axis: "horizontal" | "vertical", mirror = false): Mol {
   const ps = [...ids].filter((i) => i < m.atoms.length).map((i) => pos(m, i));
   if (!ps.length) return m;
   const k = axis === "horizontal" ? 0 : 1;
@@ -509,8 +512,8 @@ export function flipAtoms(m: Mol, ids: Set<number>, axis: "horizontal" | "vertic
     bonds: m.bonds.map((b) => {
       if (!ids.has(b.atoms[0]) || !ids.has(b.atoms[1])) return b;
       const out = { ...b };
-      if (b.stereo === 1) out.stereo = 6;
-      else if (b.stereo === 6) out.stereo = 1;
+      if (!mirror && b.stereo === 1) out.stereo = 6;
+      else if (!mirror && b.stereo === 6) out.stereo = 1;
       if (b.position) out.position = swap[b.position];
       return out;
     }),
