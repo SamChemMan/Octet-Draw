@@ -1,6 +1,6 @@
 // Run: node src/file.check.ts. Fails loudly if the file format breaks or accepts a bad file.
 import assert from "node:assert/strict";
-import { addCaption, addRing, EMPTY, setBondSpec, setElement } from "./edit.ts";
+import { addArrow, addCaption, addRing, addShape, EMPTY, setBondSpec, setElement } from "./edit.ts";
 import { parse, serialize } from "./file.ts";
 
 // A drawing survives a save and reopen.
@@ -34,4 +34,76 @@ console.log("file.check: bad files refused");
   for (const captions of [[{ text: 5, x: 0, y: 0 }], [{ text: "a", x: 0, y: 0, under: [3] }], [{ text: "a", x: 0, y: 0, size: 900 }], [{ text: "a\u0000", x: 0, y: 0 }], "x"])
     assert.throws(() => parse(JSON.stringify({ ...base, captions })), /damaged/);
   console.log("file.check: captions ok");
+}
+
+// Arrows and their conditions survive a save and reopen.
+{
+  const [withArrow, arrow] = addArrow(mol, { kind: "reaction", from: [3, 0], to: [6, 0] });
+  const [curvedToo] = addArrow(withArrow, { kind: "fishhook", from: [0, 0], to: [1, 1], bend: 0.3 });
+  const [conditions] = addCaption(curvedToo, { text: "hν, 4CzIPN", x: 0, y: 0, on: { arrow, side: "above" } });
+  const again = parse(serialize(conditions));
+  assert.deepEqual(again.arrows?.map((a) => [a.kind, a.from, a.to, a.bend]), conditions.arrows?.map((a) => [a.kind, a.from, a.to, a.bend]));
+  const cond = again.captions?.find((c) => c.on);
+  assert.equal(again.arrows?.find((a) => a.id === cond?.on?.arrow)?.kind, "reaction", "conditions stay on their arrow");
+  const base = { format: "octet", version: 1, structure: { atoms: [], bonds: [] } };
+  for (const bad of [{ arrows: [{ kind: "teleport", x1: 0, y1: 0, x2: 1, y2: 0 }] }, { arrows: [{ kind: "reaction", x1: 0, y1: 0, x2: "a", y2: 0 }] }, { arrows: [], captions: [{ text: "a", x: 0, y: 0, on: { arrow: 0, side: "above" } }] }])
+    assert.throws(() => parse(JSON.stringify({ ...base, ...bad })), /damaged/);
+  console.log("file.check: arrows ok");
+}
+
+// Radicals, lone pairs, circled and partial charges survive a save and reopen; bad values are refused.
+{
+  const marked = { ...mol, atoms: mol.atoms.map((a, i) => (i === 0 ? { ...a, charge: 1, circled: true, pairs: 1 } : i === 1 ? { ...a, radical: 1, partial: "-" as const } : a)) };
+  const again = parse(serialize(marked));
+  const { hmark, attach, bead } = parse(serialize({ ...mol, atoms: mol.atoms.map((a, i) => (i === 2 ? { ...a, hmark: "dot" as const, attach: true, bead: true } : a)) })).atoms[2];
+  assert.deepEqual({ hmark, attach, bead }, { hmark: "dot", attach: true, bead: true });
+  assert.deepEqual(again.atoms.slice(0, 2).map(({ charge, circled, pairs, radical, partial }) => ({ charge, circled, pairs, radical, partial })),
+    [{ charge: 1, circled: true, pairs: 1, radical: undefined, partial: undefined }, { charge: undefined, circled: undefined, pairs: undefined, radical: 1, partial: "-" }]);
+  assert.equal(parse(serialize({ ...mol, atoms: mol.atoms.map((a, i) => (i === 1 ? { ...a, enhanced: "or1" } : a)) })).atoms[1].enhanced, "or1");
+  for (const bad of [{ radical: 3 }, { pairs: 9 }, { circled: "yes" }, { partial: "x" }, { enhanced: "rac" }])
+    assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [{ label: "C", x: 0, y: 0, ...bad }], bonds: [] } })), /damaged/);
+  console.log("file.check: atom marks ok");
+}
+
+// Shapes keep their kind, corners, dashes, colour and order.
+{
+  const [one] = addShape(mol, { kind: "highlight", from: [0, 0], to: [2, 1] });
+  const [two] = addShape(one, { kind: "brackets", from: [-1, -1], to: [3, 2], dashed: true, colour: "#1D49A7" });
+  const again = parse(serialize(two));
+  assert.deepEqual(again.shapes?.map(({ id: _, ...x }) => x), two.shapes?.map(({ id: _, ...x }) => x));
+  assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "star", x1: 0, y1: 0, x2: 1, y2: 1 }] })), /damaged/);
+  console.log("file.check: shapes ok");
+}
+
+// Lines, arcs, dashed arrows and orbitals survive a save and reopen.
+{
+  let m = mol;
+  for (const a of [
+    { kind: "line" as const, from: [0, 0] as [number, number], to: [2, 0] as [number, number], style: "wavy" as const },
+    { kind: "arc" as const, from: [0, 0] as [number, number], to: [2, 0] as [number, number], bend: 0.5, style: "dashed" as const },
+    { kind: "reaction" as const, from: [0, 1] as [number, number], to: [3, 1] as [number, number], style: "dashed" as const },
+    { kind: "orbital" as const, from: [0, 0] as [number, number], to: [0, 1] as [number, number], orbital: { shape: "p" as const, phase: "phased" as const } },
+  ]) m = addArrow(m, a)[0];
+  const again = parse(serialize(m));
+  assert.deepEqual(again.arrows?.map(({ id: _, ...a }) => a), m.arrows?.map(({ id: _, ...a }) => a));
+  console.log("file.check: lines and orbitals ok");
+}
+
+// Shape styles, single brackets with a mark, and a TLC plate's spots survive a save and reopen.
+{
+  let m = mol;
+  for (const sh of [
+    { kind: "oval" as const, from: [0, 0] as [number, number], to: [1, 1] as [number, number], fill: "shaded" as const },
+    { kind: "box" as const, from: [0, 0] as [number, number], to: [2, 1] as [number, number], shadow: true },
+    { kind: "brackets" as const, from: [0, 0] as [number, number], to: [2, 2] as [number, number], side: "left" as const, mark: "‡" },
+    { kind: "tlc" as const, from: [0, 0] as [number, number], to: [3, 4] as [number, number], tlc: { lanes: 3, spots: [{ lane: 0, rf: 0.42 }, { lane: 2, rf: 0.7 }], rf: true } },
+    { kind: "table" as const, from: [0, 3] as [number, number], to: [6, 0] as [number, number], table: { cells: [["Entry", "Solvent", "Yield (%)"], ["1", "THF", "72"]], grid: true } },
+    { kind: "curve" as const, from: [0, 2] as [number, number], to: [4, 0] as [number, number], curve: { points: [{ at: [0, 0] as [number, number] }, { at: [2, 2] as [number, number], c1: [1, 2] as [number, number], c2: [3, 2] as [number, number] }, { at: [4, 0] as [number, number] }], closed: true } },
+  ]) m = addShape(m, sh)[0];
+  const again = parse(serialize(m));
+  assert.deepEqual(again.shapes?.map(({ id: _, ...x }) => x), m.shapes?.map(({ id: _, ...x }) => x));
+  assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "tlc", x1: 0, y1: 0, x2: 1, y2: 1, tlc: { lanes: 2, spots: [{ lane: 5, rf: 0.5 }] } }] })), /damaged/);
+  assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "table", x1: 0, y1: 0, x2: 1, y2: 1, table: { cells: [[1]] } }] })), /damaged/);
+  assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "curve", x1: 0, y1: 0, x2: 1, y2: 1, curve: { points: [{ at: [0, 0] }, { at: [1, "x"] }] } }] })), /damaged/);
+  console.log("file.check: shape styles, TLC, tables and curves ok");
 }

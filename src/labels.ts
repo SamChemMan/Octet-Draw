@@ -92,3 +92,32 @@ export function labelSmiles(label: string): string | undefined {
   // Esters and acids written CO2R or COOR: one O double-bonded to the carbon.
   return smiles.replace(/^C\(O\)\(O\)/, "C(=O)O").replace(/^COO/, "C(=O)O") || undefined;
 }
+
+// Chemical formulas in running text: a count straight after an element, a group or a closing bracket is a
+// subscript (K2CO3, Pd(PPh3)4, Et3N, CH2Cl2, DMSO-d6). Numbers on their own (72, 1,4-dioxane, 12 h), counts after
+// anything else (L1) and method names (B3LYP, SN2) stay as typed. Subscripts print 75% size, 0.212 em down.
+const COUNTED = new Set([...SYMBOLS, ...Object.keys(GROUPS), "pin", "dba", "cod", "acac", "d"]);
+const NOT_FORMULA = /^(B3LYP|B2PLYP|MP[2-4]|S[NE][12]|E[12]|E1cB)$/;
+export type Run = { text: string; sub?: true };
+export function formulaRuns(text: string): Run[] {
+  const out: Run[] = [];
+  const push = (t: string, sub?: true) => {
+    if (!t) return;
+    const last = out[out.length - 1];
+    if (last && !!last.sub === !!sub) last.text += t;
+    else out.push(sub ? { text: t, sub } : { text: t });
+  };
+  let at = 0;
+  for (const m of text.matchAll(/\d+/g)) {
+    const before = text.slice(0, m.index), word = /\S*$/.exec(before)![0] + /^\S*/.exec(text.slice(m.index))![0];
+    const letters = /[A-Za-z]{1,5}$/.exec(before)?.[0] ?? "";
+    const counted = !NOT_FORMULA.test(word) && /[A-Za-z]/.test(word)
+      && (/[A-Za-z0-9][)\]]$/.test(before) || Array.from({ length: letters.length }, (_, k) => letters.slice(k)).some((s) => COUNTED.has(s)));
+    if (!counted) continue;
+    push(text.slice(at, m.index));
+    push(m[0], true);
+    at = m.index! + m[0].length;
+  }
+  push(text.slice(at));
+  return out;
+}

@@ -114,6 +114,8 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
         &item("save", "Save", "CmdOrCtrl+S")?,
         &item("save_as", "Save As…", "CmdOrCtrl+Shift+S")?,
         &sep()?,
+        &MenuItem::with_id(app, "document", "Document Settings…", true, None::<&str>)?,
+        &sep()?,
         &PredefinedMenuItem::close_window(app, None)?,
     ])?;
     let edit = Submenu::with_items(app, "Edit", true, &[
@@ -124,16 +126,21 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
         &PredefinedMenuItem::copy(app, None)?,
         &PredefinedMenuItem::paste(app, None)?,
         &item("select_all", "Select All", "CmdOrCtrl+A")?,
+        &sep()?,
+        &item("copy_smiles", "Copy As SMILES", "Alt+CmdOrCtrl+C")?,
     ])?;
     let snap = CheckMenuItem::with_id(app, "snap", "Snap to Objects", true, true, None::<&str>)?;
     let view = Submenu::with_items(app, "View", true, &[
+        // ChemDraw's keys: Magnify, Reduce and Fit to Window.
         &item("zoom_actual", "Actual Size", "CmdOrCtrl+0")?,
-        &item("zoom_fit", "Zoom to Fit", "CmdOrCtrl+1")?,
-        &item("zoom_in", "Zoom In", "CmdOrCtrl+=")?,
-        &item("zoom_out", "Zoom Out", "CmdOrCtrl+-")?,
+        &item("zoom_fit", "Fit to Window", "CmdOrCtrl+/")?,
+        &item("zoom_in", "Magnify", "CmdOrCtrl+Shift+.")?,
+        &item("zoom_out", "Reduce", "CmdOrCtrl+Shift+,")?,
         &sep()?,
         &snap,
         &MenuItem::with_id(app, "actions", "Show or Hide Actions", true, None::<&str>)?,
+        // Not ⌘K, which is ChemDraw's Scale.
+        &item("command_palette", "Command Palette…", "CmdOrCtrl+Shift+A")?,
     ])?;
     // Structure commands keep ChemDraw's shortcuts.
     let structure = Submenu::with_items(app, "Structure", true, &[
@@ -143,6 +150,11 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
         &item("flip_v", "Flip Vertical", "CmdOrCtrl+Shift+V")?,
         &sep()?,
         &item("name_to_structure", "Convert Name to Structure", "CmdOrCtrl+Shift+N")?,
+        &item("structure_to_name", "Convert Structure to Name", "Alt+CmdOrCtrl+N")?,
+    ])?;
+    let object = Submenu::with_items(app, "Object", true, &[
+        &item("bring_front", "Bring to Front", "CmdOrCtrl+[")?,
+        &item("send_back", "Send to Back", "CmdOrCtrl+]")?,
     ])?;
     // Text commands style the caption being typed, or the picked captions.
     let sizes = [8, 9, 10, 12, 14, 18, 24]
@@ -156,9 +168,9 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
         &item("text_italic", "Italic", "CmdOrCtrl+I")?,
         &item("text_underline", "Underline", "CmdOrCtrl+U")?,
         &sep()?,
-        &MenuItem::with_id(app, "align_left", "Align Left", true, None::<&str>)?,
-        &MenuItem::with_id(app, "align_centre", "Centre", true, None::<&str>)?,
-        &MenuItem::with_id(app, "align_right", "Align Right", true, None::<&str>)?,
+        &item("align_left", "Flush Left", "CmdOrCtrl+Shift+L")?,
+        &item("align_centre", "Centre", "CmdOrCtrl+Shift+C")?,
+        &item("align_right", "Flush Right", "CmdOrCtrl+Shift+R")?,
         &sep()?,
         &size,
     ])?;
@@ -169,6 +181,8 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
     #[cfg(target_os = "macos")]
     let octet = Submenu::with_items(app, "Octet", true, &[
         &PredefinedMenuItem::about(app, None, None)?,
+        &sep()?,
+        &item("settings", "Settings…", "CmdOrCtrl+,")?,
         &sep()?,
         &PredefinedMenuItem::services(app, None)?,
         &sep()?,
@@ -181,7 +195,7 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
     let mut items: Vec<&dyn IsMenuItem<Wry>> = Vec::new();
     #[cfg(target_os = "macos")]
     items.push(&octet);
-    items.extend([&file as &dyn IsMenuItem<Wry>, &edit, &view, &structure, &text, &window]);
+    items.extend([&file as &dyn IsMenuItem<Wry>, &edit, &view, &object, &structure, &text, &window]);
     Ok((Menu::with_items(app, &items)?, vec![snap]))
 }
 

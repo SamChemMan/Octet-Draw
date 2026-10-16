@@ -7,10 +7,21 @@
 // - Labels are anchored on the advance centre and half the ink height of their first glyph.
 
 import { units } from "./labels.ts";
+import type { DocStyle } from "./docstyle.ts";
+import type { Cycle, CycleText } from "./cycle.ts";
 
 type P = [number, number];
 // text: a label that is not one element (OMe, CO2Et, Ph). label then holds the element it attaches through.
-export type Atom = { label: string; location: [number, number, number]; charge?: number; implicitHCount?: number; text?: string };
+// Marks drawn around an atom: radical (unpaired electrons, 1 or 2), pairs (lone pairs shown), circled (the charge
+// drawn as ⊕ or ⊖ beside the atom), partial (δ+ or δ−). A radical counts against the atom's hydrogens.
+// hmark: a hydrogen shown by a dot on the atom (towards the viewer) or a short hash (away). attach: a wavy line
+// across the bond at this end, for a point of attachment. bead: a polymer bead (a resin sphere) at this atom.
+export type Atom = {
+  label: string; location: [number, number, number]; charge?: number; implicitHCount?: number; text?: string;
+  radical?: number; pairs?: number; circled?: boolean; partial?: "+" | "-"; hmark?: "dot" | "dash"; attach?: boolean; bead?: boolean;
+  map?: number; // a reaction atom map number: the same atom before and after
+  enhanced?: string; // enhanced stereo: the stereocentre's group, "abs", "&1" (and) or "or1" (or)
+};
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow";
 // position: where a double bond's second line goes, looking from atoms[0] to atoms[1]; unset means automatic.
@@ -18,19 +29,77 @@ export type Bond = { type: number; atoms: [number, number]; stereo?: number; dis
 // A caption: free text at x, y (bond lengths, y up; the text's anchor point by its alignment), or, with under
 // set, kept centred under those atoms by the ACS rule (baseline 15 pt below the structure's ink box).
 // Captions under the same structure stack one line apart, in id order.
+// on: conditions text, kept centred above or below an arrow (by the arrow's id).
 export type Caption = {
   id: number; text: string; x: number; y: number;
   bold?: boolean; italic?: boolean; underline?: boolean; size?: number; align?: "left" | "centre" | "right"; under?: number[];
+  on?: { arrow: number; side: "above" | "below" };
+  colour?: string; // #rrggbb; unset uses the document's text colour
+  cycle?: CycleText; // a catalytic cycle's centre label, or a reagent or product on one of its steps
 };
-export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[] };
+// An arrow from one point to another (drawing coordinates). bend: how far a curved arrow's middle sits off the
+// straight line, as a fraction of its length, to the left looking from start to end.
+// line and arc are drawing elements with no head; they share the arrows' handles. style: how the shaft is drawn
+// (dashed suits a proposed step; wavy and bold are for lines).
+// orbital: an atomic or hybrid orbital drawn from its nucleus (from) to the tip of its main lobe (to).
+// cut: a mass-fragmentation line across bonds; the pieces it makes are labelled with their formula and mass.
+export type ArrowKind = "reaction" | "equilibrium" | "resonance" | "retro" | "nogo" | "curved" | "fishhook" | "double" | "line" | "arc" | "orbital" | "cut";
+export type LineStyle = "dashed" | "bold" | "wavy";
+export type OrbitalShape = "s" | "oval" | "lobe" | "hybrid" | "p" | "d" | "dz2";
+export type Phase = "plain" | "shaded" | "filled" | "phased";
+export const ORBITAL_SHAPES: OrbitalShape[] = ["s", "oval", "lobe", "hybrid", "p", "d", "dz2"];
+export const PHASES: Phase[] = ["plain", "shaded", "filled", "phased"];
+export type Arrow = { id: number; kind: ArrowKind; from: [number, number]; to: [number, number]; bend?: number; style?: LineStyle; orbital?: { shape: OrbitalShape; phase: Phase } };
+// Every kind a drawing's arrow list may hold.
+export const ALL_ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "curved", "fishhook", "double", "line", "arc", "orbital", "cut"];
+export const isOrbital = (a: Pick<Arrow, "kind">) => a.kind === "orbital";
+export const ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "curved", "fishhook", "double"];
+export const LINE_KINDS: ArrowKind[] = ["line", "arc"];
+export const curved = (a: Pick<Arrow, "kind">) => a.kind === "curved" || a.kind === "fishhook" || a.kind === "double" || a.kind === "arc";
+// Arrows that carry reaction conditions and make up reactions: straight ones with heads.
+export const straightArrow = (a: Pick<Arrow, "kind">) => !curved(a) && a.kind !== "line" && a.kind !== "orbital" && a.kind !== "cut";
+export const isLine = (a: Pick<Arrow, "kind">) => a.kind === "line" || a.kind === "arc";
+// Curved arrows are circular arcs. Their sweeps on offer, and the bend that gives each one.
+export const SWEEPS = [90, 120, 180, 270];
+export const sweepBend = (degrees: number) => Math.tan((degrees * Math.PI) / 720) / 2;
+export const sweepOf = (bend: number) => (4 * Math.atan(2 * Math.abs(bend)) * 180) / Math.PI;
+// A box, rounded box, oval, highlight or brackets, spanning from one corner to the other (drawing coordinates).
+// colour: the outline's colour, or a highlight's fill; unset is the ink colour (a highlight's is mist).
+// fill: shaded (lit from the top left) or solid in the colour. shadow: a grey shadow down and to the right, with the
+// shape filled white over it. side: one bracket only. mark: a sign at a bracket's top right (‡, †, a charge, n).
+export type ShapeKind = "box" | "rounded" | "oval" | "highlight" | "brackets" | "parens" | "braces" | "tlc" | "table" | "curve";
+// A table's cells, row by row (the first row is the header), and its rules: journal style (top, header and bottom
+// rules only) or a full grid.
+export type Table = { cells: string[][]; grid?: boolean };
+// A pen curve: anchor points joined by cubic Béziers. c1 is a point's incoming handle, c2 its outgoing one; a point
+// without handles is a corner. A closed curve joins its last point back to its first.
+export type CurvePoint = { at: [number, number]; c1?: [number, number]; c2?: [number, number] };
+export type Curve = { points: CurvePoint[]; closed?: boolean };
+// A TLC plate's lanes and spots: each spot in a lane at its Rf (0 at the origin, 1 at the solvent front).
+export type Tlc = { lanes: number; spots: { lane: number; rf: number }[]; rf?: boolean };
+export type Shape = {
+  id: number; kind: ShapeKind; from: [number, number]; to: [number, number]; dashed?: boolean; colour?: string;
+  fill?: "shaded" | "solid"; shadow?: boolean; side?: "left" | "right"; mark?: string; tlc?: Tlc; table?: Table; curve?: Curve;
+};
+export const isBracket = (sh: Pick<Shape, "kind">) => sh.kind === "brackets" || sh.kind === "parens" || sh.kind === "braces";
+export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "table", "curve"];
+export const HIGHLIGHT = "#DCE4F5";
+// Captions, arrows, shapes and cycles share one set of ids.
+export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; style?: DocStyle };
 // Sizes in px: bond length, line width, bold width, double-bond spacing, hash spacing, label margin, label font size.
 export type Style = { bond: number; line: number; bold: number; spacing: number; hash: number; margin: number; size: number };
 // width: advance; ascent: ink top above the baseline; outline: glyph edge points relative to the text origin (y down).
 export type Ink = { width: number; ascent: number; outline: P[] };
 export type Label = { text: string; x: number; y: number; size: number };
 export type Box = [number, number, number, number];
-// ink: each atom's ink box (its label and the bonds that touch it), for placing captions. scale: px per bond length.
-export type Drawing = { polygons: P[][]; labels: Label[]; box: Box; ink: Box[]; scale: number };
+// ink: each atom's ink box (its label and the bonds that touch it), for placing captions. label: the ink box of an
+// atom's label alone (NH2, OMe), for highlighting it; undefined for an unlabelled atom. scale: px per bond length.
+// electrons: where each lone pair and radical dot is drawn (px), for curly arrows to start from. beads: polymer beads,
+// drawn shaded by the caller.
+export type Drawing = {
+  polygons: P[][]; labels: Label[]; box: Box; ink: Box[]; label: (Box | undefined)[]; scale: number;
+  electrons: { atom: number; at: P }[]; beads: { at: P; r: number }[];
+};
 
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
 const add = (a: P, b: P): P => [a[0] + b[0], a[1] + b[1]];
@@ -50,11 +119,18 @@ const H_FIRST = new Set(['O', 'F', 'S', 'Cl', 'Se', 'Br', 'Te', 'I']); // H2O, H
 const VALENCE: Record<string, number> = { C: 4, Si: 4, N: 3, P: 3, As: 3, B: 3, Al: 3, O: 2, S: 2, Se: 2, Te: 2, F: 1, Cl: 1, Br: 1, I: 1 };
 const ORDER: Record<number, number> = { 1: 1, 2: 2, 3: 3, 4: 1.5 };
 
-function hydrogens(label: string, charge: number, used: number) {
+export function hydrogens(label: string, charge: number, used: number, radical = 0) {
   const v = VALENCE[label];
   if (v === undefined) return 0;
   const target = v === 4 ? v - Math.abs(charge) : label === 'B' || label === 'Al' ? v - charge : v + charge;
-  return Math.max(0, Math.round(target - used));
+  return Math.max(0, Math.round(target - used - radical));
+}
+// Valence electrons, for how many lone pairs an atom can show.
+const SHELL: Record<string, number> = { H: 1, B: 3, Al: 3, C: 4, Si: 4, N: 5, P: 5, As: 5, O: 6, S: 6, Se: 6, Te: 6, F: 7, Cl: 7, Br: 7, I: 7 };
+// The lone pairs an atom has: what is left of its valence electrons after its bonds, hydrogens, charge and radical.
+export function lonePairs(label: string, charge: number, used: number, h: number, radical = 0) {
+  const e = SHELL[label];
+  return e === undefined ? 0 : Math.max(0, Math.floor((e - used - h - charge - radical) / 2));
 }
 
 const segDist = (q: P, a: P, b: P) => {
@@ -114,14 +190,14 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
   const dir = (i: number, j: number) => unit(sub(pts[j], pts[i]));
 
   // Labels. Heteroatoms and lone carbons get one; skeletal carbons don't, even when charged.
-  const labelled = mol.atoms.map((a, i) => a.label !== 'C' || !deg(i) || !!a.text);
+  const labelled = mol.atoms.map((a, i) => !a.attach && !a.bead && (a.label !== 'C' || !deg(i) || !!a.text));
   const labels: Label[] = [];
   const marks: P[][] = mol.atoms.map(() => []); // ink that is not a label shape (a skeletal carbon's charge)
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
   const shapes: P[][] = mol.atoms.map((a, i) => {
     if (!labelled[i]) {
       // A charged skeletal carbon: the sign alone, in the direction furthest from its bonds (up-right on a tie).
-      if (a.charge) {
+      if (a.charge && !a.circled) {
         const t = sign(a.charge), m = measure(t), dirs = nbrs[i].map((j) => dir(i, j));
         const gap = (c: P) => Math.min(...dirs.map((b) => angle(b, c)));
         const d = ([[1, -1], [-1, -1], [1, 1], [-1, 1], [0, -1], [1, 0], [0, 1], [-1, 0]] as P[]).map(unit).reduce((best, c) => (gap(c) > gap(best) + 0.01 ? c : best));
@@ -154,7 +230,7 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
         cx += width(u);
       }
       const right = reversed ? x - first.width / 2 + width(us[0]) : cx;
-      if (a.charge) run(sign(a.charge), right, base - RISE * s.size, SUB);
+      if (a.charge && !a.circled) run(sign(a.charge), right, base - RISE * s.size, SUB);
       return shape;
     }
     const first = measure(a.label[0]);
@@ -162,7 +238,7 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
     run(a.label, ox, base);
     const charge = a.charge ?? 0;
     const used = nbrs[i].reduce((n, j) => n + (ORDER[bondAt.get(key(i, j))!.type] ?? 1), 0);
-    const h = a.implicitHCount ?? hydrogens(a.label, charge, used);
+    const h = a.implicitHCount ?? hydrogens(a.label, charge, used, a.radical);
     const count = h > 1 ? String(h) : '';
     const hW = measure('H').width, cW = count ? measure(count).width * SUB : 0;
     const hs = (hx: number, hy: number) => { run('H', hx, hy); if (count) run(count, hx + hW, hy + DROP * s.size, SUB); };
@@ -173,8 +249,105 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
       else if (!steep || deg(i) < 2) { hs(end, base); end += hW + cW; } // OH, NH2
       else { const pitch = 1.1 * measure('H').ascent; hs(x - hW / 2, base + (v[1] > 0 ? -pitch : pitch)); }
     }
-    if (charge) run(sign(charge), end, base - RISE * s.size, SUB);
+    if (charge && !a.circled) run(sign(charge), end, base - RISE * s.size, SUB);
     return shape;
+  });
+
+  // Marks around atoms: a circled charge, a partial charge, radical dots and lone pairs. A circled or partial
+  // charge sits up and to the right when that is clear; the rest share out the widest gaps between the bonds and
+  // the label, evenly spaced, and each sits just clear of the label.
+  const symbols: P[][][] = mol.atoms.map(() => []);
+  const electrons: { atom: number; at: P }[] = [], beads: { at: P; r: number }[] = [];
+  const TAU = 2 * Math.PI, turn = (x: number) => ((x % TAU) + TAU) % TAU;
+  // Every polygon winds one way (see polygons below); a disc or ring built here is turned to match.
+  const wound = (poly: P[]) => (poly.reduce((sum, q, j) => sum + cross(q, poly[(j + 1) % poly.length]), 0) > 0 ? poly.reverse() : poly);
+  const disc = (c: P, r: number): P[] => wound(Array.from({ length: 20 }, (_, j) => add(c, [r * Math.cos((TAU * j) / 20), r * Math.sin((TAU * j) / 20)])));
+  mol.atoms.forEach((a, i) => {
+    const kinds: ('charge' | 'partial' | 'radical' | 'pair')[] = [];
+    if (a.circled && a.charge) kinds.push('charge');
+    if (a.partial) kinds.push('partial');
+    for (let r = 0; r < Math.min(2, a.radical ?? 0); r++) kinds.push('radical');
+    for (let r = 0; r < Math.min(4, a.pairs ?? 0); r++) kinds.push('pair');
+    if (!kinds.length) return;
+    const X = pts[i], z = s.size, shape = shapes[i];
+    // Directions already taken: the bonds, the label past its first letter (H, a charge sign), a skeletal charge.
+    const taken = nbrs[i].map((j) => { const d = dir(i, j); return Math.atan2(d[1], d[0]); });
+    for (const q of [...shape, ...marks[i]]) if (len(sub(q, X)) > 0.62 * z) taken.push(Math.atan2(q[1] - X[1], q[0] - X[0]));
+    const clearOf = (t: number, need: number) => taken.every((b) => Math.abs(Math.atan2(Math.sin(t - b), Math.cos(t - b))) >= need);
+    const at = new Map<number, number>(); // index in kinds → angle
+    const UP_RIGHT = -Math.PI / 4;
+    if ((kinds[0] === 'charge' || kinds[0] === 'partial') && clearOf(UP_RIGHT, Math.PI / 5)) { at.set(0, UP_RIGHT); taken.push(UP_RIGHT); }
+    const rest = kinds.map((_, k) => k).filter((k) => !at.has(k));
+    const sorted = taken.map(turn).sort((x, y) => x - y);
+    const gaps = sorted.length
+      ? sorted.map((t, j) => ({ start: t, size: j + 1 < sorted.length ? sorted[j + 1] - t : sorted[0] + TAU - t, n: 0 }))
+      : [{ start: -Math.PI / 2 - Math.PI / Math.max(1, rest.length), size: TAU, n: 0 }];
+    for (const _ of rest) gaps.reduce((best, g) => (g.size / (g.n + 1) > best.size / (best.n + 1) + 1e-6 ? g : best)).n++;
+    let next = 0;
+    for (const g of gaps.sort((x, y) => x.start - y.start)) for (let j = 0; j < g.n; j++) at.set(rest[next++], g.start + (g.size * (j + 1)) / (g.n + 1));
+    kinds.forEach((kind, k) => {
+      const t = at.get(k)!, d: P = [Math.cos(t), Math.sin(t)], n = perp(d);
+      // The mark as discs (centre offset across, radius); how far out it goes is found by search.
+      const R = kind === 'charge' ? 0.34 * z : kind === 'radical' ? 0.1 * z : kind === 'pair' ? 0.09 * z : 0;
+      const text = kind === 'partial' ? (a.partial === '+' ? 'δ+' : 'δ–') : '', ink = text ? measure(text) : undefined;
+      const parts: [number, number][] = kind === 'pair' ? [[0.19 * z, R], [-0.19 * z, R]] : ink ? [[0, (Math.max(ink.width, ink.ascent) * SUB) / 2]] : [[0, R]];
+      const gap = 0.14 * z;
+      const fits = (r: number) => parts.every(([o, pr]) => { const c = add(add(X, mul(d, r)), mul(n, o)); return shape.every((q) => len(sub(q, c)) >= pr + gap); });
+      // Start past the label along the way out (so nothing sits inside a letter's counter), then find the
+      // nearest distance that clears every outline point.
+      const corridor = Math.max(...parts.map(([o, pr]) => Math.abs(o) + pr)) + gap;
+      let lo = shape.length ? Math.max(0, ...shape.filter((q) => Math.abs(cross(sub(q, X), d)) < corridor).map((q) => dot(sub(q, X), d))) : 0.3 * z + Math.max(...parts.map((x) => x[1]));
+      let hi = lo + 3 * z;
+      if (!fits(lo)) { for (let j = 0; j < 24; j++) { const mid = (lo + hi) / 2; if (fits(mid)) hi = mid; else lo = mid; } lo = hi; }
+      const c = add(X, mul(d, lo));
+      if (kind === 'radical' || kind === 'pair') { for (const [o, pr] of parts) symbols[i].push(disc(add(c, mul(n, o)), pr)); electrons.push({ atom: i, at: c }); }
+      if (kind === 'charge') {
+        // A ring the line width thick, with the sign inside it.
+        for (let j = 0; j < 40; j++) {
+          const a0 = (TAU * j) / 40, a1 = (TAU * (j + 1)) / 40, ro = R + hw, ri = R - hw;
+          symbols[i].push(wound([add(c, [ri * Math.cos(a0), ri * Math.sin(a0)]), add(c, [ro * Math.cos(a0), ro * Math.sin(a0)]), add(c, [ro * Math.cos(a1), ro * Math.sin(a1)]), add(c, [ri * Math.cos(a1), ri * Math.sin(a1)])]));
+        }
+        const arm = 0.58 * R, bar = (u: P) => symbols[i].push(wound([add(c, add(mul(u, -arm), mul(perp(u), -hw))), add(c, add(mul(u, -arm), mul(perp(u), hw))), add(c, add(mul(u, arm), mul(perp(u), hw))), add(c, add(mul(u, arm), mul(perp(u), -hw)))]));
+        bar([1, 0]);
+        if ((a.charge ?? 0) > 0) bar([0, 1]);
+      }
+      if (ink) {
+        const x = c[0] - (ink.width * SUB) / 2, y = c[1] + (ink.ascent * SUB) / 2;
+        labels.push({ text, x, y, size: z * SUB });
+        for (const [px, py] of ink.outline) marks[i].push([x + px * SUB, y + py * SUB]);
+      }
+    });
+  });
+
+  // An H dot sits on the atom; an H hash points into the widest gap; an attachment squiggle crosses the bond at the
+  // atom; a bead is a sphere on the atom.
+  mol.atoms.forEach((a, i) => {
+    if (!a.hmark && !a.attach && !a.bead) return;
+    const X = pts[i], dirs = nbrs[i].map((j) => dir(i, j));
+    if (a.hmark === 'dot') symbols[i].push(disc(X, 0.09 * L));
+    if (a.hmark === 'dash') {
+      const angles = dirs.map((d) => Math.atan2(d[1], d[0])).sort((x, y) => x - y);
+      let best = -Math.PI / 2;
+      if (angles.length) {
+        const gaps = angles.map((t, j) => ({ t, size: (j + 1 < angles.length ? angles[j + 1] : angles[0] + 2 * Math.PI) - t }));
+        const g = gaps.reduce((p, q) => (q.size > p.size ? q : p));
+        best = g.t + g.size / 2;
+      }
+      const u: P = [Math.cos(best), Math.sin(best)], n = perp(u);
+      for (let k = 1; k <= 3; k++) {
+        const c = add(X, mul(u, 0.1 * L * k)), half = 0.04 * L + 0.025 * L * k;
+        symbols[i].push(wound([add(add(c, mul(n, -half)), mul(u, -hw)), add(add(c, mul(n, half)), mul(u, -hw)), add(add(c, mul(n, half)), mul(u, hw)), add(add(c, mul(n, -half)), mul(u, hw))]));
+      }
+    }
+    if (a.attach) {
+      // A wave across the bond, 0.6 bond lengths long.
+      const u = dirs[0] ?? [1, 0], n = perp(u), wave = waveAlong([add(X, mul(n, -0.3 * L)), add(X, mul(n, 0.3 * L))], 0.05 * L, 0.15 * L);
+      for (let k = 0; k + 1 < wave.length; k++) {
+        const p = wave[k], q = wave[k + 1], v = unit(sub(q, p)), m = perp(v);
+        symbols[i].push(wound([add(p, mul(m, -hw)), add(p, mul(m, hw)), add(q, mul(m, hw)), add(q, mul(m, -hw))]));
+      }
+    }
+    if (a.bead) { beads.push({ at: X, r: 0.3 * L }); for (const q of [add(X, [-0.3 * L, -0.3 * L]), add(X, [0.3 * L, 0.3 * L])]) marks[i].push(q); }
   });
 
   const plans: Plan[] = mol.bonds.map((bond) => {
@@ -373,11 +546,13 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
   });
   shapes.forEach((shape, i) => shape.forEach((q) => grow(i, q)));
   marks.forEach((mark, i) => mark.forEach((q) => grow(i, q)));
+  symbols.forEach((polys, i) => polys.forEach((poly) => { polygons.push(poly); poly.forEach((q) => grow(i, q)); }));
 
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
   for (const [x, y] of [...pts, ...polygons.flat(), ...shapes.flat()]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
   const pad = L / 2;
-  return { polygons, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad], ink, scale: k };
+  const label = shapes.map((shape): Box | undefined => (shape.length ? [Math.min(...shape.map((q) => q[0])), Math.min(...shape.map((q) => q[1])), Math.max(...shape.map((q) => q[0])), Math.max(...shape.map((q) => q[1]))] : undefined));
+  return { polygons, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad], ink, label, scale: k, electrons, beads };
 }
 
 // Captions, placed in the drawing's px frame (y down). Sizes are in pt; 1 pt is 4/3 px.
@@ -387,33 +562,389 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
 // LINE (1.2 em) is provisional until it is measured against ChemDraw.
 export const CAPTION_PT = 10;
 export const isNumber = (c: Caption) => !!c.bold && /^\d+[a-z]?$/.test(c.text);
-const GAP_PT = 15, LINE = 1.2, ASCENT = 0.905, DESCENT = 0.212; // Arial's ascent and descent, in em
+const GAP_PT = 15, GAP_ARROW_PT = 3, LINE = 1.2, ASCENT = 0.905, DESCENT = 0.212; // Arial's ascent and descent, in em
 export type Placed = {
-  id: number; size: number; bold?: boolean; italic?: boolean; underline?: boolean; anchor: "start" | "middle" | "end";
+  id: number; size: number; bold?: boolean; italic?: boolean; underline?: boolean; colour?: string; anchor: "start" | "middle" | "end";
   lines: { text: string; x: number; y: number }[]; box: Box;
 };
-export function placeCaptions(mol: Mol, d: Drawing, width: (text: string, c: Caption) => number): Placed[] {
+// pt: px per point in the drawing frame; size: the document's caption size in pt.
+// fixed: where captions placed by something else (a cycle's labels) go, in px.
+export function placeCaptions(mol: Mol, d: Drawing, width: (text: string, c: Caption) => number, arrows: Arrow[] = mol.arrows ?? [], pt = 4 / 3, defaultSize = CAPTION_PT,
+  fixed: Map<number, { x: number; y: number; anchor: Placed["anchor"] }> = new Map()): Placed[] {
   const k = d.scale, below = new Map<string, number>(); // the next free baseline under each structure
+  const beside = new Map<string, number>(); // how far the conditions on each side of each arrow already reach
   const order = (c: Caption) => (isNumber(c) ? 0 : 1);
   return [...(mol.captions ?? [])].sort((a, b) => order(a) - order(b) || a.id - b.id).flatMap((c) => {
-    const size = ((c.size ?? CAPTION_PT) * 4) / 3, lines = c.text.split("\n"), align = c.align ?? "centre";
+    const size = (c.size ?? defaultSize) * pt, lines = c.text.split("\n"), align = c.align ?? "centre";
     const anchor = align === "left" ? "start" : align === "right" ? "end" : "middle";
-    let x: number, y: number;
-    if (c.under) {
+    let x: number, y: number, anchorOverride: Placed["anchor"] | undefined;
+    const arrow = c.on && arrows.find((a) => a.id === c.on!.arrow);
+    if (c.on && !arrow) return [];
+    const pinned = fixed.get(c.id);
+    if (c.cycle && !pinned) return [];
+    if (pinned) {
+      [x, y, anchorOverride] = [pinned.x, pinned.y - (lines.length - 1) * LINE * size * (pinned.anchor === "middle" ? 0.5 : 0), pinned.anchor];
+    } else if (arrow) {
+      // Conditions: centred on the arrow's middle, GAP_ARROW_PT clear of it, stacking away from it.
+      const [s, t] = [[arrow.from[0] * k, -arrow.from[1] * k], [arrow.to[0] * k, -arrow.to[1] * k]];
+      const mid = [(s[0] + t[0]) / 2, (s[1] + t[1]) / 2], len = Math.hypot(t[0] - s[0], t[1] - s[1]) || 1, u = [(t[0] - s[0]) / len, (t[1] - s[1]) / len];
+      const key = `${arrow.id} ${c.on!.side}`, used = beside.get(key) ?? 0, gap = GAP_ARROW_PT * pt + used;
+      const block = (lines.length - 1) * LINE * size;
+      beside.set(key, used + (lines.length * LINE + 0.2) * size);
+      if (Math.abs(u[0]) >= 0.5) {
+        // A mostly horizontal arrow: text above or below its middle.
+        x = mid[0];
+        y = c.on!.side === "above" ? mid[1] - gap - DESCENT * size - block : mid[1] + gap + ASCENT * size;
+        anchorOverride = "middle";
+      } else {
+        // A steep arrow: text to its left (above) or right (below), level with its middle.
+        x = c.on!.side === "above" ? mid[0] - gap : mid[0] + gap;
+        y = mid[1] + (ASCENT * size - block) / 2 - (DESCENT * size) / 2;
+        anchorOverride = c.on!.side === "above" ? "end" : "start";
+      }
+    } else if (c.under) {
       const atoms = c.under.filter((i) => d.ink[i]);
       if (!atoms.length) return [];
       const b: Box = [Math.min(...atoms.map((i) => d.ink[i][0])), Math.min(...atoms.map((i) => d.ink[i][1])), Math.max(...atoms.map((i) => d.ink[i][2])), Math.max(...atoms.map((i) => d.ink[i][3]))];
       const key = [...c.under].sort((p, q) => p - q).join(" ");
       x = align === "left" ? b[0] : align === "right" ? b[2] : (b[0] + b[2]) / 2;
-      y = below.get(key) ?? b[3] + (GAP_PT * 4) / 3;
+      y = below.get(key) ?? b[3] + GAP_PT * pt;
       below.set(key, y + lines.length * LINE * size);
     } else [x, y] = [c.x * k, -c.y * k];
+    const at = anchorOverride ?? anchor;
     const widths = lines.map((t) => width(t, c)), w = Math.max(...widths);
-    const left = anchor === "start" ? x : anchor === "end" ? x - w : x - w / 2;
+    const left = at === "start" ? x : at === "end" ? x - w : x - w / 2;
     return [{
-      id: c.id, size, bold: c.bold, italic: c.italic, underline: c.underline, anchor,
+      id: c.id, size, bold: c.bold, italic: c.italic, underline: c.underline, colour: c.colour, anchor: at,
       lines: lines.map((text, j) => ({ text, x, y: y + j * LINE * size })),
       box: [left, y - ASCENT * size, left + w, y + (lines.length - 1) * LINE * size + DESCENT * size],
     }];
   });
+}
+
+// Arrows grow to fit their conditions: a straight arrow is lengthened about its middle until the widest
+// conditions text has ARROW_MARGIN_PT clear at each end. Curved arrows keep their shape.
+const ARROW_MARGIN_PT = 6;
+export function fitArrows(mol: Mol, scale: number, width: (c: Caption) => number, pt = 4 / 3): Arrow[] {
+  return (mol.arrows ?? []).map((a) => {
+    if (curved(a)) return a;
+    const widest = Math.max(0, ...(mol.captions ?? []).filter((c) => c.on?.arrow === a.id).map(width));
+    const need = (widest + 2 * ARROW_MARGIN_PT * pt) / scale, len = Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]);
+    if (!widest || len >= need || !len) return a;
+    const grow = (need - len) / 2 / len, d = [(a.to[0] - a.from[0]) * grow, (a.to[1] - a.from[1]) * grow];
+    return { ...a, from: [a.from[0] - d[0], a.from[1] - d[1]], to: [a.to[0] + d[0], a.to[1] + d[1]] };
+  });
+}
+
+// The middle of a curved arrow's arc, in drawing coordinates.
+export function bendPoint(a: Arrow): [number, number] {
+  const len = Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]), b = a.bend ?? 0;
+  const n = [-(a.to[1] - a.from[1]) / (len || 1), (a.to[0] - a.from[0]) / (len || 1)];
+  return [(a.from[0] + a.to[0]) / 2 + n[0] * b * len, (a.from[1] + a.to[1]) / 2 + n[1] * b * len];
+}
+
+// An arrow's path in px (y down): two points for a straight arrow, a sampled arc for a curved one. The arc is
+// the circle through both ends and the middle point, which is how CDXML stores curved arrows too.
+export function arrowPath(a: Arrow, k: number): P[] {
+  const S: P = [a.from[0] * k, -a.from[1] * k], T: P = [a.to[0] * k, -a.to[1] * k];
+  if (!curved(a) || !a.bend) return [S, T];
+  const m = bendPoint(a), M: P = [m[0] * k, -m[1] * k];
+  const d = 2 * (S[0] * (M[1] - T[1]) + M[0] * (T[1] - S[1]) + T[0] * (S[1] - M[1]));
+  if (Math.abs(d) < 1e-9) return [S, T];
+  const sq = (q: P) => q[0] * q[0] + q[1] * q[1];
+  const O: P = [
+    (sq(S) * (M[1] - T[1]) + sq(M) * (T[1] - S[1]) + sq(T) * (S[1] - M[1])) / d,
+    (sq(S) * (T[0] - M[0]) + sq(M) * (S[0] - T[0]) + sq(T) * (M[0] - S[0])) / d,
+  ];
+  const r = Math.hypot(S[0] - O[0], S[1] - O[1]), angle = (q: P) => Math.atan2(q[1] - O[1], q[0] - O[0]);
+  const turn = (x: number) => ((x % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  // From the start round to the end, the way that passes the middle.
+  const a0 = angle(S);
+  let sweep = turn(angle(T) - a0);
+  if (turn(angle(M) - a0) > sweep) sweep -= 2 * Math.PI;
+  const n = Math.max(8, Math.ceil(Math.abs(sweep) / (Math.PI / 48)));
+  return Array.from({ length: n + 1 }, (_, i) => (i === 0 ? S : i === n ? T : [O[0] + r * Math.cos(a0 + (sweep * i) / n), O[1] + r * Math.sin(a0 + (sweep * i) / n)] as P));
+}
+
+// An arrow as filled polygons in px (y down). Heads follow ChemDraw's CDXML defaults (HeadSize 1000,
+// ArrowheadCenterSize 875, ArrowheadWidth 250, read as hundredths of the line width): 10 line widths long,
+// 2.5 wide on each side, the back notched in to 8.75. Provisional until measured against ChemDraw's output.
+export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
+  const hw = s.line / 2, H = 10 * s.line, C = 8.75 * s.line, W = 2.5 * s.line;
+  const out: P[][] = [];
+  const bar = (p: P, q: P, w = hw) => { const u = unit(sub(q, p)), n = perp(u); out.push([add(p, mul(n, w)), add(q, mul(n, w)), add(q, mul(n, -w)), add(p, mul(n, -w))]); };
+  // Points shortened at their end by `trim` (where a head takes over).
+  const cut = (pts: P[], trim: number) => {
+    const path = [...pts];
+    for (let left = trim; left > 0 && path.length > 1; ) {
+      const [p, q] = [path[path.length - 2], path[path.length - 1]], d = len(sub(q, p));
+      if (d > left) { path[path.length - 1] = add(q, mul(unit(sub(p, q)), left)); break; }
+      left -= d;
+      path.pop();
+    }
+    return path;
+  };
+  // A shaft along points, stopping `trim` short of the end, drawn in the arrow's style: dashes of 0.15 bond lengths
+  // with gaps of 0.1, a wave 0.06 bond lengths high every 0.2, or the bold width.
+  const line = (pts: P[], trim: number) => {
+    const path = cut(pts, trim);
+    if (a.style === "dashed" || a.kind === "cut") return dashes(path, 0.15 * s.bond, 0.1 * s.bond).forEach(([p, q]) => bar(p, q));
+    if (a.style === "wavy") {
+      const wave = waveAlong(path, 0.06 * s.bond, 0.2 * s.bond);
+      for (let i = 0; i + 1 < wave.length; i++) bar(wave[i], wave[i + 1]);
+      return;
+    }
+    for (let i = 0; i + 1 < path.length; i++) if (len(sub(path[i + 1], path[i])) > 1e-9) bar(path[i], path[i + 1], a.style === "bold" ? s.bold / 2 : hw);
+  };
+  // A head at the end of pts: full, or half (the barb on the left side looking along the arrow, or the right).
+  // On a curve it points along the chord of its own length, so it sits on the arc.
+  const head = (pts: P[], half?: "left" | "right") => {
+    const T = pts[pts.length - 1], back = cut(pts, H).pop()!, u = unit(sub(T, back)), n = perp(u);
+    const base = add(T, mul(u, -H)), notch = add(T, mul(u, -C));
+    if (!half) out.push([T, add(base, mul(n, W)), notch, add(base, mul(n, -W))]);
+    else out.push([T, add(base, mul(n, half === "left" ? -W : W)), add(notch, mul(n, half === "left" ? -hw : hw))]);
+  };
+  const path = arrowPath(a, k), [S, T] = [path[0], path[path.length - 1]];
+  const u = unit(sub(T, S)), n = perp(u);
+  switch (a.kind) {
+    case "line":
+    case "arc":
+    case "cut":
+      line(path, 0);
+      break;
+    case "reaction":
+    case "curved":
+      line(path, C);
+      head(path);
+      break;
+    case "double":
+      line(cut(path, C).reverse(), C);
+      head(path);
+      head([...path].reverse());
+      break;
+    case "fishhook":
+      line(path, 0);
+      head(path, (a.bend ?? 0) >= 0 ? "left" : "right"); // the barb on the outside of the curve
+      break;
+    case "resonance":
+      line([add(S, mul(u, C)), T], C);
+      head(path);
+      head([T, S]);
+      break;
+    case "equilibrium": {
+      // Two half-headed arrows, one each way, barbs on the outside.
+      const g = 0.11 * s.bond, top: P[] = [add(S, mul(n, -g)), add(T, mul(n, -g))], bottom: P[] = [add(T, mul(n, g)), add(S, mul(n, g))];
+      line(top, 0);
+      head(top, "left");
+      line(bottom, 0);
+      head(bottom, "left");
+      break;
+    }
+    case "retro": {
+      // Two lines and an open head.
+      const g = 0.09 * s.bond, tip = add(T, mul(u, -2 * g)), back = add(T, mul(u, -(H + 2 * g)));
+      for (const side of [-1, 1]) {
+        bar(add(S, mul(n, side * g)), add(tip, mul(n, side * g)));
+        bar(T, add(back, mul(n, side * (W + 2 * g))));
+      }
+      break;
+    }
+    case "nogo": {
+      line(path, C);
+      head(path);
+      // A cross on the middle of the shaft.
+      const m = mul(add(S, T), 0.5), r = 0.22 * s.bond;
+      for (const d of [add(u, n), sub(u, n)]) bar(add(m, mul(unit(d), -r)), add(m, mul(unit(d), r)));
+      break;
+    }
+  }
+  return out;
+}
+
+// A shape's lines in px (y down), as paths: the outline of a box or oval, or each bracket of a pair. A highlight's
+// outline is its edge. Rounded corners have a radius of 0.3 bond lengths; bracket ends reach 0.25 bond lengths in.
+export function shapePaths(sh: Shape, k: number, bond = k): P[][] {
+  const x0 = Math.min(sh.from[0], sh.to[0]) * k, x1 = Math.max(sh.from[0], sh.to[0]) * k;
+  const y0 = -Math.max(sh.from[1], sh.to[1]) * k, y1 = -Math.min(sh.from[1], sh.to[1]) * k;
+  const w = x1 - x0, h = y1 - y0, arc = (c: P, r: [number, number], a0: number, a1: number, n = 12): P[] =>
+    Array.from({ length: n + 1 }, (_, i) => [c[0] + r[0] * Math.cos(a0 + ((a1 - a0) * i) / n), c[1] + r[1] * Math.sin(a0 + ((a1 - a0) * i) / n)] as P);
+  switch (sh.kind) {
+    case "oval": return [arc([(x0 + x1) / 2, (y0 + y1) / 2], [w / 2, h / 2], 0, 2 * Math.PI, 72)];
+    case "curve": return sh.curve ? [curvePath(sh.curve, k)] : [];
+    case "rounded": {
+      const r = Math.min(0.3 * bond, w / 2, h / 2);
+      return [[...arc([x1 - r, y0 + r], [r, r], -Math.PI / 2, 0), ...arc([x1 - r, y1 - r], [r, r], 0, Math.PI / 2), ...arc([x0 + r, y1 - r], [r, r], Math.PI / 2, Math.PI), ...arc([x0 + r, y0 + r], [r, r], Math.PI, 1.5 * Math.PI), [x1 - r, y0]]];
+    }
+    case "brackets": {
+      const t = Math.min(0.25 * bond, w / 3);
+      return sides(sh, [[x0 + t, y0], [x0, y0], [x0, y1], [x0 + t, y1]], [[x1 - t, y0], [x1, y0], [x1, y1], [x1 - t, y1]]);
+    }
+    case "parens": {
+      // Each one an arc through its ends and a middle 0.25 bond lengths out.
+      const t = Math.min(0.25 * bond, w / 3), R = (t * t + (h / 2) ** 2) / (2 * t), half = Math.asin(Math.min(1, h / 2 / R));
+      return sides(sh, arc([x0 + R, (y0 + y1) / 2], [R, R], Math.PI - half, Math.PI + half, 32), arc([x1 - R, (y0 + y1) / 2], [R, R], half, -half, 32));
+    }
+    case "braces": {
+      // Hooks at the ends, straight runs, and a point at the middle.
+      const t = Math.min(0.25 * bond, w / 3), c = Math.min(t / 2, h / 4), m = (y0 + y1) / 2;
+      const q = (a: P, ctl: P, b: P): P[] => Array.from({ length: 9 }, (_, i) => { const u = i / 8, v = 1 - u; return [v * v * a[0] + 2 * v * u * ctl[0] + u * u * b[0], v * v * a[1] + 2 * v * u * ctl[1] + u * u * b[1]] as P; });
+      const brace = (x: number, s: number): P[] => [
+        ...q([x + s * t, y0], [x + (s * t) / 2, y0], [x + (s * t) / 2, y0 + c]), ...q([x + (s * t) / 2, m - c], [x + (s * t) / 2, m], [x, m]),
+        ...q([x, m], [x + (s * t) / 2, m], [x + (s * t) / 2, m + c]), ...q([x + (s * t) / 2, y1 - c], [x + (s * t) / 2, y1], [x + s * t, y1]),
+      ];
+      return sides(sh, brace(x0, 1), brace(x1, -1));
+    }
+    default: return [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]];
+  }
+}
+
+// A pair of brackets, or the one side asked for.
+const sides = (sh: Shape, left: P[], right: P[]): P[][] => (sh.side === "left" ? [left] : sh.side === "right" ? [right] : [left, right]);
+// Where a bracket's mark goes: just outside its top right corner (px, y down), or the top left for a left bracket alone.
+export function markAt(sh: Shape, k: number): { x: number; y: number; anchor: "start" | "end" } {
+  const x0 = Math.min(sh.from[0], sh.to[0]) * k, x1 = Math.max(sh.from[0], sh.to[0]) * k, y0 = -Math.max(sh.from[1], sh.to[1]) * k;
+  return sh.side === "left" ? { x: x0 - 0.08 * k, y: y0 + 0.1 * k, anchor: "end" } : { x: x1 + 0.08 * k, y: y0 + 0.1 * k, anchor: "start" };
+}
+
+// A shape's ink as filled polygons (px, y down), winding like the bonds: its lines at the line width, dashed when
+// asked (dashes and gaps of 0.2 bond lengths). A highlight has no lines; its fill is its outline.
+export function shapeInk(sh: Shape, s: Style, k: number): P[][] {
+  if (sh.kind === "highlight") return [];
+  const hw = s.line / 2, out: P[][] = [], dash = 0.2 * s.bond;
+  const bar = (p: P, q: P) => { const d = len(sub(q, p)); if (d < 1e-9) return; const n = perp(unit(sub(q, p))); out.push([add(p, mul(n, -hw)), add(p, mul(n, hw)), add(q, mul(n, hw)), add(q, mul(n, -hw))]); };
+  for (const path of shapePaths(sh, k, s.bond)) {
+    // Lines run on by half a width at each joint so corners close.
+    if (!sh.dashed) {
+      for (let i = 0; i + 1 < path.length; i++) {
+        if (len(sub(path[i + 1], path[i])) < 1e-9) continue; // where two curves meet
+        const u = unit(sub(path[i + 1], path[i]));
+        bar(add(path[i], mul(u, -hw)), add(path[i + 1], mul(u, hw)));
+      }
+      continue;
+    }
+    let on = true, left = dash;
+    for (let i = 0; i + 1 < path.length; i++) {
+      let p = path[i];
+      const q = path[i + 1];
+      while (len(sub(q, p)) > 1e-9) {
+        const step = Math.min(left, len(sub(q, p))), r = add(p, mul(unit(sub(q, p)), step));
+        if (on) bar(p, r);
+        p = r;
+        left -= step;
+        if (left <= 1e-9) { on = !on; left = dash; }
+      }
+    }
+  }
+  return out;
+}
+
+// Dash segments along a path: on, off, on, ... measured along it.
+export function dashes(path: P[], on: number, off: number): [P, P][] {
+  const out: [P, P][] = [];
+  let drawing = true, left = on, start: P | undefined = path[0];
+  for (let i = 0; i + 1 < path.length; i++) {
+    let p = path[i];
+    const q = path[i + 1];
+    while (len(sub(q, p)) > 1e-9) {
+      const step = Math.min(left, len(sub(q, p))), r = add(p, mul(unit(sub(q, p)), step));
+      p = r;
+      left -= step;
+      if (left <= 1e-9) {
+        if (drawing && start) out.push([start, r]);
+        drawing = !drawing;
+        left = drawing ? on : off;
+        start = drawing ? r : undefined;
+      }
+    }
+  }
+  if (drawing && start && len(sub(path[path.length - 1], start)) > 1e-9) out.push([start, path[path.length - 1]]);
+  return out;
+}
+// A sine wave following a path: amplitude and wavelength in px, sampled finely.
+export function waveAlong(path: P[], amplitude: number, wavelength: number): P[] {
+  const out: P[] = [];
+  let travelled = 0;
+  for (let i = 0; i + 1 < path.length; i++) {
+    const p = path[i], q = path[i + 1], d = len(sub(q, p));
+    if (d < 1e-9) continue;
+    const u = unit(sub(q, p)), n = perp(u), steps = Math.max(1, Math.ceil(d / (wavelength / 12)));
+    for (let j = 0; j <= steps; j++) {
+      const t = (d * j) / steps, along = travelled + t;
+      out.push(add(add(p, mul(u, t)), mul(n, amplitude * Math.sin((2 * Math.PI * along) / wavelength))));
+    }
+    travelled += d;
+  }
+  return out;
+}
+
+// An orbital's lobes as closed outlines (px, y down). second: the lobe takes the other phase (the back lobe of a p
+// orbital, alternate lobes of a d orbital, a dz2's ring). Lobes follow r = L cos²(angle from their axis).
+export function orbitalPaths(a: Arrow, k: number): { path: P[]; second: boolean }[] {
+  const C: P = [a.from[0] * k, -a.from[1] * k], T: P = [a.to[0] * k, -a.to[1] * k], L = len(sub(T, C));
+  if (L < 1e-6 || !a.orbital) return [];
+  const u = unit(sub(T, C)), n = perp(u), axis = Math.atan2(u[1], u[0]);
+  const at = (t: number, r: number): P => add(C, [r * Math.cos(t), r * Math.sin(t)]);
+  const lobe = (dir: number, length: number, narrow = 1): P[] =>
+    Array.from({ length: 49 }, (_, i) => { const f = -Math.PI / 2 / narrow + (Math.PI / narrow) * (i / 48); return at(dir + f, length * Math.cos(f * narrow) ** 2); });
+  const ellipse = (a1: number, b1: number): P[] => Array.from({ length: 64 }, (_, i) => { const t = (2 * Math.PI * i) / 64; return add(add(C, mul(u, a1 * Math.cos(t))), mul(n, b1 * Math.sin(t))); });
+  switch (a.orbital.shape) {
+    case "s": return [{ path: ellipse(L, L), second: false }];
+    case "oval": return [{ path: ellipse(L, 0.42 * L), second: false }];
+    case "lobe": return [{ path: lobe(axis, L), second: false }];
+    case "hybrid": return [{ path: lobe(axis, L), second: false }, { path: lobe(axis + Math.PI, 0.38 * L), second: true }];
+    case "p": return [{ path: lobe(axis, L), second: false }, { path: lobe(axis + Math.PI, L), second: true }];
+    case "d": return [0, 1, 2, 3].map((q) => ({ path: lobe(axis + Math.PI / 4 + (q * Math.PI) / 2, L, 2), second: q % 2 === 1 }));
+    case "dz2": {
+      // Two lobes along the axis and a ring round the middle, drawn as a flat band.
+      const ring = ellipse(0.24 * L, 0.62 * L), hole = ellipse(0.1 * L, 0.32 * L).reverse();
+      return [{ path: [...ring, ring[0], ...hole, hole[0]], second: true }, { path: lobe(axis, L), second: false }, { path: lobe(axis + Math.PI, L), second: false }];
+    }
+  }
+}
+
+// A TLC plate's layout (drawing units): its box, the origin and solvent front heights, each lane's middle, and
+// where a spot of a given Rf sits.
+export const TLC_ORIGIN = 0.12, TLC_FRONT = 0.1; // the origin's height and the front's depth, as fractions of the plate
+export function tlcLayout(sh: Shape) {
+  const x0 = Math.min(sh.from[0], sh.to[0]), x1 = Math.max(sh.from[0], sh.to[0]), y0 = Math.min(sh.from[1], sh.to[1]), y1 = Math.max(sh.from[1], sh.to[1]);
+  const lanes = Math.max(1, sh.tlc?.lanes ?? 1), origin = y0 + (y1 - y0) * TLC_ORIGIN, front = y1 - (y1 - y0) * TLC_FRONT;
+  const lane = (k: number) => x0 + ((x1 - x0) * (k + 0.5)) / lanes;
+  return { x0, x1, y0, y1, origin, front, lanes, width: (x1 - x0) / lanes, lane, at: (rf: number) => origin + (front - origin) * rf };
+}
+
+// A table's layout (drawing units, y up). Each column is as wide as its widest text plus padding, and the columns
+// share out any width the box has to spare; rows are equal. measure: a cell's text width in drawing units.
+export const TABLE_PAD = 0.35, TABLE_ROW = 0.8; // bond lengths: padding each side of a column's text; least row height
+export function tableLayout(sh: Shape, measure: (text: string) => number = () => 0) {
+  const x0 = Math.min(sh.from[0], sh.to[0]), y1 = Math.max(sh.from[1], sh.to[1]);
+  const cells = sh.table?.cells.length ? sh.table.cells : [[""]];
+  const rows = cells.length, cols = Math.max(...cells.map((r) => r.length));
+  const natural = Array.from({ length: cols }, (_, c) => Math.max(1, ...cells.map((r) => (r[c] ? measure(r[c]) + 2 * TABLE_PAD : 0))));
+  const spare = Math.max(0, Math.abs(sh.to[0] - sh.from[0]) - natural.reduce((a, b) => a + b, 0)) / cols;
+  const widths = natural.map((w) => w + spare), edges = [x0];
+  for (const w of widths) edges.push(edges[edges.length - 1] + w);
+  const h = Math.max(TABLE_ROW, Math.abs(sh.to[1] - sh.from[1]) / rows);
+  return { x0, x1: edges[cols], y0: y1 - rows * h, y1, rows, cols, h, widths, col: (c: number) => edges[c], row: (r: number) => y1 - r * h }; // row 0 at the top
+}
+
+// A pen curve as a polyline (px, y down): each Bézier segment in 24 steps.
+export function curvePath(c: Curve, k: number): P[] {
+  const pts = c.points, out: P[] = [], px = (q: [number, number]): P => [q[0] * k, -q[1] * k];
+  if (!pts.length) return out;
+  out.push(px(pts[0].at));
+  const segments = c.closed && pts.length > 2 ? pts.length : pts.length - 1;
+  for (let i = 0; i < segments; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length], p0 = px(a.at), p1 = px(a.c2 ?? a.at), p2 = px(b.c1 ?? b.at), p3 = px(b.at);
+    if (!a.c2 && !b.c1) { out.push(p3); continue; }
+    for (let j = 1; j <= 24; j++) {
+      const t = j / 24, u = 1 - t;
+      out.push([u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0], u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1]]);
+    }
+  }
+  return out;
+}
+// A curve's box (drawing units) over its anchors and handles: [from, to] as a shape stores them.
+export function curveBox(c: Curve): [[number, number], [number, number]] {
+  const qs = c.points.flatMap((p) => [p.at, ...(p.c1 ? [p.c1] : []), ...(p.c2 ? [p.c2] : [])]);
+  return [[Math.min(...qs.map((q) => q[0])), Math.max(...qs.map((q) => q[1]))], [Math.max(...qs.map((q) => q[0])), Math.min(...qs.map((q) => q[1]))]];
 }

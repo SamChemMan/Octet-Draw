@@ -2,6 +2,7 @@
 // soon after start-up, so the first conversion is instant; until then nameToSmiles returns undefined.
 import pack from "./vendor/opsin/opsin-data.bin?url";
 import list from "./vendor/opsin/names.txt?url";
+import { COMMON, commonKey } from "./common";
 
 type Opsin = typeof import("./vendor/opsin/opsin.js");
 let opsin: Opsin | undefined;
@@ -11,7 +12,8 @@ let loading: Promise<void> | undefined;
 export function loadNames(): Promise<void> {
   loading ??= (async () => {
     const [mod, data, words] = await Promise.all([import("./vendor/opsin/opsin.js"), fetch(pack).then((r) => r.arrayBuffer()), fetch(list).then((r) => r.text())]);
-    names = words.split("\n").filter(Boolean);
+    // Long common names (methylene blue, Eosin Y) join the list for completion; abbreviations match exactly only.
+    names = [...words.split("\n").filter(Boolean), ...Object.keys(COMMON).filter((k) => k.length >= 7).map((k) => k.toLowerCase())].sort();
     // The pack: [name length (u16), name (latin1), size (i32), bytes] repeated, ending with a zero length.
     const view = new DataView(data), files = new Map<string, Int8Array>(), latin1 = new TextDecoder("latin1");
     for (let p = 0; ; ) {
@@ -28,14 +30,34 @@ export function loadNames(): Promise<void> {
   return loading;
 }
 
-// SMILES for a chemical name, or undefined if OPSIN cannot read it (or has not loaded yet).
-export function nameToSmiles(name: string): string | undefined {
-  if (!opsin || !name.trim() || name.length > 1000) return undefined;
+const common = new Map(Object.entries(COMMON).map(([k, v]) => [commonKey(k), v]));
+function read(name: string): string | undefined {
   try {
-    return opsin.parseToSmiles(name.trim()) ?? undefined;
+    return opsin!.parseToSmiles(name) ?? undefined;
   } catch {
     return undefined;
   }
+}
+
+// SMILES for a chemical name, or undefined if Octet cannot read it (or OPSIN has not loaded yet). Reads the name
+// as written, then common abbreviations (THF, DMAP, 4CzIPN), then the name tidied of catalogue quirks.
+export function nameToSmiles(name: string): string | undefined {
+  const s = name.trim();
+  if (!opsin || !s || s.length > 1000) return undefined;
+  const known = common.get(commonKey(s));
+  if (known) return known.startsWith("smiles:") ? known.slice(7) : read(known);
+  const tidied = tidy(s);
+  return read(s) ?? (tidied !== s ? read(tidied) : undefined);
+}
+
+// Catalogue and supplier quirks: brackets round a plain multiplied group ("10,15,20-(triphenyl)porphyrin"),
+// "meso-tetra…porphyrin" for the 5,10,15,20 positions, and stray spaces or a full stop.
+function tidy(s: string): string {
+  return s
+    .replace(/(\d[\d,']*-)\(([a-z]{4,})\)(?=[a-z])/gi, (all, locants: string, inner: string) => (/^[ivx]+$/i.test(inner) ? all : locants + inner))
+    .replace(/\bmeso-(tetra(?:kis)?)(?=.*porphyrin)/i, "5,10,15,20-$1")
+    .replace(/\s+/g, " ")
+    .replace(/\.$/, "");
 }
 
 // A name close to what was typed, for when it is not a name OPSIN reads: the rest of a common name being

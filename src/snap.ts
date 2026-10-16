@@ -51,3 +51,36 @@ export function snapMove(m: Mol, ids: Set<number>, d: P, tol: number): { d: P; g
   if (sy) guides.push({ axis: "y", at: sy.line.at, from: Math.min(fb[0], sy.line.lo) - 0.3, to: Math.max(fb[2], sy.line.hi) + 0.3 });
   return { d: out, guides };
 }
+
+// Snapping for text moved on its own: its box's edges and middle line up with each structure's edges and middle,
+// and its middle with the point halfway between two neighbouring structures (where a + or a label belongs).
+// moving: the text's box [left, bottom, right, top]; d: the move so far. Distances in bond lengths.
+// ink: each structure's drawn box (labels included), when the caller has it; else the box of its atoms.
+export function snapBox(m: Mol, moving: number[], d: P, tol: number, ink?: (atoms: number[]) => number[] | undefined): { d: P; guides: Guide[] } {
+  const boxes = fragments(m).map((g) => ink?.(g) ?? box(g.map((i) => pos(m, i))));
+  if (!boxes.length) return { d, guides: [] };
+  const mb = moving.map((v, k) => v + d[k % 2]);
+  const axis = (k: 0 | 1) => {
+    const o = 1 - k, refs = [mb[k], (mb[k] + mb[k + 2]) / 2, mb[k + 2]];
+    const targets: Line[] = boxes.flatMap((b) => [b[k], (b[k] + b[k + 2]) / 2, b[k + 2]].map((at) => ({ at, lo: b[o], hi: b[o + 2] })));
+    // Halfway between two structures side by side (overlapping across the other axis).
+    for (const a of boxes) for (const b of boxes) {
+      if (a === b || a[k + 2] >= b[k] || a[o] > b[o + 2] || b[o] > a[o + 2]) continue;
+      targets.push({ at: (a[k + 2] + b[k]) / 2, lo: Math.min(a[o], b[o]), hi: Math.max(a[o + 2], b[o + 2]) });
+    }
+    let pick: { diff: number; line: Line } | undefined;
+    for (const [n, r] of refs.entries()) for (const t of targets) {
+      const diff = t.at - r;
+      // Middles count for a little more than edges, so text centres when it can.
+      const weight = n === 1 ? 0.7 : 1;
+      if (Math.abs(diff) < tol && (!pick || Math.abs(diff) * weight < Math.abs(pick.diff))) pick = { diff, line: t };
+    }
+    return pick;
+  };
+  const sx = axis(0), sy = axis(1);
+  const out: P = [d[0] + (sx?.diff ?? 0), d[1] + (sy?.diff ?? 0)];
+  const fb = moving.map((v, k) => v + out[k % 2]), guides: Guide[] = [];
+  if (sx) guides.push({ axis: "x", at: sx.line.at, from: Math.min(fb[1], sx.line.lo) - 0.3, to: Math.max(fb[3], sx.line.hi) + 0.3 });
+  if (sy) guides.push({ axis: "y", at: sy.line.at, from: Math.min(fb[0], sy.line.lo) - 0.3, to: Math.max(fb[2], sy.line.hi) + 0.3 });
+  return { d: out, guides };
+}

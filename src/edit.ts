@@ -1,6 +1,7 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import type { Atom, Bond, Caption, Mol } from "./render.ts";
+import { hydrogens, lonePairs, tableLayout, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape, type Table } from "./render.ts";
+import type { Cycle } from "./cycle.ts";
 import { anchorElement, isElement } from "./labels.ts";
 
 export type P = [number, number];
@@ -129,6 +130,8 @@ export function chainTo(m: Mol, from: number | P, q: P): { mol: Mol; bonds: numb
 }
 
 const setAtom = (m: Mol, i: number, change: Partial<Atom>): Mol => ({ ...m, atoms: m.atoms.map((a, k) => (k === i ? { ...a, ...change } : a)) });
+// Marks drawn on an atom that do not change what it is: H dot or hash, attachment squiggle, polymer bead.
+export const setAtomMarks = (m: Mol, i: number, change: Pick<Partial<Atom>, "hmark" | "attach" | "bead">) => setAtom(m, i, change);
 const setBondAt = (m: Mol, i: number, change: Partial<Bond>): Mol => ({ ...m, bonds: m.bonds.map((b, k) => (k === i ? { ...b, ...change } : b)) });
 
 export const setElement = (m: Mol, i: number, label: string) => setAtom(m, i, { label, text: undefined });
@@ -140,7 +143,47 @@ export function setLabel(m: Mol, i: number, text: string): Mol {
   if (isElement(t)) return setElement(m, i, t);
   return setAtom(m, i, { label: anchorElement(t) ?? "C", text: t });
 }
-export const addCharge = (m: Mol, i: number, delta: number) => setAtom(m, i, { charge: (m.atoms[i].charge ?? 0) + delta || undefined });
+export const addCharge = (m: Mol, i: number, delta: number) => trimPairs(setAtom(m, i, { charge: (m.atoms[i].charge ?? 0) + delta || undefined }), i);
+
+// The Symbols tool's marks. A charge adds to the atom's charge, drawn as a superscript sign or circled beside the
+// atom. A radical or partial charge toggles. A lone pair adds one more each click, up to the atom's free pairs
+// (at least one), and the click after that clears them.
+export type SymbolKind = "plus" | "minus" | "circledPlus" | "circledMinus" | "radical" | "pair" | "partialPlus" | "partialMinus"
+  | "radicalCation" | "radicalAnion" | "hDot" | "hDash" | "attach" | "bead";
+export function addSymbol(m: Mol, i: number, kind: SymbolKind): Mol {
+  const a = m.atoms[i];
+  switch (kind) {
+    case "plus": case "minus": case "circledPlus": case "circledMinus": {
+      const charge = (a.charge ?? 0) + (kind === "plus" || kind === "circledPlus" ? 1 : -1);
+      return trimPairs(setAtom(m, i, { charge: charge || undefined, circled: charge && kind.startsWith("circled") ? true : undefined }), i);
+    }
+    case "radical": return trimPairs(setAtom(m, i, { radical: a.radical ? undefined : 1 }), i);
+    case "partialPlus": case "partialMinus": { const p = kind === "partialPlus" ? "+" : "-"; return setAtom(m, i, { partial: a.partial === p ? undefined : p }); }
+    case "pair": { const n = (a.pairs ?? 0) + 1; return setAtom(m, i, { pairs: n > Math.max(1, freePairs(m, i)) ? undefined : n }); }
+    // A radical ion: one unpaired electron and a charge, together. Clicking one again takes both off.
+    case "radicalCation": case "radicalAnion": {
+      const charge = kind === "radicalCation" ? 1 : -1, on = a.radical === 1 && a.charge === charge;
+      return trimPairs(setAtom(m, i, { radical: on ? undefined : 1, charge: on ? undefined : charge, circled: undefined }), i);
+    }
+    case "hDot": case "hDash": { const h = kind === "hDot" ? "dot" : "dash"; return setAtom(m, i, { hmark: a.hmark === h ? undefined : h }); }
+    case "attach": return setAtom(m, i, { attach: !a.attach || undefined });
+    case "bead": return setAtom(m, i, { bead: !a.bead || undefined });
+  }
+}
+// Lone pairs shown never outnumber the ones the atom has (after a charge or radical changes them).
+const trimPairs = (m: Mol, i: number) => (m.atoms[i].pairs ? setAtom(m, i, { pairs: Math.min(m.atoms[i].pairs!, freePairs(m, i)) || undefined }) : m);
+// How many lone pairs an atom has, from its element, bonds, hydrogens, charge and radical.
+export function freePairs(m: Mol, i: number): number {
+  const a = m.atoms[i], used = m.bonds.reduce((n, b) => n + (b.atoms.includes(i) ? (b.type === 4 ? 1.5 : b.type) : 0), 0);
+  const h = a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used, a.radical);
+  return lonePairs(a.label, a.charge ?? 0, Math.ceil(used), h, a.radical);
+}
+// Shows the lone pairs on every heteroatom among these atoms; when they all show already, hides them.
+export function toggleLonePairs(m: Mol, atoms: number[]): Mol {
+  const hetero = atoms.filter((i) => m.atoms[i].label !== "C" && freePairs(m, i) > 0);
+  const shown = hetero.every((i) => (m.atoms[i].pairs ?? 0) >= freePairs(m, i));
+  return hetero.reduce((acc, i) => setAtom(acc, i, { pairs: shown ? undefined : freePairs(m, i) }), m);
+}
 // Single, then double, then triple, then single again. A wedge or hash becomes a plain double.
 const respec = (m: Mol, i: number, spec: BondSpec): Mol => ({ ...m, bonds: m.bonds.map((b, k) => (k === i ? makeBond(b.atoms, spec) : b)) });
 export const cycleBond = (m: Mol, i: number) => respec(m, i, { type: m.bonds[i].stereo || m.bonds[i].display ? 2 : (m.bonds[i].type % 3) + 1 });
@@ -164,7 +207,13 @@ function removeAtoms(m: Mol, gone: Set<number>): Mol {
     const under = c.under.filter((i) => map.has(i)).map((i) => map.get(i)!);
     return under.length ? [{ ...c, under }] : [];
   });
-  return { ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions };
+  // A cycle keeps the intermediates that still have atoms; with fewer than two it is no longer a cycle.
+  const cycles = m.cycles?.flatMap((c) => {
+    const nodes = c.nodes.map((n) => n.filter((i) => map.has(i)).map((i) => map.get(i)!)).filter((n) => n.length);
+    return nodes.length >= 2 ? [{ ...c, nodes }] : [];
+  });
+  const kept = new Set(cycles?.map((c) => c.id));
+  return { ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || kept.has(c.cycle.cycle)), cycles };
 }
 export const deleteAtom = (m: Mol, i: number) => removeAtoms(m, new Set([i]));
 export const deleteBond = (m: Mol, i: number) => removeAtoms({ ...m, bonds: m.bonds.filter((_, k) => k !== i) }, new Set());
@@ -321,7 +370,7 @@ export function joinOverlaps(m: Mol, moved: Set<number>): { mol: Mol; joined: bo
 
 // ChemDraw-style group keys on an atom. Each adds a group and keeps the bond rules above.
 export type Group = "chain" | "other" | "acetyl" | "phenyl" | "cyclopropyl" | "cyclobutyl" | "cyclopentyl" | "cyclohexyl"
-  | "wedgeMe" | "hashMe" | "methylidene" | "dimethyl" | "alkyne";
+  | "wedgeMe" | "hashMe" | "methylidene" | "dimethyl" | "alkyne" | "sulfonyl" | "tBu";
 const RING_GROUPS: Partial<Record<Group, [number, boolean]>> = {
   phenyl: [6, true], cyclopropyl: [3, false], cyclobutyl: [4, false], cyclopentyl: [5, false], cyclohexyl: [6, false],
 };
@@ -361,6 +410,20 @@ export function addGroup(m: Mol, i: number, g: Group): Mol {
     case "methylidene": return grow(m, { type: 2 })[0];
     case "alkyne": return grow(m, { type: 3 })[0];
     case "dimethyl": { const [m2] = grow(m); return grow(m2)[0]; }
+    case "sulfonyl": {
+      // S with a C=O either side of the bond, square to it.
+      const [m2, sAt] = grow(m), u = unit(sub(pos(m2, sAt), here)), side: P = [-u[1], u[0]];
+      let out = setElement(m2, sAt, "S");
+      for (const d of [side, mul(side, -1)]) { out = bondTo(out, sAt, add(pos(out, sAt), d), { type: 2 }); out = setElement(out, out.atoms.length - 1, "O"); }
+      return out;
+    }
+    case "tBu": {
+      // A quaternary carbon with its three methyls at right angles: one straight on, one either side.
+      const [m2, c] = grow(m), u = unit(sub(pos(m2, c), here)), side: P = [-u[1], u[0]];
+      let out = m2;
+      for (const d of [u, side, mul(side, -1)]) out = bondTo(out, c, add(pos(out, c), d));
+      return out;
+    }
   }
   return m;
 }
@@ -481,14 +544,92 @@ export function alignFragments(m: Mol, ids: Set<number>, how: "row" | "column" |
   return out;
 }
 
-// Captions. Ids are unique within a drawing and never reused while it is open.
+// Captions and arrows share one set of ids, unique within a drawing.
+const nextId = (m: Mol) => Math.max(0, ...[...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? [])].map((x) => x.id)) + 1;
+export function addCycle(m: Mol, c: Omit<Cycle, "id">): [Mol, number] {
+  const id = nextId(m);
+  return [{ ...m, cycles: [...(m.cycles ?? []), { ...c, id }] }, id];
+}
 export function addCaption(m: Mol, c: Omit<Caption, "id">): [Mol, number] {
-  const id = Math.max(0, ...(m.captions ?? []).map((x) => x.id)) + 1;
+  const id = nextId(m);
   return [{ ...m, captions: [...(m.captions ?? []), { ...c, id }] }, id];
+}
+export function addArrow(m: Mol, a: Omit<Arrow, "id">): [Mol, number] {
+  const id = nextId(m);
+  return [{ ...m, arrows: [...(m.arrows ?? []), { ...a, id }] }, id];
+}
+export const updateArrow = (m: Mol, id: number, change: Partial<Arrow>): Mol =>
+  ({ ...m, arrows: m.arrows?.map((a) => (a.id === id ? { ...a, ...change } : a)) });
+export function addShape(m: Mol, sh: Omit<Shape, "id">): [Mol, number] {
+  const id = nextId(m);
+  // A highlight goes behind the shapes already there; anything else on top.
+  return [{ ...m, shapes: sh.kind === "highlight" ? [{ ...sh, id }, ...(m.shapes ?? [])] : [...(m.shapes ?? []), { ...sh, id }] }, id];
+}
+export const updateShape = (m: Mol, id: number, change: Partial<Shape>): Mol =>
+  ({ ...m, shapes: m.shapes?.map((x) => (x.id === id ? { ...x, ...change } : x)) });
+// Atom maps. Pairing two atoms gives both the first one's number, or the second's, or the next free number; the
+// number leaves any other atom that had it. Clearing takes an atom's number off.
+export function pairMap(m: Mol, a: number, b: number): Mol {
+  const n = m.atoms[a].map ?? m.atoms[b].map ?? Math.max(0, ...m.atoms.map((x) => x.map ?? 0)) + 1;
+  return { ...m, atoms: m.atoms.map((x, i) => (i === a || i === b ? { ...x, map: n } : x.map === n ? { ...x, map: undefined } : x)) };
+}
+export const clearMap = (m: Mol, i: number): Mol => ({ ...m, atoms: m.atoms.map((x, j) => (j === i ? { ...x, map: undefined } : x)) });
+
+// Stereocentres: the atoms at the narrow end of a wedge or hashed wedge (among some atoms, if given).
+export const stereocentres = (m: Mol, among?: Set<number>) =>
+  [...new Set(m.bonds.filter((b) => b.stereo === 1 || b.stereo === 6).map((b) => b.atoms[0]))].filter((i) => !among || among.has(i));
+// Where a small mark beside an atom goes (a stereo flag, a map number): the middle of its widest gap between
+// bonds, never inside a ring when the atom has a bond out of it, and lower on a tie.
+export function markDirection(m: Mol, i: number): P {
+  const here = pos(m, i), ns = neighbours(m, i);
+  if (!ns.length) return [0, -1];
+  const bonds = ns.map((j) => ({ a: Math.atan2(pos(m, j)[1] - here[1], pos(m, j)[0] - here[0]), ring: inRing(m, bondIndex(m, i, j)) })).sort((p, q) => p.a - q.a);
+  let best: P = [0, -1], score = -Infinity;
+  bonds.forEach((b, k) => {
+    const next = bonds[(k + 1) % bonds.length];
+    let gap = bonds.length === 1 ? 2 * Math.PI : next.a - b.a;
+    if (gap <= 0) gap += 2 * Math.PI;
+    const mid = b.a + gap / 2, inside = bonds.length > 2 && b.ring && next.ring && bonds.some((x) => !x.ring);
+    const s = gap - (inside ? 10 : 0) - 0.01 * Math.sin(mid);
+    if (s > score) { score = s; best = [Math.cos(mid), Math.sin(mid)]; }
+  });
+  return best;
+}
+// Enhanced stereo flags on atoms: "abs", "&1" or "or1", or none.
+export const setEnhanced = (m: Mol, ids: number[], label?: string): Mol =>
+  ({ ...m, atoms: m.atoms.map((a, i) => (ids.includes(i) ? { ...a, enhanced: label } : a)) });
+
+// Tables. A new one has an Entry column numbered down its rows, under a header row.
+export const newTable = (rows: number, cols: number): Table =>
+  ({ cells: Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => (c === 0 ? (r === 0 ? "Entry" : String(r)) : ""))) });
+// A table with rows and columns added or taken off the end (at least one of each), and its box to match: rows keep
+// their height, columns that stay keep their width, and a new column is as wide as the average one. A new row
+// carries on the entry numbers when the first column counts 1, 2, 3 down the rows.
+export function resizeTable(sh: Shape, rows: number, cols: number, measure?: (text: string) => number): Partial<Shape> {
+  const t = tableLayout(sh, measure), cells = sh.table?.cells ?? [[""]];
+  const R = Math.max(1, Math.min(100, rows)), C = Math.max(1, Math.min(20, cols));
+  const counts = cells.slice(1).every((r, i) => r[0] === String(i + 1));
+  const next = Array.from({ length: R }, (_, r) => Array.from({ length: C }, (_, c) => cells[r]?.[c] ?? (c === 0 && r > 0 && counts ? String(r) : "")));
+  const average = t.widths.reduce((a, b) => a + b, 0) / t.cols;
+  const width = Array.from({ length: C }, (_, c) => t.widths[c] ?? average).reduce((a, b) => a + b, 0);
+  return { from: [t.x0, t.y1], to: [t.x0 + width, t.y1 - R * t.h], table: { ...sh.table, cells: next } };
+}
+// A table with one cell's text set, its box grown to fit the text if it no longer does.
+export function setTableCell(sh: Shape, r: number, c: number, text: string, measure?: (text: string) => number): Partial<Shape> {
+  const cells = (sh.table?.cells ?? [[""]]).map((row, i) => (i === r ? row.map((x, j) => (j === c ? text : x)) : row));
+  const t = tableLayout({ ...sh, table: { ...sh.table, cells } }, measure);
+  return { from: [t.x0, t.y1], to: [t.x1, t.y0], table: { ...sh.table, cells } };
 }
 export const updateCaption = (m: Mol, id: number, change: Partial<Caption>): Mol =>
   ({ ...m, captions: m.captions?.map((c) => (c.id === id ? { ...c, ...change } : c)) });
-export const deleteCaptions = (m: Mol, ids: Set<number>): Mol => ({ ...m, captions: m.captions?.filter((c) => !ids.has(c.id)) });
+// Deletes captions, arrows, shapes and cycles by id; an arrow's conditions and a cycle's labels go with it.
+export const deleteGraphics = (m: Mol, ids: Set<number>): Mol => ({
+  ...m,
+  captions: m.captions?.filter((c) => !ids.has(c.id) && !(c.on && ids.has(c.on.arrow)) && !(c.cycle && ids.has(c.cycle.cycle))),
+  arrows: m.arrows?.filter((a) => !ids.has(a.id)),
+  shapes: m.shapes?.filter((x) => !ids.has(x.id)),
+  cycles: m.cycles?.filter((c) => !ids.has(c.id)),
+});
 // The next compound number in the drawing: one more than the highest bold number already there.
 export function nextNumber(m: Mol): string {
   const used = (m.captions ?? []).filter((c) => c.bold && /^\d+$/.test(c.text)).map((c) => Number(c.text));
@@ -496,7 +637,7 @@ export function nextNumber(m: Mol): string {
 }
 
 // A bond is in a ring when its ends stay connected without it.
-function inRing(m: Mol, k: number): boolean {
+export function inRing(m: Mol, k: number): boolean {
   const [from, to] = m.bonds[k].atoms, seen = new Set([from]), queue = [from];
   while (queue.length) {
     const i = queue.pop()!;
@@ -515,7 +656,7 @@ function inRing(m: Mol, k: number): boolean {
 // Template atoms that land on existing atoms join them, and a double bond that would give an atom two is single.
 export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: number; point?: P }): Mol {
   if (!t.atoms.length) return m;
-  let pts: P[] = t.atoms.map((a) => [a.location[0], a.location[1]]);
+  let pts: P[] = t.atoms.map((a) => [a.location[0], a.location[1]]), mirrored = false;
   const middle = (ps: P[]) => mul(ps.reduce((s, p) => add(s, p), [0, 0] as P), 1 / ps.length);
   // Fuse along a ring bond on the template's outside edge (the rest of it on one side), so nothing overlaps.
   const ring = t.bonds.filter((_, k) => inRing(t, k));
@@ -531,7 +672,7 @@ export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: numb
     pts = pts.map((p) => add(a, mul(rot(sub(p, e0), turn), k)));
     const normal = unit([-be[1], be[0]]), side = (p: P) => Math.sign(dot(sub(p, a), normal));
     const others = [...neighbours(m, i), ...neighbours(m, j)].filter((x) => x !== i && x !== j);
-    if (others.reduce((s, x) => s + side(pos(m, x)), 0) * side(middle(pts)) > 0) pts = pts.map((p) => sub(p, mul(normal, 2 * dot(sub(p, a), normal))));
+    if (others.reduce((s, x) => s + side(pos(m, x)), 0) * side(middle(pts)) > 0) { pts = pts.map((p) => sub(p, mul(normal, 2 * dot(sub(p, a), normal)))); mirrored = true; }
   } else if (target.atom !== undefined) {
     const a = pos(m, target.atom), dir = nextDirection(m, target.atom), v = sub(middle(pts), pts[0]);
     const turn = len(v) > 1e-6 ? Math.atan2(dir[1], dir[0]) - Math.atan2(v[1], v[0]) : 0, from = pts[0];
@@ -546,8 +687,8 @@ export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: numb
     let id: number;
     [m, id] = atomOrNew(m, p);
     if (id >= before) {
-      const { label, charge, text } = t.atoms[k];
-      m = { ...m, atoms: m.atoms.map((x, n) => (n === id ? { ...x, label, ...(charge ? { charge } : {}), ...(text ? { text } : {}) } : x)) };
+      const { label, charge, text, radical } = t.atoms[k];
+      m = { ...m, atoms: m.atoms.map((x, n) => (n === id ? { ...x, label, ...(charge ? { charge } : {}), ...(text ? { text } : {}), ...(radical ? { radical } : {}) } : x)) };
     }
     ids.push(id);
   }
@@ -555,7 +696,9 @@ export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: numb
   for (const b of t.bonds) {
     const [i, j] = [ids[b.atoms[0]], ids[b.atoms[1]]];
     const type = b.type === 2 && (hasDouble(i) || hasDouble(j)) ? 1 : b.type;
-    m = withBond(m, i, j, { type, ...(b.stereo ? { stereo: b.stereo } : {}), ...(b.display ? { display: b.display } : {}) });
+    // A mirrored template keeps its stereochemistry: wedges and hashes swap.
+    const stereo = mirrored && (b.stereo === 1 || b.stereo === 6) ? 7 - b.stereo : b.stereo;
+    m = withBond(m, i, j, { type, ...(stereo ? { stereo } : {}), ...(b.display ? { display: b.display } : {}) });
   }
   return m;
 }
@@ -567,4 +710,23 @@ export function normalise(m: Mol): Mol {
   if (!b) return m;
   const c: P = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
   return { atoms: m.atoms.map((a) => ({ ...a, location: [(a.location[0] - c[0]) * k, (a.location[1] - c[1]) * k, 0] })), bonds: m.bonds };
+}
+
+// The turn (degrees, anticlockwise) that sets a structure's bottom ring bond level with the page: of the ring bonds
+// that would end up lowest, the one needing the smallest turn. 0 for a structure without rings.
+export function levelTurn(m: Mol, atoms: number[]): number {
+  const inside = new Set(atoms), ring = m.bonds.map((b, k) => ({ b, k })).filter(({ b, k }) => inside.has(b.atoms[0]) && inside.has(b.atoms[1]) && inRing(m, k));
+  if (!ring.length) return 0;
+  let best = 0, found = false;
+  for (const { b } of ring) {
+    const p = pos(m, b.atoms[0]), q = pos(m, b.atoms[1]);
+    let t = -Math.atan2(q[1] - p[1], q[0] - p[0]) / deg;
+    t = ((t % 180) + 270) % 180 - 90; // the smaller way round, in (-90, 90]
+    // After this turn, is the bond at the bottom of its structure?
+    const c = Math.cos(t * deg), s = Math.sin(t * deg), y = (r: P) => r[0] * s + r[1] * c;
+    const mid = (y(p) + y(q)) / 2, lowest = Math.min(...ring.map(({ b: x }) => (y(pos(m, x.atoms[0])) + y(pos(m, x.atoms[1]))) / 2));
+    if (mid > lowest + 0.05) continue;
+    if (!found || Math.abs(t) < Math.abs(best)) { best = t; found = true; }
+  }
+  return Math.abs(best) < 0.5 ? 0 : best;
 }

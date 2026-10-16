@@ -40,8 +40,17 @@ export function messy(m: Mol, ids?: Set<number>): boolean {
   });
   if (uneven) return true;
   const atoms = m.atoms.map((_, i) => i).filter(inside);
-  return atoms.some((i, k) => atoms.slice(k + 1).some((j) => {
+  const crowded = atoms.some((i, k) => atoms.slice(k + 1).some((j) => {
     const [p, q]: P[] = [pos(m, i), pos(m, j)];
     return Math.hypot(q[0] - p[0], q[1] - p[1]) < 0.35 && !neighbours(m, i).includes(j);
   }));
+  if (crowded) return true;
+  // Two bonds that cross (and share no atom) also need cleaning up.
+  const bonds = m.bonds.filter((b) => inside(b.atoms[0]) && inside(b.atoms[1]));
+  const cross = (a: P, b: P, c: P, d: P) => {
+    const s = (p: P, q: P, r: P) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+    return s(a, b, c) * s(a, b, d) < 0 && s(c, d, a) * s(c, d, b) < 0;
+  };
+  return bonds.some((b, k) => bonds.slice(k + 1).some((c) =>
+    !b.atoms.some((i) => c.atoms.includes(i)) && cross(pos(m, b.atoms[0]), pos(m, b.atoms[1]), pos(m, c.atoms[0]), pos(m, c.atoms[1]))));
 }

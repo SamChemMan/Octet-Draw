@@ -32,14 +32,23 @@ Octet draws structures itself as SVG. The app icon source is
 - Free for every individual. No trial timers, watermarks, export limits,
   licence keys, sign-up gates, upsell modals or Pro locks.
 - Offline-first. Every feature works with no network. No account to start:
-  first launch opens a blank canvas. Accounts are optional and only add
-  sync and sharing. Files always save locally.
+  Octet opens to a Home page of recent drawings, where Return starts a new
+  one (decision 0003). Accounts are optional and only add sync and sharing.
+  Files always save locally, as `.oct` (CDXML inside, decision 0004).
 - Signed and notarised installers.
 - CDXML import and export from version 1, with a round-trip test suite.
 - New documents use ACS Document 1996 by the book (Arial 10 pt labels).
   Users can change the style. Export matches the page exactly.
 - When a question in section 11 of the brief blocks you, ask Sam. Don't
   guess.
+- Cross-check ChemDraw for every feature, before you build it and again
+  before you show it. List every option ChemDraw gives that tool or object:
+  its palette, the Object, Curves, Color and Text menus, the context menu,
+  its dialogs, and the attributes its CDXML object takes. Run ChemDraw
+  22.2 on Sam's Mac and try each one. Where the format notes don't cover
+  an attribute, decompile and read it (within "ChemDraw: what we can use"
+  below). Octet gets every option, or Sam gets a list of the ones missing.
+  Never guess and never skip the check.
 
 Colours, fonts, British English, STE and accessibility rules are in
 `brand/CLAUDE.md`.

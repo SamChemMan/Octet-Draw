@@ -1,6 +1,7 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset } from "./edit.ts";
+import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, pairMap, clearMap } from "./edit.ts";
+import { tableLayout } from "./render.ts";
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
 
@@ -171,4 +172,44 @@ console.log("edit.check: align ok");
   const twice = addTemplate(indane, indane, { bond: indane.bonds.findIndex((b) => b.atoms.includes(3) && b.atoms.includes(4)) });
   assert.equal(twice.atoms.length, 9 + 7, "only the shared bond's two atoms are shared");
   console.log("edit.check: templates ok");
+}
+
+// Clean up levels a ring structure's bottom bond: a turned pentagon comes back with a level bottom edge.
+{
+  const ring = rotateAtoms(addRing(EMPTY, 5, false, { point: [0, 0] }), new Set([0, 1, 2, 3, 4]), 17);
+  const all = [0, 1, 2, 3, 4], turned = rotateAtoms(ring, new Set(all), levelTurn(ring, all));
+  const ys = turned.bonds.map((b) => [pos(turned, b.atoms[0])[1], pos(turned, b.atoms[1])[1]]);
+  const bottom = ys.reduce((lo, y) => (y[0] + y[1] < lo[0] + lo[1] ? y : lo));
+  assert.ok(Math.abs(bottom[0] - bottom[1]) < 1e-6, "the bottom bond is level");
+  assert.equal(levelTurn(turned, all), 0, "and a level ring is left alone");
+  console.log("edit.check: level ok");
+}
+
+// Tables: a new one numbers its entries; a row added carries the numbers on; a long cell widens its column only.
+{
+  const sh = { id: 1, kind: "table" as const, from: [0, 0] as [number, number], to: [6, -2.4] as [number, number], table: newTable(3, 3) };
+  assert.deepEqual(sh.table.cells.map((r) => r[0]), ["Entry", "1", "2"]);
+  const grown = { ...sh, ...resizeTable(sh, 4, 3) };
+  assert.deepEqual(grown.table!.cells.map((r) => r[0]), ["Entry", "1", "2", "3"], "a new row carries on the entry numbers");
+  assert.ok(Math.abs(tableLayout(grown).h - tableLayout(sh).h) < 1e-9, "rows keep their height");
+  const wide = { ...sh, ...setTableCell(sh, 1, 1, "x".repeat(40), (t) => t.length * 0.3) };
+  const t = tableLayout(wide, (x) => x.length * 0.3);
+  assert.ok(t.widths[1] > 12 && Math.abs(wide.to[0] - t.x1) < 1e-9, "the box grows to fit the long cell");
+  assert.ok(t.widths[0] < 3, "the other columns stay narrow");
+  const fewer = { ...sh, ...resizeTable(sh, 0, 0) };
+  assert.deepEqual(fewer.table!.cells, [["Entry"]], "never fewer than one row and one column");
+  console.log("edit.check: tables ok");
+}
+
+// Atom maps: a pair takes the next free number, a mapped atom lends its number, and a number is never on two pairs.
+{
+  let m = sprout(sprout(sprout(EMPTY, [0, 0]), [5, 0]), [10, 0]); // three separate bonds: atoms 0 to 5
+  m = pairMap(m, 0, 2);
+  assert.deepEqual(m.atoms.map((a) => a.map), [1, undefined, 1, undefined, undefined, undefined]);
+  m = pairMap(m, 1, 3);
+  assert.equal(m.atoms[1].map, 2);
+  m = pairMap(m, 0, 4);
+  assert.deepEqual(m.atoms.map((a) => a.map), [1, 2, undefined, 2, 1, undefined], "atom 2 gives up number 1");
+  assert.equal(clearMap(m, 4).atoms[4].map, undefined);
+  console.log("edit.check: atom maps ok");
 }

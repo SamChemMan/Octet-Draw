@@ -1,8 +1,8 @@
 // The chemistry engine (Indigo) and the drawing style, shared by the editor and the dev gallery.
 import Indigo from "indigo-ketcher/binaryWasmNoRender";
-import type { Ink, Mol } from "./render";
+import { hydrogens, type Ink, type Mol } from "./render";
 import { labelSmiles } from "./labels";
-import { fragments } from "./edit";
+import { fragments, levelTurn } from "./edit";
 
 type IndigoModule = Awaited<ReturnType<typeof Indigo>>;
 let indigo: IndigoModule | undefined;
@@ -27,16 +27,17 @@ export const STYLE = {
 const FONT = token("--atom-label-font");
 const SCALE = 8;
 const inks = new Map<string, Ink>();
-export function measure(text: string): Ink {
-  const cached = inks.get(text);
+// Label metrics for a font and size (px). Each text is measured once per font and size.
+export const measurer = (font: string, size: number) => (text: string): Ink => {
+  const key = `${font}|${size}|${text}`, cached = inks.get(key);
   if (cached) return cached;
   const canvas = document.createElement("canvas");
   const g = canvas.getContext("2d", { willReadFrequently: true })!;
-  g.font = `${STYLE.size}px ${FONT}`;
+  g.font = `${size}px ${font}`;
   const m = g.measureText(text);
-  const pad = 2, baseline = STYLE.size * 1.2;
-  const w = (canvas.width = Math.ceil((m.width + 2 * pad) * SCALE)), h = (canvas.height = Math.ceil(STYLE.size * 1.6 * SCALE));
-  g.font = `${STYLE.size * SCALE}px ${FONT}`;
+  const pad = 2, baseline = size * 1.2;
+  const w = (canvas.width = Math.ceil((m.width + 2 * pad) * SCALE)), h = (canvas.height = Math.ceil(size * 1.6 * SCALE));
+  g.font = `${size * SCALE}px ${font}`;
   g.fillText(text, pad * SCALE, baseline * SCALE);
   const alpha = g.getImageData(0, 0, w, h).data;
   const on = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && alpha[(y * w + x) * 4 + 3] > 127;
@@ -46,16 +47,17 @@ export function measure(text: string): Ink {
       if (on(x, y) && !(on(x - 1, y) && on(x + 1, y) && on(x, y - 1) && on(x, y + 1)))
         outline.push([(x + 0.5) / SCALE - pad, (y + 0.5) / SCALE - baseline]);
   const ink = { width: m.width, ascent: m.actualBoundingBoxAscent, outline };
-  inks.set(text, ink);
+  inks.set(key, ink);
   return ink;
-}
+};
+export const measure = measurer(FONT, STYLE.size);
 
 // A caption line's advance width in px, in the caption font.
 const CAPTION_FONT = token("--caption-font");
 const widths = new Map<string, number>();
 const meter = document.createElement("canvas").getContext("2d")!;
-export function textWidth(text: string, size: number, bold?: boolean, italic?: boolean): number {
-  const font = `${italic ? "italic " : ""}${bold ? "bold " : ""}${size}px ${CAPTION_FONT}`, key = `${font}|${text}`;
+export function textWidth(text: string, size: number, bold?: boolean, italic?: boolean, family = CAPTION_FONT): number {
+  const font = `${italic ? "italic " : ""}${bold ? "bold " : ""}${size}px ${family}`, key = `${font}|${text}`;
   let w = widths.get(key);
   if (w === undefined) { meter.font = font; w = meter.measureText(text).width; widths.set(key, w); }
   return w;
@@ -66,6 +68,10 @@ function engine() {
   if (!indigo) throw new Error("Indigo is not loaded yet");
   return indigo;
 }
+
+// A KET atom as Octet's: KET radicals 2 and 3 are one and two unpaired electrons.
+const atomOfKet = (a: { label: string; location: [number, number, number]; charge?: number; radical?: number }): Mol["atoms"][number] =>
+  ({ label: a.label, location: a.location, charge: a.charge, ...(a.radical && a.radical > 1 ? { radical: a.radical - 1 } : {}) });
 
 // A structure file (MOL, SDF, CDXML, KET, SMILES), keeping the file's own drawing where it has one.
 // Coordinates are scaled so the median bond is one bond length; SMILES (no drawing) is laid out.
@@ -82,7 +88,7 @@ export function importStructure(text: string): Mol {
       const frag = ket[$ref];
       if (frag?.type !== "molecule") continue;
       const base = mol.atoms.length;
-      mol.atoms.push(...frag.atoms.map((a: Mol["atoms"][number]) => ({ label: a.label, location: a.location, charge: a.charge })));
+      mol.atoms.push(...frag.atoms.map(atomOfKet));
       mol.bonds.push(...frag.bonds.map((b: Mol["bonds"][number]) => ({ type: b.type, atoms: [b.atoms[0] + base, b.atoms[1] + base], stereo: b.stereo })));
     }
     const lengths = mol.bonds.map((b) => Math.hypot(mol.atoms[b.atoms[1]].location[0] - mol.atoms[b.atoms[0]].location[0], mol.atoms[b.atoms[1]].location[1] - mol.atoms[b.atoms[0]].location[1])).sort((a, b) => a - b);
@@ -105,7 +111,7 @@ export function parseStructure(text: string): Mol {
       const frag = ket[$ref];
       if (frag?.type !== "molecule") continue;
       const base = out.atoms.length;
-      out.atoms.push(...frag.atoms.map((a: Mol["atoms"][number]) => ({ label: a.label, location: a.location, charge: a.charge })));
+      out.atoms.push(...frag.atoms.map(atomOfKet));
       out.bonds.push(...frag.bonds.map((b: Mol["bonds"][number]) => ({ type: b.type, atoms: [b.atoms[0] + base, b.atoms[1] + base], stereo: b.stereo })));
     }
     return out;
@@ -116,7 +122,7 @@ export function parseStructure(text: string): Mol {
 
 // Written labels (OMe, CO2Et, Ph) as real atoms, for chemistry. Each label's group is read by Indigo and joined
 // where the label atom was. A label Octet cannot read stays as a pseudo-atom ("*").
-function expandLabels(mol: Mol): Mol {
+export function expandLabels(mol: Mol): Mol {
   let out: Mol = { atoms: mol.atoms.map((a) => ({ ...a })), bonds: mol.bonds.map((b) => ({ ...b })) };
   mol.atoms.forEach((a, i) => {
     if (!a.text) return;
@@ -142,17 +148,43 @@ function expandLabels(mol: Mol): Mol {
 }
 
 // The drawing as SMILES. Throws if Indigo can't read it (for example, a valence it rejects).
-export function toSmiles(drawn: Mol): string {
+// A drawing as KET, with labels expanded into atoms. KET has no bond display styles (bold, wavy and so on).
+function ketOf(drawn: Mol): string {
   const mol = expandLabels(drawn);
+  const bonds = mol.bonds.map(({ type, atoms, stereo }) => (stereo ? { type, atoms, stereo } : { type, atoms }));
+  // KET radicals: 2 is one unpaired electron (doublet), 3 is two (triplet).
+  const atoms = mol.atoms.map(({ label, location, charge, radical }) => ({ label, location, ...(charge ? { charge } : {}), ...(radical ? { radical: radical + 1 } : {}) }));
+  return JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule", atoms, bonds } });
+}
+function convert(input: string, format: string): string {
   const ind = engine(), opts = new ind.MapStringString();
   try {
-    // KET has no bond display styles (bold, wavy and so on); SMILES ignores them anyway.
-    const bonds = mol.bonds.map(({ type, atoms, stereo }) => (stereo ? { type, atoms, stereo } : { type, atoms }));
-    const atoms = mol.atoms.map(({ label, location, charge }) => (charge ? { label, location, charge } : { label, location }));
-    const ket = { root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule", atoms, bonds } };
-    return ind.convert(JSON.stringify(ket), "smiles", opts).trim();
+    return ind.convert(input, format, opts).trim();
   } finally {
     opts.delete();
+  }
+}
+export const toSmiles = (drawn: Mol): string => convert(ketOf(drawn), "smiles");
+// CIP labels for a drawing's stereocentres (R, S) and double bonds (E, Z), in its atom and bond order.
+export function cipOf(drawn: Mol): { atoms: (string | undefined)[]; bonds: (string | undefined)[] } | undefined {
+  const ind = engine(), opts = new ind.MapStringString();
+  try {
+    opts.set("output-content-type", "application/json");
+    const ket = JSON.parse(JSON.parse(ind.calculateCip(ketOf(drawn), "ket", opts)).struct).mol0;
+    if (!ket || ket.atoms.length !== drawn.atoms.length) return undefined;
+    return { atoms: ket.atoms.map((a: { cip?: string }) => a.cip), bonds: ket.bonds.map((b: { cip?: string }) => b.cip) };
+  } catch {
+    return undefined;
+  } finally {
+    opts.delete();
+  }
+}
+// Standard InChI, for telling whether two structures are the same. Undefined if Indigo cannot make one.
+export function toInchi(drawn: Mol | string): string | undefined {
+  try {
+    return convert(typeof drawn === "string" ? drawn : ketOf(drawn), "inchi") || undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -190,12 +222,78 @@ export function cleanUp(mol: Mol, ids?: Set<number>): Mol {
         const [x, y] = out[k].location;
         atoms[i] = { ...atoms[i], location: [ox + (x - nx) * scale, oy + (y - ny) * scale, 0] };
       });
+      // As ChemDraw's clean up leaves it: a ring structure turned so its bottom ring bond is level.
+      const turn = levelTurn({ ...mol, atoms }, frag);
+      if (turn) {
+        const c = Math.cos((turn * Math.PI) / 180), s = Math.sin((turn * Math.PI) / 180);
+        frag.forEach((i) => { const [x, y] = atoms[i].location; atoms[i] = { ...atoms[i], location: [ox + (x - ox) * c - (y - oy) * s, oy + (x - ox) * s + (y - oy) * c, 0] }; });
+      }
     } finally {
       opts.delete();
       sel.delete();
     }
   }
   return { ...mol, atoms };
+}
+
+// The pieces a mass-fragmentation cut makes: the cut bonds are taken out and every atom keeps the hydrogens it had
+// in the whole molecule (a homolytic cleavage). Each piece that a cut bond touched, with its formula and exact mass.
+export function fragmentMasses(mol: Mol, cut: number[]): { atoms: number[]; formula: string; exact: number }[] | undefined {
+  if (!indigo || !cut.length) return undefined;
+  const ind = indigo, full = expandLabels(mol), cutSet = new Set(cut);
+  const used = full.atoms.map(() => 0);
+  full.bonds.forEach((b) => b.atoms.forEach((i) => (used[i] += b.type)));
+  const h = full.atoms.map((a, i) => a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used[i], a.radical));
+  // Pieces: atoms joined by the bonds that are not cut.
+  const root = full.atoms.map((_, i) => i), find = (i: number): number => (root[i] === i ? i : (root[i] = find(root[i])));
+  full.bonds.forEach((b, k) => { if (!cutSet.has(k)) root[find(b.atoms[0])] = find(b.atoms[1]); });
+  const touched = new Set(cut.flatMap((k) => full.bonds[k] ? full.bonds[k].atoms.map(find) : []));
+  const out: { atoms: number[]; formula: string; exact: number }[] = [];
+  for (const r of touched) {
+    const atoms = full.atoms.map((_, i) => i).filter((i) => find(i) === r), local = new Map(atoms.map((i, k) => [i, k]));
+    const ket = JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule",
+      atoms: atoms.map((i) => ({ label: full.atoms[i].label, location: full.atoms[i].location, implicitHCount: h[i], ...(full.atoms[i].charge ? { charge: full.atoms[i].charge } : {}) })),
+      bonds: full.bonds.filter((b, k) => !cutSet.has(k) && local.has(b.atoms[0]) && local.has(b.atoms[1])).map((b) => ({ type: b.type, atoms: [local.get(b.atoms[0]), local.get(b.atoms[1])] })) } });
+    const opts = new ind.MapStringString(), sel = new ind.VectorInt();
+    try {
+      const res = JSON.parse(ind.calculate(ket, opts, sel));
+      out.push({ atoms: atoms.filter((i) => i < mol.atoms.length), formula: String(res["gross-formula"]).replace(/\s+/g, ""), exact: Number(res["monoisotopic-mass"]) });
+    } catch {
+      return undefined;
+    } finally {
+      opts.delete();
+      sel.delete();
+    }
+  }
+  return out;
+}
+
+// Atom map numbers for one reaction step, from Indigo's automapper: for each reactant and product (in order), each
+// atom's number, or undefined where an atom has no partner. Written labels count as the element they attach by.
+export function mapReaction(reactants: Mol[], products: Mol[]): { reactants: (number | undefined)[][]; products: (number | undefined)[][] } | undefined {
+  if (!indigo || !reactants.length || !products.length) return undefined;
+  const ind = indigo, opts = new ind.MapStringString();
+  try {
+    // A molfile keeps its first (name) line, so it is not trimmed.
+    const molfile = (m: Mol) => {
+      const o = new ind.MapStringString();
+      try {
+        return ind.convert(JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule",
+          atoms: m.atoms.map((a) => ({ label: /^[A-Z][a-z]?$/.test(a.label) ? a.label : "C", location: a.location, ...(a.charge ? { charge: a.charge } : {}) })),
+          bonds: m.bonds.map((b) => ({ type: Math.min(b.type, 3), atoms: b.atoms })) } }), "molfile", o).replace(/\s+$/, "");
+      } finally { o.delete(); }
+    };
+    const rxn = ["$RXN", "", "  Octet", "", `${String(reactants.length).padStart(3)}${String(products.length).padStart(3)}`, ...[...reactants, ...products].flatMap((m) => ["$MOL", molfile(m)])].join("\n");
+    opts.set("output-content-type", "application/json");
+    const ket = JSON.parse(JSON.parse(ind.automap(rxn, "discard", "ket", opts)).struct);
+    const mols = (ket.root.nodes as { $ref?: string }[]).flatMap((n) => (n.$ref && ket[n.$ref]?.type === "molecule" ? [ket[n.$ref].atoms.map((a: { mapping?: number }) => a.mapping)] : []));
+    if (mols.length !== reactants.length + products.length) return undefined;
+    return { reactants: mols.slice(0, reactants.length), products: mols.slice(reactants.length) };
+  } catch {
+    return undefined;
+  } finally {
+    opts.delete();
+  }
 }
 
 // Formula and masses for the drawing or a selection, with written labels counted as their atoms.

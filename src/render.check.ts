@@ -1,6 +1,6 @@
 // Run: node src/render.check.ts. Fails loudly if the ACS drawing rules break.
 import assert from "node:assert/strict";
-import { placeCaptions, render, type Ink, type Mol } from "./render.ts";
+import { arrowShapes, fitArrows, placeCaptions, render, type Ink, type Mol } from "./render.ts";
 
 type P = [number, number];
 const pt = 4 / 3;
@@ -110,4 +110,14 @@ console.log("render.check: written labels ok");
   const [free] = placeCaptions({ ...pyridine, captions: [{ id: 1, text: "a\nb", x: 2, y: -1, align: "left" }] }, dc, one(10));
   assert.deepEqual([free.lines[0].x, free.lines[0].y, free.lines.length, free.anchor], [2 * dc.scale, dc.scale, 2, "start"]);
   console.log("render.check: captions ok");
+}
+
+// Arrows: a reaction arrow is a shaft and a head; conditions wider than the arrow lengthen it about its middle.
+{
+  const a = { id: 1, kind: "reaction" as const, from: [0, 0] as [number, number], to: [2, 0] as [number, number] };
+  assert.equal(arrowShapes(a, S, S.bond).length, 2, "shaft and head");
+  assert.equal(arrowShapes({ ...a, kind: "equilibrium" }, S, S.bond).length, 4, "two shafts, two half heads");
+  const [fitted] = fitArrows({ atoms: [], bonds: [], arrows: [a], captions: [{ id: 2, text: "x", x: 0, y: 0, on: { arrow: 1, side: "above" } }] }, S.bond, () => 200);
+  assert.ok(fitted.from[0] < 0 && fitted.to[0] > 2 && Math.abs(fitted.from[0] + fitted.to[0] - 2) < 1e-9, "lengthened about its middle");
+  console.log("render.check: arrows ok");
 }

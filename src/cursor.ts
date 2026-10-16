@@ -3,13 +3,13 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { Selection } from "@phosphor-icons/react";
+import { ArrowClockwise, Selection } from "@phosphor-icons/react";
 
 // The glyph's path data, read from the real icon component (no copied paths).
-function glyphPaths(): string[] {
+function glyphPaths(icon: typeof Selection = Selection): string[] {
   const div = document.createElement("div");
   const root = createRoot(div);
-  flushSync(() => root.render(createElement(Selection, { size: 256, weight: "bold" })));
+  flushSync(() => root.render(createElement(icon, { size: 256, weight: "bold" })));
   const paths = [...div.querySelectorAll("path")].map((p) => p.getAttribute("d") ?? "");
   root.unmount();
   return paths;
@@ -52,5 +52,23 @@ export const selectCursor: Promise<string> = (async () => {
     return `-webkit-image-set(url("${one}") 1x, url("${two}") 2x) 3 2, default`;
   } catch {
     return "default";
+  }
+})();
+
+// The Rotate cursor, over a selection's rotation handle: Phosphor's clockwise arrow, centred on the pointer.
+export const rotateCursor: Promise<string> = (async () => {
+  const ink = lightInk(), d = glyphPaths(ArrowClockwise);
+  const glyph = d.map((p) => `<path d="${p}"/>`).join("");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+    <svg x="3" y="3" width="18" height="18" viewBox="0 0 256 256">
+      <g fill="#fff" stroke="#fff" stroke-width="48" stroke-linejoin="round">${glyph}</g>
+      <g fill="${ink}">${glyph}</g>
+    </svg>
+  </svg>`;
+  try {
+    const [one, two] = await Promise.all([png(svg, 1), png(svg, 2)]);
+    return `-webkit-image-set(url("${one}") 1x, url("${two}") 2x) 12 12, grab`;
+  } catch {
+    return "grab";
   }
 })();
