@@ -68,7 +68,7 @@ export const DEFAULT_KEYS: Record<string, string[]> = {
   "bond.hashed": ["shift+h"], "bond.bold": ["b"], "bond.dashed": ["d"], "bond.wavy": ["y"],
   "bond.left": ["l"], "bond.centre": ["c"], "bond.right": ["r"],
   "bond.ring3": ["v"], "bond.ring4": ["4"], "bond.ring5": ["5"], "bond.ring6": ["6"], "bond.ring7": ["7"], "bond.ring8": ["8"],
-  "bond.ring9": ["9"], "bond.ring10": ["0"], "bond.benzene": ["a"], "bond.cyclopentadiene": ["z"], "bond.chair1": [], "bond.chair2": [],
+  "bond.ring9": [], "bond.ring10": [], "bond.benzene": ["a"], "bond.cyclopentadiene": ["z"], "bond.chair1": ["9"], "bond.chair2": ["0"],
   "tool.select": ["space"], "tool.bond": ["x"], "tool.chain": ["shift+x"], "tool.ring": [], "tool.benzene": ["j"],
   "tool.cyclopentadiene": ["shift+j"], "tool.cyclohexane": [], "tool.cyclopentane": [], "tool.erase": [], "tool.text": ["t"], "tool.arrow": ["e"], "tool.template": [], "tool.symbol": ["shift+e"], "tool.shape": [],
   "tool.bracket": ["shift+t"], "tool.tlc": ["g"], "tool.orbital": ["shift+g"],

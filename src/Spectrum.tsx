@@ -171,7 +171,10 @@ export function SpectrumPanel(p: Props) {
           })}
         </svg>
       </div>
-      <p className="spectrum-text">{text}</p>
+      <footer className="spectrum-foot">
+        <p className="spectrum-text">{text}</p>
+        <span className="spectrum-credit" title="Contains information from nmrshiftdb2 (www.nmrshiftdb.org), made available under the nmrshiftdb2 Database License">nmrshiftdb2</span>
+      </footer>
     </section>
   );
 }

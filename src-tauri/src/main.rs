@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{AboutMetadata, CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, State, Wry};
 use tauri_plugin_dialog::DialogExt;
 
@@ -285,7 +285,11 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
     ])?;
     #[cfg(target_os = "macos")]
     let octet = Submenu::with_items(app, "Octet", true, &[
-        &PredefinedMenuItem::about(app, None, None)?,
+        // The credits the data and libraries' licences ask for (the full texts ship in the app's licences folder).
+        &PredefinedMenuItem::about(app, None, Some(AboutMetadata {
+            credits: Some("Chemistry by Indigo (Apache-2.0). Names read by OPSIN (MIT). NMR shifts contain information from nmrshiftdb2 (www.nmrshiftdb.org), which is made available here under the nmrshiftdb2 Database License.".into()),
+            ..Default::default()
+        }))?,
         &sep()?,
         &item("settings", "Settings…", "CmdOrCtrl+,")?,
         &sep()?,
