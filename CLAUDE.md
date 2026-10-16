@@ -45,9 +45,9 @@ Octet draws structures itself as SVG. The app icon source is
   before you show it. List every option ChemDraw gives that tool or object:
   its palette, the Object, Curves, Color and Text menus, the context menu,
   its dialogs, and the attributes its CDXML object takes. Run ChemDraw
-  22.2 on Sam's Mac and try each one. Where the format notes don't cover
-  an attribute, decompile and read it (within "ChemDraw: what we can use"
-  below). Octet gets every option, or Sam gets a list of the ones missing.
+  22.2 on Sam's Mac and try each one (ask Sam for computer-use access),
+  and decompile it to find options the menus don't show (see "ChemDraw:
+  what we can use" below). Octet gets every option, or Sam gets a list of the ones missing.
   Never guess and never skip the check.
 
 Colours, fonts, British English, STE and accessibility rules are in
@@ -156,9 +156,10 @@ better, modern way to do it. This repository is public.
   Write our own code.
 - Keep raw reverse-engineering output and notes in `~/octet-research/` on
   Sam's Mac.
-- Decompile only for file and clipboard compatibility. For shortcuts,
-  behaviour and algorithms, observe and test instead. Never touch licence
-  or activation code.
+- Decompile for file and clipboard compatibility, and to check what
+  ChemDraw can do: its commands, menus, options and object properties
+  (decision 0005). Learn what a feature does, never how ChemDraw codes it,
+  and design Octet's own way. Never touch licence or activation code.
 - Use only files Sam created as test files. Some of Sam's corpus files
   contain ChemDraw template clip art or third-party pictures: never commit
   those. Keep corpus tests that need them local.
