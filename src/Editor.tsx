@@ -31,7 +31,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, Palette, RingGlyph, RINGS, SELECTS, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, tlcLayout, tableLayout, curveBox, isBracket, isLine, isOrbital, markAt, orbitalPaths, straightArrow, shapeInk, shapePaths, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, type Arrow, type ArrowKind, type Box, type Caption, type CurvePoint, type Mol, type Placed, type Shape, type ShapeKind } from "./render";
+import { arrowPath, arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, tlcLayout, tableLayout, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, orbitalPaths, straightArrow, shapeInk, shapePaths, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, type Arrow, type ArrowKind, type Box, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
 import { loadNames, nameToSmiles, suggestName } from "./names";
 import { checkedName, setNamer } from "./naming";
@@ -427,6 +427,11 @@ export default function Editor() {
     align_left: () => restyle(() => ({ align: "left" })),
     align_centre: () => restyle(() => ({ align: "centre" })),
     align_right: () => restyle(() => ({ align: "right" })),
+    // The Curves menu: line styles, heads at either end (again takes one off), and a closed curve's fill.
+    ...Object.fromEntries(["plain", "dashed", "bold", "doubled"].map((st) => [`curves_${st}`, () => runAction(`arrow.style.${st}`)])),
+    ...Object.fromEntries((["start", "end"] as const).flatMap((at) => (["full", "left", "right"] as const).map((h) => [`curves_${at}_${h}`, () => runAction(`arrow.${at}.${h}`)]))),
+    curves_closed: () => runAction("arrow.closed"),
+    ...Object.fromEntries(["solid", "shaded", "faded"].map((f) => [`curves_${f}`, () => runAction(`arrow.fill.${f}`)])),
     // The Colour menu: each colour in COLOURS by its place, and Other Colour… for the system picker.
     ...Object.fromEntries(COLOURS.map(([, hex], k) => [`colour_${k}`, () => runAction(`colour.${hex}`)])),
     colour_other: () => otherColour.current?.click(),
@@ -466,7 +471,7 @@ export default function Editor() {
     if (pen || drag?.kind === "pen") {
       // The curve so far, with the point being placed (or a straight run to the pointer).
       const now = drag?.kind === "pen" ? penPoint(drag.at, drag.out) : penAt ? { at: penAt } : undefined, points = [...(pen ?? []), ...(now ? [now] : [])];
-      if (points.length >= 2) { const [from, to] = curveBox({ points }); return addShape(doc, { kind: "curve", from, to, curve: { points } })[0]; }
+      if (points.length >= 2) return addArrow(doc, { kind: "curve", from: points[0].at, to: points[points.length - 1].at, curve: { points } })[0];
     }
     return doc;
   }, [doc, drag, pen, penAt]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -651,8 +656,8 @@ export default function Editor() {
     setPen(undefined);
     setPenAt(undefined);
     if (points.length < 2) return;
-    const curve = { points, ...(closed && points.length > 2 ? { closed: true } : {}) }, [from, to] = curveBox(curve);
-    const [mol, id] = addShape(doc, { kind: "curve", from, to, curve });
+    const curve = { points, ...(closed && points.length > 2 ? { closed: true } : {}) };
+    const [mol, id] = addArrow(doc, { kind: "curve", from: points[0].at, to: points[points.length - 1].at, curve });
     set(mol);
     setPicked(new Set([id]));
   }
@@ -785,8 +790,8 @@ export default function Editor() {
     let m = selection.size ? moveAtoms(base, selection, d) : base;
     if (cycleIds.size) m = { ...m, cycles: m.cycles?.map((c) => (cycleIds.has(c.id) ? { ...c, centre: [c.centre[0] + d[0], c.centre[1] + d[1]] } : c)) };
     const shift = <T extends { id: number; from: [number, number]; to: [number, number] }>(a: T): T => (arrowIds.has(a.id) ? { ...a, from: [a.from[0] + d[0], a.from[1] + d[1]], to: [a.to[0] + d[0], a.to[1] + d[1]] } : a);
-    const shiftCurve = (x: Shape): Shape => (arrowIds.has(x.id) && x.curve ? { ...shift(x), curve: { ...x.curve, points: x.curve.points.map((q) => ({ at: [q.at[0] + d[0], q.at[1] + d[1]], ...(q.c1 ? { c1: [q.c1[0] + d[0], q.c1[1] + d[1]] as P } : {}), ...(q.c2 ? { c2: [q.c2[0] + d[0], q.c2[1] + d[1]] as P } : {}) })) } } : shift(x));
-    if (arrowIds.size) m = { ...m, arrows: m.arrows?.map(shift), shapes: m.shapes?.map(shiftCurve) };
+    const shiftCurve = (x: Arrow): Arrow => (arrowIds.has(x.id) && x.curve ? { ...shift(x), curve: { ...x.curve, points: x.curve.points.map((q) => ({ at: [q.at[0] + d[0], q.at[1] + d[1]], ...(q.c1 ? { c1: [q.c1[0] + d[0], q.c1[1] + d[1]] as P } : {}), ...(q.c2 ? { c2: [q.c2[0] + d[0], q.c2[1] + d[1]] as P } : {}) })) } } : shift(x));
+    if (arrowIds.size) m = { ...m, arrows: m.arrows?.map(shiftCurve), shapes: m.shapes?.map(shift) };
     if (!captions.size) return m;
     return {
       ...m,
@@ -900,16 +905,18 @@ export default function Editor() {
   // The captions whose middle is inside a test (drawing coordinates).
   const captionsWhere = (inside: (q: P) => boolean) => [
     ...placed.filter((c) => c.id !== DRAFT && inside([(c.box[0] + c.box[2]) / 2 / L, -(c.box[1] + c.box[3]) / 2 / L])).map((c) => c.id),
-    ...[...arrows, ...(doc.shapes ?? [])].filter((a) => inside([(a.from[0] + a.to[0]) / 2, (a.from[1] + a.to[1]) / 2])).map((a) => a.id),
+    ...[...arrows, ...(doc.shapes ?? [])].filter((a) => {
+      const [f, t] = "curve" in a && a.curve ? curveBox(a.curve) : [a.from, a.to];
+      return inside([(f[0] + t[0]) / 2, (f[1] + t[1]) / 2]);
+    }).map((a) => a.id),
   ];
   // The handle of the one picked arrow under a point: its ends, and the middle of a curved one.
   const handleAt = (p: P): { id: number; which: Corner } | undefined => {
     const ids = [...picked], a = ids.length === 1 && !selection.size ? arrows.find((x) => x.id === ids[0]) : undefined;
     const near = (q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) * L * view.zoom < 8;
     const sh = ids.length === 1 && !selection.size ? doc.shapes?.find((x) => x.id === ids[0]) : undefined;
-    if (sh?.kind === "curve") return undefined;
     if (sh) return (Object.entries(corners(sh)) as [Corner, P][]).filter(([, q]) => near(q)).map(([which]) => ({ id: sh.id, which }))[0];
-    if (!a) return undefined;
+    if (!a || a.kind === "curve") return undefined;
     return near(a.to) ? { id: a.id, which: "to" } : near(a.from) ? { id: a.id, which: "from" } : curved(a) && near(bendPoint(a)) ? { id: a.id, which: "bend" } : undefined;
   };
   // The selection's rotation handle, as in ChemDraw: just off the top right corner of the selection's box (px).
@@ -1261,7 +1268,7 @@ export default function Editor() {
       const first = pickedShapes[0];
       return {
         kind: "shape", count: pickedShapes.length, shape: first.kind, dashed: !!first.dashed, colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
-        style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, grid: !!first.table?.grid, closed: !!first.curve?.closed,
+        style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, grid: !!first.table?.grid,
       };
     }
     // Arrows picked on their own.
@@ -1269,6 +1276,8 @@ export default function Editor() {
     if (!selection.size && pickedArrows.length && pickedArrows.length === picked.size)
       return {
         kind: "arrow", count: pickedArrows.length, arrow: pickedArrows[0].kind, curved: pickedArrows.some(curved), style: pickedArrows[0].style ?? "plain", orbital: pickedArrows[0].orbital,
+        heads: pickedArrows.every(takesHeads), ...headsOf(pickedArrows[0]), head: pickedArrows[0].head ?? "solid",
+        closed: pickedArrows[0].curve ? !!pickedArrows[0].curve.closed : undefined, fill: pickedArrows[0].fill ?? "none",
         // The sweep the curved ones share, if it is one on offer.
         sweep: SWEEPS.find((sw) => pickedArrows.filter(curved).every((a) => Math.abs(sweepOf(a.bend ?? 0) - sw) < 2)),
       };
@@ -1459,9 +1468,6 @@ export default function Editor() {
         return each((x) => ({ kind: arg as ShapeKind, ...((x.kind === "highlight") !== (arg === "highlight") ? { colour: undefined } : {}) }));
       }
       if (what === "dashed") return each((x) => ({ dashed: !x.dashed || undefined }));
-      if (what === "fill") return each((x) => ({ fill: x.fill ? undefined : "solid" }));
-      // A pen curve closed or opened (an open curve has no fill).
-      if (what === "closed") return each((x) => (x.curve ? { curve: { ...x.curve, closed: !x.curve.closed || undefined }, ...(x.curve.closed ? { fill: undefined } : {}) } : {}));
       // TLC plates: a lane more or fewer (spots in a lane that goes go with it), and Rf values on or off.
       if (what === "lanes") return each((x) => { const lanes = Math.max(1, Math.min(40, (x.tlc?.lanes ?? 1) + Number(arg))); return { tlc: { ...x.tlc!, lanes, spots: (x.tlc?.spots ?? []).filter((y) => y.lane < lanes) } }; });
       if (what === "rf") return each((x) => ({ tlc: { ...x.tlc!, rf: !x.tlc?.rf || undefined } }));
@@ -1508,9 +1514,18 @@ export default function Editor() {
         if (first) setSettings((s) => ({ ...s, variants: { ...s.variants, arrow: `${first.kind}-${arg}` } }));
         return each((a) => (curved(a) ? { bend: (Math.sign(a.bend ?? 1) || 1) * sweepBend(Number(arg)) } : {}));
       }
-      if (what === "reverse") return each((a) => ({ from: a.to, to: a.from, ...(a.bend ? { bend: -a.bend } : {}) }));
+      if (what === "reverse") return each((a) => ({ from: a.to, to: a.from, ...(a.bend ? { bend: -a.bend } : {}), ...(a.curve ? { curve: { ...a.curve, points: [...a.curve.points].reverse().map((q) => ({ at: q.at, ...(q.c2 ? { c1: q.c2 } : {}), ...(q.c1 ? { c2: q.c1 } : {}) })) } } : {}), ...(a.start || a.end ? { start: a.end, end: a.start } : {}) }));
+      // The Curves model: a head at the start or end (again with the same head takes it off), the heads' shape,
+      // a pen curve closed or opened, and a closed curve's fill (again takes it off).
+      if (what === "start" || what === "end") {
+        const h = arg as Head, all = (doc.arrows ?? []).filter((a) => ids.has(a.id) && takesHeads(a)), on = all.every((a) => headsOf(a)[what] === h);
+        return each((a) => (takesHeads(a) ? { [what]: on && h !== "none" ? "none" : h } : {}));
+      }
+      if (what === "head") return each(() => ({ head: arg === "solid" ? undefined : (arg as HeadShape) }));
+      if (what === "closed") return each((a) => (a.curve ? { curve: { ...a.curve, closed: !a.curve.closed || undefined }, ...(a.curve.closed ? { fill: undefined } : {}) } : {}));
+      if (what === "fill") return each((a) => (a.curve?.closed ? { fill: arg === "none" || a.fill === arg ? undefined : (arg as CurveFill) } : {}));
       // A style chip sets it; the arrows' Dashed line action turns dashes on and off.
-      if (what === "style") return each((a) => ({ style: arg === "plain" || (arg === "dashed" && a.style === "dashed" && !isLine(a)) ? undefined : (arg as Arrow["style"]) }));
+      if (what === "style") return each((a) => ({ style: arg === "plain" || (arg === "dashed" && a.style === "dashed" && !isLine(a) && a.kind !== "curve") ? undefined : (arg as Arrow["style"]) }));
       if (what === "flip") return each((a) => ({ bend: -(a.bend ?? sweepBend(120)) }));
       if ((what === "above" || what === "below") && id !== undefined) {
         setPicked(new Set());
@@ -1934,6 +1949,21 @@ export default function Editor() {
             if (sh.fill) return <path key={`f${sh.id}`} d={d} fill={sh.fill === "shaded" ? `url(#shade${sh.id})` : sh.colour ?? "var(--ink)"} />;
             return <g key={`f${sh.id}`}><path d={d} transform={`translate(${off} ${off})`} fill="#A7AFBA" /><path d={d} fill="var(--canvas)" /></g>;
           })}
+          {arrows.filter((a) => a.curve?.closed && a.fill).map((a) => {
+            // A closed pen curve's fill: solid, shaded (lit from the top left) or faded (to nothing at the bottom right).
+            const ink = a.colour ? textInk(a.colour) : "var(--ink)", d = toPath([arrowPath(a, L)]);
+            if (a.fill === "solid") return <path key={`cf${a.id}`} d={d} fill={ink} />;
+            return (
+              <g key={`cf${a.id}`}>
+                <defs>
+                  {a.fill === "shaded"
+                    ? <radialGradient id={`cfill${a.id}`} cx="0.36" cy="0.32" r="0.75"><stop offset="0" stopColor="#FFFFFF" /><stop offset="1" style={{ stopColor: ink }} /></radialGradient>
+                    : <linearGradient id={`cfill${a.id}`} x1="0" y1="0" x2="1" y2="1"><stop offset="0" style={{ stopColor: ink }} /><stop offset="1" style={{ stopColor: ink }} stopOpacity={0} /></linearGradient>}
+                </defs>
+                <path d={d} fill={`url(#cfill${a.id})`} />
+              </g>
+            );
+          })}
           {arrows.some(isOrbital) && (() => {
             // Orbitals sit behind the structure: plain lobes are the page's colour, shaded ones lit from the top
             // left, filled ones solid; phased orbitals fill one phase and leave the other plain.
@@ -2084,8 +2114,8 @@ export default function Editor() {
           {(() => {
             // A picked arrow's handles: its ends, and the middle of a curved one.
             const ids = [...picked], a = ids.length === 1 && !selection.size && drag?.kind !== "move" ? arrows.find((x) => x.id === ids[0]) : undefined;
-            const sh = ids.length === 1 && !selection.size && drag?.kind !== "move" ? shown.shapes?.find((x) => x.id === ids[0] && x.kind !== "curve") : undefined;
-            if (!a && !sh) return null;
+            const sh = ids.length === 1 && !selection.size && drag?.kind !== "move" ? shown.shapes?.find((x) => x.id === ids[0]) : undefined;
+            if ((!a || a.kind === "curve") && !sh) return null;
             const points = sh ? Object.values(corners(sh)) : [a!.from, a!.to, ...(curved(a!) ? [bendPoint(a!)] : [])];
             return points.map((q, i) => <circle key={`hd${i}`} className="handle" cx={q[0] * L} cy={-q[1] * L} r={4 / view.zoom} vectorEffect="non-scaling-stroke" />);
           })()}

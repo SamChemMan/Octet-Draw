@@ -1,6 +1,6 @@
 // Drawing elements: the Shape tool's shapes, lines and arcs, and the Bracket tool's brackets and daggers. Each
 // variant is a string, so it can be kept as the tool's choice and pinned to the toolbar like any other option.
-import { orbitalPaths, type LineStyle, type OrbitalShape, type Phase, type ShapeKind } from "./render";
+import { orbitalPaths, type Head, type HeadShape, type LineStyle, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 
 function Icon({ children }: { children: React.ReactNode }) {
   return (
@@ -167,4 +167,29 @@ export function OrbitalGlyph({ v }: { v: string }) {
       })}
     </Icon>
   );
+}
+
+// A line as the Curves controls show it: its style, and its heads at either end in their shape.
+export function LineGlyph({ start = "none", end = "none", head = "solid", style }: { start?: Head; end?: Head; head?: HeadShape; style?: LineStyle | "plain" }) {
+  const tip = (x: number, dir: 1 | -1, h: Head) => {
+    if (h === "none") return null;
+    const base = x - dir * 52, barbs = h === "full" ? [-1, 1] : [h === "left" ? -dir : dir], pts = barbs.map((b) => `${base},${128 + b * 34}`);
+    if (head === "angled") return <polyline points={barbs.length === 2 ? `${pts[0]} ${x},128 ${pts[1]}` : `${pts[0]} ${x},128`} />;
+    const outline = barbs.length === 2 ? `${pts[0]} ${x},128 ${pts[1]} ${base + dir * 10},128` : `${pts[0]} ${x},128 ${base},128`;
+    return <polygon points={outline} fill={head === "hollow" ? "var(--surface-raised)" : "currentColor"} strokeWidth={head === "hollow" ? 12 : 6} />;
+  };
+  const x0 = start === "none" || head === "angled" ? 32 : 76, x1 = end === "none" || head === "angled" ? 224 : 180;
+  const shaft = style === "doubled" ? <><line x1={x0} y1={116} x2={x1} y2={116} strokeWidth={10} /><line x1={x0} y1={140} x2={x1} y2={140} strokeWidth={10} /></>
+    : style === "wavy" ? <polyline points={Array.from({ length: 25 }, (_, i) => `${(x0 + ((x1 - x0) * i) / 24).toFixed(1)},${(128 + 14 * Math.sin((i / 24) * 6 * Math.PI)).toFixed(1)}`).join(" ")} />
+      : <line x1={x0} y1={128} x2={x1} y2={128} strokeDasharray={style === "dashed" ? "24 18" : undefined} strokeWidth={style === "bold" ? 30 : 16} strokeLinecap={style === "bold" ? "butt" : "round"} />;
+  return <Icon>{shaft}{tip(224, 1, end)}{tip(32, -1, start)}</Icon>;
+}
+
+// A closed curve's fill: none, solid, shaded (lit from the top left) or faded (to nothing at the bottom right).
+export function FillGlyph({ fill }: { fill: "none" | "solid" | "shaded" | "faded" }) {
+  const blob = "M64,160 C40,96 112,40 168,64 C224,88 220,176 160,200 C112,220 80,200 64,160 Z";
+  if (fill === "solid") return <Icon><path d={blob} fill="currentColor" /></Icon>;
+  if (fill === "shaded") return <Icon><path d={blob} fill="currentColor" fillOpacity={0.45} /><ellipse cx={116} cy={100} rx={30} ry={18} fill="var(--surface-raised)" stroke="none" /></Icon>;
+  if (fill === "faded") return <Icon><defs><linearGradient id="fade-glyph" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="currentColor" /><stop offset="1" stopColor="currentColor" stopOpacity={0} /></linearGradient></defs><path d={blob} fill="url(#fade-glyph)" /></Icon>;
+  return <Icon><path d={blob} /></Icon>;
 }

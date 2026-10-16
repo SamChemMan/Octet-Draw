@@ -174,6 +174,25 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
         &sep()?,
         &size,
     ])?;
+    // Curves, as ChemDraw's Curves menu: the line, a head at either end (again takes it off), and a closed curve's fill.
+    let curves = Submenu::with_items(app, "Curves", true, &[
+        &MenuItem::with_id(app, "curves_plain", "Plain", true, None::<&str>)?,
+        &MenuItem::with_id(app, "curves_dashed", "Dashed", true, None::<&str>)?,
+        &MenuItem::with_id(app, "curves_bold", "Bold", true, None::<&str>)?,
+        &MenuItem::with_id(app, "curves_doubled", "Double", true, None::<&str>)?,
+        &sep()?,
+        &MenuItem::with_id(app, "curves_start_full", "Arrowhead at Start", true, None::<&str>)?,
+        &MenuItem::with_id(app, "curves_end_full", "Arrowhead at End", true, None::<&str>)?,
+        &MenuItem::with_id(app, "curves_start_left", "Half Arrowhead at Start, Left", true, None::<&str>)?,
+        &MenuItem::with_id(app, "curves_start_right", "Half Arrowhead at Start, Right", true, None::<&str>)?,
+        &MenuItem::with_id(app, "curves_end_left", "Half Arrowhead at End, Left", true, None::<&str>)?,
+        &MenuItem::with_id(app, "curves_end_right", "Half Arrowhead at End, Right", true, None::<&str>)?,
+        &sep()?,
+        &MenuItem::with_id(app, "curves_closed", "Closed", true, None::<&str>)?,
+        &MenuItem::with_id(app, "curves_solid", "Filled", true, None::<&str>)?,
+        &MenuItem::with_id(app, "curves_shaded", "Shaded", true, None::<&str>)?,
+        &MenuItem::with_id(app, "curves_faded", "Faded", true, None::<&str>)?,
+    ])?;
     // Colour, as ChemDraw's Color menu: it colours whatever is selected. The colours are docstyle.ts's COLOURS.
     let colour = Submenu::with_items(app, "Colour", true, &[
         &MenuItem::with_id(app, "colour_0", "Black", true, None::<&str>)?,
@@ -207,7 +226,7 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
     let mut items: Vec<&dyn IsMenuItem<Wry>> = Vec::new();
     #[cfg(target_os = "macos")]
     items.push(&octet);
-    items.extend([&file as &dyn IsMenuItem<Wry>, &edit, &view, &object, &structure, &text, &colour, &window]);
+    items.extend([&file as &dyn IsMenuItem<Wry>, &edit, &view, &object, &structure, &text, &curves, &colour, &window]);
     Ok((Menu::with_items(app, &items)?, vec![snap]))
 }
 

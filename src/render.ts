@@ -89,7 +89,7 @@ export const sweepOf = (bend: number) => (4 * Math.atan(2 * Math.abs(bend)) * 18
 // colour: the outline's colour, or a highlight's fill; unset is the ink colour (a highlight's is mist).
 // fill: shaded (lit from the top left) or solid in the colour. shadow: a grey shadow down and to the right, with the
 // shape filled white over it. side: one bracket only. mark: a sign at a bracket's top right (‡, †, a charge, n).
-export type ShapeKind = "box" | "rounded" | "oval" | "highlight" | "brackets" | "parens" | "braces" | "tlc" | "table" | "curve";
+export type ShapeKind = "box" | "rounded" | "oval" | "highlight" | "brackets" | "parens" | "braces" | "tlc" | "table";
 // A table's cells, row by row (the first row is the header), and its rules: journal style (top, header and bottom
 // rules only) or a full grid.
 export type Table = { cells: string[][]; grid?: boolean };
@@ -101,10 +101,10 @@ export type Curve = { points: CurvePoint[]; closed?: boolean };
 export type Tlc = { lanes: number; spots: { lane: number; rf: number }[]; rf?: boolean };
 export type Shape = {
   id: number; kind: ShapeKind; from: [number, number]; to: [number, number]; dashed?: boolean; colour?: string;
-  fill?: "shaded" | "solid"; shadow?: boolean; side?: "left" | "right"; mark?: string; tlc?: Tlc; table?: Table; curve?: Curve;
+  fill?: "shaded" | "solid"; shadow?: boolean; side?: "left" | "right"; mark?: string; tlc?: Tlc; table?: Table;
 };
 export const isBracket = (sh: Pick<Shape, "kind">) => sh.kind === "brackets" || sh.kind === "parens" || sh.kind === "braces";
-export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "table", "curve"];
+export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "table"];
 export const HIGHLIGHT = "#DCE4F5";
 // Captions, arrows, shapes and cycles share one set of ids.
 export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; style?: DocStyle };
@@ -803,7 +803,6 @@ export function shapePaths(sh: Shape, k: number, bond = k): P[][] {
     Array.from({ length: n + 1 }, (_, i) => [c[0] + r[0] * Math.cos(a0 + ((a1 - a0) * i) / n), c[1] + r[1] * Math.sin(a0 + ((a1 - a0) * i) / n)] as P);
   switch (sh.kind) {
     case "oval": return [arc([(x0 + x1) / 2, (y0 + y1) / 2], [w / 2, h / 2], 0, 2 * Math.PI, 72)];
-    case "curve": return sh.curve ? [curvePath(sh.curve, k)] : [];
     case "rounded": {
       const r = Math.min(0.3 * bond, w / 2, h / 2);
       return [[...arc([x1 - r, y0 + r], [r, r], -Math.PI / 2, 0), ...arc([x1 - r, y1 - r], [r, r], 0, Math.PI / 2), ...arc([x0 + r, y1 - r], [r, r], Math.PI / 2, Math.PI), ...arc([x0 + r, y0 + r], [r, r], Math.PI, 1.5 * Math.PI), [x1 - r, y0]]];

@@ -8,12 +8,12 @@ import {
   AlignCenterHorizontal, AlignCenterVertical, ArrowClockwise, ArrowsClockwise, SignIn, SignOut, ArrowCounterClockwise, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretDown,
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, LinkBreak, LinkSimple, ListNumbers, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAa, TextAlignCenter, TextAlignLeft,
-  TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, Columns, ColumnsPlusRight, GridFour, Circle, PaintBucket,
+  TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, Columns, ColumnsPlusRight, GridFour, Circle,
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
-import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, type ArrowKind, type OrbitalShape, type Phase, type ShapeKind } from "./render";
-import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName } from "./elements";
+import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
+import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
 import { COLOURS, TINTS } from "./docstyle";
 import { ArrowGlyph, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, SymbolGlyph, type BondKind } from "./tools";
 
@@ -23,8 +23,9 @@ export type Context =
   | { kind: "structure"; atoms: number; structures: number; next: string; nameable: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed" }
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
   | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right"; attached: boolean; attachable: boolean }
-  | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase } }
-  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; grid: boolean; closed: boolean }
+  | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
+      heads: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string }
+  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; grid: boolean }
   | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean }
   | { kind: "atom"; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string }
@@ -194,19 +195,13 @@ export function actionItems(context: Context, messy: boolean): Item[] {
           it(<GridFour size={18} />, context.grid ? "Journal rules" : "All lines", "shape.grid"), del);
         break;
       }
-      if (context.shape === "curve") {
-        items.push(it(<LineSegments size={18} />, context.dashed ? "Solid line" : "Dashed line", "shape.dashed"), it(<Circle size={18} />, context.closed ? "Open the curve" : "Close the curve", "shape.closed"));
-        if (context.closed) items.push(it(<PaintBucket size={18} />, context.style === "solid" ? "No fill" : "Fill", "shape.fill"));
-        items.push(small(it(<StackSimple size={18} />, "Bring to front", "shape.front")), small(it(<Stack size={18} />, "Send to back", "shape.back")), del);
-        break;
-      }
       if (isBracket({ kind: context.shape })) items.push(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed"));
       items.push(small(it(<StackSimple size={18} />, "Bring to front", "shape.front")), small(it(<Stack size={18} />, "Send to back", "shape.back")), del);
       break;
     case "arrow":
       if (context.arrow === "orbital") { items.push(it(<ArrowsLeftRight size={18} />, "Swap the phases", "orbital.swap"), del); break; }
+      if (context.arrow === "curve") { items.push(it(<Circle size={18} />, context.closed ? "Open the curve" : "Close the curve", "arrow.closed"), it(<ArrowsLeftRight size={18} />, "Reverse", "arrow.reverse"), del); break; }
       if (isLine({ kind: context.arrow })) { items.push(it(<ArrowsLeftRight size={18} />, "Reverse", "arrow.reverse"), ...(context.curved ? [it(<FlipVertical size={18} />, "Flip the curve", "arrow.flip")] : []), del); break; }
-      items.push(it(<LineSegments size={18} />, context.style === "dashed" ? "Solid line" : "Dashed line", "arrow.style.dashed"));
       if (context.count === 1 && !context.curved) items.push(it(<TextT size={18} />, "Add conditions above", "arrow.above"), it(<TextT size={18} />, "Add conditions below", "arrow.below"));
       items.push(it(<ArrowsLeftRight size={18} />, "Reverse", "arrow.reverse"));
       if (context.curved) items.push(it(<FlipVertical size={18} />, "Flip the curve", "arrow.flip"));
@@ -271,7 +266,9 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
     atom: "Atom",
     bond: "Bond",
     caption: context.kind !== "caption" || context.mode !== "picked" ? "Text" : context.count > 1 ? `${context.count} captions` : "Caption",
-    arrow: context.kind === "arrow" && context.arrow === "orbital" ? (context.count > 1 ? `${context.count} orbitals` : "Orbital") : context.kind === "arrow" && context.count > 1 ? `${context.count} arrows` : "Arrow",
+    arrow: context.kind !== "arrow" ? "Arrow" : context.arrow === "orbital" ? (context.count > 1 ? `${context.count} orbitals` : "Orbital")
+      : context.count > 1 ? `${context.count} ${context.arrow === "curve" ? "curves" : isLine({ kind: context.arrow }) ? "lines" : "arrows"}`
+      : context.arrow === "curve" ? "Curve" : context.arrow === "arc" ? "Arc" : context.arrow === "line" ? "Line" : "Arrow",
     cycle: "Catalytic cycle",
     reaction: context.kind === "reaction" && context.steps > 1 ? `${context.steps}-step reaction` : "Reaction",
     shape: context.kind === "shape" && context.count > 1 ? `${context.count} shapes` : context.kind === "shape" ? SHAPES[context.shape] : "Shape",
@@ -449,7 +446,7 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
         </div>
       )}
 
-      {context.kind === "shape" && context.shape !== "tlc" && context.shape !== "table" && context.shape !== "curve" && (
+      {context.kind === "shape" && context.shape !== "tlc" && context.shape !== "table" && (
         <div className="chips arrows" role="group" aria-label="Shape">
           {(isBracket({ kind: context.shape }) ? ["brackets", "parens", "braces"] as ShapeKind[] : ["box", "rounded", "oval", "highlight"] as ShapeKind[]).map((kind) => (
             <button key={kind} className="chip" aria-pressed={context.shape === kind} aria-label={SHAPES[kind]} title={SHAPES[kind]} onClick={() => run(`shape.kind.${kind}`)}>
@@ -458,7 +455,7 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
           ))}
         </div>
       )}
-      {context.kind === "shape" && !isBracket({ kind: context.shape }) && context.shape !== "highlight" && context.shape !== "tlc" && context.shape !== "table" && context.shape !== "curve" && (() => {
+      {context.kind === "shape" && !isBracket({ kind: context.shape }) && context.shape !== "highlight" && context.shape !== "tlc" && context.shape !== "table" && (() => {
         // The shape's style, drawn as the shape itself in each style.
         const row = context.shape === "oval" ? "oval" : context.shape === "rounded" ? "rounded" : "box";
         return (
@@ -490,18 +487,40 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
         );
       })()}
 
-      {context.kind === "arrow" && isLine({ kind: context.arrow }) && (
-        <div className="chips arrows" role="group" aria-label="Style">
-          {(context.arrow === "arc" ? ["plain", "dashed"] : ["plain", "dashed", "wavy", "bold"]).map((st) => {
-            const v = context.arrow === "arc" ? `arc-${context.sweep ?? 180}${st === "dashed" ? "-dashed" : ""}` : `line-${st}`;
-            return (
-              <button key={st} className="chip" aria-pressed={context.style === st} aria-label={shapeName(v)} title={shapeName(v)} onClick={() => run(`arrow.style.${st}`)}>
-                <ElementGlyph v={v} />
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {context.kind === "arrow" && context.heads && (() => {
+        // The Curves controls, as ChemDraw's Curves menu: the line, the head at each end, the heads' shape, and
+        // a closed curve's fill. Each chip draws what it does.
+        const c = context, chip = (key: string, name: string, on: boolean, command: string, glyph: React.ReactNode) => (
+          <button key={key} className="chip" aria-pressed={on} aria-label={name} title={name} onClick={() => run(command)}>{glyph}</button>
+        );
+        const HEADS = [["none", "No arrowhead"], ["full", "Arrowhead"], ["left", "Half arrowhead, left"], ["right", "Half arrowhead, right"]] as const;
+        return (
+          <>
+            <div className="chips arrows" role="group" aria-label="Line">
+              {([["plain", "Plain line"], ["dashed", "Dashed line"], ["bold", "Bold line"], ["doubled", "Double line"], ["wavy", "Wavy line"]] as const).map(([st, name]) =>
+                chip(st, name, c.style === st, `arrow.style.${st}`, <LineGlyph style={st} />))}
+            </div>
+            <div className="chips arrows" role="group" aria-label="Start">
+              {HEADS.map(([h, name]) => chip(h, `${name} at the start`, c.start === h, `arrow.start.${h}`, <LineGlyph start={h} head={c.head} />))}
+            </div>
+            <div className="chips arrows" role="group" aria-label="End">
+              {HEADS.map(([h, name]) => chip(h, `${name} at the end`, c.end === h, `arrow.end.${h}`, <LineGlyph end={h} head={c.head} />))}
+            </div>
+            {(c.start !== "none" || c.end !== "none") && (
+              <div className="chips arrows" role="group" aria-label="Arrowheads">
+                {([["solid", "Solid arrowheads"], ["hollow", "Hollow arrowheads"], ["angled", "Open arrowheads"]] as const).map(([h, name]) =>
+                  chip(h, name, c.head === h, `arrow.head.${h}`, <LineGlyph end="full" head={h} />))}
+              </div>
+            )}
+            {c.closed && (
+              <div className="chips arrows" role="group" aria-label="Fill">
+                {([["none", "No fill"], ["solid", "Filled"], ["shaded", "Shaded"], ["faded", "Faded"]] as const).map(([f, name]) =>
+                  chip(f, name, c.fill === f, `arrow.fill.${f}`, <FillGlyph fill={f} />))}
+              </div>
+            )}
+          </>
+        );
+      })()}
       {context.kind === "arrow" && context.orbital && (() => {
         // The orbital's shape, and its phases, each drawn as itself.
         const o = context.orbital;

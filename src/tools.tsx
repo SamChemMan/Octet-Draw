@@ -60,7 +60,7 @@ export const arrowName = (v: string) => { const a = arrowVariant(v); return a &&
 export const SELECTS = { box: { name: "Box" }, lasso: { name: "Lasso" } };
 
 export const SHAPES: Record<ShapeKind, string> = {
-  box: "Box", rounded: "Rounded box", oval: "Oval", highlight: "Highlight", brackets: "Brackets", parens: "Parentheses", braces: "Braces", tlc: "TLC plate", table: "Table", curve: "Curve",
+  box: "Box", rounded: "Rounded box", oval: "Oval", highlight: "Highlight", brackets: "Brackets", parens: "Parentheses", braces: "Braces", tlc: "TLC plate", table: "Table",
 };
 
 // Marks the Symbols tool puts on an atom.
