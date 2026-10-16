@@ -1,7 +1,8 @@
 // The tool palette: one tool per kind of object, each with variants in a strip that opens beside it.
 // Click an active tool again (or press and hold any tool) to open its strip; press, slide and release also works.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowClockwise, ArrowCounterClockwise, CaretRight, Eraser, Lasso, Plus, PushPin, Selection, TextT, Trash, X } from "@phosphor-icons/react";
+import { flushSync } from "react-dom";
+import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Eraser, Lasso, Plus, PushPin, Selection, TextT, Trash, X } from "@phosphor-icons/react";
 import { chairPoints, type BondSpec, type SymbolKind } from "./edit";
 import { ARROW_KINDS, curved, SWEEPS, type ArrowKind, type Mol, type ShapeKind } from "./render";
 import { templateKind, type Template } from "./templates";
@@ -43,7 +44,7 @@ export type RingKind = keyof typeof RINGS;
 
 export const ARROWS: Record<ArrowKind, string> = {
   reaction: "Reaction", equilibrium: "Equilibrium", resonance: "Resonance", retro: "Retrosynthetic",
-  nogo: "No reaction", curved: "Curved", fishhook: "Fishhook", double: "Double-headed", line: "Line", arc: "Arc", orbital: "Orbital", cut: "Fragmentation line",
+  nogo: "No reaction", curved: "Curved", fishhook: "Fishhook", double: "Double-headed", line: "Line", arc: "Arc", orbital: "Orbital", cut: "Fragmentation line", curve: "Curve",
 };
 // Curved arrows come in four sweeps. Their variants are "kind-sweep", for example "fishhook-180"; a bare kind is 120°.
 const CURVED: ArrowKind[] = ["curved", "fishhook", "double"];
@@ -347,6 +348,8 @@ type PaletteProps = {
   onCurvedArrows: (list: string[]) => void;
   libraryRings: string[]; // library templates in the Ring strip
   onLibraryRings: (list: string[]) => void;
+  wide: boolean; // the toolbar in two columns
+  onWide: (wide: boolean) => void;
 };
 
 const DRAG_PX = 6; // an option pressed and moved this far is being dragged to the toolbar
@@ -453,10 +456,11 @@ export function Palette(p: PaletteProps) {
     // A curved arrow or library template can also go into its strip's list.
     const listTool = keepable(key), list = listTool ? nav.current!.querySelector(`.strip[data-tool="${listTool}"]`) : null;
     const onList = (x: number, y: number) => { const r = list?.getBoundingClientRect(); return !!r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; };
-    // Where it would land: before the first other shortcut whose middle is below the pointer, else at the end.
-    const slotAt = (y: number) => {
+    // Where it would land: before the first other shortcut that comes after the pointer in reading order (below
+    // it, or on its row and to its right), else at the end.
+    const slotAt = (x: number, y: number) => {
       const others = [...nav.current!.querySelectorAll<HTMLElement>("[data-pin]")].filter((el) => el.dataset.pin !== key);
-      const at = others.findIndex((el) => y < el.getBoundingClientRect().top + el.offsetHeight / 2);
+      const at = others.findIndex((el) => { const r = el.getBoundingClientRect(); return y < r.top || (y < r.bottom && x < r.left + r.width / 2); });
       return at < 0 ? others.length : at;
     };
     const move = (ev: PointerEvent) => {
@@ -466,7 +470,7 @@ export function Palette(p: PaletteProps) {
       tilt = still ? 0 : Math.max(-12, Math.min(12, tilt * 0.6 + (ev.clientX - lastX) * 0.8));
       lastX = ev.clientX;
       const toList = onList(ev.clientX, ev.clientY), over = !toList && inside(ev.clientX, ev.clientY);
-      if (over) index = slotAt(ev.clientY);
+      if (over) index = slotAt(ev.clientX, ev.clientY);
       setCarry({ key, x: ev.clientX, y: ev.clientY, tilt, over, toList, index, phase: "drag" });
     };
     const up = (ev: PointerEvent) => {
@@ -497,6 +501,21 @@ export function Palette(p: PaletteProps) {
     addEventListener("pointermove", move);
     addEventListener("pointerup", up);
   }
+  // One column or two: every tool glides from where it was to where it goes, and the toolbar grows or shrinks to
+  // match (instant with reduced motion).
+  function toggleWide() {
+    const box = nav.current!, still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const items = [...box.querySelectorAll<HTMLElement>(":scope > .slot, :scope > .tool, :scope > hr, :scope > .palette-toggle")];
+    const before = items.map((el) => el.getBoundingClientRect()), from = box.getBoundingClientRect();
+    flushSync(() => p.onWide(!p.wide));
+    if (still) return;
+    const to = box.getBoundingClientRect(), timing = { duration: 240, easing: "cubic-bezier(0.23, 1, 0.32, 1)" };
+    box.animate([{ width: `${from.width}px`, height: `${from.height}px` }, { width: `${to.width}px`, height: `${to.height}px` }], timing);
+    items.forEach((el, i) => {
+      const r = el.getBoundingClientRect(), dx = before[i].left - r.left, dy = before[i].top - r.top;
+      if (Math.abs(dx) + Math.abs(dy) > 0.5) el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], timing);
+    });
+  }
   // The landing ripple runs once, then the class comes off so it can run again next time.
   useEffect(() => { if (landed) { const t = setTimeout(() => setLanded(undefined), 700); return () => clearTimeout(t); } }, [landed]);
 
@@ -506,13 +525,13 @@ export function Palette(p: PaletteProps) {
   const addPreview = useMemo(() => (adding.trim() ? p.preview(adding) : undefined), [adding]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <nav ref={nav} className={["palette", carry?.over && "dropping", landed && "rippling"].filter(Boolean).join(" ")} aria-label="Tools">
-      <span className="indicator" style={{ transform: `translateY(${active * 36}px)`, opacity: active < 0 ? 0 : 1 }} aria-hidden />
+    <nav ref={nav} className={["palette", p.wide && "wide", carry?.over && "dropping", landed && "rippling"].filter(Boolean).join(" ")} aria-label="Tools">
+      <span className="indicator" style={{ transform: p.wide ? `translate(${(active % 2) * 36}px, ${Math.floor(active / 2) * 36}px)` : `translateY(${active * 36}px)`, opacity: active < 0 ? 0 : 1 }} aria-hidden />
       {tools.map((t, i) => {
         const group = SPECIAL.includes(t.id);
         const strip = group ? SPECIAL : isStrip(t.id) ? options(t.id) : undefined;
         return (
-          <div key={t.id} className="slot" style={{ "--d": Math.abs(i - (tools.length + 1 + pins.findIndex((x) => x.key === landed?.key))) } as React.CSSProperties}>
+          <div key={t.id} className="slot" data-col={p.wide ? i % 2 : undefined} style={{ "--d": Math.abs(i - (tools.length + 1 + pins.findIndex((x) => x.key === landed?.key))) } as React.CSSProperties}>
             <button
               className="tool"
               aria-pressed={p.tool === t.id}
@@ -653,6 +672,9 @@ export function Palette(p: PaletteProps) {
       </button>
       <button className="tool" aria-label="Redo" title={`Redo (${p.modKey}⇧Z)`} disabled={!p.canRedo} onClick={p.onRedo}>
         <ArrowClockwise size={20} />
+      </button>
+      <button className="palette-toggle" aria-label={p.wide ? "One column" : "Two columns"} title={p.wide ? "One column" : "Two columns"} onClick={toggleWide}>
+        {p.wide ? <CaretLeft size={12} weight="bold" /> : <CaretRight size={12} weight="bold" />}
       </button>
       {carry && (() => {
         const [tool, ...rest] = carry.key.split(":");

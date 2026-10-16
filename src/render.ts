@@ -44,22 +44,43 @@ export type Caption = {
 // (dashed suits a proposed step; wavy and bold are for lines).
 // orbital: an atomic or hybrid orbital drawn from its nucleus (from) to the tip of its main lobe (to).
 // cut: a mass-fragmentation line across bonds; the pieces it makes are labelled with their formula and mass.
-export type ArrowKind = "reaction" | "equilibrium" | "resonance" | "retro" | "nogo" | "curved" | "fishhook" | "double" | "line" | "arc" | "orbital" | "cut";
-export type LineStyle = "dashed" | "bold" | "wavy";
+export type ArrowKind = "reaction" | "equilibrium" | "resonance" | "retro" | "nogo" | "curved" | "fishhook" | "double" | "line" | "arc" | "orbital" | "cut" | "curve";
+export type LineStyle = "dashed" | "bold" | "wavy" | "doubled";
+// The Curves model, as ChemDraw's Curves menu: a head at either end of a line (none, full, or a half head with its
+// barb on the left or right, looking the way the head points), the heads' shape, and a closed curve's fill.
+export type Head = "none" | "full" | "left" | "right";
+export type HeadShape = "solid" | "hollow" | "angled";
+export type CurveFill = "solid" | "shaded" | "faded";
 export type OrbitalShape = "s" | "oval" | "lobe" | "hybrid" | "p" | "d" | "dz2";
 export type Phase = "plain" | "shaded" | "filled" | "phased";
 export const ORBITAL_SHAPES: OrbitalShape[] = ["s", "oval", "lobe", "hybrid", "p", "d", "dz2"];
 export const PHASES: Phase[] = ["plain", "shaded", "filled", "phased"];
-export type Arrow = { id: number; kind: ArrowKind; from: [number, number]; to: [number, number]; bend?: number; style?: LineStyle; orbital?: { shape: OrbitalShape; phase: Phase }; colour?: string };
+export type Arrow = {
+  id: number; kind: ArrowKind; from: [number, number]; to: [number, number]; bend?: number; style?: LineStyle; orbital?: { shape: OrbitalShape; phase: Phase }; colour?: string;
+  start?: Head; end?: Head; head?: HeadShape; // heads set by hand; unset uses the kind's own
+  curve?: Curve; fill?: CurveFill; // a pen curve's points (from and to are its ends), and a closed one's fill
+};
 // Every kind a drawing's arrow list may hold.
-export const ALL_ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "curved", "fishhook", "double", "line", "arc", "orbital", "cut"];
+export const ALL_ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "curved", "fishhook", "double", "line", "arc", "orbital", "cut", "curve"];
 export const isOrbital = (a: Pick<Arrow, "kind">) => a.kind === "orbital";
 export const ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "curved", "fishhook", "double"];
 export const LINE_KINDS: ArrowKind[] = ["line", "arc"];
 export const curved = (a: Pick<Arrow, "kind">) => a.kind === "curved" || a.kind === "fishhook" || a.kind === "double" || a.kind === "arc";
 // Arrows that carry reaction conditions and make up reactions: straight ones with heads.
-export const straightArrow = (a: Pick<Arrow, "kind">) => !curved(a) && a.kind !== "line" && a.kind !== "orbital" && a.kind !== "cut";
-export const isLine = (a: Pick<Arrow, "kind">) => a.kind === "line" || a.kind === "arc";
+export const straightArrow = (a: Pick<Arrow, "kind">) => !curved(a) && a.kind !== "line" && a.kind !== "orbital" && a.kind !== "cut" && a.kind !== "curve";
+export const isLine = (a: Pick<Arrow, "kind">) => a.kind === "line" || a.kind === "arc" || a.kind === "curve";
+// Lines that take the Curves menu's heads: everything drawn as one shaft (not equilibrium, retrosynthetic or
+// no-reaction arrows, orbitals or fragmentation cuts).
+export const takesHeads = (a: Pick<Arrow, "kind">) => !["equilibrium", "retro", "nogo", "orbital", "cut"].includes(a.kind);
+// A line's heads: the ones set by hand, or its kind's.
+export function headsOf(a: Pick<Arrow, "kind" | "bend" | "start" | "end">): { start: Head; end: Head } {
+  const own: Record<string, [Head, Head]> = {
+    reaction: ["none", "full"], curved: ["none", "full"], double: ["full", "full"], resonance: ["full", "full"], nogo: ["none", "full"],
+    fishhook: ["none", (a.bend ?? 0) >= 0 ? "left" : "right"], // the barb on the outside of the curve
+  };
+  const [start, end] = own[a.kind] ?? ["none", "none"];
+  return { start: a.start ?? start, end: a.end ?? end };
+}
 // Curved arrows are circular arcs. Their sweeps on offer, and the bend that gives each one.
 export const SWEEPS = [90, 120, 180, 270];
 export const sweepBend = (degrees: number) => Math.tan((degrees * Math.PI) / 720) / 2;
@@ -649,6 +670,7 @@ export function bendPoint(a: Arrow): [number, number] {
 // An arrow's path in px (y down): two points for a straight arrow, a sampled arc for a curved one. The arc is
 // the circle through both ends and the middle point, which is how CDXML stores curved arrows too.
 export function arrowPath(a: Arrow, k: number): P[] {
+  if (a.kind === "curve" && a.curve) return curvePath(a.curve, k);
   const S: P = [a.from[0] * k, -a.from[1] * k], T: P = [a.to[0] * k, -a.to[1] * k];
   if (!curved(a) || !a.bend) return [S, T];
   const m = bendPoint(a), M: P = [m[0] * k, -m[1] * k];
@@ -688,9 +710,14 @@ export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
     return path;
   };
   // A shaft along points, stopping `trim` short of the end, drawn in the arrow's style: dashes of 0.15 bond lengths
-  // with gaps of 0.1, a wave 0.06 bond lengths high every 0.2, or the bold width.
+  // with gaps of 0.1, a wave 0.06 bond lengths high every 0.2, the bold width, or two lines 0.1 bond lengths apart.
   const line = (pts: P[], trim: number) => {
     const path = cut(pts, trim);
+    if (a.style === "doubled") {
+      const g = 0.05 * s.bond;
+      for (const side of [-1, 1]) { const o = offsetPath(path, side * g); for (let i = 0; i + 1 < o.length; i++) if (len(sub(o[i + 1], o[i])) > 1e-9) bar(o[i], o[i + 1]); }
+      return;
+    }
     if (a.style === "dashed" || a.kind === "cut") return dashes(path, 0.15 * s.bond, 0.1 * s.bond).forEach(([p, q]) => bar(p, q));
     if (a.style === "wavy") {
       const wave = waveAlong(path, 0.06 * s.bond, 0.2 * s.bond);
@@ -699,40 +726,43 @@ export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
     }
     for (let i = 0; i + 1 < path.length; i++) if (len(sub(path[i + 1], path[i])) > 1e-9) bar(path[i], path[i + 1], a.style === "bold" ? s.bold / 2 : hw);
   };
-  // A head at the end of pts: full, or half (the barb on the left side looking along the arrow, or the right).
-  // On a curve it points along the chord of its own length, so it sits on the arc.
+  // A head at the end of pts: full, or half (the barb on the left side looking along the arrow, or the right),
+  // solid, hollow (its outline) or angled (open barbs). On a curve it points along the chord of its own length,
+  // so it sits on the arc.
+  const shape = a.head ?? "solid";
   const head = (pts: P[], half?: "left" | "right") => {
     const T = pts[pts.length - 1], back = cut(pts, H).pop()!, u = unit(sub(T, back)), n = perp(u);
     const base = add(T, mul(u, -H)), notch = add(T, mul(u, -C));
+    const barbs = half ? [half === "left" ? -1 : 1] : [1, -1];
+    if (shape === "angled") { for (const side of barbs) bar(T, add(base, mul(n, side * W))); return; }
+    if (shape === "hollow") {
+      for (const side of barbs) { bar(T, add(base, mul(n, side * W))); bar(add(base, mul(n, side * W)), half ? base : base); }
+      if (!half) bar(add(base, mul(n, W)), add(base, mul(n, -W)));
+      return;
+    }
     if (!half) out.push([T, add(base, mul(n, W)), notch, add(base, mul(n, -W))]);
     else out.push([T, add(base, mul(n, half === "left" ? -W : W)), add(notch, mul(n, half === "left" ? -hw : hw))]);
   };
+  // How far a head takes over the shaft: to its notch (solid), its base (hollow), or not at all (angled).
+  const takes = (h: Head) => (h === "none" ? 0 : shape === "angled" ? hw : shape === "hollow" ? H : h === "full" ? C : 0);
   const path = arrowPath(a, k), [S, T] = [path[0], path[path.length - 1]];
   const u = unit(sub(T, S)), n = perp(u);
+  if (takesHeads(a)) {
+    // One shaft, and a head at either end as set (the Curves menu) or as the kind has them.
+    const { start, end } = headsOf(a), reversed = [...path].reverse();
+    line(cut(cut(path, takes(end)).reverse(), takes(start)).reverse(), 0);
+    if (end !== "none") head(path, end === "full" ? undefined : end);
+    if (start !== "none") head(reversed, start === "full" ? undefined : start);
+    if (a.kind === "nogo") {
+      // A cross on the middle of the shaft.
+      const m = mul(add(S, T), 0.5), r = 0.22 * s.bond;
+      for (const d of [add(u, n), sub(u, n)]) bar(add(m, mul(unit(d), -r)), add(m, mul(unit(d), r)));
+    }
+    return out;
+  }
   switch (a.kind) {
-    case "line":
-    case "arc":
     case "cut":
       line(path, 0);
-      break;
-    case "reaction":
-    case "curved":
-      line(path, C);
-      head(path);
-      break;
-    case "double":
-      line(cut(path, C).reverse(), C);
-      head(path);
-      head([...path].reverse());
-      break;
-    case "fishhook":
-      line(path, 0);
-      head(path, (a.bend ?? 0) >= 0 ? "left" : "right"); // the barb on the outside of the curve
-      break;
-    case "resonance":
-      line([add(S, mul(u, C)), T], C);
-      head(path);
-      head([T, S]);
       break;
     case "equilibrium": {
       // Two half-headed arrows, one each way, barbs on the outside.
@@ -752,16 +782,16 @@ export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
       }
       break;
     }
-    case "nogo": {
-      line(path, C);
-      head(path);
-      // A cross on the middle of the shaft.
-      const m = mul(add(S, T), 0.5), r = 0.22 * s.bond;
-      for (const d of [add(u, n), sub(u, n)]) bar(add(m, mul(unit(d), -r)), add(m, mul(unit(d), r)));
-      break;
-    }
   }
   return out;
+}
+
+// A path moved sideways by d (px) at every point, along the path's own normal there.
+function offsetPath(path: P[], d: number): P[] {
+  return path.map((p, i) => {
+    const a = path[Math.max(0, i - 1)], b = path[Math.min(path.length - 1, i + 1)], t = sub(b, a);
+    return len(t) < 1e-9 ? p : add(p, mul(perp(unit(t)), d));
+  });
 }
 
 // A shape's lines in px (y down), as paths: the outline of a box or oval, or each bracket of a pair. A highlight's

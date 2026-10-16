@@ -2334,6 +2334,8 @@ export default function Editor() {
         onVariant={(t, kind) => setSettings((s) => ({ ...s, variants: { ...s.variants, [t]: kind } }))}
         onUndo={() => undo()}
         onRedo={() => undo(true)}
+        wide={settings.paletteWide}
+        onWide={(wide) => setSettings((s) => ({ ...s, paletteWide: wide }))}
         stripWidths={settings.strips}
         onStripWidth={(t, width) => setSettings((s) => ({ ...s, strips: { ...s.strips, [t]: width } }))}
       />

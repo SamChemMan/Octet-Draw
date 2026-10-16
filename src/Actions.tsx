@@ -143,15 +143,17 @@ export function actionItems(context: Context, messy: boolean): Item[] {
         small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<ArrowsOutSimple size={18} />, "Zoom to fit", "zoom_fit")));
       break;
     case "structure":
-      items.push(clean, ...(context.nameable ? [nameIt] : []),
-        it(<ListNumbers size={18} />, context.structures > 1 ? "Number these compounds" : "Number this compound", "number"),
-        it(<TextT size={18} />, "Add a caption", "caption.add"));
-      if (context.structures > 1) items.push(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make"));
-      items.push(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles"));
+      // Sam's order (16 October 2026): Clean up, Structure to name and the flips as rows; then lone pairs, number,
+      // caption, the turns, Copy as SMILES, Add to rings and Delete as small buttons.
+      items.push(clean, ...(context.nameable ? [nameIt] : []), it(<FlipVertical size={18} />, "Flip vertical", "flip_v"), it(<FlipHorizontal size={18} />, "Flip horizontal", "flip_h"));
       if (context.pairs) items.push(small(it(<SymbolGlyph kind="pair" />, context.pairs === "shown" ? "Hide lone pairs" : "Show lone pairs", "pairs")));
-      if (context.structures > 1) items.push(small(it(<AlignCenterHorizontal size={18} />, "Line up in a row", "align.row")), small(it(<AlignCenterVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
-      items.push(...flips, small(it(<ArrowCounterClockwise size={18} />, "Turn 15° left", "rotate.ccw15")), small(it(<ArrowClockwise size={18} />, "Turn 15° right", "rotate.cw15")),
-        small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")), small(del));
+      items.push(small(it(<ListNumbers size={18} />, context.structures > 1 ? "Number these compounds" : "Number this compound", "number")),
+        small(it(<TextT size={18} />, "Add a caption", "caption.add")),
+        small(it(<ArrowClockwise size={18} />, "Turn 15° right", "rotate.cw15")), small(it(<ArrowCounterClockwise size={18} />, "Turn 15° left", "rotate.ccw15")),
+        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")));
+      if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<AlignCenterHorizontal size={18} />, "Line up in a row", "align.row")),
+        small(it(<AlignCenterVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
+      items.push(small(del));
       break;
     case "atom":
       items.push(it(<TextAa size={18} />, "Type a label", "atom.label"), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"), del);
