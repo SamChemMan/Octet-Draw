@@ -3,11 +3,11 @@ import { Warning } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { analyse, cleanUp, importStructure, measure, parseStructure, ready, STYLE, toSmiles } from "./chem";
+import { analyse, cleanUp, importStructure, measure, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
 import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
 import {
-  EMPTY, addCharge, addRing, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
+  EMPTY, addCaption, addCharge, addRing, deleteCaptions, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
   type BondSpec, type Group, type P,
 } from "./edit";
@@ -16,7 +16,7 @@ import { loadSettings, saveSettings } from "./settings";
 import { actionFor, keyOf, keymap, label as keyLabel } from "./keys";
 import { Actions, type Context } from "./Actions";
 import { BONDS, Palette, RINGS, SELECTS, type BondKind, type RingKind, type SelectKind, type Tool } from "./tools";
-import { render, type Mol } from "./render";
+import { CAPTION_PT, isNumber, placeCaptions, render, type Box, type Caption, type Mol, type Placed } from "./render";
 import { selectCursor } from "./cursor";
 import "./editor.css";
 
@@ -41,7 +41,7 @@ const SNAP = (15 * Math.PI) / 180; // dragged bonds snap to 15° steps
 const HOLD_MS = 400;
 const toPath = (polys: P[][]) => polys.map((poly) => "M" + poly.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join("L") + "Z").join("");
 
-type Hover = { atom?: number; bond?: number };
+type Hover = { atom?: number; bond?: number; caption?: number };
 const hitIn = (m: Mol, p: P): Hover => {
   const atom = atomAt(m, p);
   return atom !== undefined ? { atom } : { bond: bondAt(m, p) };
@@ -54,11 +54,19 @@ type Drag =
   | { kind: "bond"; from: number | P; at: P; start: [number, number]; target: Hover; to?: P }
   | { kind: "click"; at: P; start: [number, number]; target: Hover }
   | { kind: "chain"; from: number | P; start: [number, number]; target: Hover; to?: P }
-  | { kind: "erase"; trail: P[]; bonds: Set<number>; atoms: Set<number>; start: [number, number]; target: Hover; moved: boolean }
-  | { kind: "box"; from: P; to: P; base: Set<number>; target: Hover; moved: boolean }
-  | { kind: "lasso"; points: P[]; base: Set<number>; target: Hover; moved: boolean }
+  | { kind: "erase"; trail: P[]; bonds: Set<number>; atoms: Set<number>; captions: Set<number>; start: [number, number]; target: Hover; moved: boolean }
+  | { kind: "box"; from: P; to: P; base: Set<number>; picks: Set<number>; target: Hover; moved: boolean }
+  | { kind: "lasso"; points: P[]; base: Set<number>; picks: Set<number>; target: Hover; moved: boolean }
   // Moving the selection. If the pointer never moves, the press counts as a click with the tool in hand.
-  | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P };
+  // captions: where each moving caption starts (drawing coordinates), for captions that do not simply follow their structure.
+  | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P> };
+
+// A caption's anchor in drawing coordinates: the start, middle or end of its first baseline.
+const anchorOf = (c: Placed): P => [(c.anchor === "start" ? c.box[0] : c.anchor === "end" ? c.box[2] : (c.box[0] + c.box[2]) / 2) / L, -c.lines[0].y / L];
+const union = (boxes: Box[]): Box | undefined => boxes.length ? [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))] : undefined;
+// The draft caption being typed sorts after every real one.
+const DRAFT = Number.MAX_SAFE_INTEGER;
+const typing = () => document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement;
 
 // Rubbing out: marks every bond within radius r of the pointer's path between two points, and any lone atom.
 // Nothing is removed until the pointer is released.
@@ -81,6 +89,8 @@ export default function Editor() {
   const [view, setView] = useState({ x: innerWidth / 2, y: innerHeight / 2, zoom: 2 });
   const [hover, setHover] = useState<Hover>({});
   const [selection, setSelection] = useState<Set<number>>(new Set());
+  // Captions picked, by id. Atoms and captions are selected separately and move, delete and copy together.
+  const [picked, setPicked] = useState<Set<number>>(new Set());
   const [drag, setDrag] = useState<Drag>();
   const [notice, setNotice] = useState<string>();
   // The hold-to-select switch: the tool icon pops and a ring pops at the pointer. pop.n restarts the animations.
@@ -100,6 +110,12 @@ export default function Editor() {
     const a = doc.atoms[atom];
     setEditing({ atom, value: a.text ?? (a.label === "C" ? "" : a.label) });
   };
+  // The caption being typed: an existing one (id), or a new one at a point or under a structure, with its style.
+  type Writing = { id?: number; value: string; at?: P; under?: number[]; style: Partial<Caption> };
+  const [writing, setWriting] = useState<Writing>();
+  // True while the caption box is open. Enter, Escape and blur all close it; only the first one counts.
+  const writingOpen = useRef(false);
+  const openWriting = (w: Writing) => { writingOpen.current = true; setWriting(w); };
   useEffect(() => { selectCursor.then(setCursor); }, []);
   const hold = useRef<number>(undefined);
   const svg = useRef<SVGSVGElement>(null);
@@ -107,9 +123,9 @@ export default function Editor() {
   // Every edit clears the selection, except a move, which keeps the same atoms selected.
   const set = (mol: Mol, keepSelection = false) => {
     dispatch({ type: "set", mol });
-    if (!keepSelection) setSelection(new Set());
+    if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
   };
-  const undo = (redo = false) => { dispatch({ type: redo ? "redo" : "undo" }); setSelection(new Set()); };
+  const undo = (redo = false) => { dispatch({ type: redo ? "redo" : "undo" }); setSelection(new Set()); setPicked(new Set()); };
   // The file on disk and the drawing as last saved. Undoing back to the saved drawing makes it clean again.
   const [file, setFile] = useState<{ path?: string; saved: Mol }>({ saved: EMPTY });
   const dirty = doc !== file.saved;
@@ -117,7 +133,7 @@ export default function Editor() {
   useEffect(() => { ready.then(() => setLoaded(true)); }, []);
   useEffect(() => { if (notice) { const t = setTimeout(() => setNotice(undefined), 4000); return () => clearTimeout(t); } }, [notice]);
   // After an edit, the thing under a still pointer may have changed.
-  useEffect(() => { if (pointer.current) setHover(hitIn(doc, pointer.current)); }, [doc]);
+  useEffect(() => { if (pointer.current) setHover(hit(pointer.current)); }, [doc]);
 
   const name = file.path?.split(/[\\/]/).pop()?.replace(/\.octet$/, "") ?? "Untitled";
   useEffect(() => { if (TAURI) getCurrentWindow().setTitle(dirty ? `${name} (edited)` : name); }, [name, dirty]);
@@ -170,9 +186,14 @@ export default function Editor() {
     import: () => void importFile(),
     save: () => void save(false),
     save_as: () => void save(true),
-    undo: () => undo(),
-    redo: () => undo(true),
-    select_all: () => setSelection(new Set(doc.atoms.map((_, i) => i))),
+    // While a label or caption is being typed, the Edit menu works on its text.
+    undo: () => (typing() ? void document.execCommand("undo") : undo()),
+    redo: () => (typing() ? void document.execCommand("redo") : undo(true)),
+    select_all: () => {
+      if (typing()) return (document.activeElement as HTMLInputElement).select();
+      setSelection(new Set(doc.atoms.map((_, i) => i)));
+      setPicked(new Set((doc.captions ?? []).map((c) => c.id)));
+    },
     snap: () => setSettings((s) => ({ ...s, snap: !s.snap })),
     // Structure commands act on the selection, or on the whole drawing when nothing is selected.
     clean_up: () => { if (loaded && doc.atoms.length) set(cleanUp(doc, selection.size ? selection : undefined), true); },
@@ -183,6 +204,14 @@ export default function Editor() {
     zoom_out: () => zoomTo(view.zoom / 1.25),
     zoom_actual: () => zoomTo(1),
     actions: () => setSettings((s) => ({ ...s, actions: !s.actions })),
+    // The Text menu styles the caption being typed, or the picked captions.
+    text_bold: () => restyle((c) => ({ bold: !c.bold })),
+    text_italic: () => restyle((c) => ({ italic: !c.italic })),
+    text_underline: () => restyle((c) => ({ underline: !c.underline })),
+    align_left: () => restyle(() => ({ align: "left" })),
+    align_centre: () => restyle(() => ({ align: "centre" })),
+    align_right: () => restyle(() => ({ align: "right" })),
+    ...Object.fromEntries([8, 9, 10, 12, 14, 18, 24].map((pt) => [`size_${pt}`, () => restyle(() => ({ size: pt === CAPTION_PT ? undefined : pt }))])),
     zoom_fit: () => {
       const b = bounds(doc);
       if (!b) return zoomTo(2);
@@ -216,41 +245,161 @@ export default function Editor() {
     return doc;
   }, [doc, drag]);
   const drawing = useMemo(() => render(shown, STYLE, measure, L), [shown]);
+  // Captions as laid out, with the caption being typed in place of its saved text (or added, if it is new).
+  const placed = useMemo(() => {
+    let m = shown;
+    if (writing?.id !== undefined) m = updateCaption(m, writing.id, { text: writing.value || " ", ...writing.style });
+    else if (writing) m = { ...m, captions: [...(m.captions ?? []), { id: DRAFT, text: writing.value || " ", x: writing.at?.[0] ?? 0, y: writing.at?.[1] ?? 0, under: writing.under, ...writing.style }] };
+    return placeCaptions(m, drawing, (t, c) => textWidth(t, ((c.size ?? CAPTION_PT) * 4) / 3, c.bold, c.italic));
+  }, [shown, drawing, writing]);
+  // The caption under a point (drawing coordinates), with a few px of slack.
+  const captionAt = (p: P) => {
+    const [x, y] = [p[0] * L, -p[1] * L], pad = 3 / view.zoom;
+    return [...placed].reverse().find((c) => c.id !== DRAFT && x >= c.box[0] - pad && x <= c.box[2] + pad && y >= c.box[1] - pad && y <= c.box[3] + pad)?.id;
+  };
+  // Atoms come first, then captions, then bonds.
+  const hit = (p: P): Hover => {
+    const t = hitIn(doc, p);
+    if (t.atom !== undefined) return t;
+    const caption = captionAt(p);
+    return caption !== undefined ? { caption } : t;
+  };
+  const inkOf = (atoms: number[]) => union(atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i]));
+  // The structure a caption at this point (drawing coordinates) would sit under: one whose ink is just above it.
+  const structureAbove = (p: P, reach = 2.5) => {
+    const [x, y] = [p[0] * L, -p[1] * L];
+    return fragments(doc).find((g) => {
+      const b = inkOf(g);
+      return b && x >= b[0] - 0.5 * L && x <= b[2] + 0.5 * L && y > b[3] && y < b[3] + reach * L;
+    });
+  };
+
+  // Typing captions. Enter or a click elsewhere keeps the text; Escape throws it away. Empty text deletes the caption.
+  function startWriting(target: { id: number } | { at: P }) {
+    setSelection(new Set());
+    setPicked(new Set());
+    if ("id" in target) {
+      const c = doc.captions?.find((x) => x.id === target.id);
+      if (c) openWriting({ id: c.id, value: c.text, style: {} });
+      return;
+    }
+    // Clicked just under a structure: the caption is centred under it, by the ACS rule.
+    const under = structureAbove(target.at);
+    openWriting(under ? { value: "", under, style: {} } : { value: "", at: target.at, style: { align: "left" } });
+  }
+  function commitWriting(keep = true) {
+    const w = writing;
+    if (!writingOpen.current) return;
+    writingOpen.current = false;
+    setWriting(undefined);
+    if (!w || !keep) return;
+    const text = w.value.replace(/\s+$/, "");
+    if (w.id !== undefined) {
+      const old = doc.captions?.find((c) => c.id === w.id);
+      if (!text) return set(deleteCaptions(doc, new Set([w.id])));
+      if (old && (text !== old.text || Object.keys(w.style).length)) set(updateCaption(doc, w.id, { text, ...w.style }));
+      return setPicked(new Set([w.id]));
+    }
+    if (!text) return;
+    const [mol, id] = addCaption(doc, { text, x: w.at?.[0] ?? 0, y: w.at?.[1] ?? 0, ...(w.under ? { under: w.under } : {}), ...w.style });
+    set(mol);
+    setPicked(new Set([id]));
+  }
+  // Applies a style change to the caption being typed, or to every picked caption.
+  function restyle(change: (c: Partial<Caption>) => Partial<Caption>) {
+    if (writing) {
+      const base = writing.id !== undefined ? { ...doc.captions?.find((c) => c.id === writing.id), ...writing.style } : writing.style;
+      return setWriting({ ...writing, style: { ...writing.style, ...change(base) } });
+    }
+    if (!picked.size) return;
+    const first = doc.captions?.find((c) => picked.has(c.id));
+    if (!first) return;
+    const delta = change(first); // one change for all, so Bold on a mixed set makes them all bold
+    set({ ...doc, captions: doc.captions?.map((c) => (picked.has(c.id) ? { ...c, ...delta } : c)) }, true);
+  }
+  // Moves the selected atoms and the moving captions. A caption under a structure that is not moving comes
+  // away from it and stays where it is dragged.
+  function moveAll(base: Mol, d: P, captions: Map<number, P>): Mol {
+    const m = selection.size ? moveAtoms(base, selection, d) : base;
+    if (!captions.size) return m;
+    return {
+      ...m,
+      captions: m.captions?.map((c) => {
+        const from = captions.get(c.id);
+        if (!from) return c;
+        const { under: _, ...free } = c;
+        return { ...free, x: from[0] + d[0], y: from[1] + d[1] };
+      }),
+    };
+  }
+  // Numbers the structures in the selection, left to right, skipping any that already have a number.
+  function numberStructures() {
+    let m = doc;
+    const groups = fragments(doc).filter((g) => g.some((i) => selection.has(i)) && !doc.captions?.some((c) => isNumber(c) && c.under?.some((i) => g.includes(i))));
+    groups.sort((a, b) => (inkOf(a)?.[0] ?? 0) - (inkOf(b)?.[0] ?? 0));
+    for (const g of groups) m = addCaption(m, { text: nextNumber(m), x: 0, y: 0, bold: true, under: g })[0];
+    if (m !== doc) set(m, true);
+  }
 
   const stopHold = () => { clearTimeout(hold.current); hold.current = undefined; };
 
   // Select tool press: on something selected, move the selection; on something else, select it and move it;
   // on empty canvas, start a selection box. Shift adds to the selection.
-  const startMove = (p: P, screen: [number, number], t: Hover) =>
-    setDrag({ kind: "move", from: p, working: doc, moved: false, start: screen, target: t, guides: [] });
+  // picks: the captions that will be picked once this press's state updates land.
+  const startMove = (p: P, screen: [number, number], t: Hover, picks = picked, atoms = selection) => {
+    const captions = new Map<number, P>();
+    for (const c of placed) {
+      const caption = doc.captions?.find((x) => x.id === c.id);
+      if (caption && picks.has(c.id) && !caption.under?.every((i) => atoms.has(i))) captions.set(c.id, anchorOf(c));
+    }
+    setDrag({ kind: "move", from: p, working: doc, moved: false, start: screen, target: t, guides: [], captions });
+  };
+  // A press on a caption picks it (Shift adds it) and grabs it.
+  function pressCaption(p: P, t: Hover, shift: boolean, screen: [number, number]) {
+    const id = t.caption!;
+    if (picked.has(id) && !shift) return startMove(p, screen, t);
+    const picks = new Set(shift ? [...picked, id] : [id]), atoms = shift ? selection : new Set<number>();
+    setPicked(picks);
+    setSelection(atoms);
+    startMove(p, screen, t, picks, atoms);
+  }
 
   function pressSelect(p: P, t: Hover, shift: boolean, screen: [number, number]) {
     const ids = atomsOf(doc, t);
-    if (!shift && selection.size && onSelection(doc, selection, p)) return startMove(p, screen, t);
+    if (t.caption !== undefined) return pressCaption(p, t, shift, screen);
+    if (!shift && (selection.size || picked.size) && onSelection(doc, selection, p)) return startMove(p, screen, t);
     if (ids.length) {
-      setSelection(new Set(shift ? [...selection, ...ids] : ids));
-      return startMove(p, screen, t);
+      const atoms = new Set(shift ? [...selection, ...ids] : ids), picks = shift ? picked : new Set<number>();
+      setSelection(atoms);
+      setPicked(picks);
+      return startMove(p, screen, t, picks, atoms);
     }
-    const base = shift ? selection : new Set<number>();
+    const base = shift ? selection : new Set<number>(), picks = shift ? picked : new Set<number>();
     setSelection(base);
-    startArea(p, t, base);
+    setPicked(picks);
+    startArea(p, t, base, picks);
   }
 
   // A selection area: a box, or a lasso, as the Select tool is set.
-  function startArea(p: P, t: Hover, base: Set<number>) {
-    if (selectKind === "lasso") setDrag({ kind: "lasso", points: [p], base, target: t, moved: false });
-    else setDrag({ kind: "box", from: p, to: p, base, target: t, moved: false });
+  function startArea(p: P, t: Hover, base: Set<number>, picks = new Set<number>()) {
+    if (selectKind === "lasso") setDrag({ kind: "lasso", points: [p], base, picks, target: t, moved: false });
+    else setDrag({ kind: "box", from: p, to: p, base, picks, target: t, moved: false });
   }
+  // The captions whose middle is inside a test (drawing coordinates).
+  const captionsWhere = (inside: (q: P) => boolean) =>
+    placed.filter((c) => c.id !== DRAFT && inside([(c.box[0] + c.box[2]) / 2 / L, -(c.box[1] + c.box[3]) / 2 / L])).map((c) => c.id);
 
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
     if (e.button !== 0) return;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* the pointer is already gone */ }
-    const p = toDoc(e.clientX, e.clientY), t = hitIn(doc, p), screen: [number, number] = [e.clientX, e.clientY];
+    const p = toDoc(e.clientX, e.clientY), t = hit(p), screen: [number, number] = [e.clientX, e.clientY];
     pointer.current = p;
     if (tool === "select") return pressSelect(p, t, e.shiftKey, screen);
-    // With something selected, a press on it (or inside it) grabs it, whatever tool is in hand.
+    // With something selected, a press on it (or inside it) grabs it, whatever tool is in hand. So does a press
+    // on a caption, except with the Text tool, which edits it.
     if (tool !== "erase" && selection.size && onSelection(doc, selection, p)) return startMove(p, screen, t);
-    if (tool === "erase") return setDrag({ kind: "erase", trail: [p], bonds: new Set(), atoms: new Set(), start: screen, target: t, moved: false });
+    if (tool !== "erase" && tool !== "text" && t.caption !== undefined) return pressCaption(p, t, e.shiftKey, screen);
+    if (tool === "erase") return setDrag({ kind: "erase", trail: [p], bonds: new Set(), atoms: new Set(), captions: new Set(), start: screen, target: t, moved: false });
     if (tool === "bond") setDrag({ kind: "bond", from: t.atom ?? p, at: p, start: screen, target: t });
     else if (tool === "chain") setDrag({ kind: "chain", from: t.atom ?? p, start: screen, target: t });
     else setDrag({ kind: "click", at: p, start: screen, target: t });
@@ -274,7 +423,7 @@ export default function Editor() {
     if (tool === "erase") setBrush(p);
     if (!drag) {
       setOverSelection(tool !== "erase" && selection.size > 0 && onSelection(doc, selection, p));
-      return setHover(hitIn(doc, p));
+      return setHover(hit(p));
     }
     switch (drag.kind) {
       case "click":
@@ -304,25 +453,31 @@ export default function Editor() {
       }
       case "erase": {
         if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
-        const bonds = new Set(drag.bonds), atoms = new Set(drag.atoms);
+        const bonds = new Set(drag.bonds), atoms = new Set(drag.atoms), captions = new Set(drag.captions);
         rub(doc, drag.trail[drag.trail.length - 1], p, settings.eraser, bonds, atoms);
-        return setDrag({ ...drag, trail: [...drag.trail, p], bonds, atoms, moved: true });
+        const [x, y] = [p[0] * L, -p[1] * L], r = settings.eraser * L;
+        for (const c of placed) if (x >= c.box[0] - r && x <= c.box[2] + r && y >= c.box[1] - r && y <= c.box[3] + r) captions.add(c.id);
+        return setDrag({ ...drag, trail: [...drag.trail, p], bonds, atoms, captions, moved: true });
       }
-      case "box":
+      case "box": {
         // Smart: atoms the box only just missed (all their neighbours are in it) come along too.
+        const [lo, hi] = [[Math.min(drag.from[0], p[0]), Math.min(drag.from[1], p[1])], [Math.max(drag.from[0], p[0]), Math.max(drag.from[1], p[1])]];
         setSelection(complete(doc, new Set([...drag.base, ...atomsIn(doc, drag.from, p)])));
+        setPicked(new Set([...drag.picks, ...captionsWhere(([x, y]) => x >= lo[0] && x <= hi[0] && y >= lo[1] && y <= hi[1])]));
         return setDrag({ ...drag, to: p, moved: true });
+      }
       case "lasso": {
         const points = [...drag.points, p];
         setSelection(complete(doc, new Set([...drag.base, ...atomsInPolygon(doc, points)])));
+        setPicked(new Set([...drag.picks, ...captionsWhere((q) => inPolygon(q, points))]));
         return setDrag({ ...drag, points, moved: true });
       }
       case "move": {
         if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         // Snap within 6 screen px, unless snapping is off or ⌥/Alt is held.
         const raw: P = [p[0] - drag.from[0], p[1] - drag.from[1]];
-        const snapped = settings.snap && !e.altKey ? snapMove(doc, selection, raw, 6 / (view.zoom * L)) : { d: raw, guides: [] as Guide[], point: undefined };
-        return setDrag({ ...drag, working: moveAtoms(doc, selection, snapped.d), moved: true, guides: snapped.guides, point: snapped.point });
+        const snapped = settings.snap && !e.altKey && selection.size ? snapMove(doc, selection, raw, 6 / (view.zoom * L)) : { d: raw, guides: [] as Guide[], point: undefined };
+        return setDrag({ ...drag, working: moveAll(doc, snapped.d, drag.captions), moved: true, guides: snapped.guides, point: snapped.point });
       }
     }
   }
@@ -353,15 +508,17 @@ export default function Editor() {
       return setTool(arg as Tool);
     }
     if (kind === "eraser") return setSettings((s) => ({ ...s, eraser: Math.min(2, Math.max(0.05, s.eraser * (arg === "bigger" ? 1.25 : 0.8))) }));
-    if (kind === "nudge" && selection.size) {
+    if (kind === "nudge" && (selection.size || picked.size)) {
       // 1 pt is 1/14.4 of a bond (ACS 1996). Up is +y in the drawing.
       const step = (arg.endsWith("10") ? 10 : 1) / 14.4, dir = arg.replace("10", "");
       const d: P = dir === "left" ? [-step, 0] : dir === "right" ? [step, 0] : dir === "up" ? [0, step] : [0, -step];
-      return set(moveAtoms(doc, selection, d), true);
+      const captions = new Map(placed.filter((c) => picked.has(c.id) && !doc.captions?.find((x) => x.id === c.id)?.under?.every((i) => selection.has(i))).map((c) => [c.id, anchorOf(c)]));
+      return set(moveAll(doc, d, captions), true);
     }
     if (kind === "rotate" && selection.size) return set(rotateAtoms(doc, selection, (arg.startsWith("ccw") ? 1 : -1) * Number(arg.replace(/\D/g, ""))), true);
     if (id === "edit.delete") {
-      if (selection.size) return set(deleteAtoms(doc, selection));
+      if (selection.size || picked.size) return set(deleteCaptions(deleteAtoms(doc, selection), picked));
+      if (hover.caption !== undefined) return set(deleteCaptions(doc, new Set([hover.caption])));
       // As in ChemDraw: the first Delete on a labelled atom removes the label; the next removes the atom.
       if (atom !== undefined) return set(doc.atoms[atom].label !== "C" ? setElement(doc, atom, "C") : deleteAtom(doc, atom));
       if (bond !== undefined) return set(deleteBond(doc, bond));
@@ -370,7 +527,14 @@ export default function Editor() {
 
   // What the Actions panel shows: it follows the selection.
   const context: Context = (() => {
-    if (!selection.size) return doc.atoms.length ? { kind: "drawing" } : { kind: "empty" };
+    if (!selection.size && picked.size) {
+      const cs = (doc.captions ?? []).filter((c) => picked.has(c.id)), c = cs[0];
+      if (c) {
+        const p = placed.find((x) => x.id === c.id);
+        return { kind: "caption", count: cs.length, bold: !!c.bold, italic: !!c.italic, underline: !!c.underline, size: c.size ?? CAPTION_PT, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) };
+      }
+    }
+    if (!selection.size) return doc.atoms.length || doc.captions?.length ? { kind: "drawing" } : { kind: "empty" };
     const ids = [...selection].filter((i) => i < doc.atoms.length);
     if (ids.length === 1) {
       const a = doc.atoms[ids[0]];
@@ -385,7 +549,7 @@ export default function Editor() {
       });
       return { kind: "bond", style, double: b.type === 2, flippable: !!b.stereo || b.display === "dative" || b.display === "hollow" };
     }
-    return { kind: "structure", atoms: ids.length, structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length };
+    return { kind: "structure", atoms: ids.length, structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextNumber(doc) };
   })();
   // What the panel knows about the drawing: formula and mass (of the selection, or everything), problems, mess.
   const analysis = useMemo(() => (loaded ? analyse(selection.size ? subset(doc, selection) : doc) : undefined), [loaded, doc, selection]);
@@ -397,6 +561,7 @@ export default function Editor() {
   // The key to show beside an action: menu shortcuts, then the user's shortcut table.
   const MENU_KEYS: Record<string, string> = {
     import: `⇧${MOD}I`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}1`, copy_smiles: `${MOD}C`, delete: "⌫",
+    "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.edit": keyLabel("enter"),
   };
   const hint = (command: string) => {
     if (MENU_KEYS[command]) return MENU_KEYS[command];
@@ -414,7 +579,38 @@ export default function Editor() {
     if (command.startsWith("fix:")) { const [, i, charge] = command.split(":"); return set(addCharge(doc, Number(i), Number(charge) - (doc.atoms[Number(i)].charge ?? 0)), true); }
     if (command.startsWith("show:")) return setSelection(new Set([Number(command.slice(5))]));
     if (command.startsWith("align.")) return set(alignFragments(doc, selection, command.slice(6) as "row" | "column" | "spread-row"), true);
-    if (command === "delete") return selection.size ? set(deleteAtoms(doc, selection)) : undefined;
+    if (command === "delete") return selection.size || picked.size ? set(deleteCaptions(deleteAtoms(doc, selection), picked)) : undefined;
+    if (command === "number") return numberStructures();
+    if (command === "caption.add") {
+      // A new caption under the selected structures, centred on them.
+      const under = fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat();
+      setSelection(new Set());
+      return openWriting({ value: "", under, style: {} });
+    }
+    if (command.startsWith("caption.")) {
+      const [, what, arg] = command.split(".");
+      if (what === "bold") return restyle((c) => ({ bold: !c.bold }));
+      if (what === "italic") return restyle((c) => ({ italic: !c.italic }));
+      if (what === "underline") return restyle((c) => ({ underline: !c.underline }));
+      if (what === "size") return restyle(() => ({ size: Number(arg) === CAPTION_PT ? undefined : Number(arg) }));
+      if (what === "align") return restyle(() => ({ align: arg as Caption["align"] }));
+      const id = [...picked][0];
+      if (what === "edit" && id !== undefined) return startWriting({ id });
+      if (what === "detach" || what === "attach") {
+        // Detach leaves the caption where it is, as free text. Attach centres it under the structure above it.
+        const moves = new Map(placed.filter((c) => picked.has(c.id)).map((c) => [c.id, anchorOf(c)]));
+        return set({
+          ...doc,
+          captions: doc.captions?.map((c) => {
+            const at = moves.get(c.id);
+            if (!at) return c;
+            if (what === "detach") { const { under: _, ...free } = c; return { ...free, x: at[0], y: at[1] }; }
+            const under = structureAbove(at, 4);
+            return under ? { ...c, under, align: undefined } : c;
+          }),
+        }, true);
+      }
+    }
     if (command.startsWith("rotate.")) return run(command);
     if (context.kind === "atom") {
       const i = ids[0], [kind, arg] = command.split(".");
@@ -436,6 +632,7 @@ export default function Editor() {
 
   // What a click does with each tool in hand.
   function click(t: Hover, at: P) {
+    if (t.caption !== undefined && tool !== "text") return; // a caption was picked, not drawn on
     if (tool === "bond") {
       if (t.atom !== undefined) return set(sprout(doc, t.atom, bondSpec));
       if (t.bond === undefined) return set(sprout(doc, at, bondSpec));
@@ -450,6 +647,10 @@ export default function Editor() {
       const r: { n: number; aromatic: boolean; chair?: 1 | 2 } = RINGS[ringKind];
       if (r.chair) return set(addChair(doc, r.chair, t.bond !== undefined ? { bond: t.bond } : { point: at }));
       return set(addRing(doc, r.n, r.aromatic, t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : { point: at }));
+    }
+    if (tool === "text") {
+      if (t.atom !== undefined) return editLabel(t.atom);
+      return startWriting(t.caption !== undefined ? { id: t.caption } : { at });
     }
     if (tool === "select") setSelection(new Set(atomsOf(doc, t)));
   }
@@ -473,15 +674,19 @@ export default function Editor() {
       case "erase": {
         // A click removes the atom or bond under the pointer; a rub removes everything it marked.
         const t = drag.target;
-        if (drag.moved) return set(erase(doc, drag.bonds, drag.atoms));
+        if (drag.moved) return set(deleteCaptions(erase(doc, drag.bonds, drag.atoms), drag.captions));
         if (t.atom !== undefined) return set(deleteAtom(doc, t.atom));
+        if (t.caption !== undefined) return set(deleteCaptions(doc, new Set([t.caption])));
         if (t.bond !== undefined) return set(deleteBond(doc, t.bond));
         return;
       }
       case "box":
       case "lasso":
         // A hold that never moved selects what it was held on.
-        if (!drag.moved) setSelection(new Set([...drag.base, ...atomsOf(doc, drag.target)]));
+        if (!drag.moved) {
+          setSelection(new Set([...drag.base, ...atomsOf(doc, drag.target)]));
+          if (drag.target.caption !== undefined) setPicked(new Set([...drag.picks, drag.target.caption]));
+        }
         return;
       case "move": {
         if (!drag.moved) return click(drag.target, drag.from);
@@ -509,7 +714,7 @@ export default function Editor() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return; // typing in a label box
+      if (typing()) return; // typing in a label or caption box
       const mod = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
       if (!TAURI && mod && key === "z") { e.preventDefault(); return undo(e.shiftKey); }
       if (!TAURI && mod && key === "y") { e.preventDefault(); return undo(true); }
@@ -519,7 +724,13 @@ export default function Editor() {
         stopHold();
         setDrag(undefined);
         if (spring) { setTool(spring); setSpring(undefined); }
+        setPicked(new Set());
         return setSelection(new Set());
+      }
+      // Enter on a picked caption types into it, as Enter on an atom types its label.
+      if (e.key === "Enter" && picked.size === 1 && !selection.size && hover.atom === undefined) {
+        e.preventDefault();
+        return startWriting({ id: [...picked][0] });
       }
       // Everything else goes through the shortcut table (keys.ts), so every key can be changed.
       const pressed = keyOf(e);
@@ -530,6 +741,7 @@ export default function Editor() {
     };
     // Paste a SMILES string or MOL file: it goes to the right of the drawing, or in the middle of an empty canvas.
     const onPaste = (e: ClipboardEvent) => {
+      if (typing()) return; // pasting into a label or caption
       const text = e.clipboardData?.getData("text/plain")?.trim();
       if (!text || !loaded) return;
       e.preventDefault();
@@ -545,6 +757,7 @@ export default function Editor() {
     };
     // Copy puts the selection, or the whole drawing, on the clipboard as SMILES (or text the panel asked for).
     const onCopy = (e: ClipboardEvent) => {
+      if (typing() && !copyText.current) return;
       if (copyText.current) {
         e.clipboardData?.setData("text/plain", copyText.current);
         e.preventDefault();
@@ -572,6 +785,12 @@ export default function Editor() {
     const [a, b] = shown.bonds[i].atoms.map((k) => pos(shown, k));
     return <line key={key} className={cls} x1={a[0] * L} y1={-a[1] * L} x2={b[0] * L} y2={-b[1] * L} strokeWidth={0.36 * L} />;
   };
+  const captionMark = (id: number, key: string, cls: string) => {
+    const c = placed.find((x) => x.id === id);
+    if (!c) return null;
+    const pad = 0.12 * L;
+    return <rect key={key} className={cls} x={c.box[0] - pad} y={c.box[1] - pad} width={c.box[2] - c.box[0] + 2 * pad} height={c.box[3] - c.box[1] + 2 * pad} rx={pad} />;
+  };
   // An eraser stroke: its trail, and the bonds and atoms it will remove, tinted.
   const rubbing = drag?.kind === "erase" && drag.moved ? (
     <>
@@ -579,15 +798,18 @@ export default function Editor() {
       <g className="erase-marks">
         {[...drag.bonds].filter((i) => i < shown.bonds.length).map((i) => bondMark(i, `eb${i}`, ""))}
         {[...drag.atoms].filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `ea${i}`, ""))}
+        {[...drag.captions].map((id) => captionMark(id, `ec${id}`, ""))}
       </g>
     </>
   ) : null;
   const selected = drag?.kind === "erase" ? [] : [
     ...shown.bonds.flatMap((b, i) => (selection.has(b.atoms[0]) && selection.has(b.atoms[1]) ? [bondMark(i, `sb${i}`, "")] : [])),
     ...[...selection].filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `sa${i}`, "")),
+    ...[...picked].map((id) => captionMark(id, `sc${id}`, "")),
   ];
   const hovered = drag ? null
     : hover.atom !== undefined && shown.atoms[hover.atom] ? atomMark(hover.atom, "h", "mark")
+    : hover.caption !== undefined && !picked.has(hover.caption) ? captionMark(hover.caption, "h", "mark")
     : hover.bond !== undefined && shown.bonds[hover.bond] ? bondMark(hover.bond, "h", "mark") : null;
   const box = drag?.kind === "box" && drag.moved ? (
     <rect
@@ -617,8 +839,10 @@ export default function Editor() {
         onPointerLeave={() => { pointer.current = undefined; setBrush(undefined); if (!drag) setHover({}); }}
         onDoubleClick={(e) => {
           // With Select, double-click an atom to type its label (other tools would draw on each click).
-          const t = hitIn(doc, toDoc(e.clientX, e.clientY));
-          if (tool === "select" && t.atom !== undefined) editLabel(t.atom);
+          // Double-click a caption with any tool to type into it.
+          const t = hit(toDoc(e.clientX, e.clientY));
+          if (t.caption !== undefined && tool !== "erase") startWriting({ id: t.caption });
+          else if (tool === "select" && t.atom !== undefined) editLabel(t.atom);
         }}
       >
         <g transform={`translate(${view.x} ${view.y}) scale(${view.zoom})`}>
@@ -630,6 +854,11 @@ export default function Editor() {
           {drawing.labels.map((l, i) => (
             <text key={i} x={l.x} y={l.y} fill="var(--ink)" style={{ font: `${l.size}px var(--atom-label-font)` }}>
               {l.text}
+            </text>
+          ))}
+          {placed.map((c) => c.id === (writing?.id ?? DRAFT) || c.id === DRAFT ? null : (
+            <text key={`c${c.id}`} className="caption" textAnchor={c.anchor} textDecoration={c.underline ? "underline" : undefined} style={{ font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${c.size}px var(--caption-font)` }}>
+              {c.lines.map((l, j) => <tspan key={j} x={l.x} y={l.y}>{l.text}</tspan>)}
             </text>
           ))}
           {box}
@@ -672,6 +901,39 @@ export default function Editor() {
           />
         );
       })()}
+      {writing && (() => {
+        // The caption box sits exactly over the caption, in its font at the current zoom, so typing is in place.
+        const c = placed.find((x) => x.id === (writing.id ?? DRAFT));
+        if (!c) return null;
+        const z = view.zoom, size = c.size * z, slack = 0.5 * size;
+        return (
+          <textarea
+            className="caption-box"
+            data-theme="light"
+            aria-label="Caption"
+            autoFocus
+            spellCheck={false}
+            wrap="off"
+            value={writing.value}
+            style={{
+              left: view.x + c.box[0] * z - slack,
+              top: view.y + (c.lines[0].y - 0.9465 * c.size) * z,
+              width: (c.box[2] - c.box[0]) * z + 2 * slack,
+              height: c.lines.length * 1.2 * size,
+              font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${size}px/1.2 var(--caption-font)`,
+              padding: `0 ${slack}px`,
+              textDecoration: c.underline ? "underline" : undefined,
+              textAlign: c.anchor === "start" ? "left" : c.anchor === "end" ? "right" : "center",
+            }}
+            onChange={(e) => setWriting({ ...writing, value: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); commitWriting(); }
+              if (e.key === "Escape") commitWriting(false);
+            }}
+            onBlur={() => commitWriting()}
+          />
+        );
+      })()}
       {pop && <span key={pop.n} className="halo" style={{ left: pop.x, top: pop.y }} aria-hidden />}
 
       <Palette
@@ -689,13 +951,6 @@ export default function Editor() {
         onStripWidth={(t, width) => setSettings((s) => ({ ...s, strips: { ...s.strips, [t]: width } }))}
       />
 
-      {!doc.atoms.length && (
-        <p className="hint text-ui" data-theme="light">
-          Click the canvas to draw a bond.
-          <br />
-          Paste a SMILES string to add a structure.
-        </p>
-      )}
       <Actions
         open={settings.actions}
         context={context}

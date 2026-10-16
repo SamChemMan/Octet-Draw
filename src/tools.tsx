@@ -1,10 +1,10 @@
 // The tool palette: one tool per kind of object, each with variants in a strip that opens beside it.
 // Click an active tool again (or press and hold any tool) to open its strip; press, slide and release also works.
 import { useEffect, useRef, useState } from "react";
-import { ArrowClockwise, ArrowCounterClockwise, Eraser, Lasso, Selection } from "@phosphor-icons/react";
+import { ArrowClockwise, ArrowCounterClockwise, Eraser, Lasso, Selection, TextT } from "@phosphor-icons/react";
 import { chairPoints, type BondSpec } from "./edit";
 
-export type Tool = "select" | "bond" | "chain" | "ring" | "erase";
+export type Tool = "select" | "bond" | "chain" | "ring" | "text" | "erase";
 
 export const BONDS = {
   single: { name: "Single", spec: { type: 1 } },
@@ -148,6 +148,7 @@ export function Palette(p: PaletteProps) {
     { id: "bond", name: `${BONDS[p.variants.bond].name} bond`, icon: <BondGlyph kind={p.variants.bond} /> },
     { id: "chain", name: "Chain", icon: <ChainGlyph /> },
     { id: "ring", name: RINGS[p.variants.ring].name, icon: <RingGlyph kind={p.variants.ring} /> },
+    { id: "text", name: "Text", icon: <TextT size={20} /> },
     { id: "erase", name: "Eraser ([ and ] change its size)", icon: <Eraser size={20} /> },
   ];
   const active = tools.findIndex((t) => t.id === p.tool);

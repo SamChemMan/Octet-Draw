@@ -1,6 +1,6 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import type { Atom, Bond, Mol } from "./render.ts";
+import type { Atom, Bond, Caption, Mol } from "./render.ts";
 import { anchorElement, isElement } from "./labels.ts";
 
 export type P = [number, number];
@@ -157,7 +157,13 @@ function removeAtoms(m: Mol, gone: Set<number>): Mol {
   const map = new Map<number, number>();
   const atoms = m.atoms.filter((_, i) => !gone.has(i));
   m.atoms.forEach((_, i) => { if (!gone.has(i)) map.set(i, map.size); });
-  return { atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })) };
+  // Captions under a structure follow its atoms' new numbers, and go when all of its atoms go.
+  const captions = m.captions?.flatMap((c) => {
+    if (!c.under) return [c];
+    const under = c.under.filter((i) => map.has(i)).map((i) => map.get(i)!);
+    return under.length ? [{ ...c, under }] : [];
+  });
+  return { ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions };
 }
 export const deleteAtom = (m: Mol, i: number) => removeAtoms(m, new Set([i]));
 export const deleteBond = (m: Mol, i: number) => removeAtoms({ ...m, bonds: m.bonds.filter((_, k) => k !== i) }, new Set());
@@ -202,6 +208,7 @@ export function addRing(m: Mol, n: number, aromatic: boolean, target: { bond?: n
 export function merge(m: Mol, frag: Mol, offset: P): Mol {
   const base = m.atoms.length;
   return {
+    ...m,
     atoms: [...m.atoms, ...frag.atoms.map((a) => ({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], 0] as [number, number, number] }))],
     bonds: [...m.bonds, ...frag.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number] }))],
   };
@@ -308,7 +315,7 @@ export function joinOverlaps(m: Mol, moved: Set<number>): { mol: Mol; joined: bo
     if (ends[0] === ends[1] || bonds.some((c) => (c.atoms[0] === ends[0] && c.atoms[1] === ends[1]) || (c.atoms[0] === ends[1] && c.atoms[1] === ends[0]))) continue;
     bonds.push({ ...b, atoms: ends });
   }
-  return { mol: removeAtoms({ atoms, bonds }, new Set(into.keys())), joined: true };
+  return { mol: removeAtoms({ ...m, atoms, bonds }, new Set(into.keys())), joined: true };
 }
 
 // ChemDraw-style group keys on an atom. Each adds a group and keeps the bond rules above.
@@ -409,17 +416,15 @@ export function addChair(m: Mol, which: 1 | 2, target: { bond?: number; point?: 
 }
 
 // Atoms inside a closed lasso path (even-odd rule).
-export function atomsInPolygon(m: Mol, poly: P[]): number[] {
-  return m.atoms.flatMap((_, i) => {
-    const [x, y] = pos(m, i);
-    let inside = false;
-    for (let k = 0, l = poly.length - 1; k < poly.length; l = k++) {
-      const [xi, yi] = poly[k], [xj, yj] = poly[l];
-      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
-    }
-    return inside ? [i] : [];
-  });
+export function inPolygon([x, y]: P, poly: P[]): boolean {
+  let inside = false;
+  for (let k = 0, l = poly.length - 1; k < poly.length; l = k++) {
+    const [xi, yi] = poly[k], [xj, yj] = poly[l];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
+export const atomsInPolygon = (m: Mol, poly: P[]): number[] => m.atoms.flatMap((_, i) => (inPolygon(pos(m, i), poly) ? [i] : []));
 
 // Flip Horizontal and Flip Vertical: a 180° turn in 3D about the vertical or horizontal axis, so wedges become
 // hashed wedges and the stereochemistry is kept (as ChemDraw's "Rotate 180°"). Double-bond sides swap too.
@@ -430,6 +435,7 @@ export function flipAtoms(m: Mol, ids: Set<number>, axis: "horizontal" | "vertic
   const mid = (Math.min(...ps.map((p) => p[k])) + Math.max(...ps.map((p) => p[k]))) / 2;
   const swap = { left: "right", right: "left", centre: "centre" } as const;
   return {
+    ...m,
     atoms: m.atoms.map((a, i) => {
       if (!ids.has(i)) return a;
       const loc: [number, number, number] = [a.location[0], a.location[1], 0];
@@ -472,4 +478,18 @@ export function alignFragments(m: Mol, ids: Set<number>, how: "row" | "column" |
   let out = m;
   groups.forEach((g, k) => { out = moveAtoms(out, new Set(g), shifts[k]); });
   return out;
+}
+
+// Captions. Ids are unique within a drawing and never reused while it is open.
+export function addCaption(m: Mol, c: Omit<Caption, "id">): [Mol, number] {
+  const id = Math.max(0, ...(m.captions ?? []).map((x) => x.id)) + 1;
+  return [{ ...m, captions: [...(m.captions ?? []), { ...c, id }] }, id];
+}
+export const updateCaption = (m: Mol, id: number, change: Partial<Caption>): Mol =>
+  ({ ...m, captions: m.captions?.map((c) => (c.id === id ? { ...c, ...change } : c)) });
+export const deleteCaptions = (m: Mol, ids: Set<number>): Mol => ({ ...m, captions: m.captions?.filter((c) => !ids.has(c.id)) });
+// The next compound number in the drawing: one more than the highest bold number already there.
+export function nextNumber(m: Mol): string {
+  const used = (m.captions ?? []).filter((c) => c.bold && /^\d+$/.test(c.text)).map((c) => Number(c.text));
+  return String(Math.max(0, ...used) + 1);
 }

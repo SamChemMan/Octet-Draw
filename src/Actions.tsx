@@ -2,10 +2,11 @@
 // It answers "what would I want to do next, here?": the formula and mass, problems with a fix, Clean up when
 // the drawing needs it, the likely groups for an atom, ring fusion for a bond, and alignment for several
 // structures. Every action also lives where ChemDraw users expect it (menus and keys).
+import { useEffect, useRef, useState } from "react";
 import {
-  AlignCenterHorizontal, AlignCenterVertical, ClipboardText, FileArrowDown, ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, CopySimple,
-  Eye, FlipHorizontal, FlipVertical, MagicWand, MinusCircle, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal,
-  TextAa, Trash, Warning, X,
+  AlignCenterHorizontal, CaretDown, AlignCenterVertical, ClipboardText, FileArrowDown, ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, CopySimple,
+  Eye, FlipHorizontal, FlipVertical, LinkBreak, LinkSimple, ListNumbers, MagicWand, MinusCircle, PencilSimpleLine, PlusCircle, SelectionAll,
+  SlidersHorizontal, SquareSplitHorizontal, TextAa, TextAlignCenter, TextAlignLeft, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X,
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
@@ -14,7 +15,8 @@ import { BondGlyph, BONDS, RingGlyph, type BondKind } from "./tools";
 export type Context =
   | { kind: "empty" }
   | { kind: "drawing" }
-  | { kind: "structure"; atoms: number; structures: number }
+  | { kind: "structure"; atoms: number; structures: number; next: string }
+  | { kind: "caption"; count: number; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right"; attached: boolean; attachable: boolean }
   | { kind: "atom"; label: string; charge: number; terminal: boolean; carbon: boolean }
   | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean };
 
@@ -51,6 +53,70 @@ function Row({ icon, name, note, command, hint, run, accent }: { icon: React.Rea
   );
 }
 
+// The caption size: click for a menu of sizes; Enter or double-click to type any size.
+const SIZES = [8, 9, 10, 12, 14, 18, 24, 36];
+function SizeButton({ size, run }: { size: number; run: (command: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState<string>();
+  const typing = useRef(false); // Enter, Escape and blur all end typing; only the first one counts
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const escape = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    addEventListener("pointerdown", away, true);
+    addEventListener("keydown", escape, true);
+    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); };
+  }, [open]);
+  const startTyping = () => { typing.current = true; setOpen(false); setTyped(String(size)); };
+  const endTyping = (keep: boolean) => {
+    if (!typing.current) return;
+    typing.current = false;
+    const pt = Math.round(Number(typed) * 2) / 2;
+    setTyped(undefined);
+    if (keep && pt >= 4 && pt <= 144 && pt !== size) run(`caption.size.${pt}`);
+  };
+  return (
+    <div className="size" ref={box}>
+      {typed !== undefined ? (
+        <input
+          className="chip size-input"
+          aria-label="Size in points"
+          autoFocus
+          inputMode="decimal"
+          value={typed}
+          onFocus={(e) => e.target.select()}
+          onChange={(e) => setTyped(e.target.value.replace(/[^\d.]/g, ""))}
+          onKeyDown={(e) => { if (e.key === "Enter") endTyping(true); if (e.key === "Escape") endTyping(false); }}
+          onBlur={() => endTyping(true)}
+        />
+      ) : (
+        <button
+          className="chip size-button"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          title="Size"
+          onClick={() => setOpen(!open)}
+          onDoubleClick={startTyping}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); startTyping(); } }}
+        >
+          {size} pt
+          <CaretDown size={12} aria-hidden />
+        </button>
+      )}
+      {open && (
+        <div className="size-menu" role="menu" aria-label="Size">
+          {SIZES.map((pt) => (
+            <button key={pt} role="menuitemradio" aria-checked={pt === size} onClick={() => { setOpen(false); if (pt !== size) run(`caption.size.${pt}`); }}>
+              {pt} pt
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Actions({ open, context, analysis, problems, messy, hint, onOpen, run }: Props) {
   if (!open) {
     return (
@@ -69,6 +135,7 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
     structure: context.kind === "structure" && context.structures > 1 ? `${context.structures} structures selected` : `${context.kind === "structure" ? context.atoms : 0} atoms selected`,
     atom: "Atom",
     bond: "Bond",
+    caption: context.kind === "caption" && context.count > 1 ? `${context.count} captions` : "Caption",
   }[context.kind];
   const whole = context.kind === "drawing" || context.kind === "structure";
 
@@ -106,9 +173,8 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
 
       {context.kind === "empty" && (
         <>
-          <p className="actions-tip">Draw with the tools on the left. Actions for what you select show here.</p>
           <div className="actions-list">
-            {row(<FileArrowDown size={18} />, "Import a structure", "import", { note: "MOL, SDF, SMILES or CDXML" })}
+            {row(<FileArrowDown size={18} />, "Import a structure", "import")}
             {row(<ClipboardText size={18} />, "Paste a SMILES or MOL", "paste_hint")}
           </div>
         </>
@@ -117,6 +183,8 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
       {whole && (
         <div className="actions-list">
           {row(<MagicWand size={18} />, "Clean up", "clean_up", messy ? { note: "Bonds are uneven", accent: true } : {})}
+          {context.kind === "structure" && row(<ListNumbers size={18} />, context.structures > 1 ? "Number these compounds" : "Number this compound", "number")}
+          {context.kind === "structure" && row(<TextT size={18} />, "Add a caption", "caption.add")}
           {context.kind === "structure" && context.structures > 1 && (
             <>
               {row(<AlignCenterHorizontal size={18} />, "Line up in a row", "align.row")}
@@ -162,6 +230,27 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
             {row(<TextAa size={18} />, "Type a label", "atom.label")}
             {row(<PlusCircle size={18} />, "Add a positive charge", "charge.plus")}
             {row(<MinusCircle size={18} />, "Add a negative charge", "charge.minus")}
+            {row(<Trash size={18} />, "Delete", "delete")}
+          </div>
+        </>
+      )}
+
+      {context.kind === "caption" && (
+        <>
+          <div className="chips" role="group" aria-label="Style">
+            {([["bold", "Bold", <TextB size={16} weight="bold" />, context.bold], ["italic", "Italic", <TextItalic size={16} />, context.italic], ["underline", "Underline", <TextUnderline size={16} />, context.underline]] as const).map(([id, name, icon, on]) => (
+              <button key={id} className="chip" aria-pressed={on} aria-label={name} title={`${name} (${hint(`caption.${id}`)})`} onClick={() => run(`caption.${id}`)}>{icon}</button>
+            ))}
+            <SizeButton size={context.size} run={run} />
+            {([["left", "Align left", <TextAlignLeft size={16} />], ["centre", "Centre", <TextAlignCenter size={16} />], ["right", "Align right", <TextAlignRight size={16} />]] as const).map(([id, name, icon]) => (
+              <button key={id} className="chip" aria-pressed={context.align === id} aria-label={name} title={name} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
+            ))}
+          </div>
+          <div className="actions-list">
+            {context.count === 1 && row(<PencilSimpleLine size={18} />, "Edit text", "caption.edit")}
+            {context.attached
+              ? row(<LinkBreak size={18} />, "Un-tie from structure", "caption.detach")
+              : context.attachable && row(<LinkSimple size={18} />, "Tie to structure", "caption.attach")}
             {row(<Trash size={18} />, "Delete", "delete")}
           </div>
         </>

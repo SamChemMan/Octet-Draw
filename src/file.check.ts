@@ -1,6 +1,6 @@
 // Run: node src/file.check.ts. Fails loudly if the file format breaks or accepts a bad file.
 import assert from "node:assert/strict";
-import { addRing, EMPTY, setBondSpec, setElement } from "./edit.ts";
+import { addCaption, addRing, EMPTY, setBondSpec, setElement } from "./edit.ts";
 import { parse, serialize } from "./file.ts";
 
 // A drawing survives a save and reopen.
@@ -23,3 +23,15 @@ const bad = [
 ];
 for (const text of bad) assert.throws(() => parse(text), /Octet|damaged/);
 console.log("file.check: bad files refused");
+
+// Captions survive a save and reopen, and bad ones are refused.
+{
+  const [withCaption] = addCaption(mol, { text: "1", x: 0, y: -2, bold: true, under: [0, 1, 2] });
+  const [both] = addCaption(withCaption, { text: "N-oxide\nstep 2", x: 3, y: 1, align: "left", size: 12 });
+  const again = parse(serialize(both));
+  assert.deepEqual(again.captions, both.captions);
+  const base = { format: "octet", version: 1, structure: { atoms: [{ label: "C", x: 0, y: 0 }], bonds: [] } };
+  for (const captions of [[{ text: 5, x: 0, y: 0 }], [{ text: "a", x: 0, y: 0, under: [3] }], [{ text: "a", x: 0, y: 0, size: 900 }], [{ text: "a\u0000", x: 0, y: 0 }], "x"])
+    assert.throws(() => parse(JSON.stringify({ ...base, captions })), /damaged/);
+  console.log("file.check: captions ok");
+}

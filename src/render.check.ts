@@ -1,6 +1,6 @@
 // Run: node src/render.check.ts. Fails loudly if the ACS drawing rules break.
 import assert from "node:assert/strict";
-import { render, type Ink, type Mol } from "./render.ts";
+import { placeCaptions, render, type Ink, type Mol } from "./render.ts";
 
 type P = [number, number];
 const pt = 4 / 3;
@@ -93,3 +93,21 @@ const ester = render({
 assert.deepEqual(ester.labels.map((l) => l.text), ["Et", "O", "2", "C"]);
 assert.ok(ester.labels[2].size < ester.labels[1].size, "2 is a subscript");
 console.log("render.check: written labels ok");
+
+// Captions: centred on the structure's ink box, baseline 15 pt below it; a second caption stacks one line down.
+{
+  const one = (w: number) => () => w;
+  const withCaptions: Mol = { ...pyridine, captions: [{ id: 2, text: "pyridine", x: 0, y: 0, under: [0, 1, 2, 3, 4, 5] }, { id: 1, text: "1", x: 0, y: 0, bold: true, under: [0, 1, 2, 3, 4, 5] }] };
+  const dc = render(withCaptions, S, ink);
+  const [placedNumber, placedName] = placeCaptions(withCaptions, dc, one(30));
+  const xs = dc.ink.flatMap((b) => [b[0], b[2]]), ys = dc.ink.flatMap((b) => [b[1], b[3]]);
+  const centre = (Math.min(...xs) + Math.max(...xs)) / 2, bottom = Math.max(...ys);
+  assert.equal(placedNumber.id, 1, "captions stack in id order");
+  assert.ok(Math.abs(placedNumber.lines[0].x - centre) < 1e-9 && placedNumber.anchor === "middle", "centred on the ink box");
+  assert.ok(Math.abs(placedNumber.lines[0].y - bottom - 15 * pt) < 1e-9, "baseline 15 pt below the ink box");
+  assert.ok(Math.abs(placedName.lines[0].y - placedNumber.lines[0].y - 1.2 * 10 * pt) < 1e-9, "the next caption is one line down");
+  // A free caption stays where it was put, in drawing units.
+  const [free] = placeCaptions({ ...pyridine, captions: [{ id: 1, text: "a\nb", x: 2, y: -1, align: "left" }] }, dc, one(10));
+  assert.deepEqual([free.lines[0].x, free.lines[0].y, free.lines.length, free.anchor], [2 * dc.scale, dc.scale, 2, "start"]);
+  console.log("render.check: captions ok");
+}

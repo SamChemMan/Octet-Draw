@@ -142,6 +142,24 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
         &item("flip_h", "Flip Horizontal", "CmdOrCtrl+Shift+H")?,
         &item("flip_v", "Flip Vertical", "CmdOrCtrl+Shift+V")?,
     ])?;
+    // Text commands style the caption being typed, or the picked captions.
+    let sizes = [8, 9, 10, 12, 14, 18, 24]
+        .map(|pt| MenuItem::with_id(app, format!("size_{pt}"), format!("{pt} pt"), true, None::<&str>))
+        .into_iter()
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let size_items: Vec<&dyn IsMenuItem<Wry>> = sizes.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
+    let size = Submenu::with_items(app, "Size", true, &size_items)?;
+    let text = Submenu::with_items(app, "Text", true, &[
+        &item("text_bold", "Bold", "CmdOrCtrl+B")?,
+        &item("text_italic", "Italic", "CmdOrCtrl+I")?,
+        &item("text_underline", "Underline", "CmdOrCtrl+U")?,
+        &sep()?,
+        &MenuItem::with_id(app, "align_left", "Align Left", true, None::<&str>)?,
+        &MenuItem::with_id(app, "align_centre", "Centre", true, None::<&str>)?,
+        &MenuItem::with_id(app, "align_right", "Align Right", true, None::<&str>)?,
+        &sep()?,
+        &size,
+    ])?;
     let window = Submenu::with_items(app, "Window", true, &[
         &PredefinedMenuItem::minimize(app, None)?,
         &PredefinedMenuItem::fullscreen(app, None)?,
@@ -161,7 +179,7 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
     let mut items: Vec<&dyn IsMenuItem<Wry>> = Vec::new();
     #[cfg(target_os = "macos")]
     items.push(&octet);
-    items.extend([&file as &dyn IsMenuItem<Wry>, &edit, &view, &structure, &window]);
+    items.extend([&file as &dyn IsMenuItem<Wry>, &edit, &view, &structure, &text, &window]);
     Ok((Menu::with_items(app, &items)?, vec![snap]))
 }
 

@@ -15,13 +15,22 @@ export type Atom = { label: string; location: [number, number, number]; charge?:
 export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow";
 // position: where a double bond's second line goes, looking from atoms[0] to atoms[1]; unset means automatic.
 export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right" };
-export type Mol = { atoms: Atom[]; bonds: Bond[] };
+// A caption: free text at x, y (bond lengths, y up; the text's anchor point by its alignment), or, with under
+// set, kept centred under those atoms by the ACS rule (baseline 15 pt below the structure's ink box).
+// Captions under the same structure stack one line apart, in id order.
+export type Caption = {
+  id: number; text: string; x: number; y: number;
+  bold?: boolean; italic?: boolean; underline?: boolean; size?: number; align?: "left" | "centre" | "right"; under?: number[];
+};
+export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[] };
 // Sizes in px: bond length, line width, bold width, double-bond spacing, hash spacing, label margin, label font size.
 export type Style = { bond: number; line: number; bold: number; spacing: number; hash: number; margin: number; size: number };
 // width: advance; ascent: ink top above the baseline; outline: glyph edge points relative to the text origin (y down).
 export type Ink = { width: number; ascent: number; outline: P[] };
 export type Label = { text: string; x: number; y: number; size: number };
-export type Drawing = { polygons: P[][]; labels: Label[]; box: [number, number, number, number] };
+export type Box = [number, number, number, number];
+// ink: each atom's ink box (its label and the bonds that touch it), for placing captions. scale: px per bond length.
+export type Drawing = { polygons: P[][]; labels: Label[]; box: Box; ink: Box[]; scale: number };
 
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
 const add = (a: P, b: P): P => [a[0] + b[0], a[1] + b[1]];
@@ -107,6 +116,7 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
   // Labels. Heteroatoms and lone carbons get one; skeletal carbons don't, even when charged.
   const labelled = mol.atoms.map((a, i) => a.label !== 'C' || !deg(i) || !!a.text);
   const labels: Label[] = [];
+  const marks: P[][] = mol.atoms.map(() => []); // ink that is not a label shape (a skeletal carbon's charge)
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
   const shapes: P[][] = mol.atoms.map((a, i) => {
     if (!labelled[i]) {
@@ -117,6 +127,7 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
         const d = ([[1, -1], [-1, -1], [1, 1], [-1, 1], [0, -1], [1, 0], [0, 1], [-1, 0]] as P[]).map(unit).reduce((best, c) => (gap(c) > gap(best) + 0.01 ? c : best));
         const c = add(pts[i], mul(d, 0.6 * s.size));
         labels.push({ text: t, x: c[0] - (m.width * SUB) / 2, y: c[1] + (m.ascent * SUB) / 2, size: s.size * SUB });
+        marks[i] = m.outline.map(([px, py]) => [c[0] - (m.width * SUB) / 2 + px * SUB, c[1] + (m.ascent * SUB) / 2 + py * SUB]);
       }
       return [];
     }
@@ -295,7 +306,7 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
   // Every polygon winds the same way (-n to +n at its start, then back along +n), so one nonzero path fills them all.
   const polygons: P[][] = [];
   const bar = (S: P, E: P, n: P, w: number) => polygons.push([add(S, mul(n, -w)), add(S, mul(n, w)), add(E, mul(n, w)), add(E, mul(n, -w))]);
-  plans.forEach((pl, i) => {
+  const drawPlan = (pl: Plan, i: number) => {
     if (pl.hidden) return;
     if (pl.kind === 'line' || pl.kind === 'wedge') polygons.push([...endOf(pl, i, pl.a), ...endOf(pl, i, pl.b)]);
     const S = drawnEnd(pl, pl.a), D = pl.length - pl.cut[0] - pl.cut[1];
@@ -351,10 +362,58 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
       if (to - from < 0.1) continue;
       bar(add(add(pts[pl.a], mul(pl.u, from)), mul(pl.n, o)), add(add(pts[pl.a], mul(pl.u, to)), mul(pl.n, o)), pl.n, hw);
     }
+  };
+  // Each polygon belongs to the bond it draws, so to both of its atoms' ink boxes.
+  const ink: Box[] = pts.map(([x, y]) => [x, y, x, y]);
+  const grow = (i: number, [x, y]: P) => { const b = ink[i]; b[0] = Math.min(b[0], x); b[1] = Math.min(b[1], y); b[2] = Math.max(b[2], x); b[3] = Math.max(b[3], y); };
+  plans.forEach((pl, i) => {
+    const before = polygons.length;
+    drawPlan(pl, i);
+    for (const poly of polygons.slice(before)) for (const q of poly) { grow(pl.a, q); grow(pl.b, q); }
   });
+  shapes.forEach((shape, i) => shape.forEach((q) => grow(i, q)));
+  marks.forEach((mark, i) => mark.forEach((q) => grow(i, q)));
 
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
   for (const [x, y] of [...pts, ...polygons.flat(), ...shapes.flat()]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
   const pad = L / 2;
-  return { polygons, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad] };
+  return { polygons, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad], ink, scale: k };
+}
+
+// Captions, placed in the drawing's px frame (y down). Sizes are in pt; 1 pt is 4/3 px.
+// ACS 1996: a caption under a structure is centred on the structure's ink box, its baseline 15 pt below the
+// box. Left and right alignment line it up with the box's edges instead. Captions under the same atoms stack
+// one line apart: the compound number first (bold digits, as ACS sets them), then the rest in id order.
+// LINE (1.2 em) is provisional until it is measured against ChemDraw.
+export const CAPTION_PT = 10;
+export const isNumber = (c: Caption) => !!c.bold && /^\d+[a-z]?$/.test(c.text);
+const GAP_PT = 15, LINE = 1.2, ASCENT = 0.905, DESCENT = 0.212; // Arial's ascent and descent, in em
+export type Placed = {
+  id: number; size: number; bold?: boolean; italic?: boolean; underline?: boolean; anchor: "start" | "middle" | "end";
+  lines: { text: string; x: number; y: number }[]; box: Box;
+};
+export function placeCaptions(mol: Mol, d: Drawing, width: (text: string, c: Caption) => number): Placed[] {
+  const k = d.scale, below = new Map<string, number>(); // the next free baseline under each structure
+  const order = (c: Caption) => (isNumber(c) ? 0 : 1);
+  return [...(mol.captions ?? [])].sort((a, b) => order(a) - order(b) || a.id - b.id).flatMap((c) => {
+    const size = ((c.size ?? CAPTION_PT) * 4) / 3, lines = c.text.split("\n"), align = c.align ?? "centre";
+    const anchor = align === "left" ? "start" : align === "right" ? "end" : "middle";
+    let x: number, y: number;
+    if (c.under) {
+      const atoms = c.under.filter((i) => d.ink[i]);
+      if (!atoms.length) return [];
+      const b: Box = [Math.min(...atoms.map((i) => d.ink[i][0])), Math.min(...atoms.map((i) => d.ink[i][1])), Math.max(...atoms.map((i) => d.ink[i][2])), Math.max(...atoms.map((i) => d.ink[i][3]))];
+      const key = [...c.under].sort((p, q) => p - q).join(" ");
+      x = align === "left" ? b[0] : align === "right" ? b[2] : (b[0] + b[2]) / 2;
+      y = below.get(key) ?? b[3] + (GAP_PT * 4) / 3;
+      below.set(key, y + lines.length * LINE * size);
+    } else [x, y] = [c.x * k, -c.y * k];
+    const widths = lines.map((t) => width(t, c)), w = Math.max(...widths);
+    const left = anchor === "start" ? x : anchor === "end" ? x - w : x - w / 2;
+    return [{
+      id: c.id, size, bold: c.bold, italic: c.italic, underline: c.underline, anchor,
+      lines: lines.map((text, j) => ({ text, x, y: y + j * LINE * size })),
+      box: [left, y - ASCENT * size, left + w, y + (lines.length - 1) * LINE * size + DESCENT * size],
+    }];
+  });
 }

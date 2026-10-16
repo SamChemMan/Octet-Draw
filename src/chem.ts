@@ -50,6 +50,18 @@ export function measure(text: string): Ink {
   return ink;
 }
 
+// A caption line's advance width in px, in the caption font.
+const CAPTION_FONT = token("--caption-font");
+const widths = new Map<string, number>();
+const meter = document.createElement("canvas").getContext("2d")!;
+export function textWidth(text: string, size: number, bold?: boolean, italic?: boolean): number {
+  const font = `${italic ? "italic " : ""}${bold ? "bold " : ""}${size}px ${CAPTION_FONT}`, key = `${font}|${text}`;
+  let w = widths.get(key);
+  if (w === undefined) { meter.font = font; w = meter.measureText(text).width; widths.set(key, w); }
+  return w;
+}
+export { CAPTION_FONT };
+
 function engine() {
   if (!indigo) throw new Error("Indigo is not loaded yet");
   return indigo;
