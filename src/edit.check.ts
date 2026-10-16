@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection } from "./edit.ts";
+import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol } from "./edit.ts";
 import { tableLayout } from "./render.ts";
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
@@ -251,4 +251,20 @@ console.log("edit.check: align ok");
   const copy = d.mol.captions!.find((c) => c.id === d.ids.get(11))!;
   assert.equal(copy.on!.arrow, d.ids.get(10));
   console.log("edit.check: duplicate ok");
+}
+
+// Copy and paste: a structure with its compound number and an arrow with its conditions come back whole, with new
+// ids, the number still under the structure and the conditions still on the arrow.
+{
+  const m = { ...sprout(sprout(EMPTY, [0, 0]), 1), arrows: [{ id: 10, kind: "reaction" as const, from: [3, 0] as [number, number], to: [6, 0] as [number, number] }],
+    captions: [{ id: 11, text: "heat", x: 0, y: 0, on: { arrow: 10, side: "above" as const } }, { id: 12, text: "1", x: 0, y: 0, under: [0, 1, 2], bold: true }] };
+  const part = extractSelection(m, new Set([0, 1, 2]), new Set([10]));
+  assert.equal(part.captions?.length, 2, "the number and the conditions come with what they belong to");
+  const r = insertMol(m, part, [1, -1]);
+  assert.equal(r.mol.atoms.length, 6);
+  const heat = r.mol.captions!.filter((c) => c.text === "heat");
+  assert.equal(heat.length, 2);
+  assert.ok(r.mol.arrows!.some((a) => a.id === heat[1].on!.arrow && a.id !== 10), "the pasted conditions are on the pasted arrow");
+  assert.deepEqual(r.mol.captions!.find((c) => c.text === "1" && c.id !== 12)!.under, [3, 4, 5]);
+  console.log("edit.check: copy and paste ok");
 }

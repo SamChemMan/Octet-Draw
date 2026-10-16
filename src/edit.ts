@@ -797,6 +797,49 @@ export function hingeOf(m: Mol, ids: Set<number>): [number, number] | undefined 
   return ids.has(a) ? [a, b] : [b, a];
 }
 
+// Copy: the selected atoms (with the bonds between them) and picked objects as a drawing of their own, with the
+// text that belongs to them (captions under the copied atoms, conditions on copied arrows, labels of copied cycles)
+// and the groups wholly inside. Ids stay as they were; insertMol gives new ones.
+export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>): Mol {
+  const sel = [...atoms].filter((i) => i < m.atoms.length).sort((p, q) => p - q), map = new Map(sel.map((i, k) => [i, k]));
+  const arrows = (m.arrows ?? []).filter((a) => items.has(a.id)), cycles = (m.cycles ?? []).filter((c) => items.has(c.id) && c.nodes.every((n) => n.every((i) => map.has(i))));
+  const keep = new Set([...items, ...arrows.map((a) => a.id), ...cycles.map((c) => c.id)]);
+  const captions = (m.captions ?? []).filter((c) => (c.under ? c.under.every((i) => map.has(i)) : c.on ? keep.has(c.on.arrow) : c.cycle ? keep.has(c.cycle.cycle) : keep.has(c.id)));
+  const ids = new Set([...keep, ...captions.map((c) => c.id)]);
+  return {
+    atoms: sel.map((i) => ({ ...m.atoms[i] })),
+    bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] as [number, number] })),
+    captions: captions.map((c) => ({ ...c, ...(c.under ? { under: c.under.map((i) => map.get(i)!) } : {}) })),
+    arrows, shapes: (m.shapes ?? []).filter((x) => items.has(x.id)),
+    cycles: cycles.map((c) => ({ ...c, nodes: c.nodes.map((n) => n.map((i) => map.get(i)!)) })),
+    groups: (m.groups ?? []).filter((g) => g.atoms.every((i) => map.has(i)) && g.items.every((id) => ids.has(id))).map((g) => ({ ...g, atoms: g.atoms.map((i) => map.get(i)!) })),
+  };
+}
+// Paste: another drawing added to this one, moved by offset, with new ids for its objects. Returns the drawing, the
+// new atoms and the new objects' ids, and each old id's new one.
+export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
+  const base = m.atoms.length, at = (i: number) => base + i;
+  let id = nextId(m);
+  const ids = new Map<number, number>();
+  for (const x of [...(add.captions ?? []), ...(add.arrows ?? []), ...(add.shapes ?? []), ...(add.cycles ?? []), ...(add.groups ?? [])]) ids.set(x.id, id++);
+  const by = (q: [number, number]): [number, number] => [q[0] + offset[0], q[1] + offset[1]];
+  const mol: Mol = {
+    ...m,
+    atoms: [...m.atoms, ...add.atoms.map((a) => ({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }))],
+    bonds: [...m.bonds, ...add.bonds.map((b) => ({ ...b, atoms: [at(b.atoms[0]), at(b.atoms[1])] as [number, number] }))],
+    arrows: [...(m.arrows ?? []), ...(add.arrows ?? []).map((a) => ({ ...a, id: ids.get(a.id)!, from: by(a.from), to: by(a.to),
+      ...(a.curve ? { curve: { ...a.curve, points: a.curve.points.map((q) => ({ at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) }))],
+    shapes: [...(m.shapes ?? []), ...(add.shapes ?? []).map((x) => ({ ...x, id: ids.get(x.id)!, from: by(x.from), to: by(x.to) }))],
+    cycles: [...(m.cycles ?? []), ...(add.cycles ?? []).map((c) => ({ ...c, id: ids.get(c.id)!, centre: by(c.centre), nodes: c.nodes.map((n) => n.map(at)) }))],
+    captions: [...(m.captions ?? []), ...(add.captions ?? []).map((c) => ({
+      ...c, id: ids.get(c.id)!, x: c.x + offset[0], y: c.y + offset[1], ...(c.under ? { under: c.under.map(at) } : {}),
+      ...(c.on ? { on: { ...c.on, arrow: ids.get(c.on.arrow) ?? c.on.arrow } } : {}), ...(c.cycle ? { cycle: { ...c.cycle, cycle: ids.get(c.cycle.cycle) ?? c.cycle.cycle } } : {}),
+    }))],
+    groups: [...(m.groups ?? []), ...(add.groups ?? []).map((g) => ({ ...g, id: ids.get(g.id)!, atoms: g.atoms.map(at), items: g.items.map((x) => ids.get(x) ?? x) }))],
+  };
+  return { mol, atoms: new Set(add.atoms.map((_, i) => at(i))), items: new Set([...(add.captions ?? []), ...(add.arrows ?? []), ...(add.shapes ?? []), ...(add.cycles ?? [])].map((x) => ids.get(x.id)!)), ids };
+}
+
 // Option-drag (as ChemDraw's): copies of the selected atoms (with the bonds between them) and of the picked
 // objects, added with new ids. Copied captions keep to copied atoms, arrows and cycles. Returns the drawing, the
 // copies' atoms and ids, and each original id's copy.

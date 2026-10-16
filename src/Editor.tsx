@@ -14,7 +14,7 @@ import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
-  addShape, addSymbol, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, pairMap, clearMap, stereocentres, setEnhanced, markDirection, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection,
+  addShape, addSymbol, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, pairMap, clearMap, stereocentres, setEnhanced, markDirection, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
 } from "./edit";
 import { snapBox, snapMove, type Guide } from "./snap";
 import { loadSettings, saveSettings } from "./settings";
@@ -159,6 +159,9 @@ function richSpans(runs: TextRun[], size: number, PT: number) {
     );
   });
 }
+
+// Octet's own clipboard type: a copied part of a drawing in Octet's file form (read back with the file checks).
+const OCTET_CLIP = "application/x-octet+json";
 
 // A pen point: a corner, or (dragged out) a smooth point with its incoming handle mirroring its outgoing one.
 const penPoint = (at: P, out?: P): CurvePoint => (out ? { at, c1: [2 * at[0] - out[0], 2 * at[1] - out[1]], c2: out } : { at });
@@ -2089,6 +2092,18 @@ export default function Editor() {
     // Paste a SMILES string or MOL file: it goes to the right of the drawing, or in the middle of an empty canvas.
     const onPaste = (e: ClipboardEvent) => {
       if (typing()) return; // pasting into a label or caption
+      // Octet's own copy: everything that was selected, read as a hostile file is, a little down and right of where it was.
+      const own = e.clipboardData?.getData(OCTET_CLIP);
+      if (own) {
+        e.preventDefault();
+        let add: Mol;
+        try { add = parse(own); } catch { return setNotice("Octet cannot read what is on the clipboard."); }
+        const r = insertMol(doc, add, [0.8, -0.8]);
+        set(r.mol, true);
+        setSelection(r.atoms);
+        setPicked(r.items);
+        return;
+      }
       const text = e.clipboardData?.getData("text/plain")?.trim();
       if (!text || !loaded) return;
       e.preventDefault();
@@ -2108,19 +2123,27 @@ export default function Editor() {
         copyText.current = undefined;
         return setNotice("Copied.");
       }
-      const what = selection.size ? subset(doc, selection) : doc;
-      if (!what.atoms.length || !loaded) return;
-      try {
-        e.clipboardData?.setData("text/plain", toSmiles(what));
-        e.preventDefault();
-      } catch {
-        setNotice("Octet cannot write this drawing as SMILES.");
-      }
+      // Everything selected (or the whole drawing) in Octet's own form, for pasting back with arrows, text and shapes;
+      // and its structures as SMILES, for other programs.
+      const all = !selection.size && !picked.size;
+      const part = all ? doc : extractSelection(doc, selection, picked);
+      if (!part.atoms.length && !part.captions?.length && !part.arrows?.length && !part.shapes?.length) return;
+      e.preventDefault();
+      e.clipboardData?.setData(OCTET_CLIP, serialize({ ...part, style: undefined }));
+      const text = (part.captions ?? []).map((c) => c.text).join("\n");
+      try { e.clipboardData?.setData("text/plain", part.atoms.length && loaded ? toSmiles(part) : text); } catch { e.clipboardData?.setData("text/plain", text); }
+    };
+    // Cut: copy, then delete what was selected.
+    const onCut = (e: ClipboardEvent) => {
+      if (typing() || (!selection.size && !picked.size)) return;
+      onCopy(e);
+      set(deleteGraphics(deleteAtoms(doc, selection), picked));
     };
     addEventListener("keydown", onKey);
     addEventListener("paste", onPaste);
     addEventListener("copy", onCopy);
-    return () => { removeEventListener("keydown", onKey); removeEventListener("paste", onPaste); removeEventListener("copy", onCopy); };
+    addEventListener("cut", onCut);
+    return () => { removeEventListener("keydown", onKey); removeEventListener("paste", onPaste); removeEventListener("copy", onCopy); removeEventListener("cut", onCut); };
   });
 
   // Highlights, in px at 100% (the same frame as the drawing): the selection, then the hover on top.
