@@ -18,6 +18,8 @@ export const BONDS = {
   double: { name: "Double", spec: { type: 2 } },
   triple: { name: "Triple", spec: { type: 3 } },
   bolddouble: { name: "Bold double", spec: { type: 2, display: "bold" } },
+  dasheddouble: { name: "Dashed double", spec: { type: 2, display: "dashed" } },
+  eitherdouble: { name: "Double either", spec: { type: 2, display: "either" } },
   wedge: { name: "Wedge", spec: { type: 1, stereo: 1 } },
   hashwedge: { name: "Hashed wedge", spec: { type: 1, stereo: 6 } },
   hollow: { name: "Hollow wedge", spec: { type: 1, display: "hollow" } },
@@ -97,6 +99,8 @@ export function BondGlyph({ kind }: { kind: BondKind }) {
   switch (kind) {
     case "double": return <Icon>{line(-14)}{line(14)}</Icon>;
     case "triple": return <Icon>{line(-24)}{line(0)}{line(24)}</Icon>;
+    case "dasheddouble": return <Icon>{line(-14)}<line x1={x1 + 14 * d} y1={y1 + 14 * d} x2={x2 + 14 * d} y2={y2 + 14 * d} strokeDasharray="22 18" strokeLinecap="butt" /></Icon>;
+    case "eitherdouble": return <Icon><line x1={x1 - 14 * d} y1={y1 - 14 * d} x2={x2 + 14 * d} y2={y2 + 14 * d} /><line x1={x1 + 14 * d} y1={y1 + 14 * d} x2={x2 - 14 * d} y2={y2 - 14 * d} /></Icon>;
     case "bolddouble": return <Icon><line x1={x1 - 10 * d} y1={y1 - 10 * d} x2={x2 - 10 * d} y2={y2 - 10 * d} strokeWidth={40} strokeLinecap="butt" />{line(30)}</Icon>;
     case "bold": return <Icon><line x1={x1} y1={y1} x2={x2} y2={y2} strokeWidth={44} strokeLinecap="butt" /></Icon>;
     case "wedge": return <Icon><polygon points={`${x1},${y1} ${x2 - 22 * d},${y2 - 22 * d} ${x2 + 22 * d},${y2 + 22 * d}`} fill="currentColor" /></Icon>;

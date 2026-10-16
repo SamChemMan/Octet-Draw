@@ -29,7 +29,8 @@ export type Atom = {
   fill?: string; // #rrggbb ring fill: a ring whose atoms all have the same fill is filled with it at 30% opacity
 };
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
-export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow";
+// On a double bond: bold makes the main line bold, dashed the second line dashed, either crosses the two lines.
+export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow" | "either";
 // position: where a double bond's second line goes, looking from atoms[0] to atoms[1]; unset means automatic.
 export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string };
 // A caption: free text at x, y (bond lengths, y up; the text's anchor point by its alignment), or, with under
@@ -220,7 +221,9 @@ type Plan = {
   kind: 'line' | 'wedge' | 'hash' | 'none' | 'dash' | 'hashbar' | 'wavy' | 'hollow';
   half?: number;
   head?: boolean;
-  lines: { o: number; t0: number; t1: number; half?: number }[]; // half: a line's own half width (a bold double's)
+  // half: a line's own half width (a bold double's); dashed: drawn as dashes (a dashed double's second line).
+  lines: { o: number; t0: number; t1: number; half?: number; dashed?: boolean }[];
+  cross?: boolean; // a double bond drawn as two crossing lines (either geometry)
   cut: [number, number];
   hidden?: boolean;
 };
@@ -425,6 +428,8 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
     // Bold double (ChemDraw's ⇧B): the main line bold, the second line normal and moved out by the extra width, so
     // the gap between them looks the same as a plain double bond's.
     const bold = bond.display === "bold", extra = bold ? s.bold / 2 - hw : 0, spacing = s.spacing + extra;
+    // Double Either: two lines crossing between the atoms, whatever the ring or substituents.
+    if (bond.display === "either") { plan.kind = 'none'; plan.cross = true; return plan; }
 
     // Side of the second line: into the ring with the most double bonds (then six-membered, then smallest),
     // toward the inside of the angle at an unlabelled degree-2 end, or toward more substituents. 0 = centred.
@@ -458,7 +463,7 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
         const phi = labelled[x] ? undefined : near(x, y, Math.sign(o))[0];
         return phi === undefined ? 0 : h / Math.tan(phi);
       };
-      plan.lines = [h, -h].map((o, k) => ({ o, t0: reach(a, b, o), t1: reach(b, a, o), ...(bold && !k ? { half: s.bold / 2 } : {}) }));
+      plan.lines = [h, -h].map((o, k) => ({ o, t0: reach(a, b, o), t1: reach(b, a, o), ...(bold && !k ? { half: s.bold / 2 } : {}), ...(bond.display === "dashed" && k ? { dashed: true } : {}) }));
       return plan;
     }
     // Offset: the axis joins the fan; the inner line is trimmed back to the angle bisector at unlabelled ends.
@@ -470,7 +475,7 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
       return t > MAX_TRIM * L ? 0 : t;
     };
     if (bold) plan.half = s.bold / 2;
-    plan.lines = [{ o: sd * spacing, t0: trim(a, b, ring?.[1]), t1: trim(b, a, ring?.[ring.length - 2]) }];
+    plan.lines = [{ o: sd * spacing, t0: trim(a, b, ring?.[1]), t1: trim(b, a, ring?.[ring.length - 2]), ...(bond.display === "dashed" ? { dashed: true } : {}) }];
     return plan;
   });
 
@@ -588,9 +593,20 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
         bar(add(c, mul(pl.u, -hw)), add(c, mul(pl.u, hw)), pl.n, tip + ((wide - tip) * t) / D);
       }
     }
-    for (const { o, t0, t1, half: w } of pl.lines) {
+    if (pl.cross) {
+      // Two lines from each end's -n and +n sides to the other end's opposite side.
+      const h = s.spacing / 2, A = drawnEnd(pl, pl.a), B = drawnEnd(pl, pl.b);
+      for (const sgn of [1, -1]) { const p0 = add(A, mul(pl.n, sgn * h)), p1 = add(B, mul(pl.n, -sgn * h)); bar(p0, p1, perp(unit(sub(p1, p0))), hw); }
+    }
+    for (const { o, t0, t1, half: w, dashed } of pl.lines) {
       const from = labelled[pl.a] ? pl.cut[0] : t0, to = pl.length - (labelled[pl.b] ? pl.cut[1] : t1);
       if (to - from < 0.1) continue;
+      if (dashed) {
+        // Dashes as a dashed bond's: one per hash spacing, the first and last flush with the ends.
+        const D = to - from, count = Math.max(1, Math.round(D / s.hash)), dash = Math.min(D, s.hash * 0.55), step = count > 1 ? (D - dash) / (count - 1) : 0;
+        for (let k = 0; k < count; k++) bar(add(add(pts[pl.a], mul(pl.u, from + k * step)), mul(pl.n, o)), add(add(pts[pl.a], mul(pl.u, from + k * step + dash)), mul(pl.n, o)), pl.n, w ?? hw);
+        continue;
+      }
       bar(add(add(pts[pl.a], mul(pl.u, from)), mul(pl.n, o)), add(add(pts[pl.a], mul(pl.u, to)), mul(pl.n, o)), pl.n, w ?? hw);
     }
   };
