@@ -16,3 +16,10 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | Instrument Sans (@fontsource/instrument-sans) | 5.3 | OFL-1.1 | UI font |
 | IBM Plex Mono (@fontsource/ibm-plex-mono) | 5.3 | OFL-1.1 | SMILES, InChI and formula font |
 | @phosphor-icons/react | 2.1 | MIT | UI icons |
+| OPSIN | 2.8.0 | MIT | Name to structure, compiled to JavaScript ([tools/opsin](tools/opsin/README.md)) |
+| dk.brics.automaton | 1.12-4 | BSD-3-Clause | Used by OPSIN (one class modified) |
+| TeaVM class library and runtime | 0.16.0 | Apache-2.0 | Runs OPSIN's Java as JavaScript |
+| StAX API | 1.0.1 | Apache-2.0 | XML interfaces used by OPSIN |
+| Unicode character data (in TeaVM) | TeaVM 0.16.0's copy | Unicode-3.0 | Case mapping in the OPSIN build. Sam approved, 16 October 2026 |
+
+The OPSIN build's notices are in [src/vendor/opsin/NOTICES.txt](src/vendor/opsin/NOTICES.txt). The app ships them as `licences/opsin.txt`.

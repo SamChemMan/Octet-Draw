@@ -141,6 +141,8 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
         &sep()?,
         &item("flip_h", "Flip Horizontal", "CmdOrCtrl+Shift+H")?,
         &item("flip_v", "Flip Vertical", "CmdOrCtrl+Shift+V")?,
+        &sep()?,
+        &item("name_to_structure", "Convert Name to Structure", "CmdOrCtrl+Shift+N")?,
     ])?;
     // Text commands style the caption being typed, or the picked captions.
     let sizes = [8, 9, 10, 12, 14, 18, 24]

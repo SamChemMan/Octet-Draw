@@ -1,0 +1,8 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>octet</groupId><artifactId>opsin-pack</artifactId><version>1</version>
+  <properties><maven.compiler.release>21</maven.compiler.release><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties>
+  <dependencies>
+    <dependency><groupId>uk.ac.cam.ch.opsin</groupId><artifactId>opsin-core</artifactId><version>2.8.0</version></dependency>
+  </dependencies>
+</project>

@@ -289,6 +289,86 @@ rect.mark {
   text-overflow: ellipsis;
 }
 
+/* The user's own rings: a remove button shows on hover. The last cells add a ring by name or from the selection. */
+.variant-cell {
+  position: relative;
+  display: grid;
+  min-width: 0;
+}
+.variant-remove {
+  position: absolute;
+  top: 50%;
+  right: var(--space-1);
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-top: -10px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.variant-cell:hover .variant-remove,
+.variant-remove:focus-visible {
+  opacity: 1;
+}
+.variant-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 18px;
+  outline: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.variant-input::placeholder {
+  color: var(--ink-faint);
+}
+.variant-input[aria-invalid="true"] {
+  color: var(--error);
+}
+.variant.add {
+  cursor: text;
+}
+.variant:focus-within {
+  box-shadow: var(--shadow-focus);
+}
+button.variant.add {
+  cursor: default;
+}
+
+/* Dragging an option onto the toolbar: it follows the pointer, and the toolbar lights up when it would land. */
+.palette.dropping {
+  border-color: var(--brand-bright);
+  box-shadow: var(--shadow-float), var(--shadow-focus);
+}
+.carry {
+  position: fixed;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-float);
+  color: var(--brand);
+  transform: translate(-50%, -50%) scale(1.05);
+  pointer-events: none;
+}
+.tool.carried {
+  opacity: 0.3;
+}
+
 /* Corner grip for resizing a strip. */
 .grip {
   position: absolute;
@@ -525,6 +605,82 @@ rect.mark {
   border-color: transparent;
   color: var(--brand);
 }
+/* Name to structure: a field at the top of the window. The structure shows faintly where it will land. */
+.name-field {
+  position: absolute;
+  top: var(--space-4);
+  left: 50%;
+  z-index: 2;
+  width: 360px;
+  height: 40px;
+  margin-left: -180px;
+  padding: 0 var(--space-3);
+  box-sizing: border-box;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-float);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  outline: none;
+  transform-origin: top center;
+  animation: panel-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  -webkit-user-select: text;
+  user-select: text;
+}
+.name-field:focus {
+  border-color: var(--brand-bright);
+  box-shadow: var(--shadow-float), var(--shadow-focus);
+}
+.name-field[aria-invalid="true"] {
+  border-color: var(--error);
+}
+.name-field::placeholder {
+  color: var(--ink-faint);
+}
+/* The suggested name, just under the field: the letters it adds or changes are marked. */
+.name-suggestion {
+  position: absolute;
+  top: calc(var(--space-4) + 44px);
+  left: 50%;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 360px;
+  margin: 0 0 0 -180px;
+  padding: var(--space-1) var(--space-3);
+  box-sizing: border-box;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-float);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  animation: fade-in 120ms ease-out;
+}
+.name-suggestion mark {
+  background: var(--brand-mist);
+  color: var(--brand);
+  border-radius: 2px;
+}
+.name-suggestion kbd {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.ghost {
+  fill: var(--ink);
+  opacity: 0.35;
+}
+@media (prefers-reduced-motion: reduce) {
+  .name-field {
+    animation: fade-in 150ms ease-out;
+  }
+}
+
 /* The caption size: a button that opens a menu of sizes, or turns into a field to type one. */
 .size {
   position: relative;

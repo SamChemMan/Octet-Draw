@@ -4,7 +4,7 @@
 // structures. Every action also lives where ChemDraw users expect it (menus and keys).
 import { useEffect, useRef, useState } from "react";
 import {
-  AlignCenterHorizontal, CaretDown, AlignCenterVertical, ClipboardText, FileArrowDown, ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, CopySimple,
+  AlignCenterHorizontal, Atom, BookmarkSimple, CaretDown, AlignCenterVertical, ClipboardText, FileArrowDown, ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, CopySimple,
   Eye, FlipHorizontal, FlipVertical, LinkBreak, LinkSimple, ListNumbers, MagicWand, MinusCircle, PencilSimpleLine, PlusCircle, SelectionAll,
   SlidersHorizontal, SquareSplitHorizontal, TextAa, TextAlignCenter, TextAlignLeft, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X,
 } from "@phosphor-icons/react";
@@ -16,7 +16,7 @@ export type Context =
   | { kind: "empty" }
   | { kind: "drawing" }
   | { kind: "structure"; atoms: number; structures: number; next: string }
-  | { kind: "caption"; count: number; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right"; attached: boolean; attachable: boolean }
+  | { kind: "caption"; convertible: boolean; count: number; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right"; attached: boolean; attachable: boolean }
   | { kind: "atom"; label: string; charge: number; terminal: boolean; carbon: boolean }
   | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean };
 
@@ -174,6 +174,7 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
       {context.kind === "empty" && (
         <>
           <div className="actions-list">
+            {row(<Atom size={18} />, "Name to structure", "name_to_structure")}
             {row(<FileArrowDown size={18} />, "Import a structure", "import")}
             {row(<ClipboardText size={18} />, "Paste a SMILES or MOL", "paste_hint")}
           </div>
@@ -185,6 +186,7 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
           {row(<MagicWand size={18} />, "Clean up", "clean_up", messy ? { note: "Bonds are uneven", accent: true } : {})}
           {context.kind === "structure" && row(<ListNumbers size={18} />, context.structures > 1 ? "Number these compounds" : "Number this compound", "number")}
           {context.kind === "structure" && row(<TextT size={18} />, "Add a caption", "caption.add")}
+          {context.kind === "structure" && row(<BookmarkSimple size={18} />, "Add to rings", "template.add")}
           {context.kind === "structure" && context.structures > 1 && (
             <>
               {row(<AlignCenterHorizontal size={18} />, "Line up in a row", "align.row")}
@@ -199,6 +201,7 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
           {row(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")}
           {context.kind === "drawing" && row(<SelectionAll size={18} />, "Select all", "select_all")}
           {context.kind === "drawing" && row(<ArrowsOutSimple size={18} />, "Zoom to fit", "zoom_fit")}
+          {context.kind === "drawing" && row(<Atom size={18} />, "Name to structure", "name_to_structure")}
           {context.kind === "drawing" && row(<FileArrowDown size={18} />, "Import a structure", "import")}
           {context.kind === "structure" && row(<Trash size={18} />, "Delete", "delete")}
         </div>
@@ -247,6 +250,7 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
             ))}
           </div>
           <div className="actions-list">
+            {context.convertible && row(<Atom size={18} />, "Convert to structure", "name_to_structure")}
             {context.count === 1 && row(<PencilSimpleLine size={18} />, "Edit text", "caption.edit")}
             {context.attached
               ? row(<LinkBreak size={18} />, "Un-tie from structure", "caption.detach")

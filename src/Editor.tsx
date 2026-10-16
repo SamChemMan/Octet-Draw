@@ -8,7 +8,7 @@ import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
 import {
   EMPTY, addCaption, addCharge, addRing, deleteCaptions, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
-  addChair, addGroup, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
+  addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
   type BondSpec, type Group, type P,
 } from "./edit";
 import { snapMove, type Guide } from "./snap";
@@ -18,6 +18,8 @@ import { Actions, type Context } from "./Actions";
 import { BONDS, Palette, RINGS, SELECTS, type BondKind, type RingKind, type SelectKind, type Tool } from "./tools";
 import { CAPTION_PT, isNumber, placeCaptions, render, type Box, type Caption, type Mol, type Placed } from "./render";
 import { selectCursor } from "./cursor";
+import { loadNames, nameToSmiles, suggestName } from "./names";
+import { loadTemplates, newTemplate, templateKind } from "./templates";
 import "./editor.css";
 
 
@@ -98,7 +100,29 @@ export default function Editor() {
   const [cursor, setCursor] = useState<string>();
   const [settings, setSettings] = useState(loadSettings);
   const bondKind = (settings.variants.bond in BONDS ? settings.variants.bond : "single") as BondKind;
-  const ringKind = (settings.variants.ring in RINGS ? settings.variants.ring : "benzene") as RingKind;
+  // The user's own rings, and the one in hand (a built-in RingKind or a template's kind).
+  const templates = useMemo(() => loadTemplates(settings.templates), [settings.templates]);
+  const ringKind = settings.variants.ring in RINGS || templates.some((t) => templateKind(t.id) === settings.variants.ring) ? settings.variants.ring : "benzene";
+  const [renaming, setRenaming] = useState<string>();
+  function addRingTemplate(name: string, mol: Mol) {
+    const t = newTemplate(name, mol);
+    setSettings((s) => ({ ...s, templates: [...s.templates, t], variants: { ...s.variants, ring: templateKind(t.id) } }));
+    setTool("ring");
+    return t;
+  }
+  function removeRingTemplate(id: string) {
+    setSettings((s) => ({
+      ...s,
+      templates: s.templates.filter((t) => t.id !== id),
+      pinned: s.pinned.filter((k) => k !== `ring:${templateKind(id)}`),
+      variants: s.variants.ring === templateKind(id) ? { ...s.variants, ring: "benzene" } : s.variants,
+    }));
+  }
+  // The selection becomes a ring template; its name is typed in the ring list straight away.
+  const addSelectionAsRing = () => {
+    if (!selection.size) return;
+    setRenaming(addRingTemplate(`Ring ${templates.length + 1}`, subset(doc, selection)).id);
+  };
   const selectKind = (settings.variants.select in SELECTS ? settings.variants.select : "box") as SelectKind;
   const bondSpec: BondSpec = BONDS[bondKind].spec;
   const [overSelection, setOverSelection] = useState(false);
@@ -131,6 +155,18 @@ export default function Editor() {
   const dirty = doc !== file.saved;
 
   useEffect(() => { ready.then(() => setLoaded(true)); }, []);
+  // Name to structure loads in the background once the window has settled.
+  const [namesLoaded, setNamesLoaded] = useState(false);
+  useEffect(() => { const t = setTimeout(() => loadNames().then(() => setNamesLoaded(true)), 1500); return () => clearTimeout(t); }, []);
+  // The text in the name-to-structure field, while it is open.
+  const [naming, setNaming] = useState<string>();
+  const nameField = useRef<HTMLInputElement>(null);
+  // A structure for a chemical name, laid out, or undefined.
+  const structureFor = (name: string): Mol | undefined => {
+    const smiles = loaded && namesLoaded ? nameToSmiles(name) : undefined;
+    if (!smiles) return undefined;
+    try { const m = parseStructure(smiles); return m.atoms.length ? m : undefined; } catch { return undefined; }
+  };
   useEffect(() => { if (notice) { const t = setTimeout(() => setNotice(undefined), 4000); return () => clearTimeout(t); } }, [notice]);
   // After an edit, the thing under a still pointer may have changed.
   useEffect(() => { if (pointer.current) setHover(hit(pointer.current)); }, [doc]);
@@ -169,14 +205,27 @@ export default function Editor() {
       setNotice(e instanceof Error ? `Octet cannot read this file. ${e.message}` : String(e));
     }
   }
-  // Puts a new fragment beside the drawing, or centred in an empty view, and selects it.
-  function place(frag: Mol) {
-    if (!frag.atoms.length) throw new Error("It has no atoms.");
+  // Where a new fragment goes: beside the drawing, or centred in an empty view (or centred on a given point).
+  function landing(frag: Mol, at?: P): P {
     const f = bounds(frag)!, d = bounds(doc);
-    const centre: P = d ? [d[2] + 1.5 + (f[2] - f[0]) / 2, (d[1] + d[3]) / 2] : toDoc(innerWidth / 2, innerHeight / 2);
-    const base = doc.atoms.length;
-    set(merge(doc, frag, [centre[0] - (f[0] + f[2]) / 2, centre[1] - (f[1] + f[3]) / 2]));
-    setSelection(new Set(frag.atoms.map((_, i) => base + i)));
+    const centre: P = at ?? (d ? [d[2] + 1.5 + (f[2] - f[0]) / 2, (d[1] + d[3]) / 2] : toDoc(innerWidth / 2, innerHeight / 2));
+    return [centre[0] - (f[0] + f[2]) / 2, centre[1] - (f[1] + f[3]) / 2];
+  }
+  // Puts a new fragment in place and selects it.
+  function place(frag: Mol, base: Mol = doc, at?: P) {
+    if (!frag.atoms.length) throw new Error("It has no atoms.");
+    set(merge(base, frag, landing(frag, at)));
+    setSelection(new Set(frag.atoms.map((_, i) => base.atoms.length + i)));
+  }
+  // Name to structure: a picked caption that is a name becomes its structure, in its place. Otherwise the
+  // name field opens (with the caption's text, if it was not a name).
+  function nameToStructure() {
+    const c = picked.size === 1 && !selection.size ? doc.captions?.find((x) => picked.has(x.id)) : undefined;
+    const fixed = c && suggestName(c.text);
+    const frag = c && (structureFor(c.text) ?? (fixed ? structureFor(fixed) : undefined)), p = c && placed.find((x) => x.id === c.id);
+    if (c && frag && p) return place(frag, deleteCaptions(doc, new Set([c.id])), [(p.box[0] + p.box[2]) / 2 / L, -(p.box[1] + p.box[3]) / 2 / L]);
+    void loadNames().then(() => setNamesLoaded(true));
+    setNaming(c?.text ?? "");
   }
   // Menu commands. New and Open go on the undo list, so they never lose work.
   const commands = useRef<Record<string, () => void>>({});
@@ -204,6 +253,7 @@ export default function Editor() {
     zoom_out: () => zoomTo(view.zoom / 1.25),
     zoom_actual: () => zoomTo(1),
     actions: () => setSettings((s) => ({ ...s, actions: !s.actions })),
+    name_to_structure: () => nameToStructure(),
     // The Text menu styles the caption being typed, or the picked captions.
     text_bold: () => restyle((c) => ({ bold: !c.bold })),
     text_italic: () => restyle((c) => ({ italic: !c.italic })),
@@ -245,6 +295,22 @@ export default function Editor() {
     return doc;
   }, [doc, drag]);
   const drawing = useMemo(() => render(shown, STYLE, measure, L), [shown]);
+  // The structure for the name being typed, drawn faintly where it will land.
+  // A suggestion when the text is not a name: from the common names straight away, or (after a pause in typing)
+  // from every name one keystroke away.
+  const quick = useMemo(() => (naming === undefined || !namesLoaded ? undefined : suggestName(naming, false)), [naming, namesLoaded]);
+  const [thorough, setThorough] = useState<{ typed: string; name?: string }>();
+  useEffect(() => {
+    if (naming === undefined || quick || !namesLoaded) return;
+    const t = setTimeout(() => setThorough({ typed: naming, name: suggestName(naming) }), 150);
+    return () => clearTimeout(t);
+  }, [naming, quick, namesLoaded]);
+  const suggestion = quick ?? (thorough && thorough.typed === naming ? thorough.name : undefined);
+  const named = useMemo(
+    () => (naming === undefined ? undefined : structureFor(naming) ?? (suggestion ? structureFor(suggestion) : undefined)),
+    [naming, suggestion, namesLoaded, loaded],
+  );
+  const ghost = useMemo(() => named && render(moveAtoms(named, new Set(named.atoms.map((_, i) => i)), landing(named)), STYLE, measure, L), [named, doc]);
   // Captions as laid out, with the caption being typed in place of its saved text (or added, if it is new).
   const placed = useMemo(() => {
     let m = shown;
@@ -531,7 +597,7 @@ export default function Editor() {
       const cs = (doc.captions ?? []).filter((c) => picked.has(c.id)), c = cs[0];
       if (c) {
         const p = placed.find((x) => x.id === c.id);
-        return { kind: "caption", count: cs.length, bold: !!c.bold, italic: !!c.italic, underline: !!c.underline, size: c.size ?? CAPTION_PT, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) };
+        return { kind: "caption", convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!c.bold, italic: !!c.italic, underline: !!c.underline, size: c.size ?? CAPTION_PT, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) };
       }
     }
     if (!selection.size) return doc.atoms.length || doc.captions?.length ? { kind: "drawing" } : { kind: "empty" };
@@ -561,7 +627,7 @@ export default function Editor() {
   // The key to show beside an action: menu shortcuts, then the user's shortcut table.
   const MENU_KEYS: Record<string, string> = {
     import: `⇧${MOD}I`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}1`, copy_smiles: `${MOD}C`, delete: "⌫",
-    "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.edit": keyLabel("enter"),
+    name_to_structure: `⇧${MOD}N`, "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.edit": keyLabel("enter"),
   };
   const hint = (command: string) => {
     if (MENU_KEYS[command]) return MENU_KEYS[command];
@@ -581,6 +647,7 @@ export default function Editor() {
     if (command.startsWith("align.")) return set(alignFragments(doc, selection, command.slice(6) as "row" | "column" | "spread-row"), true);
     if (command === "delete") return selection.size || picked.size ? set(deleteCaptions(deleteAtoms(doc, selection), picked)) : undefined;
     if (command === "number") return numberStructures();
+    if (command === "template.add") return addSelectionAsRing();
     if (command === "caption.add") {
       // A new caption under the selected structures, centred on them.
       const under = fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat();
@@ -644,7 +711,9 @@ export default function Editor() {
     }
     if (tool === "chain") return set(sprout(doc, t.atom ?? at));
     if (tool === "ring") {
-      const r: { n: number; aromatic: boolean; chair?: 1 | 2 } = RINGS[ringKind];
+      const custom = templates.find((x) => templateKind(x.id) === ringKind);
+      if (custom) return set(addTemplate(doc, custom.mol, t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : { point: at }));
+      const r: { n: number; aromatic: boolean; chair?: 1 | 2 } = RINGS[ringKind as RingKind];
       if (r.chair) return set(addChair(doc, r.chair, t.bond !== undefined ? { bond: t.bond } : { point: at }));
       return set(addRing(doc, r.n, r.aromatic, t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : { point: at }));
     }
@@ -745,15 +814,12 @@ export default function Editor() {
       const text = e.clipboardData?.getData("text/plain")?.trim();
       if (!text || !loaded) return;
       e.preventDefault();
-      try {
-        const frag = parseStructure(text);
-        if (!frag.atoms.length) throw new Error("empty");
-        const f = bounds(frag)!, d = bounds(doc);
-        const centre: P = d ? [d[2] + 1.5 + (f[2] - f[0]) / 2, (d[1] + d[3]) / 2] : toDoc(innerWidth / 2, innerHeight / 2);
-        set(merge(doc, frag, [centre[0] - (f[0] + f[2]) / 2, centre[1] - (f[1] + f[3]) / 2]));
-      } catch {
-        setNotice("Octet cannot read this structure. Paste a SMILES string or a MOL file.");
-      }
+      // A SMILES string or MOL file first, then a chemical name.
+      let frag: Mol | undefined;
+      try { frag = parseStructure(text); } catch { frag = undefined; }
+      if (!frag?.atoms.length) frag = structureFor(text);
+      if (frag) place(frag);
+      else setNotice("Octet cannot read this structure. Paste a name, a SMILES string or a MOL file.");
     };
     // Copy puts the selection, or the whole drawing, on the clipboard as SMILES (or text the panel asked for).
     const onCopy = (e: ClipboardEvent) => {
@@ -861,6 +927,12 @@ export default function Editor() {
               {c.lines.map((l, j) => <tspan key={j} x={l.x} y={l.y}>{l.text}</tspan>)}
             </text>
           ))}
+          {ghost && (
+            <g className="ghost" aria-hidden>
+              <path d={toPath(ghost.polygons)} />
+              {ghost.labels.map((l, i) => <text key={i} x={l.x} y={l.y} style={{ font: `${l.size}px var(--atom-label-font)` }}>{l.text}</text>)}
+            </g>
+          )}
           {box}
           {drag?.kind === "lasso" && drag.moved && (
             <polygon className="box" points={drag.points.map(([x, y]) => `${x * L},${-y * L}`).join(" ")} vectorEffect="non-scaling-stroke" />
@@ -934,11 +1006,67 @@ export default function Editor() {
           />
         );
       })()}
+      {naming !== undefined && suggestion && !nameToSmiles(naming) && (() => {
+        // The suggested name under the field, with the letters it adds or changes marked. Tab takes it.
+        const typed = naming.trim().toLowerCase(), name = suggestion;
+        let a = 0, b = 0;
+        while (a < typed.length && a < name.length && typed[a] === name[a].toLowerCase()) a++;
+        while (b < typed.length - a && b < name.length - a && typed[typed.length - 1 - b] === name[name.length - 1 - b].toLowerCase()) b++;
+        return (
+          <p className="name-suggestion" aria-live="polite">
+            <span>{name.slice(0, a)}<mark>{name.slice(a, name.length - b)}</mark>{name.slice(name.length - b)}</span>
+            <kbd>Tab</kbd>
+          </p>
+        );
+      })()}
+      {naming !== undefined && (
+        <input
+          ref={nameField}
+          className="name-field"
+          aria-label="Chemical name"
+          aria-invalid={!!naming.trim() && namesLoaded && !named}
+          placeholder="Name"
+          autoFocus
+          spellCheck={false}
+          value={naming}
+          onChange={(e) => setNaming(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setNaming(undefined);
+            if (e.key === "Tab" && suggestion) { e.preventDefault(); setNaming(suggestion); }
+            if (e.key !== "Enter") return;
+            if (named) { place(named); setNaming(undefined); return; }
+            // Not a name Octet can read: the field shakes.
+            if (!matchMedia("(prefers-reduced-motion: reduce)").matches)
+              e.currentTarget.animate([{ transform: "translateX(0)" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "translateX(0)" }], { duration: 240, easing: "ease-out" });
+          }}
+          onBlur={() => setNaming(undefined)}
+        />
+      )}
       {pop && <span key={pop.n} className="halo" style={{ left: pop.x, top: pop.y }} aria-hidden />}
 
       <Palette
         tool={tool}
         variants={{ select: selectKind, bond: bondKind, ring: ringKind }}
+        templates={templates}
+        pinned={settings.pinned}
+        onPinned={(pinned) => setSettings((s) => ({ ...s, pinned }))}
+        canAddSelection={selection.size > 0}
+        renaming={renaming}
+        preview={(name) => structureFor(name) ?? (() => { const s = suggestName(name, false); return s ? structureFor(s) : undefined; })()}
+        onAddName={(typed) => {
+          // A misspelt name is added with its corrected spelling.
+          const name = nameToSmiles(typed) ? typed : suggestName(typed);
+          const m = name && structureFor(name);
+          if (!name || !m) return false;
+          addRingTemplate(name.charAt(0).toUpperCase() + name.slice(1), m);
+          return true;
+        }}
+        onAddSelection={addSelectionAsRing}
+        onRename={(id, name) => {
+          setSettings((s) => ({ ...s, templates: s.templates.map((t) => (t.id === id ? { ...t, name: name.slice(0, 80) } : t)) }));
+          setRenaming(undefined);
+        }}
+        onRemoveTemplate={removeRingTemplate}
         popKey={pop?.n ?? 0}
         canUndo={h.at > 0}
         canRedo={h.at < h.stack.length - 1}

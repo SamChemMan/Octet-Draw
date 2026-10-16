@@ -32,6 +32,9 @@ Apache-2.0.
 
 - **Allowed for fonts only:** SIL Open Font License 1.1 (OFL-1.1). Keep
   each font's licence file with the app.
+- **Allowed for data only:** Unicode License v3 (Unicode-3.0), for
+  Unicode character data inside a dependency. Ship its notice with the
+  app. Sam approved this on 16 October 2026.
 - **Allowed:** MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, ISC. For
   example: RDKit (BSD-3-Clause), OPSIN (MIT), Ketcher (Apache-2.0),
   Indigo (Apache-2.0), OpenChemLib (BSD-3-Clause).

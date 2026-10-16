@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, addCaption, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset } from "./edit.ts";
+import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset } from "./edit.ts";
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
 
@@ -152,4 +152,23 @@ console.log("edit.check: align ok");
   assert.equal(deleteAtoms(two, new Set([0, 1, 2, 3, 4, 5])).captions?.length, 0, "a caption goes with its structure");
   assert.ok(flipAtoms(named, new Set([0, 1]), "horizontal").captions, "flip keeps captions");
   console.log("edit.check: captions ok");
+}
+
+// Templates: fused along a bond they share its atoms; on a point they keep their own shape.
+{
+  const pyridine = normalise(setElement(addRing(EMPTY, 6, true, { point: [0, 0] }), 2, "N"));
+  const placedAlone = addTemplate(EMPTY, pyridine, { point: [5, 5] });
+  assert.equal(placedAlone.atoms.length, 6);
+  assert.equal(placedAlone.atoms.filter((a) => a.label === "N").length, 1, "the template keeps its nitrogen");
+  const ring = addRing(EMPTY, 6, false, { point: [0, 0] });
+  const fused = addTemplate(ring, pyridine, { bond: 0 });
+  assert.equal(fused.atoms.length, 10, "two atoms are shared");
+  assert.equal(fused.bonds.length, 11, "the shared bond is not doubled");
+  const spiro = addTemplate(ring, pyridine, { atom: 0 });
+  assert.equal(spiro.atoms.length, 11, "one atom is shared");
+  // A fused pair fused again goes beside the first, not over it.
+  const indane = normalise(addRing(addRing(EMPTY, 6, false, { point: [0, 0] }), 5, false, { bond: 0 }));
+  const twice = addTemplate(indane, indane, { bond: indane.bonds.findIndex((b) => b.atoms.includes(3) && b.atoms.includes(4)) });
+  assert.equal(twice.atoms.length, 9 + 7, "only the shared bond's two atoms are shared");
+  console.log("edit.check: templates ok");
 }
