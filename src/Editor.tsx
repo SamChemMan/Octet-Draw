@@ -7,7 +7,7 @@ import { measure, parseStructure, ready, STYLE, toSmiles } from "./chem";
 import { parse, serialize } from "./file";
 import {
   EMPTY, addCharge, addRing, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
-  addChair, addGroup, atomsInPolygon, joinOverlaps, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
+  addChair, addGroup, atomsInPolygon, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
   type BondSpec, type Group, type P,
 } from "./edit";
 import { snapMove, type Guide } from "./snap";
@@ -92,6 +92,12 @@ export default function Editor() {
   const [overSelection, setOverSelection] = useState(false);
   // Where the eraser outline is drawn (drawing coordinates), while the Eraser is in hand.
   const [brush, setBrush] = useState<P>();
+  // The atom whose label is being typed, and the text so far.
+  const [editing, setEditing] = useState<{ atom: number; value: string }>();
+  const editLabel = (atom: number) => {
+    const a = doc.atoms[atom];
+    setEditing({ atom, value: a.text ?? (a.label === "C" ? "" : a.label) });
+  };
   useEffect(() => { selectCursor.then(setCursor); }, []);
   const hold = useRef<number>(undefined);
   const svg = useRef<SVGSVGElement>(null);
@@ -284,6 +290,8 @@ export default function Editor() {
     const [kind, arg] = id.split(".");
     const atom = hover.atom, bond = hover.bond;
     if (kind === "element" && atom !== undefined) return set(setElement(doc, atom, arg));
+    if (kind === "label" && atom !== undefined) return set(setLabel(doc, atom, arg));
+    if (id === "atom.label" && atom !== undefined) return editLabel(atom);
     if (id === "charge.plus" && atom !== undefined) return set(addCharge(doc, atom, 1));
     if (id === "charge.minus" && atom !== undefined) return set(addCharge(doc, atom, -1));
     if (kind === "group" && atom !== undefined) return set(addGroup(doc, atom, arg as Group));
@@ -393,6 +401,7 @@ export default function Editor() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement) return; // typing in a label box
       const mod = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
       if (!TAURI && mod && key === "z") { e.preventDefault(); return undo(e.shiftKey); }
       if (!TAURI && mod && key === "y") { e.preventDefault(); return undo(true); }
@@ -492,6 +501,11 @@ export default function Editor() {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onPointerLeave={() => { pointer.current = undefined; setBrush(undefined); if (!drag) setHover({}); }}
+        onDoubleClick={(e) => {
+          // With Select, double-click an atom to type its label (other tools would draw on each click).
+          const t = hitIn(doc, toDoc(e.clientX, e.clientY));
+          if (tool === "select" && t.atom !== undefined) editLabel(t.atom);
+        }}
       >
         <g transform={`translate(${view.x} ${view.y}) scale(${view.zoom})`}>
           {/* One group with one opacity, so overlapping marks don't stack up darker. */}
@@ -520,6 +534,29 @@ export default function Editor() {
           {drag?.kind === "move" && drag.point && <circle className="snap-point" cx={drag.point[0] * L} cy={-drag.point[1] * L} r={0.22 * L} vectorEffect="non-scaling-stroke" />}
         </g>
       </svg>
+      {editing && doc.atoms[editing.atom] && (() => {
+        // The label box sits on the atom, in the label font at the current zoom.
+        const [ax, ay] = pos(doc, editing.atom);
+        const commit = () => { set(setLabel(doc, editing.atom, editing.value)); setEditing(undefined); };
+        return (
+          <input
+            className="label-box"
+            data-theme="light"
+            aria-label="Atom label"
+            autoFocus
+            spellCheck={false}
+            value={editing.value}
+            style={{ left: view.x + ax * L * view.zoom, top: view.y - ay * L * view.zoom, fontSize: STYLE.size * view.zoom }}
+            onChange={(e) => setEditing({ ...editing, value: e.target.value })}
+            onFocus={(e) => e.target.select()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commit();
+              if (e.key === "Escape") setEditing(undefined);
+            }}
+            onBlur={commit}
+          />
+        );
+      })()}
       {pop && <span key={pop.n} className="halo" style={{ left: pop.x, top: pop.y }} aria-hidden />}
 
       <Palette
@@ -533,6 +570,8 @@ export default function Editor() {
         onVariant={(t, kind) => setSettings((s) => ({ ...s, variants: { ...s.variants, [t]: kind } }))}
         onUndo={() => undo()}
         onRedo={() => undo(true)}
+        stripWidths={settings.strips}
+        onStripWidth={(t, width) => setSettings((s) => ({ ...s, strips: { ...s.strips, [t]: width } }))}
       />
 
       {!doc.atoms.length && (

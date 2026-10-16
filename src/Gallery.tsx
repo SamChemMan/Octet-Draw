@@ -16,13 +16,22 @@ const GALLERY: [string, string][] = [
 ];
 const ZOOM = 2;
 
-function Structure({ smiles }: { smiles: string }) {
+// ?labels: written labels on benzene, on both sides (reads left to right, and reversed).
+const LABELS = ["OMe", "CO2Et", "NHBoc", "CF3", "Ph", "N(Boc)2"];
+function labelled(text: string): Mol {
+  const ring = parseStructure("c1ccccc1C.Cc1ccccc1");
+  // The two methyl carbons become the label: one on each side of its ring.
+  // Move the second copy right so the two labels have room.
+  return { ...ring, atoms: ring.atoms.map((a, i) => ({ ...a, ...(i === 6 || i === 7 ? { label: "C", text } : {}), location: [a.location[0] + (i >= 7 ? 3 : 0), a.location[1], 0] as [number, number, number] })) };
+}
+
+function Structure({ smiles, text }: { smiles: string; text?: string }) {
   const [mol, setMol] = useState<Mol>();
   const [error, setError] = useState<string>();
 
   useEffect(() => {
-    ready.then(() => setMol(parseStructure(smiles))).catch((e) => setError(String(e)));
-  }, [smiles]);
+    ready.then(() => setMol(text ? labelled(text) : parseStructure(smiles))).catch((e) => setError(String(e)));
+  }, [smiles, text]);
 
   if (error) return <p>{error}</p>;
   if (!mol) return <p>Loading Indigo…</p>;
@@ -41,14 +50,14 @@ function Structure({ smiles }: { smiles: string }) {
   );
 }
 
-export default function Gallery({ smiles }: { smiles?: string }) {
-  const items = smiles ? [["", smiles]] : GALLERY;
+export default function Gallery({ smiles, labels }: { smiles?: string; labels?: boolean }) {
+  const items = labels ? LABELS.map((t) => [t, ""]) : smiles ? [["", smiles]] : GALLERY;
   return (
     // data-theme="light": the canvas stays white in dark mode, for print fidelity.
     <main data-theme="light" style={{ minHeight: "100vh", background: "var(--canvas)", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 32, padding: 32, boxSizing: "border-box" }}>
       {items.map(([name, s]) => (
-        <figure key={s} style={{ margin: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-          <Structure smiles={s} />
+        <figure key={name || s} style={{ margin: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+          <Structure smiles={s} text={labels ? name : undefined} />
           {name && <figcaption className="text-caption" style={{ color: "var(--ink-muted)", maxWidth: 240, textAlign: "center" }}>{name}</figcaption>}
         </figure>
       ))}

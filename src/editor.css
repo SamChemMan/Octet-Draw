@@ -97,6 +97,23 @@ circle.mark {
   stroke-width: 1;
 }
 
+/* Typing an atom label: a small box centred on the atom, in the label font. */
+.label-box {
+  position: absolute;
+  width: 7em;
+  padding: 1px 4px;
+  transform: translate(-50%, -50%);
+  font-family: var(--atom-label-font);
+  color: var(--ink);
+  background: var(--canvas);
+  border: 1px solid var(--brand-bright);
+  border-radius: var(--radius-xs);
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* The ring that pops at the pointer when a hold switches to Select. */
 .halo {
   position: fixed;
@@ -134,6 +151,7 @@ circle.mark {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-float);
   isolation: isolate;
+  z-index: 1; /* above the canvas hint and notices */
 }
 
 /* The active tool's background slides between tools, so a switch reads as one move. */
@@ -191,9 +209,11 @@ circle.mark {
   position: absolute;
   top: calc(-1 * var(--space-1) - 1px);
   left: calc(100% + var(--space-3));
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 2px;
   padding: var(--space-1);
+  box-sizing: border-box;
   background: var(--surface-raised);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-md);
@@ -209,22 +229,44 @@ circle.mark {
   }
 }
 
+/* Each option: its icon, then its full name on one line. */
 .variant {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 2px;
-  width: 64px;
-  padding: var(--space-1) 2px;
+  gap: var(--space-2);
+  min-width: 0;
+  height: 36px;
+  padding: 0 var(--space-2);
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink-muted);
+  text-align: left;
+}
+.variant > svg {
+  flex: none;
 }
 .variant-name {
-  font-size: 11px;
-  line-height: 14px;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 18px;
   white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Corner grip for resizing a strip. */
+.grip {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 12px;
+  height: 12px;
+  cursor: nwse-resize;
+  background:
+    linear-gradient(135deg, transparent 55%, var(--outline) 55%, var(--outline) 62%, transparent 62%),
+    linear-gradient(135deg, transparent 75%, var(--outline) 75%, var(--outline) 82%, transparent 82%);
+  border-bottom-right-radius: var(--radius-md);
+  touch-action: none;
 }
 @media (hover: hover) and (pointer: fine) {
   .variant:hover {

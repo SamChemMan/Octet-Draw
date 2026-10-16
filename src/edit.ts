@@ -1,6 +1,7 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
 import type { Atom, Bond, Mol } from "./render.ts";
+import { anchorElement, isElement } from "./labels.ts";
 
 export type P = [number, number];
 export const EMPTY: Mol = { atoms: [], bonds: [] };
@@ -129,7 +130,15 @@ export function chainTo(m: Mol, from: number | P, q: P): { mol: Mol; bonds: numb
 const setAtom = (m: Mol, i: number, change: Partial<Atom>): Mol => ({ ...m, atoms: m.atoms.map((a, k) => (k === i ? { ...a, ...change } : a)) });
 const setBondAt = (m: Mol, i: number, change: Partial<Bond>): Mol => ({ ...m, bonds: m.bonds.map((b, k) => (k === i ? { ...b, ...change } : b)) });
 
-export const setElement = (m: Mol, i: number, label: string) => setAtom(m, i, { label });
+export const setElement = (m: Mol, i: number, label: string) => setAtom(m, i, { label, text: undefined });
+// Sets what an atom reads as. One element symbol makes it that element; anything else (OMe, CO2Et, Ph) is a
+// written label attached through its first element, or through carbon for a group. Empty text clears it to carbon.
+export function setLabel(m: Mol, i: number, text: string): Mol {
+  const t = text.trim();
+  if (!t) return setElement(m, i, "C");
+  if (isElement(t)) return setElement(m, i, t);
+  return setAtom(m, i, { label: anchorElement(t) ?? "C", text: t });
+}
 export const addCharge = (m: Mol, i: number, delta: number) => setAtom(m, i, { charge: (m.atoms[i].charge ?? 0) + delta || undefined });
 // Single, then double, then triple, then single again. A wedge or hash becomes a plain double.
 const respec = (m: Mol, i: number, spec: BondSpec): Mol => ({ ...m, bonds: m.bonds.map((b, k) => (k === i ? makeBond(b.atoms, spec) : b)) });
@@ -362,7 +371,7 @@ export function rotateAtoms(m: Mol, ids: Set<number>, degrees: number): Mol {
 
 // Chair cyclohexane, drawn the textbook way: a 3D chair (bonds of length 1) seen from just above its mean plane,
 // scaled so the drawn bonds average one bond length. Chair 2 is chair 1 turned upside down.
-function chairPoints(which: 1 | 2): P[] {
+export function chairPoints(which: 1 | 2): P[] {
   const R = Math.sqrt(0.75), h = 0.25, e = 30 * deg;
   const pts: P[] = Array.from({ length: 6 }, (_, k) => {
     const t = (k * 60) * deg, z = (k % 2 ? h : -h) * (which === 1 ? 1 : -1);

@@ -2,7 +2,7 @@
 // Click an active tool again (or press and hold any tool) to open its strip; press, slide and release also works.
 import { useEffect, useRef, useState } from "react";
 import { ArrowClockwise, ArrowCounterClockwise, Eraser, Lasso, Selection } from "@phosphor-icons/react";
-import type { BondSpec } from "./edit";
+import { chairPoints, type BondSpec } from "./edit";
 
 export type Tool = "select" | "bond" | "chain" | "ring" | "erase";
 
@@ -85,10 +85,12 @@ export function BondGlyph({ kind }: { kind: BondKind }) {
 
 export function RingGlyph({ kind }: { kind: RingKind }) {
   if (kind === "chair1" || kind === "chair2") {
-    // A chair, flipped for the second orientation.
-    const pts = [[28, 150], [92, 112], [148, 136], [228, 98], [164, 140], [108, 116]];
-    const shown = kind === "chair1" ? pts : pts.map(([x, y]) => [x, 248 - y]);
-    return <Icon><polygon points={shown.map((p) => p.join(",")).join(" ")} /></Icon>;
+    // The real chair the tool draws, scaled to fill the icon (y flipped: the drawing's y points up).
+    const pts = chairPoints(kind === "chair1" ? 1 : 2);
+    const xs = pts.map((p) => p[0]), ys = pts.map((p) => -p[1]);
+    const k = 200 / Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+    const cx = (Math.max(...xs) + Math.min(...xs)) / 2, cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+    return <Icon><polygon points={pts.map(([x, y]) => `${128 + (x - cx) * k},${128 + (-y - cy) * k}`).join(" ")} /></Icon>;
   }
   const { n, aromatic } = RINGS[kind], c = 128, r = 92;
   const pts = Array.from({ length: n }, (_, k) => [c + r * Math.sin((2 * Math.PI * k) / n), c - r * Math.cos((2 * Math.PI * k) / n)]);
@@ -115,11 +117,19 @@ type PaletteProps = {
   onVariant: (t: "select" | "bond" | "ring", kind: string) => void;
   onUndo: () => void;
   onRedo: () => void;
+  stripWidths: Partial<Record<Tool, number>>; // widths the user dragged each strip to
+  onStripWidth: (t: Tool, width: number) => void;
 };
 
+// Strip options sit in a grid: two columns by default, more or fewer as the strip is resized.
+const CELL = 150, GAP = 2, PAD = 4;
+const widthFor = (columns: number) => columns * CELL + (columns - 1) * GAP + 2 * PAD + 2;
+
 export function Palette(p: PaletteProps) {
-  const [open, setOpen] = useState<Tool>();
+  // ?strip=ring opens a strip on load (dev only, for checking its layout).
+  const [open, setOpen] = useState<Tool | undefined>(() => (new URLSearchParams(location.search).get("strip") as Tool) ?? undefined);
   const [held, setHeld] = useState(false); // the strip was opened by a press that is still down
+  const [dragWidth, setDragWidth] = useState<number>(); // live width while the corner grip is dragged
   const timer = useRef<number>(undefined);
   const nav = useRef<HTMLElement>(null);
 
@@ -146,7 +156,7 @@ export function Palette(p: PaletteProps) {
   return (
     <nav ref={nav} className="palette" aria-label="Tools">
       <span className="indicator" style={{ transform: `translateY(${active * 36}px)` }} aria-hidden />
-      {tools.map((t, i) => {
+      {tools.map((t) => {
         const strip = STRIPS[t.id];
         return (
           <div key={t.id} className="slot">
@@ -177,7 +187,13 @@ export function Palette(p: PaletteProps) {
               {strip && <span className="more" aria-hidden />}
             </button>
             {strip && open === t.id && (
-              <div className="strip" role="menu" aria-label={`${t.name} options`} style={{ top: i * 36 }} onPointerUp={() => setHeld(false)}>
+              <div
+                className="strip"
+                role="menu"
+                aria-label={`${t.name} options`}
+                style={{ width: dragWidth ?? p.stripWidths[t.id] ?? widthFor(2) }}
+                onPointerUp={() => setHeld(false)}
+              >
                 {strip.map((kind) => {
                   const current = p.variants[t.id as keyof Variants] === kind;
                   const name = t.id === "bond" ? BONDS[kind as BondKind].name : t.id === "ring" ? RINGS[kind as RingKind].name : SELECTS[kind as SelectKind].name;
@@ -196,6 +212,29 @@ export function Palette(p: PaletteProps) {
                     </button>
                   );
                 })}
+                <span
+                  className="grip"
+                  role="separator"
+                  aria-label="Drag to resize"
+                  title="Drag to resize"
+                  onPointerDown={(e) => {
+                    // Drag the corner: the strip's width snaps to whole columns, from one to all of them.
+                    e.preventDefault();
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    const startX = e.clientX, start = p.stripWidths[t.id] ?? widthFor(2), most = widthFor(strip.length);
+                    let width = start;
+                    const move = (ev: PointerEvent) => { width = Math.min(most, Math.max(widthFor(1), start + ev.clientX - startX)); setDragWidth(width); };
+                    const up = () => {
+                      removeEventListener("pointermove", move);
+                      removeEventListener("pointerup", up);
+                      const columns = Math.max(1, Math.round((width - 2 * PAD - 2 + GAP) / (CELL + GAP)));
+                      p.onStripWidth(t.id, widthFor(columns));
+                      setDragWidth(undefined);
+                    };
+                    addEventListener("pointermove", move);
+                    addEventListener("pointerup", up);
+                  }}
+                />
               </div>
             )}
           </div>

@@ -6,8 +6,11 @@
 // - Terminal double bonds (C=O) are centred and run on until they meet the neighbouring bonds.
 // - Labels are anchored on the advance centre and half the ink height of their first glyph.
 
+import { units } from "./labels.ts";
+
 type P = [number, number];
-export type Atom = { label: string; location: [number, number, number]; charge?: number; implicitHCount?: number };
+// text: a label that is not one element (OMe, CO2Et, Ph). label then holds the element it attaches through.
+export type Atom = { label: string; location: [number, number, number]; charge?: number; implicitHCount?: number; text?: string };
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow";
 // position: where a double bond's second line goes, looking from atoms[0] to atoms[1]; unset means automatic.
@@ -102,7 +105,7 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
   const dir = (i: number, j: number) => unit(sub(pts[j], pts[i]));
 
   // Labels. Heteroatoms and lone carbons get one; skeletal carbons don't, even when charged.
-  const labelled = mol.atoms.map((a, i) => a.label !== 'C' || !deg(i));
+  const labelled = mol.atoms.map((a, i) => a.label !== 'C' || !deg(i) || !!a.text);
   const labels: Label[] = [];
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
   const shapes: P[][] = mol.atoms.map((a, i) => {
@@ -123,6 +126,26 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
       for (const [px, py] of measure(text).outline) shape.push([x + px * f, y + py * f]);
     };
     const [x, y] = pts[i];
+    // Which way the label reads: away from the bonds. Bonds on the right (within 70° of horizontal) reverse it.
+    const v = nbrs[i].reduce<P>((acc, j) => add(acc, dir(i, j)), [0, 0]);
+    const steep = len(v) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180);
+    if (a.text) {
+      // A written label: units in order, reversed when it reads right to left (OMe as MeO). The attaching
+      // unit's first glyph sits centred on the atom.
+      const us = units(a.text), reversed = deg(i) > 0 && !steep && v[0] > 1e-6;
+      const width = (u: (typeof us)[number]) => measure(u.text).width + (u.count ? measure(u.count).width * SUB : 0);
+      const first = measure(us[0].text[0]), base = y + first.ascent / 2;
+      const order = reversed ? [...us].reverse() : us;
+      let cx = x - first.width / 2 - (reversed ? order.slice(0, -1).reduce((w, u) => w + width(u), 0) : 0);
+      for (const u of order) {
+        run(u.text, cx, base);
+        if (u.count) run(u.count, cx + measure(u.text).width, base + DROP * s.size, SUB);
+        cx += width(u);
+      }
+      const right = reversed ? x - first.width / 2 + width(us[0]) : cx;
+      if (a.charge) run(sign(a.charge), right, base - RISE * s.size, SUB);
+      return shape;
+    }
     const first = measure(a.label[0]);
     const ox = x - first.width / 2, base = y + first.ascent / 2;
     run(a.label, ox, base);
@@ -135,8 +158,6 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
     let end = ox + measure(a.label).width; // the charge goes here
     if (h) {
       // Sum of the bond directions: within 70° of horizontal, H goes on the far side; steeper, H stacks (indole NH).
-      const v = nbrs[i].reduce<P>((acc, j) => add(acc, dir(i, j)), [0, 0]);
-      const steep = len(v) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180);
       if (deg(i) ? !steep && v[0] > 1e-6 : H_FIRST.has(a.label)) hs(ox - hW - cW, base); // HO, H2N
       else if (!steep || deg(i) < 2) { hs(end, base); end += hW + cW; } // OH, NH2
       else { const pitch = 1.1 * measure('H').ascent; hs(x - hW / 2, base + (v[1] > 0 ? -pitch : pitch)); }

@@ -77,3 +77,19 @@ const cation = render({
 assert.deepEqual(cation.labels.map((l) => l.text), ["+"]);
 assert.equal(cation.polygons.filter((poly) => has(poly, [0, 0])).length, 3, "charged carbon keeps its fan");
 console.log("render.check: carbocation ok");
+
+// Written labels read away from their bond: OMe on a bond from the left reads OMe; from the right, MeO.
+const methoxy = (fromRight: boolean) => render({
+  atoms: [{ label: "C", location: [fromRight ? 1 : 0, 0, 0] }, { label: "O", text: "OMe", location: [fromRight ? 0 : 1, 0, 0] }],
+  bonds: [{ type: 1, atoms: [0, 1] }],
+}, S, ink);
+assert.deepEqual(methoxy(false).labels.map((l) => l.text), ["O", "Me"]);
+assert.deepEqual(methoxy(true).labels.map((l) => l.text), ["Me", "O"]);
+// CO2Et from the right reads EtO2C, with the 2 as a subscript.
+const ester = render({
+  atoms: [{ label: "C", location: [1, 0, 0] }, { label: "C", text: "CO2Et", location: [0, 0, 0] }],
+  bonds: [{ type: 1, atoms: [0, 1] }],
+}, S, ink);
+assert.deepEqual(ester.labels.map((l) => l.text), ["Et", "O", "2", "C"]);
+assert.ok(ester.labels[2].size < ester.labels[1].size, "2 is a subscript");
+console.log("render.check: written labels ok");
