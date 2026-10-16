@@ -7,7 +7,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { analyse, structures, expandWithOrigins, stereoLabels, type Structure, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
+import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, toMoleculeCdxml, type Structure, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
 import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, FONTS, type DocStyle, type PageName } from "./docstyle";
 import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
@@ -25,6 +25,8 @@ import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { acsText, multiplicity, quality } from "./nmr";
 import { nmrReady, predict, type Nucleus } from "./nmr";
 import { rings } from "./rings";
+import { flushSync } from "react-dom";
+import { copyToClipboard, exportFile, readClipboard, standaloneSvg, UI } from "./export";
 import { formatAmount, formulaWeight, parseAmount, solve, type Field } from "./stoich";
 import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
@@ -372,6 +374,44 @@ export default function Editor() {
   const name = file.path?.split(/[\\/]/).pop()?.replace(/\.octet$/, "") ?? "Untitled";
   useEffect(() => { if (TAURI) getCurrentWindow().setTitle(dirty ? `${name} (edited)` : name); }, [name, dirty]);
 
+  // A picture of part of the drawing (or all of it) as a standalone SVG at true size: the canvas shows only that part
+  // for a moment (nothing is painted in between), and the picture is cut to the ink of what it draws.
+  function pictureOf(part: Mol): string | undefined {
+    const canvas = svg.current;
+    if (!canvas) return undefined;
+    flushSync(() => setExporting(part));
+    try {
+      const world = canvas.querySelector<SVGGElement>("#world"), inv = world?.getCTM()?.inverse();
+      if (!world || !inv) return undefined;
+      let box: [number, number, number, number] | undefined;
+      for (const el of world.querySelectorAll<SVGGraphicsElement>("path, polygon, polyline, line, rect, circle, ellipse, text, image, use")) {
+        if (el.closest(UI)) continue;
+        const b = el.getBBox(), m = el.getCTM();
+        if ((!b.width && !b.height) || !m) continue;
+        for (const [x, y] of [[b.x, b.y], [b.x + b.width, b.y], [b.x, b.y + b.height], [b.x + b.width, b.y + b.height]]) {
+          const q = new DOMPoint(x, y).matrixTransform(inv.multiply(m));
+          box = box ? [Math.min(box[0], q.x), Math.min(box[1], q.y), Math.max(box[2], q.x), Math.max(box[3], q.y)] : [q.x, q.y, q.x, q.y];
+        }
+      }
+      return box && standaloneSvg(canvas, box, 1 / pt);
+    } finally {
+      flushSync(() => setExporting(undefined));
+    }
+  }
+  // What other programs read: the molecules as a molfile and SMILES, and CDXML; undefined where Indigo cannot write them.
+  const chemistryOf = (part: Mol) => {
+    const tryIt = (f: () => string) => { try { return part.atoms.length && loaded ? f() || undefined : undefined; } catch { return undefined; } };
+    return { molfile: tryIt(() => toMolfile(part)), smiles: tryIt(() => toSmiles(part)), cdxml: tryIt(() => toMoleculeCdxml(part)) };
+  };
+  // File > Export… (⌃⌘E): the whole drawing as PDF (with its CDXML inside), SVG, PNG, CDXML, MOL, SDF or SMILES.
+  async function exportDrawing() {
+    const svgText = pictureOf(doc), c = chemistryOf(doc);
+    try {
+      await exportFile({ name, svg: svgText, cdxml: c.cdxml, molfile: c.molfile, sdf: c.molfile ? `${c.molfile.trimEnd()}\n$$$$\n` : undefined, smiles: c.smiles });
+    } catch (e) {
+      setNotice(`Octet cannot export this drawing. ${e}`);
+    }
+  }
   async function save(as: boolean) {
     try {
       const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), contents: serialize(doc) });
@@ -543,6 +583,7 @@ export default function Editor() {
     zoom_out: () => zoomTo(view.zoom / 1.25),
     zoom_actual: () => zoomTo(1 / frame.k),
     actions: () => setSettings((s) => ({ ...s, actions: !s.actions })),
+    export: () => void exportDrawing(),
     properties: () => setSettings((s) => ({ ...s, properties: !s.properties })),
     predict_1h: () => openSpectrum("1H"),
     // Show Stereochemistry (Object menu): on or off for the selected structures, or every structure.
@@ -614,7 +655,10 @@ export default function Editor() {
   // Screen (px from the window's top left) to drawing coordinates (bond lengths, y up).
   const toDoc = (sx: number, sy: number): P => [(sx - view.x) / (view.zoom * L), -(sy - view.y) / (view.zoom * L)];
 
+  // A part of the drawing shown alone for a moment, to take its picture (copy and export).
+  const [exporting, setExporting] = useState<Mol>();
   const shown = useMemo(() => {
+    if (exporting) return exporting;
     if (drag?.kind === "bond" && drag.to) return bondTo(doc, drag.from, drag.to, bondSpec);
     if (drag?.kind === "chain" && drag.to) return chainTo(doc, drag.from, drag.to).mol;
     if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "tableedge") return drag.working;
@@ -1798,7 +1842,7 @@ export default function Editor() {
   const nmrMarks = new Set(nmr && nmrPoint ? nmrPoint.map((k) => nmr.toDoc[k]) : []);
   // Each drawn atom's predicted shifts, shown beside it while the panel is open.
   const nmrShifts = new Map<number, number[]>(), nmrQuality = new Map<number, string>();
-  const stereo = useMemo(() => (loaded && doc.atoms.some((a) => a.cip) ? stereoLabels(doc) : undefined), [loaded, doc]);
+  const stereo = useMemo(() => { const m = exporting ?? doc; return loaded && m.atoms.some((a) => a.cip) ? stereoLabels(m) : undefined; }, [loaded, doc, exporting]);
   const ringsOf = useMemo(() => (spectrum || doc.atoms.some((a) => a.cip) ? rings({ atoms: shown.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: shown.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) }) : []), [spectrum, shown, doc]);
   // Opening the panel scrolls the canvas up if the panel would cover the structure (again once the spectrum is in,
   // as the panel grows).
@@ -1895,7 +1939,7 @@ export default function Editor() {
   // Stoichiometry grids, each laid out under its reaction: a column under each reactant and product (text reagents
   // such as H2O too, their molar mass from the formula), the row names on the left, the amounts worked out from what
   // was typed (stoich.ts). Typed values show bold, worked-out ones plain, as ChemDraw's grid does.
-  const gridViews = useMemo(() => (loaded ? doc.grids ?? [] : []).flatMap((g) => {
+  const gridViews = useMemo(() => (loaded && !exporting ? doc.grids ?? [] : []).flatMap((g) => {
     const r = reactionOf(g.arrow);
     if (!r) return [];
     const at = r.steps.map((s, i) => (s.kind === "arrow" ? i : -1)).filter((i) => i >= 0), first = at[0], last = at[at.length - 1];
@@ -1919,7 +1963,7 @@ export default function Editor() {
     const width = 3.4, left = Math.min(...cols.map((c) => c.x)) - width / 2 - 0.3, size = style.captionSize * pt * 0.9;
     const names = Math.max(...rows.map((row) => formulaWidth(row.name, size, false, false, fontStack(style.captionFont)) / L));
     return [{ arrow: g.arrow, cols, rows, solved, limiting, top, rh, left, width, start: left - names - 0.2 }];
-  }), [loaded, doc, drawing, placed]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [loaded, doc, drawing, placed, exporting]); // eslint-disable-line react-hooks/exhaustive-deps
   type GridView = (typeof gridViews)[number];
   // A cell's text, and whether it was typed.
   const gridText = (v: GridView, c: GridView["cols"][number], row: (typeof GRID_ROWS)[number]): { text: string; typed?: boolean } => {
@@ -1988,7 +2032,7 @@ export default function Editor() {
     });
     if (m !== doc) set(m);
   }
-  const found = useMemo(() => problems(doc), [doc]);
+  const found = useMemo(() => (exporting ? [] : problems(doc)), [doc, exporting]);
   const untidy = useMemo(() => messy(doc, selection), [doc, selection]);
   // Text the panel asked to copy; the copy handler uses it instead of SMILES.
   const copyText = useRef<string>(undefined);
@@ -2543,6 +2587,32 @@ export default function Editor() {
     // Paste a SMILES string or MOL file: it goes to the right of the drawing, or in the middle of an empty canvas.
     const onPaste = (e: ClipboardEvent) => {
       if (typing()) return; // pasting into a label or caption
+      // In the app: the clipboard as Octet, ChemDraw and Office put it (Octet's own copy, then CDXML, which ChemDraw
+      // hides in its pictures and Word keeps, then a molfile, then SMILES), and the plain text last.
+      if (TAURI && !e.clipboardData?.getData(OCTET_CLIP)) {
+        const text = e.clipboardData?.getData("text/plain")?.trim();
+        e.preventDefault();
+        void readClipboard().then((clip) => {
+          if (clip.octet) {
+            let add: Mol;
+            try { add = parse(clip.octet); } catch { return setNotice("Octet cannot read what is on the clipboard."); }
+            const r = insertMol(doc, add, [0.8, -0.8]);
+            set(r.mol, true);
+            setSelection(r.atoms);
+            setPicked(r.items);
+            return;
+          }
+          for (const source of [clip.cdxml, clip.molfile, clip.smiles, text]) {
+            if (!source || !loaded) continue;
+            let frag: Mol | undefined;
+            try { frag = source === text ? parseStructure(source) : importStructure(source); } catch { frag = undefined; }
+            if (!frag?.atoms.length && source === text) frag = structureFor(source);
+            if (frag?.atoms.length) return place(frag);
+          }
+          if (text) setNotice("Octet cannot read this structure. Paste a name, a SMILES string or a MOL file.");
+        }).catch((err) => setNotice(`Octet cannot read the clipboard. ${err}`));
+        return;
+      }
       // Octet's own copy: everything that was selected, read as a hostile file is, a little down and right of where it was.
       const own = e.clipboardData?.getData(OCTET_CLIP);
       if (own) {
@@ -2580,6 +2650,15 @@ export default function Editor() {
       const part = all ? doc : extractSelection(doc, selection, picked);
       if (!part.atoms.length && !part.captions?.length && !part.arrows?.length && !part.shapes?.length) return;
       e.preventDefault();
+      // In the app: as ChemDraw copies, for Word, PowerPoint and Keynote (a vector picture at true size with the
+      // structure hidden in it, so it pastes back as a structure), then a molfile and SMILES, then Octet's own form.
+      if (TAURI) {
+        const picture = pictureOf(part), c = chemistryOf(part);
+        if (!picture) return;
+        void copyToClipboard({ svg: picture, cdxml: c.cdxml, molfile: c.molfile, smiles: c.smiles, octetJson: serialize({ ...part, style: undefined }) })
+          .catch((err) => setNotice(`Octet cannot copy this. ${err}`));
+        return;
+      }
       e.clipboardData?.setData(OCTET_CLIP, serialize({ ...part, style: undefined }));
       const text = (part.captions ?? []).map((c) => c.text).join("\n");
       try { e.clipboardData?.setData("text/plain", part.atoms.length && loaded ? toSmiles(part) : text); } catch { e.clipboardData?.setData("text/plain", text); }

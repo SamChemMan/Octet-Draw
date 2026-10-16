@@ -8,6 +8,16 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | @tauri-apps/cli | 2.12 | Apache-2.0 OR MIT | Build tool (dev only) |
 | @tauri-apps/api | 2.12 | Apache-2.0 OR MIT | Calls from the page to the app (menu, save, open) |
 | tauri-plugin-dialog (Rust) | 2.8 | Apache-2.0 OR MIT | Native Open and Save dialogs |
+| svg2pdf, pdf-writer, subsetter (Rust, typst project) | 0.13, 0.12, 0.2 | MIT OR Apache-2.0 | Vector PDF of the drawing for export and the clipboard, with font subsets and the CDXML in the PDF |
+| resvg, usvg (Rust, linebender) | 0.45 | Apache-2.0 OR MIT | Reads the drawing's SVG; draws the PNG export |
+| tiny-skia (Rust) | 0.11 | BSD-3-Clause | Raster drawing for the PNG export (used by resvg) |
+| fontdb (Rust) | 0.23 | MIT | Finds the system fonts to embed in PDFs (used by usvg) |
+| slotmap (Rust) | 1.1 | Zlib | Used by fontdb. Zlib is not on the allowed list: waiting for Sam's approval |
+| png (Rust) | 0.17 | MIT OR Apache-2.0 | Writes the PNG export with its resolution |
+| miniz_oxide (Rust) | 0.8 | MIT OR Zlib OR Apache-2.0 | Compresses and reads the CDXML stream in PDFs |
+| base64 (Rust) | 0.22 | MIT OR Apache-2.0 | ChemDraw's CDX from the clipboard, sent to the page |
+| serde (Rust) | 1 | MIT OR Apache-2.0 | Export and paste data between the page and the app |
+| objc2, objc2-foundation, objc2-app-kit (Rust) | 0.6, 0.3, 0.3 | MIT; MIT; Zlib OR Apache-2.0 OR MIT | The macOS clipboard (NSPasteboard). Already used by Tauri |
 | indigo-ketcher | 1.46 | Apache-2.0 | Chemistry engine, CDX/CDXML |
 | react, react-dom | 19.3 | MIT | UI |
 | vite, @vitejs/plugin-react | 8.3, 6.1 | MIT | Bundler (dev only) |

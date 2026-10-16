@@ -11,6 +11,9 @@ use tauri::menu::{AboutMetadata, CheckMenuItem, IsMenuItem, Menu, MenuItem, Pred
 use tauri::{AppHandle, Emitter, Manager, State, Wry};
 use tauri_plugin_dialog::DialogExt;
 
+mod clipboard;
+mod export;
+
 // Files the user picked in an Open or Save dialog this session. The webview can only save to these,
 // so a compromised page can't write anywhere else.
 #[derive(Default)]
@@ -125,6 +128,8 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
         &sep()?,
         &item("save", "Save", "CmdOrCtrl+S")?,
         &item("save_as", "Save As…", "CmdOrCtrl+Shift+S")?,
+        // ChemDraw's key: ⌃⌘E.
+        &item("export", "Export…", "Ctrl+CmdOrCtrl+E")?,
         &sep()?,
         &MenuItem::with_id(app, "document", "Document Settings…", true, None::<&str>)?,
         &sep()?,
@@ -312,7 +317,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Picked::default())
-        .invoke_handler(tauri::generate_handler![open_drawing, save_drawing, set_check, set_palette, import_structure])
+        .invoke_handler(tauri::generate_handler![open_drawing, save_drawing, set_check, set_palette, import_structure, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file])
         .setup(|app| {
             let handle = app.handle();
             let (bar, checks) = menu(handle, &[])?;

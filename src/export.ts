@@ -1,0 +1,99 @@
+// Export and the Office clipboard (src-tauri/src/export.rs and clipboard.rs). standaloneSvg turns the drawing on a
+// canvas into a standalone SVG at true size; the app makes a PDF or PNG of it, puts it on the clipboard with the
+// structure, and reads structures back on paste.
+
+import { invoke } from "@tauri-apps/api/core";
+
+// Octet's own layers, not part of the drawing: page marks and grid, selection, hover, NMR shifts, problems,
+// handles, guides, the rubber band, the eraser and the rest.
+export const UI = [
+  "pages", "grid", "selection-marks", "nmr-marks", "nmr-shift", "problem-mark", "mark", "arrow-mark", "suggested",
+  "ghost", "pen-points", "mapping", "handle", "turn-handle", "turn-angle", "box", "trail", "erase-marks", "brush",
+  "count", "guide", "snap-point", "spot-picked",
+].map((c) => `.${c}`).join(",");
+
+// Inherited properties: written where an element's value differs from its parent's.
+const INHERITED = [
+  "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity", "stroke-dasharray", "stroke-dashoffset",
+  "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "paint-order", "font-family", "font-size", "font-style",
+  "font-weight", "text-anchor", "letter-spacing", "visibility",
+];
+// The rest: written where they differ from the default (as WebKit or Chromium reports it).
+const OWN: [string, string[]][] = [
+  ["opacity", ["1"]], ["stop-color", ["rgb(0, 0, 0)"]], ["stop-opacity", ["1"]], ["dominant-baseline", ["auto"]],
+  ["baseline-shift", ["baseline", "0px"]], ["text-decoration-line", ["none"]], ["filter", ["none"]], ["clip-path", ["none"]], ["mask", ["none"]],
+];
+
+// url("http://localhost/#shade3") as a standalone SVG needs it: url(#shade3).
+const local = (v: string) => v.replace(/url\(\s*(["']?)[^#"')]*#([^"')]+)\1\s*\)/g, "url(#$2)");
+
+// The drawing on `canvas` (an <svg> whose first <g> holds the drawing in px at 100%, as the editor's canvas does)
+// as a standalone SVG: only what is inside `bounds` (px, in that <g>'s frame), at true size with 1 user unit = 1 pt
+// (`ptPerPx` points per px), its edges rounded outward to whole points. Octet's own layers are left out. Colours
+// are written out as on white paper (the light theme's ink and paper), so CSS variables and classes are no longer
+// needed. Everything in the canvas inside the bounds is drawn: for a part of the drawing, pass a canvas showing
+// only that part.
+export function standaloneSvg(canvas: SVGSVGElement, bounds: [number, number, number, number], ptPerPx: number): string {
+  const [x0, y0] = [Math.floor(bounds[0] * ptPerPx), Math.floor(bounds[1] * ptPerPx)];
+  const [w, h] = [Math.max(1, Math.ceil(bounds[2] * ptPerPx) - x0), Math.max(1, Math.ceil(bounds[3] * ptPerPx) - y0)];
+  // The light theme for a moment: nothing is painted before the attributes go back.
+  const saved = ["data-theme", "class", "style"].map((a) => [a, canvas.getAttribute(a)] as const);
+  canvas.setAttribute("data-theme", "light");
+  canvas.setAttribute("class", "canvas");
+  canvas.style.removeProperty("--ink");
+  canvas.style.removeProperty("--canvas");
+  try {
+    const copy = canvas.cloneNode(true) as SVGSVGElement;
+    const live = [canvas, ...canvas.querySelectorAll("*")], out = [copy, ...copy.querySelectorAll("*")];
+    const styles = new Map<Element, CSSStyleDeclaration>();
+    const css = (el: Element) => styles.get(el) ?? styles.set(el, getComputedStyle(el)).get(el)!;
+    const drop: Element[] = [];
+    live.forEach((el, i) => {
+      const to = out[i], ui = el === canvas ? null : el.closest(UI);
+      if ((ui && canvas.contains(ui)) || /^(script|foreignObject)$/i.test(el.localName)) return void drop.push(to);
+      const s = css(el), parent = el === canvas ? undefined : css(el.parentElement!);
+      for (const k of INHERITED) {
+        const v = s.getPropertyValue(k);
+        if (v && v !== parent?.getPropertyValue(k)) to.setAttribute(k, local(v));
+      }
+      for (const [k, initial] of OWN) {
+        const v = s.getPropertyValue(k);
+        if (v && !initial.includes(v)) to.setAttribute(k === "text-decoration-line" ? "text-decoration" : k, local(v));
+      }
+      if (s.whiteSpace.startsWith("pre")) to.setAttributeNS("http://www.w3.org/XML/1998/namespace", "xml:space", "preserve");
+      for (const a of [...to.attributes]) if (/^(style|class|role|tabindex|aria-|data-|on)/i.test(a.name)) to.removeAttribute(a.name);
+    });
+    for (const el of drop) el.remove();
+    // The view's pan and zoom give way to px → pt.
+    copy.querySelector(":scope > g")?.setAttribute("transform", `scale(${+ptPerPx.toFixed(6)})`);
+    copy.setAttribute("width", `${w}pt`);
+    copy.setAttribute("height", `${h}pt`);
+    copy.setAttribute("viewBox", `${x0} ${y0} ${w} ${h}`);
+    return new XMLSerializer().serializeToString(copy);
+  } finally {
+    for (const [a, v] of saved) if (v === null) canvas.removeAttribute(a); else canvas.setAttribute(a, v);
+  }
+}
+
+// Copy: the picture (standaloneSvg of the selection) with the selection's CDXML hidden in it, then its molfile,
+// SMILES and Octet's JSON, on the clipboard as ChemDraw puts them (macOS). Call it from the copy event after
+// preventDefault(), and set nothing on clipboardData: plain text would make ChemDraw paste a caption.
+export const copyToClipboard = (c: { svg: string; cdxml?: string; molfile?: string; smiles?: string; octetJson?: string }) =>
+  invoke<void>("copy_to_clipboard", c);
+
+// What paste can use from the clipboard, each null when absent: Octet's JSON; CDXML (ChemDraw's CDXML type, or
+// hidden in a pasted picture: Octet's, ChemDraw's, or either copied back out of Word); ChemDraw's CDX as base64;
+// a molfile or RXN file; SMILES. All of it comes from another program: read it as a hostile file.
+export type Clipboard = { octet: string | null; cdxml: string | null; cdx: string | null; molfile: string | null; smiles: string | null };
+export const readClipboard = () => invoke<Clipboard>("read_clipboard");
+
+export type ExportFormat = "pdf" | "svg" | "png" | "cdxml" | "mol" | "sdf" | "smi";
+// File > Export…: the drawing in every form the page has (svg from standaloneSvg). The app asks where to save,
+// offering those formats (or only `format`), and writes the one the file name's extension asks for. The PDF
+// carries the CDXML, as on the clipboard. PNG at `dpi` of true size (300 if not given), white unless
+// `transparent`. Resolves to the path written, or null if cancelled.
+export type ExportRequest = {
+  name: string; format?: ExportFormat; svg?: string; cdxml?: string; molfile?: string; sdf?: string; smiles?: string;
+  dpi?: number; transparent?: boolean;
+};
+export const exportFile = (request: ExportRequest) => invoke<string | null>("export_file", { export: request });
