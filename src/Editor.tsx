@@ -26,6 +26,7 @@ import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { acsText, multiplicity, quality } from "./nmr";
 import { nmrReady, predict, type Nucleus } from "./nmr";
 import { rings } from "./rings";
+import { Select } from "./Select";
 import { flushSync } from "react-dom";
 import { copyToClipboard, exportFile, readClipboard, standaloneSvg, UI } from "./export";
 import { formatAmount, formulaWeight, parseAmount, solve, type Field } from "./stoich";
@@ -612,6 +613,13 @@ export default function Editor() {
     actions: () => setSettings((s) => ({ ...s, actions: !s.actions })),
     export: () => void exportDrawing(),
     print: () => void printDrawing(),
+    // Atom Properties (Structure menu): the selected atom's element or label, charge, isotope and radical.
+    atom_properties: () => {
+      const i = [...selection][0] ?? hover.atom;
+      if (i === undefined || !doc.atoms[i]) return setNotice("Pick an atom first.");
+      const a = doc.atoms[i];
+      setDialog({ kind: "atom", atom: i, element: a.text ?? a.label, charge: String(a.charge ?? 0), isotope: a.isotope ? String(a.isotope) : "", radical: String(a.radical ?? 0) });
+    },
     // Page Setup (⇧⌘P): the page's size and orientation, which live in the document's settings.
     page_setup: () => setSettingsOpen("document"),
     // Analyze Stoichiometry: a grid under the picked reaction, or off again.
@@ -779,7 +787,8 @@ export default function Editor() {
   const [settingsOpen, setSettingsOpen] = useState<ModuleId>();
   const [addingColour, setAddingColour] = useState(false); // Settings opened from a colour row's +, to add a colour
   // Object > Rotate… (⌘R) and Scale… (⌘K): the dialog open, and what is typed in it.
-  const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }>();
+  const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }
+    | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string }>();
   const [commandsOpen, setCommandsOpen] = useState(false);
   // An arrow Octet offers after a row of starting materials (from Clean up). Tab draws it; any other change drops it.
   const [offer, setOffer] = useState<{ from: P; to: P; doc: Mol }>();
@@ -3465,6 +3474,25 @@ export default function Editor() {
             <button role="radio" aria-checked={!dialog.clockwise} onClick={() => setDialog({ ...dialog, clockwise: false })}>Anticlockwise</button>
             <button role="radio" aria-checked={dialog.clockwise} onClick={() => setDialog({ ...dialog, clockwise: true })}>Clockwise</button>
           </span>
+        </Dialog>
+      )}
+      {dialog?.kind === "atom" && (
+        <Dialog title="Atom Properties" action="Apply" onClose={() => setDialog(undefined)}
+          onAction={() => {
+            const d = dialog, a = doc.atoms[d.atom];
+            if (!a) return setDialog(undefined);
+            let m = d.element.trim() && d.element.trim() !== (a.text ?? a.label) ? setLabel(doc, d.atom, d.element.trim()) : doc;
+            const charge = Math.max(-9, Math.min(9, Math.round(Number(d.charge) || 0))), isotope = Math.round(Number(d.isotope));
+            m = { ...m, atoms: m.atoms.map((x, k) => (k === d.atom ? { ...x, charge: charge || undefined, isotope: isotope >= 1 && isotope <= 300 ? isotope : undefined, radical: Number(d.radical) || undefined } : x)) };
+            set(m, true);
+            setDialog(undefined);
+          }}>
+          <label className="dialog-row"><span>Element</span><span className="unit-field text"><input aria-label="Element" value={dialog.element} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, element: e.target.value.slice(0, 40) })} /></span></label>
+          <label className="dialog-row"><span>Charge</span><span className="unit-field"><input aria-label="Charge" inputMode="numeric" value={dialog.charge} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, charge: e.target.value.replace(/[^\d+-]/g, "") })} /></span></label>
+          <label className="dialog-row"><span>Isotope</span><span className="unit-field"><input aria-label="Isotope (mass number)" inputMode="numeric" placeholder="Natural" value={dialog.isotope} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, isotope: e.target.value.replace(/\D/g, "") })} /></span></label>
+          <label className="dialog-row"><span>Radical</span>
+            <Select label="Radical" value={dialog.radical} options={[["0", "None"], ["1", "Doublet (•)"], ["2", "Triplet (••)"], ["3", "Singlet (:)"]]} onChange={(v) => setDialog({ ...dialog, radical: v })} />
+          </label>
         </Dialog>
       )}
       {dialog?.kind === "scale" && (

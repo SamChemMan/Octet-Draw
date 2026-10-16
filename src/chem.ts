@@ -72,7 +72,7 @@ function engine() {
 
 // A KET atom as Octet's: KET radicals 2 and 3 are one and two unpaired electrons.
 const atomOfKet = (a: { label: string; location: [number, number, number]; charge?: number; radical?: number }): Mol["atoms"][number] =>
-  ({ label: a.label, location: a.location, charge: a.charge, ...(a.radical && a.radical > 1 ? { radical: a.radical - 1 } : {}) });
+  ({ label: a.label, location: a.location, charge: a.charge, ...(a.radical ? { radical: a.radical === 1 ? 3 : a.radical - 1 } : {}), ...((a as { isotope?: number }).isotope ? { isotope: (a as { isotope?: number }).isotope } : {}) });
 
 // A structure file (MOL, SDF, CDXML, KET, SMILES), keeping the file's own drawing where it has one.
 // Coordinates are scaled so the median bond is one bond length; SMILES (no drawing) is laid out.
@@ -160,8 +160,8 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
 function ketOf(drawn: Mol): string {
   const mol = expandLabels(drawn);
   const bonds = mol.bonds.map(({ type, atoms, stereo }) => (stereo ? { type, atoms, stereo } : { type, atoms }));
-  // KET radicals: 2 is one unpaired electron (doublet), 3 is two (triplet).
-  const atoms = mol.atoms.map(({ label, location, charge, radical }) => ({ label, location, ...(charge ? { charge } : {}), ...(radical ? { radical: radical + 1 } : {}) }));
+  // KET radicals: 1 a singlet, 2 one unpaired electron (doublet), 3 two (triplet).
+  const atoms = mol.atoms.map(({ label, location, charge, radical, isotope }) => ({ label, location, ...(charge ? { charge } : {}), ...(radical ? { radical: radical === 3 ? 1 : radical + 1 } : {}), ...(isotope ? { isotope } : {}) }));
   return JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule", atoms, bonds } });
 }
 function convert(input: string, format: string): string {
@@ -369,7 +369,7 @@ export function analyse(mol: Mol): Analysis | undefined {
   const ind = indigo, full = expandLabels(mol), opts = new ind.MapStringString(), sel = new ind.VectorInt();
   try {
     const bonds = full.bonds.map(({ type, atoms }) => ({ type, atoms }));
-    const atoms = full.atoms.map(({ label, location, charge }) => (charge ? { label, location, charge } : { label, location }));
+    const atoms = full.atoms.map(({ label, location, charge, isotope }) => ({ label, location, ...(charge ? { charge } : {}), ...(isotope ? { isotope } : {}) }));
     const ket = JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule", atoms, bonds } });
     // Indigo reports each structure separately ("C8 H9 N O2; C4 H12 N"): one entry per structure.
     const out = JSON.parse(ind.calculate(ket, opts, sel));

@@ -1410,6 +1410,13 @@ button.variant.add {
   -webkit-user-select: text;
   user-select: text;
 }
+/* A field for text, such as an element or label. */
+.unit-field.text {
+  width: 160px;
+}
+.unit-field.text input {
+  text-align: left;
+}
 .unit-field .unit {
   margin-left: 4px;
   color: var(--ink-faint);
@@ -2830,6 +2837,10 @@ button.variant.add {
   align-items: center;
   gap: var(--space-2);
   min-height: 32px;
+}
+/* A field's name, when it leads the row, takes one width so the fields line up. */
+.dialog-row > span:first-child {
+  min-width: 56px;
 }
 .dialog-buttons {
   display: flex;
