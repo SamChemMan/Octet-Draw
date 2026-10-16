@@ -26,11 +26,12 @@ export type Context =
       script?: "sub" | "super"; font?: string; fonts?: string[] }
   | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
       heads: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string }
-  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; grid: boolean; shade: { depth: number; blur: number; opacity: number; pt: number } }
+  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; grid: boolean; hide?: string[]; shade: { depth: number; blur: number; opacity: number; pt: number } }
   | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean }
   | { kind: "atom"; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string }
-  | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean };
+  | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean }
+  | { kind: "spot"; style: "filled" | "hollow" | "shaded"; w: number; h: number; tail: number; rf: boolean; pt: number };
 
 type Props = {
   open: boolean;
@@ -164,6 +165,16 @@ export function Slider({ name, value, min, max, step, show, onChange }: { name: 
   );
 }
 
+// A TLC spot in its style: filled, hollow, or shaded and lit from the top left.
+function SpotGlyph({ style }: { style: "filled" | "hollow" | "shaded" }) {
+  return (
+    <svg width={20} height={20} viewBox="0 0 256 256" aria-hidden>
+      {style === "shaded" && <defs><radialGradient id="spot-glyph" cx="0.36" cy="0.32" r="0.75"><stop offset="0" stopColor="var(--surface-raised)" /><stop offset="1" stopColor="currentColor" /></radialGradient></defs>}
+      <ellipse cx={128} cy={128} rx={88} ry={52} fill={style === "hollow" ? "none" : style === "shaded" ? "url(#spot-glyph)" : "currentColor"} stroke="currentColor" strokeWidth={style === "hollow" ? 16 : 0} />
+    </svg>
+  );
+}
+
 // small: shown as a small button by default (the user can drag it into the rows, and any row out of them).
 export type Item = { icon: React.ReactNode; name: string; command: string; accent?: boolean; small?: boolean };
 
@@ -231,8 +242,12 @@ export function actionItems(context: Context, messy: boolean): Item[] {
       break;
     case "shape":
       if (context.shape === "tlc") {
+        const hidden = (k: string) => context.hide?.includes(k);
         items.push(it(<Plus size={18} />, "Add a lane", "shape.lanes.1"), it(<Minus size={18} />, "Remove a lane", "shape.lanes.-1"),
-          it(<span className="glyph-text">Rf</span>, context.rf ? "Hide Rf values" : "Show Rf values", "shape.rf"), del);
+          it(<span className="glyph-text">Rf</span>, context.rf ? "Hide Rf values" : "Show Rf values", "shape.rf"),
+          small(it(<Minus size={18} />, hidden("origin") ? "Show the origin" : "Hide the origin", "shape.hide.origin")),
+          small(it(<LineSegments size={18} />, hidden("front") ? "Show the solvent front" : "Hide the solvent front", "shape.hide.front")),
+          small(it(<Square size={18} />, hidden("border") ? "Show the border" : "Hide the border", "shape.hide.border")), del);
         break;
       }
       if (context.shape === "table") {
@@ -243,6 +258,9 @@ export function actionItems(context: Context, messy: boolean): Item[] {
       }
       if (isBracket({ kind: context.shape })) items.push(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed"));
       items.push(small(it(<StackSimple size={18} />, "Bring to front", "shape.front")), small(it(<Stack size={18} />, "Send to back", "shape.back")), del);
+      break;
+    case "spot":
+      items.push(it(<span className="glyph-text">Rf</span>, context.rf ? "Hide its Rf" : "Show its Rf", "spot.rf"), del);
       break;
     case "arrow":
       if (context.arrow === "orbital") { items.push(it(<ArrowsLeftRight size={18} />, "Swap the phases", "orbital.swap"), del); break; }
@@ -317,6 +335,7 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
       : context.arrow === "curve" ? "Curve" : context.arrow === "arc" ? "Arc" : context.arrow === "line" ? "Line" : "Arrow",
     cycle: "Catalytic cycle",
     reaction: context.kind === "reaction" && context.steps > 1 ? `${context.steps}-step reaction` : "Reaction",
+    spot: "TLC spot",
     shape: context.kind === "shape" && context.count > 1 ? `${context.count} shapes` : context.kind === "shape" ? SHAPES[context.shape] : "Shape",
     line: "Line",
   }[context.kind];
@@ -523,6 +542,24 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
           </div>
         );
       })()}
+      {(context.kind === "spot" || (context.kind === "shape" && context.shape === "tlc")) && (
+        // A spot's style (or every spot's, from the plate), each drawn as a spot.
+        <div className="chips arrows" role="group" aria-label="Spot">
+          {(["filled", "hollow", "shaded"] as const).map((st) => (
+            <button key={st} className="chip" aria-pressed={context.kind === "spot" && context.style === st} aria-label={`${st[0].toUpperCase()}${st.slice(1)} spot${context.kind === "spot" ? "" : "s"}`} title={`${st[0].toUpperCase()}${st.slice(1)} spot${context.kind === "spot" ? "" : "s"}`}
+              onClick={() => run(context.kind === "spot" ? `spot.style.${st}` : `shape.spots.${st}`)}>
+              <SpotGlyph style={st} />
+            </button>
+          ))}
+        </div>
+      )}
+      {context.kind === "spot" && (
+        <div className="sliders" role="group" aria-label="Size">
+          <Slider name="Width" value={context.w} min={0.04} max={1} step={0.01} show={(v) => `${(v * 2 * context.pt).toFixed(1)} pt`} onChange={(v) => run(`spot.w.${Math.round(v * 100)}`)} />
+          <Slider name="Height" value={context.h} min={0.04} max={1} step={0.01} show={(v) => `${(v * 2 * context.pt).toFixed(1)} pt`} onChange={(v) => run(`spot.h.${Math.round(v * 100)}`)} />
+          <Slider name="Tail" value={context.tail} min={0} max={2} step={0.01} show={(v) => `${(v * context.pt).toFixed(1)} pt`} onChange={(v) => run(`spot.tail.${Math.round(v * 100)}`)} />
+        </div>
+      )}
       {context.kind === "shape" && context.style === "shadow" && (
         // The shadow's depth (how far it falls), softness and opacity, each on a slider.
         <div className="sliders" role="group" aria-label="Shadow">

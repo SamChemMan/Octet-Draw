@@ -31,7 +31,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, Palette, RingGlyph, RINGS, SELECTS, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, tlcLayout, tableLayout, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, orbitalPaths, straightArrow, shapeInk, shapePaths, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, type Arrow, type ArrowKind, type Box, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind } from "./render";
+import { arrowPath, arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, orbitalPaths, straightArrow, shapeInk, shapePaths, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, type Arrow, type ArrowKind, type Box, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
 import { loadNames, nameToSmiles, suggestName } from "./names";
 import { checkedName, setNamer } from "./naming";
@@ -107,6 +107,9 @@ type Drag =
   | { kind: "pen"; at: P; start: [number, number]; out?: P }
   // Structure Perspective: tilting atoms through 3D from where they were (base), about their centre, or turning part
   // of a structure about the bond that joins it to the rest (hinge: [inside atom, outside atom]).
+  // TLC: a spot moved (lane and Rf) or sized (Shift: width across, height up, tail down), or the origin or front moved.
+  | { kind: "spot"; plate: number; index: number; base: Mol; from: P; size: boolean; moved: boolean; working: Mol }
+  | { kind: "tlcline"; plate: number; which: "origin" | "front"; base: Mol; working: Mol }
   | { kind: "tilt"; base: Mol; ids: Set<number>; centre: [number, number, number]; start: [number, number]; hinge?: [number, number]; working: Mol }
   // Mapping one atom to another with the Atom map tool: from the atom pressed to the pointer.
   | { kind: "map"; atom: number; start: [number, number]; to?: P }
@@ -568,7 +571,7 @@ export default function Editor() {
   const shown = useMemo(() => {
     if (drag?.kind === "bond" && drag.to) return bondTo(doc, drag.from, drag.to, bondSpec);
     if (drag?.kind === "chain" && drag.to) return chainTo(doc, drag.from, drag.to).mol;
-    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "tilt") return drag.working;
+    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline") return drag.working;
     if (drag?.kind === "arrow" && drag.to) return addArrow(doc, newArrow(drag.from, drag.to, drag.side, drag.make))[0];
     if (drag?.kind === "shape" && drag.to) { const sh = shapeFrom(drag.from, drag.to); return sh ? addShape(doc, sh)[0] : doc; }
     if (pen || drag?.kind === "pen") {
@@ -739,13 +742,45 @@ export default function Editor() {
   // The TLC plate a point is on, and a click on it: a spot in that lane at that height, or off again if one is there.
   const plateAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => sh.kind === "tlc"
     && p[0] >= Math.min(sh.from[0], sh.to[0]) && p[0] <= Math.max(sh.from[0], sh.to[0]) && p[1] >= Math.min(sh.from[1], sh.to[1]) && p[1] <= Math.max(sh.from[1], sh.to[1]));
-  const spotAt = (sh: Shape, p: P) => {
-    const t = tlcLayout(sh), lane = Math.min(t.lanes - 1, Math.max(0, Math.floor((p[0] - t.x0) / t.width)));
-    const rf = Math.round(Math.min(1, Math.max(0, (p[1] - t.origin) / (t.front - t.origin))) * 100) / 100;
-    const spots = sh.tlc?.spots ?? [], hit = spots.findIndex((x) => x.lane === lane && Math.abs(x.rf - rf) < 0.06);
-    set(updateShape(doc, sh.id, { tlc: { ...sh.tlc!, spots: hit >= 0 ? spots.filter((_, i) => i !== hit) : [...spots, { lane, rf }] } }));
+  // TLC plates, as ChemDraw's TLC tool: the spot or line under a point, and a press on the plate. A press on a spot
+  // drags it (Option: a copy of it; Shift: its size); on the origin or front, moves that line; anywhere else on the
+  // plate, adds a spot there. A spot pressed and not moved is picked, for its colour, style and size.
+  const [spotPick, setSpotPick] = useState<{ plate: number; index: number }>();
+  // A spot is hit within 4 px of its edge (its tail included), the nearest one first.
+  const spotHit = (sh: Shape, p: P) => {
+    const t = tlcLayout(sh), slack = 4 / (view.zoom * L);
+    const fit = (sh.tlc?.spots ?? []).map((x, i) => {
+      const { rx, ry } = t.size(x), dx = (p[0] - t.lane(x.lane)) / (rx + slack), dy = p[1] - t.at(x.rf), below = dy < 0 ? Math.max(0, -dy - (x.tail ?? 0)) : dy;
+      return { i, d: Math.hypot(dx, below / (ry + slack)) };
+    }).filter((f) => f.d <= 1).sort((p1, q) => p1.d - q.d);
+    return fit[0]?.i ?? -1;
+  };
+  const lineHit = (sh: Shape, p: P): "origin" | "front" | undefined => {
+    const t = tlcLayout(sh), near = 5 / (view.zoom * L);
+    return Math.abs(p[1] - t.origin) < near ? "origin" : Math.abs(p[1] - t.front) < near ? "front" : undefined;
+  };
+  const spotAt = (sh: Shape, p: P, screen: [number, number], copy: boolean, size: boolean) => {
     setSelection(new Set());
     setPicked(new Set([sh.id]));
+    const t = tlcLayout(sh), spots = sh.tlc?.spots ?? [], hit = spotHit(sh, p);
+    if (hit >= 0) {
+      const base = copy ? updateShape(doc, sh.id, { tlc: { ...sh.tlc!, spots: [...spots, { ...spots[hit] }] } }) : doc;
+      return setDrag({ kind: "spot", plate: sh.id, index: copy ? spots.length : hit, base, from: p, size, moved: false, working: base });
+    }
+    const line = lineHit(sh, p);
+    if (line) return setDrag({ kind: "tlcline", plate: sh.id, which: line, base: doc, working: doc });
+    const lane = Math.min(t.lanes - 1, Math.max(0, Math.floor((p[0] - t.x0) / t.width)));
+    const rf = Math.round(Math.min(1, Math.max(0, (p[1] - t.origin) / (t.front - t.origin))) * 100) / 100;
+    set(updateShape(doc, sh.id, { tlc: { ...sh.tlc!, spots: [...spots, { lane, rf }] } }), true);
+    setSpotPick({ plate: sh.id, index: spots.length });
+    void screen;
+  };
+  useEffect(() => { if (spotPick && (!picked.has(spotPick.plate) || picked.size !== 1)) setSpotPick(undefined); }, [picked]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A spot's changes, on the plate it is on.
+  const editSpot = (m: Mol, plate: number, index: number, change: (x: NonNullable<Shape["tlc"]>["spots"][number]) => Partial<NonNullable<Shape["tlc"]>["spots"][number]>): Mol => {
+    const sh = m.shapes?.find((x) => x.id === plate);
+    if (!sh?.tlc) return m;
+    return updateShape(m, plate, { tlc: { ...sh.tlc, spots: sh.tlc.spots.map((x, i) => (i === index ? { ...x, ...change(x) } : x)) } });
   };
   // Tables: a cell's text width (drawing units), the table a point is on, and opening a cell to type in.
   const cellWidth = (text: string) => formulaWidth(text, style.captionSize * pt, false, false, fontStack(style.captionFont)) / L;
@@ -1224,7 +1259,12 @@ export default function Editor() {
     if (tool !== "erase" && selection.size && onSelection(doc, selection, p)) return startMove(p, screen, t);
     if (tool !== "erase" && tool !== "text" && t.cycle !== undefined) return pressCycle(p, t, screen);
     if (tool !== "erase" && tool !== "text" && (t.caption !== undefined || t.arrow !== undefined)) return pressCaption(p, t, e.shiftKey, screen);
-    if (tool === "tlc" && plateAt(p)) return spotAt(plateAt(p)!, p);
+    if (tool === "tlc" && plateAt(p)) return spotAt(plateAt(p)!, p, screen, e.altKey, e.shiftKey);
+    // The eraser takes a TLC spot off its plate.
+    if (tool === "erase" && plateAt(p) && spotHit(plateAt(p)!, p) >= 0) {
+      const sh = plateAt(p)!, i = spotHit(sh, p);
+      return set(updateShape(doc, sh.id, { tlc: { ...sh.tlc!, spots: sh.tlc!.spots.filter((_, k) => k !== i) } }));
+    }
     if (tool === "table" && tableAt(p)) return openCell(tableAt(p)!, p);
     // Pressing away from the selection with a drawing tool clears it, as ChemDraw does.
     if (selection.size || picked.size) { setSelection(new Set()); setPicked(new Set()); }
@@ -1316,6 +1356,31 @@ export default function Editor() {
       case "map":
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         return setDrag({ ...drag, to: p });
+      case "spot": {
+        const sh = drag.base.shapes?.find((x) => x.id === drag.plate);
+        if (!sh?.tlc) return;
+        const t = tlcLayout(sh), x = sh.tlc.spots[drag.index], d: P = [p[0] - drag.from[0], p[1] - drag.from[1]];
+        if (!drag.moved && Math.hypot(d[0], d[1]) * L * view.zoom < 3) return;
+        const working = drag.size
+          ? editSpot(drag.base, drag.plate, drag.index, () => {
+            const { rx, ry } = t.size(x);
+            return { w: Math.max(0.04, rx + d[0]), ...(d[1] >= 0 ? { h: Math.max(0.04, ry + d[1]) } : { tail: Math.max(0, (x.tail ?? 0) - d[1]) }) };
+          })
+          : editSpot(drag.base, drag.plate, drag.index, () => ({
+            lane: Math.min(t.lanes - 1, Math.max(0, Math.floor((p[0] - t.x0) / t.width))),
+            rf: Math.round(Math.min(1, Math.max(0, (p[1] - t.origin) / (t.front - t.origin))) * 100) / 100,
+          }));
+        return setDrag({ ...drag, working, moved: true });
+      }
+      case "tlcline": {
+        const sh = drag.base.shapes?.find((x) => x.id === drag.plate);
+        if (!sh?.tlc) return;
+        const t = tlcLayout(sh), h = t.y1 - t.y0;
+        // The origin stays below the front and the front above the origin, each inside the plate.
+        const change = drag.which === "origin" ? { origin: Math.min(0.9, Math.max(0.02, (p[1] - t.y0) / h), 1 - (sh.tlc.front ?? 0.1) - 0.1) }
+          : { front: Math.min(0.9, Math.max(0.02, (t.y1 - p[1]) / h), 1 - (sh.tlc.origin ?? 0.12) - 0.1) };
+        return setDrag({ ...drag, working: updateShape(drag.base, drag.plate, { tlc: { ...sh.tlc, ...change } }) });
+      }
       case "tilt": {
         // Half a degree per pixel: across turns about the vertical axis, up and down about the horizontal one;
         // Shift keeps to one axis. Part of a structure joined by one bond turns about that bond.
@@ -1522,6 +1587,7 @@ export default function Editor() {
   // The colour the Actions panel shows as chosen: the first selected thing's, for every kind of selection.
   const selectionColour = (): { value: string; tints?: boolean } | undefined => {
     if (context.kind === "caption" || context.kind === "shape") return { value: context.colour, tints: context.kind === "shape" && context.shape === "highlight" };
+    if (context.kind === "spot" && spotPick) return { value: doc.shapes?.find((x) => x.id === spotPick.plate)?.tlc?.spots[spotPick.index]?.colour ?? "#000000" };
     if (context.kind === "empty" || context.kind === "drawing") return undefined;
     const first = [...selection][0], thing = [...(doc.arrows ?? []), ...(doc.cycles ?? []), ...(doc.shapes ?? [])].find((x) => picked.has(x.id));
     return { value: (first !== undefined ? doc.atoms[first]?.colour : thing?.colour) ?? "#000000" };
@@ -1543,13 +1609,19 @@ export default function Editor() {
     // A cycle picked (with its intermediates).
     const pickedCycle = (doc.cycles ?? []).find((c) => picked.has(c.id));
     if (pickedCycle) return { kind: "cycle", clockwise: pickedCycle.clockwise, steps: pickedCycle.nodes.length, centre: !!doc.captions?.some((c) => c.cycle?.cycle === pickedCycle.id && c.cycle.side === "centre") };
+    // A TLC spot picked on its plate.
+    const plate = spotPick && !selection.size && picked.size === 1 && picked.has(spotPick.plate) ? doc.shapes?.find((x) => x.id === spotPick.plate) : undefined, spot = plate?.tlc?.spots[spotPick!.index];
+    if (plate && spot) {
+      const { rx, ry } = tlcLayout(plate).size(spot);
+      return { kind: "spot", style: spot.style ?? "filled", w: rx, h: ry, tail: spot.tail ?? 0, rf: !!spot.showRf, pt: style.bond };
+    }
     // Shapes picked on their own.
     const pickedShapes = (doc.shapes ?? []).filter((x) => picked.has(x.id));
     if (!selection.size && pickedShapes.length && pickedShapes.length === picked.size) {
       const first = pickedShapes[0];
       return {
         kind: "shape", count: pickedShapes.length, shape: first.kind, dashed: !!first.dashed, colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
-        style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, grid: !!first.table?.grid, shade: { ...SHADE, ...first.shade, pt: style.bond },
+        style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, grid: !!first.table?.grid, hide: first.tlc?.hide ?? [], shade: { ...SHADE, ...first.shade, pt: style.bond },
       };
     }
     // Arrows picked on their own.
@@ -1707,6 +1779,7 @@ export default function Editor() {
     if (command.startsWith("colour.")) {
       const hex = command.slice(7), ink = hex.toLowerCase() === "#000000" ? undefined : hex;
       if (context.kind === "caption") return runAction(`caption.colour.${hex}`);
+      if (context.kind === "spot" && spotPick) return set(editSpot(doc, spotPick.plate, spotPick.index, () => ({ colour: ink })), true);
       if (context.kind === "shape") return runAction(`shape.colour.${hex}`);
       const pick = <T extends { id: number; colour?: string }>(x: T): T => (picked.has(x.id) ? { ...x, colour: ink } : x);
       return set({
@@ -1723,6 +1796,7 @@ export default function Editor() {
     if (command.startsWith("fix:")) { const [, i, charge] = command.split(":"); return set(addCharge(doc, Number(i), Number(charge) - (doc.atoms[Number(i)].charge ?? 0)), true); }
     if (command.startsWith("show:")) return setSelection(new Set([Number(command.slice(5))]));
     if (command.startsWith("align.")) return set(alignFragments(doc, selection, command.slice(6) as "row" | "column" | "spread-row"), true);
+    if (command === "delete" && context.kind === "spot") return runAction("spot.delete");
     if (command === "delete") return selection.size || picked.size ? set(deleteGraphics(deleteAtoms(doc, selection), picked)) : undefined;
     if (command === "number") return numberStructures();
     if (command === "reaction.clean") { const r = reactionPicked(); return r ? set(cleanUpReaction(doc, r, arrows), true) : undefined; }
@@ -1750,6 +1824,18 @@ export default function Editor() {
       if (what === "atom") { const i = [...selection][0]; return set(setEnhanced(doc, [i], doc.atoms[i].enhanced === arg ? undefined : arg), true); }
       return set(setEnhanced(doc, stereocentres(doc, selection), what === "racemic" ? "&1" : what === "relative" ? "or1" : undefined), true);
     }
+    // A picked TLC spot: style, size (hundredths of a bond length), tail, its own Rf, removal.
+    if (command.startsWith("spot.") && spotPick) {
+      const [, what, arg] = command.split("."), at = (change: Parameters<typeof editSpot>[3]) => set(editSpot(doc, spotPick.plate, spotPick.index, change), true, `spot-${what}`);
+      if (what === "style") return at(() => ({ style: arg === "filled" ? undefined : (arg as "hollow" | "shaded") }));
+      if (what === "w" || what === "h" || what === "tail") return at(() => ({ [what]: Number(arg) / 100 }));
+      if (what === "rf") return at((x) => ({ showRf: x.showRf ? undefined : true }));
+      if (what === "delete") {
+        const sh = doc.shapes?.find((x) => x.id === spotPick.plate);
+        setSpotPick(undefined);
+        return sh?.tlc ? set(updateShape(doc, sh.id, { tlc: { ...sh.tlc, spots: sh.tlc.spots.filter((_, k) => k !== spotPick.index) } }), true) : undefined;
+      }
+    }
     if (command.startsWith("shape.")) {
       const [, what, arg] = command.split(".");
       const ids = new Set((doc.shapes ?? []).filter((x) => picked.has(x.id)).map((x) => x.id));
@@ -1768,6 +1854,9 @@ export default function Editor() {
       // TLC plates: a lane more or fewer (spots in a lane that goes go with it), and Rf values on or off.
       if (what === "lanes") return each((x) => { const lanes = Math.max(1, Math.min(40, (x.tlc?.lanes ?? 1) + Number(arg))); return { tlc: { ...x.tlc!, lanes, spots: (x.tlc?.spots ?? []).filter((y) => y.lane < lanes) } }; });
       if (what === "rf") return each((x) => ({ tlc: { ...x.tlc!, rf: !x.tlc?.rf || undefined } }));
+      // A plate's origin, front or border shown or hidden, and one style for all its spots.
+      if (what === "hide") return each((x) => { const h = new Set(x.tlc?.hide ?? []), k = arg as "origin" | "front" | "border"; if (h.has(k)) h.delete(k); else h.add(k); return { tlc: { ...x.tlc!, hide: h.size ? [...h] : undefined } }; });
+      if (what === "spots") return each((x) => ({ tlc: { ...x.tlc!, spots: (x.tlc?.spots ?? []).map((s) => ({ ...s, style: arg === "filled" ? undefined : (arg as "hollow" | "shaded") })) } }));
       // Tables: a row or column more or fewer, and journal rules or a full grid.
       if (what === "rows" || what === "cols") return each((x) => { const cells = x.table?.cells ?? [[""]], n = Number(arg); return resizeTable(x, cells.length + (what === "rows" ? n : 0), cells[0].length + (what === "cols" ? n : 0), cellWidth); });
       if (what === "grid") return each((x) => ({ table: { ...x.table!, grid: !x.table?.grid || undefined } }));
@@ -1984,6 +2073,11 @@ export default function Editor() {
       case "handle":
         return set(drag.working, true);
       case "tilt":
+        return set(drag.working, true);
+      case "spot":
+        if (drag.moved) return set(drag.working, true);
+        return setSpotPick({ plate: drag.plate, index: drag.index });
+      case "tlcline":
         return set(drag.working, true);
       case "pen":
         setPenAt(drag.at);
@@ -2371,21 +2465,29 @@ export default function Editor() {
               </g>
             );
           })()}
-          {(shown.shapes ?? []).filter((sh) => sh.kind !== "highlight" && sh.kind !== "table" && !sh.fill).map((sh) => <path key={`sh${sh.id}`} d={toPath(shapeInk(sh, frame, L))} fill={sh.colour ?? "var(--ink)"} />)}
+          {(shown.shapes ?? []).filter((sh) => sh.kind !== "highlight" && sh.kind !== "table" && !sh.fill && !(sh.kind === "tlc" && sh.tlc?.hide?.includes("border"))).map((sh) => <path key={`sh${sh.id}`} d={toPath(shapeInk(sh, frame, L))} fill={sh.colour ?? "var(--ink)"} />)}
           {(shown.shapes ?? []).filter((sh) => sh.kind === "tlc").map((sh) => {
             // A plate's origin line, dashed solvent front, spots, and their Rf values when shown.
-            const t = tlcLayout(sh), y = (v: number) => -v * L, ink = sh.colour ?? "var(--ink)";
+            const t = tlcLayout(sh), y = (v: number) => -v * L, ink = sh.colour ? textInk(sh.colour) : "var(--ink)", hide = new Set(sh.tlc?.hide ?? []);
+            const dragging = drag?.kind === "spot" && drag.plate === sh.id ? drag.index : undefined;
             return (
               <g key={`tlc${sh.id}`} className="tlc">
-                <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.origin)} y2={y(t.origin)} stroke={ink} strokeWidth={frame.line} />
-                {Array.from({ length: t.lanes }, (_, k) => <line key={`t${k}`} x1={t.lane(k) * L} x2={t.lane(k) * L} y1={y(t.origin) - 0.08 * L} y2={y(t.origin) + 0.08 * L} stroke={ink} strokeWidth={frame.line} />)}
-                <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.front)} y2={y(t.front)} stroke={ink} strokeWidth={frame.line} strokeDasharray={`${0.12 * L} ${0.08 * L}`} />
-                {(sh.tlc?.spots ?? []).map((x, i) => (
-                  <g key={i}>
-                    <ellipse cx={t.lane(x.lane) * L} cy={y(t.at(x.rf))} rx={Math.min(0.3 * t.width, 0.34) * L} ry={0.15 * L} fill={ink} />
-                    {sh.tlc?.rf && <text x={(t.lane(x.lane) + Math.min(0.3 * t.width, 0.34) + 0.1) * L} y={y(t.at(x.rf)) + 0.12 * L} fill={ink} style={{ font: `${style.captionSize * pt * 0.8}px ${fontStack(style.captionFont)}` }}>{x.rf.toFixed(2)}</text>}
-                  </g>
-                ))}
+                {!hide.has("origin") && <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.origin)} y2={y(t.origin)} stroke={ink} strokeWidth={frame.line} />}
+                {!hide.has("origin") && Array.from({ length: t.lanes }, (_, k) => <line key={`t${k}`} x1={t.lane(k) * L} x2={t.lane(k) * L} y1={y(t.origin) - 0.08 * L} y2={y(t.origin) + 0.08 * L} stroke={ink} strokeWidth={frame.line} />)}
+                {!hide.has("front") && <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.front)} y2={y(t.front)} stroke={ink} strokeWidth={frame.line} strokeDasharray={`${0.12 * L} ${0.08 * L}`} />}
+                {(sh.tlc?.spots ?? []).map((x, i) => {
+                  // A spot in its own colour (or the plate's): filled, hollow (its outline) or shaded (lit from the top left).
+                  const c = x.colour ? textInk(x.colour) : ink, d = "M" + spotPath(t, x).map(([px, py]) => `${(px * L).toFixed(2)} ${(-py * L).toFixed(2)}`).join("L") + "Z", { rx } = t.size(x);
+                  const picked = spotPick?.plate === sh.id && spotPick.index === i;
+                  return (
+                    <g key={i}>
+                      {x.style === "shaded" && <defs><radialGradient id={`spot${sh.id}-${i}`} cx="0.36" cy="0.32" r="0.75"><stop offset="0" stopColor="#FFFFFF" /><stop offset="1" style={{ stopColor: c }} /></radialGradient></defs>}
+                      <path d={d} fill={x.style === "hollow" ? "none" : x.style === "shaded" ? `url(#spot${sh.id}-${i})` : c} stroke={x.style === "hollow" ? c : undefined} strokeWidth={frame.line} />
+                      {picked && <path d={d} className="spot-picked" fill="none" vectorEffect="non-scaling-stroke" />}
+                      {(sh.tlc?.rf || x.showRf || dragging === i) && <text x={(t.lane(x.lane) + rx + 0.1) * L} y={y(t.at(x.rf)) + 0.12 * L} fill={c} style={{ font: `${style.captionSize * pt * 0.8}px ${fontStack(style.captionFont)}` }}>{x.rf.toFixed(2)}</text>}
+                    </g>
+                  );
+                })}
               </g>
             );
           })}

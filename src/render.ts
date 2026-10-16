@@ -102,7 +102,12 @@ export type Table = { cells: string[][]; grid?: boolean };
 export type CurvePoint = { at: [number, number]; c1?: [number, number]; c2?: [number, number] };
 export type Curve = { points: CurvePoint[]; closed?: boolean };
 // A TLC plate's lanes and spots: each spot in a lane at its Rf (0 at the origin, 1 at the solvent front).
-export type Tlc = { lanes: number; spots: { lane: number; rf: number }[]; rf?: boolean };
+// A TLC plate: its lanes and spots, Rf values shown for all, the origin's height and the front's depth (fractions of
+// the plate, from the bottom and the top), and parts hidden, as ChemDraw's TLC tool.
+export type Tlc = { lanes: number; spots: Spot[]; rf?: boolean; origin?: number; front?: number; hide?: ("origin" | "front" | "border")[] };
+// A spot: its lane and Rf, and when set by hand its colour, style, half-width and half-height, the smear below it
+// (bond lengths), and its own Rf label.
+export type Spot = { lane: number; rf: number; colour?: string; style?: "hollow" | "shaded"; w?: number; h?: number; tail?: number; showRf?: true };
 export type Shape = {
   id: number; kind: ShapeKind; from: [number, number]; to: [number, number]; dashed?: boolean; colour?: string;
   fill?: "shaded" | "solid"; shadow?: boolean; side?: "left" | "right"; mark?: string; tlc?: Tlc; table?: Table;
@@ -1005,9 +1010,23 @@ export function orbitalPaths(a: Arrow, k: number): { path: P[]; second: boolean 
 export const TLC_ORIGIN = 0.12, TLC_FRONT = 0.1; // the origin's height and the front's depth, as fractions of the plate
 export function tlcLayout(sh: Shape) {
   const x0 = Math.min(sh.from[0], sh.to[0]), x1 = Math.max(sh.from[0], sh.to[0]), y0 = Math.min(sh.from[1], sh.to[1]), y1 = Math.max(sh.from[1], sh.to[1]);
-  const lanes = Math.max(1, sh.tlc?.lanes ?? 1), origin = y0 + (y1 - y0) * TLC_ORIGIN, front = y1 - (y1 - y0) * TLC_FRONT;
+  const lanes = Math.max(1, sh.tlc?.lanes ?? 1), origin = y0 + (y1 - y0) * (sh.tlc?.origin ?? TLC_ORIGIN), front = y1 - (y1 - y0) * (sh.tlc?.front ?? TLC_FRONT);
   const lane = (k: number) => x0 + ((x1 - x0) * (k + 0.5)) / lanes;
-  return { x0, x1, y0, y1, origin, front, lanes, width: (x1 - x0) / lanes, lane, at: (rf: number) => origin + (front - origin) * rf };
+  const width = (x1 - x0) / lanes;
+  // A spot's half-width and half-height (bond lengths): set by hand, or 30% of a lane (at most 0.34) by 0.15.
+  const size = (x: Spot) => ({ rx: x.w ?? Math.min(0.3 * width, 0.34), ry: x.h ?? 0.15 });
+  return { x0, x1, y0, y1, origin, front, lanes, width, lane, size, at: (rf: number) => origin + (front - origin) * rf };
+}
+// A spot's outline (drawing units): an ellipse, drawn out below into a smear when it has a tail.
+export function spotPath(t: ReturnType<typeof tlcLayout>, x: Spot): [number, number][] {
+  const cx = t.lane(x.lane), cy = t.at(x.rf), { rx, ry } = t.size(x), tail = x.tail ?? 0, n = 32, out: [number, number][] = [];
+  for (let i = 0; i <= n; i++) {
+    const a = (Math.PI * 2 * i) / n, sin = Math.sin(a);
+    // The lower half stretches down by the tail, narrowing a little, so a smear reads as a streak.
+    const down = sin < 0 ? tail * -sin : 0, narrow = sin < 0 && tail ? 1 - 0.35 * Math.min(1, tail / (ry * 4)) * -sin : 1;
+    out.push([cx + rx * Math.cos(a) * narrow, cy + ry * sin - down]);
+  }
+  return out;
 }
 
 // A table's layout (drawing units, y up). Each column is as wide as its widest text plus padding, and the columns

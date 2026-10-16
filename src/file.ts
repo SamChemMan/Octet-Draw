@@ -78,11 +78,20 @@ function readTable(v: unknown): Table | undefined {
 }
 // A TLC plate's lanes and spots, if they are sound.
 function readTlc(v: unknown): Tlc | undefined {
-  const t = v as { lanes?: unknown; spots?: unknown; rf?: unknown };
-  if (typeof t !== "object" || !t || !Number.isInteger(t.lanes) || (t.lanes as number) < 1 || (t.lanes as number) > 40 || !Array.isArray(t.spots) || t.spots.length > 400) return undefined;
-  const spots = (t.spots as { lane?: unknown; rf?: unknown }[]).filter((x) => Number.isInteger(x?.lane) && (x.lane as number) >= 0 && (x.lane as number) < (t.lanes as number) && typeof x.rf === "number" && x.rf >= 0 && x.rf <= 1);
+  const t = v as { lanes?: unknown; spots?: unknown; rf?: unknown; origin?: unknown; front?: unknown; hide?: unknown };
+  const frac = (n: unknown) => n === undefined || (typeof n === "number" && n >= 0 && n <= 0.9), len = (n: unknown) => n === undefined || (typeof n === "number" && n >= 0 && n <= 5);
+  if (typeof t !== "object" || !t || !Number.isInteger(t.lanes) || (t.lanes as number) < 1 || (t.lanes as number) > 40 || !Array.isArray(t.spots) || t.spots.length > 400
+    || !frac(t.origin) || !frac(t.front) || (t.hide !== undefined && !(Array.isArray(t.hide) && t.hide.every((h) => ["origin", "front", "border"].includes(h))))) return undefined;
+  const spots = (t.spots as Record<string, unknown>[]).filter((x) => Number.isInteger(x?.lane) && (x.lane as number) >= 0 && (x.lane as number) < (t.lanes as number) && typeof x.rf === "number" && x.rf >= 0 && x.rf <= 1
+    && (x.colour === undefined || (typeof x.colour === "string" && /^#[0-9a-f]{6}$/i.test(x.colour))) && (x.style === undefined || x.style === "hollow" || x.style === "shaded")
+    && len(x.w) && len(x.h) && len(x.tail) && (x.showRf === undefined || x.showRf === true));
   if (spots.length !== t.spots.length) return undefined;
-  return { lanes: t.lanes as number, spots: spots.map((x) => ({ lane: x.lane as number, rf: x.rf as number })), ...(t.rf === true ? { rf: true } : {}) };
+  return {
+    lanes: t.lanes as number,
+    spots: spots.map((x) => ({ lane: x.lane as number, rf: x.rf as number, ...Object.fromEntries(["colour", "style", "w", "h", "tail", "showRf"].filter((k) => x[k] !== undefined).map((k) => [k, x[k]])) }) as Tlc["spots"][number]),
+    ...(t.rf === true ? { rf: true } : {}), ...(t.origin !== undefined ? { origin: t.origin as number } : {}), ...(t.front !== undefined ? { front: t.front as number } : {}),
+    ...(t.hide ? { hide: t.hide as Tlc["hide"] } : {}),
+  };
 }
 
 // Throws an Error with a message for the user if the file is not a drawing this version can read.

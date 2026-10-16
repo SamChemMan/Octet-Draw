@@ -2844,3 +2844,10 @@ button.variant.add {
   outline: none;
   box-shadow: var(--shadow-focus);
 }
+
+/* A TLC spot picked on its plate, for its colour, style and size. */
+.spot-picked {
+  stroke: var(--brand-bright);
+  stroke-width: 2px;
+  stroke-dasharray: 3 2;
+}
