@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol } from "./edit.ts";
+import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol } from "./edit.ts";
 import { tableLayout } from "./render.ts";
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
@@ -291,3 +291,20 @@ console.log("edit.check: align ok");
   assert.deepEqual(r.mol.captions!.find((c) => c.text === "1" && c.id !== 12)!.under, [3, 4, 5]);
   console.log("edit.check: copy and paste ok");
 }
+
+// Expand Label joins the group where the label was, pointing away from the structure; Contract Label undoes it.
+{
+  let m = sprout(EMPTY, [0, 0]); // two atoms, 0 and 1, 1 to the right
+  m = { ...m, atoms: m.atoms.map((a, i) => (i === 1 ? { ...a, text: "OMe" } : a)) };
+  const frag = { atoms: [{ label: "O", location: [0, 0, 0] as [number, number, number] }, { label: "C", location: [-1, 0, 0] as [number, number, number] }], bonds: [{ type: 1, atoms: [0, 1] as [number, number] }] };
+  const out = expandLabel(m, 1, frag);
+  assert.equal(out.atoms.length, 3);
+  assert.equal(out.atoms[1].label, "O");
+  assert.equal(out.atoms[1].text, undefined);
+  assert.ok(out.atoms[2].location[0] > out.atoms[1].location[0], "the methyl points away from the structure");
+  const back = contractLabel(out, 1, new Set([1, 2]), "OMe");
+  assert.equal(back.atoms.length, 2);
+  assert.equal(back.atoms[1].text, "OMe");
+  console.log("edit.check: labels ok");
+}
+

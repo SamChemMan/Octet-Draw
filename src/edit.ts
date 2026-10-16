@@ -291,6 +291,27 @@ export function bounds(m: Mol): [number, number, number, number] | undefined {
 
 // Selection helpers. A selection is a set of atom indices; a bond is selected when both its atoms are.
 export const deleteAtoms = (m: Mol, ids: Set<number>) => removeAtoms(m, new Set(ids));
+// Expand Label: the labelled atom i becomes the group its label names. frag is that group laid out (bond length 1),
+// its first atom the attachment point: it is turned to point away from i's neighbour and joined where the label was.
+export function expandLabel(m: Mol, i: number, frag: Mol): Mol {
+  if (!frag.atoms.length) return m;
+  const at = pos(m, i), nb = neighbours(m, i)[0], a0 = frag.atoms[0].location;
+  const want = nb === undefined ? 0 : Math.atan2(at[1] - pos(m, nb)[1], at[0] - pos(m, nb)[0]);
+  // The group points out along the bisector of its attachment atom's own bonds (C(=O)OEt: between =O and OEt).
+  const rest = frag.atoms.slice(1), near = frag.bonds.filter((b) => b.atoms.includes(0)).map((b) => frag.atoms[b.atoms[0] === 0 ? b.atoms[1] : b.atoms[0]].location);
+  const mid = near.length ? [near.reduce((s, q) => s + q[0], 0) / near.length, near.reduce((s, q) => s + q[1], 0) / near.length] : [a0[0] + 1, a0[1]];
+  const turn = want - Math.atan2(mid[1] - a0[1], mid[0] - a0[0]), c = Math.cos(turn), s = Math.sin(turn);
+  const place = (q: [number, number, number]): [number, number, number] => { const dx = q[0] - a0[0], dy = q[1] - a0[1]; return [at[0] + dx * c - dy * s, at[1] + dx * s + dy * c, 0]; };
+  const base = m.atoms.length, to = (k: number) => (k === 0 ? i : base + k - 1);
+  const atoms = m.atoms.map((a, k) => (k === i ? { ...a, label: frag.atoms[0].label, text: undefined, charge: frag.atoms[0].charge } : a));
+  for (const a of rest) atoms.push({ ...a, location: place(a.location) });
+  return { ...m, atoms, bonds: [...m.bonds, ...frag.bonds.map((b) => ({ ...b, atoms: [to(b.atoms[0]), to(b.atoms[1])] as [number, number] }))] };
+}
+// Contract Label: the atoms in `group` other than `keep` go, and `keep` (the one bonded to the rest) carries the label.
+export function contractLabel(m: Mol, keep: number, group: Set<number>, text: string): Mol {
+  const labelled = { ...m, atoms: m.atoms.map((a, k) => (k === keep ? { ...a, text, label: a.label, charge: undefined } : a)) };
+  return removeAtoms(labelled, new Set([...group].filter((k) => k !== keep)));
+}
 export function moveAtoms(m: Mol, ids: Set<number>, d: P): Mol {
   return { ...m, atoms: m.atoms.map((a, i) => (ids.has(i) ? { ...a, location: [a.location[0] + d[0], a.location[1] + d[1], a.location[2] ?? 0] } : a)) };
 }

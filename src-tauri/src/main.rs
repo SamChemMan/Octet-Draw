@@ -165,6 +165,8 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
     let structure = Submenu::with_items(app, "Structure", true, &[
         &item("clean_up", "Clean Up Structure", "CmdOrCtrl+Shift+K")?,
         &item("clean_reaction", "Clean Up Reaction", "CmdOrCtrl+Shift+X")?,
+        &MenuItem::with_id(app, "expand_label", "Expand Label", true, None::<&str>)?,
+        &MenuItem::with_id(app, "contract_label", "Contract Label", true, None::<&str>)?,
         &item("aromatic_display", "Toggle Aromatic Display", "Alt+CmdOrCtrl+K")?,
         &item("structure_perspective", "Structure Perspective", "Alt+CmdOrCtrl+S")?,
         &sep()?,

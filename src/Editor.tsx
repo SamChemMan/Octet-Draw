@@ -7,6 +7,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { labelSmiles, GROUPS } from "./labels";
 import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, toMoleculeCdxml, type Structure, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
 import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, FONTS, type DocStyle, type PageName } from "./docstyle";
 import { messy, problems } from "./check";
@@ -14,7 +15,7 @@ import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
-  addShape, addSymbol, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirection, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
+  addShape, addSymbol, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirection, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
 } from "./edit";
 import { snapBox, snapMove, type Guide } from "./snap";
 import { loadSettings, saveSettings } from "./settings";
@@ -177,6 +178,16 @@ function richSpans(runs: TextRun[], size: number, PT: number) {
 
 // Octet's own clipboard type: a copied part of a drawing in Octet's file form (read back with the file checks).
 const OCTET_CLIP = "application/x-octet+json";
+// Abbreviations Contract Label recognises, each with its InChI when capped with xenon at its attachment point
+// (worked out once, on first use): the groups chemists name, and condensed formulas they write.
+const CONTRACTED = ["OMe", "OEt", "OiPr", "OtBu", "OAc", "OBz", "OBn", "OPh", "OTs", "OMs", "OTf", "OTBS", "OTIPS", "OTBDPS", "OTMS", "OMOM", "OTHP", "OPMB",
+  "CO2Me", "CO2Et", "CO2tBu", "CO2Bn", "CO2H", "CHO", "CN", "NO2", "CF3", "CCl3", "OCF3", "SMe", "SO2Me", "NMe2", "NEt2", "NHAc", "NHBoc", "NHCbz", "NHFmoc",
+  "NHTs", "NBoc2", "CONH2", "CONMe2", "N3", "SO3H", "COMe", "COPh"];
+let contracted: [string, string][] | undefined;
+function contractLabelText(want: string): string | undefined {
+  contracted ??= [...CONTRACTED, ...Object.keys(GROUPS)].flatMap((name) => { const smiles = labelSmiles(name), inchi = smiles ? toInchi(`[Xe]${smiles}`) : undefined; return inchi ? [[name, inchi] as [string, string]] : []; });
+  return contracted.find(([, inchi]) => inchi === want)?.[0];
+}
 // The stoichiometry grid's rows, as ChemDraw's: what each component is, then amounts. shown: rows that appear only
 // once one of these was typed somewhere; product: rows for products (true) or reactants (false) only.
 const GRID_ROWS: { id: string; name: string; field?: Field; product?: boolean; shown?: Field[] }[] = [
@@ -593,6 +604,32 @@ export default function Editor() {
     },
     properties: () => setSettings((s) => ({ ...s, properties: !s.properties })),
     predict_1h: () => openSpectrum("1H"),
+    // Expand Label (Structure menu): each selected label (OMe, CO2Et, Boc) drawn out as its atoms.
+    expand_label: () => {
+      let m = doc;
+      const labelled = [...selection].filter((i) => doc.atoms[i]?.text).sort((a, b) => b - a);
+      if (!labelled.length) return setNotice("Pick a labelled atom, such as OMe or Boc.");
+      for (const i of labelled) {
+        const smiles = labelSmiles(doc.atoms[i].text!);
+        if (!smiles) { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); continue; }
+        try { m = expandLabel(m, i, parseStructure(smiles)); } catch { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); }
+      }
+      set(m);
+    },
+    // Contract Label (Structure menu): the selected substituent (joined to the rest by one bond) becomes one labelled
+    // atom: the abbreviation it is (OMe, CO2Et, Boc, TBS), recognised whatever way it was drawn, or else its formula.
+    contract_label: () => {
+      const group = new Set([...selection].filter((i) => i < doc.atoms.length));
+      const links = doc.bonds.filter((b) => group.has(b.atoms[0]) !== group.has(b.atoms[1]));
+      if (group.size < 2 || links.length !== 1) return setNotice("Pick a group joined to the rest of the structure by one bond.");
+      const keep = group.has(links[0].atoms[0]) ? links[0].atoms[0] : links[0].atoms[1], outside = links[0].atoms[0] === keep ? links[0].atoms[1] : links[0].atoms[0];
+      // The group with xenon in place of the rest of the structure, as an InChI, against each abbreviation's.
+      const capped = subset({ ...doc, atoms: doc.atoms.map((a, i) => (i === outside ? { ...a, label: "Xe", text: undefined, charge: undefined } : a)) }, new Set([...group, outside]));
+      const want = toInchi(capped), text = want && contractLabelText(want);
+      const formula = analyse(subset(doc, group))?.[0]?.formula;
+      set(contractLabel(doc, keep, group, text ?? formula ?? "R"));
+      setSelection(new Set());
+    },
     // Toggle Aromatic Display (⌥⌘K): the selected structures' aromatic rings with circles, or back to Kekulé bonds.
     aromatic_display: () => {
       const atoms = selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i);
