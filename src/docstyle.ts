@@ -28,6 +28,8 @@ export type DocStyle = {
   background: Background;
   bond: number; line: number; bold: number; margin: number; hash: number; spacing: number; // pt; spacing in % of bond
   labelFont: string; labelSize: number; captionFont: string; captionSize: number; colour: string;
+  // Atom labels (ChemDraw's Show Labels on Terminal Carbons, on Non-Terminal Carbons, and Hide Implicit Hydrogens).
+  terminalLabels: boolean; carbonLabels: boolean; hideH: boolean;
 };
 
 type Drawn = Pick<DocStyle, "bond" | "line" | "bold" | "margin" | "hash" | "spacing" | "labelFont" | "labelSize" | "captionFont" | "captionSize">;
@@ -41,7 +43,7 @@ export const PRESETS: Record<string, Drawn> = {
   "Helv. Chim. Acta": { bond: 17, line: 0.6, bold: 2, margin: 2, hash: 2, spacing: 15, labelFont: "Helvetica", labelSize: 10, captionFont: "Helvetica", captionSize: 12 },
   "Slides": { bond: 30, line: 1.6, bold: 4, margin: 2, hash: 2.7, spacing: 15, labelFont: "Arial", labelSize: 12, captionFont: "Arial", captionSize: 16 },
 };
-export const DEFAULT_STYLE: DocStyle = { preset: "ACS Document 1996", page: "A4", custom: [180, 120], landscape: false, edges: true, grid: 0, background: "white", colour: "#000000", ...PRESETS["ACS Document 1996"] };
+export const DEFAULT_STYLE: DocStyle = { preset: "ACS Document 1996", page: "A4", custom: [180, 120], landscape: false, edges: true, grid: 0, background: "white", colour: "#000000", terminalLabels: false, carbonLabels: false, hideH: false, ...PRESETS["ACS Document 1996"] };
 
 export const FONTS = ["Arial", "Helvetica", "Times New Roman", "Calibri", "Cambria", "Georgia"];
 // A font with fallbacks that keep its metrics close on every platform.
@@ -79,6 +81,7 @@ export function readStyle(v: unknown): DocStyle {
     labelFont: text("labelFont", (t) => FONTS.includes(t)), labelSize: num("labelSize", 4, 72),
     captionFont: text("captionFont", (t) => FONTS.includes(t)), captionSize: num("captionSize", 4, 72),
     colour: text("colour", (t) => /^#[0-9a-f]{6}$/i.test(t)),
+    terminalLabels: s.terminalLabels === true, carbonLabels: s.carbonLabels === true, hideH: s.hideH === true,
   };
   return { ...style, preset: presetOf(style) };
 }
@@ -89,5 +92,6 @@ export function frameStyle(d: DocStyle, frame: number): Style & { k: number } {
   const k = frame / ((d.bond * 4) / 3); // frame px per true px
   const px = (pt: number) => ((pt * 4) / 3) * k;
   // ChemDraw's bonds clear label outlines by 1.69 pt for a 1.6 pt margin (measured); the same ratio for every margin.
-  return { bond: frame, line: px(d.line), bold: px(d.bold), spacing: (d.spacing / 100) * frame, hash: px(d.hash), margin: px((d.margin * 1.69) / 1.6), size: px(d.labelSize), k };
+  return { bond: frame, line: px(d.line), bold: px(d.bold), spacing: (d.spacing / 100) * frame, hash: px(d.hash), margin: px((d.margin * 1.69) / 1.6), size: px(d.labelSize), k,
+    terminal: d.terminalLabels, carbons: d.carbonLabels, hideH: d.hideH };
 }

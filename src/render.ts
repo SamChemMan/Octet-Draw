@@ -31,6 +31,7 @@ export type Atom = {
   halo?: string; // #rrggbb highlight: a disc behind the atom at 40% opacity (ChemDraw's highlight colours; NMR peak colours)
   fill?: string; // #rrggbb ring fill: a ring whose atoms all have the same fill is filled with it at 30% opacity
   circle?: true; // Toggle Aromatic Display: an aromatic ring whose atoms all have this is drawn with a circle
+  number?: string; // Show Atom Number: the number drawn beside the atom
 };
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 // On a double bond: bold makes the main line bold, dashed the second line dashed, either crosses the two lines.
@@ -147,7 +148,8 @@ export type Grid = { arrow: number; typed: Record<string, Partial<Record<"mass" 
 // one. An integral group is never split: a click on any part picks all of it.
 export type Group = { id: number; atoms: number[]; items: number[]; integral?: true };
 // Sizes in px: bond length, line width, bold width, double-bond spacing, hash spacing, label margin, label font size.
-export type Style = { bond: number; line: number; bold: number; spacing: number; hash: number; margin: number; size: number };
+// terminal, carbons: label carbons at chain ends (CH3), or every other carbon too; hideH: labels leave off implicit H.
+export type Style = { bond: number; line: number; bold: number; spacing: number; hash: number; margin: number; size: number; terminal?: boolean; carbons?: boolean; hideH?: boolean };
 // width: advance; ascent: ink top above the baseline; outline: glyph edge points relative to the text origin (y down).
 export type Ink = { width: number; ascent: number; outline: P[] };
 export type Label = { text: string; x: number; y: number; size: number; colour?: string; alpha?: number };
@@ -252,7 +254,7 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
   const dir = (i: number, j: number) => unit(sub(pts[j], pts[i]));
 
   // Labels. Heteroatoms and lone carbons get one; skeletal carbons don't, even when charged.
-  const labelled = mol.atoms.map((a, i) => !a.attach && !a.bead && (a.label !== 'C' || !deg(i) || !!a.text || !!a.isotope));
+  const labelled = mol.atoms.map((a, i) => !a.attach && !a.bead && (a.label !== 'C' || !deg(i) || !!a.text || !!a.isotope || (deg(i) === 1 ? !!s.terminal : !!s.carbons)));
   const labels: Label[] = [], labelAtom = new Map<Label, number>();
   const marks: P[][] = mol.atoms.map(() => []); // ink that is not a label shape (a skeletal carbon's charge)
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
@@ -304,7 +306,7 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
     if (a.isotope) { const t = String(a.isotope); run(t, ox - measure(t).width * SUB, base - RISE * s.size, SUB); }
     const charge = a.charge ?? 0;
     const used = nbrs[i].reduce((n, j) => n + (ORDER[bondAt.get(key(i, j))!.type] ?? 1), 0);
-    const h = a.implicitHCount ?? hydrogens(a.label, charge, used, a.radical === 3 ? 2 : a.radical);
+    const h = s.hideH ? 0 : a.implicitHCount ?? hydrogens(a.label, charge, used, a.radical === 3 ? 2 : a.radical);
     const count = h > 1 ? String(h) : '';
     const hW = measure('H').width, cW = count ? measure(count).width * SUB : 0;
     const hs = (hx: number, hy: number) => { run('H', hx, hy); if (count) run(count, hx + hW, hy + DROP * s.size, SUB); };

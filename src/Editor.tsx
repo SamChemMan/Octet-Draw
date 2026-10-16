@@ -477,6 +477,19 @@ export default function Editor() {
       setNotice(e instanceof Error ? e.message : `Octet cannot open this file. ${e}`);
     }
   }
+  // Atom Properties: the atom's element or label, charge, isotope and radical, in one dialog.
+  function atomProperties(i: number | undefined) {
+    if (i === undefined || !doc.atoms[i]) return setNotice("Pick an atom first.");
+    const a = doc.atoms[i];
+    setDialog({ kind: "atom", atom: i, element: a.text ?? a.label, charge: String(a.charge ?? 0), isotope: a.isotope ? String(a.isotope) : "", radical: String(a.radical ?? 0) });
+  }
+  // Show or hide atom numbers. Each atom's number is its place in its structure, counting from 1, as ChemDraw numbers
+  // atoms in the order they were drawn. When every one of the atoms already shows its number, they are hidden.
+  function numberAtoms(atoms: number[]) {
+    const hide = atoms.every((i) => doc.atoms[i]?.number), place = new Map<number, number>();
+    for (const g of fragments(doc)) [...g].sort((p, q) => p - q).forEach((i, k) => place.set(i, k + 1));
+    set({ ...doc, atoms: doc.atoms.map((a, i) => (!atoms.includes(i) ? a : hide ? { ...a, number: undefined } : a.number ? a : { ...a, number: String(place.get(i) ?? 1) })) }, true);
+  }
   // Import a structure file: it lands to the right of the drawing (or in the middle of an empty canvas), selected.
   async function importFile() {
     try {
@@ -639,12 +652,9 @@ export default function Editor() {
     export: () => void exportDrawing(),
     print: () => void printDrawing(),
     // Atom Properties (Structure menu): the selected atom's element or label, charge, isotope and radical.
-    atom_properties: () => {
-      const i = [...selection][0] ?? hover.atom;
-      if (i === undefined || !doc.atoms[i]) return setNotice("Pick an atom first.");
-      const a = doc.atoms[i];
-      setDialog({ kind: "atom", atom: i, element: a.text ?? a.label, charge: String(a.charge ?? 0), isotope: a.isotope ? String(a.isotope) : "", radical: String(a.radical ?? 0) });
-    },
+    atom_properties: () => atomProperties([...selection][0] ?? hover.atom),
+    // Show Atom Number (Object menu): each atom's number beside it, for the selected atoms or the whole drawing.
+    atom_numbers: () => numberAtoms(selection.size ? [...selection] : doc.atoms.map((_, i) => i)),
     // Page Setup (⇧⌘P): the page's size and orientation, which live in the document's settings.
     page_setup: () => setSettingsOpen("document"),
     // Analyze Stoichiometry: a grid under the picked reaction, or off again.
@@ -1731,6 +1741,8 @@ export default function Editor() {
       return;
     }
     if (id === "atom.attach" && atom !== undefined) return set(setAtomMarks(doc, atom, { attach: !doc.atoms[atom].attach || undefined }));
+    if (id === "atom.number" && atom !== undefined) return numberAtoms([atom]);
+    if (id === "atom.properties" && atom !== undefined) return atomProperties(atom);
     if (kind === "element" && atom !== undefined) return set(setElement(doc, atom, arg));
     if (kind === "label" && atom !== undefined) return set(setLabel(doc, atom, arg));
     if (id === "atom.label" && atom !== undefined) return editLabel(atom);
@@ -1878,7 +1890,7 @@ export default function Editor() {
     const ids = [...selection].filter((i) => i < doc.atoms.length);
     if (ids.length === 1) {
       const a = doc.atoms[ids[0]];
-      return { kind: "atom", label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre: stereocentres(doc).includes(ids[0]), enhanced: a.enhanced, halo: a.halo, fill: a.fill };
+      return { kind: "atom", label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre: stereocentres(doc).includes(ids[0]), enhanced: a.enhanced, halo: a.halo, fill: a.fill, numbered: !!a.number };
     }
     const bi = ids.length === 2 ? doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])) : -1;
     if (bi >= 0) {
@@ -1898,7 +1910,7 @@ export default function Editor() {
     // A 3D structure (Structure Perspective): drawn with depth, or flat.
     const solid = ids.some((i) => Math.abs(doc.atoms[i].location[2] ?? 0) > 1e-3);
     return { kind: "structure", atoms: ids.length, structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextNumber(doc), nameable, pairs, stereo,
-      ...(solid ? { depth: !ids.some((i) => doc.atoms[i].depth === false) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip),
+      ...(solid ? { depth: !ids.some((i) => doc.atoms[i].depth === false) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
       // The highlight and ring fill the selected atoms share, if they share one.
       halo: ids.every((i) => doc.atoms[i].halo === doc.atoms[ids[0]].halo) ? doc.atoms[ids[0]].halo : undefined,
       fill: ids.filter((i) => doc.atoms[i].fill).every((i) => doc.atoms[i].fill === doc.atoms[ids.find((k) => doc.atoms[k].fill) ?? 0].fill) ? doc.atoms[ids.find((k) => doc.atoms[k].fill) ?? 0]?.fill : undefined };
@@ -1946,7 +1958,7 @@ export default function Editor() {
   // Each drawn atom's predicted shifts, shown beside it while the panel is open.
   const nmrShifts = new Map<number, number[]>(), nmrQuality = new Map<number, string>();
   const stereo = useMemo(() => { const m = exporting ?? doc; return loaded && m.atoms.some((a) => a.cip) ? stereoLabels(m) : undefined; }, [loaded, doc, exporting]);
-  const ringsOf = useMemo(() => (spectrum || doc.atoms.some((a) => a.cip) ? rings({ atoms: shown.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: shown.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) }) : []), [spectrum, shown, doc]);
+  const ringsOf = useMemo(() => (spectrum || doc.atoms.some((a) => a.cip || a.number) ? rings({ atoms: shown.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: shown.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) }) : []), [spectrum, shown, doc]);
   // Opening the panel scrolls the canvas up if the panel would cover the structure (again once the spectrum is in,
   // as the panel grows).
   useEffect(() => {
@@ -1994,9 +2006,11 @@ export default function Editor() {
   }
   // Show Stereochemistry: (R) and (S) beside stereocentres and (E) and (Z) beside double bonds, in structures that
   // have it on, in the caption font a little smaller, italic as IUPAC writes them.
+  // Atom numbers go first, upright, and the stereo labels find room around them.
   function stereoMarks() {
-    if (!stereo) return [];
-    const out: { key: string; x: number; y: number; anchor: "start" | "middle" | "end"; text: string; colour?: string }[] = [], taken: number[][] = [], size = style.captionSize * pt * 0.8;
+    const out: { key: string; x: number; y: number; anchor: "start" | "middle" | "end"; text: string; colour?: string; upright?: boolean }[] = [], taken: number[][] = [], size = style.captionSize * pt * 0.8;
+    shown.atoms.forEach((a, i) => { if (a.number) out.push({ key: `n${i}`, ...besideAtom(i, a.number.length * size * 0.55, size, taken, 0.55), text: a.number, colour: a.colour, upright: true }); });
+    if (!stereo) return out;
     stereo.atoms.forEach((c, i) => {
       if (!c || !shown.atoms[i]?.cip) return;
       const text = `(${c})`;
@@ -3011,7 +3025,7 @@ export default function Editor() {
               </g>
             );
           })}
-          {stereoMarks().map((m) => <text key={m.key} className="stereo-label" x={m.x} y={m.y} textAnchor={m.anchor} dominantBaseline="middle" fill={m.colour ?? "var(--ink)"} style={{ font: `italic ${style.captionSize * pt * 0.8}px ${fontStack(style.captionFont)}` }}>{m.text}</text>)}
+          {stereoMarks().map((m) => <text key={m.key} className="stereo-label" x={m.x} y={m.y} textAnchor={m.anchor} dominantBaseline="middle" fill={m.colour ?? "var(--ink)"} style={{ font: `${m.upright ? "" : "italic "}${style.captionSize * pt * 0.8}px ${fontStack(style.captionFont)}` }}>{m.text}</text>)}
           {found.map((p) => doc.atoms[p.atom] && <circle key={`p${p.atom}`} className="problem-mark" cx={pos(shown, p.atom)[0] * L} cy={-pos(shown, p.atom)[1] * L} r={0.42 * L} vectorEffect="non-scaling-stroke" />)}
           {/* One group with one opacity, so overlapping marks don't stack up darker. */}
           <g className="selection-marks">{selected}</g>

@@ -224,6 +224,7 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
         &distribute,
         &sep()?,
         &MenuItem::with_id(app, "show_stereo", "Show Stereochemistry", true, None::<&str>)?,
+        &MenuItem::with_id(app, "atom_numbers", "Show Atom Numbers", true, None::<&str>)?,
         &sep()?,
         &item("group", "Group", "CmdOrCtrl+G")?,
         &item("ungroup", "Ungroup", "CmdOrCtrl+Shift+G")?,

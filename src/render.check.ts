@@ -121,3 +121,15 @@ console.log("render.check: written labels ok");
   assert.ok(fitted.from[0] < 0 && fitted.to[0] > 2 && Math.abs(fitted.from[0] + fitted.to[0] - 2) < 1e-9, "lengthened about its middle");
   console.log("render.check: arrows ok");
 }
+
+// Document label options: terminal carbons labelled (CH3), every carbon labelled, and implicit H hidden.
+{
+  const propane: Mol = { atoms: [{ label: "C", location: [0, 0, 0] }, { label: "C", location: [0.866, 0.5, 0] }, { label: "C", location: [1.732, 0, 0] }, { label: "O", location: [2.598, 0.5, 0] }],
+    bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [1, 2] }, { type: 1, atoms: [2, 3] }] };
+  const text = (s: typeof S & { terminal?: boolean; carbons?: boolean; hideH?: boolean }) => render(propane, s, ink).labels.map((l) => l.text).join("");
+  assert.equal(text(S), "OH");
+  assert.equal(text({ ...S, terminal: true }), "CH3OH");
+  assert.equal(text({ ...S, terminal: true, carbons: true }), "CH3CH2CH2OH");
+  assert.equal(text({ ...S, terminal: true, hideH: true }), "CO");
+  console.log("render.check: label options ok");
+}

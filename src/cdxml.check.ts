@@ -307,3 +307,16 @@ console.log("cdxml.check: every object kind round trips");
   assert.deepEqual([r.mol.atoms[0].label, r.mol.atoms[0].isotope, r.mol.atoms[0].text, r.lost], ["C", 14, undefined, {}], "ChemDraw's ¹⁴CH₄");
   console.log("cdxml.check: isotopes, singlet radicals, ring circles and grids ok");
 }
+
+// Atom numbers and the document's label options, and ChemDraw's CH3 labels read back as plain carbons.
+{
+  const m: Mol = { atoms: [A("C", 0, 0, { number: "1" }), A("C", 0.866, 0.5, { number: "2" }), A("O", 1.732, 0)], bonds: [b(0, 1), b(1, 2)] };
+  const s = { ...DEFAULT_STYLE, terminalLabels: true, carbonLabels: false, hideH: false };
+  const text = toCdxml(m, s);
+  assert.match(text, /ShowTerminalCarbonLabels="yes"/);
+  assert.match(text, />CH3</, "the terminal carbon's label is written");
+  const back = fromCdxml(text);
+  assert.deepEqual(back.mol.atoms.map((a) => [a.label, a.text, a.number]), [["C", undefined, "1"], ["C", undefined, "2"], ["O", undefined, undefined]]);
+  assert.deepEqual([back.style.terminalLabels, back.style.carbonLabels, back.style.hideH, back.lost], [true, false, false, {}]);
+  console.log("cdxml.check: atom numbers and label options ok");
+}

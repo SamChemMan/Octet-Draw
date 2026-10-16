@@ -393,21 +393,21 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // A node, with its label and, for an abbreviation Octet can expand, the abbreviation's atoms (spec 13.3).
   function node(i: number): { xml: string; box: Box } {
     const a = mol.atoms[i], X = page(i), deg = nbrs[i].length, charge = a.charge ?? 0;
-    const shown = !a.attach && !a.bead && (a.label !== "C" || !deg || !!a.text || !!a.isotope);
+    const shown = !a.attach && !a.bead && (a.label !== "C" || !deg || !!a.text || !!a.isotope || (deg === 1 ? style.terminalLabels : style.carbonLabels));
     const generic = !!a.text && /^(R\d{0,2}'{0,2}|X|Y|M|Q|A)$/.test(a.text);
     const inner = a.text && !generic ? opts.expand?.(a.text) : undefined;
     const type = a.attach || a.bead ? "ExternalConnectionPoint" : generic ? "GenericNickname" : a.text ? (inner?.atoms.length ? "Fragment" : "Unspecified") : undefined;
     const element = type ? undefined : a.label === "D" ? 1 : SYMBOLS.indexOf(a.label) + 1;
     const h = shown && !a.text ? a.implicitHCount ?? hydrogens(a.label, charge, used(i), a.radical === 3 ? 2 : a.radical) : undefined;
     const enhanced = /^(abs|&|or)(\d*)$/.exec(a.enhanced ?? "");
-    const label = shown ? labelOf(i, h ?? 0) : undefined;
+    const label = shown ? labelOf(i, style.hideH ? 0 : h ?? 0) : undefined;
     const z = a.location[2] ?? 0;
     const xml = el("n", {
       id: nodeId.get(i)!, p: pt(X), Z: Z(), NodeType: type, Element: element && element !== 6 ? element : undefined, Isotope: type ? undefined : a.isotope ?? (a.label === "D" ? 2 : undefined), Charge: charge || undefined,
       Radical: a.radical ? RADICALS[a.radical === 3 ? 1 : Math.min(2, a.radical) + 1] : undefined, NumHydrogens: h, ExternalConnectionType: a.attach ? "Wavy" : a.bead ? "PolymerBead" : undefined,
       NeedsClean: shown ? "yes" : undefined, GenericNickname: generic ? a.text : undefined,
       EnhancedStereoType: enhanced ? { abs: "Absolute", "&": "And", or: "Or" }[enhanced[1]] : undefined, EnhancedStereoGroupNum: enhanced?.[2] || undefined,
-      color: colour(a.colour), highlightColor: colour(a.halo), ShowAtomStereo: a.cip ? "yes" : undefined, xyz: z ? `${pt(X)} ${fmt(z * B)}` : undefined,
+      color: colour(a.colour), highlightColor: colour(a.halo), ShowAtomStereo: a.cip ? "yes" : undefined, ShowAtomNumber: a.number ? "yes" : undefined, AtomNumber: a.number, xyz: z ? `${pt(X)} ${fmt(z * B)}` : undefined,
       BondOrdering: inner && deg > 1 ? bondsAt[i].map((k) => bondId[k]).join(" ") : undefined,
       Octet: priv({ hmark: a.hmark, partial: a.partial, depth: a.depth === false ? false : undefined, map: a.map, circle: a.circle }),
     }, (inner ? nested(i, inner) : "") + (label?.xml ?? ""));
@@ -496,7 +496,8 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // The symbols ChemDraw draws round an atom (spec 9.10): a circled charge or a skeletal carbon's charge, radical
   // electrons and lone pairs, each in the widest gap between the atom's bonds and label.
   function marks(i: number): string {
-    const a = mol.atoms[i], X = page(i), charge = a.charge ?? 0, shown = !a.attach && !a.bead && (a.label !== "C" || !nbrs[i].length || !!a.text || !!a.isotope);
+    const a = mol.atoms[i], X = page(i), charge = a.charge ?? 0, deg = nbrs[i].length;
+    const shown = !a.attach && !a.bead && (a.label !== "C" || !deg || !!a.text || !!a.isotope || (deg === 1 ? style.terminalLabels : style.carbonLabels));
     const list: [string, string[]][] = [];
     if (charge && (a.circled || !shown)) list.push([a.circled ? (charge > 0 ? "CirclePlus" : "CircleMinus") : charge > 0 ? "Plus" : "Minus", ["Charge"]]);
     // A singlet radical (carbene) is a pair of electrons that stands for the radical.
@@ -650,7 +651,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   const root = el("CDXML", {
     CreationProgram: PROGRAM, Name: opts.name ?? "Untitled Document", BoundingBox: boxText(all), WindowPosition: "0 0", WindowSize: "0 0", FractionalWidths: "yes", InterpretChemically: "yes",
     ShowAtomQuery: "yes", ShowAtomStereo: "no", ShowAtomEnhancedStereo: "yes", ShowAtomNumber: "no", ShowResidueID: "no", ShowBondQuery: "yes", ShowBondRxn: "yes", ShowBondStereo: "no",
-    ShowTerminalCarbonLabels: "no", ShowNonTerminalCarbonLabels: "no", HideImplicitHydrogens: "no", LabelFont: font(style.labelFont), LabelSize: fmtSize(style.labelSize), LabelFace: 96,
+    ShowTerminalCarbonLabels: style.terminalLabels ? "yes" : "no", ShowNonTerminalCarbonLabels: style.carbonLabels ? "yes" : "no", HideImplicitHydrogens: style.hideH ? "yes" : "no", LabelFont: font(style.labelFont), LabelSize: fmtSize(style.labelSize), LabelFace: 96,
     CaptionFont: font(style.captionFont), CaptionSize: fmtSize(style.captionSize), HashSpacing: fmt(style.hash), MarginWidth: fmt(style.margin), LineWidth: fmt(style.line), BoldWidth: fmt(style.bold),
     BondLength: fmt(style.bond), BondSpacing: fmtSize(style.spacing), ChainAngle: 120, LabelJustification: "Auto", CaptionJustification: "Left", AminoAcidTermini: "HOH", ShowSequenceTermini: "yes",
     ShowSequenceBonds: "yes", ShowSequenceUnlinkedBranches: "no", ResidueWrapCount: 40, ResidueBlockCount: 10, PrintMargins: "36 36 36 36",
@@ -779,6 +780,7 @@ export function fromCdxml(text: string): CdxmlRead {
     bond: B, line: real(r.LineWidth), bold: real(r.BoldWidth), margin: real(r.MarginWidth), hash: real(r.HashSpacing), spacing: real(r.BondSpacing),
     labelFont: fontOf(fonts.get(int(r.LabelFont) ?? -1)).font, labelSize: real(r.LabelSize), captionFont: fontOf(fonts.get(int(r.CaptionFont) ?? -1)).font, captionSize: real(r.CaptionSize),
     colour: colourOf(r.color) ?? "#000000",
+    terminalLabels: yes(r.ShowTerminalCarbonLabels), carbonLabels: yes(r.ShowNonTerminalCarbonLabels), hideH: yes(r.HideImplicitHydrogens),
   });
 
   // Octet ids: the file's own when Octet wrote it, otherwise numbered afresh.
@@ -875,6 +877,8 @@ export function fromCdxml(text: string): CdxmlRead {
     if (p?.depth === false) a.depth = false;
     if (Number.isInteger(p?.map) && isNum(p!.map, 1, 9999)) a.map = p!.map as number;
     if (p?.circle === true) a.circle = true;
+    const number = yes(n.attrs.ShowAtomNumber) ? (n.attrs.AtomNumber ?? "").trim() : "";
+    if (number) { if (/^[\w'′*-]{1,8}$/.test(number)) a.number = number; else lose("atom number"); }
     const i = mol.atoms.push(a) - 1;
     nodeIds.push(int(n.attrs.id) ?? 0);
     atomOf.set(int(n.attrs.id) ?? -1, i);
@@ -935,7 +939,7 @@ export function fromCdxml(text: string): CdxmlRead {
         if (a.isotope && text.startsWith(String(a.isotope))) text = text.slice(String(a.isotope).length);
         const m = new RegExp(`^(?:H(\\d*))?${a.label}(?:H(\\d*))?$`).exec(text);
         const h = m ? (m[1] === undefined ? 0 : Number(m[1] || 1)) + (m[2] === undefined ? 0 : Number(m[2] || 1)) : -1;
-        if (m && (a.label !== "C" || !degree[i] || a.isotope) && h === hydrogens(a.label, charge, used[i], a.radical === 3 ? 2 : a.radical)) continue;
+        if (m && (a.label !== "C" || !degree[i] || a.isotope || (degree[i] === 1 ? style.terminalLabels : style.carbonLabels)) && h === hydrogens(a.label, charge, used[i], a.radical === 3 ? 2 : a.radical)) continue;
       } else if (isotope) lose("isotope");
       if (text.length > MAX_LABEL || /[<>]/.test(text)) { lose("label text"); text = text.replace(/[<>]/g, "").slice(0, MAX_LABEL); }
       if (isElement(text)) a.label = text;

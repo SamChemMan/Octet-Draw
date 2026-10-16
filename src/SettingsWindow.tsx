@@ -316,6 +316,9 @@ export function SettingsWindow(p: Props) {
       num("hash", "Hash spacing", "pt", "hash hashed wedge spacing"), num("margin", "Margin", "pt", "label margin clearance"),
       d("document", "Style", "Atom labels", "atom label font typeface", <Select label="Atom label font" value={style.labelFont} options={fontOptions} onChange={(v) => change({ labelFont: v })} />),
       num("labelSize", "Label size", "pt", "atom label font size"),
+      d("document", "Style", "Label terminal carbons", "terminal carbon labels ch3 methyl show", <Switch on={style.terminalLabels} label="Label terminal carbons" onChange={(on) => change({ terminalLabels: on })} />),
+      d("document", "Style", "Label every carbon", "non-terminal carbon labels all carbons show", <Switch on={style.carbonLabels} label="Label every carbon" onChange={(on) => change({ carbonLabels: on })} />),
+      d("document", "Style", "Hide implicit hydrogens", "implicit hydrogens hide labels h", <Switch on={style.hideH} label="Hide implicit hydrogens" onChange={(on) => change({ hideH: on })} />),
       d("document", "Text", "Captions", "caption text font typeface", <Select label="Caption font" value={style.captionFont} options={fontOptions} onChange={(v) => change({ captionFont: v })} />),
       num("captionSize", "Caption size", "pt", "caption text font size", "Text"),
       d("document", "Text", "Colour", "text colour caption", (
