@@ -61,6 +61,21 @@ async fn open_drawing(app: AppHandle, picked: State<'_, Picked>) -> Result<Optio
     Ok(Some((path.to_string_lossy().into_owned(), text)))
 }
 
+// Import a structure from another program's file (MOL, SDF, SMILES, CDXML). Returns its name and text.
+#[tauri::command]
+async fn import_structure(app: AppHandle) -> Result<Option<(String, String)>, String> {
+    let Some(file) = app.dialog().file().add_filter("Structures", &["mol", "sdf", "smi", "smiles", "cdxml", "ket", "txt"]).blocking_pick_file() else {
+        return Ok(None);
+    };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    if fs::metadata(&path).map_err(|e| e.to_string())?.len() > MAX_BYTES {
+        return Err("This file is larger than 64 MB. Octet cannot import it.".into());
+    }
+    let text = fs::read_to_string(&path).map_err(|_| "Octet can only import text files (MOL, SDF, SMILES, CDXML).".to_string())?;
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    Ok(Some((name, text)))
+}
+
 // Saves to `path` if the user picked it earlier, otherwise asks where to save. Returns the path, or None if cancelled.
 #[tauri::command]
 async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<String>, contents: String) -> Result<Option<String>, String> {
@@ -94,6 +109,7 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
     let file = Submenu::with_items(app, "File", true, &[
         &item("new", "New", "CmdOrCtrl+N")?,
         &item("open", "Open…", "CmdOrCtrl+O")?,
+        &item("import", "Import a Structure…", "CmdOrCtrl+Shift+I")?,
         &sep()?,
         &item("save", "Save", "CmdOrCtrl+S")?,
         &item("save_as", "Save As…", "CmdOrCtrl+Shift+S")?,
@@ -110,7 +126,22 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
         &item("select_all", "Select All", "CmdOrCtrl+A")?,
     ])?;
     let snap = CheckMenuItem::with_id(app, "snap", "Snap to Objects", true, true, None::<&str>)?;
-    let view = Submenu::with_items(app, "View", true, &[&snap])?;
+    let view = Submenu::with_items(app, "View", true, &[
+        &item("zoom_actual", "Actual Size", "CmdOrCtrl+0")?,
+        &item("zoom_fit", "Zoom to Fit", "CmdOrCtrl+1")?,
+        &item("zoom_in", "Zoom In", "CmdOrCtrl+=")?,
+        &item("zoom_out", "Zoom Out", "CmdOrCtrl+-")?,
+        &sep()?,
+        &snap,
+        &MenuItem::with_id(app, "actions", "Show or Hide Actions", true, None::<&str>)?,
+    ])?;
+    // Structure commands keep ChemDraw's shortcuts.
+    let structure = Submenu::with_items(app, "Structure", true, &[
+        &item("clean_up", "Clean Up Structure", "CmdOrCtrl+Shift+K")?,
+        &sep()?,
+        &item("flip_h", "Flip Horizontal", "CmdOrCtrl+Shift+H")?,
+        &item("flip_v", "Flip Vertical", "CmdOrCtrl+Shift+V")?,
+    ])?;
     let window = Submenu::with_items(app, "Window", true, &[
         &PredefinedMenuItem::minimize(app, None)?,
         &PredefinedMenuItem::fullscreen(app, None)?,
@@ -130,7 +161,7 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
     let mut items: Vec<&dyn IsMenuItem<Wry>> = Vec::new();
     #[cfg(target_os = "macos")]
     items.push(&octet);
-    items.extend([&file as &dyn IsMenuItem<Wry>, &edit, &view, &window]);
+    items.extend([&file as &dyn IsMenuItem<Wry>, &edit, &view, &structure, &window]);
     Ok((Menu::with_items(app, &items)?, vec![snap]))
 }
 
@@ -138,7 +169,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Picked::default())
-        .invoke_handler(tauri::generate_handler![open_drawing, save_drawing, set_check])
+        .invoke_handler(tauri::generate_handler![open_drawing, save_drawing, set_check, import_structure])
         .setup(|app| {
             let handle = app.handle();
             let (bar, checks) = menu(handle)?;

@@ -3,16 +3,18 @@ import { Warning } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { measure, parseStructure, ready, STYLE, toSmiles } from "./chem";
+import { analyse, cleanUp, importStructure, measure, parseStructure, ready, STYLE, toSmiles } from "./chem";
+import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
 import {
   EMPTY, addCharge, addRing, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
-  addChair, addGroup, atomsInPolygon, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
+  addChair, addGroup, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
   type BondSpec, type Group, type P,
 } from "./edit";
 import { snapMove, type Guide } from "./snap";
 import { loadSettings, saveSettings } from "./settings";
-import { actionFor, keyOf, keymap } from "./keys";
+import { actionFor, keyOf, keymap, label as keyLabel } from "./keys";
+import { Actions, type Context } from "./Actions";
 import { BONDS, Palette, RINGS, SELECTS, type BondKind, type RingKind, type SelectKind, type Tool } from "./tools";
 import { render, type Mol } from "./render";
 import { selectCursor } from "./cursor";
@@ -141,18 +143,58 @@ export default function Editor() {
       setNotice(e instanceof Error ? e.message : `Octet cannot open this file. ${e}`);
     }
   }
+  // Import a structure file: it lands to the right of the drawing (or in the middle of an empty canvas), selected.
+  async function importFile() {
+    try {
+      const picked = await invoke<[string, string] | null>("import_structure");
+      if (!picked) return;
+      place(importStructure(picked[1]));
+    } catch (e) {
+      setNotice(e instanceof Error ? `Octet cannot read this file. ${e.message}` : String(e));
+    }
+  }
+  // Puts a new fragment beside the drawing, or centred in an empty view, and selects it.
+  function place(frag: Mol) {
+    if (!frag.atoms.length) throw new Error("It has no atoms.");
+    const f = bounds(frag)!, d = bounds(doc);
+    const centre: P = d ? [d[2] + 1.5 + (f[2] - f[0]) / 2, (d[1] + d[3]) / 2] : toDoc(innerWidth / 2, innerHeight / 2);
+    const base = doc.atoms.length;
+    set(merge(doc, frag, [centre[0] - (f[0] + f[2]) / 2, centre[1] - (f[1] + f[3]) / 2]));
+    setSelection(new Set(frag.atoms.map((_, i) => base + i)));
+  }
   // Menu commands. New and Open go on the undo list, so they never lose work.
   const commands = useRef<Record<string, () => void>>({});
   commands.current = {
     new: () => { set(EMPTY); setFile({ saved: EMPTY }); },
     open: () => void open(),
+    import: () => void importFile(),
     save: () => void save(false),
     save_as: () => void save(true),
     undo: () => undo(),
     redo: () => undo(true),
     select_all: () => setSelection(new Set(doc.atoms.map((_, i) => i))),
     snap: () => setSettings((s) => ({ ...s, snap: !s.snap })),
+    // Structure commands act on the selection, or on the whole drawing when nothing is selected.
+    clean_up: () => { if (loaded && doc.atoms.length) set(cleanUp(doc, selection.size ? selection : undefined), true); },
+    flip_h: () => set(flipAtoms(doc, selection.size ? selection : new Set(doc.atoms.map((_, i) => i)), "horizontal"), true),
+    flip_v: () => set(flipAtoms(doc, selection.size ? selection : new Set(doc.atoms.map((_, i) => i)), "vertical"), true),
+    // Zoom about the middle of the window. Actual size is 100%: bonds at their true 14.4 pt.
+    zoom_in: () => zoomTo(view.zoom * 1.25),
+    zoom_out: () => zoomTo(view.zoom / 1.25),
+    zoom_actual: () => zoomTo(1),
+    actions: () => setSettings((s) => ({ ...s, actions: !s.actions })),
+    zoom_fit: () => {
+      const b = bounds(doc);
+      if (!b) return zoomTo(2);
+      const free = [innerWidth - 160, innerHeight - 120], size = [(b[2] - b[0] + 1) * L, (b[3] - b[1] + 1) * L];
+      const zoom = Math.min(8, Math.max(0.25, Math.min(free[0] / size[0], free[1] / size[1])));
+      setView({ zoom, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * L * zoom, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * L * zoom });
+    },
   };
+  function zoomTo(target: number) {
+    const zoom = Math.min(8, Math.max(0.25, target)), k = zoom / view.zoom, cx = innerWidth / 2, cy = innerHeight / 2;
+    setView({ zoom, x: cx - (cx - view.x) * k, y: cy - (cy - view.y) * k });
+  }
   // Keep the setting on disk and the View menu tick in step with it.
   useEffect(() => {
     saveSettings(settings);
@@ -326,6 +368,72 @@ export default function Editor() {
     }
   }
 
+  // What the Actions panel shows: it follows the selection.
+  const context: Context = (() => {
+    if (!selection.size) return doc.atoms.length ? { kind: "drawing" } : { kind: "empty" };
+    const ids = [...selection].filter((i) => i < doc.atoms.length);
+    if (ids.length === 1) {
+      const a = doc.atoms[ids[0]];
+      return { kind: "atom", label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text };
+    }
+    const bi = ids.length === 2 ? doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])) : -1;
+    if (bi >= 0) {
+      const b = doc.bonds[bi];
+      const style = (Object.keys(BONDS) as BondKind[]).find((k) => {
+        const spec: BondSpec = BONDS[k].spec;
+        return spec.type === b.type && spec.stereo === b.stereo && spec.display === b.display;
+      });
+      return { kind: "bond", style, double: b.type === 2, flippable: !!b.stereo || b.display === "dative" || b.display === "hollow" };
+    }
+    return { kind: "structure", atoms: ids.length, structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length };
+  })();
+  // What the panel knows about the drawing: formula and mass (of the selection, or everything), problems, mess.
+  const analysis = useMemo(() => (loaded ? analyse(selection.size ? subset(doc, selection) : doc) : undefined), [loaded, doc, selection]);
+  const found = useMemo(() => problems(doc), [doc]);
+  const untidy = useMemo(() => messy(doc, selection), [doc, selection]);
+  // Text the panel asked to copy; the copy handler uses it instead of SMILES.
+  const copyText = useRef<string>(undefined);
+
+  // The key to show beside an action: menu shortcuts, then the user's shortcut table.
+  const MENU_KEYS: Record<string, string> = {
+    import: `⇧${MOD}I`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}1`, copy_smiles: `${MOD}C`, delete: "⌫",
+  };
+  const hint = (command: string) => {
+    if (MENU_KEYS[command]) return MENU_KEYS[command];
+    const first = keymap(settings.keys)[command]?.[0];
+    return first ? keyLabel(first) : undefined;
+  };
+
+  // Runs an action from the panel on the selected atom, bond or atoms.
+  function runAction(command: string) {
+    const ids = [...selection];
+    if (commands.current[command]) return commands.current[command]();
+    if (command === "copy_smiles") return void document.execCommand("copy");
+    if (command === "paste_hint") return setNotice(`Copy a SMILES string or MOL file, then press ${MOD}V here.`);
+    if (command.startsWith("copy_text:")) { copyText.current = command.slice(10); document.execCommand("copy"); return; }
+    if (command.startsWith("fix:")) { const [, i, charge] = command.split(":"); return set(addCharge(doc, Number(i), Number(charge) - (doc.atoms[Number(i)].charge ?? 0)), true); }
+    if (command.startsWith("show:")) return setSelection(new Set([Number(command.slice(5))]));
+    if (command.startsWith("align.")) return set(alignFragments(doc, selection, command.slice(6) as "row" | "column" | "spread-row"), true);
+    if (command === "delete") return selection.size ? set(deleteAtoms(doc, selection)) : undefined;
+    if (command.startsWith("rotate.")) return run(command);
+    if (context.kind === "atom") {
+      const i = ids[0], [kind, arg] = command.split(".");
+      if (kind === "element") return set(setElement(doc, i, arg), true);
+      if (command.startsWith("label:")) return set(setLabel(doc, i, command.slice(6)), true);
+      if (kind === "group") return set(addGroup(doc, i, arg as Group));
+      if (command === "atom.label") return editLabel(i);
+      if (command === "charge.plus" || command === "charge.minus") return set(addCharge(doc, i, command === "charge.plus" ? 1 : -1), true);
+    }
+    if (context.kind === "bond") {
+      const bi = doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])), arg = command.split(".")[1];
+      if (arg in BONDS) return set(setBondSpec(doc, bi, BONDS[arg as BondKind].spec), true);
+      const ring = arg.startsWith("ring") ? RINGS[arg.slice(4) as RingKind] : arg === "benzene" ? RINGS.benzene : undefined;
+      if (ring) return set(addRing(doc, ring.n, ring.aromatic, { bond: bi }));
+      if (arg === "left" || arg === "centre" || arg === "right") return set(setPosition(doc, bi, arg), true);
+      if (arg === "flip") return set(flipBond(doc, bi), true);
+    }
+  }
+
   // What a click does with each tool in hand.
   function click(t: Hover, at: P) {
     if (tool === "bond") {
@@ -435,8 +543,14 @@ export default function Editor() {
         setNotice("Octet cannot read this structure. Paste a SMILES string or a MOL file.");
       }
     };
-    // Copy puts the selection, or the whole drawing, on the clipboard as SMILES.
+    // Copy puts the selection, or the whole drawing, on the clipboard as SMILES (or text the panel asked for).
     const onCopy = (e: ClipboardEvent) => {
+      if (copyText.current) {
+        e.clipboardData?.setData("text/plain", copyText.current);
+        e.preventDefault();
+        copyText.current = undefined;
+        return setNotice("Copied.");
+      }
       const what = selection.size ? subset(doc, selection) : doc;
       if (!what.atoms.length || !loaded) return;
       try {
@@ -508,6 +622,7 @@ export default function Editor() {
         }}
       >
         <g transform={`translate(${view.x} ${view.y}) scale(${view.zoom})`}>
+          {found.map((p) => doc.atoms[p.atom] && <circle key={`p${p.atom}`} className="problem-mark" cx={pos(shown, p.atom)[0] * L} cy={-pos(shown, p.atom)[1] * L} r={0.42 * L} vectorEffect="non-scaling-stroke" />)}
           {/* One group with one opacity, so overlapping marks don't stack up darker. */}
           <g className="selection-marks">{selected}</g>
           {hovered}
@@ -581,6 +696,16 @@ export default function Editor() {
           Paste a SMILES string to add a structure.
         </p>
       )}
+      <Actions
+        open={settings.actions}
+        context={context}
+        analysis={analysis}
+        problems={found}
+        messy={untidy}
+        hint={hint}
+        onOpen={(open) => setSettings((s) => ({ ...s, actions: open }))}
+        run={runAction}
+      />
       {notice && (
         <p className="notice text-ui" role="status">
           <Warning size={16} weight="bold" aria-hidden />

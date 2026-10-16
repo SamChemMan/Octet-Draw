@@ -30,4 +30,7 @@ assert.equal(actionFor(mine, "n", "atom"), undefined);
 assert.deepEqual(clashes(map, "element.N", "o"), ["element.O"]);
 assert.deepEqual(clashes(map, "element.N", "2"), ["group.acetyl"]);
 assert.deepEqual(clashes(map, "bond.double", "n"), []);
+import { label } from "./keys.ts";
+assert.equal(label("+"), "+");
+assert.ok(["↩", "Enter"].includes(label("enter")));
 console.log("keys.check: ok");

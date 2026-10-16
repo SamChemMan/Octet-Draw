@@ -88,10 +88,11 @@ export function keyOf(e: { key: string; code?: string; shiftKey: boolean; altKey
 // How a key looks on screen.
 const MAC = typeof navigator !== "undefined" && navigator.platform.startsWith("Mac");
 const NAMES: Record<string, string> = {
-  delete: "Delete", backspace: MAC ? "⌫" : "Backspace", space: "Space", escape: "Esc", "-": "−",
+  delete: "Delete", backspace: MAC ? "⌫" : "Backspace", space: "Space", escape: "Esc", enter: MAC ? "↩" : "Enter", "-": "−",
   arrowleft: "←", arrowright: "→", arrowup: "↑", arrowdown: "↓",
 };
 export function label(key: string): string {
+  if (key === "+") return "+";
   return key.split("+").map((part, i, all) => {
     if (i < all.length - 1) return part === "mod" ? (MAC ? "⌘" : "Ctrl+") : part === "alt" ? (MAC ? "⌥" : "Alt+") : MAC ? "⇧" : "Shift+";
     return NAMES[part] ?? (part.length === 1 ? part.toUpperCase() : part);

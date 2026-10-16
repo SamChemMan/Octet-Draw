@@ -420,3 +420,56 @@ export function atomsInPolygon(m: Mol, poly: P[]): number[] {
     return inside ? [i] : [];
   });
 }
+
+// Flip Horizontal and Flip Vertical: a 180° turn in 3D about the vertical or horizontal axis, so wedges become
+// hashed wedges and the stereochemistry is kept (as ChemDraw's "Rotate 180°"). Double-bond sides swap too.
+export function flipAtoms(m: Mol, ids: Set<number>, axis: "horizontal" | "vertical"): Mol {
+  const ps = [...ids].filter((i) => i < m.atoms.length).map((i) => pos(m, i));
+  if (!ps.length) return m;
+  const k = axis === "horizontal" ? 0 : 1;
+  const mid = (Math.min(...ps.map((p) => p[k])) + Math.max(...ps.map((p) => p[k]))) / 2;
+  const swap = { left: "right", right: "left", centre: "centre" } as const;
+  return {
+    atoms: m.atoms.map((a, i) => {
+      if (!ids.has(i)) return a;
+      const loc: [number, number, number] = [a.location[0], a.location[1], 0];
+      loc[k] = 2 * mid - loc[k];
+      return { ...a, location: loc };
+    }),
+    bonds: m.bonds.map((b) => {
+      if (!ids.has(b.atoms[0]) || !ids.has(b.atoms[1])) return b;
+      const out = { ...b };
+      if (b.stereo === 1) out.stereo = 6;
+      else if (b.stereo === 6) out.stereo = 1;
+      if (b.position) out.position = swap[b.position];
+      return out;
+    }),
+  };
+}
+
+// Lines up whole structures in a selection: their centres on one line, or evenly spaced along it.
+export function alignFragments(m: Mol, ids: Set<number>, how: "row" | "column" | "spread-row" | "spread-column"): Mol {
+  const groups = fragments(m).filter((g) => g.some((i) => ids.has(i)));
+  if (groups.length < 2) return m;
+  const boxes = groups.map((g) => {
+    const xs = g.map((i) => pos(m, i)[0]), ys = g.map((i) => pos(m, i)[1]);
+    return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  });
+  const centre = (b: number[], k: 0 | 1) => (b[k] + b[k + 2]) / 2;
+  const axis: 0 | 1 = how === "row" || how === "spread-row" ? 1 : 0; // a row shares one y
+  const shifts: P[] = groups.map(() => [0, 0]);
+  if (how === "row" || how === "column") {
+    const target = boxes.reduce((s, b) => s + centre(b, axis), 0) / boxes.length;
+    boxes.forEach((b, k) => { shifts[k][axis] = target - centre(b, axis); });
+  } else {
+    // Equal gaps between neighbouring structures, keeping the first and last in place.
+    const along: 0 | 1 = axis === 1 ? 0 : 1, order = boxes.map((_, k) => k).sort((a, b) => boxes[a][along] - boxes[b][along]);
+    const total = boxes[order[order.length - 1]][along + 2] - boxes[order[0]][along];
+    const sizes = order.map((k) => boxes[k][along + 2] - boxes[k][along]), gap = (total - sizes.reduce((s, x) => s + x, 0)) / (order.length - 1);
+    let at = boxes[order[0]][along];
+    order.forEach((k, n) => { shifts[k][along] = at - boxes[k][along]; at += sizes[n] + gap; });
+  }
+  let out = m;
+  groups.forEach((g, k) => { out = moveAtoms(out, new Set(g), shifts[k]); });
+  return out;
+}

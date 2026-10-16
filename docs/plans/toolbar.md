@@ -59,6 +59,20 @@ Any tool under the expand button can be pinned to the palette. Undo and Redo sta
 
 **Command palette** (⌘K): type any command, tool or template by name ("chair", "clean up", "Boc").
 
+## Actions panel (Sam, 16 October 2026)
+
+A small panel docked bottom right replaces hunting through menus. It follows the selection and offers what a chemist would want next. It can be closed to a small Actions button and reopened from there or from View. ChemDraw's menus and keys keep every command too, for continuity.
+
+- Nothing on the page: import a structure, paste a SMILES or MOL, name to structure.
+- Whole drawing or a selection: formula and mass per structure (click to copy), problems with a one-click fix, Clean up (highlighted with the reason when bonds are uneven), flips, 15° turns, copy as SMILES, structure to name (adds the name as a caption centred under the structure).
+- Several structures: line up in a row or column, space evenly.
+- One atom: element chips, the likely groups for a chain end (OH, NH2, Me, OMe, CO2H, CF3, CN, Ph) or groups to add to a chain carbon, label, charge.
+- One bond: every bond style, fuse a benzene, 6- or 5-membered ring, double-bond side, flip a wedge.
+
+## Lab art
+
+ChemDraw's stock clip art (lamps for photoredox schemes and similar) looks dated. Octet ships its own clean vector library in the toolbar: LED and lamp light sources with a wavelength label, sun, light arrows, flasks, vials, beakers, electrodes, heat and cold symbols. Every piece takes the document style and has editable colours, labels and size. Users can save their own pieces to the library.
+
 ## Build order
 
 Each step ends with a usable build and a side-by-side check against ChemDraw (same drawing: output, time, number of steps).
