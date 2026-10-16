@@ -8,11 +8,11 @@ import {
   AlignCenterHorizontal, AlignCenterVertical, ArrowClockwise, ArrowsClockwise, SignIn, SignOut, ArrowCounterClockwise, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretDown,
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, LinkBreak, LinkSimple, ListNumbers, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAa, TextAlignCenter, TextAlignLeft,
-  TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, Columns, ColumnsPlusRight, GridFour, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
+  TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Eraser, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
-import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
+import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
 import { COLOURS, TINTS } from "./docstyle";
 import { ArrowGlyph, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, SymbolGlyph, type BondKind } from "./tools";
@@ -26,7 +26,7 @@ export type Context =
       script?: "sub" | "super"; font?: string; fonts?: string[] }
   | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
       heads: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string }
-  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; grid: boolean; hide?: string[]; shade: { depth: number; blur: number; opacity: number; pt: number } }
+  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[]; shade: { depth: number; blur: number; opacity: number; pt: number } }
   | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean }
   | { kind: "atom"; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string }
@@ -175,6 +175,21 @@ function SpotGlyph({ style }: { style: "filled" | "hollow" | "shaded" }) {
   );
 }
 
+// A table's lines as a chip draws them: the lines given in ink, and (faint) the rest of the grid faintly.
+function TableGlyph({ on, faint }: { on: TableLine[]; faint?: boolean }) {
+  const has = new Set(on), x = [2, 7.33, 12.67, 18], y = [2, 6, 10, 14];
+  const lines: [TableLine, number, number, number, number][] = [
+    ["top", 2, 2, 18, 2], ["bottom", 2, 14, 18, 14], ["left", 2, 2, 2, 14], ["right", 18, 2, 18, 14], ["header", 2, y[1], 18, y[1]], ["rows", 2, y[2], 18, y[2]],
+    ["cols", x[1], 2, x[1], 14], ["cols", x[2], 2, x[2], 14],
+  ];
+  const ink = (k: TableLine, i: number) => has.has(k) || (i === 4 && has.has("rows"));
+  return (
+    <svg width={20} height={16} viewBox="0 0 20 16" aria-hidden>
+      {lines.map(([k, x1, y1, x2, y2], i) => (ink(k, i) || faint) && <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="currentColor" strokeWidth={ink(k, i) ? 1.5 : 1} opacity={ink(k, i) ? 1 : 0.25} />)}
+    </svg>
+  );
+}
+
 // small: shown as a small button by default (the user can drag it into the rows, and any row out of them).
 export type Item = { icon: React.ReactNode; name: string; command: string; accent?: boolean; small?: boolean };
 
@@ -251,9 +266,12 @@ export function actionItems(context: Context, messy: boolean): Item[] {
         break;
       }
       if (context.shape === "table") {
-        items.push(it(<RowsPlusBottom size={18} />, "Add a row", "shape.rows.1"), it(<ColumnsPlusRight size={18} />, "Add a column", "shape.cols.1"),
-          small(it(<Rows size={18} />, "Remove a row", "shape.rows.-1")), small(it(<Columns size={18} />, "Remove a column", "shape.cols.-1")),
-          it(<GridFour size={18} />, context.grid ? "Journal rules" : "All lines", "shape.grid"), del);
+        // At the cell last typed in, or at the end of the table.
+        items.push(it(<RowsPlusBottom size={18} />, "Add a row below", "shape.row.after"), it(<ColumnsPlusRight size={18} />, "Add a column after", "shape.col.after"),
+          small(it(<RowsPlusTop size={18} />, "Add a row above", "shape.row.before")), small(it(<ColumnsPlusLeft size={18} />, "Add a column before", "shape.col.before")),
+          small(it(<Rows size={18} />, context.cell ? "Delete the row" : "Delete the last row", "shape.row.delete")), small(it(<Columns size={18} />, context.cell ? "Delete the column" : "Delete the last column", "shape.col.delete")),
+          small(it(<ArrowsInLineHorizontal size={18} />, "Size to fit contents", "shape.fit")), small(it(<Eraser size={18} />, "Clear contents", "shape.clear")),
+          small(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed")), del);
         break;
       }
       if (isBracket({ kind: context.shape })) items.push(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed"));
@@ -560,6 +578,34 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
           <Slider name="Tail" value={context.tail} min={0} max={2} step={0.01} show={(v) => `${(v * context.pt).toFixed(1)} pt`} onChange={(v) => run(`spot.tail.${Math.round(v * 100)}`)} />
         </div>
       )}
+      {context.kind === "shape" && context.shape === "table" && (() => {
+        // The table's lines (a set, then each line on its own), its cells' alignment (the column last typed in, or
+        // every column) and the lines' width.
+        const same = (a: TableLine[], b: TableLine[]) => a.length === b.length && a.every((x) => b.includes(x));
+        const EACH: [TableLine, string][] = [["top", "Top line"], ["header", "Line under the header"], ["rows", "Lines between rows"], ["bottom", "Bottom line"], ["left", "Left line"], ["cols", "Lines between columns"], ["right", "Right line"]];
+        return (
+          <>
+            <div className="chips arrows" role="group" aria-label="Lines">
+              {([["journal", "Journal rules"], ["grid", "All lines"], ["box", "Box"], ["none", "No lines"]] as const).map(([id, name]) => (
+                <button key={id} className="chip" aria-pressed={same(context.lines, TABLE_LINES[id])} aria-label={name} title={name} onClick={() => run(`shape.lines.${id}`)}><TableGlyph on={TABLE_LINES[id]} faint={id === "none"} /></button>
+              ))}
+            </div>
+            <div className="chips arrows" role="group" aria-label="Each line">
+              {EACH.map(([id, name]) => (
+                <button key={id} className="chip" aria-pressed={context.lines.includes(id)} aria-label={name} title={name} onClick={() => run(`shape.lines.${id}`)}><TableGlyph on={[id]} faint /></button>
+              ))}
+            </div>
+            <div className="chips" role="group" aria-label="Alignment">
+              {([["left", "Align left", <TextAlignLeft size={16} />], ["centre", "Centre", <TextAlignCenter size={16} />], ["right", "Align right", <TextAlignRight size={16} />]] as const).map(([id, name, icon]) => (
+                <button key={id} className="chip" aria-pressed={context.cellAlign === id} aria-label={name} title={name} onClick={() => run(`shape.align.${id}`)}>{icon}</button>
+              ))}
+            </div>
+            <div className="sliders" role="group" aria-label="Lines">
+              <Slider name="Line width" value={context.weight} min={0.1} max={4} step={0.05} show={(v) => `${v.toFixed(2)} pt`} onChange={(v) => run(`shape.weight.${Math.round(v * 100)}`)} />
+            </div>
+          </>
+        );
+      })()}
       {context.kind === "shape" && context.style === "shadow" && (
         // The shadow's depth (how far it falls), softness and opacity, each on a slider.
         <div className="sliders" role="group" aria-label="Shadow">

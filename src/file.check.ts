@@ -102,11 +102,15 @@ console.log("file.check: bad files refused");
     { kind: "brackets" as const, from: [0, 0] as [number, number], to: [2, 2] as [number, number], side: "left" as const, mark: "‡" },
     { kind: "tlc" as const, from: [0, 0] as [number, number], to: [3, 4] as [number, number], tlc: { lanes: 3, spots: [{ lane: 0, rf: 0.42 }, { lane: 2, rf: 0.7 }], rf: true } },
     { kind: "table" as const, from: [0, 3] as [number, number], to: [6, 0] as [number, number], table: { cells: [["Entry", "Solvent", "Yield (%)"], ["1", "THF", "72"]], grid: true } },
+    { kind: "table" as const, from: [0, 3] as [number, number], to: [6, 0] as [number, number], dashed: true,
+      table: { cells: [["a", "b"], ["c", "d"]], widths: [2, 3.5], heights: [1, 1.2], lines: ["top" as const, "rows" as const, "cols" as const], align: ["left" as const, "right" as const], weight: 0.8 } },
   ]) m = addShape(m, sh)[0];
   const again = parse(serialize(m));
   assert.deepEqual(again.shapes?.map(({ id: _, ...x }) => x), m.shapes?.map(({ id: _, ...x }) => x));
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "tlc", x1: 0, y1: 0, x2: 1, y2: 1, tlc: { lanes: 2, spots: [{ lane: 5, rf: 0.5 }] } }] })), /damaged/);
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "table", x1: 0, y1: 0, x2: 1, y2: 1, table: { cells: [[1]] } }] })), /damaged/);
+  for (const bad of [{ widths: [0] }, { heights: [1e9] }, { lines: ["diagonal"] }, { align: ["middle"] }, { weight: -1 }])
+    assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "table", x1: 0, y1: 0, x2: 1, y2: 1, table: { cells: [["a"]], ...bad } }] })), /damaged/, JSON.stringify(bad));
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "curve", x1: 0, y1: 0, x2: 1, y2: 1, curve: { points: [{ at: [0, 0] }, { at: [1, "x"] }] } }] })), /damaged/);
   // Pen curves are lines with points, heads and a fill; a curve saved as a shape (before they were lines) opens as a line.
   const pen = { id: 90, kind: "curve" as const, from: [0, 0] as [number, number], to: [4, 0] as [number, number], start: "left" as const, end: "full" as const, head: "hollow" as const, style: "doubled" as const, fill: "faded" as const,

@@ -14,7 +14,7 @@ import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
-  addShape, addSymbol, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, pairMap, clearMap, stereocentres, setEnhanced, markDirection, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
+  addShape, addSymbol, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirection, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
 } from "./edit";
 import { snapBox, snapMove, type Guide } from "./snap";
 import { loadSettings, saveSettings } from "./settings";
@@ -31,7 +31,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, Palette, RingGlyph, RINGS, SELECTS, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, orbitalPaths, straightArrow, shapeInk, shapePaths, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, type Arrow, type ArrowKind, type Box, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind } from "./render";
+import { arrowPath, arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, orbitalPaths, straightArrow, shapeInk, shapePaths, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, type Arrow, type ArrowKind, type Box, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
 import { loadNames, nameToSmiles, suggestName } from "./names";
 import { checkedName, setNamer } from "./naming";
@@ -110,6 +110,8 @@ type Drag =
   // TLC: a spot moved (lane and Rf) or sized (Shift: width across, height up, tail down), or the origin or front moved.
   | { kind: "spot"; plate: number; index: number; base: Mol; from: P; size: boolean; moved: boolean; working: Mol }
   | { kind: "tlcline"; plate: number; which: "origin" | "front"; base: Mol; working: Mol }
+  // Tables: a column or row border dragged with the Table tool (index 0 is the left or top edge).
+  | { kind: "tableedge"; id: number; axis: "col" | "row"; index: number; base: Mol; working: Mol }
   | { kind: "tilt"; base: Mol; ids: Set<number>; centre: [number, number, number]; start: [number, number]; hinge?: [number, number]; working: Mol }
   // Mapping one atom to another with the Atom map tool: from the atom pressed to the pointer.
   | { kind: "map"; atom: number; start: [number, number]; to?: P }
@@ -296,6 +298,11 @@ export default function Editor() {
   const [penAt, setPenAt] = useState<P>();
   // The table cell being typed in: its table, row and column, and the text so far.
   const [cell, setCell] = useState<{ id: number; r: number; c: number; value: string }>();
+  // The table cell last typed in: the row and column the table actions add, delete and align at.
+  const [lastCell, setLastCell] = useState<{ id: number; r: number; c: number }>();
+  useEffect(() => { if (cell) setLastCell({ id: cell.id, r: cell.r, c: cell.c }); }, [cell?.id, cell?.r, cell?.c]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The table border under the pointer with the Table tool: its cursor shows which way it drags.
+  const [edgeHover, setEdgeHover] = useState<"col" | "row">();
   const cellOpen = useRef(false);
   const cellInput = useRef<HTMLInputElement>(null);
   useEffect(() => { cellInput.current?.select(); }, [cell?.id, cell?.r, cell?.c]);
@@ -571,7 +578,7 @@ export default function Editor() {
   const shown = useMemo(() => {
     if (drag?.kind === "bond" && drag.to) return bondTo(doc, drag.from, drag.to, bondSpec);
     if (drag?.kind === "chain" && drag.to) return chainTo(doc, drag.from, drag.to).mol;
-    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline") return drag.working;
+    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "tableedge") return drag.working;
     if (drag?.kind === "arrow" && drag.to) return addArrow(doc, newArrow(drag.from, drag.to, drag.side, drag.make))[0];
     if (drag?.kind === "shape" && drag.to) { const sh = shapeFrom(drag.from, drag.to); return sh ? addShape(doc, sh)[0] : doc; }
     if (pen || drag?.kind === "pen") {
@@ -789,10 +796,24 @@ export default function Editor() {
     const t = tableLayout(sh, cellWidth);
     return p[0] >= t.x0 && p[0] <= t.x1 && p[1] >= t.y0 && p[1] <= t.y1;
   });
+  // The border of a table under a point, within 4 px: a column's (0 is the left edge) or a row's (0 is the top).
+  const tableEdge = (p: P) => {
+    const near = 4 / (view.zoom * L);
+    for (const sh of [...(shown.shapes ?? [])].reverse()) {
+      if (sh.kind !== "table") continue;
+      const t = tableLayout(sh, cellWidth);
+      if (p[0] < t.x0 - near || p[0] > t.x1 + near || p[1] < t.y0 - near || p[1] > t.y1 + near) continue;
+      const col = Array.from({ length: t.cols + 1 }, (_, i) => i).find((i) => Math.abs(p[0] - t.col(i)) < near);
+      if (col !== undefined) return { sh, axis: "col" as const, index: col };
+      const row = Array.from({ length: t.rows + 1 }, (_, i) => i).find((i) => Math.abs(p[1] - t.row(i)) < near);
+      if (row !== undefined) return { sh, axis: "row" as const, index: row };
+    }
+    return undefined;
+  };
   const openCell = (sh: Shape, p: P) => {
     const t = tableLayout(sh, cellWidth);
     const c = Math.max(0, Array.from({ length: t.cols }, (_, i) => i).filter((i) => t.col(i) <= p[0]).pop() ?? 0);
-    const r = Math.max(0, Math.min(t.rows - 1, Math.floor((t.y1 - p[1]) / t.h)));
+    const r = Math.max(0, Array.from({ length: t.rows }, (_, i) => i).filter((i) => t.row(i) >= p[1]).pop() ?? 0);
     cellOpen.current = true;
     setCell({ id: sh.id, r, c, value: sh.table?.cells[r]?.[c] ?? "" });
     setSelection(new Set());
@@ -1254,6 +1275,15 @@ export default function Editor() {
       setDrag({ kind: "pen", at: p, start: screen });
       return startHold(p, t, screen);
     }
+    // With the Table tool, a border drags to size its column or row (the left and top edges size them all), and a
+    // press inside a cell opens it.
+    if (tool === "table" && tableEdge(p)) {
+      const { sh, axis, index } = tableEdge(p)!;
+      setSelection(new Set());
+      setPicked(new Set([sh.id]));
+      return setDrag({ kind: "tableedge", id: sh.id, axis, index, base: doc, working: doc });
+    }
+    if (tool === "table" && tableAt(p)) return openCell(tableAt(p)!, p);
     // With something selected, a press on it (or inside it) grabs it, whatever tool is in hand. So does a press
     // on a caption, except with the Text tool, which edits it.
     if (tool !== "erase" && selection.size && onSelection(doc, selection, p)) return startMove(p, screen, t);
@@ -1265,7 +1295,6 @@ export default function Editor() {
       const sh = plateAt(p)!, i = spotHit(sh, p);
       return set(updateShape(doc, sh.id, { tlc: { ...sh.tlc!, spots: sh.tlc!.spots.filter((_, k) => k !== i) } }));
     }
-    if (tool === "table" && tableAt(p)) return openCell(tableAt(p)!, p);
     // Pressing away from the selection with a drawing tool clears it, as ChemDraw does.
     if (selection.size || picked.size) { setSelection(new Set()); setPicked(new Set()); }
     pressTool(p, t, screen);
@@ -1314,6 +1343,7 @@ export default function Editor() {
     if (!drag) {
       setOverSelection(tool !== "erase" && selection.size > 0 && onSelection(doc, selection, p));
       setOverTurn(tool !== "erase" && onTurnHandle(p));
+      setEdgeHover(tool === "table" ? tableEdge(p)?.axis : undefined);
       const t = hit(p);
       setPageHover(t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined ? pageEdgeAt(p)?.[0] : undefined);
       return setHover(t);
@@ -1371,6 +1401,16 @@ export default function Editor() {
             rf: Math.round(Math.min(1, Math.max(0, (p[1] - t.origin) / (t.front - t.origin))) * 100) / 100,
           }));
         return setDrag({ ...drag, working, moved: true });
+      }
+      case "tableedge": {
+        const sh = drag.base.shapes?.find((x) => x.id === drag.id);
+        if (!sh?.table) return;
+        const t = tableLayout(sh, cellWidth), i = drag.index;
+        const size = drag.axis === "col"
+          // The left edge scales every column, keeping the right edge; another border sizes the column before it.
+          ? i === 0 ? { widths: t.widths.map((w) => (w * Math.max(0.1, t.x1 - p[0])) / (t.x1 - t.x0)), x0: Math.min(p[0], t.x1 - 0.1) } : { widths: t.widths.map((w, c) => (c === i - 1 ? p[0] - t.col(c) : w)) }
+          : i === 0 ? { heights: t.heights.map((h) => (h * Math.max(0.1, p[1] - t.y0)) / (t.y1 - t.y0)), y1: Math.max(p[1], t.y0 + 0.1) } : { heights: t.heights.map((h, r) => (r === i - 1 ? t.row(r) - p[1] : h)) };
+        return setDrag({ ...drag, working: updateShape(drag.base, drag.id, sizeTable(sh, size, cellWidth)) });
       }
       case "tlcline": {
         const sh = drag.base.shapes?.find((x) => x.id === drag.plate);
@@ -1615,13 +1655,20 @@ export default function Editor() {
       const { rx, ry } = tlcLayout(plate).size(spot);
       return { kind: "spot", style: spot.style ?? "filled", w: rx, h: ry, tail: spot.tail ?? 0, rf: !!spot.showRf, pt: style.bond };
     }
+    // A table's lines, the alignment of the column last typed in (or of every column, when they share one), and its
+    // lines' width.
+    const tableContext = (sh: Shape) => {
+      const cols = sh.table ? tableLayout(sh, cellWidth).cols : 0, aligns = Array.from({ length: cols }, (_, c) => sh.table?.align?.[c] ?? "centre");
+      const cellAlign = lastCell?.id === sh.id ? aligns[lastCell.c] : aligns.every((a) => a === aligns[0]) ? aligns[0] : undefined;
+      return { lines: linesOf(sh.table), cellAlign, weight: sh.table?.weight ?? style.line, cell: lastCell?.id === sh.id };
+    };
     // Shapes picked on their own.
     const pickedShapes = (doc.shapes ?? []).filter((x) => picked.has(x.id));
     if (!selection.size && pickedShapes.length && pickedShapes.length === picked.size) {
       const first = pickedShapes[0];
       return {
         kind: "shape", count: pickedShapes.length, shape: first.kind, dashed: !!first.dashed, colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
-        style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, grid: !!first.table?.grid, hide: first.tlc?.hide ?? [], shade: { ...SHADE, ...first.shade, pt: style.bond },
+        style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, ...tableContext(first), hide: first.tlc?.hide ?? [], shade: { ...SHADE, ...first.shade, pt: style.bond },
       };
     }
     // Arrows picked on their own.
@@ -1857,9 +1904,23 @@ export default function Editor() {
       // A plate's origin, front or border shown or hidden, and one style for all its spots.
       if (what === "hide") return each((x) => { const h = new Set(x.tlc?.hide ?? []), k = arg as "origin" | "front" | "border"; if (h.has(k)) h.delete(k); else h.add(k); return { tlc: { ...x.tlc!, hide: h.size ? [...h] : undefined } }; });
       if (what === "spots") return each((x) => ({ tlc: { ...x.tlc!, spots: (x.tlc?.spots ?? []).map((s) => ({ ...s, style: arg === "filled" ? undefined : (arg as "hollow" | "shaded") })) } }));
-      // Tables: a row or column more or fewer, and journal rules or a full grid.
-      if (what === "rows" || what === "cols") return each((x) => { const cells = x.table?.cells ?? [[""]], n = Number(arg); return resizeTable(x, cells.length + (what === "rows" ? n : 0), cells[0].length + (what === "cols" ? n : 0), cellWidth); });
-      if (what === "grid") return each((x) => ({ table: { ...x.table!, grid: !x.table?.grid || undefined } }));
+      // Tables: rows and columns added or deleted at the cell last typed in (at the end without one), the lines drawn
+      // (a set, or one line on or off), the cells' alignment (the cell's column, or all), the lines' width, Clear
+      // Contents and Size To Fit Contents.
+      if (what === "row" || what === "col") return each((x) => {
+        const t = tableLayout(x, cellWidth), mine = lastCell?.id === x.id ? lastCell : undefined;
+        const at = what === "row" ? mine?.r ?? t.rows - 1 : mine?.c ?? t.cols - 1, after = arg === "after" ? 1 : 0;
+        if (mine && arg !== "delete") setLastCell({ ...mine, ...(after ? {} : what === "row" ? { r: mine.r + 1 } : { c: mine.c + 1 }) });
+        return arg === "delete" ? spliceTable(x, what, at, 1, 0, cellWidth) : spliceTable(x, what, at + after, 0, 1, cellWidth);
+      });
+      if (what === "lines") return each((x) => ({ table: { ...x.table!, grid: undefined, lines: arg in TABLE_LINES ? TABLE_LINES[arg as keyof typeof TABLE_LINES] : linesOf(x.table).includes(arg as TableLine) ? linesOf(x.table).filter((l) => l !== arg) : [...linesOf(x.table), arg as TableLine] } }));
+      if (what === "align") return each((x) => {
+        const cols = tableLayout(x, cellWidth).cols, only = lastCell?.id === x.id ? lastCell.c : undefined;
+        return { table: { ...x.table!, align: Array.from({ length: cols }, (_, c) => (only === undefined || c === only ? arg as CellAlign : x.table?.align?.[c] ?? "centre")) } };
+      });
+      if (what === "weight") return set({ ...doc, shapes: doc.shapes?.map((x) => (ids.has(x.id) && x.table ? { ...x, table: { ...x.table, weight: Number(arg) / 100 } } : x)) }, true, `table-weight-${[...ids].join()}`);
+      if (what === "clear") return each((x) => clearTable(x));
+      if (what === "fit") return each((x) => fitTable(x, cellWidth));
       // One style at a time: plain, dashed, shaded, filled or with a shadow.
       if (what === "style") return each(() => ({ dashed: arg === "dashed" || undefined, fill: arg === "shaded" || arg === "solid" ? arg : undefined, shadow: arg === "shadow" || undefined }));
       if (what === "side") return each(() => ({ side: arg === "both" ? undefined : (arg as "left" | "right") }));
@@ -2078,7 +2139,8 @@ export default function Editor() {
         if (drag.moved) return set(drag.working, true);
         return setSpotPick({ plate: drag.plate, index: drag.index });
       case "tlcline":
-        return set(drag.working, true);
+      case "tableedge":
+        return drag.working !== drag.base ? set(drag.working, true) : undefined;
       case "pen":
         setPenAt(drag.at);
         return setPen([...(pen ?? []), penPoint(drag.at, drag.out)]);
@@ -2307,6 +2369,7 @@ export default function Editor() {
         data-tool={tool}
         style={{
           ...(pageHover && !drag ? { cursor: "zoom-in" } : (overTurn && !drag) || drag?.kind === "turn" ? { cursor: turnCursor ?? "grab" } : overSelection || drag?.kind === "move" ? { cursor: "move" } : tool === "select" && cursor ? { cursor } : {}),
+          ...((edgeHover && !drag) || drag?.kind === "tableedge" ? { cursor: (drag?.kind === "tableedge" ? drag.axis : edgeHover) === "col" ? "col-resize" : "row-resize" } : {}),
           ...(darkPaper ? { "--ink": "#FFFFFF" } : {}),
           // Engineering paper: a 1 mm grid with a heavier line every 5 mm, fixed to the page as it moves and zooms.
           ...(paper === "blueprint" ? { backgroundSize: `${5 * mm * L * view.zoom}px ${5 * mm * L * view.zoom}px, ${5 * mm * L * view.zoom}px ${5 * mm * L * view.zoom}px, ${mm * L * view.zoom}px ${mm * L * view.zoom}px, ${mm * L * view.zoom}px ${mm * L * view.zoom}px`, backgroundPosition: `${view.x}px ${view.y}px` } : {}),
@@ -2492,16 +2555,21 @@ export default function Editor() {
             );
           })}
           {(shown.shapes ?? []).filter((sh) => sh.kind === "table").map((sh) => {
-            // A table: journal rules (top, under the header, bottom) or a full grid, and each cell's text centred.
+            // A table: the lines it has (journal rules unless set otherwise), solid or dashed, and each cell's text
+            // aligned in its column.
             const t = tableLayout(sh, cellWidth), y = (v: number) => -v * L, ink = sh.colour ?? "var(--ink)", size = style.captionSize * pt;
-            const across = sh.table?.grid ? Array.from({ length: t.rows + 1 }, (_, r) => t.row(r)) : [t.y1, t.row(1), t.y0];
-            const down = sh.table?.grid ? Array.from({ length: t.cols + 1 }, (_, c) => t.col(c)) : [];
+            const lines = new Set(linesOf(sh.table)), inner = (n: number) => Array.from({ length: Math.max(0, n - 1) }, (_, i) => i + 1);
+            const across = [...(lines.has("top") ? [t.y1] : []), ...inner(t.rows).filter((r) => lines.has("rows") || (r === 1 && lines.has("header"))).map((r) => t.row(r)), ...(lines.has("bottom") ? [t.y0] : [])];
+            const down = [...(lines.has("left") ? [t.x0] : []), ...(lines.has("cols") ? inner(t.cols).map((c) => t.col(c)) : []), ...(lines.has("right") ? [t.x1] : [])];
+            const weight = (sh.table?.weight ?? style.line) * pt, dash = sh.dashed ? `${3 * weight} ${3 * weight}` : undefined;
+            const anchor = (c: number) => sh.table?.align?.[c] ?? "centre";
             return (
               <g key={`table${sh.id}`} className="table">
-                {across.map((v, i) => <line key={`r${i}`} x1={t.x0 * L} x2={t.x1 * L} y1={y(v)} y2={y(v)} stroke={ink} strokeWidth={frame.line} />)}
-                {down.map((v, i) => <line key={`c${i}`} x1={v * L} x2={v * L} y1={y(t.y1)} y2={y(t.y0)} stroke={ink} strokeWidth={frame.line} />)}
+                {across.map((v, i) => <line key={`r${i}`} x1={t.x0 * L} x2={t.x1 * L} y1={y(v)} y2={y(v)} stroke={ink} strokeWidth={weight} strokeDasharray={dash} />)}
+                {down.map((v, i) => <line key={`c${i}`} x1={v * L} x2={v * L} y1={y(t.y1)} y2={y(t.y0)} stroke={ink} strokeWidth={weight} strokeDasharray={dash} />)}
                 {(sh.table?.cells ?? []).map((row, r) => row.map((text, c) => text && !(cell?.id === sh.id && cell.r === r && cell.c === c) ? (
-                  <text key={`${r}-${c}`} x={(t.col(c) + t.widths[c] / 2) * L} y={y(t.row(r) - t.h / 2) + 0.35 * size} textAnchor="middle" fill={ink} style={{ font: `${size}px ${fontStack(style.captionFont)}` }}>{formula(text, size)}</text>
+                  <text key={`${r}-${c}`} x={(anchor(c) === "left" ? t.col(c) + TABLE_PAD : anchor(c) === "right" ? t.col(c + 1) - TABLE_PAD : t.col(c) + t.widths[c] / 2) * L} y={y(t.row(r) - t.heights[r] / 2) + 0.35 * size}
+                    textAnchor={anchor(c) === "left" ? "start" : anchor(c) === "right" ? "end" : "middle"} fill={ink} style={{ font: `${size}px ${fontStack(style.captionFont)}` }}>{formula(text, size)}</text>
                 ) : null))}
               </g>
             );
@@ -2626,7 +2694,7 @@ export default function Editor() {
         const sh = doc.shapes?.find((x) => x.id === cell.id);
         if (!sh?.table) return null;
         const t = tableLayout(sh, cellWidth), z = view.zoom, size = style.captionSize * pt * z, cols = t.cols;
-        const width = Math.max(t.widths[cell.c], cellWidth(cell.value) + 2 * 0.35) * L * z;
+        const width = Math.max(t.widths[cell.c], cellWidth(cell.value) + 2 * TABLE_PAD) * L * z, align = sh.table.align?.[cell.c] ?? "centre";
         return (
           <input
             ref={cellInput}
@@ -2637,7 +2705,8 @@ export default function Editor() {
             value={cell.value}
             style={{
               left: view.x + ((t.col(cell.c) + t.widths[cell.c] / 2) * L * z) - width / 2, top: view.y - t.row(cell.r) * L * z,
-              width, height: t.h * L * z, font: `${size}px ${fontStack(style.captionFont)}`, color: sh.colour ?? style.colour,
+              width, height: t.heights[cell.r] * L * z, font: `${size}px ${fontStack(style.captionFont)}`, color: sh.colour ?? style.colour,
+              textAlign: align === "centre" ? "center" : align, padding: `0 ${TABLE_PAD * L * z}px`,
             }}
             onChange={(e) => setCell({ ...cell, value: e.target.value })}
             onKeyDown={(e) => {

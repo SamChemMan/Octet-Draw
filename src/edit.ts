@@ -1,6 +1,6 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { hydrogens, lonePairs, tableLayout, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape, type Table } from "./render.ts";
+import { hydrogens, lonePairs, tableLayout, TABLE_ROW, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape, type Table } from "./render.ts";
 import type { Cycle } from "./cycle.ts";
 import { anchorElement, isElement } from "./labels.ts";
 
@@ -625,17 +625,58 @@ export const setEnhanced = (m: Mol, ids: number[], label?: string): Mol =>
 // Tables. A new one has an Entry column numbered down its rows, under a header row.
 export const newTable = (rows: number, cols: number): Table =>
   ({ cells: Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => (c === 0 ? (r === 0 ? "Entry" : String(r)) : ""))) });
-// A table with rows and columns added or taken off the end (at least one of each), and its box to match: rows keep
-// their height, columns that stay keep their width, and a new column is as wide as the average one. A new row
-// carries on the entry numbers when the first column counts 1, 2, 3 down the rows.
+// True when the first column counts 1, 2, 3 down the rows under the header (the entry numbers a new table has).
+const counts = (cells: string[][]) => cells.length > 1 && cells.slice(1).every((r, i) => r[0] === String(i + 1));
+// A table with rows or columns taken out and added at a place (at least one of each stays; at most 100 rows and 20
+// columns), and its box to match: the other rows keep their heights and the other columns their widths, and a new
+// column is as wide as the average one. Entry numbers in the first column are numbered again.
+export function spliceTable(sh: Shape, axis: "row" | "col", at: number, remove: number, add: number, measure?: (text: string) => number): Partial<Shape> {
+  const t = tableLayout(sh, measure), table: Table = sh.table ?? { cells: [[""]] }, numbered = counts(table.cells);
+  const cells = table.cells.map((r) => Array.from({ length: t.cols }, (_, c) => r[c] ?? ""));
+  const widths = [...t.widths], heights = [...t.heights], align = table.align ? Array.from({ length: t.cols }, (_, c) => table.align![c] ?? "centre") : undefined;
+  if (axis === "row") {
+    const out = Math.min(remove, t.rows - 1), into = Math.max(0, Math.min(add, 100 - t.rows + out));
+    cells.splice(at, out, ...Array.from({ length: into }, () => Array<string>(t.cols).fill("")));
+    heights.splice(at, out, ...Array<number>(into).fill(t.h));
+  } else {
+    const out = Math.min(remove, t.cols - 1), into = Math.max(0, Math.min(add, 20 - t.cols + out)), average = widths.reduce((a, b) => a + b, 0) / t.cols;
+    for (const r of cells) r.splice(at, out, ...Array<string>(into).fill(""));
+    widths.splice(at, out, ...Array<number>(into).fill(average));
+    align?.splice(at, out, ...Array<"centre">(into).fill("centre"));
+  }
+  if (numbered) { let n = 0; cells.forEach((r, i) => { if (i && (r[0] === "" || /^\d+$/.test(r[0]))) r[0] = String(++n); }); }
+  const next: Table = { ...table, cells, ...(table.widths ? { widths } : {}), ...(table.heights ? { heights } : {}), ...(align ? { align } : {}) };
+  const width = widths.reduce((a, b) => a + b, 0), height = heights.reduce((a, b) => a + b, 0);
+  return { from: [t.x0, t.y1], to: [t.x0 + width, t.y1 - height], table: next };
+}
+// A table with rows and columns added or taken off the end (at least one of each).
 export function resizeTable(sh: Shape, rows: number, cols: number, measure?: (text: string) => number): Partial<Shape> {
-  const t = tableLayout(sh, measure), cells = sh.table?.cells ?? [[""]];
-  const R = Math.max(1, Math.min(100, rows)), C = Math.max(1, Math.min(20, cols));
-  const counts = cells.slice(1).every((r, i) => r[0] === String(i + 1));
-  const next = Array.from({ length: R }, (_, r) => Array.from({ length: C }, (_, c) => cells[r]?.[c] ?? (c === 0 && r > 0 && counts ? String(r) : "")));
-  const average = t.widths.reduce((a, b) => a + b, 0) / t.cols;
-  const width = Array.from({ length: C }, (_, c) => t.widths[c] ?? average).reduce((a, b) => a + b, 0);
-  return { from: [t.x0, t.y1], to: [t.x0 + width, t.y1 - R * t.h], table: { ...sh.table, cells: next } };
+  const R = Math.max(1, Math.min(100, rows)), C = Math.max(1, Math.min(20, cols)), now = tableLayout(sh, measure);
+  const tall = { ...sh, ...spliceTable(sh, "row", Math.min(R, now.rows), Math.max(0, now.rows - R), Math.max(0, R - now.rows), measure) };
+  const both = { ...tall, ...spliceTable(tall, "col", Math.min(C, now.cols), Math.max(0, now.cols - C), Math.max(0, C - now.cols), measure) };
+  return { from: both.from, to: both.to, table: both.table };
+}
+// A table with its columns' widths or rows' heights set (each is kept from then on, as after dragging a border), and
+// its box to match. x0 and y1 move its left and top edges.
+export function sizeTable(sh: Shape, size: { widths?: number[]; heights?: number[]; x0?: number; y1?: number }, measure?: (text: string) => number): Partial<Shape> {
+  const old = tableLayout(sh, measure), x0 = size.x0 ?? old.x0, y1 = size.y1 ?? old.y1;
+  const table: Table = {
+    ...sh.table!, ...(size.widths ? { widths: size.widths.map((w) => Math.max(0.2, Math.min(50, w))) } : {}),
+    ...(size.heights ? { heights: size.heights.map((h) => Math.max(0.5, Math.min(50, h))) } : {}),
+  };
+  const t = tableLayout({ ...sh, from: [x0, y1], to: [x0 + old.x1 - old.x0, y1 - (old.y1 - old.y0)], table }, measure);
+  return { from: [t.x0, t.y1], to: [t.x1, t.y0], table };
+}
+// Size To Fit Contents: each column as wide as its text and each row the least height.
+export function fitTable(sh: Shape, measure?: (text: string) => number): Partial<Shape> {
+  const { widths: _w, heights: _h, ...table } = sh.table!, t = tableLayout({ ...sh, table }, measure);
+  void _w; void _h;
+  return { from: [t.x0, t.y1], to: [t.x0 + t.natural.reduce((a, b) => a + b, 0), t.y1 - t.rows * TABLE_ROW], table };
+}
+// Clear Contents: every cell empty, except the entry numbers and their header when the first column counts.
+export function clearTable(sh: Shape): Partial<Shape> {
+  const cells = sh.table?.cells ?? [[""]], keep = counts(cells);
+  return { table: { ...sh.table!, cells: cells.map((r) => r.map((x, c) => (keep && c === 0 ? x : ""))) } };
 }
 // A table with one cell's text set, its box grown to fit the text if it no longer does.
 export function setTableCell(sh: Shape, r: number, c: number, text: string, measure?: (text: string) => number): Partial<Shape> {

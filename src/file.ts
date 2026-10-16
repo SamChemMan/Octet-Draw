@@ -1,7 +1,7 @@
 // Octet's own file format: versioned, human-readable JSON. Treat every file as hostile: check it fully on read.
 import { FONTS, readStyle } from "./docstyle.ts";
 import { normalise, plainOf, type TextRun } from "./richtext.ts";
-import { ALL_ARROW_KINDS, ORBITAL_SHAPES, PHASES, SHAPE_KINDS, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type Tlc, type Atom, type Bond, type Caption, type Display, type Mol } from "./render.ts";
+import { ALL_ARROW_KINDS, ORBITAL_SHAPES, PHASES, SHAPE_KINDS, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type TableLine, type CellAlign, type Tlc, type Atom, type Bond, type Caption, type Display, type Mol } from "./render.ts";
 
 export const FORMAT = "octet";
 export const VERSION = 1;
@@ -70,11 +70,19 @@ function readCurve(v: unknown): Curve | undefined {
 }
 // A table's cells, if they are sound: up to 100 rows and 20 columns of short plain text.
 function readTable(v: unknown): Table | undefined {
-  const t = v as { cells?: unknown; grid?: unknown };
+  const t = v as { cells?: unknown; grid?: unknown; widths?: unknown; heights?: unknown; lines?: unknown; align?: unknown; weight?: unknown };
+  const list = (x: unknown, most: number, ok: (y: unknown) => boolean) => x === undefined || (Array.isArray(x) && x.length <= most && x.every(ok));
+  const size = (n: unknown) => typeof n === "number" && n >= 0.2 && n <= 50;
+  if (!list(t?.widths, 20, size) || !list(t?.heights, 100, size) || !list(t?.lines, 7, (x) => ["top", "bottom", "left", "right", "header", "rows", "cols"].includes(x as string))
+    || !list(t?.align, 20, (x) => ["left", "centre", "right"].includes(x as string)) || (t?.weight !== undefined && !(typeof t.weight === "number" && t.weight >= 0.1 && t.weight <= 10))) return undefined;
   if (typeof t !== "object" || !t || !Array.isArray(t.cells) || !t.cells.length || t.cells.length > 100) return undefined;
   const cells = t.cells as unknown[];
   if (!cells.every((r) => Array.isArray(r) && r.length >= 1 && r.length <= 20 && r.every((c) => typeof c === "string" && c.length <= 500 && !/[\u0000-\u0009\u000b-\u001f]/.test(c)))) return undefined;
-  return { cells: cells as string[][], ...(t.grid === true ? { grid: true } : {}) };
+  return {
+    cells: cells as string[][], ...(t.grid === true ? { grid: true } : {}),
+    ...(t.widths ? { widths: t.widths as number[] } : {}), ...(t.heights ? { heights: t.heights as number[] } : {}),
+    ...(t.lines ? { lines: [...new Set(t.lines as TableLine[])] } : {}), ...(t.align ? { align: t.align as CellAlign[] } : {}), ...(t.weight !== undefined ? { weight: t.weight as number } : {}),
+  };
 }
 // A TLC plate's lanes and spots, if they are sound.
 function readTlc(v: unknown): Tlc | undefined {

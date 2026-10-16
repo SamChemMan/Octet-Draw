@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol } from "./edit.ts";
+import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol } from "./edit.ts";
 import { tableLayout } from "./render.ts";
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
@@ -198,6 +198,29 @@ console.log("edit.check: align ok");
   assert.ok(t.widths[0] < 3, "the other columns stay narrow");
   const fewer = { ...sh, ...resizeTable(sh, 0, 0) };
   assert.deepEqual(fewer.table!.cells, [["Entry"]], "never fewer than one row and one column");
+  // A row added above row 2 numbers the entries again; a column added after the first is blank in every row.
+  const above = { ...sh, ...spliceTable(sh, "row", 2, 0, 1) };
+  assert.deepEqual(above.table!.cells.map((r) => r[0]), ["Entry", "1", "2", "3"]);
+  const after = { ...sh, ...spliceTable(sh, "col", 1, 0, 1) };
+  assert.deepEqual(after.table!.cells[0], ["Entry", "", "", ""]);
+  // Deleting a row numbers again too, and never deletes the last row.
+  assert.deepEqual({ ...sh, ...spliceTable(sh, "row", 1, 1, 0) }.table!.cells.map((r) => r[0]), ["Entry", "1"]);
+  assert.equal({ ...sh, ...spliceTable({ ...sh, table: newTable(1, 2) }, "row", 0, 1, 0) }.table!.cells.length, 1);
+  // Dragging a border: the column keeps its width and the box follows; alignment follows its column.
+  const sized = { ...sh, ...sizeTable(sh, { widths: [1, 4, 1] }) };
+  const st = tableLayout(sized);
+  assert.ok(Math.abs(st.widths[1] - 4) < 1e-9 && Math.abs(sized.to[0] - st.x1) < 1e-9 && Math.abs(st.x1 - 6) < 1e-9);
+  const aligned = { ...sized, table: { ...sized.table!, align: ["left" as const, "right" as const, "centre" as const] } };
+  const gone = { ...aligned, ...spliceTable(aligned, "col", 0, 1, 0) };
+  assert.deepEqual(gone.table!.align, ["right", "centre"]);
+  assert.deepEqual(tableLayout(gone).widths, [4, 1], "the other columns keep their widths");
+  const tall = { ...sh, ...sizeTable(sh, { heights: [0.8, 2, 0.8] }) };
+  assert.ok(Math.abs(tableLayout(tall).row(2) - (tableLayout(tall).y1 - 2.8)) < 1e-9);
+  // Size to fit: natural widths and the least row height; Clear contents keeps the entry numbers.
+  const fit = { ...tall, ...fitTable(tall, (x) => x.length * 0.3) };
+  assert.ok(!fit.table!.heights && !fit.table!.widths && Math.abs(tableLayout(fit).h - 0.8) < 1e-9);
+  const typed = { ...sh, ...setTableCell(sh, 1, 1, "THF") };
+  assert.deepEqual({ ...typed, ...clearTable(typed) }.table!.cells, [["Entry", "", ""], ["1", "", ""], ["2", "", ""]]);
   console.log("edit.check: tables ok");
 }
 

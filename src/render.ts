@@ -96,7 +96,17 @@ export const sweepOf = (bend: number) => (4 * Math.atan(2 * Math.abs(bend)) * 18
 export type ShapeKind = "box" | "rounded" | "oval" | "highlight" | "brackets" | "parens" | "braces" | "tlc" | "table";
 // A table's cells, row by row (the first row is the header), and its rules: journal style (top, header and bottom
 // rules only) or a full grid.
-export type Table = { cells: string[][]; grid?: boolean };
+// widths and heights: every column's width and every row's height once a border has been dragged (bond lengths; a
+// column is never narrower than its text). lines: the lines drawn, from the edges, the rule under the header row,
+// the lines between rows and the lines between columns (journal rules when unset: top, header and bottom; grid: true
+// in older files is every line). align: each column's text (centred when unset). weight: the lines' width in points.
+export type TableLine = "top" | "bottom" | "left" | "right" | "header" | "rows" | "cols";
+export type CellAlign = "left" | "centre" | "right";
+export type Table = { cells: string[][]; grid?: boolean; widths?: number[]; heights?: number[]; lines?: TableLine[]; align?: CellAlign[]; weight?: number };
+export const TABLE_LINES: Record<"journal" | "grid" | "box" | "none", TableLine[]> = {
+  journal: ["top", "header", "bottom"], grid: ["top", "bottom", "left", "right", "header", "rows", "cols"], box: ["top", "bottom", "left", "right"], none: [],
+};
+export const linesOf = (t?: Table): TableLine[] => t?.lines ?? (t?.grid ? TABLE_LINES.grid : TABLE_LINES.journal);
 // A pen curve: anchor points joined by cubic Béziers. c1 is a point's incoming handle, c2 its outgoing one; a point
 // without handles is a corner. A closed curve joins its last point back to its first.
 export type CurvePoint = { at: [number, number]; c1?: [number, number]; c2?: [number, number] };
@@ -1038,10 +1048,13 @@ export function tableLayout(sh: Shape, measure: (text: string) => number = () =>
   const rows = cells.length, cols = Math.max(...cells.map((r) => r.length));
   const natural = Array.from({ length: cols }, (_, c) => Math.max(1, ...cells.map((r) => (r[c] ? measure(r[c]) + 2 * TABLE_PAD : 0))));
   const spare = Math.max(0, Math.abs(sh.to[0] - sh.from[0]) - natural.reduce((a, b) => a + b, 0)) / cols;
-  const widths = natural.map((w) => w + spare), edges = [x0];
+  // Columns and rows whose borders were dragged keep their sizes; the rest share the box.
+  const widths = natural.map((w, c) => Math.max(w, sh.table?.widths?.[c] ?? w + spare)), edges = [x0];
   for (const w of widths) edges.push(edges[edges.length - 1] + w);
   const h = Math.max(TABLE_ROW, Math.abs(sh.to[1] - sh.from[1]) / rows);
-  return { x0, x1: edges[cols], y0: y1 - rows * h, y1, rows, cols, h, widths, col: (c: number) => edges[c], row: (r: number) => y1 - r * h }; // row 0 at the top
+  const heights = Array.from({ length: rows }, (_, r) => sh.table?.heights?.[r] ?? h), tops = [y1];
+  for (const v of heights) tops.push(tops[tops.length - 1] - v);
+  return { x0, x1: edges[cols], y0: tops[rows], y1, rows, cols, h, widths, heights, natural, col: (c: number) => edges[c], row: (r: number) => tops[r] }; // row 0 at the top
 }
 
 // A pen curve as a polyline (px, y down): each Bézier segment in 24 steps.
