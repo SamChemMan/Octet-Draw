@@ -32,7 +32,14 @@ export function serialize(mol: Mol): string {
     ...(c.on ? { on: { arrow: arrowList.findIndex((a) => a.id === c.on!.arrow), side: c.on.side } } : {}),
     ...(c.cycle ? { cycle: { cycle: cycleList.findIndex((x) => x.id === c.cycle!.cycle), step: c.cycle.step, side: c.cycle.side } } : {}),
   }));
-  return JSON.stringify({ format: FORMAT, version: VERSION, structure: { atoms, bonds }, ...(arrows.length ? { arrows } : {}), ...(cycles.length ? { cycles } : {}), ...(shapes.length ? { shapes } : {}), ...(captions.length ? { captions } : {}), ...(mol.style ? { style: mol.style } : {}) }, null, 1) + "\n";
+  // Groups name their objects by kind and place in the lists above: c caption, a arrow, s shape, y cycle.
+  const captionList = [...(mol.captions ?? [])].sort((a, b) => a.id - b.id), shapeList = mol.shapes ?? [];
+  const ref = (id: number): [string, number] | undefined => {
+    for (const [kind, list] of [["c", captionList], ["a", arrowList], ["s", shapeList], ["y", cycleList]] as const) { const k = (list as { id: number }[]).findIndex((x) => x.id === id); if (k >= 0) return [kind, k]; }
+    return undefined;
+  };
+  const groups = (mol.groups ?? []).map((g) => ({ atoms: g.atoms, items: g.items.map(ref).filter(Boolean), ...(g.integral ? { integral: true } : {}) }));
+  return JSON.stringify({ format: FORMAT, version: VERSION, structure: { atoms, bonds }, ...(arrows.length ? { arrows } : {}), ...(cycles.length ? { cycles } : {}), ...(shapes.length ? { shapes } : {}), ...(captions.length ? { captions } : {}), ...(groups.length ? { groups } : {}), ...(mol.style ? { style: mol.style } : {}) }, null, 1) + "\n";
 }
 const round = (n: number) => Math.round(n * 1e4) / 1e4;
 // A caption's runs, if they are sound: up to 2000, each with text and only known styles, joining to the caption's text.
@@ -82,7 +89,7 @@ function readTlc(v: unknown): Tlc | undefined {
 export function parse(text: string): Mol {
   let data: unknown;
   try { data = JSON.parse(text); } catch { throw new Error("This file is not an Octet drawing."); }
-  const d = data as { format?: unknown; version?: unknown; structure?: { atoms?: unknown; bonds?: unknown }; captions?: unknown; arrows?: unknown; style?: unknown; cycles?: unknown; shapes?: unknown };
+  const d = data as { format?: unknown; version?: unknown; structure?: { atoms?: unknown; bonds?: unknown }; captions?: unknown; arrows?: unknown; style?: unknown; cycles?: unknown; shapes?: unknown; groups?: unknown };
   if (d?.format !== FORMAT) throw new Error("This file is not an Octet drawing.");
   if (typeof d.version !== "number" || d.version > VERSION) throw new Error("This drawing comes from a newer version of Octet. Update Octet to open it.");
   const atoms = d.structure?.atoms, bonds = d.structure?.bonds;
@@ -175,7 +182,25 @@ export function parse(text: string): Mol {
         ...(x.tlc ? { tlc: readTlc(x.tlc)! } : {}), ...(x.table ? { table: readTable(x.table)! } : {}), ...(x.shade ? { shade: readShade(x.shade)! } : {}) };
     });
   }
-  if (d.captions === undefined) return out;
+  if (d.captions !== undefined) readCaptions(d.captions, out, num, int);
+  if (d.groups !== undefined) {
+    // Each group's objects by kind and place, as saved (see serialize), turned back into ids.
+    if (!Array.isArray(d.groups) || d.groups.length > MAX_CAPTIONS) throw new Error("This drawing is damaged.");
+    const lists: Record<string, { id: number }[]> = { c: out.captions ?? [], a: (out.arrows ?? []).slice(0, Array.isArray(d.arrows) ? d.arrows.length : 0), s: out.shapes ?? [], y: out.cycles ?? [] };
+    let next = Math.max(0, ...[...(out.captions ?? []), ...(out.arrows ?? []), ...(out.shapes ?? []), ...(out.cycles ?? [])].map((x) => x.id)) + 1;
+    out.groups = (d.groups as Record<string, unknown>[]).map((g) => {
+      const atoms = g?.atoms as unknown[], items = g?.items as unknown[];
+      if (!Array.isArray(atoms) || !Array.isArray(items) || !atoms.every((i) => int(i, 0, out.atoms.length - 1)) || (g.integral !== undefined && g.integral !== true)
+        || !items.every((r) => Array.isArray(r) && r.length === 2 && typeof r[0] === "string" && lists[r[0]] && int(r[1], 0, lists[r[0]].length - 1))) throw new Error("This drawing is damaged.");
+      return { id: next++, atoms: atoms as number[], items: (items as [string, number][]).map(([kind, k]) => lists[kind][k].id), ...(g.integral ? { integral: true as const } : {}) };
+    });
+  }
+  return out;
+}
+
+// Captions, checked and read into the drawing (their ids come first, from 1).
+function readCaptions(raw: unknown, out: Mol, num: (v: unknown) => boolean, int: (v: unknown, lo: number, hi: number) => boolean) {
+  const d = { captions: raw };
   if (!Array.isArray(d.captions) || d.captions.length > MAX_CAPTIONS) throw new Error("This drawing is damaged.");
   out.captions = (d.captions as Record<string, unknown>[]).map((c, k) => {
     const under = c?.under as unknown[] | undefined, on = c?.on as { arrow?: unknown; side?: unknown } | undefined;

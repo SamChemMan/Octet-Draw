@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
-  ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Square, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
+  ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
   FrameCorners, GearSix, Keyboard, Lasso, LinkSimple, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
   TextAlignCenter, TextAlignLeft, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Warning, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
 } from "@phosphor-icons/react";
@@ -14,7 +14,7 @@ import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
-  addShape, addSymbol, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, pairMap, clearMap, stereocentres, setEnhanced, markDirection, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf,
+  addShape, addSymbol, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, pairMap, clearMap, stereocentres, setEnhanced, markDirection, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection,
 } from "./edit";
 import { snapBox, snapMove, type Guide } from "./snap";
 import { loadSettings, saveSettings } from "./settings";
@@ -95,7 +95,8 @@ type Drag =
   | { kind: "lasso"; points: P[]; base: Set<number>; picks: Set<number>; target: Hover; moved: boolean }
   // Moving the selection. If the pointer never moves, the press counts as a click with the tool in hand.
   // captions: where each moving caption starts (drawing coordinates), for captions that do not simply follow their structure.
-  | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; textBox?: Box }
+  // base and atoms: what is moved, when it is not the drawing and the selection (Option-drag moves new copies).
+  | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; textBox?: Box; base?: Mol; atoms?: Set<number> }
   // Drawing an arrow, and dragging one of a picked arrow's handles (an end, or the middle of a curved one).
   | { kind: "arrow"; from: P; start: [number, number]; target: Hover; to?: P; trail?: P[]; side?: number; make?: Make }
   // Drawing a shape from corner to corner.
@@ -464,6 +465,21 @@ export default function Editor() {
       set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.includes(i) ? { ...a, depth: off ? undefined : false } : a)) }, true);
     },
     flatten: () => set(flattenAtoms(doc, selection.size ? selection : new Set(doc.atoms.map((_, i) => i))), true),
+    // Align (⇧⌥⌘ L, C, R, T, M, B) and Distribute (⇧⌥⌘ H, V), as ChemDraw's Object menu: every selected structure,
+    // group and object is one thing; they line up on the one highest on the page, or space out evenly between the
+    // two at the ends.
+    ...Object.fromEntries((["left", "centre", "right", "top", "middle", "bottom", "across", "down"] as const).map((how) => [`arrange_${how}`, () => arrange(how)])),
+    // Group (⌘G) and Ungroup (⇧⌘G), as ChemDraw's: the selected structures and objects select and move as one.
+    group: () => {
+      const r = groupSelection(doc, selection, picked);
+      if (!r) return setNotice("Select two or more things to group.");
+      set(r[0], true);
+    },
+    ungroup: () => set(ungroupSelection(doc, selection, picked), true),
+    group_integral: () => {
+      const touched = new Set(groupsOf(doc, selection, picked)), on = [...touched].every((g) => g.integral);
+      set({ ...doc, groups: doc.groups?.map((g) => (touched.has(g) ? { ...g, integral: on ? undefined : true } : g)) }, true);
+    },
     // Invert Selection (⇧⌘I): everything that was not selected is, and the rest is not.
     invert_selection: () => {
       setSelection(new Set(doc.atoms.map((_, i) => i).filter((i) => !selection.has(i))));
@@ -913,8 +929,8 @@ export default function Editor() {
   }
   // Moves the selected atoms and the moving captions. A caption under a structure that is not moving comes
   // away from it and stays where it is dragged.
-  function moveAll(base: Mol, d: P, captions: Map<number, P>, arrowIds = new Set<number>(), cycleIds = new Set<number>()): Mol {
-    let m = selection.size ? moveAtoms(base, selection, d) : base;
+  function moveAll(base: Mol, d: P, captions: Map<number, P>, arrowIds = new Set<number>(), cycleIds = new Set<number>(), atoms = selection): Mol {
+    let m = atoms.size ? moveAtoms(base, atoms, d) : base;
     if (cycleIds.size) m = { ...m, cycles: m.cycles?.map((c) => (cycleIds.has(c.id) ? { ...c, centre: [c.centre[0] + d[0], c.centre[1] + d[1]] } : c)) };
     const shift = <T extends { id: number; from: [number, number]; to: [number, number] }>(a: T): T => (arrowIds.has(a.id) ? { ...a, from: [a.from[0] + d[0], a.from[1] + d[1]], to: [a.to[0] + d[0], a.to[1] + d[1]] } : a);
     const shiftCurve = (x: Arrow): Arrow => (arrowIds.has(x.id) && x.curve ? { ...shift(x), curve: { ...x.curve, points: x.curve.points.map((q) => ({ at: [q.at[0] + d[0], q.at[1] + d[1]], ...(q.c1 ? { c1: [q.c1[0] + d[0], q.c1[1] + d[1]] as P } : {}), ...(q.c2 ? { c2: [q.c2[0] + d[0], q.c2[1] + d[1]] as P } : {}) })) } } : shift(x));
@@ -974,18 +990,79 @@ export default function Editor() {
   // Select tool press: on something selected, move the selection; on something else, select it and move it;
   // on empty canvas, start a selection box. Shift adds to the selection.
   // picks: the captions that will be picked once this press's state updates land.
-  const startMove = (p: P, screen: [number, number], t: Hover, picks = picked, atoms = selection) => {
+  // The selected things for Align and Distribute: each structure, group and object, with its box in drawing units
+  // (y up: [left, bottom, right, top]) and what moves with it.
+  function things() {
+    const box = (b: Box): Box => [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L];
+    const out: { atoms: number[]; items: number[]; box: Box }[] = [];
+    const groups = groupsOf(doc, selection, picked), inGroup = (atoms: number[], id?: number) => groups.find((g) => (id !== undefined ? g.items.includes(id) : atoms.some((i) => g.atoms.includes(i))));
+    const add = (atoms: number[], items: number[], b: Box | undefined) => {
+      if (!b) return;
+      const g = inGroup(atoms, items[0]), mine = g && out.find((o) => o.atoms.some((i) => g.atoms.includes(i)) || o.items.some((id) => g.items.includes(id)));
+      if (mine) { mine.atoms.push(...atoms); mine.items.push(...items); mine.box = [Math.min(mine.box[0], b[0]), Math.min(mine.box[1], b[1]), Math.max(mine.box[2], b[2]), Math.max(mine.box[3], b[3])]; }
+      else out.push({ atoms: [...atoms], items: [...items], box: b });
+    };
+    for (const g of fragments(doc).filter((f) => f.some((i) => selection.has(i)))) { const b = union(g.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i])); add(g, [], b && box(b)); }
+    for (const c of placed) if (picked.has(c.id)) { const cap = doc.captions?.find((x) => x.id === c.id); if (cap && !cap.under && !cap.on && !cap.cycle) add([], [c.id], box(c.box)); }
+    for (const a of [...(doc.arrows ?? []), ...(doc.shapes ?? [])]) if (picked.has(a.id)) {
+      const [f, t] = "curve" in a && a.curve ? curveBox(a.curve) : [a.from, a.to];
+      add([], [a.id], [Math.min(f[0], t[0]), Math.min(f[1], t[1]), Math.max(f[0], t[0]), Math.max(f[1], t[1])]);
+    }
+    return out;
+  }
+  // Moves one of those things by d (drawing units): its atoms, free captions, arrows, shapes and curve points.
+  const shiftThing = (m: Mol, t: { atoms: number[]; items: number[] }, d: P): Mol => {
+    const ids = new Set(t.items), by = (q: [number, number]): [number, number] => [q[0] + d[0], q[1] + d[1]];
+    let out = moveAtoms(m, new Set(t.atoms), d);
+    out = {
+      ...out,
+      captions: out.captions?.map((c) => (ids.has(c.id) ? { ...c, x: c.x + d[0], y: c.y + d[1] } : c)),
+      arrows: out.arrows?.map((a) => (ids.has(a.id) ? { ...a, from: by(a.from), to: by(a.to), ...(a.curve ? { curve: { ...a.curve, points: a.curve.points.map((q) => ({ at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) } : a)),
+      shapes: out.shapes?.map((x) => (ids.has(x.id) ? { ...x, from: by(x.from), to: by(x.to) } : x)),
+    };
+    return out;
+  };
+  function arrange(how: "left" | "centre" | "right" | "top" | "middle" | "bottom" | "across" | "down") {
+    const list = things();
+    if (list.length < (how === "across" || how === "down" ? 3 : 2)) return setNotice(how === "across" || how === "down" ? "Select three or more things to space out." : "Select two or more things to line up.");
+    let m = doc;
+    if (how === "across" || how === "down") {
+      const k = how === "across" ? 0 : 1, sorted = [...list].sort((p, q) => (p.box[k] + p.box[k + 2]) - (q.box[k] + q.box[k + 2]));
+      const span = sorted[sorted.length - 1].box[k + 2] - sorted[0].box[k], sizes = sorted.reduce((s, t) => s + t.box[k + 2] - t.box[k], 0), gap = (span - sizes) / (sorted.length - 1);
+      let at = sorted[0].box[k + 2] + gap;
+      for (const t of sorted.slice(1, -1)) { const d: P = k ? [0, at - t.box[1]] : [at - t.box[0], 0]; m = shiftThing(m, t, d); at += t.box[k + 2] - t.box[k] + gap; }
+    } else {
+      const top = list.reduce((p, q) => (q.box[3] > p.box[3] ? q : p)), mid = (b: Box, k: number) => (b[k] + b[k + 2]) / 2;
+      for (const t of list) {
+        if (t === top) continue;
+        const d: P = how === "left" ? [top.box[0] - t.box[0], 0] : how === "right" ? [top.box[2] - t.box[2], 0] : how === "centre" ? [mid(top.box, 0) - mid(t.box, 0), 0]
+          : how === "top" ? [0, top.box[3] - t.box[3]] : how === "bottom" ? [0, top.box[1] - t.box[1]] : [0, mid(top.box, 1) - mid(t.box, 1)];
+        m = shiftThing(m, t, d);
+      }
+    }
+    set(m, true);
+  }
+  const startMove = (p: P, screen: [number, number], t: Hover, picks = picked, atoms = selection, copy = false) => {
+    // Option-drag moves copies, made now and kept only if the pointer moves.
+    let base = doc, copies: Map<number, number> | undefined;
+    if (copy && (atoms.size || picks.size)) {
+      const d = duplicateSelection(doc, atoms, picks);
+      [base, atoms, picks, copies] = [d.mol, d.atoms, d.items, d.ids];
+      setSelection(atoms);
+      setPicked(picks);
+    }
+    const original = new Map([...(copies ?? [])].map(([from, to]) => [to, from]));
     // A caption follows its structure or arrow when that moves too; otherwise it comes away and moves alone.
-    const captions = new Map<number, P>(), arrowIds = new Set([...(doc.arrows ?? []), ...(doc.shapes ?? [])].filter((a) => picks.has(a.id)).map((a) => a.id));
-    const cycleIds = new Set((doc.cycles ?? []).filter((c) => picks.has(c.id)).map((c) => c.id));
-    for (const c of placed) {
-      const caption = doc.captions?.find((x) => x.id === c.id);
-      const follows = caption && ((caption.under && caption.under.every((i) => atoms.has(i))) || (caption.on && arrowIds.has(caption.on.arrow)) || (caption.cycle && cycleIds.has(caption.cycle.cycle)));
-      if (caption && picks.has(c.id) && !follows) captions.set(c.id, anchorOf(c));
+    const captions = new Map<number, P>(), arrowIds = new Set([...(base.arrows ?? []), ...(base.shapes ?? [])].filter((a) => picks.has(a.id)).map((a) => a.id));
+    const cycleIds = new Set((base.cycles ?? []).filter((c) => picks.has(c.id)).map((c) => c.id));
+    for (const caption of base.captions ?? []) {
+      const c = placed.find((x) => x.id === (original.get(caption.id) ?? caption.id));
+      const follows = (caption.under && caption.under.every((i) => atoms.has(i))) || (caption.on && arrowIds.has(caption.on.arrow)) || (caption.cycle && cycleIds.has(caption.cycle.cycle));
+      if (c && picks.has(caption.id) && !follows) captions.set(caption.id, anchorOf(c));
     }
     // Text moving on its own keeps its starting box, for snapping.
-    const textBox = !atoms.size && captions.size ? union(placed.filter((c) => captions.has(c.id)).map((c) => c.box)) : undefined;
-    setDrag({ kind: "move", from: p, working: doc, moved: false, start: screen, target: t, guides: [], captions, arrows: arrowIds, cycles: cycleIds, textBox });
+    const textBox = !atoms.size && captions.size ? union(placed.filter((c) => captions.has(original.get(c.id) ?? c.id) || captions.has(c.id)).map((c) => c.box)) : undefined;
+    setDrag({ kind: "move", from: p, working: base, moved: false, start: screen, target: t, guides: [], captions, arrows: arrowIds, cycles: cycleIds, textBox, ...(copies ? { base, atoms } : {}) });
   };
   // A press on a cycle's arrows picks the cycle with all its intermediates, and grabs them.
   function pressCycle(p: P, t: Hover, screen: [number, number]) {
@@ -998,17 +1075,24 @@ export default function Editor() {
     startMove(p, screen, t, picks, atoms);
   }
   // A press on a caption or arrow picks it (Shift adds it) and grabs it.
-  function pressCaption(p: P, t: Hover, shift: boolean, screen: [number, number]) {
+  function pressCaption(p: P, t: Hover, shift: boolean, screen: [number, number], copy = false) {
     const id = (t.caption ?? t.arrow)!;
-    if (picked.has(id) && !shift) return startMove(p, screen, t);
+    if (picked.has(id) && !shift) return startMove(p, screen, t, picked, selection, copy);
     const picks = new Set(shift ? [...picked, id] : [id]), atoms = shift ? selection : new Set<number>();
     setPicked(picks);
     setSelection(atoms);
-    startMove(p, screen, t, picks, atoms);
+    startMove(p, screen, t, picks, atoms, copy);
   }
 
-  function pressSelect(p: P, t: Hover, shift: boolean, screen: [number, number]) {
+  function pressSelect(p: P, t: Hover, shift: boolean, screen: [number, number], copy = false) {
     const ids = atomsOf(doc, t);
+    // A press on any part of an integral group picks the whole group and moves it.
+    const whole = !shift && groupsOf(doc, new Set(ids), new Set([t.caption, t.arrow].filter((x): x is number => x !== undefined))).find((g) => g.integral);
+    if (whole && selectKind !== "perspective") {
+      setSelection(new Set(whole.atoms));
+      setPicked(new Set(whole.items));
+      return startMove(p, screen, t, new Set(whole.items), new Set(whole.atoms));
+    }
     // Structure Perspective: a press on the selection, or on a structure, tilts it through 3D as the pointer moves.
     if (selectKind === "perspective" && (ids.length || (selection.size && onSelection(doc, selection, p)))) {
       const on = selection.size && (onSelection(doc, selection, p) || ids.some((i) => selection.has(i)));
@@ -1020,13 +1104,13 @@ export default function Editor() {
       return setDrag({ kind: "tilt", base: doc, ids: set3, centre, start: screen, hinge, working: doc });
     }
     if (t.cycle !== undefined) return pressCycle(p, t, screen);
-    if (t.caption !== undefined || t.arrow !== undefined) return pressCaption(p, t, shift, screen);
-    if (!shift && (selection.size || picked.size) && onSelection(doc, selection, p)) return startMove(p, screen, t);
+    if (t.caption !== undefined || t.arrow !== undefined) return pressCaption(p, t, shift, screen, copy);
+    if (!shift && (selection.size || picked.size) && onSelection(doc, selection, p)) return startMove(p, screen, t, picked, selection, copy);
     if (ids.length) {
       const atoms = new Set(shift ? [...selection, ...ids] : ids), picks = shift ? picked : new Set<number>();
       setSelection(atoms);
       setPicked(picks);
-      return startMove(p, screen, t, picks, atoms);
+      return startMove(p, screen, t, picks, atoms, copy);
     }
     const base = shift ? selection : new Set<number>(), picks = shift ? picked : new Set<number>();
     setSelection(base);
@@ -1080,7 +1164,7 @@ export default function Editor() {
     }
     const page = t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined ? pageEdgeAt(p) : undefined;
     if (page) return fitPage(page);
-    if (tool === "select") return pressSelect(p, t, e.shiftKey, screen);
+    if (tool === "select") return pressSelect(p, t, e.shiftKey, screen, e.altKey);
     // The Pen: each press places a point (drag for a smooth one); pressing the first point again closes the curve.
     if (tool === "shape" && "pen" in shapePick) {
       if (pen && pen.length >= 2 && Math.hypot(p[0] - pen[0].at[0], p[1] - pen[0].at[1]) * L * view.zoom < 8) return finishPen(true);
@@ -1265,16 +1349,16 @@ export default function Editor() {
       }
       case "move": {
         if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
-        // Snap within 6 screen px, unless snapping is off or ⌥/Alt is held.
-        const raw: P = [p[0] - drag.from[0], p[1] - drag.from[1]];
+        // Snap within 6 screen px, unless snapping is off or ⌘ is held (Option is ChemDraw's copy, at the press).
+        const raw: P = [p[0] - drag.from[0], p[1] - drag.from[1]], base = drag.base ?? doc, moving = drag.atoms ?? selection;
         // Text moving on its own snaps to the structures too.
-        const textBox = !selection.size ? drag.textBox : undefined;
-        const snapped = !settings.snap || e.altKey ? { d: raw, guides: [] as Guide[], point: undefined }
-          : selection.size ? snapMove(doc, selection, raw, 6 / (view.zoom * L))
+        const textBox = !moving.size ? drag.textBox : undefined;
+        const snapped = !settings.snap || e.metaKey ? { d: raw, guides: [] as Guide[], point: undefined }
+          : moving.size ? snapMove(base, moving, raw, 6 / (view.zoom * L))
           : textBox ? { ...snapBox(doc, [textBox[0] / L, -textBox[3] / L, textBox[2] / L, -textBox[1] / L], raw, 6 / (view.zoom * L),
               (atoms) => { const b = union(atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i])); return b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L]; }), point: undefined }
           : { d: raw, guides: [] as Guide[], point: undefined };
-        return setDrag({ ...drag, working: moveAll(doc, snapped.d, drag.captions, drag.arrows, drag.cycles), moved: true, guides: snapped.guides, point: snapped.point });
+        return setDrag({ ...drag, working: moveAll(base, snapped.d, drag.captions, drag.arrows, drag.cycles, moving), moved: true, guides: snapped.guides, point: snapped.point });
       }
     }
   }
@@ -1508,7 +1592,12 @@ export default function Editor() {
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDisk size={18} />],
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <MagicWand size={18} />],
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
-    structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />], select_all: ["Select all", `${MOD}A`, <SelectionAll size={18} />],
+    structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />],
+    group: ["Group", `${MOD}G`, <BoundingBox size={18} />], ungroup: ["Ungroup", `⇧${MOD}G`, <SelectionSlash size={18} />],
+    arrange_left: ["Align left edges", `⇧⌥${MOD}L`, <AlignLeft size={18} />], arrange_centre: ["Align left-right centres", `⇧⌥${MOD}C`, <AlignCenterHorizontal size={18} />],
+    arrange_right: ["Align right edges", `⇧⌥${MOD}R`, <AlignRight size={18} />], arrange_top: ["Align top edges", `⇧⌥${MOD}T`, <AlignTop size={18} />],
+    arrange_middle: ["Align top-bottom centres", `⇧⌥${MOD}M`, <AlignCenterVertical size={18} />], arrange_bottom: ["Align bottom edges", `⇧⌥${MOD}B`, <AlignBottom size={18} />],
+    arrange_across: ["Distribute horizontally", `⇧⌥${MOD}H`, <ArrowsOutLineHorizontal size={18} />], arrange_down: ["Distribute vertically", `⇧⌥${MOD}V`, <ArrowsOutLineVertical size={18} />], select_all: ["Select all", `${MOD}A`, <SelectionAll size={18} />],
     clean_up: ["Clean up", `⇧${MOD}K`, <MagicWand size={18} />], flip_h: ["Rotate 180° horizontal", `⇧${MOD}H`, <FlipHorizontal size={18} />], flip_v: ["Rotate 180° vertical", `⇧${MOD}V`, <FlipVertical size={18} />],
     zoom_in: ["Magnify", `⇧${MOD}>`, <MagnifyingGlassPlus size={18} />], zoom_out: ["Reduce", `⇧${MOD}<`, <MagnifyingGlassMinus size={18} />],
     zoom_actual: ["Actual size", `${MOD}\\`, <FrameCorners size={18} />], zoom_fit: ["Fit to window", `${MOD}/`, <ArrowsOutSimple size={18} />],
@@ -1884,7 +1973,7 @@ export default function Editor() {
       case "move": {
         if (!drag.moved) return click(drag.target, drag.from);
         // An atom dropped exactly on another joins it. Joining renumbers atoms, so the selection clears then.
-        const { mol, joined } = joinOverlaps(drag.working, selection);
+        const { mol, joined } = joinOverlaps(drag.working, drag.atoms ?? selection);
         return set(mol, !joined);
       }
     }
@@ -2069,6 +2158,11 @@ export default function Editor() {
         onDoubleClick={(e) => {
           // A double-click ends the Pen's curve.
           if (pen) return finishPen();
+          // With Select, a double-click on any part of a group picks the whole group.
+          if (tool === "select") {
+            const h = hit(toDoc(e.clientX, e.clientY)), g = groupsOf(doc, new Set(atomsOf(doc, h)), new Set([h.caption, h.arrow].filter((x): x is number => x !== undefined)))[0];
+            if (g) { setSelection(new Set(g.atoms)); setPicked(new Set(g.items)); return; }
+          }
           // With Select, double-click an atom to type its label (other tools would draw on each click).
           // Double-click a caption with any tool to type into it.
           const t = hit(toDoc(e.clientX, e.clientY));
@@ -2573,6 +2667,10 @@ export default function Editor() {
         layout={settings.actionLayout}
         onLayout={(kind, layout) => setSettings((s) => ({ ...s, actionLayout: { ...s.actionLayout, [kind]: layout } }))}
         colour={selectionColour()}
+        grouping={(() => {
+          const gs = groupsOf(doc, selection, picked), count = fragments(doc).filter((g) => g.some((i) => selection.has(i))).length + picked.size;
+          return gs.length ? { grouped: true, integral: gs.every((g) => g.integral) } : count >= 2 ? { grouped: false, integral: false } : undefined;
+        })()}
         palette={settings.palette}
         run={runAction}
       />

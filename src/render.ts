@@ -115,7 +115,10 @@ export const isBracket = (sh: Pick<Shape, "kind">) => sh.kind === "brackets" || 
 export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "table"];
 export const HIGHLIGHT = "#DCE4F5";
 // Captions, arrows, shapes and cycles share one set of ids.
-export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; style?: DocStyle };
+export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; style?: DocStyle };
+// A group (Object > Group): atoms and other objects (captions, arrows, shapes, cycles, by id) that select and move as
+// one. An integral group is never split: a click on any part picks all of it.
+export type Group = { id: number; atoms: number[]; items: number[]; integral?: true };
 // Sizes in px: bond length, line width, bold width, double-bond spacing, hash spacing, label margin, label font size.
 export type Style = { bond: number; line: number; bold: number; spacing: number; hash: number; margin: number; size: number };
 // width: advance; ascent: ink top above the baseline; outline: glyph edge points relative to the text origin (y down).

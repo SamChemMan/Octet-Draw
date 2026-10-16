@@ -137,3 +137,16 @@ console.log("file.check: bad files refused");
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, captions: [{ text: "H", x: 0, y: 0, runs: [{ text: "H", onclick: "x" }] }] })), /damaged/);
   console.log("file.check: rich text ok");
 }
+
+// Groups survive a save: their atoms, and their other objects by kind and place; a group naming a missing object is refused.
+{
+  const m = { ...mol, arrows: [{ id: 40, kind: "reaction" as const, from: [0, 0] as [number, number], to: [3, 0] as [number, number] }], captions: [{ id: 41, text: "1", x: 0, y: -2 }],
+    groups: [{ id: 50, atoms: [0, 1], items: [40, 41], integral: true as const }] };
+  const back = parse(serialize(m));
+  const g = back.groups![0];
+  assert.deepEqual(g.atoms, [0, 1]);
+  assert.deepEqual(g.items.map((id) => back.arrows?.some((a) => a.id === id) ? "arrow" : back.captions?.some((c) => c.id === id) ? "caption" : "?"), ["arrow", "caption"]);
+  assert.equal(g.integral, true);
+  assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, groups: [{ atoms: [], items: [["a", 3]] }] })), /damaged/);
+  console.log("file.check: groups ok");
+}

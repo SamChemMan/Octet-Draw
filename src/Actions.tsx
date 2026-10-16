@@ -8,7 +8,7 @@ import {
   AlignCenterHorizontal, AlignCenterVertical, ArrowClockwise, ArrowsClockwise, SignIn, SignOut, ArrowCounterClockwise, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretDown,
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, LinkBreak, LinkSimple, ListNumbers, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAa, TextAlignCenter, TextAlignLeft,
-  TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, Columns, ColumnsPlusRight, GridFour, Circle, TextSubscript, TextSuperscript, Cube, Square,
+  TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, Columns, ColumnsPlusRight, GridFour, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
@@ -46,6 +46,7 @@ type Props = {
   onLayout: (kind: string, layout: { order: string[]; rows: number }) => void;
   colour?: { value: string; tints?: boolean }; // the selection's colour, shown in the one colour row every selection gets
   palette: { name: string; hex: string }[]; // the user's own colours, after Octet's
+  grouping?: { grouped: boolean; integral: boolean }; // two or more things selected (Group), or a group (Ungroup)
 };
 
 const ELEMENTS = ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"];
@@ -267,7 +268,7 @@ function Row({ icon, name, command, hint, run, accent }: { icon: React.ReactNode
   );
 }
 
-export function Actions({ open, context, analysis, problems, messy, hint, onOpen, run, layout, onLayout, colour, palette }: Props) {
+export function Actions({ open, context, analysis, problems, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping }: Props) {
   // An action being dragged to a new place: in the rows (index among rows) or the small buttons (index among them).
   const [carry, setCarry] = useState<{ command: string; x: number; y: number; to?: { rows: boolean; index: number } }>();
   const dragged = useRef(false);
@@ -322,6 +323,12 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
   const whole = context.kind === "drawing" || context.kind === "structure";
 
   const items = actionItems(context, messy);
+  // Group and Ungroup, and Align and Distribute, for any selection of two or more things, as small buttons.
+  if (grouping) items.push(...([["arrange_left", "Align left edges", <AlignLeft size={18} />], ["arrange_centre", "Align left-right centres", <AlignCenterHorizontal size={18} />], ["arrange_right", "Align right edges", <AlignRight size={18} />],
+    ["arrange_top", "Align top edges", <AlignTop size={18} />], ["arrange_middle", "Align top-bottom centres", <AlignCenterVertical size={18} />], ["arrange_bottom", "Align bottom edges", <AlignBottom size={18} />],
+    ["arrange_across", "Distribute horizontally", <ArrowsOutLineHorizontal size={18} />], ["arrange_down", "Distribute vertically", <ArrowsOutLineVertical size={18} />]] as const).map(([command, name, icon]) => ({ icon, name, command, small: true })));
+  if (grouping?.grouped) items.push({ icon: <SelectionSlash size={18} />, name: "Ungroup", command: "ungroup", small: true }, { icon: <LinkSimple size={18} />, name: grouping.integral ? "Let parts be picked" : "Pick as one", command: "group_integral", small: true });
+  else if (grouping) items.push({ icon: <BoundingBox size={18} />, name: "Group", command: "group", small: true });
   // The user's order first (actions it does not know keep their place after it), then their split into rows.
   const mine = layout[context.kind];
   if (mine) items.sort((a, b) => {

@@ -164,6 +164,19 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
         &item("name_to_structure", "Convert Name to Structure", "CmdOrCtrl+Shift+N")?,
         &item("structure_to_name", "Convert Structure to Name", "Alt+CmdOrCtrl+N")?,
     ])?;
+    // Align and Distribute, as ChemDraw's (lined up on the highest thing; spaced out between the two at the ends).
+    let align = Submenu::with_items(app, "Align", true, &[
+        &item("arrange_left", "Left Edges", "Alt+Shift+CmdOrCtrl+L")?,
+        &item("arrange_centre", "Left-Right Centres", "Alt+Shift+CmdOrCtrl+C")?,
+        &item("arrange_right", "Right Edges", "Alt+Shift+CmdOrCtrl+R")?,
+        &item("arrange_top", "Top Edges", "Alt+Shift+CmdOrCtrl+T")?,
+        &item("arrange_middle", "Top-Bottom Centres", "Alt+Shift+CmdOrCtrl+M")?,
+        &item("arrange_bottom", "Bottom Edges", "Alt+Shift+CmdOrCtrl+B")?,
+    ])?;
+    let distribute = Submenu::with_items(app, "Distribute", true, &[
+        &item("arrange_across", "Horizontally", "Alt+Shift+CmdOrCtrl+H")?,
+        &item("arrange_down", "Vertically", "Alt+Shift+CmdOrCtrl+V")?,
+    ])?;
     // Add Frame, as ChemDraw's: a frame round everything selected.
     let frame = Submenu::with_items(app, "Add Frame", true, &[
         &MenuItem::with_id(app, "frame_brackets", "Brackets", true, None::<&str>)?,
@@ -175,6 +188,12 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
         &MenuItem::with_id(app, "frame_rounded_shadow", "Rounded Rectangle with Shadow", true, None::<&str>)?,
     ])?;
     let object = Submenu::with_items(app, "Object", true, &[
+        &align,
+        &distribute,
+        &sep()?,
+        &item("group", "Group", "CmdOrCtrl+G")?,
+        &item("ungroup", "Ungroup", "CmdOrCtrl+Shift+G")?,
+        &sep()?,
         &item("bring_front", "Bring to Front", "CmdOrCtrl+[")?,
         &item("send_back", "Send to Back", "CmdOrCtrl+]")?,
         &sep()?,

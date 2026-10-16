@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf } from "./edit.ts";
+import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection } from "./edit.ts";
 import { tableLayout } from "./render.ts";
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
@@ -238,4 +238,17 @@ console.log("edit.check: align ok");
   assert.ok(Math.abs(d(turned.atoms[2].location, turned.atoms[1].location) - d(m.atoms[2].location, m.atoms[1].location)) < 1e-9, "bond length kept");
   assert.deepEqual(hingeOf(m, new Set([2])), [2, 1]);
   console.log("edit.check: perspective ok");
+}
+
+// Option-drag copies: atoms and the bonds between them, and picked objects with new ids, a caption kept to its copied arrow.
+{
+  const m = { ...sprout(sprout(EMPTY, [0, 0]), 1), arrows: [{ id: 10, kind: "reaction" as const, from: [0, 0] as [number, number], to: [3, 0] as [number, number] }],
+    captions: [{ id: 11, text: "heat", x: 0, y: 0, on: { arrow: 10, side: "above" as const } }] };
+  const d = duplicateSelection(m, new Set([0, 1]), new Set([10, 11]));
+  assert.equal(d.mol.atoms.length, m.atoms.length + 2);
+  assert.equal(d.mol.bonds.length, m.bonds.length + 1, "only the bond between the copied atoms is copied");
+  assert.deepEqual([...d.atoms], [m.atoms.length, m.atoms.length + 1]);
+  const copy = d.mol.captions!.find((c) => c.id === d.ids.get(11))!;
+  assert.equal(copy.on!.arrow, d.ids.get(10));
+  console.log("edit.check: duplicate ok");
 }

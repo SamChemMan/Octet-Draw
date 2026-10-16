@@ -213,7 +213,26 @@ function removeAtoms(m: Mol, gone: Set<number>): Mol {
     return nodes.length >= 2 ? [{ ...c, nodes }] : [];
   });
   const kept = new Set(cycles?.map((c) => c.id));
-  return { ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || kept.has(c.cycle.cycle)), cycles };
+  return { ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || kept.has(c.cycle.cycle)), cycles,
+    groups: tidyGroups(m.groups?.map((g) => ({ ...g, atoms: g.atoms.filter((i) => map.has(i)).map((i) => map.get(i)!) }))) };
+}
+// Groups with fewer than two members left are no longer groups.
+const tidyGroups = (gs?: Mol["groups"]) => gs?.filter((g) => g.atoms.length + g.items.length >= 2);
+// Groups: every group a selection touches (by its atoms or its other objects).
+export const groupsOf = (m: Mol, atoms: Set<number>, items: Set<number>) =>
+  (m.groups ?? []).filter((g) => g.atoms.some((i) => atoms.has(i)) || g.items.some((id) => items.has(id)));
+// Object > Group: the selected structures (whole) and objects, with any groups they were already in, as one group.
+export function groupSelection(m: Mol, atoms: Set<number>, items: Set<number>): [Mol, number] | undefined {
+  const old = groupsOf(m, atoms, items), whole = new Set([...atoms].flatMap((i) => fragments(m).find((g) => g.includes(i)) ?? [i]));
+  const all = { atoms: [...new Set([...whole, ...old.flatMap((g) => g.atoms)])].sort((p, q) => p - q), items: [...new Set([...items, ...old.flatMap((g) => g.items)])] };
+  if (all.atoms.length + all.items.length < 2 || (fragments(m).filter((g) => g.some((i) => all.atoms.includes(i))).length + all.items.length < 2)) return undefined;
+  const id = nextId(m);
+  return [{ ...m, groups: [...(m.groups ?? []).filter((g) => !old.includes(g)), { id, ...all, ...(old.some((g) => g.integral) ? { integral: true as const } : {}) }] }, id];
+}
+// Object > Ungroup: the groups the selection touches are undone (their members stay).
+export const ungroupSelection = (m: Mol, atoms: Set<number>, items: Set<number>): Mol => {
+  const old = new Set(groupsOf(m, atoms, items));
+  return { ...m, groups: (m.groups ?? []).filter((g) => !old.has(g)) };
 }
 export const deleteAtom = (m: Mol, i: number) => removeAtoms(m, new Set([i]));
 export const deleteBond = (m: Mol, i: number) => removeAtoms({ ...m, bonds: m.bonds.filter((_, k) => k !== i) }, new Set());
@@ -259,7 +278,7 @@ export function merge(m: Mol, frag: Mol, offset: P): Mol {
   const base = m.atoms.length;
   return {
     ...m,
-    atoms: [...m.atoms, ...frag.atoms.map((a) => ({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], 0] as [number, number, number] }))],
+    atoms: [...m.atoms, ...frag.atoms.map((a) => ({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }))],
     bonds: [...m.bonds, ...frag.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number] }))],
   };
 }
@@ -273,7 +292,7 @@ export function bounds(m: Mol): [number, number, number, number] | undefined {
 // Selection helpers. A selection is a set of atom indices; a bond is selected when both its atoms are.
 export const deleteAtoms = (m: Mol, ids: Set<number>) => removeAtoms(m, new Set(ids));
 export function moveAtoms(m: Mol, ids: Set<number>, d: P): Mol {
-  return { ...m, atoms: m.atoms.map((a, i) => (ids.has(i) ? { ...a, location: [a.location[0] + d[0], a.location[1] + d[1], 0] } : a)) };
+  return { ...m, atoms: m.atoms.map((a, i) => (ids.has(i) ? { ...a, location: [a.location[0] + d[0], a.location[1] + d[1], a.location[2] ?? 0] } : a)) };
 }
 export function atomsIn(m: Mol, a: P, b: P): number[] {
   const [x0, x1] = [Math.min(a[0], b[0]), Math.max(a[0], b[0])], [y0, y1] = [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
@@ -436,7 +455,7 @@ export function rotateAtoms(m: Mol, ids: Set<number>, degrees: number): Mol {
   return { ...m, atoms: m.atoms.map((a, i) => {
     if (!ids.has(i)) return a;
     const r = add(c, rot(sub(pos(m, i), c), degrees * deg));
-    return { ...a, location: [r[0], r[1], 0] };
+    return { ...a, location: [r[0], r[1], a.location[2] ?? 0] };
   }) };
 }
 
@@ -549,7 +568,7 @@ export function alignFragments(m: Mol, ids: Set<number>, how: "row" | "column" |
 }
 
 // Captions and arrows share one set of ids, unique within a drawing.
-const nextId = (m: Mol) => Math.max(0, ...[...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? [])].map((x) => x.id)) + 1;
+const nextId = (m: Mol) => Math.max(0, ...[...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? []), ...(m.groups ?? [])].map((x) => x.id)) + 1;
 export function addCycle(m: Mol, c: Omit<Cycle, "id">): [Mol, number] {
   const id = nextId(m);
   return [{ ...m, cycles: [...(m.cycles ?? []), { ...c, id }] }, id];
@@ -633,6 +652,7 @@ export const deleteGraphics = (m: Mol, ids: Set<number>): Mol => ({
   arrows: m.arrows?.filter((a) => !ids.has(a.id)),
   shapes: m.shapes?.filter((x) => !ids.has(x.id)),
   cycles: m.cycles?.filter((c) => !ids.has(c.id)),
+  groups: tidyGroups(m.groups?.map((g) => ({ ...g, items: g.items.filter((id) => !ids.has(id) && !(m.captions?.some((c) => c.id === id && ((c.on && ids.has(c.on.arrow)) || (c.cycle && ids.has(c.cycle.cycle)))))) }))),
 });
 // The next compound number in the drawing: one more than the highest bold number already there.
 export function nextNumber(m: Mol): string {
@@ -713,7 +733,7 @@ export function normalise(m: Mol): Mol {
   const k = 1 / (lengths[Math.floor(lengths.length / 2)] || 1), b = bounds(m);
   if (!b) return m;
   const c: P = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
-  return { atoms: m.atoms.map((a) => ({ ...a, location: [(a.location[0] - c[0]) * k, (a.location[1] - c[1]) * k, 0] })), bonds: m.bonds };
+  return { atoms: m.atoms.map((a) => ({ ...a, location: [(a.location[0] - c[0]) * k, (a.location[1] - c[1]) * k, (a.location[2] ?? 0) * k] })), bonds: m.bonds };
 }
 
 // The turn (degrees, anticlockwise) that sets a structure's bottom ring bond level with the page: of the ring bonds
@@ -775,4 +795,29 @@ export function hingeOf(m: Mol, ids: Set<number>): [number, number] | undefined 
   if (joins.length !== 1) return undefined;
   const [a, b] = joins[0].atoms;
   return ids.has(a) ? [a, b] : [b, a];
+}
+
+// Option-drag (as ChemDraw's): copies of the selected atoms (with the bonds between them) and of the picked
+// objects, added with new ids. Copied captions keep to copied atoms, arrows and cycles. Returns the drawing, the
+// copies' atoms and ids, and each original id's copy.
+export function duplicateSelection(m: Mol, atoms: Set<number>, items: Set<number>) {
+  const sel = [...atoms].filter((i) => i < m.atoms.length).sort((p, q) => p - q), map = new Map(sel.map((i, k) => [i, m.atoms.length + k]));
+  let id = nextId(m);
+  const ids = new Map<number, number>();
+  for (const x of [...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? []), ...(m.captions ?? [])]) if (items.has(x.id)) ids.set(x.id, id++);
+  const atom = (i: number) => map.get(i) ?? i;
+  const mol: Mol = {
+    ...m,
+    atoms: [...m.atoms, ...sel.map((i) => ({ ...m.atoms[i] }))],
+    bonds: [...m.bonds, ...m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [atom(b.atoms[0]), atom(b.atoms[1])] as [number, number] }))],
+    arrows: [...(m.arrows ?? []), ...(m.arrows ?? []).filter((a) => ids.has(a.id)).map((a) => ({ ...a, id: ids.get(a.id)! }))],
+    shapes: [...(m.shapes ?? []), ...(m.shapes ?? []).filter((x) => ids.has(x.id)).map((x) => ({ ...x, id: ids.get(x.id)! }))],
+    cycles: [...(m.cycles ?? []), ...(m.cycles ?? []).filter((c) => ids.has(c.id)).map((c) => ({ ...c, id: ids.get(c.id)!, nodes: c.nodes.map((n) => n.map(atom)) }))],
+    captions: [...(m.captions ?? []), ...(m.captions ?? []).filter((c) => ids.has(c.id)).map((c) => ({
+      ...c, id: ids.get(c.id)!, ...(c.under ? { under: c.under.map(atom) } : {}),
+      ...(c.on && ids.has(c.on.arrow) ? { on: { ...c.on, arrow: ids.get(c.on.arrow)! } } : {}),
+      ...(c.cycle && ids.has(c.cycle.cycle) ? { cycle: { ...c.cycle, cycle: ids.get(c.cycle.cycle)! } } : {}),
+    }))],
+  };
+  return { mol, atoms: new Set(map.values()), items: new Set(ids.values()), ids };
 }
