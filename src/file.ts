@@ -1,5 +1,6 @@
 // Octet's own file format: versioned, human-readable JSON. Treat every file as hostile: check it fully on read.
-import { readStyle } from "./docstyle.ts";
+import { FONTS, readStyle } from "./docstyle.ts";
+import { normalise, plainOf, type TextRun } from "./richtext.ts";
 import { ALL_ARROW_KINDS, ORBITAL_SHAPES, PHASES, SHAPE_KINDS, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type Tlc, type Atom, type Bond, type Caption, type Display, type Mol } from "./render.ts";
 
 export const FORMAT = "octet";
@@ -27,12 +28,25 @@ export function serialize(mol: Mol): string {
   const captions = [...(mol.captions ?? [])].sort((a, b) => a.id - b.id).map((c) => ({
     text: c.text, x: round(c.x), y: round(c.y), ...(c.bold ? { bold: true } : {}), ...(c.italic ? { italic: true } : {}), ...(c.underline ? { underline: true } : {}),
     ...(c.size ? { size: c.size } : {}), ...(c.align ? { align: c.align } : {}), ...(c.under ? { under: c.under } : {}), ...(c.colour ? { colour: c.colour } : {}),
+    ...(c.font ? { font: c.font } : {}), ...(c.runs ? { runs: c.runs } : {}),
     ...(c.on ? { on: { arrow: arrowList.findIndex((a) => a.id === c.on!.arrow), side: c.on.side } } : {}),
     ...(c.cycle ? { cycle: { cycle: cycleList.findIndex((x) => x.id === c.cycle!.cycle), step: c.cycle.step, side: c.cycle.side } } : {}),
   }));
   return JSON.stringify({ format: FORMAT, version: VERSION, structure: { atoms, bonds }, ...(arrows.length ? { arrows } : {}), ...(cycles.length ? { cycles } : {}), ...(shapes.length ? { shapes } : {}), ...(captions.length ? { captions } : {}), ...(mol.style ? { style: mol.style } : {}) }, null, 1) + "\n";
 }
 const round = (n: number) => Math.round(n * 1e4) / 1e4;
+// A caption's runs, if they are sound: up to 2000, each with text and only known styles, joining to the caption's text.
+function readRuns(v: unknown, text: string): TextRun[] | undefined {
+  if (!Array.isArray(v) || !v.length || v.length > 2000) return undefined;
+  const ok = (r: Record<string, unknown>) => typeof r === "object" && r && typeof r.text === "string" && r.text.length <= MAX_TEXT
+    && (r.bold === undefined || r.bold === true) && (r.italic === undefined || r.italic === true) && (r.underline === undefined || r.underline === true)
+    && (r.script === undefined || r.script === "sub" || r.script === "super") && (r.font === undefined || FONTS.includes(r.font as string))
+    && (r.size === undefined || (typeof r.size === "number" && r.size >= 4 && r.size <= 144)) && (r.colour === undefined || (typeof r.colour === "string" && /^#[0-9a-f]{6}$/i.test(r.colour)))
+    && Object.keys(r).every((k) => ["text", "bold", "italic", "underline", "script", "font", "size", "colour"].includes(k));
+  if (!(v as Record<string, unknown>[]).every(ok)) return undefined;
+  const runs = normalise(v as TextRun[]);
+  return plainOf(runs) === text ? runs : undefined;
+}
 // A shadow's look, if it is sound: depth and softness up to a bond length, opacity 0 to 1.
 function readShade(v: unknown): Shade | undefined {
   const s = v as Record<string, unknown>, ok = (n: unknown, hi: number) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= hi;
@@ -172,7 +186,8 @@ export function parse(text: string): Mol {
       || (c.colour !== undefined && !(typeof c.colour === "string" && /^#[0-9a-f]{6}$/i.test(c.colour)))
       || (under !== undefined && (!Array.isArray(under) || !under.length || under.length > out.atoms.length || !under.every((i) => int(i, 0, out.atoms.length - 1))))
       || (on !== undefined && (!int(on?.arrow, 0, (out.arrows?.length ?? 0) - 1) || (on.side !== "above" && on.side !== "below")))
-      || (cyc !== undefined && (!int(cyc?.cycle, 0, (out.cycles?.length ?? 0) - 1) || !int(cyc.step, 0, 63) || !["in", "out", "centre"].includes(cyc.side as string)))) throw new Error("This drawing is damaged.");
+      || (cyc !== undefined && (!int(cyc?.cycle, 0, (out.cycles?.length ?? 0) - 1) || !int(cyc.step, 0, 63) || !["in", "out", "centre"].includes(cyc.side as string)))
+      || (c.font !== undefined && !FONTS.includes(c.font as string)) || (c.runs !== undefined && readRuns(c.runs, c.text) === undefined)) throw new Error("This drawing is damaged.");
     const caption: Caption = { id: k + 1, text: c.text, x: c.x as number, y: c.y as number };
     if (c.bold) caption.bold = true;
     if (c.italic) caption.italic = true;
@@ -180,6 +195,8 @@ export function parse(text: string): Mol {
     if (c.size !== undefined) caption.size = c.size as number;
     if (c.align) caption.align = c.align as Caption["align"];
     if (c.colour) caption.colour = c.colour as string;
+    if (c.font) caption.font = c.font as string;
+    if (c.runs) caption.runs = readRuns(c.runs, c.text);
     if (under) caption.under = under as number[];
     if (on) caption.on = { arrow: out.arrows![on.arrow as number].id, side: on.side as "above" | "below" };
     if (cyc) caption.cycle = { cycle: out.cycles![cyc.cycle as number].id, step: cyc.step as number, side: cyc.side as "in" | "out" | "centre" };

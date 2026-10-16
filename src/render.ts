@@ -7,6 +7,7 @@
 // - Labels are anchored on the advance centre and half the ink height of their first glyph.
 
 import { units } from "./labels.ts";
+import { lines as richLines, type TextRun } from "./richtext.ts";
 import type { DocStyle } from "./docstyle.ts";
 import type { Cycle, CycleText } from "./cycle.ts";
 
@@ -37,6 +38,8 @@ export type Caption = {
   on?: { arrow: number; side: "above" | "below" };
   colour?: string; // #rrggbb; unset uses the document's text colour
   cycle?: CycleText; // a catalytic cycle's centre label, or a reagent or product on one of its steps
+  font?: string; // the caption's font; unset uses the document's caption font
+  runs?: TextRun[]; // the text in runs, each with its own style (rich text); text is always their text joined
 };
 // An arrow from one point to another (drawing coordinates). bend: how far a curved arrow's middle sits off the
 // straight line, as a fraction of its length, to the left looking from start to end.
@@ -592,12 +595,12 @@ export const CAPTION_PT = 10;
 export const isNumber = (c: Caption) => !!c.bold && /^\d+[a-z]?$/.test(c.text);
 const GAP_PT = 15, GAP_ARROW_PT = 3, LINE = 1.2, ASCENT = 0.905, DESCENT = 0.212; // Arial's ascent and descent, in em
 export type Placed = {
-  id: number; size: number; bold?: boolean; italic?: boolean; underline?: boolean; colour?: string; anchor: "start" | "middle" | "end";
-  lines: { text: string; x: number; y: number }[]; box: Box;
+  id: number; size: number; bold?: boolean; italic?: boolean; underline?: boolean; colour?: string; anchor: "start" | "middle" | "end"; font?: string;
+  lines: { text: string; x: number; y: number; runs?: TextRun[] }[]; box: Box;
 };
 // pt: px per point in the drawing frame; size: the document's caption size in pt.
 // fixed: where captions placed by something else (a cycle's labels) go, in px.
-export function placeCaptions(mol: Mol, d: Drawing, width: (text: string, c: Caption) => number, arrows: Arrow[] = mol.arrows ?? [], pt = 4 / 3, defaultSize = CAPTION_PT,
+export function placeCaptions(mol: Mol, d: Drawing, width: (text: string, c: Caption, line: number) => number, arrows: Arrow[] = mol.arrows ?? [], pt = 4 / 3, defaultSize = CAPTION_PT,
   fixed: Map<number, { x: number; y: number; anchor: Placed["anchor"] }> = new Map()): Placed[] {
   const k = d.scale, below = new Map<string, number>(); // the next free baseline under each structure
   const beside = new Map<string, number>(); // how far the conditions on each side of each arrow already reach
@@ -640,11 +643,12 @@ export function placeCaptions(mol: Mol, d: Drawing, width: (text: string, c: Cap
       below.set(key, y + lines.length * LINE * size);
     } else [x, y] = [c.x * k, -c.y * k];
     const at = anchorOverride ?? anchor;
-    const widths = lines.map((t) => width(t, c)), w = Math.max(...widths);
+    const widths = lines.map((t, j) => width(t, c, j)), w = Math.max(...widths);
+    const runLines = c.runs ? richLines(c.runs) : undefined;
     const left = at === "start" ? x : at === "end" ? x - w : x - w / 2;
     return [{
-      id: c.id, size, bold: c.bold, italic: c.italic, underline: c.underline, colour: c.colour, anchor: at,
-      lines: lines.map((text, j) => ({ text, x, y: y + j * LINE * size })),
+      id: c.id, size, bold: c.bold, italic: c.italic, underline: c.underline, colour: c.colour, anchor: at, font: c.font,
+      lines: lines.map((text, j) => ({ text, x, y: y + j * LINE * size, ...(runLines ? { runs: runLines[j] ?? [] } : {}) })),
       box: [left, y - ASCENT * size, left + w, y + (lines.length - 1) * LINE * size + DESCENT * size],
     }];
   });

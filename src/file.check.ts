@@ -127,3 +127,13 @@ console.log("file.check: bad files refused");
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "box", x1: 0, y1: 0, x2: 1, y2: 1, shade: { depth: 0.1, blur: 0, opacity: 3 } }] })), /damaged/);
   console.log("file.check: shadows ok");
 }
+
+// Rich captions: runs and a font survive a save; runs that do not spell the caption's text are refused.
+{
+  const cap = { id: 3, text: "H2O", x: 0, y: 0, font: "Georgia", runs: [{ text: "H" }, { text: "2", script: "sub" as const }, { text: "O", bold: true as const }] };
+  const back = parse(serialize({ ...mol, captions: [cap] })).captions![0];
+  assert.deepEqual({ font: back.font, runs: back.runs }, { font: cap.font, runs: cap.runs });
+  assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, captions: [{ text: "H2O", x: 0, y: 0, runs: [{ text: "CO2" }] }] })), /damaged/);
+  assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, captions: [{ text: "H", x: 0, y: 0, runs: [{ text: "H", onclick: "x" }] }] })), /damaged/);
+  console.log("file.check: rich text ok");
+}

@@ -192,10 +192,22 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
         .collect::<tauri::Result<Vec<_>>>()?;
     let size_items: Vec<&dyn IsMenuItem<Wry>> = sizes.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
     let size = Submenu::with_items(app, "Size", true, &size_items)?;
+    // ChemDraw's text keys: Plain ⌘T, Bold ⌘B, Italic ⌘I, Underline ⌘U, Subscript ⌘-, Superscript ⌘+, Formula ⌘F.
+    let fonts = ["Arial", "Helvetica", "Times New Roman", "Calibri", "Cambria", "Georgia"].iter().enumerate()
+        .map(|(k, f)| MenuItem::with_id(app, format!("font_{k}"), *f, true, None::<&str>))
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let font_items: Vec<&dyn IsMenuItem<Wry>> = fonts.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
+    let font = Submenu::with_items(app, "Font", true, &font_items)?;
     let text = Submenu::with_items(app, "Text", true, &[
+        &font,
+        &sep()?,
+        &item("text_plain", "Plain", "CmdOrCtrl+T")?,
         &item("text_bold", "Bold", "CmdOrCtrl+B")?,
         &item("text_italic", "Italic", "CmdOrCtrl+I")?,
         &item("text_underline", "Underline", "CmdOrCtrl+U")?,
+        &item("text_sub", "Subscript", "CmdOrCtrl+-")?,
+        &item("text_super", "Superscript", "CmdOrCtrl+=")?,
+        &item("text_formula", "Formula", "CmdOrCtrl+F")?,
         &sep()?,
         &item("align_left", "Flush Left", "CmdOrCtrl+Shift+L")?,
         &item("align_centre", "Centre", "CmdOrCtrl+Shift+C")?,

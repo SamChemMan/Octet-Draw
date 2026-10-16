@@ -8,7 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { analyse, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
-import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, type DocStyle, type PageName } from "./docstyle";
+import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, FONTS, type DocStyle, type PageName } from "./docstyle";
 import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
 import {
@@ -40,6 +40,8 @@ import { iupacName } from "./namer";
 setNamer(iupacName);
 import { loadTemplates, newTemplate, templateKind } from "./templates";
 import { formulaRuns } from "./labels";
+import { common, edited, lines as richLines, normalise, plainOf, runsOf, styleRange, styled, type RunStyle, type TextRun } from "./richtext";
+import { RichBox, type RichApi } from "./RichBox";
 import "./editor.css";
 
 
@@ -135,6 +137,22 @@ function byColour(items: readonly (readonly [string | undefined, P[][]])[]): [st
   const groups = new Map<string | undefined, P[][]>();
   for (const [colour, polys] of items) { const key = colour?.toLowerCase(); groups.set(key, [...(groups.get(key) ?? []), ...polys]); }
   return [...groups];
+}
+
+// A line of rich text as tspans: each run in its style, a subscript 0.212 em down and a superscript 0.33 em up at
+// 75% size (as atom labels), each run starting from where the last one left the baseline.
+function richSpans(runs: TextRun[], size: number, PT: number) {
+  let shift = 0;
+  return runs.map((r, k) => {
+    const to = r.script === "sub" ? 0.212 * size : r.script === "super" ? -0.33 * size : 0, dy = to - shift;
+    shift = to;
+    const px = r.size ? r.size * PT : size;
+    return (
+      <tspan key={k} dy={dy || undefined} fill={r.colour} style={{ fontSize: r.script ? px * 0.75 : px, fontWeight: r.bold ? "bold" : undefined, fontStyle: r.italic ? "italic" : undefined, fontFamily: r.font ? fontStack(r.font) : undefined, textDecoration: r.underline ? "underline" : undefined }}>
+        {r.text}
+      </tspan>
+    );
+  });
 }
 
 // A pen point: a corner, or (dragged out) a smooth point with its incoming handle mirroring its outgoing one.
@@ -243,13 +261,25 @@ export default function Editor() {
     setEditing({ atom, value: a.text ?? (a.label === "C" ? "" : a.label) });
   };
   // The caption being typed: an existing one (id), or a new one at a point or under a structure, with its style.
-  type Writing = { id?: number; value: string; at?: P; under?: number[]; on?: Caption["on"]; cycle?: CycleText; style: Partial<Caption> };
+  // runs: the text in styled runs as it is typed; version and caret: the box is built again (a style was applied)
+  // with the selection there; pending: a style set with nothing selected, for the next characters typed.
+  type Writing = { id?: number; value: string; at?: P; under?: number[]; on?: Caption["on"]; cycle?: CycleText; style: Partial<Caption>;
+    runs?: TextRun[]; version?: number; caret?: [number, number]; pending?: RunStyle };
   const [writing, setWriting] = useState<Writing>();
   // True while the caption box is open. Enter, Escape and blur all close it; only the first one counts.
   const writingOpen = useRef(false);
   // The style new text starts with, set from the Actions panel while the Text tool is in hand.
   const [textStyle, setTextStyle] = useState<Partial<Caption>>({});
   const openWriting = (w: Writing) => { writingOpen.current = true; setWriting(w); };
+  const richApi = useRef<RichApi>(undefined);
+  // The caret moving in the box changes what the Actions panel shows as on (Bold, Subscript and so on).
+  const [, setCaretTick] = useState(0);
+  useEffect(() => {
+    if (!writing) return;
+    const tick = () => setCaretTick((n) => n + 1);
+    document.addEventListener("selectionchange", tick);
+    return () => document.removeEventListener("selectionchange", tick);
+  }, [!!writing]); // eslint-disable-line react-hooks/exhaustive-deps
   // The curve the Pen is drawing (its points so far), and where the pointer is, for the segment to it.
   const [pen, setPen] = useState<CurvePoint[]>();
   const [penAt, setPenAt] = useState<P>();
@@ -448,9 +478,14 @@ export default function Editor() {
     send_back: () => runAction("shape.back"),
     command_palette: () => { setCommandsOpen((o) => !o); if (!namesLoaded) void loadNames().then(() => setNamesLoaded(true)); },
     // The Text menu styles the caption being typed, or the picked captions.
-    text_bold: () => restyle((c) => ({ bold: !c.bold })),
-    text_italic: () => restyle((c) => ({ italic: !c.italic })),
-    text_underline: () => restyle((c) => ({ underline: !c.underline })),
+    text_bold: () => runAction("caption.bold"),
+    text_plain: () => runAction("caption.plain"),
+    text_sub: () => runAction("caption.sub"),
+    text_super: () => runAction("caption.super"),
+    text_formula: () => runAction("caption.formula"),
+    ...Object.fromEntries(FONTS.map((f, k) => [`font_${k}`, () => runAction(`caption.font.${f}`)])),
+    text_italic: () => runAction("caption.italic"),
+    text_underline: () => runAction("caption.underline"),
     align_left: () => restyle(() => ({ align: "left" })),
     align_centre: () => restyle(() => ({ align: "centre" })),
     align_right: () => restyle(() => ({ align: "right" })),
@@ -606,10 +641,16 @@ export default function Editor() {
   // Arrows grow to fit their conditions, including conditions being typed.
   const { placed, arrows, cycleArrows } = useMemo(() => {
     let m = shown;
-    if (writing?.id !== undefined) m = updateCaption(m, writing.id, { text: writing.value || " ", ...writing.style });
-    else if (writing) m = { ...m, captions: [...(m.captions ?? []), { id: DRAFT, text: writing.value || " ", x: writing.at?.[0] ?? 0, y: writing.at?.[1] ?? 0, under: writing.under, on: writing.on, cycle: writing.cycle, ...writing.style }] };
-    const width = (t: string, c: Caption) => (c.on || c.cycle ? formulaWidth : textWidth)(t, (c.size ?? style.captionSize) * pt, c.bold, c.italic, fontStack(style.captionFont));
-    const fitted = fitArrows(m, L, (c) => Math.max(...c.text.split("\n").map((t) => width(t, c))), pt);
+    const runs = writing?.runs && styled(writing.runs) && plainOf(writing.runs) ? writing.runs : undefined;
+    if (writing?.id !== undefined) m = updateCaption(m, writing.id, { text: writing.value || " ", ...writing.style, runs });
+    else if (writing) m = { ...m, captions: [...(m.captions ?? []), { id: DRAFT, text: writing.value || " ", x: writing.at?.[0] ?? 0, y: writing.at?.[1] ?? 0, under: writing.under, on: writing.on, cycle: writing.cycle, ...writing.style, runs }] };
+    // A line's width: each run in its own font, size and style (rich text), or the caption's own.
+    const width = (t: string, c: Caption, j = 0) => {
+      const px = (c.size ?? style.captionSize) * pt;
+      if (c.runs) return (richLines(c.runs)[j] ?? []).reduce((w, r) => w + textWidth(r.text, (r.size ? r.size * pt : px) * (r.script ? 0.75 : 1), r.bold ?? c.bold, r.italic ?? c.italic, fontStack(r.font ?? c.font ?? style.captionFont)), 0);
+      return (c.on || c.cycle ? formulaWidth : textWidth)(t, px, c.bold, c.italic, fontStack(c.font ?? style.captionFont));
+    };
+    const fitted = fitArrows(m, L, (c) => Math.max(...c.text.split("\n").map((t, j) => width(t, c, j))), pt);
     // Catalytic cycles: their arcs, side arrows and labels follow wherever their intermediates are.
     const cycles = layoutCycles(m, L, pt, (atoms) => union(atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i])));
     return { placed: placeCaptions(m, drawing, width, fitted, pt, style.captionSize, cycles.anchors), arrows: fitted, cycleArrows: cycles.arrows };
@@ -779,7 +820,7 @@ export default function Editor() {
     setPicked(new Set());
     if ("id" in target) {
       const c = doc.captions?.find((x) => x.id === target.id);
-      if (c) openWriting({ id: c.id, value: c.text, style: {} });
+      if (c) openWriting({ id: c.id, value: c.text, runs: runsOf(c).map((r) => ({ ...r })), version: 0, style: {} });
       return;
     }
     // Clicked just above or below an arrow: the text is its conditions.
@@ -796,16 +837,55 @@ export default function Editor() {
     setWriting(undefined);
     if (!w) return;
     const text = w.value.replace(/\s+$/, "");
+    // Runs are kept only when some text has a style of its own; trailing space goes from them as from the text.
+    const runs = w.runs && styled(w.runs) ? edited(w.runs, text) : undefined;
     if (w.id !== undefined) {
       const old = doc.captions?.find((c) => c.id === w.id);
       if (!text) return set(deleteGraphics(doc, new Set([w.id])));
-      if (old && (text !== old.text || Object.keys(w.style).length)) set(updateCaption(doc, w.id, { text, ...w.style }));
+      if (old && (text !== old.text || Object.keys(w.style).length || JSON.stringify(runs) !== JSON.stringify(old.runs))) set(updateCaption(doc, w.id, { text, ...w.style, runs }));
       return setPicked(new Set([w.id]));
     }
     if (!text) return;
-    const [mol, id] = addCaption(doc, { text, x: w.at?.[0] ?? 0, y: w.at?.[1] ?? 0, ...(w.under ? { under: w.under } : {}), ...(w.on ? { on: w.on } : {}), ...(w.cycle ? { cycle: w.cycle } : {}), ...w.style });
+    const [mol, id] = addCaption(doc, { text, x: w.at?.[0] ?? 0, y: w.at?.[1] ?? 0, ...(w.under ? { under: w.under } : {}), ...(w.on ? { on: w.on } : {}), ...(w.cycle ? { cycle: w.cycle } : {}), ...w.style, ...(runs ? { runs } : {}) });
     set(mol);
     setPicked(new Set([id]));
+  }
+  // A text style on the characters selected in the caption box (with nothing selected, on the next characters
+  // typed), or on the whole of every picked caption (the caption's own bold, italic and underline go into its runs,
+  // so part of it can be set apart).
+  function styleText(patch: (s: RunStyle, all: RunStyle) => RunStyle, what: string) {
+    const fold = (c: Partial<Caption>, runs: TextRun[]) => runs.map((r) => ({ ...(c.bold ? { bold: true as const } : {}), ...(c.italic ? { italic: true as const } : {}), ...(c.underline ? { underline: true as const } : {}), ...r }));
+    const unfold = { bold: false, italic: false, underline: false };
+    if (writing) {
+      const base = writing.id !== undefined ? { ...doc.captions?.find((c) => c.id === writing.id), ...writing.style } : writing.style;
+      const runs = normalise(fold(base, writing.runs ?? [{ text: writing.value }])), [s, e] = richApi.current?.range() ?? [writing.value.length, writing.value.length];
+      const all = common(runs, s, e);
+      if (s === e) return setWriting({ ...writing, runs, style: { ...writing.style, ...unfold }, pending: patch({ ...(writing.pending ?? all) }, writing.pending ?? all), version: (writing.version ?? 0) + 1, caret: [s, e] });
+      return setWriting({ ...writing, runs: styleRange(runs, s, e, (st) => patch(st, all)), style: { ...writing.style, ...unfold }, version: (writing.version ?? 0) + 1, caret: [s, e] });
+    }
+    if (!picked.size) return what === "font" ? setTextStyle((t) => ({ ...t, font: patch({}, {}).font })) : undefined;
+    set({
+      ...doc,
+      captions: doc.captions?.map((c) => {
+        if (!picked.has(c.id)) return c;
+        const runs = normalise(fold(c, runsOf(c))), next = styleRange(runs, 0, c.text.length, (st) => patch(st, common(runs, 0, c.text.length)));
+        return { ...c, bold: undefined, italic: undefined, underline: undefined, runs: styled(next) ? next : undefined };
+      }),
+    }, true);
+  }
+  // Formula (⌘F, as ChemDraw's): the counts in the selected text (or the whole caption) become subscripts.
+  function formulaText() {
+    const apply = (runs: TextRun[], s: number, e: number) => {
+      const text = plainOf(runs).slice(s, e);
+      let out = runs, at = s;
+      for (const r of formulaRuns(text)) { if (r.sub) out = styleRange(out, at, at + r.text.length, (st) => ({ ...st, script: "sub" })); at += r.text.length; }
+      return out;
+    };
+    if (writing) {
+      const runs = writing.runs ?? [{ text: writing.value }], range = richApi.current?.range(), [s, e] = range && range[0] !== range[1] ? range : [0, writing.value.length];
+      return setWriting({ ...writing, runs: apply(runs, s, e), version: (writing.version ?? 0) + 1, caret: range ?? [s, e] });
+    }
+    set({ ...doc, captions: doc.captions?.map((c) => { if (!picked.has(c.id)) return c; const next = apply(runsOf(c), 0, c.text.length); return { ...c, runs: styled(next) ? next : undefined }; }) }, true);
   }
   // Applies a style change to the caption being typed, or to every picked caption.
   function restyle(change: (c: Partial<Caption>) => Partial<Caption>) {
@@ -1289,10 +1369,12 @@ export default function Editor() {
     // Typing, or the Text tool in hand: the panel is a text editor for that text (or the next text).
     if (writing) {
       const st = { ...(writing.id !== undefined ? doc.captions?.find((c) => c.id === writing.id) : undefined), ...writing.style };
-      return { kind: "caption", mode: "typing", convertible: false, colour: st.colour ?? style.colour, count: 1, bold: !!st.bold, italic: !!st.italic, underline: !!st.underline, size: st.size ?? style.captionSize, align: st.align ?? "centre", attached: false, attachable: false };
+      const range = richApi.current?.range() ?? [writing.value.length, writing.value.length], at = writing.pending ?? common(writing.runs ?? [{ text: writing.value }], range[0], range[1]);
+      return { kind: "caption", mode: "typing", convertible: false, colour: at.colour ?? st.colour ?? style.colour, count: 1, bold: !!(at.bold ?? st.bold), italic: !!(at.italic ?? st.italic), underline: !!(at.underline ?? st.underline),
+        size: at.size ?? st.size ?? style.captionSize, align: st.align ?? "centre", attached: false, attachable: false, script: at.script, font: at.font ?? st.font ?? style.captionFont, fonts: FONTS };
     }
     if (tool === "text" && !selection.size && !picked.size)
-      return { kind: "caption", mode: "next", convertible: false, colour: textStyle.colour ?? style.colour, count: 1, bold: !!textStyle.bold, italic: !!textStyle.italic, underline: !!textStyle.underline, size: textStyle.size ?? style.captionSize, align: textStyle.align ?? "left", attached: false, attachable: false };
+      return { kind: "caption", mode: "next", convertible: false, colour: textStyle.colour ?? style.colour, count: 1, bold: !!textStyle.bold, italic: !!textStyle.italic, underline: !!textStyle.underline, size: textStyle.size ?? style.captionSize, align: textStyle.align ?? "left", attached: false, attachable: false, font: textStyle.font ?? style.captionFont, fonts: FONTS };
     // A whole reaction picked (as a double-click on its arrow picks it).
     const reaction = reactionPicked();
     if (reaction) return { kind: "reaction", steps: reaction.arrows.length, structures: reaction.steps.filter((x) => x.kind === "structure").length, clean: reactionClean(reaction, arrows), mapped: reaction.atoms.some((i) => doc.atoms[i]?.map) };
@@ -1359,7 +1441,7 @@ export default function Editor() {
   const MENU_KEYS: Record<string, string> = {
     invert_selection: `⇧${MOD}I`, clean_reaction: `⇧${MOD}X`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}/`, copy_smiles: `⌥${MOD}C`, delete: "⌫",
     structure_to_name: `⌥${MOD}N`, "shape.front": `${MOD}[`, "shape.back": `${MOD}]`,
-    settings: `${MOD},`, name_to_structure: `⇧${MOD}N`, "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.edit": keyLabel("enter"),
+    settings: `${MOD},`, name_to_structure: `⇧${MOD}N`, "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.sub": `${MOD}−`, "caption.super": `${MOD}+`, "caption.plain": `${MOD}T`, "caption.formula": `${MOD}F`, "caption.edit": keyLabel("enter"),
   };
   const hint = (command: string) => {
     if (MENU_KEYS[command]) return MENU_KEYS[command];
@@ -1583,10 +1665,21 @@ export default function Editor() {
       return openWriting({ value: "", under, style: { ...textStyle } });
     }
     if (command.startsWith("caption.")) {
-      const [, what, arg] = command.split(".");
+      const [, what, ...rest] = command.split("."), arg = rest.join(".");
+      // Text styles: on the characters selected while typing (or the next ones typed), else on whole captions.
+      const toggle = (key: "bold" | "italic" | "underline") => (s: RunStyle, all: RunStyle): RunStyle => ({ ...s, [key]: all[key] ? undefined : true });
+      const script = (to: "sub" | "super") => (s: RunStyle, all: RunStyle): RunStyle => ({ ...s, script: all.script === to ? undefined : to });
+      const patches: Record<string, ((s: RunStyle, all: RunStyle) => RunStyle) | undefined> = {
+        bold: toggle("bold"), italic: toggle("italic"), underline: toggle("underline"), sub: script("sub"), super: script("super"),
+        plain: (s) => ({ ...s, bold: undefined, italic: undefined, underline: undefined, script: undefined }),
+        font: (s) => ({ ...s, font: arg === style.captionFont ? undefined : arg }),
+      };
+      if (what === "formula") return formulaText();
+      if (patches[what] && (writing || what === "sub" || what === "super" || what === "plain" || what === "font")) return styleText(patches[what]!, what);
       if (what === "bold") return restyle((c) => ({ bold: !c.bold }));
       if (what === "italic") return restyle((c) => ({ italic: !c.italic }));
       if (what === "underline") return restyle((c) => ({ underline: !c.underline }));
+      if (what === "size" && writing && richApi.current?.range()?.[0] !== richApi.current?.range()?.[1]) return styleText((s) => ({ ...s, size: Number(arg) }), what);
       if (what === "size") return restyle(() => ({ size: Number(arg) === style.captionSize ? undefined : Number(arg) }));
       if (what === "align") return restyle(() => ({ align: arg as Caption["align"] }));
       if (what === "colour") return restyle(() => ({ colour: arg.toLowerCase() === style.colour.toLowerCase() ? undefined : arg }));
@@ -2131,8 +2224,8 @@ export default function Editor() {
             </text>
           ))}
           {placed.map((c) => c.id === (writing?.id ?? DRAFT) || c.id === DRAFT ? null : (
-            <text key={`c${c.id}`} className="caption" textAnchor={c.anchor} textDecoration={c.underline ? "underline" : undefined} fill={textInk(c.colour ?? style.colour)} style={{ font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${c.size}px ${fontStack(style.captionFont)}` }}>
-              {c.lines.map((l, j) => <tspan key={j} x={l.x} y={l.y}>{reagents.has(c.id) ? formula(l.text, c.size) : l.text}</tspan>)}
+            <text key={`c${c.id}`} className="caption" textAnchor={c.anchor} textDecoration={c.underline ? "underline" : undefined} fill={textInk(c.colour ?? style.colour)} style={{ font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${c.size}px ${fontStack(c.font ?? style.captionFont)}` }}>
+              {c.lines.map((l, j) => <tspan key={j} x={l.x} y={l.y}>{l.runs ? richSpans(l.runs, c.size, pt) : reagents.has(c.id) ? formula(l.text, c.size) : l.text}</tspan>)}
             </text>
           ))}
           {(pen || drag?.kind === "pen") && (() => {
@@ -2269,29 +2362,37 @@ export default function Editor() {
         if (!c) return null;
         const z = view.zoom, size = c.size * z, slack = 0.5 * size;
         return (
-          <textarea
-            className="caption-box"
-            data-theme="light"
-            aria-label="Caption"
-            autoFocus
-            spellCheck={false}
-            wrap="off"
-            value={writing.value}
+          <RichBox
+            runs={writing.runs ?? [{ text: writing.value }]}
+            version={writing.version ?? 0}
+            caret={writing.caret}
+            pending={writing.pending}
+            api={richApi}
+            look={(r) => ({
+              fontWeight: r.bold ? "bold" : "", fontStyle: r.italic ? "italic" : "", textDecoration: r.underline ? "underline" : "",
+              fontFamily: r.font ? fontStack(r.font) : "", color: r.colour ?? "", verticalAlign: r.script === "sub" ? "sub" : r.script === "super" ? "super" : "",
+              fontSize: r.size ? `${r.size * pt * z * (r.script ? 0.75 : 1)}px` : r.script ? "75%" : "",
+            })}
             style={{
               left: view.x + c.box[0] * z - slack,
               top: view.y + (c.lines[0].y - 0.9465 * c.size) * z,
               width: (c.box[2] - c.box[0]) * z + 2 * slack,
               height: c.lines.length * 1.2 * size,
-              font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${size}px/1.2 ${fontStack(style.captionFont)}`,
+              font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${size}px/1.2 ${fontStack(c.font ?? style.captionFont)}`,
               color: c.colour ?? style.colour,
               padding: `0 ${slack}px`,
               textDecoration: c.underline ? "underline" : undefined,
               textAlign: c.anchor === "start" ? "left" : c.anchor === "end" ? "right" : "center",
             }}
-            onChange={(e) => setWriting({ ...writing, value: e.target.value })}
+            onRuns={(runs, rebuild) => setWriting((w) => w && { ...w, runs, value: plainOf(runs), ...(rebuild ? { version: (w.version ?? 0) + 1, caret: rebuild, pending: undefined } : {}) })}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); commitWriting(); }
               if (e.key === "Escape") { e.preventDefault(); commitWriting(); } // Escape keeps the text, as a click elsewhere does
+              // ChemDraw's text keys, in the browser (the desktop app's Text menu has them too).
+              if (!TAURI && (e.metaKey || e.ctrlKey)) {
+                const k = e.key.toLowerCase(), command = { b: "caption.bold", i: "caption.italic", u: "caption.underline", t: "caption.plain", f: "caption.formula", "-": "caption.sub", "=": "caption.super", "+": "caption.super" }[k];
+                if (command) { e.preventDefault(); runAction(command); }
+              }
             }}
             onBlur={() => commitWriting()}
           />
