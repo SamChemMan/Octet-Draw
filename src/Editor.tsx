@@ -8,7 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { analyse, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
-import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, type DocStyle, type PageName } from "./docstyle";
+import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, type DocStyle, type PageName } from "./docstyle";
 import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
 import {
@@ -126,6 +126,13 @@ function rub(m: Mol, a: P, b: P, r: number, bonds: Set<number>, atoms: Set<numbe
     m.bonds.forEach((_, i) => { if (!bonds.has(i) && bondAt({ ...m, bonds: [m.bonds[i]] }, p, r) === 0) bonds.add(i); });
     m.atoms.forEach((_, i) => { if (!atoms.has(i) && !neighbours(m, i).length && Math.hypot(pos(m, i)[0] - p[0], pos(m, i)[1] - p[1]) < r + 0.1) atoms.add(i); });
   }
+}
+
+// Groups ink by colour: one list of polygons per colour, in first-seen order (undefined is the document's ink).
+function byColour(items: readonly (readonly [string | undefined, P[][]])[]): [string | undefined, P[][]][] {
+  const groups = new Map<string | undefined, P[][]>();
+  for (const [colour, polys] of items) { const key = colour?.toLowerCase(); groups.set(key, [...(groups.get(key) ?? []), ...polys]); }
+  return [...groups];
 }
 
 // A pen point: a corner, or (dragged out) a smooth point with its incoming handle mirroring its outgoing one.
@@ -248,6 +255,7 @@ export default function Editor() {
   const [cell, setCell] = useState<{ id: number; r: number; c: number; value: string }>();
   const cellOpen = useRef(false);
   const cellInput = useRef<HTMLInputElement>(null);
+  const otherColour = useRef<HTMLInputElement>(null); // the system colour picker, for Colour > Other Colour…
   useEffect(() => { cellInput.current?.select(); }, [cell?.id, cell?.r, cell?.c]);
   useEffect(() => { selectCursor.then(setCursor); }, []);
   const [turnCursor, setTurnCursor] = useState<string>();
@@ -375,8 +383,9 @@ export default function Editor() {
     redo: () => (typing() ? void document.execCommand("redo") : undo(true)),
     select_all: () => {
       if (typing()) return (document.activeElement as HTMLInputElement).select();
+      // Everything, as ChemDraw's Select All: structures, text, arrows, orbitals, shapes, brackets and cycles.
       setSelection(new Set(doc.atoms.map((_, i) => i)));
-      setPicked(new Set((doc.captions ?? []).map((c) => c.id)));
+      setPicked(new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id)));
     },
     snap: () => setSettings((s) => ({ ...s, snap: !s.snap })),
     // Structure commands act on the selection, or on the whole drawing when nothing is selected.
@@ -418,6 +427,9 @@ export default function Editor() {
     align_left: () => restyle(() => ({ align: "left" })),
     align_centre: () => restyle(() => ({ align: "centre" })),
     align_right: () => restyle(() => ({ align: "right" })),
+    // The Colour menu: each colour in COLOURS by its place, and Other Colour… for the system picker.
+    ...Object.fromEntries(COLOURS.map(([, hex], k) => [`colour_${k}`, () => runAction(`colour.${hex}`)])),
+    colour_other: () => otherColour.current?.click(),
     ...Object.fromEntries([8, 9, 10, 12, 14, 18, 24].map((pt) => [`size_${pt}`, () => restyle(() => ({ size: pt === style.captionSize ? undefined : pt }))])),
     zoom_fit: () => {
       const b = bounds(doc);
@@ -566,7 +578,9 @@ export default function Editor() {
   const ghost = useMemo(() => named && render(moveAtoms(named, new Set(named.atoms.map((_, i) => i)), landing(named)), frame, measure, L), [named, doc, frame, measure, placed, arrows]); // eslint-disable-line react-hooks/exhaustive-deps
   // Reaction conditions and a cycle's reagents print formulas with subscripts (K2CO3 as K₂CO₃).
   const reagents = useMemo(() => new Set((shown.captions ?? []).filter((c) => c.on || c.cycle).map((c) => c.id)), [shown]);
-  const arrowInk = useMemo(() => [...arrows, ...cycleArrows].flatMap((a) => arrowShapes(a, frame, L)), [arrows, cycleArrows, frame]);
+  // Arrow ink, one path per colour (unset is the document's ink).
+  const arrowInk = useMemo(() => byColour([...arrows, ...cycleArrows].map((a) => [a.colour, arrowShapes(a, frame, L)] as const)), [arrows, cycleArrows, frame]);
+  const structureInk = useMemo(() => byColour(drawing.polygons.map((poly, i) => [drawing.colours[i], [poly]] as const)), [drawing]);
   // Mass fragmentation: the bonds each cut line crosses, and the pieces they leave, labelled at the line's ends
   // on each piece's side with its formula and exact mass.
   const cutLabels = useMemo(() => {
@@ -823,6 +837,7 @@ export default function Editor() {
   }
 
   const stopHold = () => { clearTimeout(hold.current); hold.current = undefined; };
+  const holdFrom = useRef<[number, number]>(undefined); // where the press that may become a hold went down
 
   // Select tool press: on something selected, move the selection; on something else, select it and move it;
   // on empty canvas, start a selection box. Shift adds to the selection.
@@ -925,31 +940,41 @@ export default function Editor() {
     // The Pen: each press places a point (drag for a smooth one); pressing the first point again closes the curve.
     if (tool === "shape" && "pen" in shapePick) {
       if (pen && pen.length >= 2 && Math.hypot(p[0] - pen[0].at[0], p[1] - pen[0].at[1]) * L * view.zoom < 8) return finishPen(true);
-      return setDrag({ kind: "pen", at: p, start: screen });
+      setDrag({ kind: "pen", at: p, start: screen });
+      return startHold(p, t, screen);
     }
     // With something selected, a press on it (or inside it) grabs it, whatever tool is in hand. So does a press
     // on a caption, except with the Text tool, which edits it.
     if (tool !== "erase" && selection.size && onSelection(doc, selection, p)) return startMove(p, screen, t);
     if (tool !== "erase" && tool !== "text" && t.cycle !== undefined) return pressCycle(p, t, screen);
     if (tool !== "erase" && tool !== "text" && (t.caption !== undefined || t.arrow !== undefined)) return pressCaption(p, t, e.shiftKey, screen);
+    if (tool === "tlc" && plateAt(p)) return spotAt(plateAt(p)!, p);
+    if (tool === "table" && tableAt(p)) return openCell(tableAt(p)!, p);
+    pressTool(p, t, screen);
+    startHold(p, t, screen);
+  }
+  // What a press does with each drawing tool in hand: starts its drag (a click when the pointer never moves).
+  function pressTool(p: P, t: Hover, screen: [number, number]) {
     if (tool === "arrow") return setDrag({ kind: "arrow", from: curved({ kind: arrowKind }) ? electronAt(p, t) : p, start: screen, target: t });
     if (tool === "shape" && "line" in shapePick) {
       const make: Make = { kind: shapePick.line, ...(shapePick.sweep ? { bend: sweepBend(shapePick.sweep) } : {}), ...(shapePick.style ? { style: shapePick.style } : {}) };
       return setDrag({ kind: "arrow", from: p, start: screen, target: t, make });
     }
-    if (tool === "tlc" && plateAt(p)) return spotAt(plateAt(p)!, p);
-    if (tool === "table" && tableAt(p)) return openCell(tableAt(p)!, p);
     if (tool === "shape" || tool === "bracket" || tool === "tlc" || tool === "table") return setDrag({ kind: "shape", from: p, start: screen, target: t });
-    // An orbital grows from the atom pressed (or the point) towards the pointer.
-    if (tool === "map") return t.atom !== undefined ? setDrag({ kind: "map", atom: t.atom, start: screen }) : undefined;
+    if (tool === "map" && t.atom !== undefined) return setDrag({ kind: "map", atom: t.atom, start: screen });
     if (tool === "fragment") return setDrag({ kind: "arrow", from: p, start: screen, target: t, make: { kind: "cut" } });
+    // An orbital grows from the atom pressed (or the point) towards the pointer.
     if (tool === "orbital") return setDrag({ kind: "arrow", from: t.atom !== undefined ? pos(doc, t.atom) : p, start: screen, target: t, make: { kind: "orbital", orbital: orbitalSpec(orbitalChoice)! } });
     if (tool === "erase") return setDrag({ kind: "erase", trail: [p], bonds: new Set(), atoms: new Set(), captions: new Set(), start: screen, target: t, moved: false });
-    if (tool === "bond") setDrag({ kind: "bond", from: t.atom ?? p, at: p, start: screen, target: t });
-    else if (tool === "chain") setDrag({ kind: "chain", from: t.atom ?? p, start: screen, target: t });
-    else setDrag({ kind: "click", at: p, start: screen, target: t });
-    // Hold still for HOLD_MS: Select takes over until release. On the selection it moves it; elsewhere it draws a box.
+    if (tool === "bond") return setDrag({ kind: "bond", from: t.atom ?? p, at: p, start: screen, target: t });
+    if (tool === "chain") return setDrag({ kind: "chain", from: t.atom ?? p, start: screen, target: t });
+    setDrag({ kind: "click", at: p, start: screen, target: t });
+  }
+  // Every drawing tool: hold still for HOLD_MS and Select takes over until release. On the selection it moves it;
+  // elsewhere it draws a box. Moving 4 px first keeps the tool (see onPointerMove).
+  function startHold(p: P, t: Hover, screen: [number, number]) {
     stopHold();
+    holdFrom.current = screen;
     hold.current = window.setTimeout(() => {
       hold.current = undefined;
       setSpring(tool);
@@ -965,6 +990,7 @@ export default function Editor() {
   function onPointerMove(e: React.PointerEvent<SVGSVGElement>) {
     const p = toDoc(e.clientX, e.clientY);
     pointer.current = p;
+    if (hold.current && holdFrom.current && Math.hypot(e.clientX - holdFrom.current[0], e.clientY - holdFrom.current[1]) >= 4) stopHold();
     if (tool === "erase") setBrush(p);
     if (pen && !drag) setPenAt(p);
     if (!drag) {
@@ -1207,6 +1233,13 @@ export default function Editor() {
     if (m !== doc) set(m, true);
   }
   const nameable = loaded && doc.atoms.length > 0;
+  // The colour the Actions panel shows as chosen: the first selected thing's, for every kind of selection.
+  const selectionColour = (): { value: string; tints?: boolean } | undefined => {
+    if (context.kind === "caption" || context.kind === "shape") return { value: context.colour, tints: context.kind === "shape" && context.shape === "highlight" };
+    if (context.kind === "empty" || context.kind === "drawing") return undefined;
+    const first = [...selection][0], thing = [...(doc.arrows ?? []), ...(doc.cycles ?? []), ...(doc.shapes ?? [])].find((x) => picked.has(x.id));
+    return { value: (first !== undefined ? doc.atoms[first]?.colour : thing?.colour) ?? "#000000" };
+  };
   // What the Actions panel shows: it follows the selection.
   const context: Context = (() => {
     // Typing, or the Text tool in hand: the panel is a text editor for that text (or the next text).
@@ -1368,6 +1401,21 @@ export default function Editor() {
   function runAction(command: string) {
     const ids = [...selection];
     if (commands.current[command]) return commands.current[command]();
+    // Colour, for everything selected, as ChemDraw's Color menu: atoms (their labels and marks), the bonds between
+    // them, and every picked arrow, orbital, line, shape, cycle and caption. Black is the document's ink.
+    if (command.startsWith("colour.")) {
+      const hex = command.slice(7), ink = hex.toLowerCase() === "#000000" ? undefined : hex;
+      if (context.kind === "caption") return runAction(`caption.colour.${hex}`);
+      if (context.kind === "shape") return runAction(`shape.colour.${hex}`);
+      const pick = <T extends { id: number; colour?: string }>(x: T): T => (picked.has(x.id) ? { ...x, colour: ink } : x);
+      return set({
+        ...doc,
+        atoms: context.kind === "bond" ? doc.atoms : doc.atoms.map((a, i) => (selection.has(i) ? { ...a, colour: ink } : a)), // a bond alone keeps its atoms' colours
+        bonds: doc.bonds.map((b) => (selection.has(b.atoms[0]) && selection.has(b.atoms[1]) ? { ...b, colour: ink } : b)),
+        arrows: doc.arrows?.map(pick), shapes: doc.shapes?.map(pick), cycles: doc.cycles?.map(pick),
+        captions: doc.captions?.map((c) => (picked.has(c.id) ? { ...c, colour: hex.toLowerCase() === style.colour.toLowerCase() ? undefined : hex } : c)),
+      }, true);
+    }
     if (command === "copy_smiles") return void document.execCommand("copy");
     if (command === "paste_hint") return setNotice(`Copy a SMILES string or MOL file, then press ${MOD}V here.`);
     if (command.startsWith("copy_text:")) { copyText.current = command.slice(10); document.execCommand("copy"); return; }
@@ -1898,9 +1946,16 @@ export default function Editor() {
                     <stop offset="1" style={{ stopColor: "var(--ink)" }} stopOpacity={0.55} />
                   </radialGradient>
                 </defs>
+                {orbitals.filter((a) => a.colour && a.orbital!.phase === "shaded").map((a) => (
+                  <radialGradient key={`g${a.id}`} id={`lobe${a.id}`} cx="0.36" cy="0.32" r="0.75">
+                    <stop offset="0" stopColor="#FFFFFF" />
+                    <stop offset="1" stopColor={textInk(a.colour!)} stopOpacity={0.55} />
+                  </radialGradient>
+                ))}
                 {orbitals.flatMap((a) => orbitalPaths(a, L).map((l, i) => {
-                  const ph = a.orbital!.phase, fill = ph === "filled" || (ph === "phased" && !l.second) ? "var(--ink)" : ph === "shaded" ? "url(#lobe)" : "var(--canvas)";
-                  return <path key={`${a.id}-${i}`} d={toPath([l.path])} fill={fill} fillRule="evenodd" stroke="var(--ink)" strokeWidth={frame.line} />;
+                  const ink = a.colour ? textInk(a.colour) : "var(--ink)", ph = a.orbital!.phase;
+                  const fill = ph === "filled" || (ph === "phased" && !l.second) ? ink : ph === "shaded" ? `url(#lobe${a.colour ? a.id : ""})` : "var(--canvas)";
+                  return <path key={`${a.id}-${i}`} d={toPath([l.path])} fill={fill} fillRule="evenodd" stroke={ink} strokeWidth={frame.line} />;
                 }))}
               </g>
             );
@@ -1921,8 +1976,8 @@ export default function Editor() {
               {drawing.beads.map((b, i) => <circle key={`bd${i}`} cx={b.at[0]} cy={b.at[1]} r={b.r} fill="url(#bead)" />)}
             </>
           )}
-          <path d={toPath(drawing.polygons)} fill="var(--ink)" />
-          <path d={toPath(arrowInk)} fill="var(--ink)" />
+          {structureInk.map(([colour, polys]) => <path key={`s${colour}`} d={toPath(polys)} fill={colour ? textInk(colour) : "var(--ink)"} />)}
+          {arrowInk.map(([colour, polys]) => <path key={`a${colour}`} d={toPath(polys)} fill={colour ? textInk(colour) : "var(--ink)"} />)}
           {cutLabels.map((c) => (
             <text key={c.key} x={c.at[0] * L} y={-c.at[1] * L} textAnchor={c.anchor} fill="var(--ink)" style={{ font: `${style.captionSize * pt * 0.9}px ${fontStack(style.captionFont)}` }}>
               {c.formula.split(/(\d+)/).map((part, i) => (/^\d+$/.test(part) ? <tspan key={i} baselineShift="sub" fontSize="75%">{part}</tspan> : <tspan key={i}>{part}</tspan>))}
@@ -1989,7 +2044,7 @@ export default function Editor() {
             <text key={`map${i}`} className="atom-map" textAnchor="middle" x={(pos(shown, i)[0] + 0.42 * markDirection(shown, i)[0]) * L} y={-(pos(shown, i)[1] + 0.42 * markDirection(shown, i)[1]) * L + 0.22 * frame.size} style={{ fontSize: frame.size * 0.62 }}>{a.map}</text>
           ) : null)}
           {drawing.labels.map((l, i) => (
-            <text key={i} x={l.x} y={l.y} fill="var(--ink)" style={{ font: `${l.size}px ${fontStack(style.labelFont)}` }}>
+            <text key={i} x={l.x} y={l.y} fill={l.colour ? textInk(l.colour) : "var(--ink)"} style={{ font: `${l.size}px ${fontStack(style.labelFont)}` }}>
               {l.text}
             </text>
           ))}
@@ -2293,8 +2348,10 @@ export default function Editor() {
         onOpen={(open) => setSettings((s) => ({ ...s, actions: open }))}
         layout={settings.actionLayout}
         onLayout={(kind, layout) => setSettings((s) => ({ ...s, actionLayout: { ...s.actionLayout, [kind]: layout } }))}
+        colour={selectionColour()}
         run={runAction}
       />
+      <input ref={otherColour} type="color" className="picker-input" aria-label="Other colour" tabIndex={-1} onChange={(e) => runAction(`colour.${e.target.value}`)} />
       {commandsOpen && <CommandPalette commands={paletteCommands()} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}
       {notice && (
         <p className="notice text-ui" role="status">

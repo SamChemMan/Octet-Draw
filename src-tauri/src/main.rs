@@ -174,6 +174,18 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
         &sep()?,
         &size,
     ])?;
+    // Colour, as ChemDraw's Color menu: it colours whatever is selected. The colours are docstyle.ts's COLOURS.
+    let colour = Submenu::with_items(app, "Colour", true, &[
+        &MenuItem::with_id(app, "colour_0", "Black", true, None::<&str>)?,
+        &MenuItem::with_id(app, "colour_1", "Ink", true, None::<&str>)?,
+        &MenuItem::with_id(app, "colour_2", "Octet Blue", true, None::<&str>)?,
+        &MenuItem::with_id(app, "colour_3", "Bright Blue", true, None::<&str>)?,
+        &MenuItem::with_id(app, "colour_4", "Green", true, None::<&str>)?,
+        &MenuItem::with_id(app, "colour_5", "Amber", true, None::<&str>)?,
+        &MenuItem::with_id(app, "colour_6", "Red", true, None::<&str>)?,
+        &sep()?,
+        &MenuItem::with_id(app, "colour_other", "Other Colour…", true, None::<&str>)?,
+    ])?;
     let window = Submenu::with_items(app, "Window", true, &[
         &PredefinedMenuItem::minimize(app, None)?,
         &PredefinedMenuItem::fullscreen(app, None)?,
@@ -195,7 +207,7 @@ fn menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> 
     let mut items: Vec<&dyn IsMenuItem<Wry>> = Vec::new();
     #[cfg(target_os = "macos")]
     items.push(&octet);
-    items.extend([&file as &dyn IsMenuItem<Wry>, &edit, &view, &object, &structure, &text, &window]);
+    items.extend([&file as &dyn IsMenuItem<Wry>, &edit, &view, &object, &structure, &text, &colour, &window]);
     Ok((Menu::with_items(app, &items)?, vec![snap]))
 }
 

@@ -21,11 +21,12 @@ export type Atom = {
   radical?: number; pairs?: number; circled?: boolean; partial?: "+" | "-"; hmark?: "dot" | "dash"; attach?: boolean; bead?: boolean;
   map?: number; // a reaction atom map number: the same atom before and after
   enhanced?: string; // enhanced stereo: the stereocentre's group, "abs", "&1" (and) or "or1" (or)
+  colour?: string; // #rrggbb for the atom's label and marks; unset draws in the document's ink
 };
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow";
 // position: where a double bond's second line goes, looking from atoms[0] to atoms[1]; unset means automatic.
-export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right" };
+export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string };
 // A caption: free text at x, y (bond lengths, y up; the text's anchor point by its alignment), or, with under
 // set, kept centred under those atoms by the ACS rule (baseline 15 pt below the structure's ink box).
 // Captions under the same structure stack one line apart, in id order.
@@ -49,7 +50,7 @@ export type OrbitalShape = "s" | "oval" | "lobe" | "hybrid" | "p" | "d" | "dz2";
 export type Phase = "plain" | "shaded" | "filled" | "phased";
 export const ORBITAL_SHAPES: OrbitalShape[] = ["s", "oval", "lobe", "hybrid", "p", "d", "dz2"];
 export const PHASES: Phase[] = ["plain", "shaded", "filled", "phased"];
-export type Arrow = { id: number; kind: ArrowKind; from: [number, number]; to: [number, number]; bend?: number; style?: LineStyle; orbital?: { shape: OrbitalShape; phase: Phase } };
+export type Arrow = { id: number; kind: ArrowKind; from: [number, number]; to: [number, number]; bend?: number; style?: LineStyle; orbital?: { shape: OrbitalShape; phase: Phase }; colour?: string };
 // Every kind a drawing's arrow list may hold.
 export const ALL_ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "curved", "fishhook", "double", "line", "arc", "orbital", "cut"];
 export const isOrbital = (a: Pick<Arrow, "kind">) => a.kind === "orbital";
@@ -90,14 +91,14 @@ export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?:
 export type Style = { bond: number; line: number; bold: number; spacing: number; hash: number; margin: number; size: number };
 // width: advance; ascent: ink top above the baseline; outline: glyph edge points relative to the text origin (y down).
 export type Ink = { width: number; ascent: number; outline: P[] };
-export type Label = { text: string; x: number; y: number; size: number };
+export type Label = { text: string; x: number; y: number; size: number; colour?: string };
 export type Box = [number, number, number, number];
 // ink: each atom's ink box (its label and the bonds that touch it), for placing captions. label: the ink box of an
 // atom's label alone (NH2, OMe), for highlighting it; undefined for an unlabelled atom. scale: px per bond length.
 // electrons: where each lone pair and radical dot is drawn (px), for curly arrows to start from. beads: polymer beads,
 // drawn shaded by the caller.
 export type Drawing = {
-  polygons: P[][]; labels: Label[]; box: Box; ink: Box[]; label: (Box | undefined)[]; scale: number;
+  polygons: P[][]; colours: (string | undefined)[]; labels: Label[]; box: Box; ink: Box[]; label: (Box | undefined)[]; scale: number;
   electrons: { atom: number; at: P }[]; beads: { at: P; r: number }[];
 };
 
@@ -202,14 +203,14 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
         const gap = (c: P) => Math.min(...dirs.map((b) => angle(b, c)));
         const d = ([[1, -1], [-1, -1], [1, 1], [-1, 1], [0, -1], [1, 0], [0, 1], [-1, 0]] as P[]).map(unit).reduce((best, c) => (gap(c) > gap(best) + 0.01 ? c : best));
         const c = add(pts[i], mul(d, 0.6 * s.size));
-        labels.push({ text: t, x: c[0] - (m.width * SUB) / 2, y: c[1] + (m.ascent * SUB) / 2, size: s.size * SUB });
+        labels.push({ text: t, x: c[0] - (m.width * SUB) / 2, y: c[1] + (m.ascent * SUB) / 2, size: s.size * SUB, colour: a.colour });
         marks[i] = m.outline.map(([px, py]) => [c[0] - (m.width * SUB) / 2 + px * SUB, c[1] + (m.ascent * SUB) / 2 + py * SUB]);
       }
       return [];
     }
     const shape: P[] = [];
     const run = (text: string, x: number, y: number, f = 1) => {
-      labels.push({ text, x, y, size: s.size * f });
+      labels.push({ text, x, y, size: s.size * f, colour: a.colour });
       for (const [px, py] of measure(text).outline) shape.push([x + px * f, y + py * f]);
     };
     const [x, y] = pts[i];
@@ -313,7 +314,7 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
       }
       if (ink) {
         const x = c[0] - (ink.width * SUB) / 2, y = c[1] + (ink.ascent * SUB) / 2;
-        labels.push({ text, x, y, size: z * SUB });
+        labels.push({ text, x, y, size: z * SUB, colour: a.colour });
         for (const [px, py] of ink.outline) marks[i].push([x + px * SUB, y + py * SUB]);
       }
     });
@@ -539,20 +540,22 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
   // Each polygon belongs to the bond it draws, so to both of its atoms' ink boxes.
   const ink: Box[] = pts.map(([x, y]) => [x, y, x, y]);
   const grow = (i: number, [x, y]: P) => { const b = ink[i]; b[0] = Math.min(b[0], x); b[1] = Math.min(b[1], y); b[2] = Math.max(b[2], x); b[3] = Math.max(b[3], y); };
+  // Each polygon's colour: its bond's, or for a mark, its atom's.
+  const colours: (string | undefined)[] = [];
   plans.forEach((pl, i) => {
     const before = polygons.length;
     drawPlan(pl, i);
-    for (const poly of polygons.slice(before)) for (const q of poly) { grow(pl.a, q); grow(pl.b, q); }
+    for (const poly of polygons.slice(before)) { colours.push(mol.bonds[i].colour); for (const q of poly) { grow(pl.a, q); grow(pl.b, q); } }
   });
   shapes.forEach((shape, i) => shape.forEach((q) => grow(i, q)));
   marks.forEach((mark, i) => mark.forEach((q) => grow(i, q)));
-  symbols.forEach((polys, i) => polys.forEach((poly) => { polygons.push(poly); poly.forEach((q) => grow(i, q)); }));
+  symbols.forEach((polys, i) => polys.forEach((poly) => { polygons.push(poly); colours.push(mol.atoms[i].colour); poly.forEach((q) => grow(i, q)); }));
 
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
   for (const [x, y] of [...pts, ...polygons.flat(), ...shapes.flat()]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
   const pad = L / 2;
   const label = shapes.map((shape): Box | undefined => (shape.length ? [Math.min(...shape.map((q) => q[0])), Math.min(...shape.map((q) => q[1])), Math.max(...shape.map((q) => q[0])), Math.max(...shape.map((q) => q[1]))] : undefined));
-  return { polygons, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad], ink, label, scale: k, electrons, beads };
+  return { polygons, colours, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad], ink, label, scale: k, electrons, beads };
 }
 
 // Captions, placed in the drawing's px frame (y down). Sizes are in pt; 1 pt is 4/3 px.

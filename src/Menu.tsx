@@ -38,8 +38,11 @@ type Props = {
 };
 
 export function Menu(p: Props) {
-  const [live, setLive] = useState<number>(); // columns while the grip is dragged
-  const columns = live ?? p.columns, most = Math.max(...p.groups.map((g) => g.length), 1);
+  // While the grip is dragged the menu's width follows the pointer and its options reflow as whole columns fit;
+  // on release it eases to the nearest whole column.
+  const [live, setLive] = useState<number>(); // width (px) while the grip is dragged
+  const most = Math.max(...p.groups.map((g) => g.length), 1);
+  const columns = live === undefined ? p.columns : Math.max(1, Math.min(most, Math.floor((live - 2 * PAD - 2 + GAP) / (CELL + GAP))));
   // A menu that would run off the bottom of the window moves up until it fits (never above the top).
   const box = useRef<HTMLDivElement>(null), [shift, setShift] = useState(0);
   useLayoutEffect(() => {
@@ -49,8 +52,8 @@ export function Menu(p: Props) {
     if (Math.abs(next - shift) > 0.5) setShift(next);
   });
   return (
-    <div ref={box} className={["strip", p.className].filter(Boolean).join(" ")} data-tool={p.tool} role="menu" aria-label={p.label}
-      style={{ ...p.style, width: menuWidth(columns), marginTop: shift, "--columns": columns } as React.CSSProperties}>
+    <div ref={box} className={["strip", live !== undefined && "resizing", p.className].filter(Boolean).join(" ")} data-tool={p.tool} role="menu" aria-label={p.label}
+      style={{ ...p.style, width: live ?? menuWidth(columns), marginTop: shift, "--columns": columns } as React.CSSProperties}>
       <div className="menu-body">
       {p.groups.filter((g) => g.length).map((g, i) => (
         <div key={i} className="menu-group" role="group">
@@ -83,12 +86,12 @@ export function Menu(p: Props) {
             e.preventDefault();
             e.currentTarget.setPointerCapture(e.pointerId);
             const startX = e.clientX, start = menuWidth(p.columns);
-            let next = p.columns;
-            const move = (ev: PointerEvent) => { next = Math.min(most, columnsFor(start + ev.clientX - startX)); setLive(next); };
+            let width = start;
+            const move = (ev: PointerEvent) => { width = Math.max(menuWidth(1), Math.min(menuWidth(most), start + ev.clientX - startX)); setLive(width); };
             const up = () => {
               removeEventListener("pointermove", move);
               removeEventListener("pointerup", up);
-              p.onColumns!(next);
+              p.onColumns!(Math.min(most, columnsFor(width)));
               setLive(undefined);
             };
             addEventListener("pointermove", move);

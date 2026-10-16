@@ -311,6 +311,18 @@ rect.mark {
   }
 }
 
+/* Resizing: the width follows the grip, then eases to a whole column when it is let go. */
+.strip {
+  transition: width 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.strip.resizing {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .strip {
+    transition: none;
+  }
+}
 /* Its options scroll when the menu is taller than the window; its sub-menus sit outside the scrolling part. */
 .menu-body {
   display: flex;
@@ -2596,3 +2608,13 @@ button.variant.add {
 .pen-points rect, .pen-points circle { fill: var(--canvas); stroke: var(--brand-bright); stroke-width: 1.2px; vector-effect: non-scaling-stroke; }
 .pen-points circle { fill: var(--brand-bright); }
 .pen-points line { stroke: var(--brand-bright); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+/* The system colour picker that Colour > Other Colour… opens: present for the click, but not seen. */
+.picker-input {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}

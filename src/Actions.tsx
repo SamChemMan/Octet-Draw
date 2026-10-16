@@ -42,6 +42,7 @@ type Props = {
   // The user's arrangement for each kind of selection: the order of actions and how many show as rows.
   layout: Record<string, { order: string[]; rows: number }>;
   onLayout: (kind: string, layout: { order: string[]; rows: number }) => void;
+  colour?: { value: string; tints?: boolean }; // the selection's colour, shown in the one colour row every selection gets
 };
 
 const ELEMENTS = ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"];
@@ -224,7 +225,7 @@ function Row({ icon, name, command, hint, run, accent }: { icon: React.ReactNode
   );
 }
 
-export function Actions({ open, context, analysis, problems, messy, hint, onOpen, run, layout, onLayout }: Props) {
+export function Actions({ open, context, analysis, problems, messy, hint, onOpen, run, layout, onLayout, colour }: Props) {
   // An action being dragged to a new place: in the rows (index among rows) or the small buttons (index among them).
   const [carry, setCarry] = useState<{ command: string; x: number; y: number; to?: { rows: boolean; index: number } }>();
   const dragged = useRef(false);
@@ -486,30 +487,6 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
           </>
         );
       })()}
-      {context.kind === "shape" && (
-        // A highlight takes a pale fill; anything else an ink colour.
-        <div className="swatches small" role="radiogroup" aria-label="Colour">
-          {(context.shape === "highlight" ? TINTS : COLOURS).map(([name, hex]) => (
-            <button key={hex} role="radio" aria-checked={context.colour.toLowerCase() === hex.toLowerCase()} aria-label={name} title={name} className="swatch" style={{ background: hex }} onClick={() => run(`shape.colour.${hex}`)} />
-          ))}
-          <label className="swatch custom" title="Any colour">
-            <PlusIcon size={10} weight="bold" aria-hidden />
-            <input type="color" aria-label="Any colour" value={context.colour} onChange={(e) => run(`shape.colour.${e.target.value}`)} />
-          </label>
-        </div>
-      )}
-
-      {context.kind === "caption" && (
-        <div className="swatches small" role="radiogroup" aria-label="Text colour">
-          {COLOURS.map(([name, hex]) => (
-            <button key={hex} role="radio" aria-checked={context.colour.toLowerCase() === hex.toLowerCase()} aria-label={name} title={name} className="swatch" style={{ background: hex }} onClick={() => run(`caption.colour.${hex}`)} />
-          ))}
-          <label className="swatch custom" title="Any colour">
-            <PlusIcon size={10} weight="bold" aria-hidden />
-            <input type="color" aria-label="Any colour" value={context.colour} onChange={(e) => run(`caption.colour.${e.target.value}`)} />
-          </label>
-        </div>
-      )}
 
       {context.kind === "arrow" && isLine({ kind: context.arrow }) && (
         <div className="chips arrows" role="group" aria-label="Style">
@@ -561,6 +538,19 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
               {context.arrow === "arc" ? <ElementGlyph v={`arc-${sweep}`} /> : <ArrowGlyph kind={`${curved({ kind: context.arrow }) ? context.arrow : "curved"}-${sweep}`} />}
             </button>
           ))}
+        </div>
+      )}
+
+      {colour && (
+        // One colour row for every kind of selection. A highlight takes a pale fill; anything else an ink colour.
+        <div className="swatches small" role="radiogroup" aria-label="Colour">
+          {(colour.tints ? TINTS : COLOURS).map(([name, hex]) => (
+            <button key={hex} role="radio" aria-checked={colour.value.toLowerCase() === hex.toLowerCase()} aria-label={name} title={name} className="swatch" style={{ background: hex }} onClick={() => run(`colour.${hex}`)} />
+          ))}
+          <label className="swatch custom" title="Any colour">
+            <PlusIcon size={10} weight="bold" aria-hidden />
+            <input type="color" aria-label="Any colour" value={colour.value} onChange={(e) => run(`colour.${e.target.value}`)} />
+          </label>
         </div>
       )}
 

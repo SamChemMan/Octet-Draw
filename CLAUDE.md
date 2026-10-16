@@ -55,6 +55,16 @@ Colours, fonts, British English, STE and accessibility rules are in
 
 ## Product priorities
 
+Two pillars come before every feature:
+
+- **Consistency.** A behaviour that works in one place works in every place
+  it could apply. Every tool holds to Select, every object takes a colour,
+  ⌘A selects every kind of object, and every menu is the same component.
+  When you add or change a behaviour, apply it to every tool, object, menu
+  and panel it fits, and test each one.
+- **ChemDraw cross-check, above everything.** See the hard rule above. If
+  ChemDraw lets you do something to an object, Octet must too.
+
 The top priority is that Octet is a pleasure to use: super smooth and
 snappy with no lag, well designed and really well animated (within the
 motion rules in `brand/`), better looking than ChemDraw, with better

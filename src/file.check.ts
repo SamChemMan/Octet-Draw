@@ -60,7 +60,11 @@ console.log("file.check: bad files refused");
   assert.deepEqual(again.atoms.slice(0, 2).map(({ charge, circled, pairs, radical, partial }) => ({ charge, circled, pairs, radical, partial })),
     [{ charge: 1, circled: true, pairs: 1, radical: undefined, partial: undefined }, { charge: undefined, circled: undefined, pairs: undefined, radical: 1, partial: "-" }]);
   assert.equal(parse(serialize({ ...mol, atoms: mol.atoms.map((a, i) => (i === 1 ? { ...a, enhanced: "or1" } : a)) })).atoms[1].enhanced, "or1");
-  for (const bad of [{ radical: 3 }, { pairs: 9 }, { circled: "yes" }, { partial: "x" }, { enhanced: "rac" }])
+  // Colours on atoms, bonds and arrows survive a save; a bad colour is refused.
+  const coloured = parse(serialize({ ...mol, atoms: mol.atoms.map((a, i) => (i === 0 ? { ...a, colour: "#B42323" } : a)), bonds: mol.bonds.map((b, i) => (i === 0 ? { ...b, colour: "#1D49A7" } : b)),
+    arrows: [{ id: 50, kind: "orbital" as const, from: [0, 0] as [number, number], to: [0, 1] as [number, number], orbital: { shape: "p" as const, phase: "filled" as const }, colour: "#22775B" }] }));
+  assert.deepEqual([coloured.atoms[0].colour, coloured.bonds[0].colour, coloured.arrows?.[0].colour], ["#B42323", "#1D49A7", "#22775B"]);
+  for (const bad of [{ radical: 3 }, { pairs: 9 }, { circled: "yes" }, { partial: "x" }, { enhanced: "rac" }, { colour: "red" }])
     assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [{ label: "C", x: 0, y: 0, ...bad }], bonds: [] } })), /damaged/);
   console.log("file.check: atom marks ok");
 }
