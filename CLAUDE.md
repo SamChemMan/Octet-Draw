@@ -56,10 +56,12 @@ Final Cut Pro is the model for this.
 Sam's additions to the brief (14 October 2026), in no strict order:
 
 - Paste into Word, PowerPoint and Keynote. Version 1 mirrors ChemDraw's
-  clipboard: a vector PDF at true size with fonts embedded, then CDX, MOL
-  and SMILES. Later: hide the structure in the PDF so pictures copied back
-  out of Word stay editable (tested on Mac 14 October 2026: it survives
-  copy, save and reopen), and atom recolouring inside Office.
+  clipboard: a vector PDF at true size with fonts embedded and the
+  drawing's CDXML in the PDF's metadata stream, then CDX, MOL and SMILES.
+  ChemDraw already puts the CDXML in its PDF, and Word hands the PDF back
+  unchanged, so a picture copied back out of Word pastes as an editable
+  structure in Octet and in ChemDraw. Later: atom recolouring inside
+  Office.
 - Keyboard drawing as fast as ChemDraw's hotkeys.
 - Crash safety: autosave, recovery and atomic saves.
 
@@ -138,7 +140,9 @@ better, modern way to do it. This repository is public.
 - Decompile only for file and clipboard compatibility. For shortcuts,
   behaviour and algorithms, observe and test instead. Never touch licence
   or activation code.
-- Use only files Sam created as test files.
+- Use only files Sam created as test files. Some of Sam's corpus files
+  contain ChemDraw template clip art or third-party pictures: never commit
+  those. Keep corpus tests that need them local.
 
 ## Reverse-engineering tools (Sam's Mac only)
 
