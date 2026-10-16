@@ -167,6 +167,87 @@ circle.mark {
   }
 }
 
+.slot {
+  position: relative;
+}
+
+/* A small corner mark on tools that have more options. */
+.more {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-bottom: 4px solid currentColor;
+  opacity: 0.5;
+}
+.tool {
+  position: relative;
+}
+
+/* The variant strip opens beside its tool and grows out from it. */
+.strip {
+  position: absolute;
+  top: calc(-1 * var(--space-1) - 1px);
+  left: calc(100% + var(--space-3));
+  display: flex;
+  gap: 2px;
+  padding: var(--space-1);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  transform-origin: left center;
+  animation: strip-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@keyframes strip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateX(-4px);
+  }
+}
+
+.variant {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 64px;
+  padding: var(--space-1) 2px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-muted);
+}
+.variant-name {
+  font-size: 11px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+@media (hover: hover) and (pointer: fine) {
+  .variant:hover {
+    background: var(--surface-sunken);
+    color: var(--ink);
+  }
+}
+.variant[aria-checked="true"] {
+  background: var(--brand-mist);
+  color: var(--brand);
+}
+.variant:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* Live count of bonds while the Chain tool drags. */
+.count {
+  fill: var(--brand);
+  font-family: var(--font-sans);
+  font-weight: 600;
+}
+
 .palette hr {
   width: 100%;
   margin: var(--space-1) 0;
@@ -260,6 +341,9 @@ circle.mark {
   }
   .halo {
     animation: halo-fade 200ms ease-out;
+  }
+  .strip {
+    animation: fade-in 150ms ease-out;
   }
 }
 

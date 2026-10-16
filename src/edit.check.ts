@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, addRing, atomAt, atomsIn, bondTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset } from "./edit.ts";
+import { EMPTY, addChair, addGroup, addRing, atomsInPolygon, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset } from "./edit.ts";
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
 
@@ -83,3 +83,45 @@ assert.equal(joinedMol.atoms.length, 3);
 assert.equal(joinedMol.bonds.length, 2);
 assert.equal(fragments(joinedMol).length, 1);
 console.log("edit.check: smart selection and join ok");
+
+// Bond styles: a wedge drawn from atom 0 has its narrow end there; flipping swaps it. A chain counts its bonds.
+const wedge = sprout(EMPTY, [0, 0], { type: 1, stereo: 1 });
+assert.equal(wedge.bonds[0].stereo, 1);
+assert.deepEqual(flipBond(wedge, 0).bonds[0].atoms, [1, 0]);
+const styled = setBondSpec(wedge, 0, { type: 1, display: "wavy" });
+assert.equal(styled.bonds[0].display, "wavy");
+assert.equal(styled.bonds[0].stereo, undefined);
+const { mol: hexane, bonds: n } = chainTo(EMPTY, [0, 0], [5 * Math.cos(Math.PI / 6), 0]);
+assert.equal(n, 5);
+assert.equal(hexane.atoms.length, 6);
+for (const b of hexane.bonds) assert.ok(Math.abs(Math.hypot(pos(hexane, b.atoms[1])[0] - pos(hexane, b.atoms[0])[0], pos(hexane, b.atoms[1])[1] - pos(hexane, b.atoms[0])[1]) - 1) < 1e-9, "unit bonds");
+console.log("edit.check: bond styles and chain ok");
+
+// ChemDraw group keys: 3 on a chain end adds a phenyl; 2 on a CH2 in a chain makes it C=O; z then 1 runs straight.
+const propane = sprout(sprout(EMPTY, [0, 0]), 1);
+const phenyl = addGroup(propane, 2, "phenyl");
+assert.equal(phenyl.atoms.length, 3 + 6);
+assert.equal(phenyl.bonds.filter((b) => b.type === 2).length, 3);
+const ketone = addGroup(propane, 1, "acetyl");
+assert.equal(ketone.atoms.length, 4);
+assert.equal(ketone.atoms[3].label, "O");
+const yne = addGroup(addGroup(sprout(EMPTY, [0, 0]), 1, "alkyne"), 2, "chain");
+const [a0, a1, a2] = [pos(yne, 1), pos(yne, 2), pos(yne, 3)];
+assert.ok(Math.abs((a1[0] - a0[0]) * (a2[1] - a1[1]) - (a1[1] - a0[1]) * (a2[0] - a1[0])) < 1e-9, "alkyne carries straight on");
+// Option+arrows turn a selection about its centre.
+const turned = rotateAtoms(propane, new Set([0, 1, 2]), 180);
+assert.ok(Math.abs(pos(turned, 0)[0] - pos(propane, 2)[0]) < 1e-9);
+console.log("edit.check: group keys and rotation ok");
+
+// Chairs: six atoms, six bonds, drawn bonds about one bond long; fused onto a bond it shares two atoms.
+const chair = addChair(EMPTY, 1, { point: [0, 0] });
+assert.equal(chair.atoms.length, 6);
+assert.equal(chair.bonds.length, 6);
+const lengths = chair.bonds.map((b) => Math.hypot(pos(chair, b.atoms[1])[0] - pos(chair, b.atoms[0])[0], pos(chair, b.atoms[1])[1] - pos(chair, b.atoms[0])[1]));
+assert.ok(Math.abs(lengths.reduce((s, x) => s + x, 0) / 6 - 1) < 1e-9, "average bond length is 1");
+const fused = addChair(sprout(EMPTY, [0, 0]), 2, { bond: 0 });
+assert.equal(fused.atoms.length, 6);
+// Lasso: atoms inside the path are picked.
+assert.deepEqual(atomsInPolygon(chair, [[-5, -5], [5, -5], [5, 5], [-5, 5]]).length, 6);
+assert.deepEqual(atomsInPolygon(chair, [[10, 10], [11, 10], [11, 11]]), []);
+console.log("edit.check: chairs and lasso ok");

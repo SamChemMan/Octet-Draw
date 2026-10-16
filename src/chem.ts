@@ -78,7 +78,9 @@ export function parseStructure(text: string): Mol {
 export function toSmiles(mol: Mol): string {
   const ind = engine(), opts = new ind.MapStringString();
   try {
-    const ket = { root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule", atoms: mol.atoms, bonds: mol.bonds } };
+    // KET has no bond display styles (bold, wavy and so on); SMILES ignores them anyway.
+    const bonds = mol.bonds.map(({ type, atoms, stereo }) => (stereo ? { type, atoms, stereo } : { type, atoms }));
+    const ket = { root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule", atoms: mol.atoms, bonds } };
     return ind.convert(JSON.stringify(ket), "smiles", opts).trim();
   } finally {
     opts.delete();

@@ -12,7 +12,14 @@ assert.equal(press("Shift"), undefined);
 const map = keymap();
 // The same key means different things over an atom and over a bond.
 assert.equal(actionFor(map, "h", "atom"), "element.H");
-assert.equal(actionFor(map, "h", "bond"), "bond.hash");
+assert.equal(actionFor(map, "h", "bond"), "bond.hashwedge");
+// ChemDraw: b is bromine over an atom and bold over a bond; Shift+B is boron.
+assert.equal(actionFor(map, "b", "atom"), "element.Br");
+assert.equal(actionFor(map, "b", "bond"), "bond.bold");
+assert.equal(actionFor(map, "shift+b", "atom"), "element.B");
+assert.equal(actionFor(map, "space", "none"), "tool.select");
+assert.equal(press("ArrowUp", { altKey: true }), "alt+arrowup");
+assert.equal(press("ArrowUp", { shiftKey: true }), "shift+arrowup");
 // Keys that work anywhere still work over an atom when the atom has no use for them.
 assert.equal(actionFor(map, "]", "atom"), "eraser.bigger");
 assert.equal(actionFor(map, "n", "none"), undefined);
@@ -21,5 +28,6 @@ const mine = keymap({ "element.N": ["m"] });
 assert.equal(actionFor(mine, "m", "atom"), "element.N");
 assert.equal(actionFor(mine, "n", "atom"), undefined);
 assert.deepEqual(clashes(map, "element.N", "o"), ["element.O"]);
-assert.deepEqual(clashes(map, "element.N", "2"), []);
+assert.deepEqual(clashes(map, "element.N", "2"), ["group.acetyl"]);
+assert.deepEqual(clashes(map, "bond.double", "n"), []);
 console.log("keys.check: ok");

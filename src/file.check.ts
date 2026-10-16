@@ -1,10 +1,10 @@
 // Run: node src/file.check.ts. Fails loudly if the file format breaks or accepts a bad file.
 import assert from "node:assert/strict";
-import { addRing, EMPTY, setElement } from "./edit.ts";
+import { addRing, EMPTY, setBondSpec, setElement } from "./edit.ts";
 import { parse, serialize } from "./file.ts";
 
 // A drawing survives a save and reopen.
-const mol = setElement(addRing(EMPTY, 6, true, { point: [0, 0] }), 0, "N");
+const mol = setBondSpec(setElement(addRing(EMPTY, 6, true, { point: [0, 0] }), 0, "N"), 1, { type: 1, display: "wavy" });
 const back = parse(serialize(mol));
 assert.deepEqual(back.bonds, mol.bonds);
 assert.deepEqual(back.atoms.map((a) => a.label), mol.atoms.map((a) => a.label));

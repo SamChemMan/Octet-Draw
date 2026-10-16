@@ -1,61 +1,90 @@
 // Keyboard shortcuts. Each action works in one place: over an atom, over a bond, or anywhere else.
-// The same key can do different things in different places (N over an atom, 2 over a bond), as in ChemDraw.
-// The defaults follow ChemDraw's hotkeys; the user's changes sit on top and are kept in settings.
+// The same key can do different things in different places (n over an atom, 2 over a bond), as in ChemDraw.
+// The defaults are ChemDraw's documented hotkeys (ChemDraw 20 to 23); the user's changes sit on top.
 
 export type Place = "atom" | "bond" | "any";
-export type Group = "Atoms" | "Bonds" | "Tools" | "Edit";
+export type Group = "Atoms" | "Groups" | "Bonds" | "Tools" | "Selection" | "Edit";
 export type Action = { id: string; name: string; group: Group; place: Place };
 
 const element = (symbol: string, name: string): Action => ({ id: `element.${symbol}`, name: `Set atom to ${name}`, group: "Atoms", place: "atom" });
+const group = (id: string, name: string): Action => ({ id: `group.${id}`, name, group: "Groups", place: "atom" });
+const bond = (id: string, name: string): Action => ({ id: `bond.${id}`, name, group: "Bonds", place: "bond" });
+const any = (id: string, name: string, g: Group): Action => ({ id, name, group: g, place: "any" });
 
 export const ACTIONS: Action[] = [
-  element("C", "carbon"), element("N", "nitrogen"), element("O", "oxygen"), element("S", "sulfur"), element("P", "phosphorus"),
-  element("F", "fluorine"), element("Cl", "chlorine"), element("Br", "bromine"), element("I", "iodine"), element("H", "hydrogen"),
-  element("B", "boron"), element("Si", "silicon"),
+  element("C", "carbon"), element("H", "hydrogen"), element("N", "nitrogen"), element("O", "oxygen"), element("S", "sulfur"),
+  element("P", "phosphorus"), element("F", "fluorine"), element("Cl", "chlorine"), element("Br", "bromine"), element("I", "iodine"),
+  element("B", "boron"), element("Si", "silicon"), element("Li", "lithium"),
   { id: "charge.plus", name: "Add a positive charge", group: "Atoms", place: "atom" },
   { id: "charge.minus", name: "Add a negative charge", group: "Atoms", place: "atom" },
-  { id: "bond.single", name: "Make bond single", group: "Bonds", place: "bond" },
-  { id: "bond.double", name: "Make bond double", group: "Bonds", place: "bond" },
-  { id: "bond.triple", name: "Make bond triple", group: "Bonds", place: "bond" },
-  { id: "bond.wedge", name: "Make bond a wedge", group: "Bonds", place: "bond" },
-  { id: "bond.hash", name: "Make bond a hashed wedge", group: "Bonds", place: "bond" },
-  { id: "tool.select", name: "Select tool", group: "Tools", place: "any" },
-  { id: "tool.bond", name: "Bond tool", group: "Tools", place: "any" },
-  { id: "tool.benzene", name: "Benzene tool", group: "Tools", place: "any" },
-  { id: "tool.cyclohexane", name: "Cyclohexane tool", group: "Tools", place: "any" },
-  { id: "tool.cyclopentane", name: "Cyclopentane tool", group: "Tools", place: "any" },
-  { id: "tool.erase", name: "Eraser tool", group: "Tools", place: "any" },
-  { id: "eraser.smaller", name: "Make the eraser smaller", group: "Tools", place: "any" },
-  { id: "eraser.bigger", name: "Make the eraser bigger", group: "Tools", place: "any" },
-  { id: "edit.delete", name: "Delete the selection, or what is under the pointer", group: "Edit", place: "any" },
+  group("chain", "Add a bond (zig-zag)"), group("other", "Add a bond the other way"), group("acetyl", "Add an acetyl, or make C=O"),
+  group("phenyl", "Add a phenyl"), group("wedgeMe", "Add a wedged methyl"), group("hashMe", "Add a hashed methyl"),
+  group("cyclohexyl", "Add a cyclohexyl"), group("cyclopentyl", "Add a cyclopentyl"), group("cyclobutyl", "Add a cyclobutyl"),
+  group("cyclopropyl", "Add a cyclopropyl"), group("methylidene", "Add =CH2"), group("dimethyl", "Add two methyls"), group("alkyne", "Add an alkyne"),
+  bond("single", "Make bond single"), bond("double", "Make bond double"), bond("triple", "Make bond triple"),
+  bond("wedge", "Make bond a wedge"), bond("hashwedge", "Make bond a hashed wedge"), bond("hashed", "Make bond hashed"),
+  bond("bold", "Make bond bold"), bond("dashed", "Make bond dashed"), bond("wavy", "Make bond wavy"),
+  bond("left", "Put the double bond's second line on the left"), bond("centre", "Centre the double bond"), bond("right", "Put the double bond's second line on the right"),
+  bond("ring3", "Fuse a cyclopropane"), bond("ring4", "Fuse a cyclobutane"), bond("ring5", "Fuse a cyclopentane"), bond("ring6", "Fuse a cyclohexane"),
+  bond("ring7", "Fuse a cycloheptane"), bond("ring8", "Fuse a cyclooctane"), bond("benzene", "Fuse a benzene"), bond("cyclopentadiene", "Fuse a cyclopentadiene"),
+  bond("chair1", "Fuse a chair cyclohexane"), bond("chair2", "Fuse a chair cyclohexane, other way up"),
+  any("tool.select", "Select tool", "Tools"), any("tool.bond", "Bond tool", "Tools"), any("tool.chain", "Chain tool", "Tools"),
+  any("tool.ring", "Ring tool", "Tools"), any("tool.benzene", "Benzene tool", "Tools"), any("tool.cyclopentadiene", "Cyclopentadiene tool", "Tools"),
+  any("tool.cyclohexane", "Cyclohexane tool", "Tools"), any("tool.cyclopentane", "Cyclopentane tool", "Tools"), any("tool.erase", "Eraser tool", "Tools"),
+  any("eraser.smaller", "Make the eraser smaller", "Tools"), any("eraser.bigger", "Make the eraser bigger", "Tools"),
+  any("nudge.left", "Move the selection left 1 pt", "Selection"), any("nudge.right", "Move the selection right 1 pt", "Selection"),
+  any("nudge.up", "Move the selection up 1 pt", "Selection"), any("nudge.down", "Move the selection down 1 pt", "Selection"),
+  any("nudge.left10", "Move the selection left 10 pt", "Selection"), any("nudge.right10", "Move the selection right 10 pt", "Selection"),
+  any("nudge.up10", "Move the selection up 10 pt", "Selection"), any("nudge.down10", "Move the selection down 10 pt", "Selection"),
+  any("rotate.ccw15", "Turn the selection 15° anticlockwise", "Selection"), any("rotate.cw15", "Turn the selection 15° clockwise", "Selection"),
+  any("rotate.ccw1", "Turn the selection 1° anticlockwise", "Selection"), any("rotate.cw1", "Turn the selection 1° clockwise", "Selection"),
+  any("edit.delete", "Delete the selection, or what is under the pointer", "Edit"),
 ];
 
-// Default keys. Provisional until checked against ChemDraw's hotkey list.
+// ChemDraw's defaults, from its user guides and cheat sheets. Keys the sources disagree on are left out.
 export const DEFAULT_KEYS: Record<string, string[]> = {
-  "element.C": ["c"], "element.N": ["n"], "element.O": ["o"], "element.S": ["s"], "element.P": ["p"],
-  "element.F": ["f"], "element.Cl": ["l"], "element.Br": ["r"], "element.I": ["i"], "element.H": ["h"],
-  "element.B": ["b"], "element.Si": ["shift+s"],
-  "charge.plus": ["+", "="], "charge.minus": ["-"],
-  "bond.single": ["1"], "bond.double": ["2"], "bond.triple": ["3"], "bond.wedge": ["w"], "bond.hash": ["h"],
-  "tool.select": [], "tool.bond": [], "tool.benzene": [], "tool.cyclohexane": [], "tool.cyclopentane": [], "tool.erase": [],
+  "element.C": ["c"], "element.H": ["h"], "element.N": ["n", "w"], "element.O": ["o", "q"], "element.S": ["s"], "element.P": ["p"],
+  "element.F": ["f"], "element.Cl": ["l", "shift+c"], "element.Br": ["b"], "element.I": ["i"], "element.B": ["shift+b"],
+  "element.Si": ["shift+s"], "element.Li": ["shift+l"],
+  "charge.plus": ["+"], "charge.minus": ["-"],
+  "group.chain": ["1"], "group.other": ["0"], "group.acetyl": ["2"], "group.phenyl": ["3", "a"], "group.wedgeMe": ["4"], "group.hashMe": ["5"],
+  "group.cyclohexyl": ["6"], "group.cyclopentyl": ["7"], "group.methylidene": ["8"], "group.dimethyl": ["9"], "group.alkyne": ["z"],
+  "group.cyclopropyl": ["v"], "group.cyclobutyl": ["u"],
+  "bond.single": ["1"], "bond.double": ["2"], "bond.triple": ["3"], "bond.wedge": ["w"], "bond.hashwedge": ["h", "shift+w"],
+  "bond.hashed": ["shift+h"], "bond.bold": ["b"], "bond.dashed": ["d"], "bond.wavy": ["y"],
+  "bond.left": ["l"], "bond.centre": ["c"], "bond.right": ["r"],
+  "bond.ring3": ["v"], "bond.ring4": ["4"], "bond.ring5": ["5"], "bond.ring6": ["6"], "bond.ring7": ["7"], "bond.ring8": ["8"],
+  "bond.benzene": ["a"], "bond.cyclopentadiene": ["z"], "bond.chair1": ["9"], "bond.chair2": ["0"],
+  "tool.select": ["space"], "tool.bond": ["x"], "tool.chain": ["shift+x"], "tool.ring": [], "tool.benzene": ["j"],
+  "tool.cyclopentadiene": ["shift+j"], "tool.cyclohexane": ["u"], "tool.cyclopentane": ["shift+u"], "tool.erase": [],
   "eraser.smaller": ["["], "eraser.bigger": ["]"],
+  "nudge.left": ["arrowleft"], "nudge.right": ["arrowright"], "nudge.up": ["arrowup"], "nudge.down": ["arrowdown"],
+  "nudge.left10": ["shift+arrowleft"], "nudge.right10": ["shift+arrowright"], "nudge.up10": ["shift+arrowup"], "nudge.down10": ["shift+arrowdown"],
+  "rotate.ccw15": ["alt+arrowup"], "rotate.cw15": ["alt+arrowdown"], "rotate.ccw1": ["alt+arrowleft"], "rotate.cw1": ["alt+arrowright"],
   "edit.delete": ["delete", "backspace"],
 };
 
 export type Keymap = Record<string, string[]>;
 export const keymap = (changes: Keymap = {}): Keymap => ({ ...DEFAULT_KEYS, ...changes });
 
-// One key press as a string: "n", "shift+n", "+", "delete". Letters keep Shift; symbols are already shifted.
-export function keyOf(e: { key: string; shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean }): string | undefined {
+// One key press as a string: "n", "shift+n", "+", "shift+arrowup", "alt+arrowleft". Letters and named keys keep
+// Shift; symbols such as + are already shifted. Option changes the letter a key types on a Mac, so the
+// physical key (e.code) is used whenever Option is held.
+export function keyOf(e: { key: string; code?: string; shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean }): string | undefined {
   if (["Shift", "Alt", "Meta", "Control", "CapsLock", "Dead"].includes(e.key)) return undefined;
-  const key = e.key === " " ? "space" : e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase();
-  const mods = [(e.metaKey || e.ctrlKey) && "mod", e.altKey && "alt", e.shiftKey && /^[a-z]$/.test(key) && "shift"].filter(Boolean);
+  let key = e.key === " " ? "space" : e.key.toLowerCase();
+  if (e.altKey && e.code?.startsWith("Key")) key = e.code.slice(3).toLowerCase();
+  const named = key.length > 1;
+  const mods = [(e.metaKey || e.ctrlKey) && "mod", e.altKey && "alt", e.shiftKey && (/^[a-z]$/.test(key) || named) && "shift"].filter(Boolean);
   return [...mods, key].join("+");
 }
 
 // How a key looks on screen.
 const MAC = typeof navigator !== "undefined" && navigator.platform.startsWith("Mac");
-const NAMES: Record<string, string> = { delete: "Delete", backspace: MAC ? "⌫" : "Backspace", space: "Space", escape: "Esc", "-": "−" };
+const NAMES: Record<string, string> = {
+  delete: "Delete", backspace: MAC ? "⌫" : "Backspace", space: "Space", escape: "Esc", "-": "−",
+  arrowleft: "←", arrowright: "→", arrowup: "↑", arrowdown: "↓",
+};
 export function label(key: string): string {
   return key.split("+").map((part, i, all) => {
     if (i < all.length - 1) return part === "mod" ? (MAC ? "⌘" : "Ctrl+") : part === "alt" ? (MAC ? "⌥" : "Alt+") : MAC ? "⇧" : "Shift+";

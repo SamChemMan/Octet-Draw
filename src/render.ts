@@ -8,7 +8,10 @@
 
 type P = [number, number];
 export type Atom = { label: string; location: [number, number, number]; charge?: number; implicitHCount?: number };
-export type Bond = { type: number; atoms: [number, number]; stereo?: number }; // KET stereo: 1 wedge, 6 hash
+// KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
+export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow";
+// position: where a double bond's second line goes, looking from atoms[0] to atoms[1]; unset means automatic.
+export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right" };
 export type Mol = { atoms: Atom[]; bonds: Bond[] };
 // Sizes in px: bond length, line width, bold width, double-bond spacing, hash spacing, label margin, label font size.
 export type Style = { bond: number; line: number; bold: number; spacing: number; hash: number; margin: number; size: number };
@@ -69,11 +72,15 @@ function ringsThrough(a: number, b: number, nbrs: number[][]): number[][] {
 }
 
 // A bond, planned. Kinds 'line' and 'wedge' join the fans; 'none' is a centred double bond (its two lines only).
+// 'dash', 'hashbar' and 'wavy' are drawn along the axis and stay out of the fans. half: the line's half-width
+// when it is not the normal one (bold). head: an arrowhead at b (dative bond).
 // lines: extra lines parallel to the axis at offset o, trimmed t0 at a and t1 at b (negative runs past the atom).
 // cut: distance from a and from b at which a label stops the bond.
 type Plan = {
   a: number; b: number; u: P; n: P; length: number;
-  kind: 'line' | 'wedge' | 'hash' | 'none';
+  kind: 'line' | 'wedge' | 'hash' | 'none' | 'dash' | 'hashbar' | 'wavy' | 'hollow';
+  half?: number;
+  head?: boolean;
   lines: { o: number; t0: number; t1: number }[];
   cut: [number, number];
   hidden?: boolean;
@@ -148,6 +155,12 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
       nbrs[x].filter((j) => j !== y && side(j) === sd).map((j) => angle(sub(pts[y], pts[x]), sub(pts[j], pts[x]))).sort((m, l) => m - l);
 
     if (bond.type === 1 && (bond.stereo === 1 || bond.stereo === 6)) { plan.kind = bond.stereo === 1 ? 'wedge' : 'hash'; return plan; }
+    if (bond.type === 1 && bond.display) {
+      if (bond.display === 'bold') plan.half = s.bold / 2;
+      else if (bond.display === 'dative') plan.head = true;
+      else plan.kind = bond.display === 'dashed' ? 'dash' : bond.display === 'hashed' ? 'hashbar' : bond.display === 'hollow' ? 'hollow' : 'wavy';
+      return plan;
+    }
     if (bond.type === 3) { plan.lines = [s.spacing, -s.spacing].map((o) => ({ o, t0: 0, t1: 0 })); return plan; }
     if (bond.type !== 2) return plan;
 
@@ -155,7 +168,9 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
     // toward the inside of the angle at an unlabelled degree-2 end, or toward more substituents. 0 = centred.
     let sd = 0, ring: number[] | undefined;
     const rings = ringsThrough(a, b, nbrs);
-    if (rings.length) {
+    // A position the user set wins. On screen (y down) the left of a→b is the -n side.
+    if (bond.position) sd = bond.position === "centre" ? 0 : bond.position === "left" ? -1 : 1;
+    else if (rings.length) {
       const doubles = (r: number[]) => r.reduce((c, at, i) => c + (i && bondAt.get(key(r[i - 1], at))?.type === 2 ? 1 : 0), 0);
       ring = rings.sort((x, y) => doubles(y) - doubles(x) || Number(y.length === 6) - Number(x.length === 6) || x.length - y.length)[0];
       const centre = mul(ring.reduce<P>((c, i) => add(c, pts[i]), [0, 0]), 1 / ring.length);
@@ -197,8 +212,11 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
   });
 
   // Label cuts: the shortest cut along the axis at which every line of the bond clears the glyph outlines.
+  // Provisional sizes for the bond styles ChemDraw's reference drawing did not include.
+  const WAVE = 0.08 * L; // wavy bond amplitude
+  const half = (pl: Plan) => pl.half ?? (pl.kind === 'hashbar' ? s.bold / 2 : pl.kind === 'wavy' ? WAVE + hw : hw);
   const widths = (pl: Plan, x: number): [number, number] =>
-    pl.kind === 'wedge' || pl.kind === 'hash' ? (x === pl.a ? [tip, wide] : [wide, tip]) : [hw, hw];
+    pl.kind === 'wedge' || pl.kind === 'hash' || pl.kind === 'hollow' ? (x === pl.a ? [tip, wide] : [wide, tip]) : [half(pl), half(pl)];
   for (const pl of plans) {
     for (const end of [0, 1] as const) {
       const x = end ? pl.b : pl.a, shape = shapes[x];
@@ -259,6 +277,46 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
   plans.forEach((pl, i) => {
     if (pl.hidden) return;
     if (pl.kind === 'line' || pl.kind === 'wedge') polygons.push([...endOf(pl, i, pl.a), ...endOf(pl, i, pl.b)]);
+    const S = drawnEnd(pl, pl.a), D = pl.length - pl.cut[0] - pl.cut[1];
+    if (pl.kind === 'dash') {
+      // Evenly spaced dashes, one per hash spacing, the first and last flush with the ends.
+      const count = Math.max(1, Math.round(D / s.hash)), dash = Math.min(D, s.hash * 0.55), step = count > 1 ? (D - dash) / (count - 1) : 0;
+      for (let k = 0; k < count; k++) bar(add(S, mul(pl.u, k * step)), add(S, mul(pl.u, k * step + dash)), pl.n, hw);
+    }
+    if (pl.kind === 'hashbar') {
+      // Marks of one length (the bold width), evenly spaced from end to end.
+      const marks = Math.max(1, Math.round(D / s.hash));
+      for (let j = 0; j <= marks; j++) {
+        const c = add(S, mul(pl.u, hw + ((D - 2 * hw) * j) / marks));
+        bar(add(c, mul(pl.u, -hw)), add(c, mul(pl.u, hw)), pl.n, s.bold / 2);
+      }
+    }
+    if (pl.kind === 'wavy') {
+      // A sine wave with a whole number of waves, as one strip of even width.
+      const waves = Math.max(1, Math.round(D / (0.25 * L))), k = (2 * Math.PI * waves) / D, steps = waves * 16;
+      const left: P[] = [], right: P[] = [];
+      for (let j = 0; j <= steps; j++) {
+        const t = (D * j) / steps, c = add(add(S, mul(pl.u, t)), mul(pl.n, WAVE * Math.sin(k * t)));
+        const normal = perp(unit(add(pl.u, mul(pl.n, WAVE * k * Math.cos(k * t)))));
+        left.push(add(c, mul(normal, hw)));
+        right.push(add(c, mul(normal, -hw)));
+      }
+      polygons.push([right[0], ...left, ...right.slice(1).reverse()]);
+    }
+    if (pl.kind === 'hollow') {
+      // Hollow wedge: the wedge's outline, in normal-width lines, point at a.
+      const E = drawnEnd(pl, pl.b), left = add(E, mul(pl.n, wide - hw)), right = add(E, mul(pl.n, -(wide - hw)));
+      for (const corner of [left, right]) {
+        const u = unit(sub(corner, S));
+        bar(S, corner, perp(u), hw);
+      }
+      bar(add(right, mul(pl.n, -hw)), add(left, mul(pl.n, hw)), mul(pl.u, -1), hw);
+    }
+    if (pl.head) {
+      // Dative bond: an arrowhead pointing at b.
+      const E = drawnEnd(pl, pl.b), base = add(E, mul(pl.u, -0.3 * L)), w = 0.12 * L;
+      polygons.push([add(base, mul(pl.n, -w)), add(base, mul(pl.n, w)), E]);
+    }
     if (pl.kind === 'hash') {
       // round(length / hash spacing) marks at even pitch, the last one flush with the wide end.
       const start = drawnEnd(pl, pl.a), D = pl.length - pl.cut[0] - pl.cut[1], marks = Math.max(1, Math.round(D / s.hash)), pitch = D / marks;

@@ -1,23 +1,23 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { ArrowClockwise, ArrowCounterClockwise, Eraser, Selection, Warning } from "@phosphor-icons/react";
+import { Warning } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { measure, parseStructure, ready, STYLE, toSmiles } from "./chem";
 import { parse, serialize } from "./file";
 import {
-  EMPTY, addCharge, addRing, atomAt, atomsIn, bondAt, bondTo, bounds, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, joinOverlaps,
-  merge, moveAtoms, neighbours, onSelection, pos, setBond, setElement, sprout, subset, type P,
+  EMPTY, addCharge, addRing, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
+  addChair, addGroup, atomsInPolygon, joinOverlaps, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
+  type BondSpec, type Group, type P,
 } from "./edit";
 import { snapMove, type Guide } from "./snap";
 import { loadSettings, saveSettings } from "./settings";
 import { actionFor, keyOf, keymap } from "./keys";
+import { BONDS, Palette, RINGS, SELECTS, type BondKind, type RingKind, type SelectKind, type Tool } from "./tools";
 import { render, type Mol } from "./render";
 import { selectCursor } from "./cursor";
 import "./editor.css";
 
-type Tool = "select" | "bond" | "benzene" | "cyclohexane" | "cyclopentane" | "erase";
-const RINGS: Partial<Record<Tool, [number, boolean]>> = { benzene: [6, true], cyclohexane: [6, false], cyclopentane: [5, false] };
 
 const MOD = navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+";
 // In the desktop app the native menu owns undo, redo and the file commands; in a browser (dev only) the page does.
@@ -51,8 +51,10 @@ const atomsOf = (m: Mol, t: Hover) => (t.atom !== undefined ? [t.atom] : t.bond 
 type Drag =
   | { kind: "bond"; from: number | P; at: P; start: [number, number]; target: Hover; to?: P }
   | { kind: "click"; at: P; start: [number, number]; target: Hover }
+  | { kind: "chain"; from: number | P; start: [number, number]; target: Hover; to?: P }
   | { kind: "erase"; trail: P[]; bonds: Set<number>; atoms: Set<number>; start: [number, number]; target: Hover; moved: boolean }
   | { kind: "box"; from: P; to: P; base: Set<number>; target: Hover; moved: boolean }
+  | { kind: "lasso"; points: P[]; base: Set<number>; target: Hover; moved: boolean }
   // Moving the selection. If the pointer never moves, the press counts as a click with the tool in hand.
   | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P };
 
@@ -83,6 +85,10 @@ export default function Editor() {
   const [pop, setPop] = useState<{ n: number; x: number; y: number }>();
   const [cursor, setCursor] = useState<string>();
   const [settings, setSettings] = useState(loadSettings);
+  const bondKind = (settings.variants.bond in BONDS ? settings.variants.bond : "single") as BondKind;
+  const ringKind = (settings.variants.ring in RINGS ? settings.variants.ring : "benzene") as RingKind;
+  const selectKind = (settings.variants.select in SELECTS ? settings.variants.select : "box") as SelectKind;
+  const bondSpec: BondSpec = BONDS[bondKind].spec;
   const [overSelection, setOverSelection] = useState(false);
   // Where the eraser outline is drawn (drawing coordinates), while the Eraser is in hand.
   const [brush, setBrush] = useState<P>();
@@ -156,7 +162,8 @@ export default function Editor() {
   const toDoc = (sx: number, sy: number): P => [(sx - view.x) / (view.zoom * L), -(sy - view.y) / (view.zoom * L)];
 
   const shown = useMemo(() => {
-    if (drag?.kind === "bond" && drag.to) return bondTo(doc, drag.from, drag.to);
+    if (drag?.kind === "bond" && drag.to) return bondTo(doc, drag.from, drag.to, bondSpec);
+    if (drag?.kind === "chain" && drag.to) return chainTo(doc, drag.from, drag.to).mol;
     if (drag?.kind === "move") return drag.working;
     return doc;
   }, [doc, drag]);
@@ -178,7 +185,13 @@ export default function Editor() {
     }
     const base = shift ? selection : new Set<number>();
     setSelection(base);
-    setDrag({ kind: "box", from: p, to: p, base, target: t, moved: false });
+    startArea(p, t, base);
+  }
+
+  // A selection area: a box, or a lasso, as the Select tool is set.
+  function startArea(p: P, t: Hover, base: Set<number>) {
+    if (selectKind === "lasso") setDrag({ kind: "lasso", points: [p], base, target: t, moved: false });
+    else setDrag({ kind: "box", from: p, to: p, base, target: t, moved: false });
   }
 
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
@@ -191,6 +204,7 @@ export default function Editor() {
     if (tool !== "erase" && selection.size && onSelection(doc, selection, p)) return startMove(p, screen, t);
     if (tool === "erase") return setDrag({ kind: "erase", trail: [p], bonds: new Set(), atoms: new Set(), start: screen, target: t, moved: false });
     if (tool === "bond") setDrag({ kind: "bond", from: t.atom ?? p, at: p, start: screen, target: t });
+    else if (tool === "chain") setDrag({ kind: "chain", from: t.atom ?? p, start: screen, target: t });
     else setDrag({ kind: "click", at: p, start: screen, target: t });
     // Hold still for HOLD_MS: Select takes over until release. On the selection it moves it; elsewhere it draws a box.
     stopHold();
@@ -202,7 +216,7 @@ export default function Editor() {
       const ids = atomsOf(doc, t);
       if (ids.length && ids.every((i) => selection.has(i))) return startMove(p, screen, t);
       setSelection(new Set());
-      setDrag({ kind: "box", from: p, to: p, base: new Set(), target: t, moved: false });
+      startArea(p, t, new Set());
     }, HOLD_MS);
   }
 
@@ -232,6 +246,14 @@ export default function Editor() {
         }
         return setDrag({ ...drag, to });
       }
+      case "chain": {
+        if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
+        stopHold();
+        // The chain follows the pointer: its direction snaps to 15° steps, its length is free.
+        const origin = typeof drag.from === "number" ? pos(doc, drag.from) : drag.from, far = Math.hypot(p[0] - origin[0], p[1] - origin[1]);
+        const a = Math.round(Math.atan2(p[1] - origin[1], p[0] - origin[0]) / SNAP) * SNAP;
+        return setDrag({ ...drag, to: [origin[0] + far * Math.cos(a), origin[1] + far * Math.sin(a)] });
+      }
       case "erase": {
         if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         const bonds = new Set(drag.bonds), atoms = new Set(drag.atoms);
@@ -242,6 +264,11 @@ export default function Editor() {
         // Smart: atoms the box only just missed (all their neighbours are in it) come along too.
         setSelection(complete(doc, new Set([...drag.base, ...atomsIn(doc, drag.from, p)])));
         return setDrag({ ...drag, to: p, moved: true });
+      case "lasso": {
+        const points = [...drag.points, p];
+        setSelection(complete(doc, new Set([...drag.base, ...atomsInPolygon(doc, points)])));
+        return setDrag({ ...drag, points, moved: true });
+      }
       case "move": {
         if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         // Snap within 6 screen px, unless snapping is off or ⌥/Alt is held.
@@ -259,24 +286,55 @@ export default function Editor() {
     if (kind === "element" && atom !== undefined) return set(setElement(doc, atom, arg));
     if (id === "charge.plus" && atom !== undefined) return set(addCharge(doc, atom, 1));
     if (id === "charge.minus" && atom !== undefined) return set(addCharge(doc, atom, -1));
+    if (kind === "group" && atom !== undefined) return set(addGroup(doc, atom, arg as Group));
     if (kind === "bond" && bond !== undefined) {
-      const shape: Record<string, [number, number?]> = { single: [1], double: [2], triple: [3], wedge: [1, 1], hash: [1, 6] };
-      return set(setBond(doc, bond, ...shape[arg]));
+      if (arg in BONDS) return set(setBondSpec(doc, bond, BONDS[arg as BondKind].spec));
+      if (arg === "left" || arg === "centre" || arg === "right") return set(setPosition(doc, bond, arg));
+      if (arg === "chair1" || arg === "chair2") return set(addChair(doc, arg === "chair1" ? 1 : 2, { bond }));
+      const ring = arg.startsWith("ring") ? RINGS[arg.slice(4) as RingKind] : RINGS[arg as RingKind];
+      if (ring) return set(addRing(doc, ring.n, ring.aromatic, { bond }));
     }
-    if (kind === "tool") return setTool(arg as Tool);
+    if (kind === "tool") {
+      const ringTools: Record<string, RingKind> = { benzene: "benzene", cyclopentadiene: "cyclopentadiene", cyclohexane: "6", cyclopentane: "5" };
+      if (ringTools[arg]) {
+        setSettings((s) => ({ ...s, variants: { ...s.variants, ring: ringTools[arg] } }));
+        return setTool("ring");
+      }
+      return setTool(arg as Tool);
+    }
     if (kind === "eraser") return setSettings((s) => ({ ...s, eraser: Math.min(2, Math.max(0.05, s.eraser * (arg === "bigger" ? 1.25 : 0.8))) }));
+    if (kind === "nudge" && selection.size) {
+      // 1 pt is 1/14.4 of a bond (ACS 1996). Up is +y in the drawing.
+      const step = (arg.endsWith("10") ? 10 : 1) / 14.4, dir = arg.replace("10", "");
+      const d: P = dir === "left" ? [-step, 0] : dir === "right" ? [step, 0] : dir === "up" ? [0, step] : [0, -step];
+      return set(moveAtoms(doc, selection, d), true);
+    }
+    if (kind === "rotate" && selection.size) return set(rotateAtoms(doc, selection, (arg.startsWith("ccw") ? 1 : -1) * Number(arg.replace(/\D/g, ""))), true);
     if (id === "edit.delete") {
       if (selection.size) return set(deleteAtoms(doc, selection));
-      if (atom !== undefined) return set(deleteAtom(doc, atom));
+      // As in ChemDraw: the first Delete on a labelled atom removes the label; the next removes the atom.
+      if (atom !== undefined) return set(doc.atoms[atom].label !== "C" ? setElement(doc, atom, "C") : deleteAtom(doc, atom));
       if (bond !== undefined) return set(deleteBond(doc, bond));
     }
   }
 
   // What a click does with each tool in hand.
   function click(t: Hover, at: P) {
-    if (tool === "bond") return set(t.atom !== undefined ? sprout(doc, t.atom) : t.bond !== undefined ? cycleBond(doc, t.bond) : sprout(doc, at));
-    const ring = RINGS[tool];
-    if (ring) return set(addRing(doc, ring[0], ring[1], t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : { point: at }));
+    if (tool === "bond") {
+      if (t.atom !== undefined) return set(sprout(doc, t.atom, bondSpec));
+      if (t.bond === undefined) return set(sprout(doc, at, bondSpec));
+      // On a bond: single cycles 1, 2, 3; any other style sets it; a wedge or dative clicked again flips round.
+      if (bondKind === "single") return set(cycleBond(doc, t.bond));
+      const b = doc.bonds[t.bond], same = b.type === bondSpec.type && b.stereo === bondSpec.stereo && b.display === bondSpec.display;
+      if (same && (bondSpec.stereo || bondSpec.display === "dative")) return set(flipBond(doc, t.bond));
+      return set(setBondSpec(doc, t.bond, bondSpec));
+    }
+    if (tool === "chain") return set(sprout(doc, t.atom ?? at));
+    if (tool === "ring") {
+      const r: { n: number; aromatic: boolean; chair?: 1 | 2 } = RINGS[ringKind];
+      if (r.chair) return set(addChair(doc, r.chair, t.bond !== undefined ? { bond: t.bond } : { point: at }));
+      return set(addRing(doc, r.n, r.aromatic, t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : { point: at }));
+    }
     if (tool === "select") setSelection(new Set(atomsOf(doc, t)));
   }
 
@@ -288,9 +346,12 @@ export default function Editor() {
     switch (drag.kind) {
       case "bond": {
         const { to, from, target: t, at } = drag;
-        if (to) return set(bondTo(doc, from, to));
+        if (to) return set(bondTo(doc, from, to, bondSpec));
         return click(t, at);
       }
+      case "chain":
+        if (drag.to) return set(chainTo(doc, drag.from, drag.to).mol);
+        return click(drag.target, typeof drag.from === "number" ? pos(doc, drag.from) : drag.from);
       case "click":
         return click(drag.target, drag.at);
       case "erase": {
@@ -302,6 +363,7 @@ export default function Editor() {
         return;
       }
       case "box":
+      case "lasso":
         // A hold that never moved selects what it was held on.
         if (!drag.moved) setSelection(new Set([...drag.base, ...atomsOf(doc, drag.target)]));
         return;
@@ -415,16 +477,6 @@ export default function Editor() {
     />
   ) : null;
 
-  const tools: { id: Tool; name: string; icon: React.ReactNode }[] = [
-    { id: "select", name: "Select", icon: <Selection size={20} /> },
-    { id: "bond", name: "Bond (hold to select)", icon: <BondIcon /> },
-    { id: "benzene", name: "Benzene (hold to select)", icon: <RingIcon n={6} aromatic /> },
-    { id: "cyclohexane", name: "Cyclohexane (hold to select)", icon: <RingIcon n={6} /> },
-    { id: "cyclopentane", name: "Cyclopentane (hold to select)", icon: <RingIcon n={5} /> },
-    { id: "erase", name: "Eraser (drag to rub out)", icon: <Eraser size={20} /> },
-  ];
-  const active = tools.findIndex((t) => t.id === tool);
-
   return (
     <div className="editor">
       <svg
@@ -452,7 +504,15 @@ export default function Editor() {
             </text>
           ))}
           {box}
+          {drag?.kind === "lasso" && drag.moved && (
+            <polygon className="box" points={drag.points.map(([x, y]) => `${x * L},${-y * L}`).join(" ")} vectorEffect="non-scaling-stroke" />
+          )}
           {rubbing}
+          {drag?.kind === "chain" && drag.to && (
+            <text className="count" x={drag.to[0] * L + 6 / view.zoom} y={-drag.to[1] * L - 6 / view.zoom} style={{ fontSize: 12 / view.zoom }}>
+              {chainTo(doc, drag.from, drag.to).bonds}
+            </text>
+          )}
           {tool === "erase" && brush && <circle className="brush" cx={brush[0] * L} cy={-brush[1] * L} r={settings.eraser * L} vectorEffect="non-scaling-stroke" />}
           {drag?.kind === "move" && drag.guides.map((g, i) => g.axis === "x"
             ? <line key={i} className="guide" x1={g.at * L} x2={g.at * L} y1={-g.from * L} y2={-g.to * L} vectorEffect="non-scaling-stroke" />
@@ -462,23 +522,18 @@ export default function Editor() {
       </svg>
       {pop && <span key={pop.n} className="halo" style={{ left: pop.x, top: pop.y }} aria-hidden />}
 
-      <nav className="palette" aria-label="Tools">
-        <span className="indicator" style={{ transform: `translateY(${active * 36}px)` }} aria-hidden />
-        {tools.map((t) => (
-          <button key={t.id} className="tool" aria-pressed={tool === t.id} aria-label={t.name} title={t.name} onClick={() => setTool(t.id)}>
-            <span key={t.id === "select" ? `pop${pop?.n ?? 0}` : t.id} className={t.id === "select" && pop ? "glyph pop" : "glyph"}>
-              {t.icon}
-            </span>
-          </button>
-        ))}
-        <hr />
-        <button className="tool" aria-label="Undo" title={`Undo (${MOD}Z)`} disabled={h.at === 0} onClick={() => undo()}>
-          <ArrowCounterClockwise size={20} />
-        </button>
-        <button className="tool" aria-label="Redo" title={`Redo (${MOD}⇧Z)`} disabled={h.at === h.stack.length - 1} onClick={() => undo(true)}>
-          <ArrowClockwise size={20} />
-        </button>
-      </nav>
+      <Palette
+        tool={tool}
+        variants={{ select: selectKind, bond: bondKind, ring: ringKind }}
+        popKey={pop?.n ?? 0}
+        canUndo={h.at > 0}
+        canRedo={h.at < h.stack.length - 1}
+        modKey={MOD}
+        onTool={setTool}
+        onVariant={(t, kind) => setSettings((s) => ({ ...s, variants: { ...s.variants, [t]: kind } }))}
+        onUndo={() => undo()}
+        onRedo={() => undo(true)}
+      />
 
       {!doc.atoms.length && (
         <p className="hint text-ui" data-theme="light">
@@ -494,26 +549,5 @@ export default function Editor() {
         </p>
       )}
     </div>
-  );
-}
-
-// Chemistry tool icons in Phosphor's style (256 grid, 16-unit round strokes). Each tool draws its real object.
-function Icon({ children }: { children: React.ReactNode }) {
-  return (
-    <svg width={20} height={20} viewBox="0 0 256 256" fill="none" stroke="currentColor" strokeWidth={16} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      {children}
-    </svg>
-  );
-}
-const BondIcon = () => <Icon><line x1={60} y1={196} x2={196} y2={60} /></Icon>;
-function RingIcon({ n, aromatic }: { n: number; aromatic?: boolean }) {
-  const c = 128, r = 92;
-  const pts = Array.from({ length: n }, (_, k) => [c + r * Math.sin((2 * Math.PI * k) / n), c - r * Math.cos((2 * Math.PI * k) / n)]);
-  const inner = (k: number) => [pts[k], pts[(k + 1) % n]].map(([x, y]) => [c + (x - c) * 0.62, c + (y - c) * 0.62]);
-  return (
-    <Icon>
-      <polygon points={pts.map((p) => p.join(",")).join(" ")} />
-      {aromatic && [1, 3, 5].map((k) => { const [[x1, y1], [x2, y2]] = inner(k); return <line key={k} x1={x1} y1={y1} x2={x2} y2={y2} />; })}
-    </Icon>
   );
 }
