@@ -119,3 +119,11 @@ console.log("file.check: bad files refused");
   assert.equal(legacy.arrows?.[0].style, "dashed");
   console.log("file.check: shape styles, TLC, tables and curves ok");
 }
+
+// A shadow's depth, softness and opacity survive a save; an opacity over 1 is refused.
+{
+  const box = { id: 7, kind: "box" as const, from: [0, 1] as [number, number], to: [2, 0] as [number, number], shadow: true, shade: { depth: 0.3, blur: 0.2, opacity: 0.6 } };
+  assert.deepEqual(parse(serialize({ ...mol, shapes: [box] })).shapes?.[0].shade, box.shade);
+  assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "box", x1: 0, y1: 0, x2: 1, y2: 1, shade: { depth: 0.1, blur: 0, opacity: 3 } }] })), /damaged/);
+  console.log("file.check: shadows ok");
+}

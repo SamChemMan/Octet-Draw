@@ -163,9 +163,21 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
         &item("name_to_structure", "Convert Name to Structure", "CmdOrCtrl+Shift+N")?,
         &item("structure_to_name", "Convert Structure to Name", "Alt+CmdOrCtrl+N")?,
     ])?;
+    // Add Frame, as ChemDraw's: a frame round everything selected.
+    let frame = Submenu::with_items(app, "Add Frame", true, &[
+        &MenuItem::with_id(app, "frame_brackets", "Brackets", true, None::<&str>)?,
+        &MenuItem::with_id(app, "frame_parens", "Parentheses", true, None::<&str>)?,
+        &MenuItem::with_id(app, "frame_braces", "Braces", true, None::<&str>)?,
+        &MenuItem::with_id(app, "frame_box", "Rectangle", true, None::<&str>)?,
+        &MenuItem::with_id(app, "frame_rounded", "Rounded Rectangle", true, None::<&str>)?,
+        &MenuItem::with_id(app, "frame_box_shadow", "Rectangle with Shadow", true, None::<&str>)?,
+        &MenuItem::with_id(app, "frame_rounded_shadow", "Rounded Rectangle with Shadow", true, None::<&str>)?,
+    ])?;
     let object = Submenu::with_items(app, "Object", true, &[
         &item("bring_front", "Bring to Front", "CmdOrCtrl+[")?,
         &item("send_back", "Send to Back", "CmdOrCtrl+]")?,
+        &sep()?,
+        &frame,
         &sep()?,
         // ChemDraw's Flip (a mirror image, no key) and Rotate 180° (stereo kept, ⇧⌘H and ⇧⌘V).
         &MenuItem::with_id(app, "mirror_h", "Flip Horizontal", true, None::<&str>)?,

@@ -1,6 +1,6 @@
 // Octet's own file format: versioned, human-readable JSON. Treat every file as hostile: check it fully on read.
 import { readStyle } from "./docstyle.ts";
-import { ALL_ARROW_KINDS, ORBITAL_SHAPES, PHASES, SHAPE_KINDS, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Curve, type Table, type Tlc, type Atom, type Bond, type Caption, type Display, type Mol } from "./render.ts";
+import { ALL_ARROW_KINDS, ORBITAL_SHAPES, PHASES, SHAPE_KINDS, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type Tlc, type Atom, type Bond, type Caption, type Display, type Mol } from "./render.ts";
 
 export const FORMAT = "octet";
 export const VERSION = 1;
@@ -23,7 +23,7 @@ export function serialize(mol: Mol): string {
     ...(a.start ? { start: a.start } : {}), ...(a.end ? { end: a.end } : {}), ...(a.head ? { head: a.head } : {}), ...(a.curve ? { curve: a.curve } : {}), ...(a.fill ? { fill: a.fill } : {}) }));
   // Shapes keep their order, which is the order they are drawn in.
   const shapes = (mol.shapes ?? []).map((x) => ({ kind: x.kind, x1: round(x.from[0]), y1: round(x.from[1]), x2: round(x.to[0]), y2: round(x.to[1]), ...(x.dashed ? { dashed: true } : {}), ...(x.colour ? { colour: x.colour } : {}),
-    ...(x.fill ? { fill: x.fill } : {}), ...(x.shadow ? { shadow: true } : {}), ...(x.side ? { side: x.side } : {}), ...(x.mark ? { mark: x.mark } : {}), ...(x.tlc ? { tlc: x.tlc } : {}), ...(x.table ? { table: x.table } : {}) }));
+    ...(x.fill ? { fill: x.fill } : {}), ...(x.shadow ? { shadow: true } : {}), ...(x.side ? { side: x.side } : {}), ...(x.mark ? { mark: x.mark } : {}), ...(x.tlc ? { tlc: x.tlc } : {}), ...(x.table ? { table: x.table } : {}), ...(x.shade ? { shade: x.shade } : {}) }));
   const captions = [...(mol.captions ?? [])].sort((a, b) => a.id - b.id).map((c) => ({
     text: c.text, x: round(c.x), y: round(c.y), ...(c.bold ? { bold: true } : {}), ...(c.italic ? { italic: true } : {}), ...(c.underline ? { underline: true } : {}),
     ...(c.size ? { size: c.size } : {}), ...(c.align ? { align: c.align } : {}), ...(c.under ? { under: c.under } : {}), ...(c.colour ? { colour: c.colour } : {}),
@@ -33,6 +33,11 @@ export function serialize(mol: Mol): string {
   return JSON.stringify({ format: FORMAT, version: VERSION, structure: { atoms, bonds }, ...(arrows.length ? { arrows } : {}), ...(cycles.length ? { cycles } : {}), ...(shapes.length ? { shapes } : {}), ...(captions.length ? { captions } : {}), ...(mol.style ? { style: mol.style } : {}) }, null, 1) + "\n";
 }
 const round = (n: number) => Math.round(n * 1e4) / 1e4;
+// A shadow's look, if it is sound: depth and softness up to a bond length, opacity 0 to 1.
+function readShade(v: unknown): Shade | undefined {
+  const s = v as Record<string, unknown>, ok = (n: unknown, hi: number) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= hi;
+  return typeof s === "object" && s && ok(s.depth, 1) && ok(s.blur, 1) && ok(s.opacity, 1) ? { depth: s.depth as number, blur: s.blur as number, opacity: s.opacity as number } : undefined;
+}
 // A pen curve's points, if they are sound: 2 to 1000 anchors, each with optional handles.
 function readCurve(v: unknown): Curve | undefined {
   const c = v as { points?: unknown; closed?: unknown };
@@ -149,10 +154,10 @@ export function parse(text: string): Mol {
         || (x.colour !== undefined && !(typeof x.colour === "string" && /^#[0-9a-f]{6}$/i.test(x.colour)))
         || (x.fill !== undefined && x.fill !== "shaded" && x.fill !== "solid") || (x.shadow !== undefined && typeof x.shadow !== "boolean")
         || (x.side !== undefined && x.side !== "left" && x.side !== "right") || (x.mark !== undefined && !(typeof x.mark === "string" && x.mark.length <= 8))
-        || (x.tlc !== undefined && !readTlc(x.tlc)) || (x.table !== undefined && !readTable(x.table))) throw new Error("This drawing is damaged.");
+        || (x.tlc !== undefined && !readTlc(x.tlc)) || (x.table !== undefined && !readTable(x.table)) || (x.shade !== undefined && !readShade(x.shade))) throw new Error("This drawing is damaged.");
       return { id: first + k, kind: x.kind as ShapeKind, from: [x.x1 as number, x.y1 as number], to: [x.x2 as number, x.y2 as number], ...(x.dashed ? { dashed: true } : {}), ...(x.colour ? { colour: x.colour as string } : {}),
         ...(x.fill ? { fill: x.fill as "shaded" | "solid" } : {}), ...(x.shadow ? { shadow: true } : {}), ...(x.side ? { side: x.side as "left" | "right" } : {}), ...(x.mark ? { mark: x.mark as string } : {}),
-        ...(x.tlc ? { tlc: readTlc(x.tlc)! } : {}), ...(x.table ? { table: readTable(x.table)! } : {}) };
+        ...(x.tlc ? { tlc: readTlc(x.tlc)! } : {}), ...(x.table ? { table: readTable(x.table)! } : {}), ...(x.shade ? { shade: readShade(x.shade)! } : {}) };
     });
   }
   if (d.captions === undefined) return out;

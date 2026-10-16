@@ -102,7 +102,11 @@ export type Tlc = { lanes: number; spots: { lane: number; rf: number }[]; rf?: b
 export type Shape = {
   id: number; kind: ShapeKind; from: [number, number]; to: [number, number]; dashed?: boolean; colour?: string;
   fill?: "shaded" | "solid"; shadow?: boolean; side?: "left" | "right"; mark?: string; tlc?: Tlc; table?: Table;
+  shade?: Shade; // a shadow's look, when it differs from SHADE
 };
+// A shadow: how far it falls down and right and how soft its edge is (bond lengths), and how dark it is (0 to 1).
+export type Shade = { depth: number; blur: number; opacity: number };
+export const SHADE: Shade = { depth: 0.12, blur: 0, opacity: 0.35 };
 export const isBracket = (sh: Pick<Shape, "kind">) => sh.kind === "brackets" || sh.kind === "parens" || sh.kind === "braces";
 export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "table"];
 export const HIGHLIGHT = "#DCE4F5";

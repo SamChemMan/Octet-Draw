@@ -2744,3 +2744,48 @@ button.variant.add {
   color: var(--ink);
   font: 13px/18px var(--font-sans);
 }
+
+/* Octet's slider: name, track and value on one row. The track fills in brand blue up to the thumb. */
+.sliders {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+}
+.slider {
+  display: grid;
+  grid-template-columns: 64px 1fr 48px;
+  align-items: center;
+  gap: var(--space-2);
+  font: 13px/18px var(--font-sans);
+  color: var(--ink-muted);
+}
+.slider-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.slider input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  margin: 0;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(to right, var(--brand-bright) var(--fill), var(--hairline) var(--fill));
+}
+.slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--outline);
+  border-radius: 50%;
+  background: var(--surface-raised);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.2);
+  transition: transform 120ms ease-out;
+}
+.slider input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.1);
+}
+.slider input[type="range"]:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}

@@ -31,7 +31,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, Palette, RingGlyph, RINGS, SELECTS, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, tlcLayout, tableLayout, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, orbitalPaths, straightArrow, shapeInk, shapePaths, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, type Arrow, type ArrowKind, type Box, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind } from "./render";
+import { arrowPath, arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, tlcLayout, tableLayout, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, orbitalPaths, straightArrow, shapeInk, shapePaths, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, type Arrow, type ArrowKind, type Box, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
 import { loadNames, nameToSmiles, suggestName } from "./names";
 import { checkedName, setNamer } from "./naming";
@@ -48,13 +48,15 @@ const MOD = navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+";
 const TAURI = "__TAURI_INTERNALS__" in window;
 
 // Undo history: every edit pushes a new Mol; undo and redo move along the list.
-type History = { stack: Mol[]; at: number };
-type Action = { type: "set"; mol: Mol } | { type: "undo" } | { type: "redo" };
+// merge: edits with the same key one after another (a slider being dragged) make one step.
+type History = { stack: Mol[]; at: number; merge?: string };
+type Action = { type: "set"; mol: Mol; merge?: string } | { type: "undo" } | { type: "redo" };
 function history(h: History, a: Action): History {
-  if (a.type === "undo") return { ...h, at: Math.max(0, h.at - 1) };
-  if (a.type === "redo") return { ...h, at: Math.min(h.stack.length - 1, h.at + 1) };
+  if (a.type === "undo") return { ...h, at: Math.max(0, h.at - 1), merge: undefined };
+  if (a.type === "redo") return { ...h, at: Math.min(h.stack.length - 1, h.at + 1), merge: undefined };
   if (a.mol === h.stack[h.at]) return h;
-  return { stack: [...h.stack.slice(0, h.at + 1), a.mol], at: h.at + 1 };
+  if (a.merge && a.merge === h.merge && h.at === h.stack.length - 1 && h.at > 0) return { stack: [...h.stack.slice(0, h.at), a.mol], at: h.at, merge: a.merge };
+  return { stack: [...h.stack.slice(0, h.at + 1), a.mol], at: h.at + 1, merge: a.merge };
 }
 
 const L = STYLE.bond; // px per bond length at 100%
@@ -264,8 +266,8 @@ export default function Editor() {
   const svg = useRef<SVGSVGElement>(null);
   const pointer = useRef<P>(undefined);
   // Every edit clears the selection, except a move, which keeps the same atoms selected.
-  const set = (mol: Mol, keepSelection = false) => {
-    dispatch({ type: "set", mol });
+  const set = (mol: Mol, keepSelection = false, merge?: string) => {
+    dispatch({ type: "set", mol, merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
   };
   const undo = (redo = false) => { dispatch({ type: redo ? "redo" : "undo" }); setSelection(new Set()); setPicked(new Set()); };
@@ -409,6 +411,18 @@ export default function Editor() {
     flip_v: () => set(flipAtoms(doc, selection.size ? selection : new Set(doc.atoms.map((_, i) => i)), "vertical"), true),
     mirror_h: () => set(flipAtoms(doc, selection.size ? selection : new Set(doc.atoms.map((_, i) => i)), "horizontal", true), true),
     mirror_v: () => set(flipAtoms(doc, selection.size ? selection : new Set(doc.atoms.map((_, i) => i)), "vertical", true), true),
+    // Add Frame (Object menu): a frame round everything selected, 0.4 bond lengths clear of it (0.3 for brackets).
+    ...Object.fromEntries(([["frame_brackets", "brackets", false], ["frame_parens", "parens", false], ["frame_braces", "braces", false], ["frame_box", "box", false],
+      ["frame_rounded", "rounded", false], ["frame_box_shadow", "box", true], ["frame_rounded_shadow", "rounded", true]] as const).map(([id, kind, shadow]) => [id, () => {
+      const boxes = [...[...selection].filter((i) => drawing.ink[i]).map((i) => drawing.ink[i]), ...placed.filter((c) => picked.has(c.id)).map((c) => c.box),
+        ...[...arrows, ...(doc.shapes ?? [])].filter((x) => picked.has(x.id)).map((x): Box => [Math.min(x.from[0], x.to[0]) * L, -Math.max(x.from[1], x.to[1]) * L, Math.max(x.from[0], x.to[0]) * L, -Math.min(x.from[1], x.to[1]) * L])];
+      const b = boxes.length ? union(boxes) : undefined;
+      if (!b) return setNotice("Select what to frame first.");
+      const pad = (isBracket({ kind }) ? 0.3 : 0.4) * L;
+      const [mol, frameId] = addShape(doc, { kind, from: [(b[0] - pad) / L, -(b[3] + pad) / L], to: [(b[2] + pad) / L, -(b[1] - pad) / L], ...(shadow ? { shadow: true } : {}) });
+      set(mol);
+      setPicked(new Set([frameId]));
+    }])),
     // Invert Selection (⇧⌘I): everything that was not selected is, and the rest is not.
     invert_selection: () => {
       setSelection(new Set(doc.atoms.map((_, i) => i).filter((i) => !selection.has(i))));
@@ -978,6 +992,8 @@ export default function Editor() {
     if (tool !== "erase" && tool !== "text" && (t.caption !== undefined || t.arrow !== undefined)) return pressCaption(p, t, e.shiftKey, screen);
     if (tool === "tlc" && plateAt(p)) return spotAt(plateAt(p)!, p);
     if (tool === "table" && tableAt(p)) return openCell(tableAt(p)!, p);
+    // Pressing away from the selection with a drawing tool clears it, as ChemDraw does.
+    if (selection.size || picked.size) { setSelection(new Set()); setPicked(new Set()); }
     pressTool(p, t, screen);
     startHold(p, t, screen);
   }
@@ -1289,7 +1305,7 @@ export default function Editor() {
       const first = pickedShapes[0];
       return {
         kind: "shape", count: pickedShapes.length, shape: first.kind, dashed: !!first.dashed, colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
-        style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, grid: !!first.table?.grid,
+        style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, grid: !!first.table?.grid, shade: { ...SHADE, ...first.shade, pt: style.bond },
       };
     }
     // Arrows picked on their own.
@@ -1490,6 +1506,11 @@ export default function Editor() {
         return each((x) => ({ kind: arg as ShapeKind, ...((x.kind === "highlight") !== (arg === "highlight") ? { colour: undefined } : {}) }));
       }
       if (what === "dashed") return each((x) => ({ dashed: !x.dashed || undefined }));
+      // A shadow's depth, softness and opacity (in hundredths), from the Actions sliders: a drag is one undo step.
+      if (what === "depth" || what === "blur" || what === "opacity") {
+        const value = Number(arg) / 100;
+        return set({ ...doc, shapes: doc.shapes?.map((x) => (ids.has(x.id) ? { ...x, shade: { ...SHADE, ...x.shade, [what]: value } } : x)) }, true, `shade-${what}-${[...ids].join()}`);
+      }
       // TLC plates: a lane more or fewer (spots in a lane that goes go with it), and Rf values on or off.
       if (what === "lanes") return each((x) => { const lanes = Math.max(1, Math.min(40, (x.tlc?.lanes ?? 1) + Number(arg))); return { tlc: { ...x.tlc!, lanes, spots: (x.tlc?.spots ?? []).filter((y) => y.lane < lanes) } }; });
       if (what === "rf") return each((x) => ({ tlc: { ...x.tlc!, rf: !x.tlc?.rf || undefined } }));
@@ -1627,10 +1648,10 @@ export default function Editor() {
       return set(addCaption(doc, { text: bracketPick.mark, x: at[0], y: at[1], align: "left" })[0]);
     }
     if (tool === "shape" || tool === "bracket") {
-      // A click puts the shape round what it is on: the selection, or the structure or caption clicked.
+      // A click puts the shape round the structure or caption clicked (Add Frame puts one round a selection).
       const one = t.atom ?? (t.bond !== undefined ? doc.bonds[t.bond].atoms[0] : undefined);
-      const atoms = selection.size ? [...selection] : one !== undefined ? fragments(doc).find((g) => g.includes(one)) ?? [] : [];
-      const boxes = [...atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i]), ...placed.filter((c) => (selection.size ? picked.has(c.id) : c.id === t.caption)).map((c) => c.box)];
+      const atoms = one !== undefined ? fragments(doc).find((g) => g.includes(one)) ?? [] : [];
+      const boxes = [...atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i]), ...placed.filter((c) => c.id === t.caption).map((c) => c.box)];
       const b = boxes.length ? union(boxes) : undefined;
       if (!b) return;
       const pad = (tool === "bracket" ? 0.3 : 0.4) * L, sh = shapeFrom([0, 0], [1, 1]);
@@ -1968,10 +1989,17 @@ export default function Editor() {
             ))}
           </defs>
           {(shown.shapes ?? []).filter((sh) => sh.kind === "highlight" || sh.fill || sh.shadow).map((sh) => {
-            const d = toPath(shapePaths(sh, L, frame.bond).slice(0, 1)), off = 0.12 * L;
+            const d = toPath(shapePaths(sh, L, frame.bond).slice(0, 1)), shade = { ...SHADE, ...sh.shade }, off = shade.depth * L;
             if (sh.kind === "highlight") return <path key={`f${sh.id}`} d={d} fill={sh.colour ?? HIGHLIGHT} />;
             if (sh.fill) return <path key={`f${sh.id}`} d={d} fill={sh.fill === "shaded" ? `url(#shade${sh.id})` : sh.colour ?? "var(--ink)"} />;
-            return <g key={`f${sh.id}`}><path d={d} transform={`translate(${off} ${off})`} fill="#A7AFBA" /><path d={d} fill="var(--canvas)" /></g>;
+            // A shadow falls down and to the right, in the shape's colour at its opacity, softened by a blur.
+            return (
+              <g key={`f${sh.id}`}>
+                {shade.blur > 0 && <defs><filter id={`soft${sh.id}`} x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation={shade.blur * L * 0.5} /></filter></defs>}
+                <path d={d} transform={`translate(${off} ${off})`} fill={sh.colour ? textInk(sh.colour) : "var(--ink)"} fillOpacity={shade.opacity} filter={shade.blur > 0 ? `url(#soft${sh.id})` : undefined} />
+                <path d={d} fill="var(--canvas)" />
+              </g>
+            );
           })}
           {arrows.filter((a) => a.curve?.closed && a.fill).map((a) => {
             // A closed pen curve's fill: solid, shaded (lit from the top left) or faded (to nothing at the bottom right).

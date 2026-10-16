@@ -25,7 +25,7 @@ export type Context =
   | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right"; attached: boolean; attachable: boolean }
   | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
       heads: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string }
-  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; grid: boolean }
+  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; grid: boolean; shade: { depth: number; blur: number; opacity: number; pt: number } }
   | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean }
   | { kind: "atom"; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string }
@@ -120,6 +120,18 @@ function SizeButton({ size, run }: { size: number; run: (command: string) => voi
   );
 }
 
+
+// Octet's one slider: a name, the track, and the value as it reads. Use it wherever a value is dragged.
+export function Slider({ name, value, min, max, step, show, onChange }: { name: string; value: number; min: number; max: number; step: number; show: (v: number) => string; onChange: (v: number) => void }) {
+  return (
+    <label className="slider">
+      <span className="slider-name">{name}</span>
+      <input type="range" min={min} max={max} step={step} value={value} aria-label={name} aria-valuetext={show(value)} onChange={(e) => onChange(Number(e.target.value))}
+        style={{ "--fill": `${((value - min) / (max - min)) * 100}%` } as React.CSSProperties} />
+      <span className="slider-value">{show(value)}</span>
+    </label>
+  );
+}
 
 // small: shown as a small button by default (the user can drag it into the rows, and any row out of them).
 export type Item = { icon: React.ReactNode; name: string; command: string; accent?: boolean; small?: boolean };
@@ -470,6 +482,14 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
           </div>
         );
       })()}
+      {context.kind === "shape" && context.style === "shadow" && (
+        // The shadow's depth (how far it falls), softness and opacity, each on a slider.
+        <div className="sliders" role="group" aria-label="Shadow">
+          <Slider name="Depth" value={context.shade.depth} min={0} max={0.5} step={0.01} show={(v) => `${(v * context.shade.pt).toFixed(1)} pt`} onChange={(v) => run(`shape.depth.${Math.round(v * 100)}`)} />
+          <Slider name="Softness" value={context.shade.blur} min={0} max={0.5} step={0.01} show={(v) => `${(v * context.shade.pt).toFixed(1)} pt`} onChange={(v) => run(`shape.blur.${Math.round(v * 100)}`)} />
+          <Slider name="Opacity" value={context.shade.opacity} min={0} max={1} step={0.05} show={(v) => `${Math.round(v * 100)}%`} onChange={(v) => run(`shape.opacity.${Math.round(v * 100)}`)} />
+        </div>
+      )}
       {context.kind === "shape" && isBracket({ kind: context.shape }) && (() => {
         // Both brackets or one, and the sign at the top right: drawn as they read.
         const [l, r] = context.shape === "parens" ? ["(", ")"] : context.shape === "braces" ? ["{", "}"] : ["[", "]"];
