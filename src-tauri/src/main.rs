@@ -165,7 +165,10 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
     let structure = Submenu::with_items(app, "Structure", true, &[
         &item("clean_up", "Clean Up Structure", "CmdOrCtrl+Shift+K")?,
         &item("clean_reaction", "Clean Up Reaction", "CmdOrCtrl+Shift+X")?,
+        &item("aromatic_display", "Toggle Aromatic Display", "Alt+CmdOrCtrl+K")?,
         &item("structure_perspective", "Structure Perspective", "Alt+CmdOrCtrl+S")?,
+        &sep()?,
+        &MenuItem::with_id(app, "stoichiometry", "Analyze Stoichiometry", true, None::<&str>)?,
         &sep()?,
         &MenuItem::with_id(app, "predict_1h", "Predict ¹H-NMR Shifts", true, None::<&str>)?,
         &MenuItem::with_id(app, "predict_13c", "Predict ¹³C-NMR Shifts", true, None::<&str>)?,
@@ -199,6 +202,8 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
     let object = Submenu::with_items(app, "Object", true, &[
         &align,
         &distribute,
+        &sep()?,
+        &MenuItem::with_id(app, "show_stereo", "Show Stereochemistry", true, None::<&str>)?,
         &sep()?,
         &item("group", "Group", "CmdOrCtrl+G")?,
         &item("ungroup", "Ungroup", "CmdOrCtrl+Shift+G")?,

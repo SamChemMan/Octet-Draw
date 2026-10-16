@@ -7,6 +7,7 @@
 // - Labels are anchored on the advance centre and half the ink height of their first glyph.
 
 import { units } from "./labels.ts";
+import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
 import { lines as richLines, type TextRun } from "./richtext.ts";
 import type { DocStyle } from "./docstyle.ts";
 import type { Cycle, CycleText } from "./cycle.ts";
@@ -27,6 +28,7 @@ export type Atom = {
   cip?: true; // Show Stereochemistry is on for this atom's structure: its R/S (and its double bonds' E/Z) labels show
   halo?: string; // #rrggbb highlight: a disc behind the atom at 40% opacity (ChemDraw's highlight colours; NMR peak colours)
   fill?: string; // #rrggbb ring fill: a ring whose atoms all have the same fill is filled with it at 30% opacity
+  circle?: true; // Toggle Aromatic Display: an aromatic ring whose atoms all have this is drawn with a circle
 };
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 // On a double bond: bold makes the main line bold, dashed the second line dashed, either crosses the two lines.
@@ -482,6 +484,19 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
     plan.lines = [{ o: sd * spacing, t0: trim(a, b, ring?.[1]), t1: trim(b, a, ring?.[ring.length - 2]), ...(bond.display === "dashed" ? { dashed: true } : {}) }];
     return plan;
   });
+  // Aromatic rings drawn with a circle (Toggle Aromatic Display): their bonds are single lines, and a circle sits
+  // inside each ring, 0.6 of the way from the centre to the bonds. The structure keeps its Kekulé bonds.
+  const circled = mol.atoms.some((a) => a.circle) ? (() => {
+    const used = mol.atoms.map(() => 0);
+    for (const b of mol.bonds) for (const i of b.atoms) used[i] += b.type;
+    const g = { atoms: mol.atoms.map((a, i) => ({ el: a.text ? "X" : a.label, charge: a.charge ?? 0, h: a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used[i]) })), bonds: mol.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: Math.min(3, Math.max(1, b.type)) as 1 | 2 | 3 })) };
+    const aromatic = aromaticAtoms(g);
+    return ringsOf(g).filter((r) => r.length >= 5 && r.length <= 8 && r.every((i) => mol.atoms[i].circle && aromatic[i]));
+  })() : [];
+  for (const r of circled) r.forEach((x, k) => {
+    const y = r[(k + 1) % r.length], pl = plans[mol.bonds.findIndex((b) => (b.atoms[0] === x && b.atoms[1] === y) || (b.atoms[0] === y && b.atoms[1] === x))];
+    if (pl && mol.bonds[mol.bonds.indexOf(mol.bonds.find((b) => (b.atoms[0] === x && b.atoms[1] === y) || (b.atoms[0] === y && b.atoms[1] === x))!)].type === 2) { pl.lines = []; pl.kind = 'line'; delete pl.half; }
+  });
 
   // Label cuts: the shortest cut along the axis at which every line of the bond clears the glyph outlines.
   // Provisional sizes for the bond styles ChemDraw's reference drawing did not include.
@@ -663,6 +678,17 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
     const alpha = d ? fade((depth[pl.a]! + depth[pl.b]!) / 2) : 1;
     for (const poly of polygons.slice(before)) { colours.push(mol.bonds[i].colour); alphas.push(alpha); for (const q of poly) { grow(pl.a, q); grow(pl.b, q); } }
   });
+  // The aromatic circles, each as a ring of short bars in the line width.
+  for (const r of circled) {
+    const c = mul(r.reduce<P>((m, i) => add(m, pts[i]), [0, 0]), 1 / r.length);
+    const inner = Math.min(...r.map((x, k) => { const p = pts[x], q = pts[r[(k + 1) % r.length]], u = unit(sub(q, p)); return Math.abs(dot(sub(c, p), perp(u))); }));
+    const radius = inner * 0.6, steps = 72, before = polygons.length;
+    for (let k = 0; k < steps; k++) {
+      const a0 = (2 * Math.PI * k) / steps, a1 = (2 * Math.PI * (k + 1.05)) / steps, S = add(c, [Math.cos(a0) * radius, Math.sin(a0) * radius]), E = add(c, [Math.cos(a1) * radius, Math.sin(a1) * radius]);
+      bar(S, E, perp(unit(sub(E, S))), hw);
+    }
+    for (const poly of polygons.slice(before)) { colours.push(mol.atoms[r[0]].colour); alphas.push(1); for (const q of poly) grow(r[0], q); }
+  }
   // Joints in a 3D structure: a disc at each unlabelled atom as wide as its widest bond there, so tapered bonds meet.
   mol.atoms.forEach((_, x) => {
     if (depth[x] === undefined || labelled[x] || !nbrs[x].length) return;

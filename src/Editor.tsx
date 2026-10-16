@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
-  ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Waveform, TagSimple, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
+  ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Waveform, TagSimple, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
   FrameCorners, GearSix, Keyboard, Lasso, LinkSimple, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
   TextAlignCenter, TextAlignLeft, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Warning, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
 } from "@phosphor-icons/react";
@@ -584,8 +584,21 @@ export default function Editor() {
     zoom_actual: () => zoomTo(1 / frame.k),
     actions: () => setSettings((s) => ({ ...s, actions: !s.actions })),
     export: () => void exportDrawing(),
+    // Analyze Stoichiometry: a grid under the picked reaction, or off again.
+    stoichiometry: () => {
+      const arrow = reactionPicked()?.arrows[0] ?? [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
+      if (arrow === undefined) return setNotice("Pick a reaction first.");
+      const has = doc.grids?.some((g) => reactionOf(g.arrow)?.arrows.includes(arrow));
+      set({ ...doc, grids: has ? doc.grids!.filter((g) => !reactionOf(g.arrow)?.arrows.includes(arrow)) : [...(doc.grids ?? []), { arrow, typed: {} }] }, true);
+    },
     properties: () => setSettings((s) => ({ ...s, properties: !s.properties })),
     predict_1h: () => openSpectrum("1H"),
+    // Toggle Aromatic Display (⌥⌘K): the selected structures' aromatic rings with circles, or back to Kekulé bonds.
+    aromatic_display: () => {
+      const atoms = selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i);
+      const on = !atoms.some((i) => doc.atoms[i].circle);
+      set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.includes(i) ? { ...a, circle: on || undefined } : a)) }, true);
+    },
     // Show Stereochemistry (Object menu): on or off for the selected structures, or every structure.
     show_stereo: () => {
       const atoms = selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i);
@@ -2075,7 +2088,7 @@ export default function Editor() {
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDisk size={18} />],
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <MagicWand size={18} />],
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
-    properties: ["Properties", "", <Flask size={18} />], show_stereo: ["Show stereochemistry", "", <TagSimple size={18} />], predict_1h: ["Predict ¹H NMR shifts", "", <Waveform size={18} />], predict_13c: ["Predict ¹³C NMR shifts", "", <Waveform size={18} />], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />],
+    properties: ["Properties", "", <Flask size={18} />], aromatic_display: ["Toggle aromatic display", `⌥${MOD}K`, <Circle size={18} />], show_stereo: ["Show stereochemistry", "", <TagSimple size={18} />], predict_1h: ["Predict ¹H NMR shifts", "", <Waveform size={18} />], predict_13c: ["Predict ¹³C NMR shifts", "", <Waveform size={18} />], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />],
     rotate_dialog: ["Rotate…", `${MOD}R`, <ArrowClockwise size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <ArrowsOutSimple size={18} />],
     group: ["Group", `${MOD}G`, <BoundingBox size={18} />], ungroup: ["Ungroup", `⇧${MOD}G`, <SelectionSlash size={18} />],
     arrange_left: ["Align left edges", `⇧⌥${MOD}L`, <AlignLeft size={18} />], arrange_centre: ["Align left-right centres", `⇧⌥${MOD}C`, <AlignCenterHorizontal size={18} />],
@@ -2178,13 +2191,6 @@ export default function Editor() {
     if (command === "delete" && context.kind === "spot") return runAction("spot.delete");
     if (command === "delete") return selection.size || picked.size ? set(deleteGraphics(deleteAtoms(doc, selection), picked)) : undefined;
     if (command === "number") return numberStructures();
-    // Analyze Stoichiometry: a grid under the picked reaction, or off again.
-    if (command === "stoichiometry") {
-      const arrow = reactionPicked()?.arrows[0] ?? [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
-      if (arrow === undefined) return setNotice("Pick a reaction first.");
-      const has = doc.grids?.some((g) => reactionOf(g.arrow)?.arrows.includes(arrow));
-      return set({ ...doc, grids: has ? doc.grids!.filter((g) => !reactionOf(g.arrow)?.arrows.includes(arrow)) : [...(doc.grids ?? []), { arrow, typed: {} }] }, true);
-    }
     if (command === "reaction.clean") { const r = reactionPicked(); return r ? set(cleanUpReaction(doc, r, arrows), true) : undefined; }
     // Atom mapping: the first step of the picked reaction (what stands before its first arrow, and between that
     // arrow and the next), numbered by Indigo; or every number cleared.
