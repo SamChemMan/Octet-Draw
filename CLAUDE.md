@@ -45,7 +45,7 @@ Octet draws structures itself as SVG. The app icon source is
   before you show it. List every option ChemDraw gives that tool or object:
   its palette, the Object, Curves, Color and Text menus, the context menu,
   its dialogs, and the attributes its CDXML object takes. Run ChemDraw
-  22.2 on Sam's Mac and try each one (ask Sam for computer-use access),
+  26.1 (the baseline, decision 0006) on Sam's Mac and try each one (ask Sam for computer-use access),
   and decompile it to find options the menus don't show (see "ChemDraw:
   what we can use" below). Octet gets every option, or Sam gets a list of the ones missing.
   Never guess and never skip the check.
@@ -173,6 +173,8 @@ better, modern way to do it. This repository is public.
   non-commercial use. Use it only as a second opinion, and only after
   Sam confirms its licence terms fit. It needs IDA open with the target
   loaded and Edit → Plugins → MCP started.
+- ChemDraw 26.1.0, the baseline (decision 0006), is at
+  `/Applications/ChemDraw.app`. It is universal (arm64 and x86_64).
 - ChemDraw 22.2.0 is at `/Applications/ChemDraw 22.2.0.app`. Its main
   executable is x86_64 only.
 - Cloud sessions have no ChemDraw, Ghidra or IDA.

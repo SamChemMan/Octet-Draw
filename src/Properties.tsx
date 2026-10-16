@@ -1,0 +1,100 @@
+// The Properties panel: ChemDraw's Analysis and Chemical Properties windows in one, for every structure in the
+// selection (or the drawing; values for several structures are separated by semicolons, as ChemDraw does). A
+// click on a value copies its row; the boxes choose the rows Add to drawing writes under each structure.
+import { useLayoutEffect, useMemo, useRef } from "react";
+import { Check, X } from "@phosphor-icons/react";
+import type { Structure } from "./chem";
+import type { Graph } from "./naming";
+import { elementalAnalysis, isotopePattern } from "./mass";
+
+// What Octet's own calculators (props.ts) give for a structure.
+export type Calculated = {
+  tpsa: number; henry?: number; pka: { atom: number; kind: string; pka: number; sd: number }[];
+  joback?: { tb: number; tm: number; tc: number; pc: number; vc: number; hf: number; gf: number };
+  logS?: number;
+};
+type Row = { key: string; name: string; value: (s: Structure, c?: Calculated) => string | undefined };
+
+const SUB = "₀₁₂₃₄₅₆₇₈₉";
+const sign = (x: number, places: number) => x.toFixed(places).replace("-", "−");
+const celsius = (k?: number) => (k === undefined ? undefined : `${sign(k - 273.15, 1)} °C`);
+const unit = (x: number | undefined, places: number, u: string) => (x === undefined || !Number.isFinite(x) ? undefined : `${sign(x, places)} ${u}`);
+
+// The rows, in ChemDraw's two windows' order: analysis, then physical properties, then the medicinal chemist's.
+export const PROPERTY_ROWS: Row[][] = [
+  [
+    { key: "formula", name: "Formula", value: (s) => s.formula },
+    { key: "exact", name: "Exact mass", value: (s) => s.exact.toFixed(4) },
+    { key: "weight", name: "Molecular weight", value: (s) => s.weight.toFixed(2) },
+    { key: "mz", name: "m/z", value: (s) => isotopePattern(s.formula)?.slice(0, 6).map((p) => `${p.mz.toFixed(2)} (${p.rel.toFixed(1)}%)`).join(", ") },
+    { key: "analysis", name: "Elemental analysis", value: (s) => elementalAnalysis(s.composition) },
+  ],
+  [
+    { key: "tb", name: "Boiling point", value: (_, c) => celsius(c?.joback?.tb) },
+    { key: "tm", name: "Melting point", value: (_, c) => celsius(c?.joback?.tm) },
+    { key: "tc", name: "Critical temperature", value: (_, c) => celsius(c?.joback?.tc) },
+    { key: "pc", name: "Critical pressure", value: (_, c) => unit(c?.joback?.pc, 2, "bar") },
+    { key: "vc", name: "Critical volume", value: (_, c) => unit(c?.joback?.vc, 1, "cm³/mol") },
+    { key: "hf", name: "Heat of formation", value: (_, c) => unit(c?.joback?.hf, 2, "kJ/mol") },
+    { key: "gf", name: "Gibbs energy", value: (_, c) => unit(c?.joback?.gf, 2, "kJ/mol") },
+    { key: "henry", name: "Henry's law (log)", value: (_, c) => (c?.henry === undefined ? undefined : sign(c.henry, 2)) },
+  ],
+  [
+    { key: "logp", name: "logP", value: (s) => (s.logP === undefined ? undefined : sign(s.logP, 2)) },
+    { key: "mr", name: "Molar refractivity", value: (s) => unit(s.mr, 2, "cm³/mol") },
+    { key: "tpsa", name: "tPSA", value: (_, c) => unit(c?.tpsa, 2, "Å²") },
+    { key: "logs", name: "logS", value: (_, c) => (c?.logS === undefined ? undefined : sign(c.logS, 2)) },
+    { key: "pka", name: "pKa", value: (_, c) => (c?.pka.length ? c.pka.map((p) => `${p.pka.toFixed(1)} (${p.kind})`).join(", ") : undefined) },
+  ],
+];
+
+// Each row's values, one per structure, for the rows that have any.
+export function propertyValues(structures: Structure[], calc?: (s: Structure, g: Graph) => Calculated | undefined) {
+  const calculated = structures.map((s) => (s.graph && calc ? calc(s, s.graph) : undefined));
+  return PROPERTY_ROWS.map((group) => group.map((row) => ({ ...row, values: structures.map((s, k) => row.value(s, calculated[k])) })).filter((r) => r.values.some((v) => v !== undefined)));
+}
+export type PropertyValues = ReturnType<typeof propertyValues>;
+
+type Props = { values: PropertyValues; chosen: string[]; onChoose: (key: string) => void; onCopy: (text: string) => void; onAdd: () => void; onClose: () => void };
+
+export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose }: Props) {
+  const show = (key: string, v: string) => (key === "formula" ? v.replace(/\d/g, (d) => SUB[Number(d)]) : v);
+  const groups = useMemo(() => values.filter((g) => g.length), [values]);
+  // The panel ends above the Actions panel (its list scrolls), whatever height that has.
+  const panel = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const below = panel.current?.parentElement?.querySelector<HTMLElement>(".actions");
+    const fit = () => panel.current?.style.setProperty("--below", `${below?.isConnected ? below.offsetHeight : 0}px`);
+    fit();
+    const watch = new ResizeObserver(fit);
+    if (below) watch.observe(below);
+    return () => watch.disconnect();
+  });
+  return (
+    <section ref={panel} className="properties" aria-label="Properties">
+      <header>
+        <h2>Properties</h2>
+        <button className="actions-close" onClick={onClose} aria-label="Hide properties" title="Hide properties"><X size={14} /></button>
+      </header>
+      <div className="prop-list">
+        {groups.map((g, k) => (
+          <div key={k} className="prop-group">
+            {g.map((row) => {
+              const text = row.values.map((v) => (v === undefined ? "–" : v)).join("; "), on = chosen.includes(row.key);
+              return (
+                <div key={row.key} className={`prop-row${text.length > 18 ? " long" : ""}`}>
+                  <button className="prop-check" role="checkbox" aria-checked={on} aria-label={`Add ${row.name} to the drawing`} title="Add to drawing" onClick={() => onChoose(row.key)}>
+                    {on && <Check size={11} weight="bold" />}
+                  </button>
+                  <span className="prop-name">{row.name}</span>
+                  <button className="prop-value" title="Copy" onClick={() => onCopy(`${row.name}: ${text}`)}>{show(row.key, text)}</button>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+      <button className="prop-add" onClick={onAdd} disabled={!chosen.length}>Add to drawing</button>
+    </section>
+  );
+}

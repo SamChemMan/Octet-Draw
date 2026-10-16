@@ -2851,3 +2851,121 @@ button.variant.add {
   stroke-width: 2px;
   stroke-dasharray: 3 2;
 }
+
+/* The Properties panel: the Actions panel's look, at the top right. */
+.properties {
+  position: absolute;
+  right: var(--space-4);
+  top: var(--space-4);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: 280px;
+  max-height: calc(100% - 3 * var(--space-4) - var(--below, 0px));
+  padding: var(--space-1) var(--space-1) var(--space-2);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  transform-origin: top right;
+  animation: panel-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.properties header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
+}
+.properties h2 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.prop-list {
+  overflow-y: auto;
+  min-height: 0;
+}
+.prop-group + .prop-group {
+  margin-top: var(--space-1);
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--hairline);
+}
+.prop-row {
+  display: grid;
+  grid-template-columns: 16px auto 1fr;
+  align-items: center;
+  column-gap: var(--space-2);
+  padding: 0 var(--space-1);
+  min-height: 26px;
+}
+.prop-row.long {
+  grid-template-columns: 16px 1fr;
+}
+.prop-row.long .prop-value {
+  grid-column: 2;
+  text-align: left;
+}
+.prop-name {
+  font: 12px/16px var(--font-sans);
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.prop-value {
+  min-width: 0;
+  padding: 2px var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: 12px/16px var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  overflow-wrap: anywhere;
+  cursor: copy;
+}
+.prop-value:hover {
+  background: var(--surface-sunken);
+}
+.prop-check {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--on-brand);
+}
+.prop-check[aria-checked="true"] {
+  border-color: var(--brand);
+  background: var(--brand);
+}
+.prop-add {
+  margin: var(--space-2) var(--space-1) 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: 12px/18px var(--font-sans);
+}
+.prop-add:hover:not(:disabled) {
+  background: var(--surface-sunken);
+}
+.prop-add:disabled {
+  color: var(--ink-faint);
+}
+.prop-value:focus-visible,
+.prop-check:focus-visible,
+.prop-add:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+@media (prefers-reduced-motion: reduce) {
+  .properties {
+    animation: none;
+  }
+}

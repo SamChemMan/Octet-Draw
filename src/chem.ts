@@ -2,7 +2,8 @@
 import Indigo from "indigo-ketcher/binaryWasmNoRender";
 import { hydrogens, type Ink, type Mol } from "./render";
 import { labelSmiles } from "./labels";
-import { fragments, levelTurn } from "./edit";
+import { fragments, levelTurn, subset } from "./edit";
+import { graphOf, type Graph } from "./naming";
 
 type IndigoModule = Awaited<ReturnType<typeof Indigo>>;
 let indigo: IndigoModule | undefined;
@@ -293,6 +294,37 @@ export function mapReaction(reactants: Mol[], products: Mol[]): { reactants: (nu
     return undefined;
   } finally {
     opts.delete();
+  }
+}
+
+// The Chemical Properties panel's values for each structure in a drawing (or a selection): formula, masses and
+// composition from Indigo; Wildman–Crippen logP and molar refractivity from Indigo, one structure at a time (it adds
+// a mixture's together); and the structure's graph for Octet's own calculators (props.ts).
+export type Structure = { formula: string; weight: number; exact: number; composition: string; logP?: number; mr?: number; graph?: Graph };
+export function structures(mol: Mol, groups = fragments(mol)): (Structure | undefined)[] | undefined {
+  if (!indigo || !mol.atoms.length) return undefined;
+  const ind = indigo, opts = new ind.MapStringString(), sel = new ind.VectorInt(), out: (Structure | undefined)[] = [];
+  // Indigo reports a failed logP or MR as -1.
+  const num = (s: string) => (s.trim() === "-1.000000" ? undefined : Number(s));
+  try {
+    for (const ids of groups.slice(0, 12)) {
+      const part = subset(mol, new Set(ids)), ket = ketOf(part);
+      try {
+        const calc = JSON.parse(ind.calculate(ket, opts, sel));
+        const heavy = expandLabels(part).atoms.filter((a) => a.label !== "H").length;
+        out.push({
+          formula: String(calc["gross-formula"]).replace(/\s+/g, ""), weight: Number(calc["molecular-weight"]), exact: Number(calc["monoisotopic-mass"]),
+          composition: String(calc["mass-composition"]),
+          // ChemDraw stops at 150 heavy atoms for logP and 1,000 atoms for the rest; so does Octet.
+          ...(heavy <= 150 ? { logP: num(ind.logp(ket, opts)), mr: num(ind.molarRefractivity(ket, opts)) } : {}),
+          graph: heavy <= 1000 ? graphOf(expandLabels(part)) : undefined,
+        });
+      } catch { out.push(undefined); } // a structure Indigo cannot read has no values
+    }
+    return out.some(Boolean) ? out : undefined;
+  } finally {
+    opts.delete();
+    sel.delete();
   }
 }
 

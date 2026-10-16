@@ -152,6 +152,7 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
         &sep()?,
         &snap,
         &MenuItem::with_id(app, "actions", "Show or Hide Actions", true, None::<&str>)?,
+        &MenuItem::with_id(app, "properties", "Show or Hide Properties", true, None::<&str>)?,
         // Not ⌘K, which is ChemDraw's Scale.
         &item("command_palette", "Command Palette…", "CmdOrCtrl+Shift+A")?,
     ])?;

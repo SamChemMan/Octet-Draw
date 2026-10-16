@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
-  ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
+  ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
   FrameCorners, GearSix, Keyboard, Lasso, LinkSimple, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
   TextAlignCenter, TextAlignLeft, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Warning, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { analyse, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
+import { analyse, structures, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
 import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, FONTS, type DocStyle, type PageName } from "./docstyle";
 import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
@@ -20,6 +20,7 @@ import { snapBox, snapMove, type Guide } from "./snap";
 import { loadSettings, saveSettings } from "./settings";
 import { actionFor, keyOf, keymap, label as keyLabel } from "./keys";
 import { Actions, actionItems, type Context } from "./Actions";
+import { Properties, propertyValues, PROPERTY_ROWS } from "./Properties";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb } from "./TemplateLibrary";
 import { cleanUpReaction, findReaction, GAP, layoutRow, reactionClean, rowOf } from "./reaction";
@@ -513,6 +514,7 @@ export default function Editor() {
     zoom_out: () => zoomTo(view.zoom / 1.25),
     zoom_actual: () => zoomTo(1 / frame.k),
     actions: () => setSettings((s) => ({ ...s, actions: !s.actions })),
+    properties: () => setSettings((s) => ({ ...s, properties: !s.properties })),
     name_to_structure: () => nameToStructure(),
     document: () => setSettingsOpen("document"),
     settings: () => setSettingsOpen((settings.settingsModule as ModuleId) ?? "document"),
@@ -1716,6 +1718,39 @@ export default function Editor() {
   })();
   // What the panel knows about the drawing: formula and mass (of the selection, or everything), problems, mess.
   const analysis = useMemo(() => (loaded ? analyse(selection.size ? subset(doc, selection) : doc) : undefined), [loaded, doc, selection]);
+  // The Properties panel's values, while it is open: for each structure in the selection (or the drawing), with
+  // each structure's atoms in the drawing (for Add to drawing).
+  const properties = useMemo(() => {
+    if (!loaded || !settings.properties) return undefined;
+    const ids = selection.size ? [...selection].filter((i) => i < doc.atoms.length).sort((a, b) => a - b) : doc.atoms.map((_, i) => i);
+    const base = selection.size ? subset(doc, selection) : doc, groups = fragments(base), found = structures(base, groups);
+    if (!found) return undefined;
+    const kept = groups.map((g, k) => ({ atoms: g.map((i) => ids[i]), s: found[k] })).filter((x) => x.s).slice(0, 12);
+    return { atoms: kept.map((x) => x.atoms), values: propertyValues(kept.map((x) => x.s!)) };
+  }, [loaded, settings.properties, doc, selection]);
+  // Add to drawing: the chosen rows as a caption under each structure, the formula's counts as subscripts.
+  function addProperties() {
+    if (!properties) return;
+    const chosen = PROPERTY_ROWS.flat().map((r) => r.key).filter((k) => settings.propertyRows.includes(k));
+    const rows = properties.values.flat().filter((r) => chosen.includes(r.key));
+    let m = doc;
+    properties.atoms.forEach((atoms, k) => {
+      const runs: TextRun[] = [];
+      rows.forEach((r, i) => {
+        const v = r.values[k];
+        if (v === undefined) return;
+        if (runs.length) runs.push({ text: "\n" });
+        runs.push({ text: `${r.name}: ` });
+        if (r.key === "formula") for (const [, letters, digits] of v.matchAll(/(\D*)(\d*)/g)) { if (letters) runs.push({ text: letters }); if (digits) runs.push({ text: digits, script: "sub" }); }
+        else runs.push({ text: v });
+        void i;
+      });
+      if (!runs.length) return;
+      const clean = normalise(runs);
+      m = addCaption(m, { text: plainOf(clean), x: 0, y: 0, under: atoms, ...(styled(clean) ? { runs: clean } : {}) })[0];
+    });
+    if (m !== doc) set(m);
+  }
   const found = useMemo(() => problems(doc), [doc]);
   const untidy = useMemo(() => messy(doc, selection), [doc, selection]);
   // Text the panel asked to copy; the copy handler uses it instead of SMILES.
@@ -1759,7 +1794,7 @@ export default function Editor() {
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDisk size={18} />],
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <MagicWand size={18} />],
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
-    structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />],
+    properties: ["Properties", "", <Flask size={18} />], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />],
     rotate_dialog: ["Rotate…", `${MOD}R`, <ArrowClockwise size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <ArrowsOutSimple size={18} />],
     group: ["Group", `${MOD}G`, <BoundingBox size={18} />], ungroup: ["Ungroup", `⇧${MOD}G`, <SelectionSlash size={18} />],
     arrange_left: ["Align left edges", `⇧⌥${MOD}L`, <AlignLeft size={18} />], arrange_centre: ["Align left-right centres", `⇧⌥${MOD}C`, <AlignCenterHorizontal size={18} />],
@@ -2896,6 +2931,16 @@ export default function Editor() {
         onStripWidth={(t, width) => setSettings((s) => ({ ...s, strips: { ...s.strips, [t]: width } }))}
       />
 
+      {settings.properties && properties && (
+        <Properties
+          values={properties.values}
+          chosen={settings.propertyRows}
+          onChoose={(key) => setSettings((s) => ({ ...s, propertyRows: s.propertyRows.includes(key) ? s.propertyRows.filter((k) => k !== key) : [...s.propertyRows, key] }))}
+          onCopy={(text) => runAction(`copy_text:${text}`)}
+          onAdd={addProperties}
+          onClose={() => setSettings((s) => ({ ...s, properties: false }))}
+        />
+      )}
       <Actions
         open={settings.actions}
         context={context}
