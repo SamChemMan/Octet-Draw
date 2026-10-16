@@ -414,6 +414,22 @@ export default function Editor() {
     const tryIt = (f: () => string) => { try { return part.atoms.length && loaded ? f() || undefined : undefined; } catch { return undefined; } };
     return { molfile: tryIt(() => toMolfile(part)), smiles: tryIt(() => toSmiles(part)), cdxml: tryIt(() => toMoleculeCdxml(part)) };
   };
+  // File > Print (⌘P): the document's page at true size, the drawing where it sits on the page, as a picture the
+  // print layout shows alone (the editor's chrome is hidden for printing), then the system's print dialog.
+  const [printing, setPrinting] = useState<{ src: string; w: number; h: number }>();
+  async function printDrawing() {
+    const canvas = svg.current, [, w, h] = pages[0], x = (w / 2) * mm * L, y = (h / 2) * mm * L;
+    if (!canvas) return;
+    flushSync(() => setExporting(doc));
+    let text: string;
+    try { text = standaloneSvg(canvas, [-x, -y, x, y], 1 / pt); } finally { flushSync(() => setExporting(undefined)); }
+    const bytes = new TextEncoder().encode(text);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    flushSync(() => setPrinting({ src: `data:image/svg+xml;base64,${btoa(bin)}`, w: (w * 72) / 25.4, h: (h * 72) / 25.4 }));
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    try { await invoke("print_page"); } catch (e) { setNotice(`Octet cannot print. ${e}`); }
+  }
   // File > Export… (⌃⌘E): the whole drawing as PDF (with its CDXML inside), SVG, PNG, CDXML, MOL, SDF or SMILES.
   async function exportDrawing() {
     const svgText = pictureOf(doc), c = chemistryOf(doc);
@@ -595,6 +611,9 @@ export default function Editor() {
     zoom_actual: () => zoomTo(1 / frame.k),
     actions: () => setSettings((s) => ({ ...s, actions: !s.actions })),
     export: () => void exportDrawing(),
+    print: () => void printDrawing(),
+    // Page Setup (⇧⌘P): the page's size and orientation, which live in the document's settings.
+    page_setup: () => setSettingsOpen("document"),
     // Analyze Stoichiometry: a grid under the picked reaction, or off again.
     stoichiometry: () => {
       const arrow = reactionPicked()?.arrows[0] ?? [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
@@ -1989,7 +2008,7 @@ export default function Editor() {
   // Stoichiometry grids, each laid out under its reaction: a column under each reactant and product (text reagents
   // such as H2O too, their molar mass from the formula), the row names on the left, the amounts worked out from what
   // was typed (stoich.ts). Typed values show bold, worked-out ones plain, as ChemDraw's grid does.
-  const gridViews = useMemo(() => (loaded && !exporting ? doc.grids ?? [] : []).flatMap((g) => {
+  const gridViews = useMemo(() => (loaded && (!exporting || exporting === doc) ? doc.grids ?? [] : []).flatMap((g) => {
     const r = reactionOf(g.arrow);
     if (!r) return [];
     const at = r.steps.map((s, i) => (s.kind === "arrow" ? i : -1)).filter((i) => i >= 0), first = at[0], last = at[at.length - 1];
@@ -3148,6 +3167,13 @@ export default function Editor() {
           />
         );
       })()}
+      {printing && (
+        // What Print prints: only this, at true size (see editor.css, @media print).
+        <div className="print-root" aria-hidden>
+          <style>{`@page { size: ${printing.w.toFixed(2)}pt ${printing.h.toFixed(2)}pt; margin: 0; }`}</style>
+          <img src={printing.src} alt="" style={{ width: `${printing.w}pt`, height: `${printing.h}pt` }} />
+        </div>
+      )}
       {gridEdit && (() => {
         // The stoichiometry cell box, over the cell; Enter keeps it, Escape leaves it as it was.
         const v = gridViews.find((x) => x.arrow === gridEdit.arrow);

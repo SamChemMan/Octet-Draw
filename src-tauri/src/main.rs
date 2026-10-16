@@ -14,6 +14,12 @@ use tauri_plugin_dialog::DialogExt;
 mod clipboard;
 mod export;
 
+// File > Print: the system's print dialog for the window, which prints only the page the editor laid out for it.
+#[tauri::command]
+fn print_page(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.print().map_err(|e| e.to_string())
+}
+
 // Files the user picked in an Open or Save dialog this session. The webview can only save to these,
 // so a compromised page can't write anywhere else.
 #[derive(Default)]
@@ -130,6 +136,9 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
         &item("save_as", "Save As…", "CmdOrCtrl+Shift+S")?,
         // ChemDraw's key: ⌃⌘E.
         &item("export", "Export…", "Ctrl+CmdOrCtrl+E")?,
+        &sep()?,
+        &item("page_setup", "Page Setup…", "CmdOrCtrl+Shift+P")?,
+        &item("print", "Print…", "CmdOrCtrl+P")?,
         &sep()?,
         &MenuItem::with_id(app, "document", "Document Settings…", true, None::<&str>)?,
         &sep()?,
@@ -324,7 +333,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Picked::default())
-        .invoke_handler(tauri::generate_handler![open_drawing, save_drawing, set_check, set_palette, import_structure, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file])
+        .invoke_handler(tauri::generate_handler![open_drawing, save_drawing, set_check, set_palette, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file])
         .setup(|app| {
             let handle = app.handle();
             let (bar, checks) = menu(handle, &[])?;
