@@ -1,4 +1,5 @@
-// Reactions: structures, plus signs and straight arrows in a row. Double-clicking an arrow finds its whole
+// Reactions: structures, text (reagents written as words or formulas, such as H2O), plus signs and straight arrows
+// in a row. Double-clicking an arrow finds its whole
 // reaction (every step in line with it); Clean up reaction puts the row on one level line with even gaps.
 import { straightArrow, type Arrow, type Box, type Mol } from "./render.ts";
 import { fragments, moveAtoms } from "./edit.ts";
@@ -8,6 +9,7 @@ type P = [number, number];
 export type Step =
   | { kind: "structure"; atoms: number[]; box: Box }
   | { kind: "plus"; id: number; box: Box }
+  | { kind: "text"; id: number; box: Box } // a caption standing in the row as a reactant or product
   | { kind: "arrow"; id: number; box: Box };
 export type Reaction = { steps: Step[]; arrows: number[]; atoms: number[]; captions: number[] };
 
@@ -29,7 +31,7 @@ export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (ato
     items.push({ step, lo: Math.min(...xs), hi: Math.max(...xs), off: (Math.min(...ys) + Math.max(...ys)) / 2, half: (Math.max(...ys) - Math.min(...ys)) / 2 });
   };
   for (const atoms of fragments(m)) { const b = ink(atoms); if (b) add({ kind: "structure", atoms, box: b }); }
-  for (const c of m.captions ?? []) { const b = captionBox(c.id); if (b && c.text.trim() === "+" && !c.under && !c.on) add({ kind: "plus", id: c.id, box: b }); }
+  for (const c of m.captions ?? []) { const b = captionBox(c.id); if (b && !c.under && !c.on && !c.cycle) add({ kind: c.text.trim() === "+" ? "plus" : "text", id: c.id, box: b }); }
   for (const x of arrows) {
     if (!straight(x)) continue;
     const v: P = [x.to[0] - x.from[0], x.to[1] - x.from[1]], cos = (v[0] * u[0] + v[1] * u[1]) / (Math.hypot(...v) || 1);
@@ -56,7 +58,7 @@ export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (ato
   const atoms = steps.flatMap((s) => (s.kind === "structure" ? s.atoms : []));
   // Its captions: the plus signs, each arrow's conditions, and the numbers and names under its structures.
   const inRow = new Set(atoms);
-  const captions = (m.captions ?? []).filter((c) => steps.some((s) => s.kind === "plus" && s.id === c.id) || (c.on && arrowIds.includes(c.on.arrow)) || (c.under && c.under.every((i) => inRow.has(i)))).map((c) => c.id);
+  const captions = (m.captions ?? []).filter((c) => steps.some((s) => (s.kind === "plus" || s.kind === "text") && s.id === c.id) || (c.on && arrowIds.includes(c.on.arrow)) || (c.under && c.under.every((i) => inRow.has(i)))).map((c) => c.id);
   return { steps, arrows: arrowIds, atoms, captions };
 }
 
@@ -72,7 +74,7 @@ export function cleanUpReaction(m: Mol, r: Reaction, arrows: Arrow[]): Mol {
   for (const s of r.steps) {
     const w = s.box[2] - s.box[0], h = (s.box[1] + s.box[3]) / 2;
     if (s.kind === "structure") out = moveAtoms(out, new Set(s.atoms), [x - s.box[0], level - h]);
-    if (s.kind === "plus") {
+    if (s.kind === "plus" || s.kind === "text") {
       const [dx, dy] = [x - s.box[0], level - h];
       out = { ...out, captions: out.captions?.map((c) => (c.id === s.id ? { ...c, x: c.x + dx, y: c.y + dy } : c)) };
     }
@@ -129,7 +131,7 @@ export function layoutRow(m: Mol, steps: Step[]): { mol: Mol; level: number; rig
   for (const s of steps) {
     const [dx, dy] = [x - s.box[0], level - (s.box[1] + s.box[3]) / 2];
     if (s.kind === "structure") out = moveAtoms(out, new Set(s.atoms), [dx, dy]);
-    if (s.kind === "plus") out = { ...out, captions: out.captions?.map((c) => (c.id === s.id ? { ...c, x: c.x + dx, y: c.y + dy } : c)) };
+    if (s.kind === "plus" || s.kind === "text") out = { ...out, captions: out.captions?.map((c) => (c.id === s.id ? { ...c, x: c.x + dx, y: c.y + dy } : c)) };
     x += s.box[2] - s.box[0] + GAP;
   }
   return { mol: out, level, right: x - GAP };

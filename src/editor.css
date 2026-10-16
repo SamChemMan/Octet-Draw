@@ -923,10 +923,20 @@ button.variant.add {
 /* The end of a long actions list: small buttons in one row, each naming itself on hover. */
 .tray {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 2px;
   margin-top: var(--space-1);
   padding: var(--space-1) var(--space-1) 0;
+  border-top: 1px solid var(--hairline);
+}
+.tray-set {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.tray-set + .tray-set {
+  margin-top: 1px;
+  padding-top: 3px;
   border-top: 1px solid var(--hairline);
 }
 .tray-button {
@@ -2996,6 +3006,62 @@ button.variant.add {
 .spectrum header .select-field select {
   min-width: 0;
 }
+/* Full screen: the panel fills the canvas beside the toolbar, the spectrum grows, and the structure sits beside it. */
+.spectrum.expanded {
+  top: var(--space-4);
+  right: var(--space-4);
+  z-index: 3;
+}
+.spectrum-body {
+  display: flex;
+  gap: var(--space-3);
+  min-height: 0;
+}
+.spectrum.expanded .spectrum-body {
+  flex: 1;
+}
+.spectrum-body .spectrum-plot {
+  flex: 1;
+}
+.spectrum-inset {
+  flex: 0 0 32%;
+  align-self: stretch;
+  border-left: 1px solid var(--hairline);
+  background: var(--canvas);
+}
+.spectrum-solvent {
+  fill: none;
+  stroke: var(--ink-faint);
+  stroke-width: 1.25;
+}
+.spectrum-solvent-label {
+  fill: var(--ink-faint);
+  font-size: 10px;
+}
+.spectrum-swatches {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.spectrum-swatches .swatch {
+  width: 16px;
+  height: 16px;
+}
+.spectrum-swatches .swatch.none {
+  background: linear-gradient(135deg, transparent 45%, var(--error) 45% 55%, transparent 55%), var(--canvas);
+  border: 1px solid var(--hairline);
+}
+.spectrum-signal.chosen text:first-of-type {
+  font-weight: 700;
+}
+.spectrum-signal[style] text {
+  fill: inherit;
+}
+.spectrum-button[aria-pressed="true"] {
+  background: var(--brand-mist);
+  border-color: transparent;
+  color: var(--brand);
+}
 .spectrum-gap {
   flex: 1;
 }
@@ -3108,4 +3174,47 @@ button.variant.add {
   stroke: var(--brand-bright);
   stroke-width: 1px;
   vector-effect: non-scaling-stroke;
+}
+/* A row of small setting buttons (the arrow's line, ends, heads, curve and fill), each opening its choices. */
+.picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 0 var(--space-1) var(--space-1);
+}
+.pick {
+  position: relative;
+}
+.picks {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+}
+.pick-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  width: 100%;
+  padding: 0 var(--space-1) 0 var(--space-2);
+}
+.pick-label {
+  font: 12px var(--font-sans);
+  color: var(--ink-muted);
+}
+.size-menu.pick-menu {
+  left: 0;
+  right: auto;
+  min-width: 152px;
+  transform-origin: bottom left;
+}
+.pick-menu button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 30px;
+}
+.pick-glyph {
+  display: grid;
+  place-items: center;
+  width: 32px;
 }

@@ -34,4 +34,19 @@ assert.equal(again.steps.length, 7, "still one reaction after clean up");
 assert.ok(reactionClean(again, clean.arrows!), "level, with even gaps");
 for (const s of again.steps.slice(1).map((x, k) => x.box[0] - again.steps[k].box[2])) assert.ok(Math.abs(s - GAP) < 1e-6);
 assert.equal(fragments(clean).length, 4);
+// Reagents written as text (H2O) stand in the row: Clean up keeps them before the arrow and the product after it.
+{
+  let t: Mol = EMPTY;
+  t = addRing(t, 6, false, { point: [0, 0] });
+  const [t1] = addCaption(t, { text: "+", x: 2.2, y: 0, align: "centre" });
+  const [t2, water] = addCaption(t1, { text: "H2O", x: 3.6, y: 0.2, align: "centre" });
+  const [t3, arrow] = addArrow(t2, { kind: "reaction", from: [5, 0], to: [8, 0] });
+  const tm = addRing(t3, 5, false, { point: [10, 0.3] });
+  const box = (mm: Mol) => (atoms: number[]): Box => { const ps = atoms.map((i) => pos(mm, i)); return [Math.min(...ps.map((p) => p[0])), Math.min(...ps.map((p) => p[1])), Math.max(...ps.map((p) => p[0])), Math.max(...ps.map((p) => p[1]))]; };
+  const cap = (mm: Mol) => (id: number): Box | undefined => { const c = mm.captions?.find((x) => x.id === id); return c && [c.x - 0.5, c.y - 0.2, c.x + 0.5, c.y + 0.2]; };
+  const rr = findReaction(tm, arrow, tm.arrows!, box(tm), cap(tm))!;
+  assert.deepEqual(rr.steps.map((s) => s.kind), ["structure", "plus", "text", "arrow", "structure"]);
+  const done = cleanUpReaction(tm, rr, tm.arrows!), a = done.arrows!.find((x) => x.id === arrow)!, w = done.captions!.find((c) => c.id === water)!;
+  assert.ok(w.x + 0.5 < Math.min(a.from[0], a.to[0]) && Math.max(...fragments(done).map((g) => Math.min(...g.map((i) => pos(done, i)[0])))) > Math.max(a.from[0], a.to[0]), "H2O before the arrow, the product after it");
+}
 console.log("reaction.check: ok");

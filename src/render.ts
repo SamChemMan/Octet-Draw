@@ -24,6 +24,8 @@ export type Atom = {
   enhanced?: string; // enhanced stereo: the stereocentre's group, "abs", "&1" (and) or "or1" (or)
   colour?: string; // #rrggbb for the atom's label and marks; unset draws in the document's ink
   depth?: false; // a 3D structure drawn flat (Structure Perspective off); location[2] is the atom's depth, nearer is larger
+  cip?: true; // Show Stereochemistry is on for this atom's structure: its R/S (and its double bonds' E/Z) labels show
+  halo?: string; // #rrggbb highlight: a disc behind the atom at 40% opacity (ChemDraw's highlight colours; NMR peak colours)
 };
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow";
@@ -217,7 +219,7 @@ type Plan = {
   kind: 'line' | 'wedge' | 'hash' | 'none' | 'dash' | 'hashbar' | 'wavy' | 'hollow';
   half?: number;
   head?: boolean;
-  lines: { o: number; t0: number; t1: number }[];
+  lines: { o: number; t0: number; t1: number; half?: number }[]; // half: a line's own half width (a bold double's)
   cut: [number, number];
   hidden?: boolean;
 };
@@ -419,6 +421,9 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
     }
     if (bond.type === 3) { plan.lines = [s.spacing, -s.spacing].map((o) => ({ o, t0: 0, t1: 0 })); return plan; }
     if (bond.type !== 2) return plan;
+    // Bold double (ChemDraw's ⇧B): the main line bold, the second line normal and moved out by the extra width, so
+    // the gap between them looks the same as a plain double bond's.
+    const bold = bond.display === "bold", extra = bold ? s.bold / 2 - hw : 0, spacing = s.spacing + extra;
 
     // Side of the second line: into the ring with the most double bonds (then six-membered, then smallest),
     // toward the inside of the angle at an unlabelled degree-2 end, or toward more substituents. 0 = centred.
@@ -447,12 +452,12 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
     if (!sd) {
       // Centred: lines at ±spacing/2 that stay out of the fan and run on to the neighbouring bond's axis.
       plan.kind = 'none';
-      const h = s.spacing / 2;
+      const h = spacing / 2;
       const reach = (x: number, y: number, o: number) => {
         const phi = labelled[x] ? undefined : near(x, y, Math.sign(o))[0];
         return phi === undefined ? 0 : h / Math.tan(phi);
       };
-      plan.lines = [h, -h].map((o) => ({ o, t0: reach(a, b, o), t1: reach(b, a, o) }));
+      plan.lines = [h, -h].map((o, k) => ({ o, t0: reach(a, b, o), t1: reach(b, a, o), ...(bold && !k ? { half: s.bold / 2 } : {}) }));
       return plan;
     }
     // Offset: the axis joins the fan; the inner line is trimmed back to the angle bisector at unlabelled ends.
@@ -460,10 +465,11 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
       if (labelled[x]) return 0;
       const theta = ringNbr !== undefined ? angle(sub(pts[y], pts[x]), sub(pts[ringNbr], pts[x])) : near(x, y, sd)[0];
       if (theta === undefined) return 0;
-      const t = s.spacing / Math.tan(theta / 2);
+      const t = spacing / Math.tan(theta / 2);
       return t > MAX_TRIM * L ? 0 : t;
     };
-    plan.lines = [{ o: sd * s.spacing, t0: trim(a, b, ring?.[1]), t1: trim(b, a, ring?.[ring.length - 2]) }];
+    if (bold) plan.half = s.bold / 2;
+    plan.lines = [{ o: sd * spacing, t0: trim(a, b, ring?.[1]), t1: trim(b, a, ring?.[ring.length - 2]) }];
     return plan;
   });
 
@@ -581,10 +587,10 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
         bar(add(c, mul(pl.u, -hw)), add(c, mul(pl.u, hw)), pl.n, tip + ((wide - tip) * t) / D);
       }
     }
-    for (const { o, t0, t1 } of pl.lines) {
+    for (const { o, t0, t1, half: w } of pl.lines) {
       const from = labelled[pl.a] ? pl.cut[0] : t0, to = pl.length - (labelled[pl.b] ? pl.cut[1] : t1);
       if (to - from < 0.1) continue;
-      bar(add(add(pts[pl.a], mul(pl.u, from)), mul(pl.n, o)), add(add(pts[pl.a], mul(pl.u, to)), mul(pl.n, o)), pl.n, hw);
+      bar(add(add(pts[pl.a], mul(pl.u, from)), mul(pl.n, o)), add(add(pts[pl.a], mul(pl.u, to)), mul(pl.n, o)), pl.n, w ?? hw);
     }
   };
   // Each polygon belongs to the bond it draws, so to both of its atoms' ink boxes.

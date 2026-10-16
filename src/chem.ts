@@ -187,6 +187,29 @@ export function cipOf(drawn: Mol): { atoms: (string | undefined)[]; bonds: (stri
     opts.delete();
   }
 }
+// Show Stereochemistry's labels, in the drawing's own atom and bond order: R, S (and r, s) on stereocentres and E, Z
+// on double bonds. Each structure is labelled on its own (Indigo splits a drawing into molecules). Written labels
+// (OMe, CO2Et) are expanded first; stereocentres inside a label have no drawn atom and are left out.
+export function stereoLabels(drawn: Mol): { atoms: (string | undefined)[]; bonds: (string | undefined)[] } | undefined {
+  const ind = engine(), opts = new ind.MapStringString(), atoms: (string | undefined)[] = drawn.atoms.map(() => undefined), bonds: (string | undefined)[] = drawn.bonds.map(() => undefined);
+  const clean = (c?: string) => c?.replace(/[()]/g, "") || undefined;
+  try {
+    opts.set("output-content-type", "application/json");
+    for (const group of fragments(drawn)) {
+      if (group.length < 3) continue;
+      const ids = [...group].sort((a, b) => a - b), part = subset(drawn, new Set(ids)), { from } = expandWithOrigins(part);
+      const keep = new Set(ids), partBonds = drawn.bonds.map((b, k) => (keep.has(b.atoms[0]) && keep.has(b.atoms[1]) ? k : -1)).filter((k) => k >= 0);
+      let ket;
+      try { ket = JSON.parse(JSON.parse(ind.calculateCip(ketOf(part), "ket", opts)).struct).mol0; } catch { continue; }
+      if (!ket || ket.atoms.length !== from.length) continue;
+      ket.atoms.forEach((a: { cip?: string }, k: number) => { const d = ids[from[k]]; if (clean(a.cip) && !drawn.atoms[d].text) atoms[d] = clean(a.cip); });
+      partBonds.forEach((k, j) => { bonds[k] = clean(ket.bonds[j]?.cip); });
+    }
+    return atoms.some(Boolean) || bonds.some(Boolean) ? { atoms, bonds } : undefined;
+  } finally {
+    opts.delete();
+  }
+}
 // Standard InChI, for telling whether two structures are the same. Undefined if Indigo cannot make one.
 export function toInchi(drawn: Mol | string): string | undefined {
   try {

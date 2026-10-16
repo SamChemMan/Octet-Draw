@@ -5,7 +5,7 @@
 // ChemDraw users expect it (menus and keys).
 import { useEffect, useRef, useState } from "react";
 import {
-  AlignCenterHorizontal, AlignCenterVertical, Flask, Waveform, ArrowClockwise, ArrowsClockwise, SignIn, SignOut, ArrowCounterClockwise, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretDown,
+  AlignCenterHorizontal, AlignCenterVertical, Flask, ArrowClockwise, ArrowsClockwise, SignIn, SignOut, ArrowCounterClockwise, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretDown,
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, LinkBreak, LinkSimple, ListNumbers, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAa, TextAlignCenter, TextAlignLeft,
   TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Eraser, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
@@ -20,7 +20,7 @@ import { ArrowGlyph, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, Sy
 export type Context =
   | { kind: "empty" }
   | { kind: "drawing"; nameable: boolean }
-  | { kind: "structure"; atoms: number; structures: number; next: string; nameable: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean }
+  | { kind: "structure"; atoms: number; structures: number; next: string; nameable: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; cip?: boolean }
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
   | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right"; attached: boolean; attachable: boolean;
       script?: "sub" | "super"; font?: string; fonts?: string[] }
@@ -62,6 +62,39 @@ const formula = (f: string) => f.replace(/\d/g, (d) => SUBSCRIPT[Number(d)]);
 // The caption size: click for a menu of sizes; Enter or double-click to type any size.
 const SIZES = [8, 9, 10, 12, 14, 18, 24, 36];
 // The font of the text selected (or the caption): a list of the document fonts, each shown in itself.
+// A setting with a few choices, as one small button showing the current choice: a click opens its choices, each drawn
+// as itself with its name.
+function PickButton({ label, value, options, onPick }: { label: string; value: string; options: { id: string; name: string; glyph: React.ReactNode }[]; onPick: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const escape = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); setOpen(false); } };
+    addEventListener("pointerdown", away, true);
+    addEventListener("keydown", escape, true);
+    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); };
+  }, [open]);
+  const current = options.find((o) => o.id === value) ?? options[0];
+  return (
+    <div className="pick" ref={box}>
+      <button className="chip pick-button" aria-haspopup="menu" aria-expanded={open} aria-label={`${label}: ${current.name}`} title={`${label}: ${current.name}`} onClick={() => setOpen(!open)}>
+        <span className="pick-label" aria-hidden>{label}</span>
+        {current.glyph}
+      </button>
+      {open && (
+        <div className="size-menu pick-menu" role="menu" aria-label={label}>
+          {options.map((o) => (
+            <button key={o.id} role="menuitemradio" aria-checked={o.id === value} onClick={() => { setOpen(false); if (o.id !== value) onPick(o.id); }}>
+              <span className="pick-glyph" aria-hidden>{o.glyph}</span>{o.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FontButton({ font, fonts, run }: { font: string; fonts: string[]; run: (command: string) => void }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -192,6 +225,19 @@ function TableGlyph({ on, faint }: { on: TableLine[]; faint?: boolean }) {
 
 // small: shown as a small button by default (the user can drag it into the rows, and any row out of them).
 export type Item = { icon: React.ReactNode; name: string; command: string; accent?: boolean; small?: boolean };
+// The small buttons fall into sets, each set on its own line under a hairline: what the structure is (properties,
+// stereo, NMR), turning and flipping, marks on it, arranging things, keeping it, and Delete last.
+const SETS = ["analysis", "turn", "marks", "arrange", "library", "other", "delete"] as const;
+const SET_OF: Record<string, (typeof SETS)[number]> = {
+  properties: "analysis", show_stereo: "analysis", predict_1h: "analysis", predict_13c: "analysis",
+  "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "turn", flatten: "turn",
+  pairs: "marks", number: "marks", "caption.add": "marks",
+  "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "arrange", ungroup: "arrange", group_integral: "arrange",
+  arrange_left: "arrange", arrange_centre: "arrange", arrange_right: "arrange", arrange_top: "arrange", arrange_middle: "arrange", arrange_bottom: "arrange",
+  arrange_across: "arrange", arrange_down: "arrange", "shape.front": "arrange", "shape.back": "arrange",
+  copy_smiles: "library", "template.add": "library", delete: "delete",
+};
+const setOf = (command: string) => SET_OF[command] ?? "other";
 
 // The actions for a selection, likeliest first. The panel shows them; the command palette lists them too.
 export function actionItems(context: Context, messy: boolean): Item[] {
@@ -222,7 +268,7 @@ export function actionItems(context: Context, messy: boolean): Item[] {
       items.push(small(it(<ListNumbers size={18} />, context.structures > 1 ? "Number these compounds" : "Number this compound", "number")),
         small(it(<TextT size={18} />, "Add a caption", "caption.add")),
         small(it(<ArrowClockwise size={18} />, "Turn 15° right", "rotate.cw15")), small(it(<ArrowCounterClockwise size={18} />, "Turn 15° left", "rotate.ccw15")),
-        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")), small(it(<Flask size={18} />, "Properties", "properties")), small(it(<Waveform size={18} />, "Predict ¹H NMR shifts", "predict_1h")), small(it(<Waveform size={18} />, "Predict ¹³C NMR shifts", "predict_13c")));
+        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")), small(it(<Flask size={18} />, "Properties", "properties")), small(it(<TagSimple size={18} />, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C NMR shifts", "predict_13c")));
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<AlignCenterHorizontal size={18} />, "Line up in a row", "align.row")),
         small(it(<AlignCenterVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
       if (context.depth !== undefined) items.push(small(it(<Cube size={18} />, context.depth ? "Draw flat" : "Draw with depth", "structure_perspective")), small(it(<Square size={18} />, "Flatten", "flatten")));
@@ -372,8 +418,8 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
     const [i, j] = [mine.order.indexOf(a.command), mine.order.indexOf(b.command)];
     return i < 0 || j < 0 ? 0 : i - j;
   });
-  // By default the main actions come first as rows, and the ones marked small follow as small buttons.
-  if (!mine) items.sort((a, b) => Number(!!a.small) - Number(!!b.small));
+  // By default the main actions come first as rows, and the ones marked small follow as small buttons, set by set.
+  if (!mine) items.sort((a, b) => Number(!!a.small) - Number(!!b.small) || (a.small ? SETS.indexOf(setOf(a.command)) - SETS.indexOf(setOf(b.command)) : 0));
   const split = Math.min(items.length, mine ? mine.rows : items.filter((i) => !i.small).length);
   const rows = items.slice(0, split), tray = items.slice(split);
 
@@ -633,40 +679,6 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
         );
       })()}
 
-      {context.kind === "arrow" && context.heads && (() => {
-        // The Curves controls, as ChemDraw's Curves menu: the line, the head at each end, the heads' shape, and
-        // a closed curve's fill. Each chip draws what it does.
-        const c = context, chip = (key: string, name: string, on: boolean, command: string, glyph: React.ReactNode) => (
-          <button key={key} className="chip" aria-pressed={on} aria-label={name} title={name} onClick={() => run(command)}>{glyph}</button>
-        );
-        const HEADS = [["none", "No arrowhead"], ["full", "Arrowhead"], ["left", "Half arrowhead, left"], ["right", "Half arrowhead, right"]] as const;
-        return (
-          <>
-            <div className="chips arrows" role="group" aria-label="Line">
-              {([["plain", "Plain line"], ["dashed", "Dashed line"], ["bold", "Bold line"], ["doubled", "Double line"], ["wavy", "Wavy line"]] as const).map(([st, name]) =>
-                chip(st, name, c.style === st, `arrow.style.${st}`, <LineGlyph style={st} />))}
-            </div>
-            <div className="chips arrows" role="group" aria-label="Start">
-              {HEADS.map(([h, name]) => chip(h, `${name} at the start`, c.start === h, `arrow.start.${h}`, <LineGlyph start={h} head={c.head} />))}
-            </div>
-            <div className="chips arrows" role="group" aria-label="End">
-              {HEADS.map(([h, name]) => chip(h, `${name} at the end`, c.end === h, `arrow.end.${h}`, <LineGlyph end={h} head={c.head} />))}
-            </div>
-            {(c.start !== "none" || c.end !== "none") && (
-              <div className="chips arrows" role="group" aria-label="Arrowheads">
-                {([["solid", "Solid arrowheads"], ["hollow", "Hollow arrowheads"], ["angled", "Open arrowheads"]] as const).map(([h, name]) =>
-                  chip(h, name, c.head === h, `arrow.head.${h}`, <LineGlyph end="full" head={h} />))}
-              </div>
-            )}
-            {c.closed && (
-              <div className="chips arrows" role="group" aria-label="Fill">
-                {([["none", "No fill"], ["solid", "Filled"], ["shaded", "Shaded"], ["faded", "Faded"]] as const).map(([f, name]) =>
-                  chip(f, name, c.fill === f, `arrow.fill.${f}`, <FillGlyph fill={f} />))}
-              </div>
-            )}
-          </>
-        );
-      })()}
       {context.kind === "arrow" && context.orbital && (() => {
         // The orbital's shape, and its phases, each drawn as itself.
         const o = context.orbital;
@@ -690,6 +702,7 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
         );
       })()}
       {context.kind === "arrow" && !isLine({ kind: context.arrow }) && context.arrow !== "orbital" && (
+        // The arrow's kind, the choice made most: reaction, equilibrium, resonance, retrosynthetic, no-go.
         <div className="chips arrows" role="group" aria-label="Arrow">
           {ARROW_KINDS.map((kind) => (
             <button key={kind} className="chip" aria-pressed={context.arrow === kind} aria-label={ARROWS[kind]} title={ARROWS[kind]} onClick={() => run(`arrow.kind.${kind}`)}>
@@ -698,16 +711,25 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
           ))}
         </div>
       )}
-      {context.kind === "arrow" && context.curved && (
-        <div className="chips arrows" role="group" aria-label="Sweep">
-          {SWEEPS.map((sweep) => (
-            <button key={sweep} className="chip" aria-pressed={context.sweep === sweep} aria-label={`${sweep}°`} title={`${sweep}°`} onClick={() => run(`arrow.sweep.${sweep}`)}>
-              {context.arrow === "arc" ? <ElementGlyph v={`arc-${sweep}`} /> : <ArrowGlyph kind={`${curved({ kind: context.arrow }) ? context.arrow : "curved"}-${sweep}`} />}
-            </button>
-          ))}
-        </div>
-      )}
-
+      {context.kind === "arrow" && (context.heads || context.curved) && (() => {
+        // The rest of ChemDraw's Curves menu, one small button each: the line, the head at each end, the heads' shape,
+        // the curve's sweep and a closed curve's fill. Each shows its choice; a click opens the others.
+        const c = context, HEADS = [["none", "None"], ["full", "Arrowhead"], ["left", "Half, left"], ["right", "Half, right"]] as const;
+        return (
+          <div className="picks" role="group" aria-label="Line and arrowheads">
+            {c.heads && <PickButton label="Line" value={c.style ?? "plain"} onPick={(v) => run(`arrow.style.${v}`)}
+              options={([["plain", "Plain"], ["dashed", "Dashed"], ["bold", "Bold"], ["doubled", "Double"], ["wavy", "Wavy"]] as const).map(([id, name]) => ({ id, name, glyph: <LineGlyph style={id} /> }))} />}
+            {c.heads && <PickButton label="Start" value={c.start ?? "none"} onPick={(v) => run(`arrow.start.${v}`)} options={HEADS.map(([id, name]) => ({ id, name, glyph: <LineGlyph start={id} head={c.head} /> }))} />}
+            {c.heads && <PickButton label="End" value={c.end ?? "none"} onPick={(v) => run(`arrow.end.${v}`)} options={HEADS.map(([id, name]) => ({ id, name, glyph: <LineGlyph end={id} head={c.head} /> }))} />}
+            {c.heads && (c.start !== "none" || c.end !== "none") && <PickButton label="Heads" value={c.head ?? "solid"} onPick={(v) => run(`arrow.head.${v}`)}
+              options={([["solid", "Solid"], ["hollow", "Hollow"], ["angled", "Open"]] as const).map(([id, name]) => ({ id, name, glyph: <LineGlyph end="full" head={id} /> }))} />}
+            {c.curved && <PickButton label="Curve" value={String(c.sweep ?? 120)} onPick={(v) => run(`arrow.sweep.${v}`)}
+              options={SWEEPS.map((sweep) => ({ id: String(sweep), name: `${sweep}°`, glyph: c.arrow === "arc" ? <ElementGlyph v={`arc-${sweep}`} /> : <ArrowGlyph kind={`${curved({ kind: c.arrow }) ? c.arrow : "curved"}-${sweep}`} /> }))} />}
+            {c.closed && <PickButton label="Fill" value={c.fill ?? "none"} onPick={(v) => run(`arrow.fill.${v}`)}
+              options={([["none", "None"], ["solid", "Filled"], ["shaded", "Shaded"], ["faded", "Faded"]] as const).map(([id, name]) => ({ id, name, glyph: <FillGlyph fill={id} /> }))} />}
+          </div>
+        );
+      })()}
       {colour && (
         // One colour row for every kind of selection. A highlight takes a pale fill; anything else an ink colour.
         <div className="swatches small" role="radiogroup" aria-label="Colour">
@@ -733,7 +755,9 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
 
       {(tray.length > 0 || carry) && (
         <div className={carry && !carry.to?.rows && carry.to ? "tray receiving" : "tray"} role="toolbar" aria-label="More actions">
-          {tray.map((i) => (
+          {tray.reduce<Item[][]>((sets, i, k) => (k && setOf(i.command) === setOf(tray[k - 1].command) ? (sets[sets.length - 1].push(i), sets) : [...sets, [i]]), []).map((set) => (
+            <div key={set[0].command} className="tray-set">
+            {set.map((i) => (
             <button
               key={i.command}
               data-command={i.command}
@@ -748,6 +772,8 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
             >
               {i.icon}
             </button>
+            ))}
+            </div>
           ))}
         </div>
       )}
