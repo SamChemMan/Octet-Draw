@@ -3285,3 +3285,15 @@ button.variant.add {
   color: var(--error);
   fill: var(--error);
 }
+.pick-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  opacity: 0.7;
+}
+.pick-swatch.none {
+  background: linear-gradient(135deg, transparent 45%, var(--ink-faint) 45% 55%, transparent 55%);
+  border: 1px solid var(--hairline);
+  opacity: 1;
+}

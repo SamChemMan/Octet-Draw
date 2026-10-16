@@ -1721,7 +1721,7 @@ export default function Editor() {
     const ids = [...selection].filter((i) => i < doc.atoms.length);
     if (ids.length === 1) {
       const a = doc.atoms[ids[0]];
-      return { kind: "atom", label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre: stereocentres(doc).includes(ids[0]), enhanced: a.enhanced };
+      return { kind: "atom", label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre: stereocentres(doc).includes(ids[0]), enhanced: a.enhanced, halo: a.halo, fill: a.fill };
     }
     const bi = ids.length === 2 ? doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])) : -1;
     if (bi >= 0) {
@@ -1741,7 +1741,10 @@ export default function Editor() {
     // A 3D structure (Structure Perspective): drawn with depth, or flat.
     const solid = ids.some((i) => Math.abs(doc.atoms[i].location[2] ?? 0) > 1e-3);
     return { kind: "structure", atoms: ids.length, structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextNumber(doc), nameable, pairs, stereo,
-      ...(solid ? { depth: !ids.some((i) => doc.atoms[i].depth === false) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip) };
+      ...(solid ? { depth: !ids.some((i) => doc.atoms[i].depth === false) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip),
+      // The highlight and ring fill the selected atoms share, if they share one.
+      halo: ids.every((i) => doc.atoms[i].halo === doc.atoms[ids[0]].halo) ? doc.atoms[ids[0]].halo : undefined,
+      fill: ids.filter((i) => doc.atoms[i].fill).every((i) => doc.atoms[i].fill === doc.atoms[ids.find((k) => doc.atoms[k].fill) ?? 0].fill) ? doc.atoms[ids.find((k) => doc.atoms[k].fill) ?? 0]?.fill : undefined };
   })();
   // What the panel knows about the drawing: formula and mass (of the selection, or everything), problems, mess.
   const analysis = useMemo(() => (loaded ? analyse(selection.size ? subset(doc, selection) : doc) : undefined), [loaded, doc, selection]);
@@ -2022,6 +2025,22 @@ export default function Editor() {
         arrows: doc.arrows?.map(pick), shapes: doc.shapes?.map(pick), cycles: doc.cycles?.map(pick),
         captions: doc.captions?.map((c) => (picked.has(c.id) ? { ...c, colour: hex.toLowerCase() === style.colour.toLowerCase() ? undefined : hex } : c)),
       }, true);
+    }
+    // Highlight colours (a disc behind each selected atom) and ring fills (every ring wholly selected), as ChemDraw's
+    // Highlight and Ring Fill colour toolbars; none takes them off.
+    if (command.startsWith("halo.") || command.startsWith("ringfill.")) {
+      const value = command.split(".")[1], c = value === "none" ? undefined : value, key = command.startsWith("halo.") ? "halo" : "fill";
+      const atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i));
+      const inRing = key === "fill" ? new Set(rings({ atoms: doc.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: doc.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) })
+        .filter((r) => r.every((i) => atoms.has(i))).flat()) : atoms;
+      return set({ ...doc, atoms: doc.atoms.map((a, i) => (inRing.has(i) ? { ...a, [key]: c } : a)) }, true);
+    }
+    // Colour by Element: heteroatom labels in their usual colours (N blue, O red, S gold, P orange, halogens green,
+    // Br brown, I purple); carbon and hydrogen keep the ink.
+    if (command === "colour_by_element") {
+      const BY: Record<string, string> = { N: "#2F55D4", O: "#D9342B", S: "#B58900", P: "#E07B00", F: "#1E9E4A", Cl: "#1E9E4A", Br: "#A5442A", I: "#7B2FBE", B: "#C76B6B", Si: "#8A6D3B", Se: "#B58900" };
+      const atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i));
+      return set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) && BY[a.label] ? { ...a, colour: BY[a.label] } : a)) }, true);
     }
     if (command === "copy_smiles") return void document.execCommand("copy");
     if (command === "paste_hint") return setNotice(`Copy a SMILES string or MOL file, then press ${MOD}V here.`);
@@ -2617,6 +2636,10 @@ export default function Editor() {
           {/* The drawing and its marks, without the page, so the Spectrum panel can show the structure beside its spectrum. */}
           <g id="world">
           {/* Fills go behind the structures: highlights, shadows (with the shape white over them), solid and shaded shapes. */}
+          {/* Ring fills: a ring whose atoms all have one fill, filled with it behind the bonds. */}
+          {shown.atoms.some((at) => at.fill) && rings({ atoms: shown.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: shown.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) })
+            .filter((r) => r.length <= 12 && shown.atoms[r[0]].fill && r.every((i) => shown.atoms[i].fill === shown.atoms[r[0]].fill))
+            .map((r) => <polygon key={`fill${r.join("-")}`} points={r.map((i) => `${pos(shown, i)[0] * L},${-pos(shown, i)[1] * L}`).join(" ")} fill={shown.atoms[r[0]].fill} fillOpacity={0.3} />)}
           {/* Highlight colours: a disc behind each highlighted atom, one group per colour so overlapping discs don't darken. */}
           {[...new Set(shown.atoms.map((at) => at.halo).filter((c): c is string => !!c))].map((c) => (
             <g key={`halo${c}`} className="atom-halo" opacity={0.4} fill={c}>
