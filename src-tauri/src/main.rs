@@ -47,7 +47,10 @@ fn set_palette(app: AppHandle, checks: State<'_, Checks>, names: Vec<String>) ->
 }
 
 const MAX_BYTES: u64 = 64 * 1024 * 1024;
-const FILTER: (&str, &[&str]) = ("Octet drawing", &["octet"]);
+// Octet saves .oct, a CDXML file with Octet's drawing inside (decision 0004), or .cdxml, which is the same file.
+// It opens both, and the older .octet files.
+const OPEN: (&str, &[&str]) = ("Drawings", &["oct", "cdxml", "octet"]);
+const SAVE: [(&str, &[&str]); 2] = [("Octet drawing", &["oct"]), ("ChemDraw drawing", &["cdxml"])];
 
 // Write to a temporary file next to the target, flush it to disk, then rename it over the target.
 // A crash mid-save leaves the old file intact.
@@ -69,7 +72,7 @@ fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
 
 #[tauri::command]
 async fn open_drawing(app: AppHandle, picked: State<'_, Picked>) -> Result<Option<(String, String)>, String> {
-    let Some(file) = app.dialog().file().add_filter(FILTER.0, FILTER.1).blocking_pick_file() else {
+    let Some(file) = app.dialog().file().add_filter(OPEN.0, OPEN.1).blocking_pick_file() else {
         return Ok(None);
     };
     let path = file.into_path().map_err(|e| e.to_string())?;
@@ -103,16 +106,20 @@ async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<St
     if contents.len() as u64 > MAX_BYTES {
         return Err("This drawing is larger than 64 MB. Octet cannot save it.".into());
     }
-    let known = path.map(PathBuf::from).filter(|p| picked.0.lock().unwrap().contains(p));
+    // An old .octet file is saved as a new .oct beside it, so Save asks where, as Save As does.
+    let given = path.map(PathBuf::from);
+    let stem = given.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Untitled".into());
+    let known = given.filter(|p| picked.0.lock().unwrap().contains(p) && p.extension().is_some_and(|e| e == "oct" || e == "cdxml"));
     let target = match known {
         Some(p) => p,
         None => {
-            let Some(file) = app.dialog().file().add_filter(FILTER.0, FILTER.1).set_file_name("Untitled.octet").blocking_save_file() else {
+            let dialog = SAVE.iter().fold(app.dialog().file(), |d, (name, ext)| d.add_filter(*name, ext));
+            let Some(file) = dialog.set_file_name(format!("{stem}.oct")).blocking_save_file() else {
                 return Ok(None);
             };
             let mut p = file.into_path().map_err(|e| e.to_string())?;
-            if p.extension().is_none_or(|e| e != "octet") {
-                p.set_extension("octet");
+            if p.extension().is_none_or(|e| e != "oct" && e != "cdxml") {
+                p.set_extension("oct");
             }
             p
         }

@@ -8,7 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
-import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, toMoleculeCdxml, type Structure, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
+import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
 import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, FONTS, type DocStyle, type PageName } from "./docstyle";
 import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
@@ -27,6 +27,8 @@ import { acsText, multiplicity, quality } from "./nmr";
 import { nmrReady, predict, type Nucleus } from "./nmr";
 import { rings } from "./rings";
 import { Select } from "./Select";
+import { fromCdxml, toCdxml, type CdxmlOptions } from "./cdxml";
+import { readOct, writeOct } from "./oct";
 import { flushSync } from "react-dom";
 import { copyToClipboard, exportFile, readClipboard, standaloneSvg, UI } from "./export";
 import { formatAmount, formulaWeight, parseAmount, solve, type Field } from "./stoich";
@@ -383,7 +385,7 @@ export default function Editor() {
   // After an edit, the thing under a still pointer may have changed.
   useEffect(() => { if (pointer.current) setHover(hit(pointer.current)); }, [doc]);
 
-  const name = file.path?.split(/[\\/]/).pop()?.replace(/\.octet$/, "") ?? "Untitled";
+  const name = file.path?.split(/[\\/]/).pop()?.replace(/\.(octet|oct|cdxml)$/i, "") ?? "Untitled";
   useEffect(() => { if (TAURI) getCurrentWindow().setTitle(dirty ? `${name} (edited)` : name); }, [name, dirty]);
 
   // A picture of part of the drawing (or all of it) as a standalone SVG at true size: the canvas shows only that part
@@ -413,7 +415,9 @@ export default function Editor() {
   // What other programs read: the molecules as a molfile and SMILES, and CDXML; undefined where Indigo cannot write them.
   const chemistryOf = (part: Mol) => {
     const tryIt = (f: () => string) => { try { return part.atoms.length && loaded ? f() || undefined : undefined; } catch { return undefined; } };
-    return { molfile: tryIt(() => toMolfile(part)), smiles: tryIt(() => toSmiles(part)), cdxml: tryIt(() => toMoleculeCdxml(part)) };
+    let cdxml: string | undefined;
+    try { cdxml = toCdxml(part, style, cdxmlOptions()); } catch { cdxml = undefined; }
+    return { molfile: tryIt(() => toMolfile(part)), smiles: tryIt(() => toSmiles(part)), cdxml };
   };
   // File > Print (⌘P): the document's page at true size, the drawing where it sits on the page, as a picture the
   // print layout shows alone (the editor's chrome is hidden for printing), then the system's print dialog.
@@ -440,9 +444,20 @@ export default function Editor() {
       setNotice(`Octet cannot export this drawing. ${e}`);
     }
   }
+  // What the CDXML writer needs from the editor: a catalytic cycle's arrows (drawn from the cycle, so not in the
+  // drawing), each written label's atoms for ChemDraw's abbreviations, and the document's name.
+  const cdxmlOptions = (): CdxmlOptions => ({
+    derived: cycleArrows, name,
+    expand: (text) => { const smiles = loaded ? labelSmiles(text) : undefined; try { return smiles ? parseStructure(smiles) : undefined; } catch { return undefined; } },
+  });
+  // What Octet could not hold from a ChemDraw file, said once: "Octet left out 6 annotations and 1 rotated shape."
+  const sayLost = (lost: Record<string, number>) => {
+    const parts = Object.entries(lost).map(([what, n]) => `${n} ${what}${n > 1 && !/s$/.test(what) ? "s" : ""}`);
+    if (parts.length) setNotice(`Octet left out ${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0]}.`);
+  };
   async function save(as: boolean) {
     try {
-      const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), contents: serialize(doc) });
+      const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), contents: writeOct(doc, style, cdxmlOptions()) });
       if (path) setFile({ path, saved: doc });
     } catch (e) {
       setNotice(`Octet cannot save this drawing. ${e}`);
@@ -452,9 +467,10 @@ export default function Editor() {
     try {
       const picked = await invoke<[string, string] | null>("open_drawing");
       if (!picked) return;
-      const mol = parse(picked[1]);
+      const { mol, lost } = readOct(picked[1]);
       set(mol);
       setFile({ path: picked[0], saved: mol });
+      sayLost(lost);
       const b = bounds(mol);
       if (b) setView((v) => ({ ...v, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * v.zoom * L, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * v.zoom * L }));
     } catch (e) {
@@ -466,6 +482,15 @@ export default function Editor() {
     try {
       const picked = await invoke<[string, string] | null>("import_structure");
       if (!picked) return;
+      if (/<CDXML[\s>/]/.test(picked[1].slice(0, 65536))) {
+        // A ChemDraw drawing: all of it, arrows and text too, to the right of what is there.
+        const { mol: add, lost } = fromCdxml(picked[1]);
+        const r = insertMol(doc, { ...add, style: undefined }, add.atoms.length ? landing(add) : [0, 0]);
+        set(r.mol, true);
+        setSelection(r.atoms);
+        setPicked(r.items);
+        return sayLost(lost);
+      }
       place(importStructure(picked[1]));
     } catch (e) {
       setNotice(e instanceof Error ? `Octet cannot read this file. ${e.message}` : String(e));
@@ -2673,7 +2698,20 @@ export default function Editor() {
             setPicked(r.items);
             return;
           }
-          for (const source of [clip.cdxml, clip.molfile, clip.smiles, text]) {
+          // ChemDraw's (or Word's copy of ChemDraw's) drawing: all of it, arrows and text too.
+          if (clip.cdxml) {
+            try {
+              const { mol: add, lost } = fromCdxml(clip.cdxml);
+              if (add.atoms.length || add.arrows?.length || add.captions?.length || add.shapes?.length) {
+                const r = insertMol(doc, { ...add, style: undefined }, add.atoms.length ? landing(add) : [0, 0]);
+                set(r.mol, true);
+                setSelection(r.atoms);
+                setPicked(r.items);
+                return sayLost(lost);
+              }
+            } catch { /* read the molfile or SMILES instead */ }
+          }
+          for (const source of [clip.molfile, clip.smiles, text]) {
             if (!source || !loaded) continue;
             let frag: Mol | undefined;
             try { frag = source === text ? parseStructure(source) : importStructure(source); } catch { frag = undefined; }

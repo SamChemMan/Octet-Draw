@@ -26,3 +26,13 @@ file has to be CDXML inside.
   CDXML it wrote; when the hash no longer matches, Octet reads the CDXML and ignores the embedded part.
 - `.oct` is also the extension of GNU Octave's compiled function files. A clash in the Finder is
   unlikely, since few chemists have Octave installed.
+
+## How it is built (16 October 2026)
+
+- `src/oct.ts` writes the CDXML from `src/cdxml.ts`, then a comment after it:
+  `<!--Octet 1 <hash> <base64 of Octet's JSON>-->`. The hash is of the CDXML before the comment.
+- On open, a matching hash gives Octet's JSON back exactly. A changed or missing hash, or a damaged copy, and
+  Octet reads the CDXML, and says what it could not hold.
+- Save writes `.oct` by default and keeps `.cdxml` if the user picks it. Saving an old `.octet` file asks for a
+  new `.oct` name.
+- Not tested in ChemDraw yet: whether ChemDraw opens a `.oct`, and what it does with the comment when it saves.
