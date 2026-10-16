@@ -39,8 +39,8 @@ export function writeOct(mol: Mol, style: DocStyle, opts: CdxmlOptions = {}): st
 }
 
 // A drawing from a file: Octet's own drawing when the CDXML around it is unchanged, otherwise the CDXML (with what
-// Octet could not hold counted in `lost`), or an old .octet file's JSON.
-export function readOct(text: string): { mol: Mol; lost: Record<string, number> } {
+// Octet could not hold counted in `lost`, and `foreign` set), or an old .octet file's JSON.
+export function readOct(text: string): { mol: Mol; lost: Record<string, number>; foreign?: true } {
   if (/^\s*\{/.test(text)) return { mol: parse(text), lost: {} };
   const at = text.lastIndexOf(MARK);
   if (at >= 0) {
@@ -50,5 +50,5 @@ export function readOct(text: string): { mol: Mol; lost: Record<string, number> 
     }
   }
   const read = fromCdxml(text);
-  return { mol: { ...read.mol, style: read.style }, lost: read.lost };
+  return { mol: { ...read.mol, style: read.style }, lost: read.lost, foreign: true };
 }

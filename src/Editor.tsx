@@ -467,7 +467,9 @@ export default function Editor() {
     try {
       const picked = await invoke<[string, string] | null>("open_drawing");
       if (!picked) return;
-      const { mol, lost } = readOct(picked[1]);
+      const read = readOct(picked[1]), lost = read.lost;
+      // Settings > Files > Keep ChemDraw styles off: another program's drawing takes Octet's default style.
+      const mol = read.foreign && !settings.files.keepStyle ? { ...read.mol, style: undefined } : read.mol;
       set(mol);
       setFile({ path: picked[0], saved: mol });
       sayLost(lost);
