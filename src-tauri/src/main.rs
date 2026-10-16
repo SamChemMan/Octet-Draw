@@ -205,6 +205,8 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
         &MenuItem::with_id(app, "mirror_v", "Flip Vertical", true, None::<&str>)?,
         &item("flip_h", "Rotate 180° Horizontal", "CmdOrCtrl+Shift+H")?,
         &item("flip_v", "Rotate 180° Vertical", "CmdOrCtrl+Shift+V")?,
+        &item("rotate_dialog", "Rotate…", "CmdOrCtrl+R")?,
+        &item("scale_dialog", "Scale…", "CmdOrCtrl+K")?,
     ])?;
     // Text commands style the caption being typed, or the picked captions.
     let sizes = [8, 9, 10, 12, 14, 18, 24]

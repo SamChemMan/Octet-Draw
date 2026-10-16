@@ -1457,7 +1457,8 @@ button.variant.add {
 .segmented button {
   display: grid;
   place-items: center;
-  width: 34px;
+  min-width: 34px;
+  padding: 0 var(--space-2);
   border: 0;
   border-radius: var(--radius-xs);
   background: transparent;
@@ -2786,6 +2787,60 @@ button.variant.add {
   transform: scale(1.1);
 }
 .slider input[type="range"]:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* Octet's one dialog (Dialog.tsx): a small card, its title, its fields one to a row, Cancel and the action. */
+.dialog {
+  display: grid;
+  gap: var(--space-3);
+  width: min(380px, calc(100vw - 32px));
+  padding: var(--space-4);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-float);
+  color: var(--ink);
+  font: 13px/18px var(--font-sans);
+  animation: modal-in 200ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.dialog h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.dialog-body {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+.dialog-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 32px;
+}
+.dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.dialog-button {
+  min-width: 80px;
+  padding: 6px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--ink);
+  font: 13px/18px var(--font-sans);
+}
+.dialog-button.primary {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: #fff;
+}
+.dialog-button:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
 }

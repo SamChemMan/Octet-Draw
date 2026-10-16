@@ -42,6 +42,7 @@ import { loadTemplates, newTemplate, templateKind } from "./templates";
 import { formulaRuns } from "./labels";
 import { common, edited, lines as richLines, normalise, plainOf, runsOf, styleRange, styled, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
+import { Dialog } from "./Dialog";
 import "./editor.css";
 
 
@@ -469,6 +470,9 @@ export default function Editor() {
     // group and object is one thing; they line up on the one highest on the page, or space out evenly between the
     // two at the ends.
     ...Object.fromEntries((["left", "centre", "right", "top", "middle", "bottom", "across", "down"] as const).map((how) => [`arrange_${how}`, () => arrange(how)])),
+    // Rotate… (⌘R) and Scale… (⌘K), as ChemDraw's.
+    rotate_dialog: () => setDialog({ kind: "rotate", angle: "90", clockwise: false }),
+    scale_dialog: () => setDialog({ kind: "scale", how: "document", value: "100" }),
     // Group (⌘G) and Ungroup (⇧⌘G), as ChemDraw's: the selected structures and objects select and move as one.
     group: () => {
       const r = groupSelection(doc, selection, picked);
@@ -609,6 +613,8 @@ export default function Editor() {
   // The Settings window, open at a module.
   const [settingsOpen, setSettingsOpen] = useState<ModuleId>();
   const [addingColour, setAddingColour] = useState(false); // Settings opened from a colour row's +, to add a colour
+  // Object > Rotate… (⌘R) and Scale… (⌘K): the dialog open, and what is typed in it.
+  const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }>();
   const [commandsOpen, setCommandsOpen] = useState(false);
   // An arrow Octet offers after a row of starting materials (from Clean up). Tab draws it; any other change drops it.
   const [offer, setOffer] = useState<{ from: P; to: P; doc: Mol }>();
@@ -1010,6 +1016,45 @@ export default function Editor() {
     }
     return out;
   }
+  // Rotate… and Scale…: every point of the selection (or the whole drawing) moved by f about the selection's middle.
+  // Shapes keep their own size and turn about their middle; atoms, text, arrows and curves move point by point.
+  function transformSelection(f: (q: P) => P, scale = 1) {
+    const all = !selection.size && !picked.size, atoms = all ? new Set(doc.atoms.map((_, i) => i)) : selection;
+    const items = all ? new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? [])].map((x) => x.id)) : picked;
+    const by = (q: [number, number]): [number, number] => f(q);
+    const mid = (a: [number, number], b: [number, number]): [number, number] => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    set({
+      ...doc,
+      atoms: doc.atoms.map((a, i) => (atoms.has(i) ? { ...a, location: [...by([a.location[0], a.location[1]]), (a.location[2] ?? 0) * scale] as [number, number, number] } : a)),
+      captions: doc.captions?.map((c) => (items.has(c.id) && !c.under && !c.on && !c.cycle ? { ...c, ...(([x, y]) => ({ x, y }))(by([c.x, c.y])) } : c)),
+      arrows: doc.arrows?.map((a) => (items.has(a.id) ? { ...a, from: by(a.from), to: by(a.to), ...(a.curve ? { curve: { ...a.curve, points: a.curve.points.map((q) => ({ at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) } : a)),
+      shapes: doc.shapes?.map((x) => {
+        if (!items.has(x.id)) return x;
+        const c = mid(x.from, x.to), to = by(c), half: [number, number] = [((x.to[0] - x.from[0]) / 2) * scale, ((x.to[1] - x.from[1]) / 2) * scale];
+        return { ...x, from: [to[0] - half[0], to[1] - half[1]], to: [to[0] + half[0], to[1] + half[1]] };
+      }),
+    }, true);
+  }
+  // The middle of the selection (or the whole drawing), in drawing units.
+  const selectionMiddle = (): P => {
+    const all = !selection.size && !picked.size, pts: P[] = [...doc.atoms.map((_, i) => i).filter((i) => all || selection.has(i)).map((i) => pos(doc, i)),
+      ...[...(doc.arrows ?? []), ...(doc.shapes ?? [])].filter((x) => all || picked.has(x.id)).flatMap((x) => [x.from, x.to])];
+    return pts.length ? [(Math.min(...pts.map((q) => q[0])) + Math.max(...pts.map((q) => q[0]))) / 2, (Math.min(...pts.map((q) => q[1])) + Math.max(...pts.map((q) => q[1]))) / 2] : [0, 0];
+  };
+  function rotateBy(degrees: number) {
+    const c = selectionMiddle(), r = (degrees * Math.PI) / 180, [cs, sn] = [Math.cos(r), Math.sin(r)];
+    transformSelection((q) => [c[0] + (q[0] - c[0]) * cs - (q[1] - c[1]) * sn, c[1] + (q[0] - c[0]) * sn + (q[1] - c[1]) * cs]);
+  }
+  function scaleBy(k: number) {
+    if (!(k > 0) || !Number.isFinite(k)) return;
+    const c = selectionMiddle();
+    transformSelection((q) => [c[0] + (q[0] - c[0]) * k, c[1] + (q[1] - c[1]) * k], k);
+  }
+  // The median bond length of the selection (or the drawing), in drawing units.
+  const medianBond = () => {
+    const all = !selection.size, ls = doc.bonds.filter((b) => all || (selection.has(b.atoms[0]) && selection.has(b.atoms[1]))).map((b) => Math.hypot(pos(doc, b.atoms[0])[0] - pos(doc, b.atoms[1])[0], pos(doc, b.atoms[0])[1] - pos(doc, b.atoms[1])[1])).sort((p, q) => p - q);
+    return ls.length ? ls[Math.floor(ls.length / 2)] : 1;
+  };
   // Moves one of those things by d (drawing units): its atoms, free captions, arrows, shapes and curve points.
   const shiftThing = (m: Mol, t: { atoms: number[]; items: number[] }, d: P): Mol => {
     const ids = new Set(t.items), by = (q: [number, number]): [number, number] => [q[0] + d[0], q[1] + d[1]];
@@ -1593,6 +1638,7 @@ export default function Editor() {
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <MagicWand size={18} />],
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
     structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />],
+    rotate_dialog: ["Rotate…", `${MOD}R`, <ArrowClockwise size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <ArrowsOutSimple size={18} />],
     group: ["Group", `${MOD}G`, <BoundingBox size={18} />], ungroup: ["Ungroup", `⇧${MOD}G`, <SelectionSlash size={18} />],
     arrange_left: ["Align left edges", `⇧⌥${MOD}L`, <AlignLeft size={18} />], arrange_centre: ["Align left-right centres", `⇧⌥${MOD}C`, <AlignCenterHorizontal size={18} />],
     arrange_right: ["Align right edges", `⇧⌥${MOD}R`, <AlignRight size={18} />], arrange_top: ["Align top edges", `⇧⌥${MOD}T`, <AlignTop size={18} />],
@@ -2674,6 +2720,38 @@ export default function Editor() {
         palette={settings.palette}
         run={runAction}
       />
+      {dialog?.kind === "rotate" && (
+        <Dialog title="Rotate" action="Rotate" onClose={() => setDialog(undefined)}
+          onAction={() => { const a = Number(dialog.angle); if (Number.isFinite(a)) rotateBy(dialog.clockwise ? -a : a); setDialog(undefined); }}>
+          <label className="dialog-row">
+            <span>Angle</span>
+            <span className="unit-field"><input aria-label="Angle" inputMode="decimal" value={dialog.angle} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, angle: e.target.value.replace(/[^\d.-]/g, "") })} /><span className="unit">°</span></span>
+          </label>
+          <span className="segmented" role="radiogroup" aria-label="Direction">
+            <button role="radio" aria-checked={!dialog.clockwise} onClick={() => setDialog({ ...dialog, clockwise: false })}>Anticlockwise</button>
+            <button role="radio" aria-checked={dialog.clockwise} onClick={() => setDialog({ ...dialog, clockwise: true })}>Clockwise</button>
+          </span>
+        </Dialog>
+      )}
+      {dialog?.kind === "scale" && (
+        <Dialog title="Scale" action="Scale" onClose={() => setDialog(undefined)}
+          onAction={() => {
+            const v = Number(dialog.value), median = medianBond();
+            // The document's bond length is one bond length in the drawing; a length in pt is in the document style's points.
+            scaleBy(dialog.how === "document" ? 1 / median : dialog.how === "length" ? v / style.bond / median : v / 100);
+            setDialog(undefined);
+          }}>
+          {([["document", `Median bond to the document's bond length (${style.bond} pt)`], ["length", "Median bond to"], ["percent", "Scale by"]] as const).map(([how, name]) => (
+            <label key={how} className="dialog-row">
+              <input type="radio" name="scale-how" checked={dialog.how === how} onChange={() => setDialog({ ...dialog, how, value: how === "percent" ? "100" : how === "length" ? String(style.bond) : dialog.value })} />
+              <span>{name}</span>
+              {how !== "document" && dialog.how === how && (
+                <span className="unit-field"><input aria-label={name} inputMode="decimal" value={dialog.value} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, value: e.target.value.replace(/[^\d.]/g, "") })} /><span className="unit">{how === "percent" ? "%" : "pt"}</span></span>
+              )}
+            </label>
+          ))}
+        </Dialog>
+      )}
       {commandsOpen && <CommandPalette commands={paletteCommands()} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}
       {notice && (
         <p className="notice text-ui" role="status">
