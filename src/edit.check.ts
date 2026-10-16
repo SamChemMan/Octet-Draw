@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, pairMap, clearMap } from "./edit.ts";
+import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf } from "./edit.ts";
 import { tableLayout } from "./render.ts";
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
@@ -222,4 +222,20 @@ console.log("edit.check: align ok");
   assert.equal(flipAtoms(m, all, "horizontal").bonds[0].stereo, 6, "Rotate 180° swaps wedge for hash");
   assert.equal(flipAtoms(m, all, "horizontal", true).bonds[0].stereo, 1, "Flip keeps the wedge: a mirror image");
   console.log("edit.check: flips ok");
+}
+
+// Structure Perspective: a 90° yaw turns a bond along x into one along the view (depth); flattening keeps where
+// atoms are drawn and drops their depth; a turn about a bond keeps bond lengths.
+{
+  let m = sprout(sprout(EMPTY, [0, 0]), 1);
+  const all = new Set(m.atoms.map((_, i) => i)), c: [number, number, number] = [0, 0, 0];
+  const t = tiltAtoms(m, all, c, 90, 0);
+  assert.ok(Math.abs(t.atoms[0].location[0]) < 1e-9 && Math.abs((t.atoms[1].location[2] ?? 0) + t.atoms[1].location[0] * 0 - -m.atoms[1].location[0]) < 1e-9, "x becomes depth");
+  const f = flattenAtoms(tiltAtoms(m, all, c, 30, 20), all);
+  assert.ok(f.atoms.every((a) => a.location[2] === 0));
+  m = sprout(m, 1);
+  const turned = turnAboutBond(m, new Set([2]), 1, 0, 60), d = (q: number[], r: number[]) => Math.hypot(q[0] - r[0], q[1] - r[1], (q[2] ?? 0) - (r[2] ?? 0));
+  assert.ok(Math.abs(d(turned.atoms[2].location, turned.atoms[1].location) - d(m.atoms[2].location, m.atoms[1].location)) < 1e-9, "bond length kept");
+  assert.deepEqual(hingeOf(m, new Set([2])), [2, 1]);
+  console.log("edit.check: perspective ok");
 }

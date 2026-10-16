@@ -8,7 +8,7 @@ import {
   AlignCenterHorizontal, AlignCenterVertical, ArrowClockwise, ArrowsClockwise, SignIn, SignOut, ArrowCounterClockwise, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretDown,
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, LinkBreak, LinkSimple, ListNumbers, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAa, TextAlignCenter, TextAlignLeft,
-  TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, Columns, ColumnsPlusRight, GridFour, Circle, TextSubscript, TextSuperscript,
+  TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, Columns, ColumnsPlusRight, GridFour, Circle, TextSubscript, TextSuperscript, Cube, Square,
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
@@ -20,7 +20,7 @@ import { ArrowGlyph, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, Sy
 export type Context =
   | { kind: "empty" }
   | { kind: "drawing"; nameable: boolean }
-  | { kind: "structure"; atoms: number; structures: number; next: string; nameable: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed" }
+  | { kind: "structure"; atoms: number; structures: number; next: string; nameable: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean }
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
   | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right"; attached: boolean; attachable: boolean;
       script?: "sub" | "super"; font?: string; fonts?: string[] }
@@ -198,6 +198,7 @@ export function actionItems(context: Context, messy: boolean): Item[] {
         small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")));
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<AlignCenterHorizontal size={18} />, "Line up in a row", "align.row")),
         small(it(<AlignCenterVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
+      if (context.depth !== undefined) items.push(small(it(<Cube size={18} />, context.depth ? "Draw flat" : "Draw with depth", "structure_perspective")), small(it(<Square size={18} />, "Flatten", "flatten")));
       items.push(...mirrors, small(del));
       break;
     case "atom":

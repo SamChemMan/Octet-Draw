@@ -503,9 +503,10 @@ export function flipAtoms(m: Mol, ids: Set<number>, axis: "horizontal" | "vertic
   const swap = { left: "right", right: "left", centre: "centre" } as const;
   return {
     ...m,
+    // A Rotate 180° is a turn through 3D, so a 3D structure's depth turns over too; a mirror keeps it.
     atoms: m.atoms.map((a, i) => {
       if (!ids.has(i)) return a;
-      const loc: [number, number, number] = [a.location[0], a.location[1], 0];
+      const loc: [number, number, number] = [a.location[0], a.location[1], mirror ? a.location[2] ?? 0 : -(a.location[2] ?? 0)];
       loc[k] = 2 * mid - loc[k];
       return { ...a, location: loc };
     }),
@@ -732,4 +733,46 @@ export function levelTurn(m: Mol, atoms: number[]): number {
     if (!found || Math.abs(t) < Math.abs(best)) { best = t; found = true; }
   }
   return Math.abs(best) < 0.5 ? 0 : best;
+}
+
+// Structure Perspective. Tilts atoms through 3D about a centre: yaw turns them about the vertical axis (a drag
+// across), pitch about the horizontal one (a drag up or down). Degrees; depth (z) points at the viewer.
+export function tiltAtoms(m: Mol, ids: Set<number>, centre: [number, number, number], yaw: number, pitch: number): Mol {
+  const [cy, sy, cp, sp] = [Math.cos((yaw * Math.PI) / 180), Math.sin((yaw * Math.PI) / 180), Math.cos((pitch * Math.PI) / 180), Math.sin((pitch * Math.PI) / 180)];
+  return {
+    ...m,
+    atoms: m.atoms.map((a, i) => {
+      if (!ids.has(i)) return a;
+      const x = a.location[0] - centre[0], y = a.location[1] - centre[1], z = (a.location[2] ?? 0) - centre[2];
+      const x1 = x * cy + z * sy, z1 = -x * sy + z * cy; // about the vertical axis
+      const y2 = y * cp - z1 * sp, z2 = y * sp + z1 * cp; // then about the horizontal axis
+      return { ...a, location: [centre[0] + x1, centre[1] + y2, centre[2] + z2] as [number, number, number] };
+    }),
+  };
+}
+// Turns atoms about the axis through two atoms (part of a structure about the bond that joins it), in degrees.
+export function turnAboutBond(m: Mol, ids: Set<number>, from: number, to: number, degrees: number): Mol {
+  const p = m.atoms[from].location, q = m.atoms[to].location, axis = [q[0] - p[0], q[1] - p[1], (q[2] ?? 0) - (p[2] ?? 0)];
+  const n = Math.hypot(...axis) || 1, [ux, uy, uz] = axis.map((v) => v / n), c = Math.cos((degrees * Math.PI) / 180), s = Math.sin((degrees * Math.PI) / 180);
+  return {
+    ...m,
+    atoms: m.atoms.map((a, i) => {
+      if (!ids.has(i)) return a;
+      const v = [a.location[0] - p[0], a.location[1] - p[1], (a.location[2] ?? 0) - (p[2] ?? 0)], d = ux * v[0] + uy * v[1] + uz * v[2];
+      const cr = [uy * v[2] - uz * v[1], uz * v[0] - ux * v[2], ux * v[1] - uy * v[0]];
+      // Rodrigues' rotation formula.
+      const r = [0, 1, 2].map((k) => v[k] * c + cr[k] * s + [ux, uy, uz][k] * d * (1 - c));
+      return { ...a, location: [p[0] + r[0], p[1] + r[1], (p[2] ?? 0) + r[2]] as [number, number, number] };
+    }),
+  };
+}
+// Object > Flatten: atoms keep where they are drawn and lose their depth.
+export const flattenAtoms = (m: Mol, ids: Set<number>): Mol =>
+  ({ ...m, atoms: m.atoms.map((a, i) => (ids.has(i) ? { ...a, location: [a.location[0], a.location[1], 0] as [number, number, number], depth: undefined } : a)) });
+// The one bond joining some atoms to the rest of their structure, as [inside atom, outside atom], if there is one.
+export function hingeOf(m: Mol, ids: Set<number>): [number, number] | undefined {
+  const joins = m.bonds.filter((b) => ids.has(b.atoms[0]) !== ids.has(b.atoms[1]));
+  if (joins.length !== 1) return undefined;
+  const [a, b] = joins[0].atoms;
+  return ids.has(a) ? [a, b] : [b, a];
 }

@@ -2,7 +2,7 @@
 // Click an active tool again (or press and hold any tool) to open its strip; press, slide and release also works.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Eraser, Lasso, Plus, PushPin, Selection, TextT, Trash, X } from "@phosphor-icons/react";
+import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Cube, Eraser, Lasso, Plus, PushPin, Selection, TextT, Trash, X } from "@phosphor-icons/react";
 import { chairPoints, type BondSpec, type SymbolKind } from "./edit";
 import { ARROW_KINDS, curved, SWEEPS, type ArrowKind, type Mol, type ShapeKind } from "./render";
 import { templateKind, type Template } from "./templates";
@@ -57,7 +57,7 @@ export function arrowVariant(v: string): { kind: ArrowKind; sweep?: number } | u
 }
 export const arrowName = (v: string) => { const a = arrowVariant(v); return a && (a.sweep ? `${ARROWS[a.kind]}, ${a.sweep}°` : ARROWS[a.kind]); };
 
-export const SELECTS = { box: { name: "Box" }, lasso: { name: "Lasso" } };
+export const SELECTS = { box: { name: "Box" }, lasso: { name: "Lasso" }, perspective: { name: "Structure perspective" } };
 
 export const SHAPES: Record<ShapeKind, string> = {
   box: "Box", rounded: "Rounded box", oval: "Oval", highlight: "Highlight", brackets: "Brackets", parens: "Parentheses", braces: "Braces", tlc: "TLC plate", table: "Table",
@@ -400,7 +400,7 @@ export function Palette(p: PaletteProps) {
   const iconOf = (tool: Strip, kind: string) => {
     if (tool === "more") return SPECIAL_TOOLS[kind]?.icon;
     if (tool === "bond") return <BondGlyph kind={kind as BondKind} />;
-    if (tool === "select") return kind === "lasso" ? <Lasso size={20} /> : <Selection size={20} />;
+    if (tool === "select") return kind === "lasso" ? <Lasso size={20} /> : kind === "perspective" ? <Cube size={20} /> : <Selection size={20} />;
     if (tool === "arrow") return <ArrowGlyph kind={kind} />;
     if (tool === "symbol") return <SymbolGlyph kind={kind as SymbolKind} />;
     if (tool === "template") { const mol = shapeOf(kind); return mol ? <TemplateGlyph mol={mol} /> : <BooksGlyph />; }
@@ -426,7 +426,7 @@ export function Palette(p: PaletteProps) {
   });
 
   const tools: { id: Tool; name: string; icon: React.ReactNode }[] = [
-    { id: "select", name: p.variants.select === "lasso" ? "Lasso" : "Select", icon: p.variants.select === "lasso" ? <Lasso size={20} /> : <Selection size={20} /> },
+    { id: "select", name: p.variants.select === "lasso" ? "Lasso" : p.variants.select === "perspective" ? "Structure perspective" : "Select", icon: p.variants.select === "lasso" ? <Lasso size={20} /> : p.variants.select === "perspective" ? <Cube size={20} /> : <Selection size={20} /> },
     { id: "bond", name: `${BONDS[p.variants.bond].name} bond`, icon: <BondGlyph kind={p.variants.bond} /> },
     { id: "chain", name: "Chain", icon: <ChainGlyph /> },
     { id: "ring", name: nameOf("ring", p.variants.ring) ?? "Ring", icon: iconOf("ring", p.variants.ring) },

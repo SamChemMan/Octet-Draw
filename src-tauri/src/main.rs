@@ -159,6 +159,7 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
     let structure = Submenu::with_items(app, "Structure", true, &[
         &item("clean_up", "Clean Up Structure", "CmdOrCtrl+Shift+K")?,
         &item("clean_reaction", "Clean Up Reaction", "CmdOrCtrl+Shift+X")?,
+        &item("structure_perspective", "Structure Perspective", "Alt+CmdOrCtrl+S")?,
         &sep()?,
         &item("name_to_structure", "Convert Name to Structure", "CmdOrCtrl+Shift+N")?,
         &item("structure_to_name", "Convert Structure to Name", "Alt+CmdOrCtrl+N")?,
@@ -180,6 +181,7 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
         &frame,
         &sep()?,
         // ChemDraw's Flip (a mirror image, no key) and Rotate 180° (stereo kept, ⇧⌘H and ⇧⌘V).
+        &MenuItem::with_id(app, "flatten", "Flatten", true, None::<&str>)?,
         &MenuItem::with_id(app, "mirror_h", "Flip Horizontal", true, None::<&str>)?,
         &MenuItem::with_id(app, "mirror_v", "Flip Vertical", true, None::<&str>)?,
         &item("flip_h", "Rotate 180° Horizontal", "CmdOrCtrl+Shift+H")?,

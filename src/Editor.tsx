@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
-  ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
+  ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Square, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
   FrameCorners, GearSix, Keyboard, Lasso, LinkSimple, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
   TextAlignCenter, TextAlignLeft, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Warning, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
 } from "@phosphor-icons/react";
@@ -14,7 +14,7 @@ import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
-  addShape, addSymbol, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, pairMap, clearMap, stereocentres, setEnhanced, markDirection,
+  addShape, addSymbol, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, pairMap, clearMap, stereocentres, setEnhanced, markDirection, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf,
 } from "./edit";
 import { snapBox, snapMove, type Guide } from "./snap";
 import { loadSettings, saveSettings } from "./settings";
@@ -103,6 +103,9 @@ type Drag =
   | { kind: "handle"; id: number; which: Corner; working: Mol }
   // Placing a pen point: where it was pressed, and its outgoing handle if the press was dragged.
   | { kind: "pen"; at: P; start: [number, number]; out?: P }
+  // Structure Perspective: tilting atoms through 3D from where they were (base), about their centre, or turning part
+  // of a structure about the bond that joins it to the rest (hinge: [inside atom, outside atom]).
+  | { kind: "tilt"; base: Mol; ids: Set<number>; centre: [number, number, number]; start: [number, number]; hinge?: [number, number]; working: Mol }
   // Mapping one atom to another with the Atom map tool: from the atom pressed to the pointer.
   | { kind: "map"; atom: number; start: [number, number]; to?: P }
   // Turning the selection by its rotation handle: about its middle, from the angle the drag started at.
@@ -453,6 +456,14 @@ export default function Editor() {
       set(mol);
       setPicked(new Set([frameId]));
     }])),
+    // Structure Perspective (⌥⌘S): a 3D structure drawn with depth (nearer bonds wider and darker) or flat. Flatten
+    // (Object menu): the selected atoms lose their depth and keep where they are drawn.
+    structure_perspective: () => {
+      const atoms = selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i);
+      const off = atoms.some((i) => doc.atoms[i].depth === false);
+      set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.includes(i) ? { ...a, depth: off ? undefined : false } : a)) }, true);
+    },
+    flatten: () => set(flattenAtoms(doc, selection.size ? selection : new Set(doc.atoms.map((_, i) => i))), true),
     // Invert Selection (⇧⌘I): everything that was not selected is, and the rest is not.
     invert_selection: () => {
       setSelection(new Set(doc.atoms.map((_, i) => i).filter((i) => !selection.has(i))));
@@ -534,7 +545,7 @@ export default function Editor() {
   const shown = useMemo(() => {
     if (drag?.kind === "bond" && drag.to) return bondTo(doc, drag.from, drag.to, bondSpec);
     if (drag?.kind === "chain" && drag.to) return chainTo(doc, drag.from, drag.to).mol;
-    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn") return drag.working;
+    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "tilt") return drag.working;
     if (drag?.kind === "arrow" && drag.to) return addArrow(doc, newArrow(drag.from, drag.to, drag.side, drag.make))[0];
     if (drag?.kind === "shape" && drag.to) { const sh = shapeFrom(drag.from, drag.to); return sh ? addShape(doc, sh)[0] : doc; }
     if (pen || drag?.kind === "pen") {
@@ -661,7 +672,8 @@ export default function Editor() {
   const reagents = useMemo(() => new Set((shown.captions ?? []).filter((c) => c.on || c.cycle).map((c) => c.id)), [shown]);
   // Arrow ink, one path per colour (unset is the document's ink).
   const arrowInk = useMemo(() => byColour([...arrows, ...cycleArrows].map((a) => [a.colour, arrowShapes(a, frame, L)] as const)), [arrows, cycleArrows, frame]);
-  const structureInk = useMemo(() => byColour(drawing.polygons.map((poly, i) => [drawing.colours[i], [poly]] as const)), [drawing]);
+  // Structure ink by colour and, in 3D structures, by how strongly it is drawn (Structure Perspective).
+  const structureInk = useMemo(() => byColour(drawing.polygons.map((poly, i) => [`${drawing.colours[i] ?? ""}|${(Math.round(drawing.alphas[i] * 20) / 20).toFixed(2)}`, [poly]] as const)), [drawing]);
   // Mass fragmentation: the bonds each cut line crosses, and the pieces they leave, labelled at the line's ends
   // on each piece's side with its formula and exact mass.
   const cutLabels = useMemo(() => {
@@ -997,6 +1009,16 @@ export default function Editor() {
 
   function pressSelect(p: P, t: Hover, shift: boolean, screen: [number, number]) {
     const ids = atomsOf(doc, t);
+    // Structure Perspective: a press on the selection, or on a structure, tilts it through 3D as the pointer moves.
+    if (selectKind === "perspective" && (ids.length || (selection.size && onSelection(doc, selection, p)))) {
+      const on = selection.size && (onSelection(doc, selection, p) || ids.some((i) => selection.has(i)));
+      const set3 = new Set(on ? [...selection] : (fragments(doc).find((g) => g.includes(ids[0])) ?? ids));
+      setSelection(set3);
+      setPicked(new Set());
+      const hinge = hingeOf(doc, set3), ps = [...set3].map((i) => doc.atoms[i].location);
+      const centre: [number, number, number] = [0, 1, 2].map((k) => (Math.min(...ps.map((q) => q[k] ?? 0)) + Math.max(...ps.map((q) => q[k] ?? 0))) / 2) as [number, number, number];
+      return setDrag({ kind: "tilt", base: doc, ids: set3, centre, start: screen, hinge, working: doc });
+    }
     if (t.cycle !== undefined) return pressCycle(p, t, screen);
     if (t.caption !== undefined || t.arrow !== undefined) return pressCaption(p, t, shift, screen);
     if (!shift && (selection.size || picked.size) && onSelection(doc, selection, p)) return startMove(p, screen, t);
@@ -1162,6 +1184,14 @@ export default function Editor() {
       case "map":
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         return setDrag({ ...drag, to: p });
+      case "tilt": {
+        // Half a degree per pixel: across turns about the vertical axis, up and down about the horizontal one;
+        // Shift keeps to one axis. Part of a structure joined by one bond turns about that bond.
+        let dx = e.clientX - drag.start[0], dy = e.clientY - drag.start[1];
+        if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
+        const working = drag.hinge ? turnAboutBond(drag.base, drag.ids, drag.hinge[1], drag.hinge[0], (dx - dy) * 0.5) : tiltAtoms(drag.base, drag.ids, drag.centre, dx * 0.5, -dy * 0.5);
+        return setDrag({ ...drag, working });
+      }
       case "pen":
         if (!drag.out && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         return setDrag({ ...drag, out: p });
@@ -1428,7 +1458,10 @@ export default function Editor() {
     // Its stereocentres as a whole: absolute (no flags), racemic (all &1), relative (all or1), or a mix.
     const centres = stereocentres(doc, selection), flags = new Set(centres.map((i) => doc.atoms[i].enhanced ?? ""));
     const stereo = !centres.length ? undefined : flags.size > 1 ? "mixed" : flags.has("&1") ? "racemic" : flags.has("or1") ? "relative" : flags.has("") ? "absolute" : "mixed";
-    return { kind: "structure", atoms: ids.length, structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextNumber(doc), nameable, pairs, stereo };
+    // A 3D structure (Structure Perspective): drawn with depth, or flat.
+    const solid = ids.some((i) => Math.abs(doc.atoms[i].location[2] ?? 0) > 1e-3);
+    return { kind: "structure", atoms: ids.length, structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextNumber(doc), nameable, pairs, stereo,
+      ...(solid ? { depth: !ids.some((i) => doc.atoms[i].depth === false) } : {}) };
   })();
   // What the panel knows about the drawing: formula and mass (of the selection, or everything), problems, mess.
   const analysis = useMemo(() => (loaded ? analyse(selection.size ? subset(doc, selection) : doc) : undefined), [loaded, doc, selection]);
@@ -1474,7 +1507,8 @@ export default function Editor() {
     new: ["New drawing", `${MOD}N`, <FilePlus size={18} />], open: ["Open…", `${MOD}O`, <FolderOpen size={18} />], import: ["Import a structure…", "", <FileArrowDown size={18} />],
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDisk size={18} />],
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <MagicWand size={18} />],
-    mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />], select_all: ["Select all", `${MOD}A`, <SelectionAll size={18} />],
+    mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
+    structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />], select_all: ["Select all", `${MOD}A`, <SelectionAll size={18} />],
     clean_up: ["Clean up", `⇧${MOD}K`, <MagicWand size={18} />], flip_h: ["Rotate 180° horizontal", `⇧${MOD}H`, <FlipHorizontal size={18} />], flip_v: ["Rotate 180° vertical", `⇧${MOD}V`, <FlipVertical size={18} />],
     zoom_in: ["Magnify", `⇧${MOD}>`, <MagnifyingGlassPlus size={18} />], zoom_out: ["Reduce", `⇧${MOD}<`, <MagnifyingGlassMinus size={18} />],
     zoom_actual: ["Actual size", `${MOD}\\`, <FrameCorners size={18} />], zoom_fit: ["Fit to window", `${MOD}/`, <ArrowsOutSimple size={18} />],
@@ -1810,6 +1844,8 @@ export default function Editor() {
         return;
       }
       case "handle":
+        return set(drag.working, true);
+      case "tilt":
         return set(drag.working, true);
       case "pen":
         setPenAt(drag.at);
@@ -2151,7 +2187,7 @@ export default function Editor() {
               {drawing.beads.map((b, i) => <circle key={`bd${i}`} cx={b.at[0]} cy={b.at[1]} r={b.r} fill="url(#bead)" />)}
             </>
           )}
-          {structureInk.map(([colour, polys]) => <path key={`s${colour}`} d={toPath(polys)} fill={colour ? textInk(colour) : "var(--ink)"} />)}
+          {structureInk.map(([key, polys]) => { const [colour, alpha] = (key ?? "|1").split("|"); return <path key={`s${key}`} d={toPath(polys)} fill={colour ? textInk(colour) : "var(--ink)"} fillOpacity={Number(alpha) < 1 ? Number(alpha) : undefined} />; })}
           {arrowInk.map(([colour, polys]) => <path key={`a${colour}`} d={toPath(polys)} fill={colour ? textInk(colour) : "var(--ink)"} />)}
           {cutLabels.map((c) => (
             <text key={c.key} x={c.at[0] * L} y={-c.at[1] * L} textAnchor={c.anchor} fill="var(--ink)" style={{ font: `${style.captionSize * pt * 0.9}px ${fontStack(style.captionFont)}` }}>
@@ -2219,7 +2255,7 @@ export default function Editor() {
             <text key={`map${i}`} className="atom-map" textAnchor="middle" x={(pos(shown, i)[0] + 0.42 * markDirection(shown, i)[0]) * L} y={-(pos(shown, i)[1] + 0.42 * markDirection(shown, i)[1]) * L + 0.22 * frame.size} style={{ fontSize: frame.size * 0.62 }}>{a.map}</text>
           ) : null)}
           {drawing.labels.map((l, i) => (
-            <text key={i} x={l.x} y={l.y} fill={l.colour ? textInk(l.colour) : "var(--ink)"} style={{ font: `${l.size}px ${fontStack(style.labelFont)}` }}>
+            <text key={i} x={l.x} y={l.y} fill={l.colour ? textInk(l.colour) : "var(--ink)"} fillOpacity={l.alpha} style={{ font: `${l.size}px ${fontStack(style.labelFont)}` }}>
               {l.text}
             </text>
           ))}

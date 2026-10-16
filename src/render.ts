@@ -23,6 +23,7 @@ export type Atom = {
   map?: number; // a reaction atom map number: the same atom before and after
   enhanced?: string; // enhanced stereo: the stereocentre's group, "abs", "&1" (and) or "or1" (or)
   colour?: string; // #rrggbb for the atom's label and marks; unset draws in the document's ink
+  depth?: false; // a 3D structure drawn flat (Structure Perspective off); location[2] is the atom's depth, nearer is larger
 };
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow";
@@ -119,14 +120,14 @@ export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?:
 export type Style = { bond: number; line: number; bold: number; spacing: number; hash: number; margin: number; size: number };
 // width: advance; ascent: ink top above the baseline; outline: glyph edge points relative to the text origin (y down).
 export type Ink = { width: number; ascent: number; outline: P[] };
-export type Label = { text: string; x: number; y: number; size: number; colour?: string };
+export type Label = { text: string; x: number; y: number; size: number; colour?: string; alpha?: number };
 export type Box = [number, number, number, number];
 // ink: each atom's ink box (its label and the bonds that touch it), for placing captions. label: the ink box of an
 // atom's label alone (NH2, OMe), for highlighting it; undefined for an unlabelled atom. scale: px per bond length.
 // electrons: where each lone pair and radical dot is drawn (px), for curly arrows to start from. beads: polymer beads,
 // drawn shaded by the caller.
 export type Drawing = {
-  polygons: P[][]; colours: (string | undefined)[]; labels: Label[]; box: Box; ink: Box[]; label: (Box | undefined)[]; scale: number;
+  polygons: P[][]; colours: (string | undefined)[]; alphas: number[]; labels: Label[]; box: Box; ink: Box[]; label: (Box | undefined)[]; scale: number;
   electrons: { atom: number; at: P }[]; beads: { at: P; r: number }[];
 };
 
@@ -220,7 +221,7 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
 
   // Labels. Heteroatoms and lone carbons get one; skeletal carbons don't, even when charged.
   const labelled = mol.atoms.map((a, i) => !a.attach && !a.bead && (a.label !== 'C' || !deg(i) || !!a.text));
-  const labels: Label[] = [];
+  const labels: Label[] = [], labelAtom = new Map<Label, number>();
   const marks: P[][] = mol.atoms.map(() => []); // ink that is not a label shape (a skeletal carbon's charge)
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
   const shapes: P[][] = mol.atoms.map((a, i) => {
@@ -232,6 +233,7 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
         const d = ([[1, -1], [-1, -1], [1, 1], [-1, 1], [0, -1], [1, 0], [0, 1], [-1, 0]] as P[]).map(unit).reduce((best, c) => (gap(c) > gap(best) + 0.01 ? c : best));
         const c = add(pts[i], mul(d, 0.6 * s.size));
         labels.push({ text: t, x: c[0] - (m.width * SUB) / 2, y: c[1] + (m.ascent * SUB) / 2, size: s.size * SUB, colour: a.colour });
+        labelAtom.set(labels[labels.length - 1], i);
         marks[i] = m.outline.map(([px, py]) => [c[0] - (m.width * SUB) / 2 + px * SUB, c[1] + (m.ascent * SUB) / 2 + py * SUB]);
       }
       return [];
@@ -239,6 +241,7 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
     const shape: P[] = [];
     const run = (text: string, x: number, y: number, f = 1) => {
       labels.push({ text, x, y, size: s.size * f, colour: a.colour });
+      labelAtom.set(labels[labels.length - 1], i);
       for (const [px, py] of measure(text).outline) shape.push([x + px * f, y + py * f]);
     };
     const [x, y] = pts[i];
@@ -343,6 +346,7 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
       if (ink) {
         const x = c[0] - (ink.width * SUB) / 2, y = c[1] + (ink.ascent * SUB) / 2;
         labels.push({ text, x, y, size: z * SUB, colour: a.colour });
+        labelAtom.set(labels[labels.length - 1], i);
         for (const [px, py] of ink.outline) marks[i].push([x + px * SUB, y + py * SUB]);
       }
     });
@@ -568,22 +572,73 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
   // Each polygon belongs to the bond it draws, so to both of its atoms' ink boxes.
   const ink: Box[] = pts.map(([x, y]) => [x, y, x, y]);
   const grow = (i: number, [x, y]: P) => { const b = ink[i]; b[0] = Math.min(b[0], x); b[1] = Math.min(b[1], y); b[2] = Math.max(b[2], x); b[3] = Math.max(b[3], y); };
-  // Each polygon's colour: its bond's, or for a mark, its atom's.
-  const colours: (string | undefined)[] = [];
-  plans.forEach((pl, i) => {
-    const before = polygons.length;
-    drawPlan(pl, i);
-    for (const poly of polygons.slice(before)) { colours.push(mol.bonds[i].colour); for (const q of poly) { grow(pl.a, q); grow(pl.b, q); } }
+  // Structure Perspective: a structure with depth (its atoms' z) is drawn as seen, nearer bonds wider and darker,
+  // further ones thinner and fainter, and a nearer bond crossing in front of another cuts a gap in it.
+  const depth = depthOf(mol);
+  const deep = (pl: Plan) => depth[pl.a] !== undefined && depth[pl.b] !== undefined;
+  const fade = (t: number) => 0.45 + 0.55 * t, wideAt = (t: number) => hw * 0.8 + (s.bold / 2 - hw * 0.8) * t;
+  const drawDeep = (pl: Plan) => {
+    if (pl.hidden) return;
+    const S = drawnEnd(pl, pl.a), E = drawnEnd(pl, pl.b), D = len(sub(E, S));
+    if (D < 1e-6) return;
+    const ta = depth[pl.a]!, tb = depth[pl.b]!;
+    // Gaps where a nearer bond crosses this one, as fractions along it.
+    const gaps: [number, number][] = [];
+    for (const other of plans) {
+      if (other === pl || !deep(other) || other.hidden || [other.a, other.b].some((x) => x === pl.a || x === pl.b)) continue;
+      const hit = crossing(pts[pl.a], pts[pl.b], pts[other.a], pts[other.b]);
+      if (!hit) continue;
+      const here = ta + (tb - ta) * hit[0], there = depth[other.a]! + (depth[other.b]! - depth[other.a]!) * hit[1];
+      if (there <= here + 0.02) continue;
+      const g = (wideAt(there) + 2.5 * hw + s.margin) / pl.length;
+      gaps.push([hit[0] - g, hit[0] + g]);
+    }
+    gaps.sort((p, q) => p[0] - q[0]);
+    const offsets = pl.kind === 'none' || pl.lines.length > 1 ? pl.lines.map((l) => l.o) : [0, ...pl.lines.map((l) => l.o)];
+    const lines = offsets.length ? offsets : [0];
+    let from = pl.cut[0] / pl.length;
+    const pieces: [number, number][] = [];
+    for (const [g0, g1] of gaps) { if (g0 > from) pieces.push([from, g0]); from = Math.max(from, g1); }
+    pieces.push([from, 1 - pl.cut[1] / pl.length]);
+    for (const [f, t] of pieces) {
+      if (t - f < 1e-3) continue;
+      for (const o of lines) {
+        const at = (k: number): P => add(add(pts[pl.a], mul(pl.u, pl.length * k)), mul(pl.n, o)), w = (k: number) => wideAt(ta + (tb - ta) * k);
+        const p = at(f), q = at(t);
+        polygons.push([add(p, mul(pl.n, -w(f))), add(p, mul(pl.n, w(f))), add(q, mul(pl.n, w(t))), add(q, mul(pl.n, -w(t)))]);
+      }
+    }
+  };
+  // Each polygon's colour (its bond's, or for a mark, its atom's) and how strongly it is drawn (fainter further back).
+  const colours: (string | undefined)[] = [], alphas: number[] = [];
+  const order = plans.map((_, i) => i).sort((i, j) => (deep(plans[i]) && deep(plans[j]) ? depth[plans[i].a]! + depth[plans[i].b]! - depth[plans[j].a]! - depth[plans[j].b]! : 0));
+  order.forEach((i) => {
+    const pl = plans[i], before = polygons.length, d = deep(pl);
+    if (d) drawDeep(pl); else drawPlan(pl, i);
+    const alpha = d ? fade((depth[pl.a]! + depth[pl.b]!) / 2) : 1;
+    for (const poly of polygons.slice(before)) { colours.push(mol.bonds[i].colour); alphas.push(alpha); for (const q of poly) { grow(pl.a, q); grow(pl.b, q); } }
+  });
+  // Joints in a 3D structure: a disc at each unlabelled atom as wide as its widest bond there, so tapered bonds meet.
+  mol.atoms.forEach((_, x) => {
+    if (depth[x] === undefined || labelled[x] || !nbrs[x].length) return;
+    polygons.push(disc(pts[x], wideAt(depth[x]!)));
+    colours.push(mol.atoms[x].colour);
+    alphas.push(fade(depth[x]!));
   });
   shapes.forEach((shape, i) => shape.forEach((q) => grow(i, q)));
   marks.forEach((mark, i) => mark.forEach((q) => grow(i, q)));
-  symbols.forEach((polys, i) => polys.forEach((poly) => { polygons.push(poly); colours.push(mol.atoms[i].colour); poly.forEach((q) => grow(i, q)); }));
+  symbols.forEach((polys, i) => polys.forEach((poly) => { polygons.push(poly); colours.push(mol.atoms[i].colour); alphas.push(depth[i] !== undefined ? fade(depth[i]!) : 1); poly.forEach((q) => grow(i, q)); }));
+  // Labels in a 3D structure fade with their atom's depth too.
+  for (const l of labels) {
+    const i = labelAtom.get(l);
+    if (i !== undefined && depth[i] !== undefined) l.alpha = fade(depth[i]!);
+  }
 
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
   for (const [x, y] of [...pts, ...polygons.flat(), ...shapes.flat()]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
   const pad = L / 2;
   const label = shapes.map((shape): Box | undefined => (shape.length ? [Math.min(...shape.map((q) => q[0])), Math.min(...shape.map((q) => q[1])), Math.max(...shape.map((q) => q[0])), Math.max(...shape.map((q) => q[1]))] : undefined));
-  return { polygons, colours, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad], ink, label, scale: k, electrons, beads };
+  return { polygons, colours, alphas, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad], ink, label, scale: k, electrons, beads };
 }
 
 // Captions, placed in the drawing's px frame (y down). Sizes are in pt; 1 pt is 4/3 px.
@@ -987,4 +1042,28 @@ export function curvePath(c: Curve, k: number): P[] {
 export function curveBox(c: Curve): [[number, number], [number, number]] {
   const qs = c.points.flatMap((p) => [p.at, ...(p.c1 ? [p.c1] : []), ...(p.c2 ? [p.c2] : [])]);
   return [[Math.min(...qs.map((q) => q[0])), Math.max(...qs.map((q) => q[1]))], [Math.max(...qs.map((q) => q[0])), Math.min(...qs.map((q) => q[1]))]];
+}
+
+// How near each atom of a 3D structure is, 0 (furthest) to 1 (nearest), for Structure Perspective; undefined for
+// atoms of flat structures and of structures drawn flat (depth: false).
+export function depthOf(m: Mol): (number | undefined)[] {
+  const out: (number | undefined)[] = m.atoms.map(() => undefined), seen = new Set<number>(), nbrs: number[][] = m.atoms.map(() => []);
+  for (const b of m.bonds) { nbrs[b.atoms[0]].push(b.atoms[1]); nbrs[b.atoms[1]].push(b.atoms[0]); }
+  m.atoms.forEach((_, start) => {
+    if (seen.has(start)) return;
+    const group = [start];
+    seen.add(start);
+    for (let k = 0; k < group.length; k++) for (const j of nbrs[group[k]]) if (!seen.has(j)) { seen.add(j); group.push(j); }
+    const zs = group.map((i) => m.atoms[i].location[2] ?? 0), lo = Math.min(...zs), hi = Math.max(...zs);
+    if (hi - lo < 1e-3 || group.some((i) => m.atoms[i].depth === false)) return;
+    group.forEach((i, k) => { out[i] = (zs[k] - lo) / (hi - lo); });
+  });
+  return out;
+}
+// Where segments p1–p2 and q1–q2 cross, as fractions along each (inside both), or undefined.
+function crossing(p1: P, p2: P, q1: P, q2: P): [number, number] | undefined {
+  const r = sub(p2, p1), s = sub(q2, q1), d = cross(r, s);
+  if (Math.abs(d) < 1e-9) return undefined;
+  const t = cross(sub(q1, p1), s) / d, u = cross(sub(q1, p1), r) / d;
+  return t > 0.02 && t < 0.98 && u > 0.02 && u < 0.98 ? [t, u] : undefined;
 }
