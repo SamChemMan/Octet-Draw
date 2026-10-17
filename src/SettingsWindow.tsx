@@ -48,7 +48,7 @@ function PaletteEditor({ palette, onPalette, adding }: { palette: Swatch[]; onPa
   const [open, setOpen] = useState<number>();
   const add = () => {
     if (palette.length >= 20) return;
-    onPalette([...palette, { name: `Colour ${palette.length + 1}`, hex: palette[palette.length - 1]?.hex ?? "#1D49A7" }]);
+    onPalette([...palette, { name: `Colour ${palette.length + 1}`, hex: palette[palette.length - 1]?.hex ?? "#213C99" }]);
     setOpen(palette.length);
   };
   const started = useRef(false);

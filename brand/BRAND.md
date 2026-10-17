@@ -29,20 +29,22 @@ The mark is a regular octagon with a regular hexagon cut out of it (same centre,
 
 ## Colour
 
-| Token | Light | Role |
-| --- | --- | --- |
-| `brand` | #1D49A7 | Primary actions, active tool, the mark |
-| `brand-bright` | #2C6FFF | Focus, selection handles, snap guides |
-| `brand-mist` | #DCE4F5 | Selected tool, active row, soft tint |
-| `navy` | #000E2F | App icon tile, footers |
-| `canvas` | #FFFFFF | Drawing area |
-| `surface` | #F8FAFC | App chrome and page ground |
-| `ink` | #0F172A | Text and bonds |
+| Token | Light | Dark | Role |
+| --- | --- | --- | --- |
+| `brand` | #213C99 | #7299FF | Primary actions, active tool, brand text. Light is Logo Blue |
+| `brand-hover` | #1A317F | #89ABFF | Hover and pressed brand fills |
+| `brand-bright` | #3F6BFF | #3F6BFF | Focus, selection handles, snap guides |
+| `brand-mist` | #DCE4F6 | #24335A | Selected tool, active row, soft tint |
+| `on-brand` | #FFFFFF | #000E2F | Text and icons on brand fills |
+| `navy` | #000E2F | #000E2F | Footers, ground for the white mark |
+| `canvas` | #FFFFFF | #000B24 | Drawing area |
+| `surface` | #F8FAFC | #0D1D40 | App chrome and page ground |
+| `ink` | #0F172A | #ECF0F8 | Text and bonds |
 
 Rules:
 
-- **One family.** Every accent is a blue from the `brand` set. Do not add a second hue to "liven things up".
-- **Navy is depth, not a background.** Use it for the icon tile and footers. Do not flood a section with it.
+- **One family.** Every accent is a blue from the `brand` set. Each one has the logo's hue (OKLCH 266.6°); only lightness and chroma change. Do not add a second hue to "liven things up".
+- **Navy is depth, not a background.** Use it for footers and behind the white mark. Do not flood a section with it.
 - **Status needs a second signal.** `warning` and `error` always come with an icon or text, never colour alone.
 - **Element colouring is optional.** The `atom-*` tokens colour heteroatom labels when the user turns it on. Carbon stays `ink`. Default export is all `ink`, as journals expect.
 
