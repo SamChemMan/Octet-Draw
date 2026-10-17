@@ -1044,7 +1044,8 @@ export function arrowPath(a: Arrow, k: number): P[] {
 }
 
 // How much of its own size a straight arrow's head is drawn at: ChemDraw keeps a head to two thirds of the arrow.
-const headFit = (a: Arrow, s: Style, k: number) => (a.bend ? 1 : Math.min(1, (2 * Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]) * k) / 3 / (headSize(a).length * s.line || 1)));
+// Arcs and pen curves keep their whole head (a curve's ends can be close together).
+const headFit = (a: Arrow, s: Style, k: number) => (a.bend || a.kind === "curve" ? 1 : Math.min(1,(2 * Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]) * k) / 3 / (headSize(a).length * s.line || 1)));
 // An arrow as filled polygons in px (y down). Heads are drawn as ChemDraw draws them, at their size (headSize) in
 // line widths: the tip, the barbs their length back and their width off the shaft, and the notch between.
 export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
@@ -1094,8 +1095,11 @@ export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
       if (!half) bar(add(base, mul(n, W)), add(base, mul(n, -W)));
       return;
     }
-    if (!half) out.push([T, add(base, mul(n, W)), notch, add(base, mul(n, -W))]);
-    else out.push([T, add(base, mul(n, half === "left" ? -W : W)), add(notch, mul(n, half === "left" ? -hw : hw))]);
+    // Wound the way the bars are, so where a head and a line overlap (its own shaft, or an arrow joined at its tip)
+    // the fill adds up and leaves no hole.
+    if (!half) out.push([T, add(base, mul(n, -W)), notch, add(base, mul(n, W))]);
+    else if (half === "left") out.push([T, add(base, mul(n, -W)), add(notch, mul(n, -hw))]);
+    else out.push([T, add(notch, mul(n, hw)), add(base, mul(n, W))]);
   };
   // How far a head takes over the shaft: to its notch (solid), its base (hollow), or not at all (angled).
   const takes = (h: Head) => (h === "none" ? 0 : shape === "angled" ? hw : shape === "hollow" ? H : h === "full" ? C : 0);
@@ -1123,11 +1127,13 @@ export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
     case "equilibrium": {
       // Two half-headed arrows, one each way, barbs on the outside. An unbalanced one (ratio) shortens one of them
       // about the middle, as ChemDraw does: above 1 the back arrow, to its notch plus the rest over the ratio; below 1
-      // the forward arrow, to the ratio of the whole.
-      const g = 0.11 * s.bond, whole = len(sub(T, S)), r = a.ratio ?? 1, m = mul(add(S, T), 0.5);
-      const ahead = r < 1 ? whole * r : whole, back = r > 1 ? C + (whole - C) / r : whole;
-      const top: P[] = [add(add(m, mul(u, -ahead / 2)), mul(n, -g)), add(add(m, mul(u, ahead / 2)), mul(n, -g))];
-      const bottom: P[] = [add(add(m, mul(u, back / 2)), mul(n, g)), add(add(m, mul(u, -back / 2)), mul(n, g))];
+      // the forward arrow, to the ratio of the whole. A bent one (from its point) is two arcs beside its own, and a
+      // short one sweeps the ratio of its arc (ChemDraw's curved equilibrium).
+      const g = 0.11 * s.bond, along = (q: P[]) => q.slice(1).reduce((sum, p, i) => sum + len(sub(p, q[i])), 0), whole = along(path), r = a.ratio ?? 1;
+      const ahead = r < 1 ? whole * r : whole, back = r > 1 ? (a.bend ? whole / r : C + (whole - C) / r) : whole;
+      // Part of a path about its middle: the fraction f of its length.
+      const middle = (q: P[], f: number) => { const t = ((1 - f) / 2) * along(q); return cut(cut(q, t).reverse(), t).reverse(); };
+      const top = middle(offsetPath(path, -g), ahead / (whole || 1)), bottom = middle(offsetPath(path, g), back / (whole || 1)).reverse();
       line(top, 0);
       head(top, "left");
       line(bottom, 0);

@@ -1784,7 +1784,7 @@ export default function Editor() {
   // The one pen curve picked, if it is one.
   const pickedCurve = () => (picked.size === 1 && !selection.size ? doc.arrows?.find((a) => picked.has(a.id) && a.kind === "curve" && a.curve) : undefined);
   // Straight arrows and lines that can take a point in their middle, to bend and branch from.
-  const pointable = (a: Arrow) => (straightArrow(a) || a.kind === "line") && a.kind !== "block" && a.kind !== "equilibrium" && a.kind !== "retro";
+  const pointable = (a: Arrow) => (straightArrow(a) || a.kind === "line") && a.kind !== "block" && a.kind !== "retro";
   // The selection's rotation handle, as in ChemDraw: just off the top right corner of the selection's box (px). The
   // box is worked out once for each selection, as the pointer tests the handle on every move.
   const selectionBox = useMemo(() => (selection.size < 2 ? undefined : withCaptions(selection)), [selection, shown.captions, drawing, placed]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2036,7 +2036,7 @@ export default function Editor() {
           // length (ChemDraw's ratio): the end's handle, the forward arrow; the start's, the back arrow.
           const len = Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]) || 1, u = [(a.to[0] - a.from[0]) / len, (a.to[1] - a.from[1]) / len];
           const reach = Math.abs((p[0] - (a.from[0] + a.to[0]) / 2) * u[0] + (p[1] - (a.from[1] + a.to[1]) / 2) * u[1]) * 2, notch = (headSize(a).centre * frame.line) / L;
-          const ratio = drag.which === "to" ? Math.max(0.05, Math.min(1, reach / len)) : Math.max(1, Math.min(20, (len - notch) / Math.max(1e-3, reach - notch)));
+          const ratio = drag.which === "to" ? Math.max(0.05, Math.min(1, reach / len)) : Math.max(1, Math.min(20, a.bend ? len / Math.max(1e-3, reach) : (len - notch) / Math.max(1e-3, reach - notch)));
           return setDrag({ ...drag, working: updateArrow(doc, a.id, { ratio: Math.abs(ratio - 1) < 0.02 ? undefined : ratio }) });
         }
         if (drag.which === "bend") {

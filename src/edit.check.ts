@@ -370,6 +370,8 @@ console.log("edit.check: align ok");
   const turned = moveCurvePoint(smooth, 1, "c2", [2, 2]);
   assert.ok(near(turned.points[1].c1!, [2, -Math.SQRT2]), "the other handle turns, keeping its length");
   assert.ok(near(moveCurvePoint(smooth, 1, "c2", [2, 2], true).points[1].c1!, [1, 1]), "Option leaves it");
+  const corner = { points: [smooth.points[0], { ...smooth.points[1], c2: [3, 1] as [number, number] }, smooth.points[2]] };
+  assert.ok(near(moveCurvePoint(corner, 1, "c2", [2, 2]).points[1].c1!, [1, 1]), "a corner stays a corner");
   const moved = moveCurvePoint(smooth, 1, "at", [2, 1]);
   assert.ok(near(moved.points[1].c1!, [1, 2]) && near(moved.points[1].c2!, [3, 0]), "handles go with their anchor");
   assert.equal(removeCurvePoint(removeCurvePoint(smooth, 1), 0).points.length, 2);

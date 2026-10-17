@@ -145,6 +145,10 @@ console.log("render.check: written labels ok");
   // An unbalanced equilibrium (ratio 3): the back arrow is its notch plus a third of the rest, about the middle.
   const eq = arrowShapes({ ...a, kind: "equilibrium", ratio: 3 }, S, k), back = eq[2].map((q) => q[0]), want = 8.75 * lw + (4 * k - 8.75 * lw) / 3;
   assert.ok(Math.abs(Math.max(...back) - Math.min(...back) - want) < 1e-6 && Math.abs(Math.max(...back) + Math.min(...back) - 4 * k) < 1e-6, "short back arrow");
+  // A bent equilibrium (a point, then its middle dragged): two arcs beside its own, each with its half head; with a
+  // ratio of 3 the back arc sweeps a third of the forward one.
+  const bentEq = arrowShapes({ ...a, kind: "equilibrium", point: true, bend: 0.3 }, S, k), bentShort = arrowShapes({ ...a, kind: "equilibrium", point: true, bend: 0.3, ratio: 3 }, S, k);
+  assert.ok(Math.min(...ys(bentEq)) < -0.3 * 4 * k + 0.2 * k && bentShort.length < bentEq.length, "curved equilibrium");
   // A block arrow: shaft 12 line widths wide, barbs 12 off the axis and 12 back from the tip.
   const o = blockOutline({ ...a, kind: "block" }, S, k);
   const X = (4 * k) / lw, round = (v: number) => Math.round(v * 1e6) / 1e6 + 0;
@@ -157,6 +161,14 @@ console.log("render.check: written labels ok");
   assert.ok(Math.abs(shortAxis / long - 0.4) < 1e-9, "axes 0.4");
   // A closed pen curve (it ends where it starts) is still drawn.
   assert.equal(arrowShapes({ id: 2, kind: "curve", from: [0, 0], to: [0, 0], curve: { points: [{ at: [0, 0] }, { at: [1, 0] }, { at: [0, 1] }], closed: true } }, S, k).length, 3);
+  // A pen curve whose ends are close together (a loop) keeps its whole head: only straight arrows are kept to two thirds.
+  const loop = arrowShapes({ id: 3, kind: "curve", from: [0, 0], to: [0.3, 0], end: "full", curve: { points: [{ at: [0, 0], c2: [-2, 2] }, { at: [0.3, 0], c1: [2.3, 2] }] } }, S, k);
+  const loopHead = loop[loop.length - 1];
+  assert.ok(Math.abs(Math.hypot(loopHead[2][0] - loopHead[0][0], loopHead[2][1] - loopHead[0][1]) - 8.75 * lw) < 1e-6, "a curve's whole head");
+  // Every polygon winds the same way, so a head over its shaft, or over an arrow joined at its tip, leaves no hole.
+  const area = (p: [number, number][]) => p.reduce((s, q, i) => s + q[0] * p[(i + 1) % p.length][1] - p[(i + 1) % p.length][0] * q[1], 0);
+  for (const more of [{}, { headSize: headOfLength(22.5) }, { style: "bold" }, { kind: "equilibrium" }, { kind: "resonance" }, { end: "right" }, { start: "left" }, { kind: "nogo" }, { kind: "block" }] as Partial<Arrow>[])
+    assert.ok(arrowShapes({ ...a, ...more }, S, k).every((p) => area(p) < 0), `winding: ${JSON.stringify(more)}`);
   console.log("render.check: arrow sizes and kinds ok");
 }
 

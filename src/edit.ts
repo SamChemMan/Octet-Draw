@@ -672,10 +672,13 @@ export function moveCurvePoint(c: Curve, i: number, part: "at" | "c1" | "c2", p:
   let next: CurvePoint;
   if (part === "at") next = { at: p, ...(q.c1 ? { c1: shift(q.c1) } : {}), ...(q.c2 ? { c2: shift(q.c2) } : {}) };
   else {
-    const other = part === "c1" ? "c2" : "c1", o = q[other];
+    const other = part === "c1" ? "c2" : "c1", o = q[other], h = q[part];
     next = { ...q, [part]: p };
     const len = o && Math.hypot(o[0] - q.at[0], o[1] - q.at[1]), out = Math.hypot(p[0] - q.at[0], p[1] - q.at[1]);
-    if (o && !free && len && out > 1e-9) next[other] = [q.at[0] - ((p[0] - q.at[0]) * len) / out, q.at[1] - ((p[1] - q.at[1]) * len) / out];
+    // Smooth: its handles point opposite ways (to within about 2°). A corner stays a corner.
+    const a = h && [h[0] - q.at[0], h[1] - q.at[1]], b = o && [o[0] - q.at[0], o[1] - q.at[1]];
+    const smooth = !!a && !!b && a[0] * b[0] + a[1] * b[1] < 0 && Math.abs(a[0] * b[1] - a[1] * b[0]) <= 0.035 * Math.hypot(a[0], a[1]) * Math.hypot(b[0], b[1]);
+    if (o && smooth && !free && len && out > 1e-9) next[other] = [q.at[0] - ((p[0] - q.at[0]) * len) / out, q.at[1] - ((p[1] - q.at[1]) * len) / out];
   }
   return { ...c, points: c.points.map((x, k) => (k === i ? next : x)) };
 }

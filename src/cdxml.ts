@@ -193,9 +193,9 @@ function kindOf(s: Stored): ArrowKind {
   if (s.nogo) return "nogo";
   if (s.dipole && !s.arc) return "dipole";
   if (s.type === "Hollow" && s.spacing && !s.arc) return "block";
+  if (s.head === "HalfLeft" && s.tail === "HalfLeft" && s.spacing) return "equilibrium"; // straight, or ChemDraw's curved one
   if (s.arc) return s.head?.startsWith("Half") && !s.tail ? "fishhook" : s.head === "Full" && s.tail === "Full" ? "double" : !s.head && !s.tail ? "arc" : "curved";
   if (s.type === "Angle" && s.spacing) return "retro";
-  if (s.head === "HalfLeft" && s.tail === "HalfLeft" && s.spacing) return "equilibrium";
   return s.head === "Full" && s.tail === "Full" ? "resonance" : !s.head && !s.tail ? "line" : "reaction";
 }
 const headOf = (name?: string): Head => (name === "Full" ? "full" : name === "HalfLeft" ? "left" : name === "HalfRight" ? "right" : "none");
@@ -1180,8 +1180,8 @@ export function fromCdxml(text: string): CdxmlRead {
     const p = priv(x), named = p?.kind as ArrowKind, colour = colourOf(x.attrs.color);
     const a: Arrow & { z: number } = curve ? { id: newId(x), kind: "curve", from: curve[0].at, to: curve[curve.length - 1].at, curve: { points: curve }, z }
       : { id: newId(x), kind: ALL_ARROW_KINDS.includes(named) && named !== "orbital" && named !== "curve" ? named : kindOf(s), from, to, z };
-    // A straight arrow Octet gave a point keeps it, and its bend.
-    if (p?.point === true && !curved(a)) a.point = true;
+    // A straight arrow Octet gave a point keeps it, and its bend; so does ChemDraw's curved equilibrium.
+    if ((p?.point === true || (a.kind === "equilibrium" && mid)) && !curved(a)) a.point = true;
     const bends = curved(a) || a.point;
     // Octet's own bend is exact; ChemDraw's arc gives it to within the file's 0.01 pt.
     if (bends && isNum(p?.bend, -5, 5) && p!.bend) a.bend = p!.bend as number;
@@ -1206,7 +1206,7 @@ export function fromCdxml(text: string): CdxmlRead {
       const own = headOfLength(size, a.kind === "block"), centre = Math.abs(real(x.attrs.ArrowheadCenterSize) ?? 0) / 100, width = Math.abs(real(x.attrs.ArrowheadWidth) ?? 0) / 100;
       const hs = paletteHead(a, { length: size, centre: centre > 0 && centre <= 500 ? centre : own.centre, width: width > 0 && width <= 500 ? width : own.width }), kindOwn = headSize(a);
       if (Math.abs(hs.length - kindOwn.length) > 1e-3 || Math.abs(hs.centre - kindOwn.centre) > 1e-3 || Math.abs(hs.width - kindOwn.width) > 1e-3) a.headSize = hs;
-    }
+    } else if (a.kind === "retro" && size > 0 && size <= 500 && Math.abs(size - headSize(a).length) > 1e-3) a.headSize = paletteHead(a, headOfLength(size)); // its notch and width are the open head's own
     const ratio = Math.abs(real(x.attrs.ArrowEquilibriumRatio) ?? 0) / 100;
     if (a.kind === "equilibrium" && ratio > 0 && Math.abs(ratio - 1) > 1e-3) a.ratio = Math.min(100, ratio);
     const shaft = Math.abs(real(x.attrs.ArrowShaftSpacing) ?? 0) / 100;

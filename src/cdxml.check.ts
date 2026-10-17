@@ -288,6 +288,18 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
   for (const attrs of ['ArrowEquilibriumRatio="300"', 'NoGo="Hash"', 'Dipole="yes"', 'ArrowheadType="Hollow" HeadSize="1200" ArrowheadCenterSize="1200" ArrowheadWidth="300" ArrowShaftSpacing="1200"', 'HeadSize="2000" ArrowheadCenterSize="1750" ArrowheadWidth="500"', 'HeadSize="1500" ArrowheadCenterSize="1313" ArrowheadWidth="375"'])
     assert.ok(written.some((w) => w.includes(attrs)), attrs);
   parse(serialize(mol));
+  // A retrosynthetic arrow's size (it has no barb handle, only the palette's sizes) comes back too.
+  const retro: Arrow = { id: 1, kind: "retro", from: [0, 0], to: [3, 0], headSize: headOfLength(22.5) };
+  assert.deepEqual(fromCdxml(toCdxml({ atoms: [], bonds: [], arrows: [retro] }, DEFAULT_STYLE)).mol.arrows![0].headSize, headOfLength(22.5));
+  // A bent equilibrium is ChemDraw's curved one: an arc with two half heads and a shaft spacing. It comes back as an
+  // equilibrium with its point and bend, from Octet's file and from one without Octet's data (as ChemDraw writes it).
+  const curvedEq: Arrow = { id: 1, kind: "equilibrium", from: [0, 0], to: [3, 0], point: true, bend: 0.3, ratio: 3 };
+  const eqOut = toCdxml({ atoms: [], bonds: [], arrows: [curvedEq] }, DEFAULT_STYLE);
+  assert.ok(/<arrow\b[^>]*AngularSize=[^>]*ArrowShaftSpacing|<arrow\b[^>]*ArrowShaftSpacing=[^>]*AngularSize/.test(eqOut), "written as an arc");
+  for (const text of [eqOut, eqOut.replace(/ Octet="[^"]*"/g, "")]) {
+    const back = fromCdxml(text).mol.arrows![0];
+    assert.deepEqual([back.kind, back.point, Math.abs(back.bend! - 0.3) < 1e-3, back.ratio], ["equilibrium", true, true, 3]);
+  }
   console.log("cdxml.check: ChemDraw's arrow sizes and kinds read and written");
 }
 
