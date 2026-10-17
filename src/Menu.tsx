@@ -189,7 +189,7 @@ export function Pick(p: PickProps) {
   };
   return (
     <>
-      <button ref={button} className={p.className} aria-haspopup="listbox" aria-expanded={!!open} aria-label={`${p.label}: ${[...p.groups.flat(), ...(all ?? [])].find((i) => i.key === p.value)?.name ?? p.value}`} title={p.title}
+      <button ref={button} className={p.className} aria-haspopup="menu" aria-expanded={!!open} aria-label={`${p.label}: ${[...p.groups.flat(), ...(all ?? [])].find((i) => i.key === p.value)?.name ?? p.value}`} title={p.title}
         style={p.style} onClick={() => (open ? close() : setOpen({ focus: false }))} onDoubleClick={p.onDoubleClick}
         onKeyDown={(e) => {
           if (p.onKey?.(e)) return;

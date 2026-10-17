@@ -86,12 +86,12 @@ function PickButton({ label, value, options, onPick }: { label: string; value: s
 // The computer's fonts, asked for once (the app lists them; a browser cannot).
 const TAURI = "__TAURI_INTERNALS__" in window;
 let installed: Promise<string[]> | undefined;
-export const systemFonts = () => (installed ??= invoke<string[]>("system_fonts").catch(() => []));
+const systemFonts = () => (installed ??= invoke<string[]>("system_fonts").catch(() => []));
 const fontItem = (f: string): MenuItem => ({ key: f, name: f, icon: null, style: { fontFamily: fontStack(f) } });
 
 // Octet's one font list: Octet's fonts and the drawing's (each shown in itself), then More fonts…, which lists every
 // font on the computer with a field to find one, as ChemDraw's Font menu lists every installed font (Sam: the list
-// stays short until it is asked for more). The Actions panel, Settings and Choose Font use it.
+// stays short until it is asked for more). The Actions panel, Settings and Text > Other Font… use it.
 export function FontPick({ label, font, fonts, onPick, className = "chip size-button", start }: { label: string; font: string; fonts: string[]; onPick: (font: string) => void; className?: string; start?: boolean }) {
   return (
     <Pick label={label} value={font} groups={[(fonts.includes(font) ? fonts : [font, ...fonts]).map(fontItem)]} onPick={onPick} className={className} title={label} style={{ fontFamily: fontStack(font) }} start={start}
