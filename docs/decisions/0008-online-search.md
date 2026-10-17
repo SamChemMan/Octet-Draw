@@ -34,7 +34,8 @@ feature works with no network, and a search runs only when the user asks for one
 
 - Search Reaxys looks for substructures, as ChemDraw's Search Reaxys does by default; Search Reaxys for Exact
   Structure is in the Search menu. Search PubChem looks for the same structure; Search PubChem for Substructures
-  is in the Search menu. A query with generic labels always looks for substructures.
+  is in the Search menu. A query with generic labels always looks for substructures. Its molfile writes them as
+  ChemDraw 26.1 does: A, Q and X as the atom symbol, and AH, QH, M, MH and XH as a carbon with the label as its alias.
 - A structure on one side of a reaction searches Reaxys's reactions for it in that part, as ChemDraw's Reactant
   and Reaction product searches do: before the first arrow `starting_material`, after the last `product`,
   between two arrows `all_reactions`.

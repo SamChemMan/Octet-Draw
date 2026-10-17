@@ -33,4 +33,12 @@ assert.deepEqual(clashes(map, "bond.double", "n"), []);
 import { label } from "./keys.ts";
 assert.equal(label("+"), "+");
 assert.ok(["↩", "Enter"].includes(label("enter")));
+// The menu's commands join the list; one no longer in the menu (Online search off removes the Search menu) leaves it.
+import { ACTIONS, registerMenu } from "./keys.ts";
+registerMenu([["clean_up", "Clean Up Structure", "Structure", "CmdOrCtrl+Shift+K"], ["search_reaxys", "Search Reaxys", "Search", "Alt+CmdOrCtrl+F"]]);
+assert.ok(ACTIONS.some((a) => a.id === "menu.search_reaxys") && ACTIONS.some((a) => a.id === "menu.clean_up"));
+assert.equal(actionFor(keymap({}), "mod+alt+f", "none"), "menu.search_reaxys");
+registerMenu([["clean_up", "Clean Up Structure", "Structure", "CmdOrCtrl+Shift+K"]]);
+assert.ok(!ACTIONS.some((a) => a.id === "menu.search_reaxys") && ACTIONS.some((a) => a.id === "menu.clean_up"));
+assert.equal(actionFor(keymap({}), "mod+alt+f", "none"), undefined);
 console.log("keys.check: ok");
