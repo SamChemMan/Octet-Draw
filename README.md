@@ -1,6 +1,6 @@
 # Octet
 
-Developed by [Sam ELlis](https://www.linkedin.com/in/sam-ellis-132781206/) and our mate Claude.
+Developed by [Sam Ellis](https://www.linkedin.com/in/sam-ellis-132781206/) and our mate Claude.
 
 [Instagram](https://www.instagram.com/samellis2004/)
 [LinkedIn](https://www.linkedin.com/in/sam-ellis-132781206/) 
