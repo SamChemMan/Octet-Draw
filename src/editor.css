@@ -2867,6 +2867,56 @@ button.variant.add {
 .dialog-row > span:first-child {
   min-width: 56px;
 }
+/* About Octet: the mark, the name and version, who made it, then the credits, centred. */
+.about {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+  text-align: center;
+}
+.about img {
+  margin-bottom: var(--space-1);
+}
+.about p {
+  margin: 0;
+}
+.about-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+.about-version {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+.about-made {
+  margin-top: var(--space-2) !important;
+}
+.about-heart {
+  color: var(--error);
+  vertical-align: -1px;
+}
+.about-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--brand);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.about-link:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: 2px;
+}
+.about-credits {
+  margin-top: var(--space-2) !important;
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 15px;
+}
 .dialog-buttons {
   display: flex;
   justify-content: flex-end;

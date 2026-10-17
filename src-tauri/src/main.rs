@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use tauri::menu::{AboutMetadata, CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, State, Wry};
 use tauri_plugin_dialog::DialogExt;
 
@@ -83,6 +83,26 @@ async fn open_drawing(app: AppHandle, picked: State<'_, Picked>) -> Result<Optio
     let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     picked.0.lock().unwrap().insert(path.clone());
     Ok(Some((path.to_string_lossy().into_owned(), text)))
+}
+
+// Opens one of Octet's own links in the browser. The page names it; only these fixed addresses can be opened.
+#[tauri::command]
+fn open_link(name: String) -> Result<(), String> {
+    let url = match name.as_str() {
+        "author" => "https://www.linkedin.com/in/sam-ellis-132781206/",
+        _ => return Err("Octet has no such link.".into()),
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", "start", ""]);
+        c
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = std::process::Command::new("xdg-open");
+    command.arg(url).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
 // Import a structure from another program's file (MOL, SDF, SMILES, CDXML). Returns its name and text.
@@ -316,11 +336,8 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
     ])?;
     #[cfg(target_os = "macos")]
     let octet = Submenu::with_items(app, "Octet", true, &[
-        // The credits the data and libraries' licences ask for (the full texts ship in the app's licences folder).
-        &PredefinedMenuItem::about(app, None, Some(AboutMetadata {
-            credits: Some("Chemistry by Indigo (Apache-2.0). Names read by OPSIN (MIT). NMR shifts contain information from nmrshiftdb2 (www.nmrshiftdb.org), which is made available here under the nmrshiftdb2 Database License.".into()),
-            ..Default::default()
-        }))?,
+        // Octet's own About window (src/About.tsx): the mark, who made it, and the credits the licences ask for.
+        &MenuItem::with_id(app, "about", "About Octet", true, None::<&str>)?,
         &sep()?,
         &item("settings", "Settings…", "CmdOrCtrl+,")?,
         &sep()?,
@@ -343,7 +360,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Picked::default())
-        .invoke_handler(tauri::generate_handler![open_drawing, save_drawing, set_check, set_palette, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file])
+        .invoke_handler(tauri::generate_handler![open_link, open_drawing, save_drawing, set_check, set_palette, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file])
         .setup(|app| {
             let handle = app.handle();
             let (bar, checks) = menu(handle, &[])?;
