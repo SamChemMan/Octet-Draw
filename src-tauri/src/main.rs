@@ -205,6 +205,12 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
         let k = overrides.get(id).cloned().unwrap_or_else(|| keys.to_string());
         MenuItem::with_id(app, id, text, true, if k.is_empty() { None } else { Some(k) })
     };
+    // A tickable command, listed and given the user's shortcut as `item` does. The page sets its tick.
+    let check = |id: &str, text: &str, keys: &str| {
+        list.borrow_mut().push((id.to_string(), text.to_string(), section.borrow().clone(), keys.to_string()));
+        let k = overrides.get(id).cloned().unwrap_or_else(|| keys.to_string());
+        CheckMenuItem::with_id(app, id, text, true, false, if k.is_empty() { None } else { Some(k) })
+    };
     let sep = || PredefinedMenuItem::separator(app);
     section.replace("File".into());
     let file = Submenu::with_items(app, "File", true, &[
@@ -239,10 +245,16 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
         &sep()?,
         &item("copy_smiles", "Copy As SMILES", "Alt+CmdOrCtrl+C")?,
     ])?;
-    let snap = CheckMenuItem::with_id(app, "snap", "Snap to Objects", true, true, None::<&str>)?;
-    // ChemDraw's View > Show Chemical Warnings.
-    let warnings = CheckMenuItem::with_id(app, "warnings", "Show Chemical Warnings", true, true, None::<&str>)?;
     section.replace("View".into());
+    // ChemDraw's Show Crosshair (⌥⌘X) and Show Rulers (⌘;). ChemDraw has no grid: Show Grid (⌘') and Snap to Grid (⇧⌘')
+    // take Affinity Designer's and Illustrator's keys.
+    let grid = check("grid", "Show Grid", "CmdOrCtrl+'")?;
+    let rulers = check("rulers", "Show Rulers", "CmdOrCtrl+;")?;
+    let crosshair = check("crosshair", "Show Crosshair", "Alt+CmdOrCtrl+X")?;
+    let snap = check("snap", "Snap to Objects", "")?;
+    let snap_grid = check("snap_grid", "Snap to Grid", "Shift+CmdOrCtrl+'")?;
+    // ChemDraw's View > Show Chemical Warnings.
+    let warnings = check("warnings", "Show Chemical Warnings", "")?;
     let view = Submenu::with_items(app, "View", true, &[
         // ChemDraw's keys: Magnify, Reduce and Fit to Window.
         &item("zoom_actual", "Actual Size", "CmdOrCtrl+\\")?,
@@ -250,7 +262,12 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
         &item("zoom_in", "Magnify", "CmdOrCtrl+Shift+.")?,
         &item("zoom_out", "Reduce", "CmdOrCtrl+Shift+,")?,
         &sep()?,
+        &grid,
+        &rulers,
+        &crosshair,
+        &sep()?,
         &snap,
+        &snap_grid,
         &warnings,
         &item("actions", "Show or Hide Actions", "")?,
         &item("properties", "Show or Hide Properties", "")?,
@@ -442,7 +459,7 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
     items.push(&window);
     // Commands of a menu that is not there are not listed (Settings shows no shortcuts for them).
     let listed = list.borrow().iter().filter(|c| online || c.2 != "Search").cloned().collect();
-    Ok((Menu::with_items(app, &items)?, vec![snap, warnings], listed))
+    Ok((Menu::with_items(app, &items)?, vec![grid, rulers, crosshair, snap, snap_grid, warnings], listed))
 }
 
 fn main() {

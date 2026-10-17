@@ -22,9 +22,22 @@ export function pageSize(s: Pick<DocStyle, "page" | "custom" | "landscape">): [n
 // dark or blue page the structures and text are drawn white.
 export type Background = "white" | "dark" | "system" | "blueprint";
 export const BACKGROUNDS: [Background, string][] = [["white", "White"], ["dark", "Dark"], ["system", "Match the system"], ["blueprint", "Engineering paper"]];
+// The grid's step: the document's bond length (a line each bond length, a lighter one at each half), or a step in
+// mm (US pages offer 1/8, 1/4 and 1/2 in, held in mm). Only these: a file cannot ask for a grid of a million lines.
+export type GridStep = "bond" | number;
+export const GRID_MM = [1, 2, 5, 10, 20], GRID_IN = [3.175, 6.35, 12.7];
+export const gridStepOk = (v: unknown): v is GridStep => v === "bond" || GRID_MM.includes(v as number) || GRID_IN.includes(v as number);
+// What the window shows over the page: the grid, the rulers, and the crosshair at a point (drawing coordinates, bond
+// lengths). Saved with the document, but not part of its style: showing them is not an edit and makes no undo step.
+export type Guides = { grid?: true; rulers?: true; crosshair?: [number, number] };
+export function readGuides(v: unknown): Guides {
+  const g = (typeof v === "object" && v !== null ? v : {}) as Record<string, unknown>, c = g.crosshair;
+  const point = Array.isArray(c) && c.length === 2 && c.every((n) => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= 1e4);
+  return { ...(g.grid === true ? { grid: true } : {}), ...(g.rulers === true ? { rulers: true } : {}), ...(point ? { crosshair: [(c as number[])[0], (c as number[])[1]] as [number, number] } : {}) };
+}
 export type DocStyle = {
   preset: string; // the preset the style came from, or "Custom"
-  page: PageName; custom: [number, number]; landscape: boolean; edges: boolean; grid: number; // custom: mm; grid: mm, 0 for none
+  page: PageName; custom: [number, number]; landscape: boolean; edges: boolean; grid: GridStep; // custom: mm
   background: Background;
   bond: number; line: number; bold: number; margin: number; hash: number; spacing: number; // pt; spacing in % of bond
   labelFont: string; labelSize: number; captionFont: string; captionSize: number; colour: string;
@@ -43,7 +56,7 @@ export const PRESETS: Record<string, Drawn> = {
   "Helv. Chim. Acta": { bond: 17, line: 0.6, bold: 2, margin: 2, hash: 2, spacing: 15, labelFont: "Helvetica", labelSize: 10, captionFont: "Helvetica", captionSize: 12 },
   "Slides": { bond: 30, line: 1.6, bold: 4, margin: 2, hash: 2.7, spacing: 15, labelFont: "Arial", labelSize: 12, captionFont: "Arial", captionSize: 16 },
 };
-export const DEFAULT_STYLE: DocStyle = { preset: "ACS Document 1996", page: "A4", custom: [180, 120], landscape: false, edges: true, grid: 0, background: "white", colour: "#000000", terminalLabels: false, carbonLabels: false, hideH: false, ...PRESETS["ACS Document 1996"] };
+export const DEFAULT_STYLE: DocStyle = { preset: "ACS Document 1996", page: "A4", custom: [180, 120], landscape: false, edges: true, grid: "bond", background: "white", colour: "#000000", terminalLabels: false, carbonLabels: false, hideH: false, ...PRESETS["ACS Document 1996"] };
 
 export const FONTS = ["Arial", "Helvetica", "Times New Roman", "Calibri", "Cambria", "Georgia"];
 // Any font on the computer can be used too, by its family name. A name with quotes, slashes or CSS punctuation is
@@ -78,7 +91,7 @@ export function readStyle(v: unknown): DocStyle {
     preset: "Custom",
     page: text("page", (t) => t in PAGES || t === "Custom") as PageName,
     custom: Array.isArray(s.custom) && s.custom.length === 2 && s.custom.every((n) => typeof n === "number" && n >= 10 && n <= 2000) ? [s.custom[0], s.custom[1]] : DEFAULT_STYLE.custom,
-    landscape: s.landscape === true, edges: s.edges !== false, grid: num("grid", 0, 50),
+    landscape: s.landscape === true, edges: s.edges !== false, grid: gridStepOk(s.grid) ? s.grid : "bond",
     background: BACKGROUNDS.some(([b]) => b === s.background) ? (s.background as Background) : "white",
     bond: num("bond", 4, 72), line: num("line", 0.1, 6), bold: num("bold", 0.2, 12), margin: num("margin", 0, 10), hash: num("hash", 0.5, 10), spacing: num("spacing", 5, 40),
     labelFont: text("labelFont", fontName), labelSize: num("labelSize", 4, 72),

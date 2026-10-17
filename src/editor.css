@@ -1751,11 +1751,30 @@ button.variant.add {
     background: var(--brand-hover);
   }
 }
+/* The grid (View > Show Grid, and engineering paper): one device pixel per line, a lighter line at each step and a
+   heavier one at each bond length or every 5 steps. The crosshair is brand blue over it. */
 .pages .grid {
   fill: none;
   stroke: var(--hairline);
-  stroke-width: 0.5;
+  stroke-width: 1;
+  opacity: 1;
+  shape-rendering: crispEdges;
+}
+.pages .grid.major {
+  stroke: rgb(148 163 184 / 0.5);
+}
+.pages .crosshair {
+  fill: none;
+  stroke: var(--brand-bright);
+  stroke-width: 1;
   opacity: 0.7;
+  shape-rendering: crispEdges;
+}
+@media (min-resolution: 2dppx) {
+  .pages .grid,
+  .pages .crosshair {
+    stroke-width: 0.5;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .modal {
@@ -2700,11 +2719,6 @@ button.variant.add {
 .canvas.paper-blueprint {
   --canvas: #1D4B86;
   background-color: #1D4B86;
-  background-image:
-    linear-gradient(to right, rgb(255 255 255 / 0.22) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(255 255 255 / 0.22) 1px, transparent 1px),
-    linear-gradient(to right, rgb(255 255 255 / 0.09) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(255 255 255 / 0.09) 1px, transparent 1px);
 }
 /* The background choices in Settings: each a small page of itself. */
 .paper-choices {
@@ -2755,9 +2769,25 @@ button.variant.add {
 .canvas.paper-blueprint .pages text {
   fill: rgb(255 255 255 / 0.75);
 }
-.canvas.paper-dark .pages .grid,
+.canvas.paper-dark .pages .grid {
+  stroke: rgb(255 255 255 / 0.07);
+}
+.canvas.paper-dark .pages .grid.major {
+  stroke: rgb(255 255 255 / 0.16);
+}
 .canvas.paper-blueprint .pages .grid {
-  stroke: rgb(255 255 255 / 0.18);
+  stroke: rgb(255 255 255 / 0.1);
+}
+.canvas.paper-blueprint .pages .grid.major {
+  stroke: rgb(255 255 255 / 0.24);
+}
+.canvas.paper-dark .pages .crosshair {
+  stroke: var(--brand-bright);
+  opacity: 0.85;
+}
+.canvas.paper-blueprint .pages .crosshair {
+  stroke: #FFFFFF;
+  opacity: 0.7;
 }
 .canvas.paper-dark .pages .page.hovered .page-edge,
 .canvas.paper-dark .pages .page.hovered path,
@@ -4046,4 +4076,101 @@ button.variant.add {
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
+}
+
+/* Rulers (View > Show Rulers): along the top and left of the window, under the floating panels, which move in to
+   clear them. The unit is in the corner where they meet. */
+.editor {
+  --ruler: 0px;
+}
+.editor.with-rulers {
+  --ruler: 20px;
+}
+.with-rulers .palette {
+  top: calc(var(--space-4) + var(--ruler));
+  left: calc(var(--space-4) + var(--ruler));
+}
+.with-rulers .export,
+.with-rulers .spectrum.expanded,
+.with-rulers .name-field,
+.with-rulers .coach {
+  top: calc(var(--space-4) + var(--ruler));
+}
+.with-rulers .name-suggestion,
+.with-rulers .name-history {
+  top: calc(var(--space-4) + 44px + var(--ruler));
+}
+.with-rulers .properties,
+.with-rulers .spectrum {
+  left: calc(var(--space-4) * 2 + 48px + var(--ruler));
+}
+.rulers {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.ruler {
+  position: absolute;
+  background: var(--surface);
+  overflow: hidden;
+}
+.ruler.across {
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: var(--ruler);
+  border-bottom: 1px solid var(--hairline);
+}
+.ruler.down {
+  top: 0;
+  left: 0;
+  width: var(--ruler);
+  height: 100%;
+  border-right: 1px solid var(--hairline);
+}
+.ruler-ticks {
+  fill: none;
+  stroke: var(--outline);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+.ruler text {
+  fill: var(--ink-faint);
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+.ruler-band {
+  fill: var(--selection);
+}
+.ruler-edge,
+.ruler-pointer {
+  fill: none;
+  stroke: var(--brand-bright);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+.ruler-corner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--ruler);
+  height: var(--ruler);
+  padding: 0;
+  border: 0;
+  border-right: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface);
+  color: var(--ink-faint);
+  font: 600 8px/1 var(--font-sans);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.ruler-corner:hover {
+  color: var(--brand);
+}
+.ruler-corner:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
