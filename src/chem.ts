@@ -5,6 +5,7 @@ import { fontStack } from "./docstyle.ts";
 import { labelSmiles } from "./labels.ts";
 import { fragments, levelTurn, subset } from "./edit.ts";
 import { graphOf, type Graph } from "./naming.ts";
+import { clean2d } from "./clean2d.ts";
 
 type IndigoModule = Awaited<ReturnType<typeof Indigo>>;
 let indigo: IndigoModule | undefined;
@@ -249,73 +250,42 @@ export function toInchi(drawn: Mol | string): string | undefined {
   }
 }
 
-// Clean Up's time. Indigo tidies a structure in two passes. Each pass runs 1,000 rounds, or stops when 2 s have
-// passed: a limit fixed in Indigo that no option changes. So a crowded structure, or a real one of more than about 25
-// atoms, took 4 s on the main thread, and 4 s more for each structure cleaned. Real structures of up to about 15 atoms
-// stop changing within 100 ms a pass. Indigo reads its clock through performance.now, so Octet runs that clock fast
-// while Indigo cleans, and each pass stops after PASS ms. Several structures share 2 × PASS ms a pass. A large
-// structure drawn by hand comes out rougher than it did in 4 s, and Clean Up again tidies it further, as in ChemDraw.
-// Indigo checks the time only between rounds, and a round costs more as a structure grows (a quarter of a second at
-// 120 atoms, 3 s at 300). So Clean Up leaves a structure of more than MOST_CLEAN atoms as drawn (src/cleanup.check.ts).
+// Clean Up's time. Indigo's clean-up (two passes of up to 1,000 rounds) costs about N^3 a round, from 0.27 s at 120
+// atoms to 3 to 5 minutes at 1,000, and Indigo stops a pass only after 2 s. So Octet runs its own port of it
+// (src/clean2d.ts): the same rounds at about N a round. Structures of up to about 40 atoms are cleaned as Indigo cleans
+// them with no time limit, in under 0.1 s. Each pass of a larger structure stops after PASS ms, and several structures
+// share 2 × PASS ms a pass. A large structure drawn by hand may come out rougher than Indigo's would, and Clean Up again
+// tidies it further, as in ChemDraw. A structure of more than MOST_CLEAN atoms is left as drawn (src/cleanup.check.ts).
 const PASS = 100;
-export const MOST_CLEAN = 150;
-// Runs Indigo with its clock going `fast` times as fast.
-function fastClock<T>(fast: number, run: () => T): T {
-  if (fast <= 1) return run();
-  const now = performance.now, start = now.call(performance);
-  performance.now = () => start + (now.call(performance) - start) * fast;
-  try {
-    return run();
-  } finally {
-    performance.now = now;
-  }
-}
+export const MOST_CLEAN = MOST_ATOMS;
 
-// Clean Up Structure: Indigo straightens bond lengths and angles, structure by structure. Each structure the
-// selection touches (or every structure, with nothing selected) is cleaned whole, scaled back to one bond
-// length per bond, and kept centred where it was. A structure of more than MOST_CLEAN atoms is left as drawn.
-// pass: the ms each of Indigo's two passes may take for one structure (2,000 is Indigo's own limit).
+// Clean Up Structure: bond lengths and angles straightened, structure by structure. Each structure the selection
+// touches (or every structure, with nothing selected) is cleaned whole, scaled back to one bond length per bond, and
+// kept centred where it was. A structure of more than MOST_CLEAN atoms is left as drawn.
+// pass: the ms each of the two passes may take for one structure.
 export function cleanUp(mol: Mol, ids?: Set<number>, pass = PASS): Mol {
-  const ind = engine(), atoms = mol.atoms.map((a) => ({ ...a }));
+  const atoms = mol.atoms.map((a) => ({ ...a }));
   const groups = fragments(mol).filter((frag) => frag.length > 1 && frag.length <= MOST_CLEAN && (!ids?.size || frag.some((i) => ids.has(i))));
-  const fast = 2000 / (pass * Math.min(1, 2 / groups.length));
   for (const frag of groups) {
     const local = new Map(frag.map((i, k) => [i, k]));
     const bonds = mol.bonds.filter((b) => local.has(b.atoms[0]) && local.has(b.atoms[1]));
-    const ket = {
-      root: { nodes: [{ $ref: "mol0" }] },
-      mol0: {
-        type: "molecule",
-        atoms: frag.map((i) => ({ label: /^[A-Z][a-z]?$/.test(mol.atoms[i].label) ? mol.atoms[i].label : "C", location: mol.atoms[i].location })),
-        bonds: bonds.map((b) => ({ type: Math.min(b.type, 3), atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!], ...(b.stereo ? { stereo: b.stereo } : {}) })),
-      },
-    };
-    const opts = new ind.MapStringString(), sel = new ind.VectorInt();
-    try {
-      opts.set("output-content-type", "application/json");
-      frag.forEach((_, k) => sel.push_back(k));
-      const out = JSON.parse(JSON.parse(fastClock(fast, () => ind.clean2d(JSON.stringify(ket), "ket", opts, sel))).struct).mol0.atoms as { location: number[] }[];
-      if (out.length !== frag.length) continue;
-      const lengths = bonds.map((b) => {
-        const [p, q] = [out[local.get(b.atoms[0])!].location, out[local.get(b.atoms[1])!].location];
-        return Math.hypot(q[0] - p[0], q[1] - p[1]);
-      }).sort((a, b) => a - b);
-      const scale = 1 / (lengths[Math.floor(lengths.length / 2)] || 1);
-      const centre = (pts: number[][]) => [0, 1].map((k) => pts.reduce((sum, p) => sum + p[k], 0) / pts.length);
-      const [ox, oy] = centre(frag.map((i) => mol.atoms[i].location)), [nx, ny] = centre(out.map((a) => a.location));
-      frag.forEach((i, k) => {
-        const [x, y] = out[k].location;
-        atoms[i] = { ...atoms[i], location: [ox + (x - nx) * scale, oy + (y - ny) * scale, 0] };
-      });
-      // As ChemDraw's clean up leaves it: a ring structure turned so its bottom ring bond is level.
-      const turn = levelTurn({ ...mol, atoms }, frag);
-      if (turn) {
-        const c = Math.cos((turn * Math.PI) / 180), s = Math.sin((turn * Math.PI) / 180);
-        frag.forEach((i) => { const [x, y] = atoms[i].location; atoms[i] = { ...atoms[i], location: [ox + (x - ox) * c - (y - oy) * s, oy + (x - ox) * s + (y - oy) * c, 0] }; });
-      }
-    } finally {
-      opts.delete();
-      sel.delete();
+    const out = clean2d(frag.map((i) => mol.atoms[i].location), bonds.map((b) => ({ atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!], order: b.type })), pass * Math.min(1, 2 / groups.length));
+    const lengths = bonds.map((b) => {
+      const [p, q] = [out[local.get(b.atoms[0])!], out[local.get(b.atoms[1])!]];
+      return Math.hypot(q[0] - p[0], q[1] - p[1]);
+    }).sort((a, b) => a - b);
+    const scale = 1 / (lengths[Math.floor(lengths.length / 2)] || 1);
+    const centre = (pts: readonly (readonly number[])[]) => [0, 1].map((k) => pts.reduce((sum, p) => sum + p[k], 0) / pts.length);
+    const [ox, oy] = centre(frag.map((i) => mol.atoms[i].location)), [nx, ny] = centre(out);
+    frag.forEach((i, k) => {
+      const [x, y] = out[k];
+      atoms[i] = { ...atoms[i], location: [ox + (x - nx) * scale, oy + (y - ny) * scale, 0] };
+    });
+    // As ChemDraw's clean up leaves it: a ring structure turned so its bottom ring bond is level.
+    const turn = levelTurn({ ...mol, atoms }, frag);
+    if (turn) {
+      const c = Math.cos((turn * Math.PI) / 180), s = Math.sin((turn * Math.PI) / 180);
+      frag.forEach((i) => { const [x, y] = atoms[i].location; atoms[i] = { ...atoms[i], location: [ox + (x - ox) * c - (y - oy) * s, oy + (x - ox) * s + (y - oy) * c, 0] }; });
     }
   }
   return { ...mol, atoms };
