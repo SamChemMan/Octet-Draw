@@ -1,6 +1,6 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { hydrogens, lonePairs, tableLayout, TABLE_ROW, type Arrow, type Atom, type Bond, type Caption, type Curve, type CurvePoint, type Mol, type Shape, type Table } from "./render.ts";
+import { HBOND, hydrogens, lonePairs, orderOf, QUADRUPLE, tableLayout, TABLE_ROW, type Arrow, type Atom, type Bond, type Caption, type Curve, type CurvePoint, type Mol, type Shape, type Table } from "./render.ts";
 import type { Cycle } from "./cycle.ts";
 import { anchorElement, isElement } from "./labels.ts";
 
@@ -172,8 +172,8 @@ export function addSymbol(m: Mol, i: number, kind: SymbolKind): Mol {
 }
 // Lone pairs shown never outnumber the ones the atom has (after a charge or radical changes them).
 const trimPairs = (m: Mol, i: number) => (m.atoms[i].pairs ? setAtom(m, i, { pairs: Math.min(m.atoms[i].pairs!, freePairs(m, i)) || undefined }) : m);
-// Each atom's bond orders added up, in one pass over the bonds. An aromatic bond counts 1.5, unless order says else.
-export function bondOrders(m: Mol, order = (type: number) => (type === 4 ? 1.5 : type)): number[] {
+// Each atom's bond orders added up, in one pass over the bonds (orderOf: an aromatic bond counts 1.5, a hydrogen bond 0).
+export function bondOrders(m: Mol, order = orderOf): number[] {
   const used = m.atoms.map(() => 0);
   for (const { type, atoms: [p, q] } of m.bonds) {
     used[p] += order(type);
@@ -194,12 +194,26 @@ export function toggleLonePairs(m: Mol, atoms: number[]): Mol {
   const shown = hetero.every((i) => (m.atoms[i].pairs ?? 0) >= freePairs(m, i, used[i]));
   return hetero.reduce((acc, i) => setAtom(acc, i, { pairs: shown ? undefined : freePairs(m, i, used[i]) }), m);
 }
-// Single, then double, then triple, then single again. A wedge or hash becomes a plain double.
-const respec = (m: Mol, i: number, spec: BondSpec): Mol => ({ ...m, bonds: m.bonds.map((b, k) => (k === i ? makeBond(b.atoms, spec) : b)) });
-export const cycleBond = (m: Mol, i: number) => respec(m, i, { type: m.bonds[i].stereo || m.bonds[i].display ? 2 : (m.bonds[i].type % 3) + 1 });
+// Single, then double, then triple, then single again. A wedge or hash becomes a plain double, and a quadruple bond
+// single. A hydrogen bond stays one, as in ChemDraw. A bond keeps its place where bonds cross.
+const respec = (m: Mol, i: number, spec: BondSpec): Mol => ({ ...m, bonds: m.bonds.map((b, k) => (k === i ? { ...makeBond(b.atoms, spec), ...(b.z ? { z: b.z } : {}) } : b)) });
+export const cycleBond = (m: Mol, i: number) => {
+  const b = m.bonds[i];
+  return b.type === HBOND ? m : respec(m, i, { type: b.type === QUADRUPLE ? 1 : b.stereo || b.display ? 2 : (b.type % 3) + 1 });
+};
 export const setBond = (m: Mol, i: number, type: number, stereo?: number) => respec(m, i, { type, stereo });
 export const setBondSpec = (m: Mol, i: number, spec: BondSpec) => respec(m, i, spec);
-export const setPosition = (m: Mol, i: number, position: "left" | "centre" | "right") => setBondAt(m, i, { position });
+// A double bond's second line on one side, centred, or (unset) placed automatically.
+export const setPosition = (m: Mol, i: number, position?: "left" | "centre" | "right") => setBondAt(m, i, { position });
+// Bring to Front and Send to Back where bonds cross (ChemDraw's f key on a bond): the bonds go in front of (or behind)
+// every other bond, and keep their order among themselves.
+export function orderBonds(m: Mol, bonds: number[], front: boolean): Mol {
+  if (!bonds.length) return m;
+  const zs = m.bonds.map((b) => b.z ?? 0), picked = new Set(bonds), others = zs.filter((_, k) => !picked.has(k));
+  const sorted = [...picked].sort((p, q) => zs[p] - zs[q] || p - q), start = front ? Math.max(0, ...others) + 1 : Math.min(0, ...others) - sorted.length;
+  const z = new Map(sorted.map((k, n) => [k, start + n]));
+  return { ...m, bonds: m.bonds.map((b, k) => (z.has(k) ? { ...b, z: z.get(k) || undefined } : b)) };
+}
 // Swaps a bond's ends, so a wedge points the other way.
 export const flipBond = (m: Mol, i: number) => setBondAt(m, i, { atoms: [m.bonds[i].atoms[1], m.bonds[i].atoms[0]] });
 

@@ -9,7 +9,7 @@
 
 import { FONTS, PAGES, fontName, pageSize, readStyle, type DocStyle } from "./docstyle.ts";
 import {
-  HIGHLIGHT, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, straightArrow, tableLayout, takesHeads, tlcLayout,
+  HBOND, HIGHLIGHT, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, straightArrow, tableLayout, takesHeads, tlcLayout,
   ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, headSize, headOfLength, marked, ellipsePoints, sizedHead, turns, type HeadSize,
   type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape,
   type LineStyle, type Mol, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
@@ -161,7 +161,6 @@ const RADICALS = ["None", "Singlet", "Doublet", "Triplet"];
 const HEADS: Record<Head, string | undefined> = { none: undefined, full: "Full", left: "HalfLeft", right: "HalfRight" };
 const HEAD_SHAPES: Record<HeadShape, string> = { solid: "Solid", hollow: "Hollow", angled: "Angle" };
 const H_FIRST = new Set(["O", "F", "S", "Cl", "Se", "Br", "Te", "I"]); // H2O, HCl drawn with the H first (as render.ts)
-const BOND_ORDER: Record<number, number> = { 1: 1, 2: 2, 3: 3, 4: 1.5 };
 // Orbitals: ChemDraw's OrbitalType names and the Octet shape and phase each reads as (spec 9.8).
 const ORBITALS: [string, OrbitalShape, Phase][] = [
   ["s", "s", "plain"], ["oval", "oval", "plain"], ["lobe", "lobe", "plain"], ["p", "p", "plain"],
@@ -388,7 +387,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   const nodeId = new Map<number, number>(), bondId = mol.bonds.map(() => 0), fragId = new Map<number, number>();
   const nbrs: number[][] = mol.atoms.map(() => []), bondsAt: number[][] = mol.atoms.map(() => []);
   mol.bonds.forEach((b, k) => { nbrs[b.atoms[0]].push(b.atoms[1]); nbrs[b.atoms[1]].push(b.atoms[0]); bondsAt[b.atoms[0]].push(k); bondsAt[b.atoms[1]].push(k); });
-  const used = (i: number) => bondsAt[i].reduce((n, k) => n + (BOND_ORDER[mol.bonds[k].type] ?? 1), 0);
+  const used = (i: number) => bondsAt[i].reduce((n, k) => n + orderOf(mol.bonds[k].type), 0);
   // Node and bond ids rise in Octet's atom and bond order, which is how the reader puts that order back.
   const frags = fragments(mol).map((f) => f.sort((p, q) => p - q)).sort((p, q) => p[0] - q[0]);
   mol.atoms.forEach((_, i) => nodeId.set(i, fresh()));
@@ -414,7 +413,8 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       xml += n.xml;
       boxes.push(n.box);
     }
-    for (const k of [...new Set(atoms.flatMap((i) => bondsAt[i]))].sort((p, q) => p - q)) xml += bond(k);
+    // Bonds back to front where they cross (spec Z): by their z, then in Octet's order.
+    for (const k of [...new Set(atoms.flatMap((i) => bondsAt[i]))].sort((p, q) => (mol.bonds[p].z ?? 0) - (mol.bonds[q].z ?? 0) || p - q)) xml += bond(k);
     for (const i of atoms) xml += marks(i);
     xml += circles(atoms);
     const box = union(boxes)!;
@@ -520,10 +520,11 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     // A dashed double bond is ChemDraw's Tautomeric (its ⇧D): order 1.5, the second line dashed. Its Aromatic double
     // has both lines dashed.
     const ring = ringBond.has(k), dashed = !ring && b.type === 2 && (d === "dashed" || d === "aromatic");
+    // A hydrogen bond is ChemDraw 26's DottedHydrogen display on a single bond; a quadruple bond is order 4.
     return el("b", {
       id: bondId[k], Z: Z(), B: nodeId.get(i)!, E: nodeId.get(j)!,
-      Order: ring || dashed || b.type === 4 ? "1.5" : d === "dative" ? "dative" : b.type === 2 ? "2" : b.type === 3 ? "3" : undefined,
-      Display: ring ? undefined : dashed && d === "aromatic" ? "Dash" : display, Display2: dashed ? "Dash" : undefined, Octet: ring ? priv({ order: b.type }) : undefined, DoublePosition: b.type === 2 && b.position ? { left: "Left", right: "Right", centre: "Center" }[b.position] : undefined,
+      Order: ring || dashed || b.type === 4 ? "1.5" : d === "dative" ? "dative" : b.type === 2 ? "2" : b.type === 3 ? "3" : b.type === QUADRUPLE ? "4" : undefined,
+      Display: ring ? undefined : dashed && d === "aromatic" ? "Dash" : b.type === HBOND ? "DottedHydrogen" : display, Display2: dashed ? "Dash" : undefined, Octet: ring ? priv({ order: b.type }) : undefined, DoublePosition: b.type === 2 && b.position ? { left: "Left", right: "Right", centre: "Center" }[b.position] : undefined,
       color: colour(b.colour), ShowBondStereo: mol.atoms[i].cip && mol.atoms[j].cip ? "yes" : undefined, BondCircularOrdering: circular,
     });
   }
@@ -845,7 +846,7 @@ export function fromCdxml(text: string): CdxmlRead {
   const captions: (Caption & { z: number })[] = [], arrows: (Arrow & { z: number })[] = [], shapes: (Shape & { z: number })[] = [], grids: Grid[] = [];
   type G = { id: number; atoms: Set<number>; items: number[]; integral?: true };
   const groups: G[] = [];
-  const nodeIds: number[] = [], bondIds: number[] = [];
+  const nodeIds: number[] = [], bondIds: number[] = [], bondZs: number[] = [];
   const atomOf = new Map<number, number>(), objectOf = new Map<number, number>(), arrowOfGraphic = new Map<number, number>();
   const labels: { i: number; text: string; type: string; isotope?: number }[] = [];
   const numH = new Map<number, number>(), delocalised: { k: number; order?: 1 | 2 }[] = [], ovals: { id: number; c: P; r: number }[] = [];
@@ -964,12 +965,13 @@ export function fromCdxml(text: string): CdxmlRead {
       // ChemDraw reads order 1.5 with a dashed Display2 as a double bond: Tautomeric, or Aromatic when Display is
       // dashed too. Order 2 with a dashed Display is Aromatic as well.
       const deloc = order.size === 1 && order.has("1.5"), dashed = deloc && !!d2 && d2 !== "Solid";
-      const bond: Bond = { type: order.has("3") ? 3 : order.has("2") || dashed ? 2 : 1, atoms: [i!, j!] };
+      // A hydrogen bond: ChemDraw 26's DottedHydrogen display (or an older dotted bond), or the spec's hydrogen order.
+      const hbond = d === "DottedHydrogen" || ((d === "Dot" || (order.size === 1 && order.has("hydrogen"))) && !order.has("2") && !order.has("3"));
+      const bond: Bond = { type: hbond ? HBOND : order.has("4") ? QUADRUPLE : order.has("3") ? 3 : order.has("2") || dashed ? 2 : 1, atoms: [i!, j!] };
       if (dashed) bond.display = d === "Dash" ? "aromatic" : "dashed";
       else if (deloc) { const kept = priv(b)?.order; delocalised.push({ k: mol.bonds.length, order: kept === 1 || kept === 2 ? kept : undefined }); }
       if (bond.type === 1 && order.size === 1 && order.has("dative")) bond.display = "dative";
-      else if (bond.type === 1 && order.has("hydrogen")) bond.display = "dashed";
-      else if (!deloc && [...order].some((o) => !["1", "2", "3"].includes(o))) lose("bond order");
+      else if (!deloc && !hbond && [...order].some((o) => !["1", "2", "3", "4"].includes(o))) lose("bond order");
       let swap = false;
       if (bond.type === 1 && !bond.display) {
         const single: Record<string, [Display | undefined, number | undefined, boolean]> = {
@@ -983,13 +985,14 @@ export function fromCdxml(text: string): CdxmlRead {
         if (dashed) { /* above */ } else if (d === "Bold") bond.display = "bold"; else if (d === "Wavy") bond.display = "either"; else if (d === "Dash") bond.display = "aromatic"; else if (d2 === "Dash") bond.display = "dashed"; else if (d && d !== "Solid") lose("bond display");
         const side = { Left: "left", Right: "right", Center: "centre" }[b.attrs.DoublePosition ?? ""] as Bond["position"];
         if (side) bond.position = side;
-      } else if (d && d !== "Solid") lose("bond display");
+      } else if (d && d !== "Solid" && !hbond) lose("bond display");
       if (swap) bond.atoms = [j!, i!];
       const colour = colourOf(b.attrs.color);
       if (colour) bond.colour = colour;
       if (b.attrs.highlightColor) lose("bond highlight");
       mol.bonds.push(bond);
       bondIds.push(int(b.attrs.id) ?? 0);
+      bondZs.push(zOf(b));
     }
   }
 
@@ -1023,7 +1026,7 @@ export function fromCdxml(text: string): CdxmlRead {
     const room = (i: number) => {
       const a = mol.atoms[i], v = VALENCE[a.label], q = a.charge ?? 0;
       if (v === undefined || a.text) return 0;
-      const bonds = mol.bonds.reduce((n, b) => n + (b.atoms.includes(i) ? (BOND_ORDER[b.type] ?? 1) : 0), 0);
+      const bonds = mol.bonds.reduce((n, b) => n + (b.atoms.includes(i) ? orderOf(b.type) : 0), 0);
       return (a.label === "C" || a.label === "B" || a.label === "Si" ? v - Math.abs(q) : v + q) - bonds - (numH.get(i) ?? 0);
     };
     const atoms = [...new Set(loose.flatMap((k) => mol.bonds[k].atoms))].filter((i) => room(i) >= 1);
@@ -1034,7 +1037,7 @@ export function fromCdxml(text: string): CdxmlRead {
   // Ph, CO2Et), less any charge the node already holds (spec 9.10).
   function readLabels() {
     const used = mol.atoms.map(() => 0), degree = mol.atoms.map(() => 0);
-    for (const b of mol.bonds) for (const i of b.atoms) { used[i] += BOND_ORDER[b.type] ?? 1; degree[i]++; }
+    for (const b of mol.bonds) for (const i of b.atoms) { used[i] += orderOf(b.type); degree[i]++; }
     for (const { i, text: raw, type, isotope } of labels) {
       const a = mol.atoms[i], charge = a.charge ?? 0;
       let text = cleanText(raw).replace(/\n/g, "").trim();
@@ -1452,11 +1455,18 @@ export function fromCdxml(text: string): CdxmlRead {
   if (octet) {
     const order = mol.atoms.map((_, i) => i).sort((p, q) => nodeIds[p] - nodeIds[q]), place = new Map(order.map((i, k) => [i, k]));
     ix = (i) => place.get(i)!;
-    mol.bonds = mol.bonds.map((b, k) => [b, bondIds[k]] as const).sort((p, q) => p[1] - q[1]).map(([b]) => ({ ...b, atoms: [ix(b.atoms[0]), ix(b.atoms[1])] }));
+    const byId = mol.bonds.map((_, k) => k).sort((p, q) => bondIds[p] - bondIds[q]), zs = byId.map((k) => bondZs[k]);
+    mol.bonds = byId.map((k) => mol.bonds[k]).map((b) => ({ ...b, atoms: [ix(b.atoms[0]), ix(b.atoms[1])] }));
+    bondZs.splice(0, bondZs.length, ...zs);
     mol.atoms = order.map((i) => mol.atoms[i]);
     for (const c of captions) if (c.under) c.under = c.under.map(ix);
     for (const c of cycles) c.nodes = c.nodes.map((n) => n.map(ix));
   }
+  // Where bonds cross, the one with the higher Z is in front. Octet puts a later bond in front, so a structure's bonds
+  // keep their Z only when it is not in their order.
+  const structureOf = new Map(fragments(mol).flatMap((g, k) => g.map((i) => [i, k] as const))), last = new Map<number, number>(), shuffled = new Set<number>();
+  mol.bonds.forEach((b, k) => { const g = structureOf.get(b.atoms[0])!; if (bondZs[k] < (last.get(g) ?? -Infinity)) shuffled.add(g); last.set(g, Math.max(bondZs[k], last.get(g) ?? -Infinity)); });
+  if (shuffled.size) mol.bonds.forEach((b, k) => { if (bondZs[k] && shuffled.has(structureOf.get(b.atoms[0])!)) b.z = bondZs[k]; });
   const byZ = <T extends { z: number }>(list: T[]) => list.map((x, k) => [x, k] as const).sort((p, q) => p[0].z - q[0].z || p[1] - q[1]).map(([x]) => { const out = { ...x } as Partial<T>; delete out.z; return out as Omit<T, "z">; });
   // Captions and arrows in id order (Octet draws them by kind); shapes in drawing order, which Octet keeps.
   if (captions.length) mol.captions = byZ(captions).sort((p, q) => p.id - q.id);

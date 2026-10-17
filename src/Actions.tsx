@@ -61,7 +61,7 @@ type Props = {
 };
 
 const ELEMENTS = ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"];
-const STYLES: BondKind[] = ["single", "double", "triple", "bolddouble", "dasheddouble", "aromaticdouble", "eitherdouble", "wedge", "hashwedge", "hollow", "bold", "hashed", "dashed", "wavy", "dative"];
+const STYLES: BondKind[] = ["single", "double", "triple", "quadruple", "bolddouble", "dasheddouble", "aromaticdouble", "eitherdouble", "wedge", "hashwedge", "hollow", "bold", "hashed", "dashed", "wavy", "dative", "hydrogen"];
 // On a chain end: the groups chemists put there most. Values are what the atom becomes.
 const ENDS = [["OH", "O"], ["NH₂", "N"], ["Me", "Me"], ["OMe", "OMe"], ["CO₂H", "CO2H"], ["CF₃", "CF3"], ["CN", "CN"], ["Ph", "Ph"]];
 
@@ -359,9 +359,9 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         ...(hiddenWarnings ? [it(<Warning size={18} />, "Show warnings", "show_warnings")] : []), del);
       break;
     case "bond":
-      if (context.double) items.push(it(<span className="glyph-text">L</span>, "Second line on the left", "bond.left"), it(<span className="glyph-text">C</span>, "Centre the double bond", "bond.centre"), it(<span className="glyph-text">R</span>, "Second line on the right", "bond.right"));
+      if (context.double) items.push(it(<span className="glyph-text">A</span>, "Second line placed automatically", "bond.auto"), it(<span className="glyph-text">L</span>, "Second line on the left", "bond.left"), it(<span className="glyph-text">C</span>, "Centre the double bond", "bond.centre"), it(<span className="glyph-text">R</span>, "Second line on the right", "bond.right"));
       if (context.flippable) items.push(it(<FlipHorizontal size={18} />, "Point the other way", "bond.flip"));
-      items.push(del);
+      items.push(it(<SlidersHorizontal size={18} />, "Bond properties…", "bond.properties"), del);
       break;
     case "caption":
       if (context.mode !== "picked") break;

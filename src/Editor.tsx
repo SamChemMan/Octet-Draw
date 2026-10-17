@@ -16,7 +16,7 @@ import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
-  addShape, addSymbol, bondOrders, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
+  addShape, addSymbol, bondOrders, orderBonds, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
@@ -53,7 +53,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, ELLIPSES, Palette, pickHead, RingGlyph, RINGS, SELECTS, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, fitArrows, headBarb, headSize, sizeOf, sizedHead, turnedWith, turnPx, turns, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
+import { arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, fitArrows, headBarb, headSize, sizeOf, sizedHead, turnedWith, turnPx, turns, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
 import { loadNames, nameToSmiles, suggestName } from "./names";
 import { checkedName, graphOf, setNamer } from "./naming";
@@ -233,6 +233,10 @@ const OCTET_CLIP = "application/x-octet+json";
 const CONTRACTED = ["OMe", "OEt", "OiPr", "OtBu", "OAc", "OBz", "OBn", "OPh", "OTs", "OMs", "OTf", "OTBS", "OTIPS", "OTBDPS", "OTMS", "OMOM", "OTHP", "OPMB",
   "CO2Me", "CO2Et", "CO2tBu", "CO2Bn", "CO2H", "CHO", "CN", "NO2", "CF3", "CCl3", "OCF3", "SMe", "SO2Me", "NMe2", "NEt2", "NHAc", "NHBoc", "NHCbz", "NHFmoc",
   "NHTs", "NBoc2", "CONH2", "CONMe2", "N3", "SO3H", "COMe", "COPh"];
+// A bond's style in the tool's list, if it is one of them.
+const bondKindOf = (b: Bond) => (Object.keys(BONDS) as BondKind[]).find((k) => { const spec: BondSpec = BONDS[k].spec; return spec.type === b.type && spec.stereo === b.stereo && spec.display === b.display; });
+// The Bond Properties list, in the order of ChemDraw's Bond Type list (then Octet's hydrogen bond).
+const BOND_TYPES: BondKind[] = ["single", "dashed", "hashed", "hashwedge", "bold", "wedge", "wavy", "hollow", "dative", "double", "eitherdouble", "bolddouble", "aromaticdouble", "dasheddouble", "triple", "quadruple", "hydrogen"];
 let contracted: [string, string][] | undefined;
 function contractLabelText(want: string): string | undefined {
   contracted ??= [...CONTRACTED, ...Object.keys(GROUPS)].flatMap((name) => { const smiles = labelSmiles(name), inchi = smiles ? toInchi(`[Xe]${smiles}`) : undefined; return inchi ? [[name, inchi] as [string, string]] : []; });
@@ -649,6 +653,13 @@ export default function Editor() {
     const a = doc.atoms[i];
     setDialog({ kind: "atom", atom: i, element: a.text ?? a.label, charge: String(a.charge ?? 0), isotope: a.isotope ? String(a.isotope) : "", radical: String(a.radical ?? 0) });
   }
+  // Bond Properties (/ over a bond, or the Structure menu): the bond's type, in ChemDraw's order, and where a double
+  // bond's second line goes.
+  function bondProperties(k: number | undefined) {
+    const b = k === undefined ? undefined : doc.bonds[k];
+    if (!b) return setNotice("Pick a bond first.");
+    setDialog({ kind: "bond", bond: k!, style: bondKindOf(b) ?? "single", position: b.position ?? "auto" });
+  }
   // Show or hide atom numbers. Each atom's number is its place in its structure, counting from 1, as ChemDraw numbers
   // atoms in the order they were drawn. When every one of the atoms already shows its number, they are hidden.
   function numberAtoms(atoms: number[]) {
@@ -835,6 +846,8 @@ export default function Editor() {
     about: () => setAbout(true),
     // Atom Properties (Structure menu): the selected atom's element or label, charge, isotope and radical.
     atom_properties: () => atomProperties([...selection][0] ?? hovers.get().atom),
+    // Bond Properties (Structure menu): the selected bond's (or the one under the pointer).
+    bond_properties: () => bondProperties(selection.size === 2 ? doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])) : hovers.get().bond),
     // Show Atom Number (Object menu): each atom's number beside it, for the selected atoms or the whole drawing.
     atom_numbers: () => numberAtoms(selection.size ? [...selection] : doc.atoms.map((_, i) => i)),
     // Page Setup (⇧⌘P): the page's size and orientation, which live in the document's settings.
@@ -1049,6 +1062,7 @@ export default function Editor() {
   const [exportView, setExportView] = useState<{ all?: string; selection?: string; chem: { all: ReturnType<typeof chemistryOf>; selection?: ReturnType<typeof chemistryOf> }; oct: { all: string; selection?: string } }>();
   const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }
     | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string }
+    | { kind: "bond"; bond: number; style: BondKind; position: "auto" | "left" | "centre" | "right" }
     | { kind: "unsaved"; next: () => void }>();
   const [commandsOpen, setCommandsOpen] = useState(false);
   // An arrow Octet offers after a row of starting materials (from Clean up). Tab draws it; any other change drops it.
@@ -2142,7 +2156,9 @@ export default function Editor() {
     if (kind === "group" && atom !== undefined) return set(addGroup(doc, atom, arg as Group));
     if (kind === "bond" && bond !== undefined) {
       if (arg in BONDS) return set(setBondSpec(doc, bond, BONDS[arg as BondKind].spec));
-      if (arg === "left" || arg === "centre" || arg === "right") return set(setPosition(doc, bond, arg));
+      if (arg === "left" || arg === "centre" || arg === "right" || arg === "auto") return set(setPosition(doc, bond, arg === "auto" ? undefined : arg));
+      if (arg === "front") return set(orderBonds(doc, [bond], true), true);
+      if (arg === "properties") return bondProperties(bond);
       if (arg === "chair1" || arg === "chair2") return set(addChair(doc, arg === "chair1" ? 1 : 2, { bond }));
       const ring = arg.startsWith("ring") ? RINGS[arg.slice(4) as RingKind] : RINGS[arg as RingKind];
       if (ring) return set(addRing(doc, ring.n, ring.aromatic, { bond }));
@@ -2293,11 +2309,7 @@ export default function Editor() {
     }
     const bi = ids.length === 2 ? doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])) : -1;
     if (bi >= 0) {
-      const b = doc.bonds[bi];
-      const style = (Object.keys(BONDS) as BondKind[]).find((k) => {
-        const spec: BondSpec = BONDS[k].spec;
-        return spec.type === b.type && spec.stereo === b.stereo && spec.display === b.display;
-      });
+      const b = doc.bonds[bi], style = bondKindOf(b);
       return { kind: "bond", style, double: b.type === 2, flippable: !!b.stereo || b.display === "dative" || b.display === "hollow" };
     }
     // Lone pairs: whether the heteroatoms have any to show, and whether they all show already.
@@ -2642,7 +2654,7 @@ export default function Editor() {
     new: ["New drawing", `${MOD}N`, <FilePlus size={18} />], open: ["Open…", `${MOD}O`, <FolderOpen size={18} />], import: ["Import a structure…", "", <FileArrowDown size={18} />],
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDisk size={18} />],
     export: ["Export…", EXPORT_KEYS, <ExportIcon size={18} />], print: ["Print…", `${MOD}P`, <Printer size={18} />], page_setup: ["Page setup…", `⇧${MOD}P`, <FileDashed size={18} />],
-    about: ["About Octet", "", <Info size={18} />], atom_properties: ["Atom properties…", "", <SlidersHorizontal size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
+    about: ["About Octet", "", <Info size={18} />], atom_properties: ["Atom properties…", "", <SlidersHorizontal size={18} />], bond_properties: ["Bond properties…", "", <SlidersHorizontal size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
     expand_label: ["Expand label", "", <ArrowsOutSimple size={18} />], contract_label: ["Contract label", "", <ArrowsInSimple size={18} />], stoichiometry: ["Analyze stoichiometry", "", <Table size={18} />],
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <MagicWand size={18} />],
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
@@ -2845,8 +2857,10 @@ export default function Editor() {
       // structures and arrows (its fill too); sent to the back, its fill goes behind them again. Text is always in front.
       if (what === "front" || what === "back") {
         const order = <T extends { id: number }>(list?: T[]) => list && [...list.filter((x) => (what === "front") !== picked.has(x.id)), ...list.filter((x) => (what === "front") === picked.has(x.id))];
+        // Selected bonds go in front of (or behind) the bonds they cross.
+        const m = orderBonds(doc, doc.bonds.flatMap((b, k) => (selection.has(b.atoms[0]) && selection.has(b.atoms[1]) ? [k] : [])), what === "front");
         return set({
-          ...doc, arrows: order(doc.arrows),
+          ...m, arrows: order(doc.arrows),
           shapes: order(doc.shapes)?.map((x) => (picked.has(x.id) && turns(x) ? { ...x, front: what === "front" || undefined } : x)),
         }, true);
       }
@@ -2981,8 +2995,9 @@ export default function Editor() {
       if (arg in BONDS) return set(setBondSpec(doc, bi, BONDS[arg as BondKind].spec), true);
       const ring = arg.startsWith("ring") ? RINGS[arg.slice(4) as RingKind] : arg === "benzene" ? RINGS.benzene : undefined;
       if (ring) return set(addRing(doc, ring.n, ring.aromatic, { bond: bi }));
-      if (arg === "left" || arg === "centre" || arg === "right") return set(setPosition(doc, bi, arg), true);
+      if (arg === "left" || arg === "centre" || arg === "right" || arg === "auto") return set(setPosition(doc, bi, arg === "auto" ? undefined : arg), true);
       if (arg === "flip") return set(flipBond(doc, bi), true);
+      if (arg === "properties") return bondProperties(bi);
     }
   }
 
@@ -4230,6 +4245,27 @@ export default function Editor() {
           <label className="dialog-row"><span>Radical</span>
             <Select label="Radical" value={dialog.radical} options={[["0", "None"], ["1", "Doublet (•)"], ["2", "Triplet (••)"], ["3", "Singlet (:)"]]} onChange={(v) => setDialog({ ...dialog, radical: v })} />
           </label>
+        </Dialog>
+      )}
+      {dialog?.kind === "bond" && (
+        <Dialog title="Bond Properties" action="Apply" onClose={() => setDialog(undefined)}
+          alt={{ label: "Use Defaults", onClick: () => setDialog({ ...dialog, style: "single", position: "auto" }) }}
+          onAction={() => {
+            const d = dialog, b = doc.bonds[d.bond];
+            if (!b) return setDialog(undefined);
+            let m = bondKindOf(b) === d.style ? doc : setBondSpec(doc, d.bond, BONDS[d.style].spec);
+            if (m.bonds[d.bond].type === 2) m = setPosition(m, d.bond, d.position === "auto" ? undefined : d.position);
+            set(m, true);
+            setDialog(undefined);
+          }}>
+          <label className="dialog-row"><span>Bond type</span>
+            <Select label="Bond type" value={dialog.style} options={BOND_TYPES.map((k) => [k, BONDS[k].name])} onChange={(v) => setDialog({ ...dialog, style: v as BondKind })} />
+          </label>
+          {BONDS[dialog.style].spec.type === 2 && (
+            <label className="dialog-row"><span>Second line</span>
+              <Select label="Second line" value={dialog.position} options={[["auto", "Automatic"], ["left", "Left"], ["centre", "Centre"], ["right", "Right"]]} onChange={(v) => setDialog({ ...dialog, position: v as "auto" })} />
+            </label>
+          )}
         </Dialog>
       )}
       {dialog?.kind === "scale" && (

@@ -1,6 +1,6 @@
 // The chemistry engine (Indigo) and the drawing style, shared by the editor and the dev gallery.
 import Indigo from "indigo-ketcher/binaryWasmNoRender";
-import { hydrogens, type Face, type Ink, type Mol } from "./render.ts";
+import { HBOND, hydrogens, orderOf, QUADRUPLE, type Face, type Ink, type Mol } from "./render.ts";
 import { fontStack } from "./docstyle.ts";
 import { labelSmiles } from "./labels.ts";
 import { fragments, levelTurn, subset } from "./edit.ts";
@@ -175,9 +175,11 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
 
 // The drawing as SMILES. Throws if Indigo can't read it (for example, a valence it rejects).
 // A drawing as KET, with labels expanded into atoms. KET has no bond display styles (bold, wavy and so on).
+// Hydrogen bonds are left out (they are not chemistry Indigo works out); a quadruple bond, which Indigo has no type
+// for, goes as a single bond.
 function ketOf(drawn: Mol): string {
-  const mol = expandLabels(drawn);
-  const bonds = mol.bonds.map(({ type, atoms, stereo }) => (stereo ? { type, atoms, stereo } : { type, atoms }));
+  const mol = expandLabels(drawn.bonds.some((b) => b.type === HBOND) ? { ...drawn, bonds: drawn.bonds.filter((b) => b.type !== HBOND) } : drawn);
+  const bonds = mol.bonds.map(({ type: t, atoms, stereo }) => { const type = t === QUADRUPLE ? 1 : t; return stereo ? { type, atoms, stereo } : { type, atoms }; });
   // KET radicals: 1 a singlet, 2 one unpaired electron (doublet), 3 two (triplet).
   const atoms = mol.atoms.map(({ label, location, charge, radical, isotope }) => ({ label, location, ...(charge ? { charge } : {}), ...(radical ? { radical: radical === 3 ? 1 : radical + 1 } : {}), ...(isotope ? { isotope } : {}) }));
   return JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule", atoms, bonds } });
@@ -218,7 +220,7 @@ export function stereoLabels(drawn: Mol): { atoms: (string | undefined)[]; bonds
     for (const group of fragments(drawn)) {
       if (group.length < 3) continue;
       const ids = [...group].sort((a, b) => a - b), part = subset(drawn, new Set(ids)), { from } = expandWithOrigins(part);
-      const keep = new Set(ids), partBonds = drawn.bonds.map((b, k) => (keep.has(b.atoms[0]) && keep.has(b.atoms[1]) ? k : -1)).filter((k) => k >= 0);
+      const keep = new Set(ids), partBonds = drawn.bonds.map((b, k) => (keep.has(b.atoms[0]) && keep.has(b.atoms[1]) && b.type !== HBOND ? k : -1)).filter((k) => k >= 0);
       let ket;
       try { ket = JSON.parse(JSON.parse(ind.calculateCip(ketOf(part), "ket", opts)).struct).mol0; } catch { continue; }
       if (!ket || ket.atoms.length !== from.length) continue;
@@ -239,6 +241,8 @@ export function toInchi(drawn: Mol | string): string | undefined {
   }
 }
 
+// A bond's type for a layout: a hydrogen or quadruple bond as a single bond, as Indigo has no type for them.
+const shapeType = (type: number) => (type === HBOND || type === QUADRUPLE ? 1 : Math.min(type, 3));
 // Clean Up Structure: Indigo straightens bond lengths and angles, structure by structure. Each structure the
 // selection touches (or every structure, with nothing selected) is cleaned whole, scaled back to one bond
 // length per bond, and kept centred where it was.
@@ -253,7 +257,7 @@ export function cleanUp(mol: Mol, ids?: Set<number>): Mol {
       mol0: {
         type: "molecule",
         atoms: frag.map((i) => ({ label: /^[A-Z][a-z]?$/.test(mol.atoms[i].label) ? mol.atoms[i].label : "C", location: mol.atoms[i].location })),
-        bonds: bonds.map((b) => ({ type: Math.min(b.type, 3), atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!], ...(b.stereo ? { stereo: b.stereo } : {}) })),
+        bonds: bonds.map((b) => ({ type: shapeType(b.type), atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!], ...(b.stereo ? { stereo: b.stereo } : {}) })),
       },
     };
     const opts = new ind.MapStringString(), sel = new ind.VectorInt();
@@ -293,7 +297,7 @@ export function fragmentMasses(mol: Mol, cut: number[]): { atoms: number[]; form
   if (!indigo || !cut.length) return undefined;
   const ind = indigo, full = expandLabels(mol), cutSet = new Set(cut);
   const used = full.atoms.map(() => 0);
-  full.bonds.forEach((b) => b.atoms.forEach((i) => (used[i] += b.type)));
+  full.bonds.forEach((b) => b.atoms.forEach((i) => (used[i] += orderOf(b.type))));
   const h = full.atoms.map((a, i) => a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used[i], a.radical));
   // Pieces: atoms joined by the bonds that are not cut.
   const root = full.atoms.map((_, i) => i), find = (i: number): number => (root[i] === i ? i : (root[i] = find(root[i])));
@@ -331,7 +335,7 @@ export function mapReaction(reactants: Mol[], products: Mol[]): { reactants: (nu
       try {
         return ind.convert(JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule",
           atoms: m.atoms.map((a) => ({ label: /^[A-Z][a-z]?$/.test(a.label) ? a.label : "C", location: a.location, ...(a.charge ? { charge: a.charge } : {}) })),
-          bonds: m.bonds.map((b) => ({ type: Math.min(b.type, 3), atoms: b.atoms })) } }), "molfile", o).replace(/\s+$/, "");
+          bonds: m.bonds.filter((b) => b.type !== HBOND).map((b) => ({ type: shapeType(b.type), atoms: b.atoms })) } }), "molfile", o).replace(/\s+$/, "");
       } finally { o.delete(); }
     };
     const rxn = ["$RXN", "", "  Octet", "", `${String(reactants.length).padStart(3)}${String(products.length).padStart(3)}`, ...[...reactants, ...products].flatMap((m) => ["$MOL", molfile(m)])].join("\n");

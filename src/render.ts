@@ -41,7 +41,14 @@ export type Atom = {
 // A double bond's dashed (ChemDraw's Tautomeric: the second line dashed) and aromatic (both lines dashed) displays.
 export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow" | "either" | "aromatic";
 // position: where a double bond's second line goes, looking from atoms[0] to atoms[1]; unset means automatic.
-export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string };
+// z: the bond's place where bonds cross (ChemDraw's bond Z order). Of two bonds that cross, the one with the higher z
+// (then the later one) is in front, and the one behind has a gap cut in it. Unset is 0.
+export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string; z?: number };
+// Bond types: 1 to 3 by order, 4 aromatic and 10 a hydrogen bond (KET's numbers), and 14 a quadruple bond (KET has
+// none; 14 keeps clear of KET's types). A hydrogen bond is drawn dotted and adds nothing to an atom's valence.
+export const AROMATIC = 4, HBOND = 10, QUADRUPLE = 14;
+// A bond's order, for valence and hydrogens. Any other type (a query bond) counts 1.
+export const orderOf = (type: number) => (type === AROMATIC ? 1.5 : type === HBOND ? 0 : type === QUADRUPLE ? 4 : type === 2 || type === 3 ? type : 1);
 // A caption: free text at x, y (bond lengths, y up; the text's anchor point by its alignment), or, with under
 // set, kept centred under those atoms by the ACS rule (baseline 15 pt below the structure's ink box).
 // Captions under the same structure stack one line apart, in id order.
@@ -228,7 +235,6 @@ const TIP = 0.0165; // wedge half-width at the stereocentre, as a fraction of th
 const MAX_TRIM = 0.67; // an inner-line trim longer than this (times the bond length) is skipped
 const H_FIRST = new Set(['O', 'F', 'S', 'Cl', 'Se', 'Br', 'Te', 'I']); // H2O, HCl; but NH3, CH4
 const VALENCE: Record<string, number> = { C: 4, Si: 4, N: 3, P: 3, As: 3, B: 3, Al: 3, O: 2, S: 2, Se: 2, Te: 2, F: 1, Cl: 1, Br: 1, I: 1 };
-const ORDER: Record<number, number> = { 1: 1, 2: 2, 3: 3, 4: 1.5 };
 
 // A ring's aromatic circle, as ChemDraw sizes it (Toggle Aromatic Display): the ring's inradius for its shortest bond
 // L, less the double bond spacing (spacing, a fraction of the bond length) times a factor for the ring's size.
@@ -240,8 +246,8 @@ export function ringCircleRadius(n: number, L: number, spacing: number): number 
 export function circledRings(mol: Mol): number[][] {
   if (!mol.atoms.some((a) => a.circle)) return [];
   const used = mol.atoms.map(() => 0);
-  for (const b of mol.bonds) for (const i of b.atoms) used[i] += b.type;
-  const g = { atoms: mol.atoms.map((a, i) => ({ el: a.text ? "X" : a.label, charge: a.charge ?? 0, h: a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used[i]) })), bonds: mol.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: Math.min(3, Math.max(1, b.type)) as 1 | 2 | 3 })) };
+  for (const b of mol.bonds) for (const i of b.atoms) used[i] += orderOf(b.type);
+  const g = { atoms: mol.atoms.map((a, i) => ({ el: a.text ? "X" : a.label, charge: a.charge ?? 0, h: a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used[i]) })), bonds: mol.bonds.filter((b) => b.type !== HBOND).map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: Math.min(3, Math.max(1, b.type)) as 1 | 2 | 3 })) };
   const aromatic = aromaticAtoms(g);
   return ringsOf(g).filter((r) => r.length >= 5 && r.length <= 8 && r.every((i) => mol.atoms[i].circle && aromatic[i]));
 }
@@ -282,13 +288,13 @@ function ringsThrough(a: number, b: number, nbrs: number[][]): number[][] {
 }
 
 // A bond, planned. Kinds 'line' and 'wedge' join the fans; 'none' is a centred double bond (its two lines only).
-// 'dash', 'hashbar' and 'wavy' are drawn along the axis and stay out of the fans. half: the line's half-width
+// 'dash', 'hashbar', 'wavy' and 'dot' (a hydrogen bond) are drawn along the axis and stay out of the fans. half: the line's half-width
 // when it is not the normal one (bold). head: an arrowhead at b (dative bond).
 // lines: extra lines parallel to the axis at offset o, trimmed t0 at a and t1 at b (negative runs past the atom).
 // cut: distance from a and from b at which a label stops the bond.
 type Plan = {
   a: number; b: number; u: P; n: P; length: number;
-  kind: 'line' | 'wedge' | 'hash' | 'none' | 'dash' | 'hashbar' | 'wavy' | 'hollow';
+  kind: 'line' | 'wedge' | 'hash' | 'none' | 'dash' | 'hashbar' | 'wavy' | 'hollow' | 'dot';
   half?: number;
   head?: boolean;
   // half: a line's own half width (a bold double's); dashed: drawn as dashes (a dashed double's second line).
@@ -344,6 +350,8 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const bondAt = new Map<string, Bond>();
   const key = (i: number, j: number) => (i < j ? `${i} ${j}` : `${j} ${i}`);
   mol.bonds.forEach((b) => bondAt.set(key(b.atoms[0], b.atoms[1]), b));
+  // Rings go through covalent bonds only: a hydrogen bond closes no ring.
+  const covalent = mol.bonds.some((b) => b.type === HBOND) ? nbrs.map((ns, i) => ns.filter((j) => bondAt.get(key(i, j))!.type !== HBOND)) : nbrs;
   const L = s.bond, hw = s.line / 2, wide = s.bold * 0.75, tip = TIP * L;
   const deg = (i: number) => nbrs[i].length;
   const dir = (i: number, j: number) => unit(sub(pts[j], pts[i]));
@@ -409,7 +417,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     // An isotope's mass number, raised, just before the element.
     if (a.isotope) { const t = String(a.isotope); run(t, ox - M(t).width * SUB, base - RISE * S, SUB); }
     const charge = a.charge ?? 0;
-    const used = nbrs[i].reduce((n, j) => n + (ORDER[bondAt.get(key(i, j))!.type] ?? 1), 0);
+    const used = nbrs[i].reduce((n, j) => n + orderOf(bondAt.get(key(i, j))!.type), 0);
     const h = s.hideH ? 0 : a.implicitHCount ?? hydrogens(a.label, charge, used, a.radical === 3 ? 2 : a.radical);
     const count = h > 1 ? String(h) : '';
     const hW = M('H').width, cW = count ? M(count).width * SUB : 0;
@@ -540,7 +548,10 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       else plan.kind = bond.display === 'dashed' ? 'dash' : bond.display === 'hashed' ? 'hashbar' : bond.display === 'hollow' ? 'hollow' : 'wavy';
       return plan;
     }
+    if (bond.type === HBOND) { plan.kind = 'dot'; return plan; }
     if (bond.type === 3) { plan.lines = [s.spacing, -s.spacing].map((o) => ({ o, t0: 0, t1: 0 })); return plan; }
+    // A quadruple bond, as ChemDraw draws it: four lines one spacing apart, centred on the axis.
+    if (bond.type === QUADRUPLE) { plan.kind = 'none'; plan.lines = [1.5, 0.5, -0.5, -1.5].map((k) => ({ o: k * s.spacing, t0: 0, t1: 0 })); return plan; }
     if (bond.type !== 2) return plan;
     // Bold double (ChemDraw's ⇧B): the main line bold, the second line normal and moved out by the extra width, so
     // the gap between them looks the same as a plain double bond's.
@@ -551,7 +562,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     // Side of the second line: into the ring with the most double bonds (then six-membered, then smallest),
     // toward the inside of the angle at an unlabelled degree-2 end, or toward more substituents. 0 = centred.
     let sd = 0, ring: number[] | undefined;
-    const rings = ringsThrough(a, b, nbrs);
+    const rings = ringsThrough(a, b, covalent);
     // A position the user set wins. On screen (y down) the left of a→b is the -n side.
     if (bond.position) sd = bond.position === "centre" ? 0 : bond.position === "left" ? -1 : 1;
     else if (rings.length) {
@@ -694,6 +705,12 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       const count = Math.max(1, Math.round(D / s.hash)), dash = Math.min(D, s.hash * 0.55), step = count > 1 ? (D - dash) / (count - 1) : 0;
       for (let k = 0; k < count; k++) bar(add(S, mul(pl.u, k * step)), add(S, mul(pl.u, k * step + dash)), pl.n, hw);
     }
+    if (pl.kind === 'dot') {
+      // A hydrogen bond: round dots the line width across, one every half hash spacing (ChemDraw's dotted bond
+      // spacing), the first and last at the ends.
+      const count = Math.max(1, Math.round(D / (s.hash / 2)));
+      for (let k = 0; k <= count; k++) polygons.push(disc(add(S, mul(pl.u, (D * k) / count)), hw));
+    }
     if (pl.kind === 'hashbar') {
       // Marks of one length (the bold width), evenly spaced from end to end.
       const marks = Math.max(1, Math.round(D / s.hash));
@@ -796,9 +813,34 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   // Each polygon's colour (its bond's, or for a mark, its atom's) and how strongly it is drawn (fainter further back).
   const colours: (string | undefined)[] = [], alphas: number[] = [];
   const order = plans.map((_, i) => i).sort((i, j) => (deep(plans[i]) && deep(plans[j]) ? depth[plans[i].a]! + depth[plans[i].b]! - depth[plans[j].a]! - depth[plans[j].b]! : 0));
+  // Bonds that cross in a flat drawing (ChemDraw's Bond Crossing): the bond behind has a gap where the bond in front
+  // passes over it, as wide as the front bond's lines with a label margin either side, and running a margin past the
+  // front bond's ends. In front is the nearer bond (in a structure with depth), else the one with the higher z, then
+  // the later one.
+  const gaps = new Map<number, P[][]>();
+  const flat = plans.map((_, i) => i).filter((i) => !plans[i].hidden && !deep(plans[i]));
+  if (flat.length > 1) {
+    const span = (i: number) => { const pl = plans[i]; return [Math.min(pts[pl.a][0], pts[pl.b][0]), Math.max(pts[pl.a][0], pts[pl.b][0])]; };
+    flat.sort((i, j) => span(i)[0] - span(j)[0]);
+    flat.forEach((i, k) => {
+      for (const j of flat.slice(k + 1)) {
+        if (span(j)[0] > span(i)[1]) break;
+        const p = plans[i], q = plans[j];
+        if (p.a === q.a || p.a === q.b || p.b === q.a || p.b === q.b || !crossing(pts[p.a], pts[p.b], pts[q.a], pts[q.b])) continue;
+        // A structure with depth drawn flat: the nearer bond is in front, as its atoms' depth says.
+        const near = (x: Plan) => (mol.atoms[x.a].location[2] ?? 0) + (mol.atoms[x.b].location[2] ?? 0), dz = near(q) - near(p);
+        const zi = mol.bonds[i].z ?? 0, zj = mol.bonds[j].z ?? 0, front = Math.abs(dz) > 1e-6 ? (dz > 0 ? j : i) : zj > zi || (zj === zi && j > i) ? j : i, back = front === i ? j : i, f = plans[front];
+        const offsets = [...(f.kind === 'none' ? [] : [0]), ...f.lines.map((l) => l.o)], w = Math.max(...widths(f, f.a), ...widths(f, f.b)) + s.margin;
+        const lo = Math.min(...offsets) - w, hi = Math.max(...offsets) + w, A = sub(pts[f.a], mul(f.u, s.margin)), B = add(pts[f.b], mul(f.u, s.margin));
+        gaps.set(back, [...(gaps.get(back) ?? []), [add(A, mul(f.n, lo)), add(B, mul(f.n, lo)), add(B, mul(f.n, hi)), add(A, mul(f.n, hi))]]);
+      }
+    });
+  }
   order.forEach((i) => {
     const pl = plans[i], before = polygons.length, d = deep(pl);
     if (d) drawDeep(pl); else drawPlan(pl, i);
+    const cut = gaps.get(i);
+    if (cut) polygons.push(...polygons.splice(before).flatMap((poly) => cut.reduce((parts, q) => parts.flatMap((x) => minus(x, q)), [poly])));
     const alpha = d ? fade((depth[pl.a]! + depth[pl.b]!) / 2) : 1;
     for (const poly of polygons.slice(before)) { colours.push(mol.bonds[i].colour); alphas.push(alpha); for (const q of poly) { grow(pl.a, q); grow(pl.b, q); } }
   });
@@ -1438,6 +1480,28 @@ export function depthOf(m: Mol): (number | undefined)[] {
   return out;
 }
 // Where segments p1–p2 and q1–q2 cross, as fractions along each (inside both), or undefined.
+// A polygon's part on the side of f(p) >= 0 (Sutherland–Hodgman), winding as it did.
+function clip(poly: P[], f: (p: P) => number): P[] {
+  const out: P[] = [];
+  poly.forEach((p, k) => {
+    const q = poly[(k + 1) % poly.length], fp = f(p), fq = f(q);
+    if (fp >= 0) out.push(p);
+    if (fp >= 0 !== fq >= 0) out.push(add(p, mul(sub(q, p), fp / (fp - fq))));
+  });
+  return out;
+}
+// A polygon less a convex quadrilateral q: the parts outside each of q's edges in turn, each inside the edges before.
+function minus(poly: P[], q: P[]): P[][] {
+  const w = Math.sign(q.reduce((t, a, k) => t + cross(a, q[(k + 1) % q.length]), 0)) || 1, out: P[][] = [];
+  let rest = poly;
+  for (let k = 0; k < q.length && rest.length >= 3; k++) {
+    const e = sub(q[(k + 1) % q.length], q[k]), side = (p: P) => w * cross(e, sub(p, q[k]));
+    const outside = clip(rest, (p) => -side(p));
+    if (outside.length >= 3) out.push(outside);
+    rest = clip(rest, side);
+  }
+  return out;
+}
 function crossing(p1: P, p2: P, q1: P, q2: P): [number, number] | undefined {
   const r = sub(p2, p1), s = sub(q2, q1), d = cross(r, s);
   if (Math.abs(d) < 1e-9) return undefined;

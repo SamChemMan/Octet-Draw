@@ -258,6 +258,7 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
         &item("clean_up", "Clean Up Structure", "CmdOrCtrl+Shift+K")?,
         &item("clean_reaction", "Clean Up Reaction", "CmdOrCtrl+Shift+X")?,
         &item("atom_properties", "Atom Properties…", "")?,
+        &item("bond_properties", "Bond Properties…", "")?,
         &sep()?,
         &item("expand_label", "Expand Label", "")?,
         &item("contract_label", "Contract Label", "")?,

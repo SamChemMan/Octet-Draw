@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Cube, Eraser, Lasso, Plus, PushPin, Selection, TextT, Trash, X } from "@phosphor-icons/react";
 import { chairPoints, type BondSpec, type SymbolKind } from "./edit";
-import { ARROW_SIZES, headOfLength, SWEEPS, type ArrowKind, type ArrowSize, type HeadSize, type Mol, type ShapeKind } from "./render";
+import { ARROW_SIZES, HBOND, headOfLength, QUADRUPLE, SWEEPS, type ArrowKind, type ArrowSize, type HeadSize, type Mol, type ShapeKind } from "./render";
 import { templateKind, type Template } from "./templates";
 import { libraryItem } from "./library";
 import { LibraryPanel } from "./TemplateLibrary";
@@ -17,6 +17,7 @@ export const BONDS = {
   single: { name: "Single", spec: { type: 1 } },
   double: { name: "Double", spec: { type: 2 } },
   triple: { name: "Triple", spec: { type: 3 } },
+  quadruple: { name: "Quadruple", spec: { type: QUADRUPLE } },
   bolddouble: { name: "Bold double", spec: { type: 2, display: "bold" } },
   dasheddouble: { name: "Dashed double", spec: { type: 2, display: "dashed" } },
   aromaticdouble: { name: "Aromatic double", spec: { type: 2, display: "aromatic" } },
@@ -29,6 +30,7 @@ export const BONDS = {
   dashed: { name: "Dashed", spec: { type: 1, display: "dashed" } },
   wavy: { name: "Wavy", spec: { type: 1, display: "wavy" } },
   dative: { name: "Dative", spec: { type: 1, display: "dative" } },
+  hydrogen: { name: "Hydrogen bond", spec: { type: HBOND } },
 } satisfies Record<string, { name: string; spec: BondSpec }>;
 export type BondKind = keyof typeof BONDS;
 
@@ -125,6 +127,8 @@ export function BondGlyph({ kind }: { kind: BondKind }) {
   switch (kind) {
     case "double": return <Icon>{line(-14)}{line(14)}</Icon>;
     case "triple": return <Icon>{line(-24)}{line(0)}{line(24)}</Icon>;
+    case "quadruple": return <Icon>{[-33, -11, 11, 33].map((o) => line(o, o))}</Icon>;
+    case "hydrogen": return <Icon><line x1={x1} y1={y1} x2={x2} y2={y2} strokeDasharray="0 30" /></Icon>;
     case "dasheddouble": return <Icon>{line(-14)}<line x1={x1 + 14 * d} y1={y1 + 14 * d} x2={x2 + 14 * d} y2={y2 + 14 * d} strokeDasharray="22 18" strokeLinecap="butt" /></Icon>;
     case "aromaticdouble": return <Icon>{[-14, 14].map((o) => <line key={o} x1={x1 + o * d} y1={y1 + o * d} x2={x2 + o * d} y2={y2 + o * d} strokeDasharray="22 18" strokeLinecap="butt" />)}</Icon>;
     case "eitherdouble": return <Icon><line x1={x1 - 14 * d} y1={y1 - 14 * d} x2={x2 + 14 * d} y2={y2 + 14 * d} /><line x1={x1 + 14 * d} y1={y1 + 14 * d} x2={x2 - 14 * d} y2={y2 - 14 * d} /></Icon>;
