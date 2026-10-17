@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import { addArrow, addCaption, addRing, addShape, EMPTY, setBondSpec, setElement } from "./edit.ts";
 import { parse, serialize } from "./file.ts";
+import { DEFAULT_STYLE, withScale } from "./docstyle.ts";
+import type { Mol } from "./render.ts";
 
 // A drawing survives a save and reopen.
 const mol = setBondSpec(setElement(addRing(EMPTY, 6, true, { point: [0, 0] }), 0, "N"), 1, { type: 1, display: "wavy" });
@@ -31,7 +33,7 @@ console.log("file.check: bad files refused");
   const again = parse(serialize(both));
   assert.deepEqual(again.captions, both.captions);
   const base = { format: "octet", version: 1, structure: { atoms: [{ label: "C", x: 0, y: 0 }], bonds: [] } };
-  for (const captions of [[{ text: 5, x: 0, y: 0 }], [{ text: "a", x: 0, y: 0, under: [3] }], [{ text: "a", x: 0, y: 0, size: 900 }], [{ text: "a\u0000", x: 0, y: 0 }], "x"])
+  for (const captions of [[{ text: 5, x: 0, y: 0 }], [{ text: "a", x: 0, y: 0, under: [3] }], [{ text: "a", x: 0, y: 0, size: 5000 }], [{ text: "a\u0000", x: 0, y: 0 }], "x"])
     assert.throws(() => parse(JSON.stringify({ ...base, captions })), /damaged/);
   console.log("file.check: captions ok");
 }
@@ -156,4 +158,19 @@ console.log("file.check: bad files refused");
   assert.equal(g.integral, true);
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, groups: [{ atoms: [], items: [["a", 3]] }] })), /damaged/);
   console.log("file.check: groups ok");
+}
+
+// Decision 0007: each object's scale and the document's scale survive a save and reopen; a bad scale is refused.
+{
+  const m: Mol = {
+    atoms: [{ label: "C", location: [0, 0, 0], scale: 2 }, { label: "O", location: [2, 0, 0], scale: 2, size: 12 }], bonds: [{ type: 1, atoms: [0, 1] }],
+    arrows: [{ id: 1, kind: "reaction", from: [3, 0], to: [6, 0], scale: 1.5 }], shapes: [{ id: 2, kind: "table", from: [0, 3], to: [2, 2], scale: 3, table: { cells: [["a"]], widths: [60], weight: 0.05 } }],
+    cycles: [{ id: 3, centre: [1, 0], radius: 2, clockwise: true, nodes: [[0], [1]], scale: 0.5 }], style: withScale(DEFAULT_STYLE, 4),
+  };
+  const again = parse(serialize(m));
+  assert.deepEqual([again.atoms.map((a) => [a.scale, a.size]), again.arrows?.[0].scale, again.shapes?.[0].scale, again.shapes?.[0].table, again.cycles?.[0].scale, again.style], [[[2, undefined], [2, 12]], 1.5, 3, m.shapes![0].table, 0.5, m.style]);
+  const base = { format: "octet", version: 1, structure: { atoms: [{ label: "C", x: 0, y: 0, scale: 0 }], bonds: [] } };
+  assert.throws(() => parse(JSON.stringify(base)), /damaged/);
+  assert.throws(() => parse(JSON.stringify({ ...base, structure: { atoms: [{ label: "C", x: 0, y: 0, scale: "2" }], bonds: [] } })), /damaged/);
+  console.log("file.check: scales ok");
 }

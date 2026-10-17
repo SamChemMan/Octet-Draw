@@ -68,6 +68,28 @@ fn set_menu_keys(app: AppHandle, keys: HashMap<String, String>) -> Result<(), St
     rebuild(&app)
 }
 
+// The document's scale: the Text > Size menu offers ChemDraw's sizes times it (decision 0007). A new scale builds
+// the menu bar again; the frontend sets its check marks again afterwards.
+struct TextScale(Mutex<f64>);
+impl Default for TextScale {
+    fn default() -> Self {
+        TextScale(Mutex::new(1.0))
+    }
+}
+
+#[tauri::command]
+fn set_text_scale(app: AppHandle, held: State<'_, TextScale>, scale: f64) -> Result<(), String> {
+    let scale = if scale.is_finite() { scale.clamp(0.1, 10.0) } else { 1.0 };
+    {
+        let mut held = held.0.lock().unwrap();
+        if (*held - scale).abs() < 1e-9 {
+            return Ok(());
+        }
+        *held = scale;
+    }
+    rebuild(&app)
+}
+
 #[tauri::command]
 fn set_check(checks: State<'_, Checks>, id: String, checked: bool) -> Result<(), String> {
     let checks = checks.0.lock().unwrap();
@@ -325,8 +347,13 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
     ])?;
     // Text commands style the caption being typed, or the picked captions.
     section.replace("Text › Size".into());
-    let sizes = [8, 9, 10, 12, 14, 18, 24]
-        .map(|pt| item(&format!("size_{pt}"), &format!("{pt} pt"), ""))
+    let scale = *app.state::<TextScale>().0.lock().unwrap();
+    let sizes = [5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 24]
+        .map(|pt| {
+            // To the nearest half point, as the page rounds it.
+            let v = ((pt as f64 * scale * 2.0).round() / 2.0).max(0.5);
+            item(&format!("size_{pt}"), &if v.fract() == 0.0 { format!("{v:.0} pt") } else { format!("{v:.1} pt") }, "")
+        })
         .into_iter()
         .collect::<tauri::Result<Vec<_>>>()?;
     let size_items: Vec<&dyn IsMenuItem<Wry>> = sizes.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
@@ -433,7 +460,8 @@ fn main() {
         .manage(MenuKeys::default())
         .manage(MenuList::default())
         .manage(Palette::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback])
+        .manage(TextScale::default())
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, set_text_scale, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback])
         .setup(|app| {
             let handle = app.handle();
             let (bar, checks, list) = menu(handle, &[], &HashMap::new())?;

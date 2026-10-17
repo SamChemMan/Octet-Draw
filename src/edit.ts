@@ -622,6 +622,44 @@ export function addShape(m: Mol, sh: Omit<Shape, "id">): [Mol, number] {
 }
 export const updateShape = (m: Mol, id: number, change: Partial<Shape>): Mol =>
   ({ ...m, shapes: m.shapes?.map((x) => (x.id === id ? { ...x, ...change } : x)) });
+
+// Sizes (decision 0007). A scale is kept to 4 decimals and left unset at 1; a size in points stays 0.1 to 999.
+const times = (v: number, k: number) => Math.round(v * k * 1e4) / 1e4;
+const scaled = <T extends { scale?: number }>(x: T, k: number): T => {
+  const f = Math.min(100, Math.max(0.01, times(x.scale ?? 1, k))), { scale: _, ...rest } = x;
+  return (f === 1 ? rest : { ...rest, scale: f }) as T;
+};
+const points = (pt: number) => Math.min(999, Math.max(0.1, Math.round(pt * 100) / 100));
+// A caption's size (its own, or `size` when it has none and size is given) and its runs' sizes times k.
+const caption = (c: Caption, k: number, size?: number): Caption => {
+  const own = c.size ?? size;
+  return { ...c, ...(own ? { size: points(own * k) } : {}), ...(c.runs ? { runs: c.runs.map((r) => (r.size ? { ...r, size: points(r.size * k) } : r)) } : {}) };
+};
+// Scale… with Labels and lines on: the chosen atoms', arrows', shapes' and cycles' scales times k, and the sizes of
+// the chosen captions and of the captions that go with them (under those atoms, on those arrows, in those cycles).
+// captionSize: the document's caption size, for captions that have none of their own. Positions move elsewhere.
+export function scaleSettings(m: Mol, atoms: Set<number>, items: Set<number>, k: number, captionSize: number): Mol {
+  const goes = (c: Caption) => items.has(c.id) || (!!c.under?.length && c.under.every((i) => atoms.has(i))) || (!!c.on && items.has(c.on.arrow)) || (!!c.cycle && items.has(c.cycle.cycle));
+  return {
+    ...m,
+    atoms: m.atoms.map((a, i) => (atoms.has(i) ? scaled(a, k) : a)),
+    arrows: m.arrows?.map((a) => (items.has(a.id) ? scaled(a, k) : a)),
+    shapes: m.shapes?.map((x) => (items.has(x.id) ? scaled(x, k) : x)),
+    cycles: m.cycles?.map((c) => (items.has(c.id) ? scaled(c, k) : c)),
+    captions: m.captions?.map((c) => (goes(c) ? caption(c, k, captionSize) : c)),
+  };
+}
+// A new document scale: every size the drawing holds in points (an atom's own label size, caption and run sizes, a
+// table's line weight) times r, so text stays in proportion to the bonds.
+export function scaleSizes(m: Mol, r: number): Mol {
+  if (r === 1) return m;
+  return {
+    ...m,
+    atoms: m.atoms.map((a) => (a.size ? { ...a, size: points(a.size * r) } : a)),
+    captions: m.captions?.map((c) => (c.size || c.runs?.some((x) => x.size) ? caption(c, r) : c)),
+    shapes: m.shapes?.map((x) => (x.table?.weight ? { ...x, table: { ...x.table, weight: Math.round(x.table.weight * r * 1e4) / 1e4 } } : x)),
+  };
+}
 // Atom maps. Pairing two atoms gives both the first one's number, or the second's, or the next free number; the
 // number leaves any other atom that had it. Clearing takes an atom's number off.
 export function pairMap(m: Mol, a: number, b: number): Mol {

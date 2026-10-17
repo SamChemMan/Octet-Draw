@@ -1,6 +1,7 @@
 // Run: node src/render.check.ts. Fails loudly if the ACS drawing rules break.
 import assert from "node:assert/strict";
-import { arrowShapes, fitArrows, placeCaptions, render, renderParts, type Box, type Drawing, type Ink, type Mol, type PartCache } from "./render.ts";
+import { ALL_ARROW_KINDS, SHAPE_KINDS, arrowShapes, fitArrows, markAt, placeCaptions, render, renderParts, shapeInk, spotPath, tableLayout, tlcLayout, type Arrow, type Atom, type Bond, type Box, type Drawing, type Ink, type Mol, type PartCache, type Shape } from "./render.ts";
+import { layoutCycles, type Cycle } from "./cycle.ts";
 
 type P = [number, number];
 const pt = 4 / 3;
@@ -202,4 +203,88 @@ console.log("render.check: written labels ok");
     assert.ok(Math.abs(reach - cut) < 1e-9, `bond from ${deg}° stops at the cut`);
   }
   console.log("render.check: label cuts ok");
+}
+
+// Decision 0007: every length an object draws is the document's length times the object's scale. One drawing with
+// every kind of object, at scale 1 and again at scale 2 with its positions doubled: every point and size doubles.
+// A new kind of object that forgets its scale fails here.
+{
+  const close = (a: number, b: number) => Math.abs(a - b) < 1e-6 * Math.max(1, Math.abs(b));
+  const twice = (a: P[][], b: P[][], what: string) => {
+    assert.equal(b.length, a.length, `${what}: as many shapes`);
+    a.forEach((poly, i) => { assert.equal(b[i].length, poly.length, what); poly.forEach((q, j) => assert.ok(close(b[i][j][0], 2 * q[0]) && close(b[i][j][1], 2 * q[1]), `${what}: point doubles`)); });
+  };
+  const two = (q: [number, number]): [number, number] => [2 * q[0], 2 * q[1]];
+  // Atoms: labels, a written label, an own label size, charges (skeletal, circled, partial), radicals, lone pairs,
+  // H marks, an attachment point, a bead, and a ring drawn with its circle. Bonds: every order and display.
+  const A = (label: string, x: number, y: number, more: Partial<Atom> = {}): Atom => ({ label, location: [x, y, 0], ...more });
+  const atoms: Atom[] = [
+    A("N", 0, 0, { charge: 1, pairs: 1 }), A("C", 0.87, 0.5, { charge: -1 }), A("O", 1.73, 0, { radical: 1, pairs: 2, partial: "+" }), A("O", 2.6, 0.5, { text: "OMe" }),
+    A("C", 0.87, 1.5, { charge: 1, circled: true }), A("C", 0, -1, { hmark: "dot" }), A("C", -0.87, -1.5, { attach: true }), A("C", 0.87, -1.5, { bead: true }),
+    A("Cl", 1.73, -1, { size: 14 }), A("C", -0.87, 0.5, { hmark: "dash", radical: 3 }), A("C", -1.73, 0, { size: 7, charge: 1 }),
+    ...[...Array(6)].map((_, k) => A("C", 6 + Math.cos((Math.PI / 3) * k), Math.sin((Math.PI / 3) * k), { circle: true })),
+  ];
+  const b = (i: number, j: number, more: Partial<Bond> = {}): Bond => ({ type: 1, atoms: [i, j], ...more });
+  const bonds: Bond[] = [
+    b(0, 1, { stereo: 1 }), b(1, 2, { type: 2 }), b(2, 3), b(1, 4, { type: 3 }), b(0, 5, { stereo: 6 }), b(5, 6, { display: "wavy" }), b(5, 7, { display: "bold" }), b(5, 8, { display: "dashed" }),
+    b(0, 9, { display: "hashed" }), b(9, 10, { display: "dative" }), b(4, 2, { display: "hollow" }), b(8, 7, { type: 2, display: "bold" }), b(6, 9, { type: 2, display: "either" }),
+    b(10, 6, { type: 2, display: "dashed" }), b(3, 4, { type: 2, display: "aromatic" }),
+    ...[0, 1, 2, 3, 4, 5].map((k) => b(11 + k, 11 + ((k + 1) % 6), { type: k % 2 ? 1 : 2 })),
+  ];
+  const style = { ...S, labelPt: 10 };
+  const small: Mol = { atoms, bonds }, big: Mol = { atoms: atoms.map((a) => ({ ...a, location: [2 * a.location[0], 2 * a.location[1], 0] as [number, number, number], scale: 2 })), bonds };
+  const d1 = render(small, style, ink, S.bond), d2 = render(big, style, ink, S.bond);
+  twice(d1.polygons, d2.polygons, "structure");
+  assert.equal(d2.labels.length, d1.labels.length);
+  d1.labels.forEach((l, i) => assert.ok(close(d2.labels[i].x, 2 * l.x) && close(d2.labels[i].y, 2 * l.y) && close(d2.labels[i].size, 2 * l.size), `label ${l.text} doubles`));
+  twice([d1.electrons.map((e) => e.at)], [d2.electrons.map((e) => e.at)], "lone pairs and radicals");
+  d1.beads.forEach((x, i) => assert.ok(close(d2.beads[i].r, 2 * x.r), "bead"));
+  // A structure at its scale beside one at 1: each keeps its own lengths (a bond takes its atoms' scale).
+  const far: Mol = { atoms: big.atoms.map((a) => ({ ...a, location: [a.location[0] + 40, a.location[1], 0] as [number, number, number] })), bonds };
+  const both = render({ atoms: [...small.atoms, ...far.atoms], bonds: [...bonds, ...bonds.map((x) => ({ ...x, atoms: [x.atoms[0] + atoms.length, x.atoms[1] + atoms.length] as [number, number] }))] }, style, ink, S.bond);
+  const keys = (ps: P[][]) => ps.map((poly) => poly.map((q) => q.map((v) => v.toFixed(6)).join(" ")).join(";")).sort();
+  assert.deepEqual(keys(both.polygons), keys([...d1.polygons, ...render(far, style, ink, S.bond).polygons]), "two structures, two scales");
+
+  // Arrows and lines of every kind and style, with heads of every shape.
+  const curve = { points: [{ at: [0, 0] as [number, number] }, { at: [1, 1] as [number, number], c1: [0.5, 1] as [number, number], c2: [1.5, 1] as [number, number] }, { at: [2, 0] as [number, number] }] };
+  const arrows: Arrow[] = ALL_ARROW_KINDS.filter((k) => k !== "orbital").flatMap((kind, n) => [undefined, "dashed", "wavy", "bold", "doubled"].flatMap((style) => [undefined, "hollow", "angled"].map((head): Arrow => ({
+    id: n, kind, from: [0, 0], to: kind === "curve" ? [2, 0] : [3, 1], bend: kind === "curved" || kind === "fishhook" || kind === "double" || kind === "arc" ? 0.3 : undefined, ...(kind === "curve" ? { curve } : {}),
+    ...(style ? { style: style as Arrow["style"] } : {}), ...(head ? { head: head as Arrow["head"], end: "full" as const } : {}),
+  }))));
+  for (const a of arrows) {
+    const bigger: Arrow = { ...a, from: two(a.from), to: two(a.to), scale: 2, ...(a.curve ? { curve: { points: a.curve.points.map((q) => ({ at: two(q.at), ...(q.c1 ? { c1: two(q.c1) } : {}), ...(q.c2 ? { c2: two(q.c2) } : {}) })) } } : {}) };
+    twice(arrowShapes(a, S, S.bond), arrowShapes(bigger, S, S.bond), `${a.kind} ${a.style ?? ""} ${a.head ?? ""} arrow`);
+  }
+  // Shapes of every kind, plain and dashed, and a bracket's mark; TLC spots; a table's columns, rows and text.
+  for (const kind of SHAPE_KINDS) for (const dashed of [false, true]) {
+    const sh: Shape = { id: 1, kind, from: [0, 2], to: [3, 0], dashed, mark: "‡" };
+    const bigger: Shape = { ...sh, from: two(sh.from), to: two(sh.to), scale: 2 };
+    twice(shapeInk(sh, S, S.bond), shapeInk(bigger, S, S.bond), `${kind} shape`);
+    const m1 = markAt(sh, S.bond), m2 = markAt(bigger, S.bond);
+    assert.ok(close(m2.x, 2 * m1.x) && close(m2.y, 2 * m1.y), `${kind} mark`);
+  }
+  const plate: Shape = { id: 1, kind: "tlc", from: [0, 3], to: [2, 0], tlc: { lanes: 2, spots: [{ lane: 0, rf: 0.3 }, { lane: 1, rf: 0.6, w: 0.2, h: 0.1, tail: 0.3 }] } };
+  const plate2: Shape = { ...plate, from: two(plate.from), to: two(plate.to), scale: 2 };
+  for (const x of plate.tlc!.spots) twice([spotPath(tlcLayout(plate), x)], [spotPath(tlcLayout(plate2), x)], "TLC spot");
+  const table: Shape = { id: 1, kind: "table", from: [0, 2], to: [4, 0], table: { cells: [["a", "bb"], ["ccc", ""]], widths: [1.5, 2.5], heights: [0.9, 1.1] } };
+  const table2: Shape = { ...table, from: two(table.from), to: two(table.to), scale: 2, table: { ...table.table!, widths: [3, 5], heights: [1.8, 2.2] } };
+  const t1 = tableLayout(table, (x) => x.length * 0.3), t2 = tableLayout(table2, (x) => x.length * 0.3);
+  assert.ok([...t1.widths, ...t1.heights, ...t1.natural, t1.x1, t1.y0].every((v, i) => close([...t2.widths, ...t2.heights, ...t2.natural, t2.x1, t2.y0][i], 2 * v)), "table columns, rows and text");
+  // Captions: under a structure (the gap below it), and conditions on an arrow (the gap beside it).
+  const caps = (m: Mol, f: number): Mol => ({ ...m, arrows: [{ id: 50, kind: "reaction", from: [4 * f, -3 * f], to: [7 * f, -3 * f], ...(f !== 1 ? { scale: f } : {}) }],
+    captions: [{ id: 51, text: "1", x: 0, y: 0, size: 10 * f, under: [0, 1, 2] }, { id: 52, text: "heat", x: 0, y: 0, size: 10 * f, on: { arrow: 50, side: "above" } }] });
+  const width = (t: string, c: { size?: number }) => t.length * (c.size ?? 10) * pt * 0.5;
+  const c1 = placeCaptions(caps(small, 1), d1, width), c2 = placeCaptions(caps(big, 2), d2, width);
+  twice(c1.map((c) => [[c.box[0], c.box[1]], [c.box[2], c.box[3]]]), c2.map((c) => [[c.box[0], c.box[1]], [c.box[2], c.box[3]]]), "captions");
+  twice(fitArrows({ ...caps(small, 1), captions: [{ id: 52, text: "a long reagent", x: 0, y: 0, size: 10, on: { arrow: 50, side: "above" } }] }, S.bond, (c) => width(c.text, c)).map((a) => [a.from, a.to]),
+    fitArrows({ ...caps(big, 2), captions: [{ id: 52, text: "a long reagent", x: 0, y: 0, size: 20, on: { arrow: 50, side: "above" } }] }, S.bond, (c) => width(c.text, c)).map((a) => [a.from, a.to]), "arrows grown for their conditions");
+  // A catalytic cycle: its arcs and side arrows, and where its text goes.
+  const cycleOf = (m: Mol, f: number): Mol => ({ ...m, cycles: [{ id: 60, centre: [6 * f, -6 * f], radius: 3 * f, clockwise: true, nodes: [[0], [1], [2]], ...(f !== 1 ? { scale: f } : {}) } as Cycle],
+    atoms: m.atoms.map((a, i) => (i < 3 ? { ...a, location: [(6 + 3 * Math.cos(2 * i)) * f, (-6 + 3 * Math.sin(2 * i)) * f, 0] as [number, number, number] } : a)),
+    captions: [{ id: 61, text: "X", x: 0, y: 0, cycle: { cycle: 60, step: 0, side: "in" } }] });
+  const inkOf = (m: Mol, f: number) => (ids: number[]): Box => { const [x, y] = [m.atoms[ids[0]].location[0] * S.bond, -m.atoms[ids[0]].location[1] * S.bond], r = 8 * f; return [x - r, y - r, x + r, y + r]; };
+  const y1 = cycleOf(small, 1), y2 = cycleOf(big, 2), l1 = layoutCycles(y1, S.bond, pt, inkOf(y1, 1)), l2 = layoutCycles(y2, S.bond, pt, inkOf(y2, 2));
+  l1.arrows.forEach((a, i) => { assert.equal(l2.arrows[i].scale, 2, "a cycle's arrows take its scale"); twice([[a.from, a.to]], [[l2.arrows[i].from, l2.arrows[i].to]], "cycle arrows"); });
+  twice([[...l1.anchors.values()].map((x) => [x.x, x.y] as P)], [[...l2.anchors.values()].map((x) => [x.x, x.y] as P)], "cycle text");
+  console.log("render.check: every object at scale 2 ok");
 }

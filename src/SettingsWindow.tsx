@@ -7,7 +7,7 @@ import { ColourPicker } from "./ColourPicker";
 import { Select } from "./Select";
 import type { Swatch } from "./settings";
 import type { ExportFormat } from "./export";
-import { BACKGROUNDS, COLOURS, FONTS, PAGE_NAMES, PAGES, PRESETS, pageSize, presetOf, type DocStyle, type PageName } from "./docstyle";
+import { BACKGROUNDS, COLOURS, FONTS, PAGE_NAMES, PAGES, PRESETS, pageSize, presetAt, presetOf, withScale, type DocStyle, type PageName } from "./docstyle";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
 
 export type ModuleId = "document" | "keys" | "panel" | "files" | "colours";
@@ -77,7 +77,8 @@ function PaletteEditor({ palette, onPalette, adding }: { palette: Swatch[]; onPa
 // ——— Fields ———
 
 // A number with its unit inside the field. It keeps what is being typed (such as "0.") until it is a usable value.
-function NumberField({ value, unit, label, onChange }: { value: number; unit: string; label: string; onChange: (n: number) => void }) {
+// lazy: the value is used on Return or when the field is left, not at each key (step: the arrow keys' nudge).
+function NumberField({ value, unit, label, onChange, lazy, step: nudge = 0.1 }: { value: number; unit: string; label: string; onChange: (n: number) => void; lazy?: boolean; step?: number }) {
   const [text, setText] = useState(String(value));
   const focused = useRef(false);
   useEffect(() => { if (!focused.current) setText(String(value)); }, [value]);
@@ -88,18 +89,19 @@ function NumberField({ value, unit, label, onChange }: { value: number; unit: st
         inputMode="decimal"
         value={text}
         onFocus={(e) => { focused.current = true; e.target.select(); }}
-        onBlur={() => { focused.current = false; setText(String(value)); }}
+        onBlur={() => { focused.current = false; const n = Number(text); if (lazy && text && Number.isFinite(n) && n > 0 && n !== value) onChange(n); else setText(String(value)); }}
         onChange={(e) => {
           const t = e.target.value.replace(/[^\d.]/g, "");
           setText(t);
           const n = Number(t);
-          if (t && Number.isFinite(n) && n > 0) onChange(n);
+          if (!lazy && t && Number.isFinite(n) && n > 0) onChange(n);
         }}
         onKeyDown={(e) => {
-          // Up and down nudge the value: by 0.1, or by 1 with Shift.
+          if (lazy && e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); return; }
+          // Up and down nudge the value: by the step (0.1), or 10 steps with Shift.
           if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
           e.preventDefault();
-          const step = e.shiftKey ? 1 : 0.1, n = Math.max(step, Math.round((value + (e.key === "ArrowUp" ? step : -step)) * 100) / 100);
+          const step = e.shiftKey ? nudge * 10 : nudge, n = Math.max(step, Math.round((value + (e.key === "ArrowUp" ? step : -step)) * 100) / 100);
           setText(String(n));
           onChange(n);
         }}
@@ -320,6 +322,10 @@ export function SettingsWindow(p: Props) {
     const num = (k: keyof DocStyle, label: string, unit: string, words: string, section = "Style") =>
       d("document", section, label, words, <NumberField label={label} unit={unit} value={style[k] as number} onChange={(n) => change({ [k]: n })} />);
     return [
+      // One size for the whole style (decision 0007): every length and text size times it, the preset kept. 10% to 1000%.
+      d("document", "Style", "Scale", "scale size bigger smaller poster slides percent proportion", (
+        <NumberField label="Scale" unit="%" lazy step={1} value={Math.round(style.scale * 1000) / 10} onChange={(n) => p.onStyle(withScale(style, Math.min(10, Math.max(0.1, n / 100))))} />
+      )),
       num("bond", "Bond length", "pt", "bond length fixed size"), num("line", "Line width", "pt", "line width bonds arrows"),
       num("bold", "Bold width", "pt", "bold width wedge"), num("spacing", "Bond spacing", "%", "double bond spacing gap"),
       num("hash", "Hash spacing", "pt", "hash hashed wedge spacing"), num("margin", "Margin", "pt", "label margin clearance"),
@@ -398,7 +404,7 @@ export function SettingsWindow(p: Props) {
         {!query && <div className="style-preview" aria-hidden>{p.preview}</div>}
         {sections(module, list).map((s) => (
           <Section key={s} title={s} defs={list.filter((x) => x.module === module && x.section === s)}
-            aside={s === "Style" ? <Select label="Style preset" value={style.preset} options={presets} onChange={(v) => v in PRESETS && p.onStyle({ ...style, ...PRESETS[v], preset: v })} /> : undefined} />
+            aside={s === "Style" ? <Select label="Style preset" value={style.preset} options={presets} onChange={(v) => v in PRESETS && p.onStyle({ ...style, ...presetAt(v, style.scale), preset: v })} /> : undefined} />
         ))}
         {!query && (
           <div className="settings-foot">

@@ -35,6 +35,7 @@ export type Atom = {
   fill?: string; // #rrggbb ring fill: a ring whose atoms all have the same fill is filled with it at 30% opacity
   circle?: true; // Toggle Aromatic Display: an aromatic ring whose atoms all have this is drawn with a circle
   number?: string; // Show Atom Number: the number drawn beside the atom
+  scale?: number; // the atom's size against the document style (decision 0007); unset is 1
 };
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 // On a double bond: bold makes the main line bold, dashed the second line dashed, either crosses the two lines.
@@ -76,6 +77,7 @@ export type Arrow = {
   id: number; kind: ArrowKind; from: [number, number]; to: [number, number]; bend?: number; style?: LineStyle; orbital?: { shape: OrbitalShape; phase: Phase }; colour?: string;
   start?: Head; end?: Head; head?: HeadShape; // heads set by hand; unset uses the kind's own
   curve?: Curve; fill?: CurveFill; // a pen curve's points (from and to are its ends), and a closed one's fill
+  scale?: number; // the arrow's size against the document style (decision 0007); unset is 1
 };
 // Every kind a drawing's arrow list may hold.
 export const ALL_ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "curved", "fishhook", "double", "line", "arc", "orbital", "cut", "curve"];
@@ -135,6 +137,7 @@ export type Shape = {
   id: number; kind: ShapeKind; from: [number, number]; to: [number, number]; dashed?: boolean; colour?: string;
   fill?: "shaded" | "solid"; shadow?: boolean; side?: "left" | "right"; mark?: string; tlc?: Tlc; table?: Table;
   shade?: Shade; // a shadow's look, when it differs from SHADE
+  scale?: number; // the shape's size against the document style (decision 0007); unset is 1
 };
 // A shadow: how far it falls down and right and how soft its edge is (bond lengths), and how dark it is (0 to 1).
 export type Shade = { depth: number; blur: number; opacity: number };
@@ -154,6 +157,8 @@ export type Group = { id: number; atoms: number[]; items: number[]; integral?: t
 // Sizes in px: bond length, line width, bold width, double-bond spacing, hash spacing, label margin, label font size.
 // terminal, carbons: label carbons at chain ends (CH3), or every other carbon too; hideH: labels leave off implicit H.
 // labelPt: the document's label size in pt, which an atom's own label size is measured against.
+// Every length an object draws is the document's length times the object's scale (decision 0007): an atom's, an
+// arrow's, a shape's or a cycle's own, and for a bond the mean of its two atoms'. Positions already carry the scale.
 export type Style = { bond: number; line: number; bold: number; spacing: number; hash: number; margin: number; size: number; labelPt?: number; terminal?: boolean; carbons?: boolean; hideH?: boolean };
 // width: advance; ascent: ink top above the baseline; outline: glyph edge points relative to the text origin (y down).
 export type Ink = { width: number; ascent: number; outline: P[] };
@@ -169,6 +174,9 @@ export type Drawing = {
   polygons: P[][]; colours: (string | undefined)[]; alphas: number[]; labels: Label[]; box: Box; ink: Box[]; label: (Box | undefined)[]; scale: number;
   electrons: { atom: number; at: P }[]; beads: { at: P; r: number }[];
 };
+
+// An object's scale: its own, or 1.
+export const scaleOf = (x: { scale?: number }) => x.scale ?? 1;
 
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
 const add = (a: P, b: P): P => [a[0] + b[0], a[1] + b[1]];
@@ -254,7 +262,11 @@ type Plan = {
   cross?: boolean; // a double bond drawn as two crossing lines (either geometry)
   cut: [number, number];
   hidden?: boolean;
+  z: Z; // the bond's lengths at its scale
 };
+// The lengths an object draws at one scale (px): bond, half line width, wedge half-width at each end, bold width,
+// double-bond spacing, hash spacing, label margin and label size.
+type Z = { L: number; hw: number; wide: number; tip: number; bold: number; spacing: number; hash: number; margin: number; size: number };
 
 // A label's glyph outline where it is drawn: the measured outline (shared, not copied), placed at x, y and scaled by f.
 type Piece = { pts: P[]; x: number; y: number; f: number };
@@ -302,7 +314,14 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const bondAt = new Map<string, Bond>();
   const key = (i: number, j: number) => (i < j ? `${i} ${j}` : `${j} ${i}`);
   mol.bonds.forEach((b) => bondAt.set(key(b.atoms[0], b.atoms[1]), b));
-  const L = s.bond, hw = s.line / 2, wide = s.bold * 0.75, tip = TIP * L;
+  // Each atom's lengths at its scale, made once per scale.
+  const zs = new Map<number, Z>();
+  const zOf = (f: number): Z => {
+    let z = zs.get(f);
+    if (!z) zs.set(f, (z = { L: s.bond * f, hw: (s.line / 2) * f, wide: s.bold * 0.75 * f, tip: TIP * s.bond * f, bold: s.bold * f, spacing: s.spacing * f, hash: s.hash * f, margin: s.margin * f, size: s.size * f }));
+    return z;
+  };
+  const atomZ = mol.atoms.map((a) => zOf(scaleOf(a)));
   const deg = (i: number) => nbrs[i].length;
   const dir = (i: number, j: number) => unit(sub(pts[j], pts[i]));
 
@@ -311,27 +330,27 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const labels: Label[] = [], labelAtom = new Map<Label, number>();
   const marks: P[][] = mol.atoms.map(() => []); // ink that is not a label shape (a skeletal carbon's charge)
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
+  // Each label's size against the document's: its own size, times its atom's scale.
+  const ratio = mol.atoms.map((a) => (a.size && s.labelPt ? a.size / s.labelPt : 1) * scaleOf(a));
+  const grown = (m: Ink, r: number): Ink => (r === 1 ? m : { width: m.width * r, ascent: m.ascent * r, outline: m.outline.map(([px, py]) => [px * r, py * r] as P) });
   const shapes: Piece[][] = mol.atoms.map((a, i) => {
+    // The label in its own style: measured in its face, and scaled by its size against the document's.
+    const face: Face | undefined = a.font || a.bold || a.italic ? { font: a.font, bold: a.bold, italic: a.italic } : undefined;
+    const r = ratio[i], S = s.size * r;
+    const M = !face && r === 1 ? measure : (t: string): Ink => grown(measure(t, face), r);
     if (!labelled[i]) {
       // A charged skeletal carbon: the sign alone, in the direction furthest from its bonds (up-right on a tie).
       if (a.charge && !a.circled) {
-        const t = sign(a.charge), m = measure(t), dirs = nbrs[i].map((j) => dir(i, j));
+        const t = sign(a.charge), m = M(t), dirs = nbrs[i].map((j) => dir(i, j));
         const gap = (c: P) => Math.min(...dirs.map((b) => angle(b, c)));
         const d = ([[1, -1], [-1, -1], [1, 1], [-1, 1], [0, -1], [1, 0], [0, 1], [-1, 0]] as P[]).map(unit).reduce((best, c) => (gap(c) > gap(best) + 0.01 ? c : best));
-        const c = add(pts[i], mul(d, 0.6 * s.size));
-        labels.push({ text: t, x: c[0] - (m.width * SUB) / 2, y: c[1] + (m.ascent * SUB) / 2, size: s.size * SUB, colour: a.colour });
+        const c = add(pts[i], mul(d, 0.6 * S));
+        labels.push({ text: t, x: c[0] - (m.width * SUB) / 2, y: c[1] + (m.ascent * SUB) / 2, size: S * SUB, colour: a.colour });
         labelAtom.set(labels[labels.length - 1], i);
         marks[i] = m.outline.map(([px, py]) => [c[0] - (m.width * SUB) / 2 + px * SUB, c[1] + (m.ascent * SUB) / 2 + py * SUB]);
       }
       return [];
     }
-    // The label in its own style: measured in its face, and scaled by its size against the document's.
-    const face: Face | undefined = a.font || a.bold || a.italic ? { font: a.font, bold: a.bold, italic: a.italic } : undefined;
-    const r = a.size && s.labelPt ? a.size / s.labelPt : 1, S = s.size * r;
-    const M = !face && r === 1 ? measure : (t: string): Ink => {
-      const m = measure(t, face);
-      return r === 1 ? m : { width: m.width * r, ascent: m.ascent * r, outline: m.outline.map(([px, py]) => [px * r, py * r] as P) };
-    };
     const look = { ...(a.font ? { font: a.font } : {}), ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}) };
     const shape: Piece[] = [];
     const run = (text: string, x: number, y: number, f = 1) => {
@@ -400,7 +419,8 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     if (a.radical === 3) kinds.push('pair');
     for (let r = 0; r < Math.min(4, a.pairs ?? 0); r++) kinds.push('pair');
     if (!kinds.length) return;
-    const X = pts[i], z = s.size, shape = placedPoints(shapes[i]);
+    // Marks are sized by the atom's drawn label size, and drawn in its line width.
+    const X = pts[i], z = s.size * ratio[i], hw = atomZ[i].hw, shape = placedPoints(shapes[i]);
     // Directions already taken: the bonds, the label past its first letter (H, a charge sign), a skeletal charge.
     const taken = nbrs[i].map((j) => { const d = dir(i, j); return Math.atan2(d[1], d[0]); });
     for (const q of [...shape, ...marks[i]]) if (len(sub(q, X)) > 0.62 * z) taken.push(Math.atan2(q[1] - X[1], q[0] - X[0]));
@@ -420,7 +440,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       const t = at.get(k)!, d: P = [Math.cos(t), Math.sin(t)], n = perp(d);
       // The mark as discs (centre offset across, radius); how far out it goes is found by search.
       const R = kind === 'charge' ? 0.34 * z : kind === 'radical' ? 0.1 * z : kind === 'pair' ? 0.09 * z : 0;
-      const text = kind === 'partial' ? (a.partial === '+' ? 'δ+' : 'δ–') : '', ink = text ? measure(text) : undefined;
+      const text = kind === 'partial' ? (a.partial === '+' ? 'δ+' : 'δ–') : '', ink = text ? grown(measure(text), ratio[i]) : undefined;
       const parts: [number, number][] = kind === 'pair' ? [[0.19 * z, R], [-0.19 * z, R]] : ink ? [[0, (Math.max(ink.width, ink.ascent) * SUB) / 2]] : [[0, R]];
       const gap = 0.14 * z;
       const fits = (r: number) => parts.every(([o, pr]) => { const c = add(add(X, mul(d, r)), mul(n, o)); return shape.every((q) => len(sub(q, c)) >= pr + gap); });
@@ -455,7 +475,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   // atom; a bead is a sphere on the atom.
   mol.atoms.forEach((a, i) => {
     if (!a.hmark && !a.attach && !a.bead) return;
-    const X = pts[i], dirs = nbrs[i].map((j) => dir(i, j));
+    const X = pts[i], dirs = nbrs[i].map((j) => dir(i, j)), { L, hw } = atomZ[i];
     if (a.hmark === 'dot') symbols[i].push(disc(X, 0.09 * L));
     if (a.hmark === 'dash') {
       const angles = dirs.map((d) => Math.atan2(d[1], d[0])).sort((x, y) => x - y);
@@ -485,7 +505,8 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const plans: Plan[] = mol.bonds.map((bond) => {
     const [a, b] = bond.atoms, p = pts[a], q = pts[b];
     const length = len(sub(q, p)), u = unit(sub(q, p)), n = perp(u);
-    const plan: Plan = { a, b, u, n, length, kind: 'line', lines: [], cut: [0, 0] };
+    const z = zOf((scaleOf(mol.atoms[a]) + scaleOf(mol.atoms[b])) / 2), { L, hw } = z;
+    const plan: Plan = { a, b, u, n, length, kind: 'line', lines: [], cut: [0, 0], z };
     const side = (j: number) => Math.sign(dot(sub(pts[j], p), n));
     // Angles at x from the bond to x's other neighbours on one side, smallest first.
     const near = (x: number, y: number, sd: number) =>
@@ -493,16 +514,16 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
 
     if (bond.type === 1 && (bond.stereo === 1 || bond.stereo === 6)) { plan.kind = bond.stereo === 1 ? 'wedge' : 'hash'; return plan; }
     if (bond.type === 1 && bond.display) {
-      if (bond.display === 'bold') plan.half = s.bold / 2;
+      if (bond.display === 'bold') plan.half = z.bold / 2;
       else if (bond.display === 'dative') plan.head = true;
       else plan.kind = bond.display === 'dashed' ? 'dash' : bond.display === 'hashed' ? 'hashbar' : bond.display === 'hollow' ? 'hollow' : 'wavy';
       return plan;
     }
-    if (bond.type === 3) { plan.lines = [s.spacing, -s.spacing].map((o) => ({ o, t0: 0, t1: 0 })); return plan; }
+    if (bond.type === 3) { plan.lines = [z.spacing, -z.spacing].map((o) => ({ o, t0: 0, t1: 0 })); return plan; }
     if (bond.type !== 2) return plan;
     // Bold double (ChemDraw's ⇧B): the main line bold, the second line normal and moved out by the extra width, so
     // the gap between them looks the same as a plain double bond's.
-    const bold = bond.display === "bold", extra = bold ? s.bold / 2 - hw : 0, spacing = s.spacing + extra;
+    const bold = bond.display === "bold", extra = bold ? z.bold / 2 - hw : 0, spacing = z.spacing + extra;
     // Double Either: two lines crossing between the atoms, whatever the ring or substituents.
     if (bond.display === "either") { plan.kind = 'none'; plan.cross = true; return plan; }
 
@@ -538,7 +559,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
         const phi = labelled[x] ? undefined : near(x, y, Math.sign(o))[0];
         return phi === undefined ? 0 : h / Math.tan(phi);
       };
-      plan.lines = [h, -h].map((o, k) => ({ o, t0: reach(a, b, o), t1: reach(b, a, o), ...(bold && !k ? { half: s.bold / 2 } : {}), ...((bond.display === "dashed" && k) || bond.display === "aromatic" ? { dashed: true } : {}) }));
+      plan.lines = [h, -h].map((o, k) => ({ o, t0: reach(a, b, o), t1: reach(b, a, o), ...(bold && !k ? { half: z.bold / 2 } : {}), ...((bond.display === "dashed" && k) || bond.display === "aromatic" ? { dashed: true } : {}) }));
       return plan;
     }
     // Offset: the axis joins the fan; the inner line is trimmed back to the angle bisector at unlabelled ends.
@@ -549,7 +570,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       const t = spacing / Math.tan(theta / 2);
       return t > MAX_TRIM * L ? 0 : t;
     };
-    if (bold) plan.half = s.bold / 2;
+    if (bold) plan.half = z.bold / 2;
     if (bond.display === "aromatic") plan.kind = 'dash';
     plan.lines = [{ o: sd * spacing, t0: trim(a, b, ring?.[1]), t1: trim(b, a, ring?.[ring.length - 2]), ...(bond.display === "dashed" || bond.display === "aromatic" ? { dashed: true } : {}) }];
     return plan;
@@ -564,15 +585,15 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
 
   // Label cuts: the shortest cut along the axis at which every line of the bond clears the glyph outlines.
   // Provisional sizes for the bond styles ChemDraw's reference drawing did not include.
-  const WAVE = 0.08 * L; // wavy bond amplitude
-  const half = (pl: Plan) => pl.half ?? (pl.kind === 'hashbar' ? s.bold / 2 : pl.kind === 'wavy' ? WAVE + hw : hw);
+  const WAVE = 0.08; // wavy bond amplitude, in bond lengths
+  const half = (pl: Plan) => pl.half ?? (pl.kind === 'hashbar' ? pl.z.bold / 2 : pl.kind === 'wavy' ? WAVE * pl.z.L + pl.z.hw : pl.z.hw);
   const widths = (pl: Plan, x: number): [number, number] =>
-    pl.kind === 'wedge' || pl.kind === 'hash' || pl.kind === 'hollow' ? (x === pl.a ? [tip, wide] : [wide, tip]) : [half(pl), half(pl)];
+    pl.kind === 'wedge' || pl.kind === 'hash' || pl.kind === 'hollow' ? (x === pl.a ? [pl.z.tip, pl.z.wide] : [pl.z.wide, pl.z.tip]) : [half(pl), half(pl)];
   for (const pl of plans) {
     for (const end of [0, 1] as const) {
       const x = end ? pl.b : pl.a, shape = shapes[x];
       if (!shape.length) continue;
-      const u = end ? mul(pl.u, -1) : pl.u, w = widths(pl, x)[0], m = s.margin + w;
+      const u = end ? mul(pl.u, -1) : pl.u, w = widths(pl, x)[0], m = pl.z.margin + w;
       const offsets = [...(pl.kind === 'none' ? [] : [0]), ...pl.lines.map((l) => l.o)];
       // A line from t to the bond's far end clears an outline point (a along the bond, d across from the line) when
       // the point lies off the line by the margin, or before the line's start or past its end by the rest of it.
@@ -624,7 +645,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const miter = (m: M, l: M): [P, P] => {
       const pm = add(X, mul(m.n, m.w0)), pl = add(X, mul(l.n, -l.w0));
       const c = meet(pm, sub(add(m.f, mul(m.n, m.w1)), pm), pl, sub(add(l.f, mul(l.n, -l.w1)), pl));
-      return c && len(sub(c, X)) < 6 * Math.max(m.w0, l.w0, hw) ? [c, c] : [pm, pl];
+      return c && len(sub(c, X)) < 6 * Math.max(m.w0, l.w0, atomZ[x].hw) ? [c, c] : [pm, pl];
     };
     members.forEach((m, j) => {
       if (members.length === 1) { ends.set(`${m.i} ${x}`, [add(X, mul(m.n, -m.w0)), add(X, mul(m.n, m.w0))]); return; }
@@ -645,19 +666,20 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const bar = (S: P, E: P, n: P, w: number) => polygons.push([add(S, mul(n, -w)), add(S, mul(n, w)), add(E, mul(n, w)), add(E, mul(n, -w))]);
   const drawPlan = (pl: Plan, i: number) => {
     if (pl.hidden) return;
+    const { L, hw, wide, tip } = pl.z, hash = pl.z.hash;
     if (pl.kind === 'line' || pl.kind === 'wedge') polygons.push([...endOf(pl, i, pl.a), ...endOf(pl, i, pl.b)]);
     const S = drawnEnd(pl, pl.a), D = pl.length - pl.cut[0] - pl.cut[1];
     if (pl.kind === 'dash') {
       // Evenly spaced dashes, one per hash spacing, the first and last flush with the ends.
-      const count = Math.max(1, Math.round(D / s.hash)), dash = Math.min(D, s.hash * 0.55), step = count > 1 ? (D - dash) / (count - 1) : 0;
+      const count = Math.max(1, Math.round(D / hash)), dash = Math.min(D, hash * 0.55), step = count > 1 ? (D - dash) / (count - 1) : 0;
       for (let k = 0; k < count; k++) bar(add(S, mul(pl.u, k * step)), add(S, mul(pl.u, k * step + dash)), pl.n, hw);
     }
     if (pl.kind === 'hashbar') {
       // Marks of one length (the bold width), evenly spaced from end to end.
-      const marks = Math.max(1, Math.round(D / s.hash));
+      const marks = Math.max(1, Math.round(D / hash));
       for (let j = 0; j <= marks; j++) {
         const c = add(S, mul(pl.u, hw + ((D - 2 * hw) * j) / marks));
-        bar(add(c, mul(pl.u, -hw)), add(c, mul(pl.u, hw)), pl.n, s.bold / 2);
+        bar(add(c, mul(pl.u, -hw)), add(c, mul(pl.u, hw)), pl.n, pl.z.bold / 2);
       }
     }
     if (pl.kind === 'wavy') {
@@ -665,8 +687,8 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       const waves = Math.max(1, Math.round(D / (0.25 * L))), k = (2 * Math.PI * waves) / D, steps = waves * 16;
       const left: P[] = [], right: P[] = [];
       for (let j = 0; j <= steps; j++) {
-        const t = (D * j) / steps, c = add(add(S, mul(pl.u, t)), mul(pl.n, WAVE * Math.sin(k * t)));
-        const normal = perp(unit(add(pl.u, mul(pl.n, WAVE * k * Math.cos(k * t)))));
+        const t = (D * j) / steps, c = add(add(S, mul(pl.u, t)), mul(pl.n, WAVE * L * Math.sin(k * t)));
+        const normal = perp(unit(add(pl.u, mul(pl.n, WAVE * L * k * Math.cos(k * t)))));
         left.push(add(c, mul(normal, hw)));
         right.push(add(c, mul(normal, -hw)));
       }
@@ -688,7 +710,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     }
     if (pl.kind === 'hash') {
       // round(length / hash spacing) marks at even pitch, the last one flush with the wide end.
-      const start = drawnEnd(pl, pl.a), D = pl.length - pl.cut[0] - pl.cut[1], marks = Math.max(1, Math.round(D / s.hash)), pitch = D / marks;
+      const start = drawnEnd(pl, pl.a), D = pl.length - pl.cut[0] - pl.cut[1], marks = Math.max(1, Math.round(D / hash)), pitch = D / marks;
       for (let j = 1; j <= marks; j++) {
         const t = j * pitch - hw, c = add(start, mul(pl.u, t));
         bar(add(c, mul(pl.u, -hw)), add(c, mul(pl.u, hw)), pl.n, tip + ((wide - tip) * t) / D);
@@ -696,7 +718,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     }
     if (pl.cross) {
       // Two lines from each end's -n and +n sides to the other end's opposite side.
-      const h = s.spacing / 2, A = drawnEnd(pl, pl.a), B = drawnEnd(pl, pl.b);
+      const h = pl.z.spacing / 2, A = drawnEnd(pl, pl.a), B = drawnEnd(pl, pl.b);
       for (const sgn of [1, -1]) { const p0 = add(A, mul(pl.n, sgn * h)), p1 = add(B, mul(pl.n, -sgn * h)); bar(p0, p1, perp(unit(sub(p1, p0))), hw); }
     }
     for (const { o, t0, t1, half: w, dashed } of pl.lines) {
@@ -704,7 +726,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       if (to - from < 0.1) continue;
       if (dashed) {
         // Dashes as a dashed bond's: one per hash spacing, the first and last flush with the ends.
-        const D = to - from, count = Math.max(1, Math.round(D / s.hash)), dash = Math.min(D, s.hash * 0.55), step = count > 1 ? (D - dash) / (count - 1) : 0;
+        const D = to - from, count = Math.max(1, Math.round(D / hash)), dash = Math.min(D, hash * 0.55), step = count > 1 ? (D - dash) / (count - 1) : 0;
         for (let k = 0; k < count; k++) bar(add(add(pts[pl.a], mul(pl.u, from + k * step)), mul(pl.n, o)), add(add(pts[pl.a], mul(pl.u, from + k * step + dash)), mul(pl.n, o)), pl.n, w ?? hw);
         continue;
       }
@@ -718,7 +740,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   // further ones thinner and fainter, and a nearer bond crossing in front of another cuts a gap in it.
   const depth = depthOf(mol);
   const deep = (pl: Plan) => depth[pl.a] !== undefined && depth[pl.b] !== undefined;
-  const fade = (t: number) => 0.45 + 0.55 * t, wideAt = (t: number) => hw * 0.8 + (s.bold / 2 - hw * 0.8) * t;
+  const fade = (t: number) => 0.45 + 0.55 * t, wideAt = (t: number, z: Z) => z.hw * 0.8 + (z.bold / 2 - z.hw * 0.8) * t;
   const drawDeep = (pl: Plan) => {
     if (pl.hidden) return;
     const S = drawnEnd(pl, pl.a), E = drawnEnd(pl, pl.b), D = len(sub(E, S));
@@ -732,7 +754,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       if (!hit) continue;
       const here = ta + (tb - ta) * hit[0], there = depth[other.a]! + (depth[other.b]! - depth[other.a]!) * hit[1];
       if (there <= here + 0.02) continue;
-      const g = (wideAt(there) + 2.5 * hw + s.margin) / pl.length;
+      const g = (wideAt(there, pl.z) + 2.5 * pl.z.hw + pl.z.margin) / pl.length;
       gaps.push([hit[0] - g, hit[0] + g]);
     }
     gaps.sort((p, q) => p[0] - q[0]);
@@ -745,7 +767,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     for (const [f, t] of pieces) {
       if (t - f < 1e-3) continue;
       for (const o of lines) {
-        const at = (k: number): P => add(add(pts[pl.a], mul(pl.u, pl.length * k)), mul(pl.n, o)), w = (k: number) => wideAt(ta + (tb - ta) * k);
+        const at = (k: number): P => add(add(pts[pl.a], mul(pl.u, pl.length * k)), mul(pl.n, o)), w = (k: number) => wideAt(ta + (tb - ta) * k, pl.z);
         const p = at(f), q = at(t);
         polygons.push([add(p, mul(pl.n, -w(f))), add(p, mul(pl.n, w(f))), add(q, mul(pl.n, w(t))), add(q, mul(pl.n, -w(t)))]);
       }
@@ -767,14 +789,14 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const radius = ringCircleRadius(r.length, edge, s.spacing / s.bond), steps = 72, before = polygons.length;
     for (let k = 0; k < steps; k++) {
       const a0 = (2 * Math.PI * k) / steps, a1 = (2 * Math.PI * (k + 1.05)) / steps, S = add(c, [Math.cos(a0) * radius, Math.sin(a0) * radius]), E = add(c, [Math.cos(a1) * radius, Math.sin(a1) * radius]);
-      bar(S, E, perp(unit(sub(E, S))), hw);
+      bar(S, E, perp(unit(sub(E, S))), atomZ[r[0]].hw);
     }
     for (const poly of polygons.slice(before)) { colours.push(mol.atoms[r[0]].colour); alphas.push(1); for (const q of poly) grow(r[0], q); }
   }
   // Joints in a 3D structure: a disc at each unlabelled atom as wide as its widest bond there, so tapered bonds meet.
   mol.atoms.forEach((_, x) => {
     if (depth[x] === undefined || labelled[x] || !nbrs[x].length) return;
-    polygons.push(disc(pts[x], wideAt(depth[x]!)));
+    polygons.push(disc(pts[x], wideAt(depth[x]!, atomZ[x])));
     colours.push(mol.atoms[x].colour);
     alphas.push(fade(depth[x]!));
   });
@@ -793,7 +815,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const take = (x: number, y: number) => { if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; };
   for (const [x, y] of pts) take(x, y);
   for (const poly of polygons) for (const [x, y] of poly) take(x, y);
-  const pad = L / 2;
+  const pad = s.bond / 2;
   const label = labelBoxes.map((bs): Box | undefined => {
     if (!bs.length) return undefined;
     const b: Box = [Infinity, Infinity, -Infinity, -Infinity];
@@ -908,10 +930,10 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
     if (pinned) {
       [x, y, anchorOverride] = [pinned.x, pinned.y - (lines.length - 1) * LINE * size * (pinned.anchor === "middle" ? 0.5 : 0), pinned.anchor];
     } else if (arrow) {
-      // Conditions: centred on the arrow's middle, GAP_ARROW_PT clear of it, stacking away from it.
+      // Conditions: centred on the arrow's middle, GAP_ARROW_PT (times the arrow's scale) clear of it, stacking away from it.
       const [s, t] = [[arrow.from[0] * k, -arrow.from[1] * k], [arrow.to[0] * k, -arrow.to[1] * k]];
       const mid = [(s[0] + t[0]) / 2, (s[1] + t[1]) / 2], len = Math.hypot(t[0] - s[0], t[1] - s[1]) || 1, u = [(t[0] - s[0]) / len, (t[1] - s[1]) / len];
-      const key = `${arrow.id} ${c.on!.side}`, used = beside.get(key) ?? 0, gap = GAP_ARROW_PT * pt + used;
+      const key = `${arrow.id} ${c.on!.side}`, used = beside.get(key) ?? 0, gap = GAP_ARROW_PT * scaleOf(arrow) * pt + used;
       const block = (lines.length - 1) * LINE * size;
       beside.set(key, used + (lines.length * LINE + 0.2) * size);
       if (Math.abs(u[0]) >= 0.5) {
@@ -930,8 +952,10 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
       if (!atoms.length) return [];
       const b: Box = [Math.min(...atoms.map((i) => d.ink[i][0])), Math.min(...atoms.map((i) => d.ink[i][1])), Math.max(...atoms.map((i) => d.ink[i][2])), Math.max(...atoms.map((i) => d.ink[i][3]))];
       const key = [...c.under].sort((p, q) => p - q).join(" ");
+      // The gap under a structure follows the structure's scale (the mean of its atoms').
+      const f = atoms.reduce((sum, i) => sum + scaleOf(mol.atoms[i] ?? {}), 0) / atoms.length;
       x = align === "left" ? b[0] : align === "right" ? b[2] : (b[0] + b[2]) / 2;
-      y = below.get(key) ?? b[3] + GAP_PT * pt;
+      y = below.get(key) ?? b[3] + GAP_PT * f * pt;
       below.set(key, y + lines.length * LINE * size);
     } else [x, y] = [c.x * k, -c.y * k];
     const at = anchorOverride ?? anchor;
@@ -953,7 +977,7 @@ export function fitArrows(mol: Mol, scale: number, width: (c: Caption) => number
   return (mol.arrows ?? []).map((a) => {
     if (curved(a)) return a;
     const widest = Math.max(0, ...(mol.captions ?? []).filter((c) => c.on?.arrow === a.id).map(width));
-    const need = (widest + 2 * ARROW_MARGIN_PT * pt) / scale, len = Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]);
+    const need = (widest + 2 * ARROW_MARGIN_PT * scaleOf(a) * pt) / scale, len = Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]);
     if (!widest || len >= need || !len) return a;
     const grow = (need - len) / 2 / len, d = [(a.to[0] - a.from[0]) * grow, (a.to[1] - a.from[1]) * grow];
     return { ...a, from: [a.from[0] - d[0], a.from[1] - d[1]], to: [a.to[0] + d[0], a.to[1] + d[1]] };
@@ -995,6 +1019,8 @@ export function arrowPath(a: Arrow, k: number): P[] {
 // ArrowheadCenterSize 875, ArrowheadWidth 250, read as hundredths of the line width): 10 line widths long,
 // 2.5 wide on each side, the back notched in to 8.75. Provisional until measured against ChemDraw's output.
 export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
+  const f = scaleOf(a);
+  if (f !== 1) s = { ...s, line: s.line * f, bold: s.bold * f, bond: s.bond * f };
   const hw = s.line / 2, H = 10 * s.line, C = 8.75 * s.line, W = 2.5 * s.line;
   const out: P[][] = [];
   const bar = (p: P, q: P, w = hw) => { const u = unit(sub(q, p)), n = perp(u); out.push([add(p, mul(n, w)), add(q, mul(n, w)), add(q, mul(n, -w)), add(p, mul(n, -w))]); };
@@ -1097,6 +1123,7 @@ function offsetPath(path: P[], d: number): P[] {
 // A shape's lines in px (y down), as paths: the outline of a box or oval, or each bracket of a pair. A highlight's
 // outline is its edge. Rounded corners have a radius of 0.3 bond lengths; bracket ends reach 0.25 bond lengths in.
 export function shapePaths(sh: Shape, k: number, bond = k): P[][] {
+  bond *= scaleOf(sh);
   const x0 = Math.min(sh.from[0], sh.to[0]) * k, x1 = Math.max(sh.from[0], sh.to[0]) * k;
   const y0 = -Math.max(sh.from[1], sh.to[1]) * k, y1 = -Math.min(sh.from[1], sh.to[1]) * k;
   const w = x1 - x0, h = y1 - y0, arc = (c: P, r: [number, number], a0: number, a1: number, n = 12): P[] =>
@@ -1135,14 +1162,15 @@ const sides = (sh: Shape, left: P[], right: P[]): P[][] => (sh.side === "left" ?
 // Where a bracket's mark goes: just outside its top right corner (px, y down), or the top left for a left bracket alone.
 export function markAt(sh: Shape, k: number): { x: number; y: number; anchor: "start" | "end" } {
   const x0 = Math.min(sh.from[0], sh.to[0]) * k, x1 = Math.max(sh.from[0], sh.to[0]) * k, y0 = -Math.max(sh.from[1], sh.to[1]) * k;
-  return sh.side === "left" ? { x: x0 - 0.08 * k, y: y0 + 0.1 * k, anchor: "end" } : { x: x1 + 0.08 * k, y: y0 + 0.1 * k, anchor: "start" };
+  const f = scaleOf(sh) * k;
+  return sh.side === "left" ? { x: x0 - 0.08 * f, y: y0 + 0.1 * f, anchor: "end" } : { x: x1 + 0.08 * f, y: y0 + 0.1 * f, anchor: "start" };
 }
 
 // A shape's ink as filled polygons (px, y down), winding like the bonds: its lines at the line width, dashed when
 // asked (dashes and gaps of 0.2 bond lengths). A highlight has no lines; its fill is its outline.
 export function shapeInk(sh: Shape, s: Style, k: number): P[][] {
   if (sh.kind === "highlight") return [];
-  const hw = s.line / 2, out: P[][] = [], dash = 0.2 * s.bond;
+  const f = scaleOf(sh), hw = (s.line / 2) * f, out: P[][] = [], dash = 0.2 * s.bond * f;
   const bar = (p: P, q: P) => { const d = len(sub(q, p)); if (d < 1e-9) return; const n = perp(unit(sub(q, p))); out.push([add(p, mul(n, -hw)), add(p, mul(n, hw)), add(q, mul(n, hw)), add(q, mul(n, -hw))]); };
   for (const path of shapePaths(sh, k, s.bond)) {
     // Lines run on by half a width at each joint so corners close.
@@ -1242,13 +1270,14 @@ export function tlcLayout(sh: Shape) {
   const lanes = Math.max(1, sh.tlc?.lanes ?? 1), origin = y0 + (y1 - y0) * (sh.tlc?.origin ?? TLC_ORIGIN), front = y1 - (y1 - y0) * (sh.tlc?.front ?? TLC_FRONT);
   const lane = (k: number) => x0 + ((x1 - x0) * (k + 0.5)) / lanes;
   const width = (x1 - x0) / lanes;
-  // A spot's half-width and half-height (bond lengths): set by hand, or 30% of a lane (at most 0.34) by 0.15.
-  const size = (x: Spot) => ({ rx: x.w ?? Math.min(0.3 * width, 0.34), ry: x.h ?? 0.15 });
-  return { x0, x1, y0, y1, origin, front, lanes, width, lane, size, at: (rf: number) => origin + (front - origin) * rf };
+  // A spot's half-width and half-height (bond lengths): set by hand, or 30% of a lane (at most 0.34) by 0.15; drawn
+  // times the plate's scale.
+  const f = scaleOf(sh), size = (x: Spot) => ({ rx: (x.w ?? Math.min((0.3 * width) / f, 0.34)) * f, ry: (x.h ?? 0.15) * f });
+  return { x0, x1, y0, y1, origin, front, lanes, width, lane, size, f, at: (rf: number) => origin + (front - origin) * rf };
 }
 // A spot's outline (drawing units): an ellipse, drawn out below into a smear when it has a tail.
 export function spotPath(t: ReturnType<typeof tlcLayout>, x: Spot): [number, number][] {
-  const cx = t.lane(x.lane), cy = t.at(x.rf), { rx, ry } = t.size(x), tail = x.tail ?? 0, n = 32, out: [number, number][] = [];
+  const cx = t.lane(x.lane), cy = t.at(x.rf), { rx, ry } = t.size(x), tail = (x.tail ?? 0) * t.f, n = 32, out: [number, number][] = [];
   for (let i = 0; i <= n; i++) {
     const a = (Math.PI * 2 * i) / n, sin = Math.sin(a);
     // The lower half stretches down by the tail, narrowing a little, so a smear reads as a streak.
@@ -1259,21 +1288,22 @@ export function spotPath(t: ReturnType<typeof tlcLayout>, x: Spot): [number, num
 }
 
 // A table's layout (drawing units, y up). Each column is as wide as its widest text plus padding, and the columns
-// share out any width the box has to spare; rows are equal. measure: a cell's text width in drawing units.
+// share out any width the box has to spare; rows are equal. measure: a cell's text width in drawing units at the
+// document's caption size. The text, padding and least sizes follow the table's scale.
 export const TABLE_PAD = 0.35, TABLE_ROW = 0.8; // bond lengths: padding each side of a column's text; least row height
 export function tableLayout(sh: Shape, measure: (text: string) => number = () => 0) {
   const x0 = Math.min(sh.from[0], sh.to[0]), y1 = Math.max(sh.from[1], sh.to[1]);
   const cells = sh.table?.cells.length ? sh.table.cells : [[""]];
-  const rows = cells.length, cols = Math.max(...cells.map((r) => r.length));
-  const natural = Array.from({ length: cols }, (_, c) => Math.max(1, ...cells.map((r) => (r[c] ? measure(r[c]) + 2 * TABLE_PAD : 0))));
+  const rows = cells.length, cols = Math.max(...cells.map((r) => r.length)), f = scaleOf(sh);
+  const natural = Array.from({ length: cols }, (_, c) => Math.max(f, ...cells.map((r) => (r[c] ? (measure(r[c]) + 2 * TABLE_PAD) * f : 0))));
   const spare = Math.max(0, Math.abs(sh.to[0] - sh.from[0]) - natural.reduce((a, b) => a + b, 0)) / cols;
   // Columns and rows whose borders were dragged keep their sizes; the rest share the box.
   const widths = natural.map((w, c) => Math.max(w, sh.table?.widths?.[c] ?? w + spare)), edges = [x0];
   for (const w of widths) edges.push(edges[edges.length - 1] + w);
-  const h = Math.max(TABLE_ROW, Math.abs(sh.to[1] - sh.from[1]) / rows);
+  const h = Math.max(TABLE_ROW * f, Math.abs(sh.to[1] - sh.from[1]) / rows);
   const heights = Array.from({ length: rows }, (_, r) => sh.table?.heights?.[r] ?? h), tops = [y1];
   for (const v of heights) tops.push(tops[tops.length - 1] - v);
-  return { x0, x1: edges[cols], y0: tops[rows], y1, rows, cols, h, widths, heights, natural, col: (c: number) => edges[c], row: (r: number) => tops[r] }; // row 0 at the top
+  return { x0, x1: edges[cols], y0: tops[rows], y1, rows, cols, h, widths, heights, natural, f, col: (c: number) => edges[c], row: (r: number) => tops[r] }; // row 0 at the top
 }
 
 // A pen curve as a polyline (px, y down): each Bézier segment in 24 steps.

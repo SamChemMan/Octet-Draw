@@ -55,6 +55,7 @@ type Props = {
   palette: { name: string; hex: string }[]; // the user's own colours, after Octet's
   grouping?: { grouped: boolean; integral: boolean }; // two or more things selected (Group), or a group (Ungroup)
   menus?: boolean; // Settings > Actions panel: each set of small actions as a titled row that opens its menu
+  sizes: number[]; // the text sizes on offer: ChemDraw's, times the document scale
 };
 
 const ELEMENTS = ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"];
@@ -67,7 +68,6 @@ const SUBSCRIPT = "₀₁₂₃₄₅₆₇₈₉";
 const formula = (f: string) => f.replace(/\d/g, (d) => SUBSCRIPT[Number(d)]);
 
 // The caption size: click for a menu of sizes; Enter or double-click to type any size.
-const SIZES = [8, 9, 10, 12, 14, 18, 24, 36];
 // The font of the text selected (or the caption): a list of the document fonts, each shown in itself.
 // A setting with a few choices, as one small button showing the current choice: a click opens its choices, each drawn
 // as itself with its name.
@@ -180,7 +180,7 @@ function FontButton({ font, fonts, run }: { font: string; fonts: string[]; run: 
   );
 }
 
-function SizeButton({ size, run }: { size: number; run: (command: string) => void }) {
+function SizeButton({ size, sizes, run }: { size: number; sizes: number[]; run: (command: string) => void }) {
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState<string>();
   const typing = useRef(false); // Enter, Escape and blur all end typing; only the first one counts
@@ -201,7 +201,7 @@ function SizeButton({ size, run }: { size: number; run: (command: string) => voi
     typing.current = false;
     const pt = Math.round(Number(typed) * 2) / 2;
     setTyped(undefined);
-    if (keep && pt >= 4 && pt <= 144 && pt !== size) run(`caption.size.${pt}`);
+    if (keep && pt >= 0.5 && pt <= 999 && pt !== size) run(`caption.size.${pt}`);
   };
   return (
     <div className="size" ref={box}>
@@ -232,8 +232,8 @@ function SizeButton({ size, run }: { size: number; run: (command: string) => voi
         </button>
       )}
       {open && (
-        <div className="size-menu" role="menu" aria-label="Size" style={dropStyle(box.current, SIZES.length)}>
-          {SIZES.map((pt) => (
+        <div className="size-menu" role="menu" aria-label="Size" style={dropStyle(box.current, sizes.length)}>
+          {sizes.map((pt) => (
             <button key={pt} role="menuitemradio" aria-checked={pt === size} onClick={() => { setOpen(false); if (pt !== size) run(`caption.size.${pt}`); }}>
               {pt} pt
             </button>
@@ -426,7 +426,7 @@ function Row({ icon, name, command, hint, run, accent }: { icon: React.ReactNode
   );
 }
 
-export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus }: Props) {
+export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus, sizes }: Props) {
   // An action being dragged to a new place: in the rows (index among rows) or the small buttons (index among them).
   const [carry, setCarry] = useState<{ command: string; x: number; y: number; to?: { rows: boolean; index: number } }>();
   const dragged = useRef(false);
@@ -670,7 +670,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           ))}
           <button className="chip" aria-label="Formula" title={`Formula: counts become subscripts (${hint("caption.formula")})`} onClick={() => run("caption.formula")}><span className="glyph-text">H<sub>2</sub>O</span></button>
           {context.fonts && <FontButton font={context.font ?? context.fonts[0]} fonts={context.fonts} run={run} />}
-          <SizeButton size={context.size} run={run} />
+          <SizeButton size={context.size} sizes={sizes} run={run} />
           {([["left", "Align left", <TextAlignLeft size={16} />], ["centre", "Centre", <TextAlignCenter size={16} />], ["right", "Align right", <TextAlignRight size={16} />]] as const).map(([id, name, icon]) => (
             <button key={id} className="chip" aria-pressed={context.align === id} aria-label={name} title={name} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
           ))}
@@ -684,7 +684,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
             <button key={id} className="chip" aria-pressed={on} aria-label={name} title={hint(`caption.${id}`) ? `${name} (${hint(`caption.${id}`)})` : name} onClick={() => run(`caption.${id}`)}>{icon}</button>
           ))}
           <FontButton font={context.text.font} fonts={fonts} run={run} />
-          <SizeButton size={context.text.size} run={run} />
+          <SizeButton size={context.text.size} sizes={sizes} run={run} />
         </div>
       )}
 

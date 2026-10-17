@@ -30,6 +30,9 @@ export type DocStyle = {
   labelFont: string; labelSize: number; captionFont: string; captionSize: number; colour: string;
   // Atom labels (ChemDraw's Show Labels on Terminal Carbons, on Non-Terminal Carbons, and Hide Implicit Hydrogens).
   terminalLabels: boolean; carbonLabels: boolean; hideH: boolean;
+  // The style's size against its preset (1 is 100%): bond, line, bold, margin, hash and the two text sizes hold the
+  // preset's values times it (decision 0007). Bond spacing is a percent, so it does not change.
+  scale: number;
 };
 
 type Drawn = Pick<DocStyle, "bond" | "line" | "bold" | "margin" | "hash" | "spacing" | "labelFont" | "labelSize" | "captionFont" | "captionSize">;
@@ -43,7 +46,26 @@ export const PRESETS: Record<string, Drawn> = {
   "Helv. Chim. Acta": { bond: 17, line: 0.6, bold: 2, margin: 2, hash: 2, spacing: 15, labelFont: "Helvetica", labelSize: 10, captionFont: "Helvetica", captionSize: 12 },
   "Slides": { bond: 30, line: 1.6, bold: 4, margin: 2, hash: 2.7, spacing: 15, labelFont: "Arial", labelSize: 12, captionFont: "Arial", captionSize: 16 },
 };
-export const DEFAULT_STYLE: DocStyle = { preset: "ACS Document 1996", page: "A4", custom: [180, 120], landscape: false, edges: true, grid: 0, background: "white", colour: "#000000", terminalLabels: false, carbonLabels: false, hideH: false, ...PRESETS["ACS Document 1996"] };
+export const DEFAULT_STYLE: DocStyle = { preset: "ACS Document 1996", page: "A4", custom: [180, 120], landscape: false, edges: true, grid: 0, background: "white", colour: "#000000", terminalLabels: false, carbonLabels: false, hideH: false, scale: 1, ...PRESETS["ACS Document 1996"] };
+// The lengths and sizes a document scale multiplies (bond spacing is a percent, so it stays).
+export const SCALED = ["bond", "line", "bold", "margin", "hash", "labelSize", "captionSize"] as const;
+const round = (n: number) => Math.round(n * 1e4) / 1e4;
+// A preset's values at a scale.
+export const presetAt = (name: string, scale: number): Drawn => {
+  const p = { ...PRESETS[name] };
+  for (const k of SCALED) p[k] = round(p[k] * scale);
+  return p;
+};
+// The text sizes on offer (Text > Size and the Actions panel): ChemDraw's list times the document scale, to the
+// nearest half point. A typed size can be anything from 0.5 to 999 pt.
+export const TEXT_SIZES = [5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 24];
+export const sizeAt = (pt: number, scale: number) => Math.round(pt * scale * 2) / 2 || 0.5;
+// The style at another document scale: its scaled values multiplied by the change, the rest kept.
+export function withScale(s: DocStyle, scale: number): DocStyle {
+  const next = { ...s, scale };
+  for (const k of SCALED) next[k] = round(s[k] * (scale / s.scale));
+  return { ...next, preset: presetOf(next) };
+}
 
 export const FONTS = ["Arial", "Helvetica", "Times New Roman", "Calibri", "Cambria", "Georgia"];
 // Any font on the computer can be used too, by its family name. A name with quotes, slashes or CSS punctuation is
@@ -64,9 +86,10 @@ export const TINTS: [string, string][] = [
   ["Light blue", "#DCE4F5"], ["Light green", "#DCEFE6"], ["Light amber", "#F6E6D3"], ["Light red", "#F6DCDC"], ["Light grey", "#E9ECF0"],
 ];
 
-// The preset a style matches, if any.
+// The preset a style matches at its scale, if any.
 export function presetOf(s: DocStyle): string {
-  return Object.entries(PRESETS).find(([, p]) => (Object.keys(p) as (keyof Drawn)[]).every((k) => p[k] === s[k]))?.[0] ?? "Custom";
+  const same = (a: unknown, b: unknown) => (typeof a === "number" && typeof b === "number" ? Math.abs(a - b) <= 1e-4 + 1e-6 * Math.abs(b) : a === b);
+  return Object.keys(PRESETS).find((name) => { const p = presetAt(name, s.scale ?? 1); return (Object.keys(p) as (keyof Drawn)[]).every((k) => same(p[k], s[k])); }) ?? "Custom";
 }
 
 // Read a style from a file or settings, keeping only valid values (anything else falls back to the default).
@@ -80,11 +103,13 @@ export function readStyle(v: unknown): DocStyle {
     custom: Array.isArray(s.custom) && s.custom.length === 2 && s.custom.every((n) => typeof n === "number" && n >= 10 && n <= 2000) ? [s.custom[0], s.custom[1]] : DEFAULT_STYLE.custom,
     landscape: s.landscape === true, edges: s.edges !== false, grid: num("grid", 0, 50),
     background: BACKGROUNDS.some(([b]) => b === s.background) ? (s.background as Background) : "white",
-    bond: num("bond", 4, 72), line: num("line", 0.1, 6), bold: num("bold", 0.2, 12), margin: num("margin", 0, 10), hash: num("hash", 0.5, 10), spacing: num("spacing", 5, 40),
-    labelFont: text("labelFont", fontName), labelSize: num("labelSize", 4, 72),
-    captionFont: text("captionFont", fontName), captionSize: num("captionSize", 4, 72),
+    // Lengths reach 10 times the old limits each way, so a scale of 10% to 1000% keeps every preset in proportion.
+    bond: num("bond", 0.4, 720), line: num("line", 0.01, 60), bold: num("bold", 0.02, 120), margin: num("margin", 0, 100), hash: num("hash", 0.05, 100), spacing: num("spacing", 5, 40),
+    labelFont: text("labelFont", fontName), labelSize: num("labelSize", 0.1, 999),
+    captionFont: text("captionFont", fontName), captionSize: num("captionSize", 0.1, 999),
     colour: text("colour", (t) => /^#[0-9a-f]{6}$/i.test(t)),
     terminalLabels: s.terminalLabels === true, carbonLabels: s.carbonLabels === true, hideH: s.hideH === true,
+    scale: num("scale", 0.1, 10),
   };
   return { ...style, preset: presetOf(style) };
 }
