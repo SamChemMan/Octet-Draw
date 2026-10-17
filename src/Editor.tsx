@@ -16,7 +16,7 @@ import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset,
-  addShape, addSymbol, bondOrders, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, wholeIntegral, wholeGroups,
+  addShape, addSymbol, bondOrders, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
@@ -802,8 +802,10 @@ export default function Editor() {
       set(r[0], true);
     },
     ungroup: () => set(ungroupSelection(doc, selection, picked), true),
+    // Pick as One (ChemDraw's Group > Integral): on the groups Ungroup would undo.
     group_integral: () => {
-      const touched = new Set(groupsOf(doc, selection, picked)), on = [...touched].every((g) => g.integral);
+      const touched = new Set(groupTargets(doc, selection, picked)), on = [...touched].every((g) => g.integral);
+      if (!touched.size) return setNotice("Select a group.");
       set({ ...doc, groups: doc.groups?.map((g) => (touched.has(g) ? { ...g, integral: on ? undefined : true } : g)) }, true);
     },
     // Invert Selection (⇧⌘I): everything that was not selected is, and the rest is not.
@@ -1519,11 +1521,12 @@ export default function Editor() {
   // on empty canvas, start a selection box. Shift adds to the selection.
   // picks: the captions that will be picked once this press's state updates land.
   // The selected things for Align and Distribute: each structure, group and object, with its box in drawing units
-  // (y up: [left, bottom, right, top]) and what moves with it.
+  // (y up: [left, bottom, right, top]) and what moves with it. A group is one thing when it is all selected; the
+  // members of a group selected in part line up one by one.
   function things() {
     const box = (b: Box): Box => [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L];
     const out: { atoms: number[]; items: number[]; box: Box }[] = [];
-    const groups = groupsOf(doc, selection, picked), inGroup = (atoms: number[], id?: number) => groups.find((g) => (id !== undefined ? g.items.includes(id) : atoms.some((i) => g.atoms.includes(i))));
+    const groups = selectedGroups(doc, selection, picked), inGroup = (atoms: number[], id?: number) => groups.find((g) => (id !== undefined ? g.items.includes(id) : atoms.some((i) => g.atoms.includes(i))));
     const add = (atoms: number[], items: number[], b: Box | undefined) => {
       if (!b) return;
       const g = inGroup(atoms, items[0]), mine = g && out.find((o) => o.atoms.some((i) => g.atoms.includes(i)) || o.items.some((id) => g.items.includes(id)));
@@ -1709,8 +1712,8 @@ export default function Editor() {
 
   function pressSelect(p: P, t: Hover, shift: boolean, screen: [number, number], copy = false) {
     const ids = atomsOf(doc, t);
-    // A press on any part of an integral group picks the whole group (Shift adds it) and moves it.
-    const whole = groupsOf(doc, new Set(ids), new Set(itemsOf(t))).find((g) => g.integral);
+    // A press on any part of an integral group picks the whole (outermost) group (Shift adds it) and moves it.
+    const whole = outermost(groupsOf(doc, new Set(ids), new Set(itemsOf(t))).filter((g) => g.integral));
     if (whole && selectKind !== "perspective") {
       const atoms = new Set([...(shift ? selection : []), ...whole.atoms]), picks = new Set([...(shift ? picked : []), ...whole.items]);
       setSelection(atoms);
@@ -2073,9 +2076,9 @@ export default function Editor() {
     return b >= 0 ? { bond: b } : {};
   };
   // The Eraser's click and Delete with nothing selected: the atom, bond or object under the pointer goes, or the
-  // whole of an integral group it is part of (as with ChemDraw's eraser).
+  // whole of the (outermost) integral group it is part of (as with ChemDraw's eraser).
   function removeAt(t: Hover) {
-    const g = groupsOf(doc, new Set(atomsOf(doc, t)), new Set(itemsOf(t))).find((x) => x.integral);
+    const g = outermost(groupsOf(doc, new Set(atomsOf(doc, t)), new Set(itemsOf(t))).filter((x) => x.integral));
     if (g) return set(deleteGraphics(deleteAtoms(doc, new Set(g.atoms)), new Set(g.items)));
     if (t.atom !== undefined) return set(deleteAtom(doc, t.atom));
     if (t.caption !== undefined || t.arrow !== undefined || t.cycle !== undefined) return set(deleteGraphics(doc, new Set(itemsOf(t))));
@@ -2608,7 +2611,7 @@ export default function Editor() {
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
     properties: ["Properties", "", <Flask size={18} />], aromatic_display: ["Toggle aromatic display", `⌥${MOD}K`, <Circle size={18} />], show_stereo: ["Show stereochemistry", "", <TagSimple size={18} />], predict_1h: ["Predict ¹H NMR shifts", "", <Waveform size={18} />], predict_13c: ["Predict ¹³C NMR shifts", "", <Waveform size={18} />], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />],
     rotate_dialog: ["Rotate…", `${MOD}R`, <ArrowClockwise size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <ArrowsOutSimple size={18} />],
-    group: ["Group", `${MOD}G`, <BoundingBox size={18} />], ungroup: ["Ungroup", `⇧${MOD}G`, <SelectionSlash size={18} />],
+    group: ["Group", `${MOD}G`, <BoundingBox size={18} />], ungroup: ["Ungroup", `⇧${MOD}G`, <SelectionSlash size={18} />], group_integral: ["Pick as one", "", <LinkSimple size={18} />],
     arrange_left: ["Align left edges", `⇧⌥${MOD}L`, <AlignLeft size={18} />], arrange_centre: ["Align left-right centres", `⇧⌥${MOD}C`, <AlignCenterHorizontal size={18} />],
     arrange_right: ["Align right edges", `⇧⌥${MOD}R`, <AlignRight size={18} />], arrange_top: ["Align top edges", `⇧⌥${MOD}T`, <AlignTop size={18} />],
     arrange_middle: ["Align top-bottom centres", `⇧⌥${MOD}M`, <AlignCenterVertical size={18} />], arrange_bottom: ["Align bottom edges", `⇧⌥${MOD}B`, <AlignBottom size={18} />],
@@ -3121,7 +3124,13 @@ export default function Editor() {
       // such a key without taking it from text boxes too). Command and Ctrl keys are the menu's own in the app.
       const pressedKey = keyOf(e), bound = pressedKey && actionFor(keymap(settings.keys), pressedKey, "none");
       if (bound?.startsWith("menu.") && (!TAURI || !native(pressedKey!))) { e.preventDefault(); return commands.current[bound.slice(5)]?.(); }
-      if (mod || e.altKey) return;
+      if (mod) return;
+      // Option keys run only what the shortcut table gives them: Option + arrows turn the selection (as ChemDraw's).
+      if (e.altKey) {
+        const t = keyTarget(), id = pressedKey && actionFor(keymap(settings.keys), pressedKey, t.atom !== undefined ? "atom" : t.bond !== undefined ? "bond" : "none");
+        if (id) { e.preventDefault(); run(id); }
+        return;
+      }
       if (e.key === "Escape") {
         // Escape dismisses one thing at a time. With nothing left to dismiss it goes on to the window (which leaves
         // full screen).
@@ -3284,12 +3293,14 @@ export default function Editor() {
     if (sh) return <g key={key}>{shapeTrace(sh, L, frame.bond).paths.map((path, i) => <polyline key={i} className={`arrow-mark ${cls}`} points={path.map((q) => q.join(",")).join(" ")} strokeWidth={0.36 * L} />)}</g>;
     return a ? <polyline key={key} className={`arrow-mark ${cls}`} points={arrowTrace(a, L).paths[0].map((q) => q.join(",")).join(" ")} strokeWidth={0.36 * L} /> : null;
   };
-  // A group wholly selected: a dotted frame round all of it (its atoms with their labels, its text, arrows, shapes and cycles),
-  // so it reads as one thing.
-  const groupFrames = (shown.groups ?? []).filter((g) => g.atoms.length + g.items.length > 1 && g.atoms.every((i) => selection.has(i)) && g.items.every((id) => picked.has(id))).flatMap((g) => {
-    const b = drawnBox(g.atoms, new Set(g.items)), pad = 0.6 * L; // clear of the selection marks
-    return b ? [<rect key={`gf${g.id}`} x={b[0] - pad} y={b[1] - pad} width={b[2] - b[0] + 2 * pad} height={b[3] - b[1] + 2 * pad} rx={0.15 * L} />] : [];
-  });
+  // A group wholly selected (the outermost, when groups nest): a dotted frame round all of it (its atoms with their
+  // labels, its text, arrows, shapes and cycles), so it reads as one thing. The frame keeps 6 px clear of the selection
+  // marks (0.32 bond lengths round each atom) at any zoom.
+  const groupBoxes = selectedGroups(shown, selection, picked).flatMap((g) => { const b = g.atoms.length + g.items.length > 1 ? drawnBox(g.atoms, new Set(g.items)) : undefined; return b ? [[g.id, b] as const] : []; });
+  const groupFrames = groupBoxes.length > 0 && <Live store={views}>{(view) => {
+    const pad = 0.32 * L + 6 / view.zoom;
+    return <g className="group-frame">{groupBoxes.map(([id, b]) => <rect key={`gf${id}`} x={b[0] - pad} y={b[1] - pad} width={b[2] - b[0] + 2 * pad} height={b[3] - b[1] + 2 * pad} rx={4 / view.zoom} />)}</g>;
+  }}</Live>;
   // An eraser stroke: its trail, and the bonds and atoms it will remove, tinted.
   const rubbing = drag?.kind === "erase" && drag.moved ? (
     <>
@@ -3307,8 +3318,26 @@ export default function Editor() {
     ...[...picked].map((id) => captionMark(id, `sc${id}`, "") ?? arrowMark(id, `sr${id}`, "")),
     ...cycleArrows.filter((a) => picked.has(a.cycle)).map((a) => <polyline key={`sy${a.id}`} className="arrow-mark" points={arrowTrace(a, L).paths[0].map((q) => q.join(",")).join(" ")} strokeWidth={0.36 * L} />),
   ];
+  // With Select, over any part of an integral group the mark covers all of it, as a click picks all of it (ChemDraw
+  // highlights the outermost integral group too). Each group's members, worked out once for each drawing.
+  const integrals = useMemo(() => outerGroups((doc.groups ?? []).filter((g) => g.integral)).map((g) => ({ g, atoms: new Set(g.atoms), items: new Set(g.items) })), [doc.groups]);
+  const wholeMark = (w: (typeof integrals)[number]) => (
+    <g key="h">
+      {shown.bonds.flatMap((b, i) => (w.atoms.has(b.atoms[0]) && w.atoms.has(b.atoms[1]) ? [bondMark(i, `hb${i}`, "mark")] : []))}
+      {w.g.atoms.filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `ha${i}`, "mark"))}
+      {w.g.items.map((id) => captionMark(id, `hc${id}`, "mark") ?? arrowMark(id, `hr${id}`, "mark"))}
+      {cycleArrows.filter((a) => w.items.has(a.cycle)).map((a) => <polyline key={`hy${a.id}`} className="arrow-mark mark" points={arrowTrace(a, L).paths[0].map((q) => q.join(",")).join(" ")} strokeWidth={0.36 * L} />)}
+    </g>
+  );
+  const integralAt = (hover: Hover) => {
+    if (tool !== "select" || !integrals.length) return undefined;
+    const ids = atomsOf(doc, hover), items = itemsOf(hover);
+    const w = integrals.find((x) => ids.some((i) => x.atoms.has(i)) || items.some((id) => x.items.has(id)));
+    return w && !(w.g.atoms.every((i) => selection.has(i)) && w.g.items.every((id) => picked.has(id))) ? w : undefined;
+  };
   // The mark on what is under the pointer, drawn by Live as the pointer moves.
-  const hovered = (hover: Hover) => drag ? null
+  const hovered = (hover: Hover, whole = drag ? undefined : integralAt(hover)) => drag ? null
+    : whole ? wholeMark(whole)
     : hover.atom !== undefined && shown.atoms[hover.atom] ? atomMark(hover.atom, "h", "mark")
     : hover.caption !== undefined && !picked.has(hover.caption) ? captionMark(hover.caption, "h", "mark")
     : hover.arrow !== undefined && !picked.has(hover.arrow) ? arrowMark(hover.arrow, "h", "mark")
@@ -3325,10 +3354,12 @@ export default function Editor() {
     />
   ) : null;
 
-  // The Actions panel's group row: whether the selection is grouped, or could be.
+  // The Actions panel's group row: Group when the selection holds two or more things (a group counts as one), and
+  // Ungroup and Pick as One when it touches a group.
   const grouping = useMemo(() => {
-    const gs = groupsOf(doc, selection, picked), count = fragments(doc).filter((g) => g.some((i) => selection.has(i))).length + picked.size;
-    return gs.length ? { grouped: true, integral: gs.every((g) => g.integral) } : count >= 2 ? { grouped: false, integral: false } : undefined;
+    const gs = groupTargets(doc, selection, picked), count = fragments(doc).filter((g) => g.some((i) => selection.has(i))).length + picked.size;
+    const group = count >= 2 && (!doc.groups?.length || !!groupSelection(doc, selection, picked));
+    return gs.length || count >= 2 ? { grouped: gs.length > 0, integral: gs.length > 0 && gs.every((g) => g.integral), group } : undefined;
   }, [doc, selection, picked]);
   // Home stays on screen while it fades out, so going to a drawing (or the tutorial) is one smooth move.
   const [homeLeaving, setHomeLeaving] = useState(false), [wasHome, setWasHome] = useState(home), homeKind = useRef<"name" | "home">("home");
@@ -3465,7 +3496,7 @@ export default function Editor() {
     <>
       {/* One group with one opacity, so overlapping marks don't stack up darker. */}
       <g className="selection-marks">{selected}</g>
-      {groupFrames.length > 0 && <g className="group-frame">{groupFrames}</g>}
+      {groupFrames}
       {nmrMarks.size > 0 && <g className="nmr-marks">{[...nmrMarks].filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `nmr${i}`, ""))}</g>}
       {shiftLabels().map((l) => (
         <text key={`shift${l.atom}`} className={`nmr-shift${nmrMarks.has(l.atom) ? " lit" : ""}${settings.nmrDetails ? ` q-${nmrQuality.get(l.atom)}` : ""}`} x={l.x} y={l.y} textAnchor={l.anchor} dominantBaseline="middle">{l.text}</text>
@@ -3593,9 +3624,9 @@ export default function Editor() {
         onDoubleClick={(e) => {
           // A double-click ends the Pen's curve.
           if (pen) return finishPen();
-          // With Select, a double-click on any part of a group picks the whole group.
+          // With Select, a double-click on any part of a group picks the whole of its outermost group (as ChemDraw's).
           if (tool === "select") {
-            const h = hit(toDoc(e.clientX, e.clientY)), g = groupsOf(doc, new Set(atomsOf(doc, h)), new Set(itemsOf(h)))[0];
+            const h = hit(toDoc(e.clientX, e.clientY)), g = outermost(groupsOf(doc, new Set(atomsOf(doc, h)), new Set(itemsOf(h))));
             if (g) { setSelection(new Set(g.atoms)); setPicked(new Set(g.items)); return; }
           }
           // With Select, double-click an atom to type its label (other tools would draw on each click).

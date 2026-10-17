@@ -155,5 +155,12 @@ console.log("file.check: bad files refused");
   assert.deepEqual(g.items.map((id) => back.arrows?.some((a) => a.id === id) ? "arrow" : back.captions?.some((c) => c.id === id) ? "caption" : "?"), ["arrow", "caption"]);
   assert.equal(g.integral, true);
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, groups: [{ atoms: [], items: [["a", 3]] }] })), /damaged/);
+  // Nested groups keep both levels and each its own Integral.
+  const nested = parse(serialize({ ...m, groups: [{ id: 50, atoms: [0, 1, 2, 3, 4, 5], items: [40, 41] }, { id: 51, atoms: [], items: [40, 41], integral: true as const }] }));
+  assert.deepEqual(nested.groups!.map((x) => [x.atoms.length, x.items.length, !!x.integral]), [[6, 2, false], [0, 2, true]]);
+  // Read as an edit leaves groups (GRP-11): an atom twice is listed once, a group of one thing goes.
+  const one = parse(JSON.stringify({ format: "octet", version: 1, structure: JSON.parse(serialize(mol)).structure, arrows: [{ kind: "reaction", x1: 0, y1: 0, x2: 3, y2: 0 }],
+    groups: [{ atoms: [0], items: [] }, { atoms: [0, 0, 1], items: [["a", 0]] }] }));
+  assert.deepEqual(one.groups!.map((x) => [x.atoms, x.items.length]), [[[0, 1], 1]]);
   console.log("file.check: groups ok");
 }

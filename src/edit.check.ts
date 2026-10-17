@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, wholeGroups, wholeIntegral, groupSelection, addArrow } from "./edit.ts";
+import { EMPTY, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics } from "./edit.ts";
 import { tableLayout } from "./render.ts";
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
@@ -358,28 +358,33 @@ console.log("edit.check: align ok");
   // A free ring joined onto a grouped one by a bond: the whole of it joins.
   const free = addRing(grouped, 6, false, { point: [12, 0] }), joined = wholeGroups(bondTo(free, 9, pos(free, 11)));
   assert.equal(joined.groups![0].atoms.length, 17);
-  // Two groups that come to share a structure become one; integral if either was.
-  const two = { ...free, groups: [{ ...grouped.groups![0], integral: true as const }, { id: 99, atoms: [11], items: [num] }] };
+  // Two groups that come to share a structure, neither holding the other, become one; integral if either was.
+  const [withNote, note] = addCaption(free, { text: "x", x: 12, y: -3 });
+  const two = { ...withNote, groups: [{ ...grouped.groups![0], integral: true as const }, { id: 99, atoms: [11], items: [note] }] };
   const one = wholeGroups(bondTo(two, 9, pos(two, 11)));
   assert.equal(one.groups!.length, 1);
   assert.equal(one.groups![0].id, gid);
   assert.equal(one.groups![0].integral, true);
-  assert.deepEqual(one.groups![0].items.sort(), [box, num].sort());
+  assert.deepEqual(one.groups![0].items.sort(), [box, num, note].sort());
+  // A group that comes to hold all of another keeps it inside, as a group of its own.
+  const nested = wholeGroups(bondTo({ ...free, groups: [grouped.groups![0], { id: 99, atoms: [11], items: [num] }] }, 9, pos(free, 11)));
+  assert.equal(nested.groups!.length, 2);
   // A damaged file: part of a structure, an atom twice, an atom that is not there.
   const fixed = wholeGroups({ ...m, groups: [{ id: 50, atoms: [0, 0, 99], items: [box] }] });
   assert.deepEqual(fixed.groups![0].atoms, [0, 1, 2, 3, 4, 5]);
-  // Integral: an atom, or the arrow, takes in the whole group.
+  // Integral: an atom, or the arrow, takes in the whole group, with the number under the benzene (text that belongs
+  // to a grouped structure is in the group).
   const integral = { ...grouped, groups: [{ ...grouped.groups![0], integral: true as const }] };
   const [atoms, items] = wholeIntegral(integral, new Set([3]), new Set());
   assert.equal(atoms.size, 11);
-  assert.deepEqual([...items], [box]);
+  assert.deepEqual([...items].sort(), [box, num].sort());
   assert.equal(wholeIntegral(integral, new Set(), new Set([box]))[0].size, 11);
   assert.equal(wholeIntegral(grouped, new Set([3]), new Set())[0].size, 1, "a plain group can be picked in parts");
   // Option-drag of the whole group: the copy is grouped, and the number under the benzene comes too.
   const d = duplicateSelection(grouped, new Set(grouped.groups![0].atoms), new Set([box]));
   assert.equal(d.mol.groups!.length, 2);
   assert.deepEqual(d.mol.groups![1].atoms, [...d.atoms].sort((p, q) => p - q));
-  assert.deepEqual(d.mol.groups![1].items, [d.ids.get(box)]);
+  assert.deepEqual(d.mol.groups![1].items.sort(), [d.ids.get(box), d.ids.get(num)].sort());
   assert.equal(d.mol.captions!.filter((c) => c.text === "1").length, 2);
   assert.ok(d.items.has(d.ids.get(num)!), "the copied number moves with the copy");
   // Picked text whose structure is not copied is copied as free text.
@@ -389,6 +394,96 @@ console.log("edit.check: align ok");
   const flipped = flipAtoms(m, new Set([0]), "horizontal", false, 1);
   assert.ok(Math.abs(pos(flipped, 0)[0] - (2 - pos(m, 0)[0])) < 1e-9);
   console.log("edit.check: groups ok");
+}
+
+// Nested groups (ChemDraw's groups nest): Group adds one level and Ungroup takes one away; each level keeps its own
+// Integral; a double-click picks the outermost group; Group inside a group makes a group in it.
+{
+  let m = addRing(addRing(EMPTY, 6, true, { point: [-4, 0] }), 5, false, { point: [4, 0] });
+  let x: number, r: number, num: number;
+  [m, x] = addCaption(m, { text: "x", x: 0, y: -3 });
+  [m, r] = addArrow(m, { kind: "reaction", from: [-1, 3], to: [1, 3] });
+  [m, num] = addCaption(m, { text: "1", x: 0, y: 0, bold: true, under: [0, 1, 2, 3, 4, 5] });
+  const benzene = new Set([0, 1, 2, 3, 4, 5]), ring5 = new Set([6, 7, 8, 9, 10]), all = new Set([...benzene, ...ring5]);
+  // Benzene and x as a group; then that group and the arrow as a group round it.
+  const [one, inner] = groupSelection(m, benzene, new Set([x]))!;
+  assert.deepEqual(one.groups![0].items.sort(), [x, num].sort(), "the number under the benzene is in its group");
+  assert.equal(groupSelection(one, benzene, new Set([x, num])), undefined, "a whole group alone is one thing");
+  const [two, outer] = groupSelection(one, new Set([0]), new Set([r]))!;
+  assert.equal(two.groups!.length, 2);
+  assert.deepEqual(groupParents(two.groups!).map((p) => (p === undefined ? undefined : two.groups![p].id)), [outer, undefined]);
+  assert.equal(outermost(groupsOf(two, new Set([3]), new Set()))!.id, outer, "a double-click picks the outermost group");
+  // Ungroup on the whole outer group takes one level away; the inner group stays.
+  const sel = { atoms: new Set(two.groups![1].atoms), items: new Set(two.groups![1].items) };
+  assert.deepEqual(selectedGroups(two, sel.atoms, sel.items).map((g) => g.id), [outer]);
+  assert.deepEqual(ungroupSelection(two, sel.atoms, sel.items).groups!.map((g) => g.id), [inner]);
+  // A click on one atom: Ungroup and Pick as One work on the outermost group it is in.
+  assert.deepEqual(groupTargets(two, new Set([0]), new Set()).map((g) => g.id), [outer]);
+  // The whole inner group picked: they work on it.
+  assert.deepEqual(groupTargets(two, benzene, new Set([x, num])).map((g) => g.id), [inner]);
+  // Integral on each level: an integral inner group takes in only itself; an integral outer group takes in all.
+  const innerOn = { ...two, groups: two.groups!.map((g) => (g.id === inner ? { ...g, integral: true as const } : g)) };
+  assert.equal(wholeIntegral(innerOn, new Set([2]), new Set())[0].size, 6);
+  assert.equal(wholeIntegral(innerOn, new Set(), new Set([r]))[1].size, 1, "the arrow is in the plain outer group only");
+  const outerOn = { ...two, groups: two.groups!.map((g) => (g.id === outer ? { ...g, integral: true as const } : g)) };
+  assert.deepEqual([...wholeIntegral(outerOn, new Set([2]), new Set())[1]].sort(), [x, r, num].sort());
+  // Group with two members of a plain group selected: a new group inside it.
+  const [three, top] = groupSelection(m, all, new Set([x]))!;
+  const [four, sub] = groupSelection(three, benzene, new Set([x]))!;
+  const p = groupParents(four.groups!);
+  assert.equal(four.groups![p[four.groups!.findIndex((g) => g.id === sub)]!].id, top);
+  // Align and Distribute: two members of a group, picked on their own, are two things (no group is all selected).
+  assert.deepEqual(selectedGroups(three, all, new Set()), [], "x is not picked, so the group is not all selected");
+  assert.deepEqual(selectedGroups(three, all, new Set([x])).map((g) => g.id), [top]);
+  // An integral group that holds one group alone gives it Integral and goes.
+  const lone = tidyGroups({ ...one, groups: [{ id: 90, atoms: one.groups![0].atoms, items: one.groups![0].items, integral: true }, one.groups![0]] });
+  assert.deepEqual(lone.groups!.map((g) => [g.id, g.integral]), [[inner, true]]);
+  // Copy and paste (and Option-drag) keep both levels.
+  const d = duplicateSelection(two, sel.atoms, sel.items);
+  assert.equal(d.mol.groups!.length, 4);
+  assert.equal(groupParents(d.mol.groups!).filter((q) => q === undefined).length, 2);
+  console.log("edit.check: nested groups ok");
+}
+
+// Groups lose what is deleted (GRP-11): an object id that is gone goes from the group, and a group left with fewer
+// than two things (structures, objects or groups) goes. A damaged list (an atom twice) is put right.
+{
+  let m = addRing(addRing(EMPTY, 6, true, { point: [-4, 0] }), 6, false, { point: [4, 0] });
+  let num: number, r: number, box: number;
+  [m, num] = addCaption(m, { text: "1", x: 0, y: 0, bold: true, under: [0, 1, 2, 3, 4, 5] });
+  [m, r] = addArrow(m, { kind: "reaction", from: [-1, 3], to: [1, 3] });
+  [m, box] = addShape(m, { kind: "box", from: [-6, -2], to: [6, 2] });
+  const [g] = groupSelection(m, new Set([0]), new Set([r, box]))!;
+  const gone = deleteAtoms(g, new Set([0, 1, 2, 3, 4, 5]));
+  assert.deepEqual(gone.groups![0].items.sort(), [r, box].sort(), "the number went with its structure");
+  assert.ok(!gone.groups![0].items.includes(num));
+  const [rings] = groupSelection(m, new Set([0, 6]), new Set())!;
+  assert.equal(deleteAtoms(rings, new Set([0, 1, 2, 3, 4, 5])).groups!.length, 0, "a group of one structure is no longer a group");
+  assert.equal(deleteGraphics(g, new Set([r, box])).groups!.length, 1, "the benzene and its number are still two things");
+  const fixed = tidyGroups({ ...m, groups: [{ id: 50, atoms: [0], items: [] }, { id: 51, atoms: [0, 0, 6], items: [] }, { id: 52, atoms: [0, 6], items: [999] }] });
+  assert.deepEqual(fixed.groups!.map((x) => [x.atoms, x.items]), [[[0, 6], []]]);
+  console.log("edit.check: groups after a delete ok");
+}
+
+// Group on a large selection runs fragments once (GRP-13): 300 rings group in well under 100 ms.
+{
+  let m = EMPTY;
+  for (let k = 0; k < 300; k++) m = addRing(m, 6, true, { point: [(k % 20) * 3, Math.floor(k / 20) * 3] });
+  const t = performance.now(), r = groupSelection(m, new Set(m.atoms.map((_, i) => i)), new Set());
+  assert.equal(r![0].groups![0].atoms.length, 1800);
+  assert.ok(performance.now() - t < 100, `Group took ${performance.now() - t} ms`);
+  console.log("edit.check: large group ok");
+}
+
+// A cycle in a group stays in it when its intermediates go on being grouped.
+{
+  let m = addRing(addRing(EMPTY, 6, true, { point: [-4, 0] }), 6, false, { point: [4, 0] }), y: number, box: number;
+  [m, y] = addCycle(m, { centre: [0, 0], radius: 4, clockwise: true, nodes: [[0, 1, 2, 3, 4, 5], [6, 7, 8, 9, 10, 11]] });
+  [m, box] = addShape(m, { kind: "box", from: [-8, -5], to: [8, 5] });
+  const [g] = groupSelection(m, new Set(), new Set([y, box]))!;
+  assert.deepEqual(g.groups![0].items.sort(), [y, box].sort());
+  assert.equal(outermost(groupsOf(g, new Set(), new Set([y])))!.items.length, 2, "a double-click on the cycle finds its group");
+  console.log("edit.check: grouped cycle ok");
 }
 
 // Bond orders are added up for every atom in one pass (an aromatic bond counts 1.5), and freePairs gives the same

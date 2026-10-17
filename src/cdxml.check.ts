@@ -87,11 +87,11 @@ const shapes: Shape[] = [
 const drawing: Mol = {
   atoms, bonds, captions, arrows, shapes,
   cycles: [{ id: 300, centre: [20, 0], radius: 3, clockwise: false, nodes: [[16, 17], [18], [19, 20]], colour: "#8B4E18" }],
-  groups: [{ id: 400, atoms: [9, 10, 11, 12, 13, 14, 15], items: [5, 106] }, { id: 401, atoms: [], items: [202, 203], integral: true }],
+  groups: [{ id: 400, atoms: [9, 10, 11, 12, 13, 14, 15], items: [4, 5, 106] }, { id: 401, atoms: [], items: [202, 203], integral: true }],
 };
 
 // What a drawing means, written the same way whatever form it was set in: corners as low and high, heads and
-// spot sizes that equal the defaults left unset, explicit black as the default ink, centred as unset.
+// spot sizes that equal the defaults left unset, explicit black as the default ink, centred as unset, groups by id.
 function canon(m: Mol): Mol {
   const ink = (c?: string) => (c && c.toUpperCase() !== "#000000" ? c.toUpperCase() : undefined);
   const strip = <T extends object>(o: T): T => JSON.parse(JSON.stringify(o));
@@ -111,7 +111,7 @@ function canon(m: Mol): Mol {
         tlc: s.tlc && { ...s.tlc, hide: s.tlc.hide && [...s.tlc.hide].sort(), spots: s.tlc.spots.map((x) => ({ ...x, w: x.w === t!.size({ lane: x.lane, rf: x.rf }).rx ? undefined : x.w })) },
       };
     }),
-    cycles: m.cycles ?? [], groups: (m.groups ?? []).map((g) => ({ ...g, atoms: [...g.atoms].sort((p, q) => p - q), items: [...g.items].sort((p, q) => p - q) })),
+    cycles: m.cycles ?? [], groups: [...(m.groups ?? [])].sort((p, q) => p.id - q.id).map((g) => ({ ...g, atoms: [...g.atoms].sort((p, q) => p - q), items: [...g.items].sort((p, q) => p - q) })),
   });
 }
 // Paths where two drawings differ; numbers agree to 0.0015 bond lengths (CDXML holds 0.01 pt).
