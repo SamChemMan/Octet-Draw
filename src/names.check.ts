@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { COMMON, commonKey } from "./common.ts";
 import { DRUGS } from "./drugs.ts";
-import { attachOpsin, looksLikeSmiles, nameToSmiles } from "./names.ts";
+import { attachOpsin, knownName, looksLikeSmiles, nameToSmiles } from "./names.ts";
 
 const dir = new URL("./vendor/opsin/", import.meta.url);
 if (!existsSync(new URL("opsin.js", dir))) { console.log("names.check: skipped (no OPSIN build)"); process.exit(0); }
@@ -23,7 +23,8 @@ for (let p = 0; ; ) {
 (globalThis as { opsinResource?: unknown }).opsinResource = (name: string) => files.get(name) ?? null;
 const opsin = await import(new URL("opsin.js", dir).href);
 opsin.init();
-attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"));
+const index: Record<string, string> = JSON.parse(readFileSync(new URL("./nameindex.json", import.meta.url), "utf8"));
+attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"), index);
 const indigo = await (await import(new URL("../node_modules/indigo-ketcher/indigo-ketcher-norender.js", import.meta.url).href)).default();
 const options = (kv: Record<string, string> = {}) => { const o = new indigo.MapStringString(); for (const [k, v] of Object.entries(kv)) o.set(k, v); return o; };
 // What the app draws for SMILES: Indigo's layout, Kekulé bonds (chem.ts, parseStructure).
@@ -44,7 +45,7 @@ assert.equal(nameToSmiles("spiro"), undefined);
 // Every entry reads, keeps no aromatic bond once Indigo has drawn it (so the app's formula and mass work), and
 // every "=name" points to an entry. No key is in both tables.
 const entries: [string, string][] = [
-  ...Object.entries(COMMON).map(([k, v]): [string, string] => [k, v.startsWith("smiles:") ? v.slice(7) : opsin.parseToSmiles(v) ?? ""]),
+  ...Object.entries(COMMON).map(([k, v]): [string, string] => { const w = v.startsWith("=") ? COMMON[v.slice(1)] ?? "" : v; return [k, w.startsWith("smiles:") ? w.slice(7) : opsin.parseToSmiles(w) ?? ""]; }),
   ...Object.entries(DRUGS).map(([k, v]): [string, string] => [k, v.startsWith("=") ? DRUGS[v.slice(1)] ?? "" : v]),
 ];
 for (const [k, smiles] of entries) {
@@ -68,6 +69,15 @@ assert.deepEqual(partKeys(nameToSmiles("CuSO4·5H2O") ?? ""), partKeys(`${COMMON
 assert.deepEqual(partKeys(nameToSmiles("sertraline hydrochloride") ?? ""), partKeys(`${DRUGS.sertraline}.Cl`), "sertraline hydrochloride");
 assert.deepEqual(partKeys(nameToSmiles("EDC·HCl") ?? ""), partKeys(`${opsin.parseToSmiles(COMMON.EDC)}.Cl`), "EDC·HCl");
 assert.equal(nameToSmiles("ethanol and unobtainium"), undefined);
+
+// The index of Octet's own names for Structure to Name is up to date (tools/names/index.mjs), and each name in it
+// reads back as its structure.
+const { build } = await import(new URL("../tools/names/index.mjs", import.meta.url).href);
+assert.deepEqual(build(), index, "src/nameindex.json is out of date: run node tools/names/index.mjs");
+const inchi = (smiles: string) => { const o = options(); try { return indigo.convert(smiles, "inchi", o).trim() as string; } finally { o.delete(); } };
+for (const [key, name] of Object.entries(index)) assert.equal(inchi(nameToSmiles(name) ?? ""), key, `${name} reads back`);
+assert.equal(knownName(inchi(DRUGS.imatinib)), "imatinib");
+assert.equal(knownName(inchi(opsin.parseToSmiles(COMMON.DBU))), COMMON.DBU);
 
 // 200 common drug and reagent names, with the standard InChIKey of the structure each should give. PCC and
 // Wilkinson's catalyst are drawn as Octet draws them (pyridinium chlorochromate as an ion pair, Rh bonded to Cl),

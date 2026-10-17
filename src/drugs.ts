@@ -303,3 +303,15 @@ export const DRUGS: Record<string, string> = {
   "alpha-tocopherol": "CC(C)CCC[C@@H](C)CCC[C@@H](C)CCC[C@]1(C)CCc2c(C)c(O)c(C)c(C)c2O1",
   menadione: "CC1=CC(=O)c2ccccc2C1=O",
 };
+
+// Names OPSIN reads that Structure to Name gives when Octet's namer has no systematic name for the structure:
+// natural products, drugs and ring systems known by these names (src/nameindex.json lists them by InChI).
+export const KNOWN = [
+  "caffeine", "theobromine", "theophylline", "morphine", "codeine", "oxycodone", "hydrocodone", "cholesterol", "camphor",
+  "menthol", "adamantane", "norbornane", "norbornene", "cubane", "ferrocene", "phenylmagnesium bromide", "methylmagnesium bromide",
+  "uracil", "thymine", "cytosine", "fluorouracil", "ascorbic acid", "water", "ammonia", "hydrogen chloride", "hydrogen peroxide",
+  "sulfuric acid", "nitric acid", "phosphoric acid", "carbon dioxide", "thionyl chloride", "sulfuryl chloride", "phosphoryl chloride",
+  "phosphorus trichloride", "phosphorus pentachloride", "phosphorus tribromide", "boron tribromide", "aluminium chloride", "iron(III) chloride",
+  "titanium tetrachloride", "zinc chloride", "copper(I) iodide", "osmium tetroxide", "palladium(II) acetate", "pyridinium chlorochromate",
+  "diazomethane", "triethylsilane", "tributyltin hydride", "diisobutylaluminium hydride",
+];

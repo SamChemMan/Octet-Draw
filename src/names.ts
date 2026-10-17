@@ -6,11 +6,12 @@ import { DRUGS } from "./drugs.ts";
 type Opsin = typeof import("./vendor/opsin/opsin.js");
 let opsin: Opsin | undefined;
 let names: string[] = []; // whole names OPSIN reads, sorted (see tools/opsin/names.mjs)
+let index: Record<string, string> = {}; // names from Octet's own tables by standard InChI (see tools/names/index.mjs)
 let loading: Promise<void> | undefined;
 
 export function loadNames(): Promise<void> {
   loading ??= (async () => {
-    const [mod, { default: pack }, { default: list }] = await Promise.all([import("./vendor/opsin/opsin.js"), import("./vendor/opsin/opsin-data.bin?url"), import("./vendor/opsin/names.txt?url")]);
+    const [mod, { default: pack }, { default: list }, { default: known }] = await Promise.all([import("./vendor/opsin/opsin.js"), import("./vendor/opsin/opsin-data.bin?url"), import("./vendor/opsin/names.txt?url"), import("./nameindex.json")]);
     const [data, words] = await Promise.all([fetch(pack).then((r) => r.arrayBuffer()), fetch(list).then((r) => r.text())]);
     // The pack: [name length (u16), name (latin1), size (i32), bytes] repeated, ending with a zero length.
     const view = new DataView(data), files = new Map<string, Int8Array>(), latin1 = new TextDecoder("latin1");
@@ -23,21 +24,28 @@ export function loadNames(): Promise<void> {
     }
     (globalThis as { opsinResource?: (name: string) => Int8Array | null }).opsinResource = (name) => files.get(name) ?? null;
     mod.init();
-    attachOpsin(mod, words);
+    attachOpsin(mod, words, known);
   })();
   return loading;
 }
 
-// OPSIN, once its data is in place, and the list of names it reads (one a line). The checks call this directly.
-export function attachOpsin(mod: Opsin, words: string) {
+// OPSIN, once its data is in place, the list of names it reads (one a line) and the index of Octet's own names. The
+// checks call this directly.
+export function attachOpsin(mod: Opsin, words: string, known: Record<string, string> = {}) {
+  index = known;
   // Long common names (methylene blue, Eosin Y) and drug names join the list for completion; abbreviations match exactly only.
   const own = [...Object.keys(COMMON).filter((k) => k.length >= 7), ...Object.keys(DRUGS).filter((k) => k.length >= 5)];
   names = [...words.split("\n").filter(Boolean), ...own.map((k) => k.toLowerCase())].sort();
   opsin = mod;
 }
 
+// A name from Octet's own tables for a structure, by its standard InChI: for Structure to Name when Octet's namer has
+// no name (morphine, DBU, imatinib).
+export const knownName = (inchi: string): string | undefined => index[inchi];
+
 // Octet's own names (common.ts, drugs.ts), by key. Drug names map to SMILES.
-const common = new Map([...Object.entries(COMMON), ...Object.entries(DRUGS).map(([k, v]) => [k, `smiles:${v}`])].map(([k, v]) => [commonKey(k), v]));
+const common = new Map([...Object.entries(COMMON).map(([k, v]) => [k, v.startsWith("=") ? COMMON[v.slice(1)] : v]),
+  ...Object.entries(DRUGS).map(([k, v]) => [k, `smiles:${v.startsWith("=") ? DRUGS[v.slice(1)] : v}`])].map(([k, v]) => [commonKey(k), v]));
 function read(name: string): string | undefined {
   try {
     return opsin!.parseToSmiles(name) ?? undefined;

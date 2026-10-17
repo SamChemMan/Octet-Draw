@@ -55,7 +55,7 @@ import {
 } from "./tools";
 import { arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
-import { loadNames, looksLikeSmiles, nameToSmiles, suggestName } from "./names";
+import { knownName, loadNames, looksLikeSmiles, nameToSmiles, suggestName } from "./names";
 import { checkedName, graphOf, setNamer } from "./naming";
 import { iupacName } from "./namer";
 
@@ -2152,7 +2152,7 @@ export default function Editor() {
     const part = subset(doc, new Set(g)), key = serialize(part);
     if (!nameCache.current.has(key)) {
       let name: string | undefined;
-      try { name = checkedName(part, expandLabels(part), nameToSmiles, toInchi, cipOf); } catch { name = undefined; }
+      try { name = checkedName(part, expandLabels(part), nameToSmiles, toInchi, cipOf, knownName); } catch { name = undefined; }
       nameCache.current.set(key, name ?? null);
     }
     return nameCache.current.get(key) ?? undefined;

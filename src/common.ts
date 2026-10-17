@@ -1,6 +1,7 @@
 // Names chemists use that OPSIN does not read: abbreviations, formulas and trade names of common solvents,
 // reagents, ligands and photocatalysts. Each maps to a systematic name that OPSIN reads (checked by
-// tools/opsin/check.mjs), or to SMILES ("smiles:...") where OPSIN cannot give the structure (TEMPO's radical).
+// tools/opsin/check.mjs), to SMILES ("smiles:...") where OPSIN cannot give the structure (TEMPO's radical), or to
+// another entry ("=Pd(PPh3)4").
 // Keys match without regard to case, spaces or hyphens.
 export const COMMON: Record<string, string> = {
   // Solvents
@@ -92,6 +93,9 @@ export const COMMON: Record<string, string> = {
   "Grubbs I": "smiles:Cl[Ru](Cl)(=Cc1ccccc1)([P](C1CCCCC1)(C1CCCCC1)C1CCCCC1)[P](C1CCCCC1)(C1CCCCC1)C1CCCCC1",
   "Grubbs II": "smiles:Cc1cc(C)c(c(C)c1)N1CCN(C1=[Ru](Cl)(Cl)(=Cc1ccccc1)[P](C1CCCCC1)(C1CCCCC1)C1CCCCC1)c1c(C)cc(C)cc1C",
   "Hoveyda-Grubbs II": "smiles:CC(C)Oc1ccccc1C=[Ru](Cl)(Cl)=C1N(CCN1c1c(C)cc(C)cc1C)c1c(C)cc(C)cc1C",
+  "tetrakis(triphenylphosphine)palladium(0)": "=Pd(PPh3)4", "bis(triphenylphosphine)palladium(II) dichloride": "=PdCl2(PPh3)2",
+  "tris(dibenzylideneacetone)dipalladium(0)": "=Pd2(dba)3", "bis(dibenzylideneacetone)palladium(0)": "=Pd(dba)2",
+  "bis(cycloocta-1,5-diene)nickel(0)": "=Ni(cod)2",
   "Wilkinson's catalyst": "smiles:Cl[Rh]([P](c1ccccc1)(c1ccccc1)c1ccccc1)([P](c1ccccc1)(c1ccccc1)c1ccccc1)[P](c1ccccc1)(c1ccccc1)c1ccccc1",
   // Ligands
   bpy: "2,2'-bipyridine", dtbbpy: "4,4'-di-tert-butyl-2,2'-bipyridine", phen: "1,10-phenanthroline", ppy: "2-phenylpyridine",

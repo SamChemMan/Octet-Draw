@@ -29,3 +29,14 @@ the output is committed in `src/vendor/opsin/`.
 OPSIN only reads names. Octet writes names with its own namer, built from the public IUPAC 2013
 recommendations. Every name it writes is parsed back with OPSIN and must give the same structure, so a
 wrong name is never shown.
+
+When the namer has no name for a structure, Octet gives a name from its own tables instead: the systematic name an
+abbreviation in `src/common.ts` stands for, a drug name from `src/drugs.ts`, or a known name OPSIN reads (morphine,
+adamantane). `src/nameindex.json` lists them by standard InChI (`tools/names/index.mjs` builds it). Each is read back
+and checked the same way.
+
+## Reading order
+
+Paste, the name field and the command palette read text as a name first (Octet's tables, then OPSIN), and as SMILES
+only when the text looks like SMILES. Indigo reads some words as SMILES or SMARTS ("aspirin" as a chain of S, P and
+query atoms), so a word is never read as SMILES.
