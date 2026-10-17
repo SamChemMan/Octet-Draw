@@ -121,7 +121,8 @@ pub fn make_png(svg: &str, dpi: f32, transparent: bool) -> Result<Vec<u8>, Strin
 }
 
 // What File > Export… can write: id, name in the Save dialog, extensions (the first is the default).
-const FORMATS: [(&str, &str, &[&str]); 7] = [
+const FORMATS: [(&str, &str, &[&str]); 8] = [
+    ("oct", "Octet drawing", &["oct"]),
     ("pdf", "PDF", &["pdf"]),
     ("svg", "SVG", &["svg"]),
     ("png", "PNG", &["png"]),
@@ -135,6 +136,7 @@ const FORMATS: [(&str, &str, &[&str]); 7] = [
 pub struct Export {
     name: String,
     format: Option<String>,
+    oct: Option<String>,
     svg: Option<String>,
     cdxml: Option<String>,
     molfile: Option<String>,
@@ -151,6 +153,7 @@ pub struct Export {
 pub async fn export_file(app: AppHandle, export: Export) -> Result<Option<String>, String> {
     let e = export;
     let has = |id: &str| match id {
+        "oct" => e.oct.is_some(),
         "pdf" | "svg" | "png" => e.svg.is_some(),
         "cdxml" => e.cdxml.is_some(),
         "mol" => e.molfile.is_some(),
@@ -184,6 +187,7 @@ pub async fn export_file(app: AppHandle, export: Export) -> Result<Option<String
         "pdf" => make_pdf(e.svg.as_deref().unwrap_or_default(), e.cdxml.as_deref())?,
         "svg" => format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n{}\n", e.svg.as_deref().unwrap_or_default()).into_bytes(),
         "png" => make_png(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false))?,
+        "oct" => text(&e.oct),
         "cdxml" => text(&e.cdxml),
         "mol" => text(&e.molfile),
         "sdf" => text(&e.sdf),

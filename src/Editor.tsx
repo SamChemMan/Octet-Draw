@@ -446,14 +446,15 @@ export default function Editor() {
   const selectedPart = () => (selection.size || picked.size ? extractSelection(doc, selection, picked) : undefined);
   function openExport() {
     const sel = selectedPart();
-    setExportView({ all: pictureOf(doc), selection: sel && pictureOf(sel), chem: { all: chemistryOf(doc), selection: sel && chemistryOf(sel) } });
+    setExportView({ all: pictureOf(doc), selection: sel && pictureOf(sel), chem: { all: chemistryOf(doc), selection: sel && chemistryOf(sel) },
+      oct: { all: writeOct(doc, style, cdxmlOptions()), selection: sel && writeOct(sel, style, cdxmlOptions()) } });
   }
   const filePrefs = settings.files;
   async function exportPart(part: "all" | "selection") {
     const v = exportView, svg = v?.[part], c = v?.chem[part], f = filePrefs;
     if (!v) return;
     try {
-      const path = await exportFile({ name, format: f.format, svg: svg && withMargin(svg, f.margin), cdxml: c?.cdxml, molfile: c?.molfile, sdf: c?.molfile ? `${c.molfile.trimEnd()}\n$$$$\n` : undefined, smiles: c?.smiles, dpi: 72 * f.scale, transparent: f.background === "transparent" });
+      const path = await exportFile({ name, format: f.format, oct: v.oct[part], svg: svg && withMargin(svg, f.margin), cdxml: c?.cdxml, molfile: c?.molfile, sdf: c?.molfile ? `${c.molfile.trimEnd()}\n$$$$\n` : undefined, smiles: c?.smiles, dpi: f.dpi, transparent: f.background === "transparent" });
       if (path) setExportView(undefined);
     } catch (e) {
       setNotice(`Octet cannot export this drawing. ${e}`);
@@ -464,7 +465,7 @@ export default function Editor() {
     const svg = pictureOf(selectedPart() ?? doc), f = filePrefs;
     if (!svg) return setNotice("There is nothing to export.");
     try {
-      await exportFile({ name, format: "png", svg: withMargin(svg, f.margin), dpi: 72 * f.scale, transparent: f.background === "transparent" });
+      await exportFile({ name, format: "png", svg: withMargin(svg, f.margin), dpi: f.dpi, transparent: f.background === "transparent" });
     } catch (e) {
       setNotice(`Octet cannot export this drawing. ${e}`);
     }
@@ -633,7 +634,7 @@ export default function Editor() {
     // Add Frame (Object menu): a frame round everything selected, 0.4 bond lengths clear of it (0.3 for brackets).
     ...Object.fromEntries(([["frame_brackets", "brackets", false], ["frame_parens", "parens", false], ["frame_braces", "braces", false], ["frame_box", "box", false],
       ["frame_rounded", "rounded", false], ["frame_box_shadow", "box", true], ["frame_rounded_shadow", "rounded", true]] as const).map(([id, kind, shadow]) => [id, () => {
-      const boxes = [...[...selection].filter((i) => drawing.ink[i]).map((i) => drawing.ink[i]), ...placed.filter((c) => picked.has(c.id)).map((c) => c.box),
+      const boxes = [...(selection.size ? [withCaptions(selection)].filter((b): b is Box => !!b) : []), ...placed.filter((c) => picked.has(c.id)).map((c) => c.box),
         ...[...arrows, ...(doc.shapes ?? [])].filter((x) => picked.has(x.id)).map((x): Box => [Math.min(x.from[0], x.to[0]) * L, -Math.max(x.from[1], x.to[1]) * L, Math.max(x.from[0], x.to[0]) * L, -Math.min(x.from[1], x.to[1]) * L])];
       const b = boxes.length ? union(boxes) : undefined;
       if (!b) return setNotice("Select what to frame first.");
@@ -862,7 +863,7 @@ export default function Editor() {
   const [about, setAbout] = useState(false);
   // The Select tool's modifiers at the last press, and the selection before it, for a click with Shift or Option.
   const pressMods = useRef<{ shift: boolean; alt: boolean; atoms: Set<number>; picks: Set<number> } | undefined>(undefined);
-  const [exportView, setExportView] = useState<{ all?: string; selection?: string; chem: { all: ReturnType<typeof chemistryOf>; selection?: ReturnType<typeof chemistryOf> } }>();
+  const [exportView, setExportView] = useState<{ all?: string; selection?: string; chem: { all: ReturnType<typeof chemistryOf>; selection?: ReturnType<typeof chemistryOf> }; oct: { all: string; selection?: string } }>();
   const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }
     | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string }>();
   const [commandsOpen, setCommandsOpen] = useState(false);
@@ -1135,6 +1136,12 @@ export default function Editor() {
     return undefined;
   };
   const inkOf = (atoms: number[]) => union(atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i]));
+  // A structure's size as people see it, as ChemDraw treats a structure and its caption: its atoms with their labels,
+  // and the captions attached to it (under it). For frames, aligning, snapping and the group frame.
+  const withCaptions = (atoms: Iterable<number>): Box | undefined => {
+    const set = new Set(atoms), under = new Set((shown.captions ?? []).filter((c) => c.under?.some((i) => set.has(i))).map((c) => c.id));
+    return union([...[...set].flatMap((i) => (drawing.ink[i] ? [drawing.ink[i]] : [])), ...placed.filter((c) => under.has(c.id)).map((c) => c.box)]);
+  };
   // The structure a caption at this point (drawing coordinates) would sit under: one whose ink is just above it.
   const structureAbove = (p: P, reach = 2.5) => {
     const [x, y] = [p[0] * L, -p[1] * L];
@@ -1304,7 +1311,7 @@ export default function Editor() {
       if (mine) { mine.atoms.push(...atoms); mine.items.push(...items); mine.box = [Math.min(mine.box[0], b[0]), Math.min(mine.box[1], b[1]), Math.max(mine.box[2], b[2]), Math.max(mine.box[3], b[3])]; }
       else out.push({ atoms: [...atoms], items: [...items], box: b });
     };
-    for (const g of fragments(doc).filter((f) => f.some((i) => selection.has(i)))) { const b = union(g.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i])); add(g, [], b && box(b)); }
+    for (const g of fragments(doc).filter((f) => f.some((i) => selection.has(i)))) { const b = withCaptions(g); add(g, [], b && box(b)); }
     for (const c of placed) if (picked.has(c.id)) { const cap = doc.captions?.find((x) => x.id === c.id); if (cap && !cap.under && !cap.on && !cap.cycle) add([], [c.id], box(c.box)); }
     for (const a of [...(doc.arrows ?? []), ...(doc.shapes ?? [])]) if (picked.has(a.id)) {
       const [f, t] = "curve" in a && a.curve ? curveBox(a.curve) : [a.from, a.to];
@@ -1409,7 +1416,7 @@ export default function Editor() {
       const ps = [a.from, a.to, ...(a.curve?.points.map((q) => q.at) ?? [])];
       return [Math.min(...ps.map((q) => q[0])), Math.min(...ps.map((q) => q[1])), Math.max(...ps.map((q) => q[0])), Math.max(...ps.map((q) => q[1]))];
     };
-    const ink = (g: Iterable<number>) => union([...g].flatMap((i) => (drawing.ink[i] ? [up(drawing.ink[i])] : [])));
+    const ink = (g: Iterable<number>) => { const b = withCaptions(g); return b && up(b); };
     const textOf = new Map((doc.captions ?? []).map((c) => [c.id, c]));
     const moves = (id: number) => {
       const c = textOf.get(id);
@@ -1516,7 +1523,7 @@ export default function Editor() {
   // The selection's rotation handle, as in ChemDraw: just off the top right corner of the selection's box (px).
   const turnHandle = (): P | undefined => {
     if (selection.size < 2 || drag?.kind === "move") return undefined;
-    const b = union([...selection].filter((i) => drawing.ink[i]).map((i) => drawing.ink[i]));
+    const b = withCaptions(selection);
     return b && [b[2] + 10 / view.zoom, b[1] - 10 / view.zoom];
   };
   const onTurnHandle = (p: P) => { const h = turnHandle(); return !!h && Math.hypot(p[0] * L - h[0], -p[1] * L - h[1]) * view.zoom < 11; };
@@ -2612,7 +2619,7 @@ export default function Editor() {
       // A click puts the shape round the structure or caption clicked (Add Frame puts one round a selection).
       const one = t.atom ?? (t.bond !== undefined ? doc.bonds[t.bond].atoms[0] : undefined);
       const atoms = one !== undefined ? fragments(doc).find((g) => g.includes(one)) ?? [] : [];
-      const boxes = [...atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i]), ...placed.filter((c) => c.id === t.caption).map((c) => c.box)];
+      const boxes = [...(atoms.length ? [withCaptions(atoms)].filter((b): b is Box => !!b) : []), ...placed.filter((c) => c.id === t.caption).map((c) => c.box)];
       const b = boxes.length ? union(boxes) : undefined;
       if (!b) return;
       const pad = (tool === "bracket" ? 0.3 : 0.4) * L, sh = shapeFrom([0, 0], [1, 1]);
@@ -2923,7 +2930,7 @@ export default function Editor() {
   // A group wholly selected: a dotted frame round all of it (its atoms with their labels, its text, arrows and shapes),
   // so it reads as one thing.
   const groupFrames = (shown.groups ?? []).filter((g) => g.atoms.length + g.items.length > 1 && g.atoms.every((i) => selection.has(i)) && g.items.every((id) => picked.has(id))).flatMap((g) => {
-    const boxes: Box[] = g.atoms.flatMap((i) => (drawing.ink[i] ? [drawing.ink[i]] : []));
+    const boxes: Box[] = g.atoms.length ? [withCaptions(g.atoms)].filter((b): b is Box => !!b) : [];
     for (const c of placed) if (g.items.includes(c.id)) boxes.push(c.box);
     for (const a of arrows) if (g.items.includes(a.id)) { const ps = arrowPath(a, L); boxes.push([Math.min(...ps.map((q) => q[0])), Math.min(...ps.map((q) => q[1])), Math.max(...ps.map((q) => q[0])), Math.max(...ps.map((q) => q[1]))]); }
     for (const sh of shown.shapes ?? []) if (g.items.includes(sh.id)) boxes.push([Math.min(sh.from[0], sh.to[0]) * L, -Math.max(sh.from[1], sh.to[1]) * L, Math.max(sh.from[0], sh.to[0]) * L, -Math.min(sh.from[1], sh.to[1]) * L]);
@@ -3064,12 +3071,21 @@ export default function Editor() {
             const d = toPath(shapePaths(sh, L, frame.bond).slice(0, 1)), shade = { ...SHADE, ...sh.shade }, off = shade.depth * L;
             if (sh.kind === "highlight") return <path key={`f${sh.id}`} d={d} fill={sh.colour ?? HIGHLIGHT} />;
             if (sh.fill) return <path key={`f${sh.id}`} d={d} fill={sh.fill === "shaded" ? `url(#shade${sh.id})` : sh.colour ?? "var(--ink)"} />;
-            // A shadow falls down and to the right, in the shape's colour at its opacity, softened by a blur.
+            // A shadow falls down and to the right, in the shape's colour at its opacity, softened by a blur. It shows
+            // only outside the shape, so the shape stays unfilled: what is behind it shows through, and an export on a
+            // transparent background has nothing in it.
             return (
               <g key={`f${sh.id}`}>
-                {shade.blur > 0 && <defs><filter id={`soft${sh.id}`} x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation={shade.blur * L * 0.5} /></filter></defs>}
-                <path d={d} transform={`translate(${off} ${off})`} fill={sh.colour ? textInk(sh.colour) : "var(--ink)"} fillOpacity={shade.opacity} filter={shade.blur > 0 ? `url(#soft${sh.id})` : undefined} />
-                <path d={d} fill="var(--canvas)" />
+                <defs>
+                  {shade.blur > 0 && <filter id={`soft${sh.id}`} x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation={shade.blur * L * 0.5} /></filter>}
+                  <mask id={`outside${sh.id}`} maskUnits="userSpaceOnUse" x={-1e5} y={-1e5} width={2e5} height={2e5}>
+                    <rect x={-1e5} y={-1e5} width={2e5} height={2e5} fill="#fff" />
+                    <path d={d} fill="#000" />
+                  </mask>
+                </defs>
+                <g mask={`url(#outside${sh.id})`}>
+                  <path d={d} transform={`translate(${off} ${off})`} fill={sh.colour ? textInk(sh.colour) : "var(--ink)"} fillOpacity={shade.opacity} filter={shade.blur > 0 ? `url(#soft${sh.id})` : undefined} />
+                </g>
               </g>
             );
           })}
@@ -3648,7 +3664,7 @@ export default function Editor() {
       <ExportButton hint={platformLabel(EXPORT_KEYS)} onQuick={() => void quickExport()} onExport={openExport} />
       {exportView && (
         <ExportDialog prefs={settings.files} onPrefs={(p) => setSettings((s) => ({ ...s, files: { ...s.files, ...p } }))} pictures={exportView}
-          chemistry={(part) => { const c = exportView.chem[part]; return { cdxml: !!c?.cdxml, mol: !!c?.molfile, sdf: !!c?.molfile, smi: !!c?.smiles }; }}
+          chemistry={(part) => { const c = exportView.chem[part]; return { oct: !!exportView.oct[part], cdxml: !!c?.cdxml, mol: !!c?.molfile, sdf: !!c?.molfile, smi: !!c?.smiles }; }}
           onExport={(part) => void exportPart(part)} onClose={() => setExportView(undefined)} />
       )}
       {dialog?.kind === "atom" && (

@@ -7,7 +7,7 @@ import { Dialog } from "./Dialog";
 import { Menu } from "./Menu";
 import { Select } from "./Select";
 import { withMargin, type ExportFormat } from "./export";
-import type { FilePrefs } from "./SettingsWindow";
+import { DPIS, type FilePrefs } from "./SettingsWindow";
 
 export function ExportButton({ onQuick, onExport, hint }: { onQuick: () => void; onExport: () => void; hint?: string }) {
   const [open, setOpen] = useState(false);
@@ -35,9 +35,9 @@ export function ExportButton({ onQuick, onExport, hint }: { onQuick: () => void;
   );
 }
 
-const FORMATS: [ExportFormat, string][] = [["pdf", "PDF"], ["png", "PNG"], ["svg", "SVG"], ["cdxml", "CDXML (ChemDraw)"], ["mol", "MOL"], ["sdf", "SDF"], ["smi", "SMILES"]];
+const FORMATS: [ExportFormat, string][] = [["oct", "Octet drawing (.oct)"], ["pdf", "PDF"], ["png", "PNG"], ["svg", "SVG"], ["cdxml", "CDXML (ChemDraw)"], ["mol", "MOL"], ["sdf", "SDF"], ["smi", "SMILES"]];
 const PICTURES: ExportFormat[] = ["pdf", "png", "svg"];
-export type ExportSettings = Pick<FilePrefs, "scale" | "background" | "margin"> & { format: ExportFormat };
+export type ExportSettings = Pick<FilePrefs, "dpi" | "background" | "margin"> & { format: ExportFormat };
 
 // The settings before saving. pictures: the picture of the whole drawing and, when something is selected, of the
 // selection (standaloneSvg, in pt, no margin). Changes are kept as the next export's defaults.
@@ -61,7 +61,7 @@ export function ExportDialog({ prefs, onPrefs, pictures, chemistry, onExport, on
       </div>
       {size.length === 2 && (
         <p className="export-size">
-          {mm(size[0])} × {mm(size[1])} mm{format === "png" ? ` · ${Math.round(size[0] * prefs.scale).toLocaleString()} × ${Math.round(size[1] * prefs.scale).toLocaleString()} px` : ""}
+          {mm(size[0])} × {mm(size[1])} mm{format === "png" ? ` · ${Math.round((size[0] * prefs.dpi) / 72).toLocaleString()} × ${Math.round((size[1] * prefs.dpi) / 72).toLocaleString()} px` : ""}
         </p>
       )}
       {pictures.selection && (
@@ -75,7 +75,7 @@ export function ExportDialog({ prefs, onPrefs, pictures, chemistry, onExport, on
       </label>
       {format === "png" && (
         <label className="dialog-row"><span>Resolution</span>
-          <Select label="Resolution" value={String(prefs.scale)} options={[["1", "1× (72 dpi)"], ["2", "2× (144 dpi)"], ["4", "4× (288 dpi)"], ["8", "8× (576 dpi)"]]} onChange={(v) => onPrefs({ scale: Number(v) })} />
+          <Select label="Resolution" value={String(prefs.dpi)} options={DPIS} onChange={(v) => onPrefs({ dpi: Number(v) })} />
         </label>
       )}
       {format === "png" && (

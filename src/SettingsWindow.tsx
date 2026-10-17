@@ -12,10 +12,12 @@ import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from 
 
 export type ModuleId = "document" | "keys" | "panel" | "files" | "colours";
 export type FilePrefs = {
-  format: ExportFormat; scale: number; background: "white" | "transparent"; margin: number;
+  format: ExportFormat; dpi: number; background: "white" | "transparent"; margin: number;
   clipboard: { pdf: boolean; cdxml: boolean; mol: boolean; smiles: boolean }; keepStyle: boolean;
 };
-export const DEFAULT_FILES: FilePrefs = { format: "pdf", scale: 4, background: "transparent", margin: 4, clipboard: { pdf: true, cdxml: true, mol: true, smiles: true }, keepStyle: true };
+// PNG resolutions; 350 dpi by default (Sam: super high resolution).
+export const DPIS: [string, string][] = [["72", "72 dpi"], ["150", "150 dpi"], ["300", "300 dpi"], ["350", "350 dpi"], ["600", "600 dpi"], ["1200", "1200 dpi"]];
+export const DEFAULT_FILES: FilePrefs = { format: "pdf", dpi: 350, background: "transparent", margin: 4, clipboard: { pdf: true, cdxml: true, mol: true, smiles: true }, keepStyle: true };
 
 type Props = {
   module: ModuleId;
@@ -375,8 +377,8 @@ export function SettingsWindow(p: Props) {
           {note?.id === a.id && <span className="key-note">{note.text} <button className="text-button" onClick={() => { p.onKeys(note.undo); setNote(undefined); }}>Undo</button></span>}
         </>
       ), true)),
-      d("files", "Export", "Format", "export format pdf svg png cdxml file save", <Select label="Export format" value={files.format} options={[["pdf", "PDF"], ["png", "PNG"], ["svg", "SVG"], ["cdxml", "CDXML (ChemDraw)"], ["mol", "MOL"], ["sdf", "SDF"], ["smi", "SMILES"]]} onChange={(v) => setFiles({ format: v as FilePrefs["format"] })} />),
-      d("files", "Export", "PNG scale", "png image resolution dpi scale", <Select label="PNG scale" value={String(files.scale)} options={[["1", "1× (72 dpi)"], ["2", "2× (144 dpi)"], ["4", "4× (288 dpi)"], ["8", "8× (576 dpi)"]]} onChange={(v) => setFiles({ scale: Number(v) })} />),
+      d("files", "Export", "Format", "export format pdf svg png cdxml file save", <Select label="Export format" value={files.format} options={[["oct", "Octet drawing"], ["pdf", "PDF"], ["png", "PNG"], ["svg", "SVG"], ["cdxml", "CDXML (ChemDraw)"], ["mol", "MOL"], ["sdf", "SDF"], ["smi", "SMILES"]]} onChange={(v) => setFiles({ format: v as FilePrefs["format"] })} />),
+      d("files", "Export", "PNG resolution", "png image resolution dpi scale", <Select label="PNG resolution" value={String(files.dpi)} options={DPIS} onChange={(v) => setFiles({ dpi: Number(v) })} />),
       d("files", "Export", "Background", "background transparent white png svg", <Select label="Background" value={files.background} options={[["transparent", "Transparent"], ["white", "White"]]} onChange={(v) => setFiles({ background: v as FilePrefs["background"] })} />),
       d("files", "Export", "Margin", "export margin padding border", <NumberField label="Margin" unit="pt" value={files.margin} onChange={(n) => setFiles({ margin: n })} />),
       ...([["pdf", "PDF, with the structure inside", "pdf word powerpoint keynote office"], ["cdxml", "CDXML", "cdxml chemdraw"], ["mol", "MOL", "mol molfile"], ["smiles", "SMILES", "smiles text"]] as const).map(([k, name, words]) =>
