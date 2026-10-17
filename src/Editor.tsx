@@ -3,7 +3,7 @@ import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Waveform, TagSimple, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
   FrameCorners, GearSix, Keyboard, Lasso, LinkSimple, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
   TextAlignCenter, TextAlignLeft, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Warning, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
-  Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table, FileDashed,
+  Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table, FileDashed, ArrowsLeftRight,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -20,7 +20,7 @@ import {
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { loadSettings, saveSettings } from "./settings";
-import { actionFor, keyOf, keymap, label as keyLabel } from "./keys";
+import { actionFor, keyOf, keymap, label as keyLabel, platformLabel } from "./keys";
 import { Actions, actionItems, type Context } from "./Actions";
 import { Properties, propertyValues, PROPERTY_ROWS } from "./Properties";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
@@ -64,6 +64,8 @@ import "./editor.css";
 
 
 const MOD = navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+";
+// Export: ⌃⌘E on the Mac; Ctrl+Shift+E elsewhere, where ⌃ and ⌘ are both Ctrl (src-tauri/src/main.rs).
+const EXPORT_KEYS = navigator.platform.startsWith("Mac") ? "⌃⌘E" : "⇧Ctrl+E";
 // In the desktop app the native menu owns undo, redo and the file commands; in a browser (dev only) the page does.
 const TAURI = "__TAURI_INTERNALS__" in window;
 
@@ -849,6 +851,8 @@ export default function Editor() {
   const [addingColour, setAddingColour] = useState(false); // Settings opened from a colour row's +, to add a colour
   // Object > Rotate… (⌘R) and Scale… (⌘K): the dialog open, and what is typed in it.
   const [about, setAbout] = useState(false);
+  // The Select tool's modifiers at the last press, and the selection before it, for a click with Shift or Option.
+  const pressMods = useRef<{ shift: boolean; alt: boolean; atoms: Set<number>; picks: Set<number> } | undefined>(undefined);
   const [exportView, setExportView] = useState<{ all?: string; selection?: string; chem: { all: ReturnType<typeof chemistryOf>; selection?: ReturnType<typeof chemistryOf> } }>();
   const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }
     | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string }>();
@@ -1471,13 +1475,25 @@ export default function Editor() {
     if (selectKind === "lasso") setDrag({ kind: "lasso", points: [p], base, picks, target: t, moved: false });
     else setDrag({ kind: "box", from: p, to: p, base, picks, target: t, moved: false });
   }
-  // The captions whose middle is inside a test (drawing coordinates).
-  const captionsWhere = (inside: (q: P) => boolean) => [
+  // The captions and arrows whose middle is inside a selection area (drawing coordinates). Shapes are containers:
+  // the area picks one when it crosses the shape's frame or takes in its middle, never when the area lies wholly
+  // inside the shape, so a structure in a box can be picked on its own. corners: the area's outline points.
+  const captionsWhere = (inside: (q: P) => boolean, corners: P[]) => [
     ...placed.filter((c) => c.id !== DRAFT && inside([(c.box[0] + c.box[2]) / 2 / L, -(c.box[1] + c.box[3]) / 2 / L])).map((c) => c.id),
-    ...[...arrows, ...(doc.shapes ?? [])].filter((a) => {
-      const [f, t] = "curve" in a && a.curve ? curveBox(a.curve) : [a.from, a.to];
+    ...arrows.filter((a) => {
+      const [f, t] = a.curve ? curveBox(a.curve) : [a.from, a.to];
       return inside([(f[0] + t[0]) / 2, (f[1] + t[1]) / 2]);
     }).map((a) => a.id),
+    ...(doc.shapes ?? []).filter((sh) => {
+      const lo = [Math.min(sh.from[0], sh.to[0]), Math.min(sh.from[1], sh.to[1])], hi = [Math.max(sh.from[0], sh.to[0]), Math.max(sh.from[1], sh.to[1])];
+      const within = (q: P) => q[0] > lo[0] && q[0] < hi[0] && q[1] > lo[1] && q[1] < hi[1];
+      const into = corners.filter(within).length;
+      if (into === corners.length) return false; // drawn inside the shape
+      // Takes in its middle, or crosses its frame: a corner inside, or (a box area) running right through it.
+      const xs = corners.map((q) => q[0]), ys = corners.map((q) => q[1]);
+      const through = corners.length === 4 && Math.min(...xs) < hi[0] && Math.max(...xs) > lo[0] && Math.min(...ys) < hi[1] && Math.max(...ys) > lo[1];
+      return inside([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2]) || into > 0 || through;
+    }).map((sh) => sh.id),
   ];
   // The handle of the one picked arrow under a point: its ends, and the middle of a curved one.
   const handleAt = (p: P): { id: number; which: Corner } | undefined => {
@@ -1512,7 +1528,10 @@ export default function Editor() {
     }
     const page = t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined ? pageEdgeAt(p) : undefined;
     if (page) return fitPage(page);
-    if (tool === "select") return pressSelect(p, t, e.shiftKey, screen, e.altKey);
+    if (tool === "select") {
+      pressMods.current = { shift: e.shiftKey, alt: e.altKey, atoms: selection, picks: picked };
+      return pressSelect(p, t, e.shiftKey, screen, e.altKey);
+    }
     // The Pen: each press places a point (drag for a smooth one); pressing the first point again closes the curve.
     if (tool === "shape" && "pen" in shapePick) {
       if (pen && pen.length >= 2 && Math.hypot(p[0] - pen[0].at[0], p[1] - pen[0].at[1]) * L * view.zoom < 8) return finishPen(true);
@@ -1735,13 +1754,13 @@ export default function Editor() {
         // Smart: atoms the box only just missed (all their neighbours are in it) come along too.
         const [lo, hi] = [[Math.min(drag.from[0], p[0]), Math.min(drag.from[1], p[1])], [Math.max(drag.from[0], p[0]), Math.max(drag.from[1], p[1])]];
         setSelection(complete(doc, new Set([...drag.base, ...atomsIn(doc, drag.from, p)])));
-        setPicked(new Set([...drag.picks, ...captionsWhere(([x, y]) => x >= lo[0] && x <= hi[0] && y >= lo[1] && y <= hi[1])]));
+        setPicked(new Set([...drag.picks, ...captionsWhere(([x, y]) => x >= lo[0] && x <= hi[0] && y >= lo[1] && y <= hi[1], [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]])]));
         return setDrag({ ...drag, to: p, moved: true });
       }
       case "lasso": {
         const points = [...drag.points, p];
         setSelection(complete(doc, new Set([...drag.base, ...atomsInPolygon(doc, points)])));
-        setPicked(new Set([...drag.picks, ...captionsWhere((q) => inPolygon(q, points))]));
+        setPicked(new Set([...drag.picks, ...captionsWhere((q) => inPolygon(q, points), points)]));
         return setDrag({ ...drag, points, moved: true });
       }
       case "move": {
@@ -1934,7 +1953,9 @@ export default function Editor() {
       }
     }
     if (!selection.size) return doc.atoms.length || doc.captions?.length || doc.arrows?.length || doc.shapes?.length ? { kind: "drawing", nameable } : { kind: "empty" };
+    // Atoms that are only in a drag (an Option-drag's copies, before they are kept) are not in the drawing yet.
     const ids = [...selection].filter((i) => i < doc.atoms.length);
+    if (!ids.length) return { kind: "drawing", nameable };
     if (ids.length === 1) {
       const a = doc.atoms[ids[0]];
       return { kind: "atom", label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre: stereocentres(doc).includes(ids[0]), enhanced: a.enhanced, halo: a.halo, fill: a.fill, numbered: !!a.number };
@@ -2208,7 +2229,7 @@ export default function Editor() {
     settings: `${MOD},`, name_to_structure: `⇧${MOD}N`, "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.sub": `${MOD}−`, "caption.super": `${MOD}+`, "caption.plain": `${MOD}T`, "caption.formula": `${MOD}F`, "caption.edit": keyLabel("enter"),
   };
   const hint = (command: string) => {
-    if (MENU_KEYS[command]) return MENU_KEYS[command];
+    if (MENU_KEYS[command]) return platformLabel(MENU_KEYS[command]);
     const first = keymap(settings.keys)[command]?.[0];
     return first ? keyLabel(first) : undefined;
   };
@@ -2237,7 +2258,7 @@ export default function Editor() {
   const MENU_NAMES: Record<string, [string, string | undefined, React.ReactNode]> = {
     new: ["New drawing", `${MOD}N`, <FilePlus size={18} />], open: ["Open…", `${MOD}O`, <FolderOpen size={18} />], import: ["Import a structure…", "", <FileArrowDown size={18} />],
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDisk size={18} />],
-    export: ["Export…", `⌃${MOD}E`, <ExportIcon size={18} />], print: ["Print…", `${MOD}P`, <Printer size={18} />], page_setup: ["Page setup…", `⇧${MOD}P`, <FileDashed size={18} />],
+    export: ["Export…", EXPORT_KEYS, <ExportIcon size={18} />], print: ["Print…", `${MOD}P`, <Printer size={18} />], page_setup: ["Page setup…", `⇧${MOD}P`, <FileDashed size={18} />],
     about: ["About Octet", "", <Info size={18} />], atom_properties: ["Atom properties…", "", <SlidersHorizontal size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
     expand_label: ["Expand label", "", <ArrowsOutSimple size={18} />], contract_label: ["Contract label", "", <ArrowsInSimple size={18} />], stoichiometry: ["Analyze stoichiometry", "", <Table size={18} />],
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <MagicWand size={18} />],
@@ -2249,7 +2270,7 @@ export default function Editor() {
     arrange_right: ["Align right edges", `⇧⌥${MOD}R`, <AlignRight size={18} />], arrange_top: ["Align top edges", `⇧⌥${MOD}T`, <AlignTop size={18} />],
     arrange_middle: ["Align top-bottom centres", `⇧⌥${MOD}M`, <AlignCenterVertical size={18} />], arrange_bottom: ["Align bottom edges", `⇧⌥${MOD}B`, <AlignBottom size={18} />],
     arrange_across: ["Distribute horizontally", `⇧⌥${MOD}H`, <ArrowsOutLineHorizontal size={18} />], arrange_down: ["Distribute vertically", `⇧⌥${MOD}V`, <ArrowsOutLineVertical size={18} />], select_all: ["Select all", `${MOD}A`, <SelectionAll size={18} />],
-    clean_up: ["Clean up", `⇧${MOD}K`, <MagicWand size={18} />], flip_h: ["Rotate 180° horizontal", `⇧${MOD}H`, <FlipHorizontal size={18} />], flip_v: ["Rotate 180° vertical", `⇧${MOD}V`, <FlipVertical size={18} />],
+    clean_up: ["Clean up", `⇧${MOD}K`, <MagicWand size={18} />], flip_h: ["Rotate 180° horizontal", `⇧${MOD}H`, <ArrowsLeftRight size={18} />], flip_v: ["Rotate 180° vertical", `⇧${MOD}V`, <ArrowsDownUp size={18} />],
     zoom_in: ["Magnify", `⇧${MOD}>`, <MagnifyingGlassPlus size={18} />], zoom_out: ["Reduce", `⇧${MOD}<`, <MagnifyingGlassMinus size={18} />],
     zoom_actual: ["Actual size", `${MOD}\\`, <FrameCorners size={18} />], zoom_fit: ["Fit to window", `${MOD}/`, <ArrowsOutSimple size={18} />],
     name_to_structure: ["Name to structure", `⇧${MOD}N`, <AtomIcon size={18} />],
@@ -2267,7 +2288,7 @@ export default function Editor() {
     const acts = actionItems(context, untidy), acted = new Set(acts.map((i) => i.command));
     return [
       ...acts.map((i) => ({ id: `action:${i.command}`, name: i.name, group: "Actions", icon: i.icon, keys: hint(i.command), run: () => runAction(i.command) })),
-      ...Object.entries(MENU_NAMES).filter(([id]) => commands.current[id] && !acted.has(id)).map(([id, [name, keys, icon]]) => ({ id: `menu:${id}`, name, group: "Commands", keys, icon, run: () => commands.current[id]() })),
+      ...Object.entries(MENU_NAMES).filter(([id]) => commands.current[id] && !acted.has(id)).map(([id, [name, keys, icon]]) => ({ id: `menu:${id}`, name, group: "Commands", keys: platformLabel(keys), icon, run: () => commands.current[id]() })),
       { id: "tool:select", name: "Select", group: "Tools", keys: toolKey("tool.select"), icon: <Selection size={18} />, run: pick("select", ["select", "box"]) },
       { id: "tool:lasso", name: "Lasso", group: "Tools", icon: <Lasso size={18} />, run: pick("select", ["select", "lasso"]) },
       ...variants("bond", "bond", (Object.keys(BONDS) as BondKind[]).map((k) => [k, `${BONDS[k].name} bond`, <BondGlyph kind={k} />]), "Bonds"),
@@ -2320,13 +2341,16 @@ export default function Editor() {
         captions: doc.captions?.map((c) => (picked.has(c.id) ? { ...c, colour: hex.toLowerCase() === style.colour.toLowerCase() ? undefined : hex } : c)),
       }, true);
     }
-    // Highlight colours (a disc behind each selected atom) and ring fills (every ring wholly selected), as ChemDraw's
-    // Highlight and Ring Fill colour toolbars; none takes them off.
+    // Highlight colours (a disc behind each selected atom) and ring fills, as ChemDraw's Highlight and Ring Fill colour
+    // toolbars; none takes them off. A ring fill goes in every ring wholly selected; failing that, every ring with a
+    // selected atom in it; failing that, every ring of the structures the selection touches (a substituent picked).
     if (command.startsWith("halo.") || command.startsWith("ringfill.")) {
       const value = command.split(".")[1], c = value === "none" ? undefined : value, key = command.startsWith("halo.") ? "halo" : "fill";
       const atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i));
-      const inRing = key === "fill" ? new Set(rings({ atoms: doc.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: doc.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) })
-        .filter((r) => r.every((i) => atoms.has(i))).flat()) : atoms;
+      const all = key === "fill" ? rings({ atoms: doc.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: doc.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) }) : [];
+      const touched = new Set(fragments(doc).filter((g) => g.some((i) => atoms.has(i))).flat());
+      const whole = all.filter((r) => r.every((i) => atoms.has(i))), part = all.filter((r) => r.some((i) => atoms.has(i)));
+      const inRing = key === "fill" ? new Set((whole.length ? whole : part.length ? part : all.filter((r) => r.every((i) => touched.has(i)))).flat()) : atoms;
       return set({ ...doc, atoms: doc.atoms.map((a, i) => (inRing.has(i) ? { ...a, [key]: c } : a)) }, true);
     }
     // Colour by Element: heteroatom labels in their usual colours (N blue, O red, S gold, P orange, halogens green,
@@ -2543,6 +2567,20 @@ export default function Editor() {
 
   // What a click does with each tool in hand.
   function click(t: Hover, at: P) {
+    // Select: Shift-click adds what was clicked to the selection, or takes it out if it was all selected already;
+    // Option-click takes it out. Either way from the selection as it was before the press.
+    const mods = pressMods.current;
+    pressMods.current = undefined;
+    if (tool === "select" && mods && (mods.shift || mods.alt)) {
+      const ids = atomsOf(doc, t), items = [t.caption, t.arrow].filter((x): x is number => x !== undefined);
+      const all = ids.every((i) => mods.atoms.has(i)) && items.every((x) => mods.picks.has(x)), out = mods.alt || all;
+      const atoms = new Set(mods.atoms), picks = new Set(mods.picks);
+      for (const i of ids) if (out) atoms.delete(i); else atoms.add(i);
+      for (const x of items) if (out) picks.delete(x); else picks.add(x);
+      setSelection(atoms);
+      setPicked(picks);
+      return;
+    }
     if (t.caption !== undefined && tool !== "text") return; // a caption was picked, not drawn on
     if (tool === "bond") {
       if (t.atom !== undefined) return set(sprout(doc, t.atom, bondSpec));
@@ -3458,6 +3496,9 @@ export default function Editor() {
           onKeys={(keys) => setSettings((s) => ({ ...s, keys }))}
           files={settings.files}
           onFiles={(files) => setSettings((s) => ({ ...s, files }))}
+          panelMenus={settings.panelMenus}
+          onPanelMenus={(panelMenus) => setSettings((s) => ({ ...s, panelMenus }))}
+          menuKeys={Object.values(MENU_NAMES).flatMap(([name, keys]) => (keys ? [[name, platformLabel(keys)!] as [string, string]] : []))}
           palette={settings.palette}
           onPalette={(palette) => setSettings((s) => ({ ...s, palette }))}
           adding={addingColour}
@@ -3558,6 +3599,7 @@ export default function Editor() {
         layout={settings.actionLayout}
         onLayout={(kind, layout) => setSettings((s) => ({ ...s, actionLayout: { ...s.actionLayout, [kind]: layout } }))}
         colour={selectionColour()}
+        menus={settings.panelMenus}
         grouping={(() => {
           const gs = groupsOf(doc, selection, picked), count = fragments(doc).filter((g) => g.some((i) => selection.has(i))).length + picked.size;
           return gs.length ? { grouped: true, integral: gs.every((g) => g.integral) } : count >= 2 ? { grouped: false, integral: false } : undefined;
@@ -3579,7 +3621,7 @@ export default function Editor() {
         </Dialog>
       )}
       {about && <About onClose={() => setAbout(false)} />}
-      <ExportButton hint={`⌃${MOD}E`} onQuick={() => void quickExport()} onExport={openExport} />
+      <ExportButton hint={platformLabel(EXPORT_KEYS)} onQuick={() => void quickExport()} onExport={openExport} />
       {exportView && (
         <ExportDialog prefs={settings.files} onPrefs={(p) => setSettings((s) => ({ ...s, files: { ...s.files, ...p } }))} pictures={exportView}
           chemistry={(part) => { const c = exportView.chem[part]; return { cdxml: !!c?.cdxml, mol: !!c?.molfile, sdf: !!c?.molfile, smi: !!c?.smiles }; }}

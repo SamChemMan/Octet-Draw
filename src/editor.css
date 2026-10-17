@@ -818,6 +818,12 @@ button.variant.add {
 .action-name {
   flex: 1;
 }
+/* A menu command's fixed shortcut in Settings > Keyboard shortcuts. */
+.menu-key {
+  color: var(--ink-muted);
+  font: 12px var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
 .action kbd {
   font-family: var(--font-sans);
   font-size: 12px;
@@ -943,7 +949,7 @@ button.variant.add {
 .tray-set + .tray-set {
   border-top: 1px solid var(--hairline);
 }
-/* A sub-menu row (Turn and flip, More): a row with a caret; its menu opens to the left of the panel. */
+/* With sets as menus: a set's row has a caret, and its menu opens to the left of the panel. */
 .submenu-caret {
   margin-left: auto;
   color: var(--ink-faint);

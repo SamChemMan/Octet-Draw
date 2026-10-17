@@ -102,6 +102,21 @@ const NAMES: Record<string, string> = {
   delete: "Delete", backspace: MAC ? "⌫" : "Backspace", space: "Space", escape: "Esc", enter: MAC ? "↩" : "Enter", "-": "−",
   arrowleft: "←", arrowright: "→", arrowup: "↑", arrowdown: "↓",
 };
+// A shortcut written the Mac way (⇧⌥⌘L, or ⇧Ctrl+L from code that puts Ctrl+ for ⌘ off the Mac) as this platform
+// shows it: unchanged on the Mac; on Windows and Linux, Ctrl+Alt+Shift+L, in that order.
+export function platformLabel(s: string | undefined): string | undefined {
+  if (MAC || !s) return s;
+  const MODS: Record<string, string> = { "⌃": "Ctrl", "⌥": "Alt", "⇧": "Shift", "⌘": "Ctrl", "Ctrl+": "Ctrl", "Alt+": "Alt", "Shift+": "Shift" };
+  const mods = new Set<string>();
+  let rest = s;
+  for (let m = /^(⌃|⌥|⇧|⌘|Ctrl\+|Alt\+|Shift\+)/.exec(rest); m && rest.length > m[1].length; m = /^(⌃|⌥|⇧|⌘|Ctrl\+|Alt\+|Shift\+)/.exec(rest)) {
+    mods.add(MODS[m[1]]);
+    rest = rest.slice(m[1].length);
+  }
+  const key = ({ "⌫": "Backspace", "⌦": "Delete", "↩": "Enter", "⎋": "Esc" } as Record<string, string>)[rest] ?? rest;
+  return [...["Ctrl", "Alt", "Shift"].filter((k) => mods.has(k)), key].join("+");
+}
+
 export function label(key: string): string {
   if (key === "+") return "+";
   return key.split("+").map((part, i, all) => {

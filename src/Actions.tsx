@@ -5,7 +5,7 @@
 // ChemDraw users expect it (menus and keys).
 import { useEffect, useRef, useState } from "react";
 import {
-  AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, ArrowsInSimple, ArrowClockwise, ArrowsClockwise, CaretRight, DotsThreeCircle, SignIn, SignOut, ArrowCounterClockwise, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretDown,
+  AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, ArrowsInSimple, ArrowClockwise, ArrowsClockwise, ArrowsDownUp, CaretRight, SignIn, SignOut, ArrowCounterClockwise, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretDown,
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAa, TextAlignCenter, TextAlignLeft,
   TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Eraser, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
@@ -49,6 +49,7 @@ type Props = {
   colour?: { value: string; tints?: boolean }; // the selection's colour, shown in the one colour row every selection gets
   palette: { name: string; hex: string }[]; // the user's own colours, after Octet's
   grouping?: { grouped: boolean; integral: boolean }; // two or more things selected (Group), or a group (Ungroup)
+  menus?: boolean; // Settings > Actions panel: each set of small actions as a titled row that opens its menu
 };
 
 const ELEMENTS = ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"];
@@ -80,7 +81,9 @@ function PickButton({ label, value, options, onPick }: { label: string; value: s
   // The menu is pinned to the window, above the button (or below it near the top), so a scrolling panel never cuts it off.
   const place = (): React.CSSProperties => {
     const r = box.current!.getBoundingClientRect(), tall = options.length * 30 + 10;
-    return { position: "fixed", left: r.left, right: "auto", ...(r.top > tall + 8 ? { bottom: innerHeight - r.top + 4 } : { top: r.bottom + 4, bottom: "auto" }) };
+    // Left-aligned with the button, or right-aligned when that would run past the window's right edge.
+    const across = r.left + 200 > innerWidth - 8 ? { left: "auto", right: innerWidth - r.right } : { left: r.left, right: "auto" };
+    return { position: "fixed", ...across, ...(r.top > tall + 8 ? { bottom: innerHeight - r.top + 4 } : { top: r.bottom + 4, bottom: "auto" }) };
   };
   return (
     <div className="pick" ref={box}>
@@ -231,14 +234,15 @@ function TableGlyph({ on, faint }: { on: TableLine[]; faint?: boolean }) {
 
 // small: shown as a small button by default (the user can drag it into the rows, and any row out of them).
 export type Item = { icon: React.ReactNode; name: string; command: string; accent?: boolean; small?: boolean };
-// The small actions fall into sets. Analyse, Arrange and View show as small buttons under a small title. Turn and
-// flip (every turn, rotation and flip) and More (what is shown on the structure, the rest, the clipboard and library,
-// and Delete) are each one row that opens a sub-menu beside the panel, so the panel stays short.
-const SETS = ["analysis", "arrange", "view", "turn", "more"] as const;
+// The small actions fall into sets, each a section of small buttons under a small title (Sam, 17 October 2026):
+// Analyse; Turn and flip (every turn, rotation and flip); Display and copy (what is shown on the structure, the
+// rest, the clipboard and library, and Delete last); Arrange and View when they apply.
+const SETS = ["analysis", "turn", "more", "arrange", "view"] as const;
 type SetId = (typeof SETS)[number];
-const SET_TITLES: Record<SetId, string> = { analysis: "Analyse", arrange: "Arrange", view: "View", turn: "Turn and flip", more: "More" };
-const SUBMENUS: Partial<Record<SetId, React.ReactNode>> = { turn: <ArrowsClockwise size={18} />, more: <DotsThreeCircle size={18} /> };
-// Each action's kind. Kinds make up the sets; the kinds in More are its groups, in this order, under hairlines.
+const SET_TITLES: Record<SetId, string> = { analysis: "Analyse", turn: "Turn and flip", more: "Display and copy", arrange: "Arrange", view: "View" };
+// Each set's icon, for its row when the sets show as menus.
+const SET_ICONS: Record<SetId, React.ReactNode> = { analysis: <Flask size={18} />, turn: <ArrowsClockwise size={18} />, more: <Eye size={18} />, arrange: <AlignCenterHorizontal size={18} />, view: <ArrowsOutSimple size={18} /> };
+// Each action's kind. Kinds make up the sets; the kinds in Display and copy keep this order within it.
 const SET_FOR: Record<string, SetId> = { analysis: "analysis", arrange: "arrange", view: "view", turn: "turn", marks: "more", other: "more", library: "more", delete: "more" };
 const MORE_GROUPS = ["marks", "other", "library", "delete"];
 const KIND_OF: Record<string, string> = {
@@ -264,7 +268,8 @@ export function actionItems(context: Context, messy: boolean): Item[] {
   const clean = it(<MagicWand size={18} />, "Clean up", "clean_up", messy);
   const nameIt = it(<TagSimple size={18} />, "Structure to name", "structure_to_name");
   const del = it(<Trash size={18} />, "Delete", "delete");
-  const flips = [it(<FlipHorizontal size={18} />, "Rotate 180° horizontal", "flip_h", false, true), it(<FlipVertical size={18} />, "Rotate 180° vertical", "flip_v", false, true)];
+  // Rotate 180° keeps stereochemistry (arrows round), Flip mirrors it (mirror glyphs).
+  const flips = [it(<ArrowsLeftRight size={18} />, "Rotate 180° horizontal", "flip_h", false, true), it(<ArrowsDownUp size={18} />, "Rotate 180° vertical", "flip_v", false, true)];
   const mirrors = [it(<FlipHorizontal size={18} />, "Flip horizontal", "mirror_h", false, true), it(<FlipVertical size={18} />, "Flip vertical", "mirror_v", false, true)];
 
   switch (context.kind) {
@@ -369,7 +374,7 @@ function Row({ icon, name, command, hint, run, accent }: { icon: React.ReactNode
   );
 }
 
-export function Actions({ open, context, analysis, problems, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping }: Props) {
+export function Actions({ open, context, analysis, problems, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus }: Props) {
   // An action being dragged to a new place: in the rows (index among rows) or the small buttons (index among them).
   const [carry, setCarry] = useState<{ command: string; x: number; y: number; to?: { rows: boolean; index: number } }>();
   const dragged = useRef(false);
@@ -395,8 +400,8 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
     tipTimer.current = window.setTimeout(() => setTip(place), 400);
   };
   useEffect(() => setTip(undefined), [context.kind]); // a name never outlives the list it came from
-  // The sub-menu open beside the panel (Turn and flip, More): which set, and where (fixed, so the panel's scrolling
-  // never cuts it off). A click outside it or Escape closes it, and so does a new selection.
+  // With sets as menus: the one open beside the panel, and where (fixed, so the panel's scrolling never cuts it off).
+  // A click outside it or Escape closes it, and so does a new selection.
   const [sub, setSub] = useState<{ set: SetId; top: number; right: number }>();
   const subBox = useRef<HTMLDivElement>(null);
   useEffect(() => setSub(undefined), [context.kind]);
@@ -454,10 +459,9 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
   if (!mine) items.sort((a, b) => Number(!!a.small) - Number(!!b.small) || (a.small ? SETS.indexOf(setOf(a.command)) - SETS.indexOf(setOf(b.command)) : 0));
   const split = Math.min(items.length, mine ? mine.rows : items.filter((i) => !i.small).length);
   const rows = items.slice(0, split), tray = items.slice(split);
-  // The small actions set by set, whatever order they were arranged in. A sub-menu set with one action shows it as
-  // a small button instead.
-  const sets = SETS.map((s) => [s, tray.filter((i) => setOf(i.command) === s)] as const).filter(([, list]) => list.length);
-  const subs = sets.filter(([s, list]) => SUBMENUS[s] && list.length > 1), inline = sets.filter(([s, list]) => !(SUBMENUS[s] && list.length > 1));
+  // The small actions set by set, whatever order they were arranged in.
+  const sets = SETS.map((s) => [s, tray.filter((i) => setOf(i.command) === s)
+    .sort((a, b) => (s === "more" ? MORE_GROUPS.indexOf(kindOf(a.command)) - MORE_GROUPS.indexOf(kindOf(b.command)) : 0))] as const).filter(([, list]) => list.length);
 
   // Drag any action to a new place: along the rows, along the small buttons, or from one to the other.
   function startCarry(e: React.PointerEvent, command: string) {
@@ -792,7 +796,7 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
       )}
 
 
-      {(rows.length > 0 || subs.length > 0 || carry) && (
+      {(rows.length > 0 || (menus && sets.length > 0) || carry) && (
         <div className="actions-list">
           {rows.map((i, k) => (
             <div key={i.command} data-command={i.command} className={["action-slot", carry?.command === i.command && "carried", settled === i.command && "settled"].filter(Boolean).join(" ")}
@@ -802,21 +806,21 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
               {k === rows.length - 1 && carry?.to?.rows && carry.to.index >= rows.filter((r) => r.command !== carry.command).length && <span className="drop-line end" aria-hidden />}
             </div>
           ))}
-          {subs.map(([s]) => (
+          {menus && sets.map(([s]) => (
             <button key={s} className="action submenu-row" aria-haspopup="menu" aria-expanded={sub?.set === s}
               onClick={(e) => {
                 const r = e.currentTarget.getBoundingClientRect(), p = panel.current!.getBoundingClientRect();
                 setSub(sub?.set === s ? undefined : { set: s, top: r.top - 5, right: innerWidth - p.left + 8 });
               }}>
-              {SUBMENUS[s]}
+              {SET_ICONS[s]}
               <span className="action-name">{SET_TITLES[s]}</span>
               <CaretRight size={12} weight="bold" className="submenu-caret" aria-hidden />
             </button>
           ))}
         </div>
       )}
-      {sub && (() => {
-        const list = subs.find(([s]) => s === sub.set)?.[1];
+      {menus && sub && (() => {
+        const list = sets.find(([s]) => s === sub.set)?.[1];
         if (!list) return null;
         const groups = sub.set === "more" ? MORE_GROUPS.map((k) => list.filter((i) => kindOf(i.command) === k)) : [list];
         return (
@@ -828,9 +832,9 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
         );
       })()}
 
-      {(inline.length > 0 || carry) && (
+      {((!menus && sets.length > 0) || carry) && (
         <div className={carry && !carry.to?.rows && carry.to ? "tray receiving" : "tray"} role="toolbar" aria-label="More actions">
-          {inline.map(([s, set]) => (
+          {sets.map(([s, set]) => (
             <div key={s} className="tray-set" role="group" aria-label={SET_TITLES[s]}>
             {!(set.length === 1 && set[0].command === "delete") && <span className="tray-title" aria-hidden>{SET_TITLES[s]}</span>}
             <div className="tray-buttons">

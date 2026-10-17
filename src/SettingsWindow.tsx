@@ -2,7 +2,7 @@
 // modules (Document, Keyboard shortcuts, Import and export) under a search field that is always there. With text
 // in it, every matching setting from every module shows on the right, grouped by module and ready to use.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowsDownUp, CaretDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, Plus, X } from "@phosphor-icons/react";
+import { ArrowsDownUp, CaretDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, Plus, SlidersHorizontal, X } from "@phosphor-icons/react";
 import { ColourPicker } from "./ColourPicker";
 import { Select } from "./Select";
 import type { Swatch } from "./settings";
@@ -10,7 +10,7 @@ import type { ExportFormat } from "./export";
 import { BACKGROUNDS, COLOURS, FONTS, PAGE_NAMES, PAGES, PRESETS, pageSize, presetOf, type DocStyle, type PageName } from "./docstyle";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
 
-export type ModuleId = "document" | "keys" | "files" | "colours";
+export type ModuleId = "document" | "keys" | "panel" | "files" | "colours";
 export type FilePrefs = {
   format: ExportFormat; scale: number; background: "white" | "transparent"; margin: number;
   clipboard: { pdf: boolean; cdxml: boolean; mol: boolean; smiles: boolean }; keepStyle: boolean;
@@ -29,6 +29,9 @@ type Props = {
   onKeys: (keys: Keymap) => void;
   files: FilePrefs;
   onFiles: (files: FilePrefs) => void;
+  panelMenus: boolean; // the Actions panel's sets as menus, not sections
+  onPanelMenus: (menus: boolean) => void;
+  menuKeys: [string, string][]; // the menu commands that have a shortcut: name, shortcut as this platform shows it
   palette: Swatch[]; // the user's own colours
   onPalette: (palette: Swatch[]) => void;
   adding?: boolean; // opened to add a colour: a new one is made, ready to set
@@ -198,6 +201,7 @@ type Def = { module: ModuleId; section: string; label: string; keywords: string;
 const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: string }[] = [
   { id: "document", name: "Document", icon: <FileText size={16} />, words: "document style page text" },
   { id: "keys", name: "Keyboard shortcuts", icon: <Keyboard size={16} />, words: "keyboard shortcut hotkey keys" },
+  { id: "panel", name: "Actions panel", icon: <SlidersHorizontal size={16} />, words: "actions panel side menus sections" },
   { id: "files", name: "Import and export", icon: <ArrowsDownUp size={16} />, words: "import export file clipboard" },
   { id: "colours", name: "Colours", icon: <Palette size={16} />, words: "colour colours palette custom swatch named" },
 ];
@@ -349,6 +353,14 @@ export function SettingsWindow(p: Props) {
           ))}
         </span>
       )),
+      d("panel", "Small actions", "Show as", "actions panel small actions menus sections pop out buttons", (
+        <span className="segmented" role="radiogroup" aria-label="Show small actions as">
+          <button role="radio" aria-checked={!p.panelMenus} onClick={() => p.onPanelMenus(false)}>Sections</button>
+          <button role="radio" aria-checked={p.panelMenus} onClick={() => p.onPanelMenus(true)}>Menus</button>
+        </span>
+      )),
+      // The menu commands' shortcuts, as the menus show them (fixed, as ChemDraw's), so a search finds them here too.
+      ...p.menuKeys.map(([name, keys]) => d("keys", "Menu commands", name, `${name} menu command shortcut ${keys}`, <kbd className="menu-key">{keys}</kbd>)),
       ...ACTIONS.map((a) => d("keys", a.group, a.name, `${a.id} ${a.group} shortcut ${(map[a.id] ?? []).join(" ")}`, (
         <>
           <KeyChips id={a.id} map={map} recording={recording?.id === a.id ? recording.index : undefined}
@@ -366,7 +378,7 @@ export function SettingsWindow(p: Props) {
       d("colours", "Colours", "Your colours", "colour colours palette custom swatch named add", <PaletteEditor palette={p.palette} onPalette={p.onPalette} adding={p.adding} />, true),
       d("files", "Import", "Keep ChemDraw styles", "import open cdxml chemdraw style keep", <Switch on={files.keepStyle} label="Keep ChemDraw styles" onChange={(on) => setFiles({ keepStyle: on })} />),
     ];
-  }, [style, map, recording, note, files, p.palette, p.adding]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.adding, p.panelMenus, p.menuKeys.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query)) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));

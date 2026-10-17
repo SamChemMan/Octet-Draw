@@ -162,7 +162,8 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
         &item("save", "Save", "CmdOrCtrl+S")?,
         &item("save_as", "Save As…", "CmdOrCtrl+Shift+S")?,
         // ChemDraw's key: ⌃⌘E.
-        &item("export", "Export…", "Ctrl+CmdOrCtrl+E")?,
+        // ⌃⌘E on the Mac; Ctrl+Shift+E elsewhere, where Control and Command are both Ctrl.
+        &item("export", "Export…", if cfg!(target_os = "macos") { "Ctrl+CmdOrCtrl+E" } else { "CmdOrCtrl+Shift+E" })?,
         &sep()?,
         &item("page_setup", "Page Setup…", "CmdOrCtrl+Shift+P")?,
         &item("print", "Print…", "CmdOrCtrl+P")?,
