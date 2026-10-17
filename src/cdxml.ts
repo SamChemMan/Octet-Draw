@@ -1202,7 +1202,7 @@ export function fromCdxml(text: string): CdxmlRead {
     // Head sizes (hundredths of the line width), an equilibrium's ratio, and a block arrow's shaft and fill. ChemDraw
     // reads a missing notch as 7/8 of the length (flat on a block arrow) and a missing width as a quarter of it.
     const size = Math.abs(real(x.attrs.HeadSize) ?? 0) / 100;
-    if (size > 0 && size <= 500 && a.kind !== "retro") {
+    if ((s.head || s.tail) && size > 0 && size <= 500 && a.kind !== "retro") {
       const own = headOfLength(size, a.kind === "block"), centre = Math.abs(real(x.attrs.ArrowheadCenterSize) ?? 0) / 100, width = Math.abs(real(x.attrs.ArrowheadWidth) ?? 0) / 100;
       const hs = paletteHead(a, { length: size, centre: centre > 0 && centre <= 500 ? centre : own.centre, width: width > 0 && width <= 500 ? width : own.width }), kindOwn = headSize(a);
       if (Math.abs(hs.length - kindOwn.length) > 1e-3 || Math.abs(hs.centre - kindOwn.centre) > 1e-3 || Math.abs(hs.width - kindOwn.width) > 1e-3) a.headSize = hs;
