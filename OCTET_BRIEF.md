@@ -164,8 +164,8 @@ Full detail: `brand/BRAND.md`. Use `brand/tokens.css` for every value. Never har
 | Element | Rule |
 | --- | --- |
 | Name | Octet (wordmark lowercase: "octet") |
-| Mark | Kekulé benzene ring with one ring bond replaced by a dashed arrow. Drafts in `brand/logos/`. Use them as they are; Sam will redraw the final logo |
-| Colours | Octet Blue `#1D49A7` (primary), Bright Blue `#2C6FFF` (logo arrow, focus, selection), Brand Mist `#DCE4F5`, Navy `#000E2F` (app icon tile), white canvas, cool neutrals. No other hues except status |
+| Mark | Regular octagon with a regular hexagon cut out (same centre, hexagon point up), in Logo Blue `#213C99`. Final files in `brand/logos/` (see its README). Use them as they are |
+| Colours | Octet Blue `#213C99` (Logo Blue: primary), Bright Blue `#3F6BFF` (focus, selection), Brand Mist `#DCE4F6`, Navy `#000E2F`, white canvas, cool neutrals. No other hues except status |
 | Type | Instrument Sans for UI and display. Canvas labels follow the document style (ACS 1996: Arial 10 pt). IBM Plex Mono for SMILES, InChI, formulae and coordinates. Both SIL Open Font License; bundle the font files with the app (no network fetch) and include the OFL licence |
 | UI size | 13 px base UI text, like macOS |
 | Shape | 4 px grid. Radii 6 / 10 / 16 px. One shadow (`--shadow-float`) for floating palettes and menus only |
