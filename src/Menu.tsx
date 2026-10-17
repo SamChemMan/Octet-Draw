@@ -181,7 +181,7 @@ export function Pick(p: PickProps) {
     if (e.key === "ArrowUp") return go(at < 0 ? options.length - 1 : at - 1);
     if (e.key === "Home" || e.key === "End") return go(e.key === "Home" ? 0 : options.length - 1);
     if (e.key === "Tab") return close();
-    if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !(e.target instanceof HTMLInputElement)) {
+    if (e.key.length === 1 && e.key !== " " && !e.metaKey && !e.ctrlKey && !(e.target instanceof HTMLInputElement)) {
       const k = options.findIndex((o, j) => j > at && o.textContent?.toLowerCase().startsWith(e.key.toLowerCase())), first = options.findIndex((o) => o.textContent?.toLowerCase().startsWith(e.key.toLowerCase()));
       return go(k >= 0 ? k : first >= 0 ? first : at);
     }

@@ -1342,6 +1342,18 @@ export default function Editor() {
   };
   // Atoms come first, then captions, then bonds.
   const hit = (p: P): Hover => {
+    // With Select, a filled shape or highlight brought to the front (order.ts) covers what is under it, so a click
+    // there picks it unless what is under is in front of it too.
+    const cover = tool === "select" ? (shown.shapes ?? []).filter((sh) => (sh.order ?? 0) > 0 && (sh.kind === "highlight" || sh.fill)
+      && p[0] >= Math.min(sh.from[0], sh.to[0]) && p[0] <= Math.max(sh.from[0], sh.to[0]) && p[1] >= Math.min(sh.from[1], sh.to[1]) && p[1] <= Math.max(sh.from[1], sh.to[1]))
+      .sort((a, b) => b.order! - a.order!)[0] : undefined;
+    if (cover) {
+      const under = hitBelow(p), id = under.caption ?? under.arrow, x = under.atom !== undefined ? doc.atoms[under.atom] : under.bond !== undefined ? doc.atoms[doc.bonds[under.bond].atoms[0]] : id !== undefined ? [...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? [])].find((y) => y.id === id) : undefined;
+      return (x?.order ?? 0) > cover.order! ? under : { arrow: cover.id };
+    }
+    return hitBelow(p);
+  };
+  const hitBelow = (p: P): Hover => {
     const t = hitIn(doc, p);
     if (t.atom !== undefined) return t;
     const caption = captionAt(p);
