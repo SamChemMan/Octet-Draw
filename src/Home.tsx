@@ -4,8 +4,8 @@
 import { useEffect, useRef, useState } from "react";
 import { FolderOpen, Plus, X } from "@phosphor-icons/react";
 import mark from "../brand/logos/octet-mark.svg";
-import markSmall from "../brand/logos/octet-mark-32.svg";
-import markReverse from "../brand/logos/octet-mark-reverse.svg";
+import markSmall from "../brand/logos/octet-mark-small.svg";
+import markWhite from "../brand/logos/octet-mark-white.svg";
 
 export type RecentEntry = { path: string; name: string; at: number; thumb?: string; found: boolean };
 
@@ -31,12 +31,12 @@ function when(at: number, now: Date): string {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
 }
 
-// The mark (brand/logos/README.md): the heavier-stroke file from 24 to 48 px, the main one above.
+// The mark (brand/logos/README.md): the small-size file under 20 px, the exact mark above; white on the dark navy.
 function Mark({ size }: { size: number }) {
   return (
     <picture>
-      <source srcSet={markReverse} media="(prefers-color-scheme: dark)" />
-      <img src={size <= 48 ? markSmall : mark} alt="" width={size} height={size} draggable={false} />
+      <source srcSet={markWhite} media="(prefers-color-scheme: dark)" />
+      <img src={size < 20 ? markSmall : mark} alt="" width={size} height={size} draggable={false} />
     </picture>
   );
 }

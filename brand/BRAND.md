@@ -16,17 +16,16 @@ Octet shares Steps Blue with The Steps Foundation, so the two read as one family
 
 ## Logo
 
-The mark is cyclooctatetraene: an eight-membered ring with four double bonds inside the top, left, bottom and right edges, in Octet Blue (#1D49A7). The final files and their uses are in `logos/README.md`. Use them as they are; never redraw or recolour the mark in code.
+The mark is a regular octagon with a regular hexagon cut out of it (same centre, hexagon point up), in Logo Blue #213C99. The final files and their uses are in `logos/README.md`. Use them as they are; never redraw, recolour, rotate, outline or add effects in code.
 
-- **Primary:** `octet-mark.svg` on `canvas`, `surface` or cream. `octet-mark-32.svg` from 24 to 48 px, `octet-mark-16.svg` below 24 px.
-- **Reverse:** `octet-mark-reverse.svg`, white, on `navy` or Octet Blue only.
-- **Mono:** `octet-mark-mono.svg`, one colour (`ink`).
-- **App icon:** `src-tauri/icons/app-icon.svg` (cream tile #F3F0E9, for the app icon only, never the app UI) and `app-icon-macos.svg` for macOS.
-- **Wordmark:** "octet" in lowercase, Instrument Sans Medium (500), letter-spacing −0.03em, set in `ink`. Use the lockup files (`octet-lockup.svg`, `octet-lockup-reverse.svg`) as they are.
+- **Primary:** `octet-mark.svg` on `canvas`, `surface` or cream. `octet-mark-small.svg` only under 20 px.
+- **White:** `octet-mark-white.svg`, only on navy (#000E2F) or Octet Blue.
+- **Ink:** `octet-mark-ink.svg`, one colour (`ink`).
+- **Wordmark:** "octet", Instrument Sans Medium (500), −0.03em, `ink`, outlined in `octet-lockup.svg` and `octet-lockup-white.svg`.
+- **App icon:** cream tile #F3F0E9, no stroke, no shadow. Cream is for the app icon only, never the app UI. `src-tauri/icons/` holds the drop-in Tauri set (never regenerate it with `tauri icon`: it overwrites the hand-drawn small sizes); `app-icon.svg` is the macOS master. `src-tauri/icons/Octet.icon` is the Icon Composer file for macOS 26 and later: add it to the asset catalog when the Mac build is signed, or macOS 26 shows the `.icns` in a grey frame. Platform sets are in `brand/app-icon/`, website icons in `brand/web/`.
 - **Clear space:** at least half the mark height on every side.
-- **Minimum size:** 16px for the mark. Below 24px, use `octet-mark-16.svg` (the ring only).
+- **Minimum size:** 16px for the mark. Under 20px, use `octet-mark-small.svg` (a smaller hexagon keeps the ring whole).
 
-These files are working drafts for the final logo. Redraw them on a proper grid before launch.
 
 ## Colour
 
