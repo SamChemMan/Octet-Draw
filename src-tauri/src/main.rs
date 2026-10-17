@@ -322,6 +322,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         &item("group", "Group", "CmdOrCtrl+G")?,
         &item("ungroup", "Ungroup", "CmdOrCtrl+Shift+G")?,
+        // ChemDraw's Group > Integral: a click on any part picks the whole group.
+        &item("group_integral", "Pick as One", "")?,
         &sep()?,
         &item("bring_front", "Bring to Front", "CmdOrCtrl+[")?,
         &item("send_back", "Send to Back", "CmdOrCtrl+]")?,

@@ -234,29 +234,163 @@ function removeAtoms(m: Mol, gone: Set<number>): Mol {
     return nodes.length >= 2 ? [{ ...c, nodes }] : [];
   });
   const kept = new Set(cycles?.map((c) => c.id));
-  return { ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || kept.has(c.cycle.cycle)), cycles,
-    groups: tidyGroups(m.groups?.map((g) => ({ ...g, atoms: g.atoms.filter((i) => map.has(i)).map((i) => map.get(i)!) }))) };
+  return tidyGroups({ ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || kept.has(c.cycle.cycle)), cycles,
+    groups: m.groups?.map((g) => ({ ...g, atoms: g.atoms.filter((i) => map.has(i)).map((i) => map.get(i)!) })) });
 }
-// Groups with fewer than two members left are no longer groups.
-const tidyGroups = (gs?: Mol["groups"]) => gs?.filter((g) => g.atoms.length + g.items.length >= 2);
+
+// Groups nest, as ChemDraw's do. A group lists every atom and object in it (those of the groups in it too), so two
+// groups are apart or one holds the other. Text that belongs to a structure, arrow or cycle (a compound number,
+// conditions, a cycle's labels) is in the groups that hold what it belongs to, unless a ChemDraw file put it in
+// another group.
+type Grouped = NonNullable<Mol["groups"]>[number];
+type Members = { atoms: Set<number>; items: Set<number> };
+const membersOf = (g: { atoms: number[]; items: number[] }): Members => ({ atoms: new Set(g.atoms), items: new Set(g.items) });
+const sizeOf = (g: Grouped) => g.atoms.length + g.items.length;
+const inside = (g: { atoms: number[]; items: number[] }, s: Members) => g.atoms.every((i) => s.atoms.has(i)) && g.items.every((id) => s.items.has(id));
+const meets = (g: { atoms: number[]; items: number[] }, s: Members) => g.atoms.some((i) => s.atoms.has(i)) || g.items.some((id) => s.items.has(id));
+// Whether a caption belongs to a structure, arrow or cycle among these members.
+const attached = (c: Caption, s: Members) => (c.under?.length ? c.under.every((i) => s.atoms.has(i)) : c.on ? s.items.has(c.on.arrow) : !!c.cycle && s.items.has(c.cycle.cycle));
+// Each group's parent, by its place in the list: the smallest other group that holds it. Of two groups with the
+// same members, the first holds the second.
+export function groupParents(gs: Grouped[]): (number | undefined)[] {
+  const sets = gs.map(membersOf), size = gs.map(sizeOf), [byAtom, byItem] = owners(gs);
+  return gs.map((g, k) => {
+    // Only a group that has this group's first member can hold it.
+    let best: number | undefined;
+    for (const j of (g.atoms.length ? byAtom.get(g.atoms[0]) : byItem.get(g.items[0])) ?? []) {
+      if (j === k || size[j] < size[k] || (size[j] === size[k] && j > k) || !inside(g, sets[j])) continue;
+      if (best === undefined || size[j] < size[best] || (size[j] === size[best] && j > best)) best = j;
+    }
+    return best;
+  });
+}
+// The groups that have each atom, and each object, by place in the list.
+function owners(gs: Grouped[]): [Map<number, number[]>, Map<number, number[]>] {
+  const byAtom = new Map<number, number[]>(), byItem = new Map<number, number[]>();
+  const add = (map: Map<number, number[]>, key: number, k: number) => { const list = map.get(key); if (list) list.push(k); else map.set(key, [k]); };
+  gs.forEach((g, k) => { for (const i of g.atoms) add(byAtom, i, k); for (const id of g.items) add(byItem, id, k); });
+  return [byAtom, byItem];
+}
+// Two groups that share something, neither holding the other: the pair with the largest group (outer groups join
+// first, so the groups inside them can still nest), or undefined.
+function crossing(gs: Grouped[]): [number, number] | undefined {
+  const sets = gs.map(membersOf), seen = new Set<number>();
+  let found: [number, number] | undefined;
+  for (const map of owners(gs)) for (const ks of map.values()) for (let x = 0; x < ks.length; x++) for (let y = x + 1; y < ks.length; y++) {
+    const [p, q] = sizeOf(gs[ks[x]]) >= sizeOf(gs[ks[y]]) ? [ks[x], ks[y]] : [ks[y], ks[x]], key = p * gs.length + q;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (inside(gs[q], sets[p]) || inside(gs[p], sets[q])) continue;
+    if (!found || sizeOf(gs[p]) > sizeOf(gs[found[0]]) || (sizeOf(gs[p]) === sizeOf(gs[found[0]]) && sizeOf(gs[q]) > sizeOf(gs[found[1]]))) found = [p, q];
+  }
+  return found;
+}
+// The groups in a list that no other group in it holds.
+export const outerGroups = (gs: Grouped[]) => { const parents = groupParents(gs); return gs.filter((_, k) => parents[k] === undefined); };
+// Groups after an edit or a read: each lists an atom or object once, only those that are there, and the text that
+// belongs to its members unless another group has that text. Two groups that share something without one holding
+// the other become one (Integral if either was). A group holds two or more things (structures, objects or groups);
+// one with fewer goes, and gives its Integral to a group it held alone. Returns the same drawing when nothing changes.
+export function tidyGroups(m: Mol, frags = m.groups?.length ? fragments(m) : []): Mol {
+  if (!m.groups?.length) return m;
+  const ids = new Set([...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? [])].map((x) => x.id));
+  // Text that belongs to a member and is in no group joins the group (as atoms drawn onto a grouped structure do).
+  const listed = new Set(m.groups.flatMap((g) => g.items)), free = (m.captions ?? []).filter((c) => !listed.has(c.id) && (c.under || c.on || c.cycle));
+  const clean = (g: Grouped): Grouped => {
+    const atoms = [...new Set(g.atoms.filter((i) => Number.isInteger(i) && i >= 0 && i < m.atoms.length))].sort((p, q) => p - q), s = { atoms: new Set(atoms), items: new Set(g.items) };
+    return { ...g, atoms, items: [...new Set([...g.items.filter((id) => ids.has(id)), ...free.filter((c) => attached(c, s)).map((c) => c.id)])] };
+  };
+  let gs = m.groups.map(clean);
+  for (let pair = crossing(gs); pair; pair = crossing(gs)) {
+    const [a, b] = pair;
+    gs[a] = clean({ id: gs[a].id, atoms: [...gs[a].atoms, ...gs[b].atoms], items: [...gs[a].items, ...gs[b].items], ...(gs[a].integral || gs[b].integral ? { integral: true as const } : {}) });
+    gs = gs.filter((_, k) => k !== b);
+  }
+  const of = new Map<number, number>();
+  frags.forEach((f, k) => f.forEach((i) => of.set(i, k)));
+  const parents = groupParents(gs), kids = gs.map((): number[] => []);
+  parents.forEach((p, j) => { if (p !== undefined) kids[p].push(j); });
+  const things = (k: number) => {
+    const held = membersOf({ atoms: kids[k].flatMap((j) => gs[j].atoms), items: kids[k].flatMap((j) => gs[j].items) });
+    return kids[k].length + new Set(gs[k].atoms.filter((i) => !held.atoms.has(i)).map((i) => of.get(i) ?? -1 - i)).size + gs[k].items.filter((id) => !held.items.has(id)).length;
+  };
+  const integral = gs.map((g) => !!g.integral), gone = new Set<number>();
+  for (const k of gs.map((_, k) => k).sort((p, q) => sizeOf(gs[q]) - sizeOf(gs[p]) || p - q)) {
+    const n = things(k);
+    if (n >= 2) continue;
+    gone.add(k);
+    if (integral[k] && n === 1 && kids[k].length === 1) integral[kids[k][0]] = true;
+  }
+  const out = gs.flatMap((g, k) => (gone.has(k) ? [] : [{ id: g.id, atoms: g.atoms, items: g.items, ...(integral[k] ? { integral: true as const } : {}) }]));
+  const same = out.length === m.groups.length && out.every((g, k) => {
+    const o = m.groups![k];
+    return g.id === o.id && !!g.integral === !!o.integral && g.atoms.length === o.atoms.length && g.atoms.every((i, n) => i === o.atoms[n]) && g.items.length === o.items.length && g.items.every((id, n) => id === o.items[n]);
+  });
+  return same ? m : { ...m, groups: out };
+}
 // Groups: every group a selection touches (by its atoms or its other objects).
 export const groupsOf = (m: Mol, atoms: Set<number>, items: Set<number>) =>
   (m.groups ?? []).filter((g) => g.atoms.some((i) => atoms.has(i)) || g.items.some((id) => items.has(id)));
-// Object > Group: the selected structures (whole) and objects, with any groups they were already in, as one group.
-export function groupSelection(m: Mol, atoms: Set<number>, items: Set<number>): [Mol, number] | undefined {
-  // Each atom's structure, from one pass over the structures.
-  const frags = fragments(m), fragOf: number[][] = [];
-  for (const g of frags) for (const i of g) fragOf[i] = g;
-  const old = groupsOf(m, atoms, items), whole = new Set([...atoms].flatMap((i) => fragOf[i] ?? [i]));
-  const all = { atoms: [...new Set([...whole, ...old.flatMap((g) => g.atoms)])].sort((p, q) => p - q), items: [...new Set([...items, ...old.flatMap((g) => g.items)])] };
-  const inAll = new Set(all.atoms);
-  if (all.atoms.length + all.items.length < 2 || (frags.filter((g) => g.some((i) => inAll.has(i))).length + all.items.length < 2)) return undefined;
-  const id = nextId(m);
-  return [{ ...m, groups: [...(m.groups ?? []).filter((g) => !old.includes(g)), { id, ...all, ...(old.some((g) => g.integral) ? { integral: true as const } : {}) }] }, id];
+// The outermost of the groups a selection touches: for one atom or object, the group a double-click picks (as in
+// ChemDraw).
+export const outermost = (gs: Grouped[]) => outerGroups(gs)[0];
+// The groups a selection holds whole, without those inside them: each reads as one thing. Text that belongs to a
+// selected structure, arrow or cycle counts as selected.
+export function selectedGroups(m: Mol, atoms: Set<number>, items: Set<number>): Grouped[] {
+  const captions = new Map((m.captions ?? []).map((c) => [c.id, c])), sel = { atoms, items };
+  return outerGroups((m.groups ?? []).filter((g) => g.atoms.every((i) => atoms.has(i)) && g.items.every((id) => items.has(id) || (captions.has(id) && attached(captions.get(id)!, sel)))));
 }
-// Object > Ungroup: the groups the selection touches are undone (their members stay).
+// The groups Ungroup and Pick as One work on: those the selection holds whole, or else the outermost group of what it
+// touches.
+export function groupTargets(m: Mol, atoms: Set<number>, items: Set<number>): Grouped[] {
+  const whole = selectedGroups(m, atoms, items);
+  return whole.length ? whole : outerGroups(groupsOf(m, atoms, items));
+}
+// An integral group cannot be split (as in ChemDraw): a selection that touches one takes in all of it. Groups nest, so
+// this takes in the outermost integral group.
+export function wholeIntegral(m: Mol, atoms: Set<number>, items: Set<number>): [Set<number>, Set<number>] {
+  const gs = groupsOf(m, atoms, items).filter((g) => g.integral);
+  return gs.length ? [new Set([...atoms, ...gs.flatMap((g) => g.atoms)]), new Set([...items, ...gs.flatMap((g) => g.items)])] : [atoms, items];
+}
+// A group holds whole structures (as in ChemDraw): it takes in every atom of each structure it has an atom of, so
+// atoms added to a grouped structure join its group. Groups that come to share a structure without one holding the
+// other become one group (tidyGroups). Returns the same drawing when nothing changes.
+export function wholeGroups(m: Mol): Mol {
+  if (!m.groups?.length) return m;
+  const frags = fragments(m), of = new Map<number, number>();
+  frags.forEach((f, k) => f.forEach((i) => of.set(i, k)));
+  let changed = false;
+  const groups = m.groups.map((g) => {
+    const atoms = [...new Set(g.atoms.filter((i) => of.has(i)).map((i) => of.get(i)!))].flatMap((k) => frags[k]).sort((p, q) => p - q);
+    if (atoms.length === g.atoms.length && atoms.every((i, n) => i === g.atoms[n])) return g;
+    changed = true;
+    return { ...g, atoms };
+  });
+  return tidyGroups(changed ? { ...m, groups } : m, frags);
+}
+// Object > Group: the selected things as one new group. A thing is a structure (whole), an object, or a group the
+// selection reaches into (whole), so Group adds one level. The new group goes in the smallest group that holds the
+// selection and more (a group in a group), or at the top. Undefined for fewer than two things.
+export function groupSelection(m: Mol, atoms: Set<number>, items: Set<number>): [Mol, number] | undefined {
+  const frags = fragments(m), of = new Map<number, number>();
+  frags.forEach((f, k) => f.forEach((i) => of.set(i, k)));
+  const ids = new Set([...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? []), ...(m.captions ?? [])].map((x) => x.id));
+  const sel = { atoms: new Set([...atoms].filter((i) => of.has(i)).flatMap((i) => frags[of.get(i)!])), items: new Set([...items].filter((id) => ids.has(id))) };
+  const gs = m.groups ?? [], parents = groupParents(gs), all = { atoms: [...sel.atoms], items: [...sel.items] };
+  let home: number | undefined;
+  gs.forEach((g, k) => { if (inside(all, membersOf(g)) && !inside(g, sel) && (home === undefined || sizeOf(g) < sizeOf(gs[home]))) home = k; });
+  // The things at that level: its groups the selection reaches into, and the selected structures and objects in none.
+  const reached = gs.filter((g, k) => parents[k] === home && meets(g, sel)), held = membersOf({ atoms: reached.flatMap((g) => g.atoms), items: reached.flatMap((g) => g.items) });
+  const loose = { atoms: all.atoms.filter((i) => !held.atoms.has(i)), items: all.items.filter((id) => !held.items.has(id)) };
+  if (reached.length + new Set(loose.atoms.map((i) => of.get(i))).size + loose.items.length < 2) return undefined;
+  const group = { atoms: [...new Set([...held.atoms, ...loose.atoms])].sort((p, q) => p - q), items: [...new Set([...held.items, ...loose.items])] };
+  if (home !== undefined && group.atoms.length + group.items.length === sizeOf(gs[home])) return undefined; // the same as the group it would go in
+  const id = nextId(m);
+  return [tidyGroups({ ...m, groups: [...gs, { id, ...group }] }, frags), id];
+}
+// Object > Ungroup: one level of grouping goes (groupTargets). The members stay, and so do the groups inside.
 export const ungroupSelection = (m: Mol, atoms: Set<number>, items: Set<number>): Mol => {
-  const old = new Set(groupsOf(m, atoms, items));
+  const old = new Set(groupTargets(m, atoms, items));
   return { ...m, groups: (m.groups ?? []).filter((g) => !old.has(g)) };
 }
 export const deleteAtom = (m: Mol, i: number) => removeAtoms(m, new Set([i]));
@@ -567,12 +701,13 @@ export const atomsInPolygon = (m: Mol, poly: P[]): number[] => m.atoms.flatMap((
 // hashed wedges and the stereochemistry is kept (as ChemDraw's "Rotate 180°"). Double-bond sides swap too.
 // Turns atoms over about the middle of their box. As ChemDraw's Rotate 180° (the default) the turn is in 3D, so
 // wedges become hashes and each stereocentre keeps its configuration; as its Flip (mirror) wedges stay wedges and
-// the configuration inverts.
-export function flipAtoms(m: Mol, ids: Set<number>, axis: "horizontal" | "vertical", mirror = false): Mol {
+// the configuration inverts. about: the line to turn over on (x for horizontal, y for vertical), when it is not the
+// middle of the atoms (a selection with text, arrows or shapes turns over on the middle of all of it).
+export function flipAtoms(m: Mol, ids: Set<number>, axis: "horizontal" | "vertical", mirror = false, about?: number): Mol {
   const ps = [...ids].filter((i) => i < m.atoms.length).map((i) => pos(m, i));
   if (!ps.length) return m;
   const k = axis === "horizontal" ? 0 : 1;
-  const mid = (Math.min(...ps.map((p) => p[k])) + Math.max(...ps.map((p) => p[k]))) / 2;
+  const mid = about ?? (Math.min(...ps.map((p) => p[k])) + Math.max(...ps.map((p) => p[k]))) / 2;
   const swap = { left: "right", right: "left", centre: "centre" } as const;
   return {
     ...m,
@@ -752,15 +887,15 @@ export function setTableCell(sh: Shape, r: number, c: number, text: string, meas
 }
 export const updateCaption = (m: Mol, id: number, change: Partial<Caption>): Mol =>
   ({ ...m, captions: m.captions?.map((c) => (c.id === id ? { ...c, ...change } : c)) });
-// Deletes captions, arrows, shapes and cycles by id; an arrow's conditions and a cycle's labels go with it.
-export const deleteGraphics = (m: Mol, ids: Set<number>): Mol => ({
+// Deletes captions, arrows, shapes and cycles by id; an arrow's conditions and a cycle's labels go with it. Groups
+// lose them too (tidyGroups).
+export const deleteGraphics = (m: Mol, ids: Set<number>): Mol => tidyGroups({
   ...m,
   captions: m.captions?.filter((c) => !ids.has(c.id) && !(c.on && ids.has(c.on.arrow)) && !(c.cycle && ids.has(c.cycle.cycle))),
   arrows: m.arrows?.filter((a) => !ids.has(a.id)),
   shapes: m.shapes?.filter((x) => !ids.has(x.id)),
   cycles: m.cycles?.filter((c) => !ids.has(c.id)),
   ...(m.grids ? { grids: m.grids.filter((g) => !ids.has(g.arrow)) } : {}),
-  groups: tidyGroups(m.groups?.map((g) => ({ ...g, items: g.items.filter((id) => !ids.has(id) && !(m.captions?.some((c) => c.id === id && ((c.on && ids.has(c.on.arrow)) || (c.cycle && ids.has(c.cycle.cycle)))))) }))),
 });
 // The next compound number in the drawing: one more than the highest bold number already there.
 export function nextNumber(m: Mol): string {
@@ -981,27 +1116,13 @@ export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
   return { mol, atoms: new Set(add.atoms.map((_, i) => at(i))), items: new Set([...(add.captions ?? []), ...(add.arrows ?? []), ...(add.shapes ?? []), ...(add.cycles ?? [])].map((x) => ids.get(x.id)!)), ids };
 }
 
-// Option-drag (as ChemDraw's): copies of the selected atoms (with the bonds between them) and of the picked
-// objects, added with new ids. Copied captions keep to copied atoms, arrows and cycles. Returns the drawing, the
+// Option-drag (as ChemDraw's): copies of the selection added with new ids, made as Copy and Paste make them, so the
+// copies keep their groups and the text that belongs to them (a compound number, an arrow's conditions). Picked text
+// whose structure, arrow or cycle is not copied is copied too, and the drag sets it free. Returns the drawing, the
 // copies' atoms and ids, and each original id's copy.
 export function duplicateSelection(m: Mol, atoms: Set<number>, items: Set<number>) {
-  const sel = [...atoms].filter((i) => i < m.atoms.length).sort((p, q) => p - q), map = new Map(sel.map((i, k) => [i, m.atoms.length + k]));
-  let id = nextId(m);
-  const ids = new Map<number, number>();
-  for (const x of [...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? []), ...(m.captions ?? [])]) if (items.has(x.id)) ids.set(x.id, id++);
-  const atom = (i: number) => map.get(i) ?? i;
-  const mol: Mol = {
-    ...m,
-    atoms: [...m.atoms, ...sel.map((i) => ({ ...m.atoms[i] }))],
-    bonds: [...m.bonds, ...m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [atom(b.atoms[0]), atom(b.atoms[1])] as [number, number] }))],
-    arrows: [...(m.arrows ?? []), ...(m.arrows ?? []).filter((a) => ids.has(a.id)).map((a) => ({ ...a, id: ids.get(a.id)! }))],
-    shapes: [...(m.shapes ?? []), ...(m.shapes ?? []).filter((x) => ids.has(x.id)).map((x) => ({ ...x, id: ids.get(x.id)! }))],
-    cycles: [...(m.cycles ?? []), ...(m.cycles ?? []).filter((c) => ids.has(c.id)).map((c) => ({ ...c, id: ids.get(c.id)!, nodes: c.nodes.map((n) => n.map(atom)) }))],
-    captions: [...(m.captions ?? []), ...(m.captions ?? []).filter((c) => ids.has(c.id)).map((c) => ({
-      ...c, id: ids.get(c.id)!, ...(c.under ? { under: c.under.map(atom) } : {}),
-      ...(c.on && ids.has(c.on.arrow) ? { on: { ...c.on, arrow: ids.get(c.on.arrow)! } } : {}),
-      ...(c.cycle && ids.has(c.cycle.cycle) ? { cycle: { ...c.cycle, cycle: ids.get(c.cycle.cycle)! } } : {}),
-    }))],
-  };
-  return { mol, atoms: new Set(map.values()), items: new Set(ids.values()), ids };
+  const part = extractSelection(m, atoms, items), had = new Set(part.captions?.map((c) => c.id));
+  const left = (m.captions ?? []).filter((c) => items.has(c.id) && !had.has(c.id)).map(({ under: _, ...c }) => c);
+  const r = insertMol(m, { ...part, captions: [...(part.captions ?? []), ...left] });
+  return { mol: r.mol, atoms: r.atoms, items: r.items, ids: r.ids };
 }
