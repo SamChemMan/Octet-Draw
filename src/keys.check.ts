@@ -1,6 +1,6 @@
 // Run: node src/keys.check.ts. Fails loudly if shortcut lookup breaks.
 import assert from "node:assert/strict";
-import { actionFor, clashes, keyOf, keymap } from "./keys.ts";
+import { actionFor, buttonTakes, clashes, keyOf, keymap, tileTo } from "./keys.ts";
 
 const press = (key: string, mods: Partial<{ shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean }> = {}) =>
   keyOf({ key, shiftKey: false, altKey: false, metaKey: false, ctrlKey: false, ...mods });
@@ -34,3 +34,19 @@ import { label } from "./keys.ts";
 assert.equal(label("+"), "+");
 assert.ok(["↩", "Enter"].includes(label("enter")));
 console.log("keys.check: ok");
+
+// A button the keyboard moved to takes Space and Return; after a click, Space stays the Select key.
+assert.equal(buttonTakes(" ", true, true), true);
+assert.equal(buttonTakes("Enter", true, true), true);
+assert.equal(buttonTakes(" ", true, false), false);
+assert.equal(buttonTakes(" ", false, true), false);
+assert.equal(buttonTakes("e", true, true), false);
+// Home's tiles, four to a row, ten in all: right, down a row, up from the top row stays, down to a short last row.
+assert.equal(tileTo("ArrowRight", 0, 10, 4), 1);
+assert.equal(tileTo("ArrowDown", 1, 10, 4), 5);
+assert.equal(tileTo("ArrowUp", 2, 10, 4), 2);
+assert.equal(tileTo("ArrowDown", 7, 10, 4), 9);
+assert.equal(tileTo("ArrowLeft", 0, 10, 4), 0);
+assert.equal(tileTo("ArrowDown", -1, 10, 4), 0);
+assert.equal(tileTo("Enter", 3, 10, 4), undefined);
+assert.equal(tileTo("ArrowDown", -1, 0, 4), undefined);

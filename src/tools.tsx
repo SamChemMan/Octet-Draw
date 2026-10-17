@@ -1,6 +1,6 @@
 // The tool palette: one tool per kind of object, each with variants in a strip that opens beside it.
 // Click an active tool again (or press and hold any tool) to open its strip; press, slide and release also works.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Cube, Eraser, Lasso, Plus, PushPin, Selection, TextT, Trash, X } from "@phosphor-icons/react";
 import { chairPoints, type BondSpec, type SymbolKind } from "./edit";
@@ -379,6 +379,21 @@ export function Palette(p: PaletteProps) {
   const [adding, setAdding] = useState("");
   const timer = useRef<number>(undefined);
   const nav = useRef<HTMLElement>(null);
+  // A window too short for one column of tools gets two, and the user's choice stays as it was. The toggle goes
+  // until one column fits again. one: the toolbar's height in one column, measured when it last was.
+  const [short, setShort] = useState(false), one = useRef(0), wide = p.wide || short;
+  useLayoutEffect(() => {
+    const box = nav.current!;
+    const fit = () => {
+      if (!wide) one.current = box.offsetHeight;
+      setShort(!p.wide && one.current > innerHeight - 2 * box.offsetTop);
+    };
+    fit();
+    const watch = new ResizeObserver(fit);
+    watch.observe(box);
+    addEventListener("resize", fit);
+    return () => { watch.disconnect(); removeEventListener("resize", fit); };
+  }, [wide, p.wide]);
 
   // Close the strip on Escape or a press anywhere else.
   useEffect(() => {
@@ -534,13 +549,13 @@ export function Palette(p: PaletteProps) {
   const addPreview = useMemo(() => (adding.trim() ? p.preview(adding) : undefined), [adding]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <nav ref={nav} className={["palette", p.wide && "wide", carry?.over && "dropping", landed && "rippling"].filter(Boolean).join(" ")} aria-label="Tools">
-      <span className="indicator" style={{ transform: p.wide ? `translate(${(active % 2) * 36}px, ${Math.floor(active / 2) * 36}px)` : `translateY(${active * 36}px)`, opacity: active < 0 ? 0 : 1 }} aria-hidden />
+    <nav ref={nav} className={["palette", wide && "wide", carry?.over && "dropping", landed && "rippling"].filter(Boolean).join(" ")} aria-label="Tools">
+      <span className="indicator" style={{ transform: wide ? `translate(${(active % 2) * 36}px, ${Math.floor(active / 2) * 36}px)` : `translateY(${active * 36}px)`, opacity: active < 0 ? 0 : 1 }} aria-hidden />
       {tools.map((t, i) => {
         const group = SPECIAL.includes(t.id);
         const strip = group ? SPECIAL : isStrip(t.id) ? options(t.id) : undefined;
         return (
-          <div key={t.id} className="slot" data-col={p.wide ? i % 2 : undefined} style={{ "--d": Math.abs(i - (tools.length + 1 + pins.findIndex((x) => x.key === landed?.key))) } as React.CSSProperties}>
+          <div key={t.id} className="slot" data-col={wide ? i % 2 : undefined} style={{ "--d": Math.abs(i - (tools.length + 1 + pins.findIndex((x) => x.key === landed?.key))) } as React.CSSProperties}>
             <button
               className={p.coach === t.id && p.tool !== t.id ? "tool coach-target" : "tool"}
               aria-pressed={p.tool === t.id}
@@ -682,9 +697,11 @@ export function Palette(p: PaletteProps) {
       <button className="tool" aria-label="Redo" title={`Redo (${p.modKey}⇧Z)`} disabled={!p.canRedo} onClick={p.onRedo}>
         <ArrowClockwise size={20} />
       </button>
-      <button className="palette-toggle" aria-label={p.wide ? "One column" : "Two columns"} title={p.wide ? "One column" : "Two columns"} onClick={toggleWide}>
-        {p.wide ? <CaretLeft size={12} weight="bold" /> : <CaretRight size={12} weight="bold" />}
-      </button>
+      {!short && (
+        <button className="palette-toggle" aria-label={p.wide ? "One column" : "Two columns"} title={p.wide ? "One column" : "Two columns"} onClick={toggleWide}>
+          {p.wide ? <CaretLeft size={12} weight="bold" /> : <CaretRight size={12} weight="bold" />}
+        </button>
+      )}
       {carry && (() => {
         const [tool, ...rest] = carry.key.split(":");
         // A shortcut pulled off the toolbar: the window greys and a red bin shows it will go.

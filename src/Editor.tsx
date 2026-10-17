@@ -22,7 +22,7 @@ import { snapBoxes, snapMove, type Guide } from "./snap";
 import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
 import { loadSettings, saveSettings } from "./settings";
-import { ACTIONS, actionFor, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
+import { ACTIONS, actionFor, buttonTakes, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
 import { Actions, actionItems, type Context } from "./Actions";
 import { Properties, propertyValues, PROPERTY_ROWS } from "./Properties";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
@@ -160,6 +160,8 @@ const union = (boxes: Box[]): Box | undefined => boxes.length ? [Math.min(...box
 const DRAFT = Number.MAX_SAFE_INTEGER;
 // Typing in a field, or in a caption's rich text box (contentEditable): keys and Select All are the text's, not the drawing's.
 const typing = () => document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement || (document.activeElement as HTMLElement | null)?.isContentEditable === true;
+// A dialog or Settings is open: the drawing behind it takes no keys, menu commands, paste or cut.
+const modal = () => document.querySelector('[aria-modal="true"]') !== null;
 
 // Rubbing out: marks every bond within radius r of the pointer's path between two points, and any lone atom.
 // Nothing is removed until the pointer is released.
@@ -912,7 +914,8 @@ export default function Editor() {
   }, [paletteNames]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!TAURI) return;
-    const off = listen<string>("menu", (e) => commands.current[e.payload]?.());
+    // Over a dialog or Settings, the menu only edits the text in its fields, as a Mac app's menu does over a sheet.
+    const off = listen<string>("menu", (e) => { if (!modal() || (typing() && ["undo", "redo", "select_all"].includes(e.payload))) commands.current[e.payload]?.(); });
     return () => { off.then((f) => f()); };
   }, []);
   // Every menu command's shortcut can be changed in Settings, with the canvas keys: the menu lists its commands, and
@@ -3007,10 +3010,21 @@ export default function Editor() {
     return () => { clearTimeout(stop); el.removeEventListener("wheel", onWheel); };
   }, []);
 
+  // Whether the focus came from the keyboard (Tab) or from a click. A click anywhere gives the keys back to the drawing.
+  const keyFocus = useRef(false);
+  useEffect(() => {
+    let clicked = false;
+    const click = () => { clicked = true; keyFocus.current = false; }, key = () => { clicked = false; }, focus = () => { keyFocus.current = !clicked; };
+    addEventListener("pointerdown", click, true);
+    addEventListener("keydown", key, true);
+    addEventListener("focusin", focus, true);
+    return () => { removeEventListener("pointerdown", click, true); removeEventListener("keydown", key, true); removeEventListener("focusin", focus, true); };
+  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (typing() || e.defaultPrevented) return; // typing in a label or caption box, or a box already used the key
-      if (home) return; // Home has its own keys
+      if (home || modal()) return; // Home and dialogs have their own keys
+      if (buttonTakes(e.key, document.activeElement instanceof HTMLButtonElement, keyFocus.current)) return;
       const mod = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
       // Drawing with the Pen: Return or Escape ends the curve; Delete takes back the last point.
       if (pen && (e.key === "Enter" || e.key === "Escape")) { e.preventDefault(); return finishPen(); }
@@ -3060,7 +3074,7 @@ export default function Editor() {
     };
     // Paste a SMILES string or MOL file: it goes to the right of the drawing, or in the middle of an empty canvas.
     const onPaste = (e: ClipboardEvent) => {
-      if (typing() || home) return; // pasting into a label or caption, or on Home
+      if (typing() || home || modal()) return; // pasting into a label or caption, or on Home or a dialog
       // In the app: the clipboard as Octet, ChemDraw and Office put it (Octet's own copy, then CDXML, which ChemDraw
       // hides in its pictures and Word keeps, then a molfile, then SMILES), and the plain text last.
       if (TAURI && !e.clipboardData?.getData(OCTET_CLIP)) {
@@ -3153,7 +3167,7 @@ export default function Editor() {
     };
     // Cut: copy, then delete what was selected.
     const onCut = (e: ClipboardEvent) => {
-      if (typing() || (!selection.size && !picked.size)) return;
+      if (typing() || modal() || (!selection.size && !picked.size)) return;
       onCopy(e);
       set(deleteGraphics(deleteAtoms(doc, selection), picked));
     };

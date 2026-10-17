@@ -53,10 +53,11 @@ export function ExportDialog({ prefs, onPrefs, pictures, chemistry, onExport, on
   const isPicture = PICTURES.includes(format), svg = picture && isPicture ? withMargin(picture, prefs.margin) : undefined;
   const size = svg ? (/viewBox="[-\d.]+ [-\d.]+ ([\d.]+) ([\d.]+)"/.exec(svg) ?? []).slice(1).map(Number) : [];
   const mm = (pt: number) => Math.round((pt * 25.4) / 72);
+  // A saved format this drawing has nothing for stays in the list, so the list shows it and Export… is off.
   const ok = usable.some(([f]) => f === format);
   return (
-    <Dialog title="Export" action="Export…" onClose={onClose} onAction={() => { if (ok) onExport(part); }}>
-      <div className={["export-preview", format === "png" && prefs.background === "transparent" && "transparent"].filter(Boolean).join(" ")}>
+    <Dialog title="Export" action="Export…" onClose={onClose} onAction={() => onExport(part)} disabled={!ok}>
+      <div className={["export-preview", svg && format === "png" && prefs.background === "transparent" && "transparent"].filter(Boolean).join(" ")}>
         {svg ? <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`} alt="Preview" /> : <span className="export-none">{ok ? FORMATS.find(([f]) => f === format)?.[1] : "Nothing to export in this format"}</span>}
       </div>
       {size.length === 2 && (
@@ -71,7 +72,7 @@ export function ExportDialog({ prefs, onPrefs, pictures, chemistry, onExport, on
         </span>
       )}
       <label className="dialog-row"><span>Format</span>
-        <Select label="Format" value={format} options={usable.length ? usable : FORMATS} onChange={(v) => onPrefs({ format: v as ExportFormat })} />
+        <Select label="Format" value={format} options={ok ? usable : usable.length ? [...usable, ...FORMATS.filter(([f]) => f === format)] : FORMATS} onChange={(v) => onPrefs({ format: v as ExportFormat })} />
       </label>
       {format === "png" && (
         <label className="dialog-row"><span>Resolution</span>

@@ -3,6 +3,7 @@
 // used too often for motion to help.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MagnifyingGlass } from "@phosphor-icons/react";
+import { useModal } from "./Dialog";
 
 export type Command = { id: string; name: string; group: string; icon?: React.ReactNode; keys?: string; words?: string; run: () => void };
 
@@ -36,7 +37,8 @@ function score(query: string, c: Command): number {
 export function CommandPalette({ commands, draw, onClose }: { commands: Command[]; draw: (query: string) => Command | undefined; onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-  const list = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null), backdrop = useRef<HTMLDivElement>(null);
+  useModal(backdrop);
   // Reading a name is slow next to a keystroke, so each query is read once.
   const drawn = useRef(new Map<string, Command | undefined>());
   const drawFor = (q: string) => { if (!drawn.current.has(q)) drawn.current.set(q, draw(q)); return drawn.current.get(q); };
@@ -62,7 +64,7 @@ export function CommandPalette({ commands, draw, onClose }: { commands: Command[
     c.run();
   };
   return (
-    <div className="command-backdrop" onPointerDown={onClose}>
+    <div ref={backdrop} className="command-backdrop" onPointerDown={onClose}>
       <div className="command-palette" role="dialog" aria-label="Commands" onPointerDown={(e) => e.stopPropagation()}>
         <label className="command-search">
           <MagnifyingGlass size={16} aria-hidden />
@@ -88,7 +90,7 @@ export function CommandPalette({ commands, draw, onClose }: { commands: Command[
             }}
           />
         </label>
-        <div ref={list} id="command-list" className="command-list" role="listbox" aria-label="Results">
+        <div ref={list} id="command-list" className="command-list" role="listbox" aria-label="Results" tabIndex={-1}>
           {results.map((c, i) => (
             <div key={`${c.group}${c.id}`} id={`command-${i}`} data-i={i} role="option" aria-selected={i === active} className="command"
               onPointerMove={() => setActive(i)} onClick={() => go(c)}>

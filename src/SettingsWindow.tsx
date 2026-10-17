@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowsDownUp, CaretDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, Plus, SlidersHorizontal, X } from "@phosphor-icons/react";
 import { ColourPicker } from "./ColourPicker";
+import { useModal } from "./Dialog";
 import { Select } from "./Select";
 import type { Swatch } from "./settings";
 import type { ExportFormat } from "./export";
@@ -272,7 +273,8 @@ function KeyChips({ id, map, recording, onRecord, onRemove }: { id: string; map:
 
 export function SettingsWindow(p: Props) {
   const [query, setQuery] = useState("");
-  const search = useRef<HTMLInputElement>(null);
+  const search = useRef<HTMLInputElement>(null), backdrop = useRef<HTMLDivElement>(null);
+  useModal(backdrop);
   const [recording, setRecording] = useState<{ id: string; index: number }>();
   const [note, setNote] = useState<{ id: string; text: string; undo: Keymap }>();
   const map = keymap(p.keys);
@@ -421,7 +423,7 @@ export function SettingsWindow(p: Props) {
   };
 
   return (
-    <div className="modal-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) p.onClose(); }}>
+    <div ref={backdrop} className="modal-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) p.onClose(); }}>
       <div className="settings-window" role="dialog" aria-modal="true" aria-label="Settings">
         <nav className="settings-sidebar" aria-label="Settings modules">
           <label className="settings-search">
