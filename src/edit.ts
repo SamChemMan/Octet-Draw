@@ -376,14 +376,19 @@ export function groupSelection(m: Mol, atoms: Set<number>, items: Set<number>): 
   frags.forEach((f, k) => f.forEach((i) => of.set(i, k)));
   const ids = new Set([...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? []), ...(m.captions ?? [])].map((x) => x.id));
   const sel = { atoms: new Set([...atoms].filter((i) => of.has(i)).flatMap((i) => frags[of.get(i)!])), items: new Set([...items].filter((id) => ids.has(id))) };
+  // Text that belongs to a selected structure, arrow or cycle goes with it (as in selectedGroups), but is not a thing
+  // of its own: a group that differs from the selection only by such text is the selection.
+  const withText = { atoms: sel.atoms, items: new Set([...sel.items, ...(m.captions ?? []).filter((c) => attached(c, sel)).map((c) => c.id)]) };
   const gs = m.groups ?? [], parents = groupParents(gs), all = { atoms: [...sel.atoms], items: [...sel.items] };
   let home: number | undefined;
-  gs.forEach((g, k) => { if (inside(all, membersOf(g)) && !inside(g, sel) && (home === undefined || sizeOf(g) < sizeOf(gs[home]))) home = k; });
+  gs.forEach((g, k) => { if (inside(all, membersOf(g)) && !inside(g, withText) && (home === undefined || sizeOf(g) < sizeOf(gs[home]))) home = k; });
   // The things at that level: its groups the selection reaches into, and the selected structures and objects in none.
   const reached = gs.filter((g, k) => parents[k] === home && meets(g, sel)), held = membersOf({ atoms: reached.flatMap((g) => g.atoms), items: reached.flatMap((g) => g.items) });
   const loose = { atoms: all.atoms.filter((i) => !held.atoms.has(i)), items: all.items.filter((id) => !held.items.has(id)) };
   if (reached.length + new Set(loose.atoms.map((i) => of.get(i))).size + loose.items.length < 2) return undefined;
-  const group = { atoms: [...new Set([...held.atoms, ...loose.atoms])].sort((p, q) => p - q), items: [...new Set([...held.items, ...loose.items])] };
+  // That text, where the group round the new one has it, goes in the new one too.
+  const text = home === undefined ? [] : gs[home].items.filter((id) => withText.items.has(id) && !sel.items.has(id) && !held.items.has(id));
+  const group = { atoms: [...new Set([...held.atoms, ...loose.atoms])].sort((p, q) => p - q), items: [...new Set([...held.items, ...loose.items, ...text])] };
   if (home !== undefined && group.atoms.length + group.items.length === sizeOf(gs[home])) return undefined; // the same as the group it would go in
   const id = nextId(m);
   return [tidyGroups({ ...m, groups: [...gs, { id, ...group }] }, frags), id];

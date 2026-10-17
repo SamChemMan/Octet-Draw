@@ -421,6 +421,7 @@ console.log("edit.check: align ok");
   const [one, inner] = groupSelection(m, benzene, new Set([x]))!;
   assert.deepEqual(one.groups![0].items.sort(), [x, num].sort(), "the number under the benzene is in its group");
   assert.equal(groupSelection(one, benzene, new Set([x, num])), undefined, "a whole group alone is one thing");
+  assert.equal(groupSelection(one, new Set([0]), new Set([x])), undefined, "the number comes with the benzene, so this is the whole group too");
   const [two, outer] = groupSelection(one, new Set([0]), new Set([r]))!;
   assert.equal(two.groups!.length, 2);
   assert.deepEqual(groupParents(two.groups!).map((p) => (p === undefined ? undefined : two.groups![p].id)), [outer, undefined]);
@@ -444,6 +445,7 @@ console.log("edit.check: align ok");
   const [four, sub] = groupSelection(three, benzene, new Set([x]))!;
   const p = groupParents(four.groups!);
   assert.equal(four.groups![p[four.groups!.findIndex((g) => g.id === sub)]!].id, top);
+  assert.deepEqual(four.groups!.find((g) => g.id === sub)!.items.sort(), [x, num].sort(), "the number goes in the new group with the benzene");
   // Align and Distribute: two members of a group, picked on their own, are two things (no group is all selected).
   assert.deepEqual(selectedGroups(three, all, new Set()), [], "x is not picked, so the group is not all selected");
   assert.deepEqual(selectedGroups(three, all, new Set([x])).map((g) => g.id), [top]);
