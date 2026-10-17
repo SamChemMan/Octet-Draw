@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours } from "./edit.ts";
+import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, wholeGroups, wholeIntegral, groupSelection, addArrow } from "./edit.ts";
 import { tableLayout } from "./render.ts";
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
@@ -339,4 +339,54 @@ console.log("edit.check: align ok");
   const all = m.atoms.map((_, i) => i), dirs = markDirections(m, all);
   for (const i of all) assert.deepEqual(dirs.get(i), before(m, i), `atom ${i}`);
   console.log("edit.check: ring bonds and mark directions ok");
+}
+
+// Groups (ChemDraw's Object > Group): a group holds whole structures, so atoms drawn onto a grouped structure join it,
+// and groups that come to share a structure become one. An integral group cannot be split: a selection that touches
+// it takes all of it. Option-drag copies keep their group and the compound number under the structure.
+{
+  let m = addRing(addRing(EMPTY, 6, true, { point: [-4, 0] }), 5, false, { point: [4, 0] });
+  let num: number, box: number;
+  [m, num] = addCaption(m, { text: "1", x: 0, y: 0, bold: true, under: [0, 1, 2, 3, 4, 5] });
+  [m, box] = addArrow(m, { kind: "reaction", from: [-1, -3], to: [1, -3] });
+  const [grouped, gid] = groupSelection(m, new Set([0, 6]), new Set([box]))!;
+  assert.deepEqual(grouped.groups![0].atoms, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "grouping takes whole structures");
+  assert.equal(wholeGroups(grouped), grouped, "nothing to change gives the same drawing");
+  // A bond drawn from a grouped atom: the new atom joins the group.
+  const sprouted = wholeGroups(sprout(grouped, 8));
+  assert.deepEqual(sprouted.groups![0].atoms, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+  // A free ring joined onto a grouped one by a bond: the whole of it joins.
+  const free = addRing(grouped, 6, false, { point: [12, 0] }), joined = wholeGroups(bondTo(free, 9, pos(free, 11)));
+  assert.equal(joined.groups![0].atoms.length, 17);
+  // Two groups that come to share a structure become one; integral if either was.
+  const two = { ...free, groups: [{ ...grouped.groups![0], integral: true as const }, { id: 99, atoms: [11], items: [num] }] };
+  const one = wholeGroups(bondTo(two, 9, pos(two, 11)));
+  assert.equal(one.groups!.length, 1);
+  assert.equal(one.groups![0].id, gid);
+  assert.equal(one.groups![0].integral, true);
+  assert.deepEqual(one.groups![0].items.sort(), [box, num].sort());
+  // A damaged file: part of a structure, an atom twice, an atom that is not there.
+  const fixed = wholeGroups({ ...m, groups: [{ id: 50, atoms: [0, 0, 99], items: [box] }] });
+  assert.deepEqual(fixed.groups![0].atoms, [0, 1, 2, 3, 4, 5]);
+  // Integral: an atom, or the arrow, takes in the whole group.
+  const integral = { ...grouped, groups: [{ ...grouped.groups![0], integral: true as const }] };
+  const [atoms, items] = wholeIntegral(integral, new Set([3]), new Set());
+  assert.equal(atoms.size, 11);
+  assert.deepEqual([...items], [box]);
+  assert.equal(wholeIntegral(integral, new Set(), new Set([box]))[0].size, 11);
+  assert.equal(wholeIntegral(grouped, new Set([3]), new Set())[0].size, 1, "a plain group can be picked in parts");
+  // Option-drag of the whole group: the copy is grouped, and the number under the benzene comes too.
+  const d = duplicateSelection(grouped, new Set(grouped.groups![0].atoms), new Set([box]));
+  assert.equal(d.mol.groups!.length, 2);
+  assert.deepEqual(d.mol.groups![1].atoms, [...d.atoms].sort((p, q) => p - q));
+  assert.deepEqual(d.mol.groups![1].items, [d.ids.get(box)]);
+  assert.equal(d.mol.captions!.filter((c) => c.text === "1").length, 2);
+  assert.ok(d.items.has(d.ids.get(num)!), "the copied number moves with the copy");
+  // Picked text whose structure is not copied is copied as free text.
+  const alone = duplicateSelection(grouped, new Set(), new Set([num]));
+  assert.equal(alone.mol.captions!.find((c) => c.id === alone.ids.get(num))!.under, undefined);
+  // Flip about a line that is not the middle of the atoms: each atom goes to the far side of that line.
+  const flipped = flipAtoms(m, new Set([0]), "horizontal", false, 1);
+  assert.ok(Math.abs(pos(flipped, 0)[0] - (2 - pos(m, 0)[0])) < 1e-9);
+  console.log("edit.check: groups ok");
 }

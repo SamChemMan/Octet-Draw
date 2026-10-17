@@ -221,6 +221,32 @@ const tidyGroups = (gs?: Mol["groups"]) => gs?.filter((g) => g.atoms.length + g.
 // Groups: every group a selection touches (by its atoms or its other objects).
 export const groupsOf = (m: Mol, atoms: Set<number>, items: Set<number>) =>
   (m.groups ?? []).filter((g) => g.atoms.some((i) => atoms.has(i)) || g.items.some((id) => items.has(id)));
+// An integral group cannot be split (as in ChemDraw): a selection that touches one takes in all of it.
+export function wholeIntegral(m: Mol, atoms: Set<number>, items: Set<number>): [Set<number>, Set<number>] {
+  const gs = groupsOf(m, atoms, items).filter((g) => g.integral);
+  return gs.length ? [new Set([...atoms, ...gs.flatMap((g) => g.atoms)]), new Set([...items, ...gs.flatMap((g) => g.items)])] : [atoms, items];
+}
+// A group holds whole structures (as in ChemDraw): it takes in every atom of each structure it has an atom of, so
+// atoms added to a grouped structure join its group. Groups that come to share a structure become one group.
+// Returns the same drawing when nothing changes.
+export function wholeGroups(m: Mol): Mol {
+  if (!m.groups?.length) return m;
+  const frags = fragments(m), of = new Map<number, number>();
+  frags.forEach((f, k) => f.forEach((i) => of.set(i, k)));
+  const out: NonNullable<Mol["groups"]> = [];
+  let changed = false;
+  for (const g of m.groups) {
+    const ks = new Set(g.atoms.filter((i) => of.has(i)).map((i) => of.get(i)!)), atoms = [...ks].flatMap((k) => frags[k]).sort((p, q) => p - q);
+    if (atoms.length !== g.atoms.length || atoms.some((i, n) => i !== g.atoms[n])) changed = true;
+    const meet = out.filter((o) => o.atoms.some((i) => ks.has(of.get(i)!)));
+    if (!meet.length) { out.push({ ...g, atoms }); continue; }
+    changed = true;
+    const all = [...meet, g], into = meet[0];
+    out.splice(out.indexOf(into), 1, { id: into.id, atoms: [...new Set([...meet.flatMap((o) => o.atoms), ...atoms])].sort((p, q) => p - q), items: [...new Set(all.flatMap((o) => o.items))], ...(all.some((o) => o.integral) ? { integral: true as const } : {}) });
+    for (const o of meet.slice(1)) out.splice(out.indexOf(o), 1);
+  }
+  return changed ? { ...m, groups: out } : m;
+}
 // Object > Group: the selected structures (whole) and objects, with any groups they were already in, as one group.
 export function groupSelection(m: Mol, atoms: Set<number>, items: Set<number>): [Mol, number] | undefined {
   const old = groupsOf(m, atoms, items), whole = new Set([...atoms].flatMap((i) => fragments(m).find((g) => g.includes(i)) ?? [i]));
@@ -545,12 +571,13 @@ export const atomsInPolygon = (m: Mol, poly: P[]): number[] => m.atoms.flatMap((
 // hashed wedges and the stereochemistry is kept (as ChemDraw's "Rotate 180°"). Double-bond sides swap too.
 // Turns atoms over about the middle of their box. As ChemDraw's Rotate 180° (the default) the turn is in 3D, so
 // wedges become hashes and each stereocentre keeps its configuration; as its Flip (mirror) wedges stay wedges and
-// the configuration inverts.
-export function flipAtoms(m: Mol, ids: Set<number>, axis: "horizontal" | "vertical", mirror = false): Mol {
+// the configuration inverts. about: the line to turn over on (x for horizontal, y for vertical), when it is not the
+// middle of the atoms (a selection with text, arrows or shapes turns over on the middle of all of it).
+export function flipAtoms(m: Mol, ids: Set<number>, axis: "horizontal" | "vertical", mirror = false, about?: number): Mol {
   const ps = [...ids].filter((i) => i < m.atoms.length).map((i) => pos(m, i));
   if (!ps.length) return m;
   const k = axis === "horizontal" ? 0 : 1;
-  const mid = (Math.min(...ps.map((p) => p[k])) + Math.max(...ps.map((p) => p[k]))) / 2;
+  const mid = about ?? (Math.min(...ps.map((p) => p[k])) + Math.max(...ps.map((p) => p[k]))) / 2;
   const swap = { left: "right", right: "left", centre: "centre" } as const;
   return {
     ...m,
@@ -957,27 +984,13 @@ export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
   return { mol, atoms: new Set(add.atoms.map((_, i) => at(i))), items: new Set([...(add.captions ?? []), ...(add.arrows ?? []), ...(add.shapes ?? []), ...(add.cycles ?? [])].map((x) => ids.get(x.id)!)), ids };
 }
 
-// Option-drag (as ChemDraw's): copies of the selected atoms (with the bonds between them) and of the picked
-// objects, added with new ids. Copied captions keep to copied atoms, arrows and cycles. Returns the drawing, the
+// Option-drag (as ChemDraw's): copies of the selection added with new ids, made as Copy and Paste make them, so the
+// copies keep their groups and the text that belongs to them (a compound number, an arrow's conditions). Picked text
+// whose structure, arrow or cycle is not copied is copied too, and the drag sets it free. Returns the drawing, the
 // copies' atoms and ids, and each original id's copy.
 export function duplicateSelection(m: Mol, atoms: Set<number>, items: Set<number>) {
-  const sel = [...atoms].filter((i) => i < m.atoms.length).sort((p, q) => p - q), map = new Map(sel.map((i, k) => [i, m.atoms.length + k]));
-  let id = nextId(m);
-  const ids = new Map<number, number>();
-  for (const x of [...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? []), ...(m.captions ?? [])]) if (items.has(x.id)) ids.set(x.id, id++);
-  const atom = (i: number) => map.get(i) ?? i;
-  const mol: Mol = {
-    ...m,
-    atoms: [...m.atoms, ...sel.map((i) => ({ ...m.atoms[i] }))],
-    bonds: [...m.bonds, ...m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [atom(b.atoms[0]), atom(b.atoms[1])] as [number, number] }))],
-    arrows: [...(m.arrows ?? []), ...(m.arrows ?? []).filter((a) => ids.has(a.id)).map((a) => ({ ...a, id: ids.get(a.id)! }))],
-    shapes: [...(m.shapes ?? []), ...(m.shapes ?? []).filter((x) => ids.has(x.id)).map((x) => ({ ...x, id: ids.get(x.id)! }))],
-    cycles: [...(m.cycles ?? []), ...(m.cycles ?? []).filter((c) => ids.has(c.id)).map((c) => ({ ...c, id: ids.get(c.id)!, nodes: c.nodes.map((n) => n.map(atom)) }))],
-    captions: [...(m.captions ?? []), ...(m.captions ?? []).filter((c) => ids.has(c.id)).map((c) => ({
-      ...c, id: ids.get(c.id)!, ...(c.under ? { under: c.under.map(atom) } : {}),
-      ...(c.on && ids.has(c.on.arrow) ? { on: { ...c.on, arrow: ids.get(c.on.arrow)! } } : {}),
-      ...(c.cycle && ids.has(c.cycle.cycle) ? { cycle: { ...c.cycle, cycle: ids.get(c.cycle.cycle)! } } : {}),
-    }))],
-  };
-  return { mol, atoms: new Set(map.values()), items: new Set(ids.values()), ids };
+  const part = extractSelection(m, atoms, items), had = new Set(part.captions?.map((c) => c.id));
+  const left = (m.captions ?? []).filter((c) => items.has(c.id) && !had.has(c.id)).map(({ under: _, ...c }) => c);
+  const r = insertMol(m, { ...part, captions: [...(part.captions ?? []), ...left] });
+  return { mol: r.mol, atoms: r.atoms, items: r.items, ids: r.ids };
 }
