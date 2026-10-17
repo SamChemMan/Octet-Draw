@@ -181,6 +181,19 @@ const H_FIRST = new Set(['O', 'F', 'S', 'Cl', 'Se', 'Br', 'Te', 'I']); // H2O, H
 const VALENCE: Record<string, number> = { C: 4, Si: 4, N: 3, P: 3, As: 3, B: 3, Al: 3, O: 2, S: 2, Se: 2, Te: 2, F: 1, Cl: 1, Br: 1, I: 1 };
 const ORDER: Record<number, number> = { 1: 1, 2: 2, 3: 3, 4: 1.5 };
 
+// A ring's aromatic circle, as ChemDraw draws it: its radius this much of the distance from the ring's centre to its
+// atoms (ChemDraw's own files: 0.62 in five- and six-membered rings).
+export const RING_CIRCLE = 0.62;
+// The rings Toggle Aromatic Display draws with a circle: aromatic rings of 5 to 8 atoms, every atom marked.
+export function circledRings(mol: Mol): number[][] {
+  if (!mol.atoms.some((a) => a.circle)) return [];
+  const used = mol.atoms.map(() => 0);
+  for (const b of mol.bonds) for (const i of b.atoms) used[i] += b.type;
+  const g = { atoms: mol.atoms.map((a, i) => ({ el: a.text ? "X" : a.label, charge: a.charge ?? 0, h: a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used[i]) })), bonds: mol.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: Math.min(3, Math.max(1, b.type)) as 1 | 2 | 3 })) };
+  const aromatic = aromaticAtoms(g);
+  return ringsOf(g).filter((r) => r.length >= 5 && r.length <= 8 && r.every((i) => mol.atoms[i].circle && aromatic[i]));
+}
+
 export function hydrogens(label: string, charge: number, used: number, radical = 0) {
   const v = VALENCE[label];
   if (v === undefined) return 0;
@@ -492,14 +505,8 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
     return plan;
   });
   // Aromatic rings drawn with a circle (Toggle Aromatic Display): their bonds are single lines, and a circle sits
-  // inside each ring, 0.6 of the way from the centre to the bonds. The structure keeps its Kekulé bonds.
-  const circled = mol.atoms.some((a) => a.circle) ? (() => {
-    const used = mol.atoms.map(() => 0);
-    for (const b of mol.bonds) for (const i of b.atoms) used[i] += b.type;
-    const g = { atoms: mol.atoms.map((a, i) => ({ el: a.text ? "X" : a.label, charge: a.charge ?? 0, h: a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used[i]) })), bonds: mol.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: Math.min(3, Math.max(1, b.type)) as 1 | 2 | 3 })) };
-    const aromatic = aromaticAtoms(g);
-    return ringsOf(g).filter((r) => r.length >= 5 && r.length <= 8 && r.every((i) => mol.atoms[i].circle && aromatic[i]));
-  })() : [];
+  // inside each ring. The structure keeps its Kekulé bonds.
+  const circled = circledRings(mol);
   for (const r of circled) r.forEach((x, k) => {
     const y = r[(k + 1) % r.length], pl = plans[mol.bonds.findIndex((b) => (b.atoms[0] === x && b.atoms[1] === y) || (b.atoms[0] === y && b.atoms[1] === x))];
     if (pl && mol.bonds[mol.bonds.indexOf(mol.bonds.find((b) => (b.atoms[0] === x && b.atoms[1] === y) || (b.atoms[0] === y && b.atoms[1] === x))!)].type === 2) { pl.lines = []; pl.kind = 'line'; delete pl.half; }
@@ -688,8 +695,7 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
   // The aromatic circles, each as a ring of short bars in the line width.
   for (const r of circled) {
     const c = mul(r.reduce<P>((m, i) => add(m, pts[i]), [0, 0]), 1 / r.length);
-    const inner = Math.min(...r.map((x, k) => { const p = pts[x], q = pts[r[(k + 1) % r.length]], u = unit(sub(q, p)); return Math.abs(dot(sub(c, p), perp(u))); }));
-    const radius = inner * 0.6, steps = 72, before = polygons.length;
+    const radius = RING_CIRCLE * r.reduce((sum, x) => sum + len(sub(pts[x], c)), 0) / r.length, steps = 72, before = polygons.length;
     for (let k = 0; k < steps; k++) {
       const a0 = (2 * Math.PI * k) / steps, a1 = (2 * Math.PI * (k + 1.05)) / steps, S = add(c, [Math.cos(a0) * radius, Math.sin(a0) * radius]), E = add(c, [Math.cos(a1) * radius, Math.sin(a1) * radius]);
       bar(S, E, perp(unit(sub(E, S))), hw);

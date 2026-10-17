@@ -62,3 +62,29 @@ export function aromaticAtoms(g: Graph): boolean[] {
   }
   return aromatic;
 }
+
+// Double bonds for a delocalised system drawn with bonds of order 1.5 (ChemDraw's aromatic rings): as many as the
+// atoms that can take one allow, each atom in at most one. `order` lists the atoms that can take a double bond, best
+// first (carbons before heteroatoms and charged atoms), and the search fills them in that order. These systems are
+// small; the search stops at a perfect match, or after a fixed number of steps with the best found.
+export function kekulise(edges: [number, number][], order: number[]): boolean[] {
+  const can = new Set(order), at = new Map<number, number[]>();
+  edges.forEach(([a, b], k) => { for (const v of [a, b]) at.set(v, [...(at.get(v) ?? []), k]); });
+  const used = new Set<number>(), pick = edges.map(() => false), perfect = Math.floor(order.length / 2);
+  let best = [...pick], bestN = -1, n = 0, steps = 0;
+  const go = (i: number) => {
+    if (bestN === perfect || ++steps > 50000) return;
+    if (i === order.length) { if (n > bestN) { bestN = n; best = [...pick]; } return; }
+    const v = order[i];
+    if (!used.has(v)) for (const k of at.get(v) ?? []) {
+      const w = edges[k][0] === v ? edges[k][1] : edges[k][0];
+      if (used.has(w) || !can.has(w)) continue;
+      used.add(v); used.add(w); pick[k] = true; n++;
+      go(i + 1);
+      used.delete(v); used.delete(w); pick[k] = false; n--;
+    }
+    go(i + 1);
+  };
+  go(0);
+  return best;
+}

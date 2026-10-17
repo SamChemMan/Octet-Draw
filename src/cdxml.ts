@@ -9,7 +9,7 @@
 
 import { FONTS, PAGES, pageSize, readStyle, type DocStyle } from "./docstyle.ts";
 import {
-  HIGHLIGHT, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, curved, headsOf, hydrogens, isBracket, linesOf, markAt, straightArrow, tableLayout, takesHeads, tlcLayout,
+  HIGHLIGHT, RING_CIRCLE, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, straightArrow, tableLayout, takesHeads, tlcLayout,
   ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS,
   type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape,
   type LineStyle, type Mol, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
@@ -18,6 +18,7 @@ import { ELEMENTS, anchorElement, formulaRuns, isElement, units } from "./labels
 import { normalise, runsOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
 import { findReaction } from "./reaction.ts";
 import { fragments } from "./edit.ts";
+import { kekulise, rings } from "./rings.ts";
 import type { Cycle } from "./cycle.ts";
 
 export const TOO_BIG = "This file is too large to open.";
@@ -376,6 +377,16 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   mol.bonds.forEach((_, k) => { bondId[k] = fresh(); });
   for (const atoms of frags) { const f = fresh(); for (const i of atoms) fragId.set(i, f); }
   const page = (i: number) => at(mol.atoms[i].location);
+  // Aromatic rings drawn with a circle: ChemDraw stores their bonds as order 1.5 and the circle as an oval inside the
+  // ring's fragment (its own files). Octet keeps each bond's Kekulé order in its own data, to read back exactly.
+  const circled = circledRings(mol), ringBond = new Set<number>();
+  for (const r of circled) r.forEach((x, k) => { const y = r[(k + 1) % r.length]; ringBond.add(mol.bonds.findIndex((b) => (b.atoms[0] === x && b.atoms[1] === y) || (b.atoms[0] === y && b.atoms[1] === x))); });
+  const circles = (atoms: number[]) => circled.filter((r) => atoms.includes(r[0])).map((r) => {
+    const c: P = [r.reduce((s, i) => s + page(i)[0], 0) / r.length, r.reduce((s, i) => s + page(i)[1], 0) / r.length];
+    const radius = (RING_CIRCLE * r.reduce((s, i) => s + len(sub(page(i), c)), 0)) / r.length, major: P = [c[0] + radius, c[1]], minor: P = [c[0], c[1] + radius];
+    return el("graphic", { id: fresh(), BoundingBox: `${pt(major)} ${pt(c)}`, Z: Z(), color: colour(mol.atoms[r[0]].colour), GraphicType: "Oval", OvalType: "Circle",
+      Center3D: pt3(c), MajorAxisEnd3D: pt3(major), MinorAxisEnd3D: pt3(minor), Octet: DERIVED });
+  }).join("");
   for (const atoms of frags) {
     let xml = "";
     const boxes: Box[] = [];
@@ -386,6 +397,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     }
     for (const k of [...new Set(atoms.flatMap((i) => bondsAt[i]))].sort((p, q) => p - q)) xml += bond(k);
     for (const i of atoms) xml += marks(i);
+    xml += circles(atoms);
     const box = union(boxes)!;
     outs.push({ xml: el("fragment", { id: fragId.get(atoms[0])!, BoundingBox: boxText(box), Z: Z() }, xml), rank: 1, box, group: atoms.map((i) => groupOfAtom.get(i)).find((g) => g !== undefined) });
   }
@@ -486,9 +498,12 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       fill(j, 3, 2);
       circular = slots.join(" ");
     }
+    // A dashed double bond is ChemDraw's DoubleDashed (its ⇧D): order 1.5, the second line dashed.
+    const ring = ringBond.has(k), dashed = !ring && b.type === 2 && d === "dashed";
     return el("b", {
-      id: bondId[k], Z: Z(), B: nodeId.get(i)!, E: nodeId.get(j)!, Order: d === "dative" ? "dative" : b.type === 2 ? "2" : b.type === 3 ? "3" : b.type === 4 ? "1.5" : undefined,
-      Display: display, Display2: b.type === 2 && d === "dashed" ? "Dash" : undefined, DoublePosition: b.type === 2 && b.position ? { left: "Left", right: "Right", centre: "Center" }[b.position] : undefined,
+      id: bondId[k], Z: Z(), B: nodeId.get(i)!, E: nodeId.get(j)!,
+      Order: ring || dashed || b.type === 4 ? "1.5" : d === "dative" ? "dative" : b.type === 2 ? "2" : b.type === 3 ? "3" : undefined,
+      Display: ring ? undefined : display, Display2: dashed ? "Dash" : undefined, Octet: ring ? priv({ order: b.type }) : undefined, DoublePosition: b.type === 2 && b.position ? { left: "Left", right: "Right", centre: "Center" }[b.position] : undefined,
       color: colour(b.colour), ShowBondStereo: mol.atoms[i].cip && mol.atoms[j].cip ? "yes" : undefined, BondCircularOrdering: circular,
     });
   }
@@ -801,6 +816,7 @@ export function fromCdxml(text: string): CdxmlRead {
   const nodeIds: number[] = [], bondIds: number[] = [];
   const atomOf = new Map<number, number>(), objectOf = new Map<number, number>(), arrowOfGraphic = new Map<number, number>();
   const labels: { i: number; text: string; type: string; isotope?: number }[] = [];
+  const numH = new Map<number, number>(), delocalised: { k: number; order?: 1 | 2 }[] = [], ovals: { id: number; c: P; r: number }[] = [];
   const bondsToRead: Xml[] = [], symbols: { x: Xml; atoms: number[]; group?: G }[] = [], steps: Xml[] = [], unders: { c: Caption; nodes: unknown }[] = [];
   const brackets: { x: Xml; id: number; z: number; group?: G; ends: number[] }[] = [];
   const zOf = (x: Xml) => int(x.attrs.Z) ?? 0;
@@ -881,6 +897,7 @@ export function fromCdxml(text: string): CdxmlRead {
     if (number) { if (/^[\w'′*-]{1,8}$/.test(number)) a.number = number; else lose("atom number"); }
     const i = mol.atoms.push(a) - 1;
     nodeIds.push(int(n.attrs.id) ?? 0);
+    numH.set(i, int(n.attrs.NumHydrogens) ?? 0);
     atomOf.set(int(n.attrs.id) ?? -1, i);
     const t = n.kids.find((k) => k.name === "t");
     if (t) labels.push({ i, text: t.kids.filter((k) => k.name === "s").map((k) => k.text).join(""), type, isotope });
@@ -897,10 +914,15 @@ export function fromCdxml(text: string): CdxmlRead {
       if (!key || i === j || seen.has(key)) { lose("bond"); continue; }
       seen.add(key);
       const order = new Set((b.attrs.Order ?? "1").trim().split(/\s+/)), d = b.attrs.Display ?? "", d2 = b.attrs.Display2 ?? "";
-      const bond: Bond = { type: order.has("3") ? 3 : order.has("2") ? 2 : 1, atoms: [i!, j!] };
+      // Order 1.5: with a dashed line, ChemDraw's DoubleDashed bond; otherwise a delocalised bond, made Kekulé below
+      // (Octet's own files say which order each one had).
+      const deloc = order.size === 1 && order.has("1.5"), dashed = deloc && (d2 === "Dash" || d === "Dash");
+      const bond: Bond = { type: order.has("3") ? 3 : order.has("2") || dashed ? 2 : 1, atoms: [i!, j!] };
+      if (dashed) bond.display = "dashed";
+      else if (deloc) { const kept = priv(b)?.order; delocalised.push({ k: mol.bonds.length, order: kept === 1 || kept === 2 ? kept : undefined }); }
       if (bond.type === 1 && order.size === 1 && order.has("dative")) bond.display = "dative";
       else if (bond.type === 1 && order.has("hydrogen")) bond.display = "dashed";
-      else if ([...order].some((o) => !["1", "2", "3"].includes(o))) lose("bond order");
+      else if (!deloc && [...order].some((o) => !["1", "2", "3"].includes(o))) lose("bond order");
       let swap = false;
       if (bond.type === 1 && !bond.display) {
         const single: Record<string, [Display | undefined, number | undefined, boolean]> = {
@@ -911,7 +933,7 @@ export function fromCdxml(text: string): CdxmlRead {
         const s = single[d];
         if (s) { if (s[0]) bond.display = s[0]; if (s[1]) bond.stereo = s[1]; swap = s[2]; }
       } else if (bond.type === 2) {
-        if (d === "Bold") bond.display = "bold"; else if (d === "Wavy") bond.display = "either"; else if (d === "Dash" || d2 === "Dash") bond.display = "dashed"; else if (d && d !== "Solid") lose("bond display");
+        if (dashed) { /* above */ } else if (d === "Bold") bond.display = "bold"; else if (d === "Wavy") bond.display = "either"; else if (d === "Dash" || d2 === "Dash") bond.display = "dashed"; else if (d && d !== "Solid") lose("bond display");
         const side = { Left: "left", Right: "right", Center: "centre" }[b.attrs.DoublePosition ?? ""] as Bond["position"];
         if (side) bond.position = side;
       } else if (d && d !== "Solid") lose("bond display");
@@ -925,6 +947,43 @@ export function fromCdxml(text: string): CdxmlRead {
   }
 
   // Labels: one element with the hydrogens Octet would draw is a plain atom; anything else is written text (OMe,
+  // Delocalised rings: ChemDraw's ring bonds of order 1.5, and any ring with a circle inside it (ChemDraw reads a single
+  // bond near a closed circle as aromatic). Octet draws such a ring with its circle, from Kekulé bonds: each atom that
+  // can take a double bond gets one where it can, carbons first. A circle Octet takes as a ring's is not kept as a shape.
+  function readDelocalised() {
+    const ring = new Set<number>(), taken = new Set<number>(), g = { atoms: mol.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: mol.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) };
+    const bondOf = (x: number, y: number) => mol.bonds.findIndex((b) => (b.atoms[0] === x && b.atoms[1] === y) || (b.atoms[0] === y && b.atoms[1] === x));
+    const found = ovals.length ? rings(g).filter((r) => r.length >= 5 && r.length <= 8) : [];
+    for (const o of ovals) {
+      const r = found.find((rr) => {
+        const c: P = [rr.reduce((s, i) => s + mol.atoms[i].location[0], 0) / rr.length, rr.reduce((s, i) => s + mol.atoms[i].location[1], 0) / rr.length];
+        const R = rr.reduce((s, i) => s + Math.hypot(mol.atoms[i].location[0] - c[0], mol.atoms[i].location[1] - c[1]), 0) / rr.length;
+        return Math.hypot(o.c[0] - c[0], o.c[1] - c[1]) < 0.25 * R && o.r > 0.3 * R && o.r < 0.95 * R;
+      });
+      if (!r) continue;
+      taken.add(o.id);
+      for (const i of r) mol.atoms[i].circle = true;
+      r.forEach((x, k) => { const kk = bondOf(x, r[(k + 1) % r.length]); if (kk >= 0) ring.add(kk); });
+    }
+    if (taken.size) shapes.splice(0, shapes.length, ...shapes.filter((s) => !taken.has(s.id)));
+    const kept = new Map(delocalised.map((x) => [x.k, x.order]));
+    for (const [k, o] of kept) if (o) mol.bonds[k].type = o;
+    const loose = [...new Set([...kept.keys()].filter((k) => !kept.get(k)).concat([...ring].filter((k) => !kept.has(k))))].filter((k) => mol.bonds[k].type === 1 && !mol.bonds[k].display && !mol.bonds[k].stereo);
+    if (!loose.length) return;
+    // An atom can take a double bond when its valence has room after its bonds (a delocalised one counts as single),
+    // its hydrogens and its charge.
+    const VALENCE: Record<string, number> = { C: 4, Si: 4, N: 3, P: 3, B: 3, O: 2, S: 2, Se: 2 };
+    const room = (i: number) => {
+      const a = mol.atoms[i], v = VALENCE[a.label], q = a.charge ?? 0;
+      if (v === undefined || a.text) return 0;
+      const bonds = mol.bonds.reduce((n, b) => n + (b.atoms.includes(i) ? (BOND_ORDER[b.type] ?? 1) : 0), 0);
+      return (a.label === "C" || a.label === "B" || a.label === "Si" ? v - Math.abs(q) : v + q) - bonds - (numH.get(i) ?? 0);
+    };
+    const atoms = [...new Set(loose.flatMap((k) => mol.bonds[k].atoms))].filter((i) => room(i) >= 1);
+    atoms.sort((p, q) => Number(mol.atoms[p].label !== "C" || !!mol.atoms[p].charge) - Number(mol.atoms[q].label !== "C" || !!mol.atoms[q].charge) || p - q);
+    kekulise(loose.map((k) => mol.bonds[k].atoms), atoms).forEach((on, n) => { if (on) mol.bonds[loose[n]].type = 2; });
+  }
+
   // Ph, CO2Et), less any charge the node already holds (spec 9.10).
   function readLabels() {
     const used = mol.atoms.map(() => 0), degree = mol.atoms.map(() => 0);
@@ -1034,6 +1093,7 @@ export function fromCdxml(text: string): CdxmlRead {
       if (colour && !(kind === "highlight" && colour === HIGHLIGHT)) sh.colour = colour;
       const shade = p?.shade as Record<string, unknown> | undefined;
       if (shade && isNum(shade.depth, 0, 1) && isNum(shade.blur, 0, 1) && isNum(shade.opacity, 0, 1)) sh.shade = { depth: shade.depth, blur: shade.blur, opacity: shade.opacity };
+      if (type === "Oval" && bits.has("Circle") && !sh.fill) ovals.push({ id: sh.id, c: toOctet((b[0] + b[2]) / 2, (b[1] + b[3]) / 2), r: (b[2] - b[0]) / 2 / B });
       return addShape(sh, x, group);
     }
     if (type === "Orbital") {
@@ -1278,6 +1338,7 @@ export function fromCdxml(text: string): CdxmlRead {
   for (const pg of pages) for (const k of pg.kids) visit(k);
   readBonds();
   readLabels();
+  readDelocalised();
   readSymbols();
   readBrackets();
   readSteps();

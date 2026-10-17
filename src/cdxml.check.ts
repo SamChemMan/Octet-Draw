@@ -320,3 +320,41 @@ console.log("cdxml.check: every object kind round trips");
   assert.deepEqual([back.style.terminalLabels, back.style.carbonLabels, back.style.hideH, back.lost], [true, false, false, {}]);
   console.log("cdxml.check: atom numbers and label options ok");
 }
+
+// ChemDraw's delocalised rings (bonds of order 1.5, a circle oval inside the ring) and its DoubleDashed bond (order 1.5,
+// second line dashed), written and read.
+{
+  // A ring of n atoms at the origin, bond length 14.4 pt, with optional labels and hydrogens, as ChemDraw writes it.
+  const ring = (n: number, labels: Record<number, [number, number?]> = {}, circle = true, extra = "") => {
+    const R = 14.4 / (2 * Math.sin(Math.PI / n)), nodes = Array.from({ length: n }, (_, k) => {
+      const [el, h] = labels[k] ?? [6];
+      return `<n id="${k + 1}" p="${(200 + R * Math.cos((2 * Math.PI * k) / n)).toFixed(2)} ${(200 + R * Math.sin((2 * Math.PI * k) / n)).toFixed(2)}"${el !== 6 ? ` Element="${el}"` : ""}${h !== undefined ? ` NumHydrogens="${h}"` : ""}/>`;
+    }).join("");
+    const bonds = Array.from({ length: n }, (_, k) => `<b id="${100 + k}" B="${k + 1}" E="${((k + 1) % n) + 1}" Order="1.5"/>`).join("");
+    const oval = circle ? `<graphic id="300" BoundingBox="${(200 + 0.62 * R).toFixed(2)} 200 200 200" GraphicType="Oval" OvalType="Circle" Center3D="200 200 0" MajorAxisEnd3D="${(200 + 0.62 * R).toFixed(2)} 200 0" MinorAxisEnd3D="200 ${(200 + 0.62 * R).toFixed(2)} 0"/>` : "";
+    return `<?xml version="1.0" encoding="UTF-8" ?><CDXML BondLength="14.40"><page id="1"><fragment id="2">${nodes}${bonds}${oval}${extra}</fragment></page></CDXML>`;
+  };
+  const doubles = (m: Mol) => m.bonds.filter((x) => x.type === 2).length;
+  const benzene = fromCdxml(ring(6)).mol;
+  assert.deepEqual([doubles(benzene), benzene.atoms.every((a) => a.circle), benzene.shapes, benzene.atoms.every((_, i) => benzene.bonds.filter((x) => x.type === 2 && x.atoms.includes(i)).length === 1)], [3, true, undefined, true], "benzene with its circle");
+  assert.equal(doubles(fromCdxml(ring(6, { 0: [7] })).mol), 3, "pyridine");
+  const pyrrole = fromCdxml(ring(5, { 0: [7, 1] })).mol;
+  assert.deepEqual([doubles(pyrrole), pyrrole.bonds.some((x) => x.type === 2 && x.atoms.includes(0))], [2, false], "pyrrole: the NH takes no double bond");
+  assert.equal(doubles(fromCdxml(ring(6, {}, false)).mol), 3, "a ring of 1.5 bonds with no circle is still made Kekulé");
+  // Octet writes its circled rings and dashed doubles in ChemDraw's form, and reads its own back exactly.
+  const m = { ...benzene, bonds: [...benzene.bonds], atoms: [...benzene.atoms, A("C", 3, 0), A("C", 4, 0.5)] };
+  m.bonds.push(b(6, 7, { type: 2, display: "dashed" }));
+  const text = toCdxml(m, DEFAULT_STYLE);
+  assert.equal((text.match(/Order="1.5"/g) ?? []).length, 7, "six ring bonds and the dashed double");
+  assert.match(text, /Order="1.5"\s+Display2="Dash"/);
+  const oval = /<graphic[^>]*GraphicType="Oval"[^>]*OvalType="Circle"[^>]*\/>/.exec(text)?.[0] ?? "";
+  const c = oval.match(/Center3D="([\d.]+) ([\d.]+)/)!, e = oval.match(/MajorAxisEnd3D="([\d.]+) ([\d.]+)/)!;
+  assert.ok(Math.abs(Number(e[1]) - Number(c[1]) - 0.62 * 14.4) < 0.02, `circle radius 0.62 of the ring's: ${oval}`);
+  const again = fromCdxml(text).mol;
+  assert.deepEqual(again.bonds.map((x) => [x.type, x.display]), m.bonds.map((x) => [x.type, x.display]), "Kekulé bonds and the dashed double come back");
+  assert.deepEqual([again.atoms.slice(0, 6).every((a) => a.circle), again.shapes], [true, undefined]);
+  // ChemDraw's copy (Octet's own data dropped): the same drawing, the ring made Kekulé again.
+  const plain = fromCdxml(text.replace(/ Octet="[^"]*"/g, "").replace(/CreationProgram="[^"]*"/, "")).mol;
+  assert.deepEqual([doubles(plain), plain.atoms.slice(0, 6).every((a) => a.circle), plain.shapes, plain.bonds[6].display], [4, true, undefined, "dashed"]);
+  console.log("cdxml.check: delocalised rings and dashed doubles ok");
+}
