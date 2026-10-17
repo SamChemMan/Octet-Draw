@@ -26,8 +26,11 @@ The brief's principle still holds in spirit: download, install, draw.
 - Home greets the user by name and time of day ("Welcome to Octet" on the first visit, "Welcome back" after a
   week away). New drawing is the first tile; recent drawings follow as pictures; Open… is beside them. File >
   Home returns to it. Return makes a new drawing; the arrow keys move between tiles.
-- First launch asks the user's name (in the dotted frame of a selected group; Skip leaves it out), then plays
-  a short tutorial (draw, label, hold to select, tidy, share), which Octet > Tutorial plays again.
+- First launch asks the user's name (in the dotted frame of a selected group; Skip leaves it out), then opens
+  a new drawing with the tutorial (src/Coach.tsx). A card at the top of the page gives one step at a time: draw
+  two bonds, add a ring, label an atom O, hold to select, hold to move, clean up, copy. The user does each step
+  on the page and the card goes on when it sees it done, as ChemDraw's Help > Tutorials have the user draw.
+  Skip is at the card's bottom right. Octet > Tutorial starts it again on a new drawing.
 - The app keeps the recent drawings list (src-tauri/src/recent.rs). A recent drawing opens without the file
   dialog only if the user opened or saved it before.
 - New, Open and a recent drawing ask to save unsaved changes first.

@@ -32,7 +32,7 @@ import { fromCdxml, toCdxml, type CdxmlOptions } from "./cdxml";
 import { readOct, writeOct } from "./oct";
 import { About } from "./About";
 import { Home, NameBox, type RecentEntry } from "./Home";
-import { Tutorial } from "./Tutorial";
+import { Coach, NOTHING_SEEN, type Seen } from "./Coach";
 import { ExportButton, ExportDialog } from "./ExportDialog";
 import { flushSync } from "react-dom";
 import { copyToClipboard, exportFile, readClipboard, standaloneSvg, UI, withMargin } from "./export";
@@ -365,7 +365,10 @@ export default function Editor() {
   // Home (decision 0003): where Octet opens (?editor skips it, for tests), with the name box on first launch and the
   // tutorial then, or from Octet > Tutorial. Recent drawings come from the app (src-tauri/src/recent.rs).
   const [home, setHome] = useState(() => !new URLSearchParams(location.search).has("editor"));
-  const [tutorial, setTutorial] = useState(false), [welcomed, setWelcomed] = useState(false), [recents, setRecents] = useState<RecentEntry[]>([]);
+  const [welcomed, setWelcomed] = useState(false), [recents, setRecents] = useState<RecentEntry[]>([]);
+  // The tutorial (Coach.tsx) on a new drawing: which run it is (0 when off), what it saw done, and the tool it points at.
+  const [coach, setCoach] = useState(0), [seen, setSeen] = useState<Seen>(NOTHING_SEEN), [coachTool, setCoachTool] = useState<Tool>();
+  const saw = (k: keyof Seen) => { if (coach) setSeen((s) => ({ ...s, [k]: s[k] + 1 })); };
   const [away] = useState(() => { const last = loadSettings().lastSeen; return last ? Date.now() - last : 0; });
   const dirty = doc !== file.saved;
 
@@ -501,7 +504,11 @@ export default function Editor() {
   }
   // Before the drawing is replaced (New, Open, a recent drawing): with unsaved changes, ask to save them first.
   const keepWork = (next: () => void) => (dirty ? setDialog({ kind: "unsaved", next }) : next());
-  const newDrawing = () => keepWork(() => { set(EMPTY); setFile({ saved: EMPTY }); setHome(false); });
+  const newDrawing = () => keepWork(() => { set(EMPTY); setFile({ saved: EMPTY }); setHome(false); setCoach(0); });
+  const startTutorial = () => keepWork(() => {
+    set(EMPTY); setFile({ saved: EMPTY }); setHome(false); setTool("bond"); setSeen(NOTHING_SEEN); setCoach((n) => n + 1);
+    setSettings((s) => ({ ...s, tutorialDone: true }));
+  });
   const openDrawing = () => keepWork(() => void open());
   const openRecent = (r: RecentEntry) => keepWork(() => void invoke<[string, string]>("open_recent", { path: r.path }).then((picked) => load(picked[0], picked[1]))
     .catch((e) => { setNotice(String(e)); refreshRecents(); }));
@@ -532,7 +539,7 @@ export default function Editor() {
       const mol = read.foreign && !settings.files.keepStyle ? { ...read.mol, style: undefined } : read.mol;
       set(mol);
       setFile({ path, saved: mol });
-      setHome(false);
+      setHome(false); setCoach(0);
       sayLost(lost);
       const b = bounds(mol);
       if (b) setView((v) => ({ ...v, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * v.zoom * L, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * v.zoom * L }));
@@ -611,7 +618,7 @@ export default function Editor() {
     new: () => newDrawing(),
     open: () => openDrawing(),
     home: () => setHome(true),
-    tutorial: () => setTutorial(true),
+    tutorial: () => startTutorial(),
     import: () => void importFile(),
     save: () => void save(false),
     save_as: () => void save(true),
@@ -636,6 +643,7 @@ export default function Editor() {
     // Structure commands act on the selection, or on the whole drawing when nothing is selected.
     clean_up: () => {
       if (!loaded || !doc.atoms.length) return;
+      saw("clean");
       const ids = selection.size ? selection : undefined;
       let m = cleanUp(doc, ids);
       const docBox = (b?: Box): Box | undefined => b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L];
@@ -2788,6 +2796,7 @@ export default function Editor() {
       }
       case "box":
       case "lasso":
+        saw("select");
         // A hold that never moved selects what it was held on.
         if (!drag.moved) {
           setSelection(new Set([...drag.base, ...atomsOf(doc, drag.target)]));
@@ -2797,6 +2806,7 @@ export default function Editor() {
         return;
       case "move": {
         if (!drag.moved) return click(drag.target, drag.from);
+        saw("move");
         // An atom dropped exactly on another joins it. Joining renumbers atoms, so the selection clears then.
         const { mol, joined } = joinOverlaps(drag.working, drag.atoms ?? selection);
         return set(mol, !joined);
@@ -2822,7 +2832,7 @@ export default function Editor() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (typing() || e.defaultPrevented) return; // typing in a label or caption box, or a box already used the key
-      if (home || tutorial) return; // Home and the tutorial have their own keys
+      if (home) return; // Home has its own keys
       const mod = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
       // Drawing with the Pen: Return or Escape ends the curve; Delete takes back the last point.
       if (pen && (e.key === "Enter" || e.key === "Escape")) { e.preventDefault(); return finishPen(); }
@@ -2949,6 +2959,7 @@ export default function Editor() {
       const part = all ? doc : extractSelection(doc, selection, picked);
       if (!part.atoms.length && !part.captions?.length && !part.arrows?.length && !part.shapes?.length) return;
       e.preventDefault();
+      saw("copy");
       // In the app: as ChemDraw copies, for Word, PowerPoint and Keynote (a vector picture at true size with the
       // structure hidden in it, so it pastes back as a structure), then a molfile and SMILES, then Octet's own form.
       if (TAURI) {
@@ -3621,6 +3632,7 @@ export default function Editor() {
 
       <Palette
         tool={tool}
+        coach={coachTool}
         variants={{ select: selectKind, bond: bondKind, ring: ringKind, template: templateVariant, symbol: symbolKind, orbital: orbitalChoice, shape: shapeChoice, bracket: bracketChoice, more: settings.variants.more ?? "tlc", arrow: arrowVariant(settings.variants.arrow) ? settings.variants.arrow : "reaction" }}
         curvedArrows={settings.curvedArrows}
         onCurvedArrows={(curvedArrows) => setSettings((s) => ({ ...s, curvedArrows }))}
@@ -3734,13 +3746,13 @@ export default function Editor() {
         </Dialog>
       )}
       {home && (settings.userName === null
-        ? <NameBox onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone) setTutorial(true); }} />
+        ? <NameBox onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone) startTutorial(); }} />
         : <Home name={settings.userName} first={welcomed} away={away} recents={recents} newKey={keyLabel("enter")} openKey={hint("open")}
             onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent}
             onRemove={(r) => void invoke("recent_remove", { path: r.path }).then(refreshRecents).catch(() => {})} />)}
-      {tutorial && settings.userName !== null && (
-        <Tutorial onSkip={() => { setSettings((s) => ({ ...s, tutorialDone: true })); setTutorial(false); }}
-          onFinish={() => { setSettings((s) => ({ ...s, tutorialDone: true })); setTutorial(false); if (home) newDrawing(); }} />
+      {coach > 0 && !home && (
+        <Coach key={coach} doc={doc} selected={selection.size} seen={seen} keys={{ clean: hint("clean_up") ?? "", copy: keyLabel("mod+c") }}
+          onTool={setCoachTool} onSkip={() => setCoach(0)} onFinish={() => { setCoach(0); set(EMPTY); setFile({ saved: EMPTY }); }} />
       )}
       {dialog?.kind === "unsaved" && (
         <Dialog title={`Save changes to “${name}”?`} action="Save" onClose={() => setDialog(undefined)}

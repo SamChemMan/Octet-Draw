@@ -110,7 +110,7 @@ export function NameBox({ onDone }: { onDone: (name: string) => void }) {
     <main className="home name-box" aria-label="Welcome">
       <div className="name-box-inner">
         <Mark size={56} />
-        <h1 className="name-title">What should Octet call you?</h1>
+        <h1 className="name-title">Hey, what shall we call you?</h1>
         <label className="name-frame">
           <svg className="name-dots" aria-hidden><rect x="0.5" y="0.5" rx="10" /></svg>
           <input value={name} autoFocus maxLength={40} aria-label="Your name" placeholder="Your name" spellCheck={false}

@@ -331,6 +331,7 @@ export function TemplateGlyph({ mol: whole }: { mol: Mol }) {
 
 type PaletteProps = {
   tool: Tool;
+  coach?: Tool; // the tool the tutorial asks for: it pulses until chosen
   variants: Variants;
   templates: Template[];
   pinned: string[]; // options on the toolbar, as "tool:variant"
@@ -541,7 +542,7 @@ export function Palette(p: PaletteProps) {
         return (
           <div key={t.id} className="slot" data-col={p.wide ? i % 2 : undefined} style={{ "--d": Math.abs(i - (tools.length + 1 + pins.findIndex((x) => x.key === landed?.key))) } as React.CSSProperties}>
             <button
-              className="tool"
+              className={p.coach === t.id && p.tool !== t.id ? "tool coach-target" : "tool"}
               aria-pressed={p.tool === t.id}
               aria-label={t.name}
               aria-haspopup={strip ? "menu" : undefined}
