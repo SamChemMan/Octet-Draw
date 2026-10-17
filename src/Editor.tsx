@@ -15,7 +15,7 @@ import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
-  addChair, addGroup, addGroupAt, farBond, jumpHot, walkHot, type Hot, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
+  addChair, addGroup, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
   addShape, addSymbol, bondOrders, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
@@ -498,11 +498,15 @@ export default function Editor() {
   };
   useEffect(() => { if (notice) { const t = setTimeout(() => setNotice(undefined), 4000); return () => clearTimeout(t); } }, [notice]);
   // After an edit, the thing under a still pointer may have changed.
-  // A keyboard hotspot stays while its atom or bond is still there.
+  // A keyboard hotspot stays on its atom or bond while that is still there (keepHot), or goes where a key put it.
+  const lastDoc = useRef(doc);
   useEffect(() => {
-    const now = hovers.get();
-    if (now.key && (now.atom ?? -1) < doc.atoms.length && (now.bond ?? -1) < doc.bonds.length) return;
-    if (pointer.current || now.key) setHover(pointer.current ? hit(pointer.current) : {});
+    const now = hovers.get(), was = lastDoc.current, mine = hotOf.current.get(doc);
+    lastDoc.current = doc;
+    if (now.key && mine && mine.atom === now.atom && mine.bond === now.bond) return;
+    const kept = now.key ? keepHot(was, doc, now) : undefined;
+    if (kept) setHover({ ...kept, key: true });
+    else if (pointer.current || now.key) setHover(pointer.current ? hit(pointer.current) : {});
   }, [doc]);
 
   const name = file.path?.split(/[\\/]/).pop()?.replace(/\.(octet|oct|cdxml)$/i, "") ?? "Untitled";

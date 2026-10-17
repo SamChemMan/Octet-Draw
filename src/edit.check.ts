@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, addGroupAt, type Group, walkHot, jumpHot, farBond, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours } from "./edit.ts";
+import { EMPTY, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours } from "./edit.ts";
 import { tableLayout } from "./render.ts";
 const sub = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1]], cross = (a: number[], b: number[]) => a[0] * b[1] - a[1] * b[0];
 
@@ -434,6 +434,12 @@ console.log("edit.check: align ok");
   const fusedOn = addRing(propane, 6, false, { bond: 0 }), far = farBond(fusedOn, 0, propane.bonds.length)!;
   const mid = (m: typeof fusedOn, k: number) => [0, 1].map((d) => (pos(m, m.bonds[k].atoms[0])[d] + pos(m, m.bonds[k].atoms[1])[d]) / 2);
   assert.ok(Math.abs(Math.hypot(mid(fusedOn, far)[0] - mid(fusedOn, 0)[0], mid(fusedOn, far)[1] - mid(fusedOn, 0)[1]) - Math.sqrt(3)) < 1e-9, "the opposite bond");
+  // After another edit the hotspot stays on its atom or bond: as it is if nothing was removed, found again where it
+  // was if atoms were renumbered, and gone with its atom.
+  assert.deepEqual(keepHot(hexane, setElement(hexane, 2, "O"), { atom: 2 }), { atom: 2 });
+  assert.deepEqual(keepHot(hexane, deleteAtoms(hexane, new Set([0])), { atom: 3 }), { atom: 2 });
+  assert.deepEqual(keepHot(hexane, deleteAtoms(hexane, new Set([0])), { bond: 3 }), { bond: 2 });
+  assert.equal(keepHot(hexane, deleteAtoms(hexane, new Set([3])), { atom: 3 }), undefined);
   console.log("edit.check: atom hotkeys ok");
 }
 

@@ -598,6 +598,17 @@ export function jumpHot(m: Mol, hot: Hot, dir: P): Hot {
   }
   return best === undefined ? hot : { atom: best };
 }
+// The hotspot after an edit that did not move it (was is the drawing before the edit): on the same atom or bond. An
+// edit that removes atoms or bonds numbers the rest again, so then it is found again where it was. Undefined when it
+// is gone.
+export function keepHot(was: Mol, m: Mol, hot: Hot): Hot | undefined {
+  if (m.atoms.length >= was.atoms.length && m.bonds.length >= was.bonds.length) return (hot.atom ?? -1) < m.atoms.length && (hot.bond ?? -1) < m.bonds.length ? hot : undefined;
+  const find = (i: number) => (i < was.atoms.length ? atomAt(m, pos(was, i), 1e-6) : undefined);
+  if (hot.atom !== undefined) { const atom = find(hot.atom); return atom === undefined ? undefined : { atom }; }
+  const [a, b] = hot.bond !== undefined ? (was.bonds[hot.bond]?.atoms.map(find) ?? []) : [];
+  const bond = m.bonds.findIndex((x) => x.atoms.includes(a ?? -1) && x.atoms.includes(b ?? -1));
+  return bond >= 0 ? { bond } : undefined;
+}
 // After a ring is fused on bond `on` (its new bonds from index `from`), the new bond farthest from it, where
 // ChemDraw puts the hotspot; of two, the one of higher order, then the higher, then the one on the right.
 export function farBond(m: Mol, on: number, from: number): number | undefined {
