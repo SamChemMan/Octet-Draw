@@ -631,11 +631,14 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     }
     const p = at([x, y]), runs = runsOf(c), whole: RunStyle = { bold: c.bold || undefined, italic: c.italic || undefined, underline: c.underline || undefined };
     const width = Math.max(...c.text.split("\n").map((l) => widthOf(l, size))), left = align === "left" ? p[0] : align === "right" ? p[0] - width : p[0] - width / 2;
-    const box: Box = [left, p[1] - 0.716 * size, left + width, p[1] + (lines - 1) * 1.15 * size + 0.212 * size];
+    const level: Box = [left, p[1] - 0.716 * size, left + width, p[1] + (lines - 1) * 1.15 * size + 0.212 * size];
+    // A turned caption (RotationAngle: degrees clockwise on the page, times 65536) turns about p; its box goes round it.
+    const r = ((c.angle ?? 0) * Math.PI) / 180, box: Box = r ? boxOf(([[level[0], level[1]], [level[2], level[1]], [level[2], level[3]], [level[0], level[3]]] as P[])
+      .map(([qx, qy]) => [p[0] + (qx - p[0]) * Math.cos(r) + (qy - p[1]) * Math.sin(r), p[1] - (qx - p[0]) * Math.sin(r) + (qy - p[1]) * Math.cos(r)] as P)) : level;
     const just = align === "centre" ? "Center" : align === "right" ? "Right" : undefined, cf = face(whole);
     put(el("t", {
       id: idOf.get(c.id)!, p: pt(p), BoundingBox: boxText(box), Z: Z(), color: colour(c.colour), CaptionFont: c.font ? font(c.font) : undefined, CaptionSize: c.size, CaptionFace: cf || undefined,
-      CaptionJustification: just, Justification: just, LineHeight: "auto",
+      CaptionJustification: just, Justification: just, LineHeight: "auto", RotationAngle: c.angle ? Math.round((((-c.angle % 360) + 360) % 360) * 65536) : undefined,
       Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined }),
     }, runs.map((r) => run(r.text, { font: r.font ?? c.font ?? style.captionFont, size: r.size ?? size, colour: r.colour ?? c.colour, face: face({ ...whole, ...r }) })).join("")), 2, box, c.id);
   }
@@ -1055,7 +1058,8 @@ export function fromCdxml(text: string): CdxmlRead {
   function readCaption(t: Xml, group?: G) {
     const q = reals(t.attrs.p, 2);
     if (!q) return lose("text");
-    if (int(t.attrs.RotationAngle)) lose("text rotation");
+    // RotationAngle: degrees clockwise on the page, times 65536; Octet turns anticlockwise.
+    const turn = ((-(int(t.attrs.RotationAngle) ?? 0) / 65536) % 360 + 540) % 360 - 180;
     const p = priv(t), docFont = style.captionFont, docSize = style.captionSize, runs: (RunStyle & { text: string; font: string; size: number })[] = [];
     let room = MAX_TEXT;
     for (const s of t.kids) {
@@ -1081,7 +1085,7 @@ export function fromCdxml(text: string): CdxmlRead {
     }));
     const just = t.attrs.Justification ?? t.attrs.CaptionJustification, xy = p?.xy;
     const [x, y] = Array.isArray(xy) && xy.length === 2 && xy.every((v) => isNum(v, -1e6, 1e6)) ? (xy as P) : toOctet(q[0], q[1]);
-    const c: Caption & { z: number } = { id: newId(t), text, x, y, z: zOf(t) };
+    const c: Caption & { z: number } = { id: newId(t), text, x, y, z: zOf(t), ...(Number.isFinite(turn) && Math.abs(turn) > 1e-6 ? { angle: Math.round(turn * 1e6) / 1e6 } : {}) };
     for (const k of ["bold", "italic", "underline", "size", "colour", "font"] as const) if (whole[k] !== undefined) (c as Record<string, unknown>)[k] = whole[k];
     if (just === "Right") c.align = "right"; else if (just !== "Center") c.align = "left";
     const normal = normalise(own);

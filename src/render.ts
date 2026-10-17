@@ -52,6 +52,7 @@ export type Caption = {
   on?: { arrow: number; side: "above" | "below" };
   colour?: string; // #rrggbb; unset uses the document's text colour
   cycle?: CycleText; // a catalytic cycle's centre label, or a reagent or product on one of its steps
+  angle?: number; // turned anticlockwise about its anchor (the start, middle or end of its first baseline), in degrees
   font?: string; // the caption's font; unset uses the document's caption font
   runs?: TextRun[]; // the text in runs, each with its own style (rich text); text is always their text joined
 };
@@ -927,10 +928,17 @@ function shiftOf(drawn: Atom[], atoms: Atom[], k: number): P | undefined {
 export const CAPTION_PT = 10;
 export const isNumber = (c: Caption) => !!c.bold && /^\d+[a-z]?$/.test(c.text);
 const GAP_PT = 15, GAP_ARROW_PT = 3, LINE = 1.2, ASCENT = 0.905, DESCENT = 0.212; // Arial's ascent and descent, in em
+// A turned caption (angle) turns about its anchor on the first baseline (pivot, px); frame is its box before the turn,
+// and box the box round it turned.
 export type Placed = {
   id: number; size: number; bold?: boolean; italic?: boolean; underline?: boolean; colour?: string; anchor: "start" | "middle" | "end"; font?: string;
-  lines: { text: string; x: number; y: number; runs?: TextRun[] }[]; box: Box;
+  lines: { text: string; x: number; y: number; runs?: TextRun[] }[]; box: Box; angle?: number; pivot?: P; frame?: Box;
 };
+// A point (px) turned anticlockwise on the page by degrees about a pivot (px, y down).
+export function turnPx(q: P, pivot: P, degrees: number): P {
+  const r = (degrees * Math.PI) / 180, dx = q[0] - pivot[0], dy = q[1] - pivot[1];
+  return [pivot[0] + dx * Math.cos(r) + dy * Math.sin(r), pivot[1] - dx * Math.sin(r) + dy * Math.cos(r)];
+}
 // pt: px per point in the drawing frame; size: the document's caption size in pt.
 // fixed: where captions placed by something else (a cycle's labels) go, in px.
 export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width: (text: string, c: Caption, line: number) => number, arrows: Arrow[] = mol.arrows ?? [], pt = 4 / 3, defaultSize = CAPTION_PT,
@@ -979,10 +987,13 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
     const widths = lines.map((t, j) => width(t, c, j)), w = Math.max(...widths);
     const runLines = c.runs ? richLines(c.runs) : undefined;
     const left = at === "start" ? x : at === "end" ? x - w : x - w / 2;
+    const frame: Box = [left, y - ASCENT * size, left + w, y + (lines.length - 1) * LINE * size + DESCENT * size];
+    const turned = c.angle ? ([[frame[0], frame[1]], [frame[2], frame[1]], [frame[2], frame[3]], [frame[0], frame[3]]] as P[]).map((q) => turnPx(q, [x, y], c.angle!)) : undefined;
     return [{
       id: c.id, size, bold: c.bold, italic: c.italic, underline: c.underline, colour: c.colour, anchor: at, font: c.font,
       lines: lines.map((text, j) => ({ text, x, y: y + j * LINE * size, ...(runLines ? { runs: runLines[j] ?? [] } : {}) })),
-      box: [left, y - ASCENT * size, left + w, y + (lines.length - 1) * LINE * size + DESCENT * size],
+      box: turned ? [Math.min(...turned.map((q) => q[0])), Math.min(...turned.map((q) => q[1])), Math.max(...turned.map((q) => q[0])), Math.max(...turned.map((q) => q[1]))] : frame,
+      ...(turned ? { angle: c.angle, pivot: [x, y] as P, frame } : {}),
     }];
   });
 }

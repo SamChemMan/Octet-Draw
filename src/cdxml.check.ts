@@ -46,6 +46,7 @@ const captions: Caption[] = [
   { id: 6, text: "DMF, 80 °C\n12 h", x: 0, y: 0, on: { arrow: 101, side: "below" } },
   { id: 7, text: "ArB(OH)2", x: 23, y: 3, cycle: { cycle: 300, step: 0, side: "in" } },
   { id: 8, text: `a < b & "c" 'd' > e`, x: 2, y: -6, align: "right" },
+  { id: 9, text: "Turned text", x: 6, y: -6, angle: 30, align: "left" }, // CD-19
 ];
 const arrow = (id: number, kind: Arrow["kind"], from: [number, number], to: [number, number], more: Partial<Arrow> = {}): Arrow => ({ id, kind, from, to, ...more });
 const arrows: Arrow[] = [
@@ -305,6 +306,17 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
   assert.deepEqual([oval.kind, oval.bold, oval.dashed, oval.front, box.kind, box.fill, box.front], ["oval", true, true, undefined, "box", "solid", true]);
   assert.ok(Math.abs(box.angle! - 30) < 0.05 && Math.abs(Math.abs(box.to[0] - box.from[0]) - 80 / 14.4) < 2e-3 && Math.abs(Math.abs(box.to[1] - box.from[1]) - 40 / 14.4) < 2e-3);
   console.log("cdxml.check: ChemDraw's turned, bold and front shapes read");
+}
+
+// ChemDraw's turned text (CD-19): RotationAngle is degrees clockwise on the page times 65536, as in its samples (KMnO4
+// on a bond at 54°); Octet turns anticlockwise, so it reads -54, and writes it back the same.
+{
+  const file = `<?xml version="1.0" encoding="UTF-8" ?><CDXML BondLength="14.40" CaptionFont="3" CaptionSize="10"><fonttable><font id="3" name="Arial"/></fonttable><page id="1" BoundingBox="0 0 540 720">
+<t id="2" p="345.14 363.88" RotationAngle="3538944"><s font="3" size="10">KMnO4</s></t></page></CDXML>`;
+  const { mol, lost } = fromCdxml(file);
+  assert.deepEqual([lost, mol.captions![0].angle], [{}, -54]);
+  assert.ok(/RotationAngle="3538944"/.test(toCdxml(mol, DEFAULT_STYLE)));
+  console.log("cdxml.check: ChemDraw's turned text read and written");
 }
 
 // Hostile files are refused with a message, or read with the bad parts left out; nothing is expanded or fetched.

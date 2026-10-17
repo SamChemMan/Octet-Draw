@@ -173,6 +173,17 @@ console.log("render.check: written labels ok");
   console.log("render.check: turned and bold shapes ok");
 }
 
+// A turned caption (CD-19) turns about its anchor on the first baseline: its frame is the level box, and its box is
+// the box round the frame turned (a quarter turn anticlockwise puts its width up the page).
+{
+  const mol: Mol = { atoms: [], bonds: [], captions: [{ id: 1, text: "Turned", x: 0, y: 0, align: "left", angle: 90 }] };
+  const [c] = placeCaptions(mol, { ink: [], scale: S.bond }, () => 50);
+  assert.ok(Math.hypot(...c.pivot!) === 0);
+  const f = c.frame!, b = c.box;
+  assert.ok(Math.abs(b[0] - f[1]) < 1e-9 && Math.abs(b[1] - -f[2]) < 1e-9 && Math.abs(b[2] - f[3]) < 1e-9 && Math.abs(b[3] - -f[0]) < 1e-9, "box round the turned frame");
+  console.log("render.check: turned captions ok");
+}
+
 // Document label options: terminal carbons labelled (CH3), every carbon labelled, and implicit H hidden.
 {
   const propane: Mol = { atoms: [{ label: "C", location: [0, 0, 0] }, { label: "C", location: [0.866, 0.5, 0] }, { label: "C", location: [1.732, 0, 0] }, { label: "O", location: [2.598, 0.5, 0] }],

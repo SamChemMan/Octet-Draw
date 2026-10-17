@@ -152,6 +152,9 @@ console.log("file.check: bad files refused");
   assert.deepEqual({ font: back.font, runs: back.runs }, { font: cap.font, runs: cap.runs });
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, captions: [{ text: "H2O", x: 0, y: 0, runs: [{ text: "CO2" }] }] })), /damaged/);
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, captions: [{ text: "H", x: 0, y: 0, runs: [{ text: "H", onclick: "x" }] }] })), /damaged/);
+  // A turned caption keeps its turn (CD-19); a turn that is not a number is refused.
+  assert.equal(parse(serialize({ ...mol, captions: [{ id: 4, text: "x", x: 0, y: 0, angle: -54 }] })).captions![0].angle, -54);
+  assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, captions: [{ text: "x", x: 0, y: 0, angle: "up" }] })), /damaged/);
   console.log("file.check: rich text ok");
 }
 

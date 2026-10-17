@@ -53,7 +53,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, ELLIPSES, Palette, pickHead, RingGlyph, RINGS, SELECTS, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, fitArrows, headBarb, headSize, sizeOf, sizedHead, turnedWith, turns, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
+import { arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, fitArrows, headBarb, headSize, sizeOf, sizedHead, turnedWith, turnPx, turns, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
 import { loadNames, nameToSmiles, suggestName } from "./names";
 import { checkedName, graphOf, setNamer } from "./naming";
@@ -168,7 +168,7 @@ function drawnRings(m: Mol): number[][] {
 }
 
 // A caption's anchor in drawing coordinates: the start, middle or end of its first baseline.
-const anchorOf = (c: Placed): P => [(c.anchor === "start" ? c.box[0] : c.anchor === "end" ? c.box[2] : (c.box[0] + c.box[2]) / 2) / L, -c.lines[0].y / L];
+const anchorOf = (c: Placed): P => { const b = c.frame ?? c.box; return [(c.anchor === "start" ? b[0] : c.anchor === "end" ? b[2] : (b[0] + b[2]) / 2) / L, -c.lines[0].y / L]; };
 const union = (boxes: Box[]): Box | undefined => boxes.length ? [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))] : undefined;
 // The draft caption being typed sorts after every real one.
 const DRAFT = Number.MAX_SAFE_INTEGER;
@@ -260,11 +260,12 @@ const formulaWidth = (text: string, size: number, bold?: boolean, italic?: boole
 // A caption's text on the canvas. It draws again only when its layout or look changes, so typing in one caption
 // passes over all the others. reagent: its counts print as subscripts (reaction conditions, a cycle's reagents).
 const samePlaced = (a: Placed, b: Placed) => a === b || (a.id === b.id && a.size === b.size && a.bold === b.bold && a.italic === b.italic && a.underline === b.underline
-  && a.colour === b.colour && a.anchor === b.anchor && a.font === b.font && a.lines.length === b.lines.length
+  && a.colour === b.colour && a.anchor === b.anchor && a.font === b.font && a.angle === b.angle && a.lines.length === b.lines.length
   && a.lines.every((l, j) => l.text === b.lines[j].text && l.x === b.lines[j].x && l.y === b.lines[j].y && JSON.stringify(l.runs) === JSON.stringify(b.lines[j].runs)));
 type CaptionProps = { c: Placed; fill: string; font: string; reagent: boolean; pt: number };
 const CaptionText = memo(({ c, fill, font, reagent, pt }: CaptionProps) => (
-  <text className="caption" textAnchor={c.anchor} textDecoration={c.underline ? "underline" : undefined} fill={fill} style={{ font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${c.size}px ${font}` }}>
+  <text className="caption" textAnchor={c.anchor} textDecoration={c.underline ? "underline" : undefined} fill={fill} style={{ font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${c.size}px ${font}` }}
+    transform={c.angle && c.pivot ? `rotate(${-c.angle} ${c.pivot[0]} ${c.pivot[1]})` : undefined}>
     {c.lines.map((l, j) => <tspan key={j} x={l.x} y={l.y}>{l.runs ? richSpans(l.runs, c.size, pt) : reagent ? formula(l.text, c.size) : l.text}</tspan>)}
   </text>
 ), (a: CaptionProps, b: CaptionProps) => a.fill === b.fill && a.font === b.font && a.reagent === b.reagent && a.pt === b.pt && samePlaced(a.c, b.c));
@@ -1308,8 +1309,12 @@ export default function Editor() {
   }
   // The caption under a point (drawing coordinates), with a few px of slack.
   const captionAt = (p: P) => {
-    const [x, y] = [p[0] * L, -p[1] * L], pad = 3 / views.get().zoom;
-    return [...placed].reverse().find((c) => c.id !== DRAFT && x >= c.box[0] - pad && x <= c.box[2] + pad && y >= c.box[1] - pad && y <= c.box[3] + pad)?.id;
+    const at: P = [p[0] * L, -p[1] * L], pad = 3 / views.get().zoom;
+    // A turned caption: the point turned back about its pivot, against its own box.
+    return [...placed].reverse().find((c) => {
+      const [x, y] = c.angle && c.pivot ? turnPx(at, c.pivot, -c.angle) : at, b = c.frame ?? c.box;
+      return c.id !== DRAFT && x >= b[0] - pad && x <= b[2] + pad && y >= b[1] - pad && y <= b[3] + pad;
+    })?.id;
   };
   // A reaction around an arrow, from what is drawn now: structures' and captions' boxes in drawing units.
   const reactionOf = (arrowId: number) => findReaction(doc, arrowId, arrows,
@@ -1553,7 +1558,12 @@ export default function Editor() {
     set({
       ...doc,
       atoms: doc.atoms.map((a, i) => (atoms.has(i) ? { ...a, location: [...by([a.location[0], a.location[1]]), (a.location[2] ?? 0) * scale] as [number, number, number] } : a)),
-      captions: doc.captions?.map((c) => (items.has(c.id) && !c.under && !c.on && !c.cycle ? { ...c, ...(([x, y]) => ({ x, y }))(by([c.x, c.y])) } : c)),
+      // Free captions move, and turn with a turn; ones placed by rule (under a structure, on an arrow) stay level.
+      captions: doc.captions?.map((c) => {
+        if (!items.has(c.id) || c.under || c.on || c.cycle) return c;
+        const [x, y] = by([c.x, c.y]), angle = degrees ? ((((c.angle ?? 0) + degrees + 540) % 360) - 180) : c.angle;
+        return { ...c, x, y, angle: angle && Math.abs(angle) > 1e-9 ? angle : undefined };
+      }),
       arrows: doc.arrows?.map((a) => (items.has(a.id) ? { ...a, from: by(a.from), to: by(a.to), ...(a.curve ? { curve: { ...a.curve, points: a.curve.points.map((q) => ({ at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) } : a)),
       shapes: doc.shapes?.map((x) => {
         if (!items.has(x.id)) return x;
@@ -3348,8 +3358,8 @@ export default function Editor() {
   const captionMark = (id: number, key: string, cls: string) => {
     const c = placed.find((x) => x.id === id);
     if (!c) return null;
-    const pad = 0.12 * L;
-    return <rect key={key} className={cls} x={c.box[0] - pad} y={c.box[1] - pad} width={c.box[2] - c.box[0] + 2 * pad} height={c.box[3] - c.box[1] + 2 * pad} rx={pad} />;
+    const pad = 0.12 * L, b = c.frame ?? c.box;
+    return <rect key={key} className={cls} x={b[0] - pad} y={b[1] - pad} width={b[2] - b[0] + 2 * pad} height={b[3] - b[1] + 2 * pad} rx={pad} transform={c.angle && c.pivot ? `rotate(${-c.angle} ${c.pivot[0]} ${c.pivot[1]})` : undefined} />;
   };
   // An arrow's mark: a wide soft line along it.
   const arrowMark = (id: number, key: string, cls: string) => {
@@ -3926,7 +3936,8 @@ export default function Editor() {
         // The caption box sits exactly over the caption, in its font at the current zoom, so typing is in place.
         const c = placed.find((x) => x.id === (writing.id ?? DRAFT));
         if (!c) return null;
-        const z = view.zoom, size = c.size * z, slack = 0.5 * size;
+        // A turned caption's box turns with it, about its pivot.
+        const z = view.zoom, size = c.size * z, slack = 0.5 * size, b = c.frame ?? c.box, left = view.x + b[0] * z - slack, top = view.y + (c.lines[0].y - 0.9465 * c.size) * z;
         return (
           <RichBox
             returnNewLine={!settings.captionOptionReturn}
@@ -3941,9 +3952,9 @@ export default function Editor() {
               fontSize: r.size ? `${r.size * pt * z * (r.script ? 0.75 : 1)}px` : r.script ? "75%" : "",
             })}
             style={{
-              left: view.x + c.box[0] * z - slack,
-              top: view.y + (c.lines[0].y - 0.9465 * c.size) * z,
-              width: (c.box[2] - c.box[0]) * z + 2 * slack,
+              left, top,
+              width: (b[2] - b[0]) * z + 2 * slack,
+              ...(c.angle && c.pivot ? { transform: `rotate(${-c.angle}deg)`, transformOrigin: `${view.x + c.pivot[0] * z - left}px ${view.y + c.pivot[1] * z - top}px` } : {}),
               height: c.lines.length * 1.2 * size,
               font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${size}px/1.2 ${fontStack(c.font ?? style.captionFont)}`,
               color: c.colour ?? style.colour,
