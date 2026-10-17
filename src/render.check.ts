@@ -1,6 +1,6 @@
 // Run: node src/render.check.ts. Fails loudly if the ACS drawing rules break.
 import assert from "node:assert/strict";
-import { arrowShapes, fitArrows, lineOffsets, placeCaptions, render, renderParts, type Box, type Drawing, type Ink, type Mol, type PartCache } from "./render.ts";
+import { arrowShapes, fitArrows, lineOffsets, placeCaptions, render, renderParts, type Caption, type Box, type Drawing, type Ink, type Mol, type PartCache } from "./render.ts";
 
 type P = [number, number];
 const pt = 4 / 3;
@@ -214,5 +214,19 @@ console.log("render.check: written labels ok");
   const v = lineOffsets({ ...big, lineHeight: "variable" }, 10, 1);
   assert.ok(v[1] > 12 && v[1] < 24, `variable: between the two sizes' spacing (${v[1]})`);
   console.log("render.check: line spacing ok");
+}
+
+// A caption with a width wraps to it, and a justified one fills it on every line but the last.
+{
+  const pc = (align: Caption["align"]) => placeCaptions({ atoms: [], bonds: [], captions: [{ id: 1, text: "aa bb cc dd", x: 0, y: 0, width: 6 / 19.2, align }] }, { ink: [], scale: 19.2 },
+    (t) => t.length, [], 1, 10, new Map(), (t) => t.length)[0];
+  const left = pc("left");
+  assert.deepEqual(left.lines.map((l) => l.text), ["aa bb", "cc dd"]);
+  assert.ok(left.lines.every((l) => !l.spacing));
+  const full = pc("justify");
+  assert.equal(full.anchor, "start");
+  assert.ok(Math.abs(full.lines[0].spacing! - 1) < 1e-9, "the first line's one space takes the one spare px");
+  assert.equal(full.lines[1].spacing, undefined, "the last line is not spread");
+  console.log("render.check: caption width ok");
 }
 

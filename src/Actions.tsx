@@ -8,7 +8,7 @@ import {
   AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, ArrowsInSimple, ArrowClockwise, ArrowsClockwise, ArrowsDownUp, CaretRight, SignIn, SignOut, ArrowCounterClockwise, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretUpDown,
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAa, TextAlignCenter, TextAlignLeft,
-  TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Eraser, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
+  TextAlignJustify, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Eraser, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
@@ -28,7 +28,7 @@ export type Context =
   | { kind: "selection"; count: number; atoms: boolean }
   | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; cip?: boolean; numbers?: boolean; halo?: string; fill?: string }
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
-  | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right"; attached: boolean; attachable: boolean;
+  | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
       script?: "sub" | "super"; font?: string; fonts?: string[] }
   | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
       heads: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string }
@@ -573,8 +573,8 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           <button className="chip" aria-label="Formula" title={`Formula: counts become subscripts (${hint("caption.formula")})`} onClick={() => run("caption.formula")}><span className="glyph-text">H<sub>2</sub>O</span></button>
           {context.fonts && <div className="size font"><FontPick label="Font" font={context.font ?? context.fonts[0]} fonts={context.fonts} onPick={(f) => run(`caption.font.${f}`)} /></div>}
           <SizeButton size={context.size} run={run} />
-          {([["left", "Align left", <TextAlignLeft size={16} />], ["centre", "Centre", <TextAlignCenter size={16} />], ["right", "Align right", <TextAlignRight size={16} />]] as const).map(([id, name, icon]) => (
-            <button key={id} className="chip" aria-pressed={context.align === id} aria-label={name} title={name} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
+          {([["left", "Align left", <TextAlignLeft size={16} />], ["centre", "Centre", <TextAlignCenter size={16} />], ["right", "Align right", <TextAlignRight size={16} />], ["justify", "Justify", <TextAlignJustify size={16} />]] as const).map(([id, name, icon]) => (
+            <button key={id} className="chip" aria-pressed={context.align === id} aria-label={name} title={hint(`caption.align.${id}`) ? `${name} (${hint(`caption.align.${id}`)})` : name} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
           ))}
         </div>
       )}

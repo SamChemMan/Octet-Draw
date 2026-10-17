@@ -2,7 +2,7 @@ import { Fragment, memo, useEffect, useMemo, useReducer, useRef, useState, useSy
 import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Waveform, TagSimple, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
   FrameCorners, GearSix, Keyboard, Lasso, LinkSimple, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
-  TextAlignCenter, TextAlignLeft, TextAlignRight, TextAa, TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
+  TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa, TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
   Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table, FileDashed, ArrowsLeftRight,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
@@ -101,7 +101,7 @@ const toPath = (polys: P[][]) => polys.map((poly) => "M" + poly.map(([x, y]) => 
 // A line, arc or orbital drawn the way arrows are: its kind, its bend for one sweep (signed by the drag), its style.
 type Make = { kind: "line" | "arc" | "orbital" | "cut"; bend?: number; style?: Arrow["style"]; orbital?: Arrow["orbital"] };
 // A handle: an arrow's ends or middle, or a shape's corners (c1 and c2 are the two it is not drawn from).
-type Corner = "from" | "to" | "bend" | "c1" | "c2";
+type Corner = "from" | "to" | "bend" | "c1" | "c2" | "width";
 // arrow: an arrow or a shape (they share ids).
 type Hover = { atom?: number; bond?: number; caption?: number; arrow?: number; cycle?: number; step?: number };
 const hitIn = (m: Mol, p: P): Hover => {
@@ -248,11 +248,11 @@ const formulaWidth = (text: string, size: number, bold?: boolean, italic?: boole
 // passes over all the others. reagent: its counts print as subscripts (reaction conditions, a cycle's reagents).
 const samePlaced = (a: Placed, b: Placed) => a === b || (a.id === b.id && a.size === b.size && a.bold === b.bold && a.italic === b.italic && a.underline === b.underline
   && a.colour === b.colour && a.anchor === b.anchor && a.font === b.font && a.lines.length === b.lines.length
-  && a.lines.every((l, j) => l.text === b.lines[j].text && l.x === b.lines[j].x && l.y === b.lines[j].y && JSON.stringify(l.runs) === JSON.stringify(b.lines[j].runs)));
+  && a.lines.every((l, j) => l.text === b.lines[j].text && l.x === b.lines[j].x && l.y === b.lines[j].y && l.spacing === b.lines[j].spacing && JSON.stringify(l.runs) === JSON.stringify(b.lines[j].runs)));
 type CaptionProps = { c: Placed; fill: string; font: string; reagent: boolean; pt: number };
 const CaptionText = memo(({ c, fill, font, reagent, pt }: CaptionProps) => (
   <text className="caption" textAnchor={c.anchor} textDecoration={c.underline ? "underline" : undefined} fill={fill} style={{ font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${c.size}px ${font}` }}>
-    {c.lines.map((l, j) => <tspan key={j} x={l.x} y={l.y}>{l.runs ? richSpans(l.runs, c.size, pt) : reagent ? formula(l.text, c.size) : l.text}</tspan>)}
+    {c.lines.map((l, j) => <tspan key={j} x={l.x} y={l.y} style={l.spacing ? { wordSpacing: l.spacing } : undefined}>{l.runs ? richSpans(l.runs, c.size, pt) : reagent ? formula(l.text, c.size) : l.text}</tspan>)}
   </text>
 ), (a: CaptionProps, b: CaptionProps) => a.fill === b.fill && a.font === b.font && a.reagent === b.reagent && a.pt === b.pt && samePlaced(a.c, b.c));
 
@@ -883,6 +883,7 @@ export default function Editor() {
     align_left: () => restyle(() => ({ align: "left" })),
     align_centre: () => restyle(() => ({ align: "centre" })),
     align_right: () => restyle(() => ({ align: "right" })),
+    align_justify: () => restyle(() => ({ align: "justify" })),
     // The Curves menu: line styles, heads at either end (again takes one off), and a closed curve's fill.
     ...Object.fromEntries(["plain", "dashed", "bold", "doubled"].map((st) => [`curves_${st}`, () => runAction(`arrow.style.${st}`)])),
     ...Object.fromEntries((["start", "end"] as const).flatMap((at) => (["full", "left", "right"] as const).map((h) => [`curves_${at}_${h}`, () => runAction(`arrow.${at}.${h}`)]))),
@@ -1119,7 +1120,9 @@ export default function Editor() {
     const same = (a: readonly Arrow[], b: readonly Arrow[]) => a.length === b.length && a.every((x, i) => x === b[i] || JSON.stringify(x) === JSON.stringify(b[i]));
     if (!same(fitted, laid.current.arrows)) laid.current.arrows = fitted;
     if (!same(cycles.arrows, laid.current.cycles)) laid.current.cycles = cycles.arrows;
-    return { placed: placeCaptions(m, drawing, width, fitted, pt, style.captionSize, cycles.anchors), arrows: laid.current.arrows, cycleArrows: laid.current.cycles };
+    // A piece of text in a run's style, for captions with a width (their lines wrap to it).
+    const measure = (t: string, c: Caption, r: RunStyle) => textWidth(t, (r.size ? r.size * pt : (c.size ?? style.captionSize) * pt) * (r.script ? 0.75 : 1), r.bold ?? c.bold, r.italic ?? c.italic, fontStack(r.font ?? c.font ?? style.captionFont));
+    return { placed: placeCaptions(m, drawing, width, fitted, pt, style.captionSize, cycles.anchors, measure), arrows: laid.current.arrows, cycleArrows: laid.current.cycles };
   }, [shown, drawing, writing, style, pt]);
   // The structure for the name being typed, where it will land (after the arrows and text, which landing reads).
   const ghost = useMemo(() => named && render(moveAtoms(named, new Set(named.atoms.map((_, i) => i)), landing(named)), frame, measure, L), [named, doc, frame, measure, placed, arrows]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1731,10 +1734,22 @@ export default function Editor() {
       return inside([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2]) || into > 0 || through;
     }).map((sh) => sh.id),
   ];
+  // A picked caption's width handle (ChemDraw's): on the side its lines run to, level with its middle, just outside its
+  // width (or the end of its longest line, when it has no width). Drag it to wrap the caption.
+  const HANDLE_GAP = 0.35; // em: the handle's clearance from the text
+  const widthHandle = (): { id: number; at: P; c: Placed } | undefined => {
+    const ids = [...picked], c = ids.length === 1 && !selection.size ? placed.find((x) => x.id === ids[0]) : undefined, w = c && shown.captions?.find((x) => x.id === c.id)?.width;
+    if (!c || writing) return undefined;
+    const x = c.lines[0].x, k = w ? w * L : 0, m = HANDLE_GAP * c.size;
+    const hx = c.anchor === "end" ? (w ? x - k : c.box[0]) - m : (c.anchor === "middle" ? (w ? x + k / 2 : c.box[2]) : w ? x + k : c.box[2]) + m;
+    return { id: c.id, at: [hx / L, -(c.box[1] + c.box[3]) / 2 / L], c };
+  };
   // The handle of the one picked arrow under a point: its ends, and the middle of a curved one.
   const handleAt = (p: P): { id: number; which: Corner } | undefined => {
     const ids = [...picked], a = ids.length === 1 && !selection.size ? arrows.find((x) => x.id === ids[0]) : undefined;
     const near = (q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) * L * views.get().zoom < 8;
+    const wh = widthHandle();
+    if (wh && near(wh.at)) return { id: wh.id, which: "width" };
     const sh = ids.length === 1 && !selection.size ? doc.shapes?.find((x) => x.id === ids[0]) : undefined;
     if (sh) return (Object.entries(corners(sh)) as [Corner, P][]).filter(([, q]) => near(q)).map(([which]) => ({ id: sh.id, which }))[0];
     if (!a || a.kind === "curve") return undefined;
@@ -1947,6 +1962,14 @@ export default function Editor() {
         return setDrag({ ...drag, to: e.shiftKey ? [drag.from[0] + Math.sign(w || 1) * side, drag.from[1] + Math.sign(h || 1) * side] : p });
       }
       case "handle": {
+        // A caption's width: from its anchor to the pointer (both ways from a centred caption's middle). Dragged out
+        // past its longest line, it has no width again.
+        const cap = drag.which === "width" ? placed.find((x) => x.id === drag.id) : undefined;
+        if (cap) {
+          const x = cap.lines[0].x / L, m = (HANDLE_GAP * cap.size) / L, d = cap.anchor === "end" ? x - p[0] - m : cap.anchor === "middle" ? 2 * (Math.abs(p[0] - x) - m) : p[0] - x - m;
+          const longest = Math.max(...(doc.captions?.find((c) => c.id === cap.id)?.text.split("\n") ?? []).map((t) => textWidth(t, cap.size, cap.bold, cap.italic, fontStack(cap.font ?? style.captionFont)))) / L;
+          return setDrag({ ...drag, working: updateCaption(doc, cap.id, { width: d >= longest ? undefined : Math.max(0.5, d) }) });
+        }
         const sh = doc.shapes?.find((x) => x.id === drag.id);
         if (sh) {
           const w = drag.which;
@@ -2514,7 +2537,7 @@ export default function Editor() {
   // The key to show beside an action: menu shortcuts, then the user's shortcut table.
   const MENU_KEYS: Record<string, string> = {
     invert_selection: `⇧${MOD}I`, clean_reaction: `⇧${MOD}X`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}/`, copy_smiles: `⌥${MOD}C`, copy: `${MOD}C`, delete: "⌫",
-    structure_to_name: `⌥${MOD}N`, bring_front: `${MOD}[`, send_back: `${MOD}]`,
+    structure_to_name: `⌥${MOD}N`, bring_front: `${MOD}[`, send_back: `${MOD}]`, "caption.align.justify": `⇧${MOD}J`,
     settings: `${MOD},`, name_to_structure: `⇧${MOD}N`, "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.sub": `${MOD}−`, "caption.super": `${MOD}+`, "caption.plain": `${MOD}T`, "caption.formula": `${MOD}F`, "caption.edit": keyLabel("enter"),
   };
   const hint = (command: string) => {
@@ -2571,6 +2594,7 @@ export default function Editor() {
     actions: [settings.actions ? "Hide the Actions panel" : "Show the Actions panel", undefined, <SlidersHorizontal size={18} />],
     text_bold: ["Bold", `${MOD}B`, <TextB size={18} />], text_italic: ["Italic", `${MOD}I`, <TextItalic size={18} />], text_underline: ["Underline", `${MOD}U`, <TextUnderline size={18} />],
     align_left: ["Flush left", `⇧${MOD}L`, <TextAlignLeft size={18} />], align_centre: ["Centre text", `⇧${MOD}C`, <TextAlignCenter size={18} />], align_right: ["Flush right", `⇧${MOD}R`, <TextAlignRight size={18} />],
+    align_justify: ["Justified", `⇧${MOD}J`, <TextAlignJustify size={18} />],
     font_other: ["Other font…", "", <TextAa size={18} />], size_other: ["Other size…", "", <TextT size={18} />], line_spacing: ["Line spacing…", "", <TextAlignLeft size={18} />],
     bring_front: ["Bring to front", `${MOD}[`, <StackSimple size={18} />], send_back: ["Send to back", `${MOD}]`, <Stack size={18} />],
   };
@@ -3683,8 +3707,9 @@ export default function Editor() {
             // A picked arrow's handles: its ends, and the middle of a curved one.
             const ids = [...picked], a = ids.length === 1 && !selection.size && drag?.kind !== "move" ? arrows.find((x) => x.id === ids[0]) : undefined;
             const sh = ids.length === 1 && !selection.size && drag?.kind !== "move" ? shown.shapes?.find((x) => x.id === ids[0]) : undefined;
-            if ((!a || a.kind === "curve") && !sh) return null;
-            const points = sh ? Object.values(corners(sh)) : [a!.from, a!.to, ...(curved(a!) ? [bendPoint(a!)] : [])];
+            const wh = drag?.kind === "move" ? undefined : widthHandle();
+            if ((!a || a.kind === "curve") && !sh && !wh) return null;
+            const points = wh ? [wh.at] : sh ? Object.values(corners(sh)) : [a!.from, a!.to, ...(curved(a!) ? [bendPoint(a!)] : [])];
             return points.map((q, i) => <circle key={`hd${i}`} className="handle" cx={q[0] * L} cy={-q[1] * L} r={4 / view.zoom} vectorEffect="non-scaling-stroke" />);
           })()}
           {(() => {
@@ -3810,6 +3835,9 @@ export default function Editor() {
         // Its lines as far apart as the caption's line spacing puts them (the first two lines' gap), each baseline where
         // the canvas draws it: the leading split above and below Arial's ascent and descent.
         const z = view.zoom, size = c.size * z, slack = 0.5 * size, gap = c.lines.length > 1 ? c.lines[1].y - c.lines[0].y : 1.2 * c.size, lead = (gap - 1.117 * c.size) / 2 + 0.905 * c.size;
+        // A caption with a width wraps in the box as it does on the canvas: the box is that wide, from its anchor.
+        const own = writing.id !== undefined ? doc.captions?.find((x) => x.id === writing.id) : undefined, wrapAt = (writing.style.width ?? own?.width ?? 0) * L;
+        const x0 = !wrapAt ? c.box[0] : c.anchor === "end" ? c.lines[0].x - wrapAt : c.anchor === "middle" ? c.lines[0].x - wrapAt / 2 : c.lines[0].x;
         return (
           <RichBox
             returnNewLine={!settings.captionOptionReturn}
@@ -3824,15 +3852,16 @@ export default function Editor() {
               fontSize: r.size ? `${r.size * pt * z * (r.script ? 0.75 : 1)}px` : r.script ? "75%" : "",
             })}
             style={{
-              left: view.x + c.box[0] * z - slack,
+              left: view.x + x0 * z - slack,
               top: view.y + (c.lines[0].y - lead) * z,
-              width: (c.box[2] - c.box[0]) * z + 2 * slack,
+              width: (wrapAt || c.box[2] - c.box[0]) * z + 2 * slack,
+              whiteSpace: wrapAt ? "pre-wrap" : undefined,
               height: c.lines.length * gap * z,
               font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${size}px/${gap * z}px ${fontStack(c.font ?? style.captionFont)}`,
               color: c.colour ?? style.colour,
               padding: `0 ${slack}px`,
               textDecoration: c.underline ? "underline" : undefined,
-              textAlign: c.anchor === "start" ? "left" : c.anchor === "end" ? "right" : "center",
+              textAlign: (writing.style.align ?? own?.align) === "justify" ? "justify" : c.anchor === "start" ? "left" : c.anchor === "end" ? "right" : "center",
             }}
             onRuns={(runs, rebuild) => setWriting((w) => w && { ...w, runs, value: plainOf(runs), ...(rebuild ? { version: (w.version ?? 0) + 1, caret: rebuild, pending: undefined } : {}) })}
             onKeyDown={(e) => {

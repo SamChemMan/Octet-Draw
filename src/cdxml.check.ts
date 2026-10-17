@@ -46,6 +46,7 @@ const captions: Caption[] = [
   { id: 6, text: "DMF, 80 °C\n12 h", x: 0, y: 0, on: { arrow: 101, side: "below" }, lineHeight: "variable" },
   { id: 7, text: "ArB(OH)2", x: 23, y: 3, cycle: { cycle: 300, step: 0, side: "in" } },
   { id: 8, text: `a < b & "c" 'd' > e`, x: 2, y: -6, align: "right" },
+  { id: 9, text: "A caption with a width, justified", x: 10, y: -8, align: "justify", width: 4 },
 ];
 const arrow = (id: number, kind: Arrow["kind"], from: [number, number], to: [number, number], more: Partial<Arrow> = {}): Arrow => ({ id, kind, from, to, ...more });
 const arrows: Arrow[] = [

@@ -88,3 +88,41 @@ export function lines(runs: TextRun[]): TextRun[][] {
   }
   return out;
 }
+
+// Soft line breaks for a caption with a width (ChemDraw's caption width): each line breaks at the last space that
+// keeps it no wider than max, and a word wider than max goes on a line of its own. A breaking space becomes a line
+// break, so every character keeps its place. width: how wide a piece of text is in a run's style. soft: the places
+// of the breaks made.
+export function wrap(runs: TextRun[], max: number, width: (text: string, style: RunStyle) => number): { runs: TextRun[]; soft: number[] } {
+  const text = plainOf(runs), soft: number[] = [];
+  const measure = (a: number, b: number) => {
+    let w = 0, at = 0;
+    for (const r of runs) {
+      const s = Math.max(a, at), e = Math.min(b, at + r.text.length);
+      if (e > s) w += width(r.text.slice(s - at, e - at), styleOf(r));
+      at += r.text.length;
+    }
+    return w;
+  };
+  let start = 0;
+  for (const line of text.split("\n")) {
+    const end = start + line.length;
+    let from = start;
+    while (measure(from, end) > max) {
+      let brk = -1;
+      for (let i = from + 1; i < end; i++) {
+        if (text[i] !== " ") continue;
+        if (measure(from, i) <= max || brk < 0) brk = i;
+        if (measure(from, i) > max) break;
+      }
+      if (brk < 0) break;
+      soft.push(brk);
+      from = brk + 1;
+    }
+    start = end + 1;
+  }
+  if (!soft.length) return { runs, soft };
+  const breaks = new Set(soft);
+  let at = 0;
+  return { runs: runs.map((r) => { const t = r.text.split("").map((ch, k) => (breaks.has(at + k) ? "\n" : ch)).join(""); at += r.text.length; return { ...r, text: t }; }), soft };
+}

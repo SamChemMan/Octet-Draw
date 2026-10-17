@@ -16,7 +16,7 @@ export const UI = [
 const INHERITED = [
   "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity", "stroke-dasharray", "stroke-dashoffset",
   "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "paint-order", "font-family", "font-size", "font-style",
-  "font-weight", "text-anchor", "letter-spacing", "visibility",
+  "font-weight", "text-anchor", "letter-spacing", "word-spacing", "visibility",
 ];
 // The rest: written where they differ from the default (as WebKit or Chromium reports it).
 const OWN: [string, string[]][] = [

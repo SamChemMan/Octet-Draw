@@ -605,7 +605,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   const stacked = new Map<string, number>();
   for (const c of captions) {
     zOrder = c.order;
-    const size = c.size ?? style.captionSize, align = c.align ?? "centre", lines = c.text.split("\n").length;
+    const size = c.size ?? style.captionSize, align = c.align === "justify" ? "left" : c.align ?? "centre", lines = c.text.split("\n").length;
     let [x, y] = [c.x, c.y];
     const arrow = c.on && mol.arrows?.find((a) => a.id === c.on!.arrow);
     const atoms = (c.under ?? []).filter((i) => i < mol.atoms.length);
@@ -622,11 +622,13 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const p = at([x, y]), runs = runsOf(c), whole: RunStyle = { bold: c.bold || undefined, italic: c.italic || undefined, underline: c.underline || undefined };
     const width = Math.max(...c.text.split("\n").map((l) => widthOf(l, size))), left = align === "left" ? p[0] : align === "right" ? p[0] - width : p[0] - width / 2;
     const box: Box = [left, p[1] - 0.716 * size, left + width, p[1] + (lines - 1) * 1.15 * size + 0.212 * size];
-    const just = align === "centre" ? "Center" : align === "right" ? "Right" : undefined, cf = face(whole);
+    const just = c.align === "justify" ? "Full" : align === "centre" ? "Center" : align === "right" ? "Right" : undefined, cf = face(whole);
     put(el("t", {
       id: idOf.get(c.id)!, p: pt(p), BoundingBox: boxText(box), Z: Z(), color: colour(c.colour), CaptionFont: c.font ? font(c.font) : undefined, CaptionSize: c.size, CaptionFace: cf || undefined,
+      WordWrapWidth: c.width ? Math.round(c.width * B) : undefined,
       CaptionJustification: just, Justification: just, LineHeight: c.lineHeight === "variable" ? "variable" : typeof c.lineHeight === "number" ? fmtSize(c.lineHeight) : "auto",
-      Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined }),
+      Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined,
+        width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined }),
     }, runs.map((r) => run(r.text, { font: r.font ?? c.font ?? style.captionFont, size: r.size ?? size, colour: r.colour ?? c.colour, face: face({ ...whole, ...r }) })).join("")), 2, box, c.id);
   }
 
@@ -1070,7 +1072,10 @@ export function fromCdxml(text: string): CdxmlRead {
     const [x, y] = Array.isArray(xy) && xy.length === 2 && xy.every((v) => isNum(v, -1e6, 1e6)) ? (xy as P) : toOctet(q[0], q[1]);
     const c: Caption & { z: number } = { id: newId(t), text, x, y, z: zOf(t) };
     for (const k of ["bold", "italic", "underline", "size", "colour", "font"] as const) if (whole[k] !== undefined) (c as Record<string, unknown>)[k] = whole[k];
-    if (just === "Right") c.align = "right"; else if (just !== "Center") c.align = "left";
+    if (just === "Right") c.align = "right"; else if (just === "Full") c.align = "justify"; else if (just !== "Center") c.align = "left";
+    // A width, in pt (spec WordWrapWidth): the caption wraps to it.
+    const wrapAt = int(t.attrs.WordWrapWidth);
+    if (wrapAt !== undefined && wrapAt >= B / 2 && wrapAt <= 1000 * B) c.width = isNum(p?.width, 0.5, 1000) ? (p!.width as number) : wrapAt / B;
     // Line spacing: auto (Octet's default), variable, or fixed in pt.
     const lh = t.attrs.LineHeight ?? t.attrs.CaptionLineHeight, fixed = real(lh);
     if (lh === "variable") c.lineHeight = "variable"; else if (fixed !== undefined && fixed >= 1 && fixed <= 400) c.lineHeight = fixed;

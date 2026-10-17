@@ -8,7 +8,7 @@
 
 import { units } from "./labels.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
-import { lines as richLines, type TextRun } from "./richtext.ts";
+import { lines as richLines, plainOf, runsOf, wrap, type RunStyle, type TextRun } from "./richtext.ts";
 import type { DocStyle } from "./docstyle.ts";
 import type { Cycle, CycleText } from "./cycle.ts";
 
@@ -49,13 +49,14 @@ export type Bond = { type: number; atoms: [number, number]; stereo?: number; dis
 // on: conditions text, kept centred above or below an arrow (by the arrow's id).
 export type Caption = {
   id: number; text: string; x: number; y: number;
-  bold?: boolean; italic?: boolean; underline?: boolean; size?: number; align?: "left" | "centre" | "right"; under?: number[];
+  bold?: boolean; italic?: boolean; underline?: boolean; size?: number; align?: "left" | "centre" | "right" | "justify"; under?: number[];
   on?: { arrow: number; side: "above" | "below" };
   colour?: string; // #rrggbb; unset uses the document's text colour
   cycle?: CycleText; // a catalytic cycle's centre label, or a reagent or product on one of its steps
   font?: string; // the caption's font; unset uses the document's caption font
   runs?: TextRun[]; // the text in runs, each with its own style (rich text); text is always their text joined
   order?: number; // draw order (order.ts)
+  width?: number; // the caption's width (bond lengths): its lines wrap to it, and justified lines fill it
   // Line spacing (ChemDraw's Text > Line Spacing): unset is Automatic (every line as far apart as the caption's
   // largest text needs), variable (each line as far from the last as their own text needs), or fixed, in pt.
   lineHeight?: "variable" | number;
@@ -908,19 +909,24 @@ export function lineOffsets(c: Pick<Caption, "lineHeight" | "runs" | "text">, si
 }
 export type Placed = {
   id: number; size: number; bold?: boolean; italic?: boolean; underline?: boolean; colour?: string; anchor: "start" | "middle" | "end"; font?: string;
-  lines: { text: string; x: number; y: number; runs?: TextRun[] }[]; box: Box;
+  lines: { text: string; x: number; y: number; runs?: TextRun[]; spacing?: number }[]; box: Box; // spacing: a justified line's extra space per space (px)
   order?: number; // the caption's draw order (order.ts)
 };
 // pt: px per point in the drawing frame; size: the document's caption size in pt.
-// fixed: where captions placed by something else (a cycle's labels) go, in px.
+// fixed: where captions placed by something else (a cycle's labels) go, in px. measure: how wide a piece of text is
+// in a run's style (px), for captions with a width; without it they do not wrap.
 export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width: (text: string, c: Caption, line: number) => number, arrows: Arrow[] = mol.arrows ?? [], pt = 4 / 3, defaultSize = CAPTION_PT,
-  fixed: Map<number, { x: number; y: number; anchor: Placed["anchor"] }> = new Map()): Placed[] {
+  fixed: Map<number, { x: number; y: number; anchor: Placed["anchor"] }> = new Map(), measure?: (text: string, c: Caption, style: RunStyle) => number): Placed[] {
   const k = d.scale, below = new Map<string, number>(); // the next free baseline under each structure
   const beside = new Map<string, number>(); // how far the conditions on each side of each arrow already reach
   const order = (c: Caption) => (isNumber(c) ? 0 : 1);
-  return [...(mol.captions ?? [])].sort((a, b) => order(a) - order(b) || a.id - b.id).flatMap((c) => {
+  return [...(mol.captions ?? [])].sort((a, b) => order(a) - order(b) || a.id - b.id).flatMap((given) => {
+    // A caption with a width wraps to it: its soft breaks become lines here, and the lines they end are justified.
+    const wrapped = given.width && measure ? wrap(runsOf(given), given.width * k, (t, s) => measure(t, given, s)) : undefined;
+    const c = wrapped?.soft.length ? { ...given, text: plainOf(wrapped.runs), ...(given.runs ? { runs: wrapped.runs } : {}) } : given;
+    const softLines = new Set((wrapped?.soft ?? []).map((p) => c.text.slice(0, p).split("\n").length - 1));
     const size = (c.size ?? defaultSize) * pt, lines = c.text.split("\n"), align = c.align ?? "centre", offs = lineOffsets(c, size, pt);
-    const anchor = align === "left" ? "start" : align === "right" ? "end" : "middle";
+    const anchor = align === "left" || align === "justify" ? "start" : align === "right" ? "end" : "middle";
     let x: number, y: number, anchorOverride: Placed["anchor"] | undefined;
     const arrow = c.on && arrows.find((a) => a.id === c.on!.arrow);
     if (c.on && !arrow) return [];
@@ -951,17 +957,19 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
       if (!atoms.length) return [];
       const b: Box = [Math.min(...atoms.map((i) => d.ink[i][0])), Math.min(...atoms.map((i) => d.ink[i][1])), Math.max(...atoms.map((i) => d.ink[i][2])), Math.max(...atoms.map((i) => d.ink[i][3]))];
       const key = [...c.under].sort((p, q) => p - q).join(" ");
-      x = align === "left" ? b[0] : align === "right" ? b[2] : (b[0] + b[2]) / 2;
+      x = align === "left" || align === "justify" ? b[0] : align === "right" ? b[2] : (b[0] + b[2]) / 2;
       y = below.get(key) ?? b[3] + GAP_PT * pt;
       below.set(key, y + offs[offs.length - 1] + LINE * size);
     } else [x, y] = [c.x * k, -c.y * k];
     const at = anchorOverride ?? anchor;
-    const widths = lines.map((t, j) => width(t, c, j)), w = Math.max(...widths);
+    const widths = lines.map((t, j) => width(t, c, j)), full = align === "justify" && softLines.size ? c.width! * k : 0, w = Math.max(full, ...widths);
     const runLines = c.runs ? richLines(c.runs) : undefined;
     const left = at === "start" ? x : at === "end" ? x - w : x - w / 2;
+    // A justified line (one a soft break ends) spreads its spaces to fill the width.
+    const spacing = (j: number) => { const gaps = lines[j].split(" ").length - 1; return full && softLines.has(j) && gaps ? { spacing: (full - widths[j]) / gaps } : {}; };
     return [{
       id: c.id, size, bold: c.bold, italic: c.italic, underline: c.underline, colour: c.colour, anchor: at, font: c.font, ...(c.order ? { order: c.order } : {}),
-      lines: lines.map((text, j) => ({ text, x, y: y + offs[j], ...(runLines ? { runs: runLines[j] ?? [] } : {}) })),
+      lines: lines.map((text, j) => ({ text, x, y: y + offs[j], ...(runLines ? { runs: runLines[j] ?? [] } : {}), ...spacing(j) })),
       box: [left, y - ASCENT * size, left + w, y + offs[offs.length - 1] + DESCENT * size],
     }];
   });

@@ -29,7 +29,7 @@ export function serialize(mol: Mol): string {
   const captions = [...(mol.captions ?? [])].sort((a, b) => a.id - b.id).map((c) => ({
     text: c.text, x: round(c.x), y: round(c.y), ...(c.bold ? { bold: true } : {}), ...(c.italic ? { italic: true } : {}), ...(c.underline ? { underline: true } : {}),
     ...(c.size ? { size: c.size } : {}), ...(c.align ? { align: c.align } : {}), ...(c.under ? { under: c.under } : {}), ...(c.colour ? { colour: c.colour } : {}),
-    ...(c.font ? { font: c.font } : {}), ...(c.runs ? { runs: c.runs } : {}), ...(c.order ? { order: c.order } : {}), ...(c.lineHeight ? { lineHeight: c.lineHeight } : {}),
+    ...(c.font ? { font: c.font } : {}), ...(c.runs ? { runs: c.runs } : {}), ...(c.order ? { order: c.order } : {}), ...(c.lineHeight ? { lineHeight: c.lineHeight } : {}), ...(c.width ? { width: round(c.width) } : {}),
     ...(c.on ? { on: { arrow: arrowList.findIndex((a) => a.id === c.on!.arrow), side: c.on.side } } : {}),
     ...(c.cycle ? { cycle: { cycle: cycleList.findIndex((x) => x.id === c.cycle!.cycle), step: c.cycle.step, side: c.cycle.side } } : {}),
   }));
@@ -257,7 +257,7 @@ function readCaptions(raw: unknown, out: Mol, num: (v: unknown) => boolean, int:
     if (typeof c?.text !== "string" || c.text.length > MAX_TEXT || /[\u0000-\u0009\u000b-\u001f]/.test(c.text) || !num(c.x) || !num(c.y)
       || (c.bold !== undefined && typeof c.bold !== "boolean") || (c.italic !== undefined && typeof c.italic !== "boolean") || (c.underline !== undefined && typeof c.underline !== "boolean")
       || (c.size !== undefined && !(num(c.size) && (c.size as number) >= 4 && (c.size as number) <= 144))
-      || (c.align !== undefined && !["left", "centre", "right"].includes(c.align as string))
+      || (c.align !== undefined && !["left", "centre", "right", "justify"].includes(c.align as string))
       || (c.colour !== undefined && !(typeof c.colour === "string" && /^#[0-9a-f]{6}$/i.test(c.colour)))
       || (under !== undefined && (!Array.isArray(under) || !under.length || under.length > out.atoms.length || !under.every((i) => int(i, 0, out.atoms.length - 1))))
       || (on !== undefined && (!int(on?.arrow, 0, (out.arrows?.length ?? 0) - 1) || (on.side !== "above" && on.side !== "below")))
@@ -275,6 +275,8 @@ function readCaptions(raw: unknown, out: Mol, num: (v: unknown) => boolean, int:
     Object.assign(caption, orderOf(c.order));
     // Line spacing: variable, or fixed from 1 to 400 pt; anything else is Automatic.
     if (c.lineHeight === "variable" || (typeof c.lineHeight === "number" && c.lineHeight >= 1 && c.lineHeight <= 400)) caption.lineHeight = c.lineHeight;
+    // A width from half a bond length to 1000 bond lengths; anything else leaves the caption unwrapped.
+    if (typeof c.width === "number" && c.width >= 0.5 && c.width <= 1000) caption.width = c.width;
     if (under) caption.under = under as number[];
     if (on) caption.on = { arrow: out.arrows![on.arrow as number].id, side: on.side as "above" | "below" };
     if (cyc) caption.cycle = { cycle: out.cycles![cyc.cycle as number].id, step: cyc.step as number, side: cyc.side as "in" | "out" | "centre" };

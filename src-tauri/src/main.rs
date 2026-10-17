@@ -373,6 +373,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("align_left", "Flush Left", "CmdOrCtrl+Shift+L")?,
         &item("align_centre", "Centre", "CmdOrCtrl+Shift+C")?,
         &item("align_right", "Flush Right", "CmdOrCtrl+Shift+R")?,
+        &item("align_justify", "Justified", "CmdOrCtrl+Shift+J")?,
         &sep()?,
         &size,
         &item("line_spacing", "Line Spacing…", "")?,
