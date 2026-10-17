@@ -35,7 +35,8 @@ export type Atom = {
 };
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 // On a double bond: bold makes the main line bold, dashed the second line dashed, either crosses the two lines.
-export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow" | "either";
+// A double bond's dashed (ChemDraw's Tautomeric: the second line dashed) and aromatic (both lines dashed) displays.
+export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow" | "either" | "aromatic";
 // position: where a double bond's second line goes, looking from atoms[0] to atoms[1]; unset means automatic.
 export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string };
 // A caption: free text at x, y (bond lengths, y up; the text's anchor point by its alignment), or, with under
@@ -181,9 +182,12 @@ const H_FIRST = new Set(['O', 'F', 'S', 'Cl', 'Se', 'Br', 'Te', 'I']); // H2O, H
 const VALENCE: Record<string, number> = { C: 4, Si: 4, N: 3, P: 3, As: 3, B: 3, Al: 3, O: 2, S: 2, Se: 2, Te: 2, F: 1, Cl: 1, Br: 1, I: 1 };
 const ORDER: Record<number, number> = { 1: 1, 2: 2, 3: 3, 4: 1.5 };
 
-// A ring's aromatic circle, as ChemDraw draws it: its radius this much of the distance from the ring's centre to its
-// atoms (ChemDraw's own files: 0.62 in five- and six-membered rings).
-export const RING_CIRCLE = 0.62;
+// A ring's aromatic circle, as ChemDraw sizes it (Toggle Aromatic Display): the ring's inradius for its shortest bond
+// L, less the double bond spacing (spacing, a fraction of the bond length) times a factor for the ring's size.
+export function ringCircleRadius(n: number, L: number, spacing: number): number {
+  const k = n === 4 ? 1.6 : n === 5 ? 1.5 : n >= 7 ? 1.2 : 4 / 3;
+  return L * (1 / (2 * Math.tan(Math.PI / n)) - spacing * k);
+}
 // The rings Toggle Aromatic Display draws with a circle: aromatic rings of 5 to 8 atoms, every atom marked.
 export function circledRings(mol: Mol): number[][] {
   if (!mol.atoms.some((a) => a.circle)) return [];
@@ -489,7 +493,7 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
         const phi = labelled[x] ? undefined : near(x, y, Math.sign(o))[0];
         return phi === undefined ? 0 : h / Math.tan(phi);
       };
-      plan.lines = [h, -h].map((o, k) => ({ o, t0: reach(a, b, o), t1: reach(b, a, o), ...(bold && !k ? { half: s.bold / 2 } : {}), ...(bond.display === "dashed" && k ? { dashed: true } : {}) }));
+      plan.lines = [h, -h].map((o, k) => ({ o, t0: reach(a, b, o), t1: reach(b, a, o), ...(bold && !k ? { half: s.bold / 2 } : {}), ...((bond.display === "dashed" && k) || bond.display === "aromatic" ? { dashed: true } : {}) }));
       return plan;
     }
     // Offset: the axis joins the fan; the inner line is trimmed back to the angle bisector at unlabelled ends.
@@ -501,7 +505,8 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
       return t > MAX_TRIM * L ? 0 : t;
     };
     if (bold) plan.half = s.bold / 2;
-    plan.lines = [{ o: sd * spacing, t0: trim(a, b, ring?.[1]), t1: trim(b, a, ring?.[ring.length - 2]), ...(bond.display === "dashed" ? { dashed: true } : {}) }];
+    if (bond.display === "aromatic") plan.kind = 'dash';
+    plan.lines = [{ o: sd * spacing, t0: trim(a, b, ring?.[1]), t1: trim(b, a, ring?.[ring.length - 2]), ...(bond.display === "dashed" || bond.display === "aromatic" ? { dashed: true } : {}) }];
     return plan;
   });
   // Aromatic rings drawn with a circle (Toggle Aromatic Display): their bonds are single lines, and a circle sits
@@ -695,7 +700,8 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
   // The aromatic circles, each as a ring of short bars in the line width.
   for (const r of circled) {
     const c = mul(r.reduce<P>((m, i) => add(m, pts[i]), [0, 0]), 1 / r.length);
-    const radius = RING_CIRCLE * r.reduce((sum, x) => sum + len(sub(pts[x], c)), 0) / r.length, steps = 72, before = polygons.length;
+    const edge = Math.min(...r.map((x, k) => len(sub(pts[r[(k + 1) % r.length]], pts[x]))));
+    const radius = ringCircleRadius(r.length, edge, s.spacing / s.bond), steps = 72, before = polygons.length;
     for (let k = 0; k < steps; k++) {
       const a0 = (2 * Math.PI * k) / steps, a1 = (2 * Math.PI * (k + 1.05)) / steps, S = add(c, [Math.cos(a0) * radius, Math.sin(a0) * radius]), E = add(c, [Math.cos(a1) * radius, Math.sin(a1) * radius]);
       bar(S, E, perp(unit(sub(E, S))), hw);

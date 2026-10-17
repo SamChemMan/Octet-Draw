@@ -9,7 +9,7 @@
 
 import { FONTS, PAGES, pageSize, readStyle, type DocStyle } from "./docstyle.ts";
 import {
-  HIGHLIGHT, RING_CIRCLE, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, straightArrow, tableLayout, takesHeads, tlcLayout,
+  HIGHLIGHT, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, straightArrow, tableLayout, takesHeads, tlcLayout,
   ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS,
   type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape,
   type LineStyle, type Mol, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
@@ -383,7 +383,8 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   for (const r of circled) r.forEach((x, k) => { const y = r[(k + 1) % r.length]; ringBond.add(mol.bonds.findIndex((b) => (b.atoms[0] === x && b.atoms[1] === y) || (b.atoms[0] === y && b.atoms[1] === x))); });
   const circles = (atoms: number[]) => circled.filter((r) => atoms.includes(r[0])).map((r) => {
     const c: P = [r.reduce((s, i) => s + page(i)[0], 0) / r.length, r.reduce((s, i) => s + page(i)[1], 0) / r.length];
-    const radius = (RING_CIRCLE * r.reduce((s, i) => s + len(sub(page(i), c)), 0)) / r.length, major: P = [c[0] + radius, c[1]], minor: P = [c[0], c[1] + radius];
+    const edge = Math.min(...r.map((x, k) => len(sub(page(r[(k + 1) % r.length]), page(x)))));
+    const radius = ringCircleRadius(r.length, edge, style.spacing / 100), major: P = [c[0] + radius, c[1]], minor: P = [c[0], c[1] + radius];
     return el("graphic", { id: fresh(), BoundingBox: `${pt(major)} ${pt(c)}`, Z: Z(), color: colour(mol.atoms[r[0]].colour), GraphicType: "Oval", OvalType: "Circle",
       Center3D: pt3(c), MajorAxisEnd3D: pt3(major), MinorAxisEnd3D: pt3(minor), Octet: DERIVED });
   }).join("");
@@ -498,12 +499,13 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       fill(j, 3, 2);
       circular = slots.join(" ");
     }
-    // A dashed double bond is ChemDraw's DoubleDashed (its ⇧D): order 1.5, the second line dashed.
-    const ring = ringBond.has(k), dashed = !ring && b.type === 2 && d === "dashed";
+    // A dashed double bond is ChemDraw's Tautomeric (its ⇧D): order 1.5, the second line dashed. Its Aromatic double
+    // has both lines dashed.
+    const ring = ringBond.has(k), dashed = !ring && b.type === 2 && (d === "dashed" || d === "aromatic");
     return el("b", {
       id: bondId[k], Z: Z(), B: nodeId.get(i)!, E: nodeId.get(j)!,
       Order: ring || dashed || b.type === 4 ? "1.5" : d === "dative" ? "dative" : b.type === 2 ? "2" : b.type === 3 ? "3" : undefined,
-      Display: ring ? undefined : display, Display2: dashed ? "Dash" : undefined, Octet: ring ? priv({ order: b.type }) : undefined, DoublePosition: b.type === 2 && b.position ? { left: "Left", right: "Right", centre: "Center" }[b.position] : undefined,
+      Display: ring ? undefined : dashed && d === "aromatic" ? "Dash" : display, Display2: dashed ? "Dash" : undefined, Octet: ring ? priv({ order: b.type }) : undefined, DoublePosition: b.type === 2 && b.position ? { left: "Left", right: "Right", centre: "Center" }[b.position] : undefined,
       color: colour(b.colour), ShowBondStereo: mol.atoms[i].cip && mol.atoms[j].cip ? "yes" : undefined, BondCircularOrdering: circular,
     });
   }
@@ -916,9 +918,11 @@ export function fromCdxml(text: string): CdxmlRead {
       const order = new Set((b.attrs.Order ?? "1").trim().split(/\s+/)), d = b.attrs.Display ?? "", d2 = b.attrs.Display2 ?? "";
       // Order 1.5: with a dashed line, ChemDraw's DoubleDashed bond; otherwise a delocalised bond, made Kekulé below
       // (Octet's own files say which order each one had).
-      const deloc = order.size === 1 && order.has("1.5"), dashed = deloc && (d2 === "Dash" || d === "Dash");
+      // ChemDraw reads order 1.5 with a dashed Display2 as a double bond: Tautomeric, or Aromatic when Display is
+      // dashed too. Order 2 with a dashed Display is Aromatic as well.
+      const deloc = order.size === 1 && order.has("1.5"), dashed = deloc && !!d2 && d2 !== "Solid";
       const bond: Bond = { type: order.has("3") ? 3 : order.has("2") || dashed ? 2 : 1, atoms: [i!, j!] };
-      if (dashed) bond.display = "dashed";
+      if (dashed) bond.display = d === "Dash" ? "aromatic" : "dashed";
       else if (deloc) { const kept = priv(b)?.order; delocalised.push({ k: mol.bonds.length, order: kept === 1 || kept === 2 ? kept : undefined }); }
       if (bond.type === 1 && order.size === 1 && order.has("dative")) bond.display = "dative";
       else if (bond.type === 1 && order.has("hydrogen")) bond.display = "dashed";
@@ -933,7 +937,7 @@ export function fromCdxml(text: string): CdxmlRead {
         const s = single[d];
         if (s) { if (s[0]) bond.display = s[0]; if (s[1]) bond.stereo = s[1]; swap = s[2]; }
       } else if (bond.type === 2) {
-        if (dashed) { /* above */ } else if (d === "Bold") bond.display = "bold"; else if (d === "Wavy") bond.display = "either"; else if (d === "Dash" || d2 === "Dash") bond.display = "dashed"; else if (d && d !== "Solid") lose("bond display");
+        if (dashed) { /* above */ } else if (d === "Bold") bond.display = "bold"; else if (d === "Wavy") bond.display = "either"; else if (d === "Dash") bond.display = "aromatic"; else if (d2 === "Dash") bond.display = "dashed"; else if (d && d !== "Solid") lose("bond display");
         const side = { Left: "left", Right: "right", Center: "centre" }[b.attrs.DoublePosition ?? ""] as Bond["position"];
         if (side) bond.position = side;
       } else if (d && d !== "Solid") lose("bond display");

@@ -6,7 +6,7 @@ import { ALL_ARROW_KINDS, ORBITAL_SHAPES, PHASES, SHAPE_KINDS, type CurveFill, t
 export const FORMAT = "octet";
 export const VERSION = 1;
 const MAX_ATOMS = 100_000;
-const DISPLAYS: Display[] = ["bold", "dashed", "hashed", "wavy", "dative", "hollow", "either"];
+const DISPLAYS: Display[] = ["bold", "dashed", "hashed", "wavy", "dative", "hollow", "either", "aromatic"];
 const MAX_CAPTIONS = 10_000, MAX_TEXT = 2_000;
 const HEADS: Head[] = ["none", "full", "left", "right"];
 

@@ -52,7 +52,7 @@ type Props = {
 };
 
 const ELEMENTS = ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"];
-const STYLES: BondKind[] = ["single", "double", "triple", "wedge", "hashwedge", "hollow", "bold", "hashed", "dashed", "wavy", "dative"];
+const STYLES: BondKind[] = ["single", "double", "triple", "bolddouble", "dasheddouble", "aromaticdouble", "eitherdouble", "wedge", "hashwedge", "hollow", "bold", "hashed", "dashed", "wavy", "dative"];
 // On a chain end: the groups chemists put there most. Values are what the atom becomes.
 const ENDS = [["OH", "O"], ["NH₂", "N"], ["Me", "Me"], ["OMe", "OMe"], ["CO₂H", "CO2H"], ["CF₃", "CF3"], ["CN", "CN"], ["Ph", "Ph"]];
 

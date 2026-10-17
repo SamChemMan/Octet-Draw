@@ -349,12 +349,20 @@ console.log("cdxml.check: every object kind round trips");
   assert.match(text, /Order="1.5"\s+Display2="Dash"/);
   const oval = /<graphic[^>]*GraphicType="Oval"[^>]*OvalType="Circle"[^>]*\/>/.exec(text)?.[0] ?? "";
   const c = oval.match(/Center3D="([\d.]+) ([\d.]+)/)!, e = oval.match(/MajorAxisEnd3D="([\d.]+) ([\d.]+)/)!;
-  assert.ok(Math.abs(Number(e[1]) - Number(c[1]) - 0.62 * 14.4) < 0.02, `circle radius 0.62 of the ring's: ${oval}`);
+  // ChemDraw's radius for a six-membered ring at 18% bond spacing: 14.4 × (√3/2 − 0.18 × 4/3) = 9.02 pt.
+  assert.ok(Math.abs(Number(e[1]) - Number(c[1]) - 14.4 * (Math.sqrt(3) / 2 - 0.18 * 4 / 3)) < 0.02, `circle radius: ${oval}`);
   const again = fromCdxml(text).mol;
   assert.deepEqual(again.bonds.map((x) => [x.type, x.display]), m.bonds.map((x) => [x.type, x.display]), "Kekulé bonds and the dashed double come back");
   assert.deepEqual([again.atoms.slice(0, 6).every((a) => a.circle), again.shapes], [true, undefined]);
   // ChemDraw's copy (Octet's own data dropped): the same drawing, the ring made Kekulé again.
   const plain = fromCdxml(text.replace(/ Octet="[^"]*"/g, "").replace(/CreationProgram="[^"]*"/, "")).mol;
   assert.deepEqual([doubles(plain), plain.atoms.slice(0, 6).every((a) => a.circle), plain.shapes, plain.bonds[6].display], [4, true, undefined, "dashed"]);
-  console.log("cdxml.check: delocalised rings and dashed doubles ok");
+  // The Aromatic double (both lines dashed): order 1.5 with Display and Display2 dashed, both ways; and ChemDraw reads
+  // order 2 with a dashed Display as Aromatic too.
+  const ar = { atoms: [A("C", 0, 0), A("C", 1, 0)], bonds: [b(0, 1, { type: 2, display: "aromatic" })] } as Mol;
+  const arText = toCdxml(ar, DEFAULT_STYLE);
+  assert.match(arText, /Order="1.5"\s+Display="Dash"\s+Display2="Dash"/);
+  assert.deepEqual([fromCdxml(arText).mol.bonds[0].type, fromCdxml(arText).mol.bonds[0].display], [2, "aromatic"]);
+  assert.equal(fromCdxml(arText.replace('Order="1.5"', 'Order="2"').replace(/\s+Display2="Dash"/, "")).mol.bonds[0].display, "aromatic");
+  console.log("cdxml.check: delocalised rings, dashed and aromatic doubles ok");
 }
