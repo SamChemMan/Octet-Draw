@@ -90,3 +90,16 @@ console.log("chem.check: labels ok");
   assert.notEqual(expandWithOrigins(onEthyl("CO2Me")).mol.atoms[3].label, "Xx");
   console.log("chem.check: analysis by structure ok");
 }
+
+// A label Indigo cannot read, alone, has no entry. A structure Indigo reads as a bad valence (a pyridine N bonded to
+// Ru) keeps its formula and weight. Each exact mass is the structure's own monoisotopic mass.
+{
+  const lone: Mol = { atoms: [{ label: "C", text: "S0", location: [0, 0, 0] }, { label: "C", location: [3, 0, 0] }, { label: "O", location: [3.87, 0.5, 0] }], bonds: [{ type: 1, atoms: [1, 2] }] };
+  assert.deepEqual(analyse(lone)?.map((a) => [a.formula, a.exact.toFixed(4)]), [["CH4O", "32.0262"]]);
+  const ring = [0, 1, 2, 3, 4, 5].map((k) => ({ label: k ? "C" : "N", location: [Math.cos((k * Math.PI) / 3), Math.sin((k * Math.PI) / 3), 0] as [number, number, number] }));
+  const bound: Mol = { atoms: [...ring, { label: "Ru", location: [2, 0, 0] }], bonds: [...ring.map((_, k) => ({ type: k % 2 ? 1 : 2, atoms: [k, (k + 1) % 6] as [number, number] })), { type: 1, atoms: [0, 6] }] };
+  const [a] = analyse(bound) ?? [];
+  assert.equal(a?.formula, "C5H5NRu");
+  assert.ok(Number.isFinite(a?.weight));
+  console.log("chem.check: unreadable structures ok");
+}
