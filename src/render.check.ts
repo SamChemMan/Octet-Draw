@@ -1,6 +1,6 @@
 // Run: node src/render.check.ts. Fails loudly if the ACS drawing rules break.
 import assert from "node:assert/strict";
-import { arrowShapes, fitArrows, placeCaptions, render, renderParts, type Box, type Drawing, type Ink, type Mol, type PartCache } from "./render.ts";
+import { arrowShapes, blockOutline, ellipseArrow, fitArrows, headOfLength, headSize, placeCaptions, render, renderParts, sizeOf, type Arrow, type Box, type Drawing, type Ink, type Mol, type PartCache } from "./render.ts";
 
 type P = [number, number];
 const pt = 4 / 3;
@@ -120,6 +120,42 @@ console.log("render.check: written labels ok");
   const [fitted] = fitArrows({ atoms: [], bonds: [], arrows: [a], captions: [{ id: 2, text: "x", x: 0, y: 0, on: { arrow: 1, side: "above" } }] }, S.bond, () => 200);
   assert.ok(fitted.from[0] < 0 && fitted.to[0] > 2 && Math.abs(fitted.from[0] + fitted.to[0] - 2) < 1e-9, "lengthened about its middle");
   console.log("render.check: arrows ok");
+}
+
+// ChemDraw's head sizes and arrow kinds (CD-14, CD-15). Arrows run along +x at k = S.bond px per bond length.
+{
+  const a = { id: 1, kind: "reaction" as const, from: [0, 0] as [number, number], to: [4, 0] as [number, number] }, k = S.bond, lw = S.line;
+  const ys = (polys: [number, number][][]) => polys.flat().map((q) => q[1]), xs = (polys: [number, number][][]) => polys.flat().map((q) => q[0]);
+  const head = (more: Partial<Arrow>) => { const p = arrowShapes({ ...a, ...more }, S, k); return p[p.length - 1]; };
+  // The head: tip, barb its length back and its width off the shaft, notch between. Large is 22.5, 19.6875 and 5.625.
+  const [tip, barb, notch] = head({ headSize: headOfLength(22.5) });
+  assert.ok(Math.abs(tip[0] - 4 * k) < 1e-9 && Math.abs(barb[0] - (4 * k - 22.5 * lw)) < 1e-9 && Math.abs(Math.abs(barb[1]) - 5.625 * lw) < 1e-9 && Math.abs(notch[0] - (4 * k - 19.6875 * lw)) < 1e-9, "large head");
+  assert.deepEqual([sizeOf({ kind: "reaction" }), sizeOf({ kind: "reaction", headSize: headOfLength(15) }), sizeOf({ kind: "reaction", headSize: { length: 9, centre: 8, width: 2 } })], ["small", "medium", undefined]);
+  // A bold arrow's own heads are twice the size, as ChemDraw draws them.
+  assert.equal(headSize({ kind: "reaction", style: "bold" }).length, 20);
+  // A head is kept to two thirds of a short arrow.
+  const short = arrowShapes({ ...a, to: [0.3, 0] }, S, k), shortHead = short[short.length - 1];
+  assert.ok(Math.abs(shortHead[1][0] - (0.3 * k) / 3) < 1e-9, "head two thirds of the arrow");
+  // No-go: a cross 2 head widths each way on the middle; hash: two slashes there; dipole: a bar across at the notch.
+  const nogo = arrowShapes({ ...a, kind: "nogo" }, S, k), hash = arrowShapes({ ...a, kind: "hash" }, S, k), dipole = arrowShapes({ ...a, kind: "dipole" }, S, k);
+  assert.deepEqual([nogo.length, hash.length, dipole.length], [4, 4, 3]);
+  const reach = 5 * lw + (lw / 2) * Math.SQRT1_2;
+  assert.ok(Math.abs(Math.max(...xs(nogo.slice(2))) - (2 * k + reach)) < 1e-9 && Math.abs(Math.max(...ys(nogo.slice(2))) - reach) < 1e-9, "the cross");
+  assert.ok(Math.abs(Math.min(...xs(dipole.slice(2))) - (8.75 * lw - lw / 2)) < 1e-9 && Math.abs(Math.max(...ys(dipole.slice(2))) - 2.5 * lw) < 1e-9, "the dipole bar");
+  // An unbalanced equilibrium (ratio 3): the back arrow is its notch plus a third of the rest, about the middle.
+  const eq = arrowShapes({ ...a, kind: "equilibrium", ratio: 3 }, S, k), back = eq[2].map((q) => q[0]), want = 8.75 * lw + (4 * k - 8.75 * lw) / 3;
+  assert.ok(Math.abs(Math.max(...back) - Math.min(...back) - want) < 1e-6 && Math.abs(Math.max(...back) + Math.min(...back) - 4 * k) < 1e-6, "short back arrow");
+  // A block arrow: shaft 12 line widths wide, barbs 12 off the axis and 12 back from the tip.
+  const o = blockOutline({ ...a, kind: "block" }, S, k);
+  const X = (4 * k) / lw, round = (v: number) => Math.round(v * 1e6) / 1e6 + 0;
+  assert.deepEqual(o.map(([x, y]) => [round(x / lw), round(y / lw)]), [[0, 6], [X - 12, 6], [X - 12, 12], [X, 0], [X - 12, -12], [X - 12, -6], [0, -6]].map(([x, y]) => [round(x), round(y)]));
+  // An elliptical arrow: from the tail 270° round to the head, every point on one ellipse whose short axis is 0.4 of
+  // its long one.
+  const e = ellipseArrow([0, 0], [0.5, 1.2], true), pts = e.curve!.points.map((q) => q.at);
+  assert.ok(pts.length === 4 && Math.hypot(pts[0][0], pts[0][1]) < 1e-9 && Math.hypot(pts[3][0] - 0.5, pts[3][1] - 1.2) < 1e-9 && e.end === "full");
+  const c = [(pts[0][0] + pts[2][0]) / 2, (pts[0][1] + pts[2][1]) / 2], long = Math.hypot(pts[0][0] - c[0], pts[0][1] - c[1]), shortAxis = Math.hypot(pts[3][0] - c[0], pts[3][1] - c[1]);
+  assert.ok(Math.abs(shortAxis / long - 0.4) < 1e-9, "axes 0.4");
+  console.log("render.check: arrow sizes and kinds ok");
 }
 
 // Document label options: terminal carbons labelled (CH3), every carbon labelled, and implicit H hidden.

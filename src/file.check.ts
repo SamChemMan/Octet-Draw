@@ -90,9 +90,16 @@ console.log("file.check: bad files refused");
     { kind: "arc" as const, from: [0, 0] as [number, number], to: [2, 0] as [number, number], bend: 0.5, style: "dashed" as const },
     { kind: "reaction" as const, from: [0, 1] as [number, number], to: [3, 1] as [number, number], style: "dashed" as const },
     { kind: "orbital" as const, from: [0, 0] as [number, number], to: [0, 1] as [number, number], orbital: { shape: "p" as const, phase: "phased" as const } },
+    // ChemDraw's sizes and kinds, and a straight arrow's point and bend.
+    { kind: "equilibrium" as const, from: [0, 2] as [number, number], to: [3, 2] as [number, number], ratio: 3, headSize: { length: 15, centre: 13.125, width: 3.75 } },
+    { kind: "block" as const, from: [0, 3] as [number, number], to: [3, 3] as [number, number], shaft: 8, fill: "faded" as const },
+    { kind: "hash" as const, from: [0, 4] as [number, number], to: [3, 4] as [number, number] }, { kind: "dipole" as const, from: [0, 5] as [number, number], to: [3, 5] as [number, number] },
+    { kind: "reaction" as const, from: [0, 6] as [number, number], to: [3, 6] as [number, number], point: true as const, bend: 0.2 },
   ]) m = addArrow(m, a)[0];
   const again = parse(serialize(m));
   assert.deepEqual(again.arrows?.map(({ id: _, ...a }) => a), m.arrows?.map(({ id: _, ...a }) => a));
+  for (const bad of [{ headSize: { length: 0, centre: 1, width: 1 } }, { ratio: -1 }, { shaft: "wide" }, { point: 1 }])
+    assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, arrows: [{ kind: "reaction", x1: 0, y1: 0, x2: 1, y2: 0, ...bad }] })), /damaged/);
   console.log("file.check: lines and orbitals ok");
 }
 

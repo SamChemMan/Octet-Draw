@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Cube, Eraser, Lasso, Plus, PushPin, Selection, TextT, Trash, X } from "@phosphor-icons/react";
 import { chairPoints, type BondSpec, type SymbolKind } from "./edit";
-import { ARROW_KINDS, curved, SWEEPS, type ArrowKind, type Mol, type ShapeKind } from "./render";
+import { ARROW_SIZES, headOfLength, SWEEPS, type ArrowKind, type ArrowSize, type HeadSize, type Mol, type ShapeKind } from "./render";
 import { templateKind, type Template } from "./templates";
 import { libraryItem } from "./library";
 import { LibraryPanel } from "./TemplateLibrary";
@@ -48,18 +48,43 @@ export type RingKind = keyof typeof RINGS;
 
 export const ARROWS: Record<ArrowKind, string> = {
   reaction: "Reaction", equilibrium: "Equilibrium", resonance: "Resonance", retro: "Retrosynthetic",
-  nogo: "No reaction", curved: "Curved", fishhook: "Fishhook", double: "Double-headed", line: "Line", arc: "Arc", orbital: "Orbital", cut: "Fragmentation line", curve: "Curve",
+  nogo: "No reaction", hash: "No reaction, hashed", dipole: "Dipole", block: "Block", curved: "Curved", fishhook: "Fishhook", double: "Double-headed", line: "Line", arc: "Arc", orbital: "Orbital", cut: "Fragmentation line", curve: "Curve",
 };
 // Curved arrows come in four sweeps. Their variants are "kind-sweep", for example "fishhook-180"; a bare kind is 120°.
+// ChemDraw's elliptical arcs are "ellipse-cw" and "ellipse-ccw": 270° round an ellipse 0.4 times as wide as it is long.
 const CURVED: ArrowKind[] = ["curved", "fishhook", "double"];
-const STRAIGHT = ARROW_KINDS.filter((k) => !curved({ kind: k }));
+export const ELLIPSES = ["ellipse-cw", "ellipse-ccw"];
+// Straight arrows, in the order of ChemDraw's Arrows palette. An unbalanced equilibrium has a ratio of 3.
+export const STRAIGHT = ["reaction", "equilibrium", "unbalanced", "resonance", "retro", "nogo", "hash", "dipole", "block"];
 export const DEFAULT_CURVED = ["curved-120", "fishhook-120"];
-export function arrowVariant(v: string): { kind: ArrowKind; sweep?: number } | undefined {
+// A straight arrow's variant can name its size after a space ("reaction large"). Unnamed is Small, ChemDraw's
+// default, except for a block arrow, whose sizes are Large (unnamed) and Medium.
+export type ArrowPick = { kind: ArrowKind; sweep?: number; size?: Exclude<ArrowSize, "small">; ratio?: number; ellipse?: "cw" | "ccw" };
+export function arrowVariant(v: string): ArrowPick | undefined {
   const m = /^(curved|fishhook|double)(?:-(90|120|180|270))?$/.exec(v);
   if (m) return { kind: m[1] as ArrowKind, sweep: Number(m[2] ?? 120) };
-  return STRAIGHT.includes(v as ArrowKind) ? { kind: v as ArrowKind } : undefined;
+  const e = /^ellipse-(cw|ccw)$/.exec(v);
+  if (e) return { kind: "curve", sweep: 270, ellipse: e[1] as "cw" | "ccw" };
+  const [k, size, ...rest] = v.split(" ");
+  if (!STRAIGHT.includes(k) || rest.length || (size !== undefined && size !== "large" && size !== "medium") || (k === "block" && size === "large")) return undefined;
+  return { kind: k === "unbalanced" ? "equilibrium" : (k as ArrowKind), ...(k === "unbalanced" ? { ratio: 3 } : {}), ...(size ? { size: size as "large" | "medium" } : {}) };
 }
-export const arrowName = (v: string) => { const a = arrowVariant(v); return a && (a.sweep ? `${ARROWS[a.kind]}, ${a.sweep}°` : ARROWS[a.kind]); };
+// The variant's own head size, when it is not its kind's.
+export const pickHead = (p: ArrowPick): HeadSize | undefined =>
+  p.kind === "block" ? (p.size === "medium" ? headOfLength(6, true) : undefined) : p.size ? headOfLength(ARROW_SIZES[p.size]) : undefined;
+const SIZE_NAMES = { large: "Large", medium: "Medium", small: "Small" };
+export const arrowName = (v: string) => {
+  const a = arrowVariant(v), base = v.split(" ")[0];
+  if (!a) return undefined;
+  if (a.ellipse) return `Elliptical, ${a.ellipse === "cw" ? "clockwise" : "anticlockwise"}`;
+  const name = base === "unbalanced" ? "Unbalanced equilibrium" : ARROWS[a.kind];
+  return a.sweep ? `${name}, ${a.sweep}°` : a.size ? `${name}, ${a.size}` : name;
+};
+// The same straight arrow at another size (the strip's size options).
+export const withSize = (v: string, size: ArrowSize) => {
+  const base = arrowVariant(v) && !arrowVariant(v)!.sweep ? v.split(" ")[0] : "reaction";
+  return base === "block" ? (size === "large" ? "block" : "block medium") : size === "small" ? base : `${base} ${size}`;
+};
 
 export const SELECTS = { box: { name: "Box" }, lasso: { name: "Lasso" }, perspective: { name: "Structure perspective" } };
 
@@ -155,17 +180,40 @@ export function RingGlyph({ kind }: { kind: RingKind }) {
 const BooksGlyph = () => <Icon><polygon points="128,40 196,80 196,160 128,200 60,160 60,80" /><line x1={40} y1={224} x2={216} y2={224} /></Icon>;
 export const ChainGlyph = () => <Icon><polyline points="32,168 80,104 128,168 176,104 224,168" /></Icon>;
 
-// Arrow icons: each draws its arrow, with open heads in the icon style. kind is an arrow variant.
+// Arrow icons: each draws its arrow, with open heads in the icon style. kind is an arrow variant; its size sets
+// how long the barbs are.
 export function ArrowGlyph({ kind: variant }: { kind: string }) {
   const v = arrowVariant(variant), kind = v?.kind;
+  if (v?.ellipse) return <EllipseGlyph clockwise={v.ellipse === "cw"} />;
   if (v?.sweep) return <CurvedGlyph kind={v.kind} sweep={v.sweep} />;
+  const b = v?.size === "large" ? 88 : v?.size === "medium" ? 66 : 48, head = (x: number, y: number) => <polyline points={`${x - b},${y - b} ${x},${y} ${x - b},${y + b}`} />;
+  const e = (b * 5) / 6;
   switch (kind) {
-    case "equilibrium": return <Icon><polyline points="32,100 216,100 176,64" /><polyline points="224,156 40,156 80,192" /></Icon>;
-    case "resonance": return <Icon><line x1={32} y1={128} x2={224} y2={128} /><polyline points="80,80 32,128 80,176" /><polyline points="176,80 224,128 176,176" /></Icon>;
+    case "equilibrium":
+      return v?.ratio
+        ? <Icon><polyline points={`32,100 216,100 ${216 - e},${100 - e}`} /><polyline points={`168,156 88,156 ${88 + e},${156 + e}`} /></Icon>
+        : <Icon><polyline points={`32,100 216,100 ${216 - e},${100 - e}`} /><polyline points={`224,156 40,156 ${40 + e},${156 + e}`} /></Icon>;
+    case "resonance": return <Icon><line x1={32} y1={128} x2={224} y2={128} /><polyline points={`${32 + b},${128 - b} 32,128 ${32 + b},${128 + b}`} />{head(224, 128)}</Icon>;
     case "retro": return <Icon><line x1={32} y1={100} x2={184} y2={100} /><line x1={32} y1={156} x2={184} y2={156} /><polyline points="160,56 224,128 160,200" /></Icon>;
-    case "nogo": return <Icon><line x1={32} y1={128} x2={216} y2={128} /><polyline points="168,80 216,128 168,176" /><line x1={88} y1={88} x2={136} y2={168} /><line x1={136} y1={88} x2={88} y2={168} /></Icon>;
-    default: return <Icon><line x1={32} y1={128} x2={216} y2={128} /><polyline points="168,80 216,128 168,176" /></Icon>;
+    case "nogo": return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}<line x1={88} y1={88} x2={136} y2={168} /><line x1={136} y1={88} x2={88} y2={168} /></Icon>;
+    case "hash": return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}<line x1={76} y1={168} x2={100} y2={88} /><line x1={112} y1={168} x2={136} y2={88} /></Icon>;
+    case "dipole": return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}<line x1={68} y1={92} x2={68} y2={164} /></Icon>;
+    case "block": { const w = v?.size === "medium" ? 28 : 40; return <Icon><polygon points={`32,${128 - w / 2} 148,${128 - w / 2} 148,${128 - w * 1.6} 224,128 148,${128 + w * 1.6} 148,${128 + w / 2} 32,${128 + w / 2}`} /></Icon>; }
+    default: return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}</Icon>;
   }
+}
+// An elliptical arc's icon: a tall loop from the bottom round the far side, ending with a head pointing down beside it.
+function EllipseGlyph({ clockwise }: { clockwise: boolean }) {
+  const pts = Array.from({ length: 31 }, (_, i) => { const t = Math.PI / 2 + ((3 * Math.PI) / 2) * (i / 30); return [118 + 46 * Math.cos(t), 128 + 92 * Math.sin(t)]; });
+  const line = (q: number[][]) => q.map((x) => x.map((c) => c.toFixed(1)).join(",")).join(" ");
+  return (
+    <Icon>
+      <g transform={clockwise ? undefined : "matrix(-1 0 0 1 256 0)"}>
+        <polyline points={line(pts)} />
+        <polyline points="132,100 164,132 196,100" />
+      </g>
+    </Icon>
+  );
 }
 
 // Symbol icons: the mark itself.
@@ -420,12 +468,15 @@ export function Palette(p: PaletteProps) {
     return mol ? <TemplateGlyph mol={mol} /> : <RingGlyph kind={kind as RingKind} />;
   };
   const options = (tool: Strip) =>
-    tool === "bond" ? Object.keys(BONDS) : tool === "template" ? [p.variants.template] : tool === "symbol" ? Object.keys(SYMBOLS) : tool === "shape" ? [...SHAPE_GRID.flat(), ...SHAPE_EXTRA] : tool === "orbital" ? ORBITAL_GRID.flat() : tool === "bracket" ? Object.keys(BRACKETS) : tool === "select" ? Object.keys(SELECTS) : tool === "arrow" ? [...STRAIGHT, ...p.curvedArrows.filter((v) => arrowVariant(v)?.sweep)] : [...Object.keys(RINGS), ...p.templates.map((t) => templateKind(t.id)), ...p.libraryRings.filter((k) => libraryItem(k))];
+    tool === "bond" ? Object.keys(BONDS) : tool === "template" ? [p.variants.template] : tool === "symbol" ? Object.keys(SYMBOLS) : tool === "shape" ? [...SHAPE_GRID.flat(), ...SHAPE_EXTRA] : tool === "orbital" ? ORBITAL_GRID.flat() : tool === "bracket" ? Object.keys(BRACKETS) : tool === "select" ? Object.keys(SELECTS) : tool === "arrow" ? [...STRAIGHT.map((k) => (!arrowSize || (k === "block" && arrowSize === "small") ? k : withSize(k, arrowSize))), ...p.curvedArrows.filter((v) => arrowVariant(v)?.sweep)] : [...Object.keys(RINGS), ...p.templates.map((t) => templateKind(t.id)), ...p.libraryRings.filter((k) => libraryItem(k))];
   // A menu's groups: shapes across their styles, then lines, arcs and the rest; each orbital across its phases;
   // one group for everything else.
+  // The Arrow strip's last group: the sizes of the straight arrow in hand, as ChemDraw's Large, Medium and Small rows.
   const groupsOf = (tool: Strip, list: string[]): string[][] =>
     tool === "shape" ? [...SHAPE_GRID.map((r) => r.slice(0, 5)), SHAPE_GRID.map((r) => r[5]), SHAPE_GRID.flatMap((r) => r.slice(6)), SHAPE_EXTRA]
-      : tool === "orbital" ? ORBITAL_GRID : [list];
+      : tool === "orbital" ? ORBITAL_GRID : tool === "arrow" ? [list, (p.variants.arrow.startsWith("block") ? ["large", "medium"] : ["large", "medium", "small"]).map((x) => `size:${x}`)] : [list];
+  // The size the straight arrow in hand is drawn at (Small when unnamed), which the strip's arrows show.
+  const pick = arrowVariant(p.variants.arrow), arrowSize: ArrowSize | undefined = pick && !pick.sweep ? (pick.size ?? (pick.kind === "block" ? "large" : "small")) : undefined;
   // The columns a menu opens with: the user's own, or two across.
   const columnsOf = (key: string) => (p.stripWidths[key] ? columnsFor(p.stripWidths[key]) : DEFAULT_COLUMNS);
   // Pinned shortcuts whose option still exists.
@@ -581,6 +632,10 @@ export function Palette(p: PaletteProps) {
             {strip && isStrip(t.id) && t.id !== "template" && open === t.id && (() => {
               const tool = t.id, curveCarry = !!carry && keepable(carry.key) === tool;
               const item = (kind: string): MenuItem => {
+                if (kind.startsWith("size:")) {
+                  const size = kind.slice(5) as ArrowSize, v = withSize(p.variants.arrow, size);
+                  return { key: kind, name: SIZE_NAMES[size], icon: <ArrowGlyph kind={v} />, checked: arrowSize === size };
+                }
                 const name = nameOf(tool, kind)!, custom = template(kind);
                 const kept = (tool === "arrow" && !!arrowVariant(kind)?.sweep) || (tool === "ring" && !!libraryItem(kind));
                 return {
@@ -625,15 +680,17 @@ export function Palette(p: PaletteProps) {
                 </>
               ) : undefined;
               // Every curved arrow, one group per kind: the pin keeps one in the Arrow menu.
-              const curveGroups = CURVED.map((kind) => SWEEPS.map((sweep): MenuItem => {
-                const v = `${kind}-${sweep}`, name = arrowName(v)!, isKept = p.curvedArrows.includes(v);
+              const curveGroups = [...CURVED.map((kind) => SWEEPS.map((sweep) => `${kind}-${sweep}`)), ELLIPSES].map((g) => g.map((v): MenuItem => {
+                const name = arrowName(v)!, isKept = p.curvedArrows.includes(v);
                 return { key: v, name, icon: <ArrowGlyph kind={v} />, checked: p.variants.arrow === v,
                   action: { icon: <PushPin size={12} weight={isKept ? "fill" : "bold"} />, label: isKept ? "In the Arrow menu" : "Keep in the Arrow menu", pressed: isKept, onClick: () => (isKept ? unkeep("arrow", v) : keep("arrow", v)) } };
               }));
               return (
                 <Menu label={`${t.name} options`} tool={tool} groups={groups} className={[carry && !curveCarry && "carrying", carry?.toList && "receiving"].filter(Boolean).join(" ")}
                   columns={columnsOf(tool)} onColumns={(n) => p.onStripWidth(tool, menuWidth(n))}
-                  onPress={(e, kind) => startCarry(e, `${tool}:${kind}`)} onChoose={(kind) => { if (!dragged.current) choose(tool, kind); }} onRelease={(kind) => { if (held) choose(tool, kind); }}
+                  onPress={(e, kind) => { if (!kind.startsWith("size:")) startCarry(e, `${tool}:${kind}`); }}
+                  onChoose={(kind) => { if (!dragged.current) choose(tool, kind.startsWith("size:") ? withSize(p.variants.arrow, kind.slice(5) as ArrowSize) : kind); }}
+                  onRelease={(kind) => { if (held) choose(tool, kind.startsWith("size:") ? withSize(p.variants.arrow, kind.slice(5) as ArrowSize) : kind); }}
                   extra={extra}>
                   {tool === "arrow" && curves && (
                     <Menu label="Curved arrows" className={["submenu", curveCarry && "carrying"].filter(Boolean).join(" ")} groups={curveGroups}

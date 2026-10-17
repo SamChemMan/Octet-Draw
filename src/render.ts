@@ -61,7 +61,9 @@ export type Caption = {
 // (dashed suits a proposed step; wavy and bold are for lines).
 // orbital: an atomic or hybrid orbital drawn from its nucleus (from) to the tip of its main lobe (to).
 // cut: a mass-fragmentation line across bonds; the pieces it makes are labelled with their formula and mass.
-export type ArrowKind = "reaction" | "equilibrium" | "resonance" | "retro" | "nogo" | "curved" | "fishhook" | "double" | "line" | "arc" | "orbital" | "cut" | "curve";
+// nogo and hash: a reaction arrow crossed out, or struck through with two slashes (ChemDraw's No-Go Cross and Hash).
+// dipole: an arrow with a bar across its tail. block: a hollow block arrow (a wide shaft and head drawn as an outline).
+export type ArrowKind = "reaction" | "equilibrium" | "resonance" | "retro" | "nogo" | "hash" | "dipole" | "block" | "curved" | "fishhook" | "double" | "line" | "arc" | "orbital" | "cut" | "curve";
 export type LineStyle = "dashed" | "bold" | "wavy" | "doubled";
 // The Curves model, as ChemDraw's Curves menu: a head at either end of a line (none, full, or a half head with its
 // barb on the left or right, looking the way the head points), the heads' shape, and a closed curve's fill.
@@ -72,27 +74,54 @@ export type OrbitalShape = "s" | "oval" | "lobe" | "hybrid" | "p" | "d" | "dz2";
 export type Phase = "plain" | "shaded" | "filled" | "phased";
 export const ORBITAL_SHAPES: OrbitalShape[] = ["s", "oval", "lobe", "hybrid", "p", "d", "dz2"];
 export const PHASES: Phase[] = ["plain", "shaded", "filled", "phased"];
+// headSize: the heads' size set by hand (ChemDraw's Large, Medium and Small arrows, or a head handle dragged).
+// ratio: an equilibrium's forward arrow against its back arrow (ChemDraw's ArrowEquilibriumRatio): above 1 the back
+// arrow is shorter, below 1 the forward one. shaft: a block arrow's shaft width, in line widths.
+// point: a straight arrow given a point in its middle, which bends it (bend) and starts branches.
 export type Arrow = {
   id: number; kind: ArrowKind; from: [number, number]; to: [number, number]; bend?: number; style?: LineStyle; orbital?: { shape: OrbitalShape; phase: Phase }; colour?: string;
   start?: Head; end?: Head; head?: HeadShape; // heads set by hand; unset uses the kind's own
-  curve?: Curve; fill?: CurveFill; // a pen curve's points (from and to are its ends), and a closed one's fill
+  curve?: Curve; fill?: CurveFill; // a pen curve's points (from and to are its ends), and a closed one's or a block arrow's fill
+  headSize?: HeadSize; ratio?: number; shaft?: number; point?: true;
+};
+// An arrowhead's size in line widths, as CDXML keeps it in hundredths (HeadSize, ArrowheadCenterSize, ArrowheadWidth):
+// how far back from the tip it reaches, how far back its notch is, and how far each barb stands off the shaft.
+export type HeadSize = { length: number; centre: number; width: number };
+// ChemDraw's Arrows palette: heads 22.5, 15 or 10 line widths long, notched at 7/8 of that and a quarter of it wide
+// each side. Its hollow block arrows: heads 12 or 6 long, flat at the back, on a shaft as wide as the head is long.
+export const ARROW_SIZES = { large: 22.5, medium: 15, small: 10 } as const;
+export const BLOCK_SIZES = { large: 12, medium: 6, small: 6 } as const;
+export type ArrowSize = keyof typeof ARROW_SIZES;
+export const headOfLength = (length: number, flat = false): HeadSize => ({ length, centre: flat ? length : length * 0.875, width: length / 4 });
+// An arrow's head size: its own, or its kind's (a block arrow's is the large one). As in ChemDraw, a bold arrow's
+// heads are twice the size.
+export const headSize = (a: Pick<Arrow, "kind" | "headSize" | "style">): HeadSize => a.headSize ?? sizedHead(a, a.kind === "block" ? "large" : "small");
+// A palette size's head for an arrow of this kind and line.
+export const sizedHead = (a: Pick<Arrow, "kind" | "style">, size: ArrowSize): HeadSize =>
+  headOfLength((a.kind === "block" ? BLOCK_SIZES : ARROW_SIZES)[size] * (a.style === "bold" ? 2 : 1), a.kind === "block");
+// The palette size an arrow's heads are, if they are one of them.
+export const sizeOf = (a: Pick<Arrow, "kind" | "headSize" | "style">): ArrowSize | undefined => {
+  const h = headSize(a);
+  return (["large", "medium", "small"] as const).find((k) => { const o = sizedHead(a, k); return Math.abs(o.length - h.length) < 0.01 && Math.abs(o.centre - h.centre) < 0.01 && Math.abs(o.width - h.width) < 0.01; });
 };
 // Every kind a drawing's arrow list may hold.
-export const ALL_ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "curved", "fishhook", "double", "line", "arc", "orbital", "cut", "curve"];
+export const ALL_ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "hash", "dipole", "block", "curved", "fishhook", "double", "line", "arc", "orbital", "cut", "curve"];
 export const isOrbital = (a: Pick<Arrow, "kind">) => a.kind === "orbital";
-export const ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "curved", "fishhook", "double"];
+export const ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "hash", "dipole", "block", "curved", "fishhook", "double"];
 export const LINE_KINDS: ArrowKind[] = ["line", "arc"];
 export const curved = (a: Pick<Arrow, "kind">) => a.kind === "curved" || a.kind === "fishhook" || a.kind === "double" || a.kind === "arc";
 // Arrows that carry reaction conditions and make up reactions: straight ones with heads.
 export const straightArrow = (a: Pick<Arrow, "kind">) => !curved(a) && a.kind !== "line" && a.kind !== "orbital" && a.kind !== "cut" && a.kind !== "curve";
 export const isLine = (a: Pick<Arrow, "kind">) => a.kind === "line" || a.kind === "arc" || a.kind === "curve";
-// Lines that take the Curves menu's heads: everything drawn as one shaft (not equilibrium, retrosynthetic or
-// no-reaction arrows, orbitals or fragmentation cuts).
-export const takesHeads = (a: Pick<Arrow, "kind">) => !["equilibrium", "retro", "nogo", "orbital", "cut"].includes(a.kind);
+// Lines that take the Curves menu's heads: everything drawn as one shaft (not equilibrium, retrosynthetic, block or
+// no-reaction and dipole arrows, orbitals or fragmentation cuts).
+export const takesHeads = (a: Pick<Arrow, "kind">) => !["equilibrium", "retro", "nogo", "hash", "dipole", "block", "orbital", "cut"].includes(a.kind);
+// Arrows drawn as one shaft with a mark on it: no-go (a cross or two slashes) and dipole (a bar at the tail).
+export const marked = (a: Pick<Arrow, "kind">) => a.kind === "nogo" || a.kind === "hash" || a.kind === "dipole";
 // A line's heads: the ones set by hand, or its kind's.
 export function headsOf(a: Pick<Arrow, "kind" | "bend" | "start" | "end">): { start: Head; end: Head } {
   const own: Record<string, [Head, Head]> = {
-    reaction: ["none", "full"], curved: ["none", "full"], double: ["full", "full"], resonance: ["full", "full"], nogo: ["none", "full"],
+    reaction: ["none", "full"], curved: ["none", "full"], double: ["full", "full"], resonance: ["full", "full"], nogo: ["none", "full"], hash: ["none", "full"], dipole: ["none", "full"], block: ["none", "full"],
     fishhook: ["none", (a.bend ?? 0) >= 0 ? "left" : "right"], // the barb on the outside of the curve
   };
   const [start, end] = own[a.kind] ?? ["none", "none"];
@@ -972,7 +1001,7 @@ export function bendPoint(a: Arrow): [number, number] {
 export function arrowPath(a: Arrow, k: number): P[] {
   if (a.kind === "curve" && a.curve) return curvePath(a.curve, k);
   const S: P = [a.from[0] * k, -a.from[1] * k], T: P = [a.to[0] * k, -a.to[1] * k];
-  if (!curved(a) || !a.bend) return [S, T];
+  if (!a.bend || (!curved(a) && !a.point)) return [S, T];
   const m = bendPoint(a), M: P = [m[0] * k, -m[1] * k];
   const d = 2 * (S[0] * (M[1] - T[1]) + M[0] * (T[1] - S[1]) + T[0] * (S[1] - M[1]));
   if (Math.abs(d) < 1e-9) return [S, T];
@@ -991,11 +1020,13 @@ export function arrowPath(a: Arrow, k: number): P[] {
   return Array.from({ length: n + 1 }, (_, i) => (i === 0 ? S : i === n ? T : [O[0] + r * Math.cos(a0 + (sweep * i) / n), O[1] + r * Math.sin(a0 + (sweep * i) / n)] as P));
 }
 
-// An arrow as filled polygons in px (y down). Heads follow ChemDraw's CDXML defaults (HeadSize 1000,
-// ArrowheadCenterSize 875, ArrowheadWidth 250, read as hundredths of the line width): 10 line widths long,
-// 2.5 wide on each side, the back notched in to 8.75. Provisional until measured against ChemDraw's output.
+// How much of its own size a straight arrow's head is drawn at: ChemDraw keeps a head to two thirds of the arrow.
+const headFit = (a: Arrow, s: Style, k: number) => (a.bend ? 1 : Math.min(1, (2 * Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]) * k) / 3 / (headSize(a).length * s.line || 1)));
+// An arrow as filled polygons in px (y down). Heads are drawn as ChemDraw draws them, at their size (headSize) in
+// line widths: the tip, the barbs their length back and their width off the shaft, and the notch between.
 export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
-  const hw = s.line / 2, H = 10 * s.line, C = 8.75 * s.line, W = 2.5 * s.line;
+  const size = headSize(a), fit = headFit(a, s, k);
+  const hw = s.line / 2, H = size.length * s.line * fit, C = size.centre * s.line * fit, W = size.width * s.line * fit;
   const out: P[][] = [];
   const bar = (p: P, q: P, w = hw) => { const u = unit(sub(q, p)), n = perp(u); out.push([add(p, mul(n, w)), add(q, mul(n, w)), add(q, mul(n, -w)), add(p, mul(n, -w))]); };
   // Points shortened at their end by `trim` (where a head takes over).
@@ -1046,18 +1077,20 @@ export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
   // How far a head takes over the shaft: to its notch (solid), its base (hollow), or not at all (angled).
   const takes = (h: Head) => (h === "none" ? 0 : shape === "angled" ? hw : shape === "hollow" ? H : h === "full" ? C : 0);
   const path = arrowPath(a, k), [S, T] = [path[0], path[path.length - 1]];
+  if (len(sub(T, S)) < 1e-9) return out;
   const u = unit(sub(T, S)), n = perp(u);
-  if (takesHeads(a)) {
+  if (takesHeads(a) || marked(a)) {
     // One shaft, and a head at either end as set (the Curves menu) or as the kind has them.
     const { start, end } = headsOf(a), reversed = [...path].reverse();
     line(cut(cut(path, takes(end)).reverse(), takes(start)).reverse(), 0);
     if (end !== "none") head(path, end === "full" ? undefined : end);
     if (start !== "none") head(reversed, start === "full" ? undefined : start);
-    if (a.kind === "nogo") {
-      // A cross on the middle of the shaft.
-      const m = mul(add(S, T), 0.5), r = 0.22 * s.bond;
-      for (const d of [add(u, n), sub(u, n)]) bar(add(m, mul(unit(d), -r)), add(m, mul(unit(d), r)));
-    }
+    // ChemDraw's marks, d (twice the head's half-width) each way: on the middle of the shaft a cross, or two
+    // parallel slashes (hash); across the tail, at the notch's depth from it, a dipole's bar as wide as the head.
+    const m = a.bend ? path[Math.floor(path.length / 2)] : mul(add(S, T), 0.5), d = 2 * W, at = (p: P, x: number, y: number) => add(add(p, mul(u, x * d)), mul(n, y * d));
+    if (a.kind === "nogo") { bar(at(m, 1, 1), at(m, -1, -1)); bar(at(m, -1, 1), at(m, 1, -1)); }
+    if (a.kind === "hash") { bar(at(m, 1, -1), at(m, 0, 1)); bar(at(m, 0, -1), at(m, -1, 1)); }
+    if (a.kind === "dipole") { const b = add(S, mul(u, C)); bar(add(b, mul(n, -W)), add(b, mul(n, W))); }
     return out;
   }
   switch (a.kind) {
@@ -1065,12 +1098,23 @@ export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
       line(path, 0);
       break;
     case "equilibrium": {
-      // Two half-headed arrows, one each way, barbs on the outside.
-      const g = 0.11 * s.bond, top: P[] = [add(S, mul(n, -g)), add(T, mul(n, -g))], bottom: P[] = [add(T, mul(n, g)), add(S, mul(n, g))];
+      // Two half-headed arrows, one each way, barbs on the outside. An unbalanced one (ratio) shortens one of them
+      // about the middle, as ChemDraw does: above 1 the back arrow, to its notch plus the rest over the ratio; below 1
+      // the forward arrow, to the ratio of the whole.
+      const g = 0.11 * s.bond, whole = len(sub(T, S)), r = a.ratio ?? 1, m = mul(add(S, T), 0.5);
+      const ahead = r < 1 ? whole * r : whole, back = r > 1 ? C + (whole - C) / r : whole;
+      const top: P[] = [add(add(m, mul(u, -ahead / 2)), mul(n, -g)), add(add(m, mul(u, ahead / 2)), mul(n, -g))];
+      const bottom: P[] = [add(add(m, mul(u, back / 2)), mul(n, g)), add(add(m, mul(u, -back / 2)), mul(n, g))];
       line(top, 0);
       head(top, "left");
       line(bottom, 0);
       head(bottom, "left");
+      break;
+    }
+    case "block": {
+      // Its outline, with the lines run on half a width at each corner so the corners close.
+      const o = blockOutline(a, s, k);
+      o.forEach((p, i) => { const q = o[(i + 1) % o.length], e = unit(sub(q, p)); bar(add(p, mul(e, -hw)), add(q, mul(e, hw))); });
       break;
     }
     case "retro": {
@@ -1084,6 +1128,26 @@ export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
     }
   }
   return out;
+}
+
+// Where a straight arrow's end head has a barb (px, y down): the handle that sizes the head. undefined when it has none.
+export function headBarb(a: Arrow, s: Style, k: number): P | undefined {
+  const end = headsOf(a).end, S: P = [a.from[0] * k, -a.from[1] * k], T: P = [a.to[0] * k, -a.to[1] * k];
+  if (a.bend || end === "none" || !(takesHeads(a) || marked(a)) || a.kind === "curve" || len(sub(T, S)) < 1e-9) return undefined;
+  const u = unit(sub(T, S)), size = headSize(a), f = headFit(a, s, k);
+  return add(add(T, mul(u, -size.length * s.line * f)), mul(perp(u), (end === "left" ? -1 : 1) * size.width * s.line * f));
+}
+
+// A block arrow's outline (px, y down), as ChemDraw draws one: a shaft `shaft` line widths wide, and a head whose barbs
+// stand off the axis by its notch depth, its length back from the tip. The shaft's edges meet the head's back edges.
+export function blockOutline(a: Arrow, s: Style, k: number): P[] {
+  const S: P = [a.from[0] * k, -a.from[1] * k], T: P = [a.to[0] * k, -a.to[1] * k];
+  if (len(sub(T, S)) < 1e-9) return [];
+  const u = unit(sub(T, S)), n = perp(u), size = headSize(a), fit = headFit(a, s, k);
+  const H = size.length * s.line * fit, C = size.centre * s.line * fit, o = ((a.shaft ?? size.length) * s.line) / 2;
+  const t = C > 0 ? Math.min(1, Math.max(0, 1 - o / C)) : 1, back = H - t * (H - C);
+  const at = (along: number, across: number): P => add(add(T, mul(u, -along)), mul(n, across));
+  return [add(S, mul(n, o)), at(back, o), at(H, C), T, at(H, -C), at(back, -o), add(S, mul(n, -o))];
 }
 
 // A path moved sideways by d (px) at every point, along the path's own normal there.
@@ -1291,6 +1355,27 @@ export function curvePath(c: Curve, k: number): P[] {
     }
   }
   return out;
+}
+// Part of an ellipse as Bézier points (drawing units): the ellipse centre + cos t·a + sin t·b, from t0 to t1 (radians),
+// one segment for each quarter turn or less. An affine map keeps Bézier points, so these are a circle's, mapped.
+export function ellipsePoints(c: [number, number], a: [number, number], b: [number, number], t0: number, t1: number): CurvePoint[] {
+  const n = Math.max(1, Math.ceil(Math.abs(t1 - t0) / (Math.PI / 2) - 1e-9)), dt = (t1 - t0) / n, k = (4 / 3) * Math.tan(dt / 4);
+  const at = (t: number): [number, number] => [c[0] + Math.cos(t) * a[0] + Math.sin(t) * b[0], c[1] + Math.cos(t) * a[1] + Math.sin(t) * b[1]];
+  const along = (t: number): [number, number] => [-Math.sin(t) * a[0] + Math.cos(t) * b[0], -Math.sin(t) * a[1] + Math.cos(t) * b[1]];
+  return Array.from({ length: n + 1 }, (_, i) => {
+    const t = t0 + i * dt, p = at(t), d = along(t);
+    return { at: p, ...(i > 0 ? { c1: [p[0] - k * d[0], p[1] - k * d[1]] as [number, number] } : {}), ...(i < n ? { c2: [p[0] + k * d[0], p[1] + k * d[1]] as [number, number] } : {}) };
+  });
+}
+// ChemDraw's elliptical arrow (its 270° Elliptical arrows): from the end of an ellipse's long axis 270° round, clockwise
+// or not, to the end of its short axis, which is 0.4 times as long. from and to are its tail and head.
+export function ellipseArrow(from: [number, number], to: [number, number], clockwise: boolean): Omit<Arrow, "id"> {
+  const d = [to[0] - from[0], to[1] - from[1]], s = clockwise ? -1 : 1, q = 1 / 1.16;
+  // The tail is the centre plus the long half-axis a; the head is the centre less the short one, b = 0.4 a turned a
+  // quarter (anticlockwise, or clockwise): so to - from = -(a + b), solved for a.
+  const a: [number, number] = [-q * (d[0] + s * 0.4 * d[1]), -q * (d[1] - s * 0.4 * d[0])], b: [number, number] = [-s * 0.4 * a[1], s * 0.4 * a[0]];
+  const points = ellipsePoints([from[0] - a[0], from[1] - a[1]], a, b, 0, (3 * Math.PI) / 2);
+  return { kind: "curve", from, to, curve: { points }, end: "full" };
 }
 // A curve's box (drawing units) over its anchors and handles: [from, to] as a shape stores them.
 export function curveBox(c: Curve): [[number, number], [number, number]] {

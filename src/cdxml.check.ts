@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { DAMAGED, NOT_CDXML, TOO_BIG, fmt, fmtAngle, fmtColour, fmtSize, fromCdxml, parseXml, toCdxml, type Xml } from "./cdxml.ts";
 import { DEFAULT_STYLE, PRESETS, readStyle, type DocStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
-import { HIGHLIGHT, headsOf, takesHeads, tlcLayout, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape } from "./render.ts";
+import { HIGHLIGHT, ellipseArrow, headOfLength, headsOf, takesHeads, tlcLayout, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape } from "./render.ts";
 
 // Numbers as ChemDraw writes them (spec 1.2).
 assert.deepEqual([fmt(30), fmt(14.4), fmt(0.6), fmt(-0.001), fmt(523.2756), fmt(2)], ["30", "14.40", "0.60", "0", "523.28", "2"]);
@@ -63,6 +63,12 @@ const arrows: Arrow[] = [
   arrow(122, "curve", [8, -20], [8.5, -19], { curve: { points: [{ at: [8, -20] }, { at: [9, -20] }, { at: [8.5, -19] }], closed: true }, fill: "faded", style: "doubled" }),
   arrow(123, "curve", [10, -20], [11, -20], { curve: { points: [{ at: [10, -20] }, { at: [11, -20] }] }, style: "wavy", end: "full", head: "angled" }),
   arrow(124, "reaction", [12, -20], [15, -20], { style: "bold" }), arrow(125, "curved", [16, -20], [18, -20]), arrow(126, "reaction", [19, -20], [21, -20], { start: "full", end: "none" }),
+  // ChemDraw's sizes and kinds (CD-14, CD-15): a large head, an unbalanced medium equilibrium, the hashed no-go, a dipole,
+  // block arrows (medium and shaded; faded), a straight arrow given a point and bent (CD-16), and an elliptical arc.
+  arrow(127, "reaction", [0, -24], [3, -24], { headSize: headOfLength(22.5) }), arrow(128, "equilibrium", [4, -24], [7, -24], { ratio: 3, headSize: headOfLength(15) }),
+  arrow(129, "hash", [8, -24], [11, -24]), arrow(130, "dipole", [12, -24], [15, -24], { colour: "#1D49A7" }),
+  arrow(131, "block", [16, -24], [19, -24], { headSize: headOfLength(6, true), fill: "shaded" }), arrow(132, "block", [20, -24], [23, -24], { fill: "faded", shaft: 8 }),
+  arrow(133, "reaction", [24, -24], [27, -24], { point: true, bend: 0.25 }), { ...ellipseArrow([28, -24], [28.6, -22.8], true), id: 134 } as Arrow,
 ];
 const shapes: Shape[] = [
   { id: 201, kind: "highlight", from: [-1, -1], to: [3.5, 1.5] },
@@ -242,6 +248,38 @@ console.log("cdxml.check: every object kind round trips");
   assert.deepEqual(mol.groups!.map((g) => [g.atoms, g.items]), [[[0, 1, 2, 3], [one.id]]]);
   parse(serialize(mol));
   console.log("cdxml.check: ChemDraw's form read");
+}
+
+// ChemDraw's arrow sizes and kinds as its own files hold them (CD-14, CD-15): a bold arrow's doubled head (its own
+// size, so left unset), a medium head, an unbalanced equilibrium, a hashed no-go, a dipole, a hollow block arrow as
+// Sam's files hold it, and a 270° elliptical arc read as a curve on that ellipse.
+{
+  const head = (id: number, more: string) => `<arrow id="${id}" Z="${id}" FillType="None" ArrowheadType="Solid" ${more}/>`;
+  const file = `<?xml version="1.0" encoding="UTF-8" ?><CDXML BondLength="14.40" LineWidth="0.60" BoldWidth="2"><page id="1" BoundingBox="0 0 540 720">
+${head(2, 'LineType="Bold" ArrowheadHead="Full" HeadSize="2000" ArrowheadCenterSize="1750" ArrowheadWidth="500" Head3D="100 100 0" Tail3D="40 100 0"')}
+${head(3, 'ArrowheadHead="Full" HeadSize="1500" ArrowheadCenterSize="1313" ArrowheadWidth="375" Head3D="100 130 0" Tail3D="40 130 0"')}
+${head(4, 'ArrowheadHead="HalfLeft" ArrowheadTail="HalfLeft" ArrowShaftSpacing="300" ArrowEquilibriumRatio="300" HeadSize="1000" Head3D="100 160 0" Tail3D="40 160 0"')}
+${head(5, 'ArrowheadHead="Full" NoGo="Hash" HeadSize="1000" Head3D="100 190 0" Tail3D="40 190 0"')}
+${head(6, 'ArrowheadHead="Full" Dipole="yes" HeadSize="1000" Head3D="100 220 0" Tail3D="40 220 0"')}
+<arrow id="7" Z="7" FillType="None" ArrowheadHead="Full" ArrowheadType="Hollow" HeadSize="1200" ArrowheadCenterSize="1200" ArrowheadWidth="300" ArrowShaftSpacing="1200" Head3D="446.56 569.80 0" Tail3D="84.33 569.80 0" Center3D="84.33 569.80 0" MajorAxisEnd3D="117.79 569.80 0" MinorAxisEnd3D="84.33 576.16 0"/>
+${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCenterSize="700" ArrowheadWidth="200" Head3D="220 300 0" Tail3D="200 350 0" Center3D="200 300 0" MajorAxisEnd3D="200 350 0" MinorAxisEnd3D="220 300 0"')}
+</page></CDXML>`;
+  const { mol } = fromCdxml(file);
+  assert.deepEqual(mol.arrows!.map((a) => a.kind), ["reaction", "reaction", "equilibrium", "hash", "dipole", "block", "curve"]);
+  const [bold, medium, unbalanced, , , block, ellipse] = mol.arrows!;
+  assert.deepEqual([bold.style, bold.headSize, medium.headSize, unbalanced.ratio, block.headSize, block.shaft], ["bold", undefined, headOfLength(15), 3, undefined, undefined]);
+  // The ellipse: centre (200, 300), long half-axis 50 down the page, short 20 across; the arc runs 270° from the tail
+  // at the end of the long axis to the head at the end of the short one, every point on the ellipse.
+  const pts = ellipse.curve!.points, c = pts.map((q) => [q.at[0] * 14.4, -q.at[1] * 14.4]), [cx, cy] = [c[0][0], c[0][1] - 50];
+  assert.ok(pts.length === 4 && c.every(([x, y]) => Math.abs(((x - cx) / 20) ** 2 + ((y - cy) / 50) ** 2 - 1) < 1e-6) && Math.abs(c[3][0] - c[0][0] - 20) < 1e-6 && Math.abs(c[3][1] - c[0][1] + 50) < 1e-6);
+  assert.deepEqual([ellipse.end, ellipse.headSize], ["full", headOfLength(8)]);
+  // Octet writes them back as ChemDraw holds them.
+  const out = toCdxml(mol, DEFAULT_STYLE);
+  const written = [...out.matchAll(/<arrow\b[^>]*>/g)].map((m) => m[0].replace(/\s+/g, " "));
+  for (const attrs of ['ArrowEquilibriumRatio="300"', 'NoGo="Hash"', 'Dipole="yes"', 'ArrowheadType="Hollow" HeadSize="1200" ArrowheadCenterSize="1200" ArrowheadWidth="300" ArrowShaftSpacing="1200"', 'HeadSize="2000" ArrowheadCenterSize="1750" ArrowheadWidth="500"', 'HeadSize="1500" ArrowheadCenterSize="1313" ArrowheadWidth="375"'])
+    assert.ok(written.some((w) => w.includes(attrs)), attrs);
+  parse(serialize(mol));
+  console.log("cdxml.check: ChemDraw's arrow sizes and kinds read and written");
 }
 
 // Hostile files are refused with a message, or read with the bad parts left out; nothing is expanded or fetched.

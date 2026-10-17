@@ -8,7 +8,7 @@ import {
   AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, ArrowsInSimple, ArrowClockwise, ArrowsClockwise, ArrowsDownUp, CaretRight, SignIn, SignOut, ArrowCounterClockwise, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretDown,
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAa, TextAlignCenter, TextAlignLeft,
-  TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Eraser, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
+  TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, BezierCurve, Eraser, Circle, LineSegment, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
@@ -17,7 +17,7 @@ import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS,
 import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
 import { invoke } from "@tauri-apps/api/core";
 import { COLOURS, fontStack, TINTS } from "./docstyle";
-import { ArrowGlyph, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, SymbolGlyph, type BondKind } from "./tools";
+import { ArrowGlyph, arrowName, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, STRAIGHT, SymbolGlyph, withSize, type BondKind } from "./tools";
 
 // A selected atom label's text style (the first labelled atom's, for a structure), for the label style buttons.
 export type LabelText = { bold: boolean; italic: boolean; underline: boolean; font: string; size: number };
@@ -28,8 +28,11 @@ export type Context =
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
   | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right"; attached: boolean; attachable: boolean;
       script?: "sub" | "super"; font?: string; fonts?: string[] }
+  // size: the heads' palette size ("own" for a size set by hand), when the arrows have heads. ratio: an equilibrium's.
+  // fillable: closed curves and block arrows, which take a fill.
   | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
-      heads: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string }
+      heads: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string; size?: string; ratio: number; fillable: boolean;
+      point?: "add" | "remove" | "bent" } // one straight arrow or line: it can take a point, or has one (bent: and bends)
   | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[]; shade: { depth: number; blur: number; opacity: number; pt: number } }
   | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean; grid: boolean }
@@ -405,10 +408,13 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
     case "arrow":
       if (context.arrow === "orbital") { items.push(it(<ArrowsLeftRight size={18} />, "Swap the phases", "orbital.swap"), del); break; }
       if (context.arrow === "curve") { items.push(it(<Circle size={18} />, context.closed ? "Open the curve" : "Close the curve", "arrow.closed"), it(<ArrowsLeftRight size={18} />, "Reverse", "arrow.reverse"), del); break; }
-      if (isLine({ kind: context.arrow })) { items.push(it(<ArrowsLeftRight size={18} />, "Reverse", "arrow.reverse"), ...(context.curved ? [it(<FlipVertical size={18} />, "Flip the curve", "arrow.flip")] : []), del); break; }
-      if (context.count === 1 && !context.curved) items.push(it(<TextT size={18} />, "Add conditions above", "arrow.above"), it(<TextT size={18} />, "Add conditions below", "arrow.below"));
-      items.push(it(<ArrowsLeftRight size={18} />, "Reverse", "arrow.reverse"));
-      if (context.curved) items.push(it(<FlipVertical size={18} />, "Flip the curve", "arrow.flip"));
+      {
+        const point = context.point === "add" ? [it(<BezierCurve size={18} />, "Add a point", "arrow.point")] : context.point ? [it(<LineSegment size={18} />, "Remove the point", "arrow.point")] : [];
+        const flip = context.curved || context.point === "bent" ? [it(<FlipVertical size={18} />, "Flip the curve", "arrow.flip")] : [];
+        if (isLine({ kind: context.arrow })) { items.push(it(<ArrowsLeftRight size={18} />, "Reverse", "arrow.reverse"), ...flip, ...point, del); break; }
+        if (context.count === 1 && !context.curved) items.push(it(<TextT size={18} />, "Add conditions above", "arrow.above"), it(<TextT size={18} />, "Add conditions below", "arrow.below"));
+        items.push(it(<ArrowsLeftRight size={18} />, "Reverse", "arrow.reverse"), ...flip, ...point);
+      }
       items.push(del);
       break;
   }
@@ -806,16 +812,18 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         );
       })()}
       {context.kind === "arrow" && !isLine({ kind: context.arrow }) && context.arrow !== "orbital" && (
-        // The arrow's kind, the choice made most: reaction, equilibrium, resonance, retrosynthetic, no-go.
+        // The arrow's kind, the choice made most: reaction, equilibrium (and unbalanced), resonance, retrosynthetic,
+        // no-go, dipole, block, then the curved ones.
         <div className="chips arrows" role="group" aria-label="Arrow">
-          {ARROW_KINDS.map((kind) => (
-            <button key={kind} className="chip" aria-pressed={context.arrow === kind} aria-label={ARROWS[kind]} title={ARROWS[kind]} onClick={() => run(`arrow.kind.${kind}`)}>
-              <ArrowGlyph kind={curved({ kind }) ? `${kind}-${context.sweep ?? 120}` : kind} />
+          {[...STRAIGHT, ...ARROW_KINDS.filter((k) => curved({ kind: k }))].map((kind) => (
+            <button key={kind} className="chip" aria-pressed={kind === "unbalanced" ? context.arrow === "equilibrium" && context.ratio !== 1 : context.arrow === kind && (kind !== "equilibrium" || context.ratio === 1)}
+              aria-label={arrowName(kind) ?? ARROWS[kind as ArrowKind]} title={arrowName(kind) ?? ARROWS[kind as ArrowKind]} onClick={() => run(`arrow.kind.${kind}`)}>
+              <ArrowGlyph kind={curved({ kind: kind as ArrowKind }) ? `${kind}-${context.sweep ?? 120}` : kind} />
             </button>
           ))}
         </div>
       )}
-      {context.kind === "arrow" && (context.heads || context.curved) && (() => {
+      {context.kind === "arrow" && (context.heads || context.curved || context.fillable || context.size !== undefined) && (() => {
         // The rest of ChemDraw's Curves menu, one small button each: the line, the head at each end, the heads' shape,
         // the curve's sweep and a closed curve's fill. Each shows its choice; a click opens the others.
         const c = context, HEADS = [["none", "None"], ["full", "Arrowhead"], ["left", "Half, left"], ["right", "Half, right"]] as const;
@@ -829,7 +837,10 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
               options={([["solid", "Solid"], ["hollow", "Hollow"], ["angled", "Open"]] as const).map(([id, name]) => ({ id, name, glyph: <LineGlyph end="full" head={id} /> }))} />}
             {c.curved && <PickButton label="Curve" value={String(c.sweep ?? 120)} onPick={(v) => run(`arrow.sweep.${v}`)}
               options={SWEEPS.map((sweep) => ({ id: String(sweep), name: `${sweep}°`, glyph: c.arrow === "arc" ? <ElementGlyph v={`arc-${sweep}`} /> : <ArrowGlyph kind={`${curved({ kind: c.arrow }) ? c.arrow : "curved"}-${sweep}`} /> }))} />}
-            {c.closed && <PickButton label="Fill" value={c.fill ?? "none"} onPick={(v) => run(`arrow.fill.${v}`)}
+            {c.size !== undefined && <PickButton label="Size" value={c.size} onPick={(v) => run(`arrow.size.${v}`)}
+              options={[...(c.arrow === "block" ? ["large", "medium"] : ["large", "medium", "small"]).map((id) => ({ id, name: id[0].toUpperCase() + id.slice(1), glyph: <ArrowGlyph kind={withSize(c.arrow === "block" ? "block" : "reaction", id as "large")} /> })),
+                ...(c.size === "own" ? [{ id: "own", name: "Own size", glyph: <ArrowGlyph kind="reaction" /> }] : [])]} />}
+            {c.fillable && <PickButton label="Fill" value={c.fill ?? "none"} onPick={(v) => run(`arrow.fill.${v}`)}
               options={([["none", "None"], ["solid", "Filled"], ["shaded", "Shaded"], ["faded", "Faded"]] as const).map(([id, name]) => ({ id, name, glyph: <FillGlyph fill={id} /> }))} />}
           </div>
         );

@@ -184,6 +184,16 @@ circle.mark {
   stroke-width: 1.5;
   cursor: grab;
 }
+/* Where Shift with the Arrow tool starts a joined arrow. */
+.handle.join {
+  fill: var(--brand-bright);
+}
+/* The mark in a straight arrow's middle: smaller and fainter than a handle, until a click makes it a point. */
+.handle.add {
+  stroke-opacity: 0.6;
+  stroke-width: 1.2;
+  cursor: pointer;
+}
 .selection-marks rect {
   fill: var(--brand-bright);
 }

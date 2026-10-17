@@ -1,7 +1,7 @@
 // Octet's own file format: versioned, human-readable JSON. Treat every file as hostile: check it fully on read.
 import { fontName, readStyle } from "./docstyle.ts";
 import { normalise, plainOf, type TextRun } from "./richtext.ts";
-import { ALL_ARROW_KINDS, ORBITAL_SHAPES, PHASES, SHAPE_KINDS, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type Grid, type TableLine, type CellAlign, type Tlc, type Atom, type Bond, type Caption, type Display, type Mol } from "./render.ts";
+import { ALL_ARROW_KINDS, ORBITAL_SHAPES, PHASES, SHAPE_KINDS, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type Grid, type TableLine, type CellAlign, type Tlc, type Atom, type Bond, type Caption, type Display, type Mol, type HeadSize } from "./render.ts";
 
 export const FORMAT = "octet";
 export const VERSION = 1;
@@ -22,7 +22,8 @@ export function serialize(mol: Mol): string {
   const cycles = cycleList.map((c) => ({ x: round(c.centre[0]), y: round(c.centre[1]), radius: round(c.radius), ...(c.clockwise ? {} : { anticlockwise: true }), nodes: c.nodes, ...(c.colour ? { colour: c.colour } : {}) }));
   const arrows = arrowList.map((a) => ({ kind: a.kind, x1: round(a.from[0]), y1: round(a.from[1]), x2: round(a.to[0]), y2: round(a.to[1]), ...(a.bend ? { bend: round(a.bend) } : {}),
     ...(a.style ? { style: a.style } : {}), ...(a.orbital ? { orbital: a.orbital } : {}), ...(a.colour ? { colour: a.colour } : {}),
-    ...(a.start ? { start: a.start } : {}), ...(a.end ? { end: a.end } : {}), ...(a.head ? { head: a.head } : {}), ...(a.curve ? { curve: a.curve } : {}), ...(a.fill ? { fill: a.fill } : {}) }));
+    ...(a.start ? { start: a.start } : {}), ...(a.end ? { end: a.end } : {}), ...(a.head ? { head: a.head } : {}), ...(a.curve ? { curve: a.curve } : {}), ...(a.fill ? { fill: a.fill } : {}),
+    ...(a.headSize ? { headSize: { length: round(a.headSize.length), centre: round(a.headSize.centre), width: round(a.headSize.width) } } : {}), ...(a.ratio ? { ratio: round(a.ratio) } : {}), ...(a.shaft ? { shaft: round(a.shaft) } : {}), ...(a.point ? { point: true } : {}) }));
   // Shapes keep their order, which is the order they are drawn in.
   const shapes = (mol.shapes ?? []).map((x) => ({ kind: x.kind, x1: round(x.from[0]), y1: round(x.from[1]), x2: round(x.to[0]), y2: round(x.to[1]), ...(x.dashed ? { dashed: true } : {}), ...(x.colour ? { colour: x.colour } : {}),
     ...(x.fill ? { fill: x.fill } : {}), ...(x.shadow ? { shadow: true } : {}), ...(x.side ? { side: x.side } : {}), ...(x.mark ? { mark: x.mark } : {}), ...(x.tlc ? { tlc: x.tlc } : {}), ...(x.table ? { table: x.table } : {}), ...(x.shade ? { shade: x.shade } : {}) }));
@@ -70,6 +71,11 @@ function readCurve(v: unknown): Curve | undefined {
   const points = c.points as { at?: unknown; c1?: unknown; c2?: unknown }[];
   if (!points.every((p) => typeof p === "object" && p && pt(p.at) && (p.c1 === undefined || pt(p.c1)) && (p.c2 === undefined || pt(p.c2)))) return undefined;
   return { points: points.map((p) => ({ at: p.at as [number, number], ...(p.c1 ? { c1: p.c1 as [number, number] } : {}), ...(p.c2 ? { c2: p.c2 as [number, number] } : {}) })), ...(c.closed === true ? { closed: true } : {}) };
+}
+// An arrowhead's size, if it is sound: length, notch and width each above 0 and up to 500 line widths.
+function readHead(v: unknown): HeadSize | undefined {
+  const h = v as Record<string, unknown>, ok = (n: unknown) => typeof n === "number" && Number.isFinite(n) && n > 0 && n <= 500;
+  return typeof h === "object" && h && ok(h.length) && ok(h.centre) && ok(h.width) ? { length: h.length as number, centre: h.centre as number, width: h.width as number } : undefined;
 }
 // A table's cells, if they are sound: up to 100 rows and 20 columns of short plain text.
 function readTable(v: unknown): Table | undefined {
@@ -176,11 +182,14 @@ export function parse(text: string): Mol {
         || (a.start !== undefined && !HEADS.includes(a.start as Head)) || (a.end !== undefined && !HEADS.includes(a.end as Head))
         || (a.head !== undefined && !["solid", "hollow", "angled"].includes(a.head as string)) || (a.fill !== undefined && !["solid", "shaded", "faded"].includes(a.fill as string))
         || ((a.kind === "curve") !== (a.curve !== undefined)) || (a.curve !== undefined && !readCurve(a.curve))
-        || (orb !== undefined && (!ORBITAL_SHAPES.includes(orb?.shape as OrbitalShape) || !PHASES.includes(orb?.phase as Phase))) || ((a.kind === "orbital") !== (orb !== undefined)) || badColour(a.colour)) throw new Error("This drawing is damaged.");
+        || (orb !== undefined && (!ORBITAL_SHAPES.includes(orb?.shape as OrbitalShape) || !PHASES.includes(orb?.phase as Phase))) || ((a.kind === "orbital") !== (orb !== undefined)) || badColour(a.colour)
+        || (a.headSize !== undefined && !readHead(a.headSize)) || (a.ratio !== undefined && !(num(a.ratio) && (a.ratio as number) > 0 && (a.ratio as number) <= 100))
+        || (a.shaft !== undefined && !(num(a.shaft) && (a.shaft as number) > 0 && (a.shaft as number) <= 500)) || (a.point !== undefined && a.point !== true)) throw new Error("This drawing is damaged.");
       return { id: captionCount + k + 1, kind: a.kind as ArrowKind, from: [a.x1 as number, a.y1 as number], to: [a.x2 as number, a.y2 as number], ...(a.bend ? { bend: a.bend as number } : {}),
         ...(a.style ? { style: a.style as LineStyle } : {}), ...(orb ? { orbital: { shape: orb.shape as OrbitalShape, phase: orb.phase as Phase } } : {}), ...(a.colour ? { colour: a.colour as string } : {}),
         ...(a.start ? { start: a.start as Head } : {}), ...(a.end ? { end: a.end as Head } : {}), ...(a.head ? { head: a.head as HeadShape } : {}),
-        ...(a.curve ? { curve: readCurve(a.curve)! } : {}), ...(a.fill ? { fill: a.fill as CurveFill } : {}) };
+        ...(a.curve ? { curve: readCurve(a.curve)! } : {}), ...(a.fill ? { fill: a.fill as CurveFill } : {}),
+        ...(a.headSize ? { headSize: readHead(a.headSize)! } : {}), ...(a.ratio ? { ratio: a.ratio as number } : {}), ...(a.shaft ? { shaft: a.shaft as number } : {}), ...(a.point ? { point: true as const } : {}) };
     });
   }
   // Cycles take ids after the arrows'.

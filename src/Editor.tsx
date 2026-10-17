@@ -50,10 +50,10 @@ import { layoutCycles, orderAround, spreadCycle, type Cycle, type CycleText } fr
 import { LIBRARY, libraryItem } from "./library";
 import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
 import {
-  ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, Palette, RingGlyph, RINGS, SELECTS, SymbolGlyph, SYMBOLS, TemplateGlyph,
-  type BondKind, type RingKind, type SelectKind, type Tool,
+  ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, ELLIPSES, Palette, pickHead, RingGlyph, RINGS, SELECTS, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
+  type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
+import { arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, fitArrows, headBarb, headSize, sizeOf, sizedHead, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
 import { loadNames, nameToSmiles, suggestName } from "./names";
 import { checkedName, graphOf, setNamer } from "./naming";
@@ -99,8 +99,10 @@ const toPath = (polys: P[][]) => polys.map((poly) => "M" + poly.map(([x, y]) => 
 
 // A line, arc or orbital drawn the way arrows are: its kind, its bend for one sweep (signed by the drag), its style.
 type Make = { kind: "line" | "arc" | "orbital" | "cut"; bend?: number; style?: Arrow["style"]; orbital?: Arrow["orbital"] };
-// A handle: an arrow's ends or middle, or a shape's corners (c1 and c2 are the two it is not drawn from).
-type Corner = "from" | "to" | "bend" | "c1" | "c2";
+// A handle: an arrow's ends or middle, or a shape's corners (c1 and c2 are the two it is not drawn from). head: the
+// barb of an arrow's end head, which sizes the head. add: the mark in a straight arrow's middle, which a click turns
+// into a point (and only then does the arrow bend).
+type Corner = "from" | "to" | "bend" | "c1" | "c2" | "head" | "add";
 // arrow: an arrow or a shape (they share ids).
 type Hover = { atom?: number; bond?: number; caption?: number; arrow?: number; cycle?: number; step?: number };
 const hitIn = (m: Mol, p: P): Hover => {
@@ -151,7 +153,7 @@ function Live<T>({ store: from, children }: { store: Store<T>; children: (value:
 type View = { x: number; y: number; zoom: number; pinch?: boolean };
 const sameHover = (a: Hover, b: Hover) => a.atom === b.atom && a.bond === b.bond && a.caption === b.caption && a.arrow === b.arrow && a.cycle === b.cycle && a.step === b.step;
 // Ink as SVG path data, kept with the arrow or shape it is made from, for each document style.
-const arrowInks = new WeakMap<Arrow, [unknown, string]>(), shapeInks = new WeakMap<Shape, [unknown, string]>(), outlines = new WeakMap<object, [unknown, string]>();
+const arrowInks = new WeakMap<Arrow, [unknown, string]>(), shapeInks = new WeakMap<Shape, [unknown, string]>(), outlines = new WeakMap<object, [unknown, string]>(), blockOutlines = new WeakMap<Arrow, [unknown, P[]]>();
 
 // A caption's anchor in drawing coordinates: the start, middle or end of its first baseline.
 const anchorOf = (c: Placed): P => [(c.anchor === "start" ? c.box[0] : c.anchor === "end" ? c.box[2] : (c.box[0] + c.box[2]) / 2) / L, -c.lines[0].y / L];
@@ -353,21 +355,26 @@ export default function Editor() {
     if ("circle" in spec && spec.circle) { const r = Math.hypot(to[0] - from[0], to[1] - from[1]); return { kind: "oval", from: [from[0] - r, from[1] - r], to: [from[0] + r, from[1] + r], ...style }; }
     return { kind: spec.shape, from, to, ...style };
   };
-  const arrowPick = arrowVariant(settings.variants.arrow) ?? { kind: "reaction" as ArrowKind };
+  const arrowPick: ArrowPick = arrowVariant(settings.variants.arrow) ?? { kind: "reaction" };
   const arrowKind = arrowPick.kind;
   // A new arrow of the kind in hand. A curved one is an arc of the sweep in hand, bent to the left of its line, or
   // to the right (side -1) when the drag curved that way.
-  const newArrow = (from: P, to: P, side = 1, make?: Make): Omit<Arrow, "id"> => (make
-    ? { ...make, from, to, ...(make.bend ? { bend: side * make.bend } : {}) }
-    : { kind: arrowKind, from, to, ...(curved({ kind: arrowKind }) ? { bend: side * sweepBend(arrowPick.sweep ?? 120) } : {}) });
+  // An elliptical one is a pen curve with a head. A size or ratio the variant names comes with it.
+  const newArrow = (from: P, to: P, side = 1, make?: Make): Omit<Arrow, "id"> => {
+    if (make) return { ...make, from, to, ...(make.bend ? { bend: side * make.bend } : {}) };
+    if (arrowPick.ellipse) return ellipseArrow(from, to, arrowPick.ellipse === "cw");
+    const head = pickHead(arrowPick);
+    return { kind: arrowKind, from, to, ...(curved({ kind: arrowKind }) ? { bend: side * sweepBend(arrowPick.sweep ?? 120) } : {}), ...(head ? { headSize: head } : {}), ...(arrowPick.ratio ? { ratio: arrowPick.ratio } : {}) };
+  };
   // The offered sweep nearest an arc's.
   const nearestSweep = (bend: number) => SWEEPS.reduce((best, s) => (Math.abs(s - sweepOf(bend)) < Math.abs(best - sweepOf(bend)) ? s : best));
   const bondSpec: BondSpec = BONDS[bondKind].spec;
   // What the pointer is over, for the cursor and the page and rotation handle highlights: the selection, the
   // selection's rotation handle, a table border with the Table tool (which way it drags), and a page's edge. It
   // changes as the pointer moves, so it lives in a store too.
-  const [overs] = useState(() => store<{ selection: boolean; turn: boolean; edge?: "col" | "row"; page?: string }>({ selection: false, turn: false },
-    (a, b) => a.selection === b.selection && a.turn === b.turn && a.edge === b.edge && a.page === b.page));
+  // join: where Shift with the Arrow tool would start an arrow joined to another (an end, or a middle point).
+  const [overs] = useState(() => store<{ selection: boolean; turn: boolean; edge?: "col" | "row"; page?: string; join?: P }>({ selection: false, turn: false },
+    (a, b) => a.selection === b.selection && a.turn === b.turn && a.edge === b.edge && a.page === b.page && a.join?.[0] === b.join?.[0] && a.join?.[1] === b.join?.[1]));
   // Where the eraser outline is drawn (drawing coordinates), while the Eraser is in hand. It follows the pointer, so
   // it lives in a store too.
   const [brushes] = useState(() => store<P | undefined>(undefined));
@@ -1162,7 +1169,9 @@ export default function Editor() {
   // Which step of a cycle was last pressed: reagents and products go on that step.
   const [cycleStep, setCycleStep] = useState(0);
   // The arrow under a point (drawing coordinates), within a few px of its line.
-  const arrowAt = (p: P) => [...arrows].reverse().find((a) => !isOrbital(a) && nearTrace([p[0] * L, -p[1] * L], arrowTrace(a, L), 5 / views.get().zoom + frame.line * 2))?.id;
+  // A block arrow is hit anywhere inside its outline too.
+  const arrowAt = (p: P) => [...arrows].reverse().find((a) => !isOrbital(a) && (nearTrace([p[0] * L, -p[1] * L], arrowTrace(a, L), 5 / views.get().zoom + frame.line * 2)
+    || (a.kind === "block" && inPolygon([p[0] * L, -p[1] * L], kept(blockOutlines, a, frame, () => blockOutline(a, frame, L))))))?.id;
   // The orbital whose lobes a point is in.
   const orbitalAt = (p: P) => [...arrows].reverse().find((a) => isOrbital(a) && lobesOf(a, L).some((l) => inPolygon([p[0] * L, -p[1] * L], l.path)))?.id;
   // The shape whose line is under a point; with the Select tool, also a highlight the point is inside.
@@ -1482,6 +1491,7 @@ export default function Editor() {
   }
 
   const stopHold = () => { clearTimeout(hold.current); hold.current = undefined; };
+  const addPoint = useRef<number>(undefined); // the arrow whose middle mark the press went down on
   const holdFrom = useRef<[number, number]>(undefined); // where the press that may become a hold went down
 
   // Select tool press: on something selected, move the selection; on something else, select it and move it;
@@ -1711,8 +1721,24 @@ export default function Editor() {
     const sh = ids.length === 1 && !selection.size ? doc.shapes?.find((x) => x.id === ids[0]) : undefined;
     if (sh) return (Object.entries(corners(sh)) as [Corner, P][]).filter(([, q]) => near(q)).map(([which]) => ({ id: sh.id, which }))[0];
     if (!a || a.kind === "curve") return undefined;
-    return near(a.to) ? { id: a.id, which: "to" } : near(a.from) ? { id: a.id, which: "from" } : curved(a) && near(bendPoint(a)) ? { id: a.id, which: "bend" } : undefined;
+    const barb = headBarb(a, frame, L);
+    return near(a.to) ? { id: a.id, which: "to" } : near(a.from) ? { id: a.id, which: "from" } : (curved(a) || a.point) && near(bendPoint(a)) ? { id: a.id, which: "bend" }
+      : barb && near([barb[0] / L, -barb[1] / L]) ? { id: a.id, which: "head" } : pointable(a) && !a.point && near(bendPoint(a)) ? { id: a.id, which: "add" } : undefined;
   };
+  // The end of an arrow or line under a point, or its middle where it has a point (a curved arrow always does), as
+  // the exact place a joined arrow starts from.
+  const joinAt = (p: P): P | undefined => {
+    const near = (q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) * L * views.get().zoom < 8;
+    for (const a of [...arrows].reverse()) {
+      if (isOrbital(a) || a.kind === "cut") continue;
+      const spots: [number, number][] = [a.to, a.from, ...((curved(a) || a.point) ? [bendPoint(a)] : [])];
+      const hit = spots.find(near);
+      if (hit) return [hit[0], hit[1]];
+    }
+    return undefined;
+  };
+  // Straight arrows and lines that can take a point in their middle, to bend and branch from.
+  const pointable = (a: Arrow) => (straightArrow(a) || a.kind === "line") && a.kind !== "block" && a.kind !== "equilibrium" && a.kind !== "retro";
   // The selection's rotation handle, as in ChemDraw: just off the top right corner of the selection's box (px). The
   // box is worked out once for each selection, as the pointer tests the handle on every move.
   const selectionBox = useMemo(() => (selection.size < 2 ? undefined : withCaptions(selection)), [selection, shown.captions, drawing, placed]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1729,8 +1755,13 @@ export default function Editor() {
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* the pointer is already gone */ }
     const p = toDoc(e.clientX, e.clientY), t = hit(p), screen: [number, number] = [e.clientX, e.clientY];
     pointer.current = p;
+    // Shift with the Arrow tool over an arrow's end, or its middle point, starts a new arrow joined there.
+    const join = tool === "arrow" && e.shiftKey ? joinAt(p) : undefined;
+    if (join) { setSelection(new Set()); setPicked(new Set()); return setDrag({ kind: "arrow", from: join, start: screen, target: {} }); }
     const handle = tool !== "erase" ? handleAt(p) : undefined;
-    if (handle) return setDrag({ kind: "handle", ...handle, working: doc });
+    // The middle mark: a press moves the arrow as usual; a click (no move) gives it its point.
+    addPoint.current = handle?.which === "add" ? handle.id : undefined;
+    if (handle && handle.which !== "add") return setDrag({ kind: "handle", ...handle, working: doc });
     if (tool !== "erase" && onTurnHandle(p)) {
       const ps = [...selection].map((i) => pos(doc, i));
       const centre: P = [(Math.min(...ps.map((q) => q[0])) + Math.max(...ps.map((q) => q[0]))) / 2, (Math.min(...ps.map((q) => q[1])) + Math.max(...ps.map((q) => q[1]))) / 2];
@@ -1818,6 +1849,7 @@ export default function Editor() {
       overs.set({
         selection: tool !== "erase" && selection.size > 0 && onSelection(doc, selection, p), turn: tool !== "erase" && onTurnHandle(p), edge: tool === "table" ? tableEdge(p)?.axis : undefined,
         page: t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined ? pageEdgeAt(p)?.[0] : undefined,
+        join: tool === "arrow" && e.shiftKey ? joinAt(p) : undefined,
       });
       return setHover(t);
     }
@@ -1928,6 +1960,22 @@ export default function Editor() {
         }
         const a = doc.arrows?.find((x) => x.id === drag.id);
         if (!a) return;
+        if (drag.which === "head") {
+          // The barb's distance back from the tip sets the head's length, its distance off the shaft its width; the
+          // notch keeps its place between them.
+          const len = Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]) || 1, u = [(a.to[0] - a.from[0]) / len, (a.to[1] - a.from[1]) / len], lw = frame.line / L, h = headSize(a);
+          const along = ((a.to[0] - p[0]) * u[0] + (a.to[1] - p[1]) * u[1]) / lw, across = Math.abs((p[0] - a.to[0]) * -u[1] + (p[1] - a.to[1]) * u[0]) / lw;
+          const length = Math.max(2, Math.min(500, along)), width = Math.max(0.5, Math.min(500, across));
+          return setDrag({ ...drag, working: updateArrow(doc, a.id, { headSize: { length, centre: (length * h.centre) / h.length, width } }) });
+        }
+        if (a.kind === "equilibrium" && e.altKey && (drag.which === "from" || drag.which === "to")) {
+          // Option-drag on an equilibrium's end shortens one of its arrows about the middle, never past its full
+          // length (ChemDraw's ratio): the end's handle, the forward arrow; the start's, the back arrow.
+          const len = Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]) || 1, u = [(a.to[0] - a.from[0]) / len, (a.to[1] - a.from[1]) / len];
+          const reach = Math.abs((p[0] - (a.from[0] + a.to[0]) / 2) * u[0] + (p[1] - (a.from[1] + a.to[1]) / 2) * u[1]) * 2, notch = (headSize(a).centre * frame.line) / L;
+          const ratio = drag.which === "to" ? Math.max(0.05, Math.min(1, reach / len)) : Math.max(1, Math.min(20, (len - notch) / Math.max(1e-3, reach - notch)));
+          return setDrag({ ...drag, working: updateArrow(doc, a.id, { ratio: Math.abs(ratio - 1) < 0.02 ? undefined : ratio }) });
+        }
         if (drag.which === "bend") {
           // The middle follows the pointer across the line; how far across sets the bend.
           const len = Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]) || 1, n = [-(a.to[1] - a.from[1]) / len, (a.to[0] - a.from[0]) / len];
@@ -2112,6 +2160,8 @@ export default function Editor() {
   };
   // What the Actions panel shows: it follows the selection (and, while typing, the caret). Worked out when the panel
   // draws and when an action runs.
+  // Arrows and lines with a head at either end (or heads of their own kind), which the head size acts on.
+  const headed = (a: Arrow) => a.kind === "equilibrium" || a.kind === "retro" || a.kind === "block" || (!isOrbital(a) && a.kind !== "cut" && (headsOf(a).start !== "none" || headsOf(a).end !== "none"));
   const contextOf = (): Context => {
     // Typing, or the Text tool in hand: the panel is a text editor for that text (or the next text).
     if (writing) {
@@ -2159,6 +2209,9 @@ export default function Editor() {
         closed: pickedArrows[0].curve ? !!pickedArrows[0].curve.closed : undefined, fill: pickedArrows[0].fill ?? "none",
         // The sweep the curved ones share, if it is one on offer.
         sweep: SWEEPS.find((sw) => pickedArrows.filter(curved).every((a) => Math.abs(sweepOf(a.bend ?? 0) - sw) < 2)),
+        size: pickedArrows.every(headed) ? sizeOf(pickedArrows[0]) ?? "own" : undefined, ratio: pickedArrows[0].ratio ?? 1,
+        fillable: pickedArrows.every((a) => a.kind === "block" || !!a.curve?.closed),
+        point: pickedArrows.length === 1 && pointable(pickedArrows[0]) ? (pickedArrows[0].point ? (pickedArrows[0].bend ? "bent" : "remove") : "add") : undefined,
       };
     if (!selection.size && picked.size) {
       const cs = (doc.captions ?? []).filter((c) => picked.has(c.id)), c = cs[0];
@@ -2542,7 +2595,7 @@ export default function Editor() {
       ...LIBRARY.flatMap((c) => variants("template", "template", c.items.map((t) => [t.kind, t.name, <TemplateGlyph mol={t.mol} />]), c.name, "template")),
       ...templates.map((t) => ({ id: `template:${templateKind(t.id)}`, name: t.name, group: "My templates", icon: <TemplateGlyph mol={t.mol} />, run: pick("template", ["template", templateKind(t.id)]) })),
       ...variants("symbol", "symbol", Object.entries(SYMBOLS).map(([k, n]) => [k, n, <SymbolGlyph kind={k as SymbolKind} />]), "Symbols"),
-      ...variants("arrow", "arrow", ["reaction", "equilibrium", "resonance", "retro", "nogo", ...["curved", "fishhook", "double"].flatMap((k) => SWEEPS.map((sw) => `${k}-${sw}`))]
+      ...variants("arrow", "arrow", [...STRAIGHT, ...["curved", "fishhook", "double"].flatMap((k) => SWEEPS.map((sw) => `${k}-${sw}`)), ...ELLIPSES]
         .map((k) => [k, `${arrowName(k)} arrow`, <ArrowGlyph kind={k} />]), "Arrows"),
       ...variants("shape", "shape", [...SHAPE_GRID.flat(), ...SHAPE_EXTRA].map((k) => [k, shapeName(k)!, <ElementGlyph v={k} />]), "Shapes"),
       ...variants("bracket", "bracket", Object.entries(BRACKETS).map(([k, n]) => [k, n, <BracketGlyph v={k} />]), "Brackets"),
@@ -2725,11 +2778,19 @@ export default function Editor() {
       const ids = new Set((doc.arrows ?? []).filter((a) => picked.has(a.id)).map((a) => a.id)), id = [...ids][0];
       const each = (f: (a: Arrow) => Partial<Arrow>) => set({ ...doc, arrows: doc.arrows?.map((a) => (ids.has(a.id) ? { ...a, ...f(a) } : a)) }, true);
       if (what === "kind") {
-        // Switching between straight and curved adds or drops the bend.
-        const kind = arg as ArrowKind, bent = curved({ kind }), first = doc.arrows?.find((a) => ids.has(a.id));
-        setSettings((s) => ({ ...s, variants: { ...s.variants, arrow: bent ? `${kind}-${first?.bend ? nearestSweep(first.bend) : 120}` : kind } }));
-        return each((a) => ({ kind, bend: bent ? (a.bend || sweepBend(120)) : undefined }));
+        // Switching between straight and curved adds or drops the bend (a straight arrow with a point keeps its own).
+        // An unbalanced equilibrium has a ratio of 3. To and from a block arrow, the heads take the new kind's size.
+        const pick = arrowVariant(arg), kind = pick?.kind ?? (arg as ArrowKind), bent = curved({ kind }), first = doc.arrows?.find((a) => ids.has(a.id));
+        setSettings((s) => ({ ...s, variants: { ...s.variants, arrow: bent ? `${kind}-${first?.bend ? nearestSweep(first.bend) : 120}` : arg } }));
+        return each((a) => ({ kind, bend: bent ? (a.bend || sweepBend(120)) : a.point ? a.bend : undefined, point: bent ? undefined : a.point, ratio: pick?.ratio,
+          ...((a.kind === "block") !== (kind === "block") ? { headSize: undefined, shaft: undefined, fill: undefined } : {}) }));
       }
+      // ChemDraw's arrow sizes (Large, Medium, Small) for the heads; a kind's own size is left unset.
+      if (what === "size" && (arg === "large" || arg === "medium" || arg === "small")) return each((a) => {
+        if (!headed(a)) return {};
+        const head = sizedHead(a, arg), own = sizedHead(a, a.kind === "block" ? "large" : "small");
+        return { headSize: head.length === own.length ? undefined : head };
+      });
       if (what === "sweep") {
         const first = doc.arrows?.find((a) => ids.has(a.id) && curved(a));
         if (first) setSettings((s) => ({ ...s, variants: { ...s.variants, arrow: `${first.kind}-${arg}` } }));
@@ -2744,10 +2805,17 @@ export default function Editor() {
       }
       if (what === "head") return each(() => ({ head: arg === "solid" ? undefined : (arg as HeadShape) }));
       if (what === "closed") return each((a) => (a.curve ? { curve: { ...a.curve, closed: !a.curve.closed || undefined }, ...(a.curve.closed ? { fill: undefined } : {}) } : {}));
-      if (what === "fill") return each((a) => (a.curve?.closed ? { fill: arg === "none" || a.fill === arg ? undefined : (arg as CurveFill) } : {}));
-      // A style chip sets it; the arrows' Dashed line action turns dashes on and off.
-      if (what === "style") return each((a) => ({ style: arg === "plain" || (arg === "dashed" && a.style === "dashed" && !isLine(a) && a.kind !== "curve") ? undefined : (arg as Arrow["style"]) }));
+      if (what === "fill") return each((a) => (a.curve?.closed || a.kind === "block" ? { fill: arg === "none" || a.fill === arg ? undefined : (arg as CurveFill) } : {}));
+      // A style chip sets it; the arrows' Dashed line action turns dashes on and off. Heads set by hand double as
+      // the line goes bold and halve as it stops being bold, as in ChemDraw (a kind's own size follows by itself).
+      if (what === "style") return each((a) => {
+        const style = arg === "plain" || (arg === "dashed" && a.style === "dashed" && !isLine(a) && a.kind !== "curve") ? undefined : (arg as Arrow["style"]);
+        const k = (style === "bold") === (a.style === "bold") ? 1 : style === "bold" ? 2 : 0.5, h = a.headSize;
+        return { style, ...(h && k !== 1 ? { headSize: { length: h.length * k, centre: h.centre * k, width: h.width * k } } : {}) };
+      });
       if (what === "flip") return each((a) => ({ bend: -(a.bend ?? sweepBend(120)) }));
+      // A straight arrow's point: added (it may then bend and branch), or taken off with its bend.
+      if (what === "point") return each((a) => (pointable(a) ? (a.point ? { point: undefined, bend: undefined } : { point: true }) : {}));
       if ((what === "above" || what === "below") && id !== undefined) {
         setPicked(new Set());
         return openWriting({ value: "", on: { arrow: id, side: what }, style: { ...textStyle } });
@@ -2843,6 +2911,15 @@ export default function Editor() {
       return;
     }
     if (t.caption !== undefined && tool !== "text") return; // a caption was picked, not drawn on
+    // An arrow clicked with the Arrow tool, as in ChemDraw: one like the tool's, unchanged but for its ends, turns
+    // round; one like it but changed goes back to the tool's own; any other becomes the tool's kind.
+    const clicked = tool === "arrow" && t.arrow !== undefined ? doc.arrows?.find((a) => a.id === t.arrow && (straightArrow(a) || curved(a)) && a.kind !== "arc") : undefined;
+    if (clicked && !arrowPick.ellipse) {
+      const fresh = newArrow(clicked.from, clicked.to, Math.sign(clicked.bend ?? 1) || 1), same = clicked.kind === fresh.kind;
+      const keys = ["bend", "style", "start", "end", "head", "headSize", "ratio", "shaft", "fill", "point"] as const, changed = keys.some((k) => JSON.stringify(clicked[k]) !== JSON.stringify(fresh[k]));
+      if (same && !changed) return set(updateArrow(doc, clicked.id, { from: clicked.to, to: clicked.from, ...(clicked.bend ? { bend: -clicked.bend } : {}) }), true);
+      return set(updateArrow(doc, clicked.id, { kind: fresh.kind, ...Object.fromEntries(keys.map((k) => [k, fresh[k]])) }), true);
+    }
     if (tool === "bond") {
       if (t.atom !== undefined) return set(sprout(doc, t.atom, bondSpec));
       if (t.bond === undefined) return set(sprout(doc, at, bondSpec));
@@ -2907,7 +2984,8 @@ export default function Editor() {
       }
       case "arrow": {
         // A click makes an arrow of the usual length (three bonds; a short arc for a curved one), going right.
-        const to: P = drag.to ?? (drag.make?.kind === "orbital" ? orbitalTip(drag.make, drag.from, drag.target) : curved({ kind: drag.make?.kind ?? arrowKind }) ? [drag.from[0] + 1.5, drag.from[1]] : [drag.from[0] + 3, drag.from[1]]);
+        const to: P = drag.to ?? (drag.make?.kind === "orbital" ? orbitalTip(drag.make, drag.from, drag.target) : !drag.make && arrowPick.ellipse ? [drag.from[0] + (arrowPick.ellipse === "cw" ? 0.6 : -0.6), drag.from[1] + 1.2]
+          : curved({ kind: drag.make?.kind ?? arrowKind }) ? [drag.from[0] + 1.5, drag.from[1]] : [drag.from[0] + 3, drag.from[1]]);
         if (Math.hypot(to[0] - drag.from[0], to[1] - drag.from[1]) < 0.2) return;
         const [mol, id] = addArrow(doc, newArrow(drag.from, to, drag.side, drag.make));
         set(mol);
@@ -2975,6 +3053,7 @@ export default function Editor() {
         }
         return;
       case "move": {
+        if (!drag.moved && addPoint.current !== undefined) return set(updateArrow(doc, addPoint.current, { point: true }), true);
         if (!drag.moved) return click(drag.target, drag.from);
         saw("move");
         // An atom dropped exactly on another joins it. Joining renumbers atoms, so the selection clears then.
@@ -3301,12 +3380,13 @@ export default function Editor() {
           </g>
         );
       })}
-      {arrows.filter((a) => a.curve?.closed && a.fill).map((a) => {
+      {arrows.filter((a) => (a.curve?.closed || a.kind === "block") && a.fill).map((a) => {
         // A closed pen curve's fill: solid, shaded (lit from the top left) or faded (to nothing at the bottom right).
         // As ChemDraw draws them (checked in its SVG export): each curve's fill, then its outline as a 0.05 pt
         // hairline, in order, so a curve drawn later (a lamp's highlight over its glass, say) covers those under it.
-        const ink = a.colour ? textInk(a.colour) : "var(--ink)", d = kept(outlines, a, L, () => toPath(arrowTrace(a, L).paths));
-        const outline = <path d={d} fill="none" stroke={ink} strokeWidth={0.05 * pt} />;
+        // A block arrow's fill is inside its outline, which is drawn with the other arrows.
+        const ink = a.colour ? textInk(a.colour) : "var(--ink)", d = a.kind === "block" ? kept(outlines, a, frame, () => toPath([blockOutline(a, frame, L)])) : kept(outlines, a, L, () => toPath(arrowTrace(a, L).paths));
+        const outline = a.kind === "block" ? null : <path d={d} fill="none" stroke={ink} strokeWidth={0.05 * pt} />;
         if (a.fill === "solid") return <g key={`cf${a.id}`}><path d={d} fill={ink} />{outline}</g>;
         return (
           <g key={`cf${a.id}`}>
@@ -3478,7 +3558,7 @@ export default function Editor() {
     <div className="editor">
       {/* The canvas draws again as the view, or what the pointer is over, changes. The drawing's layers in it are made
           by the editor (under, marks, ink and over), so React passes over them. */}
-      <Live store={views}>{(view) => <Live store={overs}>{({ selection: overSelection, turn: overTurn, edge: edgeHover, page: pageHover }) => (
+      <Live store={views}>{(view) => <Live store={overs}>{({ selection: overSelection, turn: overTurn, edge: edgeHover, page: pageHover, join: overJoin }) => (
       <svg
         ref={svg}
         className={`canvas paper-${paper}${view.pinch ? " pinch" : ""}`}
@@ -3598,9 +3678,19 @@ export default function Editor() {
             const ids = [...picked], a = ids.length === 1 && !selection.size && drag?.kind !== "move" ? arrows.find((x) => x.id === ids[0]) : undefined;
             const sh = ids.length === 1 && !selection.size && drag?.kind !== "move" ? shown.shapes?.find((x) => x.id === ids[0]) : undefined;
             if ((!a || a.kind === "curve") && !sh) return null;
-            const points = sh ? Object.values(corners(sh)) : [a!.from, a!.to, ...(curved(a!) ? [bendPoint(a!)] : [])];
-            return points.map((q, i) => <circle key={`hd${i}`} className="handle" cx={q[0] * L} cy={-q[1] * L} r={4 / view.zoom} vectorEffect="non-scaling-stroke" />);
+            const barb = a && headBarb(a, frame, L);
+            const points = sh ? Object.values(corners(sh)) : [a!.from, a!.to, ...(curved(a!) || a!.point ? [bendPoint(a!)] : []), ...(barb ? [[barb[0] / L, -barb[1] / L] as P] : [])];
+            return (
+              <>
+                {points.map((q, i) => <circle key={`hd${i}`} className="handle" cx={q[0] * L} cy={-q[1] * L} r={4 / view.zoom} vectorEffect="non-scaling-stroke" />)}
+                {a && pointable(a) && !a.point && (() => { const m = bendPoint(a); return <circle className="handle add" cx={m[0] * L} cy={-m[1] * L} r={3 / view.zoom} vectorEffect="non-scaling-stroke" />; })()}
+              </>
+            );
           })()}
+          {overJoin && !drag && (
+            // Where a joined arrow would start: a small square, as ChemDraw marks it.
+            <rect className="handle join" x={overJoin[0] * L - 3 / view.zoom} y={-overJoin[1] * L - 3 / view.zoom} width={6 / view.zoom} height={6 / view.zoom} vectorEffect="non-scaling-stroke" />
+          )}
           {(() => {
             // The rotation handle, and the angle while turning.
             const h = drag?.kind === "turn" ? undefined : turnHandle(view.zoom);

@@ -10,7 +10,7 @@
 import { FONTS, PAGES, fontName, pageSize, readStyle, type DocStyle } from "./docstyle.ts";
 import {
   HIGHLIGHT, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, straightArrow, tableLayout, takesHeads, tlcLayout,
-  ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS,
+  ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, headSize, headOfLength, marked, ellipsePoints, sizedHead, type HeadSize,
   type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape,
   type LineStyle, type Mol, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
@@ -187,15 +187,23 @@ const widthOf = (text: string, size: number) => [...text].reduce((w, ch) => w + 
 
 // The kind an arrow reads as from what CDXML stores: its heads, head shape, shaft spacing, no-go mark and whether it
 // is an arc. The writer keeps a kind this does not give back in Octet's own data.
-type Stored = { arc: boolean; head?: string; tail?: string; type?: string; spacing: boolean; nogo: boolean };
+type Stored = { arc: boolean; head?: string; tail?: string; type?: string; spacing: boolean; nogo?: string; dipole?: boolean };
 function kindOf(s: Stored): ArrowKind {
+  if (s.nogo === "Hash") return "hash";
   if (s.nogo) return "nogo";
+  if (s.dipole && !s.arc) return "dipole";
+  if (s.type === "Hollow" && s.spacing && !s.arc) return "block";
   if (s.arc) return s.head?.startsWith("Half") && !s.tail ? "fishhook" : s.head === "Full" && s.tail === "Full" ? "double" : !s.head && !s.tail ? "arc" : "curved";
   if (s.type === "Angle" && s.spacing) return "retro";
   if (s.head === "HalfLeft" && s.tail === "HalfLeft" && s.spacing) return "equilibrium";
   return s.head === "Full" && s.tail === "Full" ? "resonance" : !s.head && !s.tail ? "line" : "reaction";
 }
 const headOf = (name?: string): Head => (name === "Full" ? "full" : name === "HalfLeft" ? "left" : name === "HalfRight" ? "right" : "none");
+// A head read from a file, as the palette size it is to within CDXML's hundredths (19.69 is Large's 19.6875).
+function paletteHead(a: Pick<Arrow, "kind" | "style">, h: HeadSize): HeadSize {
+  const near = (["large", "medium", "small"] as const).map((k) => sizedHead(a, k)).find((o) => Math.abs(o.length - h.length) < 0.006 && Math.abs(o.centre - h.centre) < 0.006 && Math.abs(o.width - h.width) < 0.006);
+  return near ?? h;
+}
 
 // Octet's page centred on 0,0, as CDXML's printable area: the paper less 36 pt margins all round (spec 6).
 function printable(style: Pick<DocStyle, "page" | "custom" | "landscape">): [number, number] {
@@ -353,7 +361,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       | (a.fill === "solid" ? 128 : 0) | (a.fill === "shaded" || a.fill === "faded" ? 256 : 0) | (a.style === "doubled" ? 512 : 0);
     const qs = c.points.flatMap((q) => [q.c1 ?? q.at, q.at, q.c2 ?? q.at]).map(at), heads = start !== "none" || end !== "none";
     put(el("curve", { id: idOf.get(a.id)!, Z: Z(), color: colour(a.colour), FillType: a.fill === "solid" ? "Solid" : a.fill ? "Shaded" : undefined, CurveType: bits || undefined,
-      ArrowheadHead: HEADS[end], ArrowheadTail: HEADS[start], ArrowheadType: HEAD_SHAPES[a.head ?? "solid"], HeadSize: heads ? 1000 : undefined, ArrowheadCenterSize: heads ? 875 : undefined, ArrowheadWidth: heads ? 250 : undefined,
+      ArrowheadHead: HEADS[end], ArrowheadTail: HEADS[start], ArrowheadType: HEAD_SHAPES[a.head ?? "solid"], HeadSize: heads ? Math.round(headSize(a).length * 100) : undefined, ArrowheadCenterSize: heads ? Math.round(headSize(a).centre * 100) : undefined, ArrowheadWidth: heads ? Math.round(headSize(a).width * 100) : undefined,
       Closed: c.closed ? "yes" : undefined, CurvePoints: qs.map(pt).join(" "), Octet: priv({ fill: a.fill === "faded" ? "faded" : undefined, style: a.style === "wavy" ? "wavy" : undefined }) }), 4, boxOf(qs), a.id);
   };
   for (const a of mol.arrows ?? []) {
@@ -543,13 +551,16 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   const legacyOf = new Map<number, number>();
   const arrowOut = (a: Arrow, derived: boolean) => {
     const id = derived ? fresh() : idOf.get(a.id)!, S = at(a.from), T = at(a.to);
-    let head: string | undefined, tail: string | undefined, type = "Solid", spacing: number | undefined, nogo = false, sizes = [1000, 875, 250];
-    if (takesHeads(a) || a.kind === "nogo") {
+    // Head sizes in hundredths of the line width (HeadSize, ArrowheadCenterSize, ArrowheadWidth).
+    const hs = headSize(a), h100 = (x: HeadSize) => [x.length, x.centre, x.width].map((v) => Math.round(v * 100));
+    let head: string | undefined, tail: string | undefined, type = "Solid", spacing: number | undefined, nogo: string | undefined, sizes = h100(hs);
+    if (takesHeads(a) || marked(a)) {
       const h = headsOf(a);
-      [head, tail, type, nogo] = [HEADS[h.end], HEADS[h.start], HEAD_SHAPES[a.head ?? "solid"], a.kind === "nogo"];
+      [head, tail, type, nogo] = [HEADS[h.end], HEADS[h.start], HEAD_SHAPES[a.head ?? "solid"], a.kind === "nogo" ? "Cross" : a.kind === "hash" ? "Hash" : undefined];
     } else if (a.kind === "equilibrium") [head, tail, spacing] = ["HalfLeft", "HalfLeft", Math.round((0.22 * B * 100) / line)];
-    else if (a.kind === "retro") [head, type, spacing, sizes] = ["Full", "Angle", Math.round((0.18 * B * 100) / line), [1000, 1000, Math.round(250 + (18 * B) / line)]];
-    const arc = curved(a) && a.bend ? circle(S, at(bendPoint(a)), T) : undefined;
+    else if (a.kind === "retro") [head, type, spacing, sizes] = ["Full", "Angle", Math.round((0.18 * B * 100) / line), [1000, 1000, 250 + (18 * B) / line].map((v) => Math.round((v * hs.length) / 10))];
+    else if (a.kind === "block") [head, type, spacing] = ["Full", "Hollow", Math.round((a.shaft ?? hs.length) * 100)];
+    const arc = (curved(a) || a.point) && a.bend ? circle(S, at(bendPoint(a)), T) : undefined;
     let frame: Record<string, string>, angular: number | undefined, path: P[];
     if (arc) {
       // The sweep from tail to head that passes the arc's middle, in the page's angles; AngularSize is minus it.
@@ -564,20 +575,23 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       frame = { Center3D: pt3(S), MajorAxisEnd3D: pt3([S[0] + d[0], S[1] + d[1]]), MinorAxisEnd3D: pt3([S[0] - d[1], S[1] + d[0]]) };
       path = [S, T];
     }
-    const kind = kindOf({ arc: !!arc, head, tail, type, spacing: !!spacing, nogo });
+    const kind = kindOf({ arc: !!arc, head, tail, type, spacing: !!spacing, nogo, dipole: a.kind === "dipole" });
     const lineType = a.style === "dashed" ? "Dashed" : a.style === "bold" ? "Bold" : a.style === "wavy" ? "Wavy" : undefined;
-    const box = boxOf(path, head || tail ? (sizes[2] * line) / 100 : line / 2), z = Z(), legacy = fresh(), c = colour(a.colour);
+    const box = boxOf(path, head || tail ? (sizes[a.kind === "block" ? 1 : 2] * line) / 100 : line / 2), z = Z(), legacy = fresh(), c = colour(a.colour);
     legacyOf.set(a.id, legacy);
     // The legacy copy: a line from head to tail, or an arc from the head round its centre, with the old arrow type.
-    const legacyType = a.kind === "equilibrium" ? "Equilibrium" : a.kind === "retro" ? "RetroSynthetic" : head === "Full" && tail === "Full" ? "Resonance"
+    const legacyType = a.kind === "equilibrium" ? "Equilibrium" : a.kind === "retro" ? "RetroSynthetic" : a.kind === "block" ? "Hollow" : head === "Full" && tail === "Full" ? "Resonance"
       : head === "Full" || (!head && tail === "Full") ? "FullHead" : head || tail ? "HalfHead" : undefined;
     const flip = !arc && !head && !!tail, snapped = arc ? [90, 120, 180, 270].reduce((best, s) => (Math.abs(Math.abs(angular!) - s) < Math.abs(Math.abs(angular!) - best) ? s : best)) * (head && angular! < 0 ? -1 : 1) : undefined;
     put(el("graphic", { id: legacy, SupersededBy: id, BoundingBox: arc ? `${pt(T)} ${pt(arc.O)}` : flip ? `${pt(S)} ${pt(T)}` : `${pt(T)} ${pt(S)}`, Z: z, color: c, LineType: lineType,
-      GraphicType: arc ? "Arc" : "Line", ArrowType: legacyType, HeadSize: 1000, AngularSize: snapped, Octet: derived ? DERIVED : undefined }), 3, box, derived ? undefined : a.id);
+      GraphicType: arc ? "Arc" : "Line", ArrowType: legacyType, HeadSize: sizes[0], AngularSize: snapped, Octet: derived ? DERIVED : undefined }), 3, box, derived ? undefined : a.id);
+    // A block arrow's fill: ChemDraw's FillType (faded, which CDXML cannot name, as shaded and in Octet's data).
+    const fill = a.kind === "block" && a.fill ? a.fill : undefined;
     put(el("arrow", {
-      id, BoundingBox: boxText(box), Z: z, color: c, LineType: lineType, FillType: "None", ArrowheadHead: head, ArrowheadTail: tail, ArrowheadType: type,
-      HeadSize: sizes[0], ArrowheadCenterSize: sizes[1], ArrowheadWidth: sizes[2], ArrowShaftSpacing: spacing, NoGo: nogo ? "Cross" : undefined, AngularSize: angular === undefined ? undefined : fmtAngle(angular),
-      Head3D: pt3(T), Tail3D: pt3(S), ...frame, Octet: derived ? DERIVED : priv({ kind: kind === a.kind ? undefined : a.kind, style: a.style === "doubled" ? "doubled" : undefined, bend: arc ? a.bend : undefined, grid: gridOf(a.id) }),
+      id, BoundingBox: boxText(box), Z: z, color: c, LineType: lineType, FillType: fill === "solid" ? "Solid" : fill ? "Shaded" : "None", ArrowheadHead: head, ArrowheadTail: tail, ArrowheadType: type,
+      HeadSize: sizes[0], ArrowheadCenterSize: sizes[1], ArrowheadWidth: sizes[2], ArrowShaftSpacing: spacing, ArrowEquilibriumRatio: a.kind === "equilibrium" && a.ratio && a.ratio !== 1 ? Math.round(a.ratio * 100) : undefined,
+      NoGo: nogo, Dipole: a.kind === "dipole" ? "yes" : undefined, AngularSize: angular === undefined ? undefined : fmtAngle(angular),
+      Head3D: pt3(T), Tail3D: pt3(S), ...frame, Octet: derived ? DERIVED : priv({ kind: kind === a.kind ? undefined : a.kind, style: a.style === "doubled" ? "doubled" : undefined, bend: arc ? a.bend : undefined, point: a.point, fill: fill === "faded" ? "faded" : undefined, grid: gridOf(a.id) }),
     }), 6, box, derived ? undefined : a.id);
   };
   for (const a of mol.arrows ?? []) {
@@ -1078,7 +1092,7 @@ export function fromCdxml(text: string): CdxmlRead {
       // A legacy graphic on its own (spec 11.2): its old arrow type as heads.
       const t = x.attrs.ArrowType ?? "NoHead", half = (int(x.attrs.HeadSize) ?? 0) < 0 ? "HalfRight" : "HalfLeft";
       const stored: Stored = { arc: type === "Arc", head: ({ HalfHead: half, FullHead: "Full", Resonance: "Full", Equilibrium: "HalfLeft", Hollow: "Full", RetroSynthetic: "Full" } as Record<string, string>)[t],
-        tail: ({ Resonance: "Full", Equilibrium: "HalfLeft" } as Record<string, string>)[t], type: t === "Hollow" ? "Hollow" : t === "RetroSynthetic" ? "Angle" : "Solid", spacing: t === "Equilibrium" || t === "RetroSynthetic", nogo: false };
+        tail: ({ Resonance: "Full", Equilibrium: "HalfLeft" } as Record<string, string>)[t], type: t === "Hollow" ? "Hollow" : t === "RetroSynthetic" ? "Angle" : "Solid", spacing: t === "Equilibrium" || t === "RetroSynthetic" };
       if (type === "Line") return addArrow(x, group, stored, p2, p1, undefined, z);
       // An arc: the head, then the circle's centre; the tail is the head turned back by the sweep (spec 11.3).
       const ang = ((real(x.attrs.AngularSize) || 90) * Math.PI) / 180, th = Math.atan2(box[1] - box[3], box[0] - box[2]), rr = Math.hypot(box[0] - box[2], box[1] - box[3]);
@@ -1131,12 +1145,17 @@ export function fromCdxml(text: string): CdxmlRead {
 
   // An arrow from what was stored: its kind (Octet's own when it kept one), the arc's middle as a bend, line style,
   // colour, and heads where they differ from the kind's.
-  function addArrow(x: Xml, group: G | undefined, s: Stored, from: P, to: P, mid: P | undefined, z: number) {
+  // curve: an arc of an ellipse (ChemDraw's elliptical arrows), which Octet holds as a pen curve with its heads.
+  function addArrow(x: Xml, group: G | undefined, s: Stored, from: P, to: P, mid: P | undefined, z: number, curve?: CurvePoint[]) {
     const p = priv(x), named = p?.kind as ArrowKind, colour = colourOf(x.attrs.color);
-    const a: Arrow & { z: number } = { id: newId(x), kind: ALL_ARROW_KINDS.includes(named) && named !== "orbital" && named !== "curve" ? named : kindOf(s), from, to, z };
+    const a: Arrow & { z: number } = curve ? { id: newId(x), kind: "curve", from: curve[0].at, to: curve[curve.length - 1].at, curve: { points: curve }, z }
+      : { id: newId(x), kind: ALL_ARROW_KINDS.includes(named) && named !== "orbital" && named !== "curve" ? named : kindOf(s), from, to, z };
+    // A straight arrow Octet gave a point keeps it, and its bend.
+    if (p?.point === true && !curved(a)) a.point = true;
+    const bends = curved(a) || a.point;
     // Octet's own bend is exact; ChemDraw's arc gives it to within the file's 0.01 pt.
-    if (curved(a) && isNum(p?.bend, -5, 5) && p!.bend) a.bend = p!.bend as number;
-    else if (curved(a) && mid) {
+    if (bends && isNum(p?.bend, -5, 5) && p!.bend) a.bend = p!.bend as number;
+    else if (bends && mid) {
       const l = len(sub(to, from)) || 1, bend = ((mid[0] - (from[0] + to[0]) / 2) * -(to[1] - from[1]) + (mid[1] - (from[1] + to[1]) / 2) * (to[0] - from[0])) / (l * l);
       if (Math.abs(bend) > 1e-6) a.bend = Math.max(-5, Math.min(5, bend));
     }
@@ -1150,6 +1169,19 @@ export function fromCdxml(text: string): CdxmlRead {
       if (end !== kind.end) a.end = end;
       if (s.type === "Hollow") a.head = "hollow"; else if (s.type === "Angle") a.head = "angled";
     }
+    // Head sizes (hundredths of the line width), an equilibrium's ratio, and a block arrow's shaft and fill. ChemDraw
+    // reads a missing notch as 7/8 of the length (flat on a block arrow) and a missing width as a quarter of it.
+    const size = Math.abs(real(x.attrs.HeadSize) ?? 0) / 100;
+    if (size > 0 && size <= 500 && a.kind !== "retro") {
+      const own = headOfLength(size, a.kind === "block"), centre = Math.abs(real(x.attrs.ArrowheadCenterSize) ?? 0) / 100, width = Math.abs(real(x.attrs.ArrowheadWidth) ?? 0) / 100;
+      const hs = paletteHead(a, { length: size, centre: centre > 0 && centre <= 500 ? centre : own.centre, width: width > 0 && width <= 500 ? width : own.width }), kindOwn = headSize(a);
+      if (Math.abs(hs.length - kindOwn.length) > 1e-3 || Math.abs(hs.centre - kindOwn.centre) > 1e-3 || Math.abs(hs.width - kindOwn.width) > 1e-3) a.headSize = hs;
+    }
+    const ratio = Math.abs(real(x.attrs.ArrowEquilibriumRatio) ?? 0) / 100;
+    if (a.kind === "equilibrium" && ratio > 0 && Math.abs(ratio - 1) > 1e-3) a.ratio = Math.min(100, ratio);
+    const shaft = Math.abs(real(x.attrs.ArrowShaftSpacing) ?? 0) / 100;
+    if (a.kind === "block" && shaft > 0 && Math.abs(shaft - headSize(a).length) > 1e-3) a.shaft = Math.min(500, shaft);
+    if (a.kind === "block" && (x.attrs.FillType === "Solid" || x.attrs.FillType === "Shaded")) a.fill = p?.fill === "faded" ? "faded" : x.attrs.FillType === "Solid" ? "solid" : "shaded";
     arrows.push(a);
     objectOf.set(int(x.attrs.id) ?? -1, a.id);
     const g = p?.grid as Record<string, unknown> | undefined, typed = g?.typed as Record<string, Record<string, unknown>> | undefined;
@@ -1167,17 +1199,22 @@ export function fromCdxml(text: string): CdxmlRead {
     if (!usable.has(id) && superseded.has(id)) return;
     if (!head || !tail) return lose("arrow");
     const angular = real(x.attrs.AngularSize) ?? 0, [C, U, V] = [x.attrs.Center3D, x.attrs.MajorAxisEnd3D, x.attrs.MinorAxisEnd3D].map((s) => reals(s, 2) as P | undefined);
-    let mid: P | undefined;
+    let mid: P | undefined, curve: CurvePoint[] | undefined;
     if (angular && C && U && V) {
       const A = sub(U, C), Bv = sub(V, C), det = cross(A, Bv), d = sub(tail as P, C);
       if (Math.abs(det) > 1e-9) {
         const cs = cross(d, Bv) / det, sn = cross(A, d) / det, k = Math.hypot(cs, sn), t = Math.atan2(sn, cs) + ((det > 0 ? -1 : 1) * angular * Math.PI) / 360;
         mid = toOctet(C[0] + k * (Math.cos(t) * A[0] + Math.sin(t) * Bv[0]), C[1] + k * (Math.cos(t) * A[1] + Math.sin(t) * Bv[1]));
+        // An ellipse (its axes unequal or not square to each other): the arc as Bézier points, from tail to head.
+        if (Math.abs(len(A) - len(Bv)) > 0.02 * Math.max(len(A), len(Bv)) || Math.abs(A[0] * Bv[0] + A[1] * Bv[1]) > 0.02 * len(A) * len(Bv)) {
+          const c = toOctet(C[0], C[1]), axis = (v: P): [number, number] => sub(toOctet(C[0] + k * v[0], C[1] + k * v[1]), c), t0 = Math.atan2(sn, cs);
+          curve = ellipsePoints(c, axis(A), axis(Bv), t0, t0 + ((det > 0 ? -1 : 1) * angular * Math.PI) / 180);
+        }
       }
     }
     const spacing = (int(x.attrs.ArrowShaftSpacing) ?? 0) > 0;
-    addArrow(x, group, { arc: !!mid, head: headName(x.attrs.ArrowheadHead), tail: headName(x.attrs.ArrowheadTail), type: x.attrs.ArrowheadType, spacing, nogo: x.attrs.NoGo === "Cross" || x.attrs.NoGo === "Hash" },
-      toOctet(tail[0], tail[1]), toOctet(head[0], head[1]), mid, zOf(x));
+    addArrow(x, group, { arc: !!mid, head: headName(x.attrs.ArrowheadHead), tail: headName(x.attrs.ArrowheadTail), type: x.attrs.ArrowheadType, spacing, nogo: x.attrs.NoGo === "Cross" || x.attrs.NoGo === "Hash" ? x.attrs.NoGo : undefined, dipole: yes(x.attrs.Dipole) },
+      toOctet(tail[0], tail[1]), toOctet(head[0], head[1]), mid, zOf(x), curve);
   }
 
   // A pen curve: points in threes per anchor (in-handle, anchor, out-handle), CurveType bits and the newer
@@ -1197,6 +1234,11 @@ export function fromCdxml(text: string): CdxmlRead {
     if (end) a.end = headOf(end);
     if (start) a.start = headOf(start);
     if ((end || start) && x.attrs.ArrowheadType === "Hollow") a.head = "hollow"; else if ((end || start) && x.attrs.ArrowheadType === "Angle") a.head = "angled";
+    const size = Math.abs(real(x.attrs.HeadSize) ?? 0) / 100, centre = Math.abs(real(x.attrs.ArrowheadCenterSize) ?? 0) / 100, width = Math.abs(real(x.attrs.ArrowheadWidth) ?? 0) / 100;
+    if ((end || start) && size > 0 && size <= 500) {
+      const hs = paletteHead(a, { length: size, centre: centre > 0 && centre <= 500 ? centre : size * 0.875, width: width > 0 && width <= 500 ? width : size / 4 }), own = headSize(a);
+      if (Math.abs(hs.length - own.length) > 1e-3 || Math.abs(hs.centre - own.centre) > 1e-3 || Math.abs(hs.width - own.width) > 1e-3) a.headSize = hs;
+    }
     if (colour) a.colour = colour;
     arrows.push(a);
     objectOf.set(int(x.attrs.id) ?? -1, a.id);
