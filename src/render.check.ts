@@ -172,6 +172,11 @@ console.log("render.check: written labels ok");
   const dropped = renderParts(moved, S, ink, S.bond, drag, true);
   assert.notEqual(dropped.parts[1].drawing, before.parts[1].drawing, "drawn again when still");
   assert.deepEqual(dropped.parts[1].at, [0, 0]);
+  // When still, the moved drawing's own points are where a new drawing puts them.
+  const fresh = again.parts[1].drawing, got = dropped.parts[1].drawing, close = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+  assert.ok(got.polygons.length === fresh.polygons.length && got.polygons.every((p, i) => p.every((q, j) => close(q[0], fresh.polygons[i][j][0]) && close(q[1], fresh.polygons[i][j][1]))), "polygons where a new drawing puts them");
+  assert.ok(got.labels.every((l, i) => l.text === fresh.labels[i].text && close(l.x, fresh.labels[i].x) && close(l.y, fresh.labels[i].y)), "labels where a new drawing puts them");
+  assert.ok(near(got.ink, fresh.ink) && near([got.box], [fresh.box]) && near(dropped.ink, again.ink), "ink boxes where a new drawing puts them");
   assert.equal(dropped.parts[0].drawing, before.parts[0].drawing, "the rest is not drawn again");
   console.log("render.check: structure by structure ok");
 }

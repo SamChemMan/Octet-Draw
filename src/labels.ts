@@ -97,8 +97,40 @@ export function labelSmiles(label: string): string | undefined {
       smiles += smiles ? `(${inner})`.repeat(n) : inner + `(${inner})`.repeat(n - 1);
     } else return undefined;
   }
+  if (crowded(smiles)) return undefined;
   // Esters and acids written CO2R or COOR: one O double-bonded to the carbon.
   return smiles.replace(/^C\(O\)\(O\)/, "C(=O)O").replace(/^COO/, "C(=O)O") || undefined;
+}
+// A label Indigo cannot lay out in good time is not read, as the layout can run for minutes and stop the editor:
+// more than 120 atoms, an atom with more than eight neighbours (CCl99) or more than four groups with a ring on it
+// (CPh5), or a ring atom with more than four neighbours (Ph4, CyPh4Cl). Ph3, BPh4, Pd(PPh3)4, W(CO)6 and PF6 are read.
+function crowded(smiles: string): boolean {
+  type At = { near: number; rings: number; ring: boolean };
+  const bad = (a?: At) => !!a && (a.near > 8 || a.rings > 4 || (a.ring && a.near > 4));
+  let atoms = 0, bracket = false;
+  // The chain's last atom at each depth, and whether each open branch has a ring in it.
+  const chain: (At | undefined)[] = [undefined], ringy: boolean[] = [];
+  for (const ch of smiles) {
+    const last = chain[chain.length - 1];
+    if (bracket) { bracket = ch !== "]"; continue; }
+    if (ch === "(") { if (last) last.near++; chain.push(undefined); ringy.push(false); }
+    else if (ch === ")") {
+      if (!ringy.length || bad(chain.pop())) return true;
+      const at = chain[chain.length - 1];
+      if (ringy.pop() && at) at.rings++;
+      if (bad(at)) return true;
+    } else if (/\d/.test(ch)) {
+      if (last) { last.near++; last.ring = true; }
+      ringy.fill(true);
+    } else if (ch === "[" || /[A-Zbcnops]/.test(ch)) {
+      // A new atom: bonded to the last one (the first atom, to the drawing).
+      if (++atoms > 120) return true;
+      if (last) { last.near++; if (bad(last)) return true; }
+      chain[chain.length - 1] = { near: 1, rings: 0, ring: false };
+      bracket = ch === "[";
+    }
+  }
+  return chain.some(bad);
 }
 
 // Chemical formulas in running text: a count straight after an element, a group or a closing bracket is a

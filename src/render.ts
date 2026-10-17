@@ -808,7 +808,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
 // atoms and bonds are the same objects, so a change to one structure (a drag, an edit) draws only that structure
 // again. Structures in perspective are drawn as one, as a nearer bond cuts a gap in a bond behind it.
 // While something moves (still false), a structure whose atoms all moved the same way keeps its drawing, moved by
-// `at` (px); once it is still, it is drawn again where it is.
+// `at` (px); once it is still, the drawing's own points move there.
 // parts: each structure's own drawing, its atoms, and how far it is moved, in order of their first atom.
 export type Part = { atoms: Atom[]; bonds: Bond[]; drawn: Atom[]; drawing: Drawing; at: P };
 export type PartCache = { parts: WeakMap<Atom, Part>; last: Map<number, Part> };
@@ -833,7 +833,10 @@ export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: F
       const was = cache.last.get(ids[0]), at = !still && same(was) ? shiftOf(was.drawn, atoms, scale) : undefined;
       part = at && was ? { atoms, bonds, drawn: was.drawn, drawing: was.drawing, at } : undefined;
     }
-    if (!part || (still && (part.at[0] || part.at[1]))) {
+    // Once still, a moved structure's drawing is moved by the same numbers (render gives the same points there), as
+    // drawing it again is slow when a drag moves many structures.
+    if (part && still && (part.at[0] || part.at[1])) part = { atoms, bonds, drawn: atoms, drawing: shifted(part.drawing, part.at), at: [0, 0] };
+    if (!part) {
       const local = new Map(ids.map((i, k) => [i, k]));
       const drawing = render({ atoms, bonds: bonds.map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] })) }, s, measure, scale);
       part = { atoms, bonds, drawn: atoms, drawing, at: [0, 0] };
@@ -851,6 +854,17 @@ export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: F
   }
   cache.last = last;
   return out;
+}
+// A drawing moved by x, y (px).
+function shifted(d: Drawing, [x, y]: P): Drawing {
+  const box = (b: Box): Box => [b[0] + x, b[1] + y, b[2] + x, b[3] + y];
+  return {
+    ...d, box: box(d.box), ink: d.ink.map(box), label: d.label.map((b) => b && box(b)),
+    polygons: d.polygons.map((poly) => poly.map(([px, py]): P => [px + x, py + y])),
+    labels: d.labels.map((l) => ({ ...l, x: l.x + x, y: l.y + y })),
+    electrons: d.electrons.map((e) => ({ ...e, at: [e.at[0] + x, e.at[1] + y] })),
+    beads: d.beads.map((b) => ({ ...b, at: [b.at[0] + x, b.at[1] + y] })),
+  };
 }
 // How far (px, y down) atoms have moved from where they were drawn, when every one moved the same way and nothing
 // else about them changed; otherwise undefined.

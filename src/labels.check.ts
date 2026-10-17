@@ -22,6 +22,10 @@ const reversed: Record<string, string> = {
 for (const [label, smiles] of Object.entries(reversed)) assert.equal(labelSmiles(label), smiles, label);
 for (const label of ["H2O2", "Me3Si", "(CH2)3", "Ph2", "H2(Boc)2", "HN(Me)2"]) assert.ok(!labelSmiles(label)?.startsWith("("), label);
 assert.equal(labelSmiles("C999"), undefined);
+// Labels Indigo cannot lay out in good time are not read: an atom with more than eight neighbours or more than four
+// groups with a ring on it, a ring atom with more than four neighbours, or more than 120 atoms. Others are read.
+for (const label of ["Ph4", "Ph6", "Ph10", "(Ph)6", "PhPh4", "PhPh5", "CPh5", "CPh50", "CyCy5", "TsTs5", "Fmoc12", "CPh4Ph4", "(PhPh4)4", "PhCl12", "CCl99", "(CCl9)30", "(C99)99", "C99C99", "CyPh4ClTr", "TsCyTrPMeClTr", "TBDPSP99", "Si12Si99MeC5"]) assert.equal(labelSmiles(label), undefined, label);
+for (const label of ["Ph2", "Ph3", "CPh3", "Ph3C", "Ph3P", "BPh4", "Ph4B", "Pd(PPh3)4", "CTr4", "SF5", "PF6", "W(CO)6", "Fe(CO)5", "CCl3", "C99", "(CH2)3", "TBDPS", "Si(iPr)3", "Fmoc", "Mes", "Tr"]) assert.ok(labelSmiles(label), label);
 // Formulas in conditions and tables: counts after an element, group or bracket are subscripts; other numbers are not.
 const runs = (t: string) => formulaRuns(t).map((r) => (r.sub ? `_${r.text}` : r.text)).join("");
 for (const [t, want] of Object.entries({

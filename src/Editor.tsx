@@ -949,8 +949,8 @@ export default function Editor() {
   const lastK = useRef(frame.k);
   useEffect(() => { if (lastK.current !== frame.k) { const r = lastK.current / frame.k; lastK.current = frame.k; setView((v) => ({ ...v, zoom: v.zoom * r })); } }, [frame.k]);
   // Each structure is drawn again only when its atoms or bonds change (renderParts): a drag of text, an arrow or one
-  // structure leaves the other structures' drawings as they were. A structure a drag moves keeps its drawing, moved,
-  // and is drawn again where it lands.
+  // structure leaves the other structures' drawings as they were. A structure a drag moves keeps its drawing, moved by
+  // a transform, and its points move where it lands.
   const partCache = useRef<{ frame: typeof frame; measure: typeof measure; cache: PartCache }>(undefined);
   const still = !drag;
   const drawing = useMemo(() => {
