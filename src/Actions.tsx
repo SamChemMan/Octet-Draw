@@ -76,6 +76,11 @@ function PickButton({ label, value, options, onPick }: { label: string; value: s
     return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); };
   }, [open]);
   const current = options.find((o) => o.id === value) ?? options[0];
+  // The menu is pinned to the window, above the button (or below it near the top), so a scrolling panel never cuts it off.
+  const place = (): React.CSSProperties => {
+    const r = box.current!.getBoundingClientRect(), tall = options.length * 30 + 10;
+    return { position: "fixed", left: r.left, right: "auto", ...(r.top > tall + 8 ? { bottom: innerHeight - r.top + 4 } : { top: r.bottom + 4, bottom: "auto" }) };
+  };
   return (
     <div className="pick" ref={box}>
       <button className="chip pick-button" aria-haspopup="menu" aria-expanded={open} aria-label={`${label}: ${current.name}`} title={`${label}: ${current.name}`} onClick={() => setOpen(!open)}>
@@ -83,7 +88,7 @@ function PickButton({ label, value, options, onPick }: { label: string; value: s
         {current.glyph}
       </button>
       {open && (
-        <div className="size-menu pick-menu" role="menu" aria-label={label}>
+        <div className="size-menu pick-menu" role="menu" aria-label={label} style={place()}>
           {options.map((o) => (
             <button key={o.id} role="menuitemradio" aria-checked={o.id === value} onClick={() => { setOpen(false); if (o.id !== value) onPick(o.id); }}>
               <span className="pick-glyph" aria-hidden>{o.glyph}</span>{o.name}
@@ -225,10 +230,14 @@ function TableGlyph({ on, faint }: { on: TableLine[]; faint?: boolean }) {
 
 // small: shown as a small button by default (the user can drag it into the rows, and any row out of them).
 export type Item = { icon: React.ReactNode; name: string; command: string; accent?: boolean; small?: boolean };
-// The small buttons fall into sets, each set on its own line under a hairline: what the structure is (properties,
-// stereo, NMR), turning and flipping, marks on it, arranging things, keeping it, and Delete last.
-const SETS = ["analysis", "turn", "marks", "arrange", "library", "other", "delete"] as const;
+// The small buttons fall into sets, each under a small title: what the structure is (properties, stereo, NMR),
+// turning and flipping, what is shown on it, arranging things, the view, copying and keeping it, and Delete last.
+const SETS = ["analysis", "turn", "marks", "arrange", "view", "library", "other", "delete"] as const;
+const SET_TITLES: Record<(typeof SETS)[number], string | undefined> = {
+  analysis: "Analyse", turn: "Turn and flip", marks: "Display", arrange: "Arrange", view: "View", library: "Clipboard and library", other: "More", delete: undefined,
+};
 const SET_OF: Record<string, (typeof SETS)[number]> = {
+  select_all: "view", zoom_fit: "view", import: "library",
   properties: "analysis", show_stereo: "analysis", predict_1h: "analysis", predict_13c: "analysis",
   "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "turn", flatten: "turn",
   pairs: "marks", number: "marks", atom_numbers: "marks", "caption.add": "marks", colour_by_element: "marks", aromatic_display: "marks", contract_label: "marks",
@@ -254,12 +263,12 @@ export function actionItems(context: Context, messy: boolean): Item[] {
 
   switch (context.kind) {
     case "empty":
-      items.push(it(<Atom size={18} />, "Name to structure", "name_to_structure"), it(<FileArrowDown size={18} />, "Import a structure", "import"),
-        it(<ClipboardText size={18} />, "Paste a SMILES or MOL", "paste_hint"));
+      items.push(it(<Atom size={18} />, "Name to structure", "name_to_structure"), it(<ClipboardText size={18} />, "Paste a SMILES or MOL", "paste_hint"),
+        small(it(<FileArrowDown size={18} />, "Import a structure", "import")));
       break;
     case "drawing":
-      items.push(clean, ...(context.nameable ? [nameIt] : []), it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles"),
-        it(<Atom size={18} />, "Name to structure", "name_to_structure"), it(<FileArrowDown size={18} />, "Import a structure", "import"), ...flips,
+      items.push(clean, ...(context.nameable ? [nameIt] : []), it(<Atom size={18} />, "Name to structure", "name_to_structure"), ...flips,
+        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<FileArrowDown size={18} />, "Import a structure", "import")),
         small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<ArrowsOutSimple size={18} />, "Zoom to fit", "zoom_fit")));
       break;
     case "structure":
@@ -271,7 +280,7 @@ export function actionItems(context: Context, messy: boolean): Item[] {
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
         small(it(<TextT size={18} />, "Add a caption", "caption.add")),
         small(it(<ArrowClockwise size={18} />, "Turn 15° right", "rotate.cw15")), small(it(<ArrowCounterClockwise size={18} />, "Turn 15° left", "rotate.ccw15")),
-        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")), small(it(<Flask size={18} />, "Properties", "properties")), small(it(<TagSimple size={18} />, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, "Toggle aromatic display", "aromatic_display")), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C NMR shifts", "predict_13c")));
+        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")), small(it(<Flask size={18} />, "Properties", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, "Toggle aromatic display", "aromatic_display")), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C NMR shifts", "predict_13c")));
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<AlignCenterHorizontal size={18} />, "Line up in a row", "align.row")),
         small(it(<AlignCenterVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
       if (context.depth !== undefined) items.push(small(it(<Cube size={18} />, context.depth ? "Draw flat" : "Draw with depth", "structure_perspective")), small(it(<Square size={18} />, "Flatten", "flatten")));
@@ -296,7 +305,7 @@ export function actionItems(context: Context, messy: boolean): Item[] {
       break;
     case "reaction":
       items.push(it(<MagicWand size={18} />, "Clean up reaction", "reaction.clean", !context.clean),
-        it(<ListNumbers size={18} />, "Number these compounds", "number"), it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles"),
+        it(<ListNumbers size={18} />, "Number these compounds", "number"), small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")),
         it(<span className="glyph-text">A→A</span>, "Map atoms", "reaction.map"), it(<Table size={18} />, context.grid ? "Remove stoichiometry" : "Analyze stoichiometry", "stoichiometry"), ...(context.mapped ? [small(it(<X size={18} />, "Clear atom map", "reaction.unmap"))] : []), small(del));
       break;
     case "cycle":
@@ -735,26 +744,30 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
         );
       })()}
       {colour && (
-        // One colour row for every kind of selection. A highlight takes a pale fill; anything else an ink colour.
+        // Colour is a section of its own, titled like the sets below, and set off from the main rows.
+        <div className="colour-block" role="group" aria-label="Colour">
+        <span className="tray-title" aria-hidden>Colour</span>
+        {/* One colour row for every kind of selection. A highlight takes a pale fill; anything else an ink colour. */}
         <div className="swatches small" role="radiogroup" aria-label="Colour">
           {[...(colour.tints ? TINTS : COLOURS), ...palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => (
             <button key={`${name}${hex}`} role="radio" aria-checked={colour.value.toLowerCase() === hex.toLowerCase()} aria-label={name} title={name} className="swatch" style={{ background: hex }} onClick={() => run(`colour.${hex}`)} />
           ))}
           <button className="swatch custom" title="Add a colour" aria-label="Add a colour" onClick={() => run("colours_add")}><PlusIcon size={10} weight="bold" aria-hidden /></button>
         </div>
+        {(context.kind === "structure" || context.kind === "atom") && (() => {
+          // Highlight (a disc behind each atom) and ring fill (every ring wholly selected), each a labelled button.
+          const swatch = (c: string) => <span className="pick-swatch" style={{ background: c }} />;
+          const options = [{ id: "none", name: "None", glyph: <span className="pick-swatch none" /> }, ...HIGHLIGHTS.map(([name, hex]) => ({ id: hex, name, glyph: swatch(hex) }))];
+          return (
+            <div className="picks" role="group" aria-label="Highlight and ring fill">
+              <PickButton label="Highlight" value={context.halo ?? "none"} options={options} onPick={(v) => run(`halo.${v}`)} />
+              <PickButton label="Ring fill" value={context.fill ?? "none"} options={options} onPick={(v) => run(`ringfill.${v}`)} />
+            </div>
+          );
+        })()}
+        </div>
       )}
 
-      {(context.kind === "structure" || context.kind === "atom") && (() => {
-        // Highlight (a disc behind each atom) and ring fill (every ring wholly selected), each a labelled button.
-        const swatch = (c: string) => <span className="pick-swatch" style={{ background: c }} />;
-        const options = [{ id: "none", name: "None", glyph: <span className="pick-swatch none" /> }, ...HIGHLIGHTS.map(([name, hex]) => ({ id: hex, name, glyph: swatch(hex) }))];
-        return (
-          <div className="picks" role="group" aria-label="Highlight and ring fill">
-            <PickButton label="Highlight" value={context.halo ?? "none"} options={options} onPick={(v) => run(`halo.${v}`)} />
-            <PickButton label="Ring fill" value={context.fill ?? "none"} options={options} onPick={(v) => run(`ringfill.${v}`)} />
-          </div>
-        );
-      })()}
 
       {(rows.length > 0 || carry) && (
         <div className="actions-list">
@@ -772,7 +785,9 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
       {(tray.length > 0 || carry) && (
         <div className={carry && !carry.to?.rows && carry.to ? "tray receiving" : "tray"} role="toolbar" aria-label="More actions">
           {tray.reduce<Item[][]>((sets, i, k) => (k && setOf(i.command) === setOf(tray[k - 1].command) ? (sets[sets.length - 1].push(i), sets) : [...sets, [i]]), []).map((set) => (
-            <div key={set[0].command} className="tray-set">
+            <div key={set[0].command} className="tray-set" role="group" aria-label={SET_TITLES[setOf(set[0].command)] ?? "Delete"}>
+            {SET_TITLES[setOf(set[0].command)] && <span className="tray-title" aria-hidden>{SET_TITLES[setOf(set[0].command)]}</span>}
+            <div className="tray-buttons">
             {set.map((i) => (
             <button
               key={i.command}
@@ -789,6 +804,7 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
               {i.icon}
             </button>
             ))}
+            </div>
             </div>
           ))}
         </div>
