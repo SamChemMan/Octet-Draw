@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, ArrowsInSimple, ArrowClockwise, ArrowsClockwise, ArrowsDownUp, CaretRight, SignIn, SignOut, ArrowCounterClockwise, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretDown,
-  ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
+  ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAa, TextAlignCenter, TextAlignLeft,
   TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Eraser, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
 } from "@phosphor-icons/react";
@@ -859,12 +859,19 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
           ))}
         </div>
       )}
-      {/* Settings is always last. */}
-      <button className="actions-settings" onClick={() => run("settings")}>
-        <GearSix size={16} aria-hidden />
-        <span>Settings</span>
-        {hint("settings") && <kbd>{hint("settings")}</kbd>}
-      </button>
+      {/* Settings is always last, with Home beside it. */}
+      <div className="actions-foot">
+        <button className="actions-settings" onClick={() => run("settings")}>
+          <GearSix size={16} aria-hidden />
+          <span>Settings</span>
+          {hint("settings") && <kbd>{hint("settings")}</kbd>}
+        </button>
+        <button className="actions-home" aria-label="Home" onClick={() => { hideTip(); run("home"); }}
+          onPointerEnter={(e) => showTip(e, hint("home") ? `Home  ${hint("home")}` : "Home")} onPointerLeave={hideTip}
+          onFocus={(e) => { const r = e.currentTarget.getBoundingClientRect(); setTip({ text: "Home", x: r.left + r.width / 2, y: r.top }); }} onBlur={hideTip}>
+          <House size={16} aria-hidden />
+        </button>
+      </div>
       {tip && <span className="tip" role="tooltip" style={{ left: Math.min(tip.x, innerWidth - 8), top: tip.y }}>{tip.text}</span>}
       {carry && (() => {
         const i = items.find((x) => x.command === carry.command);

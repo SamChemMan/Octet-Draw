@@ -3054,6 +3054,16 @@ export default function Editor() {
     />
   ) : null;
 
+  // Home stays on screen while it fades out, so going to a drawing (or the tutorial) is one smooth move.
+  const [homeLeaving, setHomeLeaving] = useState(false), [wasHome, setWasHome] = useState(home), homeKind = useRef<"name" | "home">("home");
+  if (home) homeKind.current = settings.userName === null ? "name" : "home";
+  if (wasHome !== home) { setWasHome(home); setHomeLeaving(wasHome); }
+  useEffect(() => {
+    if (!homeLeaving) return;
+    const t = setTimeout(() => setHomeLeaving(false), 180);
+    return () => clearTimeout(t);
+  }, [homeLeaving]);
+
   return (
     <div className="editor">
       <svg
@@ -3745,9 +3755,9 @@ export default function Editor() {
           </span>
         </Dialog>
       )}
-      {home && (settings.userName === null
-        ? <NameBox onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone) startTutorial(); }} />
-        : <Home name={settings.userName} first={welcomed} away={away} recents={recents} newKey={keyLabel("enter")} openKey={hint("open")}
+      {(home || homeLeaving) && (homeKind.current === "name"
+        ? <NameBox leaving={!home} onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone) startTutorial(); }} />
+        : <Home leaving={!home} name={settings.userName ?? ""} first={welcomed} away={away} recents={recents} newKey={keyLabel("enter")} openKey={hint("open")}
             onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent}
             onRemove={(r) => void invoke("recent_remove", { path: r.path }).then(refreshRecents).catch(() => {})} />)}
       {coach > 0 && !home && (

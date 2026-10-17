@@ -40,6 +40,7 @@ function Mark({ size }: { size: number }) {
 }
 
 type Props = {
+  leaving?: boolean; // fading out as a drawing opens
   name: string; first: boolean; away: number; recents: RecentEntry[]; newKey: string; openKey?: string;
   onNew: () => void; onOpen: () => void; onRecent: (r: RecentEntry) => void; onRemove: (r: RecentEntry) => void;
 };
@@ -49,7 +50,7 @@ export function Home(p: Props) {
   // Return makes a new drawing (as decision 0003 asks) unless a tile has the focus; arrow keys move between tiles.
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (p.leaving || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
       const tiles = [...(grid.current?.querySelectorAll<HTMLElement>(".home-tile") ?? [])], at = tiles.indexOf(document.activeElement as HTMLElement);
       if (e.key === "Enter" && at < 0 && !(document.activeElement instanceof HTMLButtonElement)) { e.preventDefault(); p.onNew(); return; }
       const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
@@ -59,7 +60,7 @@ export function Home(p: Props) {
     return () => removeEventListener("keydown", key);
   });
   return (
-    <main className="home" aria-label="Home">
+    <main className={p.leaving ? "home leaving" : "home"} aria-label="Home" inert={p.leaving}>
       <div className="home-inner">
         <header className="home-head">
           <Mark size={24} />
@@ -104,10 +105,10 @@ export function Home(p: Props) {
 
 // First launch: the user's name, in the dotted frame Octet draws round a selected group. Return goes on; Skip or
 // Escape goes on without a name.
-export function NameBox({ onDone }: { onDone: (name: string) => void }) {
+export function NameBox({ onDone, leaving }: { onDone: (name: string) => void; leaving?: boolean }) {
   const [name, setName] = useState("");
   return (
-    <main className="home name-box" aria-label="Welcome">
+    <main className={leaving ? "home name-box leaving" : "home name-box"} aria-label="Welcome" inert={leaving}>
       <div className="name-box-inner">
         <Mark size={56} />
         <h1 className="name-title">Hey, what shall we call you?</h1>

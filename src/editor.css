@@ -2124,17 +2124,21 @@ button.variant.add {
   animation: fade-in 150ms ease-out;
 }
 /* The Actions panel's Settings button: always last. */
-.actions-settings {
+.actions-foot {
+  display: flex;
+  margin-top: var(--space-1);
+  border-top: 1px solid var(--hairline);
+}
+.actions-settings,
+.actions-home {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  width: 100%;
+  flex: 1;
   height: 32px;
-  margin-top: var(--space-1);
   padding: 0 var(--space-2);
   border: 0;
-  border-top: 1px solid var(--hairline);
-  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  border-radius: 0 0 0 var(--radius-sm);
   background: transparent;
   color: var(--ink-muted);
   font: 13px var(--font-sans);
@@ -2148,12 +2152,25 @@ button.variant.add {
   font-size: 12px;
   color: var(--ink-faint);
 }
+.actions-home {
+  flex: none;
+  justify-content: center;
+  width: 32px;
+  padding: 0;
+  border-radius: 0 0 var(--radius-sm) 0;
+  transition: transform 160ms ease-out;
+}
 @media (hover: hover) and (pointer: fine) {
-  .actions-settings:hover {
+  .actions-settings:hover,
+  .actions-home:hover {
     color: var(--ink);
     background: var(--surface-sunken);
   }
 }
+.actions-home:active {
+  transform: scale(0.94);
+}
+.actions-home:focus-visible,
 .actions-settings:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
@@ -3529,6 +3546,43 @@ button.variant.add {
 @keyframes home-in {
   from {
     opacity: 0;
+  }
+}
+/* Going into a drawing, Home grows a little and fades, as if the view moves in to the page; coming back, it settles
+   from that size. */
+.home-inner,
+.name-box-inner {
+  animation: home-settle 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@keyframes home-settle {
+  from {
+    transform: scale(1.02);
+  }
+}
+.home.leaving {
+  pointer-events: none;
+  animation: home-out 180ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+.home.leaving .home-inner,
+.home.leaving .name-box-inner {
+  animation: home-grow 180ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+@keyframes home-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes home-grow {
+  to {
+    transform: scale(1.02);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-inner,
+  .name-box-inner,
+  .home.leaving .home-inner,
+  .home.leaving .name-box-inner {
+    animation: none;
   }
 }
 .home ~ .notice {
