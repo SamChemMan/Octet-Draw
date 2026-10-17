@@ -144,6 +144,36 @@ fn open_link(name: String) -> Result<(), String> {
     command.arg(url).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
+// Shows a file the user opened, saved or exported this session in the system's file manager: Finder on the Mac,
+// File Explorer on Windows, its folder on Linux. The page can name no other file.
+#[tauri::command]
+fn reveal_file(picked: State<'_, Picked>, exported: State<'_, export::Exported>, path: String) -> Result<(), String> {
+    let path = PathBuf::from(path);
+    if !picked.0.lock().unwrap().contains(&path) && !exported.0.lock().unwrap().contains(&path) {
+        return Err("Octet can only show a file it opened or saved.".into());
+    }
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut c = std::process::Command::new("open");
+        c.arg("-R").arg(&path);
+        c
+    };
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        use std::os::windows::process::CommandExt;
+        let mut c = std::process::Command::new("explorer");
+        c.raw_arg(format!("/select,\"{}\"", path.display()));
+        c
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(path.parent().unwrap_or(Path::new("/")));
+        c
+    };
+    command.spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
 // Import a structure from another program's file (MOL, SDF, SMILES, CDXML). Returns its name and text.
 #[tauri::command]
 async fn import_structure(app: AppHandle) -> Result<Option<(String, String)>, String> {
@@ -429,11 +459,12 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Picked::default())
+        .manage(export::Exported::default())
         .manage(recent::Recents::default())
         .manage(MenuKeys::default())
         .manage(MenuList::default())
         .manage(Palette::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, open_link, reveal_file, open_drawing, save_drawing, set_check, set_palette, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback])
         .setup(|app| {
             let handle = app.handle();
             let (bar, checks, list) = menu(handle, &[], &HashMap::new())?;

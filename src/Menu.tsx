@@ -62,14 +62,14 @@ export function Menu(p: Props) {
               {item.editing ? (
                 <div className="variant" role="none">{item.icon}{item.editing}</div>
               ) : (
-                <button role="menuitemradio" aria-checked={!!item.checked} className="variant" title={item.name}
+                <button role="menuitemradio" aria-checked={!!item.checked} className="variant" data-tip={item.name} data-tip-cut
                   onPointerDown={(e) => p.onPress?.(e, item.key)} onClick={() => p.onChoose(item.key)} onPointerUp={() => p.onRelease?.(item.key)}>
                   {item.icon}
                   <span className="variant-name">{item.name}</span>
                 </button>
               )}
               {item.action && (
-                <button className="variant-action" aria-label={item.action.label} title={item.action.label} aria-pressed={item.action.pressed} onClick={item.action.onClick}>
+                <button className="variant-action" aria-label={item.action.label} data-tip={item.action.label} aria-pressed={item.action.pressed} onClick={item.action.onClick}>
                   {item.action.icon}
                 </button>
               )}
@@ -80,7 +80,7 @@ export function Menu(p: Props) {
       {p.extra && <div className="menu-group menu-extra" role="group">{p.extra}</div>}
       </div>
       {p.onColumns && (
-        <span className="grip" role="separator" aria-label="Drag to resize" title="Drag to resize"
+        <span className="grip" role="separator" aria-label="Drag to resize" data-tip="Drag to resize"
           onPointerDown={(e) => {
             // Drag the corner: the menu snaps to whole columns, from one to as many as its longest group.
             e.preventDefault();

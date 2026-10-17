@@ -45,7 +45,7 @@ import type { Graph } from "./naming";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb } from "./TemplateLibrary";
 import { cleanUpReaction, findReaction, GAP, layoutRow, reactionClean, rowOf } from "./reaction";
-import { SettingsWindow, type ModuleId } from "./SettingsWindow";
+import { moduleOf, SettingsWindow, type ModuleId } from "./SettingsWindow";
 import { layoutCycles, orderAround, spreadCycle, type Cycle, type CycleText } from "./cycle";
 import { LIBRARY, libraryItem } from "./library";
 import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
@@ -65,6 +65,9 @@ import { formulaRuns } from "./labels";
 import { common, edited, lines as richLines, normalise, plainOf, runsOf, styleRange, styled, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
 import { Dialog } from "./Dialog";
+import { NoticeBar, type Notice } from "./NoticeBar";
+import { Tooltips } from "./Tooltip";
+import { failure, fileName, type NoticeKind } from "./notice";
 import "./editor.css";
 
 
@@ -285,7 +288,10 @@ export default function Editor() {
   // Captions picked, by id. Atoms and captions are selected separately and move, delete and copy together.
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [drag, setDrag] = useState<Drag>();
-  const [notice, setNotice] = useState<string>();
+  // The notice at the bottom of the window (NoticeBar.tsx). Without a kind it is an error; undefined clears it.
+  const [notice, showNotice] = useState<Notice>();
+  const setNotice = (text?: string, kind: NoticeKind = "error", action?: Notice["action"]) =>
+    showNotice(text ? (was) => ({ text, kind, action, n: (was?.n ?? 0) + 1 }) : undefined);
   // Feedback (for testing): ⌘1, ⌘2 and ⌘3 within 1.5 s, ⌘ held or not between them (Ctrl elsewhere), takes a picture
   // of the window, then opens the feedback box (Feedback.tsx). The picture is taken first, so it shows the window as it was.
   const [feedback, setFeedback] = useState<{ picture?: string }>();
@@ -484,7 +490,6 @@ export default function Editor() {
     if (!smiles) return undefined;
     try { const m = parseStructure(smiles); return m.atoms.length ? m : undefined; } catch { return undefined; }
   };
-  useEffect(() => { if (notice) { const t = setTimeout(() => setNotice(undefined), 4000); return () => clearTimeout(t); } }, [notice]);
   // After an edit, the thing under a still pointer may have changed.
   useEffect(() => { if (pointer.current) setHover(hit(pointer.current)); }, [doc]);
 
@@ -536,7 +541,7 @@ export default function Editor() {
     for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
     flushSync(() => setPrinting({ src: `data:image/svg+xml;base64,${btoa(bin)}`, w: (w * 72) / 25.4, h: (h * 72) / 25.4 }));
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    try { await invoke("print_page"); } catch (e) { setNotice(`Octet cannot print. ${e}`); }
+    try { await invoke("print_page"); } catch (e) { setNotice(failure("Octet cannot print.", e)); }
   }
   // Export… (⌃⌘E, and the Export button): the settings first, with the whole drawing's picture and chemistry and,
   // when something is selected, the selection's. Then the Save dialog for the chosen format.
@@ -552,20 +557,27 @@ export default function Editor() {
     if (!v) return;
     try {
       const path = await exportFile({ name, format: f.format, oct: v.oct[part], svg: svg && withMargin(svg, f.margin), cdxml: c?.cdxml, molfile: c?.molfile, sdf: c?.molfile ? `${c.molfile.trimEnd()}\n$$$$\n` : undefined, smiles: c?.smiles, dpi: f.dpi, transparent: f.background === "transparent" });
-      if (path) setExportView(undefined);
+      if (path) { setExportView(undefined); saved(path); }
     } catch (e) {
-      setNotice(`Octet cannot export this drawing. ${e}`);
+      setNotice(failure("Octet cannot export this drawing.", e));
     }
   }
   // Quick export as PNG: the selection, or the whole drawing, straight to the Save dialog with the saved PNG settings.
   async function quickExport() {
     const svg = pictureOf(selectedPart() ?? doc), f = filePrefs;
-    if (!svg) return setNotice("There is nothing to export.");
+    if (!svg) return setNotice("There is nothing to export.", "info");
     try {
-      await exportFile({ name, format: "png", svg: withMargin(svg, f.margin), dpi: f.dpi, transparent: f.background === "transparent" });
+      const path = await exportFile({ name, format: "png", svg: withMargin(svg, f.margin), dpi: f.dpi, transparent: f.background === "transparent" });
+      if (path) saved(path);
     } catch (e) {
-      setNotice(`Octet cannot export this drawing. ${e}`);
+      setNotice(failure("Octet cannot export this drawing.", e));
     }
+  }
+  // A file written where the user chose (an export, or a save to a new place): its name, and a button that shows it
+  // in the system's file manager.
+  function saved(path: string) {
+    const reveal = TAURI && { label: navigator.platform.startsWith("Mac") ? "Show in Finder" : "Show in Folder", run: () => void invoke("reveal_file", { path }).catch((e) => setNotice(failure("Octet cannot show this file.", e))) };
+    setNotice(`Saved ${fileName(path)}.`, "done", reveal || undefined);
   }
   // What the CDXML writer needs from the editor: a catalytic cycle's arrows (drawn from the cycle, so not in the
   // drawing), each written label's atoms for ChemDraw's abbreviations, and the document's name.
@@ -583,9 +595,11 @@ export default function Editor() {
     try {
       const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), contents: writeOct(doc, style, cdxmlOptions()) });
       if (path) setFile({ path, saved: doc });
+      // A save to a new place says where it went. A save in place does not: the window's title shows it.
+      if (path && path !== file.path) saved(path);
       return !!path;
     } catch (e) {
-      setNotice(`Octet cannot save this drawing. ${e}`);
+      setNotice(failure("Octet cannot save this drawing.", e));
       return false;
     }
   }
@@ -598,7 +612,7 @@ export default function Editor() {
   });
   const openDrawing = () => keepWork(() => void open());
   const openRecent = (r: RecentEntry) => keepWork(() => void invoke<[string, string]>("open_recent", { path: r.path }).then((picked) => load(picked[0], picked[1]))
-    .catch((e) => { setNotice(String(e)); refreshRecents(); }));
+    .catch((e) => { setNotice(failure("Octet cannot open this drawing.", e)); refreshRecents(); }));
   const refreshRecents = () => { if (TAURI) invoke<RecentEntry[]>("recent_list").then(setRecents).catch(() => {}); };
   useEffect(() => { if (home) refreshRecents(); }, [home]); // eslint-disable-line react-hooks/exhaustive-deps
   // Opened or saved: the drawing's picture goes to its Home tile.
@@ -615,7 +629,7 @@ export default function Editor() {
       if (!picked) return;
       load(picked[0], picked[1]);
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : `Octet cannot open this file. ${e}`);
+      setNotice(failure("Octet cannot open this file.", e));
     }
   }
   // A drawing read from a file, into the editor.
@@ -632,12 +646,12 @@ export default function Editor() {
       const b = bounds(mol);
       if (b) setView((v) => ({ ...v, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * v.zoom * L, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * v.zoom * L }));
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : `Octet cannot open this file. ${e}`);
+      setNotice(failure("Octet cannot open this file.", e));
     }
   }
   // Atom Properties: the atom's element or label, charge, isotope and radical, in one dialog.
   function atomProperties(i: number | undefined) {
-    if (i === undefined || !doc.atoms[i]) return setNotice("Pick an atom first.");
+    if (i === undefined || !doc.atoms[i]) return setNotice("Pick an atom first.", "info");
     const a = doc.atoms[i];
     setDialog({ kind: "atom", atom: i, element: a.text ?? a.label, charge: String(a.charge ?? 0), isotope: a.isotope ? String(a.isotope) : "", radical: String(a.radical ?? 0) });
   }
@@ -664,7 +678,7 @@ export default function Editor() {
       }
       place(importStructure(picked[1]));
     } catch (e) {
-      setNotice(e instanceof Error ? `Octet cannot read this file. ${e.message}` : String(e));
+      setNotice(failure("Octet cannot read this file.", e));
     }
   }
   // Where a new fragment goes: beside the drawing, or centred in an empty view (or centred on a given point).
@@ -773,7 +787,7 @@ export default function Editor() {
       const boxes = [...(selection.size ? [withCaptions(selection)].filter((b): b is Box => !!b) : []), ...placed.filter((c) => picked.has(c.id)).map((c) => c.box),
         ...[...arrows, ...(doc.shapes ?? [])].filter((x) => picked.has(x.id)).map((x): Box => [Math.min(x.from[0], x.to[0]) * L, -Math.max(x.from[1], x.to[1]) * L, Math.max(x.from[0], x.to[0]) * L, -Math.min(x.from[1], x.to[1]) * L])];
       const b = boxes.length ? union(boxes) : undefined;
-      if (!b) return setNotice("Select what to frame first.");
+      if (!b) return setNotice("Select what to frame first.", "info");
       const pad = (isBracket({ kind }) ? 0.3 : 0.4) * L;
       const [mol, frameId] = addShape(doc, { kind, from: [(b[0] - pad) / L, -(b[3] + pad) / L], to: [(b[2] + pad) / L, -(b[1] - pad) / L], ...(shadow ? { shadow: true } : {}) });
       set(mol);
@@ -797,7 +811,7 @@ export default function Editor() {
     // Group (⌘G) and Ungroup (⇧⌘G), as ChemDraw's: the selected structures and objects select and move as one.
     group: () => {
       const r = groupSelection(doc, selection, picked);
-      if (!r) return setNotice("Select two or more things to group.");
+      if (!r) return setNotice("Select two or more things to group.", "info");
       set(r[0], true);
     },
     ungroup: () => set(ungroupSelection(doc, selection, picked), true),
@@ -814,7 +828,7 @@ export default function Editor() {
     clean_reaction: () => {
       const arrow = reactionPicked()?.arrows[0] ?? [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
       const r = arrow !== undefined ? reactionOf(arrow) : undefined;
-      return r ? set(cleanUpReaction(doc, r, arrows), true) : setNotice("Pick a reaction arrow first.");
+      return r ? set(cleanUpReaction(doc, r, arrows), true) : setNotice("Pick a reaction arrow first.", "info");
     },
     // Zoom about the middle of the window. Actual size is 100%: bonds at their true 14.4 pt.
     zoom_in: () => zoomTo(views.get().zoom * 1.25),
@@ -834,7 +848,7 @@ export default function Editor() {
     // Analyze Stoichiometry: a grid under the picked reaction, or off again.
     stoichiometry: () => {
       const arrow = reactionPicked()?.arrows[0] ?? [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
-      if (arrow === undefined) return setNotice("Pick a reaction first.");
+      if (arrow === undefined) return setNotice("Pick a reaction first.", "info");
       const has = doc.grids?.some((g) => reactionOf(g.arrow)?.arrows.includes(arrow));
       set({ ...doc, grids: has ? doc.grids!.filter((g) => !reactionOf(g.arrow)?.arrows.includes(arrow)) : [...(doc.grids ?? []), { arrow, typed: {} }] }, true);
     },
@@ -844,7 +858,7 @@ export default function Editor() {
     expand_label: () => {
       let m = doc;
       const labelled = [...selection].filter((i) => doc.atoms[i]?.text).sort((a, b) => b - a);
-      if (!labelled.length) return setNotice("Pick a labelled atom, such as OMe or Boc.");
+      if (!labelled.length) return setNotice("Pick a labelled atom, such as OMe or Boc.", "info");
       for (const i of labelled) {
         const smiles = labelSmiles(doc.atoms[i].text!);
         if (!smiles) { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); continue; }
@@ -857,7 +871,7 @@ export default function Editor() {
     contract_label: () => {
       const group = new Set([...selection].filter((i) => i < doc.atoms.length));
       const links = doc.bonds.filter((b) => group.has(b.atoms[0]) !== group.has(b.atoms[1]));
-      if (group.size < 2 || links.length !== 1) return setNotice("Pick a group joined to the rest of the structure by one bond.");
+      if (group.size < 2 || links.length !== 1) return setNotice("Pick a group joined to the rest of the structure by one bond.", "info");
       const keep = group.has(links[0].atoms[0]) ? links[0].atoms[0] : links[0].atoms[1], outside = links[0].atoms[0] === keep ? links[0].atoms[1] : links[0].atoms[0];
       // The group with xenon in place of the rest of the structure, as an InChI, against each abbreviation's.
       const capped = subset({ ...doc, atoms: doc.atoms.map((a, i) => (i === outside ? { ...a, label: "Xe", text: undefined, charge: undefined } : a)) }, new Set([...group, outside]));
@@ -881,7 +895,7 @@ export default function Editor() {
     predict_13c: () => openSpectrum("13C"),
     name_to_structure: () => nameToStructure(),
     document: () => setSettingsOpen("document"),
-    settings: () => setSettingsOpen((settings.settingsModule as ModuleId) ?? "document"),
+    settings: () => setSettingsOpen(moduleOf(settings.settingsModule)),
     structure_to_name: () => nameStructures(),
     copy_smiles: () => void document.execCommand("copy"),
     bring_front: () => runAction("shape.front"),
@@ -907,8 +921,8 @@ export default function Editor() {
     // The Colour menu: each colour in COLOURS by its place, and Other Colour… for the system picker.
     ...Object.fromEntries(COLOURS.map(([, hex], k) => [`colour_${k}`, () => runAction(`colour.${hex}`)])),
     ...Object.fromEntries(settings.palette.map((c, k) => [`colour_user_${k}`, () => runAction(`colour.${c.hex}`)])),
-    colour_other: () => setSettingsOpen("colours"),
-    colours_add: () => { setAddingColour(true); setSettingsOpen("colours"); },
+    colour_other: () => setSettingsOpen("appearance"),
+    colours_add: () => { setAddingColour(true); setSettingsOpen("appearance"); },
     ...Object.fromEntries([8, 9, 10, 12, 14, 18, 24].map((pt) => [`size_${pt}`, () => restyle(() => ({ size: pt === style.captionSize ? undefined : pt }))])),
     zoom_fit: () => {
       const b = bounds(doc);
@@ -1049,7 +1063,8 @@ export default function Editor() {
   useEffect(() => { if (offer && offer.doc !== doc) setOffer(undefined); }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps
   const docOpen = settingsOpen === "document";
   // The Document window's preview: paracetamol with its compound number, drawn in the style at 125% of true size
-  // (smaller if it would not fit), so a change of preset shows as a change of size.
+  // (smaller if it would not fit), so a change of preset shows as a change of size. It is drawn on the page's own
+  // background, with the canvas's ink: white paper and black ink unless the Background is dark, in both themes.
   const sample = useMemo(() => (loaded && docOpen ? parseStructure("CC(=O)Nc1ccc(O)cc1") : undefined), [loaded, docOpen]);
   const preview = useMemo(() => {
     if (!sample) return null;
@@ -1060,13 +1075,15 @@ export default function Editor() {
     const box = [Math.min(d.box[0], cap.box[0]), Math.min(d.box[1], cap.box[1]), Math.max(d.box[2], cap.box[2]), Math.max(d.box[3], cap.box[3]) + frame.size * 0.3];
     const scale = Math.min(OPEN_ZOOM / frame.k, 112 / (box[3] - box[1]), 420 / (box[2] - box[0]));
     return (
-      <svg width={(box[2] - box[0]) * scale} height={(box[3] - box[1]) * scale} viewBox={`${box[0]} ${box[1]} ${box[2] - box[0]} ${box[3] - box[1]}`}>
-        <path d={toPath(d.polygons)} fill="#000" />
-        {d.labels.map((l, i) => <text key={i} x={l.x} y={l.y} fill="#000" textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>{l.text}</text>)}
-        <text x={cap.lines[0].x} y={cap.lines[0].y} textAnchor="middle" fill={style.colour} style={{ font: `bold ${cap.size}px ${fontStack(style.captionFont)}` }}>1</text>
-      </svg>
+      <div className={`style-preview paper-${paper}`} data-theme={darkPaper ? "dark" : "light"} aria-hidden>
+        <svg width={(box[2] - box[0]) * scale} height={(box[3] - box[1]) * scale} viewBox={`${box[0]} ${box[1]} ${box[2] - box[0]} ${box[3] - box[1]}`}>
+          <path d={toPath(d.polygons)} fill={textInk("#000000")} />
+          {d.labels.map((l, i) => <text key={i} x={l.x} y={l.y} fill={textInk("#000000")} textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>{l.text}</text>)}
+          <text x={cap.lines[0].x} y={cap.lines[0].y} textAnchor="middle" fill={textInk(style.colour)} style={{ font: `bold ${cap.size}px ${fontStack(style.captionFont)}` }}>1</text>
+        </svg>
+      </div>
     );
-  }, [sample, frame, measure, style, pt]);
+  }, [sample, frame, measure, style, pt, paper]); // eslint-disable-line react-hooks/exhaustive-deps
   // Moves the view smoothly (or at once, with reduced motion).
   const flight = useRef<number>(undefined);
   function flyTo(to: { x: number; y: number; zoom: number }) {
@@ -1584,7 +1601,7 @@ export default function Editor() {
   };
   function arrange(how: "left" | "centre" | "right" | "top" | "middle" | "bottom" | "across" | "down") {
     const list = things();
-    if (list.length < (how === "across" || how === "down" ? 3 : 2)) return setNotice(how === "across" || how === "down" ? "Select three or more things to space out." : "Select two or more things to line up.");
+    if (list.length < (how === "across" || how === "down" ? 3 : 2)) return setNotice(how === "across" || how === "down" ? "Select three or more things to space out." : "Select two or more things to line up.", "info");
     let m = doc;
     if (how === "across" || how === "down") {
       const k = how === "across" ? 0 : 1, sorted = [...list].sort((p, q) => (p.box[k] + p.box[k + 2]) - (q.box[k] + q.box[k + 2]));
@@ -2115,7 +2132,7 @@ export default function Editor() {
   };
   // Structure to name: each named structure gets its name centred underneath (after its compound number).
   function nameStructures() {
-    if (!namesLoaded) { void loadNames().then(() => setNamesLoaded(true)); return setNotice("Loading names. Try again in a moment."); }
+    if (!namesLoaded) { void loadNames().then(() => setNamesLoaded(true)); return setNotice("Loading names. Try again in a moment.", "info"); }
     let m = doc, missed = 0;
     for (const atoms of targets()) {
       const name = nameFor(atoms);
@@ -2459,7 +2476,7 @@ export default function Editor() {
       const fields: Field[] = w.product ? ["measured", "purity"] : [row.field, "mass", "moles", "volume", "equiv", "density", "molarity", "purity"];
       const bare = /^\s*[\d.,]+(e[+-]?\d+)?\s*$/i.test(text), field = bare ? (w.product && row.field !== "purity" ? "measured" : row.field) : fields.find((f) => parseAmount(text, f) !== undefined);
       const value = field && parseAmount(text, field);
-      if (!field || value === undefined) return setNotice("Type an amount with its unit, such as 250 mg, 1.2 eq or 0.5 mL.");
+      if (!field || value === undefined) return setNotice("Type an amount with its unit, such as 250 mg, 1.2 eq or 0.5 mL.", "info");
       if (["mass", "moles", "volume", "equiv"].includes(field)) for (const f of ["mass", "moles", "volume", "equiv"] as Field[]) delete typed[f];
       typed[field] = value;
     }
@@ -2512,7 +2529,7 @@ export default function Editor() {
 
   // The key to show beside an action: menu shortcuts, then the user's shortcut table.
   const MENU_KEYS: Record<string, string> = {
-    invert_selection: `⇧${MOD}I`, clean_reaction: `⇧${MOD}X`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}/`, copy_smiles: `⌥${MOD}C`, delete: "⌫",
+    undo: `${MOD}Z`, redo: `${MOD}Y`, invert_selection: `⇧${MOD}I`, clean_reaction: `⇧${MOD}X`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}/`, copy_smiles: `⌥${MOD}C`, delete: "⌫",
     structure_to_name: `⌥${MOD}N`, "shape.front": `${MOD}[`, "shape.back": `${MOD}]`,
     settings: `${MOD},`, name_to_structure: `⇧${MOD}N`, "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.sub": `${MOD}−`, "caption.super": `${MOD}+`, "caption.plain": `${MOD}T`, "caption.formula": `${MOD}F`, "caption.edit": keyLabel("enter"),
   };
@@ -2654,7 +2671,7 @@ export default function Editor() {
       return set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) && BY[a.label] ? { ...a, colour: BY[a.label] } : a)) }, true);
     }
     if (command === "copy_smiles") return void document.execCommand("copy");
-    if (command === "paste_hint") return setNotice(`Copy a SMILES string or MOL file, then press ${MOD}V here.`);
+    if (command === "paste_hint") return setNotice(`Copy a SMILES string or MOL file, then press ${MOD}V here.`, "info");
     if (command.startsWith("copy_text:")) { copyText.current = command.slice(10); document.execCommand("copy"); return; }
     if (command.startsWith("fix:")) { const [, i, charge] = command.split(":"); return set(addCharge(doc, Number(i), Number(charge) - (doc.atoms[Number(i)].charge ?? 0)), true); }
     if (command.startsWith("show:")) return setSelection(new Set([Number(command.slice(5))]));
@@ -3155,7 +3172,7 @@ export default function Editor() {
             if (frag?.atoms.length) return place(frag);
           }
           if (text) setNotice("Octet cannot read this structure. Paste a name, a SMILES string or a MOL file.");
-        }).catch((err) => setNotice(`Octet cannot read the clipboard. ${err}`));
+        }).catch((err) => setNotice(failure("Octet cannot read the clipboard.", err)));
         return;
       }
       // Octet's own copy: everything that was selected, read as a hostile file is, a little down and right of where it was.
@@ -3187,7 +3204,7 @@ export default function Editor() {
         e.clipboardData?.setData("text/plain", copyText.current);
         e.preventDefault();
         copyText.current = undefined;
-        return setNotice("Copied.");
+        return setNotice("Copied.", "done");
       }
       // Everything selected (or the whole drawing) in Octet's own form, for pasting back with arrows, text and shapes;
       // and its structures as SMILES, for other programs.
@@ -3202,7 +3219,7 @@ export default function Editor() {
         const picture = pictureOf(part), c = chemistryOf(part);
         if (!picture) return;
         void copyToClipboard({ svg: picture, cdxml: c.cdxml, molfile: c.molfile, smiles: c.smiles, octetJson: serialize({ ...part, style: undefined }) })
-          .catch((err) => setNotice(`Octet cannot copy this. ${err}`));
+          .catch((err) => setNotice(failure("Octet cannot copy this.", err)));
         return;
       }
       e.clipboardData?.setData(OCTET_CLIP, serialize({ ...part, style: undefined }));
@@ -3841,7 +3858,7 @@ export default function Editor() {
               <div key={name} role="option" aria-selected={recent.at === i} className="name-recent" onPointerMove={() => setRecent((h) => ({ ...h, at: i }))} onClick={() => pickHistory(entry)}>
                 <span className="name-thumb">{mol ? <StructureThumb id={`name:${name}`} mol={mol} /> : <ClockCounterClockwise size={16} />}</span>
                 <span className="name-text">{name}</span>
-                <button className="name-forget" aria-label={`Remove ${name}`} title="Remove" onClick={(e) => { e.stopPropagation(); setSettings((s) => ({ ...s, nameHistory: s.nameHistory.filter((n) => n.name !== name) })); }}>
+                <button className="name-forget" aria-label={`Remove ${name}`} data-tip="Remove" onClick={(e) => { e.stopPropagation(); setSettings((s) => ({ ...s, nameHistory: s.nameHistory.filter((n) => n.name !== name) })); }}>
                   <X size={12} weight="bold" />
                 </button>
               </div>
@@ -3942,7 +3959,7 @@ export default function Editor() {
         popKey={pop?.n ?? 0}
         canUndo={h.at > 0}
         canRedo={h.at < h.stack.length - 1}
-        modKey={MOD}
+        keys={hint}
         onTool={setTool}
         onVariant={(t, kind) => setSettings((s) => ({ ...s, variants: { ...s.variants, [t]: kind } }))}
         onUndo={() => undo()}
@@ -4036,7 +4053,7 @@ export default function Editor() {
             onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent}
             onRemove={(r) => void invoke("recent_remove", { path: r.path }).then(refreshRecents).catch(() => {})} />)}
       {coach > 0 && !home && (
-        <Coach key={coach} doc={doc} selected={selection.size} seen={seen} keys={{ clean: hint("clean_up") ?? "", copy: keyLabel("mod+c") }}
+        <Coach key={coach} doc={doc} selected={selection.size} seen={seen} keys={{ clean: hint("clean_up") ?? "", copy: keyLabel("mod+c") }} low={naming !== undefined}
           onTool={setCoachTool} onSkip={() => setCoach(0)} onFinish={() => { setCoach(0); set(EMPTY); setFile({ saved: EMPTY }); }} />
       )}
       {dialog?.kind === "unsaved" && (
@@ -4047,8 +4064,8 @@ export default function Editor() {
         </Dialog>
       )}
       {about && <About onClose={() => setAbout(false)} />}
-      {feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={setNotice}
-        onSent={() => { setFeedback(undefined); setNotice("Your feedback is ready to send in your mail app."); }} />}
+      {feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={(e) => setNotice(failure("Octet cannot make your feedback.", e))}
+        onSent={() => { setFeedback(undefined); setNotice("Your feedback is ready to send in your mail app.", "done"); }} />}
       <ExportButton hint={platformLabel(EXPORT_KEYS)} onQuick={() => void quickExport()} onExport={openExport} />
       {exportView && (
         <ExportDialog prefs={settings.files} onPrefs={(p) => setSettings((s) => ({ ...s, files: { ...s.files, ...p } }))} pictures={exportView}
@@ -4094,12 +4111,8 @@ export default function Editor() {
         </Dialog>
       )}
       {commandsOpen && <CommandPalette commands={paletteCommands()} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}
-      {notice && (
-        <p className="notice text-ui" role="status">
-          <Warning size={16} weight="bold" aria-hidden />
-          {notice}
-        </p>
-      )}
+      {notice && <NoticeBar notice={notice} onGone={() => showNotice(undefined)} />}
+      <Tooltips />
     </div>
   );
 }

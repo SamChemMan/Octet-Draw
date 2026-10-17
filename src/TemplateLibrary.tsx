@@ -62,13 +62,13 @@ export function LibraryPanel(p: {
           const kept = !!p.kept?.includes(t.kind);
           return (
             <div key={t.kind} className="library-cell">
-              <button role="menuitemradio" aria-checked={p.current === t.kind} className="library-item" title={t.name}
+              <button role="menuitemradio" aria-checked={p.current === t.kind} className="library-item" data-tip={t.name} data-tip-cut
                 onPointerDown={(e) => p.onPress(e, t.kind)} onClick={() => p.onChoose(t.kind)}>
                 <Thumb item={t} />
                 <span className="library-name">{t.name}</span>
               </button>
               {p.onKeep && (
-                <button className="variant-action" aria-pressed={kept} aria-label={`Keep ${t.name} in the Ring menu`} title={kept ? "In the Ring menu" : "Keep in the Ring menu"} onClick={() => p.onKeep!(t.kind, !kept)}>
+                <button className="variant-action" aria-pressed={kept} aria-label={`Keep ${t.name} in the Ring menu`} data-tip={kept ? "In the Ring menu" : "Keep in the Ring menu"} onClick={() => p.onKeep!(t.kind, !kept)}>
                   <PushPin size={10} weight={kept ? "fill" : "bold"} />
                 </button>
               )}

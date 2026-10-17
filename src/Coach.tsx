@@ -27,9 +27,10 @@ const steps = (keys: { clean: string; copy: string }): Step[] => [
   { title: "Share", text: <>Press <kbd>{keys.copy}</kbd> to copy the drawing. Paste it into Word, PowerPoint or Keynote.</>, done: (n, f) => n.seen.copy > f.seen.copy },
 ];
 
-type Props = Now & { keys: { clean: string; copy: string }; onTool: (tool?: Tool) => void; onSkip: () => void; onFinish: () => void };
+// low: the card waits at the bottom of the window, as the Name to structure field is open at the top.
+type Props = Now & { keys: { clean: string; copy: string }; low?: boolean; onTool: (tool?: Tool) => void; onSkip: () => void; onFinish: () => void };
 
-export function Coach({ doc, selected, seen, keys, onTool, onSkip, onFinish }: Props) {
+export function Coach({ doc, selected, seen, keys, low, onTool, onSkip, onFinish }: Props) {
   const all = steps(keys), now = { doc, selected, seen };
   const [step, setStep] = useState(0), [from, setFrom] = useState<Now>(now), [done, setDone] = useState(false);
   const latest = useRef(now);
@@ -46,7 +47,7 @@ export function Coach({ doc, selected, seen, keys, onTool, onSkip, onFinish }: P
     return () => clearTimeout(t);
   }, [done]);
   return (
-    <section className="coach" aria-label="Tutorial">
+    <section className={low ? "coach low" : "coach"} aria-label="Tutorial">
       {end ? (
         <div className="coach-body" key="end">
           <h2>You’re ready.</h2>

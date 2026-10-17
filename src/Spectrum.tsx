@@ -162,27 +162,32 @@ export function SpectrumPanel(p: Props) {
   return (
     <section className={expanded ? "spectrum expanded" : "spectrum"} aria-label="Spectrum" style={move.style}>
       <header onPointerDown={move.onPointerDown}>
+        {/* The controls wrap onto a second row in a narrow window; Full screen and Close stay at the top right. */}
+        <div className="spectrum-controls">
         <span className="segmented" role="radiogroup" aria-label="Nucleus">
           <button role="radio" aria-checked={p.nucleus === "1H"} onClick={() => p.onNucleus("1H")}>¹H</button>
           <button role="radio" aria-checked={p.nucleus === "13C"} onClick={() => p.onNucleus("13C")}>¹³C</button>
         </span>
         <Select label="Frequency" value={String(p.mhz)} options={FIELDS.map((f) => [String(f), `${f} MHz`])} onChange={(v) => p.onMhz(Number(v))} />
         <Select label="Solvent" value={p.solvent} options={SOLVENTS.map((s) => [s, s])} onChange={p.onSolvent} />
-        <button className="spectrum-button" aria-pressed={p.solventPeaks} onClick={() => p.onSolventPeaks(!p.solventPeaks)} title={p.solventPeaks ? "Hide the solvent's peaks" : "Show the solvent's peaks"}>Solvent peaks</button>
-        <button className="spectrum-button" aria-pressed={p.details} onClick={() => p.onDetails(!p.details)} title={p.details ? "Hide the details" : "How each shift was predicted, and how far to trust it"}>Details</button>
+        <button className="spectrum-button" aria-pressed={p.solventPeaks} onClick={() => p.onSolventPeaks(!p.solventPeaks)} data-tip={p.solventPeaks ? "Hide the solvent's peaks" : "Show the solvent's peaks"}>Solvent peaks</button>
+        <button className="spectrum-button" aria-pressed={p.details} onClick={() => p.onDetails(!p.details)} data-tip={p.details ? "Hide the details" : "How each shift was predicted, and how far to trust it"}>Details</button>
         <span className="spectrum-gap" />
         {chosen !== undefined && (
           // The clicked peak's colour, which its atoms take as a highlight too.
           <span className="spectrum-swatches" role="radiogroup" aria-label="Peak colour">
             {PEAK_COLOURS.map((c) => <button key={c} role="radio" aria-checked={p.colours[chosen] === c} aria-label={c} className="swatch" style={{ background: c }} onClick={() => p.onColour(chosen, c)} />)}
-            <button role="radio" aria-checked={!p.colours[chosen]} aria-label="No colour" title="No colour" className="swatch none" onClick={() => p.onColour(chosen, undefined)} />
+            <button role="radio" aria-checked={!p.colours[chosen]} aria-label="No colour" data-tip="No colour" className="swatch none" onClick={() => p.onColour(chosen, undefined)} />
           </span>
         )}
         <button className="spectrum-button" onClick={() => p.onColourAll(!anyColour)} disabled={!signals.length}>{anyColour ? "Clear colours" : "Colour peaks"}</button>
-        <button className="spectrum-button" onClick={p.onKey} disabled={!signals.length} title="Add the key (coloured shifts) under the structure">Add key</button>
-        <button className="spectrum-button" onClick={() => p.onCopy(text)} disabled={!text} title="Copy the characterisation line"><CopySimple size={14} /> Copy</button>
-        <button className="actions-close" onClick={() => setExpanded(!expanded)} aria-label={expanded ? "Leave full screen" : "Full screen"} title={expanded ? "Leave full screen" : "Full screen"}>{expanded ? <ArrowsIn size={14} /> : <ArrowsOut size={14} />}</button>
-        <button className="actions-close" onClick={p.onClose} aria-label="Close the spectrum" title="Close the spectrum"><X size={14} /></button>
+        <button className="spectrum-button" onClick={p.onKey} disabled={!signals.length} data-tip="Add the key (coloured shifts) under the structure">Add key</button>
+        <button className="spectrum-button" onClick={() => p.onCopy(text)} disabled={!text} data-tip="Copy the characterisation line"><CopySimple size={14} /> Copy</button>
+        </div>
+        <div className="spectrum-window">
+        <button className="actions-close" onClick={() => setExpanded(!expanded)} aria-label={expanded ? "Leave full screen" : "Full screen"} data-tip={expanded ? "Leave full screen" : "Full screen"}>{expanded ? <ArrowsIn size={14} /> : <ArrowsOut size={14} />}</button>
+        <button className="actions-close" onClick={p.onClose} aria-label="Close the spectrum" data-tip="Close the spectrum"><X size={14} /></button>
+        </div>
       </header>
       <div className="spectrum-body">
       <div ref={box} className="spectrum-plot">
@@ -303,7 +308,7 @@ export function SpectrumPanel(p: Props) {
       })()}
       <footer className="spectrum-foot">
         <p className="spectrum-text">{text}</p>
-        <span className="spectrum-credit" title="Contains information from nmrshiftdb2 (www.nmrshiftdb.org), made available under the nmrshiftdb2 Database License">nmrshiftdb2</span>
+        <span className="spectrum-credit" data-tip="Contains information from nmrshiftdb2 (www.nmrshiftdb.org), made available under the nmrshiftdb2 Database License">nmrshiftdb2</span>
       </footer>
     </section>
   );

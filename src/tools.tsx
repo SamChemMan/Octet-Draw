@@ -338,7 +338,7 @@ type PaletteProps = {
   popKey: number; // changes when a hold switches to Select, to replay its pop
   canUndo: boolean;
   canRedo: boolean;
-  modKey: string;
+  keys: (command: string) => string | undefined; // a command's shortcut, for its tooltip
   canAddSelection: boolean; // something is selected that could become a ring
   renaming?: string; // a template just added, whose name is being typed
   preview: (name: string) => Mol | undefined; // the structure for a name, if it is one
@@ -549,7 +549,7 @@ export function Palette(p: PaletteProps) {
   const addPreview = useMemo(() => (adding.trim() ? p.preview(adding) : undefined), [adding]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <nav ref={nav} className={["palette", wide && "wide", carry?.over && "dropping", landed && "rippling"].filter(Boolean).join(" ")} aria-label="Tools">
+    <nav ref={nav} className={["palette", wide && "wide", carry?.over && "dropping", landed && "rippling"].filter(Boolean).join(" ")} aria-label="Tools" data-tips="right">
       <span className="indicator" style={{ transform: wide ? `translate(${(active % 2) * 36}px, ${Math.floor(active / 2) * 36}px)` : `translateY(${active * 36}px)`, opacity: active < 0 ? 0 : 1 }} aria-hidden />
       {tools.map((t, i) => {
         const group = SPECIAL.includes(t.id);
@@ -562,7 +562,7 @@ export function Palette(p: PaletteProps) {
               aria-label={t.name}
               aria-haspopup={strip ? "menu" : undefined}
               aria-expanded={strip ? open === t.id : undefined}
-              title={strip ? `${t.name}. Click again or hold for more.` : t.name}
+              data-key={p.keys(`tool.${t.id}`)}
               onPointerDown={() => {
                 if (!strip) return;
                 clearTimeout(timer.current);
@@ -680,7 +680,6 @@ export function Palette(p: PaletteProps) {
             style={{ "--d": Math.abs(j - shown.findIndex((x) => x.key === landed?.key)) } as React.CSSProperties}
             aria-pressed={p.tool === tool && p.variants[tool] === kind}
             aria-label={nameOf(tool, kind)}
-            title={nameOf(tool, kind)}
             onPointerDown={(e) => startCarry(e, key)}
             onClick={() => { if (!dragged.current) choose(tool, kind); }}
           >
@@ -691,14 +690,14 @@ export function Palette(p: PaletteProps) {
         return items.length ? <><hr />{items}</> : null;
       })()}
       <hr />
-      <button className="tool" aria-label="Undo" title={`Undo (${p.modKey}Z)`} disabled={!p.canUndo} onClick={p.onUndo}>
+      <button className="tool" aria-label="Undo" data-key={p.keys("undo")} disabled={!p.canUndo} onClick={p.onUndo}>
         <ArrowCounterClockwise size={20} />
       </button>
-      <button className="tool" aria-label="Redo" title={`Redo (${p.modKey}⇧Z)`} disabled={!p.canRedo} onClick={p.onRedo}>
+      <button className="tool" aria-label="Redo" data-key={p.keys("redo")} disabled={!p.canRedo} onClick={p.onRedo}>
         <ArrowClockwise size={20} />
       </button>
       {!short && (
-        <button className="palette-toggle" aria-label={p.wide ? "One column" : "Two columns"} title={p.wide ? "One column" : "Two columns"} onClick={toggleWide}>
+        <button className="palette-toggle" aria-label={p.wide ? "One column" : "Two columns"} onClick={toggleWide}>
           {p.wide ? <CaretLeft size={12} weight="bold" /> : <CaretRight size={12} weight="bold" />}
         </button>
       )}

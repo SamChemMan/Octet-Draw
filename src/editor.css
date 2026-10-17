@@ -171,7 +171,7 @@ circle.mark {
   opacity: 1;
 }
 .pages .page.hovered text {
-  fill: var(--brand);
+  fill: var(--link);
 }
 .pages text {
   fill: var(--ink-faint);
@@ -425,7 +425,7 @@ rect.mark {
   opacity: 1;
 }
 .variant-action[aria-pressed="true"] {
-  color: var(--brand);
+  color: var(--link);
 }
 .variant-action:focus-visible {
   outline: none;
@@ -477,7 +477,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: var(--surface-raised);
   box-shadow: var(--shadow-float);
-  color: var(--brand);
+  color: var(--link);
   transform: translate(-50%, -50%) scale(1.08) rotate(var(--tilt, 0deg));
   transition: transform 90ms ease-out;
   pointer-events: none;
@@ -594,7 +594,7 @@ button.variant.add {
 }
 .variant[aria-checked="true"] {
   background: var(--brand-mist);
-  color: var(--brand);
+  color: var(--link);
 }
 .variant:focus-visible {
   outline: none;
@@ -603,7 +603,7 @@ button.variant.add {
 
 /* Live count of bonds while the Chain tool drags. */
 .count {
-  fill: var(--brand);
+  fill: var(--link);
   font-family: var(--font-sans);
   font-weight: 600;
 }
@@ -678,7 +678,7 @@ button.variant.add {
 }
 
 .tool[aria-pressed="true"] {
-  color: var(--brand);
+  color: var(--link);
 }
 
 .tool:disabled {
@@ -690,26 +690,88 @@ button.variant.add {
   box-shadow: var(--shadow-focus);
 }
 
+/* The notice (NoticeBar.tsx): centred in the space between the toolbar and the Actions panel, above both, and it
+   wraps before it reaches either. Its icon takes the colour of its kind. */
 .notice {
   position: absolute;
   bottom: var(--space-6);
-  left: 50%;
+  left: calc(var(--space-4) * 2 + 48px);
+  right: calc(var(--space-4) * 2 + 248px);
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin: 0;
-  padding: var(--space-2) var(--space-3);
-  transform: translateX(-50%);
+  width: fit-content;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
   background: var(--surface-raised);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-float);
-  animation: fade-in 150ms ease-out;
+  color: var(--ink);
+  animation: notice-in 150ms ease-out;
 }
-
-.notice svg {
+.notice.leaving {
+  animation: notice-out 150ms ease-out forwards;
+}
+@keyframes notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes notice-out {
+  to {
+    opacity: 0;
+  }
+}
+.notice > svg {
   flex: none;
+}
+.notice.error > svg {
   color: var(--error);
+}
+.notice.info > svg {
+  color: var(--ink-muted);
+}
+.notice.done > svg {
+  color: var(--success);
+}
+.notice-text {
+  padding: 3px 0;
+  text-wrap: pretty;
+}
+.notice .text-button {
+  flex: none;
+  font-weight: 500;
+}
+.notice-close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--ink-muted);
+}
+@media (hover: hover) and (pointer: fine) {
+  .notice-close:hover {
+    background: var(--surface-sunken);
+    color: var(--ink);
+  }
+}
+.notice-close:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+@media (prefers-reduced-motion: reduce) {
+  .notice {
+    animation: fade-in 150ms ease-out;
+  }
 }
 
 @keyframes fade-in {
@@ -845,6 +907,13 @@ button.variant.add {
   font-size: 12px;
   color: var(--ink-faint);
 }
+/* On the sunken colour of a hovered row, the faint ink is too light for small text (4.5:1). */
+@media (hover: hover) and (pointer: fine) {
+  .action:hover kbd,
+  .actions-settings:hover kbd {
+    color: var(--ink-muted);
+  }
+}
 .chips {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -873,7 +942,7 @@ button.variant.add {
 .chip[aria-pressed="true"] {
   background: var(--brand-mist);
   border-color: transparent;
-  color: var(--brand);
+  color: var(--link);
 }
 /* Name to structure: a field at the top of the window. The structure shows faintly where it will land. */
 .name-field {
@@ -933,7 +1002,7 @@ button.variant.add {
 }
 .name-suggestion mark {
   background: var(--brand-mist);
-  color: var(--brand);
+  color: var(--link);
   border-radius: 2px;
 }
 .name-suggestion kbd {
@@ -1096,20 +1165,35 @@ button.variant.add {
     animation: none;
   }
 }
+/* Octet's one tooltip (Tooltip.tsx), above everything, dark in both themes. Tooltip.tsx places it. The next tip
+   along a row shows without the fade. */
 .tip {
   position: fixed;
-  z-index: 4;
-  padding: 3px var(--space-2);
+  top: 0;
+  left: 0;
+  z-index: 9;
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-xs);
-  background: var(--ink);
-  color: var(--canvas);
-  font-family: var(--font-sans);
-  font-size: 12px;
-  line-height: 16px;
-  white-space: pre;
-  transform: translate(-50%, calc(-100% - 6px));
+  background: var(--tooltip);
+  box-shadow: var(--shadow-float);
+  color: var(--on-brand);
+  font: 500 11px/14px var(--font-sans);
+  letter-spacing: 0.01em;
+  max-width: 320px;
+  overflow-wrap: anywhere;
   pointer-events: none;
   animation: fade-in 120ms ease-out;
+}
+.tip.instant {
+  animation: none;
+}
+.tip kbd {
+  flex: none;
+  font: inherit;
+  white-space: nowrap;
+  opacity: 0.7;
 }
 
 /* The caption size: a button that opens a menu of sizes, or turns into a field to type one. */
@@ -1209,7 +1293,7 @@ button.variant.add {
   white-space: nowrap;
 }
 .size-menu button[aria-checked="true"] {
-  color: var(--brand);
+  color: var(--link);
   font-weight: 600;
 }
 .size-menu button:hover,
@@ -1402,7 +1486,7 @@ button.variant.add {
   background: var(--brand-mist);
 }
 .action.accent > svg {
-  color: var(--brand);
+  color: var(--link);
 }
 .action {
   height: auto;
@@ -1444,7 +1528,7 @@ button.variant.add {
   z-index: 6;
   display: grid;
   place-items: center;
-  background: color-mix(in oklab, var(--ink) 16%, transparent);
+  background: var(--backdrop);
   animation: fade-in 160ms ease-out;
 }
 .modal {
@@ -1639,7 +1723,7 @@ button.variant.add {
 }
 .segmented button[aria-checked="true"] {
   background: var(--brand-mist);
-  color: var(--brand);
+  color: var(--link);
 }
 @media (hover: hover) and (pointer: fine) {
   .segmented button:hover:not([aria-checked="true"]) {
@@ -1712,7 +1796,7 @@ button.variant.add {
   width: 18px;
   height: 18px;
   padding: 0;
-  border: 1px solid color-mix(in oklab, var(--ink) 12%, transparent);
+  border: 1px solid var(--swatch-edge);
   border-radius: var(--radius-pill);
   transition: transform 120ms ease-out, box-shadow 120ms ease-out;
 }
@@ -1751,7 +1835,7 @@ button.variant.add {
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--brand);
+  color: var(--link);
   font: 13px var(--font-sans);
 }
 @media (hover: hover) and (pointer: fine) {
@@ -1889,7 +1973,7 @@ button.variant.add {
   line-height: 15px;
 }
 .page-option-size {
-  color: var(--ink-faint);
+  color: var(--ink-muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -1906,7 +1990,7 @@ button.variant.add {
   background: var(--brand-mist);
 }
 .page-option[aria-checked="true"] .page-thumb {
-  color: var(--brand);
+  color: var(--link);
   background: color-mix(in oklab, var(--brand-bright) 12%, transparent);
 }
 .page-option:focus-visible {
@@ -1925,7 +2009,7 @@ button.variant.add {
   margin-right: auto;
 }
 .page-custom.chosen .setting-label {
-  color: var(--brand);
+  color: var(--link);
   font-weight: 500;
 }
 .page-custom .unit-field {
@@ -2044,10 +2128,10 @@ button.variant.add {
 }
 .module[aria-current="page"] {
   background: var(--brand-mist);
-  color: var(--brand);
+  color: var(--link);
 }
 .module[aria-current="page"] svg {
-  color: var(--brand);
+  color: var(--link);
 }
 .module[data-dim] {
   opacity: 0.45;
@@ -2061,7 +2145,7 @@ button.variant.add {
   padding: 0 5px;
   border-radius: var(--radius-pill);
   background: var(--brand-mist);
-  color: var(--brand);
+  color: var(--link);
   font-size: 11px;
   line-height: 18px;
   text-align: center;
@@ -2163,7 +2247,7 @@ button.variant.add {
 }
 .key-chip.recording > button:first-child {
   border-color: var(--brand-bright);
-  color: var(--brand);
+  color: var(--link);
   animation: recording 1.2s ease-in-out infinite;
 }
 @keyframes recording {
@@ -2211,7 +2295,7 @@ button.variant.add {
 @media (hover: hover) and (pointer: fine) {
   .key-add:hover {
     border-color: var(--brand-bright);
-    color: var(--brand);
+    color: var(--link);
   }
 }
 .key-note {
@@ -2368,13 +2452,13 @@ button.variant.add {
   transition: background 120ms ease-out;
 }
 .library-category span {
-  color: var(--ink-faint);
+  color: var(--ink-muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 .library-category[aria-pressed="true"] {
   background: var(--brand-mist);
-  color: var(--brand);
+  color: var(--link);
 }
 .library-category:focus-visible {
   outline: none;
@@ -2454,7 +2538,7 @@ button.variant.add {
   justify-content: center;
   align-items: flex-start;
   padding-top: 16vh;
-  background: rgb(15 23 42 / 0.12);
+  background: var(--backdrop);
 }
 .command-palette {
   display: flex;
@@ -2506,7 +2590,7 @@ button.variant.add {
 }
 .command[aria-selected="true"] {
   background: var(--brand-mist);
-  color: var(--brand);
+  color: var(--link);
 }
 .command-icon {
   display: grid;
@@ -2517,7 +2601,7 @@ button.variant.add {
   color: var(--ink-muted);
 }
 .command[aria-selected="true"] .command-icon {
-  color: var(--brand);
+  color: var(--link);
 }
 .command-icon > svg {
   width: 18px;
@@ -2534,6 +2618,9 @@ button.variant.add {
   flex: none;
   color: var(--ink-faint);
   font-size: 12px;
+}
+.command[aria-selected="true"] .command-group {
+  color: var(--ink-muted);
 }
 .command kbd {
   flex: none;
@@ -2678,7 +2765,7 @@ button.variant.add {
   fill: var(--brand-mist);
 }
 .turn-angle {
-  fill: var(--brand);
+  fill: var(--link);
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
   paint-order: stroke;
@@ -2716,8 +2803,13 @@ button.variant.add {
   animation: lift 150ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-/* Page backgrounds. Dark takes the dark theme's canvas; engineering paper is blue with a fine white grid. */
-.canvas.paper-blueprint {
+/* Page backgrounds. Dark takes the dark theme's canvas; engineering paper is blue with a fine white grid. The
+   Document window's preview shows the same paper, its grid at a fixed size. */
+.style-preview.paper-blueprint {
+  background-size: 40px 40px, 40px 40px, 8px 8px, 8px 8px;
+}
+.canvas.paper-blueprint,
+.style-preview.paper-blueprint {
   --canvas: #1D4B86;
   background-color: #1D4B86;
   background-image:
@@ -2890,12 +2982,6 @@ button.variant.add {
   display: grid;
   gap: var(--space-2);
 }
-.palette-builtin {
-  display: flex;
-  gap: 6px;
-  padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--hairline);
-}
 .palette-line {
   display: flex;
   align-items: center;
@@ -3017,7 +3103,8 @@ button.variant.add {
 }
 /* A field's name, when it leads the row, takes one width so the fields line up. */
 .dialog-row > span:first-child {
-  min-width: 56px;
+  flex: none;
+  width: 88px;
 }
 /* About Octet: the mark, the name and version, who made it, then the credits, centred. */
 .about {
@@ -3052,7 +3139,7 @@ button.variant.add {
   padding: 0;
   border: 0;
   background: none;
-  color: var(--brand);
+  color: var(--link);
   font: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -3282,10 +3369,24 @@ button.variant.add {
 }
 .spectrum header {
   display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+}
+.spectrum-controls {
+  display: flex;
+  flex: 1;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) 0;
+  min-width: 0;
+}
+.spectrum-window {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 28px;
 }
 .spectrum header .select-field select {
   min-width: 0;
@@ -3344,7 +3445,7 @@ button.variant.add {
 .spectrum-button[aria-pressed="true"] {
   background: var(--brand-mist);
   border-color: transparent;
-  color: var(--brand);
+  color: var(--link);
 }
 .spectrum-gap {
   flex: 1;
@@ -3396,7 +3497,7 @@ button.variant.add {
   stroke-width: 1.5;
 }
 .spectrum-stick.lit {
-  stroke: var(--brand);
+  stroke: var(--link);
 }
 .spectrum-signal text {
   fill: var(--ink);
@@ -3414,7 +3515,7 @@ button.variant.add {
   fill: var(--brand-mist);
 }
 .spectrum-signal.lit text {
-  fill: var(--brand);
+  fill: var(--link);
 }
 .spectrum-foot {
   display: flex;
@@ -3447,7 +3548,7 @@ button.variant.add {
 /* Predicted shifts beside their atoms while the Spectrum panel is open, and the atoms lit from a peak. */
 .nmr-shift {
   font: 600 9px var(--font-sans);
-  fill: var(--brand);
+  fill: var(--link);
   paint-order: stroke;
   stroke: var(--canvas);
   stroke-width: 3px;
@@ -3557,12 +3658,12 @@ button.variant.add {
 }
 /* Quality, as ChemDraw colours its estimates: good, medium, rough. */
 .quality.good, .nmr-shift.q-good {
-  color: var(--brand);
-  fill: var(--brand);
+  color: var(--link);
+  fill: var(--link);
 }
 .quality.medium, .nmr-shift.q-medium {
-  color: #B7791F;
-  fill: #B7791F;
+  color: var(--warning);
+  fill: var(--warning);
 }
 .quality.rough, .nmr-shift.q-rough {
   color: var(--error);
@@ -3647,14 +3748,17 @@ button.variant.add {
   padding: var(--space-2);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
-  background: #fff;
+  background: var(--canvas);
 }
+/* A transparent background: a soft checker, so thin bonds stay clear on it. */
 .export-preview.transparent {
-  background: repeating-conic-gradient(var(--hairline) 0 25%, #fff 0 50%) 0 0 / 12px 12px;
+  background: repeating-conic-gradient(var(--surface-sunken) 0 25%, var(--canvas) 0 50%) 0 0 / 16px 16px;
 }
+/* The picture fills the box, however small the drawing; the line under it gives the true size. */
 .export-preview img {
-  max-width: 100%;
-  max-height: 150px;
+  width: 100%;
+  height: 150px;
+  object-fit: contain;
 }
 .export-none {
   color: var(--ink-muted);
@@ -3727,6 +3831,8 @@ button.variant.add {
   }
 }
 .home ~ .notice {
+  left: var(--space-4);
+  right: var(--space-4);
   z-index: 5;
 }
 .home-inner {
@@ -3805,6 +3911,7 @@ button.variant.add {
 }
 .home-tile {
   display: grid;
+  align-content: start;
   gap: 10px;
   width: 100%;
   padding: 0;
@@ -4003,6 +4110,18 @@ button.variant.add {
     transform: translate(-50%, -6px);
   }
 }
+/* While Name to structure is open at the top, the card waits at the bottom, and comes back when the field closes. */
+.coach.low {
+  top: auto;
+  bottom: var(--space-4);
+  animation-name: coach-low;
+}
+@keyframes coach-low {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+}
 .coach-body {
   padding: var(--space-4) var(--space-4) var(--space-3);
   animation: coach-step 180ms cubic-bezier(0.23, 1, 0.32, 1);
@@ -4022,7 +4141,7 @@ button.variant.add {
 }
 .coach h2 svg {
   flex: none;
-  color: var(--brand);
+  color: var(--link);
   animation: coach-tick 160ms ease-out;
 }
 @keyframes coach-tick {
@@ -4082,6 +4201,7 @@ button.variant.add {
 }
 @media (prefers-reduced-motion: reduce) {
   .coach,
+  .coach.low,
   .coach-body,
   .coach h2 svg {
     animation: fade-in 150ms ease-out;

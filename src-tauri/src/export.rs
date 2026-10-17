@@ -3,14 +3,14 @@
 // /Metadata stream, as ChemDraw's does, so a picture pasted into Word and copied out again pastes back into
 // Octet and ChemDraw as a structure. cdxml_from_pdf reads it back from any PDF, treated as hostile.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use base64::Engine;
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref};
 use svg2pdf::usvg::{self, fontdb};
-use tauri::AppHandle;
+use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 const MAX_SVG: usize = 64 << 20;
@@ -49,7 +49,10 @@ fn tree(svg: &str) -> Result<usvg::Tree, String> {
     opt.fontdb = fonts();
     // usvg reads <image> files from disk by default. The picture holds only what the page drew.
     opt.image_href_resolver.resolve_string = Box::new(|_, _| None);
-    usvg::Tree::from_str(svg, &opt).map_err(|e| format!("Octet could not draw this picture ({e})."))
+    usvg::Tree::from_str(svg, &opt).map_err(|e| {
+        eprintln!("usvg: {e}");
+        "Octet could not draw this picture.".to_string()
+    })
 }
 
 // The CDXML as ChemDraw hides it: the XML declaration at byte 0 and the CDXML DOCTYPE on line 2.
@@ -160,11 +163,16 @@ pub struct Export {
     transparent: Option<bool>,
 }
 
+// Files exported this session. The page can ask to show one of them in the file manager (reveal_file), never
+// another file.
+#[derive(Default)]
+pub struct Exported(pub Mutex<HashSet<PathBuf>>);
+
 // File > Export…: asks where to save, then writes the format the file name's extension asks for. The page sends
 // the drawing in every form it has; the Save dialog offers those (or only `format`, if given). The page never
 // names a path, so Octet writes only where the user chose. Returns the path, or None if cancelled.
 #[tauri::command]
-pub async fn export_file(app: AppHandle, export: Export) -> Result<Option<String>, String> {
+pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: Export) -> Result<Option<String>, String> {
     let e = export;
     let has = |id: &str| match id {
         "oct" => e.oct.is_some(),
@@ -208,6 +216,7 @@ pub async fn export_file(app: AppHandle, export: Export) -> Result<Option<String
         _ => format!("{}\n", e.smiles.as_deref().unwrap_or_default().trim()).into_bytes(),
     };
     crate::write_atomic(&path, &bytes).map_err(|e| e.to_string())?;
+    exported.0.lock().unwrap().insert(path.clone());
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 

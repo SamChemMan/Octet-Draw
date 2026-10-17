@@ -93,8 +93,9 @@ export function Home(p: Props) {
           </button>
           {p.recents.map((r) => (
             <div key={r.path} className={r.found ? "home-slot" : "home-slot missing"}>
-              <button className="home-tile" onClick={() => p.onRecent(r)} title={r.path}>
-                <span className="home-thumb">
+              <button className="home-tile" onClick={() => p.onRecent(r)} data-tip={r.path}>
+                {/* The picture is of the white page (export.ts draws it in the light theme), so it stays on white. */}
+                <span className="home-thumb" data-theme="light">
                   {r.thumb ? <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(r.thumb)}`} alt="" draggable={false} /> : <span className="home-initial" aria-hidden>{r.name.slice(0, 1).toUpperCase()}</span>}
                 </span>
                 <span className="home-caption">
@@ -102,7 +103,7 @@ export function Home(p: Props) {
                   <span className="home-when">{r.found ? when(r.at, now) : "Moved or deleted"}</span>
                 </span>
               </button>
-              <button className="home-remove" onClick={() => p.onRemove(r)} aria-label={`Remove ${r.name} from Home`} title="Remove from Home"><X size={12} weight="bold" /></button>
+              <button className="home-remove" onClick={() => p.onRemove(r)} aria-label={`Remove ${r.name} from Home`} data-tip="Remove from Home"><X size={12} weight="bold" /></button>
             </div>
           ))}
         </div>

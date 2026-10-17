@@ -68,7 +68,7 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
     <section className={stacked ? "properties stacked" : "properties"} aria-label="Properties" style={move.style}>
       <header onPointerDown={move.onPointerDown}>
         <h2>Properties</h2>
-        <button className="actions-close" onClick={onClose} aria-label="Hide properties" title="Hide properties"><X size={14} /></button>
+        <button className="actions-close" onClick={onClose} aria-label="Hide properties" data-tip="Hide properties"><X size={14} /></button>
       </header>
       <div className="prop-list">
         {groups.map((g, k) => (
@@ -77,11 +77,11 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
               const text = row.values.map((v) => (v === undefined ? "–" : v)).join("; "), on = chosen.includes(row.key);
               return (
                 <div key={row.key} className={`prop-row${text.length > 18 ? " long" : ""}`}>
-                  <button className="prop-check" role="checkbox" aria-checked={on} aria-label={`Add ${row.name} to the drawing`} title="Add to drawing" onClick={() => onChoose(row.key)}>
+                  <button className="prop-check" role="checkbox" aria-checked={on} aria-label={`Add ${row.name} to the drawing`} data-tip="Add to drawing" onClick={() => onChoose(row.key)}>
                     {on && <Check size={11} weight="bold" />}
                   </button>
                   <span className="prop-name">{row.name}</span>
-                  <button className="prop-value" title="Copy" onClick={() => onCopy(`${row.name}: ${text}`)}>{show(row.key, text)}</button>
+                  <button className="prop-value" data-tip="Copy" onClick={() => onCopy(`${row.name}: ${text}`)}>{show(row.key, text)}</button>
                 </div>
               );
             })}

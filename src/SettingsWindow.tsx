@@ -2,7 +2,7 @@
 // modules (Document, Keyboard shortcuts, Import and export) under a search field that is always there. With text
 // in it, every matching setting from every module shows on the right, grouped by module and ready to use.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowsDownUp, CaretDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, Plus, SlidersHorizontal, X } from "@phosphor-icons/react";
+import { ArrowsDownUp, CaretDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, Plus, X } from "@phosphor-icons/react";
 import { ColourPicker } from "./ColourPicker";
 import { useModal } from "./Dialog";
 import { Select } from "./Select";
@@ -11,7 +11,7 @@ import type { ExportFormat } from "./export";
 import { BACKGROUNDS, COLOURS, FONTS, PAGE_NAMES, PAGES, PRESETS, pageSize, presetOf, type DocStyle, type PageName } from "./docstyle";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
 
-export type ModuleId = "document" | "keys" | "panel" | "files" | "colours";
+export type ModuleId = "document" | "keys" | "appearance" | "files";
 export type FilePrefs = {
   format: ExportFormat; dpi: number; background: "white" | "transparent"; margin: number;
   clipboard: { pdf: boolean; cdxml: boolean; mol: boolean; smiles: boolean }; keepStyle: boolean;
@@ -25,7 +25,7 @@ type Props = {
   onModule: (m: ModuleId) => void;
   style: DocStyle;
   isDefault: boolean; // the style is already the default for new documents
-  preview: React.ReactNode; // a sample structure drawn in the style
+  preview: React.ReactNode; // a sample structure drawn in the style, on the page's background (.style-preview)
   onStyle: (style: DocStyle) => void;
   onDefault: () => void;
   keys: Keymap; // the user's changes to the shortcuts
@@ -44,7 +44,8 @@ type Props = {
 };
 
 // The user's colours: each one's swatch, name and remove button; the one chosen opens Octet's picker under it.
-// Add a colour makes a new one from the last colour picked and opens it.
+// Add a colour makes a new one from the last colour picked and opens it. With no colours yet, Add a colour stands
+// where the list goes.
 function PaletteEditor({ palette, onPalette, adding }: { palette: Swatch[]; onPalette: (p: Swatch[]) => void; adding?: boolean }) {
   const [open, setOpen] = useState<number>();
   const add = () => {
@@ -57,15 +58,12 @@ function PaletteEditor({ palette, onPalette, adding }: { palette: Swatch[]; onPa
   const change = (k: number, patch: Partial<Swatch>) => onPalette(palette.map((c, i) => (i === k ? { ...c, ...patch } : c)));
   return (
     <div className="palette-editor">
-      <div className="palette-builtin" role="list" aria-label="Octet's colours">
-        {COLOURS.map(([name, hex]) => <span key={hex} role="listitem" className="swatch" style={{ background: hex }} title={name} aria-label={name} />)}
-      </div>
       {palette.map((c, k) => (
         <div key={k} className={open === k ? "palette-row open" : "palette-row"}>
           <div className="palette-line">
             <button className="swatch" style={{ background: c.hex }} aria-label={`Change ${c.name}`} aria-expanded={open === k} onClick={() => setOpen(open === k ? undefined : k)} />
             <input className="palette-name" aria-label="Name" value={c.name} maxLength={40} onChange={(e) => change(k, { name: e.target.value })} onBlur={(e) => { if (!e.target.value.trim()) change(k, { name: `Colour ${k + 1}` }); }} />
-            <button className="text-button" aria-label={`Remove ${c.name}`} title="Remove" onClick={() => { onPalette(palette.filter((_, i) => i !== k)); setOpen(undefined); }}><X size={12} weight="bold" /></button>
+            <button className="text-button" aria-label={`Remove ${c.name}`} data-tip="Remove" onClick={() => { onPalette(palette.filter((_, i) => i !== k)); setOpen(undefined); }}><X size={12} weight="bold" /></button>
           </div>
           {open === k && <ColourPicker value={c.hex} onChange={(hex) => change(k, { hex })} />}
         </div>
@@ -183,7 +181,7 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
             className="grip"
             role="separator"
             aria-label="Drag to resize"
-            title="Drag to resize"
+            data-tip="Drag to resize"
             onPointerDown={(e) => {
               e.preventDefault();
               e.currentTarget.setPointerCapture(e.pointerId);
@@ -206,10 +204,12 @@ type Def = { module: ModuleId; section: string; label: string; keywords: string;
 const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: string }[] = [
   { id: "document", name: "Document", icon: <FileText size={16} />, words: "document style page text" },
   { id: "keys", name: "Keyboard shortcuts", icon: <Keyboard size={16} />, words: "keyboard shortcut hotkey keys" },
-  { id: "panel", name: "Actions panel", icon: <SlidersHorizontal size={16} />, words: "actions panel side menus sections" },
+  // The Actions panel's one setting and the colours share a module, so no module holds a single setting.
+  { id: "appearance", name: "Appearance", icon: <Palette size={16} />, words: "appearance look actions panel side menus sections colour colours palette custom swatch named" },
   { id: "files", name: "Import and export", icon: <ArrowsDownUp size={16} />, words: "import export file clipboard" },
-  { id: "colours", name: "Colours", icon: <Palette size={16} />, words: "colour colours palette custom swatch named" },
 ];
+// The module saved last time, as a module that is there now (Actions panel and Colours became Appearance).
+export const moduleOf = (id: string): ModuleId => (id === "panel" || id === "colours" ? "appearance" : MODULES.find((m) => m.id === id)?.id ?? "document");
 // Words people use for the same thing.
 const SYNONYMS: Record<string, string> = {
   color: "colour", thickness: "width", thick: "width", weight: "width", stroke: "width", hotkey: "shortcut", hotkeys: "shortcut",
@@ -264,7 +264,7 @@ function KeyChips({ id, map, recording, onRecord, onRemove }: { id: string; map:
       ))}
       {recording === keys.length
         ? <span className="key-chip recording"><button>Press a key</button></span>
-        : <button className="key-add" onClick={() => onRecord(keys.length)} aria-label="Add a key" title="Add a key"><Plus size={11} weight="bold" /></button>}
+        : <button className="key-add" onClick={() => onRecord(keys.length)} aria-label="Add a key" data-tip="Add a key"><Plus size={11} weight="bold" /></button>}
     </span>
   );
 }
@@ -335,16 +335,16 @@ export function SettingsWindow(p: Props) {
       d("document", "Text", "Colour", "text colour caption", (
         <span className="swatches" role="radiogroup" aria-label="Text colour">
           {[...COLOURS, ...p.palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => (
-            <button key={`${name}${hex}`} role="radio" aria-checked={style.colour.toLowerCase() === hex.toLowerCase()} aria-label={name} title={name} className="swatch" style={{ background: hex }} onClick={() => change({ colour: hex })} />
+            <button key={`${name}${hex}`} role="radio" aria-checked={style.colour.toLowerCase() === hex.toLowerCase()} aria-label={name} data-tip={name} className="swatch" style={{ background: hex }} onClick={() => change({ colour: hex })} />
           ))}
-          <button className="swatch custom" title="Add a colour" aria-label="Add a colour" onClick={() => p.onModule("colours")}><Plus size={10} weight="bold" aria-hidden /></button>
+          <button className="swatch custom" data-tip="Add a colour" aria-label="Add a colour" onClick={() => p.onModule("appearance")}><Plus size={10} weight="bold" aria-hidden /></button>
         </span>
       ), true),
       d("document", "Page", "Size", "page paper size a4 a3 letter custom half column", <PageSize style={style} change={change} />),
       d("document", "Page", "Orientation", "page orientation portrait landscape", (
         <span className="segmented" role="radiogroup" aria-label="Orientation">
-          <button role="radio" aria-checked={!style.landscape} aria-label="Portrait" title="Portrait" onClick={() => change({ landscape: false })}><span className="page-glyph" /></button>
-          <button role="radio" aria-checked={style.landscape} aria-label="Landscape" title="Landscape" onClick={() => change({ landscape: true })}><span className="page-glyph wide" /></button>
+          <button role="radio" aria-checked={!style.landscape} aria-label="Portrait" data-tip="Portrait" onClick={() => change({ landscape: false })}><span className="page-glyph" /></button>
+          <button role="radio" aria-checked={style.landscape} aria-label="Landscape" data-tip="Landscape" onClick={() => change({ landscape: true })}><span className="page-glyph wide" /></button>
         </span>
       )),
       d("document", "Page", "Gridlines", "grid gridlines guides page", <Select label="Gridlines" value={String(style.grid)} options={[["0", "None"], ["5", "5 mm"], ["10", "10 mm"], ["20", "20 mm"]]} onChange={(v) => change({ grid: Number(v) })} />),
@@ -353,13 +353,13 @@ export function SettingsWindow(p: Props) {
         // Each background as a small page of itself.
         <span className="paper-choices" role="radiogroup" aria-label="Background">
           {BACKGROUNDS.map(([b, name]) => (
-            <button key={b} role="radio" aria-checked={style.background === b} aria-label={name} title={name} className={`paper-choice ${b}`} onClick={() => change({ background: b })}>
+            <button key={b} role="radio" aria-checked={style.background === b} aria-label={name} data-tip={name} className={`paper-choice ${b}`} onClick={() => change({ background: b })}>
               <span />
             </button>
           ))}
         </span>
       )),
-      d("panel", "Small actions", "Show as", "actions panel small actions menus sections pop out buttons", (
+      d("appearance", "Actions panel", "Small actions", "actions panel small actions show as menus sections pop out buttons", (
         <span className="segmented" role="radiogroup" aria-label="Show small actions as">
           <button role="radio" aria-checked={!p.panelMenus} onClick={() => p.onPanelMenus(false)}>Sections</button>
           <button role="radio" aria-checked={p.panelMenus} onClick={() => p.onPanelMenus(true)}>Menus</button>
@@ -385,7 +385,12 @@ export function SettingsWindow(p: Props) {
       d("files", "Export", "Margin", "export margin padding border", <NumberField label="Margin" unit="pt" value={files.margin} onChange={(n) => setFiles({ margin: n })} />),
       ...([["pdf", "PDF, with the structure inside", "pdf word powerpoint keynote office"], ["cdxml", "CDXML", "cdxml chemdraw"], ["mol", "MOL", "mol molfile"], ["smiles", "SMILES", "smiles text"]] as const).map(([k, name, words]) =>
         d("files", "Copy", name, `clipboard copy paste ${words}`, <Switch on={files.clipboard[k]} label={name} onChange={(on) => setFiles({ clipboard: { ...files.clipboard, [k]: on } })} />)),
-      d("colours", "Colours", "Your colours", "colour colours palette custom swatch named add", <PaletteEditor palette={p.palette} onPalette={p.onPalette} adding={p.adding} />, true),
+      d("appearance", "Colours", "Octet's colours", "colour colours palette swatch built in", (
+        <span className="swatches" role="list" aria-label="Octet's colours">
+          {COLOURS.map(([name, hex]) => <span key={hex} role="listitem" className="swatch" style={{ background: hex }} data-tip={name} aria-label={name} />)}
+        </span>
+      ), true),
+      d("appearance", "Colours", "Your colours", "colour colours palette custom swatch named add", <PaletteEditor palette={p.palette} onPalette={p.onPalette} adding={p.adding} />, true),
       d("files", "Import", "Keep ChemDraw styles", "import open cdxml chemdraw style keep", <Switch on={files.keepStyle} label="Keep ChemDraw styles" onChange={(on) => setFiles({ keepStyle: on })} />),
     ];
   }, [style, map, recording, note, files, p.palette, p.adding, p.panelMenus, p.captionOptionReturn, p.menuKeys.length]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -397,7 +402,7 @@ export function SettingsWindow(p: Props) {
   const content = (module: ModuleId, list: Def[]) => {
     if (module === "document") return (
       <>
-        {!query && <div className="style-preview" aria-hidden>{p.preview}</div>}
+        {!query && p.preview}
         {sections(module, list).map((s) => (
           <Section key={s} title={s} defs={list.filter((x) => x.module === module && x.section === s)}
             aside={s === "Style" ? <Select label="Style preset" value={style.preset} options={presets} onChange={(v) => v in PRESETS && p.onStyle({ ...style, ...PRESETS[v], preset: v })} /> : undefined} />
@@ -444,7 +449,7 @@ export function SettingsWindow(p: Props) {
         <div className="settings-main">
           <header>
             <h2>{query ? "Search" : MODULES.find((m) => m.id === p.module)!.name}</h2>
-            <button className="actions-close" onClick={p.onClose} aria-label="Close settings" title="Close"><X size={14} /></button>
+            <button className="actions-close" onClick={p.onClose} aria-label="Close settings" data-tip="Close"><X size={14} /></button>
           </header>
           <div className="settings-body" key={query ? "search" : p.module}>
             {query
