@@ -900,6 +900,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
               data-command={i.command}
               className={["tray-button", i.command === "delete" && "delete", i.accent && "accent", carry?.command === i.command && "carried", settled === i.command && "settled"].filter(Boolean).join(" ")}
               aria-label={i.name}
+              data-tip={i.name}
               data-key={hint(i.command)}
               onPointerDown={(e) => startCarry(e, i.command)}
               onClick={() => { if (dragged.current) { dragged.current = false; return; } run(i.command); }}

@@ -1,6 +1,6 @@
 // Run: node src/tip.check.ts. Fails loudly if a tooltip goes past the window or covers its control.
 import assert from "node:assert/strict";
-import { placeTip, TIP_EDGE, TIP_GAP } from "./tip.ts";
+import { placeTip, showsWords, TIP_EDGE, TIP_GAP } from "./tip.ts";
 
 const view = { width: 1100, height: 700 };
 // Above and centred.
@@ -17,4 +17,11 @@ assert.deepEqual(placeTip({ left: 16, top: 100, right: 48, bottom: 132 }, 70, 20
 assert.equal(placeTip({ left: 1060, top: 100, right: 1092, bottom: 132 }, 70, 20, view, "right").top, 100 - TIP_GAP - 20);
 // Beside a tool at the bottom of the window, it stays in the window.
 assert.equal(placeTip({ left: 16, top: 680, right: 48, bottom: 712 }, 70, 20, view, "right").top, view.height - TIP_EDGE - 20);
+
+// A control that shows words needs no tip of its name; atom labels drawn in its icon are not words.
+const text = (s: string) => ({ nodeType: 3, nodeName: "#text", textContent: s, childNodes: [] });
+const el = (nodeName: string, ...childNodes: ReturnType<typeof text>[]) => ({ nodeType: 1, nodeName, textContent: null, childNodes });
+assert.equal(showsWords(el("BUTTON", el("SPAN", text("Settings")))), true);
+assert.equal(showsWords(el("BUTTON", el("SPAN", el("svg", el("text", text("N")), el("text", text("O")))))), false, "a structure icon (the Template tool)");
+assert.equal(showsWords(el("BUTTON", el("svg"), text("  "))), false);
 console.log("tip.check: ok");

@@ -5,7 +5,7 @@
 // The first tip waits 500 ms. While one shows, or just after, the next shows at once, so the pointer can run along
 // a row. Keyboard focus shows a tip at once. A press, a key, a scroll or a dialog over the control hides it.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { placeTip } from "./tip";
+import { placeTip, showsWords } from "./tip";
 
 type Tip = { text: string; key?: string; at: DOMRect; side: "above" | "right"; instant: boolean };
 const DELAY = 500, CARRY = 300; // ms: before the first tip; after a tip goes, how long the next still shows at once
@@ -15,7 +15,7 @@ function tipOf(target: EventTarget | null): { el: HTMLElement; text: string; key
   const el = target instanceof Element ? target.closest<HTMLElement>("[data-tip], button[aria-label]") : null;
   if (!el) return undefined;
   const key = el.dataset.key || undefined;
-  if (el.dataset.tip === undefined) return el.textContent?.trim() ? undefined : { el, text: el.getAttribute("aria-label")!, key };
+  if (el.dataset.tip === undefined) return showsWords(el) ? undefined : { el, text: el.getAttribute("aria-label")!, key };
   if (!el.dataset.tip) return undefined;
   if (el.hasAttribute("data-tip-cut") && ![...el.querySelectorAll("span")].some((s) => s.scrollWidth > s.clientWidth + 1)) return undefined;
   return { el, text: el.dataset.tip, key };

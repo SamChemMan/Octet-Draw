@@ -4114,10 +4114,13 @@ button.variant.add {
     transform: translate(-50%, -6px);
   }
 }
-/* While Name to structure is open at the top, the card waits at the bottom, and comes back when the field closes. */
+/* While Name to structure is open at the top, the card waits at the bottom, and comes back when the field closes.
+   At the bottom it is centred between the toolbar and the Actions panel, as the notice is, so it does not cover the
+   panel in a narrow window. */
 .coach.low {
   top: auto;
   bottom: var(--space-4);
+  left: calc(50% + (48px - 248px) / 2);
   animation-name: coach-low;
 }
 @keyframes coach-low {

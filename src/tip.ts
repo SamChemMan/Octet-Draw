@@ -12,3 +12,9 @@ export function placeTip(at: Rect, w: number, h: number, view: { width: number; 
   const left = clampX((at.left + at.right) / 2 - w / 2);
   return at.top - TIP_GAP - h >= TIP_EDGE ? { left, top: at.top - TIP_GAP - h } : { left, top: clampY(at.bottom + TIP_GAP) };
 }
+
+// True when a control shows words of its own, so it needs no tip of its name. Text drawn in an icon (a structure's
+// atom labels, inside an svg) does not count.
+export type Shown = { nodeType: number; nodeName: string; textContent: string | null; childNodes: ArrayLike<Shown> };
+export const showsWords = (n: Shown): boolean =>
+  n.nodeType === 3 ? !!n.textContent?.trim() : n.nodeName !== "svg" && Array.from(n.childNodes).some(showsWords);
