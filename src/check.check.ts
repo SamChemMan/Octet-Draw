@@ -15,6 +15,10 @@ assert.equal(problems(addCharge(m, 0, 1)).length, 0);
 const clean = sprout(sprout(EMPTY, [0, 0]), 1);
 assert.equal(messy(clean), false);
 assert.equal(messy(moveAtoms(clean, new Set([2]), [-0.5, 0])), true);
+// An aromatic bond counts 1.5 and a bond of an unknown type counts 1: N with an aromatic bond, a double bond, a
+// query bond and a single bond has 5.5 bond orders.
+const odd = { ...m, bonds: m.bonds.map((b, k) => ({ ...b, type: [4, 2, 7, 1][k] })) };
+assert.match(problems(odd)[0].message, /^N1 has 5\.5 bond orders\./);
 // Bonds that cross are messy. The quick check agrees with comparing every pair, on random drawings.
 const x: typeof clean = { atoms: [[0, 0], [1, 1], [0, 1], [1, 0]].map(([a, b]) => ({ label: "C", location: [a, b, 0] as [number, number, number] })), bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [2, 3] }] };
 assert.equal(messy(x), true);

@@ -1,6 +1,6 @@
 // Checks a drawing the way a chemist would at a glance: atoms with too many bonds, and messy geometry.
 // Messages follow the brief's style: what is wrong, the rule, then what to do.
-import { neighbours, pos, type P } from "./edit.ts";
+import { bondOrders, neighbours, pos, type P } from "./edit.ts";
 import type { Bond, Mol } from "./render.ts";
 
 const NAMES: Record<string, string> = { C: "Carbon", N: "Nitrogen", O: "Oxygen", S: "Sulfur", P: "Phosphorus", B: "Boron", F: "Fluorine", Cl: "Chlorine", Br: "Bromine", I: "Iodine", H: "Hydrogen", Si: "Silicon" };
@@ -11,12 +11,7 @@ const ORDER: Record<number, number> = { 1: 1, 2: 2, 3: 3, 4: 1.5 };
 export type Problem = { atom: number; message: string; fix?: { label: string; charge: number } };
 
 export function problems(m: Mol): Problem[] {
-  const out: Problem[] = [], orders = m.atoms.map(() => 0);
-  // Each atom's bond orders, added up in one pass over the bonds.
-  for (const { atoms: [i, j], type } of m.bonds) {
-    orders[i] += ORDER[type] ?? 1;
-    if (j !== i) orders[j] += ORDER[type] ?? 1;
-  }
+  const out: Problem[] = [], orders = bondOrders(m, (type) => ORDER[type] ?? 1);
   m.atoms.forEach((a, i) => {
     if (a.text || a.ignoreWarnings || !(a.label in MAX)) return;
     const used = orders[i];
