@@ -436,7 +436,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const xml = el("n", {
       id: nodeId.get(i)!, p: pt(X), Z: Z(), NodeType: type, Element: element && element !== 6 ? element : undefined, Isotope: type ? undefined : a.isotope ?? (a.label === "D" ? 2 : undefined), Charge: charge || undefined,
       Radical: a.radical ? RADICALS[a.radical === 3 ? 1 : Math.min(2, a.radical) + 1] : undefined, NumHydrogens: h, ExternalConnectionType: a.attach ? "Wavy" : a.bead ? "PolymerBead" : undefined,
-      NeedsClean: shown ? "yes" : undefined, GenericNickname: generic ? a.text : undefined,
+      NeedsClean: shown ? "yes" : undefined, GenericNickname: generic ? a.text : undefined, LabelDisplay: shown && a.align ? { left: "Left", centre: "Center", right: "Right", above: "Above", below: "Below" }[a.align] : undefined,
       EnhancedStereoType: enhanced ? { abs: "Absolute", "&": "And", or: "Or" }[enhanced[1]] : undefined, EnhancedStereoGroupNum: enhanced?.[2] || undefined,
       color: colour(a.colour), highlightColor: colour(a.halo), ShowAtomStereo: a.cip ? "yes" : undefined, ShowAtomNumber: a.number ? "yes" : undefined, AtomNumber: a.number, IgnoreWarnings: a.ignoreWarnings ? "yes" : undefined, xyz: z ? `${pt(X)} ${fmt(z * B)}` : undefined,
       BondOrdering: inner && deg > 1 ? bondsAt[i].map((k) => bondId[k]).join(" ") : undefined,
@@ -458,13 +458,15 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       if (deg ? right : H_FIRST.has(a.label)) just = "Right";
       else if (steep && deg >= 2) stack = v[1] > 0 ? "Above" : "Below";
     }
+    // An alignment set by hand (the node's LabelDisplay says it is).
+    if (a.align) { just = a.align === "right" ? "Right" : a.align === "centre" ? "Center" : "Left"; stack = a.align === "above" ? "Above" : a.align === "below" ? "Below" : undefined; }
     const sign = charge && !a.circled ? `${Math.abs(charge) > 1 ? Math.abs(charge) : ""}${charge > 0 ? "+" : "-"}` : "";
     // An isotope's mass number, a superscript run before the element; the element stays on the atom.
     const iso = !a.text && a.isotope && a.label !== "D" ? String(a.isotope) : "", isoW = widthOf(iso, 0.75 * size);
     const wide = (s: string) => [...s].reduce((w, ch, k) => w + advance(ch, /\d/.test(ch) && k ? 0.75 * size : size), 0);
     const first = units(text)[0]?.text + (units(text)[0]?.count ?? ""), width = isoW + wide(text) + widthOf(sign, 0.75 * size);
-    const x = just === "Right" ? X[0] - advance(text[0], size) / 2 + wide(first) + widthOf(sign, 0.75 * size) : X[0] - advance(text[0], size) / 2 - isoW;
-    const y = X[1] + (/[OSCGQ]/.test(text) ? 0.364 : 0.358) * size, left = just === "Right" ? x - width : x;
+    const x = just === "Right" ? X[0] - advance(text[0], size) / 2 + wide(first) + widthOf(sign, 0.75 * size) : just === "Center" ? X[0] : X[0] - advance(text[0], size) / 2 - isoW;
+    const y = X[1] + (/[OSCGQ]/.test(text) ? 0.364 : 0.358) * size, left = just === "Right" ? x - width : just === "Center" ? x - width / 2 : x;
     const box: Box = [left, y - 0.716 * size, left + width, y + (/\d/.test(text) ? 0.15 * size : 0)];
     const style2 = { font: a.font ?? style.labelFont, size, colour: a.colour }, look = (a.bold ? 1 : 0) | (a.italic ? 2 : 0) | (a.underline ? 4 : 0);
     return {
@@ -931,6 +933,9 @@ export function fromCdxml(text: string): CdxmlRead {
     const number = yes(n.attrs.ShowAtomNumber) ? (n.attrs.AtomNumber ?? "").trim() : "";
     if (number) { if (/^[\w'′*-]{1,8}$/.test(number)) a.number = number; else lose("atom number"); }
     if (yes(n.attrs.IgnoreWarnings)) a.ignoreWarnings = true;
+    // A label alignment set by hand.
+    const align = ({ Left: "left", Center: "centre", Right: "right", Above: "above", Below: "below" } as const)[n.attrs.LabelDisplay as "Left"];
+    if (align) a.align = align;
     const i = mol.atoms.push(a) - 1;
     nodeIds.push(int(n.attrs.id) ?? 0);
     numH.set(i, int(n.attrs.NumHydrogens) ?? 0);

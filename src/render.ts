@@ -35,6 +35,10 @@ export type Atom = {
   fill?: string; // #rrggbb ring fill: a ring whose atoms all have the same fill is filled with it at 30% opacity
   circle?: true; // Toggle Aromatic Display: an aromatic ring whose atoms all have this is drawn with a circle
   number?: string; // Show Atom Number: the number drawn beside the atom
+  // The label's alignment set by hand (ChemDraw's Flush Left, Centered, Flush Right and Stacked Above on a label;
+  // LabelDisplay in CDXML): left reads from the atom, right ends at it (MeO, H2N), centre sits on it, above and below
+  // stack the rest of the label over or under the atom's own unit. Unset is Automatic: it reads away from the bonds.
+  align?: "left" | "centre" | "right" | "above" | "below";
 };
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 // On a double bond: bold makes the main line bold, dashed the second line dashed, either crosses the two lines.
@@ -394,40 +398,57 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     // Which way the label reads: away from the bonds. Bonds on the right (within 70° of horizontal) reverse it.
     const v = nbrs[i].reduce<P>((acc, j) => add(acc, dir(i, j)), [0, 0]);
     const steep = len(v) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180);
+    const align = a.align;
     if (a.text) {
       // A written label: units in order, reversed when it reads right to left (OMe as MeO). The attaching
-      // unit's first glyph sits centred on the atom.
-      const us = units(a.text), reversed = deg(i) > 0 && !steep && v[0] > 1e-6;
+      // unit's first glyph sits centred on the atom. Centred, the whole label sits on the atom; stacked, each unit
+      // after the first goes one line further up (or down), centred over the atom.
+      const us = units(a.text), reversed = align ? align === "right" : deg(i) > 0 && !steep && v[0] > 1e-6;
       const width = (u: (typeof us)[number]) => M(u.text).width + (u.count ? M(u.count).width * SUB : 0);
       const first = M(us[0].text[0]), base = y + first.ascent / 2;
+      if (align === "above" || align === "below") {
+        const pitch = 1.1 * M('H').ascent * (align === "above" ? -1 : 1);
+        us.forEach((u, k) => {
+          const ux = k ? x - width(u) / 2 : x - first.width / 2, uy = base + k * pitch;
+          run(u.text, ux, uy);
+          if (u.count) run(u.count, ux + M(u.text).width, uy + DROP * S, SUB);
+        });
+        if (a.charge && !a.circled) run(sign(a.charge), x - first.width / 2 + width(us[0]), base - RISE * S, SUB);
+        return shape;
+      }
       const order = reversed ? [...us].reverse() : us;
-      let cx = x - first.width / 2 - (reversed ? order.slice(0, -1).reduce((w, u) => w + width(u), 0) : 0);
+      let cx = align === "centre" ? x - us.reduce((w, u) => w + width(u), 0) / 2 : x - first.width / 2 - (reversed ? order.slice(0, -1).reduce((w, u) => w + width(u), 0) : 0);
       for (const u of order) {
         run(u.text, cx, base);
         if (u.count) run(u.count, cx + M(u.text).width, base + DROP * S, SUB);
         cx += width(u);
       }
-      const right = reversed ? x - first.width / 2 + width(us[0]) : cx;
+      const right = reversed && align !== "centre" ? x - first.width / 2 + width(us[0]) : cx;
       if (a.charge && !a.circled) run(sign(a.charge), right, base - RISE * S, SUB);
       return shape;
     }
-    const first = M(a.label[0]);
-    const ox = x - first.width / 2, base = y + first.ascent / 2;
-    run(a.label, ox, base);
-    // An isotope's mass number, raised, just before the element.
-    if (a.isotope) { const t = String(a.isotope); run(t, ox - M(t).width * SUB, base - RISE * S, SUB); }
-    const charge = a.charge ?? 0;
+    const first = M(a.label[0]), charge = a.charge ?? 0;
     const used = nbrs[i].reduce((n, j) => n + orderOf(bondAt.get(key(i, j))!.type), 0);
     const h = s.hideH ? 0 : a.implicitHCount ?? hydrogens(a.label, charge, used, a.radical === 3 ? 2 : a.radical);
     const count = h > 1 ? String(h) : '';
     const hW = M('H').width, cW = count ? M(count).width * SUB : 0;
+    // Centred by hand: the element and its H together sit on the atom.
+    const ox = align === "centre" && h ? x - (M(a.label).width + hW + cW) / 2 : x - first.width / 2, base = y + first.ascent / 2;
+    run(a.label, ox, base);
+    // An isotope's mass number, raised, just before the element.
+    if (a.isotope) { const t = String(a.isotope); run(t, ox - M(t).width * SUB, base - RISE * S, SUB); }
     const hs = (hx: number, hy: number) => { run('H', hx, hy); if (count) run(count, hx + hW, hy + DROP * S, SUB); };
     let end = ox + M(a.label).width; // the charge goes here
-    if (h) {
+    const pitch = 1.1 * M('H').ascent;
+    if (h && align) {
+      if (align === "right") hs(ox - hW - cW, base);
+      else if (align === "above" || align === "below") hs(x - hW / 2, base + (align === "above" ? -pitch : pitch));
+      else { hs(end, base); end += hW + cW; }
+    } else if (h) {
       // Sum of the bond directions: within 70° of horizontal, H goes on the far side; steeper, H stacks (indole NH).
       if (deg(i) ? !steep && v[0] > 1e-6 : H_FIRST.has(a.label)) hs(ox - hW - cW, base); // HO, H2N
       else if (!steep || deg(i) < 2) { hs(end, base); end += hW + cW; } // OH, NH2
-      else { const pitch = 1.1 * M('H').ascent; hs(x - hW / 2, base + (v[1] > 0 ? -pitch : pitch)); }
+      else hs(x - hW / 2, base + (v[1] > 0 ? -pitch : pitch));
     }
     if (charge && !a.circled) run(sign(charge), end, base - RISE * S, SUB);
     return shape;

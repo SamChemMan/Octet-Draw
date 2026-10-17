@@ -9,6 +9,7 @@ import {
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAa, TextAlignCenter, TextAlignLeft,
   TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, BezierCurve, Eraser, Circle, LineSegment, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
+  ArrowLineUp,
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
@@ -20,7 +21,7 @@ import { COLOURS, fontStack, TINTS } from "./docstyle";
 import { ArrowGlyph, arrowName, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, STRAIGHT, SymbolGlyph, withSize, type BondKind } from "./tools";
 
 // A selected atom label's text style (the first labelled atom's, for a structure), for the label style buttons.
-export type LabelText = { bold: boolean; italic: boolean; underline: boolean; font: string; size: number };
+export type LabelText = { bold: boolean; italic: boolean; underline: boolean; font: string; size: number; align: string };
 export type Context =
   | { kind: "empty" }
   | { kind: "drawing"; nameable: boolean }
@@ -697,6 +698,10 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           ))}
           <FontButton font={context.text.font} fonts={fonts} run={run} />
           <SizeButton size={context.text.size} run={run} />
+          {([["left", "Flush left", <TextAlignLeft size={16} />], ["centre", "Centred", <TextAlignCenter size={16} />], ["right", "Flush right", <TextAlignRight size={16} />],
+            ["above", "Stacked above", <ArrowLineUp size={16} />], ["auto", "Automatic", <span className="glyph-text">A</span>]] as const).map(([id, name, icon]) => (
+            <button key={id} className="chip" aria-pressed={context.text!.align === id} aria-label={name} title={name} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
+          ))}
         </div>
       )}
 

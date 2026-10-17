@@ -4,6 +4,7 @@ import {
   FrameCorners, GearSix, Keyboard, Lasso, LinkSimple, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
   TextAlignCenter, TextAlignLeft, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Warning, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
   Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table, FileDashed, ArrowsLeftRight,
+  TextAa, ArrowLineUp,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -22,6 +23,7 @@ import { snapBoxes, snapMove, type Guide } from "./snap";
 import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
 import { loadSettings, saveSettings } from "./settings";
+import { Menu, menuWidth } from "./Menu";
 import { ACTIONS, actionFor, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
 import { Actions, actionItems, type Context } from "./Actions";
 import { Properties, propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./Properties";
@@ -235,6 +237,13 @@ const OCTET_CLIP = "application/x-octet+json";
 const CONTRACTED = ["OMe", "OEt", "OiPr", "OtBu", "OAc", "OBz", "OBn", "OPh", "OTs", "OMs", "OTf", "OTBS", "OTIPS", "OTBDPS", "OTMS", "OMOM", "OTHP", "OPMB",
   "CO2Me", "CO2Et", "CO2tBu", "CO2Bn", "CO2H", "CHO", "CN", "NO2", "CF3", "CCl3", "OCF3", "SMe", "SO2Me", "NMe2", "NEt2", "NHAc", "NHBoc", "NHCbz", "NHFmoc",
   "NHTs", "NBoc2", "CONH2", "CONMe2", "N3", "SO3H", "COMe", "COPh"];
+// Choose Nickname (the = key): Octet's group names, then the condensed labels, each drawn as its structure (made once).
+const NICKNAMES = [Object.keys(GROUPS), CONTRACTED];
+const nicknameMols = new Map<string, Mol | undefined>();
+const nicknameMol = (name: string) => {
+  if (!nicknameMols.has(name)) { const smiles = labelSmiles(name); try { nicknameMols.set(name, smiles ? parseStructure(smiles) : undefined); } catch { nicknameMols.set(name, undefined); } }
+  return nicknameMols.get(name);
+};
 // A bond's style in the tool's list, if it is one of them.
 const bondKindOf = (b: Bond) => (Object.keys(BONDS) as BondKind[]).find((k) => { const spec: BondSpec = BONDS[k].spec; return spec.type === b.type && spec.stereo === b.stereo && spec.display === b.display; });
 // The Bond Properties list, in the order of ChemDraw's Bond Type list (then Octet's hydrogen bond).
@@ -937,9 +946,12 @@ export default function Editor() {
     ...Object.fromEntries(FONTS.map((f, k) => [`font_${k}`, () => runAction(`caption.font.${f}`)])),
     text_italic: () => runAction("caption.italic"),
     text_underline: () => runAction("caption.underline"),
-    align_left: () => restyle(() => ({ align: "left" })),
-    align_centre: () => restyle(() => ({ align: "centre" })),
-    align_right: () => restyle(() => ({ align: "right" })),
+    // Text alignment: on captions, and on the selected atom labels (with Stacked Above and Automatic), as in ChemDraw.
+    align_left: () => runAction("caption.align.left"),
+    align_centre: () => runAction("caption.align.centre"),
+    align_right: () => runAction("caption.align.right"),
+    align_above: () => runAction("caption.align.above"),
+    align_auto: () => runAction("caption.align.auto"),
     // The Curves menu: line styles, heads at either end (again takes one off), and a closed curve's fill.
     ...Object.fromEntries(["plain", "dashed", "bold", "doubled"].map((st) => [`curves_${st}`, () => runAction(`arrow.style.${st}`)])),
     ...Object.fromEntries((["start", "end"] as const).flatMap((at) => (["full", "left", "right"] as const).map((h) => [`curves_${at}_${h}`, () => runAction(`arrow.${at}.${h}`)]))),
@@ -1027,7 +1039,7 @@ export default function Editor() {
   // The text style of the first labelled atom among these, for the label style buttons; none when no atom has a label.
   const labelText = (ids: number[]) => {
     const i = ids.find((k) => drawing.label[k]), a = i === undefined ? undefined : doc.atoms[i];
-    return a && { bold: !!a.bold, italic: !!a.italic, underline: !!a.underline, font: a.font ?? style.labelFont, size: a.size ?? style.labelSize };
+    return a && { bold: !!a.bold, italic: !!a.italic, underline: !!a.underline, font: a.font ?? style.labelFont, size: a.size ?? style.labelSize, align: a.align ?? "auto" };
   };
   // An atom label's font: its own font, bold and italic when it has them, else the document's label font.
   const labelFont = (l: { size: number; font?: string; bold?: boolean; italic?: boolean }) =>
@@ -1079,12 +1091,25 @@ export default function Editor() {
   const [about, setAbout] = useState(false);
   // The Select tool's modifiers at the last press, and the selection before it, for a click with Shift or Option.
   const pressMods = useRef<{ shift: boolean; alt: boolean; atoms: Set<number>; picks: Set<number> } | undefined>(undefined);
+  // Option held at the last press, with any tool (Option-click opens or repeats a label), and the last label typed.
+  const pressAlt = useRef(false), lastLabel = useRef("");
   const [exportView, setExportView] = useState<{ all?: string; selection?: string; parts: { all: Mol; selection?: Mol } }>();
   const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }
     | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string }
     | { kind: "bond"; bond: number; style: BondKind; position: "auto" | "left" | "centre" | "right" }
     | { kind: "unsaved"; next: () => void }>();
   const [commandsOpen, setCommandsOpen] = useState(false);
+  // Choose Nickname: the list open by an atom (its place on screen). A click outside it or Escape closes it.
+  const [nicknames, setNicknames] = useState<{ atom: number; x: number; y: number }>();
+  const nicknameBox = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!nicknames) return;
+    const away = (e: PointerEvent) => { if (!nicknameBox.current?.contains(e.target as Node)) setNicknames(undefined); };
+    const escape = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setNicknames(undefined); } };
+    addEventListener("pointerdown", away, true);
+    addEventListener("keydown", escape, true);
+    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); };
+  }, [nicknames]);
   // An arrow Octet offers after a row of starting materials (from Clean up). Tab draws it; any other change drops it.
   const [offer, setOffer] = useState<{ from: P; to: P; doc: Mol }>();
   useEffect(() => { if (offer && offer.doc !== doc) setOffer(undefined); }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1413,6 +1438,7 @@ export default function Editor() {
 
   // Typing captions. Enter, Escape or a click elsewhere keeps the text. Empty text deletes the caption.
   function startWriting(target: { id: number } | { at: P }) {
+    tabRow.current = undefined;
     setSelection(new Set());
     setPicked(new Set());
     if ("id" in target) {
@@ -1426,6 +1452,23 @@ export default function Editor() {
     // Clicked just under a structure: the caption is centred under it, by the ACS rule.
     const under = structureAbove(target.at);
     openWriting(under ? { value: "", under, style: { ...textStyle } } : { value: "", at: target.at, style: { align: "left", ...textStyle } });
+  }
+  // Tab in a new caption makes a quick table, as in ChemDraw: the caption is kept and the next one starts 20 pt to its
+  // right (or under the column the rows above have there), in that column's style; Tab on an empty caption starts a
+  // new row 20 pt under the first caption of the row.
+  const tabRow = useRef<{ x: number[]; style: Partial<Caption>[]; k: number }>(undefined);
+  function tabCaption() {
+    const w = writing, at = w?.at;
+    if (!w || !at) return;
+    const text = w.value.replace(/\s+$/, ""), gap = (20 * pt) / L, row = tabRow.current ?? { x: [at[0]], style: [w.style], k: 0 };
+    commitWriting();
+    if (!text) { tabRow.current = { ...row, k: 0 }; return openWriting({ value: "", at: [row.x[0], at[1] - gap], style: { ...row.style[0] } }); }
+    const size = (w.style.size ?? style.captionSize) * pt, font = fontStack(w.style.font ?? style.captionFont), align = w.style.align ?? "left";
+    const wide = Math.max(...text.split("\n").map((t) => textWidth(t, size, w.style.bold, w.style.italic, font))) / L, k = row.k + 1;
+    row.style[row.k] = w.style;
+    if (row.x[k] === undefined) row.x[k] = at[0] + wide * (align === "right" ? 0 : align === "centre" ? 0.5 : 1) + gap;
+    tabRow.current = { ...row, k };
+    openWriting({ value: "", at: [row.x[k], at[1]], style: { ...(row.style[k] ?? w.style) } });
   }
   function commitWriting() {
     const w = writing;
@@ -1835,6 +1878,7 @@ export default function Editor() {
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* the pointer is already gone */ }
     const p = toDoc(e.clientX, e.clientY), t = hit(p), screen: [number, number] = [e.clientX, e.clientY];
     pointer.current = p;
+    pressAlt.current = e.altKey;
     // Shift with the Arrow tool over an arrow's end, or its middle point, starts a new arrow joined there.
     const join = tool === "arrow" && e.shiftKey ? joinAt(p) : undefined;
     if (join) { setSelection(new Set()); setPicked(new Set()); return setDrag({ kind: "arrow", from: join, start: screen, target: {} }); }
@@ -2167,9 +2211,21 @@ export default function Editor() {
     if (id === "atom.attach" && atom !== undefined) return set(setAtomMarks(doc, atom, { attach: !doc.atoms[atom].attach || undefined }));
     if (id === "atom.number" && atom !== undefined) return numberAtoms([atom]);
     if (id === "atom.properties" && atom !== undefined) return atomProperties(atom);
+    if (id === "atom.nickname" && atom !== undefined) {
+      const view = views.get(), q = doc.atoms[atom].location;
+      return setNicknames({ atom, x: view.x + q[0] * L * view.zoom, y: view.y - q[1] * L * view.zoom });
+    }
     if (kind === "element" && atom !== undefined) return set(setElement(doc, atom, arg));
     if (kind === "label" && atom !== undefined) return set(setLabel(doc, atom, arg));
     if (id === "atom.label" && atom !== undefined) return editLabel(atom);
+    // ! asks for a new label for the atom; > adds a bond and asks for the label of its new end (ChemDraw's ? hotkeys).
+    if (id === "atom.newlabel" && atom !== undefined) { labelOpen.current = true; return setEditing({ atom, value: "" }); }
+    if (id === "atom.sproutlabel" && atom !== undefined) {
+      const m = sprout(doc, atom), j = m.bonds[m.bonds.length - 1].atoms[1];
+      set(m);
+      labelOpen.current = true;
+      return setEditing({ atom: j, value: "" });
+    }
     if (id === "charge.plus" && atom !== undefined) return set(addCharge(doc, atom, 1));
     if (id === "charge.minus" && atom !== undefined) return set(addCharge(doc, atom, -1));
     if (kind === "menu") return commands.current[id.slice(5)]?.(); // a menu command on a key (Settings)
@@ -2693,7 +2749,7 @@ export default function Editor() {
     warnings: [settings.warnings ? "Hide chemical warnings" : "Show chemical warnings", undefined, <Warning size={18} />],
     actions: [settings.actions ? "Hide the Actions panel" : "Show the Actions panel", undefined, <SlidersHorizontal size={18} />],
     text_bold: ["Bold", `${MOD}B`, <TextB size={18} />], text_italic: ["Italic", `${MOD}I`, <TextItalic size={18} />], text_underline: ["Underline", `${MOD}U`, <TextUnderline size={18} />],
-    align_left: ["Flush left", `⇧${MOD}L`, <TextAlignLeft size={18} />], align_centre: ["Centre text", `⇧${MOD}C`, <TextAlignCenter size={18} />], align_right: ["Flush right", `⇧${MOD}R`, <TextAlignRight size={18} />],
+    align_left: ["Flush left", `⇧${MOD}L`, <TextAlignLeft size={18} />], align_centre: ["Centre text", `⇧${MOD}C`, <TextAlignCenter size={18} />], align_right: ["Flush right", `⇧${MOD}R`, <TextAlignRight size={18} />], align_above: ["Stacked above", "", <ArrowLineUp size={18} />], align_auto: ["Automatic label alignment", `⇧${MOD}M`, <TextAa size={18} />],
   };
   const paletteCommands = (): Command[] => {
     const toolKey = (id: string) => { const k = keymap(settings.keys)[id]?.[0]; return k ? keyLabel(k) : undefined; };
@@ -2958,9 +3014,10 @@ export default function Editor() {
       const [, what, ...rest] = command.split("."), arg = rest.join(".");
       // On selected atoms, the Text menu and the label style buttons style their labels, as in ChemDraw.
       const labelled = !writing && !picked.size ? [...selection].filter((i) => drawing.label[i]) : [];
-      if (labelled.length && ["bold", "italic", "underline", "plain", "font", "size"].includes(what)) {
+      if (labelled.length && ["bold", "italic", "underline", "plain", "font", "size", "align"].includes(what)) {
         const first = doc.atoms[labelled[0]], ids = new Set(labelled);
         const change: Partial<Atom> = what === "plain" ? { bold: undefined, italic: undefined, underline: undefined }
+          : what === "align" ? { align: arg === "auto" ? undefined : (arg as Atom["align"]) }
           : what === "font" ? { font: arg === style.labelFont ? undefined : arg }
           : what === "size" ? { size: Number(arg) === style.labelSize ? undefined : Number(arg) }
           : { [what]: first[what as "bold" | "italic" | "underline"] ? undefined : true };
@@ -2981,7 +3038,7 @@ export default function Editor() {
       if (what === "underline") return restyle((c) => ({ underline: !c.underline }));
       if (what === "size" && writing && richApi.current?.range()?.[0] !== richApi.current?.range()?.[1]) return styleText((s) => ({ ...s, size: Number(arg) }), what);
       if (what === "size") return restyle(() => ({ size: Number(arg) === style.captionSize ? undefined : Number(arg) }));
-      if (what === "align") return restyle(() => ({ align: arg as Caption["align"] }));
+      if (what === "align" && arg !== "above" && arg !== "auto") return restyle(() => ({ align: arg as Caption["align"] }));
       if (what === "colour") return restyle(() => ({ colour: arg.toLowerCase() === style.colour.toLowerCase() ? undefined : arg }));
       const id = [...picked][0];
       if (what === "edit" && id !== undefined) return startWriting({ id });
@@ -3056,6 +3113,8 @@ export default function Editor() {
       if (same && !changed) return set(updateArrow(doc, clicked.id, { from: clicked.to, to: clicked.from, ...(clicked.bend ? { bend: -clicked.bend } : {}) }), true);
       return set(updateArrow(doc, clicked.id, { kind: fresh.kind, ...Object.fromEntries(keys.map((k) => [k, fresh[k]])) }), true);
     }
+    // Option-click on an atom with a bond, chain or ring tool opens its label, as in ChemDraw.
+    if (pressAlt.current && t.atom !== undefined && (tool === "bond" || tool === "chain" || tool === "ring")) return editLabel(t.atom);
     if (tool === "bond") {
       if (t.atom !== undefined) return set(sprout(doc, t.atom, bondSpec));
       if (t.bond === undefined) return set(sprout(doc, at, bondSpec));
@@ -3101,7 +3160,8 @@ export default function Editor() {
       return set(addRing(doc, r.n, r.aromatic, t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : { point: at }));
     }
     if (tool === "text") {
-      if (t.atom !== undefined) return editLabel(t.atom);
+      // Option-click repeats the last label typed, as in ChemDraw.
+      if (t.atom !== undefined) return pressAlt.current && lastLabel.current ? set(setLabel(doc, t.atom, lastLabel.current)) : editLabel(t.atom);
       return startWriting(t.caption !== undefined ? { id: t.caption } : { at });
     }
     if (tool === "select") setSelection(new Set(atomsOf(doc, t)));
@@ -3887,7 +3947,7 @@ export default function Editor() {
         // The label box sits on the atom, in the label font at the current zoom.
         const [ax, ay] = pos(doc, editing.atom);
         // Enter, Escape and a click elsewhere all keep the label; only the first one counts.
-        const commit = () => { if (!labelOpen.current) return; labelOpen.current = false; set(setLabel(doc, editing.atom, editing.value)); setEditing(undefined); };
+        const commit = () => { if (!labelOpen.current) return; labelOpen.current = false; if (editing.value.trim()) lastLabel.current = editing.value.trim(); set(setLabel(doc, editing.atom, editing.value)); setEditing(undefined); };
         return (
           <input
             className="label-box"
@@ -3974,6 +4034,7 @@ export default function Editor() {
         const z = view.zoom, size = c.size * z, slack = 0.5 * size, b = c.frame ?? c.box, left = view.x + b[0] * z - slack, top = view.y + (c.lines[0].y - 0.9465 * c.size) * z;
         return (
           <RichBox
+            key={writing.at ? writing.at.join(" ") : undefined} // a new box for each caption Tab starts
             returnNewLine={!settings.captionOptionReturn}
             runs={writing.runs ?? [{ text: writing.value }]}
             version={writing.version ?? 0}
@@ -4000,6 +4061,7 @@ export default function Editor() {
             onKeyDown={(e) => {
               // Return reaches here only when it does not make a new line (Settings: Option-Return for a new line).
               if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); commitWriting(); }
+              if (e.key === "Tab" && !e.shiftKey && writing.at && writing.id === undefined) { e.preventDefault(); tabCaption(); }
               if (e.key === "Escape") { e.preventDefault(); commitWriting(); } // Escape keeps the text, as a click elsewhere does
               // ChemDraw's text keys, in the browser (the desktop app's Text menu has them too).
               if (!TAURI && (e.metaKey || e.ctrlKey)) {
@@ -4313,6 +4375,14 @@ export default function Editor() {
             </label>
           ))}
         </Dialog>
+      )}
+      {nicknames && (
+        <div ref={nicknameBox}>
+          <Menu label="Choose a nickname" className="nickname-menu" columns={3}
+            style={{ position: "fixed", left: Math.max(8, Math.min(nicknames.x + 16, innerWidth - 8 - menuWidth(3))), top: Math.max(8, nicknames.y - 20) }}
+            groups={NICKNAMES.map((g) => g.map((name) => { const m = nicknameMol(name); return { key: name, name, icon: m?.bonds.length ? <TemplateGlyph mol={m} /> : <TextAa size={20} />, checked: doc.atoms[nicknames.atom]?.text === name }; }))}
+            onChoose={(name) => { const i = nicknames.atom; setNicknames(undefined); if (doc.atoms[i]) set(setLabel(doc, i, name), true); }} />
+        </div>
       )}
       {commandsOpen && <CommandPalette commands={paletteCommands()} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}
       {notice && (

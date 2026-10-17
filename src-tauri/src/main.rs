@@ -354,6 +354,9 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
         &item("align_left", "Flush Left", "CmdOrCtrl+Shift+L")?,
         &item("align_centre", "Centre", "CmdOrCtrl+Shift+C")?,
         &item("align_right", "Flush Right", "CmdOrCtrl+Shift+R")?,
+        // Atom labels only, as ChemDraw's: the rest of the label stacked over the atom's own unit, or back to automatic.
+        &item("align_above", "Stacked Above", "")?,
+        &item("align_auto", "Automatic", "CmdOrCtrl+Shift+M")?,
         &sep()?,
         &size,
     ])?;

@@ -87,3 +87,30 @@ console.log("bondsatoms.check: quadruple and hydrogen bonds ok");
   assert.equal(setPosition(setPosition(cross, 0, "left"), 0).bonds[0].position, undefined);
 }
 console.log("bondsatoms.check: crossing bonds and bond order ok");
+
+// CD-21. A label's alignment set by hand: OMe with its bond on the right reads MeO by itself; Flush Left keeps OMe,
+// Centred puts the whole label on the atom, Stacked Above puts Me over O. NH2 Flush Right is H2N.
+{
+  const ome = (align?: Atom["align"]): Mol => ({ atoms: [A("O", 0, 0, { text: "OMe", ...(align ? { align } : {}) }), A("C", 1, 0)], bonds: [b(0, 1)] });
+  const runs = (m: Mol) => render(m, S, ink).labels.map((l) => [l.text, Math.round(l.x * 10) / 10, Math.round(l.y * 10) / 10] as const);
+  const o = (m: Mol) => runs(m).find((r) => r[0] === "O")!, me = (m: Mol) => runs(m).find((r) => r[0] === "Me")!;
+  assert.ok(me(ome())[1] < o(ome())[1], "automatic: MeO");
+  assert.ok(me(ome("left"))[1] > o(ome("left"))[1], "flush left: OMe");
+  assert.deepEqual(o(ome("right")), o(ome()), "flush right is MeO, as automatic is here");
+  const centre = runs(ome("centre")), wide = 9.6 * 2; // every text measures 9.6 here
+  assert.ok(Math.abs(centre.find((r) => r[0] === "O")![1] + wide / 2) < 0.1, "centred: the label's middle on the atom");
+  const above = me(ome("above"));
+  assert.ok(above[2] < o(ome("above"))[2] && Math.abs(above[1] + 4.8) < 0.1, "stacked above: Me over O, centred");
+  const nh2 = (align?: Atom["align"]): Mol => ({ atoms: [A("N", 0, 0, align ? { align } : {}), A("C", -1, 0)], bonds: [b(0, 1)] });
+  const h = (m: Mol) => render(m, S, ink).labels.find((l) => l.text === "H")!.x;
+  assert.ok(h(nh2()) > 0 && h(nh2("right")) < 0, "NH2 by itself; H2N flush right");
+  // CDXML: the node's LabelDisplay says the alignment was set by hand; a label left automatic has none.
+  const text = toCdxml(ome("above"), DEFAULT_STYLE);
+  assert.match(text, /LabelDisplay="Above"/);
+  assert.match(text, /LabelAlignment="Above"/);
+  assert.doesNotMatch(toCdxml(ome(), DEFAULT_STYLE), /LabelDisplay/);
+  for (const align of ["left", "centre", "right", "above", "below"] as const) assert.equal(roundTrip(ome(align)).atoms[0].align, align);
+  assert.equal(roundTrip(ome()).atoms[0].align, undefined);
+  assert.equal(parse(serialize(ome("centre"))).atoms[0].align, "centre");
+}
+console.log("bondsatoms.check: label alignment ok");
