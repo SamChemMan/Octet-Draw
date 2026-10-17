@@ -1,9 +1,14 @@
 # Octet
 
-A chemical structure drawing for the 21st century.
+Developed by [Sam ELlis](https://www.linkedin.com/in/sam-ellis-132781206/) and our mate Claude.
 
-Status: early development. 
-Octet will be a free, offline desktop app for Mac, Windows, and Linux.
+[Instagram](https://www.instagram.com/samellis2004/)
+[LinkedIn](https://www.linkedin.com/in/sam-ellis-132781206/) 
+
+Please hmu on LinkedIn if you have questions or urgent requests.
+
+A chemical structure drawing for the 21st century.
+Octet is a free, offline desktop app for Mac, Windows, and Linux.
 
 ## Run from source
 
