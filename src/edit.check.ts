@@ -1,7 +1,7 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours } from "./edit.ts";
-import { tableLayout } from "./render.ts";
+import { EMPTY, LARGE, groupSelection, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours } from "./edit.ts";
+import { tableLayout, type Mol } from "./render.ts";
 const sub = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1]], cross = (a: number[], b: number[]) => a[0] * b[1] - a[1] * b[0];
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
@@ -89,6 +89,18 @@ assert.equal(joinedMol.atoms.length, 3);
 assert.equal(joinedMol.bonds.length, 2);
 assert.equal(fragments(joinedMol).length, 1);
 console.log("edit.check: smart selection and join ok");
+
+// A large drawing completes a selection from a list of neighbours made once: the same atoms as the plain loop.
+{
+  const big = addRing(ethanol, 6, false, { point: [5, 5] }), spare: Mol["atoms"] = Array.from({ length: LARGE + 1 }, (_, k) => ({ label: "C", location: [100 + k * 2, 0, 0] }));
+  const large = { ...big, atoms: [...big.atoms, ...spare] };
+  for (const ids of [new Set([0, 1]), new Set([1]), new Set([3, 5, 7]), new Set([3, 4, 5, 6, 7])]) assert.deepEqual([...complete(large, ids)].sort(), [...complete(big, ids)].sort());
+  // Group: the whole structures the selection touches, as one group.
+  const [grouped, id] = groupSelection(large, new Set([0, 3]), new Set())!;
+  assert.deepEqual(grouped.groups?.find((g) => g.id === id)?.atoms, [0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(groupSelection(large, new Set([3, 4]), new Set()), undefined, "one structure alone is not a group");
+  console.log("edit.check: large selection and group ok");
+}
 
 // Bond styles: a wedge drawn from atom 0 has its narrow end there; flipping swaps it. A chain counts its bonds.
 const wedge = sprout(EMPTY, [0, 0], { type: 1, stereo: 1 });

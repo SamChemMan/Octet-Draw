@@ -1,6 +1,7 @@
 // Run: node src/check.check.ts. Fails loudly if structure checks break.
 import assert from "node:assert/strict";
-import { EMPTY, addCharge, bondTo, moveAtoms, setElement, sprout } from "./edit.ts";
+import { EMPTY, LARGE, addCharge, bondTo, moveAtoms, setElement, sprout } from "./edit.ts";
+import type { Mol } from "./render.ts";
 import { messy, problems } from "./check.ts";
 
 // A nitrogen with four bonds is flagged, with a positive charge as the fix; once charged it is fine.
@@ -19,31 +20,29 @@ assert.equal(messy(moveAtoms(clean, new Set([2]), [-0.5, 0])), true);
 // query bond and a single bond has 5.5 bond orders.
 const odd = { ...m, bonds: m.bonds.map((b, k) => ({ ...b, type: [4, 2, 7, 1][k] })) };
 assert.match(problems(odd)[0].message, /^N1 has 5\.5 bond orders\./);
-// Bonds that cross are messy. The quick check agrees with comparing every pair, on random drawings.
-const x: typeof clean = { atoms: [[0, 0], [1, 1], [0, 1], [1, 0]].map(([a, b]) => ({ label: "C", location: [a, b, 0] as [number, number, number] })), bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [2, 3] }] };
-assert.equal(messy(x), true);
-let seed = 3;
-const seen = new Set<boolean>();
-const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
-for (let n = 0; n < 300; n++) {
-  // Bonds one long (so only crowding and crossing decide), and a few lone atoms.
-  const atoms: typeof clean.atoms = [], bonds: typeof clean.bonds = [];
-  for (let k = 1 + Math.floor(rand() * 7); k > 0; k--) {
-    const [a, b, t] = [rand() * 3, rand() * 3, rand() * 2 * Math.PI];
-    bonds.push({ type: 1, atoms: [atoms.length, atoms.length + 1] });
-    atoms.push({ label: "C", location: [a, b, 0] }, { label: "C", location: [a + Math.cos(t), b + Math.sin(t), 0] });
+// A large drawing uses a grid, a small one the plain loops: both give the same answer. Random chains of near-unit
+// bonds (some cross, some atoms land close) are checked alone, then inside a drawing made large by spare atoms far
+// away, with the chain selected and with nothing selected.
+{
+  let seed = 7;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+  const spare = Array.from({ length: LARGE + 1 }, (_, k) => ({ label: "C", location: [1000 + (k % 20) * 2, (k / 20 | 0) * 2, 0] as [number, number, number] }));
+  let messyCount = 0;
+  for (let t = 0; t < 400; t++) {
+    const n = 4 + Math.floor(rand() * 30), atoms: Mol["atoms"] = [], bonds: Mol["bonds"] = [];
+    let x = rand() * 4, y = rand() * 4, a = 0;
+    for (let i = 0; i < n; i++) {
+      const l = t % 4 ? 0.8 + rand() * 0.45 : 0.6 + rand() * 0.8;
+      a += (rand() - 0.5) * 2.5;
+      if (i && rand() < 0.15) { x = rand() * 6; y = rand() * 6; } else if (i) { x += l * Math.cos(a); y += l * Math.sin(a); bonds.push({ type: 1, atoms: [i - 1, i] }); }
+      atoms.push({ label: "C", location: [x, y, 0] });
+    }
+    const small: Mol = { atoms, bonds }, large: Mol = { atoms: [...atoms, ...spare], bonds };
+    const chain = new Set(atoms.map((_, i) => i)), part = new Set([...chain].filter((i) => i % 3));
+    for (const ids of [chain, part]) assert.equal(messy(large, ids), messy(small, ids), `same answer on drawing ${t}`);
+    assert.equal(messy(large, new Set()), messy(small, new Set()), `same answer on drawing ${t}, nothing selected`);
+    if (messy(small)) messyCount++;
   }
-  for (let k = Math.floor(rand() * 3); k > 0; k--) atoms.push({ label: "C", location: [rand() * 3, rand() * 3, 0] });
-  const m = { atoms, bonds }, p = (i: number) => atoms[i].location, d = (i: number, j: number) => Math.hypot(p(i)[0] - p(j)[0], p(i)[1] - p(j)[1]);
-  const s = (a: number[], b: number[], c: number[]) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
-  const near = (i: number, j: number) => bonds.some((b) => b.atoms.includes(i) && b.atoms.includes(j));
-  const want = bonds.some((b) => d(b.atoms[0], b.atoms[1]) < 0.75 || d(b.atoms[0], b.atoms[1]) > 1.3)
-    || atoms.some((_, i) => atoms.some((__, j) => j > i && d(i, j) < 0.35 && !near(i, j)))
-    || bonds.some((b, k) => bonds.some((c, l) => l > k && !b.atoms.some((i) => c.atoms.includes(i))
-      && s(p(b.atoms[0]), p(b.atoms[1]), p(c.atoms[0])) * s(p(b.atoms[0]), p(b.atoms[1]), p(c.atoms[1])) < 0
-      && s(p(c.atoms[0]), p(c.atoms[1]), p(b.atoms[0])) * s(p(c.atoms[0]), p(c.atoms[1]), p(b.atoms[1])) < 0));
-  assert.equal(messy(m), want, `random drawing ${n}`);
-  seen.add(want);
+  assert.ok(messyCount > 50 && messyCount < 350, `both answers are tested (${messyCount} of 400 messy)`);
 }
-assert.equal(seen.size, 2, "both tidy and messy drawings were tried");
 console.log("check.check: ok");
