@@ -1,12 +1,4 @@
-<!-- App icon source: brand/logos/octet-mark-reverse.svg at 64% of a navy tile with radius-icon corners, on Apple's 1024 grid (824 tile). Regenerate icons with: npx tauri icon src-tauri/icons/app-icon.svg -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <rect x="100" y="100" width="824" height="824" rx="184.3" fill="#000E2F"/>
-  <g transform="translate(248.3 248.3) scale(4.395)">
-    <path d="M94.64 40 L94.64 80 L60 100 L25.36 80 L25.36 40 L60 20" fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
-    <line x1="86.85" y1="49" x2="86.85" y2="71" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
-    <line x1="55.97" y1="88.67" x2="37.18" y2="77.83" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
-    <line x1="37.18" y1="42.17" x2="55.97" y2="31.33" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
-    <line x1="60" y1="20" x2="83.4" y2="33.5" stroke="#2C6FFF" stroke-width="6" stroke-linecap="round" stroke-dasharray="5 6"/>
-    <polygon points="96.4,41 81.2,39.2 87.2,28.8" fill="#2C6FFF" stroke="#2C6FFF" stroke-width="1.5" stroke-linejoin="round"/>
-  </g>
+  <rect x="10.2" y="10.2" width="1003.5" height="1003.5" rx="220.2" fill="#F3F0E9" stroke="#000000" stroke-width="20.5"/>
+  <svg x="128.0" y="128.0" width="768.0" height="768.0" viewBox="240 240 1020 1020"><path d="M559 290 L942 290 L1209 557 L1209 939 L942 1205 L559 1205 L292 940 L292 556 Z" fill="none" stroke="#1D49A7" stroke-width="48" stroke-linejoin="round"/><g stroke="#1D49A7" stroke-width="48" stroke-linecap="round"><line x1="625" y1="371" x2="875" y2="371"/><line x1="373" y1="623" x2="373" y2="873"/><line x1="625" y1="1124" x2="875" y2="1124"/><line x1="1128" y1="623" x2="1128" y2="873"/></g></svg>
 </svg>

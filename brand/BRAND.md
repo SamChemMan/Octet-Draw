@@ -11,19 +11,20 @@ Octet shares Steps Blue with The Steps Foundation, so the two read as one family
 2. **The structure is the hero.** The canvas is white (`canvas`). Colour in the UI is for state (active tool, selection, focus), not decoration.
 3. **Blue only.** `brand` does the work, `brand-bright` marks live interaction, `brand-mist` is the soft tint. Status colours appear only when something needs attention.
 4. **Instrument, not paperwork.** No serif faces anywhere in the product, no Times New Roman atom labels, no grey bevelled toolbars. Instrument Sans for the interface, IBM Plex Mono for machine strings.
-6. **Crafted, not templated.** Octet must not look like a generic startup template (Geist or Inter, shadcn cards, gradient hero). The type, the hexagon motif and the ACS-correct canvas are what make it ours.
+6. **Crafted, not templated.** Octet must not look like a generic startup template (Geist or Inter, shadcn cards, gradient hero). The type, the eight-membered ring mark and the ACS-correct canvas are what make it ours.
 5. **Journal-correct by default.** The `drawing` tokens match the ACS 1996 document style, so an export drops straight into a manuscript.
 
 ## Logo
 
-The mark is a Kekulé benzene ring: three alternating double bonds, with one ring bond replaced by a dashed arrow in `brand-bright`. The ring says "chemistry", the arrow says "mechanism and movement", and the dashed stroke says "editable, in progress". Two blues keep it calm while the arrow still reads as the active part.
+The mark is cyclooctatetraene: an eight-membered ring with four double bonds inside the top, left, bottom and right edges, in Octet Blue (#1D49A7). The final files and their uses are in `logos/README.md`. Use them as they are; never redraw or recolour the mark in code.
 
-- **Primary:** `octet-mark.svg`, Octet Blue ring with a bright-blue arrow, on `canvas` or `surface`.
-- **Reverse:** `octet-mark-reverse.svg`, white ring with a bright-blue arrow, on `navy`.
-- **Wordmark:** "octet" in lowercase, Instrument Sans SemiBold (600), letter-spacing −0.03em, set in `ink`. Lockup gap between mark and wordmark = 0.3 × the mark height.
-- **App icon:** the reverse mark centred on a `navy` tile with `radius-icon` corners, mark at 64% of the tile.
+- **Primary:** `octet-mark.svg` on `canvas`, `surface` or cream. `octet-mark-32.svg` from 24 to 48 px, `octet-mark-16.svg` below 24 px.
+- **Reverse:** `octet-mark-reverse.svg`, white, on `navy` or Octet Blue only.
+- **Mono:** `octet-mark-mono.svg`, one colour (`ink`).
+- **App icon:** `src-tauri/icons/app-icon.svg` (cream tile #F3F0E9, for the app icon only, never the app UI) and `app-icon-macos.svg` for macOS.
+- **Wordmark:** "octet" in lowercase, Instrument Sans Medium (500), letter-spacing −0.03em, set in `ink`. Use the lockup files (`octet-lockup.svg`, `octet-lockup-reverse.svg`) as they are.
 - **Clear space:** at least half the mark height on every side.
-- **Minimum size:** 16px for the mark. Below 24px, drop the inner double bonds and keep the outer ring plus arrow.
+- **Minimum size:** 16px for the mark. Below 24px, use `octet-mark-16.svg` (the ring only).
 
 These files are working drafts for the final logo. Redraw them on a proper grid before launch.
 
@@ -32,7 +33,7 @@ These files are working drafts for the final logo. Redraw them on a proper grid 
 | Token | Light | Role |
 | --- | --- | --- |
 | `brand` | #1D49A7 | Primary actions, active tool, the mark |
-| `brand-bright` | #2C6FFF | The logo arrow, focus, selection handles, snap guides |
+| `brand-bright` | #2C6FFF | Focus, selection handles, snap guides |
 | `brand-mist` | #DCE4F5 | Selected tool, active row, soft tint |
 | `navy` | #000E2F | App icon tile, footers |
 | `canvas` | #FFFFFF | Drawing area |

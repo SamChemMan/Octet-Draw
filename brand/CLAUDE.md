@@ -6,7 +6,7 @@ Octet is a chemical drawing app (a ChemDraw replacement). Every UI, page, guide 
 - `BRAND.md` is the brand book. Read it before any UI or copy work.
 - `tokens.css` holds every colour, shadow, font, spacing, radius and drawing value as CSS custom properties, with light and dark themes. Import it once at the app root.
 - `tokens.json` is the source for `tokens.css`. Change values there, then regenerate the CSS. Never hard-code a hex value, font name or px size that a token already covers.
-- `logos/` holds the draft marks. Use the SVG files as they are. Do not redraw them.
+- `logos/` holds the final marks and lockups (see `logos/README.md`). Use the files as they are. Do not redraw or recolour them.
 
 ## Hard rules
 - Colours: blue family and neutrals only (`--brand`, `--brand-bright`, `--brand-mist`, `--navy`, neutrals). Do not add other hues. Status colours only for status.
