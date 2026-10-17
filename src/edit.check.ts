@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours } from "./edit.ts";
+import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, extent, stack } from "./edit.ts";
 import { tableLayout } from "./render.ts";
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
@@ -339,4 +339,19 @@ console.log("edit.check: align ok");
   const all = m.atoms.map((_, i) => i), dirs = markDirections(m, all);
   for (const i of all) assert.deepEqual(dirs.get(i), before(m, i), `atom ${i}`);
   console.log("edit.check: ring bonds and mark directions ok");
+}
+
+// Files dropped together: each drawing goes under the one before, and the box round everything counts arrows and text.
+{
+  const ring = addRing(EMPTY, 6, false, { point: [0, 0] });
+  const [withText] = addCaption(EMPTY, { text: "Reagent", x: 5, y: 1 });
+  assert.deepEqual(extent(withText), [5, 1, 5, 1]);
+  assert.equal(extent(EMPTY), undefined);
+  const both = stack([ring, withText, EMPTY]);
+  assert.equal(both.atoms.length, 6);
+  assert.equal(both.captions?.length, 1);
+  const r = extent(ring)!, c = both.captions![0];
+  assert.ok(near([c.x, c.y], [r[0], r[1] - 2]), "the caption goes two bond lengths under the ring, on its left edge");
+  assert.equal(both.style, undefined);
+  console.log("edit.check: dropped files stack ok");
 }

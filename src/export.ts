@@ -75,10 +75,11 @@ export function standaloneSvg(canvas: SVGSVGElement, bounds: [number, number, nu
   }
 }
 
-// Copy: the picture (standaloneSvg of the selection) with the selection's CDXML hidden in it, then its molfile,
-// SMILES and Octet's JSON, on the clipboard as ChemDraw puts them (macOS). Call it from the copy event after
-// preventDefault(), and set nothing on clipboardData: plain text would make ChemDraw paste a caption.
-export const copyToClipboard = (c: { svg: string; cdxml?: string; molfile?: string; smiles?: string; octetJson?: string }) =>
+// Copy: the picture (standaloneSvg of the selection) with the selection's CDXML hidden in it, then the CDXML as its
+// own type (cdxmlType), its molfile, SMILES and Octet's JSON, on the clipboard as ChemDraw puts them (macOS). Each
+// left out is not put on. Call it from the copy event after preventDefault(), and set nothing on clipboardData: plain
+// text would make ChemDraw paste a caption.
+export const copyToClipboard = (c: { svg?: string; cdxml?: string; cdxmlType?: boolean; molfile?: string; smiles?: string; octetJson?: string }) =>
   invoke<void>("copy_to_clipboard", c);
 
 // What paste can use from the clipboard, each null when absent: Octet's JSON; CDXML (ChemDraw's CDXML type, or

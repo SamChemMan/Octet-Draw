@@ -8,6 +8,7 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | @tauri-apps/cli | 2.12 | Apache-2.0 OR MIT | Build tool (dev only) |
 | @tauri-apps/api | 2.12 | Apache-2.0 OR MIT | Calls from the page to the app (menu, save, open) |
 | tauri-plugin-dialog (Rust) | 2.8 | Apache-2.0 OR MIT | Native Open and Save dialogs |
+| tauri-plugin-single-instance (Rust) | 2.5 | Apache-2.0 OR MIT | Windows and Linux: a file opened from Explorer or a file manager goes to the Octet that runs. On Linux it brings zbus, zvariant and endi (MIT) and the smol async crates (Apache-2.0 OR MIT) |
 | svg2pdf, pdf-writer, subsetter (Rust, typst project) | 0.13, 0.12, 0.2 | MIT OR Apache-2.0 | Vector PDF of the drawing for export and the clipboard, with font subsets and the CDXML in the PDF |
 | resvg, usvg (Rust, linebender) | 0.45 | Apache-2.0 OR MIT | Reads the drawing's SVG; draws the PNG export |
 | tiny-skia (Rust) | 0.11 | BSD-3-Clause | Raster drawing for the PNG export (used by resvg) |

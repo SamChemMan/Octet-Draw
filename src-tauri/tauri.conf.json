@@ -34,6 +34,30 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "fileAssociations": [
+      {
+        "ext": ["oct"],
+        "name": "Octet Drawing",
+        "description": "Octet drawing",
+        "role": "Editor",
+        "rank": "Owner",
+        "mimeType": "application/x-octet-drawing",
+        "exportedType": { "identifier": "io.github.samchemman.octet.drawing", "conformsTo": ["public.xml", "public.data"] },
+        "contentTypes": ["io.github.samchemman.octet.drawing"]
+      },
+      {
+        "ext": ["cdxml"],
+        "name": "ChemDraw Drawing",
+        "description": "ChemDraw drawing (CDXML)",
+        "role": "Editor",
+        "rank": "Default",
+        "mimeType": "chemical/x-cdxml"
+      }
+    ],
+    "linux": {
+      "deb": { "desktopTemplate": "linux/octet.desktop" },
+      "rpm": { "desktopTemplate": "linux/octet.desktop" }
+    },
     "macOS": {
       "signingIdentity": "-"
     }

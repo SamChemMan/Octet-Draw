@@ -11,7 +11,7 @@ import { FONTS, PAGES, fontName, pageSize, readStyle, type DocStyle } from "./do
 import {
   HIGHLIGHT, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, straightArrow, tableLayout, takesHeads, tlcLayout,
   ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS,
-  type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape,
+  type Annotation, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape,
   type LineStyle, type Mol, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
 import { ELEMENTS, anchorElement, formulaRuns, isElement, units } from "./labels.ts";
@@ -130,6 +130,10 @@ function el(name: string, attrs: Record<string, string | number | undefined>, in
   for (const [k, v] of Object.entries(attrs)) if (v !== undefined) s += `\n ${k}="${escAttr(String(v))}"`;
   return inner ? `${s}\n>${inner}</${name}>` : `${s}\n/>`;
 }
+// Annotations as ChemDraw writes them, after everything else in their page or group.
+const notes = (list?: Annotation[]) => (list ?? []).map((a) => el("annotation", { Keyword: a.keyword, Content: a.content })).join("");
+// The limits on annotations, in reading CDXML and Octet's own files.
+export const MAX_ANNOTATIONS = 1000, MAX_KEYWORD = 200, MAX_CONTENT = 10_000;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Numbers, written the way ChemDraw writes them so files diff cleanly against its own (spec 1.2).
@@ -657,11 +661,11 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const kids = outs.filter((o) => o.group === g.id), box = union(kids.map((o) => o.box));
     if (!kids.length || !box) continue;
     for (const o of kids) o.group = -1;
-    outs.push({ xml: el("group", { id: idOf.get(g.id)!, BoundingBox: boxText(box), Z: Z(), Integral: g.integral ? "yes" : undefined }, RANKED(kids).map((o) => o.xml).join("")), rank: 0, box });
+    outs.push({ xml: el("group", { id: idOf.get(g.id)!, BoundingBox: boxText(box), Z: Z(), Integral: g.integral ? "yes" : undefined }, RANKED(kids).map((o) => o.xml).join("") + notes(g.annotations)), rank: 0, box });
   }
   const top = outs.filter((o) => o.group !== -1), all = union(top.map((o) => o.box)) ?? [0, 0, 0, 0];
   const cycles = (mol.cycles ?? []).map((c: Cycle) => ({ id: idOf.get(c.id), centre: c.centre, radius: c.radius, clockwise: c.clockwise, nodes: c.nodes.map((n) => n.map((i) => nodeId.get(i)).filter((v) => v !== undefined)), colour: c.colour }));
-  const pageXml = el("page", { id: fresh(), BoundingBox: `0 0 ${fmt(W)} ${fmt(H)}`, HeaderPosition: 36, FooterPosition: 36, PrintTrimMarks: "yes", HeightPages: 1, WidthPages: 1 }, RANKED(top).map((o) => o.xml).join("") + schemes.join(""));
+  const pageXml = el("page", { id: fresh(), BoundingBox: `0 0 ${fmt(W)} ${fmt(H)}`, HeaderPosition: 36, FooterPosition: 36, PrintTrimMarks: "yes", HeightPages: 1, WidthPages: 1 }, RANKED(top).map((o) => o.xml).join("") + schemes.join("") + notes(mol.annotations));
   const doc = colour(style.colour) ?? 0;
   const rgb = (c: string) => [1, 3, 5].map((k) => fmtColour(parseInt(c.slice(k, k + 2), 16) / 255));
   const tables = `<colortable>\n${colours.map((c) => { const [r, g, b] = rgb(c); return `<color r="${r}" g="${g}" b="${b}"/>`; }).join("\n")}\n</colortable><fonttable>\n${fonts.map((f, k) => `<font id="${k + 1}" charset="x-mac-roman" name="${escAttr(f)}"/>`).join("\n")}\n</fonttable>`;
@@ -814,7 +818,7 @@ export function fromCdxml(text: string): CdxmlRead {
 
   const mol: Mol = { atoms: [], bonds: [] };
   const captions: (Caption & { z: number })[] = [], arrows: (Arrow & { z: number })[] = [], shapes: (Shape & { z: number })[] = [], grids: Grid[] = [];
-  type G = { id: number; atoms: Set<number>; items: number[]; integral?: true };
+  type G = { id: number; atoms: Set<number>; items: number[]; integral?: true; annotations?: Annotation[] };
   const groups: G[] = [];
   const nodeIds: number[] = [], bondIds: number[] = [];
   const atomOf = new Map<number, number>(), objectOf = new Map<number, number>(), arrowOfGraphic = new Map<number, number>();
@@ -844,14 +848,22 @@ export function fromCdxml(text: string): CdxmlRead {
       case "tlcplate": return readTlc(x, group);
       case "scheme": steps.push(...x.kids.filter((k) => k.name === "step")); return;
       case "step": steps.push(x); return;
-      // Not drawn, but meaning Octet does not keep: notes, polymer brackets' meaning, live property text.
-      case "annotation": return lose("annotation");
+      // Keyword and content pairs on the page or a group: not drawn, kept and written back (REL-28).
+      case "annotation": return atoms ? lose("annotation") : keepNote(x, group);
+      // Not drawn, but meaning Octet does not keep: polymer brackets' meaning, live property text.
       case "bracketedgroup": return lose("bracket meaning");
       case "chemicalproperty": return lose("property link");
       case "objecttag": case "bracketattachment": case "crossingbond": case "represent": case "DocumentProperties": return;
       case "embeddedobject": return lose("picture");
       default: return lose(x.name);
     }
+  };
+  // An annotation, kept on its group or on the document. One Octet cannot hold (too long, too many) is counted as lost.
+  const annotations: Annotation[] = [];
+  const keepNote = (x: Xml, g?: G) => {
+    const keyword = cleanText(x.attrs.Keyword ?? ""), content = cleanText(x.attrs.Content ?? ""), list = g ? (g.annotations ??= []) : annotations;
+    if (keyword.length > MAX_KEYWORD || content.length > MAX_CONTENT || list.length >= MAX_ANNOTATIONS) return lose("annotation");
+    list.push({ keyword, content });
   };
   const newGroup = (x: Xml): G => {
     const g: G = { id: newId(x), atoms: new Set(), items: [], ...(x.attrs.Integral === "yes" ? { integral: true as const } : {}) };
@@ -1041,7 +1053,8 @@ export function fromCdxml(text: string): CdxmlRead {
       else runs.push({ ...base, ...((f & 0x60) === 0x20 ? { script: "sub" as const } : (f & 0x60) === 0x40 ? { script: "super" as const } : {}), text });
     }
     const text = runs.map((r) => r.text).join("");
-    if (!text.replace(/[\s\ufffc]/g, "")) return lose("empty text");
+    // Text with nothing to show: left out, and not in the notice, as the user cannot see it (REL-28).
+    if (!text.replace(/[\s\ufffc]/g, "")) return;
     const shared = <K extends keyof RunStyle>(k: K) => (runs.every((r) => r[k] === runs[0][k]) ? runs[0][k] : undefined);
     const cf = int(t.attrs.CaptionFace) ?? 0, cs = real(t.attrs.CaptionSize);
     const whole: RunStyle = octet
@@ -1386,7 +1399,8 @@ export function fromCdxml(text: string): CdxmlRead {
   if (cycles.length) mol.cycles = cycles;
   if (grids.length) mol.grids = grids;
   const ids = new Set([...captions, ...arrows, ...shapes, ...cycles].map((x) => x.id));
-  const kept = groups.map((g): Group => ({ id: g.id, atoms: [...g.atoms].map(ix).sort((p, q) => p - q), items: g.items.filter((id) => ids.has(id)).sort((p, q) => p - q), ...(g.integral ? { integral: true } : {}) })).filter((g) => g.atoms.length + g.items.length >= 2);
+  const kept = groups.map((g): Group => ({ id: g.id, atoms: [...g.atoms].map(ix).sort((p, q) => p - q), items: g.items.filter((id) => ids.has(id)).sort((p, q) => p - q), ...(g.integral ? { integral: true } : {}), ...(g.annotations ? { annotations: g.annotations } : {}) })).filter((g) => g.atoms.length + g.items.length >= 2);
+  if (annotations.length) mol.annotations = annotations;
   if (kept.length) mol.groups = kept;
   return { mol, style, lost };
 }

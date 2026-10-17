@@ -53,6 +53,10 @@ export function readOct(text: string): { mol: Mol; lost: Record<string, number>;
   return { mol: { ...read.mol, style: read.style }, lost: read.lost, foreign: true };
 }
 
+// Whether a file's text is a drawing readOct reads (a .oct, CDXML or an old .octet file), not a structure file (MOL,
+// SDF, SMILES), which Indigo reads.
+export const isDrawingText = (text: string) => /^\s*\{/.test(text) || /<CDXML[\s>/]/.test(text.slice(0, 65536));
+
 // What Octet could not hold from a file (readOct's `lost`), as a list: "6 annotations and 1 rotated shape".
 export function lostText(lost: Record<string, number>): string {
   const parts = Object.entries(lost).map(([what, n]) => `${n} ${what}${n > 1 && !/s$/.test(what) ? "s" : ""}`);

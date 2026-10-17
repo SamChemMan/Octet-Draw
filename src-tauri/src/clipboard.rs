@@ -1,15 +1,20 @@
 // Copy and paste with Word, PowerPoint, Keynote and ChemDraw, as ChemDraw's own clipboard works (macOS).
 // Copy puts one pasteboard item holding, in this order: a vector PDF of the selection with its CDXML in the
-// catalog /Metadata (Office keeps it; ChemDraw and Octet read the structure back out of it), a molfile as
-// length-prefixed lines, SMILES with a NUL, and Octet's own JSON for a lossless paste into Octet.
+// catalog /Metadata (Office keeps it; ChemDraw and Octet read the structure back out of it), the CDXML type (ChemDraw
+// reads it before the molfile, so arrows, text and shapes paste into ChemDraw too), a molfile as length-prefixed
+// lines, SMILES with a NUL, and Octet's own JSON for a lossless paste into Octet. Settings > Import and export > Copy
+// switches the PDF, CDXML, MOL and SMILES types off (REL-19, CH-8); Octet's JSON always goes on.
 // No plain text: ChemDraw reads text before pictures and would paste it as a caption.
 // Not yet: ChemDraw's CDX type, which ChemDraw reads first. Octet has no CDX writer yet.
+// Windows and Linux: the page copies and pastes through the webview's own clipboard (Octet's JSON and SMILES as
+// text), and these commands are not used there.
 //
 // WebKit keeps the page's own clipboard types in a blob of its own and shows a page only text, HTML and URLs
 // from other apps, so the page cannot read these types itself: paste calls read_clipboard.
 
 pub const PDF: &str = "com.adobe.pdf";
-pub const CDX: [&str; 2] = ["com.perkinelmer.chemdraw.cdx-clipboard", "com.cambridgesoft.cdx"];
+// ChemDraw 26.1 declares the Revvity name too.
+pub const CDX: [&str; 3] = ["com.perkinelmer.chemdraw.cdx-clipboard", "com.revvity.chemdraw.cdx-clipboard", "com.cambridgesoft.cdx"];
 pub const CDXML: &str = "com.perkinelmer.cdxml";
 pub const MOLFILE: &str = "com.mdli.molfile";
 pub const SMILES: &str = "org.opensmiles.smiles";
@@ -75,9 +80,16 @@ pub fn smiles_text(b: &[u8]) -> Option<String> {
     (!s.is_empty() && s.is_ascii() && !s.contains('\0')).then(|| s.to_string())
 }
 
-// The types for one copy, in ChemDraw's order.
-fn types(svg: &str, cdxml: Option<&str>, molfile: Option<&str>, smiles: Option<&str>, octet_json: Option<String>) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
-    let mut out = vec![(PDF, crate::export::make_pdf(svg, cdxml)?)];
+// The types for one copy, in ChemDraw's order. svg: the picture, for the PDF (None: no PDF). cdxml: hidden in the
+// PDF, and also put on as its own type when `cdxml_type` is set.
+fn types(svg: Option<&str>, cdxml: Option<&str>, cdxml_type: bool, molfile: Option<&str>, smiles: Option<&str>, octet_json: Option<String>) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    if let Some(svg) = svg {
+        out.push((PDF, crate::export::make_pdf(svg, cdxml)?));
+    }
+    if let Some(x) = cdxml.filter(|_| cdxml_type) {
+        out.push((CDXML, crate::export::cdxml_document(x).into_bytes()));
+    }
     if let Some(m) = molfile.filter(|m| !m.trim().is_empty()).and_then(prefixed_lines) {
         out.push((MOLFILE, m));
     }
@@ -101,8 +113,9 @@ fn clip(read: impl Fn(&str) -> Option<Vec<u8>>) -> Clip {
         molfile: read(MOLFILE).and_then(|b| molfile_text(&b)),
         smiles: read(SMILES).and_then(|b| smiles_text(&b)),
     };
-    // The PDF only matters when nothing better is there.
-    if c.octet.is_none() && c.cdxml.is_none() && c.cdx.is_none() {
+    // The PDF's CDXML when there is no Octet JSON or CDXML type. ChemDraw's copy also has a CDX, but Octet cannot
+    // read CDX yet, and the PDF holds the whole drawing: arrows, text and shapes too (REL-4, CH-2).
+    if c.octet.is_none() && c.cdxml.is_none() {
         c.cdxml = read(PDF).and_then(|b| crate::export::cdxml_from_pdf(&b));
     }
     c
@@ -148,10 +161,10 @@ mod mac {
     }
 }
 
-// Copy: the selection as a PDF picture (with its CDXML hidden in it), a molfile, SMILES and Octet's JSON.
+// Copy: the selection as a PDF picture (with its CDXML hidden in it), CDXML, a molfile, SMILES and Octet's JSON.
 #[tauri::command]
-pub async fn copy_to_clipboard(svg: String, cdxml: Option<String>, molfile: Option<String>, smiles: Option<String>, octet_json: Option<String>) -> Result<(), String> {
-    let types = types(&svg, cdxml.as_deref(), molfile.as_deref(), smiles.as_deref(), octet_json)?;
+pub async fn copy_to_clipboard(svg: Option<String>, cdxml: Option<String>, cdxml_type: Option<bool>, molfile: Option<String>, smiles: Option<String>, octet_json: Option<String>) -> Result<(), String> {
+    let types = types(svg.as_deref(), cdxml.as_deref(), cdxml_type.unwrap_or(false), molfile.as_deref(), smiles.as_deref(), octet_json)?;
     #[cfg(target_os = "macos")]
     return mac::write(&mac::general(), &types);
     #[cfg(not(target_os = "macos"))]
@@ -200,16 +213,44 @@ mod tests {
     #[test]
     fn copy_types_in_chemdraws_order() {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="20pt" height="10pt" viewBox="0 0 20 10"><path d="M1 1H19V2H1Z"/></svg>"#;
-        let t = types(svg, Some("<CDXML/>"), Some(MOL), Some("CO"), Some("{}".into())).unwrap();
-        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [PDF, MOLFILE, SMILES, OCTET]);
-        assert_eq!(t[2].1, b"CO\0");
+        let t = types(Some(svg), Some("<CDXML/>"), true, Some(MOL), Some("CO"), Some("{}".into())).unwrap();
+        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [PDF, CDXML, MOLFILE, SMILES, OCTET]);
+        assert!(t[1].1.starts_with(b"<?xml") && t[1].1.ends_with(b"<CDXML/>"));
+        assert_eq!(t[3].1, b"CO\0");
         // Paste reads them all back; the PDF is not needed when Octet's JSON is there.
         let read = |name: &str| t.iter().find(|(n, _)| *n == name).map(|(_, b)| b.clone());
         let c = clip(read);
-        assert_eq!((c.octet.as_deref(), c.molfile.as_deref(), c.smiles.as_deref(), c.cdxml.as_deref()), (Some("{}"), Some(MOL), Some("CO"), None));
+        assert_eq!((c.octet.as_deref(), c.molfile.as_deref(), c.smiles.as_deref()), (Some("{}"), Some(MOL), Some("CO")));
         // Without it (a picture copied back out of Word), the CDXML comes out of the PDF.
         let c = clip(|name| (name == PDF).then(|| t[0].1.clone()));
         assert!(c.cdxml.unwrap().contains("<CDXML/>"));
+        // The Copy switches in Settings: with all four off, only Octet's JSON goes on; CDXML off keeps it in the PDF.
+        let t = types(None, Some("<CDXML/>"), false, None, None, Some("{}".into())).unwrap();
+        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [OCTET]);
+        let t = types(Some(svg), Some("<CDXML/>"), false, None, Some("CO"), None).unwrap();
+        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [PDF, SMILES]);
+        assert!(crate::export::cdxml_from_pdf(&t[0].1).unwrap().contains("<CDXML/>"));
+    }
+
+    // REL-4, CH-2: ChemDraw's copy has a CDX as well as its PDF. Paste still takes the whole drawing from the PDF.
+    #[test]
+    fn chemdraws_copy_pastes_from_its_pdf() {
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="20pt" height="10pt" viewBox="0 0 20 10"><path d="M1 1H19V2H1Z"/></svg>"#;
+        let pdf = crate::export::make_pdf(svg, Some("<CDXML><page><arrow/></page></CDXML>")).unwrap();
+        for cdx in CDX {
+            let c = clip(|name| match name {
+                PDF => Some(pdf.clone()),
+                n if n == cdx => Some(b"VjCD0100".to_vec()),
+                MOLFILE => Some(prefixed_lines(MOL).unwrap()),
+                _ => None,
+            });
+            assert!(c.cdxml.as_deref().is_some_and(|x| x.contains("<arrow/>")), "{cdx}");
+            assert!(c.cdx.is_some() && c.molfile.is_some());
+        }
+        // Sam's dump of ChemDraw 22.2's copy (see export.rs reads_chemdraws_pdf).
+        let Ok(dir) = std::env::var("OCTET_CLIPBOARD_DUMPS") else { return };
+        let c = clip(|name| std::fs::read(format!("{dir}/chemdraw-copy/0_{name}")).ok());
+        assert!(c.cdxml.unwrap().contains("<CDXML") && c.cdx.is_some() && c.molfile.is_some() && c.smiles.is_some());
     }
 
     // On a private pasteboard, so the user's clipboard is untouched.

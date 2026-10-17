@@ -366,3 +366,26 @@ console.log("cdxml.check: every object kind round trips");
   assert.equal(fromCdxml(arText.replace('Order="1.5"', 'Order="2"').replace(/\s+Display2="Dash"/, "")).mol.bonds[0].display, "aromatic");
   console.log("cdxml.check: delocalised rings, dashed and aromatic doubles ok");
 }
+
+// REL-28: ChemDraw's annotations (GUIDs, Document Annotations) on the page and on groups are kept and written back,
+// and are not reported as lost. One inside a fragment, which Octet cannot place, is.
+{
+  const chemdraw = `<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE CDXML SYSTEM "http://www.cambridgesoft.com/xml/cdxml.dtd" >
+<CDXML BondLength="14.40"><page id="1" BoundingBox="0 0 540 720"><group id="2"><fragment id="3"><n id="4" p="100 100"/><n id="5" p="114.4 100"/><b id="6" B="4" E="5"/><annotation Keyword="Inner" Content="x"/></fragment><t id="7" p="100 130"><s font="3" size="10">Label</s></t><annotation Keyword="GUID" Content="0A1B-2C &amp; &quot;3&quot;"/></group><annotation Keyword="Fragment Label" Content="[II]"/><annotation Keyword="Name" Content="G-Protein (2)&#10;second line"/></page></CDXML>`;
+  const read = fromCdxml(chemdraw);
+  assert.deepEqual(read.lost, { annotation: 1 });
+  assert.deepEqual(read.mol.annotations, [{ keyword: "Fragment Label", content: "[II]" }, { keyword: "Name", content: "G-Protein (2)\nsecond line" }]);
+  assert.deepEqual(read.mol.groups?.[0].annotations, [{ keyword: "GUID", content: '0A1B-2C & "3"' }]);
+  const text = toCdxml(read.mol, DEFAULT_STYLE);
+  assert.match(text, /<annotation\s+Keyword="GUID"\s+Content="0A1B-2C &amp; &quot;3&quot;"\s+\/><\/group>/);
+  assert.match(text, /<annotation\s+Keyword="Name"\s+Content="G-Protein \(2\)&#10;second line"\s+\/><\/page>/);
+  const again = fromCdxml(text);
+  assert.deepEqual([again.lost, again.mol.annotations, again.mol.groups?.[0].annotations], [{}, read.mol.annotations, read.mol.groups?.[0].annotations]);
+  // Octet's own file keeps them too.
+  const saved = parse(serialize(read.mol));
+  assert.deepEqual([saved.annotations, saved.groups?.[0].annotations], [read.mol.annotations, read.mol.groups?.[0].annotations]);
+  // Too long to hold: counted, not cut short.
+  assert.deepEqual(fromCdxml(chemdraw.replace('Content="[II]"', `Content="${"x".repeat(10_001)}"`)).lost, { annotation: 2 });
+  console.log("cdxml.check: annotations ok");
+}

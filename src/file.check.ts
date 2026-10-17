@@ -157,3 +157,15 @@ console.log("file.check: bad files refused");
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, groups: [{ atoms: [], items: [["a", 3]] }] })), /damaged/);
   console.log("file.check: groups ok");
 }
+
+// Annotations from ChemDraw (keyword and content pairs) come back; a bad one makes the file damaged.
+{
+  const notes = { atoms: [], bonds: [], annotations: [{ keyword: "GUID", content: "5B5C3FE0" }, { keyword: "Name", content: "two\nlines" }] };
+  assert.deepEqual(parse(serialize(notes)).annotations, notes.annotations);
+  const bad = (annotations: unknown) => () => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, annotations }));
+  assert.throws(bad([{ keyword: "GUID" }]), /damaged/);
+  assert.throws(bad([{ keyword: "a\u0001", content: "" }]), /damaged/);
+  assert.throws(bad({ keyword: "x", content: "y" }), /damaged/);
+  assert.throws(bad(Array(1001).fill({ keyword: "k", content: "c" })), /damaged/);
+  console.log("file.check: annotations ok");
+}

@@ -9,13 +9,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Emitter, Manager, State, Wry};
+use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WindowEvent, Wry};
 use tauri_plugin_dialog::DialogExt;
 
 mod clipboard;
 mod crashlog;
 mod export;
 mod feedback;
+mod open;
 mod quit;
 mod recent;
 mod recovery;
@@ -438,16 +439,27 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
 }
 
 fn main() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Windows and Linux start a second Octet for each file opened from Explorer or a file manager. It gives its files
+    // to the Octet that runs, and ends. (On the Mac the system sends them to the running Octet itself.)
+    #[cfg(any(windows, target_os = "linux"))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        open::offer(app, open::from_args(args.into_iter().map(std::ffi::OsString::from), Path::new(&cwd)), None)
+    }));
+    builder
         .plugin(tauri_plugin_dialog::init())
         .manage(Picked::default())
+        .manage(open::Waiting::default())
         .manage(recent::Recents::default())
         .manage(MenuKeys::default())
         .manage(MenuList::default())
         .manage(Palette::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, open::take_opened])
         .setup(|app| {
             let handle = app.handle();
+            // Files named when Octet starts (Explorer and file managers pass them as arguments).
+            let cwd = std::env::current_dir().unwrap_or_default();
+            open::offer(handle, open::from_args(std::env::args_os(), &cwd), None);
             crashlog::install(handle);
             quit::install(handle);
             app.manage(recovery::start(handle));
@@ -463,6 +475,22 @@ fn main() {
             });
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Octet");
+        // Files dropped on the window, with where they were dropped in CSS pixels from the top left. wry 0.57 gives
+        // WebView2's point in device pixels, and WebKit's (Mac, Linux) in CSS pixels already.
+        .on_window_event(|window, event| {
+            if let WindowEvent::DragDrop(DragDropEvent::Drop { paths, position }) = event {
+                #[cfg(windows)]
+                let position = position.to_logical::<f64>(window.scale_factor().unwrap_or(1.0));
+                open::offer(window.app_handle(), paths.clone(), Some((position.x, position.y)));
+            }
+        })
+        .build(tauri::generate_context!())
+        .expect("error while running Octet")
+        .run(|_app, _event| {
+            // Files opened from Finder or the Dock (a double-click, Open With, a drop on the Dock icon).
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = _event {
+                open::offer(_app, urls.into_iter().filter_map(|u| u.to_file_path().ok()), None);
+            }
+        });
 }

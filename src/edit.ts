@@ -289,6 +289,25 @@ export function bounds(m: Mol): [number, number, number, number] | undefined {
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 }
 
+// The box round everything in a drawing: atoms, arrows and shapes by their ends, captions by where they start.
+export function extent(m: Mol): [number, number, number, number] | undefined {
+  const qs: P[] = [...m.atoms.map((a): P => [a.location[0], a.location[1]]), ...[...(m.arrows ?? []), ...(m.shapes ?? [])].flatMap((x) => [x.from, x.to]), ...(m.captions ?? []).map((c): P => [c.x, c.y])];
+  if (!qs.length) return undefined;
+  return [Math.min(...qs.map((q) => q[0])), Math.min(...qs.map((q) => q[1])), Math.max(...qs.map((q) => q[0])), Math.max(...qs.map((q) => q[1]))];
+}
+
+// Several drawings as one (files dropped together), each under the one before with a gap of two bond lengths,
+// lined up on the left.
+export function stack(list: Mol[]): Mol {
+  let out: Mol = EMPTY;
+  for (const add of list) {
+    const b = extent(add), o = extent(out);
+    if (!b) continue;
+    out = insertMol(out, add, o ? [o[0] - b[0], o[1] - 2 - b[3]] : [0, 0]).mol;
+  }
+  return out;
+}
+
 // Selection helpers. A selection is a set of atom indices; a bond is selected when both its atoms are.
 export const deleteAtoms = (m: Mol, ids: Set<number>) => removeAtoms(m, new Set(ids));
 // Expand Label: the labelled atom i becomes the group its label names. frag is that group laid out (bond length 1),

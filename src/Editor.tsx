@@ -14,7 +14,7 @@ import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, FONTS,
 import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
 import {
-  EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
+  EMPTY, extent, stack, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
   addShape, addSymbol, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
 } from "./edit";
@@ -31,7 +31,7 @@ import { nmrReady, predict, type Nucleus } from "./nmr";
 import { rings } from "./rings";
 import { Select } from "./Select";
 import { fromCdxml, toCdxml, type CdxmlOptions } from "./cdxml";
-import { lostText, readOct, writeOct } from "./oct";
+import { isDrawingText, lostText, readOct, writeOct } from "./oct";
 import { About } from "./About";
 import { Home, NameBox, type RecentEntry, type RecoveredEntry } from "./Home";
 import { Coach, NOTHING_SEEN, type Seen } from "./Coach";
@@ -73,6 +73,9 @@ const MOD = navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+";
 const EXPORT_KEYS = navigator.platform.startsWith("Mac") ? "⌃⌘E" : "⇧Ctrl+E";
 // In the desktop app the native menu owns undo, redo and the file commands; in a browser (dev only) the page does.
 const TAURI = "__TAURI_INTERNALS__" in window;
+// On the Mac, copy and paste go through the app (src-tauri/src/clipboard.rs), with the types ChemDraw and Office use.
+// On Windows and Linux they use the webview's own clipboard: Octet's own form, and SMILES as text (REL-3, CH-1).
+const NATIVE_CLIP = TAURI && navigator.platform.startsWith("Mac");
 
 // Undo history: every edit pushes a new Mol; undo and redo move along the list.
 // merge: edits with the same key one after another (a slider being dragged) make one step.
@@ -214,6 +217,9 @@ function richSpans(runs: TextRun[], size: number, PT: number) {
 
 // Octet's own clipboard type: a copied part of a drawing in Octet's file form (read back with the file checks).
 const OCTET_CLIP = "application/x-octet+json";
+// A file the system asked Octet to open, or dropped on the window (src-tauri/src/open.rs). path: set when Save may
+// write over it. at: where it was dropped, in CSS pixels from the window's top left.
+type OpenedFile = { name: string; path: string | null; text: string | null; error: string | null; at: [number, number] | null };
 // Abbreviations Contract Label recognises, each with its InChI when capped with xenon at its attachment point
 // (worked out once, on first use): the groups chemists name, and condensed formulas they write.
 const CONTRACTED = ["OMe", "OEt", "OiPr", "OtBu", "OAc", "OBz", "OBn", "OPh", "OTs", "OMs", "OTf", "OTBS", "OTIPS", "OTBDPS", "OTMS", "OMOM", "OTHP", "OPMB",
@@ -284,6 +290,9 @@ export default function Editor() {
   const [loaded, setLoaded] = useState(false);
   const [h, dispatch] = useReducer(history, rescue.current?.h ?? { stack: [EMPTY], at: 0 });
   const doc = h.stack[h.at];
+  // The drawing as it is now, for work that ends later (Cut deletes after the copy is on the clipboard).
+  const now = useRef(doc);
+  now.current = doc;
   const [tool, setTool] = useState<Tool>("bond");
   // The drawing tool to go back to when a hold-to-select gesture ends.
   const [spring, setSpring] = useState<Tool>();
@@ -665,11 +674,55 @@ export default function Editor() {
       setNotice(e instanceof Error ? e.message : `Octet cannot open this file. ${e}`);
     }
   }
-  // A drawing read from a file, into the editor. With no path, a recovered drawing: its changes are not saved yet.
+  // Files the system asked Octet to open (Finder, Explorer, the Dock, a second launch) or that were dropped on the
+  // window (src-tauri/src/open.rs; REL-14, CH-6). Dropped on a drawing, they go into it. Otherwise the first one opens,
+  // as File > Open opens a drawing (Home lists the other drawings), after the question about unsaved changes.
+  async function takeOpened() {
+    const insert = !home, files = await invoke<OpenedFile[]>("take_opened", { insert });
+    const read = files.filter((f) => f.text !== null);
+    for (const f of files) if (f.error) setNotice(f.error);
+    if (read.some((f) => !isDrawingText(f.text!))) await ready;
+    const dropped = read.filter((f) => f.at && insert), first = read.find((f) => !(f.at && insert));
+    if (dropped.length) dropFiles(dropped);
+    if (first) keepWork(() => load(first.path ?? undefined, first.text!, first.name.replace(/\.[^.]*$/, "")));
+  }
+  // Files dropped on the drawing: their contents go in where they were dropped (the files in a column), selected, as
+  // ChemDraw's drop does. One step to undo.
+  function dropFiles(files: OpenedFile[]) {
+    const mols: Mol[] = [], lost: Record<string, number> = {};
+    for (const f of files) {
+      try {
+        if (!isDrawingText(f.text!)) { mols.push(importStructure(f.text!)); continue; }
+        const r = readOct(f.text!);
+        mols.push({ ...r.mol, style: undefined });
+        for (const [what, n] of Object.entries(r.lost)) lost[what] = (lost[what] ?? 0) + n;
+      } catch {
+        setNotice(`Octet cannot read the structures in ${f.name}.`);
+      }
+    }
+    const add = stack(mols), b = extent(add), at = toDoc(...files[0].at!);
+    if (!b) return;
+    const r = insertMol(doc, add, [at[0] - (b[0] + b[2]) / 2, at[1] - (b[1] + b[3]) / 2]);
+    set(r.mol, true);
+    setSelection(r.atoms);
+    setPicked(r.items);
+    sayLost(lost);
+  }
+  // A drawing read from a file, into the editor. With no path, a recovered drawing or a file Octet cannot save over:
+  // its changes are not saved yet. A MOL, SDF or SMILES file opens as a new drawing of its structures, in the middle.
   function load(path: string | undefined, text: string, title?: string) {
     drawingColours.current = [];
     try {
-      const read = readOct(text), lost = read.lost;
+      let read: ReturnType<typeof readOct>;
+      if (isDrawingText(text)) read = readOct(text);
+      else {
+        let mol: Mol;
+        try { mol = importStructure(text); } catch { throw new Error("Octet cannot read the structures in this file."); }
+        const b = bounds(mol);
+        if (!b) throw new Error("There are no structures in this file.");
+        read = { mol: merge(EMPTY, mol, [-(b[0] + b[2]) / 2, -(b[1] + b[3]) / 2]), lost: {} };
+      }
+      const lost = read.lost;
       // Settings > Files > Keep ChemDraw styles off: another program's drawing takes Octet's default style.
       const mol = read.foreign && !settings.files.keepStyle ? { ...read.mol, style: undefined } : read.mol;
       set(mol);
@@ -752,6 +805,7 @@ export default function Editor() {
   commands.current = {
     new: () => newDrawing(),
     open: () => openDrawing(),
+    opened: () => void takeOpened().catch((e) => setNotice(`Octet cannot open this file. ${e}`)),
     home: () => setHome(true),
     quit: () => closeWindow(),
     tutorial: () => startTutorial(),
@@ -931,7 +985,7 @@ export default function Editor() {
     document: () => setSettingsOpen("document"),
     settings: () => setSettingsOpen((settings.settingsModule as ModuleId) ?? "document"),
     structure_to_name: () => nameStructures(),
-    copy_smiles: () => void document.execCommand("copy"),
+    copy_smiles: () => copySmiles(),
     bring_front: () => runAction("shape.front"),
     send_back: () => runAction("shape.back"),
     command_palette: () => { setCommandsOpen((o) => !o); if (!namesLoaded) void loadNames().then(() => setNamesLoaded(true)); },
@@ -984,6 +1038,14 @@ export default function Editor() {
   useEffect(() => {
     if (!TAURI) return;
     const off = listen<string>("menu", (e) => commands.current[e.payload]?.());
+    return () => { off.then((f) => f()); };
+  }, []);
+  // Files to open or dropped: those named before the page started, then each time the app says more came.
+  useEffect(() => {
+    if (!TAURI) return;
+    const take = () => commands.current.opened();
+    take();
+    const off = listen("opened", take);
     return () => { off.then((f) => f()); };
   }, []);
   // Every menu command's shortcut can be changed in Settings, with the canvas keys: the menu lists its commands, and
@@ -2534,6 +2596,22 @@ export default function Editor() {
   const untidy = useMemo(() => messy(doc, selection), [doc, selection]);
   // Text the panel asked to copy; the copy handler uses it instead of SMILES.
   const copyText = useRef<string>(undefined);
+  // Text on the clipboard, as text only (a value from a panel, Copy As SMILES). The copy event puts it there. Where
+  // the webview allows no copy outside a click (Windows, from a menu), the Clipboard API does.
+  const copyPlain = (text: string) => {
+    copyText.current = text;
+    if (document.execCommand("copy")) return;
+    copyText.current = undefined;
+    void (navigator.clipboard?.writeText(text) ?? Promise.reject()).then(() => setNotice("Copied."), () => setNotice("Octet cannot copy this."));
+  };
+  // Edit > Copy As SMILES (⌥⌘C): the selected structures, or every structure, as SMILES text, as ChemDraw's does (CH-7).
+  const copySmiles = () => {
+    const part = selection.size || picked.size ? extractSelection(doc, selection, picked) : doc;
+    let smiles = "";
+    try { smiles = part.atoms.length && loaded ? toSmiles(part) : ""; } catch { smiles = ""; }
+    if (smiles) copyPlain(smiles);
+    else setNotice(part.atoms.length ? "Octet cannot write this structure as SMILES." : "There is no structure to copy.");
+  };
 
   // The key to show beside an action: menu shortcuts, then the user's shortcut table.
   const MENU_KEYS: Record<string, string> = {
@@ -2678,9 +2756,9 @@ export default function Editor() {
       const atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i));
       return set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) && BY[a.label] ? { ...a, colour: BY[a.label] } : a)) }, true);
     }
-    if (command === "copy_smiles") return void document.execCommand("copy");
+    if (command === "copy_smiles") return copySmiles();
     if (command === "paste_hint") return setNotice(`Copy a SMILES string or MOL file, then press ${MOD}V here.`);
-    if (command.startsWith("copy_text:")) { copyText.current = command.slice(10); document.execCommand("copy"); return; }
+    if (command.startsWith("copy_text:")) return copyPlain(command.slice(10));
     if (command.startsWith("fix:")) { const [, i, charge] = command.split(":"); return set(addCharge(doc, Number(i), Number(charge) - (doc.atoms[Number(i)].charge ?? 0)), true); }
     if (command.startsWith("show:")) return setSelection(new Set([Number(command.slice(5))]));
     // Hide a warning: the atom's Display Warnings goes off, as in ChemDraw (saved as IgnoreWarnings).
@@ -3130,12 +3208,29 @@ export default function Editor() {
       e.preventDefault();
       run(id);
     };
+    // A ChemDraw drawing as CDXML (hidden in its PDF, its CDXML type, or text from Copy As CDXML): all of it, arrows
+    // and text too, beside the drawing. False when it holds nothing Octet can draw.
+    const CDXML_TEXT = /<CDXML[\s>/]/;
+    const pasteCdxml = (cdxml: string) => {
+      try {
+        const { mol: add, lost } = fromCdxml(cdxml);
+        if (!add.atoms.length && !add.arrows?.length && !add.captions?.length && !add.shapes?.length) return false;
+        const r = insertMol(doc, { ...add, style: undefined }, add.atoms.length ? landing(add) : [0, 0]);
+        set(r.mol, true);
+        setSelection(r.atoms);
+        setPicked(r.items);
+        sayLost(lost);
+        return true;
+      } catch {
+        return false;
+      }
+    };
     // Paste a SMILES string or MOL file: it goes to the right of the drawing, or in the middle of an empty canvas.
     const onPaste = (e: ClipboardEvent) => {
       if (typing() || home) return; // pasting into a label or caption, or on Home
       // In the app: the clipboard as Octet, ChemDraw and Office put it (Octet's own copy, then CDXML, which ChemDraw
       // hides in its pictures and Word keeps, then a molfile, then SMILES), and the plain text last.
-      if (TAURI && !e.clipboardData?.getData(OCTET_CLIP)) {
+      if (NATIVE_CLIP && !e.clipboardData?.getData(OCTET_CLIP)) {
         const text = e.clipboardData?.getData("text/plain")?.trim();
         e.preventDefault();
         void readClipboard().then((clip) => {
@@ -3148,19 +3243,9 @@ export default function Editor() {
             setPicked(r.items);
             return;
           }
-          // ChemDraw's (or Word's copy of ChemDraw's) drawing: all of it, arrows and text too.
-          if (clip.cdxml) {
-            try {
-              const { mol: add, lost } = fromCdxml(clip.cdxml);
-              if (add.atoms.length || add.arrows?.length || add.captions?.length || add.shapes?.length) {
-                const r = insertMol(doc, { ...add, style: undefined }, add.atoms.length ? landing(add) : [0, 0]);
-                set(r.mol, true);
-                setSelection(r.atoms);
-                setPicked(r.items);
-                return sayLost(lost);
-              }
-            } catch { /* read the molfile or SMILES instead */ }
-          }
+          // ChemDraw's (or Word's copy of ChemDraw's) drawing; otherwise the molfile or SMILES.
+          if (clip.cdxml && pasteCdxml(clip.cdxml)) return;
+          if (text && CDXML_TEXT.test(text.slice(0, 65536)) && pasteCdxml(text)) return;
           for (const source of [clip.molfile, clip.smiles, text]) {
             if (!source || !loaded) continue;
             let frag: Mol | undefined;
@@ -3185,6 +3270,7 @@ export default function Editor() {
         return;
       }
       const text = e.clipboardData?.getData("text/plain")?.trim();
+      if (text && CDXML_TEXT.test(text.slice(0, 65536)) && pasteCdxml(text)) return e.preventDefault();
       if (!text || !loaded) return;
       e.preventDefault();
       // A SMILES string or MOL file first, then a chemical name.
@@ -3194,40 +3280,44 @@ export default function Editor() {
       if (frag) place(frag);
       else setNotice("Octet cannot read this structure. Paste a name, a SMILES string or a MOL file.");
     };
-    // Copy puts the selection, or the whole drawing, on the clipboard as SMILES (or text the panel asked for).
-    const onCopy = (e: ClipboardEvent) => {
-      if (typing() && !copyText.current) return;
+    // Copy puts the selection, or the whole drawing, on the clipboard (or text a panel or Copy As SMILES asked for).
+    // Resolves whether it did, so Cut deletes only what is on the clipboard.
+    const onCopy = (e: ClipboardEvent): Promise<boolean> => {
+      if (typing() && !copyText.current) return Promise.resolve(false);
       if (copyText.current) {
         e.clipboardData?.setData("text/plain", copyText.current);
         e.preventDefault();
         copyText.current = undefined;
-        return setNotice("Copied.");
+        setNotice("Copied.");
+        return Promise.resolve(true);
       }
-      // Everything selected (or the whole drawing) in Octet's own form, for pasting back with arrows, text and shapes;
-      // and its structures as SMILES, for other programs.
+      // Everything selected (or the whole drawing) in Octet's own form, for pasting back with arrows, text and shapes,
+      // and in the forms other programs read: those switched on in Settings > Import and export > Copy (REL-19, CH-8).
       const all = !selection.size && !picked.size;
       const part = all ? doc : extractSelection(doc, selection, picked);
-      if (!part.atoms.length && !part.captions?.length && !part.arrows?.length && !part.shapes?.length) return;
+      if (!part.atoms.length && !part.captions?.length && !part.arrows?.length && !part.shapes?.length) return Promise.resolve(false);
       e.preventDefault();
       saw("copy");
-      // In the app: as ChemDraw copies, for Word, PowerPoint and Keynote (a vector picture at true size with the
-      // structure hidden in it, so it pastes back as a structure), then a molfile and SMILES, then Octet's own form.
-      if (TAURI) {
-        const picture = pictureOf(part), c = chemistryOf(part);
-        if (!picture) return;
-        void copyToClipboard({ svg: picture, cdxml: c.cdxml, molfile: c.molfile, smiles: c.smiles, octetJson: serialize({ ...part, style: undefined }) })
-          .catch((err) => setNotice(`Octet cannot copy this. ${err}`));
-        return;
+      const on = settings.files.clipboard, octetJson = serialize({ ...part, style: undefined });
+      // On the Mac: as ChemDraw copies, for Word, PowerPoint and Keynote (a vector picture at true size with the
+      // structure hidden in it, so it pastes back as a structure), then CDXML, a molfile and SMILES, then Octet's own form.
+      if (NATIVE_CLIP) {
+        const c = chemistryOf(part);
+        return copyToClipboard({ svg: on.pdf ? pictureOf(part) : undefined, cdxml: on.pdf || on.cdxml ? c.cdxml : undefined, cdxmlType: on.cdxml, molfile: on.mol ? c.molfile : undefined, smiles: on.smiles ? c.smiles : undefined, octetJson })
+          .then(() => true, (err) => { setNotice(`Octet cannot copy this. ${err}`); return false; });
       }
-      e.clipboardData?.setData(OCTET_CLIP, serialize({ ...part, style: undefined }));
-      const text = (part.captions ?? []).map((c) => c.text).join("\n");
-      try { e.clipboardData?.setData("text/plain", part.atoms.length && loaded ? toSmiles(part) : text); } catch { e.clipboardData?.setData("text/plain", text); }
+      // Windows, Linux and a browser: the webview's own clipboard, with Octet's form and SMILES (or the text) as text.
+      e.clipboardData?.setData(OCTET_CLIP, octetJson);
+      let text = (part.captions ?? []).map((c) => c.text).join("\n");
+      if (on.smiles && part.atoms.length && loaded) { try { text = toSmiles(part) || text; } catch { /* the text alone */ } }
+      if (text) e.clipboardData?.setData("text/plain", text);
+      return Promise.resolve(true);
     };
-    // Cut: copy, then delete what was selected.
+    // Cut: copy, then delete what was selected, once the copy is on the clipboard and if the drawing has not changed.
     const onCut = (e: ClipboardEvent) => {
       if (typing() || (!selection.size && !picked.size)) return;
-      onCopy(e);
-      set(deleteGraphics(deleteAtoms(doc, selection), picked));
+      const before = doc, gone = deleteGraphics(deleteAtoms(doc, selection), picked);
+      void onCopy(e).then((copied) => { if (copied && now.current === before) set(gone); });
     };
     addEventListener("keydown", onKey);
     addEventListener("paste", onPaste);
