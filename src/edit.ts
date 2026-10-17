@@ -348,7 +348,7 @@ export function expandLabel(m: Mol, i: number, frag: Mol): Mol {
 }
 // Contract Label: the atoms in `group` other than `keep` go, and `keep` (the one bonded to the rest) carries the label.
 export function contractLabel(m: Mol, keep: number, group: Set<number>, text: string): Mol {
-  const labelled = { ...m, atoms: m.atoms.map((a, k) => (k === keep ? { ...a, text, label: a.label, charge: undefined } : a)) };
+  const labelled = { ...m, atoms: m.atoms.map((a, k) => (k === keep ? { ...a, text, label: anchorElement(text) ?? a.label, charge: undefined } : a)) };
   return removeAtoms(labelled, new Set([...group].filter((k) => k !== keep)));
 }
 export function moveAtoms(m: Mol, ids: Set<number>, d: P): Mol {

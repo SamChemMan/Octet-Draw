@@ -680,7 +680,8 @@ export default function Editor() {
   function atomProperties(i: number | undefined) {
     if (i === undefined || !doc.atoms[i]) return setNotice("Pick an atom first.");
     const a = doc.atoms[i];
-    setDialog({ kind: "atom", atom: i, element: a.text ?? a.label, charge: String(a.charge ?? 0), isotope: a.isotope ? String(a.isotope) : "", radical: String(a.radical ?? 0) });
+    const enhanced = /^(abs|&|or)(\d*)$/.exec(a.enhanced ?? "");
+    setDialog({ kind: "atom", atom: i, element: a.text ?? a.label, charge: String(a.charge ?? 0), isotope: a.isotope ? String(a.isotope) : "", radical: String(a.radical ?? 0), stereo: enhanced?.[1] ?? "", group: enhanced?.[2] || "1" });
   }
   // Bond Properties (/ over a bond, or the Structure menu): the bond's type, in ChemDraw's order, and where a double
   // bond's second line goes.
@@ -904,6 +905,7 @@ export default function Editor() {
     },
     // Contract Label (Structure menu): the selected substituent (joined to the rest by one bond) becomes one labelled
     // atom: the abbreviation it is (OMe, CO2Et, Boc, TBS), recognised whatever way it was drawn, or else its formula.
+    // The label to contract to is asked for, as in ChemDraw, with Octet's suggestion filled in.
     contract_label: () => {
       const group = new Set([...selection].filter((i) => i < doc.atoms.length));
       const links = doc.bonds.filter((b) => group.has(b.atoms[0]) !== group.has(b.atoms[1]));
@@ -913,8 +915,7 @@ export default function Editor() {
       const capped = subset({ ...doc, atoms: doc.atoms.map((a, i) => (i === outside ? { ...a, label: "Xe", text: undefined, charge: undefined } : a)) }, new Set([...group, outside]));
       const want = toInchi(capped), text = want && contractLabelText(want);
       const formula = analyse(subset(doc, group))?.[0]?.formula;
-      set(contractLabel(doc, keep, group, text ?? formula ?? "R"));
-      setSelection(new Set());
+      setDialog({ kind: "contract", text: text ?? formula ?? "R", keep, group: [...group], want });
     },
     // Toggle Aromatic Display (⌥⌘K): the selected structures' aromatic rings with circles, or back to Kekulé bonds.
     aromatic_display: () => {
@@ -1095,7 +1096,8 @@ export default function Editor() {
   const pressAlt = useRef(false), lastLabel = useRef("");
   const [exportView, setExportView] = useState<{ all?: string; selection?: string; parts: { all: Mol; selection?: Mol } }>();
   const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }
-    | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string }
+    | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string; stereo: string; group: string }
+    | { kind: "contract"; text: string; keep: number; group: number[]; want?: string; warn?: string }
     | { kind: "bond"; bond: number; style: BondKind; position: "auto" | "left" | "centre" | "right" }
     | { kind: "unsaved"; next: () => void }>();
   const [commandsOpen, setCommandsOpen] = useState(false);
@@ -4319,12 +4321,15 @@ export default function Editor() {
       )}
       {dialog?.kind === "atom" && (
         <Dialog title="Atom Properties" action="Apply" onClose={() => setDialog(undefined)}
+          alt={{ label: "Use Defaults", onClick: () => setDialog({ ...dialog, charge: "0", isotope: "", radical: "0", stereo: "", group: "1" }) }}
           onAction={() => {
             const d = dialog, a = doc.atoms[d.atom];
             if (!a) return setDialog(undefined);
             let m = d.element.trim() && d.element.trim() !== (a.text ?? a.label) ? setLabel(doc, d.atom, d.element.trim()) : doc;
-            const charge = Math.max(-9, Math.min(9, Math.round(Number(d.charge) || 0))), isotope = Math.round(Number(d.isotope));
-            m = { ...m, atoms: m.atoms.map((x, k) => (k === d.atom ? { ...x, charge: charge || undefined, isotope: isotope >= 1 && isotope <= 300 ? isotope : undefined, radical: Number(d.radical) || undefined } : x)) };
+            // ChemDraw's ranges: charge −8 to +8, an enhanced stereo group from 1 to 99.
+            const charge = Math.max(-8, Math.min(8, Math.round(Number(d.charge) || 0))), isotope = Math.round(Number(d.isotope)), group = Math.max(1, Math.min(99, Math.round(Number(d.group) || 1)));
+            const enhanced = d.stereo === "abs" ? "abs" : d.stereo ? `${d.stereo}${group}` : undefined;
+            m = { ...m, atoms: m.atoms.map((x, k) => (k === d.atom ? { ...x, charge: charge || undefined, isotope: isotope >= 1 && isotope <= 300 ? isotope : undefined, radical: Number(d.radical) || undefined, enhanced } : x)) };
             set(m, true);
             setDialog(undefined);
           }}>
@@ -4334,6 +4339,28 @@ export default function Editor() {
           <label className="dialog-row"><span>Radical</span>
             <Select label="Radical" value={dialog.radical} options={[["0", "None"], ["1", "Doublet (•)"], ["2", "Triplet (••)"], ["3", "Singlet (:)"]]} onChange={(v) => setDialog({ ...dialog, radical: v })} />
           </label>
+          <label className="dialog-row"><span>Enhanced stereo</span>
+            <Select label="Enhanced stereo" value={dialog.stereo} options={[["", "None"], ["abs", "Absolute"], ["or", "Or"], ["&", "And"]]} onChange={(v) => setDialog({ ...dialog, stereo: v })} />
+          </label>
+          {(dialog.stereo === "or" || dialog.stereo === "&") && (
+            <label className="dialog-row"><span>Group</span><span className="unit-field"><input aria-label="Enhanced stereo group" inputMode="numeric" value={dialog.group} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, group: e.target.value.replace(/\D/g, "").slice(0, 2) })} /></span></label>
+          )}
+        </Dialog>
+      )}
+      {dialog?.kind === "contract" && (
+        <Dialog title="Contract Label" action="Contract" onClose={() => setDialog(undefined)}
+          onAction={() => {
+            const d = dialog, text = d.text.trim();
+            if (!text || !d.group.every((i) => doc.atoms[i])) return setDialog(undefined);
+            // A known abbreviation that is not what is selected is checked once, as ChemDraw's Possible Error in Drawing.
+            const smiles = labelSmiles(text), other = smiles && d.want && toInchi(`[Xe]${smiles}`) !== d.want;
+            if (other && d.warn !== text) return setDialog({ ...d, warn: text });
+            set(contractLabel(doc, d.keep, new Set(d.group), text));
+            setSelection(new Set());
+            setDialog(undefined);
+          }}>
+          <label className="dialog-row"><span>Label</span><span className="unit-field text"><input aria-label="Label" value={dialog.text} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, text: e.target.value.slice(0, 40) })} /></span></label>
+          {dialog.warn && dialog.warn === dialog.text.trim() && <p className="dialog-note">{dialog.warn} is not the selected group. Select Contract again to use it.</p>}
         </Dialog>
       )}
       {dialog?.kind === "bond" && (
