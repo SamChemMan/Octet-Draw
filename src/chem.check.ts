@@ -11,7 +11,7 @@ g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
 g.window = globalThis;
 g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
-const { analyse, expandWithOrigins, fragmentMasses, ready, stereoLabels, structures } = await import("./chem.ts");
+const { analyse, expandWithOrigins, fragmentMasses, importStructure, ready, stereoLabels, structures, toMolfile } = await import("./chem.ts");
 const { render } = await import("./render.ts");
 type Mol = import("./render.ts").Mol;
 await ready;
@@ -102,4 +102,12 @@ console.log("chem.check: labels ok");
   assert.equal(a?.formula, "C5H5NRu");
   assert.ok(Number.isFinite(a?.weight));
   console.log("chem.check: unreadable structures ok");
+}
+
+// A molfile keeps its blank first line (the name), so it reads back, in Octet and in other programs.
+{
+  const molfile = toMolfile(onEthyl("OH"));
+  assert.match(molfile, /^\n {2}-INDIGO-/);
+  assert.deepEqual(importStructure(molfile).atoms.map((a) => a.label), ["C", "C", "O"]);
+  console.log("chem.check: molfile ok");
 }

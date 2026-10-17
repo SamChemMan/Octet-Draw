@@ -80,7 +80,8 @@ export const COMMON: Record<string, string> = {
   "Cu(OTf)2": "smiles:FC(F)(F)S(=O)(=O)O[Cu]OS(=O)(=O)C(F)(F)F", AgNO3: "smiles:[Ag+].[O-][N+]([O-])=O", Ag2O: "smiles:[Ag]O[Ag]",
   Ag2CO3: "smiles:[Ag+].[Ag+].[O-]C([O-])=O", OsO4: "smiles:O=[Os](=O)(=O)=O", CrO3: "smiles:O=[Cr](=O)=O", MnO2: "smiles:O=[Mn]=O",
   SeO2: "smiles:O=[Se]=O", I2: "smiles:II", Br2: "smiles:BrBr", Cl2: "smiles:ClCl", H2: "smiles:[HH]", O2: "smiles:O=O", N2: "smiles:N#N",
-  O3: "smiles:[O-][O+]=O", CO2: "smiles:O=C=O",
+  O3: "smiles:[O-][O+]=O", CO2: "smiles:O=C=O", SO2: "smiles:O=S=O", SO3: "smiles:O=S(=O)=O", CS2: "smiles:S=C=S",
+  N2O: "smiles:[N-]=[N+]=O", COCl2: "smiles:O=C(Cl)Cl", BCl3: "smiles:ClB(Cl)Cl", SF6: "smiles:FS(F)(F)(F)(F)F",
   // Metal catalysts, with the bonds to the metal drawn
   "Pd(PPh3)4": "smiles:[Pd](P(c1ccccc1)(c1ccccc1)c1ccccc1)(P(c1ccccc1)(c1ccccc1)c1ccccc1)(P(c1ccccc1)(c1ccccc1)c1ccccc1)P(c1ccccc1)(c1ccccc1)c1ccccc1",
   "Pd(OAc)2": "smiles:CC(=O)O[Pd]OC(C)=O", PdCl2: "smiles:Cl[Pd]Cl",

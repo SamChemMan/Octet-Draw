@@ -190,7 +190,8 @@ function ketOf(drawn: Mol): string {
 function convert(input: string, format: string): string {
   const ind = engine(), opts = new ind.MapStringString();
   try {
-    return ind.convert(input, format, opts).trim();
+    // Only the end: a molfile's first line (its name) is blank, and without it the file does not read.
+    return ind.convert(input, format, opts).trimEnd();
   } finally {
     opts.delete();
   }

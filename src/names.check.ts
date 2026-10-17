@@ -39,6 +39,10 @@ for (const t of ["CCO", "c1ccccc1", "C[C@@H](N)C(=O)O", "OC(=O)c1ccccc1OC(C)=O",
   assert.ok(looksLikeSmiles(t), `${t} looks like SMILES`);
 for (const t of ["aspirin", "spiro", "ethyl acetate", "Pd(PPh3)4", "2-methylpropane", "caffeine", "Et3N·HCl"]) assert.ok(!looksLikeSmiles(t), `${t} does not look like SMILES`);
 assert.equal(nameToSmiles("spiro"), undefined);
+// A formula that is not SMILES reads from the table (SO2, COCl2). A formula that is also SMILES ("CO") is read as SMILES.
+assert.equal(nameToSmiles("SO2"), "O=S=O");
+assert.equal(nameToSmiles("COCl2"), "O=C(Cl)Cl");
+assert.equal(nameToSmiles("CO"), undefined);
 
 // Every entry reads, keeps no aromatic bond once Indigo has drawn it (so the app's formula and mass work), and
 // every "=name" points to an entry. No key is in both tables.

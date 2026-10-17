@@ -499,7 +499,8 @@ export default function Editor() {
     const s = text.trim(), lines = s.includes("\n");
     const named = lines ? undefined : structureFor(s);
     if (named || !loaded || !(lines || looksLikeSmiles(s))) return named;
-    try { const m = parseStructure(s); return m.atoms.length ? m : undefined; } catch { return undefined; }
+    // A MOL file keeps its first line, which is often blank (the name).
+    try { const m = parseStructure(lines ? text.trimEnd() : s); return m.atoms.length ? m : undefined; } catch { return undefined; }
   };
   // A structure for a name typed with a slip in it: the name as typed, or else Octet's suggestion (thorough: from every
   // name one keystroke away too, 30 to 90 ms).
@@ -730,13 +731,15 @@ export default function Editor() {
       setWriting(undefined);
       return convertInPlace(found, writing.id !== undefined ? deleteGraphics(doc, new Set([writing.id])) : doc, [(c.box[0] + c.box[2]) / 2 / L, -(c.box[1] + c.box[3]) / 2 / L]);
     }
-    // The label being typed: an atom with no bonds becomes the structure. On a bonded atom the label stays as it was.
+    // The label being typed: an atom with no bonds becomes the structure. Otherwise the label is kept, as Return keeps
+    // it, and the name field opens with its text.
     if (editing) {
       const text = editing.value.trim(), lone = !doc.bonds.some((b) => b.atoms.includes(editing.atom)), found = lone && text ? structureOrSuggestion(text, true) : undefined;
       labelOpen.current = false;
       setEditing(undefined);
       const [x, y] = doc.atoms[editing.atom].location;
       if (found) return convertInPlace(found, deleteAtom(doc, editing.atom), [x, y]);
+      set(setLabel(doc, editing.atom, editing.value));
       return openNaming(text);
     }
     // A picked caption, or one picked atom with a label and no bonds.
@@ -767,8 +770,9 @@ export default function Editor() {
     if (text) return;
     void clipboardText().then((t) => {
       if (!t || !structureFromText(t)) return;
-      setNaming((n) => (n === "" ? t : n));
-      requestAnimationFrame(() => nameField.current?.select());
+      // Selected, so a name typed in its place replaces it.
+      flushSync(() => setNaming((n) => (n === "" ? t : n)));
+      if (nameField.current?.value === t) nameField.current.select();
     });
   }
   // Draws what the name field holds (or the recent name the arrow keys are on). False when it is not a name.
@@ -3193,10 +3197,9 @@ export default function Editor() {
       // In the app: the clipboard as Octet, ChemDraw and Office put it (Octet's own copy, then CDXML, which ChemDraw
       // hides in its pictures and Word keeps, then a molfile, then SMILES), and the plain text last.
       if (TAURI && !e.clipboardData?.getData(OCTET_CLIP)) {
-        const text = e.clipboardData?.getData("text/plain")?.trim();
+        const text = e.clipboardData?.getData("text/plain");
         e.preventDefault();
-        // The names engine first, so a name pasted just after start-up reads too.
-        void Promise.all([readClipboard(), loadNames().catch(() => {})]).then(([clip]) => {
+        void readClipboard().then(async (clip) => {
           if (clip.octet) {
             let add: Mol;
             try { add = parse(clip.octet); } catch { return setNotice("Octet cannot read what is on the clipboard."); }
@@ -3225,9 +3228,12 @@ export default function Editor() {
             try { frag = importStructure(source); } catch { frag = undefined; }
             if (frag?.atoms.length) return place(frag);
           }
-          const frag = text ? structureFromText(text) : undefined;
+          if (!text?.trim()) return;
+          // The names engine loads only for text, so no other paste waits for it.
+          await loadNames().then(() => setNamesLoaded(true), () => {});
+          const frag = structureFromText(text);
           if (frag) return place(frag);
-          if (text) setNotice("Octet cannot read this structure. Paste a name, a SMILES string or a MOL file.");
+          setNotice("Octet cannot read this structure. Paste a name, a SMILES string or a MOL file.");
         }).catch((err) => setNotice(`Octet cannot read the clipboard. ${err}`));
         return;
       }
@@ -3243,11 +3249,11 @@ export default function Editor() {
         setPicked(r.items);
         return;
       }
-      const text = e.clipboardData?.getData("text/plain")?.trim();
-      if (!text || !loaded) return;
+      const text = e.clipboardData?.getData("text/plain");
+      if (!text?.trim() || !loaded) return;
       e.preventDefault();
       // A chemical name first, then SMILES or a MOL file.
-      void loadNames().catch(() => {}).then(() => {
+      void loadNames().then(() => setNamesLoaded(true), () => {}).then(() => {
         const frag = structureFromText(text);
         if (frag) place(frag);
         else setNotice("Octet cannot read this structure. Paste a name, a SMILES string or a MOL file.");
