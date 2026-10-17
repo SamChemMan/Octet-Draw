@@ -172,17 +172,27 @@ export function addSymbol(m: Mol, i: number, kind: SymbolKind): Mol {
 }
 // Lone pairs shown never outnumber the ones the atom has (after a charge or radical changes them).
 const trimPairs = (m: Mol, i: number) => (m.atoms[i].pairs ? setAtom(m, i, { pairs: Math.min(m.atoms[i].pairs!, freePairs(m, i)) || undefined }) : m);
-// How many lone pairs an atom has, from its element, bonds, hydrogens, charge and radical.
-export function freePairs(m: Mol, i: number): number {
-  const a = m.atoms[i], used = m.bonds.reduce((n, b) => n + (b.atoms.includes(i) ? (b.type === 4 ? 1.5 : b.type) : 0), 0);
+// Each atom's bond orders added up, in one pass over the bonds. An aromatic bond counts 1.5, unless order says else.
+export function bondOrders(m: Mol, order = (type: number) => (type === 4 ? 1.5 : type)): number[] {
+  const used = m.atoms.map(() => 0);
+  for (const { type, atoms: [p, q] } of m.bonds) {
+    used[p] += order(type);
+    if (q !== p) used[q] += order(type);
+  }
+  return used;
+}
+// How many lone pairs an atom has, from its element, bonds, hydrogens, charge and radical. used: its bond orders
+// added up (from bondOrders), when they are known.
+export function freePairs(m: Mol, i: number, used = bondOrders(m)[i]): number {
+  const a = m.atoms[i];
   const h = a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used, a.radical);
   return lonePairs(a.label, a.charge ?? 0, Math.ceil(used), h, a.radical);
 }
 // Shows the lone pairs on every heteroatom among these atoms; when they all show already, hides them.
 export function toggleLonePairs(m: Mol, atoms: number[]): Mol {
-  const hetero = atoms.filter((i) => m.atoms[i].label !== "C" && freePairs(m, i) > 0);
-  const shown = hetero.every((i) => (m.atoms[i].pairs ?? 0) >= freePairs(m, i));
-  return hetero.reduce((acc, i) => setAtom(acc, i, { pairs: shown ? undefined : freePairs(m, i) }), m);
+  const used = bondOrders(m), hetero = atoms.filter((i) => m.atoms[i].label !== "C" && freePairs(m, i, used[i]) > 0);
+  const shown = hetero.every((i) => (m.atoms[i].pairs ?? 0) >= freePairs(m, i, used[i]));
+  return hetero.reduce((acc, i) => setAtom(acc, i, { pairs: shown ? undefined : freePairs(m, i, used[i]) }), m);
 }
 // Single, then double, then triple, then single again. A wedge or hash becomes a plain double.
 const respec = (m: Mol, i: number, spec: BondSpec): Mol => ({ ...m, bonds: m.bonds.map((b, k) => (k === i ? makeBond(b.atoms, spec) : b)) });

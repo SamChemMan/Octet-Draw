@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, wholeGroups, wholeIntegral, groupSelection, addArrow } from "./edit.ts";
+import { EMPTY, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, wholeGroups, wholeIntegral, groupSelection, addArrow } from "./edit.ts";
 import { tableLayout } from "./render.ts";
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
@@ -389,4 +389,17 @@ console.log("edit.check: align ok");
   const flipped = flipAtoms(m, new Set([0]), "horizontal", false, 1);
   assert.ok(Math.abs(pos(flipped, 0)[0] - (2 - pos(m, 0)[0])) < 1e-9);
   console.log("edit.check: groups ok");
+}
+
+// Bond orders are added up for every atom in one pass (an aromatic bond counts 1.5), and freePairs gives the same
+// lone pairs with them as it works out alone.
+{
+  const m = setElement(sprout(sprout(sprout(EMPTY, [0, 0]), 1), 1), 1, "N"), aromatic = { ...m, bonds: m.bonds.map((b, k) => (k === 0 ? { ...b, type: 4 } : k === 1 ? { ...b, type: 2 } : b)) };
+  assert.deepEqual(bondOrders(aromatic), [1.5, 4.5, 2, 1]);
+  assert.deepEqual(bondOrders(aromatic, (type) => (type === 4 ? 1 : type)), [1, 4, 2, 1]);
+  const used = bondOrders(aromatic);
+  for (const mol of [m, aromatic]) for (let i = 0; i < mol.atoms.length; i++) assert.equal(freePairs(mol, i, bondOrders(mol)[i]), freePairs(mol, i));
+  assert.equal(freePairs(m, 1), 1); // an amine N: one lone pair
+  assert.equal(freePairs(aromatic, 1, used[1]), freePairs(aromatic, 1));
+  console.log("edit.check: bond orders ok");
 }
