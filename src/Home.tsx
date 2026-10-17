@@ -4,8 +4,10 @@
 import { useEffect, useRef, useState } from "react";
 import { FolderOpen, Plus, X } from "@phosphor-icons/react";
 import mark from "../brand/logos/octet-mark.svg";
-import markSmall from "../brand/logos/octet-mark-32.svg";
-import markReverse from "../brand/logos/octet-mark-reverse.svg";
+import markSmall from "../brand/logos/octet-mark-small.svg";
+import markWhite from "../brand/logos/octet-mark-white.svg";
+import lockup from "../brand/logos/octet-lockup.svg";
+import lockupWhite from "../brand/logos/octet-lockup-white.svg";
 import { useModal } from "./Dialog";
 import { tileTo } from "./keys";
 import { STARTERS } from "./starters";
@@ -34,12 +36,12 @@ function when(at: number, now: Date): string {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
 }
 
-// The mark (brand/logos/README.md): the heavier-stroke file from 24 to 48 px, the main one above.
+// The mark (brand/logos/README.md): the small-size file under 20 px, the exact mark above; white on the dark navy.
 function Mark({ size }: { size: number }) {
   return (
     <picture>
-      <source srcSet={markReverse} media="(prefers-color-scheme: dark)" />
-      <img src={size <= 48 ? markSmall : mark} alt="" width={size} height={size} draggable={false} />
+      <source srcSet={markWhite} media="(prefers-color-scheme: dark)" />
+      <img src={size < 20 ? markSmall : mark} alt="" width={size} height={size} draggable={false} />
     </picture>
   );
 }
@@ -72,9 +74,12 @@ export function Home(p: Props) {
   return (
     <main ref={page} className={p.leaving ? "home leaving" : "home"} aria-label="Home" inert={p.leaving}>
       <div className="home-inner">
+        {/* The lockup file as it is (brand/logos/README.md), so the wordmark's weight, size and gap match the logo. */}
         <header className="home-head">
-          <Mark size={24} />
-          <span className="home-wordmark">octet</span>
+          <picture>
+            <source srcSet={lockupWhite} media="(prefers-color-scheme: dark)" />
+            <img src={lockup} alt="Octet" height={24} draggable={false} />
+          </picture>
         </header>
         <h1 className="home-greeting">{greeting(p.name, now, p.first, p.away)}</h1>
         <div className="home-row">
