@@ -1,6 +1,7 @@
 // The chemistry engine (Indigo) and the drawing style, shared by the editor and the dev gallery.
 import Indigo from "indigo-ketcher/binaryWasmNoRender";
-import { hydrogens, type Ink, type Mol } from "./render";
+import { hydrogens, type Face, type Ink, type Mol } from "./render";
+import { fontStack } from "./docstyle";
 import { labelSmiles } from "./labels";
 import { fragments, levelTurn, subset } from "./edit";
 import { graphOf, type Graph } from "./naming";
@@ -28,17 +29,17 @@ export const STYLE = {
 const FONT = token("--atom-label-font");
 const SCALE = 8;
 const inks = new Map<string, Ink>();
-// Label metrics for a font and size (px). Each text is measured once per font and size.
-export const measurer = (font: string, size: number) => (text: string): Ink => {
-  const key = `${font}|${size}|${text}`, cached = inks.get(key);
+// Label metrics for a font and size (px), plain or bold or italic. Each text is measured once per font, size and face.
+export const measurer = (font: string, size: number, bold = false, italic = false) => (text: string): Ink => {
+  const key = `${font}|${size}|${bold}|${italic}|${text}`, cached = inks.get(key), face = `${italic ? "italic " : ""}${bold ? "bold " : ""}`;
   if (cached) return cached;
   const canvas = document.createElement("canvas");
   const g = canvas.getContext("2d", { willReadFrequently: true })!;
-  g.font = `${size}px ${font}`;
+  g.font = `${face}${size}px ${font}`;
   const m = g.measureText(text);
   const pad = 2, baseline = size * 1.2;
   const w = (canvas.width = Math.ceil((m.width + 2 * pad) * SCALE)), h = (canvas.height = Math.ceil(size * 1.6 * SCALE));
-  g.font = `${size * SCALE}px ${font}`;
+  g.font = `${face}${size * SCALE}px ${font}`;
   g.fillText(text, pad * SCALE, baseline * SCALE);
   const alpha = g.getImageData(0, 0, w, h).data;
   const on = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && alpha[(y * w + x) * 4 + 3] > 127;
@@ -51,7 +52,10 @@ export const measurer = (font: string, size: number) => (text: string): Ink => {
   inks.set(key, ink);
   return ink;
 };
-export const measure = measurer(FONT, STYLE.size);
+const plain = measurer(FONT, STYLE.size);
+// A label's metrics in its own face (an atom's label can have its own font, bold and italic).
+export const measure = (text: string, face?: Face): Ink =>
+  face ? measurer(face.font ? fontStack(face.font) : FONT, STYLE.size, !!face.bold, !!face.italic)(text) : plain(text);
 
 // A caption line's advance width in px, in the caption font.
 const CAPTION_FONT = token("--caption-font");

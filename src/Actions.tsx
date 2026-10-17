@@ -15,13 +15,15 @@ import type { Problem } from "./check";
 import { Menu } from "./Menu";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
-import { COLOURS, TINTS } from "./docstyle";
+import { COLOURS, FONTS, TINTS } from "./docstyle";
 import { ArrowGlyph, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, SymbolGlyph, type BondKind } from "./tools";
 
+// A selected atom label's text style (the first labelled atom's, for a structure), for the label style buttons.
+export type LabelText = { bold: boolean; italic: boolean; underline: boolean; font: string; size: number };
 export type Context =
   | { kind: "empty" }
   | { kind: "drawing"; nameable: boolean }
-  | { kind: "structure"; atoms: number; structures: number; next: string; nameable: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; cip?: boolean; numbers?: boolean; halo?: string; fill?: string }
+  | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; cip?: boolean; numbers?: boolean; halo?: string; fill?: string }
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
   | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right"; attached: boolean; attachable: boolean;
       script?: "sub" | "super"; font?: string; fonts?: string[] }
@@ -30,7 +32,7 @@ export type Context =
   | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[]; shade: { depth: number; blur: number; opacity: number; pt: number } }
   | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean; grid: boolean }
-  | { kind: "atom"; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; halo?: string; fill?: string; numbered?: boolean }
+  | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; halo?: string; fill?: string; numbered?: boolean }
   | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean }
   | { kind: "spot"; style: "filled" | "hollow" | "shaded"; w: number; h: number; tail: number; rf: boolean; pt: number };
 
@@ -625,6 +627,17 @@ export function Actions({ open, context, analysis, problems, hiddenWarnings, mes
           {([["left", "Align left", <TextAlignLeft size={16} />], ["centre", "Centre", <TextAlignCenter size={16} />], ["right", "Align right", <TextAlignRight size={16} />]] as const).map(([id, name, icon]) => (
             <button key={id} className="chip" aria-pressed={context.align === id} aria-label={name} title={name} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
           ))}
+        </div>
+      )}
+
+      {(context.kind === "atom" || context.kind === "structure") && context.text && (
+        // A label styles as text does, as in ChemDraw: the Text menu's styles, font and size on the selected labels.
+        <div className="chips label-style" role="group" aria-label="Label style">
+          {([["bold", "Bold", <TextB size={16} weight="bold" />, context.text.bold], ["italic", "Italic", <TextItalic size={16} />, context.text.italic], ["underline", "Underline", <TextUnderline size={16} />, context.text.underline]] as const).map(([id, name, icon, on]) => (
+            <button key={id} className="chip" aria-pressed={on} aria-label={name} title={hint(`caption.${id}`) ? `${name} (${hint(`caption.${id}`)})` : name} onClick={() => run(`caption.${id}`)}>{icon}</button>
+          ))}
+          <FontButton font={context.text.font} fonts={FONTS} run={run} />
+          <SizeButton size={context.text.size} run={run} />
         </div>
       )}
 

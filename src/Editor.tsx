@@ -50,7 +50,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, Palette, RingGlyph, RINGS, SELECTS, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, orbitalPaths, straightArrow, shapeInk, shapePaths, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, type Arrow, type ArrowKind, type Box, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
+import { arrowPath, arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, orbitalPaths, straightArrow, shapeInk, shapePaths, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
 import { loadNames, nameToSmiles, suggestName } from "./names";
 import { checkedName, graphOf, setNamer } from "./naming";
@@ -889,6 +889,14 @@ export default function Editor() {
   }, [doc, drag, pen, penAt]); // eslint-disable-line react-hooks/exhaustive-deps
   // The document's style (or the default for new documents), as widths and sizes in the drawing frame.
   const style: DocStyle = useMemo(() => readStyle(doc.style ?? settings.docStyle), [doc.style, settings.docStyle]);
+  // The text style of the first labelled atom among these, for the label style buttons; none when no atom has a label.
+  const labelText = (ids: number[]) => {
+    const i = ids.find((k) => drawing.label[k]), a = i === undefined ? undefined : doc.atoms[i];
+    return a && { bold: !!a.bold, italic: !!a.italic, underline: !!a.underline, font: a.font ?? style.labelFont, size: a.size ?? style.labelSize };
+  };
+  // An atom label's font: its own font, bold and italic when it has them, else the document's label font.
+  const labelFont = (l: { size: number; font?: string; bold?: boolean; italic?: boolean }) =>
+    `${l.italic ? "italic " : ""}${l.bold ? "bold " : ""}${l.size}px ${fontStack(l.font ?? style.labelFont)}`;
   const frame = useMemo(() => frameStyle(style, L), [style]);
   const measure = useMemo(() => measurer(fontStack(style.labelFont), frame.size), [style.labelFont, frame.size]);
   const pt = (4 / 3) * frame.k; // frame px per point
@@ -952,7 +960,7 @@ export default function Editor() {
     return (
       <svg width={(box[2] - box[0]) * scale} height={(box[3] - box[1]) * scale} viewBox={`${box[0]} ${box[1]} ${box[2] - box[0]} ${box[3] - box[1]}`}>
         <path d={toPath(d.polygons)} fill="#000" />
-        {d.labels.map((l, i) => <text key={i} x={l.x} y={l.y} fill="#000" style={{ font: `${l.size}px ${fontStack(style.labelFont)}` }}>{l.text}</text>)}
+        {d.labels.map((l, i) => <text key={i} x={l.x} y={l.y} fill="#000" textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>{l.text}</text>)}
         <text x={cap.lines[0].x} y={cap.lines[0].y} textAnchor="middle" fill={style.colour} style={{ font: `bold ${cap.size}px ${fontStack(style.captionFont)}` }}>1</text>
       </svg>
     );
@@ -2042,7 +2050,7 @@ export default function Editor() {
     if (!ids.length) return { kind: "drawing", nameable };
     if (ids.length === 1) {
       const a = doc.atoms[ids[0]];
-      return { kind: "atom", label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre: stereocentres(doc).includes(ids[0]), enhanced: a.enhanced, halo: a.halo, fill: a.fill, numbered: !!a.number };
+      return { kind: "atom", text: labelText([ids[0]]), label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre: stereocentres(doc).includes(ids[0]), enhanced: a.enhanced, halo: a.halo, fill: a.fill, numbered: !!a.number };
     }
     const bi = ids.length === 2 ? doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])) : -1;
     if (bi >= 0) {
@@ -2061,7 +2069,7 @@ export default function Editor() {
     const stereo = !centres.length ? undefined : flags.size > 1 ? "mixed" : flags.has("&1") ? "racemic" : flags.has("or1") ? "relative" : flags.has("") ? "absolute" : "mixed";
     // A 3D structure (Structure Perspective): drawn with depth, or flat.
     const solid = ids.some((i) => Math.abs(doc.atoms[i].location[2] ?? 0) > 1e-3);
-    return { kind: "structure", atoms: ids.length, structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextNumber(doc), nameable, pairs, stereo,
+    return { kind: "structure", text: labelText(ids), atoms: ids.length, structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextNumber(doc), nameable, pairs, stereo,
       ...(solid ? { depth: !ids.some((i) => doc.atoms[i].depth === false) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
       // The highlight and ring fill the selected atoms share, if they share one.
       halo: ids.every((i) => doc.atoms[i].halo === doc.atoms[ids[0]].halo) ? doc.atoms[ids[0]].halo : undefined,
@@ -2630,6 +2638,16 @@ export default function Editor() {
     }
     if (command.startsWith("caption.")) {
       const [, what, ...rest] = command.split("."), arg = rest.join(".");
+      // On selected atoms, the Text menu and the label style buttons style their labels, as in ChemDraw.
+      const labelled = !writing && !picked.size ? [...selection].filter((i) => drawing.label[i]) : [];
+      if (labelled.length && ["bold", "italic", "underline", "plain", "font", "size"].includes(what)) {
+        const first = doc.atoms[labelled[0]], ids = new Set(labelled);
+        const change: Partial<Atom> = what === "plain" ? { bold: undefined, italic: undefined, underline: undefined }
+          : what === "font" ? { font: arg === style.labelFont ? undefined : arg }
+          : what === "size" ? { size: Number(arg) === style.labelSize ? undefined : Number(arg) }
+          : { [what]: first[what as "bold" | "italic" | "underline"] ? undefined : true };
+        return set({ ...doc, atoms: doc.atoms.map((a, k) => (ids.has(k) ? { ...a, ...change } : a)) }, true);
+      }
       // Text styles: on the characters selected while typing (or the next ones typed), else on whole captions.
       const toggle = (key: "bold" | "italic" | "underline") => (s: RunStyle, all: RunStyle): RunStyle => ({ ...s, [key]: all[key] ? undefined : true });
       const script = (to: "sub" | "super") => (s: RunStyle, all: RunStyle): RunStyle => ({ ...s, script: all.script === to ? undefined : to });
@@ -3372,7 +3390,7 @@ export default function Editor() {
             <text key={`map${i}`} className="atom-map" textAnchor="middle" x={(pos(shown, i)[0] + 0.42 * markDirection(shown, i)[0]) * L} y={-(pos(shown, i)[1] + 0.42 * markDirection(shown, i)[1]) * L + 0.22 * frame.size} style={{ fontSize: frame.size * 0.62 }}>{a.map}</text>
           ) : null)}
           {drawing.labels.map((l, i) => (
-            <text key={i} x={l.x} y={l.y} fill={l.colour ? textInk(l.colour) : "var(--ink)"} fillOpacity={l.alpha} style={{ font: `${l.size}px ${fontStack(style.labelFont)}` }}>
+            <text key={i} x={l.x} y={l.y} fill={l.colour ? textInk(l.colour) : "var(--ink)"} fillOpacity={l.alpha} textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>
               {l.text}
             </text>
           ))}
@@ -3406,7 +3424,7 @@ export default function Editor() {
           {ghost && (
             <g className="ghost" aria-hidden>
               <path d={toPath(ghost.polygons)} />
-              {ghost.labels.map((l, i) => <text key={i} x={l.x} y={l.y} style={{ font: `${l.size}px ${fontStack(style.labelFont)}` }}>{l.text}</text>)}
+              {ghost.labels.map((l, i) => <text key={i} x={l.x} y={l.y} textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>{l.text}</text>)}
             </g>
           )}
           {(() => {

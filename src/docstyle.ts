@@ -92,6 +92,6 @@ export function frameStyle(d: DocStyle, frame: number): Style & { k: number } {
   const k = frame / ((d.bond * 4) / 3); // frame px per true px
   const px = (pt: number) => ((pt * 4) / 3) * k;
   // ChemDraw's bonds clear label outlines by 1.69 pt for a 1.6 pt margin (measured); the same ratio for every margin.
-  return { bond: frame, line: px(d.line), bold: px(d.bold), spacing: (d.spacing / 100) * frame, hash: px(d.hash), margin: px((d.margin * 1.69) / 1.6), size: px(d.labelSize), k,
+  return { bond: frame, line: px(d.line), bold: px(d.bold), spacing: (d.spacing / 100) * frame, hash: px(d.hash), margin: px((d.margin * 1.69) / 1.6), size: px(d.labelSize), labelPt: d.labelSize, k,
     terminal: d.terminalLabels, carbons: d.carbonLabels, hideH: d.hideH };
 }

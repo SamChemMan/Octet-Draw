@@ -27,6 +27,8 @@ export type Atom = {
   enhanced?: string; // enhanced stereo: the stereocentre's group, "abs", "&1" (and) or "or1" (or)
   colour?: string; // #rrggbb for the atom's label and marks; unset draws in the document's ink
   depth?: false; // a 3D structure drawn flat (Structure Perspective off); location[2] is the atom's depth, nearer is larger
+  // The label's text style (ChemDraw's Text menu on a selected label). Unset uses the document's label font and size.
+  font?: string; size?: number; bold?: true; italic?: true; underline?: true;
   ignoreWarnings?: true; // Display Warnings off for this atom (ChemDraw's IgnoreWarnings): its problems are not marked
   cip?: true; // Show Stereochemistry is on for this atom's structure: its R/S (and its double bonds' E/Z) labels show
   halo?: string; // #rrggbb highlight: a disc behind the atom at 40% opacity (ChemDraw's highlight colours; NMR peak colours)
@@ -151,10 +153,13 @@ export type Grid = { arrow: number; typed: Record<string, Partial<Record<"mass" 
 export type Group = { id: number; atoms: number[]; items: number[]; integral?: true };
 // Sizes in px: bond length, line width, bold width, double-bond spacing, hash spacing, label margin, label font size.
 // terminal, carbons: label carbons at chain ends (CH3), or every other carbon too; hideH: labels leave off implicit H.
-export type Style = { bond: number; line: number; bold: number; spacing: number; hash: number; margin: number; size: number; terminal?: boolean; carbons?: boolean; hideH?: boolean };
+// labelPt: the document's label size in pt, which an atom's own label size is measured against.
+export type Style = { bond: number; line: number; bold: number; spacing: number; hash: number; margin: number; size: number; labelPt?: number; terminal?: boolean; carbons?: boolean; hideH?: boolean };
 // width: advance; ascent: ink top above the baseline; outline: glyph edge points relative to the text origin (y down).
 export type Ink = { width: number; ascent: number; outline: P[] };
-export type Label = { text: string; x: number; y: number; size: number; colour?: string; alpha?: number };
+export type Label = { text: string; x: number; y: number; size: number; colour?: string; alpha?: number; font?: string; bold?: boolean; italic?: boolean; underline?: boolean };
+// A label's face, for measuring it: its own font, bold and italic.
+export type Face = { font?: string; bold?: boolean; italic?: boolean };
 export type Box = [number, number, number, number];
 // ink: each atom's ink box (its label and the bonds that touch it), for placing captions. label: the ink box of an
 // atom's label alone (NH2, OMe), for highlighting it; undefined for an unlabelled atom. scale: px per bond length.
@@ -252,7 +257,7 @@ type Plan = {
 };
 
 // scale: px per input unit. By default the median bond is drawn at the style's bond length.
-export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale?: number): Drawing {
+export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, scale?: number): Drawing {
   const raw = mol.bonds.map((b) => len(sub(mol.atoms[b.atoms[0]].location as unknown as P, mol.atoms[b.atoms[1]].location as unknown as P)));
   const median = [...raw].sort((x, y) => x - y)[Math.floor(raw.length / 2)] || 1;
   const k = scale ?? s.bond / median;
@@ -285,11 +290,19 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
       }
       return [];
     }
+    // The label in its own style: measured in its face, and scaled by its size against the document's.
+    const face: Face | undefined = a.font || a.bold || a.italic ? { font: a.font, bold: a.bold, italic: a.italic } : undefined;
+    const r = a.size && s.labelPt ? a.size / s.labelPt : 1, S = s.size * r;
+    const M = !face && r === 1 ? measure : (t: string): Ink => {
+      const m = measure(t, face);
+      return r === 1 ? m : { width: m.width * r, ascent: m.ascent * r, outline: m.outline.map(([px, py]) => [px * r, py * r] as P) };
+    };
+    const look = { ...(a.font ? { font: a.font } : {}), ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}) };
     const shape: P[] = [];
     const run = (text: string, x: number, y: number, f = 1) => {
-      labels.push({ text, x, y, size: s.size * f, colour: a.colour });
+      labels.push({ text, x, y, size: S * f, colour: a.colour, ...look });
       labelAtom.set(labels[labels.length - 1], i);
-      for (const [px, py] of measure(text).outline) shape.push([x + px * f, y + py * f]);
+      for (const [px, py] of M(text).outline) shape.push([x + px * f, y + py * f]);
     };
     const [x, y] = pts[i];
     // Which way the label reads: away from the bonds. Bonds on the right (within 70° of horizontal) reverse it.
@@ -299,38 +312,38 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
       // A written label: units in order, reversed when it reads right to left (OMe as MeO). The attaching
       // unit's first glyph sits centred on the atom.
       const us = units(a.text), reversed = deg(i) > 0 && !steep && v[0] > 1e-6;
-      const width = (u: (typeof us)[number]) => measure(u.text).width + (u.count ? measure(u.count).width * SUB : 0);
-      const first = measure(us[0].text[0]), base = y + first.ascent / 2;
+      const width = (u: (typeof us)[number]) => M(u.text).width + (u.count ? M(u.count).width * SUB : 0);
+      const first = M(us[0].text[0]), base = y + first.ascent / 2;
       const order = reversed ? [...us].reverse() : us;
       let cx = x - first.width / 2 - (reversed ? order.slice(0, -1).reduce((w, u) => w + width(u), 0) : 0);
       for (const u of order) {
         run(u.text, cx, base);
-        if (u.count) run(u.count, cx + measure(u.text).width, base + DROP * s.size, SUB);
+        if (u.count) run(u.count, cx + M(u.text).width, base + DROP * S, SUB);
         cx += width(u);
       }
       const right = reversed ? x - first.width / 2 + width(us[0]) : cx;
-      if (a.charge && !a.circled) run(sign(a.charge), right, base - RISE * s.size, SUB);
+      if (a.charge && !a.circled) run(sign(a.charge), right, base - RISE * S, SUB);
       return shape;
     }
-    const first = measure(a.label[0]);
+    const first = M(a.label[0]);
     const ox = x - first.width / 2, base = y + first.ascent / 2;
     run(a.label, ox, base);
     // An isotope's mass number, raised, just before the element.
-    if (a.isotope) { const t = String(a.isotope); run(t, ox - measure(t).width * SUB, base - RISE * s.size, SUB); }
+    if (a.isotope) { const t = String(a.isotope); run(t, ox - M(t).width * SUB, base - RISE * S, SUB); }
     const charge = a.charge ?? 0;
     const used = nbrs[i].reduce((n, j) => n + (ORDER[bondAt.get(key(i, j))!.type] ?? 1), 0);
     const h = s.hideH ? 0 : a.implicitHCount ?? hydrogens(a.label, charge, used, a.radical === 3 ? 2 : a.radical);
     const count = h > 1 ? String(h) : '';
-    const hW = measure('H').width, cW = count ? measure(count).width * SUB : 0;
-    const hs = (hx: number, hy: number) => { run('H', hx, hy); if (count) run(count, hx + hW, hy + DROP * s.size, SUB); };
-    let end = ox + measure(a.label).width; // the charge goes here
+    const hW = M('H').width, cW = count ? M(count).width * SUB : 0;
+    const hs = (hx: number, hy: number) => { run('H', hx, hy); if (count) run(count, hx + hW, hy + DROP * S, SUB); };
+    let end = ox + M(a.label).width; // the charge goes here
     if (h) {
       // Sum of the bond directions: within 70° of horizontal, H goes on the far side; steeper, H stacks (indole NH).
       if (deg(i) ? !steep && v[0] > 1e-6 : H_FIRST.has(a.label)) hs(ox - hW - cW, base); // HO, H2N
       else if (!steep || deg(i) < 2) { hs(end, base); end += hW + cW; } // OH, NH2
-      else { const pitch = 1.1 * measure('H').ascent; hs(x - hW / 2, base + (v[1] > 0 ? -pitch : pitch)); }
+      else { const pitch = 1.1 * M('H').ascent; hs(x - hW / 2, base + (v[1] > 0 ? -pitch : pitch)); }
     }
-    if (charge && !a.circled) run(sign(charge), end, base - RISE * s.size, SUB);
+    if (charge && !a.circled) run(sign(charge), end, base - RISE * S, SUB);
     return shape;
   });
 

@@ -847,6 +847,10 @@ button.variant.add {
 .chips.styles {
   grid-template-columns: repeat(6, 1fr);
 }
+/* A label's style on one row: bold, italic, underline, then its font and size (two columns each). */
+.chips.label-style {
+  grid-template-columns: repeat(7, 1fr);
+}
 .chip {
   display: grid;
   place-items: center;

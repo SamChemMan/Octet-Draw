@@ -431,7 +431,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // An atom's label as ChemDraw stores it: the text in formula face, any charge as a superscript run after it, and
   // its anchor placed so the attaching glyph sits on the atom (spec 13.1). H goes where Octet draws it.
   function labelOf(i: number, h: number): { xml: string; box: Box } {
-    const a = mol.atoms[i], X = page(i), size = style.labelSize, charge = a.charge ?? 0, deg = nbrs[i].length;
+    const a = mol.atoms[i], X = page(i), size = a.size ?? style.labelSize, charge = a.charge ?? 0, deg = nbrs[i].length;
     const v = nbrs[i].reduce<P>((acc, j) => { const d = sub(page(j), X), l = len(d) || 1; return [acc[0] + d[0] / l, acc[1] + d[1] / l]; }, [0, 0]);
     const steep = len(v) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180), right = deg > 0 && !steep && v[0] > 1e-6;
     let text = a.text ?? a.label, just = a.text && right ? "Right" : "Left", stack: string | undefined;
@@ -448,10 +448,10 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const x = just === "Right" ? X[0] - advance(text[0], size) / 2 + wide(first) + widthOf(sign, 0.75 * size) : X[0] - advance(text[0], size) / 2 - isoW;
     const y = X[1] + (/[OSCGQ]/.test(text) ? 0.364 : 0.358) * size, left = just === "Right" ? x - width : x;
     const box: Box = [left, y - 0.716 * size, left + width, y + (/\d/.test(text) ? 0.15 * size : 0)];
-    const style2 = { font: style.labelFont, size, colour: a.colour };
+    const style2 = { font: a.font ?? style.labelFont, size, colour: a.colour }, look = (a.bold ? 1 : 0) | (a.italic ? 2 : 0) | (a.underline ? 4 : 0);
     return {
       xml: el("t", { p: pt([x, y]), BoundingBox: boxText(box), color: colour(a.colour), LabelJustification: just, Justification: just === "Left" ? undefined : just, LabelAlignment: stack },
-        (iso ? run(iso, { ...style2, face: 0x40 }) : "") + run(text, { ...style2, face: 0x60 }) + (sign ? run(sign, { ...style2, face: 0x40 }) : "")),
+        (iso ? run(iso, { ...style2, face: 0x40 | look }) : "") + run(text, { ...style2, face: 0x60 | look }) + (sign ? run(sign, { ...style2, face: 0x40 | look }) : "")),
       box,
     };
   }
@@ -903,6 +903,16 @@ export function fromCdxml(text: string): CdxmlRead {
     numH.set(i, int(n.attrs.NumHydrogens) ?? 0);
     atomOf.set(int(n.attrs.id) ?? -1, i);
     const t = n.kids.find((k) => k.name === "t");
+    // The label's own text style, where it differs from the document's: bold, italic, underline, font and size.
+    const first = t?.kids.find((k) => k.name === "s");
+    if (first) {
+      const f = int(first.attrs.face) ?? 0, font = fontOf(fonts.get(int(first.attrs.font) ?? -1)).font, size = real(first.attrs.size);
+      if (f & 1) a.bold = true;
+      if (f & 2) a.italic = true;
+      if (f & 4) a.underline = true;
+      if (font && font !== style.labelFont) a.font = font;
+      if (size && size >= 4 && size <= 72 && Math.abs(size - style.labelSize) > 0.01) a.size = size;
+    }
     if (t) labels.push({ i, text: t.kids.filter((k) => k.name === "s").map((k) => k.text).join(""), type, isotope });
     return i;
   }

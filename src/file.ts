@@ -13,7 +13,8 @@ const HEADS: Head[] = ["none", "full", "left", "right"];
 export function serialize(mol: Mol): string {
   const atoms = mol.atoms.map((a) => ({ label: a.label, x: round(a.location[0]), y: round(a.location[1]), ...(round(a.location[2] ?? 0) ? { z: round(a.location[2]) } : {}), ...(a.depth === false ? { depth: false } : {}), ...(a.charge ? { charge: a.charge } : {}), ...(a.text ? { text: a.text } : {}),
     ...(a.radical ? { radical: a.radical } : {}), ...(a.isotope ? { isotope: a.isotope } : {}), ...(a.pairs ? { pairs: a.pairs } : {}), ...(a.circled ? { circled: true } : {}), ...(a.partial ? { partial: a.partial } : {}),
-    ...(a.hmark ? { hmark: a.hmark } : {}), ...(a.attach ? { attach: true } : {}), ...(a.bead ? { bead: true } : {}), ...(a.map ? { map: a.map } : {}), ...(a.enhanced ? { enhanced: a.enhanced } : {}), ...(a.colour ? { colour: a.colour } : {}), ...(a.cip ? { cip: true } : {}), ...(a.halo ? { halo: a.halo } : {}), ...(a.fill ? { fill: a.fill } : {}), ...(a.circle ? { circle: true } : {}), ...(a.number ? { number: a.number } : {}), ...(a.ignoreWarnings ? { ignoreWarnings: true } : {}) }));
+    ...(a.hmark ? { hmark: a.hmark } : {}), ...(a.attach ? { attach: true } : {}), ...(a.bead ? { bead: true } : {}), ...(a.map ? { map: a.map } : {}), ...(a.enhanced ? { enhanced: a.enhanced } : {}), ...(a.colour ? { colour: a.colour } : {}), ...(a.cip ? { cip: true } : {}), ...(a.halo ? { halo: a.halo } : {}), ...(a.fill ? { fill: a.fill } : {}), ...(a.circle ? { circle: true } : {}), ...(a.number ? { number: a.number } : {}), ...(a.ignoreWarnings ? { ignoreWarnings: true } : {}),
+    ...(a.font ? { font: a.font } : {}), ...(a.size ? { size: a.size } : {}), ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}) }));
   const bonds = mol.bonds.map((b) => ({ atoms: b.atoms, type: b.type, ...(b.stereo ? { stereo: b.stereo } : {}), ...(b.display ? { display: b.display } : {}), ...(b.position ? { position: b.position } : {}), ...(b.colour ? { colour: b.colour } : {}) }));
   // Arrows and captions are saved in id order; ids are not saved. Conditions name their arrow by its place in the list.
   const arrowList = [...(mol.arrows ?? [])].sort((a, b) => a.id - b.id);
@@ -145,6 +146,12 @@ export function parse(text: string): Mol {
     if (a.circle) atom.circle = true;
     if (a.number) atom.number = a.number as string;
     if (a.ignoreWarnings === true) atom.ignoreWarnings = true;
+    // The label's own text style; anything out of range is left out.
+    if (typeof a.font === "string" && FONTS.includes(a.font)) atom.font = a.font;
+    if (typeof a.size === "number" && a.size >= 4 && a.size <= 72) atom.size = a.size;
+    if (a.bold === true) atom.bold = true;
+    if (a.italic === true) atom.italic = true;
+    if (a.underline === true) atom.underline = true;
     out.atoms.push(atom);
   }
   for (const b of bonds as Record<string, unknown>[]) {
