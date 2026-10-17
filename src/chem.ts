@@ -163,11 +163,18 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
 
 // The drawing as SMILES. Throws if Indigo can't read it (for example, a valence it rejects).
 // A drawing as KET, with labels expanded into atoms. KET has no bond display styles (bold, wavy and so on).
+// Elements that are not metals.
+const NONMETAL = new Set(["H", "D", "He", "B", "C", "N", "O", "F", "Ne", "Si", "P", "S", "Cl", "Ar", "Ge", "As", "Se", "Br", "Kr", "Sb", "Te", "I", "Xe", "At", "Rn", "*", "R"]);
 function ketOf(drawn: Mol): string {
   const mol = expandLabels(drawn);
   const bonds = mol.bonds.map(({ type, atoms, stereo }) => (stereo ? { type, atoms, stereo } : { type, atoms }));
+  // An atom bonded to a metal keeps the hydrogens Octet draws on it: Indigo would count the P of a PPh3 bonded to Pd
+  // as PH (valence 5), where the drawing shows P.
+  const used = mol.atoms.map(() => 0), metalled = mol.atoms.map(() => false);
+  for (const b of mol.bonds) for (const [i, j] of [b.atoms, [b.atoms[1], b.atoms[0]]]) { used[i] += b.type; if (!NONMETAL.has(mol.atoms[j].label)) metalled[i] = true; }
   // KET radicals: 1 a singlet, 2 one unpaired electron (doublet), 3 two (triplet).
-  const atoms = mol.atoms.map(({ label, location, charge, radical, isotope }) => ({ label, location, ...(charge ? { charge } : {}), ...(radical ? { radical: radical === 3 ? 1 : radical + 1 } : {}), ...(isotope ? { isotope } : {}) }));
+  const atoms = mol.atoms.map(({ label, location, charge, radical, isotope, implicitHCount }, i) => ({ label, location, ...(charge ? { charge } : {}), ...(radical ? { radical: radical === 3 ? 1 : radical + 1 } : {}), ...(isotope ? { isotope } : {}),
+    ...(metalled[i] && NONMETAL.has(label) ? { implicitHCount: implicitHCount ?? hydrogens(label, charge ?? 0, used[i], radical) } : {}) }));
   return JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule", atoms, bonds } });
 }
 function convert(input: string, format: string): string {
@@ -373,9 +380,7 @@ export function analyse(mol: Mol): Analysis | undefined {
   if (!indigo || !mol.atoms.length) return undefined;
   const ind = indigo, opts = new ind.MapStringString(), sel = new ind.VectorInt();
   try {
-    const full = expandLabels(mol), bonds = full.bonds.map(({ type, atoms }) => ({ type, atoms }));
-    const atoms = full.atoms.map(({ label, location, charge, isotope }) => ({ label, location, ...(charge ? { charge } : {}), ...(isotope ? { isotope } : {}) }));
-    const ket = JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule", atoms, bonds } });
+    const ket = ketOf(mol);
     // Indigo reports each structure separately ("C8 H9 N O2; C4 H12 N"): one entry per structure.
     const out = JSON.parse(ind.calculate(ket, opts, sel));
     const split = (key: string) => String(out[key]).split(";").map((x) => x.trim());

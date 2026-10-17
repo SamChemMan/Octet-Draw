@@ -38,5 +38,6 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | Dimorphite-DL site table (Durrant lab) | 2.1.0, `dimorphite_dl/smarts/site_substructures.smarts` | Apache-2.0 | Ionisable groups with mean pKa and SD in `src/props.ts` (values only; Octet's own group tests) |
 | PatWalters/solubility, ESOL coefficients | `esol.py`, master of 16 October 2026 | MIT | ESOL logS coefficients refitted for Crippen logP in `src/props.ts` |
 | RDKit | 2026.09.1 | BSD-3-Clause | Reference values in `src/props.check.ts` (TPSA, rotatable bonds, aromatic atoms, logP, weight). Not shipped |
+| PubChem (NCBI) | Records read 17 October 2026 | NCBI places no restrictions on PubChem data; structures are facts | Reference InChIKeys in `src/names.check.ts`. Octet's drug names (`src/drugs.ts`) are Octet's own SMILES checked against PubChem; a few complex ones (tetracyclines, steroids, paclitaxel, strychnine) follow PubChem's SMILES. Waiting for Sam's approval |
 
 The OPSIN build's notices are in [src/vendor/opsin/NOTICES.txt](src/vendor/opsin/NOTICES.txt). The app ships them as `licences/opsin.txt`.

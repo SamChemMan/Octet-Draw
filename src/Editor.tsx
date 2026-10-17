@@ -55,7 +55,7 @@ import {
 } from "./tools";
 import { arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
-import { loadNames, nameToSmiles, suggestName } from "./names";
+import { loadNames, looksLikeSmiles, nameToSmiles, suggestName } from "./names";
 import { checkedName, graphOf, setNamer } from "./naming";
 import { iupacName } from "./namer";
 
@@ -158,6 +158,16 @@ const anchorOf = (c: Placed): P => [(c.anchor === "start" ? c.box[0] : c.anchor 
 const union = (boxes: Box[]): Box | undefined => boxes.length ? [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))] : undefined;
 // The draft caption being typed sorts after every real one.
 const DRAFT = Number.MAX_SAFE_INTEGER;
+// The clipboard's plain text when it is one short line, for the name field. In the app it comes from the clipboard
+// itself, so WebKit asks nothing.
+async function clipboardText(): Promise<string | undefined> {
+  try {
+    const t = (TAURI ? (await readClipboard()).text : await navigator.clipboard?.readText())?.trim();
+    return t && t.length <= 200 && !t.includes("\n") ? t : undefined;
+  } catch {
+    return undefined;
+  }
+}
 // Typing in a field, or in a caption's rich text box (contentEditable): keys and Select All are the text's, not the drawing's.
 const typing = () => document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement || (document.activeElement as HTMLElement | null)?.isContentEditable === true;
 
@@ -455,11 +465,28 @@ export default function Editor() {
   };
   const historyMols = useRef(new Map<string, Mol | undefined>());
   const nameField = useRef<HTMLInputElement>(null);
-  // A structure for a chemical name, laid out, or undefined.
+  // A structure for a chemical name, laid out, or undefined (also until the names engine has loaded).
   const structureFor = (name: string): Mol | undefined => {
-    const smiles = loaded && namesLoaded ? nameToSmiles(name) : undefined;
+    const smiles = loaded ? nameToSmiles(name) : undefined;
     if (!smiles) return undefined;
     try { const m = parseStructure(smiles); return m.atoms.length ? m : undefined; } catch { return undefined; }
+  };
+  // A structure for typed or pasted text: a chemical name first (Octet's own names, drugs and formulas too), then
+  // SMILES, InChI or a MOL file when the text looks like one. Indigo reads words such as "aspirin" as query atoms,
+  // so a word is never read as SMILES.
+  const structureFromText = (text: string): Mol | undefined => {
+    const s = text.trim(), lines = s.includes("\n");
+    const named = lines ? undefined : structureFor(s);
+    if (named || !loaded || !(lines || looksLikeSmiles(s))) return named;
+    try { const m = parseStructure(s); return m.atoms.length ? m : undefined; } catch { return undefined; }
+  };
+  // A structure for a name typed with a slip in it: the name as typed, or else Octet's suggestion (thorough: from every
+  // name one keystroke away too, 30 to 90 ms).
+  const structureOrSuggestion = (text: string, thorough = false): { frag: Mol; name: string } | undefined => {
+    const frag = structureFromText(text);
+    if (frag) return { frag, name: text.trim() };
+    const fixed = suggestName(text, thorough), mended = fixed ? structureFor(fixed) : undefined;
+    return fixed && mended ? { frag: mended, name: fixed } : undefined;
   };
   useEffect(() => { if (notice) { const t = setTimeout(() => setNotice(undefined), 4000); return () => clearTimeout(t); } }, [notice]);
   // After an edit, the thing under a still pointer may have changed.
@@ -667,15 +694,71 @@ export default function Editor() {
     set(merge(base, frag, landing(frag, at)));
     setSelection(new Set(frag.atoms.map((_, i) => base.atoms.length + i)));
   }
-  // Name to structure: a picked caption that is a name becomes its structure, in its place. Otherwise the
-  // name field opens (with the caption's text, if it was not a name).
-  function nameToStructure() {
+  // Name to structure (⇧⌘N), from what is in hand, as ChemDraw does: the caption or lone atom label being typed or
+  // picked becomes its structure, in its place. Text that is not a name opens the name field with that text. With
+  // nothing in hand the name field opens empty, or with the clipboard's text when that is a name or SMILES. In the
+  // name field, ⇧⌘N draws the name, as Return does.
+  function nameToStructure(waited = false) {
+    if (naming !== undefined) return drawNamed();
+    if (!waited && !namesLoaded) return void loadNames().then(() => { setNamesLoaded(true); nameToStructure(true); }, () => openNaming());
+    // The caption being typed.
+    if (writing) {
+      const text = writing.value.trim(), c = placed.find((x) => x.id === (writing.id ?? DRAFT)), found = text ? structureOrSuggestion(text, true) : undefined;
+      if (!found || !c) { commitWriting(); return openNaming(text); }
+      writingOpen.current = false;
+      setWriting(undefined);
+      return convertInPlace(found, writing.id !== undefined ? deleteGraphics(doc, new Set([writing.id])) : doc, [(c.box[0] + c.box[2]) / 2 / L, -(c.box[1] + c.box[3]) / 2 / L]);
+    }
+    // The label being typed: an atom with no bonds becomes the structure. On a bonded atom the label stays as it was.
+    if (editing) {
+      const text = editing.value.trim(), lone = !doc.bonds.some((b) => b.atoms.includes(editing.atom)), found = lone && text ? structureOrSuggestion(text, true) : undefined;
+      labelOpen.current = false;
+      setEditing(undefined);
+      const [x, y] = doc.atoms[editing.atom].location;
+      if (found) return convertInPlace(found, deleteAtom(doc, editing.atom), [x, y]);
+      return openNaming(text);
+    }
+    // A picked caption, or one picked atom with a label and no bonds.
     const c = picked.size === 1 && !selection.size ? doc.captions?.find((x) => picked.has(x.id)) : undefined;
-    const fixed = c && suggestName(c.text);
-    const frag = c && (structureFor(c.text) ?? (fixed ? structureFor(fixed) : undefined)), p = c && placed.find((x) => x.id === c.id);
-    if (c && frag && p) return place(frag, deleteGraphics(doc, new Set([c.id])), [(p.box[0] + p.box[2]) / 2 / L, -(p.box[1] + p.box[3]) / 2 / L]);
-    void loadNames().then(() => setNamesLoaded(true));
-    setNaming(c?.text ?? "");
+    const atom = !picked.size && selection.size === 1 ? [...selection][0] : undefined, a = atom !== undefined ? doc.atoms[atom] : undefined;
+    const label = a?.text && !doc.bonds.some((b) => b.atoms.includes(atom!)) ? a.text : undefined;
+    if (c) {
+      const found = structureOrSuggestion(c.text, true), p = placed.find((x) => x.id === c.id);
+      if (found && p) return convertInPlace(found, deleteGraphics(doc, new Set([c.id])), [(p.box[0] + p.box[2]) / 2 / L, -(p.box[1] + p.box[3]) / 2 / L]);
+      return openNaming(c.text);
+    }
+    if (label) {
+      const found = structureOrSuggestion(label, true);
+      if (found) return convertInPlace(found, deleteAtom(doc, atom!), [a!.location[0], a!.location[1]]);
+      return openNaming(label);
+    }
+    openNaming();
+  }
+  // A structure in place of the text it was read from. A name (not SMILES) joins the names drawn before.
+  function convertInPlace(found: { frag: Mol; name: string }, base: Mol, at: P) {
+    place(found.frag, base, at);
+    if (structureFor(found.name)) rememberName(found.name, found.frag);
+  }
+  // The name field, with the text given; with none, the clipboard's text if Octet reads it as a structure.
+  function openNaming(text?: string) {
+    void loadNames().then(() => setNamesLoaded(true), () => {});
+    setNaming(text ?? "");
+    if (text) return;
+    void clipboardText().then((t) => {
+      if (!t || !structureFromText(t)) return;
+      setNaming((n) => (n === "" ? t : n));
+      requestAnimationFrame(() => nameField.current?.select());
+    });
+  }
+  // Draws what the name field holds (or the recent name the arrow keys are on). False when it is not a name.
+  function drawNamed(): boolean {
+    if (naming === undefined) return false;
+    if (recent.at >= 0 && historyRows[recent.at] !== undefined) { pickHistory(historyRows[recent.at]); return true; }
+    if (!named) return false;
+    place(named);
+    if (structureFromText(naming)) { if (structureFor(naming.trim())) rememberName(naming.trim(), named); } else if (suggestion) rememberName(suggestion, named);
+    setNaming(undefined);
+    return true;
   }
   // Menu commands. New and Open go on the undo list, so they never lose work.
   const commands = useRef<Record<string, () => void>>({});
@@ -1071,7 +1154,7 @@ export default function Editor() {
   }, [naming, quick, namesLoaded]);
   const suggestion = quick ?? (thorough && thorough.typed === naming ? thorough.name : undefined);
   const named = useMemo(
-    () => (naming === undefined ? undefined : structureFor(naming) ?? (suggestion ? structureFor(suggestion) : undefined)),
+    () => (naming === undefined ? undefined : structureFromText(naming) ?? (suggestion ? structureFor(suggestion) : undefined)),
     [naming, suggestion, namesLoaded, loaded],
   );
   // Captions as laid out, with the caption being typed in place of its saved text (or added, if it is new).
@@ -2164,7 +2247,7 @@ export default function Editor() {
       const cs = (doc.captions ?? []).filter((c) => picked.has(c.id)), c = cs[0];
       if (c) {
         const p = placed.find((x) => x.id === c.id);
-        return { kind: "caption", mode: "picked", colour: c.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!c.bold, italic: !!c.italic, underline: !!c.underline, size: c.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: c.font ?? style.captionFont, fonts: fontList };
+        return { kind: "caption", mode: "picked", colour: c.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!c.bold, italic: !!c.italic, underline: !!c.underline, size: c.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: c.font ?? style.captionFont, fonts: fontList };
       }
     }
     if (!selection.size) return doc.atoms.length || doc.captions?.length || doc.arrows?.length || doc.shapes?.length ? { kind: "drawing", nameable } : { kind: "empty" };
@@ -2558,12 +2641,10 @@ export default function Editor() {
   const drawCommand = (q: string): Command | undefined => {
     const text = q.trim();
     if (text.length < 2) return undefined;
-    let frag = structureFor(text), shown = text;
-    if (!frag && namesLoaded) { const fixed = suggestName(text, false); if (fixed) { frag = structureFor(fixed); shown = fixed; } }
-    if (!frag && loaded && /^[A-Za-z0-9@+\-[\]()=#$%/\\.:*]+$/.test(text) && /[cCnNoOsS]/.test(text)) {
-      try { const m = parseStructure(text); if (m.atoms.length) frag = m; } catch { /* not SMILES either */ }
-    }
-    return frag ? { id: `draw:${shown}`, name: `Draw ${shown}`, group: "Structure", icon: <TemplateGlyph mol={frag} />, run: () => { place(frag!); if (structureFor(shown)) rememberName(shown, frag!); } } : undefined;
+    const found = structureOrSuggestion(text);
+    if (!found) return undefined;
+    const { frag, name: shown } = found;
+    return { id: `draw:${shown}`, name: `Draw ${shown}`, group: "Structure", icon: <TemplateGlyph mol={frag} />, run: () => { place(frag); if (structureFor(shown)) rememberName(shown, frag); } };
   };
 
   // Runs an action from the panel on the selected atom, bond or atoms.
@@ -3021,6 +3102,7 @@ export default function Editor() {
       if (TAURI && mod && e.shiftKey && key === "z") { e.preventDefault(); return undo(true); }
       if (!TAURI && mod && key === "a" && !e.shiftKey) { e.preventDefault(); return commands.current.select_all(); }
       if (!TAURI && mod && key === "a" && e.shiftKey) { e.preventDefault(); return commands.current.command_palette(); }
+      if (!TAURI && mod && key === "n" && e.shiftKey) { e.preventDefault(); return commands.current.name_to_structure(); }
       // A menu command on a key without Command or Ctrl (set in Settings): the page runs it (the menu cannot take
       // such a key without taking it from text boxes too). Command and Ctrl keys are the menu's own in the app.
       const pressedKey = keyOf(e), bound = pressedKey && actionFor(keymap(settings.keys), pressedKey, "none");
@@ -3066,7 +3148,8 @@ export default function Editor() {
       if (TAURI && !e.clipboardData?.getData(OCTET_CLIP)) {
         const text = e.clipboardData?.getData("text/plain")?.trim();
         e.preventDefault();
-        void readClipboard().then((clip) => {
+        // The names engine first, so a name pasted just after start-up reads too.
+        void Promise.all([readClipboard(), loadNames().catch(() => {})]).then(([clip]) => {
           if (clip.octet) {
             let add: Mol;
             try { add = parse(clip.octet); } catch { return setNotice("Octet cannot read what is on the clipboard."); }
@@ -3089,13 +3172,14 @@ export default function Editor() {
               }
             } catch { /* read the molfile or SMILES instead */ }
           }
-          for (const source of [clip.molfile, clip.smiles, text]) {
+          for (const source of [clip.molfile, clip.smiles]) {
             if (!source || !loaded) continue;
             let frag: Mol | undefined;
-            try { frag = source === text ? parseStructure(source) : importStructure(source); } catch { frag = undefined; }
-            if (!frag?.atoms.length && source === text) frag = structureFor(source);
+            try { frag = importStructure(source); } catch { frag = undefined; }
             if (frag?.atoms.length) return place(frag);
           }
+          const frag = text ? structureFromText(text) : undefined;
+          if (frag) return place(frag);
           if (text) setNotice("Octet cannot read this structure. Paste a name, a SMILES string or a MOL file.");
         }).catch((err) => setNotice(`Octet cannot read the clipboard. ${err}`));
         return;
@@ -3115,12 +3199,12 @@ export default function Editor() {
       const text = e.clipboardData?.getData("text/plain")?.trim();
       if (!text || !loaded) return;
       e.preventDefault();
-      // A SMILES string or MOL file first, then a chemical name.
-      let frag: Mol | undefined;
-      try { frag = parseStructure(text); } catch { frag = undefined; }
-      if (!frag?.atoms.length) frag = structureFor(text);
-      if (frag) place(frag);
-      else setNotice("Octet cannot read this structure. Paste a name, a SMILES string or a MOL file.");
+      // A chemical name first, then SMILES or a MOL file.
+      void loadNames().catch(() => {}).then(() => {
+        const frag = structureFromText(text);
+        if (frag) place(frag);
+        else setNotice("Octet cannot read this structure. Paste a name, a SMILES string or a MOL file.");
+      });
     };
     // Copy puts the selection, or the whole drawing, on the clipboard as SMILES (or text the panel asked for).
     const onCopy = (e: ClipboardEvent) => {
@@ -3653,6 +3737,8 @@ export default function Editor() {
             onKeyDown={(e) => {
               if (e.key === "Enter") commit();
               if (e.key === "Escape") { e.preventDefault(); commit(); }
+              // ⇧⌘N in the browser (the app's menu does it there): the label's text as a name.
+              if (!TAURI && (e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "n") { e.preventDefault(); commands.current.name_to_structure(); }
             }}
             onBlur={commit}
           />
@@ -3753,7 +3839,7 @@ export default function Editor() {
               if (e.key === "Escape") { e.preventDefault(); commitWriting(); } // Escape keeps the text, as a click elsewhere does
               // ChemDraw's text keys, in the browser (the desktop app's Text menu has them too).
               if (!TAURI && (e.metaKey || e.ctrlKey)) {
-                const k = e.key.toLowerCase(), command = { b: "caption.bold", i: "caption.italic", u: "caption.underline", t: "caption.plain", f: "caption.formula", "-": "caption.sub", "=": "caption.super", "+": "caption.super" }[k];
+                const k = e.key.toLowerCase(), command = e.shiftKey && k === "n" ? "name_to_structure" : { b: "caption.bold", i: "caption.italic", u: "caption.underline", t: "caption.plain", f: "caption.formula", "-": "caption.sub", "=": "caption.super", "+": "caption.super" }[k];
                 if (command) { e.preventDefault(); runAction(command); }
               }
             }}
@@ -3817,9 +3903,11 @@ export default function Editor() {
               if (n) setRecent((h) => ({ ...h, at: e.key === "ArrowDown" ? Math.min(n - 1, h.at + 1) : Math.max(-1, h.at - 1) }));
             }
             if (e.key === "Enter" && recent.at === historyRows.length && historyMore) { e.preventDefault(); return setRecent({ all: true, at: -1 }); }
-            if (e.key !== "Enter") return;
-            if (recent.at >= 0 && historyRows[recent.at] !== undefined) return void pickHistory(historyRows[recent.at]);
-            if (named) { place(named); rememberName(structureFor(naming.trim()) ? naming.trim() : suggestion ?? naming.trim(), named); setNaming(undefined); return; }
+            // ⇧⌘N draws the name too (in the browser; the app's menu does it there).
+            const again = !TAURI && (e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "n";
+            if (e.key !== "Enter" && !again) return;
+            e.preventDefault();
+            if (drawNamed()) return;
             // Not a name Octet can read: the field shakes.
             if (!matchMedia("(prefers-reduced-motion: reduce)").matches)
               e.currentTarget.animate([{ transform: "translateX(0)" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "translateX(0)" }], { duration: 240, easing: "ease-out" });

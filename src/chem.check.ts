@@ -55,4 +55,14 @@ assert.equal(formula(onEthyl("HOOC")), "C3H6O2");
 assert.equal(formula(onEthyl("CO2H")), "C3H6O2");
 // A label Indigo cannot read stays one unknown atom.
 assert.deepEqual(expandWithOrigins(onEthyl("Xx")).mol.atoms.map((a) => a.label), ["C", "C", "*"]);
+// A ligand bonded to a metal has the hydrogens the drawing shows: PPh3 on Pd is P, not PH.
+const ph3 = (at: number): Mol["atoms"] => [{ label: "P", location: [at, 1, 0] }, ...[0, 1, 2].flatMap((r) => Array.from({ length: 6 }, (_, k) => ({ label: "C", location: [at + r + Math.cos(k), 2 + Math.sin(k), 0] as [number, number, number] })))];
+const pd: Mol = { atoms: [{ label: "Pd", location: [0, 0, 0] }, ...ph3(1), ...ph3(-1)], bonds: [] };
+for (const p of [1, 20]) {
+  pd.bonds.push({ type: 1, atoms: [0, p] });
+  for (let r = 0; r < 3; r++) { const c = p + 1 + 6 * r; pd.bonds.push({ type: 1, atoms: [p, c] }); for (let k = 0; k < 6; k++) pd.bonds.push({ type: k % 2 ? 1 : 2, atoms: [c + k, c + ((k + 1) % 6)] }); }
+}
+pd.atoms.push({ label: "Cl", location: [0, -1, 0] }, { label: "Cl", location: [0, 1, 0] });
+pd.bonds.push({ type: 1, atoms: [0, 39] }, { type: 1, atoms: [0, 40] });
+assert.equal(formula(pd), "C36H30Cl2P2Pd");
 console.log("chem.check: labels ok");

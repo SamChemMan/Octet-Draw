@@ -13,11 +13,14 @@ pub const CDX: [&str; 2] = ["com.perkinelmer.chemdraw.cdx-clipboard", "com.cambr
 pub const CDXML: &str = "com.perkinelmer.cdxml";
 pub const MOLFILE: &str = "com.mdli.molfile";
 pub const SMILES: &str = "org.opensmiles.smiles";
+// Plain text, for Name to Structure (the name field opens with a name copied from elsewhere).
+pub const TEXT: &str = "public.utf8-plain-text";
 // Octet's own type. A UTI under the app's identifier: macOS refuses MIME-style names such as
 // application/x-octet+json on the pasteboard.
 pub const OCTET: &str = "io.github.samchemman.octet.json";
 
 const MAX_TYPE: usize = 64 << 20;
+const MAX_TEXT: usize = 64 << 10;
 
 // What paste found on the clipboard. Each is None when absent or unreadable.
 #[derive(serde::Serialize, Default, Debug, PartialEq)]
@@ -27,6 +30,7 @@ pub struct Clip {
     cdx: Option<String>,     // ChemDraw's CDX, base64
     molfile: Option<String>, // a molfile or RXN file, with LF line ends
     smiles: Option<String>,
+    text: Option<String>,    // plain text of 64 KB or less
 }
 
 // ChemDraw's form of a molfile on the clipboard: each line as one length byte, then the line, with no line ends.
@@ -100,6 +104,7 @@ fn clip(read: impl Fn(&str) -> Option<Vec<u8>>) -> Clip {
         cdx: CDX.iter().find_map(|t| read(t)).map(|b| base64::engine::general_purpose::STANDARD.encode(b)),
         molfile: read(MOLFILE).and_then(|b| molfile_text(&b)),
         smiles: read(SMILES).and_then(|b| smiles_text(&b)),
+        text: read(TEXT).filter(|b| b.len() <= MAX_TEXT).and_then(|b| String::from_utf8(b).ok()),
     };
     // The PDF only matters when nothing better is there.
     if c.octet.is_none() && c.cdxml.is_none() && c.cdx.is_none() {
@@ -207,6 +212,9 @@ mod tests {
         let read = |name: &str| t.iter().find(|(n, _)| *n == name).map(|(_, b)| b.clone());
         let c = clip(read);
         assert_eq!((c.octet.as_deref(), c.molfile.as_deref(), c.smiles.as_deref(), c.cdxml.as_deref()), (Some("{}"), Some(MOL), Some("CO"), None));
+        // Plain text (a name copied from a paper) comes through for the name field, unless it is too long.
+        assert_eq!(clip(|name| (name == TEXT).then(|| b"aspirin".to_vec())).text.as_deref(), Some("aspirin"));
+        assert_eq!(clip(|name| (name == TEXT).then(|| vec![b'a'; MAX_TEXT + 1])).text, None);
         // Without it (a picture copied back out of Word), the CDXML comes out of the PDF.
         let c = clip(|name| (name == PDF).then(|| t[0].1.clone()));
         assert!(c.cdxml.unwrap().contains("<CDXML/>"));
@@ -224,7 +232,7 @@ mod tests {
         let ours: Vec<&str> = names.iter().map(String::as_str).filter(|n| t.iter().any(|(x, _)| x == n)).collect();
         assert_eq!(ours, [PDF, MOLFILE, SMILES, OCTET], "{names:?}");
         let c = mac::read(&pb);
-        assert_eq!((c.octet.as_deref(), c.smiles.as_deref(), c.molfile.as_deref()), (Some("{}"), Some("CO"), Some(MOL)));
+        assert_eq!((c.octet.as_deref(), c.smiles.as_deref(), c.molfile.as_deref(), c.text.as_deref()), (Some("{}"), Some("CO"), Some(MOL), None));
         pb.clearContents();
     }
 }
