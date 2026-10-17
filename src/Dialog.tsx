@@ -7,13 +7,15 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 // While a modal (a dialog, Settings, the command palette or Home) is open, everything beside it in the window is
 // inert: Tab, clicks and screen readers stay in it, and a modal over Home blocks Home too. A layout effect, so a modal
 // that closes gives its neighbours back before React marks one inert for its own reasons (Home as it fades out).
+// inert does nothing on SVG (the canvas), so screen readers skip that with aria-hidden.
 export function useModal(ref: React.RefObject<HTMLElement | null>, on = true) {
   useLayoutEffect(() => {
     const el = ref.current;
     if (!on || !el?.parentElement) return;
-    const blocked = [...el.parentElement.children].filter((x): x is HTMLElement => x !== el && x instanceof HTMLElement && !x.inert);
-    for (const x of blocked) x.inert = true;
-    return () => { for (const x of blocked) x.inert = false; };
+    const blocked = [...el.parentElement.children].filter((x) => x !== el && (x instanceof HTMLElement ? !x.inert : !x.hasAttribute("aria-hidden")));
+    const block = (x: Element, on: boolean) => { if (x instanceof HTMLElement) x.inert = on; else if (on) x.setAttribute("aria-hidden", "true"); else x.removeAttribute("aria-hidden"); };
+    for (const x of blocked) block(x, true);
+    return () => { for (const x of blocked) block(x, false); };
   }, [ref, on]);
 }
 

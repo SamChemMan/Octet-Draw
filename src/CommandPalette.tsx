@@ -86,6 +86,9 @@ export function CommandPalette({ commands, draw, onClose }: { commands: Command[
                 setActive((i) => (i + (e.key === "ArrowDown" ? 1 : -1) + n) % n);
               }
               if (e.key === "Enter") { e.preventDefault(); go(results[active]); }
+              // The search field keeps the focus (the list follows it), so Escape still closes the palette and no key
+              // reaches the drawing behind it.
+              if (e.key === "Tab") e.preventDefault();
               if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); }
             }}
           />

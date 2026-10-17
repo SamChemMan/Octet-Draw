@@ -55,10 +55,11 @@ export function ExportDialog({ prefs, onPrefs, pictures, chemistry, onExport, on
   const mm = (pt: number) => Math.round((pt * 25.4) / 72);
   // A saved format this drawing has nothing for stays in the list, so the list shows it and Export… is off.
   const ok = usable.some(([f]) => f === format);
+  // The preview is white paper in both themes, so the text on it takes the light theme's colours.
   return (
     <Dialog title="Export" action="Export…" onClose={onClose} onAction={() => onExport(part)} disabled={!ok}>
       <div className={["export-preview", svg && format === "png" && prefs.background === "transparent" && "transparent"].filter(Boolean).join(" ")}>
-        {svg ? <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`} alt="Preview" /> : <span className="export-none">{ok ? FORMATS.find(([f]) => f === format)?.[1] : "Nothing to export in this format"}</span>}
+        {svg ? <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`} alt="Preview" /> : <span className="export-none" data-theme="light">{ok ? FORMATS.find(([f]) => f === format)?.[1] : "Nothing to export in this format"}</span>}
       </div>
       {size.length === 2 && (
         <p className="export-size">
