@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The file types Octet opens, for Linux file managers (REL-14). The .deb and .rpm put this in
+     /usr/share/mime/packages, so file managers know .oct and .cdxml files by the types octet.desktop lists. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-octet-drawing">
+    <comment>Octet drawing</comment>
+    <sub-class-of type="application/xml"/>
+    <glob pattern="*.oct"/>
+  </mime-type>
+  <mime-type type="chemical/x-cdxml">
+    <comment>ChemDraw drawing (CDXML)</comment>
+    <sub-class-of type="application/xml"/>
+    <glob pattern="*.cdxml"/>
+  </mime-type>
+</mime-info>

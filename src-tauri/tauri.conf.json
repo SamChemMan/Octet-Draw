@@ -55,8 +55,8 @@
       }
     ],
     "linux": {
-      "deb": { "desktopTemplate": "linux/octet.desktop" },
-      "rpm": { "desktopTemplate": "linux/octet.desktop" }
+      "deb": { "desktopTemplate": "linux/octet.desktop", "files": { "/usr/share/mime/packages/octet.xml": "linux/octet-mime.xml" } },
+      "rpm": { "desktopTemplate": "linux/octet.desktop", "files": { "/usr/share/mime/packages/octet.xml": "linux/octet-mime.xml" } }
     },
     "macOS": {
       "signingIdentity": "-"

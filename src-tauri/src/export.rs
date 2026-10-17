@@ -215,8 +215,8 @@ pub async fn export_file(app: AppHandle, export: Export) -> Result<Option<String
 // ---- Reading CDXML back out of a PDF: Octet's, ChemDraw's, or either after Word ----
 // The PDF is hostile: every index is checked, nothing recurses, a dictionary is read from at most 16 KB,
 // at most 10,000 objects are looked at, and inflating stops at 32 MB. The searches for a stream's end and for an
-// indirect /Length read at most four times the PDF's size in all (REL-25): before, a crafted 63 MB PDF with
-// thousands of streams that never end kept a core busy for minutes.
+// indirect /Length read at most four times the PDF's size in all, and the check for "endstream" where /Length says
+// reads 256 bytes (REL-25): before, a crafted 63 MB PDF with thousands of streams kept a core busy for minutes.
 
 // The drawing's CDXML in a PDF: the catalog's /Metadata, then any /Type /Metadata /Subtype /XML stream, then
 // Octet's first test form (base64 CDXML in the document info /Keywords). Clipboard spec 4.3 and 4.4.
@@ -272,9 +272,11 @@ fn xml_stream(pdf: &[u8], at: usize, marked: bool, budget: &Cell<usize>) -> Opti
         _ => return None,
     };
     // The data starts after "stream" and its line end. /Length says where it ends, if it agrees with the
-    // "endstream" there; otherwise the first "endstream" does.
-    let mut i = skip_white(pdf, end);
-    if word(pdf, i) != b"stream" {
+    // "endstream" there; otherwise the first "endstream" does. The keywords are looked for in the 256 bytes after
+    // where they should be, as every /Length can point at one long run.
+    let near = |e: usize| &pdf[..pdf.len().min(e.saturating_add(256))];
+    let mut i = skip_white(near(end), end);
+    if word(near(i), i) != b"stream" {
         return None;
     }
     i += 6;
@@ -287,7 +289,7 @@ fn xml_stream(pdf: &[u8], at: usize, marked: bool, budget: &Cell<usize>) -> Opti
         Some(Val::Ref(r)) if spend(pdf.len()) => object(pdf, *r).and_then(|j| int(pdf, skip_white(pdf, j))).map(|(n, _)| n),
         _ => None,
     };
-    let stated = length.and_then(|n| i.checked_add(usize::try_from(n).ok()?)).filter(|&e| e <= pdf.len() && word(pdf, skip_white(pdf, e)) == b"endstream");
+    let stated = length.and_then(|n| i.checked_add(usize::try_from(n).ok()?)).filter(|&e| e <= pdf.len() && word(near(e), skip_white(near(e), e)) == b"endstream");
     let end = stated.or_else(|| {
         let rest = pdf.get(i..)?;
         let window = &rest[..rest.len().min(budget.get())];
@@ -635,6 +637,26 @@ mod tests {
         }
         pdf.extend_from_slice(format!("500 0 obj << /Type /Metadata /Subtype /XML /Length 999 >>\nstream\n{CDXML}\nendstream\nendobj\n").as_bytes());
         assert_eq!(cdxml_from_pdf(&pdf).as_deref(), Some(CDXML));
+        // Every /Length points at the start of one long run of spaces, of a comment, or of letters, so each check for
+        // "endstream" there used to read all of the run.
+        for fill in [b" ".as_slice(), b"%x", b"x"] {
+            let mut pdf = b"%PDF-1.4\n".to_vec();
+            let mut starts = Vec::new();
+            for k in 0..10_000 {
+                pdf.extend_from_slice(format!("{} 0 obj << /Type /Metadata /Subtype /XML /Length 0000000000 >>\nstream\n", k + 1).as_bytes());
+                starts.push(pdf.len());
+            }
+            let run = pdf.len();
+            for &s in &starts {
+                let at = s - "0000000000 >>\nstream\n".len();
+                pdf[at..at + 10].copy_from_slice(format!("{:010}", run - s).as_bytes());
+            }
+            pdf.extend_from_slice(fill);
+            pdf.resize(8 << 20, *fill.last().unwrap());
+            let t = std::time::Instant::now();
+            assert_eq!(cdxml_from_pdf(&pdf), None);
+            assert!(t.elapsed() < std::time::Duration::from_secs(5), "{fill:?} took {:?}", t.elapsed());
+        }
     }
 
     #[test]

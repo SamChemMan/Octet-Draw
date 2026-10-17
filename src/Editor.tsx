@@ -723,7 +723,8 @@ export default function Editor() {
     }
     const add = stack(mols), b = extent(add), at = toDoc(...files[0].at!);
     if (!b) return;
-    const r = insertMol(doc, add, [at[0] - (b[0] + b[2]) / 2, at[1] - (b[1] + b[3]) / 2]);
+    // The drawing as it is now: the structure engine can take seconds to start, and the user can draw meanwhile.
+    const r = insertMol(now.current, add, [at[0] - (b[0] + b[2]) / 2, at[1] - (b[1] + b[3]) / 2]);
     set(r.mol, true);
     setSelection(r.atoms);
     setPicked(r.items);
@@ -1061,12 +1062,13 @@ export default function Editor() {
     const off = listen<string>("menu", (e) => commands.current[e.payload]?.());
     return () => { off.then((f) => f()); };
   }, []);
-  // Files to open or dropped: those named before the page started, then each time the app says more came.
+  // Files to open or dropped: those named before the page started, then each time the app says more came. The page
+  // listens first and then takes, so a file named in between is not left waiting.
   useEffect(() => {
     if (!TAURI) return;
     const take = () => commands.current.opened();
-    take();
     const off = listen("opened", take);
+    void off.then(take, take);
     return () => { off.then((f) => f()); };
   }, []);
   // Every menu command's shortcut can be changed in Settings, with the canvas keys: the menu lists its commands, and
