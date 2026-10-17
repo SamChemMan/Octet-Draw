@@ -16,6 +16,9 @@ export type Settings = {
   layoutVersion: number; // the Actions panel's layout scheme the saved actionLayout was made for
   panelMenus: boolean; // the Actions panel's sets of small actions as titled rows that open menus, not sections of buttons
   captionOptionReturn: boolean; // ChemDraw's "Require Option+Return to create new line in Captions": Return then closes the box
+  // Home: the user's name (null until asked; "" when they skipped it), whether the tutorial was seen, and when Octet
+  // was last opened (ms), for "Welcome back".
+  userName: string | null; tutorialDone: boolean; lastSeen: number;
   docStyle: DocStyle; // the style new documents start with
   files: FilePrefs; // export, copy and import preferences
   settingsModule: string; // the Settings module last open
@@ -29,7 +32,7 @@ export type Settings = {
   nmrMhz: number; nmrSolvent: string; nmrSolventPeaks: boolean; nmrDetails: boolean; // the predicted spectrum's frequency (¹H, MHz), solvent, and whether its peaks show
 };
 export type Swatch = { name: string; hex: string };
-const DEFAULTS: Settings = { snap: true, eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, panelMenus: false, captionOptionReturn: false, docStyle: DEFAULT_STYLE, files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], nameHistory: [], paletteWide: false, palette: [], properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false };
+const DEFAULTS: Settings = { snap: true, eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, lastSeen: 0, docStyle: DEFAULT_STYLE, files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], nameHistory: [], paletteWide: false, palette: [], properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false };
 const KEY = "octet.settings";
 
 export function loadSettings(): Settings {
@@ -60,6 +63,9 @@ export function loadSettings(): Settings {
       layoutVersion: 3,
       panelMenus: saved.panelMenus === true,
       captionOptionReturn: saved.captionOptionReturn === true,
+      userName: typeof saved.userName === "string" ? saved.userName.slice(0, 40) : null,
+      tutorialDone: saved.tutorialDone === true,
+      lastSeen: typeof saved.lastSeen === "number" && Number.isFinite(saved.lastSeen) ? saved.lastSeen : 0,
     };
   } catch {
     return DEFAULTS;

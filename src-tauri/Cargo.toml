@@ -14,6 +14,8 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
+# The recent drawings list (already in the build through Tauri).
+serde_json = "1"
 # Export and the clipboard picture: SVG to a vector PDF with subset fonts (svg2pdf, pdf-writer), SVG to PNG (resvg).
 svg2pdf = "0.13"
 pdf-writer = "0.12"

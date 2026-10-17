@@ -2293,6 +2293,7 @@ dependencies = [
  "png 0.17.16",
  "resvg",
  "serde",
+ "serde_json",
  "svg2pdf",
  "tauri",
  "tauri-build",

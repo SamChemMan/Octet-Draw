@@ -20,3 +20,15 @@ The brief's principle still holds in spirit: download, install, draw.
 ## Open questions
 
 - Whether Home also offers templates (ACS scheme, mechanism, catalytic cycle) on New drawing.
+
+## How it is built (17 October 2026)
+
+- Home greets the user by name and time of day ("Welcome to Octet" on the first visit, "Welcome back" after a
+  week away). New drawing is the first tile; recent drawings follow as pictures; Open… is beside them. File >
+  Home returns to it. Return makes a new drawing; the arrow keys move between tiles.
+- First launch asks the user's name (in the dotted frame of a selected group; Skip leaves it out), then plays
+  a short tutorial (draw, label, hold to select, tidy, share), which Octet > Tutorial plays again.
+- The app keeps the recent drawings list (src-tauri/src/recent.rs). A recent drawing opens without the file
+  dialog only if the user opened or saved it before.
+- New, Open and a recent drawing ask to save unsaved changes first.
+- An account (sign-in, sync) is for later, before launch; nothing on Home needs one.

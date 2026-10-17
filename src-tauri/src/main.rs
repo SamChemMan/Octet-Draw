@@ -14,6 +14,7 @@ use tauri_plugin_dialog::DialogExt;
 
 mod clipboard;
 mod export;
+mod recent;
 
 // File > Print: the system's print dialog for the window, which prints only the page the editor laid out for it.
 #[tauri::command]
@@ -24,7 +25,7 @@ fn print_page(window: tauri::WebviewWindow) -> Result<(), String> {
 // Files the user picked in an Open or Save dialog this session. The webview can only save to these,
 // so a compromised page can't write anywhere else.
 #[derive(Default)]
-struct Picked(Mutex<HashSet<PathBuf>>);
+pub struct Picked(pub Mutex<HashSet<PathBuf>>);
 
 // Tickable menu items, so the page can set their ticks from the user's saved settings.
 struct Checks(Mutex<Vec<CheckMenuItem<Wry>>>);
@@ -82,7 +83,7 @@ fn set_palette(app: AppHandle, names: Vec<String>) -> Result<(), String> {
     rebuild(&app)
 }
 
-const MAX_BYTES: u64 = 64 * 1024 * 1024;
+pub const MAX_BYTES: u64 = 64 * 1024 * 1024;
 // Octet saves .oct, a CDXML file with Octet's drawing inside (decision 0004), or .cdxml, which is the same file.
 // It opens both, and the older .octet files.
 const OPEN: (&str, &[&str]) = ("Drawings", &["oct", "cdxml", "octet"]);
@@ -90,7 +91,7 @@ const SAVE: [(&str, &[&str]); 2] = [("Octet drawing", &["oct"]), ("ChemDraw draw
 
 // Write to a temporary file next to the target, flush it to disk, then rename it over the target.
 // A crash mid-save leaves the old file intact.
-fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
+pub fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
     let dir = path.parent().unwrap_or(Path::new("."));
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let tmp = dir.join(format!(".{name}.saving-{}", std::process::id()));
@@ -118,6 +119,7 @@ async fn open_drawing(app: AppHandle, picked: State<'_, Picked>) -> Result<Optio
     }
     let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     picked.0.lock().unwrap().insert(path.clone());
+    recent::note(&app, &path);
     Ok(Some((path.to_string_lossy().into_owned(), text)))
 }
 
@@ -182,6 +184,7 @@ async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<St
     };
     write_atomic(&target, contents.as_bytes()).map_err(|e| e.to_string())?;
     picked.0.lock().unwrap().insert(target.clone());
+    recent::note(&app, &target);
     Ok(Some(target.to_string_lossy().into_owned()))
 }
 
@@ -199,6 +202,7 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
     let sep = || PredefinedMenuItem::separator(app);
     section.replace("File".into());
     let file = Submenu::with_items(app, "File", true, &[
+        &item("home", "Home", "")?,
         &item("new", "New", "CmdOrCtrl+N")?,
         &item("open", "Open…", "CmdOrCtrl+O")?,
         &item("import", "Import a Structure…", "")?,
@@ -397,6 +401,7 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
     let octet = Submenu::with_items(app, "Octet", true, &[
         // Octet's own About window (src/About.tsx): the mark, who made it, and the credits the licences ask for.
         &item("about", "About Octet", "")?,
+        &item("tutorial", "Tutorial", "")?,
         &sep()?,
         &item("settings", "Settings…", "CmdOrCtrl+,")?,
         &sep()?,
@@ -420,10 +425,11 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Picked::default())
+        .manage(recent::Recents::default())
         .manage(MenuKeys::default())
         .manage(MenuList::default())
         .manage(Palette::default())
-        .invoke_handler(tauri::generate_handler![menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file])
         .setup(|app| {
             let handle = app.handle();
             let (bar, checks, list) = menu(handle, &[], &HashMap::new())?;

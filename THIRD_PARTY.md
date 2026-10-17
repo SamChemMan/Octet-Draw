@@ -17,6 +17,7 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | miniz_oxide (Rust) | 0.8 | MIT OR Zlib OR Apache-2.0 | Compresses and reads the CDXML stream in PDFs |
 | base64 (Rust) | 0.22 | MIT OR Apache-2.0 | ChemDraw's CDX from the clipboard, sent to the page |
 | serde (Rust) | 1 | MIT OR Apache-2.0 | Export and paste data between the page and the app |
+| serde_json (Rust) | 1 | MIT OR Apache-2.0 | The recent drawings list on Home (already in the build through Tauri) |
 | objc2, objc2-foundation, objc2-app-kit (Rust) | 0.6, 0.3, 0.3 | MIT; MIT; Zlib OR Apache-2.0 OR MIT | The macOS clipboard (NSPasteboard). Already used by Tauri |
 | indigo-ketcher | 1.46 | Apache-2.0 | Chemistry engine, CDX/CDXML |
 | react, react-dom | 19.3 | MIT | UI |

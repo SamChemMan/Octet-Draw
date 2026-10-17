@@ -4,9 +4,10 @@
 // body carries its own heading, so the title is only read out.
 import { useEffect, useRef } from "react";
 
-type Props = { title: string; action?: string; onAction?: () => void; onClose: () => void; plain?: boolean; children: React.ReactNode };
+// alt: a third choice, before Cancel (Don't Save).
+type Props = { title: string; action?: string; onAction?: () => void; onClose: () => void; plain?: boolean; alt?: { label: string; onClick: () => void }; children: React.ReactNode };
 
-export function Dialog({ title, action, onClose, onAction = onClose, plain, children }: Props) {
+export function Dialog({ title, action, onClose, onAction = onClose, plain, alt, children }: Props) {
   const card = useRef<HTMLDivElement>(null);
   useEffect(() => {
     card.current?.querySelector<HTMLElement>("input, button, select")?.focus();
@@ -23,6 +24,7 @@ export function Dialog({ title, action, onClose, onAction = onClose, plain, chil
         {!plain && <h2>{title}</h2>}
         <div className="dialog-body">{children}</div>
         <div className="dialog-buttons">
+          {alt && <button className="dialog-button alt" onClick={alt.onClick}>{alt.label}</button>}
           {action && <button className="dialog-button" onClick={onClose}>Cancel</button>}
           <button className="dialog-button primary" onClick={onAction}>{action ?? "Close"}</button>
         </div>

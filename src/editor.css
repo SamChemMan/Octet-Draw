@@ -3514,3 +3514,619 @@ button.variant.add {
     transition: none;
   }
 }
+
+/* Home (Home.tsx): where Octet opens. The page ground, the greeting, New drawing first, then the recent drawings as
+   pictures on the canvas white. It sits over the editor and under dialogs, notices and Settings. */
+.home {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  overflow-y: auto;
+  background: var(--surface);
+  color: var(--ink);
+  animation: home-in 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@keyframes home-in {
+  from {
+    opacity: 0;
+  }
+}
+.home ~ .notice {
+  z-index: 5;
+}
+.home-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-12) var(--space-16);
+}
+.home-head {
+  display: flex;
+  align-items: center;
+  gap: 7px; /* the lockup gap: 0.3 of the mark */
+}
+.home-head img,
+.name-box img {
+  display: block;
+}
+.home-wordmark {
+  font: 600 17px/1 var(--font-sans);
+  letter-spacing: -0.03em;
+}
+.home-greeting {
+  margin: var(--space-16) 0 0;
+  font: 600 30px/36px var(--font-sans);
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.home-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 40px 0 var(--space-3);
+}
+.home-row h2 {
+  margin: 0;
+  color: var(--ink-muted);
+  font: 600 13px/18px var(--font-sans);
+}
+.home-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--ink);
+  font: 13px var(--font-sans);
+  transition: transform 160ms ease-out;
+}
+.home-open kbd,
+.home-caption kbd {
+  margin-left: var(--space-1);
+  color: var(--ink-faint);
+  font: 12px var(--font-sans);
+}
+.home-open:active {
+  transform: scale(0.97);
+}
+.home-open:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  gap: var(--space-6) 20px;
+}
+.home-slot {
+  position: relative;
+}
+.home-tile {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  transition: transform 160ms ease-out;
+}
+.home-tile:active {
+  transform: scale(0.98);
+}
+.home-tile:focus-visible {
+  outline: none;
+}
+.home-thumb {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--canvas);
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+.home-thumb img {
+  width: 84%;
+  height: 84%;
+  object-fit: contain;
+}
+/* New drawing: the dashed stroke of the mark's arrow ("editable, in progress") and the brand blue. */
+.home-tile.new .home-thumb {
+  border-style: dashed;
+  border-color: var(--outline);
+  color: var(--brand);
+}
+@media (hover: hover) and (pointer: fine) {
+  .home-tile:hover .home-thumb {
+    border-color: var(--outline);
+  }
+  .home-tile.new:hover .home-thumb {
+    border-color: var(--brand-bright);
+    background: color-mix(in oklab, var(--brand-mist) 45%, var(--canvas));
+  }
+}
+.home-tile:focus-visible .home-thumb {
+  border-color: var(--brand-bright);
+  box-shadow: var(--shadow-focus);
+}
+.home-caption {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.home-tile.new .home-caption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.home-name {
+  overflow: hidden;
+  font: 500 13px/18px var(--font-sans);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-when {
+  color: var(--ink-faint);
+  font: 12px/16px var(--font-sans);
+}
+.home-initial {
+  color: var(--ink-faint);
+  font: 600 32px var(--font-sans);
+}
+.home-slot.missing .home-thumb {
+  opacity: 0.5;
+}
+.home-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+  opacity: 0;
+  transition: opacity 150ms ease-out;
+}
+.home-slot:hover .home-remove,
+.home-slot:focus-within .home-remove {
+  opacity: 1;
+}
+.home-remove:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* First launch: the name, in the dotted frame Octet draws round a selected group. */
+.name-box {
+  display: grid;
+  place-items: center;
+}
+.name-box-inner {
+  display: grid;
+  justify-items: center;
+  gap: 20px;
+  width: min(420px, 100%);
+  padding: var(--space-8);
+}
+.name-title {
+  margin: var(--space-2) 0 0;
+  font: 600 24px/30px var(--font-sans);
+  letter-spacing: -0.02em;
+  text-align: center;
+  text-wrap: balance;
+}
+.name-frame {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+}
+.name-dots {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.name-dots rect {
+  width: calc(100% - 1px);
+  height: calc(100% - 1px);
+  fill: none;
+  stroke: var(--brand-bright);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.name-frame input {
+  width: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: 500 20px/28px var(--font-sans);
+  text-align: center;
+}
+.name-frame input::placeholder {
+  color: var(--ink-faint);
+}
+.name-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.dialog-note {
+  margin: 0;
+  color: var(--ink-muted);
+}
+.dialog-button.alt {
+  margin-right: auto;
+}
+
+/* The tutorial (Tutorial.tsx): a card over Home, its stage on the canvas white, one step at a time. */
+.tutorial-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  background: color-mix(in oklab, var(--ink) 18%, transparent);
+  animation: home-in 200ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.tutorial {
+  width: min(680px, 100%);
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-float);
+  color: var(--ink);
+  animation: tut-in 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@keyframes tut-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+.tut-stage {
+  aspect-ratio: 13 / 6;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--canvas);
+}
+.tut-stage svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.tut-text {
+  padding: 20px var(--space-6) var(--space-1);
+  animation: home-in 200ms ease-out;
+}
+.tut-text h2 {
+  margin: 0;
+  font: 600 16px/22px var(--font-sans);
+}
+.tut-text p {
+  max-width: 60ch;
+  margin: var(--space-1) 0 0;
+  color: var(--ink-muted);
+  font: 13px/20px var(--font-sans);
+}
+.tut-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-6) 20px;
+}
+.tut-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.tut-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: var(--space-2);
+}
+.tut-dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--hairline);
+  transition: width 200ms cubic-bezier(0.23, 1, 0.32, 1), background-color 200ms ease-out;
+}
+.tut-dot[aria-current] {
+  width: 18px;
+  background: var(--brand);
+}
+.tut-dot:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* The stage's drawing: Octet's own bonds and labels, the toolbar's tool, keys, the pointer and the selection. */
+.tut-stage path,
+.tut-stage text {
+  fill: var(--ink);
+}
+.t-tool {
+  color: var(--ink-muted);
+}
+.tut-stage .t-tool text {
+  fill: var(--ink-muted);
+  font-family: var(--font-sans);
+  font-weight: 500;
+}
+.t-key {
+  transform: var(--at);
+}
+.t-key rect {
+  fill: var(--surface-raised);
+  stroke: var(--outline);
+}
+.tut-stage .t-key text {
+  fill: var(--ink);
+  font-family: var(--font-sans);
+  font-weight: 600;
+}
+.t-cursor {
+  color: var(--ink);
+}
+.tut-stage .t-cursor path {
+  stroke: #fff;
+  stroke-width: 24; /* in the icon's 256 grid: a white edge so the pointer reads over bonds */
+  paint-order: stroke;
+}
+.t-press,
+.t-key-press,
+.t-pop,
+.t-share-shrink,
+.t-draw-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.t-press {
+  transform-origin: 20% 15%;
+}
+.t-hold-marks circle {
+  fill: var(--brand-bright);
+  opacity: 0.28;
+}
+.t-pop {
+  fill: none;
+  stroke: var(--brand-bright);
+  opacity: 0;
+}
+.tut-stage .t-share-page rect {
+  fill: var(--canvas);
+  stroke: var(--outline);
+}
+.t-share-page line {
+  stroke: var(--hairline);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+/* Each element rests in its last frame, which is all reduced motion shows. */
+.t-draw-tool1,
+.t-hold-tool1,
+.t-label-before,
+.t-tidy-before,
+.t-key-press {
+  opacity: 0;
+}
+.t-hold-move,
+.t-share-copy {
+  transform: var(--to);
+}
+.t-share-shrink {
+  transform: scale(0.55);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .tut-stage svg * {
+    animation-duration: 5.6s;
+    animation-iteration-count: infinite;
+    animation-fill-mode: both;
+  }
+  .tut-step-0 .t-cursor { animation-name: t-cursor-0; }
+  .tut-step-0 .t-press { animation-name: t-press-0; }
+  .t-draw-bond { animation-name: t-draw-bond; }
+  .t-draw-ring { animation-name: t-draw-ring; }
+  .t-draw-tool1 { animation-name: t-tool-out; }
+  .t-draw-tool2 { animation-name: t-tool-in; }
+  .tut-step-1 .t-cursor { animation-name: t-cursor-1; }
+  .t-label-key .t-key-press { animation-name: t-key-1; }
+  .t-label-before { animation-name: t-before-1; }
+  .t-label-after { animation-name: t-after-1; }
+  .tut-step-2 .t-cursor { animation-name: t-cursor-2; }
+  .tut-step-2 .t-press { animation-name: t-press-2; }
+  .t-pop { animation-name: t-pop; }
+  .t-hold-tool1 { animation-name: t-hold-out; }
+  .t-hold-tool2 { animation-name: t-hold-in; }
+  .t-hold-marks { animation-name: t-hold-marks; }
+  .t-hold-move { animation-name: t-hold-move; }
+  .t-tidy-before { animation-name: t-tidy-before; }
+  .t-tidy-after { animation-name: t-tidy-after; }
+  .t-tidy-key .t-key-press { animation-name: t-key-3; }
+  .t-share-copykey .t-key-press { animation-name: t-key-copy; }
+  .t-share-pastekey .t-key-press { animation-name: t-key-paste; }
+  .t-share-copy { animation-name: t-share-copy; }
+  .t-share-shrink { animation-name: t-share-shrink; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .t-cursor,
+  .t-pop {
+    display: none;
+  }
+}
+/* Draw: the pointer drags a bond out with the bond tool, then clicks its first atom with the ring tool. */
+@keyframes t-cursor-0 {
+  0% { transform: var(--p0) translate(-40px, 30px); opacity: 0; }
+  6% { transform: var(--p0) translate(-40px, 30px); opacity: 1; animation-timing-function: cubic-bezier(0.77, 0, 0.175, 1); }
+  14% { transform: var(--p0); animation-timing-function: cubic-bezier(0.77, 0, 0.175, 1); }
+  36% { transform: var(--p1); }
+  44% { transform: var(--p1); animation-timing-function: cubic-bezier(0.77, 0, 0.175, 1); }
+  52% { transform: var(--p0); opacity: 1; }
+  90% { transform: var(--p0); opacity: 1; }
+  98%, 100% { transform: var(--p0); opacity: 0; }
+}
+@keyframes t-press-0 {
+  0%, 13% { transform: scale(1); }
+  15%, 35% { transform: scale(0.86); }
+  38%, 53% { transform: scale(1); }
+  55% { transform: scale(0.86); }
+  58%, 100% { transform: scale(1); }
+}
+@keyframes t-draw-bond {
+  0%, 14% { clip-path: inset(0 100% 0 0); opacity: 1; animation-timing-function: cubic-bezier(0.77, 0, 0.175, 1); }
+  36% { clip-path: inset(0 0 0 0); }
+  90% { clip-path: inset(0 0 0 0); opacity: 1; }
+  98%, 100% { clip-path: inset(0 0 0 0); opacity: 0; }
+}
+@keyframes t-draw-ring {
+  0%, 55% { opacity: 0; transform: scale(0.96); animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1); }
+  62% { opacity: 1; transform: scale(1); }
+  90% { opacity: 1; transform: scale(1); }
+  98%, 100% { opacity: 0; transform: scale(1); }
+}
+@keyframes t-tool-out {
+  0%, 40% { opacity: 1; }
+  45%, 100% { opacity: 0; }
+}
+@keyframes t-tool-in {
+  0%, 41% { opacity: 0; }
+  46%, 90% { opacity: 1; }
+  98%, 100% { opacity: 0; }
+}
+/* Label: the pointer goes to the end atom and N is pressed: the carbon becomes NH2. */
+@keyframes t-cursor-1 {
+  0% { transform: var(--p0); opacity: 0; }
+  6% { transform: var(--p0); opacity: 1; animation-timing-function: cubic-bezier(0.77, 0, 0.175, 1); }
+  30% { transform: var(--p1); }
+  90% { transform: var(--p1); opacity: 1; }
+  98%, 100% { transform: var(--p1); opacity: 0; }
+}
+@keyframes t-key-1 {
+  0%, 36% { opacity: 0; transform: translateY(4px); }
+  40% { opacity: 1; transform: translateY(0); }
+  44% { transform: scale(0.9); }
+  48% { transform: scale(1); }
+  74% { opacity: 1; }
+  80%, 100% { opacity: 0; }
+}
+@keyframes t-before-1 {
+  0% { opacity: 0; }
+  4%, 46% { opacity: 1; }
+  52%, 100% { opacity: 0; }
+}
+@keyframes t-after-1 {
+  0%, 46% { opacity: 0; }
+  52%, 90% { opacity: 1; }
+  98%, 100% { opacity: 0; }
+}
+/* Hold to select: the pointer holds still on the ring, Select takes over (the ring of light, as in the app), the
+   structure is selected and dragged to a new place. */
+@keyframes t-cursor-2 {
+  0% { transform: var(--p0); opacity: 0; }
+  5% { transform: var(--p0); opacity: 1; animation-timing-function: cubic-bezier(0.77, 0, 0.175, 1); }
+  22% { transform: var(--p1); }
+  50% { transform: var(--p1); animation-timing-function: cubic-bezier(0.77, 0, 0.175, 1); }
+  72% { transform: var(--p2); opacity: 1; }
+  90% { transform: var(--p2); opacity: 1; }
+  98%, 100% { transform: var(--p2); opacity: 0; }
+}
+@keyframes t-press-2 {
+  0%, 23% { transform: scale(1); }
+  25%, 72% { transform: scale(0.86); }
+  75%, 100% { transform: scale(1); }
+}
+@keyframes t-pop {
+  0%, 30% { opacity: 0; transform: scale(0.4); }
+  32% { opacity: 0.9; transform: scale(0.5); animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1); }
+  44%, 100% { opacity: 0; transform: scale(1.2); }
+}
+@keyframes t-hold-out {
+  0%, 30% { opacity: 1; }
+  34%, 100% { opacity: 0; }
+}
+@keyframes t-hold-in {
+  0%, 30% { opacity: 0; }
+  34%, 90% { opacity: 1; }
+  98%, 100% { opacity: 0; }
+}
+@keyframes t-hold-marks {
+  0%, 36% { opacity: 0; }
+  42%, 90% { opacity: 1; }
+  98%, 100% { opacity: 0; }
+}
+@keyframes t-hold-move {
+  0% { transform: none; opacity: 0; }
+  4% { transform: none; opacity: 1; }
+  50% { transform: none; animation-timing-function: cubic-bezier(0.77, 0, 0.175, 1); }
+  72% { transform: var(--to); }
+  90% { transform: var(--to); opacity: 1; }
+  98%, 100% { transform: var(--to); opacity: 0; }
+}
+/* Tidy: the key is pressed and the drawing settles into Clean up's shape. */
+@keyframes t-tidy-before {
+  0% { opacity: 0; filter: blur(0); }
+  4%, 38% { opacity: 1; filter: blur(0); }
+  48%, 100% { opacity: 0; filter: blur(2px); }
+}
+@keyframes t-tidy-after {
+  0%, 38% { opacity: 0; filter: blur(2px); }
+  50% { opacity: 1; filter: blur(0); }
+  90% { opacity: 1; }
+  98%, 100% { opacity: 0; }
+}
+@keyframes t-key-3 {
+  0%, 20% { opacity: 0; transform: translateY(4px); }
+  26% { opacity: 1; transform: translateY(0); }
+  32% { transform: scale(0.9); }
+  36% { transform: scale(1); }
+  72% { opacity: 1; }
+  78%, 100% { opacity: 0; }
+}
+/* Share: Copy, the drawing goes over into the document, Paste. */
+@keyframes t-key-copy {
+  0%, 12% { opacity: 0; transform: translateY(4px); }
+  18% { opacity: 1; transform: translateY(0); }
+  22% { transform: scale(0.9); }
+  26% { transform: scale(1); }
+  42% { opacity: 1; }
+  48%, 100% { opacity: 0; }
+}
+@keyframes t-key-paste {
+  0%, 54% { opacity: 0; transform: translateY(4px); }
+  58% { opacity: 1; transform: translateY(0); }
+  62% { transform: scale(0.9); }
+  66% { transform: scale(1); }
+  82% { opacity: 1; }
+  88%, 100% { opacity: 0; }
+}
+@keyframes t-share-copy {
+  0%, 28% { transform: none; opacity: 0; }
+  31% { transform: none; opacity: 0.6; animation-timing-function: cubic-bezier(0.77, 0, 0.175, 1); }
+  56% { transform: var(--to); opacity: 0.6; }
+  62% { transform: var(--to); opacity: 1; }
+  90% { transform: var(--to); opacity: 1; }
+  98%, 100% { transform: var(--to); opacity: 0; }
+}
+@keyframes t-share-shrink {
+  0%, 31% { transform: scale(1); animation-timing-function: cubic-bezier(0.77, 0, 0.175, 1); }
+  56%, 100% { transform: scale(0.55); }
+}

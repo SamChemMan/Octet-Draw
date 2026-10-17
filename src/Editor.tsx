@@ -31,6 +31,8 @@ import { Select } from "./Select";
 import { fromCdxml, toCdxml, type CdxmlOptions } from "./cdxml";
 import { readOct, writeOct } from "./oct";
 import { About } from "./About";
+import { Home, NameBox, type RecentEntry } from "./Home";
+import { Tutorial } from "./Tutorial";
 import { ExportButton, ExportDialog } from "./ExportDialog";
 import { flushSync } from "react-dom";
 import { copyToClipboard, exportFile, readClipboard, standaloneSvg, UI, withMargin } from "./export";
@@ -360,6 +362,11 @@ export default function Editor() {
   const undo = (redo = false) => { dispatch({ type: redo ? "redo" : "undo" }); setSelection(new Set()); setPicked(new Set()); };
   // The file on disk and the drawing as last saved. Undoing back to the saved drawing makes it clean again.
   const [file, setFile] = useState<{ path?: string; saved: Mol }>({ saved: EMPTY });
+  // Home (decision 0003): where Octet opens (?editor skips it, for tests), with the name box on first launch and the
+  // tutorial then, or from Octet > Tutorial. Recent drawings come from the app (src-tauri/src/recent.rs).
+  const [home, setHome] = useState(() => !new URLSearchParams(location.search).has("editor"));
+  const [tutorial, setTutorial] = useState(false), [welcomed, setWelcomed] = useState(false), [recents, setRecents] = useState<RecentEntry[]>([]);
+  const [away] = useState(() => { const last = loadSettings().lastSeen; return last ? Date.now() - last : 0; });
   const dirty = doc !== file.saved;
 
   useEffect(() => { ready.then(() => setLoaded(true)); }, []);
@@ -392,7 +399,7 @@ export default function Editor() {
   useEffect(() => { if (pointer.current) setHover(hit(pointer.current)); }, [doc]);
 
   const name = file.path?.split(/[\\/]/).pop()?.replace(/\.(octet|oct|cdxml)$/i, "") ?? "Untitled";
-  useEffect(() => { if (TAURI) getCurrentWindow().setTitle(dirty ? `${name} (edited)` : name); }, [name, dirty]);
+  useEffect(() => { if (TAURI) getCurrentWindow().setTitle(home ? "Octet" : dirty ? `${name} (edited)` : name); }, [name, dirty, home]);
 
   // A picture of part of the drawing (or all of it) as a standalone SVG at true size: the canvas shows only that part
   // for a moment (nothing is painted in between), and the picture is cut to the ink of what it draws.
@@ -481,23 +488,51 @@ export default function Editor() {
     const parts = Object.entries(lost).map(([what, n]) => `${n} ${what}${n > 1 && !/s$/.test(what) ? "s" : ""}`);
     if (parts.length) setNotice(`Octet left out ${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0]}.`);
   };
-  async function save(as: boolean) {
+  // Resolves true when the drawing was saved.
+  async function save(as: boolean): Promise<boolean> {
     try {
       const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), contents: writeOct(doc, style, cdxmlOptions()) });
       if (path) setFile({ path, saved: doc });
+      return !!path;
     } catch (e) {
       setNotice(`Octet cannot save this drawing. ${e}`);
+      return false;
     }
   }
+  // Before the drawing is replaced (New, Open, a recent drawing): with unsaved changes, ask to save them first.
+  const keepWork = (next: () => void) => (dirty ? setDialog({ kind: "unsaved", next }) : next());
+  const newDrawing = () => keepWork(() => { set(EMPTY); setFile({ saved: EMPTY }); setHome(false); });
+  const openDrawing = () => keepWork(() => void open());
+  const openRecent = (r: RecentEntry) => keepWork(() => void invoke<[string, string]>("open_recent", { path: r.path }).then((picked) => load(picked[0], picked[1]))
+    .catch((e) => { setNotice(String(e)); refreshRecents(); }));
+  const refreshRecents = () => { if (TAURI) invoke<RecentEntry[]>("recent_list").then(setRecents).catch(() => {}); };
+  useEffect(() => { if (home) refreshRecents(); }, [home]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Opened or saved: the drawing's picture goes to its Home tile.
+  useEffect(() => {
+    if (!TAURI || !file.path) return;
+    const t = window.setTimeout(() => { const svg = pictureOf(file.saved); if (svg) invoke("recent_thumb", { path: file.path, svg }).catch(() => {}); }, 0);
+    return () => clearTimeout(t);
+  }, [file]); // eslint-disable-line react-hooks/exhaustive-deps
+  // When Octet was last opened, for the next "Welcome back".
+  useEffect(() => { setSettings((s) => ({ ...s, lastSeen: Date.now() })); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   async function open() {
     try {
       const picked = await invoke<[string, string] | null>("open_drawing");
       if (!picked) return;
-      const read = readOct(picked[1]), lost = read.lost;
+      load(picked[0], picked[1]);
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : `Octet cannot open this file. ${e}`);
+    }
+  }
+  // A drawing read from a file, into the editor.
+  function load(path: string, text: string) {
+    try {
+      const read = readOct(text), lost = read.lost;
       // Settings > Files > Keep ChemDraw styles off: another program's drawing takes Octet's default style.
       const mol = read.foreign && !settings.files.keepStyle ? { ...read.mol, style: undefined } : read.mol;
       set(mol);
-      setFile({ path: picked[0], saved: mol });
+      setFile({ path, saved: mol });
+      setHome(false);
       sayLost(lost);
       const b = bounds(mol);
       if (b) setView((v) => ({ ...v, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * v.zoom * L, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * v.zoom * L }));
@@ -573,8 +608,10 @@ export default function Editor() {
   // Menu commands. New and Open go on the undo list, so they never lose work.
   const commands = useRef<Record<string, () => void>>({});
   commands.current = {
-    new: () => { set(EMPTY); setFile({ saved: EMPTY }); },
-    open: () => void open(),
+    new: () => newDrawing(),
+    open: () => openDrawing(),
+    home: () => setHome(true),
+    tutorial: () => setTutorial(true),
     import: () => void importFile(),
     save: () => void save(false),
     save_as: () => void save(true),
@@ -881,7 +918,8 @@ export default function Editor() {
   const pressMods = useRef<{ shift: boolean; alt: boolean; atoms: Set<number>; picks: Set<number> } | undefined>(undefined);
   const [exportView, setExportView] = useState<{ all?: string; selection?: string; chem: { all: ReturnType<typeof chemistryOf>; selection?: ReturnType<typeof chemistryOf> }; oct: { all: string; selection?: string } }>();
   const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }
-    | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string }>();
+    | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string }
+    | { kind: "unsaved"; next: () => void }>();
   const [commandsOpen, setCommandsOpen] = useState(false);
   // An arrow Octet offers after a row of starting materials (from Clean up). Tab draws it; any other change drops it.
   const [offer, setOffer] = useState<{ from: P; to: P; doc: Mol }>();
@@ -2784,6 +2822,7 @@ export default function Editor() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (typing() || e.defaultPrevented) return; // typing in a label or caption box, or a box already used the key
+      if (home || tutorial) return; // Home and the tutorial have their own keys
       const mod = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
       // Drawing with the Pen: Return or Escape ends the curve; Delete takes back the last point.
       if (pen && (e.key === "Enter" || e.key === "Escape")) { e.preventDefault(); return finishPen(); }
@@ -2833,7 +2872,7 @@ export default function Editor() {
     };
     // Paste a SMILES string or MOL file: it goes to the right of the drawing, or in the middle of an empty canvas.
     const onPaste = (e: ClipboardEvent) => {
-      if (typing()) return; // pasting into a label or caption
+      if (typing() || home) return; // pasting into a label or caption, or on Home
       // In the app: the clipboard as Octet, ChemDraw and Office put it (Octet's own copy, then CDXML, which ChemDraw
       // hides in its pictures and Word keeps, then a molfile, then SMILES), and the plain text last.
       if (TAURI && !e.clipboardData?.getData(OCTET_CLIP)) {
@@ -3692,6 +3731,22 @@ export default function Editor() {
             <button role="radio" aria-checked={!dialog.clockwise} onClick={() => setDialog({ ...dialog, clockwise: false })}>Anticlockwise</button>
             <button role="radio" aria-checked={dialog.clockwise} onClick={() => setDialog({ ...dialog, clockwise: true })}>Clockwise</button>
           </span>
+        </Dialog>
+      )}
+      {home && (settings.userName === null
+        ? <NameBox onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone) setTutorial(true); }} />
+        : <Home name={settings.userName} first={welcomed} away={away} recents={recents} newKey={keyLabel("enter")} openKey={hint("open")}
+            onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent}
+            onRemove={(r) => void invoke("recent_remove", { path: r.path }).then(refreshRecents).catch(() => {})} />)}
+      {tutorial && settings.userName !== null && (
+        <Tutorial onSkip={() => { setSettings((s) => ({ ...s, tutorialDone: true })); setTutorial(false); }}
+          onFinish={() => { setSettings((s) => ({ ...s, tutorialDone: true })); setTutorial(false); if (home) newDrawing(); }} />
+      )}
+      {dialog?.kind === "unsaved" && (
+        <Dialog title={`Save changes to “${name}”?`} action="Save" onClose={() => setDialog(undefined)}
+          alt={{ label: "Don’t Save", onClick: () => { const d = dialog; setDialog(undefined); d.next(); } }}
+          onAction={() => { const d = dialog; setDialog(undefined); void save(false).then((ok) => { if (ok) d.next(); }); }}>
+          <p className="dialog-note">If you do not save, your changes are lost.</p>
         </Dialog>
       )}
       {about && <About onClose={() => setAbout(false)} />}
