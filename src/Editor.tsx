@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useDeferredValue, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Waveform, TagSimple, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
   FrameCorners, GearSix, Keyboard, Lasso, LinkSimple, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
@@ -15,7 +15,7 @@ import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
-  addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
+  addChair, addGroup, addGroupAt, farBond, jumpHot, walkHot, type Hot, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
   addShape, addSymbol, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
@@ -102,7 +102,8 @@ type Make = { kind: "line" | "arc" | "orbital" | "cut"; bend?: number; style?: A
 // A handle: an arrow's ends or middle, or a shape's corners (c1 and c2 are the two it is not drawn from).
 type Corner = "from" | "to" | "bend" | "c1" | "c2";
 // arrow: an arrow or a shape (they share ids).
-type Hover = { atom?: number; bond?: number; caption?: number; arrow?: number; cycle?: number; step?: number };
+// key: the keyboard hotspot (ChemDraw's), put there by a key rather than by the pointer.
+type Hover = { atom?: number; bond?: number; caption?: number; arrow?: number; cycle?: number; step?: number; key?: true };
 const hitIn = (m: Mol, p: P): Hover => {
   const atom = atomAt(m, p);
   return atom !== undefined ? { atom } : { bond: bondAt(m, p) };
@@ -149,7 +150,8 @@ function Live<T>({ store: from, children }: { store: Store<T>; children: (value:
 }
 // The view: where the drawing's origin is on screen (px) and the zoom. pinch: a zoom gesture goes on (see onWheel).
 type View = { x: number; y: number; zoom: number; pinch?: boolean };
-const sameHover = (a: Hover, b: Hover) => a.atom === b.atom && a.bond === b.bond && a.caption === b.caption && a.arrow === b.arrow && a.cycle === b.cycle && a.step === b.step;
+const sameHover = (a: Hover, b: Hover) => a.atom === b.atom && a.bond === b.bond && a.caption === b.caption && a.arrow === b.arrow && a.cycle === b.cycle && a.step === b.step && a.key === b.key;
+const nothing = (t: Hover) => t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined && t.cycle === undefined;
 // Ink as SVG path data, kept with the arrow or shape it is made from, for each document style.
 const arrowInks = new WeakMap<Arrow, [unknown, string]>(), shapeInks = new WeakMap<Shape, [unknown, string]>(), outlines = new WeakMap<object, [unknown, string]>();
 
@@ -268,6 +270,12 @@ export default function Editor() {
   const setView = (next: View | ((v: View) => View)) => views.set(typeof next === "function" ? next(views.get()) : next);
   const [hovers] = useState(() => store<Hover>({}, sameHover));
   const setHover = hovers.set;
+  // The keyboard hotspot is the hover, marked key. A key that adds atoms moves it on to the new end, the arrow keys
+  // walk it and Enter puts it on a selected structure, so a molecule can be typed. It stays while the pointer is
+  // still or over empty canvas; the pointer takes over when it moves on to something else. keyFrom: what the
+  // pointer was over when a key set it. hotOf: each drawing's hotspot, so undo and redo bring it back.
+  const keyFrom = useRef<Hover>({});
+  const hotOf = useRef(new WeakMap<Mol, Hot>());
   const [selection, setSelection] = useState<Set<number>>(new Set());
   // Captions picked, by id. Atoms and captions are selected separately and move, delete and copy together.
   const [picked, setPicked] = useState<Set<number>>(new Set());
@@ -423,7 +431,13 @@ export default function Editor() {
     dispatch({ type: "set", mol, merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
   };
-  const undo = (redo = false) => { dispatch({ type: redo ? "redo" : "undo" }); setSelection(new Set()); setPicked(new Set()); };
+  const undo = (redo = false) => {
+    dispatch({ type: redo ? "redo" : "undo" });
+    setSelection(new Set());
+    setPicked(new Set());
+    const back = hovers.get().key && hotOf.current.get(h.stack[Math.max(0, Math.min(h.stack.length - 1, h.at + (redo ? 1 : -1)))]);
+    if (back) setHover({ ...back, key: true });
+  };
   // The file on disk and the drawing as last saved. Undoing back to the saved drawing makes it clean again.
   const [file, setFile] = useState<{ path?: string; saved: Mol }>({ saved: EMPTY });
   // Home (decision 0003): where Octet opens (?editor skips it, for tests), with the name box on first launch and the
@@ -463,7 +477,12 @@ export default function Editor() {
   };
   useEffect(() => { if (notice) { const t = setTimeout(() => setNotice(undefined), 4000); return () => clearTimeout(t); } }, [notice]);
   // After an edit, the thing under a still pointer may have changed.
-  useEffect(() => { if (pointer.current) setHover(hit(pointer.current)); }, [doc]);
+  // A keyboard hotspot stays while its atom or bond is still there.
+  useEffect(() => {
+    const now = hovers.get();
+    if (now.key && (now.atom ?? -1) < doc.atoms.length && (now.bond ?? -1) < doc.bonds.length) return;
+    if (pointer.current || now.key) setHover(pointer.current ? hit(pointer.current) : {});
+  }, [doc]);
 
   const name = file.path?.split(/[\\/]/).pop()?.replace(/\.(octet|oct|cdxml)$/i, "") ?? "Untitled";
   useEffect(() => { if (TAURI) getCurrentWindow().setTitle(home ? "Octet" : dirty ? `${name} (edited)` : name); }, [name, dirty, home]);
@@ -1729,6 +1748,7 @@ export default function Editor() {
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* the pointer is already gone */ }
     const p = toDoc(e.clientX, e.clientY), t = hit(p), screen: [number, number] = [e.clientX, e.clientY];
     pointer.current = p;
+    if (hovers.get().key) setHover(t); // a press takes over from the keyboard hotspot
     const handle = tool !== "erase" ? handleAt(p) : undefined;
     if (handle) return setDrag({ kind: "handle", ...handle, working: doc });
     if (tool !== "erase" && onTurnHandle(p)) {
@@ -1819,6 +1839,11 @@ export default function Editor() {
         selection: tool !== "erase" && selection.size > 0 && onSelection(doc, selection, p), turn: tool !== "erase" && onTurnHandle(p), edge: tool === "table" ? tableEdge(p)?.axis : undefined,
         page: t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined ? pageEdgeAt(p)?.[0] : undefined,
       });
+      // A keyboard hotspot stays until the pointer moves on to something other than what it was over.
+      if (hovers.get().key) {
+        if (nothing(t)) keyFrom.current = {};
+        if (nothing(t) || sameHover(t, keyFrom.current)) return;
+      }
       return setHover(t);
     }
     switch (drag.kind) {
@@ -1994,12 +2019,25 @@ export default function Editor() {
   // (so a key still works while the pointer is over the Actions panel).
   const keyTarget = (): { atom?: number; bond?: number } => {
     const hover = hovers.get();
-    if (hover.atom !== undefined || hover.bond !== undefined) return { atom: hover.atom, bond: hover.bond };
+    if ((hover.atom ?? -1) < doc.atoms.length && (hover.bond ?? -1) < doc.bonds.length && (hover.atom !== undefined || hover.bond !== undefined)) return { atom: hover.atom, bond: hover.bond };
     if (picked.size || !selection.size || selection.size > 2) return {};
     const ids = [...selection];
     if (ids.length === 1) return { atom: ids[0] };
     const b = doc.bonds.findIndex((x) => x.atoms.includes(ids[0]) && x.atoms.includes(ids[1]));
     return b >= 0 ? { bond: b } : {};
+  };
+  // Puts the keyboard hotspot on an atom or bond of mol, and keeps it with mol for undo.
+  const keyHot = (hot: Hot, mol = doc) => {
+    keyFrom.current = pointer.current ? hit(pointer.current) : {};
+    hotOf.current.set(mol, hot);
+    setHover({ ...hot, key: true });
+  };
+  // An edit by a key: the hotspot it acted on stays with the drawing before it, and the hotspot moves to `hot`.
+  const keyEdit = (mol: Mol, hot: Hot | undefined, from: Hot) => {
+    hotOf.current.set(doc, from);
+    set(mol);
+    if (hot) keyHot(hot, mol);
+    else if (hovers.get().key) setHover({});
   };
   function run(id: string) {
     const [kind, arg] = id.split(".");
@@ -2028,13 +2066,16 @@ export default function Editor() {
     if (id === "charge.plus" && atom !== undefined) return set(addCharge(doc, atom, 1));
     if (id === "charge.minus" && atom !== undefined) return set(addCharge(doc, atom, -1));
     if (kind === "menu") return commands.current[id.slice(5)]?.(); // a menu command on a key (Settings)
-    if (kind === "group" && atom !== undefined) return set(addGroup(doc, atom, arg as Group));
+    // As in ChemDraw, a group key moves the hotspot on to the group's new end, and a ring fused by a key moves it
+    // to the ring's far bond, so the next key carries on from there.
+    if (kind === "group" && atom !== undefined) { const [mol, hot] = addGroupAt(doc, atom, arg as Group); return keyEdit(mol, { atom: hot }, { atom }); }
     if (kind === "bond" && bond !== undefined) {
       if (arg in BONDS) return set(setBondSpec(doc, bond, BONDS[arg as BondKind].spec));
       if (arg === "left" || arg === "centre" || arg === "right") return set(setPosition(doc, bond, arg));
-      if (arg === "chair1" || arg === "chair2") return set(addChair(doc, arg === "chair1" ? 1 : 2, { bond }));
+      const fuse = (mol: Mol) => { const far = farBond(mol, bond, doc.bonds.length); return keyEdit(mol, far === undefined ? undefined : { bond: far }, { bond }); };
+      if (arg === "chair1" || arg === "chair2") return fuse(addChair(doc, arg === "chair1" ? 1 : 2, { bond }));
       const ring = arg.startsWith("ring") ? RINGS[arg.slice(4) as RingKind] : RINGS[arg as RingKind];
-      if (ring) return set(addRing(doc, ring.n, ring.aromatic, { bond }));
+      if (ring) return fuse(addRing(doc, ring.n, ring.aromatic, { bond }));
     }
     if (kind === "tool") {
       const ringTools: Record<string, RingKind> = { benzene: "benzene", cyclopentadiene: "cyclopentadiene", cyclohexane: "6", cyclopentane: "5" };
@@ -2045,6 +2086,11 @@ export default function Editor() {
       return setTool(arg as Tool);
     }
     if (kind === "eraser") return setSettings((s) => ({ ...s, eraser: Math.min(2, Math.max(0.05, s.eraser * (arg === "bigger" ? 1.25 : 0.8))) }));
+    // With nothing selected, the arrow keys walk the hotspot atom to bond to atom; Shift jumps about three bonds.
+    if (kind === "nudge" && !selection.size && !picked.size && (atom !== undefined || bond !== undefined)) {
+      const dir: P = arg.startsWith("left") ? [-1, 0] : arg.startsWith("right") ? [1, 0] : arg.startsWith("up") ? [0, 1] : [0, -1];
+      return keyHot((arg.endsWith("10") ? jumpHot : walkHot)(doc, { atom, bond }, dir));
+    }
     if (kind === "nudge" && (selection.size || picked.size)) {
       // 1 pt is 1/14.4 of a bond (ACS 1996). Up is +y in the drawing.
       const step = (arg.endsWith("10") ? 10 : 1) / 14.4, dir = arg.replace("10", "");
@@ -2056,8 +2102,13 @@ export default function Editor() {
     if (id === "edit.delete") {
       if (selection.size || picked.size) return set(deleteGraphics(deleteAtoms(doc, selection), picked));
       if (hover.caption !== undefined) return set(deleteGraphics(doc, new Set([hover.caption])));
-      // As in ChemDraw: the first Delete on a labelled atom removes the label; the next removes the atom.
-      if (atom !== undefined) return set(doc.atoms[atom].label !== "C" ? setElement(doc, atom, "C") : deleteAtom(doc, atom));
+      // As in ChemDraw: the first Delete on a labelled atom removes the label; the next removes the atom. Deleting
+      // the keyboard hotspot's atom moves the hotspot back to the atom it was bonded to.
+      if (atom !== undefined && doc.atoms[atom].label !== "C") return set(setElement(doc, atom, "C"));
+      if (atom !== undefined) {
+        const mol = deleteAtom(doc, atom), back = hover.key ? neighbours(doc, atom).map((j) => atomAt(mol, pos(doc, j), 1e-6)).find((j) => j !== undefined) : undefined;
+        return keyEdit(mol, back === undefined ? undefined : { atom: back }, { atom });
+      }
       if (bond !== undefined) return set(deleteBond(doc, bond));
     }
   }
@@ -2199,7 +2250,10 @@ export default function Editor() {
       fill: ids.filter((i) => doc.atoms[i].fill).every((i) => doc.atoms[i].fill === doc.atoms[ids.find((k) => doc.atoms[k].fill) ?? 0].fill) ? doc.atoms[ids.find((k) => doc.atoms[k].fill) ?? 0]?.fill : undefined };
   };
   // What the panel knows about the drawing: formula and mass (of the selection, or everything), problems, mess.
-  const analysis = useMemo(() => (loaded ? analyse(selection.size ? subset(doc, selection) : doc) : undefined), [loaded, doc, selection]);
+  // Indigo works out the formula after an edit is on screen (a deferred render), so a key on a large structure
+  // paints at once and the panel follows.
+  const [panelDoc, panelSelection] = [useDeferredValue(doc), useDeferredValue(selection)];
+  const analysis = useMemo(() => (loaded ? analyse(panelSelection.size ? subset(panelDoc, panelSelection) : panelDoc) : undefined), [loaded, panelDoc, panelSelection]);
   // The Properties panel's values, while it is open: for each structure in the selection (or the drawing), with
   // each structure's atoms in the drawing (for Add to drawing).
   const properties = useMemo(() => {
@@ -3029,13 +3083,25 @@ export default function Editor() {
       if (e.key === "Escape") {
         // Escape dismisses one thing at a time. With nothing left to dismiss it goes on to the window (which leaves
         // full screen).
-        if (!drag && !spring && !selection.size && !picked.size && !hold.current) return;
+        if (!drag && !spring && !selection.size && !picked.size && !hold.current && !hovers.get().key) return;
         e.preventDefault();
+        if (hovers.get().key) setHover(pointer.current ? hit(pointer.current) : {});
         stopHold();
         setDrag(undefined);
         if (spring) { setTool(spring); setSpring(undefined); }
         setPicked(new Set());
         return setSelection(new Set());
+      }
+      // Enter with atoms selected (ChemDraw's): the selection becomes the keyboard hotspot, on the hotspot it had if
+      // that is in a selected structure, else on the right-most heteroatom, else the right-most carbon.
+      if (e.key === "Enter" && selection.size >= 2 && !picked.size && hovers.get().atom === undefined) {
+        e.preventDefault();
+        const ids = [...selection].filter((i) => i < doc.atoms.length), groups = fragments(doc).filter((g) => g.some((i) => selection.has(i)));
+        const was = hotOf.current.get(doc)?.atom, right = (pick: (i: number) => boolean) => ids.filter(pick).sort((a, b) => pos(doc, b)[0] - pos(doc, a)[0] || pos(doc, a)[1] - pos(doc, b)[1])[0];
+        const hot = was !== undefined && groups.some((g) => g.includes(was)) ? was : right((i) => !["C", "H"].includes(doc.atoms[i].label)) ?? right((i) => doc.atoms[i].label === "C");
+        setSelection(new Set());
+        if (hot !== undefined) keyHot({ atom: hot });
+        return;
       }
       // Enter on a picked caption types into it, as Enter on an atom types its label.
       if (e.key === "Enter" && picked.size === 1 && !selection.size && hovers.get().atom === undefined) {
@@ -3497,7 +3563,7 @@ export default function Editor() {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        onPointerLeave={() => { pointer.current = undefined; setBrush(undefined); if (!drag) setHover({}); }}
+        onPointerLeave={() => { pointer.current = undefined; setBrush(undefined); if (!drag && !hovers.get().key) setHover({}); }}
         onDoubleClick={(e) => {
           // A double-click ends the Pen's curve.
           if (pen) return finishPen();

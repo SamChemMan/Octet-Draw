@@ -71,13 +71,16 @@ export function nextDirection(m: Mol, i: number): P {
   if (dirs.length === 1 && orders[0] === 3) return mul(dirs[0], -1);
   if (dirs.length === 1) {
     const [a, b] = [rot(dirs[0], 120 * deg), rot(dirs[0], -120 * deg)];
-    // Zig-zag: put the new bond on the other side of this bond from the previous one.
-    const prev = neighbours(m, ns[0]).find((j) => j !== i);
-    if (prev !== undefined) {
-      const axis = sub(here, pos(m, ns[0])), side = Math.sign(cross(axis, sub(pos(m, prev), pos(m, ns[0]))));
+    // Zig-zag: put the new bond on the other side of this bond from the previous one (as ChemDraw, only when the
+    // neighbour is in a chain, with one other bond).
+    const prev = neighbours(m, ns[0]).filter((j) => j !== i);
+    if (prev.length === 1) {
+      const axis = sub(here, pos(m, ns[0])), side = Math.sign(cross(axis, sub(pos(m, prev[0]), pos(m, ns[0]))));
       return Math.sign(cross(axis, a)) === side ? b : a;
     }
-    return a[0] > b[0] + 1e-9 || (Math.abs(a[0] - b[0]) < 1e-9 && a[1] > b[1]) ? a : b;
+    // Otherwise ChemDraw's rule: the turn depends on which 45° sector the bond points into (its angle measured with
+    // y down, as ChemDraw measures it).
+    return Math.floor((Math.atan2(-dirs[0][1], dirs[0][0]) / Math.PI + 1) * 4) % 2 ? a : b;
   }
   if (dirs.length === 2) {
     const s = add(dirs[0], dirs[1]);
@@ -237,11 +240,12 @@ export const ungroupSelection = (m: Mol, atoms: Set<number>, items: Set<number>)
 export const deleteAtom = (m: Mol, i: number) => removeAtoms(m, new Set([i]));
 export const deleteBond = (m: Mol, i: number) => removeAtoms({ ...m, bonds: m.bonds.filter((_, k) => k !== i) }, new Set());
 
-// A ring of n atoms. On a bond: fused on the side with fewer neighbours. On an atom: sharing that atom,
-// pointing the way a new bond would go. On empty canvas: centred on the point, with a vertex at the top.
+// A ring of n atoms. On a bond: fused on the side with fewer neighbours. On an atom: sharing that atom, pointing
+// the way a new bond would go (in line with the bond to a chain end, so the bonds there meet at 120°), with all its
+// other atoms new. On empty canvas: centred on the point, with a vertex at the top.
 // Benzene (aromatic) gets alternating double bonds that avoid atoms that already have one.
 export function addRing(m: Mol, n: number, aromatic: boolean, target: { bond?: number; atom?: number; point?: P }): Mol {
-  const r = 1 / (2 * Math.sin(Math.PI / n));
+  const r = 1 / (2 * Math.sin(Math.PI / n)), on = target.atom;
   let centre: P, start: P;
   if (target.bond !== undefined) {
     const [i, j] = m.bonds[target.bond].atoms, a = pos(m, i), b = pos(m, j), mid = mul(add(a, b), 0.5);
@@ -250,18 +254,21 @@ export function addRing(m: Mol, n: number, aromatic: boolean, target: { bond?: n
     const pull = others.reduce((s, k) => s + Math.sign((pos(m, k)[0] - mid[0]) * normal[0] + (pos(m, k)[1] - mid[1]) * normal[1]), 0);
     centre = add(mid, mul(normal, (pull > 0 ? -1 : 1) / (2 * Math.tan(Math.PI / n))));
     start = a;
-  } else if (target.atom !== undefined) {
-    start = pos(m, target.atom);
-    centre = add(start, mul(nextDirection(m, target.atom), r));
+  } else if (on !== undefined) {
+    start = pos(m, on);
+    const ns = neighbours(m, on);
+    centre = add(start, mul(ns.length === 1 ? unit(sub(start, pos(m, ns[0]))) : nextDirection(m, on), r));
   } else {
     centre = target.point!;
     start = add(centre, [0, r]);
   }
-  // Walk the ring from start around the centre, adding atoms where none exist.
+  // Walk the ring from start around the centre, adding atoms where none exist (a ring on an atom never takes
+  // another atom that is in the way).
   const ids: number[] = [];
   for (let k = 0; k < n; k++) {
+    const p = add(centre, rot(sub(start, centre), (2 * Math.PI * k) / n));
     let id: number;
-    [m, id] = atomOrNew(m, add(centre, rot(sub(start, centre), (2 * Math.PI * k) / n)));
+    [m, id] = on === undefined ? atomOrNew(m, p) : k ? withAtom(m, p) : [m, on];
     ids.push(id);
   }
   const hasDouble = (i: number) => m.bonds.some((b) => b.type === 2 && b.atoms.includes(i));
@@ -425,58 +432,174 @@ export type Group = "chain" | "other" | "acetyl" | "phenyl" | "cyclopropyl" | "c
 const RING_GROUPS: Partial<Record<Group, [number, boolean]>> = {
   phenyl: [6, true], cyclopropyl: [3, false], cyclobutyl: [4, false], cyclopentyl: [5, false], cyclohexyl: [6, false],
 };
-export function addGroup(m: Mol, i: number, g: Group): Mol {
-  const here = pos(m, i), dir = nextDirection(m, i);
-  const grow = (mol: Mol, spec: BondSpec = SINGLE, d: P = nextDirection(mol, i)): [Mol, number] => {
-    const next = bondTo(mol, i, add(here, d), spec);
-    return [next, atomAt(next, add(here, d), 0.1)!];
+export const addGroup = (m: Mol, i: number, g: Group): Mol => addGroupAt(m, i, g)[0];
+// The same, with the atom the keyboard hotspot moves on to, so the next key carries on from there. As ChemDraw 26.1
+// builds each group: on a chain end the end atom becomes part of the group (the C of C=O, a ring atom, the S of
+// SO2Me); a carbon that is branched (three bonds) or unsaturated (a double, triple or aromatic bond) first gets a
+// new C–C bond and the group goes on the new carbon, so no key gives a carbon five bonds. S, Se, P and As can take
+// more bonds and keep the group on themselves.
+export function addGroupAt(m: Mol, i: number, g: Group): [Mol, number] {
+  const degree = (k: number) => neighbours(m, k).length;
+  const orders = (k: number) => m.bonds.filter((b) => b.atoms.includes(k)).map((b) => b.type);
+  const multiple = (k: number) => orders(k).some((t) => t !== 1);
+  const special = (k: number) => !m.atoms[k].text && ["S", "Se", "P", "As"].includes(m.atoms[k].label);
+  // A bond from k (the next way by default), to a new atom or one already there. Returns that atom.
+  const drop = (k: number, spec: BondSpec = SINGLE, d: P = nextDirection(m, k), length = 1): number => {
+    const q = add(pos(m, k), mul(d, length));
+    m = bondTo(m, k, q, spec);
+    return atomAt(m, q, 0.1)!;
   };
+  const done = (j: number): [Mol, number] => [m, j]; // reads m after drop has changed it
+  // Of two new atoms on k, the one more straight above or below it first.
+  const upright = (k: number, a: number, b: number) => (Math.abs(pos(m, k)[0] - pos(m, a)[0]) <= Math.abs(pos(m, k)[0] - pos(m, b)[0]) ? [a, b] : [b, a]);
+  const branched = (k: number) => !special(k) && (degree(k) >= 3 || multiple(k));
   const ring = RING_GROUPS[g];
   if (ring) {
-    // On a carbon already in a chain or ring (two neighbours), the ring is spiro; otherwise it hangs off a new bond.
-    if (neighbours(m, i).length === 2 && g !== "phenyl") return addRing(m, ring[0], ring[1], { atom: i });
-    const [m2, j] = grow(m);
-    return addRing(m2, ring[0], ring[1], { atom: j });
+    const [n, aromatic] = ring, d = degree(i);
+    // On a CH2 in a chain or ring a saturated ring is spiro; a phenyl, or a ring on a branched or unsaturated
+    // carbon or an alkyne end, goes on a new C–C bond.
+    if (d >= 3 || (d === 2 && (aromatic || multiple(i))) || (d < 2 && orders(i).includes(3))) i = drop(i);
+    const before = m.atoms.length, at = pos(m, i);
+    m = addRing(m, n, aromatic, { atom: i });
+    // The hotspot moves to the ring atom farthest from the join; of two, the higher, then the one on the right.
+    let hot = i, far = -1;
+    for (let k = before; k < m.atoms.length; k++) {
+      const p = pos(m, k), h = pos(m, hot), dist = Math.trunc(len(sub(p, at)) * 100);
+      if (dist > far || (dist === far && (p[1] > h[1] + 1e-6 || (p[1] > h[1] - 1e-6 && p[0] > h[0])))) [far, hot] = [dist, k];
+    }
+    return [m, hot];
   }
+  // Methyls: a wedged (0) or hashed (1) one, two (2), or a hashed and a wedged one (3).
+  const methyls = (kind: 0 | 1 | 2 | 3): [Mol, number] => {
+    const one = orders(i);
+    if (!(((kind < 2 || one.length <= 2) && (special(i) || !multiple(i))) || (one.length === 1 && one[0] === 2))) i = drop(i);
+    const spec: BondSpec = kind === 0 ? { type: 1, stereo: 1 } : kind === 1 ? { type: 1, stereo: 6 } : SINGLE, ns = neighbours(m, i), here = pos(m, i);
+    if (ns.length === 3) {
+      // On a branched atom: opposite the bond that is nearest to straight up, down, left or right.
+      const off = (k: number) => Math.min(Math.abs(pos(m, k)[0] - here[0]), Math.abs(pos(m, k)[1] - here[1]));
+      const v = sub(here, pos(m, ns.reduce((a, k) => (off(k) < off(a) ? k : a))));
+      return done(drop(i, spec, unit(v), len(v)));
+    }
+    if (ns.length === 2 && kind >= 2) {
+      // A pair 60° apart, either side of the open direction (the hashed one first, clockwise).
+      const open = nextDirection(m, i), before = m.atoms.length;
+      const a = drop(i, kind === 3 ? { type: 1, stereo: 6 } : SINGLE, rot(open, -30 * deg));
+      const b = drop(i, kind === 3 ? { type: 1, stereo: 1 } : SINGLE, rot(open, 30 * deg));
+      return [m, a >= before ? a : b >= before ? b : i];
+    }
+    if (ns.length === 1) {
+      // Off a chain end: the more upright of the two takes the wedge, and the hotspot moves on to the other.
+      const [up, other] = upright(i, drop(i), drop(i));
+      if (kind < 2) m = setBondSpec(m, bondIndex(m, i, up), spec);
+      return [m, other];
+    }
+    return done(drop(i, spec));
+  };
   switch (g) {
-    case "chain": return grow(m)[0];
+    case "chain": return done(drop(i));
     case "other": {
-      // The other zig-zag direction: the usual one mirrored across the existing bond.
-      const ns = neighbours(m, i);
-      if (ns.length !== 1) return grow(m)[0];
-      const e = unit(sub(pos(m, ns[0]), here)), k = 2 * (dir[0] * e[0] + dir[1] * e[1]);
-      return grow(m, SINGLE, [k * e[0] - dir[0], k * e[1] - dir[1]])[0];
+      const d = degree(i);
+      // A long bond (1.75 bond lengths) from a carbon that is in a chain or branched, for crowded groups.
+      if (!m.atoms[i].text && m.atoms[i].label === "C" && (d === 2 || d === 3)) return done(drop(i, SINGLE, nextDirection(m, i), 1.75));
+      if (d !== 1) return done(drop(i));
+      // Off a chain end: the other zig-zag direction, the usual one mirrored across the existing bond.
+      const e = unit(sub(pos(m, neighbours(m, i)[0]), pos(m, i))), dir = nextDirection(m, i), k = 2 * dot(dir, e);
+      return done(drop(i, SINGLE, [k * e[0] - dir[0], k * e[1] - dir[1]]));
     }
     case "acetyl": {
-      // On a carbon with two neighbours, make it a C=O. Otherwise add C(=O)CH3.
-      if (neighbours(m, i).length === 2) { const [m2, o] = grow(m, { type: 2 }); return setElement(m2, o, "O"); }
-      const [m2, c] = grow(m);
-      const o = bondTo(m2, c, add(pos(m2, c), nextDirection(m2, c)), { type: 2 });
-      const oi = o.atoms.length - 1;
-      const withO = setElement(o, oi, "O");
-      return bondTo(withO, c, add(pos(withO, c), nextDirection(withO, c)));
+      if (branched(i)) i = drop(i);
+      // In a chain the carbon becomes C=O and keeps the hotspot. On a chain end it takes =O (the more upright
+      // bond) and a methyl, and the hotspot moves to the methyl.
+      if (degree(i) !== 1) { const o = drop(i, { type: 2 }); m = setElement(m, o, "O"); return [m, i]; }
+      const [o, me] = upright(i, drop(i), drop(i));
+      m = setElement(setBond(m, bondIndex(m, i, o), 2), o, "O");
+      return [m, me];
     }
-    case "wedgeMe": return grow(m, { type: 1, stereo: 1 })[0];
-    case "hashMe": return grow(m, { type: 1, stereo: 6 })[0];
-    case "methylidene": return grow(m, { type: 2 })[0];
-    case "alkyne": return grow(m, { type: 3 })[0];
-    case "dimethyl": { const [m2] = grow(m); return grow(m2)[0]; }
+    case "methylidene": {
+      const lead = branched(i) ? (i = drop(i)) : undefined;
+      const j = drop(i, { type: 2 });
+      return [m, lead ?? j];
+    }
+    case "alkyne": {
+      if (degree(i) >= 2 || (!special(i) && multiple(i))) i = drop(i);
+      // In line with the bond before it (square to the first on an atom that keeps two bonds).
+      const ns = neighbours(m, i), away = ns.length ? unit(sub(pos(m, i), pos(m, ns[0]))) : nextDirection(m, i);
+      return done(drop(i, { type: 3 }, ns.length === 2 ? rot(away, 90 * deg) : away));
+    }
+    case "wedgeMe": return methyls(0);
+    case "hashMe": return methyls(1);
+    case "dimethyl": return methyls(2);
     case "sulfonyl": {
-      // S with a C=O either side of the bond, square to it.
-      const [m2, sAt] = grow(m), u = unit(sub(pos(m2, sAt), here)), side: P = [-u[1], u[0]];
-      let out = setElement(m2, sAt, "S");
-      for (const d of [side, mul(side, -1)]) { out = bondTo(out, sAt, add(pos(out, sAt), d), { type: 2 }); out = setElement(out, out.atoms.length - 1, "O"); }
-      return out;
+      // The atom becomes S(=O)2, with a methyl on a chain end. Nothing happens on a branched atom.
+      if (degree(i) > 2 || m.atoms[i].text) return [m, i];
+      m = setElement(m, i, "S");
+      const hot = degree(i) === 1 ? drop(i) : i, open = nextDirection(m, i);
+      for (const t of [-30, 30]) { const o = drop(i, { type: 2 }, rot(open, t * deg)); m = setElement(m, o, "O"); }
+      return [m, hot];
     }
     case "tBu": {
-      // A quaternary carbon with its three methyls at right angles: one straight on, one either side.
-      const [m2, c] = grow(m), u = unit(sub(pos(m2, c), here)), side: P = [-u[1], u[0]];
-      let out = m2;
-      for (const d of [u, side, mul(side, -1)]) out = bondTo(out, c, add(pos(out, c), d));
-      return out;
+      const a = m.atoms[i];
+      if (a.text) return [m, i];
+      const free = hydrogens(a.label, a.charge ?? 0, orders(i).reduce((s, t) => s + (t === 4 ? 1.5 : t), 0), a.radical);
+      // A CH2 in a chain takes a wedged and a hashed methyl.
+      if (a.label === "C" && free === 2) return methyls(3);
+      if (free < 3) i = drop(i);
+      // The atom becomes the quaternary carbon: one methyl straight on, then one either side.
+      const ns = neighbours(m, i), c = drop(i, SINGLE, ns.length ? unit(sub(pos(m, i), pos(m, ns[0]))) : nextDirection(m, i));
+      drop(i);
+      drop(i);
+      return [m, c];
     }
   }
-  return m;
+  return [m, i];
+}
+
+// The keyboard hotspot: the atom or bond the next key acts on, as ChemDraw's.
+export type Hot = { atom?: number; bond?: number };
+// An arrow key (dir) moves it from an atom to the bond that points most that way, and from a bond to the end that
+// lies most that way. Where two are as near, it stays.
+export function walkHot(m: Mol, hot: Hot, dir: P): Hot {
+  const score = (from: P, to: P) => len(sub(unit(sub(to, from)), dir));
+  if (hot.atom !== undefined) {
+    const i = hot.atom, here = pos(m, i);
+    const ways = m.bonds.flatMap((b, k) => (b.atoms.includes(i) ? [{ k, s: score(here, pos(m, b.atoms[0] === i ? b.atoms[1] : b.atoms[0])) }] : [])).sort((a, b) => a.s - b.s);
+    return ways.length && (ways.length === 1 || ways[0].s < ways[1].s - 1e-9) ? { bond: ways[0].k } : hot;
+  }
+  if (hot.bond === undefined) return hot;
+  const [a, b] = m.bonds[hot.bond].atoms, mid = mul(add(pos(m, a), pos(m, b)), 0.5), sa = score(mid, pos(m, a)), sb = score(mid, pos(m, b));
+  return sa < sb - 1e-9 ? { atom: a } : sb < sa - 1e-9 ? { atom: b } : hot;
+}
+// Shift+arrow: to the atom of the same structure nearest a point about three bonds (2.45 bond lengths) that way.
+// Past the structure's edge it comes round from the other side.
+export function jumpHot(m: Mol, hot: Hot, dir: P): Hot {
+  const ends = hot.bond !== undefined ? m.bonds[hot.bond].atoms : hot.atom !== undefined ? [hot.atom] : [];
+  if (!ends.length) return hot;
+  const at = mul(ends.reduce((s, k) => add(s, pos(m, k)), [0, 0] as P), 1 / ends.length), group = fragments(m).find((g) => g.includes(ends[0]))!;
+  const inside = new Set(group), bonds = m.bonds.filter((b) => inside.has(b.atoms[0]));
+  const step = 2.45 * (bonds.reduce((s, b) => s + len(sub(pos(m, b.atoms[1]), pos(m, b.atoms[0]))), 0) / (bonds.length || 1) || 1), target = add(at, mul(dir, step));
+  const span = [0, 1].map((k) => Math.max(...group.map((i) => pos(m, i)[k])) - Math.min(...group.map((i) => pos(m, i)[k])) + step);
+  let best: number | undefined, near = Infinity;
+  for (const i of group) {
+    if (i === hot.atom) continue;
+    const p = pos(m, i);
+    for (const k of [0, 1]) if (dir[k] && Math.sign(p[k] - at[k]) === -Math.sign(dir[k])) p[k] += Math.sign(dir[k]) * span[k];
+    const d = len(sub(p, target));
+    if (d < near) [best, near] = [i, d];
+  }
+  return best === undefined ? hot : { atom: best };
+}
+// After a ring is fused on bond `on` (its new bonds from index `from`), the new bond farthest from it, where
+// ChemDraw puts the hotspot; of two, the one of higher order, then the higher, then the one on the right.
+export function farBond(m: Mol, on: number, from: number): number | undefined {
+  const mid = (k: number) => mul(add(pos(m, m.bonds[k].atoms[0]), pos(m, m.bonds[k].atoms[1])), 0.5), c = mid(on);
+  let best: number | undefined, far = -1;
+  for (let k = from; k < m.bonds.length; k++) {
+    const d = Math.trunc(len(sub(mid(k), c)) * 100);
+    if (best === undefined || d > far) { [best, far] = [k, d]; continue; }
+    const [p, q, o, ob] = [mid(k), mid(best), m.bonds[k].type, m.bonds[best].type];
+    if (d === far && (o > ob || (o === ob && (p[1] > q[1] + 1e-6 || (p[1] > q[1] - 1e-6 && p[0] > q[0]))))) best = k;
+  }
+  return best;
 }
 
 // Moves and turns a selection. Rotation is about the selection's centre, counter-clockwise for positive degrees.
@@ -491,26 +614,25 @@ export function rotateAtoms(m: Mol, ids: Set<number>, degrees: number): Mol {
   }) };
 }
 
-// Chair cyclohexane, drawn the textbook way: a 3D chair (bonds of length 1) seen from just above its mean plane,
-// scaled so the drawn bonds average one bond length. Chair 2 is chair 1 turned upside down.
+// Chair cyclohexane, drawn the textbook way (as ChemDraw draws it): three pairs of parallel bonds, all one bond
+// long, a steep pair at the ends (the first bond, 0-1), a pair sloping up and a pair near level. Chair 2 is chair 1
+// turned upside down.
 export function chairPoints(which: 1 | 2): P[] {
-  const R = Math.sqrt(0.75), h = 0.25, e = 30 * deg;
-  const pts: P[] = Array.from({ length: 6 }, (_, k) => {
-    const t = (k * 60) * deg, z = (k % 2 ? h : -h) * (which === 1 ? 1 : -1);
-    return [R * Math.cos(t), z * Math.cos(e) + R * Math.sin(t) * Math.sin(e)];
-  });
-  const mean = pts.reduce((s, p, k) => s + len(sub(pts[(k + 1) % 6], p)), 0) / 6;
-  return pts.map((p) => mul(p, 1 / mean));
+  const pts: P[] = [[0, 0]];
+  for (const t of [-40, 35, 4, 140, 215]) pts.push(add(pts[pts.length - 1], [Math.cos(t * deg), (which === 1 ? 1 : -1) * Math.sin(t * deg)]));
+  const c = mul(pts.reduce((s, p) => add(s, p), [0, 0] as P), 1 / 6);
+  return pts.map((p) => sub(p, c));
 }
 
 // Places a chair on empty canvas (centred on the point), or fuses it onto a bond on the side away from the
-// bond's other neighbours.
+// bond's other neighbours. The two chairs on one bond are mirror images, on the same side.
 export function addChair(m: Mol, which: 1 | 2, target: { bond?: number; point?: P }): Mol {
   let pts = chairPoints(which);
   if (target.bond !== undefined) {
     const [i, j] = m.bonds[target.bond].atoms, a = pos(m, i), b = pos(m, j);
-    // Map chair edge 0-1 onto a-b (rotate, scale, move), then mirror across the bond if it lands on the crowded side.
-    const e0 = pts[0], e1 = pts[1], te = sub(e1, e0), be = sub(b, a);
+    // Map a steep chair bond onto a-b (rotate, scale, move): 0-1 for chair 1 and 1-0 for chair 2. Then mirror
+    // across the bond if it lands on the crowded side.
+    const [e0, e1] = which === 1 ? [pts[0], pts[1]] : [pts[1], pts[0]], te = sub(e1, e0), be = sub(b, a);
     const k = len(be) / len(te), turn = Math.atan2(be[1], be[0]) - Math.atan2(te[1], te[0]);
     pts = pts.map((p) => add(a, mul(rot(sub(p, e0), turn), k)));
     const normal: P = unit([-(b[1] - a[1]), b[0] - a[0]]);

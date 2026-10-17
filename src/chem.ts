@@ -195,25 +195,61 @@ export function cipOf(drawn: Mol): { atoms: (string | undefined)[]; bonds: (stri
     opts.delete();
   }
 }
+// The structures (connected atoms) of a drawing, each with its atoms in order, its bonds, and a key for what
+// Indigo sees of it: its atoms (element, label, charge, radical, isotope) and bonds, and with `shape`, the atoms'
+// places relative to its first atom and the bonds' stereo. Two structures with one key give the same answers, so
+// work kept by key is done again only for the structures an edit changes, wherever they are on the page.
+function keyed(mol: Mol, shape: boolean): { ids: number[]; bonds: number[]; key: string; part: () => Mol }[] {
+  const groups = fragments(mol).map((g) => g.sort((a, b) => a - b)), of: number[] = [];
+  groups.forEach((g, k) => g.forEach((i) => { of[i] = k; }));
+  const bonds: number[][] = groups.map(() => []);
+  mol.bonds.forEach((b, k) => bonds[of[b.atoms[0]]]?.push(k));
+  return groups.map((ids, k) => {
+    const local = new Map(ids.map((i, n) => [i, n])), o = mol.atoms[ids[0]].location;
+    const atoms = ids.map((i) => {
+      const a = mol.atoms[i];
+      return [a.label, a.text ?? "", a.charge ?? 0, a.radical ?? 0, a.isotope ?? 0, ...(shape ? [0, 1, 2].map((d) => Math.round(((a.location[d] ?? 0) - (o[d] ?? 0)) * 1e4)) : [])].join(" ");
+    });
+    const bs = bonds[k].map((n) => { const b = mol.bonds[n]; return [b.type, shape ? b.stereo ?? 0 : 0, local.get(b.atoms[0]), local.get(b.atoms[1])].join(" "); });
+    const part = (): Mol => ({ atoms: ids.map((i) => mol.atoms[i]), bonds: bonds[k].map((n) => ({ ...mol.bonds[n], atoms: mol.bonds[n].atoms.map((i) => local.get(i)!) as [number, number] })) });
+    return { ids, bonds: bonds[k], key: `${atoms.join(",")};${bs.join(",")}`, part };
+  });
+}
+// Answers kept by key, at most a few thousand.
+function remember<T>(kept: Map<string, T>, key: string, value: T): T {
+  if (kept.size > 4000) kept.clear();
+  kept.set(key, value);
+  return value;
+}
 // Show Stereochemistry's labels, in the drawing's own atom and bond order: R, S (and r, s) on stereocentres and E, Z
-// on double bonds. Each structure is labelled on its own (Indigo splits a drawing into molecules). Written labels
-// (OMe, CO2Et) are expanded first; stereocentres inside a label have no drawn atom and are left out.
-export function stereoLabels(drawn: Mol): { atoms: (string | undefined)[]; bonds: (string | undefined)[] } | undefined {
-  const ind = engine(), opts = new ind.MapStringString(), atoms: (string | undefined)[] = drawn.atoms.map(() => undefined), bonds: (string | undefined)[] = drawn.bonds.map(() => undefined);
-  const clean = (c?: string) => c?.replace(/[()]/g, "") || undefined;
+// on double bonds. Each structure is labelled on its own (Indigo splits a drawing into molecules), and only once
+// while it does not change. Written labels (OMe, CO2Et) are expanded first; stereocentres inside a label have no
+// drawn atom and are left out.
+type Labels = { atoms: (string | undefined)[]; bonds: (string | undefined)[] };
+const labelled = new Map<string, Labels | null>();
+export function stereoLabels(drawn: Mol): Labels | undefined {
+  const atoms: (string | undefined)[] = drawn.atoms.map(() => undefined), bonds: (string | undefined)[] = drawn.bonds.map(() => undefined);
+  for (const { ids, bonds: own, key, part } of keyed(drawn, true)) {
+    // A structure with no wedge, hash or double bond has no R, S, E or Z.
+    if (ids.length < 3 || !own.some((k) => drawn.bonds[k].stereo || drawn.bonds[k].type === 2)) continue;
+    const found = labelled.get(key) ?? (labelled.has(key) ? null : remember(labelled, key, labelsOf(part())));
+    found?.atoms.forEach((c, n) => { atoms[ids[n]] = c; });
+    found?.bonds.forEach((c, n) => { bonds[own[n]] = c; });
+  }
+  return atoms.some(Boolean) || bonds.some(Boolean) ? { atoms, bonds } : undefined;
+}
+// One structure's labels, in its own atom and bond order.
+function labelsOf(part: Mol): Labels | null {
+  const ind = engine(), opts = new ind.MapStringString(), clean = (c?: string) => c?.replace(/[()]/g, "") || undefined;
   try {
     opts.set("output-content-type", "application/json");
-    for (const group of fragments(drawn)) {
-      if (group.length < 3) continue;
-      const ids = [...group].sort((a, b) => a - b), part = subset(drawn, new Set(ids)), { from } = expandWithOrigins(part);
-      const keep = new Set(ids), partBonds = drawn.bonds.map((b, k) => (keep.has(b.atoms[0]) && keep.has(b.atoms[1]) ? k : -1)).filter((k) => k >= 0);
-      let ket;
-      try { ket = JSON.parse(JSON.parse(ind.calculateCip(ketOf(part), "ket", opts)).struct).mol0; } catch { continue; }
-      if (!ket || ket.atoms.length !== from.length) continue;
-      ket.atoms.forEach((a: { cip?: string }, k: number) => { const d = ids[from[k]]; if (clean(a.cip) && !drawn.atoms[d].text) atoms[d] = clean(a.cip); });
-      partBonds.forEach((k, j) => { bonds[k] = clean(ket.bonds[j]?.cip); });
-    }
-    return atoms.some(Boolean) || bonds.some(Boolean) ? { atoms, bonds } : undefined;
+    const { from } = expandWithOrigins(part), ket = JSON.parse(JSON.parse(ind.calculateCip(ketOf(part), "ket", opts)).struct).mol0;
+    if (!ket || ket.atoms.length !== from.length) return null;
+    const atoms: (string | undefined)[] = part.atoms.map(() => undefined);
+    ket.atoms.forEach((a: { cip?: string }, k: number) => { if (clean(a.cip) && !part.atoms[from[k]].text) atoms[from[k]] = clean(a.cip); });
+    return { atoms, bonds: part.bonds.map((_, j) => clean(ket.bonds[j]?.cip)) };
+  } catch {
+    return null;
   } finally {
     opts.delete();
   }
@@ -366,10 +402,22 @@ export function structures(mol: Mol, groups = fragments(mol)): (Structure | unde
   }
 }
 
-// Formula and masses for the drawing or a selection, with written labels counted as their atoms.
-// Undefined while Indigo is loading or if it cannot read the structure.
+// Formula and masses for the drawing or a selection, one entry per structure, with written labels counted as their
+// atoms. Undefined while Indigo is loading or if it cannot read a structure. Each structure is worked out once
+// while it does not change, so an edit works out only the structures it changed.
 export type Analysis = { formula: string; weight: number; exact: number }[];
+const analysed = new Map<string, Analysis | null>();
 export function analyse(mol: Mol): Analysis | undefined {
+  if (!indigo || !mol.atoms.length) return undefined;
+  const out: Analysis = [];
+  for (const { key, part } of keyed(mol, false)) {
+    const found = analysed.get(key) ?? (analysed.has(key) ? null : remember(analysed, key, analyseAll(part()) ?? null));
+    if (!found) return undefined;
+    out.push(...found);
+  }
+  return out;
+}
+function analyseAll(mol: Mol): Analysis | undefined {
   if (!indigo || !mol.atoms.length) return undefined;
   const ind = indigo, opts = new ind.MapStringString(), sel = new ind.VectorInt();
   try {

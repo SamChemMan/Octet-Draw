@@ -1,7 +1,7 @@
 // Checks a drawing the way a chemist would at a glance: atoms with too many bonds, and messy geometry.
 // Messages follow the brief's style: what is wrong, the rule, then what to do.
 import { neighbours, pos, type P } from "./edit.ts";
-import type { Mol } from "./render.ts";
+import type { Bond, Mol } from "./render.ts";
 
 const NAMES: Record<string, string> = { C: "Carbon", N: "Nitrogen", O: "Oxygen", S: "Sulfur", P: "Phosphorus", B: "Boron", F: "Fluorine", Cl: "Chlorine", Br: "Bromine", I: "Iodine", H: "Hydrogen", Si: "Silicon" };
 // Highest normal valence for a neutral atom (S and P can expand). A charge moves it: N+ and O+ take one more bond.
@@ -11,10 +11,15 @@ const ORDER: Record<number, number> = { 1: 1, 2: 2, 3: 3, 4: 1.5 };
 export type Problem = { atom: number; message: string; fix?: { label: string; charge: number } };
 
 export function problems(m: Mol): Problem[] {
-  const out: Problem[] = [];
+  const out: Problem[] = [], orders = m.atoms.map(() => 0);
+  // Each atom's bond orders, added up in one pass over the bonds.
+  for (const { atoms: [i, j], type } of m.bonds) {
+    orders[i] += ORDER[type] ?? 1;
+    if (j !== i) orders[j] += ORDER[type] ?? 1;
+  }
   m.atoms.forEach((a, i) => {
     if (a.text || a.ignoreWarnings || !(a.label in MAX)) return;
-    const used = m.bonds.reduce((n, b) => n + (b.atoms.includes(i) ? ORDER[b.type] ?? 1 : 0), 0);
+    const used = orders[i];
     const charge = a.charge ?? 0;
     const allowed = a.label === "C" || a.label === "Si" || a.label === "B" ? MAX[a.label] - Math.abs(charge) + (a.label === "B" && charge < 0 ? 2 : 0) : MAX[a.label] + charge;
     if (used <= allowed) return;
@@ -39,18 +44,30 @@ export function messy(m: Mol, ids?: Set<number>): boolean {
     return length < 0.75 || length > 1.3;
   });
   if (uneven) return true;
-  const atoms = m.atoms.map((_, i) => i).filter(inside);
-  const crowded = atoms.some((i, k) => atoms.slice(k + 1).some((j) => {
-    const [p, q]: P[] = [pos(m, i), pos(m, j)];
-    return Math.hypot(q[0] - p[0], q[1] - p[1]) < 0.35 && !neighbours(m, i).includes(j);
-  }));
-  if (crowded) return true;
-  // Two bonds that cross (and share no atom) also need cleaning up.
-  const bonds = m.bonds.filter((b) => inside(b.atoms[0]) && inside(b.atoms[1]));
+  // Two atoms nearly on top of each other. Sorted left to right, each atom is compared only with the atoms less than
+  // 0.35 to its right, so a large drawing is checked quickly.
+  const x = (i: number) => m.atoms[i].location[0];
+  const atoms = m.atoms.map((_, i) => i).filter(inside).sort((a, b) => x(a) - x(b));
+  for (let k = 0; k < atoms.length; k++) {
+    for (let l = k + 1; l < atoms.length && x(atoms[l]) - x(atoms[k]) < 0.35; l++) {
+      const [p, q]: P[] = [pos(m, atoms[k]), pos(m, atoms[l])];
+      if (Math.hypot(q[0] - p[0], q[1] - p[1]) < 0.35 && !neighbours(m, atoms[k]).includes(atoms[l])) return true;
+    }
+  }
+  // Two bonds that cross (and share no atom) also need cleaning up. Sorted by their left ends, each bond is compared
+  // only with the bonds that start before it ends.
+  const left = (b: Bond) => Math.min(x(b.atoms[0]), x(b.atoms[1])), right = (b: Bond) => Math.max(x(b.atoms[0]), x(b.atoms[1]));
+  const bonds = m.bonds.filter((b) => inside(b.atoms[0]) && inside(b.atoms[1])).sort((a, b) => left(a) - left(b));
   const cross = (a: P, b: P, c: P, d: P) => {
     const s = (p: P, q: P, r: P) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
     return s(a, b, c) * s(a, b, d) < 0 && s(c, d, a) * s(c, d, b) < 0;
   };
-  return bonds.some((b, k) => bonds.slice(k + 1).some((c) =>
-    !b.atoms.some((i) => c.atoms.includes(i)) && cross(pos(m, b.atoms[0]), pos(m, b.atoms[1]), pos(m, c.atoms[0]), pos(m, c.atoms[1]))));
+  for (let k = 0; k < bonds.length; k++) {
+    const b = bonds[k];
+    for (let l = k + 1; l < bonds.length && left(bonds[l]) <= right(b); l++) {
+      const c = bonds[l];
+      if (!b.atoms.some((i) => c.atoms.includes(i)) && cross(pos(m, b.atoms[0]), pos(m, b.atoms[1]), pos(m, c.atoms[0]), pos(m, c.atoms[1]))) return true;
+    }
+  }
+  return false;
 }
