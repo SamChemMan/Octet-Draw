@@ -78,9 +78,24 @@ function engine() {
 const atomOfKet = (a: { label: string; location: [number, number, number]; charge?: number; radical?: number }): Mol["atoms"][number] =>
   ({ label: a.label, location: a.location, charge: a.charge, ...(a.radical ? { radical: a.radical === 1 ? 3 : a.radical - 1 } : {}), ...((a as { isotope?: number }).isotope ? { isotope: (a as { isotope?: number }).isotope } : {}) });
 
+// Pasted, typed and imported text can stop the editor, as Indigo runs on the main thread: it reads very long text
+// slowly, and its layout can tidy a crowded structure (a ring atom with five phenyls, a dense dendrimer) for minutes.
+// So Octet reads at most 20,000 characters of SMILES and 300,000 of a file (a 1,000-atom KET file is 250,000), lays
+// out at most 1,000 atoms, and caps the layout's rounds of tidying. 50 rounds is the fewest that lays out every real
+// structure tried as no cap does (Pd(PPh3)4 needs 50). Each round costs more on a bigger structure, so the cap falls
+// to 10 rounds at 400 atoms (a 100-residue peptide needs 10). The slowest structure tried takes half a second, and a
+// 300,000-character file that is not chemistry takes under a second to refuse (src/layout.check.ts).
+const MOST_CHARACTERS = 300_000, MOST_SMILES = 20_000, MOST_ATOMS = 1000;
+// The reason to show for text over a limit.
+const over = (most: number, what: string) => new RangeError(`It has more than ${most.toLocaleString("en-GB")} ${what}.`);
+// Atoms in a SMILES (bracket atoms and the organic subset), up to the first space (CXSMILES and names come after it).
+const smilesAtoms = (smiles: string) => smiles.split(/\s/)[0].match(/\[[^\]]*\]|Br|Cl|[BCNOPSFIbcnops*]/g)?.length ?? 0;
+
 // A structure file (MOL, SDF, CDXML, KET, SMILES), keeping the file's own drawing where it has one.
 // Coordinates are scaled so the median bond is one bond length; SMILES (no drawing) is laid out.
+// Throws a RangeError, with the reason to show, for text over Octet's limits.
 export function importStructure(text: string): Mol {
+  if (text.length > MOST_CHARACTERS) throw over(MOST_CHARACTERS, "characters");
   const ind = engine(), opts = new ind.MapStringString();
   try {
     opts.set("output-content-type", "application/json");
@@ -105,11 +120,18 @@ export function importStructure(text: string): Mol {
 }
 
 // SMILES (or a MOL file) to a laid-out molecule with Kekulé bonds and stereo wedges. All fragments are kept.
+// Throws a RangeError, with the reason to show, for text over Octet's limits.
 export function parseStructure(text: string): Mol {
+  // SMILES is one line, counted as written (Indigo reads a long SMILES slowly); a MOL file or other file, through Indigo.
+  const file = /^[{<]|[\r\n]/.test(text.trim()), most = file ? MOST_CHARACTERS : MOST_SMILES;
+  if (text.length > most) throw over(most, "characters");
+  const atoms = smilesAtoms(file ? convert(text, "smiles") : text);
+  if (atoms > MOST_ATOMS) throw over(MOST_ATOMS, "atoms");
   const ind = engine(), opts = new ind.MapStringString();
   try {
     opts.set("output-content-type", "application/json");
     opts.set("dearomatize-on-load", "true");
+    opts.set("layout-max-iterations", String(Math.min(50, Math.max(10, Math.round(4000 / atoms)))));
     const ket = JSON.parse(JSON.parse(ind.layout(text, "ket", opts)).struct);
     const out: Mol = { atoms: [], bonds: [] };
     for (const { $ref } of ket.root.nodes as { $ref: string }[]) {

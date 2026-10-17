@@ -3033,14 +3033,15 @@ export default function Editor() {
               }
             } catch { /* read the molfile or SMILES instead */ }
           }
+          let why = "Paste a name, a SMILES string or a MOL file.";
           for (const source of [clip.molfile, clip.smiles, text]) {
             if (!source || !loaded) continue;
             let frag: Mol | undefined;
-            try { frag = source === text ? parseStructure(source) : importStructure(source); } catch { frag = undefined; }
+            try { frag = source === text ? parseStructure(source) : importStructure(source); } catch (err) { frag = undefined; if (err instanceof RangeError) why = err.message; }
             if (!frag?.atoms.length && source === text) frag = structureFor(source);
             if (frag?.atoms.length) return place(frag);
           }
-          if (text) setNotice("Octet cannot read this structure. Paste a name, a SMILES string or a MOL file.");
+          if (text) setNotice(`Octet cannot read this structure. ${why}`);
         }).catch((err) => setNotice(`Octet cannot read the clipboard. ${err}`));
         return;
       }
@@ -3060,11 +3061,11 @@ export default function Editor() {
       if (!text || !loaded) return;
       e.preventDefault();
       // A SMILES string or MOL file first, then a chemical name.
-      let frag: Mol | undefined;
-      try { frag = parseStructure(text); } catch { frag = undefined; }
+      let frag: Mol | undefined, why = "Paste a name, a SMILES string or a MOL file.";
+      try { frag = parseStructure(text); } catch (err) { frag = undefined; if (err instanceof RangeError) why = err.message; }
       if (!frag?.atoms.length) frag = structureFor(text);
       if (frag) place(frag);
-      else setNotice("Octet cannot read this structure. Paste a name, a SMILES string or a MOL file.");
+      else setNotice(`Octet cannot read this structure. ${why}`);
     };
     // Copy puts the selection, or the whole drawing, on the clipboard as SMILES (or text the panel asked for).
     const onCopy = (e: ClipboardEvent) => {
