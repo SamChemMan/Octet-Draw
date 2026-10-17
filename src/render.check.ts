@@ -1,6 +1,6 @@
 // Run: node src/render.check.ts. Fails loudly if the ACS drawing rules break.
 import assert from "node:assert/strict";
-import { arrowShapes, blockOutline, ellipseArrow, fitArrows, headOfLength, headSize, placeCaptions, render, renderParts, sizeOf, type Arrow, type Box, type Drawing, type Ink, type Mol, type PartCache } from "./render.ts";
+import { arrowShapes, blockOutline, ellipseArrow, fitArrows, headOfLength, headSize, markAt, placeCaptions, render, renderParts, shapeInk, shapePaths, sizeOf, turnedWith, type Arrow, type Box, type Drawing, type Ink, type Mol, type PartCache } from "./render.ts";
 
 type P = [number, number];
 const pt = 4 / 3;
@@ -156,6 +156,21 @@ console.log("render.check: written labels ok");
   const c = [(pts[0][0] + pts[2][0]) / 2, (pts[0][1] + pts[2][1]) / 2], long = Math.hypot(pts[0][0] - c[0], pts[0][1] - c[1]), shortAxis = Math.hypot(pts[3][0] - c[0], pts[3][1] - c[1]);
   assert.ok(Math.abs(shortAxis / long - 0.4) < 1e-9, "axes 0.4");
   console.log("render.check: arrow sizes and kinds ok");
+}
+
+// Shapes (CD-18): a turned box's outline is the level one turned about its middle (anticlockwise on the page), a bold
+// one's lines are the bold width, and a bracket's mark turns with it.
+{
+  const box = { id: 1, kind: "box" as const, from: [0, 0] as [number, number], to: [2, 1] as [number, number] }, k = S.bond;
+  const level = shapePaths(box, k)[0], turned = shapePaths({ ...box, angle: 90 }, k)[0];
+  // Turned a quarter: (x, y) about the middle (1, 0.5) goes to (1 - (y - 0.5), 0.5 + (x - 1)); px have y down.
+  level.forEach(([x, y], i) => { const X = x / k, Y = -y / k, want = [1 - (Y - 0.5), 0.5 + (X - 1)]; assert.ok(Math.abs(turned[i][0] / k - want[0]) < 1e-9 && Math.abs(-turned[i][1] / k - want[1]) < 1e-9, "turned box"); });
+  const width = (polys: [number, number][][]) => Math.hypot(polys[0][1][0] - polys[0][0][0], polys[0][1][1] - polys[0][0][1]);
+  assert.ok(Math.abs(width(shapeInk({ ...box, bold: true }, S, k)) - S.bold) < 1e-9 && Math.abs(width(shapeInk(box, S, k)) - S.line) < 1e-9, "bold lines");
+  const m = markAt({ id: 2, kind: "brackets", from: [0, 0], to: [2, 2], angle: 180 }, k);
+  assert.ok(Math.abs(m.x / k - (2 - 2.08)) < 1e-9 && Math.abs(-m.y / k - (2 - 1.9)) < 1e-9, "mark turns with the brackets");
+  assert.deepEqual(turnedWith({ kind: "tlc", from: [0, 0], to: [2, 2], angle: 90 }, [0, 0]), [0, 0], "a TLC plate stays level");
+  console.log("render.check: turned and bold shapes ok");
 }
 
 // Document label options: terminal carbons labelled (CH3), every carbon labelled, and implicit H hidden.

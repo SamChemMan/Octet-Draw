@@ -20,7 +20,7 @@ export const SHAPE_EXTRA = ["highlight", "pen", "pen-edit"];
 
 // What a Shape tool variant draws: a shape (a circle is an oval drawn out from its middle), or a line or arc.
 export type ElementSpec =
-  | { shape: ShapeKind; circle?: boolean; dashed?: true; fill?: "shaded" | "solid"; shadow?: true }
+  | { shape: ShapeKind; circle?: boolean; dashed?: true; fill?: "shaded" | "solid" | "faded"; shadow?: true; bold?: true }
   | { line: "line" | "arc"; sweep?: number; style?: LineStyle }
   | { pen: true }
   | { edit: true }; // Edit curve: a picked pen curve's points and handles, and points added or taken out
@@ -28,12 +28,13 @@ export function shapeSpec(v: string): ElementSpec | undefined {
   if (v === "highlight") return { shape: "highlight" };
   if (v === "pen") return { pen: true };
   if (v === "pen-edit") return { edit: true };
-  let m = /^(circle|oval|rounded|box)(?:-(plain|dashed|shaded|solid|shadow))?$/.exec(v);
+  // Faded and bold are the Actions panel's styles for a picked shape (ChemDraw's Faded and Bold).
+  let m = /^(circle|oval|rounded|box)(?:-(plain|dashed|shaded|solid|shadow|faded|bold))?$/.exec(v);
   if (m) {
     const st = m[2] ?? "plain";
     return {
       shape: m[1] === "circle" ? "oval" : (m[1] as ShapeKind), circle: m[1] === "circle",
-      ...(st === "dashed" ? { dashed: true } : {}), ...(st === "shaded" || st === "solid" ? { fill: st } : {}), ...(st === "shadow" ? { shadow: true } : {}),
+      ...(st === "dashed" ? { dashed: true } : {}), ...(st === "shaded" || st === "solid" || st === "faded" ? { fill: st } : {}), ...(st === "shadow" ? { shadow: true } : {}), ...(st === "bold" ? { bold: true } : {}),
     } as ElementSpec;
   }
   m = /^line-(plain|dashed|wavy|bold)$/.exec(v);
@@ -48,7 +49,7 @@ export function shapeName(v: string): string | undefined {
   if (v === "highlight") return "Highlight";
   if (v === "pen") return "Pen";
   if (v === "pen-edit") return "Edit curve";
-  let m = /^(circle|oval|rounded|box)(?:-(plain|dashed|shaded|solid|shadow))?$/.exec(v);
+  let m = /^(circle|oval|rounded|box)(?:-(plain|dashed|shaded|solid|shadow|faded|bold))?$/.exec(v);
   if (m) {
     const n = SHAPE_NAMES[m[1] as keyof typeof SHAPE_NAMES], st = m[2] ?? "plain";
     return st === "plain" ? cap(n) : `${cap(st === "solid" ? "filled" : st === "shadow" ? "shadowed" : st)} ${n}`;
@@ -112,6 +113,11 @@ export function ElementGlyph({ v }: { v: string }) {
   };
   if (spec.shape === "highlight") return <Icon>{shape({ fill: "currentColor", fillOpacity: 0.28, stroke: "none" })}</Icon>;
   if (spec.fill === "solid") return <Icon>{shape({ fill: "currentColor", stroke: "none" })}</Icon>;
+  if (spec.fill === "faded") {
+    const id = `fade-${v}`;
+    return <Icon><defs><linearGradient id={id} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="currentColor" /><stop offset="1" stopColor="currentColor" stopOpacity={0} /></linearGradient></defs>{shape({ fill: `url(#${id})` })}</Icon>;
+  }
+  if (spec.bold) return <Icon>{shape({ strokeWidth: 30 })}</Icon>;
   if (spec.fill === "shaded") {
     return (
       <Icon>

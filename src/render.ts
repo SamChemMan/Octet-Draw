@@ -160,11 +160,23 @@ export type Tlc = { lanes: number; spots: Spot[]; rf?: boolean; origin?: number;
 // A spot: its lane and Rf, and when set by hand its colour, style, half-width and half-height, the smear below it
 // (bond lengths), and its own Rf label.
 export type Spot = { lane: number; rf: number; colour?: string; style?: "hollow" | "shaded"; w?: number; h?: number; tail?: number; showRf?: true };
+// bold: the outline in the bold width. faded: a fill fading to nothing at the bottom right (as a closed curve's).
+// angle: turned anticlockwise about its middle, in degrees (TLC plates and tables stay level). front: drawn in front of
+// the structures and arrows (Bring to front), its fill too; otherwise its fill is behind them.
 export type Shape = {
   id: number; kind: ShapeKind; from: [number, number]; to: [number, number]; dashed?: boolean; colour?: string;
-  fill?: "shaded" | "solid"; shadow?: boolean; side?: "left" | "right"; mark?: string; tlc?: Tlc; table?: Table;
+  fill?: "shaded" | "solid" | "faded"; shadow?: boolean; side?: "left" | "right"; mark?: string; tlc?: Tlc; table?: Table;
   shade?: Shade; // a shadow's look, when it differs from SHADE
+  bold?: true; angle?: number; front?: true;
 };
+// Shapes that turn: all but TLC plates and tables.
+export const turns = (sh: Pick<Shape, "kind">) => sh.kind !== "tlc" && sh.kind !== "table";
+// A point (drawing units) turned with a shape about its middle.
+export function turnedWith(sh: Pick<Shape, "kind" | "from" | "to" | "angle">, q: [number, number]): [number, number] {
+  if (!sh.angle || !turns(sh)) return q;
+  const c = [(sh.from[0] + sh.to[0]) / 2, (sh.from[1] + sh.to[1]) / 2], r = (sh.angle * Math.PI) / 180, [cs, sn] = [Math.cos(r), Math.sin(r)], d = [q[0] - c[0], q[1] - c[1]];
+  return [c[0] + d[0] * cs - d[1] * sn, c[1] + d[0] * sn + d[1] * cs];
+}
 // A shadow: how far it falls down and right and how soft its edge is (bond lengths), and how dark it is (0 to 1).
 export type Shade = { depth: number; blur: number; opacity: number };
 export const SHADE: Shade = { depth: 0.12, blur: 0, opacity: 0.35 };
@@ -1161,6 +1173,13 @@ function offsetPath(path: P[], d: number): P[] {
 // A shape's lines in px (y down), as paths: the outline of a box or oval, or each bracket of a pair. A highlight's
 // outline is its edge. Rounded corners have a radius of 0.3 bond lengths; bracket ends reach 0.25 bond lengths in.
 export function shapePaths(sh: Shape, k: number, bond = k): P[][] {
+  const level = levelPaths(sh, k, bond);
+  if (!sh.angle || !turns(sh)) return level;
+  // Turned about the middle: anticlockwise on the page is clockwise in px, as y points down.
+  const c = [((sh.from[0] + sh.to[0]) / 2) * k, (-(sh.from[1] + sh.to[1]) / 2) * k], r = (sh.angle * Math.PI) / 180, [cs, sn] = [Math.cos(r), Math.sin(r)];
+  return level.map((path) => path.map(([x, y]): P => [c[0] + (x - c[0]) * cs + (y - c[1]) * sn, c[1] - (x - c[0]) * sn + (y - c[1]) * cs]));
+}
+function levelPaths(sh: Shape, k: number, bond: number): P[][] {
   const x0 = Math.min(sh.from[0], sh.to[0]) * k, x1 = Math.max(sh.from[0], sh.to[0]) * k;
   const y0 = -Math.max(sh.from[1], sh.to[1]) * k, y1 = -Math.min(sh.from[1], sh.to[1]) * k;
   const w = x1 - x0, h = y1 - y0, arc = (c: P, r: [number, number], a0: number, a1: number, n = 12): P[] =>
@@ -1198,15 +1217,17 @@ export function shapePaths(sh: Shape, k: number, bond = k): P[][] {
 const sides = (sh: Shape, left: P[], right: P[]): P[][] => (sh.side === "left" ? [left] : sh.side === "right" ? [right] : [left, right]);
 // Where a bracket's mark goes: just outside its top right corner (px, y down), or the top left for a left bracket alone.
 export function markAt(sh: Shape, k: number): { x: number; y: number; anchor: "start" | "end" } {
-  const x0 = Math.min(sh.from[0], sh.to[0]) * k, x1 = Math.max(sh.from[0], sh.to[0]) * k, y0 = -Math.max(sh.from[1], sh.to[1]) * k;
-  return sh.side === "left" ? { x: x0 - 0.08 * k, y: y0 + 0.1 * k, anchor: "end" } : { x: x1 + 0.08 * k, y: y0 + 0.1 * k, anchor: "start" };
+  const x0 = Math.min(sh.from[0], sh.to[0]), x1 = Math.max(sh.from[0], sh.to[0]), y1 = Math.max(sh.from[1], sh.to[1]);
+  // The corner's place turns with the brackets; the sign stays level.
+  const [x, y] = turnedWith(sh, sh.side === "left" ? [x0 - 0.08, y1 - 0.1] : [x1 + 0.08, y1 - 0.1]);
+  return { x: x * k, y: -y * k, anchor: sh.side === "left" ? "end" : "start" };
 }
 
 // A shape's ink as filled polygons (px, y down), winding like the bonds: its lines at the line width, dashed when
 // asked (dashes and gaps of 0.2 bond lengths). A highlight has no lines; its fill is its outline.
 export function shapeInk(sh: Shape, s: Style, k: number): P[][] {
   if (sh.kind === "highlight") return [];
-  const hw = s.line / 2, out: P[][] = [], dash = 0.2 * s.bond;
+  const hw = (sh.bold ? s.bold : s.line) / 2, out: P[][] = [], dash = 0.2 * s.bond;
   const bar = (p: P, q: P) => { const d = len(sub(q, p)); if (d < 1e-9) return; const n = perp(unit(sub(q, p))); out.push([add(p, mul(n, -hw)), add(p, mul(n, hw)), add(q, mul(n, hw)), add(q, mul(n, -hw))]); };
   for (const path of shapePaths(sh, k, s.bond)) {
     // Lines run on by half a width at each joint so corners close.

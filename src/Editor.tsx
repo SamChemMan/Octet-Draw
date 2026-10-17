@@ -53,7 +53,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, ELLIPSES, Palette, pickHead, RingGlyph, RINGS, SELECTS, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, fitArrows, headBarb, headSize, sizeOf, sizedHead, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
+import { arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, fitArrows, headBarb, headSize, sizeOf, sizedHead, turnedWith, turns, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
 import { loadNames, nameToSmiles, suggestName } from "./names";
 import { checkedName, graphOf, setNamer } from "./naming";
@@ -364,7 +364,7 @@ export default function Editor() {
     }
     const spec = tool === "bracket" ? bracketPick : shapePick;
     if (!("shape" in spec)) return undefined;
-    const style = { ...("dashed" in spec && spec.dashed ? { dashed: true } : {}), ...("fill" in spec && spec.fill ? { fill: spec.fill } : {}), ...("shadow" in spec && spec.shadow ? { shadow: true } : {}), ...("side" in spec && spec.side ? { side: spec.side } : {}) };
+    const style = { ...("dashed" in spec && spec.dashed ? { dashed: true } : {}), ...("fill" in spec && spec.fill ? { fill: spec.fill } : {}), ...("shadow" in spec && spec.shadow ? { shadow: true } : {}), ...("side" in spec && spec.side ? { side: spec.side } : {}), ...("bold" in spec && spec.bold ? { bold: true as const } : {}) };
     if ("circle" in spec && spec.circle) { const r = Math.hypot(to[0] - from[0], to[1] - from[1]); return { kind: "oval", from: [from[0] - r, from[1] - r], to: [from[0] + r, from[1] + r], ...style }; }
     return { kind: spec.shape, from, to, ...style };
   };
@@ -1202,8 +1202,9 @@ export default function Editor() {
     const q: P = [p[0] * L, -p[1] * L], near = 5 / views.get().zoom + frame.line * 2;
     return [...(shown.shapes ?? [])].reverse().find((sh) => (sh.kind === "table" ? tableAt(p)?.id === sh.id : nearTrace(q, shapeTrace(sh, L, frame.bond), near)))?.id;
   };
-  const highlightAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => sh.kind === "highlight"
-    && p[0] >= Math.min(sh.from[0], sh.to[0]) && p[0] <= Math.max(sh.from[0], sh.to[0]) && p[1] >= Math.min(sh.from[1], sh.to[1]) && p[1] <= Math.max(sh.from[1], sh.to[1]))?.id;
+  // (A turned highlight: the point turned back with it.)
+  const highlightAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => { const q = sh.angle ? turnedWith({ ...sh, angle: -sh.angle }, p) : p; return sh.kind === "highlight"
+    && q[0] >= Math.min(sh.from[0], sh.to[0]) && q[0] <= Math.max(sh.from[0], sh.to[0]) && q[1] >= Math.min(sh.from[1], sh.to[1]) && q[1] <= Math.max(sh.from[1], sh.to[1]); })?.id;
   // The TLC plate a point is on, and a click on it: a spot in that lane at that height, or off again if one is there.
   const plateAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => sh.kind === "tlc"
     && p[0] >= Math.min(sh.from[0], sh.to[0]) && p[0] <= Math.max(sh.from[0], sh.to[0]) && p[1] >= Math.min(sh.from[1], sh.to[1]) && p[1] <= Math.max(sh.from[1], sh.to[1]));
@@ -1543,7 +1544,8 @@ export default function Editor() {
   }
   // Rotate… and Scale…: every point of the selection (or the whole drawing) moved by f about the selection's middle.
   // Shapes keep their own size and turn about their middle; atoms, text, arrows and curves move point by point.
-  function transformSelection(f: (q: P) => P, scale = 1) {
+  // degrees: how far a turn goes, for the text and shapes that turn with it.
+  function transformSelection(f: (q: P) => P, scale = 1, degrees = 0) {
     const all = !selection.size && !picked.size, atoms = all ? new Set(doc.atoms.map((_, i) => i)) : selection;
     const items = all ? new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? [])].map((x) => x.id)) : picked;
     const by = (q: [number, number]): [number, number] => f(q);
@@ -1556,7 +1558,8 @@ export default function Editor() {
       shapes: doc.shapes?.map((x) => {
         if (!items.has(x.id)) return x;
         const c = mid(x.from, x.to), to = by(c), half: [number, number] = [((x.to[0] - x.from[0]) / 2) * scale, ((x.to[1] - x.from[1]) / 2) * scale];
-        return { ...x, from: [to[0] - half[0], to[1] - half[1]], to: [to[0] + half[0], to[1] + half[1]] };
+        const angle = turns(x) ? ((((x.angle ?? 0) + degrees + 540) % 360) - 180) : undefined;
+        return { ...x, from: [to[0] - half[0], to[1] - half[1]], to: [to[0] + half[0], to[1] + half[1]], angle: angle && Math.abs(angle) > 1e-9 ? angle : undefined };
       }),
     }, true);
   }
@@ -1568,7 +1571,7 @@ export default function Editor() {
   };
   function rotateBy(degrees: number) {
     const c = selectionMiddle(), r = (degrees * Math.PI) / 180, [cs, sn] = [Math.cos(r), Math.sin(r)];
-    transformSelection((q) => [c[0] + (q[0] - c[0]) * cs - (q[1] - c[1]) * sn, c[1] + (q[0] - c[0]) * sn + (q[1] - c[1]) * cs]);
+    transformSelection((q) => [c[0] + (q[0] - c[0]) * cs - (q[1] - c[1]) * sn, c[1] + (q[0] - c[0]) * sn + (q[1] - c[1]) * cs], 1, degrees);
   }
   function scaleBy(k: number) {
     if (!(k > 0) || !Number.isFinite(k)) return;
@@ -1780,8 +1783,8 @@ export default function Editor() {
     return b && [b[2] + 10 / zoom, b[1] - 10 / zoom];
   };
   const onTurnHandle = (p: P) => { const zoom = views.get().zoom, h = turnHandle(zoom); return !!h && Math.hypot(p[0] * L - h[0], -p[1] * L - h[1]) * zoom < 11; };
-  // A shape's four corners, as handles.
-  const corners = (sh: Shape): Record<"from" | "to" | "c1" | "c2", P> => ({ from: sh.from, to: sh.to, c1: [sh.from[0], sh.to[1]], c2: [sh.to[0], sh.from[1]] });
+  // A shape's four corners, as handles (turned with the shape).
+  const corners = (sh: Shape): Record<"from" | "to" | "c1" | "c2", P> => ({ from: turnedWith(sh, sh.from), to: turnedWith(sh, sh.to), c1: turnedWith(sh, [sh.from[0], sh.to[1]]), c2: turnedWith(sh, [sh.to[0], sh.from[1]]) });
 
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
     if (e.button !== 0) return;
@@ -1995,8 +1998,13 @@ export default function Editor() {
       case "handle": {
         const sh = doc.shapes?.find((x) => x.id === drag.id);
         if (sh) {
-          const w = drag.which;
-          const change: Partial<Shape> = w === "from" ? { from: p } : w === "to" ? { to: p } : w === "c1" ? { from: [p[0], sh.from[1]], to: [sh.to[0], p[1]] } : { from: [sh.from[0], p[1]], to: [p[0], sh.to[1]] };
+          // The opposite corner stays where it is; the shape's sides keep their turn. d: from the opposite corner to
+          // the pointer, in the shape's own (level) frame; m: the new middle.
+          const w = drag.which, c = corners(sh), opposite = c[w === "from" ? "to" : w === "to" ? "from" : w === "c1" ? "c2" : "c1"];
+          const r = (-(sh.angle ?? 0) * Math.PI) / 180, v = [p[0] - opposite[0], p[1] - opposite[1]], d = [v[0] * Math.cos(r) - v[1] * Math.sin(r), v[0] * Math.sin(r) + v[1] * Math.cos(r)];
+          const m: P = [(p[0] + opposite[0]) / 2, (p[1] + opposite[1]) / 2], at = (x: number, y: number): P => [m[0] + x / 2, m[1] + y / 2];
+          const change: Partial<Shape> = w === "to" ? { from: at(-d[0], -d[1]), to: at(d[0], d[1]) } : w === "from" ? { from: at(d[0], d[1]), to: at(-d[0], -d[1]) }
+            : w === "c1" ? { from: at(d[0], -d[1]), to: at(-d[0], d[1]) } : { from: at(-d[0], d[1]), to: at(d[0], -d[1]) };
           return setDrag({ ...drag, working: updateShape(doc, sh.id, change) });
         }
         const a = doc.arrows?.find((x) => x.id === drag.id);
@@ -2241,7 +2249,7 @@ export default function Editor() {
     if (!selection.size && pickedShapes.length && pickedShapes.length === picked.size) {
       const first = pickedShapes[0];
       return {
-        kind: "shape", count: pickedShapes.length, shape: first.kind, dashed: !!first.dashed, colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
+        kind: "shape", count: pickedShapes.length, shape: first.kind, dashed: !!first.dashed, bold: !!first.bold, colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
         style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, ...tableContext(first), hide: first.tlc?.hide ?? [], shade: { ...SHADE, ...first.shade, pt: style.bond },
       };
     }
@@ -2817,14 +2825,20 @@ export default function Editor() {
       if (what === "clear") return each((x) => clearTable(x));
       if (what === "fit") return each((x) => fitTable(x, cellWidth));
       // One style at a time: plain, dashed, shaded, filled or with a shadow.
-      if (what === "style") return each(() => ({ dashed: arg === "dashed" || undefined, fill: arg === "shaded" || arg === "solid" ? arg : undefined, shadow: arg === "shadow" || undefined }));
+      if (what === "style") return each(() => ({ dashed: arg === "dashed" || undefined, fill: arg === "shaded" || arg === "solid" || arg === "faded" ? arg : undefined, shadow: arg === "shadow" || undefined }));
+      if (what === "bold") return each((x) => ({ bold: !x.bold || undefined }));
       if (what === "side") return each(() => ({ side: arg === "both" ? undefined : (arg as "left" | "right") }));
       if (what === "mark") return each((x) => ({ mark: x.mark === arg ? undefined : arg }));
       if (what === "colour") return each(() => ({ colour: arg }));
-      // Bring to the front or send to the back: the order shapes are drawn in.
+      // Bring to the front or send to the back, for shapes and arrows (curves, orbitals) picked: each goes to the end
+      // or the start of its own list, the order that kind is drawn in. A shape brought to the front is drawn over the
+      // structures and arrows (its fill too); sent to the back, its fill goes behind them again. Text is always in front.
       if (what === "front" || what === "back") {
-        const mine = (doc.shapes ?? []).filter((x) => ids.has(x.id)), rest = (doc.shapes ?? []).filter((x) => !ids.has(x.id));
-        return set({ ...doc, shapes: what === "front" ? [...rest, ...mine] : [...mine, ...rest] }, true);
+        const order = <T extends { id: number }>(list?: T[]) => list && [...list.filter((x) => (what === "front") !== picked.has(x.id)), ...list.filter((x) => (what === "front") === picked.has(x.id))];
+        return set({
+          ...doc, arrows: order(doc.arrows),
+          shapes: order(doc.shapes)?.map((x) => (picked.has(x.id) && turns(x) ? { ...x, front: what === "front" || undefined } : x)),
+        }, true);
       }
     }
     if (command.startsWith("orbital.")) {
@@ -3414,6 +3428,32 @@ export default function Editor() {
   // The drawing's layers. Hovering, panning, zooming and the caret do not change them, and each is made again only
   // when what it shows changes, so React passes over the rest of the drawing.
   const gridKey = gridViews.length ? gridViews : undefined;
+  // A shape's fill: a highlight's, a solid, shaded or faded one, or a shadow.
+  const shapeFill = (sh: Shape) => {
+    if (!(sh.kind === "highlight" || sh.fill || sh.shadow)) return null;
+    const d = kept(outlines, sh, frame.bond, () => toPath(shapeTrace(sh, L, frame.bond).paths.slice(0, 1))), shade = { ...SHADE, ...sh.shade }, off = shade.depth * L;
+    if (sh.kind === "highlight") return <path key={`f${sh.id}`} d={d} fill={sh.colour ?? HIGHLIGHT} />;
+    if (sh.fill) return <path key={`f${sh.id}`} d={d} fill={sh.fill === "solid" ? sh.colour ?? "var(--ink)" : `url(#shade${sh.id})`} />;
+    // A shadow falls down and to the right, in the shape's colour at its opacity, softened by a blur. It shows
+    // only outside the shape, so the shape stays unfilled: what is behind it shows through, and an export on a
+    // transparent background has nothing in it.
+    return (
+      <g key={`f${sh.id}`}>
+        <defs>
+          {shade.blur > 0 && <filter id={`soft${sh.id}`} x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation={shade.blur * L * 0.5} /></filter>}
+          <mask id={`outside${sh.id}`} maskUnits="userSpaceOnUse" x={-1e5} y={-1e5} width={2e5} height={2e5}>
+            <rect x={-1e5} y={-1e5} width={2e5} height={2e5} fill="#fff" />
+            <path d={d} fill="#000" />
+          </mask>
+        </defs>
+        <g mask={`url(#outside${sh.id})`}>
+          <path d={d} transform={`translate(${off} ${off})`} fill={sh.colour ? textInk(sh.colour) : "var(--ink)"} fillOpacity={shade.opacity} filter={shade.blur > 0 ? `url(#soft${sh.id})` : undefined} />
+        </g>
+      </g>
+    );
+  };
+  // A shape's outline.
+  const shapeOutline = (sh: Shape) => <path key={`sh${sh.id}`} d={kept(shapeInks, sh, frame, () => toPath(shapeInk(sh, frame, L)))} fill={sh.colour ?? "var(--ink)"} />;
   const under = useMemo(() => (
     <>
       {/* Fills go behind the structures: highlights, shadows (with the shape white over them), solid and shaded shapes. */}
@@ -3434,29 +3474,14 @@ export default function Editor() {
             <stop offset="1" style={{ stopColor: sh.colour ?? "var(--ink)" }} />
           </radialGradient>
         ))}
+        {(shown.shapes ?? []).filter((sh) => sh.fill === "faded").map((sh) => (
+          <linearGradient key={sh.id} id={`shade${sh.id}`} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" style={{ stopColor: sh.colour ?? "var(--ink)" }} />
+            <stop offset="1" style={{ stopColor: sh.colour ?? "var(--ink)" }} stopOpacity={0} />
+          </linearGradient>
+        ))}
       </defs>
-      {(shown.shapes ?? []).filter((sh) => sh.kind === "highlight" || sh.fill || sh.shadow).map((sh) => {
-        const d = kept(outlines, sh, frame.bond, () => toPath(shapeTrace(sh, L, frame.bond).paths.slice(0, 1))), shade = { ...SHADE, ...sh.shade }, off = shade.depth * L;
-        if (sh.kind === "highlight") return <path key={`f${sh.id}`} d={d} fill={sh.colour ?? HIGHLIGHT} />;
-        if (sh.fill) return <path key={`f${sh.id}`} d={d} fill={sh.fill === "shaded" ? `url(#shade${sh.id})` : sh.colour ?? "var(--ink)"} />;
-        // A shadow falls down and to the right, in the shape's colour at its opacity, softened by a blur. It shows
-        // only outside the shape, so the shape stays unfilled: what is behind it shows through, and an export on a
-        // transparent background has nothing in it.
-        return (
-          <g key={`f${sh.id}`}>
-            <defs>
-              {shade.blur > 0 && <filter id={`soft${sh.id}`} x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation={shade.blur * L * 0.5} /></filter>}
-              <mask id={`outside${sh.id}`} maskUnits="userSpaceOnUse" x={-1e5} y={-1e5} width={2e5} height={2e5}>
-                <rect x={-1e5} y={-1e5} width={2e5} height={2e5} fill="#fff" />
-                <path d={d} fill="#000" />
-              </mask>
-            </defs>
-            <g mask={`url(#outside${sh.id})`}>
-              <path d={d} transform={`translate(${off} ${off})`} fill={sh.colour ? textInk(sh.colour) : "var(--ink)"} fillOpacity={shade.opacity} filter={shade.blur > 0 ? `url(#soft${sh.id})` : undefined} />
-            </g>
-          </g>
-        );
-      })}
+      {(shown.shapes ?? []).filter((sh) => !sh.front).map(shapeFill)}
       {arrows.filter((a) => (a.curve?.closed || a.kind === "block") && a.fill).map((a) => {
         // A closed pen curve's fill: solid, shaded (lit from the top left) or faded (to nothing at the bottom right).
         // As ChemDraw draws them (checked in its SVG export): each curve's fill, then its outline as a 0.05 pt
@@ -3498,7 +3523,7 @@ export default function Editor() {
             {orbitals.flatMap((a) => lobesOf(a, L).map((l, i) => {
               const ink = a.colour ? textInk(a.colour) : "var(--ink)", ph = a.orbital!.phase;
               const fill = ph === "filled" || (ph === "phased" && !l.second) ? ink : ph === "shaded" ? `url(#lobe${a.colour ? a.id : ""})` : "var(--canvas)";
-              return <path key={`${a.id}-${i}`} d={toPath([l.path])} fill={fill} fillRule="evenodd" stroke={ink} strokeWidth={frame.line} />;
+              return <path key={`${a.id}-${i}`} d={toPath([l.path])} fill={fill} fillRule="evenodd" stroke={ink} strokeWidth={frame.line} strokeDasharray={a.style === "dashed" ? `${0.15 * frame.bond} ${0.1 * frame.bond}` : undefined} />;
             }))}
           </g>
         );
@@ -3565,7 +3590,7 @@ export default function Editor() {
   const draggedSpot = drag?.kind === "spot" ? `${drag.plate} ${drag.index}` : undefined;
   const over = useMemo(() => (
     <>
-      {(shown.shapes ?? []).filter((sh) => sh.kind !== "highlight" && sh.kind !== "table" && !sh.fill && !(sh.kind === "tlc" && sh.tlc?.hide?.includes("border"))).map((sh) => <path key={`sh${sh.id}`} d={kept(shapeInks, sh, frame, () => toPath(shapeInk(sh, frame, L)))} fill={sh.colour ?? "var(--ink)"} />)}
+      {(shown.shapes ?? []).filter((sh) => !sh.front && sh.kind !== "highlight" && sh.kind !== "table" && sh.fill !== "solid" && sh.fill !== "shaded" && !(sh.kind === "tlc" && sh.tlc?.hide?.includes("border"))).map(shapeOutline)}
       {(shown.shapes ?? []).filter((sh) => sh.kind === "tlc").map((sh) => {
         // A plate's origin line, dashed solvent front, spots, and their Rf values when shown.
         const t = tlcLayout(sh), y = (v: number) => -v * L, ink = sh.colour ? textInk(sh.colour) : "var(--ink)", hide = new Set(sh.tlc?.hide ?? []);
@@ -3625,6 +3650,8 @@ export default function Editor() {
         <text key={`map${i}`} className="atom-map" textAnchor="middle" x={(pos(shown, i)[0] + 0.42 * markDirs.get(i)![0]) * L} y={-(pos(shown, i)[1] + 0.42 * markDirs.get(i)![1]) * L + 0.22 * frame.size} style={{ fontSize: frame.size * 0.62 }}>{a.map}</text>
       ) : null)}
       {labelTexts}
+      {/* Shapes brought to the front: their fills and outlines over the structures, under the text. */}
+      {(shown.shapes ?? []).filter((sh) => sh.front).map((sh) => <g key={`front${sh.id}`}>{shapeFill(sh)}{sh.kind !== "highlight" && sh.fill !== "solid" && sh.fill !== "shaded" && shapeOutline(sh)}</g>)}
       {placed.map((c) => c.id === (writing?.id ?? DRAFT) || c.id === DRAFT ? null : (
         <CaptionText key={`c${c.id}`} c={c} fill={textInk(c.colour ?? style.colour)} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} />
       ))}

@@ -33,7 +33,7 @@ export type Context =
   | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
       heads: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string; size?: string; ratio: number; fillable: boolean;
       point?: "add" | "remove" | "bent" } // one straight arrow or line: it can take a point, or has one (bent: and bends)
-  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[]; shade: { depth: number; blur: number; opacity: number; pt: number } }
+  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; bold: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[]; shade: { depth: number; blur: number; opacity: number; pt: number } }
   | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean; grid: boolean }
   | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; halo?: string; fill?: string; numbered?: boolean }
@@ -321,6 +321,8 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   const clean = it(<MagicWand size={18} />, "Clean up", "clean_up", messy);
   const nameIt = it(<TagSimple size={18} />, "Structure to name", "structure_to_name");
   const del = it(<Trash size={18} />, "Delete", "delete");
+  // The drawing order, for every kind of object: in front of everything else, or behind it.
+  const order = [small(it(<StackSimple size={18} />, "Bring to front", "shape.front")), small(it(<Stack size={18} />, "Send to back", "shape.back"))];
   // Rotate 180° keeps stereochemistry (arrows round), Flip mirrors it (mirror glyphs).
   const flips = [it(<ArrowsLeftRight size={18} />, "Rotate 180° horizontal", "flip_h", false, true), it(<ArrowsDownUp size={18} />, "Rotate 180° vertical", "flip_v", false, true)];
   const mirrors = [it(<FlipHorizontal size={18} />, "Flip horizontal", "mirror_h", false, true), it(<FlipVertical size={18} />, "Flip vertical", "mirror_v", false, true)];
@@ -400,20 +402,20 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         break;
       }
       if (isBracket({ kind: context.shape })) items.push(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed"));
-      items.push(small(it(<StackSimple size={18} />, "Bring to front", "shape.front")), small(it(<Stack size={18} />, "Send to back", "shape.back")), del);
+      items.push(...order, del);
       break;
     case "spot":
       items.push(it(<span className="glyph-text">Rf</span>, context.rf ? "Hide its Rf" : "Show its Rf", "spot.rf"), del);
       break;
     case "arrow":
-      if (context.arrow === "orbital") { items.push(it(<ArrowsLeftRight size={18} />, "Swap the phases", "orbital.swap"), del); break; }
-      if (context.arrow === "curve") { items.push(it(<Circle size={18} />, context.closed ? "Open the curve" : "Close the curve", "arrow.closed"), it(<ArrowsLeftRight size={18} />, "Reverse", "arrow.reverse"), del); break; }
+      if (context.arrow === "orbital") { items.push(it(<ArrowsLeftRight size={18} />, "Swap the phases", "orbital.swap"), small(it(<LineSegments size={18} />, context.style === "dashed" ? "Solid lines" : "Dashed lines", "arrow.style.dashed")), ...order, del); break; }
+      if (context.arrow === "curve") { items.push(it(<Circle size={18} />, context.closed ? "Open the curve" : "Close the curve", "arrow.closed"), it(<ArrowsLeftRight size={18} />, "Reverse", "arrow.reverse"), ...order, del); break; }
       {
         const point = context.point === "add" ? [it(<BezierCurve size={18} />, "Add a point", "arrow.point")] : context.point ? [it(<LineSegment size={18} />, "Remove the point", "arrow.point")] : [];
         const flip = context.curved || context.point === "bent" ? [it(<FlipVertical size={18} />, "Flip the curve", "arrow.flip")] : [];
-        if (isLine({ kind: context.arrow })) { items.push(it(<ArrowsLeftRight size={18} />, "Reverse", "arrow.reverse"), ...flip, ...point, del); break; }
+        if (isLine({ kind: context.arrow })) { items.push(it(<ArrowsLeftRight size={18} />, "Reverse", "arrow.reverse"), ...flip, ...point, ...order, del); break; }
         if (context.count === 1 && !context.curved) items.push(it(<TextT size={18} />, "Add conditions above", "arrow.above"), it(<TextT size={18} />, "Add conditions below", "arrow.below"));
-        items.push(it(<ArrowsLeftRight size={18} />, "Reverse", "arrow.reverse"), ...flip, ...point);
+        items.push(it(<ArrowsLeftRight size={18} />, "Reverse", "arrow.reverse"), ...flip, ...point, ...order);
       }
       items.push(del);
       break;
@@ -712,11 +714,15 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         const row = context.shape === "oval" ? "oval" : context.shape === "rounded" ? "rounded" : "box";
         return (
           <div className="chips arrows" role="group" aria-label="Style">
-            {["plain", "dashed", "shaded", "solid", "shadow"].map((st) => (
+            {["plain", "dashed", "shaded", "solid", "faded", "shadow"].map((st) => (
               <button key={st} className="chip" aria-pressed={context.style === st} aria-label={shapeName(`${row}-${st}`)} title={shapeName(`${row}-${st}`)} onClick={() => run(`shape.style.${st}`)}>
                 <ElementGlyph v={`${row}-${st}`} />
               </button>
             ))}
+            {/* Bold goes with any of them. */}
+            <button className="chip" aria-pressed={context.bold} aria-label={shapeName(`${row}-bold`)} title={shapeName(`${row}-bold`)} onClick={() => run("shape.bold")}>
+              <ElementGlyph v={`${row}-bold`} />
+            </button>
           </div>
         );
       })()}
