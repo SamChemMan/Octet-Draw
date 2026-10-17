@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { DEFAULT_STYLE, PRESETS, TEXT_SIZES, presetAt, presetOf, readStyle, roundPt, sizeAt, withScale } from "./docstyle.ts";
 import { fitSizes, fitTable, medianBond, scaleSettings, scaleSizes, sizeTable, transformParts } from "./edit.ts";
-import { handlePoint, percentOf, resizeBy, type Box } from "./resize.ts";
+import { handlePoint, percentOf, resizeBy, sideAt, SIDES, type Box } from "./resize.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { tableLayout, type Mol, type Shape } from "./render.ts";
 
@@ -126,6 +126,12 @@ console.log("scale.check: text sizes ok");
   assert.deepEqual(resizeBy(b, "ne", [5.05, 2.5], {}, [1, 1.25], 0.2).size, [1.25, 1.25], "the bond stop holds");
   assert.deepEqual(resizeBy(b, "ne", [-5, -5], {}).size, [0.05, 0.05], "never flips");
   assert.deepEqual([percentOf([1.5, 1.5]), percentOf([1.2345, 1])], ["150%", "123.5% × 100%"]);
+  // A handle takes the pointer near it, but not inside what the frame holds: a press on the top atom of a ring moves it.
+  const held: Box = [0.2, 0.2, 3.8, 1.8];
+  assert.equal(sideAt(b, SIDES, [2, 2.15], 0.3, held), "n");
+  assert.equal(sideAt(b, SIDES, [2, 1.75], 0.3, held), undefined, "inside what the frame holds");
+  assert.equal(sideAt(b, SIDES, [2, 1.75], 0.3), "n");
+  assert.equal(sideAt(b, SIDES, [3, 2.1], 0.3, held), undefined, "not near a handle");
   console.log("scale.check: resize handles ok");
 }
 

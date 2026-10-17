@@ -55,7 +55,7 @@ import {
 } from "./tools";
 import { arrowShapes, bendPoint, curved, scaleOf, fitArrows, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
-import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, SIDES, type Box as RBox, type Side } from "./resize";
+import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { loadNames, nameToSmiles, suggestName } from "./names";
 import { checkedName, graphOf, setNamer } from "./naming";
 import { iupacName } from "./namer";
@@ -796,12 +796,10 @@ export default function Editor() {
     ...Object.fromEntries((["left", "centre", "right", "top", "middle", "bottom", "across", "down"] as const).map((how) => [`arrange_${how}`, () => arrange(how)])),
     // Rotate… (⌘R) and Scale… (⌘K), as ChemDraw's.
     rotate_dialog: () => setDialog({ kind: "rotate", angle: "90", clockwise: false }),
-    // Scale… opens as ChemDraw's does: on the median bond, with the chosen bonds' median typed in; with no bond chosen,
-    // on Scale by 100% (the median rows are dimmed).
-    scale_dialog: () => {
-      const median = chosenMedian();
-      setDialog(median ? { kind: "scale", how: "length", value: String(Math.round(median * style.bond * 100) / 100) } : { kind: "scale", how: "percent", value: "100" });
-    },
+    // Scale… opens on the document's bond length, so ⌘K and Return still set it. ChemDraw opens on "So that median bond
+    // is", which loses that. Median bond to types the chosen bonds' median in. With no bond chosen, it opens on Scale by
+    // 100% (the median rows are dimmed).
+    scale_dialog: () => setDialog({ kind: "scale", how: chosenMedian() ? "document" : "percent", value: "100" }),
     // Group (⌘G) and Ungroup (⇧⌘G), as ChemDraw's: the selected structures and objects select and move as one.
     group: () => {
       const r = groupSelection(doc, selection, picked);
@@ -1588,7 +1586,9 @@ export default function Editor() {
       setView((v) => ({ ...v, zoom: clampZoom(v.zoom * r) }));
       return set({ ...scaleSizes(moved, k), style: next }, true);
     }
-    set(working ?? scaledParts(doc, atoms, items, size, c, lines, captionMiddles()), true);
+    // A drag of the whole drawing in proportion only showed it scaled (its working copy is the drawing as it was), so
+    // a scale outside the document's 10% to 1000% is made here, as object scales.
+    set(working && working !== doc ? working : scaledParts(doc, atoms, items, size, c, lines, captionMiddles()), true);
   }
   // The selection's scale against the document (decision 0007), for the Actions panel's Scale field: its atoms',
   // arrows', shapes' and cycles' scale; null when they differ; undefined when nothing selected has a scale.
@@ -1807,8 +1807,8 @@ export default function Editor() {
   };
   const frameSides = (b: RBox, zoom: number) => SIDES.filter((h) => isCorner(h) || (!selectionFrame?.corners && ((h === "n" || h === "s" ? b[2] - b[0] : b[3] - b[1]) * L * zoom >= 30)));
   const resizeAt = (p: P): Side | undefined => {
-    const zoom = views.get().zoom, b = tool !== "erase" ? frameBox(zoom) : undefined;
-    return b && frameSides(b, zoom).find((h) => { const q = handlePoint(b, h); return Math.hypot(p[0] - q[0], p[1] - q[1]) * L * zoom < 6; });
+    const zoom = views.get().zoom, b = tool !== "erase" ? frameBox(zoom) : undefined, f = selectionFrame?.box;
+    return b && sideAt(b, frameSides(b, zoom), p, 6 / (L * zoom), f && [f[0] / L, -f[3] / L, f[2] / L, -f[1] / L]);
   };
   // The rotation handle, as in ChemDraw: just off the frame's top right corner (px).
   const turnHandle = (zoom: number): P | undefined => {

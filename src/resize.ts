@@ -18,6 +18,13 @@ export function handlePoint(b: Box, h: Side): P {
   return [h.includes("w") ? b[0] : h.includes("e") ? b[2] : (b[0] + b[2]) / 2, h.includes("s") ? b[1] : h.includes("n") ? b[3] : (b[1] + b[3]) / 2];
 }
 
+// The handle at p: within r of it, and outside what the frame holds (inner), so a press on an atom at the frame's edge
+// (the top atom of a ring) moves the selection.
+export function sideAt(b: Box, sides: Side[], p: P, r: number, inner?: Box): Side | undefined {
+  if (inner && p[0] > inner[0] && p[0] < inner[2] && p[1] > inner[1] && p[1] < inner[3]) return undefined;
+  return sides.find((h) => { const q = handlePoint(b, h); return Math.hypot(p[0] - q[0], p[1] - q[1]) < r; });
+}
+
 // The factors across and up for the pointer at p, and the point they scale about. near: how far (drawing units) the
 // handle may be from where a stop puts it and still stop there. Factors stay 5% to 5000%, to 4 decimals, and never
 // flip.
