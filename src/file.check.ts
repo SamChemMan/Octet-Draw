@@ -82,6 +82,17 @@ console.log("file.check: bad files refused");
   console.log("file.check: shapes ok");
 }
 
+// Draw order (Bring to Front, Send to Back) survives a save and reopen on every kind; a bad order is left out.
+{
+  const [one] = addShape(mol, { kind: "box", from: [0, 0], to: [2, 1], order: -1 });
+  const m = { ...one, atoms: one.atoms.map((a) => ({ ...a, order: 2 })), captions: [{ id: 90, text: "A", x: 0, y: 0, order: 3 }], arrows: [{ id: 91, kind: "reaction" as const, from: [0, 0] as [number, number], to: [1, 0] as [number, number], order: 4 }] };
+  const again = parse(serialize(m));
+  assert.deepEqual([again.shapes![0].order, again.atoms[0].order, again.captions![0].order, again.arrows![0].order], [-1, 2, 3, 4]);
+  const bad = parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [{ label: "C", x: 0, y: 0, order: 0.5 }], bonds: [] } }));
+  assert.equal(bad.atoms[0].order, undefined);
+  console.log("file.check: draw order ok");
+}
+
 // Lines, arcs, dashed arrows and orbitals survive a save and reopen.
 {
   let m = mol;

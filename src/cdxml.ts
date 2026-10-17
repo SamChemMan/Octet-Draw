@@ -266,8 +266,17 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   const fresh = () => next++;
   const idOf = new Map<number, number>(own.map((id) => [id, sound ? id : fresh()]));
   // Z: one drawing order for the page (spec 7.1), back to front as Octet draws: fills, orbitals, structures, arrows, text.
-  let z = 0;
-  const Z = () => (z < 32767 ? ++z : z);
+  // Things with a draw order (order.ts) each take a band of their own, under or over all of that, in their order.
+  const orders = [...new Set([...mol.atoms, ...(mol.captions ?? []), ...(mol.arrows ?? []), ...(mol.shapes ?? []), ...(mol.cycles ?? [])].flatMap((x) => (x.order ? [x.order] : [])))].sort((p, q) => p - q);
+  const band = Math.floor(16000 / Math.max(1, orders.length)), back = orders.filter((o) => o < 0).length, filled = new Map<number, number>();
+  const starts = new Map(orders.map((o, k) => [o, 1 + k * band + (o > 0 ? 16384 : 0)]));
+  let z = back * band, zOrder: number | undefined; // zOrder: the order of the thing being written
+  const Z = () => {
+    if (!zOrder) return z < back * band + 16384 ? ++z : z;
+    const n = filled.get(zOrder) ?? 0;
+    filled.set(zOrder, Math.min(n + 1, band - 1));
+    return starts.get(zOrder)! + n;
+  };
 
   // Everything on the page, with its type rank (ChemDraw writes children grouped by type, spec 7.2) and its group.
   type Out = { xml: string; rank: number; group?: number; box: Box };
@@ -293,6 +302,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // Shapes: boxes and ovals as graphics with their 3D frame (spec 9.2), brackets as one graphic a side, TLC plates,
   // and tables as a group of lines and text that ChemDraw shows, with the table itself in Octet's data.
   for (const sh of mol.shapes ?? []) {
+    zOrder = sh.order;
     const id = idOf.get(sh.id)!, [x0, y0] = at([Math.min(sh.from[0], sh.to[0]), Math.max(sh.from[1], sh.to[1])]), [x1, y1] = at([Math.max(sh.from[0], sh.to[0]), Math.min(sh.from[1], sh.to[1])]);
     const box: Box = [x0, y0, x1, y1], c: P = [(x0 + x1) / 2, (y0 + y1) / 2], hw = (x1 - x0) / 2, hh = (y1 - y0) / 2;
     const frame = { Center3D: pt3(c), MajorAxisEnd3D: pt3([c[0] + hw, c[1]]), MinorAxisEnd3D: pt3([c[0], c[1] + hh]) };
@@ -357,6 +367,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       Closed: c.closed ? "yes" : undefined, CurvePoints: qs.map(pt).join(" "), Octet: priv({ fill: a.fill === "faded" ? "faded" : undefined, style: a.style === "wavy" ? "wavy" : undefined }) }), 4, boxOf(qs), a.id);
   };
   for (const a of mol.arrows ?? []) {
+    zOrder = a.order;
     if (a.kind === "orbital" && a.orbital) {
       const { shape, phase } = a.orbital;
       const name = (ORBITALS.find(([, s, p]) => s === shape && p === phase) ?? ORBITALS.find(([n, s]) => s === shape && n.endsWith("Filled") === (phase === "filled")) ?? ORBITALS.find(([, s]) => s === shape)!)[0];
@@ -389,6 +400,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       Center3D: pt3(c), MajorAxisEnd3D: pt3(major), MinorAxisEnd3D: pt3(minor), Octet: DERIVED });
   }).join("");
   for (const atoms of frags) {
+    zOrder = mol.atoms[atoms[0]].order;
     let xml = "";
     const boxes: Box[] = [];
     for (const i of atoms) {
@@ -581,16 +593,18 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     }), 6, box, derived ? undefined : a.id);
   };
   for (const a of mol.arrows ?? []) {
+    zOrder = a.order;
     if (a.kind === "curve" && a.curve) { if (!(a.curve.closed && a.fill)) curveOut(a); }
     else if (a.kind !== "orbital") arrowOut(a, false);
   }
-  for (const a of opts.derived ?? []) if (a.kind !== "orbital" && a.kind !== "curve") arrowOut(a, true);
+  for (const a of opts.derived ?? []) { zOrder = a.order; if (a.kind !== "orbital" && a.kind !== "curve") arrowOut(a, true); }
 
   // Captions: style runs (spec 8.1), the caption's own style as the text's caption style, and the anchor by its
   // alignment. Captions Octet places itself (under a structure, on an arrow) are written where Octet would put them.
   const captions = [...(mol.captions ?? [])].sort((p, q) => p.id - q.id);
   const stacked = new Map<string, number>();
   for (const c of captions) {
+    zOrder = c.order;
     const size = c.size ?? style.captionSize, align = c.align ?? "centre", lines = c.text.split("\n").length;
     let [x, y] = [c.x, c.y];
     const arrow = c.on && mol.arrows?.find((a) => a.id === c.on!.arrow);
@@ -651,6 +665,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   }
   for (const a of arrows) if (!done.has(a.id) && legacyOf.has(a.id) && captions.some((c) => c.on?.arrow === a.id)) schemes.push(el("scheme", { id: fresh() }, step(a.id, [], [])));
 
+  zOrder = undefined;
   // Groups hold their structures and objects (Octet's groups do not nest).
   const RANKED = (list: Out[]) => [...list].sort((p, q) => p.rank - q.rank);
   for (const g of mol.groups ?? []) {

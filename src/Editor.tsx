@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, memo, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Waveform, TagSimple, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
   FrameCorners, GearSix, Keyboard, Lasso, LinkSimple, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
@@ -24,6 +24,7 @@ import { store, type Store } from "./store";
 import { loadSettings, saveSettings } from "./settings";
 import { ACTIONS, actionFor, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
 import { Actions, actionItems, type Context } from "./Actions";
+import { reorder } from "./order";
 import { Properties, propertyValues, PROPERTY_ROWS } from "./Properties";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { acsText, multiplicity, quality } from "./nmr";
@@ -861,8 +862,10 @@ export default function Editor() {
     settings: () => setSettingsOpen((settings.settingsModule as ModuleId) ?? "document"),
     structure_to_name: () => nameStructures(),
     copy_smiles: () => void document.execCommand("copy"),
-    bring_front: () => runAction("shape.front"),
-    send_back: () => runAction("shape.back"),
+    // Bring to Front (⌘[) and Send to Back (⌘]), as ChemDraw's: any selected structure (a picked atom or bond takes its
+    // whole structure) and object goes over, or under, everything else.
+    bring_front: () => restack(true),
+    send_back: () => restack(false),
     command_palette: () => { setCommandsOpen((o) => !o); if (!namesLoaded) void loadNames().then(() => setNamesLoaded(true)); },
     // The Text menu styles the caption being typed, or the picked captions.
     text_bold: () => runAction("caption.bold"),
@@ -1101,18 +1104,21 @@ export default function Editor() {
   const ghost = useMemo(() => named && render(moveAtoms(named, new Set(named.atoms.map((_, i) => i)), landing(named)), frame, measure, L), [named, doc, frame, measure, placed, arrows]); // eslint-disable-line react-hooks/exhaustive-deps
   // Reaction conditions and a cycle's reagents print formulas with subscripts (K2CO3 as K₂CO₃).
   const reagents = useMemo(() => new Set((shown.captions ?? []).filter((c) => c.on || c.cycle).map((c) => c.id)), [shown]);
+  // Each object's ink is drawn in its layer, or on its own under or over all the layers when it has a draw order
+  // (Bring to Front, Send to Back; order.ts). level: a thing that is drawn in its layer.
+  const level = (x?: { order?: number }) => !x?.order;
   // Arrow ink, one path per colour (unset is the document's ink), each arrow's part kept with the arrow.
   // Filled pen curves draw their own outline with their fill, in order (below), so clip art's layers stack as drawn.
   const arrowInk = useMemo(() => {
     const groups = new Map<string | undefined, string>();
-    for (const a of [...arrows.filter((x) => !(x.curve?.closed && x.fill)), ...cycleArrows]) {
+    for (const a of [...arrows.filter((x) => level(x) && !(x.curve?.closed && x.fill)), ...cycleArrows.filter(level)]) {
       const key = a.colour?.toLowerCase();
       groups.set(key, (groups.get(key) ?? "") + kept(arrowInks, a, frame, () => toPath(arrowShapes(a, frame, L))));
     }
     return [...groups];
   }, [arrows, cycleArrows, frame]);
   // Structure ink: each structure's own paths, so a drag changes only the paths of what moved.
-  const structureInk = useMemo(() => drawing.parts.flatMap(({ ids, drawing: d, at }) => structurePaths(d).map(([key, path]) => [`${ids[0]}|${key}`, key, path, moveBy(at)] as const)), [drawing]);
+  const structureInk = useMemo(() => drawing.parts.filter(({ ids }) => level(shown.atoms[ids[0]])).flatMap(({ ids, drawing: d, at }) => structurePaths(d).map(([key, path]) => [`${ids[0]}|${key}`, key, path, moveBy(at)] as const)), [drawing]); // eslint-disable-line react-hooks/exhaustive-deps
   // Atom labels as text, one group per structure, made once for each drawing of it: React passes over the ones that
   // did not change, and a structure being moved only moves its group.
   const labelCache = useRef<{ look: string; parts: WeakMap<Drawing, React.ReactElement[]> }>(undefined);
@@ -2089,6 +2095,12 @@ export default function Editor() {
     const inSalt = new Set(merged.flat());
     return [...all.filter((g) => !inSalt.has(g)), ...merged.map((gs) => gs.flat())];
   };
+  // The selection to the front or the back of the draw order (order.ts): each structure it touches, as a whole, and
+  // each picked object (a picked cycle takes its intermediates too).
+  function restack(front: boolean) {
+    const m = reorder(doc, fragments(doc).filter((g) => g.some((i) => selection.has(i))), picked, front);
+    if (m !== doc) set(m, true);
+  }
   // Structure to name: each named structure gets its name centred underneath (after its compound number).
   function nameStructures() {
     if (!namesLoaded) { void loadNames().then(() => setNamesLoaded(true)); return setNotice("Loading names. Try again in a moment."); }
@@ -2107,8 +2119,19 @@ export default function Editor() {
     if (context.kind === "caption" || context.kind === "shape") return { value: context.colour, tints: context.kind === "shape" && context.shape === "highlight" };
     if (context.kind === "spot" && spotPick) return { value: doc.shapes?.find((x) => x.id === spotPick.plate)?.tlc?.spots[spotPick.index]?.colour ?? "#000000" };
     if (context.kind === "empty" || context.kind === "drawing") return undefined;
-    const first = [...selection][0], thing = [...(doc.arrows ?? []), ...(doc.cycles ?? []), ...(doc.shapes ?? [])].find((x) => picked.has(x.id));
+    const first = [...selection][0], thing = [...(doc.arrows ?? []), ...(doc.cycles ?? []), ...(doc.shapes ?? []), ...(doc.captions ?? [])].find((x) => picked.has(x.id));
     return { value: (first !== undefined ? doc.atoms[first]?.colour : thing?.colour) ?? "#000000" };
+  };
+  // The kinds of thing selected (structures, captions, arrows, shapes, cycles) and how many things. A caption under a
+  // selected structure, on a picked arrow or in a picked cycle goes with it, and so do a picked cycle's intermediates.
+  const mixOf = () => {
+    if (!picked.size) return { kinds: selection.size ? 1 : 0, count: 0, atoms: selection.size > 0 };
+    const cycles = (doc.cycles ?? []).filter((c) => picked.has(c.id)), inCycle = new Set(cycles.flatMap((c) => c.nodes.flat()));
+    const arrowIds = new Set((doc.arrows ?? []).filter((a) => picked.has(a.id)).map((a) => a.id)), shapes = (doc.shapes ?? []).filter((x) => picked.has(x.id)).length;
+    const captions = (doc.captions ?? []).filter((c) => picked.has(c.id) && !c.under?.some((i) => selection.has(i)) && !(c.on && arrowIds.has(c.on.arrow)) && !(c.cycle && cycles.some((y) => y.id === c.cycle!.cycle))).length;
+    const structures = fragments(doc).filter((g) => g.some((i) => selection.has(i) && !inCycle.has(i))).length;
+    const counts = [structures, captions, arrowIds.size, shapes, cycles.length];
+    return { kinds: counts.filter(Boolean).length, count: counts.reduce((a, b) => a + b, 0), atoms: structures > 0 };
   };
   // What the Actions panel shows: it follows the selection (and, while typing, the caret). Worked out when the panel
   // draws and when an action runs.
@@ -2125,9 +2148,13 @@ export default function Editor() {
     // A whole reaction picked (as a double-click on its arrow picks it).
     const reaction = reactionPicked();
     if (reaction) return { kind: "reaction", grid: !!doc.grids?.some((g) => reaction.arrows.includes(g.arrow)), steps: reaction.arrows.length, structures: reaction.steps.filter((x) => x.kind === "structure").length, clean: reactionClean(reaction, arrows), mapped: reaction.atoms.some((i) => doc.atoms[i]?.map) };
-    // A cycle picked (with its intermediates).
+    // A cycle picked (with its intermediates), when it is all that is picked.
+    const mix = mixOf();
     const pickedCycle = (doc.cycles ?? []).find((c) => picked.has(c.id));
-    if (pickedCycle) return { kind: "cycle", clockwise: pickedCycle.clockwise, steps: pickedCycle.nodes.length, centre: !!doc.captions?.some((c) => c.cycle?.cycle === pickedCycle.id && c.cycle.side === "centre") };
+    if (pickedCycle && mix.kinds === 1) return { kind: "cycle", clockwise: pickedCycle.clockwise, steps: pickedCycle.nodes.length, centre: !!doc.captions?.some((c) => c.cycle?.cycle === pickedCycle.id && c.cycle.side === "centre") };
+    // Different kinds of thing picked together (an arrow and a box, a caption and an atom, everything): what applies to
+    // all of them.
+    if (mix.kinds > 1) return { kind: "selection", count: mix.count, atoms: mix.atoms };
     // A TLC spot picked on its plate.
     const plate = spotPick && !selection.size && picked.size === 1 && picked.has(spotPick.plate) ? doc.shapes?.find((x) => x.id === spotPick.plate) : undefined, spot = plate?.tlc?.spots[spotPick!.index];
     if (plate && spot) {
@@ -2465,8 +2492,8 @@ export default function Editor() {
 
   // The key to show beside an action: menu shortcuts, then the user's shortcut table.
   const MENU_KEYS: Record<string, string> = {
-    invert_selection: `⇧${MOD}I`, clean_reaction: `⇧${MOD}X`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}/`, copy_smiles: `⌥${MOD}C`, delete: "⌫",
-    structure_to_name: `⌥${MOD}N`, "shape.front": `${MOD}[`, "shape.back": `${MOD}]`,
+    invert_selection: `⇧${MOD}I`, clean_reaction: `⇧${MOD}X`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}/`, copy_smiles: `⌥${MOD}C`, copy: `${MOD}C`, delete: "⌫",
+    structure_to_name: `⌥${MOD}N`, bring_front: `${MOD}[`, send_back: `${MOD}]`,
     settings: `${MOD},`, name_to_structure: `⇧${MOD}N`, "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.sub": `${MOD}−`, "caption.super": `${MOD}+`, "caption.plain": `${MOD}T`, "caption.formula": `${MOD}F`, "caption.edit": keyLabel("enter"),
   };
   const hint = (command: string) => {
@@ -2572,12 +2599,13 @@ export default function Editor() {
     if (commands.current[command]) return commands.current[command]();
     const context = contextOf();
     // Colour, for everything selected, as ChemDraw's Color menu: atoms (their labels and marks), the bonds between
-    // them, and every picked arrow, orbital, line, shape, cycle and caption. Black is the document's ink.
+    // them, and every picked arrow, orbital, line, shape, table, TLC plate, cycle and caption, whatever else is picked
+    // with them. Black is the document's ink, so it clears the colour. Only text being typed (or the Text tool's next
+    // text) takes the colour as a text style.
     if (command.startsWith("colour.")) {
       const hex = command.slice(7), ink = hex.toLowerCase() === "#000000" ? undefined : hex;
-      if (context.kind === "caption") return runAction(`caption.colour.${hex}`);
+      if (context.kind === "caption" && context.mode !== "picked") return runAction(`caption.colour.${hex}`);
       if (context.kind === "spot" && spotPick) return set(editSpot(doc, spotPick.plate, spotPick.index, () => ({ colour: ink })), true);
-      if (context.kind === "shape") return runAction(`shape.colour.${hex}`);
       const pick = <T extends { id: number; colour?: string }>(x: T): T => (picked.has(x.id) ? { ...x, colour: ink } : x);
       return set({
         ...doc,
@@ -2606,7 +2634,7 @@ export default function Editor() {
       const atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i));
       return set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) && BY[a.label] ? { ...a, colour: BY[a.label] } : a)) }, true);
     }
-    if (command === "copy_smiles") return void document.execCommand("copy");
+    if (command === "copy_smiles" || command === "copy") return void document.execCommand("copy");
     if (command === "paste_hint") return setNotice(`Copy a SMILES string or MOL file, then press ${MOD}V here.`);
     if (command.startsWith("copy_text:")) { copyText.current = command.slice(10); document.execCommand("copy"); return; }
     if (command.startsWith("fix:")) { const [, i, charge] = command.split(":"); return set(addCharge(doc, Number(i), Number(charge) - (doc.atoms[Number(i)].charge ?? 0)), true); }
@@ -2699,12 +2727,8 @@ export default function Editor() {
       if (what === "style") return each(() => ({ dashed: arg === "dashed" || undefined, fill: arg === "shaded" || arg === "solid" ? arg : undefined, shadow: arg === "shadow" || undefined }));
       if (what === "side") return each(() => ({ side: arg === "both" ? undefined : (arg as "left" | "right") }));
       if (what === "mark") return each((x) => ({ mark: x.mark === arg ? undefined : arg }));
-      if (what === "colour") return each(() => ({ colour: arg }));
-      // Bring to the front or send to the back: the order shapes are drawn in.
-      if (what === "front" || what === "back") {
-        const mine = (doc.shapes ?? []).filter((x) => ids.has(x.id)), rest = (doc.shapes ?? []).filter((x) => !ids.has(x.id));
-        return set({ ...doc, shapes: what === "front" ? [...rest, ...mine] : [...mine, ...rest] }, true);
-      }
+      if (what === "colour") return each(() => ({ colour: arg.toLowerCase() === "#000000" ? undefined : arg }));
+      if (what === "front" || what === "back") return restack(what === "front");
     }
     if (command.startsWith("orbital.")) {
       const [, what, arg] = command.split(".");
@@ -3255,6 +3279,134 @@ export default function Editor() {
     for (let v = -y + g; v < y - 0.01; v += g) lines.push(`M${-x} ${v}H${x}`);
     return <path className="grid" d={lines.join("")} vectorEffect="non-scaling-stroke" />;
   })();
+  // A shape's fill: a highlight, a solid or shaded fill, or a shadow.
+  const shapeFill = (sh: Shape) => {
+    if (!(sh.kind === "highlight" || sh.fill || sh.shadow)) return null;
+    const d = kept(outlines, sh, frame.bond, () => toPath(shapeTrace(sh, L, frame.bond).paths.slice(0, 1))), shade = { ...SHADE, ...sh.shade }, off = shade.depth * L;
+    if (sh.kind === "highlight") return <path key={`f${sh.id}`} d={d} fill={sh.colour ?? HIGHLIGHT} />;
+    if (sh.fill) return <path key={`f${sh.id}`} d={d} fill={sh.fill === "shaded" ? `url(#shade${sh.id})` : sh.colour ? textInk(sh.colour) : "var(--ink)"} />;
+    // A shadow falls down and to the right, in the shape's colour at its opacity, softened by a blur. It shows
+    // only outside the shape, so the shape stays unfilled: what is behind it shows through, and an export on a
+    // transparent background has nothing in it.
+    return (
+      <g key={`f${sh.id}`}>
+        <defs>
+          {shade.blur > 0 && <filter id={`soft${sh.id}`} x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation={shade.blur * L * 0.5} /></filter>}
+          <mask id={`outside${sh.id}`} maskUnits="userSpaceOnUse" x={-1e5} y={-1e5} width={2e5} height={2e5}>
+            <rect x={-1e5} y={-1e5} width={2e5} height={2e5} fill="#fff" />
+            <path d={d} fill="#000" />
+          </mask>
+        </defs>
+        <g mask={`url(#outside${sh.id})`}>
+          <path d={d} transform={`translate(${off} ${off})`} fill={sh.colour ? textInk(sh.colour) : "var(--ink)"} fillOpacity={shade.opacity} filter={shade.blur > 0 ? `url(#soft${sh.id})` : undefined} />
+        </g>
+      </g>
+    );
+  };
+  // A closed pen curve's fill: solid, shaded (lit from the top left) or faded (to nothing at the bottom right).
+  const curveFill = (a: Arrow) => {
+    if (!(a.curve?.closed && a.fill)) return null;
+    // As ChemDraw draws them (checked in its SVG export): each curve's fill, then its outline as a 0.05 pt
+    // hairline, in order, so a curve drawn later (a lamp's highlight over its glass, say) covers those under it.
+    const ink = a.colour ? textInk(a.colour) : "var(--ink)", d = kept(outlines, a, L, () => toPath(arrowTrace(a, L).paths));
+    const outline = <path d={d} fill="none" stroke={ink} strokeWidth={0.05 * pt} />;
+    if (a.fill === "solid") return <g key={`cf${a.id}`}><path d={d} fill={ink} />{outline}</g>;
+    return (
+      <g key={`cf${a.id}`}>
+        <defs>
+          {a.fill === "shaded"
+            ? <radialGradient id={`cfill${a.id}`} cx="0.36" cy="0.32" r="0.75"><stop offset="0" stopColor="#FFFFFF" /><stop offset="1" style={{ stopColor: ink }} /></radialGradient>
+            : <linearGradient id={`cfill${a.id}`} x1="0" y1="0" x2="1" y2="1"><stop offset="0" style={{ stopColor: ink }} /><stop offset="1" style={{ stopColor: ink }} stopOpacity={0} /></linearGradient>}
+        </defs>
+        <path d={d} fill={`url(#cfill${a.id})`} />
+        {outline}
+      </g>
+    );
+  };
+  const orbitalsInk = (orbitals: Arrow[]) => {
+    // Orbitals sit behind the structure: plain lobes are the page's colour, shaded ones lit from the top
+    // left, filled ones solid; phased orbitals fill one phase and leave the other plain.
+    return (
+      <g className="orbitals">
+        <defs>
+          <radialGradient id="lobe" cx="0.36" cy="0.32" r="0.75">
+            <stop offset="0" stopColor="#FFFFFF" />
+            <stop offset="1" style={{ stopColor: "var(--ink)" }} stopOpacity={0.55} />
+          </radialGradient>
+        </defs>
+        {orbitals.filter((a) => a.colour && a.orbital!.phase === "shaded").map((a) => (
+          <radialGradient key={`g${a.id}`} id={`lobe${a.id}`} cx="0.36" cy="0.32" r="0.75">
+            <stop offset="0" stopColor="#FFFFFF" />
+            <stop offset="1" stopColor={textInk(a.colour!)} stopOpacity={0.55} />
+          </radialGradient>
+        ))}
+        {orbitals.flatMap((a) => lobesOf(a, L).map((l, i) => {
+          const ink = a.colour ? textInk(a.colour) : "var(--ink)", ph = a.orbital!.phase;
+          const fill = ph === "filled" || (ph === "phased" && !l.second) ? ink : ph === "shaded" ? `url(#lobe${a.colour ? a.id : ""})` : "var(--canvas)";
+          return <path key={`${a.id}-${i}`} d={toPath([l.path])} fill={fill} fillRule="evenodd" stroke={ink} strokeWidth={frame.line} />;
+        }))}
+      </g>
+    );
+  };
+  // A TLC plate's lines and spots.
+  const tlcInk = (sh: Shape) => {
+    // A plate's origin line, dashed solvent front, spots, and their Rf values when shown.
+    const t = tlcLayout(sh), y = (v: number) => -v * L, ink = sh.colour ? textInk(sh.colour) : "var(--ink)", hide = new Set(sh.tlc?.hide ?? []);
+    const dragging = drag?.kind === "spot" && drag.plate === sh.id ? drag.index : undefined;
+    return (
+      <g key={`tlc${sh.id}`} className="tlc">
+        {!hide.has("origin") && <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.origin)} y2={y(t.origin)} stroke={ink} strokeWidth={frame.line} />}
+        {!hide.has("origin") && Array.from({ length: t.lanes }, (_, k) => <line key={`t${k}`} x1={t.lane(k) * L} x2={t.lane(k) * L} y1={y(t.origin) - 0.08 * L} y2={y(t.origin) + 0.08 * L} stroke={ink} strokeWidth={frame.line} />)}
+        {!hide.has("front") && <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.front)} y2={y(t.front)} stroke={ink} strokeWidth={frame.line} strokeDasharray={`${0.12 * L} ${0.08 * L}`} />}
+        {(sh.tlc?.spots ?? []).map((x, i) => {
+          // A spot in its own colour (or the plate's): filled, hollow (its outline) or shaded (lit from the top left).
+          const c = x.colour ? textInk(x.colour) : ink, d = "M" + spotPath(t, x).map(([px, py]) => `${(px * L).toFixed(2)} ${(-py * L).toFixed(2)}`).join("L") + "Z", { rx } = t.size(x);
+          const picked = spotPick?.plate === sh.id && spotPick.index === i;
+          return (
+            <g key={i}>
+              {x.style === "shaded" && <defs><radialGradient id={`spot${sh.id}-${i}`} cx="0.36" cy="0.32" r="0.75"><stop offset="0" stopColor="#FFFFFF" /><stop offset="1" style={{ stopColor: c }} /></radialGradient></defs>}
+              <path d={d} fill={x.style === "hollow" ? "none" : x.style === "shaded" ? `url(#spot${sh.id}-${i})` : c} stroke={x.style === "hollow" ? c : undefined} strokeWidth={frame.line} />
+              {picked && <path d={d} className="spot-picked" fill="none" vectorEffect="non-scaling-stroke" />}
+              {(sh.tlc?.rf || x.showRf || dragging === i) && <text x={(t.lane(x.lane) + rx + 0.1) * L} y={y(t.at(x.rf)) + 0.12 * L} fill={c} style={{ font: `${style.captionSize * pt * 0.8}px ${fontStack(style.captionFont)}` }}>{x.rf.toFixed(2)}</text>}
+            </g>
+          );
+        })}
+      </g>
+    );
+  };
+  // A table's lines and text.
+  const tableInk = (sh: Shape) => {
+    // A table: the lines it has (journal rules unless set otherwise), solid or dashed, and each cell's text
+    // aligned in its column.
+    const t = tableLayout(sh, cellWidth), y = (v: number) => -v * L, ink = sh.colour ? textInk(sh.colour) : "var(--ink)", size = style.captionSize * pt;
+    const lines = new Set(linesOf(sh.table)), inner = (n: number) => Array.from({ length: Math.max(0, n - 1) }, (_, i) => i + 1);
+    const across = [...(lines.has("top") ? [t.y1] : []), ...inner(t.rows).filter((r) => lines.has("rows") || (r === 1 && lines.has("header"))).map((r) => t.row(r)), ...(lines.has("bottom") ? [t.y0] : [])];
+    const down = [...(lines.has("left") ? [t.x0] : []), ...(lines.has("cols") ? inner(t.cols).map((c) => t.col(c)) : []), ...(lines.has("right") ? [t.x1] : [])];
+    const weight = (sh.table?.weight ?? style.line) * pt, dash = sh.dashed ? `${3 * weight} ${3 * weight}` : undefined;
+    const anchor = (c: number) => sh.table?.align?.[c] ?? "centre";
+    return (
+      <g key={`table${sh.id}`} className="table">
+        {across.map((v, i) => <line key={`r${i}`} x1={t.x0 * L} x2={t.x1 * L} y1={y(v)} y2={y(v)} stroke={ink} strokeWidth={weight} strokeDasharray={dash} />)}
+        {down.map((v, i) => <line key={`c${i}`} x1={v * L} x2={v * L} y1={y(t.y1)} y2={y(t.y0)} stroke={ink} strokeWidth={weight} strokeDasharray={dash} />)}
+        {(sh.table?.cells ?? []).map((row, r) => row.map((text, c) => text && !(cell?.id === sh.id && cell.r === r && cell.c === c) ? (
+          <text key={`${r}-${c}`} x={(anchor(c) === "left" ? t.col(c) + TABLE_PAD : anchor(c) === "right" ? t.col(c + 1) - TABLE_PAD : t.col(c) + t.widths[c] / 2) * L} y={y(t.row(r) - t.heights[r] / 2) + 0.35 * size}
+            textAnchor={anchor(c) === "left" ? "start" : anchor(c) === "right" ? "end" : "middle"} fill={ink} style={{ font: `${size}px ${fontStack(style.captionFont)}` }}>{formula(text, size)}</text>
+        ) : null))}
+      </g>
+    );
+  };
+  // A shape's lines: its outline, a TLC plate's lines and spots, a table's lines and text, and a bracket's sign.
+  const shapeLines = (sh: Shape) => (
+    <Fragment key={`sl${sh.id}`}>
+      {sh.kind !== "highlight" && sh.kind !== "table" && !sh.fill && !(sh.kind === "tlc" && sh.tlc?.hide?.includes("border")) && <path key={`sh${sh.id}`} d={kept(shapeInks, sh, frame, () => toPath(shapeInk(sh, frame, L)))} fill={sh.colour ? textInk(sh.colour) : "var(--ink)"} />}
+      {sh.kind === "tlc" && tlcInk(sh)}
+      {sh.kind === "table" && tableInk(sh)}
+      {sh.mark && isBracket(sh) && (() => {
+        const m = markAt(sh, L);
+        return <text key={`m${sh.id}`} x={m.x} y={m.y} textAnchor={m.anchor} fill={sh.colour ? textInk(sh.colour) : "var(--ink)"} style={{ font: `${style.captionSize * pt}px ${fontStack(style.captionFont)}` }}>{sh.mark}</text>;
+      })()}
+    </Fragment>
+  );
   // The drawing's layers. Hovering, panning, zooming and the caret do not change them, and each is made again only
   // when what it shows changes, so React passes over the rest of the drawing.
   const gridKey = gridViews.length ? gridViews : undefined;
@@ -3275,77 +3427,13 @@ export default function Editor() {
         {(shown.shapes ?? []).filter((sh) => sh.fill === "shaded").map((sh) => (
           <radialGradient key={sh.id} id={`shade${sh.id}`} cx="0.36" cy="0.32" r="0.72">
             <stop offset="0" stopColor="#FFFFFF" />
-            <stop offset="1" style={{ stopColor: sh.colour ?? "var(--ink)" }} />
+            <stop offset="1" style={{ stopColor: sh.colour ? textInk(sh.colour) : "var(--ink)" }} />
           </radialGradient>
         ))}
       </defs>
-      {(shown.shapes ?? []).filter((sh) => sh.kind === "highlight" || sh.fill || sh.shadow).map((sh) => {
-        const d = kept(outlines, sh, frame.bond, () => toPath(shapeTrace(sh, L, frame.bond).paths.slice(0, 1))), shade = { ...SHADE, ...sh.shade }, off = shade.depth * L;
-        if (sh.kind === "highlight") return <path key={`f${sh.id}`} d={d} fill={sh.colour ?? HIGHLIGHT} />;
-        if (sh.fill) return <path key={`f${sh.id}`} d={d} fill={sh.fill === "shaded" ? `url(#shade${sh.id})` : sh.colour ?? "var(--ink)"} />;
-        // A shadow falls down and to the right, in the shape's colour at its opacity, softened by a blur. It shows
-        // only outside the shape, so the shape stays unfilled: what is behind it shows through, and an export on a
-        // transparent background has nothing in it.
-        return (
-          <g key={`f${sh.id}`}>
-            <defs>
-              {shade.blur > 0 && <filter id={`soft${sh.id}`} x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation={shade.blur * L * 0.5} /></filter>}
-              <mask id={`outside${sh.id}`} maskUnits="userSpaceOnUse" x={-1e5} y={-1e5} width={2e5} height={2e5}>
-                <rect x={-1e5} y={-1e5} width={2e5} height={2e5} fill="#fff" />
-                <path d={d} fill="#000" />
-              </mask>
-            </defs>
-            <g mask={`url(#outside${sh.id})`}>
-              <path d={d} transform={`translate(${off} ${off})`} fill={sh.colour ? textInk(sh.colour) : "var(--ink)"} fillOpacity={shade.opacity} filter={shade.blur > 0 ? `url(#soft${sh.id})` : undefined} />
-            </g>
-          </g>
-        );
-      })}
-      {arrows.filter((a) => a.curve?.closed && a.fill).map((a) => {
-        // A closed pen curve's fill: solid, shaded (lit from the top left) or faded (to nothing at the bottom right).
-        // As ChemDraw draws them (checked in its SVG export): each curve's fill, then its outline as a 0.05 pt
-        // hairline, in order, so a curve drawn later (a lamp's highlight over its glass, say) covers those under it.
-        const ink = a.colour ? textInk(a.colour) : "var(--ink)", d = kept(outlines, a, L, () => toPath(arrowTrace(a, L).paths));
-        const outline = <path d={d} fill="none" stroke={ink} strokeWidth={0.05 * pt} />;
-        if (a.fill === "solid") return <g key={`cf${a.id}`}><path d={d} fill={ink} />{outline}</g>;
-        return (
-          <g key={`cf${a.id}`}>
-            <defs>
-              {a.fill === "shaded"
-                ? <radialGradient id={`cfill${a.id}`} cx="0.36" cy="0.32" r="0.75"><stop offset="0" stopColor="#FFFFFF" /><stop offset="1" style={{ stopColor: ink }} /></radialGradient>
-                : <linearGradient id={`cfill${a.id}`} x1="0" y1="0" x2="1" y2="1"><stop offset="0" style={{ stopColor: ink }} /><stop offset="1" style={{ stopColor: ink }} stopOpacity={0} /></linearGradient>}
-            </defs>
-            <path d={d} fill={`url(#cfill${a.id})`} />
-            {outline}
-          </g>
-        );
-      })}
-      {arrows.some(isOrbital) && (() => {
-        // Orbitals sit behind the structure: plain lobes are the page's colour, shaded ones lit from the top
-        // left, filled ones solid; phased orbitals fill one phase and leave the other plain.
-        const orbitals = arrows.filter(isOrbital);
-        return (
-          <g className="orbitals">
-            <defs>
-              <radialGradient id="lobe" cx="0.36" cy="0.32" r="0.75">
-                <stop offset="0" stopColor="#FFFFFF" />
-                <stop offset="1" style={{ stopColor: "var(--ink)" }} stopOpacity={0.55} />
-              </radialGradient>
-            </defs>
-            {orbitals.filter((a) => a.colour && a.orbital!.phase === "shaded").map((a) => (
-              <radialGradient key={`g${a.id}`} id={`lobe${a.id}`} cx="0.36" cy="0.32" r="0.75">
-                <stop offset="0" stopColor="#FFFFFF" />
-                <stop offset="1" stopColor={textInk(a.colour!)} stopOpacity={0.55} />
-              </radialGradient>
-            ))}
-            {orbitals.flatMap((a) => lobesOf(a, L).map((l, i) => {
-              const ink = a.colour ? textInk(a.colour) : "var(--ink)", ph = a.orbital!.phase;
-              const fill = ph === "filled" || (ph === "phased" && !l.second) ? ink : ph === "shaded" ? `url(#lobe${a.colour ? a.id : ""})` : "var(--canvas)";
-              return <path key={`${a.id}-${i}`} d={toPath([l.path])} fill={fill} fillRule="evenodd" stroke={ink} strokeWidth={frame.line} />;
-            }))}
-          </g>
-        );
-      })()}
+      {(shown.shapes ?? []).filter(level).map(shapeFill)}
+      {arrows.filter(level).map(curveFill)}
+      {arrows.some((a) => level(a) && isOrbital(a)) && orbitalsInk(arrows.filter((a) => level(a) && isOrbital(a)))}
       {gridViews.map((v) => {
         // The grid: a rule above and below, row names right-aligned on the left, each column centred under its component.
         const size = style.captionSize * pt * 0.9, font = `${size}px ${fontStack(style.captionFont)}`, y = (k: number) => -(v.top - (k + 0.5) * v.rh) * L + 0.35 * size;
@@ -3408,56 +3496,7 @@ export default function Editor() {
   const draggedSpot = drag?.kind === "spot" ? `${drag.plate} ${drag.index}` : undefined;
   const over = useMemo(() => (
     <>
-      {(shown.shapes ?? []).filter((sh) => sh.kind !== "highlight" && sh.kind !== "table" && !sh.fill && !(sh.kind === "tlc" && sh.tlc?.hide?.includes("border"))).map((sh) => <path key={`sh${sh.id}`} d={kept(shapeInks, sh, frame, () => toPath(shapeInk(sh, frame, L)))} fill={sh.colour ?? "var(--ink)"} />)}
-      {(shown.shapes ?? []).filter((sh) => sh.kind === "tlc").map((sh) => {
-        // A plate's origin line, dashed solvent front, spots, and their Rf values when shown.
-        const t = tlcLayout(sh), y = (v: number) => -v * L, ink = sh.colour ? textInk(sh.colour) : "var(--ink)", hide = new Set(sh.tlc?.hide ?? []);
-        const dragging = drag?.kind === "spot" && drag.plate === sh.id ? drag.index : undefined;
-        return (
-          <g key={`tlc${sh.id}`} className="tlc">
-            {!hide.has("origin") && <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.origin)} y2={y(t.origin)} stroke={ink} strokeWidth={frame.line} />}
-            {!hide.has("origin") && Array.from({ length: t.lanes }, (_, k) => <line key={`t${k}`} x1={t.lane(k) * L} x2={t.lane(k) * L} y1={y(t.origin) - 0.08 * L} y2={y(t.origin) + 0.08 * L} stroke={ink} strokeWidth={frame.line} />)}
-            {!hide.has("front") && <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.front)} y2={y(t.front)} stroke={ink} strokeWidth={frame.line} strokeDasharray={`${0.12 * L} ${0.08 * L}`} />}
-            {(sh.tlc?.spots ?? []).map((x, i) => {
-              // A spot in its own colour (or the plate's): filled, hollow (its outline) or shaded (lit from the top left).
-              const c = x.colour ? textInk(x.colour) : ink, d = "M" + spotPath(t, x).map(([px, py]) => `${(px * L).toFixed(2)} ${(-py * L).toFixed(2)}`).join("L") + "Z", { rx } = t.size(x);
-              const picked = spotPick?.plate === sh.id && spotPick.index === i;
-              return (
-                <g key={i}>
-                  {x.style === "shaded" && <defs><radialGradient id={`spot${sh.id}-${i}`} cx="0.36" cy="0.32" r="0.75"><stop offset="0" stopColor="#FFFFFF" /><stop offset="1" style={{ stopColor: c }} /></radialGradient></defs>}
-                  <path d={d} fill={x.style === "hollow" ? "none" : x.style === "shaded" ? `url(#spot${sh.id}-${i})` : c} stroke={x.style === "hollow" ? c : undefined} strokeWidth={frame.line} />
-                  {picked && <path d={d} className="spot-picked" fill="none" vectorEffect="non-scaling-stroke" />}
-                  {(sh.tlc?.rf || x.showRf || dragging === i) && <text x={(t.lane(x.lane) + rx + 0.1) * L} y={y(t.at(x.rf)) + 0.12 * L} fill={c} style={{ font: `${style.captionSize * pt * 0.8}px ${fontStack(style.captionFont)}` }}>{x.rf.toFixed(2)}</text>}
-                </g>
-              );
-            })}
-          </g>
-        );
-      })}
-      {(shown.shapes ?? []).filter((sh) => sh.kind === "table").map((sh) => {
-        // A table: the lines it has (journal rules unless set otherwise), solid or dashed, and each cell's text
-        // aligned in its column.
-        const t = tableLayout(sh, cellWidth), y = (v: number) => -v * L, ink = sh.colour ?? "var(--ink)", size = style.captionSize * pt;
-        const lines = new Set(linesOf(sh.table)), inner = (n: number) => Array.from({ length: Math.max(0, n - 1) }, (_, i) => i + 1);
-        const across = [...(lines.has("top") ? [t.y1] : []), ...inner(t.rows).filter((r) => lines.has("rows") || (r === 1 && lines.has("header"))).map((r) => t.row(r)), ...(lines.has("bottom") ? [t.y0] : [])];
-        const down = [...(lines.has("left") ? [t.x0] : []), ...(lines.has("cols") ? inner(t.cols).map((c) => t.col(c)) : []), ...(lines.has("right") ? [t.x1] : [])];
-        const weight = (sh.table?.weight ?? style.line) * pt, dash = sh.dashed ? `${3 * weight} ${3 * weight}` : undefined;
-        const anchor = (c: number) => sh.table?.align?.[c] ?? "centre";
-        return (
-          <g key={`table${sh.id}`} className="table">
-            {across.map((v, i) => <line key={`r${i}`} x1={t.x0 * L} x2={t.x1 * L} y1={y(v)} y2={y(v)} stroke={ink} strokeWidth={weight} strokeDasharray={dash} />)}
-            {down.map((v, i) => <line key={`c${i}`} x1={v * L} x2={v * L} y1={y(t.y1)} y2={y(t.y0)} stroke={ink} strokeWidth={weight} strokeDasharray={dash} />)}
-            {(sh.table?.cells ?? []).map((row, r) => row.map((text, c) => text && !(cell?.id === sh.id && cell.r === r && cell.c === c) ? (
-              <text key={`${r}-${c}`} x={(anchor(c) === "left" ? t.col(c) + TABLE_PAD : anchor(c) === "right" ? t.col(c + 1) - TABLE_PAD : t.col(c) + t.widths[c] / 2) * L} y={y(t.row(r) - t.heights[r] / 2) + 0.35 * size}
-                textAnchor={anchor(c) === "left" ? "start" : anchor(c) === "right" ? "end" : "middle"} fill={ink} style={{ font: `${size}px ${fontStack(style.captionFont)}` }}>{formula(text, size)}</text>
-            ) : null))}
-          </g>
-        );
-      })}
-      {(shown.shapes ?? []).filter((sh) => sh.mark && isBracket(sh)).map((sh) => {
-        const m = markAt(sh, L);
-        return <text key={`m${sh.id}`} x={m.x} y={m.y} textAnchor={m.anchor} fill={sh.colour ?? "var(--ink)"} style={{ font: `${style.captionSize * pt}px ${fontStack(style.captionFont)}` }}>{sh.mark}</text>;
-      })}
+      {(shown.shapes ?? []).filter(level).map(shapeLines)}
       {shown.atoms.map((a, i) => a.enhanced && drawing.ink[i] ? (
         // Enhanced stereo flags: small, by the stereocentre on its open side, as ChemDraw prints them.
         <text key={`st${i}`} className="stereo-flag" textAnchor="middle" fill="var(--ink)" x={(pos(shown, i)[0] + 0.5 * markDirs.get(i)![0]) * L} y={-(pos(shown, i)[1] + 0.5 * markDirs.get(i)![1]) * L + 0.25 * frame.size}
@@ -3467,12 +3506,34 @@ export default function Editor() {
         // Atom map numbers: small, in brand blue, just off the atom on its open side.
         <text key={`map${i}`} className="atom-map" textAnchor="middle" x={(pos(shown, i)[0] + 0.42 * markDirs.get(i)![0]) * L} y={-(pos(shown, i)[1] + 0.42 * markDirs.get(i)![1]) * L + 0.22 * frame.size} style={{ fontSize: frame.size * 0.62 }}>{a.map}</text>
       ) : null)}
-      {labelTexts}
-      {placed.map((c) => c.id === (writing?.id ?? DRAFT) || c.id === DRAFT ? null : (
+      {labelTexts.filter((_, k) => level(shown.atoms[drawing.parts[k].ids[0]]))}
+      {placed.filter(level).map((c) => c.id === (writing?.id ?? DRAFT) || c.id === DRAFT ? null : (
         <CaptionText key={`c${c.id}`} c={c} fill={textInk(c.colour ?? style.colour)} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} />
       ))}
     </>
   ), [shown, frame, darkPaper, draggedSpot, spotPick, style, pt, cell?.id, cell?.r, cell?.c, drawing, markDirs, labelTexts, placed, writing?.id, reagents]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Things with a draw order (order.ts), each drawn whole: under all the layers (below zero) or over them, lowest first.
+  const lifted = useMemo(() => {
+    const things: [number, React.ReactNode][] = [];
+    drawing.parts.forEach(({ ids, drawing: d, at }, k) => {
+      const o = shown.atoms[ids[0]]?.order;
+      if (o) things.push([o, (
+        <g key={`os${ids[0]}`}>
+          {structurePaths(d).map(([key, path]) => { const [colour, alpha] = key.split("|"); return <path key={key} d={path} transform={moveBy(at)} fill={colour ? textInk(colour) : "var(--ink)"} fillOpacity={Number(alpha) < 1 ? Number(alpha) : undefined} />; })}
+          {labelTexts[k]}
+        </g>
+      )]);
+    });
+    for (const sh of shown.shapes ?? []) if (sh.order) things.push([sh.order, <g key={`osh${sh.id}`}>{shapeFill(sh)}{shapeLines(sh)}</g>]);
+    for (const a of [...arrows, ...cycleArrows]) if (a.order) things.push([a.order, (
+      <g key={`oa${a.id}`}>
+        {isOrbital(a) ? orbitalsInk([a]) : a.curve?.closed && a.fill ? curveFill(a) : <path d={kept(arrowInks, a, frame, () => toPath(arrowShapes(a, frame, L)))} fill={a.colour ? textInk(a.colour) : "var(--ink)"} />}
+      </g>
+    )]);
+    for (const c of placed) if (c.order && c.id !== (writing?.id ?? DRAFT) && c.id !== DRAFT) things.push([c.order, <CaptionText key={`oc${c.id}`} c={c} fill={textInk(c.colour ?? style.colour)} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} />]);
+    things.sort((a, b) => a[0] - b[0]);
+    return { back: things.filter(([o]) => o < 0).map(([, x]) => x), front: things.filter(([o]) => o > 0).map(([, x]) => x) };
+  }, [shown, frame, darkPaper, draggedSpot, spotPick, style, pt, cell?.id, cell?.r, cell?.c, drawing, labelTexts, placed, arrows, cycleArrows, writing?.id, reagents]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="editor">
@@ -3548,6 +3609,7 @@ export default function Editor() {
           </g>
           {/* The drawing and its marks, without the page, so the Spectrum panel can show the structure beside its spectrum. */}
           <g id="world">
+          {lifted.back}
           {under}
           {marks}
           {ink}
@@ -3565,6 +3627,7 @@ export default function Editor() {
             );
           })()}
           {over}
+          {lifted.front}
           {(pen || drag?.kind === "pen") && (() => {
             // The Pen's points as small squares, and the handle being dragged out of the point being placed.
             const r = 3.5 / view.zoom, now = drag?.kind === "pen" ? penPoint(drag.at, drag.out) : undefined;
