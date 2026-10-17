@@ -524,11 +524,12 @@ export default function Editor() {
   // What other programs read: CDXML, a .oct file (the same CDXML with Octet's drawing), and the molecules as a molfile
   // and SMILES; undefined where Octet or Indigo cannot write them. Each is made when it is first asked for and kept
   // with the part (the drawing itself, or the selection's part from selectedPart), so Export and Copy make only what
-  // they use, once for each version of the drawing.
-  const made = useRef(new WeakMap<Mol, { style: DocStyle; name: string; loaded: boolean; formats: Partial<Record<PartFormat, string>> }>());
+  // they use, once for each version of the drawing. They are made again when the style, the name, Indigo or the arrows
+  // of a catalytic cycle (what cdxmlOptions gives) change.
+  const made = useRef(new WeakMap<Mol, { style: DocStyle; name: string; loaded: boolean; derived: unknown; formats: Partial<Record<PartFormat, string>> }>());
   function formatOf(part: Mol, f: PartFormat): string | undefined {
     let kept = made.current.get(part);
-    if (kept?.style !== style || kept.name !== name || kept.loaded !== loaded) made.current.set(part, kept = { style, name, loaded, formats: {} });
+    if (kept?.style !== style || kept.name !== name || kept.loaded !== loaded || kept.derived !== cycleArrows) made.current.set(part, kept = { style, name, loaded, derived: cycleArrows, formats: {} });
     if (f in kept.formats) return kept.formats[f];
     const cdxml = f === "oct" ? formatOf(part, "cdxml") : undefined;
     let out: string | undefined;
