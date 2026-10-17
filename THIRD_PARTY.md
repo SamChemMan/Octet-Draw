@@ -12,7 +12,7 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | resvg, usvg (Rust, linebender) | 0.45 | Apache-2.0 OR MIT | Reads the drawing's SVG; draws the PNG export |
 | tiny-skia (Rust) | 0.11 | BSD-3-Clause | Raster drawing for the PNG export (used by resvg) |
 | fontdb (Rust) | 0.23 | MIT | Finds the system fonts to embed in PDFs (used by usvg) |
-| slotmap (Rust) | 1.1 | Zlib | Used by fontdb. Zlib is not on the allowed list: waiting for Sam's approval |
+| slotmap (Rust) | 1.1 | Zlib | Used by fontdb. Zlib approved by Sam, 17 October 2026 |
 | png (Rust) | 0.17 | MIT OR Apache-2.0 | Writes the PNG export with its resolution |
 | miniz_oxide (Rust) | 0.8 | MIT OR Zlib OR Apache-2.0 | Compresses and reads the CDXML stream in PDFs |
 | base64 (Rust) | 0.22 | MIT OR Apache-2.0 | ChemDraw's CDX from the clipboard, sent to the page |
