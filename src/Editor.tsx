@@ -24,7 +24,7 @@ import { store, type Store } from "./store";
 import { loadSettings, saveSettings } from "./settings";
 import { ACTIONS, actionFor, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
 import { Actions, actionItems, FontPick, type Context } from "./Actions";
-import { reorder } from "./order";
+import { onTop, reorder } from "./order";
 import { Properties, propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./Properties";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { acsText, multiplicity, quality } from "./nmr";
@@ -432,7 +432,7 @@ export default function Editor() {
   const pointer = useRef<P>(undefined);
   // Every edit clears the selection, except a move, which keeps the same atoms selected.
   const set = (mol: Mol, keepSelection = false, merge?: string) => {
-    dispatch({ type: "set", mol, merge });
+    dispatch({ type: "set", mol: onTop(doc, mol, fragments), merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
   };
   const undo = (redo = false) => { dispatch({ type: redo ? "redo" : "undo" }); setSelection(new Set()); setPicked(new Set()); };

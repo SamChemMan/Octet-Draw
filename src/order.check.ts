@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import { toCdxml } from "./cdxml.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
-import { EMPTY, merge, sprout } from "./edit.ts";
-import { reorder } from "./order.ts";
+import { EMPTY, fragments, merge, sprout } from "./edit.ts";
+import { onTop, reorder } from "./order.ts";
 import type { Mol } from "./render.ts";
 
 // Two ethanes, a box, an arrow and a caption.
@@ -40,5 +40,24 @@ assert.deepEqual(d.atoms.map((x) => x.location), m.atoms.map((x) => x.location))
   assert.equal(Math.min(...all), box, "the box is lowest");
   assert.ok(Math.max(...frags) > Math.max(...zs("t"), ...zs("arrow")), "the structure is over the arrow and the text");
   assert.ok(all.every((z) => z > 0 && z <= 32767), "every Z is a 16-bit Z");
+}
+// A thing added after something was brought to the front goes over it, as a new object does in ChemDraw: a new box, a
+// new caption and a new structure take the next order. What was there keeps its order.
+{
+  const front = reorder(m, [], new Set([1]), true);
+  assert.equal(onTop(m, { ...m, shapes: [...m.shapes!, { id: 9, kind: "box", from: [0, 0], to: [1, 1] }] }, fragments).shapes![1].order, undefined, "nothing in front: no change");
+  const added = { ...front, shapes: [...front.shapes!, { id: 9, kind: "box" as const, from: [0, 0] as [number, number], to: [1, 1] as [number, number] }], captions: [...front.captions!, { id: 10, text: "B", x: 0, y: 0 }] };
+  const bigger = merge(added, sprout(EMPTY, [0, 0]), [6, 0]);
+  const top = onTop(front, bigger, fragments);
+  assert.deepEqual([top.shapes!.map((x) => x.order), top.captions!.map((x) => x.order)], [[1, 2], [undefined, 2]]);
+  assert.deepEqual(top.atoms.map((x) => x.order), [undefined, undefined, undefined, undefined, 2, 2]);
+  // An atom added to a structure that was there takes the structure's order, in front or at the back.
+  const grown = sprout(front, 0);
+  assert.equal(onTop(front, grown, fragments).atoms.every((x) => !x.order), true);
+  const back = reorder(m, [[0, 1]], new Set(), false);
+  assert.deepEqual(onTop(back, sprout(back, 0), fragments).atoms.map((x) => x.order), [-1, -1, undefined, undefined, -1]);
+  // A drawing that keeps nothing of the one before (a file opened) is left as it is.
+  const opened = { ...m, atoms: m.atoms.map((a) => ({ ...a })), shapes: m.shapes!.map((x) => ({ ...x })), captions: [], arrows: [] };
+  assert.equal(onTop(front, opened, fragments), opened);
 }
 console.log("order: ok");
