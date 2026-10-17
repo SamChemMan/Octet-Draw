@@ -54,9 +54,46 @@ Sam: a structure scaled to 300% must not keep 0.6 pt lines and 10 pt labels, and
 manuscript and wrong for a poster. One factor keeps every part in proportion by design. Seven separate
 settings, as ChemDraw has, let them drift apart.
 
+## Purposes (18 October 2026)
+
+Sam approved the purpose items of the version 1 plan (IDEA-SIZE-1 to 3, 6 to 8, 11, 14 and 15). They answer open
+questions 2 and 3 below.
+
+- A purpose is a journal style at a document scale, on a page, with the outlines that page needs. Octet has four:
+  Paper (the journal at 100% on A4), Thesis (the journal at 100% on A4, with the 150 x 257 mm text block of a 40 mm
+  binding margin and 20 mm on the other sides), Slides (ACS at 200% on PowerPoint's 16:9 slide, 338.67 x 190.5 mm) and
+  Poster (ACS at 300% on A0, with A1 inside). Paper's outlines are the journal's columns (ACS 1 and 2 column, Nature
+  89 and 183 mm, RSC 83 mm). A drawing keeps its purpose in its style. A file from another program has none and shows
+  the page's ISO or US series, as before.
+- Home's first row is New: a tile for each purpose, then the user's own, each a picture of its page with a small scheme
+  at its true size on it. One click starts a drawing for it. Return and ⌘N start the purpose picked last, as
+  ChemDraw's New takes the stationery used last. It starts on Paper, so ACS Document 1996 stays the first default.
+  File > New shows that purpose's name, and File > New For lists them all. Home asks nothing and shows no tips.
+- Settings > Document has a For row above Style. A pick gives the open drawing the purpose's sizes, scale and page in
+  one undo step; its background, page edges, gridlines, text colour and carbon labels stay. The journal list stays
+  under it. Use for new documents keeps the style for that purpose, so an RSC Paper stays RSC after a Poster.
+  Save as a new purpose… names the style as a purpose of the user's own (12 at most); it is removed from its Home tile.
+  The command palette has New and For for each purpose.
+- Every purpose opens with bonds the same length on screen. A change of scale (a purpose, or the Scale field) keeps
+  the structures still on screen, and the page outlines grow or shrink round them in 200 ms. A change of bond length
+  at the same scale (a journal) keeps the true-size ratio, as before. Actual Size still shows true size.
+- The tutorial always runs on Paper, once after the name box and from Octet > Tutorial.
+- Pages: A1, A0, Slide 16:9 and Slide 4:3 join the page list, stored portrait, with landscape on for slides.
+- Journal list: ChemDraw 26.1's pads. J. Chin. Chem. Soc., J. Het. Chem., Phytomedicine, Science of Synthesis and
+  New Document (ChemDraw) are added. Slides is now New Slide (ChemDraw). RSC and Helv. Chim. Acta use Arial, as the
+  26.1 pads do (the help says Helvetica). Times New Roman in a pad is Arial in Octet (Adv. Synth. Catal. captions,
+  J. Het. Chem., New Document and New Slide captions).
+- There are no ChemDraw-style tiled pages or stationery files (Sam: "i don't want tiles like chemdraw just an
+  infinite-ish (how it is now) seamless scale system"). A purpose is a scale and an outline on the seamless canvas.
+
 ## Open questions for Sam
 
 1. "Labels and lines" starts on (Octet) or off (ChemDraw).
-2. Purposes (Paper, Thesis, Slides, Poster): named document scales in one control (for example Slides =
-   ACS at 200%, Poster = ACS at 300% on A0), or nothing beyond the scale field.
-3. Whether every scale opens at the same on-screen bond length (IDEA-SIZE-7), or at true size as now.
+2. Slides at ACS 200% (now) or at ChemDraw's New Slide numbers (30 pt bond, 12 pt labels, 16 pt captions).
+3. Poster at 300% (now: 30 pt text) or 360% (Purdue's 36 pt), and on A0 portrait (now) or 48 x 36 in.
+4. Paper on A4 (now) or US Letter, as ChemDraw's ACS Document 1996 pad. A journal carries its columns, not its paper
+   size; ChemDraw's pads also set the paper (Wiley A4 landscape, Nature and Adv. Synth. Catal. Letter).
+5. Not added as journals: J. Mol. Mod. (1 and 2 Column) is ACS Document 1996 with Times New Roman, so with Arial it is
+   the same as ACS; I Draw Styles and Show Terminal Carbon Labels are New Document with Hide implicit hydrogens or
+   Label terminal carbons on; Dark Mode is ACS with 1.6 pt lines on a dark page (Octet has the Dark background).
+   Phytomedicine's labels are bold in its pad; Octet's journal values hold no bold labels.

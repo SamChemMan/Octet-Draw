@@ -106,6 +106,26 @@ fn set_palette(app: AppHandle, names: Vec<String>) -> Result<(), String> {
     rebuild(&app)
 }
 
+// What new drawings are for (IDEA-SIZE-1): the user's own purposes by name (12 at most, names cut to 40 characters)
+// after Paper, Thesis, Slides and Poster in File > New For, and the name of the one File > New starts, which New shows
+// as ChemDraw's New shows its stationery. The menu bar is built again with them.
+#[derive(Default)]
+struct Purposes(Mutex<(Vec<String>, String)>);
+
+#[tauri::command]
+fn set_purposes(app: AppHandle, held: State<'_, Purposes>, names: Vec<String>, current: String) -> Result<(), String> {
+    let clean = |n: String| n.chars().filter(|c| !c.is_control()).take(40).collect::<String>();
+    let next = (names.into_iter().take(12).map(clean).collect::<Vec<_>>(), clean(current));
+    {
+        let mut held = held.0.lock().unwrap();
+        if *held == next {
+            return Ok(());
+        }
+        *held = next;
+    }
+    rebuild(&app)
+}
+
 pub const MAX_BYTES: u64 = 64 * 1024 * 1024;
 // Octet saves .oct, a CDXML file with Octet's drawing inside (decision 0004), or .cdxml, which is the same file.
 // It opens both, and the older .octet files.
@@ -223,10 +243,26 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
         MenuItem::with_id(app, id, text, true, if k.is_empty() { None } else { Some(k) })
     };
     let sep = || PredefinedMenuItem::separator(app);
+    // File > New For: Paper, Thesis, Slides and Poster, then the user's own purposes.
+    let (own, current) = app.state::<Purposes>().0.lock().unwrap().clone();
+    section.replace("File › New For".into());
+    let purposes = [("paper", "Paper"), ("thesis", "Thesis"), ("slides", "Slides"), ("poster", "Poster")].iter()
+        .map(|(id, name)| item(&format!("new_{id}"), name, ""))
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let own_items = own.iter().enumerate().map(|(k, name)| item(&format!("new_own_{k}"), name, "")).collect::<tauri::Result<Vec<_>>>()?;
+    let own_sep = sep()?;
+    let mut new_for_items: Vec<&dyn IsMenuItem<Wry>> = purposes.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
+    if !own_items.is_empty() {
+        new_for_items.push(&own_sep);
+        new_for_items.extend(own_items.iter().map(|m| m as &dyn IsMenuItem<Wry>));
+    }
+    let new_for = Submenu::with_items(app, "New For", true, &new_for_items)?;
     section.replace("File".into());
+    let new_name = if current.is_empty() { "New".to_string() } else { format!("New {current}") };
     let file = Submenu::with_items(app, "File", true, &[
         &item("home", "Home", "")?,
-        &item("new", "New", "CmdOrCtrl+N")?,
+        &item("new", &new_name, "CmdOrCtrl+N")?,
+        &new_for,
         &item("open", "Open…", "CmdOrCtrl+O")?,
         &item("import", "Import a Structure…", "")?,
         &sep()?,
@@ -462,7 +498,8 @@ fn main() {
         .manage(MenuList::default())
         .manage(Palette::default())
         .manage(TextScale::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, set_text_scale, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback])
+        .manage(Purposes::default())
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, set_text_scale, set_purposes, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback])
         .setup(|app| {
             let handle = app.handle();
             let (bar, checks, list) = menu(handle, &[], &HashMap::new())?;

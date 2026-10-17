@@ -10,7 +10,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
 import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
-import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, withScale, COLOURS, FONTS, TEXT_SIZES, sizeAt, type DocStyle, type PageName } from "./docstyle";
+import { MAX_PURPOSES, PURPOSES, fontStack, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, sameStyle, styleFor, withScale, COLOURS, FONTS, TEXT_SIZES, sizeAt, type DocStyle, type PurposeKind } from "./docstyle";
 import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
 import {
@@ -88,11 +88,12 @@ function history(h: History, a: Action): History {
 }
 
 const L = STYLE.bond; // px per bond length at 100%
-// The drawing's origin is the middle of the page. The canvas opens at 125% of true size: 10 pt labels read like
-// body text, and a structure fills a good part of the window without crowding it.
+// The drawing's origin is the middle of the page. The canvas opens at 125% of true size at the purpose's scale: 10 pt
+// labels on Paper read like body text, and a structure fills a good part of the window without crowding it. Every
+// purpose opens with bonds the same length on screen (IDEA-SIZE-7): Slides and Poster show their page smaller round
+// the same structures. Actual Size still shows true size.
 const OPEN_ZOOM = 1.25;
-// The page sizes shown together: the ISO series, or the US one.
-const SERIES: Record<string, PageName[]> = { iso: ["A4", "A3", "A2"], us: ["Letter", "Legal", "Tabloid"] };
+const openZoom = (d: DocStyle) => OPEN_ZOOM / (frameStyle(d, L).k * d.scale);
 const SNAP = (15 * Math.PI) / 180; // dragged bonds snap to 15° steps
 // Holding still this long with a drawing tool in hand switches to Select until the pointer is released.
 const HOLD_MS = 400;
@@ -282,7 +283,7 @@ export default function Editor() {
   const [spring, setSpring] = useState<Tool>();
   // The view and the thing under the pointer change on each pan, zoom and pointer move. They live in stores: only the
   // parts that show them draw again (Live), and handlers read them as they run.
-  const [views] = useState(() => store<View>({ x: innerWidth / 2, y: innerHeight / 2, zoom: Math.min(8, Math.max(0.25, OPEN_ZOOM / frameStyle(readStyle(loadSettings().docStyle), L).k)) }));
+  const [views] = useState(() => { const s = loadSettings(); return store<View>({ x: innerWidth / 2, y: innerHeight / 2, zoom: Math.min(8, Math.max(0.25, openZoom(styleFor(s, s.purpose)))) }); });
   const setView = (next: View | ((v: View) => View)) => views.set(typeof next === "function" ? next(views.get()) : next);
   const [hovers] = useState(() => store<Hover>({}, sameHover));
   const setHover = hovers.set;
@@ -614,11 +615,52 @@ export default function Editor() {
   }
   // Before the drawing is replaced (New, Open, a recent drawing): with unsaved changes, ask to save them first.
   const keepWork = (next: () => void) => (dirty ? setDialog({ kind: "unsaved", next }) : next());
-  const newDrawing = () => keepWork(() => { drawingColours.current = []; set(EMPTY); setFile({ saved: EMPTY }); setHome(false); setCoach(0); });
+  // A new drawing for a purpose (IDEA-SIZE-1): its style and page, at the middle of the window and the open zoom.
+  // Return and ⌘N start the purpose picked last, as ChemDraw's New takes the stationery used last.
+  const newDrawing = (id = settings.purpose) => keepWork(() => {
+    const style = styleFor(settings, id), fresh: Mol = { ...EMPTY, style };
+    drawingColours.current = []; set(fresh); setFile({ saved: fresh }); setHome(false); setCoach(0); openView(style);
+    setSettings((s) => ({ ...s, purpose: purposeOf(s, id) ? id : "paper" }));
+  });
+  // The tutorial is always on Paper (IDEA-SIZE-14): its steps are made for a manuscript's sizes.
   const startTutorial = () => keepWork(() => {
-    set(EMPTY); setFile({ saved: EMPTY }); setHome(false); setTool("bond"); setSeen(NOTHING_SEEN); setCoach((n) => n + 1);
+    const style = styleFor(settings, "paper"), fresh: Mol = { ...EMPTY, style };
+    set(fresh); setFile({ saved: fresh }); setHome(false); openView(style); setTool("bond"); setSeen(NOTHING_SEEN); setCoach((n) => n + 1);
     setSettings((s) => ({ ...s, tutorialDone: true }));
   });
+  // The open view for a new drawing in a style: the page's middle in the window's middle, at the open zoom. The page
+  // outlines do not grow into place.
+  const openView = (d: DocStyle) => { lastK.current = frameStyle(d, L).k * d.scale; outlineFrom.current = undefined; setView({ x: innerWidth / 2, y: innerHeight / 2, zoom: openZoom(d) }); };
+  // Settings > Document > For, and For in the command palette: the open drawing takes a purpose's sizes and page in one
+  // undo step. The sizes it holds in points go with the scale (decision 0007).
+  const applyPurpose = (id: string) => {
+    const next = forPurpose(style, styleFor(settings, id));
+    set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true);
+  };
+  // Every purpose, for Home, Settings, File > New For and the command palette: Octet's four, then the user's own.
+  const purposeList = useMemo(() => [
+    ...(Object.keys(PURPOSES) as PurposeKind[]).map((kind) => ({ id: kind as string, name: PURPOSES[kind].name, kind, style: styleFor(settings, kind) })),
+    ...settings.ownPurposes.map((p) => ({ id: p.id, name: p.name, kind: p.kind, style: p.style, own: true })),
+  ], [settings.purposeStyles, settings.ownPurposes]); // eslint-disable-line react-hooks/exhaustive-deps
+  // "Use for new documents": the style becomes its purpose's style for new drawings (with no purpose: the purpose
+  // Return starts). "Save as a new purpose…": the style becomes a purpose of the user's own, after the others.
+  const keepForNew = (d: DocStyle) => setSettings((s) => {
+    const id = purposeOf(s, d.purpose) ? d.purpose! : s.purpose, kept = { ...d, purpose: id };
+    return s.ownPurposes.some((p) => p.id === id) ? { ...s, ownPurposes: s.ownPurposes.map((p) => (p.id === id ? { ...p, style: kept } : p)) }
+      : { ...s, purposeStyles: { ...s.purposeStyles, [id]: kept } };
+  });
+  const savePurpose = (name: string) => setSettings((s) => {
+    const same = s.ownPurposes.find((p) => p.name.toLowerCase() === name.toLowerCase()), id = same?.id ?? `u${Date.now().toString(36)}`;
+    const own = { id, name, kind: purposeOf(s, style.purpose)?.kind ?? "paper", style: { ...style, purpose: id } };
+    return { ...s, ownPurposes: same ? s.ownPurposes.map((p) => (p.id === id ? own : p)) : [...s.ownPurposes, own].slice(0, MAX_PURPOSES) };
+  });
+  // File > New For lists the user's purposes, and File > New shows the purpose it starts: the menu bar is built again
+  // when they change.
+  const purposeMenu = JSON.stringify([settings.ownPurposes.map((p) => p.name), purposeOf(settings, settings.purpose)?.name ?? ""]);
+  useEffect(() => {
+    const [names, current] = JSON.parse(purposeMenu);
+    if (TAURI) invoke("set_purposes", { names, current }).then(syncChecks).catch(() => {});
+  }, [purposeMenu]); // eslint-disable-line react-hooks/exhaustive-deps
   const openDrawing = () => keepWork(() => void open());
   const openRecent = (r: RecentEntry) => keepWork(() => void invoke<[string, string]>("open_recent", { path: r.path }).then((picked) => load(picked[0], picked[1]))
     .catch((e) => { setNotice(String(e)); refreshRecents(); }));
@@ -650,7 +692,7 @@ export default function Editor() {
       const mol = read.foreign && !settings.files.keepStyle ? { ...read.mol, style: undefined } : read.mol;
       set(mol);
       setFile({ path, saved: mol });
-      setHome(false); setCoach(0);
+      setHome(false); setCoach(0); outlineFrom.current = undefined;
       sayLost(lost);
       const b = bounds(mol);
       if (b) setView((v) => ({ ...v, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * v.zoom * L, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * v.zoom * L }));
@@ -727,6 +769,8 @@ export default function Editor() {
   const commands = useRef<Record<string, () => void>>({});
   commands.current = {
     new: () => newDrawing(),
+    ...Object.fromEntries(Object.keys(PURPOSES).map((k) => [`new_${k}`, () => newDrawing(k)])),
+    ...Object.fromEntries(settings.ownPurposes.map((p, k) => [`new_own_${k}`, () => newDrawing(p.id)])),
     open: () => openDrawing(),
     home: () => setHome(true),
     tutorial: () => startTutorial(),
@@ -939,7 +983,7 @@ export default function Editor() {
     ...Object.fromEntries(TEXT_SIZES.map((pt) => [`size_${pt}`, () => runAction(`caption.size.${sizeAt(pt, style.scale)}`)])),
     zoom_fit: () => {
       const b = bounds(doc);
-      if (!b) return setView({ x: innerWidth / 2, y: innerHeight / 2, zoom: OPEN_ZOOM / frame.k });
+      if (!b) return setView({ x: innerWidth / 2, y: innerHeight / 2, zoom: openZoom(style) });
       const free = [innerWidth - 160, innerHeight - 120], size = [(b[2] - b[0] + 1) * L, (b[3] - b[1] + 1) * L];
       const zoom = clampZoom(Math.min(free[0] / size[0], free[1] / size[1]));
       setView({ zoom, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * L * zoom, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * L * zoom });
@@ -1002,7 +1046,9 @@ export default function Editor() {
     return doc;
   }, [doc, drag, pen, penAt]); // eslint-disable-line react-hooks/exhaustive-deps
   // The document's style (or the default for new documents), as widths and sizes in the drawing frame.
-  const style: DocStyle = useMemo(() => readStyle(doc.style ?? settings.docStyle), [doc.style, settings.docStyle]);
+  // A drawing with no style (from another program, with Keep ChemDraw styles off) takes the style File > New gives.
+  const newStyle = useMemo(() => styleFor(settings, settings.purpose), [settings.purpose, settings.purposeStyles, settings.ownPurposes]); // eslint-disable-line react-hooks/exhaustive-deps
+  const style: DocStyle = useMemo(() => readStyle(doc.style ?? newStyle), [doc.style, newStyle]);
   // The font lists: Octet's fonts, then any other font the drawing uses (one picked from More fonts, or a file's).
   const fontList = useMemo(() => {
     const used = new Set<string>([style.labelFont, style.captionFont]);
@@ -1025,19 +1071,21 @@ export default function Editor() {
   // The zoom limits (set below, once the pages are known), and a zoom kept inside them.
   const zoomLimits = useRef<[number, number]>([0.25, 8]);
   const clampZoom = (z: number) => Math.min(zoomLimits.current[1], Math.max(zoomLimits.current[0], z));
-  // A new bond length keeps the drawing the same size on screen relative to its true size.
-  const lastK = useRef(frame.k);
+  // A new bond length keeps the drawing the same size on screen relative to its true size at the document's scale. A
+  // new scale (a purpose, or the Scale field) keeps the structures still on screen, and the page outlines grow or
+  // shrink round them (IDEA-SIZE-7).
+  const lastK = useRef(frame.k * style.scale);
   // Text > Size offers ChemDraw's sizes times the document scale: the menu bar is built again when the scale changes.
   useEffect(() => {
     if (TAURI) invoke("set_text_scale", { scale: style.scale }).then(syncChecks).catch(() => {});
   }, [style.scale]); // eslint-disable-line react-hooks/exhaustive-deps
   // A zoom past the limits comes back inside them about the window's middle, so the next pinch does not jump.
   useEffect(() => {
-    if (lastK.current === frame.k) return;
-    const r = lastK.current / frame.k, cx = innerWidth / 2, cy = innerHeight / 2;
-    lastK.current = frame.k;
+    const r = lastK.current / (frame.k * style.scale), cx = innerWidth / 2, cy = innerHeight / 2;
+    lastK.current = frame.k * style.scale;
+    if (Math.abs(r - 1) < 1e-3) return;
     setView((v) => { const zoom = clampZoom(v.zoom * r), q = zoom / (v.zoom * r); return { zoom, x: cx - (cx - v.x) * q, y: cy - (cy - v.y) * q }; });
-  }, [frame.k]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [frame.k, style.scale]); // eslint-disable-line react-hooks/exhaustive-deps
   // Each structure is drawn again only when its atoms or bonds change (renderParts): a drag of text, an arrow or one
   // structure leaves the other structures' drawings as they were. A structure a drag moves keeps its drawing, moved by
   // a transform, and its points move where it lands.
@@ -1059,14 +1107,18 @@ export default function Editor() {
   const paper = style.background === "system" ? (systemDark ? "dark" : "white") : style.background;
   const darkPaper = paper === "dark" || paper === "blueprint";
   const textInk = (c: string) => (darkPaper && /^#(000000|0f172a)$/i.test(c) ? "#FFFFFF" : c);
-  const pages = useMemo(() => {
-    const series = ["A4", "A3", "A2"].includes(style.page) ? SERIES.iso : ["Letter", "Legal", "Tabloid"].includes(style.page) ? SERIES.us : [style.page];
-    return [style.page, ...series.filter((name) => name !== style.page)].map((name) => {
-      const [w, h] = name === style.page ? pageSize(style) : pageSize({ ...style, page: name });
-      const label = name === "Custom" ? `${Math.round(w)} × ${Math.round(h)} mm` : PAGE_NAMES[name].replace("US ", "");
-      return [label, w, h] as [string, number, number];
-    });
-  }, [style]);
+  // The page outlines (mm): the page, then what the drawing's purpose needs (IDEA-SIZE-6).
+  const purposeKind = purposeOf(settings, style.purpose)?.kind;
+  const pages = useMemo(() => pageOutlines(style, purposeKind), [style, purposeKind]);
+  // A new page size on the same drawing (a purpose or a scale): the outlines grow or shrink into place about the page's
+  // middle. A new or opened drawing shows them at once.
+  const pagesEl = useRef<SVGGElement>(null), outlineFrom = useRef<number>(undefined);
+  useEffect(() => {
+    const now = pages[0][1] * mm, was = outlineFrom.current;
+    outlineFrom.current = now;
+    if (was === undefined || Math.abs(was / now - 1) < 1e-3 || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    pagesEl.current?.animate([{ transform: `scale(${was / now})` }, { transform: "scale(1)" }], { duration: 200, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+  }, [pages, mm]);
   // The page whose edge is under a point (drawing coordinates), within a few screen px.
   const pageEdgeAt = (p: P) => pages.find(([, w, h]) => {
     const [x, y] = [(w / 2) * mm, (h / 2) * mm], dx = Math.abs(Math.abs(p[0]) - x), dy = Math.abs(Math.abs(p[1]) - y), near = 5 / (views.get().zoom * L);
@@ -1602,7 +1654,7 @@ export default function Editor() {
       const next = withScale(style, target), d: P = [c[0] * (1 / k - 1), c[1] * (1 / k - 1)], all = new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id));
       const moved = transformParts(doc, new Set(doc.atoms.map((_, i) => i)), all, (q) => [q[0] + d[0], q[1] + d[1]]);
       const nk = frameStyle(next, L).k, r = frame.k / nk;
-      lastK.current = nk;
+      lastK.current = nk * next.scale;
       setView((v) => ({ ...v, zoom: clampZoom(v.zoom * r) }));
       return set({ ...scaleSizes(moved, k), style: next }, true);
     }
@@ -2682,6 +2734,8 @@ export default function Editor() {
     return [
       ...acts.map((i) => ({ id: `action:${i.command}`, name: i.name, group: "Actions", icon: i.icon, keys: hint(i.command), run: () => runAction(i.command) })),
       ...Object.entries(MENU_NAMES).filter(([id]) => commands.current[id] && !acted.has(id)).map(([id, [name, keys, icon]]) => ({ id: `menu:${id}`, name, group: "Commands", keys: platformLabel(keys), icon, run: () => commands.current[id]() })),
+      ...purposeList.map((p) => ({ id: `new:${p.id}`, name: `New ${p.name}`, group: "Commands", words: "new drawing purpose", icon: <FilePlus size={18} />, run: () => newDrawing(p.id) })),
+      ...purposeList.map((p) => ({ id: `for:${p.id}`, name: `For ${p.name}`, group: "Document", words: "purpose size page scale", icon: <FileText size={18} />, run: () => applyPurpose(p.id) })),
       { id: "tool:select", name: "Select", group: "Tools", keys: toolKey("tool.select"), icon: <Selection size={18} />, run: pick("select", ["select", "box"]) },
       { id: "tool:lasso", name: "Lasso", group: "Tools", icon: <Lasso size={18} />, run: pick("select", ["select", "lasso"]) },
       ...variants("bond", "bond", (Object.keys(BONDS) as BondKind[]).map((k) => [k, `${BONDS[k].name} bond`, <BondGlyph kind={k} />]), "Bonds"),
@@ -3702,8 +3756,8 @@ export default function Editor() {
         }}
       >
         <g transform={`translate(${view.x} ${view.y}) scale(${view.zoom})`}>
-          {/* Page corners: small marks where an A4, A3 and A2 page would end. Not part of the drawing. */}
-          <g className="pages" aria-hidden>
+          {/* The page outlines: the page and what its purpose needs, each an edge with corner marks and its name. Not part of the drawing. */}
+          <g className="pages" aria-hidden ref={pagesEl}>
             {gridLines}
             {style.edges && pages.map(([name, w, h]) => {
               const [x, y, t] = [(w / 2) * mm * L, (h / 2) * mm * L, 10 / view.zoom];
@@ -4022,10 +4076,13 @@ export default function Editor() {
           module={settingsOpen}
           onModule={(m) => { setSettingsOpen(m); setSettings((s) => ({ ...s, settingsModule: m })); }}
           style={style}
-          isDefault={JSON.stringify({ ...style, preset: "" }) === JSON.stringify({ ...readStyle(settings.docStyle), preset: "" })}
+          isDefault={sameStyle(style, styleFor(settings, purposeOf(settings, style.purpose) ? style.purpose! : settings.purpose))}
           preview={preview}
           onStyle={(next) => set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true)}
-          onDefault={() => setSettings((s) => ({ ...s, docStyle: style }))}
+          onDefault={() => keepForNew(style)}
+          purposes={purposeList}
+          onPurpose={applyPurpose}
+          onSavePurpose={settings.ownPurposes.length < MAX_PURPOSES ? savePurpose : undefined}
           keys={settings.keys}
           onKeys={(keys) => setSettings((s) => ({ ...s, keys }))}
           files={settings.files}
@@ -4167,11 +4224,12 @@ export default function Editor() {
       {(home || homeLeaving) && (homeKind.current === "name"
         ? <NameBox leaving={!home} onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone) startTutorial(); }} />
         : <Home leaving={!home} name={settings.userName ?? ""} first={welcomed} away={away} recents={recents} newKey={keyLabel("enter")} openKey={hint("open")}
-            onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent}
+            purposes={purposeList} purpose={settings.purpose} onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent}
+            onRemovePurpose={(id) => setSettings((s) => ({ ...s, ownPurposes: s.ownPurposes.filter((p) => p.id !== id), purpose: s.purpose === id ? "paper" : s.purpose }))}
             onRemove={(r) => void invoke("recent_remove", { path: r.path }).then(refreshRecents).catch(() => {})} />)}
       {coach > 0 && !home && (
         <Coach key={coach} doc={doc} selected={selection.size} seen={seen} keys={{ clean: hint("clean_up") ?? "", copy: keyLabel("mod+c") }}
-          onTool={setCoachTool} onSkip={() => setCoach(0)} onFinish={() => { setCoach(0); set(EMPTY); setFile({ saved: EMPTY }); }} />
+          onTool={setCoachTool} onSkip={() => setCoach(0)} onFinish={() => { const fresh: Mol = { ...EMPTY, style: doc.style }; setCoach(0); set(fresh); setFile({ saved: fresh }); }} />
       )}
       {dialog?.kind === "unsaved" && (
         <Dialog title={`Save changes to “${name}”?`} action="Save" onClose={() => setDialog(undefined)}

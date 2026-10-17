@@ -6,7 +6,7 @@
 // actionLayout: for each kind of selection, the user's order of Actions panel actions and how many show as rows.
 // curvedArrows: the curved arrows kept in the Arrow strip, as "kind-sweep".
 import type { SavedTemplate } from "./templates";
-import { DEFAULT_STYLE, readStyle, type DocStyle } from "./docstyle";
+import { readPurposes, type DocStyle, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { DEFAULT_FILES, type FilePrefs } from "./SettingsWindow";
 
 export type Settings = {
@@ -20,7 +20,9 @@ export type Settings = {
   // was last opened (ms), for "Welcome back".
   userName: string | null; tutorialDone: boolean; lastSeen: number;
   warnings: boolean; // View > Show Chemical Warnings: problems marked on the drawing and listed in Actions
-  docStyle: DocStyle; // the style new documents start with
+  // What new drawings are for (IDEA-SIZE-1): the purpose Return and ⌘N start (the last one picked), each built-in
+  // purpose's style when the user made it their own with "Use for new documents", and the user's own purposes.
+  purpose: string; purposeStyles: Partial<Record<PurposeKind, DocStyle>>; ownPurposes: OwnPurpose[];
   files: FilePrefs; // export, copy and import preferences
   settingsModule: string; // the Settings module last open
   curvedArrows: string[];
@@ -34,7 +36,7 @@ export type Settings = {
   scaleLabels: boolean; // Scale…'s Labels and lines: label sizes and line widths scale with the positions (decision 0007)
 };
 export type Swatch = { name: string; hex: string };
-const DEFAULTS: Settings = { snap: true, eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, warnings: true, lastSeen: 0, docStyle: DEFAULT_STYLE, files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], nameHistory: [], paletteWide: false, palette: [], properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, scaleLabels: true };
+const DEFAULTS: Settings = { snap: true, eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, warnings: true, lastSeen: 0, purpose: "paper", purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], nameHistory: [], paletteWide: false, palette: [], properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, scaleLabels: true };
 const KEY = "octet.settings";
 
 export function loadSettings(): Settings {
@@ -50,7 +52,7 @@ export function loadSettings(): Settings {
         typeof k === "string" ? [{ name: k, smiles: "" }] : typeof k === "object" && k && typeof (k as { name?: unknown }).name === "string" && typeof (k as { smiles?: unknown }).smiles === "string" ? [k as { name: string; smiles: string }] : [],
       ).filter((k: { name: string; smiles: string }) => k.name.length <= 300 && k.smiles.length <= 2000).slice(0, 50),
       curvedArrows: Array.isArray(saved.curvedArrows) ? list<string>(saved.curvedArrows, (k) => typeof k === "string") : DEFAULTS.curvedArrows,
-      docStyle: readStyle(saved.docStyle),
+      ...readPurposes(saved),
       files: { ...DEFAULT_FILES, ...(typeof saved.files === "object" && saved.files ? saved.files : {}), clipboard: { ...DEFAULT_FILES.clipboard, ...(saved.files?.clipboard ?? {}) } },
       paletteWide: saved.paletteWide === true,
       properties: saved.properties === true,
