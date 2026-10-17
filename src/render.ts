@@ -39,6 +39,7 @@ export type Atom = {
   // LabelDisplay in CDXML): left reads from the atom, right ends at it (MeO, H2N), centre sits on it, above and below
   // stack the rest of the label over or under the atom's own unit. Unset is Automatic: it reads away from the bonds.
   align?: "left" | "centre" | "right" | "above" | "below";
+  hidden?: true; // Toggle Hydrogen Display: an explicit H that is not drawn, nor its bond (it still counts in the formula)
 };
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 // On a double bond: bold makes the main line bold, dashed the second line dashed, either crosses the two lines.
@@ -361,7 +362,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const dir = (i: number, j: number) => unit(sub(pts[j], pts[i]));
 
   // Labels. Heteroatoms and lone carbons get one; skeletal carbons don't, even when charged.
-  const labelled = mol.atoms.map((a, i) => !a.attach && !a.bead && (a.label !== 'C' || !deg(i) || !!a.text || !!a.isotope || (deg(i) === 1 ? !!s.terminal : !!s.carbons)));
+  const labelled = mol.atoms.map((a, i) => !a.attach && !a.bead && !a.hidden && (a.label !== 'C' || !deg(i) || !!a.text || !!a.isotope || (deg(i) === 1 ? !!s.terminal : !!s.carbons)));
   const labels: Label[] = [], labelAtom = new Map<Label, number>();
   const marks: P[][] = mol.atoms.map(() => []); // ink that is not a label shape (a skeletal carbon's charge)
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
@@ -464,6 +465,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const wound = (poly: P[]) => (poly.reduce((sum, q, j) => sum + cross(q, poly[(j + 1) % poly.length]), 0) > 0 ? poly.reverse() : poly);
   const disc = (c: P, r: number): P[] => wound(Array.from({ length: 20 }, (_, j) => add(c, [r * Math.cos((TAU * j) / 20), r * Math.sin((TAU * j) / 20)])));
   mol.atoms.forEach((a, i) => {
+    if (a.hidden) return;
     const kinds: ('charge' | 'partial' | 'radical' | 'pair')[] = [];
     if (a.circled && a.charge) kinds.push('charge');
     if (a.partial) kinds.push('partial');
@@ -556,7 +558,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const plans: Plan[] = mol.bonds.map((bond) => {
     const [a, b] = bond.atoms, p = pts[a], q = pts[b];
     const length = len(sub(q, p)), u = unit(sub(q, p)), n = perp(u);
-    const plan: Plan = { a, b, u, n, length, kind: 'line', lines: [], cut: [0, 0] };
+    const plan: Plan = { a, b, u, n, length, kind: 'line', lines: [], cut: [0, 0], ...(mol.atoms[a].hidden || mol.atoms[b].hidden ? { hidden: true } : {}) };
     const side = (j: number) => Math.sign(dot(sub(pts[j], p), n));
     // Angles at x from the bond to x's other neighbours on one side, smallest first.
     const near = (x: number, y: number, sd: number) =>
@@ -896,7 +898,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
 
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
   const take = (x: number, y: number) => { if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; };
-  for (const [x, y] of pts) take(x, y);
+  pts.forEach(([x, y], i) => { if (!mol.atoms[i].hidden) take(x, y); });
   for (const poly of polygons) for (const [x, y] of poly) take(x, y);
   const pad = L / 2;
   const label = labelBoxes.map((bs): Box | undefined => {

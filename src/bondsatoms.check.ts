@@ -5,7 +5,7 @@ import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
 import { problems } from "./check.ts";
-import { bondOrders, cycleBond, orderBonds, setPosition } from "./edit.ts";
+import { atomAt, bondAt, bondOrders, cycleBond, orderBonds, setPosition, toggleHydrogens } from "./edit.ts";
 import { HBOND, QUADRUPLE, render, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
 
 type P = [number, number];
@@ -114,3 +114,27 @@ console.log("bondsatoms.check: crossing bonds and bond order ok");
   assert.equal(parse(serialize(ome("centre"))).atoms[0].align, "centre");
 }
 console.log("bondsatoms.check: label alignment ok");
+
+// CD-35. Toggle Hydrogen Display hides explicit H on carbon and keeps an H that means something: on a heteroatom,
+// charged, an isotope, on a stereo bond or a stereocentre. A hidden H is not drawn nor hit, still counts towards
+// valence, and is saved as Visible="no".
+{
+  const m: Mol = {
+    atoms: [A("C", 0, 0), A("H", 0, 1), A("O", 1, 0), A("H", 1.8, 0.5), A("H", -1, 0, { isotope: 2 }), A("C", 0, -1), A("H", 0.5, -1.8), A("C", -1, -1.5)],
+    bonds: [b(0, 1), b(0, 2), b(2, 3), b(0, 4), b(0, 5), b(5, 6, { stereo: 1 }), b(5, 7)],
+  };
+  const t = toggleHydrogens(m, m.atoms.map((_, i) => i));
+  assert.deepEqual(t.atoms.map((a, i) => (a.hidden ? i : -1)).filter((i) => i >= 0), [1], "only the plain H on C1 hides");
+  assert.equal(toggleHydrogens(t, [1]).atoms[1].hidden, undefined, "again shows it");
+  const d = render(t, S, ink), plain = render({ ...t, atoms: t.atoms.map(({ hidden: _, ...a }) => a) }, S, ink);
+  assert.equal(d.labels.filter((l) => l.text === "H").length, plain.labels.filter((l) => l.text === "H").length - 1, "its label is not drawn");
+  assert.ok(d.polygons.length < plain.polygons.length, "nor its bond");
+  assert.equal(atomAt(t, [0, 1]), undefined);
+  assert.equal(bondAt(t, [0, 0.5]), undefined);
+  assert.deepEqual(bondOrders(t)[0], bondOrders(m)[0], "its bond still counts");
+  const text = toCdxml(t, DEFAULT_STYLE);
+  assert.equal((text.match(/Visible="no"/g) ?? []).length, 2, "the H and its bond");
+  assert.equal(roundTrip(t).atoms[1].hidden, true);
+  assert.equal(parse(serialize(t)).atoms[1].hidden, true);
+}
+console.log("bondsatoms.check: hidden hydrogens ok");

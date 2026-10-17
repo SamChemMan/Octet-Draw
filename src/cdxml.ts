@@ -434,7 +434,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const label = shown ? labelOf(i, style.hideH ? 0 : h ?? 0) : undefined;
     const z = a.location[2] ?? 0;
     const xml = el("n", {
-      id: nodeId.get(i)!, p: pt(X), Z: Z(), NodeType: type, Element: element && element !== 6 ? element : undefined, Isotope: type ? undefined : a.isotope ?? (a.label === "D" ? 2 : undefined), Charge: charge || undefined,
+      id: nodeId.get(i)!, p: pt(X), Z: Z(), Visible: a.hidden ? "no" : undefined, NodeType: type, Element: element && element !== 6 ? element : undefined, Isotope: type ? undefined : a.isotope ?? (a.label === "D" ? 2 : undefined), Charge: charge || undefined,
       Radical: a.radical ? RADICALS[a.radical === 3 ? 1 : Math.min(2, a.radical) + 1] : undefined, NumHydrogens: h, ExternalConnectionType: a.attach ? "Wavy" : a.bead ? "PolymerBead" : undefined,
       NeedsClean: shown ? "yes" : undefined, GenericNickname: generic ? a.text : undefined, LabelDisplay: shown && a.align ? { left: "Left", centre: "Center", right: "Right", above: "Above", below: "Below" }[a.align] : undefined,
       EnhancedStereoType: enhanced ? { abs: "Absolute", "&": "And", or: "Or" }[enhanced[1]] : undefined, EnhancedStereoGroupNum: enhanced?.[2] || undefined,
@@ -524,7 +524,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const ring = ringBond.has(k), dashed = !ring && b.type === 2 && (d === "dashed" || d === "aromatic");
     // A hydrogen bond is ChemDraw 26's DottedHydrogen display on a single bond; a quadruple bond is order 4.
     return el("b", {
-      id: bondId[k], Z: Z(), B: nodeId.get(i)!, E: nodeId.get(j)!,
+      id: bondId[k], Z: Z(), Visible: mol.atoms[i].hidden || mol.atoms[j].hidden ? "no" : undefined, B: nodeId.get(i)!, E: nodeId.get(j)!,
       Order: ring || dashed || b.type === 4 ? "1.5" : d === "dative" ? "dative" : b.type === 2 ? "2" : b.type === 3 ? "3" : b.type === QUADRUPLE ? "4" : undefined,
       Display: ring ? undefined : dashed && d === "aromatic" ? "Dash" : b.type === HBOND ? "DottedHydrogen" : display, Display2: dashed ? "Dash" : undefined, Octet: ring ? priv({ order: b.type }) : undefined, DoublePosition: b.type === 2 && b.position ? { left: "Left", right: "Right", centre: "Center" }[b.position] : undefined,
       color: colour(b.colour), ShowBondStereo: mol.atoms[i].cip && mol.atoms[j].cip ? "yes" : undefined, BondCircularOrdering: circular,
@@ -933,6 +933,8 @@ export function fromCdxml(text: string): CdxmlRead {
     const number = yes(n.attrs.ShowAtomNumber) ? (n.attrs.AtomNumber ?? "").trim() : "";
     if (number) { if (/^[\w'′*-]{1,8}$/.test(number)) a.number = number; else lose("atom number"); }
     if (yes(n.attrs.IgnoreWarnings)) a.ignoreWarnings = true;
+    // An H hidden by Toggle Hydrogen Display.
+    if (n.attrs.Visible !== undefined && !yes(n.attrs.Visible) && a.label === "H") a.hidden = true;
     // A label alignment set by hand.
     const align = ({ Left: "left", Center: "centre", Right: "right", Above: "above", Below: "below" } as const)[n.attrs.LabelDisplay as "Left"];
     if (align) a.align = align;

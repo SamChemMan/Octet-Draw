@@ -35,14 +35,16 @@ const bondIndex = (m: Mol, i: number, j: number) =>
   m.bonds.findIndex((b) => (b.atoms[0] === i && b.atoms[1] === j) || (b.atoms[0] === j && b.atoms[1] === i));
 
 // Hit testing, in bond lengths.
+// Hidden H atoms (Toggle Hydrogen Display) and their bonds are not hit.
 export function atomAt(m: Mol, p: P, r = 0.3): number | undefined {
   let best: number | undefined, bestD = r;
-  m.atoms.forEach((_, i) => { const d = len(sub(pos(m, i), p)); if (d < bestD) { best = i; bestD = d; } });
+  m.atoms.forEach((x, i) => { const d = len(sub(pos(m, i), p)); if (d < bestD && !x.hidden) { best = i; bestD = d; } });
   return best;
 }
 export function bondAt(m: Mol, p: P, r = 0.2): number | undefined {
   let best: number | undefined, bestD = r;
   m.bonds.forEach((b, i) => {
+    if (m.atoms[b.atoms[0]].hidden || m.atoms[b.atoms[1]].hidden) return;
     const a = pos(m, b.atoms[0]), ab = sub(pos(m, b.atoms[1]), a);
     const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1]) / (ab[0] ** 2 + ab[1] ** 2 || 1)));
     const d = len(sub(p, add(a, mul(ab, t))));
@@ -729,6 +731,19 @@ export function pairMap(m: Mol, a: number, b: number): Mol {
 export const clearMap = (m: Mol, i: number): Mol => ({ ...m, atoms: m.atoms.map((x, j) => (j === i ? { ...x, map: undefined } : x)) });
 
 // Stereocentres: the atoms at the narrow end of a wedge or hashed wedge (among some atoms, if given).
+// Toggle Hydrogen Display, as ChemDraw's: each explicit H on a carbon among these atoms is hidden, or shown again.
+// It keeps an H with a charge, an isotope, a radical or a label, an H on a stereo bond or a stereocentre, and an H
+// that is not on exactly one carbon (on a heteroatom, bridging, or in a hydrogen bond).
+export function toggleHydrogens(m: Mol, atoms: Iterable<number>): Mol {
+  const centres = new Set(stereocentres(m)), flip = new Set<number>();
+  for (const i of atoms) {
+    const a = m.atoms[i], bonds = m.bonds.filter((b) => b.atoms.includes(i)), b = bonds[0];
+    if (a?.label !== "H" || a.text || a.charge || a.isotope || a.radical || bonds.length !== 1 || b.type !== 1 || b.stereo || b.display) continue;
+    const c = b.atoms[0] === i ? b.atoms[1] : b.atoms[0];
+    if (m.atoms[c].label === "C" && !m.atoms[c].text && !centres.has(c)) flip.add(i);
+  }
+  return flip.size ? { ...m, atoms: m.atoms.map((a, i) => (flip.has(i) ? { ...a, hidden: a.hidden ? undefined : true } : a)) } : m;
+}
 export const stereocentres = (m: Mol, among?: Set<number>) =>
   [...new Set(m.bonds.filter((b) => b.stereo === 1 || b.stereo === 6).map((b) => b.atoms[0]))].filter((i) => !among || among.has(i));
 // Where a small mark beside an atom goes (a stereo flag, a map number): the middle of its widest gap between
