@@ -16,7 +16,7 @@ import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
-  addShape, addSymbol, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
+  addShape, addSymbol, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
@@ -102,7 +102,8 @@ type Make = { kind: "line" | "arc" | "orbital" | "cut"; bend?: number; style?: A
 // A handle: an arrow's ends or middle, or a shape's corners (c1 and c2 are the two it is not drawn from). head: the
 // barb of an arrow's end head, which sizes the head. add: the mark in a straight arrow's middle, which a click turns
 // into a point (and only then does the arrow bend).
-type Corner = "from" | "to" | "bend" | "c1" | "c2" | "head" | "add";
+// A pen curve's point i: its anchor (at) or one of its handles (c1 in, c2 out).
+type Corner = "from" | "to" | "bend" | "c1" | "c2" | "head" | "add" | `p${number}:${"at" | "c1" | "c2"}`;
 // arrow: an arrow or a shape (they share ids).
 type Hover = { atom?: number; bond?: number; caption?: number; arrow?: number; cycle?: number; step?: number };
 const hitIn = (m: Mol, p: P): Hover => {
@@ -332,6 +333,7 @@ export default function Editor() {
   const shapeChoice = shapeSpec(settings.variants.shape) ? settings.variants.shape : "box-plain";
   const bracketChoice = bracketSpec(settings.variants.bracket) ? settings.variants.bracket : "brackets";
   const shapePick = shapeSpec(shapeChoice)!, bracketPick = bracketSpec(bracketChoice)!;
+  const editCurve = tool === "shape" && "edit" in shapePick; // Edit curve in hand
   const orbitalChoice = orbitalSpec(settings.variants.orbital) ? settings.variants.orbital : "p-shaded";
   // A clicked orbital's tip: s orbitals a third of a bond across, lobes most of a bond long, pointing up, or for a
   // single lobe or hybrid on an atom, out into the atom's widest gap.
@@ -1492,6 +1494,7 @@ export default function Editor() {
 
   const stopHold = () => { clearTimeout(hold.current); hold.current = undefined; };
   const addPoint = useRef<number>(undefined); // the arrow whose middle mark the press went down on
+  const editPress = useRef<number>(undefined); // the curve Edit curve had picked when the press went down
   const holdFrom = useRef<[number, number]>(undefined); // where the press that may become a hold went down
 
   // Select tool press: on something selected, move the selection; on something else, select it and move it;
@@ -1720,7 +1723,14 @@ export default function Editor() {
     const near = (q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) * L * views.get().zoom < 8;
     const sh = ids.length === 1 && !selection.size ? doc.shapes?.find((x) => x.id === ids[0]) : undefined;
     if (sh) return (Object.entries(corners(sh)) as [Corner, P][]).filter(([, q]) => near(q)).map(([which]) => ({ id: sh.id, which }))[0];
-    if (!a || a.kind === "curve") return undefined;
+    // A picked pen curve's anchors, then their handles.
+    if (a?.kind === "curve" && a.curve) {
+      const i = a.curve.points.findIndex((q) => near(q.at));
+      if (i >= 0) return { id: a.id, which: `p${i}:at` };
+      for (const [k, q] of a.curve.points.entries()) for (const part of ["c1", "c2"] as const) { const h = q[part]; if (h && near(h)) return { id: a.id, which: `p${k}:${part}` }; }
+      return undefined;
+    }
+    if (!a) return undefined;
     const barb = headBarb(a, frame, L);
     return near(a.to) ? { id: a.id, which: "to" } : near(a.from) ? { id: a.id, which: "from" } : (curved(a) || a.point) && near(bendPoint(a)) ? { id: a.id, which: "bend" }
       : barb && near([barb[0] / L, -barb[1] / L]) ? { id: a.id, which: "head" } : pointable(a) && !a.point && near(bendPoint(a)) ? { id: a.id, which: "add" } : undefined;
@@ -1737,6 +1747,8 @@ export default function Editor() {
     }
     return undefined;
   };
+  // The one pen curve picked, if it is one.
+  const pickedCurve = () => (picked.size === 1 && !selection.size ? doc.arrows?.find((a) => picked.has(a.id) && a.kind === "curve" && a.curve) : undefined);
   // Straight arrows and lines that can take a point in their middle, to bend and branch from.
   const pointable = (a: Arrow) => (straightArrow(a) || a.kind === "line") && a.kind !== "block" && a.kind !== "equilibrium" && a.kind !== "retro";
   // The selection's rotation handle, as in ChemDraw: just off the top right corner of the selection's box (px). The
@@ -1761,7 +1773,15 @@ export default function Editor() {
     const handle = tool !== "erase" ? handleAt(p) : undefined;
     // The middle mark: a press moves the arrow as usual; a click (no move) gives it its point.
     addPoint.current = handle?.which === "add" ? handle.id : undefined;
+    // With Edit curve, Option-click takes an anchor out.
+    if (handle && editCurve && e.altKey && handle.which.endsWith(":at")) {
+      const a = doc.arrows?.find((x) => x.id === handle.id);
+      return a?.curve ? set(updateArrow(doc, a.id, withCurve(removeCurvePoint(a.curve, Number(handle.which.slice(1, -3))))), true) : undefined;
+    }
     if (handle && handle.which !== "add") return setDrag({ kind: "handle", ...handle, working: doc });
+    // Edit curve keeps its curve picked: a click on the curve adds a point there, a click away adds one at its end.
+    editPress.current = editCurve ? pickedCurve()?.id : undefined;
+    if (editCurve && editPress.current !== undefined && t.arrow === undefined && t.caption === undefined && t.atom === undefined) return setDrag({ kind: "click", at: p, start: screen, target: t });
     if (tool !== "erase" && onTurnHandle(p)) {
       const ps = [...selection].map((i) => pos(doc, i));
       const centre: P = [(Math.min(...ps.map((q) => q[0])) + Math.max(...ps.map((q) => q[0]))) / 2, (Math.min(...ps.map((q) => q[1])) + Math.max(...ps.map((q) => q[1]))) / 2];
@@ -1960,6 +1980,10 @@ export default function Editor() {
         }
         const a = doc.arrows?.find((x) => x.id === drag.id);
         if (!a) return;
+        if (a.curve && drag.which.startsWith("p")) {
+          const [i, part] = drag.which.slice(1).split(":");
+          return setDrag({ ...drag, working: updateArrow(doc, a.id, withCurve(moveCurvePoint(a.curve, Number(i), part as "at" | "c1" | "c2", p, e.altKey))) });
+        }
         if (drag.which === "head") {
           // The barb's distance back from the tip sets the head's length, its distance off the shaft its width; the
           // notch keeps its place between them.
@@ -2910,6 +2934,15 @@ export default function Editor() {
       setPicked(picks);
       return;
     }
+    // Edit curve: a click on the curve it had picked adds a point there; a click away from it, a point at its end.
+    if (editCurve) {
+      const c = doc.arrows?.find((a) => a.id === editPress.current && a.curve);
+      if (!c?.curve) return;
+      const near = nearestOnCurve(c.curve, at), on = near.d * L * views.get().zoom < 8;
+      if (t.arrow === c.id && on) return set(updateArrow(doc, c.id, withCurve(splitCurve(c.curve, near.seg, near.t))), true);
+      if (t.arrow === undefined) return set(updateArrow(doc, c.id, withCurve(appendCurvePoint(c.curve, at))), true);
+      return;
+    }
     if (t.caption !== undefined && tool !== "text") return; // a caption was picked, not drawn on
     // An arrow clicked with the Arrow tool, as in ChemDraw: one like the tool's, unchanged but for its ends, turns
     // round; one like it but changed goes back to the tool's own; any other becomes the tool's kind.
@@ -3677,7 +3710,18 @@ export default function Editor() {
             // A picked arrow's handles: its ends, and the middle of a curved one.
             const ids = [...picked], a = ids.length === 1 && !selection.size && drag?.kind !== "move" ? arrows.find((x) => x.id === ids[0]) : undefined;
             const sh = ids.length === 1 && !selection.size && drag?.kind !== "move" ? shown.shapes?.find((x) => x.id === ids[0]) : undefined;
-            if ((!a || a.kind === "curve") && !sh) return null;
+            if (a?.kind === "curve" && a.curve) {
+              // A picked pen curve: every anchor as a small square, and each handle as a dot on a line from its anchor.
+              const r = 3.5 / view.zoom, c = a.curve;
+              return (
+                <g className="pen-points" aria-hidden>
+                  {c.points.flatMap((q, i) => (["c1", "c2"] as const).flatMap((part) => { const h = q[part]; return h ? [<line key={`l${i}${part}`} x1={q.at[0] * L} y1={-q.at[1] * L} x2={h[0] * L} y2={-h[1] * L} />] : []; }))}
+                  {c.points.flatMap((q, i) => (["c1", "c2"] as const).flatMap((part) => { const h = q[part]; return h ? [<circle key={`h${i}${part}`} cx={h[0] * L} cy={-h[1] * L} r={r * 0.8} />] : []; }))}
+                  {c.points.map((q, i) => <rect key={`p${i}`} x={q.at[0] * L - r} y={-q.at[1] * L - r} width={2 * r} height={2 * r} />)}
+                </g>
+              );
+            }
+            if (!a && !sh) return null;
             const barb = a && headBarb(a, frame, L);
             const points = sh ? Object.values(corners(sh)) : [a!.from, a!.to, ...(curved(a!) || a!.point ? [bendPoint(a!)] : []), ...(barb ? [[barb[0] / L, -barb[1] / L] as P] : [])];
             return (

@@ -1,6 +1,6 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { hydrogens, lonePairs, tableLayout, TABLE_ROW, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape, type Table } from "./render.ts";
+import { hydrogens, lonePairs, tableLayout, TABLE_ROW, type Arrow, type Atom, type Bond, type Caption, type Curve, type CurvePoint, type Mol, type Shape, type Table } from "./render.ts";
 import type { Cycle } from "./cycle.ts";
 import { anchorElement, isElement } from "./labels.ts";
 
@@ -615,6 +615,65 @@ export function addArrow(m: Mol, a: Omit<Arrow, "id">): [Mol, number] {
 }
 export const updateArrow = (m: Mol, id: number, change: Partial<Arrow>): Mol =>
   ({ ...m, arrows: m.arrows?.map((a) => (a.id === id ? { ...a, ...change } : a)) });
+// Editing a pen curve (ChemDraw's Edit Curve tool). Segment i runs from point i to the next (a closed curve's last
+// segment back to its first point). A segment with no handles at either end is straight.
+type Q = [number, number];
+const lerp = (a: Q, b: Q, t: number): Q => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+const segments = (c: Curve) => (c.closed && c.points.length > 2 ? c.points.length : c.points.length - 1);
+function segment(c: Curve, i: number): [Q, Q, Q, Q] {
+  const a = c.points[i], b = c.points[(i + 1) % c.points.length];
+  return [a.at, a.c2 ?? a.at, b.c1 ?? b.at, b.at];
+}
+const bezier = ([p0, p1, p2, p3]: [Q, Q, Q, Q], t: number): Q => lerp(lerp(lerp(p0, p1, t), lerp(p1, p2, t), t), lerp(lerp(p1, p2, t), lerp(p2, p3, t), t), t);
+// The place on a curve nearest a point: its segment, how far along it (0 to 1) and the distance (drawing units).
+export function nearestOnCurve(c: Curve, p: Q): { seg: number; t: number; d: number } {
+  let best = { seg: 0, t: 0, d: Infinity };
+  for (let i = 0; i < segments(c); i++) {
+    const s = segment(c, i);
+    for (let j = 0; j <= 48; j++) { const q = bezier(s, j / 48), d = Math.hypot(q[0] - p[0], q[1] - p[1]); if (d < best.d) best = { seg: i, t: j / 48, d }; }
+  }
+  // Closer still about the best sample.
+  for (let k = 0; k < 20; k++) {
+    const s = segment(c, best.seg), step = 1 / 48 / 2 ** (k + 1);
+    for (const t of [best.t - step, best.t + step]) if (t >= 0 && t <= 1) { const q = bezier(s, t), d = Math.hypot(q[0] - p[0], q[1] - p[1]); if (d < best.d) best = { ...best, t, d }; }
+  }
+  return best;
+}
+// A point added on segment seg at t, splitting it (de Casteljau) so the curve keeps its shape. A straight segment
+// gets a corner point and stays straight.
+export function splitCurve(c: Curve, seg: number, t: number): Curve {
+  const n = c.points.length, a = c.points[seg], b = c.points[(seg + 1) % n], [p0, p1, p2, p3] = segment(c, seg);
+  const pts = c.points.map((q) => ({ ...q }));
+  let mid: CurvePoint;
+  if (!a.c2 && !b.c1) mid = { at: lerp(p0, p3, t) };
+  else {
+    const q0 = lerp(p0, p1, t), q1 = lerp(p1, p2, t), q2 = lerp(p2, p3, t), r0 = lerp(q0, q1, t), r1 = lerp(q1, q2, t);
+    mid = { at: lerp(r0, r1, t), c1: r0, c2: r1 };
+    pts[seg] = { ...pts[seg], c2: q0 };
+    pts[(seg + 1) % n] = { ...pts[(seg + 1) % n], c1: q2 };
+  }
+  pts.splice(seg + 1, 0, mid);
+  return { ...c, points: pts };
+}
+// A point moved: its anchor (its handles move with it), or one handle. A smooth point's other handle turns to stay
+// opposite, keeping its own length, unless free (Option) breaks the point into a corner.
+export function moveCurvePoint(c: Curve, i: number, part: "at" | "c1" | "c2", p: Q, free = false): Curve {
+  const q = c.points[i], d: Q = [p[0] - q.at[0], p[1] - q.at[1]], shift = (h?: Q): Q | undefined => h && [h[0] + d[0], h[1] + d[1]];
+  let next: CurvePoint;
+  if (part === "at") next = { at: p, ...(q.c1 ? { c1: shift(q.c1) } : {}), ...(q.c2 ? { c2: shift(q.c2) } : {}) };
+  else {
+    const other = part === "c1" ? "c2" : "c1", o = q[other];
+    next = { ...q, [part]: p };
+    const len = o && Math.hypot(o[0] - q.at[0], o[1] - q.at[1]), out = Math.hypot(p[0] - q.at[0], p[1] - q.at[1]);
+    if (o && !free && len && out > 1e-9) next[other] = [q.at[0] - ((p[0] - q.at[0]) * len) / out, q.at[1] - ((p[1] - q.at[1]) * len) / out];
+  }
+  return { ...c, points: c.points.map((x, k) => (k === i ? next : x)) };
+}
+// A point taken out (a curve keeps at least two), or one added at the end (a straight segment to it).
+export const removeCurvePoint = (c: Curve, i: number): Curve => (c.points.length <= 2 ? c : { ...c, points: c.points.filter((_, k) => k !== i), ...(c.points.length <= 3 ? { closed: undefined } : {}) });
+export const appendCurvePoint = (c: Curve, p: Q): Curve => ({ ...c, points: [...c.points, { at: p }] });
+// A curve arrow with new points: its ends follow its first and last points.
+export const withCurve = (c: Curve): Partial<Arrow> => ({ curve: c, from: c.points[0].at, to: c.points[c.points.length - 1].at });
 export function addShape(m: Mol, sh: Omit<Shape, "id">): [Mol, number] {
   const id = nextId(m);
   // A highlight goes behind the shapes already there; anything else on top.

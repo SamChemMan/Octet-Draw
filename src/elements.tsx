@@ -16,16 +16,18 @@ const STYLES = ["plain", "dashed", "shaded", "solid", "shadow"] as const;
 const LINES = ["plain", "dashed", "wavy", "bold"] as const;
 const ARCS = [270, 180, 120, 90];
 export const SHAPE_GRID: string[][] = SHAPE_ROWS.map((row, i) => [...STYLES.map((st) => `${row}-${st}`), `line-${LINES[i]}`, `arc-${ARCS[i]}`, `arc-${ARCS[i]}-dashed`]);
-export const SHAPE_EXTRA = ["highlight", "pen"];
+export const SHAPE_EXTRA = ["highlight", "pen", "pen-edit"];
 
 // What a Shape tool variant draws: a shape (a circle is an oval drawn out from its middle), or a line or arc.
 export type ElementSpec =
   | { shape: ShapeKind; circle?: boolean; dashed?: true; fill?: "shaded" | "solid"; shadow?: true }
   | { line: "line" | "arc"; sweep?: number; style?: LineStyle }
-  | { pen: true };
+  | { pen: true }
+  | { edit: true }; // Edit curve: a picked pen curve's points and handles, and points added or taken out
 export function shapeSpec(v: string): ElementSpec | undefined {
   if (v === "highlight") return { shape: "highlight" };
   if (v === "pen") return { pen: true };
+  if (v === "pen-edit") return { edit: true };
   let m = /^(circle|oval|rounded|box)(?:-(plain|dashed|shaded|solid|shadow))?$/.exec(v);
   if (m) {
     const st = m[2] ?? "plain";
@@ -45,6 +47,7 @@ const cap = (t: string) => t[0].toUpperCase() + t.slice(1);
 export function shapeName(v: string): string | undefined {
   if (v === "highlight") return "Highlight";
   if (v === "pen") return "Pen";
+  if (v === "pen-edit") return "Edit curve";
   let m = /^(circle|oval|rounded|box)(?:-(plain|dashed|shaded|solid|shadow))?$/.exec(v);
   if (m) {
     const n = SHAPE_NAMES[m[1] as keyof typeof SHAPE_NAMES], st = m[2] ?? "plain";
@@ -70,6 +73,18 @@ export function ElementGlyph({ v }: { v: string }) {
         <rect x={30} y={182} width={28} height={28} fill="var(--surface-raised)" strokeWidth={10} />
         <rect x={198} y={46} width={28} height={28} fill="var(--surface-raised)" strokeWidth={10} />
         <circle cx={84} cy={92} r={12} fill="currentColor" stroke="none" />
+      </Icon>
+    );
+  }
+  // Edit curve: a curve through three anchors, the middle one with its handles out.
+  if ("edit" in spec) {
+    return (
+      <Icon>
+        <path d="M40,192 C64,112 96,96 128,128 C160,160 192,144 216,64" />
+        <line x1={88} y1={96} x2={168} y2={160} strokeWidth={8} />
+        {[[40, 192], [128, 128], [216, 64]].map(([x, y]) => <rect key={x} x={x - 14} y={y - 14} width={28} height={28} fill="var(--surface-raised)" strokeWidth={10} />)}
+        <circle cx={88} cy={96} r={12} fill="currentColor" stroke="none" />
+        <circle cx={168} cy={160} r={12} fill="currentColor" stroke="none" />
       </Icon>
     );
   }
