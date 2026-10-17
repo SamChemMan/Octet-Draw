@@ -16,7 +16,7 @@ import { Menu } from "./Menu";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
 import { invoke } from "@tauri-apps/api/core";
-import { COLOURS, fontStack, TINTS } from "./docstyle";
+import { COLOURS, fontStack, roundPt, TINTS } from "./docstyle";
 import { ArrowGlyph, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, SymbolGlyph, type BondKind } from "./tools";
 
 // A selected atom label's text style (the first labelled atom's, for a structure), for the label style buttons.
@@ -199,9 +199,9 @@ function SizeButton({ size, sizes, run }: { size: number; sizes: number[]; run: 
   const endTyping = (keep: boolean) => {
     if (!typing.current) return;
     typing.current = false;
-    const pt = Math.round(Number(typed) * 2) / 2;
+    const n = Number(typed), pt = roundPt(n);
     setTyped(undefined);
-    if (keep && pt >= 0.5 && pt <= 999 && pt !== size) run(`caption.size.${pt}`);
+    if (keep && n > 0 && pt <= 999 && pt !== size) run(`caption.size.${pt}`);
   };
   return (
     <div className="size" ref={box}>

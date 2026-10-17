@@ -56,14 +56,18 @@ export const presetAt = (name: string, scale: number): Drawn => {
   for (const k of SCALED) p[k] = round(p[k] * scale);
   return p;
 };
-// The text sizes on offer (Text > Size and the Actions panel): ChemDraw's list times the document scale, to the
-// nearest half point. A typed size can be anything from 0.5 to 999 pt.
+// A text size as Octet offers it: to the nearest half point from 5 pt, and to the nearest tenth below (so a small
+// document's sizes stay apart). 0.1 pt at least.
+export const roundPt = (pt: number) => (pt >= 5 ? Math.round(pt * 2) / 2 : Math.max(0.1, Math.round(pt * 10) / 10));
+// The text sizes on offer (Text > Size and the Actions panel): ChemDraw's list times the document scale. A typed size
+// can be anything from 0.1 to 999 pt.
 export const TEXT_SIZES = [5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 24];
-export const sizeAt = (pt: number, scale: number) => Math.round(pt * scale * 2) / 2 || 0.5;
-// The style at another document scale: its scaled values multiplied by the change, the rest kept.
+export const sizeAt = (pt: number, scale: number) => roundPt(pt * scale);
+// The style at another document scale: its scaled values multiplied by the change, the rest kept. A preset's values
+// are worked out again from the preset, so a change of scale and back leaves no rounding behind.
 export function withScale(s: DocStyle, scale: number): DocStyle {
-  const next = { ...s, scale };
-  for (const k of SCALED) next[k] = round(s[k] * (scale / s.scale));
+  const name = presetOf(s), next = { ...s, scale, ...(name in PRESETS ? presetAt(name, scale) : {}) };
+  if (!(name in PRESETS)) for (const k of SCALED) next[k] = round(s[k] * (scale / s.scale));
   return { ...next, preset: presetOf(next) };
 }
 

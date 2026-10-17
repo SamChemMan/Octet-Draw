@@ -350,8 +350,9 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
     let scale = *app.state::<TextScale>().0.lock().unwrap();
     let sizes = [5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 24]
         .map(|pt| {
-            // To the nearest half point, as the page rounds it.
-            let v = ((pt as f64 * scale * 2.0).round() / 2.0).max(0.5);
+            // As the page rounds it (roundPt): to the nearest half point from 5 pt, and to the nearest tenth below.
+            let v = pt as f64 * scale;
+            let v = if v >= 5.0 { (v * 2.0).round() / 2.0 } else { ((v * 10.0).round() / 10.0).max(0.1) };
             item(&format!("size_{pt}"), &if v.fract() == 0.0 { format!("{v:.0} pt") } else { format!("{v:.1} pt") }, "")
         })
         .into_iter()

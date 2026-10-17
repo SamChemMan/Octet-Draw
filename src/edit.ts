@@ -739,12 +739,12 @@ export function resizeTable(sh: Shape, rows: number, cols: number, measure?: (te
   return { from: both.from, to: both.to, table: both.table };
 }
 // A table with its columns' widths or rows' heights set (each is kept from then on, as after dragging a border), and
-// its box to match. x0 and y1 move its left and top edges.
+// its box to match. x0 and y1 move its left and top edges. The limits follow the table's scale.
 export function sizeTable(sh: Shape, size: { widths?: number[]; heights?: number[]; x0?: number; y1?: number }, measure?: (text: string) => number): Partial<Shape> {
-  const old = tableLayout(sh, measure), x0 = size.x0 ?? old.x0, y1 = size.y1 ?? old.y1;
+  const old = tableLayout(sh, measure), x0 = size.x0 ?? old.x0, y1 = size.y1 ?? old.y1, f = old.f;
   const table: Table = {
-    ...sh.table!, ...(size.widths ? { widths: size.widths.map((w) => Math.max(0.2, Math.min(50, w))) } : {}),
-    ...(size.heights ? { heights: size.heights.map((h) => Math.max(0.5, Math.min(50, h))) } : {}),
+    ...sh.table!, ...(size.widths ? { widths: size.widths.map((w) => Math.max(0.2 * f, Math.min(50 * f, w))) } : {}),
+    ...(size.heights ? { heights: size.heights.map((h) => Math.max(0.5 * f, Math.min(50 * f, h))) } : {}),
   };
   const t = tableLayout({ ...sh, from: [x0, y1], to: [x0 + old.x1 - old.x0, y1 - (old.y1 - old.y0)], table }, measure);
   return { from: [t.x0, t.y1], to: [t.x1, t.y0], table };
@@ -753,7 +753,7 @@ export function sizeTable(sh: Shape, size: { widths?: number[]; heights?: number
 export function fitTable(sh: Shape, measure?: (text: string) => number): Partial<Shape> {
   const { widths: _w, heights: _h, ...table } = sh.table!, t = tableLayout({ ...sh, table }, measure);
   void _w; void _h;
-  return { from: [t.x0, t.y1], to: [t.x0 + t.natural.reduce((a, b) => a + b, 0), t.y1 - t.rows * TABLE_ROW], table };
+  return { from: [t.x0, t.y1], to: [t.x0 + t.natural.reduce((a, b) => a + b, 0), t.y1 - t.rows * TABLE_ROW * t.f], table };
 }
 // Clear Contents: every cell empty, except the entry numbers and their header when the first column counts.
 export function clearTable(sh: Shape): Partial<Shape> {

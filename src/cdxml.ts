@@ -427,8 +427,9 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       EnhancedStereoType: enhanced ? { abs: "Absolute", "&": "And", or: "Or" }[enhanced[1]] : undefined, EnhancedStereoGroupNum: enhanced?.[2] || undefined,
       color: colour(a.colour), highlightColor: colour(a.halo), ShowAtomStereo: a.cip ? "yes" : undefined, ShowAtomNumber: a.number ? "yes" : undefined, AtomNumber: a.number, IgnoreWarnings: a.ignoreWarnings ? "yes" : undefined, xyz: z ? `${pt(X)} ${fmt(z * B)}` : undefined,
       BondOrdering: inner && deg > 1 ? bondsAt[i].map((k) => bondId[k]).join(" ") : undefined,
-      // A scaled atom's label size, as drawn (its own size, or the document's, times its scale).
-      LabelSize: shown && scaleOf(a) !== 1 ? fmtSize((a.size ?? style.labelSize) * scaleOf(a)) : undefined,
+      // A scaled atom's label size, as drawn (its own size, or the document's, times its scale), and its line width
+      // (an atom with no bonds takes its scale back from it).
+      LabelSize: shown && scaleOf(a) !== 1 ? fmtSize((a.size ?? style.labelSize) * scaleOf(a)) : undefined, LineWidth: scaleOf(a) !== 1 ? fmt(line * scaleOf(a)) : undefined,
       Octet: priv({ hmark: a.hmark, partial: a.partial, depth: a.depth === false ? false : undefined, map: a.map, circle: a.circle, scale: ownScale(a) }),
     }, (inner ? nested(i, inner) : "") + (label?.xml ?? ""));
     if (a.partial) note(a.partial === "+" ? "δ+" : "δ−", [X[0] + 0.45 * B * scaleOf(a), X[1] - 0.45 * B * scaleOf(a)] as P, (a.size ?? style.labelSize) * scaleOf(a) * 0.75, "left", a.colour);
@@ -826,7 +827,7 @@ export function fromCdxml(text: string): CdxmlRead {
   const groups: G[] = [];
   const nodeIds: number[] = [], bondIds: number[] = [];
   // Each bond's own drawing settings (ChemDraw's per-object settings, pt), and each label's size as written.
-  const bondSettings: { line?: number; bold?: number; hash?: number; margin?: number; spacing?: number }[] = [], labelSizes = new Map<number, number>();
+  const bondSettings: { line?: number; bold?: number; hash?: number; margin?: number; spacing?: number }[] = [], labelSizes = new Map<number, number>(), nodeLines = new Map<number, number>();
   const atomOf = new Map<number, number>(), objectOf = new Map<number, number>(), arrowOfGraphic = new Map<number, number>();
   const labels: { i: number; text: string; type: string; isotope?: number }[] = [];
   const numH = new Map<number, number>(), delocalised: { k: number; order?: 1 | 2 }[] = [], ovals: { id: number; c: P; r: number }[] = [];
@@ -913,6 +914,8 @@ export function fromCdxml(text: string): CdxmlRead {
     const i = mol.atoms.push(a) - 1;
     nodeIds.push(int(n.attrs.id) ?? 0);
     numH.set(i, int(n.attrs.NumHydrogens) ?? 0);
+    const lw = real(n.attrs.LineWidth);
+    if (lw !== undefined) nodeLines.set(i, lw);
     atomOf.set(int(n.attrs.id) ?? -1, i);
     const t = n.kids.find((k) => k.name === "t");
     // The label's own text style, where it differs from the document's: bold, italic, underline, font and size.
@@ -977,8 +980,11 @@ export function fromCdxml(text: string): CdxmlRead {
   // Structures at their own size (decision 0007). A structure takes a scale when its bonds carry LineWidth and every
   // width, hash spacing and margin they carry agrees with LineWidth's ratio to the document's within 2%. Bond length
   // is not used: ChemDraw keeps a structure's old fixed length on it after a resize. Settings that do not agree, and
-  // a bond's own spacing, are listed as not kept. A scaled atom's label keeps its size over the scale.
+  // a bond's own spacing, are listed as not kept. An atom with no bonds takes its scale from its own LineWidth. A
+  // scaled atom's label keeps its size over the scale.
   function readScales() {
+    const fits = (f: number) => Math.round(Math.min(100, Math.max(0.01, f)) * 1e4) / 1e4;
+    const has = (x: (typeof bondSettings)[number]) => x.line !== undefined || x.bold !== undefined || x.hash !== undefined || x.margin !== undefined;
     const root = mol.atoms.map((_, i) => i), find = (i: number) => { while (root[i] !== i) i = root[i] = root[root[i]]; return i; };
     for (const b of mol.bonds) root[find(b.atoms[0])] = find(b.atoms[1]);
     const parts = new Map<number, number[]>();
@@ -986,12 +992,17 @@ export function fromCdxml(text: string): CdxmlRead {
     for (const ks of parts.values()) {
       const atoms = [...new Set(ks.flatMap((k) => mol.bonds[k].atoms))], set = ks.map((k) => bondSettings[k]);
       for (const x of set) if (x.spacing !== undefined && Math.abs(x.spacing - style.spacing) > 0.05) lose("bond spacing");
-      if (atoms.some((i) => mol.atoms[i].scale) || !set.some((x) => x.line ?? x.bold ?? x.hash ?? x.margin)) continue;
+      if (atoms.some((i) => mol.atoms[i].scale) || !set.some(has)) continue;
       const f = set[0].line === undefined ? NaN : set[0].line / style.line;
       const agrees = (v: number | undefined, base: number) => v === undefined || Math.abs(v / base - f) <= 0.02 * f;
-      if (!(f > 0) || !set.every((x) => x.line !== undefined && agrees(x.line, style.line) && agrees(x.bold, style.bold) && agrees(x.hash, style.hash) && agrees(x.margin, style.margin))) { lose("bond settings", ks.length); continue; }
+      if (!(f > 0) || !set.every((x) => x.line !== undefined && agrees(x.line, style.line) && agrees(x.bold, style.bold) && agrees(x.hash, style.hash) && agrees(x.margin, style.margin))) { lose("bond settings", set.filter(has).length); continue; }
       if (Math.abs(f - 1) <= 0.02) continue;
-      for (const i of atoms) mol.atoms[i].scale = Math.round(Math.min(100, Math.max(0.01, f)) * 1e4) / 1e4;
+      for (const i of atoms) mol.atoms[i].scale = fits(f);
+    }
+    const bonded = new Set(mol.bonds.flatMap((b) => b.atoms));
+    for (const [i, lw] of nodeLines) {
+      const f = lw / style.line;
+      if (!bonded.has(i) && !mol.atoms[i].scale && f > 0 && Math.abs(f - 1) > 0.02) mol.atoms[i].scale = fits(f);
     }
     mol.atoms.forEach((a, i) => {
       const raw = labelSizes.get(i);

@@ -29,9 +29,10 @@ decision 0003 (templates on New drawing).
 - Files: CDXML holds absolute values (document values times scales), so ChemDraw shows the true sizes. An
   object with a scale writes its own LineWidth, BoldWidth, HashSpacing, MarginWidth, BondLength and LabelSize.
   Octet's own data keeps the document scale and each object's scale. On import, a structure takes a scale only
-  when its bonds carry LineWidth and every other value they carry agrees with it.
+  when its bonds carry LineWidth and every other value they carry agrees with it. An atom with no bonds takes its
+  scale from its own LineWidth.
 - Limits widen so that no scaled value falls back to a default: lengths to 10 times their old upper limits,
-  font sizes 1 to 999 pt (ChemDraw: 5 to 999 pt).
+  font sizes 0.1 to 999 pt (ChemDraw: 5 to 999 pt).
 
 ## Why
 

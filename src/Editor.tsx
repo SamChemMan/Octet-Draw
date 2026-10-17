@@ -1176,17 +1176,18 @@ export default function Editor() {
     });
   }, [arrows, shown, loaded]);
   // The cycle arc (or side arrow) under a point.
-  const cycleAt = (p: P) => cycleArrows.find((a) => nearTrace([p[0] * L, -p[1] * L], arrowTrace(a, L), 5 / views.get().zoom + frame.line * 2));
+  // A thicker line (an object's scale) is as easy to hit as it is wide.
+  const cycleAt = (p: P) => cycleArrows.find((a) => nearTrace([p[0] * L, -p[1] * L], arrowTrace(a, L), 5 / views.get().zoom + frame.line * 2 * scaleOf(a)));
   // Which step of a cycle was last pressed: reagents and products go on that step.
   const [cycleStep, setCycleStep] = useState(0);
   // The arrow under a point (drawing coordinates), within a few px of its line.
-  const arrowAt = (p: P) => [...arrows].reverse().find((a) => !isOrbital(a) && nearTrace([p[0] * L, -p[1] * L], arrowTrace(a, L), 5 / views.get().zoom + frame.line * 2))?.id;
+  const arrowAt = (p: P) => [...arrows].reverse().find((a) => !isOrbital(a) && nearTrace([p[0] * L, -p[1] * L], arrowTrace(a, L), 5 / views.get().zoom + frame.line * 2 * scaleOf(a)))?.id;
   // The orbital whose lobes a point is in.
   const orbitalAt = (p: P) => [...arrows].reverse().find((a) => isOrbital(a) && lobesOf(a, L).some((l) => inPolygon([p[0] * L, -p[1] * L], l.path)))?.id;
   // The shape whose line is under a point; with the Select tool, also a highlight the point is inside.
   const shapeAt = (p: P) => {
-    const q: P = [p[0] * L, -p[1] * L], near = 5 / views.get().zoom + frame.line * 2;
-    return [...(shown.shapes ?? [])].reverse().find((sh) => (sh.kind === "table" ? tableAt(p)?.id === sh.id : nearTrace(q, shapeTrace(sh, L, frame.bond), near)))?.id;
+    const q: P = [p[0] * L, -p[1] * L], near = (sh: Shape) => 5 / views.get().zoom + frame.line * 2 * scaleOf(sh);
+    return [...(shown.shapes ?? [])].reverse().find((sh) => (sh.kind === "table" ? tableAt(p)?.id === sh.id : nearTrace(q, shapeTrace(sh, L, frame.bond), near(sh))))?.id;
   };
   const highlightAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => sh.kind === "highlight"
     && p[0] >= Math.min(sh.from[0], sh.to[0]) && p[0] <= Math.max(sh.from[0], sh.to[0]) && p[1] >= Math.min(sh.from[1], sh.to[1]) && p[1] <= Math.max(sh.from[1], sh.to[1]))?.id;
@@ -3666,8 +3667,8 @@ export default function Editor() {
       </svg>
       )}</Live>}</Live>
       {editing && doc.atoms[editing.atom] && <Live store={views}>{(view) => {
-        // The label box sits on the atom, in the label font at the current zoom.
-        const [ax, ay] = pos(doc, editing.atom);
+        // The label box sits on the atom, in the label font at the size the label is drawn and the current zoom.
+        const [ax, ay] = pos(doc, editing.atom), a = doc.atoms[editing.atom], drawn = (a.size ?? style.labelSize) * scaleOf(a);
         // Enter, Escape and a click elsewhere all keep the label; only the first one counts.
         const commit = () => { if (!labelOpen.current) return; labelOpen.current = false; set(setLabel(doc, editing.atom, editing.value)); setEditing(undefined); };
         return (
@@ -3678,7 +3679,7 @@ export default function Editor() {
             autoFocus
             spellCheck={false}
             value={editing.value}
-            style={{ left: view.x + ax * L * view.zoom, top: view.y - ay * L * view.zoom, fontSize: frame.size * view.zoom, fontFamily: fontStack(style.labelFont) }}
+            style={{ left: view.x + ax * L * view.zoom, top: view.y - ay * L * view.zoom, fontSize: frame.size * (drawn / style.labelSize) * view.zoom, fontFamily: fontStack(style.labelFont) }}
             onChange={(e) => setEditing({ ...editing, value: e.target.value })}
             onFocus={(e) => e.target.select()}
             onKeyDown={(e) => {

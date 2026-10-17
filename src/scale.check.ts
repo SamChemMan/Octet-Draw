@@ -1,9 +1,10 @@
 // Run: node src/scale.check.ts. Fails loudly if a document scale or an object's scale stops keeping sizes in
 // proportion (decision 0007).
 import assert from "node:assert/strict";
-import { DEFAULT_STYLE, PRESETS, TEXT_SIZES, presetAt, presetOf, readStyle, sizeAt, withScale } from "./docstyle.ts";
-import { scaleSettings, scaleSizes } from "./edit.ts";
-import type { Mol } from "./render.ts";
+import { DEFAULT_STYLE, PRESETS, TEXT_SIZES, presetAt, presetOf, readStyle, roundPt, sizeAt, withScale } from "./docstyle.ts";
+import { fitTable, scaleSettings, scaleSizes, sizeTable } from "./edit.ts";
+import { fromCdxml, toCdxml } from "./cdxml.ts";
+import { tableLayout, type Mol, type Shape } from "./render.ts";
 
 // The document scale multiplies every length and text size, keeps bond spacing, and keeps the preset's name.
 {
@@ -20,12 +21,22 @@ import type { Mol } from "./render.ts";
     assert.equal(again.preset, name, `${name} at ${f * 100}% keeps its name`);
   }
   assert.equal(readStyle({ ...DEFAULT_STYLE, scale: 50 }).scale, 1, "a scale past 1000% is not read");
+  // Any number of changes leaves a preset's values exact (33.33% once left a hash spacing of 2.5002, and Custom).
+  let s = DEFAULT_STYLE;
+  for (const f of [0.3333, 0.37, 7.77, 0.123, 1]) s = withScale(s, f);
+  assert.deepEqual(s, { ...DEFAULT_STYLE }, "back to 100% exactly after many scales");
+  const own = withScale({ ...DEFAULT_STYLE, line: 0.7, preset: "Custom" }, 2);
+  assert.deepEqual([own.line, own.bond, own.preset], [1.4, 28.8, "Custom"], "a style of one's own multiplies");
   console.log("scale.check: document scale ok");
 }
 
 // The size lists are ChemDraw's sizes times the document scale, to the nearest half point.
 assert.deepEqual(TEXT_SIZES.map((pt) => sizeAt(pt, 1)), [5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 24]);
 assert.deepEqual(TEXT_SIZES.map((pt) => sizeAt(pt, 2.5)), [12.5, 15, 17.5, 20, 22.5, 25, 30, 35, 40, 45, 60]);
+// Below 5 pt the sizes go to a tenth, so no two in the list are the same at any scale.
+assert.deepEqual(TEXT_SIZES.map((pt) => sizeAt(pt, 0.1)), [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.2, 1.4, 1.6, 1.8, 2.4]);
+for (let f = 0.1; f <= 10; f += 0.01) assert.equal(new Set(TEXT_SIZES.map((pt) => sizeAt(pt, f))).size, TEXT_SIZES.length, `the sizes at ${Math.round(f * 100)}% are all different`);
+assert.deepEqual([roundPt(0.04), roundPt(3.33), roundPt(5.2), roundPt(12.3)], [0.1, 3.3, 5, 12.5]);
 console.log("scale.check: text sizes ok");
 
 // A new document scale multiplies the sizes the drawing holds in points; Scale… with Labels and lines multiplies the
@@ -49,4 +60,27 @@ console.log("scale.check: text sizes ok");
   const back = scaleSettings(s, new Set([0, 1]), new Set([4, 6]), 0.5, 10);
   assert.deepEqual([back.atoms[0].scale, back.atoms[1].scale, back.arrows![0].scale, "scale" in back.atoms[0]], [undefined, undefined, undefined, false], "back to 1: the scale is left unset");
   console.log("scale.check: sizes and object scales ok");
+}
+
+// A table's least sizes follow its scale: Size To Fit Contents and a dragged border.
+{
+  const sh: Shape = { id: 1, kind: "table", from: [0, 0.16], to: [1, 0], scale: 0.1, table: { cells: [["a"], ["b"]] } };
+  const fit = { ...sh, ...fitTable(sh, (x) => x.length * 0.3) }, t = tableLayout(fit, (x) => x.length * 0.3);
+  assert.ok(Math.abs(fit.from[1] - fit.to[1] - (t.y1 - t.y0)) < 1e-9 && Math.abs(t.h - 0.08) < 1e-9, "fitted rows are the least height at the table's scale");
+  const dragged = sizeTable(sh, { heights: [0.1, 0.08] });
+  assert.deepEqual(dragged.table!.heights, [0.1, 0.08], "a row of a small table keeps the height it is dragged to");
+  console.log("scale.check: tables ok");
+}
+
+// An atom with no bonds (a counter-ion, a label on its own) keeps its scale in ChemDraw's copy too, from its LineWidth.
+{
+  const m: Mol = { atoms: [{ label: "P", text: "PF6", location: [0, 0, 0], charge: -1, scale: 2 }, { label: "C", location: [3, 0, 0], scale: 2 }, { label: "C", location: [4, 0, 0], scale: 2 }], bonds: [{ type: 1, atoms: [1, 2] }] };
+  const text = toCdxml(m, DEFAULT_STYLE);
+  const chemdraw = fromCdxml(text.replace(/ Octet="[^"]*"/g, "").replace(/CreationProgram="[^"]*"/, ""));
+  assert.deepEqual(chemdraw.mol.atoms.map((a) => [a.scale, a.size]), [[2, undefined], [2, undefined], [2, undefined]]);
+  // A structure whose settings do not agree counts only the bonds that carry them as not kept.
+  const two = fromCdxml(`<CDXML BondLength="14.40" LineWidth="0.60" BoldWidth="2" HashSpacing="2.50" MarginWidth="1.60" BondSpacing="18"><page><fragment>
+<n id="1" p="100 100"/><n id="2" p="114.4 100"/><n id="3" p="128.8 100"/><b id="4" B="1" E="2" HashSpacing="2.70"/><b id="5" B="2" E="3"/></fragment></page></CDXML>`);
+  assert.deepEqual(two.lost, { "bond settings": 1 });
+  console.log("scale.check: atoms on their own ok");
 }
