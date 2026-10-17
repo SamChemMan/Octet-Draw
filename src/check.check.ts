@@ -15,4 +15,8 @@ assert.equal(problems(addCharge(m, 0, 1)).length, 0);
 const clean = sprout(sprout(EMPTY, [0, 0]), 1);
 assert.equal(messy(clean), false);
 assert.equal(messy(moveAtoms(clean, new Set([2]), [-0.5, 0])), true);
+// An aromatic bond counts 1.5 and a bond of an unknown type counts 1: N with an aromatic bond, a double bond, a
+// query bond and a single bond has 5.5 bond orders.
+const odd = { ...m, bonds: m.bonds.map((b, k) => ({ ...b, type: [4, 2, 7, 1][k] })) };
+assert.match(problems(odd)[0].message, /^N1 has 5\.5 bond orders\./);
 console.log("check.check: ok");
