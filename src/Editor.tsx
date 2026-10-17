@@ -148,7 +148,8 @@ const anchorOf = (c: Placed): P => [(c.anchor === "start" ? c.box[0] : c.anchor 
 const union = (boxes: Box[]): Box | undefined => boxes.length ? [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))] : undefined;
 // The draft caption being typed sorts after every real one.
 const DRAFT = Number.MAX_SAFE_INTEGER;
-const typing = () => document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement;
+// Typing in a field, or in a caption's rich text box (contentEditable): keys and Select All are the text's, not the drawing's.
+const typing = () => document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement || (document.activeElement as HTMLElement | null)?.isContentEditable === true;
 
 // Rubbing out: marks every bond within radius r of the pointer's path between two points, and any lone atom.
 // Nothing is removed until the pointer is released.
@@ -580,7 +581,15 @@ export default function Editor() {
     undo: () => (typing() ? void document.execCommand("undo") : undo()),
     redo: () => (typing() ? void document.execCommand("redo") : undo(true)),
     select_all: () => {
-      if (typing()) return (document.activeElement as HTMLInputElement).select();
+      if (typing()) {
+        const el = document.activeElement as HTMLElement;
+        if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return el.select();
+        const range = document.createRange(), sel = getSelection();
+        range.selectNodeContents(el);
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+        return;
+      }
       // Everything, as ChemDraw's Select All: structures, text, arrows, orbitals, shapes, brackets and cycles.
       setSelection(new Set(doc.atoms.map((_, i) => i)));
       setPicked(new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id)));
