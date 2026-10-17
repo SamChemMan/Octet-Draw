@@ -567,7 +567,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       </header>
 
       {facts.current && whole && facts.current.slice(0, 3).map((a, k) => (
-        <button key={k} className="facts" onClick={() => run(`copy_text:${a.formula}, ${a.weight.toFixed(2)} g/mol`)} data-tip={`Exact mass ${a.exact.toFixed(4)}. Click to copy.`}>
+        <button key={k} className="facts" onClick={() => run(`copy_text:${a.formula}, ${a.weight.toFixed(2)} g/mol`)} data-tip={`${Number.isFinite(a.exact) ? `Exact mass ${a.exact.toFixed(4)}. ` : ""}Click to copy.`}>
           <span className="formula">{formula(a.formula)}</span>
           <span>{a.weight.toFixed(2)} g/mol</span>
         </button>
