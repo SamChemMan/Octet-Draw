@@ -395,7 +395,7 @@ export function SettingsWindow(p: Props) {
   const content = (module: ModuleId, list: Def[]) => {
     if (module === "document") return (
       <>
-        {!query && <div className="style-preview" aria-hidden>{p.preview}</div>}
+        {!query && <div className="style-preview" data-theme="light" aria-hidden>{p.preview}</div>}
         {sections(module, list).map((s) => (
           <Section key={s} title={s} defs={list.filter((x) => x.module === module && x.section === s)}
             aside={s === "Style" ? <Select label="Style preset" value={style.preset} options={presets} onChange={(v) => v in PRESETS && p.onStyle({ ...style, ...PRESETS[v], preset: v })} /> : undefined} />

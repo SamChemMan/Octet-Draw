@@ -6,6 +6,8 @@ import { FolderOpen, Plus, X } from "@phosphor-icons/react";
 import mark from "../brand/logos/octet-mark.svg";
 import markSmall from "../brand/logos/octet-mark-small.svg";
 import markWhite from "../brand/logos/octet-mark-white.svg";
+import lockup from "../brand/logos/octet-lockup.svg";
+import lockupWhite from "../brand/logos/octet-lockup-white.svg";
 
 export type RecentEntry = { path: string; name: string; at: number; thumb?: string; found: boolean };
 
@@ -64,9 +66,12 @@ export function Home(p: Props) {
   return (
     <main className={p.leaving ? "home leaving" : "home"} aria-label="Home" inert={p.leaving}>
       <div className="home-inner">
+        {/* The lockup file as it is (brand/logos/README.md), so the wordmark's weight, size and gap match the logo. */}
         <header className="home-head">
-          <Mark size={24} />
-          <span className="home-wordmark">octet</span>
+          <picture>
+            <source srcSet={lockupWhite} media="(prefers-color-scheme: dark)" />
+            <img src={lockup} alt="Octet" height={24} draggable={false} />
+          </picture>
         </header>
         <h1 className="home-greeting">{greeting(p.name, now, p.first, p.away)}</h1>
         <div className="home-row">
