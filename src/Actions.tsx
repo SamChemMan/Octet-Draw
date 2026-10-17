@@ -76,9 +76,11 @@ function PickButton({ label, value, options, onPick }: { label: string; value: s
     if (!open) return;
     const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
     const escape = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); setOpen(false); } };
+    const scrolled = closeOnScroll(box, () => setOpen(false));
     addEventListener("pointerdown", away, true);
     addEventListener("keydown", escape, true);
-    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); };
+    addEventListener("scroll", scrolled, true);
+    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); removeEventListener("scroll", scrolled, true); };
   }, [open]);
   const current = options.find((o) => o.id === value) ?? options[0];
   // The menu is pinned to the window, above the button (or below it near the top), so a scrolling panel never cuts it off.
@@ -107,6 +109,20 @@ function PickButton({ label, value, options, onPick }: { label: string; value: s
   );
 }
 
+// Where a font or size list opens: fixed to the window, so the panel's scrolling never cuts it off. It opens under
+// its button when it fits there, else over it, right edges lined up, and scrolls when neither side has room.
+function dropStyle(anchor: HTMLElement | null, items: number): React.CSSProperties {
+  if (!anchor) return {};
+  const r = anchor.getBoundingClientRect(), want = items * 26 + 10, below = innerHeight - r.bottom - 12, above = r.top - 12;
+  const down = below >= want || below >= above;
+  return {
+    position: "fixed", right: innerWidth - r.right, minWidth: r.width, zIndex: 20, overflowY: "auto", maxHeight: Math.max(80, (down ? below : above) - 4),
+    ...(down ? { top: r.bottom + 4, bottom: "auto", transformOrigin: "top right" } : { bottom: innerHeight - r.top + 4, top: "auto", transformOrigin: "bottom right" }),
+  };
+}
+// A list closes when its button scrolls away under it, as when the panel scrolls.
+const closeOnScroll = (box: React.RefObject<HTMLDivElement | null>, close: () => void) => (e: Event) => { if (!box.current?.contains(e.target as Node)) close(); };
+
 function FontButton({ font, fonts, run }: { font: string; fonts: string[]; run: (command: string) => void }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -114,9 +130,11 @@ function FontButton({ font, fonts, run }: { font: string; fonts: string[]; run: 
     if (!open) return;
     const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
     const escape = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); setOpen(false); } };
+    const scrolled = closeOnScroll(box, () => setOpen(false));
     addEventListener("pointerdown", away, true);
     addEventListener("keydown", escape, true);
-    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); };
+    addEventListener("scroll", scrolled, true);
+    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); removeEventListener("scroll", scrolled, true); };
   }, [open]);
   return (
     <div className="size font" ref={box}>
@@ -125,7 +143,7 @@ function FontButton({ font, fonts, run }: { font: string; fonts: string[]; run: 
         <CaretDown size={12} aria-hidden />
       </button>
       {open && (
-        <div className="size-menu" role="menu" aria-label="Font">
+        <div className="size-menu" role="menu" aria-label="Font" style={dropStyle(box.current, fonts.length)}>
           {fonts.map((f) => (
             <button key={f} role="menuitemradio" aria-checked={f === font} style={{ fontFamily: f }} onClick={() => { setOpen(false); if (f !== font) run(`caption.font.${f}`); }}>{f}</button>
           ))}
@@ -144,9 +162,11 @@ function SizeButton({ size, run }: { size: number; run: (command: string) => voi
     if (!open) return;
     const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
     const escape = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); setOpen(false); } };
+    const scrolled = closeOnScroll(box, () => setOpen(false));
     addEventListener("pointerdown", away, true);
     addEventListener("keydown", escape, true);
-    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); };
+    addEventListener("scroll", scrolled, true);
+    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); removeEventListener("scroll", scrolled, true); };
   }, [open]);
   const startTyping = () => { typing.current = true; setOpen(false); setTyped(String(size)); };
   const endTyping = (keep: boolean) => {
@@ -185,7 +205,7 @@ function SizeButton({ size, run }: { size: number; run: (command: string) => voi
         </button>
       )}
       {open && (
-        <div className="size-menu" role="menu" aria-label="Size">
+        <div className="size-menu" role="menu" aria-label="Size" style={dropStyle(box.current, SIZES.length)}>
           {SIZES.map((pt) => (
             <button key={pt} role="menuitemradio" aria-checked={pt === size} onClick={() => { setOpen(false); if (pt !== size) run(`caption.size.${pt}`); }}>
               {pt} pt
