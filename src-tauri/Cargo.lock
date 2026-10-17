@@ -2285,10 +2285,12 @@ name = "octet"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "block2",
  "miniz_oxide 0.8.9",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
+ "objc2-web-kit",
  "pdf-writer",
  "png 0.17.16",
  "resvg",

@@ -4008,3 +4008,29 @@ button.variant.add {
     animation: none;
   }
 }
+
+/* Feedback (Feedback.tsx, for testing): the note, then the picture of the window. */
+.feedback-note {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 96px;
+  padding: var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--ink);
+  font: 13px/1.5 var(--font-sans);
+  resize: vertical;
+}
+.feedback-note:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.feedback-picture {
+  width: 100%;
+  max-height: 200px;
+  object-fit: contain;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}

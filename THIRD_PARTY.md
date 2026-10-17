@@ -19,6 +19,7 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | serde (Rust) | 1 | MIT OR Apache-2.0 | Export and paste data between the page and the app |
 | serde_json (Rust) | 1 | MIT OR Apache-2.0 | The recent drawings list on Home (already in the build through Tauri) |
 | objc2, objc2-foundation, objc2-app-kit (Rust) | 0.6, 0.3, 0.3 | MIT; MIT; Zlib OR Apache-2.0 OR MIT | The macOS clipboard (NSPasteboard). Already used by Tauri |
+| objc2-web-kit, block2 (Rust) | 0.3, 0.6 | Zlib OR Apache-2.0 OR MIT; MIT | Feedback's picture of the window (WKWebView snapshot). Already used by Tauri |
 | indigo-ketcher | 1.46 | Apache-2.0 | Chemistry engine, CDX/CDXML |
 | react, react-dom | 19.3 | MIT | UI |
 | vite, @vitejs/plugin-react | 8.3, 6.1 | MIT | Bundler (dev only) |

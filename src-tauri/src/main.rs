@@ -14,6 +14,7 @@ use tauri_plugin_dialog::DialogExt;
 
 mod clipboard;
 mod export;
+mod feedback;
 mod recent;
 
 // File > Print: the system's print dialog for the window, which prints only the page the editor laid out for it.
@@ -432,7 +433,7 @@ fn main() {
         .manage(MenuKeys::default())
         .manage(MenuList::default())
         .manage(Palette::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback])
         .setup(|app| {
             let handle = app.handle();
             let (bar, checks, list) = menu(handle, &[], &HashMap::new())?;

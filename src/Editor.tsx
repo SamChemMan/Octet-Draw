@@ -33,6 +33,7 @@ import { readOct, writeOct } from "./oct";
 import { About } from "./About";
 import { Home, NameBox, type RecentEntry } from "./Home";
 import { Coach, NOTHING_SEEN, type Seen } from "./Coach";
+import { Feedback } from "./Feedback";
 import { ExportButton, ExportDialog } from "./ExportDialog";
 import { flushSync } from "react-dom";
 import { copyToClipboard, exportFile, readClipboard, standaloneSvg, UI, withMargin } from "./export";
@@ -233,6 +234,26 @@ export default function Editor() {
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [drag, setDrag] = useState<Drag>();
   const [notice, setNotice] = useState<string>();
+  // Feedback (for testing): ⌘1, ⌘2 and ⌘3 within 1.5 s, ⌘ held or not between them (Ctrl elsewhere), takes a picture
+  // of the window, then opens the feedback box (Feedback.tsx). The picture is taken first, so it shows the window as it was.
+  const [feedback, setFeedback] = useState<{ picture?: string }>();
+  const chord = useRef({ digits: new Set<string>(), at: 0 });
+  useEffect(() => {
+    const mac = navigator.platform.startsWith("Mac");
+    const down = (e: KeyboardEvent) => {
+      if (["Meta", "Control", "Shift", "Alt"].includes(e.key)) return;
+      const c = chord.current, digit = (mac ? e.metaKey : e.ctrlKey) ? /^Digit([123])$/.exec(e.code)?.[1] : undefined;
+      if (!digit) return c.digits.clear();
+      e.preventDefault();
+      if (Date.now() - c.at > 1500) { c.digits.clear(); c.at = Date.now(); }
+      c.digits.add(digit);
+      if (c.digits.size < 3) return;
+      c.digits.clear();
+      void invoke<string>("snapshot").then((picture) => setFeedback({ picture }), () => setFeedback({}));
+    };
+    addEventListener("keydown", down, true);
+    return () => removeEventListener("keydown", down, true);
+  }, []);
   // The hold-to-select switch: the tool icon pops and a ring pops at the pointer. pop.n restarts the animations.
   const [pop, setPop] = useState<{ n: number; x: number; y: number }>();
   const [cursor, setCursor] = useState<string>();
@@ -3832,6 +3853,8 @@ export default function Editor() {
         </Dialog>
       )}
       {about && <About onClose={() => setAbout(false)} />}
+      {feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={setNotice}
+        onSent={() => { setFeedback(undefined); setNotice("Your feedback is ready to send in your mail app."); }} />}
       <ExportButton hint={platformLabel(EXPORT_KEYS)} onQuick={() => void quickExport()} onExport={openExport} />
       {exportView && (
         <ExportDialog prefs={settings.files} onPrefs={(p) => setSettings((s) => ({ ...s, files: { ...s.files, ...p } }))} pictures={exportView}

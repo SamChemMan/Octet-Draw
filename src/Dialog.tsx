@@ -10,10 +10,11 @@ type Props = { title: string; action?: string; onAction?: () => void; onClose: (
 export function Dialog({ title, action, onClose, onAction = onClose, plain, alt, children }: Props) {
   const card = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    card.current?.querySelector<HTMLElement>("input, button, select")?.focus();
+    card.current?.querySelector<HTMLElement>("textarea, input, button, select")?.focus();
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); }
-      if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); onAction(); }
+      // Return in a text area makes a new line; ⌘Return (Ctrl+Enter) sends.
+      if (e.key === "Enter" && (!(e.target instanceof HTMLTextAreaElement) || e.metaKey || e.ctrlKey)) { e.preventDefault(); e.stopPropagation(); onAction(); }
     };
     addEventListener("keydown", key, true);
     return () => removeEventListener("keydown", key, true);
