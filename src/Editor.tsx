@@ -504,7 +504,7 @@ export default function Editor() {
   }
   // Before the drawing is replaced (New, Open, a recent drawing): with unsaved changes, ask to save them first.
   const keepWork = (next: () => void) => (dirty ? setDialog({ kind: "unsaved", next }) : next());
-  const newDrawing = () => keepWork(() => { set(EMPTY); setFile({ saved: EMPTY }); setHome(false); setCoach(0); });
+  const newDrawing = () => keepWork(() => { drawingColours.current = []; set(EMPTY); setFile({ saved: EMPTY }); setHome(false); setCoach(0); });
   const startTutorial = () => keepWork(() => {
     set(EMPTY); setFile({ saved: EMPTY }); setHome(false); setTool("bond"); setSeen(NOTHING_SEEN); setCoach((n) => n + 1);
     setSettings((s) => ({ ...s, tutorialDone: true }));
@@ -533,6 +533,7 @@ export default function Editor() {
   }
   // A drawing read from a file, into the editor.
   function load(path: string, text: string) {
+    drawingColours.current = [];
     try {
       const read = readOct(text), lost = read.lost;
       // Settings > Files > Keep ChemDraw styles off: another program's drawing takes Octet's default style.
@@ -2310,6 +2311,23 @@ export default function Editor() {
     if (m !== doc) set(m);
   }
   const found = useMemo(() => (exporting || !settings.warnings ? [] : problems(doc)), [doc, exporting, settings.warnings]);
+  // The drawing's own colours (a ChemDraw file's, say) join the Colour row after Octet's and the user's, as ChemDraw's
+  // Color menu lists each document's colours. A colour stays in the row until another drawing opens.
+  const drawingColours = useRef<string[]>([]);
+  const docColours = useMemo(() => {
+    const known = new Set([...COLOURS.map(([, hex]) => hex), ...settings.palette.map((c) => c.hex)].map((h) => h.toLowerCase()));
+    const walk = (v: unknown): void => {
+      if (Array.isArray(v)) return v.forEach(walk);
+      if (!v || typeof v !== "object") return;
+      for (const [k, x] of Object.entries(v)) {
+        if (k === "style") continue;
+        if (k === "colour" && typeof x === "string" && /^#[0-9a-f]{6}$/i.test(x)) { const h = x.toLowerCase(); if (!known.has(h) && !drawingColours.current.includes(h)) drawingColours.current.push(h); }
+        else walk(x);
+      }
+    };
+    walk(doc);
+    return drawingColours.current.filter((h) => !known.has(h)).slice(0, 24).map((hex) => ({ name: hex.toUpperCase(), hex }));
+  }, [doc, settings.palette]);
   const untidy = useMemo(() => messy(doc, selection), [doc, selection]);
   // Text the panel asked to copy; the copy handler uses it instead of SMILES.
   const copyText = useRef<string>(undefined);
@@ -3750,7 +3768,7 @@ export default function Editor() {
           const gs = groupsOf(doc, selection, picked), count = fragments(doc).filter((g) => g.some((i) => selection.has(i))).length + picked.size;
           return gs.length ? { grouped: true, integral: gs.every((g) => g.integral) } : count >= 2 ? { grouped: false, integral: false } : undefined;
         })()}
-        palette={settings.palette}
+        palette={[...settings.palette, ...docColours]}
         run={runAction}
       />
       {dialog?.kind === "rotate" && (
