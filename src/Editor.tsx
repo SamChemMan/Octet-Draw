@@ -1026,7 +1026,8 @@ export default function Editor() {
   // Reaction conditions and a cycle's reagents print formulas with subscripts (K2CO3 as K₂CO₃).
   const reagents = useMemo(() => new Set((shown.captions ?? []).filter((c) => c.on || c.cycle).map((c) => c.id)), [shown]);
   // Arrow ink, one path per colour (unset is the document's ink).
-  const arrowInk = useMemo(() => byColour([...arrows, ...cycleArrows].map((a) => [a.colour, arrowShapes(a, frame, L)] as const)), [arrows, cycleArrows, frame]);
+  // Filled pen curves draw their own outline with their fill, in order (below), so clip art's layers stack as drawn.
+  const arrowInk = useMemo(() => byColour([...arrows.filter((a) => !(a.curve?.closed && a.fill)), ...cycleArrows].map((a) => [a.colour, arrowShapes(a, frame, L)] as const)), [arrows, cycleArrows, frame]);
   // Structure ink by colour and, in 3D structures, by how strongly it is drawn (Structure Perspective).
   const structureInk = useMemo(() => byColour(drawing.polygons.map((poly, i) => [`${drawing.colours[i] ?? ""}|${(Math.round(drawing.alphas[i] * 20) / 20).toFixed(2)}`, [poly]] as const)), [drawing]);
   // Mass fragmentation: the bonds each cut line crosses, and the pieces they leave, labelled at the line's ends
@@ -3237,8 +3238,11 @@ export default function Editor() {
           })}
           {arrows.filter((a) => a.curve?.closed && a.fill).map((a) => {
             // A closed pen curve's fill: solid, shaded (lit from the top left) or faded (to nothing at the bottom right).
+            // As ChemDraw draws them (checked in its SVG export): each curve's fill, then its outline as a 0.05 pt
+            // hairline, in order, so a curve drawn later (a lamp's highlight over its glass, say) covers those under it.
             const ink = a.colour ? textInk(a.colour) : "var(--ink)", d = toPath([arrowPath(a, L)]);
-            if (a.fill === "solid") return <path key={`cf${a.id}`} d={d} fill={ink} />;
+            const outline = <path d={d} fill="none" stroke={ink} strokeWidth={0.05 * pt} />;
+            if (a.fill === "solid") return <g key={`cf${a.id}`}><path d={d} fill={ink} />{outline}</g>;
             return (
               <g key={`cf${a.id}`}>
                 <defs>
@@ -3247,6 +3251,7 @@ export default function Editor() {
                     : <linearGradient id={`cfill${a.id}`} x1="0" y1="0" x2="1" y2="1"><stop offset="0" style={{ stopColor: ink }} /><stop offset="1" style={{ stopColor: ink }} stopOpacity={0} /></linearGradient>}
                 </defs>
                 <path d={d} fill={`url(#cfill${a.id})`} />
+                {outline}
               </g>
             );
           })}
