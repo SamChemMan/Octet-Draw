@@ -32,9 +32,9 @@ function fromBase64(b64: string): string {
   return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }
 
-// The drawing as a .oct (or .cdxml) file: the two are the same.
-export function writeOct(mol: Mol, style: DocStyle, opts: CdxmlOptions = {}): string {
-  const cdxml = toCdxml(mol, style, opts), body = cdxml.endsWith("\n") ? cdxml : `${cdxml}\n`;
+// The drawing as a .oct (or .cdxml) file: the two are the same. cdxml: the drawing's CDXML when the caller has it.
+export function writeOct(mol: Mol, style: DocStyle, opts: CdxmlOptions = {}, cdxml = toCdxml(mol, style, opts)): string {
+  const body = cdxml.endsWith("\n") ? cdxml : `${cdxml}\n`;
   return `${body}${MARK}${hash(body)} ${toBase64(serialize({ ...mol, style }))}-->\n`;
 }
 

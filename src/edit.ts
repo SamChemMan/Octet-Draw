@@ -20,6 +20,17 @@ const deg = Math.PI / 180;
 export const pos = (m: Mol, i: number): P => [m.atoms[i].location[0], m.atoms[i].location[1]];
 export const neighbours = (m: Mol, i: number) =>
   m.bonds.flatMap((b) => (b.atoms[0] === i ? [b.atoms[1]] : b.atoms[1] === i ? [b.atoms[0]] : []));
+// Each atom's neighbours, in bond order (as neighbours() gives them), made in one pass over the bonds.
+export function bondedTo(m: Mol): number[][] {
+  const near: number[][] = m.atoms.map(() => []);
+  for (const b of m.bonds) { near[b.atoms[0]]?.push(b.atoms[1]); near[b.atoms[1]]?.push(b.atoms[0]); }
+  return near;
+}
+// A drawing with more atoms than this is large. Checks that look at each atom's neighbours, or at atoms and bonds in
+// pairs, then use a list or a grid made once, not the plain loops. Measured in node on rings of 6 atoms: at 100 atoms
+// the plain loops take about 0.4 ms, at 200 atoms 1.5 ms and at 1000 atoms 45 ms (they grow with the square of the
+// size); the list and the grid take 0.06, 0.12 and 1.2 ms.
+export const LARGE = 100;
 const bondIndex = (m: Mol, i: number, j: number) =>
   m.bonds.findIndex((b) => (b.atoms[0] === i && b.atoms[1] === j) || (b.atoms[0] === j && b.atoms[1] === i));
 
@@ -233,9 +244,13 @@ export const groupsOf = (m: Mol, atoms: Set<number>, items: Set<number>) =>
   (m.groups ?? []).filter((g) => g.atoms.some((i) => atoms.has(i)) || g.items.some((id) => items.has(id)));
 // Object > Group: the selected structures (whole) and objects, with any groups they were already in, as one group.
 export function groupSelection(m: Mol, atoms: Set<number>, items: Set<number>): [Mol, number] | undefined {
-  const old = groupsOf(m, atoms, items), whole = new Set([...atoms].flatMap((i) => fragments(m).find((g) => g.includes(i)) ?? [i]));
+  // Each atom's structure, from one pass over the structures.
+  const frags = fragments(m), fragOf: number[][] = [];
+  for (const g of frags) for (const i of g) fragOf[i] = g;
+  const old = groupsOf(m, atoms, items), whole = new Set([...atoms].flatMap((i) => fragOf[i] ?? [i]));
   const all = { atoms: [...new Set([...whole, ...old.flatMap((g) => g.atoms)])].sort((p, q) => p - q), items: [...new Set([...items, ...old.flatMap((g) => g.items)])] };
-  if (all.atoms.length + all.items.length < 2 || (fragments(m).filter((g) => g.some((i) => all.atoms.includes(i))).length + all.items.length < 2)) return undefined;
+  const inAll = new Set(all.atoms);
+  if (all.atoms.length + all.items.length < 2 || (frags.filter((g) => g.some((i) => inAll.has(i))).length + all.items.length < 2)) return undefined;
   const id = nextId(m);
   return [{ ...m, groups: [...(m.groups ?? []).filter((g) => !old.includes(g)), { id, ...all, ...(old.some((g) => g.integral) ? { integral: true as const } : {}) }] }, id];
 }
@@ -343,9 +358,9 @@ export function erase(m: Mol, bonds: Set<number>, atoms: Set<number>): Mol {
 // Atoms a selection box missed but that obviously belong: every neighbour is selected (a terminal O, an H,
 // an atom bridging two selected ones).
 export function complete(m: Mol, ids: Set<number>): Set<number> {
-  const out = new Set(ids);
+  const out = new Set(ids), near = m.atoms.length > LARGE ? bondedTo(m) : undefined;
   m.atoms.forEach((_, i) => {
-    const ns = neighbours(m, i);
+    const ns = near ? near[i] : neighbours(m, i);
     if (!out.has(i) && ns.length && ns.every((j) => ids.has(j))) out.add(i);
   });
   return out;
@@ -390,10 +405,7 @@ export function onSelection(m: Mol, ids: Set<number>, p: P, r = 0.45): boolean {
 
 // Groups of connected atoms.
 export function fragments(m: Mol): number[][] {
-  // Each atom's neighbours, in bond order (as neighbours() gives them), built once rather than per atom.
-  const near: number[][] = m.atoms.map(() => []);
-  for (const b of m.bonds) { near[b.atoms[0]]?.push(b.atoms[1]); near[b.atoms[1]]?.push(b.atoms[0]); }
-  const seen = new Set<number>(), out: number[][] = [];
+  const near = bondedTo(m), seen = new Set<number>(), out: number[][] = [];
   m.atoms.forEach((_, start) => {
     if (seen.has(start)) return;
     const group: number[] = [], stack = [start];
@@ -865,17 +877,19 @@ export function normalise(m: Mol): Mol {
 // The turn (degrees, anticlockwise) that sets a structure's bottom ring bond level with the page: of the ring bonds
 // that would end up lowest, the one needing the smallest turn. 0 for a structure without rings.
 export function levelTurn(m: Mol, atoms: number[]): number {
-  const inside = new Set(atoms), ring = m.bonds.map((b, k) => ({ b, k })).filter(({ b, k }) => inside.has(b.atoms[0]) && inside.has(b.atoms[1]) && inRing(m, k));
+  const inside = new Set(atoms), inRings = ringBonds(m), ring = m.bonds.filter((b, k) => inside.has(b.atoms[0]) && inside.has(b.atoms[1]) && inRings[k]);
   if (!ring.length) return 0;
+  const mids = ring.map((b): P => { const p = pos(m, b.atoms[0]), q = pos(m, b.atoms[1]); return [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]; });
   let best = 0, found = false;
-  for (const { b } of ring) {
+  for (const [k, b] of ring.entries()) {
     const p = pos(m, b.atoms[0]), q = pos(m, b.atoms[1]);
     let t = -Math.atan2(q[1] - p[1], q[0] - p[0]) / deg;
     t = ((t % 180) + 270) % 180 - 90; // the smaller way round, in (-90, 90]
     // After this turn, is the bond at the bottom of its structure?
     const c = Math.cos(t * deg), s = Math.sin(t * deg), y = (r: P) => r[0] * s + r[1] * c;
-    const mid = (y(p) + y(q)) / 2, lowest = Math.min(...ring.map(({ b: x }) => (y(pos(m, x.atoms[0])) + y(pos(m, x.atoms[1]))) / 2));
-    if (mid > lowest + 0.05) continue;
+    let lowest = Infinity;
+    for (const r of mids) lowest = Math.min(lowest, y(r));
+    if (y(mids[k]) > lowest + 0.05) continue;
     if (!found || Math.abs(t) < Math.abs(best)) { best = t; found = true; }
   }
   return Math.abs(best) < 0.5 ? 0 : best;

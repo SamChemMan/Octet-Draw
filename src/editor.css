@@ -1655,6 +1655,7 @@ button.variant.add {
 }
 .switch[aria-checked="true"] span {
   transform: translateX(12px);
+  background: var(--on-brand);
 }
 .segmented button:focus-visible,
 .swatch:focus-visible,
@@ -2770,7 +2771,7 @@ button.variant.add {
   fill: #FFFFFF;
 }
 .atom-map {
-  fill: var(--brand-bright);
+  fill: var(--brand);
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
@@ -3057,7 +3058,7 @@ button.variant.add {
 .dialog-button.primary {
   border-color: var(--brand);
   background: var(--brand);
-  color: #fff;
+  color: var(--on-brand);
 }
 .dialog-button:focus-visible {
   outline: none;
@@ -3673,18 +3674,9 @@ button.variant.add {
   margin: 0 auto;
   padding: var(--space-8) var(--space-12) var(--space-16);
 }
-.home-head {
-  display: flex;
-  align-items: center;
-  gap: 7px; /* the lockup gap: 0.3 of the mark */
-}
 .home-head img,
 .name-box img {
   display: block;
-}
-.home-wordmark {
-  font: 600 17px/1 var(--font-sans);
-  letter-spacing: -0.03em;
 }
 .home-greeting {
   margin: var(--space-16) 0 0;
@@ -4002,7 +3994,7 @@ button.variant.add {
 }
 @keyframes coach-pulse {
   50% {
-    box-shadow: 0 0 0 5px rgba(44, 111, 255, 0.25);
+    box-shadow: 0 0 0 5px color-mix(in oklab, var(--brand-bright) 25%, transparent);
   }
 }
 @media (prefers-reduced-motion: reduce) {
