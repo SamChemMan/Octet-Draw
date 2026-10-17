@@ -483,6 +483,9 @@ class Namer {
       const [h1, h2] = heads, bridges = ring(h1).map((x) => (x === h2 ? [] : walk(h1, x, h2)));
       const orders = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]].filter((o) => bridges[o[0]].length >= bridges[o[1]].length && bridges[o[1]].length >= bridges[o[2]].length);
       const [x, y, z] = orders[0].map((i) => bridges[i].length);
+      // Two rings of five or more sharing a bond take fusion names (P-25.0), so a von Baeyer name is used for them only
+      // when they are not aromatic (one ring double bond at most: DBU, bicyclo[4.4.0]dec-1-ene is named by fusion).
+      if (!z && y >= 3 && bonds.filter(([a, b]) => this.ord(a, b) === 2).length > 1) return undefined;
       prefix = `bicyclo[${x}.${y}.${z}]`;
       for (const [m, from1] of [[h1, true], [h2, false]] as [number, boolean][]) for (const [a, b, c] of orders) {
         const fwd = (p: number[]) => (from1 ? p : [...p].reverse());
@@ -614,7 +617,7 @@ class Namer {
       // A double bond between atoms with locants that do not follow on (a bridgehead's) cannot be cited this way.
       const ord = this.ord(a, b), x = loc(num, a), y = loc(num, b);
       return ord > 1 && (o === undefined || ord === o) ? [Math.abs(x - y) === 1 ? Math.min(x, y) : 1000 + Math.min(x, y)] : [];
-    }) : num.flatMap((a, k) => {
+    }).sort((a, b) => a - b) : num.flatMap((a, k) => {
       const b = num[(k + 1) % num.length];
       if (k === num.length - 1 && !p.ring) return [];
       if (p.ring && info!.aromatic) return [];

@@ -185,6 +185,8 @@ const SUB = 0.75, DROP = 0.212, RISE = 0.33;
 const TIP = 0.0165; // wedge half-width at the stereocentre, as a fraction of the bond length
 const MAX_TRIM = 0.67; // an inner-line trim longer than this (times the bond length) is skipped
 const H_FIRST = new Set(['O', 'F', 'S', 'Cl', 'Se', 'Br', 'Te', 'I']); // H2O, HCl; but NH3, CH4
+// Elements that are not metals. A bond to a metal does not change the hydrogens Octet draws on an atom (chem.ts).
+export const NONMETAL = new Set(["H", "D", "He", "B", "C", "N", "O", "F", "Ne", "Si", "P", "S", "Cl", "Ar", "Ge", "As", "Se", "Br", "Kr", "Sb", "Te", "I", "Xe", "At", "Rn", "*", "R"]);
 const VALENCE: Record<string, number> = { C: 4, Si: 4, N: 3, P: 3, As: 3, B: 3, Al: 3, O: 2, S: 2, Se: 2, Te: 2, F: 1, Cl: 1, Br: 1, I: 1 };
 const ORDER: Record<number, number> = { 1: 1, 2: 2, 3: 3, 4: 1.5 };
 

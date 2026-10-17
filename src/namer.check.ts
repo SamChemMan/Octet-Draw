@@ -175,3 +175,9 @@ const classes = [
 run("phase 2", more);
 run("phase 3", extra);
 run("phase 4", classes);
+// Aromatic ortho-fused rings take fusion names, never von Baeyer ones (2H-1,3-benzodioxole, not
+// 7,9-dioxabicyclo[4.3.0]nona-1,3,5-triene); without a fused name in the table they are not named yet.
+for (const input of ["2H-1,3-benzodioxole", "imidazo[1,2-a]pyridine", "5-phenyl-1,3-dihydro-2H-1,4-benzodiazepin-2-one"]) {
+  const smiles = opsin.parseToSmiles(input), g = graphOf(molOf(smiles), cipOf(smiles)), name = g && iupacName(g);
+  assert.ok(!name?.includes("bicyclo"), `${input} -> ${name}`);
+}

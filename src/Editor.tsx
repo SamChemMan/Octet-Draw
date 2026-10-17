@@ -2152,7 +2152,10 @@ export default function Editor() {
     const part = subset(doc, new Set(g)), key = serialize(part);
     if (!nameCache.current.has(key)) {
       let name: string | undefined;
-      try { name = checkedName(part, expandLabels(part), nameToSmiles, toInchi, cipOf, knownName); } catch { name = undefined; }
+      // A name's structure is drawn as Octet draws SMILES before its InChI is taken, so it counts hydrogens as the
+      // drawing does (the P of PPh3 bonded to Pd has none).
+      const inchiOf = (s: Mol | string) => { try { return toInchi(typeof s === "string" ? parseStructure(s) : s); } catch { return undefined; } };
+      try { name = checkedName(part, expandLabels(part), nameToSmiles, inchiOf, cipOf, knownName); } catch { name = undefined; }
       nameCache.current.set(key, name ?? null);
     }
     return nameCache.current.get(key) ?? undefined;

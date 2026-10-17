@@ -20,9 +20,28 @@ opsin.init();
 const indigo = await (await import(new URL("../node_modules/indigo-ketcher/indigo-ketcher-norender.js", src))).default();
 const { COMMON } = await import(new URL("common.ts", src));
 const { DRUGS, KNOWN } = await import(new URL("drugs.ts", src));
+const { hydrogens, NONMETAL } = await import(new URL("render.ts", src));
+// The structure as the app draws SMILES (Indigo's layout, Kekulé bonds) and counts its hydrogens: an atom bonded to
+// a metal keeps the hydrogens Octet draws (src/chem.ts, ketOf).
+export function drawnKet(smiles) {
+  const o = new indigo.MapStringString();
+  o.set("output-content-type", "application/json");
+  o.set("dearomatize-on-load", "true");
+  try {
+    const ket = JSON.parse(JSON.parse(indigo.layout(smiles, "ket", o)).struct);
+    for (const { $ref } of ket.root.nodes) {
+      const f = ket[$ref];
+      if (f?.type !== "molecule") continue;
+      const used = f.atoms.map(() => 0), metalled = f.atoms.map(() => false);
+      for (const b of f.bonds) for (const [i, j] of [b.atoms, [b.atoms[1], b.atoms[0]]]) { used[i] += b.type; if (!NONMETAL.has(f.atoms[j].label)) metalled[i] = true; }
+      f.atoms.forEach((a, i) => { if (metalled[i] && NONMETAL.has(a.label)) a.implicitHCount = hydrogens(a.label, a.charge ?? 0, used[i]); });
+    }
+    return JSON.stringify(ket);
+  } finally { o.delete(); }
+}
 export function inchiOf(smiles) {
   const o = new indigo.MapStringString();
-  try { return indigo.convert(smiles, "inchi", o).trim() || undefined; } catch { return undefined; } finally { o.delete(); }
+  try { return indigo.convert(drawnKet(smiles), "inchi", o).trim() || undefined; } catch { return undefined; } finally { o.delete(); }
 }
 // In order of preference: the first name for an InChI is kept.
 export function entries() {

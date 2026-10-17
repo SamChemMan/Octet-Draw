@@ -24,14 +24,12 @@ for (let p = 0; ; ) {
 const opsin = await import(new URL("opsin.js", dir).href);
 opsin.init();
 const index: Record<string, string> = JSON.parse(readFileSync(new URL("./nameindex.json", import.meta.url), "utf8"));
-attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"), index);
+attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"), index, DRUGS);
 const indigo = await (await import(new URL("../node_modules/indigo-ketcher/indigo-ketcher-norender.js", import.meta.url).href)).default();
 const options = (kv: Record<string, string> = {}) => { const o = new indigo.MapStringString(); for (const [k, v] of Object.entries(kv)) o.set(k, v); return o; };
-// What the app draws for SMILES: Indigo's layout, Kekulé bonds (chem.ts, parseStructure).
-const drawn = (smiles: string) => {
-  const o = options({ "output-content-type": "application/json", "dearomatize-on-load": "true" });
-  try { return JSON.parse(indigo.layout(smiles, "ket", o)).struct as string; } finally { o.delete(); }
-};
+// What the app draws for SMILES, and its standard InChI (tools/names/index.mjs: Indigo's layout, and an atom bonded
+// to a metal keeps the hydrogens Octet draws).
+const { build, drawnKet: drawn, inchiOf } = await import(new URL("../tools/names/index.mjs", import.meta.url).href);
 const inchiKey = (s: string) => { const o = options(); try { return indigo.convert(s, "inchi-key", o).trim() as string; } catch { return undefined; } finally { o.delete(); } };
 const keyOf = (smiles: string) => inchiKey(drawn(smiles));
 const partKeys = (smiles: string) => smiles.split(".").map(keyOf).sort();
@@ -72,9 +70,8 @@ assert.equal(nameToSmiles("ethanol and unobtainium"), undefined);
 
 // The index of Octet's own names for Structure to Name is up to date (tools/names/index.mjs), and each name in it
 // reads back as its structure.
-const { build } = await import(new URL("../tools/names/index.mjs", import.meta.url).href);
 assert.deepEqual(build(), index, "src/nameindex.json is out of date: run node tools/names/index.mjs");
-const inchi = (smiles: string) => { const o = options(); try { return indigo.convert(smiles, "inchi", o).trim() as string; } finally { o.delete(); } };
+const inchi = (smiles: string) => inchiOf(smiles) as string | undefined;
 for (const [key, name] of Object.entries(index)) assert.equal(inchi(nameToSmiles(name) ?? ""), key, `${name} reads back`);
 assert.equal(knownName(inchi(DRUGS.imatinib)), "imatinib");
 assert.equal(knownName(inchi(opsin.parseToSmiles(COMMON.DBU))), COMMON.DBU);
