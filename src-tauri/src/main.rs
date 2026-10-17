@@ -1,7 +1,8 @@
 // Prevents an extra console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::collections::HashSet;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -28,6 +29,43 @@ struct Picked(Mutex<HashSet<PathBuf>>);
 // Tickable menu items, so the page can set their ticks from the user's saved settings.
 struct Checks(Mutex<Vec<CheckMenuItem<Wry>>>);
 
+// Shortcuts for menu commands. MenuKeys: the user's own (Settings > Keyboard shortcuts), an accelerator for each
+// command they changed, "" for none. MenuList: every command as the menu was last built (its id, its name, the menu
+// it is in and its default shortcut), for Settings to list. Palette: the user's colour names, for building again.
+#[derive(Default)]
+struct MenuKeys(Mutex<HashMap<String, String>>);
+#[derive(Default)]
+struct MenuList(Mutex<Vec<(String, String, String, String)>>);
+#[derive(Default)]
+struct Palette(Mutex<Vec<String>>);
+type Built = (Menu<Wry>, Vec<CheckMenuItem<Wry>>, Vec<(String, String, String, String)>);
+
+// The menu bar built again with the user's colours and shortcuts. A shortcut the menu cannot take leaves every
+// command on its default, so the menu is never lost.
+fn rebuild(app: &AppHandle) -> Result<(), String> {
+    let names = app.state::<Palette>().0.lock().unwrap().clone();
+    let keys = app.state::<MenuKeys>().0.lock().unwrap().clone();
+    let (bar, checks, list) = menu(app, &names, &keys).or_else(|_| menu(app, &names, &HashMap::new())).map_err(|e| e.to_string())?;
+    app.set_menu(bar).map_err(|e| e.to_string())?;
+    *app.state::<Checks>().0.lock().unwrap() = checks;
+    *app.state::<MenuList>().0.lock().unwrap() = list;
+    Ok(())
+}
+
+#[tauri::command]
+fn menu_items(list: State<'_, MenuList>) -> Vec<(String, String, String, String)> {
+    list.0.lock().unwrap().clone()
+}
+
+// The user's menu shortcuts (at most 500, ids and accelerators of bounded length); the menu bar is built again
+// with them. The frontend sets its check marks again afterwards.
+#[tauri::command]
+fn set_menu_keys(app: AppHandle, keys: HashMap<String, String>) -> Result<(), String> {
+    let keys: HashMap<String, String> = keys.into_iter().filter(|(id, k)| id.len() <= 60 && k.len() <= 40 && !k.chars().any(char::is_control)).take(500).collect();
+    *app.state::<MenuKeys>().0.lock().unwrap() = keys;
+    rebuild(&app)
+}
+
 #[tauri::command]
 fn set_check(checks: State<'_, Checks>, id: String, checked: bool) -> Result<(), String> {
     let checks = checks.0.lock().unwrap();
@@ -38,12 +76,10 @@ fn set_check(checks: State<'_, Checks>, id: String, checked: bool) -> Result<(),
 // The user's own colours, by name, in the Colour menu: the menu bar is built again with them (20 at most, names
 // cut to 40 characters). The frontend sets its check marks again afterwards.
 #[tauri::command]
-fn set_palette(app: AppHandle, checks: State<'_, Checks>, names: Vec<String>) -> Result<(), String> {
+fn set_palette(app: AppHandle, names: Vec<String>) -> Result<(), String> {
     let names: Vec<String> = names.into_iter().take(20).map(|n| n.chars().filter(|c| !c.is_control()).take(40).collect()).collect();
-    let (bar, items) = menu(&app, &names).map_err(|e| e.to_string())?;
-    app.set_menu(bar).map_err(|e| e.to_string())?;
-    *checks.0.lock().unwrap() = items;
-    Ok(())
+    *app.state::<Palette>().0.lock().unwrap() = names;
+    rebuild(&app)
 }
 
 const MAX_BYTES: u64 = 64 * 1024 * 1024;
@@ -151,13 +187,21 @@ async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<St
 
 // File and Edit menus. Custom items send their id to the page as a "menu" event; Cut, Copy and Paste
 // stay native so the page gets ordinary clipboard events. Select All selects the drawing, not the page.
-fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<CheckMenuItem<Wry>>)> {
-    let item = |id: &str, text: &str, keys: &str| MenuItem::with_id(app, id, text, true, Some(keys));
+fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>) -> tauri::Result<Built> {
+    // Every command goes through here: it is listed (with the menu it is in) and takes the user's shortcut if they
+    // set one, else its default ("" for none).
+    let (list, section) = (RefCell::new(Vec::new()), RefCell::new(String::new()));
+    let item = |id: &str, text: &str, keys: &str| {
+        list.borrow_mut().push((id.to_string(), text.to_string(), section.borrow().clone(), keys.to_string()));
+        let k = overrides.get(id).cloned().unwrap_or_else(|| keys.to_string());
+        MenuItem::with_id(app, id, text, true, if k.is_empty() { None } else { Some(k) })
+    };
     let sep = || PredefinedMenuItem::separator(app);
+    section.replace("File".into());
     let file = Submenu::with_items(app, "File", true, &[
         &item("new", "New", "CmdOrCtrl+N")?,
         &item("open", "Open…", "CmdOrCtrl+O")?,
-        &MenuItem::with_id(app, "import", "Import a Structure…", true, None::<&str>)?,
+        &item("import", "Import a Structure…", "")?,
         &sep()?,
         &item("save", "Save", "CmdOrCtrl+S")?,
         &item("save_as", "Save As…", "CmdOrCtrl+Shift+S")?,
@@ -168,10 +212,11 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
         &item("page_setup", "Page Setup…", "CmdOrCtrl+Shift+P")?,
         &item("print", "Print…", "CmdOrCtrl+P")?,
         &sep()?,
-        &MenuItem::with_id(app, "document", "Document Settings…", true, None::<&str>)?,
+        &item("document", "Document Settings…", "")?,
         &sep()?,
         &PredefinedMenuItem::close_window(app, None)?,
     ])?;
+    section.replace("Edit".into());
     let edit = Submenu::with_items(app, "Edit", true, &[
         &item("undo", "Undo", "CmdOrCtrl+Z")?,
         &item("redo", "Redo", "CmdOrCtrl+Y")?,
@@ -185,6 +230,7 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
         &item("copy_smiles", "Copy As SMILES", "Alt+CmdOrCtrl+C")?,
     ])?;
     let snap = CheckMenuItem::with_id(app, "snap", "Snap to Objects", true, true, None::<&str>)?;
+    section.replace("View".into());
     let view = Submenu::with_items(app, "View", true, &[
         // ChemDraw's keys: Magnify, Reduce and Fit to Window.
         &item("zoom_actual", "Actual Size", "CmdOrCtrl+\\")?,
@@ -193,31 +239,33 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
         &item("zoom_out", "Reduce", "CmdOrCtrl+Shift+,")?,
         &sep()?,
         &snap,
-        &MenuItem::with_id(app, "actions", "Show or Hide Actions", true, None::<&str>)?,
-        &MenuItem::with_id(app, "properties", "Show or Hide Properties", true, None::<&str>)?,
+        &item("actions", "Show or Hide Actions", "")?,
+        &item("properties", "Show or Hide Properties", "")?,
         // Not ⌘K, which is ChemDraw's Scale.
         &item("command_palette", "Command Palette…", "CmdOrCtrl+Shift+A")?,
     ])?;
     // Structure commands keep ChemDraw's shortcuts.
+    section.replace("Structure".into());
     let structure = Submenu::with_items(app, "Structure", true, &[
         &item("clean_up", "Clean Up Structure", "CmdOrCtrl+Shift+K")?,
         &item("clean_reaction", "Clean Up Reaction", "CmdOrCtrl+Shift+X")?,
-        &MenuItem::with_id(app, "atom_properties", "Atom Properties…", true, None::<&str>)?,
+        &item("atom_properties", "Atom Properties…", "")?,
         &sep()?,
-        &MenuItem::with_id(app, "expand_label", "Expand Label", true, None::<&str>)?,
-        &MenuItem::with_id(app, "contract_label", "Contract Label", true, None::<&str>)?,
+        &item("expand_label", "Expand Label", "")?,
+        &item("contract_label", "Contract Label", "")?,
         &item("aromatic_display", "Toggle Aromatic Display", "Alt+CmdOrCtrl+K")?,
         &item("structure_perspective", "Structure Perspective", "Alt+CmdOrCtrl+S")?,
         &sep()?,
-        &MenuItem::with_id(app, "stoichiometry", "Analyze Stoichiometry", true, None::<&str>)?,
+        &item("stoichiometry", "Analyze Stoichiometry", "")?,
         &sep()?,
-        &MenuItem::with_id(app, "predict_1h", "Predict ¹H-NMR Shifts", true, None::<&str>)?,
-        &MenuItem::with_id(app, "predict_13c", "Predict ¹³C-NMR Shifts", true, None::<&str>)?,
+        &item("predict_1h", "Predict ¹H-NMR Shifts", "")?,
+        &item("predict_13c", "Predict ¹³C-NMR Shifts", "")?,
         &sep()?,
         &item("name_to_structure", "Convert Name to Structure", "CmdOrCtrl+Shift+N")?,
         &item("structure_to_name", "Convert Structure to Name", "Alt+CmdOrCtrl+N")?,
     ])?;
     // Align and Distribute, as ChemDraw's (lined up on the highest thing; spaced out between the two at the ends).
+    section.replace("Object › Align".into());
     let align = Submenu::with_items(app, "Align", true, &[
         &item("arrange_left", "Left Edges", "Alt+Shift+CmdOrCtrl+L")?,
         &item("arrange_centre", "Left-Right Centres", "Alt+Shift+CmdOrCtrl+C")?,
@@ -226,26 +274,29 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
         &item("arrange_middle", "Top-Bottom Centres", "Alt+Shift+CmdOrCtrl+M")?,
         &item("arrange_bottom", "Bottom Edges", "Alt+Shift+CmdOrCtrl+B")?,
     ])?;
+    section.replace("Object › Distribute".into());
     let distribute = Submenu::with_items(app, "Distribute", true, &[
         &item("arrange_across", "Horizontally", "Alt+Shift+CmdOrCtrl+H")?,
         &item("arrange_down", "Vertically", "Alt+Shift+CmdOrCtrl+V")?,
     ])?;
     // Add Frame, as ChemDraw's: a frame round everything selected.
+    section.replace("Object › Add Frame".into());
     let frame = Submenu::with_items(app, "Add Frame", true, &[
-        &MenuItem::with_id(app, "frame_brackets", "Brackets", true, None::<&str>)?,
-        &MenuItem::with_id(app, "frame_parens", "Parentheses", true, None::<&str>)?,
-        &MenuItem::with_id(app, "frame_braces", "Braces", true, None::<&str>)?,
-        &MenuItem::with_id(app, "frame_box", "Rectangle", true, None::<&str>)?,
-        &MenuItem::with_id(app, "frame_rounded", "Rounded Rectangle", true, None::<&str>)?,
-        &MenuItem::with_id(app, "frame_box_shadow", "Rectangle with Shadow", true, None::<&str>)?,
-        &MenuItem::with_id(app, "frame_rounded_shadow", "Rounded Rectangle with Shadow", true, None::<&str>)?,
+        &item("frame_brackets", "Brackets", "")?,
+        &item("frame_parens", "Parentheses", "")?,
+        &item("frame_braces", "Braces", "")?,
+        &item("frame_box", "Rectangle", "")?,
+        &item("frame_rounded", "Rounded Rectangle", "")?,
+        &item("frame_box_shadow", "Rectangle with Shadow", "")?,
+        &item("frame_rounded_shadow", "Rounded Rectangle with Shadow", "")?,
     ])?;
+    section.replace("Object".into());
     let object = Submenu::with_items(app, "Object", true, &[
         &align,
         &distribute,
         &sep()?,
-        &MenuItem::with_id(app, "show_stereo", "Show Stereochemistry", true, None::<&str>)?,
-        &MenuItem::with_id(app, "atom_numbers", "Show Atom Numbers", true, None::<&str>)?,
+        &item("show_stereo", "Show Stereochemistry", "")?,
+        &item("atom_numbers", "Show Atom Numbers", "")?,
         &sep()?,
         &item("group", "Group", "CmdOrCtrl+G")?,
         &item("ungroup", "Ungroup", "CmdOrCtrl+Shift+G")?,
@@ -256,27 +307,30 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
         &frame,
         &sep()?,
         // ChemDraw's Flip (a mirror image, no key) and Rotate 180° (stereo kept, ⇧⌘H and ⇧⌘V).
-        &MenuItem::with_id(app, "flatten", "Flatten", true, None::<&str>)?,
-        &MenuItem::with_id(app, "mirror_h", "Flip Horizontal", true, None::<&str>)?,
-        &MenuItem::with_id(app, "mirror_v", "Flip Vertical", true, None::<&str>)?,
+        &item("flatten", "Flatten", "")?,
+        &item("mirror_h", "Flip Horizontal", "")?,
+        &item("mirror_v", "Flip Vertical", "")?,
         &item("flip_h", "Rotate 180° Horizontal", "CmdOrCtrl+Shift+H")?,
         &item("flip_v", "Rotate 180° Vertical", "CmdOrCtrl+Shift+V")?,
         &item("rotate_dialog", "Rotate…", "CmdOrCtrl+R")?,
         &item("scale_dialog", "Scale…", "CmdOrCtrl+K")?,
     ])?;
     // Text commands style the caption being typed, or the picked captions.
+    section.replace("Text › Size".into());
     let sizes = [8, 9, 10, 12, 14, 18, 24]
-        .map(|pt| MenuItem::with_id(app, format!("size_{pt}"), format!("{pt} pt"), true, None::<&str>))
+        .map(|pt| item(&format!("size_{pt}"), &format!("{pt} pt"), ""))
         .into_iter()
         .collect::<tauri::Result<Vec<_>>>()?;
     let size_items: Vec<&dyn IsMenuItem<Wry>> = sizes.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
     let size = Submenu::with_items(app, "Size", true, &size_items)?;
     // ChemDraw's text keys: Plain ⌘T, Bold ⌘B, Italic ⌘I, Underline ⌘U, Subscript ⌘-, Superscript ⌘+, Formula ⌘F.
+    section.replace("Text › Font".into());
     let fonts = ["Arial", "Helvetica", "Times New Roman", "Calibri", "Cambria", "Georgia"].iter().enumerate()
-        .map(|(k, f)| MenuItem::with_id(app, format!("font_{k}"), *f, true, None::<&str>))
+        .map(|(k, f)| item(&format!("font_{k}"), f, ""))
         .collect::<tauri::Result<Vec<_>>>()?;
     let font_items: Vec<&dyn IsMenuItem<Wry>> = fonts.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
     let font = Submenu::with_items(app, "Font", true, &font_items)?;
+    section.replace("Text".into());
     let text = Submenu::with_items(app, "Text", true, &[
         &font,
         &sep()?,
@@ -295,34 +349,36 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
         &size,
     ])?;
     // Curves, as ChemDraw's Curves menu: the line, a head at either end (again takes it off), and a closed curve's fill.
+    section.replace("Curves".into());
     let curves = Submenu::with_items(app, "Curves", true, &[
-        &MenuItem::with_id(app, "curves_plain", "Plain", true, None::<&str>)?,
-        &MenuItem::with_id(app, "curves_dashed", "Dashed", true, None::<&str>)?,
-        &MenuItem::with_id(app, "curves_bold", "Bold", true, None::<&str>)?,
-        &MenuItem::with_id(app, "curves_doubled", "Double", true, None::<&str>)?,
+        &item("curves_plain", "Plain", "")?,
+        &item("curves_dashed", "Dashed", "")?,
+        &item("curves_bold", "Bold", "")?,
+        &item("curves_doubled", "Double", "")?,
         &sep()?,
-        &MenuItem::with_id(app, "curves_start_full", "Arrowhead at Start", true, None::<&str>)?,
-        &MenuItem::with_id(app, "curves_end_full", "Arrowhead at End", true, None::<&str>)?,
-        &MenuItem::with_id(app, "curves_start_left", "Half Arrowhead at Start, Left", true, None::<&str>)?,
-        &MenuItem::with_id(app, "curves_start_right", "Half Arrowhead at Start, Right", true, None::<&str>)?,
-        &MenuItem::with_id(app, "curves_end_left", "Half Arrowhead at End, Left", true, None::<&str>)?,
-        &MenuItem::with_id(app, "curves_end_right", "Half Arrowhead at End, Right", true, None::<&str>)?,
+        &item("curves_start_full", "Arrowhead at Start", "")?,
+        &item("curves_end_full", "Arrowhead at End", "")?,
+        &item("curves_start_left", "Half Arrowhead at Start, Left", "")?,
+        &item("curves_start_right", "Half Arrowhead at Start, Right", "")?,
+        &item("curves_end_left", "Half Arrowhead at End, Left", "")?,
+        &item("curves_end_right", "Half Arrowhead at End, Right", "")?,
         &sep()?,
-        &MenuItem::with_id(app, "curves_closed", "Closed", true, None::<&str>)?,
-        &MenuItem::with_id(app, "curves_solid", "Filled", true, None::<&str>)?,
-        &MenuItem::with_id(app, "curves_shaded", "Shaded", true, None::<&str>)?,
-        &MenuItem::with_id(app, "curves_faded", "Faded", true, None::<&str>)?,
+        &item("curves_closed", "Closed", "")?,
+        &item("curves_solid", "Filled", "")?,
+        &item("curves_shaded", "Shaded", "")?,
+        &item("curves_faded", "Faded", "")?,
     ])?;
     // Colour, as ChemDraw's Color menu: it colours whatever is selected. The colours are docstyle.ts's COLOURS.
     // Then the user's own colours by name, and Edit Colours…, which opens them in Settings.
+    section.replace("Colour".into());
     let builtin = ["Black", "Ink", "Octet Blue", "Bright Blue", "Green", "Amber", "Red"].iter().enumerate()
-        .map(|(k, name)| MenuItem::with_id(app, format!("colour_{k}"), *name, true, None::<&str>))
+        .map(|(k, name)| item(&format!("colour_{k}"), name, ""))
         .collect::<tauri::Result<Vec<_>>>()?;
     let mine = palette.iter().enumerate()
-        .map(|(k, name)| MenuItem::with_id(app, format!("colour_user_{k}"), name, true, None::<&str>))
+        .map(|(k, name)| item(&format!("colour_user_{k}"), name, ""))
         .collect::<tauri::Result<Vec<_>>>()?;
     let (sep1, sep2) = (sep()?, sep()?);
-    let edit_colours = MenuItem::with_id(app, "colour_other", "Edit Colours…", true, None::<&str>)?;
+    let edit_colours = item("colour_other", "Edit Colours…", "")?;
     let mut colour_items: Vec<&dyn IsMenuItem<Wry>> = builtin.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
     if !mine.is_empty() {
         colour_items.push(&sep1);
@@ -331,14 +387,16 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
     colour_items.push(&sep2);
     colour_items.push(&edit_colours);
     let colour = Submenu::with_items(app, "Colour", true, &colour_items)?;
+    section.replace("Window".into());
     let window = Submenu::with_items(app, "Window", true, &[
         &PredefinedMenuItem::minimize(app, None)?,
         &PredefinedMenuItem::fullscreen(app, None)?,
     ])?;
+    section.replace("Octet".into());
     #[cfg(target_os = "macos")]
     let octet = Submenu::with_items(app, "Octet", true, &[
         // Octet's own About window (src/About.tsx): the mark, who made it, and the credits the licences ask for.
-        &MenuItem::with_id(app, "about", "About Octet", true, None::<&str>)?,
+        &item("about", "About Octet", "")?,
         &sep()?,
         &item("settings", "Settings…", "CmdOrCtrl+,")?,
         &sep()?,
@@ -354,19 +412,24 @@ fn menu(app: &AppHandle, palette: &[String]) -> tauri::Result<(Menu<Wry>, Vec<Ch
     #[cfg(target_os = "macos")]
     items.push(&octet);
     items.extend([&file as &dyn IsMenuItem<Wry>, &edit, &view, &object, &structure, &text, &curves, &colour, &window]);
-    Ok((Menu::with_items(app, &items)?, vec![snap]))
+    let listed = list.borrow().clone();
+    Ok((Menu::with_items(app, &items)?, vec![snap], listed))
 }
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Picked::default())
-        .invoke_handler(tauri::generate_handler![open_link, open_drawing, save_drawing, set_check, set_palette, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file])
+        .manage(MenuKeys::default())
+        .manage(MenuList::default())
+        .manage(Palette::default())
+        .invoke_handler(tauri::generate_handler![menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file])
         .setup(|app| {
             let handle = app.handle();
-            let (bar, checks) = menu(handle, &[])?;
+            let (bar, checks, list) = menu(handle, &[], &HashMap::new())?;
             app.set_menu(bar)?;
             app.manage(Checks(Mutex::new(checks)));
+            *app.state::<MenuList>().0.lock().unwrap() = list;
             app.on_menu_event(|app, event| {
                 let _ = app.emit("menu", event.id().0.as_str());
             });

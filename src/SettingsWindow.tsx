@@ -364,7 +364,7 @@ export function SettingsWindow(p: Props) {
         </span>
       )),
       // ChemDraw's text preference: in a caption Return makes a new line, unless Option-Return is asked for.
-      d("keys", "Text", "New line in captions", "caption text new line return enter option", (
+      d("keys", "Typing", "New line in captions", "caption text new line return enter option", (
         <Select label="New line in captions" value={p.captionOptionReturn ? "option" : "return"} options={[["return", "Return"], ["option", "⌥ Return"]]} onChange={(v) => p.onCaptionOptionReturn(v === "option")} />
       )),
       // The menu commands' shortcuts, as the menus show them (fixed, as ChemDraw's), so a search finds them here too.

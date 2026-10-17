@@ -6,7 +6,8 @@
 // item: over an atom or a bond.
 export type Place = "atom" | "bond" | "item" | "any";
 export type Group = "Atoms" | "Groups" | "Bonds" | "Tools" | "Selection" | "Edit";
-export type Action = { id: string; name: string; group: Group; place: Place };
+// group: one of Group for the canvas keys; for a menu command, the menu it is in (File, Object › Align).
+export type Action = { id: string; name: string; group: Group | string; place: Place };
 
 const element = (symbol: string, name: string): Action => ({ id: `element.${symbol}`, name: `Set atom to ${name}`, group: "Atoms", place: "atom" });
 const group = (id: string, name: string): Action => ({ id: `group.${id}`, name, group: "Groups", place: "atom" });
@@ -92,7 +93,8 @@ export function keyOf(e: { key: string; code?: string; shiftKey: boolean; altKey
   let key = e.key === " " ? "space" : e.key.toLowerCase();
   if (e.altKey && e.code?.startsWith("Key")) key = e.code.slice(3).toLowerCase();
   const named = key.length > 1;
-  const mods = [(e.metaKey || e.ctrlKey) && "mod", e.altKey && "alt", e.shiftKey && (/^[a-z]$/.test(key) || named) && "shift"].filter(Boolean);
+  // On the Mac, Command is mod and Control its own key (⌃⌘E is not ⌘E); elsewhere Ctrl is mod.
+  const mods = [(MAC ? e.metaKey : e.metaKey || e.ctrlKey) && "mod", MAC && e.ctrlKey && "ctrl", e.altKey && "alt", e.shiftKey && (/^[a-z]$/.test(key) || named) && "shift"].filter(Boolean);
   return [...mods, key].join("+");
 }
 
@@ -117,12 +119,38 @@ export function platformLabel(s: string | undefined): string | undefined {
   return [...["Ctrl", "Alt", "Shift"].filter((k) => mods.has(k)), key].join("+");
 }
 
+// A key as this platform writes it: ⌃⌥⇧⌘ before the key on the Mac, in that order; Ctrl+Alt+Shift+ elsewhere.
 export function label(key: string): string {
   if (key === "+") return "+";
-  return key.split("+").map((part, i, all) => {
-    if (i < all.length - 1) return part === "mod" ? (MAC ? "⌘" : "Ctrl+") : part === "alt" ? (MAC ? "⌥" : "Alt+") : MAC ? "⇧" : "Shift+";
-    return NAMES[part] ?? (part.length === 1 ? part.toUpperCase() : part);
-  }).join("");
+  const parts = key.split("+"), last = parts.pop()!, mods = new Set(parts), name = NAMES[last] ?? (last.length === 1 ? last.toUpperCase() : last);
+  if (MAC) return [["ctrl", "⌃"], ["alt", "⌥"], ["shift", "⇧"], ["mod", "⌘"]].filter(([m]) => mods.has(m)).map(([, g]) => g).join("") + name;
+  return [...(mods.has("mod") || mods.has("ctrl") ? ["Ctrl"] : []), ...(mods.has("alt") ? ["Alt"] : []), ...(mods.has("shift") ? ["Shift"] : []), name].join("+");
+}
+
+// Menu commands (src-tauri/src/main.rs lists them): each is an action "menu.<id>" whose default is the menu's own
+// shortcut, so Settings lists and changes them with the canvas keys. A shortcut with Command or Ctrl is the menu's
+// (native: it works wherever the focus is, as menus do); any other key the page handles, never while typing.
+const ACCEL: Record<string, string> = { space: "Space", enter: "Enter", backspace: "Backspace", delete: "Delete", escape: "Escape", tab: "Tab", arrowup: "Up", arrowdown: "Down", arrowleft: "Left", arrowright: "Right" };
+export function fromAccelerator(a: string): string | undefined {
+  if (!a) return undefined;
+  const parts = a.split("+"), key = parts.pop()!.toLowerCase(), mods = new Set(parts.map((p) => p.toLowerCase()));
+  const name = Object.entries(ACCEL).find(([, v]) => v.toLowerCase() === key)?.[0] ?? (key === "" ? "+" : key);
+  return [mods.has("cmdorctrl") || mods.has("cmd") || mods.has("command") ? "mod" : "", mods.has("ctrl") || mods.has("control") ? (MAC ? "ctrl" : "mod") : "", mods.has("alt") || mods.has("option") ? "alt" : "", mods.has("shift") ? "shift" : ""]
+    .filter((m, k, all) => m && all.indexOf(m) === k).concat(name).join("+");
+}
+export const native = (key: string) => /(^|\+)(mod|ctrl)\+/.test(key);
+export function toAccelerator(key: string): string {
+  const parts = key.split("+"), last = parts.pop()!, mods = new Set(parts);
+  const name = ACCEL[last] ?? (/^f\d{1,2}$/.test(last) ? last.toUpperCase() : last.length === 1 ? last.toUpperCase() : last);
+  return [mods.has("mod") ? "CmdOrCtrl" : "", mods.has("ctrl") ? "Ctrl" : "", mods.has("alt") ? "Alt" : "", mods.has("shift") ? "Shift" : "", name].filter(Boolean).join("+");
+}
+export function registerMenu(items: [string, string, string, string][]) {
+  for (const [id, name, section, keys] of items) {
+    const action = `menu.${id}`;
+    if (!ACTIONS.some((a) => a.id === action)) ACTIONS.push({ id: action, name: name.replace(/…$/, ""), group: section || "Menu", place: "any" });
+    const k = fromAccelerator(keys);
+    DEFAULT_KEYS[action] = k ? [k] : [];
+  }
 }
 
 // The action a key runs here. Atom and bond keys win over keys that work anywhere.

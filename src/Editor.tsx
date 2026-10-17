@@ -20,7 +20,7 @@ import {
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { loadSettings, saveSettings } from "./settings";
-import { actionFor, keyOf, keymap, label as keyLabel, platformLabel } from "./keys";
+import { ACTIONS, actionFor, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
 import { Actions, actionItems, type Context } from "./Actions";
 import { Properties, propertyValues, PROPERTY_ROWS } from "./Properties";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
@@ -801,6 +801,22 @@ export default function Editor() {
     const off = listen<string>("menu", (e) => commands.current[e.payload]?.());
     return () => { off.then((f) => f()); };
   }, []);
+  // Every menu command's shortcut can be changed in Settings, with the canvas keys: the menu lists its commands, and
+  // is built again with the user's shortcuts (Command or Ctrl ones; the page handles any other key itself).
+  const [menuReady, setMenuReady] = useState(0);
+  useEffect(() => {
+    if (TAURI) invoke<[string, string, string, string][]>("menu_items").then((items) => { registerMenu(items); setMenuReady(items.length); }).catch(() => {});
+  }, []);
+  const sentMenuKeys = useRef("");
+  useEffect(() => {
+    if (!TAURI || !menuReady) return;
+    const map = keymap(settings.keys), keys: Record<string, string> = {};
+    for (const a of ACTIONS) if (a.id.startsWith("menu.")) { const k = (map[a.id] ?? []).find(native); keys[a.id.slice(5)] = k ? toAccelerator(k) : ""; }
+    const text = JSON.stringify(keys);
+    if (text === sentMenuKeys.current || (!sentMenuKeys.current && !Object.keys(settings.keys).some((id) => id.startsWith("menu.")))) { sentMenuKeys.current ||= text; return; }
+    sentMenuKeys.current = text;
+    invoke("set_menu_keys", { keys }).then(() => invoke("set_check", { id: "snap", checked: settings.snap })).catch(() => {});
+  }, [settings.keys, menuReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Screen (px from the window's top left) to drawing coordinates (bond lengths, y up).
   const toDoc = (sx: number, sy: number): P => [(sx - view.x) / (view.zoom * L), -(sy - view.y) / (view.zoom * L)];
@@ -1830,6 +1846,7 @@ export default function Editor() {
     if (id === "atom.label" && atom !== undefined) return editLabel(atom);
     if (id === "charge.plus" && atom !== undefined) return set(addCharge(doc, atom, 1));
     if (id === "charge.minus" && atom !== undefined) return set(addCharge(doc, atom, -1));
+    if (kind === "menu") return commands.current[id.slice(5)]?.(); // a menu command on a key (Settings)
     if (kind === "group" && atom !== undefined) return set(addGroup(doc, atom, arg as Group));
     if (kind === "bond" && bond !== undefined) {
       if (arg in BONDS) return set(setBondSpec(doc, bond, BONDS[arg as BondKind].spec));
@@ -2254,6 +2271,9 @@ export default function Editor() {
     settings: `${MOD},`, name_to_structure: `⇧${MOD}N`, "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.sub": `${MOD}−`, "caption.super": `${MOD}+`, "caption.plain": `${MOD}T`, "caption.formula": `${MOD}F`, "caption.edit": keyLabel("enter"),
   };
   const hint = (command: string) => {
+    // A menu command's shortcut as the user has it (Settings), else as the menu has it.
+    const own = menuReady ? keymap(settings.keys)[`menu.${command}`] : undefined;
+    if (own) return own[0] ? keyLabel(own[0]) : undefined;
     if (MENU_KEYS[command]) return platformLabel(MENU_KEYS[command]);
     const first = keymap(settings.keys)[command]?.[0];
     return first ? keyLabel(first) : undefined;
@@ -2774,6 +2794,10 @@ export default function Editor() {
       if (TAURI && mod && e.shiftKey && key === "z") { e.preventDefault(); return undo(true); }
       if (!TAURI && mod && key === "a" && !e.shiftKey) { e.preventDefault(); return commands.current.select_all(); }
       if (!TAURI && mod && key === "a" && e.shiftKey) { e.preventDefault(); return commands.current.command_palette(); }
+      // A menu command on a key without Command or Ctrl (set in Settings): the page runs it (the menu cannot take
+      // such a key without taking it from text boxes too). Command and Ctrl keys are the menu's own in the app.
+      const pressedKey = keyOf(e), bound = pressedKey && actionFor(keymap(settings.keys), pressedKey, "none");
+      if (bound?.startsWith("menu.") && (!TAURI || !native(pressedKey!))) { e.preventDefault(); return commands.current[bound.slice(5)]?.(); }
       if (mod || e.altKey) return;
       if (e.key === "Escape") {
         // Escape dismisses one thing at a time. With nothing left to dismiss it goes on to the window (which leaves
@@ -3547,7 +3571,7 @@ export default function Editor() {
           onCaptionOptionReturn={(captionOptionReturn) => setSettings((s) => ({ ...s, captionOptionReturn }))}
           panelMenus={settings.panelMenus}
           onPanelMenus={(panelMenus) => setSettings((s) => ({ ...s, panelMenus }))}
-          menuKeys={Object.values(MENU_NAMES).flatMap(([name, keys]) => (keys ? [[name, platformLabel(keys)!] as [string, string]] : []))}
+          menuKeys={menuReady ? [] : Object.values(MENU_NAMES).flatMap(([name, keys]) => (keys ? [[name, platformLabel(keys)!] as [string, string]] : []))}
           palette={settings.palette}
           onPalette={(palette) => setSettings((s) => ({ ...s, palette }))}
           adding={addingColour}
