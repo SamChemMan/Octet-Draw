@@ -105,10 +105,16 @@ function parts(s: string): string | undefined {
 }
 
 // Text that is SMILES (or InChI) by its look: SMILES atoms in brackets or from the organic subset, bonds, branches and
-// ring numbers, in one word (a CXSMILES |...| part may follow). Indigo also reads words such as "aspirin" or "spiro"
-// (as query atoms), so text that fails this is never read as SMILES.
+// ring numbers, in one word (a CXSMILES |...| part may follow). A title may follow the SMILES, as in a SMILES file
+// ("c1ccccc1 benzene"), when the SMILES has a ring number, a bracket, a branch or a bond: a word alone ("CCO
+// ethanol", "NBS reagent") could be a name. It has an atom: Indigo reads "5" or "2:1" as an unknown atom. Indigo also
+// reads words such as "aspirin" or "spiro" (as query atoms), so text that fails this is never read as SMILES.
 const SMILES = /^(?:Cl|Br|[BCNOPSFI]|[bcnops]|\[[^\][]{1,40}\]|%\d\d|[-=#$:/\\.()0-9*~>])+$/;
-export const looksLikeSmiles = (text: string) => /^InChI=1S?\//.test(text.trim()) || SMILES.test(text.trim().replace(/\s+\|[^|]*\|$/, ""));
+const smiles = (s: string) => SMILES.test(s) && /[A-Za-z]/.test(s);
+export function looksLikeSmiles(text: string): boolean {
+  const t = text.trim().replace(/\s+\|[^|]*\|$/, ""), first = t.split(/\s/)[0];
+  return /^InChI=1S?\//.test(t) || smiles(t) || (first !== t && smiles(first) && /[\d()[\]=#/\\]/.test(first));
+}
 
 // Catalogue and supplier quirks: brackets round a plain multiplied group ("10,15,20-(triphenyl)porphyrin"),
 // "meso-tetra…porphyrin" for the 5,10,15,20 positions, and stray spaces or a full stop.
