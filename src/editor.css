@@ -943,6 +943,17 @@ button.variant.add {
 .tray-set + .tray-set {
   border-top: 1px solid var(--hairline);
 }
+/* A sub-menu row (Turn and flip, More): a row with a caret; its menu opens to the left of the panel. */
+.submenu-caret {
+  margin-left: auto;
+  color: var(--ink-faint);
+}
+.submenu-row[aria-expanded="true"] {
+  background: var(--brand-mist);
+}
+.strip.panel-submenu {
+  transform-origin: top right;
+}
 .tray-title {
   padding: 0 6px;
   color: var(--ink-muted);

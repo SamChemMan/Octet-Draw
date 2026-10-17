@@ -5,13 +5,14 @@
 // ChemDraw users expect it (menus and keys).
 import { useEffect, useRef, useState } from "react";
 import {
-  AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, ArrowsInSimple, ArrowClockwise, ArrowsClockwise, SignIn, SignOut, ArrowCounterClockwise, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretDown,
+  AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, ArrowsInSimple, ArrowClockwise, ArrowsClockwise, CaretRight, DotsThreeCircle, SignIn, SignOut, ArrowCounterClockwise, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretDown,
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAa, TextAlignCenter, TextAlignLeft,
   TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Eraser, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
+import { Menu } from "./Menu";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
 import { COLOURS, TINTS } from "./docstyle";
@@ -230,13 +231,17 @@ function TableGlyph({ on, faint }: { on: TableLine[]; faint?: boolean }) {
 
 // small: shown as a small button by default (the user can drag it into the rows, and any row out of them).
 export type Item = { icon: React.ReactNode; name: string; command: string; accent?: boolean; small?: boolean };
-// The small buttons fall into sets, each under a small title: what the structure is (properties, stereo, NMR),
-// turning and flipping, what is shown on it, arranging things, the view, copying and keeping it, and Delete last.
-const SETS = ["analysis", "turn", "marks", "arrange", "view", "library", "other", "delete"] as const;
-const SET_TITLES: Record<(typeof SETS)[number], string | undefined> = {
-  analysis: "Analyse", turn: "Turn and flip", marks: "Display", arrange: "Arrange", view: "View", library: "Clipboard and library", other: "More", delete: undefined,
-};
-const SET_OF: Record<string, (typeof SETS)[number]> = {
+// The small actions fall into sets. Analyse, Arrange and View show as small buttons under a small title. Turn and
+// flip (every turn, rotation and flip) and More (what is shown on the structure, the rest, the clipboard and library,
+// and Delete) are each one row that opens a sub-menu beside the panel, so the panel stays short.
+const SETS = ["analysis", "arrange", "view", "turn", "more"] as const;
+type SetId = (typeof SETS)[number];
+const SET_TITLES: Record<SetId, string> = { analysis: "Analyse", arrange: "Arrange", view: "View", turn: "Turn and flip", more: "More" };
+const SUBMENUS: Partial<Record<SetId, React.ReactNode>> = { turn: <ArrowsClockwise size={18} />, more: <DotsThreeCircle size={18} /> };
+// Each action's kind. Kinds make up the sets; the kinds in More are its groups, in this order, under hairlines.
+const SET_FOR: Record<string, SetId> = { analysis: "analysis", arrange: "arrange", view: "view", turn: "turn", marks: "more", other: "more", library: "more", delete: "more" };
+const MORE_GROUPS = ["marks", "other", "library", "delete"];
+const KIND_OF: Record<string, string> = {
   select_all: "view", zoom_fit: "view", import: "library",
   properties: "analysis", show_stereo: "analysis", predict_1h: "analysis", predict_13c: "analysis",
   "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "turn", flatten: "turn",
@@ -246,7 +251,8 @@ const SET_OF: Record<string, (typeof SETS)[number]> = {
   arrange_across: "arrange", arrange_down: "arrange", "shape.front": "arrange", "shape.back": "arrange",
   copy_smiles: "library", "template.add": "library", delete: "delete",
 };
-const setOf = (command: string) => SET_OF[command] ?? "other";
+const kindOf = (command: string) => KIND_OF[command] ?? "other";
+const setOf = (command: string) => SET_FOR[kindOf(command)];
 // Highlight and ring fill colours: clear at 40% behind a structure on white.
 const HIGHLIGHTS: [string, string][] = [["Blue", "#2F6FED"], ["Orange", "#F28C28"], ["Green", "#2BA84A"], ["Red", "#E5484D"], ["Purple", "#8E4EC6"], ["Teal", "#12A594"], ["Pink", "#D6409F"], ["Gold", "#C9A000"]];
 
@@ -272,9 +278,9 @@ export function actionItems(context: Context, messy: boolean): Item[] {
         small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<ArrowsOutSimple size={18} />, "Zoom to fit", "zoom_fit")));
       break;
     case "structure":
-      // Sam's order (16 October 2026): Clean up, Structure to name and the flips as rows; then lone pairs, number,
-      // caption, the turns, Copy as SMILES, Add to rings and Delete as small buttons.
-      items.push(clean, ...(context.nameable ? [nameIt] : []), it(<FlipVertical size={18} />, "Rotate 180° vertical", "flip_v"), it(<FlipHorizontal size={18} />, "Rotate 180° horizontal", "flip_h"));
+      // Sam (17 October 2026): Clean up and Structure to name as rows; every turn, rotation and flip in one sub-menu;
+      // what is shown on it, the clipboard and library, and Delete in another.
+      items.push(clean, ...(context.nameable ? [nameIt] : []), ...flips);
       if (context.pairs) items.push(small(it(<SymbolGlyph kind="pair" />, context.pairs === "shown" ? "Hide lone pairs" : "Show lone pairs", "pairs")));
       items.push(small(it(<ListNumbers size={18} />, context.structures > 1 ? "Number these compounds" : "Number this compound", "number")),
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
@@ -389,6 +395,19 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
     tipTimer.current = window.setTimeout(() => setTip(place), 400);
   };
   useEffect(() => setTip(undefined), [context.kind]); // a name never outlives the list it came from
+  // The sub-menu open beside the panel (Turn and flip, More): which set, and where (fixed, so the panel's scrolling
+  // never cuts it off). A click outside it or Escape closes it, and so does a new selection.
+  const [sub, setSub] = useState<{ set: SetId; top: number; right: number }>();
+  const subBox = useRef<HTMLDivElement>(null);
+  useEffect(() => setSub(undefined), [context.kind]);
+  useEffect(() => {
+    if (!sub) return;
+    const away = (e: PointerEvent) => { const t = e.target as Element; if (!subBox.current?.contains(t) && !t.closest?.(".submenu-row")) setSub(undefined); };
+    const escape = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setSub(undefined); } };
+    addEventListener("pointerdown", away, true);
+    addEventListener("keydown", escape, true);
+    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); };
+  }, [sub]);
   const hideTip = () => { clearTimeout(tipTimer.current); if (tip) tipShownAt.current = Date.now(); setTip(undefined); };
 
   if (!shown) {
@@ -435,6 +454,10 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
   if (!mine) items.sort((a, b) => Number(!!a.small) - Number(!!b.small) || (a.small ? SETS.indexOf(setOf(a.command)) - SETS.indexOf(setOf(b.command)) : 0));
   const split = Math.min(items.length, mine ? mine.rows : items.filter((i) => !i.small).length);
   const rows = items.slice(0, split), tray = items.slice(split);
+  // The small actions set by set, whatever order they were arranged in. A sub-menu set with one action shows it as
+  // a small button instead.
+  const sets = SETS.map((s) => [s, tray.filter((i) => setOf(i.command) === s)] as const).filter(([, list]) => list.length);
+  const subs = sets.filter(([s, list]) => SUBMENUS[s] && list.length > 1), inline = sets.filter(([s, list]) => !(SUBMENUS[s] && list.length > 1));
 
   // Drag any action to a new place: along the rows, along the small buttons, or from one to the other.
   function startCarry(e: React.PointerEvent, command: string) {
@@ -769,7 +792,7 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
       )}
 
 
-      {(rows.length > 0 || carry) && (
+      {(rows.length > 0 || subs.length > 0 || carry) && (
         <div className="actions-list">
           {rows.map((i, k) => (
             <div key={i.command} data-command={i.command} className={["action-slot", carry?.command === i.command && "carried", settled === i.command && "settled"].filter(Boolean).join(" ")}
@@ -779,14 +802,37 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
               {k === rows.length - 1 && carry?.to?.rows && carry.to.index >= rows.filter((r) => r.command !== carry.command).length && <span className="drop-line end" aria-hidden />}
             </div>
           ))}
+          {subs.map(([s]) => (
+            <button key={s} className="action submenu-row" aria-haspopup="menu" aria-expanded={sub?.set === s}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect(), p = panel.current!.getBoundingClientRect();
+                setSub(sub?.set === s ? undefined : { set: s, top: r.top - 5, right: innerWidth - p.left + 8 });
+              }}>
+              {SUBMENUS[s]}
+              <span className="action-name">{SET_TITLES[s]}</span>
+              <CaretRight size={12} weight="bold" className="submenu-caret" aria-hidden />
+            </button>
+          ))}
         </div>
       )}
+      {sub && (() => {
+        const list = subs.find(([s]) => s === sub.set)?.[1];
+        if (!list) return null;
+        const groups = sub.set === "more" ? MORE_GROUPS.map((k) => list.filter((i) => kindOf(i.command) === k)) : [list];
+        return (
+          <div ref={subBox}>
+            <Menu label={SET_TITLES[sub.set]} className="panel-submenu" columns={1} style={{ position: "fixed", top: sub.top, right: sub.right, left: "auto" }}
+              groups={groups.map((g) => g.map((i) => ({ key: i.command, name: i.name, icon: i.icon })))}
+              onChoose={(command) => { setSub(undefined); run(command); }} />
+          </div>
+        );
+      })()}
 
-      {(tray.length > 0 || carry) && (
+      {(inline.length > 0 || carry) && (
         <div className={carry && !carry.to?.rows && carry.to ? "tray receiving" : "tray"} role="toolbar" aria-label="More actions">
-          {tray.reduce<Item[][]>((sets, i, k) => (k && setOf(i.command) === setOf(tray[k - 1].command) ? (sets[sets.length - 1].push(i), sets) : [...sets, [i]]), []).map((set) => (
-            <div key={set[0].command} className="tray-set" role="group" aria-label={SET_TITLES[setOf(set[0].command)] ?? "Delete"}>
-            {SET_TITLES[setOf(set[0].command)] && <span className="tray-title" aria-hidden>{SET_TITLES[setOf(set[0].command)]}</span>}
+          {inline.map(([s, set]) => (
+            <div key={s} className="tray-set" role="group" aria-label={SET_TITLES[s]}>
+            {!(set.length === 1 && set[0].command === "delete") && <span className="tray-title" aria-hidden>{SET_TITLES[s]}</span>}
             <div className="tray-buttons">
             {set.map((i) => (
             <button
