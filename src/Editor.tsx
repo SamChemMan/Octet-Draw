@@ -614,8 +614,9 @@ export default function Editor() {
       // Settings > Files > Keep ChemDraw styles off: another program's drawing takes Octet's default style.
       const mol = read.foreign && !settings.files.keepStyle ? { ...kept, style: undefined } : kept;
       // The grid, rulers and crosshair as the drawing was saved with them; the user's last choice when it says none.
+      // A drawing saved before Show Grid, with Gridlines set (a step in mm), shows its grid as it did.
       const b = bounds(mol);
-      setGuides(saved ?? freshGuides(b && [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]));
+      setGuides(saved ?? { ...freshGuides(b && [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]), ...(typeof kept.style?.grid === "number" ? { grid: true } : {}) });
       set(mol);
       setFile({ path, saved: mol });
       setHome(false); setCoach(0);

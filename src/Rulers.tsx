@@ -34,7 +34,7 @@ export function Rulers({ view, scale, mm, origin, unit, pointer, extent, onUnit 
         {down.filter((t) => t.label).map((t) => <text key={t.at} transform={`translate(9 ${uy(t.at) + 3}) rotate(-90)`} textAnchor="end">{t.label}</text>)}
       </g>,
     ];
-  }, [x0, y0, per, unit]);
+  }, [x0, y0, per, unit, innerWidth, innerHeight]); // a larger window shows more of each ruler
   const marks = (horizontal: boolean) => {
     const at = pointer && (horizontal ? sx(pointer[0]) : sy(pointer[1])), lo = extent && (horizontal ? view.x + extent[0] * view.zoom : view.y + extent[1] * view.zoom);
     const hi = extent && (horizontal ? view.x + extent[2] * view.zoom : view.y + extent[3] * view.zoom);

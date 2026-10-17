@@ -59,7 +59,8 @@ export function loadSettings(): Settings {
       files: { ...DEFAULT_FILES, ...(typeof saved.files === "object" && saved.files ? saved.files : {}), clipboard: { ...DEFAULT_FILES.clipboard, ...(saved.files?.clipboard ?? {}) } },
       paletteWide: saved.paletteWide === true,
       snapGrid: saved.snapGrid === true,
-      guides: { grid: saved.guides?.grid === true, rulers: saved.guides?.rulers === true, crosshair: saved.guides?.crosshair === true },
+      // Settings from before Show Grid: Gridlines set (a step in mm) in the default style shows the grid.
+      guides: { grid: saved.guides ? saved.guides.grid === true : typeof saved.docStyle?.grid === "number" && saved.docStyle.grid > 0, rulers: saved.guides?.rulers === true, crosshair: saved.guides?.crosshair === true },
       rulerUnit: RULER_UNITS.some(([u]) => u === saved.rulerUnit) ? saved.rulerUnit : DEFAULTS.rulerUnit,
       properties: saved.properties === true,
       nmrMhz: typeof saved.nmrMhz === "number" && saved.nmrMhz >= 20 && saved.nmrMhz <= 1500 ? saved.nmrMhz : DEFAULTS.nmrMhz,
