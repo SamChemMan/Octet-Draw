@@ -2911,6 +2911,16 @@ export default function Editor() {
     if (sh) return <g key={key}>{shapePaths(sh, L, frame.bond).map((path, i) => <polyline key={i} className={`arrow-mark ${cls}`} points={path.map((q) => q.join(",")).join(" ")} strokeWidth={0.36 * L} />)}</g>;
     return a ? <polyline key={key} className={`arrow-mark ${cls}`} points={arrowPath(a, L).map((q) => q.join(",")).join(" ")} strokeWidth={0.36 * L} /> : null;
   };
+  // A group wholly selected: a dotted frame round all of it (its atoms with their labels, its text, arrows and shapes),
+  // so it reads as one thing.
+  const groupFrames = (shown.groups ?? []).filter((g) => g.atoms.length + g.items.length > 1 && g.atoms.every((i) => selection.has(i)) && g.items.every((id) => picked.has(id))).flatMap((g) => {
+    const boxes: Box[] = g.atoms.flatMap((i) => (drawing.ink[i] ? [drawing.ink[i]] : []));
+    for (const c of placed) if (g.items.includes(c.id)) boxes.push(c.box);
+    for (const a of arrows) if (g.items.includes(a.id)) { const ps = arrowPath(a, L); boxes.push([Math.min(...ps.map((q) => q[0])), Math.min(...ps.map((q) => q[1])), Math.max(...ps.map((q) => q[0])), Math.max(...ps.map((q) => q[1]))]); }
+    for (const sh of shown.shapes ?? []) if (g.items.includes(sh.id)) boxes.push([Math.min(sh.from[0], sh.to[0]) * L, -Math.max(sh.from[1], sh.to[1]) * L, Math.max(sh.from[0], sh.to[0]) * L, -Math.min(sh.from[1], sh.to[1]) * L]);
+    const b = union(boxes), pad = 0.6 * L; // clear of the selection marks
+    return b ? [<rect key={`gf${g.id}`} x={b[0] - pad} y={b[1] - pad} width={b[2] - b[0] + 2 * pad} height={b[3] - b[1] + 2 * pad} rx={0.15 * L} />] : [];
+  });
   // An eraser stroke: its trail, and the bonds and atoms it will remove, tinted.
   const rubbing = drag?.kind === "erase" && drag.moved ? (
     <>
@@ -3117,6 +3127,7 @@ export default function Editor() {
           {found.map((p) => doc.atoms[p.atom] && <circle key={`p${p.atom}`} className="problem-mark" cx={pos(shown, p.atom)[0] * L} cy={-pos(shown, p.atom)[1] * L} r={0.42 * L} vectorEffect="non-scaling-stroke" />)}
           {/* One group with one opacity, so overlapping marks don't stack up darker. */}
           <g className="selection-marks">{selected}</g>
+          {groupFrames.length > 0 && <g className="group-frame">{groupFrames}</g>}
           {nmrMarks.size > 0 && <g className="nmr-marks">{[...nmrMarks].filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `nmr${i}`, ""))}</g>}
           {shiftLabels().map((l) => (
             <text key={`shift${l.atom}`} className={`nmr-shift${nmrMarks.has(l.atom) ? " lit" : ""}${settings.nmrDetails ? ` q-${nmrQuality.get(l.atom)}` : ""}`} x={l.x} y={l.y} textAnchor={l.anchor} dominantBaseline="middle">{l.text}</text>

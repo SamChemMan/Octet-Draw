@@ -61,6 +61,15 @@ circle.mark {
   stroke-linecap: round;
 }
 
+/* A group wholly selected: a dotted frame round it, a hairline at any zoom. */
+.group-frame rect {
+  fill: none;
+  stroke: var(--brand-bright);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+
 /* Eraser stroke: the trail, and what it will remove in the error colour. */
 .trail {
   fill: none;
