@@ -340,3 +340,31 @@ console.log("edit.check: align ok");
   for (const i of all) assert.deepEqual(dirs.get(i), before(m, i), `atom ${i}`);
   console.log("edit.check: ring bonds and mark directions ok");
 }
+
+// IDEA-SCALE-7: bonds, chains, rings, groups and templates drawn from a scaled atom take its scale, so they match.
+{
+  const len = (mol: typeof m, b: { atoms: [number, number] }) => Math.hypot(pos(mol, b.atoms[1])[0] - pos(mol, b.atoms[0])[0], pos(mol, b.atoms[1])[1] - pos(mol, b.atoms[0])[1]);
+  const big = { atoms: [{ label: "C", location: [0, 0, 0] as [number, number, number], scale: 2 }, { label: "C", location: [2, 0, 0] as [number, number, number], scale: 2 }], bonds: [{ type: 1, atoms: [0, 1] as [number, number] }] };
+  const one = sprout(big, 1);
+  assert.ok(Math.abs(len(one, one.bonds[1]) - 2) < 1e-9 && one.atoms[2].scale === 2, "a sprouted bond is two bond lengths, and its atom is at 200%");
+  const chain = chainTo(big, 1, [2 + 4 * Math.cos(Math.PI / 6) * 2, 0]);
+  assert.equal(chain.bonds, 4, "a chain counts bonds at the atom's scale");
+  assert.ok(chain.mol.bonds.slice(1).every((b) => Math.abs(len(chain.mol, b) - 2) < 1e-9) && chain.mol.atoms.slice(2).every((a) => a.scale === 2));
+  const fused = addRing(big, 6, false, { bond: 0 });
+  assert.equal(fused.atoms.length, 6, "a ring fused on a long bond joins both its atoms");
+  assert.ok(fused.bonds.every((b) => Math.abs(len(fused, b) - 2) < 1e-9) && fused.atoms.every((a) => a.scale === 2), "its bonds are as long as the bond it is on");
+  const spiro = addRing(big, 5, false, { atom: 1 });
+  assert.ok(spiro.bonds.slice(1).every((b) => Math.abs(len(spiro, b) - 2) < 1e-9));
+  const methyl = addGroup(big, 1, "tBu");
+  assert.ok(methyl.bonds.slice(1).every((b) => Math.abs(len(methyl, b) - 2) < 1e-9) && methyl.atoms.slice(2).every((a) => a.scale === 2), "a group at the atom's scale");
+  const benzene = normalise(addRing(EMPTY, 6, true, { point: [0, 0] }));
+  const onAtom = addTemplate(big, benzene, { atom: 1 }), onBond = addTemplate(big, benzene, { bond: 0 });
+  assert.ok(onAtom.bonds.slice(1).every((b) => Math.abs(len(onAtom, b) - 2) < 1e-6) && onAtom.atoms.slice(2).every((a) => a.scale === 2), "a template on a scaled atom");
+  assert.ok(onBond.bonds.every((b) => Math.abs(len(onBond, b) - 2) < 1e-6) && onBond.atoms.every((a) => a.scale === 2), "a template on a scaled bond");
+  const chair = addChair(big, 1, { bond: 0 });
+  assert.ok(chair.atoms.every((a) => a.scale === 2));
+  // On a plain atom nothing changes: unit bonds, no scale written.
+  const plain = sprout(sprout(EMPTY, [0, 0]), 1);
+  assert.ok(plain.atoms.every((a) => !("scale" in a)) && Math.abs(len(plain, plain.bonds[1]) - 1) < 1e-9);
+  console.log("edit.check: drawing on a scaled structure ok");
+}

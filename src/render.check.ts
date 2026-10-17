@@ -179,6 +179,18 @@ console.log("render.check: written labels ok");
   assert.ok(got.labels.every((l, i) => l.text === fresh.labels[i].text && close(l.x, fresh.labels[i].x) && close(l.y, fresh.labels[i].y)), "labels where a new drawing puts them");
   assert.ok(near(got.ink, fresh.ink) && near([got.box], [fresh.box]) && near(dropped.ink, again.ink), "ink boxes where a new drawing puts them");
   assert.equal(dropped.parts[0].drawing, before.parts[0].drawing, "the rest is not drawn again");
+  // A scale during a drag (positions and atoms' scales together, IDEA-SCALE-3): the drawing is kept, scaled by k and
+  // moved; once still, it is drawn again.
+  const grow = (k: number): Mol => ({ ...m, atoms: m.atoms.map((a, i) => (i >= 6 && i < 12 ? { ...a, scale: k, location: [1 + (a.location[0] - 1) * k, 2 + (a.location[1] - 2) * k, (a.location[2] ?? 0) * k] as [number, number, number] } : a)) });
+  const scaling: PartCache = { parts: new WeakMap(), last: new Map() }, start = renderParts(m, S, ink, S.bond, scaling, false), big = renderParts(grow(2), S, ink, S.bond, scaling, false);
+  assert.equal(big.parts[1].drawing, start.parts[1].drawing, "scaled, not drawn again");
+  assert.equal(big.parts[1].k, 2);
+  assert.ok(near(big.ink.slice(6, 12), render(grow(2), S, ink, S.bond).ink.slice(6, 12)), "ink boxes where a new drawing puts them");
+  const flat = renderParts({ ...grow(2), atoms: grow(2).atoms.map((a, i) => (i >= 6 && i < 12 ? { ...a, scale: undefined } : a)) }, S, ink, S.bond, scaling, false);
+  assert.equal(flat.parts[1].k, 1, "positions alone are not a scale of the drawing");
+  const still = renderParts(grow(2), S, ink, S.bond, scaling, true);
+  assert.notEqual(still.parts[1].drawing, start.parts[1].drawing, "drawn again when still");
+  assert.equal(still.parts[1].k, 1);
   console.log("render.check: structure by structure ok");
 }
 

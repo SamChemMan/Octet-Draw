@@ -34,6 +34,20 @@ decision 0003 (templates on New drawing).
 - Limits widen so that no scaled value falls back to a default: lengths to 10 times their old upper limits,
   font sizes 0.1 to 999 pt (ChemDraw: 5 to 999 pt).
 
+- The selection's frame has 8 resize handles for every kind of selection (IDEA-SCALE-3). A corner scales in
+  proportion, a side stretches and moves geometry only, Shift turns proportion over, Option scales about the middle.
+  The drag stops softly at 100% and where the median bond is the document's bond length (⌘ turns the stops off).
+  A double-click on a handle opens Scale…. ChemDraw 26.1 has no key for "about the middle" on its handles.
+- The whole drawing (nothing selected, or everything) scaled in proportion with "Labels and lines" on changes the
+  document scale, not each object's scale (IDEA-SCALE-8). Octet does not ask, as ChemDraw does. What is drawn next
+  then matches. The drawing keeps its place on screen.
+- A bond, chain, ring, group or template drawn from an atom takes the atom's scale. Clean Up keeps each structure's
+  scale (IDEA-SCALE-7). ChemDraw's sprouted bonds take the structure's own bond length too.
+- A paste or import from a drawing of other sizes keeps text in proportion, by ChemDraw's two rules: an atom's own
+  label size goes by the ratio of the label sizes, a caption's size by the ratio of the bond lengths (IDEA-SCALE-10,
+  IDEA-SIZE-10). Octet's clipboard keeps the source style for this. Octet shows no dialog. ChemDraw's "Change
+  Settings" choice (an empty document takes the pasted drawing's settings) is not in Octet.
+
 ## Why
 
 Sam: a structure scaled to 300% must not keep 0.6 pt lines and 10 pt labels, and Arial 10 pt is right for a

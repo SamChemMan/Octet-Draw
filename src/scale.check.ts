@@ -2,7 +2,8 @@
 // proportion (decision 0007).
 import assert from "node:assert/strict";
 import { DEFAULT_STYLE, PRESETS, TEXT_SIZES, presetAt, presetOf, readStyle, roundPt, sizeAt, withScale } from "./docstyle.ts";
-import { fitTable, scaleSettings, scaleSizes, sizeTable } from "./edit.ts";
+import { fitSizes, fitTable, medianBond, scaleSettings, scaleSizes, sizeTable, transformParts } from "./edit.ts";
+import { handlePoint, percentOf, resizeBy, type Box } from "./resize.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { tableLayout, type Mol, type Shape } from "./render.ts";
 
@@ -83,4 +84,63 @@ console.log("scale.check: text sizes ok");
 <n id="1" p="100 100"/><n id="2" p="114.4 100"/><n id="3" p="128.8 100"/><b id="4" B="1" E="2" HashSpacing="2.70"/><b id="5" B="2" E="3"/></fragment></page></CDXML>`);
   assert.deepEqual(two.lost, { "bond settings": 1 });
   console.log("scale.check: atoms on their own ok");
+}
+
+// IDEA-SCALE-4: a caption scales about its middle, wherever its anchor is. With Labels and lines its text grows with
+// it (scaleSettings); without, it keeps its size and its middle.
+{
+  const m: Mol = { atoms: [], bonds: [], captions: [{ id: 1, text: "left text", x: 10, y: 5, align: "left" }] };
+  const middle = new Map([[1, [12, 5.3] as [number, number]]]), about = ([x, y]: [number, number]): [number, number] => [12 + (x - 12) * 2, 5.3 + (y - 5.3) * 2];
+  const on = transformParts(m, new Set(), new Set([1]), about, [2, 2], middle, 2).captions![0];
+  assert.deepEqual([on.x, on.y], [8, 4.7], "the anchor moves away from the middle as the text grows");
+  const off = transformParts(m, new Set(), new Set([1]), about, [2, 2], middle, 1).captions![0];
+  assert.deepEqual([off.x, off.y], [10, 5], "the text keeps its size and its middle");
+  const grown = scaleSettings(m, new Set(), new Set([1]), 2, 10).captions![0];
+  assert.equal(grown.size, 20, "its size doubles from the document's");
+  // A turn moves a caption's middle, not its anchor, so a lone caption stays where it is.
+  const turned = transformParts(m, new Set(), new Set([1]), ([x, y]) => [12 - (y - 5.3), 5.3 + (x - 12)], [1, 1], middle).captions![0];
+  assert.deepEqual([turned.x, turned.y], [10, 5]);
+  console.log("scale.check: captions ok");
+}
+
+// IDEA-SCALE-5: the median bond counts only bonds with both atoms chosen; none gives undefined.
+{
+  const m: Mol = { atoms: [0, 1, 3, 6].map((x) => ({ label: "C", location: [x, 0, 0] as [number, number, number] })), bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [1, 2] }, { type: 1, atoms: [2, 3] }] };
+  assert.equal(medianBond(m, new Set([0, 1, 2, 3])), 2);
+  assert.equal(medianBond(m, new Set([2, 3])), 3);
+  assert.equal(medianBond(m, new Set([0, 2])), undefined);
+  console.log("scale.check: median bond ok");
+}
+
+// IDEA-SCALE-3: the resize handles. A corner scales in proportion about the opposite corner; Shift stretches it freely;
+// Option scales about the middle; a side stretches one way; the soft stops hold near 100% and the bond stop.
+{
+  const b: Box = [0, 0, 4, 2];
+  assert.deepEqual(handlePoint(b, "ne"), [4, 2]);
+  assert.deepEqual(resizeBy(b, "ne", [8, 4], {}), { size: [2, 2], anchor: [0, 0] });
+  assert.deepEqual(resizeBy(b, "ne", [8, 2], { shift: true }), { size: [2, 1], anchor: [0, 0] }, "Shift: across only");
+  assert.deepEqual(resizeBy(b, "sw", [-2, -1], { alt: true }), { size: [2, 2], anchor: [2, 1] }, "Option: about the middle");
+  assert.deepEqual(resizeBy(b, "e", [6, 9], {}), { size: [1.5, 1], anchor: [0, 1] }, "a side stretches across only");
+  assert.deepEqual(resizeBy(b, "n", [9, 3], { shift: true }).size, [1.5, 1.5], "Shift on a side keeps proportion");
+  assert.deepEqual(resizeBy(b, "ne", [4.1, 2.05], {}, [1, 1.25], 0.2).size, [1, 1], "the 100% stop holds");
+  assert.deepEqual(resizeBy(b, "ne", [5.05, 2.5], {}, [1, 1.25], 0.2).size, [1.25, 1.25], "the bond stop holds");
+  assert.deepEqual(resizeBy(b, "ne", [-5, -5], {}).size, [0.05, 0.05], "never flips");
+  assert.deepEqual([percentOf([1.5, 1.5]), percentOf([1.2345, 1])], ["150%", "123.5% × 100%"]);
+  console.log("scale.check: resize handles ok");
+}
+
+// IDEA-SCALE-10 and IDEA-SIZE-10: a paste from a drawing of other sizes. Captions go by the ratio of bond lengths
+// (24 pt beside 30 pt bonds becomes 11.52 pt beside 14.4 pt bonds), own label sizes by the ratio of label sizes
+// (8 pt in a 16 pt drawing becomes 7 pt in a 14 pt one).
+{
+  const m: Mol = { atoms: [{ label: "N", location: [0, 0, 0], size: 8 }, { label: "C", location: [1, 0, 0] }], bonds: [],
+    captions: [{ id: 1, text: "a", x: 0, y: 0, size: 24 }, { id: 2, text: "b", x: 0, y: 0 }, { id: 3, text: "c", x: 0, y: 0, runs: [{ text: "c", size: 30 }] }],
+    shapes: [{ id: 4, kind: "table", from: [0, 0], to: [1, 1], table: { cells: [["x"]], weight: 1 } }] };
+  const from = { bond: 30, labelSize: 16, captionSize: 20.8333 }, to = { bond: 14.4, labelSize: 14, captionSize: 10 };
+  const fit = fitSizes(m, from, to);
+  assert.deepEqual([fit.atoms[0].size, fit.atoms[1].size], [7, undefined]);
+  assert.deepEqual(fit.captions!.map((c) => c.size), [11.52, undefined, undefined], "the source's caption size lands on this drawing's, so it is left unset");
+  assert.deepEqual([fit.captions![2].runs![0].size, fit.shapes![0].table!.weight], [14.4, 0.48]);
+  assert.equal(fitSizes(m, to, to), m, "the same sizes change nothing");
+  console.log("scale.check: paste sizes ok");
 }

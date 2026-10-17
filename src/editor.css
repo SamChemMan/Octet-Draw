@@ -985,6 +985,16 @@ button.variant.add {
   color: var(--ink-muted);
   font: 600 11px/14px var(--font-sans);
 }
+/* The selection's scale: its title, and the field in percent at the end of the row. */
+.scale-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-2) var(--space-1) 0;
+}
+.scale-row .tray-title {
+  padding: 0 var(--space-2);
+}
 /* The colour section: its title, the swatches and the highlight buttons, with a hairline under it before the rows. */
 .colour-block {
   display: grid;
@@ -2641,7 +2651,22 @@ button.variant.add {
   font: 11px var(--font-sans);
 }
 
-/* The selection's rotation handle (top right of the selection), and the angle shown while turning. */
+/* The selection's frame and its resize handles: small squares at the corners and the middles of the sides. */
+.selection-frame {
+  fill: none;
+  stroke: var(--brand-bright);
+  stroke-width: 1;
+}
+.resize-handle {
+  fill: var(--canvas);
+  stroke: var(--brand-bright);
+  stroke-width: 1.25;
+  transition: fill 120ms ease-out;
+}
+.resize-handle.hot {
+  fill: var(--brand-mist);
+}
+/* The selection's rotation handle (top right of the selection), and the angle (or the scale) shown while dragging. */
 .turn-handle circle {
   fill: var(--surface-raised);
   stroke: var(--brand-bright);
@@ -4040,4 +4065,9 @@ button.variant.add {
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
+}
+
+/* Scale…: a choice that does not apply (the median bond rows with no bond chosen) is dimmed. */
+.dialog-row:has(input:disabled) {
+  color: var(--ink-muted);
 }

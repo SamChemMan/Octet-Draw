@@ -57,15 +57,16 @@ const plain = measurer(FONT, STYLE.size);
 export const measure = (text: string, face?: Face): Ink =>
   face ? measurer(face.font ? fontStack(face.font) : FONT, STYLE.size, !!face.bold, !!face.italic)(text) : plain(text);
 
-// A caption line's advance width in px, in the caption font.
+// A caption line's advance width in px, in the caption font. A width grows with the size (to within 0.04 px up to
+// 40 px), so each text is measured once, at 100 px, for every size: a scale drag measures nothing again.
 const CAPTION_FONT = token("--caption-font");
 const widths = new Map<string, number>();
 const meter = document.createElement("canvas").getContext("2d")!;
 export function textWidth(text: string, size: number, bold?: boolean, italic?: boolean, family = CAPTION_FONT): number {
-  const font = `${italic ? "italic " : ""}${bold ? "bold " : ""}${size}px ${family}`, key = `${font}|${text}`;
+  const face = `${italic ? "italic " : ""}${bold ? "bold " : ""}`, key = `${face}${family}|${text}`;
   let w = widths.get(key);
-  if (w === undefined) { meter.font = font; w = meter.measureText(text).width; widths.set(key, w); }
-  return w;
+  if (w === undefined) { meter.font = `${face}100px ${family}`; w = meter.measureText(text).width / 100; widths.set(key, w); }
+  return w * size;
 }
 export { CAPTION_FONT };
 
@@ -228,8 +229,8 @@ export function toInchi(drawn: Mol | string): string | undefined {
 }
 
 // Clean Up Structure: Indigo straightens bond lengths and angles, structure by structure. Each structure the
-// selection touches (or every structure, with nothing selected) is cleaned whole, scaled back to one bond
-// length per bond, and kept centred where it was.
+// selection touches (or every structure, with nothing selected) is cleaned whole, scaled to one bond length per
+// bond at the structure's own scale (the median of its atoms' scales, decision 0007), and kept centred where it was.
 export function cleanUp(mol: Mol, ids?: Set<number>): Mol {
   const ind = engine(), atoms = mol.atoms.map((a) => ({ ...a }));
   for (const frag of fragments(mol)) {
@@ -254,7 +255,8 @@ export function cleanUp(mol: Mol, ids?: Set<number>): Mol {
         const [p, q] = [out[local.get(b.atoms[0])!].location, out[local.get(b.atoms[1])!].location];
         return Math.hypot(q[0] - p[0], q[1] - p[1]);
       }).sort((a, b) => a - b);
-      const scale = 1 / (lengths[Math.floor(lengths.length / 2)] || 1);
+      const own = frag.map((i) => mol.atoms[i].scale ?? 1).sort((a, b) => a - b)[Math.floor(frag.length / 2)];
+      const scale = own / (lengths[Math.floor(lengths.length / 2)] || 1);
       const centre = (pts: number[][]) => [0, 1].map((k) => pts.reduce((sum, p) => sum + p[k], 0) / pts.length);
       const [ox, oy] = centre(frag.map((i) => mol.atoms[i].location)), [nx, ny] = centre(out.map((a) => a.location));
       frag.forEach((i, k) => {

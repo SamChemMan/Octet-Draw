@@ -56,6 +56,7 @@ type Props = {
   grouping?: { grouped: boolean; integral: boolean }; // two or more things selected (Group), or a group (Ungroup)
   menus?: boolean; // Settings > Actions panel: each set of small actions as a titled row that opens its menu
   sizes: number[]; // the text sizes on offer: ChemDraw's, times the document scale
+  scale?: number | null; // the selection's scale against the document (decision 0007); null when its parts differ
 };
 
 const ELEMENTS = ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"];
@@ -244,6 +245,30 @@ function SizeButton({ size, sizes, run }: { size: number; sizes: number[]; run: 
   );
 }
 
+// The selection's scale against the document's style, in percent: blank when its parts differ. A typed value sets it
+// (100 matches the document). Enter or leaving the field sets it; Escape leaves it as it was.
+function ScaleField({ scale, run }: { scale: number | null; run: (command: string) => void }) {
+  const shown = scale === null ? "" : String(Math.round(scale * 1000) / 10);
+  const [typed, setTyped] = useState<string>();
+  const cancel = useRef(false);
+  const done = () => {
+    const n = Number(typed), keep = !cancel.current && !!typed && n > 0 && n <= 10000 && typed !== shown;
+    cancel.current = false;
+    setTyped(undefined);
+    if (keep) run(`scale.${n}`);
+  };
+  return (
+    <label className="scale-row">
+      <span className="tray-title">Scale</span>
+      <span className="unit-field">
+        <input aria-label="Scale" inputMode="decimal" placeholder={scale === null ? "Mixed" : undefined} value={typed ?? shown}
+          onFocus={(e) => { setTyped(shown); e.target.select(); }} onChange={(e) => setTyped(e.target.value.replace(/[^\d.]/g, ""))} onBlur={done}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); cancel.current = e.key === "Escape"; e.currentTarget.blur(); } }} />
+        <span className="unit">%</span>
+      </span>
+    </label>
+  );
+}
 
 // Octet's one slider: a name, the track, and the value as it reads. Use it wherever a value is dragged.
 export function Slider({ name, value, min, max, step, show, onChange }: { name: string; value: number; min: number; max: number; step: number; show: (v: number) => string; onChange: (v: number) => void }) {
@@ -426,7 +451,7 @@ function Row({ icon, name, command, hint, run, accent }: { icon: React.ReactNode
   );
 }
 
-export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus, sizes }: Props) {
+export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus, sizes, scale }: Props) {
   // An action being dragged to a new place: in the rows (index among rows) or the small buttons (index among them).
   const [carry, setCarry] = useState<{ command: string; x: number; y: number; to?: { rows: boolean; index: number } }>();
   const dragged = useRef(false);
@@ -834,6 +859,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           </div>
         );
       })()}
+      {scale !== undefined && <ScaleField scale={scale} run={run} />}
       {colour && (
         // Colour is a section of its own, titled like the sets below, and set off from the main rows.
         <div className="colour-block" role="group" aria-label="Colour">

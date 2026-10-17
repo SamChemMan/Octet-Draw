@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { DAMAGED, NOT_CDXML, TOO_BIG, fmt, fmtAngle, fmtColour, fmtSize, fromCdxml, parseXml, toCdxml, type Xml } from "./cdxml.ts";
 import { DEFAULT_STYLE, PRESETS, readStyle, withScale, type DocStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
+import { fitSizes } from "./edit.ts";
 import { HIGHLIGHT, headsOf, takesHeads, tlcLayout, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape } from "./render.ts";
 
 // Numbers as ChemDraw writes them (spec 1.2).
@@ -402,4 +403,16 @@ console.log("cdxml.check: every object kind round trips");
   assert.deepEqual(one(`LineWidth="1.20" BoldWidth="2"`).lost, { "bond settings": 1 });
   assert.deepEqual(one(`LineWidth="0.90" BoldWidth="3.02" HashSpacing="3.75"`).mol.atoms.map((a) => a.scale), [1.5, 1.5], "agreeing within 2%");
   console.log("cdxml.check: scaled objects and the document scale ok");
+}
+
+// IDEA-SCALE-10: a ChemDraw drawing pasted or imported into one of other sizes keeps its text in proportion. A 24 pt
+// caption beside 30 pt bonds lands at 11.52 pt beside 14.4 pt bonds (and the source's 12 pt default at 5.76 pt); an
+// 8 pt label in a 16 pt-label drawing lands at 7 pt in a 14 pt one.
+{
+  const r = fromCdxml(`<CDXML BondLength="30" LabelSize="16" CaptionSize="12" LineWidth="1" BoldWidth="2" HashSpacing="2.50" MarginWidth="1.60" BondSpacing="18"><fonttable><font id="3" charset="iso-8859-1" name="Arial"/></fonttable><page><fragment>
+<n id="1" p="100 100" Element="7"><t p="96 104"><s font="3" size="8" face="96">N</s></t></n><n id="2" p="130 100"/><b id="3" B="1" E="2"/></fragment>
+<t id="4" p="100 160"><s font="3" size="24" face="0">Big caption</s></t><t id="5" p="100 200"><s font="3" size="12" face="0">Default caption</s></t></page></CDXML>`);
+  const fit = fitSizes(r.mol, r.style, { ...DEFAULT_STYLE, labelSize: 14 });
+  assert.deepEqual([fit.atoms.map((a) => a.size), fit.captions!.map((c) => c.size)], [[7, undefined], [11.52, 5.76]]);
+  console.log("cdxml.check: paste sizes ok");
 }
