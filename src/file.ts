@@ -1,5 +1,5 @@
 // Octet's own file format: versioned, human-readable JSON. Treat every file as hostile: check it fully on read.
-import { FONTS, readStyle } from "./docstyle.ts";
+import { fontName, readStyle } from "./docstyle.ts";
 import { normalise, plainOf, type TextRun } from "./richtext.ts";
 import { ALL_ARROW_KINDS, ORBITAL_SHAPES, PHASES, SHAPE_KINDS, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type Grid, type TableLine, type CellAlign, type Tlc, type Atom, type Bond, type Caption, type Display, type Mol } from "./render.ts";
 
@@ -50,7 +50,7 @@ function readRuns(v: unknown, text: string): TextRun[] | undefined {
   if (!Array.isArray(v) || !v.length || v.length > 2000) return undefined;
   const ok = (r: Record<string, unknown>) => typeof r === "object" && r && typeof r.text === "string" && r.text.length <= MAX_TEXT
     && (r.bold === undefined || r.bold === true) && (r.italic === undefined || r.italic === true) && (r.underline === undefined || r.underline === true)
-    && (r.script === undefined || r.script === "sub" || r.script === "super") && (r.font === undefined || FONTS.includes(r.font as string))
+    && (r.script === undefined || r.script === "sub" || r.script === "super") && (r.font === undefined || fontName(r.font))
     && (r.size === undefined || (typeof r.size === "number" && r.size >= 4 && r.size <= 144)) && (r.colour === undefined || (typeof r.colour === "string" && /^#[0-9a-f]{6}$/i.test(r.colour)))
     && Object.keys(r).every((k) => ["text", "bold", "italic", "underline", "script", "font", "size", "colour"].includes(k));
   if (!(v as Record<string, unknown>[]).every(ok)) return undefined;
@@ -147,7 +147,7 @@ export function parse(text: string): Mol {
     if (a.number) atom.number = a.number as string;
     if (a.ignoreWarnings === true) atom.ignoreWarnings = true;
     // The label's own text style; anything out of range is left out.
-    if (typeof a.font === "string" && FONTS.includes(a.font)) atom.font = a.font;
+    if (fontName(a.font)) atom.font = a.font;
     if (typeof a.size === "number" && a.size >= 4 && a.size <= 72) atom.size = a.size;
     if (a.bold === true) atom.bold = true;
     if (a.italic === true) atom.italic = true;
@@ -259,7 +259,7 @@ function readCaptions(raw: unknown, out: Mol, num: (v: unknown) => boolean, int:
       || (under !== undefined && (!Array.isArray(under) || !under.length || under.length > out.atoms.length || !under.every((i) => int(i, 0, out.atoms.length - 1))))
       || (on !== undefined && (!int(on?.arrow, 0, (out.arrows?.length ?? 0) - 1) || (on.side !== "above" && on.side !== "below")))
       || (cyc !== undefined && (!int(cyc?.cycle, 0, (out.cycles?.length ?? 0) - 1) || !int(cyc.step, 0, 63) || !["in", "out", "centre"].includes(cyc.side as string)))
-      || (c.font !== undefined && !FONTS.includes(c.font as string)) || (c.runs !== undefined && readRuns(c.runs, c.text) === undefined)) throw new Error("This drawing is damaged.");
+      || (c.font !== undefined && !fontName(c.font)) || (c.runs !== undefined && readRuns(c.runs, c.text) === undefined)) throw new Error("This drawing is damaged.");
     const caption: Caption = { id: k + 1, text: c.text, x: c.x as number, y: c.y as number };
     if (c.bold) caption.bold = true;
     if (c.italic) caption.italic = true;

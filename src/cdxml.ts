@@ -7,7 +7,7 @@
 // Objects written only so ChemDraw can show something Octet draws itself (a table's lines, a cycle's arrows) carry
 // Octet='{"d":1}', and Octet skips them when it reads its own file back.
 
-import { FONTS, PAGES, pageSize, readStyle, type DocStyle } from "./docstyle.ts";
+import { FONTS, PAGES, fontName, pageSize, readStyle, type DocStyle } from "./docstyle.ts";
 import {
   HIGHLIGHT, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, straightArrow, tableLayout, takesHeads, tlcLayout,
   ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS,
@@ -718,11 +718,12 @@ const isNum = (v: unknown, lo: number, hi: number): v is number => typeof v === 
 // Text Octet can hold: no control characters but line breaks, tabs as spaces.
 const cleanText = (s: string) => s.replace(/\t/g, " ").replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, "");
 
-// A font name as one of Octet's fonts, with the bold or italic its name carries ("Arial Bold Italic").
+// A font name as one of Octet's fonts, or as the family named, with the bold or italic its name carries ("Arial Bold
+// Italic"). Symbol is left out: ChemDraw writes Greek in it as Latin letters.
 function fontOf(name?: string): { font?: string; bold?: true; italic?: true } {
   if (!name) return {};
-  const base = name.replace(/\b(Bold|Black|Heavy|Italic|Oblique|Regular|MT|PSMT)\b/gi, "").replace(/[-,]/g, " ").trim().replace(/\s+/g, " ").toLowerCase();
-  const font = FONTS.find((f) => f.toLowerCase() === base) ?? (base === "times" ? "Times New Roman" : base.startsWith("helvetica") ? "Helvetica" : base.startsWith("arial") ? "Arial" : undefined);
+  const family = name.replace(/\b(Bold|Black|Heavy|Italic|Oblique|Regular|MT|PSMT)\b/gi, "").replace(/[-,]/g, " ").trim().replace(/\s+/g, " "), base = family.toLowerCase();
+  const font = FONTS.find((f) => f.toLowerCase() === base) ?? (base === "times" ? "Times New Roman" : base.startsWith("helvetica") ? "Helvetica" : base.startsWith("arial") ? "Arial" : base !== "symbol" && fontName(family) ? family : undefined);
   return { font, ...(/\b(Bold|Black|Heavy)\b/i.test(name) ? { bold: true as const } : {}), ...(/\b(Italic|Oblique)\b/i.test(name) ? { italic: true as const } : {}) };
 }
 

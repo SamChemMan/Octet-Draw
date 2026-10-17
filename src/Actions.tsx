@@ -15,7 +15,8 @@ import type { Problem } from "./check";
 import { Menu } from "./Menu";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
-import { COLOURS, FONTS, TINTS } from "./docstyle";
+import { invoke } from "@tauri-apps/api/core";
+import { COLOURS, fontStack, TINTS } from "./docstyle";
 import { ArrowGlyph, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, SymbolGlyph, type BondKind } from "./tools";
 
 // A selected atom label's text style (the first labelled atom's, for a structure), for the label style buttons.
@@ -41,6 +42,7 @@ type Props = {
   context: Context;
   analysis?: Analysis;
   problems: Problem[];
+  fonts: string[]; // Octet's fonts, then the other fonts the drawing uses
   hiddenWarnings?: boolean; // a selected atom has its warnings hidden
   messy: boolean;
   hint: (command: string) => string | undefined; // the key for a command, if it has one
@@ -109,12 +111,13 @@ function PickButton({ label, value, options, onPick }: { label: string; value: s
   );
 }
 
-// Where a font or size list opens: fixed to the window, so the panel's scrolling never cuts it off. It opens under
-// its button when it fits there, else over it, right edges lined up, and scrolls when neither side has room.
+// Where a font or size list opens: fixed to the window, so the panel's scrolling never cuts it off. Every list opens
+// over its button (Sam, 17 October 2026), right edges lined up, scrolling when it is taller than the room there; under
+// it only when not even six rows fit above and there is more room below.
 function dropStyle(anchor: HTMLElement | null, items: number): React.CSSProperties {
   if (!anchor) return {};
   const r = anchor.getBoundingClientRect(), want = items * 26 + 10, below = innerHeight - r.bottom - 12, above = r.top - 12;
-  const down = below >= want || below >= above;
+  const down = above < Math.min(want, 6 * 26 + 10) && below > above;
   return {
     position: "fixed", right: innerWidth - r.right, minWidth: r.width, zIndex: 20, overflowY: "auto", maxHeight: Math.max(80, (down ? below : above) - 4),
     ...(down ? { top: r.bottom + 4, bottom: "auto", transformOrigin: "top right" } : { bottom: innerHeight - r.top + 4, top: "auto", transformOrigin: "bottom right" }),
@@ -123,8 +126,16 @@ function dropStyle(anchor: HTMLElement | null, items: number): React.CSSProperti
 // A list closes when its button scrolls away under it, as when the panel scrolls.
 const closeOnScroll = (box: React.RefObject<HTMLDivElement | null>, close: () => void) => (e: Event) => { if (!box.current?.contains(e.target as Node)) close(); };
 
+// The computer's fonts, asked for once (the app lists them; a browser cannot).
+const TAURI = "__TAURI_INTERNALS__" in window;
+let installed: Promise<string[]> | undefined;
+const systemFonts = () => (installed ??= invoke<string[]>("system_fonts").catch(() => []));
+
+// The font list: Octet's fonts and the drawing's, then More fonts…, which lists every font on the computer with a
+// field to find one, as ChemDraw's Font menu lists every installed font.
 function FontButton({ font, fonts, run }: { font: string; fonts: string[]; run: (command: string) => void }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(false), [all, setAll] = useState<string[]>(), [query, setQuery] = useState("");
+  const show = (o: boolean) => { setOpen(o); setAll(undefined); setQuery(""); };
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -138,17 +149,33 @@ function FontButton({ font, fonts, run }: { font: string; fonts: string[]; run: 
   }, [open]);
   return (
     <div className="size font" ref={box}>
-      <button className="chip size-button" aria-haspopup="menu" aria-expanded={open} title="Font" onClick={() => setOpen(!open)} style={{ fontFamily: font }}>
-        {font}
+      <button className="chip size-button" aria-haspopup="menu" aria-expanded={open} title="Font" onClick={() => show(!open)} style={{ fontFamily: fontStack(font) }}>
+        <span className="font-name">{font}</span>
         <CaretDown size={12} aria-hidden />
       </button>
-      {open && (
-        <div className="size-menu" role="menu" aria-label="Font" style={dropStyle(box.current, fonts.length)}>
-          {fonts.map((f) => (
-            <button key={f} role="menuitemradio" aria-checked={f === font} style={{ fontFamily: f }} onClick={() => { setOpen(false); if (f !== font) run(`caption.font.${f}`); }}>{f}</button>
-          ))}
-        </div>
-      )}
+      {open && (() => {
+        const pick = (f: string) => { show(false); if (f !== font) run(`caption.font.${f}`); };
+        const item = (f: string) => <button key={f} role="menuitemradio" aria-checked={f === font} style={{ fontFamily: fontStack(f) }} onClick={() => pick(f)}>{f}</button>;
+        const shortList = fonts.includes(font) ? fonts : [font, ...fonts];
+        const found = all?.filter((f) => f.toLowerCase().includes(query.trim().toLowerCase())) ?? [];
+        return (
+          <div className="size-menu font-menu" role="menu" aria-label="Font" style={dropStyle(box.current, all ? 14 : shortList.length + (TAURI ? 1 : 0))}>
+            {all === undefined ? (
+              <>
+                {shortList.map(item)}
+                {TAURI && <button className="more-fonts" onClick={() => void systemFonts().then(setAll)}>More fonts…</button>}
+              </>
+            ) : (
+              <>
+                <input className="font-search" autoFocus placeholder="Find a font" aria-label="Find a font" value={query} spellCheck={false}
+                  onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && found[0]) { e.preventDefault(); pick(found[0]); } }} />
+                {found.slice(0, 300).map(item)}
+                {!found.length && <p className="font-none">No fonts match</p>}
+              </>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -399,7 +426,7 @@ function Row({ icon, name, command, hint, run, accent }: { icon: React.ReactNode
   );
 }
 
-export function Actions({ open, context, analysis, problems, hiddenWarnings, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus }: Props) {
+export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus }: Props) {
   // An action being dragged to a new place: in the rows (index among rows) or the small buttons (index among them).
   const [carry, setCarry] = useState<{ command: string; x: number; y: number; to?: { rows: boolean; index: number } }>();
   const dragged = useRef(false);
@@ -656,7 +683,7 @@ export function Actions({ open, context, analysis, problems, hiddenWarnings, mes
           {([["bold", "Bold", <TextB size={16} weight="bold" />, context.text.bold], ["italic", "Italic", <TextItalic size={16} />, context.text.italic], ["underline", "Underline", <TextUnderline size={16} />, context.text.underline]] as const).map(([id, name, icon, on]) => (
             <button key={id} className="chip" aria-pressed={on} aria-label={name} title={hint(`caption.${id}`) ? `${name} (${hint(`caption.${id}`)})` : name} onClick={() => run(`caption.${id}`)}>{icon}</button>
           ))}
-          <FontButton font={context.text.font} fonts={FONTS} run={run} />
+          <FontButton font={context.text.font} fonts={fonts} run={run} />
           <SizeButton size={context.text.size} run={run} />
         </div>
       )}

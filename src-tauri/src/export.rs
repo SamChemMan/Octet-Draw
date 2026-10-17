@@ -27,6 +27,20 @@ fn fonts() -> Arc<fontdb::Database> {
     }).clone()
 }
 
+// Every font family on the computer, for the font lists, as ChemDraw's Font menu lists every installed font. Hidden
+// system fonts (their names start with a dot) are left out.
+#[tauri::command]
+pub async fn system_fonts() -> Vec<String> {
+    let mut names: Vec<String> = fonts()
+        .faces()
+        .filter_map(|f| f.families.first().map(|(n, _)| n.trim().to_string()))
+        .filter(|n| !n.is_empty() && !n.starts_with('.') && n.len() <= 64)
+        .collect();
+    names.sort_by_cached_key(|n| n.to_lowercase());
+    names.dedup();
+    names
+}
+
 fn tree(svg: &str) -> Result<usvg::Tree, String> {
     if svg.len() > MAX_SVG {
         return Err("This drawing is too large to export.".into());

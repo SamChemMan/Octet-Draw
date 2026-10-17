@@ -46,6 +46,9 @@ export const PRESETS: Record<string, Drawn> = {
 export const DEFAULT_STYLE: DocStyle = { preset: "ACS Document 1996", page: "A4", custom: [180, 120], landscape: false, edges: true, grid: 0, background: "white", colour: "#000000", terminalLabels: false, carbonLabels: false, hideH: false, ...PRESETS["ACS Document 1996"] };
 
 export const FONTS = ["Arial", "Helvetica", "Times New Roman", "Calibri", "Cambria", "Georgia"];
+// Any font on the computer can be used too, by its family name. A name with quotes, slashes or CSS punctuation is
+// refused, so a name from a file cannot break out of a style.
+export const fontName = (f: unknown): f is string => typeof f === "string" && f.trim() === f && /^[^"'\\;{}<>\u0000-\u001f]{1,64}$/.test(f);
 // A font with fallbacks that keep its metrics close on every platform.
 export const fontStack = (f: string) =>
   f === "Helvetica" ? "Helvetica, Arial, sans-serif" : f === "Arial" ? "Arial, Helvetica, sans-serif" : /Times|Georgia|Cambria/.test(f) ? `"${f}", "Times New Roman", serif` : `"${f}", Arial, sans-serif`;
@@ -78,8 +81,8 @@ export function readStyle(v: unknown): DocStyle {
     landscape: s.landscape === true, edges: s.edges !== false, grid: num("grid", 0, 50),
     background: BACKGROUNDS.some(([b]) => b === s.background) ? (s.background as Background) : "white",
     bond: num("bond", 4, 72), line: num("line", 0.1, 6), bold: num("bold", 0.2, 12), margin: num("margin", 0, 10), hash: num("hash", 0.5, 10), spacing: num("spacing", 5, 40),
-    labelFont: text("labelFont", (t) => FONTS.includes(t)), labelSize: num("labelSize", 4, 72),
-    captionFont: text("captionFont", (t) => FONTS.includes(t)), captionSize: num("captionSize", 4, 72),
+    labelFont: text("labelFont", fontName), labelSize: num("labelSize", 4, 72),
+    captionFont: text("captionFont", fontName), captionSize: num("captionSize", 4, 72),
     colour: text("colour", (t) => /^#[0-9a-f]{6}$/i.test(t)),
     terminalLabels: s.terminalLabels === true, carbonLabels: s.carbonLabels === true, hideH: s.hideH === true,
   };

@@ -1154,6 +1154,48 @@ button.variant.add {
   font-size: 13px;
   text-align: left;
 }
+/* The font list: More fonts… under a hairline, and the computer's fonts with a field to find one. */
+.font-menu {
+  width: 220px;
+  max-width: calc(100vw - 32px);
+}
+.font-menu button {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.font-menu .more-fonts {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--hairline);
+  border-radius: 0 0 var(--radius-xs) var(--radius-xs);
+  color: var(--ink-muted);
+}
+.font-search {
+  position: sticky;
+  top: -4px;
+  z-index: 1;
+  height: 28px;
+  margin: -4px -4px 4px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface-raised);
+  color: var(--ink);
+  font: 13px var(--font-sans);
+  outline: none;
+}
+.font-none {
+  margin: 0;
+  padding: var(--space-2);
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+.size-button .font-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .size-menu button[aria-checked="true"] {
   color: var(--brand);
   font-weight: 600;
