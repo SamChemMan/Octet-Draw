@@ -16,7 +16,7 @@ import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
-  addShape, addSymbol, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirection, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
+  addShape, addSymbol, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { loadSettings, saveSettings } from "./settings";
@@ -51,7 +51,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, Palette, RingGlyph, RINGS, SELECTS, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, orbitalPaths, straightArrow, shapeInk, shapePaths, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
+import { arrowPath, arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, orbitalPaths, straightArrow, shapeInk, shapePaths, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
 import { loadNames, nameToSmiles, suggestName } from "./names";
 import { checkedName, graphOf, setNamer } from "./naming";
@@ -168,8 +168,25 @@ function rub(m: Mol, a: P, b: P, r: number, bonds: Set<number>, atoms: Set<numbe
 // Groups ink by colour: one list of polygons per colour, in first-seen order (undefined is the document's ink).
 function byColour(items: readonly (readonly [string | undefined, P[][]])[]): [string | undefined, P[][]][] {
   const groups = new Map<string | undefined, P[][]>();
-  for (const [colour, polys] of items) { const key = colour?.toLowerCase(); groups.set(key, [...(groups.get(key) ?? []), ...polys]); }
+  for (const [colour, polys] of items) {
+    const key = colour?.toLowerCase(), group = groups.get(key);
+    if (group) for (const poly of polys) group.push(poly);
+    else groups.set(key, [...polys]);
+  }
   return [...groups];
+}
+// A structure moved by a drag before it is drawn again (px), as an SVG transform.
+const moveBy = ([x, y]: P) => (x || y ? `translate(${x} ${y})` : undefined);
+// A structure's ink as one path per colour and, in 3D structures, per how strongly it is drawn (Structure
+// Perspective): [colour|alpha, path]. Made once for each drawing of the structure.
+const inkPaths = new WeakMap<Drawing, [string, string][]>();
+function structurePaths(d: Drawing): [string, string][] {
+  let paths = inkPaths.get(d);
+  if (!paths) {
+    paths = byColour(d.polygons.map((poly, i) => [`${d.colours[i] ?? ""}|${(Math.round(d.alphas[i] * 20) / 20).toFixed(2)}`, [poly]] as const)).map(([key, polys]) => [key ?? "|1", toPath(polys)]);
+    inkPaths.set(d, paths);
+  }
+  return paths;
 }
 
 // A line of rich text as tspans: each run in its style, a subscript 0.212 em down and a superscript 0.33 em up at
@@ -931,7 +948,15 @@ export default function Editor() {
   // A new bond length keeps the drawing the same size on screen relative to its true size.
   const lastK = useRef(frame.k);
   useEffect(() => { if (lastK.current !== frame.k) { const r = lastK.current / frame.k; lastK.current = frame.k; setView((v) => ({ ...v, zoom: v.zoom * r })); } }, [frame.k]);
-  const drawing = useMemo(() => render(shown, frame, measure, L), [shown, frame, measure]);
+  // Each structure is drawn again only when its atoms or bonds change (renderParts): a drag of text, an arrow or one
+  // structure leaves the other structures' drawings as they were. A structure a drag moves keeps its drawing, moved,
+  // and is drawn again where it lands.
+  const partCache = useRef<{ frame: typeof frame; measure: typeof measure; cache: PartCache }>(undefined);
+  const still = !drag;
+  const drawing = useMemo(() => {
+    if (partCache.current?.frame !== frame || partCache.current.measure !== measure) partCache.current = { frame, measure, cache: { parts: new WeakMap(), last: new Map() } };
+    return renderParts(shown, frame, measure, L, partCache.current.cache, still);
+  }, [shown.atoms, shown.bonds, frame, measure, still]); // eslint-disable-line react-hooks/exhaustive-deps
   // Pages, in bond lengths: the document's page, then the rest of its series, all turned the same way.
   const mm = ((72 / 25.4) * (4 / 3) * frame.k) / L;
   // The page's background. On a dark or blue page, structures and default-coloured text are white.
@@ -1049,8 +1074,30 @@ export default function Editor() {
   // Arrow ink, one path per colour (unset is the document's ink).
   // Filled pen curves draw their own outline with their fill, in order (below), so clip art's layers stack as drawn.
   const arrowInk = useMemo(() => byColour([...arrows.filter((a) => !(a.curve?.closed && a.fill)), ...cycleArrows].map((a) => [a.colour, arrowShapes(a, frame, L)] as const)), [arrows, cycleArrows, frame]);
-  // Structure ink by colour and, in 3D structures, by how strongly it is drawn (Structure Perspective).
-  const structureInk = useMemo(() => byColour(drawing.polygons.map((poly, i) => [`${drawing.colours[i] ?? ""}|${(Math.round(drawing.alphas[i] * 20) / 20).toFixed(2)}`, [poly]] as const)), [drawing]);
+  // Structure ink: each structure's own paths, so a drag changes only the paths of what moved.
+  const structureInk = useMemo(() => drawing.parts.flatMap(({ ids, drawing: d, at }) => structurePaths(d).map(([key, path]) => [`${ids[0]}|${key}`, key, path, moveBy(at)] as const)), [drawing]);
+  // Atom labels as text, one group per structure, made once for each drawing of it: React passes over the ones that
+  // did not change, and a structure being moved only moves its group.
+  const labelCache = useRef<{ look: string; parts: WeakMap<Drawing, React.ReactElement[]> }>(undefined);
+  const labelTexts = useMemo(() => {
+    const look = `${darkPaper}|${style.labelFont}`;
+    if (labelCache.current?.look !== look) labelCache.current = { look, parts: new WeakMap() };
+    const cache = labelCache.current.parts;
+    return drawing.parts.map(({ ids, drawing: d, at }) => {
+      let texts = cache.get(d);
+      if (!texts) {
+        texts = d.labels.map((l, i) => (
+          <text key={i} x={l.x} y={l.y} fill={l.colour ? textInk(l.colour) : "var(--ink)"} fillOpacity={l.alpha} textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>
+            {l.text}
+          </text>
+        ));
+        cache.set(d, texts);
+      }
+      return texts.length ? <g key={ids[0]} transform={moveBy(at)}>{texts}</g> : null;
+    });
+  }, [drawing, darkPaper, style.labelFont]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Where each map number and stereo flag goes, worked out once per change of the atoms or bonds.
+  const markDirs = useMemo(() => markDirections(shown, shown.atoms.flatMap((a, i) => (a.map || a.enhanced ? [i] : []))), [shown.atoms, shown.bonds]); // eslint-disable-line react-hooks/exhaustive-deps
   // Mass fragmentation: the bonds each cut line crosses, and the pieces they leave, labelled at the line's ends
   // on each piece's side with its formula and exact mass.
   const cutLabels = useMemo(() => {
@@ -3342,7 +3389,7 @@ export default function Editor() {
               {drawing.beads.map((b, i) => <circle key={`bd${i}`} cx={b.at[0]} cy={b.at[1]} r={b.r} fill="url(#bead)" />)}
             </>
           )}
-          {structureInk.map(([key, polys]) => { const [colour, alpha] = (key ?? "|1").split("|"); return <path key={`s${key}`} d={toPath(polys)} fill={colour ? textInk(colour) : "var(--ink)"} fillOpacity={Number(alpha) < 1 ? Number(alpha) : undefined} />; })}
+          {structureInk.map(([id, key, path, move]) => { const [colour, alpha] = key.split("|"); return <path key={`s${id}`} d={path} transform={move} fill={colour ? textInk(colour) : "var(--ink)"} fillOpacity={Number(alpha) < 1 ? Number(alpha) : undefined} />; })}
           {arrowInk.map(([colour, polys]) => <path key={`a${colour}`} d={toPath(polys)} fill={colour ? textInk(colour) : "var(--ink)"} />)}
           {cutLabels.map((c) => (
             <text key={c.key} x={c.at[0] * L} y={-c.at[1] * L} textAnchor={c.anchor} fill="var(--ink)" style={{ font: `${style.captionSize * pt * 0.9}px ${fontStack(style.captionFont)}` }}>
@@ -3415,18 +3462,14 @@ export default function Editor() {
           })}
           {shown.atoms.map((a, i) => a.enhanced && drawing.ink[i] ? (
             // Enhanced stereo flags: small, by the stereocentre on its open side, as ChemDraw prints them.
-            <text key={`st${i}`} className="stereo-flag" textAnchor="middle" fill="var(--ink)" x={(pos(shown, i)[0] + 0.5 * markDirection(shown, i)[0]) * L} y={-(pos(shown, i)[1] + 0.5 * markDirection(shown, i)[1]) * L + 0.25 * frame.size}
+            <text key={`st${i}`} className="stereo-flag" textAnchor="middle" fill="var(--ink)" x={(pos(shown, i)[0] + 0.5 * markDirs.get(i)![0]) * L} y={-(pos(shown, i)[1] + 0.5 * markDirs.get(i)![1]) * L + 0.25 * frame.size}
               style={{ font: `${frame.size * 0.7}px ${fontStack(style.labelFont)}` }}>{a.enhanced}</text>
           ) : null)}
           {shown.atoms.map((a, i) => a.map && drawing.ink[i] ? (
             // Atom map numbers: small, in brand blue, just off the atom on its open side.
-            <text key={`map${i}`} className="atom-map" textAnchor="middle" x={(pos(shown, i)[0] + 0.42 * markDirection(shown, i)[0]) * L} y={-(pos(shown, i)[1] + 0.42 * markDirection(shown, i)[1]) * L + 0.22 * frame.size} style={{ fontSize: frame.size * 0.62 }}>{a.map}</text>
+            <text key={`map${i}`} className="atom-map" textAnchor="middle" x={(pos(shown, i)[0] + 0.42 * markDirs.get(i)![0]) * L} y={-(pos(shown, i)[1] + 0.42 * markDirs.get(i)![1]) * L + 0.22 * frame.size} style={{ fontSize: frame.size * 0.62 }}>{a.map}</text>
           ) : null)}
-          {drawing.labels.map((l, i) => (
-            <text key={i} x={l.x} y={l.y} fill={l.colour ? textInk(l.colour) : "var(--ink)"} fillOpacity={l.alpha} textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>
-              {l.text}
-            </text>
-          ))}
+          {labelTexts}
           {placed.map((c) => c.id === (writing?.id ?? DRAFT) || c.id === DRAFT ? null : (
             <text key={`c${c.id}`} className="caption" textAnchor={c.anchor} textDecoration={c.underline ? "underline" : undefined} fill={textInk(c.colour ?? style.colour)} style={{ font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${c.size}px ${fontStack(c.font ?? style.captionFont)}` }}>
               {c.lines.map((l, j) => <tspan key={j} x={l.x} y={l.y}>{l.runs ? richSpans(l.runs, c.size, pt) : reagents.has(c.id) ? formula(l.text, c.size) : l.text}</tspan>)}

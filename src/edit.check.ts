@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol } from "./edit.ts";
+import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours } from "./edit.ts";
 import { tableLayout } from "./render.ts";
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
@@ -308,3 +308,31 @@ console.log("edit.check: align ok");
   console.log("edit.check: labels ok");
 }
 
+
+// Ring bonds found in one walk agree with inRing for every bond, and map numbers and stereo flags still go in the
+// widest gap (outside a ring when the atom has a bond out of it), as they did when each atom asked inRing per bond.
+{
+  const napht = addRing(addRing(EMPTY, 6, true, { point: [0, 0] }), 6, true, { bond: 1 });
+  let m = sprout(sprout(napht, 0), napht.atoms.length); // a chain off the rings
+  m = addRing(m, 5, false, { point: [8, 0] }); // a second structure
+  m = { ...m, atoms: [...m.atoms, { label: "C", location: [12, 0, 0] }] }; // a lone atom
+  for (const mol of [EMPTY, napht, m, sprout(EMPTY, [0, 0])]) assert.deepEqual(ringBonds(mol), mol.bonds.map((_, k) => inRing(mol, k)));
+  const before = (mol: typeof m, i: number) => {
+    const here = pos(mol, i), ns = neighbours(mol, i);
+    if (!ns.length) return [0, -1];
+    const ring = (j: number) => inRing(mol, mol.bonds.findIndex((b) => (b.atoms[0] === i && b.atoms[1] === j) || (b.atoms[0] === j && b.atoms[1] === i)));
+    const bonds = ns.map((j) => ({ a: Math.atan2(pos(mol, j)[1] - here[1], pos(mol, j)[0] - here[0]), ring: ring(j) })).sort((p, q) => p.a - q.a);
+    let best = [0, -1], score = -Infinity;
+    bonds.forEach((b, k) => {
+      const next = bonds[(k + 1) % bonds.length];
+      let gap = bonds.length === 1 ? 2 * Math.PI : next.a - b.a;
+      if (gap <= 0) gap += 2 * Math.PI;
+      const mid = b.a + gap / 2, inside = bonds.length > 2 && b.ring && next.ring && bonds.some((x) => !x.ring), sc = gap - (inside ? 10 : 0) - 0.01 * Math.sin(mid);
+      if (sc > score) { score = sc; best = [Math.cos(mid), Math.sin(mid)]; }
+    });
+    return best;
+  };
+  const all = m.atoms.map((_, i) => i), dirs = markDirections(m, all);
+  for (const i of all) assert.deepEqual(dirs.get(i), before(m, i), `atom ${i}`);
+  console.log("edit.check: ring bonds and mark directions ok");
+}

@@ -69,24 +69,32 @@ const FORMULAS: Record<string, string> = {
 // Groups and the formulas above are looked up. Other condensed formulas are read left to right: each heavy
 // atom joins the chain, H and counts are left to valence, a repeated element (CF3) and any group or bracket
 // hang off the atom before them, and CO2R or COOR becomes an ester. Undefined if Octet cannot read it.
+// A label written right to left (HO2C, OHC, MeO, Et3N) is read from its end, as ChemDraw reads a label it shows
+// reversed: when its reverse is a formula above, or when it starts with a group and ends with one heavy atom.
 export function labelSmiles(label: string): string | undefined {
   if (GROUPS[label]) return GROUPS[label];
   if (FORMULAS[label]) return FORMULAS[label];
-  const us = units(label);
+  let us = units(label);
   if (!us.length) return undefined;
+  const back = [...us].reverse(), last = back[0];
+  const reverse = back.map((u) => u.text + (u.count ?? "")).join("");
+  if (FORMULAS[reverse]) return FORMULAS[reverse];
+  if (us.length > 1 && us[0].kind === "group" && last.kind === "element" && last.text !== "H" && !last.count) us = back;
   let smiles = "";
   const atom = (sym: string) => (["B", "C", "N", "O", "P", "S", "F", "Cl", "Br", "I"].includes(sym) ? sym : `[${sym}]`);
-  for (const [k, u] of us.entries()) {
+  // The first heavy atom or group starts the chain (never a bare branch, which is not SMILES: H2O2 is OO).
+  for (const u of us) {
     const n = Number(u.count ?? 1);
+    if (!(n >= 1 && n <= 99)) return undefined;
     if (u.kind === "element") {
       if (u.text === "H") continue;
-      smiles += k > 0 && n > 1 ? `(${atom(u.text)})`.repeat(n) : atom(u.text).repeat(n);
+      smiles += smiles && n > 1 ? `(${atom(u.text)})`.repeat(n) : atom(u.text).repeat(n);
     } else if (u.kind === "group") {
-      smiles += k === 0 && n === 1 ? GROUPS[u.text] : `(${GROUPS[u.text]})`.repeat(n);
+      smiles += smiles ? `(${GROUPS[u.text]})`.repeat(n) : GROUPS[u.text] + `(${GROUPS[u.text]})`.repeat(n - 1);
     } else if (u.kind === "bracket") {
       const inner = labelSmiles(u.text.slice(1, -1));
       if (!inner) return undefined;
-      smiles += `(${inner})`.repeat(n);
+      smiles += smiles ? `(${inner})`.repeat(n) : inner + `(${inner})`.repeat(n - 1);
     } else return undefined;
   }
   // Esters and acids written CO2R or COOR: one O double-bonded to the carbon.

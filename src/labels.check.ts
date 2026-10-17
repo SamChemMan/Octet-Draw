@@ -15,6 +15,13 @@ const cases: Record<string, string> = {
 };
 for (const [label, smiles] of Object.entries(cases)) assert.equal(labelSmiles(label), smiles, label);
 assert.equal(labelSmiles("Hello world"), undefined);
+// Labels written right to left read from the atom that attaches, and no label starts its SMILES with a branch.
+const reversed: Record<string, string> = {
+  H2O2: "OO", HO2C: "C(=O)O", HOOC: "C(=O)O", OHC: "C=O", O2N: "[N+](=O)[O-]", MeO: "O(C)", EtO2C: "C(=O)O(CC)", Et3N: "N(CC)(CC)(CC)", BocHN: "N(C(=O)OC(C)(C)C)",
+};
+for (const [label, smiles] of Object.entries(reversed)) assert.equal(labelSmiles(label), smiles, label);
+for (const label of ["H2O2", "Me3Si", "(CH2)3", "Ph2", "H2(Boc)2", "HN(Me)2"]) assert.ok(!labelSmiles(label)?.startsWith("("), label);
+assert.equal(labelSmiles("C999"), undefined);
 // Formulas in conditions and tables: counts after an element, group or bracket are subscripts; other numbers are not.
 const runs = (t: string) => formulaRuns(t).map((r) => (r.sub ? `_${r.text}` : r.text)).join("");
 for (const [t, want] of Object.entries({

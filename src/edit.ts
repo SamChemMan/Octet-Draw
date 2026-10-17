@@ -626,21 +626,33 @@ export const clearMap = (m: Mol, i: number): Mol => ({ ...m, atoms: m.atoms.map(
 export const stereocentres = (m: Mol, among?: Set<number>) =>
   [...new Set(m.bonds.filter((b) => b.stereo === 1 || b.stereo === 6).map((b) => b.atoms[0]))].filter((i) => !among || among.has(i));
 // Where a small mark beside an atom goes (a stereo flag, a map number): the middle of its widest gap between
-// bonds, never inside a ring when the atom has a bond out of it, and lower on a tie.
-export function markDirection(m: Mol, i: number): P {
-  const here = pos(m, i), ns = neighbours(m, i);
-  if (!ns.length) return [0, -1];
-  const bonds = ns.map((j) => ({ a: Math.atan2(pos(m, j)[1] - here[1], pos(m, j)[0] - here[0]), ring: inRing(m, bondIndex(m, i, j)) })).sort((p, q) => p.a - q.a);
-  let best: P = [0, -1], score = -Infinity;
-  bonds.forEach((b, k) => {
-    const next = bonds[(k + 1) % bonds.length];
-    let gap = bonds.length === 1 ? 2 * Math.PI : next.a - b.a;
-    if (gap <= 0) gap += 2 * Math.PI;
-    const mid = b.a + gap / 2, inside = bonds.length > 2 && b.ring && next.ring && bonds.some((x) => !x.ring);
-    const s = gap - (inside ? 10 : 0) - 0.01 * Math.sin(mid);
-    if (s > score) { score = s; best = [Math.cos(mid), Math.sin(mid)]; }
-  });
-  return best;
+// bonds, never inside a ring when the atom has a bond out of it, and lower on a tie. For each of the atoms asked
+// for, with the drawing's ring bonds found once for all of them.
+export function markDirections(m: Mol, ids: number[]): Map<number, P> {
+  const out = new Map<number, P>();
+  if (!ids.length) return out;
+  const ring = ringBonds(m), near: number[][] = m.atoms.map(() => []);
+  m.bonds.forEach((b, k) => { near[b.atoms[0]].push(k); if (b.atoms[1] !== b.atoms[0]) near[b.atoms[1]].push(k); });
+  for (const i of ids) {
+    const here = pos(m, i);
+    // Each bond's direction, and whether the first bond to that neighbour is in a ring.
+    const first = new Map<number, number>(), bonds = near[i].map((k) => {
+      const b = m.bonds[k], j = b.atoms[0] === i ? b.atoms[1] : b.atoms[0];
+      if (!first.has(j)) first.set(j, k);
+      return { a: Math.atan2(pos(m, j)[1] - here[1], pos(m, j)[0] - here[0]), ring: ring[first.get(j)!] };
+    }).sort((p, q) => p.a - q.a);
+    let best: P = [0, -1], score = -Infinity;
+    bonds.forEach((b, k) => {
+      const next = bonds[(k + 1) % bonds.length];
+      let gap = bonds.length === 1 ? 2 * Math.PI : next.a - b.a;
+      if (gap <= 0) gap += 2 * Math.PI;
+      const mid = b.a + gap / 2, inside = bonds.length > 2 && b.ring && next.ring && bonds.some((x) => !x.ring);
+      const s = gap - (inside ? 10 : 0) - 0.01 * Math.sin(mid);
+      if (s > score) { score = s; best = [Math.cos(mid), Math.sin(mid)]; }
+    });
+    out.set(i, best);
+  }
+  return out;
 }
 // Enhanced stereo flags on atoms: "abs", "&1" or "or1", or none.
 export const setEnhanced = (m: Mol, ids: number[], label?: string): Mol =>
@@ -726,6 +738,36 @@ export function nextNumber(m: Mol): string {
   return String(Math.max(0, ...used) + 1);
 }
 
+// Every bond's ring flag at once (inRing for each bond): a bond is in a ring unless it is a bridge, found in one
+// depth-first walk (Tarjan's bridges).
+export function ringBonds(m: Mol): boolean[] {
+  const near: [number, number][][] = m.atoms.map(() => []);
+  m.bonds.forEach((b, k) => { near[b.atoms[0]].push([b.atoms[1], k]); near[b.atoms[1]].push([b.atoms[0], k]); });
+  const order = m.atoms.map(() => -1), low = m.atoms.map(() => 0), ring = m.bonds.map(() => true);
+  let t = 0;
+  m.atoms.forEach((_, start) => {
+    if (order[start] >= 0) return;
+    order[start] = low[start] = t++;
+    // Each step: an atom, the bond it was reached by, and the next of its bonds to look at.
+    const stack: [number, number, number][] = [[start, -1, 0]];
+    while (stack.length) {
+      const top = stack[stack.length - 1], [x, via] = top;
+      if (top[2] < near[x].length) {
+        const [y, k] = near[x][top[2]++];
+        if (k === via) continue;
+        if (order[y] < 0) { order[y] = low[y] = t++; stack.push([y, k, 0]); }
+        else low[x] = Math.min(low[x], order[y]);
+        continue;
+      }
+      stack.pop();
+      if (!stack.length) continue;
+      const p = stack[stack.length - 1][0];
+      low[p] = Math.min(low[p], low[x]);
+      if (low[x] > order[p]) ring[via] = false;
+    }
+  });
+  return ring;
+}
 // A bond is in a ring when its ends stay connected without it.
 export function inRing(m: Mol, k: number): boolean {
   const [from, to] = m.bonds[k].atoms, seen = new Set([from]), queue = [from];

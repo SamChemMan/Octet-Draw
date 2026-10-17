@@ -1,10 +1,10 @@
 // The chemistry engine (Indigo) and the drawing style, shared by the editor and the dev gallery.
 import Indigo from "indigo-ketcher/binaryWasmNoRender";
-import { hydrogens, type Face, type Ink, type Mol } from "./render";
-import { fontStack } from "./docstyle";
-import { labelSmiles } from "./labels";
-import { fragments, levelTurn, subset } from "./edit";
-import { graphOf, type Graph } from "./naming";
+import { hydrogens, type Face, type Ink, type Mol } from "./render.ts";
+import { fontStack } from "./docstyle.ts";
+import { labelSmiles } from "./labels.ts";
+import { fragments, levelTurn, subset } from "./edit.ts";
+import { graphOf, type Graph } from "./naming.ts";
 
 type IndigoModule = Awaited<ReturnType<typeof Indigo>>;
 let indigo: IndigoModule | undefined;
@@ -126,7 +126,8 @@ export function parseStructure(text: string): Mol {
 }
 
 // Written labels (OMe, CO2Et, Ph) as real atoms, for chemistry. Each label's group is read by Indigo and joined
-// where the label atom was. A label Octet cannot read stays as a pseudo-atom ("*").
+// where the label atom was. A label Octet cannot read (or Indigo cannot) stays as a pseudo-atom ("*"), so no label
+// text can stop the drawing's chemistry.
 export const expandLabels = (mol: Mol): Mol => expandWithOrigins(mol).mol;
 // The same, with the drawn atom each expanded atom came from (a label's atoms all come from the label).
 export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
@@ -134,9 +135,10 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
   const origin = mol.atoms.map((_, i) => i);
   mol.atoms.forEach((a, i) => {
     if (!a.text) return;
-    const smiles = labelSmiles(a.text);
-    if (!smiles) { out.atoms[i] = { ...out.atoms[i], label: "*", text: undefined }; return; }
-    const frag = parseStructure(smiles), base = out.atoms.length;
+    let frag: Mol | undefined;
+    try { const smiles = labelSmiles(a.text); frag = smiles ? parseStructure(smiles) : undefined; } catch { frag = undefined; }
+    if (!frag?.atoms.length) { out.atoms[i] = { ...out.atoms[i], label: "*", text: undefined }; return; }
+    const base = out.atoms.length;
     origin.push(...frag.atoms.map(() => i));
     // The group's first atom takes the label atom's place: bonds to the label atom move to it.
     out = {
@@ -344,9 +346,9 @@ export function structures(mol: Mol, groups = fragments(mol)): (Structure | unde
   const num = (s: string) => (s.trim() === "-1.000000" ? undefined : Number(s));
   try {
     for (const ids of groups.slice(0, 12)) {
-      const part = subset(mol, new Set(ids)), ket = ketOf(part);
+      const part = subset(mol, new Set(ids));
       try {
-        const calc = JSON.parse(ind.calculate(ket, opts, sel));
+        const ket = ketOf(part), calc = JSON.parse(ind.calculate(ket, opts, sel));
         const heavy = expandLabels(part).atoms.filter((a) => a.label !== "H").length;
         out.push({
           formula: String(calc["gross-formula"]).replace(/\s+/g, ""), weight: Number(calc["molecular-weight"]), exact: Number(calc["monoisotopic-mass"]),
@@ -369,9 +371,9 @@ export function structures(mol: Mol, groups = fragments(mol)): (Structure | unde
 export type Analysis = { formula: string; weight: number; exact: number }[];
 export function analyse(mol: Mol): Analysis | undefined {
   if (!indigo || !mol.atoms.length) return undefined;
-  const ind = indigo, full = expandLabels(mol), opts = new ind.MapStringString(), sel = new ind.VectorInt();
+  const ind = indigo, opts = new ind.MapStringString(), sel = new ind.VectorInt();
   try {
-    const bonds = full.bonds.map(({ type, atoms }) => ({ type, atoms }));
+    const full = expandLabels(mol), bonds = full.bonds.map(({ type, atoms }) => ({ type, atoms }));
     const atoms = full.atoms.map(({ label, location, charge, isotope }) => ({ label, location, ...(charge ? { charge } : {}), ...(isotope ? { isotope } : {}) }));
     const ket = JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule", atoms, bonds } });
     // Indigo reports each structure separately ("C8 H9 N O2; C4 H12 N"): one entry per structure.

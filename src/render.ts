@@ -256,6 +256,41 @@ type Plan = {
   hidden?: boolean;
 };
 
+// A label's glyph outline where it is drawn: the measured outline (shared, not copied), placed at x, y and scaled by f.
+type Piece = { pts: P[]; x: number; y: number; f: number };
+// An outline's box, found once per outline.
+const outlineBoxes = new WeakMap<P[], Box>();
+function outlineBox(pts: P[]): Box {
+  let b = outlineBoxes.get(pts);
+  if (!b) {
+    b = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const [x, y] of pts) { if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y; }
+    outlineBoxes.set(pts, b);
+  }
+  return b;
+}
+// An outline's points in cells 2 px across, each with its centre and the furthest its points are from it, found once
+// per outline. The label cuts pass over a cell whose points cannot change the cut.
+type Cell = { c: P; r: number; pts: P[] };
+const outlineCells = new WeakMap<P[], Cell[]>();
+function cellsOf(pts: P[]): Cell[] {
+  let cells = outlineCells.get(pts);
+  if (!cells) {
+    const by = new Map<string, P[]>();
+    for (const q of pts) { const k = `${Math.floor(q[0] / 2)} ${Math.floor(q[1] / 2)}`; let list = by.get(k); if (!list) by.set(k, (list = [])); list.push(q); }
+    cells = [...by.values()].map((list) => {
+      const b = outlineBox(list), c: P = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+      return { c, r: Math.max(...list.map((q) => len(sub(q, c)))), pts: list };
+    });
+    outlineCells.set(pts, cells);
+  }
+  return cells;
+}
+// A piece's box where it is drawn (the same numbers as the box of its placed points).
+const pieceBox = ({ pts, x, y, f }: Piece): Box => { const b = outlineBox(pts); return [x + b[0] * f, y + b[1] * f, x + b[2] * f, y + b[3] * f]; };
+// A label's points where they are drawn, for the few atoms with marks round them.
+const placedPoints = (shape: Piece[]): P[] => shape.flatMap(({ pts, x, y, f }) => pts.map(([px, py]): P => [x + px * f, y + py * f]));
+
 // scale: px per input unit. By default the median bond is drawn at the style's bond length.
 export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, scale?: number): Drawing {
   const raw = mol.bonds.map((b) => len(sub(mol.atoms[b.atoms[0]].location as unknown as P, mol.atoms[b.atoms[1]].location as unknown as P)));
@@ -276,7 +311,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const labels: Label[] = [], labelAtom = new Map<Label, number>();
   const marks: P[][] = mol.atoms.map(() => []); // ink that is not a label shape (a skeletal carbon's charge)
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
-  const shapes: P[][] = mol.atoms.map((a, i) => {
+  const shapes: Piece[][] = mol.atoms.map((a, i) => {
     if (!labelled[i]) {
       // A charged skeletal carbon: the sign alone, in the direction furthest from its bonds (up-right on a tie).
       if (a.charge && !a.circled) {
@@ -298,11 +333,12 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       return r === 1 ? m : { width: m.width * r, ascent: m.ascent * r, outline: m.outline.map(([px, py]) => [px * r, py * r] as P) };
     };
     const look = { ...(a.font ? { font: a.font } : {}), ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}) };
-    const shape: P[] = [];
+    const shape: Piece[] = [];
     const run = (text: string, x: number, y: number, f = 1) => {
       labels.push({ text, x, y, size: S * f, colour: a.colour, ...look });
       labelAtom.set(labels[labels.length - 1], i);
-      for (const [px, py] of M(text).outline) shape.push([x + px * f, y + py * f]);
+      const outline = M(text).outline;
+      if (outline.length) shape.push({ pts: outline, x, y, f });
     };
     const [x, y] = pts[i];
     // Which way the label reads: away from the bonds. Bonds on the right (within 70° of horizontal) reverse it.
@@ -364,7 +400,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     if (a.radical === 3) kinds.push('pair');
     for (let r = 0; r < Math.min(4, a.pairs ?? 0); r++) kinds.push('pair');
     if (!kinds.length) return;
-    const X = pts[i], z = s.size, shape = shapes[i];
+    const X = pts[i], z = s.size, shape = placedPoints(shapes[i]);
     // Directions already taken: the bonds, the label past its first letter (H, a charge sign), a skeletal charge.
     const taken = nbrs[i].map((j) => { const d = dir(i, j); return Math.atan2(d[1], d[0]); });
     for (const q of [...shape, ...marks[i]]) if (len(sub(q, X)) > 0.62 * z) taken.push(Math.atan2(q[1] - X[1], q[0] - X[0]));
@@ -541,14 +577,24 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       // A line from t to the bond's far end clears an outline point (a along the bond, d across from the line) when
       // the point lies off the line by the margin, or before the line's start or past its end by the rest of it.
       // So the cut is the largest a + √(m² − d²) over the points the line passes, worked out once (no search).
+      // The sums are dot(q − X, u) and dot(q − X, n), written out, as this is the renderer's busiest loop.
       let cut = 0;
-      for (const q of shape) {
-        const r = sub(q, pts[x]), a = dot(r, u), c = dot(r, pl.n);
-        for (const o of offsets) {
-          const d = c - o;
-          if (Math.abs(d) >= m) continue;
-          const reach = Math.sqrt(m * m - d * d);
-          if (a - reach < pl.length) cut = Math.max(cut, a + reach);
+      const [X0, X1] = pts[x], [u0, u1] = u, [n0, n1] = pl.n;
+      for (const { pts: outline, x: px0, y: py0, f } of shape) {
+        for (const cell of cellsOf(outline)) {
+          // A cell no line passes within the margin of, or whose points cannot reach past the cut so far, is passed over.
+          const c0 = px0 + cell.c[0] * f - X0, c1 = py0 + cell.c[1] * f - X1, r = cell.r * f + 1e-9;
+          const ca = c0 * u0 + c1 * u1, cc = c0 * n0 + c1 * n1;
+          if (ca + r + m <= cut || offsets.every((o) => Math.abs(cc - o) >= m + r)) continue;
+          for (const [px, py] of cell.pts) {
+            const r0 = px0 + px * f - X0, r1 = py0 + py * f - X1, a = r0 * u0 + r1 * u1, c = r0 * n0 + r1 * n1;
+            for (const o of offsets) {
+              const d = c - o;
+              if (Math.abs(d) >= m) continue;
+              const reach = Math.sqrt(m * m - d * d);
+              if (a - reach < pl.length) cut = Math.max(cut, a + reach);
+            }
+          }
         }
       }
       if (cut <= 0) continue;
@@ -561,12 +607,13 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   // bond as seen from that atom; with two or more members it passes through the atom centre.
   const drawnEnd = (pl: Plan, x: number): P => (x === pl.a ? add(pts[pl.a], mul(pl.u, pl.cut[0])) : add(pts[pl.b], mul(pl.u, -pl.cut[1])));
   const ends = new Map<string, P[]>();
+  const atAtom: { pl: Plan; i: number }[][] = mol.atoms.map(() => []);
+  plans.forEach((pl, i) => { atAtom[pl.a].push({ pl, i }); if (pl.b !== pl.a) atAtom[pl.b].push({ pl, i }); });
   mol.atoms.forEach((_, x) => {
     if (labelled[x]) return;
     const X = pts[x];
-    const members = plans
-      .map((pl, i) => ({ pl, i }))
-      .filter(({ pl }) => !pl.hidden && (pl.kind === 'line' || pl.kind === 'wedge') && (pl.a === x || pl.b === x))
+    const members = atAtom[x]
+      .filter(({ pl }) => !pl.hidden && (pl.kind === 'line' || pl.kind === 'wedge'))
       .map(({ pl, i }) => {
         const f = drawnEnd(pl, x === pl.a ? pl.b : pl.a), u = unit(sub(f, X)), [w0, w1] = widths(pl, x);
         return { i, u, n: perp(u), w0, w1, f, ang: Math.atan2(u[1], u[0]) };
@@ -731,7 +778,9 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     colours.push(mol.atoms[x].colour);
     alphas.push(fade(depth[x]!));
   });
-  shapes.forEach((shape, i) => shape.forEach((q) => grow(i, q)));
+  // A label's ink is its glyphs' boxes.
+  const labelBoxes = shapes.map((shape) => shape.map(pieceBox));
+  labelBoxes.forEach((bs, i) => bs.forEach(([a, b, c, d]) => { grow(i, [a, b]); grow(i, [c, d]); }));
   marks.forEach((mark, i) => mark.forEach((q) => grow(i, q)));
   symbols.forEach((polys, i) => polys.forEach((poly) => { polygons.push(poly); colours.push(mol.atoms[i].colour); alphas.push(depth[i] !== undefined ? fade(depth[i]!) : 1); poly.forEach((q) => grow(i, q)); }));
   // Labels in a 3D structure fade with their atom's depth too.
@@ -741,10 +790,78 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   }
 
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
-  for (const [x, y] of [...pts, ...polygons.flat(), ...shapes.flat()]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  const take = (x: number, y: number) => { if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; };
+  for (const [x, y] of pts) take(x, y);
+  for (const poly of polygons) for (const [x, y] of poly) take(x, y);
   const pad = L / 2;
-  const label = shapes.map((shape): Box | undefined => (shape.length ? [Math.min(...shape.map((q) => q[0])), Math.min(...shape.map((q) => q[1])), Math.max(...shape.map((q) => q[0])), Math.max(...shape.map((q) => q[1]))] : undefined));
+  const label = labelBoxes.map((bs): Box | undefined => {
+    if (!bs.length) return undefined;
+    const b: Box = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const [a, c, d, e] of bs) { if (a < b[0]) b[0] = a; if (c < b[1]) b[1] = c; if (d > b[2]) b[2] = d; if (e > b[3]) b[3] = e; }
+    take(b[0], b[1]); take(b[2], b[3]);
+    return b;
+  });
   return { polygons, colours, alphas, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad], ink, label, scale: k, electrons, beads };
+}
+
+// The same drawing as render's, made structure by structure. Each structure's drawing stays in `cache` while its
+// atoms and bonds are the same objects, so a change to one structure (a drag, an edit) draws only that structure
+// again. Structures in perspective are drawn as one, as a nearer bond cuts a gap in a bond behind it.
+// While something moves (still false), a structure whose atoms all moved the same way keeps its drawing, moved by
+// `at` (px); once it is still, it is drawn again where it is.
+// parts: each structure's own drawing, its atoms, and how far it is moved, in order of their first atom.
+export type Part = { atoms: Atom[]; bonds: Bond[]; drawn: Atom[]; drawing: Drawing; at: P };
+export type PartCache = { parts: WeakMap<Atom, Part>; last: Map<number, Part> };
+export type Parts = Pick<Drawing, "box" | "ink" | "label" | "scale" | "electrons" | "beads"> & { parts: { ids: number[]; drawing: Drawing; at: P }[] };
+export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, scale: number, cache: PartCache, still = true): Parts {
+  // Structures: atoms joined by bonds, each under its lowest atom.
+  const root = mol.atoms.map((_, i) => i);
+  const find = (i: number) => { while (root[i] !== i) i = root[i] = root[root[i]]; return i; };
+  const join = (i: number, j: number) => { const p = find(i), q = find(j); if (p !== q) root[Math.max(p, q)] = Math.min(p, q); };
+  for (const b of mol.bonds) join(b.atoms[0], b.atoms[1]);
+  const depth = depthOf(mol), first = depth.findIndex((t) => t !== undefined);
+  if (first >= 0) depth.forEach((t, i) => { if (t !== undefined) join(i, first); });
+  const groups = new Map<number, { ids: number[]; bonds: Bond[] }>();
+  mol.atoms.forEach((_, i) => { const r = find(i); let g = groups.get(r); if (!g) groups.set(r, (g = { ids: [], bonds: [] })); g.ids.push(i); });
+  for (const b of mol.bonds) groups.get(find(b.atoms[0]))!.bonds.push(b);
+  const out: Parts = { box: [Infinity, Infinity, -Infinity, -Infinity], ink: [], label: [], scale, electrons: [], beads: [], parts: [] }, last = new Map<number, Part>();
+  for (const { ids, bonds } of groups.values()) {
+    const atoms = ids.map((i) => mol.atoms[i]);
+    const same = (p?: Part): p is Part => !!p && p.atoms.length === atoms.length && p.bonds.length === bonds.length && p.bonds.every((b, k) => b === bonds[k]);
+    let part = cache.parts.get(atoms[0]);
+    if (!same(part) || part.atoms.some((a, k) => a !== atoms[k])) {
+      const was = cache.last.get(ids[0]), at = !still && same(was) ? shiftOf(was.drawn, atoms, scale) : undefined;
+      part = at && was ? { atoms, bonds, drawn: was.drawn, drawing: was.drawing, at } : undefined;
+    }
+    if (!part || (still && (part.at[0] || part.at[1]))) {
+      const local = new Map(ids.map((i, k) => [i, k]));
+      const drawing = render({ atoms, bonds: bonds.map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] })) }, s, measure, scale);
+      part = { atoms, bonds, drawn: atoms, drawing, at: [0, 0] };
+    }
+    cache.parts.set(atoms[0], part);
+    last.set(ids[0], part);
+    const d = part.drawing, [ax, ay] = part.at, moved = !!(ax || ay);
+    const move = (b: Box): Box => (moved ? [b[0] + ax, b[1] + ay, b[2] + ax, b[3] + ay] : b);
+    out.parts.push({ ids, drawing: d, at: part.at });
+    for (const x of d.beads) out.beads.push(moved ? { at: [x.at[0] + ax, x.at[1] + ay], r: x.r } : x);
+    for (const e of d.electrons) out.electrons.push({ atom: ids[e.atom], at: moved ? [e.at[0] + ax, e.at[1] + ay] : e.at });
+    ids.forEach((i, k) => { out.ink[i] = move(d.ink[k]); const l = d.label[k]; out.label[i] = l && move(l); });
+    const b = out.box, db = move(d.box);
+    b[0] = Math.min(b[0], db[0]); b[1] = Math.min(b[1], db[1]); b[2] = Math.max(b[2], db[2]); b[3] = Math.max(b[3], db[3]);
+  }
+  cache.last = last;
+  return out;
+}
+// How far (px, y down) atoms have moved from where they were drawn, when every one moved the same way and nothing
+// else about them changed; otherwise undefined.
+function shiftOf(drawn: Atom[], atoms: Atom[], k: number): P | undefined {
+  const dx = atoms[0].location[0] - drawn[0].location[0], dy = atoms[0].location[1] - drawn[0].location[1];
+  for (let j = 0; j < atoms.length; j++) {
+    const a = atoms[j], b = drawn[j], keys = Object.keys(a) as (keyof Atom)[];
+    if (Math.abs(a.location[0] - b.location[0] - dx) > 1e-9 || Math.abs(a.location[1] - b.location[1] - dy) > 1e-9 || (a.location[2] ?? 0) !== (b.location[2] ?? 0)) return undefined;
+    if (keys.length !== Object.keys(b).length || keys.some((key) => key !== "location" && a[key] !== b[key])) return undefined;
+  }
+  return [dx * k, -dy * k];
 }
 
 // Captions, placed in the drawing's px frame (y down). Sizes are in pt; 1 pt is 4/3 px.
@@ -761,7 +878,7 @@ export type Placed = {
 };
 // pt: px per point in the drawing frame; size: the document's caption size in pt.
 // fixed: where captions placed by something else (a cycle's labels) go, in px.
-export function placeCaptions(mol: Mol, d: Drawing, width: (text: string, c: Caption, line: number) => number, arrows: Arrow[] = mol.arrows ?? [], pt = 4 / 3, defaultSize = CAPTION_PT,
+export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width: (text: string, c: Caption, line: number) => number, arrows: Arrow[] = mol.arrows ?? [], pt = 4 / 3, defaultSize = CAPTION_PT,
   fixed: Map<number, { x: number; y: number; anchor: Placed["anchor"] }> = new Map()): Placed[] {
   const k = d.scale, below = new Map<string, number>(); // the next free baseline under each structure
   const beside = new Map<string, number>(); // how far the conditions on each side of each arrow already reach

@@ -1,6 +1,6 @@
 // Run: node src/render.check.ts. Fails loudly if the ACS drawing rules break.
 import assert from "node:assert/strict";
-import { arrowShapes, fitArrows, placeCaptions, render, type Ink, type Mol } from "./render.ts";
+import { arrowShapes, fitArrows, placeCaptions, render, renderParts, type Box, type Drawing, type Ink, type Mol, type PartCache } from "./render.ts";
 
 type P = [number, number];
 const pt = 4 / 3;
@@ -132,4 +132,69 @@ console.log("render.check: written labels ok");
   assert.equal(text({ ...S, terminal: true, carbons: true }), "CH3CH2CH2OH");
   assert.equal(text({ ...S, terminal: true, hideH: true }), "CO");
   console.log("render.check: label options ok");
+}
+
+// Drawing structure by structure gives the same drawing as drawing them all at once, and a structure whose atoms and
+// bonds are the same objects is not drawn again. Two structures in perspective crossing each other are drawn as one.
+// While a drag moves a structure, its drawing moves as it is; when the drag stops, it is drawn again where it is.
+{
+  const shift = (m: Mol, dx: number): Mol => ({ atoms: m.atoms.map((a) => ({ ...a, location: [a.location[0] + dx, a.location[1], a.location[2]] as [number, number, number] })), bonds: m.bonds });
+  const join = (...ms: Mol[]): Mol => ms.reduce((all, m) => ({ atoms: [...all.atoms, ...m.atoms], bonds: [...all.bonds, ...m.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + all.atoms.length, b.atoms[1] + all.atoms.length] as [number, number] }))] }), { atoms: [], bonds: [] } as Mol);
+  const lone: Mol = { atoms: [{ label: "O", text: "H2O2", location: [9, 3, 0] }], bonds: [] };
+  const crossing: Mol = { atoms: [{ label: "C", location: [0, -5, 0] }, { label: "C", location: [2, -5, 1] }, { label: "C", location: [1, -4, 0] }, { label: "C", location: [1, -6, 1] }], bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [2, 3] }] };
+  const nitroMol: Mol = {
+    atoms: [{ label: "C", location: [6, 0, 0] }, { label: "N", location: [7, 0, 0], charge: 1 }, { label: "O", location: [7.5, 0.87, 0] }, { label: "O", location: [7.5, -0.87, 0], charge: -1, pairs: 3 }],
+    bonds: [{ type: 1, atoms: [0, 1] }, { type: 2, atoms: [1, 2] }, { type: 1, atoms: [1, 3] }],
+  };
+  const m = join(pyridine, shift(pyridine, 4), lone, crossing, nitroMol);
+  const whole = render(m, S, ink, S.bond), cache: PartCache = { parts: new WeakMap(), last: new Map() }, parts = renderParts(m, S, ink, S.bond, cache);
+  const sorted = <T,>(xs: T[]) => xs.map((x) => JSON.stringify(x)).sort();
+  const polys = (d: Drawing) => d.polygons.map((p, i) => [p, d.colours[i], d.alphas[i]]);
+  assert.deepEqual(parts.ink, whole.ink, "each atom's ink box");
+  assert.deepEqual(parts.label, whole.label, "each atom's label box");
+  assert.deepEqual(parts.box, whole.box, "the drawing's box");
+  assert.deepEqual(sorted(parts.parts.flatMap((p) => polys(p.drawing))), sorted(polys(whole)), "the same polygons");
+  assert.deepEqual(sorted(parts.parts.flatMap((p) => p.drawing.labels)), sorted(whole.labels), "the same labels");
+  assert.deepEqual(parts.parts.map((p) => p.ids.length), [6, 6, 1, 4, 4], "two pyridines, H2O2, the two bonds in perspective as one, nitro");
+  // Move the second pyridine: only it is drawn again.
+  const move = (dx: number, dy: number): Mol => ({ ...m, atoms: m.atoms.map((a, i) => (i >= 6 && i < 12 ? { ...a, location: [a.location[0] + dx, a.location[1] + dy, a.location[2]] as [number, number, number] } : a)) });
+  const moved = move(1, 0.5), again = renderParts(moved, S, ink, S.bond, cache);
+  assert.equal(again.parts[0].drawing, parts.parts[0].drawing, "the first pyridine is not drawn again");
+  assert.notEqual(again.parts[1].drawing, parts.parts[1].drawing, "the moved pyridine is drawn again");
+  const near = (a: Box[], b: Box[]) => a.every((x, i) => x.every((v, j) => Math.abs(v - b[i][j]) < 1e-9));
+  assert.ok(near(again.ink, render(moved, S, ink, S.bond).ink), "ink boxes where the atoms are");
+  // The same move during a drag: the pyridine's drawing moves as it is, and is drawn again once it is still.
+  const drag: PartCache = { parts: new WeakMap(), last: new Map() };
+  const before = renderParts(m, S, ink, S.bond, drag, false), during = renderParts(moved, S, ink, S.bond, drag, false);
+  assert.equal(during.parts[1].drawing, before.parts[1].drawing, "moved, not drawn again");
+  assert.ok(Math.abs(during.parts[1].at[0] - S.bond) < 1e-9 && Math.abs(during.parts[1].at[1] + 0.5 * S.bond) < 1e-9, "moved by the drag (y down)");
+  assert.ok(near(during.ink, again.ink) && near([during.box], [again.box]), "ink boxes and box where the atoms are");
+  const dropped = renderParts(moved, S, ink, S.bond, drag, true);
+  assert.notEqual(dropped.parts[1].drawing, before.parts[1].drawing, "drawn again when still");
+  assert.deepEqual(dropped.parts[1].at, [0, 0]);
+  assert.equal(dropped.parts[0].drawing, before.parts[0].drawing, "the rest is not drawn again");
+  console.log("render.check: structure by structure ok");
+}
+
+// Label cuts: a bond stops where every point of the label's outline is a margin clear of it (the largest a + √(m² − d²)
+// over the points, a along the bond and d across it), whichever way the bond comes in, however the outline's points
+// are grouped to pass over the far ones.
+{
+  // An O-like outline: two rings of points, 900 in all, off-centre so no two ways in are alike.
+  const ring = (r: number, n: number, cx: number): P[] => Array.from({ length: n }, (_, k) => [cx + r * Math.cos((2 * Math.PI * k) / n), -4.75 + 1.2 * r * Math.sin((2 * Math.PI * k) / n)]);
+  const oInk = (): Ink => ({ width: 9.6, ascent: 9.5, outline: [...ring(4.6, 500, 5.3), ...ring(2.9, 400, 5.3)] });
+  for (let deg = 0; deg < 360; deg += 7.5) {
+    const t = (deg * Math.PI) / 180, from: [number, number, number] = [Math.cos(t), Math.sin(t), 0];
+    const d = render({ atoms: [{ label: "C", location: from }, { label: "O", location: [0, 0, 0], implicitHCount: 0 }], bonds: [{ type: 1, atoms: [0, 1] }] }, S, oInk, S.bond);
+    const X: P = [0, 0], u: P = [Math.cos(t), -Math.sin(t)], n: P = [-u[1], u[0]], m = S.margin + S.line / 2, first = oInk();
+    const x0 = -first.width / 2, y0 = first.ascent / 2;
+    let cut = 0;
+    for (const [px, py] of first.outline) {
+      const q: P = [x0 + px, y0 + py], a = (q[0] - X[0]) * u[0] + (q[1] - X[1]) * u[1], c = (q[0] - X[0]) * n[0] + (q[1] - X[1]) * n[1];
+      if (Math.abs(c) < m) cut = Math.max(cut, a + Math.sqrt(m * m - c * c));
+    }
+    const reach = Math.min(...d.polygons[0].map((q) => q[0] * u[0] + q[1] * u[1]));
+    assert.ok(Math.abs(reach - cut) < 1e-9, `bond from ${deg}° stops at the cut`);
+  }
+  console.log("render.check: label cuts ok");
 }
