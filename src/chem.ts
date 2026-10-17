@@ -449,7 +449,9 @@ function remembered<T>(store: Map<string, T>, key: string, make: () => T): T {
   store.set(key, value);
   return value;
 }
-// Formula and masses for each structure Indigo finds in a molecule, in one call.
+// Formula and masses for each structure Indigo finds in a molecule, in one call. A structure with no formula or no
+// weight (a label Indigo cannot read, alone) has no entry. Indigo gives no exact mass for a structure it reads as a
+// bad valence: its exact mass is then not a number.
 function analyseAll(mol: Mol): Analysis | undefined {
   const ind = engine(), opts = new ind.MapStringString(), sel = new ind.VectorInt();
   try {
@@ -460,7 +462,7 @@ function analyseAll(mol: Mol): Analysis | undefined {
     const out = JSON.parse(ind.calculate(ket, opts, sel));
     const split = (key: string) => String(out[key]).split(";").map((x) => x.trim());
     const formulas = split("gross-formula").map((f) => f.replace(/\s+/g, "")), weights = split("molecular-weight").map(Number), exacts = split("monoisotopic-mass").map(Number);
-    return formulas.map((formula, k) => ({ formula, weight: weights[k], exact: exacts[k] }));
+    return formulas.map((formula, k) => ({ formula, weight: weights[k], exact: exacts[k] })).filter((a) => a.formula && Number.isFinite(a.weight));
   } catch {
     return undefined;
   } finally {
