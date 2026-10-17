@@ -66,3 +66,27 @@ console.log("chem.check: labels ok");
   assert.ok(Math.abs([...lengths].sort((a, b) => a - b)[1] - 2) < 1e-9 && lengths.every((l) => Math.abs(l - 2) < 0.04), `bonds at 200%: ${lengths}`);
   console.log("chem.check: clean up keeps the scale");
 }
+
+// The formula and masses come one entry per structure, in the drawing's order (a lone label and a lone carbon too),
+// up to the number asked for. Each structure's values are kept by its content: moving it gives the same values, and
+// a change to a label gives new ones.
+{
+  const drawn: Mol = {
+    atoms: [{ label: "P", text: "PF6", charge: -1, location: [0, 0, 0] }, { label: "C", location: [2, 0, 0] }, { label: "C", location: [2.87, 0.5, 0] }, { label: "O", location: [3.73, 0, 0] }, { label: "C", location: [6, 0, 0] }],
+    bonds: [{ type: 1, atoms: [1, 2] }, { type: 1, atoms: [2, 3] }],
+  };
+  assert.deepEqual(analyse(drawn)?.map((a) => a.formula), ["F6P", "C2H6O", "CH4"]);
+  assert.deepEqual(analyse(drawn, 2)?.map((a) => a.formula), ["F6P", "C2H6O"]);
+  assert.deepEqual(analyse(drawn), analyse(drawn));
+  const moved = { ...drawn, atoms: drawn.atoms.map((a) => ({ ...a, location: [a.location[0] + 5, a.location[1] - 3, 0] as [number, number, number] })) };
+  assert.deepEqual(analyse(moved), analyse(drawn));
+  const relabelled = { ...drawn, atoms: drawn.atoms.map((a, i) => (i === 3 ? { ...a, text: "OMe" } : a)) };
+  assert.deepEqual(analyse(relabelled)?.map((a) => a.formula), ["F6P", "C3H8O", "CH4"]);
+  assert.equal(structures(drawn)?.[1]?.formula, "C2H6O");
+  assert.equal(structures(relabelled)?.[1]?.formula, "C3H8O");
+  // A label's group is read once and kept; a change to one expansion does not change the next.
+  const first = expandWithOrigins(onEthyl("CO2Me")).mol;
+  first.atoms[3].label = "Xx";
+  assert.notEqual(expandWithOrigins(onEthyl("CO2Me")).mol.atoms[3].label, "Xx");
+  console.log("chem.check: analysis by structure ok");
+}

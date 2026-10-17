@@ -460,6 +460,10 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
   // Closing plays the panel's exit before it leaves the page; the Actions button then comes in where it was.
   const [shown, setShown] = useState(open);
   const [leaving, setLeaving] = useState(false);
+  // The formula and mass keep their last values while the panel leaves, as the editor stops working them out once
+  // the panel is closed.
+  const facts = useRef(analysis);
+  if (open) facts.current = analysis;
   useEffect(() => {
     if (open) { setShown(true); setLeaving(false); return; }
     if (!shown) return;
@@ -600,7 +604,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         </button>
       </header>
 
-      {analysis && whole && analysis.slice(0, 3).map((a, k) => (
+      {facts.current && whole && facts.current.slice(0, 3).map((a, k) => (
         <button key={k} className="facts" onClick={() => run(`copy_text:${a.formula}, ${a.weight.toFixed(2)} g/mol`)} title={`Exact mass ${a.exact.toFixed(4)}. Click to copy.`}>
           <span className="formula">{formula(a.formula)}</span>
           <span>{a.weight.toFixed(2)} g/mol</span>
