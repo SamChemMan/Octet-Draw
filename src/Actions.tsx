@@ -5,18 +5,18 @@
 // ChemDraw users expect it (menus and keys).
 import { useEffect, useRef, useState } from "react";
 import {
-  AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, ArrowsInSimple, ArrowClockwise, ArrowsClockwise, ArrowsDownUp, CaretRight, SignIn, SignOut, ArrowCounterClockwise, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretDown,
+  AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, ArrowsInSimple, ArrowClockwise, ArrowsClockwise, ArrowsDownUp, CaretRight, SignIn, SignOut, ArrowCounterClockwise, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretUpDown,
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAa, TextAlignCenter, TextAlignLeft,
   TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Eraser, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
-import { Menu } from "./Menu";
+import { Menu, Pick, type MenuItem } from "./Menu";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
 import { invoke } from "@tauri-apps/api/core";
-import { COLOURS, fontStack, TINTS } from "./docstyle";
+import { COLOURS, fontStack, SIZES, TINTS } from "./docstyle";
 import { ArrowGlyph, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, SymbolGlyph, type BondKind } from "./tools";
 
 // A selected atom label's text style (the first labelled atom's, for a structure), for the label style buttons.
@@ -68,136 +68,45 @@ const ENDS = [["OH", "O"], ["NH₂", "N"], ["Me", "Me"], ["OMe", "OMe"], ["CO₂
 const SUBSCRIPT = "₀₁₂₃₄₅₆₇₈₉";
 const formula = (f: string) => f.replace(/\d/g, (d) => SUBSCRIPT[Number(d)]);
 
-// The caption size: click for a menu of sizes; Enter or double-click to type any size.
-const SIZES = [8, 9, 10, 12, 14, 18, 24, 36];
-// The font of the text selected (or the caption): a list of the document fonts, each shown in itself.
-// A setting with a few choices, as one small button showing the current choice: a click opens its choices, each drawn
-// as itself with its name.
+// A setting with a few choices, as one small button showing the current choice: a click opens its choices (a Pick
+// list), each drawn as itself with its name.
 function PickButton({ label, value, options, onPick }: { label: string; value: string; options: { id: string; name: string; glyph: React.ReactNode }[]; onPick: (id: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
-    const escape = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); setOpen(false); } };
-    const scrolled = closeOnScroll(box, () => setOpen(false));
-    addEventListener("pointerdown", away, true);
-    addEventListener("keydown", escape, true);
-    addEventListener("scroll", scrolled, true);
-    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); removeEventListener("scroll", scrolled, true); };
-  }, [open]);
   const current = options.find((o) => o.id === value) ?? options[0];
-  // The menu is pinned to the window, above the button (or below it near the top), so a scrolling panel never cuts it off.
-  const place = (): React.CSSProperties => {
-    const r = box.current!.getBoundingClientRect(), tall = options.length * 30 + 10;
-    // Left-aligned with the button, or right-aligned when that would run past the window's right edge.
-    const across = r.left + 200 > innerWidth - 8 ? { left: "auto", right: innerWidth - r.right } : { left: r.left, right: "auto" };
-    return { position: "fixed", ...across, ...(r.top > tall + 8 ? { bottom: innerHeight - r.top + 4 } : { top: r.bottom + 4, bottom: "auto" }) };
-  };
   return (
-    <div className="pick" ref={box}>
-      <button className="chip pick-button" aria-haspopup="menu" aria-expanded={open} aria-label={`${label}: ${current.name}`} title={`${label}: ${current.name}`} onClick={() => setOpen(!open)}>
+    <div className="pick">
+      <Pick label={label} value={value} groups={[options.map((o) => ({ key: o.id, name: o.name, icon: <span className="pick-glyph" aria-hidden>{o.glyph}</span> }))]} onPick={onPick}
+        className="chip pick-button" title={`${label}: ${current.name}`}>
         <span className="pick-label" aria-hidden>{label}</span>
         {current.glyph}
-      </button>
-      {open && (
-        <div className="size-menu pick-menu" role="menu" aria-label={label} style={place()}>
-          {options.map((o) => (
-            <button key={o.id} role="menuitemradio" aria-checked={o.id === value} onClick={() => { setOpen(false); if (o.id !== value) onPick(o.id); }}>
-              <span className="pick-glyph" aria-hidden>{o.glyph}</span>{o.name}
-            </button>
-          ))}
-        </div>
-      )}
+      </Pick>
     </div>
   );
 }
-
-// Where a font or size list opens: fixed to the window, so the panel's scrolling never cuts it off. Every list opens
-// over its button (Sam, 17 October 2026), right edges lined up, scrolling when it is taller than the room there; under
-// it only when not even six rows fit above and there is more room below.
-function dropStyle(anchor: HTMLElement | null, items: number): React.CSSProperties {
-  if (!anchor) return {};
-  const r = anchor.getBoundingClientRect(), want = items * 26 + 10, below = innerHeight - r.bottom - 12, above = r.top - 12;
-  const down = above < Math.min(want, 6 * 26 + 10) && below > above;
-  return {
-    position: "fixed", right: innerWidth - r.right, minWidth: r.width, zIndex: 20, overflowY: "auto", maxHeight: Math.max(80, (down ? below : above) - 4),
-    ...(down ? { top: r.bottom + 4, bottom: "auto", transformOrigin: "top right" } : { bottom: innerHeight - r.top + 4, top: "auto", transformOrigin: "bottom right" }),
-  };
-}
-// A list closes when its button scrolls away under it, as when the panel scrolls.
-const closeOnScroll = (box: React.RefObject<HTMLDivElement | null>, close: () => void) => (e: Event) => { if (!box.current?.contains(e.target as Node)) close(); };
 
 // The computer's fonts, asked for once (the app lists them; a browser cannot).
 const TAURI = "__TAURI_INTERNALS__" in window;
 let installed: Promise<string[]> | undefined;
-const systemFonts = () => (installed ??= invoke<string[]>("system_fonts").catch(() => []));
+export const systemFonts = () => (installed ??= invoke<string[]>("system_fonts").catch(() => []));
+const fontItem = (f: string): MenuItem => ({ key: f, name: f, icon: null, style: { fontFamily: fontStack(f) } });
 
-// The font list: Octet's fonts and the drawing's, then More fonts…, which lists every font on the computer with a
-// field to find one, as ChemDraw's Font menu lists every installed font.
-function FontButton({ font, fonts, run }: { font: string; fonts: string[]; run: (command: string) => void }) {
-  const [open, setOpen] = useState(false), [all, setAll] = useState<string[]>(), [query, setQuery] = useState("");
-  const show = (o: boolean) => { setOpen(o); setAll(undefined); setQuery(""); };
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
-    const escape = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); setOpen(false); } };
-    const scrolled = closeOnScroll(box, () => setOpen(false));
-    addEventListener("pointerdown", away, true);
-    addEventListener("keydown", escape, true);
-    addEventListener("scroll", scrolled, true);
-    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); removeEventListener("scroll", scrolled, true); };
-  }, [open]);
+// Octet's one font list: Octet's fonts and the drawing's (each shown in itself), then More fonts…, which lists every
+// font on the computer with a field to find one, as ChemDraw's Font menu lists every installed font (Sam: the list
+// stays short until it is asked for more). The Actions panel, Settings and Choose Font use it.
+export function FontPick({ label, font, fonts, onPick, className = "chip size-button", start }: { label: string; font: string; fonts: string[]; onPick: (font: string) => void; className?: string; start?: boolean }) {
   return (
-    <div className="size font" ref={box}>
-      <button className="chip size-button" aria-haspopup="menu" aria-expanded={open} title="Font" onClick={() => show(!open)} style={{ fontFamily: fontStack(font) }}>
-        <span className="font-name">{font}</span>
-        <CaretDown size={12} aria-hidden />
-      </button>
-      {open && (() => {
-        const pick = (f: string) => { show(false); if (f !== font) run(`caption.font.${f}`); };
-        const item = (f: string) => <button key={f} role="menuitemradio" aria-checked={f === font} style={{ fontFamily: fontStack(f) }} onClick={() => pick(f)}>{f}</button>;
-        const shortList = fonts.includes(font) ? fonts : [font, ...fonts];
-        const found = all?.filter((f) => f.toLowerCase().includes(query.trim().toLowerCase())) ?? [];
-        return (
-          <div className="size-menu font-menu" role="menu" aria-label="Font" style={dropStyle(box.current, all ? 14 : shortList.length + (TAURI ? 1 : 0))}>
-            {all === undefined ? (
-              <>
-                {shortList.map(item)}
-                {TAURI && <button className="more-fonts" onClick={() => void systemFonts().then(setAll)}>More fonts…</button>}
-              </>
-            ) : (
-              <>
-                <input className="font-search" autoFocus placeholder="Find a font" aria-label="Find a font" value={query} spellCheck={false}
-                  onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && found[0]) { e.preventDefault(); pick(found[0]); } }} />
-                {found.slice(0, 300).map(item)}
-                {!found.length && <p className="font-none">No fonts match</p>}
-              </>
-            )}
-          </div>
-        );
-      })()}
-    </div>
+    <Pick label={label} value={font} groups={[(fonts.includes(font) ? fonts : [font, ...fonts]).map(fontItem)]} onPick={onPick} className={className} title={label} style={{ fontFamily: fontStack(font) }} start={start}
+      more={TAURI ? { name: "More fonts…", find: "Find a font", load: () => systemFonts().then((all) => all.map(fontItem)) } : undefined}>
+      <span className="font-name">{font}</span>
+      <CaretUpDown size={12} aria-hidden />
+    </Pick>
   );
 }
 
+// The text size: a click opens the sizes, and Other size…, Return or a double-click types any size.
 function SizeButton({ size, run }: { size: number; run: (command: string) => void }) {
-  const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState<string>();
   const typing = useRef(false); // Enter, Escape and blur all end typing; only the first one counts
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
-    const escape = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); setOpen(false); } };
-    const scrolled = closeOnScroll(box, () => setOpen(false));
-    addEventListener("pointerdown", away, true);
-    addEventListener("keydown", escape, true);
-    addEventListener("scroll", scrolled, true);
-    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); removeEventListener("scroll", scrolled, true); };
-  }, [open]);
-  const startTyping = () => { typing.current = true; setOpen(false); setTyped(String(size)); };
+  const startTyping = () => { typing.current = true; setTyped(String(size)); };
   const endTyping = (keep: boolean) => {
     if (!typing.current) return;
     typing.current = false;
@@ -206,7 +115,7 @@ function SizeButton({ size, run }: { size: number; run: (command: string) => voi
     if (keep && pt >= 4 && pt <= 144 && pt !== size) run(`caption.size.${pt}`);
   };
   return (
-    <div className="size" ref={box}>
+    <div className="size">
       {typed !== undefined ? (
         <input
           className="chip size-input"
@@ -220,27 +129,12 @@ function SizeButton({ size, run }: { size: number; run: (command: string) => voi
           onBlur={() => endTyping(true)}
         />
       ) : (
-        <button
-          className="chip size-button"
-          aria-haspopup="menu"
-          aria-expanded={open}
-          title="Size"
-          onClick={() => setOpen(!open)}
-          onDoubleClick={startTyping}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); startTyping(); } }}
-        >
+        <Pick label="Size" value={String(size)} groups={[SIZES.map((pt) => ({ key: String(pt), name: `${pt} pt`, icon: null })), [{ key: "other", name: "Other size…", icon: null }]]}
+          onPick={(k) => (k === "other" ? startTyping() : run(`caption.size.${k}`))} className="chip size-button" title="Size" onDoubleClick={startTyping}
+          onKey={(e) => { if (e.key !== "Enter") return false; e.preventDefault(); startTyping(); return true; }}>
           {size} pt
-          <CaretDown size={12} aria-hidden />
-        </button>
-      )}
-      {open && (
-        <div className="size-menu" role="menu" aria-label="Size" style={dropStyle(box.current, SIZES.length)}>
-          {SIZES.map((pt) => (
-            <button key={pt} role="menuitemradio" aria-checked={pt === size} onClick={() => { setOpen(false); if (pt !== size) run(`caption.size.${pt}`); }}>
-              {pt} pt
-            </button>
-          ))}
-        </div>
+          <CaretUpDown size={12} aria-hidden />
+        </Pick>
       )}
     </div>
   );
@@ -677,7 +571,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
             <button key={id} className="chip" aria-pressed={on} aria-label={name} title={hint(`caption.${id}`) ? `${name} (${hint(`caption.${id}`)})` : name} onClick={() => run(`caption.${id}`)}>{icon}</button>
           ))}
           <button className="chip" aria-label="Formula" title={`Formula: counts become subscripts (${hint("caption.formula")})`} onClick={() => run("caption.formula")}><span className="glyph-text">H<sub>2</sub>O</span></button>
-          {context.fonts && <FontButton font={context.font ?? context.fonts[0]} fonts={context.fonts} run={run} />}
+          {context.fonts && <div className="size font"><FontPick label="Font" font={context.font ?? context.fonts[0]} fonts={context.fonts} onPick={(f) => run(`caption.font.${f}`)} /></div>}
           <SizeButton size={context.size} run={run} />
           {([["left", "Align left", <TextAlignLeft size={16} />], ["centre", "Centre", <TextAlignCenter size={16} />], ["right", "Align right", <TextAlignRight size={16} />]] as const).map(([id, name, icon]) => (
             <button key={id} className="chip" aria-pressed={context.align === id} aria-label={name} title={name} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
@@ -691,7 +585,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           {([["bold", "Bold", <TextB size={16} weight="bold" />, context.text.bold], ["italic", "Italic", <TextItalic size={16} />, context.text.italic], ["underline", "Underline", <TextUnderline size={16} />, context.text.underline]] as const).map(([id, name, icon, on]) => (
             <button key={id} className="chip" aria-pressed={on} aria-label={name} title={hint(`caption.${id}`) ? `${name} (${hint(`caption.${id}`)})` : name} onClick={() => run(`caption.${id}`)}>{icon}</button>
           ))}
-          <FontButton font={context.text.font} fonts={fonts} run={run} />
+          <div className="size font"><FontPick label="Font" font={context.text.font} fonts={fonts} onPick={(f) => run(`caption.font.${f}`)} /></div>
           <SizeButton size={context.text.size} run={run} />
         </div>
       )}

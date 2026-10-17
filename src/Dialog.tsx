@@ -3,6 +3,7 @@
 // With no action it only shows something (About Octet): one Close button, which Return presses too. plain: the
 // body carries its own heading, so the title is only read out.
 import { useEffect, useRef } from "react";
+import { listOpen } from "./Menu";
 
 // alt: a third choice, before Cancel (Don't Save).
 type Props = { title: string; action?: string; onAction?: () => void; onClose: () => void; plain?: boolean; alt?: { label: string; onClick: () => void }; children: React.ReactNode };
@@ -12,6 +13,7 @@ export function Dialog({ title, action, onClose, onAction = onClose, plain, alt,
   useEffect(() => {
     card.current?.querySelector<HTMLElement>("textarea, input, button, select")?.focus();
     const key = (e: KeyboardEvent) => {
+      if (listOpen()) return; // an open list takes its own keys
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); }
       // Return in a text area makes a new line; ⌘Return (Ctrl+Enter) sends.
       if (e.key === "Enter" && (!(e.target instanceof HTMLTextAreaElement) || e.metaKey || e.ctrlKey)) { e.preventDefault(); e.stopPropagation(); onAction(); }

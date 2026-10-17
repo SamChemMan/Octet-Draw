@@ -625,7 +625,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const just = align === "centre" ? "Center" : align === "right" ? "Right" : undefined, cf = face(whole);
     put(el("t", {
       id: idOf.get(c.id)!, p: pt(p), BoundingBox: boxText(box), Z: Z(), color: colour(c.colour), CaptionFont: c.font ? font(c.font) : undefined, CaptionSize: c.size, CaptionFace: cf || undefined,
-      CaptionJustification: just, Justification: just, LineHeight: "auto",
+      CaptionJustification: just, Justification: just, LineHeight: c.lineHeight === "variable" ? "variable" : typeof c.lineHeight === "number" ? fmtSize(c.lineHeight) : "auto",
       Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined }),
     }, runs.map((r) => run(r.text, { font: r.font ?? c.font ?? style.captionFont, size: r.size ?? size, colour: r.colour ?? c.colour, face: face({ ...whole, ...r }) })).join("")), 2, box, c.id);
   }
@@ -1071,6 +1071,9 @@ export function fromCdxml(text: string): CdxmlRead {
     const c: Caption & { z: number } = { id: newId(t), text, x, y, z: zOf(t) };
     for (const k of ["bold", "italic", "underline", "size", "colour", "font"] as const) if (whole[k] !== undefined) (c as Record<string, unknown>)[k] = whole[k];
     if (just === "Right") c.align = "right"; else if (just !== "Center") c.align = "left";
+    // Line spacing: auto (Octet's default), variable, or fixed in pt.
+    const lh = t.attrs.LineHeight ?? t.attrs.CaptionLineHeight, fixed = real(lh);
+    if (lh === "variable") c.lineHeight = "variable"; else if (fixed !== undefined && fixed >= 1 && fixed <= 400) c.lineHeight = fixed;
     const normal = normalise(own);
     if (styled(normal)) c.runs = normal;
     if (p?.under) unders.push({ c, nodes: p.under });

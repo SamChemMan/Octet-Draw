@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowsIn, ArrowsOut, CopySimple, X } from "@phosphor-icons/react";
 import { acsText, detailsTable, multiplicity, quality, type Nucleus, type Prediction, type Signal } from "./nmr";
 import { Select } from "./Select";
+import { listOpen } from "./Menu";
 import { useMovable } from "./movable";
 
 export const SOLVENTS = ["CDCl₃", "DMSO-d₆", "CD₃OD", "D₂O", "C₆D₆", "Acetone-d₆", "CD₃CN"];
@@ -94,7 +95,7 @@ export function SpectrumPanel(p: Props) {
   // Escape leaves full screen.
   useEffect(() => {
     if (!expanded) return;
-    const key = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); setExpanded(false); } };
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape" && !listOpen()) { e.stopPropagation(); setExpanded(false); } };
     addEventListener("keydown", key, true);
     return () => removeEventListener("keydown", key, true);
   }, [expanded]);

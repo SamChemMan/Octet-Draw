@@ -46,6 +46,9 @@ export const PRESETS: Record<string, Drawn> = {
 export const DEFAULT_STYLE: DocStyle = { preset: "ACS Document 1996", page: "A4", custom: [180, 120], landscape: false, edges: true, grid: 0, background: "white", colour: "#000000", terminalLabels: false, carbonLabels: false, hideH: false, ...PRESETS["ACS Document 1996"] };
 
 export const FONTS = ["Arial", "Helvetica", "Times New Roman", "Calibri", "Cambria", "Georgia"];
+// Text sizes (pt) on offer in the Actions panel and the Text menu: ChemDraw's Size menu (5 to 24) and 36. Any other
+// size can be typed.
+export const SIZES = [5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 24, 36];
 // Any font on the computer can be used too, by its family name. A name with quotes, slashes or CSS punctuation is
 // refused, so a name from a file cannot break out of a style.
 export const fontName = (f: unknown): f is string => typeof f === "string" && f.trim() === f && /^[^"'\\;{}<>\u0000-\u001f]{1,64}$/.test(f);

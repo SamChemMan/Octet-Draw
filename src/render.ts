@@ -56,6 +56,9 @@ export type Caption = {
   font?: string; // the caption's font; unset uses the document's caption font
   runs?: TextRun[]; // the text in runs, each with its own style (rich text); text is always their text joined
   order?: number; // draw order (order.ts)
+  // Line spacing (ChemDraw's Text > Line Spacing): unset is Automatic (every line as far apart as the caption's
+  // largest text needs), variable (each line as far from the last as their own text needs), or fixed, in pt.
+  lineHeight?: "variable" | number;
 };
 // An arrow from one point to another (drawing coordinates). bend: how far a curved arrow's middle sits off the
 // straight line, as a fraction of its length, to the left looking from start to end.
@@ -890,6 +893,19 @@ function shiftOf(drawn: Atom[], atoms: Atom[], k: number): P | undefined {
 export const CAPTION_PT = 10;
 export const isNumber = (c: Caption) => !!c.bold && /^\d+[a-z]?$/.test(c.text);
 const GAP_PT = 15, GAP_ARROW_PT = 3, LINE = 1.2, ASCENT = 0.905, DESCENT = 0.212; // Arial's ascent and descent, in em
+// Each line's baseline below the first's (px), by the caption's line spacing (Caption.lineHeight). size: the
+// caption's text size (px); a run's own size is in pt.
+export function lineOffsets(c: Pick<Caption, "lineHeight" | "runs" | "text">, size: number, pt: number): number[] {
+  const runLines = c.runs ? richLines(c.runs) : undefined, count = c.text.split("\n").length;
+  const tallest = (j: number) => Math.max(size, ...(runLines?.[j] ?? []).map((r) => (r.size ? r.size * pt : size) * (r.script ? 0.75 : 1)));
+  const all = Math.max(...Array.from({ length: count }, (_, j) => tallest(j)));
+  const out = [0];
+  for (let j = 1; j < count; j++) {
+    const a = tallest(j - 1), b = tallest(j);
+    out.push(out[j - 1] + (typeof c.lineHeight === "number" ? c.lineHeight * pt : c.lineHeight === "variable" ? DESCENT * a + ASCENT * b + (LINE - ASCENT - DESCENT) * Math.max(a, b) : LINE * all));
+  }
+  return out;
+}
 export type Placed = {
   id: number; size: number; bold?: boolean; italic?: boolean; underline?: boolean; colour?: string; anchor: "start" | "middle" | "end"; font?: string;
   lines: { text: string; x: number; y: number; runs?: TextRun[] }[]; box: Box;
@@ -903,7 +919,7 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
   const beside = new Map<string, number>(); // how far the conditions on each side of each arrow already reach
   const order = (c: Caption) => (isNumber(c) ? 0 : 1);
   return [...(mol.captions ?? [])].sort((a, b) => order(a) - order(b) || a.id - b.id).flatMap((c) => {
-    const size = (c.size ?? defaultSize) * pt, lines = c.text.split("\n"), align = c.align ?? "centre";
+    const size = (c.size ?? defaultSize) * pt, lines = c.text.split("\n"), align = c.align ?? "centre", offs = lineOffsets(c, size, pt);
     const anchor = align === "left" ? "start" : align === "right" ? "end" : "middle";
     let x: number, y: number, anchorOverride: Placed["anchor"] | undefined;
     const arrow = c.on && arrows.find((a) => a.id === c.on!.arrow);
@@ -911,14 +927,14 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
     const pinned = fixed.get(c.id);
     if (c.cycle && !pinned) return [];
     if (pinned) {
-      [x, y, anchorOverride] = [pinned.x, pinned.y - (lines.length - 1) * LINE * size * (pinned.anchor === "middle" ? 0.5 : 0), pinned.anchor];
+      [x, y, anchorOverride] = [pinned.x, pinned.y - offs[offs.length - 1] * (pinned.anchor === "middle" ? 0.5 : 0), pinned.anchor];
     } else if (arrow) {
       // Conditions: centred on the arrow's middle, GAP_ARROW_PT clear of it, stacking away from it.
       const [s, t] = [[arrow.from[0] * k, -arrow.from[1] * k], [arrow.to[0] * k, -arrow.to[1] * k]];
       const mid = [(s[0] + t[0]) / 2, (s[1] + t[1]) / 2], len = Math.hypot(t[0] - s[0], t[1] - s[1]) || 1, u = [(t[0] - s[0]) / len, (t[1] - s[1]) / len];
       const key = `${arrow.id} ${c.on!.side}`, used = beside.get(key) ?? 0, gap = GAP_ARROW_PT * pt + used;
-      const block = (lines.length - 1) * LINE * size;
-      beside.set(key, used + (lines.length * LINE + 0.2) * size);
+      const block = offs[offs.length - 1];
+      beside.set(key, used + block + (LINE + 0.2) * size);
       if (Math.abs(u[0]) >= 0.5) {
         // A mostly horizontal arrow: text above or below its middle.
         x = mid[0];
@@ -937,7 +953,7 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
       const key = [...c.under].sort((p, q) => p - q).join(" ");
       x = align === "left" ? b[0] : align === "right" ? b[2] : (b[0] + b[2]) / 2;
       y = below.get(key) ?? b[3] + GAP_PT * pt;
-      below.set(key, y + lines.length * LINE * size);
+      below.set(key, y + offs[offs.length - 1] + LINE * size);
     } else [x, y] = [c.x * k, -c.y * k];
     const at = anchorOverride ?? anchor;
     const widths = lines.map((t, j) => width(t, c, j)), w = Math.max(...widths);
@@ -945,8 +961,8 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
     const left = at === "start" ? x : at === "end" ? x - w : x - w / 2;
     return [{
       id: c.id, size, bold: c.bold, italic: c.italic, underline: c.underline, colour: c.colour, anchor: at, font: c.font, ...(c.order ? { order: c.order } : {}),
-      lines: lines.map((text, j) => ({ text, x, y: y + j * LINE * size, ...(runLines ? { runs: runLines[j] ?? [] } : {}) })),
-      box: [left, y - ASCENT * size, left + w, y + (lines.length - 1) * LINE * size + DESCENT * size],
+      lines: lines.map((text, j) => ({ text, x, y: y + offs[j], ...(runLines ? { runs: runLines[j] ?? [] } : {}) })),
+      box: [left, y - ASCENT * size, left + w, y + offs[offs.length - 1] + DESCENT * size],
     }];
   });
 }

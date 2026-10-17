@@ -36,14 +36,14 @@ const bonds: Bond[] = [
 ];
 const captions: Caption[] = [
   { id: 1, text: "Plain caption", x: 0, y: 4 },
-  { id: 2, text: "Line one\nLine two", x: -2, y: 6, bold: true, italic: true, underline: true, size: 12, colour: "#1D49A7", font: "Times New Roman", align: "left" },
+  { id: 2, text: "Line one\nLine two", x: -2, y: 6, bold: true, italic: true, underline: true, size: 12, colour: "#1D49A7", font: "Times New Roman", align: "left", lineHeight: 18 },
   {
     id: 3, text: "K2CO3, H2O (aq)+", x: 4, y: 5, runs: [{ text: "K" }, { text: "2", script: "sub" }, { text: "CO" }, { text: "3", script: "sub" }, { text: ", " }, { text: "H", bold: true },
       { text: "2", script: "sub", bold: true }, { text: "O (aq)", italic: true, colour: "#B42323", font: "Georgia", size: 8 }, { text: "+", script: "super" }],
   },
   { id: 4, text: "1", x: 0, y: 0, bold: true, under: [9, 10, 11] },
   { id: 5, text: "hν", x: 0, y: 0, on: { arrow: 101, side: "above" } },
-  { id: 6, text: "DMF, 80 °C\n12 h", x: 0, y: 0, on: { arrow: 101, side: "below" } },
+  { id: 6, text: "DMF, 80 °C\n12 h", x: 0, y: 0, on: { arrow: 101, side: "below" }, lineHeight: "variable" },
   { id: 7, text: "ArB(OH)2", x: 23, y: 3, cycle: { cycle: 300, step: 0, side: "in" } },
   { id: 8, text: `a < b & "c" 'd' > e`, x: 2, y: -6, align: "right" },
 ];

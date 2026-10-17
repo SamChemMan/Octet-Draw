@@ -1,6 +1,6 @@
 // Run: node src/render.check.ts. Fails loudly if the ACS drawing rules break.
 import assert from "node:assert/strict";
-import { arrowShapes, fitArrows, placeCaptions, render, renderParts, type Box, type Drawing, type Ink, type Mol, type PartCache } from "./render.ts";
+import { arrowShapes, fitArrows, lineOffsets, placeCaptions, render, renderParts, type Box, type Drawing, type Ink, type Mol, type PartCache } from "./render.ts";
 
 type P = [number, number];
 const pt = 4 / 3;
@@ -203,3 +203,16 @@ console.log("render.check: written labels ok");
   }
   console.log("render.check: label cuts ok");
 }
+
+// Line spacing: Automatic spaces every line by the caption's largest text, Variable each line by its own, and Fixed
+// by the points given.
+{
+  const two = { text: "a\nb" }, big = { text: "a\nb", runs: [{ text: "a\n" }, { text: "b", size: 20 }] };
+  assert.deepEqual(lineOffsets(two, 10, 1), [0, 12]);
+  assert.deepEqual(lineOffsets({ ...big }, 10, 1), [0, 24]);
+  assert.deepEqual(lineOffsets({ ...two, lineHeight: 15 }, 10, 2), [0, 30]);
+  const v = lineOffsets({ ...big, lineHeight: "variable" }, 10, 1);
+  assert.ok(v[1] > 12 && v[1] < 24, `variable: between the two sizes' spacing (${v[1]})`);
+  console.log("render.check: line spacing ok");
+}
+

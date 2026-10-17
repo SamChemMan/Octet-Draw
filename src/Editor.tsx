@@ -2,7 +2,7 @@ import { Fragment, memo, useEffect, useMemo, useReducer, useRef, useState, useSy
 import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Waveform, TagSimple, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
   FrameCorners, GearSix, Keyboard, Lasso, LinkSimple, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
-  TextAlignCenter, TextAlignLeft, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Warning, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
+  TextAlignCenter, TextAlignLeft, TextAlignRight, TextAa, TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
   Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table, FileDashed, ArrowsLeftRight,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
@@ -10,7 +10,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
 import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
-import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, FONTS, type DocStyle, type PageName } from "./docstyle";
+import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, FONTS, SIZES, type DocStyle, type PageName } from "./docstyle";
 import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
 import {
@@ -23,14 +23,14 @@ import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
 import { loadSettings, saveSettings } from "./settings";
 import { ACTIONS, actionFor, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
-import { Actions, actionItems, type Context } from "./Actions";
+import { Actions, actionItems, FontPick, type Context } from "./Actions";
 import { reorder } from "./order";
 import { Properties, propertyValues, PROPERTY_ROWS } from "./Properties";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { acsText, multiplicity, quality } from "./nmr";
 import { nmrReady, predict, type Nucleus } from "./nmr";
 import { rings } from "./rings";
-import { Select } from "./Select";
+import { NumberField, Segmented } from "./Fields";
 import { fromCdxml, toCdxml, type CdxmlOptions } from "./cdxml";
 import { readOct, writeOct } from "./oct";
 import { About } from "./About";
@@ -873,7 +873,11 @@ export default function Editor() {
     text_sub: () => runAction("caption.sub"),
     text_super: () => runAction("caption.super"),
     text_formula: () => runAction("caption.formula"),
-    ...Object.fromEntries(FONTS.map((f, k) => [`font_${k}`, () => runAction(`caption.font.${f}`)])),
+    // Text > Font: Other Font… finds any font on the computer (the menu's own fonts are added with the font list).
+    font_other: () => {
+      const c = contextOf();
+      setDialog({ kind: "font", font: (c.kind === "caption" ? c.font : c.kind === "atom" || c.kind === "structure" ? c.text?.font : undefined) ?? style.captionFont });
+    },
     text_italic: () => runAction("caption.italic"),
     text_underline: () => runAction("caption.underline"),
     align_left: () => restyle(() => ({ align: "left" })),
@@ -889,7 +893,16 @@ export default function Editor() {
     ...Object.fromEntries(settings.palette.map((c, k) => [`colour_user_${k}`, () => runAction(`colour.${c.hex}`)])),
     colour_other: () => setSettingsOpen("colours"),
     colours_add: () => { setAddingColour(true); setSettingsOpen("colours"); },
-    ...Object.fromEntries([8, 9, 10, 12, 14, 18, 24].map((pt) => [`size_${pt}`, () => restyle(() => ({ size: pt === style.captionSize ? undefined : pt }))])),
+    // Text > Size, as the Actions panel's sizes: on captions and on selected atom labels, as ChemDraw's. Other Size…
+    // types any size; Last Typed Size uses that size again (ChemDraw's Other… and Set Font Size To Last One).
+    ...Object.fromEntries(SIZES.map((pt) => [`size_${pt}`, () => runAction(`caption.size.${pt}`)])),
+    size_other: () => setDialog({ kind: "size", size: String(lastSize.current ?? style.captionSize) }),
+    size_last: () => (lastSize.current ? runAction(`caption.size.${lastSize.current}`) : commands.current.size_other()),
+    // Text > Line Spacing…: Automatic, Variable, or Fixed at a size in pt, for the captions picked or being typed.
+    line_spacing: () => {
+      const c = writing ? { ...doc.captions?.find((x) => x.id === writing.id), ...writing.style } : doc.captions?.find((x) => picked.has(x.id)) ?? textStyle, lh = c.lineHeight;
+      setDialog({ kind: "spacing", mode: lh === "variable" ? "variable" : typeof lh === "number" ? "fixed" : "auto", pt: String(typeof lh === "number" ? lh : Math.round((c.size ?? style.captionSize) * 1.2 * 10) / 10) });
+    },
     zoom_fit: () => {
       const b = bounds(doc);
       if (!b) return setView({ x: innerWidth / 2, y: innerHeight / 2, zoom: OPEN_ZOOM / frame.k });
@@ -963,6 +976,13 @@ export default function Editor() {
     for (const c of doc.captions ?? []) { if (c.font) used.add(c.font); for (const r of c.runs ?? []) if (r.font) used.add(r.font); }
     return [...FONTS, ...[...used].filter((f) => !FONTS.includes(f)).sort()];
   }, [doc.atoms, doc.captions, style]);
+  // Text > Font lists the same fonts: the menu bar is built again when the list changes.
+  Object.assign(commands.current, Object.fromEntries(fontList.map((f) => [`font:${f}`, () => runAction(`caption.font.${f}`)])));
+  const fontNames = fontList.join("\n");
+  useEffect(() => {
+    if (TAURI) invoke("set_text_lists", { fonts: fontList, sizes: SIZES }).then(syncChecks).catch(() => {});
+  }, [fontNames]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lastSize = useRef<number>(undefined); // the size last typed in Other Size…
   // The text style of the first labelled atom among these, for the label style buttons; none when no atom has a label.
   const labelText = (ids: number[]) => {
     const i = ids.find((k) => drawing.label[k]), a = i === undefined ? undefined : doc.atoms[i];
@@ -1021,6 +1041,7 @@ export default function Editor() {
   const [exportView, setExportView] = useState<{ all?: string; selection?: string; chem: { all: ReturnType<typeof chemistryOf>; selection?: ReturnType<typeof chemistryOf> }; oct: { all: string; selection?: string } }>();
   const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }
     | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string }
+    | { kind: "font"; font: string } | { kind: "size"; size: string } | { kind: "spacing"; mode: "auto" | "variable" | "fixed"; pt: string }
     | { kind: "unsaved"; next: () => void }>();
   const [commandsOpen, setCommandsOpen] = useState(false);
   // An arrow Octet offers after a row of starting materials (from Clean up). Tab draws it; any other change drops it.
@@ -2550,6 +2571,8 @@ export default function Editor() {
     actions: [settings.actions ? "Hide the Actions panel" : "Show the Actions panel", undefined, <SlidersHorizontal size={18} />],
     text_bold: ["Bold", `${MOD}B`, <TextB size={18} />], text_italic: ["Italic", `${MOD}I`, <TextItalic size={18} />], text_underline: ["Underline", `${MOD}U`, <TextUnderline size={18} />],
     align_left: ["Flush left", `⇧${MOD}L`, <TextAlignLeft size={18} />], align_centre: ["Centre text", `⇧${MOD}C`, <TextAlignCenter size={18} />], align_right: ["Flush right", `⇧${MOD}R`, <TextAlignRight size={18} />],
+    font_other: ["Other font…", "", <TextAa size={18} />], size_other: ["Other size…", "", <TextT size={18} />], line_spacing: ["Line spacing…", "", <TextAlignLeft size={18} />],
+    bring_front: ["Bring to front", `${MOD}[`, <StackSimple size={18} />], send_back: ["Send to back", `${MOD}]`, <Stack size={18} />],
   };
   const paletteCommands = (): Command[] => {
     const toolKey = (id: string) => { const k = keymap(settings.keys)[id]?.[0]; return k ? keyLabel(k) : undefined; };
@@ -3784,7 +3807,9 @@ export default function Editor() {
         // The caption box sits exactly over the caption, in its font at the current zoom, so typing is in place.
         const c = placed.find((x) => x.id === (writing.id ?? DRAFT));
         if (!c) return null;
-        const z = view.zoom, size = c.size * z, slack = 0.5 * size;
+        // Its lines as far apart as the caption's line spacing puts them (the first two lines' gap), each baseline where
+        // the canvas draws it: the leading split above and below Arial's ascent and descent.
+        const z = view.zoom, size = c.size * z, slack = 0.5 * size, gap = c.lines.length > 1 ? c.lines[1].y - c.lines[0].y : 1.2 * c.size, lead = (gap - 1.117 * c.size) / 2 + 0.905 * c.size;
         return (
           <RichBox
             returnNewLine={!settings.captionOptionReturn}
@@ -3800,10 +3825,10 @@ export default function Editor() {
             })}
             style={{
               left: view.x + c.box[0] * z - slack,
-              top: view.y + (c.lines[0].y - 0.9465 * c.size) * z,
+              top: view.y + (c.lines[0].y - lead) * z,
               width: (c.box[2] - c.box[0]) * z + 2 * slack,
-              height: c.lines.length * 1.2 * size,
-              font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${size}px/1.2 ${fontStack(c.font ?? style.captionFont)}`,
+              height: c.lines.length * gap * z,
+              font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${size}px/${gap * z}px ${fontStack(c.font ?? style.captionFont)}`,
               color: c.colour ?? style.colour,
               padding: `0 ${slack}px`,
               textDecoration: c.underline ? "underline" : undefined,
@@ -4027,12 +4052,9 @@ export default function Editor() {
           onAction={() => { const a = Number(dialog.angle); if (Number.isFinite(a)) rotateBy(dialog.clockwise ? -a : a); setDialog(undefined); }}>
           <label className="dialog-row">
             <span>Angle</span>
-            <span className="unit-field"><input aria-label="Angle" inputMode="decimal" value={dialog.angle} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, angle: e.target.value.replace(/[^\d.-]/g, "") })} /><span className="unit">°</span></span>
+            <NumberField label="Angle" unit="°" min={-360} max={360} step={1} value={Number(dialog.angle)} onChange={(n) => setDialog({ ...dialog, angle: String(n) })} />
           </label>
-          <span className="segmented" role="radiogroup" aria-label="Direction">
-            <button role="radio" aria-checked={!dialog.clockwise} onClick={() => setDialog({ ...dialog, clockwise: false })}>Anticlockwise</button>
-            <button role="radio" aria-checked={dialog.clockwise} onClick={() => setDialog({ ...dialog, clockwise: true })}>Clockwise</button>
-          </span>
+          <Segmented label="Direction" value={dialog.clockwise ? "cw" : "ccw"} options={[["ccw", "Anticlockwise"], ["cw", "Clockwise"]]} onChange={(v) => setDialog({ ...dialog, clockwise: v === "cw" })} />
         </Dialog>
       )}
       {(home || homeLeaving) && (homeKind.current === "name"
@@ -4072,11 +4094,31 @@ export default function Editor() {
             setDialog(undefined);
           }}>
           <label className="dialog-row"><span>Element</span><span className="unit-field text"><input aria-label="Element" value={dialog.element} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, element: e.target.value.slice(0, 40) })} /></span></label>
-          <label className="dialog-row"><span>Charge</span><span className="unit-field"><input aria-label="Charge" inputMode="numeric" value={dialog.charge} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, charge: e.target.value.replace(/[^\d+-]/g, "") })} /></span></label>
-          <label className="dialog-row"><span>Isotope</span><span className="unit-field"><input aria-label="Isotope (mass number)" inputMode="numeric" placeholder="Natural" value={dialog.isotope} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, isotope: e.target.value.replace(/\D/g, "") })} /></span></label>
-          <label className="dialog-row"><span>Radical</span>
-            <Select label="Radical" value={dialog.radical} options={[["0", "None"], ["1", "Doublet (•)"], ["2", "Triplet (••)"], ["3", "Singlet (:)"]]} onChange={(v) => setDialog({ ...dialog, radical: v })} />
-          </label>
+          <label className="dialog-row"><span>Charge</span><NumberField label="Charge" min={-9} max={9} step={1} value={Number(dialog.charge) || 0} onChange={(n) => setDialog({ ...dialog, charge: String(Math.round(n)) })} /></label>
+          <label className="dialog-row"><span>Isotope</span><NumberField label="Isotope (mass number)" min={1} max={300} step={1} placeholder="Natural" value={dialog.isotope ? Number(dialog.isotope) : undefined}
+            onChange={(n) => setDialog({ ...dialog, isotope: String(Math.round(n)) })} onClear={() => setDialog({ ...dialog, isotope: "" })} /></label>
+          <div className="dialog-row"><span>Radical</span>
+            <Segmented label="Radical" value={dialog.radical} options={[["0", "None"], ["1", "•", "Doublet"], ["2", "••", "Triplet"], ["3", ":", "Singlet"]]} onChange={(v) => setDialog({ ...dialog, radical: v })} />
+          </div>
+        </Dialog>
+      )}
+      {dialog?.kind === "font" && (
+        <Dialog title="Font" action="Apply" onClose={() => setDialog(undefined)} onAction={() => { runAction(`caption.font.${dialog.font}`); setDialog(undefined); }}>
+          <div className="dialog-row"><span>Font</span><FontPick label="Font" font={dialog.font} fonts={fontList} onPick={(font) => setDialog({ ...dialog, font })} className="select-field" start /></div>
+        </Dialog>
+      )}
+      {dialog?.kind === "size" && (
+        <Dialog title="Size" action="Apply" onClose={() => setDialog(undefined)}
+          onAction={() => { const pt = Math.round(Number(dialog.size) * 2) / 2; if (pt >= 4 && pt <= 144) { lastSize.current = pt; runAction(`caption.size.${pt}`); } setDialog(undefined); }}>
+          <label className="dialog-row"><span>Size</span><NumberField label="Size" unit="pt" min={4} max={144} step={1} value={Number(dialog.size)} onChange={(n) => setDialog({ ...dialog, size: String(n) })} /></label>
+        </Dialog>
+      )}
+      {dialog?.kind === "spacing" && (
+        <Dialog title="Line Spacing" action="Apply" onClose={() => setDialog(undefined)}
+          onAction={() => { const pt = Number(dialog.pt); restyle(() => ({ lineHeight: dialog.mode === "variable" ? "variable" : dialog.mode === "fixed" && pt >= 1 && pt <= 400 ? pt : undefined })); setDialog(undefined); }}>
+          {/* ChemDraw's three: Automatic (by the caption's largest text), Variable (each line by its own) and Fixed at. */}
+          <Segmented label="Line spacing" value={dialog.mode} onChange={(mode) => setDialog({ ...dialog, mode })} options={[["auto", "Automatic"], ["variable", "Variable"], ["fixed", "Fixed"]]} />
+          <label className="dialog-row"><span>Fixed at</span><NumberField label="Fixed at" unit="pt" min={1} max={400} step={0.5} disabled={dialog.mode !== "fixed"} value={Number(dialog.pt)} onChange={(n) => setDialog({ ...dialog, pt: String(n) })} /></label>
         </Dialog>
       )}
       {dialog?.kind === "scale" && (
@@ -4087,15 +4129,14 @@ export default function Editor() {
             scaleBy(dialog.how === "document" ? 1 / median : dialog.how === "length" ? v / style.bond / median : v / 100);
             setDialog(undefined);
           }}>
-          {([["document", `Median bond to the document's bond length (${style.bond} pt)`], ["length", "Median bond to"], ["percent", "Scale by"]] as const).map(([how, name]) => (
-            <label key={how} className="dialog-row">
-              <input type="radio" name="scale-how" checked={dialog.how === how} onChange={() => setDialog({ ...dialog, how, value: how === "percent" ? "100" : how === "length" ? String(style.bond) : dialog.value })} />
-              <span>{name}</span>
-              {how !== "document" && dialog.how === how && (
-                <span className="unit-field"><input aria-label={name} inputMode="decimal" value={dialog.value} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, value: e.target.value.replace(/[^\d.]/g, "") })} /><span className="unit">{how === "percent" ? "%" : "pt"}</span></span>
-              )}
-            </label>
-          ))}
+          {/* ChemDraw's three ways: the median bond to the document's bond length, the median bond to a length, or a percent. */}
+          <Segmented label="Scale" value={dialog.how} onChange={(how) => setDialog({ ...dialog, how, value: how === "percent" ? "100" : String(style.bond) })}
+            options={[["document", "Document bond"], ["length", "Bond length"], ["percent", "Percent"]]} />
+          <label className="dialog-row">
+            <span>{dialog.how === "percent" ? "Scale by" : "Median bond"}</span>
+            <NumberField label={dialog.how === "percent" ? "Scale by" : "Median bond"} unit={dialog.how === "percent" ? "%" : "pt"} step={dialog.how === "percent" ? 1 : 0.1} disabled={dialog.how === "document"}
+              value={dialog.how === "document" ? style.bond : Number(dialog.value)} onChange={(n) => setDialog({ ...dialog, value: String(n) })} />
+          </label>
         </Dialog>
       )}
       {commandsOpen && <CommandPalette commands={paletteCommands()} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}

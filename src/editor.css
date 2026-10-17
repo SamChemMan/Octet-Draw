@@ -1135,82 +1135,10 @@ button.variant.add {
   outline: none;
   box-shadow: var(--shadow-focus);
 }
-.size-menu {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 4px);
-  z-index: 2;
-  display: grid;
-  min-width: 100%;
-  padding: 4px;
-  background: var(--surface-raised);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-float);
-  transform-origin: bottom right;
-  animation: panel-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
-}
-.size-menu button {
-  height: 26px;
-  padding: 0 var(--space-2);
-  border: 0;
-  border-radius: var(--radius-xs);
-  background: transparent;
-  color: var(--ink);
-  font-family: var(--font-sans);
-  font-size: 13px;
-  text-align: left;
-}
-/* The font list: More fonts… under a hairline, and the computer's fonts with a field to find one. */
-.font-menu {
-  width: 220px;
-  max-width: calc(100vw - 32px);
-}
-.font-menu button {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.font-menu .more-fonts {
-  margin-top: 4px;
-  padding-top: 4px;
-  border-top: 1px solid var(--hairline);
-  border-radius: 0 0 var(--radius-xs) var(--radius-xs);
-  color: var(--ink-muted);
-}
-.font-search {
-  position: sticky;
-  top: -4px;
-  z-index: 1;
-  height: 28px;
-  margin: -4px -4px 4px;
-  padding: 0 var(--space-2);
-  border: 0;
-  border-bottom: 1px solid var(--hairline);
-  background: var(--surface-raised);
-  color: var(--ink);
-  font: 13px var(--font-sans);
-  outline: none;
-}
-.font-none {
-  margin: 0;
-  padding: var(--space-2);
-  color: var(--ink-muted);
-  font-size: 13px;
-}
 .size-button .font-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.size-menu button[aria-checked="true"] {
-  color: var(--brand);
-  font-weight: 600;
-}
-.size-menu button:hover,
-.size-menu button:focus-visible {
-  background: var(--surface-sunken);
-  outline: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .actions.leaving {
@@ -1225,8 +1153,62 @@ button.variant.add {
     opacity: 0;
   }
 }
+/* A list of choices from a button (Pick in Menu.tsx): the menu as one column, over its button. Its options are a
+   little shorter than a tool menu's, and a long list scrolls inside the room it has. */
+.strip.list {
+  animation: list-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@keyframes list-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+.strip.list .menu-body {
+  min-height: 0;
+  max-height: none;
+}
+.strip.list .variant {
+  height: 30px;
+}
+.strip.list .variant:hover {
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
+.strip.list .variant[aria-checked="true"] {
+  background: var(--brand-mist);
+  color: var(--brand);
+}
+.menu-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-raised);
+}
+.list-find {
+  width: 100%;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  color: var(--ink);
+  font: 13px var(--font-sans);
+  outline: none;
+}
+.list-find:focus-visible {
+  border-color: var(--brand-bright);
+  box-shadow: var(--shadow-focus);
+}
+.list-none {
+  margin: 0;
+  padding: var(--space-2);
+  color: var(--ink-muted);
+  font-size: 13px;
+}
 @media (prefers-reduced-motion: reduce) {
-  .size-menu {
+  .strip.list {
     animation: fade-in 150ms ease-out;
   }
 }
@@ -1541,6 +1523,13 @@ button.variant.add {
   -webkit-user-select: text;
   user-select: text;
 }
+/* A field that does not apply now (Scale to the document's bond length): its value shows, faint. */
+.unit-field[aria-disabled] {
+  background: var(--surface);
+}
+.unit-field input:disabled {
+  color: var(--ink-faint);
+}
 /* A field for text, such as an element or label. */
 .unit-field.text {
   width: 160px;
@@ -1553,41 +1542,42 @@ button.variant.add {
   color: var(--ink-faint);
   font-size: 12px;
 }
-/* A select drawn like the fields, over the native control. */
+/* A select (Select.tsx): a button drawn like the fields, whose choices open as a list (Pick in Menu.tsx). */
 .select-field {
-  position: relative;
   display: inline-flex;
   align-items: center;
-}
-.select-field select {
+  justify-content: space-between;
+  gap: var(--space-2);
   height: 28px;
   min-width: 112px;
-  padding: 0 28px 0 var(--space-2);
+  padding: 0 9px 0 var(--space-2);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
   background: var(--canvas);
   color: var(--ink);
   font: 13px var(--font-sans);
-  appearance: none;
-  -webkit-appearance: none;
+  text-align: left;
   transition: border-color 120ms ease-out, box-shadow 120ms ease-out;
 }
-.section-head .select-field select {
+.select-field > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.section-head .select-field {
   min-width: 196px;
 }
 .select-field svg {
-  position: absolute;
-  right: 9px;
+  flex: none;
   color: var(--ink-faint);
-  pointer-events: none;
 }
-.select-field select:focus-visible {
+.select-field:focus-visible {
   outline: none;
   border-color: var(--brand-bright);
   box-shadow: var(--shadow-focus);
 }
 @media (hover: hover) and (pointer: fine) {
-  .select-field select:hover,
+  .select-field:hover,
   .unit-field:hover {
     border-color: var(--outline);
   }
@@ -2269,7 +2259,7 @@ button.variant.add {
   }
 }
 /* Row controls share one width, so their edges line up down each column. */
-.setting-control .select-field select,
+.setting-control .select-field,
 .setting-control .page-button {
   width: 140px;
 }
@@ -3103,8 +3093,7 @@ button.variant.add {
   cursor: grab;
 }
 .properties header button,
-.spectrum header button,
-.spectrum header select {
+.spectrum header button {
   cursor: default;
 }
 .properties header {
@@ -3234,7 +3223,7 @@ button.variant.add {
   gap: var(--space-2);
   padding: var(--space-1) 0;
 }
-.spectrum header .select-field select {
+.spectrum header .select-field {
   min-width: 0;
 }
 /* Full screen: the panel fills the canvas beside the toolbar, the spectrum grows, and the structure sits beside it. */
@@ -3432,18 +3421,6 @@ button.variant.add {
 .pick-label {
   font: 12px var(--font-sans);
   color: var(--ink-muted);
-}
-.size-menu.pick-menu {
-  left: 0;
-  right: auto;
-  min-width: 152px;
-  transform-origin: bottom left;
-}
-.pick-menu button {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  height: 30px;
 }
 .pick-glyph {
   display: grid;
