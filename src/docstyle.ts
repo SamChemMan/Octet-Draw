@@ -19,6 +19,12 @@ export function pageSize(s: Pick<DocStyle, "page" | "custom" | "landscape">): [n
   const [w, h] = s.page === "Custom" ? s.custom : PAGES[s.page];
   return s.landscape ? [h, w] : [w, h];
 }
+// A page picked from the page list. A slide is landscape and a sheet of paper portrait: a pick of a slide from a paper
+// page, or of a paper page from a slide, turns the page to its usual way round. Other picks keep the orientation.
+export function pickPage(s: Pick<DocStyle, "page" | "landscape">, page: PageName): { page: PageName; landscape: boolean } {
+  const slide = (n: PageName) => n.startsWith("Slide");
+  return { page, landscape: slide(page) !== slide(s.page) ? slide(page) : s.landscape };
+}
 
 // The page's background: white, dark, the system's light or dark, or engineering paper (blue, with a grid). On a
 // dark or blue page the structures and text are drawn white.

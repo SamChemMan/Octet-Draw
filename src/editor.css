@@ -3843,10 +3843,8 @@ button.variant.add {
   gap: var(--space-4) var(--space-4);
 }
 .home-grid.purposes .home-thumb {
-  background: var(--surface-sunken);
-}
-.home-grid.purposes .home-thumb {
   position: relative;
+  background: var(--surface-sunken);
 }
 .home-thumb svg {
   position: absolute;

@@ -78,7 +78,8 @@ questions 2 and 3 below.
   the structures still on screen, and the page outlines grow or shrink round them in 200 ms. A change of bond length
   at the same scale (a journal) keeps the true-size ratio, as before. Actual Size still shows true size.
 - The tutorial always runs on Paper, once after the name box and from Octet > Tutorial.
-- Pages: A1, A0, Slide 16:9 and Slide 4:3 join the page list, stored portrait, with landscape on for slides.
+- Pages: A1, A0, Slide 16:9 and Slide 4:3 join the page list, stored portrait, with landscape on for slides. A slide
+  picked from the page list is landscape, and a paper page picked from a slide is portrait.
 - Journal list: ChemDraw 26.1's pads. J. Chin. Chem. Soc., J. Het. Chem., Phytomedicine, Science of Synthesis and
   New Document (ChemDraw) are added. Slides is now New Slide (ChemDraw). RSC and Helv. Chim. Acta use Arial, as the
   26.1 pads do (the help says Helvetica). Times New Roman in a pad is Arial in Octet (Adv. Synth. Catal. captions,
@@ -97,3 +98,5 @@ questions 2 and 3 below.
    the same as ACS; I Draw Styles and Show Terminal Carbon Labels are New Document with Hide implicit hydrogens or
    Label terminal carbons on; Dark Mode is ACS with 1.6 pt lines on a dark page (Octet has the Dark background).
    Phytomedicine's labels are bold in its pad; Octet's journal values hold no bold labels.
+6. RSC and Helv. Chim. Acta in Arial, as ChemDraw 26.1's pads (now), or in Helvetica, as ChemDraw's help lists. A
+   file or saved default with the Helvetica values now shows as Custom.

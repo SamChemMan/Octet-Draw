@@ -1,7 +1,7 @@
 // Run: node src/purpose.check.ts. Fails loudly if a purpose (Paper, Thesis, Slides, Poster or the user's own) stops
 // giving its sizes, page and outlines (IDEA-SIZE-1 to 15).
 import assert from "node:assert/strict";
-import { DEFAULT_STYLE, PAGES, PRESETS, PURPOSES, forPurpose, outlines, pageSize, presetOf, purposeOf, purposeStyle, readPurposes, readStyle, styleFor, withScale } from "./docstyle.ts";
+import { DEFAULT_STYLE, PAGES, PRESETS, PURPOSES, forPurpose, outlines, pageSize, pickPage, presetOf, purposeOf, purposeStyle, readPurposes, readStyle, styleFor, withScale } from "./docstyle.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 
 // Each purpose is ACS Document 1996 at its scale, on its page.
@@ -31,6 +31,14 @@ assert.deepEqual([PAGES.A1, PAGES.A0, PAGES.Slide169, PAGES.Slide43], [[594, 841
   const own = fromCdxml(toCdxml({ atoms: [{ label: "C", location: [0, 0, 0] }], bonds: [] }, purposeStyle("poster")));
   assert.deepEqual([own.style.page, own.style.purpose, own.style.scale], ["A0", "poster", 3], "Octet's own file keeps the purpose");
 }
+
+// A slide picked from the page list is landscape, and a sheet of paper picked from a slide is portrait. Other picks
+// keep the orientation.
+assert.deepEqual(pickPage(DEFAULT_STYLE, "Slide169"), { page: "Slide169", landscape: true });
+assert.deepEqual(pickPage(purposeStyle("slides"), "A4"), { page: "A4", landscape: false });
+assert.deepEqual(pickPage(purposeStyle("slides"), "Slide43"), { page: "Slide43", landscape: true });
+assert.deepEqual(pickPage({ ...purposeStyle("slides"), landscape: false }, "Slide43"), { page: "Slide43", landscape: false }, "a portrait slide stays portrait");
+assert.deepEqual(pickPage({ ...DEFAULT_STYLE, landscape: true }, "A3"), { page: "A3", landscape: true });
 
 // ChemDraw 26.1's pads: every preset is distinct, sans serif, and inside the limits at any scale.
 {

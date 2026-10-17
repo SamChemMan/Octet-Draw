@@ -8,7 +8,7 @@ import { Dialog } from "./Dialog";
 import { Select } from "./Select";
 import type { Swatch } from "./settings";
 import type { ExportFormat } from "./export";
-import { BACKGROUNDS, COLOURS, FONTS, PAGE_NAMES, PAGES, PRESETS, PURPOSES, pageSize, presetAt, presetOf, withScale, type DocStyle, type PageName } from "./docstyle";
+import { BACKGROUNDS, COLOURS, FONTS, PAGE_NAMES, PAGES, PRESETS, PURPOSES, pageSize, pickPage, presetAt, presetOf, withScale, type DocStyle, type PageName } from "./docstyle";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
 
 export type ModuleId = "document" | "keys" | "panel" | "files" | "colours";
@@ -148,6 +148,8 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   const [w, h] = pageSize(style);
   const names = Object.keys(PAGES) as Exclude<PageName, "Custom">[];
+  // Each option shows the page the way round the pick gives it (pickPage).
+  const turned = (n: PageName) => pickPage(style, n).landscape;
   const custom = style.page === "Custom";
   const setCustom = (i: 0 | 1, v: number) => {
     const mm = unit === "in" ? v * 25.4 : unit === "cm" ? v * 10 : v, size = [...pageSize({ ...style, landscape: false })] as [number, number];
@@ -165,10 +167,10 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
         <div ref={menu} className={place.above ? "page-menu above" : "page-menu"} role="dialog" aria-label="Page size" style={{ left: place.left, top: place.top, width }}>
           <div className="page-options" role="radiogroup" aria-label="Page sizes">
             {names.map((n) => {
-              const [pw, ph] = PAGES[n];
+              const [pw, ph] = turned(n) ? [PAGES[n][1], PAGES[n][0]] : PAGES[n];
               return (
-                <button key={n} role="radio" aria-checked={style.page === n} className="page-option" onClick={() => { change({ page: n }); setOpen(false); }}>
-                  <span className="page-option-thumb"><PageThumb w={style.landscape ? ph : pw} h={style.landscape ? pw : ph} size={34} /></span>
+                <button key={n} role="radio" aria-checked={style.page === n} className="page-option" onClick={() => { change(pickPage(style, n)); setOpen(false); }}>
+                  <span className="page-option-thumb"><PageThumb w={pw} h={ph} size={34} /></span>
                   <span className="page-option-name">{PAGE_NAMES[n]}</span>
                   <span className="page-option-size">{fmt(pw, unit)} × {fmt(ph, unit)} {unit}</span>
                 </button>
