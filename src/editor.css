@@ -2786,6 +2786,12 @@ button.variant.add {
   white-space: nowrap;
 }
 
+/* Search Reaxys and Search PubChem: the magnifier, then the site's letter (a letter in the lens reads as ®). */
+.search-glyph {
+  display: inline-flex;
+  align-items: center;
+}
+
 /* The box a table cell is typed in: over the cell, text centred. */
 .cell-box {
   position: absolute;

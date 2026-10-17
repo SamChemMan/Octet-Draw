@@ -23,7 +23,7 @@ import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
 import { loadSettings, saveSettings } from "./settings";
 import { ACTIONS, actionFor, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
-import { Actions, actionItems, type Context } from "./Actions";
+import { Actions, actionItems, SearchGlyph, type Context } from "./Actions";
 import { Properties, propertyValues, PROPERTY_ROWS } from "./Properties";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { acsText, multiplicity, quality } from "./nmr";
@@ -44,7 +44,8 @@ import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb } from "./TemplateLibrary";
-import { cleanUpReaction, findReaction, GAP, layoutRow, reactionClean, rowOf } from "./reaction";
+import { cleanUpReaction, findReaction, GAP, layoutRow, reactionClean, roleOf, rowOf, type Reaction } from "./reaction";
+import { SEARCHES, searchQuery } from "./search";
 import { SettingsWindow, type ModuleId } from "./SettingsWindow";
 import { layoutCycles, orderAround, spreadCycle, type Cycle, type CycleText } from "./cycle";
 import { LIBRARY, libraryItem } from "./library";
@@ -861,6 +862,8 @@ export default function Editor() {
     settings: () => setSettingsOpen((settings.settingsModule as ModuleId) ?? "document"),
     structure_to_name: () => nameStructures(),
     copy_smiles: () => void document.execCommand("copy"),
+    // Search Reaxys and Search PubChem (the Search menu and the Actions panel), while Settings > Online search is on.
+    ...(settings.onlineSearch ? Object.fromEntries(Object.entries(SEARCHES).map(([id, [site, exact]]) => [id, () => searchOnline(site, exact)])) : {}),
     bring_front: () => runAction("shape.front"),
     send_back: () => runAction("shape.back"),
     command_palette: () => { setCommandsOpen((o) => !o); if (!namesLoaded) void loadNames().then(() => setNamesLoaded(true)); },
@@ -917,10 +920,12 @@ export default function Editor() {
   }, []);
   // Every menu command's shortcut can be changed in Settings, with the canvas keys: the menu lists its commands, and
   // is built again with the user's shortcuts (Command or Ctrl ones; the page handles any other key itself).
+  // Settings > Online search: the Search menu is built only while it is on, so the list is read after it is set.
   const [menuReady, setMenuReady] = useState(0);
   useEffect(() => {
-    if (TAURI) invoke<[string, string, string, string][]>("menu_items").then((items) => { registerMenu(items); setMenuReady(items.length); }).catch(() => {});
-  }, []);
+    if (TAURI) invoke("set_online_search", { on: settings.onlineSearch }).then(() => invoke<[string, string, string, string][]>("menu_items"))
+      .then((items) => { registerMenu(items); setMenuReady(items.length); }).then(syncChecks).catch(() => {});
+  }, [settings.onlineSearch]); // eslint-disable-line react-hooks/exhaustive-deps
   const sentMenuKeys = useRef("");
   useEffect(() => {
     if (!TAURI || !menuReady) return;
@@ -2089,6 +2094,28 @@ export default function Editor() {
     const inSalt = new Set(merged.flat());
     return [...all.filter((g) => !inSalt.has(g)), ...merged.map((gs) => gs.flat())];
   };
+  // Search Reaxys and Search PubChem (decision 0008): the selection, or the whole drawing when nothing is selected
+  // (as Copy), opens in the user's browser. Structures on one side of a reaction search Reaxys's reactions for them
+  // in that part, as ChemDraw's Reactant and Reaction product searches. Only a press runs a search.
+  function searchOnline(site: "reaxys" | "pubchem", exact: boolean) {
+    if (!loaded) return;
+    const all = !selection.size && !picked.size, part = all ? doc : extractSelection(doc, selection, picked);
+    if (!part.atoms.length) return setNotice("Select a structure to search.");
+    const reactions: Reaction[] = [], seen = new Set<number>();
+    for (const a of arrows.filter((x) => straightArrow(x))) {
+      if (seen.has(a.id)) continue;
+      const r = reactionOf(a.id);
+      r?.arrows.forEach((id) => seen.add(id));
+      if (r) reactions.push(r);
+    }
+    const role = roleOf(reactions, fragments(doc).filter((g) => all || g.some((i) => selection.has(i))));
+    if (role === "mixed") return setNotice("Select the starting materials or the products of the reaction.");
+    let query: ReturnType<typeof searchQuery>;
+    try { query = searchQuery(part); } catch { return setNotice("Octet cannot read this structure."); }
+    // A query with generic labels always looks for substructures.
+    invoke("search_online", { site, ...query, exact: exact && !query.molfile, role: site === "reaxys" ? role : undefined })
+      .catch((e) => setNotice(typeof e === "string" ? e : "Search runs in the Octet app."));
+  }
   // Structure to name: each named structure gets its name centred underneath (after its compound number).
   function nameStructures() {
     if (!namesLoaded) { void loadNames().then(() => setNamesLoaded(true)); return setNotice("Loading names. Try again in a moment."); }
@@ -2467,6 +2494,7 @@ export default function Editor() {
   const MENU_KEYS: Record<string, string> = {
     invert_selection: `⇧${MOD}I`, clean_reaction: `⇧${MOD}X`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}/`, copy_smiles: `⌥${MOD}C`, delete: "⌫",
     structure_to_name: `⌥${MOD}N`, "shape.front": `${MOD}[`, "shape.back": `${MOD}]`,
+    search_reaxys: `⌥${MOD}F`, search_reaxys_exact: `⇧⌥${MOD}F`, search_pubchem: `⌥${MOD}U`, search_pubchem_sub: `⇧⌥${MOD}U`,
     settings: `${MOD},`, name_to_structure: `⇧${MOD}N`, "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.sub": `${MOD}−`, "caption.super": `${MOD}+`, "caption.plain": `${MOD}T`, "caption.formula": `${MOD}F`, "caption.edit": keyLabel("enter"),
   };
   const hint = (command: string) => {
@@ -2523,6 +2551,10 @@ export default function Editor() {
     actions: [settings.actions ? "Hide the Actions panel" : "Show the Actions panel", undefined, <SlidersHorizontal size={18} />],
     text_bold: ["Bold", `${MOD}B`, <TextB size={18} />], text_italic: ["Italic", `${MOD}I`, <TextItalic size={18} />], text_underline: ["Underline", `${MOD}U`, <TextUnderline size={18} />],
     align_left: ["Flush left", `⇧${MOD}L`, <TextAlignLeft size={18} />], align_centre: ["Centre text", `⇧${MOD}C`, <TextAlignCenter size={18} />], align_right: ["Flush right", `⇧${MOD}R`, <TextAlignRight size={18} />],
+    ...(settings.onlineSearch ? {
+      search_reaxys: ["Search Reaxys", `⌥${MOD}F`, <SearchGlyph letter="R" />], search_reaxys_exact: ["Search Reaxys for exact structure", `⇧⌥${MOD}F`, <SearchGlyph letter="R" />],
+      search_pubchem: ["Search PubChem", `⌥${MOD}U`, <SearchGlyph letter="P" />], search_pubchem_sub: ["Search PubChem for substructures", `⇧⌥${MOD}U`, <SearchGlyph letter="P" />],
+    } as Record<string, [string, string, React.ReactNode]> : {}),
   };
   const paletteCommands = (): Command[] => {
     const toolKey = (id: string) => { const k = keymap(settings.keys)[id]?.[0]; return k ? keyLabel(k) : undefined; };
@@ -2530,7 +2562,7 @@ export default function Editor() {
     const variants = (t: Tool, slot: string, list: [string, string, React.ReactNode][], group: string, words = ""): Command[] =>
       list.map(([kind, name, icon]) => ({ id: `${t}:${kind}`, name, group, icon, words, run: pick(t, [slot, kind]) }));
     // A menu command that is also one of the selection's actions shows once, as the action.
-    const acts = actionItems(contextOf(), untidy, [...selection].some((i) => doc.atoms[i]?.ignoreWarnings)), acted = new Set(acts.map((i) => i.command));
+    const acts = actionItems(contextOf(), untidy, [...selection].some((i) => doc.atoms[i]?.ignoreWarnings), settings.onlineSearch), acted = new Set(acts.map((i) => i.command));
     return [
       ...acts.map((i) => ({ id: `action:${i.command}`, name: i.name, group: "Actions", icon: i.icon, keys: hint(i.command), run: () => runAction(i.command) })),
       ...Object.entries(MENU_NAMES).filter(([id]) => commands.current[id] && !acted.has(id)).map(([id, [name, keys, icon]]) => ({ id: `menu:${id}`, name, group: "Commands", keys: platformLabel(keys), icon, run: () => commands.current[id]() })),
@@ -3844,6 +3876,8 @@ export default function Editor() {
           onCaptionOptionReturn={(captionOptionReturn) => setSettings((s) => ({ ...s, captionOptionReturn }))}
           panelMenus={settings.panelMenus}
           onPanelMenus={(panelMenus) => setSettings((s) => ({ ...s, panelMenus }))}
+          onlineSearch={settings.onlineSearch}
+          onOnlineSearch={(onlineSearch) => setSettings((s) => ({ ...s, onlineSearch }))}
           menuKeys={menuReady ? [] : Object.values(MENU_NAMES).flatMap(([name, keys]) => (keys ? [[name, platformLabel(keys)!] as [string, string]] : []))}
           palette={settings.palette}
           onPalette={(palette) => setSettings((s) => ({ ...s, palette }))}
@@ -3946,6 +3980,7 @@ export default function Editor() {
             problems={found}
             fonts={fontList}
             hiddenWarnings={[...selection].some((i) => doc.atoms[i]?.ignoreWarnings)}
+            online={settings.onlineSearch}
             messy={untidy}
             hint={hint}
             onOpen={(open) => setSettings((s) => ({ ...s, actions: open }))}

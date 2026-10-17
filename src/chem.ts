@@ -181,6 +181,17 @@ function convert(input: string, format: string): string {
 export const toSmiles = (drawn: Mol): string => convert(ketOf(drawn), "smiles");
 // The drawing's molecules as a molfile.
 export const toMolfile = (drawn: Mol): string => convert(ketOf(drawn), "molfile");
+// Generic labels as query atoms (any atom A, heteroatom Q, metal M, halogen X, and each with H, as ChemDraw's).
+// SMILES cannot keep them; a molfile can, for a Reaxys search. undefined when the drawing has none.
+const GENERIC = new Set(["A", "AH", "Q", "QH", "M", "MH", "X", "XH"]);
+export function toQueryMolfile(drawn: Mol): string | undefined {
+  if (!drawn.atoms.some((a) => a.text && GENERIC.has(a.text))) return undefined;
+  const atoms = drawn.atoms.map((a) => (a.text && GENERIC.has(a.text) ? { ...a, label: a.text, text: undefined } : a));
+  // From the counts line on, under the header Reaxys was seen to read: a name, the program, a blank line.
+  // (A V3000 molfile, for 1000 atoms or more, goes whole: no search link can hold it, and the app says so.)
+  const lines = convert(ketOf({ ...drawn, atoms }), "molfile").split("\n"), at = lines.findIndex((l) => l.endsWith("V2000"));
+  return ["Octet", "  Octet", "", ...lines.slice(Math.max(0, at)), ""].join("\n");
+}
 // CIP labels for a drawing's stereocentres (R, S) and double bonds (E, Z), in its atom and bond order.
 export function cipOf(drawn: Mol): { atoms: (string | undefined)[]; bonds: (string | undefined)[] } | undefined {
   const ind = engine(), opts = new ind.MapStringString();

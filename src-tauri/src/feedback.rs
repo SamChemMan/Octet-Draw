@@ -95,15 +95,5 @@ pub fn send_feedback(app: AppHandle, note: String, picture: Option<String>) -> R
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join("Octet feedback.eml");
     std::fs::write(&path, eml).map_err(|e| e.to_string())?;
-    #[cfg(target_os = "macos")]
-    let mut command = std::process::Command::new("open");
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        let mut c = std::process::Command::new("cmd");
-        c.args(["/C", "start", ""]);
-        c
-    };
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let mut command = std::process::Command::new("xdg-open");
-    command.arg(&path).spawn().map(|_| ()).map_err(|_| "Octet could not open your mail app.".into())
+    crate::open_external(&path).map_err(|_| "Octet could not open your mail app.".into())
 }
