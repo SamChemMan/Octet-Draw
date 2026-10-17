@@ -75,6 +75,10 @@ assert.deepEqual([...complete(ethanol, new Set([0, 1]))].sort(), [0, 1, 2]);
 const ring = addRing(EMPTY, 6, false, { point: [0, 0] });
 assert.ok(onSelection(ring, new Set([0, 1, 2, 3, 4, 5]), [0, 0]), "the ring centre is on the selection");
 assert.ok(!onSelection(ring, new Set([0, 1, 2, 3, 4, 5]), [3, 3]), "far away is not");
+// The same selection on the drawing after a move: its outline moves with it.
+const ringIds = new Set([0, 1, 2, 3, 4, 5]), movedRing = moveAtoms(ring, ringIds, [3, 3]);
+assert.ok(onSelection(ring, ringIds, [0, 0]) && !onSelection(ring, ringIds, [3, 3]));
+assert.ok(onSelection(movedRing, ringIds, [3, 3]) && !onSelection(movedRing, ringIds, [0, 0]), "the moved selection's outline");
 // Dropping a fragment's atom exactly on another atom joins them into one.
 const two = merge(sprout(EMPTY, [0, 0]), sprout(EMPTY, [0, 0]), [5, 0]);
 const placed = moveAtoms(two, new Set([2, 3]), [pos(two, 1)[0] - pos(two, 2)[0], pos(two, 1)[1] - pos(two, 2)[1]]);

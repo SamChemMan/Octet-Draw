@@ -14,21 +14,84 @@ const box = (ps: P[]) => {
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 };
 
+// What a move of these atoms snaps to, worked out once for the drawing and the atoms (a drag keeps both from its first
+// move to its last): where the moving atoms start, the other atoms by structure, and a grid of where those are, so
+// the atom-on-atom test looks only near each moving atom. Grid cells are CELL bond lengths square.
+const CELL = 0.5;
+type Prepared = { ids: Set<number>; moving: P[]; others: number[][]; flat: number[]; cells: Map<number, number[]> };
+const prepared = new WeakMap<Mol, Prepared>();
+const cellKey = (cx: number, cy: number) => cx * 0x100000 + cy;
+function prepare(m: Mol, ids: Set<number>): Prepared {
+  const hit = prepared.get(m);
+  if (hit?.ids === ids) return hit;
+  const moving = [...ids].filter((i) => i < m.atoms.length).map((i) => pos(m, i));
+  const others = fragments(m).map((g) => g.filter((i) => !ids.has(i))).filter((g) => g.length), flat = others.flat();
+  const cells = new Map<number, number[]>();
+  flat.forEach((i, k) => {
+    const [x, y] = pos(m, i), key = cellKey(Math.floor(x / CELL), Math.floor(y / CELL));
+    const cell = cells.get(key);
+    if (cell) cell.push(k); else cells.set(key, [k]);
+  });
+  const out = { ids, moving, others, flat, cells };
+  prepared.set(m, out);
+  return out;
+}
+// Each box's snap lines on each axis, made once for each set of boxes (a drag keeps its set): edges and middles, then
+// the points halfway between two boxes side by side (overlapping across the other axis). Also the lines' places in
+// order (ats, with their indices in order), so a move looks only at the lines near it.
+type Lines = { lines: Line[]; order: number[]; ats: Float64Array };
+const lineSets = new WeakMap<number[][], [Lines, Lines]>();
+function linesOf(boxes: number[][]): [Lines, Lines] {
+  let sets = lineSets.get(boxes);
+  if (!sets) {
+    const axis = (k: 0 | 1): Lines => {
+      const o = 1 - k, lines: Line[] = boxes.flatMap((b) => [b[k], (b[k] + b[k + 2]) / 2, b[k + 2]].map((at) => ({ at, lo: b[o], hi: b[o + 2] })));
+      for (const a of boxes) for (const b of boxes) {
+        if (a === b || a[k + 2] >= b[k] || a[o] > b[o + 2] || b[o] > a[o + 2]) continue;
+        lines.push({ at: (a[k + 2] + b[k]) / 2, lo: Math.min(a[o], b[o]), hi: Math.max(a[o + 2], b[o + 2]) });
+      }
+      // A line at no number (a broken box) can never snap, so it is left out.
+      const order = lines.map((_, i) => i).filter((i) => !Number.isNaN(lines[i].at)).sort((p, q) => lines[p].at - lines[q].at || p - q);
+      return { lines, order, ats: Float64Array.from(order, (i) => lines[i].at) };
+    };
+    sets = [axis(0), axis(1)];
+    lineSets.set(boxes, sets);
+  }
+  return sets;
+}
+// The first place in ats (in order) at or past x, or past x when after is set.
+function seek(ats: Float64Array, x: number, after = false): number {
+  let lo = 0, hi = ats.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (after ? ats[mid] <= x : ats[mid] < x) lo = mid + 1; else hi = mid; }
+  return lo;
+}
+
 // Moves `d` by up to `tol` so the selection lands on an atom or lines up with another object. boxes: the moving
 // things' drawn box and every other object's, from the caller (labels, text and shapes included); without them,
 // the boxes of the atoms.
 export function snapMove(m: Mol, ids: Set<number>, d: P, tol: number, boxes?: { moving: number[]; targets: number[][] }): { d: P; guides: Guide[]; point?: P } {
-  const moving = [...ids].filter((i) => i < m.atoms.length).map((i) => pos(m, i));
-  const others = fragments(m).map((g) => g.filter((i) => !ids.has(i))).filter((g) => g.length);
+  const { moving, others, flat, cells } = prepare(m, ids);
   if (boxes && !others.length) return snapBoxes(boxes.moving, boxes.targets, d, tol);
   if (!moving.length || !others.length) return { d, guides: [] };
 
-  // An atom landing on an atom wins outright.
-  let best: { gap: number; shift: P; at: P } | undefined;
-  for (const a of moving) for (const g of others) for (const i of g) {
-    const s = pos(m, i), shift: P = [s[0] - a[0] - d[0], s[1] - a[1] - d[1]], gap = Math.hypot(...shift);
-    if (gap < tol && (!best || gap < best.gap)) best = { gap, shift, at: s };
-  }
+  // An atom landing on an atom wins outright: the nearest, and of those as near, the first moving atom and then the
+  // first other atom (by structure). Only the grid cells within tol of where each moving atom is now are looked in.
+  let best: { gap: number; shift: P; at: P; a: number; k: number } | undefined;
+  const reach = tol + 1e-9;
+  moving.forEach((a, n) => {
+    const x = a[0] + d[0], y = a[1] + d[1], x0 = Math.floor((x - reach) / CELL), x1 = Math.floor((x + reach) / CELL), y0 = Math.floor((y - reach) / CELL), y1 = Math.floor((y + reach) / CELL);
+    // More cells than atoms (a very wide tol), or a point off the grid: every other atom is looked at.
+    let near: Iterable<number> = flat.keys();
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) <= flat.length) {
+      const ks: number[] = [];
+      for (let cx = x0; cx <= x1; cx++) for (let cy = y0; cy <= y1; cy++) for (const k of cells.get(cellKey(cx, cy)) ?? []) ks.push(k);
+      near = ks;
+    }
+    for (const k of near) {
+      const s = pos(m, flat[k]), shift: P = [s[0] - a[0] - d[0], s[1] - a[1] - d[1]], gap = Math.hypot(...shift);
+      if (gap < tol && (!best || gap < best.gap || (gap === best.gap && n === best.a && k < best.k))) best = { gap, shift, at: s, a: n, k };
+    }
+  });
   if (best) return { d: [d[0] + best.shift[0], d[1] + best.shift[1]], guides: [], point: best.at };
   if (boxes) return snapBoxes(boxes.moving, boxes.targets, d, tol);
 
@@ -65,16 +128,11 @@ export function snapBoxes(moving: number[], boxes: number[][], d: P, tol: number
   if (!boxes.length) return { d, guides: [] };
   const mb = moving.map((v, k) => v + d[k % 2]);
   const axis = (k: 0 | 1) => {
-    const o = 1 - k, refs = [mb[k], (mb[k] + mb[k + 2]) / 2, mb[k + 2]];
-    const targets: Line[] = boxes.flatMap((b) => [b[k], (b[k] + b[k + 2]) / 2, b[k + 2]].map((at) => ({ at, lo: b[o], hi: b[o + 2] })));
-    // Halfway between two structures side by side (overlapping across the other axis).
-    for (const a of boxes) for (const b of boxes) {
-      if (a === b || a[k + 2] >= b[k] || a[o] > b[o + 2] || b[o] > a[o + 2]) continue;
-      targets.push({ at: (a[k + 2] + b[k]) / 2, lo: Math.min(a[o], b[o]), hi: Math.max(a[o + 2], b[o + 2]) });
-    }
+    const refs = [mb[k], (mb[k] + mb[k + 2]) / 2, mb[k + 2]], { lines, order, ats } = linesOf(boxes)[k];
     let pick: { diff: number; line: Line } | undefined;
-    for (const [n, r] of refs.entries()) for (const t of targets) {
-      const diff = t.at - r;
+    // Only the lines within tol can snap; they are taken in their own order, as a pass over every line would.
+    for (const [n, r] of refs.entries()) for (const i of order.slice(seek(ats, r - tol - 1e-9), seek(ats, r + tol + 1e-9, true)).sort((p, q) => p - q)) {
+      const t = lines[i], diff = t.at - r;
       // Middles count for a little more than edges, so text centres when it can.
       const weight = n === 1 ? 0.7 : 1;
       if (Math.abs(diff) < tol && (!pick || Math.abs(diff) * weight < Math.abs(pick.diff))) pick = { diff, line: t };

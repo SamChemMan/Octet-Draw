@@ -28,6 +28,13 @@
   cursor: default;
 }
 
+/* During a zoom (Editor.tsx, onWheel), the drawing's text is laid out at its own size and scaled with the drawing,
+   so each zoom step does not lay out all the text again. When the zoom stops, the class goes and the text is laid
+   out for the screen again. */
+.canvas.pinch #world text {
+  text-rendering: geometricPrecision;
+}
+
 /* The Eraser shows its real size instead of a pointer, like a brush in Photoshop. [ and ] resize it. */
 .canvas[data-tool="erase"] {
   cursor: none;

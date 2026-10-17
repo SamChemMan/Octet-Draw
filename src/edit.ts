@@ -360,11 +360,19 @@ const segDist = (p: P, a: P, b: P) => {
   return len(sub(p, add(a, mul(ab, t))));
 };
 
+// The hull of each selection, kept with the selection's set for its drawing (a new selection is a new set): the
+// pointer tests the selection on every move.
+const hulls = new WeakMap<Set<number>, [Mol, P[]]>();
 // Is p on the selection: inside the outline around its atoms, or within r of it (bond lengths)?
 export function onSelection(m: Mol, ids: Set<number>, p: P, r = 0.45): boolean {
-  const ps = [...ids].filter((i) => i < m.atoms.length).map((i) => pos(m, i));
-  if (!ps.length) return false;
-  const h = hull(ps);
+  let kept = hulls.get(ids);
+  if (kept?.[0] !== m) {
+    const ps = [...ids].filter((i) => i < m.atoms.length).map((i) => pos(m, i));
+    kept = [m, ps.length ? hull(ps) : []];
+    hulls.set(ids, kept);
+  }
+  const h = kept[1];
+  if (!h.length) return false;
   if (h.length >= 3 && h.every((a, k) => cross(sub(h[(k + 1) % h.length], a), sub(p, a)) >= 0)) return true;
   if (h.length === 1) return len(sub(p, h[0])) <= r;
   return h.some((a, k) => segDist(p, a, h[(k + 1) % h.length]) <= r);
