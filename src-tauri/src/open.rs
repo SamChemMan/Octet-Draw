@@ -13,7 +13,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::{recent, Picked, MAX_BYTES};
 
 const MOST: usize = 20; // files kept waiting at one time
-const DRAWINGS: [&str; 3] = ["oct", "cdxml", "octet"];
+const DRAWINGS: [&str; 4] = ["oct", "cdxml", "cdx", "octet"];
 
 // The files waiting for the page, each with the point in the window (CSS pixels) where it was dropped, if it was.
 #[derive(Default)]
@@ -50,7 +50,7 @@ pub fn from_args(args: impl IntoIterator<Item = OsString>, cwd: &Path) -> Vec<Pa
 #[derive(Serialize)]
 pub struct OpenedFile {
     name: String,         // the file's name
-    path: Option<String>, // set for a drawing Octet can save over (.oct, .cdxml, .octet) that opens
+    path: Option<String>, // set for a drawing Octet can save over (.oct, .cdxml, .cdx, .octet) that opens
     text: Option<String>,
     error: Option<String>,
     at: Option<(f64, f64)>, // where it was dropped
@@ -81,12 +81,12 @@ pub async fn take_opened(app: AppHandle, picked: State<'_, Picked>, insert: bool
         .collect())
 }
 
-// A file's text, with Open's limits: 64 MB at most, and text (UTF-8) only.
+// A file's text (a CDX file's bytes in base64), with Open's limits: 64 MB at most, and text (UTF-8) or CDX only.
 fn read(path: &Path, name: &str) -> Result<String, String> {
     match fs::metadata(path) {
         Err(_) => Err("This file is not where it was. It was moved or deleted.".into()),
         Ok(m) if m.len() > MAX_BYTES => Err("This file is larger than 64 MB. Octet cannot open it.".into()),
-        Ok(_) => fs::read_to_string(path).map_err(|_| format!("Octet cannot open {name}. It opens Octet and ChemDraw drawings (CDXML), MOL, SDF and SMILES files.")),
+        Ok(_) => crate::read_text_or_cdx(path).map_err(|_| format!("Octet cannot open {name}. It opens Octet and ChemDraw drawings (CDX and CDXML), MOL, SDF, RXN, SMILES and InChI files.")),
     }
 }
 
@@ -106,12 +106,15 @@ mod tests {
     fn files_are_read_with_opens_limits() {
         let dir = std::env::temp_dir().join(format!("octet-open-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
-        let (text, png, big) = (dir.join("a.mol"), dir.join("b.png"), dir.join("c.cdxml"));
+        let (text, png, big, cdx) = (dir.join("a.mol"), dir.join("b.png"), dir.join("c.cdxml"), dir.join("d.cdx"));
         fs::write(&text, "CCO\n").unwrap();
+        fs::write(&cdx, b"VjCD0100\x04\x03\x02\x01\xff").unwrap();
         fs::write(&png, [0x89, b'P', b'N', b'G', 0xff, 0xfe]).unwrap();
         fs::File::create(&big).unwrap().set_len(MAX_BYTES + 1).unwrap();
         assert_eq!(read(&text, "a.mol").as_deref(), Ok("CCO\n"));
         assert!(read(&png, "b.png").unwrap_err().starts_with("Octet cannot open b.png."));
+        // A CDX file is binary: the page gets its bytes in base64.
+        assert_eq!(read(&cdx, "d.cdx").as_deref(), Ok("VmpDRDAxMDAEAwIB/w=="));
         assert!(read(&big, "c.cdxml").unwrap_err().contains("64 MB"));
         assert!(read(&dir.join("gone.oct"), "gone.oct").unwrap_err().contains("moved or deleted"));
         fs::remove_dir_all(&dir).unwrap();

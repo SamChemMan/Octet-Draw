@@ -41,7 +41,10 @@ export type Atom = {
 // A double bond's dashed (ChemDraw's Tautomeric: the second line dashed) and aromatic (both lines dashed) displays.
 export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow" | "either" | "aromatic";
 // position: where a double bond's second line goes, looking from atoms[0] to atoms[1]; unset means automatic.
-export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string };
+// halo: #rrggbb highlight, a band behind the bond as an atom's halo is a disc. query: a ChemDraw query bond's orders
+// as CDXML writes them ("1 2" is single or double, "any"); Octet draws it single with ChemDraw's mark (S/D) and
+// writes it back.
+export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string; halo?: string; query?: string };
 // A caption: free text at x, y (bond lengths, y up; the text's anchor point by its alignment), or, with under
 // set, kept centred under those atoms by the ACS rule (baseline 15 pt below the structure's ink box).
 // Captions under the same structure stack one line apart, in id order.
@@ -54,7 +57,10 @@ export type Caption = {
   cycle?: CycleText; // a catalytic cycle's centre label, or a reagent or product on one of its steps
   font?: string; // the caption's font; unset uses the document's caption font
   runs?: TextRun[]; // the text in runs, each with its own style (rich text); text is always their text joined
+  property?: Kept; // ChemDraw's live property text (its name, formula or mass) for these atoms, kept and written back
 };
+// Data Octet keeps from a ChemDraw object it does not edit: the object's attributes, and the atoms it is for.
+export type Kept = { attrs: Record<string, string>; atoms: number[] };
 // An arrow from one point to another (drawing coordinates). bend: how far a curved arrow's middle sits off the
 // straight line, as a fraction of its length, to the left looking from start to end.
 // line and arc are drawing elements with no head; they share the arrows' handles. style: how the shaft is drawn
@@ -106,7 +112,8 @@ export const sweepOf = (bend: number) => (4 * Math.atan(2 * Math.abs(bend)) * 18
 // colour: the outline's colour, or a highlight's fill; unset is the ink colour (a highlight's is mist).
 // fill: shaded (lit from the top left) or solid in the colour. shadow: a grey shadow down and to the right, with the
 // shape filled white over it. side: one bracket only. mark: a sign at a bracket's top right (‡, †, a charge, n).
-export type ShapeKind = "box" | "rounded" | "oval" | "highlight" | "brackets" | "parens" | "braces" | "tlc" | "table";
+// picture: a picture from a ChemDraw file (its embedded PNG, PDF, TIFF and so on), drawn in its box and written back.
+export type ShapeKind = "box" | "rounded" | "oval" | "highlight" | "brackets" | "parens" | "braces" | "tlc" | "table" | "picture";
 // A table's cells, row by row (the first row is the header), and its rules: journal style (top, header and bottom
 // rules only) or a full grid.
 // widths and heights: every column's width and every row's height once a border has been dragged (bond lengths; a
@@ -135,12 +142,14 @@ export type Shape = {
   id: number; kind: ShapeKind; from: [number, number]; to: [number, number]; dashed?: boolean; colour?: string;
   fill?: "shaded" | "solid"; shadow?: boolean; side?: "left" | "right"; mark?: string; tlc?: Tlc; table?: Table;
   shade?: Shade; // a shadow's look, when it differs from SHADE
+  picture?: Record<string, string>; // a picture's data as CDXML holds it: each format's bytes in hex, and its turn
+  polymer?: Kept; // ChemDraw's meaning for brackets (a repeat unit, a count) round these atoms, kept and written back
 };
 // A shadow: how far it falls down and right and how soft its edge is (bond lengths), and how dark it is (0 to 1).
 export type Shade = { depth: number; blur: number; opacity: number };
 export const SHADE: Shade = { depth: 0.12, blur: 0, opacity: 0.35 };
 export const isBracket = (sh: Pick<Shape, "kind">) => sh.kind === "brackets" || sh.kind === "parens" || sh.kind === "braces";
-export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "table"];
+export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "table", "picture"];
 export const HIGHLIGHT = "#DCE4F5";
 // Captions, arrows, shapes and cycles share one set of ids.
 export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; annotations?: Annotation[]; style?: DocStyle };
@@ -1142,9 +1151,9 @@ export function markAt(sh: Shape, k: number): { x: number; y: number; anchor: "s
 }
 
 // A shape's ink as filled polygons (px, y down), winding like the bonds: its lines at the line width, dashed when
-// asked (dashes and gaps of 0.2 bond lengths). A highlight has no lines; its fill is its outline.
+// asked (dashes and gaps of 0.2 bond lengths). A highlight has no lines; its fill is its outline. A picture has none.
 export function shapeInk(sh: Shape, s: Style, k: number): P[][] {
-  if (sh.kind === "highlight") return [];
+  if (sh.kind === "highlight" || sh.kind === "picture") return [];
   const hw = s.line / 2, out: P[][] = [], dash = 0.2 * s.bond;
   const bar = (p: P, q: P) => { const d = len(sub(q, p)); if (d < 1e-9) return; const n = perp(unit(sub(q, p))); out.push([add(p, mul(n, -hw)), add(p, mul(n, hw)), add(q, mul(n, hw)), add(q, mul(n, -hw))]); };
   for (const path of shapePaths(sh, k, s.bond)) {

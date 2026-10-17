@@ -1,10 +1,13 @@
 // Run: node scripts/cdxml-corpus.ts [folder]. Reads every ChemDraw CDXML file in the folder (Sam's corpus by
 // default; it stays on Sam's Mac and never enters this repository), writes each back with Octet's writer, reads
 // that again, and reports per file what came in, what Octet could not hold, and anything the second pass lost.
+// It also writes each drawing as CDX (decision 0009) and reads that back, as ChemDraw's file and as Octet's own.
 import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fromCdxml, parseXml, toCdxml, type Xml } from "../src/cdxml.ts";
+import { cdxToXml, xmlToCdx } from "../src/cdx.ts";
+import { readCdx, writeCdx } from "../src/oct.ts";
 import { parse, serialize } from "../src/file.ts";
 import type { Mol } from "../src/render.ts";
 
@@ -46,7 +49,10 @@ function diff(a: unknown, b: unknown, path = "", out: string[] = []): string[] {
 }
 const counts = (m: Mol) => `${m.atoms.length} atoms, ${m.bonds.length} bonds, ${m.captions?.length ?? 0} captions, ${m.arrows?.length ?? 0} arrows, ${m.shapes?.length ?? 0} shapes, ${m.groups?.length ?? 0} groups`;
 
-let clean = 0, files = 0;
+// The tree without Octet's own data, as ChemDraw keeps it.
+const foreign = (x: Xml): Xml => ({ ...x, attrs: Object.fromEntries(Object.entries(x.attrs).filter(([k]) => k !== "Octet")), kids: x.kids.map(foreign) });
+
+let clean = 0, files = 0, cdxSame = 0;
 for (const name of readdirSync(dir).filter((f) => f.endsWith(".cdxml")).sort()) {
   files++;
   const text = readFileSync(join(dir, name), "utf8"), started = performance.now();
@@ -62,8 +68,16 @@ for (const name of readdirSync(dir).filter((f) => f.endsWith(".cdxml")).sort()) 
     console.log(`  not held: ${lost || "nothing"}`);
     console.log(`  written and read again: ${changes.length ? `${changes.length} differences` : "the same"}${Object.keys(again.lost).length ? `, lost ${JSON.stringify(again.lost)}` : ""}`);
     for (const d of changes.slice(0, 8)) console.log(`    ${d}`);
+    // As CDX: what ChemDraw sees (read as a foreign file, against the same CDXML read as one), and Octet's own .cdx.
+    const tree = foreign(parseXml(toCdxml(first.mol, first.style, { name })));
+    const viaCdxml = fromCdxml(tree), viaCdx = fromCdxml(cdxToXml(xmlToCdx(tree))), own = readCdx(writeCdx(first.mol, first.style, { name }));
+    // Octet's own .cdx holds its file's JSON, which numbers objects afresh as .oct does.
+    const cdxChanges = [...diff(viaCdxml.mol, viaCdx.mol), ...diff(parse(serialize({ ...first.mol, style: first.style })), own.mol)];
+    if (!cdxChanges.length && JSON.stringify(viaCdx.lost) === JSON.stringify(viaCdxml.lost)) cdxSame++;
+    console.log(`  as CDX: ${cdxChanges.length ? `${cdxChanges.length} differences` : "the same"}`);
+    for (const d of cdxChanges.slice(0, 8)) console.log(`    ${d}`);
   } catch (e) {
     console.log(`\n${name}\n  FAILED: ${(e as Error).message}`);
   }
 }
-console.log(`\n${clean} of ${files} files write and read back unchanged.`);
+console.log(`\n${clean} of ${files} files write and read back unchanged; ${cdxSame} of ${files} read back the same as CDX.`);

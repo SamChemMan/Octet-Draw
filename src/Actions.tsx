@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, ArrowsInSimple, ArrowClockwise, ArrowsClockwise, ArrowsDownUp, CaretRight, SignIn, SignOut, ArrowCounterClockwise, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretDown,
-  ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
+  ClipboardText, CopySimple, IdentificationBadge, Key, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAa, TextAlignCenter, TextAlignLeft,
   TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Eraser, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
 } from "@phosphor-icons/react";
@@ -34,7 +34,7 @@ export type Context =
   | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean; grid: boolean }
   | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; halo?: string; fill?: string; numbered?: boolean }
-  | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean }
+  | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean; halo?: string }
   | { kind: "spot"; style: "filled" | "hollow" | "shaded"; w: number; h: number; tail: number; rf: boolean; pt: number };
 
 type Props = {
@@ -303,7 +303,7 @@ const KIND_OF: Record<string, string> = {
   "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "arrange", ungroup: "arrange", group_integral: "arrange",
   arrange_left: "arrange", arrange_centre: "arrange", arrange_right: "arrange", arrange_top: "arrange", arrange_middle: "arrange", arrange_bottom: "arrange",
   arrange_across: "arrange", arrange_down: "arrange", "shape.front": "arrange", "shape.back": "arrange",
-  copy_smiles: "library", "template.add": "library", delete: "delete",
+  copy_smiles: "library", copy_inchi: "library", copy_inchikey: "library", "template.add": "library", delete: "delete",
 };
 const kindOf = (command: string) => KIND_OF[command] ?? "other";
 const setOf = (command: string) => SET_FOR[kindOf(command)];
@@ -329,7 +329,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       break;
     case "drawing":
       items.push(clean, ...(context.nameable ? [nameIt] : []), it(<Atom size={18} />, "Name to structure", "name_to_structure"), ...flips,
-        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<FileArrowDown size={18} />, "Import a structure", "import")),
+        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<IdentificationBadge size={18} />, "Copy as InChI", "copy_inchi")), small(it(<Key size={18} />, "Copy as InChIKey", "copy_inchikey")), small(it(<FileArrowDown size={18} />, "Import a structure", "import")),
         small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<ArrowsOutSimple size={18} />, "Zoom to fit", "zoom_fit")));
       break;
     case "structure":
@@ -342,7 +342,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         ...(hiddenWarnings ? [small(it(<Warning size={18} />, "Show warnings", "show_warnings"))] : []),
         small(it(<TextT size={18} />, "Add a caption", "caption.add")),
         small(it(<ArrowClockwise size={18} />, "Turn 15° right", "rotate.cw15")), small(it(<ArrowCounterClockwise size={18} />, "Turn 15° left", "rotate.ccw15")),
-        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")), small(it(<Flask size={18} />, "Properties", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, "Toggle aromatic display", "aromatic_display")), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C NMR shifts", "predict_13c")));
+        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<IdentificationBadge size={18} />, "Copy as InChI", "copy_inchi")), small(it(<Key size={18} />, "Copy as InChIKey", "copy_inchikey")), small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")), small(it(<Flask size={18} />, "Properties", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, "Toggle aromatic display", "aromatic_display")), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C NMR shifts", "predict_13c")));
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<AlignCenterHorizontal size={18} />, "Line up in a row", "align.row")),
         small(it(<AlignCenterVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
       if (context.depth !== undefined) items.push(small(it(<Cube size={18} />, context.depth ? "Draw flat" : "Draw with depth", "structure_perspective")), small(it(<Square size={18} />, "Flatten", "flatten")));
@@ -368,7 +368,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       break;
     case "reaction":
       items.push(it(<MagicWand size={18} />, "Clean up reaction", "reaction.clean", !context.clean),
-        it(<ListNumbers size={18} />, "Number these compounds", "number"), small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")),
+        it(<ListNumbers size={18} />, "Number these compounds", "number"), small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<IdentificationBadge size={18} />, "Copy as InChI", "copy_inchi")), small(it(<Key size={18} />, "Copy as InChIKey", "copy_inchikey")),
         it(<span className="glyph-text">A→A</span>, "Map atoms", "reaction.map"), it(<Table size={18} />, context.grid ? "Remove stoichiometry" : "Analyze stoichiometry", "stoichiometry"), ...(context.mapped ? [small(it(<X size={18} />, "Clear atom map", "reaction.unmap"))] : []), small(del));
       break;
     case "cycle":
@@ -692,7 +692,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         </div>
       )}
 
-      {context.kind === "shape" && context.shape !== "tlc" && context.shape !== "table" && (
+      {context.kind === "shape" && context.shape !== "tlc" && context.shape !== "table" && context.shape !== "picture" && (
         <div className="chips arrows" role="group" aria-label="Shape">
           {(isBracket({ kind: context.shape }) ? ["brackets", "parens", "braces"] as ShapeKind[] : ["box", "rounded", "oval", "highlight"] as ShapeKind[]).map((kind) => (
             <button key={kind} className="chip" aria-pressed={context.shape === kind} aria-label={SHAPES[kind]} title={SHAPES[kind]} onClick={() => run(`shape.kind.${kind}`)}>
@@ -701,7 +701,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           ))}
         </div>
       )}
-      {context.kind === "shape" && !isBracket({ kind: context.shape }) && context.shape !== "highlight" && context.shape !== "tlc" && context.shape !== "table" && (() => {
+      {context.kind === "shape" && !isBracket({ kind: context.shape }) && context.shape !== "highlight" && context.shape !== "tlc" && context.shape !== "table" && context.shape !== "picture" && (() => {
         // The shape's style, drawn as the shape itself in each style.
         const row = context.shape === "oval" ? "oval" : context.shape === "rounded" ? "rounded" : "box";
         return (
@@ -849,14 +849,15 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           ))}
           <button className="swatch custom" title="Add a colour" aria-label="Add a colour" onClick={() => run("colours_add")}><PlusIcon size={10} weight="bold" aria-hidden /></button>
         </div>
-        {(context.kind === "structure" || context.kind === "atom") && (() => {
-          // Highlight (a disc behind each atom) and ring fill (every ring wholly selected), each a labelled button.
+        {(context.kind === "structure" || context.kind === "atom" || context.kind === "bond") && (() => {
+          // Highlight (a disc behind each atom, a band behind each bond) and ring fill (every ring wholly selected),
+          // each a labelled button. A bond has a highlight only.
           const swatch = (c: string) => <span className="pick-swatch" style={{ background: c }} />;
           const options = [{ id: "none", name: "None", glyph: <span className="pick-swatch none" /> }, ...HIGHLIGHTS.map(([name, hex]) => ({ id: hex, name, glyph: swatch(hex) }))];
           return (
-            <div className="picks" role="group" aria-label="Highlight and ring fill">
+            <div className="picks" role="group" aria-label={context.kind === "bond" ? "Highlight" : "Highlight and ring fill"}>
               <PickButton label="Highlight" value={context.halo ?? "none"} options={options} onPick={(v) => run(`halo.${v}`)} />
-              <PickButton label="Ring fill" value={context.fill ?? "none"} options={options} onPick={(v) => run(`ringfill.${v}`)} />
+              {context.kind !== "bond" && <PickButton label="Ring fill" value={context.fill ?? "none"} options={options} onPick={(v) => run(`ringfill.${v}`)} />}
             </div>
           );
         })()}

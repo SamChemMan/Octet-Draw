@@ -193,6 +193,17 @@ function convert(input: string, format: string): string {
 export const toSmiles = (drawn: Mol): string => convert(ketOf(drawn), "smiles");
 // The drawing's molecules as a molfile.
 export const toMolfile = (drawn: Mol): string => convert(ketOf(drawn), "molfile");
+// Edit > Copy As: MOL text in V3000 (ChemDraw 26.1's MOL Text) or V2000, and the InChIKey.
+export function toMolText(drawn: Mol, version: 2000 | 3000): string {
+  const ind = engine(), opts = new ind.MapStringString();
+  try {
+    opts.set("molfile-saving-mode", String(version));
+    return ind.convert(ketOf(drawn), "molfile", opts).trim();
+  } finally {
+    opts.delete();
+  }
+}
+export const toInchiKey = (drawn: Mol): string => convert(ketOf(drawn), "inchi-key");
 // CIP labels for a drawing's stereocentres (R, S) and double bonds (E, Z), in its atom and bond order.
 export function cipOf(drawn: Mol): { atoms: (string | undefined)[]; bonds: (string | undefined)[] } | undefined {
   const ind = engine(), opts = new ind.MapStringString();

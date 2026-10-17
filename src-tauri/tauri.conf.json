@@ -52,6 +52,14 @@
         "role": "Editor",
         "rank": "Default",
         "mimeType": "chemical/x-cdxml"
+      },
+      {
+        "ext": ["cdx"],
+        "name": "ChemDraw Document",
+        "description": "ChemDraw drawing (CDX)",
+        "role": "Editor",
+        "rank": "Default",
+        "mimeType": "chemical/x-cdx"
       }
     ],
     "linux": {

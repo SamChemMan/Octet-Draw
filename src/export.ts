@@ -79,7 +79,7 @@ export function standaloneSvg(canvas: SVGSVGElement, bounds: [number, number, nu
 // own type (cdxmlType), its molfile, SMILES and Octet's JSON, on the clipboard as ChemDraw puts them (macOS). Each
 // left out is not put on. Call it from the copy event after preventDefault(), and set nothing on clipboardData: plain
 // text would make ChemDraw paste a caption.
-export const copyToClipboard = (c: { svg?: string; cdxml?: string; cdxmlType?: boolean; molfile?: string; smiles?: string; octetJson?: string }) =>
+export const copyToClipboard = (c: { svg?: string; cdxml?: string; cdxmlType?: boolean; cdx?: string; molfile?: string; smiles?: string; octetJson?: string }) =>
   invoke<void>("copy_to_clipboard", c);
 
 // What paste can use from the clipboard, each null when absent: Octet's JSON; CDXML (ChemDraw's CDXML type, or
@@ -88,7 +88,7 @@ export const copyToClipboard = (c: { svg?: string; cdxml?: string; cdxmlType?: b
 export type Clipboard = { octet: string | null; cdxml: string | null; cdx: string | null; molfile: string | null; smiles: string | null };
 export const readClipboard = () => invoke<Clipboard>("read_clipboard");
 
-export type ExportFormat = "oct" | "pdf" | "svg" | "png" | "cdxml" | "mol" | "sdf" | "smi";
+export type ExportFormat = "oct" | "pdf" | "svg" | "png" | "cdxml" | "cdx" | "mol" | "sdf" | "smi" | "inchi";
 // A picture from standaloneSvg with a margin of `pt` all round: its size and view box grow by that much.
 export function withMargin(svg: string, pt: number): string {
   const m = Math.max(0, Math.min(72, pt));
@@ -100,7 +100,7 @@ export function withMargin(svg: string, pt: number): string {
 // carries the CDXML, as on the clipboard. PNG at `dpi` of true size (300 if not given), white unless
 // `transparent`. Resolves to the path written, or null if cancelled.
 export type ExportRequest = {
-  name: string; format?: ExportFormat; oct?: string; svg?: string; cdxml?: string; molfile?: string; sdf?: string; smiles?: string;
+  name: string; format?: ExportFormat; oct?: string; svg?: string; cdxml?: string; cdx?: string; molfile?: string; sdf?: string; smiles?: string; inchi?: string;
   dpi?: number; transparent?: boolean;
 };
 export const exportFile = (request: ExportRequest) => invoke<string | null>("export_file", { export: request });

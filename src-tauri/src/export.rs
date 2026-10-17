@@ -136,15 +136,17 @@ pub fn make_png(svg: &str, dpi: f32, transparent: bool) -> Result<Vec<u8>, Strin
 }
 
 // What File > Export… can write: id, name in the Save dialog, extensions (the first is the default).
-const FORMATS: [(&str, &str, &[&str]); 8] = [
+const FORMATS: [(&str, &str, &[&str]); 10] = [
     ("oct", "Octet drawing", &["oct"]),
     ("pdf", "PDF", &["pdf"]),
     ("svg", "SVG", &["svg"]),
     ("png", "PNG", &["png"]),
     ("cdxml", "ChemDraw XML (CDXML)", &["cdxml"]),
+    ("cdx", "ChemDraw (CDX)", &["cdx"]),
     ("mol", "MDL Molfile", &["mol"]),
     ("sdf", "SD File", &["sdf"]),
     ("smi", "SMILES", &["smi", "smiles"]),
+    ("inchi", "InChI", &["inchi", "txt"]),
 ];
 
 #[derive(serde::Deserialize)]
@@ -154,9 +156,11 @@ pub struct Export {
     oct: Option<String>,
     svg: Option<String>,
     cdxml: Option<String>,
+    cdx: Option<String>, // base64
     molfile: Option<String>,
     sdf: Option<String>,
     smiles: Option<String>,
+    inchi: Option<String>,
     dpi: Option<f32>,
     transparent: Option<bool>,
 }
@@ -171,8 +175,10 @@ pub async fn export_file(app: AppHandle, export: Export) -> Result<Option<String
         "oct" => e.oct.is_some(),
         "pdf" | "svg" | "png" => e.svg.is_some(),
         "cdxml" => e.cdxml.is_some(),
+        "cdx" => e.cdx.is_some(),
         "mol" => e.molfile.is_some(),
         "sdf" => e.sdf.is_some(),
+        "inchi" => e.inchi.is_some(),
         _ => e.smiles.is_some(),
     };
     let offered: Vec<_> = FORMATS.iter().filter(|f| has(f.0) && e.format.as_deref().is_none_or(|x| x == f.0)).collect();
@@ -204,8 +210,10 @@ pub async fn export_file(app: AppHandle, export: Export) -> Result<Option<String
         "png" => make_png(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false))?,
         "oct" => text(&e.oct),
         "cdxml" => text(&e.cdxml),
+        "cdx" => base64::engine::general_purpose::STANDARD.decode(e.cdx.as_deref().unwrap_or_default()).map_err(|_| "Octet cannot write this drawing as CDX.".to_string())?,
         "mol" => text(&e.molfile),
         "sdf" => text(&e.sdf),
+        "inchi" => format!("{}\n", e.inchi.as_deref().unwrap_or_default().trim()).into_bytes(),
         _ => format!("{}\n", e.smiles.as_deref().unwrap_or_default().trim()).into_bytes(),
     };
     crate::write_atomic(&path, &bytes).map_err(|e| e.to_string())?;

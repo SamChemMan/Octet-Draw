@@ -1,6 +1,6 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { hydrogens, lonePairs, tableLayout, TABLE_ROW, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape, type Table } from "./render.ts";
+import { hydrogens, lonePairs, tableLayout, TABLE_ROW, type Arrow, type Atom, type Bond, type Caption, type Kept, type Mol, type Shape, type Table } from "./render.ts";
 import type { Cycle } from "./cycle.ts";
 import { anchorElement, isElement } from "./labels.ts";
 
@@ -203,6 +203,16 @@ export const setPosition = (m: Mol, i: number, position: "left" | "centre" | "ri
 // Swaps a bond's ends, so a wedge points the other way.
 export const flipBond = (m: Mol, i: number) => setBondAt(m, i, { atoms: [m.bonds[i].atoms[1], m.bonds[i].atoms[0]] });
 
+// Kept ChemDraw data on a caption or shape (a live property, polymer brackets' meaning) with its atoms renumbered by
+// `to`; atoms `to` leaves out drop out, and the data goes when none are left.
+export function remapKept<T extends Caption | Shape>(x: T, to: (i: number) => number | undefined): T {
+  const key = "property" in x && x.property ? "property" : "polymer" in x && x.polymer ? "polymer" : undefined;
+  if (!key) return x;
+  const k = (x as { [K in typeof key]?: Kept })[key]!, atoms = k.atoms.flatMap((i) => { const j = to(i); return j === undefined ? [] : [j]; });
+  const out = { ...x } as T & Record<string, unknown>;
+  if (atoms.length) out[key] = { ...k, atoms }; else delete out[key];
+  return out;
+}
 // Removes atoms (and their bonds), then any bare carbons left with no bonds.
 function removeAtoms(m: Mol, gone: Set<number>): Mol {
   const bonds = m.bonds.filter((b) => !gone.has(b.atoms[0]) && !gone.has(b.atoms[1]));
@@ -211,19 +221,22 @@ function removeAtoms(m: Mol, gone: Set<number>): Mol {
   const map = new Map<number, number>();
   const atoms = m.atoms.filter((_, i) => !gone.has(i));
   m.atoms.forEach((_, i) => { if (!gone.has(i)) map.set(i, map.size); });
-  // Captions under a structure follow its atoms' new numbers, and go when all of its atoms go.
+  // Captions under a structure follow its atoms' new numbers, and go when all of its atoms go. Kept ChemDraw data (a
+  // live property, polymer brackets' meaning) follows its atoms too, and goes when they all go.
+  const kept = <T extends Caption | Shape>(x: T): T => remapKept(x, (i) => map.get(i));
   const captions = m.captions?.flatMap((c) => {
-    if (!c.under) return [c];
+    if (!c.under) return [kept(c)];
     const under = c.under.filter((i) => map.has(i)).map((i) => map.get(i)!);
-    return under.length ? [{ ...c, under }] : [];
+    return under.length ? [kept({ ...c, under })] : [];
   });
   // A cycle keeps the intermediates that still have atoms; with fewer than two it is no longer a cycle.
   const cycles = m.cycles?.flatMap((c) => {
     const nodes = c.nodes.map((n) => n.filter((i) => map.has(i)).map((i) => map.get(i)!)).filter((n) => n.length);
     return nodes.length >= 2 ? [{ ...c, nodes }] : [];
   });
-  const kept = new Set(cycles?.map((c) => c.id));
-  return { ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || kept.has(c.cycle.cycle)), cycles,
+  const keptCycles = new Set(cycles?.map((c) => c.id));
+  return { ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || keptCycles.has(c.cycle.cycle)), cycles,
+    shapes: m.shapes?.map(kept),
     groups: tidyGroups(m.groups?.map((g) => ({ ...g, atoms: g.atoms.filter((i) => map.has(i)).map((i) => map.get(i)!) }))) };
 }
 // Groups with fewer than two members left are no longer groups.
@@ -951,11 +964,16 @@ export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>)
   const keep = new Set([...items, ...arrows.map((a) => a.id), ...cycles.map((c) => c.id)]);
   const captions = (m.captions ?? []).filter((c) => (c.under ? c.under.every((i) => map.has(i)) : c.on ? keep.has(c.on.arrow) : c.cycle ? keep.has(c.cycle.cycle) : keep.has(c.id)));
   const ids = new Set([...keep, ...captions.map((c) => c.id)]);
+  // Kept ChemDraw data comes with its caption or shape only when all its atoms come too.
+  const copied = <T extends Caption | Shape>(x: T): T => {
+    const k = "property" in x ? x.property : "polymer" in x ? x.polymer : undefined;
+    return remapKept(x, (i) => (k?.atoms.every((j) => map.has(j)) ? map.get(i) : undefined));
+  };
   return {
     atoms: sel.map((i) => ({ ...m.atoms[i] })),
     bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] as [number, number] })),
-    captions: captions.map((c) => ({ ...c, ...(c.under ? { under: c.under.map((i) => map.get(i)!) } : {}) })),
-    arrows, shapes: (m.shapes ?? []).filter((x) => items.has(x.id)),
+    captions: captions.map((c) => copied({ ...c, ...(c.under ? { under: c.under.map((i) => map.get(i)!) } : {}) })),
+    arrows, shapes: (m.shapes ?? []).filter((x) => items.has(x.id)).map(copied),
     cycles: cycles.map((c) => ({ ...c, nodes: c.nodes.map((n) => n.map((i) => map.get(i)!)) })),
     groups: (m.groups ?? []).filter((g) => g.atoms.every((i) => map.has(i)) && g.items.every((id) => ids.has(id))).map((g) => ({ ...g, atoms: g.atoms.map((i) => map.get(i)!) })),
   };
@@ -974,12 +992,12 @@ export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
     bonds: [...m.bonds, ...add.bonds.map((b) => ({ ...b, atoms: [at(b.atoms[0]), at(b.atoms[1])] as [number, number] }))],
     arrows: [...(m.arrows ?? []), ...(add.arrows ?? []).map((a) => ({ ...a, id: ids.get(a.id)!, from: by(a.from), to: by(a.to),
       ...(a.curve ? { curve: { ...a.curve, points: a.curve.points.map((q) => ({ at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) }))],
-    shapes: [...(m.shapes ?? []), ...(add.shapes ?? []).map((x) => ({ ...x, id: ids.get(x.id)!, from: by(x.from), to: by(x.to) }))],
+    shapes: [...(m.shapes ?? []), ...(add.shapes ?? []).map((x) => remapKept({ ...x, id: ids.get(x.id)!, from: by(x.from), to: by(x.to) }, at))],
     cycles: [...(m.cycles ?? []), ...(add.cycles ?? []).map((c) => ({ ...c, id: ids.get(c.id)!, centre: by(c.centre), nodes: c.nodes.map((n) => n.map(at)) }))],
-    captions: [...(m.captions ?? []), ...(add.captions ?? []).map((c) => ({
+    captions: [...(m.captions ?? []), ...(add.captions ?? []).map((c) => remapKept({
       ...c, id: ids.get(c.id)!, x: c.x + offset[0], y: c.y + offset[1], ...(c.under ? { under: c.under.map(at) } : {}),
       ...(c.on ? { on: { ...c.on, arrow: ids.get(c.on.arrow) ?? c.on.arrow } } : {}), ...(c.cycle ? { cycle: { ...c.cycle, cycle: ids.get(c.cycle.cycle) ?? c.cycle.cycle } } : {}),
-    }))],
+    }, at))],
     groups: [...(m.groups ?? []), ...(add.groups ?? []).map((g) => ({ ...g, id: ids.get(g.id)!, atoms: g.atoms.map(at), items: g.items.map((x) => ids.get(x) ?? x) }))],
     ...(add.grids?.length ? { grids: [...(m.grids ?? []), ...add.grids.flatMap((g) => (ids.has(g.arrow) ? [{ ...g, arrow: ids.get(g.arrow)! }] : []))] } : {}),
   };
@@ -1000,13 +1018,13 @@ export function duplicateSelection(m: Mol, atoms: Set<number>, items: Set<number
     atoms: [...m.atoms, ...sel.map((i) => ({ ...m.atoms[i] }))],
     bonds: [...m.bonds, ...m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [atom(b.atoms[0]), atom(b.atoms[1])] as [number, number] }))],
     arrows: [...(m.arrows ?? []), ...(m.arrows ?? []).filter((a) => ids.has(a.id)).map((a) => ({ ...a, id: ids.get(a.id)! }))],
-    shapes: [...(m.shapes ?? []), ...(m.shapes ?? []).filter((x) => ids.has(x.id)).map((x) => ({ ...x, id: ids.get(x.id)! }))],
+    shapes: [...(m.shapes ?? []), ...(m.shapes ?? []).filter((x) => ids.has(x.id)).map((x) => remapKept({ ...x, id: ids.get(x.id)! }, atom))],
     cycles: [...(m.cycles ?? []), ...(m.cycles ?? []).filter((c) => ids.has(c.id)).map((c) => ({ ...c, id: ids.get(c.id)!, nodes: c.nodes.map((n) => n.map(atom)) }))],
-    captions: [...(m.captions ?? []), ...(m.captions ?? []).filter((c) => ids.has(c.id)).map((c) => ({
+    captions: [...(m.captions ?? []), ...(m.captions ?? []).filter((c) => ids.has(c.id)).map((c) => remapKept({
       ...c, id: ids.get(c.id)!, ...(c.under ? { under: c.under.map(atom) } : {}),
       ...(c.on && ids.has(c.on.arrow) ? { on: { ...c.on, arrow: ids.get(c.on.arrow)! } } : {}),
       ...(c.cycle && ids.has(c.cycle.cycle) ? { cycle: { ...c.cycle, cycle: ids.get(c.cycle.cycle)! } } : {}),
-    }))],
+    }, atom))],
   };
   return { mol, atoms: new Set(map.values()), items: new Set(ids.values()), ids };
 }

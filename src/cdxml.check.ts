@@ -220,7 +220,7 @@ console.log("cdxml.check: every object kind round trips");
 </page></CDXML>`;
   const { mol, style: s, lost } = fromCdxml(file);
   assert.equal(s.page, "Letter");
-  assert.deepEqual(lost, { picture: 1, "hidden object": 1, bond: 1 });
+  assert.deepEqual(lost, { "hidden object": 1, bond: 1 });
   assert.deepEqual(mol.atoms.map((a) => [a.label, a.text, a.charge, a.radical, a.pairs, a.circled]), [["C", undefined, undefined, undefined, undefined, undefined], ["N", undefined, 1, undefined, undefined, true], ["C", "Me", undefined, undefined, undefined, undefined], ["O", undefined, undefined, 1, 1, undefined]]);
   assert.deepEqual(mol.atoms[0].location, [0, 0, 0]);
   assert.deepEqual(mol.bonds.map((x) => [x.type, x.atoms, x.stereo]), [[1, [0, 1], undefined], [1, [2, 0], 1], [2, [0, 3], undefined]]);
@@ -238,7 +238,8 @@ console.log("cdxml.check: every object kind round trips");
   assert.ok(Math.hypot(legacyArc.from[0] - 110 / 14.4, legacyArc.from[1] - 180 / 14.4) < 1e-9 && legacyArc.bend! > 0 && arc.bend! < 0 && Math.abs(Math.abs(arc.bend!) - 0.2071) < 1e-3);
   assert.deepEqual(orbital.orbital, { shape: "p", phase: "shaded" });
   assert.deepEqual([curve.curve!.points.length, curve.curve!.closed, curve.fill, !!curve.curve!.points[0].c2, !!curve.curve!.points[1].c1], [3, true, "solid", true, false]);
-  assert.deepEqual(mol.shapes!.map((x) => [x.kind, x.fill, x.shadow, x.side, x.colour]), [["rounded", undefined, true, undefined, undefined], ["oval", "solid", undefined, undefined, "#FF0000"], ["brackets", undefined, undefined, undefined, undefined]]);
+  assert.deepEqual(mol.shapes!.map((x) => [x.kind, x.fill, x.shadow, x.side, x.colour]), [["picture", undefined, undefined, undefined, undefined], ["rounded", undefined, true, undefined, undefined], ["oval", "solid", undefined, undefined, "#FF0000"], ["brackets", undefined, undefined, undefined, undefined]]);
+  assert.deepEqual(mol.shapes![0].picture, { PNG: "89504E47" }); // a picture is kept as it came, at the back as it has no Z (REL-15)
   assert.deepEqual(mol.groups!.map((g) => [g.atoms, g.items]), [[[0, 1, 2, 3], [one.id]]]);
   parse(serialize(mol));
   console.log("cdxml.check: ChemDraw's form read");

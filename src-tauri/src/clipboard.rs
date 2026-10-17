@@ -1,11 +1,11 @@
 // Copy and paste with Word, PowerPoint, Keynote and ChemDraw, as ChemDraw's own clipboard works (macOS).
 // Copy puts one pasteboard item holding, in this order: a vector PDF of the selection with its CDXML in the
-// catalog /Metadata (Office keeps it; ChemDraw and Octet read the structure back out of it), the CDXML type (ChemDraw
-// reads it before the molfile, so arrows, text and shapes paste into ChemDraw too), a molfile as length-prefixed
-// lines, SMILES with a NUL, and Octet's own JSON for a lossless paste into Octet. Settings > Import and export > Copy
-// switches the PDF, CDXML, MOL and SMILES types off (REL-19, CH-8); Octet's JSON always goes on.
+// catalog /Metadata (Office keeps it; ChemDraw and Octet read the structure back out of it), ChemDraw's CDX type
+// under its PerkinElmer and Revvity names (ChemDraw reads it first, so the whole drawing pastes into ChemDraw), the
+// CDXML type, a molfile as length-prefixed lines, SMILES with a NUL, and Octet's own JSON for a lossless paste into
+// Octet. Settings > Import and export > Copy switches the PDF, CDX, CDXML, MOL and SMILES types off (REL-19, CH-8);
+// Octet's JSON always goes on.
 // No plain text: ChemDraw reads text before pictures and would paste it as a caption.
-// Not yet: ChemDraw's CDX type, which ChemDraw reads first. Octet has no CDX writer yet.
 // Windows and Linux: the page copies and pastes through the webview's own clipboard (Octet's JSON and SMILES as
 // text), and these commands are not used there.
 //
@@ -81,11 +81,15 @@ pub fn smiles_text(b: &[u8]) -> Option<String> {
 }
 
 // The types for one copy, in ChemDraw's order. svg: the picture, for the PDF (None: no PDF). cdxml: hidden in the
-// PDF, and also put on as its own type when `cdxml_type` is set.
-fn types(svg: Option<&str>, cdxml: Option<&str>, cdxml_type: bool, molfile: Option<&str>, smiles: Option<&str>, octet_json: Option<String>) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
+// PDF, and also put on as its own type when `cdxml_type` is set. cdx: ChemDraw's binary drawing.
+fn types(svg: Option<&str>, cdxml: Option<&str>, cdxml_type: bool, cdx: Option<Vec<u8>>, molfile: Option<&str>, smiles: Option<&str>, octet_json: Option<String>) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
     let mut out = Vec::new();
     if let Some(svg) = svg {
         out.push((PDF, crate::export::make_pdf(svg, cdxml)?));
+    }
+    if let Some(b) = cdx.filter(|b| b.starts_with(b"VjCD0100")) {
+        out.push((CDX[0], b.clone()));
+        out.push((CDX[1], b));
     }
     if let Some(x) = cdxml.filter(|_| cdxml_type) {
         out.push((CDXML, crate::export::cdxml_document(x).into_bytes()));
@@ -113,8 +117,8 @@ fn clip(read: impl Fn(&str) -> Option<Vec<u8>>) -> Clip {
         molfile: read(MOLFILE).and_then(|b| molfile_text(&b)),
         smiles: read(SMILES).and_then(|b| smiles_text(&b)),
     };
-    // The PDF's CDXML when there is no Octet JSON or CDXML type. ChemDraw's copy also has a CDX, but Octet cannot
-    // read CDX yet, and the PDF holds the whole drawing: arrows, text and shapes too (REL-4, CH-2).
+    // The PDF's CDXML when there is no Octet JSON or CDXML type: it holds the whole drawing, arrows, text and shapes
+    // too (REL-4, CH-2). ChemDraw's CDX is the page's next choice, for a copy with no PDF.
     if c.octet.is_none() && c.cdxml.is_none() {
         c.cdxml = read(PDF).and_then(|b| crate::export::cdxml_from_pdf(&b));
     }
@@ -161,10 +165,16 @@ mod mac {
     }
 }
 
-// Copy: the selection as a PDF picture (with its CDXML hidden in it), CDXML, a molfile, SMILES and Octet's JSON.
+// Copy: the selection as a PDF picture (with its CDXML hidden in it), CDX (base64 from the page), CDXML, a molfile,
+// SMILES and Octet's JSON.
 #[tauri::command]
-pub async fn copy_to_clipboard(svg: Option<String>, cdxml: Option<String>, cdxml_type: Option<bool>, molfile: Option<String>, smiles: Option<String>, octet_json: Option<String>) -> Result<(), String> {
-    let types = types(svg.as_deref(), cdxml.as_deref(), cdxml_type.unwrap_or(false), molfile.as_deref(), smiles.as_deref(), octet_json)?;
+pub async fn copy_to_clipboard(svg: Option<String>, cdxml: Option<String>, cdxml_type: Option<bool>, cdx: Option<String>, molfile: Option<String>, smiles: Option<String>, octet_json: Option<String>) -> Result<(), String> {
+    use base64::Engine;
+    let cdx = match cdx {
+        Some(c) if c.len() <= MAX_TYPE / 3 * 4 + 4 => Some(base64::engine::general_purpose::STANDARD.decode(c).map_err(|_| "Octet could not copy this.".to_string())?),
+        _ => None,
+    };
+    let types = types(svg.as_deref(), cdxml.as_deref(), cdxml_type.unwrap_or(false), cdx, molfile.as_deref(), smiles.as_deref(), octet_json)?;
     #[cfg(target_os = "macos")]
     return mac::write(&mac::general(), &types);
     #[cfg(not(target_os = "macos"))]
@@ -213,7 +223,10 @@ mod tests {
     #[test]
     fn copy_types_in_chemdraws_order() {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="20pt" height="10pt" viewBox="0 0 20 10"><path d="M1 1H19V2H1Z"/></svg>"#;
-        let t = types(Some(svg), Some("<CDXML/>"), true, Some(MOL), Some("CO"), Some("{}".into())).unwrap();
+        let t = types(Some(svg), Some("<CDXML/>"), true, Some(b"VjCD0100\x04\x03\x02\x01".to_vec()), Some(MOL), Some("CO"), Some("{}".into())).unwrap();
+        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [PDF, CDX[0], CDX[1], CDXML, MOLFILE, SMILES, OCTET]);
+        assert!(t[1].1.starts_with(b"VjCD0100") && t[1].1 == t[2].1);
+        let t = types(Some(svg), Some("<CDXML/>"), true, None, Some(MOL), Some("CO"), Some("{}".into())).unwrap();
         assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [PDF, CDXML, MOLFILE, SMILES, OCTET]);
         assert!(t[1].1.starts_with(b"<?xml") && t[1].1.ends_with(b"<CDXML/>"));
         assert_eq!(t[3].1, b"CO\0");
@@ -225,9 +238,9 @@ mod tests {
         let c = clip(|name| (name == PDF).then(|| t[0].1.clone()));
         assert!(c.cdxml.unwrap().contains("<CDXML/>"));
         // The Copy switches in Settings: with all four off, only Octet's JSON goes on; CDXML off keeps it in the PDF.
-        let t = types(None, Some("<CDXML/>"), false, None, None, Some("{}".into())).unwrap();
+        let t = types(None, Some("<CDXML/>"), false, None, None, None, Some("{}".into())).unwrap();
         assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [OCTET]);
-        let t = types(Some(svg), Some("<CDXML/>"), false, None, Some("CO"), None).unwrap();
+        let t = types(Some(svg), Some("<CDXML/>"), false, None, None, Some("CO"), None).unwrap();
         assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [PDF, SMILES]);
         assert!(crate::export::cdxml_from_pdf(&t[0].1).unwrap().contains("<CDXML/>"));
     }
