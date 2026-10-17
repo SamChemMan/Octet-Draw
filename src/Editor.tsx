@@ -9,7 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
-import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
+import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
 import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, FONTS, type DocStyle, type PageName } from "./docstyle";
 import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
@@ -756,6 +756,7 @@ export default function Editor() {
       saw("clean");
       const ids = selection.size ? selection : undefined;
       let m = cleanUp(doc, ids);
+      if (fragments(doc).some((g) => g.length > MOST_CLEAN && (!ids || g.some((i) => ids.has(i))))) setNotice(`Octet cannot clean up a structure of more than ${MOST_CLEAN.toLocaleString("en-GB")} atoms.`);
       const docBox = (b?: Box): Box | undefined => b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L];
       const inkOf = (mol: Mol) => { const d = render(mol, frame, measure, L); return (atoms: number[]) => docBox(union(atoms.filter((i) => d.ink[i]).map((i) => d.ink[i]))); };
       const captionOf = (id: number) => docBox(placed.find((c) => c.id === id)?.box);
@@ -3154,14 +3155,15 @@ export default function Editor() {
               }
             } catch { /* read the molfile or SMILES instead */ }
           }
+          let why = "Paste a name, a SMILES string or a MOL file.";
           for (const source of [clip.molfile, clip.smiles, text]) {
             if (!source || !loaded) continue;
             let frag: Mol | undefined;
-            try { frag = source === text ? parseStructure(source) : importStructure(source); } catch { frag = undefined; }
+            try { frag = source === text ? parseStructure(source) : importStructure(source); } catch (err) { frag = undefined; if (err instanceof RangeError) why = err.message; }
             if (!frag?.atoms.length && source === text) frag = structureFor(source);
             if (frag?.atoms.length) return place(frag);
           }
-          if (text) setNotice("Octet cannot read this structure. Paste a name, a SMILES string or a MOL file.");
+          if (text) setNotice(`Octet cannot read this structure. ${why}`);
         }).catch((err) => setNotice(`Octet cannot read the clipboard. ${err}`));
         return;
       }
@@ -3181,11 +3183,11 @@ export default function Editor() {
       if (!text || !loaded) return;
       e.preventDefault();
       // A SMILES string or MOL file first, then a chemical name.
-      let frag: Mol | undefined;
-      try { frag = parseStructure(text); } catch { frag = undefined; }
+      let frag: Mol | undefined, why = "Paste a name, a SMILES string or a MOL file.";
+      try { frag = parseStructure(text); } catch (err) { frag = undefined; if (err instanceof RangeError) why = err.message; }
       if (!frag?.atoms.length) frag = structureFor(text);
       if (frag) place(frag);
-      else setNotice("Octet cannot read this structure. Paste a name, a SMILES string or a MOL file.");
+      else setNotice(`Octet cannot read this structure. ${why}`);
     };
     // Copy puts the selection, or the whole drawing, on the clipboard as SMILES (or text the panel asked for).
     const onCopy = (e: ClipboardEvent) => {
