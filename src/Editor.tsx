@@ -2053,6 +2053,15 @@ export default function Editor() {
     const over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
     if (over > 0) setView((v) => ({ ...v, y: v.y - over }));
   }, [spectrum, !!nmr?.prediction, settings.nmrDetails]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Properties opens along the bottom too, and scrolls the canvas the same way so its structures stay in view.
+  useEffect(() => {
+    if (!settings.properties) return;
+    const panel = document.querySelector(".properties:not(.stacked)")?.getBoundingClientRect(), box = svg.current?.getBoundingClientRect();
+    const atoms = selection.size ? [...selection] : doc.atoms.map((_, i) => i), low = Math.min(...atoms.filter((i) => i < doc.atoms.length).map((i) => pos(doc, i)[1]));
+    if (!panel || !box || !Number.isFinite(low)) return;
+    const over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
+    if (over > 0) setView((v) => ({ ...v, y: v.y - over }));
+  }, [settings.properties]); // eslint-disable-line react-hooks/exhaustive-deps
   for (const s of nmr?.prediction?.signals ?? []) for (const d of new Set(s.atoms.map((k) => nmr!.toDoc[k]))) { nmrShifts.set(d, [...(nmrShifts.get(d) ?? []), s.shift]); nmrQuality.set(d, quality(s, spectrum!)); }
   // Where each predicted shift goes on the canvas (px): in a gap between the atom's bonds, out of its rings (or away
   // from the atoms within two bonds), clear of its own label and of the shift labels already placed.
@@ -3626,6 +3635,7 @@ export default function Editor() {
           onCopy={(text) => runAction(`copy_text:${text}`)}
           onAdd={addProperties}
           onClose={() => setSettings((s) => ({ ...s, properties: false }))}
+          stacked={!!spectrum}
         />
       )}
       <Actions

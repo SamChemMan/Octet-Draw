@@ -1,11 +1,12 @@
 // The Properties panel: ChemDraw's Analysis and Chemical Properties windows in one, for every structure in the
 // selection (or the drawing; values for several structures are separated by semicolons, as ChemDraw does). A
 // click on a value copies its row; the boxes choose the rows Add to drawing writes under each structure.
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { Check, X } from "@phosphor-icons/react";
 import type { Structure } from "./chem";
 import type { Graph } from "./naming";
 import { elementalAnalysis, isotopePattern } from "./mass";
+import { useMovable } from "./movable";
 
 // What Octet's own calculators (props.ts) give for a structure.
 export type Calculated = {
@@ -55,24 +56,17 @@ export function propertyValues(structures: Structure[], calc?: (s: Structure, g:
 }
 export type PropertyValues = ReturnType<typeof propertyValues>;
 
-type Props = { values: PropertyValues; chosen: string[]; onChoose: (key: string) => void; onCopy: (text: string) => void; onAdd: () => void; onClose: () => void };
+type Props = { values: PropertyValues; chosen: string[]; onChoose: (key: string) => void; onCopy: (text: string) => void; onAdd: () => void; onClose: () => void; stacked?: boolean };
 
-export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose }: Props) {
+export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, stacked }: Props) {
   const show = (key: string, v: string) => (key === "formula" ? v.replace(/\d/g, (d) => SUB[Number(d)]) : v);
   const groups = useMemo(() => values.filter((g) => g.length), [values]);
-  // The panel ends above the Actions panel (its list scrolls), whatever height that has.
-  const panel = useRef<HTMLElement>(null);
-  useLayoutEffect(() => {
-    const below = panel.current?.parentElement?.querySelector<HTMLElement>(".actions");
-    const fit = () => panel.current?.style.setProperty("--below", `${below?.isConnected ? below.offsetHeight : 0}px`);
-    fit();
-    const watch = new ResizeObserver(fit);
-    if (below) watch.observe(below);
-    return () => watch.disconnect();
-  });
+  // It opens where the Spectrum opens, along the bottom (above the Spectrum when that is open too), and moves by its
+  // header.
+  const move = useMovable("properties");
   return (
-    <section ref={panel} className="properties" aria-label="Properties">
-      <header>
+    <section className={stacked ? "properties stacked" : "properties"} aria-label="Properties" style={move.style}>
+      <header onPointerDown={move.onPointerDown}>
         <h2>Properties</h2>
         <button className="actions-close" onClick={onClose} aria-label="Hide properties" title="Hide properties"><X size={14} /></button>
       </header>
