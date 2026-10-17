@@ -1571,10 +1571,14 @@ export default function Editor() {
     };
   }
   const transformSelection = (f: (q: P) => P, scale = 1) => set(transformed(doc, f, scale), true);
-  // The middle of the selection (or the whole drawing) as drawn, in drawing units: every turn and flip goes about it.
+  // The middle of the selection (or the whole drawing), in drawing units: every turn, flip and scale goes about it.
+  // Atoms count by their positions and objects as drawn. Text that follows a structure, arrow or cycle is placed again
+  // after the move, so it does not count: a structure with its number under it flips in place.
   const selectionMiddle = (): P => {
-    const b = selection.size || picked.size ? drawnBox(selection, picked)
-      : drawnBox(doc.atoms.map((_, i) => i), new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id)));
+    const all = !selection.size && !picked.size, atoms = all ? doc.atoms.map((_, i) => i) : [...selection].filter((i) => i < doc.atoms.length);
+    const items = new Set(all ? [...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id) : picked);
+    for (const c of doc.captions ?? []) if (c.under || c.on || c.cycle) items.delete(c.id);
+    const b = union([...atoms.map((i): Box => { const [x, y] = pos(doc, i); return [x * L, -y * L, x * L, -y * L]; }), ...[drawnBox([], items)].filter((x): x is Box => !!x)]);
     return b ? [(b[0] + b[2]) / 2 / L, -(b[1] + b[3]) / 2 / L] : [0, 0];
   };
   // The selection (or the drawing) turned by degrees about c, anticlockwise for positive degrees.
@@ -2129,7 +2133,8 @@ export default function Editor() {
       if (selection.size || picked.size) return set(deleteGraphics(deleteAtoms(doc, selection), picked));
       // As in ChemDraw: the first Delete on a labelled atom removes the label; the next removes the atom.
       if (atom !== undefined && doc.atoms[atom].label !== "C" && !groupsOf(doc, new Set([atom]), new Set()).some((g) => g.integral)) return set(setElement(doc, atom, "C"));
-      return removeAt({ atom, bond, caption: hover.caption });
+      // Any other object under the pointer goes too (ChemDraw deletes a hovered arrow), with its integral group.
+      return removeAt({ ...hover, atom, bond });
     }
   }
 
@@ -2926,9 +2931,10 @@ export default function Editor() {
     // Option-click takes it out. Either way from the selection as it was before the press.
     const mods = pressMods.current;
     pressMods.current = undefined;
-    // An integral group goes in or out whole.
+    // An integral group goes in or out whole, and a cycle with its intermediates (as a click picks them).
     if (tool === "select" && mods && (mods.shift || mods.alt)) {
-      const [ids, items] = wholeIntegral(doc, new Set(atomsOf(doc, t)), new Set([t.caption, t.arrow].filter((x): x is number => x !== undefined)));
+      const cycle = doc.cycles?.find((c) => c.id === t.cycle);
+      const [ids, items] = wholeIntegral(doc, new Set([...atomsOf(doc, t), ...(cycle?.nodes.flat() ?? [])]), new Set(itemsOf(t)));
       const all = [...ids].every((i) => mods.atoms.has(i)) && [...items].every((x) => mods.picks.has(x)), out = mods.alt || all;
       const atoms = new Set(mods.atoms), picks = new Set(mods.picks);
       for (const i of ids) if (out) atoms.delete(i); else atoms.add(i);
