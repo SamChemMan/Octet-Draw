@@ -16,7 +16,7 @@ import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
-  addShape, addSymbol, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
+  addShape, addSymbol, bondOrders, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
@@ -24,7 +24,7 @@ import { store, type Store } from "./store";
 import { loadSettings, saveSettings } from "./settings";
 import { ACTIONS, actionFor, buttonTakes, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
 import { Actions, actionItems, type Context } from "./Actions";
-import { Properties, propertyValues, PROPERTY_ROWS } from "./Properties";
+import { Properties, propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./Properties";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { acsText, multiplicity, quality } from "./nmr";
 import { nmrReady, predict, type Nucleus } from "./nmr";
@@ -152,6 +152,17 @@ type View = { x: number; y: number; zoom: number; pinch?: boolean };
 const sameHover = (a: Hover, b: Hover) => a.atom === b.atom && a.bond === b.bond && a.caption === b.caption && a.arrow === b.arrow && a.cycle === b.cycle && a.step === b.step;
 // Ink as SVG path data, kept with the arrow or shape it is made from, for each document style.
 const arrowInks = new WeakMap<Arrow, [unknown, string]>(), shapeInks = new WeakMap<Shape, [unknown, string]>(), outlines = new WeakMap<object, [unknown, string]>();
+// Octet's own calculators' values (props.ts), kept with the structure's values they are from (chem.ts keeps those by
+// structure), so each structure is worked out once.
+const calculated = new WeakMap<Structure, Calculated>();
+// A drawing's rings (rings.ts, from its bonds alone), kept with its bond list: a drag that only moves atoms, a change
+// of colour or fill, and undo find them again at once.
+const ringLists = new WeakMap<Mol["bonds"], number[][]>();
+function drawnRings(m: Mol): number[][] {
+  let found = ringLists.get(m.bonds);
+  if (!found) ringLists.set(m.bonds, (found = rings({ atoms: m.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: m.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) })));
+  return found;
+}
 
 // A caption's anchor in drawing coordinates: the start, middle or end of its first baseline.
 const anchorOf = (c: Placed): P => [(c.anchor === "start" ? c.box[0] : c.anchor === "end" ? c.box[2] : (c.box[0] + c.box[2]) / 2) / L, -c.lines[0].y / L];
@@ -441,9 +452,19 @@ export default function Editor() {
   useEffect(() => { ready.then(() => setLoaded(true)); }, []);
   // Name to structure loads in the background once the window has settled.
   const [namesLoaded, setNamesLoaded] = useState(false);
-  // The names engine loads in the background soon after start, so Structure to name is ready when first asked.
-  useEffect(() => { const t = setTimeout(() => void loadNames().then(() => setNamesLoaded(true)).catch(() => {}), 1500); return () => clearTimeout(t); }, []);
-  useEffect(() => { const t = setTimeout(() => loadNames().then(() => setNamesLoaded(true)), 1500); return () => clearTimeout(t); }, []);
+  // The names engine loads in the background soon after start, so Structure to name is ready when first asked. Its
+  // start-up is one long step, so it waits until there is no pointer or key input for 1.5 s: it does not stop the
+  // window while the user draws. Asking for a name loads it at once.
+  useEffect(() => {
+    const input = ["pointerdown", "pointermove", "keydown", "wheel"];
+    let t = 0;
+    const wait = () => { clearTimeout(t); t = window.setTimeout(start, 1500); };
+    const stop = () => { clearTimeout(t); input.forEach((e) => removeEventListener(e, wait, true)); };
+    function start() { stop(); void loadNames().then(() => setNamesLoaded(true)).catch(() => {}); }
+    input.forEach((e) => addEventListener(e, wait, { capture: true, passive: true }));
+    wait();
+    return stop;
+  }, []);
   // The text in the name-to-structure field, while it is open.
   const [naming, setNaming] = useState<string>();
   // Names drawn before: five under the field, or all fifty when opened. at: the row the arrow keys are on.
@@ -2188,8 +2209,8 @@ export default function Editor() {
       return { kind: "bond", style, double: b.type === 2, flippable: !!b.stereo || b.display === "dative" || b.display === "hollow" };
     }
     // Lone pairs: whether the heteroatoms have any to show, and whether they all show already.
-    const hetero = ids.filter((i) => doc.atoms[i].label !== "C" && freePairs(doc, i) > 0);
-    const pairs = !hetero.length ? undefined : hetero.every((i) => (doc.atoms[i].pairs ?? 0) >= freePairs(doc, i)) ? "shown" as const : "hidden" as const;
+    const used = bondOrders(doc), hetero = ids.filter((i) => doc.atoms[i].label !== "C" && freePairs(doc, i, used[i]) > 0);
+    const pairs = !hetero.length ? undefined : hetero.every((i) => (doc.atoms[i].pairs ?? 0) >= freePairs(doc, i, used[i])) ? "shown" as const : "hidden" as const;
     // Its stereocentres as a whole: absolute (no flags), racemic (all &1), relative (all or1), or a mix.
     const centres = stereocentres(doc, selection), flags = new Set(centres.map((i) => doc.atoms[i].enhanced ?? ""));
     const stereo = !centres.length ? undefined : flags.size > 1 ? "mixed" : flags.has("&1") ? "racemic" : flags.has("or1") ? "relative" : flags.has("") ? "absolute" : "mixed";
@@ -2201,20 +2222,43 @@ export default function Editor() {
       halo: ids.every((i) => doc.atoms[i].halo === doc.atoms[ids[0]].halo) ? doc.atoms[ids[0]].halo : undefined,
       fill: ids.filter((i) => doc.atoms[i].fill).every((i) => doc.atoms[i].fill === doc.atoms[ids.find((k) => doc.atoms[k].fill) ?? 0].fill) ? doc.atoms[ids.find((k) => doc.atoms[k].fill) ?? 0]?.fill : undefined };
   };
-  // What the panel knows about the drawing: formula and mass (of the selection, or everything), problems, mess.
-  const analysis = useMemo(() => (loaded ? analyse(selection.size ? subset(doc, selection) : doc) : undefined), [loaded, doc, selection]);
+  // The panel's context, worked out again only when something it reads changes: not on each frame of a drag or of
+  // the Pen (the drawing and the captions' places change then, and the context follows them when what is shown is the
+  // drawing again). While text is typed, the caret changes it too, so the panel works it out as it draws (see Actions
+  // below).
+  const settled = shown === doc;
+  const panelContext = useMemo(() => (writing ? undefined : contextOf()), [doc, selection, picked, writing, tool, textStyle, spotPick, lastCell, namesLoaded, loaded, style, fontList, settled && drawing, settled && placed]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The formula and mass the panel shows (of the selection, or everything): only while it is open and shows them, and
+  // only for the first three structures, as it shows no more.
+  const facts = settings.actions && (panelContext?.kind === "drawing" || panelContext?.kind === "structure");
+  const analysis = useMemo(() => (loaded && facts ? analyse(selection.size ? subset(doc, selection) : doc, 3) : undefined), [loaded, facts, doc, selection]);
   // The Properties panel's values, while it is open: for each structure in the selection (or the drawing), with
-  // each structure's atoms in the drawing (for Add to drawing).
+  // each structure's atoms in the drawing (for Add to drawing). While a box or lasso sweeps, the panel keeps the
+  // values it has until the pointer stops for a moment or lets go, so it does not work them out on every move.
+  const sweep = drag?.kind === "box" || drag?.kind === "lasso" ? drag.base : undefined; // the same for the whole sweep
+  const [paused, setPaused] = useState<{ sweep: Set<number>; selection: Set<number> }>();
+  useEffect(() => {
+    if (!sweep) return;
+    const t = setTimeout(() => setPaused({ sweep, selection }), 250);
+    return () => clearTimeout(t);
+  }, [sweep, selection]);
+  const propertySelection = !sweep ? selection : paused?.sweep === sweep ? paused.selection : undefined;
+  const lastProperties = useRef<{ atoms: number[][]; values: PropertyValues }>(undefined);
   const properties = useMemo(() => {
     if (!loaded || !settings.properties) return undefined;
-    const ids = selection.size ? [...selection].filter((i) => i < doc.atoms.length).sort((a, b) => a - b) : doc.atoms.map((_, i) => i);
-    const base = selection.size ? subset(doc, selection) : doc, groups = fragments(base), found = structures(base, groups);
+    if (!propertySelection) return lastProperties.current;
+    const ids = propertySelection.size ? [...propertySelection].filter((i) => i < doc.atoms.length).sort((a, b) => a - b) : doc.atoms.map((_, i) => i);
+    const base = propertySelection.size ? subset(doc, propertySelection) : doc, groups = fragments(base), found = structures(base, groups);
     if (!found) return undefined;
     const kept = groups.map((g, k) => ({ atoms: g.map((i) => ids[i]), s: found[k] })).filter((x) => x.s).slice(0, 12);
-    // Octet's own calculators; pKa sites above 13 (alcohols, amides) are left out.
-    const calc = (s: Structure, g: Graph) => { const p = calculate(g); return { ...p, pka: p.pka.filter((x) => x.pka < 13), logS: s.logP !== undefined ? logS(s.logP, s.weight, p) : undefined }; };
+    // Octet's own calculators, once for each structure's values; pKa sites above 13 (alcohols, amides) are left out.
+    const calc = (s: Structure, g: Graph) => {
+      if (!calculated.has(s)) { const p = calculate(g); calculated.set(s, { ...p, pka: p.pka.filter((x) => x.pka < 13), logS: s.logP !== undefined ? logS(s.logP, s.weight, p) : undefined }); }
+      return calculated.get(s);
+    };
     return { atoms: kept.map((x) => x.atoms), values: propertyValues(kept.map((x) => x.s!), calc) };
-  }, [loaded, settings.properties, doc, selection]);
+  }, [loaded, settings.properties, doc, propertySelection]);
+  lastProperties.current = properties;
   // The Spectrum panel's structure (the first in the selection, or the drawing's largest), its predicted spectrum
   // once the shift tables are loaded, and which drawn atom each of the prediction's atoms is.
   const [spectrum, setSpectrum] = useState<Nucleus>();
@@ -2244,7 +2288,7 @@ export default function Editor() {
   // Each drawn atom's predicted shifts, shown beside it while the panel is open.
   const nmrShifts = new Map<number, number[]>(), nmrQuality = new Map<number, string>();
   const stereo = useMemo(() => { const m = exporting ?? doc; return loaded && m.atoms.some((a) => a.cip) ? stereoLabels(m) : undefined; }, [loaded, doc, exporting]);
-  const ringsOf = useMemo(() => (spectrum || doc.atoms.some((a) => a.cip || a.number) ? rings({ atoms: shown.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: shown.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) }) : []), [spectrum, shown, doc]);
+  const ringsOf = useMemo(() => (spectrum || doc.atoms.some((a) => a.cip || a.number) ? drawnRings(shown) : []), [spectrum, shown, doc]);
   // Opening the panel scrolls the canvas up if the panel would cover the structure (again once the spectrum is in,
   // as the panel grows).
   useEffect(() => {
@@ -2596,7 +2640,7 @@ export default function Editor() {
     if (command.startsWith("halo.") || command.startsWith("ringfill.")) {
       const value = command.split(".")[1], c = value === "none" ? undefined : value, key = command.startsWith("halo.") ? "halo" : "fill";
       const atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i));
-      const all = key === "fill" ? rings({ atoms: doc.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: doc.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) }) : [];
+      const all = key === "fill" ? drawnRings(doc) : [];
       const touched = new Set(fragments(doc).filter((g) => g.some((i) => atoms.has(i))).flat());
       const whole = all.filter((r) => r.every((i) => atoms.has(i))), part = all.filter((r) => r.some((i) => atoms.has(i)));
       const inRing = key === "fill" ? new Set((whole.length ? whole : part.length ? part : all.filter((r) => r.every((i) => touched.has(i)))).flat()) : atoms;
@@ -3248,10 +3292,10 @@ export default function Editor() {
   ) : null;
 
   // The Actions panel's group row: whether the selection is grouped, or could be.
-  const grouping = (() => {
+  const grouping = useMemo(() => {
     const gs = groupsOf(doc, selection, picked), count = fragments(doc).filter((g) => g.some((i) => selection.has(i))).length + picked.size;
     return gs.length ? { grouped: true, integral: gs.every((g) => g.integral) } : count >= 2 ? { grouped: false, integral: false } : undefined;
-  })();
+  }, [doc, selection, picked]);
   // Home stays on screen while it fades out, so going to a drawing (or the tutorial) is one smooth move.
   const [homeLeaving, setHomeLeaving] = useState(false), [wasHome, setWasHome] = useState(home), homeKind = useRef<"name" | "home">("home");
   if (home) homeKind.current = settings.userName === null ? "name" : "home";
@@ -3276,7 +3320,7 @@ export default function Editor() {
     <>
       {/* Fills go behind the structures: highlights, shadows (with the shape white over them), solid and shaded shapes. */}
       {/* Ring fills: a ring whose atoms all have one fill, filled with it behind the bonds. */}
-      {shown.atoms.some((at) => at.fill) && rings({ atoms: shown.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: shown.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) })
+      {shown.atoms.some((at) => at.fill) && drawnRings(shown)
         .filter((r) => r.length <= 12 && shown.atoms[r[0]].fill && r.every((i) => shown.atoms[i].fill === shown.atoms[r[0]].fill))
         .map((r) => <polygon key={`fill${r.join("-")}`} points={r.map((i) => `${pos(shown, i)[0] * L},${-pos(shown, i)[1] * L}`).join(" ")} fill={shown.atoms[r[0]].fill} fillOpacity={0.3} />)}
       {/* Highlight colours: a disc behind each highlighted atom, one group per colour so overlapping discs don't darken. */}
@@ -3951,7 +3995,7 @@ export default function Editor() {
         />
       )}
       <Live store={carets}>{() => {
-        const context = contextOf();
+        const context = panelContext ?? contextOf();
         return (
           <Actions
             open={settings.actions}
