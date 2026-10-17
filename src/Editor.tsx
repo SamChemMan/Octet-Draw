@@ -632,8 +632,8 @@ export default function Editor() {
       setNotice(failure("Octet cannot open this file.", e));
     }
   }
-  // A drawing read from a file, into the editor.
-  function load(path: string, text: string) {
+  // A drawing read from a file, into the editor. Without a path (a starter drawing from Home) it is a new drawing.
+  function load(path: string | undefined, text: string) {
     drawingColours.current = [];
     try {
       const read = readOct(text), lost = read.lost;
@@ -4050,7 +4050,7 @@ export default function Editor() {
       {(home || homeLeaving) && (homeKind.current === "name"
         ? <NameBox leaving={!home} onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone) startTutorial(); }} />
         : <Home leaving={!home} name={settings.userName ?? ""} first={welcomed} away={away} recents={recents} newKey={keyLabel("enter")} openKey={hint("open")}
-            onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent}
+            onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent} onStarter={(text) => keepWork(() => load(undefined, text))}
             onRemove={(r) => void invoke("recent_remove", { path: r.path }).then(refreshRecents).catch(() => {})} />)}
       {coach > 0 && !home && (
         <Coach key={coach} doc={doc} selected={selection.size} seen={seen} keys={{ clean: hint("clean_up") ?? "", copy: keyLabel("mod+c") }} low={naming !== undefined}

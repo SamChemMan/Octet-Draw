@@ -1,5 +1,5 @@
 // Home (decision 0003): where Octet opens. A greeting by name and time of day, New drawing first and largest, the
-// recent drawings as pictures, and Open. On first launch it asks the user's name first, in the dotted frame a
+// recent drawings as pictures (or, before there are any, three starter drawings), and Open. On first launch it asks the user's name first, in the dotted frame a
 // selected group gets. Nothing here needs an account.
 import { useEffect, useRef, useState } from "react";
 import { FolderOpen, Plus, X } from "@phosphor-icons/react";
@@ -8,6 +8,7 @@ import markSmall from "../brand/logos/octet-mark-32.svg";
 import markReverse from "../brand/logos/octet-mark-reverse.svg";
 import { useModal } from "./Dialog";
 import { tileTo } from "./keys";
+import { STARTERS } from "./starters";
 
 export type RecentEntry = { path: string; name: string; at: number; thumb?: string; found: boolean };
 
@@ -47,6 +48,7 @@ type Props = {
   leaving?: boolean; // fading out as a drawing opens
   name: string; first: boolean; away: number; recents: RecentEntry[]; newKey: string; openKey?: string;
   onNew: () => void; onOpen: () => void; onRecent: (r: RecentEntry) => void; onRemove: (r: RecentEntry) => void;
+  onStarter: (text: string) => void; // opens a starter drawing as a new drawing
 };
 
 export function Home(p: Props) {
@@ -91,6 +93,15 @@ export function Home(p: Props) {
               <kbd>{p.newKey}</kbd>
             </span>
           </button>
+          {!p.recents.length && STARTERS.map((s) => (
+            <button key={s.name} className="home-tile" onClick={() => p.onStarter(s.text)}>
+              <span className="home-thumb" data-theme="light"><img src={s.picture} alt="" draggable={false} /></span>
+              <span className="home-caption">
+                <span className="home-name">{s.name}</span>
+                <span className="home-when">{s.kind}</span>
+              </span>
+            </button>
+          ))}
           {p.recents.map((r) => (
             <div key={r.path} className={r.found ? "home-slot" : "home-slot missing"}>
               <button className="home-tile" onClick={() => p.onRecent(r)} data-tip={r.path}>

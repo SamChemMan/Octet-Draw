@@ -109,7 +109,8 @@ function NumberField({ value, unit, label, onChange }: { value: number; unit: st
 }
 
 function Switch({ on, label, onChange }: { on: boolean; label: string; onChange: (on: boolean) => void }) {
-  return <button className="switch" role="switch" aria-checked={on} aria-label={label} onClick={() => onChange(!on)}><span /></button>;
+  // No tooltip: the switch's name is beside it.
+  return <button className="switch" role="switch" aria-checked={on} aria-label={label} data-tip="" onClick={() => onChange(!on)}><span /></button>;
 }
 
 // A page drawn to scale inside a small box.

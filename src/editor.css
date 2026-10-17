@@ -3928,6 +3928,7 @@ button.variant.add {
   outline: none;
 }
 .home-thumb {
+  position: relative;
   display: grid;
   place-items: center;
   aspect-ratio: 4 / 3;
@@ -3937,7 +3938,10 @@ button.variant.add {
   background: var(--canvas);
   transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
 }
+/* Placed in the tile's own box, so a tall drawing fits inside the tile too. */
 .home-thumb img {
+  position: absolute;
+  inset: 8%;
   width: 84%;
   height: 84%;
   object-fit: contain;
