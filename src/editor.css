@@ -3812,6 +3812,9 @@ button.variant.add {
   color: var(--ink-faint);
   font: 600 32px var(--font-sans);
 }
+.home-tile.recovered .home-thumb {
+  border-style: dashed;
+}
 .home-slot.missing .home-thumb {
   opacity: 0.5;
 }

@@ -8,6 +8,8 @@ import markSmall from "../brand/logos/octet-mark-32.svg";
 import markReverse from "../brand/logos/octet-mark-reverse.svg";
 
 export type RecentEntry = { path: string; name: string; at: number; thumb?: string; found: boolean };
+// A drawing a crash took, kept with its unsaved changes (src-tauri/src/recovery.rs).
+export type RecoveredEntry = { id: string; name: string; at: number };
 
 // The greeting: welcome on the first visit, welcome back after a week away, else by the time of day.
 export function greeting(name: string, now: Date, first: boolean, away: number): string {
@@ -44,6 +46,7 @@ function Mark({ size }: { size: number }) {
 type Props = {
   leaving?: boolean; // fading out as a drawing opens
   name: string; first: boolean; away: number; recents: RecentEntry[]; newKey: string; openKey?: string;
+  recovered: RecoveredEntry[]; onRecovered: (r: RecoveredEntry) => void; onDiscard: (r: RecoveredEntry) => void;
   onNew: () => void; onOpen: () => void; onRecent: (r: RecentEntry) => void; onRemove: (r: RecentEntry) => void;
 };
 
@@ -70,7 +73,7 @@ export function Home(p: Props) {
         </header>
         <h1 className="home-greeting">{greeting(p.name, now, p.first, p.away)}</h1>
         <div className="home-row">
-          <h2>{p.recents.length ? "Recent" : "Start"}</h2>
+          <h2>{p.recents.length || p.recovered.length ? "Recent" : "Start"}</h2>
           <button className="home-open" onClick={p.onOpen}>
             <FolderOpen size={16} aria-hidden />
             Open…
@@ -85,6 +88,19 @@ export function Home(p: Props) {
               <kbd>{p.newKey}</kbd>
             </span>
           </button>
+          {/* Recovered drawings first, with the dashed frame of New drawing: their changes are not saved yet. */}
+          {p.recovered.map((r) => (
+            <div key={r.id} className="home-slot">
+              <button className="home-tile recovered" onClick={() => p.onRecovered(r)}>
+                <span className="home-thumb"><span className="home-initial" aria-hidden>{r.name.slice(0, 1).toUpperCase()}</span></span>
+                <span className="home-caption">
+                  <span className="home-name">{r.name}</span>
+                  <span className="home-when">Recovered · {when(r.at, now)}</span>
+                </span>
+              </button>
+              <button className="home-remove" onClick={() => p.onDiscard(r)} aria-label={`Discard ${r.name}`} title="Discard"><X size={12} weight="bold" /></button>
+            </div>
+          ))}
           {p.recents.map((r) => (
             <div key={r.path} className={r.found ? "home-slot" : "home-slot missing"}>
               <button className="home-tile" onClick={() => p.onRecent(r)} title={r.path}>

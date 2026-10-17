@@ -8,6 +8,9 @@ import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "../brand/tokens.css"; // before App, which reads drawing tokens at load
 import App from "./App";
+import { watchErrors } from "./crashlog";
+
+watchErrors();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

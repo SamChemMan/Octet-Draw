@@ -31,9 +31,9 @@ import { nmrReady, predict, type Nucleus } from "./nmr";
 import { rings } from "./rings";
 import { Select } from "./Select";
 import { fromCdxml, toCdxml, type CdxmlOptions } from "./cdxml";
-import { readOct, writeOct } from "./oct";
+import { lostText, readOct, writeOct } from "./oct";
 import { About } from "./About";
-import { Home, NameBox, type RecentEntry } from "./Home";
+import { Home, NameBox, type RecentEntry, type RecoveredEntry } from "./Home";
 import { Coach, NOTHING_SEEN, type Seen } from "./Coach";
 import { Feedback } from "./Feedback";
 import { ExportButton, ExportDialog } from "./ExportDialog";
@@ -255,9 +255,27 @@ const CaptionText = memo(({ c, fill, font, reagent, pt }: CaptionProps) => (
   </text>
 ), (a: CaptionProps, b: CaptionProps) => a.fill === b.fill && a.font === b.font && a.reagent === b.reagent && a.pt === b.pt && samePlaced(a.c, b.c));
 
+// The file on disk and the drawing as last saved (undoing back to it makes the drawing clean again). lost: what
+// Octet could not hold from the file, so Save asks before it writes over the file (REL-11). name: a drawing with no
+// file yet keeps the name it had (a recovered drawing).
+type FileState = { path?: string; saved: Mol; lost?: Record<string, number>; name?: string };
+// The editor as last drawn without an error, for the error boundary in App.tsx (REL-23): it opens the editor again
+// with the same drawing and undo history, or saves the drawing to a new file.
+export const rescue: { current?: { h: History; file: FileState; home: boolean; name: string; contents: () => string } } = {};
+// Crash safety (REL-1): while the drawing has unsaved changes, a copy of it goes to the app's data folder
+// (src-tauri/src/recovery.rs), a second after an edit and then at most every 10 s. When the drawing is clean again
+// (saved, or replaced after Don't Save) the copy goes. Calls go one after another, so a late write never follows a clear.
+const keeper = { timer: 0, last: 0, kept: false, queue: Promise.resolve() as Promise<unknown>, write: () => {} };
+function keep<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  const run = keeper.queue.then(() => invoke<T>(command, args));
+  keeper.queue = run.catch(() => {});
+  return run;
+}
+let crashOffered = false; // the log of a crash is offered once, at start
+
 export default function Editor() {
   const [loaded, setLoaded] = useState(false);
-  const [h, dispatch] = useReducer(history, { stack: [EMPTY], at: 0 });
+  const [h, dispatch] = useReducer(history, rescue.current?.h ?? { stack: [EMPTY], at: 0 });
   const doc = h.stack[h.at];
   const [tool, setTool] = useState<Tool>("bond");
   // The drawing tool to go back to when a hold-to-select gesture ends.
@@ -424,12 +442,12 @@ export default function Editor() {
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
   };
   const undo = (redo = false) => { dispatch({ type: redo ? "redo" : "undo" }); setSelection(new Set()); setPicked(new Set()); };
-  // The file on disk and the drawing as last saved. Undoing back to the saved drawing makes it clean again.
-  const [file, setFile] = useState<{ path?: string; saved: Mol }>({ saved: EMPTY });
+  const [file, setFile] = useState<FileState>(() => rescue.current?.file ?? { saved: EMPTY });
   // Home (decision 0003): where Octet opens (?editor skips it, for tests), with the name box on first launch and the
-  // tutorial then, or from Octet > Tutorial. Recent drawings come from the app (src-tauri/src/recent.rs).
-  const [home, setHome] = useState(() => !new URLSearchParams(location.search).has("editor"));
-  const [welcomed, setWelcomed] = useState(false), [recents, setRecents] = useState<RecentEntry[]>([]);
+  // tutorial then, or from Octet > Tutorial. Recent drawings come from the app (src-tauri/src/recent.rs), and drawings
+  // a crash took from src-tauri/src/recovery.rs.
+  const [home, setHome] = useState(() => rescue.current?.home ?? !new URLSearchParams(location.search).has("editor"));
+  const [welcomed, setWelcomed] = useState(false), [recents, setRecents] = useState<RecentEntry[]>([]), [recovered, setRecovered] = useState<RecoveredEntry[]>([]);
   // The tutorial (Coach.tsx) on a new drawing: which run it is (0 when off), what it saw done, and the tool it points at.
   const [coach, setCoach] = useState(0), [seen, setSeen] = useState<Seen>(NOTHING_SEEN), [coachTool, setCoachTool] = useState<Tool>();
   const saw = (k: keyof Seen) => { if (coach) setSeen((s) => ({ ...s, [k]: s[k] + 1 })); };
@@ -465,7 +483,7 @@ export default function Editor() {
   // After an edit, the thing under a still pointer may have changed.
   useEffect(() => { if (pointer.current) setHover(hit(pointer.current)); }, [doc]);
 
-  const name = file.path?.split(/[\\/]/).pop()?.replace(/\.(octet|oct|cdxml)$/i, "") ?? "Untitled";
+  const name = file.path?.split(/[\\/]/).pop()?.replace(/\.(octet|oct|cdxml)$/i, "") ?? file.name ?? "Untitled";
   useEffect(() => { if (TAURI) getCurrentWindow().setTitle(home ? "Octet" : dirty ? `${name} (edited)` : name); }, [name, dirty, home]);
 
   // A picture of part of the drawing (or all of it) as a standalone SVG at true size: the canvas shows only that part
@@ -551,14 +569,16 @@ export default function Editor() {
     expand: (text) => { const smiles = loaded ? labelSmiles(text) : undefined; try { return smiles ? parseStructure(smiles) : undefined; } catch { return undefined; } },
   });
   // What Octet could not hold from a ChemDraw file, said once: "Octet left out 6 annotations and 1 rotated shape."
-  const sayLost = (lost: Record<string, number>) => {
-    const parts = Object.entries(lost).map(([what, n]) => `${n} ${what}${n > 1 && !/s$/.test(what) ? "s" : ""}`);
-    if (parts.length) setNotice(`Octet left out ${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0]}.`);
-  };
-  // Resolves true when the drawing was saved.
-  async function save(as: boolean): Promise<boolean> {
+  const sayLost = (lost: Record<string, number>) => { if (Object.keys(lost).length) setNotice(`Octet left out ${lostText(lost)}.`); };
+  // Resolves true when the drawing was saved. Over a file that had things Octet could not hold (REL-11), Save asks
+  // first: Save As keeps the original file, Replace writes over it.
+  async function save(as: boolean, replace = false): Promise<boolean> {
+    if (!as && !replace && file.path && file.lost) {
+      const lost = file.lost;
+      return new Promise((done) => setDialog({ kind: "lossy", lost, done }));
+    }
     try {
-      const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), contents: writeOct(doc, style, cdxmlOptions()) });
+      const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), name, contents: writeOct(doc, style, cdxmlOptions()) });
       if (path) setFile({ path, saved: doc });
       return !!path;
     } catch (e) {
@@ -566,8 +586,42 @@ export default function Editor() {
       return false;
     }
   }
-  // Before the drawing is replaced (New, Open, a recent drawing): with unsaved changes, ask to save them first.
+  // Before the drawing is replaced (New, Open, a recent drawing) or the window closes: with unsaved changes, ask to
+  // save them first.
   const keepWork = (next: () => void) => (dirty ? setDialog({ kind: "unsaved", next }) : next());
+  // Close and Quit (REL-2): the window closes after the question, and the copy kept for recovery goes with it.
+  const closeWindow = () => keepWork(() => {
+    clearTimeout(keeper.timer);
+    keeper.timer = 0;
+    keeper.kept = false;
+    void keep("recovery_clear").catch(() => {}).then(() => getCurrentWindow().destroy());
+  });
+  useEffect(() => {
+    if (!TAURI) return;
+    const off = getCurrentWindow().onCloseRequested((e) => { e.preventDefault(); commands.current.quit(); });
+    return () => void off.then((f) => f());
+  }, []);
+  useEffect(() => {
+    if (!TAURI) return;
+    if (!dirty) { if (keeper.kept) { keeper.kept = false; keep("recovery_clear").catch(() => {}); } return; }
+    if (!keeper.timer) keeper.timer = window.setTimeout(() => { keeper.timer = 0; keeper.last = Date.now(); keeper.write(); }, Math.max(1000, keeper.last + 10_000 - Date.now()));
+  }, [doc, dirty]);
+  // The editor as last drawn: the copy the timer writes, and the error boundary's rescue.
+  useEffect(() => {
+    const contents = () => writeOct(doc, style, cdxmlOptions());
+    keeper.write = () => {
+      if (!dirty) return;
+      try { keeper.kept = true; keep("recovery_write", { name, contents: contents() }).catch(() => {}); } catch { /* kept at the next edit */ }
+    };
+    rescue.current = { h, file, home, name, contents };
+  });
+  // After a crash, the next start offers the log (src-tauri/src/crashlog.rs), to show or to email. Nothing is sent
+  // unless the user chooses.
+  useEffect(() => {
+    if (!TAURI || crashOffered) return;
+    crashOffered = true;
+    invoke<string | null>("crash_report").then((log) => { if (log) setDialog({ kind: "crashed", log }); }).catch(() => {});
+  }, []);
   const newDrawing = () => keepWork(() => { drawingColours.current = []; set(EMPTY); setFile({ saved: EMPTY }); setHome(false); setCoach(0); });
   const startTutorial = () => keepWork(() => {
     set(EMPTY); setFile({ saved: EMPTY }); setHome(false); setTool("bond"); setSeen(NOTHING_SEEN); setCoach((n) => n + 1);
@@ -576,7 +630,14 @@ export default function Editor() {
   const openDrawing = () => keepWork(() => void open());
   const openRecent = (r: RecentEntry) => keepWork(() => void invoke<[string, string]>("open_recent", { path: r.path }).then((picked) => load(picked[0], picked[1]))
     .catch((e) => { setNotice(String(e)); refreshRecents(); }));
-  const refreshRecents = () => { if (TAURI) invoke<RecentEntry[]>("recent_list").then(setRecents).catch(() => {}); };
+  // A recovered drawing opens with its changes unsaved; its kept copy becomes this window's.
+  const openRecovered = (r: RecoveredEntry) => keepWork(() => void keep<[string, string]>("recovery_open", { id: r.id }).then(([title, text]) => { keeper.kept = true; load(undefined, text, title); })
+    .catch((e) => { setNotice(String(e)); refreshRecents(); }));
+  const refreshRecents = () => {
+    if (!TAURI) return;
+    invoke<RecentEntry[]>("recent_list").then(setRecents).catch(() => {});
+    invoke<RecoveredEntry[]>("recovery_list").then(setRecovered).catch(() => {});
+  };
   useEffect(() => { if (home) refreshRecents(); }, [home]); // eslint-disable-line react-hooks/exhaustive-deps
   // Opened or saved: the drawing's picture goes to its Home tile.
   useEffect(() => {
@@ -595,15 +656,15 @@ export default function Editor() {
       setNotice(e instanceof Error ? e.message : `Octet cannot open this file. ${e}`);
     }
   }
-  // A drawing read from a file, into the editor.
-  function load(path: string, text: string) {
+  // A drawing read from a file, into the editor. With no path, a recovered drawing: its changes are not saved yet.
+  function load(path: string | undefined, text: string, title?: string) {
     drawingColours.current = [];
     try {
       const read = readOct(text), lost = read.lost;
       // Settings > Files > Keep ChemDraw styles off: another program's drawing takes Octet's default style.
       const mol = read.foreign && !settings.files.keepStyle ? { ...read.mol, style: undefined } : read.mol;
       set(mol);
-      setFile({ path, saved: mol });
+      setFile(path ? { path, saved: mol, lost: Object.keys(lost).length ? lost : undefined } : { saved: EMPTY, name: title });
       setHome(false); setCoach(0);
       sayLost(lost);
       const b = bounds(mol);
@@ -683,6 +744,7 @@ export default function Editor() {
     new: () => newDrawing(),
     open: () => openDrawing(),
     home: () => setHome(true),
+    quit: () => closeWindow(),
     tutorial: () => startTutorial(),
     import: () => void importFile(),
     save: () => void save(false),
@@ -1018,7 +1080,8 @@ export default function Editor() {
   const [exportView, setExportView] = useState<{ all?: string; selection?: string; chem: { all: ReturnType<typeof chemistryOf>; selection?: ReturnType<typeof chemistryOf> }; oct: { all: string; selection?: string } }>();
   const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }
     | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string }
-    | { kind: "unsaved"; next: () => void }>();
+    | { kind: "unsaved"; next: () => void } | { kind: "lossy"; lost: Record<string, number>; done: (saved: boolean) => void }
+    | { kind: "discard"; entry: RecoveredEntry } | { kind: "crashed"; log: string }>();
   const [commandsOpen, setCommandsOpen] = useState(false);
   // An arrow Octet offers after a row of starting materials (from Clean up). Tab draws it; any other change drops it.
   const [offer, setOffer] = useState<{ from: P; to: P; doc: Mol }>();
@@ -3975,6 +4038,7 @@ export default function Editor() {
       {(home || homeLeaving) && (homeKind.current === "name"
         ? <NameBox leaving={!home} onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone) startTutorial(); }} />
         : <Home leaving={!home} name={settings.userName ?? ""} first={welcomed} away={away} recents={recents} newKey={keyLabel("enter")} openKey={hint("open")}
+            recovered={recovered} onRecovered={openRecovered} onDiscard={(entry) => setDialog({ kind: "discard", entry })}
             onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent}
             onRemove={(r) => void invoke("recent_remove", { path: r.path }).then(refreshRecents).catch(() => {})} />)}
       {coach > 0 && !home && (
@@ -3986,6 +4050,32 @@ export default function Editor() {
           alt={{ label: "Don’t Save", onClick: () => { const d = dialog; setDialog(undefined); d.next(); } }}
           onAction={() => { const d = dialog; setDialog(undefined); void save(false).then((ok) => { if (ok) d.next(); }); }}>
           <p className="dialog-note">If you do not save, your changes are lost.</p>
+        </Dialog>
+      )}
+      {dialog?.kind === "lossy" && (
+        <Dialog title={`Replace “${file.path?.split(/[\\/]/).pop() ?? name}”?`} action="Save As…" onClose={() => { const d = dialog; setDialog(undefined); d.done(false); }}
+          alt={{ label: "Replace", onClick: () => { const d = dialog; setDialog(undefined); void save(false, true).then(d.done); } }}
+          onAction={() => { const d = dialog; setDialog(undefined); void save(true).then(d.done); }}>
+          <p className="dialog-note">Replace removes {lostText(dialog.lost)} from this file, because Octet cannot keep {Object.values(dialog.lost).reduce((a, b) => a + b, 0) > 1 ? "them" : "it"}. Save As keeps the original file.</p>
+        </Dialog>
+      )}
+      {dialog?.kind === "discard" && (
+        <Dialog title={`Discard “${dialog.entry.name}”?`} action="Discard" onClose={() => setDialog(undefined)}
+          onAction={() => { const id = dialog.entry.id; setDialog(undefined); void invoke("recovery_discard", { id }).then(refreshRecents, (e) => setNotice(String(e))); }}>
+          <p className="dialog-note">Octet keeps no other copy of these changes.</p>
+        </Dialog>
+      )}
+      {/* Email Log uses Feedback's email draft to Sam (for testing): it goes when Feedback goes. */}
+      {dialog?.kind === "crashed" && (
+        <Dialog title="Octet stopped because of an error" action="Email Log" onClose={() => setDialog(undefined)}
+          alt={{ label: "Show Log", onClick: () => void invoke("show_log").catch((e) => setNotice(String(e))) }}
+          onAction={() => {
+            const log = dialog.log;
+            setDialog(undefined);
+            void invoke("send_feedback", { note: `Octet stopped because of an error.\n\n${log}`, picture: null })
+              .then(() => setNotice("The log is ready to send in your mail app."), (e) => setNotice(String(e)));
+          }}>
+          <p className="dialog-note">The log of the error is on this computer only. Octet sends nothing. To help fix the error, email the log.</p>
         </Dialog>
       )}
       {about && <About onClose={() => setAbout(false)} />}

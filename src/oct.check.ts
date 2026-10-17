@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { DEFAULT_STYLE } from "./docstyle.ts";
 import { addArrow, addCaption, addRing, EMPTY } from "./edit.ts";
 import { parse, serialize } from "./file.ts";
-import { readOct, writeOct } from "./oct.ts";
+import { lostText, readOct, writeOct } from "./oct.ts";
 
 let mol = addRing(EMPTY, 6, false, { point: [0, 0] });
 [mol] = addCaption(mol, { text: "Café 5 °C -- über", x: 0, y: -3 });
@@ -22,4 +22,11 @@ assert.equal(edited.mol.style?.labelSize, 14);
 // A damaged copy falls back to the CDXML; an old .octet file is the JSON alone.
 assert.equal(readOct(file.replace(/ ([A-Za-z0-9+/=]{8})/, " AAAA$1")).mol.atoms.length, 6);
 assert.equal(readOct(serialize(mol)).mol.atoms.length, 6);
+// A ChemDraw file with a picture Octet cannot hold: it is counted, so Save asks before it writes over the file (REL-11).
+const picture = readOct(writeOct(mol, style).replace(/<!--Octet[^]*$/, "").replace("</page>", '<embeddedobject id="9001" BoundingBox="0 0 10 10"/></page>'));
+assert.deepEqual(picture.lost, { picture: 1 });
+assert.equal(picture.foreign, true);
+assert.equal(lostText(picture.lost), "1 picture");
+assert.equal(lostText({ annotation: 6, "rotated shape": 1, "bond highlight": 2 }), "6 annotations, 1 rotated shape and 2 bond highlights");
+assert.equal(lostText({}), "");
 console.log("oct.check: ok");

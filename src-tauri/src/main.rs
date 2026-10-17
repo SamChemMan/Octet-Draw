@@ -13,9 +13,11 @@ use tauri::{AppHandle, Emitter, Manager, State, Wry};
 use tauri_plugin_dialog::DialogExt;
 
 mod clipboard;
+mod crashlog;
 mod export;
 mod feedback;
 mod recent;
+mod recovery;
 
 // File > Print: the system's print dialog for the window, which prints only the page the editor laid out for it.
 #[tauri::command]
@@ -124,13 +126,8 @@ async fn open_drawing(app: AppHandle, picked: State<'_, Picked>) -> Result<Optio
     Ok(Some((path.to_string_lossy().into_owned(), text)))
 }
 
-// Opens one of Octet's own links in the browser. The page names it; only these fixed addresses can be opened.
-#[tauri::command]
-fn open_link(name: String) -> Result<(), String> {
-    let url = match name.as_str() {
-        "author" => "https://www.linkedin.com/in/sam-ellis-132781206/",
-        _ => return Err("Octet has no such link.".into()),
-    };
+// Opens a link or a file in the system's own app for it.
+pub fn system_open(what: &std::ffi::OsStr) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     let mut command = std::process::Command::new("open");
     #[cfg(target_os = "windows")]
@@ -141,7 +138,17 @@ fn open_link(name: String) -> Result<(), String> {
     };
     #[cfg(all(unix, not(target_os = "macos")))]
     let mut command = std::process::Command::new("xdg-open");
-    command.arg(url).spawn().map(|_| ()).map_err(|e| e.to_string())
+    command.arg(what).spawn().map(|_| ())
+}
+
+// Opens one of Octet's own links in the browser. The page names it; only these fixed addresses can be opened.
+#[tauri::command]
+fn open_link(name: String) -> Result<(), String> {
+    let url = match name.as_str() {
+        "author" => "https://www.linkedin.com/in/sam-ellis-132781206/",
+        _ => return Err("Octet has no such link.".into()),
+    };
+    system_open(url.as_ref()).map_err(|e| e.to_string())
 }
 
 // Import a structure from another program's file (MOL, SDF, SMILES, CDXML). Returns its name and text.
@@ -160,14 +167,17 @@ async fn import_structure(app: AppHandle) -> Result<Option<(String, String)>, St
 }
 
 // Saves to `path` if the user picked it earlier, otherwise asks where to save. Returns the path, or None if cancelled.
+// name: the name the Save dialog suggests when there is no path (a recovered drawing keeps its name).
 #[tauri::command]
-async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<String>, contents: String) -> Result<Option<String>, String> {
+async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<String>, name: Option<String>, contents: String) -> Result<Option<String>, String> {
     if contents.len() as u64 > MAX_BYTES {
         return Err("This drawing is larger than 64 MB. Octet cannot save it.".into());
     }
     // An old .octet file is saved as a new .oct beside it, so Save asks where, as Save As does.
     let given = path.map(PathBuf::from);
-    let stem = given.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Untitled".into());
+    let stem = given.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().into_owned())
+        .or_else(|| name.map(|n| n.chars().filter(|c| !c.is_control() && !"/\\:".contains(*c)).take(200).collect::<String>()).filter(|n| !n.trim().is_empty()))
+        .unwrap_or_else(|| "Untitled".into());
     let known = given.filter(|p| picked.0.lock().unwrap().contains(p) && p.extension().is_some_and(|e| e == "oct" || e == "cdxml"));
     let target = match known {
         Some(p) => p,
@@ -415,7 +425,8 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
         &PredefinedMenuItem::hide_others(app, None)?,
         &PredefinedMenuItem::show_all(app, None)?,
         &sep()?,
-        &PredefinedMenuItem::quit(app, None)?,
+        // Not the system's Quit, which closes Octet at once: the page asks to save unsaved changes first.
+        &item("quit", "Quit Octet", "CmdOrCtrl+Q")?,
     ])?;
     let mut items: Vec<&dyn IsMenuItem<Wry>> = Vec::new();
     #[cfg(target_os = "macos")]
@@ -433,9 +444,11 @@ fn main() {
         .manage(MenuKeys::default())
         .manage(MenuList::default())
         .manage(Palette::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log])
         .setup(|app| {
             let handle = app.handle();
+            crashlog::install(handle);
+            app.manage(recovery::start(handle));
             let (bar, checks, list) = menu(handle, &[], &HashMap::new())?;
             app.set_menu(bar)?;
             app.manage(Checks(Mutex::new(checks)));

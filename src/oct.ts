@@ -52,3 +52,9 @@ export function readOct(text: string): { mol: Mol; lost: Record<string, number>;
   const read = fromCdxml(text);
   return { mol: { ...read.mol, style: read.style }, lost: read.lost, foreign: true };
 }
+
+// What Octet could not hold from a file (readOct's `lost`), as a list: "6 annotations and 1 rotated shape".
+export function lostText(lost: Record<string, number>): string {
+  const parts = Object.entries(lost).map(([what, n]) => `${n} ${what}${n > 1 && !/s$/.test(what) ? "s" : ""}`);
+  return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0] ?? "";
+}
