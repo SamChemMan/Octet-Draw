@@ -16,6 +16,7 @@ mod clipboard;
 mod crashlog;
 mod export;
 mod feedback;
+mod quit;
 mod recent;
 mod recovery;
 
@@ -444,16 +445,20 @@ fn main() {
         .manage(MenuKeys::default())
         .manage(MenuList::default())
         .manage(Palette::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited])
         .setup(|app| {
             let handle = app.handle();
             crashlog::install(handle);
+            quit::install(handle);
             app.manage(recovery::start(handle));
             let (bar, checks, list) = menu(handle, &[], &HashMap::new())?;
             app.set_menu(bar)?;
             app.manage(Checks(Mutex::new(checks)));
             *app.state::<MenuList>().0.lock().unwrap() = list;
             app.on_menu_event(|app, event| {
+                if event.id() == "quit" {
+                    quit::front(app);
+                }
                 let _ = app.emit("menu", event.id().0.as_str());
             });
             Ok(())

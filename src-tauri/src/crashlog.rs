@@ -3,7 +3,7 @@
 // email), and only the user decides.
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Manager};
@@ -48,7 +48,10 @@ fn head(app: &AppHandle) -> String {
 // A panic closes Octet (the release build aborts). The hook writes it to the log first.
 pub fn install(app: &AppHandle) {
     let Ok(dir) = app.path().app_log_dir() else { return };
-    let head = head(app);
+    hook(dir, head(app));
+}
+
+fn hook(dir: PathBuf, head: String) {
     let next = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         append(&dir, &format!("{head}. Octet stopped: {info}"), true);
@@ -87,6 +90,25 @@ pub fn show_log(app: AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    // A panic goes to the log and marks a crash; a log longer than 256 KB becomes crash.old.log.
+    #[test]
+    fn a_panic_is_logged() {
+        let dir = std::env::temp_dir().join(format!("octet-crashlog-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        hook(dir.clone(), "Octet test".into());
+        let _ = std::panic::catch_unwind(|| panic!("index out of bounds"));
+        let _ = std::panic::take_hook(); // the default hook again
+        let log = fs::read_to_string(dir.join(LOG)).unwrap();
+        assert!(log.contains("UTC Octet test. Octet stopped: panicked at") && log.contains("index out of bounds"), "{log}");
+        assert!(dir.join(NEW).exists());
+        fs::write(dir.join(LOG), vec![b'x'; MAX_LOG as usize + 1]).unwrap();
+        append(&dir, "next", false);
+        assert!(dir.join("crash.old.log").exists() && fs::read_to_string(dir.join(LOG)).unwrap().ends_with("next\n\n"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn dates() {
         assert_eq!(super::date(0), "1970-01-01 00:00:00 UTC");

@@ -271,6 +271,13 @@ function keep<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   keeper.queue = run.catch(() => {});
   return run;
 }
+// The copy, written now: the error boundary keeps the drawing as last drawn before the window can close.
+export function keepNow() {
+  clearTimeout(keeper.timer);
+  keeper.timer = 0;
+  keeper.last = Date.now();
+  keeper.write();
+}
 let crashOffered = false; // the log of a crash is offered once, at start
 
 export default function Editor() {
@@ -601,6 +608,8 @@ export default function Editor() {
     const off = getCurrentWindow().onCloseRequested((e) => { e.preventDefault(); commands.current.quit(); });
     return () => void off.then((f) => f());
   }, []);
+  // With unsaved changes, the Dock's Quit, a logout or a shutdown stops and sends Quit here (src-tauri/src/quit.rs).
+  useEffect(() => { if (TAURI) invoke("set_edited", { edited: dirty }).catch(() => {}); }, [dirty]);
   useEffect(() => {
     if (!TAURI) return;
     if (!dirty) { if (keeper.kept) { keeper.kept = false; keep("recovery_clear").catch(() => {}); } return; }

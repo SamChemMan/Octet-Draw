@@ -1,6 +1,8 @@
 import { Component, Fragment, type ErrorInfo, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import Editor, { rescue } from "./Editor";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import Editor, { keepNow, rescue } from "./Editor";
 import Gallery from "./Gallery";
 import { Dialog } from "./Dialog";
 import { logError } from "./crashlog";
@@ -18,6 +20,16 @@ class Guard extends Component<{ children: ReactNode }, { failed: boolean; key: n
   }
   componentDidCatch(error: Error, info: ErrorInfo) {
     logError(`The editor stopped: ${error.stack ?? error}\n${info.componentStack ?? ""}`, true);
+    keepNow();
+  }
+  // Quit while this shows (Octet > Quit, or the Dock's Quit with unsaved changes) closes Octet. The copy kept for
+  // recovery stays, so Home offers the drawing at the next start.
+  off?: Promise<() => void>;
+  componentDidMount() {
+    if ("__TAURI_INTERNALS__" in window) this.off = listen<string>("menu", (e) => { if (this.state.failed && e.payload === "quit") void getCurrentWindow().destroy(); });
+  }
+  componentWillUnmount() {
+    void this.off?.then((f) => f());
   }
   reopen = () => this.setState((s) => ({ failed: false, key: s.key + 1, note: undefined }));
   saveAs = async () => {
