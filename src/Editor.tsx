@@ -18,7 +18,7 @@ import {
   addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
   addShape, addSymbol, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirection, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
 } from "./edit";
-import { snapBox, snapMove, type Guide } from "./snap";
+import { snapBoxes, snapMove, type Guide } from "./snap";
 import { loadSettings, saveSettings } from "./settings";
 import { actionFor, keyOf, keymap, label as keyLabel } from "./keys";
 import { Actions, actionItems, type Context } from "./Actions";
@@ -114,7 +114,7 @@ type Drag =
   // Moving the selection. If the pointer never moves, the press counts as a click with the tool in hand.
   // captions: where each moving caption starts (drawing coordinates), for captions that do not simply follow their structure.
   // base and atoms: what is moved, when it is not the drawing and the selection (Option-drag moves new copies).
-  | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; textBox?: Box; base?: Mol; atoms?: Set<number> }
+  | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; snap?: { moving: number[]; targets: number[][] }; base?: Mol; atoms?: Set<number> }
   // Drawing an arrow, and dragging one of a picked arrow's handles (an end, or the middle of a curved one).
   | { kind: "arrow"; from: P; start: [number, number]; target: Hover; to?: P; trail?: P[]; side?: number; make?: Make }
   // Drawing a shape from corner to corner.
@@ -1373,6 +1373,7 @@ export default function Editor() {
   const startMove = (p: P, screen: [number, number], t: Hover, picks = picked, atoms = selection, copy = false) => {
     // Option-drag moves copies, made now and kept only if the pointer moves.
     let base = doc, copies: Map<number, number> | undefined;
+    const atoms0 = atoms, picks0 = picks;
     if (copy && (atoms.size || picks.size)) {
       const d = duplicateSelection(doc, atoms, picks);
       [base, atoms, picks, copies] = [d.mol, d.atoms, d.items, d.ids];
@@ -1388,9 +1389,28 @@ export default function Editor() {
       const follows = (caption.under && caption.under.every((i) => atoms.has(i))) || (caption.on && arrowIds.has(caption.on.arrow)) || (caption.cycle && cycleIds.has(caption.cycle.cycle));
       if (c && picks.has(caption.id) && !follows) captions.set(caption.id, anchorOf(c));
     }
-    // Text moving on its own keeps its starting box, for snapping.
-    const textBox = !atoms.size && captions.size ? union(placed.filter((c) => captions.has(original.get(c.id) ?? c.id) || captions.has(c.id)).map((c) => c.box)) : undefined;
-    setDrag({ kind: "move", from: p, working: base, moved: false, start: screen, target: t, guides: [], captions, arrows: arrowIds, cycles: cycleIds, textBox, ...(copies ? { base, atoms } : {}) });
+    // Snapping (snap.ts): the box of everything moving, drawn (atoms with their labels, text as placed, arrows and
+    // shapes by their ends), and every other object's, kept from the start of the drag. Copies snap to their originals.
+    const up = (b: Box): Box => [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L];
+    const ends = (a: { from: P; to: P; curve?: { points: { at: P }[] } }): Box => {
+      const ps = [a.from, a.to, ...(a.curve?.points.map((q) => q.at) ?? [])];
+      return [Math.min(...ps.map((q) => q[0])), Math.min(...ps.map((q) => q[1])), Math.max(...ps.map((q) => q[0])), Math.max(...ps.map((q) => q[1]))];
+    };
+    const ink = (g: Iterable<number>) => union([...g].flatMap((i) => (drawing.ink[i] ? [up(drawing.ink[i])] : [])));
+    const textOf = new Map((doc.captions ?? []).map((c) => [c.id, c]));
+    const moves = (id: number) => {
+      const c = textOf.get(id);
+      return picks0.has(id) || !!(c && ((c.under?.length && c.under.every((i) => atoms0.has(i))) || (c.on && picks0.has(c.on.arrow)) || (c.cycle && picks0.has(c.cycle.cycle))));
+    };
+    const things = [...arrows.filter((a) => !isOrbital(a)), ...(doc.shapes ?? [])];
+    const movingBox = union([...(atoms0.size ? [ink(atoms0)] : []), ...placed.filter((c) => c.id !== DRAFT && moves(c.id)).map((c) => up(c.box)), ...things.filter((a) => picks0.has(a.id)).map(ends)].filter((b): b is Box => !!b));
+    const targets = movingBox ? [
+      ...fragments(doc).filter((g) => copies || !g.some((i) => atoms0.has(i))).map(ink),
+      ...placed.filter((c) => c.id !== DRAFT && (copies || !moves(c.id))).map((c) => up(c.box)),
+      ...things.filter((a) => copies || !picks0.has(a.id)).map(ends),
+    ].filter((b): b is Box => !!b) : [];
+    const snap = movingBox ? { moving: movingBox, targets } : undefined;
+    setDrag({ kind: "move", from: p, working: base, moved: false, start: screen, target: t, guides: [], captions, arrows: arrowIds, cycles: cycleIds, snap, ...(copies ? { base, atoms } : {}) });
   };
   // A press on a cycle's arrows picks the cycle with all its intermediates, and grabs them.
   function pressCycle(p: P, t: Hover, screen: [number, number]) {
@@ -1728,12 +1748,11 @@ export default function Editor() {
         if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         // Snap within 6 screen px, unless snapping is off or ⌘ is held (Option is ChemDraw's copy, at the press).
         const raw: P = [p[0] - drag.from[0], p[1] - drag.from[1]], base = drag.base ?? doc, moving = drag.atoms ?? selection;
-        // Text moving on its own snaps to the structures too.
-        const textBox = !moving.size ? drag.textBox : undefined;
+        // Text, arrows and shapes moving without atoms snap the same way.
+        const tol = 6 / (view.zoom * L);
         const snapped = !settings.snap || e.metaKey ? { d: raw, guides: [] as Guide[], point: undefined }
-          : moving.size ? snapMove(base, moving, raw, 6 / (view.zoom * L))
-          : textBox ? { ...snapBox(doc, [textBox[0] / L, -textBox[3] / L, textBox[2] / L, -textBox[1] / L], raw, 6 / (view.zoom * L),
-              (atoms) => { const b = union(atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i])); return b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L]; }), point: undefined }
+          : moving.size ? snapMove(base, moving, raw, tol, drag.snap)
+          : drag.snap ? { ...snapBoxes(drag.snap.moving, drag.snap.targets, raw, tol), point: undefined }
           : { d: raw, guides: [] as Guide[], point: undefined };
         return setDrag({ ...drag, working: moveAll(base, snapped.d, drag.captions, drag.arrows, drag.cycles, moving), moved: true, guides: snapped.guides, point: snapped.point });
       }

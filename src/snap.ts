@@ -1,5 +1,7 @@
-// Snapping for a moving selection. Targets are the other structures (their outline edges and centres) and
-// their atoms; arrows and text join this list when they exist. Distances are in bond lengths.
+// Snapping for anything moved: structures, text, arrows and shapes, alone or together. An atom dropped on an atom
+// lands on it; otherwise the moving things' box lines up its edges and middle with every other object's (a box
+// round a structure counts, so a structure centres in its box and a box centres round its structure).
+// Distances are in bond lengths, y up.
 import { fragments, pos, type P } from "./edit.ts";
 import type { Mol } from "./render";
 
@@ -12,10 +14,13 @@ const box = (ps: P[]) => {
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 };
 
-// Moves `d` by up to `tol` so the selection lands on an atom or lines up with another structure.
-export function snapMove(m: Mol, ids: Set<number>, d: P, tol: number): { d: P; guides: Guide[]; point?: P } {
+// Moves `d` by up to `tol` so the selection lands on an atom or lines up with another object. boxes: the moving
+// things' drawn box and every other object's, from the caller (labels, text and shapes included); without them,
+// the boxes of the atoms.
+export function snapMove(m: Mol, ids: Set<number>, d: P, tol: number, boxes?: { moving: number[]; targets: number[][] }): { d: P; guides: Guide[]; point?: P } {
   const moving = [...ids].filter((i) => i < m.atoms.length).map((i) => pos(m, i));
   const others = fragments(m).map((g) => g.filter((i) => !ids.has(i))).filter((g) => g.length);
+  if (boxes && !others.length) return snapBoxes(boxes.moving, boxes.targets, d, tol);
   if (!moving.length || !others.length) return { d, guides: [] };
 
   // An atom landing on an atom wins outright.
@@ -25,6 +30,7 @@ export function snapMove(m: Mol, ids: Set<number>, d: P, tol: number): { d: P; g
     if (gap < tol && (!best || gap < best.gap)) best = { gap, shift, at: s };
   }
   if (best) return { d: [d[0] + best.shift[0], d[1] + best.shift[1]], guides: [], point: best.at };
+  if (boxes) return snapBoxes(boxes.moving, boxes.targets, d, tol);
 
   // Otherwise line up outline edges and centres, each axis on its own. (Every atom as well would make
   // almost every position snap.)
@@ -52,12 +58,10 @@ export function snapMove(m: Mol, ids: Set<number>, d: P, tol: number): { d: P; g
   return { d: out, guides };
 }
 
-// Snapping for text moved on its own: its box's edges and middle line up with each structure's edges and middle,
-// and its middle with the point halfway between two neighbouring structures (where a + or a label belongs).
-// moving: the text's box [left, bottom, right, top]; d: the move so far. Distances in bond lengths.
-// ink: each structure's drawn box (labels included), when the caller has it; else the box of its atoms.
-export function snapBox(m: Mol, moving: number[], d: P, tol: number, ink?: (atoms: number[]) => number[] | undefined): { d: P; guides: Guide[] } {
-  const boxes = fragments(m).map((g) => ink?.(g) ?? box(g.map((i) => pos(m, i))));
+// A box moved among others: its edges and middle line up with each other box's edges and middle, and its middle
+// with the point halfway between two neighbouring boxes (where a + or a label belongs). Middles count for a little
+// more than edges, so things centre when they can. moving and boxes: [left, bottom, right, top]; d: the move so far.
+export function snapBoxes(moving: number[], boxes: number[][], d: P, tol: number): { d: P; guides: Guide[] } {
   if (!boxes.length) return { d, guides: [] };
   const mb = moving.map((v, k) => v + d[k % 2]);
   const axis = (k: 0 | 1) => {
