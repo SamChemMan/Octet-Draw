@@ -234,6 +234,8 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
         &item("copy_smiles", "Copy As SMILES", "Alt+CmdOrCtrl+C")?,
     ])?;
     let snap = CheckMenuItem::with_id(app, "snap", "Snap to Objects", true, true, None::<&str>)?;
+    // ChemDraw's View > Show Chemical Warnings.
+    let warnings = CheckMenuItem::with_id(app, "warnings", "Show Chemical Warnings", true, true, None::<&str>)?;
     section.replace("View".into());
     let view = Submenu::with_items(app, "View", true, &[
         // ChemDraw's keys: Magnify, Reduce and Fit to Window.
@@ -243,6 +245,7 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
         &item("zoom_out", "Reduce", "CmdOrCtrl+Shift+,")?,
         &sep()?,
         &snap,
+        &warnings,
         &item("actions", "Show or Hide Actions", "")?,
         &item("properties", "Show or Hide Properties", "")?,
         // Not ⌘K, which is ChemDraw's Scale.
@@ -418,7 +421,7 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
     items.push(&octet);
     items.extend([&file as &dyn IsMenuItem<Wry>, &edit, &view, &object, &structure, &text, &curves, &colour, &window]);
     let listed = list.borrow().clone();
-    Ok((Menu::with_items(app, &items)?, vec![snap], listed))
+    Ok((Menu::with_items(app, &items)?, vec![snap, warnings], listed))
 }
 
 fn main() {

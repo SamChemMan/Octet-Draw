@@ -27,6 +27,7 @@ export type Atom = {
   enhanced?: string; // enhanced stereo: the stereocentre's group, "abs", "&1" (and) or "or1" (or)
   colour?: string; // #rrggbb for the atom's label and marks; unset draws in the document's ink
   depth?: false; // a 3D structure drawn flat (Structure Perspective off); location[2] is the atom's depth, nearer is larger
+  ignoreWarnings?: true; // Display Warnings off for this atom (ChemDraw's IgnoreWarnings): its problems are not marked
   cip?: true; // Show Stereochemistry is on for this atom's structure: its R/S (and its double bonds' E/Z) labels show
   halo?: string; // #rrggbb highlight: a disc behind the atom at 40% opacity (ChemDraw's highlight colours; NMR peak colours)
   fill?: string; // #rrggbb ring fill: a ring whose atoms all have the same fill is filled with it at 30% opacity
@@ -211,11 +212,6 @@ export function lonePairs(label: string, charge: number, used: number, h: number
   const e = SHELL[label];
   return e === undefined ? 0 : Math.max(0, Math.floor((e - used - h - charge - radical) / 2));
 }
-
-const segDist = (q: P, a: P, b: P) => {
-  const ab = sub(b, a), t = Math.max(0, Math.min(1, dot(sub(q, a), ab) / (dot(ab, ab) || 1)));
-  return len(sub(q, add(a, mul(ab, t))));
-};
 
 // Where line p + r·t meets line q + s·t; null if they are parallel.
 const meet = (p: P, r: P, q: P, s: P): P | null => {
@@ -527,17 +523,24 @@ export function render(mol: Mol, s: Style, measure: (text: string) => Ink, scale
     for (const end of [0, 1] as const) {
       const x = end ? pl.b : pl.a, shape = shapes[x];
       if (!shape.length) continue;
-      const u = end ? mul(pl.u, -1) : pl.u, w = widths(pl, x)[0];
+      const u = end ? mul(pl.u, -1) : pl.u, w = widths(pl, x)[0], m = s.margin + w;
       const offsets = [...(pl.kind === 'none' ? [] : [0]), ...pl.lines.map((l) => l.o)];
-      const clear = (t: number) => offsets.every((o) => {
-        const from = add(add(pts[x], mul(u, t)), mul(pl.n, o)), to = add(add(pts[x], mul(u, pl.length)), mul(pl.n, o));
-        return shape.every((q) => segDist(q, from, to) >= s.margin + w);
-      });
-      if (clear(0)) continue;
-      if (!clear(pl.length)) { pl.hidden = true; break; }
-      let lo = 0, hi = pl.length;
-      for (let i = 0; i < 30; i++) { const mid = (lo + hi) / 2; if (clear(mid)) hi = mid; else lo = mid; }
-      pl.cut[end] = hi;
+      // A line from t to the bond's far end clears an outline point (a along the bond, d across from the line) when
+      // the point lies off the line by the margin, or before the line's start or past its end by the rest of it.
+      // So the cut is the largest a + √(m² − d²) over the points the line passes, worked out once (no search).
+      let cut = 0;
+      for (const q of shape) {
+        const r = sub(q, pts[x]), a = dot(r, u), c = dot(r, pl.n);
+        for (const o of offsets) {
+          const d = c - o;
+          if (Math.abs(d) >= m) continue;
+          const reach = Math.sqrt(m * m - d * d);
+          if (a - reach < pl.length) cut = Math.max(cut, a + reach);
+        }
+      }
+      if (cut <= 0) continue;
+      if (cut > pl.length) { pl.hidden = true; break; }
+      pl.cut[end] = cut;
     }
   }
 

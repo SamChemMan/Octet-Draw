@@ -640,6 +640,9 @@ export default function Editor() {
       setPicked(new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id)));
     },
     snap: () => setSettings((s) => ({ ...s, snap: !s.snap })),
+    warnings: () => setSettings((s) => ({ ...s, warnings: !s.warnings })),
+    // Display Warnings back on for the selected atoms (their whole structures when a structure is selected).
+    show_warnings: () => set({ ...doc, atoms: doc.atoms.map((a, k) => (selection.has(k) && a.ignoreWarnings ? { ...a, ignoreWarnings: undefined } : a)) }, true),
     // Structure commands act on the selection, or on the whole drawing when nothing is selected.
     clean_up: () => {
       if (!loaded || !doc.atoms.length) return;
@@ -831,15 +834,16 @@ export default function Editor() {
     const zoom = Math.min(8, Math.max(0.25, target)), k = zoom / view.zoom, cx = innerWidth / 2, cy = innerHeight / 2;
     setView({ zoom, x: cx - (cx - view.x) * k, y: cy - (cy - view.y) * k });
   }
-  // Keep the setting on disk and the View menu tick in step with it.
+  // Keep the setting on disk and the View menu ticks in step with it.
+  const syncChecks = () => Promise.all([["snap", settings.snap], ["warnings", settings.warnings]].map(([id, checked]) => invoke("set_check", { id, checked }))).catch(() => {});
   useEffect(() => {
     saveSettings(settings);
-    if (TAURI) invoke("set_check", { id: "snap", checked: settings.snap }).catch(() => {});
+    if (TAURI) syncChecks();
   }, [settings]);
   // The Colour menu lists the user's colours by name: the menu bar is built again when they change.
   const paletteNames = settings.palette.map((c) => c.name).join("\n");
   useEffect(() => {
-    if (TAURI) invoke("set_palette", { names: settings.palette.map((c) => c.name) }).then(() => invoke("set_check", { id: "snap", checked: settings.snap })).catch(() => {});
+    if (TAURI) invoke("set_palette", { names: settings.palette.map((c) => c.name) }).then(syncChecks).catch(() => {});
   }, [paletteNames]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!TAURI) return;
@@ -860,7 +864,7 @@ export default function Editor() {
     const text = JSON.stringify(keys);
     if (text === sentMenuKeys.current || (!sentMenuKeys.current && !Object.keys(settings.keys).some((id) => id.startsWith("menu.")))) { sentMenuKeys.current ||= text; return; }
     sentMenuKeys.current = text;
-    invoke("set_menu_keys", { keys }).then(() => invoke("set_check", { id: "snap", checked: settings.snap })).catch(() => {});
+    invoke("set_menu_keys", { keys }).then(syncChecks).catch(() => {});
   }, [settings.keys, menuReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Screen (px from the window's top left) to drawing coordinates (bond lengths, y up).
@@ -2305,7 +2309,7 @@ export default function Editor() {
     });
     if (m !== doc) set(m);
   }
-  const found = useMemo(() => (exporting ? [] : problems(doc)), [doc, exporting]);
+  const found = useMemo(() => (exporting || !settings.warnings ? [] : problems(doc)), [doc, exporting, settings.warnings]);
   const untidy = useMemo(() => messy(doc, selection), [doc, selection]);
   // Text the panel asked to copy; the copy handler uses it instead of SMILES.
   const copyText = useRef<string>(undefined);
@@ -2366,6 +2370,7 @@ export default function Editor() {
     zoom_actual: ["Actual size", `${MOD}\\`, <FrameCorners size={18} />], zoom_fit: ["Fit to window", `${MOD}/`, <ArrowsOutSimple size={18} />],
     name_to_structure: ["Name to structure", `⇧${MOD}N`, <AtomIcon size={18} />],
     snap: [settings.snap ? "Turn snapping off" : "Turn snapping on", undefined, <LinkSimple size={18} />],
+    warnings: [settings.warnings ? "Hide chemical warnings" : "Show chemical warnings", undefined, <Warning size={18} />],
     actions: [settings.actions ? "Hide the Actions panel" : "Show the Actions panel", undefined, <SlidersHorizontal size={18} />],
     text_bold: ["Bold", `${MOD}B`, <TextB size={18} />], text_italic: ["Italic", `${MOD}I`, <TextItalic size={18} />], text_underline: ["Underline", `${MOD}U`, <TextUnderline size={18} />],
     align_left: ["Flush left", `⇧${MOD}L`, <TextAlignLeft size={18} />], align_centre: ["Centre text", `⇧${MOD}C`, <TextAlignCenter size={18} />], align_right: ["Flush right", `⇧${MOD}R`, <TextAlignRight size={18} />],
@@ -2376,7 +2381,7 @@ export default function Editor() {
     const variants = (t: Tool, slot: string, list: [string, string, React.ReactNode][], group: string, words = ""): Command[] =>
       list.map(([kind, name, icon]) => ({ id: `${t}:${kind}`, name, group, icon, words, run: pick(t, [slot, kind]) }));
     // A menu command that is also one of the selection's actions shows once, as the action.
-    const acts = actionItems(context, untidy), acted = new Set(acts.map((i) => i.command));
+    const acts = actionItems(context, untidy, [...selection].some((i) => doc.atoms[i]?.ignoreWarnings)), acted = new Set(acts.map((i) => i.command));
     return [
       ...acts.map((i) => ({ id: `action:${i.command}`, name: i.name, group: "Actions", icon: i.icon, keys: hint(i.command), run: () => runAction(i.command) })),
       ...Object.entries(MENU_NAMES).filter(([id]) => commands.current[id] && !acted.has(id)).map(([id, [name, keys, icon]]) => ({ id: `menu:${id}`, name, group: "Commands", keys: platformLabel(keys), icon, run: () => commands.current[id]() })),
@@ -2456,6 +2461,11 @@ export default function Editor() {
     if (command.startsWith("copy_text:")) { copyText.current = command.slice(10); document.execCommand("copy"); return; }
     if (command.startsWith("fix:")) { const [, i, charge] = command.split(":"); return set(addCharge(doc, Number(i), Number(charge) - (doc.atoms[Number(i)].charge ?? 0)), true); }
     if (command.startsWith("show:")) return setSelection(new Set([Number(command.slice(5))]));
+    // Hide a warning: the atom's Display Warnings goes off, as in ChemDraw (saved as IgnoreWarnings).
+    if (command.startsWith("hide_warning:")) {
+      const i = Number(command.slice(13));
+      return doc.atoms[i] && set({ ...doc, atoms: doc.atoms.map((a, k) => (k === i ? { ...a, ignoreWarnings: true as const } : a)) }, true);
+    }
     if (command.startsWith("align.")) return set(alignFragments(doc, selection, command.slice(6) as "row" | "column" | "spread-row"), true);
     if (command === "delete" && context.kind === "spot") return runAction("spot.delete");
     if (command === "delete") return selection.size || picked.size ? set(deleteGraphics(deleteAtoms(doc, selection), picked)) : undefined;
@@ -3728,6 +3738,7 @@ export default function Editor() {
         context={context}
         analysis={analysis}
         problems={found}
+        hiddenWarnings={[...selection].some((i) => doc.atoms[i]?.ignoreWarnings)}
         messy={untidy}
         hint={hint}
         onOpen={(open) => setSettings((s) => ({ ...s, actions: open }))}

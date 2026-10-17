@@ -420,7 +420,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       Radical: a.radical ? RADICALS[a.radical === 3 ? 1 : Math.min(2, a.radical) + 1] : undefined, NumHydrogens: h, ExternalConnectionType: a.attach ? "Wavy" : a.bead ? "PolymerBead" : undefined,
       NeedsClean: shown ? "yes" : undefined, GenericNickname: generic ? a.text : undefined,
       EnhancedStereoType: enhanced ? { abs: "Absolute", "&": "And", or: "Or" }[enhanced[1]] : undefined, EnhancedStereoGroupNum: enhanced?.[2] || undefined,
-      color: colour(a.colour), highlightColor: colour(a.halo), ShowAtomStereo: a.cip ? "yes" : undefined, ShowAtomNumber: a.number ? "yes" : undefined, AtomNumber: a.number, xyz: z ? `${pt(X)} ${fmt(z * B)}` : undefined,
+      color: colour(a.colour), highlightColor: colour(a.halo), ShowAtomStereo: a.cip ? "yes" : undefined, ShowAtomNumber: a.number ? "yes" : undefined, AtomNumber: a.number, IgnoreWarnings: a.ignoreWarnings ? "yes" : undefined, xyz: z ? `${pt(X)} ${fmt(z * B)}` : undefined,
       BondOrdering: inner && deg > 1 ? bondsAt[i].map((k) => bondId[k]).join(" ") : undefined,
       Octet: priv({ hmark: a.hmark, partial: a.partial, depth: a.depth === false ? false : undefined, map: a.map, circle: a.circle }),
     }, (inner ? nested(i, inner) : "") + (label?.xml ?? ""));
@@ -897,6 +897,7 @@ export function fromCdxml(text: string): CdxmlRead {
     if (p?.circle === true) a.circle = true;
     const number = yes(n.attrs.ShowAtomNumber) ? (n.attrs.AtomNumber ?? "").trim() : "";
     if (number) { if (/^[\w'′*-]{1,8}$/.test(number)) a.number = number; else lose("atom number"); }
+    if (yes(n.attrs.IgnoreWarnings)) a.ignoreWarnings = true;
     const i = mol.atoms.push(a) - 1;
     nodeIds.push(int(n.attrs.id) ?? 0);
     numH.set(i, int(n.attrs.NumHydrogens) ?? 0);

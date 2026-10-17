@@ -39,6 +39,7 @@ type Props = {
   context: Context;
   analysis?: Analysis;
   problems: Problem[];
+  hiddenWarnings?: boolean; // a selected atom has its warnings hidden
   messy: boolean;
   hint: (command: string) => string | undefined; // the key for a command, if it has one
   onOpen: (open: boolean) => void;
@@ -249,7 +250,7 @@ const KIND_OF: Record<string, string> = {
   select_all: "view", zoom_fit: "view", import: "library",
   properties: "analysis", show_stereo: "analysis", predict_1h: "analysis", predict_13c: "analysis",
   "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "turn", flatten: "turn",
-  pairs: "marks", number: "marks", atom_numbers: "marks", "caption.add": "marks", colour_by_element: "marks", aromatic_display: "marks", contract_label: "marks",
+  pairs: "marks", number: "marks", atom_numbers: "marks", show_warnings: "marks", "caption.add": "marks", colour_by_element: "marks", aromatic_display: "marks", contract_label: "marks",
   "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "arrange", ungroup: "arrange", group_integral: "arrange",
   arrange_left: "arrange", arrange_centre: "arrange", arrange_right: "arrange", arrange_top: "arrange", arrange_middle: "arrange", arrange_bottom: "arrange",
   arrange_across: "arrange", arrange_down: "arrange", "shape.front": "arrange", "shape.back": "arrange",
@@ -261,7 +262,7 @@ const setOf = (command: string) => SET_FOR[kindOf(command)];
 const HIGHLIGHTS: [string, string][] = [["Blue", "#2F6FED"], ["Orange", "#F28C28"], ["Green", "#2BA84A"], ["Red", "#E5484D"], ["Purple", "#8E4EC6"], ["Teal", "#12A594"], ["Pink", "#D6409F"], ["Gold", "#C9A000"]];
 
 // The actions for a selection, likeliest first. The panel shows them; the command palette lists them too.
-export function actionItems(context: Context, messy: boolean): Item[] {
+export function actionItems(context: Context, messy: boolean, hiddenWarnings = false): Item[] {
   const items: Item[] = [];
   const it = (icon: React.ReactNode, name: string, command: string, accent?: boolean, small?: boolean): Item => ({ icon, name, command, accent, small });
   const small = (i: Item): Item => ({ ...i, small: true });
@@ -289,6 +290,7 @@ export function actionItems(context: Context, messy: boolean): Item[] {
       if (context.pairs) items.push(small(it(<SymbolGlyph kind="pair" />, context.pairs === "shown" ? "Hide lone pairs" : "Show lone pairs", "pairs")));
       items.push(small(it(<ListNumbers size={18} />, context.structures > 1 ? "Number these compounds" : "Number this compound", "number")),
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
+        ...(hiddenWarnings ? [small(it(<Warning size={18} />, "Show warnings", "show_warnings"))] : []),
         small(it(<TextT size={18} />, "Add a caption", "caption.add")),
         small(it(<ArrowClockwise size={18} />, "Turn 15° right", "rotate.cw15")), small(it(<ArrowCounterClockwise size={18} />, "Turn 15° left", "rotate.ccw15")),
         small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")), small(it(<Flask size={18} />, "Properties", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, "Toggle aromatic display", "aromatic_display")), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C NMR shifts", "predict_13c")));
@@ -299,7 +301,8 @@ export function actionItems(context: Context, messy: boolean): Item[] {
       break;
     case "atom":
       items.push(it(<TextAa size={18} />, "Type a label", "atom.label"), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
-        ...(context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label) ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<SlidersHorizontal size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"), del);
+        ...(context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label) ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<SlidersHorizontal size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"),
+        ...(hiddenWarnings ? [it(<Warning size={18} />, "Show warnings", "show_warnings")] : []), del);
       break;
     case "bond":
       if (context.double) items.push(it(<span className="glyph-text">L</span>, "Second line on the left", "bond.left"), it(<span className="glyph-text">C</span>, "Centre the double bond", "bond.centre"), it(<span className="glyph-text">R</span>, "Second line on the right", "bond.right"));
@@ -374,7 +377,7 @@ function Row({ icon, name, command, hint, run, accent }: { icon: React.ReactNode
   );
 }
 
-export function Actions({ open, context, analysis, problems, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus }: Props) {
+export function Actions({ open, context, analysis, problems, hiddenWarnings, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus }: Props) {
   // An action being dragged to a new place: in the rows (index among rows) or the small buttons (index among them).
   const [carry, setCarry] = useState<{ command: string; x: number; y: number; to?: { rows: boolean; index: number } }>();
   const dragged = useRef(false);
@@ -442,7 +445,7 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
   }[context.kind];
   const whole = context.kind === "drawing" || context.kind === "structure";
 
-  const items = actionItems(context, messy);
+  const items = actionItems(context, messy, hiddenWarnings);
   // Group and Ungroup, and Align and Distribute, for any selection of two or more things, as small buttons.
   if (grouping) items.push(...([["arrange_left", "Align left edges", <AlignLeft size={18} />], ["arrange_centre", "Align left-right centres", <AlignCenterHorizontal size={18} />], ["arrange_right", "Align right edges", <AlignRight size={18} />],
     ["arrange_top", "Align top edges", <AlignTop size={18} />], ["arrange_middle", "Align top-bottom centres", <AlignCenterVertical size={18} />], ["arrange_bottom", "Align bottom edges", <AlignBottom size={18} />],
@@ -536,6 +539,7 @@ export function Actions({ open, context, analysis, problems, messy, hint, onOpen
             <div key={p.atom} className="problem">
               <Warning size={16} weight="bold" aria-hidden />
               <p>{p.message}</p>
+              <button className="problem-hide" onClick={() => run(`hide_warning:${p.atom}`)} aria-label={`Hide this warning`} title="Hide this warning"><X size={12} weight="bold" /></button>
               <div className="problem-buttons">
                 {p.fix && <button onClick={() => run(`fix:${p.atom}:${p.fix!.charge}`)}>Fix</button>}
                 <button onClick={() => run(`show:${p.atom}`)}><Eye size={14} aria-hidden /> Show</button>

@@ -372,6 +372,9 @@ export function onSelection(m: Mol, ids: Set<number>, p: P, r = 0.45): boolean {
 
 // Groups of connected atoms.
 export function fragments(m: Mol): number[][] {
+  // Each atom's neighbours, in bond order (as neighbours() gives them), built once rather than per atom.
+  const near: number[][] = m.atoms.map(() => []);
+  for (const b of m.bonds) { near[b.atoms[0]]?.push(b.atoms[1]); near[b.atoms[1]]?.push(b.atoms[0]); }
   const seen = new Set<number>(), out: number[][] = [];
   m.atoms.forEach((_, start) => {
     if (seen.has(start)) return;
@@ -380,7 +383,7 @@ export function fragments(m: Mol): number[][] {
     while (stack.length) {
       const i = stack.pop()!;
       group.push(i);
-      for (const j of neighbours(m, i)) if (!seen.has(j)) { seen.add(j); stack.push(j); }
+      for (const j of near[i]) if (!seen.has(j)) { seen.add(j); stack.push(j); }
     }
     out.push(group);
   });

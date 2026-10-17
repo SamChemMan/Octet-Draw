@@ -1249,11 +1249,38 @@ button.variant.add {
 }
 .problem {
   display: grid;
-  grid-template-columns: 16px 1fr;
+  grid-template-columns: 16px 1fr 20px;
   gap: var(--space-1) var(--space-2);
   padding: var(--space-2);
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
+  animation: fade-in 150ms ease-out;
+}
+/* Hide this warning: the atom's Display Warnings goes off. */
+.problem-hide {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-faint);
+  transition: transform 160ms ease-out;
+}
+@media (hover: hover) and (pointer: fine) {
+  .problem-hide:hover {
+    background: var(--surface-raised);
+    color: var(--ink);
+  }
+}
+.problem-hide:active {
+  transform: scale(0.9);
+}
+.problem-hide:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 .problem > svg {
   margin-top: 1px;

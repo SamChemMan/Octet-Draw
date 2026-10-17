@@ -13,7 +13,7 @@ export type Problem = { atom: number; message: string; fix?: { label: string; ch
 export function problems(m: Mol): Problem[] {
   const out: Problem[] = [];
   m.atoms.forEach((a, i) => {
-    if (a.text || !(a.label in MAX)) return;
+    if (a.text || a.ignoreWarnings || !(a.label in MAX)) return;
     const used = m.bonds.reduce((n, b) => n + (b.atoms.includes(i) ? ORDER[b.type] ?? 1 : 0), 0);
     const charge = a.charge ?? 0;
     const allowed = a.label === "C" || a.label === "Si" || a.label === "B" ? MAX[a.label] - Math.abs(charge) + (a.label === "B" && charge < 0 ? 2 : 0) : MAX[a.label] + charge;
