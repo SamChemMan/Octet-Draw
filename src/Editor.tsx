@@ -1,16 +1,16 @@
 import { Fragment, memo, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import {
-  ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Waveform, TagSimple, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
-  FrameCorners, GearSix, Keyboard, Lasso, LinkSimple, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
+  ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
+  FrameCorners, GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
   TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa, TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
-  Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table, FileDashed, ArrowsLeftRight,
+  Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table, FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, MagnetStraight, Paragraph, Resize, Ruler,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
 import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
-import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, FONTS, SIZES, type DocStyle, type PageName } from "./docstyle";
+import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, elementColours, COLOURS, FONTS, SIZES, type DocStyle, type PageName } from "./docstyle";
 import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
 import {
@@ -284,7 +284,9 @@ export default function Editor() {
   // Captions picked, by id. Atoms and captions are selected separately and move, delete and copy together.
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [drag, setDrag] = useState<Drag>();
-  const [notice, setNotice] = useState<string>();
+  // A notice is an error (warning icon, error colour) unless it is information, such as "Copied.".
+  const [notice, setNoticeState] = useState<{ text: string; info?: boolean }>();
+  const setNotice = (text?: string, info?: boolean) => setNoticeState(text ? { text, info } : undefined);
   // Feedback (for testing): ⌘1, ⌘2 and ⌘3 within 1.5 s, ⌘ held or not between them (Ctrl elsewhere), takes a picture
   // of the window, then opens the feedback box (Feedback.tsx). The picture is taken first, so it shows the window as it was.
   const [feedback, setFeedback] = useState<{ picture?: string }>();
@@ -636,7 +638,7 @@ export default function Editor() {
   }
   // Atom Properties: the atom's element or label, charge, isotope and radical, in one dialog.
   function atomProperties(i: number | undefined) {
-    if (i === undefined || !doc.atoms[i]) return setNotice("Pick an atom first.");
+    if (i === undefined || !doc.atoms[i]) return setNotice("Select an atom first.");
     const a = doc.atoms[i];
     setDialog({ kind: "atom", atom: i, element: a.text ?? a.label, charge: String(a.charge ?? 0), isotope: a.isotope ? String(a.isotope) : "", radical: String(a.radical ?? 0) });
   }
@@ -813,7 +815,7 @@ export default function Editor() {
     clean_reaction: () => {
       const arrow = reactionPicked()?.arrows[0] ?? [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
       const r = arrow !== undefined ? reactionOf(arrow) : undefined;
-      return r ? set(cleanUpReaction(doc, r, arrows), true) : setNotice("Pick a reaction arrow first.");
+      return r ? set(cleanUpReaction(doc, r, arrows), true) : setNotice("Select a reaction arrow first.");
     },
     // Zoom about the middle of the window. Actual size is 100%: bonds at their true 14.4 pt.
     zoom_in: () => zoomTo(views.get().zoom * 1.25),
@@ -830,10 +832,10 @@ export default function Editor() {
     atom_numbers: () => numberAtoms(selection.size ? [...selection] : doc.atoms.map((_, i) => i)),
     // Page Setup (⇧⌘P): the page's size and orientation, which live in the document's settings.
     page_setup: () => setSettingsOpen("document"),
-    // Analyze Stoichiometry: a grid under the picked reaction, or off again.
+    // Analyse Stoichiometry: a grid under the picked reaction, or off again.
     stoichiometry: () => {
       const arrow = reactionPicked()?.arrows[0] ?? [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
-      if (arrow === undefined) return setNotice("Pick a reaction first.");
+      if (arrow === undefined) return setNotice("Select a reaction first.");
       const has = doc.grids?.some((g) => reactionOf(g.arrow)?.arrows.includes(arrow));
       set({ ...doc, grids: has ? doc.grids!.filter((g) => !reactionOf(g.arrow)?.arrows.includes(arrow)) : [...(doc.grids ?? []), { arrow, typed: {} }] }, true);
     },
@@ -843,7 +845,7 @@ export default function Editor() {
     expand_label: () => {
       let m = doc;
       const labelled = [...selection].filter((i) => doc.atoms[i]?.text).sort((a, b) => b - a);
-      if (!labelled.length) return setNotice("Pick a labelled atom, such as OMe or Boc.");
+      if (!labelled.length) return setNotice("Select a labelled atom, such as OMe or Boc.");
       for (const i of labelled) {
         const smiles = labelSmiles(doc.atoms[i].text!);
         if (!smiles) { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); continue; }
@@ -856,7 +858,7 @@ export default function Editor() {
     contract_label: () => {
       const group = new Set([...selection].filter((i) => i < doc.atoms.length));
       const links = doc.bonds.filter((b) => group.has(b.atoms[0]) !== group.has(b.atoms[1]));
-      if (group.size < 2 || links.length !== 1) return setNotice("Pick a group joined to the rest of the structure by one bond.");
+      if (group.size < 2 || links.length !== 1) return setNotice("Select a group joined to the rest of the structure by one bond.");
       const keep = group.has(links[0].atoms[0]) ? links[0].atoms[0] : links[0].atoms[1], outside = links[0].atoms[0] === keep ? links[0].atoms[1] : links[0].atoms[0];
       // The group with xenon in place of the rest of the structure, as an InChI, against each abbreviation's.
       const capped = subset({ ...doc, atoms: doc.atoms.map((a, i) => (i === outside ? { ...a, label: "Xe", text: undefined, charge: undefined } : a)) }, new Set([...group, outside]));
@@ -1081,14 +1083,17 @@ export default function Editor() {
     const [cap] = placeCaptions(m, d, width, [], pt, style.captionSize);
     const box = [Math.min(d.box[0], cap.box[0]), Math.min(d.box[1], cap.box[1]), Math.max(d.box[2], cap.box[2]), Math.max(d.box[3], cap.box[3]) + frame.size * 0.3];
     const scale = Math.min(OPEN_ZOOM / frame.k, 112 / (box[3] - box[1]), 420 / (box[2] - box[0]));
+    // Drawn on the page's own paper, with the canvas's ink rule: white ink on dark and blue paper.
     return (
-      <svg width={(box[2] - box[0]) * scale} height={(box[3] - box[1]) * scale} viewBox={`${box[0]} ${box[1]} ${box[2] - box[0]} ${box[3] - box[1]}`}>
-        <path d={toPath(d.polygons)} fill="#000" />
-        {d.labels.map((l, i) => <text key={i} x={l.x} y={l.y} fill="#000" textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>{l.text}</text>)}
-        <text x={cap.lines[0].x} y={cap.lines[0].y} textAnchor="middle" fill={style.colour} style={{ font: `bold ${cap.size}px ${fontStack(style.captionFont)}` }}>1</text>
-      </svg>
+      <div className={`style-paper paper-${paper}`} data-theme={darkPaper ? "dark" : "light"} style={darkPaper ? ({ "--ink": "#FFFFFF" } as React.CSSProperties) : undefined}>
+        <svg width={(box[2] - box[0]) * scale} height={(box[3] - box[1]) * scale} viewBox={`${box[0]} ${box[1]} ${box[2] - box[0]} ${box[3] - box[1]}`}>
+          <path d={toPath(d.polygons)} fill="var(--ink)" />
+          {d.labels.map((l, i) => <text key={i} x={l.x} y={l.y} fill="var(--ink)" textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>{l.text}</text>)}
+          <text x={cap.lines[0].x} y={cap.lines[0].y} textAnchor="middle" fill={textInk(style.colour)} style={{ font: `bold ${cap.size}px ${fontStack(style.captionFont)}` }}>1</text>
+        </svg>
+      </div>
     );
-  }, [sample, frame, measure, style, pt]);
+  }, [sample, frame, measure, style, pt, paper]); // eslint-disable-line react-hooks/exhaustive-deps
   // Moves the view smoothly (or at once, with reduced motion).
   const flight = useRef<number>(undefined);
   function flyTo(to: { x: number; y: number; zoom: number }) {
@@ -2183,14 +2188,14 @@ export default function Editor() {
   }
   // Structure to name: each named structure gets its name centred underneath (after its compound number).
   function nameStructures() {
-    if (!namesLoaded) { void loadNames().then(() => setNamesLoaded(true)); return setNotice("Loading names. Try again in a moment."); }
+    if (!namesLoaded) { void loadNames().then(() => setNamesLoaded(true)); return setNotice("Loading names. Try again in a moment.", true); }
     let m = doc, missed = 0;
     for (const atoms of targets()) {
       const name = nameFor(atoms);
       if (!name) { missed++; continue; }
       if (!m.captions?.some((c) => c.text === name && c.under?.some((i) => atoms.includes(i)))) m = addCaption(m, { text: name, x: 0, y: 0, under: atoms })[0];
     }
-    setNotice(missed === 0 ? undefined : missed === 1 ? "Octet can't name this structure yet." : `Octet can't name ${missed} of these structures yet.`);
+    setNotice(missed === 0 ? undefined : missed === 1 ? "Octet cannot name this structure yet." : `Octet cannot name ${missed} of these structures yet.`);
     if (m !== doc) set(m, true);
   }
   const nameable = loaded && doc.atoms.length > 0;
@@ -2301,6 +2306,8 @@ export default function Editor() {
     const solid = ids.some((i) => Math.abs(doc.atoms[i].location[2] ?? 0) > 1e-3);
     return { kind: "structure", text: labelText(ids), atoms: ids.length, structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextNumber(doc), nameable, pairs, stereo,
       ...(solid ? { depth: !ids.some((i) => doc.atoms[i].depth === false) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
+      // Aromatic rings drawn with circles, so the aromatic display action can name what it shows next.
+      circles: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].circle),
       // The highlight and ring fill the selected atoms share, if they share one.
       halo: ids.every((i) => doc.atoms[i].halo === doc.atoms[ids[0]].halo) ? doc.atoms[ids[0]].halo : undefined,
       fill: ids.filter((i) => doc.atoms[i].fill).every((i) => doc.atoms[i].fill === doc.atoms[ids.find((k) => doc.atoms[k].fill) ?? 0].fill) ? doc.atoms[ids.find((k) => doc.atoms[k].fill) ?? 0]?.fill : undefined };
@@ -2604,6 +2611,7 @@ export default function Editor() {
     const own = menuReady ? keymap(settings.keys)[`menu.${command}`] : undefined;
     if (own) return own[0] ? keyLabel(own[0]) : undefined;
     if (MENU_KEYS[command]) return platformLabel(MENU_KEYS[command]);
+    if (MENU_NAMES[command]?.[1]) return platformLabel(MENU_NAMES[command][1]);
     const first = keymap(settings.keys)[command]?.[0];
     return first ? keyLabel(first) : undefined;
   };
@@ -2631,30 +2639,30 @@ export default function Editor() {
   // variant (templates too), and the Settings modules. Each shows its shortcut where it has one.
   const MENU_NAMES: Record<string, [string, string | undefined, React.ReactNode]> = {
     new: ["New drawing", `${MOD}N`, <FilePlus size={18} />], open: ["Open…", `${MOD}O`, <FolderOpen size={18} />], import: ["Import a structure…", "", <FileArrowDown size={18} />],
-    save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDisk size={18} />],
+    save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDiskBack size={18} />],
     export: ["Export…", EXPORT_KEYS, <ExportIcon size={18} />], print: ["Print…", `${MOD}P`, <Printer size={18} />], page_setup: ["Page setup…", `⇧${MOD}P`, <FileDashed size={18} />],
-    about: ["About Octet", "", <Info size={18} />], atom_properties: ["Atom properties…", "", <SlidersHorizontal size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
-    expand_label: ["Expand label", "", <ArrowsOutSimple size={18} />], contract_label: ["Contract label", "", <ArrowsInSimple size={18} />], stoichiometry: ["Analyze stoichiometry", "", <Table size={18} />],
+    about: ["About Octet", "", <Info size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
+    expand_label: ["Expand label", "", <ArrowsOutSimple size={18} />], contract_label: ["Contract label", "", <ArrowsInSimple size={18} />], stoichiometry: ["Analyse stoichiometry", "", <Table size={18} />],
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <MagicWand size={18} />],
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
-    properties: ["Properties", "", <Flask size={18} />], aromatic_display: ["Toggle aromatic display", `⌥${MOD}K`, <Circle size={18} />], show_stereo: ["Show stereochemistry", "", <TagSimple size={18} />], predict_1h: ["Predict ¹H NMR shifts", "", <Waveform size={18} />], predict_13c: ["Predict ¹³C NMR shifts", "", <Waveform size={18} />], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />],
-    rotate_dialog: ["Rotate…", `${MOD}R`, <ArrowClockwise size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <ArrowsOutSimple size={18} />],
+    properties: [settings.properties ? "Hide the Properties panel" : "Show the Properties panel", "", <Flask size={18} />], aromatic_display: [doc.atoms.some((a) => a.circle) ? "Show Kekulé bonds" : "Show aromatic circles", `⌥${MOD}K`, <Circle size={18} />], show_stereo: ["Show stereochemistry", "", <span className="glyph-text">R/S</span>], predict_1h: ["Predict ¹H-NMR shifts", "", <span className="glyph-text">¹H</span>], predict_13c: ["Predict ¹³C-NMR shifts", "", <span className="glyph-text">¹³C</span>], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />],
+    rotate_dialog: ["Rotate…", `${MOD}R`, <Angle size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <Resize size={18} />],
     group: ["Group", `${MOD}G`, <BoundingBox size={18} />], ungroup: ["Ungroup", `⇧${MOD}G`, <SelectionSlash size={18} />],
-    arrange_left: ["Align left edges", `⇧⌥${MOD}L`, <AlignLeft size={18} />], arrange_centre: ["Align left-right centres", `⇧⌥${MOD}C`, <AlignCenterHorizontal size={18} />],
-    arrange_right: ["Align right edges", `⇧⌥${MOD}R`, <AlignRight size={18} />], arrange_top: ["Align top edges", `⇧⌥${MOD}T`, <AlignTop size={18} />],
-    arrange_middle: ["Align top-bottom centres", `⇧⌥${MOD}M`, <AlignCenterVertical size={18} />], arrange_bottom: ["Align bottom edges", `⇧⌥${MOD}B`, <AlignBottom size={18} />],
-    arrange_across: ["Distribute horizontally", `⇧⌥${MOD}H`, <ArrowsOutLineHorizontal size={18} />], arrange_down: ["Distribute vertically", `⇧⌥${MOD}V`, <ArrowsOutLineVertical size={18} />], select_all: ["Select all", `${MOD}A`, <SelectionAll size={18} />],
-    clean_up: ["Clean up", `⇧${MOD}K`, <MagicWand size={18} />], flip_h: ["Rotate 180° horizontal", `⇧${MOD}H`, <ArrowsLeftRight size={18} />], flip_v: ["Rotate 180° vertical", `⇧${MOD}V`, <ArrowsDownUp size={18} />],
+    arrange_left: ["Align left edges", `⌥⇧${MOD}L`, <AlignLeft size={18} />], arrange_centre: ["Align left-right centres", `⌥⇧${MOD}C`, <AlignCenterHorizontal size={18} />],
+    arrange_right: ["Align right edges", `⌥⇧${MOD}R`, <AlignRight size={18} />], arrange_top: ["Align top edges", `⌥⇧${MOD}T`, <AlignTop size={18} />],
+    arrange_middle: ["Align top-bottom centres", `⌥⇧${MOD}M`, <AlignCenterVertical size={18} />], arrange_bottom: ["Align bottom edges", `⌥⇧${MOD}B`, <AlignBottom size={18} />],
+    arrange_across: ["Distribute horizontally", `⌥⇧${MOD}H`, <ArrowsOutLineHorizontal size={18} />], arrange_down: ["Distribute vertically", `⌥⇧${MOD}V`, <ArrowsOutLineVertical size={18} />], select_all: ["Select all", `${MOD}A`, <SelectionAll size={18} />],
+    clean_up: ["Clean up structure", `⇧${MOD}K`, <MagicWand size={18} />], flip_h: ["Rotate 180° horizontal", `⇧${MOD}H`, <ArrowsLeftRight size={18} />], flip_v: ["Rotate 180° vertical", `⇧${MOD}V`, <ArrowsDownUp size={18} />],
     zoom_in: ["Magnify", `⇧${MOD}>`, <MagnifyingGlassPlus size={18} />], zoom_out: ["Reduce", `⇧${MOD}<`, <MagnifyingGlassMinus size={18} />],
-    zoom_actual: ["Actual size", `${MOD}\\`, <FrameCorners size={18} />], zoom_fit: ["Fit to window", `${MOD}/`, <ArrowsOutSimple size={18} />],
-    name_to_structure: ["Name to structure", `⇧${MOD}N`, <AtomIcon size={18} />],
-    snap: [settings.snap ? "Turn snapping off" : "Turn snapping on", undefined, <LinkSimple size={18} />],
+    zoom_actual: ["Actual size", `${MOD}\\`, <FrameCorners size={18} />], zoom_fit: ["Fit to window", `${MOD}/`, <CornersOut size={18} />],
+    name_to_structure: ["Convert name to structure", `⇧${MOD}N`, <AtomIcon size={18} />],
+    snap: [settings.snap ? "Turn snapping off" : "Turn snapping on", undefined, <MagnetStraight size={18} />],
     warnings: [settings.warnings ? "Hide chemical warnings" : "Show chemical warnings", undefined, <Warning size={18} />],
     actions: [settings.actions ? "Hide the Actions panel" : "Show the Actions panel", undefined, <SlidersHorizontal size={18} />],
     text_bold: ["Bold", `${MOD}B`, <TextB size={18} />], text_italic: ["Italic", `${MOD}I`, <TextItalic size={18} />], text_underline: ["Underline", `${MOD}U`, <TextUnderline size={18} />],
     align_left: ["Flush left", `⇧${MOD}L`, <TextAlignLeft size={18} />], align_centre: ["Centre text", `⇧${MOD}C`, <TextAlignCenter size={18} />], align_right: ["Flush right", `⇧${MOD}R`, <TextAlignRight size={18} />],
     align_justify: ["Justified", `⇧${MOD}J`, <TextAlignJustify size={18} />],
-    font_other: ["Other font…", "", <TextAa size={18} />], size_other: ["Other size…", "", <TextT size={18} />], line_spacing: ["Line spacing…", "", <TextAlignLeft size={18} />],
+    font_other: ["Other font…", "", <TextAa size={18} />], size_other: ["Other size…", "", <Ruler size={18} />], line_spacing: ["Line spacing…", "", <Paragraph size={18} />],
     bring_front: ["Bring to front", `${MOD}[`, <StackSimple size={18} />], send_back: ["Send to back", `${MOD}]`, <Stack size={18} />],
   };
   const paletteCommands = (): Command[] => {
@@ -2666,7 +2674,7 @@ export default function Editor() {
     const acts = actionItems(contextOf(), untidy, [...selection].some((i) => doc.atoms[i]?.ignoreWarnings)), acted = new Set(acts.map((i) => i.command));
     return [
       ...acts.map((i) => ({ id: `action:${i.command}`, name: i.name, group: "Actions", icon: i.icon, keys: hint(i.command), run: () => runAction(i.command) })),
-      ...Object.entries(MENU_NAMES).filter(([id]) => commands.current[id] && !acted.has(id)).map(([id, [name, keys, icon]]) => ({ id: `menu:${id}`, name, group: "Commands", keys: platformLabel(keys), icon, run: () => commands.current[id]() })),
+      ...Object.entries(MENU_NAMES).filter(([id]) => commands.current[id] && !acted.has(id)).map(([id, [name, , icon]]) => ({ id: `menu:${id}`, name, group: "Commands", keys: hint(id), icon, run: () => commands.current[id]() })),
       { id: "tool:select", name: "Select", group: "Tools", keys: toolKey("tool.select"), icon: <Selection size={18} />, run: pick("select", ["select", "box"]) },
       { id: "tool:lasso", name: "Lasso", group: "Tools", icon: <Lasso size={18} />, run: pick("select", ["select", "lasso"]) },
       ...variants("bond", "bond", (Object.keys(BONDS) as BondKind[]).map((k) => [k, `${BONDS[k].name} bond`, <BondGlyph kind={k} />]), "Bonds"),
@@ -2736,12 +2744,12 @@ export default function Editor() {
     // Colour by Element: heteroatom labels in their usual colours (N blue, O red, S gold, P orange, halogens green,
     // Br brown, I purple); carbon and hydrogen keep the ink.
     if (command === "colour_by_element") {
-      const BY: Record<string, string> = { N: "#2F55D4", O: "#D9342B", S: "#B58900", P: "#E07B00", F: "#1E9E4A", Cl: "#1E9E4A", Br: "#A5442A", I: "#7B2FBE", B: "#C76B6B", Si: "#8A6D3B", Se: "#B58900" };
+      const BY = elementColours();
       const atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i));
       return set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) && BY[a.label] ? { ...a, colour: BY[a.label] } : a)) }, true);
     }
     if (command === "copy_smiles" || command === "copy") return void document.execCommand("copy");
-    if (command === "paste_hint") return setNotice(`Copy a SMILES string or MOL file, then press ${MOD}V here.`);
+    if (command === "paste_hint") return setNotice(`Copy a SMILES string or MOL file, then press ${MOD}V here.`, true);
     if (command.startsWith("copy_text:")) { copyText.current = command.slice(10); document.execCommand("copy"); return; }
     if (command.startsWith("fix:")) { const [, i, charge] = command.split(":"); return set(addCharge(doc, Number(i), Number(charge) - (doc.atoms[Number(i)].charge ?? 0)), true); }
     if (command.startsWith("show:")) return setSelection(new Set([Number(command.slice(5))]));
@@ -2765,7 +2773,7 @@ export default function Editor() {
       const left = side(0, first), right = side(first + 1, next);
       if (command === "reaction.unmap") return set({ ...doc, atoms: doc.atoms.map((a, i) => (r.atoms.includes(i) ? { ...a, map: undefined } : a)) }, true);
       const maps = mapReaction(left.map((g) => subset(doc, new Set(g))), right.map((g) => subset(doc, new Set(g))));
-      if (!maps) return setNotice("Octet couldn't map these atoms.");
+      if (!maps) return setNotice("Octet cannot map these atoms.");
       const number = new Map<number, number>();
       left.forEach((g, k) => g.forEach((i, j) => { const n = maps.reactants[k][j]; if (n) number.set(i, n); }));
       right.forEach((g, k) => g.forEach((i, j) => { const n = maps.products[k][j]; if (n) number.set(i, n); }));
@@ -3259,7 +3267,7 @@ export default function Editor() {
         e.clipboardData?.setData("text/plain", copyText.current);
         e.preventDefault();
         copyText.current = undefined;
-        return setNotice("Copied.");
+        return setNotice("Copied.", true);
       }
       // Everything selected (or the whole drawing) in Octet's own form, for pasting back with arrows, text and shapes;
       // and its structures as SMILES, for other programs.
@@ -3708,7 +3716,7 @@ export default function Editor() {
                   {[[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => (
                     <path key={`${sx}${sy}`} d={`M${sx * x - sx * t} ${sy * y}H${sx * x}V${sy * y - sy * t}`} vectorEffect="non-scaling-stroke" />
                   ))}
-                  <text x={-x + 3 / view.zoom} y={-y + 12 / view.zoom} style={{ fontSize: 9 / view.zoom }}>{name}</text>
+                  <text x={-x + 3 / view.zoom} y={-y + 13 / view.zoom} style={{ fontSize: 11 / view.zoom }}>{name}</text>
                 </g>
               );
             })}
@@ -3776,7 +3784,7 @@ export default function Editor() {
             const h = drag?.kind === "turn" ? undefined : turnHandle(view.zoom);
             if (drag?.kind === "turn") {
               const c = drag.centre;
-              return <text className="turn-angle" x={c[0] * L} y={-c[1] * L} textAnchor="middle" style={{ fontSize: 12 / view.zoom }}>{`${Math.round(drag.degrees)}°`}</text>;
+              return <text className="turn-angle" x={c[0] * L} y={-c[1] * L} textAnchor="middle" style={{ fontSize: 11 / view.zoom }}>{`${Math.round(drag.degrees)}°`}</text>;
             }
             return h && (
               <g className={overTurn ? "turn-handle hot" : "turn-handle"} transform={`translate(${h[0]} ${h[1]}) scale(${1 / view.zoom})`} aria-hidden>
@@ -3791,7 +3799,7 @@ export default function Editor() {
           )}
           {rubbing}
           {drag?.kind === "chain" && drag.to && (
-            <text className="count" x={drag.to[0] * L + 6 / view.zoom} y={-drag.to[1] * L - 6 / view.zoom} style={{ fontSize: 12 / view.zoom }}>
+            <text className="count" x={drag.to[0] * L + 6 / view.zoom} y={-drag.to[1] * L - 6 / view.zoom} style={{ fontSize: 11 / view.zoom }}>
               {chainTo(doc, drag.from, drag.to).bonds}
             </text>
           )}
@@ -3960,14 +3968,14 @@ export default function Editor() {
                 <span className="name-thumb">{mol ? <StructureThumb id={`name:${name}`} mol={mol} /> : <ClockCounterClockwise size={16} />}</span>
                 <span className="name-text">{name}</span>
                 <button className="name-forget" aria-label={`Remove ${name}`} title="Remove" onClick={(e) => { e.stopPropagation(); setSettings((s) => ({ ...s, nameHistory: s.nameHistory.filter((n) => n.name !== name) })); }}>
-                  <X size={12} weight="bold" />
+                  <X size={12} />
                 </button>
               </div>
             );
           })}
           {historyMore && (
             <div role="option" aria-selected={recent.at === historyRows.length} className="name-recent show-all" onPointerMove={() => setRecent((h) => ({ ...h, at: historyRows.length }))} onClick={() => setRecent({ all: true, at: -1 })}>
-              <span className="name-thumb"><CaretDown size={14} /></span>
+              <span className="name-thumb"><CaretDown size={12} /></span>
               <span className="name-text">Show all {historyMatches.length}</span>
             </div>
           )}
@@ -4060,7 +4068,8 @@ export default function Editor() {
         popKey={pop?.n ?? 0}
         canUndo={h.at > 0}
         canRedo={h.at < h.stack.length - 1}
-        modKey={MOD}
+        undoKey={hint("undo")}
+        redoKey={hint("redo")}
         onTool={setTool}
         onVariant={(t, kind) => setSettings((s) => ({ ...s, variants: { ...s.variants, [t]: kind } }))}
         onUndo={() => undo()}
@@ -4163,7 +4172,7 @@ export default function Editor() {
       )}
       {about && <About onClose={() => setAbout(false)} />}
       {feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={setNotice}
-        onSent={() => { setFeedback(undefined); setNotice("Your feedback is ready to send in your mail app."); }} />}
+        onSent={() => { setFeedback(undefined); setNotice("Your feedback is ready to send in your mail app.", true); }} />}
       <ExportButton hint={platformLabel(EXPORT_KEYS)} onQuick={() => void quickExport()} onExport={openExport} />
       {exportView && (
         <ExportDialog prefs={settings.files} onPrefs={(p) => setSettings((s) => ({ ...s, files: { ...s.files, ...p } }))} pictures={exportView}
@@ -4230,8 +4239,8 @@ export default function Editor() {
       {commandsOpen && <CommandPalette commands={paletteCommands()} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}
       {notice && (
         <p className="notice text-ui" role="status">
-          <Warning size={16} weight="bold" aria-hidden />
-          {notice}
+          {!notice.info && <Warning size={16} aria-hidden />}
+          {notice.text}
         </p>
       )}
     </div>

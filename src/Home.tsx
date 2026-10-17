@@ -96,7 +96,7 @@ export function Home(p: Props) {
                   <span className="home-when">{r.found ? when(r.at, now) : "Moved or deleted"}</span>
                 </span>
               </button>
-              <button className="home-remove" onClick={() => p.onRemove(r)} aria-label={`Remove ${r.name} from Home`} title="Remove from Home"><X size={12} weight="bold" /></button>
+              <button className="home-remove" onClick={() => p.onRemove(r)} aria-label={`Remove ${r.name} from Home`} title="Remove from Home"><X size={12} /></button>
             </div>
           ))}
         </div>

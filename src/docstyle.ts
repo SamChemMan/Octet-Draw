@@ -67,6 +67,31 @@ export const TINTS: [string, string][] = [
   ["Light blue", "#DCE4F5"], ["Light green", "#DCEFE6"], ["Light amber", "#F6E6D3"], ["Light red", "#F6DCDC"], ["Light grey", "#E9ECF0"],
 ];
 
+// Highlight colours (a disc behind each atom, a ring fill, a spectrum peak): distinct, and clear on white at 40%
+// behind a structure. One list, named, for the Actions panel and the Spectrum.
+export const HIGHLIGHTS: [string, string][] = [
+  ["Blue", "#2F6FED"], ["Orange", "#F28C28"], ["Green", "#2BA84A"], ["Red", "#E5484D"], ["Purple", "#8E4EC6"],
+  ["Teal", "#12A594"], ["Pink", "#D6409F"], ["Gold", "#C9A000"], ["Brown", "#A0522D"], ["Slate", "#5B6B8C"],
+];
+
+// Colour by element (ChemDraw's Colors > By Element): each heteroatom label takes its atom-* token, as the light
+// theme gives it, since the page is white. Carbon and the rest stay ink.
+const METALS = "Li Na K Rb Cs Be Mg Ca Sr Ba Al Ga In Tl Sn Pb Bi Sc Ti V Cr Mn Fe Co Ni Cu Zn Y Zr Nb Mo Ru Rh Pd Ag Cd Hf Ta W Re Os Ir Pt Au Hg La Ce Sm Eu Gd Yb Lu U".split(" ");
+export function elementColours(token?: (name: string) => string): Record<string, string> {
+  if (!token) {
+    const probe = document.createElement("div");
+    probe.dataset.theme = "light";
+    document.body.append(probe);
+    const css = getComputedStyle(probe), values = elementColours((name) => css.getPropertyValue(`--atom-${name}`).trim());
+    probe.remove();
+    return values;
+  }
+  const by: Record<string, string> = { N: token("n"), O: token("o"), S: token("s"), Se: token("s"), P: token("p") };
+  for (const e of ["F", "Cl", "Br", "I"]) by[e] = token("halogen");
+  for (const e of METALS) by[e] = token("metal");
+  return by;
+}
+
 // The preset a style matches, if any.
 export function presetOf(s: DocStyle): string {
   return Object.entries(PRESETS).find(([, p]) => (Object.keys(p) as (keyof Drawn)[]).every((k) => p[k] === s[k]))?.[0] ?? "Custom";

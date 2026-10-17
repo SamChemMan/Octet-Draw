@@ -278,7 +278,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("aromatic_display", "Toggle Aromatic Display", "Alt+CmdOrCtrl+K")?,
         &item("structure_perspective", "Structure Perspective", "Alt+CmdOrCtrl+S")?,
         &sep()?,
-        &item("stoichiometry", "Analyze Stoichiometry", "")?,
+        &item("stoichiometry", "Analyse Stoichiometry", "")?,
         &sep()?,
         &item("predict_1h", "Predict ¹H-NMR Shifts", "")?,
         &item("predict_13c", "Predict ¹³C-NMR Shifts", "")?,

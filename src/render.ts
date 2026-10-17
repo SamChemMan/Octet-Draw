@@ -152,7 +152,7 @@ export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", 
 export const HIGHLIGHT = "#DCE4F5";
 // Captions, arrows, shapes and cycles share one set of ids.
 export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; style?: DocStyle };
-// A stoichiometry grid (Structure > Analyze Stoichiometry) under the reaction an arrow belongs to: what was typed for
+// A stoichiometry grid (Structure > Analyse Stoichiometry) under the reaction an arrow belongs to: what was typed for
 // each component ("r0", "r1"… reactants, "p0"… products, in reading order), in base units, and the limiting reactant.
 // Everything else is worked out from the reaction as it is drawn (stoich.ts).
 export type Grid = { arrow: number; typed: Record<string, Partial<Record<"mass" | "moles" | "equiv" | "volume" | "density" | "molarity" | "purity" | "measured", number>>>; limiting?: string };

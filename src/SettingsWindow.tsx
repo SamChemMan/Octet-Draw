@@ -67,12 +67,12 @@ function PaletteEditor({ palette, onPalette, adding }: { palette: Swatch[]; onPa
           <div className="palette-line">
             <button className="swatch" style={{ background: c.hex }} aria-label={`Change ${c.name}`} aria-expanded={open === k} onClick={() => setOpen(open === k ? undefined : k)} />
             <input className="palette-name" aria-label="Name" value={c.name} maxLength={40} onChange={(e) => change(k, { name: e.target.value })} onBlur={(e) => { if (!e.target.value.trim()) change(k, { name: `Colour ${k + 1}` }); }} />
-            <button className="text-button" aria-label={`Remove ${c.name}`} title="Remove" onClick={() => { onPalette(palette.filter((_, i) => i !== k)); setOpen(undefined); }}><X size={12} weight="bold" /></button>
+            <button className="text-button" aria-label={`Remove ${c.name}`} title="Remove" onClick={() => { onPalette(palette.filter((_, i) => i !== k)); setOpen(undefined); }}><X size={12} /></button>
           </div>
           {open === k && <ColourPicker value={c.hex} onChange={(hex) => change(k, { hex })} />}
         </div>
       ))}
-      {palette.length < 20 && <button className="palette-add" onClick={add}><Plus size={12} weight="bold" aria-hidden /> Add a colour</button>}
+      {palette.length < 20 && <button className="palette-add" onClick={add}><Plus size={12} aria-hidden /> Add a colour</button>}
     </div>
   );
 }
@@ -123,7 +123,7 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
       <button ref={button} className="page-button" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)}>
         <PageThumb w={w} h={h} size={14} />
         <span>{PAGE_NAMES[style.page]}</span>
-        <CaretDown size={11} aria-hidden />
+        <CaretDown size={12} aria-hidden />
       </button>
       {open && place && (
         <div ref={menu} className={place.above ? "page-menu above" : "page-menu"} role="dialog" aria-label="Page size" style={{ left: place.left, top: place.top, width }}>
@@ -226,12 +226,12 @@ function KeyChips({ id, map, recording, onRecord, onRemove }: { id: string; map:
       {keys.map((k, i) => (
         <span key={`${k}${i}`} className={recording === i ? "key-chip recording" : "key-chip"}>
           <button onClick={() => onRecord(i)} aria-label={`Change ${keyLabel(k)}`}>{recording === i ? "Press a key" : keyLabel(k)}</button>
-          {recording !== i && <button className="key-remove" onClick={() => onRemove(i)} aria-label={`Remove ${keyLabel(k)}`}><X size={9} weight="bold" /></button>}
+          {recording !== i && <button className="key-remove" onClick={() => onRemove(i)} aria-label={`Remove ${keyLabel(k)}`}><X size={12} /></button>}
         </span>
       ))}
       {recording === keys.length
         ? <span className="key-chip recording"><button>Press a key</button></span>
-        : <button className="key-add" onClick={() => onRecord(keys.length)} aria-label="Add a key" title="Add a key"><Plus size={11} weight="bold" /></button>}
+        : <button className="key-add" onClick={() => onRecord(keys.length)} aria-label="Add a key" title="Add a key"><Plus size={12} /></button>}
     </span>
   );
 }
@@ -302,7 +302,7 @@ export function SettingsWindow(p: Props) {
           {[...COLOURS, ...p.palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => (
             <button key={`${name}${hex}`} role="radio" aria-checked={style.colour.toLowerCase() === hex.toLowerCase()} aria-label={name} title={name} className="swatch" style={{ background: hex }} onClick={() => change({ colour: hex })} />
           ))}
-          <button className="swatch custom" title="Add a colour" aria-label="Add a colour" onClick={() => p.onModule("colours")}><Plus size={10} weight="bold" aria-hidden /></button>
+          <button className="swatch custom" title="Add a colour" aria-label="Add a colour" onClick={() => p.onModule("colours")}><Plus size={12} aria-hidden /></button>
         </span>
       ), true),
       d("document", "Page", "Size", "page paper size a4 a3 letter custom half column", <PageSize style={style} change={change} />),
@@ -365,7 +365,7 @@ export function SettingsWindow(p: Props) {
         {!query && (
           <div className="settings-foot">
             {p.isDefault
-              ? <span className="quiet-note"><Check size={14} weight="bold" aria-hidden /> Default for new documents</span>
+              ? <span className="quiet-note"><Check size={16} aria-hidden /> Default for new documents</span>
               : <button className="text-button" onClick={p.onDefault}>Use for new documents</button>}
           </div>
         )}
@@ -387,9 +387,9 @@ export function SettingsWindow(p: Props) {
       <div className="settings-window" role="dialog" aria-modal="true" aria-label="Settings">
         <nav className="settings-sidebar" aria-label="Settings modules">
           <label className="settings-search">
-            <MagnifyingGlass size={14} aria-hidden />
+            <MagnifyingGlass size={16} aria-hidden />
             <input ref={search} type="search" placeholder="Search" aria-label="Search settings" spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)} />
-            {query && <button className="search-clear" onClick={() => { setQuery(""); search.current?.focus(); }} aria-label="Clear search"><X size={10} weight="bold" /></button>}
+            {query && <button className="search-clear" onClick={() => { setQuery(""); search.current?.focus(); }} aria-label="Clear search"><X size={12} /></button>}
           </label>
           {MODULES.map((m) => (
             <button key={m.id} className="module" aria-current={!query && p.module === m.id ? "page" : undefined}
@@ -404,7 +404,7 @@ export function SettingsWindow(p: Props) {
         <div className="settings-main">
           <header>
             <h2>{query ? "Search" : MODULES.find((m) => m.id === p.module)!.name}</h2>
-            <button className="actions-close" onClick={p.onClose} aria-label="Close settings" title="Close"><X size={14} /></button>
+            <button className="actions-close" onClick={p.onClose} aria-label="Close settings" title="Close settings"><X size={12} /></button>
           </header>
           <div className="settings-body" key={query ? "search" : p.module}>
             {query
