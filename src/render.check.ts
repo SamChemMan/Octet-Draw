@@ -155,6 +155,8 @@ console.log("render.check: written labels ok");
   assert.ok(pts.length === 4 && Math.hypot(pts[0][0], pts[0][1]) < 1e-9 && Math.hypot(pts[3][0] - 0.5, pts[3][1] - 1.2) < 1e-9 && e.end === "full");
   const c = [(pts[0][0] + pts[2][0]) / 2, (pts[0][1] + pts[2][1]) / 2], long = Math.hypot(pts[0][0] - c[0], pts[0][1] - c[1]), shortAxis = Math.hypot(pts[3][0] - c[0], pts[3][1] - c[1]);
   assert.ok(Math.abs(shortAxis / long - 0.4) < 1e-9, "axes 0.4");
+  // A closed pen curve (it ends where it starts) is still drawn.
+  assert.equal(arrowShapes({ id: 2, kind: "curve", from: [0, 0], to: [0, 0], curve: { points: [{ at: [0, 0] }, { at: [1, 0] }, { at: [0, 1] }], closed: true } }, S, k).length, 3);
   console.log("render.check: arrow sizes and kinds ok");
 }
 

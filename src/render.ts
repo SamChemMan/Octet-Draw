@@ -1100,8 +1100,8 @@ export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
   // How far a head takes over the shaft: to its notch (solid), its base (hollow), or not at all (angled).
   const takes = (h: Head) => (h === "none" ? 0 : shape === "angled" ? hw : shape === "hollow" ? H : h === "full" ? C : 0);
   const path = arrowPath(a, k), [S, T] = [path[0], path[path.length - 1]];
-  if (len(sub(T, S)) < 1e-9) return out;
-  const u = unit(sub(T, S)), n = perp(u);
+  // A closed curve ends where it starts: its marks have no direction to go by, and it needs none.
+  const u: P = len(sub(T, S)) > 1e-9 ? unit(sub(T, S)) : [1, 0], n = perp(u);
   if (takesHeads(a) || marked(a)) {
     // One shaft, and a head at either end as set (the Curves menu) or as the kind has them.
     const { start, end } = headsOf(a), reversed = [...path].reverse();
