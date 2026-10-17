@@ -249,13 +249,37 @@ export function toInchi(drawn: Mol | string): string | undefined {
   }
 }
 
+// Clean Up's time. Indigo tidies a structure in two passes. Each pass runs 1,000 rounds, or stops when 2 s have
+// passed: a limit fixed in Indigo that no option changes. So a crowded structure, or a real one of more than about 25
+// atoms, took 4 s on the main thread, and 4 s more for each structure cleaned. Real structures of up to about 15 atoms
+// stop changing within 100 ms a pass. Indigo reads its clock through performance.now, so Octet runs that clock fast
+// while Indigo cleans, and each pass stops after PASS ms. Several structures share 2 × PASS ms a pass. A large
+// structure drawn by hand comes out rougher than it did in 4 s, and Clean Up again tidies it further, as in ChemDraw.
+// Indigo checks the time only between rounds, and a round costs more as a structure grows (a quarter of a second at
+// 120 atoms, 3 s at 300). So Clean Up leaves a structure of more than MOST_CLEAN atoms as drawn (src/cleanup.check.ts).
+const PASS = 100;
+export const MOST_CLEAN = 150;
+// Runs Indigo with its clock going `fast` times as fast.
+function fastClock<T>(fast: number, run: () => T): T {
+  if (fast <= 1) return run();
+  const now = performance.now, start = now.call(performance);
+  performance.now = () => start + (now.call(performance) - start) * fast;
+  try {
+    return run();
+  } finally {
+    performance.now = now;
+  }
+}
+
 // Clean Up Structure: Indigo straightens bond lengths and angles, structure by structure. Each structure the
 // selection touches (or every structure, with nothing selected) is cleaned whole, scaled back to one bond
-// length per bond, and kept centred where it was.
-export function cleanUp(mol: Mol, ids?: Set<number>): Mol {
+// length per bond, and kept centred where it was. A structure of more than MOST_CLEAN atoms is left as drawn.
+// pass: the ms each of Indigo's two passes may take for one structure (2,000 is Indigo's own limit).
+export function cleanUp(mol: Mol, ids?: Set<number>, pass = PASS): Mol {
   const ind = engine(), atoms = mol.atoms.map((a) => ({ ...a }));
-  for (const frag of fragments(mol)) {
-    if (frag.length < 2 || (ids?.size && !frag.some((i) => ids.has(i)))) continue;
+  const groups = fragments(mol).filter((frag) => frag.length > 1 && frag.length <= MOST_CLEAN && (!ids?.size || frag.some((i) => ids.has(i))));
+  const fast = 2000 / (pass * Math.min(1, 2 / groups.length));
+  for (const frag of groups) {
     const local = new Map(frag.map((i, k) => [i, k]));
     const bonds = mol.bonds.filter((b) => local.has(b.atoms[0]) && local.has(b.atoms[1]));
     const ket = {
@@ -270,7 +294,7 @@ export function cleanUp(mol: Mol, ids?: Set<number>): Mol {
     try {
       opts.set("output-content-type", "application/json");
       frag.forEach((_, k) => sel.push_back(k));
-      const out = JSON.parse(JSON.parse(ind.clean2d(JSON.stringify(ket), "ket", opts, sel)).struct).mol0.atoms as { location: number[] }[];
+      const out = JSON.parse(JSON.parse(fastClock(fast, () => ind.clean2d(JSON.stringify(ket), "ket", opts, sel))).struct).mol0.atoms as { location: number[] }[];
       if (out.length !== frag.length) continue;
       const lengths = bonds.map((b) => {
         const [p, q] = [out[local.get(b.atoms[0])!].location, out[local.get(b.atoms[1])!].location];
