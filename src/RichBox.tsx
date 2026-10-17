@@ -17,6 +17,7 @@ type Props = {
   onRuns: (runs: TextRun[], rebuild?: [number, number]) => void; // rebuild: build the box again, the caret there
   onKeyDown: (e: React.KeyboardEvent) => void;
   onBlur: () => void;
+  returnNewLine?: boolean; // Return makes a new line (ChemDraw's default for captions); else only Option- or Shift-Return
 };
 
 // Character offsets in the box, counting each span's text and each line break.
@@ -130,8 +131,9 @@ export function RichBox(p: Props) {
       }}
       onDrop={(e) => e.preventDefault()}
       onKeyDown={(e) => {
-        // A new line with Shift-Return; the browser's own bold, italic and underline are not used (Octet's are).
-        if (e.key === "Enter" && e.shiftKey) { e.preventDefault(); document.execCommand("insertText", false, "\n"); return; }
+        // A new line with Return (as ChemDraw's captions, unless its preference asks for Option-Return), and always with
+        // Option- or Shift-Return; the browser's own bold, italic and underline are not used (Octet's are).
+        if (e.key === "Enter" && (e.shiftKey || e.altKey || p.returnNewLine)) { e.preventDefault(); document.execCommand("insertText", false, "\n"); return; }
         if ((e.metaKey || e.ctrlKey) && ["b", "i", "u"].includes(e.key.toLowerCase())) e.preventDefault();
         p.onKeyDown(e);
       }}

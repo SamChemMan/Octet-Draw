@@ -3402,6 +3402,7 @@ export default function Editor() {
         const z = view.zoom, size = c.size * z, slack = 0.5 * size;
         return (
           <RichBox
+            returnNewLine={!settings.captionOptionReturn}
             runs={writing.runs ?? [{ text: writing.value }]}
             version={writing.version ?? 0}
             caret={writing.caret}
@@ -3425,6 +3426,7 @@ export default function Editor() {
             }}
             onRuns={(runs, rebuild) => setWriting((w) => w && { ...w, runs, value: plainOf(runs), ...(rebuild ? { version: (w.version ?? 0) + 1, caret: rebuild, pending: undefined } : {}) })}
             onKeyDown={(e) => {
+              // Return reaches here only when it does not make a new line (Settings: Option-Return for a new line).
               if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); commitWriting(); }
               if (e.key === "Escape") { e.preventDefault(); commitWriting(); } // Escape keeps the text, as a click elsewhere does
               // ChemDraw's text keys, in the browser (the desktop app's Text menu has them too).
@@ -3516,6 +3518,8 @@ export default function Editor() {
           onKeys={(keys) => setSettings((s) => ({ ...s, keys }))}
           files={settings.files}
           onFiles={(files) => setSettings((s) => ({ ...s, files }))}
+          captionOptionReturn={settings.captionOptionReturn}
+          onCaptionOptionReturn={(captionOptionReturn) => setSettings((s) => ({ ...s, captionOptionReturn }))}
           panelMenus={settings.panelMenus}
           onPanelMenus={(panelMenus) => setSettings((s) => ({ ...s, panelMenus }))}
           menuKeys={Object.values(MENU_NAMES).flatMap(([name, keys]) => (keys ? [[name, platformLabel(keys)!] as [string, string]] : []))}

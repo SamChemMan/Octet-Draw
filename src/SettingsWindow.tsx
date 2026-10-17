@@ -29,6 +29,8 @@ type Props = {
   onKeys: (keys: Keymap) => void;
   files: FilePrefs;
   onFiles: (files: FilePrefs) => void;
+  captionOptionReturn: boolean; // captions: Option-Return for a new line, Return closes the box
+  onCaptionOptionReturn: (on: boolean) => void;
   panelMenus: boolean; // the Actions panel's sets as menus, not sections
   onPanelMenus: (menus: boolean) => void;
   menuKeys: [string, string][]; // the menu commands that have a shortcut: name, shortcut as this platform shows it
@@ -359,6 +361,10 @@ export function SettingsWindow(p: Props) {
           <button role="radio" aria-checked={p.panelMenus} onClick={() => p.onPanelMenus(true)}>Menus</button>
         </span>
       )),
+      // ChemDraw's text preference: in a caption Return makes a new line, unless Option-Return is asked for.
+      d("keys", "Text", "New line in captions", "caption text new line return enter option", (
+        <Select label="New line in captions" value={p.captionOptionReturn ? "option" : "return"} options={[["return", "Return"], ["option", "⌥ Return"]]} onChange={(v) => p.onCaptionOptionReturn(v === "option")} />
+      )),
       // The menu commands' shortcuts, as the menus show them (fixed, as ChemDraw's), so a search finds them here too.
       ...p.menuKeys.map(([name, keys]) => d("keys", "Menu commands", name, `${name} menu command shortcut ${keys}`, <kbd className="menu-key">{keys}</kbd>)),
       ...ACTIONS.map((a) => d("keys", a.group, a.name, `${a.id} ${a.group} shortcut ${(map[a.id] ?? []).join(" ")}`, (
@@ -378,7 +384,7 @@ export function SettingsWindow(p: Props) {
       d("colours", "Colours", "Your colours", "colour colours palette custom swatch named add", <PaletteEditor palette={p.palette} onPalette={p.onPalette} adding={p.adding} />, true),
       d("files", "Import", "Keep ChemDraw styles", "import open cdxml chemdraw style keep", <Switch on={files.keepStyle} label="Keep ChemDraw styles" onChange={(on) => setFiles({ keepStyle: on })} />),
     ];
-  }, [style, map, recording, note, files, p.palette, p.adding, p.panelMenus, p.menuKeys.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.adding, p.panelMenus, p.captionOptionReturn, p.menuKeys.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query)) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));

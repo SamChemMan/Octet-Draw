@@ -15,6 +15,7 @@ export type Settings = {
   actionLayout: Record<string, { order: string[]; rows: number }>;
   layoutVersion: number; // the Actions panel's layout scheme the saved actionLayout was made for
   panelMenus: boolean; // the Actions panel's sets of small actions as titled rows that open menus, not sections of buttons
+  captionOptionReturn: boolean; // ChemDraw's "Require Option+Return to create new line in Captions": Return then closes the box
   docStyle: DocStyle; // the style new documents start with
   files: FilePrefs; // export, copy and import preferences
   settingsModule: string; // the Settings module last open
@@ -28,7 +29,7 @@ export type Settings = {
   nmrMhz: number; nmrSolvent: string; nmrSolventPeaks: boolean; nmrDetails: boolean; // the predicted spectrum's frequency (¹H, MHz), solvent, and whether its peaks show
 };
 export type Swatch = { name: string; hex: string };
-const DEFAULTS: Settings = { snap: true, eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, panelMenus: false, docStyle: DEFAULT_STYLE, files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], nameHistory: [], paletteWide: false, palette: [], properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false };
+const DEFAULTS: Settings = { snap: true, eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, panelMenus: false, captionOptionReturn: false, docStyle: DEFAULT_STYLE, files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], nameHistory: [], paletteWide: false, palette: [], properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false };
 const KEY = "octet.settings";
 
 export function loadSettings(): Settings {
@@ -58,6 +59,7 @@ export function loadSettings(): Settings {
       actionLayout: saved.layoutVersion === 3 && typeof saved.actionLayout === "object" && saved.actionLayout !== null && !Array.isArray(saved.actionLayout) ? saved.actionLayout : {},
       layoutVersion: 3,
       panelMenus: saved.panelMenus === true,
+      captionOptionReturn: saved.captionOptionReturn === true,
     };
   } catch {
     return DEFAULTS;
