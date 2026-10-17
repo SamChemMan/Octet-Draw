@@ -174,7 +174,7 @@ function convert(input: string, format: string): string {
 }
 export const toSmiles = (drawn: Mol): string => convert(ketOf(drawn), "smiles");
 // The drawing's molecules as a molfile.
-export const toMolfile = (drawn: Mol): string => convert(ketOf(drawn), "mol");
+export const toMolfile = (drawn: Mol): string => convert(ketOf(drawn), "molfile");
 // CIP labels for a drawing's stereocentres (R, S) and double bonds (E, Z), in its atom and bond order.
 export function cipOf(drawn: Mol): { atoms: (string | undefined)[]; bonds: (string | undefined)[] } | undefined {
   const ind = engine(), opts = new ind.MapStringString();

@@ -3402,3 +3402,71 @@ button.variant.add {
     left: 0;
   }
 }
+
+/* Export: a pill that stays at the top right of the window, its menu under it, and the Export dialog's preview. */
+.export {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  z-index: 2;
+}
+.export-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-float);
+  color: var(--ink);
+  font: 500 13px var(--font-sans);
+  transition: transform 160ms ease-out;
+}
+.export-button:active {
+  transform: scale(0.97);
+}
+.export-button:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.strip.export-menu {
+  top: calc(100% + 6px);
+  right: 0;
+  left: auto;
+  transform-origin: top right;
+}
+.export-preview {
+  display: grid;
+  justify-self: stretch;
+  place-items: center;
+  height: 168px;
+  padding: var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+.export-preview.transparent {
+  background: repeating-conic-gradient(var(--hairline) 0 25%, #fff 0 50%) 0 0 / 12px 12px;
+}
+.export-preview img {
+  max-width: 100%;
+  max-height: 150px;
+}
+.export-none {
+  color: var(--ink-muted);
+}
+.export-size {
+  justify-self: stretch;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+@media (prefers-reduced-motion: reduce) {
+  .export-button {
+    transition: none;
+  }
+}

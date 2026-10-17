@@ -31,8 +31,9 @@ import { Select } from "./Select";
 import { fromCdxml, toCdxml, type CdxmlOptions } from "./cdxml";
 import { readOct, writeOct } from "./oct";
 import { About } from "./About";
+import { ExportButton, ExportDialog } from "./ExportDialog";
 import { flushSync } from "react-dom";
-import { copyToClipboard, exportFile, readClipboard, standaloneSvg, UI } from "./export";
+import { copyToClipboard, exportFile, readClipboard, standaloneSvg, UI, withMargin } from "./export";
 import { formatAmount, formulaWeight, parseAmount, solve, type Field } from "./stoich";
 import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
@@ -437,11 +438,30 @@ export default function Editor() {
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     try { await invoke("print_page"); } catch (e) { setNotice(`Octet cannot print. ${e}`); }
   }
-  // File > Export… (⌃⌘E): the whole drawing as PDF (with its CDXML inside), SVG, PNG, CDXML, MOL, SDF or SMILES.
-  async function exportDrawing() {
-    const svgText = pictureOf(doc), c = chemistryOf(doc);
+  // Export… (⌃⌘E, and the Export button): the settings first, with the whole drawing's picture and chemistry and,
+  // when something is selected, the selection's. Then the Save dialog for the chosen format.
+  const selectedPart = () => (selection.size || picked.size ? extractSelection(doc, selection, picked) : undefined);
+  function openExport() {
+    const sel = selectedPart();
+    setExportView({ all: pictureOf(doc), selection: sel && pictureOf(sel), chem: { all: chemistryOf(doc), selection: sel && chemistryOf(sel) } });
+  }
+  const filePrefs = settings.files;
+  async function exportPart(part: "all" | "selection") {
+    const v = exportView, svg = v?.[part], c = v?.chem[part], f = filePrefs;
+    if (!v) return;
     try {
-      await exportFile({ name, svg: svgText, cdxml: c.cdxml, molfile: c.molfile, sdf: c.molfile ? `${c.molfile.trimEnd()}\n$$$$\n` : undefined, smiles: c.smiles });
+      const path = await exportFile({ name, format: f.format, svg: svg && withMargin(svg, f.margin), cdxml: c?.cdxml, molfile: c?.molfile, sdf: c?.molfile ? `${c.molfile.trimEnd()}\n$$$$\n` : undefined, smiles: c?.smiles, dpi: 72 * f.scale, transparent: f.background === "transparent" });
+      if (path) setExportView(undefined);
+    } catch (e) {
+      setNotice(`Octet cannot export this drawing. ${e}`);
+    }
+  }
+  // Quick export as PNG: the selection, or the whole drawing, straight to the Save dialog with the saved PNG settings.
+  async function quickExport() {
+    const svg = pictureOf(selectedPart() ?? doc), f = filePrefs;
+    if (!svg) return setNotice("There is nothing to export.");
+    try {
+      await exportFile({ name, format: "png", svg: withMargin(svg, f.margin), dpi: 72 * f.scale, transparent: f.background === "transparent" });
     } catch (e) {
       setNotice(`Octet cannot export this drawing. ${e}`);
     }
@@ -653,7 +673,8 @@ export default function Editor() {
     zoom_out: () => zoomTo(view.zoom / 1.25),
     zoom_actual: () => zoomTo(1 / frame.k),
     actions: () => setSettings((s) => ({ ...s, actions: !s.actions })),
-    export: () => void exportDrawing(),
+    export: () => openExport(),
+    export_quick: () => void quickExport(),
     print: () => void printDrawing(),
     about: () => setAbout(true),
     // Atom Properties (Structure menu): the selected atom's element or label, charge, isotope and radical.
@@ -828,6 +849,7 @@ export default function Editor() {
   const [addingColour, setAddingColour] = useState(false); // Settings opened from a colour row's +, to add a colour
   // Object > Rotate… (⌘R) and Scale… (⌘K): the dialog open, and what is typed in it.
   const [about, setAbout] = useState(false);
+  const [exportView, setExportView] = useState<{ all?: string; selection?: string; chem: { all: ReturnType<typeof chemistryOf>; selection?: ReturnType<typeof chemistryOf> } }>();
   const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }
     | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string }>();
   const [commandsOpen, setCommandsOpen] = useState(false);
@@ -3538,6 +3560,12 @@ export default function Editor() {
         </Dialog>
       )}
       {about && <About onClose={() => setAbout(false)} />}
+      <ExportButton hint={`⌃${MOD}E`} onQuick={() => void quickExport()} onExport={openExport} />
+      {exportView && (
+        <ExportDialog prefs={settings.files} onPrefs={(p) => setSettings((s) => ({ ...s, files: { ...s.files, ...p } }))} pictures={exportView}
+          chemistry={(part) => { const c = exportView.chem[part]; return { cdxml: !!c?.cdxml, mol: !!c?.molfile, sdf: !!c?.molfile, smi: !!c?.smiles }; }}
+          onExport={(part) => void exportPart(part)} onClose={() => setExportView(undefined)} />
+      )}
       {dialog?.kind === "atom" && (
         <Dialog title="Atom Properties" action="Apply" onClose={() => setDialog(undefined)}
           onAction={() => {

@@ -88,6 +88,12 @@ export type Clipboard = { octet: string | null; cdxml: string | null; cdx: strin
 export const readClipboard = () => invoke<Clipboard>("read_clipboard");
 
 export type ExportFormat = "pdf" | "svg" | "png" | "cdxml" | "mol" | "sdf" | "smi";
+// A picture from standaloneSvg with a margin of `pt` all round: its size and view box grow by that much.
+export function withMargin(svg: string, pt: number): string {
+  const m = Math.max(0, Math.min(72, pt));
+  return svg.replace(/^(<svg[^>]*?)\swidth="([\d.]+)pt"\sheight="([\d.]+)pt"\sviewBox="([-\d.]+) ([-\d.]+) ([\d.]+) ([\d.]+)"/, (_, head, w, h, x, y, vw, vh) =>
+    `${head} width="${+w + 2 * m}pt" height="${+h + 2 * m}pt" viewBox="${+x - m} ${+y - m} ${+vw + 2 * m} ${+vh + 2 * m}"`);
+}
 // File > Export…: the drawing in every form the page has (svg from standaloneSvg). The app asks where to save,
 // offering those formats (or only `format`), and writes the one the file name's extension asks for. The PDF
 // carries the CDXML, as on the clipboard. PNG at `dpi` of true size (300 if not given), white unless
