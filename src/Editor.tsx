@@ -2177,7 +2177,8 @@ export default function Editor() {
   // The selection to the front or the back of the draw order (order.ts): each structure it touches, as a whole, and
   // each picked object (a picked cycle takes its intermediates too).
   function restack(front: boolean) {
-    const m = reorder(doc, fragments(doc).filter((g) => g.some((i) => selection.has(i))), picked, front);
+    const inCycle = new Set((doc.cycles ?? []).filter((c) => picked.has(c.id)).flatMap((c) => c.nodes.flat()));
+    const m = reorder(doc, fragments(doc).filter((g) => g.some((i) => selection.has(i) || inCycle.has(i))), picked, front);
     if (m !== doc) set(m, true);
   }
   // Structure to name: each named structure gets its name centred underneath (after its compound number).
