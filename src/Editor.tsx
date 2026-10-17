@@ -9,7 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
-import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
+import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
 import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, FONTS, SIZES, type DocStyle, type PageName } from "./docstyle";
 import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
@@ -1141,9 +1141,11 @@ export default function Editor() {
     const same = (a: readonly Arrow[], b: readonly Arrow[]) => a.length === b.length && a.every((x, i) => x === b[i] || JSON.stringify(x) === JSON.stringify(b[i]));
     if (!same(fitted, laid.current.arrows)) laid.current.arrows = fitted;
     if (!same(cycles.arrows, laid.current.cycles)) laid.current.cycles = cycles.arrows;
-    // A piece of text in a run's style, for captions with a width (their lines wrap to it).
-    const measure = (t: string, c: Caption, r: RunStyle) => textWidth(t, (r.size ? r.size * pt : (c.size ?? style.captionSize) * pt) * (r.script ? 0.75 : 1), r.bold ?? c.bold, r.italic ?? c.italic, fontStack(r.font ?? c.font ?? style.captionFont));
-    return { placed: placeCaptions(m, drawing, width, fitted, pt, style.captionSize, cycles.anchors, measure), arrows: laid.current.arrows, cycleArrows: laid.current.cycles };
+    // A piece of text in a run's style: its width, for captions with a width (their lines wrap to it), and its reach
+    // above and below the baseline, for Variable line spacing.
+    const face = (c: Caption, r: RunStyle) => [(r.size ? r.size * pt : (c.size ?? style.captionSize) * pt) * (r.script ? 0.75 : 1), r.bold ?? c.bold, r.italic ?? c.italic, fontStack(r.font ?? c.font ?? style.captionFont)] as const;
+    const measure = (t: string, c: Caption, r: RunStyle) => textWidth(t, ...face(c, r)), extent = (t: string, c: Caption, r: RunStyle) => textExtent(t, ...face(c, r));
+    return { placed: placeCaptions(m, drawing, width, fitted, pt, style.captionSize, cycles.anchors, measure, extent), arrows: laid.current.arrows, cycleArrows: laid.current.cycles };
   }, [shown, drawing, writing, style, pt]);
   // The structure for the name being typed, where it will land (after the arrows and text, which landing reads).
   const ghost = useMemo(() => named && render(moveAtoms(named, new Set(named.atoms.map((_, i) => i)), landing(named)), frame, measure, L), [named, doc, frame, measure, placed, arrows]); // eslint-disable-line react-hooks/exhaustive-deps

@@ -137,6 +137,13 @@ assert.deepEqual(back.lost, {});
 parse(serialize(back.mol));
 const second = toCdxml(back.mol, back.style, { name: "check.cdxml" }), third = fromCdxml(second);
 assert.equal(toCdxml(third.mol, third.style, { name: "check.cdxml" }), second, "after one save, saving again changes nothing");
+// Line spacing and a caption's width, as ChemDraw writes them on a text: LineHeight auto or pt, Variable as the caption
+// style's (CaptionLineHeight), WordWrapWidth in pt with decimals.
+assert.ok(/<t\s[^>]*\sLineHeight="18"/.test(text) && /<t\s[^>]*\sCaptionLineHeight="variable"/.test(text) && !/\sLineHeight="variable"/.test(text), "line spacing");
+{
+  const wrapped = fromCdxml('<CDXML BondLength="14.4"><page><t p="0 0" WordWrapWidth="57.6" CaptionLineHeight="variable"><s font="3" size="10">a b</s></t></page></CDXML>');
+  assert.deepEqual([wrapped.mol.captions?.[0].width, wrapped.mol.captions?.[0].lineHeight], [57.6 / wrapped.style.bond, "variable"]);
+}
 console.log("cdxml.check: every object kind round trips");
 
 // The file is laid out as ChemDraw writes it: the two header lines, the root's ACS settings, tables, then the page.

@@ -8,7 +8,7 @@
 
 import { units } from "./labels.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
-import { lines as richLines, plainOf, runsOf, wrap, type RunStyle, type TextRun } from "./richtext.ts";
+import { lines as richLines, plainOf, runsOf, styleOf, wrap, type RunStyle, type TextRun } from "./richtext.ts";
 import type { DocStyle } from "./docstyle.ts";
 import type { Cycle, CycleText } from "./cycle.ts";
 
@@ -895,15 +895,17 @@ export const CAPTION_PT = 10;
 export const isNumber = (c: Caption) => !!c.bold && /^\d+[a-z]?$/.test(c.text);
 const GAP_PT = 15, GAP_ARROW_PT = 3, LINE = 1.2, ASCENT = 0.905, DESCENT = 0.212; // Arial's ascent and descent, in em
 // Each line's baseline below the first's (px), by the caption's line spacing (Caption.lineHeight). size: the
-// caption's text size (px); a run's own size is in pt.
-export function lineOffsets(c: Pick<Caption, "lineHeight" | "runs" | "text">, size: number, pt: number): number[] {
+// caption's text size (px); a run's own size is in pt. Variable, as ChemDraw's: each line is as tall as its tallest
+// character and lowest descender, with no gap between lines. ink: how far line j's text reaches above and below its
+// baseline (px); without it (or on an empty line), the ascent and descent of the line's largest text.
+export function lineOffsets(c: Pick<Caption, "lineHeight" | "runs" | "text">, size: number, pt: number, ink?: (j: number) => [number, number] | undefined): number[] {
   const runLines = c.runs ? richLines(c.runs) : undefined, count = c.text.split("\n").length;
   const tallest = (j: number) => Math.max(size, ...(runLines?.[j] ?? []).map((r) => (r.size ? r.size * pt : size) * (r.script ? 0.75 : 1)));
   const all = Math.max(...Array.from({ length: count }, (_, j) => tallest(j)));
   const out = [0];
   for (let j = 1; j < count; j++) {
-    const a = tallest(j - 1), b = tallest(j);
-    out.push(out[j - 1] + (typeof c.lineHeight === "number" ? c.lineHeight * pt : c.lineHeight === "variable" ? DESCENT * a + ASCENT * b + (LINE - ASCENT - DESCENT) * Math.max(a, b) : LINE * all));
+    const below = ink?.(j - 1)?.[1] ?? DESCENT * tallest(j - 1), above = ink?.(j)?.[0] ?? ASCENT * tallest(j);
+    out.push(out[j - 1] + (typeof c.lineHeight === "number" ? c.lineHeight * pt : c.lineHeight === "variable" ? below + above : LINE * all));
   }
   return out;
 }
@@ -914,9 +916,11 @@ export type Placed = {
 };
 // pt: px per point in the drawing frame; size: the document's caption size in pt.
 // fixed: where captions placed by something else (a cycle's labels) go, in px. measure: how wide a piece of text is
-// in a run's style (px), for captions with a width; without it they do not wrap.
+// in a run's style (px), for captions with a width; without it they do not wrap. extent: how far a piece of text
+// reaches above and below its baseline (px), for Variable line spacing.
 export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width: (text: string, c: Caption, line: number) => number, arrows: Arrow[] = mol.arrows ?? [], pt = 4 / 3, defaultSize = CAPTION_PT,
-  fixed: Map<number, { x: number; y: number; anchor: Placed["anchor"] }> = new Map(), measure?: (text: string, c: Caption, style: RunStyle) => number): Placed[] {
+  fixed: Map<number, { x: number; y: number; anchor: Placed["anchor"] }> = new Map(), measure?: (text: string, c: Caption, style: RunStyle) => number,
+  extent?: (text: string, c: Caption, style: RunStyle) => [number, number]): Placed[] {
   const k = d.scale, below = new Map<string, number>(); // the next free baseline under each structure
   const beside = new Map<string, number>(); // how far the conditions on each side of each arrow already reach
   const order = (c: Caption) => (isNumber(c) ? 0 : 1);
@@ -925,7 +929,18 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
     const wrapped = given.width && measure ? wrap(runsOf(given), given.width * k, (t, s) => measure(t, given, s)) : undefined;
     const c = wrapped?.soft.length ? { ...given, text: plainOf(wrapped.runs), ...(given.runs ? { runs: wrapped.runs } : {}) } : given;
     const softLines = new Set((wrapped?.soft ?? []).map((p) => c.text.slice(0, p).split("\n").length - 1));
-    const size = (c.size ?? defaultSize) * pt, lines = c.text.split("\n"), align = c.align ?? "centre", offs = lineOffsets(c, size, pt);
+    const size = (c.size ?? defaultSize) * pt, lines = c.text.split("\n"), align = c.align ?? "centre";
+    // A line's ink (Variable line spacing): its runs' reach, a subscript's lowered and a superscript's raised as drawn.
+    const inkLines = c.lineHeight === "variable" && extent ? (c.runs ? richLines(c.runs) : lines.map((text): TextRun[] => [{ text }])) : undefined;
+    const ink = inkLines && ((j: number): [number, number] | undefined => {
+      const parts = (inkLines[j] ?? []).filter((r) => r.text.trim());
+      if (!parts.length) return undefined;
+      return parts.reduce<[number, number]>(([up, down], r) => {
+        const [a, b] = extent!(r.text, c, styleOf(r)), shift = (r.script === "sub" ? 0.212 : r.script === "super" ? -0.33 : 0) * size;
+        return [Math.max(up, a - shift), Math.max(down, b + shift)];
+      }, [0, 0]);
+    });
+    const offs = lineOffsets(c, size, pt, ink);
     const anchor = align === "left" || align === "justify" ? "start" : align === "right" ? "end" : "middle";
     let x: number, y: number, anchorOverride: Placed["anchor"] | undefined;
     const arrow = c.on && arrows.find((a) => a.id === c.on!.arrow);

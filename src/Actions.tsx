@@ -217,7 +217,8 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   // Rotate 180° keeps stereochemistry (arrows round), Flip mirrors it (mirror glyphs).
   const flips = [it(<ArrowsLeftRight size={18} />, "Rotate 180° horizontal", "flip_h", false, true), it(<ArrowsDownUp size={18} />, "Rotate 180° vertical", "flip_v", false, true)];
   const mirrors = [it(<FlipHorizontal size={18} />, "Flip horizontal", "mirror_h", false, true), it(<FlipVertical size={18} />, "Flip vertical", "mirror_v", false, true)];
-  // The draw order, for every kind of object (Object menu: Bring to Front, Send to Back).
+  // The draw order, for every kind of object (Object menu: Bring to Front, Send to Back). On an atom or a bond it moves
+  // the whole structure, as the menu command does.
   const order = [it(<StackSimple size={18} />, "Bring to front", "bring_front", false, true), it(<Stack size={18} />, "Send to back", "send_back", false, true)];
 
   switch (context.kind) {
@@ -252,12 +253,12 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
     case "atom":
       items.push(it(<TextAa size={18} />, "Type a label", "atom.label"), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
         ...(context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label) ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<SlidersHorizontal size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"),
-        ...(hiddenWarnings ? [it(<Warning size={18} />, "Show warnings", "show_warnings")] : []), del);
+        ...(hiddenWarnings ? [it(<Warning size={18} />, "Show warnings", "show_warnings")] : []), ...order, del);
       break;
     case "bond":
       if (context.double) items.push(it(<span className="glyph-text">L</span>, "Second line on the left", "bond.left"), it(<span className="glyph-text">C</span>, "Centre the double bond", "bond.centre"), it(<span className="glyph-text">R</span>, "Second line on the right", "bond.right"));
       if (context.flippable) items.push(it(<FlipHorizontal size={18} />, "Point the other way", "bond.flip"));
-      items.push(del);
+      items.push(...order, del);
       break;
     case "caption":
       if (context.mode !== "picked") break;

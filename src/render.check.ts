@@ -213,6 +213,15 @@ console.log("render.check: written labels ok");
   assert.deepEqual(lineOffsets({ ...two, lineHeight: 15 }, 10, 2), [0, 30]);
   const v = lineOffsets({ ...big, lineHeight: "variable" }, 10, 1);
   assert.ok(v[1] > 12 && v[1] < 24, `variable: between the two sizes' spacing (${v[1]})`);
+  // Variable, as ChemDraw's: the line above's lowest descender and this line's tallest character, with no gap. An empty
+  // line has no ink, so it takes the ascent and descent of its text size.
+  assert.deepEqual(lineOffsets({ ...two, lineHeight: "variable" }, 10, 1, (j) => (j === 0 ? [7, 2] : [8, 0])), [0, 10]);
+  const gap = lineOffsets({ text: "a\n\nb", lineHeight: "variable" }, 10, 1, (j) => (j === 1 ? undefined : [7, 2]));
+  assert.ok(Math.abs(gap[1] - (2 + 9.05)) < 1e-9 && Math.abs(gap[2] - gap[1] - (2.12 + 7)) < 1e-9, `empty line: ${gap}`);
+  // placeCaptions measures each line's runs, a subscript lowered as it is drawn.
+  const placed = placeCaptions({ atoms: [], bonds: [], captions: [{ id: 1, text: "H2\nO", x: 0, y: 0, lineHeight: "variable", runs: [{ text: "H" }, { text: "2", script: "sub" }, { text: "\nO" }] }] },
+    { ink: [], scale: 19.2 }, (t) => t.length, [], 1, 10, new Map(), undefined, (_, __, r) => (r.script ? [5, 1] : [7, 0]))[0];
+  assert.ok(Math.abs(placed.lines[1].y - placed.lines[0].y - (1 + 0.212 * 10 + 7)) < 1e-9, `subscript ink: ${placed.lines.map((l) => l.y)}`);
   console.log("render.check: line spacing ok");
 }
 

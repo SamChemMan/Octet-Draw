@@ -626,7 +626,9 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     put(el("t", {
       id: idOf.get(c.id)!, p: pt(p), BoundingBox: boxText(box), Z: Z(), color: colour(c.colour), CaptionFont: c.font ? font(c.font) : undefined, CaptionSize: c.size, CaptionFace: cf || undefined,
       WordWrapWidth: c.width ? Math.round(c.width * B) : undefined,
-      CaptionJustification: just, Justification: just, LineHeight: c.lineHeight === "variable" ? "variable" : typeof c.lineHeight === "number" ? fmtSize(c.lineHeight) : "auto",
+      // Line spacing as ChemDraw writes it: a text's LineHeight is auto or pt, and Variable is its caption style's.
+      CaptionJustification: just, Justification: just, LineHeight: c.lineHeight === "variable" ? undefined : typeof c.lineHeight === "number" ? fmtSize(c.lineHeight) : "auto",
+      CaptionLineHeight: c.lineHeight === "variable" ? "variable" : undefined,
       Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined,
         width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined }),
     }, runs.map((r) => run(r.text, { font: r.font ?? c.font ?? style.captionFont, size: r.size ?? size, colour: r.colour ?? c.colour, face: face({ ...whole, ...r }) })).join("")), 2, box, c.id);
@@ -1074,7 +1076,7 @@ export function fromCdxml(text: string): CdxmlRead {
     for (const k of ["bold", "italic", "underline", "size", "colour", "font"] as const) if (whole[k] !== undefined) (c as Record<string, unknown>)[k] = whole[k];
     if (just === "Right") c.align = "right"; else if (just === "Full") c.align = "justify"; else if (just !== "Center") c.align = "left";
     // A width, in pt (spec WordWrapWidth): the caption wraps to it.
-    const wrapAt = int(t.attrs.WordWrapWidth);
+    const wrapAt = real(t.attrs.WordWrapWidth);
     if (wrapAt !== undefined && wrapAt >= B / 2 && wrapAt <= 1000 * B) c.width = isNum(p?.width, 0.5, 1000) ? (p!.width as number) : wrapAt / B;
     // Line spacing: auto (Octet's default), variable, or fixed in pt.
     const lh = t.attrs.LineHeight ?? t.attrs.CaptionLineHeight, fixed = real(lh);
