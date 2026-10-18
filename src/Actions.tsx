@@ -53,7 +53,7 @@ type Props = {
   onLayout: (kind: string, layout: { order: string[]; rows: number }) => void;
   colour?: { value: string; tints?: boolean }; // the selection's colour, shown in the one colour row every selection gets
   palette: { name: string; hex: string }[]; // the user's own colours, after Octet's
-  grouping?: { grouped: boolean; integral: boolean }; // two or more things selected (Group), or a group (Ungroup)
+  grouping?: { grouped: boolean; integral: boolean; group: boolean }; // a group touched (Ungroup), two or more things that can be grouped (Group)
   menus?: boolean; // Settings > Actions panel: each set of small actions as a titled row that opens its menu
 };
 
@@ -503,8 +503,8 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
   if (grouping) items.push(...([["arrange_left", "Align left edges", <AlignLeft size={18} />], ["arrange_centre", "Align left-right centres", <AlignCenterHorizontal size={18} />], ["arrange_right", "Align right edges", <AlignRight size={18} />],
     ["arrange_top", "Align top edges", <AlignTop size={18} />], ["arrange_middle", "Align top-bottom centres", <AlignCenterVertical size={18} />], ["arrange_bottom", "Align bottom edges", <AlignBottom size={18} />],
     ["arrange_across", "Distribute horizontally", <ArrowsOutLineHorizontal size={18} />], ["arrange_down", "Distribute vertically", <ArrowsOutLineVertical size={18} />]] as const).map(([command, name, icon]) => ({ icon, name, command, small: true })));
+  if (grouping?.group) items.push({ icon: <BoundingBox size={18} />, name: "Group", command: "group", small: true });
   if (grouping?.grouped) items.push({ icon: <SelectionSlash size={18} />, name: "Ungroup", command: "ungroup", small: true }, { icon: <LinkSimple size={18} />, name: grouping.integral ? "Let parts be picked" : "Pick as one", command: "group_integral", small: true });
-  else if (grouping) items.push({ icon: <BoundingBox size={18} />, name: "Group", command: "group", small: true });
   // The user's order first (actions it does not know keep their place after it), then their split into rows.
   const mine = layout[context.kind];
   if (mine) items.sort((a, b) => {
