@@ -3126,6 +3126,10 @@ button.variant.add {
   outline: none;
   box-shadow: var(--shadow-focus);
 }
+/* An action that is off until its fields are right: a name typed, or one Octet does not use already. */
+.dialog-button:disabled {
+  opacity: 0.45;
+}
 
 /* A TLC spot picked on its plate, for its colour, style and size. */
 .spot-picked {

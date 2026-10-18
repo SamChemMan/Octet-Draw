@@ -5,10 +5,11 @@
 import { useEffect, useRef } from "react";
 import { listOpen } from "./Menu";
 
-// alt: a third choice, before Cancel (Don't Save).
-type Props = { title: string; action?: string; onAction?: () => void; onClose: () => void; plain?: boolean; alt?: { label: string; onClick: () => void }; children: React.ReactNode };
+// alt: a third choice, before Cancel (Don't Save). disabled: the action is off until the fields are right (a name that
+// is not empty), and Return does nothing.
+type Props = { title: string; action?: string; onAction?: () => void; onClose: () => void; plain?: boolean; disabled?: boolean; alt?: { label: string; onClick: () => void }; children: React.ReactNode };
 
-export function Dialog({ title, action, onClose, onAction = onClose, plain, alt, children }: Props) {
+export function Dialog({ title, action, onClose, onAction = onClose, plain, disabled, alt, children }: Props) {
   const card = useRef<HTMLDivElement>(null);
   // The first field takes the focus when the dialog opens, and only then: a dialog draws again as its fields change,
   // and the focus stays in the field being typed in (or the choice moved along with the arrow keys).
@@ -18,11 +19,11 @@ export function Dialog({ title, action, onClose, onAction = onClose, plain, alt,
       if (listOpen()) return; // an open list takes its own keys
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); }
       // Return in a text area makes a new line; ⌘Return (Ctrl+Enter) sends.
-      if (e.key === "Enter" && (!(e.target instanceof HTMLTextAreaElement) || e.metaKey || e.ctrlKey)) { e.preventDefault(); e.stopPropagation(); onAction(); }
+      if (e.key === "Enter" && (!(e.target instanceof HTMLTextAreaElement) || e.metaKey || e.ctrlKey)) { e.preventDefault(); e.stopPropagation(); if (!disabled) onAction(); }
     };
     addEventListener("keydown", key, true);
     return () => removeEventListener("keydown", key, true);
-  }, [onAction, onClose]);
+  }, [onAction, onClose, disabled]);
   return (
     <div className="modal-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={card} className="dialog" role="dialog" aria-modal="true" aria-label={title}>
@@ -31,7 +32,7 @@ export function Dialog({ title, action, onClose, onAction = onClose, plain, alt,
         <div className="dialog-buttons">
           {alt && <button className="dialog-button alt" onClick={alt.onClick}>{alt.label}</button>}
           {action && <button className="dialog-button" onClick={onClose}>Cancel</button>}
-          <button className="dialog-button primary" onClick={onAction}>{action ?? "Close"}</button>
+          <button className="dialog-button primary" onClick={onAction} disabled={disabled}>{action ?? "Close"}</button>
         </div>
       </div>
     </div>

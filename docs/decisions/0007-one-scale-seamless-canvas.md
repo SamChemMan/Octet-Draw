@@ -87,7 +87,7 @@ questions 2 and 3 below.
 - Every purpose opens with bonds the same length on screen. A change of scale (a purpose, or the Scale field) keeps
   the structures still on screen, and the page outlines grow or shrink round them in 200 ms. A change of bond length
   at the same scale (a journal) keeps the true-size ratio, as before. Actual Size still shows true size.
-- The tutorial always runs on Paper, once after the name box and from Octet > Tutorial.
+- The tutorial always runs on Paper, once after the name box, and again from Octet > Tutorial or the command palette.
 - Pages: A1, A0, Slide 16:9 and Slide 4:3 join the page list, stored portrait, with landscape on for slides. A slide
   picked from the page list is landscape, and a paper page picked from a slide is portrait.
 - Journal list: ChemDraw 26.1's pads. J. Chin. Chem. Soc., J. Het. Chem., Phytomedicine, Science of Synthesis and

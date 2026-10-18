@@ -445,7 +445,7 @@ export function SettingsWindow(p: Props) {
         // A name of the user's own: not empty, and not one of Octet's purposes. The same name again saves over it.
         const name = naming.trim(), ok = !!name && !Object.values(PURPOSES).some((x) => x.name.toLowerCase() === name.toLowerCase());
         return (
-          <Dialog title="New purpose" action="Save" onClose={() => setNaming(undefined)} onAction={() => { if (ok) { p.onSavePurpose?.(name); setNaming(undefined); } }}>
+          <Dialog title="New purpose" action="Save" disabled={!ok} onClose={() => setNaming(undefined)} onAction={() => { p.onSavePurpose?.(name); setNaming(undefined); }}>
             <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={naming} maxLength={40} spellCheck={false} onChange={(e) => setNaming(e.target.value)} /></span></label>
           </Dialog>
         );
