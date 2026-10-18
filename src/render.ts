@@ -46,7 +46,11 @@ export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow
 // halo: #rrggbb highlight, a band behind the bond as an atom's halo is a disc. query: a ChemDraw query bond's orders
 // as CDXML writes them ("1 2" is single or double, "any"); Octet draws it single with ChemDraw's mark (S/D) and
 // writes it back.
-export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string; halo?: string; query?: string };
+export type Bond = {
+  type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string; halo?: string; query?: string;
+  spacing?: number; // a double bond's own spacing (% of the bond length, as ChemDraw's BondSpacing); unset is the document's
+  own?: Record<string, string>; // ChemDraw's own settings on the bond that Octet does not turn into a scale, written back as they came
+};
 // A caption: free text at x, y (bond lengths, y up; the text's anchor point by its alignment), or, with under
 // set, kept centred under those atoms by the ACS rule (baseline 15 pt below the structure's ink box).
 // Captions under the same structure stack one line apart, in id order.
@@ -65,6 +69,7 @@ export type Caption = {
   // Line spacing (ChemDraw's Text > Line Spacing): unset is Automatic (every line as far apart as the caption's
   // largest text needs), variable (each line as far from the last as their own text needs), or fixed, in pt.
   lineHeight?: "variable" | number;
+  angle?: number; // degrees anticlockwise: the text is drawn turned about its anchor point (ChemDraw's RotationAngle)
 };
 // Data Octet keeps from a ChemDraw object it does not edit: the object's attributes, and the atoms it is for.
 export type Kept = { attrs: Record<string, string>; atoms: number[] };
@@ -575,7 +580,8 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const plans: Plan[] = mol.bonds.map((bond) => {
     const [a, b] = bond.atoms, p = pts[a], q = pts[b];
     const length = len(sub(q, p)), u = unit(sub(q, p)), n = perp(u);
-    const z = zOf((scaleOf(mol.atoms[a]) + scaleOf(mol.atoms[b])) / 2), { L, hw } = z;
+    // A bond with its own double-bond spacing (from ChemDraw) keeps it.
+    const z0 = zOf((scaleOf(mol.atoms[a]) + scaleOf(mol.atoms[b])) / 2), z = bond.spacing === undefined ? z0 : { ...z0, spacing: (bond.spacing / 100) * z0.L }, { L, hw } = z;
     const plan: Plan = { a, b, u, n, length, kind: 'line', lines: [], cut: [0, 0], z };
     const side = (j: number) => Math.sign(dot(sub(pts[j], p), n));
     // Angles at x from the bond to x's other neighbours on one side, smallest first.
@@ -1035,6 +1041,8 @@ export type Placed = {
   id: number; size: number; bold?: boolean; italic?: boolean; underline?: boolean; colour?: string; anchor: "start" | "middle" | "end"; font?: string;
   lines: { text: string; x: number; y: number; runs?: TextRun[]; spacing?: number }[]; box: Box; // spacing: a justified line's extra space per space (px)
   order?: number; // the caption's draw order (order.ts)
+  // A turned caption: degrees clockwise on the page about x, y (px), and its box before the turn; box holds the turned text.
+  turn?: { angle: number; x: number; y: number; box: Box };
 };
 // pt: px per point in the drawing frame; size: the document's caption size in pt.
 // fixed: where captions placed by something else (a cycle's labels) go, in px. measure: how wide a piece of text is
@@ -1106,12 +1114,22 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
     const left = at === "start" ? x : at === "end" ? x - w : x - w / 2;
     // A justified line (one a soft break ends) spreads its spaces to fill the width.
     const spacing = (j: number) => { const gaps = lines[j].split(" ").length - 1; return full && softLines.has(j) && gaps ? { spacing: (full - widths[j]) / gaps } : {}; };
+    const box: Box = [left, y - ASCENT * size, left + w, y + offs[offs.length - 1] + DESCENT * size];
     return [{
       id: c.id, size, bold: c.bold, italic: c.italic, underline: c.underline, colour: c.colour, anchor: at, font: c.font, ...(c.order ? { order: c.order } : {}),
       lines: lines.map((text, j) => ({ text, x, y: y + offs[j], ...(runLines ? { runs: runLines[j] ?? [] } : {}), ...spacing(j) })),
-      box: [left, y - ASCENT * size, left + w, y + offs[offs.length - 1] + DESCENT * size],
+      // A turned caption turns about its anchor point, as ChemDraw turns text about its position; its box is the
+      // box round the turned text, so it is picked and framed where it shows.
+      ...(c.angle ? { turn: { angle: -c.angle, x, y, box }, box: turnedBox(box, [x, y], -c.angle) } : { box }),
     }];
   });
+}
+
+// The box round a box turned by angle degrees clockwise (y down) about a point.
+export function turnedBox(b: Box, about: P, angle: number): Box {
+  const r = (angle * Math.PI) / 180, [c, s] = [Math.cos(r), Math.sin(r)];
+  const pts = [[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]].map(([x, y]) => [about[0] + (x - about[0]) * c - (y - about[1]) * s, about[1] + (x - about[0]) * s + (y - about[1]) * c]);
+  return [Math.min(...pts.map((q) => q[0])), Math.min(...pts.map((q) => q[1])), Math.max(...pts.map((q) => q[0])), Math.max(...pts.map((q) => q[1]))];
 }
 
 // Arrows grow to fit their conditions: a straight arrow is lengthened about its middle until the widest

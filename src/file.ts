@@ -1,7 +1,7 @@
 // Octet's own file format: versioned, human-readable JSON. Treat every file as hostile: check it fully on read.
 import { fontName, readStyle } from "./docstyle.ts";
 import { normalise, plainOf, type TextRun } from "./richtext.ts";
-import { MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD, POLYMER_ATTRS, PROPERTY_ATTRS, readPictureData } from "./cdxml.ts";
+import { MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD, OWN_BOND_ATTRS, POLYMER_ATTRS, PROPERTY_ATTRS, readPictureData } from "./cdxml.ts";
 import { tidyGroups } from "./edit.ts";
 import { ALL_ARROW_KINDS, ORBITAL_SHAPES, PHASES, SHAPE_KINDS, type Annotation, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type Grid, type TableLine, type CellAlign, type Tlc, type Atom, type Bond, type Caption, type Display, type Kept, type Mol } from "./render.ts";
 
@@ -17,7 +17,8 @@ export function serialize(mol: Mol): string {
     ...(a.radical ? { radical: a.radical } : {}), ...(a.isotope ? { isotope: a.isotope } : {}), ...(a.pairs ? { pairs: a.pairs } : {}), ...(a.circled ? { circled: true } : {}), ...(a.partial ? { partial: a.partial } : {}),
     ...(a.hmark ? { hmark: a.hmark } : {}), ...(a.attach ? { attach: true } : {}), ...(a.bead ? { bead: true } : {}), ...(a.map ? { map: a.map } : {}), ...(a.enhanced ? { enhanced: a.enhanced } : {}), ...(a.colour ? { colour: a.colour } : {}), ...(a.cip ? { cip: true } : {}), ...(a.halo ? { halo: a.halo } : {}), ...(a.fill ? { fill: a.fill } : {}), ...(a.circle ? { circle: true } : {}), ...(a.number ? { number: a.number } : {}), ...(a.ignoreWarnings ? { ignoreWarnings: true } : {}),
     ...(a.font ? { font: a.font } : {}), ...(a.size ? { size: a.size } : {}), ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}), ...(a.order ? { order: a.order } : {}), ...scaled(a) }));
-  const bonds = mol.bonds.map((b) => ({ atoms: b.atoms, type: b.type, ...(b.stereo ? { stereo: b.stereo } : {}), ...(b.display ? { display: b.display } : {}), ...(b.position ? { position: b.position } : {}), ...(b.colour ? { colour: b.colour } : {}), ...(b.halo ? { halo: b.halo } : {}), ...(b.query ? { query: b.query } : {}) }));
+  const bonds = mol.bonds.map((b) => ({ atoms: b.atoms, type: b.type, ...(b.stereo ? { stereo: b.stereo } : {}), ...(b.display ? { display: b.display } : {}), ...(b.position ? { position: b.position } : {}), ...(b.colour ? { colour: b.colour } : {}), ...(b.halo ? { halo: b.halo } : {}), ...(b.query ? { query: b.query } : {}),
+    ...(b.spacing !== undefined ? { spacing: b.spacing } : {}), ...(b.own ? { own: b.own } : {}) }));
   // Arrows and captions are saved in id order; ids are not saved. Conditions name their arrow by its place in the list.
   const arrowList = [...(mol.arrows ?? [])].sort((a, b) => a.id - b.id);
   const cycleList = [...(mol.cycles ?? [])].sort((a, b) => a.id - b.id);
@@ -35,6 +36,7 @@ export function serialize(mol: Mol): string {
     text: c.text, x: round(c.x), y: round(c.y), ...(c.bold ? { bold: true } : {}), ...(c.italic ? { italic: true } : {}), ...(c.underline ? { underline: true } : {}),
     ...(c.size ? { size: c.size } : {}), ...(c.align ? { align: c.align } : {}), ...(c.under ? { under: c.under } : {}), ...(c.colour ? { colour: c.colour } : {}),
     ...(c.font ? { font: c.font } : {}), ...(c.runs ? { runs: c.runs } : {}), ...(c.property ? { property: c.property } : {}), ...(c.order ? { order: c.order } : {}), ...(c.lineHeight ? { lineHeight: c.lineHeight } : {}), ...(c.width ? { width: round(c.width) } : {}),
+    ...(c.angle ? { angle: round(c.angle) } : {}),
     ...(c.on ? { on: { arrow: arrowList.findIndex((a) => a.id === c.on!.arrow), side: c.on.side } } : {}),
     ...(c.cycle ? { cycle: { cycle: cycleList.findIndex((x) => x.id === c.cycle!.cycle), step: c.cycle.step, side: c.cycle.side } } : {}),
   }));
@@ -77,6 +79,9 @@ function readKept(v: unknown, names: string[], atoms: number): Kept | undefined 
   if (!Object.entries(k.attrs).every(([n, x]) => names.includes(n) && typeof x === "string" && x.length <= 200 && !/[\u0000-\u001f]/.test(x))) return undefined;
   return { attrs: { ...(k.attrs as Record<string, string>) }, atoms: [...(k.atoms as number[])] };
 }
+// A bond's own ChemDraw settings, if they are sound: known settings, each a number of up to 12 characters.
+const ownSettings = (v: unknown) => typeof v === "object" && !!v && !Array.isArray(v) && Object.keys(v).length > 0
+  && Object.entries(v).every(([n, x]) => OWN_BOND_ATTRS.includes(n) && typeof x === "string" && /^[+-]?(\d+\.?\d*|\.\d+)$/.test(x) && x.length <= 12);
 // A shadow's look, if it is sound: depth and softness up to a bond length, opacity 0 to 1.
 function readShade(v: unknown): Shade | undefined {
   const s = v as Record<string, unknown>, ok = (n: unknown, hi: number) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= hi;
@@ -183,10 +188,13 @@ export function parse(text: string): Mol {
   for (const b of bonds as Record<string, unknown>[]) {
     const ends = b?.atoms as unknown[];
     if (!Array.isArray(ends) || ends.length !== 2 || !ends.every((i) => int(i, 0, out.atoms.length - 1)) || ends[0] === ends[1] || !int(b.type, 1, 3) || (b.stereo !== undefined && b.stereo !== 1 && b.stereo !== 6) || (b.display !== undefined && !DISPLAYS.includes(b.display as Display)) || (b.position !== undefined && !["left", "centre", "right"].includes(b.position as string)) || badColour(b.colour)
-      || badColour(b.halo) || (b.query !== undefined && !(typeof b.query === "string" && /^(any|\d(\.5)?|dative|ionic|hydrogen|threecenter)( (any|\d(\.5)?|dative|ionic|hydrogen|threecenter)){0,15}$/.test(b.query)))) throw new Error("This drawing is damaged.");
+      || badColour(b.halo) || (b.query !== undefined && !(typeof b.query === "string" && /^(any|\d(\.5)?|dative|ionic|hydrogen|threecenter)( (any|\d(\.5)?|dative|ionic|hydrogen|threecenter)){0,15}$/.test(b.query)))
+      || (b.spacing !== undefined && !(num(b.spacing) && (b.spacing as number) >= 0 && (b.spacing as number) <= 100)) || (b.own !== undefined && !ownSettings(b.own))) throw new Error("This drawing is damaged.");
     const bond: Bond = { type: b.type as number, atoms: [ends[0] as number, ends[1] as number] };
     if (b.halo) bond.halo = b.halo as string;
     if (b.query) bond.query = b.query as string;
+    if (b.spacing !== undefined) bond.spacing = b.spacing as number;
+    if (b.own) bond.own = b.own as Record<string, string>;
     if (b.stereo) bond.stereo = b.stereo as number;
     if (b.display) bond.display = b.display as Display;
     if (b.position) bond.position = b.position as Bond["position"];
@@ -322,6 +330,8 @@ function readCaptions(raw: unknown, out: Mol, num: (v: unknown) => boolean, int:
     if (c.lineHeight === "variable" || isSize(c.lineHeight)) caption.lineHeight = c.lineHeight as number | "variable";
     // A width from half a bond length to 1000 bond lengths; anything else leaves the caption unwrapped.
     if (typeof c.width === "number" && c.width >= 0.5 && c.width <= 1000) caption.width = c.width;
+    // A turn of up to a whole turn either way; anything else leaves the caption upright.
+    if (num(c.angle) && Math.abs(c.angle as number) <= 360 && c.angle) caption.angle = c.angle as number;
     if (under) caption.under = under as number[];
     if (on) caption.on = { arrow: out.arrows![on.arrow as number].id, side: on.side as "above" | "below" };
     if (cyc) caption.cycle = { cycle: out.cycles![cyc.cycle as number].id, step: cyc.step as number, side: cyc.side as "in" | "out" | "centre" };

@@ -288,11 +288,12 @@ const formulaWidth = (text: string, size: number, bold?: boolean, italic?: boole
 // A caption's text on the canvas. It draws again only when its layout or look changes, so typing in one caption
 // passes over all the others. reagent: its counts print as subscripts (reaction conditions, a cycle's reagents).
 const samePlaced = (a: Placed, b: Placed) => a === b || (a.id === b.id && a.size === b.size && a.bold === b.bold && a.italic === b.italic && a.underline === b.underline
-  && a.colour === b.colour && a.anchor === b.anchor && a.font === b.font && a.lines.length === b.lines.length
+  && a.colour === b.colour && a.anchor === b.anchor && a.font === b.font && a.lines.length === b.lines.length && a.turn?.angle === b.turn?.angle && a.turn?.x === b.turn?.x && a.turn?.y === b.turn?.y
   && a.lines.every((l, j) => l.text === b.lines[j].text && l.x === b.lines[j].x && l.y === b.lines[j].y && l.spacing === b.lines[j].spacing && JSON.stringify(l.runs) === JSON.stringify(b.lines[j].runs)));
 type CaptionProps = { c: Placed; fill: string; font: string; reagent: boolean; pt: number };
 const CaptionText = memo(({ c, fill, font, reagent, pt }: CaptionProps) => (
-  <text className="caption" textAnchor={c.anchor} textDecoration={c.underline ? "underline" : undefined} fill={fill} style={{ font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${c.size}px ${font}` }}>
+  <text className="caption" textAnchor={c.anchor} textDecoration={c.underline ? "underline" : undefined} fill={fill} style={{ font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${c.size}px ${font}` }}
+    transform={c.turn ? `rotate(${c.turn.angle} ${c.turn.x} ${c.turn.y})` : undefined}>
     {c.lines.map((l, j) => <tspan key={j} x={l.x} y={l.y} style={l.spacing ? { wordSpacing: l.spacing } : undefined}>{l.runs ? richSpans(l.runs, c.size, pt) : reagent ? formula(l.text, c.size) : l.text}</tspan>)}
   </text>
 ), (a: CaptionProps, b: CaptionProps) => a.fill === b.fill && a.font === b.font && a.reagent === b.reagent && a.pt === b.pt && samePlaced(a.c, b.c));
@@ -4510,7 +4511,8 @@ export default function Editor() {
         const z = view.zoom, size = c.size * z, slack = 0.5 * size, gap = c.lines.length > 1 ? c.lines[1].y - c.lines[0].y : 1.2 * c.size, lead = (gap - 1.117 * c.size) / 2 + 0.905 * c.size;
         // A caption with a width wraps in the box as it does on the canvas: the box is that wide, from its anchor.
         const own = writing.id !== undefined ? doc.captions?.find((x) => x.id === writing.id) : undefined, wrapAt = (writing.style.width ?? own?.width ?? 0) * L;
-        const x0 = !wrapAt ? c.box[0] : c.anchor === "end" ? c.lines[0].x - wrapAt : c.anchor === "middle" ? c.lines[0].x - wrapAt / 2 : c.lines[0].x;
+        // A turned caption is written in place, turned as it is drawn.
+        const upright = c.turn?.box ?? c.box, x0 = !wrapAt ? upright[0] : c.anchor === "end" ? c.lines[0].x - wrapAt : c.anchor === "middle" ? c.lines[0].x - wrapAt / 2 : c.lines[0].x;
         return (
           <RichBox
             returnNewLine={!settings.captionOptionReturn}
@@ -4527,7 +4529,7 @@ export default function Editor() {
             style={{
               left: view.x + x0 * z - slack,
               top: view.y + (c.lines[0].y - lead) * z,
-              width: (wrapAt || c.box[2] - c.box[0]) * z + 2 * slack,
+              width: (wrapAt || upright[2] - upright[0]) * z + 2 * slack,
               whiteSpace: wrapAt ? "pre-wrap" : undefined,
               height: c.lines.length * gap * z,
               font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${size}px/${gap * z}px ${fontStack(c.font ?? style.captionFont)}`,
@@ -4535,6 +4537,7 @@ export default function Editor() {
               padding: `0 ${slack}px`,
               textDecoration: c.underline ? "underline" : undefined,
               textAlign: (writing.style.align ?? own?.align) === "justify" ? "justify" : c.anchor === "start" ? "left" : c.anchor === "end" ? "right" : "center",
+              ...(c.turn ? { transform: `rotate(${c.turn.angle}deg)`, transformOrigin: `${(c.turn.x - x0) * z + slack}px ${(c.turn.y - c.lines[0].y + lead) * z}px` } : {}),
             }}
             onRuns={(runs, rebuild) => setWriting((w) => w && { ...w, runs, value: plainOf(runs), ...(rebuild ? { version: (w.version ?? 0) + 1, caret: rebuild, pending: undefined } : {}) })}
             onKeyDown={(e) => {

@@ -462,13 +462,19 @@ console.log("cdxml.check: every object kind round trips");
   const poster = withScale(DEFAULT_STYLE, 2.5), posterText = toCdxml(m, poster);
   assert.match(posterText, /LabelSize="25"[^>]*CaptionSize="25"\s+HashSpacing="6.25"\s+MarginWidth="4"\s+LineWidth="1.50"\s+BoldWidth="5"\s+BondLength="36"/);
   assert.deepEqual([fromCdxml(posterText).style.scale, fromCdxml(posterText).style.preset], [2.5, "ACS Document 1996"]);
-  // Bonds whose settings do not give one scale keep 1, and what is not kept is listed: a bond with only HashSpacing
-  // (Sam's files have them), widths that disagree, and a bond's own spacing.
+  // Bonds whose settings do not give one scale keep 1, and keep the settings as they came, written back (REL-15): a
+  // bond with only HashSpacing (Sam's files have them) and widths that disagree. A bond's own spacing is kept and drawn.
   const one = (attrs: string) => fromCdxml(`<CDXML BondLength="14.40" LineWidth="0.60" BoldWidth="2" HashSpacing="2.50" MarginWidth="1.60" BondSpacing="18"><page><fragment>
 <n id="1" p="100 100"/><n id="2" p="114.4 100"/><b id="3" B="1" E="2" ${attrs}/></fragment></page></CDXML>`);
   const hashOnly = one(`BondLength="30" HashSpacing="2.70" BondSpacing="12"`);
-  assert.deepEqual([hashOnly.mol.atoms.map((a) => a.scale), hashOnly.lost], [[undefined, undefined], { "bond settings": 1, "bond spacing": 1 }]);
-  assert.deepEqual(one(`LineWidth="1.20" BoldWidth="2"`).lost, { "bond settings": 1 });
+  assert.deepEqual([hashOnly.mol.atoms.map((a) => a.scale), hashOnly.lost, hashOnly.mol.bonds[0].spacing, hashOnly.mol.bonds[0].own], [[undefined, undefined], {}, 12, { BondLength: "30", HashSpacing: "2.70" }]);
+  const hashBack = toCdxml(hashOnly.mol, hashOnly.style).match(/<b\s[^>]*\/>/)![0];
+  for (const a of ['BondLength="30"', 'HashSpacing="2.70"', 'BondSpacing="12"']) assert.ok(hashBack.includes(a), `written back: ${a}`);
+  assert.deepEqual(parse(serialize(hashOnly.mol)).bonds[0], hashOnly.mol.bonds[0], "Octet's own file keeps them");
+  const disagree = one(`LineWidth="1.20" BoldWidth="2"`);
+  assert.deepEqual([disagree.lost, disagree.mol.bonds[0].own], [{}, { LineWidth: "1.20", BoldWidth: "2" }]);
+  // A scaled structure writes its own settings from its scale, not the ones it came with.
+  assert.doesNotMatch(toCdxml({ ...hashOnly.mol, atoms: hashOnly.mol.atoms.map((a) => ({ ...a, scale: 2 })) }, hashOnly.style), /HashSpacing="2.70"|BondLength="30"/);
   assert.deepEqual(one(`LineWidth="0.90" BoldWidth="3.02" HashSpacing="3.75"`).mol.atoms.map((a) => a.scale), [1.5, 1.5], "agreeing within 2%");
   // A TLC plate's widths: its scale from them, or listed once when they disagree (it was counted twice).
   const plate = (attrs: string) => fromCdxml(`<CDXML BondLength="14.40" LineWidth="0.60" BoldWidth="2"><page><tlcplate id="5" TopLeft="100 100" TopRight="200 100"
@@ -487,4 +493,35 @@ console.log("cdxml.check: every object kind round trips");
   const fit = fitSizes(r.mol, r.style, { ...DEFAULT_STYLE, labelSize: 14 });
   assert.deepEqual([fit.atoms.map((a) => a.size), fit.captions!.map((c) => c.size)], [[7, undefined], [11.52, 5.76]]);
   console.log("cdxml.check: paste sizes ok");
+}
+
+// REL-15: text ChemDraw turned (RotationAngle, clockwise on the page about p) keeps its turn, as degrees
+// anticlockwise, and is written back as it came; a Bold rectangle or oval is its outline at the bold width, written
+// back as Bold.
+{
+  const chemdraw = `<CDXML BondLength="14.40" LineWidth="0.60" BoldWidth="2"><fonttable><font id="3" charset="iso-8859-1" name="Arial"/></fonttable><page>
+<t id="1" p="74.30 410.83" RotationAngle="5898240"><s font="3" size="16.95" face="0">:</s></t><t id="2" p="200 200" RotationAngle="23527424"><s font="3" size="10" face="0">Os</s></t>
+<graphic id="3" BoundingBox="321.60 349.48 396.92 327.34" GraphicType="Rectangle" RectangleType="RoundEdge Dashed Bold" Center3D="359.26 338.41 0" MajorAxisEnd3D="396.92 338.41 0" MinorAxisEnd3D="359.26 349.48 0"/>
+<graphic id="4" BoundingBox="150 150 130 150" GraphicType="Oval" OvalType="Circle Bold" Center3D="130 150 0" MajorAxisEnd3D="150 150 0" MinorAxisEnd3D="130 170 0"/></page></CDXML>`;
+  const r = fromCdxml(chemdraw);
+  assert.deepEqual(r.lost, {});
+  assert.deepEqual(r.mol.captions!.map((c) => c.angle), [-90, 1]);
+  assert.deepEqual(r.mol.shapes!.map((s) => [s.kind, s.dashed, s.width]), [["rounded", true, 2], ["oval", undefined, 2]]);
+  const text = toCdxml(r.mol, r.style), ts = text.match(/<t\s[^>]*>/g)!;
+  assert.match(ts[0], /RotationAngle="5898240"/);
+  assert.match(ts[1], /RotationAngle="23527424"/);
+  // The colon turned a quarter turn lies along the line: its box is wider than it is tall, and hangs from p.
+  const [x0, y0, x1, y1] = ts[0].match(/BoundingBox="([^"]+)"/)![1].split(" ").map(Number);
+  assert.ok(x1 - x0 > y1 - y0 && Math.abs(y0 - 410.83) < 0.01 && x0 < 74.3 && x1 > 80, "the box round the turned text");
+  assert.match(text, /RectangleType="RoundEdge Dashed Bold"/);
+  assert.match(text, /OvalType="Circle Bold"/);
+  assert.doesNotMatch(text, /GraphicType="(Rectangle|Oval)"[^>]*LineWidth/, "Bold, not a line width");
+  const again = fromCdxml(text);
+  assert.deepEqual([again.lost, again.mol.captions!.map((c) => c.angle), again.mol.shapes!.map((s) => s.width)], [{}, [-90, 1], [2, 2]]);
+  // Octet's own file keeps the turn; a turn past a whole turn is left out as damaged data would be.
+  assert.deepEqual(parse(serialize(r.mol)).captions!.map((c) => c.angle), [-90, 1]);
+  assert.equal(parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, captions: [{ text: "a", x: 0, y: 0, angle: 400 }] })).captions![0].angle, undefined);
+  // A line width set to another value stays a line width.
+  assert.match(toCdxml({ ...r.mol, shapes: r.mol.shapes!.map((s) => ({ ...s, width: 1.5 })) }, r.style), /RectangleType="RoundEdge Dashed"[^>]*LineWidth="1.50"/);
+  console.log("cdxml.check: turned text and bold shapes ok");
 }

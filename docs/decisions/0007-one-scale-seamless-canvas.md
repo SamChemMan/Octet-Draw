@@ -33,6 +33,8 @@ decision 0003 (templates on New drawing).
   when its bonds carry LineWidth and every other value they carry agrees with it. An atom with no bonds takes its
   scale from its own LineWidth. An arrow, curve, orbital or shape takes a scale only when it carries a BoldWidth as
   well; a LineWidth alone is its own line width (ChemDraw's Object Settings > Line Width), kept over its scale.
+  Bond settings that do not make a scale stay on their bonds as they came and are written back, and a bond's own
+  BondSpacing is kept and drawn (REL-15).
 - Limits widen so that no scaled value falls back to a default: lengths to 10 times their old upper limits,
   font sizes 0.1 to 999 pt (ChemDraw: 5 to 999 pt). A document scale that would take a value past its limit stops
   at the limit (a custom 100 pt bond goes to 720%, not 1000%).

@@ -175,3 +175,17 @@ const kept: Mol = {
   assert.equal(readCdx(writeCdx(clip, DEFAULT_STYLE)).foreign, undefined);
   console.log("cdx.check: Octet's .cdx files ok");
 }
+
+// REL-15: as CDX too, turned text keeps its turn (RotationAngle), a Bold rectangle stays Bold, and a bond keeps its
+// own spacing and settings, when ChemDraw (or another program) reads Octet's CDX without Octet's own data.
+{
+  const m: Mol = {
+    atoms: [A("C", 0, 0), A("C", 1, 0)], bonds: [{ type: 2, atoms: [0, 1], spacing: 12, own: { BondLength: "30", HashSpacing: "2.70" } }],
+    captions: [{ id: 1, text: "turned", x: 0, y: 2, align: "left", angle: -90 }], shapes: [{ id: 2, kind: "box", from: [0, 5], to: [3, 4], width: 2 }],
+  };
+  const tree = parseXml(toCdxml(m, DEFAULT_STYLE)), strip = (x: Xml): Xml => ({ ...x, attrs: Object.fromEntries(Object.entries(x.attrs).filter(([k]) => k !== "Octet")), kids: x.kids.map(strip) });
+  const read = fromCdxml(cdxToXml(xmlToCdx(strip(tree))));
+  assert.deepEqual(read.lost, {});
+  assert.deepEqual([read.mol.captions?.[0].angle, read.mol.shapes?.[0].width, read.mol.bonds[0].spacing, read.mol.bonds[0].own], [-90, 2, 12, { BondLength: "30", HashSpacing: "2.70" }]);
+  console.log("cdx.check: turned text, bold shapes and a bond's own settings ok");
+}

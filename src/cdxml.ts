@@ -9,7 +9,7 @@
 
 import { FONTS, PAGES, fontName, pageSize, readStyle, type DocStyle } from "./docstyle.ts";
 import {
-  HIGHLIGHT, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, tlcLayout, turnPoint, TABLE_PAD,
+  HIGHLIGHT, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, tlcLayout, turnedBox, turnPoint, TABLE_PAD,
   ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS,
   type Annotation, type Arrow, type ArrowKind, type Kept, type Atom, type Bond, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape,
   type LineStyle, type Mol, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
@@ -332,13 +332,15 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const page = (q: P): P => [middle[0] + (q[0] - c[0]) / B, middle[1] - (q[1] - c[1]) / B];
     const frame = { Center3D: pt3(c), MajorAxisEnd3D: pt3(turned(page([c[0] + hw, c[1]]))), MinorAxisEnd3D: pt3(turned(page([c[0], c[1] + hh]))) };
     const shadow = sh.shadow ? Math.round(((sh.shade ?? SHADE).depth * B * 100) / line) : undefined;
-    const ink = colour(sh.kind === "highlight" ? sh.colour ?? HIGHLIGHT : sh.colour), f = scaleOf(sh), mine = ownLines(f, sh.width);
+    // A box or oval at the bold width is ChemDraw's Bold, which ChemDraw draws at its bold width.
+    const bold = (sh.kind === "box" || sh.kind === "rounded" || sh.kind === "oval") && sh.width !== undefined && Math.abs(sh.width - style.bold) < 1e-3;
+    const ink = colour(sh.kind === "highlight" ? sh.colour ?? HIGHLIGHT : sh.colour), f = scaleOf(sh), mine = ownLines(f, bold ? undefined : sh.width);
     if (sh.kind === "box" || sh.kind === "rounded" || sh.kind === "highlight") {
-      const bits = [sh.kind === "rounded" && "RoundEdge", sh.shadow && "Shadow", sh.fill === "shaded" && "Shaded", (sh.fill === "solid" || sh.kind === "highlight") && "Filled", sh.dashed && "Dashed"].filter(Boolean);
+      const bits = [sh.kind === "rounded" && "RoundEdge", sh.shadow && "Shadow", sh.fill === "shaded" && "Shaded", (sh.fill === "solid" || sh.kind === "highlight") && "Filled", sh.dashed && "Dashed", bold && "Bold"].filter(Boolean);
       put(el("graphic", { id, BoundingBox: `${fmt(box[2])} ${fmt(box[3])} ${fmt(box[0])} ${fmt(box[1])}`, Z: Z(), color: ink, GraphicType: "Rectangle", RectangleType: bits.join(" ") || "Plain",
         CornerRadius: sh.kind === "rounded" ? Math.round((0.3 * B * 100) / line) : undefined, ShadowSize: shadow, ...frame, ...mine, Octet: priv({ kind: sh.kind === "highlight" ? "highlight" : undefined, shade: sh.shade, angle: sh.angle, scale: ownScale(sh) }) }), 3, box, sh.id);
     } else if (sh.kind === "oval") {
-      const bits = [Math.abs(hw - hh) < 0.01 && "Circle", sh.fill === "shaded" && "Shaded", sh.fill === "solid" && "Filled", sh.dashed && "Dashed", sh.shadow && "Shadowed"].filter(Boolean);
+      const bits = [Math.abs(hw - hh) < 0.01 && "Circle", sh.fill === "shaded" && "Shaded", sh.fill === "solid" && "Filled", sh.dashed && "Dashed", bold && "Bold", sh.shadow && "Shadowed"].filter(Boolean);
       put(el("graphic", { id, BoundingBox: `${pt(turned(page([c[0] + hw, c[1]])))} ${pt(c)}`, Z: Z(), color: ink, GraphicType: "Oval", OvalType: bits.join(" "), ShadowSize: shadow, ...frame, ...mine, Octet: priv({ shade: sh.shade, angle: sh.angle, scale: ownScale(sh) }) }), 3, box, sh.id);
     } else if (isBracket(sh)) {
       // Each bracket runs so its lips point inward: the left one upward, the right one downward (spec 9.9), turned
@@ -548,13 +550,14 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     }
     // A dashed double bond is ChemDraw's Tautomeric (its ⇧D): order 1.5, the second line dashed. Its Aromatic double
     // has both lines dashed.
-    const ring = ringBond.has(k), dashed = !ring && b.type === 2 && (d === "dashed" || d === "aromatic");
+    const ring = ringBond.has(k), dashed = !ring && b.type === 2 && (d === "dashed" || d === "aromatic"), f = (scaleOf(mol.atoms[i]) + scaleOf(mol.atoms[j])) / 2;
     return el("b", {
       id: bondId[k], Z: Z(), B: nodeId.get(i)!, E: nodeId.get(j)!,
       Order: b.query && b.type === 1 && !ring ? b.query : ring || dashed || b.type === 4 ? "1.5" : d === "dative" ? "dative" : b.type === 2 ? "2" : b.type === 3 ? "3" : undefined,
       Display: ring ? undefined : dashed && d === "aromatic" ? "Dash" : display, Display2: dashed ? "Dash" : undefined, Octet: ring ? priv({ order: b.type }) : undefined, DoublePosition: b.type === 2 && b.position ? { left: "Left", right: "Right", centre: "Center" }[b.position] : undefined,
       color: colour(b.colour), highlightColor: colour(b.halo), ShowBondStereo: mol.atoms[i].cip && mol.atoms[j].cip ? "yes" : undefined, BondCircularOrdering: circular,
-      ...ownBond((scaleOf(mol.atoms[i]) + scaleOf(mol.atoms[j])) / 2),
+      // Its own settings: from its scale, else as they came from ChemDraw; and its own double-bond spacing.
+      ...(f === 1 ? b.own : undefined), ...ownBond(f), BondSpacing: b.spacing !== undefined ? num6(b.spacing) : undefined,
     });
   }
 
@@ -662,10 +665,13 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     }
     const p = at([x, y]), runs = runsOf(c), whole: RunStyle = { bold: c.bold || undefined, italic: c.italic || undefined, underline: c.underline || undefined };
     const width = Math.max(...c.text.split("\n").map((l) => widthOf(l, size))), left = align === "left" ? p[0] : align === "right" ? p[0] - width : p[0] - width / 2;
-    const box: Box = [left, p[1] - 0.716 * size, left + width, p[1] + (lines - 1) * 1.15 * size + 0.212 * size];
+    const upright: Box = [left, p[1] - 0.716 * size, left + width, p[1] + (lines - 1) * 1.15 * size + 0.212 * size];
+    // A turned caption: its box round the turned text, and its turn as ChemDraw's RotationAngle (about p).
+    const box = c.angle ? turnedBox(upright, p, -c.angle) : upright;
     const just = c.align === "justify" ? "Full" : align === "centre" ? "Center" : align === "right" ? "Right" : undefined, cf = face(whole);
     put(el("t", {
       id: idOf.get(c.id)!, p: pt(p), BoundingBox: boxText(box), Z: Z(), color: colour(c.colour), CaptionFont: c.font ? font(c.font) : undefined, CaptionSize: c.size, CaptionFace: cf || undefined,
+      RotationAngle: c.angle ? Math.round((((-c.angle % 360) + 360) % 360) * 65536) || undefined : undefined,
       WordWrapWidth: c.width ? Math.round(c.width * B) : undefined,
       // Line spacing as ChemDraw writes it: a text's LineHeight is auto or pt, and Variable is its caption style's.
       CaptionJustification: just, Justification: just, LineHeight: c.lineHeight === "variable" ? undefined : typeof c.lineHeight === "number" ? fmtSize(c.lineHeight) : "auto",
@@ -795,6 +801,8 @@ export const PICTURE_KEYS = [...PICTURE_HEX, ...PICTURE_INT];
 // What Octet keeps of a live property text and of polymer brackets' meaning.
 export const PROPERTY_ATTRS = ["ChemicalPropertyType", "ChemicalPropertyIsActive", "Name"];
 export const POLYMER_ATTRS = ["BracketUsage", "PolymerRepeatPattern", "PolymerFlipType", "RepeatCount", "SRULabel", "ComponentOrder"];
+// A bond's own settings that Octet keeps as they came when they do not make a scale (decision 0007).
+export const OWN_BOND_ATTRS = ["BondLength", "HashSpacing", "LineWidth", "BoldWidth", "MarginWidth"];
 // A picture's data, if it is sound: known keys, hex where hex belongs, whole numbers elsewhere, and some picture.
 export function readPictureData(v: unknown): Record<string, string> | undefined {
   if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
@@ -813,6 +821,9 @@ const reals = (s: string | undefined, n: number) => { const v = (s ?? "").trim()
 // Integers are read up to the first character that is not a digit, as ChemDraw reads them (spec 1.2).
 const int = (s?: string) => { const m = /^\s*([+-]?\d{1,10})/.exec(s ?? ""); return m ? Number(m[1]) : undefined; };
 const yes = (s?: string) => s === "yes" || s === "true";
+// A CDX angle (degrees times 65536, clockwise on the page) as degrees anticlockwise from -180 to 180, to 0.001°;
+// undefined for none.
+const angleOf = (s?: string) => { const v = int(s); if (!v) return undefined; const d = Math.round((((-v / 65536) % 360) + 540) % 360 * 1000) / 1000 - 180; return Math.abs(d) < 1e-3 || Math.abs(d) >= 360 ? undefined : d; };
 const idList = (s?: string) => (s ?? "").trim().split(/\s+/).slice(0, 100_000).map(int).filter((v): v is number => v !== undefined);
 const isColour = (v: unknown): v is string => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v);
 const isNum = (v: unknown, lo: number, hi: number): v is number => typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi;
@@ -936,7 +947,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   const groups: G[] = [];
   const nodeIds: number[] = [], bondIds: number[] = [];
   // Each bond's own drawing settings (ChemDraw's per-object settings, pt), and each label's size as written.
-  const bondSettings: { line?: number; bold?: number; hash?: number; margin?: number; spacing?: number }[] = [], labelSizes = new Map<number, number>(), nodeLines = new Map<number, number>();
+  const bondSettings: { line?: number; bold?: number; hash?: number; margin?: number; spacing?: number; attrs: Record<string, string> }[] = [], labelSizes = new Map<number, number>(), nodeLines = new Map<number, number>();
   const atomOf = new Map<number, number>(), objectOf = new Map<number, number>(), arrowOfGraphic = new Map<number, number>();
   const labels: { i: number; text: string; type: string; isotope?: number }[] = [];
   const numH = new Map<number, number>(), delocalised: { k: number; order?: 1 | 2 }[] = [], ovals: { id: number; c: P; r: number }[] = [];
@@ -1100,15 +1111,16 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (query) bond.query = query;
       mol.bonds.push(bond);
       bondIds.push(int(b.attrs.id) ?? 0);
-      bondSettings.push({ line: real(b.attrs.LineWidth), bold: real(b.attrs.BoldWidth), hash: real(b.attrs.HashSpacing), margin: real(b.attrs.MarginWidth), spacing: real(b.attrs.BondSpacing) });
+      bondSettings.push({ line: real(b.attrs.LineWidth), bold: real(b.attrs.BoldWidth), hash: real(b.attrs.HashSpacing), margin: real(b.attrs.MarginWidth), spacing: real(b.attrs.BondSpacing), attrs: b.attrs });
     }
   }
 
   // Structures at their own size (decision 0007). A structure takes a scale when its bonds carry LineWidth and every
   // width, hash spacing and margin they carry agrees with LineWidth's ratio to the document's within 2%. Bond length
-  // is not used: ChemDraw keeps a structure's old fixed length on it after a resize. Settings that do not agree, and
-  // a bond's own spacing, are listed as not kept. An atom with no bonds takes its scale from its own LineWidth. A
-  // scaled atom's label keeps its size over the scale.
+  // is not used: ChemDraw keeps a structure's old fixed length on it after a resize. Settings that do not make a
+  // scale are kept on each bond as they came, and written back (REL-15). A bond's own double-bond spacing is kept and
+  // drawn. An atom with no bonds takes its scale from its own LineWidth. A scaled atom's label keeps its size over
+  // the scale.
   function readScales() {
     const fits = (f: number) => Math.round(Math.min(100, Math.max(0.01, f)) * 1e4) / 1e4;
     const has = (x: (typeof bondSettings)[number]) => x.line !== undefined || x.bold !== undefined || x.hash !== undefined || x.margin !== undefined;
@@ -1118,11 +1130,16 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     mol.bonds.forEach((b, k) => { const r = find(b.atoms[0]); let ks = parts.get(r); if (!ks) parts.set(r, (ks = [])); ks.push(k); });
     for (const ks of parts.values()) {
       const atoms = [...new Set(ks.flatMap((k) => mol.bonds[k].atoms))], set = ks.map((k) => bondSettings[k]);
-      for (const x of set) if (x.spacing !== undefined && Math.abs(x.spacing - style.spacing) > 0.05) lose("bond spacing");
-      if (atoms.some((i) => mol.atoms[i].scale) || !set.some(has)) continue;
+      ks.forEach((k) => { const v = bondSettings[k].spacing; if (v !== undefined && Math.abs(v - style.spacing) > 0.05) mol.bonds[k].spacing = Math.min(100, Math.max(0, v)); });
+      const keepOwn = () => ks.forEach((k) => {
+        const own = Object.fromEntries(OWN_BOND_ATTRS.flatMap((n) => { const v = bondSettings[k].attrs[n]?.trim(); return v && v.length <= 12 && /^[+-]?(\d+\.?\d*|\.\d+)$/.test(v) ? [[n, v]] : []; }));
+        if (Object.keys(own).length) mol.bonds[k].own = own;
+      });
+      if (atoms.some((i) => mol.atoms[i].scale)) continue;
+      if (!set.some(has)) { keepOwn(); continue; }
       const f = set[0].line === undefined ? NaN : set[0].line / style.line;
       const agrees = (v: number | undefined, base: number) => v === undefined || Math.abs(v / base - f) <= 0.02 * f;
-      if (!(f > 0) || !set.every((x) => x.line !== undefined && agrees(x.line, style.line) && agrees(x.bold, style.bold) && agrees(x.hash, style.hash) && agrees(x.margin, style.margin))) { lose("bond settings", set.filter(has).length); continue; }
+      if (!(f > 0) || !set.every((x) => x.line !== undefined && agrees(x.line, style.line) && agrees(x.bold, style.bold) && agrees(x.hash, style.hash) && agrees(x.margin, style.margin))) { keepOwn(); continue; }
       if (Math.abs(f - 1) <= 0.02) continue;
       for (const i of atoms) mol.atoms[i].scale = fits(f);
     }
@@ -1216,7 +1233,6 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   function readCaption(t: Xml, group?: G) {
     const q = reals(t.attrs.p, 2);
     if (!q) return lose("text");
-    if (int(t.attrs.RotationAngle)) lose("text rotation");
     const p = priv(t), docFont = style.captionFont, docSize = style.captionSize, runs: (RunStyle & { text: string; font: string; size: number })[] = [];
     let room = MAX_TEXT;
     for (const s of t.kids) {
@@ -1252,6 +1268,9 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     // Line spacing: auto (Octet's default), variable, or fixed in pt.
     const lh = t.attrs.LineHeight ?? t.attrs.CaptionLineHeight, fixed = real(lh);
     if (lh === "variable") c.lineHeight = "variable"; else if (fixed !== undefined && fixed >= 0.1 && fixed <= 999) c.lineHeight = fixed;
+    // A turn (spec RotationAngle: degrees times 65536, clockwise on the page, about p), as degrees anticlockwise.
+    const turn = angleOf(t.attrs.RotationAngle);
+    if (turn) c.angle = turn;
     const normal = normalise(own);
     if (styled(normal)) c.runs = normal;
     if (p?.under) unders.push({ c, nodes: p.under });
@@ -1301,12 +1320,14 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (kind !== "highlight" && bits.has("Filled")) sh.fill = "solid"; else if (kind !== "highlight" && bits.has("Shaded")) sh.fill = "shaded";
       if (bits.has("Shadow") || bits.has("Shadowed")) sh.shadow = true;
       if (bits.has("Dashed")) sh.dashed = true;
-      if (bits.has("Bold")) lose("bold shape");
       if (colour && !(kind === "highlight" && colour === HIGHLIGHT)) sh.colour = colour;
       const shade = p?.shade as Record<string, unknown> | undefined;
       if (shade && isNum(shade.depth, 0, 1) && isNum(shade.blur, 0, 1) && isNum(shade.opacity, 0, 1)) sh.shade = { depth: shade.depth, blur: shade.blur, opacity: shade.opacity };
       if (type === "Oval" && bits.has("Circle") && !sh.fill) ovals.push({ id: sh.id, c: toOctet((b[0] + b[2]) / 2, (b[1] + b[3]) / 2), r: (b[2] - b[0]) / 2 / B });
-      return addShape(sh, x, group);
+      addShape(sh, x, group);
+      // Bold: the outline at the bold width (the shape's own, else the document's), as the shape's own line width.
+      if (kind !== "highlight" && bits.has("Bold")) { const f = sh.scale ?? 1, bw = real(x.attrs.BoldWidth); sh.width = Math.round(((bw ?? style.bold * f) / f) * 1e4) / 1e4; }
+      return;
     }
     if (type === "Orbital") {
       const named = ORBITALS.find(([n]) => n === x.attrs.OrbitalType) ?? ORBITALS[0], o = p?.orbital as Record<string, unknown> | undefined;

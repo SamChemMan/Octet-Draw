@@ -47,6 +47,8 @@ function diff(a: unknown, b: unknown, path = "", out: string[] = []): string[] {
   if (a !== b) out.push(`${path}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`);
   return out;
 }
+// Groups in id order, and no groups as none: the list's order is not drawn (Octet writes groups in draw order).
+const grouped = (m: Mol): Mol => ({ ...m, groups: m.groups?.length ? [...m.groups].sort((p, q) => p.id - q.id) : undefined });
 const counts = (m: Mol) => `${m.atoms.length} atoms, ${m.bonds.length} bonds, ${m.captions?.length ?? 0} captions, ${m.arrows?.length ?? 0} arrows, ${m.shapes?.length ?? 0} shapes, ${m.groups?.length ?? 0} groups`;
 
 // The tree without Octet's own data, as ChemDraw keeps it.
@@ -60,7 +62,7 @@ for (const name of readdirSync(dir).filter((f) => f.endsWith(".cdxml")).sort()) 
     const first = fromCdxml(text), ms = performance.now() - started, c = census(parseXml(text));
     parse(serialize(first.mol)); // Octet's own file checks accept what was read
     const again = fromCdxml(toCdxml(first.mol, first.style, { name }));
-    const changes = diff(first.mol, again.mol), lost = Object.entries(first.lost).map(([k, v]) => `${v} ${k}`).join(", ");
+    const changes = diff(grouped(first.mol), grouped(again.mol)), lost = Object.entries(first.lost).map(([k, v]) => `${v} ${k}`).join(", ");
     if (!changes.length && !Object.keys(again.lost).length) clean++;
     console.log(`\n${name}  (${ms.toFixed(0)} ms)`);
     console.log(`  file: ${c.atoms} atoms, ${c.bonds} bonds, ${c.text} texts, ${c.arrows} arrows, ${c.graphics} graphics, ${c.curves} curves, ${c.groups} groups, ${c.steps} steps`);

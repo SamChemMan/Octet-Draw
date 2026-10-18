@@ -86,10 +86,10 @@ console.log("scale.check: text sizes ok");
   const text = toCdxml(m, DEFAULT_STYLE);
   const chemdraw = fromCdxml(text.replace(/ Octet="[^"]*"/g, "").replace(/CreationProgram="[^"]*"/, ""));
   assert.deepEqual(chemdraw.mol.atoms.map((a) => [a.scale, a.size]), [[2, undefined], [2, undefined], [2, undefined]]);
-  // A structure whose settings do not agree counts only the bonds that carry them as not kept.
+  // A structure whose settings do not agree keeps them on the bonds that carry them, as they came (REL-15).
   const two = fromCdxml(`<CDXML BondLength="14.40" LineWidth="0.60" BoldWidth="2" HashSpacing="2.50" MarginWidth="1.60" BondSpacing="18"><page><fragment>
 <n id="1" p="100 100"/><n id="2" p="114.4 100"/><n id="3" p="128.8 100"/><b id="4" B="1" E="2" HashSpacing="2.70"/><b id="5" B="2" E="3"/></fragment></page></CDXML>`);
-  assert.deepEqual(two.lost, { "bond settings": 1 });
+  assert.deepEqual([two.lost, two.mol.bonds.map((b) => b.own)], [{}, [{ HashSpacing: "2.70" }, undefined]]);
   console.log("scale.check: atoms on their own ok");
 }
 
