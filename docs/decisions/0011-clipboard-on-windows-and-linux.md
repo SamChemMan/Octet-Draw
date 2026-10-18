@@ -14,8 +14,8 @@ the picture change from system to system (`src-tauri/src/clipboard.rs`).
 | | macOS | Windows | Linux |
 | --- | --- | --- | --- |
 | Picture | PDF (vector, CDXML in it) | "PNG" and a bitmap (CF_DIB) | image/png and image/svg+xml |
-| CDX | ChemDraw's PerkinElmer and Revvity types | "ChemDraw Interchange Format" | chemical/x-cdx |
-| CDXML | com.perkinelmer.cdxml and com.revvity.cdxml | "CDXML" | chemical/x-cdxml |
+| CDX | ChemDraw's PerkinElmer, Revvity and CambridgeSoft types | "ChemDraw Interchange Format" | chemical/x-cdx |
+| CDXML | com.perkinelmer.cdxml, com.revvity.cdxml and com.cambridgesoft.cdxml | "CDXML" | chemical/x-cdxml |
 | Molfile | com.mdli.molfile (length-prefixed lines) | "MDLCT" (length-prefixed lines) | chemical/x-mdl-molfile (text) |
 | SMILES | org.opensmiles.smiles (with a NUL) | "SMILES" (with a NUL) | chemical/x-daylight-smiles (text) |
 | Octet | io.github.samchemman.octet.json | application/x-octet+json | application/x-octet+json |
@@ -25,6 +25,9 @@ the picture change from system to system (`src-tauri/src/clipboard.rs`).
 - The PNG is at 300 dpi of true size, transparent, with its resolution in it, so Office places it at true
   size. A large drawing gets a lower resolution: at most 16 million pixels and 8,192 on a side. The bitmap is
   the same picture on white, for programs that read no PNG.
+- On the Mac, ChemDraw asks macOS for the name of its CDX and CDXML codes ('CDIF', 'CdxM'). ChemDraw 26.1's
+  Info.plist gives each code a Revvity and a CambridgeSoft name, and 22.2's a PerkinElmer and a CambridgeSoft
+  name. The name macOS gives can be any of them, so Copy writes all three and Paste reads all three.
 - Paste reads Octet's JSON, then CDXML, then CDX, then the molfile, then SMILES, then the text the webview
   gives, on every system.
 - Windows calls the clipboard through `windows-sys`; Linux through GTK (`gtk`), which the window already uses on

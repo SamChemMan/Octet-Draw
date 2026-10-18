@@ -15,7 +15,9 @@
 // other apps, so the page cannot read these types itself: paste calls read_clipboard.
 
 pub const PDF: &str = "com.adobe.pdf";
-// ChemDraw 26.1 declares the Revvity names too (its Info.plist). Copy writes the first two of each; paste reads all.
+// ChemDraw 26.1 declares the Revvity names too (its Info.plist), and the CambridgeSoft names for the same CDX and CDXML
+// codes. ChemDraw asks macOS for the name of each code, so the name it reads can be any of them: copy writes and paste
+// reads all three.
 pub const CDX: [&str; 3] = ["com.perkinelmer.chemdraw.cdx-clipboard", "com.revvity.chemdraw.cdx-clipboard", "com.cambridgesoft.cdx"];
 pub const CDXML: [&str; 3] = ["com.perkinelmer.cdxml", "com.revvity.cdxml", "com.cambridgesoft.cdxml"];
 pub const MOLFILE: &str = "com.mdli.molfile";
@@ -160,7 +162,7 @@ fn text_of(b: Vec<u8>) -> Option<String> {
 #[allow(clippy::too_many_arguments)]
 fn types(s: System, svg: Option<&str>, cdxml: Option<&str>, cdxml_type: bool, cdx: Option<Vec<u8>>, molfile: Option<&str>, smiles: Option<&str>, octet_json: Option<String>) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
     let mut out: Vec<(&'static str, Vec<u8>)> = Vec::new();
-    let mut put = |k: Kind, b: Vec<u8>| out.extend(names(s, k).iter().take(if matches!(k, Kind::Cdx | Kind::Cdxml) { 2 } else { 1 }).map(|n| (*n, b.clone())));
+    let mut put = |k: Kind, b: Vec<u8>| out.extend(names(s, k).iter().map(|n| (*n, b.clone())));
     if let Some(svg) = svg {
         if s == System::Mac {
             put(Kind::Pdf, crate::export::make_pdf(svg, cdxml)?);
@@ -355,12 +357,12 @@ mod tests {
     fn copy_types_in_chemdraws_order() {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="20pt" height="10pt" viewBox="0 0 20 10"><path d="M1 1H19V2H1Z"/></svg>"#;
         let t = types(System::Mac, Some(svg), Some("<CDXML/>"), true, Some(b"VjCD0100\x04\x03\x02\x01".to_vec()), Some(MOL), Some("CO"), Some("{}".into())).unwrap();
-        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [PDF, CDX[0], CDX[1], CDXML[0], CDXML[1], MOLFILE, SMILES, OCTET]);
-        assert!(t[1].1.starts_with(b"VjCD0100") && t[1].1 == t[2].1);
+        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [PDF, CDX[0], CDX[1], CDX[2], CDXML[0], CDXML[1], CDXML[2], MOLFILE, SMILES, OCTET]);
+        assert!(t[1].1.starts_with(b"VjCD0100") && t[1].1 == t[2].1 && t[1].1 == t[3].1);
         let t = types(System::Mac, Some(svg), Some("<CDXML/>"), true, None, Some(MOL), Some("CO"), Some("{}".into())).unwrap();
-        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [PDF, CDXML[0], CDXML[1], MOLFILE, SMILES, OCTET]);
-        assert!(t[1].1.starts_with(b"<?xml") && t[1].1.ends_with(b"<CDXML/>") && t[1].1 == t[2].1);
-        assert_eq!(t[4].1, b"CO\0");
+        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [PDF, CDXML[0], CDXML[1], CDXML[2], MOLFILE, SMILES, OCTET]);
+        assert!(t[1].1.starts_with(b"<?xml") && t[1].1.ends_with(b"<CDXML/>") && t[1].1 == t[2].1 && t[1].1 == t[3].1);
+        assert_eq!(t[5].1, b"CO\0");
         // ChemDraw 26.1's Revvity CDXML type pastes too.
         assert!(clip(System::Mac, |n| (n == CDXML[1]).then(|| b"<CDXML/>".to_vec())).cdxml.is_some());
         // Paste reads them all back; the PDF is not needed when Octet's JSON is there.
