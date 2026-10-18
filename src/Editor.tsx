@@ -1500,9 +1500,9 @@ export default function Editor() {
     const [x, y] = [(w / 2) * mm, (h / 2) * mm], dx = Math.abs(Math.abs(p[0]) - x), dy = Math.abs(Math.abs(p[1]) - y), near = 5 / (views.get().zoom * L);
     return (dx < near && Math.abs(p[1]) <= y + near) || (dy < near && Math.abs(p[0]) <= x + near);
   });
-  // The page a press fits in the window: with Select only, on a page's edge clear of the drawing. A drawing tool draws
-  // there. (ChemDraw's help gives a page boundary no click action; its View > Show Document fits the page.)
-  const edgePage = (p: P, t: Hover) => (tool === "select" && t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined ? pageEdgeAt(p) : undefined);
+  // The page a press fits in the window: on a page's edge clear of the drawing, with every tool (Sam asks for this).
+  // (ChemDraw's help gives a page boundary no click action; its View > Show Document fits the page.)
+  const edgePage = (p: P, t: Hover) => (t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined ? pageEdgeAt(p) : undefined);
   // The grid (grid.ts): the document's step, counted from the page's top-left corner (where the rulers start), or
   // from the crosshair while it shows. It shows on engineering paper and with View > Show Grid; the crosshair shows
   // its heavier lines. Snap to Grid snaps to the lines that show, within 6 screen px; ⌘ frees.
@@ -1616,7 +1616,7 @@ export default function Editor() {
     const at = (v: View) => ({ transform: `translate(${v.x}px, ${v.y}px) scale(${v.zoom})` });
     g.animate([at(from), at(to)], timing());
   }
-  // A Select click on a page's edge (edgePage) fits that page in the window, centred.
+  // A click on a page's edge (edgePage) fits that page in the window, centred.
   const fitZoom = ([, w, h]: [string, number, number]) => Math.min((innerWidth - 160) / (w * mm * L), (innerHeight - 48) / (h * mm * L));
   const fitPage = (page: [string, number, number]) => moveView({ x: innerWidth / 2, y: innerHeight / 2, zoom: fitZoom(page) });
   // The zoom limits: a bond drawn 0.25 to 8 times its size, widened so that every page outline can be fitted. At
