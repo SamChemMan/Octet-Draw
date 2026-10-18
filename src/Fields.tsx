@@ -46,22 +46,26 @@ export function NumberField({ value, unit, label, onChange, min = 0.001, max = 1
 }
 
 // A short choice, as a row of buttons: one is on. Left and Right move along it. An option marked off is dimmed and
-// skipped.
+// skipped. A value that is none of the options (a drawing from another program has no purpose) has none on, and Tab
+// goes to the first option.
 export function Segmented<T extends string>({ label, value, options, onChange, className }: {
   label: string; value: T; options: [T, React.ReactNode, string?, boolean?][]; onChange: (v: T) => void; className?: string;
 }) {
+  const tab = options.some(([v]) => v === value) ? value : options.find((o) => !o[3])?.[0];
   return (
     <span className={className ? `segmented ${className}` : "segmented"} role="radiogroup" aria-label={label}
       onKeyDown={(e) => {
         if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
         e.preventDefault();
-        const on = options.filter((o) => !o[3]), k = on.findIndex(([v]) => v === value), next = on[(k + (e.key === "ArrowRight" ? 1 : on.length - 1)) % on.length]?.[0];
+        // With none on, Right goes to the first option and Left to the last.
+        const on = options.filter((o) => !o[3]), right = e.key === "ArrowRight", k = on.findIndex(([v]) => v === value), at = k < 0 ? (right ? -1 : 0) : k;
+        const next = on[(at + (right ? 1 : on.length - 1)) % on.length]?.[0];
         if (next === undefined) return;
         onChange(next);
         (e.currentTarget.children[options.findIndex(([v]) => v === next)] as HTMLElement | undefined)?.focus();
       }}>
       {options.map(([v, shown, name, off]) => (
-        <button key={v} type="button" role="radio" aria-checked={value === v} aria-label={name} title={name} disabled={off} tabIndex={value === v ? 0 : -1} onClick={() => onChange(v)}>{shown}</button>
+        <button key={v} type="button" role="radio" aria-checked={value === v} aria-label={name} title={name} disabled={off} tabIndex={tab === v ? 0 : -1} onClick={() => onChange(v)}>{shown}</button>
       ))}
     </span>
   );

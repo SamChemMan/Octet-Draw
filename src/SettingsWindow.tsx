@@ -295,9 +295,7 @@ export function SettingsWindow(p: Props) {
     return [
       // What the drawing is for (IDEA-SIZE-8): a purpose sets the style, its scale and the page in one step.
       { ...d("document", "For", "For", "purpose for paper thesis slides poster talk presentation new size page", (
-        <span className="segmented purposes" role="radiogroup" aria-label="For">
-          {p.purposes.map((x) => <button key={x.id} role="radio" aria-checked={style.purpose === x.id} onClick={() => p.onPurpose(x.id)}>{x.name}</button>)}
-        </span>
+        <Segmented className="purposes" label="For" value={style.purpose ?? ""} options={p.purposes.map((x): [string, string] => [x.id, x.name])} onChange={p.onPurpose} />
       )), head: true },
       // One size for the whole style (decision 0007): every length and text size times it, the preset kept. 10% to 1000%.
       d("document", "Style", "Scale", "scale size bigger smaller poster slides percent proportion", (
