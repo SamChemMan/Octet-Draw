@@ -25,6 +25,8 @@ assert.equal(edited.mol.style?.labelSize, 14);
 // A damaged copy falls back to the CDXML; an old .octet file is the JSON alone.
 assert.equal(readOct(file.replace(/ ([A-Za-z0-9+/=]{8})/, " AAAA$1")).mol.atoms.length, 6);
 assert.equal(readOct(serialize(mol)).mol.atoms.length, 6);
+// The copy kept for recovery (REL-1) is that JSON with the style: it comes back as the .oct does.
+assert.equal(serialize(readOct(serialize({ ...mol, style })).mol), serialize(back.mol));
 // A ChemDraw file with a picture Octet cannot hold: it is counted, so Save asks before it writes over the file (REL-11).
 const picture = readOct(writeOct(mol, style).replace(/<!--Octet[^]*$/, "").replace("</page>", '<embeddedobject id="9001" BoundingBox="0 0 10 10"/></page>'));
 assert.deepEqual(picture.lost, { picture: 1 });

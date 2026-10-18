@@ -7,6 +7,9 @@ import { useEffect, useRef } from "react";
 // The modal cards open now, the top one last. Only the top one takes keys.
 const open: React.RefObject<HTMLElement | null>[] = [];
 const FOCUSABLE = "button, input, select, textarea, a[href], [tabindex]:not([tabindex='-1'])";
+// The cards' backdrops stack in the order the cards opened (from 6, .modal-backdrop's z-index), so the top card shows
+// over the others: Quit's "Save changes" question shows over Export, not under it.
+const restack = () => open.forEach((c, i) => { const backdrop = c.current?.parentElement; if (backdrop) backdrop.style.zIndex = String(6 + i); });
 
 // A modal card keeps the keyboard (REL-27): Tab and Shift+Tab go round its controls only, and when it closes, the
 // focus goes back to the control that had it before. Returns whether a card is the top one.
@@ -14,6 +17,7 @@ export function useModal(card: React.RefObject<HTMLElement | null>): () => boole
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     open.push(card);
+    restack();
     const tab = (e: KeyboardEvent) => {
       const el = card.current;
       if (e.key !== "Tab" || !el || open[open.length - 1] !== card) return;
@@ -28,6 +32,7 @@ export function useModal(card: React.RefObject<HTMLElement | null>): () => boole
     return () => {
       removeEventListener("keydown", tab, true);
       open.splice(open.indexOf(card), 1);
+      restack();
       if (opener?.isConnected) opener.focus({ preventScroll: true });
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

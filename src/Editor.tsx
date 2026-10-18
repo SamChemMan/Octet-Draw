@@ -680,12 +680,14 @@ export default function Editor() {
     if (!dirty) { if (keeper.kept) { keeper.kept = false; keep("recovery_clear").catch(() => {}); } return; }
     if (!keeper.timer) keeper.timer = window.setTimeout(() => { keeper.timer = 0; keeper.last = Date.now(); keeper.write(); }, Math.max(1000, keeper.last + 10_000 - Date.now()));
   }, [doc, dirty]);
-  // The editor as last drawn: the copy the timer writes, and the error boundary's rescue.
+  // The editor as last drawn: the copy the timer writes, and the error boundary's rescue. The copy is Octet's own
+  // form of the drawing only, which readOct reads as it reads a .oct. For an 8 MB drawing with pictures it takes
+  // 12 ms to make, and a whole .oct takes 0.3 s, so the editor does not stop every 10 s.
   useEffect(() => {
     const contents = () => writeOct(doc, style, cdxmlOptions());
     keeper.write = () => {
       if (!dirty) return;
-      try { keeper.kept = true; keep("recovery_write", { name, contents: contents() }).catch(() => {}); } catch { /* kept at the next edit */ }
+      try { keeper.kept = true; keep("recovery_write", { name, contents: serialize({ ...doc, style }) }).catch(() => {}); } catch { /* kept at the next edit */ }
     };
     rescue.current = { h, file, home, name, contents };
   });

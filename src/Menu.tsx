@@ -51,6 +51,12 @@ export function Menu(p: Props) {
     const top = r.top - shift, next = Math.max(8 - top, Math.min(0, innerHeight - 8 - (top + r.height)));
     if (Math.abs(next - shift) > 0.5) setShift(next);
   });
+  // A menu that closes with the focus on one of its options gives the focus back to what had it before (the menu's
+  // button), so a dialog the option opens gives it back there too when it closes (REL-27).
+  useLayoutEffect(() => {
+    const before = document.activeElement, menu = box.current;
+    return () => { if (menu?.contains(document.activeElement) && before instanceof HTMLElement && before.isConnected) before.focus({ preventScroll: true }); };
+  }, []);
   return (
     <div ref={box} className={["strip", live !== undefined && "resizing", p.className].filter(Boolean).join(" ")} data-tool={p.tool} role="menu" aria-label={p.label}
       style={{ ...p.style, width: live ?? menuWidth(columns), marginTop: shift, "--columns": columns } as React.CSSProperties}>
