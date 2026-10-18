@@ -199,9 +199,23 @@ export function clashes(map: Keymap, id: string, key: string): string[] {
   return ACTIONS.filter((a) => a.id !== id && near(a.place) && map[a.id]?.includes(key)).map((a) => a.id);
 }
 
-// Space and Return press a button the keyboard moved to (Tab). After a click they stay the drawing's: Windows
-// focuses a clicked button, and then counts that focus as the keyboard's at the next key, so :focus-visible cannot tell.
-export const buttonTakes = (key: string, onButton: boolean, byKeyboard: boolean) => onButton && byKeyboard && (key === " " || key === "Enter");
+// The focused element, as much of it as the key checks read.
+type Focus = { tagName: string; type?: string; isContentEditable?: boolean } | null | undefined;
+
+// A field that takes typed text: its keys, Undo and Select All are the text's. A slider, tick box, radio button,
+// colour well or button does not take text, so the drawing keeps its keys (controlTakes gives the exceptions).
+const TEXT_INPUTS = ["text", "search", "number", "email", "url", "tel", "password"];
+export const textEntry = (el: Focus) => !!el && (el.tagName === "TEXTAREA" || el.isContentEditable === true || (el.tagName === "INPUT" && TEXT_INPUTS.includes(el.type ?? "text")));
+
+// A control the keyboard moved to (Tab) keeps the keys it uses: Space and Return press a button, and the arrow keys,
+// Home, End, Page Up and Page Down move a slider. After a click they stay the drawing's: Windows focuses a clicked
+// button, and then counts that focus as the keyboard's at the next key, so :focus-visible cannot tell.
+const SLIDER_KEYS = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"];
+export function controlTakes(key: string, el: Focus, byKeyboard: boolean) {
+  if (!el || !byKeyboard) return false;
+  if (el.tagName === "BUTTON") return key === " " || key === "Enter";
+  return el.tagName === "INPUT" && el.type === "range" && SLIDER_KEYS.includes(key);
+}
 
 // Arrow keys on tiles in reading order, row tiles across: the tile to go to from at (-1: no tile has the focus).
 // Up from the top row and down from the last row stay; down to a short last row with nothing under it goes to its

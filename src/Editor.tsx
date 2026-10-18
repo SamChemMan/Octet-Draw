@@ -29,7 +29,7 @@ import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
 import { loadSettings, RULER_UNITS, saveSettings } from "./settings";
 import { Menu, menuWidth } from "./Menu";
-import { ACTIONS, actionFor, buttonTakes, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
+import { ACTIONS, actionFor, controlTakes, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, textEntry, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, HIGHLIGHT_COLOURS, RING_FILLS, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties, propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./Properties";
@@ -232,8 +232,9 @@ const anchorOf = (c: Placed): P => { const b = c.frame ?? c.box; return [(c.anch
 const union = (boxes: Box[]): Box | undefined => boxes.length ? [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))] : undefined;
 // The draft caption being typed sorts after every real one.
 const DRAFT = Number.MAX_SAFE_INTEGER;
-// Typing in a field, or in a caption's rich text box (contentEditable): keys and Select All are the text's, not the drawing's.
-const typing = () => document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement || (document.activeElement as HTMLElement | null)?.isContentEditable === true;
+// Typing in a text field, or in a caption's rich text box (contentEditable): keys and Select All are the text's, not the
+// drawing's. A focused slider (Line width) or button does not count (textEntry).
+const typing = () => textEntry(document.activeElement as HTMLElement | null);
 // A dialog or Settings is open: the drawing behind it takes no keys, menu commands, paste or cut.
 const modal = () => document.querySelector('[aria-modal="true"]') !== null;
 
@@ -4472,7 +4473,7 @@ export default function Editor() {
     const onKey = (e: KeyboardEvent) => {
       if (typing() || e.defaultPrevented) return; // typing in a label or caption box, or a box already used the key
       if (home || modal()) return; // Home and dialogs have their own keys
-      if (buttonTakes(e.key, document.activeElement instanceof HTMLButtonElement, keyFocus.current)) return;
+      if (controlTakes(e.key, document.activeElement as HTMLElement | null, keyFocus.current)) return;
       const mod = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
       // Drawing with the Pen: Return or Escape ends the curve; Delete takes back the last point.
       if (pen && (e.key === "Enter" || e.key === "Escape")) { e.preventDefault(); return finishPen(); }

@@ -1,6 +1,6 @@
 // Run: node src/keys.check.ts. Fails loudly if shortcut lookup breaks.
 import assert from "node:assert/strict";
-import { actionFor, buttonTakes, clashes, keyOf, keymap, tileTo } from "./keys.ts";
+import { actionFor, clashes, controlTakes, keyOf, keymap, textEntry, tileTo } from "./keys.ts";
 
 const press = (key: string, mods: Partial<{ shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean }> = {}) =>
   keyOf({ key, shiftKey: false, altKey: false, metaKey: false, ctrlKey: false, ...mods });
@@ -61,11 +61,25 @@ assert.equal(actionFor(keymap({}), "mod+;", "none"), "menu.rulers");
 console.log("keys.check: ok");
 
 // A button the keyboard moved to takes Space and Return; after a click, Space stays the Select key.
-assert.equal(buttonTakes(" ", true, true), true);
-assert.equal(buttonTakes("Enter", true, true), true);
-assert.equal(buttonTakes(" ", true, false), false);
-assert.equal(buttonTakes(" ", false, true), false);
-assert.equal(buttonTakes("e", true, true), false);
+const button = { tagName: "BUTTON" }, slider = { tagName: "INPUT", type: "range" };
+assert.equal(controlTakes(" ", button, true), true);
+assert.equal(controlTakes("Enter", button, true), true);
+assert.equal(controlTakes(" ", button, false), false);
+assert.equal(controlTakes(" ", { tagName: "DIV" }, true), false);
+assert.equal(controlTakes("e", button, true), false);
+// A slider the keyboard moved to takes its arrow keys; after a click (as when Line width is dragged) the drawing has them.
+assert.equal(controlTakes("ArrowLeft", slider, true), true);
+assert.equal(controlTakes("ArrowLeft", slider, false), false);
+assert.equal(controlTakes("h", slider, true), false);
+// Only fields that take typed text take the drawing's keys away: text, search, number, email, url, text areas and
+// rich text boxes. A slider, tick box, radio button, colour well or button does not.
+for (const type of ["text", "search", "number", "email", "url"]) assert.equal(textEntry({ tagName: "INPUT", type }), true, type);
+for (const type of ["range", "checkbox", "radio", "button", "color", "submit"]) assert.equal(textEntry({ tagName: "INPUT", type }), false, type);
+assert.equal(textEntry({ tagName: "TEXTAREA" }), true);
+assert.equal(textEntry({ tagName: "DIV", isContentEditable: true }), true);
+assert.equal(textEntry({ tagName: "DIV", isContentEditable: false }), false);
+assert.equal(textEntry({ tagName: "BUTTON" }), false);
+assert.equal(textEntry(null), false);
 // Home's tiles, four to a row, ten in all: right, down a row, up from the top row stays, down to a short last row.
 assert.equal(tileTo("ArrowRight", 0, 10, 4), 1);
 assert.equal(tileTo("ArrowDown", 1, 10, 4), 5);
