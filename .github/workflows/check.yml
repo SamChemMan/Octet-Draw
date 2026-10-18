@@ -34,7 +34,7 @@ jobs:
       - name: Linux libraries for Tauri
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf fonts-liberation
       - run: npm ci
       - name: Type check and check files
         run: npm test

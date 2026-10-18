@@ -18,12 +18,21 @@ const MAX_SVG: usize = 64 << 20;
 const MAX_PDF: usize = 64 << 20;
 const MAX_XML: usize = 32 << 20;
 
-// The system's fonts, loaded once. Labels are embedded from them as subsets (Arial on the Mac).
+// The system's fonts, loaded once. Labels are embedded from them as subsets (Arial on the Mac and Windows).
+// Linux has no Arial unless the user adds it, so labels fall back to a font with Arial's widths (Liberation Sans,
+// Arimo), or else a common sans; with no fallback the labels would be left out of the PDF.
+const NO_ARIAL: [&str; 5] = ["Liberation Sans", "Arimo", "Helvetica", "DejaVu Sans", "Noto Sans"];
 fn fonts() -> Arc<fontdb::Database> {
     static FONTS: OnceLock<Arc<fontdb::Database>> = OnceLock::new();
     FONTS.get_or_init(|| {
         let mut db = fontdb::Database::new();
         db.load_system_fonts();
+        let has = |db: &fontdb::Database, name: &str| db.faces().any(|f| f.families.iter().any(|(n, _)| n == name));
+        if !has(&db, "Arial") {
+            if let Some(name) = NO_ARIAL.into_iter().find(|n| has(&db, n)) {
+                db.set_sans_serif_family(name);
+            }
+        }
         Arc::new(db)
     }).clone()
 }
