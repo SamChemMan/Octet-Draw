@@ -1,7 +1,7 @@
-// Run: node src/purpose.check.ts. Fails loudly if a purpose (Paper, Thesis, Slides, Poster or the user's own) stops
-// giving its sizes, page and outlines (IDEA-SIZE-1 to 15).
+// Run: node src/purpose.check.ts. Fails loudly if a purpose (Paper, Thesis, Slides, Poster or the user's own template)
+// stops giving its sizes, page and outlines (IDEA-SIZE-1 to 15), or Quick start stops being the seamless default.
 import assert from "node:assert/strict";
-import { DEFAULT_STYLE, PAGES, PRESETS, PURPOSES, forPurpose, outlines, pageSize, pickPage, presetOf, purposeOf, purposeStyle, readPurposes, readStyle, styleFor, withScale } from "./docstyle.ts";
+import { DEFAULT_STYLE, PAGES, PRESETS, PURPOSES, QUICK, QUICK_STYLE, forPurpose, outlines, pageSize, pickPage, presetOf, purposeOf, purposeStyle, readPurposes, readStyle, styleFor, withScale } from "./docstyle.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 
 // Each purpose is ACS Document 1996 at its scale, on its page.
@@ -72,12 +72,28 @@ assert.deepEqual(pickPage({ ...DEFAULT_STYLE, landscape: true }, "A3"), { page: 
   assert.deepEqual([poster.background, poster.hideH, poster.grid], ["dark", true, 10]);
 }
 
-// Settings: the purpose Return starts, each purpose's own style, and the user's purposes.
+// Quick start: ACS Document 1996 at 100% with no purpose, so no outlines, and its page edges off: a seamless canvas.
+{
+  assert.deepEqual({ ...QUICK_STYLE, edges: true }, DEFAULT_STYLE);
+  assert.equal(QUICK_STYLE.edges, false);
+  assert.equal(QUICK_STYLE.purpose, undefined);
+  assert.deepEqual(readStyle(JSON.parse(JSON.stringify(QUICK_STYLE))), QUICK_STYLE, "Quick start reads back from a file");
+}
+
+// Settings: the purpose ⌘N starts (Quick start at first), each purpose's own style, and the user's purposes.
 {
   const none = readPurposes({});
-  assert.deepEqual(none, { purpose: "paper", purposeStyles: {}, ownPurposes: [] });
+  assert.deepEqual(none, { purpose: QUICK, purposeStyles: {}, ownPurposes: [] });
+  assert.deepEqual(styleFor(none, QUICK), QUICK_STYLE);
   assert.deepEqual(styleFor(none, "slides"), purposeStyle("slides"));
-  assert.deepEqual(styleFor(none, "u-gone"), purposeStyle("paper"), "an unknown purpose is Paper");
+  assert.deepEqual(styleFor(none, "u-gone"), QUICK_STYLE, "an unknown purpose is Quick start");
+  // Use for new documents on Quick start keeps its style, with no purpose.
+  const quick = readPurposes({ purpose: "slides", purposeStyles: { quick: { ...QUICK_STYLE, ...PRESETS.RSC, purpose: "paper" } } });
+  assert.equal(quick.purpose, "slides");
+  assert.equal(styleFor(quick, QUICK).preset, "RSC");
+  assert.equal(styleFor(quick, QUICK).purpose, undefined);
+  assert.equal(styleFor(quick, QUICK).edges, false);
+  assert.equal(readPurposes({ purpose: QUICK }).purpose, QUICK);
   // A default style saved before purposes becomes Paper's; the default itself is not kept.
   const rsc = readPurposes({ docStyle: { ...DEFAULT_STYLE, ...PRESETS.RSC } });
   assert.equal(styleFor(rsc, "paper").preset, "RSC");
@@ -90,7 +106,7 @@ assert.deepEqual(pickPage({ ...DEFAULT_STYLE, landscape: true }, "A3"), { page: 
   assert.equal(read.purpose, "uabc");
   assert.deepEqual(purposeOf(read, "uabc"), read.ownPurposes[0]);
   assert.deepEqual(purposeOf(read, "poster"), { name: "Poster", kind: "poster" });
-  assert.equal(readPurposes({ purpose: "unot" }).purpose, "paper");
+  assert.equal(readPurposes({ purpose: "unot" }).purpose, QUICK);
   assert.equal(readPurposes({ ownPurposes: Array.from({ length: 20 }, (_, k) => ({ ...own, id: `u${k}` })) }).ownPurposes.length, 12);
 }
 console.log("purpose.check: ok");

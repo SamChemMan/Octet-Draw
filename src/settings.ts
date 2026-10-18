@@ -9,7 +9,7 @@
 // actionLayout: for each kind of selection, the user's order of Actions panel actions and how many show as rows.
 // curvedArrows: the curved arrows kept in the Arrow strip, as "kind-sweep".
 import type { SavedTemplate } from "./templates";
-import { readPurposes, type DocStyle, type OwnPurpose, type PurposeKind } from "./docstyle";
+import { QUICK, readPurposes, type DocStyle, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { DEFAULT_FILES, type FilePrefs } from "./SettingsWindow";
 
 export type Settings = {
@@ -23,9 +23,10 @@ export type Settings = {
   // was last opened (ms), for "Welcome back".
   userName: string | null; tutorialDone: boolean; lastSeen: number;
   warnings: boolean; // View > Show Chemical Warnings: problems marked on the drawing and listed in Actions
-  // What new drawings are for (IDEA-SIZE-1): the purpose Return and ⌘N start (the last one picked), each built-in
-  // purpose's style when the user made it their own with "Use for new documents", and the user's own purposes.
-  purpose: string; purposeStyles: Partial<Record<PurposeKind, DocStyle>>; ownPurposes: OwnPurpose[];
+  // What new drawings are for (IDEA-SIZE-1): Quick start or the purpose ⌘N starts (the last one picked; Return on
+  // Home starts Quick start), the style of Quick start and of each built-in purpose when the user made it their own
+  // with "Use for new documents", and the user's own purposes (templates).
+  purpose: string; purposeStyles: Partial<Record<PurposeKind | typeof QUICK, DocStyle>>; ownPurposes: OwnPurpose[];
   files: FilePrefs; // export, copy and import preferences
   settingsModule: string; // the Settings module last open
   curvedArrows: string[];
@@ -47,7 +48,7 @@ export type Settings = {
 export type Swatch = { name: string; hex: string };
 export type RulerUnit = "mm" | "cm" | "in" | "pt" | "pc";
 export const RULER_UNITS: [RulerUnit, string][] = [["mm", "Millimetres"], ["cm", "Centimetres"], ["in", "Inches"], ["pt", "Points"], ["pc", "Picas"]];
-const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, warnings: true, lastSeen: 0, purpose: "paper", purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, scaleLabels: true, onlineSearch: true, fixedLengths: true, fixedAngles: true, sproutRings: false };
+const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, warnings: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, scaleLabels: true, onlineSearch: true, fixedLengths: true, fixedAngles: true, sproutRings: false };
 const KEY = "octet.settings";
 
 export function loadSettings(): Settings {
