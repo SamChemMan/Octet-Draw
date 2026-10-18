@@ -1470,8 +1470,13 @@ export const clearMap = (m: Mol, i: number): Mol => ({ ...m, atoms: m.atoms.map(
 // It keeps an H with a charge, an isotope, a radical or a label, an H on a stereo bond or a stereocentre, and an H
 // that is not on exactly one carbon (on a heteroatom, bridging, or in a hydrogen bond).
 export function toggleHydrogens(m: Mol, atoms: Iterable<number>): Mol {
-  const centres = new Set(stereocentres(m)), flip = new Set<number>();
-  for (const i of atoms) {
+  const centres = new Set(stereocentres(m)), flip = new Set<number>(), ids = [...atoms];
+  // As in ChemDraw, the command works only if a structure in the selection has a bond that stays in view (no H at
+  // either end) or H hidden already. Methane alone stays as it is: hiding its H would leave nothing in view.
+  const isH = (k: number) => m.atoms[k].label === "H" && !m.atoms[k].text, picked = new Set(ids);
+  const keeps = (g: number[]) => { const at = new Set(g); return m.bonds.some((b) => at.has(b.atoms[0]) && (b.atoms.some((k) => m.atoms[k].hidden) || !b.atoms.some(isH))); };
+  if (!fragments(m).some((g) => g.some((k) => picked.has(k)) && keeps(g))) return m;
+  for (const i of ids) {
     const a = m.atoms[i], bonds = m.bonds.filter((b) => b.atoms.includes(i)), b = bonds[0];
     if (a?.label !== "H" || a.text || a.charge || a.isotope || a.radical || bonds.length !== 1 || b.type !== 1 || b.stereo || b.display) continue;
     const c = b.atoms[0] === i ? b.atoms[1] : b.atoms[0];

@@ -444,8 +444,10 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const median = [...raw].sort((x, y) => x - y)[Math.floor(raw.length / 2)] || 1;
   const k = scale ?? s.bond / median;
   const pts: P[] = mol.atoms.map((a) => [a.location[0] * k, -a.location[1] * k]); // KET y points up
+  // The neighbours in view: an H hidden by Toggle Hydrogen Display is not one. A carbon with all its H hidden is
+  // then labelled as a lone carbon is (CH4), and a labelled carbon counts its hidden H in its label (CH3).
   const nbrs: number[][] = mol.atoms.map(() => []);
-  mol.bonds.forEach((b) => { nbrs[b.atoms[0]].push(b.atoms[1]); nbrs[b.atoms[1]].push(b.atoms[0]); });
+  mol.bonds.forEach((b) => { if (!mol.atoms[b.atoms[0]].hidden && !mol.atoms[b.atoms[1]].hidden) { nbrs[b.atoms[0]].push(b.atoms[1]); nbrs[b.atoms[1]].push(b.atoms[0]); } });
   const bondAt = new Map<string, Bond>();
   const key = (i: number, j: number) => (i < j ? `${i} ${j}` : `${j} ${i}`);
   mol.bonds.forEach((b) => bondAt.set(key(b.atoms[0], b.atoms[1]), b));

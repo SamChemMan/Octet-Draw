@@ -165,6 +165,20 @@ console.log("bondsatoms.check: interpret chemically ok");
   const crowded = { ...t, atoms: [...t.atoms, A("C", -0.8, 0.6)], bonds: [...t.bonds, b(0, 8)] };
   assert.equal(showWarnedHydrogens(crowded).atoms[1].hidden, undefined, "five bonds at C1 show its H");
 }
+// Methane with its four H drawn. As in ChemDraw, Toggle Hydrogen Display does nothing to it alone: no bond would stay
+// in view. With a structure that keeps a bond in view in the selection, its H hide too, and its carbon then shows as
+// a lone carbon does (CH4): a hidden H does not count as a bond in the drawing.
+{
+  const methane: Mol = { atoms: [A("C", 0, 0), A("H", 0, 1), A("H", 1, 0), A("H", 0, -1), A("H", -1, 0)], bonds: [b(0, 1), b(0, 2), b(0, 3), b(0, 4)] };
+  assert.equal(toggleHydrogens(methane, [0, 1, 2, 3, 4]), methane, "methane alone stays");
+  const ethane: Mol = { atoms: [A("C", 5, 0), A("C", 6, 0), A("H", 5, 1)], bonds: [b(0, 1), b(0, 2)] };
+  const both: Mol = { atoms: [...methane.atoms, ...ethane.atoms], bonds: [...methane.bonds, ...ethane.bonds.map((x) => b(x.atoms[0] + 5, x.atoms[1] + 5))] };
+  const t = toggleHydrogens(both, both.atoms.map((_, i) => i));
+  assert.deepEqual(t.atoms.map((a, i) => (a.hidden ? i : -1)).filter((i) => i >= 0), [1, 2, 3, 4, 7], "with ethane, methane's H hide too");
+  const near = (d: ReturnType<typeof render>, x: number) => d.labels.filter((l) => Math.abs(l.x - x * S.bond) < 1.5 * S.bond).map((l) => l.text).join("");
+  assert.equal(near(render(t, S, ink), 0), "CH4", "the carbon shows, with its hidden H in its label");
+  assert.equal(near(render(t, S, ink), 5), "", "a carbon with a bond in view stays a skeletal carbon");
+}
 console.log("bondsatoms.check: hidden hydrogens ok");
 
 // CD-26. A mark moved round its atom keeps its angle; lone pairs can be bars; an attachment point can be ChemDraw's
