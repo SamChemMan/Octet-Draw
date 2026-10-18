@@ -1166,7 +1166,7 @@ export default function Editor() {
       const r = arrow !== undefined ? reactionOf(arrow) : undefined;
       if (!r || arrow === undefined) return setNotice("Select a reaction arrow first.");
       const structures = (list: Part[]) => list.flatMap((x) => (x.kind === "structure" ? [x.atoms] : []));
-      const steps = interpret(doc, r, arrows, inkBox, captionBox).map((x) => ({ reactants: structures(x.reactants), products: structures(x.products) }));
+      const steps = interpret(doc, r, captionBox).map((x) => ({ reactants: structures(x.reactants), products: structures(x.products) }));
       const had = r.atoms.some((i) => doc.atoms[i].map);
       let m = alignByMap(had ? doc : mapScheme(doc, steps, mapReaction, (atoms) => pickAtoms(doc, atoms)) ?? doc, steps);
       if (!had) m = { ...clearScheme(m, new Set(r.atoms)), bonds: m.bonds.map((b, k) => ({ ...b, rxn: doc.bonds[k].rxn })) };
@@ -1861,7 +1861,7 @@ export default function Editor() {
       const r = reactionOf(a.id);
       if (!r) continue;
       r.arrows.forEach((id) => seen.add(id));
-      out.push({ r, steps: interpret(doc, r, arrows, inkBox, captionBox) });
+      out.push({ r, steps: interpret(doc, r, captionBox) });
     }
     return out;
   };
@@ -3192,7 +3192,7 @@ export default function Editor() {
   const gridViews = useMemo(() => (loaded && (!exporting || exporting === doc) ? doc.grids ?? [] : []).flatMap((g) => {
     const r = reactionOf(g.arrow);
     if (!r) return [];
-    const steps = interpret(doc, r, arrows, inkBox, captionBox);
+    const steps = interpret(doc, r, captionBox);
     if (!steps.length) return [];
     const parts: { product: boolean; what: string; formula: string; mw: number; x: number; low: number }[] = [];
     // conditions: only text with a molar mass makes a column ("0 °C" and "2 h" do not).
@@ -3889,7 +3889,7 @@ export default function Editor() {
       if (!r) return setNotice("Select a reaction first.");
       if (command === "reaction.unmap") return set(clearScheme(doc, new Set(r.atoms)), true);
       const structures = (list: Part[]) => list.flatMap((x) => (x.kind === "structure" ? [x.atoms] : []));
-      const steps = interpret(doc, r, arrows, inkBox, captionBox).map((x) => ({ reactants: structures(x.reactants), products: structures(x.products) }));
+      const steps = interpret(doc, r, captionBox).map((x) => ({ reactants: structures(x.reactants), products: structures(x.products) }));
       const mapped = mapScheme(doc, steps, mapReaction, (atoms) => pickAtoms(doc, atoms));
       return mapped ? set(mapped, true) : setNotice("Octet cannot map these atoms.");
     }

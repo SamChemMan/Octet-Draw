@@ -22,7 +22,7 @@ let first: number, second: number, below: number, kept: number;
 const ink = (atoms: number[]): Box => { const ps = atoms.map((i) => pos(m, i)); return [Math.min(...ps.map((p) => p[0])) - 0.2, Math.min(...ps.map((p) => p[1])) - 0.2, Math.max(...ps.map((p) => p[0])) + 0.2, Math.max(...ps.map((p) => p[1])) + 0.2]; };
 const capBox = (id: number): Box | undefined => { const c = m.captions?.find((x) => x.id === id); return c && [c.x - 0.4, c.y - 0.2, c.x + 0.4, c.y + 0.2]; };
 const r = findReaction(m, first, m.arrows!, ink, capBox)!;
-const steps = interpret(m, r, m.arrows!, ink, capBox);
+const steps = interpret(m, r, capBox);
 assert.equal(steps.length, 2);
 const atomsOf = (list: { kind: string }[]) => list.map((x) => ("atoms" in x ? (x.atoms as number[]).sort() : (x as { id: number }).id));
 assert.deepEqual(atomsOf(steps[0].reactants), [[0, 1]]);
