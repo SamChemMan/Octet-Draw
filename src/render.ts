@@ -769,12 +769,25 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       }
     }
   };
+  // Crossing bonds in a flat drawing (ChemDraw's Bond Crossing): the bond drawn later is in front (Bring to Front and
+  // the f key move a bond to the end of the list), and the bond behind it has a section cut out where they cross, as
+  // wide as the front bond and clear of it by its margin.
+  const fronts: number[][] = plans.map(() => []);
+  for (const [r, f] of crossingBonds(mol.bonds, (i) => pts[i], L)) if (!deep(plans[r]) && !deep(plans[f]) && !plans[r].hidden && !plans[f].hidden) fronts[r].push(f);
+  const reachOf = (pl: Plan) => Math.max(0, ...pl.lines.map((l) => Math.abs(l.o) + (l.half ?? hw))) + (pl.kind === 'none' ? 0 : pl.kind === 'wedge' || pl.kind === 'hash' || pl.kind === 'hollow' ? wide : half(pl));
+  const cutFronts = (i: number, from: number) => {
+    for (const f of fronts[i]) {
+      const front = plans[f], g = reachOf(front) + 2.5 * hw + s.margin, o = pts[front.a];
+      const pieces = polygons.splice(from).flatMap((poly) => [clipSide(poly, o, front.n, g), clipSide(poly, o, mul(front.n, -1), g)].filter((q) => q.length));
+      polygons.push(...pieces);
+    }
+  };
   // Each polygon's colour (its bond's, or for a mark, its atom's) and how strongly it is drawn (fainter further back).
   const colours: (string | undefined)[] = [], alphas: number[] = [];
   const order = plans.map((_, i) => i).sort((i, j) => (deep(plans[i]) && deep(plans[j]) ? depth[plans[i].a]! + depth[plans[i].b]! - depth[plans[j].a]! - depth[plans[j].b]! : 0));
   order.forEach((i) => {
     const pl = plans[i], before = polygons.length, d = deep(pl);
-    if (d) drawDeep(pl); else drawPlan(pl, i);
+    if (d) drawDeep(pl); else { drawPlan(pl, i); cutFronts(i, before); }
     const alpha = d ? fade((depth[pl.a]! + depth[pl.b]!) / 2) : 1;
     for (const poly of polygons.slice(before)) { colours.push(mol.bonds[i].colour); alphas.push(alpha); for (const q of poly) { grow(pl.a, q); grow(pl.b, q); } }
   });
@@ -851,6 +864,8 @@ export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: F
   mol.atoms.forEach((a, i) => { for (const j of a.centre ?? []) if (j < mol.atoms.length) join(i, j); });
   const depth = depthOf(mol), first = depth.findIndex((t) => t !== undefined);
   if (first >= 0) depth.forEach((t, i) => { if (t !== undefined) join(i, first); });
+  // Structures whose bonds cross are drawn as one, so the bond behind gets its gap.
+  for (const [r, f] of crossingBonds(mol.bonds, (i) => mol.atoms[i].location as unknown as P, 1)) join(mol.bonds[r].atoms[0], mol.bonds[f].atoms[0]);
   const groups = new Map<number, { ids: number[]; bonds: Bond[] }>();
   mol.atoms.forEach((_, i) => { const r = find(i); let g = groups.get(r); if (!g) groups.set(r, (g = { ids: [], bonds: [] })); g.ids.push(i); });
   for (const b of mol.bonds) groups.get(find(b.atoms[0]))!.bonds.push(b);
@@ -1345,6 +1360,39 @@ export function depthOf(m: Mol): (number | undefined)[] {
   return out;
 }
 // Where segments p1–p2 and q1–q2 cross, as fractions along each (inside both), or undefined.
+// Bonds whose lines cross (not at an atom they share), as [behind, in front]: the one later in the list is in front.
+// Bonds are sorted into a grid of cells `cell` wide, so only near bonds are tested; the tests stop at a fixed number,
+// so a hostile file of long bonds cannot hold the drawing up (a gap is only a look).
+export function crossingBonds(bonds: Bond[], at: (i: number) => P, cell: number): [number, number][] {
+  const grid = new Map<number, number[]>(), out: [number, number][] = [], seen = new Set<number>();
+  const c = (v: number) => Math.max(-1e6, Math.min(1e6, Math.floor(v / cell)));
+  bonds.forEach((b, k) => {
+    const p = at(b.atoms[0]), q = at(b.atoms[1]), x0 = c(Math.min(p[0], q[0])), x1 = c(Math.max(p[0], q[0])), y0 = c(Math.min(p[1], q[1])), y1 = c(Math.max(p[1], q[1]));
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) > 4096) return; // a bond across thousands of cells (no real drawing has one)
+    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) { const key = x * 4194304 + y, list = grid.get(key); if (list) list.push(k); else grid.set(key, [k]); }
+  });
+  let tests = 0;
+  for (const list of grid.values()) for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+    if (++tests > 2e6) return out;
+    const r = list[i], f = list[j], key = r * bonds.length + f;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const a = bonds[r].atoms, b = bonds[f].atoms;
+    if (a[0] === b[0] || a[0] === b[1] || a[1] === b[0] || a[1] === b[1]) continue;
+    if (crossing(at(a[0]), at(a[1]), at(b[0]), at(b[1]))) out.push([r, f]);
+  }
+  return out;
+}
+// The part of a polygon where dot(q − o, n) ≥ d (Sutherland–Hodgman against one line); empty when nothing is left.
+function clipSide(poly: P[], o: P, n: P, d: number): P[] {
+  const out: P[] = [], f = (q: P) => dot(sub(q, o), n) - d;
+  poly.forEach((q, k) => {
+    const r = poly[(k + 1) % poly.length], fq = f(q), fr = f(r);
+    if (fq >= 0) out.push(q);
+    if ((fq >= 0) !== (fr >= 0)) out.push(add(q, mul(sub(r, q), fq / (fq - fr))));
+  });
+  return out.length >= 3 ? out : [];
+}
 function crossing(p1: P, p2: P, q1: P, q2: P): [number, number] | undefined {
   const r = sub(p2, p1), s = sub(q2, q1), d = cross(r, s);
   if (Math.abs(d) < 1e-9) return undefined;

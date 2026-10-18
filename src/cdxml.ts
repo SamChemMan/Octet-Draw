@@ -956,7 +956,8 @@ export function fromCdxml(text: string): CdxmlRead {
       if (centre.length >= 2) { mol.atoms[i].centre = centre; for (const j of centre) ligand.add(j); } else lose("MultiAttachment");
     }
     const seen = new Set<string>();
-    for (const b of bondsToRead) {
+    // In the order they are drawn (Z), so a bond ChemDraw brought to the front stays in front where bonds cross.
+    for (const b of [...bondsToRead].sort((p, q) => zOf(p) - zOf(q))) {
       const i = atomOf.get(int(b.attrs.B) ?? -1), j = atomOf.get(int(b.attrs.E) ?? -1);
       const key = i === undefined || j === undefined ? "" : i < j ? `${i} ${j}` : `${j} ${i}`;
       if (!key || i === j || seen.has(key)) { lose("bond"); continue; }

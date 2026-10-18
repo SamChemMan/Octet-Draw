@@ -676,3 +676,12 @@ console.log("edit.check: align ok");
   assert.ok(span(flat, 0) > span(flat, 1) && span(up, 1) > span(up, 0), "a chair dragged up stands up");
   console.log("edit.check: ring tool drags and keys ok");
 }
+
+// Bring to Front and Send to Back order the selected bonds (and picked shapes): the front one is last.
+{
+  const { toFront } = await import("./edit.ts");
+  const m = sprout(sprout(sprout(EMPTY, [0, 0]), 1), 2);
+  assert.deepEqual(toFront(m, new Set([0, 1]), new Set()).bonds.map((b) => b.atoms), [[1, 2], [2, 3], [0, 1]]);
+  assert.deepEqual(toFront(m, new Set([2, 3]), new Set(), true).bonds.map((b) => b.atoms), [[2, 3], [0, 1], [1, 2]]);
+  console.log("edit.check: bond order ok");
+}

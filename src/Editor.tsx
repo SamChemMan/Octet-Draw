@@ -19,7 +19,7 @@ import {
   onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset, addShape, addSymbol, bondOrders, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec,
   type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced,
   markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, wholeIntegral, wholeGroups,
-  groupTargets, selectedGroups, outermost, outerGroups, addChain, chainPoints, chainThrough, snake, clickBond, dragBond, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement,
+  groupTargets, selectedGroups, outermost, outerGroups, toFront, addChain, chainPoints, chainThrough, snake, clickBond, dragBond, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement,
   placeCentres,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
@@ -952,8 +952,10 @@ export default function Editor() {
     settings: () => setSettingsOpen((settings.settingsModule as ModuleId) ?? "document"),
     structure_to_name: () => nameStructures(),
     copy_smiles: () => void document.execCommand("copy"),
-    bring_front: () => runAction("shape.front"),
-    send_back: () => runAction("shape.back"),
+    // Bring to Front and Send to Back: the picked shapes, and the selected bonds (a bond in front cuts a gap in a bond
+    // it crosses), as ChemDraw's Object menu orders any object.
+    bring_front: () => set(toFront(doc, selection, picked), true),
+    send_back: () => set(toFront(doc, selection, picked, true), true),
     command_palette: () => { setCommandsOpen((o) => !o); if (!namesLoaded) void loadNames().then(() => setNamesLoaded(true)); },
     // The Text menu styles the caption being typed, or the picked captions.
     text_bold: () => runAction("caption.bold"),
@@ -2244,6 +2246,7 @@ export default function Editor() {
     if (id === "atom.sproutlabel") return sproutLabel(atoms), true;
     if (kind === "bond" && arg in BONDS) return each((m, k) => setBondSpec(m, k, BONDS[arg as BondKind].spec), bonds), true;
     if (kind === "bond" && (arg === "left" || arg === "centre" || arg === "right")) return each((m, k) => (m.bonds[k].type === 2 ? setPosition(m, k, arg) : m), bonds), true;
+    if (id === "bond.front") return set(toFront(doc, new Set(atoms), new Set()), true), true;
     return false;
   }
   // ChemDraw's > key: a bond from each atom (as 1 adds it), and a new label typed for their new ends, as one step.
@@ -2297,6 +2300,14 @@ export default function Editor() {
     if (kind === "bond" && bond !== undefined) {
       if (arg in BONDS) return set(setBondSpec(doc, bond, BONDS[arg as BondKind].spec));
       if (arg === "left" || arg === "centre" || arg === "right") return set(setPosition(doc, bond, arg));
+      // ChemDraw's f: the bond goes to the front, so where it crosses another bond, the other one has the gap.
+      if (arg === "front") {
+        const mol = toFront(doc, new Set(doc.bonds[bond].atoms), new Set()), at = mol.bonds.length - 1;
+        if (hover.key) return keyEdit(mol, { bond: at }, { bond });
+        set(mol);
+        if (hover.bond === bond) setHover({ ...hover, bond: at });
+        return;
+      }
       const fuse = (mol: Mol) => { const far = farBond(mol, bond, doc.bonds.length); return keyEdit(mol, far === undefined ? undefined : { bond: far }, { bond }); };
       if (arg === "chair1" || arg === "chair2") return fuse(addChair(doc, arg === "chair1" ? 1 : 2, { bond }));
       const ring = arg.startsWith("ring") ? RINGS[arg.slice(4) as RingKind] : RINGS[arg as RingKind];
@@ -3014,10 +3025,7 @@ export default function Editor() {
       if (what === "mark") return each((x) => ({ mark: x.mark === arg ? undefined : arg }));
       if (what === "colour") return each(() => ({ colour: arg }));
       // Bring to the front or send to the back: the order shapes are drawn in.
-      if (what === "front" || what === "back") {
-        const mine = (doc.shapes ?? []).filter((x) => ids.has(x.id)), rest = (doc.shapes ?? []).filter((x) => !ids.has(x.id));
-        return set({ ...doc, shapes: what === "front" ? [...rest, ...mine] : [...mine, ...rest] }, true);
-      }
+      if (what === "front" || what === "back") return set(toFront(doc, new Set(), ids, what === "back"), true);
     }
     if (command.startsWith("orbital.")) {
       const [, what, arg] = command.split(".");

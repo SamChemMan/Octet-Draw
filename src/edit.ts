@@ -567,6 +567,12 @@ export const ungroupSelection = (m: Mol, atoms: Set<number>, items: Set<number>)
   const old = new Set(groupTargets(m, atoms, items));
   return { ...m, groups: (m.groups ?? []).filter((g) => !old.has(g)) };
 }
+// Object > Bring to Front and Send to Back (ChemDraw's): the bonds between the given atoms, and the shapes among the
+// items, are drawn last (or first). Where two bonds cross, the one drawn later is in front and the other has a gap.
+export function toFront(m: Mol, atoms: Set<number>, items: Set<number>, back = false): Mol {
+  const order = <T,>(list: T[], mine: (x: T) => boolean) => { const a = list.filter(mine), b = list.filter((x) => !mine(x)); return back ? [...a, ...b] : [...b, ...a]; };
+  return { ...m, bonds: order(m.bonds, (b) => atoms.has(b.atoms[0]) && atoms.has(b.atoms[1])), ...(m.shapes ? { shapes: order(m.shapes, (x) => items.has(x.id)) } : {}) };
+}
 export const deleteAtom = (m: Mol, i: number) => removeAtoms(m, new Set([i]));
 export const deleteBond = (m: Mol, i: number) => removeAtoms({ ...m, bonds: m.bonds.filter((_, k) => k !== i) }, new Set());
 

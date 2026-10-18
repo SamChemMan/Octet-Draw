@@ -387,3 +387,13 @@ console.log("cdxml.check: every object kind round trips");
   assert.equal(fromCdxml(text.replace('ChainAngle="110"', "")).style.chainAngle, 120);
   console.log("cdxml.check: chain angle ok");
 }
+
+// Bonds come in in the order ChemDraw draws them (Z), so a bond brought to the front stays in front.
+{
+  const m = { atoms: [A("C", 0, -1), A("C", 0, 1), A("C", -1, 0), A("C", 1, 0)], bonds: [b(0, 1), b(2, 3)] } as Mol;
+  const text = toCdxml(m, DEFAULT_STYLE), zs = [...text.matchAll(/<b\s+id="\d+"\s+Z="(\d+)"/g)].map((x) => x[1]);
+  assert.equal(zs.length, 2);
+  const swapped = text.replace(new RegExp(`Z="${zs[0]}"`), 'Z="ZA"').replace(new RegExp(`Z="${zs[1]}"`), `Z="${zs[0]}"`).replace('Z="ZA"', `Z="${zs[1]}"`);
+  assert.deepEqual(fromCdxml(swapped.replace(/ Octet="[^"]*"/g, "").replace(/CreationProgram="[^"]*"/, "")).mol.bonds.map((x) => x.atoms), [[2, 3], [0, 1]], "ChemDraw's file: by Z");
+  console.log("cdxml.check: bond order ok");
+}
