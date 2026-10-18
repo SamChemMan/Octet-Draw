@@ -6,8 +6,8 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { useLeaving } from "./motion";
 
 // While a modal (a dialog, Settings, the command palette or Home) is open, everything beside it in the window is
-// inert: Tab, clicks and screen readers stay in it, and a modal over Home blocks Home too. A layout effect, so a modal
-// that closes gives its neighbours back before React marks one inert for its own reasons (Home as it fades out).
+// inert: Tab, clicks and screen readers stay in it, and a modal over Home blocks Home too. A neighbour that starts to
+// leave as the modal closes (Home, after Don't Save) stays inert, as everything leaving is (motion.tsx, Exit).
 // inert does nothing on SVG (the canvas), so screen readers skip that with aria-hidden.
 export function useModal(ref: React.RefObject<HTMLElement | null>, on = true) {
   useLayoutEffect(() => {
@@ -16,7 +16,7 @@ export function useModal(ref: React.RefObject<HTMLElement | null>, on = true) {
     const blocked = [...el.parentElement.children].filter((x) => x !== el && (x instanceof HTMLElement ? !x.inert : !x.hasAttribute("aria-hidden")));
     const block = (x: Element, on: boolean) => { if (x instanceof HTMLElement) x.inert = on; else if (on) x.setAttribute("aria-hidden", "true"); else x.removeAttribute("aria-hidden"); };
     for (const x of blocked) block(x, true);
-    return () => { for (const x of blocked) block(x, false); };
+    return () => { for (const x of blocked) block(x, x.classList.contains("leaving")); };
   }, [ref, on]);
 }
 

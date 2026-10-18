@@ -171,11 +171,14 @@ export function clashes(map: Keymap, id: string, key: string): string[] {
 export const buttonTakes = (key: string, onButton: boolean, byKeyboard: boolean) => onButton && byKeyboard && (key === " " || key === "Enter");
 
 // Arrow keys on tiles in reading order, row tiles across: the tile to go to from at (-1: no tile has the focus).
-// Up from the top row stays; down from a row with nothing under it goes to the last tile.
+// Up from the top row and down from the last row stay; down to a short last row with nothing under it goes to its
+// last tile.
 export function tileTo(key: string, at: number, count: number, row: number): number | undefined {
   const step = ({ ArrowRight: 1, ArrowLeft: -1, ArrowDown: row, ArrowUp: -row } as Record<string, number>)[key];
   if (!step || !count) return undefined;
   if (at < 0) return 0;
   const to = at + step;
-  return to < 0 ? at : Math.min(count - 1, to);
+  if (to < 0) return at;
+  if (to < count) return to;
+  return key === "ArrowDown" && Math.floor(at / row) < Math.floor((count - 1) / row) ? count - 1 : at;
 }

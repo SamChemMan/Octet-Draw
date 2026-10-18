@@ -46,6 +46,10 @@ assert.equal(tileTo("ArrowRight", 0, 10, 4), 1);
 assert.equal(tileTo("ArrowDown", 1, 10, 4), 5);
 assert.equal(tileTo("ArrowUp", 2, 10, 4), 2);
 assert.equal(tileTo("ArrowDown", 7, 10, 4), 9);
+// Down from the last row stays: one row of four (New drawing and the three starters), and the short last row.
+assert.equal(tileTo("ArrowDown", 0, 4, 4), 0);
+assert.equal(tileTo("ArrowDown", 8, 10, 4), 8);
+assert.equal(tileTo("ArrowRight", 9, 10, 4), 9);
 assert.equal(tileTo("ArrowLeft", 0, 10, 4), 0);
 assert.equal(tileTo("ArrowDown", -1, 10, 4), 0);
 assert.equal(tileTo("Enter", 3, 10, 4), undefined);
