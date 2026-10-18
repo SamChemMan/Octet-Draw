@@ -1,6 +1,6 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { HBOND, H_FIRST, hydrogens, lonePairs, orderOf, QUADRUPLE, settleShape, tableLayout, tableRow, type Arrow, type Atom, type Bond, type Caption, type Curve, type CurvePoint, type Mol, type Shape, type Table } from "./render.ts";
+import { HBOND, H_FIRST, hydrogens, lonePairs, orderOf, QUADRUPLE, settleShape, tableLayout, tableRow, type Arrow, type Atom, type Bond, type Caption, type Curve, type CurvePoint, type Mol, type Shape, type Spot, type Table } from "./render.ts";
 import type { Cycle } from "./cycle.ts";
 import { anchorElement, isElement } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
@@ -1151,6 +1151,47 @@ export function markDirections(m: Mol, ids: number[]): Map<number, P> {
 // Enhanced stereo flags on atoms: "abs", "&1" or "or1", or none.
 export const setEnhanced = (m: Mol, ids: number[], label?: string): Mol =>
   ({ ...m, atoms: m.atoms.map((a, i) => (ids.includes(i) ? { ...a, enhanced: label } : a)) });
+
+// TLC plate lanes, as ChemDraw's Add Lane, Duplicate Lane, Delete Lane and a drag of a lane's origin tick. A lane
+// added or taken away widens or narrows the plate on its right by one lane, so every lane keeps its width, and spots
+// stay in their lanes. at: where the new lane goes (0 is first); copy: the lane whose spots it takes (Duplicate).
+const TLC_LANES = 40;
+const widen = (sh: Shape, d: number): Shape => (sh.to[0] >= sh.from[0] ? { ...sh, to: [sh.to[0] + d, sh.to[1]] } : { ...sh, from: [sh.from[0] + d, sh.from[1]] });
+export function addLane(sh: Shape, at: number, copy?: number): Shape {
+  const tlc = sh.tlc ?? { lanes: 1, spots: [] };
+  if (tlc.lanes >= TLC_LANES) return sh;
+  const k = Math.max(0, Math.min(tlc.lanes, at)), w = Math.abs(sh.to[0] - sh.from[0]) / tlc.lanes;
+  const spots = [...tlc.spots.map((x) => (x.lane >= k ? { ...x, lane: x.lane + 1 } : x)), ...(copy === undefined ? [] : tlc.spots.filter((x) => x.lane === copy).map((x) => ({ ...x, lane: k })))];
+  return { ...widen(sh, w), tlc: { ...tlc, lanes: tlc.lanes + 1, spots } };
+}
+// A lane and its spots taken away (a plate keeps one lane).
+export function deleteLane(sh: Shape, k: number): Shape {
+  const tlc = sh.tlc ?? { lanes: 1, spots: [] };
+  if (tlc.lanes <= 1 || k < 0 || k >= tlc.lanes) return sh;
+  const w = Math.abs(sh.to[0] - sh.from[0]) / tlc.lanes;
+  return { ...widen(sh, -w), tlc: { ...tlc, lanes: tlc.lanes - 1, spots: tlc.spots.filter((x) => x.lane !== k).map((x) => (x.lane > k ? { ...x, lane: x.lane - 1 } : x)) } };
+}
+// A lane moved to another place among the lanes, with its spots; the others close up behind it.
+export function moveLane(sh: Shape, from: number, to: number): Shape {
+  const tlc = sh.tlc ?? { lanes: 1, spots: [] };
+  if (from === to || from < 0 || to < 0 || from >= tlc.lanes || to >= tlc.lanes) return sh;
+  const order = Array.from({ length: tlc.lanes }, (_, k) => k).filter((k) => k !== from);
+  order.splice(to, 0, from);
+  return { ...sh, tlc: { ...tlc, spots: tlc.spots.map((x) => ({ ...x, lane: order.indexOf(x.lane) })) } };
+}
+
+// A TLC spot's style, as ChemDraw's spot styles go together: Filled, Hollow and Octet's Shaded are its fill; Dashed
+// (which is hollow), Bold and Doubled (which is not dashed) are set on (on true) or off. A filled spot is not dashed.
+export function restyleSpot(x: Spot, what: string, on = true): Spot {
+  const out: Spot = { ...x }, off = (k: "style" | "dashed" | "bold" | "doubled") => { delete out[k]; };
+  if (what === "filled") { off("style"); off("dashed"); }
+  else if (what === "shaded") { out.style = "shaded"; off("dashed"); }
+  else if (what === "hollow") out.style = "hollow";
+  else if (what === "dashed") { if (on) { out.dashed = true; out.style = "hollow"; off("doubled"); } else off("dashed"); }
+  else if (what === "doubled") { if (on) { out.doubled = true; off("dashed"); } else off("doubled"); }
+  else if (what === "bold") { if (on) out.bold = true; else off("bold"); }
+  return out;
+}
 
 // Tables. A new one has an Entry column numbered down its rows, under a header row.
 export const newTable = (rows: number, cols: number): Table =>

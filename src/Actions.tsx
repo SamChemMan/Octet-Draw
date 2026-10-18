@@ -11,7 +11,7 @@ import {
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
   TextAlignJustify, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, BezierCurve, Eraser, Circle, LineSegment, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
-  EyeSlash, Angle, Resize, CrosshairSimple, Unite, SelectionPlus, Paragraph,
+  EyeSlash, Angle, Resize, CrosshairSimple, Unite, SelectionPlus, Paragraph, Checkerboard, Ruler,
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
@@ -40,12 +40,14 @@ export type Context =
   | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
       heads: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string; width: number; size?: string; ratio: number; fillable: boolean;
       point?: "add" | "remove" | "bent" } // one straight arrow or line: it can take a point, or has one (bent: and bends)
-  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; boldLine: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[]; shade: { depth: number; blur: number; opacity: number; pt: number }; text?: LabelText }
+  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; boldLine: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[];
+      shade: { depth: number; blur: number; opacity: number; pt: number }; text?: LabelText;
+      ticks?: boolean; transparent?: boolean; lane?: boolean } // a TLC plate's side ticks and transparency, and whether a lane is picked
   | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean; grid: boolean }
   | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; halo?: string; fill?: string; numbered?: boolean }
   | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean; halo?: string; fill?: string; ring?: boolean }
-  | { kind: "spot"; style: "filled" | "hollow" | "shaded"; w: number; h: number; tail: number; rf: boolean; pt: number };
+  | { kind: "spot"; style: "filled" | "hollow" | "shaded"; dashed: boolean; bold: boolean; doubled: boolean; w: number; h: number; tail: number; rf: boolean; pt: number };
 
 type Props = {
   open: boolean;
@@ -179,11 +181,16 @@ export function Slider({ name, value, min, max, step, show, onChange }: { name: 
 }
 
 // A TLC spot in its style: filled, hollow, or shaded and lit from the top left.
-function SpotGlyph({ style }: { style: "filled" | "hollow" | "shaded" }) {
+// The outline styles: dashed (and hollow), bold, and doubled (a second outline round it).
+const SPOT_STYLES = ["filled", "hollow", "shaded", "dashed", "bold", "doubled"] as const;
+const SPOT_NAMES: Record<(typeof SPOT_STYLES)[number], string> = { filled: "Filled", hollow: "Hollow", shaded: "Shaded", dashed: "Dashed", bold: "Bold", doubled: "Doubled" };
+function SpotGlyph({ style }: { style: (typeof SPOT_STYLES)[number] }) {
+  const fill = style === "filled" ? "currentColor" : style === "shaded" ? "url(#spot-glyph)" : "none", line = style === "bold" ? 28 : style === "filled" || style === "shaded" ? 0 : 14;
   return (
     <svg width={20} height={20} viewBox="0 0 256 256" aria-hidden>
       {style === "shaded" && <defs><radialGradient id="spot-glyph" cx="0.36" cy="0.32" r="0.75"><stop offset="0" stopColor="var(--surface-raised)" /><stop offset="1" stopColor="currentColor" /></radialGradient></defs>}
-      <ellipse cx={128} cy={128} rx={88} ry={52} fill={style === "hollow" ? "none" : style === "shaded" ? "url(#spot-glyph)" : "currentColor"} stroke="currentColor" strokeWidth={style === "hollow" ? 16 : 0} />
+      <ellipse cx={128} cy={128} rx={style === "doubled" ? 70 : 88} ry={style === "doubled" ? 36 : 52} fill={fill} stroke="currentColor" strokeWidth={line} strokeDasharray={style === "dashed" ? "30 20" : undefined} />
+      {style === "doubled" && <ellipse cx={128} cy={128} rx={104} ry={70} fill="none" stroke="currentColor" strokeWidth={14} />}
     </svg>
   );
 }
@@ -223,7 +230,7 @@ const MORE_GROUPS = ["marks", "other", "library"];
 const KIND_OF: Record<string, string> = {
   select_all: "view", zoom_fit: "view", import: "file", select_structure: "view",
   "shape.row.before": "table", "shape.col.before": "table", "shape.row.delete": "table", "shape.col.delete": "table", "shape.fit": "table", "shape.clear": "table", "shape.dashed": "table",
-  "shape.hide.origin": "plate", "shape.hide.front": "plate", "shape.hide.border": "plate", "cycle.reverse": "cycle", "cycle.ungroup": "cycle",
+  "shape.hide.origin": "plate", "shape.hide.front": "plate", "shape.hide.border": "plate", "shape.ticks": "plate", "shape.transparent": "plate", "cycle.reverse": "cycle", "cycle.ungroup": "cycle",
   properties: "analysis", show_stereo: "analysis", predict_1h: "analysis", predict_13c: "analysis",
   search_reaxys: "search", search_reaxys_exact: "search", search_pubchem: "search", search_pubchem_sub: "search",
   "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "turn", flatten: "turn", rotate_dialog: "turn", scale_dialog: "turn",
@@ -343,11 +350,16 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
     case "shape":
       if (context.shape === "tlc") {
         const hidden = (k: string) => context.hide?.includes(k);
-        items.push(it(<Plus size={18} />, "Add a lane", "shape.lanes.1"), it(<Minus size={18} />, "Remove a lane", "shape.lanes.-1"),
+        // At the lane last pressed or right-clicked (a new lane goes after it), or at the last lane, as ChemDraw's plate
+        // menu acts on the lane under the pointer.
+        items.push(it(<Plus size={18} />, "Add a lane", "shape.lanes.1"), it(<CopySimple size={18} />, context.lane ? "Duplicate the lane" : "Duplicate the last lane", "shape.lanes.copy"),
+          it(<Minus size={18} />, context.lane ? "Delete the lane" : "Delete the last lane", "shape.lanes.-1"),
           it(<span className="glyph-text">Rf</span>, context.rf ? "Hide Rf values" : "Show Rf values", "shape.rf"),
           small(it(<AlignBottomSimple size={18} />, hidden("origin") ? "Show the origin" : "Hide the origin", "shape.hide.origin")),
           small(it(<AlignTopSimple size={18} />, hidden("front") ? "Show the solvent front" : "Hide the solvent front", "shape.hide.front")),
-          small(it(<Rectangle size={18} />, hidden("border") ? "Show the border" : "Hide the border", "shape.hide.border")), scale, centre, ...order, del);
+          small(it(<Rectangle size={18} />, hidden("border") ? "Show the border" : "Hide the border", "shape.hide.border")),
+          small(it(<Ruler size={18} />, context.ticks ? "Hide the side ticks" : "Show the side ticks", "shape.ticks")),
+          small(it(<Checkerboard size={18} />, context.transparent ? "Make opaque" : "Make transparent", "shape.transparent")), scale, centre, ...order, del);
         break;
       }
       if (context.shape === "table") {
@@ -363,7 +375,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       items.push(...turnsAndFlips, ...objects, ...order, del);
       break;
     case "spot":
-      items.push(it(<span className="glyph-text">Rf</span>, context.rf ? "Hide its Rf" : "Show its Rf", "spot.rf"), del);
+      items.push(it(<PencilSimpleLine size={18} />, "Set Rf…", "spot.setrf"), it(<span className="glyph-text">Rf</span>, context.rf ? "Hide its Rf" : "Show its Rf", "spot.rf"), del);
       break;
     case "arrow":
       if (context.arrow === "orbital") { items.push(it(<Swap size={18} />, "Swap the phases", "orbital.swap"), ...turnsAndFlips, ...objects, ...order, del); break; }
@@ -701,9 +713,11 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       })()}
       {(context.kind === "spot" || (context.kind === "shape" && context.shape === "tlc")) && (
         // A spot's style (or every spot's, from the plate), each drawn as a spot.
-        <div className="chips arrows" role="group" aria-label="Spot">
-          {(["filled", "hollow", "shaded"] as const).map((st) => (
-            <button key={st} className="chip" aria-pressed={context.kind === "spot" && context.style === st} aria-label={`${st[0].toUpperCase()}${st.slice(1)} spot${context.kind === "spot" ? "" : "s"}`} title={`${st[0].toUpperCase()}${st.slice(1)} spot${context.kind === "spot" ? "" : "s"}`}
+        // Its fill (filled, hollow or shaded), then its outline's dashed, bold and doubled, each on or off.
+        <div className="chips styles" role="group" aria-label="Spot">
+          {SPOT_STYLES.map((st) => (
+            <button key={st} className="chip" aria-pressed={context.kind === "spot" && (st === "dashed" || st === "bold" || st === "doubled" ? context[st] : context.style === st)}
+              aria-label={`${SPOT_NAMES[st]} spot${context.kind === "spot" ? "" : "s"}`} title={`${SPOT_NAMES[st]} spot${context.kind === "spot" ? "" : "s"}`}
               onClick={() => run(context.kind === "spot" ? `spot.style.${st}` : `shape.spots.${st}`)}>
               <SpotGlyph style={st} />
             </button>

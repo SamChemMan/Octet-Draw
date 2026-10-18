@@ -189,10 +189,13 @@ export type Curve = { points: CurvePoint[]; closed?: boolean };
 // A TLC plate's lanes and spots: each spot in a lane at its Rf (0 at the origin, 1 at the solvent front).
 // A TLC plate: its lanes and spots, Rf values shown for all, the origin's height and the front's depth (fractions of
 // the plate, from the bottom and the top), and parts hidden, as ChemDraw's TLC tool.
-export type Tlc = { lanes: number; spots: Spot[]; rf?: boolean; origin?: number; front?: number; hide?: ("origin" | "front" | "border")[] };
+// ticks: Rf ticks along both sides (ChemDraw's Show Side Ticks). transparent: what is behind the plate shows through
+// it (ChemDraw's Transparent); otherwise the plate is the page's colour.
+export type Tlc = { lanes: number; spots: Spot[]; rf?: boolean; origin?: number; front?: number; hide?: ("origin" | "front" | "border")[]; ticks?: true; transparent?: true };
 // A spot: its lane and Rf, and when set by hand its colour, style, half-width and half-height, the smear below it
-// (bond lengths), and its own Rf label.
-export type Spot = { lane: number; rf: number; colour?: string; style?: "hollow" | "shaded"; w?: number; h?: number; tail?: number; showRf?: true };
+// (bond lengths), and its own Rf label. style is its fill (unset: filled); dashed and bold are its outline's, and
+// doubled draws a second outline round it (ChemDraw's spot styles: Filled, Hollow, Dashed, Bold, Doubled).
+export type Spot = { lane: number; rf: number; colour?: string; style?: "hollow" | "shaded"; dashed?: true; bold?: true; doubled?: true; w?: number; h?: number; tail?: number; showRf?: true };
 // faded: a fill fading to nothing at the bottom right (as a closed curve's).
 export type Shape = {
   id: number; kind: ShapeKind; from: [number, number]; to: [number, number]; dashed?: boolean; colour?: string;
@@ -1608,9 +1611,10 @@ export function tlcLayout(sh: Shape) {
   const f = scaleOf(sh), size = (x: Spot) => ({ rx: (x.w ?? Math.min((0.3 * width) / f, 0.34)) * f, ry: (x.h ?? 0.15) * f });
   return { x0, x1, y0, y1, origin, front, lanes, width, lane, size, f, at: (rf: number) => origin + (front - origin) * rf };
 }
-// A spot's outline (drawing units): an ellipse, drawn out below into a smear when it has a tail.
-export function spotPath(t: ReturnType<typeof tlcLayout>, x: Spot): [number, number][] {
-  const cx = t.lane(x.lane), cy = t.at(x.rf), { rx, ry } = t.size(x), tail = (x.tail ?? 0) * t.f, n = 32, out: [number, number][] = [];
+// A spot's outline (drawing units): an ellipse, drawn out below into a smear when it has a tail. grow: how far out
+// (a doubled spot's second outline).
+export function spotPath(t: ReturnType<typeof tlcLayout>, x: Spot, grow = 0): [number, number][] {
+  const cx = t.lane(x.lane), cy = t.at(x.rf), size = t.size(x), [rx, ry] = [size.rx + grow, size.ry + grow], tail = (x.tail ?? 0) * t.f, n = 32, out: [number, number][] = [];
   for (let i = 0; i <= n; i++) {
     const a = (Math.PI * 2 * i) / n, sin = Math.sin(a);
     // The lower half stretches down by the tail, narrowing a little, so a smear reads as a streak.

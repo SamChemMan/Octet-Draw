@@ -226,6 +226,9 @@ const PROGRAM = "Octet 0.1.0";
 const DERIVED = '{"d":1}';
 const GRID_FIELDS = ["mass", "moles", "equiv", "volume", "density", "molarity", "purity", "measured"];
 const num6 = (v: number) => String(+v.toFixed(6));
+// A TLC spot's CurveType, as ChemDraw writes it: Filled 128 (a shaded spot is filled for ChemDraw, and 256 for Octet),
+// Dashed 2, Bold 4, Doubled 512. A hollow or dashed spot has no fill.
+export const spotType = (x: Spot) => (x.style === "hollow" || x.dashed ? 0 : 128) | (x.style === "shaded" ? 256 : 0) | (x.dashed ? 2 : 0) | (x.bold ? 4 : 0) | (x.doubled ? 512 : 0);
 const union = (boxes: Box[]): Box | undefined => (boxes.length ? [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))] : undefined);
 const boxOf = (qs: P[], pad = 0): Box => [Math.min(...qs.map((q) => q[0])) - pad, Math.min(...qs.map((q) => q[1])) - pad, Math.max(...qs.map((q) => q[0])) + pad, Math.max(...qs.map((q) => q[1])) + pad];
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
@@ -360,12 +363,13 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       const spot = (x: Spot) => {
         const { rx, ry } = t.size(x);
         return el("tlcspot", { id: fresh(), color: colour(x.colour), Rf: num6(x.rf), Width: Math.round(2 * rx * B * 65536), Height: Math.round(2 * ry * B * 65536), Tail: Math.round((x.tail ?? 0) * f * B * 65536),
-          CurveType: x.style === "shaded" ? 256 : undefined, ShowRf: tlc.rf || x.showRf ? "yes" : undefined });
+          CurveType: spotType(x) || undefined, ShowRf: tlc.rf || x.showRf ? "yes" : undefined });
       };
       const lanes = Array.from({ length: tlc.lanes }, (_, k) => el("tlclane", { id: fresh() }, order.filter((j) => tlc.spots[j].lane === k).map((j) => spot(tlc.spots[j])).join(""))).join("");
       const face = (sh.bold ? 1 : 0) | (sh.italic ? 2 : 0) | (sh.underline ? 4 : 0);
       put(el("tlcplate", { id, BoundingBox: boxText(box), Z: Z(), color: ink, LabelFont: sh.font ? font(sh.font) : undefined, LabelSize: sh.size ? fmtSize(sh.size * f) : undefined, LabelFace: face || undefined, TopLeft: pt([x0, y0]), TopRight: pt([x1, y0]), BottomRight: pt([x1, y1]), BottomLeft: pt([x0, y1]), ...mine,
         OriginFraction: num6(tlc.origin ?? TLC_ORIGIN), SolventFrontFraction: num6(tlc.front ?? TLC_FRONT), ShowOrigin: hide.has("origin") ? undefined : "yes", ShowSolventFront: hide.has("front") ? undefined : "yes", ShowBorders: hide.has("border") ? undefined : "yes",
+        ShowSideTicks: tlc.ticks ? "yes" : undefined, Transparent: tlc.transparent ? "yes" : undefined,
         Octet: priv({ rf: tlc.rf, hollow: tlc.spots.flatMap((x, k) => (x.style === "hollow" ? [k] : [])).join(" ") || undefined, own: tlc.rf ? tlc.spots.flatMap((x, k) => (x.showRf ? [k] : [])).join(" ") || undefined : undefined,
           order: order.some((j, k) => j !== k) ? order.join(" ") : undefined, scale: ownScale(sh) }) }, lanes), 5, box, sh.id);
     } else if (sh.kind === "table") {
@@ -1462,7 +1466,14 @@ export function fromCdxml(text: string): CdxmlRead {
       if (h) spot.h = h;
       if (tail) spot.tail = tail;
       if (colour) spot.colour = colour;
-      if ((int(s.attrs.CurveType) ?? 0) & 256) spot.style = "shaded";
+      // Its style, as ChemDraw keeps a spot's (CurveType: Filled 128, Dashed 2, Bold 4, Doubled 512; Octet's Shaded 256).
+      // A ChemDraw spot without Filled is hollow; a file Octet wrote lists its hollow spots itself (below).
+      const type = int(s.attrs.CurveType) ?? 0;
+      if (type & 256) spot.style = "shaded";
+      else if (!octet && !(type & 128)) spot.style = "hollow";
+      if (type & 2) spot.dashed = true;
+      if (type & 4) spot.bold = true;
+      if (type & 512) spot.doubled = true;
       if (yes(s.attrs.ShowRf)) spot.showRf = true;
       spots.push(spot);
     }));
@@ -1472,6 +1483,8 @@ export function fromCdxml(text: string): CdxmlRead {
     if (front !== undefined && front >= 0 && Math.abs(front - TLC_FRONT) > 1e-9) tlc.front = Math.min(0.9, front);
     const hide = (["origin", "front", "border"] as const).filter((_, j) => !yes(x.attrs[["ShowOrigin", "ShowSolventFront", "ShowBorders"][j]]));
     if (hide.length) tlc.hide = [...hide];
+    if (yes(x.attrs.ShowSideTicks)) tlc.ticks = true;
+    if (yes(x.attrs.Transparent)) tlc.transparent = true;
     // Octet's own: spot order, hollow spots, and Rf shown for all.
     const list = (v: unknown) => (typeof v === "string" ? v.split(" ").map(Number).filter((k) => Number.isInteger(k) && k >= 0 && k < spots.length) : []);
     const order = list(p?.order);

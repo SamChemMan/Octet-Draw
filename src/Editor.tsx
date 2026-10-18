@@ -18,7 +18,7 @@ import { messy, problems, showWarnedHydrogens } from "./check";
 import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
-  addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset,
+  addChair, addGroup, addLane, addTemplate, alignFragments, deleteLane, moveLane, restyleSpot, atomsInPolygon, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset,
   addShape, addSymbol, bondOrders, orderBonds, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
@@ -59,7 +59,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, ELLIPSES, Palette, pickHead, RingGlyph, RINGS, SELECTS, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
+import { arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { loadNames, nameToSmiles, suggestName } from "./names";
@@ -153,6 +153,7 @@ type Drag =
   // TLC: a spot moved (lane and Rf) or sized (Shift: width across, height up, tail down), or the origin or front moved.
   | { kind: "spot"; plate: number; index: number; base: Mol; from: P; size: boolean; moved: boolean; working: Mol }
   | { kind: "tlcline"; plate: number; which: "origin" | "front"; base: Mol; working: Mol }
+  | { kind: "lane"; plate: number; from: number; to: number; base: Mol; working: Mol } // a lane dragged by its origin tick
   // A mark (lone pair, radical, circled or partial charge) moved round its atom by Shift-drag, by its key (Atom.angles).
   | { kind: "mark"; atom: number; key: string; base: Mol; working: Mol }
   // Tables: a column or row border dragged with the Table tool (index 0 is the left or top edge).
@@ -1231,7 +1232,7 @@ export default function Editor() {
     if (exporting) return exporting;
     if (drag?.kind === "bond" && drag.to) return bondTo(doc, drag.from, drag.to, bondSpec);
     if (drag?.kind === "chain" && drag.to) return chainTo(doc, drag.from, drag.to).mol;
-    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "resize" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "tableedge" || drag?.kind === "mark") return drag.working;
+    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "resize" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "lane" || drag?.kind === "tableedge" || drag?.kind === "mark") return drag.working;
     if (drag?.kind === "arrow" && drag.to) return addArrow(doc, newArrow(drag.from, drag.to, drag.side, drag.make))[0];
     if (drag?.kind === "shape" && drag.to) { const sh = shapeFrom(drag.from, drag.to); return sh ? addShape(doc, sh)[0] : doc; }
     if (pen || drag?.kind === "pen") {
@@ -1389,7 +1390,7 @@ export default function Editor() {
     | { kind: "contract"; text: string; keep: number; group: number[]; want?: string; warn?: string }
     | { kind: "bond"; bond: number; style: BondKind; position: "auto" | "left" | "centre" | "right" }
     | { kind: "font"; font: string } | { kind: "size"; size: string } | { kind: "spacing"; mode: "auto" | "variable" | "fixed"; pt: string }
-    | { kind: "unsaved"; next: () => void }>();
+    | { kind: "unsaved"; next: () => void } | { kind: "rf"; plate: number; index: number; value: string }>();
   const [commandsOpen, setCommandsOpen] = useState(false);
   // Choose Nickname: the list open by an atom (its place on screen). A click outside it or Escape closes it.
   const [nicknames, setNicknames] = useState<{ atom: number; x: number; y: number }>();
@@ -1578,6 +1579,22 @@ export default function Editor() {
   // drags it (Option: a copy of it; Shift: its size); on the origin or front, moves that line; anywhere else on the
   // plate, adds a spot there. A spot pressed and not moved is picked, for its colour, style and size.
   const [spotPick, setSpotPick] = useState<{ plate: number; index: number }>();
+  // The lane a plate's lane actions act on (Add, Duplicate and Delete Lane): the last one pressed or right-clicked, as
+  // ChemDraw's act on the lane under the pointer.
+  const [lanePick, setLanePick] = useState<{ plate: number; lane: number }>();
+  const laneOf = (sh: Shape, p: P) => { const t = tlcLayout(sh); return Math.min(t.lanes - 1, Math.max(0, Math.floor((p[0] - t.x0) / t.width))); };
+  // A lane's origin tick under a point, within 5 px.
+  const tickAt = (sh: Shape, p: P) => {
+    const t = tlcLayout(sh), near = 5 / (views.get().zoom * L);
+    if (sh.tlc?.hide?.includes("origin") || Math.abs(p[1] - t.origin) > near) return undefined;
+    const k = laneOf(sh, p);
+    return Math.abs(p[0] - t.lane(k)) < near ? k : undefined;
+  };
+  // The spot whose Rf value (shown) is under a point.
+  const rfAt = (sh: Shape, p: P) => {
+    const t = tlcLayout(sh);
+    return (sh.tlc?.spots ?? []).findIndex((x) => (sh.tlc?.rf || x.showRf) && p[0] >= t.lane(x.lane) + t.size(x).rx && p[0] <= t.lane(x.lane) + t.size(x).rx + 0.8 * t.f && Math.abs(p[1] - t.at(x.rf) + 0.05 * t.f) < 0.2 * t.f);
+  };
   // A spot is hit within 4 px of its edge (its tail included), the nearest one first.
   const spotHit = (sh: Shape, p: P) => {
     const t = tlcLayout(sh), slack = 4 / (views.get().zoom * L);
@@ -1594,6 +1611,7 @@ export default function Editor() {
   const spotAt = (sh: Shape, p: P, screen: [number, number], copy: boolean, size: boolean) => {
     setSelection(new Set());
     setPicked(new Set([sh.id]));
+    setLanePick({ plate: sh.id, lane: laneOf(sh, p) });
     const t = tlcLayout(sh), spots = sh.tlc?.spots ?? [], hit = spotHit(sh, p);
     if (hit >= 0) {
       const base = copy ? updateShape(doc, sh.id, { tlc: { ...sh.tlc!, spots: [...spots, { ...spots[hit] }] } }) : doc;
@@ -1607,12 +1625,16 @@ export default function Editor() {
     setSpotPick({ plate: sh.id, index: spots.length });
     void screen;
   };
-  useEffect(() => { if (spotPick && (!picked.has(spotPick.plate) || picked.size !== 1)) setSpotPick(undefined); }, [picked]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (spotPick && (!picked.has(spotPick.plate) || picked.size !== 1)) setSpotPick(undefined);
+    if (lanePick && !picked.has(lanePick.plate)) setLanePick(undefined);
+  }, [picked]); // eslint-disable-line react-hooks/exhaustive-deps
   // A spot's changes, on the plate it is on.
-  const editSpot = (m: Mol, plate: number, index: number, change: (x: NonNullable<Shape["tlc"]>["spots"][number]) => Partial<NonNullable<Shape["tlc"]>["spots"][number]>): Mol => {
+  // whole: the change is the whole new spot (so what it leaves out goes).
+  const editSpot = (m: Mol, plate: number, index: number, change: (x: Spot) => Partial<Spot>, whole = false): Mol => {
     const sh = m.shapes?.find((x) => x.id === plate);
     if (!sh?.tlc) return m;
-    return updateShape(m, plate, { tlc: { ...sh.tlc, spots: sh.tlc.spots.map((x, i) => (i === index ? { ...x, ...change(x) } : x)) } });
+    return updateShape(m, plate, { tlc: { ...sh.tlc, spots: sh.tlc.spots.map((x, i) => (i === index ? (whole ? change(x) as Spot : { ...x, ...change(x) }) : x)) } });
   };
   // Tables: a cell's text width (drawing units), the table a point is on, and opening a cell to type in.
   const cellWidth = (sh: Shape) => (text: string) => formulaWidth(text, (sh.size ?? style.captionSize) * pt, sh.bold, sh.italic, fontStack(sh.font ?? style.captionFont)) / L;
@@ -2314,6 +2336,7 @@ export default function Editor() {
       setSelection(new Set());
       setPicked(new Set([plate.id]));
       setSpotPick(k >= 0 ? { plate: plate.id, index: k } : undefined);
+      setLanePick({ plate: plate.id, lane: laneOf(plate, p) });
     } else {
       const found: Hover = free && t.arrow === undefined ? { arrow: highlightAt(p) ?? orbitalAt(p) } : t;
       const atoms = atomsOf(doc, found), items = itemsOf(found), cycle = doc.cycles?.find((c) => c.id === found.cycle);
@@ -2333,6 +2356,9 @@ export default function Editor() {
     const p = toDoc(e.clientX, e.clientY), t = hit(p), screen: [number, number] = [e.clientX, e.clientY];
     pointer.current = p;
     pressAlt.current = e.altKey;
+    // A press on a TLC plate's lane makes it the lane the plate's lane actions act on.
+    const lanePlate = tool === "select" || tool === "tlc" ? plateAt(p) : undefined;
+    if (lanePlate) setLanePick({ plate: lanePlate.id, lane: laneOf(lanePlate, p) });
     // The crosshair's middle drags it, whatever tool is in hand (a structure or object there comes first).
     if (onCrosshair(p, t)) return setDrag({ kind: "crosshair", from: cross!, at: cross! });
     // Shift with the Arrow tool over an arrow's end, or its middle point, starts a new arrow joined there.
@@ -2371,6 +2397,14 @@ export default function Editor() {
     }
     const page = t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined ? pageEdgeAt(p) : undefined;
     if (page) return fitPage(page);
+    // A TLC lane's origin tick drags the lane to another place among the lanes (ChemDraw's way to order lanes), with
+    // Select or the TLC tool.
+    const tick = lanePlate ? tickAt(lanePlate, p) : undefined;
+    if (lanePlate && tick !== undefined) {
+      setSelection(new Set());
+      setPicked(new Set([lanePlate.id]));
+      return setDrag({ kind: "lane", plate: lanePlate.id, from: tick, to: tick, base: doc, working: doc });
+    }
     if (tool === "select") {
       pressMods.current = { shift: e.shiftKey, alt: e.altKey, atoms: selection, picks: picked };
       return pressSelect(p, t, e.shiftKey, screen, e.altKey);
@@ -2403,10 +2437,14 @@ export default function Editor() {
       else setDrag({ kind: "click", at: p, start: screen, target: t });
       return startHold(p, t, screen);
     }
-    // The eraser takes a TLC spot off its plate.
+    // The eraser takes a TLC spot off its plate, and a click inside a lane takes the lane away (as ChemDraw's).
     if (tool === "erase" && plateAt(p) && spotHit(plateAt(p)!, p) >= 0) {
       const sh = plateAt(p)!, i = spotHit(sh, p);
       return set(updateShape(doc, sh.id, { tlc: { ...sh.tlc!, spots: sh.tlc!.spots.filter((_, k) => k !== i) } }));
+    }
+    if (tool === "erase" && t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined && plateAt(p) && (plateAt(p)!.tlc?.lanes ?? 1) > 1) {
+      const sh = plateAt(p)!;
+      return set(updateShape(doc, sh.id, deleteLane(sh, laneOf(sh, p))));
     }
     // Pressing away from the selection with a drawing tool clears it, as ChemDraw does.
     if (selection.size || picked.size) { setSelection(new Set()); setPicked(new Set()); }
@@ -2543,6 +2581,13 @@ export default function Editor() {
       case "mark": {
         const a = drag.base.atoms[drag.atom], deg = Math.round((Math.atan2(p[1] - a.location[1], p[0] - a.location[0]) * 180) / Math.PI);
         return setDrag({ ...drag, working: { ...drag.base, atoms: drag.base.atoms.map((x, i) => (i === drag.atom ? { ...x, angles: { ...x.angles, [drag.key]: deg } } : x)) } });
+      }
+      case "lane": {
+        // The lane goes where the pointer is among the lanes, its spots with it.
+        const sh = drag.base.shapes?.find((x) => x.id === drag.plate);
+        if (!sh?.tlc) return;
+        const to = laneOf(sh, p);
+        return to === drag.to ? undefined : setDrag({ ...drag, to, working: updateShape(drag.base, drag.plate, moveLane(sh, drag.from, to)) });
       }
       case "tlcline": {
         const sh = drag.base.shapes?.find((x) => x.id === drag.plate);
@@ -2909,7 +2954,7 @@ export default function Editor() {
     if (plate && spot) {
       // The sizes shown are the sizes drawn, at the plate's scale.
       const t = tlcLayout(plate), { rx, ry } = t.size(spot);
-      return { kind: "spot", style: spot.style ?? "filled", w: rx, h: ry, tail: (spot.tail ?? 0) * t.f, rf: !!spot.showRf, pt: style.bond };
+      return { kind: "spot", style: spot.style ?? "filled", dashed: !!spot.dashed, bold: !!spot.bold, doubled: !!spot.doubled, w: rx, h: ry, tail: (spot.tail ?? 0) * t.f, rf: !!spot.showRf, pt: style.bond };
     }
     // A table's lines, the alignment of the column last typed in (or of every column, when they share one), and its
     // lines' width.
@@ -2924,7 +2969,7 @@ export default function Editor() {
       const first = pickedShapes[0];
       return {
         kind: "shape", count: pickedShapes.length, shape: first.kind, dashed: !!first.dashed, boldLine: !!first.boldLine, colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
-        style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, ...tableContext(first), hide: first.tlc?.hide ?? [], shade: { ...SHADE, ...first.shade, pt: style.bond },
+        style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, ...tableContext(first), hide: first.tlc?.hide ?? [], ticks: !!first.tlc?.ticks, transparent: !!first.tlc?.transparent, lane: lanePick?.plate === first.id, shade: { ...SHADE, ...first.shade, pt: style.bond },
         ...(first.kind === "table" || first.kind === "tlc" ? { text: { bold: !!first.bold, italic: !!first.italic, underline: !!first.underline, font: first.font ?? style.captionFont, size: first.size ?? (first.kind === "tlc" ? style.captionSize * 0.8 : style.captionSize) } } : {}),
       };
     }
@@ -2983,7 +3028,7 @@ export default function Editor() {
   // drawing again). While text is typed, the caret changes it too, so the panel works it out as it draws (see Actions
   // below).
   const settled = shown === doc;
-  const panelContext = useMemo(() => (writing ? undefined : contextOf()), [doc, selection, picked, writing, tool, textStyle, spotPick, lastCell, namesLoaded, loaded, style, fontList, settled && drawing, settled && placed]); // eslint-disable-line react-hooks/exhaustive-deps
+  const panelContext = useMemo(() => (writing ? undefined : contextOf()), [doc, selection, picked, writing, tool, textStyle, spotPick, lanePick, lastCell, namesLoaded, loaded, style, fontList, settled && drawing, settled && placed]); // eslint-disable-line react-hooks/exhaustive-deps
   // The formula and mass the panel shows (of the selection, or everything): only while it is open and shows them, and
   // only for the first three structures, as it shows no more.
   const facts = settings.actions && (panelContext?.kind === "drawing" || panelContext?.kind === "structure");
@@ -3505,7 +3550,9 @@ export default function Editor() {
     // A picked TLC spot: style, size (hundredths of a bond length), tail, its own Rf, removal.
     if (command.startsWith("spot.") && spotPick) {
       const [, what, arg] = command.split("."), at = (change: Parameters<typeof editSpot>[3]) => set(editSpot(doc, spotPick.plate, spotPick.index, change), true, `spot-${what}`);
-      if (what === "style") return at(() => ({ style: arg === "filled" ? undefined : (arg as "hollow" | "shaded") }));
+      if (what === "style") return set(editSpot(doc, spotPick.plate, spotPick.index, (x) => restyleSpot(x, arg, !(arg === "dashed" || arg === "bold" || arg === "doubled") || !x[arg]), true), true);
+      // Set Rf…: its Rf typed in (the spot moves to it).
+      if (what === "setrf") { const x = doc.shapes?.find((y) => y.id === spotPick.plate)?.tlc?.spots[spotPick.index]; return x && setDialog({ kind: "rf", plate: spotPick.plate, index: spotPick.index, value: String(x.rf) }); }
       // The size shown is the size drawn; the spot keeps it over its plate's scale.
       if (what === "w" || what === "h" || what === "tail") return at(() => ({ [what]: Number(arg) / 100 / scaleOf(doc.shapes?.find((x) => x.id === spotPick.plate) ?? {}) }));
       if (what === "rf") return at((x) => ({ showRf: x.showRf ? undefined : true }));
@@ -3530,12 +3577,23 @@ export default function Editor() {
         const value = Number(arg) / 100;
         return set({ ...doc, shapes: doc.shapes?.map((x) => (ids.has(x.id) ? { ...x, shade: { ...SHADE, ...x.shade, [what]: value } } : x)) }, true, `shade-${what}-${[...ids].join()}`);
       }
-      // TLC plates: a lane more or fewer (spots in a lane that goes go with it), and Rf values on or off.
-      if (what === "lanes") return each((x) => { const lanes = Math.max(1, Math.min(40, (x.tlc?.lanes ?? 1) + Number(arg))); return { tlc: { ...x.tlc!, lanes, spots: (x.tlc?.spots ?? []).filter((y) => y.lane < lanes) } }; });
+      // TLC plates, as ChemDraw's Add Lane, Duplicate Lane and Delete Lane: at the lane last pressed or right-clicked
+      // (a new lane goes after it), or at the last lane. The plate grows or shrinks by a lane. Rf values on or off.
+      if (what === "lanes") return each((x) => {
+        const n = x.tlc?.lanes ?? 1, k = lanePick?.plate === x.id ? Math.min(n - 1, lanePick.lane) : n - 1;
+        if (arg !== "-1") setLanePick({ plate: x.id, lane: k + 1 });
+        return arg === "-1" ? deleteLane(x, k) : addLane(x, k + 1, arg === "copy" ? k : undefined);
+      });
       if (what === "rf") return each((x) => ({ tlc: { ...x.tlc!, rf: !x.tlc?.rf || undefined } }));
+      // Show Side Ticks and Transparent, as ChemDraw's plate menu.
+      if (what === "ticks" || what === "transparent") return each((x) => ({ tlc: { ...x.tlc!, [what]: !x.tlc?.[what] || undefined } }));
       // A plate's origin, front or border shown or hidden, and one style for all its spots.
       if (what === "hide") return each((x) => { const h = new Set(x.tlc?.hide ?? []), k = arg as "origin" | "front" | "border"; if (h.has(k)) h.delete(k); else h.add(k); return { tlc: { ...x.tlc!, hide: h.size ? [...h] : undefined } }; });
-      if (what === "spots") return each((x) => ({ tlc: { ...x.tlc!, spots: (x.tlc?.spots ?? []).map((s) => ({ ...s, style: arg === "filled" ? undefined : (arg as "hollow" | "shaded") })) } }));
+      // Every spot's style at once (a toggle goes on unless every spot has it already).
+      if (what === "spots") return each((x) => {
+        const spots = x.tlc?.spots ?? [], on = !spots.every((y) => (arg === "dashed" || arg === "bold" || arg === "doubled") && y[arg]);
+        return { tlc: { ...x.tlc!, spots: spots.map((y) => restyleSpot(y, arg, on)) } };
+      });
       // Tables: rows and columns added or deleted at the cell last typed in (at the end without one), the lines drawn
       // (a set, or one line on or off), the cells' alignment (the cell's column, or all), the lines' width, Clear
       // Contents and Size To Fit Contents.
@@ -3859,6 +3917,9 @@ export default function Editor() {
       case "spot":
         if (drag.moved) return set(drag.working, true);
         return setSpotPick({ plate: drag.plate, index: drag.index });
+      case "lane":
+        setLanePick({ plate: drag.plate, lane: drag.to });
+        return drag.working !== drag.base ? set(drag.working, true) : undefined;
       case "tlcline":
       case "tableedge":
       case "mark":
@@ -4239,6 +4300,8 @@ export default function Editor() {
   };
   // A shape's fill: a highlight, a solid, shaded or faded fill, or a shadow.
   const shapeFill = (sh: Shape) => {
+    // A TLC plate is the page's colour, as ChemDraw's, unless it is Transparent.
+    if (sh.kind === "tlc" && !sh.tlc?.transparent) { const t = tlcLayout(sh); return <rect key={`f${sh.id}`} x={t.x0 * L} y={-t.y1 * L} width={(t.x1 - t.x0) * L} height={(t.y1 - t.y0) * L} fill="var(--canvas)" />; }
     if (!(sh.kind === "highlight" || sh.fill || sh.shadow)) return null;
     const d = kept(outlines, sh, frame.bond, () => toPath(shapeTrace(sh, L, frame.bond).paths.slice(0, 1))), shade = { ...SHADE, ...sh.shade }, off = shade.depth * L * scaleOf(sh);
     if (sh.kind === "highlight") return <path key={`f${sh.id}`} d={d} fill={sh.colour ?? HIGHLIGHT} />;
@@ -4307,25 +4370,34 @@ export default function Editor() {
     );
   };
   // A TLC plate's lines and spots.
+  // The lane marked on a picked plate (lanePick), for the drawing's memos below.
+  const laneMark = lanePick && picked.has(lanePick.plate) ? lanePick : undefined;
   const tlcInk = (sh: Shape) => {
-    // A plate's origin line, dashed solvent front, spots, and their Rf values when shown.
+    // A plate's origin line, dashed solvent front, side ticks (every 0.1 Rf, longer at 0, 0.5 and 1), spots, and their
+    // Rf values when shown. The lane its actions act on is marked while the plate is picked.
     const t = tlcLayout(sh), y = (v: number) => -v * L, ink = sh.colour ? textInk(sh.colour) : "var(--ink)", hide = new Set(sh.tlc?.hide ?? []), w = lined(sh.width).line * t.f;
-    const dragging = drag?.kind === "spot" && drag.plate === sh.id ? drag.index : undefined;
+    const dragging = drag?.kind === "spot" && drag.plate === sh.id ? drag.index : undefined, path = (q: [number, number][]) => "M" + q.map(([px, py]) => `${(px * L).toFixed(2)} ${(-py * L).toFixed(2)}`).join("L") + "Z";
+    const ticks = sh.tlc?.ticks && Array.from({ length: 11 }, (_, k) => { const at = y(t.at(k / 10)), n = (k % 5 ? 0.09 : 0.16) * L * t.f; return `M${t.x0 * L} ${at}h${n}M${t.x1 * L} ${at}h${-n}`; }).join("");
     return (
       <g key={`tlc${sh.id}`} className="tlc">
+        {laneMark?.plate === sh.id && laneMark.lane < t.lanes && <rect className="lane-picked" x={(t.x0 + t.width * laneMark.lane) * L} y={y(t.y1)} width={t.width * L} height={(t.y1 - t.y0) * L} />}
+        {ticks && <path d={ticks} stroke={ink} strokeWidth={w} fill="none" />}
         {!hide.has("origin") && <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.origin)} y2={y(t.origin)} stroke={ink} strokeWidth={w} />}
         {!hide.has("origin") && Array.from({ length: t.lanes }, (_, k) => <line key={`t${k}`} x1={t.lane(k) * L} x2={t.lane(k) * L} y1={y(t.origin) - 0.08 * L * t.f} y2={y(t.origin) + 0.08 * L * t.f} stroke={ink} strokeWidth={w} />)}
         {!hide.has("front") && <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.front)} y2={y(t.front)} stroke={ink} strokeWidth={w} strokeDasharray={`${0.12 * L * t.f} ${0.08 * L * t.f}`} />}
         {(sh.tlc?.spots ?? []).map((x, i) => {
-          // A spot in its own colour (or the plate's): filled, hollow (its outline) or shaded (lit from the top left).
-          const c = x.colour ? textInk(x.colour) : ink, d = "M" + spotPath(t, x).map(([px, py]) => `${(px * L).toFixed(2)} ${(-py * L).toFixed(2)}`).join("L") + "Z", { rx } = t.size(x);
+          // A spot in its own colour (or the plate's): filled, hollow (its outline) or shaded (lit from the top left); its
+          // outline dashed (and hollow) or bold; doubled, with a second outline round it, clear of the first by its width and
+          // two line widths.
+          const c = x.colour ? textInk(x.colour) : ink, d = path(spotPath(t, x)), { rx } = t.size(x), filled = x.style !== "hollow" && !x.dashed, sw = x.bold ? lined(sh.width).bold * t.f : w, grow = x.doubled ? (2 * sw + 2 * w) / L : 0;
           const picked = spotPick?.plate === sh.id && spotPick.index === i;
           return (
             <g key={i}>
-              {x.style === "shaded" && <defs><radialGradient id={`spot${sh.id}-${i}`} cx="0.36" cy="0.32" r="0.75"><stop offset="0" stopColor="#FFFFFF" /><stop offset="1" style={{ stopColor: c }} /></radialGradient></defs>}
-              <path d={d} fill={x.style === "hollow" ? "none" : x.style === "shaded" ? `url(#spot${sh.id}-${i})` : c} stroke={x.style === "hollow" ? c : undefined} strokeWidth={w} />
+              {x.style === "shaded" && filled && <defs><radialGradient id={`spot${sh.id}-${i}`} cx="0.36" cy="0.32" r="0.75"><stop offset="0" stopColor="#FFFFFF" /><stop offset="1" style={{ stopColor: c }} /></radialGradient></defs>}
+              <path d={d} fill={!filled ? "none" : x.style === "shaded" ? `url(#spot${sh.id}-${i})` : c} stroke={!filled || x.bold ? c : undefined} strokeWidth={sw} strokeDasharray={x.dashed ? `${3 * sw} ${2 * sw}` : undefined} />
+              {x.doubled && <path d={path(spotPath(t, x, grow))} fill="none" stroke={c} strokeWidth={sw} />}
               {picked && <path d={d} className="spot-picked" fill="none" vectorEffect="non-scaling-stroke" />}
-              {(sh.tlc?.rf || x.showRf || dragging === i) && <text x={(t.lane(x.lane) + rx + 0.1 * t.f) * L} y={y(t.at(x.rf)) + 0.12 * L * t.f} fill={c} style={textFace(sh, (sh.size ?? style.captionSize * 0.8) * pt * t.f)}>{x.rf.toFixed(2)}</text>}
+              {(sh.tlc?.rf || x.showRf || dragging === i) && <text x={(t.lane(x.lane) + rx + grow + 0.1 * t.f) * L} y={y(t.at(x.rf)) + 0.12 * L * t.f} fill={c} style={textFace(sh, (sh.size ?? style.captionSize * 0.8) * pt * t.f)}>{x.rf.toFixed(2)}</text>}
             </g>
           );
         })}
@@ -4494,7 +4566,7 @@ export default function Editor() {
         <CaptionText key={`c${c.id}`} c={c} fill={textInk(c.colour ?? style.colour)} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} />
       ))}
     </>
-  ), [shown, frame, darkPaper, draggedSpot, spotPick, style, pt, cell?.id, cell?.r, cell?.c, drawing, markDirs, labelTexts, placed, writing?.id, reagents]); // eslint-disable-line react-hooks/exhaustive-deps
+  ), [shown, frame, darkPaper, draggedSpot, spotPick, laneMark?.plate, laneMark?.lane, style, pt, cell?.id, cell?.r, cell?.c, drawing, markDirs, labelTexts, placed, writing?.id, reagents]); // eslint-disable-line react-hooks/exhaustive-deps
   // Things with a draw order (order.ts), each drawn whole: under all the layers (below zero) or over them, lowest first.
   const lifted = useMemo(() => {
     const things: [number, React.ReactNode][] = [];
@@ -4516,7 +4588,7 @@ export default function Editor() {
     for (const c of placed) if (c.order && c.id !== (writing?.id ?? DRAFT) && c.id !== DRAFT) things.push([c.order, <CaptionText key={`oc${c.id}`} c={c} fill={textInk(c.colour ?? style.colour)} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} />]);
     things.sort((a, b) => a[0] - b[0]);
     return { back: things.filter(([o]) => o < 0).map(([, x]) => x), front: things.filter(([o]) => o > 0).map(([, x]) => x) };
-  }, [shown, frame, darkPaper, draggedSpot, spotPick, style, pt, cell?.id, cell?.r, cell?.c, drawing, labelTexts, placed, arrows, cycleArrows, writing?.id, reagents]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [shown, frame, darkPaper, draggedSpot, spotPick, laneMark?.plate, laneMark?.lane, style, pt, cell?.id, cell?.r, cell?.c, drawing, labelTexts, placed, arrows, cycleArrows, writing?.id, reagents]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className={guides.rulers && !home ? "editor with-rulers" : "editor"}>
@@ -4563,6 +4635,12 @@ export default function Editor() {
           if (gc && !["formula", "mw", "expected", "yield"].includes(gc.row)) {
             const v = gridViews.find((x) => x.arrow === gc.arrow)!, c = v.cols.find((x) => x.key === gc.key)!, row = GRID_ROWS.find((r) => r.id === gc.row)!;
             return setGridEdit({ ...gc, value: c.typed[row.field as Field] !== undefined ? gridText(v, c, row).text : "" });
+          }
+          // Double-click a TLC spot, or its Rf value, to type its Rf (ChemDraw's Set Rf; the spot moves to it).
+          const plate = tool !== "erase" ? plateAt(toDoc(e.clientX, e.clientY)) : undefined;
+          if (plate) {
+            const q = toDoc(e.clientX, e.clientY), k = spotHit(plate, q) >= 0 ? spotHit(plate, q) : rfAt(plate, q);
+            if (k >= 0) return setDialog({ kind: "rf", plate: plate.id, index: k, value: String(plate.tlc!.spots[k].rf) });
           }
           // Double-click a table to type in the cell.
           const table = tool !== "erase" ? tableAt(toDoc(e.clientX, e.clientY)) : undefined;
@@ -5086,6 +5164,16 @@ export default function Editor() {
         return <ActionsMenu at={menuAt} keyboard={menuAt.keyboard} context={context} messy={untidy} hiddenWarnings={[...selection].some((i) => doc.atoms[i]?.ignoreWarnings)} grouping={grouping}
           layout={settings.actionLayout} hint={hint} colour={selectionColour(context)} palette={[...settings.palette, ...docColours]} run={runAction} onClose={() => setMenuAt(undefined)} />;
       })()}
+      {dialog?.kind === "rf" && (
+        // Set Rf…, as ChemDraw's: the spot moves to the Rf typed.
+        <Dialog title="Set Rf" action="Set" onClose={() => setDialog(undefined)}
+          onAction={() => { const v = Number(dialog.value); if (v >= 0 && v <= 1) set(editSpot(doc, dialog.plate, dialog.index, () => ({ rf: Math.round(v * 1000) / 1000 })), true); setDialog(undefined); }}>
+          <label className="dialog-row">
+            <span>Rf</span>
+            <NumberField label="Rf" min={0} max={1} step={0.01} value={Number(dialog.value)} onChange={(n) => setDialog({ ...dialog, value: String(n) })} />
+          </label>
+        </Dialog>
+      )}
       {dialog?.kind === "rotate" && (
         <Dialog title="Rotate" action="Rotate" onClose={() => setDialog(undefined)}
           onAction={() => { const a = Number(dialog.angle); if (Number.isFinite(a)) rotateBy(dialog.clockwise ? -a : a); setDialog(undefined); }}>

@@ -3206,6 +3206,11 @@ button.variant.add {
   stroke-width: 2px;
   stroke-dasharray: 3 2;
 }
+/* The lane a picked plate's lane actions act on (the last one pressed or right-clicked). */
+.lane-picked {
+  fill: var(--brand-bright);
+  fill-opacity: 0.08;
+}
 
 /* The Properties panel: the Actions panel's look, at the top right. */
 /* Properties: along the bottom, where the Spectrum opens (above it when both are open); its rows run across in

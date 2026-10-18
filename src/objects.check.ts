@@ -46,3 +46,40 @@ const chain = (x: number, y: number, label = "C", dx = 1, dy = 0): Mol => ({ ato
   for (let i = 6; i < 12; i++) assert.ok(out.atoms.some((_, k) => Math.hypot(pos(out, k)[0] - pos(m, i)[0], pos(out, k)[1] - pos(m, i)[1]) < 1e-9));
   console.log("objects.check: Join two bonds ok");
 }
+
+// CD-29: TLC plates. Lanes added, duplicated, deleted and moved at a lane, the plate growing or shrinking by a lane.
+import { addLane, deleteLane, moveLane, restyleSpot } from "./edit.ts";
+import { fromCdxml, spotType, toCdxml } from "./cdxml.ts";
+import { DEFAULT_STYLE } from "./docstyle.ts";
+import { parse, serialize } from "./file.ts";
+import type { Shape } from "./render.ts";
+{
+  const plate: Shape = { id: 1, kind: "tlc", from: [0, 0], to: [3, 4], tlc: { lanes: 3, spots: [{ lane: 0, rf: 0.2 }, { lane: 1, rf: 0.5 }, { lane: 2, rf: 0.8 }] } };
+  const added = addLane(plate, 1);
+  assert.deepEqual([added.tlc!.lanes, added.to, added.tlc!.spots.map((s) => s.lane)], [4, [4, 4], [0, 2, 3]]);
+  const copied = addLane(plate, 2, 1);
+  assert.deepEqual(copied.tlc!.spots.map((s) => [s.lane, s.rf]), [[0, 0.2], [1, 0.5], [3, 0.8], [2, 0.5]], "Duplicate puts the lane's spots in the new lane");
+  const gone = deleteLane(plate, 1);
+  assert.deepEqual([gone.tlc!.lanes, gone.to, gone.tlc!.spots.map((s) => [s.lane, s.rf])], [2, [2, 4], [[0, 0.2], [1, 0.8]]]);
+  assert.equal(deleteLane(deleteLane(gone, 0), 0).tlc!.lanes, 1, "a plate keeps one lane");
+  assert.deepEqual(moveLane(plate, 0, 2).tlc!.spots.map((s) => [s.lane, s.rf]), [[2, 0.2], [0, 0.5], [1, 0.8]]);
+  // Spot styles go together as ChemDraw's: dashed is hollow and not doubled; filled is not dashed.
+  const dashed = restyleSpot({ lane: 0, rf: 0.5, doubled: true }, "dashed");
+  assert.deepEqual(dashed, { lane: 0, rf: 0.5, style: "hollow", dashed: true });
+  assert.deepEqual(restyleSpot(dashed, "filled"), { lane: 0, rf: 0.5 });
+  assert.deepEqual(restyleSpot(restyleSpot({ lane: 0, rf: 0.5 }, "bold"), "doubled"), { lane: 0, rf: 0.5, bold: true, doubled: true });
+  assert.deepEqual(restyleSpot({ lane: 0, rf: 0.5, bold: true }, "bold", false), { lane: 0, rf: 0.5 });
+  // CDXML: ChemDraw's CurveType (Filled 128, Dashed 2, Bold 4, Doubled 512); no Filled is a hollow spot.
+  assert.deepEqual([spotType({ lane: 0, rf: 0 }), spotType({ lane: 0, rf: 0, style: "hollow", dashed: true }), spotType({ lane: 0, rf: 0, bold: true, doubled: true }), spotType({ lane: 0, rf: 0, style: "shaded" })], [128, 2, 644, 384]);
+  const chemdraw = fromCdxml(`<CDXML BondLength="14.40"><page><tlcplate id="5" TopLeft="100 100" TopRight="200 100" BottomRight="200 300" BottomLeft="100 300" ShowSideTicks="yes" Transparent="yes"><tlclane id="6">
+<tlcspot id="7" Rf="0.2"/><tlcspot id="8" Rf="0.4" CurveType="128"/><tlcspot id="9" Rf="0.6" CurveType="6"/><tlcspot id="10" Rf="0.8" CurveType="640"/></tlclane></tlcplate></page></CDXML>`).mol.shapes![0].tlc!;
+  assert.deepEqual([chemdraw.ticks, chemdraw.transparent], [true, true]);
+  assert.deepEqual(chemdraw.spots.map((s) => [s.style, s.dashed, s.bold, s.doubled]), [["hollow", undefined, undefined, undefined], [undefined, undefined, undefined, undefined], ["hollow", true, true, undefined], [undefined, undefined, undefined, true]]);
+  // Octet's own file keeps every style, and its plate's ticks and transparency.
+  const mine: Shape = { id: 2, kind: "tlc", from: [0, 0], to: [3, 4], tlc: { lanes: 2, ticks: true, transparent: true, spots: [{ lane: 0, rf: 0.3 }, { lane: 1, rf: 0.6, style: "hollow", dashed: true, bold: true }, { lane: 1, rf: 0.9, doubled: true, style: "shaded" }] } };
+  const back = fromCdxml(toCdxml({ atoms: [], bonds: [], shapes: [mine] }, DEFAULT_STYLE)).mol.shapes![0].tlc!;
+  assert.deepEqual({ ...back, spots: back.spots.map((s) => ({ ...s, w: undefined, h: undefined })) }, { ...mine.tlc, spots: mine.tlc!.spots.map((s) => ({ ...s, w: undefined, h: undefined })) });
+  // Octet's own file and clipboard keep them too.
+  assert.deepEqual(parse(serialize({ atoms: [], bonds: [], shapes: [mine] })).shapes![0].tlc, mine.tlc);
+  console.log("objects.check: TLC lanes, spot styles, side ticks and transparency ok");
+}
