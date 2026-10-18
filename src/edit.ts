@@ -250,40 +250,62 @@ const inside = (g: { atoms: number[]; items: number[] }, s: Members) => g.atoms.
 const meets = (g: { atoms: number[]; items: number[] }, s: Members) => g.atoms.some((i) => s.atoms.has(i)) || g.items.some((id) => s.items.has(id));
 // Whether a caption belongs to a structure, arrow or cycle among these members.
 const attached = (c: Caption, s: Members) => (c.under?.length ? c.under.every((i) => s.atoms.has(i)) : c.on ? s.items.has(c.on.arrow) : !!c.cycle && s.items.has(c.cycle.cycle));
+// Groups by size, the largest first (of two the same size, the first first).
+const bySize = (gs: Grouped[]) => gs.map((_, k) => k).sort((p, q) => sizeOf(gs[q]) - sizeOf(gs[p]) || p - q);
+// One key for each atom (its index) and each object (-1 - its id).
+const keysOf = (g: Grouped) => [...g.atoms, ...g.items.map((id) => -1 - id)];
 // Each group's parent, by its place in the list: the smallest other group that holds it. Of two groups with the
-// same members, the first holds the second.
+// same members, the first holds the second. The largest groups come first, and each atom and object keeps the last
+// group that had it, so the parent is the first group up from that of the first member that holds all of it. The
+// time grows with the number of members, not with the number of groups squared.
 export function groupParents(gs: Grouped[]): (number | undefined)[] {
-  const sets = gs.map(membersOf), size = gs.map(sizeOf), [byAtom, byItem] = owners(gs);
-  return gs.map((g, k) => {
-    // Only a group that has this group's first member can hold it.
-    let best: number | undefined;
-    for (const j of (g.atoms.length ? byAtom.get(g.atoms[0]) : byItem.get(g.items[0])) ?? []) {
-      if (j === k || size[j] < size[k] || (size[j] === size[k] && j > k) || !inside(g, sets[j])) continue;
-      if (best === undefined || size[j] < size[best] || (size[j] === size[best] && j > best)) best = j;
-    }
-    return best;
-  });
-}
-// The groups that have each atom, and each object, by place in the list.
-function owners(gs: Grouped[]): [Map<number, number[]>, Map<number, number[]>] {
-  const byAtom = new Map<number, number[]>(), byItem = new Map<number, number[]>();
-  const add = (map: Map<number, number[]>, key: number, k: number) => { const list = map.get(key); if (list) list.push(k); else map.set(key, [k]); };
-  gs.forEach((g, k) => { for (const i of g.atoms) add(byAtom, i, k); for (const id of g.items) add(byItem, id, k); });
-  return [byAtom, byItem];
-}
-// Two groups that share something, neither holding the other: the pair with the largest group (outer groups join
-// first, so the groups inside them can still nest), or undefined.
-function crossing(gs: Grouped[]): [number, number] | undefined {
-  const sets = gs.map(membersOf), seen = new Set<number>();
-  let found: [number, number] | undefined;
-  for (const map of owners(gs)) for (const ks of map.values()) for (let x = 0; x < ks.length; x++) for (let y = x + 1; y < ks.length; y++) {
-    const [p, q] = sizeOf(gs[ks[x]]) >= sizeOf(gs[ks[y]]) ? [ks[x], ks[y]] : [ks[y], ks[x]], key = p * gs.length + q;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    if (inside(gs[q], sets[p]) || inside(gs[p], sets[q])) continue;
-    if (!found || sizeOf(gs[p]) > sizeOf(gs[found[0]]) || (sizeOf(gs[p]) === sizeOf(gs[found[0]]) && sizeOf(gs[q]) > sizeOf(gs[found[1]]))) found = [p, q];
+  const sets = gs.map(membersOf), parents: (number | undefined)[] = gs.map(() => undefined), last = new Map<number, number>();
+  for (const k of bySize(gs)) {
+    const keys = keysOf(gs[k]);
+    if (!keys.length) continue;
+    let p = last.get(keys[0]);
+    while (p !== undefined && !inside(gs[k], sets[p])) p = parents[p];
+    parents[k] = p;
+    for (const x of keys) last.set(x, k);
   }
-  return found;
+  return parents;
+}
+// Groups that share something, neither holding the other, become one (Integral if either was). The largest groups
+// come first, so a group that crosses larger ones joins them, and the groups inside those stay inside. Each atom and
+// object keeps the smallest group so far that has it. The time grows with the number of members (a damaged or
+// hostile file can have thousands of groups that cross). The joined groups are put right after (clean).
+function uncross(gs: Grouped[], clean: (g: Grouped) => Grouped): Grouped[] {
+  const out: (Grouped | undefined)[] = [...gs], up = new Map<number, number | undefined>(), into = new Map<number, number>(), last = new Map<number, number>(), joined = new Set<number>();
+  const find = (k: number | undefined) => { while (k !== undefined && into.has(k)) k = into.get(k)!; return k; };
+  for (const k of bySize(gs)) {
+    const keys = keysOf(out[k]!), holders = [...new Set(keys.map((x) => find(last.get(x))))];
+    let home = holders[0], at = k;
+    if (holders.length > 1) {
+      // The smallest group that holds all of it (or none), and the groups just below that which have part of it.
+      // It joins them (the largest keeps its place), so the groups inside those stay groups inside.
+      const line = new Map<number | undefined, number>();
+      for (let x = home, n = 0; ; x = find(up.get(x!)), n++) { line.set(x, n); if (x === undefined) break; }
+      let top = 0;
+      for (const h of holders.slice(1)) { let x = h; while (!line.has(x)) x = find(up.get(x!)); top = Math.max(top, line.get(x)!); }
+      home = [...line.keys()][top];
+      const crossed = new Set<number>();
+      for (const h of holders) { let x = h; if (x === home) continue; while (find(up.get(x!)) !== home) x = find(up.get(x!)); crossed.add(x!); }
+      [at] = [...crossed].sort((p, q) => sizeOf(out[q]!) - sizeOf(out[p]!) || p - q);
+      const g = out[at]!;
+      for (const j of [...crossed, k]) if (j !== at) {
+        const o = out[j]!;
+        for (const i of o.atoms) g.atoms.push(i);
+        for (const id of o.items) g.items.push(id);
+        if (o.integral) g.integral = true;
+        into.set(j, at);
+        out[j] = undefined;
+      }
+      joined.add(at);
+    }
+    up.set(at, home);
+    for (const x of keys) if (find(last.get(x)) === home) last.set(x, at);
+  }
+  return out.flatMap((g, k) => (!g ? [] : joined.has(k) ? [clean(g)] : [g]));
 }
 // The groups in a list that no other group in it holds.
 export const outerGroups = (gs: Grouped[]) => { const parents = groupParents(gs); return gs.filter((_, k) => parents[k] === undefined); };
@@ -295,17 +317,19 @@ export function tidyGroups(m: Mol, frags = m.groups?.length ? fragments(m) : [])
   if (!m.groups?.length) return m;
   const ids = new Set([...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? [])].map((x) => x.id));
   // Text that belongs to a member and is in no group joins the group (as atoms drawn onto a grouped structure do).
-  const listed = new Set(m.groups.flatMap((g) => g.items)), free = (m.captions ?? []).filter((c) => !listed.has(c.id) && (c.under || c.on || c.cycle));
-  const clean = (g: Grouped): Grouped => {
-    const atoms = [...new Set(g.atoms.filter((i) => Number.isInteger(i) && i >= 0 && i < m.atoms.length))].sort((p, q) => p - q), s = { atoms: new Set(atoms), items: new Set(g.items) };
-    return { ...g, atoms, items: [...new Set([...g.items.filter((id) => ids.has(id)), ...free.filter((c) => attached(c, s)).map((c) => c.id)])] };
-  };
-  let gs = m.groups.map(clean);
-  for (let pair = crossing(gs); pair; pair = crossing(gs)) {
-    const [a, b] = pair;
-    gs[a] = clean({ id: gs[a].id, atoms: [...gs[a].atoms, ...gs[b].atoms], items: [...gs[a].items, ...gs[b].items], ...(gs[a].integral || gs[b].integral ? { integral: true as const } : {}) });
-    gs = gs.filter((_, k) => k !== b);
+  // Each such text is found by the first atom or object it belongs to.
+  const listed = new Set(m.groups.flatMap((g) => g.items)), free = new Map<number, Caption[]>();
+  for (const c of m.captions ?? []) {
+    const key = listed.has(c.id) ? undefined : c.under?.length ? c.under[0] : c.on ? -1 - c.on.arrow : c.cycle ? -1 - c.cycle.cycle : undefined;
+    const list = key === undefined ? undefined : free.get(key);
+    if (list) list.push(c); else if (key !== undefined) free.set(key, [c]);
   }
+  const clean = (g: Grouped): Grouped => {
+    const atoms = [...new Set(g.atoms.filter((i) => Number.isInteger(i) && i >= 0 && i < m.atoms.length))].sort((p, q) => p - q), items = g.items.filter((id) => ids.has(id));
+    const s = { atoms: new Set(atoms), items: new Set(items) }, text = [...atoms, ...items.map((id) => -1 - id)].flatMap((x) => free.get(x) ?? []).filter((c) => attached(c, s));
+    return { ...g, atoms, items: [...new Set([...items, ...text.map((c) => c.id)])] };
+  };
+  const gs = uncross(m.groups.map(clean), clean);
   const of = new Map<number, number>();
   frags.forEach((f, k) => f.forEach((i) => of.set(i, k)));
   const parents = groupParents(gs), kids = gs.map((): number[] => []);

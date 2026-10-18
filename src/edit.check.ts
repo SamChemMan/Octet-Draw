@@ -479,6 +479,27 @@ console.log("edit.check: align ok");
   console.log("edit.check: groups after a delete ok");
 }
 
+// Groups that cross (a damaged or hostile file) are put right in one pass: 3000 groups that each share atom 0 become
+// one group in well under a second (before, it took minutes). Random groups always come out apart or nested, and each
+// group's parent holds it.
+{
+  const atoms: Mol["atoms"] = Array.from({ length: 3001 }, (_, k) => ({ label: "C", location: [k * 2, 0, 0] }));
+  const t = performance.now(), star = tidyGroups({ atoms, bonds: [], groups: Array.from({ length: 3000 }, (_, k) => ({ id: k + 1, atoms: [0, k + 1], items: [] })) });
+  assert.equal(star.groups!.length, 1);
+  assert.ok(performance.now() - t < 500, `crossing groups took ${performance.now() - t} ms`);
+  let seed = 7;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const shapes = [100, 101, 102].map((id) => ({ id, kind: "box" as const, from: [0, 0] as [number, number], to: [1, 1] as [number, number] }));
+  for (let n = 0; n < 2000; n++) {
+    const groups = Array.from({ length: 2 + Math.floor(rnd() * 4) }, (_, k) => ({ id: k + 1, atoms: [0, 1, 2, 3, 4, 5, 6, 7].filter(() => rnd() < 0.35), items: [100, 101, 102].filter(() => rnd() < 0.3) }));
+    const gs = tidyGroups({ atoms: atoms.slice(0, 8), bonds: [], shapes, groups }).groups ?? [], sets = gs.map((g) => new Set([...g.atoms, ...g.items.map((id) => -1 - id)]));
+    const within = (a: Set<number>, b: Set<number>) => [...a].every((x) => b.has(x));
+    for (const a of sets) for (const b of sets) if (a !== b && [...a].some((x) => b.has(x))) assert.ok(within(a, b) || within(b, a), JSON.stringify(groups));
+    groupParents(gs).forEach((p, k) => p !== undefined && assert.ok(within(sets[k], sets[p])));
+  }
+  console.log("edit.check: crossing groups ok");
+}
+
 // Group on a large selection runs fragments once (GRP-13): 300 rings group in well under 100 ms.
 {
   let m = EMPTY;
