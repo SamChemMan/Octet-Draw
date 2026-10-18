@@ -276,6 +276,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let edit = Submenu::with_items(app, "Edit", true, &[
         &item("undo", "Undo", "CmdOrCtrl+Z")?,
         &item("redo", "Redo", "CmdOrCtrl+Y")?,
+        // ChemDraw's Repeat: the last turn, flip, scale or style again. Redo's ⌘Y repeats when there is nothing to redo.
+        &item("repeat", "Repeat", "")?,
         &sep()?,
         &PredefinedMenuItem::cut(app, None)?,
         &PredefinedMenuItem::copy(app, None)?,
@@ -355,6 +357,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let object = Submenu::with_items(app, "Object", true, &[
         &align,
         &distribute,
+        &item("centre_page", "Centre on Page", "")?,
         &sep()?,
         &item("show_stereo", "Show Stereochemistry", "")?,
         &item("atom_numbers", "Show Atom Numbers", "")?,
@@ -363,6 +366,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("ungroup", "Ungroup", "CmdOrCtrl+Shift+G")?,
         // ChemDraw's Group > Integral: a click on any part picks the whole group.
         &item("group_integral", "Pick as One", "")?,
+        // ChemDraw's Join (⌘J): atoms or bonds from different structures become one.
+        &item("join", "Join", "CmdOrCtrl+J")?,
         &sep()?,
         &item("bring_front", "Bring to Front", "CmdOrCtrl+[")?,
         &item("send_back", "Send to Back", "CmdOrCtrl+]")?,

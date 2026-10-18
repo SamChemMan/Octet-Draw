@@ -4,7 +4,7 @@ import {
   FrameCorners, GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
   TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa, TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
   Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table, FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, LinkSimple, MagnetStraight, Paragraph, Resize, Ruler,
-  ArrowLineUp, EyeSlash,
+  ArrowLineUp, EyeSlash, Unite, Repeat, CrosshairSimple,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -16,7 +16,7 @@ import { messy, problems, showWarnedHydrogens } from "./check";
 import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
-  addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset,
+  addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset,
   addShape, addSymbol, bondOrders, orderBonds, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
@@ -100,6 +100,9 @@ const L = STYLE.bond; // px per bond length at 100%
 const OPEN_ZOOM = 1.25;
 const openZoom = (d: DocStyle) => OPEN_ZOOM / (frameStyle(d, L).k * d.scale);
 const SNAP = (15 * Math.PI) / 180; // dragged bonds snap to 15° steps
+// The menu commands and panel actions Edit > Repeat can run again: turns, flips, scaling, arrangement, frames, colours
+// and text styles.
+const REPEATS = /^(flip_[hv]|mirror_[hv]|flatten|arrange_\w+|frame_\w+|colour_\d+|colour_user_\d+|highlight_\d+|ringfill_\d+|text_\w+|size_\d+|font_\d+|align_\w+|curves_\w+|bring_front|send_back|rotate\.\w+|colour\.#\w+|halo\.#?\w+|ringfill\.#?\w+|caption\.(bold|italic|underline|plain|sub|super|formula|size\.\d+|font\..+)|arrow\.(style|start|end|head|size|fill)\.\w+)$/;
 // Holding still this long with a drawing tool in hand switches to Select until the pointer is released.
 const HOLD_MS = 400;
 const toPath = (polys: P[][]) => polys.map((poly) => "M" + poly.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join("L") + "Z").join("");
@@ -834,6 +837,8 @@ export default function Editor() {
     void loadNames().then(() => setNamesLoaded(true));
     setNaming(c?.text ?? "");
   }
+  // The command Repeat runs again (see repeatLast).
+  const lastRepeat = useRef<{ menu?: string; action?: string; rotate?: number; scale?: number }>(undefined);
   // Menu commands. New and Open go on the undo list, so they never lose work.
   const commands = useRef<Record<string, () => void>>({});
   commands.current = {
@@ -848,7 +853,7 @@ export default function Editor() {
     save_as: () => void save(true),
     // While a label or caption is being typed, the Edit menu works on its text.
     undo: () => (typing() ? void document.execCommand("undo") : undo()),
-    redo: () => (typing() ? void document.execCommand("redo") : undo(true)),
+    redo: () => (typing() ? void document.execCommand("redo") : h.at < h.stack.length - 1 ? undo(true) : repeatLast()),
     select_all: () => {
       if (typing()) {
         const el = document.activeElement as HTMLElement;
@@ -935,6 +940,23 @@ export default function Editor() {
     // is", which loses that. Median bond to types the chosen bonds' median in. With no bond chosen, it opens on Scale by
     // 100% (the median rows are dimmed).
     scale_dialog: () => setDialog({ kind: "scale", how: chosenMedian() ? "document" : "percent", value: "100" }),
+    // Join (⌘J), as ChemDraw's Object > Join: atoms or bonds from different structures become one (joinSelection).
+    join: () => {
+      const m = joinSelection(doc, selection);
+      if (!m) return setNotice("Select one atom in each structure, or one bond in each of two structures.");
+      set(m);
+    },
+    // Center on Page (Object menu), as ChemDraw's: the box round the selection (its labels and text too), or round
+    // the whole drawing, moves so its middle is the middle of the page.
+    centre_page: () => {
+      const { atoms, items } = chosen(), b = drawnBox(atoms, items);
+      if (!b) return;
+      // The page's middle is the drawing's origin. drawnBox is in px, y down.
+      const d: P = [-(b[0] + b[2]) / 2 / L, (b[1] + b[3]) / 2 / L];
+      if (Math.hypot(...d) > 1e-9) set(transformParts(doc, atoms, items, (q) => [q[0] + d[0], q[1] + d[1]], [1, 1], captionMiddles()), true);
+    },
+    // Repeat (Edit menu, and ⌘Y when there is nothing to redo), as ChemDraw's.
+    repeat: () => repeatLast(),
     // Group (⌘G) and Ungroup (⇧⌘G), as ChemDraw's: the selected structures and objects select and move as one.
     group: () => {
       const r = groupSelection(doc, selection, picked);
@@ -1127,6 +1149,20 @@ export default function Editor() {
       setView({ zoom, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * L * zoom, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * L * zoom });
     },
   };
+  // Edit > Repeat, as ChemDraw's: the last turn, flip, scale, arrangement, frame, colour or text style again, on what
+  // is selected now. Each of those menu commands, panel actions and dialogs notes itself as the one to repeat.
+  for (const id of Object.keys(commands.current)) {
+    if (!REPEATS.test(id)) continue;
+    const run = commands.current[id];
+    commands.current[id] = () => { lastRepeat.current = { menu: id }; run(); };
+  }
+  function repeatLast() {
+    const r = lastRepeat.current;
+    if (r?.menu) commands.current[r.menu]?.();
+    else if (r?.action) runAction(r.action);
+    else if (r?.rotate !== undefined) rotateBy(r.rotate);
+    else if (r?.scale !== undefined) scaleBy(r.scale);
+  }
   function zoomTo(target: number) {
     const view = views.get(), zoom = clampZoom(target), k = zoom / view.zoom, cx = innerWidth / 2, cy = innerHeight / 2;
     setView({ zoom, x: cx - (cx - view.x) * k, y: cy - (cy - view.y) * k });
@@ -1928,7 +1964,8 @@ export default function Editor() {
     return k !== undefined ? pos(doc, k) : selectionMiddle();
   };
   const turnTo = (mol: Mol, centre: P) => { lastTurn.current = { mol, selection, picked, centre }; set(mol, true); };
-  const rotateBy = (degrees: number) => { const c = turnCentre(); turnTo(turnedParts(doc, degrees, c), c); };
+  // Every turn by an angle (the Turn keys and actions, Rotate…) is the one Edit > Repeat does next.
+  const rotateBy = (degrees: number) => { const c = turnCentre(); lastRepeat.current = { rotate: degrees }; turnTo(turnedParts(doc, degrees, c), c); };
   // Rotate 180° (a turn through 3D) and Flip (a mirror), across or down, about the middle of what is chosen as drawn.
   // The atoms turn over first (flipAtoms keeps or inverts the stereochemistry), then the objects.
   function flip(axis: "horizontal" | "vertical", mirror = false) {
@@ -1937,6 +1974,7 @@ export default function Editor() {
   }
   function scaleBy(k: number, lines = scalesText()) {
     if (!(k > 0) || !Number.isFinite(k)) return;
+    lastRepeat.current = { scale: k };
     commitScale([k, k], selectionMiddle(), lines);
   }
   // The median bond length of what is chosen, in drawing units: bonds with both atoms chosen. Undefined with none.
@@ -3152,6 +3190,7 @@ export default function Editor() {
     properties: [settings.properties ? "Hide the Properties panel" : "Show the Properties panel", "", <Flask size={18} />], aromatic_display: [commandsOpen && (selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i)).some((i) => doc.atoms[i].circle) ? "Show Kekulé bonds" : "Show aromatic circles", `⌥${MOD}K`, <Circle size={18} />], hydrogen_display: ["Toggle hydrogen display", "", <EyeSlash size={18} />], show_stereo: ["Show stereochemistry", "", <span className="glyph-text">R/S</span>], predict_1h: ["Predict ¹H-NMR shifts", "", <span className="glyph-text">¹H</span>], predict_13c: ["Predict ¹³C-NMR shifts", "", <span className="glyph-text">¹³C</span>], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />],
     rotate_dialog: ["Rotate…", `${MOD}R`, <Angle size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <Resize size={18} />],
     group: ["Group", `${MOD}G`, <BoundingBox size={18} />], ungroup: ["Ungroup", `⇧${MOD}G`, <SelectionSlash size={18} />], group_integral: ["Pick as one", "", <LinkSimple size={18} />],
+    join: ["Join", `${MOD}J`, <Unite size={18} />], centre_page: ["Centre on page", "", <CrosshairSimple size={18} />], repeat: ["Repeat", "", <Repeat size={18} />],
     arrange_left: ["Align left edges", `⌥⇧${MOD}L`, <AlignLeft size={18} />], arrange_centre: ["Align left-right centres", `⌥⇧${MOD}C`, <AlignCenterHorizontal size={18} />],
     arrange_right: ["Align right edges", `⌥⇧${MOD}R`, <AlignRight size={18} />], arrange_top: ["Align top edges", `⌥⇧${MOD}T`, <AlignTop size={18} />],
     arrange_middle: ["Align top-bottom centres", `⌥⇧${MOD}M`, <AlignCenterVertical size={18} />], arrange_bottom: ["Align bottom edges", `⌥⇧${MOD}B`, <AlignBottom size={18} />],
@@ -3230,6 +3269,7 @@ export default function Editor() {
   function runAction(command: string) {
     const ids = [...selection];
     if (commands.current[command]) return commands.current[command]();
+    if (REPEATS.test(command)) lastRepeat.current = { action: command };
     // The Actions panel's Scale field: the selection takes that scale with its labels and lines, about its middle; when
     // its parts differ, each structure, group and object takes it about its own middle.
     if (command.startsWith("scale.")) {
@@ -3684,7 +3724,9 @@ export default function Editor() {
         return to !== undefined ? set(pairMap(doc, drag.atom, to), true) : undefined;
       }
       case "turn":
-        return drag.degrees ? turnTo(drag.working, drag.centre) : undefined;
+        if (!drag.degrees) return;
+        lastRepeat.current = { rotate: drag.degrees }; // Edit > Repeat turns the next selection as far
+        return turnTo(drag.working, drag.centre);
       case "pivot":
         return drag.moved ? undefined : click(drag.target, drag.at);
       case "resize":
@@ -3748,9 +3790,9 @@ export default function Editor() {
       // Drawing with the Pen: Return or Escape ends the curve; Delete takes back the last point.
       if (pen && (e.key === "Enter" || e.key === "Escape")) { e.preventDefault(); return finishPen(); }
       if (pen && (e.key === "Backspace" || e.key === "Delete")) { e.preventDefault(); return setPen(pen.length > 1 ? pen.slice(0, -1) : undefined); }
-      // Redo is ⌘Y (ChemDraw's) in the menu; ⇧⌘Z, the Mac's own, works too.
+      // Redo is ⌘Y (ChemDraw's) in the menu, and Repeat when there is nothing to redo; ⇧⌘Z, the Mac's own, works too.
       if (!TAURI && mod && key === "z") { e.preventDefault(); return undo(e.shiftKey); }
-      if (mod && key === "y") { e.preventDefault(); return undo(true); }
+      if (mod && key === "y") { e.preventDefault(); return commands.current.redo(); }
       if (TAURI && mod && e.shiftKey && key === "z") { e.preventDefault(); return undo(true); }
       if (!TAURI && mod && key === "a" && !e.shiftKey) { e.preventDefault(); return commands.current.select_all(); }
       if (!TAURI && mod && key === "a" && e.shiftKey) { e.preventDefault(); return commands.current.command_palette(); }

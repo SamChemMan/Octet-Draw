@@ -642,7 +642,8 @@ export function fragments(m: Mol): number[][] {
 }
 
 // After a move: each moved atom that sits exactly on another atom joins it, so no atom hides under another.
-// The other atom keeps its label unless it is a plain carbon. Returns the drawing and whether anything joined.
+// The other atom keeps its label unless it is a plain carbon (then it takes the moved atom's label). Returns the
+// drawing and whether anything joined.
 export function joinOverlaps(m: Mol, moved: Set<number>): { mol: Mol; joined: boolean } {
   const into = new Map<number, number>();
   for (const i of moved) {
@@ -652,7 +653,7 @@ export function joinOverlaps(m: Mol, moved: Set<number>): { mol: Mol; joined: bo
   }
   if (!into.size) return { mol: m, joined: false };
   let atoms = m.atoms;
-  for (const [i, j] of into) if (atoms[j].label === "C" && atoms[i].label !== "C") atoms = atoms.map((a, k) => (k === j ? { ...a, label: atoms[i].label } : a));
+  for (const [i, j] of into) if (atoms[j].label === "C" && !atoms[j].text && (atoms[i].label !== "C" || atoms[i].text)) atoms = atoms.map((a, k) => (k === j ? { ...a, label: atoms[i].label, text: atoms[i].text } : a));
   const bonds: Bond[] = [];
   for (const b of m.bonds) {
     const ends = b.atoms.map((k) => into.get(k) ?? k) as [number, number];
@@ -660,6 +661,52 @@ export function joinOverlaps(m: Mol, moved: Set<number>): { mol: Mol; joined: bo
     bonds.push({ ...b, atoms: ends });
   }
   return { mol: removeAtoms({ ...m, atoms, bonds }, new Set(into.keys())), joined: true };
+}
+
+// Object > Join (⌘J), as ChemDraw's (decompiled DoJoin and ObjectJoinHandler). One atom in each of two structures:
+// the earlier-drawn atom's structure moves onto the other atom, and the two become one. One atom in each of three or
+// more structures: each structure moves so its atom is at their centroid, and they become one (the first selected
+// atom's, with its label and colour).
+// One bond in each of two structures: the earlier-drawn bond's structure turns and moves so the bond lies on the
+// other, on its far side, and the two bonds become one shared bond. The atom that stays keeps its label,
+// or takes the other's if it has none. Returns undefined when the selection is none of these.
+export function joinSelection(m: Mol, ids: Set<number>): Mol | undefined {
+  const frags = fragments(m), fragOf: number[] = [];
+  frags.forEach((g, k) => g.forEach((i) => (fragOf[i] = k)));
+  const picks = [...ids].filter((i) => i < m.atoms.length), sel = [...picks].sort((p, q) => p - q), touched = [...new Set(sel.map((i) => fragOf[i]))];
+  if (sel.length < 2 || touched.length < 2) return undefined;
+  const moveFrag = (mol: Mol, k: number, f: (q: P) => P): Mol => ({ ...mol, atoms: mol.atoms.map((a, i) => (fragOf[i] === k ? { ...a, location: [...f([a.location[0], a.location[1]]), a.location[2] ?? 0] as [number, number, number] } : a)) });
+  const atomsOf = (ks: number[]) => new Set(m.atoms.map((_, i) => i).filter((i) => ks.includes(fragOf[i])));
+  // Two bonds: two atoms selected in each of two structures, joined by a bond.
+  const bondIn = (k: number) => { const mine = sel.filter((i) => fragOf[i] === k); return mine.length === 2 && m.bonds.some((b) => b.atoms.includes(mine[0]) && b.atoms.includes(mine[1])) ? mine : undefined; };
+  if (sel.length === 4 && touched.length === 2 && bondIn(touched[0]) && bondIn(touched[1])) {
+    const [back, front] = [bondIn(touched[0])!, bondIn(touched[1])!].sort((p, q) => Math.max(...p) - Math.max(...q));
+    const [a0, a1] = front.map((i) => pos(m, i)), ma: P = [(a0[0] + a1[0]) / 2, (a0[1] + a1[1]) / 2];
+    // The back bond laid on the front one with its ends either way round. ChemDraw puts each end on the nearer end;
+    // Octet takes the way that puts the two structures on opposite sides of the bond, so rings fuse wherever they are.
+    const middle = (k: number, mol: Mol) => { const g = frags[k]; return [g.reduce((t, i) => t + pos(mol, i)[0], 0) / g.length, g.reduce((t, i) => t + pos(mol, i)[1], 0) / g.length] as P; };
+    const lay = (ends: number[]) => {
+      const [b0, b1] = ends.map((i) => pos(m, i)), mb: P = [(b0[0] + b1[0]) / 2, (b0[1] + b1[1]) / 2];
+      const turn = Math.atan2(a1[1] - a0[1], a1[0] - a0[0]) - Math.atan2(b1[1] - b0[1], b1[0] - b0[0]), [c, s] = [Math.cos(turn), Math.sin(turn)];
+      const out = moveFrag(m, fragOf[back[0]], (q) => { const d = sub(q, mb); return [ma[0] + d[0] * c - d[1] * s, ma[1] + d[0] * s + d[1] * c]; });
+      // The two ends sit exactly on the other bond's, however long the bonds are.
+      return { ...out, atoms: out.atoms.map((a, i) => (i === ends[0] ? { ...a, location: [a0[0], a0[1], a.location[2] ?? 0] } : i === ends[1] ? { ...a, location: [a1[0], a1[1], a.location[2] ?? 0] } : a)) } as Mol;
+    };
+    const [one, two] = [lay(back), lay([back[1], back[0]])], apart = (mol: Mol) => len(sub(middle(fragOf[back[0]], mol), middle(fragOf[front[0]], mol)));
+    return joinOverlaps(apart(one) >= apart(two) ? one : two, atomsOf([fragOf[back[0]]])).mol;
+  }
+  // Atoms: one in each structure.
+  if (touched.length !== sel.length) return undefined;
+  if (sel.length === 2) {
+    const [back, front] = sel, d = sub(pos(m, front), pos(m, back));
+    return joinOverlaps(moveFrag(m, fragOf[back], (q) => add(q, d)), atomsOf([fragOf[back]])).mol;
+  }
+  const centre: P = [sel.reduce((t, i) => t + pos(m, i)[0], 0) / sel.length, sel.reduce((t, i) => t + pos(m, i)[1], 0) / sel.length];
+  let out = m;
+  for (const i of sel) { const d = sub(centre, pos(m, i)); out = moveFrag(out, fragOf[i], (q) => add(q, d)); }
+  out = { ...out, atoms: out.atoms.map((a, i) => (sel.includes(i) ? { ...a, location: [centre[0], centre[1], a.location[2] ?? 0] } : a)) };
+  // The selection keeps the order the atoms were picked in: the first one stays.
+  return joinOverlaps(out, atomsOf(picks.slice(1).map((i) => fragOf[i]))).mol;
 }
 
 // ChemDraw-style group keys on an atom. Each adds a group and keeps the bond rules above.
