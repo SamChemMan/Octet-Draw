@@ -34,6 +34,14 @@ The Synthesis and Retrosynthesis cut tools (audit item CD-39) are built in 1.0, 
 
 - A Mass Spec Analysis mode beside Mass Fragmentation.
 
+### Search Reaxys needs fixing
+
+Sam, 18 October 2026: the Reaxys integration needs fixing. Fix it first in 1.1.0.
+
+- Search Reaxys opens Reaxys in Octet's Reaxys window (decision 0008). The window clears the Query Builder form that Reaxys keeps from the last search, because Reaxys's own site searches that old form before it loads the new structure. The research note is `~/octet-research/notes/reaxys-search.md` on Sam's Mac.
+- The window was tested in headless Chrome and in a bare macOS web view. It has not been tested in the built app.
+- What Sam saw fail is not recorded yet. Ask Sam before you start.
+
 ### Moved from 1.0 on 18 October 2026 to save usage
 
 Sam wanted these in 1.0. They are not done yet.
