@@ -809,6 +809,32 @@ button.variant.add {
   box-shadow: var(--shadow-focus);
 }
 
+/* While Select is Structure perspective (a drag turns the structure in 3D), its button has a soft red glow that pulses
+   slowly, active or not. The glow fades in and out with the mode. Reduced motion: the glow stays still. */
+.tool::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 1px transparent, 0 0 8px 1px transparent;
+  pointer-events: none;
+  transition: box-shadow var(--motion-fast) var(--ease-out);
+}
+.tool.turn-3d::after {
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--error) 45%, transparent), 0 0 8px 1px color-mix(in oklab, var(--error) 45%, transparent);
+  animation: turn-3d-glow 2.4s ease-in-out infinite;
+}
+@keyframes turn-3d-glow {
+  50% {
+    opacity: 0.5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tool.turn-3d::after {
+    animation: none;
+  }
+}
+
 /* The notice (NoticeBar.tsx): centred in the space between the toolbar and the Actions panel, above both, and it
    wraps before it reaches either. Its icon takes the colour of its kind. */
 .notice {
