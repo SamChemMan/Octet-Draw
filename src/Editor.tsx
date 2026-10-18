@@ -1589,7 +1589,7 @@ export default function Editor() {
     const scale = Math.min(OPEN_ZOOM / frame.k, 112 / (box[3] - box[1]), 420 / (box[2] - box[0]));
     // Drawn on the page's own paper, with the canvas's ink rule: white ink on dark and blue paper.
     return (
-      <div className={`style-preview paper-${paper}`} data-theme={darkPaper ? "dark" : "light"} aria-hidden>
+      <div className={`style-preview paper-${paper}`} data-theme={darkPaper ? "dark" : "light"} style={own ? ({ "--canvas": own } as React.CSSProperties) : undefined} aria-hidden>
         <svg width={(box[2] - box[0]) * scale} height={(box[3] - box[1]) * scale} viewBox={`${box[0]} ${box[1]} ${box[2] - box[0]} ${box[3] - box[1]}`}>
           <path d={toPath(d.polygons)} fill={textInk("#000000")} />
           {d.labels.map((l, i) => <text key={i} x={l.x} y={l.y} fill={textInk("#000000")} textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>{l.text}</text>)}
