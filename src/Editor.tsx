@@ -3340,8 +3340,9 @@ export default function Editor() {
     ...[...picked].map((id) => captionMark(id, `sc${id}`, "") ?? arrowMark(id, `sr${id}`, "")),
     ...cycleArrows.filter((a) => picked.has(a.cycle)).map((a) => <polyline key={`sy${a.id}`} className="arrow-mark" points={arrowTrace(a, L).paths[0].map((q) => q.join(",")).join(" ")} strokeWidth={0.36 * L} />),
   ];
-  // With Select, over any part of an integral group the mark covers all of it, as a click picks all of it (ChemDraw
-  // highlights the outermost integral group too). Each group's members, worked out once for each drawing.
+  // With Select or the Eraser, over any part of an integral group the mark covers all of it, as a click picks or
+  // removes all of it (ChemDraw highlights the outermost integral group too). Each group's members, worked out once
+  // for each drawing.
   const integrals = useMemo(() => outerGroups((doc.groups ?? []).filter((g) => g.integral)).map((g) => ({ g, atoms: new Set(g.atoms), items: new Set(g.items) })), [doc.groups]);
   const wholeMark = (w: (typeof integrals)[number]) => (
     <g key="h">
@@ -3352,10 +3353,10 @@ export default function Editor() {
     </g>
   );
   const integralAt = (hover: Hover) => {
-    if (tool !== "select" || !integrals.length) return undefined;
+    if ((tool !== "select" && tool !== "erase") || !integrals.length) return undefined;
     const ids = atomsOf(doc, hover), items = itemsOf(hover);
     const w = integrals.find((x) => ids.some((i) => x.atoms.has(i)) || items.some((id) => x.items.has(id)));
-    return w && !(w.g.atoms.every((i) => selection.has(i)) && w.g.items.every((id) => picked.has(id))) ? w : undefined;
+    return w && (tool === "erase" || !(w.g.atoms.every((i) => selection.has(i)) && w.g.items.every((id) => picked.has(id)))) ? w : undefined;
   };
   // The mark on what is under the pointer, drawn by Live as the pointer moves.
   const hovered = (hover: Hover, whole = drag ? undefined : integralAt(hover)) => drag ? null
