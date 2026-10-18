@@ -513,10 +513,10 @@ export default function Editor() {
     dispatch({ type: "set", mol: onTop(doc, wholeGroups(placeCentres(mol)), fragments), merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
   };
-  // Clean up, Rotate 180°, Flip, a turn of 15° or more, Align and Distribute glide into place (FEEL-38). The drawing
-  // changes at once, as one undo step. Only the picture on screen moves to it (glide). There is no glide with reduced
-  // motion, with more than MOST_GLIDE atoms moving, or for a command that comes again before the last glide is over (a
-  // key held down). path: the way there when it is not a straight line (a turn); false: no glide.
+  // Clean up, Rotate 180°, Flip, a turn of 15° or more, Align, Distribute and Line up glide into place (FEEL-38). The
+  // drawing changes at once, as one undo step. Only the picture on screen moves to it (glide). There is no glide with
+  // reduced motion, with more than MOST_GLIDE atoms moving, or for a command that comes again before the last glide is
+  // over (a key held down). path: the way there when it is not a straight line (a turn); false: no glide.
   const [glide, setGlide] = useState<{ to: Mol; mol: Mol }>();
   const glideNext = useRef<{ from: Mol; path?: (t: number) => Mol | undefined }>(undefined), glideAt = useRef(0);
   const glideTo = (mol: Mol, path?: ((t: number) => Mol) | false) => {
@@ -3546,7 +3546,7 @@ export default function Editor() {
       const i = Number(command.slice(13));
       return doc.atoms[i] && set({ ...doc, atoms: doc.atoms.map((a, k) => (k === i ? { ...a, ignoreWarnings: true as const } : a)) }, true);
     }
-    if (command.startsWith("align.")) return set(alignFragments(doc, selection, command.slice(6) as "row" | "column" | "spread-row"), true);
+    if (command.startsWith("align.")) return glideTo(alignFragments(doc, selection, command.slice(6) as "row" | "column" | "spread-row"));
     if (command === "delete" && context.kind === "spot") return runAction("spot.delete");
     if (command === "delete") return selection.size || picked.size ? set(deleteGraphics(deleteAtoms(doc, selection), picked)) : undefined;
     if (command === "number") return numberStructures();
@@ -5053,8 +5053,9 @@ export default function Editor() {
           onClose={() => { setSettingsOpen(undefined); setAddingColour(false); }}
         />
       )}</Exit>
+      {/* The ring and the halo need different keys. With the same key, React leaves an old ring on the page. */}
       {holding && (
-        <svg key={holding.n} className="hold-ring" style={{ left: holding.x, top: holding.y, "--hold": `${HOLD_MS}ms` } as React.CSSProperties} viewBox="0 0 32 32" aria-hidden>
+        <svg key={`hold${holding.n}`} className="hold-ring" style={{ left: holding.x, top: holding.y, "--hold": `${HOLD_MS}ms` } as React.CSSProperties} viewBox="0 0 32 32" aria-hidden>
           <circle cx={16} cy={16} r={13} pathLength={1} />
         </svg>
       )}
