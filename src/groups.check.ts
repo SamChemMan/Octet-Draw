@@ -54,6 +54,22 @@ const groupsIn = (x: Xml, depth = 0): { depth: number; integral: boolean; kids: 
   console.log("groups.check: grouped cycle in CDXML ok");
 }
 
+// Conditions that a ChemDraw file keeps in a group of their own, out of the group of their arrow, stay there: opening,
+// an edit and a CDXML round trip do not move them into the arrow's group.
+{
+  let m = addRing(EMPTY, 6, true, { point: [-4, 0] }), r: number, c: number;
+  [m, r] = addArrow(m, { kind: "reaction", from: [-1, 0], to: [1, 0] });
+  [m, c] = addCaption(m, { text: "DBU", x: 0, y: 1, on: { arrow: r, side: "below" } });
+  m = { ...m, groups: [{ id: 90, atoms: [0, 1, 2, 3, 4, 5], items: [r] }, { id: 91, atoms: [], items: [c] }] };
+  assert.equal(wholeGroups(m), m, "the group of one text stays");
+  const back = fromCdxml(toCdxml(m, DEFAULT_STYLE)).mol;
+  assert.deepEqual(tree(back), tree(m));
+  assert.equal(wholeGroups(back), back);
+  // When the arrow is in no group, the group of one text goes, as other groups of one thing do.
+  assert.equal(wholeGroups({ ...m, groups: [m.groups![1]] }).groups?.length ?? 0, 0);
+  console.log("groups.check: conditions in a group of their own ok");
+}
+
 // Sam's corpus: each file with groups opens with its nested groups and every Integral flag, and keeps them through a
 // CDXML round trip, a save and open as .oct, and a copy and paste of the whole drawing.
 const CORPUS = join(homedir(), "octet-research/corpus/sam");
@@ -65,6 +81,7 @@ else {
     if (!text.includes("<group")) continue;
     files++;
     const read = fromCdxml(text), m = wholeGroups(read.mol), before = tree(m);
+    assert.equal(m, read.mol, `${name}: opening keeps the file's groups`);
     const integral = groupsIn(parseXml(text)).filter((g) => g.integral).length;
     assert.equal((m.groups ?? []).filter((g) => g.integral).length, integral, `${name}: every Integral flag is kept`);
     if (before.some((t) => !t.endsWith(" at 0"))) nested++;
