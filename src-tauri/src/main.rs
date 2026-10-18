@@ -332,6 +332,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let structure = Submenu::with_items(app, "Structure", true, &[
         &item("clean_up", "Clean Up Structure", "CmdOrCtrl+Shift+K")?,
         &item("clean_reaction", "Clean Up Reaction", "CmdOrCtrl+Shift+X")?,
+        // ChemDraw's 3D Clean Up (⇧⌘D): a 3D shape for the selected structures.
+        &item("clean_3d", "3D Clean Up", "CmdOrCtrl+Shift+D")?,
         &item("atom_properties", "Atom Properties…", "")?,
         &item("bond_properties", "Bond Properties…", "")?,
         &sep()?,
