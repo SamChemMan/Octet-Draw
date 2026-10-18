@@ -31,7 +31,25 @@ const rules = [...bare.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => m[2].inc
 assert.deepEqual(rules, [".tool.landed .glyph", ".palette.rippling .slot .glyph, .palette.rippling .tool:not(.landed) .glyph"]);
 
 // Every overlay that leaves through Exit (motion.tsx) has an exit motion.
-for (const overlay of ["strip", "library", "size-menu", "page-menu", "properties", "spectrum", "coach", "name-field", "name-suggestion", "name-history"])
+const overlays = ["strip", "library", "size-menu", "page-menu", "properties", "spectrum", "coach", "name-field", "name-suggestion", "name-history"];
+for (const overlay of overlays)
   assert.ok(new RegExp(`:is\\([^)]*\\.${overlay}(?=[,)])[^)]*\\)\\.leaving`).test(css), `.${overlay}.leaving`);
 assert.match(css, /\.modal-backdrop\.leaving > \*/);
+// A rule that gives an overlay its own way in with two or more classes (.page-menu.above) outranks the exit rule, so
+// the exit rule names that case too. Rules for reduced motion do not count: there the overlay goes at once.
+let full = bare;
+for (let i; (i = full.indexOf("@media (prefers-reduced-motion: reduce)")) >= 0; ) {
+  let j = full.indexOf("{", i), depth = 0;
+  for (; j < full.length; j++) if (full[j] === "{") depth++; else if (full[j] === "}" && --depth === 0) break;
+  full = full.slice(0, i) + full.slice(j + 1);
+}
+const exit = /([^{}]+)\{[^{}]*animation: leave /.exec(bare)![1];
+for (const m of full.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+  if (!/animation(-name)?:/.test(m[2])) continue;
+  for (const sel of m[1].split(",").map((s) => s.trim().replace(/\s+/g, " "))) {
+    const last = sel.split(/[ >+~]+/).pop()!;
+    if (overlays.some((o) => last.startsWith(`.${o}`) && !/^[\w-]/.test(last.slice(o.length + 1))) && (sel.match(/\.[\w-]+/g) ?? []).length > 1 && !sel.includes(".leaving"))
+      assert.ok(exit.includes(`${sel}.leaving`), `${sel} sets its own animation, so the exit rule needs ${sel}.leaving`);
+  }
+}
 console.log("motion.check: ok");

@@ -1322,8 +1322,11 @@ button.variant.add {
   }
 }
 /* Overlays leave the way they came in, a little faster (motion.tsx, Exit): a fade and a small shrink toward where
-   they opened. A dialog's dim only fades. With reduced motion they go at once. */
+   they opened. A dialog's dim only fades. With reduced motion they go at once. The page menu opened above and the
+   tutorial card at the bottom have their own way in, so they are named here too. */
 :is(.strip, .library, .size-menu, .page-menu, .properties, .spectrum, .coach, .name-field, .name-suggestion, .name-history).leaving,
+.page-menu.above.leaving,
+.coach.low.leaving,
 .modal-backdrop.leaving > * {
   pointer-events: none;
   animation: leave var(--motion-fast) var(--ease-out) forwards;
