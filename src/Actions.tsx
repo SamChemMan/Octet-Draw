@@ -3,10 +3,10 @@
 // what is wrong with it (problems, each with a fix), then its actions, likeliest first. A long list keeps its first
 // rows and folds the rest into small buttons that name themselves on hover. Every action also lives where
 // ChemDraw users expect it (menus and keys).
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, Repeat, ArrowsInSimple, ArrowsClockwise, ArrowsDownUp, CaretRight, SignIn, SignOut, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretUpDown, Graph,
+  AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, Repeat, ArrowsInSimple, ArrowsClockwise, ArrowsDownUp, CaretDown, CaretRight, SignIn, SignOut, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretUpDown, Graph,
   AlignBottomSimple, AlignTopSimple, ArrowLineDown, ArrowLineUp, CursorText, DotsThree, DotsThreeVertical, Faders, Polygon, Rectangle, ArrowArcLeft, ArrowArcRight, ArrowsCounterClockwise, ArrowUDownLeft, CircleDashed, CornersOut, MagnifyingGlass, Swap,
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
@@ -17,7 +17,7 @@ import type { Analysis } from "./chem";
 import type { Problem } from "./check";
 import { listKeys, Menu, menuWidth, Pick, type MenuItem } from "./Menu";
 import { ColourPop } from "./ColourPicker";
-import { Exit } from "./motion";
+import { Exit, reduced, timing } from "./motion";
 import { NumberField } from "./Fields";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { BracketGlyph, ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
@@ -71,6 +71,8 @@ type Props = {
   sizes: number[]; // the text sizes on offer: ChemDraw's, times the document scale
   scale?: number | null; // the selection's scale against the document (decision 0007); null when its parts differ
   online?: boolean; // Settings > Online search: Search Reaxys and Search PubChem are offered
+  folded: string[]; // the titled sections folded to their title, by set
+  onFold: (id: string, folded: boolean) => void;
 };
 
 const ELEMENTS = ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"];
@@ -430,7 +432,65 @@ function Row({ icon, name, command, hint, run, accent }: { icon: React.ReactNode
   );
 }
 
-export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus, sizes, scale, online }: Props) {
+// A titled section that folds to its title row (Sam, 18 October 2026: every section is open by default and can fold,
+// so the panel is cleaner and still hides nothing). A click on the title, or Return or Space on it, folds or opens it,
+// and Octet keeps that choice for every kind of selection. A folded section opens while the pointer rests on it, and
+// folds again a short time after the pointer leaves it, unless the keyboard focus is in it.
+// While the pointer is in the panel, the panel keeps its height and a section opens and closes below its title, so
+// nothing above it moves. A section above the pointer stays open until the pointer goes above it or out of the panel,
+// so nothing moves under the pointer either. When the pointer leaves, the panel takes its full height again.
+// held: the checks of open sections kept open as the pointer is below them, run again as the pointer moves.
+type Folds = { y: number | null; peeks: Set<string>; settle: Set<() => void>; held: Set<() => void>; hold: () => void; release: (now?: boolean) => void };
+const PEEK_DELAY = 100, PEEK_LINGER = 300; // ms the pointer rests before a folded section opens, and stays open after it leaves
+function Fold({ id, title, className, folded, onFold, folds, children }: { id: string; title: string; className: string; folded: boolean; onFold: (id: string, folded: boolean) => void; folds: Folds; children: React.ReactNode }) {
+  const [peek, setPeek] = useState(false);
+  const box = useRef<HTMLDivElement>(null), body = useId();
+  const timer = useRef(0), over = useRef(false), focused = useRef(false), quiet = useRef(false); // quiet: folded by a click, and the pointer has not left it since
+  const open = !folded || peek;
+  // Folds it again when neither the pointer nor the focus is on it and the pointer is not below it.
+  const settle = useRef(() => {
+    folds.held.delete(settle);
+    if (over.current || focused.current) return;
+    const r = box.current?.getBoundingClientRect();
+    if (r && folds.y !== null && folds.y > r.bottom && folds.peeks.has(id)) { folds.held.add(settle); return; }
+    folds.peeks.delete(id);
+    setPeek(false);
+    folds.release();
+  }).current;
+  useEffect(() => {
+    folds.settle.add(settle);
+    return () => { clearTimeout(timer.current); folds.settle.delete(settle); folds.held.delete(settle); folds.peeks.delete(id); folds.release(); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const toggle = (e: React.MouseEvent) => {
+    const pointer = e.detail > 0; // a click, not Return or Space
+    if (pointer) folds.hold();
+    quiet.current = pointer && !folded;
+    folds.peeks.delete(id);
+    setPeek(false);
+    onFold(id, !folded);
+  };
+  return (
+    <div ref={box} className={`${className} fold`} role="group" aria-label={title} data-folded={folded || undefined}
+      onPointerEnter={() => {
+        over.current = true;
+        clearTimeout(timer.current);
+        if (folded && !peek && !quiet.current) timer.current = window.setTimeout(() => { folds.hold(); folds.peeks.add(id); setPeek(true); }, PEEK_DELAY);
+      }}
+      onPointerLeave={() => { over.current = false; quiet.current = false; clearTimeout(timer.current); timer.current = window.setTimeout(settle, PEEK_LINGER); }}
+      onFocus={(e) => { if (e.target.matches(":focus-visible")) focused.current = true; }}
+      onBlur={(e) => { if (!box.current?.contains(e.relatedTarget as Node | null)) { focused.current = false; window.setTimeout(settle, PEEK_LINGER); } }}>
+      <button className="fold-title" aria-expanded={open} aria-controls={body} onClick={toggle}>
+        {title}
+        <CaretDown size={12} className="fold-caret" aria-hidden />
+      </button>
+      <div id={body} className="fold-body" data-open={open || undefined} inert={!open}>
+        <div>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus, sizes, scale, online, folded, onFold }: Props) {
   // An action being dragged to a new place: in the rows (index among rows) or the small buttons (index among them).
   const [carry, setCarry] = useState<{ command: string; x: number; y: number; to?: { rows: boolean; index: number } }>();
   const dragged = useRef(false);
@@ -455,6 +515,34 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
   const [sub, setSub] = useState<{ set: SetId; top: number; right: number }>();
   const subBox = useRef<HTMLDivElement>(null);
   useEffect(() => setSub(undefined), [context.kind]);
+  // The pointer's height while it is in the panel, the folded sections open for now, and the panel's height kept while
+  // the pointer is in it (see Fold). When the panel lets go of its height, it waits for a section to finish folding,
+  // then slides to its own height, so its top edge does not jump.
+  const [folds] = useState(() => {
+    let wait = 0, slide: Animation | undefined;
+    const f: Folds = { y: null, peeks: new Set(), settle: new Set(), held: new Set(),
+      hold: () => {
+        const el = panel.current;
+        if (!el || f.y === null || el.style.height) return;
+        el.style.height = getComputedStyle(el).height; // in a slide, the height the slide has got to
+        slide?.cancel();
+      },
+      release: (now) => {
+        clearTimeout(wait);
+        if (now) { slide?.cancel(); if (panel.current) panel.current.style.height = ""; return; }
+        wait = window.setTimeout(() => {
+          const el = panel.current;
+          if (!el || f.peeks.size || f.y !== null || !el.style.height) return;
+          const from = getComputedStyle(el).height;
+          el.style.height = "";
+          const to = getComputedStyle(el).height;
+          if (from !== to && !reduced()) slide = el.animate({ height: [from, to] }, timing());
+        }, reduced() ? 0 : timing().duration);
+      } };
+    return f;
+  });
+  // A new kind of selection changes the panel: it takes its own height again.
+  useEffect(() => { folds.release(true); }, [context.kind]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!sub) return;
     const away = (e: PointerEvent) => { const t = e.target as Element; if (!subBox.current?.contains(t) && !t.closest?.(".submenu-row")) setSub(undefined); };
@@ -542,6 +630,9 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       aria-label="Actions"
       inert={leaving}
       onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) { setShown(false); setLeaving(false); } }}
+      onPointerEnter={(e) => { folds.y = e.clientY; }}
+      onPointerMove={(e) => { folds.y = e.clientY; [...folds.held].forEach((f) => f()); }}
+      onPointerLeave={() => { folds.y = null; setTimeout(() => { folds.settle.forEach((f) => f()); folds.release(); }, PEEK_LINGER); }}
       // While text is being typed, the panel's buttons style it without taking the focus away from it.
       onMouseDown={(e) => { if (context.kind === "caption" && context.mode === "typing" && !(e.target instanceof HTMLInputElement)) e.preventDefault(); }}
     >
@@ -841,8 +932,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       {scale !== undefined && <ScaleField scale={scale} run={run} />}
       {colour && (
         // Colour is a section of its own, titled like the sets below, and set off from the main rows.
-        <div className="colour-block" role="group" aria-label="Colour">
-        <span className="tray-title" aria-hidden>Colour</span>
+        <Fold id="colour" title="Colour" className="colour-block" folded={folded.includes("colour")} onFold={onFold} folds={folds}>
         {/* One colour row for every kind of selection. A highlight takes a pale fill; anything else an ink colour. */}
         <div className="swatches small" role="radiogroup" aria-label="Colour">
           {[...(colour.tints ? TINTS : COLOURS), ...palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => (
@@ -863,7 +953,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
             </div>
           );
         })()}
-        </div>
+        </Fold>
       )}
 
 
@@ -905,10 +995,8 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
 
       {((!menus && sets.length > 0) || carry) && (
         <div className={carry && !carry.to?.rows && carry.to ? "tray receiving" : "tray"} role="toolbar" aria-label="More actions">
-          {sets.map(([s, set]) => (
-            <div key={s} className="tray-set" role="group" aria-label={SET_TITLES[s]}>
-            {/* A set of one button needs no title: its tooltip names it. */}
-            {set.length > 1 && <span className="tray-title" aria-hidden>{SET_TITLES[s]}</span>}
+          {sets.map(([s, set]) => {
+            const buttons = (
             <div className="tray-buttons">
             {set.map((i) => (
             <button
@@ -925,8 +1013,11 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
             </button>
             ))}
             </div>
-            </div>
-          ))}
+            );
+            // A set of one button needs no title: its tooltip names it.
+            return set.length > 1 ? <Fold key={s} id={s} title={SET_TITLES[s]} className="tray-set" folded={folded.includes(s)} onFold={onFold} folds={folds}>{buttons}</Fold>
+              : <div key={s} className="tray-set" role="group" aria-label={SET_TITLES[s]}>{buttons}</div>;
+          })}
         </div>
       )}
       {/* Settings is always last, with Home beside it. */}
