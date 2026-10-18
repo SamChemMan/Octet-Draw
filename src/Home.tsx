@@ -17,6 +17,8 @@ import { tileTo } from "./keys";
 import { STARTERS } from "./starters";
 
 export type RecentEntry = { path: string; name: string; at: number; thumb?: string; found: boolean };
+// A drawing a crash took, kept with its unsaved changes (src-tauri/src/recovery.rs).
+export type RecoveredEntry = { id: string; name: string; at: number };
 
 // The greeting: welcome on the first visit, welcome back after a week away, else by the time of day.
 export function greeting(name: string, now: Date, first: boolean, away: number): string {
@@ -86,6 +88,7 @@ export type PurposeTile = { id: string; name: string; kind: PurposeKind; style: 
 type Props = {
   leaving?: boolean; // fading out as a drawing opens
   name: string; first: boolean; away: number; recents: RecentEntry[]; newKey: string; openKey?: string;
+  recovered: RecoveredEntry[]; onRecovered: (r: RecoveredEntry) => void; onDiscard: (r: RecoveredEntry) => void;
   purposes: PurposeTile[]; // the templates: Octet's, then the user's own
   onNew: (purpose: string) => void; onOpen: () => void; onRecent: (r: RecentEntry) => void; onRemove: (r: RecentEntry) => void;
   onRemovePurpose: (purpose: string) => void;
@@ -171,9 +174,9 @@ export function Home(p: Props) {
             )}
           </div>
         </div>
-        <div className="home-row"><h2>{p.recents.length ? "Recent" : "Examples"}</h2></div>
+        <div className="home-row"><h2>{p.recents.length || p.recovered.length ? "Recent" : "Examples"}</h2></div>
         <div className="home-grid">
-          {!p.recents.length && STARTERS.map((s, k) => (
+          {!p.recents.length && !p.recovered.length && STARTERS.map((s, k) => (
             <button key={s.name} className="home-tile" onClick={() => p.onStarter(s.text)} style={arrive(n + k)}>
               <span className="home-thumb" data-theme="light"><img src={s.picture} alt="" draggable={false} /></span>
               <span className="home-caption">
@@ -182,8 +185,21 @@ export function Home(p: Props) {
               </span>
             </button>
           ))}
+          {/* Recovered drawings first, with a dashed frame as New's tiles have: their changes are not saved yet. */}
+          {p.recovered.map((r, k) => (
+            <div key={r.id} className="home-slot" style={arrive(n + k)}>
+              <button className="home-tile recovered" onClick={() => p.onRecovered(r)}>
+                <span className="home-thumb"><span className="home-initial" aria-hidden>{r.name.slice(0, 1).toUpperCase()}</span></span>
+                <span className="home-caption">
+                  <span className="home-name">{r.name}</span>
+                  <span className="home-when">Recovered · {when(r.at, now)}</span>
+                </span>
+              </button>
+              <button className="home-remove" onClick={() => p.onDiscard(r)} aria-label={`Discard ${r.name}`} data-tip="Discard"><X size={12} /></button>
+            </div>
+          ))}
           {p.recents.map((r, k) => (
-            <div key={r.path} className={r.found ? "home-slot" : "home-slot missing"} style={arrive(n + k)}>
+            <div key={r.path} className={r.found ? "home-slot" : "home-slot missing"} style={arrive(n + p.recovered.length + k)}>
               <button className="home-tile" onClick={() => p.onRecent(r)} data-tip={r.path}>
                 {/* The picture is of the white page (export.ts draws it in the light theme), so it stays on white. With
                     no picture, the tile takes the theme, as the New tiles do. */}
@@ -227,6 +243,30 @@ export function NameBox({ onDone, leaving }: { onDone: (name: string) => void; l
         <div className="name-actions">
           <button className="dialog-button primary" onClick={() => onDone(name.trim())} disabled={!name.trim()}>Continue</button>
           <button className="text-button" onClick={() => onDone("")}>Skip</button>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+// First launch, after the name: whether Octet checks for updates when it opens (decision 0010). Nothing is checked
+// before the user answers. Escape is No. Settings > General changes the answer.
+export function UpdatesBox({ onDone, leaving }: { onDone: (check: boolean) => void; leaving?: boolean }) {
+  const page = useRef<HTMLElement>(null);
+  useModal(page, !leaving);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape" && !leaving) { e.preventDefault(); onDone(false); } };
+    addEventListener("keydown", key);
+    return () => removeEventListener("keydown", key);
+  });
+  return (
+    <main ref={page} className={leaving ? "home name-box leaving" : "home name-box"} aria-label="Updates" inert={leaving}>
+      <div className="name-box-inner">
+        <Mark size={56} />
+        <h1 className="name-title">Check for updates automatically?</h1>
+        <div className="name-actions">
+          <button className="dialog-button primary" onClick={() => onDone(true)} autoFocus>Check Automatically</button>
+          <button className="text-button" onClick={() => onDone(false)}>Don’t Check</button>
         </div>
       </div>
     </main>

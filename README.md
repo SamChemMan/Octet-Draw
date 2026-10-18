@@ -7,17 +7,55 @@ Developed by [Sam Ellis](https://www.linkedin.com/in/sam-ellis-132781206/) and o
 
 Please hmu on LinkedIn if you have questions or urgent requests.
 
-A chemical structure drawing for the 21st century.
+A chemical structure drawing app for the 21st century.
 Octet is a free, offline desktop app for Mac, Windows, and Linux.
+
+## Download
+
+Get the latest version from the [Releases page](https://github.com/SamChemMan/Octet/releases/latest).
+No release is out yet. Until then, run Octet from source (below).
+
+| Computer | File |
+| -------- | ---- |
+| Mac | `Octet_<version>_universal.dmg` |
+| Windows | `Octet_<version>_x64-setup.exe`. For a PC with no internet: `Octet_<version>_x64-offline-setup.exe` |
+| Linux | `.deb` (Ubuntu, Debian), `.rpm` (Fedora) or `.AppImage` |
+
+## System requirements
+
+- macOS 12 Monterey or later, on Apple silicon or Intel.
+- Windows 10 or 11, 64-bit.
+- Linux, 64-bit, with WebKitGTK 4.1 (for example Ubuntu 22.04 or Debian 12, or later).
+
+Octet needs no account and no internet connection.
+
+## What it does
+
+- Draws structures, reactions, arrows, shapes and text, with ChemDraw's keyboard shortcuts.
+- Starts each drawing in the ACS Document 1996 style. Settings has other journal styles.
+- Opens and saves ChemDraw files (CDXML and CDX). Imports and exports MOL, SDF, SMILES and InChI.
+- Exports PDF, SVG and PNG. On the Mac, Copy puts the drawing into Word, PowerPoint and Keynote, and it pastes
+  back into Octet or ChemDraw as a structure.
+- Turns names into structures and structures into names, offline.
+- Predicts ¹H and ¹³C NMR shifts, and shows formula, mass and other properties.
+
+## Report a problem
+
+Use Help > Report a Problem in Octet, or open an [issue](https://github.com/SamChemMan/Octet/issues/new).
+For a security problem, follow [SECURITY.md](SECURITY.md) instead.
 
 ## Run from source
 
-You need [Node.js](https://nodejs.org) and [Rust](https://rustup.rs).
+You need [Node.js](https://nodejs.org) 24 and [Rust](https://rustup.rs).
 
 ```bash
 npm install
 npm run tauri dev
 ```
+
+`npm test` runs the type check and every check file. [docs/release.md](docs/release.md) tells how releases are
+built and signed.
+
 ## Sam
 
 Hello everyone, 

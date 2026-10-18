@@ -1,0 +1,219 @@
+// Crash recovery (REL-1, CH-4): while the drawing has unsaved changes, the page keeps a copy of it in the app's data
+// folder ("recovery"). Save, Don't Save and a clean close remove the copy, so a copy found later is a drawing that a
+// crash, a force quit or a power cut took. Home offers it. Each Octet process locks a file of its own there while it
+// runs (the system lets the lock go when the process ends, even in a crash), so a second copy of Octet never offers
+// a drawing that is still open. Files: <session>.oct (the drawing), <session>.json (its name and when it was kept)
+// and <session>.lock.
+use std::fs::{self, File, OpenOptions};
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Manager, State};
+
+use crate::{write_atomic, MAX_BYTES};
+
+pub struct Session {
+    id: String,
+    dir: Option<PathBuf>, // None when the app has no data folder: nothing is kept
+    _lock: Option<File>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Meta {
+    name: String,
+    at: u64, // seconds since 1970
+}
+
+#[derive(Serialize)]
+pub struct Recovered {
+    id: String,
+    name: String,
+    at: u64,
+}
+
+fn now() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+// A session id: letters and digits only, so it is safe in a file name.
+fn valid(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 40 && id.bytes().all(|b| b.is_ascii_alphanumeric())
+}
+
+// Another Octet still runs the session when it holds the session's lock.
+fn live(dir: &Path, id: &str) -> bool {
+    OpenOptions::new().write(true).open(dir.join(format!("{id}.lock"))).is_ok_and(|f| f.try_lock().is_err())
+}
+
+fn remove(dir: &Path, id: &str) {
+    let _ = fs::remove_file(dir.join(format!("{id}.json")));
+    let _ = fs::remove_file(dir.join(format!("{id}.oct")));
+}
+
+// The name and time kept with a drawing; without them (a crash between the two writes), "Untitled" and the file's time.
+fn meta(dir: &Path, id: &str) -> Meta {
+    let json = dir.join(format!("{id}.json"));
+    let read = fs::metadata(&json).ok().filter(|m| m.len() <= 4096).and_then(|_| fs::read(&json).ok());
+    read.and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_else(|| Meta {
+        name: "Untitled".into(),
+        at: fs::metadata(dir.join(format!("{id}.oct"))).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0),
+    })
+}
+
+impl Session {
+    // This process's session in `dir`, locked. Lock files of ended sessions that kept nothing are removed.
+    fn start_in(dir: Option<PathBuf>) -> Session {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let id = format!("{nanos:x}{:x}", std::process::id());
+        let lock = dir.as_ref().and_then(|dir| {
+            fs::create_dir_all(dir).ok()?;
+            for entry in fs::read_dir(dir).ok()?.flatten() {
+                let path = entry.path();
+                let Some(other) = path.file_stem().and_then(|s| s.to_str()).filter(|_| path.extension().is_some_and(|e| e == "lock")) else { continue };
+                if !dir.join(format!("{other}.oct")).exists() && !live(dir, other) {
+                    let _ = fs::remove_file(&path);
+                }
+            }
+            let file = OpenOptions::new().create(true).truncate(false).write(true).open(dir.join(format!("{id}.lock"))).ok()?;
+            file.try_lock().ok()?;
+            Some(file)
+        });
+        Session { id, dir, _lock: lock }
+    }
+
+    fn dir(&self) -> Result<&Path, String> {
+        self.dir.as_deref().ok_or_else(|| "Octet has no folder to keep drawings in.".into())
+    }
+
+    // The drawing of another session that ended (never this one, never one still open).
+    fn other(&self, id: &str) -> Result<&Path, String> {
+        let dir = self.dir()?;
+        if !valid(id) || id == self.id || live(dir, id) {
+            return Err("Octet cannot use this drawing now.".into());
+        }
+        Ok(dir)
+    }
+
+    fn write(&self, name: &str, contents: &str) -> Result<(), String> {
+        if contents.len() as u64 > MAX_BYTES {
+            return Err("This drawing is too large to keep.".into());
+        }
+        let dir = self.dir()?;
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        let kept = Meta { name: name.chars().filter(|c| !c.is_control()).take(200).collect(), at: now() };
+        write_atomic(&dir.join(format!("{}.oct", self.id)), contents.as_bytes()).map_err(|e| e.to_string())?;
+        write_atomic(&dir.join(format!("{}.json", self.id)), &serde_json::to_vec(&kept).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+    }
+
+    fn list(&self) -> Vec<Recovered> {
+        let Some(dir) = self.dir.as_deref() else { return Vec::new() };
+        let Ok(entries) = fs::read_dir(dir) else { return Vec::new() };
+        let mut list: Vec<Recovered> = entries
+            .flatten()
+            .filter_map(|entry| {
+                let path = entry.path();
+                let id = path.file_stem()?.to_str()?.to_string();
+                if path.extension()? != "oct" || self.other(&id).is_err() {
+                    return None;
+                }
+                let Meta { name, at } = meta(dir, &id);
+                Some(Recovered { id, name, at })
+            })
+            .collect();
+        list.sort_by(|a, b| b.at.cmp(&a.at));
+        list.truncate(24);
+        list
+    }
+
+    // Its copy becomes this session's, so it stays safe until the user saves it or chooses Don't Save.
+    fn open(&self, id: &str) -> Result<(String, String), String> {
+        let dir = self.other(id)?;
+        let oct = dir.join(format!("{id}.oct"));
+        if fs::metadata(&oct).map_err(|_| "This drawing is no longer kept.".to_string())?.len() > MAX_BYTES {
+            return Err("This drawing is larger than 64 MB. Octet cannot open it.".into());
+        }
+        let text = fs::read_to_string(&oct).map_err(|e| e.to_string())?;
+        let kept = meta(dir, id);
+        fs::rename(&oct, dir.join(format!("{}.oct", self.id))).map_err(|e| e.to_string())?;
+        let _ = serde_json::to_vec(&kept).map(|b| write_atomic(&dir.join(format!("{}.json", self.id)), &b));
+        let _ = fs::remove_file(dir.join(format!("{id}.json")));
+        Ok((kept.name, text))
+    }
+}
+
+pub fn start(app: &AppHandle) -> Session {
+    Session::start_in(app.path().app_data_dir().ok().map(|d| d.join("recovery")))
+}
+
+// The page's drawing, kept (64 MB at most; the name cut to 200 characters).
+#[tauri::command]
+pub async fn recovery_write(session: State<'_, Session>, name: String, contents: String) -> Result<(), String> {
+    session.write(&name, &contents)
+}
+
+#[tauri::command]
+pub async fn recovery_clear(session: State<'_, Session>) -> Result<(), String> {
+    remove(session.dir()?, &session.id);
+    Ok(())
+}
+
+// Drawings kept by Octet sessions that ended without closing them, newest first (24 at most).
+#[tauri::command]
+pub async fn recovery_list(session: State<'_, Session>) -> Result<Vec<Recovered>, String> {
+    Ok(session.list())
+}
+
+// A kept drawing, to edit again: its name and contents.
+#[tauri::command]
+pub async fn recovery_open(session: State<'_, Session>, id: String) -> Result<(String, String), String> {
+    session.open(&id)
+}
+
+// The user discarded a kept drawing on Home.
+#[tauri::command]
+pub async fn recovery_discard(session: State<'_, Session>, id: String) -> Result<(), String> {
+    remove(session.other(&id)?, &id);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ids_are_plain() {
+        assert!(valid("18f3a2b9c0d1e2f3a4b5"));
+        assert!(!valid("../x") && !valid("") && !valid("a.b") && !valid(&"a".repeat(41)));
+    }
+
+    // Two Octets side by side, then one crashes (its lock goes): the other offers its drawing, takes it over, and a
+    // third never sees it while the second has it.
+    #[test]
+    fn a_crashed_drawing_comes_back_once() {
+        let dir = std::env::temp_dir().join(format!("octet-recovery-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let first = Session::start_in(Some(dir.clone()));
+        let second = Session::start_in(Some(dir.clone()));
+        first.write("Suzuki cycle", "<CDXML/>").unwrap();
+        assert!(second.list().is_empty(), "a drawing still open is not offered");
+        assert!(first.list().is_empty(), "nor is a session's own");
+        assert!(second.open(&first.id).is_err());
+        let id = first.id.clone();
+        drop(first); // the crash: the system lets its lock go
+        let list = second.list();
+        assert_eq!((list.len(), list[0].id.as_str(), list[0].name.as_str()), (1, id.as_str(), "Suzuki cycle"));
+        assert_eq!(second.open(&id).unwrap(), ("Suzuki cycle".into(), "<CDXML/>".into()));
+        let third = Session::start_in(Some(dir.clone()));
+        assert!(third.list().is_empty(), "the second session has it now");
+        drop(second);
+        assert_eq!(third.list()[0].name, "Suzuki cycle");
+        // A copy with no name file still comes back, as Untitled.
+        fs::remove_file(dir.join(format!("{}.json", third.list()[0].id))).unwrap();
+        assert_eq!(third.list()[0].name, "Untitled");
+        remove(&dir, &third.list()[0].id);
+        assert!(third.list().is_empty());
+        assert!(third.open("../etc").is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+}

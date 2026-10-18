@@ -20,6 +20,10 @@ export function About({ onClose }: { onClose: () => void }) {
           Chemistry by Indigo (Apache-2.0). Names read by OPSIN (MIT). NMR shifts contain information from nmrshiftdb2
           (www.nmrshiftdb.org), which is made available here under the nmrshiftdb2 Database License.
         </p>
+        {/* Every licence notice Octet ships (scripts/licences.mjs), in the system's text app. */}
+        <p className="about-credits">
+          <button className="about-link" onClick={() => void invoke("open_licences").catch(() => undefined)}>Licences</button>
+        </p>
       </div>
     </Dialog>
   );

@@ -36,8 +36,10 @@ const local = (v: string) => v.replace(/url\(\s*(["']?)[^#"')]*#([^"')]+)\1\s*\)
 export function standaloneSvg(canvas: SVGSVGElement, bounds: [number, number, number, number], ptPerPx: number): string {
   const [x0, y0] = [Math.floor(bounds[0] * ptPerPx), Math.floor(bounds[1] * ptPerPx)];
   const [w, h] = [Math.max(1, Math.ceil(bounds[2] * ptPerPx) - x0), Math.max(1, Math.ceil(bounds[3] * ptPerPx) - y0)];
-  // The light theme for a moment: nothing is painted before the attributes go back.
-  const saved = ["data-theme", "class", "style"].map((a) => [a, canvas.getAttribute(a)] as const);
+  // The light theme for a moment: nothing is painted before the attributes go back. The colours go back through
+  // element.style, as the CSP allows no style attribute.
+  const saved = ["data-theme", "class"].map((a) => [a, canvas.getAttribute(a)] as const);
+  const colours = ["--ink", "--canvas"].map((k) => [k, canvas.style.getPropertyValue(k)] as const);
   canvas.setAttribute("data-theme", "light");
   canvas.setAttribute("class", "canvas");
   canvas.style.removeProperty("--ink");
@@ -72,13 +74,16 @@ export function standaloneSvg(canvas: SVGSVGElement, bounds: [number, number, nu
     return new XMLSerializer().serializeToString(copy);
   } finally {
     for (const [a, v] of saved) if (v === null) canvas.removeAttribute(a); else canvas.setAttribute(a, v);
+    for (const [k, v] of colours) if (v) canvas.style.setProperty(k, v);
   }
 }
 
-// Copy: the picture (standaloneSvg of the selection) with the selection's CDXML hidden in it, then its molfile,
-// SMILES and Octet's JSON, on the clipboard as ChemDraw puts them (macOS). Call it from the copy event after
-// preventDefault(), and set nothing on clipboardData: plain text would make ChemDraw paste a caption.
-export const copyToClipboard = (c: { svg: string; cdxml?: string; molfile?: string; smiles?: string; octetJson?: string }) =>
+// Copy: the picture (standaloneSvg of the selection; on the Mac a PDF with the selection's CDXML hidden in it), then
+// CDX, the CDXML as its own type (cdxmlType), its molfile, SMILES and Octet's JSON, on the clipboard as ChemDraw puts
+// them on each system (src-tauri/src/clipboard.rs). Each left out is not put on. Call it from the copy event after
+// preventDefault(), and set nothing on clipboardData: plain text would make ChemDraw paste a caption. With `text`,
+// only that text goes on (Edit > Copy As).
+export const copyToClipboard = (c: { svg?: string; cdxml?: string; cdxmlType?: boolean; cdx?: string; molfile?: string; smiles?: string; octetJson?: string; text?: string }) =>
   invoke<void>("copy_to_clipboard", c);
 
 // What paste can use from the clipboard, each null when absent: Octet's JSON; CDXML (ChemDraw's CDXML type, or
@@ -87,7 +92,7 @@ export const copyToClipboard = (c: { svg: string; cdxml?: string; molfile?: stri
 export type Clipboard = { octet: string | null; cdxml: string | null; cdx: string | null; molfile: string | null; smiles: string | null };
 export const readClipboard = () => invoke<Clipboard>("read_clipboard");
 
-export type ExportFormat = "oct" | "pdf" | "svg" | "png" | "cdxml" | "mol" | "sdf" | "smi";
+export type ExportFormat = "oct" | "pdf" | "svg" | "png" | "cdxml" | "cdx" | "mol" | "sdf" | "smi" | "inchi";
 // A picture from standaloneSvg with a margin of `pt` all round: its size and view box grow by that much.
 export function withMargin(svg: string, pt: number): string {
   const m = Math.max(0, Math.min(72, pt));
@@ -99,7 +104,7 @@ export function withMargin(svg: string, pt: number): string {
 // carries the CDXML, as on the clipboard. PNG at `dpi` of true size (300 if not given), white unless
 // `transparent`. Resolves to the path written, or null if cancelled.
 export type ExportRequest = {
-  name: string; format?: ExportFormat; oct?: string; svg?: string; cdxml?: string; molfile?: string; sdf?: string; smiles?: string;
+  name: string; format?: ExportFormat; oct?: string; svg?: string; cdxml?: string; cdx?: string; molfile?: string; sdf?: string; smiles?: string; inchi?: string;
   dpi?: number; transparent?: boolean;
 };
 export const exportFile = (request: ExportRequest) => invoke<string | null>("export_file", { export: request });

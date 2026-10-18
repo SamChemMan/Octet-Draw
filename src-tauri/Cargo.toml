@@ -1,6 +1,6 @@
 [package]
 name = "octet"
-version = "0.1.0"
+# No version here: Octet's one version is in package.json, which tauri.conf.json reads (REL-9).
 description = "A chemical structure drawing editor"
 authors = ["Sam Ellis"]
 license = "Apache-2.0"
@@ -25,6 +25,22 @@ png = "0.17"
 base64 = "0.22"
 # Opens web addresses and files in the user's own programs. On Windows it calls ShellExecuteExW, not cmd.exe.
 open = { version = "5.4", features = ["shellexecute-on-windows"] }
+
+# Updates, only when the user allows them or asks (decision 0010). The download is signed and checked against the
+# public key in tauri.conf.json. Not the "zip" feature: Octet's updates are not zip files.
+tauri-plugin-updater = { version = "2.14", default-features = false, features = ["rustls-tls", "system-proxy"] }
+
+# A second launch on Windows and Linux gives its files to the Octet that runs (src/open.rs).
+[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
+tauri-plugin-single-instance = "2"
+
+# Copy and paste on Windows: the clipboard calls (src/clipboard_windows.rs). Already in the build through Tauri.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole"] }
+
+# Copy and paste on Linux: GTK's clipboard (src/clipboard_linux.rs). Already in the build through Tauri.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

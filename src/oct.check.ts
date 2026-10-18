@@ -4,7 +4,7 @@ import { DEFAULT_STYLE } from "./docstyle.ts";
 import { addArrow, addCaption, addRing, EMPTY } from "./edit.ts";
 import { toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
-import { readOct, writeOct } from "./oct.ts";
+import { isDrawingText, lostText, readOct, writeOct } from "./oct.ts";
 
 let mol = addRing(EMPTY, 6, false, { point: [0, 0] });
 [mol] = addCaption(mol, { text: "Café 5 °C -- über", x: 0, y: -3 });
@@ -25,6 +25,18 @@ assert.equal(edited.mol.style?.labelSize, 14);
 // A damaged copy falls back to the CDXML; an old .octet file is the JSON alone.
 assert.equal(readOct(file.replace(/ ([A-Za-z0-9+/=]{8})/, " AAAA$1")).mol.atoms.length, 6);
 assert.equal(readOct(serialize(mol)).mol.atoms.length, 6);
+// The copy kept for recovery (REL-1) is that JSON with the style: it comes back as the .oct does.
+assert.equal(serialize(readOct(serialize({ ...mol, style })).mol), serialize(back.mol));
+// A ChemDraw file with a picture Octet cannot hold: it is counted, so Save asks before it writes over the file (REL-11).
+const picture = readOct(writeOct(mol, style).replace(/<!--Octet[^]*$/, "").replace("</page>", '<embeddedobject id="9001" BoundingBox="0 0 10 10"/></page>'));
+assert.deepEqual(picture.lost, { picture: 1 });
+assert.equal(picture.foreign, true);
+assert.equal(lostText(picture.lost), "1 picture");
+assert.equal(lostText({ annotation: 6, "rotated shape": 1, "bond highlight": 2 }), "6 annotations, 1 rotated shape and 2 bond highlights");
+assert.equal(lostText({}), "");
+// Files opened from Finder or dropped on the window: drawings go to readOct, structure files to Indigo.
+assert.ok(isDrawingText(file) && isDrawingText('{"atoms":[],"bonds":[]}') && isDrawingText('<?xml version="1.0"?>\n<CDXML>'));
+assert.ok(!isDrawingText("\n  Octet\n\n  1  0  0  0  0  0  0  0  0  0999 V2000\nM  END\n") && !isDrawingText("CCO") && !isDrawingText("c1ccccc1 benzene <CDXMLX>"));
 // What the window showed (View > Show Grid, Show Rulers, Show Crosshair) comes back with the drawing.
 const guides = { rulers: true as const, crosshair: [1, -0.5] as [number, number] };
 assert.deepEqual(readOct(writeOct({ ...mol, guides }, style)).mol.guides, guides);

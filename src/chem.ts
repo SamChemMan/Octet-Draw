@@ -235,6 +235,18 @@ export const toSmiles = (drawn: Mol): string => convert(ketOf(drawn), "smiles");
 // The drawing's molecules as a molfile. A hydrogen bond is bond type 10 and a quadruple bond single, as ChemDraw
 // writes them.
 export const toMolfile = (drawn: Mol): string => convert(ketOf(drawn, true), "molfile");
+// Edit > Copy As: MOL text in V3000 (ChemDraw 26.1's MOL Text) or V2000, and the InChIKey.
+export function toMolText(drawn: Mol, version: 2000 | 3000): string {
+  const ind = engine(), opts = new ind.MapStringString();
+  try {
+    opts.set("molfile-saving-mode", String(version));
+    // trimEnd: the first line (the name) is empty, and a molfile has three header lines before its counts.
+    return ind.convert(ketOf(drawn, true), "molfile", opts).trimEnd();
+  } finally {
+    opts.delete();
+  }
+}
+export const toInchiKey = (drawn: Mol): string => convert(ketOf(drawn), "inchi-key");
 // Generic labels as query atoms (any atom A, heteroatom Q, metal M, halogen X, and each with H, as ChemDraw's).
 // SMILES cannot keep them; a molfile can, for a Reaxys search. undefined when the drawing has none.
 // As ChemDraw 26.1 writes a molfile (CoreChemistry IsAcceptableGeneric): A, Q and X go as the atom symbol; the

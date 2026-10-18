@@ -149,6 +149,10 @@ console.log("file.check: bad files refused");
     curve: { points: [{ at: [0, 0] as [number, number] }, { at: [2, 2] as [number, number], c1: [1, 2] as [number, number], c2: [3, 2] as [number, number] }, { at: [4, 0] as [number, number] }], closed: true } };
   const back = parse(serialize({ ...mol, arrows: [pen] })).arrows![0];
   assert.deepEqual({ ...back, id: 90 }, pen);
+  // A curve of one anchor (ChemDraw's clip art has them, and the CDXML reader keeps them) saves and opens again.
+  const dot = { ...pen, to: [0, 0] as [number, number], curve: { points: [{ at: [0, 0] as [number, number], c2: [0.1, 0.1] as [number, number] }], closed: true } };
+  assert.deepEqual({ ...parse(serialize({ ...mol, arrows: [dot] })).arrows![0], id: 90 }, dot);
+  assert.throws(() => parse(serialize({ ...mol, arrows: [{ ...dot, curve: { points: [] } }] })), /damaged/);
   const legacy = parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "box", x1: 0, y1: 0, x2: 1, y2: 1 }, { kind: "curve", x1: 0, y1: 0, x2: 2, y2: 1, dashed: true, curve: { points: [{ at: [0, 0] }, { at: [2, 1] }] } }] }));
   assert.equal(legacy.shapes?.length, 1);
   assert.equal(legacy.arrows?.[0].kind, "curve");
@@ -204,6 +208,18 @@ console.log("file.check: bad files refused");
   const structure = JSON.parse(serialize(mol)).structure;
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure, cycles: [{ x: 0, y: 0, radius: 3, nodes: [[0], [3]], width: 0 }] })), /damaged/);
   console.log("file.check: cycle line width ok");
+}
+
+// Annotations from ChemDraw (keyword and content pairs) come back; a bad one makes the file damaged.
+{
+  const notes = { atoms: [], bonds: [], annotations: [{ keyword: "GUID", content: "5B5C3FE0" }, { keyword: "Name", content: "two\nlines" }] };
+  assert.deepEqual(parse(serialize(notes)).annotations, notes.annotations);
+  const bad = (annotations: unknown) => () => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, annotations }));
+  assert.throws(bad([{ keyword: "GUID" }]), /damaged/);
+  assert.throws(bad([{ keyword: "a\u0001", content: "" }]), /damaged/);
+  assert.throws(bad({ keyword: "x", content: "y" }), /damaged/);
+  assert.throws(bad(Array(1001).fill({ keyword: "k", content: "c" })), /damaged/);
+  console.log("file.check: annotations ok");
 }
 
 // Decision 0007: each object's scale and the document's scale survive a save and reopen; a bad scale is refused.

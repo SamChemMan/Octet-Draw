@@ -93,7 +93,7 @@ export const withSize = (v: string, size: ArrowSize) => {
 export const SELECTS = { box: { name: "Box" }, lasso: { name: "Lasso" }, perspective: { name: "Structure perspective" } };
 
 export const SHAPES: Record<ShapeKind, string> = {
-  box: "Box", rounded: "Rounded box", oval: "Oval", highlight: "Highlight", brackets: "Brackets", parens: "Parentheses", braces: "Braces", tlc: "TLC plate", table: "Table",
+  box: "Box", rounded: "Rounded box", oval: "Oval", highlight: "Highlight", brackets: "Brackets", parens: "Parentheses", braces: "Braces", tlc: "TLC plate", table: "Table", picture: "Picture",
 };
 
 // Marks the Symbols tool puts on an atom.

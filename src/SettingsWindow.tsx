@@ -1,8 +1,8 @@
 // Settings: one window, in the middle of the screen, laid out like the Mac's own settings. A sidebar lists the
-// modules (Document, Keyboard shortcuts, Import and export) under a search field that is always there. With text
+// modules (General, Document, Keyboard shortcuts, Import and export) under a search field that is always there. With text
 // in it, every matching setting from every module shows on the right, grouped by module and ready to use.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowCounterClockwise, CaretDown, Check, FileText, Files, Keyboard, MagnifyingGlass, PencilSimpleLine, Plus, Swatches, X } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, CaretDown, Check, FileText, Files, GearSix, Keyboard, MagnifyingGlass, PencilSimpleLine, Plus, Swatches, X } from "@phosphor-icons/react";
 import { ColourPicker, ColourPop } from "./ColourPicker";
 import { Dialog, useModal } from "./Dialog";
 import { holdCursor } from "./cursor";
@@ -16,16 +16,19 @@ import type { ExportFormat } from "./export";
 import { BACKGROUNDS, COLOURS, ELEMENT_COLOURS, FONTS, GRID_IN, GRID_MM, PAGE_NAMES, PAGES, PRESETS, PURPOSES, pageSize, pickPage, presetAt, presetOf, withScale, type DocStyle, type PageName } from "./docstyle";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
 
-export type ModuleId = "document" | "drawing" | "keys" | "appearance" | "files";
+export type ModuleId = "general" | "document" | "drawing" | "keys" | "appearance" | "files";
 // How the drawing tools draw (ChemDraw's Object > Fixed Lengths and Fixed Angles, and its Building/Display setting).
 export type DrawingPrefs = { fixedLengths: boolean; fixedAngles: boolean; sproutRings: boolean };
 export type FilePrefs = {
   format: ExportFormat; dpi: number; background: "white" | "transparent"; margin: number;
-  clipboard: { pdf: boolean; cdxml: boolean; mol: boolean; smiles: boolean }; keepStyle: boolean;
+  clipboard: { pdf: boolean; cdx: boolean; cdxml: boolean; mol: boolean; smiles: boolean }; keepStyle: boolean;
 };
+const MAC = navigator.platform.startsWith("Mac");
+// The picture Copy puts on the clipboard (Settings > Import and export > Copy).
+const PICTURE = MAC ? "PDF, with the structure inside" : navigator.platform.startsWith("Linux") ? "PNG and SVG" : "PNG";
 // PNG resolutions; 350 dpi by default (Sam: super high resolution).
 export const DPIS: [string, string][] = [["72", "72 dpi"], ["150", "150 dpi"], ["300", "300 dpi"], ["350", "350 dpi"], ["600", "600 dpi"], ["1200", "1200 dpi"]];
-export const DEFAULT_FILES: FilePrefs = { format: "pdf", dpi: 350, background: "transparent", margin: 4, clipboard: { pdf: true, cdxml: true, mol: true, smiles: true }, keepStyle: true };
+export const DEFAULT_FILES: FilePrefs = { format: "pdf", dpi: 350, background: "transparent", margin: 4, clipboard: { pdf: true, cdx: true, cdxml: true, mol: true, smiles: true }, keepStyle: true };
 
 type Props = {
   module: ModuleId;
@@ -59,6 +62,9 @@ type Props = {
   elementColours: Record<string, string>; // Colour by Element: the user's colour for an element, where it is not Octet's
   onElementColours: (colours: Record<string, string>) => void;
   adding?: boolean; // opened to add a colour: a new one is made, ready to set
+  updates: boolean; // check for updates when Octet opens (decision 0010)
+  onUpdates: (on: boolean) => void;
+  onCheckUpdates: () => void;
   onClose: () => void;
 };
 
@@ -229,6 +235,7 @@ function Backgrounds({ value, onChange }: { value: DocStyle["background"]; onCha
 // head: the control goes in the section's head, beside its title, not in a row.
 type Def = { module: ModuleId; section: string; label: string; keywords: string; control: React.ReactNode; wide?: boolean; head?: boolean };
 const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: string }[] = [
+  { id: "general", name: "General", icon: <GearSix size={16} />, words: "general updates version" },
   { id: "document", name: "Document", icon: <FileText size={16} />, words: "document style page text" },
   { id: "drawing", name: "Drawing", icon: <PencilSimpleLine size={16} />, words: "drawing tools bonds rings draw" },
   { id: "keys", name: "Keyboard shortcuts", icon: <Keyboard size={16} />, words: "keyboard shortcut hotkey keys" },
@@ -302,8 +309,9 @@ function KeyChips({ id, map, recording, onRecord, onRemove }: { id: string; map:
 
 export function SettingsWindow(p: Props) {
   const [query, setQuery] = useState("");
+  // A modal window: Tab stays in it, and the focus goes back when it closes (Dialog.tsx).
   const search = useRef<HTMLInputElement>(null), backdrop = useRef<HTMLDivElement>(null), leaving = useLeaving();
-  useModal(backdrop, !leaving);
+  const top = useModal(backdrop, !leaving);
   const [recording, setRecording] = useState<{ id: string; index: number }>();
   const [note, setNote] = useState<{ id: string; text: string; undo: Keymap }>();
   const [naming, setNaming] = useState<string>(); // the name typed for a new template, while its dialog is open
@@ -316,6 +324,7 @@ export function SettingsWindow(p: Props) {
   useEffect(() => {
     if (leaving) return;
     const key = (e: KeyboardEvent) => {
+      if (!top()) return;
       if (naming !== undefined) return; // the new template's dialog has the keys
       if (recording) {
         e.preventDefault();
@@ -425,12 +434,15 @@ export function SettingsWindow(p: Props) {
           {note?.id === a.id && <span className="key-note">{note.text} <button className="text-button" onClick={() => { p.onKeys(note.undo); setNote(undefined); }}>Undo</button></span>}
         </>
       ), true)),
-      d("files", "Export", "Format", "export format pdf svg png cdxml file save", <Select label="Export format" value={files.format} options={[["oct", "Octet drawing"], ["pdf", "PDF"], ["png", "PNG"], ["svg", "SVG"], ["cdxml", "CDXML (ChemDraw)"], ["mol", "MOL"], ["sdf", "SDF"], ["smi", "SMILES"]]} onChange={(v) => setFiles({ format: v as FilePrefs["format"] })} />),
+      d("files", "Export", "Format", "export format pdf svg png cdxml cdx inchi file save", <Select label="Export format" value={files.format} options={[["oct", "Octet drawing"], ["pdf", "PDF"], ["png", "PNG"], ["svg", "SVG"], ["cdxml", "CDXML (ChemDraw)"], ["cdx", "CDX (ChemDraw)"], ["mol", "MOL"], ["sdf", "SDF"], ["smi", "SMILES"], ["inchi", "InChI"]]} onChange={(v) => setFiles({ format: v as FilePrefs["format"] })} />),
       d("files", "Export", "PNG resolution", "png image resolution dpi scale", <Select label="PNG resolution" value={String(files.dpi)} options={DPIS} onChange={(v) => setFiles({ dpi: Number(v) })} />),
       d("files", "Export", "Background", "background transparent white png svg", <Select label="Background" value={files.background} options={[["transparent", "Transparent"], ["white", "White"]]} onChange={(v) => setFiles({ background: v as FilePrefs["background"] })} />),
       d("files", "Export", "Margin", "export margin padding border", <NumberField label="Margin" unit="pt" min={0} max={72} step={1} value={files.margin} onChange={(n) => setFiles({ margin: n })} />),
-      ...([["pdf", "PDF, with the structure inside", "pdf word powerpoint keynote office"], ["cdxml", "CDXML", "cdxml chemdraw"], ["mol", "MOL", "mol molfile"], ["smiles", "SMILES", "smiles text"]] as const).map(([k, name, words]) =>
+      // What Copy puts on the clipboard for other programs (Octet's own form always goes on). The picture is a PDF on
+      // the Mac, a PNG on Windows, and a PNG and an SVG on Linux (src-tauri/src/clipboard.rs).
+      ...([["pdf", PICTURE, "picture image pdf png svg word powerpoint keynote office"], ["cdx", "CDX", "cdx chemdraw binary"], ["cdxml", "CDXML", "cdxml chemdraw"], ["mol", "MOL", "mol molfile"], ["smiles", "SMILES", "smiles text"]] as const).map(([k, name, words]) =>
         d("files", "Copy", name, `clipboard copy paste ${words}`, <Switch on={files.clipboard[k]} label={name} onChange={(on) => setFiles({ clipboard: { ...files.clipboard, [k]: on } })} />)),
+      d("general", "Updates", "Check automatically", "updates update check automatically new version internet", <Switch on={p.updates} label="Check for updates automatically" onChange={p.onUpdates} />),
       d("appearance", "Colours", "Octet's colours", "colour colours palette swatch built in", (
         <span className="swatches" role="list" aria-label="Octet's colours">
           {COLOURS.map(([name, hex]) => <span key={hex} role="listitem" className="swatch" style={{ background: hex }} data-tip={name} aria-label={name} />)}
@@ -442,7 +454,7 @@ export function SettingsWindow(p: Props) {
       // Off hides Search Reaxys and Search PubChem everywhere (decision 0008).
       d("files", "Online", "Online search", "online search reaxys pubchem internet web browser network privacy offline", <Switch on={p.onlineSearch} label="Online search" onChange={p.onOnlineSearch} />),
     ];
-  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.onlineSearch, p.rulerUnit, p.menuKeys.length, p.purposes, p.drawing, p.template]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.onlineSearch, p.rulerUnit, p.menuKeys.length, p.purposes, p.drawing, p.template, p.updates]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query) && (!p.template || def.module === "document")) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));
@@ -476,7 +488,8 @@ export function SettingsWindow(p: Props) {
         ))}
       </>
     );
-    return <>{sections(module, list).map((s) => <Section key={s} title={s} defs={list.filter((x) => x.module === module && x.section === s)} />)}</>;
+    return <>{sections(module, list).map((s) => <Section key={s} title={s} defs={list.filter((x) => x.module === module && x.section === s)}
+      aside={s === "Updates" ? <button className="text-button" onClick={p.onCheckUpdates}>Check Now</button> : undefined} />)}</>;
   };
 
   return (

@@ -244,3 +244,14 @@ export function tileTo(key: string, from: number, tiles: Rect[]): number | undef
   const row = next.filter(({ r }) => Math.abs(r.y - top) < half), off = (r: Rect) => Math.abs(mid(r) - mid(at));
   return row.reduce((a, b) => (off(b.r) < off(a.r) - 0.5 ? b : a)).k;
 }
+
+// Feedback's keys (for testers, REL-8): ⌘ (Ctrl on Windows and Linux) held, with 1, 2 and 3 all pressed within
+// 400 ms. Only the presses count, as macOS sends no key-up while ⌘ is held. pressed: when each digit was last
+// pressed (ms); it is emptied when the keys are complete.
+export function feedbackChord(pressed: Map<string, number>, digit: string, at: number): boolean {
+  pressed.set(digit, at);
+  const times = ["1", "2", "3"].map((d) => pressed.get(d) ?? -Infinity);
+  if (Math.max(...times) - Math.min(...times) > 400) return false;
+  pressed.clear();
+  return true;
+}

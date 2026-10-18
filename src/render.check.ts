@@ -454,3 +454,32 @@ console.log("render.check: written labels ok");
   twice([[...l1.anchors.values()].map((x) => [x.x, x.y] as P)], [[...l2.anchors.values()].map((x) => [x.x, x.y] as P)], "cycle text");
   console.log("render.check: every object at scale 2 ok");
 }
+
+// REL-15: a turned caption turns about its anchor, and its box is the box round the turned text; a bond with its own
+// double-bond spacing (ChemDraw's BondSpacing) draws its second line that far from the first.
+{
+  const one = (w: number) => () => w;
+  const d0 = render({ atoms: [], bonds: [] }, S, ink);
+  const [upright] = placeCaptions({ atoms: [], bonds: [], captions: [{ id: 1, text: "ab", x: 1, y: 0, align: "left" }] }, d0, one(20));
+  const [turned] = placeCaptions({ atoms: [], bonds: [], captions: [{ id: 1, text: "ab", x: 1, y: 0, align: "left", angle: 90 }] }, d0, one(20));
+  const ax = d0.scale;
+  assert.equal(upright.angle, undefined);
+  assert.deepEqual([turned.angle, turned.pivot?.[0], Math.abs(turned.pivot![1]), turned.frame], [90, ax, 0, upright.box]);
+  // A quarter turn anticlockwise: the text runs up the page from its anchor, so its box is tall and narrow.
+  const [x0, y0, x1, y1] = turned.box;
+  assert.ok(Math.abs(y1 - 0) < 1e-9 && Math.abs(y0 + 20) < 1e-9 && x1 - x0 < y1 - y0, "the box round the turned text");
+  const height = (spacing?: number) => {
+    const m: Mol = { atoms: [{ label: "C", location: [0, 0, 0] }, { label: "C", location: [1, 0, 0] }], bonds: [{ type: 2, atoms: [0, 1], position: "centre", ...(spacing !== undefined ? { spacing } : {}) }] };
+    const ys = render(m, S, ink).polygons.flat().map((p) => p[1]);
+    return Math.max(...ys) - Math.min(...ys);
+  };
+  assert.ok(Math.abs(height(12) - height() - (0.12 - 0.18) * S.bond) < 1e-6, "the lines 12% of the bond length apart, not 18%");
+  console.log("render.check: turned captions and a bond's own spacing ok");
+}
+
+// REL-15: a rounded box with its own corner radius (from ChemDraw's CornerRadius) draws it; others keep 0.3 bond lengths.
+{
+  const corner = (radius?: number) => shapePaths({ id: 1, kind: "rounded", from: [0, 1], to: [4, 0], ...(radius !== undefined ? { radius } : {}) }, 10)[0][0][0];
+  assert.deepEqual([corner(), corner(0.25)], [40 - 3, 40 - 2.5]);
+  console.log("render.check: a rounded box's own corner ok");
+}

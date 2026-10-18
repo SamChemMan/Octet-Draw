@@ -5,20 +5,20 @@ import {
   GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa,
   TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table,
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
-  EyeSlash, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler,
+  EyeSlash, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
-import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
+import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, toMolText, toInchiKey, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
 import { MAX_PURPOSES, PURPOSES, QUICK, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
 import { Rulers } from "./Rulers";
 import { messy, problems, showWarnedHydrogens } from "./check";
 import { parse, serialize } from "./file";
 import {
-  EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bounds, complete, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
+  EMPTY, extent, stack, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bounds, complete, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addLane, addTemplate, alignFragments, cutReaction, deleteLane, moveLane, restyleSpot, atomsInPolygon, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset,
   addShape, addSymbol, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
   toFront, addChain, chainPoints, chainThrough, snake, clickBond, dragBond, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, placeCentres,
@@ -29,7 +29,7 @@ import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
 import { loadSettings, RULER_UNITS, saveSettings } from "./settings";
 import { Menu, menuWidth } from "./Menu";
-import { ACTIONS, actionFor, controlTakes, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, textEntry, toAccelerator } from "./keys";
+import { ACTIONS, actionFor, controlTakes, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, textEntry, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties, propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./Properties";
@@ -38,10 +38,11 @@ import { acsText, multiplicity, quality } from "./nmr";
 import { nmrReady, predict, type Nucleus } from "./nmr";
 import { rings } from "./rings";
 import { NumberField, Segmented, Switch } from "./Fields";
-import { fromCdxml, toCdxml, type CdxmlOptions } from "./cdxml";
-import { readOct, writeOct } from "./oct";
+import { fromCdxml, parseXml, toCdxml, type CdxmlOptions } from "./cdxml";
+import { isDrawingText, lostText, readCdx, readOct, writeCdx, writeOct } from "./oct";
+import { BASE64_MAGIC, fromBase64, hexToBase64, toBase64, xmlToCdx } from "./cdx";
 import { About } from "./About";
-import { Home, NameBox, type RecentEntry } from "./Home";
+import { Home, NameBox, UpdatesBox, type RecentEntry, type RecoveredEntry } from "./Home";
 import { Coach, NOTHING_SEEN, type Seen } from "./Coach";
 import { Feedback } from "./Feedback";
 import { ExportButton, ExportDialog } from "./ExportDialog";
@@ -85,12 +86,17 @@ import { Select } from "./Select";
 import "./editor.css";
 
 
-const MOD = navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+";
+const MAC = navigator.platform.startsWith("Mac");
+const MOD = MAC ? "⌘" : "Ctrl+";
 // Export: ⌃⌘E on the Mac; Ctrl+Shift+E elsewhere, where ⌃ and ⌘ are both Ctrl (src-tauri/src/main.rs).
 const EXPORT_KEYS = navigator.platform.startsWith("Mac") ? "⌃⌘E" : "⇧Ctrl+E";
 // In the desktop app the native menu owns undo, redo and the file commands; in a browser (dev only) the page does.
 const TAURI = "__TAURI_INTERNALS__" in window;
-const MAC = navigator.platform.startsWith("Mac");
+// File > Print's paper size (printDrawing).
+let pageSheet: CSSStyleSheet | undefined;
+// In the app, copy and paste go through the app (src-tauri/src/clipboard.rs), with the types ChemDraw and Office use
+// on each system (REL-3, CH-1). In a browser (dev only), the page uses the browser's clipboard.
+const NATIVE_CLIP = TAURI;
 
 // Undo history: every edit pushes a new Mol; undo and redo move along the list.
 // merge: edits with the same key one after another (a slider being dragged) make one step.
@@ -199,11 +205,21 @@ function Live<T>({ store: from, children }: { store: Store<T>; children: (value:
 // The view: where the drawing's origin is on screen (px) and the zoom. pinch: a zoom gesture goes on (see onWheel).
 type View = { x: number; y: number; zoom: number; pinch?: boolean };
 // What Export and Copy make from the drawing for other programs (pictures aside).
-type PartFormat = "cdxml" | "oct" | "molfile" | "smiles";
+type PartFormat = "cdxml" | "cdx" | "oct" | "molfile" | "smiles" | "inchi";
 const sameHover = (a: Hover, b: Hover) => a.atom === b.atom && a.bond === b.bond && a.caption === b.caption && a.arrow === b.arrow && a.cycle === b.cycle && a.step === b.step && a.key === b.key;
 const nothing = (t: Hover) => t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined && t.cycle === undefined;
 // Ink as SVG path data, kept with the arrow or shape it is made from, for each document style.
 const arrowInks = new WeakMap<Arrow, [unknown, string]>(), shapeInks = new WeakMap<Shape, [unknown, string]>(), outlines = new WeakMap<object, [unknown, string]>(), blockOutlines = new WeakMap<Arrow, [unknown, P[]]>();
+// A picture's data as an image the webview draws, made once per picture: PNG, JPEG, GIF or BMP, else TIFF (the Mac's
+// webview draws it). Undefined when it holds none of these (an EMF or a PICT alone).
+const pictureUrls = new WeakMap<object, string | undefined>();
+function pictureUrl(p: Record<string, string>): string | undefined {
+  if (pictureUrls.has(p)) return pictureUrls.get(p);
+  const found = ([["PNG", "png"], ["JPEG", "jpeg"], ["GIF", "gif"], ["BMP", "bmp"], ["TIFF", "tiff"]] as const).find(([k]) => p[k]);
+  const b64 = found && hexToBase64(p[found[0]]), url = found && b64 ? `data:image/${found[1]};base64,${b64}` : undefined;
+  pictureUrls.set(p, url);
+  return url;
+}
 // Octet's own calculators' values (props.ts), kept with the structure's values they are from (chem.ts keeps those by
 // structure), so each structure is worked out once.
 const calculated = new WeakMap<Structure, Calculated>();
@@ -298,6 +314,9 @@ function richSpans(runs: TextRun[], size: number, PT: number) {
 
 // Octet's own clipboard type: a copied part of a drawing in Octet's file form (read back with the file checks).
 const OCTET_CLIP = "application/x-octet+json";
+// A file the system asked Octet to open, or dropped on the window (src-tauri/src/open.rs). path: set when Save may
+// write over it. at: where it was dropped, in CSS pixels from the window's top left.
+type OpenedFile = { name: string; path: string | null; text: string | null; error: string | null; at: [number, number] | null };
 // Abbreviations Contract Label recognises, each with its InChI when capped with xenon at its attachment point
 // (worked out once, on first use): the groups chemists name, and condensed formulas they write.
 const CONTRACTED = ["OMe", "OEt", "OiPr", "OtBu", "OAc", "OBz", "OBn", "OPh", "OTs", "OMs", "OTf", "OTBS", "OTIPS", "OTBDPS", "OTMS", "OMOM", "OTHP", "OPMB",
@@ -354,10 +373,38 @@ const CaptionText = memo(({ c, fill, font, reagent, pt }: CaptionProps) => (
   </text>
 ), (a: CaptionProps, b: CaptionProps) => a.fill === b.fill && a.font === b.font && a.reagent === b.reagent && a.pt === b.pt && samePlaced(a.c, b.c));
 
+// The file on disk and the drawing as last saved (undoing back to it makes the drawing clean again). lost: what
+// Octet could not hold from the file, so Save asks before it writes over the file (REL-11). name: a drawing with no
+// file yet keeps the name it had (a recovered drawing).
+type FileState = { path?: string; saved: Mol; lost?: Record<string, number>; name?: string };
+// The editor as last drawn without an error, for the error boundary in App.tsx (REL-23): it opens the editor again
+// with the same drawing and undo history, or saves the drawing to a new file.
+export const rescue: { current?: { h: History; file: FileState; home: boolean; name: string; contents: () => string } } = {};
+// Crash safety (REL-1): while the drawing has unsaved changes, a copy of it goes to the app's data folder
+// (src-tauri/src/recovery.rs), a second after an edit and then at most every 10 s. When the drawing is clean again
+// (saved, or replaced after Don't Save) the copy goes. Calls go one after another, so a late write never follows a clear.
+const keeper = { timer: 0, last: 0, kept: false, queue: Promise.resolve() as Promise<unknown>, write: () => {} };
+function keep<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  const run = keeper.queue.then(() => invoke<T>(command, args));
+  keeper.queue = run.catch(() => {});
+  return run;
+}
+// The copy, written now: the error boundary keeps the drawing as last drawn before the window can close.
+export function keepNow() {
+  clearTimeout(keeper.timer);
+  keeper.timer = 0;
+  keeper.last = Date.now();
+  keeper.write();
+}
+let crashOffered = false; // the log of a crash is offered once, at start
+
 export default function Editor() {
   const [loaded, setLoaded] = useState(false);
-  const [h, dispatch] = useReducer(history, { stack: [EMPTY], at: 0 });
+  const [h, dispatch] = useReducer(history, rescue.current?.h ?? { stack: [EMPTY], at: 0 });
   const doc = h.stack[h.at];
+  // The drawing as it is now, for work that ends later (Cut deletes after the copy is on the clipboard).
+  const now = useRef(doc);
+  now.current = doc;
   const [tool, setTool] = useState<Tool>("bond");
   // The drawing tool to go back to when a hold-to-select gesture ends.
   const [spring, setSpring] = useState<Tool>();
@@ -383,21 +430,17 @@ export default function Editor() {
   const [notice, showNotice] = useState<Notice>();
   const setNotice = (text?: string, kind: NoticeKind = "error", action?: Notice["action"]) =>
     showNotice(text ? (was) => ({ text, kind, action, n: (was?.n ?? 0) + 1 }) : undefined);
-  // Feedback (for testing): ⌘1, ⌘2 and ⌘3 within 1.5 s, ⌘ held or not between them (Ctrl elsewhere), takes a picture
-  // of the window, then opens the feedback box (Feedback.tsx). The picture is taken first, so it shows the window as it was.
+  // Feedback (for testers, not in the public release: vite.config.ts): ⌘ held with 1, 2 and 3 pressed together (Ctrl
+  // on Windows and Linux; keys.ts feedbackChord) takes a picture of the window, then opens the feedback box
+  // (Feedback.tsx). The picture is taken first, so it shows the window as it was.
   const [feedback, setFeedback] = useState<{ picture?: string }>();
-  const chord = useRef({ digits: new Set<string>(), at: 0 });
   useEffect(() => {
-    const mac = navigator.platform.startsWith("Mac");
+    if (!__FEEDBACK__) return;
+    const mac = navigator.platform.startsWith("Mac"), pressed = new Map<string, number>();
     const down = (e: KeyboardEvent) => {
-      if (["Meta", "Control", "Shift", "Alt"].includes(e.key)) return;
-      const c = chord.current, digit = (mac ? e.metaKey : e.ctrlKey) ? /^Digit([123])$/.exec(e.code)?.[1] : undefined;
-      if (!digit) return c.digits.clear();
+      const digit = (mac ? e.metaKey : e.ctrlKey) && !e.repeat ? /^Digit([123])$/.exec(e.code)?.[1] : undefined;
+      if (!digit || !feedbackChord(pressed, digit, e.timeStamp)) return;
       e.preventDefault();
-      if (Date.now() - c.at > 1500) { c.digits.clear(); c.at = Date.now(); }
-      c.digits.add(digit);
-      if (c.digits.size < 3) return;
-      c.digits.clear();
       void invoke<string>("snapshot").then((picture) => setFeedback({ picture }), () => setFeedback({}));
     };
     addEventListener("keydown", down, true);
@@ -637,14 +680,14 @@ export default function Editor() {
     const back = hovers.get().key && hotOf.current.get(h.stack[Math.max(0, Math.min(h.stack.length - 1, h.at + (redo ? 1 : -1)))]);
     if (back) setHover({ ...back, key: true });
   };
-  // The file on disk and the drawing as last saved. Undoing back to the saved drawing makes it clean again.
-  const [file, setFile] = useState<{ path?: string; saved: Mol }>({ saved: EMPTY });
+  const [file, setFile] = useState<FileState>(() => rescue.current?.file ?? { saved: EMPTY });
   // Home (decision 0003): where Octet opens (?editor skips it, for tests), with the name box on first launch and the
-  // tutorial then, or from Octet > Tutorial. Recent drawings come from the app (src-tauri/src/recent.rs).
-  const [home, setHome] = useState(() => !new URLSearchParams(location.search).has("editor"));
+  // tutorial then, or from Help > Tutorial. Recent drawings come from the app (src-tauri/src/recent.rs), and drawings
+  // a crash took from src-tauri/src/recovery.rs.
+  const [home, setHome] = useState(() => rescue.current?.home ?? !new URLSearchParams(location.search).has("editor"));
   const homeOpen = useRef(home); // for the menu listener, which is set up once
   homeOpen.current = home;
-  const [welcomed, setWelcomed] = useState(false), [recents, setRecents] = useState<RecentEntry[]>([]);
+  const [welcomed, setWelcomed] = useState(false), [recents, setRecents] = useState<RecentEntry[]>([]), [recovered, setRecovered] = useState<RecoveredEntry[]>([]);
   // The tutorial (Coach.tsx) on a new drawing: which run it is (0 when off), what it saw done, and the tool it points at.
   const [coach, setCoach] = useState(0), [seen, setSeen] = useState<Seen>(NOTHING_SEEN), [coachTool, setCoachTool] = useState<Tool>();
   const saw = (k: keyof Seen) => { if (coach) setSeen((s) => ({ ...s, [k]: s[k] + 1 })); };
@@ -698,7 +741,7 @@ export default function Editor() {
     else if (pointer.current || now.key) setHover(pointer.current ? hit(pointer.current) : {});
   }, [doc]);
 
-  const name = file.path?.split(/[\\/]/).pop()?.replace(/\.(octet|oct|cdxml)$/i, "") ?? "Untitled";
+  const name = file.path?.split(/[\\/]/).pop()?.replace(/\.(octet|oct|cdxml)$/i, "") ?? file.name ?? "Untitled";
   useEffect(() => { if (TAURI) getCurrentWindow().setTitle(home ? "Octet" : dirty ? `${name} (edited)` : name); }, [name, dirty, home]);
 
   // A picture of part of the drawing (or all of it) as a standalone SVG at true size: the canvas shows only that part
@@ -725,21 +768,22 @@ export default function Editor() {
       flushSync(() => setExporting(undefined));
     }
   }
-  // What other programs read: CDXML, a .oct file (the same CDXML with Octet's drawing), and the molecules as a molfile
-  // and SMILES; undefined where Octet or Indigo cannot write them. Each is made when it is first asked for and kept
-  // with the part (the drawing itself, or the selection's part from selectedPart), so Export and Copy make only what
-  // they use, once for each version of the drawing. They are made again when the style, the name, Indigo or the arrows
-  // of a catalytic cycle (what cdxmlOptions gives) change.
+  // What other programs read: CDXML, CDX (ChemDraw's binary form of the same drawing, as base64), a .oct file (the same
+  // CDXML with Octet's drawing), and the molecules as a molfile, SMILES and InChI; undefined where Octet or Indigo cannot
+  // write them. Each is made when it is first asked for and kept with the part (the drawing itself, or the selection's
+  // part from selectedPart), so Export and Copy make only what they use, once for each version of the drawing. They are
+  // made again when the style, the name, Indigo or the arrows of a catalytic cycle (what cdxmlOptions gives) change.
   const made = useRef(new WeakMap<Mol, { style: DocStyle; name: string; loaded: boolean; derived: unknown; formats: Partial<Record<PartFormat, string>> }>());
   function formatOf(part: Mol, f: PartFormat): string | undefined {
     let kept = made.current.get(part);
     if (kept?.style !== style || kept.name !== name || kept.loaded !== loaded || kept.derived !== cycleArrows) made.current.set(part, kept = { style, name, loaded, derived: cycleArrows, formats: {} });
     if (f in kept.formats) return kept.formats[f];
-    const cdxml = f === "oct" ? formatOf(part, "cdxml") : undefined;
+    const cdxml = f === "oct" || f === "cdx" ? formatOf(part, "cdxml") : undefined;
     let out: string | undefined;
     try {
       out = (f === "cdxml" ? toCdxml(part, savedStyle(), cdxmlOptions()) : f === "oct" ? cdxml && writeOct(part, savedStyle(), cdxmlOptions(), cdxml)
-        : part.atoms.length && loaded ? (f === "molfile" ? toMolfile(part) : toSmiles(part)) : undefined) || undefined;
+        : f === "cdx" ? cdxml && toBase64(xmlToCdx(parseXml(cdxml)))
+        : part.atoms.length && loaded ? (f === "molfile" ? toMolfile(part) : f === "inchi" ? toInchi(part) : toSmiles(part)) : undefined) || undefined;
     } catch { out = undefined; }
     return (kept.formats[f] = out);
   }
@@ -755,7 +799,12 @@ export default function Editor() {
     const bytes = new TextEncoder().encode(text);
     let bin = "";
     for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    flushSync(() => setPrinting({ src: `data:image/svg+xml;base64,${btoa(bin)}`, w: (w * 72) / 25.4, h: (h * 72) / 25.4 }));
+    const size = { w: (w * 72) / 25.4, h: (h * 72) / 25.4 };
+    // The paper size, as an @page rule in a sheet made here: the CSP allows no <style> element (REL-31).
+    pageSheet ??= new CSSStyleSheet();
+    pageSheet.replaceSync(`@page { size: ${size.w.toFixed(2)}pt ${size.h.toFixed(2)}pt; margin: 0; }`);
+    if (!document.adoptedStyleSheets.includes(pageSheet)) document.adoptedStyleSheets = [...document.adoptedStyleSheets, pageSheet];
+    flushSync(() => setPrinting({ src: `data:image/svg+xml;base64,${btoa(bin)}`, ...size }));
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     try { await invoke("print_page"); } catch (e) { setNotice(failure("Octet cannot print.", e)); }
   }
@@ -780,7 +829,7 @@ export default function Editor() {
     // Only what the format needs: a PDF carries the CDXML.
     const make = (pf: PartFormat, ...fs: ExportFormat[]) => (fs.includes(f.format) ? formatOf(mol, pf) : undefined), molfile = make("molfile", "mol", "sdf");
     try {
-      const path = await exportFile({ name, format: f.format, oct: make("oct", "oct"), svg: svg && withMargin(svg, f.margin), cdxml: make("cdxml", "cdxml", "pdf"), molfile, sdf: molfile ? `${molfile.trimEnd()}\n$$$$\n` : undefined, smiles: make("smiles", "smi"), dpi: f.dpi, transparent: f.background === "transparent" });
+      const path = await exportFile({ name, format: f.format, oct: make("oct", "oct"), svg: svg && withMargin(svg, f.margin), cdxml: make("cdxml", "cdxml", "pdf"), cdx: make("cdx", "cdx"), molfile, sdf: molfile ? `${molfile.trimEnd()}\n$$$$\n` : undefined, smiles: make("smiles", "smi"), inchi: make("inchi", "inchi"), dpi: f.dpi, transparent: f.background === "transparent" });
       if (path) { setExportView(undefined); saved(path); }
     } catch (e) {
       setNotice(failure("Octet cannot export this drawing.", e));
@@ -810,14 +859,18 @@ export default function Editor() {
     expand: (text) => { const smiles = loaded ? labelSmiles(text) : undefined; try { return smiles ? parseStructure(smiles) : undefined; } catch { return undefined; } },
   });
   // What Octet could not hold from a ChemDraw file, said once: "Octet left out 6 annotations and 1 rotated shape."
-  const sayLost = (lost: Record<string, number>) => {
-    const parts = Object.entries(lost).map(([what, n]) => `${n} ${what}${n > 1 && !/s$/.test(what) ? "s" : ""}`);
-    if (parts.length) setNotice(`Octet left out ${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0]}.`);
-  };
-  // Resolves true when the drawing was saved.
-  async function save(as: boolean): Promise<boolean> {
+  const sayLost = (lost: Record<string, number>) => { if (Object.keys(lost).length) setNotice(`Octet left out ${lostText(lost)}.`); };
+  // Resolves true when the drawing was saved. Over a file that had things Octet could not hold (REL-11), Save asks
+  // first: Save As keeps the original file, Replace writes over it.
+  async function save(as: boolean, replace = false): Promise<boolean> {
+    if (!as && !replace && file.path && file.lost) {
+      const lost = file.lost;
+      return new Promise((done) => setDialog({ kind: "lossy", lost, done }));
+    }
     try {
-      const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), contents: writeOct({ ...doc, guides }, savedStyle(), cdxmlOptions()) });
+      // A .cdx file, or one the Save dialog could make, gets ChemDraw's binary form too (decision 0009).
+      const cdx = as || !file.path || /\.cdx$/i.test(file.path) ? toBase64(writeCdx({ ...doc, guides }, savedStyle(), cdxmlOptions())) : undefined;
+      const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), name, contents: writeOct({ ...doc, guides }, savedStyle(), cdxmlOptions()), cdx });
       if (path) setFile({ path, saved: doc });
       // A save to a new place says where it went. A save in place does not: the window's title shows it.
       if (path && path !== file.path) saved(path);
@@ -827,8 +880,63 @@ export default function Editor() {
       return false;
     }
   }
-  // Before the drawing is replaced (New, Open, a recent drawing): with unsaved changes, ask to save them first.
+  // Before the drawing is replaced (New, Open, a recent drawing) or the window closes: with unsaved changes, ask to
+  // save them first.
   const keepWork = (next: () => void) => (dirty ? setDialog({ kind: "unsaved", next }) : next());
+  // Close, Quit (REL-2) and Update: after the question about unsaved changes, the copy kept for recovery goes, then
+  // Octet does then (closes the window, or installs the update).
+  const leave = (then: () => Promise<unknown>) => keepWork(() => {
+    clearTimeout(keeper.timer);
+    keeper.timer = 0;
+    keeper.kept = false;
+    void keep("recovery_clear").catch(() => {}).then(then).catch((e) => setNotice(failure("Octet cannot do this.", e)));
+  });
+  const closeWindow = () => leave(() => getCurrentWindow().destroy());
+  // Updates (decision 0010, src-tauri/src/update.rs): a check when Octet opens, only if the user said yes to it, and
+  // Check for Updates…. An update found asks before it installs, but never over another question: then it asks at the
+  // next check. asked: the user chose Check for Updates, so the result shows also when there is no update or no network.
+  const checkUpdates = (asked: boolean) => {
+    if (!TAURI) return;
+    void invoke<string | null>("update_check").then(
+      (version) => (version ? setDialog((d) => d ?? { kind: "update", version }) : asked && setNotice("Octet is up to date.", "done")),
+      () => asked && setNotice("Octet cannot check for updates. Connect to the internet and try again."),
+    );
+  };
+  useEffect(() => {
+    if (!settings.updates) return;
+    const t = setTimeout(() => checkUpdates(false), 5000);
+    return () => clearTimeout(t);
+  }, [settings.updates === true]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!TAURI) return;
+    const off = getCurrentWindow().onCloseRequested((e) => { e.preventDefault(); commands.current.quit(); });
+    return () => void off.then((f) => f());
+  }, []);
+  // With unsaved changes, the Dock's Quit, a logout or a shutdown stops and sends Quit here (src-tauri/src/quit.rs).
+  useEffect(() => { if (TAURI) invoke("set_edited", { edited: dirty }).catch(() => {}); }, [dirty]);
+  useEffect(() => {
+    if (!TAURI) return;
+    if (!dirty) { if (keeper.kept) { keeper.kept = false; keep("recovery_clear").catch(() => {}); } return; }
+    if (!keeper.timer) keeper.timer = window.setTimeout(() => { keeper.timer = 0; keeper.last = Date.now(); keeper.write(); }, Math.max(1000, keeper.last + 10_000 - Date.now()));
+  }, [doc, dirty]);
+  // The editor as last drawn: the copy the timer writes, and the error boundary's rescue. The copy is Octet's own
+  // form of the drawing only, which readOct reads as it reads a .oct. For an 8 MB drawing with pictures it takes
+  // 12 ms to make, and a whole .oct takes 0.3 s, so the editor does not stop every 10 s.
+  useEffect(() => {
+    const contents = () => writeOct(doc, savedStyle(), cdxmlOptions());
+    keeper.write = () => {
+      if (!dirty) return;
+      try { keeper.kept = true; keep("recovery_write", { name, contents: serialize({ ...doc, style: savedStyle() }) }).catch(() => {}); } catch { /* kept at the next edit */ }
+    };
+    rescue.current = { h, file, home, name, contents };
+  });
+  // After a crash, the next start offers the log (src-tauri/src/crashlog.rs), to show or to email. Nothing is sent
+  // unless the user chooses.
+  useEffect(() => {
+    if (!TAURI || crashOffered) return;
+    crashOffered = true;
+    invoke<string | null>("crash_report").then((log) => { if (log) setDialog({ kind: "crashed", log }); }).catch(() => {});
+  }, []);
   // A new drawing for Quick start or a purpose (IDEA-SIZE-1): its style and page, at the middle of the window and the
   // open zoom. ⌘N starts the one picked last, as ChemDraw's New takes the stationery used last; Return on Home starts
   // Quick start.
@@ -886,9 +994,23 @@ export default function Editor() {
     if (TAURI) invoke("set_purposes", { names, current }).then(syncChecks).catch(() => {});
   }, [purposeMenu]); // eslint-disable-line react-hooks/exhaustive-deps
   const openDrawing = () => keepWork(() => void open());
+  // File > Revert to Saved: after the question macOS asks, the drawing's file read again. One step to undo.
+  const revertToSaved = () => {
+    if (!file.path || !TAURI) return setNotice("This drawing has no saved file.", "info");
+    if (!dirty) return setNotice("There are no changes since the last save.", "info");
+    setDialog({ kind: "revert" });
+  };
+  const revert = () => void invoke<string>("revert_drawing", { path: file.path }).then((text) => load(file.path, text)).catch((e) => setNotice(failure("Octet cannot revert this drawing.", e)));
   const openRecent = (r: RecentEntry) => keepWork(() => void invoke<[string, string]>("open_recent", { path: r.path }).then((picked) => load(picked[0], picked[1]))
     .catch((e) => { setNotice(failure("Octet cannot open this drawing.", e)); refreshRecents(); }));
-  const refreshRecents = () => { if (TAURI) invoke<RecentEntry[]>("recent_list").then(setRecents).catch(() => {}); };
+  // A recovered drawing opens with its changes unsaved; its kept copy becomes this window's.
+  const openRecovered = (r: RecoveredEntry) => keepWork(() => void keep<[string, string]>("recovery_open", { id: r.id }).then(([title, text]) => { keeper.kept = true; load(undefined, text, title); })
+    .catch((e) => { setNotice(failure("Octet cannot open this drawing.", e)); refreshRecents(); }));
+  const refreshRecents = () => {
+    if (!TAURI) return;
+    invoke<RecentEntry[]>("recent_list").then(setRecents).catch(() => {});
+    invoke<RecoveredEntry[]>("recovery_list").then(setRecovered).catch(() => {});
+  };
   useEffect(() => { if (home) refreshRecents(); }, [home]); // eslint-disable-line react-hooks/exhaustive-deps
   // Opened or saved: the drawing's picture goes to its Home tile.
   useEffect(() => {
@@ -907,19 +1029,66 @@ export default function Editor() {
       setNotice(failure("Octet cannot open this file.", e));
     }
   }
-  // A drawing read from a file, into the editor. Without a path (a starter drawing from Home) it is a new drawing.
-  function load(path: string | undefined, text: string) {
+  // Files the system asked Octet to open (Finder, Explorer, the Dock, a second launch) or that were dropped on the
+  // window (src-tauri/src/open.rs; REL-14, CH-6). Dropped on a drawing, they go into it. Otherwise the first one opens,
+  // as File > Open opens a drawing (Home lists the other drawings), after the question about unsaved changes.
+  async function takeOpened() {
+    const insert = !home, files = await invoke<OpenedFile[]>("take_opened", { insert });
+    const read = files.filter((f) => f.text !== null);
+    for (const f of files) if (f.error) setNotice(f.error);
+    if (read.some((f) => !isDrawingText(f.text!))) await ready;
+    const dropped = read.filter((f) => f.at && insert), first = read.find((f) => !(f.at && insert));
+    if (dropped.length) dropFiles(dropped);
+    if (first) keepWork(() => load(first.path ?? undefined, first.text!, first.name.replace(/\.[^.]*$/, "")));
+  }
+  // Files dropped on the drawing: their contents go in where they were dropped (the files in a column), selected, as
+  // ChemDraw's drop does. One step to undo.
+  function dropFiles(files: OpenedFile[]) {
+    const mols: Mol[] = [], lost: Record<string, number> = {};
+    for (const f of files) {
+      try {
+        if (!isDrawingText(f.text!)) { mols.push(importStructure(f.text!)); continue; }
+        const r = readOct(f.text!);
+        mols.push({ ...r.mol, style: undefined });
+        for (const [what, n] of Object.entries(r.lost)) lost[what] = (lost[what] ?? 0) + n;
+      } catch {
+        setNotice(`Octet cannot read the structures in ${f.name}.`);
+      }
+    }
+    const add = stack(mols), b = extent(add), at = toDoc(...files[0].at!);
+    if (!b) return;
+    // The drawing as it is now: the structure engine can take seconds to start, and the user can draw meanwhile.
+    const r = insertMol(now.current, add, [at[0] - (b[0] + b[2]) / 2, at[1] - (b[1] + b[3]) / 2]);
+    set(r.mol, true);
+    setSelection(r.atoms);
+    setPicked(r.items);
+    sayLost(lost);
+  }
+  // A drawing read from a file, into the editor. With no path and a title, a recovered drawing or a file Octet cannot
+  // save over: its changes are not saved yet. With neither (a starter drawing from Home) it is a new drawing. A MOL,
+  // SDF or SMILES file opens as a new drawing of its structures, in the middle.
+  function load(path: string | undefined, text: string, title?: string) {
     drawingColours.current = [];
     try {
-      const read = readOct(text), lost = read.lost, { guides: saved, ...kept } = read.mol;
+      let read: ReturnType<typeof readOct>;
+      if (isDrawingText(text)) read = readOct(text);
+      else {
+        let mol: Mol;
+        try { mol = importStructure(text); } catch { throw new Error("Octet cannot read the structures in this file."); }
+        const b = bounds(mol);
+        if (!b) throw new Error("There are no structures in this file.");
+        read = { mol: merge(EMPTY, mol, [-(b[0] + b[2]) / 2, -(b[1] + b[3]) / 2]), lost: {} };
+      }
+      const lost = read.lost, { guides: saved, ...kept } = read.mol;
       // Settings > Files > Keep ChemDraw styles off: another program's drawing takes Octet's default style.
       const mol = wholeGroups(read.foreign && !settings.files.keepStyle ? { ...kept, style: undefined } : kept);
       // The grid, rulers and crosshair as the drawing was saved with them; the user's last choice when it says none.
-      // A drawing saved before Show Grid, with Gridlines set (a step in mm), shows its grid as it did.
-      const b = bounds(mol);
+      // A drawing saved before Show Grid, with Gridlines set (a step in mm), shows its grid as it did. The view centres
+      // on the structures, or on everything else when there are none (text, arrows, pictures).
+      const b = bounds(mol) ?? extent(mol);
       setGuides(saved ?? { ...freshGuides(b && [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], readStyle(mol.style ?? newStyle)), ...(typeof kept.style?.grid === "number" ? { grid: true } : {}) });
       set(mol);
-      setFile({ path, saved: mol });
+      setFile(path ? { path, saved: mol, lost: Object.keys(lost).length ? lost : undefined } : title !== undefined ? { saved: EMPTY, name: title } : { saved: mol });
       setHome(false); setCoach(0); outlineFrom.current = undefined;
       sayLost(lost);
       if (b) setView((v) => ({ ...v, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * v.zoom * L, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * v.zoom * L }));
@@ -953,10 +1122,11 @@ export default function Editor() {
     try {
       const picked = await invoke<[string, string] | null>("import_structure");
       if (!picked) return;
-      if (/<CDXML[\s>/]/.test(picked[1].slice(0, 65536))) {
-        // A ChemDraw drawing: all of it, arrows and text too, to the right of what is there.
-        const { mol: add, style: from, lost } = fromCdxml(picked[1]);
-        const r = insertMol(doc, fitSizes(add, from, style), add.atoms.length ? landing(add) : [0, 0]);
+      if (picked[1].startsWith(BASE64_MAGIC) || /<CDXML[\s>/]/.test(picked[1].slice(0, 65536))) {
+        // A ChemDraw drawing (CDXML or CDX): all of it, arrows and text too, to the right of what is there, its text in
+        // proportion to this drawing (fitSizes).
+        const { mol: add, lost } = readOct(picked[1]);
+        const r = insertMol(doc, { ...(add.style ? fitSizes(add, add.style, style) : add), style: undefined }, add.atoms.length ? landing(add) : [0, 0]);
         set(r.mol, true);
         setSelection(r.atoms);
         setPicked(r.items);
@@ -997,7 +1167,7 @@ export default function Editor() {
     const fixed = c && suggestName(c.text);
     const frag = c && (structureFor(c.text) ?? (fixed ? structureFor(fixed) : undefined)), p = c && placed.find((x) => x.id === c.id);
     if (c && frag && p) return place(frag, deleteGraphics(doc, new Set([c.id])), [(p.box[0] + p.box[2]) / 2 / L, -(p.box[1] + p.box[3]) / 2 / L]);
-    void loadNames().then(() => setNamesLoaded(true));
+    void loadNames().then(() => setNamesLoaded(true)).catch(() => {});
     setNaming(c?.text ?? "");
   }
   // The command Repeat runs again (see repeatLast).
@@ -1010,8 +1180,15 @@ export default function Editor() {
     ...Object.fromEntries(Object.keys(PURPOSES).map((k) => [`new_${k}`, () => newDrawing(k)])),
     ...Object.fromEntries(settings.ownPurposes.map((p, k) => [`new_own_${k}`, () => newDrawing(p.id)])),
     open: () => openDrawing(),
+    opened: () => void takeOpened().catch((e) => setNotice(failure("Octet cannot open this file.", e))),
     home: () => setHome(true),
+    quit: () => closeWindow(),
+    // File > Close Window on Linux, where GTK has no Close Window of its own (REL-18).
+    close: () => closeWindow(),
     tutorial: () => startTutorial(),
+    shortcuts: () => setSettingsOpen("keys"),
+    report_problem: () => void invoke("open_link", { name: "issues" }).catch((e) => setNotice(failure("Octet cannot open the link.", e))),
+    check_updates: () => checkUpdates(true),
     import: () => void importFile(),
     save: () => void save(false),
     save_as: () => void save(true),
@@ -1271,7 +1448,18 @@ export default function Editor() {
     document: () => setSettingsOpen("document"),
     settings: () => setSettingsOpen(moduleOf(settings.settingsModule)),
     structure_to_name: () => nameStructures(),
-    copy_smiles: () => void document.execCommand("copy"),
+    copy_smiles: () => copyAs("smiles"),
+    copy_inchi: () => copyAs("inchi"),
+    copy_inchikey: () => copyAs("inchikey"),
+    copy_cdxml: () => copyAs("cdxml"),
+    copy_mol: () => copyAs("mol"),
+    copy_mol_v2000: () => copyAs("mol_v2000"),
+    // File > Open Recent: the drawing at that place in the list (the menu lists them in the list's order).
+    ...Object.fromEntries(Array.from({ length: 10 }, (_, k) => [`recent_${k}`, () => {
+      if (TAURI) void invoke<RecentEntry[]>("recent_list").then((list) => { if (list[k]) openRecent(list[k]); }).catch(() => {});
+    }])),
+    recent_clear: () => refreshRecents(),
+    revert: () => revertToSaved(),
     // Search Reaxys and Search PubChem (the Search menu and the Actions panel), while Settings > Online search is on.
     ...(settings.onlineSearch ? Object.fromEntries(Object.entries(SEARCHES).map(([id, [site, exact]]) => [id, () => searchOnline(site, exact)])) : {}),
     // Bring to Front (⌘[) and Send to Back (⌘]), as ChemDraw's: any selected structure (a picked atom or bond takes its
@@ -1279,7 +1467,7 @@ export default function Editor() {
     // bonds they cross, which then have the gap (render.ts).
     bring_front: () => restack(true),
     send_back: () => restack(false),
-    command_palette: () => { setCommandsOpen((o) => !o); if (!namesLoaded) void loadNames().then(() => setNamesLoaded(true)); },
+    command_palette: () => { setCommandsOpen((o) => !o); if (!namesLoaded) void loadNames().then(() => setNamesLoaded(true)).catch(() => {}); },
     // The Text menu styles the caption being typed, or the picked captions.
     text_bold: () => runAction("caption.bold"),
     text_plain: () => runAction("caption.plain"),
@@ -1362,6 +1550,15 @@ export default function Editor() {
     if (!TAURI) return;
     // Over a dialog, Settings or Home, the menu does not work on the drawing (menuRuns).
     const off = listen<string>("menu", (e) => { if (menuRuns(e.payload, { home: homeOpen.current, modal: modal(), typing: typing() })) commands.current[e.payload]?.(); });
+    return () => { off.then((f) => f()); };
+  }, []);
+  // Files to open or dropped: those named before the page started, then each time the app says more came. The page
+  // listens first and then takes, so a file named in between is not left waiting.
+  useEffect(() => {
+    if (!TAURI) return;
+    const take = () => commands.current.opened();
+    const off = listen("opened", take);
+    void off.then(take, take);
     return () => { off.then((f) => f()); };
   }, []);
   // Every menu command's shortcut can be changed in Settings, with the canvas keys: the menu lists its commands, and
@@ -1577,7 +1774,8 @@ export default function Editor() {
     | { kind: "bond"; bond: number; style: BondKind; position: "auto" | "left" | "centre" | "right" }
     | { kind: "font"; font: string } | { kind: "size"; size: string } | { kind: "spacing"; mode: "auto" | "variable" | "fixed"; pt: string }
     | { kind: "unsaved"; next: () => void } | { kind: "rf"; plate: number; index: number; value: string } | { kind: "chain"; from: number | P; atoms: string }
-    | { kind: "template"; name: string; from: string }>();
+    | { kind: "template"; name: string; from: string } | { kind: "lossy"; lost: Record<string, number>; done: (saved: boolean) => void } | { kind: "revert" }
+    | { kind: "discard"; entry: RecoveredEntry } | { kind: "crashed"; log: string } | { kind: "update"; version: string }>();
   const [commandsOpen, setCommandsOpen] = useState(false);
   // Choose Nickname: the list open by an atom (its place on screen). A click outside it or Escape closes it.
   const [nicknames, setNicknames] = useState<{ atom: number; x: number; y: number }>();
@@ -1767,7 +1965,7 @@ export default function Editor() {
     const q: P = [p[0] * L, -p[1] * L], near = (sh: Shape) => 5 / views.get().zoom + frame.line * 2 * scaleOf(sh);
     return [...(shown.shapes ?? [])].reverse().find((sh) => (sh.kind === "table" ? tableAt(p)?.id === sh.id : nearTrace(q, shapeTrace(sh, L, frame.bond), near(sh))))?.id;
   };
-  const highlightAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => sh.kind === "highlight" && inShape(sh, p))?.id;
+  const highlightAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => (sh.kind === "highlight" || sh.kind === "picture") && inShape(sh, p))?.id;
   // The TLC plate a point is on, and a click on it: a spot in that lane at that height, or off again if one is there.
   const plateAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => sh.kind === "tlc"
     && p[0] >= Math.min(sh.from[0], sh.to[0]) && p[0] <= Math.max(sh.from[0], sh.to[0]) && p[1] >= Math.min(sh.from[1], sh.to[1]) && p[1] <= Math.max(sh.from[1], sh.to[1]));
@@ -3284,7 +3482,7 @@ export default function Editor() {
   }
   // Structure to name: each named structure gets its name centred underneath (after its compound number).
   function nameStructures() {
-    if (!namesLoaded) { void loadNames().then(() => setNamesLoaded(true)); return setNotice("Loading names. Try again in a moment.", "info"); }
+    if (!namesLoaded) { void loadNames().then(() => setNamesLoaded(true)).catch(() => {}); return setNotice("Loading names. Try again in a moment.", "info"); }
     let m = doc, missed = 0;
     for (const atoms of targets()) {
       const name = nameFor(atoms);
@@ -3300,6 +3498,8 @@ export default function Editor() {
   const lineOf = <T extends Arrow | Shape | Cycle | Caption>(xs: T[]) => xs.find((x) => !("curve" in x && x.curve?.closed && x.fill)) ?? xs[0];
   // The colour the Actions panel shows as chosen: the first selected thing's (lineOf), for every kind of selection.
   const selectionColour = (context: Context): { value: string; tints?: boolean } | undefined => {
+    // Pictures take no colour (ChemDraw's pictures have none).
+    if (context.kind === "shape" && doc.shapes?.every((x) => !picked.has(x.id) || x.kind === "picture")) return undefined;
     if (context.kind === "caption" || context.kind === "shape") return { value: context.colour, tints: context.kind === "shape" && context.shape === "highlight" };
     if (context.kind === "spot" && spotPick) return { value: doc.shapes?.find((x) => x.id === spotPick.plate)?.tlc?.spots[spotPick.index]?.colour ?? "#000000" };
     if (context.kind === "empty" || context.kind === "drawing") return undefined;
@@ -3549,6 +3749,13 @@ export default function Editor() {
     // Each in its atom's scale (its bond's mean for E and Z).
     const out: { key: string; x: number; y: number; anchor: "start" | "middle" | "end"; text: string; colour?: string; upright?: boolean; size: number }[] = [], taken: number[][] = [], base = style.captionSize * pt * 0.8;
     shown.atoms.forEach((a, i) => { const size = base * scaleOf(a); if (a.number) out.push({ key: `n${i}`, ...besideAtom(i, a.number.length * size * 0.55, size, taken, 0.55 * scaleOf(a)), text: a.number, colour: a.colour, upright: true, size }); });
+    // A query bond's orders, as ChemDraw marks them (S/D: single or double), beside its middle.
+    shown.bonds.forEach((b, k) => {
+      if (!b.query || !shown.atoms[b.atoms[0]] || !shown.atoms[b.atoms[1]]) return;
+      const [p, q] = b.atoms.map((i) => pos(shown, i)), d = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, f = (scaleOf(shown.atoms[b.atoms[0]]) + scaleOf(shown.atoms[b.atoms[1]])) / 2;
+      const text = b.query === "any" ? "Any" : b.query.split(" ").map((o) => ({ "1": "S", "2": "D", "3": "T", "1.5": "A" } as Record<string, string>)[o] ?? o).join("/");
+      out.push({ key: `q${k}`, x: ((p[0] + q[0]) / 2 - ((q[1] - p[1]) / d) * 0.45 * f) * L, y: -((p[1] + q[1]) / 2 + ((q[0] - p[0]) / d) * 0.45 * f) * L, anchor: "middle", text, colour: b.colour, upright: true, size: base * f });
+    });
     if (!stereo) return out;
     stereo.atoms.forEach((c, i) => {
       if (!c || !shown.atoms[i]?.cip) return;
@@ -3719,10 +3926,42 @@ export default function Editor() {
   const untidy = useMemo(() => messy(doc, selection), [doc, selection]);
   // Text the panel asked to copy; the copy handler uses it instead of SMILES.
   const copyText = useRef<string>(undefined);
+  // Text on the clipboard, as text only (a value from a panel, Copy As SMILES). In the app, the app puts it there
+  // (CH-7): the webview lets a page copy only during a click, and a menu command is not one. In a browser, the copy
+  // event puts it there, or else the Clipboard API.
+  const copyPlain = (text: string) => {
+    if (NATIVE_CLIP) return void copyToClipboard({ text }).then(() => setNotice("Copied.", "done"), (err) => setNotice(failure("Octet cannot copy this.", err)));
+    copyText.current = text;
+    if (document.execCommand("copy")) return;
+    copyText.current = undefined;
+    void (navigator.clipboard?.writeText(text) ?? Promise.reject()).then(() => setNotice("Copied.", "done"), () => setNotice("Octet cannot copy this."));
+  };
+  // Edit > Copy As (CH-7, CH-26): the selected structures, or every structure, as text, as ChemDraw's does. SMILES
+  // (⌥⌘C), InChI, InChIKey, CDXML Text (⌘D, the selection's whole drawing), MOL Text (⌥⌘O, V3000 as in ChemDraw
+  // 26.1) and MOL V2000 Text (⇧⌥⌘O).
+  const COPY_AS: Record<string, [string, (m: Mol) => string]> = {
+    smiles: ["SMILES", toSmiles], inchi: ["InChI", (m) => toInchi(m) ?? ""], inchikey: ["an InChIKey", toInchiKey],
+    mol: ["MOL text", (m) => toMolText(m, 3000)], mol_v2000: ["MOL V2000 text", (m) => toMolText(m, 2000)],
+  };
+  const copyAs = (what: string) => {
+    const part = selectedPart() ?? doc;
+    if (what === "cdxml") {
+      if (!part.atoms.length && !part.captions?.length && !part.arrows?.length && !part.shapes?.length) return setNotice("There is nothing to copy.", "info");
+      const cdxml = formatOf(part, "cdxml");
+      return cdxml ? copyPlain(cdxml) : setNotice("Octet cannot write this drawing as CDXML.");
+    }
+    const [name, write] = COPY_AS[what];
+    let text = "";
+    try { text = part.atoms.length && loaded ? write(part).trimEnd() : ""; } catch { text = ""; }
+    if (text) copyPlain(text);
+    else if (part.atoms.length) setNotice(`Octet cannot write this structure as ${name}.`);
+    else setNotice("There is no structure to copy.", "info");
+  };
 
   // The key to show beside an action: menu shortcuts, then the user's shortcut table.
   const MENU_KEYS: Record<string, string> = {
     undo: `${MOD}Z`, redo: `${MOD}Y`, invert_selection: `⇧${MOD}I`, clean_reaction: `⇧${MOD}X`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}/`, copy_smiles: `⌥${MOD}C`, copy: `${MOD}C`, delete: "⌫",
+    copy_cdxml: `${MOD}D`, copy_mol: `⌥${MOD}O`, copy_mol_v2000: `⇧⌥${MOD}O`,
     structure_to_name: `⌥${MOD}N`, bring_front: `${MOD}[`, send_back: `${MOD}]`, "caption.align.justify": `⇧${MOD}J`,
     search_reaxys: `⌥${MOD}F`, search_reaxys_exact: `⇧⌥${MOD}F`, search_pubchem: `⌥${MOD}U`, search_pubchem_sub: `⇧⌥${MOD}U`,
     settings: `${MOD},`, name_to_structure: `⇧${MOD}N`, "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.sub": `${MOD}−`, "caption.super": `${MOD}+`, "caption.plain": `${MOD}T`, "caption.formula": `${MOD}F`, "caption.edit": keyLabel("enter"),
@@ -3764,8 +4003,10 @@ export default function Editor() {
   const MENU_NAMES: Record<string, [string, string | undefined, React.ReactNode]> = {
     new: ["New drawing", `${MOD}N`, <FilePlus size={18} />], open: ["Open…", `${MOD}O`, <FolderOpen size={18} />], import: ["Import a structure…", "", <FileArrowDown size={18} />],
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDiskBack size={18} />],
+    copy_smiles: ["Copy as SMILES", `⌥${MOD}C`, <CopySimple size={18} />], copy_inchi: ["Copy as InChI", "", <IdentificationBadge size={18} />], copy_inchikey: ["Copy as InChIKey", "", <Key size={18} />],
+    copy_cdxml: ["Copy as CDXML text", `${MOD}D`, <FileCode size={18} />], copy_mol: ["Copy as MOL text", `⌥${MOD}O`, <FileCode size={18} />], copy_mol_v2000: ["Copy as MOL V2000 text", `⇧⌥${MOD}O`, <FileCode size={18} />],
     export: ["Export…", EXPORT_KEYS, <ExportIcon size={18} />], print: ["Print…", `${MOD}P`, <Printer size={18} />], page_setup: ["Page setup…", `⇧${MOD}P`, <FileDashed size={18} />],
-    about: ["About Octet", "", <Info size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />], bond_properties: ["Bond properties…", "", <FadersHorizontal size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
+    about: ["About Octet", "", <Info size={18} />], check_updates: ["Check for updates…", "", <CloudArrowDown size={18} />], report_problem: ["Report a problem…", "", <Bug size={18} />], tutorial: ["Tutorial", "", <GraduationCap size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />], bond_properties: ["Bond properties…", "", <FadersHorizontal size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
     expand_label: ["Expand label", "", <ArrowsOutSimple size={18} />], contract_label: ["Contract label", "", <ArrowsInSimple size={18} />], stoichiometry: ["Analyse stoichiometry", "", <Table size={18} />],
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <Broom size={18} />],
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
@@ -3801,6 +4042,8 @@ export default function Editor() {
       search_pubchem: ["Search PubChem", `⌥${MOD}U`, <SearchGlyph letter="P" />], search_pubchem_sub: ["Search PubChem for substructures", `⇧⌥${MOD}U`, <SearchGlyph letter="P" />],
     } as Record<string, [string, string, React.ReactNode]> : {}),
   };
+  // Other spellings people search with (American ones), by command.
+  const WORDS: Record<string, string> = { stoichiometry: "analyze analysis" };
   const paletteCommands = (): Command[] => {
     const toolKey = (id: string) => { const k = keymap(settings.keys)[id]?.[0]; return k ? keyLabel(k) : undefined; };
     const pick = (t: Tool, variant?: [string, string]) => () => { if (variant) setSettings((s) => ({ ...s, variants: { ...s.variants, [variant[0]]: variant[1] } })); setTool(t); };
@@ -3809,8 +4052,8 @@ export default function Editor() {
     // A menu command that is also one of the selection's actions shows once, as the action.
     const acts = actionItems(contextOf(), untidy, [...selection].some((i) => doc.atoms[i]?.ignoreWarnings), settings.onlineSearch), acted = new Set(acts.map((i) => i.command));
     return [
-      ...acts.map((i) => ({ id: `action:${i.command}`, name: i.name, group: "Actions", icon: i.icon, keys: hint(i.command), run: () => runAction(i.command) })),
-      ...Object.entries(MENU_NAMES).filter(([id]) => commands.current[id] && !acted.has(id)).map(([id, [name, , icon]]) => ({ id: `menu:${id}`, name, group: "Commands", keys: hint(id), icon, run: () => commands.current[id]() })),
+      ...acts.map((i) => ({ id: `action:${i.command}`, name: i.name, group: "Actions", icon: i.icon, keys: hint(i.command), words: WORDS[i.command], run: () => runAction(i.command) })),
+      ...Object.entries(MENU_NAMES).filter(([id]) => commands.current[id] && !acted.has(id)).map(([id, [name, , icon]]) => ({ id: `menu:${id}`, name, group: "Commands", keys: hint(id), icon, words: WORDS[id], run: () => commands.current[id]() })),
       { id: `new:${QUICK}`, name: "Quick start", group: "Commands", words: "new drawing canvas", icon: <FilePlus size={18} />, run: () => newDrawing(QUICK) },
       ...purposeList.map((p) => ({ id: `new:${p.id}`, name: `New ${p.name}`, group: "Commands", words: "new drawing template", icon: <FilePlus size={18} />, run: () => newDrawing(p.id) })),
       ...purposeList.map((p) => ({ id: `for:${p.id}`, name: `For ${p.name}`, group: "Document", words: "template size page scale", icon: <FileText size={18} />, run: () => applyPurpose(p.id) })),
@@ -3900,18 +4143,20 @@ export default function Editor() {
     // highlight goes on the selected atoms and the bonds between them. A ring fill goes in the rings fillRings finds,
     // and replaces the fill each one had, so fused rings keep their own. A custom colour dragged in the picker is one
     // step to undo (merge).
+    // A bond alone takes its highlight without its atoms, as it takes a colour.
     if (command.startsWith("halo.") || command.startsWith("ringfill.")) {
       const value = command.split(".")[1], c = value === "none" ? undefined : value;
       const atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i)), merge = command.endsWith(".drag") ? command.split(".")[0] : undefined;
-      if (command.startsWith("halo.")) return set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) ? { ...a, halo: c } : a)), bonds: doc.bonds.map((b) => (atoms.has(b.atoms[0]) && atoms.has(b.atoms[1]) ? { ...b, halo: c } : b)) }, true, merge);
+      if (command.startsWith("halo.")) return set({ ...doc, atoms: contextOf().kind === "bond" ? doc.atoms : doc.atoms.map((a, i) => (atoms.has(i) ? { ...a, halo: c } : a)), bonds: doc.bonds.map((b) => (atoms.has(b.atoms[0]) && atoms.has(b.atoms[1]) ? { ...b, halo: c } : b)) }, true, merge);
       const targets = fillRings(doc, atoms), keys = new Set(targets.map(ringKey)), rest = (doc.fills ?? []).filter((f) => !keys.has(ringKey(f.atoms)));
       const fills = [...rest, ...(c ? targets.map((r) => ({ atoms: r, colour: c })) : [])];
       return set({ ...doc, fills: fills.length ? fills : undefined }, true, merge);
     }
 
-    if (command === "copy_smiles" || command === "copy") return void document.execCommand("copy");
+    if (["copy_smiles", "copy_inchi", "copy_inchikey", "copy_cdxml", "copy_mol", "copy_mol_v2000"].includes(command)) return copyAs(command.slice(5));
+    if (command === "copy") return void document.execCommand("copy");
     if (command === "paste_hint") return setNotice(`Copy a name, SMILES string or MOL file. Then press ${MOD}V here.`, "info");
-    if (command.startsWith("copy_text:")) { copyText.current = command.slice(10); document.execCommand("copy"); return; }
+    if (command.startsWith("copy_text:")) return copyPlain(command.slice(10));
     if (command.startsWith("fix:")) { const [, i, charge] = command.split(":"); return set(addCharge(doc, Number(i), Number(charge) - (doc.atoms[Number(i)].charge ?? 0)), true); }
     if (command.startsWith("show:")) return setSelection(new Set([Number(command.slice(5))]));
     // Hide a warning: the atom's Display Warnings goes off, as in ChemDraw (saved as IgnoreWarnings).
@@ -4585,12 +4830,31 @@ export default function Editor() {
       e.preventDefault();
       run(id);
     };
+    // A ChemDraw drawing as CDXML (hidden in its PDF, its CDXML type, or text from Copy As CDXML) or as CDX: all of it,
+    // arrows and text too, beside the drawing. False when it holds nothing Octet can draw.
+    const CDXML_TEXT = /<CDXML[\s>/]/;
+    const pasteCdxml = (cdxml: string) => pasteRead(() => { const read = fromCdxml(cdxml); return { mol: { ...read.mol, style: read.style }, lost: read.lost }; });
+    // Its text keeps its proportion to the drawing's (fitSizes).
+    const pasteRead = (read: () => { mol: Mol; lost: Record<string, number> }) => {
+      try {
+        const { mol: add, lost } = read();
+        if (!add.atoms.length && !add.arrows?.length && !add.captions?.length && !add.shapes?.length) return false;
+        const r = insertMol(doc, { ...(add.style ? fitSizes(add, add.style, style) : add), style: undefined }, add.atoms.length ? landing(add) : [0, 0]);
+        set(r.mol, true);
+        setSelection(r.atoms);
+        setPicked(r.items);
+        sayLost(lost);
+        return true;
+      } catch {
+        return false;
+      }
+    };
     // Paste a SMILES string or MOL file: it goes to the right of the drawing, or in the middle of an empty canvas.
     const onPaste = (e: ClipboardEvent) => {
       if (typing() || home || modal()) return; // pasting into a label or caption, or on Home or a dialog
       // In the app: the clipboard as Octet, ChemDraw and Office put it (Octet's own copy, then CDXML, which ChemDraw
       // hides in its pictures and Word keeps, then a molfile, then SMILES), and the plain text last.
-      if (TAURI && !e.clipboardData?.getData(OCTET_CLIP)) {
+      if (NATIVE_CLIP && !e.clipboardData?.getData(OCTET_CLIP)) {
         const text = e.clipboardData?.getData("text/plain")?.trim();
         e.preventDefault();
         void readClipboard().then((clip) => {
@@ -4603,19 +4867,10 @@ export default function Editor() {
             setPicked(r.items);
             return;
           }
-          // ChemDraw's (or Word's copy of ChemDraw's) drawing: all of it, arrows and text too.
-          if (clip.cdxml) {
-            try {
-              const { mol: add, style: from, lost } = fromCdxml(clip.cdxml);
-              if (add.atoms.length || add.arrows?.length || add.captions?.length || add.shapes?.length) {
-                const r = insertMol(doc, fitSizes(add, from, style), add.atoms.length ? landing(add) : [0, 0]);
-                set(r.mol, true);
-                setSelection(r.atoms);
-                setPicked(r.items);
-                return sayLost(lost);
-              }
-            } catch { /* read the molfile or SMILES instead */ }
-          }
+          // ChemDraw's (or Word's copy of ChemDraw's) drawing; otherwise the molfile or SMILES.
+          if (clip.cdxml && pasteCdxml(clip.cdxml)) return;
+          if (clip.cdx && pasteRead(() => readCdx(fromBase64(clip.cdx!)))) return;
+          if (text && CDXML_TEXT.test(text.slice(0, 65536)) && pasteCdxml(text)) return;
           let why = "Paste a name, a SMILES string or a MOL file.";
           for (const source of [clip.molfile, clip.smiles, text]) {
             if (!source || !loaded) continue;
@@ -4641,6 +4896,7 @@ export default function Editor() {
         return;
       }
       const text = e.clipboardData?.getData("text/plain")?.trim();
+      if (text && CDXML_TEXT.test(text.slice(0, 65536)) && pasteCdxml(text)) return e.preventDefault();
       if (!text || !loaded) return;
       e.preventDefault();
       // A SMILES string or MOL file first, then a chemical name.
@@ -4650,41 +4906,45 @@ export default function Editor() {
       if (frag) place(frag);
       else setNotice(`Octet cannot read this structure. ${why}`);
     };
-    // Copy puts the selection, or the whole drawing, on the clipboard as SMILES (or text the panel asked for).
-    const onCopy = (e: ClipboardEvent) => {
-      if ((typing() || home || modal()) && !copyText.current) return; // the text's, or nothing to copy on Home or a dialog
+    // Copy puts the selection, or the whole drawing, on the clipboard (or text a panel or Copy As SMILES asked for).
+    // Resolves whether it did, so Cut deletes only what is on the clipboard.
+    const onCopy = (e: ClipboardEvent): Promise<boolean> => {
+      if ((typing() || home || modal()) && !copyText.current) return Promise.resolve(false); // the text's, or nothing to copy on Home or a dialog
       if (copyText.current) {
         e.clipboardData?.setData("text/plain", copyText.current);
         e.preventDefault();
         copyText.current = undefined;
-        return setNotice("Copied.", "done");
+        setNotice("Copied.", "done");
+        return Promise.resolve(true);
       }
       // Everything selected (or the whole drawing) in Octet's own form, for pasting back with arrows, text and shapes,
-      // with this drawing's style, so a paste into a drawing of another size keeps text in proportion (fitSizes);
-      // and its structures as SMILES, for other programs.
+      // with this drawing's style, so a paste into a drawing of another size keeps text in proportion (fitSizes); and
+      // in the forms other programs read: those switched on in Settings > Import and export > Copy (REL-19, CH-8).
       const part = selectedPart() ?? doc, page = !selection.size && !picked.size;
-      if (!part.atoms.length && !part.captions?.length && !part.arrows?.length && !part.shapes?.length) return;
+      if (!part.atoms.length && !part.captions?.length && !part.arrows?.length && !part.shapes?.length) return Promise.resolve(false);
       e.preventDefault();
       saw("copy");
-      // In the app: as ChemDraw copies, for Word, PowerPoint and Keynote (a vector picture at true size with the
-      // structure hidden in it, so it pastes back as a structure), then a molfile and SMILES, then Octet's own form.
-      if (TAURI) {
-        const picture = pictureOf(part);
-        if (!picture) return;
-        void copyToClipboard({ svg: picture, cdxml: formatOf(part, "cdxml"), molfile: formatOf(part, "molfile"), smiles: formatOf(part, "smiles"), octetJson: serialize({ ...part, style }) })
-          .then(() => ackCopy(page), (err) => setNotice(failure("Octet cannot copy this.", err)));
-        return;
+      const on = settings.files.clipboard, octetJson = serialize({ ...part, style });
+      // In the app: as ChemDraw copies, for Word, PowerPoint and Keynote (a picture at true size: on the Mac a vector
+      // PDF with the structure hidden in it, so it pastes back as a structure), then CDX, CDXML, a molfile and SMILES,
+      // then Octet's own form. The CDXML goes in the PDF too.
+      if (NATIVE_CLIP) {
+        const ask = (yes: boolean, f: PartFormat) => (yes ? formatOf(part, f) : undefined);
+        return copyToClipboard({ svg: on.pdf ? pictureOf(part) : undefined, cdxml: ask(on.cdxml || (MAC && on.pdf), "cdxml"), cdxmlType: on.cdxml, cdx: ask(on.cdx, "cdx"), molfile: ask(on.mol, "molfile"), smiles: ask(on.smiles, "smiles"), octetJson })
+          .then(() => { ackCopy(page); return true; }, (err) => { setNotice(failure("Octet cannot copy this.", err)); return false; });
       }
-      e.clipboardData?.setData(OCTET_CLIP, serialize({ ...part, style }));
-      const text = (part.captions ?? []).map((c) => c.text).join("\n");
-      e.clipboardData?.setData("text/plain", formatOf(part, "smiles") ?? text);
+      // A browser (dev only): its own clipboard, with Octet's form and SMILES (or the text) as text.
+      e.clipboardData?.setData(OCTET_CLIP, octetJson);
+      const text = (on.smiles ? formatOf(part, "smiles") : undefined) ?? (part.captions ?? []).map((c) => c.text).join("\n");
+      if (text) e.clipboardData?.setData("text/plain", text);
       ackCopy(page);
+      return Promise.resolve(true);
     };
-    // Cut: copy, then delete what was selected.
+    // Cut: copy, then delete what was selected, once the copy is on the clipboard and if the drawing has not changed.
     const onCut = (e: ClipboardEvent) => {
       if (typing() || home || modal() || (!selection.size && !picked.size)) return;
-      onCopy(e);
-      set(deleteGraphics(deleteAtoms(doc, selection), picked));
+      const before = doc, gone = deleteGraphics(deleteAtoms(doc, selection), picked);
+      void onCopy(e).then((copied) => { if (copied && now.current === before) set(gone); });
     };
     addEventListener("keydown", onKey);
     addEventListener("paste", onPaste);
@@ -4788,8 +5048,8 @@ export default function Editor() {
     return gs.length || count >= 2 ? { grouped: gs.length > 0, integral: gs.length > 0 && gs.every((g) => g.integral), group } : undefined;
   }, [doc, selection, picked]);
   // Home stays on screen while it fades out, so going to a drawing (or the tutorial) is one smooth move.
-  const [homeLeaving, setHomeLeaving] = useState(false), [wasHome, setWasHome] = useState(home), homeKind = useRef<"name" | "home">("home");
-  if (home) homeKind.current = settings.userName === null ? "name" : "home";
+  const [homeLeaving, setHomeLeaving] = useState(false), [wasHome, setWasHome] = useState(home), homeKind = useRef<"name" | "updates" | "home">("home");
+  if (home) homeKind.current = settings.userName === null ? "name" : settings.updates === null ? "updates" : "home";
   if (wasHome !== home) { setWasHome(home); setHomeLeaving(wasHome); }
   useEffect(() => {
     if (!homeLeaving) return;
@@ -4967,6 +5227,16 @@ export default function Editor() {
   const gridKey = gridViews.length ? gridViews : undefined;
   const under = useMemo(() => (
     <>
+      {/* Pictures from ChemDraw files, at the back, in their boxes (turned as ChemDraw turned them). One with no format
+          the webview draws shows as a tinted box. */}
+      {(shown.shapes ?? []).filter((sh) => sh.kind === "picture" && sh.picture).map((sh) => {
+        const x0 = Math.min(sh.from[0], sh.to[0]) * L, x1 = Math.max(sh.from[0], sh.to[0]) * L, y0 = -Math.max(sh.from[1], sh.to[1]) * L, y1 = -Math.min(sh.from[1], sh.to[1]) * L;
+        const url = pictureUrl(sh.picture!), turn = (Number(sh.picture!.RotationAngle) || 0) / 65536;
+        const t = turn ? `rotate(${turn} ${(x0 + x1) / 2} ${(y0 + y1) / 2})` : undefined;
+        return url
+          ? <image key={`pic${sh.id}`} href={url} x={x0} y={y0} width={x1 - x0} height={y1 - y0} preserveAspectRatio="none" transform={t} />
+          : <rect key={`pic${sh.id}`} x={x0} y={y0} width={x1 - x0} height={y1 - y0} fill="var(--brand-mist)" transform={t} />;
+      })}
       {/* Fills go behind the structures: highlights, shadows (with the shape white over them), solid and shaded shapes. */}
       {/* Ring fills: each ring that is still closed, filled with its colour behind the bonds. */}
       {shown.fills?.length && (() => {
@@ -5376,7 +5646,6 @@ export default function Editor() {
       {printing && (
         // What Print prints: only this, at true size (see editor.css, @media print).
         <div className="print-root" aria-hidden>
-          <style>{`@page { size: ${printing.w.toFixed(2)}pt ${printing.h.toFixed(2)}pt; margin: 0; }`}</style>
           <img src={printing.src} alt="" style={{ width: `${printing.w}pt`, height: `${printing.h}pt` }} />
         </div>
       )}
@@ -5588,6 +5857,9 @@ export default function Editor() {
           elementColours={settings.elementColours}
           onElementColours={(elementColours) => setSettings((s) => ({ ...s, elementColours }))}
           adding={addingColour}
+          updates={settings.updates === true}
+          onUpdates={(updates) => setSettings((s) => ({ ...s, updates }))}
+          onCheckUpdates={() => checkUpdates(true)}
           onClose={() => { setSettingsOpen(undefined); setAddingColour(false); setMaking(undefined); }}
         />
       )}</Exit>
@@ -5739,8 +6011,11 @@ export default function Editor() {
         </Dialog>
       )}</Exit>
       {(home || homeLeaving) && (homeKind.current === "name"
-        ? <NameBox leaving={!home} onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone) startTutorial(); }} />
+        ? <NameBox leaving={!home} onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone && settings.updates !== null) startTutorial(); }} />
+        : homeKind.current === "updates"
+        ? <UpdatesBox leaving={!home} onDone={(updates) => { setSettings((s) => ({ ...s, updates })); if (!settings.tutorialDone) startTutorial(); }} />
         : <Home leaving={!home} name={settings.userName ?? ""} first={welcomed} away={away} recents={recents} newKey={keyLabel("enter")} openKey={hint("open")}
+            recovered={recovered} onRecovered={openRecovered} onDiscard={(entry) => setDialog({ kind: "discard", entry })}
             purposes={purposeList} onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent} onStarter={(text) => keepWork(() => load(undefined, text))}
             onRemovePurpose={(id) => setSettings((s) => ({ ...s, ownPurposes: s.ownPurposes.filter((p) => p.id !== id), purpose: s.purpose === id ? QUICK : s.purpose }))}
             onCustom={settings.ownPurposes.length < MAX_PURPOSES ? () => setDialog({ kind: "template", name: "", from: purposeOf(settings, settings.purpose) ? settings.purpose : "paper" }) : undefined}
@@ -5771,8 +6046,48 @@ export default function Editor() {
           <p className="dialog-note">If you do not save, your changes are lost.</p>
         </Dialog>
       )}</Exit>
+      <Exit>{dialog?.kind === "lossy" && (
+        <Dialog title={`Replace “${file.path ? fileName(file.path) : name}”?`} action="Save As…" onClose={() => { const d = dialog; setDialog(undefined); d.done(false); }}
+          alt={{ label: "Replace", onClick: () => { const d = dialog; setDialog(undefined); void save(false, true).then(d.done); } }}
+          onAction={() => { const d = dialog; setDialog(undefined); void save(true).then(d.done); }}>
+          <p className="dialog-note">Replace removes {lostText(dialog.lost)} from this file, because Octet cannot keep {Object.values(dialog.lost).reduce((a, b) => a + b, 0) > 1 ? "them" : "it"}. Save As keeps the original file.</p>
+        </Dialog>
+      )}</Exit>
+      <Exit>{dialog?.kind === "revert" && (
+        <Dialog title={`Revert to the saved “${name}”?`} action="Revert" onClose={() => setDialog(undefined)} onAction={() => { setDialog(undefined); revert(); }}>
+          <p className="dialog-note">Octet opens the file as you last saved it. Undo brings your changes back.</p>
+        </Dialog>
+      )}</Exit>
+      <Exit>{dialog?.kind === "discard" && (
+        <Dialog title={`Discard “${dialog.entry.name}”?`} action="Discard" onClose={() => setDialog(undefined)}
+          onAction={() => { const id = dialog.entry.id; setDialog(undefined); void invoke("recovery_discard", { id }).then(refreshRecents, (e) => setNotice(failure("Octet cannot discard this drawing.", e))); }}>
+          <p className="dialog-note">Octet keeps no other copy of these changes.</p>
+        </Dialog>
+      )}</Exit>
+      {/* Email Log uses Feedback's email draft to Sam (for testers): not in the public release (REL-8). */}
+      <Exit>{dialog?.kind === "crashed" && (
+        <Dialog title="Octet stopped because of an error" action={__FEEDBACK__ ? "Email Log" : undefined} onClose={() => setDialog(undefined)}
+          alt={{ label: "Show Log", onClick: () => void invoke("show_log").catch((e) => setNotice(failure("Octet cannot show the log.", e))) }}
+          onAction={__FEEDBACK__ ? () => {
+            const log = dialog.log;
+            setDialog(undefined);
+            void invoke("send_feedback", { note: `Octet stopped because of an error.\n\n${log}`, picture: null })
+              .then(() => setNotice("The log is ready to send in your mail app.", "done"), (e) => setNotice(failure("Octet cannot make the email.", e)));
+          } : undefined}>
+          <p className="dialog-note">The log of the error is on this computer only. Octet sends nothing.{__FEEDBACK__ && " To help fix the error, email the log."}</p>
+        </Dialog>
+      )}</Exit>
+      <Exit>{dialog?.kind === "update" && (
+        <Dialog title={`Update to Octet ${dialog.version}?`} action="Update" onClose={() => setDialog(undefined)}
+          onAction={() => { setDialog(undefined); leave(() => {
+            setNotice("Downloading the update.", "info");
+            return invoke("update_install").catch((e) => { throw `Octet cannot install the update. ${e}`; });
+          }); }}>
+          <p className="dialog-note">Octet starts again after the update.</p>
+        </Dialog>
+      )}</Exit>
       <Exit>{about && <About onClose={() => setAbout(false)} />}</Exit>
-      <Exit>{feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={(e) => setNotice(failure("Octet cannot make your feedback.", e))}
+      <Exit>{__FEEDBACK__ && feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={(e) => setNotice(failure("Octet cannot make your feedback.", e))}
         onSent={() => { setFeedback(undefined); setNotice("Your feedback is ready to send in your mail app.", "done"); }} />}</Exit>
       <ExportButton hint={platformLabel(EXPORT_KEYS)} onQuick={() => void quickExport()} onExport={openExport} />
       <Exit>{exportView && (
@@ -5781,8 +6096,8 @@ export default function Editor() {
             // The chosen format is made now, so the dialog says at once when it cannot be. The others are offered
             // when the part can have them, and made when they are chosen.
             const mol = exportView.parts[part], may = !!mol?.atoms.length && loaded, f = settings.files.format;
-            const has: Partial<Record<ExportFormat, boolean>> = { oct: true, cdxml: true, mol: may, sdf: may, smi: may };
-            const of: Partial<Record<ExportFormat, PartFormat>> = { oct: "oct", cdxml: "cdxml", mol: "molfile", sdf: "molfile", smi: "smiles" }, pf = of[f];
+            const has: Partial<Record<ExportFormat, boolean>> = { oct: true, cdxml: true, cdx: true, mol: may, sdf: may, smi: may, inchi: may };
+            const of: Partial<Record<ExportFormat, PartFormat>> = { oct: "oct", cdxml: "cdxml", cdx: "cdx", mol: "molfile", sdf: "molfile", smi: "smiles", inchi: "inchi" }, pf = of[f];
             if (pf && mol) has[f] = !!formatOf(mol, pf);
             return has;
           }}

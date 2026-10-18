@@ -1,6 +1,6 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { HBOND, H_FIRST, hydrogens, lonePairs, orderOf, QUADRUPLE, settleShape, tableLayout, tableRow, type Arrow, type Atom, type Bond, type Box, type Caption, type Curve, type CurvePoint, type Mol, type Shape, type Spot, type Table } from "./render.ts";
+import { HBOND, H_FIRST, hydrogens, lonePairs, orderOf, QUADRUPLE, settleShape, tableLayout, tableRow, type Arrow, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table } from "./render.ts";
 import type { Cycle } from "./cycle.ts";
 import { anchorElement, isElement } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
@@ -397,6 +397,16 @@ export function dragBond(m: Mol, from: number | P, q: P, spec: BondSpec = SINGLE
   return k >= 0 ? overBond(m, k, spec, from as number) : bondTo(m, from, q, spec);
 }
 
+// Kept ChemDraw data on a caption or shape (a live property, polymer brackets' meaning) with its atoms renumbered by
+// `to`; atoms `to` leaves out drop out, and the data goes when none are left.
+export function remapKept<T extends Caption | Shape>(x: T, to: (i: number) => number | undefined): T {
+  const key = "property" in x && x.property ? "property" : "polymer" in x && x.polymer ? "polymer" : undefined;
+  if (!key) return x;
+  const k = (x as { [K in typeof key]?: Kept })[key]!, atoms = k.atoms.flatMap((i) => { const j = to(i); return j === undefined ? [] : [j]; });
+  const out = { ...x } as T & Record<string, unknown>;
+  if (atoms.length) out[key] = { ...k, atoms }; else delete out[key];
+  return out;
+}
 // Removes atoms (and their bonds), then any bare carbons left with no bonds, and hidden H atoms (Toggle Hydrogen
 // Display) whose atom went: they cannot be seen or picked alone.
 function removeAtoms(m: Mol, gone: Set<number>): Mol {
@@ -408,19 +418,22 @@ function removeAtoms(m: Mol, gone: Set<number>): Mol {
   const map = new Map<number, number>();
   m.atoms.forEach((_, i) => { if (!gone.has(i)) map.set(i, map.size); });
   const atoms = m.atoms.flatMap((a, i) => (gone.has(i) ? [] : [a.centre ? { ...a, centre: a.centre.filter((j) => map.has(j)).map((j) => map.get(j)!) } : a]));
-  // Captions under a structure follow its atoms' new numbers, and go when all of its atoms go.
+  // Captions under a structure follow its atoms' new numbers, and go when all of its atoms go. Kept ChemDraw data (a
+  // live property, polymer brackets' meaning) follows its atoms too, and goes when they all go.
+  const kept = <T extends Caption | Shape>(x: T): T => remapKept(x, (i) => map.get(i));
   const captions = m.captions?.flatMap((c) => {
-    if (!c.under) return [c];
+    if (!c.under) return [kept(c)];
     const under = c.under.filter((i) => map.has(i)).map((i) => map.get(i)!);
-    return under.length ? [{ ...c, under }] : [];
+    return under.length ? [kept({ ...c, under })] : [];
   });
   // A cycle keeps the intermediates that still have atoms; with fewer than two it is no longer a cycle.
   const cycles = m.cycles?.flatMap((c) => {
     const nodes = c.nodes.map((n) => n.filter((i) => map.has(i)).map((i) => map.get(i)!)).filter((n) => n.length);
     return nodes.length >= 2 ? [{ ...c, nodes }] : [];
   });
-  const kept = new Set(cycles?.map((c) => c.id));
-  return tidyGroups({ ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || kept.has(c.cycle.cycle)), cycles,
+  const keptCycles = new Set(cycles?.map((c) => c.id));
+  return tidyGroups({ ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || keptCycles.has(c.cycle.cycle)), cycles,
+    shapes: m.shapes?.map(kept),
     groups: m.groups?.map((g) => ({ ...g, atoms: g.atoms.filter((i) => map.has(i)).map((i) => map.get(i)!) })), fills: refill(m.fills, map) });
 }
 // Ring fills follow their atoms' new numbers; a fill goes when one of its atoms goes.
@@ -488,6 +501,7 @@ function uncross(gs: Grouped[], clean: (g: Grouped) => Grouped): Grouped[] {
         for (const i of o.atoms) g.atoms.push(i);
         for (const id of o.items) g.items.push(id);
         if (o.integral) g.integral = true;
+        if (o.annotations) g.annotations = [...(g.annotations ?? []), ...o.annotations];
         into.set(j, at);
         out[j] = undefined;
       }
@@ -540,7 +554,7 @@ export function tidyGroups(m: Mol, frags = m.groups?.length ? fragments(m) : [])
     gone.add(k);
     if (integral[k] && n === 1 && kids[k].length === 1) integral[kids[k][0]] = true;
   }
-  const out = gs.flatMap((g, k) => (gone.has(k) ? [] : [{ id: g.id, atoms: g.atoms, items: g.items, ...(integral[k] ? { integral: true as const } : {}) }]));
+  const out = gs.flatMap((g, k) => (gone.has(k) ? [] : [{ id: g.id, atoms: g.atoms, items: g.items, ...(integral[k] ? { integral: true as const } : {}), ...(g.annotations ? { annotations: g.annotations } : {}) }]));
   const same = out.length === m.groups.length && out.every((g, k) => {
     const o = m.groups![k];
     return g.id === o.id && !!g.integral === !!o.integral && g.atoms.length === o.atoms.length && g.atoms.every((i, n) => i === o.atoms[n]) && g.items.length === o.items.length && g.items.every((id, n) => id === o.items[n]);
@@ -709,6 +723,25 @@ export function bounds(m: Mol): [number, number, number, number] | undefined {
   if (!m.atoms.length) return undefined;
   const xs = m.atoms.map((a) => a.location[0]), ys = m.atoms.map((a) => a.location[1]);
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+
+// The box round everything in a drawing: atoms, arrows and shapes by their ends, captions by where they start.
+export function extent(m: Mol): [number, number, number, number] | undefined {
+  const qs: P[] = [...m.atoms.map((a): P => [a.location[0], a.location[1]]), ...[...(m.arrows ?? []), ...(m.shapes ?? [])].flatMap((x) => [x.from, x.to]), ...(m.captions ?? []).map((c): P => [c.x, c.y])];
+  if (!qs.length) return undefined;
+  return [Math.min(...qs.map((q) => q[0])), Math.min(...qs.map((q) => q[1])), Math.max(...qs.map((q) => q[0])), Math.max(...qs.map((q) => q[1]))];
+}
+
+// Several drawings as one (files dropped together), each under the one before with a gap of two bond lengths,
+// lined up on the left.
+export function stack(list: Mol[]): Mol {
+  let out: Mol = EMPTY;
+  for (const add of list) {
+    const b = extent(add), o = extent(out);
+    if (!b) continue;
+    out = insertMol(out, add, o ? [o[0] - b[0], o[1] - 2 - b[3]] : [0, 0]).mol;
+  }
+  return out;
 }
 
 // Selection helpers. A selection is a set of atom indices; a bond is selected when both its atoms are.
@@ -1869,11 +1902,16 @@ export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>)
   const keep = new Set([...items, ...arrows.map((a) => a.id), ...cycles.map((c) => c.id)]);
   const captions = (m.captions ?? []).filter((c) => (c.under ? c.under.every((i) => map.has(i)) : c.on ? keep.has(c.on.arrow) : c.cycle ? keep.has(c.cycle.cycle) : keep.has(c.id)));
   const ids = new Set([...keep, ...captions.map((c) => c.id)]);
+  // Kept ChemDraw data comes with its caption or shape only when all its atoms come too.
+  const copied = <T extends Caption | Shape>(x: T): T => {
+    const k = "property" in x ? x.property : "polymer" in x ? x.polymer : undefined;
+    return remapKept(x, (i) => (k?.atoms.every((j) => map.has(j)) ? map.get(i) : undefined));
+  };
   return {
     atoms: sel.map((i) => renumbered(m.atoms[i], (j) => map.get(j))),
     bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] as [number, number] })),
-    captions: captions.map((c) => ({ ...c, ...(c.under ? { under: c.under.map((i) => map.get(i)!) } : {}) })),
-    arrows, shapes: (m.shapes ?? []).filter((x) => items.has(x.id)),
+    captions: captions.map((c) => copied({ ...c, ...(c.under ? { under: c.under.map((i) => map.get(i)!) } : {}) })),
+    arrows, shapes: (m.shapes ?? []).filter((x) => items.has(x.id)).map(copied),
     cycles: cycles.map((c) => ({ ...c, nodes: c.nodes.map((n) => n.map((i) => map.get(i)!)) })),
     groups: (m.groups ?? []).filter((g) => g.atoms.every((i) => map.has(i)) && g.items.every((id) => ids.has(id))).map((g) => ({ ...g, atoms: g.atoms.map((i) => map.get(i)!) })),
     fills: refill(m.fills, map),
@@ -1894,12 +1932,12 @@ export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
     bonds: [...m.bonds, ...add.bonds.map((b) => ({ ...b, atoms: [at(b.atoms[0]), at(b.atoms[1])] as [number, number] }))],
     arrows: [...(m.arrows ?? []), ...(add.arrows ?? []).map((a) => ({ ...a, id: ids.get(a.id)!, from: by(a.from), to: by(a.to),
       ...(a.curve ? { curve: { ...a.curve, points: a.curve.points.map((q) => ({ at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) }))],
-    shapes: [...(m.shapes ?? []), ...(add.shapes ?? []).map((x) => ({ ...x, id: ids.get(x.id)!, from: by(x.from), to: by(x.to) }))],
+    shapes: [...(m.shapes ?? []), ...(add.shapes ?? []).map((x) => remapKept({ ...x, id: ids.get(x.id)!, from: by(x.from), to: by(x.to) }, at))],
     cycles: [...(m.cycles ?? []), ...(add.cycles ?? []).map((c) => ({ ...c, id: ids.get(c.id)!, centre: by(c.centre), nodes: c.nodes.map((n) => n.map(at)) }))],
-    captions: [...(m.captions ?? []), ...(add.captions ?? []).map((c) => ({
+    captions: [...(m.captions ?? []), ...(add.captions ?? []).map((c) => remapKept({
       ...c, id: ids.get(c.id)!, x: c.x + offset[0], y: c.y + offset[1], ...(c.under ? { under: c.under.map(at) } : {}),
       ...(c.on ? { on: { ...c.on, arrow: ids.get(c.on.arrow) ?? c.on.arrow } } : {}), ...(c.cycle ? { cycle: { ...c.cycle, cycle: ids.get(c.cycle.cycle) ?? c.cycle.cycle } } : {}),
-    }))],
+    }, at))],
     groups: [...(m.groups ?? []), ...(add.groups ?? []).map((g) => ({ ...g, id: ids.get(g.id)!, atoms: g.atoms.map(at), items: g.items.map((x) => ids.get(x) ?? x) }))],
     ...(add.grids?.length ? { grids: [...(m.grids ?? []), ...add.grids.flatMap((g) => (ids.has(g.arrow) ? [{ ...g, arrow: ids.get(g.arrow)! }] : []))] } : {}),
     ...(add.fills?.length ? { fills: [...(m.fills ?? []), ...add.fills.map((f) => ({ ...f, atoms: f.atoms.map(at) }))] } : {}),
@@ -1913,7 +1951,7 @@ export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
 // copies' atoms and ids, and each original id's copy.
 export function duplicateSelection(m: Mol, atoms: Set<number>, items: Set<number>) {
   const part = extractSelection(m, atoms, items), had = new Set(part.captions?.map((c) => c.id));
-  const left = (m.captions ?? []).filter((c) => items.has(c.id) && !had.has(c.id)).map(({ under: _, ...c }) => c);
+  const left = (m.captions ?? []).filter((c) => items.has(c.id) && !had.has(c.id)).map(({ under: _, property: _p, ...c }) => c);
   const r = insertMol(m, { ...part, captions: [...(part.captions ?? []), ...left] });
   return { mol: r.mol, atoms: r.atoms, items: r.items, ids: r.ids };
 }

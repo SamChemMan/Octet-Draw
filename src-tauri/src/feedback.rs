@@ -1,6 +1,6 @@
-// Feedback (Sam, 17 October 2026; for testing, to be taken out before release): a picture of the window and the
-// tester's note, as an email draft to Sam with the picture attached. Octet sends nothing itself: the mail app opens
-// the draft, and the tester sends it.
+// Feedback (Sam, 17 October 2026), for testers: in every build except the public release, which the release workflow
+// makes with OCTET_FEEDBACK=0 (build.rs, REL-8). A picture of the window and the tester's note, as an email draft to
+// Sam with the picture attached. Octet sends nothing itself: the mail app opens the draft, and the tester sends it.
 use base64::Engine;
 use tauri::{AppHandle, Manager, WebviewWindow};
 

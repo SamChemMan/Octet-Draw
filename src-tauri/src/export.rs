@@ -3,6 +3,7 @@
 // /Metadata stream, as ChemDraw's does, so a picture pasted into Word and copied out again pastes back into
 // Octet and ChemDraw as a structure. cdxml_from_pdf reads it back from any PDF, treated as hostile.
 
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -56,7 +57,7 @@ fn tree(svg: &str) -> Result<usvg::Tree, String> {
 }
 
 // The CDXML as ChemDraw hides it: the XML declaration at byte 0 and the CDXML DOCTYPE on line 2.
-fn cdxml_document(cdxml: &str) -> String {
+pub fn cdxml_document(cdxml: &str) -> String {
     let mut s = cdxml.trim_start_matches('\u{feff}').trim_start();
     if s.starts_with("<?xml") {
         s = s.find("?>").map_or(s, |k| &s[k + 2..]).trim_start();
@@ -107,9 +108,14 @@ pub fn make_pdf(svg: &str, cdxml: Option<&str>) -> Result<Vec<u8>, String> {
 // A PNG of the SVG at `dpi` (of its true size), white or transparent behind. It records its resolution, so
 // Word, PowerPoint and Keynote place it at true size.
 pub fn make_png(svg: &str, dpi: f32, transparent: bool) -> Result<Vec<u8>, String> {
-    use resvg::tiny_skia::{Color, Pixmap, Transform};
     let tree = tree(svg)?;
     let dpi = if dpi.is_finite() { dpi.clamp(36.0, 2400.0) } else { 300.0 };
+    png_of(&draw(&tree, dpi, transparent)?, dpi)
+}
+
+// The SVG drawn at `dpi` of its true size, white or transparent behind.
+fn draw(tree: &usvg::Tree, dpi: f32, transparent: bool) -> Result<resvg::tiny_skia::Pixmap, String> {
+    use resvg::tiny_skia::{Color, Pixmap, Transform};
     let scale = dpi / 96.0;
     let (w, h) = ((tree.size().width() * scale).ceil() as u32, (tree.size().height() * scale).ceil() as u32);
     let too_big = "This picture is too large for a PNG at this resolution. Choose a lower resolution.";
@@ -120,7 +126,11 @@ pub fn make_png(svg: &str, dpi: f32, transparent: bool) -> Result<Vec<u8>, Strin
     if !transparent {
         pixmap.fill(Color::WHITE);
     }
-    resvg::render(&tree, Transform::from_scale(scale, scale), &mut pixmap.as_mut());
+    resvg::render(tree, Transform::from_scale(scale, scale), &mut pixmap.as_mut());
+    Ok(pixmap)
+}
+
+fn png_of(pixmap: &resvg::tiny_skia::Pixmap, dpi: f32) -> Result<Vec<u8>, String> {
     let rgba: Vec<u8> = pixmap.pixels().iter().flat_map(|p| {
         let c = p.demultiply();
         [c.red(), c.green(), c.blue(), c.alpha()]
@@ -137,16 +147,59 @@ pub fn make_png(svg: &str, dpi: f32, transparent: bool) -> Result<Vec<u8>, Strin
     Ok(out)
 }
 
+// The picture on the clipboard on Windows and Linux, where Office pastes no PDF: a transparent PNG at 300 dpi of
+// true size (lower for a large drawing, so it has at most 16 million pixels and 8,192 on a side), and with `bitmap`
+// the same on white as a Windows bitmap (a DIB), for programs that read no PNG.
+pub fn clipboard_pictures(svg: &str, bitmap: bool) -> Result<(Vec<u8>, Option<Vec<u8>>), String> {
+    let tree = tree(svg)?;
+    let (w, h) = (tree.size().width().max(1.0), tree.size().height().max(1.0));
+    let dpi = 300f32.min(96.0 * (16e6 / (w * h)).sqrt()).min(96.0 * 8192.0 / w.max(h));
+    let pixmap = draw(&tree, dpi, true)?;
+    Ok((png_of(&pixmap, dpi)?, bitmap.then(|| dib(&pixmap, dpi))))
+}
+
+// A device-independent bitmap as the Windows clipboard holds it (CF_DIB): a BITMAPINFOHEADER, then rows of blue,
+// green and red from the bottom up, each padded to 4 bytes. The picture is put on white.
+fn dib(pixmap: &resvg::tiny_skia::Pixmap, dpi: f32) -> Vec<u8> {
+    let (w, h) = (pixmap.width() as usize, pixmap.height() as usize);
+    let row = (w * 3 + 3) & !3;
+    let ppm = ((dpi / 0.0254).round() as i32).to_le_bytes();
+    let mut out = Vec::with_capacity(40 + row * h);
+    out.extend(40u32.to_le_bytes());
+    out.extend((w as i32).to_le_bytes());
+    out.extend((h as i32).to_le_bytes());
+    out.extend(1u16.to_le_bytes()); // planes
+    out.extend(24u16.to_le_bytes()); // bits per pixel
+    out.extend(0u32.to_le_bytes()); // BI_RGB
+    out.extend(((row * h) as u32).to_le_bytes());
+    out.extend(ppm);
+    out.extend(ppm);
+    out.extend([0u8; 8]); // colours used, colours important
+    let px = pixmap.pixels();
+    for y in (0..h).rev() {
+        let start = out.len();
+        // Premultiplied colour on white: each channel plus what the alpha leaves.
+        for c in &px[y * w..(y + 1) * w] {
+            let white = 255 - c.alpha();
+            out.extend([c.blue().saturating_add(white), c.green().saturating_add(white), c.red().saturating_add(white)]);
+        }
+        out.resize(start + row, 0);
+    }
+    out
+}
+
 // What File > Export… can write: id, name in the Save dialog, extensions (the first is the default).
-const FORMATS: [(&str, &str, &[&str]); 8] = [
+const FORMATS: [(&str, &str, &[&str]); 10] = [
     ("oct", "Octet drawing", &["oct"]),
     ("pdf", "PDF", &["pdf"]),
     ("svg", "SVG", &["svg"]),
     ("png", "PNG", &["png"]),
     ("cdxml", "ChemDraw XML (CDXML)", &["cdxml"]),
+    ("cdx", "ChemDraw (CDX)", &["cdx"]),
     ("mol", "MDL Molfile", &["mol"]),
     ("sdf", "SD File", &["sdf"]),
     ("smi", "SMILES", &["smi", "smiles"]),
+    ("inchi", "InChI", &["inchi", "txt"]),
 ];
 
 #[derive(serde::Deserialize)]
@@ -156,9 +209,11 @@ pub struct Export {
     oct: Option<String>,
     svg: Option<String>,
     cdxml: Option<String>,
+    cdx: Option<String>, // base64
     molfile: Option<String>,
     sdf: Option<String>,
     smiles: Option<String>,
+    inchi: Option<String>,
     dpi: Option<f32>,
     transparent: Option<bool>,
 }
@@ -178,8 +233,10 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
         "oct" => e.oct.is_some(),
         "pdf" | "svg" | "png" => e.svg.is_some(),
         "cdxml" => e.cdxml.is_some(),
+        "cdx" => e.cdx.is_some(),
         "mol" => e.molfile.is_some(),
         "sdf" => e.sdf.is_some(),
+        "inchi" => e.inchi.is_some(),
         _ => e.smiles.is_some(),
     };
     let offered: Vec<_> = FORMATS.iter().filter(|f| has(f.0) && e.format.as_deref().is_none_or(|x| x == f.0)).collect();
@@ -211,8 +268,10 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
         "png" => make_png(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false))?,
         "oct" => text(&e.oct),
         "cdxml" => text(&e.cdxml),
+        "cdx" => base64::engine::general_purpose::STANDARD.decode(e.cdx.as_deref().unwrap_or_default()).map_err(|_| "Octet cannot write this drawing as CDX.".to_string())?,
         "mol" => text(&e.molfile),
         "sdf" => text(&e.sdf),
+        "inchi" => format!("{}\n", e.inchi.as_deref().unwrap_or_default().trim()).into_bytes(),
         _ => format!("{}\n", e.smiles.as_deref().unwrap_or_default().trim()).into_bytes(),
     };
     crate::write_atomic(&path, &bytes).map_err(|e| e.to_string())?;
@@ -222,7 +281,9 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
 
 // ---- Reading CDXML back out of a PDF: Octet's, ChemDraw's, or either after Word ----
 // The PDF is hostile: every index is checked, nothing recurses, a dictionary is read from at most 16 KB,
-// at most 10,000 objects are looked at, and inflating stops at 32 MB.
+// at most 10,000 objects are looked at, and inflating stops at 32 MB. The searches for a stream's end and for an
+// indirect /Length read at most four times the PDF's size in all, and the check for "endstream" where /Length says
+// reads 256 bytes (REL-25): before, a crafted 63 MB PDF with thousands of streams kept a core busy for minutes.
 
 // The drawing's CDXML in a PDF: the catalog's /Metadata, then any /Type /Metadata /Subtype /XML stream, then
 // Octet's first test form (base64 CDXML in the document info /Keywords). Clipboard spec 4.3 and 4.4.
@@ -235,11 +296,12 @@ pub fn cdxml_from_pdf(pdf: &[u8]) -> Option<String> {
         Some(Val::Ref(n)) => object(pdf, *n),
         _ => None,
     });
-    if let Some(s) = meta.and_then(|at| xml_stream(pdf, at, false)) {
+    let budget = Cell::new(pdf.len().saturating_mul(4));
+    if let Some(s) = meta.and_then(|at| xml_stream(pdf, at, false, &budget)) {
         return Some(s);
     }
     let headers = (0..pdf.len().saturating_sub(2)).filter(|&i| &pdf[i..i + 3] == b"obj" && obj_header(pdf, i));
-    if let Some(s) = headers.take(10_000).find_map(|i| xml_stream(pdf, i + 3, true)) {
+    if let Some(s) = headers.take(10_000).find_map(|i| xml_stream(pdf, i + 3, true, &budget)) {
         return Some(s);
     }
     let i = find(pdf, b"octet-cdxml-base64:")? + 19;
@@ -258,8 +320,9 @@ fn is_cdxml(head: &[u8]) -> bool {
 }
 
 // The stream of the object whose dictionary starts at `at`, decoded, if it is CDXML. With `marked`, only a
-// stream whose dictionary says /Type /Metadata (or /MetaData) and /Subtype /XML.
-fn xml_stream(pdf: &[u8], at: usize, marked: bool) -> Option<String> {
+// stream whose dictionary says /Type /Metadata (or /MetaData) and /Subtype /XML. `budget`: the bytes that the
+// searches here may still read; each search takes what it reads from it.
+fn xml_stream(pdf: &[u8], at: usize, marked: bool, budget: &Cell<usize>) -> Option<String> {
     let (d, end) = dict(pdf, at)?;
     let name = |k: &[u8]| match get(&d, k) {
         Some(Val::Name(n)) => Some(*n),
@@ -276,22 +339,30 @@ fn xml_stream(pdf: &[u8], at: usize, marked: bool) -> Option<String> {
         _ => return None,
     };
     // The data starts after "stream" and its line end. /Length says where it ends, if it agrees with the
-    // "endstream" there; otherwise the first "endstream" does.
-    let mut i = skip_white(pdf, end);
-    if word(pdf, i) != b"stream" {
+    // "endstream" there; otherwise the first "endstream" does. The keywords are looked for in the 256 bytes after
+    // where they should be, as every /Length can point at one long run.
+    let near = |e: usize| &pdf[..pdf.len().min(e.saturating_add(256))];
+    let mut i = skip_white(near(end), end);
+    if word(near(i), i) != b"stream" {
         return None;
     }
     i += 6;
     i += usize::from(pdf.get(i) == Some(&b'\r'));
     i += usize::from(pdf.get(i) == Some(&b'\n'));
+    let spend = |n: usize| budget.get().checked_sub(n).map(|left| budget.set(left)).is_some();
     let length = match get(&d, b"Length") {
         Some(Val::Int(n)) => Some(*n),
-        Some(Val::Ref(r)) => object(pdf, *r).and_then(|j| int(pdf, skip_white(pdf, j))).map(|(n, _)| n),
+        // object() reads the whole PDF.
+        Some(Val::Ref(r)) if spend(pdf.len()) => object(pdf, *r).and_then(|j| int(pdf, skip_white(pdf, j))).map(|(n, _)| n),
         _ => None,
     };
-    let stated = length.and_then(|n| i.checked_add(usize::try_from(n).ok()?)).filter(|&e| e <= pdf.len() && word(pdf, skip_white(pdf, e)) == b"endstream");
+    let stated = length.and_then(|n| i.checked_add(usize::try_from(n).ok()?)).filter(|&e| e <= pdf.len() && word(near(e), skip_white(near(e), e)) == b"endstream");
     let end = stated.or_else(|| {
-        let mut e = i + find(pdf.get(i..)?, b"endstream")?;
+        let rest = pdf.get(i..)?;
+        let window = &rest[..rest.len().min(budget.get())];
+        let found = find(window, b"endstream");
+        spend(found.map_or(window.len(), |k| k + 9));
+        let mut e = i + found?;
         e -= usize::from(e > i && pdf[e - 1] == b'\n');
         e -= usize::from(e > i && pdf[e - 1] == b'\r');
         Some(e)
@@ -610,6 +681,49 @@ mod tests {
         let bomb = miniz_oxide::deflate::compress_to_vec_zlib(&big, 1);
         let pdf = [b"%PDF\n1 0 obj << /Type /Metadata /Subtype /XML /Filter /FlateDecode >>\nstream\n".as_slice(), &bomb, b"\nendstream"].concat();
         assert_eq!(cdxml_from_pdf(&pdf), None);
+    }
+
+    // REL-25: thousands of marked streams that never end, or whose /Length points at an object, then a long tail.
+    // Each search used to read to the end of the file, so 10,000 of them took minutes on 63 MB.
+    #[test]
+    fn crafted_pdfs_end_quickly() {
+        for length in ["", "/Length 7 0 R "] {
+            let mut pdf = b"%PDF-1.4\n".to_vec();
+            for k in 0..10_000 {
+                pdf.extend_from_slice(format!("{} 0 obj << /Type /Metadata /Subtype /XML {length}>>\nstream\n", k + 1).as_bytes());
+            }
+            pdf.resize(8 << 20, b'x');
+            let t = std::time::Instant::now();
+            assert_eq!(cdxml_from_pdf(&pdf), None);
+            assert!(t.elapsed() < std::time::Duration::from_secs(5), "{length:?} took {:?}", t.elapsed());
+        }
+        // A sound stream after many that are not CDXML is still found.
+        let mut pdf = b"%PDF-1.4\n".to_vec();
+        for k in 0..100 {
+            pdf.extend_from_slice(format!("{} 0 obj << /Type /Metadata /Subtype /XML >>\nstream\n<x/>\nendstream\nendobj\n", k + 1).as_bytes());
+        }
+        pdf.extend_from_slice(format!("500 0 obj << /Type /Metadata /Subtype /XML /Length 999 >>\nstream\n{CDXML}\nendstream\nendobj\n").as_bytes());
+        assert_eq!(cdxml_from_pdf(&pdf).as_deref(), Some(CDXML));
+        // Every /Length points at the start of one long run of spaces, of a comment, or of letters, so each check for
+        // "endstream" there used to read all of the run.
+        for fill in [b" ".as_slice(), b"%x", b"x"] {
+            let mut pdf = b"%PDF-1.4\n".to_vec();
+            let mut starts = Vec::new();
+            for k in 0..10_000 {
+                pdf.extend_from_slice(format!("{} 0 obj << /Type /Metadata /Subtype /XML /Length 0000000000 >>\nstream\n", k + 1).as_bytes());
+                starts.push(pdf.len());
+            }
+            let run = pdf.len();
+            for &s in &starts {
+                let at = s - "0000000000 >>\nstream\n".len();
+                pdf[at..at + 10].copy_from_slice(format!("{:010}", run - s).as_bytes());
+            }
+            pdf.extend_from_slice(fill);
+            pdf.resize(8 << 20, *fill.last().unwrap());
+            let t = std::time::Instant::now();
+            assert_eq!(cdxml_from_pdf(&pdf), None);
+            assert!(t.elapsed() < std::time::Duration::from_secs(5), "{fill:?} took {:?}", t.elapsed());
+        }
     }
 
     #[test]

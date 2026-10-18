@@ -8,6 +8,11 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(() => ({
   plugins: [react()],
 
+  // Feedback (src/Feedback.tsx) is for testers (REL-8), so every build has it while friends test Octet.
+  // OCTET_FEEDBACK=0 leaves it out: the release workflow sets it for the public release. src-tauri/build.rs reads the
+  // same variable.
+  define: { __FEEDBACK__: JSON.stringify(process.env.OCTET_FEEDBACK !== "0") },
+
   // Pre-bundling breaks the relative URL Indigo uses to find its .wasm file.
   optimizeDeps: { exclude: ["indigo-ketcher"] },
 

@@ -9,19 +9,27 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Emitter, Manager, State, Wry};
+use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WindowEvent, Wry};
 use tauri_plugin_dialog::DialogExt;
 
 mod clipboard;
+mod crashlog;
 mod export;
+// Feedback, for testers: not in the public release (build.rs, REL-8).
+#[cfg(feedback)]
 mod feedback;
+mod open;
+mod quit;
 mod recent;
+mod recovery;
 mod search;
+mod update;
 
 // Opens a web address or a file in the user's own program for it (the browser, the mail app). On Windows the open
-// crate asks the shell (ShellExecuteExW) directly: cmd.exe would read each & in an address as a new command.
+// crate asks the shell (ShellExecuteExW) directly: cmd.exe would read each & in an address as a new command. ::open is
+// the crate, not src/open.rs.
 pub fn open_external(target: impl AsRef<std::ffi::OsStr>) -> std::io::Result<()> {
-    open::that_detached(target)
+    ::open::that_detached(target)
 }
 
 // File > Print: the system's print dialog for the window, which prints only the page the editor laid out for it.
@@ -52,15 +60,30 @@ struct Palette(Mutex<Vec<String>>);
 struct TextLists(Mutex<(Vec<String>, Vec<f64>)>);
 type Built = (Menu<Wry>, Vec<CheckMenuItem<Wry>>, Vec<(String, String, String, String)>);
 
-// The menu bar built again with the user's colours and shortcuts. A shortcut the menu cannot take leaves every
-// command on its default, so the menu is never lost.
+// The menu bar goes on the app. On the Mac, Help becomes the system's Help menu, which only works once it is on the app.
+fn set_bar(app: &AppHandle, bar: Menu<Wry>) -> tauri::Result<()> {
+    app.set_menu(bar.clone())?;
+    #[cfg(target_os = "macos")]
+    if let Some(help) = bar.get("help").and_then(|h| h.as_submenu().cloned()) {
+        help.set_as_help_menu_for_nsapp()?;
+    }
+    Ok(())
+}
+
+// The menu bar built again with the user's colours and shortcuts, and the recent drawings. A shortcut the menu cannot
+// take leaves every command on its default, so the menu is never lost. The ticks stay as they were.
 fn rebuild(app: &AppHandle) -> Result<(), String> {
     let names = app.state::<Palette>().0.lock().unwrap().clone();
     let keys = app.state::<MenuKeys>().0.lock().unwrap().clone();
     let online = *app.state::<search::Online>().0.lock().unwrap();
     let text = app.state::<TextLists>().0.lock().unwrap().clone();
     let (bar, checks, list) = menu(app, &names, &text, &keys, online).or_else(|_| menu(app, &names, &text, &HashMap::new(), online)).map_err(|e| e.to_string())?;
-    app.set_menu(bar).map_err(|e| e.to_string())?;
+    if let Some(old) = app.try_state::<Checks>() {
+        for (c, was) in checks.iter().filter_map(|c| old.0.lock().unwrap().iter().find(|o| o.id() == c.id()).map(|o| (c, o.is_checked()))) {
+            let _ = c.set_checked(was.unwrap_or(true));
+        }
+    }
+    set_bar(app, bar).map_err(|e| e.to_string())?;
     *app.state::<Checks>().0.lock().unwrap() = checks;
     *app.state::<MenuList>().0.lock().unwrap() = list;
     Ok(())
@@ -135,10 +158,23 @@ fn set_purposes(app: AppHandle, held: State<'_, Purposes>, names: Vec<String>, c
 }
 
 pub const MAX_BYTES: u64 = 64 * 1024 * 1024;
-// Octet saves .oct, a CDXML file with Octet's drawing inside (decision 0004), or .cdxml, which is the same file.
-// It opens both, and the older .octet files.
-const OPEN: (&str, &[&str]) = ("Drawings", &["oct", "cdxml", "octet"]);
-const SAVE: [(&str, &[&str]); 2] = [("Octet drawing", &["oct"]), ("ChemDraw drawing", &["cdxml"])];
+// Octet saves .oct, a CDXML file with Octet's drawing inside (decision 0004), or .cdxml, which is the same file, or
+// .cdx, ChemDraw's binary file with Octet's drawing inside (decision 0009). It opens all three, and the older .octet
+// files.
+const OPEN: (&str, &[&str]) = ("Drawings", &["oct", "cdxml", "cdx", "octet"]);
+const SAVE: [(&str, &[&str]); 3] = [("Octet drawing", &["oct"]), ("ChemDraw drawing (CDXML)", &["cdxml"]), ("ChemDraw drawing (CDX)", &["cdx"])];
+const SAVES: [&str; 3] = ["oct", "cdxml", "cdx"];
+
+// A file's contents for the page: its text, or a CDX file's bytes in base64 (which starts "VmpDRDAxMDA", the
+// magic). Anything else that is not UTF-8 text is an InvalidData error.
+pub fn read_text_or_cdx(path: &Path) -> std::io::Result<String> {
+    use base64::Engine;
+    let bytes = fs::read(path)?;
+    if bytes.starts_with(b"VjCD0100") {
+        return Ok(base64::engine::general_purpose::STANDARD.encode(bytes));
+    }
+    String::from_utf8(bytes).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
 
 // Write to a temporary file next to the target, flush it to disk, then rename it over the target.
 // A crash mid-save leaves the old file intact.
@@ -168,10 +204,24 @@ async fn open_drawing(app: AppHandle, picked: State<'_, Picked>) -> Result<Optio
     if size > MAX_BYTES {
         return Err("This file is larger than 64 MB. Octet cannot open it.".into());
     }
-    let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let text = read_text_or_cdx(&path).map_err(|e| e.to_string())?;
     picked.0.lock().unwrap().insert(path.clone());
     recent::note(&app, &path);
     Ok(Some((path.to_string_lossy().into_owned(), text)))
+}
+
+// File > Revert to Saved: the drawing's file as it is on disk, for a file the user picked before.
+#[tauri::command]
+async fn revert_drawing(picked: State<'_, Picked>, path: String) -> Result<String, String> {
+    let p = PathBuf::from(&path);
+    if !picked.0.lock().unwrap().contains(&p) {
+        return Err("Octet cannot read this drawing again. Open it with File > Open.".into());
+    }
+    let size = fs::metadata(&p).map_err(|_| "This drawing is not where it was. It was moved or deleted.".to_string())?.len();
+    if size > MAX_BYTES {
+        return Err("This file is larger than 64 MB. Octet cannot open it.".into());
+    }
+    read_text_or_cdx(&p).map_err(|e| e.to_string())
 }
 
 // Opens one of Octet's own links in the browser. The page names it; only these fixed addresses can be opened.
@@ -179,6 +229,8 @@ async fn open_drawing(app: AppHandle, picked: State<'_, Picked>) -> Result<Optio
 async fn open_link(name: String) -> Result<(), String> {
     let url = match name.as_str() {
         "author" => "https://www.linkedin.com/in/sam-ellis-132781206/",
+        // Help > Report a Problem.
+        "issues" => "https://github.com/SamChemMan/Octet/issues/new",
         _ => return Err("Octet has no such link.".into()),
     };
     open_external(url).map_err(|e| e.to_string())
@@ -214,31 +266,43 @@ fn reveal_file(picked: State<'_, Picked>, exported: State<'_, export::Exported>,
     command.spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
-// Import a structure from another program's file (MOL, SDF, SMILES, CDXML). Returns its name and text.
+// About > Licences: the licence notices Octet ships (scripts/licences.mjs), in the system's text app.
+#[tauri::command]
+async fn open_licences(app: AppHandle) -> Result<(), String> {
+    let path = app.path().resolve("licences/third-party.txt", tauri::path::BaseDirectory::Resource).map_err(|e| e.to_string())?;
+    open_external(&path).map_err(|e| e.to_string())
+}
+
+// Import a structure from another program's file (MOL, SDF, RXN, SMILES, InChI, CDXML, CDX). Returns its name and
+// text (a CDX file's bytes in base64).
 #[tauri::command]
 async fn import_structure(app: AppHandle) -> Result<Option<(String, String)>, String> {
-    let Some(file) = app.dialog().file().add_filter("Structures", &["mol", "sdf", "smi", "smiles", "cdxml", "ket", "txt"]).blocking_pick_file() else {
+    let Some(file) = app.dialog().file().add_filter("Structures", &["mol", "sdf", "rxn", "smi", "smiles", "inchi", "cdxml", "cdx", "ket", "txt"]).blocking_pick_file() else {
         return Ok(None);
     };
     let path = file.into_path().map_err(|e| e.to_string())?;
     if fs::metadata(&path).map_err(|e| e.to_string())?.len() > MAX_BYTES {
         return Err("This file is larger than 64 MB. Octet cannot import it.".into());
     }
-    let text = fs::read_to_string(&path).map_err(|_| "Octet can only import text files (MOL, SDF, SMILES, CDXML).".to_string())?;
+    let text = read_text_or_cdx(&path).map_err(|_| "Octet can only import structure files (MOL, SDF, RXN, SMILES, InChI, CDXML, CDX).".to_string())?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     Ok(Some((name, text)))
 }
 
 // Saves to `path` if the user picked it earlier, otherwise asks where to save. Returns the path, or None if cancelled.
+// name: the name the Save dialog suggests when there is no path (a recovered drawing keeps its name). contents: the
+// .oct (and .cdxml) file; cdx: the .cdx file in base64, which the page sends when the file may be a .cdx.
 #[tauri::command]
-async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<String>, contents: String) -> Result<Option<String>, String> {
-    if contents.len() as u64 > MAX_BYTES {
+async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<String>, name: Option<String>, contents: String, cdx: Option<String>) -> Result<Option<String>, String> {
+    if contents.len() as u64 > MAX_BYTES || cdx.as_ref().is_some_and(|c| c.len() as u64 > MAX_BYTES / 3 * 4 + 4) {
         return Err("This drawing is larger than 64 MB. Octet cannot save it.".into());
     }
     // An old .octet file is saved as a new .oct beside it, so Save asks where, as Save As does.
     let given = path.map(PathBuf::from);
-    let stem = given.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Untitled".into());
-    let known = given.filter(|p| picked.0.lock().unwrap().contains(p) && p.extension().is_some_and(|e| e == "oct" || e == "cdxml"));
+    let stem = given.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().into_owned())
+        .or_else(|| name.map(|n| n.chars().filter(|c| !c.is_control() && !"/\\:".contains(*c)).take(200).collect::<String>()).filter(|n| !n.trim().is_empty()))
+        .unwrap_or_else(|| "Untitled".into());
+    let known = given.filter(|p| picked.0.lock().unwrap().contains(p) && p.extension().is_some_and(|e| SAVES.iter().any(|s| e == *s)));
     let target = match known {
         Some(p) => p,
         None => {
@@ -247,13 +311,20 @@ async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<St
                 return Ok(None);
             };
             let mut p = file.into_path().map_err(|e| e.to_string())?;
-            if p.extension().is_none_or(|e| e != "oct" && e != "cdxml") {
+            if p.extension().is_none_or(|e| !SAVES.iter().any(|s| e == *s)) {
                 p.set_extension("oct");
             }
             p
         }
     };
-    write_atomic(&target, contents.as_bytes()).map_err(|e| e.to_string())?;
+    let bytes = if target.extension().is_some_and(|e| e == "cdx") {
+        use base64::Engine;
+        let b64 = cdx.ok_or("Octet cannot save this drawing as CDX.")?;
+        base64::engine::general_purpose::STANDARD.decode(b64).map_err(|_| "Octet cannot save this drawing as CDX.".to_string())?
+    } else {
+        contents.into_bytes()
+    };
+    write_atomic(&target, &bytes).map_err(|e| e.to_string())?;
     picked.0.lock().unwrap().insert(target.clone());
     recent::note(&app, &target);
     Ok(Some(target.to_string_lossy().into_owned()))
@@ -277,6 +348,20 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         CheckMenuItem::with_id(app, id, text, true, false, if k.is_empty() { None } else { Some(k) })
     };
     let sep = || PredefinedMenuItem::separator(app);
+    // Open Recent, as ChemDraw's and every Mac app's: the recent drawings (Home's list), newest first, then Clear Menu.
+    // The items are not commands with shortcuts, so Settings does not list them.
+    let recents = recent::titles(app)
+        .into_iter()
+        .enumerate()
+        .map(|(k, title)| MenuItem::with_id(app, format!("recent_{k}"), title, true, None::<&str>))
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let (recent_sep, clear) = (sep()?, MenuItem::with_id(app, "recent_clear", "Clear Menu", !recents.is_empty(), None::<&str>)?);
+    let mut recent_items: Vec<&dyn IsMenuItem<Wry>> = recents.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
+    if !recents.is_empty() {
+        recent_items.push(&recent_sep);
+    }
+    recent_items.push(&clear);
+    let open_recent = Submenu::with_items(app, "Open Recent", true, &recent_items)?;
     // File > New For: Quick start (as on Home), then Paper, Thesis, Slides and Poster, then the user's own purposes.
     let (own, current) = app.state::<Purposes>().0.lock().unwrap().clone();
     section.replace("File › New For".into());
@@ -301,10 +386,12 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("new", &new_name, "CmdOrCtrl+N")?,
         &new_for,
         &item("open", "Open…", "CmdOrCtrl+O")?,
+        &open_recent,
         &item("import", "Import a Structure…", "")?,
         &sep()?,
         &item("save", "Save", "CmdOrCtrl+S")?,
         &item("save_as", "Save As…", "CmdOrCtrl+Shift+S")?,
+        &item("revert", "Revert to Saved", "")?,
         // ChemDraw's key: ⌃⌘E.
         // ⌃⌘E on the Mac; Ctrl+Shift+E elsewhere, where Control and Command are both Ctrl.
         &item("export", "Export…", if cfg!(target_os = "macos") { "Ctrl+CmdOrCtrl+E" } else { "CmdOrCtrl+Shift+E" })?,
@@ -314,7 +401,29 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         &item("document", "Document Settings…", "")?,
         &sep()?,
-        &PredefinedMenuItem::close_window(app, None)?,
+    ])?;
+    // Close Window: the system's item on the Mac and Windows, Octet's own on Linux, where GTK has none. Windows and
+    // Linux end Octet from File > Exit, as their apps do (REL-18); on the Mac it is Octet > Quit Octet. Not the
+    // system's quit, which closes Octet at once: the page asks to save unsaved changes first.
+    #[cfg(not(target_os = "linux"))]
+    file.append(&PredefinedMenuItem::close_window(app, None)?)?;
+    #[cfg(target_os = "linux")]
+    file.append(&item("close", "Close Window", "CmdOrCtrl+W")?)?;
+    #[cfg(not(target_os = "macos"))]
+    {
+        file.append(&sep()?)?;
+        file.append(&item("quit", "Exit", "CmdOrCtrl+Q")?)?;
+    }
+    // Copy As, as ChemDraw's: each puts the selected structures (or all of them) on the clipboard as text. ChemDraw's
+    // keys: ⌥⌘C SMILES, ⌘D CDXML Text, ⌥⌘O MOL Text (V3000 since ChemDraw 26.1), ⇧⌥⌘O MOL V2000 Text.
+    section.replace("Edit › Copy As".into());
+    let copy_as = Submenu::with_items(app, "Copy As", true, &[
+        &item("copy_smiles", "SMILES", "Alt+CmdOrCtrl+C")?,
+        &item("copy_inchi", "InChI", "")?,
+        &item("copy_inchikey", "InChIKey", "")?,
+        &item("copy_cdxml", "CDXML Text", "CmdOrCtrl+D")?,
+        &item("copy_mol", "MOL Text", "Alt+CmdOrCtrl+O")?,
+        &item("copy_mol_v2000", "MOL V2000 Text", "Alt+Shift+CmdOrCtrl+O")?,
     ])?;
     section.replace("Edit".into());
     let edit = Submenu::with_items(app, "Edit", true, &[
@@ -329,8 +438,14 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("select_all", "Select All", "CmdOrCtrl+A")?,
         &item("invert_selection", "Invert Selection", "CmdOrCtrl+Shift+I")?,
         &sep()?,
-        &item("copy_smiles", "Copy As SMILES", "Alt+CmdOrCtrl+C")?,
+        &copy_as,
     ])?;
+    // Windows and Linux: Settings at the end of Edit, as their apps have it; on the Mac it is in the Octet menu.
+    #[cfg(not(target_os = "macos"))]
+    {
+        edit.append(&sep()?)?;
+        edit.append(&item("settings", "Settings…", "CmdOrCtrl+,")?)?;
+    }
     section.replace("View".into());
     // ChemDraw's Show Crosshair (⌥⌘X) and Show Rulers (⌘;), in its order. ChemDraw has no grid: Show Grid (⌘') and
     // Snap to Grid (⇧⌘') take Affinity Designer's and Illustrator's keys.
@@ -555,17 +670,35 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("search_pubchem", "Search PubChem", "Alt+CmdOrCtrl+U")?,
         &item("search_pubchem_sub", "Search PubChem for Substructures", "Alt+Shift+CmdOrCtrl+U")?,
     ])?;
+    // Window: what the system supports. GTK on Linux has neither item, so Linux has no Window menu; Windows has no
+    // full screen item.
     section.replace("Window".into());
-    let window = Submenu::with_items(app, "Window", true, &[
-        &PredefinedMenuItem::minimize(app, None)?,
-        &PredefinedMenuItem::fullscreen(app, None)?,
+    let window = Submenu::with_items(app, "Window", true, &[&PredefinedMenuItem::minimize(app, None)?])?;
+    #[cfg(target_os = "macos")]
+    window.append(&PredefinedMenuItem::fullscreen(app, None)?)?;
+    // Help on every platform, as ChemDraw's (REL-18). On the Mac, set_bar makes it the system's Help menu, with its
+    // search field.
+    section.replace("Help".into());
+    let help = Submenu::with_id_and_items(app, "help", "Help", true, &[
+        &item("tutorial", "Tutorial", "")?,
+        &item("shortcuts", "Keyboard Shortcuts", "")?,
+        &sep()?,
+        &item("report_problem", "Report a Problem…", "")?,
     ])?;
+    // Windows and Linux: Check for Updates and About at the end of Help; on the Mac they are in the Octet menu.
+    #[cfg(not(target_os = "macos"))]
+    {
+        help.append(&item("check_updates", "Check for Updates…", "")?)?;
+        help.append(&sep()?)?;
+        help.append(&item("about", "About Octet", "")?)?;
+    }
     section.replace("Octet".into());
     #[cfg(target_os = "macos")]
     let octet = Submenu::with_items(app, "Octet", true, &[
         // Octet's own About window (src/About.tsx): the mark, who made it, and the credits the licences ask for.
         &item("about", "About Octet", "")?,
-        &item("tutorial", "Tutorial", "")?,
+        // As ChemDraw 26.1's ChemDraw > Check for Updates… (decision 0010).
+        &item("check_updates", "Check for Updates…", "")?,
         &sep()?,
         &item("settings", "Settings…", "CmdOrCtrl+,")?,
         &sep()?,
@@ -575,7 +708,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &PredefinedMenuItem::hide_others(app, None)?,
         &PredefinedMenuItem::show_all(app, None)?,
         &sep()?,
-        &PredefinedMenuItem::quit(app, None)?,
+        // Not the system's Quit, which closes Octet at once: the page asks to save unsaved changes first.
+        &item("quit", "Quit Octet", "CmdOrCtrl+Q")?,
     ])?;
     let mut items: Vec<&dyn IsMenuItem<Wry>> = Vec::new();
     #[cfg(target_os = "macos")]
@@ -584,17 +718,30 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     if online {
         items.push(&search);
     }
-    items.push(&window);
+    if !cfg!(target_os = "linux") {
+        items.push(&window);
+    }
+    items.push(&help);
     // Commands of a menu that is not there are not listed (Settings shows no shortcuts for them).
     let listed = list.borrow().iter().filter(|c| online || c.2 != "Search").cloned().collect();
     Ok((Menu::with_items(app, &items)?, vec![grid, rulers, crosshair, snap, snap_grid, warnings, fixed_lengths, fixed_angles], listed))
 }
 
 fn main() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Windows and Linux start a second Octet for each file opened from Explorer or a file manager. It gives its files
+    // to the Octet that runs, and ends. (On the Mac the system sends them to the running Octet itself.)
+    #[cfg(any(windows, target_os = "linux"))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        open::offer(app, open::from_args(args.into_iter().map(std::ffi::OsString::from), Path::new(&cwd)), None)
+    }));
+    builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Picked::default())
         .manage(export::Exported::default())
+        .manage(update::Found::default())
+        .manage(open::Waiting::default())
         .manage(recent::Recents::default())
         .manage(MenuKeys::default())
         .manage(MenuList::default())
@@ -602,17 +749,29 @@ fn main() {
         .manage(search::Online(Mutex::new(true)))
         .manage(TextLists::default())
         .manage(Purposes::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, set_online_search, search::search_online, open_link, reveal_file, open_drawing, save_drawing, set_check, set_palette, set_text_lists, set_purposes, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, open_link, open_licences, reveal_file, open_drawing, save_drawing, set_check, set_palette, set_text_lists, set_purposes, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, open::take_opened])
         .setup(|app| {
             let handle = app.handle();
+            // Files named when Octet starts (Explorer and file managers pass them as arguments).
+            let cwd = std::env::current_dir().unwrap_or_default();
+            open::offer(handle, open::from_args(std::env::args_os(), &cwd), None);
+            crashlog::install(handle);
+            quit::install(handle);
+            app.manage(recovery::start(handle));
             let (bar, checks, list) = menu(handle, &[], &Default::default(), &HashMap::new(), true)?;
-            app.set_menu(bar)?;
+            set_bar(handle, bar)?;
             app.manage(Checks(Mutex::new(checks)));
             *app.state::<MenuList>().0.lock().unwrap() = list;
             // With the Reaxys window in front, Undo, Redo and Select All act on its page. Every other command goes
             // to the drawing, and only the main window hears menu commands.
             app.on_menu_event(|app, event| {
                 let id = event.id().0.as_str();
+                if id == "quit" {
+                    quit::front(app);
+                }
+                if id == "recent_clear" {
+                    recent::clear(app);
+                }
                 if let Some(w) = app.get_webview_window("reaxys").filter(|w| w.is_focused().unwrap_or(false)) {
                     let js = match id {
                         "undo" => Some("document.execCommand('undo')"),
@@ -629,6 +788,22 @@ fn main() {
             });
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Octet");
+        // Files dropped on the window, with where they were dropped in CSS pixels from the top left. wry 0.57 gives
+        // WebView2's point in device pixels, and WebKit's (Mac, Linux) in CSS pixels already.
+        .on_window_event(|window, event| {
+            if let WindowEvent::DragDrop(DragDropEvent::Drop { paths, position }) = event {
+                #[cfg(windows)]
+                let position = position.to_logical::<f64>(window.scale_factor().unwrap_or(1.0));
+                open::offer(window.app_handle(), paths.clone(), Some((position.x, position.y)));
+            }
+        })
+        .build(tauri::generate_context!())
+        .expect("error while running Octet")
+        .run(|_app, _event| {
+            // Files opened from Finder or the Dock (a double-click, Open With, a drop on the Dock icon).
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = _event {
+                open::offer(_app, urls.into_iter().filter_map(|u| u.to_file_path().ok()), None);
+            }
+        });
 }

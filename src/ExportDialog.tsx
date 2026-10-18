@@ -37,7 +37,7 @@ export function ExportButton({ onQuick, onExport, hint }: { onQuick: () => void;
   );
 }
 
-const FORMATS: [ExportFormat, string][] = [["oct", "Octet drawing (.oct)"], ["pdf", "PDF"], ["png", "PNG"], ["svg", "SVG"], ["cdxml", "CDXML (ChemDraw)"], ["mol", "MOL"], ["sdf", "SDF"], ["smi", "SMILES"]];
+const FORMATS: [ExportFormat, string][] = [["oct", "Octet drawing (.oct)"], ["pdf", "PDF"], ["png", "PNG"], ["svg", "SVG"], ["cdxml", "CDXML (ChemDraw)"], ["cdx", "CDX (ChemDraw)"], ["mol", "MOL"], ["sdf", "SDF"], ["smi", "SMILES"], ["inchi", "InChI"]];
 const PICTURES: ExportFormat[] = ["pdf", "png", "svg"];
 export type ExportSettings = Pick<FilePrefs, "dpi" | "background" | "margin"> & { format: ExportFormat };
 
