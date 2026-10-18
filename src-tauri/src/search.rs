@@ -1,8 +1,9 @@
-// Search Reaxys and Search PubChem (decision 0008): one press opens the user's browser at the search, with the
-// structure in the address. The page sends only the structure (SMILES, or a molfile for a query with generic labels),
-// exact or not, and the reaction role; the addresses are fixed here, so the page cannot open any other site.
-// Octet itself sends nothing over the network: the browser does, and Reaxys or PubChem signs the user in.
-use tauri::{AppHandle, Manager};
+// Search Reaxys and Search PubChem (decision 0008): one press opens the search, with the structure in the address:
+// Reaxys in Octet's Reaxys window, PubChem in the user's browser. The page sends only the structure (SMILES, or a
+// molfile for a query with generic labels), exact or not, and the reaction role; the addresses are fixed here, so the
+// page cannot open any other site. Octet sends nothing else, and Reaxys or PubChem signs the user in.
+use tauri::webview::NewWindowResponse;
+use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
 const REAXYS: &str = "https://www.reaxys.com/reaxys/secured/hopinto.do";
 const PUBCHEM: &str = "https://pubchem.ncbi.nlm.nih.gov/";
@@ -48,6 +49,38 @@ pub fn pubchem(smiles: &str, exact: bool) -> Result<String, String> {
     if url.len() > LIMIT { Err(TOO_LONG.into()) } else { Ok(url) }
 }
 
+// Reaxys's page keeps its Query Builder form (rx2:qbNodesList), and on a link it searches that old form before it
+// loads the new structure, so each search showed the one before it (18 October 2026). On a load from a link (the
+// site's root, or #/hopinto), this clears the old form before Reaxys's own scripts run.
+const FRESH_FORM: &str = r##"if (location.hostname === "www.reaxys.com" && location.pathname === "/" && (!location.hash || location.hash.startsWith("#/hopinto"))) { try { localStorage.removeItem("rx2:qbNodesList"); } catch (e) {} }"##;
+
+// The Reaxys window: one, reused for each search. Reaxys pages have no access to Octet's commands (no capability
+// names this window). Sign-in pages of the user's institution are on other sites, so any https page can load here;
+// links that open a new window go to the user's browser, and downloads go to Downloads.
+fn reaxys_window(app: &AppHandle, url: &str) -> Result<(), String> {
+    let url: Url = url.parse().map_err(|_| "Octet has no such search.".to_string())?;
+    if let Some(w) = app.get_webview_window("reaxys") {
+        w.navigate(url).map_err(|e| e.to_string())?;
+        let _ = w.unminimize();
+        return w.set_focus().map_err(|e| e.to_string());
+    }
+    WebviewWindowBuilder::new(app, "reaxys", WebviewUrl::External(url))
+        .title("Reaxys")
+        .inner_size(1200.0, 820.0)
+        .min_inner_size(640.0, 480.0)
+        .initialization_script(FRESH_FORM)
+        .on_navigation(|url| matches!(url.scheme(), "https" | "blob" | "about"))
+        .on_new_window(|url, _| {
+            if url.scheme() == "https" {
+                let _ = crate::open_external(url.as_str());
+            }
+            NewWindowResponse::Deny
+        })
+        .build()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 // Settings > Online search: off hides the searches, and this refuses them.
 pub struct Online(pub std::sync::Mutex<bool>);
 
@@ -61,6 +94,9 @@ pub async fn search_online(app: AppHandle, site: String, smiles: Option<String>,
         return Err(TOO_LONG.into());
     }
     let url = address(&site, smiles.as_deref(), molfile.as_deref(), exact, role.as_deref(), &app.package_info().version.to_string())?;
+    if site == "reaxys" {
+        return reaxys_window(&app, &url);
+    }
     crate::open_external(&url).map_err(|_| "Octet cannot open your browser.".into())
 }
 
@@ -122,6 +158,12 @@ mod tests {
         assert!(address("pubchem", Some("C"), None, true, None, "0.1.0").unwrap().starts_with("https://pubchem.ncbi.nlm.nih.gov/#query="));
         assert!(address("https://example.com", Some("C"), None, true, None, "0.1.0").is_err());
         assert!(address("pubchem", None, Some("Octet\n"), false, None, "0.1.0").is_err(), "PubChem's link takes SMILES only");
+    }
+
+    #[test]
+    fn the_form_is_cleared_only_on_a_load_from_a_link() {
+        assert!(FRESH_FORM.starts_with(r#"if (location.hostname === "www.reaxys.com" && location.pathname === "/""#));
+        assert!(FRESH_FORM.contains(r#"localStorage.removeItem("rx2:qbNodesList")"#));
     }
 
     #[test]
