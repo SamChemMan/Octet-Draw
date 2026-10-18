@@ -5,7 +5,7 @@
 // ChemDraw users expect it (menus and keys).
 import { useEffect, useRef, useState } from "react";
 import {
-  AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, ArrowsInSimple, ArrowsClockwise, ArrowsDownUp, CaretRight, SignIn, SignOut, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretUpDown,
+  AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, Repeat, ArrowsInSimple, ArrowsClockwise, ArrowsDownUp, CaretRight, SignIn, SignOut, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretUpDown,
   AlignBottomSimple, AlignTopSimple, ArrowLineDown, ArrowLineUp, CursorText, DotsThree, DotsThreeVertical, Faders, Polygon, Rectangle, ArrowArcLeft, ArrowArcRight, ArrowsCounterClockwise, ArrowUDownLeft, CircleDashed, CornersOut, MagnifyingGlass, Swap,
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
@@ -38,7 +38,7 @@ export type Context =
   | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[]; shade: { depth: number; blur: number; opacity: number; pt: number }; text?: LabelText }
   | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean; grid: boolean }
-  | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; halo?: string; fill?: string; numbered?: boolean }
+  | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; halo?: string; fill?: string; numbered?: boolean; repeat?: string }
   | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean }
   | { kind: "spot"; style: "filled" | "hollow" | "shaded"; w: number; h: number; tail: number; rf: boolean; pt: number };
 
@@ -284,7 +284,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       items.push(...mirrors, del);
       break;
     case "atom":
-      items.push(it(<CursorText size={18} />, "Type a label", "atom.label"), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
+      items.push(it(<CursorText size={18} />, "Type a label", "atom.label"), ...(context.repeat ? [it(<Repeat size={18} />, `Repeat ${context.repeat}`, "repeat_label")] : []), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
         ...(context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label) ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<Faders size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"),
         ...(hiddenWarnings ? [it(<Warning size={18} />, "Show warnings", "show_warnings")] : []), ...order, del);
       break;
