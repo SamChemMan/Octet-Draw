@@ -75,11 +75,11 @@ fn set_check(checks: State<'_, Checks>, id: String, checked: bool) -> Result<(),
     item.set_checked(checked).map_err(|e| e.to_string())
 }
 
-// The user's own colours, by name, in the Colour menu: the menu bar is built again with them (20 at most, names
-// cut to 40 characters). The frontend sets its check marks again afterwards.
+// The user's own colours (20 at most), then the drawing's own (24 at most), by name, in the Colour menu: the menu
+// bar is built again with them (names cut to 40 characters). The frontend sets its check marks again afterwards.
 #[tauri::command]
 fn set_palette(app: AppHandle, names: Vec<String>) -> Result<(), String> {
-    let names: Vec<String> = names.into_iter().take(20).map(|n| n.chars().filter(|c| !c.is_control()).take(40).collect()).collect();
+    let names: Vec<String> = names.into_iter().take(44).map(|n| n.chars().filter(|c| !c.is_control()).take(40).collect()).collect();
     *app.state::<Palette>().0.lock().unwrap() = names;
     rebuild(&app)
 }

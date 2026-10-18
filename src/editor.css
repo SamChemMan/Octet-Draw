@@ -2997,9 +2997,10 @@ button.variant.add {
   gap: var(--space-2);
   min-height: 32px;
 }
-/* A field's name, when it leads the row, takes one width so the fields line up. */
+/* A field's name, when it leads the row, takes one width so the fields line up (wide enough for the longest,
+   Enhanced stereo). */
 .dialog-row > span:first-child {
-  min-width: 56px;
+  min-width: 104px;
 }
 /* About Octet: the mark, the name and version, who made it, then the credits, centred. */
 .about {

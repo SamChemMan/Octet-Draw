@@ -235,11 +235,12 @@ export function orderBonds(m: Mol, bonds: number[], front: boolean): Mol {
 // Swaps a bond's ends, so a wedge points the other way.
 export const flipBond = (m: Mol, i: number) => setBondAt(m, i, { atoms: [m.bonds[i].atoms[1], m.bonds[i].atoms[0]] });
 
-// Removes atoms (and their bonds), then any bare carbons left with no bonds.
+// Removes atoms (and their bonds), then any bare carbons left with no bonds, and hidden H atoms (Toggle Hydrogen
+// Display) whose atom went: they cannot be seen or picked alone.
 function removeAtoms(m: Mol, gone: Set<number>): Mol {
   const bonds = m.bonds.filter((b) => !gone.has(b.atoms[0]) && !gone.has(b.atoms[1]));
   const used = new Set(bonds.flatMap((b) => b.atoms));
-  m.atoms.forEach((a, i) => { if (!used.has(i) && a.label === "C" && !a.charge) gone.add(i); });
+  m.atoms.forEach((a, i) => { if (!used.has(i) && ((a.label === "C" && !a.charge) || a.hidden)) gone.add(i); });
   const map = new Map<number, number>();
   const atoms = m.atoms.filter((_, i) => !gone.has(i));
   m.atoms.forEach((_, i) => { if (!gone.has(i)) map.set(i, map.size); });
@@ -530,9 +531,12 @@ export function rotateAtoms(m: Mol, ids: Set<number>, degrees: number): Mol {
   return { ...m, atoms: m.atoms.map((a, i) => {
     if (!ids.has(i)) return a;
     const r = add(c, rot(sub(pos(m, i), c), degrees * deg));
-    return { ...a, location: [r[0], r[1], a.location[2] ?? 0] };
+    return { ...a, location: [r[0], r[1], a.location[2] ?? 0], ...turnMarks(a, (t) => t + degrees) };
   }) };
 }
+// Marks placed by hand (Atom.angles) turn and flip with their atom, so they keep their place beside it.
+const turnMarks = (a: Atom, f: (degrees: number) => number) =>
+  a.angles ? { angles: Object.fromEntries(Object.entries(a.angles).map(([k, t]) => [k, ((((f(t) + 180) % 360) + 360) % 360) - 180])) } : {};
 
 // Chair cyclohexane, drawn the textbook way: a 3D chair (bonds of length 1) seen from just above its mean plane,
 // scaled so the drawn bonds average one bond length. Chair 2 is chair 1 turned upside down.
@@ -602,7 +606,7 @@ export function flipAtoms(m: Mol, ids: Set<number>, axis: "horizontal" | "vertic
       if (!ids.has(i)) return a;
       const loc: [number, number, number] = [a.location[0], a.location[1], mirror ? a.location[2] ?? 0 : -(a.location[2] ?? 0)];
       loc[k] = 2 * mid - loc[k];
-      return { ...a, location: loc };
+      return { ...a, location: loc, ...turnMarks(a, (t) => (k ? -t : 180 - t)) };
     }),
     bonds: m.bonds.map((b) => {
       if (!ids.has(b.atoms[0]) || !ids.has(b.atoms[1])) return b;
@@ -735,7 +739,6 @@ export function pairMap(m: Mol, a: number, b: number): Mol {
 }
 export const clearMap = (m: Mol, i: number): Mol => ({ ...m, atoms: m.atoms.map((x, j) => (j === i ? { ...x, map: undefined } : x)) });
 
-// Stereocentres: the atoms at the narrow end of a wedge or hashed wedge (among some atoms, if given).
 // Toggle Hydrogen Display, as ChemDraw's: each explicit H on a carbon among these atoms is hidden, or shown again.
 // It keeps an H with a charge, an isotope, a radical or a label, an H on a stereo bond or a stereocentre, and an H
 // that is not on exactly one carbon (on a heteroatom, bridging, or in a hydrogen bond).
@@ -749,6 +752,7 @@ export function toggleHydrogens(m: Mol, atoms: Iterable<number>): Mol {
   }
   return flip.size ? { ...m, atoms: m.atoms.map((a, i) => (flip.has(i) ? { ...a, hidden: a.hidden ? undefined : true } : a)) } : m;
 }
+// Stereocentres: the atoms at the narrow end of a wedge or hashed wedge (among some atoms, if given).
 export const stereocentres = (m: Mol, among?: Set<number>) =>
   [...new Set(m.bonds.filter((b) => b.stereo === 1 || b.stereo === 6).map((b) => b.atoms[0]))].filter((i) => !among || among.has(i));
 // Where a small mark beside an atom goes (a stereo flag, a map number): the middle of its widest gap between

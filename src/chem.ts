@@ -324,7 +324,7 @@ export function fragmentMasses(mol: Mol, cut: number[]): { atoms: number[]; form
     const atoms = full.atoms.map((_, i) => i).filter((i) => find(i) === r), local = new Map(atoms.map((i, k) => [i, k]));
     const ket = JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule",
       atoms: atoms.map((i) => ({ label: full.atoms[i].label, location: full.atoms[i].location, implicitHCount: h[i], ...(full.atoms[i].charge ? { charge: full.atoms[i].charge } : {}) })),
-      bonds: full.bonds.filter((b, k) => !cutSet.has(k) && local.has(b.atoms[0]) && local.has(b.atoms[1])).map((b) => ({ type: b.type, atoms: [local.get(b.atoms[0]), local.get(b.atoms[1])] })) } });
+      bonds: full.bonds.filter((b, k) => !cutSet.has(k) && local.has(b.atoms[0]) && local.has(b.atoms[1])).map((b) => ({ type: b.type === QUADRUPLE ? 1 : b.type, atoms: [local.get(b.atoms[0]), local.get(b.atoms[1])] })) } });
     const opts = new ind.MapStringString(), sel = new ind.VectorInt();
     try {
       const res = JSON.parse(ind.calculate(ket, opts, sel));
@@ -445,7 +445,8 @@ function remembered<T>(store: Map<string, T>, key: string, make: () => T): T {
 function analyseAll(mol: Mol): Analysis | undefined {
   const ind = engine(), opts = new ind.MapStringString(), sel = new ind.VectorInt();
   try {
-    const full = expandLabels(mol), bonds = full.bonds.map(({ type, atoms }) => ({ type, atoms }));
+    // A quadruple bond goes as a single bond (Indigo has no type for it), so its structure still has a formula.
+    const full = expandLabels(mol), bonds = full.bonds.map(({ type, atoms }) => ({ type: type === QUADRUPLE ? 1 : type, atoms }));
     const atoms = full.atoms.map(({ label, location, charge, isotope }) => ({ label, location, ...(charge ? { charge } : {}), ...(isotope ? { isotope } : {}) }));
     const ket = JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule", atoms, bonds } });
     // Indigo reports each structure separately ("C8 H9 N O2; C4 H12 N"): one entry per structure.

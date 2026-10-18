@@ -12,7 +12,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
 import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
 import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, ELEMENT_COLOURS, FONTS, type DocStyle, type PageName } from "./docstyle";
-import { messy, problems } from "./check";
+import { messy, problems, showWarnedHydrogens } from "./check";
 import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
@@ -411,7 +411,8 @@ export default function Editor() {
   const [brushes] = useState(() => store<P | undefined>(undefined));
   const setBrush = brushes.set;
   // The atom whose label is being typed, and the text so far.
-  const [editing, setEditing] = useState<{ atom: number; value: string }>();
+  // blank: the box opened empty (the ! and > keys), so closing it with nothing typed keeps the atom as it was.
+  const [editing, setEditing] = useState<{ atom: number; value: string; blank?: true }>();
   const labelOpen = useRef(false);
   const editLabel = (atom: number) => {
     const a = doc.atoms[atom];
@@ -458,7 +459,7 @@ export default function Editor() {
   const pointer = useRef<P>(undefined);
   // Every edit clears the selection, except a move, which keeps the same atoms selected.
   const set = (mol: Mol, keepSelection = false, merge?: string) => {
-    dispatch({ type: "set", mol, merge });
+    dispatch({ type: "set", mol: settings.warnings ? showWarnedHydrogens(mol) : mol, merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
   };
   const undo = (redo = false) => { dispatch({ type: redo ? "redo" : "undo" }); setSelection(new Set()); setPicked(new Set()); };
@@ -925,7 +926,9 @@ export default function Editor() {
     // shown again, as ChemDraw's.
     hydrogen_display: () => {
       const m = toggleHydrogens(doc, selection.size ? selection : doc.atoms.map((_, i) => i));
-      return m === doc ? setNotice("Select a structure with H atoms on carbon.") : set(m, true);
+      // An H on an atom with a warning stays shown (set shows it again).
+      const same = (settings.warnings ? showWarnedHydrogens(m) : m).atoms.every((a, i) => a.hidden === doc.atoms[i].hidden);
+      return same ? setNotice("Select a structure with H atoms on carbon.") : set(m, true);
     },
     // Toggle Aromatic Display (⌥⌘K): the selected structures' aromatic rings with circles, or back to Kekulé bonds.
     aromatic_display: () => {
@@ -2237,12 +2240,12 @@ export default function Editor() {
     if (kind === "label" && atom !== undefined) return set(setLabel(doc, atom, arg));
     if (id === "atom.label" && atom !== undefined) return editLabel(atom);
     // ! asks for a new label for the atom; > adds a bond and asks for the label of its new end (ChemDraw's ? hotkeys).
-    if (id === "atom.newlabel" && atom !== undefined) { labelOpen.current = true; return setEditing({ atom, value: "" }); }
+    if (id === "atom.newlabel" && atom !== undefined) { labelOpen.current = true; return setEditing({ atom, value: "", blank: true }); }
     if (id === "atom.sproutlabel" && atom !== undefined) {
       const m = sprout(doc, atom), j = m.bonds[m.bonds.length - 1].atoms[1];
       set(m);
       labelOpen.current = true;
-      return setEditing({ atom: j, value: "" });
+      return setEditing({ atom: j, value: "", blank: true });
     }
     if (id === "charge.plus" && atom !== undefined) return set(addCharge(doc, atom, 1));
     if (id === "charge.minus" && atom !== undefined) return set(addCharge(doc, atom, -1));
@@ -3982,7 +3985,7 @@ export default function Editor() {
         // The label box sits on the atom, in the label font at the current zoom.
         const [ax, ay] = pos(doc, editing.atom);
         // Enter, Escape and a click elsewhere all keep the label; only the first one counts.
-        const commit = () => { if (!labelOpen.current) return; labelOpen.current = false; if (editing.value.trim()) lastLabel.current = editing.value.trim(); set(setLabel(doc, editing.atom, editing.value)); setEditing(undefined); };
+        const commit = () => { if (!labelOpen.current) return; labelOpen.current = false; if (editing.value.trim()) lastLabel.current = editing.value.trim(); if (editing.value.trim() || !editing.blank) set(setLabel(doc, editing.atom, editing.value)); setEditing(undefined); };
         return (
           <input
             className="label-box"

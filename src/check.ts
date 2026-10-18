@@ -37,6 +37,18 @@ export function problems(m: Mol): Problem[] {
 }
 const ACCEPTORS = new Set(["N", "O", "F", "S", "Se", "P", "Cl", "Br", "I"]);
 
+// Hidden H atoms (Toggle Hydrogen Display) on an atom with a warning are shown again, as ChemDraw shows them, so the
+// warning can be read. While the warning stays, they stay shown.
+export function showWarnedHydrogens(m: Mol): Mol {
+  if (!m.atoms.some((a) => a.hidden)) return m;
+  const warned = new Set(problems(m).map((p) => p.atom)), show = new Set<number>();
+  for (const { atoms: [p, q] } of m.bonds) {
+    if (m.atoms[p].hidden && warned.has(q)) show.add(p);
+    if (m.atoms[q].hidden && warned.has(p)) show.add(q);
+  }
+  return show.size ? { ...m, atoms: m.atoms.map((a, i) => (show.has(i) ? { ...a, hidden: undefined } : a)) } : m;
+}
+
 // Is f true for a pair of points (by index) that may be within `cell` of each other? Each point is put in a grid of
 // that size and compared only with the points already in its own cell and the eight cells round it. A cell's key is a
 // number (faster than a string); two cells with the same key only add pairs for f to test.

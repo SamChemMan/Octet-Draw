@@ -875,7 +875,8 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const span = (i: number) => { const pl = plans[i]; return [Math.min(pts[pl.a][0], pts[pl.b][0]), Math.max(pts[pl.a][0], pts[pl.b][0])]; };
     flat.sort((i, j) => span(i)[0] - span(j)[0]);
     flat.forEach((i, k) => {
-      for (const j of flat.slice(k + 1)) {
+      for (let m = k + 1; m < flat.length; m++) {
+        const j = flat[m];
         if (span(j)[0] > span(i)[1]) break;
         const p = plans[i], q = plans[j];
         if (p.a === q.a || p.a === q.b || p.b === q.a || p.b === q.b || !crossing(pts[p.a], pts[p.b], pts[q.a], pts[q.b])) continue;
@@ -1531,7 +1532,6 @@ export function depthOf(m: Mol): (number | undefined)[] {
   });
   return out;
 }
-// Where segments p1–p2 and q1–q2 cross, as fractions along each (inside both), or undefined.
 // A polygon's part on the side of f(p) >= 0 (Sutherland–Hodgman), winding as it did.
 function clip(poly: P[], f: (p: P) => number): P[] {
   const out: P[] = [];
@@ -1554,6 +1554,7 @@ function minus(poly: P[], q: P[]): P[][] {
   }
   return out;
 }
+// Where segments p1–p2 and q1–q2 cross, as fractions along each (inside both), or undefined.
 function crossing(p1: P, p2: P, q1: P, q2: P): [number, number] | undefined {
   const r = sub(p2, p1), s = sub(q2, q1), d = cross(r, s);
   if (Math.abs(d) < 1e-9) return undefined;

@@ -93,3 +93,13 @@ console.log("chem.check: labels ok");
   assert.ok(Number.isFinite(a?.weight));
   console.log("chem.check: unreadable structures ok");
 }
+
+// A structure with a quadruple bond (Re2Cl8 drawn as Cl–Re≣Re–Cl) and one with a hydrogen bond keep a formula.
+{
+  const at = (label: string, x: number) => ({ label, location: [x, 0, 0] as [number, number, number] });
+  const quad: Mol = { atoms: [at("Cl", 0), at("Re", 1), at("Re", 2), at("Cl", 3)], bonds: [{ type: 1, atoms: [0, 1] }, { type: 14, atoms: [1, 2] }, { type: 1, atoms: [2, 3] }] };
+  assert.deepEqual(analyse(quad)?.map((a) => a.formula), ["Cl2Re2"]);
+  const dimer: Mol = { atoms: [at("O", 0), at("H", 1), at("O", 2)], bonds: [{ type: 1, atoms: [0, 1] }, { type: 10, atoms: [1, 2] }] };
+  assert.deepEqual(analyse(dimer)?.map((a) => a.formula), ["H4O2"]);
+  console.log("chem.check: quadruple and hydrogen bonds ok");
+}

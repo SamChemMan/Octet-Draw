@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { DEFAULT_STYLE, readStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
-import { problems } from "./check.ts";
-import { addSymbol, atomAt, bondAt, bondOrders, cycleBond, orderBonds, setPosition, toggleHydrogens } from "./edit.ts";
+import { problems, showWarnedHydrogens } from "./check.ts";
+import { addSymbol, atomAt, bondAt, bondOrders, cycleBond, deleteAtoms, flipAtoms, orderBonds, rotateAtoms, setPosition, toggleHydrogens } from "./edit.ts";
 import { HBOND, QUADRUPLE, render, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
 
 type P = [number, number];
@@ -136,6 +136,11 @@ console.log("bondsatoms.check: label alignment ok");
   assert.equal((text.match(/Visible="no"/g) ?? []).length, 2, "the H and its bond");
   assert.equal(roundTrip(t).atoms[1].hidden, true);
   assert.equal(parse(serialize(t)).atoms[1].hidden, true);
+  // Deleting its carbon takes a hidden H with it. A valence warning on its carbon shows it again, as in ChemDraw.
+  assert.ok(!deleteAtoms(t, new Set([0])).atoms.some((a) => a.hidden), "no hidden H left alone");
+  assert.equal(showWarnedHydrogens(t), t, "no warning, nothing changes");
+  const crowded = { ...t, atoms: [...t.atoms, A("C", -0.8, 0.6)], bonds: [...t.bonds, b(0, 8)] };
+  assert.equal(showWarnedHydrogens(crowded).atoms[1].hidden, undefined, "five bonds at C1 show its H");
 }
 console.log("bondsatoms.check: hidden hydrogens ok");
 
@@ -167,6 +172,12 @@ console.log("bondsatoms.check: hidden hydrogens ok");
   assert.equal(foreign.angles?.pair0, 90, "ChemDraw's copy: the symbol's place gives the angle");
   assert.deepEqual(parse(serialize(moved)).atoms[0].angles, { pair0: 90 });
   assert.equal(parse(serialize(point("star"))).atoms[1].attach, "star");
+  // A placed mark turns and flips with its atom.
+  const all = new Set([0, 1]);
+  assert.deepEqual(rotateAtoms(moved, all, 90).atoms[0].angles, { pair0: -180 });
+  assert.deepEqual(flipAtoms(water({ angles: { pair0: 30 } }), all, "horizontal").atoms[0].angles, { pair0: 150 });
+  assert.deepEqual(flipAtoms(water({ angles: { pair0: 30 } }), all, "vertical", true).atoms[0].angles, { pair0: -30 });
+  assert.deepEqual(rotateAtoms(moved, new Set([1]), 90).atoms[0].angles, { pair0: 90 }, "an atom not turned keeps its marks");
 }
 console.log("bondsatoms.check: placed and styled symbols ok");
 
