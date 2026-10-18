@@ -3891,6 +3891,10 @@ button.variant.add {
   .home-open:hover {
     background: var(--surface-sunken);
   }
+  /* The faint ink is too light on the sunken colour (4.5:1). */
+  .home-open:hover kbd {
+    color: var(--ink-muted);
+  }
 }
 .home-open kbd,
 .home-caption kbd {

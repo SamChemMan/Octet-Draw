@@ -70,7 +70,15 @@ for (const theme of [light, dark]) for (const bg of ["canvas", "surface", "surfa
 // editor.css: no rule puts faint ink on a sunken or mist fill, and colours come from tokens. The page papers (white,
 // dark, blueprint), the colour picker's hue and value fields, and the white switch and slider knobs are the
 // exceptions: they show fixed colours on purpose.
-const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ selector: m[1].trim().split("\n").pop()!.trim(), body: m[2] }));
+const rules = [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ selector: m[1].trim().replace(/\s+/g, " "), body: m[2] }));
+// A control that turns sunken or mist on hover takes its faint text (a key hint) to ink-muted with it.
+const all = rules.flatMap((r) => r.selector.split(",").map((sel) => ({ sel: sel.trim(), body: r.body })));
+for (const { sel, body } of all) {
+  if (!sel.endsWith(":hover") || !/background(-color)?:\s*var\(--(surface-sunken|brand-mist)\)/.test(body)) continue;
+  const base = sel.slice(0, -":hover".length);
+  for (const inner of all.filter((x) => x.sel.startsWith(`${base} `) && /color:\s*var\(--ink-faint\)/.test(x.body)))
+    assert.ok(all.some((x) => x.sel === `${sel}${inner.sel.slice(base.length)}` && !/--ink-faint/.test(x.body)), `${inner.sel}: faint ink on ${sel}'s sunken fill`);
+}
 for (const r of rules) {
   if (/color:\s*var\(--ink-faint\)/.test(r.body)) assert.ok(!/background(-color)?:\s*var\(--(surface-sunken|brand-mist)\)/.test(r.body), `${r.selector}: faint ink on a sunken or mist fill`);
   if (/paper|picker|switch|slider/.test(r.selector)) continue;
