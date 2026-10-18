@@ -56,7 +56,9 @@ export function Segmented<T extends string>({ label, value, options, onChange, c
       onKeyDown={(e) => {
         if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
         e.preventDefault();
-        const on = options.filter((o) => !o[3]), k = on.findIndex(([v]) => v === value), next = on[(k + (e.key === "ArrowRight" ? 1 : on.length - 1)) % on.length]?.[0];
+        // With none on, Right goes to the first option and Left to the last.
+        const on = options.filter((o) => !o[3]), right = e.key === "ArrowRight", k = on.findIndex(([v]) => v === value), at = k < 0 ? (right ? -1 : 0) : k;
+        const next = on[(at + (right ? 1 : on.length - 1)) % on.length]?.[0];
         if (next === undefined) return;
         onChange(next);
         (e.currentTarget.children[options.findIndex(([v]) => v === next)] as HTMLElement | undefined)?.focus();

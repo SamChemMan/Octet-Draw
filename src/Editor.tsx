@@ -2661,7 +2661,7 @@ export default function Editor() {
     const side = resizeAt(p);
     if (side) {
       const frame = frameBox(views.get().zoom)!, { atoms, items, whole } = chosen(), median = medianBond(doc, atoms);
-      return setDrag({ kind: "resize", side, frame, atoms, items, middles: captionMiddles(), stops: [1, ...(median ? [1 / median] : [])], size: [1, 1], anchor: handlePoint(frame, side), whole, labels: scalesText(), lines: scalesText(), working: doc });
+      return setDrag({ kind: "resize", side, frame, atoms, items, middles: captionMiddles(), stops: [1, ...(median ? [1 / median] : [])], size: [1, 1], anchor: pivot ?? handlePoint(frame, side), whole, labels: scalesText(), lines: scalesText(), working: doc });
     }
     // Edit curve keeps its curve picked: a click on the curve adds a point there, a click away adds one at its end.
     editPress.current = editCurve ? pickedCurve()?.id : undefined;
@@ -2922,8 +2922,8 @@ export default function Editor() {
       }
       case "resize": {
         // ⌘ turns the soft stops off, as it turns snapping off while moving. Control turns Labels and lines over for
-        // this drag, as ChemDraw's Ctrl does on its handles.
-        const { size, anchor } = resizeBy(drag.frame, drag.side, p, { shift: e.shiftKey, alt: e.altKey }, e.metaKey ? [] : drag.stops, 6 / (views.get().zoom * L));
+        // this drag, as ChemDraw's Ctrl does on its handles. A moved centre mark is the point it scales about.
+        const { size, anchor } = resizeBy(drag.frame, drag.side, p, { shift: e.shiftKey, alt: e.altKey, about: pivot }, e.metaKey ? [] : drag.stops, 6 / (views.get().zoom * L));
         const lines = drag.labels !== e.ctrlKey;
         if (size[0] === drag.size[0] && size[1] === drag.size[1] && anchor[0] === drag.anchor[0] && anchor[1] === drag.anchor[1] && lines === drag.lines) return;
         return setDrag({ ...drag, size, anchor, lines, working: drag.whole && lines && size[0] === size[1] ? doc : scaledParts(doc, drag.atoms, drag.items, size, anchor, lines, drag.middles) });

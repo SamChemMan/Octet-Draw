@@ -31,7 +31,8 @@ The brief's principle still holds in spirit: download, install, draw.
   a new drawing with the tutorial (src/Coach.tsx). A card at the top of the page gives one step at a time: draw
   two bonds, add a ring, label an atom O, hold to select, hold to move, clean up, copy. The user does each step
   on the page and the card goes on when it sees it done, as ChemDraw's Help > Tutorials have the user draw.
-  Skip is at the card's bottom right. Octet > Tutorial starts it again on a new drawing.
+  Skip is at the card's bottom right. Octet > Tutorial, or Tutorial in the command palette on every platform, starts
+  it again on a new drawing.
 - The app keeps the recent drawings list (src-tauri/src/recent.rs). A recent drawing opens without the file
   dialog only if the user opened or saved it before.
 - New, Open and a recent drawing ask to save unsaved changes first.

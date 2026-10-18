@@ -42,13 +42,15 @@ decision 0003 (templates on New drawing).
   Control turns "Labels and lines" over for one drag, as ChemDraw's Ctrl does on its handles. Text alone always
   scales its size (Control turns that off), as ChemDraw scales the text of one label whatever its checkbox says.
   The drag stops softly at 100% and where the median bond is the document's bond length (⌘ turns the stops off).
-  A double-click on a handle opens Scale…. ChemDraw 26.1 has no key for "about the middle" on its handles.
+  A double-click on a handle opens Scale…. ChemDraw 26.1 has no key for "about the middle" on its handles. A centre
+  mark moved with Option-drag is the point a resize goes about, as ChemDraw's moved rotation centre is.
   A lone shape uses the frame in place of its own corner handles. A turned shape keeps its angle and grows along its
   own sides. A lone straight arrow keeps its end handles and shows only the rotation handle. A lone caption keeps its
   width handle beside the frame's corner handles.
 - The whole drawing (nothing selected, or everything) scaled in proportion with "Labels and lines" on changes the
   document scale, not each object's scale (IDEA-SCALE-8). Octet does not ask, as ChemDraw does. What is drawn next
-  then matches. The drawing keeps its place on screen.
+  then matches. The drawing keeps its place on screen. Undo and redo zoom back and forth with it, so the drawing
+  looks as it did before and after, as with an undo of a scale of some objects.
 - A bond, chain, ring, group or template drawn from an atom takes the atom's scale. Clean Up keeps each structure's
   scale (IDEA-SCALE-7). ChemDraw's sprouted bonds take the structure's own bond length too.
 - A paste or import from a drawing of other sizes keeps text in proportion, by ChemDraw's two rules: an atom's own
@@ -85,7 +87,7 @@ questions 2 and 3 below.
 - Every purpose opens with bonds the same length on screen. A change of scale (a purpose, or the Scale field) keeps
   the structures still on screen, and the page outlines grow or shrink round them in 200 ms. A change of bond length
   at the same scale (a journal) keeps the true-size ratio, as before. Actual Size still shows true size.
-- The tutorial always runs on Paper, once after the name box and from Octet > Tutorial.
+- The tutorial always runs on Paper, once after the name box, and again from Octet > Tutorial or the command palette.
 - Pages: A1, A0, Slide 16:9 and Slide 4:3 join the page list, stored portrait, with landscape on for slides. A slide
   picked from the page list is landscape, and a paper page picked from a slide is portrait.
 - Journal list: ChemDraw 26.1's pads. J. Chin. Chem. Soc., J. Het. Chem., Phytomedicine, Science of Synthesis and
