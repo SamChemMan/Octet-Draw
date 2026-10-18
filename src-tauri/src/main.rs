@@ -277,15 +277,18 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         CheckMenuItem::with_id(app, id, text, true, false, if k.is_empty() { None } else { Some(k) })
     };
     let sep = || PredefinedMenuItem::separator(app);
-    // File > New For: Paper, Thesis, Slides and Poster, then the user's own purposes.
+    // File > New For: Quick start (as on Home), then Paper, Thesis, Slides and Poster, then the user's own purposes.
     let (own, current) = app.state::<Purposes>().0.lock().unwrap().clone();
     section.replace("File › New For".into());
+    let quick = item("new_quick", "Quick start", "")?;
+    let quick_sep = sep()?;
     let purposes = [("paper", "Paper"), ("thesis", "Thesis"), ("slides", "Slides"), ("poster", "Poster")].iter()
         .map(|(id, name)| item(&format!("new_{id}"), name, ""))
         .collect::<tauri::Result<Vec<_>>>()?;
     let own_items = own.iter().enumerate().map(|(k, name)| item(&format!("new_own_{k}"), name, "")).collect::<tauri::Result<Vec<_>>>()?;
     let own_sep = sep()?;
-    let mut new_for_items: Vec<&dyn IsMenuItem<Wry>> = purposes.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
+    let mut new_for_items: Vec<&dyn IsMenuItem<Wry>> = vec![&quick, &quick_sep];
+    new_for_items.extend(purposes.iter().map(|m| m as &dyn IsMenuItem<Wry>));
     if !own_items.is_empty() {
         new_for_items.push(&own_sep);
         new_for_items.extend(own_items.iter().map(|m| m as &dyn IsMenuItem<Wry>));

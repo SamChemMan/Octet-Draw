@@ -110,7 +110,7 @@ assert.equal(tileTo("ArrowDown", -1, []), undefined);
 // still run; Undo, Redo and Select All run on the text of the name box.
 const onHome = { home: true, modal: false, typing: false };
 for (const id of ["select_all", "flip_h", "mirror_v", "clean_up", "zoom_in", "export", "save", "import", "command_palette", "colour_0"]) assert.equal(menuRuns(id, onHome), false, id);
-for (const id of ["new", "new_paper", "new_own_0", "open", "settings", "about", "tutorial", "home"]) assert.equal(menuRuns(id, onHome), true, id);
+for (const id of ["new", "new_quick", "new_paper", "new_own_0", "open", "settings", "about", "tutorial", "home"]) assert.equal(menuRuns(id, onHome), true, id);
 assert.equal(menuRuns("select_all", { ...onHome, typing: true }), true);
 assert.equal(menuRuns("flip_h", { ...onHome, typing: true }), false);
 // A dialog blocks every command but the text ones; with no dialog and no Home, every command runs.

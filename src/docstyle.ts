@@ -222,7 +222,12 @@ export const isKind = (id: unknown): id is PurposeKind => typeof id === "string"
 // A purpose's style as Octet gives it: ACS Document 1996 at the purpose's scale, on its page.
 export const purposeStyle = (kind: PurposeKind): DocStyle =>
   readStyle({ ...DEFAULT_STYLE, ...presetAt(DEFAULT_STYLE.preset, PURPOSES[kind].scale), scale: PURPOSES[kind].scale, page: PURPOSES[kind].page, landscape: PURPOSES[kind].landscape, purpose: kind });
-// A user's own purpose (Save as a new purpose…): its name, its style, and the purpose it was made from, which sets its outlines.
+// Quick start (Home's first tile): a seamless canvas with no page outline, as a new drawing was before purposes. It is
+// the document style at 100%, page edges off and no purpose, so it shows no outlines. Home's Return starts it.
+export const QUICK = "quick";
+export const QUICK_STYLE: DocStyle = { ...DEFAULT_STYLE, edges: false };
+// A user's own purpose (a template: Save as template… or Custom template on Home): its name, its style, and the
+// purpose it was made from, which sets its outlines.
 export type OwnPurpose = { id: string; name: string; kind: PurposeKind; style: DocStyle };
 // An open drawing given another purpose: its drawn values, scale and page. Its background, page edges, gridlines,
 // text colour and carbon label choices stay.
@@ -232,10 +237,13 @@ export function forPurpose(s: DocStyle, p: DocStyle): DocStyle {
 }
 
 // The purposes from saved settings (settings.ts). A default style saved before purposes (docStyle) becomes Paper's.
-export type Purposes = { purpose: string; purposeStyles: Partial<Record<PurposeKind, DocStyle>>; ownPurposes: OwnPurpose[] };
+// purpose: the one picked last (Quick start or a purpose), which ⌘N starts. purposeStyles: the user's style for Quick
+// start and each built-in purpose ("Use for new documents").
+export type Purposes = { purpose: string; purposeStyles: Partial<Record<PurposeKind | typeof QUICK, DocStyle>>; ownPurposes: OwnPurpose[] };
 export function readPurposes(saved: Record<string, unknown>): Purposes {
   const styles = (typeof saved.purposeStyles === "object" && saved.purposeStyles ? saved.purposeStyles : {}) as Record<string, unknown>, purposeStyles: Purposes["purposeStyles"] = {};
   for (const kind of Object.keys(PURPOSES) as PurposeKind[]) if (styles[kind]) purposeStyles[kind] = { ...readStyle(styles[kind]), purpose: kind };
+  if (styles[QUICK]) { const { purpose: _, ...quick } = readStyle(styles[QUICK]); purposeStyles[QUICK] = quick; }
   if (!saved.purposeStyles && saved.docStyle) {
     const old = readStyle(saved.docStyle);
     if (!sameStyle(old, DEFAULT_STYLE)) purposeStyles.paper = { ...old, purpose: "paper" };
@@ -245,17 +253,18 @@ export function readPurposes(saved: Record<string, unknown>): Purposes {
     return typeof o.id === "string" && /^u[a-z0-9]{1,30}$/.test(o.id) && typeof o.name === "string" && o.name.trim() && isKind(o.kind)
       ? [{ id: o.id, name: o.name.trim().slice(0, 40), kind: o.kind, style: { ...readStyle(o.style), purpose: o.id } }] : [];
   }).slice(0, MAX_PURPOSES);
-  const purpose = typeof saved.purpose === "string" && (isKind(saved.purpose) || ownPurposes.some((p) => p.id === saved.purpose)) ? saved.purpose : "paper";
+  const purpose = typeof saved.purpose === "string" && (saved.purpose === QUICK || isKind(saved.purpose) || ownPurposes.some((p) => p.id === saved.purpose)) ? saved.purpose : QUICK;
   return { purpose, purposeStyles, ownPurposes };
 }
 export const MAX_PURPOSES = 12;
 // Two styles the same in every value, whatever their purpose and preset name.
 export const sameStyle = (a: DocStyle, b: DocStyle) => (Object.keys({ ...a, ...b }) as (keyof DocStyle)[]).every((k) => k === "preset" || k === "purpose" || JSON.stringify(a[k]) === JSON.stringify(b[k]));
-// The style a new drawing for a purpose starts with: the user's own purpose, the user's style for a built-in one, or
-// Octet's. An unknown purpose is Paper.
+// The style a new drawing for a purpose starts with: the user's own purpose, the user's style for a built-in one or
+// for Quick start, or Octet's. An unknown purpose is Quick start.
 export function styleFor(s: Pick<Purposes, "purposeStyles" | "ownPurposes">, id: string): DocStyle {
-  const own = s.ownPurposes.find((p) => p.id === id), kind = isKind(id) ? id : "paper";
-  return own ? own.style : s.purposeStyles[kind] ?? purposeStyle(kind);
+  const own = s.ownPurposes.find((p) => p.id === id);
+  if (own) return own.style;
+  return isKind(id) ? s.purposeStyles[id] ?? purposeStyle(id) : s.purposeStyles[QUICK] ?? QUICK_STYLE;
 }
 // A purpose's name and kind (the kind sets its outlines), for an id; undefined when there is no such purpose.
 export function purposeOf(s: Pick<Purposes, "ownPurposes">, id?: string): { name: string; kind: PurposeKind } | undefined {

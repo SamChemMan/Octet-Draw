@@ -2324,6 +2324,11 @@ button.variant.add {
   font-size: 13px;
   animation: modal-in var(--motion-slow) var(--ease-out);
 }
+/* Making a template: its Document settings alone, so no sidebar. */
+.settings-window.template {
+  grid-template-columns: 1fr;
+  width: min(640px, calc(100vw - 32px));
+}
 .settings-sidebar {
   display: flex;
   flex-direction: column;
@@ -4247,7 +4252,8 @@ button.variant.add {
   }
 }
 /* The first time Home shows, its tiles fade up into place one after another. */
-.home-arrive .home-grid > * {
+.home-arrive .home-grid > *,
+.home-arrive .home-quick {
   animation: tile-in var(--motion-fast) var(--ease-out) backwards;
   animation-delay: calc(var(--i, 0) * 20ms);
 }
@@ -4262,7 +4268,8 @@ button.variant.add {
   .name-box-inner,
   .home.leaving .home-inner,
   .home.leaving .name-box-inner,
-  .home-arrive .home-grid > * {
+  .home-arrive .home-grid > *,
+  .home-arrive .home-quick {
     animation: none;
   }
 }
@@ -4275,6 +4282,7 @@ button.variant.add {
   max-width: 1080px;
   margin: 0 auto;
   padding: var(--space-8) var(--space-12) var(--space-16);
+  container-type: inline-size;
 }
 .home-head img,
 .name-box img {
@@ -4292,7 +4300,7 @@ button.variant.add {
   justify-content: space-between;
   margin: 40px 0 var(--space-3);
 }
-.home-row h2 {
+.home-row :is(h2, h3) {
   margin: 0;
   color: var(--ink-muted);
   font: 600 13px/18px var(--font-sans);
@@ -4406,10 +4414,19 @@ button.variant.add {
   align-items: baseline;
   justify-content: space-between;
 }
-/* New: a tile for each purpose, smaller than a recent drawing's. Its picture is its page, white on the sunken ground,
-   with its outlines and a small scheme at its true size on that page. */
+/* New: Quick start, then the templates beside it, each under its own heading. Every New tile has one width, so the
+   pictures and names line up: six to a row (Quick start and five templates) fill the page's width. On a narrow window
+   they stay 148 px, and the templates go on to a second row. */
+.home-new {
+  --new-tile: max(148px, (100cqw - var(--space-8) - 4 * var(--space-4)) / 6);
+  display: grid;
+  grid-template-columns: var(--new-tile) minmax(0, 1fr);
+  column-gap: var(--space-8);
+}
+/* A template's tile is smaller than a recent drawing's. Its picture is its page, white on the sunken ground, with its
+   outlines and a small scheme at its true size on that page. */
 .home-grid.purposes {
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fill, var(--new-tile));
   gap: var(--space-4) var(--space-4);
 }
 .home-grid.purposes .home-thumb {
@@ -4445,6 +4462,32 @@ button.variant.add {
   .home-tile.new:hover .sheet {
     stroke: var(--brand-bright);
   }
+  .home-tile.custom:hover .custom-sheet {
+    border-color: var(--brand-bright);
+  }
+}
+/* Quick start: an open canvas to the tile's edges, faint dots that go past them, and a small scheme in the middle. */
+.home-thumb .quick-picture {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.quick-picture pattern circle {
+  fill: var(--outline);
+}
+/* Custom template: an empty page, dashed, with a plus. */
+.custom-sheet {
+  position: absolute;
+  top: 12%;
+  bottom: 12%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 210 / 297;
+  border: 1px dashed var(--outline);
+  border-radius: 2px;
+  transform: translateX(-50%);
+  transition: border-color var(--motion-fast) var(--ease-out);
 }
 .home-name {
   overflow: hidden;

@@ -1,11 +1,12 @@
-// Home (decision 0003): where Octet opens. A greeting by name and time of day, New first, the recent drawings as
-// pictures (or, before there are any, three example drawings), and Open. New is a row of purposes (IDEA-SIZE-1):
-// Paper, Thesis, Slides and Poster, then the user's own, each a picture of its page. One click starts a drawing for
-// it; Return starts the one picked last. On first launch Home asks the user's name first, in the dotted frame a
-// selected group gets. Nothing here needs an account.
+// Home (decision 0003): where Octet opens. The lockup, a greeting by name and time of day, New first, the recent
+// drawings as pictures (or, before there are any, three example drawings), and Open. New starts with Quick start: a
+// seamless canvas with no page, selected when Home opens, so Return starts it. Beside it are the templates (purposes,
+// IDEA-SIZE-1): Paper, Thesis, Slides and Poster, then the user's own, each a picture of its page, then Custom
+// template, which makes a new one. One click starts a drawing. On first launch Home asks the user's name first, in
+// the dotted frame a selected group gets. Nothing here needs an account.
 import { useEffect, useRef, useState } from "react";
-import { FolderOpen, X } from "@phosphor-icons/react";
-import { outlines, type DocStyle, type PurposeKind } from "./docstyle";
+import { FolderOpen, Plus, X } from "@phosphor-icons/react";
+import { QUICK, outlines, type DocStyle, type PurposeKind } from "./docstyle";
 import mark from "../brand/logos/octet-mark.svg";
 import markSmall from "../brand/logos/octet-mark-small.svg";
 import markWhite from "../brand/logos/octet-mark-white.svg";
@@ -64,13 +65,31 @@ export function PurposePicture({ style, kind }: { style: DocStyle; kind: Purpose
   );
 }
 
+// Quick start's picture: an open canvas. The canvas fills the tile to its edges, with faint dots that go past them, and
+// the scheme the templates show sits in the middle, clear of the dots. No page, so no edge.
+function QuickPicture() {
+  const b = 9, r = (Math.sqrt(3) / 2) * b, ring = (cx: number) => `M${[0, 1, 2, 3, 4, 5].map((k) => `${cx + b * Math.sin((k * Math.PI) / 3)} ${60 - b * Math.cos((k * Math.PI) / 3)}`).join("L")}Z`;
+  const gap = 0.6 * b, arrow = 2.4 * b, half = r + gap + arrow / 2, w = half + 2 * r + 8;
+  return (
+    <svg className="quick-picture" viewBox="0 0 160 120" preserveAspectRatio="xMidYMid slice" aria-hidden>
+      <defs>
+        <pattern id="quick-dots" width="12" height="12" patternUnits="userSpaceOnUse" x="2"><circle cx="6" cy="6" r="0.8" /></pattern>
+        <mask id="quick-clear"><rect width="160" height="120" fill="#fff" /><rect x={80 - w} y={60 - b - 8} width={2 * w} height={2 * b + 16} rx="8" fill="#000" /></mask>
+      </defs>
+      <rect width="160" height="120" fill="url(#quick-dots)" mask="url(#quick-clear)" />
+      <path className="scheme" d={`${ring(80 - half - r)}${ring(80 + half + r)}M${80 - arrow / 2} 60H${80 + arrow / 2}M${80 + arrow / 2 - 0.35 * b} ${60 - 0.2 * b}L${80 + arrow / 2} 60L${80 + arrow / 2 - 0.35 * b} ${60 + 0.2 * b}`} />
+    </svg>
+  );
+}
+
 export type PurposeTile = { id: string; name: string; kind: PurposeKind; style: DocStyle; own?: boolean };
 type Props = {
   leaving?: boolean; // fading out as a drawing opens
   name: string; first: boolean; away: number; recents: RecentEntry[]; newKey: string; openKey?: string;
-  purposes: PurposeTile[]; purpose: string; // the purposes, and the one Return starts
+  purposes: PurposeTile[]; // the templates: Octet's, then the user's own
   onNew: (purpose: string) => void; onOpen: () => void; onRecent: (r: RecentEntry) => void; onRemove: (r: RecentEntry) => void;
   onRemovePurpose: (purpose: string) => void;
+  onCustom?: () => void; // makes a template of the user's own; unset when they have as many as Octet keeps
   onStarter: (text: string) => void; // opens an example drawing as a new drawing
 };
 
@@ -83,17 +102,17 @@ export function Home(p: Props) {
   const grid = useRef<HTMLDivElement>(null), page = useRef<HTMLElement>(null), now = new Date();
   const [first] = useState(() => !arrived);
   useEffect(() => { arrived = true; }, []);
-  const n = p.purposes.length;
+  const n = 1 + p.purposes.length + (p.onCustom ? 1 : 0); // the New tiles: Quick start, the templates, Custom template
   // Home covers the editor, which takes no keys or clicks until Home goes.
   useModal(page, !p.leaving);
-  // Return makes a new drawing for the purpose picked last (as decision 0003 asks) unless a tile has the focus; arrow
-  // keys move between tiles, up and down to the nearest tile in the row there (tileTo). A dialog over Home (Save
-  // changes) makes Home inert and keeps the keys.
+  // Return starts Quick start (as decision 0003 asks) unless a tile has the focus; arrow keys move between tiles, up
+  // and down to the nearest tile in the row there (tileTo). A dialog over Home (Save changes) makes Home inert and
+  // keeps the keys.
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (p.leaving || page.current?.inert || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
       const tiles = [...(grid.current?.querySelectorAll<HTMLElement>(".home-tile") ?? [])], at = tiles.indexOf(document.activeElement as HTMLElement);
-      if (e.key === "Enter" && at < 0 && !(document.activeElement instanceof HTMLButtonElement)) { e.preventDefault(); p.onNew(p.purpose); return; }
+      if (e.key === "Enter" && at < 0 && !(document.activeElement instanceof HTMLButtonElement)) { e.preventDefault(); p.onNew(QUICK); return; }
       const to = tileTo(e.key, at, tiles.map((t) => t.getBoundingClientRect()));
       if (to !== undefined) { e.preventDefault(); tiles[to].focus(); }
     };
@@ -107,32 +126,50 @@ export function Home(p: Props) {
         <header className="home-head">
           <picture>
             <source srcSet={lockupWhite} media="(prefers-color-scheme: dark)" />
-            <img src={lockup} alt="Octet" height={24} draggable={false} />
+            <img src={lockup} alt="Octet" height={96} draggable={false} />
           </picture>
         </header>
         <h1 className="home-greeting">{greeting(p.name, now, p.first, p.away)}</h1>
         <div ref={grid} className={first ? "home-arrive" : undefined}>
-        <div className="home-row">
-          <h2>New</h2>
-          <button className="home-open" onClick={p.onOpen}>
-            <FolderOpen size={16} aria-hidden />
-            Open…
-            {p.openKey && <kbd>{p.openKey}</kbd>}
-          </button>
-        </div>
-        <div className="home-grid purposes" role="group" aria-label="New">
-          {p.purposes.map((t, k) => (
-            <div key={t.id} className="home-slot" style={arrive(k)}>
-              <button className="home-tile new" onClick={() => p.onNew(t.id)} autoFocus={t.id === p.purpose}>
-                <span className="home-thumb"><PurposePicture style={t.style} kind={t.kind} /></span>
-                <span className="home-caption">
-                  <span className="home-name">{t.name}</span>
-                  {t.id === p.purpose && <kbd>{p.newKey}</kbd>}
-                </span>
-              </button>
-              {t.own && <button className="home-remove" onClick={() => p.onRemovePurpose(t.id)} aria-label={`Remove ${t.name} from New`} data-tip="Remove from New"><X size={12} /></button>}
-            </div>
-          ))}
+        {/* New: Quick start, then the templates beside it under their own heading. */}
+        <div className="home-new" role="group" aria-label="New">
+          <div className="home-row"><h2>New</h2></div>
+          <div className="home-row">
+            <h3>Templates</h3>
+            <button className="home-open" onClick={p.onOpen}>
+              <FolderOpen size={16} aria-hidden />
+              Open…
+              {p.openKey && <kbd>{p.openKey}</kbd>}
+            </button>
+          </div>
+          <div className="home-slot home-quick" style={arrive(0)}>
+            <button className="home-tile new" onClick={() => p.onNew(QUICK)} autoFocus>
+              <span className="home-thumb"><QuickPicture /></span>
+              <span className="home-caption">
+                <span className="home-name">Quick start</span>
+                <kbd>{p.newKey}</kbd>
+              </span>
+            </button>
+          </div>
+          <div className="home-grid purposes" role="group" aria-label="Templates">
+            {p.purposes.map((t, k) => (
+              <div key={t.id} className="home-slot" style={arrive(1 + k)}>
+                <button className="home-tile new" onClick={() => p.onNew(t.id)}>
+                  <span className="home-thumb"><PurposePicture style={t.style} kind={t.kind} /></span>
+                  <span className="home-caption"><span className="home-name">{t.name}</span></span>
+                </button>
+                {t.own && <button className="home-remove" onClick={() => p.onRemovePurpose(t.id)} aria-label={`Remove ${t.name}`} data-tip="Remove template"><X size={12} /></button>}
+              </div>
+            ))}
+            {p.onCustom && (
+              <div className="home-slot" style={arrive(n - 1)}>
+                <button className="home-tile new custom" onClick={p.onCustom}>
+                  <span className="home-thumb"><span className="custom-sheet" aria-hidden><Plus size={20} /></span></span>
+                  <span className="home-caption"><span className="home-name">Custom template</span></span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
         <div className="home-row"><h2>{p.recents.length ? "Recent" : "Examples"}</h2></div>
         <div className="home-grid">

@@ -12,7 +12,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
 import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
-import { MAX_PURPOSES, PURPOSES, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type PurposeKind } from "./docstyle";
+import { MAX_PURPOSES, PURPOSES, QUICK, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
 import { Rulers } from "./Rulers";
 import { messy, problems, showWarnedHydrogens } from "./check";
@@ -117,6 +117,13 @@ const SNAP = (15 * Math.PI) / 180; // dragged bonds snap to 15° steps
 const REPEATS = /^(flip_[hv]|mirror_[hv]|flatten|arrange_\w+|frame_\w+|colour_\d+|colour_user_\d+|highlight_\d+|ringfill_\d+|text_\w+|size_\d+|font_\d+|align_\w+|curves_\w+|bring_front|send_back|rotate\.\w+|colour\.#\w+|halo\.#?\w+|ringfill\.#?\w+|caption\.(bold|italic|underline|plain|sub|super|formula|size\.\d+|font\..+)|arrow\.(style|start|end|head|size|fill)\.\w+)$/;
 const DOUBLE_MS = 500; // two clicks this close together (ms) are a double-click
 const toPath = (polys: P[][]) => polys.map((poly) => "M" + poly.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join("L") + "Z").join("");
+// The page's paper: its background, with the system's light or dark for "system", and a colour of the user's own as
+// dark or light paper by how light it is. Dark and blue paper take white ink.
+const paperOf = (d: DocStyle, systemDark: boolean) => {
+  const own = d.background.startsWith("#") ? d.background : undefined;
+  const paper = d.background === "system" ? (systemDark ? "dark" : "white") : own ? (darkColour(own) ? "dark" : "white") : d.background;
+  return { own, paper, dark: paper === "dark" || paper === "blueprint" };
+};
 
 // A line, arc or orbital drawn the way arrows are: its kind, its bend for one sweep (signed by the drag), its style.
 type Make = { kind: "line" | "arc" | "orbital" | "cut"; bend?: number; style?: Arrow["style"]; orbital?: Arrow["orbital"] };
@@ -822,12 +829,13 @@ export default function Editor() {
   }
   // Before the drawing is replaced (New, Open, a recent drawing): with unsaved changes, ask to save them first.
   const keepWork = (next: () => void) => (dirty ? setDialog({ kind: "unsaved", next }) : next());
-  // A new drawing for a purpose (IDEA-SIZE-1): its style and page, at the middle of the window and the open zoom.
-  // Return and ⌘N start the purpose picked last, as ChemDraw's New takes the stationery used last.
+  // A new drawing for Quick start or a purpose (IDEA-SIZE-1): its style and page, at the middle of the window and the
+  // open zoom. ⌘N starts the one picked last, as ChemDraw's New takes the stationery used last; Return on Home starts
+  // Quick start.
   const newDrawing = (id = settings.purpose) => keepWork(() => {
     const style = styleFor(settings, id), fresh: Mol = { ...EMPTY, style };
     drawingColours.current = []; set(fresh); setFile({ saved: fresh }); setGuides(freshGuides([0, 0], style)); setHome(false); setCoach(0); openView(style);
-    setSettings((s) => ({ ...s, purpose: purposeOf(s, id) ? id : "paper" }));
+    setSettings((s) => ({ ...s, purpose: id === QUICK || purposeOf(s, id) ? id : QUICK }));
   });
   // The tutorial is always on Paper (IDEA-SIZE-14): its steps are made for a manuscript's sizes.
   const startTutorial = () => keepWork(() => {
@@ -849,18 +857,27 @@ export default function Editor() {
     ...(Object.keys(PURPOSES) as PurposeKind[]).map((kind) => ({ id: kind as string, name: PURPOSES[kind].name, kind, style: styleFor(settings, kind) })),
     ...settings.ownPurposes.map((p) => ({ id: p.id, name: p.name, kind: p.kind, style: p.style, own: true })),
   ], [settings.purposeStyles, settings.ownPurposes]); // eslint-disable-line react-hooks/exhaustive-deps
-  // "Use for new documents": the style becomes its purpose's style for new drawings (with no purpose: the purpose
-  // Return starts). "Save as a new purpose…": the style becomes a purpose of the user's own, after the others.
+  // "Use for new documents": the style becomes its purpose's style for new drawings (with no purpose: Quick start's).
+  // "Save as template…" (and Custom template on Home): a style becomes a purpose of the user's own, after the others.
+  // The same name again saves over it. It gives the template's id.
   const keepForNew = (d: DocStyle) => setSettings((s) => {
-    const id = purposeOf(s, d.purpose) ? d.purpose! : s.purpose, kept = { ...d, purpose: id };
+    const id = purposeOf(s, d.purpose) ? d.purpose! : QUICK, { purpose: _, ...plain } = d, kept = id === QUICK ? plain : { ...d, purpose: id };
     return s.ownPurposes.some((p) => p.id === id) ? { ...s, ownPurposes: s.ownPurposes.map((p) => (p.id === id ? { ...p, style: kept } : p)) }
       : { ...s, purposeStyles: { ...s.purposeStyles, [id]: kept } };
   });
-  const savePurpose = (name: string) => setSettings((s) => {
-    const same = s.ownPurposes.find((p) => p.name.toLowerCase() === name.toLowerCase()), id = same?.id ?? `u${Date.now().toString(36)}`;
-    const own = { id, name, kind: purposeOf(s, style.purpose)?.kind ?? "paper", style: { ...style, purpose: id } };
-    return { ...s, ownPurposes: same ? s.ownPurposes.map((p) => (p.id === id ? own : p)) : [...s.ownPurposes, own].slice(0, MAX_PURPOSES) };
-  });
+  const savePurpose = (name: string, from: DocStyle = style) => {
+    const same = settings.ownPurposes.find((p) => p.name.toLowerCase() === name.toLowerCase()), id = same?.id ?? `u${Date.now().toString(36)}`;
+    const own = { id, name, kind: purposeOf(settings, from.purpose)?.kind ?? "paper", style: { ...from, purpose: id } };
+    setSettings((s) => ({ ...s, ownPurposes: s.ownPurposes.some((p) => p.id === id) ? s.ownPurposes.map((p) => (p.id === id ? own : p)) : [...s.ownPurposes, own].slice(0, MAX_PURPOSES) }));
+    return id;
+  };
+  // Custom template on Home: the template being made, which Settings > Document shows and changes in place of the
+  // drawing's style until Settings closes.
+  const [making, setMaking] = useState<string>();
+  const madeTemplate = settings.ownPurposes.find((p) => p.id === making);
+  const changeTemplate = (id: string, change: Partial<OwnPurpose>) => setSettings((s) => ({
+    ...s, ownPurposes: s.ownPurposes.map((p) => (p.id === id ? { ...p, ...change, id, style: { ...(change.style ?? p.style), purpose: id } } : p)),
+  }));
   // File > New For lists the user's purposes, and File > New shows the purpose it starts: the menu bar is built again
   // when they change.
   const purposeMenu = JSON.stringify([settings.ownPurposes.map((p) => p.name), purposeOf(settings, settings.purpose)?.name ?? ""]);
@@ -989,6 +1006,7 @@ export default function Editor() {
   const commands = useRef<Record<string, () => void>>({});
   commands.current = {
     new: () => newDrawing(),
+    new_quick: () => newDrawing(QUICK),
     ...Object.fromEntries(Object.keys(PURPOSES).map((k) => [`new_${k}`, () => newDrawing(k)])),
     ...Object.fromEntries(settings.ownPurposes.map((p, k) => [`new_own_${k}`, () => newDrawing(p.id)])),
     open: () => openDrawing(),
@@ -1433,8 +1451,8 @@ export default function Editor() {
     return a && { bold: !!a.bold, italic: !!a.italic, underline: !!a.underline, font: a.font ?? style.labelFont, size: Math.round((a.size ?? style.labelSize) * scaleOf(a) * 100) / 100, align: a.align ?? "auto", chemical: a.chemical !== false };
   };
   // An atom label's font: its own font, bold and italic when it has them, else the document's label font.
-  const labelFont = (l: { size: number; font?: string; bold?: boolean; italic?: boolean }) =>
-    `${l.italic ? "italic " : ""}${l.bold ? "bold " : ""}${l.size}px ${fontStack(l.font ?? style.labelFont)}`;
+  const labelFont = (l: { size: number; font?: string; bold?: boolean; italic?: boolean }, font = style.labelFont) =>
+    `${l.italic ? "italic " : ""}${l.bold ? "bold " : ""}${l.size}px ${fontStack(l.font ?? font)}`;
   const frame = useMemo(() => frameStyle(style, L), [style]);
   const measure = useMemo(() => measurer(fontStack(style.labelFont), frame.size), [style.labelFont, frame.size]);
   const pt = (4 / 3) * frame.k; // frame px per point
@@ -1478,10 +1496,7 @@ export default function Editor() {
     q.addEventListener("change", on);
     return () => q.removeEventListener("change", on);
   }, []);
-  // A colour of the user's own is dark or light paper by how light it is.
-  const own = style.background.startsWith("#") ? style.background : undefined;
-  const paper = style.background === "system" ? (systemDark ? "dark" : "white") : own ? (darkColour(own) ? "dark" : "white") : style.background;
-  const darkPaper = paper === "dark" || paper === "blueprint";
+  const { own, paper, dark: darkPaper } = paperOf(style, systemDark);
   const textInk = (c: string) => (darkPaper && /^#(000000|0f172a)$/i.test(c) ? "#FFFFFF" : c);
   // The page outlines (mm): the page, then what the drawing's purpose needs (IDEA-SIZE-6).
   const purposeKind = purposeOf(settings, style.purpose)?.kind;
@@ -1561,7 +1576,8 @@ export default function Editor() {
     | { kind: "contract"; text: string; keep: number; group: number[]; want?: string; warn?: string }
     | { kind: "bond"; bond: number; style: BondKind; position: "auto" | "left" | "centre" | "right" }
     | { kind: "font"; font: string } | { kind: "size"; size: string } | { kind: "spacing"; mode: "auto" | "variable" | "fixed"; pt: string }
-    | { kind: "unsaved"; next: () => void } | { kind: "rf"; plate: number; index: number; value: string } | { kind: "chain"; from: number | P; atoms: string }>();
+    | { kind: "unsaved"; next: () => void } | { kind: "rf"; plate: number; index: number; value: string } | { kind: "chain"; from: number | P; atoms: string }
+    | { kind: "template"; name: string; from: string }>();
   const [commandsOpen, setCommandsOpen] = useState(false);
   // Choose Nickname: the list open by an atom (its place on screen). A click outside it or Escape closes it.
   const [nicknames, setNicknames] = useState<{ atom: number; x: number; y: number }>();
@@ -1582,25 +1598,29 @@ export default function Editor() {
   // (smaller if it would not fit), so a change of preset shows as a change of size. It is drawn on the page's own
   // background, with the canvas's ink: white paper and black ink unless the Background is dark, in both themes.
   const sample = useMemo(() => (loaded && docOpen ? parseStructure("CC(=O)Nc1ccc(O)cc1") : undefined), [loaded, docOpen]);
+  // A template being made (Custom template on Home) shows in its own style.
+  const previewStyle = madeTemplate?.style ?? style;
   const preview = useMemo(() => {
     if (!sample) return null;
+    const s = previewStyle, f = frameStyle(s, L), k = (4 / 3) * f.k, { own, paper, dark } = paperOf(s, systemDark);
+    const ink = (c: string) => (dark && /^#(000000|0f172a)$/i.test(c) ? "#FFFFFF" : c);
     const m: Mol = { ...sample, captions: [{ id: 1, text: "1", x: 0, y: 0, bold: true, under: sample.atoms.map((_, i) => i) }] };
-    const d = render(m, frame, measure, L);
-    const width = (t: string, c: Caption) => textWidth(t, (c.size ?? style.captionSize) * pt, c.bold, c.italic, fontStack(style.captionFont));
-    const [cap] = placeCaptions(m, d, width, [], pt, style.captionSize);
-    const box = [Math.min(d.box[0], cap.box[0]), Math.min(d.box[1], cap.box[1]), Math.max(d.box[2], cap.box[2]), Math.max(d.box[3], cap.box[3]) + frame.size * 0.3];
-    const scale = Math.min(OPEN_ZOOM / frame.k, 112 / (box[3] - box[1]), 420 / (box[2] - box[0]));
+    const d = render(m, f, s === style ? measure : measurer(fontStack(s.labelFont), f.size), L);
+    const width = (t: string, c: Caption) => textWidth(t, (c.size ?? s.captionSize) * k, c.bold, c.italic, fontStack(s.captionFont));
+    const [cap] = placeCaptions(m, d, width, [], k, s.captionSize);
+    const box = [Math.min(d.box[0], cap.box[0]), Math.min(d.box[1], cap.box[1]), Math.max(d.box[2], cap.box[2]), Math.max(d.box[3], cap.box[3]) + f.size * 0.3];
+    const scale = Math.min(OPEN_ZOOM / f.k, 112 / (box[3] - box[1]), 420 / (box[2] - box[0]));
     // Drawn on the page's own paper, with the canvas's ink rule: white ink on dark and blue paper.
     return (
-      <div className={`style-preview paper-${paper}`} data-theme={darkPaper ? "dark" : "light"} style={own ? ({ "--canvas": own } as React.CSSProperties) : undefined} aria-hidden>
+      <div className={`style-preview paper-${paper}`} data-theme={dark ? "dark" : "light"} style={own ? ({ "--canvas": own } as React.CSSProperties) : undefined} aria-hidden>
         <svg width={(box[2] - box[0]) * scale} height={(box[3] - box[1]) * scale} viewBox={`${box[0]} ${box[1]} ${box[2] - box[0]} ${box[3] - box[1]}`}>
-          <path d={toPath(d.polygons)} fill={textInk("#000000")} />
-          {d.labels.map((l, i) => <text key={i} x={l.x} y={l.y} fill={textInk("#000000")} textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>{l.text}</text>)}
-          <text x={cap.lines[0].x} y={cap.lines[0].y} textAnchor="middle" fill={textInk(style.colour)} style={{ font: `bold ${cap.size}px ${fontStack(style.captionFont)}` }}>1</text>
+          <path d={toPath(d.polygons)} fill={ink("#000000")} />
+          {d.labels.map((l, i) => <text key={i} x={l.x} y={l.y} fill={ink("#000000")} textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l, s.labelFont) }}>{l.text}</text>)}
+          <text x={cap.lines[0].x} y={cap.lines[0].y} textAnchor="middle" fill={ink(s.colour)} style={{ font: `bold ${cap.size}px ${fontStack(s.captionFont)}` }}>1</text>
         </svg>
       </div>
     );
-  }, [sample, frame, measure, style, pt, paper]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sample, measure, style, previewStyle, systemDark]); // eslint-disable-line react-hooks/exhaustive-deps
   // Every view change Octet makes (Fit to window, Actual size, the zoom keys, a click on a page's edge, a panel that
   // would cover the structure) moves the camera the same way: the view is set once, and the drawing glides there from
   // where it is as a CSS transform on its group (motion token), so nothing draws again on the way. A new move starts
@@ -3791,8 +3811,9 @@ export default function Editor() {
     return [
       ...acts.map((i) => ({ id: `action:${i.command}`, name: i.name, group: "Actions", icon: i.icon, keys: hint(i.command), run: () => runAction(i.command) })),
       ...Object.entries(MENU_NAMES).filter(([id]) => commands.current[id] && !acted.has(id)).map(([id, [name, , icon]]) => ({ id: `menu:${id}`, name, group: "Commands", keys: hint(id), icon, run: () => commands.current[id]() })),
-      ...purposeList.map((p) => ({ id: `new:${p.id}`, name: `New ${p.name}`, group: "Commands", words: "new drawing purpose", icon: <FilePlus size={18} />, run: () => newDrawing(p.id) })),
-      ...purposeList.map((p) => ({ id: `for:${p.id}`, name: `For ${p.name}`, group: "Document", words: "purpose size page scale", icon: <FileText size={18} />, run: () => applyPurpose(p.id) })),
+      { id: `new:${QUICK}`, name: "Quick start", group: "Commands", words: "new drawing canvas", icon: <FilePlus size={18} />, run: () => newDrawing(QUICK) },
+      ...purposeList.map((p) => ({ id: `new:${p.id}`, name: `New ${p.name}`, group: "Commands", words: "new drawing template", icon: <FilePlus size={18} />, run: () => newDrawing(p.id) })),
+      ...purposeList.map((p) => ({ id: `for:${p.id}`, name: `For ${p.name}`, group: "Document", words: "template size page scale", icon: <FileText size={18} />, run: () => applyPurpose(p.id) })),
       { id: "tool:select", name: "Select", group: "Tools", keys: toolKey("tool.select"), icon: <Selection size={18} />, run: pick("select", ["select", "box"]) },
       { id: "tool:lasso", name: "Lasso", group: "Tools", icon: <Lasso size={18} />, run: pick("select", ["select", "lasso"]) },
       ...variants("bond", "bond", (Object.keys(BONDS) as BondKind[]).map((k) => [k, `${BONDS[k].name} bond`, <BondGlyph kind={k} />]), "Bonds"),
@@ -5532,17 +5553,21 @@ export default function Editor() {
         />
       )}</Exit>
       <Exit>{settingsOpen && (
+        // Making a template (Custom template on Home), the window shows its Document settings alone and changes the
+        // template: For starts it again from another template, and its outlines follow.
         <SettingsWindow
-          module={settingsOpen}
+          module={madeTemplate ? "document" : settingsOpen}
           onModule={(m) => { setSettingsOpen(m); setSettings((s) => ({ ...s, settingsModule: m })); }}
-          style={style}
-          isDefault={sameStyle(style, styleFor(settings, purposeOf(settings, style.purpose) ? style.purpose! : settings.purpose))}
+          template={madeTemplate?.name}
+          style={madeTemplate?.style ?? style}
+          isDefault={sameStyle(style, styleFor(settings, purposeOf(settings, style.purpose) ? style.purpose! : QUICK))}
           preview={preview}
-          onStyle={(next) => set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true)}
+          onStyle={(next) => (madeTemplate ? changeTemplate(madeTemplate.id, { style: next }) : set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true))}
           onDefault={() => keepForNew(style)}
           purposes={purposeList}
-          onPurpose={applyPurpose}
-          onSavePurpose={settings.ownPurposes.length < MAX_PURPOSES ? savePurpose : undefined}
+          onPurpose={(id) => (!madeTemplate ? applyPurpose(id)
+            : id !== madeTemplate.id && changeTemplate(madeTemplate.id, { kind: purposeOf(settings, id)?.kind ?? "paper", style: forPurpose(madeTemplate.style, styleFor(settings, id)) }))}
+          onSavePurpose={!madeTemplate && settings.ownPurposes.length < MAX_PURPOSES ? savePurpose : undefined}
           keys={settings.keys}
           onKeys={(keys) => setSettings((s) => ({ ...s, keys }))}
           files={settings.files}
@@ -5563,7 +5588,7 @@ export default function Editor() {
           elementColours={settings.elementColours}
           onElementColours={(elementColours) => setSettings((s) => ({ ...s, elementColours }))}
           adding={addingColour}
-          onClose={() => { setSettingsOpen(undefined); setAddingColour(false); }}
+          onClose={() => { setSettingsOpen(undefined); setAddingColour(false); setMaking(undefined); }}
         />
       )}</Exit>
       {/* The ring and the halo need different keys. With the same key, React leaves an old ring on the page. */}
@@ -5716,13 +5741,29 @@ export default function Editor() {
       {(home || homeLeaving) && (homeKind.current === "name"
         ? <NameBox leaving={!home} onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone) startTutorial(); }} />
         : <Home leaving={!home} name={settings.userName ?? ""} first={welcomed} away={away} recents={recents} newKey={keyLabel("enter")} openKey={hint("open")}
-            purposes={purposeList} purpose={settings.purpose} onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent} onStarter={(text) => keepWork(() => load(undefined, text))}
-            onRemovePurpose={(id) => setSettings((s) => ({ ...s, ownPurposes: s.ownPurposes.filter((p) => p.id !== id), purpose: s.purpose === id ? "paper" : s.purpose }))}
+            purposes={purposeList} onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent} onStarter={(text) => keepWork(() => load(undefined, text))}
+            onRemovePurpose={(id) => setSettings((s) => ({ ...s, ownPurposes: s.ownPurposes.filter((p) => p.id !== id), purpose: s.purpose === id ? QUICK : s.purpose }))}
+            onCustom={settings.ownPurposes.length < MAX_PURPOSES ? () => setDialog({ kind: "template", name: "", from: purposeOf(settings, settings.purpose) ? settings.purpose : "paper" }) : undefined}
             onRemove={(r) => void invoke("recent_remove", { path: r.path }).then(refreshRecents).catch(() => {})} />)}
       <Exit>{coach > 0 && !home && (
         <Coach key={coach} doc={doc} selected={selection.size} seen={seen} keys={{ clean: hint("clean_up") ?? "", copy: keyLabel("mod+c") }} low={naming !== undefined}
           onTool={setCoachTool} onSkip={() => setCoach(0)} onFinish={() => { const fresh: Mol = { ...EMPTY, style: doc.style }; setCoach(0); set(fresh); setFile({ saved: fresh }); }} />
       )}</Exit>
+      <Exit>{dialog?.kind === "template" && (() => {
+        // Custom template on Home: its name and the template it starts from. Continue saves it as a template and opens
+        // its Document settings. A name must not be Quick start's or one of Octet's; the same name as one of the
+        // user's own saves over it, as Save as template… does.
+        const name = dialog.name.trim(), ok = !!name && !["Quick start", ...Object.values(PURPOSES).map((x) => x.name)].some((t) => t.toLowerCase() === name.toLowerCase());
+        return (
+          <Dialog title="Custom template" action="Continue" disabled={!ok} onClose={() => setDialog(undefined)}
+            onAction={() => { if (!ok) return; setMaking(savePurpose(name, styleFor(settings, dialog.from))); setDialog(undefined); setSettingsOpen("document"); }}>
+            <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={dialog.name} maxLength={40} spellCheck={false} onChange={(e) => setDialog({ ...dialog, name: e.target.value })} /></span></label>
+            <label className="dialog-row"><span>Start from</span>
+              <Select label="Start from" value={dialog.from} options={purposeList.map((x): [string, string] => [x.id, x.name])} onChange={(from) => setDialog({ ...dialog, from })} />
+            </label>
+          </Dialog>
+        );
+      })()}</Exit>
       <Exit>{dialog?.kind === "unsaved" && (
         <Dialog title={`Save changes to “${name}”?`} action="Save" onClose={() => setDialog(undefined)}
           alt={{ label: "Don’t Save", onClick: () => { const d = dialog; setDialog(undefined); d.next(); } }}

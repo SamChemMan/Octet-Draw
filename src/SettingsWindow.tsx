@@ -35,9 +35,10 @@ type Props = {
   preview: React.ReactNode; // a sample structure drawn in the style, on the page's background (.style-preview)
   onStyle: (style: DocStyle) => void;
   onDefault: () => void;
-  purposes: { id: string; name: string }[]; // Octet's purposes, then the user's own
-  onPurpose: (id: string) => void; // the open drawing takes a purpose's sizes and page
-  onSavePurpose?: (name: string) => void; // the style as a purpose of the user's own; unset when they have as many as Octet keeps
+  purposes: { id: string; name: string }[]; // the templates: Octet's purposes, then the user's own
+  onPurpose: (id: string) => void; // the open drawing takes a template's sizes and page
+  onSavePurpose?: (name: string) => void; // the style as a template of the user's own; unset when they have as many as Octet keeps
+  template?: string; // the name of a template being made (Custom template on Home): the window shows its Document settings alone
   keys: Keymap; // the user's changes to the shortcuts
   onKeys: (keys: Keymap) => void;
   files: FilePrefs;
@@ -305,7 +306,8 @@ export function SettingsWindow(p: Props) {
   useModal(backdrop, !leaving);
   const [recording, setRecording] = useState<{ id: string; index: number }>();
   const [note, setNote] = useState<{ id: string; text: string; undo: Keymap }>();
-  const [naming, setNaming] = useState<string>(); // the name typed for a new purpose, while its dialog is open
+  const [naming, setNaming] = useState<string>(); // the name typed for a new template, while its dialog is open
+  const main = useRef<HTMLDivElement>(null);
   const map = keymap(p.keys);
   const style = p.style;
   const change = (patch: Partial<DocStyle>) => { const next = { ...style, ...patch }; p.onStyle({ ...next, preset: presetOf(next) }); };
@@ -314,7 +316,7 @@ export function SettingsWindow(p: Props) {
   useEffect(() => {
     if (leaving) return;
     const key = (e: KeyboardEvent) => {
-      if (naming !== undefined) return; // the new purpose's dialog has the keys
+      if (naming !== undefined) return; // the new template's dialog has the keys
       if (recording) {
         e.preventDefault();
         e.stopPropagation();
@@ -342,7 +344,11 @@ export function SettingsWindow(p: Props) {
     addEventListener("keydown", key, true);
     return () => removeEventListener("keydown", key, true);
   }, [recording, query, map, p, leaving, naming]);
-  useEffect(() => { search.current?.focus(); }, []);
+  // The search takes the focus; making a template, its first setting does (the template, in For).
+  useEffect(() => {
+    const body = main.current?.querySelector(".settings-body");
+    (p.template ? body?.querySelector<HTMLElement>("[aria-checked='true']") ?? body?.querySelector<HTMLElement>("button, input") : search.current)?.focus();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const presets: [string, string][] = [...Object.keys(PRESETS).map((x): [string, string] => [x, x]), ...(style.preset === "Custom" ? [["Custom", "Custom"] as [string, string]] : [])];
   const files = p.files, setFiles = (patch: Partial<FilePrefs>) => p.onFiles({ ...files, ...patch });
@@ -353,7 +359,7 @@ export function SettingsWindow(p: Props) {
       d("document", section, label, words, <NumberField label={label} unit={unit} value={style[k] as number} onChange={(n) => change({ [k]: n })} />);
     return [
       // What the drawing is for (IDEA-SIZE-8): a purpose sets the style, its scale and the page in one step.
-      { ...d("document", "For", "For", "purpose for paper thesis slides poster talk presentation new size page", (
+      { ...d("document", "For", "For", "template for paper thesis slides poster talk presentation new size page", (
         <Segmented className="purposes" label="For" value={style.purpose ?? ""} options={p.purposes.map((x): [string, string] => [x.id, x.name])} onChange={p.onPurpose} />
       )), head: true },
       // One size for the whole style (decision 0007): every length and text size times it, the preset kept. 10% to 1000%.
@@ -379,7 +385,7 @@ export function SettingsWindow(p: Props) {
           {[...COLOURS, ...p.palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => (
             <button key={`${name}${hex}`} role="radio" aria-checked={style.colour.toLowerCase() === hex.toLowerCase()} aria-label={name} data-tip={name} className="swatch" style={{ background: hex }} onClick={() => change({ colour: hex })} />
           ))}
-          <button className="swatch custom" data-tip="Add a colour" aria-label="Add a colour" onClick={() => p.onModule("appearance")}><Plus size={12} aria-hidden /></button>
+          {!p.template && <button className="swatch custom" data-tip="Add a colour" aria-label="Add a colour" onClick={() => p.onModule("appearance")}><Plus size={12} aria-hidden /></button>}
         </span>
       ), true),
       d("document", "Page", "Size", "page paper size a4 a3 letter custom half column", <PageSize style={style} change={change} />),
@@ -394,9 +400,10 @@ export function SettingsWindow(p: Props) {
           options={[["bond", "Bond length"], ...[...new Set([...(["Letter", "Legal", "Tabloid", "ACS1", "ACS2"].includes(style.page) ? GRID_IN : GRID_MM), ...(style.grid === "bond" ? [] : [style.grid])])]
             .sort((a, b) => a - b).map((n): [string, string] => [String(n), GRID_IN.includes(n) ? `${["⅛", "¼", "½"][GRID_IN.indexOf(n)]} in` : `${n} mm`])]} />
       )),
-      d("document", "Page", "Ruler units", "ruler rulers units mm cm inches points picas measure", (
+      // Ruler units are Octet's, not the document's, so a template being made does not show them.
+      ...(p.template ? [] : [d("document", "Page", "Ruler units", "ruler rulers units mm cm inches points picas measure", (
         <Select label="Ruler units" value={p.rulerUnit} options={RULER_UNITS} onChange={(v) => p.onRulerUnit(v as RulerUnit)} />
-      )),
+      ))]),
       d("document", "Page", "Page edges", "page edges outline guides", <Switch on={style.edges} label="Page edges" onChange={(on) => change({ edges: on })} />),
       d("document", "Page", "Background", "background page colour custom dark mode night white system engineering paper blueprint blue grid", (
         <Backgrounds value={style.background} onChange={(background) => change({ background })} />
@@ -435,9 +442,9 @@ export function SettingsWindow(p: Props) {
       // Off hides Search Reaxys and Search PubChem everywhere (decision 0008).
       d("files", "Online", "Online search", "online search reaxys pubchem internet web browser network privacy offline", <Switch on={p.onlineSearch} label="Online search" onChange={p.onOnlineSearch} />),
     ];
-  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.onlineSearch, p.rulerUnit, p.menuKeys.length, p.purposes, p.drawing]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.onlineSearch, p.rulerUnit, p.menuKeys.length, p.purposes, p.drawing, p.template]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const found = query.trim() ? defs.filter((def) => matches(def, query)) : [];
+  const found = query.trim() ? defs.filter((def) => matches(def, query) && (!p.template || def.module === "document")) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));
   const sections = (module: ModuleId, list: Def[]) => [...new Set(list.filter((x) => x.module === module).map((x) => x.section))];
 
@@ -451,10 +458,12 @@ export function SettingsWindow(p: Props) {
         ))}
         {!query && (
           <div className="settings-foot">
-            {p.onSavePurpose && <button className="text-button" onClick={() => setNaming("")}>Save as a new purpose…</button>}
-            {p.isDefault
-              ? <span className="quiet-note"><Check size={16} aria-hidden /> Default for new documents</span>
-              : <button className="text-button" onClick={p.onDefault}>Use for new documents</button>}
+            {p.template ? <button className="dialog-button primary" onClick={p.onClose}>Done</button> : <>
+              {p.onSavePurpose && <button className="text-button" onClick={() => setNaming("")}>Save as template…</button>}
+              {p.isDefault
+                ? <span className="quiet-note"><Check size={16} aria-hidden /> Default for new documents</span>
+                : <button className="text-button" onClick={p.onDefault}>Use for new documents</button>}
+            </>}
           </div>
         )}
       </>
@@ -472,8 +481,8 @@ export function SettingsWindow(p: Props) {
 
   return (
     <div ref={backdrop} className={leaving ? "modal-backdrop leaving" : "modal-backdrop"} inert={leaving} onPointerDown={(e) => { if (e.target === e.currentTarget) p.onClose(); }}>
-      <div className="settings-window" role="dialog" aria-modal={!leaving} aria-label="Settings">
-        <nav className="settings-sidebar" aria-label="Settings modules">
+      <div className={p.template ? "settings-window template" : "settings-window"} role="dialog" aria-modal={!leaving} aria-label={p.template ?? "Settings"}>
+        {!p.template && <nav className="settings-sidebar" aria-label="Settings modules">
           <label className="settings-search">
             <MagnifyingGlass size={16} aria-hidden />
             <input ref={search} type="search" placeholder="Search" aria-label="Search settings" spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -488,10 +497,10 @@ export function SettingsWindow(p: Props) {
               {query && counts.get(m.id) ? <span className="module-count">{counts.get(m.id)}</span> : null}
             </button>
           ))}
-        </nav>
-        <div className="settings-main">
+        </nav>}
+        <div ref={main} className="settings-main">
           <header>
-            <h2>{query ? "Search" : MODULES.find((m) => m.id === p.module)!.name}</h2>
+            <h2>{p.template ?? (query ? "Search" : MODULES.find((m) => m.id === p.module)!.name)}</h2>
             <button className="actions-close" onClick={p.onClose} aria-label="Close settings" data-tip="Close settings"><X size={12} /></button>
           </header>
           <div className="settings-body" key={query ? "search" : p.module}>
@@ -509,10 +518,11 @@ export function SettingsWindow(p: Props) {
         </div>
       </div>
       <Exit>{naming !== undefined && (() => {
-        // A name of the user's own: not empty, and not one of Octet's purposes. The same name again saves over it.
-        const name = naming.trim(), ok = !!name && !Object.values(PURPOSES).some((x) => x.name.toLowerCase() === name.toLowerCase());
+        // A name of the user's own: not empty, and not Quick start's or one of Octet's templates. The same name again
+        // saves over it.
+        const name = naming.trim(), ok = !!name && !["Quick start", ...Object.values(PURPOSES).map((x) => x.name)].some((t) => t.toLowerCase() === name.toLowerCase());
         return (
-          <Dialog title="New purpose" action="Save" onClose={() => setNaming(undefined)} onAction={() => { if (ok) { p.onSavePurpose?.(name); setNaming(undefined); } }}>
+          <Dialog title="Save as template" action="Save" onClose={() => setNaming(undefined)} onAction={() => { if (ok) { p.onSavePurpose?.(name); setNaming(undefined); } }}>
             <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={naming} maxLength={40} spellCheck={false} onChange={(e) => setNaming(e.target.value)} /></span></label>
           </Dialog>
         );
