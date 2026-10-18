@@ -1,31 +1,43 @@
-# Octet logo: final files
+# Octet logo and app icons
 
-Replace the old hexagon logo everywhere in the app with these files. Use them as they are; never redraw or recolour the logo in code.
+The mark is a regular octagon with a regular hexagon cut out of it (same centre, hexagon point up). It is rebuilt as exact vector geometry from the master PSD (99.7% pixel overlap at 1500 px; every edge within 1 px).
 
-The mark is cyclooctatetraene: an eight-membered ring with four double bonds inside the top, left, bottom and right edges, Octet Blue (#1D49A7).
+- Logo Blue: **#213C99** (from the PSD)
+- Icon tile: cream **#F3F0E9**, no stroke, no shadow
+- Wordmark: "octet", Instrument Sans Medium (500), −0.03em, ink #0F172A (outlined in the SVGs)
 
-## App icon
+## Install in the app (Tauri)
 
-| File | Use |
+1. Copy everything in `app-icon/tauri-icons/` into `src-tauri/icons/`. Replace the old files.
+2. Do not run `tauri icon`. It overwrites the hand-drawn small sizes.
+3. macOS 26 (Tahoe) and later: add `app-icon/macos/Octet.icon` to the Xcode asset catalog when you sign the Mac build. Without it, macOS 26 shows the `.icns` inside a grey frame. Open it in Icon Composer once to check it. If it does not open, make a new Icon Composer file: set the background fill to #F3F0E9 and drop in `Octet.icon/Assets/mark.svg` at scale 100%.
+
+## Files
+
+| Folder | Contents |
 | --- | --- |
-| `app-icon/app-icon-1024.png` | Source for Windows and Linux icons. In the Tauri project run `npx tauri icon app-icon/app-icon-1024.png` to regenerate `src-tauri/icons/` |
-| `app-icon/app-icon-macos-1024.png` | macOS icon (tile inset 100 px on a 1024 canvas, per Apple's grid). Regenerate only `icon.icns` from this file and replace the one from the step above |
-| `app-icon/app-icon-{64,128,256,512}.png` | Ready-made sizes for installers, Linux desktop entries and the website |
-| `app-icon/*.svg` | Vector masters of the two icons |
+| `logos/` | `octet-mark.svg` (primary), `-white.svg`, `-ink.svg`, `-small.svg` (under 20 px only), PNGs at 16, 32, 256, 512 and 1024 px, lockups (SVG and PNG) |
+| `app-icon/macos/` | `Octet.icon` (Icon Composer, macOS 26+), `Octet.icns` (all 10 slots, macOS 25 and earlier), 1024 px previews |
+| `app-icon/windows/` | `Octet.ico` (16, 20, 24, 32, 40, 48, 64, 256 px) and each frame as PNG |
+| `app-icon/linux/` | PNGs at 16, 24, 32, 48, 64, 128, 256 and 512 px (hicolor sizes) |
+| `app-icon/tauri-icons/` | Drop-in `src-tauri/icons/` set: 32x32, 64x64, 128x128, 128x128@2x, icon.png, icon.icns, icon.ico, Square*Logo, StoreLogo |
+| `web/` | `favicon.ico` (16, 32, 48), `favicon.svg`, `apple-touch-icon.png` (180), `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`, `site.webmanifest` |
 
-Icon spec: cream tile #F3F0E9, mark at 75% of the tile, black (#000000) stroke on the tile edge at 2% of the tile width, corner radius 22.5%. Cream is for the app icon only, never the app UI.
+## Small sizes
 
-## Logo
+When the mark is under 20 px wide (the 16, 20 and 24 px icons and the 16 px favicon), the hexagon is slightly smaller (circumradius 350 instead of 417 in the 1000-unit drawing). This keeps the thin top and bottom of the ring at about 2 px, so the shape does not break into two brackets. At every other size the mark is exact.
 
-| File | Use |
-| --- | --- |
-| `logos/octet-mark.svg` | Main in-app mark (About window, setup welcome page, empty states) on white, `surface` or cream |
-| `logos/octet-mark-reverse.svg` | White mark, on navy or Octet Blue only |
-| `logos/octet-mark-mono.svg` | One-colour ink (#0F172A) mark |
-| `logos/octet-mark-32.svg` / `.png` | Sizes 24–48 px (heavier strokes) |
-| `logos/octet-mark-16.svg` / `.png` | Below 24 px, and the website favicon: ring only |
-| `logos/octet-mark-512.png` | Raster mark for anywhere SVG is not supported |
-| `logos/octet-lockup.svg` / `.png` | Mark plus "octet" wordmark (Instrument Sans Medium 500, tracking −0.03em). The SVG uses live text, so the app's bundled Instrument Sans must be loaded; the PNG has the text rendered |
-| `logos/octet-lockup-reverse.svg` / `.png` | Lockup for navy or Octet Blue backgrounds |
+## Website `<head>`
 
-Clear space: at least half the mark height on every side.
+```html
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+```
+
+## Rules
+
+- Use the files as they are. Never redraw, recolour, rotate, outline or add effects.
+- Clear space: at least half the mark height on every side.
+- White mark only on navy (#000E2F) or Octet Blue.

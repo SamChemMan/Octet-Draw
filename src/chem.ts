@@ -5,6 +5,7 @@ import { fontStack } from "./docstyle.ts";
 import { labelSmiles } from "./labels.ts";
 import { fragments, levelTurn, subset } from "./edit.ts";
 import { graphOf, type Graph } from "./naming.ts";
+import { clean2d } from "./clean2d.ts";
 
 type IndigoModule = Awaited<ReturnType<typeof Indigo>>;
 let indigo: IndigoModule | undefined;
@@ -78,9 +79,24 @@ function engine() {
 const atomOfKet = (a: { label: string; location: [number, number, number]; charge?: number; radical?: number }): Mol["atoms"][number] =>
   ({ label: a.label, location: a.location, charge: a.charge, ...(a.radical ? { radical: a.radical === 1 ? 3 : a.radical - 1 } : {}), ...((a as { isotope?: number }).isotope ? { isotope: (a as { isotope?: number }).isotope } : {}) });
 
+// Pasted, typed and imported text can stop the editor, as Indigo runs on the main thread: it reads very long text
+// slowly, and its layout can tidy a crowded structure (a ring atom with five phenyls, a dense dendrimer) for minutes.
+// So Octet reads at most 20,000 characters of SMILES and 300,000 of a file (a 1,000-atom KET file is 250,000), lays
+// out at most 1,000 atoms, and caps the layout's rounds of tidying. 50 rounds is the fewest that lays out every real
+// structure tried as no cap does (Pd(PPh3)4 needs 50). Each round costs more on a bigger structure, so the cap falls
+// to 10 rounds at 400 atoms (a 100-residue peptide needs 10). The slowest structure tried takes half a second, and a
+// 300,000-character file that is not chemistry takes under a second to refuse (src/layout.check.ts).
+const MOST_CHARACTERS = 300_000, MOST_SMILES = 20_000, MOST_ATOMS = 1000;
+// The reason to show for text over a limit.
+const over = (most: number, what: string) => new RangeError(`It has more than ${most.toLocaleString("en-GB")} ${what}.`);
+// Atoms in a SMILES (bracket atoms and the organic subset), up to the first space (CXSMILES and names come after it).
+const smilesAtoms = (smiles: string) => smiles.split(/\s/)[0].match(/\[[^\]]*\]|Br|Cl|[BCNOPSFIbcnops*]/g)?.length ?? 0;
+
 // A structure file (MOL, SDF, CDXML, KET, SMILES), keeping the file's own drawing where it has one.
 // Coordinates are scaled so the median bond is one bond length; SMILES (no drawing) is laid out.
+// Throws a RangeError, with the reason to show, for text over Octet's limits.
 export function importStructure(text: string): Mol {
+  if (text.length > MOST_CHARACTERS) throw over(MOST_CHARACTERS, "characters");
   const ind = engine(), opts = new ind.MapStringString();
   try {
     opts.set("output-content-type", "application/json");
@@ -105,11 +121,18 @@ export function importStructure(text: string): Mol {
 }
 
 // SMILES (or a MOL file) to a laid-out molecule with Kekulé bonds and stereo wedges. All fragments are kept.
+// Throws a RangeError, with the reason to show, for text over Octet's limits.
 export function parseStructure(text: string): Mol {
+  // SMILES is one line, counted as written (Indigo reads a long SMILES slowly); a MOL file or other file, through Indigo.
+  const file = /^[{<]|[\r\n]/.test(text.trim()), most = file ? MOST_CHARACTERS : MOST_SMILES;
+  if (text.length > most) throw over(most, "characters");
+  const atoms = smilesAtoms(file ? convert(text, "smiles") : text);
+  if (atoms > MOST_ATOMS) throw over(MOST_ATOMS, "atoms");
   const ind = engine(), opts = new ind.MapStringString();
   try {
     opts.set("output-content-type", "application/json");
     opts.set("dearomatize-on-load", "true");
+    opts.set("layout-max-iterations", String(Math.min(50, Math.max(10, Math.round(4000 / atoms)))));
     const ket = JSON.parse(JSON.parse(ind.layout(text, "ket", opts)).struct);
     const out: Mol = { atoms: [], bonds: [] };
     for (const { $ref } of ket.root.nodes as { $ref: string }[]) {
@@ -250,49 +273,42 @@ export function toInchi(drawn: Mol | string): string | undefined {
   }
 }
 
-// Clean Up Structure: Indigo straightens bond lengths and angles, structure by structure. Each structure the
-// selection touches (or every structure, with nothing selected) is cleaned whole, scaled back to one bond
-// length per bond, and kept centred where it was.
-export function cleanUp(mol: Mol, ids?: Set<number>): Mol {
-  const ind = engine(), atoms = mol.atoms.map((a) => ({ ...a }));
-  for (const frag of fragments(mol)) {
-    if (frag.length < 2 || (ids?.size && !frag.some((i) => ids.has(i)))) continue;
+// Clean Up's time. Indigo's clean-up (two passes of up to 1,000 rounds) costs about N^3 a round, from 0.27 s at 120
+// atoms to 3 to 5 minutes at 1,000, and Indigo stops a pass only after 2 s. So Octet runs its own port of it
+// (src/clean2d.ts): the same rounds at about N a round. Structures of up to about 40 atoms are cleaned as Indigo cleans
+// them with no time limit, in under 0.1 s. Each pass of a larger structure stops after PASS ms, and several structures
+// share 2 × PASS ms a pass. A large structure drawn by hand may come out rougher than Indigo's would, and Clean Up again
+// tidies it further, as in ChemDraw. A structure of more than MOST_CLEAN atoms is left as drawn (src/cleanup.check.ts).
+const PASS = 100;
+export const MOST_CLEAN = MOST_ATOMS;
+
+// Clean Up Structure: bond lengths and angles straightened, structure by structure. Each structure the selection
+// touches (or every structure, with nothing selected) is cleaned whole, scaled back to one bond length per bond, and
+// kept centred where it was. A structure of more than MOST_CLEAN atoms is left as drawn.
+// pass: the ms each of the two passes may take for one structure.
+export function cleanUp(mol: Mol, ids?: Set<number>, pass = PASS): Mol {
+  const atoms = mol.atoms.map((a) => ({ ...a }));
+  const groups = fragments(mol).filter((frag) => frag.length > 1 && frag.length <= MOST_CLEAN && (!ids?.size || frag.some((i) => ids.has(i))));
+  for (const frag of groups) {
     const local = new Map(frag.map((i, k) => [i, k]));
     const bonds = mol.bonds.filter((b) => local.has(b.atoms[0]) && local.has(b.atoms[1]));
-    const ket = {
-      root: { nodes: [{ $ref: "mol0" }] },
-      mol0: {
-        type: "molecule",
-        atoms: frag.map((i) => ({ label: /^[A-Z][a-z]?$/.test(mol.atoms[i].label) ? mol.atoms[i].label : "C", location: mol.atoms[i].location })),
-        bonds: bonds.map((b) => ({ type: Math.min(b.type, 3), atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!], ...(b.stereo ? { stereo: b.stereo } : {}) })),
-      },
-    };
-    const opts = new ind.MapStringString(), sel = new ind.VectorInt();
-    try {
-      opts.set("output-content-type", "application/json");
-      frag.forEach((_, k) => sel.push_back(k));
-      const out = JSON.parse(JSON.parse(ind.clean2d(JSON.stringify(ket), "ket", opts, sel)).struct).mol0.atoms as { location: number[] }[];
-      if (out.length !== frag.length) continue;
-      const lengths = bonds.map((b) => {
-        const [p, q] = [out[local.get(b.atoms[0])!].location, out[local.get(b.atoms[1])!].location];
-        return Math.hypot(q[0] - p[0], q[1] - p[1]);
-      }).sort((a, b) => a - b);
-      const scale = 1 / (lengths[Math.floor(lengths.length / 2)] || 1);
-      const centre = (pts: number[][]) => [0, 1].map((k) => pts.reduce((sum, p) => sum + p[k], 0) / pts.length);
-      const [ox, oy] = centre(frag.map((i) => mol.atoms[i].location)), [nx, ny] = centre(out.map((a) => a.location));
-      frag.forEach((i, k) => {
-        const [x, y] = out[k].location;
-        atoms[i] = { ...atoms[i], location: [ox + (x - nx) * scale, oy + (y - ny) * scale, 0] };
-      });
-      // As ChemDraw's clean up leaves it: a ring structure turned so its bottom ring bond is level.
-      const turn = levelTurn({ ...mol, atoms }, frag);
-      if (turn) {
-        const c = Math.cos((turn * Math.PI) / 180), s = Math.sin((turn * Math.PI) / 180);
-        frag.forEach((i) => { const [x, y] = atoms[i].location; atoms[i] = { ...atoms[i], location: [ox + (x - ox) * c - (y - oy) * s, oy + (x - ox) * s + (y - oy) * c, 0] }; });
-      }
-    } finally {
-      opts.delete();
-      sel.delete();
+    const out = clean2d(frag.map((i) => mol.atoms[i].location), bonds.map((b) => ({ atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!], order: b.type })), pass * Math.min(1, 2 / groups.length));
+    const lengths = bonds.map((b) => {
+      const [p, q] = [out[local.get(b.atoms[0])!], out[local.get(b.atoms[1])!]];
+      return Math.hypot(q[0] - p[0], q[1] - p[1]);
+    }).sort((a, b) => a - b);
+    const scale = 1 / (lengths[Math.floor(lengths.length / 2)] || 1);
+    const centre = (pts: readonly (readonly number[])[]) => [0, 1].map((k) => pts.reduce((sum, p) => sum + p[k], 0) / pts.length);
+    const [ox, oy] = centre(frag.map((i) => mol.atoms[i].location)), [nx, ny] = centre(out);
+    frag.forEach((i, k) => {
+      const [x, y] = out[k];
+      atoms[i] = { ...atoms[i], location: [ox + (x - nx) * scale, oy + (y - ny) * scale, 0] };
+    });
+    // As ChemDraw's clean up leaves it: a ring structure turned so its bottom ring bond is level.
+    const turn = levelTurn({ ...mol, atoms }, frag);
+    if (turn) {
+      const c = Math.cos((turn * Math.PI) / 180), s = Math.sin((turn * Math.PI) / 180);
+      frag.forEach((i) => { const [x, y] = atoms[i].location; atoms[i] = { ...atoms[i], location: [ox + (x - ox) * c - (y - oy) * s, oy + (x - ox) * s + (y - oy) * c, 0] }; });
     }
   }
   return { ...mol, atoms };

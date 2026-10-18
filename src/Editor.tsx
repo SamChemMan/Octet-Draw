@@ -9,7 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
-import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, toMolText, toInchiKey, type Structure, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
+import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, toMolText, toInchiKey, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
 import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, FONTS, type DocStyle, type PageName } from "./docstyle";
 import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
@@ -39,7 +39,7 @@ import { Coach, NOTHING_SEEN, type Seen } from "./Coach";
 import { Feedback } from "./Feedback";
 import { ExportButton, ExportDialog } from "./ExportDialog";
 import { flushSync } from "react-dom";
-import { copyToClipboard, exportFile, readClipboard, standaloneSvg, UI, withMargin } from "./export";
+import { copyToClipboard, exportFile, readClipboard, standaloneSvg, UI, withMargin, type ExportFormat } from "./export";
 import { formatAmount, formulaWeight, parseAmount, solve, type Field } from "./stoich";
 import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
@@ -153,6 +153,8 @@ function Live<T>({ store: from, children }: { store: Store<T>; children: (value:
 }
 // The view: where the drawing's origin is on screen (px) and the zoom. pinch: a zoom gesture goes on (see onWheel).
 type View = { x: number; y: number; zoom: number; pinch?: boolean };
+// What Export and Copy make from the drawing for other programs (pictures aside).
+type PartFormat = "cdxml" | "cdx" | "oct" | "molfile" | "smiles" | "inchi";
 const sameHover = (a: Hover, b: Hover) => a.atom === b.atom && a.bond === b.bond && a.caption === b.caption && a.arrow === b.arrow && a.cycle === b.cycle && a.step === b.step;
 // Ink as SVG path data, kept with the arrow or shape it is made from, for each document style.
 const arrowInks = new WeakMap<Arrow, [unknown, string]>(), shapeInks = new WeakMap<Shape, [unknown, string]>(), outlines = new WeakMap<object, [unknown, string]>();
@@ -558,16 +560,25 @@ export default function Editor() {
       flushSync(() => setExporting(undefined));
     }
   }
-  // What other programs read: the molecules as a molfile, SMILES and InChI, and the drawing as CDXML and CDX; undefined
-  // where Indigo cannot write them. withCdx false leaves the CDX out (the clipboard with Settings' CDX switch off).
-  const chemistryOf = (part: Mol, withCdx = true) => {
-    const tryIt = (f: () => string) => { try { return part.atoms.length && loaded ? f() || undefined : undefined; } catch { return undefined; } };
-    let cdxml: string | undefined, cdx: string | undefined;
-    try { cdxml = toCdxml(part, style, cdxmlOptions()); } catch { cdxml = undefined; }
-    // ChemDraw's binary form of the same drawing (base64), for Export and the clipboard.
-    try { cdx = withCdx && cdxml ? toBase64(xmlToCdx(parseXml(cdxml))) : undefined; } catch { cdx = undefined; }
-    return { molfile: tryIt(() => toMolfile(part)), smiles: tryIt(() => toSmiles(part)), inchi: tryIt(() => toInchi(part) ?? ""), cdxml, cdx };
-  };
+  // What other programs read: CDXML, CDX (ChemDraw's binary form of the same drawing, as base64), a .oct file (the same
+  // CDXML with Octet's drawing), and the molecules as a molfile, SMILES and InChI; undefined where Octet or Indigo cannot
+  // write them. Each is made when it is first asked for and kept with the part (the drawing itself, or the selection's
+  // part from selectedPart), so Export and Copy make only what they use, once for each version of the drawing. They are
+  // made again when the style, the name, Indigo or the arrows of a catalytic cycle (what cdxmlOptions gives) change.
+  const made = useRef(new WeakMap<Mol, { style: DocStyle; name: string; loaded: boolean; derived: unknown; formats: Partial<Record<PartFormat, string>> }>());
+  function formatOf(part: Mol, f: PartFormat): string | undefined {
+    let kept = made.current.get(part);
+    if (kept?.style !== style || kept.name !== name || kept.loaded !== loaded || kept.derived !== cycleArrows) made.current.set(part, kept = { style, name, loaded, derived: cycleArrows, formats: {} });
+    if (f in kept.formats) return kept.formats[f];
+    const cdxml = f === "oct" || f === "cdx" ? formatOf(part, "cdxml") : undefined;
+    let out: string | undefined;
+    try {
+      out = (f === "cdxml" ? toCdxml(part, style, cdxmlOptions()) : f === "oct" ? cdxml && writeOct(part, style, cdxmlOptions(), cdxml)
+        : f === "cdx" ? cdxml && toBase64(xmlToCdx(parseXml(cdxml)))
+        : part.atoms.length && loaded ? (f === "molfile" ? toMolfile(part) : f === "inchi" ? toInchi(part) : toSmiles(part)) : undefined) || undefined;
+    } catch { out = undefined; }
+    return (kept.formats[f] = out);
+  }
   // File > Print (⌘P): the document's page at true size, the drawing where it sits on the page, as a picture the
   // print layout shows alone (the editor's chrome is hidden for printing), then the system's print dialog.
   const [printing, setPrinting] = useState<{ src: string; w: number; h: number }>();
@@ -584,20 +595,28 @@ export default function Editor() {
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     try { await invoke("print_page"); } catch (e) { setNotice(`Octet cannot print. ${e}`); }
   }
-  // Export… (⌃⌘E, and the Export button): the settings first, with the whole drawing's picture and chemistry and,
-  // when something is selected, the selection's. Then the Save dialog for the chosen format.
-  const selectedPart = () => (selection.size || picked.size ? extractSelection(doc, selection, picked) : undefined);
+  // The selection as a drawing of its own, kept while the drawing and the selection stay the same.
+  const partKept = useRef<{ doc: Mol; selection: Set<number>; picked: Set<number>; part: Mol }>(undefined);
+  const selectedPart = () => {
+    if (!selection.size && !picked.size) return undefined;
+    const s = partKept.current;
+    if (s?.doc === doc && s.selection === selection && s.picked === picked) return s.part;
+    return (partKept.current = { doc, selection, picked, part: extractSelection(doc, selection, picked) }).part;
+  };
+  // Export… (⌃⌘E, and the Export button): the settings first, with the whole drawing's picture and, when something is
+  // selected, the selection's. The chosen format is made when the dialog shows it. Then the Save dialog for that format.
   function openExport() {
     const sel = selectedPart();
-    setExportView({ all: pictureOf(doc), selection: sel && pictureOf(sel), chem: { all: chemistryOf(doc), selection: sel && chemistryOf(sel) },
-      oct: { all: writeOct(doc, style, cdxmlOptions()), selection: sel && writeOct(sel, style, cdxmlOptions()) } });
+    setExportView({ all: pictureOf(doc), selection: sel && pictureOf(sel), parts: { all: doc, selection: sel } });
   }
   const filePrefs = settings.files;
   async function exportPart(part: "all" | "selection") {
-    const v = exportView, svg = v?.[part], c = v?.chem[part], f = filePrefs;
-    if (!v) return;
+    const v = exportView, svg = v?.[part], mol = v?.parts[part], f = filePrefs;
+    if (!v || !mol) return;
+    // Only what the format needs: a PDF carries the CDXML.
+    const make = (pf: PartFormat, ...fs: ExportFormat[]) => (fs.includes(f.format) ? formatOf(mol, pf) : undefined), molfile = make("molfile", "mol", "sdf");
     try {
-      const path = await exportFile({ name, format: f.format, oct: v.oct[part], svg: svg && withMargin(svg, f.margin), cdxml: c?.cdxml, cdx: c?.cdx, molfile: c?.molfile, sdf: c?.molfile ? `${c.molfile.trimEnd()}\n$$$$\n` : undefined, smiles: c?.smiles, inchi: c?.inchi, dpi: f.dpi, transparent: f.background === "transparent" });
+      const path = await exportFile({ name, format: f.format, oct: make("oct", "oct"), svg: svg && withMargin(svg, f.margin), cdxml: make("cdxml", "cdxml", "pdf"), cdx: make("cdx", "cdx"), molfile, sdf: molfile ? `${molfile.trimEnd()}\n$$$$\n` : undefined, smiles: make("smiles", "smi"), inchi: make("inchi", "inchi"), dpi: f.dpi, transparent: f.background === "transparent" });
       if (path) setExportView(undefined);
     } catch (e) {
       setNotice(`Octet cannot export this drawing. ${e}`);
@@ -884,6 +903,7 @@ export default function Editor() {
       saw("clean");
       const ids = selection.size ? selection : undefined;
       let m = cleanUp(doc, ids);
+      if (fragments(doc).some((g) => g.length > MOST_CLEAN && (!ids || g.some((i) => ids.has(i))))) setNotice(`Octet cannot clean up a structure of more than ${MOST_CLEAN.toLocaleString("en-GB")} atoms.`);
       const docBox = (b?: Box): Box | undefined => b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L];
       const inkOf = (mol: Mol) => { const d = render(mol, frame, measure, L); return (atoms: number[]) => docBox(union(atoms.filter((i) => d.ink[i]).map((i) => d.ink[i]))); };
       const captionOf = (id: number) => docBox(placed.find((c) => c.id === id)?.box);
@@ -1205,7 +1225,7 @@ export default function Editor() {
   const [about, setAbout] = useState(false);
   // The Select tool's modifiers at the last press, and the selection before it, for a click with Shift or Option.
   const pressMods = useRef<{ shift: boolean; alt: boolean; atoms: Set<number>; picks: Set<number> } | undefined>(undefined);
-  const [exportView, setExportView] = useState<{ all?: string; selection?: string; chem: { all: ReturnType<typeof chemistryOf>; selection?: ReturnType<typeof chemistryOf> }; oct: { all: string; selection?: string } }>();
+  const [exportView, setExportView] = useState<{ all?: string; selection?: string; parts: { all: Mol; selection?: Mol } }>();
   const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }
     | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string }
     | { kind: "unsaved"; next: () => void } | { kind: "lossy"; lost: Record<string, number>; done: (saved: boolean) => void } | { kind: "revert" }
@@ -2699,10 +2719,11 @@ export default function Editor() {
     mol: ["MOL text", (m) => toMolText(m, 3000)], mol_v2000: ["MOL V2000 text", (m) => toMolText(m, 2000)],
   };
   const copyAs = (what: string) => {
-    const part = selection.size || picked.size ? extractSelection(doc, selection, picked) : doc;
+    const part = selectedPart() ?? doc;
     if (what === "cdxml") {
       if (!part.atoms.length && !part.captions?.length && !part.arrows?.length && !part.shapes?.length) return setNotice("There is nothing to copy.");
-      return copyPlain(toCdxml(part, style, cdxmlOptions()));
+      const cdxml = formatOf(part, "cdxml");
+      return cdxml ? copyPlain(cdxml) : setNotice("Octet cannot write this drawing as CDXML.");
     }
     const [name, write] = COPY_AS[what];
     let text = "";
@@ -3349,14 +3370,15 @@ export default function Editor() {
           if (clip.cdxml && pasteCdxml(clip.cdxml)) return;
           if (clip.cdx && pasteRead(() => readCdx(fromBase64(clip.cdx!)))) return;
           if (text && CDXML_TEXT.test(text.slice(0, 65536)) && pasteCdxml(text)) return;
+          let why = "Paste a name, a SMILES string or a MOL file.";
           for (const source of [clip.molfile, clip.smiles, text]) {
             if (!source || !loaded) continue;
             let frag: Mol | undefined;
-            try { frag = source === text ? parseStructure(source) : importStructure(source); } catch { frag = undefined; }
+            try { frag = source === text ? parseStructure(source) : importStructure(source); } catch (err) { frag = undefined; if (err instanceof RangeError) why = err.message; }
             if (!frag?.atoms.length && source === text) frag = structureFor(source);
             if (frag?.atoms.length) return place(frag);
           }
-          if (text) setNotice("Octet cannot read this structure. Paste a name, a SMILES string or a MOL file.");
+          if (text) setNotice(`Octet cannot read this structure. ${why}`);
         }).catch((err) => setNotice(`Octet cannot read the clipboard. ${err}`));
         return;
       }
@@ -3377,11 +3399,11 @@ export default function Editor() {
       if (!text || !loaded) return;
       e.preventDefault();
       // A SMILES string or MOL file first, then a chemical name.
-      let frag: Mol | undefined;
-      try { frag = parseStructure(text); } catch { frag = undefined; }
+      let frag: Mol | undefined, why = "Paste a name, a SMILES string or a MOL file.";
+      try { frag = parseStructure(text); } catch (err) { frag = undefined; if (err instanceof RangeError) why = err.message; }
       if (!frag?.atoms.length) frag = structureFor(text);
       if (frag) place(frag);
-      else setNotice("Octet cannot read this structure. Paste a name, a SMILES string or a MOL file.");
+      else setNotice(`Octet cannot read this structure. ${why}`);
     };
     // Copy puts the selection, or the whole drawing, on the clipboard (or text a panel or Copy As SMILES asked for).
     // Resolves whether it did, so Cut deletes only what is on the clipboard.
@@ -3396,23 +3418,21 @@ export default function Editor() {
       }
       // Everything selected (or the whole drawing) in Octet's own form, for pasting back with arrows, text and shapes,
       // and in the forms other programs read: those switched on in Settings > Import and export > Copy (REL-19, CH-8).
-      const all = !selection.size && !picked.size;
-      const part = all ? doc : extractSelection(doc, selection, picked);
+      const part = selectedPart() ?? doc;
       if (!part.atoms.length && !part.captions?.length && !part.arrows?.length && !part.shapes?.length) return Promise.resolve(false);
       e.preventDefault();
       saw("copy");
       const on = settings.files.clipboard, octetJson = serialize({ ...part, style: undefined });
       // On the Mac: as ChemDraw copies, for Word, PowerPoint and Keynote (a vector picture at true size with the
-      // structure hidden in it, so it pastes back as a structure), then CDXML, a molfile and SMILES, then Octet's own form.
+      // structure hidden in it, so it pastes back as a structure), then CDX, CDXML, a molfile and SMILES, then Octet's own form.
       if (NATIVE_CLIP) {
-        const c = chemistryOf(part, on.cdx);
-        return copyToClipboard({ svg: on.pdf ? pictureOf(part) : undefined, cdxml: on.pdf || on.cdxml ? c.cdxml : undefined, cdxmlType: on.cdxml, cdx: on.cdx ? c.cdx : undefined, molfile: on.mol ? c.molfile : undefined, smiles: on.smiles ? c.smiles : undefined, octetJson })
+        const ask = (yes: boolean, f: PartFormat) => (yes ? formatOf(part, f) : undefined);
+        return copyToClipboard({ svg: on.pdf ? pictureOf(part) : undefined, cdxml: ask(on.pdf || on.cdxml, "cdxml"), cdxmlType: on.cdxml, cdx: ask(on.cdx, "cdx"), molfile: ask(on.mol, "molfile"), smiles: ask(on.smiles, "smiles"), octetJson })
           .then(() => true, (err) => { setNotice(`Octet cannot copy this. ${err}`); return false; });
       }
       // Windows, Linux and a browser: the webview's own clipboard, with Octet's form and SMILES (or the text) as text.
       e.clipboardData?.setData(OCTET_CLIP, octetJson);
-      let text = (part.captions ?? []).map((c) => c.text).join("\n");
-      if (on.smiles && part.atoms.length && loaded) { try { text = toSmiles(part) || text; } catch { /* the text alone */ } }
+      const text = (on.smiles ? formatOf(part, "smiles") : undefined) ?? (part.captions ?? []).map((c) => c.text).join("\n");
       if (text) e.clipboardData?.setData("text/plain", text);
       return Promise.resolve(true);
     };
@@ -4305,7 +4325,15 @@ export default function Editor() {
       <ExportButton hint={platformLabel(EXPORT_KEYS)} onQuick={() => void quickExport()} onExport={openExport} />
       {exportView && (
         <ExportDialog prefs={settings.files} onPrefs={(p) => setSettings((s) => ({ ...s, files: { ...s.files, ...p } }))} pictures={exportView}
-          chemistry={(part) => { const c = exportView.chem[part]; return { oct: !!exportView.oct[part], cdxml: !!c?.cdxml, cdx: !!c?.cdx, mol: !!c?.molfile, sdf: !!c?.molfile, smi: !!c?.smiles, inchi: !!c?.inchi }; }}
+          chemistry={(part) => {
+            // The chosen format is made now, so the dialog says at once when it cannot be. The others are offered
+            // when the part can have them, and made when they are chosen.
+            const mol = exportView.parts[part], may = !!mol?.atoms.length && loaded, f = settings.files.format;
+            const has: Partial<Record<ExportFormat, boolean>> = { oct: true, cdxml: true, cdx: true, mol: may, sdf: may, smi: may, inchi: may };
+            const of: Partial<Record<ExportFormat, PartFormat>> = { oct: "oct", cdxml: "cdxml", cdx: "cdx", mol: "molfile", sdf: "molfile", smi: "smiles", inchi: "inchi" }, pf = of[f];
+            if (pf && mol) has[f] = !!formatOf(mol, pf);
+            return has;
+          }}
           onExport={(part) => void exportPart(part)} onClose={() => setExportView(undefined)} />
       )}
       {dialog?.kind === "atom" && (

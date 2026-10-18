@@ -150,7 +150,7 @@ export type Shade = { depth: number; blur: number; opacity: number };
 export const SHADE: Shade = { depth: 0.12, blur: 0, opacity: 0.35 };
 export const isBracket = (sh: Pick<Shape, "kind">) => sh.kind === "brackets" || sh.kind === "parens" || sh.kind === "braces";
 export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "table", "picture"];
-export const HIGHLIGHT = "#DCE4F5";
+export const HIGHLIGHT = "#DCE4F6";
 // Captions, arrows, shapes and cycles share one set of ids.
 export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; annotations?: Annotation[]; style?: DocStyle };
 // A keyword and content pair on the document or a group (ChemDraw's File > Document Annotations, and the GUIDs ChemDraw

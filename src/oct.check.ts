@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { DEFAULT_STYLE } from "./docstyle.ts";
 import { addArrow, addCaption, addRing, EMPTY } from "./edit.ts";
+import { toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
 import { isDrawingText, lostText, readOct, writeOct } from "./oct.ts";
 
@@ -11,6 +12,8 @@ let mol = addRing(EMPTY, 6, false, { point: [0, 0] });
 mol = { ...mol, atoms: mol.atoms.map((a, i) => (i === 0 ? { ...a, isotope: 13, location: [a.location[0] + 0.123456, a.location[1], 0] } : a)) };
 const style = { ...DEFAULT_STYLE, labelSize: 12 };
 const file = writeOct(mol, style);
+// Export reuses the CDXML it made for CDXML or PDF: the file is the same.
+assert.equal(writeOct(mol, style, {}, toCdxml(mol, style)), file);
 // ChemDraw reads the CDXML part; Octet gets its own drawing back exactly, coordinates and all.
 assert.match(file, /^<\?xml[^]*<\/CDXML>\n<!--Octet 1 [0-9a-f]{16} [A-Za-z0-9+/=]+-->\n$/);
 const back = readOct(file);
