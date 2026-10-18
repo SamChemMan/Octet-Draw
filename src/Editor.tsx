@@ -3768,8 +3768,10 @@ export default function Editor() {
     const f = atoms.reduce((s0, i) => s0 + scaleOf(doc.atoms[i]), 0) / atoms.length, labelPt = style.captionSize * 0.8 * f, em = labelPt / style.bond;
     const W = 14 * f, H = 3.5 * f, cx = (Math.min(...ps.map((q) => q[0])) + Math.max(...ps.map((q) => q[0]))) / 2;
     const fig = spectrumFigure({ prediction: p, nucleus: p.nucleus, mhz: settings.nmrMhz, solvent: settings.nmrSolvent, solventPeaks: settings.nmrSolventPeaks, range, colours: nmrColours, width: W, height: H, em });
-    // The figure's top (its title's) sits one bond length under the structure.
-    const top = H + 0.45 + 2.6 * em, x0 = cx - W / 2, y0 = Math.min(...ps.map((q) => q[1])) - 1 - 1.4 * em - top;
+    // The figure's top (its title's) sits one bond length under the structure, and under the text already there (the
+    // key, the properties), so it covers none of it.
+    const ink = withCaptions(atoms), low = Math.min(Math.min(...ps.map((q) => q[1])) - 1, ink ? -ink[3] / L - 0.5 : Infinity);
+    const top = H + 0.45 + 2.6 * em, x0 = cx - W / 2, y0 = low - 1.4 * em - top;
     const at = (q: [number, number]): [number, number] => [x0 + q[0], y0 + q[1]], GREY = "#808080";
     let m = doc;
     const items: number[] = [];

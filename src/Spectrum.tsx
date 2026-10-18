@@ -127,13 +127,11 @@ export function SpectrumPanel(p: Props) {
           </span>
         )}
         <button className="spectrum-button" onClick={() => p.onColourAll(!anyColour)} disabled={!signals.length}>{anyColour ? "Clear colours" : "Colour peaks"}</button>
-        {signals.length > 0 && (
-          <Pick label="Add to drawing" value="" className="spectrum-button" title="Put the spectrum, the shifts or the key on the page"
-            groups={[[{ key: "spectrum", name: "Spectrum", icon: <ChartLine size={18} /> }, { key: "shifts", name: "Shifts beside atoms", icon: <Tag size={18} /> }, { key: "key", name: "Key", icon: <ListBullets size={18} /> }]]}
-            onPick={(what) => p.onAdd(what as "spectrum" | "shifts" | "key", [lo, hi])}>
-            Add to drawing
-          </Pick>
-        )}
+        <Pick label="Add to drawing" value="" className="spectrum-button" title="Put the spectrum, the shifts or the key on the page" disabled={!signals.length}
+          groups={[[{ key: "spectrum", name: "Spectrum", icon: <ChartLine size={18} /> }, { key: "shifts", name: "Shifts beside atoms", icon: <Tag size={18} /> }, { key: "key", name: "Key", icon: <ListBullets size={18} /> }]]}
+          onPick={(what) => p.onAdd(what as "spectrum" | "shifts" | "key", [lo, hi])}>
+          Add to drawing
+        </Pick>
         <button className="spectrum-button" onClick={() => p.onCopy(text)} disabled={!text} data-tip="Copy the characterisation line"><CopySimple size={16} /> Copy</button>
       </div>
       <div className="spectrum-body">
