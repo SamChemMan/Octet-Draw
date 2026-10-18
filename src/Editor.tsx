@@ -1,4 +1,4 @@
-import { Fragment, memo, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
   FrameCorners, GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
@@ -51,7 +51,7 @@ import { layoutCycles, orderAround, spreadCycle, type Cycle, type CycleText } fr
 import { LIBRARY, libraryItem } from "./library";
 import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
 import {
-  ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, Palette, RingGlyph, RINGS, SELECTS, SymbolGlyph, SYMBOLS, TemplateGlyph,
+  ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, HOLD_MS, Palette, RingGlyph, RINGS, SELECTS, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
 import { arrowShapes, bendPoint, curved, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
@@ -68,7 +68,8 @@ import { common, edited, lines as richLines, normalise, plainOf, runsOf, styleRa
 import { RichBox, type RichApi } from "./RichBox";
 import { Dialog } from "./Dialog";
 import { NoticeBar, type Notice } from "./NoticeBar";
-import { Exit, reduced, timing } from "./motion";
+import { Exit, reduced, timing, tween } from "./motion";
+import { between, MOST_GLIDE, moving } from "./glide";
 import { Tooltips } from "./Tooltip";
 import { failure, fileName, type NoticeKind } from "./notice";
 import "./editor.css";
@@ -100,8 +101,6 @@ const L = STYLE.bond; // px per bond length at 100%
 const OPEN_ZOOM = 1.25;
 const openZoom = (d: DocStyle) => OPEN_ZOOM / (frameStyle(d, L).k * d.scale);
 const SNAP = (15 * Math.PI) / 180; // dragged bonds snap to 15° steps
-// Holding still this long with a drawing tool in hand switches to Select until the pointer is released.
-const HOLD_MS = 400;
 const toPath = (polys: P[][]) => polys.map((poly) => "M" + poly.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join("L") + "Z").join("");
 
 // A line, arc or orbital drawn the way arrows are: its kind, its bend for one sweep (signed by the drag), its style.
@@ -328,6 +327,8 @@ export default function Editor() {
   }, []);
   // The hold-to-select switch: the tool icon pops and a ring pops at the pointer. pop.n restarts the animations.
   const [pop, setPop] = useState<{ n: number; x: number; y: number }>();
+  // While a press may become a hold: a thin ring at the pointer fills as the hold time goes (FEEL-37).
+  const [holding, setHolding] = useState<{ n: number; x: number; y: number }>();
   const [cursor, setCursor] = useState<string>();
   const [settings, setSettings] = useState(loadSettings);
   const bondKind = (settings.variants.bond in BONDS ? settings.variants.bond : "single") as BondKind;
@@ -472,6 +473,43 @@ export default function Editor() {
     dispatch({ type: "set", mol: onTop(doc, wholeGroups(mol), fragments), merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
   };
+  // Clean up, Rotate 180°, Flip, a turn of 15° or more, Align and Distribute glide into place (FEEL-38). The drawing
+  // changes at once, as one undo step. Only the picture on screen moves to it (glide). There is no glide with reduced
+  // motion, with more than MOST_GLIDE atoms moving, or for a command that comes again before the last glide is over (a
+  // key held down). path: the way there when it is not a straight line (a turn); false: no glide.
+  const [glide, setGlide] = useState<{ to: Mol; mol: Mol }>();
+  const glideNext = useRef<{ from: Mol; path?: (t: number) => Mol | undefined }>(undefined), glideAt = useRef(0);
+  const glideTo = (mol: Mol, path?: ((t: number) => Mol) | false) => {
+    const now = performance.now(), again = now - glideAt.current < timing().duration, n = moving(doc, mol);
+    glideAt.current = now;
+    if (path !== false && !again && !reduced() && n && n <= MOST_GLIDE) glideNext.current = { from: doc, path };
+    set(mol, true);
+  };
+  // The glide starts before the new drawing is first painted, from where the atoms were.
+  useLayoutEffect(() => {
+    const next = glideNext.current;
+    glideNext.current = undefined;
+    if (!next) return;
+    const to = doc, path = next.path ?? ((t: number) => between(next.from, to, t));
+    const step = (t: number) => {
+      if (t >= 1) return setGlide(undefined);
+      const mol = path(t);
+      if (mol) setGlide({ to, mol });
+    };
+    step(0);
+    // A new drawing (an edit, undo) ends the glide at once. Redo can bring back the same drawing, so none is kept.
+    const stop = tween(step);
+    return () => { stop(); setGlide(undefined); };
+  }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A structure placed from Name to structure settles from its faint ghost into full ink (FEEL-43): the first atom it
+  // has, in the drawing it went into.
+  const settleFrom = useRef<number>(undefined), [settle, setSettle] = useState<{ doc: Mol; from: number }>();
+  useLayoutEffect(() => {
+    const from = settleFrom.current;
+    settleFrom.current = undefined;
+    if (from !== undefined) setSettle({ doc, from });
+    else if (settle) setSettle(undefined); // so a redo to the same drawing does not settle again
+  }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps
   const undo = (redo = false) => { dispatch({ type: redo ? "redo" : "undo" }); setSelection(new Set()); setPicked(new Set()); };
   // The file on disk and the drawing as last saved. Undoing back to the saved drawing makes it clean again.
   const [file, setFile] = useState<{ path?: string; saved: Mol }>({ saved: EMPTY });
@@ -857,7 +895,7 @@ export default function Editor() {
         r.arrows.forEach((id) => done.add(id));
         m = cleanUpReaction(m, r, arrows);
       }
-      if (done.size) return set(m, true);
+      if (done.size) return glideTo(m);
       // Otherwise several structures that overlap, or have a plus sign among them, go in a row like a reaction's
       // starting materials. With a plus sign, an arrow after them is offered: Tab draws it.
       const row = rowOf(m, ids, inkOf(m), captionOf);
@@ -867,7 +905,7 @@ export default function Editor() {
         const ahead = (doc.arrows ?? []).some((a) => !curved(a) && Math.min(a.from[0], a.to[0]) > laid.right - 0.5 && Math.abs((a.from[1] + a.to[1]) / 2 - laid.level) < 1.5);
         if (row.plus && !ahead) setOffer({ from: [laid.right + GAP, laid.level], to: [laid.right + GAP + 3, laid.level], doc: m });
       }
-      set(m, true);
+      glideTo(m);
     },
     // ChemDraw's Rotate 180° Horizontal and Vertical (⇧⌘H, ⇧⌘V: stereo kept), and its Flip (a mirror image).
     flip_h: () => flip("horizontal"),
@@ -927,7 +965,7 @@ export default function Editor() {
     clean_reaction: () => {
       const arrow = reactionPicked()?.arrows[0] ?? [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
       const r = arrow !== undefined ? reactionOf(arrow) : undefined;
-      return r ? set(cleanUpReaction(doc, r, arrows), true) : setNotice("Select a reaction arrow first.", "info");
+      return r ? glideTo(cleanUpReaction(doc, r, arrows)) : setNotice("Select a reaction arrow first.", "info");
     },
     // Zoom about the middle of the window. Actual size is 100%: bonds at their true 14.4 pt.
     zoom_in: () => zoomTo(views.get().zoom * 1.25),
@@ -1089,6 +1127,10 @@ export default function Editor() {
 
   // A part of the drawing shown alone for a moment, to take its picture (copy and export).
   const [exporting, setExporting] = useState<Mol>();
+  // A copy that worked (FEEL-41): the selection's tint rises and falls once, or with nothing selected the page's edge
+  // lights once. n restarts it; editor.css leaves it out with reduced motion.
+  const [copied, setCopied] = useState<{ n: number; page: boolean }>();
+  const ackCopy = (page: boolean) => setCopied((c) => ({ n: (c?.n ?? 0) + 1, page }));
   const shown = useMemo(() => {
     if (exporting) return exporting;
     if (drag?.kind === "bond" && drag.to) return bondTo(doc, drag.from, drag.to, bondSpec);
@@ -1101,8 +1143,9 @@ export default function Editor() {
       const now = drag?.kind === "pen" ? penPoint(drag.at, drag.out) : penAt ? { at: penAt } : undefined, points = [...(pen ?? []), ...(now ? [now] : [])];
       if (points.length >= 2) return addArrow(doc, { kind: "curve", from: points[0].at, to: points[points.length - 1].at, curve: { points } })[0];
     }
+    if (glide?.to === doc) return glide.mol;
     return doc;
-  }, [doc, drag, pen, penAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [doc, drag, pen, penAt, glide]); // eslint-disable-line react-hooks/exhaustive-deps
   // The document's style (or the default for new documents), as widths and sizes in the drawing frame.
   // A drawing with no style (from another program, with Keep ChemDraw styles off) takes the style File > New gives.
   const newStyle = useMemo(() => styleFor(settings, settings.purpose), [settings.purpose, settings.purposeStyles, settings.ownPurposes]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1163,7 +1206,7 @@ export default function Editor() {
   // structure leaves the other structures' drawings as they were. A structure a drag moves keeps its drawing, moved by
   // a transform, and its points move where it lands.
   const partCache = useRef<{ frame: typeof frame; measure: typeof measure; cache: PartCache }>(undefined);
-  const still = !drag;
+  const still = !drag && glide?.to !== doc;
   const drawing = useMemo(() => {
     if (partCache.current?.frame !== frame || partCache.current.measure !== measure) partCache.current = { frame, measure, cache: { parts: new WeakMap(), last: new Map() } };
     return renderParts(shown, frame, measure, L, partCache.current.cache, still);
@@ -1323,7 +1366,9 @@ export default function Editor() {
     return [...groups];
   }, [arrows, cycleArrows, frame]);
   // Structure ink: each structure's own paths, so a drag changes only the paths of what moved.
-  const structureInk = useMemo(() => drawing.parts.filter(({ ids }) => level(shown.atoms[ids[0]])).flatMap(({ ids, drawing: d, at, k, turn }) => structurePaths(d).map(([key, path]) => [`${ids[0]}|${key}`, key, path, moveBy(at, k, turn)] as const)), [drawing]); // eslint-disable-line react-hooks/exhaustive-deps
+  const structureInk = useMemo(() => drawing.parts.filter(({ ids }) => level(shown.atoms[ids[0]])).flatMap(({ ids, drawing: d, at, k, turn }) => structurePaths(d).map(([key, path]) => [`${ids[0]}|${key}`, key, path, moveBy(at, k, turn), ids[0]] as const)), [drawing]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The structure that settles into ink (FEEL-43): its atoms from this one on.
+  const settling = settle?.doc === doc ? settle.from : Infinity;
   // Atom labels as text, one group per structure, made once for each drawing of it: React passes over the ones that
   // did not change, and a structure being moved only moves its group. A structure being turned turns its group, and
   // each label turns back about its atom, so it keeps level.
@@ -1343,9 +1388,9 @@ export default function Editor() {
         cache.set(d, texts);
       }
       if (turn) texts = texts.map((t, i) => <g key={i} transform={`rotate(${-turn} ${d.labelAt[i][0]} ${d.labelAt[i][1]})`}>{t}</g>);
-      return texts.length ? <g key={ids[0]} transform={moveBy(at, k, turn)}>{texts}</g> : null;
+      return texts.length ? <g key={ids[0]} className={ids[0] >= settling ? "settle" : undefined} transform={moveBy(at, k, turn)}>{texts}</g> : null;
     });
-  }, [drawing, darkPaper, style.labelFont]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [drawing, darkPaper, style.labelFont, settling]); // eslint-disable-line react-hooks/exhaustive-deps
   // Where each map number and stereo flag goes, worked out once per change of the atoms or bonds.
   const markDirs = useMemo(() => markDirections(shown, shown.atoms.flatMap((a, i) => (a.map || a.enhanced ? [i] : []))), [shown.atoms, shown.bonds]); // eslint-disable-line react-hooks/exhaustive-deps
   // Mass fragmentation: the bonds each cut line crosses, and the pieces they leave, labelled at the line's ends
@@ -1715,7 +1760,12 @@ export default function Editor() {
     if (m !== doc) set(m, true);
   }
 
-  const stopHold = () => { clearTimeout(hold.current); hold.current = undefined; };
+  const stopHold = () => {
+    if (hold.current === undefined) return;
+    clearTimeout(hold.current);
+    hold.current = undefined;
+    setHolding(undefined);
+  };
   const holdFrom = useRef<[number, number]>(undefined); // where the press that may become a hold went down
 
   // Select tool press: on something selected, move the selection; on something else, select it and move it;
@@ -1818,12 +1868,17 @@ export default function Editor() {
     return k !== undefined ? pos(doc, k) : selectionMiddle();
   };
   const turnTo = (mol: Mol, centre: P) => { lastTurn.current = { mol, selection, picked, centre }; set(mol, true); };
-  const rotateBy = (degrees: number) => { const c = turnCentre(); turnTo(turnedParts(doc, degrees, c), c); };
+  // A turn of 15° or more glides round the centre, so the structure keeps its shape on the way (a 1° turn is at once).
+  const rotateBy = (degrees: number) => {
+    const c = turnCentre(), mol = turnedParts(doc, degrees, c), from = doc;
+    lastTurn.current = { mol, selection, picked, centre: c };
+    glideTo(mol, Math.abs(degrees) >= 15 && ((t) => turnedParts(from, degrees * t, c)));
+  };
   // Rotate 180° (a turn through 3D) and Flip (a mirror), across or down, about the middle of what is chosen as drawn.
   // The atoms turn over first (flipAtoms keeps or inverts the stereochemistry), then the objects.
   function flip(axis: "horizontal" | "vertical", mirror = false) {
     const c = selectionMiddle(), k = axis === "horizontal" ? 0 : 1, { atoms, items } = chosen();
-    set(transformParts(flipAtoms(doc, atoms, axis, mirror, c[k]), new Set(), items, (q) => (k ? [q[0], 2 * c[1] - q[1]] : [2 * c[0] - q[0], q[1]]), [1, 1], captionMiddles(), 1, k ? "down" : "across"), true);
+    glideTo(transformParts(flipAtoms(doc, atoms, axis, mirror, c[k]), new Set(), items, (q) => (k ? [q[0], 2 * c[1] - q[1]] : [2 * c[0] - q[0], q[1]]), [1, 1], captionMiddles(), 1, k ? "down" : "across"));
   }
   function scaleBy(k: number, lines = scalesText()) {
     if (!(k > 0) || !Number.isFinite(k)) return;
@@ -1862,7 +1917,7 @@ export default function Editor() {
         m = shiftThing(m, t, d);
       }
     }
-    set(m, true);
+    glideTo(m);
   }
   // What moves with some atoms and picked objects: the picked arrows, shapes and cycles, and each picked caption that
   // does not simply follow its structure, arrow or cycle (it comes away and moves alone, from where it is drawn).
@@ -2155,8 +2210,10 @@ export default function Editor() {
   function startHold(p: P, t: Hover, screen: [number, number]) {
     stopHold();
     holdFrom.current = screen;
+    setHolding((old) => ({ n: (old?.n ?? 0) + 1, x: screen[0], y: screen[1] }));
     hold.current = window.setTimeout(() => {
       hold.current = undefined;
+      setHolding(undefined);
       setSpring(tool);
       setTool("select");
       setPop((old) => ({ n: (old?.n ?? 0) + 1, x: screen[0], y: screen[1] }));
@@ -3082,7 +3139,7 @@ export default function Editor() {
     if (command === "delete" && context.kind === "spot") return runAction("spot.delete");
     if (command === "delete") return selection.size || picked.size ? set(deleteGraphics(deleteAtoms(doc, selection), picked)) : undefined;
     if (command === "number") return numberStructures();
-    if (command === "reaction.clean") { const r = reactionPicked(); return r ? set(cleanUpReaction(doc, r, arrows), true) : undefined; }
+    if (command === "reaction.clean") { const r = reactionPicked(); return r ? glideTo(cleanUpReaction(doc, r, arrows)) : undefined; }
     // Atom mapping: the first step of the picked reaction (what stands before its first arrow, and between that
     // arrow and the next), numbered by Indigo; or every number cleared.
     if (command === "reaction.map" || command === "reaction.unmap") {
@@ -3643,7 +3700,7 @@ export default function Editor() {
       // Everything selected (or the whole drawing) in Octet's own form, for pasting back with arrows, text and shapes,
       // with this drawing's style, so a paste into a drawing of another size keeps text in proportion (fitSizes);
       // and its structures as SMILES, for other programs.
-      const part = selectedPart() ?? doc;
+      const part = selectedPart() ?? doc, page = !selection.size && !picked.size;
       if (!part.atoms.length && !part.captions?.length && !part.arrows?.length && !part.shapes?.length) return;
       e.preventDefault();
       saw("copy");
@@ -3653,12 +3710,13 @@ export default function Editor() {
         const picture = pictureOf(part);
         if (!picture) return;
         void copyToClipboard({ svg: picture, cdxml: formatOf(part, "cdxml"), molfile: formatOf(part, "molfile"), smiles: formatOf(part, "smiles"), octetJson: serialize({ ...part, style }) })
-          .catch((err) => setNotice(failure("Octet cannot copy this.", err)));
+          .then(() => ackCopy(page), (err) => setNotice(failure("Octet cannot copy this.", err)));
         return;
       }
       e.clipboardData?.setData(OCTET_CLIP, serialize({ ...part, style }));
       const text = (part.captions ?? []).map((c) => c.text).join("\n");
       e.clipboardData?.setData("text/plain", formatOf(part, "smiles") ?? text);
+      ackCopy(page);
     };
     // Cut: copy, then delete what was selected.
     const onCut = (e: ClipboardEvent) => {
@@ -3966,7 +4024,7 @@ export default function Editor() {
   const marks = (
     <>
       {/* One group with one opacity, so overlapping marks don't stack up darker. */}
-      <g className="selection-marks">{selected}</g>
+      <g key={copied?.page === false ? `copied${copied.n}` : undefined} className={copied?.page === false ? "selection-marks copied" : "selection-marks"}>{selected}</g>
       {groupFrames}
       {nmrMarks.size > 0 && <g className="nmr-marks">{[...nmrMarks].filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `nmr${i}`, ""))}</g>}
       {shiftLabels().map((l) => (
@@ -3989,7 +4047,7 @@ export default function Editor() {
           {drawing.beads.map((b, i) => <circle key={`bd${i}`} cx={b.at[0]} cy={b.at[1]} r={b.r} fill="url(#bead)" />)}
         </>
       )}
-      {structureInk.map(([id, key, path, move]) => { const [colour, alpha] = key.split("|"); return <path key={`s${id}`} d={path} transform={move} fill={colour ? textInk(colour) : "var(--ink)"} fillOpacity={Number(alpha) < 1 ? Number(alpha) : undefined} />; })}
+      {structureInk.map(([id, key, path, move, first]) => { const [colour, alpha] = key.split("|"); return <path key={`s${id}`} className={first >= settling ? "settle" : undefined} d={path} transform={move} fill={colour ? textInk(colour) : "var(--ink)"} fillOpacity={Number(alpha) < 1 ? Number(alpha) : undefined} />; })}
       {arrowInk.map(([colour, d]) => <path key={`a${colour}`} d={d} fill={colour ? textInk(colour) : "var(--ink)"} />)}
       {cutLabels.map((c) => (
         <text key={c.key} x={c.at[0] * L} y={-c.at[1] * L} textAnchor={c.anchor} fill="var(--ink)" style={{ font: `${style.captionSize * pt * 0.9 * c.f}px ${fontStack(style.captionFont)}` }}>
@@ -3998,7 +4056,7 @@ export default function Editor() {
         </text>
       ))}
     </>
-  ), [drawing.beads, structureInk, arrowInk, darkPaper, cutLabels, style, pt]); // eslint-disable-line react-hooks/exhaustive-deps
+  ), [drawing.beads, structureInk, arrowInk, darkPaper, cutLabels, style, pt, settling]); // eslint-disable-line react-hooks/exhaustive-deps
   const draggedSpot = drag?.kind === "spot" ? `${drag.plate} ${drag.index}` : undefined;
   const over = useMemo(() => (
     <>
@@ -4116,6 +4174,8 @@ export default function Editor() {
                 </g>
               );
             })}
+            {/* A copy of the whole drawing lights the page's edge once, shown or not (FEEL-41). */}
+            {copied?.page && <rect key={copied.n} className="page-copied" x={(-pages[0][1] / 2) * mm * L} y={(-pages[0][2] / 2) * mm * L} width={pages[0][1] * mm * L} height={pages[0][2] * mm * L} vectorEffect="non-scaling-stroke" />}
           </g>
           {/* The drawing and its marks, without the page, so the Spectrum panel can show the structure beside its spectrum. */}
           <g id="world">
@@ -4225,7 +4285,7 @@ export default function Editor() {
           {drag?.kind === "move" && drag.guides.map((g, i) => g.axis === "x"
             ? <line key={i} className="guide" x1={g.at * L} x2={g.at * L} y1={-g.from * L} y2={-g.to * L} vectorEffect="non-scaling-stroke" />
             : <line key={i} className="guide" y1={-g.at * L} y2={-g.at * L} x1={g.from * L} x2={g.to * L} vectorEffect="non-scaling-stroke" />)}
-          {drag?.kind === "move" && drag.point && <circle className="snap-point" cx={drag.point[0] * L} cy={-drag.point[1] * L} r={0.22 * L} vectorEffect="non-scaling-stroke" />}
+          {drag?.kind === "move" && drag.point && <circle key={drag.point.join()} className="snap-point" cx={drag.point[0] * L} cy={-drag.point[1] * L} r={0.22 * L} vectorEffect="non-scaling-stroke" />}
           </g>
         </g>
       </svg>
@@ -4421,7 +4481,7 @@ export default function Editor() {
             if (e.key === "Enter" && recent.at === historyRows.length && historyMore) { e.preventDefault(); return setRecent({ all: true, at: -1 }); }
             if (e.key !== "Enter") return;
             if (recent.at >= 0 && historyRows[recent.at] !== undefined) return void pickHistory(historyRows[recent.at]);
-            if (named) { place(named); rememberName(structureFor(naming.trim()) ? naming.trim() : suggestion ?? naming.trim(), named); setNaming(undefined); return; }
+            if (named) { settleFrom.current = doc.atoms.length; place(named); rememberName(structureFor(naming.trim()) ? naming.trim() : suggestion ?? naming.trim(), named); setNaming(undefined); return; }
             // Not a name Octet can read: the field shakes.
             if (!reduced())
               e.currentTarget.animate([{ transform: "translateX(0)" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "translateX(0)" }], timing("--motion-slow"));
@@ -4456,6 +4516,11 @@ export default function Editor() {
           onClose={() => { setSettingsOpen(undefined); setAddingColour(false); }}
         />
       )}</Exit>
+      {holding && (
+        <svg key={holding.n} className="hold-ring" style={{ left: holding.x, top: holding.y, "--hold": `${HOLD_MS}ms` } as React.CSSProperties} viewBox="0 0 32 32" aria-hidden>
+          <circle cx={16} cy={16} r={13} pathLength={1} />
+        </svg>
+      )}
       {pop && <span key={pop.n} className="halo" style={{ left: pop.x, top: pop.y }} aria-hidden />}
 
       <Palette

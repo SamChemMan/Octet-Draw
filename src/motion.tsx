@@ -8,6 +8,20 @@ export function timing(token = "--motion") {
   const root = getComputedStyle(document.documentElement);
   return { duration: parseFloat(root.getPropertyValue(token)) || 180, easing: root.getPropertyValue("--ease-out").trim() || "ease-out" };
 }
+// Motion that CSS cannot do (atoms moving from one drawing to the next): step gets how far the motion has got, 0 to 1
+// with the brand's ease-out, once a frame, and 1 last. The returned function stops it.
+export function tween(step: (t: number) => void, token = "--motion") {
+  const motion = new Animation(new KeyframeEffect(null, null, timing(token)));
+  let frame = 0;
+  const tick = () => {
+    const t = motion.playState === "finished" ? 1 : motion.effect?.getComputedTiming().progress ?? 0;
+    step(t);
+    if (t < 1) frame = requestAnimationFrame(tick);
+  };
+  motion.play();
+  frame = requestAnimationFrame(tick);
+  return () => { cancelAnimationFrame(frame); motion.cancel(); };
+}
 
 // True inside an overlay that is leaving. The overlay adds the class "leaving" to its root (editor.css plays the exit)
 // and is inert, so it takes no clicks or keys on its way out.

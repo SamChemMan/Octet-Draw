@@ -60,6 +60,33 @@ circle.mark {
 .selection-marks {
   opacity: 0.28;
 }
+/* A copy that worked: the selection's tint rises and falls once; with nothing selected, the page's edge lights once. */
+.selection-marks.copied {
+  animation: copied-tint var(--motion-slow) var(--ease-out);
+}
+@keyframes copied-tint {
+  40% {
+    opacity: 0.45;
+  }
+}
+.page-copied {
+  fill: none;
+  stroke: var(--brand-bright);
+  stroke-width: 1.5;
+  opacity: 0;
+  animation: copied-edge var(--motion-slow) var(--ease-out);
+}
+@keyframes copied-edge {
+  30% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .selection-marks.copied,
+  .page-copied {
+    animation: none;
+  }
+}
 .selection-marks circle {
   fill: var(--brand-bright);
 }
@@ -105,6 +132,26 @@ circle.mark {
   fill: none;
   stroke: var(--brand-bright);
   stroke-width: 1.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: snap-settle var(--motion-fast) var(--ease-out);
+}
+/* The ring settles onto the atom when the snap first takes it: in from a little larger, its tint fading. */
+@keyframes snap-settle {
+  from {
+    transform: scale(1.4);
+    fill: var(--brand-bright);
+    fill-opacity: 0.3;
+  }
+  to {
+    fill: var(--brand-bright);
+    fill-opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .snap-point {
+    animation: none;
+  }
 }
 
 .box {
@@ -221,6 +268,7 @@ rect.mark {
 /* The ring that pops at the pointer when a hold switches to Select. */
 .halo {
   position: fixed;
+  box-sizing: border-box;
   width: 32px;
   height: 32px;
   margin: -16px 0 0 -16px;
@@ -239,6 +287,58 @@ rect.mark {
   to {
     transform: scale(1);
     opacity: 0;
+  }
+}
+/* While a press may become a hold, a thin ring at the pointer fills as the hold time goes, at an even rate (it shows
+   time), from the top and clockwise. A click is over before it shows. Then the halo pops. */
+.hold-ring {
+  position: fixed;
+  width: 32px;
+  height: 32px;
+  margin: -16px 0 0 -16px;
+  overflow: visible;
+  pointer-events: none;
+  transform: rotate(-90deg);
+}
+.hold-ring circle {
+  fill: none;
+  stroke: var(--brand-bright);
+  stroke-width: 1.5;
+  stroke-dasharray: 1;
+  stroke-linecap: round;
+  animation: hold-fill var(--hold) linear both;
+}
+@keyframes hold-fill {
+  from {
+    stroke-dashoffset: 1;
+    opacity: 0;
+  }
+  30% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+/* Reduced motion: a still, faint ring, after the same wait. */
+@keyframes hold-still {
+  0%,
+  30% {
+    opacity: 0;
+  }
+  30.1%,
+  to {
+    opacity: 0.4;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hold-ring circle {
+    stroke-dashoffset: 0;
+    animation: hold-still var(--hold) both;
   }
 }
 
@@ -1023,9 +1123,21 @@ button.variant.add {
   fill: var(--ink);
   opacity: 0.35;
 }
+/* On Return the structure stays where its ghost was and settles into full ink. */
+.settle {
+  animation: ink-settle var(--motion-fast) var(--ease-out);
+}
+@keyframes ink-settle {
+  from {
+    opacity: 0.35;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .name-field {
     animation: fade-in var(--motion-fast) var(--ease-out);
+  }
+  .settle {
+    animation: none;
   }
 }
 
@@ -3873,11 +3985,23 @@ button.variant.add {
     transform: scale(1.02);
   }
 }
+/* The first time Home shows, its tiles fade up into place one after another. */
+.home-arrive .home-grid > * {
+  animation: tile-in var(--motion-fast) var(--ease-out) backwards;
+  animation-delay: calc(var(--i, 0) * 20ms);
+}
+@keyframes tile-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .home-inner,
   .name-box-inner,
   .home.leaving .home-inner,
-  .home.leaving .name-box-inner {
+  .home.leaving .name-box-inner,
+  .home-arrive .home-grid > * {
     animation: none;
   }
 }
@@ -4250,12 +4374,49 @@ button.variant.add {
   text-wrap: pretty;
 }
 .coach kbd {
+  display: inline-block;
   padding: 1px 5px;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
   color: var(--ink);
   font: 500 11px var(--font-sans);
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+/* The key chip goes down 1 px at once while its key is down, and comes back up with a motion. */
+.coach.pressed kbd {
+  transform: translateY(1px);
+  transition: none;
+}
+/* The end card's mark: the file as it is, with a cover in the card's colour that leaves it round the ring from the
+   top, so the ring seems to draw itself. The white mark on the dark theme, as Home has it. */
+.coach-mark {
+  display: block;
+  margin-bottom: var(--space-4);
+}
+.coach-mark .on-dark {
+  display: none;
+}
+@media (prefers-color-scheme: dark) {
+  .coach-mark .on-light {
+    display: none;
+  }
+  .coach-mark .on-dark {
+    display: inline;
+  }
+}
+.coach-mark .cover {
+  fill: none;
+  stroke: var(--surface-raised);
+  stroke-width: 240;
+  stroke-dasharray: 1;
+  stroke-dashoffset: -1;
+  animation: mark-draw var(--motion-slow) var(--ease-out) backwards;
+}
+@keyframes mark-draw {
+  from {
+    stroke-dashoffset: 0;
+  }
 }
 .coach-foot {
   display: flex;
@@ -4301,6 +4462,13 @@ button.variant.add {
   }
   .tool.coach-target {
     animation: none;
+  }
+  .coach-mark .cover {
+    animation: none;
+  }
+  .coach.pressed kbd {
+    transform: none;
+    background: var(--brand-mist);
   }
 }
 

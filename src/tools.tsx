@@ -84,7 +84,9 @@ const SPECIAL: Tool[] = ["tlc", "table", "fragment", "map"];
 type Strip = "select" | "bond" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "shape" | "bracket" | "more";
 const isStrip = (t: Tool): t is Exclude<Strip, "more"> => t === "select" || t === "bond" || t === "ring" || t === "template" || t === "symbol" || t === "orbital" || t === "arrow" || t === "shape" || t === "bracket";
 // Strips laid out as a grid of icons (named on hover): each row a shape across its styles.
-const HOLD_MS = 300; // pressing a tool this long opens its strip
+// One hold time for every press and hold (FEEL-37): a tool pressed this long opens its strip, and on the canvas Select
+// takes over from a drawing tool.
+export const HOLD_MS = 350;
 
 // Tool icons in Phosphor's style (256 grid, 16-unit round strokes). Each one draws the real object.
 function Icon({ children }: { children: React.ReactNode }) {

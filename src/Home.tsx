@@ -74,8 +74,16 @@ type Props = {
   onStarter: (text: string) => void; // opens an example drawing as a new drawing
 };
 
+// The first time Home shows (not when a drawing closes back to it), its tiles arrive one after another (FEEL-44): the
+// first eight a step apart, the rest with the eighth.
+let arrived = false;
+const arrive = (k: number) => ({ "--i": Math.min(k, 7) }) as React.CSSProperties;
+
 export function Home(p: Props) {
   const grid = useRef<HTMLDivElement>(null), page = useRef<HTMLElement>(null), now = new Date();
+  const [first] = useState(() => !arrived);
+  useEffect(() => { arrived = true; }, []);
+  const n = p.purposes.length;
   // Home covers the editor, which takes no keys or clicks until Home goes.
   useModal(page, !p.leaving);
   // Return makes a new drawing for the purpose picked last (as decision 0003 asks) unless a tile has the focus; arrow
@@ -103,7 +111,7 @@ export function Home(p: Props) {
           </picture>
         </header>
         <h1 className="home-greeting">{greeting(p.name, now, p.first, p.away)}</h1>
-        <div ref={grid}>
+        <div ref={grid} className={first ? "home-arrive" : undefined}>
         <div className="home-row">
           <h2>New</h2>
           <button className="home-open" onClick={p.onOpen}>
@@ -113,8 +121,8 @@ export function Home(p: Props) {
           </button>
         </div>
         <div className="home-grid purposes" role="group" aria-label="New">
-          {p.purposes.map((t) => (
-            <div key={t.id} className="home-slot">
+          {p.purposes.map((t, k) => (
+            <div key={t.id} className="home-slot" style={arrive(k)}>
               <button className="home-tile new" onClick={() => p.onNew(t.id)} autoFocus={t.id === p.purpose}>
                 <span className="home-thumb"><PurposePicture style={t.style} kind={t.kind} /></span>
                 <span className="home-caption">
@@ -128,8 +136,8 @@ export function Home(p: Props) {
         </div>
         <div className="home-row"><h2>{p.recents.length ? "Recent" : "Examples"}</h2></div>
         <div className="home-grid">
-          {!p.recents.length && STARTERS.map((s) => (
-            <button key={s.name} className="home-tile" onClick={() => p.onStarter(s.text)}>
+          {!p.recents.length && STARTERS.map((s, k) => (
+            <button key={s.name} className="home-tile" onClick={() => p.onStarter(s.text)} style={arrive(n + k)}>
               <span className="home-thumb" data-theme="light"><img src={s.picture} alt="" draggable={false} /></span>
               <span className="home-caption">
                 <span className="home-name">{s.name}</span>
@@ -137,8 +145,8 @@ export function Home(p: Props) {
               </span>
             </button>
           ))}
-          {p.recents.map((r) => (
-            <div key={r.path} className={r.found ? "home-slot" : "home-slot missing"}>
+          {p.recents.map((r, k) => (
+            <div key={r.path} className={r.found ? "home-slot" : "home-slot missing"} style={arrive(n + k)}>
               <button className="home-tile" onClick={() => p.onRecent(r)} data-tip={r.path}>
                 {/* The picture is of the white page (export.ts draws it in the light theme), so it stays on white. With
                     no picture, the tile takes the theme, as the New tiles do. */}

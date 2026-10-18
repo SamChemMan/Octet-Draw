@@ -17,11 +17,12 @@ for (const t of json.motion.tokens.filter((x) => x.name.startsWith("motion") && 
 }
 
 // Every transition and animation in editor.css uses the tokens. The only times typed by hand: the carried option's
-// lean (90 ms, shorter than any token), the ripple's step and the loops that pulse while something waits.
+// lean (90 ms, shorter than any token), the ripple's step, the Home tiles' step and the loops that pulse while
+// something waits. The one curve typed by hand: the hold ring fills at an even rate, as it shows the hold time.
 const lines = css.split("\n").map((text, i) => ({ text, line: i + 1 })).filter((l) => /^\s+(transition|animation)(-delay)?:/.test(l.text));
 assert.ok(lines.length > 100, "found the motion rules");
 for (const { text, line } of lines) {
-  const left = text.replace(/var\(--[\w-]+\)/g, "").replace("transform 90ms", "").replace("22ms", "").replace(/\d+(\.\d+)?s ease-in-out infinite/, "");
+  const left = text.replace(/var\(--[\w-]+\)/g, "").replace("transform 90ms", "").replace("22ms", "").replace("* 20ms", "").replace(/hold-fill\s+linear/, "").replace(/\d+(\.\d+)?s ease-in-out infinite/, "");
   assert.ok(!/\d+m?s\b/.test(left), `editor.css:${line} types a time: ${text.trim()}`);
   assert.ok(!/cubic-bezier|(^|[\s,])(ease|ease-out|ease-in|linear)([\s,;]|$)/.test(left), `editor.css:${line} types a curve: ${text.trim()}`);
 }
