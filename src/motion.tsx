@@ -4,9 +4,10 @@ import { cloneElement, createContext, isValidElement, useContext, useEffect, use
 
 export const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 // A motion token (--motion-fast, --motion, --motion-slow) as Web Animations timing, with the brand's ease-out.
+// The build writes 150ms as .15s, so a value in seconds becomes milliseconds here.
 export function timing(token = "--motion") {
-  const root = getComputedStyle(document.documentElement);
-  return { duration: parseFloat(root.getPropertyValue(token)) || 180, easing: root.getPropertyValue("--ease-out").trim() || "ease-out" };
+  const root = getComputedStyle(document.documentElement), value = root.getPropertyValue(token).trim();
+  return { duration: parseFloat(value) * (/\ds$/.test(value) ? 1000 : 1) || 180, easing: root.getPropertyValue("--ease-out").trim() || "ease-out" };
 }
 // Motion that CSS cannot do (atoms moving from one drawing to the next): step gets how far the motion has got, 0 to 1
 // with the brand's ease-out, once a frame, and 1 last. The returned function stops it.
