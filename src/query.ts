@@ -2,7 +2,7 @@
 // element and NOT lists, link nodes, anonymous alternative groups), the indicators ChemDraw draws for atom and bond
 // query properties, R-group definitions, and what a polymer bracket encloses and is labelled.
 import { ELEMENTS, isGeneric } from "./labels.ts";
-import { inShape, isBracket, type Atom, type AtomQuery, type Bond, type BracketUsage, type Mol, type Polymer, type Shape } from "./render.ts";
+import { inShape, isBracket, turnPoint, type Atom, type AtomQuery, type Bond, type BracketUsage, type Mol, type Polymer, type Shape } from "./render.ts";
 
 export { GENERICS, isGeneric } from "./labels.ts";
 
@@ -151,11 +151,30 @@ export function repeatCount(p: Polymer, unitWeight?: number): number | undefined
   return m ? (m[2] ? (Number(m[1]) + Number(m[2])) / 2 : Number(m[1])) : undefined;
 }
 
-// What a pair of brackets encloses: the atoms inside the box, and the bonds that cross it (one atom in, one out).
+// What a pair of brackets encloses: the atoms inside the box, and the atoms joined to them by bonds that cross neither
+// bracket (a substituent drawn out past the top of the box is in the repeat unit, as ChemDraw counts the Ph of
+// –[CH(Ph)CH2]n–); and the bonds that cross a bracket (one atom in, one out).
 export function enclosed(m: Mol, sh: Shape): { atoms: number[]; crossing: number[] } {
-  const inside = new Set<number>();
+  const inside = new Set<number>(), near: number[][] = m.atoms.map(() => []);
   m.atoms.forEach((a, i) => { if (inShape(sh, [a.location[0], a.location[1]])) inside.add(i); });
-  return { atoms: [...inside], crossing: m.bonds.flatMap((b, k) => (inside.has(b.atoms[0]) !== inside.has(b.atoms[1]) ? [k] : [])) };
+  m.bonds.forEach((b, k) => { near[b.atoms[0]].push(k); near[b.atoms[1]].push(k); });
+  // A bond crosses a bracket where it passes the bracket's line, in the box's own (upright) frame.
+  const mid: [number, number] = [(sh.from[0] + sh.to[0]) / 2, (sh.from[1] + sh.to[1]) / 2];
+  const up = (i: number): [number, number] => { const q = m.atoms[i].location; return sh.angle ? turnPoint([q[0], q[1]], mid, -sh.angle) : [q[0], q[1]]; };
+  const y0 = Math.min(sh.from[1], sh.to[1]), y1 = Math.max(sh.from[1], sh.to[1]);
+  const crosses = (b: Bond) => {
+    const [p, q] = [up(b.atoms[0]), up(b.atoms[1])];
+    return [sh.from[0], sh.to[0]].some((x) => (p[0] - x) * (q[0] - x) < 0 && Math.abs(p[1] + ((x - p[0]) / (q[0] - p[0])) * (q[1] - p[1]) - (y0 + y1) / 2) <= (y1 - y0) / 2);
+  };
+  const stack = [...inside];
+  while (stack.length) {
+    const i = stack.pop()!;
+    for (const k of near[i]) {
+      const b = m.bonds[k], j = b.atoms[0] === i ? b.atoms[1] : b.atoms[0];
+      if (!inside.has(j) && !crosses(b)) { inside.add(j); stack.push(j); }
+    }
+  }
+  return { atoms: [...inside].sort((p, q) => p - q), crossing: m.bonds.flatMap((b, k) => (inside.has(b.atoms[0]) !== inside.has(b.atoms[1]) ? [k] : [])) };
 }
 // The polymer brackets of a drawing that enclose atoms, with what they enclose.
 export function polymerBrackets(m: Mol): { sh: Shape; atoms: number[]; crossing: number[] }[] {

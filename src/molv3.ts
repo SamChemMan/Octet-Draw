@@ -6,8 +6,8 @@
 // other molfiles. A file is hostile: sizes are capped and every number checked.
 import { expandLabel, fragments } from "./edit.ts";
 import { ELEMENTS, isElement } from "./labels.ts";
-import { altGroup, elementList, linkNode, queryLabel, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
-import { hydrogens, inShape, NONMETAL, ORDER, type Atom, type AtomQuery, type Bond, type BracketUsage, type Mol, type Polymer, type Shape } from "./render.ts";
+import { altGroup, elementList, enclosed, linkNode, queryLabel, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
+import { hydrogens, NONMETAL, ORDER, type Atom, type AtomQuery, type Bond, type BracketUsage, type Mol, type Polymer, type Shape } from "./render.ts";
 
 type P = [number, number];
 const RAD_OUT: Record<number, number> = { 1: 2, 2: 3, 3: 1 }; // Octet's radical (doublet, triplet, singlet) to MDL's
@@ -152,7 +152,7 @@ function ctab(m: Mol, shapes: Shape[], member = false): string[] {
   let ns = 0;
   for (const sh of shapes) {
     if (!sh.polymer || sh.side) continue;
-    const inside = m.atoms.flatMap((a, i) => (keep[i] && inShape(sh, [a.location[0], a.location[1]]) ? [i] : []));
+    const inside = enclosed(m, sh).atoms.filter((i) => keep[i]);
     if (!inside.length) continue;
     const set = new Set(inside), p = sh.polymer, u = USAGES[p.usage], k = ++ns, extra: string[] = [];
     const xbonds = m.bonds.flatMap((b, j) => (set.has(b.atoms[0]) !== set.has(b.atoms[1]) ? [j + 1] : []));

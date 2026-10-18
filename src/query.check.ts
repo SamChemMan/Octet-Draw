@@ -272,6 +272,14 @@ console.log("query.check: MOL V3000 ok");
   const ended: Mol = { ...pe, atoms: [...pe.atoms.slice(0, 3), A("O", 3, 0)], bonds: pe.bonds };
   assert.deepEqual(formula(ended), ["HO(C2H4)n"], "–[CH2CH2]n–OH");
   assert.equal(massText(analyse(ended)![0], "weight", 2), "17.01 + (28.05)n");
+  // A substituent drawn out past the box (polystyrene's Ph above it) is in the repeat unit, as ChemDraw counts it; so
+  // is the Ph of the corpus file's polystyrene, which ChemDraw lists in its bracketed group.
+  const ps: Mol = { atoms: [A("C", 0, 0), A("C", 1, 0.5), A("C", 2, 0), A("C", 3, 0.5), A("C", 1, 1.5, { text: "Ph" })], bonds: [b(0, 1), b(1, 2), b(2, 3), b(1, 4)],
+    shapes: [{ id: 1, kind: "brackets", from: [0.5, 0.9], to: [2.5, -0.4], polymer: { usage: "sru" } }] };
+  assert.deepEqual(enclosed(ps, ps.shapes![0]), { atoms: [1, 2, 4], crossing: [0, 2] });
+  assert.deepEqual(formula(ps), ["(C8H8)n"]);
+  assert.match(toMolfile(ps).replace(/-\nM {2}V30 /g, ""), /SRU 0 ATOMS=\(8 /, "the SRU holds the Ph's atoms too");
+  try { assert.deepEqual(formula(fromCdxml(readFileSync(corpus, "utf8")).mol), ["(C8H8)n"]); } catch (e) { if ((e as { code?: string }).code !== "ENOENT") throw e; }
   // A multiple group of 3 and a parameterizable bracket with an Mw multiply out.
   assert.deepEqual(formula({ ...pe, shapes: [{ ...pe.shapes![0], polymer: { usage: "mult", label: "3" } }] }), ["C8H18"], "CH3(CH2CH2)3CH3");
   const benzene: Mol = { atoms: ring(0, 0, 6), bonds: [b(0, 1, { type: 2 }), b(1, 2), b(2, 3, { type: 2 }), b(3, 4), b(4, 5, { type: 2 }), b(5, 0)], shapes: [{ id: 1, kind: "brackets", from: [-1.5, 1.5], to: [1.5, -1.5], polymer: { usage: "param", mw: 200 } }] };
