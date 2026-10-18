@@ -114,7 +114,7 @@ export function Home(p: Props) {
                   {t.id === p.purpose && <kbd>{p.newKey}</kbd>}
                 </span>
               </button>
-              {t.own && <button className="home-remove" onClick={() => p.onRemovePurpose(t.id)} aria-label={`Remove ${t.name} from New`} title="Remove from New"><X size={12} weight="bold" /></button>}
+              {t.own && <button className="home-remove" onClick={() => p.onRemovePurpose(t.id)} aria-label={`Remove ${t.name} from New`} title="Remove from New"><X size={12} /></button>}
             </div>
           ))}
         </div>
@@ -131,7 +131,7 @@ export function Home(p: Props) {
                   <span className="home-when">{r.found ? when(r.at, now) : "Moved or deleted"}</span>
                 </span>
               </button>
-              <button className="home-remove" onClick={() => p.onRemove(r)} aria-label={`Remove ${r.name} from Home`} title="Remove from Home"><X size={12} weight="bold" /></button>
+              <button className="home-remove" onClick={() => p.onRemove(r)} aria-label={`Remove ${r.name} from Home`} title="Remove from Home"><X size={12} /></button>
             </div>
           ))}
         </div>

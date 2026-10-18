@@ -1,6 +1,6 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { hydrogens, lonePairs, tableLayout, TABLE_ROW, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape, type Table } from "./render.ts";
+import { hydrogens, lonePairs, settleShape, tableLayout, tableRow, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape, type Table } from "./render.ts";
 import type { Cycle } from "./cycle.ts";
 import { anchorElement, isElement } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
@@ -317,7 +317,9 @@ export const outerGroups = (gs: Grouped[]) => { const parents = groupParents(gs)
 // Groups after an edit or a read: each lists an atom or object once, only those that are there, and the text that
 // belongs to its members unless another group has that text. Two groups that share something without one holding
 // the other become one (Integral if either was). A group holds two or more things (structures, objects or groups);
-// one with fewer goes, and gives its Integral to a group it held alone. Returns the same drawing when nothing changes.
+// one with fewer goes, and gives its Integral to a group it held alone. A group of one text that belongs to something
+// in another group stays: a ChemDraw file keeps conditions out of the arrow's group that way, and without it the
+// text would join that group on the next edit or save. Returns the same drawing when nothing changes.
 export function tidyGroups(m: Mol, frags = m.groups?.length ? fragments(m) : []): Mol {
   if (!m.groups?.length) return m;
   const ids = new Set([...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? [])].map((x) => x.id));
@@ -343,10 +345,12 @@ export function tidyGroups(m: Mol, frags = m.groups?.length ? fragments(m) : [])
     const held = membersOf({ atoms: kids[k].flatMap((j) => gs[j].atoms), items: kids[k].flatMap((j) => gs[j].items) });
     return kids[k].length + new Set(gs[k].atoms.filter((i) => !held.atoms.has(i)).map((i) => of.get(i) ?? -1 - i)).size + gs[k].items.filter((id) => !held.items.has(id)).length;
   };
+  const captions = new Map((m.captions ?? []).map((c) => [c.id, c])), inGroups = membersOf({ atoms: gs.flatMap((g) => g.atoms), items: gs.flatMap((g) => g.items) });
+  const ownText = (g: Grouped) => { const c = !g.atoms.length && g.items.length === 1 ? captions.get(g.items[0]) : undefined; return !!c && (c.under?.length ? inGroups.atoms.has(c.under[0]) : c.on ? inGroups.items.has(c.on.arrow) : !!c.cycle && inGroups.items.has(c.cycle.cycle)); };
   const integral = gs.map((g) => !!g.integral), gone = new Set<number>();
   for (const k of gs.map((_, k) => k).sort((p, q) => sizeOf(gs[q]) - sizeOf(gs[p]) || p - q)) {
     const n = things(k);
-    if (n >= 2) continue;
+    if (n >= 2 || (!kids[k].length && ownText(gs[k]))) continue;
     gone.add(k);
     if (integral[k] && n === 1 && kids[k].length === 1) integral[kids[k][0]] = true;
   }
@@ -816,6 +820,15 @@ export function addShape(m: Mol, sh: Omit<Shape, "id">): [Mol, number] {
   // A highlight goes behind the shapes already there; anything else on top.
   return [{ ...m, shapes: sh.kind === "highlight" ? [{ ...sh, id }, ...(m.shapes ?? [])] : [...(m.shapes ?? []), { ...sh, id }] }, id];
 }
+// A shape's corner dragged to p (drawing units): the opposite corner stays where it is, and a turned shape keeps its
+// angle, so it grows or shrinks along its own sides.
+export function resizeShape(sh: Shape, which: "from" | "to" | "c1" | "c2", p: P): Pick<Shape, "from" | "to"> {
+  const sign = { from: [-1, -1], to: [1, 1], c1: [-1, 1], c2: [1, -1] }[which], r = ((sh.angle ?? 0) * Math.PI) / 180, cs = Math.cos(r), sn = Math.sin(r);
+  const c = [(sh.from[0] + sh.to[0]) / 2, (sh.from[1] + sh.to[1]) / 2], off = [(-sign[0] * (sh.to[0] - sh.from[0])) / 2, (-sign[1] * (sh.to[1] - sh.from[1])) / 2];
+  const fixed = [c[0] + off[0] * cs - off[1] * sn, c[1] + off[0] * sn + off[1] * cs], d = [p[0] - fixed[0], p[1] - fixed[1]];
+  const v = [d[0] * cs + d[1] * sn, -d[0] * sn + d[1] * cs], mid = [(fixed[0] + p[0]) / 2, (fixed[1] + p[1]) / 2], half = [(sign[0] * v[0]) / 2, (sign[1] * v[1]) / 2];
+  return { from: [mid[0] - half[0], mid[1] - half[1]], to: [mid[0] + half[0], mid[1] + half[1]] };
+}
 export const updateShape = (m: Mol, id: number, change: Partial<Shape>): Mol =>
   ({ ...m, shapes: m.shapes?.map((x) => (x.id === id ? { ...x, ...change } : x)) });
 
@@ -845,20 +858,26 @@ export function scaleSettings(m: Mol, atoms: Set<number>, items: Set<number>, k:
     captions: m.captions?.map((c) => (goes(c) ? caption(c, k, captionSize) : c)),
   };
 }
-// A new document scale: every size the drawing holds in points (an atom's own label size, caption and run sizes, a
-// table's line weight) times r, so text stays in proportion to the bonds.
+// A new document scale: every size the drawing holds in points (an atom's own label size, caption and run sizes, an
+// arrow's or shape's own line width, a table's line weight, a table's or TLC plate's text size) times r, so text and
+// lines stay in proportion to the bonds.
 export function scaleSizes(m: Mol, r: number): Mol {
   if (r === 1) return m;
   return {
     ...m,
     atoms: m.atoms.map((a) => (a.size ? { ...a, size: points(a.size * r) } : a)),
     captions: m.captions?.map((c) => (c.size || c.runs?.some((x) => x.size) ? caption(c, r) : c)),
-    shapes: m.shapes?.map((x) => (x.table?.weight ? { ...x, table: { ...x.table, weight: Math.round(x.table.weight * r * 1e4) / 1e4 } } : x)),
+    shapes: m.shapes?.map((x) => owned(x, r)),
+    arrows: m.arrows?.map((a) => (a.width ? { ...a, width: times(a.width, r) } : a)),
   };
 }
+// A shape's sizes in points times r: its line width, a table's line weight, and the size of a table's or TLC plate's text.
+const owned = (x: Shape, r: number): Shape => (x.width || x.size || x.table?.weight
+  ? { ...x, ...(x.width ? { width: times(x.width, r) } : {}), ...(x.size ? { size: points(x.size * r) } : {}), ...(x.table?.weight ? { table: { ...x.table, weight: times(x.table.weight, r) } } : {}) } : x);
 // Rotate…, Scale…, the selection's handles, the Turn keys and the flips: the chosen atoms and objects moved point by
 // point by f, as one thing, so a group's objects keep their places relative to each other (as ChemDraw's). size: how
-// much shapes, tables and cycles grow across and up (they turn about their middles and keep their own shape).
+// much shapes, tables and cycles grow across and up (they keep their own shape, and boxes, ovals and brackets turn by
+// their angle; TLC plates and tables stay upright).
 // centres: each free caption's middle (from its laid-out box). A caption's middle moves by f, and its anchor keeps its
 // place from the middle, times text (how much its text grows), so text reads the same way after a turn or a flip, and
 // grows about its middle or keeps its size. mirror: f turns the drawing over, so curved arrows bend, half heads point,
@@ -879,10 +898,17 @@ export function transformParts(m: Mol, atoms: Set<number>, items: Set<number>, f
       ...(mirror && a.bend ? { bend: -a.bend } : {}), ...(mirror && a.start ? { start: over(a.start) } : {}), ...(mirror && a.end ? { end: over(a.end) } : {}) } : a)),
     shapes: m.shapes?.map((x) => {
       if (!items.has(x.id)) return x;
-      const to = f(mul(add(x.from, x.to), 0.5)), half: P = [((x.to[0] - x.from[0]) / 2) * size[0], ((x.to[1] - x.from[1]) / 2) * size[1]];
-      const grows = size[0] !== 1 || size[1] !== 1;
+      // A turned shape stretched across or up grows along its own sides by as much as each side grows on the page,
+      // and leans as its long side does.
+      const c = mul(add(x.from, x.to), 0.5), to = f(c), r = ((x.angle ?? 0) * Math.PI) / 180, [cs, sn] = [Math.cos(r), Math.sin(r)];
+      const leans = !!x.angle && size[0] !== size[1], k: P = leans ? [Math.hypot(size[0] * cs, size[1] * sn), Math.hypot(size[0] * sn, size[1] * cs)] : size;
+      const half: P = [((x.to[0] - x.from[0]) / 2) * k[0], ((x.to[1] - x.from[1]) / 2) * k[1]], grows = size[0] !== 1 || size[1] !== 1;
       const table = x.table && grows ? { ...x.table, ...(x.table.widths ? { widths: x.table.widths.map((w) => w * size[0]) } : {}), ...(x.table.heights ? { heights: x.table.heights.map((h) => h * size[1]) } : {}) } : x.table;
-      return { ...x, from: sub(to, half), to: add(to, half), ...(table ? { table } : {}), ...(mirror === "across" && x.side ? { side: x.side === "left" ? "right" as const : "left" as const } : {}) };
+      // Boxes, ovals and brackets turn as f turns them (their angle); a flip turns the angle the other way.
+      const e = f([c[0] + 1, c[1]]), turn = (Math.atan2(e[1] - to[1], e[0] - to[0]) * 180) / Math.PI;
+      const angle = leans ? (Math.atan2(size[1] * sn, size[0] * cs) * 180) / Math.PI : (x.angle ?? 0) + turn;
+      return settleShape({ ...x, from: sub(to, half), to: add(to, half), ...(table ? { table } : {}), ...(mirror === "across" && x.side ? { side: x.side === "left" ? "right" as const : "left" as const } : {}),
+        angle: mirror ? -(x.angle ?? 0) : angle });
     }),
     cycles: m.cycles?.map((c) => (items.has(c.id) ? { ...c, centre: f(c.centre), radius: c.radius * both, ...(mirror ? { clockwise: !c.clockwise } : {}) } : c)),
   };
@@ -895,8 +921,9 @@ export function medianBond(m: Mol, atoms: Set<number>): number | undefined {
 // A paste or import from a drawing with other sizes, as ChemDraw scales it: positions are in bond lengths, so
 // structures, arrows and shapes take this drawing's bond length and keep their own scale. An atom's own label size
 // goes by the ratio of the label sizes; a caption's size, its own or the source's, by the ratio of the bond lengths
-// (24 pt beside 30 pt bonds becomes 11.5 pt beside 14.4 pt bonds), and so does a table's line weight. A caption that
-// comes out at this drawing's caption size is left without a size of its own.
+// (24 pt beside 30 pt bonds becomes 11.5 pt beside 14.4 pt bonds), and so do own line widths, a table's line weight
+// and a table's or TLC plate's text size. A caption that comes out at this drawing's caption size is left without a
+// size of its own.
 export function fitSizes(m: Mol, from: Pick<DocStyle, "bond" | "labelSize" | "captionSize">, to: Pick<DocStyle, "bond" | "labelSize" | "captionSize">): Mol {
   const label = to.labelSize / from.labelSize, k = to.bond / from.bond;
   if (Math.abs(label - 1) < 1e-9 && Math.abs(k - 1) < 1e-9) return m;
@@ -908,7 +935,8 @@ export function fitSizes(m: Mol, from: Pick<DocStyle, "bond" | "labelSize" | "ca
     ...m,
     atoms: m.atoms.map((a) => (a.size ? { ...a, size: points(a.size * label) } : a)),
     captions: m.captions?.map(fitted),
-    shapes: m.shapes?.map((x) => (x.table?.weight ? { ...x, table: { ...x.table, weight: Math.round(x.table.weight * k * 1e4) / 1e4 } } : x)),
+    shapes: m.shapes?.map((x) => owned(x, k)),
+    arrows: m.arrows?.map((a) => (a.width ? { ...a, width: times(a.width, k) } : a)),
   };
 }
 // Atom maps. Pairing two atoms gives both the first one's number, or the second's, or the next free number; the
@@ -1004,7 +1032,7 @@ export function sizeTable(sh: Shape, size: { widths?: number[]; heights?: number
 export function fitTable(sh: Shape, measure?: (text: string) => number): Partial<Shape> {
   const { widths: _w, heights: _h, ...table } = sh.table!, t = tableLayout({ ...sh, table }, measure);
   void _w; void _h;
-  return { from: [t.x0, t.y1], to: [t.x0 + t.natural.reduce((a, b) => a + b, 0), t.y1 - t.rows * TABLE_ROW * t.f], table };
+  return { from: [t.x0, t.y1], to: [t.x0 + t.natural.reduce((a, b) => a + b, 0), t.y1 - t.rows * tableRow(sh) * t.f], table };
 }
 // Clear Contents: every cell empty, except the entry numbers and their header when the first column counts.
 export function clearTable(sh: Shape): Partial<Shape> {
@@ -1206,10 +1234,18 @@ export function hingeOf(m: Mol, ids: Set<number>): [number, number] | undefined 
   const [a, b] = joins[0].atoms;
   return ids.has(a) ? [a, b] : [b, a];
 }
+// The atom a turn of some atoms goes about, as ChemDraw's: the one atom every bond out of them leaves from (a
+// substituent turns about the atom that joins it to the rest), else the one atom left out that every bond out of them
+// goes to (a structure with one atom not selected turns about that atom). None when there is no such atom.
+export function pivotOf(m: Mol, ids: Set<number>): number | undefined {
+  const out = m.bonds.filter((b) => ids.has(b.atoms[0]) !== ids.has(b.atoms[1]));
+  const one = (end: (b: Bond) => number) => { const ends = new Set(out.map(end)); return ends.size === 1 ? [...ends][0] : undefined; };
+  return one((b) => (ids.has(b.atoms[0]) ? b.atoms[0] : b.atoms[1])) ?? one((b) => (ids.has(b.atoms[0]) ? b.atoms[1] : b.atoms[0]));
+}
 
 // Copy: the selected atoms (with the bonds between them) and picked objects as a drawing of their own, with the
-// text that belongs to them (captions under the copied atoms, conditions on copied arrows, labels of copied cycles)
-// and the groups wholly inside. Ids stay as they were; insertMol gives new ones.
+// text that belongs to them (captions under the copied atoms, conditions on copied arrows, labels of copied cycles),
+// the groups wholly inside and the stoichiometry grids of copied arrows. Ids stay as they were; insertMol gives new ones.
 export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>): Mol {
   const sel = [...atoms].filter((i) => i < m.atoms.length).sort((p, q) => p - q), map = new Map(sel.map((i, k) => [i, k]));
   const arrows = (m.arrows ?? []).filter((a) => items.has(a.id)), cycles = (m.cycles ?? []).filter((c) => items.has(c.id) && c.nodes.every((n) => n.every((i) => map.has(i))));
@@ -1223,6 +1259,7 @@ export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>)
     arrows, shapes: (m.shapes ?? []).filter((x) => items.has(x.id)),
     cycles: cycles.map((c) => ({ ...c, nodes: c.nodes.map((n) => n.map((i) => map.get(i)!)) })),
     groups: (m.groups ?? []).filter((g) => g.atoms.every((i) => map.has(i)) && g.items.every((id) => ids.has(id))).map((g) => ({ ...g, atoms: g.atoms.map((i) => map.get(i)!) })),
+    grids: (m.grids ?? []).filter((g) => keep.has(g.arrow)),
   };
 }
 // Paste: another drawing added to this one, moved by offset, with new ids for its objects. Returns the drawing, the

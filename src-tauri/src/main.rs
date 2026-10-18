@@ -40,6 +40,9 @@ struct MenuKeys(Mutex<HashMap<String, String>>);
 struct MenuList(Mutex<Vec<(String, String, String, String)>>);
 #[derive(Default)]
 struct Palette(Mutex<Vec<String>>);
+// The Text menu's fonts and sizes: the same lists as the Actions panel's, sent by the page.
+#[derive(Default)]
+struct TextLists(Mutex<(Vec<String>, Vec<f64>)>);
 type Built = (Menu<Wry>, Vec<CheckMenuItem<Wry>>, Vec<(String, String, String, String)>);
 
 // The menu bar built again with the user's colours and shortcuts. A shortcut the menu cannot take leaves every
@@ -47,7 +50,8 @@ type Built = (Menu<Wry>, Vec<CheckMenuItem<Wry>>, Vec<(String, String, String, S
 fn rebuild(app: &AppHandle) -> Result<(), String> {
     let names = app.state::<Palette>().0.lock().unwrap().clone();
     let keys = app.state::<MenuKeys>().0.lock().unwrap().clone();
-    let (bar, checks, list) = menu(app, &names, &keys).or_else(|_| menu(app, &names, &HashMap::new())).map_err(|e| e.to_string())?;
+    let text = app.state::<TextLists>().0.lock().unwrap().clone();
+    let (bar, checks, list) = menu(app, &names, &text, &keys).or_else(|_| menu(app, &names, &text, &HashMap::new())).map_err(|e| e.to_string())?;
     app.set_menu(bar).map_err(|e| e.to_string())?;
     *app.state::<Checks>().0.lock().unwrap() = checks;
     *app.state::<MenuList>().0.lock().unwrap() = list;
@@ -65,28 +69,6 @@ fn menu_items(list: State<'_, MenuList>) -> Vec<(String, String, String, String)
 fn set_menu_keys(app: AppHandle, keys: HashMap<String, String>) -> Result<(), String> {
     let keys: HashMap<String, String> = keys.into_iter().filter(|(id, k)| id.len() <= 60 && k.len() <= 40 && !k.chars().any(char::is_control)).take(500).collect();
     *app.state::<MenuKeys>().0.lock().unwrap() = keys;
-    rebuild(&app)
-}
-
-// The document's scale: the Text > Size menu offers ChemDraw's sizes times it (decision 0007). A new scale builds
-// the menu bar again; the frontend sets its check marks again afterwards.
-struct TextScale(Mutex<f64>);
-impl Default for TextScale {
-    fn default() -> Self {
-        TextScale(Mutex::new(1.0))
-    }
-}
-
-#[tauri::command]
-fn set_text_scale(app: AppHandle, held: State<'_, TextScale>, scale: f64) -> Result<(), String> {
-    let scale = if scale.is_finite() { scale.clamp(0.1, 10.0) } else { 1.0 };
-    {
-        let mut held = held.0.lock().unwrap();
-        if (*held - scale).abs() < 1e-9 {
-            return Ok(());
-        }
-        *held = scale;
-    }
     rebuild(&app)
 }
 
@@ -123,6 +105,17 @@ fn set_purposes(app: AppHandle, held: State<'_, Purposes>, names: Vec<String>, c
         }
         *held = next;
     }
+    rebuild(&app)
+}
+
+// The Text menu's fonts (Octet's and the drawing's, 60 at most, names cut to 64 characters) and sizes (40 at most,
+// 0.1 to 999 pt, as a document scale gives them, decision 0007), as the Actions panel lists them; the menu bar is
+// built again with them.
+#[tauri::command]
+fn set_text_lists(app: AppHandle, fonts: Vec<String>, sizes: Vec<f64>) -> Result<(), String> {
+    let fonts: Vec<String> = fonts.into_iter().take(60).map(|n| n.chars().filter(|c| !c.is_control()).take(64).collect()).collect();
+    let sizes: Vec<f64> = sizes.into_iter().filter(|s| s.is_finite() && (0.1..=999.0).contains(s)).take(40).collect();
+    *app.state::<TextLists>().0.lock().unwrap() = (fonts, sizes);
     rebuild(&app)
 }
 
@@ -233,7 +226,7 @@ async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<St
 
 // File and Edit menus. Custom items send their id to the page as a "menu" event; Cut, Copy and Paste
 // stay native so the page gets ordinary clipboard events. Select All selects the drawing, not the page.
-fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>) -> tauri::Result<Built> {
+fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), overrides: &HashMap<String, String>) -> tauri::Result<Built> {
     // Every command goes through here: it is listed (with the menu it is in) and takes the user's shortcut if they
     // set one, else its default ("" for none).
     let (list, section) = (RefCell::new(Vec::new()), RefCell::new(String::new()));
@@ -322,7 +315,7 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
         &item("aromatic_display", "Toggle Aromatic Display", "Alt+CmdOrCtrl+K")?,
         &item("structure_perspective", "Structure Perspective", "Alt+CmdOrCtrl+S")?,
         &sep()?,
-        &item("stoichiometry", "Analyze Stoichiometry", "")?,
+        &item("stoichiometry", "Analyse Stoichiometry", "")?,
         &sep()?,
         &item("predict_1h", "Predict ¹H-NMR Shifts", "")?,
         &item("predict_13c", "Predict ¹³C-NMR Shifts", "")?,
@@ -383,26 +376,26 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
         &item("rotate_dialog", "Rotate…", "CmdOrCtrl+R")?,
         &item("scale_dialog", "Scale…", "CmdOrCtrl+K")?,
     ])?;
-    // Text commands style the caption being typed, or the picked captions.
+    // Text commands style the caption being typed, the picked captions, or the selected atom labels. The fonts and
+    // sizes are the Actions panel's (the page sends them); Other Size… types any size, and Last Typed Size uses it
+    // again (ChemDraw's Other… and Set Font Size To Last One).
     section.replace("Text › Size".into());
-    let scale = *app.state::<TextScale>().0.lock().unwrap();
-    let sizes = [5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 24]
-        .map(|pt| {
-            // As the page rounds it (roundPt): to the nearest half point from 5 pt, and to the nearest tenth below.
-            let v = pt as f64 * scale;
-            let v = if v >= 5.0 { (v * 2.0).round() / 2.0 } else { ((v * 10.0).round() / 10.0).max(0.1) };
-            item(&format!("size_{pt}"), &if v.fract() == 0.0 { format!("{v:.0} pt") } else { format!("{v:.1} pt") }, "")
-        })
-        .into_iter()
+    let sizes = text.1.iter()
+        .map(|pt| item(&format!("size_{pt}"), &format!("{pt} pt"), ""))
         .collect::<tauri::Result<Vec<_>>>()?;
-    let size_items: Vec<&dyn IsMenuItem<Wry>> = sizes.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
+    let (size_other, size_last, size_sep) = (item("size_other", "Other Size…", "")?, item("size_last", "Last Typed Size", "")?, sep()?);
+    let mut size_items: Vec<&dyn IsMenuItem<Wry>> = sizes.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
+    size_items.extend([&size_sep as &dyn IsMenuItem<Wry>, &size_other, &size_last]);
     let size = Submenu::with_items(app, "Size", true, &size_items)?;
     // ChemDraw's text keys: Plain ⌘T, Bold ⌘B, Italic ⌘I, Underline ⌘U, Subscript ⌘-, Superscript ⌘+, Formula ⌘F.
+    // Fonts: Octet's and the drawing's, then Other Font…, which finds any font on the computer.
     section.replace("Text › Font".into());
-    let fonts = ["Arial", "Helvetica", "Times New Roman", "Calibri", "Cambria", "Georgia"].iter().enumerate()
-        .map(|(k, f)| item(&format!("font_{k}"), f, ""))
+    let fonts = text.0.iter()
+        .map(|f| item(&format!("font:{f}"), f, ""))
         .collect::<tauri::Result<Vec<_>>>()?;
-    let font_items: Vec<&dyn IsMenuItem<Wry>> = fonts.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
+    let (font_other, font_sep) = (item("font_other", "Other Font…", "")?, sep()?);
+    let mut font_items: Vec<&dyn IsMenuItem<Wry>> = fonts.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
+    font_items.extend([&font_sep as &dyn IsMenuItem<Wry>, &font_other]);
     let font = Submenu::with_items(app, "Font", true, &font_items)?;
     section.replace("Text".into());
     let text = Submenu::with_items(app, "Text", true, &[
@@ -419,8 +412,10 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
         &item("align_left", "Flush Left", "CmdOrCtrl+Shift+L")?,
         &item("align_centre", "Centre", "CmdOrCtrl+Shift+C")?,
         &item("align_right", "Flush Right", "CmdOrCtrl+Shift+R")?,
+        &item("align_justify", "Justified", "CmdOrCtrl+Shift+J")?,
         &sep()?,
         &size,
+        &item("line_spacing", "Line Spacing…", "")?,
     ])?;
     // Curves, as ChemDraw's Curves menu: the line, a head at either end (again takes it off), and a closed curve's fill.
     section.replace("Curves".into());
@@ -499,12 +494,12 @@ fn main() {
         .manage(MenuKeys::default())
         .manage(MenuList::default())
         .manage(Palette::default())
-        .manage(TextScale::default())
+        .manage(TextLists::default())
         .manage(Purposes::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, set_text_scale, set_purposes, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, set_text_lists, set_purposes, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback])
         .setup(|app| {
             let handle = app.handle();
-            let (bar, checks, list) = menu(handle, &[], &HashMap::new())?;
+            let (bar, checks, list) = menu(handle, &[], &Default::default(), &HashMap::new())?;
             app.set_menu(bar)?;
             app.manage(Checks(Mutex::new(checks)));
             *app.state::<MenuList>().0.lock().unwrap() = list;

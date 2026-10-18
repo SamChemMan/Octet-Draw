@@ -13,7 +13,7 @@ export function About({ onClose }: { onClose: () => void }) {
         <p className="about-name">Octet</p>
         <p className="about-version">Version {version}</p>
         <p className="about-made">
-          Made with <Heart weight="fill" size={13} className="about-heart" aria-label="love" /> in Manchester and Cambridge by{" "}
+          Made with <Heart size={12} className="about-heart" aria-label="love" /> in Manchester and Cambridge by{" "}
           <button className="about-link" onClick={() => void invoke("open_link", { name: "author" }).catch(() => undefined)}>Sam Ellis</button>.
         </p>
         <p className="about-credits">

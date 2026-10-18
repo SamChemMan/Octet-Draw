@@ -30,7 +30,9 @@ decision 0003 (templates on New drawing).
   object with a scale writes its own LineWidth, BoldWidth, HashSpacing, MarginWidth, BondLength and LabelSize.
   Octet's own data keeps the document scale and each object's scale. On import, a structure takes a scale only
   when its bonds carry LineWidth and every other value they carry agrees with it. An atom with no bonds takes its
-  scale from its own LineWidth.
+  scale from its own LineWidth. An arrow, curve or shape writes its own line width times its scale as LineWidth,
+  and its BoldWidth when it has a scale. On import it takes its scale from BoldWidth, and its LineWidth over that
+  scale is its own line width (ChemDraw's Object Settings > Line Width), so a LineWidth alone is a line width.
 - Limits widen so that no scaled value falls back to a default: lengths to 10 times their old upper limits,
   font sizes 0.1 to 999 pt (ChemDraw: 5 to 999 pt). A document scale that would take a value past its limit stops
   at the limit (a custom 100 pt bond goes to 720%, not 1000%).
@@ -40,7 +42,10 @@ decision 0003 (templates on New drawing).
   Control turns "Labels and lines" over for one drag, as ChemDraw's Ctrl does on its handles. Text alone always
   scales its size (Control turns that off), as ChemDraw scales the text of one label whatever its checkbox says.
   The drag stops softly at 100% and where the median bond is the document's bond length (⌘ turns the stops off).
-  A double-click on a handle opens Scale…. ChemDraw 26.1 has no key for "about the middle" on its handles.
+  A double-click on a handle opens Scale…. ChemDraw 26.1 has no key for "about the middle" on its handles. A lone straight
+  arrow and a lone turned shape keep their own handles (ends, or corners on the turned sides) and the rotation
+  handle, and show no frame. A turned shape stretched by the frame grows along its own sides by as much as each
+  side grows on the page.
 - The whole drawing (nothing selected, or everything) scaled in proportion with "Labels and lines" on changes the
   document scale, not each object's scale (IDEA-SCALE-8). Octet does not ask, as ChemDraw does. What is drawn next
   then matches. The drawing keeps its place on screen.
