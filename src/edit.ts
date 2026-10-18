@@ -116,14 +116,17 @@ export function bondTo(m: Mol, from: number | P, q: P, spec: BondSpec = SINGLE):
 }
 
 // A click with the bond tool: on an atom, add a bond in the next direction; on empty canvas, add a bond at 30°.
-// side: the click was on the left (-1) or right (1) end of the atom's label, so the bond leaves that end (the next
-// direction turned to that side, when no bond is near that way).
-export function sprout(m: Mol, from: number | P, spec: BondSpec = SINGLE, side = 0): Mol {
+// text: the atom's label runs to the right (1) or left (-1) of it; a bond within 60° of that way would be hidden
+// under the label, so the other zig-zag direction is taken when it is clear.
+export function sprout(m: Mol, from: number | P, spec: BondSpec = SINGLE, text = 0): Mol {
   if (typeof from !== "number") return bondTo(m, from, add(from, [Math.cos(30 * deg), Math.sin(30 * deg)]), spec);
   let d = nextDirection(m, from);
-  const here = pos(m, from), turned: P = [-d[0], d[1]];
-  if (side && Math.sign(d[0]) === -side && neighbours(m, from).every((j) => dot(unit(sub(pos(m, j), here)), turned) < Math.cos(60 * deg))) d = turned;
-  return bondTo(m, from, add(here, d), spec);
+  const ns = neighbours(m, from), into = (v: P) => v[0] * text > Math.cos(60 * deg);
+  if (text && into(d) && ns.length <= 1) {
+    const e = ns.length ? unit(sub(pos(m, ns[0]), pos(m, from))) : ([0, 1] as P), k = 2 * dot(d, e), other: P = [k * e[0] - d[0], k * e[1] - d[1]];
+    if (!into(other)) d = other;
+  }
+  return bondTo(m, from, add(pos(m, from), d), spec);
 }
 
 // A zig-zag chain from atom i (or a point) toward q: the points after the start, one bond per 0.866 bond lengths of

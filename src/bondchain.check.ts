@@ -62,6 +62,15 @@ const propane = sprout(ethane, 1);
 assert.deepEqual(clickBond(propane, 0, WEDGE, near(propane, 0, 0.9)).bonds[0].atoms, [1, 0], "narrow end on the atom with more bonds");
 console.log("bondchain.check: wedge ok");
 
+// CORE-15: a bond from an atom whose label runs to the right (CO2Me) is not hidden under that label.
+for (const text of [1, -1]) {
+  const m = sprout(ethane, 1, SOLID, text), d = [pos(m, 2)[0] - pos(m, 1)[0], pos(m, 2)[1] - pos(m, 1)[1]];
+  assert.ok(d[0] * text <= 0.5 + 1e-9, `bond clear of a label running ${text > 0 ? "right" : "left"}`);
+}
+const lone: Mol = { atoms: [{ label: "O", text: "OH", location: [0, 0, 0] }], bonds: [] };
+assert.ok(pos(sprout(lone, 0, SOLID, 1), 1)[0] < 0, "a lone label's first bond goes the other way");
+console.log("bondchain.check: bonds clear of labels ok");
+
 // CORE-11: a bond drawn over a bond raises its order, and after a triple goes back to single.
 m = dragBond(ethane, 0, pos(ethane, 1)); assert.equal(kind(m), "2");
 m = dragBond(m, 0, pos(m, 1)); assert.equal(kind(m), "3");

@@ -3074,10 +3074,10 @@ export default function Editor() {
     }
     if (t.caption !== undefined && tool !== "text") return; // a caption was picked, not drawn on
     if (tool === "bond") {
-      // A click on the far end of a label adds the bond at that end (ChemDraw's: bonds go from the part pointed at).
+      // On an atom (anywhere on its label), a bond the way that keeps it out from under the label.
       if (t.atom !== undefined) {
-        const here = pos(doc, t.atom), side = drawing.label[t.atom] && Math.abs(at[0] - here[0]) > 0.3 ? Math.sign(at[0] - here[0]) : 0;
-        return set(sprout(doc, t.atom, bondSpec, side));
+        const box = drawing.label[t.atom], off = box ? (box[0] + box[2]) / 2 / L - pos(doc, t.atom)[0] : 0;
+        return set(sprout(doc, t.atom, bondSpec, Math.abs(off) > 0.15 ? Math.sign(off) : 0));
       }
       if (t.bond === undefined) return set(sprout(doc, at, bondSpec));
       // On a bond, as ChemDraw: see clickBond (a single bond becomes double, a double bond's second line moves round).
