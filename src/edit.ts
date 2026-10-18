@@ -1490,7 +1490,7 @@ export function toggleHydrogens(m: Mol, atoms: Iterable<number>): Mol {
 // Stereocentres: the atoms at the narrow end of a wedge or hashed wedge (among some atoms, if given).
 export const stereocentres = (m: Mol, among?: Set<number>) =>
   [...new Set(m.bonds.filter((b) => b.stereo === 1 || b.stereo === 6).map((b) => b.atoms[0]))].filter((i) => !among || among.has(i));
-// Where a small mark beside an atom goes (a stereo flag, a map number): the middle of its widest gap between
+// Where a small mark beside an atom goes (a stereo flag): the middle of its widest gap between
 // bonds, never inside a ring when the atom has a bond out of it, and lower on a tie. For each of the atoms asked
 // for, with the drawing's ring bonds found once for all of them.
 export function markDirections(m: Mol, ids: number[]): Map<number, P> {
