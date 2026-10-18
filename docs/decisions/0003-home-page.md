@@ -54,6 +54,6 @@ something (what we had before). It should be the default left hand side selectio
   Document for the new template alone. Its changes go to the template, and its tile on Home changes with them. Done or
   Escape closes it. Octet keeps 12 templates of the user's own; at 12, Custom template does not show.
 - ⌘N and File > New start the one picked last (Quick start or a template), as ChemDraw's New takes the stationery
-  used last. Use for new documents on a drawing with no template keeps the style for Quick start.
+  used last. File > New For lists Quick start first, then the templates, as Home does. Use for new documents on a drawing with no template keeps the style for Quick start.
 - ChemDraw: File > New Document uses the default stationery; File > New from Stationery lists the pads; a pad of the
   user's own is a document whose settings are saved with File > Save As Stationery.

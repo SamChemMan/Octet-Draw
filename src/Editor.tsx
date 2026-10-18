@@ -1006,6 +1006,7 @@ export default function Editor() {
   const commands = useRef<Record<string, () => void>>({});
   commands.current = {
     new: () => newDrawing(),
+    new_quick: () => newDrawing(QUICK),
     ...Object.fromEntries(Object.keys(PURPOSES).map((k) => [`new_${k}`, () => newDrawing(k)])),
     ...Object.fromEntries(settings.ownPurposes.map((p, k) => [`new_own_${k}`, () => newDrawing(p.id)])),
     open: () => openDrawing(),

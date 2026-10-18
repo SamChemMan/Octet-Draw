@@ -400,9 +400,10 @@ export function SettingsWindow(p: Props) {
           options={[["bond", "Bond length"], ...[...new Set([...(["Letter", "Legal", "Tabloid", "ACS1", "ACS2"].includes(style.page) ? GRID_IN : GRID_MM), ...(style.grid === "bond" ? [] : [style.grid])])]
             .sort((a, b) => a - b).map((n): [string, string] => [String(n), GRID_IN.includes(n) ? `${["⅛", "¼", "½"][GRID_IN.indexOf(n)]} in` : `${n} mm`])]} />
       )),
-      d("document", "Page", "Ruler units", "ruler rulers units mm cm inches points picas measure", (
+      // Ruler units are Octet's, not the document's, so a template being made does not show them.
+      ...(p.template ? [] : [d("document", "Page", "Ruler units", "ruler rulers units mm cm inches points picas measure", (
         <Select label="Ruler units" value={p.rulerUnit} options={RULER_UNITS} onChange={(v) => p.onRulerUnit(v as RulerUnit)} />
-      )),
+      ))]),
       d("document", "Page", "Page edges", "page edges outline guides", <Switch on={style.edges} label="Page edges" onChange={(on) => change({ edges: on })} />),
       d("document", "Page", "Background", "background page colour custom dark mode night white system engineering paper blueprint blue grid", (
         <Backgrounds value={style.background} onChange={(background) => change({ background })} />
