@@ -4225,13 +4225,6 @@ export default function Editor() {
     // Each in its atom's scale (its bond's mean for E and Z).
     const out: { key: string; x: number; y: number; anchor: "start" | "middle" | "end"; text: string; colour?: string; upright?: boolean; size: number }[] = [], taken: number[][] = [], base = style.captionSize * pt * 0.8;
     shown.atoms.forEach((a, i) => { const size = base * scaleOf(a); if (a.number) out.push({ key: `n${i}`, ...besideAtom(i, a.number.length * size * 0.55, size, taken, 0.55 * scaleOf(a)), text: a.number, colour: a.colour, upright: true, size }); });
-    // A query bond's orders, as ChemDraw marks them (S/D: single or double), beside its middle.
-    shown.bonds.forEach((b, k) => {
-      if (!b.query || !shown.atoms[b.atoms[0]] || !shown.atoms[b.atoms[1]]) return;
-      const [p, q] = b.atoms.map((i) => pos(shown, i)), d = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, f = (scaleOf(shown.atoms[b.atoms[0]]) + scaleOf(shown.atoms[b.atoms[1]])) / 2;
-      const text = b.query === "any" ? "Any" : b.query.split(" ").map((o) => ({ "1": "S", "2": "D", "3": "T", "1.5": "A" } as Record<string, string>)[o] ?? o).join("/");
-      out.push({ key: `q${k}`, x: ((p[0] + q[0]) / 2 - ((q[1] - p[1]) / d) * 0.45 * f) * L, y: -((p[1] + q[1]) / 2 + ((q[0] - p[0]) / d) * 0.45 * f) * L, anchor: "middle", text, colour: b.colour, upright: true, size: base * f });
-    });
     if (!stereo) return out;
     stereo.atoms.forEach((c, i) => {
       if (!c || !shown.atoms[i]?.cip) return;
