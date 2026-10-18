@@ -34,10 +34,10 @@ export type Atom = {
   halo?: string; // #rrggbb highlight: a disc behind the atom at 40% opacity (ChemDraw's highlight colours; NMR peak colours)
   fill?: string; // #rrggbb ring fill: a ring whose atoms all have the same fill is filled with it at 30% opacity
   circle?: true; // Toggle Aromatic Display: an aromatic ring whose atoms all have this is drawn with a circle
-  number?: string; // Show Atom Number: the number drawn beside the atom
   // A multi-centre attachment point (ChemDraw's MultiAttachment node), as for an η5 Cp or η6 arene ligand: not an
   // atom but the middle of these atoms (a ring's), where a bond to the ligand ends. It has no label and no chemistry.
   centre?: number[];
+  number?: string; // Show Atom Number: the number drawn beside the atom
 };
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 // On a double bond: bold makes the main line bold, dashed the second line dashed, either crosses the two lines.
@@ -169,9 +169,9 @@ export type Box = [number, number, number, number];
 // electrons: where each lone pair and radical dot is drawn (px), for curly arrows to start from. beads: polymer beads,
 // drawn shaded by the caller.
 export type Drawing = {
+  sides?: number[]; // each bond's second line as drawn, for a double bond: -1 left, 1 right of its first atom to its second on screen, 0 centred
   polygons: P[][]; colours: (string | undefined)[]; alphas: number[]; labels: Label[]; box: Box; ink: Box[]; label: (Box | undefined)[]; scale: number;
   electrons: { atom: number; at: P }[]; beads: { at: P; r: number }[];
-  sides?: number[]; // each bond's second line as drawn, for a double bond: -1 left, 1 right of its first atom to its second on screen, 0 centred
 };
 
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
