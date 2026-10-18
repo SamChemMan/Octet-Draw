@@ -93,6 +93,7 @@ const OPEN_ZOOM = 1.25;
 // The page sizes shown together: the ISO series, or the US one.
 const SERIES: Record<string, PageName[]> = { iso: ["A4", "A3", "A2"], us: ["Letter", "Legal", "Tabloid"] };
 const SNAP = (15 * Math.PI) / 180; // dragged bonds snap to 15° steps
+const DOUBLE_MS = 500; // two clicks this close together (ms) are a double-click
 // Holding still this long with a drawing tool in hand switches to Select until the pointer is released.
 const HOLD_MS = 400;
 const toPath = (polys: P[][]) => polys.map((poly) => "M" + poly.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join("L") + "Z").join("");
@@ -113,8 +114,9 @@ const atomsOf = (m: Mol, t: Hover) => (t.atom !== undefined ? [t.atom] : t.bond 
 
 // One pointer gesture. "working" kinds edit a copy of the drawing that commits as one undo step on release.
 type Drag =
-  | { kind: "bond"; from: number | P; at: P; start: [number, number]; target: Hover; to?: P }
-  | { kind: "click"; at: P; start: [number, number]; target: Hover }
+  // alt: Option was held at the press (a click on an atom then opens its label, or the Text tool repeats the last).
+  | { kind: "bond"; from: number | P; at: P; start: [number, number]; target: Hover; to?: P; alt?: boolean }
+  | { kind: "click"; at: P; start: [number, number]; target: Hover; alt?: boolean }
   // A chain: side, the side of the drag its first bond goes; path, its points when it snakes (Command held); alt,
   // Option was held at the press (a click then repeats the last chain).
   | { kind: "chain"; from: number | P; start: [number, number]; target: Hover; to?: P; side?: number; path?: P[]; alt?: boolean }
@@ -400,6 +402,10 @@ export default function Editor() {
   // blank: the box opened empty (the ! and > keys), so closing it with nothing typed keeps the atoms as they were.
   const [editing, setEditing] = useState<{ atom: number; value: string; all?: number[]; merge?: string; blank?: true }>();
   const labelOpen = useRef(false);
+  // The last label typed in a label box: the Text tool's Option-click repeats it (ChemDraw's Repeat Last Label).
+  const lastLabel = useRef<string>(undefined);
+  // The bond tool's last click on an atom, and the drawing it made: a second click there soon after is a double-click.
+  const lastClick = useRef<{ atom: number; time: number; after: Mol }>(undefined);
   const editLabel = (atom: number) => {
     const a = doc.atoms[atom];
     labelOpen.current = true;
@@ -1881,9 +1887,9 @@ export default function Editor() {
     // An orbital grows from the atom pressed (or the point) towards the pointer.
     if (tool === "orbital") return setDrag({ kind: "arrow", from: t.atom !== undefined ? pos(doc, t.atom) : p, start: screen, target: t, make: { kind: "orbital", orbital: orbitalSpec(orbitalChoice)! } });
     if (tool === "erase") return setDrag({ kind: "erase", trail: [p], bonds: new Set(), atoms: new Set(), captions: new Set(), start: screen, target: t, moved: false });
-    if (tool === "bond") return setDrag({ kind: "bond", from: t.atom ?? p, at: p, start: screen, target: t });
+    if (tool === "bond") return setDrag({ kind: "bond", from: t.atom ?? p, at: p, start: screen, target: t, alt });
     if (tool === "chain") return setDrag({ kind: "chain", from: t.atom ?? p, start: screen, target: t, alt });
-    setDrag({ kind: "click", at: p, start: screen, target: t });
+    setDrag({ kind: "click", at: p, start: screen, target: t, alt });
   }
   // Every drawing tool: hold still for HOLD_MS and Select takes over until release. On the selection it moves it;
   // elsewhere it draws a box. Moving 4 px first keeps the tool (see onPointerMove).
@@ -2366,7 +2372,7 @@ export default function Editor() {
     if (!ids.length) return { kind: "drawing", nameable };
     if (ids.length === 1) {
       const a = doc.atoms[ids[0]];
-      return { kind: "atom", text: labelText([ids[0]]), label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre: stereocentres(doc).includes(ids[0]), enhanced: a.enhanced, halo: a.halo, fill: a.fill, numbered: !!a.number };
+      return { kind: "atom", text: labelText([ids[0]]), label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre: stereocentres(doc).includes(ids[0]), enhanced: a.enhanced, halo: a.halo, fill: a.fill, numbered: !!a.number, repeat: lastLabel.current };
     }
     const bi = ids.length === 2 ? doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])) : -1;
     if (bi >= 0) {
@@ -3026,10 +3032,12 @@ export default function Editor() {
     if (command === "pairs") return set(toggleLonePairs(doc, [...selection]), true);
     if (context.kind === "atom") {
       const i = ids[0], [kind, arg] = command.split(".");
-      if (kind === "element") return set(keyElement(doc, i, arg), true);
+      if (kind === "element") return set(setElement(doc, i, arg), true);
       if (command.startsWith("label:")) return set(setLabel(doc, i, command.slice(6)), true);
       if (kind === "group") return set(addGroup(doc, i, arg as Group));
       if (command === "atom.label") return editLabel(i);
+      // ChemDraw's Repeat Last Label: the last label typed, on this atom.
+      if (command === "repeat_label" && lastLabel.current) return set(setLabel(doc, i, lastLabel.current), true);
       if (command === "charge.plus" || command === "charge.minus") return set(addCharge(doc, i, command === "charge.plus" ? 1 : -1), true);
     }
     if (context.kind === "bond") {
@@ -3065,8 +3073,8 @@ export default function Editor() {
     if (alt) return addChainOf(from, chainLength.current);
     setDialog({ kind: "chain", from, atoms: String(chainLength.current) });
   }
-  // What a click does with each tool in hand.
-  function click(t: Hover, at: P) {
+  // What a click does with each tool in hand. alt: Option was held.
+  function click(t: Hover, at: P, alt = false) {
     // Select: Shift-click adds what was clicked to the selection, or takes it out if it was all selected already;
     // Option-click takes it out. Either way from the selection as it was before the press.
     const mods = pressMods.current;
@@ -3082,12 +3090,25 @@ export default function Editor() {
       return;
     }
     if (t.caption !== undefined && tool !== "text") return; // a caption was picked, not drawn on
+    // As in ChemDraw: Option-click on an atom with the bond or template tool opens its label, and so does a
+    // double-click with the bond tool (its first click's bond is taken back). The Text tool's Option-click puts the
+    // last label typed on the atom at once.
+    const before = lastClick.current;
+    lastClick.current = undefined;
+    if (t.atom !== undefined && alt && (tool === "bond" || tool === "template")) return editLabel(t.atom);
+    if (t.atom !== undefined && tool === "text" && alt && lastLabel.current) return set(setLabel(doc, t.atom, lastLabel.current));
+    if (t.atom !== undefined && tool === "bond" && before && before.atom === t.atom && before.after === doc && performance.now() - before.time < DOUBLE_MS) {
+      undo();
+      return editLabel(t.atom);
+    }
     if (tool === "bond") {
       // On an atom (anywhere on its label), a bond the way that keeps it out from under a label such as CO2Me. An
       // element's label (OH, NH2) moves its H out of the way, so there the zig-zag goes on.
       if (t.atom !== undefined) {
         const box = doc.atoms[t.atom].text ? drawing.label[t.atom] : undefined, off = box ? (box[0] + box[2]) / 2 / L - pos(doc, t.atom)[0] : 0;
-        return set(sprout(doc, t.atom, bondSpec, Math.abs(off) > 0.15 ? Math.sign(off) : 0));
+        const after = sprout(doc, t.atom, bondSpec, Math.abs(off) > 0.15 ? Math.sign(off) : 0);
+        lastClick.current = { atom: t.atom, time: performance.now(), after };
+        return set(after);
       }
       if (t.bond === undefined) return set(sprout(doc, at, bondSpec));
       // On a bond, as ChemDraw: see clickBond (a single bond becomes double, a double bond's second line moves round).
@@ -3144,7 +3165,7 @@ export default function Editor() {
       case "bond": {
         const { to, from, target: t, at } = drag;
         if (to) return set(dragBond(doc, from, to, bondSpec));
-        return click(t, at);
+        return click(t, at, drag.alt);
       }
       case "arrow": {
         // A click makes an arrow of the usual length (three bonds; a short arc for a curved one), going right.
@@ -3195,7 +3216,7 @@ export default function Editor() {
         if (drag.to) { chainLength.current = chainCount(drag); return set(chainThrough(doc, drag.from, chainPath(drag)).mol); }
         return chainClick(drag.from, !!drag.alt);
       case "click":
-        return click(drag.target, drag.at);
+        return click(drag.target, drag.at, drag.alt);
       case "erase": {
         // A click removes the atom or bond under the pointer; a rub removes everything it marked.
         const t = drag.target;
@@ -3787,7 +3808,13 @@ export default function Editor() {
             if (r) { setSelection(new Set(r.atoms)); setPicked(new Set([...r.arrows, ...r.captions])); return; }
           }
           if (t.caption !== undefined && tool !== "erase") startWriting({ id: t.caption });
-          else if (tool === "select" && t.atom !== undefined) editLabel(t.atom);
+          // With Select, a double-click on an atom or bond picks its whole structure, as in ChemDraw. (Enter, the Text
+          // tool and Option-click with a drawing tool type an atom's label.)
+          else if (tool === "select" && atomsOf(doc, t).length) {
+            const one = atomsOf(doc, t)[0];
+            setPicked(new Set());
+            setSelection(new Set(fragments(doc).find((g) => g.includes(one)) ?? [one]));
+          }
         }}
       >
         <g transform={`translate(${view.x} ${view.y}) scale(${view.zoom})`}>
@@ -3908,6 +3935,7 @@ export default function Editor() {
           if (!labelOpen.current) return;
           labelOpen.current = false;
           if (editing.value.trim() || !editing.blank) set((editing.all ?? [editing.atom]).reduce((m, i) => setLabel(m, i, editing.value), doc), !!editing.all, editing.merge);
+          if (editing.value.trim()) lastLabel.current = editing.value.trim();
           setEditing(undefined);
         };
         return (
