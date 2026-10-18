@@ -921,7 +921,7 @@ export default function Editor() {
   // bond's second line goes.
   function bondProperties(k: number | undefined) {
     const b = k === undefined ? undefined : doc.bonds[k];
-    if (!b) return setNotice("Select a bond first.");
+    if (!b) return setNotice("Select a bond first.", "info");
     setDialog({ kind: "bond", bond: k!, style: bondKindOf(b) ?? "single", position: b.position ?? "auto" });
   }
   // Show or hide atom numbers. Each atom's number is its place in its structure, counting from 1, as ChemDraw numbers
@@ -1101,7 +1101,7 @@ export default function Editor() {
     // Join (⌘J), as ChemDraw's Object > Join: atoms or bonds from different structures become one (joinSelection).
     join: () => {
       const m = joinSelection(doc, selection);
-      if (!m) return setNotice("Select one atom in each structure, or one bond in each of two structures.");
+      if (!m) return setNotice("Select one atom in each structure, or one bond in each of two structures.", "info");
       set(m);
     },
     // Center on Page (Object menu), as ChemDraw's: the box round the selection (its labels and text too), or round
@@ -1200,7 +1200,7 @@ export default function Editor() {
         return set(m, true);
       }
       const caps = (doc.captions ?? []).filter((c) => picked.has(c.id) && labelable(c));
-      if (!caps.length) return setNotice("Select a label, or a caption that reads as a label.");
+      if (!caps.length) return setNotice("Select a label, or a caption that reads as a label.", "info");
       let m = doc;
       for (const c of caps) {
         const p = placed.find((x) => x.id === c.id), t = c.text.trim();
@@ -1234,7 +1234,7 @@ export default function Editor() {
       const m = toggleHydrogens(doc, selection.size ? selection : doc.atoms.map((_, i) => i));
       // An H on an atom with a warning stays shown (set shows it again).
       const same = (settings.warnings ? showWarnedHydrogens(m) : m).atoms.every((a, i) => a.hidden === doc.atoms[i].hidden);
-      return same ? setNotice("Select a structure with H atoms on carbon.") : set(m, true);
+      return same ? setNotice("Select a structure with H atoms on carbon.", "info") : set(m, true);
     },
     // Toggle Aromatic Display (⌥⌘K): the selected structures' aromatic rings with circles, or back to Kekulé bonds.
     aromatic_display: () => {
@@ -3237,7 +3237,7 @@ export default function Editor() {
   function searchOnline(site: "reaxys" | "pubchem", exact: boolean) {
     if (!loaded) return;
     const all = !selection.size && !picked.size, part = all ? doc : extractSelection(doc, selection, picked);
-    if (!part.atoms.length) return setNotice("Select a structure to search.");
+    if (!part.atoms.length) return setNotice("Select a structure to search.", "info");
     const reactions: Reaction[] = [], seen = new Set<number>();
     for (const a of arrows.filter((x) => straightArrow(x))) {
       if (seen.has(a.id)) continue;
@@ -3246,7 +3246,7 @@ export default function Editor() {
       if (r) reactions.push(r);
     }
     const role = roleOf(reactions, fragments(doc).filter((g) => all || g.some((i) => selection.has(i))));
-    if (role === "mixed") return setNotice("Select the starting materials or the products of the reaction.");
+    if (role === "mixed") return setNotice("Select the starting materials or the products of the reaction.", "info");
     let query: ReturnType<typeof searchQuery>;
     try { query = searchQuery(part); } catch { return setNotice("Octet cannot read this structure."); }
     if (!searchNow()) return;
@@ -4338,7 +4338,7 @@ export default function Editor() {
         // (cutReaction). With Option held, the line stays, dashed, on the whole structure.
         if (tool === "synthesis" || tool === "retro") {
           const r = drag.to && cutReaction(doc, drag.from, drag.to, tool === "retro");
-          if (!r) return setNotice("Drag the line across one or more bonds.");
+          if (!r) return setNotice("Drag the line across one or more bonds.", "info");
           if (!r.cut) return setNotice("Octet does not cut bonds in aromatic rings.");
           let m = r.mol;
           if (pressAlt.current) [m] = addArrow(m, { kind: "line", style: "dashed", from: [drag.from[0] + r.moved[0], drag.from[1] + r.moved[1]], to: [drag.to![0] + r.moved[0], drag.to![1] + r.moved[1]] });
