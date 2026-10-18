@@ -10,8 +10,10 @@ type Props = { title: string; action?: string; onAction?: () => void; onClose: (
 
 export function Dialog({ title, action, onClose, onAction = onClose, plain, alt, children }: Props) {
   const card = useRef<HTMLDivElement>(null);
+  // The first field takes the focus when the dialog opens, and only then: a dialog draws again as its fields change,
+  // and the focus stays in the field being typed in (or the choice moved along with the arrow keys).
+  useEffect(() => card.current?.querySelector<HTMLElement>("textarea, input, button:not([tabindex='-1']), select")?.focus(), []);
   useEffect(() => {
-    card.current?.querySelector<HTMLElement>("textarea, input, button, select")?.focus();
     const key = (e: KeyboardEvent) => {
       if (listOpen()) return; // an open list takes its own keys
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); }
