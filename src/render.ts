@@ -930,7 +930,7 @@ function shiftOf(drawn: Atom[], atoms: Atom[], k: number): P | undefined {
 // LINE (1.2 em) is provisional until it is measured against ChemDraw.
 export const CAPTION_PT = 10;
 export const isNumber = (c: Caption) => !!c.bold && /^\d+[a-z]?$/.test(c.text);
-const GAP_PT = 15, GAP_ARROW_PT = 3, LINE = 1.2, ASCENT = 0.905, DESCENT = 0.212; // Arial's ascent and descent, in em
+export const GAP_PT = 15, GAP_ARROW_PT = 3, LINE = 1.2, ASCENT = 0.905, DESCENT = 0.212; // Arial's ascent and descent, in em
 export type Placed = {
   id: number; size: number; bold?: boolean; italic?: boolean; underline?: boolean; colour?: string; anchor: "start" | "middle" | "end"; font?: string;
   lines: { text: string; x: number; y: number; runs?: TextRun[] }[]; box: Box;

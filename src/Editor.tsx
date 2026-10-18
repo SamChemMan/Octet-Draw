@@ -48,7 +48,7 @@ import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb } from "./TemplateLibrary";
-import { cleanUpReaction, findReaction, GAP, layoutRow, reactionClean, rowOf } from "./reaction";
+import { cleanUpReaction, findReaction, gapFor, layoutRow, reactionClean, rowOf, type Layout, type Reaction } from "./reaction";
 import { SettingsWindow, type ModuleId } from "./SettingsWindow";
 import { layoutCycles, orderAround, spreadCycle, type Cycle, type CycleText } from "./cycle";
 import { LIBRARY, libraryItem } from "./library";
@@ -57,7 +57,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, Palette, RingGlyph, RINGS, SELECTS, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
+import { ASCENT, DESCENT, arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
 import { loadNames, nameToSmiles, suggestName } from "./names";
 import { checkedName, graphOf, setNamer } from "./naming";
@@ -744,7 +744,7 @@ export default function Editor() {
     if (!ends.length) { const c = toDoc(innerWidth / 2, innerHeight / 2); return [c[0] - (f[0] + f[2]) / 2, c[1] - (f[1] + f[3]) / 2]; }
     const last = ends.reduce((p, q) => (q.x > p.x + 1e-6 || (Math.abs(q.x - p.x) < 1e-6 && q.arrow) ? q : p));
     const level = last.arrow ? last.level : d ? (d[1] + d[3]) / 2 : last.level;
-    return [last.x + (last.arrow ? GAP : 1.5) - f[0], level - (f[1] + f[3]) / 2];
+    return [last.x + (last.arrow ? reactionGap : 1.5) - f[0], level - (f[1] + f[3]) / 2];
   }
   // Puts a new fragment in place and selects it.
   function place(frag: Mol, base: Mol = doc, at?: P) {
@@ -808,23 +808,17 @@ export default function Editor() {
       const captionOf = (id: number) => docBox(placed.find((c) => c.id === id)?.box);
       // Structures in a reaction keep their sides: each reaction they are in is laid out again, as Clean Up Reaction
       // does (reactants, the arrow, products), measured after the clean-up.
-      const touched = new Set(ids ? fragments(m).filter((g) => g.some((i) => ids.has(i))).flat() : m.atoms.map((_, i) => i)), done = new Set<number>();
-      for (const a of arrows.filter((x) => straightArrow(x))) {
-        if (done.has(a.id)) continue;
-        const r = findReaction(m, a.id, arrows, inkOf(m), captionOf);
-        if (!r || !r.atoms.some((i) => touched.has(i))) continue;
-        r.arrows.forEach((id) => done.add(id));
-        m = cleanUpReaction(m, r, arrows);
-      }
-      if (done.size) return set(m, true);
+      const touched = new Set(ids ? fragments(m).filter((g) => g.some((i) => ids.has(i))).flat() : m.atoms.map((_, i) => i));
+      const laid = cleanReactions(m, (r) => r.atoms.some((i) => touched.has(i)));
+      if (laid.count) return set(laid.mol, true);
       // Otherwise several structures that overlap, or have a plus sign among them, go in a row like a reaction's
       // starting materials. With a plus sign, an arrow after them is offered: Tab draws it.
       const row = rowOf(m, ids, inkOf(m), captionOf);
       if (row) {
-        const laid = layoutRow(m, row.steps);
+        const laid = layoutRow(m, row.steps, reactionGap);
         m = laid.mol;
         const ahead = (doc.arrows ?? []).some((a) => !curved(a) && Math.min(a.from[0], a.to[0]) > laid.right - 0.5 && Math.abs((a.from[1] + a.to[1]) / 2 - laid.level) < 1.5);
-        if (row.plus && !ahead) setOffer({ from: [laid.right + GAP, laid.level], to: [laid.right + GAP + 3, laid.level], doc: m });
+        if (row.plus && !ahead) setOffer({ from: [laid.right + reactionGap, laid.level], to: [laid.right + 3 * reactionGap, laid.level], doc: m });
       }
       set(m, true);
     },
@@ -878,11 +872,13 @@ export default function Editor() {
       setSelection(new Set(doc.atoms.map((_, i) => i).filter((i) => !selection.has(i))));
       setPicked(new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id).filter((id) => !picked.has(id))));
     },
-    // Clean Up Reaction (⇧⌘X): the picked reaction, or the reaction around the one arrow picked.
+    // Clean Up Reaction (⇧⌘X): every reaction the selection touches (a structure, a plus sign, an arrow or its text),
+    // or every reaction in the drawing when nothing is selected, as Clean Up Structure works on the whole drawing.
     clean_reaction: () => {
-      const arrow = reactionPicked()?.arrows[0] ?? [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
-      const r = arrow !== undefined ? reactionOf(arrow) : undefined;
-      return r ? set(cleanUpReaction(doc, r, arrows), true) : setNotice("Pick a reaction arrow first.");
+      const items = new Set(picked), atoms = selection, any = !items.size && !atoms.size;
+      const laid = cleanReactions(doc, (r) => any || r.atoms.some((i) => atoms.has(i)) || r.arrows.some((id) => items.has(id)) || r.captions.some((id) => items.has(id)));
+      if (!laid.count) return setNotice("Octet finds no reaction to clean up. Draw a straight arrow with a structure on each side.");
+      if (!sameLayout(doc, laid.mol)) set(laid.mol, true); // nothing to undo when it was clean already
     },
     // Zoom about the middle of the window. Actual size is 100%: bonds at their true 14.4 pt.
     zoom_in: () => zoomTo(views.get().zoom * 1.25),
@@ -1058,6 +1054,8 @@ export default function Editor() {
   }, [doc, drag, pen, penAt]); // eslint-disable-line react-hooks/exhaustive-deps
   // The document's style (or the default for new documents), as widths and sizes in the drawing frame.
   const style: DocStyle = useMemo(() => readStyle(doc.style ?? settings.docStyle), [doc.style, settings.docStyle]);
+  // The space between the parts of a reaction (Clean Up Reaction, the reaction shortcut, a product pasted after an arrow).
+  const reactionGap = gapFor(style.captionSize, style.bond);
   // The font lists: Octet's fonts, then any other font the drawing uses (one picked from More fonts, or a file's).
   const fontList = useMemo(() => {
     const used = new Set<string>([style.labelFont, style.captionFont]);
@@ -1387,6 +1385,69 @@ export default function Editor() {
   const reactionOf = (arrowId: number) => findReaction(doc, arrowId, arrows,
     (atoms) => { const b = union(atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i])); return b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L]; },
     (id) => { const c = placed.find((x) => x.id === id); return c && [c.box[0] / L, -c.box[3] / L, c.box[2] / L, -c.box[1] / L]; });
+  // ChemDraw's reaction shortcut: a reaction arrow (the Arrow tool's straight arrow) and a copy of the selected
+  // structures (or the structure under the pointer) beyond it, that way, spaced as Clean Up Reaction spaces a reaction.
+  // The copy is selected, so the next ⌘ + arrow carries the scheme on. Enter then puts the keyboard hotspot on the copy:
+  // on the atom the original's hotspot was on, else (as ChemDraw) the heteroatom furthest from the arrowhead, else the
+  // atom furthest from it. False when there is nothing to copy.
+  function reactionShortcut(dir: "left" | "right" | "up" | "down"): boolean {
+    const hover = hovers.get(), one = hover.atom ?? (hover.bond !== undefined ? doc.bonds[hover.bond]?.atoms[0] : undefined);
+    const pick = selection.size ? selection : one !== undefined ? new Set([one]) : new Set<number>();
+    const atoms = new Set(fragments(doc).filter((g) => g.some((i) => pick.has(i))).flat());
+    const b = union([...atoms].filter((i) => drawing.ink[i]).map((i) => drawing.ink[i]));
+    if (!atoms.size || !b) return false;
+    const box: Box = [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L], u: P = dir === "right" ? [1, 0] : dir === "left" ? [-1, 0] : dir === "up" ? [0, 1] : [0, -1];
+    const mid: P = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2], half = u[0] ? (box[2] - box[0]) / 2 : (box[3] - box[1]) / 2, g = reactionGap;
+    const tail: P = [mid[0] + u[0] * (half + g), mid[1] + u[1] * (half + g)], head: P = [tail[0] + u[0] * 2 * g, tail[1] + u[1] * 2 * g];
+    // The copy is a new compound: its structures only, without the names and numbers under them.
+    const part = extractSelection(doc, atoms, new Set()), shift = 2 * half + 4 * g;
+    const r = insertMol(doc, { ...part, captions: part.captions?.filter((c) => !c.under) }, [u[0] * shift, u[1] * shift]);
+    const kind: ArrowKind = (["reaction", "equilibrium", "resonance", "retro", "nogo"] as ArrowKind[]).includes(settings.variants.arrow as ArrowKind) ? (settings.variants.arrow as ArrowKind) : "reaction";
+    const [mol] = addArrow(r.mol, { kind, from: tail, to: head });
+    const sorted = [...atoms].sort((p, q) => p - q), copy = [...r.atoms].sort((p, q) => p - q), was = hotOf.current.get(doc)?.atom;
+    const far = (pick: (i: number) => boolean) => copy.filter(pick).sort((p, q) => Math.hypot(pos(mol, q)[0] - head[0], pos(mol, q)[1] - head[1]) - Math.hypot(pos(mol, p)[0] - head[0], pos(mol, p)[1] - head[1]))[0];
+    const hot = was !== undefined && atoms.has(was) ? copy[sorted.indexOf(was)] : far((i) => !["C", "H"].includes(mol.atoms[i].label)) ?? far(() => true);
+    set(mol);
+    if (hot !== undefined) hotOf.current.set(mol, { atom: hot });
+    setSelection(r.atoms);
+    setPicked(new Set());
+    return true;
+  }
+  // Clean Up Reaction's spacing and page (reaction.ts): the gap from the document's style, the page's width less a
+  // half-inch margin each side, and a new plus sign's box.
+  const reactionLayout = (captionBox: (id: number) => Box | undefined): Layout => {
+    const size = (style.captionSize * pt) / L, w = textWidth("+", style.captionSize * pt, false, false, fontStack(style.captionFont)) / L;
+    return { gap: reactionGap, width: ((pageSize(style)[0] * 72) / 25.4 - 72) / style.bond, captionBox, plusBox: [-w / 2, -DESCENT * size, w / 2, ASCENT * size], captionPt: style.captionSize, bondPt: style.bond };
+  };
+  const placedBox = (id: number): Box | undefined => { const c = placed.find((x) => x.id === id); return c && [c.box[0] / L, -c.box[3] / L, c.box[2] / L, -c.box[1] / L]; };
+  // Whether two drawings have everything in the same place (to within a millionth of a bond length).
+  const sameLayout = (p: Mol, q: Mol) => {
+    const near = (a: number[], b: number[]) => Math.abs(a[0] - b[0]) < 1e-6 && Math.abs(a[1] - b[1]) < 1e-6;
+    return p.atoms.length === q.atoms.length && p.atoms.every((a, i) => near(a.location, q.atoms[i].location))
+      && (p.captions?.length ?? 0) === (q.captions?.length ?? 0) && (p.captions ?? []).every((c, k) => { const d = q.captions![k]; return near([c.x, c.y], [d.x, d.y]) && c.on?.arrow === d.on?.arrow && c.on?.side === d.on?.side; })
+      && (p.arrows ?? []).every((a, k) => near(a.from, q.arrows![k].from) && near(a.to, q.arrows![k].to)) && (p.shapes ?? []).every((x, k) => near(x.from, q.shapes![k].from) && near(x.to, q.shapes![k].to));
+  };
+  // Lays out every reaction `pick` takes, one after another (reaction.ts). A structure one reaction has placed stays
+  // where it is for the next, so reactions that share a structure stay joined. Returns the drawing and how many.
+  function cleanReactions(m: Mol, pick: (r: Reaction) => boolean): { mol: Mol; count: number } {
+    const fixed = new Set<number>(), done = new Set<number>(), layout = reactionLayout(placedBox);
+    const inkOf = (mol: Mol) => { const d = mol === doc ? drawing : render(mol, frame, measure, L); return (atoms: number[]) => { const b = union(atoms.filter((i) => d.ink[i]).map((i) => d.ink[i])); return b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L] as Box; }; };
+    let ink = inkOf(m), count = 0;
+    for (const a of arrows.filter((x) => straightArrow(x))) {
+      if (done.has(a.id)) continue;
+      // The arrows as drawn (grown to fit their text), or as the last reaction left them.
+      const now = arrows.map((x) => { const y = m.arrows?.find((z) => z.id === x.id); return y && (y.from !== x.from || y.to !== x.to) && doc.arrows?.find((z) => z.id === x.id) !== y ? y : x; });
+      const r = findReaction(m, a.id, now, ink, placedBox);
+      if (!r) continue;
+      r.arrows.forEach((id) => done.add(id));
+      if (!pick(r)) continue;
+      m = cleanUpReaction(m, r, now, layout, fixed);
+      r.atoms.forEach((i) => fixed.add(i));
+      ink = inkOf(m);
+      count++;
+    }
+    return { mol: m, count };
+  }
   // The reaction picked, when exactly a whole reaction is: its arrows and its structures.
   const reactionPicked = () => {
     const first = arrows.find((a) => picked.has(a.id) && !curved(a) && !isLine(a));
@@ -2423,7 +2484,7 @@ export default function Editor() {
       return { kind: "caption", mode: "next", convertible: false, colour: textStyle.colour ?? style.colour, count: 1, bold: !!textStyle.bold, italic: !!textStyle.italic, underline: !!textStyle.underline, size: textStyle.size ?? style.captionSize, align: textStyle.align ?? "left", attached: false, attachable: false, font: textStyle.font ?? style.captionFont, fonts: fontList };
     // A whole reaction picked (as a double-click on its arrow picks it).
     const reaction = reactionPicked();
-    if (reaction) return { kind: "reaction", grid: !!doc.grids?.some((g) => reaction.arrows.includes(g.arrow)), steps: reaction.arrows.length, structures: reaction.steps.filter((x) => x.kind === "structure").length, clean: reactionClean(reaction, arrows), mapped: reaction.atoms.some((i) => doc.atoms[i]?.map) };
+    if (reaction) return { kind: "reaction", grid: !!doc.grids?.some((g) => reaction.arrows.includes(g.arrow)), steps: reaction.arrows.length, structures: reaction.steps.filter((x) => x.kind === "structure").length, clean: reactionClean(doc, reaction, arrows, reactionLayout(placedBox)), mapped: reaction.atoms.some((i) => doc.atoms[i]?.map) };
     // A cycle picked (with its intermediates).
     const pickedCycle = (doc.cycles ?? []).find((c) => picked.has(c.id));
     if (pickedCycle) return { kind: "cycle", clockwise: pickedCycle.clockwise, steps: pickedCycle.nodes.length, centre: !!doc.captions?.some((c) => c.cycle?.cycle === pickedCycle.id && c.cycle.side === "centre") };
@@ -2944,7 +3005,7 @@ export default function Editor() {
     if (command === "delete" && context.kind === "spot") return runAction("spot.delete");
     if (command === "delete") return selection.size || picked.size ? set(deleteGraphics(deleteAtoms(doc, selection), picked)) : undefined;
     if (command === "number") return numberStructures();
-    if (command === "reaction.clean") { const r = reactionPicked(); return r ? set(cleanUpReaction(doc, r, arrows), true) : undefined; }
+    if (command === "reaction.clean") { const r = reactionPicked(); return r ? set(cleanReactions(doc, (x) => x.arrows.includes(r.arrows[0])).mol, true) : undefined; }
     // Atom mapping: the first step of the picked reaction (what stands before its first arrow, and between that
     // arrow and the next), numbered by Indigo; or every number cleared.
     if (command === "reaction.map" || command === "reaction.unmap") {
@@ -3389,6 +3450,8 @@ export default function Editor() {
       // such a key without taking it from text boxes too). Command and Ctrl keys are the menu's own in the app.
       const pressedKey = keyOf(e), bound = pressedKey && actionFor(keymap(settings.keys), pressedKey, "none");
       if (bound?.startsWith("menu.") && (!TAURI || !native(pressedKey!))) { e.preventDefault(); return commands.current[bound.slice(5)]?.(); }
+      // ChemDraw's reaction shortcut (⌘ + an arrow key, Ctrl + an arrow key elsewhere).
+      if (bound?.startsWith("reaction.")) { if (reactionShortcut(bound.slice(9) as "left" | "right" | "up" | "down")) e.preventDefault(); return; }
       if (mod) return;
       // Option keys run only what the shortcut table gives them: Option + arrows turn the selection (as ChemDraw's).
       // One that works anywhere goes on below (so it reaches a selection); one for an atom or bond runs here.
@@ -3932,7 +3995,7 @@ export default function Editor() {
           const a = t.arrow !== undefined ? arrows.find((x) => x.id === t.arrow) : undefined;
           if (a && !curved(a) && !isLine(a) && tool !== "erase") {
             const r = reactionOf(a.id);
-            if (r) return choose(r.atoms, [...r.arrows, ...r.captions]);
+            if (r) return choose(r.atoms, [...r.arrows, ...r.captions, ...r.carried]);
           }
           if (t.caption !== undefined && tool !== "erase") startWriting({ id: t.caption });
           // With Select, a double-click on an atom or bond picks its whole structure, as in ChemDraw. (Enter, the Text

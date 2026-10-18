@@ -397,3 +397,15 @@ console.log("cdxml.check: every object kind round trips");
   assert.deepEqual(fromCdxml(swapped.replace(/ Octet="[^"]*"/g, "").replace(/CreationProgram="[^"]*"/, "")).mol.bonds.map((x) => x.atoms), [[2, 3], [0, 1]], "ChemDraw's file: by Z");
   console.log("cdxml.check: bond order ok");
 }
+
+// A structure drawn above a reaction arrow goes out as one of its step's objects above the arrow.
+{
+  const m = {
+    atoms: [A("C", 0, 0), A("C", 1, 0), A("C", 6, 0), A("C", 7, 0), A("C", 3, 1.5), A("C", 4, 1.5)],
+    bonds: [b(0, 1), b(2, 3), b(4, 5)],
+    arrows: [{ id: 50, kind: "reaction", from: [2, 0], to: [5, 0] }],
+  } as Mol;
+  const text = toCdxml(m, DEFAULT_STYLE), frags = [...text.matchAll(/<fragment\s+id="(\d+)"/g)].map((x) => x[1]);
+  assert.match(text, new RegExp(`ReactionStepObjectsAboveArrow="${frags[2]}"`));
+  console.log("cdxml.check: structures above the arrow ok");
+}

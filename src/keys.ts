@@ -60,6 +60,9 @@ export const ACTIONS: Action[] = [
   any("tilt.up", "Turn the selection 12° in 3D up, or move the highlight to the next structure up", "Selection"),
   any("tilt.down", "Turn the selection 12° in 3D down, or move the highlight to the next structure down", "Selection"),
   any("edit.delete", "Delete the selection, or what is under the pointer", "Edit"),
+  // ChemDraw's reaction shortcut: a reaction arrow and a copy of the selected structures beyond it, that way.
+  any("reaction.right", "Add a reaction arrow and a copy of the selection to the right", "Selection"), any("reaction.left", "Add a reaction arrow and a copy of the selection to the left", "Selection"),
+  any("reaction.up", "Add a reaction arrow and a copy of the selection above", "Selection"), any("reaction.down", "Add a reaction arrow and a copy of the selection below", "Selection"),
 ];
 
 // ChemDraw's defaults. Where its table and its help disagree (Boc: y or Shift+Y), both keys work.
@@ -90,6 +93,7 @@ export const DEFAULT_KEYS: Record<string, string[]> = {
   "rotate.ccw15": ["alt+arrowup"], "rotate.cw15": ["alt+arrowdown"], "rotate.ccw1": ["alt+arrowleft"], "rotate.cw1": ["alt+arrowright"],
   "tilt.left": ["alt+shift+arrowleft"], "tilt.right": ["alt+shift+arrowright"], "tilt.up": ["alt+shift+arrowup"], "tilt.down": ["alt+shift+arrowdown"],
   "edit.delete": ["delete", "backspace"],
+  "reaction.right": ["mod+arrowright"], "reaction.left": ["mod+arrowleft"], "reaction.up": ["mod+arrowup"], "reaction.down": ["mod+arrowdown"],
 };
 
 export type Keymap = Record<string, string[]>;

@@ -648,10 +648,11 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     return [x0, c.y - 0.2 * size, x0 + w, c.y + 0.7 * size];
   };
   type RowStep = NonNullable<ReturnType<typeof findReaction>>["steps"][number];
-  const step = (arrowId: number, before: RowStep[], after: RowStep[]) => {
+  // Conditions: the text kept on the arrow, and the structures drawn above and below it (findReaction's conditions).
+  const step = (arrowId: number, before: RowStep[], after: RowStep[], drawn?: { above: RowStep[]; below: RowStep[] }) => {
     const frag = (s: RowStep[]) => s.flatMap((x) => (x.kind === "structure" ? [fragId.get(x.atoms[0])!] : []));
     const list = (ids: number[]) => (ids.length ? ids.join(" ") : undefined);
-    const on = (side: string) => captions.filter((c) => c.on?.arrow === arrowId && c.on.side === side).map((c) => idOf.get(c.id)!);
+    const on = (side: "above" | "below") => [...captions.filter((c) => c.on?.arrow === arrowId && c.on.side === side).map((c) => idOf.get(c.id)!), ...frag(drawn?.[side] ?? [])];
     const mapped = (s: RowStep[]) => s.flatMap((x) => (x.kind === "structure" ? x.atoms.filter((i) => mol.atoms[i].map) : []));
     const pairs = mapped(before).flatMap((i) => { const j = mapped(after).find((k) => mol.atoms[k].map === mol.atoms[i].map); return j === undefined ? [] : [nodeId.get(i)!, nodeId.get(j)!]; });
     return el("step", {
@@ -667,7 +668,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     schemes.push(el("scheme", { id: fresh() }, at.map((k, n) => {
       const id = (r.steps[k] as { id: number }).id;
       done.add(id);
-      return step(id, r.steps.slice(n ? at[n - 1] + 1 : 0, k), r.steps.slice(k + 1, n + 1 < at.length ? at[n + 1] : r.steps.length));
+      return step(id, r.steps.slice(n ? at[n - 1] + 1 : 0, k), r.steps.slice(k + 1, n + 1 < at.length ? at[n + 1] : r.steps.length), r.conditions.get(id));
     }).join("")));
   }
   for (const a of arrows) if (!done.has(a.id) && legacyOf.has(a.id) && captions.some((c) => c.on?.arrow === a.id)) schemes.push(el("scheme", { id: fresh() }, step(a.id, [], [])));
