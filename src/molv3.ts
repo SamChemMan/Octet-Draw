@@ -7,7 +7,7 @@
 import { expandLabel, fragments } from "./edit.ts";
 import { ELEMENTS, isElement } from "./labels.ts";
 import { altGroup, elementList, linkNode, queryLabel, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
-import { hydrogens, inShape, ORDER, type Atom, type AtomQuery, type Bond, type BracketUsage, type Mol, type Polymer, type Shape } from "./render.ts";
+import { hydrogens, inShape, NONMETAL, ORDER, type Atom, type AtomQuery, type Bond, type BracketUsage, type Mol, type Polymer, type Shape } from "./render.ts";
 
 type P = [number, number];
 const RAD_OUT: Record<number, number> = { 1: 2, 2: 3, 3: 1 }; // Octet's radical (doublet, triplet, singlet) to MDL's
@@ -66,13 +66,16 @@ function pick(m: Mol, ids: number[]): Mol {
     bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] as [number, number] })),
   };
 }
-// Written labels (OMe) drawn out as atoms; query labels and labels that cannot be read stay as they are.
+// Written labels (OMe) drawn out as atoms; query labels and labels that cannot be read stay as they are. A label's own
+// charge (O2 drawn with a minus) goes on its first atom, as in Octet's other molfiles.
 function expanded(m: Mol, expand?: (text: string) => Mol | undefined): Mol {
   let out = m;
   m.atoms.forEach((a, i) => {
     if (!a.text || queryLabel(a.text) || !expand) return;
     const frag = expand(a.text);
-    if (frag?.atoms.length) out = expandLabel(out, i, frag);
+    if (!frag?.atoms.length) return;
+    out = expandLabel(out, i, frag);
+    if (a.charge) out = { ...out, atoms: out.atoms.map((x, k) => (k === i ? { ...x, charge: (frag.atoms[0].charge ?? 0) + a.charge! || undefined } : x)) };
   });
   return out;
 }
@@ -82,6 +85,10 @@ function expanded(m: Mol, expand?: (text: string) => Mol | undefined): Mol {
 function ctab(m: Mol, shapes: Shape[], member = false): string[] {
   const nbrs: number[][] = m.atoms.map(() => []), used = m.atoms.map(() => 0);
   m.bonds.forEach((b) => { nbrs[b.atoms[0]].push(b.atoms[1]); nbrs[b.atoms[1]].push(b.atoms[0]); used[b.atoms[0]] += ORDER[b.type] ?? 1; used[b.atoms[1]] += ORDER[b.type] ?? 1; });
+  // A nonmetal bonded to a metal has the hydrogens the drawing shows (PPh3 on Pd is P, not PH): its valence, as
+  // Octet's other molfiles write it.
+  const plain = (a: Atom) => !a.text && !a.centre && !a.attach && !a.bead;
+  const metalled = m.atoms.map((a, i) => plain(a) && NONMETAL.has(a.label) && nbrs[i].some((j) => plain(m.atoms[j]) && !NONMETAL.has(m.atoms[j].label)));
   // An R-group fragment's attachment points: the atoms its attach marks are bonded to, else its first atom. The marks
   // themselves are not written.
   const marks = member ? m.atoms.flatMap((a, i) => (a.attach ? [i] : [])) : [];
@@ -120,6 +127,7 @@ function ctab(m: Mol, shapes: Shape[], member = false): string[] {
     if (aq?.unsat === "present") extra.push("UNSAT=1");
     if (aq?.change) extra.push("EXACHG=1");
     if (aq?.stereo) extra.push(`INVRET=${aq.stereo === "inversion" ? 1 : 2}`);
+    if (metalled[i]) extra.push(`VAL=${Math.round(used[i]) + (a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used[i], a.radical === 3 ? 2 : a.radical))}`);
     if (attachAt.has(i)) extra.push(`ATTCHPT=${attachAt.get(i)}`);
     atomLines.push(...lines(`${index[i]} ${type} ${f4(x)} ${f4(y)} ${f4(z ?? 0)} ${a.map ?? 0}${extra.length ? " " + extra.join(" ") : ""}`));
   });

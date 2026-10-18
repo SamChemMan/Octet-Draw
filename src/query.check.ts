@@ -297,6 +297,11 @@ console.log("query.check: MOL V3000 ok");
   const q2 = importStructure(v2000);
   assert.deepEqual(q2.atoms.map((a) => a.text ?? a.label), ["C", "R1", "[Cl,Br,I]", "C"]);
   assert.deepEqual([q2.atoms[0].query, q2.bonds[1].query, q2.bonds[2].topology], [{ subst: { kind: "exactly", n: 2 } }, "sd", "ring"]);
+  // Octet's V3000 keeps a written label's charge, and a nonmetal on a metal keeps its drawn hydrogens (P on Pd: VAL=4).
+  const pd: Mol = { atoms: [A("Pd", 0, 0), A("P", 1, 0), A("C", 2, 0), A("C", 1, 1), A("C", 1, -1), A("C", -1, 0, { text: "R" }), A("O", 3, 3, { text: "O2", charge: -1 })], bonds: [b(0, 1), b(1, 2), b(1, 3), b(1, 4), b(0, 5)] };
+  const pdMol = toMolfile(pd);
+  assert.match(pdMol, /^M {2}V30 2 P [-\d.]+ [-\d.]+ [-\d.]+ 0 VAL=4$/m);
+  assert.match(pdMol, /^M {2}V30 \d+ O [-\d.]+ [-\d.]+ [-\d.]+ 0 CHG=-1$/m);
   // A plain structure's molfile stays Indigo's.
   assert.match(toMolfile({ atoms: [A("C", 0, 0), A("O", 1, 0)], bonds: [b(0, 1)] }), /-INDIGO-/);
   console.log("query.check: chemistry ok");
