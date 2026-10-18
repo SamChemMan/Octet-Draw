@@ -9,7 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
-import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
+import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
 import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, FONTS, type DocStyle, type Guides, type PageName } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
 import { Rulers } from "./Rulers";
@@ -18,7 +18,7 @@ import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
-  addShape, addSymbol, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
+  addShape, addSymbol, bondOrders, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
@@ -26,7 +26,7 @@ import { store, type Store } from "./store";
 import { loadSettings, RULER_UNITS, saveSettings } from "./settings";
 import { ACTIONS, actionFor, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
 import { Actions, actionItems, SearchGlyph, type Context } from "./Actions";
-import { Properties, propertyValues, PROPERTY_ROWS } from "./Properties";
+import { Properties, propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./Properties";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { acsText, multiplicity, quality } from "./nmr";
 import { nmrReady, predict, type Nucleus } from "./nmr";
@@ -40,7 +40,7 @@ import { Coach, NOTHING_SEEN, type Seen } from "./Coach";
 import { Feedback } from "./Feedback";
 import { ExportButton, ExportDialog } from "./ExportDialog";
 import { flushSync } from "react-dom";
-import { copyToClipboard, exportFile, readClipboard, standaloneSvg, UI, withMargin } from "./export";
+import { copyToClipboard, exportFile, readClipboard, standaloneSvg, UI, withMargin, type ExportFormat } from "./export";
 import { formatAmount, formulaWeight, parseAmount, solve, type Field } from "./stoich";
 import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
@@ -154,9 +154,22 @@ function Live<T>({ store: from, children }: { store: Store<T>; children: (value:
 }
 // The view: where the drawing's origin is on screen (px) and the zoom. pinch: a zoom gesture goes on (see onWheel).
 type View = { x: number; y: number; zoom: number; pinch?: boolean };
+// What Export and Copy make from the drawing for other programs (pictures aside).
+type PartFormat = "cdxml" | "oct" | "molfile" | "smiles";
 const sameHover = (a: Hover, b: Hover) => a.atom === b.atom && a.bond === b.bond && a.caption === b.caption && a.arrow === b.arrow && a.cycle === b.cycle && a.step === b.step;
 // Ink as SVG path data, kept with the arrow or shape it is made from, for each document style.
 const arrowInks = new WeakMap<Arrow, [unknown, string]>(), shapeInks = new WeakMap<Shape, [unknown, string]>(), outlines = new WeakMap<object, [unknown, string]>();
+// Octet's own calculators' values (props.ts), kept with the structure's values they are from (chem.ts keeps those by
+// structure), so each structure is worked out once.
+const calculated = new WeakMap<Structure, Calculated>();
+// A drawing's rings (rings.ts, from its bonds alone), kept with its bond list: a drag that only moves atoms, a change
+// of colour or fill, and undo find them again at once.
+const ringLists = new WeakMap<Mol["bonds"], number[][]>();
+function drawnRings(m: Mol): number[][] {
+  let found = ringLists.get(m.bonds);
+  if (!found) ringLists.set(m.bonds, (found = rings({ atoms: m.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: m.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) })));
+  return found;
+}
 
 // A caption's anchor in drawing coordinates: the start, middle or end of its first baseline.
 const anchorOf = (c: Placed): P => [(c.anchor === "start" ? c.box[0] : c.anchor === "end" ? c.box[2] : (c.box[0] + c.box[2]) / 2) / L, -c.lines[0].y / L];
@@ -450,9 +463,19 @@ export default function Editor() {
   useEffect(() => { ready.then(() => setLoaded(true)); }, []);
   // Name to structure loads in the background once the window has settled.
   const [namesLoaded, setNamesLoaded] = useState(false);
-  // The names engine loads in the background soon after start, so Structure to name is ready when first asked.
-  useEffect(() => { const t = setTimeout(() => void loadNames().then(() => setNamesLoaded(true)).catch(() => {}), 1500); return () => clearTimeout(t); }, []);
-  useEffect(() => { const t = setTimeout(() => loadNames().then(() => setNamesLoaded(true)), 1500); return () => clearTimeout(t); }, []);
+  // The names engine loads in the background soon after start, so Structure to name is ready when first asked. Its
+  // start-up is one long step, so it waits until there is no pointer or key input for 1.5 s: it does not stop the
+  // window while the user draws. Asking for a name loads it at once.
+  useEffect(() => {
+    const input = ["pointerdown", "pointermove", "keydown", "wheel"];
+    let t = 0;
+    const wait = () => { clearTimeout(t); t = window.setTimeout(start, 1500); };
+    const stop = () => { clearTimeout(t); input.forEach((e) => removeEventListener(e, wait, true)); };
+    function start() { stop(); void loadNames().then(() => setNamesLoaded(true)).catch(() => {}); }
+    input.forEach((e) => addEventListener(e, wait, { capture: true, passive: true }));
+    wait();
+    return stop;
+  }, []);
   // The text in the name-to-structure field, while it is open.
   const [naming, setNaming] = useState<string>();
   // Names drawn before: five under the field, or all fifty when opened. at: the row the arrow keys are on.
@@ -503,13 +526,24 @@ export default function Editor() {
       flushSync(() => setExporting(undefined));
     }
   }
-  // What other programs read: the molecules as a molfile and SMILES, and CDXML; undefined where Indigo cannot write them.
-  const chemistryOf = (part: Mol) => {
-    const tryIt = (f: () => string) => { try { return part.atoms.length && loaded ? f() || undefined : undefined; } catch { return undefined; } };
-    let cdxml: string | undefined;
-    try { cdxml = toCdxml(part, style, cdxmlOptions()); } catch { cdxml = undefined; }
-    return { molfile: tryIt(() => toMolfile(part)), smiles: tryIt(() => toSmiles(part)), cdxml };
-  };
+  // What other programs read: CDXML, a .oct file (the same CDXML with Octet's drawing), and the molecules as a molfile
+  // and SMILES; undefined where Octet or Indigo cannot write them. Each is made when it is first asked for and kept
+  // with the part (the drawing itself, or the selection's part from selectedPart), so Export and Copy make only what
+  // they use, once for each version of the drawing. They are made again when the style, the name, Indigo or the arrows
+  // of a catalytic cycle (what cdxmlOptions gives) change.
+  const made = useRef(new WeakMap<Mol, { style: DocStyle; name: string; loaded: boolean; derived: unknown; formats: Partial<Record<PartFormat, string>> }>());
+  function formatOf(part: Mol, f: PartFormat): string | undefined {
+    let kept = made.current.get(part);
+    if (kept?.style !== style || kept.name !== name || kept.loaded !== loaded || kept.derived !== cycleArrows) made.current.set(part, kept = { style, name, loaded, derived: cycleArrows, formats: {} });
+    if (f in kept.formats) return kept.formats[f];
+    const cdxml = f === "oct" ? formatOf(part, "cdxml") : undefined;
+    let out: string | undefined;
+    try {
+      out = (f === "cdxml" ? toCdxml(part, style, cdxmlOptions()) : f === "oct" ? cdxml && writeOct(part, style, cdxmlOptions(), cdxml)
+        : part.atoms.length && loaded ? (f === "molfile" ? toMolfile(part) : toSmiles(part)) : undefined) || undefined;
+    } catch { out = undefined; }
+    return (kept.formats[f] = out);
+  }
   // File > Print (⌘P): the document's page at true size, the drawing where it sits on the page, as a picture the
   // print layout shows alone (the editor's chrome is hidden for printing), then the system's print dialog.
   const [printing, setPrinting] = useState<{ src: string; w: number; h: number }>();
@@ -526,20 +560,28 @@ export default function Editor() {
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     try { await invoke("print_page"); } catch (e) { setNotice(`Octet cannot print. ${e}`); }
   }
-  // Export… (⌃⌘E, and the Export button): the settings first, with the whole drawing's picture and chemistry and,
-  // when something is selected, the selection's. Then the Save dialog for the chosen format.
-  const selectedPart = () => (selection.size || picked.size ? extractSelection(doc, selection, picked) : undefined);
+  // The selection as a drawing of its own, kept while the drawing and the selection stay the same.
+  const partKept = useRef<{ doc: Mol; selection: Set<number>; picked: Set<number>; part: Mol }>(undefined);
+  const selectedPart = () => {
+    if (!selection.size && !picked.size) return undefined;
+    const s = partKept.current;
+    if (s?.doc === doc && s.selection === selection && s.picked === picked) return s.part;
+    return (partKept.current = { doc, selection, picked, part: extractSelection(doc, selection, picked) }).part;
+  };
+  // Export… (⌃⌘E, and the Export button): the settings first, with the whole drawing's picture and, when something is
+  // selected, the selection's. The chosen format is made when the dialog shows it. Then the Save dialog for that format.
   function openExport() {
     const sel = selectedPart();
-    setExportView({ all: pictureOf(doc), selection: sel && pictureOf(sel), chem: { all: chemistryOf(doc), selection: sel && chemistryOf(sel) },
-      oct: { all: writeOct(doc, style, cdxmlOptions()), selection: sel && writeOct(sel, style, cdxmlOptions()) } });
+    setExportView({ all: pictureOf(doc), selection: sel && pictureOf(sel), parts: { all: doc, selection: sel } });
   }
   const filePrefs = settings.files;
   async function exportPart(part: "all" | "selection") {
-    const v = exportView, svg = v?.[part], c = v?.chem[part], f = filePrefs;
-    if (!v) return;
+    const v = exportView, svg = v?.[part], mol = v?.parts[part], f = filePrefs;
+    if (!v || !mol) return;
+    // Only what the format needs: a PDF carries the CDXML.
+    const make = (pf: PartFormat, ...fs: ExportFormat[]) => (fs.includes(f.format) ? formatOf(mol, pf) : undefined), molfile = make("molfile", "mol", "sdf");
     try {
-      const path = await exportFile({ name, format: f.format, oct: v.oct[part], svg: svg && withMargin(svg, f.margin), cdxml: c?.cdxml, molfile: c?.molfile, sdf: c?.molfile ? `${c.molfile.trimEnd()}\n$$$$\n` : undefined, smiles: c?.smiles, dpi: f.dpi, transparent: f.background === "transparent" });
+      const path = await exportFile({ name, format: f.format, oct: make("oct", "oct"), svg: svg && withMargin(svg, f.margin), cdxml: make("cdxml", "cdxml", "pdf"), molfile, sdf: molfile ? `${molfile.trimEnd()}\n$$$$\n` : undefined, smiles: make("smiles", "smi"), dpi: f.dpi, transparent: f.background === "transparent" });
       if (path) setExportView(undefined);
     } catch (e) {
       setNotice(`Octet cannot export this drawing. ${e}`);
@@ -732,6 +774,7 @@ export default function Editor() {
       saw("clean");
       const ids = selection.size ? selection : undefined;
       let m = cleanUp(doc, ids);
+      if (fragments(doc).some((g) => g.length > MOST_CLEAN && (!ids || g.some((i) => ids.has(i))))) setNotice(`Octet cannot clean up a structure of more than ${MOST_CLEAN.toLocaleString("en-GB")} atoms.`);
       const docBox = (b?: Box): Box | undefined => b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L];
       const inkOf = (mol: Mol) => { const d = render(mol, frame, measure, L); return (atoms: number[]) => docBox(union(atoms.filter((i) => d.ink[i]).map((i) => d.ink[i]))); };
       const captionOf = (id: number) => docBox(placed.find((c) => c.id === id)?.box);
@@ -1072,7 +1115,7 @@ export default function Editor() {
   const [about, setAbout] = useState(false);
   // The Select tool's modifiers at the last press, and the selection before it, for a click with Shift or Option.
   const pressMods = useRef<{ shift: boolean; alt: boolean; atoms: Set<number>; picks: Set<number> } | undefined>(undefined);
-  const [exportView, setExportView] = useState<{ all?: string; selection?: string; chem: { all: ReturnType<typeof chemistryOf>; selection?: ReturnType<typeof chemistryOf> }; oct: { all: string; selection?: string } }>();
+  const [exportView, setExportView] = useState<{ all?: string; selection?: string; parts: { all: Mol; selection?: Mol } }>();
   const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }
     | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string }
     | { kind: "unsaved"; next: () => void }>();
@@ -2287,8 +2330,8 @@ export default function Editor() {
       return { kind: "bond", style, double: b.type === 2, flippable: !!b.stereo || b.display === "dative" || b.display === "hollow" };
     }
     // Lone pairs: whether the heteroatoms have any to show, and whether they all show already.
-    const hetero = ids.filter((i) => doc.atoms[i].label !== "C" && freePairs(doc, i) > 0);
-    const pairs = !hetero.length ? undefined : hetero.every((i) => (doc.atoms[i].pairs ?? 0) >= freePairs(doc, i)) ? "shown" as const : "hidden" as const;
+    const used = bondOrders(doc), hetero = ids.filter((i) => doc.atoms[i].label !== "C" && freePairs(doc, i, used[i]) > 0);
+    const pairs = !hetero.length ? undefined : hetero.every((i) => (doc.atoms[i].pairs ?? 0) >= freePairs(doc, i, used[i])) ? "shown" as const : "hidden" as const;
     // Its stereocentres as a whole: absolute (no flags), racemic (all &1), relative (all or1), or a mix.
     const centres = stereocentres(doc, selection), flags = new Set(centres.map((i) => doc.atoms[i].enhanced ?? ""));
     const stereo = !centres.length ? undefined : flags.size > 1 ? "mixed" : flags.has("&1") ? "racemic" : flags.has("or1") ? "relative" : flags.has("") ? "absolute" : "mixed";
@@ -2300,20 +2343,43 @@ export default function Editor() {
       halo: ids.every((i) => doc.atoms[i].halo === doc.atoms[ids[0]].halo) ? doc.atoms[ids[0]].halo : undefined,
       fill: ids.filter((i) => doc.atoms[i].fill).every((i) => doc.atoms[i].fill === doc.atoms[ids.find((k) => doc.atoms[k].fill) ?? 0].fill) ? doc.atoms[ids.find((k) => doc.atoms[k].fill) ?? 0]?.fill : undefined };
   };
-  // What the panel knows about the drawing: formula and mass (of the selection, or everything), problems, mess.
-  const analysis = useMemo(() => (loaded ? analyse(selection.size ? subset(doc, selection) : doc) : undefined), [loaded, doc, selection]);
+  // The panel's context, worked out again only when something it reads changes: not on each frame of a drag or of
+  // the Pen (the drawing and the captions' places change then, and the context follows them when what is shown is the
+  // drawing again). While text is typed, the caret changes it too, so the panel works it out as it draws (see Actions
+  // below).
+  const settled = shown === doc;
+  const panelContext = useMemo(() => (writing ? undefined : contextOf()), [doc, selection, picked, writing, tool, textStyle, spotPick, lastCell, namesLoaded, loaded, style, fontList, settled && drawing, settled && placed]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The formula and mass the panel shows (of the selection, or everything): only while it is open and shows them, and
+  // only for the first three structures, as it shows no more.
+  const facts = settings.actions && (panelContext?.kind === "drawing" || panelContext?.kind === "structure");
+  const analysis = useMemo(() => (loaded && facts ? analyse(selection.size ? subset(doc, selection) : doc, 3) : undefined), [loaded, facts, doc, selection]);
   // The Properties panel's values, while it is open: for each structure in the selection (or the drawing), with
-  // each structure's atoms in the drawing (for Add to drawing).
+  // each structure's atoms in the drawing (for Add to drawing). While a box or lasso sweeps, the panel keeps the
+  // values it has until the pointer stops for a moment or lets go, so it does not work them out on every move.
+  const sweep = drag?.kind === "box" || drag?.kind === "lasso" ? drag.base : undefined; // the same for the whole sweep
+  const [paused, setPaused] = useState<{ sweep: Set<number>; selection: Set<number> }>();
+  useEffect(() => {
+    if (!sweep) return;
+    const t = setTimeout(() => setPaused({ sweep, selection }), 250);
+    return () => clearTimeout(t);
+  }, [sweep, selection]);
+  const propertySelection = !sweep ? selection : paused?.sweep === sweep ? paused.selection : undefined;
+  const lastProperties = useRef<{ atoms: number[][]; values: PropertyValues }>(undefined);
   const properties = useMemo(() => {
     if (!loaded || !settings.properties) return undefined;
-    const ids = selection.size ? [...selection].filter((i) => i < doc.atoms.length).sort((a, b) => a - b) : doc.atoms.map((_, i) => i);
-    const base = selection.size ? subset(doc, selection) : doc, groups = fragments(base), found = structures(base, groups);
+    if (!propertySelection) return lastProperties.current;
+    const ids = propertySelection.size ? [...propertySelection].filter((i) => i < doc.atoms.length).sort((a, b) => a - b) : doc.atoms.map((_, i) => i);
+    const base = propertySelection.size ? subset(doc, propertySelection) : doc, groups = fragments(base), found = structures(base, groups);
     if (!found) return undefined;
     const kept = groups.map((g, k) => ({ atoms: g.map((i) => ids[i]), s: found[k] })).filter((x) => x.s).slice(0, 12);
-    // Octet's own calculators; pKa sites above 13 (alcohols, amides) are left out.
-    const calc = (s: Structure, g: Graph) => { const p = calculate(g); return { ...p, pka: p.pka.filter((x) => x.pka < 13), logS: s.logP !== undefined ? logS(s.logP, s.weight, p) : undefined }; };
+    // Octet's own calculators, once for each structure's values; pKa sites above 13 (alcohols, amides) are left out.
+    const calc = (s: Structure, g: Graph) => {
+      if (!calculated.has(s)) { const p = calculate(g); calculated.set(s, { ...p, pka: p.pka.filter((x) => x.pka < 13), logS: s.logP !== undefined ? logS(s.logP, s.weight, p) : undefined }); }
+      return calculated.get(s);
+    };
     return { atoms: kept.map((x) => x.atoms), values: propertyValues(kept.map((x) => x.s!), calc) };
-  }, [loaded, settings.properties, doc, selection]);
+  }, [loaded, settings.properties, doc, propertySelection]);
+  lastProperties.current = properties;
   // The Spectrum panel's structure (the first in the selection, or the drawing's largest), its predicted spectrum
   // once the shift tables are loaded, and which drawn atom each of the prediction's atoms is.
   const [spectrum, setSpectrum] = useState<Nucleus>();
@@ -2343,7 +2409,7 @@ export default function Editor() {
   // Each drawn atom's predicted shifts, shown beside it while the panel is open.
   const nmrShifts = new Map<number, number[]>(), nmrQuality = new Map<number, string>();
   const stereo = useMemo(() => { const m = exporting ?? doc; return loaded && m.atoms.some((a) => a.cip) ? stereoLabels(m) : undefined; }, [loaded, doc, exporting]);
-  const ringsOf = useMemo(() => (spectrum || doc.atoms.some((a) => a.cip || a.number) ? rings({ atoms: shown.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: shown.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) }) : []), [spectrum, shown, doc]);
+  const ringsOf = useMemo(() => (spectrum || doc.atoms.some((a) => a.cip || a.number) ? drawnRings(shown) : []), [spectrum, shown, doc]);
   // Opening the panel scrolls the canvas up if the panel would cover the structure (again once the spectrum is in,
   // as the panel grows).
   useEffect(() => {
@@ -2704,7 +2770,7 @@ export default function Editor() {
     if (command.startsWith("halo.") || command.startsWith("ringfill.")) {
       const value = command.split(".")[1], c = value === "none" ? undefined : value, key = command.startsWith("halo.") ? "halo" : "fill";
       const atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i));
-      const all = key === "fill" ? rings({ atoms: doc.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: doc.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) }) : [];
+      const all = key === "fill" ? drawnRings(doc) : [];
       const touched = new Set(fragments(doc).filter((g) => g.some((i) => atoms.has(i))).flat());
       const whole = all.filter((r) => r.every((i) => atoms.has(i))), part = all.filter((r) => r.some((i) => atoms.has(i)));
       const inRing = key === "fill" ? new Set((whole.length ? whole : part.length ? part : all.filter((r) => r.every((i) => touched.has(i)))).flat()) : atoms;
@@ -3202,14 +3268,15 @@ export default function Editor() {
               }
             } catch { /* read the molfile or SMILES instead */ }
           }
+          let why = "Paste a name, a SMILES string or a MOL file.";
           for (const source of [clip.molfile, clip.smiles, text]) {
             if (!source || !loaded) continue;
             let frag: Mol | undefined;
-            try { frag = source === text ? parseStructure(source) : importStructure(source); } catch { frag = undefined; }
+            try { frag = source === text ? parseStructure(source) : importStructure(source); } catch (err) { frag = undefined; if (err instanceof RangeError) why = err.message; }
             if (!frag?.atoms.length && source === text) frag = structureFor(source);
             if (frag?.atoms.length) return place(frag);
           }
-          if (text) setNotice("Octet cannot read this structure. Paste a name, a SMILES string or a MOL file.");
+          if (text) setNotice(`Octet cannot read this structure. ${why}`);
         }).catch((err) => setNotice(`Octet cannot read the clipboard. ${err}`));
         return;
       }
@@ -3229,11 +3296,11 @@ export default function Editor() {
       if (!text || !loaded) return;
       e.preventDefault();
       // A SMILES string or MOL file first, then a chemical name.
-      let frag: Mol | undefined;
-      try { frag = parseStructure(text); } catch { frag = undefined; }
+      let frag: Mol | undefined, why = "Paste a name, a SMILES string or a MOL file.";
+      try { frag = parseStructure(text); } catch (err) { frag = undefined; if (err instanceof RangeError) why = err.message; }
       if (!frag?.atoms.length) frag = structureFor(text);
       if (frag) place(frag);
-      else setNotice("Octet cannot read this structure. Paste a name, a SMILES string or a MOL file.");
+      else setNotice(`Octet cannot read this structure. ${why}`);
     };
     // Copy puts the selection, or the whole drawing, on the clipboard as SMILES (or text the panel asked for).
     const onCopy = (e: ClipboardEvent) => {
@@ -3246,23 +3313,22 @@ export default function Editor() {
       }
       // Everything selected (or the whole drawing) in Octet's own form, for pasting back with arrows, text and shapes;
       // and its structures as SMILES, for other programs.
-      const all = !selection.size && !picked.size;
-      const part = all ? doc : extractSelection(doc, selection, picked);
+      const part = selectedPart() ?? doc;
       if (!part.atoms.length && !part.captions?.length && !part.arrows?.length && !part.shapes?.length) return;
       e.preventDefault();
       saw("copy");
       // In the app: as ChemDraw copies, for Word, PowerPoint and Keynote (a vector picture at true size with the
       // structure hidden in it, so it pastes back as a structure), then a molfile and SMILES, then Octet's own form.
       if (TAURI) {
-        const picture = pictureOf(part), c = chemistryOf(part);
+        const picture = pictureOf(part);
         if (!picture) return;
-        void copyToClipboard({ svg: picture, cdxml: c.cdxml, molfile: c.molfile, smiles: c.smiles, octetJson: serialize({ ...part, style: undefined }) })
+        void copyToClipboard({ svg: picture, cdxml: formatOf(part, "cdxml"), molfile: formatOf(part, "molfile"), smiles: formatOf(part, "smiles"), octetJson: serialize({ ...part, style: undefined }) })
           .catch((err) => setNotice(`Octet cannot copy this. ${err}`));
         return;
       }
       e.clipboardData?.setData(OCTET_CLIP, serialize({ ...part, style: undefined }));
       const text = (part.captions ?? []).map((c) => c.text).join("\n");
-      try { e.clipboardData?.setData("text/plain", part.atoms.length && loaded ? toSmiles(part) : text); } catch { e.clipboardData?.setData("text/plain", text); }
+      e.clipboardData?.setData("text/plain", formatOf(part, "smiles") ?? text);
     };
     // Cut: copy, then delete what was selected.
     const onCut = (e: ClipboardEvent) => {
@@ -3347,10 +3413,10 @@ export default function Editor() {
   ) : null;
 
   // The Actions panel's group row: whether the selection is grouped, or could be.
-  const grouping = (() => {
+  const grouping = useMemo(() => {
     const gs = groupsOf(doc, selection, picked), count = fragments(doc).filter((g) => g.some((i) => selection.has(i))).length + picked.size;
     return gs.length ? { grouped: true, integral: gs.every((g) => g.integral) } : count >= 2 ? { grouped: false, integral: false } : undefined;
-  })();
+  }, [doc, selection, picked]);
   // Home stays on screen while it fades out, so going to a drawing (or the tutorial) is one smooth move.
   const [homeLeaving, setHomeLeaving] = useState(false), [wasHome, setWasHome] = useState(home), homeKind = useRef<"name" | "home">("home");
   if (home) homeKind.current = settings.userName === null ? "name" : "home";
@@ -3392,7 +3458,7 @@ export default function Editor() {
     <>
       {/* Fills go behind the structures: highlights, shadows (with the shape white over them), solid and shaded shapes. */}
       {/* Ring fills: a ring whose atoms all have one fill, filled with it behind the bonds. */}
-      {shown.atoms.some((at) => at.fill) && rings({ atoms: shown.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: shown.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) })
+      {shown.atoms.some((at) => at.fill) && drawnRings(shown)
         .filter((r) => r.length <= 12 && shown.atoms[r[0]].fill && r.every((i) => shown.atoms[i].fill === shown.atoms[r[0]].fill))
         .map((r) => <polygon key={`fill${r.join("-")}`} points={r.map((i) => `${pos(shown, i)[0] * L},${-pos(shown, i)[1] * L}`).join(" ")} fill={shown.atoms[r[0]].fill} fillOpacity={0.3} />)}
       {/* Highlight colours: a disc behind each highlighted atom, one group per colour so overlapping discs don't darken. */}
@@ -4073,7 +4139,7 @@ export default function Editor() {
         />
       )}
       <Live store={carets}>{() => {
-        const context = contextOf();
+        const context = panelContext ?? contextOf();
         return (
           <Actions
             open={settings.actions}
@@ -4131,7 +4197,15 @@ export default function Editor() {
       <ExportButton hint={platformLabel(EXPORT_KEYS)} onQuick={() => void quickExport()} onExport={openExport} />
       {exportView && (
         <ExportDialog prefs={settings.files} onPrefs={(p) => setSettings((s) => ({ ...s, files: { ...s.files, ...p } }))} pictures={exportView}
-          chemistry={(part) => { const c = exportView.chem[part]; return { oct: !!exportView.oct[part], cdxml: !!c?.cdxml, mol: !!c?.molfile, sdf: !!c?.molfile, smi: !!c?.smiles }; }}
+          chemistry={(part) => {
+            // The chosen format is made now, so the dialog says at once when it cannot be. The others are offered
+            // when the part can have them, and made when they are chosen.
+            const mol = exportView.parts[part], may = !!mol?.atoms.length && loaded, f = settings.files.format;
+            const has: Partial<Record<ExportFormat, boolean>> = { oct: true, cdxml: true, mol: may, sdf: may, smi: may };
+            const of: Partial<Record<ExportFormat, PartFormat>> = { oct: "oct", cdxml: "cdxml", mol: "molfile", sdf: "molfile", smi: "smiles" }, pf = of[f];
+            if (pf && mol) has[f] = !!formatOf(mol, pf);
+            return has;
+          }}
           onExport={(part) => void exportPart(part)} onClose={() => setExportView(undefined)} />
       )}
       {dialog?.kind === "atom" && (

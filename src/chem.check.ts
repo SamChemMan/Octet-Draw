@@ -56,3 +56,40 @@ assert.equal(formula(onEthyl("CO2H")), "C3H6O2");
 // A label Indigo cannot read stays one unknown atom.
 assert.deepEqual(expandWithOrigins(onEthyl("Xx")).mol.atoms.map((a) => a.label), ["C", "C", "*"]);
 console.log("chem.check: labels ok");
+
+// The formula and masses come one entry per structure, in the drawing's order (a lone label and a lone carbon too),
+// up to the number asked for. Each structure's values are kept by its content: moving it gives the same values, and
+// a change to a label gives new ones.
+{
+  const drawn: Mol = {
+    atoms: [{ label: "P", text: "PF6", charge: -1, location: [0, 0, 0] }, { label: "C", location: [2, 0, 0] }, { label: "C", location: [2.87, 0.5, 0] }, { label: "O", location: [3.73, 0, 0] }, { label: "C", location: [6, 0, 0] }],
+    bonds: [{ type: 1, atoms: [1, 2] }, { type: 1, atoms: [2, 3] }],
+  };
+  assert.deepEqual(analyse(drawn)?.map((a) => a.formula), ["F6P", "C2H6O", "CH4"]);
+  assert.deepEqual(analyse(drawn, 2)?.map((a) => a.formula), ["F6P", "C2H6O"]);
+  assert.deepEqual(analyse(drawn), analyse(drawn));
+  const moved = { ...drawn, atoms: drawn.atoms.map((a) => ({ ...a, location: [a.location[0] + 5, a.location[1] - 3, 0] as [number, number, number] })) };
+  assert.deepEqual(analyse(moved), analyse(drawn));
+  const relabelled = { ...drawn, atoms: drawn.atoms.map((a, i) => (i === 3 ? { ...a, text: "OMe" } : a)) };
+  assert.deepEqual(analyse(relabelled)?.map((a) => a.formula), ["F6P", "C3H8O", "CH4"]);
+  assert.equal(structures(drawn)?.[1]?.formula, "C2H6O");
+  assert.equal(structures(relabelled)?.[1]?.formula, "C3H8O");
+  // A label's group is read once and kept; a change to one expansion does not change the next.
+  const first = expandWithOrigins(onEthyl("CO2Me")).mol;
+  first.atoms[3].label = "Xx";
+  assert.notEqual(expandWithOrigins(onEthyl("CO2Me")).mol.atoms[3].label, "Xx");
+  console.log("chem.check: analysis by structure ok");
+}
+
+// A label Indigo cannot read, alone, has no entry. A structure Indigo reads as a bad valence (a pyridine N bonded to
+// Ru) keeps its formula and weight. Each exact mass is the structure's own monoisotopic mass.
+{
+  const lone: Mol = { atoms: [{ label: "C", text: "S0", location: [0, 0, 0] }, { label: "C", location: [3, 0, 0] }, { label: "O", location: [3.87, 0.5, 0] }], bonds: [{ type: 1, atoms: [1, 2] }] };
+  assert.deepEqual(analyse(lone)?.map((a) => [a.formula, a.exact.toFixed(4)]), [["CH4O", "32.0262"]]);
+  const ring = [0, 1, 2, 3, 4, 5].map((k) => ({ label: k ? "C" : "N", location: [Math.cos((k * Math.PI) / 3), Math.sin((k * Math.PI) / 3), 0] as [number, number, number] }));
+  const bound: Mol = { atoms: [...ring, { label: "Ru", location: [2, 0, 0] }], bonds: [...ring.map((_, k) => ({ type: k % 2 ? 1 : 2, atoms: [k, (k + 1) % 6] as [number, number] })), { type: 1, atoms: [0, 6] }] };
+  const [a] = analyse(bound) ?? [];
+  assert.equal(a?.formula, "C5H5NRu");
+  assert.ok(Number.isFinite(a?.weight));
+  console.log("chem.check: unreadable structures ok");
+}

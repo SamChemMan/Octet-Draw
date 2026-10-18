@@ -61,9 +61,9 @@ console.log("file.check: bad files refused");
     [{ charge: 1, circled: true, pairs: 1, radical: undefined, partial: undefined }, { charge: undefined, circled: undefined, pairs: undefined, radical: 1, partial: "-" }]);
   assert.equal(parse(serialize({ ...mol, atoms: mol.atoms.map((a, i) => (i === 1 ? { ...a, enhanced: "or1" } : a)) })).atoms[1].enhanced, "or1");
   // Colours on atoms, bonds and arrows survive a save; a bad colour is refused.
-  const coloured = parse(serialize({ ...mol, atoms: mol.atoms.map((a, i) => (i === 0 ? { ...a, colour: "#B42323" } : a)), bonds: mol.bonds.map((b, i) => (i === 0 ? { ...b, colour: "#1D49A7" } : b)),
+  const coloured = parse(serialize({ ...mol, atoms: mol.atoms.map((a, i) => (i === 0 ? { ...a, colour: "#B42323" } : a)), bonds: mol.bonds.map((b, i) => (i === 0 ? { ...b, colour: "#213C99" } : b)),
     arrows: [{ id: 50, kind: "orbital" as const, from: [0, 0] as [number, number], to: [0, 1] as [number, number], orbital: { shape: "p" as const, phase: "filled" as const }, colour: "#22775B" }] }));
-  assert.deepEqual([coloured.atoms[0].colour, coloured.bonds[0].colour, coloured.arrows?.[0].colour], ["#B42323", "#1D49A7", "#22775B"]);
+  assert.deepEqual([coloured.atoms[0].colour, coloured.bonds[0].colour, coloured.arrows?.[0].colour], ["#B42323", "#213C99", "#22775B"]);
   // Isotopes and singlet radicals (Atom Properties) save and load.
   const iso = parse(serialize({ ...mol, atoms: mol.atoms.map((a, i) => (i === 0 ? { ...a, isotope: 13, radical: 3 } : a)) })).atoms[0];
   assert.deepEqual([iso.isotope, iso.radical], [13, 3]);
@@ -75,7 +75,7 @@ console.log("file.check: bad files refused");
 // Shapes keep their kind, corners, dashes, colour and order.
 {
   const [one] = addShape(mol, { kind: "highlight", from: [0, 0], to: [2, 1] });
-  const [two] = addShape(one, { kind: "brackets", from: [-1, -1], to: [3, 2], dashed: true, colour: "#1D49A7" });
+  const [two] = addShape(one, { kind: "brackets", from: [-1, -1], to: [3, 2], dashed: true, colour: "#213C99" });
   const again = parse(serialize(two));
   assert.deepEqual(again.shapes?.map(({ id: _, ...x }) => x), two.shapes?.map(({ id: _, ...x }) => x));
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "star", x1: 0, y1: 0, x2: 1, y2: 1 }] })), /damaged/);

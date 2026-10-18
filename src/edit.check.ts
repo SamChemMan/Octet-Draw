@@ -1,7 +1,7 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours } from "./edit.ts";
-import { tableLayout } from "./render.ts";
+import { EMPTY, LARGE, groupSelection, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours } from "./edit.ts";
+import { tableLayout, type Mol } from "./render.ts";
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
 
@@ -88,6 +88,18 @@ assert.equal(joinedMol.atoms.length, 3);
 assert.equal(joinedMol.bonds.length, 2);
 assert.equal(fragments(joinedMol).length, 1);
 console.log("edit.check: smart selection and join ok");
+
+// A large drawing completes a selection from a list of neighbours made once: the same atoms as the plain loop.
+{
+  const big = addRing(ethanol, 6, false, { point: [5, 5] }), spare: Mol["atoms"] = Array.from({ length: LARGE + 1 }, (_, k) => ({ label: "C", location: [100 + k * 2, 0, 0] }));
+  const large = { ...big, atoms: [...big.atoms, ...spare] };
+  for (const ids of [new Set([0, 1]), new Set([1]), new Set([3, 5, 7]), new Set([3, 4, 5, 6, 7])]) assert.deepEqual([...complete(large, ids)].sort(), [...complete(big, ids)].sort());
+  // Group: the whole structures the selection touches, as one group.
+  const [grouped, id] = groupSelection(large, new Set([0, 3]), new Set())!;
+  assert.deepEqual(grouped.groups?.find((g) => g.id === id)?.atoms, [0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(groupSelection(large, new Set([3, 4]), new Set()), undefined, "one structure alone is not a group");
+  console.log("edit.check: large selection and group ok");
+}
 
 // Bond styles: a wedge drawn from atom 0 has its narrow end there; flipping swaps it. A chain counts its bonds.
 const wedge = sprout(EMPTY, [0, 0], { type: 1, stereo: 1 });
@@ -339,4 +351,17 @@ console.log("edit.check: align ok");
   const all = m.atoms.map((_, i) => i), dirs = markDirections(m, all);
   for (const i of all) assert.deepEqual(dirs.get(i), before(m, i), `atom ${i}`);
   console.log("edit.check: ring bonds and mark directions ok");
+}
+
+// Bond orders are added up for every atom in one pass (an aromatic bond counts 1.5), and freePairs gives the same
+// lone pairs with them as it works out alone.
+{
+  const m = setElement(sprout(sprout(sprout(EMPTY, [0, 0]), 1), 1), 1, "N"), aromatic = { ...m, bonds: m.bonds.map((b, k) => (k === 0 ? { ...b, type: 4 } : k === 1 ? { ...b, type: 2 } : b)) };
+  assert.deepEqual(bondOrders(aromatic), [1.5, 4.5, 2, 1]);
+  assert.deepEqual(bondOrders(aromatic, (type) => (type === 4 ? 1 : type)), [1, 4, 2, 1]);
+  const used = bondOrders(aromatic);
+  for (const mol of [m, aromatic]) for (let i = 0; i < mol.atoms.length; i++) assert.equal(freePairs(mol, i, bondOrders(mol)[i]), freePairs(mol, i));
+  assert.equal(freePairs(m, 1), 1); // an amine N: one lone pair
+  assert.equal(freePairs(aromatic, 1, used[1]), freePairs(aromatic, 1));
+  console.log("edit.check: bond orders ok");
 }

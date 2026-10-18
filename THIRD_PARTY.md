@@ -24,6 +24,7 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | is-wsl, is-docker (Rust) | 0.4, 0.2 | MIT | Used by open on Linux |
 | dunce (Rust) | 1.0 | CC0-1.0 OR MIT-0 OR Apache-2.0 (used under Apache-2.0) | Used by open on Windows. Already used by Tauri |
 | indigo-ketcher | 1.46 | Apache-2.0 | Chemistry engine, CDX/CDXML |
+| Indigo's MoleculeCleaner2d and BiconnectedDecomposer (indigo-core) | 1.46.0 | Apache-2.0 | Clean Up's geometry, ported to TypeScript and changed in `src/clean2d.ts` (EPAM's copyright notice kept there) |
 | react, react-dom | 19.3 | MIT | UI |
 | vite, @vitejs/plugin-react | 8.3, 6.1 | MIT | Bundler (dev only) |
 | typescript | 7.0 | Apache-2.0 | Type checking (dev only) |
