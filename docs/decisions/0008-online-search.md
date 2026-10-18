@@ -55,3 +55,7 @@ feature works with no network, and a search runs only when the user asks for one
 - The RD file upload for whole-reaction searches (IDEA-RX-3 step 2): it needs a live Reaxys test and an HTTPS
   client in the app.
 - Reagent, catalyst and solvent searches need structures above and below an arrow to have a role.
+
+## Update, 18 October 2026: Search Reaxys opens in Octet's Reaxys window
+
+Reaxys's website keeps its Query Builder form in the browser and, on a link, searches that old form before it loads the new structure. So in any browser that had run a Reaxys structure search, each search showed the one before it. Every link form goes through the same code; ChemDraw's link should hit it too (not run). Sam chose a Reaxys window in Octet: one window, reused, with a script that clears the old form before Reaxys's own scripts run on a load from a link. Reaxys pages get no Octet commands, links that open a new window go to the user's browser, and downloads go to Downloads. Off-campus users sign in to Reaxys once in that window. Search PubChem still opens the user's browser, because PubChem has no such fault.

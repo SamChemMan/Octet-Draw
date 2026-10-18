@@ -606,8 +606,23 @@ fn main() {
             app.set_menu(bar)?;
             app.manage(Checks(Mutex::new(checks)));
             *app.state::<MenuList>().0.lock().unwrap() = list;
+            // With the Reaxys window in front, Undo, Redo and Select All act on its page. Every other command goes
+            // to the drawing, and only the main window hears menu commands.
             app.on_menu_event(|app, event| {
-                let _ = app.emit("menu", event.id().0.as_str());
+                let id = event.id().0.as_str();
+                if let Some(w) = app.get_webview_window("reaxys").filter(|w| w.is_focused().unwrap_or(false)) {
+                    let js = match id {
+                        "undo" => Some("document.execCommand('undo')"),
+                        "redo" => Some("document.execCommand('redo')"),
+                        "select_all" => Some("document.execCommand('selectAll')"),
+                        _ => None,
+                    };
+                    if let Some(js) = js {
+                        let _ = w.eval(js);
+                        return;
+                    }
+                }
+                let _ = app.emit_to("main", "menu", id);
             });
             Ok(())
         })
