@@ -217,10 +217,11 @@ function ketOf(drawn: Mol, hbonds = false): string {
   const atoms = mol.atoms.map(({ label, location, charge, radical, isotope }) => ({ label, location, ...(charge ? { charge } : {}), ...(radical ? { radical: radical === 3 ? 1 : radical + 1 } : {}), ...(isotope ? { isotope } : {}) }));
   return JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule", atoms, bonds } });
 }
+// Only the end is trimmed: a molfile's first line (its name) is blank, and without it no program reads the file.
 function convert(input: string, format: string): string {
   const ind = engine(), opts = new ind.MapStringString();
   try {
-    return ind.convert(input, format, opts).trim();
+    return ind.convert(input, format, opts).trimEnd();
   } finally {
     opts.delete();
   }

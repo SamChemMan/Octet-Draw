@@ -5,7 +5,7 @@
 // ChemDraw users expect it (menus and keys).
 import { useEffect, useRef, useState } from "react";
 import {
-  AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, ArrowsInSimple, ArrowsClockwise, ArrowsDownUp, CaretRight, SignIn, SignOut, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretUpDown,
+  AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, ArrowsInSimple, ArrowsClockwise, ArrowsDownUp, CaretRight, SignIn, SignOut, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretUpDown, Graph,
   AlignBottomSimple, AlignTopSimple, ArrowLineDown, ArrowLineUp, CursorText, DotsThree, DotsThreeVertical, Faders, Polygon, Rectangle, ArrowArcLeft, ArrowArcRight, ArrowsCounterClockwise, ArrowUDownLeft, CircleDashed, CornersOut, MagnifyingGlass, Swap,
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
@@ -618,7 +618,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           {([["left", "Flush left", <TextAlignLeft size={16} />], ["centre", "Centre text", <TextAlignCenter size={16} />], ["right", "Flush right", <TextAlignRight size={16} />], ["justify", "Justified", <TextAlignJustify size={16} />]] as const).map(([id, name, icon]) => (
             <button key={id} className="chip" aria-pressed={context.align === id} aria-label={name} title={hint(`caption.align.${id}`) ? `${name} (${hint(`caption.align.${id}`)})` : name} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
           ))}
-          {context.labelable && <button className="chip" aria-pressed={false} aria-label="Interpret chemically" title="Interpret chemically" onClick={() => run("interpret")}><Atom size={16} /></button>}
+          {context.labelable && <button className="chip" aria-pressed={false} aria-label="Interpret chemically" title="Interpret chemically" onClick={() => run("interpret")}><Graph size={16} /></button>}
         </div>
       )}
 
@@ -635,7 +635,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
             ["above", "Stacked above", <ArrowLineUp size={16} />], ["auto", "Automatic", <span className="glyph-text">A</span>]] as const).map(([id, name, icon]) => (
             <button key={id} className="chip" aria-pressed={context.text!.align === id} aria-label={name} title={name} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
           ))}
-          <button className="chip" aria-pressed={context.text.chemical} aria-label="Interpret chemically" title="Interpret chemically" onClick={() => run("interpret")}><Atom size={16} /></button>
+          <button className="chip" aria-pressed={context.text.chemical} aria-label="Interpret chemically" title="Interpret chemically" onClick={() => run("interpret")}><Graph size={16} /></button>
         </div>
       )}
 
