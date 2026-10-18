@@ -299,9 +299,21 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
         &item("frame_rounded_shadow", "Rounded Rectangle with Shadow", "")?,
     ])?;
     section.replace("Object".into());
+    // ChemDraw's Fixed Lengths (⌘L) and Fixed Angles (⌘E): ticked, a dragged bond is one bond length long and at a
+    // 15° step. They are listed with the commands, so Settings can change their keys. The page sets the ticks.
+    let check = |id: &str, text: &str, keys: &str| {
+        list.borrow_mut().push((id.to_string(), text.to_string(), section.borrow().clone(), keys.to_string()));
+        let k = overrides.get(id).cloned().unwrap_or_else(|| keys.to_string());
+        CheckMenuItem::with_id(app, id, text, true, true, if k.is_empty() { None } else { Some(k) })
+    };
+    let fixed_lengths = check("fixed_lengths", "Fixed Lengths", "CmdOrCtrl+L")?;
+    let fixed_angles = check("fixed_angles", "Fixed Angles", "CmdOrCtrl+E")?;
     let object = Submenu::with_items(app, "Object", true, &[
         &align,
         &distribute,
+        &sep()?,
+        &fixed_lengths,
+        &fixed_angles,
         &sep()?,
         &item("show_stereo", "Show Stereochemistry", "")?,
         &item("atom_numbers", "Show Atom Numbers", "")?,
@@ -424,7 +436,7 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
     items.push(&octet);
     items.extend([&file as &dyn IsMenuItem<Wry>, &edit, &view, &object, &structure, &text, &curves, &colour, &window]);
     let listed = list.borrow().clone();
-    Ok((Menu::with_items(app, &items)?, vec![snap, warnings], listed))
+    Ok((Menu::with_items(app, &items)?, vec![snap, warnings, fixed_lengths, fixed_angles], listed))
 }
 
 fn main() {

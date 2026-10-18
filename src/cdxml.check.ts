@@ -377,3 +377,13 @@ console.log("cdxml.check: every object kind round trips");
   assert.equal(parse(serialize(m)).atoms[0].shown, true);
   console.log("cdxml.check: shown carbons ok");
 }
+
+// The document's chain angle goes out as ChemDraw's ChainAngle and comes back.
+{
+  const m = { atoms: [A("C", 0, 0), A("C", 1, 0)], bonds: [b(0, 1)] } as Mol;
+  const text = toCdxml(m, readStyle({ ...DEFAULT_STYLE, chainAngle: 110 }));
+  assert.match(text, /ChainAngle="110"/);
+  assert.equal(fromCdxml(text).style.chainAngle, 110);
+  assert.equal(fromCdxml(text.replace('ChainAngle="110"', "")).style.chainAngle, 120);
+  console.log("cdxml.check: chain angle ok");
+}

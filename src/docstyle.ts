@@ -30,6 +30,7 @@ export type DocStyle = {
   labelFont: string; labelSize: number; captionFont: string; captionSize: number; colour: string;
   // Atom labels (ChemDraw's Show Labels on Terminal Carbons, on Non-Terminal Carbons, and Hide Implicit Hydrogens).
   terminalLabels: boolean; carbonLabels: boolean; hideH: boolean;
+  chainAngle: number; // ChemDraw's Chain Angle: the angle between the bonds of a chain drawn with the Chain tool (°)
 };
 
 type Drawn = Pick<DocStyle, "bond" | "line" | "bold" | "margin" | "hash" | "spacing" | "labelFont" | "labelSize" | "captionFont" | "captionSize">;
@@ -43,7 +44,7 @@ export const PRESETS: Record<string, Drawn> = {
   "Helv. Chim. Acta": { bond: 17, line: 0.6, bold: 2, margin: 2, hash: 2, spacing: 15, labelFont: "Helvetica", labelSize: 10, captionFont: "Helvetica", captionSize: 12 },
   "Slides": { bond: 30, line: 1.6, bold: 4, margin: 2, hash: 2.7, spacing: 15, labelFont: "Arial", labelSize: 12, captionFont: "Arial", captionSize: 16 },
 };
-export const DEFAULT_STYLE: DocStyle = { preset: "ACS Document 1996", page: "A4", custom: [180, 120], landscape: false, edges: true, grid: 0, background: "white", colour: "#000000", terminalLabels: false, carbonLabels: false, hideH: false, ...PRESETS["ACS Document 1996"] };
+export const DEFAULT_STYLE: DocStyle = { preset: "ACS Document 1996", page: "A4", custom: [180, 120], landscape: false, edges: true, grid: 0, background: "white", colour: "#000000", terminalLabels: false, carbonLabels: false, hideH: false, chainAngle: 120, ...PRESETS["ACS Document 1996"] };
 
 export const FONTS = ["Arial", "Helvetica", "Times New Roman", "Calibri", "Cambria", "Georgia"];
 // Any font on the computer can be used too, by its family name. A name with quotes, slashes or CSS punctuation is
@@ -85,6 +86,7 @@ export function readStyle(v: unknown): DocStyle {
     captionFont: text("captionFont", fontName), captionSize: num("captionSize", 4, 72),
     colour: text("colour", (t) => /^#[0-9a-f]{6}$/i.test(t)),
     terminalLabels: s.terminalLabels === true, carbonLabels: s.carbonLabels === true, hideH: s.hideH === true,
+    chainAngle: num("chainAngle", 90, 179),
   };
   return { ...style, preset: presetOf(style) };
 }

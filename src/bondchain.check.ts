@@ -124,3 +124,19 @@ assert.equal(jumpHot(pair, { atom: 1 }, [1, 0], true).atom, 2);
 assert.equal(jumpHot(pair, { atom: 1 }, [-1, 0], true).atom! >= 4, true, "to the structure on the left");
 assert.deepEqual(jumpHot(ethane, { atom: 1 }, [1, 0], true), { atom: 1 }, "no other structure: it stays");
 console.log("bondchain.check: hotspot to the next structure ok");
+
+// The document's chain angle (ChemDraw's Chain Angle): every angle of a dragged or snaking chain is that angle.
+{
+  const angleAt = (a: P, b: P, c: P) => Math.round((Math.acos(((a[0] - b[0]) * (c[0] - b[0]) + (a[1] - b[1]) * (c[1] - b[1])) / (Math.hypot(a[0] - b[0], a[1] - b[1]) * Math.hypot(c[0] - b[0], c[1] - b[1]))) * 180) / Math.PI);
+  for (const angle of [120, 110, 135]) {
+    const pts = [[0, 0] as P, ...chainPoints(EMPTY, [0, 0], [5, 0], 1, angle)];
+    for (let k = 1; k + 1 < pts.length; k++) assert.equal(angleAt(pts[k - 1], pts[k], pts[k + 1]), angle, `chain angle ${angle}`);
+    for (let k = 1; k < pts.length; k++) assert.ok(Math.abs(Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]) - 1) < 1e-9, "unit bonds");
+    const s = snake([0, 0], [[Math.cos(0.3), Math.sin(0.3)]], [6, 0], angle), all = [[0, 0] as P, ...s];
+    for (let k = 1; k + 1 < all.length; k++) assert.equal(angleAt(all[k - 1], all[k], all[k + 1]), angle, `snake angle ${angle}`);
+  }
+  // From a chain end, the first bond is at the chain angle to the bond there.
+  const end = sprout(EMPTY, [0, 0]), first = chainPoints(end, 1, [5, 3], 1, 110)[0];
+  assert.equal(angleAt(pos(end, 0), pos(end, 1), first), 110);
+  console.log("bondchain.check: chain angle ok");
+}

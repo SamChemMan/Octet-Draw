@@ -134,23 +134,25 @@ export function sprout(m: Mol, from: number | P, spec: BondSpec = SINGLE, text =
 // the drag, and the first bond goes to side (1 left of the drag, -1 right: the side the pointer is on, so a drag
 // back across the axis flips it, as in ChemDraw). From an atom with bonds the first bond is at 120° to them (as
 // nextDirection gives it, or either way off a chain end) and the axis is the one of those chains nearest the drag.
-export function chainPoints(m: Mol, from: number | P, q: P, side = 1): P[] {
+// angle: the document's chain angle (ChemDraw's Chain Angle, 120° by default) instead of 120°.
+export function chainPoints(m: Mol, from: number | P, q: P, side = 1, angle = 120): P[] {
   const start = typeof from === "number" ? pos(m, from) : from, drag = sub(q, start), along = len(drag);
-  const count = Math.max(1, Math.round(along / Math.cos(30 * deg)));
+  const tilt = (180 - angle) / 2, step = Math.cos(tilt * deg), rise = Math.sin(tilt * deg);
+  const count = Math.max(1, Math.round(along / step));
   const u = along > 1e-9 ? unit(drag) : ([1, 0] as P);
   const ns = typeof from === "number" ? neighbours(m, from) : [];
   // The axis and the first bond's side of it (the unit vector across the axis toward the first bond).
   let axis = u, across: P = mul([-u[1], u[0]], side < 0 ? -1 : 1);
   if (ns.length) {
     const e = unit(sub(pos(m, ns[0]), start)), next = nextDirection(m, from as number);
-    const firsts = ns.length === 1 && orderBetween(m, from as number, ns[0]) !== 3 ? [next, rot(e, 120 * deg), rot(e, -120 * deg)] : [next];
+    const firsts = ns.length === 1 && orderBetween(m, from as number, ns[0]) !== 3 ? [...(angle === 120 ? [next] : []), rot(e, angle * deg), rot(e, -angle * deg)] : [next];
     let best = -Infinity;
-    for (const f of firsts) for (const t of [30, -30]) {
+    for (const f of firsts) for (const t of [tilt, -tilt]) {
       const a = rot(f, t * deg), score = dot(a, u);
-      if (score > best + 1e-9) { best = score; axis = a; across = unit(sub(f, mul(a, Math.cos(30 * deg)))); }
+      if (score > best + 1e-9) { best = score; axis = a; across = unit(sub(f, mul(a, step))); }
     }
   }
-  return Array.from({ length: count }, (_, k) => add(add(start, mul(axis, (k + 1) * Math.cos(30 * deg))), mul(across, k % 2 ? 0 : 0.5)));
+  return Array.from({ length: count }, (_, k) => add(add(start, mul(axis, (k + 1) * step)), mul(across, k % 2 ? 0 : rise)));
 }
 // The order of the bond between two atoms (1 when there is none).
 const orderBetween = (m: Mol, i: number, j: number) => m.bonds[bondIndex(m, i, j)]?.type ?? 1;
@@ -174,13 +176,13 @@ export function chainTo(m: Mol, from: number | P, q: P, side = 1): { mol: Mol; b
 // The Snaking Chain (the Chain tool with Command held, as in ChemDraw): the chain's points follow the pointer p. Each
 // new bond turns 60° from the one before (so every angle is 120°), to the side nearer the pointer, while that brings
 // the chain nearer it; when the pointer goes back past the last atom, that atom goes. path: the points so far after
-// the start; at least one stays.
-export function snake(start: P, path: P[], p: P): P[] {
+// the start; at least one stays. angle: the chain angle (each bond then turns 180° less it).
+export function snake(start: P, path: P[], p: P, angle = 120): P[] {
   const out = [...path], d = (q: P) => len(sub(p, q));
   for (let guard = 0; guard < 200; guard++) {
     const n = out.length, last = out[n - 1], prev = n > 1 ? out[n - 2] : start;
     if (n > 1 && d(prev) < d(last) - 0.25) { out.pop(); continue; }
-    const way = unit(sub(last, prev)), next = [rot(way, 60 * deg), rot(way, -60 * deg)].map((w) => add(last, w)).sort((a, b) => d(a) - d(b))[0];
+    const way = unit(sub(last, prev)), next = [rot(way, (180 - angle) * deg), rot(way, (angle - 180) * deg)].map((w) => add(last, w)).sort((a, b) => d(a) - d(b))[0];
     if (d(last) > 0.75 && d(next) < d(last) - 0.25) { out.push(next); continue; }
     return out;
   }

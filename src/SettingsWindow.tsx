@@ -2,7 +2,7 @@
 // modules (Document, Keyboard shortcuts, Import and export) under a search field that is always there. With text
 // in it, every matching setting from every module shows on the right, grouped by module and ready to use.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowsDownUp, CaretDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, Plus, SlidersHorizontal, X } from "@phosphor-icons/react";
+import { ArrowsDownUp, CaretDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, PencilSimpleLine, Plus, SlidersHorizontal, X } from "@phosphor-icons/react";
 import { ColourPicker } from "./ColourPicker";
 import { Select } from "./Select";
 import type { Swatch } from "./settings";
@@ -10,7 +10,9 @@ import type { ExportFormat } from "./export";
 import { BACKGROUNDS, COLOURS, FONTS, PAGE_NAMES, PAGES, PRESETS, pageSize, presetOf, type DocStyle, type PageName } from "./docstyle";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
 
-export type ModuleId = "document" | "keys" | "panel" | "files" | "colours";
+export type ModuleId = "document" | "drawing" | "keys" | "panel" | "files" | "colours";
+// How the drawing tools draw (ChemDraw's Object > Fixed Lengths and Fixed Angles, and its Building/Display setting).
+export type DrawingPrefs = { fixedLengths: boolean; fixedAngles: boolean; sproutRings: boolean };
 export type FilePrefs = {
   format: ExportFormat; dpi: number; background: "white" | "transparent"; margin: number;
   clipboard: { pdf: boolean; cdxml: boolean; mol: boolean; smiles: boolean }; keepStyle: boolean;
@@ -31,6 +33,8 @@ type Props = {
   onKeys: (keys: Keymap) => void;
   files: FilePrefs;
   onFiles: (files: FilePrefs) => void;
+  drawing: DrawingPrefs;
+  onDrawing: (patch: Partial<DrawingPrefs>) => void;
   captionOptionReturn: boolean; // captions: Option-Return for a new line, Return closes the box
   onCaptionOptionReturn: (on: boolean) => void;
   panelMenus: boolean; // the Actions panel's sets as menus, not sections
@@ -204,6 +208,7 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
 type Def = { module: ModuleId; section: string; label: string; keywords: string; control: React.ReactNode; wide?: boolean };
 const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: string }[] = [
   { id: "document", name: "Document", icon: <FileText size={16} />, words: "document style page text" },
+  { id: "drawing", name: "Drawing", icon: <PencilSimpleLine size={16} />, words: "drawing tools bonds rings draw" },
   { id: "keys", name: "Keyboard shortcuts", icon: <Keyboard size={16} />, words: "keyboard shortcut hotkey keys" },
   { id: "panel", name: "Actions panel", icon: <SlidersHorizontal size={16} />, words: "actions panel side menus sections" },
   { id: "files", name: "Import and export", icon: <ArrowsDownUp size={16} />, words: "import export file clipboard" },
@@ -328,6 +333,10 @@ export function SettingsWindow(p: Props) {
       d("document", "Style", "Label terminal carbons", "terminal carbon labels ch3 methyl show", <Switch on={style.terminalLabels} label="Label terminal carbons" onChange={(on) => change({ terminalLabels: on })} />),
       d("document", "Style", "Label every carbon", "non-terminal carbon labels all carbons show", <Switch on={style.carbonLabels} label="Label every carbon" onChange={(on) => change({ carbonLabels: on })} />),
       d("document", "Style", "Hide implicit hydrogens", "implicit hydrogens hide labels h", <Switch on={style.hideH} label="Hide implicit hydrogens" onChange={(on) => change({ hideH: on })} />),
+      num("chainAngle", "Chain angle", "°", "chain angle zig-zag bond angle 120"),
+      d("drawing", "Bonds", "Fixed lengths", "fixed length bond drag one bond length option", <Switch on={p.drawing.fixedLengths} label="Fixed lengths" onChange={(on) => p.onDrawing({ fixedLengths: on })} />),
+      d("drawing", "Bonds", "Fixed angles", "fixed angle bond drag 15 degrees steps option", <Switch on={p.drawing.fixedAngles} label="Fixed angles" onChange={(on) => p.onDrawing({ fixedAngles: on })} />),
+      d("drawing", "Rings", "Sprout rings on a click", "ring tool click atom sprout spiro bond option", <Switch on={p.drawing.sproutRings} label="Sprout rings on a click" onChange={(on) => p.onDrawing({ sproutRings: on })} />),
       d("document", "Text", "Captions", "caption text font typeface", <Select label="Caption font" value={style.captionFont} options={fontOptions} onChange={(v) => change({ captionFont: v })} />),
       num("captionSize", "Caption size", "pt", "caption text font size", "Text"),
       d("document", "Text", "Colour", "text colour caption", (
@@ -386,7 +395,7 @@ export function SettingsWindow(p: Props) {
       d("colours", "Colours", "Your colours", "colour colours palette custom swatch named add", <PaletteEditor palette={p.palette} onPalette={p.onPalette} adding={p.adding} />, true),
       d("files", "Import", "Keep ChemDraw styles", "import open cdxml chemdraw style keep", <Switch on={files.keepStyle} label="Keep ChemDraw styles" onChange={(on) => setFiles({ keepStyle: on })} />),
     ];
-  }, [style, map, recording, note, files, p.palette, p.adding, p.panelMenus, p.captionOptionReturn, p.menuKeys.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.adding, p.panelMenus, p.captionOptionReturn, p.menuKeys.length, p.drawing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query)) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));

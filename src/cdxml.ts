@@ -692,7 +692,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     ShowAtomQuery: "yes", ShowAtomStereo: "no", ShowAtomEnhancedStereo: "yes", ShowAtomNumber: "no", ShowResidueID: "no", ShowBondQuery: "yes", ShowBondRxn: "yes", ShowBondStereo: "no",
     ShowTerminalCarbonLabels: style.terminalLabels ? "yes" : "no", ShowNonTerminalCarbonLabels: style.carbonLabels ? "yes" : "no", HideImplicitHydrogens: style.hideH ? "yes" : "no", LabelFont: font(style.labelFont), LabelSize: fmtSize(style.labelSize), LabelFace: 96,
     CaptionFont: font(style.captionFont), CaptionSize: fmtSize(style.captionSize), HashSpacing: fmt(style.hash), MarginWidth: fmt(style.margin), LineWidth: fmt(style.line), BoldWidth: fmt(style.bold),
-    BondLength: fmt(style.bond), BondSpacing: fmtSize(style.spacing), ChainAngle: 120, LabelJustification: "Auto", CaptionJustification: "Left", AminoAcidTermini: "HOH", ShowSequenceTermini: "yes",
+    BondLength: fmt(style.bond), BondSpacing: fmtSize(style.spacing), ChainAngle: fmt(style.chainAngle), LabelJustification: "Auto", CaptionJustification: "Left", AminoAcidTermini: "HOH", ShowSequenceTermini: "yes",
     ShowSequenceBonds: "yes", ShowSequenceUnlinkedBranches: "no", ResidueWrapCount: 40, ResidueBlockCount: 10, PrintMargins: "36 36 36 36",
     ChemPropName: "", ChemPropFormula: "Chemical Formula: ", ChemPropExactMass: "Exact Mass: ", ChemPropMolWt: "Molecular Weight: ", ChemPropMOverZ: "m/z: ", ChemPropAnalysis: "Elemental Analysis: ",
     ChemPropBoilingPt: "Boiling Point: ", ChemPropMeltingPt: "Melting Point: ", ChemPropCritTemp: "Critical Temp: ", ChemPropCritPres: "Critical Pres: ", ChemPropCritVol: "Critical Vol: ",
@@ -821,6 +821,7 @@ export function fromCdxml(text: string): CdxmlRead {
     labelFont: fontOf(fonts.get(int(r.LabelFont) ?? -1)).font, labelSize: real(r.LabelSize), captionFont: fontOf(fonts.get(int(r.CaptionFont) ?? -1)).font, captionSize: real(r.CaptionSize),
     colour: colourOf(r.color) ?? "#000000",
     terminalLabels: yes(r.ShowTerminalCarbonLabels), carbonLabels: yes(r.ShowNonTerminalCarbonLabels), hideH: yes(r.HideImplicitHydrogens),
+    chainAngle: real(r.ChainAngle),
   });
 
   // Octet ids: the file's own when Octet wrote it, otherwise numbered afresh.

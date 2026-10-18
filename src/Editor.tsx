@@ -3,7 +3,7 @@ import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Waveform, TagSimple, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
   FrameCorners, GearSix, Keyboard, Lasso, LinkSimple, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
   TextAlignCenter, TextAlignLeft, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Warning, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
-  Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table, FileDashed, ArrowsLeftRight,
+  Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table, FileDashed, ArrowsLeftRight, Ruler, Angle as AngleIcon,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -328,6 +328,7 @@ export default function Editor() {
   const [pop, setPop] = useState<{ n: number; x: number; y: number }>();
   const [cursor, setCursor] = useState<string>();
   const [settings, setSettings] = useState(loadSettings);
+  const drawingPrefs = useMemo(() => ({ fixedLengths: settings.fixedLengths, fixedAngles: settings.fixedAngles, sproutRings: settings.sproutRings }), [settings.fixedLengths, settings.fixedAngles, settings.sproutRings]);
   const bondKind = (settings.variants.bond in BONDS ? settings.variants.bond : "single") as BondKind;
   // The user's own rings, and the one in hand (a built-in RingKind or a template's kind).
   const templates = useMemo(() => loadTemplates(settings.templates), [settings.templates]);
@@ -787,6 +788,9 @@ export default function Editor() {
       setPicked(new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id)));
     },
     snap: () => setSettings((s) => ({ ...s, snap: !s.snap })),
+    // ChemDraw's Object > Fixed Lengths (⌘L) and Fixed Angles (⌘E).
+    fixed_lengths: () => setSettings((s) => ({ ...s, fixedLengths: !s.fixedLengths })),
+    fixed_angles: () => setSettings((s) => ({ ...s, fixedAngles: !s.fixedAngles })),
     warnings: () => setSettings((s) => ({ ...s, warnings: !s.warnings })),
     // Display Warnings back on for the selected atoms (their whole structures when a structure is selected).
     show_warnings: () => set({ ...doc, atoms: doc.atoms.map((a, k) => (selection.has(k) && a.ignoreWarnings ? { ...a, ignoreWarnings: undefined } : a)) }, true),
@@ -985,7 +989,7 @@ export default function Editor() {
     setView({ zoom, x: cx - (cx - view.x) * k, y: cy - (cy - view.y) * k });
   }
   // Keep the setting on disk and the View menu ticks in step with it.
-  const syncChecks = () => Promise.all([["snap", settings.snap], ["warnings", settings.warnings]].map(([id, checked]) => invoke("set_check", { id, checked }))).catch(() => {});
+  const syncChecks = () => Promise.all([["snap", settings.snap], ["warnings", settings.warnings], ["fixed_lengths", settings.fixedLengths], ["fixed_angles", settings.fixedAngles]].map(([id, checked]) => invoke("set_check", { id, checked }))).catch(() => {});
   useEffect(() => {
     saveSettings(settings);
     if (TAURI) syncChecks();
@@ -1022,7 +1026,7 @@ export default function Editor() {
 
   // The Chain tool. A drag's points (snaking or straight), and how many atoms they draw: one per bond, and the first
   // atom too on empty canvas (ChemDraw's count).
-  const chainPath = (d: { from: number | P; to?: P; side?: number; path?: P[] }) => d.path ?? chainPoints(doc, d.from, d.to ?? (typeof d.from === "number" ? pos(doc, d.from) : d.from), d.side ?? 1);
+  const chainPath = (d: { from: number | P; to?: P; side?: number; path?: P[] }) => d.path ?? chainPoints(doc, d.from, d.to ?? (typeof d.from === "number" ? pos(doc, d.from) : d.from), d.side ?? 1, style.chainAngle);
   const chainCount = (d: { from: number | P; to?: P; side?: number; path?: P[] }) => chainPath(d).length + (typeof d.from === "number" ? 0 : 1);
   // A part of the drawing shown alone for a moment, to take its picture (copy and export).
   const [exporting, setExporting] = useState<Mol>();
@@ -1965,6 +1969,13 @@ export default function Editor() {
     }, HOLD_MS);
   }
 
+  // Where a bond (or a ring's first bond) dragged from origin toward p ends: one bond length long and at a 15° step
+  // while Fixed Lengths and Fixed Angles are on (ChemDraw's), free when they are off or Option is held.
+  const fixedEnd = (origin: P, p: P, alt: boolean): P => {
+    const raw = Math.atan2(p[1] - origin[1], p[0] - origin[0]), far = Math.hypot(p[0] - origin[0], p[1] - origin[1]);
+    const a = settings.fixedAngles && !alt ? Math.round(raw / SNAP) * SNAP : raw, r = settings.fixedLengths && !alt ? 1 : far;
+    return [origin[0] + r * Math.cos(a), origin[1] + r * Math.sin(a)];
+  };
   function onPointerMove(e: React.PointerEvent<SVGSVGElement>) {
     const p = toDoc(e.clientX, e.clientY);
     pointer.current = p;
@@ -1994,13 +2005,7 @@ export default function Editor() {
         if (drag.target.bond !== undefined && drag.target.atom === undefined) return; // dragging from a bond does nothing
         const origin = typeof drag.from === "number" ? pos(doc, drag.from) : drag.from;
         const onto = hitAt(p).atom;
-        let to: P;
-        if (onto !== undefined && onto !== drag.from) to = pos(doc, onto);
-        else {
-          const a = Math.round(Math.atan2(p[1] - origin[1], p[0] - origin[0]) / SNAP) * SNAP;
-          to = [origin[0] + Math.cos(a), origin[1] + Math.sin(a)];
-        }
-        return setDrag({ ...drag, to });
+        return setDrag({ ...drag, to: onto !== undefined && onto !== drag.from ? pos(doc, onto) : fixedEnd(origin, p, e.altKey) });
       }
       case "arrow": {
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
@@ -2016,7 +2021,7 @@ export default function Editor() {
           return setDrag({ ...drag, to, trail, side });
         }
         const far = Math.hypot(p[0] - drag.from[0], p[1] - drag.from[1]), raw = Math.atan2(p[1] - drag.from[1], p[0] - drag.from[0]);
-        const a = e.altKey ? raw : Math.round(raw / SNAP) * SNAP;
+        const a = e.altKey || !settings.fixedAngles ? raw : Math.round(raw / SNAP) * SNAP;
         return setDrag({ ...drag, to: [drag.from[0] + far * Math.cos(a), drag.from[1] + far * Math.sin(a)] });
       }
       case "map":
@@ -2099,7 +2104,7 @@ export default function Editor() {
         }
         const other = drag.which === "from" ? a.to : a.from;
         let q: P = curved(a) ? electronAt(p, hitAt(p)) : p;
-        if (!curved(a) && !e.altKey) {
+        if (!curved(a) && !e.altKey && settings.fixedAngles) {
           const far = Math.hypot(q[0] - other[0], q[1] - other[1]), ang = Math.round(Math.atan2(q[1] - other[1], q[0] - other[0]) / SNAP) * SNAP;
           q = [other[0] + far * Math.cos(ang), other[1] + far * Math.sin(ang)];
         }
@@ -2112,10 +2117,10 @@ export default function Editor() {
         // the pointer is on puts the first bond on that side (moving across the line turns the zig-zag over, as in
         // ChemDraw). With Command held (Ctrl off the Mac) it snakes after the pointer instead.
         const origin = typeof drag.from === "number" ? pos(doc, drag.from) : drag.from, far = Math.hypot(p[0] - origin[0], p[1] - origin[1]);
-        const raw = Math.atan2(p[1] - origin[1], p[0] - origin[0]), a = Math.round(raw / SNAP) * SNAP, off = Math.sin(raw - a) * far * L * views.get().zoom;
+        const raw = Math.atan2(p[1] - origin[1], p[0] - origin[0]), a = settings.fixedAngles && !e.altKey ? Math.round(raw / SNAP) * SNAP : raw, off = Math.sin(raw - a) * far * L * views.get().zoom;
         const to: P = [origin[0] + far * Math.cos(a), origin[1] + far * Math.sin(a)], side = Math.abs(off) >= 1 ? Math.sign(off) : drag.side ?? 1;
         const snaking = MOD === "⌘" ? e.metaKey : e.ctrlKey;
-        const path = snaking ? snake(origin, drag.path ?? chainPoints(doc, drag.from, to, side).slice(0, 1), p) : undefined;
+        const path = snaking ? snake(origin, drag.path ?? chainPoints(doc, drag.from, to, side, style.chainAngle).slice(0, 1), p, style.chainAngle) : undefined;
         return setDrag({ ...drag, to, side, path });
       }
       case "erase": {
@@ -2805,6 +2810,8 @@ export default function Editor() {
     name_to_structure: ["Name to structure", `⇧${MOD}N`, <AtomIcon size={18} />],
     snap: [settings.snap ? "Turn snapping off" : "Turn snapping on", undefined, <LinkSimple size={18} />],
     warnings: [settings.warnings ? "Hide chemical warnings" : "Show chemical warnings", undefined, <Warning size={18} />],
+    fixed_lengths: [settings.fixedLengths ? "Turn fixed lengths off" : "Turn fixed lengths on", `${MOD}L`, <Ruler size={18} />],
+    fixed_angles: [settings.fixedAngles ? "Turn fixed angles off" : "Turn fixed angles on", `${MOD}E`, <AngleIcon size={18} />],
     actions: [settings.actions ? "Hide the Actions panel" : "Show the Actions panel", undefined, <SlidersHorizontal size={18} />],
     text_bold: ["Bold", `${MOD}B`, <TextB size={18} />], text_italic: ["Italic", `${MOD}I`, <TextItalic size={18} />], text_underline: ["Underline", `${MOD}U`, <TextUnderline size={18} />],
     align_left: ["Flush left", `⇧${MOD}L`, <TextAlignLeft size={18} />], align_centre: ["Centre text", `⇧${MOD}C`, <TextAlignCenter size={18} />], align_right: ["Flush right", `⇧${MOD}R`, <TextAlignRight size={18} />],
@@ -4224,6 +4231,8 @@ export default function Editor() {
           onKeys={(keys) => setSettings((s) => ({ ...s, keys }))}
           files={settings.files}
           onFiles={(files) => setSettings((s) => ({ ...s, files }))}
+          drawing={drawingPrefs}
+          onDrawing={(patch) => setSettings((s) => ({ ...s, ...patch }))}
           captionOptionReturn={settings.captionOptionReturn}
           onCaptionOptionReturn={(captionOptionReturn) => setSettings((s) => ({ ...s, captionOptionReturn }))}
           panelMenus={settings.panelMenus}
