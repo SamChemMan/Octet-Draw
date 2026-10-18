@@ -2,7 +2,7 @@
 // messages, Regular icons at the role sizes, the type scale, and the named colour lists.
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
-import { elementColours, HIGHLIGHTS } from "./docstyle.ts";
+import { elementColours, HIGHLIGHT_COLOURS, RING_FILLS } from "./docstyle.ts";
 
 const src = new URL(".", import.meta.url);
 const read = (name: string) => readFileSync(new URL(name, src), "utf8");
@@ -83,10 +83,11 @@ for (const line of css.split("\n")) {
   assert.ok([11, 13, 15, 20, 32, 64].includes(Number(m[1])), `editor.css: ${selector.trim()} uses ${m[1]} px`);
 }
 
-// One list of highlight colours, each with its own name and colour.
-assert.equal(new Set(HIGHLIGHTS.map(([n]) => n)).size, HIGHLIGHTS.length);
-assert.equal(new Set(HIGHLIGHTS.map(([, h]) => h.toLowerCase())).size, HIGHLIGHTS.length);
-assert.ok(HIGHLIGHTS.every(([n, h]) => /^[A-Z][a-z]+$/.test(n) && /^#[0-9A-F]{6}$/.test(h)));
+// One list of highlight colours (and ring fills after them), each with its own name and colour.
+assert.equal(new Set(RING_FILLS.map(([n]) => n)).size, RING_FILLS.length);
+assert.equal(new Set(RING_FILLS.map(([, h]) => h.toLowerCase())).size, RING_FILLS.length);
+assert.ok(RING_FILLS.every(([n, h]) => /^[A-Z][a-z]+$/.test(n) && /^#[0-9A-F]{6}$/.test(h)));
+assert.deepEqual(RING_FILLS.slice(0, HIGHLIGHT_COLOURS.length), HIGHLIGHT_COLOURS);
 // Colour by element reads the atom-* tokens: nitrogen, oxygen, sulfur (and selenium), phosphorus, the halogens and the
 // metals. Carbon, hydrogen and abbreviations such as Ph or Pr keep the ink colour.
 const by = elementColours((name) => `token:${name}`);

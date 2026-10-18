@@ -11,7 +11,7 @@ import { listOpen } from "./Menu";
 import { useMovable } from "./movable";
 import { holdCursor } from "./cursor";
 import { useLeaving } from "./motion";
-import { HIGHLIGHTS } from "./docstyle";
+import { HIGHLIGHT_COLOURS } from "./docstyle";
 
 export const SOLVENTS = ["CDCl₃", "DMSO-d₆", "CD₃OD", "D₂O", "C₆D₆", "Acetone-d₆", "CD₃CN"];
 const FIELDS = [60, 80, 90, 200, 300, 400, 500, 600, 700, 800];
@@ -37,8 +37,10 @@ function deuterated(ppm: number, n: number, j: number, mhz: number, total: numbe
   return row.map((h, i) => ({ ppm: ppm + ((i - n) * j) / mhz, h: (h / sum) * total }));
 }
 
-// Colours for peaks and the discs behind their atoms: the highlight colours.
-export const PEAK_COLOURS = HIGHLIGHTS.map(([, hex]) => hex);
+// Colours for peaks and the discs behind their atoms: ten of the highlight colours, in an order that keeps
+// neighbouring peaks far apart.
+const PEAKS = ["Blue", "Orange", "Green", "Red", "Purple", "Teal", "Pink", "Gold", "Brown", "Slate"].map((name) => HIGHLIGHT_COLOURS.find(([n]) => n === name)!);
+export const PEAK_COLOURS = PEAKS.map(([, hex]) => hex);
 
 type Props = {
   prediction?: Prediction; nucleus: Nucleus; mhz: number; solvent: string; lit: Set<number>; solventPeaks: boolean;
@@ -185,7 +187,7 @@ export function SpectrumPanel(p: Props) {
         {chosen !== undefined && (
           // The clicked peak's colour, which its atoms take as a highlight too.
           <span className="spectrum-swatches" role="radiogroup" aria-label="Peak colour">
-            {HIGHLIGHTS.map(([name, c]) => <button key={c} role="radio" aria-checked={p.colours[chosen] === c} aria-label={name} data-tip={name} className="swatch" style={{ background: c }} onClick={() => p.onColour(chosen, c)} />)}
+            {PEAKS.map(([name, c]) => <button key={c} role="radio" aria-checked={p.colours[chosen] === c} aria-label={name} data-tip={name} className="swatch" style={{ background: c }} onClick={() => p.onColour(chosen, c)} />)}
             <button role="radio" aria-checked={!p.colours[chosen]} aria-label="No colour" data-tip="No colour" className="swatch none" onClick={() => p.onColour(chosen, undefined)} />
           </span>
         )}

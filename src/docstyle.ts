@@ -149,12 +149,13 @@ export const TINTS: [string, string][] = [
   ["Light blue", "#DCE4F6"], ["Light green", "#DCEFE6"], ["Light amber", "#F6E6D3"], ["Light red", "#F6DCDC"], ["Light grey", "#E9ECF0"],
 ];
 
-// Highlight colours (a disc behind each atom, a ring fill, a spectrum peak): distinct, and clear on white at 40%
-// behind a structure. One list, named, for the Actions panel and the Spectrum.
-export const HIGHLIGHTS: [string, string][] = [
-  ["Blue", "#2F6FED"], ["Orange", "#F28C28"], ["Green", "#2BA84A"], ["Red", "#E5484D"], ["Purple", "#8E4EC6"],
-  ["Teal", "#12A594"], ["Pink", "#D6409F"], ["Gold", "#C9A000"], ["Brown", "#A0522D"], ["Slate", "#5B6B8C"],
-];
+// The highlight colours (20, as ChemDraw's Highlight Colors toolbar) and the ring fill colours (25, as its Ring Fill
+// Colors toolbar), each clear at 40% or 30% behind a structure on white and on the dark canvas. One list for the
+// Actions panel, the Colour menu (src-tauri/src/main.rs keeps their names in the same order) and the Spectrum.
+export const HIGHLIGHT_COLOURS: [string, string][] = [["Blue", "#2F6FED"], ["Sky", "#3FA9F5"], ["Cyan", "#00B8D4"], ["Teal", "#12A594"], ["Green", "#2BA84A"], ["Lime", "#8CC63F"],
+  ["Yellow", "#F5D90A"], ["Gold", "#C9A000"], ["Orange", "#F28C28"], ["Coral", "#F2705B"], ["Red", "#E5484D"], ["Crimson", "#C2185B"], ["Pink", "#D6409F"], ["Magenta", "#C13CC4"],
+  ["Purple", "#8E4EC6"], ["Violet", "#6E56CF"], ["Indigo", "#3E4BA8"], ["Brown", "#9C6B3F"], ["Grey", "#8B8D98"], ["Slate", "#5B6B7F"]];
+export const RING_FILLS: [string, string][] = [...HIGHLIGHT_COLOURS, ["Mint", "#3DD68C"], ["Peach", "#FFB380"], ["Lavender", "#B4A7F5"], ["Sand", "#D9C38A"], ["Olive", "#808A2E"]];
 
 // Colour by element (ChemDraw's Colors > By Element): each heteroatom label takes its atom-* token, as the light
 // theme gives it, since the page is white. Carbon and the rest stay ink.

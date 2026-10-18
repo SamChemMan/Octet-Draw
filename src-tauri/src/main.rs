@@ -521,7 +521,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let edit_colours = item("colour_other", "Edit Colours…", "")?;
     // ChemDraw's By Element, and its highlight and ring fill colours (the Actions panel's Highlight and Ring fill lists).
     let by_element = item("colour_by_element", "By Element", "")?;
-    // The names of Actions.tsx's HIGHLIGHTS and RING_FILLS, in the same order.
+    // The names of docstyle.ts's HIGHLIGHT_COLOURS and RING_FILLS, in the same order.
     let fills = ["None", "Blue", "Sky", "Cyan", "Teal", "Green", "Lime", "Yellow", "Gold", "Orange", "Coral", "Red", "Crimson", "Pink", "Magenta", "Purple", "Violet", "Indigo", "Brown", "Grey", "Slate", "Mint", "Peach", "Lavender", "Sand", "Olive"];
     section.replace("Colour › Highlight".into());
     let highlights = fills[..21].iter().enumerate().map(|(k, name)| item(&format!("highlight_{k}"), name, "")).collect::<tauri::Result<Vec<_>>>()?;

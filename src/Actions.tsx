@@ -22,7 +22,7 @@ import { NumberField } from "./Fields";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { BracketGlyph, ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
 import { invoke } from "@tauri-apps/api/core";
-import { COLOURS, fontStack, roundPt, TINTS } from "./docstyle";
+import { COLOURS, fontStack, HIGHLIGHT_COLOURS, RING_FILLS, roundPt, TINTS } from "./docstyle";
 import { ArrowGlyph, arrowName, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, STRAIGHT, TlcGlyph, withSize, type BondKind } from "./tools";
 
 // A selected atom label's text style (the first labelled atom's, for a structure), for the label style buttons.
@@ -244,13 +244,6 @@ const KIND_OF: Record<string, string> = {
 };
 const kindOf = (command: string) => KIND_OF[command] ?? "other";
 const setOf = (command: string) => SET_FOR[kindOf(command)];
-// The highlight colours (20, as ChemDraw's Highlight Colors toolbar) and the ring fill colours (25, as its Ring Fill
-// Colors toolbar), each clear at 40% or 30% behind a structure on white and on the dark canvas. The Colour menu lists
-// them too (src-tauri/src/main.rs keeps their names in the same order).
-export const HIGHLIGHT_COLOURS: [string, string][] = [["Blue", "#2F6FED"], ["Sky", "#3FA9F5"], ["Cyan", "#00B8D4"], ["Teal", "#12A594"], ["Green", "#2BA84A"], ["Lime", "#8CC63F"],
-  ["Yellow", "#F5D90A"], ["Gold", "#C9A000"], ["Orange", "#F28C28"], ["Coral", "#F2705B"], ["Red", "#E5484D"], ["Crimson", "#C2185B"], ["Pink", "#D6409F"], ["Magenta", "#C13CC4"],
-  ["Purple", "#8E4EC6"], ["Violet", "#6E56CF"], ["Indigo", "#3E4BA8"], ["Brown", "#9C6B3F"], ["Grey", "#8B8D98"], ["Slate", "#5B6B7F"]];
-export const RING_FILLS: [string, string][] = [...HIGHLIGHT_COLOURS, ["Mint", "#3DD68C"], ["Peach", "#FFB380"], ["Lavender", "#B4A7F5"], ["Sand", "#D9C38A"], ["Olive", "#808A2E"]];
 
 // Search Reaxys and Search PubChem: Phosphor's magnifier and the site's first letter. No logos.
 export function SearchGlyph({ letter }: { letter: string }) {
