@@ -9,6 +9,8 @@ import { Select } from "./Select";
 import { Segmented } from "./Fields";
 import { listOpen, Pick } from "./Menu";
 import { useMovable } from "./movable";
+import { holdCursor } from "./cursor";
+import { useLeaving } from "./motion";
 import { HIGHLIGHTS } from "./docstyle";
 import { fullRange, lines, lorentz as traceAt, solventPeaks, spread, ticks, SOLVENTS } from "./spectrumplot";
 
@@ -63,7 +65,7 @@ export function SpectrumPanel(p: Props) {
   const [chosen, setChosen] = useState<number>(); // the peak clicked, to colour
   useLayoutEffect(() => setChosen(undefined), [p.nucleus, p.prediction]);
   const drag = useRef<{ from: number; range: [number, number]; moved: boolean }>(undefined);
-  const move = useMovable("spectrum", expanded); // full screen stays put
+  const move = useMovable("spectrum", expanded), leaving = useLeaving(); // full screen stays put
   const anyColour = p.colours.some(Boolean);
 
   // The trace: ¹H as Lorentzian lines summed at each pixel (at least a pixel and a half wide, so narrow lines show
@@ -100,28 +102,28 @@ export function SpectrumPanel(p: Props) {
   };
 
   return (
-    <section className={expanded ? "spectrum expanded" : "spectrum"} aria-label="Spectrum" style={move.style}>
+    <section className={["spectrum", expanded && "expanded", leaving && "leaving"].filter(Boolean).join(" ")} aria-label="Spectrum" style={move.style} inert={leaving}>
       {/* The shared panel header (as Actions and Properties): the title at the left, the close button at the top right.
           The controls sit in a row of their own under it. */}
       <header onPointerDown={move.onPointerDown}>
         <h2>{p.nucleus === "1H" ? "¹H NMR" : "¹³C NMR"}</h2>
         <span className="spectrum-head-buttons">
-          <button className="actions-close" onClick={() => setExpanded(!expanded)} aria-label={expanded ? "Leave full screen" : "Full screen"} title={expanded ? "Leave full screen" : "Full screen"}>{expanded ? <ArrowsIn size={12} /> : <ArrowsOut size={12} />}</button>
-          <button className="actions-close" onClick={p.onClose} aria-label="Close spectrum" title="Close spectrum"><X size={12} /></button>
+          <button className="actions-close" onClick={() => setExpanded(!expanded)} aria-label={expanded ? "Leave full screen" : "Full screen"} data-tip={expanded ? "Leave full screen" : "Full screen"}>{expanded ? <ArrowsIn size={12} /> : <ArrowsOut size={12} />}</button>
+          <button className="actions-close" onClick={p.onClose} aria-label="Close spectrum" data-tip="Close spectrum"><X size={12} /></button>
         </span>
       </header>
       <div className="spectrum-controls">
         <Segmented label="Nucleus" value={p.nucleus} options={[["1H", "¹H"], ["13C", "¹³C"]]} onChange={p.onNucleus} />
         <Select label="Frequency" value={String(p.mhz)} options={FIELDS.map((f) => [String(f), `${f} MHz`])} onChange={(v) => p.onMhz(Number(v))} />
         <Select label="Solvent" value={p.solvent} options={SOLVENTS.map((s) => [s, s])} onChange={p.onSolvent} />
-        <button className="spectrum-button" aria-pressed={p.solventPeaks} onClick={() => p.onSolventPeaks(!p.solventPeaks)} title={p.solventPeaks ? "Hide the solvent's peaks" : "Show the solvent's peaks"}>Solvent peaks</button>
-        <button className="spectrum-button" aria-pressed={p.details} onClick={() => p.onDetails(!p.details)} title={p.details ? "Hide the details" : "How each shift was predicted, and how far to trust it"}>Details</button>
+        <button className="spectrum-button" aria-pressed={p.solventPeaks} onClick={() => p.onSolventPeaks(!p.solventPeaks)} data-tip={p.solventPeaks ? "Hide the solvent's peaks" : "Show the solvent's peaks"}>Solvent peaks</button>
+        <button className="spectrum-button" aria-pressed={p.details} onClick={() => p.onDetails(!p.details)} data-tip={p.details ? "Hide the details" : "How each shift was predicted, and how far to trust it"}>Details</button>
         <span className="spectrum-gap" />
         {chosen !== undefined && (
           // The clicked peak's colour, which its atoms take as a highlight too.
           <span className="spectrum-swatches" role="radiogroup" aria-label="Peak colour">
-            {HIGHLIGHTS.map(([name, c]) => <button key={c} role="radio" aria-checked={p.colours[chosen] === c} aria-label={name} title={name} className="swatch" style={{ background: c }} onClick={() => p.onColour(chosen, c)} />)}
-            <button role="radio" aria-checked={!p.colours[chosen]} aria-label="No colour" title="No colour" className="swatch none" onClick={() => p.onColour(chosen, undefined)} />
+            {HIGHLIGHTS.map(([name, c]) => <button key={c} role="radio" aria-checked={p.colours[chosen] === c} aria-label={name} data-tip={name} className="swatch" style={{ background: c }} onClick={() => p.onColour(chosen, c)} />)}
+            <button role="radio" aria-checked={!p.colours[chosen]} aria-label="No colour" data-tip="No colour" className="swatch none" onClick={() => p.onColour(chosen, undefined)} />
           </span>
         )}
         <button className="spectrum-button" onClick={() => p.onColourAll(!anyColour)} disabled={!signals.length}>{anyColour ? "Clear colours" : "Colour peaks"}</button>
@@ -132,7 +134,7 @@ export function SpectrumPanel(p: Props) {
             Add to drawing
           </Pick>
         )}
-        <button className="spectrum-button" onClick={() => p.onCopy(text)} disabled={!text} title="Copy the characterisation line"><CopySimple size={16} /> Copy</button>
+        <button className="spectrum-button" onClick={() => p.onCopy(text)} disabled={!text} data-tip="Copy the characterisation line"><CopySimple size={16} /> Copy</button>
       </div>
       <div className="spectrum-body">
       <div ref={box} className="spectrum-plot">
@@ -144,7 +146,7 @@ export function SpectrumPanel(p: Props) {
             const h = Math.min(all[1], Math.max(all[0] + span, at + f * span));
             setRange([h - span, h]);
           }}
-          onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); drag.current = { from: e.clientX, range: [lo, hi], moved: false }; }}
+          onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); holdCursor(e.currentTarget); drag.current = { from: e.clientX, range: [lo, hi], moved: false }; }}
           onPointerMove={(e) => {
             if (drag.current && e.buttons && Math.abs(e.clientX - drag.current.from) > 3) {
               drag.current.moved = true;
@@ -198,11 +200,11 @@ export function SpectrumPanel(p: Props) {
             const xs = split[k].map((l) => x(l.ppm)), ly = TOP - 22;
             const tip = p.nucleus === "1H" ? y(Math.max(...xs.map((px) => trace?.[Math.round(px)] ?? 0))) : y(s.nuclei);
             return (
-              <g key={k} className={`spectrum-signal${on(s, k) ? " lit" : ""}${chosen === k ? " chosen" : ""}`} style={p.colours[k] ? { fill: p.colours[k] } : undefined}>
+              <g key={k} className={`spectrum-signal${on(s, k) ? " lit" : ""}${chosen === k ? " chosen" : ""}`} style={p.colours[k] ? { fill: p.colours[k] } : undefined}
+                data-tip={p.nucleus === "1H" ? `${s.shift.toFixed(2)} ppm, ${multiplicity(s)}${s.couplings.length ? `, J = ${s.couplings.map((c) => c.j.toFixed(1)).join(", ")} Hz` : ""}, ${s.nuclei}H` : `${s.shift.toFixed(1)} ppm, ${s.nuclei} C`}>
                 <path className="spectrum-leader" d={`M${labels[k]} ${ly + 17}L${labels[k]} ${ly + 21}L${x(s.shift)} ${Math.min(tip - 3, ly + 28)}`} />
                 <text x={labels[k]} y={ly} textAnchor="middle">{s.shift.toFixed(p.nucleus === "1H" ? 2 : 1)}</text>
                 <text className="spectrum-integral" x={labels[k]} y={ly + 12} textAnchor="middle">{p.nucleus === "1H" ? `${multiplicity(s)}, ${s.nuclei}H` : s.nuclei > 1 ? `${s.nuclei}C` : ""}</text>
-                <title>{p.nucleus === "1H" ? `${s.shift.toFixed(2)} ppm, ${multiplicity(s)}${s.couplings.length ? `, J = ${s.couplings.map((c) => c.j.toFixed(1)).join(", ")} Hz` : ""}, ${s.nuclei}H` : `${s.shift.toFixed(1)} ppm, ${s.nuclei} C`}</title>
               </g>
             );
           })}
@@ -253,7 +255,7 @@ export function SpectrumPanel(p: Props) {
       })()}
       <footer className="spectrum-foot">
         <p className="spectrum-text">{text}</p>
-        <span className="spectrum-credit" title="Contains information from nmrshiftdb2 (www.nmrshiftdb.org), made available under the nmrshiftdb2 Database License">nmrshiftdb2</span>
+        <span className="spectrum-credit" data-tip="Contains information from nmrshiftdb2 (www.nmrshiftdb.org), made available under the nmrshiftdb2 Database License">nmrshiftdb2</span>
       </footer>
     </section>
   );

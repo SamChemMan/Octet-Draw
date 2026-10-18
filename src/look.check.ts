@@ -62,8 +62,11 @@ for (const m of paletteBlock.matchAll(/\["(\w+)", "[^"]+", <(\w+) size=\{18\} \/
 // The tools' own glyphs (a bond, a ring, a lone pair): an action does not borrow them.
 for (const m of paletteBlock.matchAll(/variants\("(\w+)", "\w+",[^\n]*?<(\w+Glyph)\b/g)) uses.push([m[2], `tool:${m[1]}`]);
 assert.ok(uses.length > 120, `look.check found only ${uses.length} icons; update its patterns`);
+// An icon imported under a second name (Angle as AngleIcon) is the same icon.
+const iconImports = [actionsTsx, editorTsx].map((t) => /import \{([^}]*)\} from "@phosphor-icons\/react"/.exec(t)?.[1] ?? "").join(",");
+const alias = new Map([...iconImports.matchAll(/\b(\w+) as (\w+)\b/g)].map((m) => [m[2], m[1]]));
 const commandsOf = new Map<string, Set<string>>();
-for (const [icon, command] of uses) commandsOf.set(icon, (commandsOf.get(icon) ?? new Set()).add(command));
+for (const [name, command] of uses) { const icon = alias.get(name) ?? name; commandsOf.set(icon, (commandsOf.get(icon) ?? new Set()).add(command)); }
 for (const [icon, commands] of commandsOf) {
   const list = [...commands].sort();
   assert.ok(list.length === 1 || shared.some((pair) => pair.join() === list.join()), `${icon} stands for ${list.join(", ")}`);

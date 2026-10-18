@@ -60,6 +60,33 @@ circle.mark {
 .selection-marks {
   opacity: 0.28;
 }
+/* A copy that worked: the selection's tint rises and falls once; with nothing selected, the page's edge lights once. */
+.selection-marks.copied {
+  animation: copied-tint var(--motion-slow) var(--ease-out);
+}
+@keyframes copied-tint {
+  40% {
+    opacity: 0.45;
+  }
+}
+.page-copied {
+  fill: none;
+  stroke: var(--brand-bright);
+  stroke-width: 1.5;
+  opacity: 0;
+  animation: copied-edge var(--motion-slow) var(--ease-out);
+}
+@keyframes copied-edge {
+  30% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .selection-marks.copied,
+  .page-copied {
+    animation: none;
+  }
+}
 .selection-marks circle {
   fill: var(--brand-bright);
 }
@@ -105,6 +132,26 @@ circle.mark {
   fill: none;
   stroke: var(--brand-bright);
   stroke-width: 1.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: snap-settle var(--motion-fast) var(--ease-out);
+}
+/* The ring settles onto the atom when the snap first takes it: in from a little larger, its tint fading. */
+@keyframes snap-settle {
+  from {
+    transform: scale(1.4);
+    fill: var(--brand-bright);
+    fill-opacity: 0.3;
+  }
+  to {
+    fill: var(--brand-bright);
+    fill-opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .snap-point {
+    animation: none;
+  }
 }
 
 .box {
@@ -172,7 +219,7 @@ circle.mark {
   opacity: 1;
 }
 .pages .page.hovered text {
-  fill: var(--brand);
+  fill: var(--link);
 }
 .pages text {
   fill: var(--ink-faint);
@@ -184,6 +231,12 @@ circle.mark {
   stroke: var(--brand-bright);
   stroke-width: 1.5;
   cursor: grab;
+}
+/* A drag keeps its cursor until it ends, wherever the pointer goes; one that shows the open hand (a handle, a
+   panel's header) shows the closed hand (cursor.ts, dragCursor). */
+[data-drag-cursor],
+[data-drag-cursor] * {
+  cursor: var(--drag-cursor) !important;
 }
 .selection-marks rect {
   fill: var(--brand-bright);
@@ -215,6 +268,7 @@ rect.mark {
 /* The ring that pops at the pointer when a hold switches to Select. */
 .halo {
   position: fixed;
+  box-sizing: border-box;
   width: 32px;
   height: 32px;
   margin: -16px 0 0 -16px;
@@ -222,7 +276,7 @@ rect.mark {
   border-radius: var(--radius-pill);
   opacity: 0;
   pointer-events: none;
-  animation: halo 200ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: halo var(--motion-slow) var(--ease-out);
 }
 
 @keyframes halo {
@@ -233,6 +287,58 @@ rect.mark {
   to {
     transform: scale(1);
     opacity: 0;
+  }
+}
+/* While a press may become a hold, a thin ring at the pointer fills as the hold time goes, at an even rate (it shows
+   time), from the top and clockwise. A click is over before it shows. Then the halo pops. */
+.hold-ring {
+  position: fixed;
+  width: 32px;
+  height: 32px;
+  margin: -16px 0 0 -16px;
+  overflow: visible;
+  pointer-events: none;
+  transform: rotate(-90deg);
+}
+.hold-ring circle {
+  fill: none;
+  stroke: var(--brand-bright);
+  stroke-width: 1.5;
+  stroke-dasharray: 1;
+  stroke-linecap: round;
+  animation: hold-fill var(--hold) linear both;
+}
+@keyframes hold-fill {
+  from {
+    stroke-dashoffset: 1;
+    opacity: 0;
+  }
+  30% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+/* Reduced motion: a still, faint ring, after the same wait. */
+@keyframes hold-still {
+  0%,
+  30% {
+    opacity: 0;
+  }
+  30.1%,
+  to {
+    opacity: 0.4;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hold-ring circle {
+    stroke-dashoffset: 0;
+    animation: hold-still var(--hold) both;
   }
 }
 
@@ -250,7 +356,7 @@ rect.mark {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-float);
   isolation: isolate;
-  z-index: 2; /* above notices and the Actions panel, so its strips open over both */
+  z-index: 4; /* above notices, the tutorial card and the panels, so its strips open over them */
 }
 
 /* The active tool's background slides between tools, so a switch reads as one move. */
@@ -264,7 +370,7 @@ rect.mark {
   border-radius: var(--radius-sm);
   background: var(--brand-mist);
   pointer-events: none;
-  transition: transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
+  transition: transform var(--motion) var(--ease-out);
 }
 
 .glyph {
@@ -274,7 +380,7 @@ rect.mark {
 
 /* The Select icon pops in when a hold switches to it. No overshoot (brand motion rules). */
 .pop {
-  animation: pop 200ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: pop var(--motion-slow) var(--ease-out);
 }
 
 @keyframes pop {
@@ -319,7 +425,7 @@ rect.mark {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-float);
   transform-origin: left center;
-  animation: strip-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: strip-in var(--motion-fast) var(--ease-out);
 }
 
 @keyframes strip-in {
@@ -331,7 +437,7 @@ rect.mark {
 
 /* Resizing: the width follows the grip, then eases to a whole column when it is let go. */
 .strip {
-  transition: width 180ms cubic-bezier(0.23, 1, 0.32, 1);
+  transition: width var(--motion) var(--ease-out);
 }
 .strip.resizing {
   transition: none;
@@ -417,7 +523,7 @@ rect.mark {
   background: var(--surface-sunken);
   color: var(--ink-muted);
   opacity: 0;
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--motion-fast) var(--ease-out);
 }
 .variant-cell:hover .variant-action,
 .library-cell:hover .variant-action,
@@ -427,7 +533,7 @@ rect.mark {
 }
 .variant-action[aria-pressed="true"] {
   background: var(--brand-mist);
-  color: var(--brand);
+  color: var(--link);
 }
 .variant-action:focus-visible {
   outline: none;
@@ -479,11 +585,11 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: var(--surface-raised);
   box-shadow: var(--shadow-float);
-  color: var(--brand);
+  color: var(--link);
   transform: translate(-50%, -50%) scale(1.08) rotate(var(--tilt, 0deg));
-  transition: transform 90ms ease-out;
+  transition: transform 90ms var(--ease-out); /* smooths the lean as the pointer moves: shorter than any motion token */
   pointer-events: none;
-  animation: lift 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: lift var(--motion-fast) var(--ease-out);
 }
 @keyframes lift {
   from {
@@ -493,17 +599,17 @@ button.variant.add {
 }
 .carry.land {
   transform: translate(-50%, -50%) scale(1);
-  transition: left 180ms cubic-bezier(0.23, 1, 0.32, 1), top 180ms cubic-bezier(0.23, 1, 0.32, 1), transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
+  transition: left var(--motion) var(--ease-out), top var(--motion) var(--ease-out), transform var(--motion) var(--ease-out);
 }
 .carry.drop {
   opacity: 0;
   transform: translate(-50%, -50%) scale(0.8);
-  transition: opacity 160ms ease-out, transform 160ms ease-out;
+  transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
 }
 .strip.carrying {
   opacity: 0.35;
   pointer-events: none;
-  transition: opacity 150ms ease-out;
+  transition: opacity var(--motion-fast) var(--ease-out);
 }
 /* The gap that opens where a dragged option will land. */
 .pin-slot {
@@ -513,7 +619,7 @@ button.variant.add {
   border: 1.5px dashed var(--brand-bright);
   border-radius: var(--radius-sm);
   background: var(--brand-mist);
-  animation: open-slot 160ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: open-slot var(--motion-fast) var(--ease-out);
 }
 @keyframes open-slot {
   from {
@@ -524,7 +630,7 @@ button.variant.add {
 /* A shortcut that lands settles into place, and the other icons ripple a 2px bounce out from it. The one
    place Octet bounces (brand/BRAND.md, Motion). */
 .tool.landed .glyph {
-  animation: settle 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: settle var(--motion-drop) var(--ease-drop);
 }
 @keyframes settle {
   from {
@@ -533,7 +639,7 @@ button.variant.add {
 }
 .palette.rippling .slot .glyph,
 .palette.rippling .tool:not(.landed) .glyph {
-  animation: ripple 300ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation: ripple var(--motion-drop) var(--ease-drop) both;
   animation-delay: calc(var(--d, 0) * 22ms);
 }
 @keyframes ripple {
@@ -548,10 +654,10 @@ button.variant.add {
   .palette.rippling .slot .glyph,
   .palette.rippling .tool:not(.landed) .glyph {
     animation: none;
-    transition: opacity 150ms ease-out;
+    transition: opacity var(--motion-fast) var(--ease-out);
   }
   .pin-slot {
-    animation: fade-in 150ms ease-out;
+    animation: fade-in var(--motion-fast) var(--ease-out);
   }
 }
 
@@ -560,17 +666,18 @@ button.variant.add {
   margin-left: auto;
   color: var(--ink-faint);
 }
-/* The Arrow strip lights up while a curved arrow is over it, and the one it takes settles into its list. */
+/* The Arrow strip lights up while a curved arrow is over it, and the one it takes settles into its list (no
+   overshoot: only the toolbar drop bounces). */
 .strip.receiving {
   border-color: var(--brand-bright);
   box-shadow: var(--shadow-float), var(--shadow-focus);
 }
 .variant-cell.arrived .variant > svg {
-  animation: settle 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: settle var(--motion) var(--ease-out);
 }
 @media (prefers-reduced-motion: reduce) {
   .variant-cell.arrived .variant > svg {
-    animation: fade-in 150ms ease-out;
+    animation: fade-in var(--motion-fast) var(--ease-out);
   }
 }
 
@@ -596,7 +703,7 @@ button.variant.add {
 }
 .variant[aria-checked="true"] {
   background: var(--brand-mist);
-  color: var(--brand);
+  color: var(--link);
 }
 .variant:focus-visible {
   outline: none;
@@ -605,7 +712,7 @@ button.variant.add {
 
 /* Live count of bonds while the Chain tool drags. */
 .count {
-  fill: var(--brand);
+  fill: var(--link);
   font-family: var(--font-sans);
   font-weight: 600;
 }
@@ -642,7 +749,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink-faint);
-  transition: color 120ms ease-out, background-color 120ms ease-out;
+  transition: color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out);
 }
 @media (hover: hover) and (pointer: fine) {
   .palette-toggle:hover {
@@ -665,7 +772,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink-muted);
-  transition: transform 160ms ease-out;
+  transition: transform var(--motion-fast) var(--ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -680,7 +787,7 @@ button.variant.add {
 }
 
 .tool[aria-pressed="true"] {
-  color: var(--brand);
+  color: var(--link);
 }
 
 .tool:disabled {
@@ -692,27 +799,88 @@ button.variant.add {
   box-shadow: var(--shadow-focus);
 }
 
+/* The notice (NoticeBar.tsx): centred in the space between the toolbar and the Actions panel, above both, and it
+   wraps before it reaches either. Its icon takes the colour of its kind. */
 .notice {
   position: absolute;
   bottom: var(--space-6);
-  left: 50%;
-  z-index: 4; /* over the panels, so a notice is never hidden */
+  left: calc(var(--space-4) * 2 + 48px);
+  right: calc(var(--space-4) * 2 + 248px);
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin: 0;
-  padding: var(--space-2) var(--space-3);
-  transform: translateX(-50%);
+  width: fit-content;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
   background: var(--surface-raised);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-float);
-  animation: fade-in 150ms ease-out;
+  color: var(--ink);
+  animation: notice-in var(--motion-fast) var(--ease-out);
 }
-
-.notice svg {
+.notice.leaving {
+  animation: notice-out var(--motion-fast) var(--ease-out) forwards;
+}
+@keyframes notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes notice-out {
+  to {
+    opacity: 0;
+  }
+}
+.notice > svg {
   flex: none;
+}
+.notice.error > svg {
   color: var(--error);
+}
+.notice.info > svg {
+  color: var(--ink-muted);
+}
+.notice.done > svg {
+  color: var(--success);
+}
+.notice-text {
+  padding: 3px 0;
+  text-wrap: pretty;
+}
+.notice .text-button {
+  flex: none;
+  font-weight: 500;
+}
+.notice-close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--ink-muted);
+}
+@media (hover: hover) and (pointer: fine) {
+  .notice-close:hover {
+    background: var(--surface-sunken);
+    color: var(--ink);
+  }
+}
+.notice-close:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+@media (prefers-reduced-motion: reduce) {
+  .notice {
+    animation: fade-in var(--motion-fast) var(--ease-out);
+  }
 }
 
 @keyframes fade-in {
@@ -726,13 +894,13 @@ button.variant.add {
     transition: none;
   }
   .pop {
-    animation: fade-in 150ms ease-out;
+    animation: fade-in var(--motion-fast) var(--ease-out);
   }
   .halo {
-    animation: halo-fade 200ms ease-out;
+    animation: halo-fade var(--motion-slow) var(--ease-out);
   }
   .strip {
-    animation: fade-in 150ms ease-out;
+    animation: fade-in var(--motion-fast) var(--ease-out);
   }
 }
 
@@ -758,7 +926,7 @@ button.variant.add {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-float);
   transform-origin: bottom right;
-  animation: panel-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: panel-in var(--motion-fast) var(--ease-out);
   /* Never taller than the window, below the Export button (and the ruler); a long panel scrolls. */
   max-height: calc(100% - 3 * var(--space-4) - 32px - var(--ruler, 0px));
   overflow-y: auto;
@@ -766,7 +934,7 @@ button.variant.add {
   scrollbar-width: thin;
 }
 .actions.leaving {
-  animation: panel-out 140ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+  animation: panel-out var(--motion-fast) var(--ease-out) forwards;
   pointer-events: none;
 }
 @keyframes panel-out {
@@ -777,7 +945,7 @@ button.variant.add {
 }
 .actions-reopen {
   transform-origin: bottom right;
-  animation: panel-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: panel-in var(--motion-fast) var(--ease-out);
 }
 @keyframes panel-in {
   from {
@@ -848,6 +1016,13 @@ button.variant.add {
   font-size: 11px;
   color: var(--ink-faint);
 }
+/* On the sunken colour of a hovered row, the faint ink is too light for small text (4.5:1). */
+@media (hover: hover) and (pointer: fine) {
+  .action:hover kbd,
+  .actions-settings:hover kbd {
+    color: var(--ink-muted);
+  }
+}
 .chips {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -876,7 +1051,7 @@ button.variant.add {
 .chip[aria-pressed="true"] {
   background: var(--brand-mist);
   border-color: transparent;
-  color: var(--brand);
+  color: var(--link);
 }
 /* Name to structure: a field at the top of the window. The structure shows faintly where it will land. */
 .name-field {
@@ -898,7 +1073,7 @@ button.variant.add {
   font-size: 15px;
   outline: none;
   transform-origin: top center;
-  animation: panel-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: panel-in var(--motion-fast) var(--ease-out);
   -webkit-user-select: text;
   user-select: text;
 }
@@ -932,11 +1107,11 @@ button.variant.add {
   color: var(--ink);
   font-family: var(--font-sans);
   font-size: 15px;
-  animation: fade-in 120ms ease-out;
+  animation: fade-in var(--motion-fast) var(--ease-out);
 }
 .name-suggestion mark {
   background: var(--brand-mist);
-  color: var(--brand);
+  color: var(--link);
   border-radius: 2px;
 }
 .name-suggestion kbd {
@@ -948,9 +1123,21 @@ button.variant.add {
   fill: var(--ink);
   opacity: 0.35;
 }
+/* On Return the structure stays where its ghost was and settles into full ink. */
+.settle {
+  animation: ink-settle var(--motion-fast) var(--ease-out);
+}
+@keyframes ink-settle {
+  from {
+    opacity: 0.35;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .name-field {
-    animation: fade-in 150ms ease-out;
+    animation: fade-in var(--motion-fast) var(--ease-out);
+  }
+  .settle {
+    animation: none;
   }
 }
 
@@ -1024,7 +1211,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink-muted);
-  transition: transform 160ms ease-out;
+  transition: transform var(--motion-fast) var(--ease-out);
 }
 @media (hover: hover) and (pointer: fine) {
   .tray-button:hover {
@@ -1057,7 +1244,7 @@ button.variant.add {
   height: 2px;
   border-radius: 1px;
   background: var(--brand-bright);
-  animation: fade-in 120ms ease-out;
+  animation: fade-in var(--motion-fast) var(--ease-out);
 }
 .drop-line.end {
   top: auto;
@@ -1069,7 +1256,7 @@ button.variant.add {
 }
 .action-slot.settled .action,
 .tray-button.settled {
-  animation: settle-in 240ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: settle-in var(--motion-slow) var(--ease-out);
 }
 @keyframes settle-in {
   from {
@@ -1100,7 +1287,7 @@ button.variant.add {
   white-space: nowrap;
   transform: translate(-12px, -50%) scale(1.03);
   pointer-events: none;
-  animation: fade-in 120ms ease-out;
+  animation: fade-in var(--motion-fast) var(--ease-out);
 }
 @media (prefers-reduced-motion: reduce) {
   .action-carry,
@@ -1109,20 +1296,35 @@ button.variant.add {
     animation: none;
   }
 }
+/* Octet's one tooltip (Tooltip.tsx), above everything, dark in both themes. Tooltip.tsx places it. The next tip
+   along a row shows without the fade. */
 .tip {
   position: fixed;
-  z-index: 4;
-  padding: 3px var(--space-2);
+  top: 0;
+  left: 0;
+  z-index: 9;
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-xs);
-  background: var(--ink);
-  color: var(--canvas);
-  font-family: var(--font-sans);
-  font-size: 11px;
-  line-height: 16px;
-  white-space: pre;
-  transform: translate(-50%, calc(-100% - 6px));
+  background: var(--tooltip);
+  box-shadow: var(--shadow-float);
+  color: var(--on-tooltip);
+  font: 500 11px/14px var(--font-sans);
+  letter-spacing: 0.01em;
+  max-width: 320px;
+  overflow-wrap: anywhere;
   pointer-events: none;
-  animation: fade-in 120ms ease-out;
+  animation: fade-in var(--motion-fast) var(--ease-out);
+}
+.tip.instant {
+  animation: none;
+}
+.tip kbd {
+  flex: none;
+  font: inherit;
+  white-space: nowrap;
+  opacity: 0.7;
 }
 
 /* The caption size: a button that opens a menu of sizes, or turns into a field to type one. */
@@ -1155,10 +1357,10 @@ button.variant.add {
 }
 @media (prefers-reduced-motion: reduce) {
   .actions.leaving {
-    animation: fade-out 140ms ease-out forwards;
+    animation: fade-out var(--motion-fast) var(--ease-out) forwards;
   }
   .actions-reopen {
-    animation: fade-in 150ms ease-out;
+    animation: fade-in var(--motion-fast) var(--ease-out);
   }
 }
 @keyframes fade-out {
@@ -1166,10 +1368,32 @@ button.variant.add {
     opacity: 0;
   }
 }
+/* Overlays leave the way they came in, a little faster (motion.tsx, Exit): a fade and a small shrink toward where
+   they opened. A dialog's dim only fades. With reduced motion they go at once. The page menu opened above, the
+   tutorial card at the bottom and the next tip along a row have their own way in, so they are named here too. */
+:is(.strip, .library, .page-menu, .properties, .spectrum, .coach, .name-field, .name-suggestion, .name-history, .tip).leaving,
+.page-menu.above.leaving,
+.strip.list.leaving,
+.coach.low.leaving,
+.tip.instant.leaving,
+.modal-backdrop.leaving > * {
+  pointer-events: none;
+  animation: leave var(--motion-fast) var(--ease-out) forwards;
+}
+.modal-backdrop.leaving {
+  pointer-events: none;
+  animation: fade-out var(--motion-fast) var(--ease-out) forwards;
+}
+@keyframes leave {
+  to {
+    opacity: 0;
+    scale: 0.98;
+  }
+}
 /* A list of choices from a button (Pick in Menu.tsx): the menu as one column, over its button. Its options are a
    little shorter than a tool menu's, and a long list scrolls inside the room it has. */
 .strip.list {
-  animation: list-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: list-in var(--motion-fast) var(--ease-out);
 }
 @keyframes list-in {
   from {
@@ -1190,7 +1414,7 @@ button.variant.add {
 }
 .strip.list .variant[aria-checked="true"] {
   background: var(--brand-mist);
-  color: var(--brand);
+  color: var(--link);
 }
 .menu-head {
   position: sticky;
@@ -1222,7 +1446,7 @@ button.variant.add {
 }
 @media (prefers-reduced-motion: reduce) {
   .strip.list {
-    animation: fade-in 150ms ease-out;
+    animation: fade-in var(--motion-fast) var(--ease-out);
   }
 }
 .actions-reopen {
@@ -1265,7 +1489,7 @@ button.variant.add {
 }
 @media (prefers-reduced-motion: reduce) {
   .actions {
-    animation: fade-in 150ms ease-out;
+    animation: fade-in var(--motion-fast) var(--ease-out);
   }
 }
 
@@ -1283,6 +1507,16 @@ button.variant.add {
   color: var(--ink-muted);
   font-size: 13px;
   text-align: left;
+  transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .facts:hover {
+    background: var(--hairline);
+    color: var(--ink);
+  }
+}
+.facts:active {
+  transform: scale(0.98);
 }
 /* Every formula in the panels uses the formula token (text-formula): IBM Plex Mono, 13 px, weight 500. */
 .facts .formula,
@@ -1303,7 +1537,7 @@ button.variant.add {
   padding: var(--space-2);
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
-  animation: fade-in 150ms ease-out;
+  animation: fade-in var(--motion-fast) var(--ease-out);
 }
 /* Hide this warning: the atom's Display Warnings goes off. */
 .problem-hide {
@@ -1316,7 +1550,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink-faint);
-  transition: transform 160ms ease-out;
+  transition: transform var(--motion-fast) var(--ease-out);
 }
 @media (hover: hover) and (pointer: fine) {
   .problem-hide:hover {
@@ -1357,6 +1591,15 @@ button.variant.add {
   background: var(--surface-raised);
   color: var(--ink);
   font-size: 11px;
+  transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .problem-buttons button:hover {
+    background: var(--surface-sunken);
+  }
+}
+.problem-buttons button:active {
+  transform: scale(0.97);
 }
 .more-problems {
   align-self: flex-start;
@@ -1387,7 +1630,7 @@ button.variant.add {
   background: var(--brand-mist);
 }
 .action.accent > svg {
-  color: var(--brand);
+  color: var(--link);
 }
 .action {
   height: auto;
@@ -1431,8 +1674,8 @@ button.variant.add {
   z-index: 6;
   display: grid;
   place-items: center;
-  background: color-mix(in oklab, var(--ink) 16%, transparent);
-  animation: fade-in 160ms ease-out;
+  background: var(--backdrop);
+  animation: fade-in var(--motion-fast) var(--ease-out);
 }
 .modal {
   width: min(540px, calc(100vw - 32px));
@@ -1447,7 +1690,7 @@ button.variant.add {
   color: var(--ink);
   font-family: var(--font-sans);
   font-size: 13px;
-  animation: modal-in 200ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: modal-in var(--motion-slow) var(--ease-out);
 }
 @keyframes modal-in {
   from {
@@ -1469,26 +1712,13 @@ button.variant.add {
 }
 .style-preview {
   display: grid;
+  place-items: center;
   height: 132px;
   margin-bottom: var(--space-2);
   overflow: hidden;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-md);
-}
-/* The sample on the page's paper (Editor.tsx, preview): white, dark or blue, as the canvas shows it. */
-.style-paper {
-  display: grid;
-  place-items: center;
   background: var(--canvas);
-}
-/* The sample on engineering paper shows a grid, as the canvas does (the canvas draws its own grid in Editor.tsx). */
-.style-paper.paper-blueprint {
-  background-image:
-    linear-gradient(to right, rgb(255 255 255 / 0.24) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(255 255 255 / 0.24) 1px, transparent 1px),
-    linear-gradient(to right, rgb(255 255 255 / 0.1) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(255 255 255 / 0.1) 1px, transparent 1px);
-  background-size: 20px 20px, 20px 20px, 4px 4px, 4px 4px;
 }
 .modal section {
   padding: var(--space-3) 0 var(--space-2);
@@ -1545,7 +1775,7 @@ button.variant.add {
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
   background: var(--canvas);
-  transition: border-color 120ms ease-out, box-shadow 120ms ease-out;
+  transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
 }
 .unit-field:focus-within {
   border-color: var(--brand-bright);
@@ -1599,7 +1829,7 @@ button.variant.add {
   color: var(--ink);
   font: 13px var(--font-sans);
   text-align: left;
-  transition: border-color 120ms ease-out, box-shadow 120ms ease-out;
+  transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
 }
 .select-field > span {
   overflow: hidden;
@@ -1643,11 +1873,20 @@ button.variant.add {
   border-radius: var(--radius-xs);
   background: transparent;
   color: var(--ink-muted);
-  transition: background 120ms ease-out, color 120ms ease-out;
+  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
 }
 .segmented button[aria-checked="true"] {
   background: var(--brand-mist);
-  color: var(--brand);
+  color: var(--link);
+}
+@media (hover: hover) and (pointer: fine) {
+  .segmented button:hover:not([aria-checked="true"]) {
+    background: var(--surface-sunken);
+    color: var(--ink);
+  }
+}
+.segmented button:active {
+  transform: scale(0.97);
 }
 /* An option or switch that does not apply now (Scale… with no bond chosen, or text alone): faint. */
 .segmented button:disabled {
@@ -1676,7 +1915,7 @@ button.variant.add {
   border: 0;
   border-radius: var(--radius-pill);
   background: var(--outline);
-  transition: background 160ms ease-out;
+  transition: background var(--motion-fast) var(--ease-out);
 }
 .switch span {
   position: absolute;
@@ -1687,7 +1926,7 @@ button.variant.add {
   border-radius: var(--radius-pill);
   background: #fff;
   box-shadow: 0 1px 2px color-mix(in oklab, var(--ink) 25%, transparent);
-  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+  transition: transform var(--motion-fast) var(--ease-out);
 }
 .switch[aria-checked="true"] {
   background: var(--brand);
@@ -1699,8 +1938,13 @@ button.variant.add {
 .segmented button:focus-visible,
 .swatch:focus-visible,
 .switch:focus-visible,
-.button:focus-visible,
-.text-button:focus-visible {
+.text-button:focus-visible,
+.facts:focus-visible,
+.problem-buttons button:focus-visible,
+.palette-add:focus-visible,
+.key-chip > button:focus-visible,
+.key-add:focus-visible,
+.search-clear:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
 }
@@ -1714,18 +1958,10 @@ button.variant.add {
   width: 18px;
   height: 18px;
   padding: 0;
-  border: 1px solid color-mix(in oklab, var(--ink) 12%, transparent);
+  /* The swatch edge is strong in the dark theme, so the Ink and Black swatches keep a clear ring on a dark panel. */
+  border: 1px solid var(--swatch-edge);
   border-radius: var(--radius-pill);
-  transition: transform 120ms ease-out, box-shadow 120ms ease-out;
-}
-/* On a dark panel the Ink and Black swatches need a clear ring: the control border (--outline) in the dark theme. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .swatch {
-    border-color: var(--outline);
-  }
-}
-[data-theme="dark"] .swatch {
-  border-color: var(--outline);
+  transition: transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
 }
 .swatch[aria-checked="true"],
 .swatch.custom[data-checked] {
@@ -1742,12 +1978,6 @@ button.variant.add {
   background: var(--surface-raised);
   color: var(--ink-muted);
 }
-.swatch.custom input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
-}
 .modal footer {
   display: flex;
   align-items: center;
@@ -1763,11 +1993,11 @@ button.variant.add {
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--brand);
+  color: var(--link);
   font: 13px var(--font-sans);
 }
 @media (hover: hover) and (pointer: fine) {
-  .text-button:hover {
+  .text-button:hover:not(:disabled) {
     background: var(--brand-mist);
   }
 }
@@ -1776,30 +2006,6 @@ button.variant.add {
   align-items: center;
   gap: 6px;
   color: var(--ink-faint);
-}
-.button {
-  height: 30px;
-  padding: 0 var(--space-4);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--ink);
-  font: 13px var(--font-sans);
-  font-weight: 500;
-  transition: transform 160ms ease-out, background 120ms ease-out;
-}
-.button:active:not(:disabled) {
-  transform: scale(0.97);
-}
-.button.primary {
-  border-color: transparent;
-  background: var(--brand);
-  color: var(--on-brand);
-}
-@media (hover: hover) and (pointer: fine) {
-  .button.primary:hover {
-    background: var(--brand-hover);
-  }
 }
 /* The grid (View > Show Grid, and engineering paper): one device pixel per line, a lighter line at each step and a
    heavier one at each bond length or every 5 steps. The crosshair is brand blue over it. */
@@ -1829,7 +2035,7 @@ button.variant.add {
 }
 @media (prefers-reduced-motion: reduce) {
   .modal {
-    animation: fade-in 150ms ease-out;
+    animation: fade-in var(--motion-fast) var(--ease-out);
   }
 }
 
@@ -1857,7 +2063,7 @@ button.variant.add {
   background: var(--canvas);
   color: var(--ink);
   font: 13px var(--font-sans);
-  transition: border-color 120ms ease-out, transform 160ms ease-out;
+  transition: border-color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
 }
 .page-button span:not(.page-thumb) {
   flex: 1;
@@ -1865,6 +2071,12 @@ button.variant.add {
 }
 .page-button svg {
   color: var(--ink-faint);
+}
+/* Hover as a select field, which the page-size button sits beside. */
+@media (hover: hover) and (pointer: fine) {
+  .page-button:hover {
+    border-color: var(--outline);
+  }
 }
 .page-button[aria-expanded="true"],
 .page-button:focus-visible {
@@ -1893,7 +2105,7 @@ button.variant.add {
   background: var(--surface-raised);
   box-shadow: var(--shadow-float);
   transform-origin: top center;
-  animation: page-menu-in 180ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: page-menu-in var(--motion) var(--ease-out);
 }
 .page-menu.above {
   transform: translateY(-100%);
@@ -1927,7 +2139,7 @@ button.variant.add {
   background: transparent;
   color: var(--ink);
   font: 11px var(--font-sans);
-  transition: background 120ms ease-out;
+  transition: background var(--motion-fast) var(--ease-out);
 }
 .page-option-thumb {
   display: grid;
@@ -1939,7 +2151,7 @@ button.variant.add {
   line-height: 15px;
 }
 .page-option-size {
-  color: var(--ink-faint);
+  color: var(--ink-muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -1956,7 +2168,7 @@ button.variant.add {
   background: var(--brand-mist);
 }
 .page-option[aria-checked="true"] .page-thumb {
-  color: var(--brand);
+  color: var(--link);
   background: color-mix(in oklab, var(--brand-bright) 12%, transparent);
 }
 .page-option:focus-visible {
@@ -1975,7 +2187,7 @@ button.variant.add {
   margin-right: auto;
 }
 .page-custom.chosen .setting-label {
-  color: var(--brand);
+  color: var(--link);
   font-weight: 500;
 }
 .page-custom .unit-field {
@@ -2002,7 +2214,7 @@ button.variant.add {
 @media (prefers-reduced-motion: reduce) {
   .page-menu,
   .page-menu.above {
-    animation: fade-in 150ms ease-out;
+    animation: fade-in var(--motion-fast) var(--ease-out);
   }
 }
 
@@ -2021,7 +2233,7 @@ button.variant.add {
   color: var(--ink);
   font-family: var(--font-sans);
   font-size: 13px;
-  animation: modal-in 200ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: modal-in var(--motion-slow) var(--ease-out);
 }
 .settings-sidebar {
   display: flex;
@@ -2042,7 +2254,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: var(--canvas);
   color: var(--ink-faint);
-  transition: border-color 120ms ease-out, box-shadow 120ms ease-out;
+  transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
 }
 .settings-search:focus-within {
   border-color: var(--brand-bright);
@@ -2075,7 +2287,7 @@ button.variant.add {
   border-radius: var(--radius-pill);
   background: var(--outline);
   color: var(--surface-raised);
-  animation: fade-in 120ms ease-out;
+  animation: fade-in var(--motion-fast) var(--ease-out);
 }
 .module {
   display: flex;
@@ -2089,7 +2301,7 @@ button.variant.add {
   color: var(--ink);
   font: 13px var(--font-sans);
   text-align: left;
-  transition: background 120ms ease-out, opacity 160ms ease-out;
+  transition: background var(--motion-fast) var(--ease-out), opacity var(--motion-fast) var(--ease-out);
 }
 .module svg {
   flex: none;
@@ -2105,10 +2317,10 @@ button.variant.add {
 }
 .module[aria-current="page"] {
   background: var(--brand-mist);
-  color: var(--brand);
+  color: var(--link);
 }
 .module[aria-current="page"] svg {
-  color: var(--brand);
+  color: var(--link);
 }
 .module[data-dim] {
   opacity: 0.45;
@@ -2122,7 +2334,7 @@ button.variant.add {
   padding: 0 5px;
   border-radius: var(--radius-pill);
   background: var(--brand-mist);
-  color: var(--brand);
+  color: var(--link);
   font-size: 11px;
   line-height: 18px;
   text-align: center;
@@ -2151,7 +2363,7 @@ button.variant.add {
   min-height: 0;
   overflow: auto;
   padding: 0 var(--space-6) var(--space-6);
-  animation: pane-in 180ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: pane-in var(--motion) var(--ease-out);
 }
 @keyframes pane-in {
   from {
@@ -2225,7 +2437,7 @@ button.variant.add {
 }
 .key-chip.recording > button:first-child {
   border-color: var(--brand-bright);
-  color: var(--brand);
+  color: var(--link);
   animation: recording 1.2s ease-in-out infinite;
 }
 @keyframes recording {
@@ -2247,7 +2459,7 @@ button.variant.add {
   background: var(--ink-muted);
   color: var(--canvas);
   opacity: 0;
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--motion-fast) var(--ease-out);
 }
 .key-chip:hover .key-remove,
 .key-remove:focus-visible {
@@ -2264,7 +2476,7 @@ button.variant.add {
   background: transparent;
   color: var(--ink-faint);
   opacity: 0;
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--motion-fast) var(--ease-out);
 }
 .setting:hover .key-add,
 .key-add:focus-visible {
@@ -2273,7 +2485,7 @@ button.variant.add {
 @media (hover: hover) and (pointer: fine) {
   .key-add:hover {
     border-color: var(--brand-bright);
-    color: var(--brand);
+    color: var(--link);
   }
 }
 .key-note {
@@ -2283,7 +2495,7 @@ button.variant.add {
   margin-left: var(--space-2);
   color: var(--warning);
   font-size: 11px;
-  animation: fade-in 150ms ease-out;
+  animation: fade-in var(--motion-fast) var(--ease-out);
 }
 /* The Actions panel's Settings button: always last. */
 .actions-foot {
@@ -2320,7 +2532,7 @@ button.variant.add {
   width: 32px;
   padding: 0;
   border-radius: 0 0 var(--radius-sm) 0;
-  transition: transform 160ms ease-out;
+  transition: transform var(--motion-fast) var(--ease-out);
 }
 @media (hover: hover) and (pointer: fine) {
   .actions-settings:hover,
@@ -2344,7 +2556,7 @@ button.variant.add {
 @media (prefers-reduced-motion: reduce) {
   .settings-window,
   .settings-body {
-    animation: fade-in 150ms ease-out;
+    animation: fade-in var(--motion-fast) var(--ease-out);
   }
   .key-chip.recording > button:first-child {
     animation: none;
@@ -2371,12 +2583,12 @@ button.variant.add {
   box-shadow: var(--shadow-float);
   overflow: hidden;
   transform-origin: left top;
-  animation: strip-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: strip-in var(--motion-fast) var(--ease-out);
 }
 .library.carrying {
   opacity: 0.35;
   pointer-events: none;
-  transition: opacity 150ms ease-out;
+  transition: opacity var(--motion-fast) var(--ease-out);
 }
 .library-side {
   display: flex;
@@ -2397,7 +2609,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: var(--canvas);
   color: var(--ink-faint);
-  transition: border-color 120ms ease-out, box-shadow 120ms ease-out;
+  transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
 }
 .library-search:focus-within {
   border-color: var(--brand-bright);
@@ -2427,16 +2639,16 @@ button.variant.add {
   color: var(--ink);
   font: 13px var(--font-sans);
   text-align: left;
-  transition: background 120ms ease-out;
+  transition: background var(--motion-fast) var(--ease-out);
 }
 .library-category span {
-  color: var(--ink-faint);
+  color: var(--ink-muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 .library-category[aria-pressed="true"] {
   background: var(--brand-mist);
-  color: var(--brand);
+  color: var(--link);
 }
 .library-category:focus-visible {
   outline: none;
@@ -2503,7 +2715,7 @@ button.variant.add {
 }
 @media (prefers-reduced-motion: reduce) {
   .library {
-    animation: fade-in 150ms ease-out;
+    animation: fade-in var(--motion-fast) var(--ease-out);
   }
 }
 
@@ -2516,7 +2728,7 @@ button.variant.add {
   justify-content: center;
   align-items: flex-start;
   padding-top: 16vh;
-  background: rgb(15 23 42 / 0.12);
+  background: var(--backdrop);
 }
 .command-palette {
   display: flex;
@@ -2568,7 +2780,7 @@ button.variant.add {
 }
 .command[aria-selected="true"] {
   background: var(--brand-mist);
-  color: var(--brand);
+  color: var(--link);
 }
 .command-icon {
   display: grid;
@@ -2579,7 +2791,7 @@ button.variant.add {
   color: var(--ink-muted);
 }
 .command[aria-selected="true"] .command-icon {
-  color: var(--brand);
+  color: var(--link);
 }
 .command-icon > svg {
   width: 18px;
@@ -2596,6 +2808,9 @@ button.variant.add {
   flex: none;
   color: var(--ink-faint);
   font-size: 11px;
+}
+.command[aria-selected="true"] .command-group {
+  color: var(--ink-muted);
 }
 .command kbd {
   flex: none;
@@ -2635,7 +2850,7 @@ button.variant.add {
   background: var(--surface-raised);
   box-shadow: var(--shadow-float);
   transform-origin: top center;
-  animation: strip-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: strip-in var(--motion-fast) var(--ease-out);
 }
 .name-history.below {
   top: calc(var(--space-4) + 84px);
@@ -2669,7 +2884,7 @@ button.variant.add {
   place-items: center;
   width: 36px;
   height: 36px;
-  color: var(--ink-muted);
+  color: var(--ink);
 }
 .name-thumb .thumb {
   width: 36px;
@@ -2694,7 +2909,7 @@ button.variant.add {
   background: transparent;
   color: var(--ink-faint);
   opacity: 0;
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--motion-fast) var(--ease-out);
 }
 .name-recent:hover .name-forget,
 .name-forget:focus-visible {
@@ -2702,13 +2917,13 @@ button.variant.add {
 }
 @media (prefers-reduced-motion: reduce) {
   .name-history {
-    animation: fade-in 150ms ease-out;
+    animation: fade-in var(--motion-fast) var(--ease-out);
   }
 }
 
 /* An arrow Octet offers: faint brand blue, with its key under it. It fades in once. */
 .suggested {
-  animation: fade-in 200ms ease-out;
+  animation: fade-in var(--motion-slow) var(--ease-out);
 }
 .suggested > path {
   fill: var(--brand-bright);
@@ -2733,7 +2948,7 @@ button.variant.add {
   fill: var(--canvas);
   stroke: var(--brand-bright);
   stroke-width: 1.25;
-  transition: fill 120ms ease-out;
+  transition: fill var(--motion-fast) var(--ease-out);
 }
 .resize-handle.hot {
   fill: var(--brand-mist);
@@ -2743,7 +2958,7 @@ button.variant.add {
   fill: var(--surface-raised);
   stroke: var(--brand-bright);
   stroke-width: 1.25;
-  transition: fill 120ms ease-out;
+  transition: fill var(--motion-fast) var(--ease-out);
 }
 .turn-handle path {
   fill: none;
@@ -2761,7 +2976,7 @@ button.variant.add {
   stroke-linecap: round;
 }
 .turn-angle {
-  fill: var(--brand);
+  fill: var(--link);
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
   paint-order: stroke;
@@ -2774,13 +2989,13 @@ button.variant.add {
   position: fixed;
   inset: 0;
   z-index: 2;
-  background: rgb(15 23 42 / 0.14);
+  background: var(--backdrop);
   pointer-events: none;
-  animation: fade-in 150ms ease-out;
+  animation: fade-in var(--motion-fast) var(--ease-out);
 }
 .remove-shade.going {
   opacity: 0;
-  transition: opacity 160ms ease-out;
+  transition: opacity var(--motion-fast) var(--ease-out);
 }
 .carry.removing {
   color: var(--ink-muted);
@@ -2796,12 +3011,22 @@ button.variant.add {
   border-radius: var(--radius-pill);
   background: color-mix(in oklab, var(--error) 16%, transparent);
   color: var(--error);
-  animation: lift 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: lift var(--motion-fast) var(--ease-out);
 }
 
-/* Page backgrounds. Dark takes the dark theme's canvas; engineering paper is blue with a fine white grid. */
+/* Page backgrounds. Dark takes the dark theme's canvas; engineering paper is blue with a fine white grid. The
+   Document window's preview shows the same paper, its grid at a fixed size (the canvas draws its own grid in
+   Editor.tsx). */
+.style-preview.paper-blueprint {
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 0.24) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.24) 1px, transparent 1px),
+    linear-gradient(to right, rgb(255 255 255 / 0.1) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.1) 1px, transparent 1px);
+  background-size: 40px 40px, 40px 40px, 8px 8px, 8px 8px;
+}
 .canvas.paper-blueprint,
-.style-paper.paper-blueprint {
+.style-preview.paper-blueprint {
   --canvas: #1D4B86;
   background-color: #1D4B86;
 }
@@ -2823,7 +3048,7 @@ button.variant.add {
 .paper-choice span {
   width: 18px;
   height: 22px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--swatch-edge);
   border-radius: 2px;
 }
 .paper-choice[aria-checked="true"] {
@@ -3027,12 +3252,6 @@ button.variant.add {
   display: grid;
   gap: var(--space-2);
 }
-.palette-builtin {
-  display: flex;
-  gap: 6px;
-  padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--hairline);
-}
 .palette-line {
   display: flex;
   align-items: center;
@@ -3066,6 +3285,15 @@ button.variant.add {
   background: var(--surface-raised);
   color: var(--ink);
   font: 13px/18px var(--font-sans);
+  transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .palette-add:hover {
+    background: var(--surface-sunken);
+  }
+}
+.palette-add:active {
+  transform: scale(0.97);
 }
 
 /* Octet's slider: name, track and value on one row. The track fills in brand blue up to the thumb. */
@@ -3106,7 +3334,7 @@ button.variant.add {
   border-radius: 50%;
   background: var(--surface-raised);
   box-shadow: 0 1px 2px rgb(15 23 42 / 0.2);
-  transition: transform 120ms ease-out;
+  transition: transform var(--motion-fast) var(--ease-out);
 }
 .slider input[type="range"]:active::-webkit-slider-thumb {
   transform: scale(1.1);
@@ -3128,7 +3356,7 @@ button.variant.add {
   box-shadow: var(--shadow-float);
   color: var(--ink);
   font: 13px/18px var(--font-sans);
-  animation: modal-in 200ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: modal-in var(--motion-slow) var(--ease-out);
 }
 .dialog h2 {
   margin: 0;
@@ -3148,7 +3376,8 @@ button.variant.add {
 }
 /* A field's name, when it leads the row, takes one width so the fields line up. */
 .dialog-row > span:first-child {
-  min-width: 56px;
+  flex: none;
+  width: 88px;
 }
 /* About Octet: the mark, the name and version, who made it, then the credits, centred. */
 .about {
@@ -3183,7 +3412,7 @@ button.variant.add {
   padding: 0;
   border: 0;
   background: none;
-  color: var(--brand);
+  color: var(--link);
   font: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -3213,15 +3442,42 @@ button.variant.add {
   background: var(--surface-raised);
   color: var(--ink);
   font: 13px/18px var(--font-sans);
+  transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
 }
 .dialog-button.primary {
   border-color: var(--brand);
   background: var(--brand);
   color: var(--on-brand);
 }
+@media (hover: hover) and (pointer: fine) {
+  .dialog-button:hover:not(:disabled) {
+    background: var(--surface-sunken);
+  }
+  .dialog-button.primary:hover:not(:disabled) {
+    border-color: var(--brand-hover);
+    background: var(--brand-hover);
+  }
+}
+.dialog-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+/* Disabled: faded, with no hover or press. */
+.dialog-button:disabled,
+.text-button:disabled,
+.spectrum-button:disabled {
+  opacity: 0.45;
+}
 .dialog-button:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
+}
+/* Reduced motion: a dialog, and the bin on a shortcut pulled off the toolbar, fade in without moving. After their
+   own rules, so these win. */
+@media (prefers-reduced-motion: reduce) {
+  .dialog,
+  .remove-bin {
+    animation: fade-in var(--motion-fast) var(--ease-out);
+  }
 }
 
 /* A TLC spot picked on its plate, for its colour, style and size. */
@@ -3249,7 +3505,7 @@ button.variant.add {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-float);
   transform-origin: top right;
-  animation: panel-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: panel-in var(--motion-fast) var(--ease-out);
 }
 .properties.stacked {
   bottom: calc(var(--space-4) * 2 + var(--below, 0px));
@@ -3401,7 +3657,7 @@ button.variant.add {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-float);
   transform-origin: bottom center;
-  animation: panel-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: panel-in var(--motion-fast) var(--ease-out);
 }
 .spectrum header {
   display: flex;
@@ -3466,8 +3722,7 @@ button.variant.add {
   height: 16px;
 }
 .spectrum-swatches .swatch.none {
-  background: linear-gradient(135deg, transparent 45%, var(--error) 45% 55%, transparent 55%), var(--canvas);
-  border: 1px solid var(--hairline);
+  background: linear-gradient(135deg, transparent 45%, var(--ink-faint) 45% 55%, transparent 55%), var(--canvas);
 }
 .spectrum-signal.chosen text:first-of-type {
   font-weight: 700;
@@ -3478,7 +3733,7 @@ button.variant.add {
 .spectrum-button[aria-pressed="true"] {
   background: var(--brand-mist);
   border-color: transparent;
-  color: var(--brand);
+  color: var(--link);
 }
 .spectrum-gap {
   flex: 1;
@@ -3530,7 +3785,7 @@ button.variant.add {
   stroke-width: 1.5;
 }
 .spectrum-stick.lit {
-  stroke: var(--brand);
+  stroke: var(--link);
 }
 .spectrum-signal text {
   fill: var(--ink);
@@ -3548,7 +3803,7 @@ button.variant.add {
   fill: var(--brand-mist);
 }
 .spectrum-signal.lit text {
-  fill: var(--brand);
+  fill: var(--link);
 }
 .spectrum-foot {
   display: flex;
@@ -3581,7 +3836,7 @@ button.variant.add {
 /* Predicted shifts beside their atoms while the Spectrum panel is open, and the atoms lit from a peak. */
 .nmr-shift {
   font: 600 9px var(--font-sans);
-  fill: var(--brand);
+  fill: var(--link);
   paint-order: stroke;
   stroke: var(--canvas);
   stroke-width: 3px;
@@ -3679,8 +3934,8 @@ button.variant.add {
 }
 /* Quality, as ChemDraw colours its estimates: good, medium, rough. */
 .quality.good, .nmr-shift.q-good {
-  color: var(--brand);
-  fill: var(--brand);
+  color: var(--link);
+  fill: var(--link);
 }
 .quality.medium, .nmr-shift.q-medium {
   color: var(--warning);
@@ -3734,7 +3989,12 @@ button.variant.add {
   box-shadow: var(--shadow-float);
   color: var(--ink);
   font: 500 13px var(--font-sans);
-  transition: transform 160ms ease-out;
+  transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .export-button:hover {
+    background: var(--surface-sunken);
+  }
 }
 .export-button:active {
   transform: scale(0.97);
@@ -3757,14 +4017,17 @@ button.variant.add {
   padding: var(--space-2);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
-  background: #fff;
+  background: var(--canvas);
 }
+/* A transparent background: a soft checker, so thin bonds stay clear on it. */
 .export-preview.transparent {
-  background: repeating-conic-gradient(var(--hairline) 0 25%, #fff 0 50%) 0 0 / 12px 12px;
+  background: repeating-conic-gradient(var(--surface-sunken) 0 25%, var(--canvas) 0 50%) 0 0 / 16px 16px;
 }
+/* The picture fills the box, however small the drawing; the line under it gives the true size. */
 .export-preview img {
-  max-width: 100%;
-  max-height: 150px;
+  width: 100%;
+  height: 150px;
+  object-fit: contain;
 }
 .export-none {
   color: var(--ink-muted);
@@ -3792,7 +4055,7 @@ button.variant.add {
   overflow-y: auto;
   background: var(--surface);
   color: var(--ink);
-  animation: home-in 180ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: home-in var(--motion) var(--ease-out);
 }
 @keyframes home-in {
   from {
@@ -3803,7 +4066,7 @@ button.variant.add {
    from that size. */
 .home-inner,
 .name-box-inner {
-  animation: home-settle 220ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: home-settle var(--motion-slow) var(--ease-out);
 }
 @keyframes home-settle {
   from {
@@ -3812,11 +4075,11 @@ button.variant.add {
 }
 .home.leaving {
   pointer-events: none;
-  animation: home-out 180ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+  animation: home-out var(--motion) var(--ease-out) forwards;
 }
 .home.leaving .home-inner,
 .home.leaving .name-box-inner {
-  animation: home-grow 180ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+  animation: home-grow var(--motion) var(--ease-out) forwards;
 }
 @keyframes home-out {
   to {
@@ -3828,15 +4091,29 @@ button.variant.add {
     transform: scale(1.02);
   }
 }
+/* The first time Home shows, its tiles fade up into place one after another. */
+.home-arrive .home-grid > * {
+  animation: tile-in var(--motion-fast) var(--ease-out) backwards;
+  animation-delay: calc(var(--i, 0) * 20ms);
+}
+@keyframes tile-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .home-inner,
   .name-box-inner,
   .home.leaving .home-inner,
-  .home.leaving .name-box-inner {
+  .home.leaving .name-box-inner,
+  .home-arrive .home-grid > * {
     animation: none;
   }
 }
 .home ~ .notice {
+  left: var(--space-4);
+  right: var(--space-4);
   z-index: 5;
 }
 .home-inner {
@@ -3876,7 +4153,16 @@ button.variant.add {
   background: var(--surface-raised);
   color: var(--ink);
   font: 13px var(--font-sans);
-  transition: transform 160ms ease-out;
+  transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .home-open:hover {
+    background: var(--surface-sunken);
+  }
+  /* The faint ink is too light on the sunken colour (4.5:1). */
+  .home-open:hover kbd {
+    color: var(--ink-muted);
+  }
 }
 .home-open kbd,
 .home-caption kbd {
@@ -3901,6 +4187,7 @@ button.variant.add {
 }
 .home-tile {
   display: grid;
+  align-content: start;
   gap: 10px;
   width: 100%;
   padding: 0;
@@ -3908,7 +4195,7 @@ button.variant.add {
   background: none;
   color: inherit;
   text-align: left;
-  transition: transform 160ms ease-out;
+  transition: transform var(--motion-fast) var(--ease-out);
 }
 .home-tile:active {
   transform: scale(0.98);
@@ -3917,6 +4204,7 @@ button.variant.add {
   outline: none;
 }
 .home-thumb {
+  position: relative;
   display: grid;
   place-items: center;
   aspect-ratio: 4 / 3;
@@ -3924,9 +4212,12 @@ button.variant.add {
   border: 1px solid var(--hairline);
   border-radius: var(--radius-md);
   background: var(--canvas);
-  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+  transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
 }
+/* Placed in the tile's own box, so a tall drawing fits inside the tile too. */
 .home-thumb img {
+  position: absolute;
+  inset: 8%;
   width: 84%;
   height: 84%;
   object-fit: contain;
@@ -4031,7 +4322,16 @@ button.variant.add {
   background: var(--surface-raised);
   color: var(--ink-muted);
   opacity: 0;
-  transition: opacity 150ms ease-out;
+  transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .home-remove:hover {
+    background: var(--surface-sunken);
+    color: var(--ink);
+  }
+}
+.home-remove:active {
+  transform: scale(0.9);
 }
 .home-slot:hover .home-remove,
 .home-slot:focus-within .home-remove {
@@ -4122,7 +4422,7 @@ button.variant.add {
   background: var(--surface-raised);
   box-shadow: var(--shadow-float);
   color: var(--ink);
-  animation: coach-in 200ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: coach-in var(--motion-slow) var(--ease-out);
 }
 @keyframes coach-in {
   from {
@@ -4130,9 +4430,24 @@ button.variant.add {
     transform: translate(-50%, -6px);
   }
 }
+/* While Name to structure is open at the top, the card waits at the bottom, and comes back when the field closes.
+   At the bottom it is centred between the toolbar and the Actions panel, as the notice is, so it does not cover the
+   panel in a narrow window. */
+.coach.low {
+  top: auto;
+  bottom: var(--space-4);
+  left: calc(50% + (48px - 248px) / 2);
+  animation-name: coach-low;
+}
+@keyframes coach-low {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+}
 .coach-body {
   padding: var(--space-4) var(--space-4) var(--space-3);
-  animation: coach-step 180ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: coach-step var(--motion) var(--ease-out);
 }
 @keyframes coach-step {
   from {
@@ -4149,8 +4464,8 @@ button.variant.add {
 }
 .coach h2 svg {
   flex: none;
-  color: var(--brand);
-  animation: coach-tick 160ms ease-out;
+  color: var(--link);
+  animation: coach-tick var(--motion-fast) var(--ease-out);
 }
 @keyframes coach-tick {
   from {
@@ -4165,12 +4480,49 @@ button.variant.add {
   text-wrap: pretty;
 }
 .coach kbd {
+  display: inline-block;
   padding: 1px 5px;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
   color: var(--ink);
   font: 500 11px var(--font-sans);
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+/* The key chip goes down 1 px at once while its key is down, and comes back up with a motion. */
+.coach.pressed kbd {
+  transform: translateY(1px);
+  transition: none;
+}
+/* The end card's mark: the file as it is, with a cover in the card's colour that leaves it round the ring from the
+   top, so the ring seems to draw itself. The white mark on the dark theme, as Home has it. */
+.coach-mark {
+  display: block;
+  margin-bottom: var(--space-4);
+}
+.coach-mark .on-dark {
+  display: none;
+}
+@media (prefers-color-scheme: dark) {
+  .coach-mark .on-light {
+    display: none;
+  }
+  .coach-mark .on-dark {
+    display: inline;
+  }
+}
+.coach-mark .cover {
+  fill: none;
+  stroke: var(--surface-raised);
+  stroke-width: 240;
+  stroke-dasharray: 1;
+  stroke-dashoffset: -1;
+  animation: mark-draw var(--motion-slow) var(--ease-out) backwards;
+}
+@keyframes mark-draw {
+  from {
+    stroke-dashoffset: 0;
+  }
 }
 .coach-foot {
   display: flex;
@@ -4190,7 +4542,7 @@ button.variant.add {
   height: 3px;
   border-radius: 2px;
   background: var(--hairline);
-  transition: background-color 200ms ease-out;
+  transition: background-color var(--motion-slow) var(--ease-out);
 }
 .coach-dots .now {
   background: var(--outline);
@@ -4209,12 +4561,20 @@ button.variant.add {
 }
 @media (prefers-reduced-motion: reduce) {
   .coach,
+  .coach.low,
   .coach-body,
   .coach h2 svg {
-    animation: fade-in 150ms ease-out;
+    animation: fade-in var(--motion-fast) var(--ease-out);
   }
   .tool.coach-target {
     animation: none;
+  }
+  .coach-mark .cover {
+    animation: none;
+  }
+  .coach.pressed kbd {
+    transform: none;
+    background: var(--brand-mist);
   }
 }
 

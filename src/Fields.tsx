@@ -62,7 +62,7 @@ export function Segmented<T extends string>({ label, value, options, onChange, c
         (e.currentTarget.children[options.findIndex(([v]) => v === next)] as HTMLElement | undefined)?.focus();
       }}>
       {options.map(([v, shown, name, off], k) => (
-        <button key={v} type="button" role="radio" aria-checked={value === v} aria-label={name} title={name} disabled={off}
+        <button key={v} type="button" role="radio" aria-checked={value === v} aria-label={name} data-tip={name} disabled={off}
           tabIndex={value === v || (k === 0 && !options.some(([o]) => o === value)) ? 0 : -1} onClick={() => onChange(v)}>{shown}</button>
       ))}
     </span>
@@ -71,5 +71,6 @@ export function Segmented<T extends string>({ label, value, options, onChange, c
 
 // An on or off setting. disabled: dimmed, and it shows the value it has.
 export function Switch({ on, label, onChange, disabled }: { on: boolean; label: string; onChange: (on: boolean) => void; disabled?: boolean }) {
-  return <button type="button" className="switch" role="switch" aria-checked={on} aria-label={label} disabled={disabled} onClick={() => onChange(!on)}><span /></button>;
+  // No tooltip: the switch's name is beside it.
+  return <button type="button" className="switch" role="switch" aria-checked={on} aria-label={label} data-tip="" disabled={disabled} onClick={() => onChange(!on)}><span /></button>;
 }

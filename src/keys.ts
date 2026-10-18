@@ -187,3 +187,20 @@ export function clashes(map: Keymap, id: string, key: string): string[] {
   const near = (p?: Place) => p === place || (p === "item" && (place === "atom" || place === "bond")) || (place === "item" && (p === "atom" || p === "bond"));
   return ACTIONS.filter((a) => a.id !== id && near(a.place) && map[a.id]?.includes(key)).map((a) => a.id);
 }
+
+// Space and Return press a button the keyboard moved to (Tab). After a click they stay the drawing's: Windows
+// focuses a clicked button, and then counts that focus as the keyboard's at the next key, so :focus-visible cannot tell.
+export const buttonTakes = (key: string, onButton: boolean, byKeyboard: boolean) => onButton && byKeyboard && (key === " " || key === "Enter");
+
+// Arrow keys on tiles in reading order, row tiles across: the tile to go to from at (-1: no tile has the focus).
+// Up from the top row and down from the last row stay; down to a short last row with nothing under it goes to its
+// last tile.
+export function tileTo(key: string, at: number, count: number, row: number): number | undefined {
+  const step = ({ ArrowRight: 1, ArrowLeft: -1, ArrowDown: row, ArrowUp: -row } as Record<string, number>)[key];
+  if (!step || !count) return undefined;
+  if (at < 0) return 0;
+  const to = at + step;
+  if (to < 0) return at;
+  if (to < count) return to;
+  return key === "ArrowDown" && Math.floor(at / row) < Math.floor((count - 1) / row) ? count - 1 : at;
+}

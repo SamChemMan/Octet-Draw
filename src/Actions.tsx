@@ -15,6 +15,7 @@ import type { Analysis } from "./chem";
 import type { Problem } from "./check";
 import { GENERICS, massText, queryLabel } from "./query";
 import { Menu, Pick, type MenuItem } from "./Menu";
+import { Exit } from "./motion";
 import { NumberField } from "./Fields";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
@@ -402,16 +403,6 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
     const t = setTimeout(() => { setShown(false); setLeaving(false); }, 180); // in case the animation never ends
     return () => clearTimeout(t);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-  // The tray's names show above the button after a short wait, then at once while moving along the tray.
-  const [tip, setTip] = useState<{ text: string; x: number; y: number }>();
-  const tipTimer = useRef<number>(undefined), tipShownAt = useRef(0);
-  const showTip = (e: React.PointerEvent<HTMLElement>, text: string) => {
-    const r = e.currentTarget.getBoundingClientRect(), place = { text, x: r.left + r.width / 2, y: r.top };
-    clearTimeout(tipTimer.current);
-    if (Date.now() - tipShownAt.current < 600) return setTip(place);
-    tipTimer.current = window.setTimeout(() => setTip(place), 400);
-  };
-  useEffect(() => setTip(undefined), [context.kind]); // a name never outlives the list it came from
   // With sets as menus: the one open beside the panel, and where (fixed, so the panel's scrolling never cuts it off).
   // A click outside it or Escape closes it, and so does a new selection.
   const [sub, setSub] = useState<{ set: SetId; top: number; right: number }>();
@@ -425,13 +416,12 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
     addEventListener("keydown", escape, true);
     return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); };
   }, [sub]);
-  const hideTip = () => { clearTimeout(tipTimer.current); if (tip) tipShownAt.current = Date.now(); setTip(undefined); };
   // The problems list shows two, then all of them once "N more" is clicked.
   const [allProblems, setAllProblems] = useState(false);
 
   if (!shown) {
     return (
-      <button className="actions-reopen" onClick={() => onOpen(true)} title="Show actions">
+      <button className="actions-reopen" onClick={() => onOpen(true)} data-tip="Show actions">
         <SlidersHorizontal size={16} aria-hidden />
         Actions
         {problems.length > 0 && <span className="badge" aria-label={`${problems.length} problems`}>{problems.length}</span>}
@@ -473,7 +463,10 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
   });
   // By default the main actions come first as rows, and the ones marked small follow as small buttons, set by set.
   if (!mine) items.sort((a, b) => Number(!!a.small) - Number(!!b.small) || (a.small ? SETS.indexOf(setOf(a.command)) - SETS.indexOf(setOf(b.command)) : 0));
-  const split = Math.min(items.length, mine ? mine.rows : items.filter((i) => !i.small).length);
+  // A lone small action is a row with its name: one icon on its own does not say what it does. Delete stays the
+  // panel's last small button.
+  const small = items.filter((i) => i.small), lone = small.length === 1 && small[0].command !== "delete";
+  const split = Math.min(items.length, mine ? mine.rows : items.length - (lone ? 0 : small.length));
   const rows = items.slice(0, split), tray = items.slice(split);
   // The small actions set by set, whatever order they were arranged in.
   const sets = SETS.map((s) => [s, tray.filter((i) => setOf(i.command) === s)
@@ -501,7 +494,6 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
     const move = (ev: PointerEvent) => {
       if (!moving && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 5) return;
       moving = dragged.current = true;
-      hideTip();
       to = target(ev.clientX, ev.clientY);
       setCarry({ command, x: ev.clientX, y: ev.clientY, to });
     };
@@ -520,7 +512,6 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
     addEventListener("pointermove", move);
     addEventListener("pointerup", up);
   }
-  const label = (i: Item) => (hint(i.command) ? `${i.name}  ${hint(i.command)}` : i.name);
 
   return (
     <section
@@ -534,13 +525,13 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
     >
       <header>
         <h2>{title}</h2>
-        <button className="actions-close" onClick={() => onOpen(false)} aria-label="Close actions" title="Close actions">
+        <button className="actions-close" onClick={() => onOpen(false)} aria-label="Close actions" data-tip="Close actions">
           <X size={12} />
         </button>
       </header>
 
       {facts.current && whole && facts.current.slice(0, 3).map((a, k) => (
-        <button key={k} className="facts" onClick={() => run(`copy_text:${a.formula}, ${massText(a, "weight", 2)} g/mol`)} title={`${Number.isFinite(a.exact) ? `Exact mass ${massText(a, "exact", 4)}. ` : ""}Click to copy.`}>
+        <button key={k} className="facts" onClick={() => run(`copy_text:${a.formula}, ${massText(a, "weight", 2)} g/mol`)} data-tip={`${Number.isFinite(a.exact) ? `Exact mass ${massText(a, "exact", 4)}. ` : ""}Click to copy.`}>
           <span className="formula">{formula(a.formula)}</span>
           <span>{massText(a, "weight", 2)} g/mol</span>
         </button>
@@ -555,9 +546,9 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
               <div key={`${on}${p.type}${p.message}`} className="problem">
                 <Warning size={16} aria-hidden />
                 <p>{p.message}</p>
-                <button className="problem-hide" onClick={() => run(`hide_warning:${on}`)} aria-label="Hide this warning" title="Hide this warning"><X size={12} /></button>
+                <button className="problem-hide" onClick={() => run(`hide_warning:${on}`)} aria-label="Hide this warning" data-tip="Hide this warning"><X size={12} /></button>
                 <div className="problem-buttons">
-                  {p.fix && <button onClick={() => run(p.fix!.command)} title={p.fix.label}>Fix</button>}
+                  {p.fix && <button onClick={() => run(p.fix!.command)} data-tip={p.fix.label}>Fix</button>}
                   <button onClick={() => run(`show:${on}`)}><Eye size={12} aria-hidden /> Show</button>
                 </div>
               </div>
@@ -571,7 +562,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         <>
           <div className="chips" role="group" aria-label="Element">
             {ELEMENTS.map((el) => (
-              <button key={el} className="chip" aria-pressed={context.label === el} onClick={() => run(`element.${el}`)} title={hint(`element.${el}`) ? `${el} (${hint(`element.${el}`)})` : el}>
+              <button key={el} className="chip" aria-pressed={context.label === el} onClick={() => run(`element.${el}`)} data-tip={el} data-key={hint(`element.${el}`)}>
                 {el}
               </button>
             ))}
@@ -586,20 +577,20 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           {context.terminal ? (
             <div className="chips groups" role="group" aria-label="Groups">
               {ENDS.map(([shown, value]) => (
-                <button key={value} className="chip" onClick={() => run(`label:${value}`)} title={`Make this ${shown}`}>{shown}</button>
+                <button key={value} className="chip" onClick={() => run(`label:${value}`)} data-tip={`Make this ${shown}`}>{shown}</button>
               ))}
             </div>
           ) : context.carbon ? (
             <div className="chips groups" role="group" aria-label="Add">
               {[["+Me", "group.chain"], ["=O", "group.acetyl"], ["+Ph", "group.phenyl"], ["+ wedge", "group.wedgeMe"], ["+ hash", "group.hashMe"]].map(([shown, command]) => (
-                <button key={command} className="chip" onClick={() => run(command)} title={hint(command) ? `${shown} (${hint(command)})` : shown}>{shown}</button>
+                <button key={command} className="chip" onClick={() => run(command)} data-tip={shown} data-key={hint(command)}>{shown}</button>
               ))}
             </div>
           ) : null}
           {context.centre && (
             <div className="chips groups" role="group" aria-label="Stereo flag">
               {[["abs", "Absolute"], ...(context.groups?.and ?? [1]).map((n) => [`&${n}`, `And group ${n}`]), ...(context.groups?.or ?? [1]).map((n) => [`or${n}`, `Or group ${n}`])].map(([flag, name]) => (
-                <button key={flag} className="chip" aria-pressed={context.enhanced === flag} onClick={() => run(`stereo.atom.${flag}`)} title={name}>{flag}</button>
+                <button key={flag} className="chip" aria-pressed={context.enhanced === flag} onClick={() => run(`stereo.atom.${flag}`)} data-tip={name}>{flag}</button>
               ))}
             </div>
           )}
@@ -608,7 +599,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       {context.kind === "structure" && context.stereo && (
         <div className="chips groups" role="group" aria-label="Stereochemistry">
           {([["absolute", "abs", "Absolute"], ["racemic", "rac", "Racemic"], ["relative", "rel", "Relative"]] as const).map(([id, text, name]) => (
-            <button key={id} className="chip" aria-pressed={context.stereo === id} onClick={() => run(`stereo.${id}`)} title={name}>{text}</button>
+            <button key={id} className="chip" aria-pressed={context.stereo === id} onClick={() => run(`stereo.${id}`)} data-tip={name}>{text}</button>
           ))}
         </div>
       )}
@@ -618,7 +609,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           <div className="chips styles" role="group" aria-label="Bond style">
             {STYLES.map((kind) => (
               <button key={kind} className="chip" aria-pressed={context.style === kind} aria-label={BONDS[kind].name}
-                title={hint(`bond.${kind}`) ? `${BONDS[kind].name} (${hint(`bond.${kind}`)})` : BONDS[kind].name} onClick={() => run(`bond.${kind}`)}>
+                data-tip={BONDS[kind].name} data-key={hint(`bond.${kind}`)} onClick={() => run(`bond.${kind}`)}>
                 <BondGlyph kind={kind} />
               </button>
             ))}
@@ -628,7 +619,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
               const command = ring === "benzene" ? "bond.benzene" : `bond.ring${ring}`;
               const name = ring === "benzene" ? "Fuse a benzene" : `Fuse a ${ring}-membered ring`;
               return (
-                <button key={ring} className="chip" onClick={() => run(command)} aria-label={name} title={hint(command) ? `${name} (${hint(command)})` : name}>
+                <button key={ring} className="chip" onClick={() => run(command)} aria-label={name} data-tip={name} data-key={hint(command)}>
                   <RingGlyph kind={ring} />
                 </button>
               );
@@ -641,13 +632,13 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         <div className="chips" role="group" aria-label="Style">
           {([["bold", "Bold", <TextB size={16} />, context.bold], ["italic", "Italic", <TextItalic size={16} />, context.italic], ["underline", "Underline", <TextUnderline size={16} />, context.underline],
             ["sub", "Subscript", <TextSubscript size={16} />, context.script === "sub"], ["super", "Superscript", <TextSuperscript size={16} />, context.script === "super"]] as const).map(([id, name, icon, on]) => (
-            <button key={id} className="chip" aria-pressed={on} aria-label={name} title={hint(`caption.${id}`) ? `${name} (${hint(`caption.${id}`)})` : name} onClick={() => run(`caption.${id}`)}>{icon}</button>
+            <button key={id} className="chip" aria-pressed={on} aria-label={name} data-tip={name} data-key={hint(`caption.${id}`)} onClick={() => run(`caption.${id}`)}>{icon}</button>
           ))}
-          <button className="chip" aria-label="Formula" title={`Formula: counts become subscripts (${hint("caption.formula")})`} onClick={() => run("caption.formula")}><span className="glyph-text">H<sub>2</sub>O</span></button>
+          <button className="chip" aria-label="Formula" data-tip="Formula: counts become subscripts" data-key={hint("caption.formula")} onClick={() => run("caption.formula")}><span className="glyph-text">H<sub>2</sub>O</span></button>
           {context.fonts && <div className="size font"><FontPick label="Font" font={context.font ?? context.fonts[0]} fonts={context.fonts} onPick={(f) => run(`caption.font.${f}`)} /></div>}
           <SizeButton size={context.size} sizes={sizes} run={run} />
           {([["left", "Flush left", <TextAlignLeft size={16} />], ["centre", "Centre text", <TextAlignCenter size={16} />], ["right", "Flush right", <TextAlignRight size={16} />], ["justify", "Justified", <TextAlignJustify size={16} />]] as const).map(([id, name, icon]) => (
-            <button key={id} className="chip" aria-pressed={context.align === id} aria-label={name} title={hint(`caption.align.${id}`) ? `${name} (${hint(`caption.align.${id}`)})` : name} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
+            <button key={id} className="chip" aria-pressed={context.align === id} aria-label={name} data-tip={name} data-key={hint(`caption.align.${id}`)} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
           ))}
         </div>
       )}
@@ -657,7 +648,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         // and on a table's cells or a TLC plate's Rf values.
         <div className="chips label-style" role="group" aria-label="Label style">
           {([["bold", "Bold", <TextB size={16} />, context.text.bold], ["italic", "Italic", <TextItalic size={16} />, context.text.italic], ["underline", "Underline", <TextUnderline size={16} />, context.text.underline]] as const).map(([id, name, icon, on]) => (
-            <button key={id} className="chip" aria-pressed={on} aria-label={name} title={hint(`caption.${id}`) ? `${name} (${hint(`caption.${id}`)})` : name} onClick={() => run(`caption.${id}`)}>{icon}</button>
+            <button key={id} className="chip" aria-pressed={on} aria-label={name} data-tip={name} data-key={hint(`caption.${id}`)} onClick={() => run(`caption.${id}`)}>{icon}</button>
           ))}
           <div className="size font"><FontPick label="Font" font={context.text.font} fonts={fonts} onPick={(f) => run(`caption.font.${f}`)} /></div>
           <SizeButton size={context.text.size} sizes={sizes} run={run} />
@@ -667,7 +658,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       {context.kind === "shape" && context.shape !== "tlc" && context.shape !== "table" && (
         <div className="chips arrows" role="group" aria-label="Shape">
           {(isBracket({ kind: context.shape }) ? ["brackets", "parens", "braces"] as ShapeKind[] : ["box", "rounded", "oval", "highlight"] as ShapeKind[]).map((kind) => (
-            <button key={kind} className="chip" aria-pressed={context.shape === kind} aria-label={SHAPES[kind]} title={SHAPES[kind]} onClick={() => run(`shape.kind.${kind}`)}>
+            <button key={kind} className="chip" aria-pressed={context.shape === kind} aria-label={SHAPES[kind]} data-tip={SHAPES[kind]} onClick={() => run(`shape.kind.${kind}`)}>
               <ShapeGlyph kind={kind} />
             </button>
           ))}
@@ -679,7 +670,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         return (
           <div className="chips arrows" role="group" aria-label="Style">
             {["plain", "dashed", "shaded", "solid", "shadow"].map((st) => (
-              <button key={st} className="chip" aria-pressed={context.style === st} aria-label={shapeName(`${row}-${st}`)} title={shapeName(`${row}-${st}`)} onClick={() => run(`shape.style.${st}`)}>
+              <button key={st} className="chip" aria-pressed={context.style === st} aria-label={shapeName(`${row}-${st}`)} data-tip={shapeName(`${row}-${st}`)} onClick={() => run(`shape.style.${st}`)}>
                 <ElementGlyph v={`${row}-${st}`} />
               </button>
             ))}
@@ -690,7 +681,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         // A spot's style (or every spot's, from the plate), each drawn as a spot.
         <div className="chips arrows" role="group" aria-label="Spot">
           {(["filled", "hollow", "shaded"] as const).map((st) => (
-            <button key={st} className="chip" aria-pressed={context.kind === "spot" && context.style === st} aria-label={`${st[0].toUpperCase()}${st.slice(1)} spot${context.kind === "spot" ? "" : "s"}`} title={`${st[0].toUpperCase()}${st.slice(1)} spot${context.kind === "spot" ? "" : "s"}`}
+            <button key={st} className="chip" aria-pressed={context.kind === "spot" && context.style === st} aria-label={`${st[0].toUpperCase()}${st.slice(1)} spot${context.kind === "spot" ? "" : "s"}`} data-tip={`${st[0].toUpperCase()}${st.slice(1)} spot${context.kind === "spot" ? "" : "s"}`}
               onClick={() => run(context.kind === "spot" ? `spot.style.${st}` : `shape.spots.${st}`)}>
               <SpotGlyph style={st} />
             </button>
@@ -713,17 +704,17 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           <>
             <div className="chips arrows" role="group" aria-label="Lines">
               {([["journal", "Journal rules"], ["grid", "All lines"], ["box", "Box"], ["none", "No lines"]] as const).map(([id, name]) => (
-                <button key={id} className="chip" aria-pressed={same(context.lines, TABLE_LINES[id])} aria-label={name} title={name} onClick={() => run(`shape.lines.${id}`)}><TableGlyph on={TABLE_LINES[id]} faint={id === "none"} /></button>
+                <button key={id} className="chip" aria-pressed={same(context.lines, TABLE_LINES[id])} aria-label={name} data-tip={name} onClick={() => run(`shape.lines.${id}`)}><TableGlyph on={TABLE_LINES[id]} faint={id === "none"} /></button>
               ))}
             </div>
             <div className="chips arrows" role="group" aria-label="Each line">
               {EACH.map(([id, name]) => (
-                <button key={id} className="chip" aria-pressed={context.lines.includes(id)} aria-label={name} title={name} onClick={() => run(`shape.lines.${id}`)}><TableGlyph on={[id]} faint /></button>
+                <button key={id} className="chip" aria-pressed={context.lines.includes(id)} aria-label={name} data-tip={name} onClick={() => run(`shape.lines.${id}`)}><TableGlyph on={[id]} faint /></button>
               ))}
             </div>
             <div className="chips" role="group" aria-label="Alignment">
               {([["left", "Flush left", <TextAlignLeft size={16} />], ["centre", "Centre text", <TextAlignCenter size={16} />], ["right", "Flush right", <TextAlignRight size={16} />]] as const).map(([id, name, icon]) => (
-                <button key={id} className="chip" aria-pressed={context.cellAlign === id} aria-label={name} title={name} onClick={() => run(`shape.align.${id}`)}>{icon}</button>
+                <button key={id} className="chip" aria-pressed={context.cellAlign === id} aria-label={name} data-tip={name} onClick={() => run(`shape.align.${id}`)}>{icon}</button>
               ))}
             </div>
             <div className="sliders" role="group" aria-label="Lines">
@@ -747,12 +738,12 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           <>
             <div className="chips arrows" role="group" aria-label="Sides">
               {([["both", `${l} ${r}`, "Both"], ["left", l, "Left only"], ["right", r, "Right only"]] as const).map(([id, text, name]) => (
-                <button key={id} className="chip" aria-pressed={context.side === id} aria-label={name} title={name} onClick={() => run(`shape.side.${id}`)}><span className="glyph-text">{text}</span></button>
+                <button key={id} className="chip" aria-pressed={context.side === id} aria-label={name} data-tip={name} onClick={() => run(`shape.side.${id}`)}><span className="glyph-text">{text}</span></button>
               ))}
             </div>
             <div className="chips arrows" role="group" aria-label="Sign">
               {["‡", "†", "+", "–", "n"].map((m) => (
-                <button key={m} className="chip" aria-pressed={context.mark === m} aria-label={m === "n" ? "Repeat count n" : m} title={m === "n" ? "Repeat count n" : m} onClick={() => run(`shape.mark.${m}`)}><span className="glyph-text">{m}</span></button>
+                <button key={m} className="chip" aria-pressed={context.mark === m} aria-label={m === "n" ? "Repeat count n" : m} data-tip={m === "n" ? "Repeat count n" : m} onClick={() => run(`shape.mark.${m}`)}><span className="glyph-text">{m}</span></button>
               ))}
             </div>
           </>
@@ -766,14 +757,14 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           <>
             <div className="chips arrows" role="group" aria-label="Orbital">
               {ORBITAL_SHAPES.map((shape) => (
-                <button key={shape} className="chip" aria-pressed={o.shape === shape} aria-label={orbitalName(`${shape}-plain`)} title={orbitalName(`${shape}-plain`)} onClick={() => run(`orbital.shape.${shape}`)}>
+                <button key={shape} className="chip" aria-pressed={o.shape === shape} aria-label={orbitalName(`${shape}-plain`)} data-tip={orbitalName(`${shape}-plain`)} onClick={() => run(`orbital.shape.${shape}`)}>
                   <OrbitalGlyph v={`${shape}-${o.phase === "phased" && !["p", "d", "dz2", "hybrid"].includes(shape) ? "filled" : o.phase}`} />
                 </button>
               ))}
             </div>
             <div className="chips arrows" role="group" aria-label="Phase">
               {PHASES.filter((ph) => ph !== "phased" || ["p", "d", "dz2", "hybrid"].includes(o.shape)).map((ph) => (
-                <button key={ph} className="chip" aria-pressed={o.phase === ph} aria-label={orbitalName(`${o.shape}-${ph}`)} title={orbitalName(`${o.shape}-${ph}`)} onClick={() => run(`orbital.phase.${ph}`)}>
+                <button key={ph} className="chip" aria-pressed={o.phase === ph} aria-label={orbitalName(`${o.shape}-${ph}`)} data-tip={orbitalName(`${o.shape}-${ph}`)} onClick={() => run(`orbital.phase.${ph}`)}>
                   <OrbitalGlyph v={`${o.shape}-${ph}`} />
                 </button>
               ))}
@@ -785,7 +776,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         // The arrow's kind, the choice made most: reaction, equilibrium, resonance, retrosynthetic, no-go.
         <div className="chips arrows" role="group" aria-label="Arrow">
           {ARROW_KINDS.map((kind) => (
-            <button key={kind} className="chip" aria-pressed={context.arrow === kind} aria-label={ARROWS[kind]} title={ARROWS[kind]} onClick={() => run(`arrow.kind.${kind}`)}>
+            <button key={kind} className="chip" aria-pressed={context.arrow === kind} aria-label={ARROWS[kind]} data-tip={ARROWS[kind]} onClick={() => run(`arrow.kind.${kind}`)}>
               <ArrowGlyph kind={curved({ kind }) ? `${kind}-${context.sweep ?? 120}` : kind} />
             </button>
           ))}
@@ -825,9 +816,9 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         {/* One colour row for every kind of selection. A highlight takes a pale fill; anything else an ink colour. */}
         <div className="swatches small" role="radiogroup" aria-label="Colour">
           {[...(colour.tints ? TINTS : COLOURS), ...palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => (
-            <button key={`${name}${hex}`} role="radio" aria-checked={colour.value.toLowerCase() === hex.toLowerCase()} aria-label={name} title={name} className="swatch" style={{ background: hex }} onClick={() => run(`colour.${hex}`)} />
+            <button key={`${name}${hex}`} role="radio" aria-checked={colour.value.toLowerCase() === hex.toLowerCase()} aria-label={name} data-tip={name} className="swatch" style={{ background: hex }} onClick={() => run(`colour.${hex}`)} />
           ))}
-          <button className="swatch custom" title="Add a colour" aria-label="Add a colour" onClick={() => run("colours_add")}><PlusIcon size={12} aria-hidden /></button>
+          <button className="swatch custom" data-tip="Add a colour" aria-label="Add a colour" onClick={() => run("colours_add")}><PlusIcon size={12} aria-hidden /></button>
         </div>
         {(context.kind === "structure" || context.kind === "atom") && (() => {
           // Highlight (a disc behind each atom) and ring fill (every ring wholly selected), each a labelled button.
@@ -867,7 +858,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           ))}
         </div>
       )}
-      {menus && sub && (() => {
+      <Exit>{menus && sub && (() => {
         const list = sets.find(([s]) => s === sub.set)?.[1];
         if (!list) return null;
         const groups = sub.set === "more" ? MORE_GROUPS.map((k) => list.filter((i) => kindOf(i.command) === k)) : [list];
@@ -878,13 +869,14 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
               onChoose={(command) => { setSub(undefined); run(command); }} />
           </div>
         );
-      })()}
+      })()}</Exit>
 
       {((!menus && sets.length > 0) || carry) && (
         <div className={carry && !carry.to?.rows && carry.to ? "tray receiving" : "tray"} role="toolbar" aria-label="More actions">
           {sets.map(([s, set]) => (
             <div key={s} className="tray-set" role="group" aria-label={SET_TITLES[s]}>
-            {!(set.length === 1 && set[0].command === "delete") && <span className="tray-title" aria-hidden>{SET_TITLES[s]}</span>}
+            {/* A set of one button needs no title: its tooltip names it. */}
+            {set.length > 1 && <span className="tray-title" aria-hidden>{SET_TITLES[s]}</span>}
             <div className="tray-buttons">
             {set.map((i) => (
             <button
@@ -892,12 +884,10 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
               data-command={i.command}
               className={["tray-button", i.command === "delete" && "delete", i.accent && "accent", carry?.command === i.command && "carried", settled === i.command && "settled"].filter(Boolean).join(" ")}
               aria-label={i.name}
+              data-tip={i.name}
+              data-key={hint(i.command)}
               onPointerDown={(e) => startCarry(e, i.command)}
-              onClick={() => { if (dragged.current) { dragged.current = false; return; } hideTip(); run(i.command); }}
-              onPointerEnter={(e) => showTip(e, label(i))}
-              onPointerLeave={hideTip}
-              onFocus={(e) => { const r = e.currentTarget.getBoundingClientRect(); setTip({ text: label(i), x: r.left + r.width / 2, y: r.top }); }}
-              onBlur={hideTip}
+              onClick={() => { if (dragged.current) { dragged.current = false; return; } run(i.command); }}
             >
               {i.icon}
             </button>
@@ -914,13 +904,10 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           <span>Settings</span>
           {hint("settings") && <kbd>{hint("settings")}</kbd>}
         </button>
-        <button className="actions-home" aria-label="Home" onClick={() => { hideTip(); run("home"); }}
-          onPointerEnter={(e) => showTip(e, hint("home") ? `Home  ${hint("home")}` : "Home")} onPointerLeave={hideTip}
-          onFocus={(e) => { const r = e.currentTarget.getBoundingClientRect(); setTip({ text: "Home", x: r.left + r.width / 2, y: r.top }); }} onBlur={hideTip}>
+        <button className="actions-home" aria-label="Home" data-key={hint("home")} onClick={() => run("home")}>
           <House size={16} aria-hidden />
         </button>
       </div>
-      {tip && <span className="tip" role="tooltip" style={{ left: Math.min(tip.x, innerWidth - 8), top: tip.y }}>{tip.text}</span>}
       {carry && (() => {
         const i = items.find((x) => x.command === carry.command);
         return i && <span className="action-carry" style={{ left: carry.x, top: carry.y }} aria-hidden>{i.icon}<span>{i.name}</span></span>;

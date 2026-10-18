@@ -1,6 +1,6 @@
 // The tool palette: one tool per kind of object, each with variants in a strip that opens beside it.
 // Click an active tool again (or press and hold any tool) to open its strip; press, slide and release also works.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Cube, Eraser, Lasso, Plus, PushPin, Selection, TextT, Trash, X } from "@phosphor-icons/react";
 import { chairPoints, type BondSpec, type SymbolKind } from "./edit";
@@ -9,6 +9,7 @@ import { templateKind, type Template } from "./templates";
 import { libraryItem } from "./library";
 import { LibraryPanel } from "./TemplateLibrary";
 import { columnsFor, DEFAULT_COLUMNS, Menu, menuWidth, type MenuItem } from "./Menu";
+import { Exit, reduced, timing } from "./motion";
 import { BracketGlyph, BRACKETS, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, SHAPE_EXTRA, SHAPE_GRID, shapeName } from "./elements";
 
 export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "shape" | "bracket" | "tlc" | "table" | "fragment" | "map" | "text" | "erase";
@@ -83,7 +84,9 @@ const SPECIAL: Tool[] = ["tlc", "table", "fragment", "map"];
 type Strip = "select" | "bond" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "shape" | "bracket" | "more";
 const isStrip = (t: Tool): t is Exclude<Strip, "more"> => t === "select" || t === "bond" || t === "ring" || t === "template" || t === "symbol" || t === "orbital" || t === "arrow" || t === "shape" || t === "bracket";
 // Strips laid out as a grid of icons (named on hover): each row a shape across its styles.
-const HOLD_MS = 300; // pressing a tool this long opens its strip
+// One hold time for every press and hold (FEEL-37): a tool pressed this long opens its strip, and on the canvas Select
+// takes over from a drawing tool.
+export const HOLD_MS = 350;
 
 // Tool icons in Phosphor's style (256 grid, 16-unit round strokes). Each one draws the real object.
 function Icon({ children }: { children: React.ReactNode }) {
@@ -338,8 +341,7 @@ type PaletteProps = {
   popKey: number; // changes when a hold switches to Select, to replay its pop
   canUndo: boolean;
   canRedo: boolean;
-  undoKey?: string; // the menu's keys for Undo and Redo, as the user has them
-  redoKey?: string;
+  keys: (command: string) => string | undefined; // a command's shortcut, for its tooltip
   canAddSelection: boolean; // something is selected that could become a ring
   renaming?: string; // a template just added, whose name is being typed
   preview: (name: string) => Mol | undefined; // the structure for a name, if it is one
@@ -352,6 +354,7 @@ type PaletteProps = {
   onRemoveTemplate: (id: string) => void;
   onUndo: () => void;
   onRedo: () => void;
+  onDrop: (x: number, y: number) => void; // an option, now in hand, was let go here on the canvas (px)
   stripWidths: Record<string, number>; // widths the user dragged each menu to, by tool ("more", "curves" too)
   onStripWidth: (key: string, width: number) => void;
   curvedArrows: string[]; // curved arrow variants in the Arrow strip
@@ -371,15 +374,34 @@ export function Palette(p: PaletteProps) {
   // An option being dragged onto the toolbar (or a shortcut being dragged along it or off it). index: where it
   // would land among the shortcuts. phase: following the pointer, flying into its slot, or fading away.
   // toList: a curved arrow is over the Arrow strip, which takes it into its list.
-  const [carry, setCarry] = useState<{ key: string; x: number; y: number; tilt: number; over: boolean; toList?: boolean; index: number; phase: "drag" | "land" | "drop" }>();
+  const [carry, setCarry] = useState<{ key: string; pin: boolean; x: number; y: number; tilt: number; over: boolean; toList?: boolean; index: number; phase: "drag" | "land" | "drop" }>();
   const [curves, setCurves] = useState(false); // every curved arrow, beside the Arrow strip
   const [library, setLibrary] = useState(false); // the template library, beside the Ring strip
   const [arrived, setArrived] = useState<string>(); // a curved arrow just added to the Arrow strip settles in
   const [landed, setLanded] = useState<{ key: string; n: number }>(); // the shortcut that just landed: it settles, the others ripple
+  const [chosen, setChosen] = useState<string>(); // the shortcut last chosen, as "tool:variant"
   const dragged = useRef(false); // the last press was a drag, so its click does nothing
   const [adding, setAdding] = useState("");
   const timer = useRef<number>(undefined);
   const nav = useRef<HTMLElement>(null);
+  // A window too short for one column of tools gets two, and the user's choice stays as it was. The toggle goes
+  // until one column fits again. one: the toolbar's height in one column, measured when it last was. While an option
+  // is carried, the columns stay as they are, so the gap it opens never moves the toolbar from under the pointer (a
+  // drop meant for the toolbar would go on the canvas); they are fitted again when it is let go.
+  const [short, setShort] = useState(false), one = useRef(0), wide = p.wide || short, carrying = !!carry;
+  useLayoutEffect(() => {
+    const box = nav.current!;
+    const fit = () => {
+      if (carrying) return;
+      if (!wide) one.current = box.offsetHeight;
+      setShort(!p.wide && one.current > innerHeight - 2 * box.offsetTop);
+    };
+    fit();
+    const watch = new ResizeObserver(fit);
+    watch.observe(box);
+    addEventListener("resize", fit);
+    return () => { watch.disconnect(); removeEventListener("resize", fit); };
+  }, [wide, p.wide, carrying]);
 
   // Close the strip on Escape or a press anywhere else.
   useEffect(() => {
@@ -453,15 +475,27 @@ export function Palette(p: PaletteProps) {
   const special = SPECIAL.includes(p.tool) ? p.tool : SPECIAL.includes(p.variants.more as Tool) ? (p.variants.more as Tool) : SPECIAL[0];
   tools.push({ id: special, name: SPECIAL_TOOLS[special].name, icon: SPECIAL_TOOLS[special].icon });
   const active = tools.findIndex((t) => t.id === p.tool);
-  const choose = (t: Strip, kind: string) => { p.onVariant(t, kind); p.onTool(t === "more" ? (kind as Tool) : t); setOpen(undefined); };
+  const choose = (t: Strip, kind: string) => { p.onVariant(t, kind); p.onTool(t === "more" ? (kind as Tool) : t); setOpen(undefined); setChosen(undefined); };
+  // A shortcut chosen from the toolbar takes the active look (the indicator) from its tool's slot while that option
+  // stays in hand, so one button looks active, never two.
+  const holds = (x: { tool: Strip; kind: string }) => (x.tool === "more" ? p.tool === x.kind : p.tool === x.tool && p.variants[x.tool] === x.kind);
+  const lit = pins.find((x) => x.key === chosen && holds(x));
+  if (chosen && !lit) setChosen(undefined);
+  const indicator = useRef<HTMLSpanElement>(null), [litAt, setLitAt] = useState<[number, number]>();
+  useLayoutEffect(() => {
+    const el = lit && nav.current?.querySelector<HTMLElement>(`[data-pin="${CSS.escape(lit.key)}"]`), from = indicator.current;
+    const at: [number, number] | undefined = el && from ? [el.offsetLeft - from.offsetLeft, el.offsetTop - from.offsetTop] : undefined;
+    if (at?.[0] !== litAt?.[0] || at?.[1] !== litAt?.[1]) setLitAt(at);
+  });
 
   // Drag an option onto the toolbar to pin it there; drag a shortcut along the toolbar to move it, or off it to remove it.
-  function startCarry(e: React.PointerEvent, key: string) {
+  // An option let go on the canvas goes in there. pin: a shortcut is dragged, not an option from a menu.
+  function startCarry(e: React.PointerEvent, key: string, pin = false) {
     if (e.button !== 0) return;
     const [sx, sy] = [e.clientX, e.clientY];
     let moving = false, lastX = sx, tilt = 0, index = 0;
     dragged.current = false;
-    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const calm = reduced();
     const inside = (x: number, y: number) => { const r = nav.current!.getBoundingClientRect(); return x >= r.left - 24 && x <= r.right + 24 && y >= r.top && y <= r.bottom + 36; };
     // A curved arrow or library template can also go into its strip's list.
     const listTool = keepable(key), list = listTool ? nav.current!.querySelector(`.strip[data-tool="${listTool}"]`) : null;
@@ -477,11 +511,11 @@ export function Palette(p: PaletteProps) {
       if (!moving && Math.hypot(ev.clientX - sx, ev.clientY - sy) < DRAG_PX) return;
       moving = dragged.current = true;
       // It leans into the direction it is pulled, and straightens when it stops.
-      tilt = still ? 0 : Math.max(-12, Math.min(12, tilt * 0.6 + (ev.clientX - lastX) * 0.8));
+      tilt = calm ? 0 : Math.max(-12, Math.min(12, tilt * 0.6 + (ev.clientX - lastX) * 0.8));
       lastX = ev.clientX;
       const toList = onList(ev.clientX, ev.clientY), over = !toList && inside(ev.clientX, ev.clientY);
       if (over) index = slotAt(ev.clientX, ev.clientY);
-      setCarry({ key, x: ev.clientX, y: ev.clientY, tilt, over, toList, index, phase: "drag" });
+      setCarry({ key, pin, x: ev.clientX, y: ev.clientY, tilt, over, toList, index, phase: "drag" });
     };
     const up = (ev: PointerEvent) => {
       removeEventListener("pointermove", move);
@@ -491,12 +525,19 @@ export function Palette(p: PaletteProps) {
       if (onList(ev.clientX, ev.clientY)) {
         setCarry((c) => c && { ...c, tilt: 0, toList: false, phase: "drop" });
         keep(listTool!, key.slice(listTool!.length + 1));
-        return void setTimeout(() => setCarry(undefined), 160);
+        return void setTimeout(() => setCarry(undefined), timing("--motion-fast").duration);
       }
       if (!inside(ev.clientX, ev.clientY)) {
-        // Off the toolbar: a shortcut is removed, an option goes back. Either way it fades where it was let go.
+        // Off the toolbar: a shortcut is removed, an option goes back. Either way it fades where it was let go. An
+        // option let go on the canvas is the tool in hand now, and goes in there as a click there would put it: a ring
+        // fused onto the bond under it, a symbol on the atom, a bond style on the bond, an arrow of the usual length.
         setCarry((c) => c && { ...c, tilt: 0, over: false, phase: "drop" });
-        return void setTimeout(() => { if (p.pinned.includes(key)) p.onPinned(rest); setCarry(undefined); }, 160);
+        const [tool, ...kind] = key.split(":");
+        if (!pin && document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".canvas")) {
+          choose(tool as Strip, kind.join(":"));
+          p.onDrop(ev.clientX, ev.clientY);
+        }
+        return void setTimeout(() => { if (pin) p.onPinned(rest); setCarry(undefined); }, timing("--motion-fast").duration);
       }
       // On the toolbar: it flies into the gap that opened for it, then the toolbar takes it.
       const slot = nav.current!.querySelector(".pin-slot")?.getBoundingClientRect();
@@ -506,7 +547,7 @@ export function Palette(p: PaletteProps) {
         setCarry(undefined);
         setOpen(undefined);
         setLanded((l) => ({ key, n: (l?.n ?? 0) + 1 }));
-      }, still ? 0 : 180);
+      }, calm ? 0 : timing().duration);
     };
     addEventListener("pointermove", move);
     addEventListener("pointerup", up);
@@ -514,16 +555,16 @@ export function Palette(p: PaletteProps) {
   // One column or two: every tool glides from where it was to where it goes, and the toolbar grows or shrinks to
   // match (instant with reduced motion).
   function toggleWide() {
-    const box = nav.current!, still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const box = nav.current!;
     const items = [...box.querySelectorAll<HTMLElement>(":scope > .slot, :scope > .tool, :scope > hr, :scope > .palette-toggle")];
     const before = items.map((el) => el.getBoundingClientRect()), from = box.getBoundingClientRect();
     flushSync(() => p.onWide(!p.wide));
-    if (still) return;
-    const to = box.getBoundingClientRect(), timing = { duration: 240, easing: "cubic-bezier(0.23, 1, 0.32, 1)" };
-    box.animate([{ width: `${from.width}px`, height: `${from.height}px` }, { width: `${to.width}px`, height: `${to.height}px` }], timing);
+    if (reduced()) return;
+    const to = box.getBoundingClientRect(), glide = timing();
+    box.animate([{ width: `${from.width}px`, height: `${from.height}px` }, { width: `${to.width}px`, height: `${to.height}px` }], glide);
     items.forEach((el, i) => {
       const r = el.getBoundingClientRect(), dx = before[i].left - r.left, dy = before[i].top - r.top;
-      if (Math.abs(dx) + Math.abs(dy) > 0.5) el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], timing);
+      if (Math.abs(dx) + Math.abs(dy) > 0.5) el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], glide);
     });
   }
   // The landing ripple runs once, then the class comes off so it can run again next time.
@@ -535,20 +576,20 @@ export function Palette(p: PaletteProps) {
   const addPreview = useMemo(() => (adding.trim() ? p.preview(adding) : undefined), [adding]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <nav ref={nav} className={["palette", p.wide && "wide", carry?.over && "dropping", landed && "rippling"].filter(Boolean).join(" ")} aria-label="Tools">
-      <span className="indicator" style={{ transform: p.wide ? `translate(${(active % 2) * 36}px, ${Math.floor(active / 2) * 36}px)` : `translateY(${active * 36}px)`, opacity: active < 0 ? 0 : 1 }} aria-hidden />
+    <nav ref={nav} className={["palette", wide && "wide", carry?.over && "dropping", landed && "rippling"].filter(Boolean).join(" ")} aria-label="Tools" data-tips="right">
+      <span ref={indicator} className="indicator" style={{ transform: lit && litAt ? `translate(${litAt[0]}px, ${litAt[1]}px)` : wide ? `translate(${(active % 2) * 36}px, ${Math.floor(active / 2) * 36}px)` : `translateY(${active * 36}px)`, opacity: active < 0 && !lit ? 0 : 1 }} aria-hidden />
       {tools.map((t, i) => {
         const group = SPECIAL.includes(t.id);
         const strip = group ? SPECIAL : isStrip(t.id) ? options(t.id) : undefined;
         return (
-          <div key={t.id} className="slot" data-col={p.wide ? i % 2 : undefined} style={{ "--d": Math.abs(i - (tools.length + 1 + pins.findIndex((x) => x.key === landed?.key))) } as React.CSSProperties}>
+          <div key={t.id} className="slot" data-col={wide ? i % 2 : undefined} style={{ "--d": Math.abs(i - (tools.length + 1 + pins.findIndex((x) => x.key === landed?.key))) } as React.CSSProperties}>
             <button
               className={p.coach === t.id && p.tool !== t.id ? "tool coach-target" : "tool"}
-              aria-pressed={p.tool === t.id}
+              aria-pressed={p.tool === t.id && !lit}
               aria-label={t.name}
               aria-haspopup={strip ? "menu" : undefined}
               aria-expanded={strip ? open === t.id : undefined}
-              title={strip ? `${t.name}. Click again or hold for more.` : t.name}
+              data-key={p.keys(`tool.${t.id}`)}
               onPointerDown={() => {
                 if (!strip) return;
                 clearTimeout(timer.current);
@@ -558,8 +599,9 @@ export function Palette(p: PaletteProps) {
               onPointerLeave={() => clearTimeout(timer.current)}
               onClick={() => {
                 if (held) return setHeld(false);
-                if (strip && p.tool === t.id) return setOpen(open === t.id ? undefined : t.id);
+                if (strip && p.tool === t.id && !lit) return setOpen(open === t.id ? undefined : t.id);
                 setOpen(undefined);
+                setChosen(undefined);
                 p.onTool(t.id);
               }}
             >
@@ -568,18 +610,18 @@ export function Palette(p: PaletteProps) {
               </span>
               {strip && <span className="more" aria-hidden />}
             </button>
-            {group && open === t.id && (
+            <Exit>{group && open === t.id && (
               // The specialist tools; any can be dragged onto the toolbar.
               <Menu label="More tools" groups={[SPECIAL.map((id) => ({ key: id, name: SPECIAL_TOOLS[id].name, icon: SPECIAL_TOOLS[id].icon, checked: p.tool === id }))]}
                 columns={columnsOf("more")} onColumns={(n) => p.onStripWidth("more", menuWidth(n))}
                 onPress={(e, id) => startCarry(e, `more:${id}`)} onChoose={(id) => { if (!dragged.current) choose("more", id); }} onRelease={(id) => { if (held) choose("more", id); }} />
-            )}
-            {t.id === "template" && open === "template" && (
+            )}</Exit>
+            <Exit>{t.id === "template" && open === "template" && (
               <LibraryPanel current={p.variants.template} mine={p.templates.map((x) => ({ kind: templateKind(x.id), name: x.name, category: "My templates", mol: x.mol }))}
                 onChoose={(kind) => { if (!dragged.current) choose("template", kind); }}
                 onPress={(e, kind) => startCarry(e, `template:${kind}`)} />
-            )}
-            {strip && isStrip(t.id) && t.id !== "template" && open === t.id && (() => {
+            )}</Exit>
+            <Exit>{strip && isStrip(t.id) && t.id !== "template" && open === t.id && (() => {
               const tool = t.id, curveCarry = !!carry && keepable(carry.key) === tool;
               const item = (kind: string): MenuItem => {
                 const name = nameOf(tool, kind)!, custom = template(kind);
@@ -636,21 +678,21 @@ export function Palette(p: PaletteProps) {
                   columns={columnsOf(tool)} onColumns={(n) => p.onStripWidth(tool, menuWidth(n))}
                   onPress={(e, kind) => startCarry(e, `${tool}:${kind}`)} onChoose={(kind) => { if (!dragged.current) choose(tool, kind); }} onRelease={(kind) => { if (held) choose(tool, kind); }}
                   extra={extra}>
-                  {tool === "arrow" && curves && (
+                  <Exit>{tool === "arrow" && curves && (
                     <Menu label="Curved arrows" className={["submenu", curveCarry && "carrying"].filter(Boolean).join(" ")} groups={curveGroups}
                       columns={columnsOf("curves")} onColumns={(n) => p.onStripWidth("curves", menuWidth(n))}
                       onPress={(e, v) => startCarry(e, `arrow:${v}`)} onChoose={(v) => { if (!dragged.current) choose("arrow", v); }} />
-                  )}
-                  {tool === "ring" && library && (
+                  )}</Exit>
+                  <Exit>{tool === "ring" && library && (
                     <LibraryPanel current={p.variants.ring} kept={p.libraryRings} dimmed={curveCarry}
                       mine={p.templates.map((x) => ({ kind: templateKind(x.id), name: x.name, category: "My templates", mol: x.mol }))}
                       onChoose={(kind) => { if (!dragged.current) choose("ring", kind); }}
                       onKeep={(kind, on) => (on ? keep("ring", kind) : unkeep("ring", kind))}
                       onPress={(e, kind) => startCarry(e, `ring:${kind}`)} />
-                  )}
+                  )}</Exit>
                 </Menu>
               );
-            })()}
+            })()}</Exit>
           </div>
         );
       })}
@@ -664,11 +706,10 @@ export function Palette(p: PaletteProps) {
             data-pin={key}
             className={landed?.key === key ? "tool landed" : "tool"}
             style={{ "--d": Math.abs(j - shown.findIndex((x) => x.key === landed?.key)) } as React.CSSProperties}
-            aria-pressed={p.tool === tool && p.variants[tool] === kind}
+            aria-pressed={lit?.key === key}
             aria-label={nameOf(tool, kind)}
-            title={nameOf(tool, kind)}
-            onPointerDown={(e) => startCarry(e, key)}
-            onClick={() => { if (!dragged.current) choose(tool, kind); }}
+            onPointerDown={(e) => startCarry(e, key, true)}
+            onClick={() => { if (!dragged.current) { choose(tool, kind); setChosen(key); } }}
           >
             <span className="glyph">{iconOf(tool, kind)}</span>
           </button>
@@ -677,19 +718,21 @@ export function Palette(p: PaletteProps) {
         return items.length ? <><hr />{items}</> : null;
       })()}
       <hr />
-      <button className="tool" aria-label="Undo" title={p.undoKey ? `Undo (${p.undoKey})` : "Undo"} disabled={!p.canUndo} onClick={p.onUndo}>
+      <button className="tool" aria-label="Undo" data-key={p.keys("undo")} disabled={!p.canUndo} onClick={p.onUndo}>
         <ArrowCounterClockwise size={20} />
       </button>
-      <button className="tool" aria-label="Redo" title={p.redoKey ? `Redo (${p.redoKey})` : "Redo"} disabled={!p.canRedo} onClick={p.onRedo}>
+      <button className="tool" aria-label="Redo" data-key={p.keys("redo")} disabled={!p.canRedo} onClick={p.onRedo}>
         <ArrowClockwise size={20} />
       </button>
-      <button className="palette-toggle" aria-label={p.wide ? "One column" : "Two columns"} title={p.wide ? "One column" : "Two columns"} onClick={toggleWide}>
-        {p.wide ? <CaretLeft size={12} /> : <CaretRight size={12} />}
-      </button>
+      {!short && (
+        <button className="palette-toggle" aria-label={p.wide ? "One column" : "Two columns"} onClick={toggleWide}>
+          {p.wide ? <CaretLeft size={12} /> : <CaretRight size={12} />}
+        </button>
+      )}
       {carry && (() => {
         const [tool, ...rest] = carry.key.split(":");
         // A shortcut pulled off the toolbar: the window greys and a red bin shows it will go.
-        const leaving = p.pinned.includes(carry.key) && !carry.over && !carry.toList && carry.phase !== "land";
+        const leaving = carry.pin && !carry.over && !carry.toList && carry.phase !== "land";
         return (
           <>
             {leaving && <div className={carry.phase === "drop" ? "remove-shade going" : "remove-shade"} aria-hidden />}

@@ -5,6 +5,8 @@
 // Do not build another menu: extend this one. Pick (below) is the menu as a list of choices from a button.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { holdCursor } from "./cursor";
+import { Exit, useLeaving } from "./motion";
 
 export type MenuItem = {
   key: string;
@@ -48,7 +50,7 @@ export function Menu(p: Props) {
   const most = Math.max(...p.groups.map((g) => g.length), 1);
   const columns = live === undefined ? p.columns : Math.max(1, Math.min(most, Math.floor((live - 2 * PAD - 2 + GAP) / (CELL + GAP))));
   // A menu that would run off the bottom of the window moves up until it fits (never above the top).
-  const box = useRef<HTMLDivElement>(null), [shift, setShift] = useState(0);
+  const box = useRef<HTMLDivElement>(null), [shift, setShift] = useState(0), leaving = useLeaving();
   useLayoutEffect(() => {
     const r = box.current?.getBoundingClientRect();
     if (!r || p.placed) return;
@@ -56,7 +58,7 @@ export function Menu(p: Props) {
     if (Math.abs(next - shift) > 0.5) setShift(next);
   });
   return (
-    <div ref={box} className={["strip", live !== undefined && "resizing", p.className].filter(Boolean).join(" ")} data-tool={p.tool} role="menu" aria-label={p.label}
+    <div ref={box} className={["strip", live !== undefined && "resizing", p.className, leaving && "leaving"].filter(Boolean).join(" ")} data-tool={p.tool} role="menu" aria-label={p.label} inert={leaving}
       style={{ ...p.style, width: live ?? menuWidth(columns), marginTop: shift, "--columns": columns } as React.CSSProperties}>
       <div className="menu-body">
       {p.head && <div className="menu-head">{p.head}</div>}
@@ -67,14 +69,14 @@ export function Menu(p: Props) {
               {item.editing ? (
                 <div className="variant" role="none">{item.icon}{item.editing}</div>
               ) : (
-                <button role="menuitemradio" aria-checked={!!item.checked} className="variant" title={item.name}
+                <button role="menuitemradio" aria-checked={!!item.checked} className="variant" data-tip={item.name} data-tip-cut
                   onPointerDown={(e) => p.onPress?.(e, item.key)} onClick={() => p.onChoose(item.key)} onPointerUp={() => p.onRelease?.(item.key)}>
                   {item.icon}
                   <span className="variant-name" style={item.style}>{item.name}</span>
                 </button>
               )}
               {item.action && (
-                <button className="variant-action" aria-label={item.action.label} title={item.action.label} aria-pressed={item.action.pressed} onClick={item.action.onClick}>
+                <button className="variant-action" aria-label={item.action.label} data-tip={item.action.label} aria-pressed={item.action.pressed} onClick={item.action.onClick}>
                   {item.action.icon}
                 </button>
               )}
@@ -85,11 +87,12 @@ export function Menu(p: Props) {
       {p.extra && <div className="menu-group menu-extra" role="group">{p.extra}</div>}
       </div>
       {p.onColumns && (
-        <span className="grip" role="separator" aria-label="Drag to resize" title="Drag to resize"
+        <span className="grip" role="separator" aria-label="Drag to resize" data-tip="Drag to resize"
           onPointerDown={(e) => {
             // Drag the corner: the menu snaps to whole columns, from one to as many as its longest group.
             e.preventDefault();
             e.currentTarget.setPointerCapture(e.pointerId);
+            holdCursor(e.currentTarget);
             const startX = e.clientX, start = menuWidth(p.columns);
             let width = start;
             const move = (ev: PointerEvent) => { width = Math.max(menuWidth(1), Math.min(menuWidth(most), start + ev.clientX - startX)); setLive(width); };
@@ -116,7 +119,7 @@ export function Menu(p: Props) {
 // the next option that starts with it, Return picks, Escape closes. A list opened by the keyboard takes the focus; one
 // opened by a click leaves it where it was (in text being typed, say).
 const ROW = 32; // px: a list option's height and the gap under it
-export const listOpen = () => !!document.querySelector(".strip.list"); // a list is open: its keys come first
+export const listOpen = () => !!document.querySelector(".strip.list:not(.leaving)"); // a list is open: its keys come first
 type PickProps = {
   label: string; // what the list chooses, read out and named on the button
   value: string; // the key chosen now
@@ -189,7 +192,7 @@ export function Pick(p: PickProps) {
   };
   return (
     <>
-      <button ref={button} className={p.className} aria-haspopup="menu" aria-expanded={!!open} aria-label={`${p.label}: ${[...p.groups.flat(), ...(all ?? [])].find((i) => i.key === p.value)?.name ?? p.value}`} title={p.title}
+      <button ref={button} className={p.className} aria-haspopup="menu" aria-expanded={!!open} aria-label={`${p.label}: ${[...p.groups.flat(), ...(all ?? [])].find((i) => i.key === p.value)?.name ?? p.value}`} data-tip={p.title}
         style={p.style} onClick={() => (open ? close() : setOpen({ focus: false }))} onDoubleClick={p.onDoubleClick}
         onKeyDown={(e) => {
           if (p.onKey?.(e)) return;
@@ -197,7 +200,7 @@ export function Pick(p: PickProps) {
         }}>
         {p.children}
       </button>
-      {open && createPortal(
+      <Exit>{open && createPortal(
         <div ref={list} onKeyDown={keys}>
           <Menu label={p.label} className="list" placed columns={1} groups={groups.map((g) => g.map((i) => ({ ...i, checked: i.key === p.value })))} onChoose={choose} style={place()}
             head={all && (
@@ -208,7 +211,7 @@ export function Pick(p: PickProps) {
                 }} />
             )}
             extra={found && !found.length ? <p className="list-none">Nothing matches</p> : undefined} />
-        </div>, document.body)}
+        </div>, document.body)}</Exit>
     </>
   );
 }

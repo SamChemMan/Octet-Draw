@@ -2,9 +2,11 @@
 // modules (Document, Keyboard shortcuts, Import and export) under a search field that is always there. With text
 // in it, every matching setting from every module shows on the right, grouped by module and ready to use.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CaretDown, Check, FileText, Files, Keyboard, MagnifyingGlass, Palette, PencilSimpleLine, Plus, SlidersHorizontal, Warning, X } from "@phosphor-icons/react";
+import { CaretDown, Check, FileText, Files, Keyboard, MagnifyingGlass, PencilSimpleLine, Plus, Swatches, Warning, X } from "@phosphor-icons/react";
 import { ColourPicker } from "./ColourPicker";
-import { Dialog } from "./Dialog";
+import { Dialog, useModal } from "./Dialog";
+import { holdCursor } from "./cursor";
+import { Exit, useLeaving } from "./motion";
 import { Select } from "./Select";
 import { FontPick } from "./Actions";
 import { listOpen } from "./Menu";
@@ -15,7 +17,7 @@ import { BACKGROUNDS, COLOURS, FONTS, GRID_IN, GRID_MM, PAGE_NAMES, PAGES, PRESE
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
 import { WARNING_TYPES, type WarningType } from "./check";
 
-export type ModuleId = "document" | "drawing" | "keys" | "panel" | "files" | "colours" | "warnings";
+export type ModuleId = "document" | "drawing" | "keys" | "appearance" | "files" | "warnings";
 // How the drawing tools draw (ChemDraw's Object > Fixed Lengths and Fixed Angles, and its Building/Display setting),
 // and ChemDraw's other preferences that change the drawing or what opening a file gives (settings.ts, CH-34).
 export type DrawingPrefs = {
@@ -36,7 +38,7 @@ type Props = {
   onModule: (m: ModuleId) => void;
   style: DocStyle;
   isDefault: boolean; // the style is already the default for new documents
-  preview: React.ReactNode; // a sample structure drawn in the style
+  preview: React.ReactNode; // a sample structure drawn in the style, on the page's background (.style-preview)
   onStyle: (style: DocStyle) => void;
   onDefault: () => void;
   purposes: { id: string; name: string }[]; // Octet's purposes, then the user's own
@@ -76,7 +78,8 @@ type Props = {
 };
 
 // The user's colours: each one's swatch, name and remove button; the one chosen opens Octet's picker under it.
-// Add a colour makes a new one from the last colour picked and opens it.
+// Add a colour makes a new one from the last colour picked and opens it. With no colours yet, Add a colour stands
+// where the list goes.
 function PaletteEditor({ palette, onPalette, adding }: { palette: Swatch[]; onPalette: (p: Swatch[]) => void; adding?: boolean }) {
   const [open, setOpen] = useState<number>();
   const add = () => {
@@ -89,15 +92,12 @@ function PaletteEditor({ palette, onPalette, adding }: { palette: Swatch[]; onPa
   const change = (k: number, patch: Partial<Swatch>) => onPalette(palette.map((c, i) => (i === k ? { ...c, ...patch } : c)));
   return (
     <div className="palette-editor">
-      <div className="palette-builtin" role="list" aria-label="Octet's colours">
-        {COLOURS.map(([name, hex]) => <span key={hex} role="listitem" className="swatch" style={{ background: hex }} title={name} aria-label={name} />)}
-      </div>
       {palette.map((c, k) => (
         <div key={k} className={open === k ? "palette-row open" : "palette-row"}>
           <div className="palette-line">
             <button className="swatch" style={{ background: c.hex }} aria-label={`Change ${c.name}`} aria-expanded={open === k} onClick={() => setOpen(open === k ? undefined : k)} />
             <input className="palette-name" aria-label="Name" value={c.name} maxLength={40} onChange={(e) => change(k, { name: e.target.value })} onBlur={(e) => { if (!e.target.value.trim()) change(k, { name: `Colour ${k + 1}` }); }} />
-            <button className="text-button" aria-label={`Remove ${c.name}`} title="Remove" onClick={() => { onPalette(palette.filter((_, i) => i !== k)); setOpen(undefined); }}><X size={12} /></button>
+            <button className="text-button" aria-label={`Remove ${c.name}`} data-tip="Remove" onClick={() => { onPalette(palette.filter((_, i) => i !== k)); setOpen(undefined); }}><X size={12} /></button>
           </div>
           {open === k && <ColourPicker value={c.hex} onChange={(hex) => change(k, { hex })} />}
         </div>
@@ -123,7 +123,7 @@ function OwnPurposes({ list, onRename, onRemove }: { list: { id: string; name: s
           <input className="palette-name" aria-label="Name" value={names[p.id] ?? p.name} maxLength={40} spellCheck={false}
             onChange={(e) => setNames((n) => ({ ...n, [p.id]: e.target.value }))} onBlur={() => keep(p.id)}
             onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
-          <button className="text-button" aria-label={`Remove ${p.name}`} title="Remove" onClick={() => onRemove(p.id)}><X size={12} /></button>
+          <button className="text-button" aria-label={`Remove ${p.name}`} data-tip="Remove" onClick={() => onRemove(p.id)}><X size={12} /></button>
         </div>
       ))}
     </div>
@@ -176,7 +176,7 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
         <span>{PAGE_NAMES[style.page]}</span>
         <CaretDown size={12} aria-hidden />
       </button>
-      {open && place && (
+      <Exit>{open && place && (
         <div ref={menu} className={place.above ? "page-menu above" : "page-menu"} role="dialog" aria-label="Page size" style={{ left: place.left, top: place.top, width }}>
           <div className="page-options" role="radiogroup" aria-label="Page sizes">
             {names.map((n) => {
@@ -201,10 +201,11 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
             className="grip"
             role="separator"
             aria-label="Drag to resize"
-            title="Drag to resize"
+            data-tip="Drag to resize"
             onPointerDown={(e) => {
               e.preventDefault();
               e.currentTarget.setPointerCapture(e.pointerId);
+              holdCursor(e.currentTarget);
               const x0 = e.clientX, w0 = width;
               const move = (ev: PointerEvent) => setWidth(Math.min(innerWidth - 16, Math.max(360, w0 + ev.clientX - x0)));
               const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); };
@@ -213,7 +214,7 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
             }}
           />
         </div>
-      )}
+      )}</Exit>
     </>
   );
 }
@@ -226,11 +227,13 @@ const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: strin
   { id: "document", name: "Document", icon: <FileText size={16} />, words: "document style page text" },
   { id: "drawing", name: "Drawing", icon: <PencilSimpleLine size={16} />, words: "drawing tools bonds rings draw" },
   { id: "keys", name: "Keyboard shortcuts", icon: <Keyboard size={16} />, words: "keyboard shortcut hotkey keys" },
-  { id: "panel", name: "Actions panel", icon: <SlidersHorizontal size={16} />, words: "actions panel side menus sections" },
+  // The Actions panel's one setting and the colours share a module, so no module holds a single setting.
+  { id: "appearance", name: "Appearance", icon: <Swatches size={16} />, words: "appearance look actions panel side menus sections colour colours palette custom swatch named" },
   { id: "files", name: "Import and export", icon: <Files size={16} />, words: "import export file clipboard" },
-  { id: "colours", name: "Colours", icon: <Palette size={16} />, words: "colour colours palette custom swatch named" },
   { id: "warnings", name: "Warnings", icon: <Warning size={16} />, words: "warnings chemical check structure errors problems" },
 ];
+// The module saved last time, as a module that is there now (Actions panel and Colours became Appearance).
+export const moduleOf = (id: string): ModuleId => (id === "panel" || id === "colours" ? "appearance" : MODULES.find((m) => m.id === id)?.id ?? "document");
 // Words people use for the same thing.
 const SYNONYMS: Record<string, string> = {
   color: "colour", thickness: "width", thick: "width", weight: "width", stroke: "width", hotkey: "shortcut", hotkeys: "shortcut",
@@ -286,7 +289,7 @@ function KeyChips({ id, map, recording, onRecord, onRemove }: { id: string; map:
       ))}
       {recording === keys.length
         ? <span className="key-chip recording"><button>Press a key</button></span>
-        : <button className="key-add" onClick={() => onRecord(keys.length)} aria-label="Add a key" title="Add a key"><Plus size={12} /></button>}
+        : <button className="key-add" onClick={() => onRecord(keys.length)} aria-label="Add a key" data-tip="Add a key"><Plus size={12} /></button>}
     </span>
   );
 }
@@ -295,7 +298,8 @@ function KeyChips({ id, map, recording, onRecord, onRemove }: { id: string; map:
 
 export function SettingsWindow(p: Props) {
   const [query, setQuery] = useState("");
-  const search = useRef<HTMLInputElement>(null);
+  const search = useRef<HTMLInputElement>(null), backdrop = useRef<HTMLDivElement>(null), leaving = useLeaving();
+  useModal(backdrop, !leaving);
   const [recording, setRecording] = useState<{ id: string; index: number }>();
   const [note, setNote] = useState<{ id: string; text: string; undo: Keymap }>();
   const [naming, setNaming] = useState<string>(); // the name typed for a new purpose, while its dialog is open
@@ -305,6 +309,7 @@ export function SettingsWindow(p: Props) {
 
   // Escape: stops recording a key, then clears the search, then closes the window. ⌘F goes to the search.
   useEffect(() => {
+    if (leaving) return;
     const key = (e: KeyboardEvent) => {
       if (naming !== undefined) return; // the new purpose's dialog has the keys
       if (recording) {
@@ -333,7 +338,7 @@ export function SettingsWindow(p: Props) {
     };
     addEventListener("keydown", key, true);
     return () => removeEventListener("keydown", key, true);
-  }, [recording, query, map, p, naming]);
+  }, [recording, query, map, p, leaving, naming]);
   useEffect(() => { search.current?.focus(); }, []);
 
   const presets: [string, string][] = [...Object.keys(PRESETS).map((x): [string, string] => [x, x]), ...(style.preset === "Custom" ? [["Custom", "Custom"] as [string, string]] : [])];
@@ -372,9 +377,9 @@ export function SettingsWindow(p: Props) {
       d("document", "Text", "Colour", "text colour caption", (
         <span className="swatches" role="radiogroup" aria-label="Text colour">
           {[...COLOURS, ...p.palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => (
-            <button key={`${name}${hex}`} role="radio" aria-checked={style.colour.toLowerCase() === hex.toLowerCase()} aria-label={name} title={name} className="swatch" style={{ background: hex }} onClick={() => change({ colour: hex })} />
+            <button key={`${name}${hex}`} role="radio" aria-checked={style.colour.toLowerCase() === hex.toLowerCase()} aria-label={name} data-tip={name} className="swatch" style={{ background: hex }} onClick={() => change({ colour: hex })} />
           ))}
-          <button className="swatch custom" title="Add a colour" aria-label="Add a colour" onClick={() => p.onModule("colours")}><Plus size={12} aria-hidden /></button>
+          <button className="swatch custom" data-tip="Add a colour" aria-label="Add a colour" onClick={() => p.onModule("appearance")}><Plus size={12} aria-hidden /></button>
         </span>
       ), true),
       ...(p.ownPurposes.length ? [d("document", "Your purposes", "Your purposes", "purpose purposes named style styles stationery saved own rename remove",
@@ -399,13 +404,13 @@ export function SettingsWindow(p: Props) {
         // Each background as a small page of itself.
         <span className="paper-choices" role="radiogroup" aria-label="Background">
           {BACKGROUNDS.map(([b, name]) => (
-            <button key={b} role="radio" aria-checked={style.background === b} aria-label={name} title={name} className={`paper-choice ${b}`} onClick={() => change({ background: b })}>
+            <button key={b} role="radio" aria-checked={style.background === b} aria-label={name} data-tip={name} className={`paper-choice ${b}`} onClick={() => change({ background: b })}>
               <span />
             </button>
           ))}
         </span>
       )),
-      d("panel", "Small actions", "Show as", "actions panel small actions menus sections pop out buttons", (
+      d("appearance", "Actions panel", "Small actions", "actions panel small actions show as menus sections pop out buttons", (
         <Segmented label="Show small actions as" value={p.panelMenus ? "menus" : "sections"} onChange={(v) => p.onPanelMenus(v === "menus")} options={[["sections", "Sections"], ["menus", "Menus"]]} />
       )),
       // ChemDraw's text preference: in a caption Return makes a new line, unless Option-Return is asked for.
@@ -428,7 +433,12 @@ export function SettingsWindow(p: Props) {
       d("files", "Export", "Margin", "export margin padding border", <NumberField label="Margin" unit="pt" min={0} max={72} step={1} value={files.margin} onChange={(n) => setFiles({ margin: n })} />),
       ...([["pdf", "PDF, with the structure inside", "pdf word powerpoint keynote office"], ["cdxml", "CDXML", "cdxml chemdraw"], ["mol", "MOL", "mol molfile"], ["smiles", "SMILES", "smiles text"]] as const).map(([k, name, words]) =>
         d("files", "Copy", name, `clipboard copy paste ${words}`, <Switch on={files.clipboard[k]} label={name} onChange={(on) => setFiles({ clipboard: { ...files.clipboard, [k]: on } })} />)),
-      d("colours", "Colours", "Your colours", "colour colours palette custom swatch named add", <PaletteEditor palette={p.palette} onPalette={p.onPalette} adding={p.adding} />, true),
+      d("appearance", "Colours", "Octet's colours", "colour colours palette swatch built in", (
+        <span className="swatches" role="list" aria-label="Octet's colours">
+          {COLOURS.map(([name, hex]) => <span key={hex} role="listitem" className="swatch" style={{ background: hex }} data-tip={name} aria-label={name} />)}
+        </span>
+      ), true),
+      d("appearance", "Colours", "Your colours", "colour colours palette custom swatch named add", <PaletteEditor palette={p.palette} onPalette={p.onPalette} adding={p.adding} />, true),
       d("files", "Import", "Keep ChemDraw styles", "import open cdxml chemdraw style keep", <Switch on={files.keepStyle} label="Keep ChemDraw styles" onChange={(on) => setFiles({ keepStyle: on })} />),
       // ChemDraw's Show Stereoflags When Opening MDL Format Files and Normalize Aromatic Display.
       d("files", "Import", "Stereo flags from the chiral flag", "mdl molfile mol sdf rxn chiral flag stereo flags abs and enhanced stereochemistry import open", (
@@ -458,7 +468,7 @@ export function SettingsWindow(p: Props) {
   const content = (module: ModuleId, list: Def[]) => {
     if (module === "document") return (
       <>
-        {!query && <div className="style-preview" aria-hidden>{p.preview}</div>}
+        {!query && p.preview}
         {sections(module, list).map((s) => (
           <Section key={s} title={s} defs={list.filter((x) => x.module === module && x.section === s)}
             aside={s === "Style" ? <Select label="Style preset" value={style.preset} options={presets} onChange={(v) => v in PRESETS && p.onStyle({ ...style, ...presetAt(v, style.scale), preset: v })} /> : undefined} />
@@ -486,8 +496,8 @@ export function SettingsWindow(p: Props) {
   };
 
   return (
-    <div className="modal-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) p.onClose(); }}>
-      <div className="settings-window" role="dialog" aria-modal="true" aria-label="Settings">
+    <div ref={backdrop} className={leaving ? "modal-backdrop leaving" : "modal-backdrop"} inert={leaving} onPointerDown={(e) => { if (e.target === e.currentTarget) p.onClose(); }}>
+      <div className="settings-window" role="dialog" aria-modal={!leaving} aria-label="Settings">
         <nav className="settings-sidebar" aria-label="Settings modules">
           <label className="settings-search">
             <MagnifyingGlass size={16} aria-hidden />
@@ -507,7 +517,7 @@ export function SettingsWindow(p: Props) {
         <div className="settings-main">
           <header>
             <h2>{query ? "Search" : MODULES.find((m) => m.id === p.module)!.name}</h2>
-            <button className="actions-close" onClick={p.onClose} aria-label="Close settings" title="Close settings"><X size={12} /></button>
+            <button className="actions-close" onClick={p.onClose} aria-label="Close settings" data-tip="Close settings"><X size={12} /></button>
           </header>
           <div className="settings-body" key={query ? "search" : p.module}>
             {query
@@ -523,7 +533,7 @@ export function SettingsWindow(p: Props) {
           </div>
         </div>
       </div>
-      {naming !== undefined && (() => {
+      <Exit>{naming !== undefined && (() => {
         // A name of the user's own: not empty, and not one of Octet's purposes. The same name again saves over it.
         const name = naming.trim(), ok = !!name && !Object.values(PURPOSES).some((x) => x.name.toLowerCase() === name.toLowerCase());
         return (
@@ -531,7 +541,7 @@ export function SettingsWindow(p: Props) {
             <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={naming} maxLength={40} spellCheck={false} onChange={(e) => setNaming(e.target.value)} /></span></label>
           </Dialog>
         );
-      })()}
+      })()}</Exit>
     </div>
   );
 }
