@@ -28,9 +28,8 @@ Octet predicts ¹H and ¹³C spectra. It cannot open a measured spectrum.
 - Read JCAMP-DX files (with size and nesting limits, as for every opened file) into a spectrum in the Spectrum panel.
 - Let the user link each measured peak to its atoms, with the peak and atom lighting Octet already uses for predicted peaks.
 
-### 3. Synthesis tool and Mass Spec Analysis (audit item CH-40)
+### 3. Mass Spec Analysis (audit item CH-40)
 
-- A Synthesis tool: drag through bonds. Octet copies the structure, cuts the crossed bonds, and lays out the pieces as reactants before an arrow, with the whole structure as the product.
+The Synthesis and Retrosynthesis cut tools (audit item CD-39) are built in 1.0, so only Mass Spec Analysis stays in this step.
+
 - A Mass Spec Analysis mode beside Mass Fragmentation.
-
-Retrosynthesis stays out of scope (decision 0006).
