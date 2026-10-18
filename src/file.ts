@@ -72,11 +72,12 @@ function readShade(v: unknown): Shade | undefined {
   const s = v as Record<string, unknown>, ok = (n: unknown, hi: number) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= hi;
   return typeof s === "object" && s && ok(s.depth, 1) && ok(s.blur, 1) && ok(s.opacity, 1) ? { depth: s.depth as number, blur: s.blur as number, opacity: s.opacity as number } : undefined;
 }
-// A pen curve's points, if they are sound: 2 to 1000 anchors, each with optional handles.
+// A pen curve's points, if they are sound: 1 to 1000 anchors (ChemDraw's clip art has curves of one), each with
+// optional handles.
 function readCurve(v: unknown): Curve | undefined {
   const c = v as { points?: unknown; closed?: unknown };
   const pt = (q: unknown) => Array.isArray(q) && q.length === 2 && q.every((n) => typeof n === "number" && Number.isFinite(n) && Math.abs(n) < 1e6);
-  if (typeof c !== "object" || !c || !Array.isArray(c.points) || c.points.length < 2 || c.points.length > 1000) return undefined;
+  if (typeof c !== "object" || !c || !Array.isArray(c.points) || !c.points.length || c.points.length > 1000) return undefined;
   const points = c.points as { at?: unknown; c1?: unknown; c2?: unknown }[];
   if (!points.every((p) => typeof p === "object" && p && pt(p.at) && (p.c1 === undefined || pt(p.c1)) && (p.c2 === undefined || pt(p.c2)))) return undefined;
   return { points: points.map((p) => ({ at: p.at as [number, number], ...(p.c1 ? { c1: p.c1 as [number, number] } : {}), ...(p.c2 ? { c2: p.c2 as [number, number] } : {}) })), ...(c.closed === true ? { closed: true } : {}) };

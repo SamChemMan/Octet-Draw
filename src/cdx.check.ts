@@ -169,5 +169,9 @@ const kept: Mol = {
   // A large drawing's JSON takes the long length form.
   const big: Mol = { atoms: Array.from({ length: 3000 }, (_, i) => A("C", i % 60, Math.floor(i / 60))), bonds: [] };
   assert.equal(readCdx(writeCdx(big, DEFAULT_STYLE)).mol.atoms.length, 3000);
+  // ChemDraw's clip art has curves of one anchor: a drawing with one comes back as Octet's own, not as a foreign read.
+  const clip = fromCdxml(`<CDXML><page id="1"><curve id="2" CurvePoints="10 10 10 10 12 12" Closed="yes" FillType="Solid"/></page></CDXML>`).mol;
+  assert.equal(clip.arrows?.[0].curve?.points.length, 1);
+  assert.equal(readCdx(writeCdx(clip, DEFAULT_STYLE)).foreign, undefined);
   console.log("cdx.check: Octet's .cdx files ok");
 }
