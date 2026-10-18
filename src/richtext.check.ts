@@ -1,6 +1,6 @@
 // Run: node src/richtext.check.ts. Fails loudly if rich text editing breaks.
 import assert from "node:assert/strict";
-import { common, edited, lines, normalise, plainOf, styleRange, wrap, type TextRun } from "./richtext.ts";
+import { common, edited, lines, normalise, plainOf, styleRange, whole, without, wrap, type TextRun } from "./richtext.ts";
 
 const base: TextRun[] = [{ text: "H2O and CO2" }];
 // Subscript the 2 in H2O: three runs, the middle one subscripted.
@@ -30,5 +30,18 @@ assert.deepEqual(normalise([{ text: "" }]), [{ text: "" }]);
   assert.deepEqual(wrap([{ text: "aa bb cc" }], 100, w).soft, []);
   assert.deepEqual(wrap([{ text: "aaaaaaa b" }], 3, w), { runs: [{ text: "aaaaaaa\nb" }], soft: [7] });
   assert.deepEqual(wrap([{ text: "aa " }, { text: "bb", bold: true }, { text: " c\nd e" }], 5, w).soft, [2, 5]);
+}
+// A caption as a whole: a font picked for all of it sits in its runs, with its bold, so the buttons read them there.
+{
+  const c = { text: "Hello", font: "Arial", runs: [{ text: "Hello", bold: true as const, font: "Georgia" }] };
+  assert.deepEqual([whole(c).bold, whole(c).font], [true, "Georgia"]);
+  // Runs that differ: the caption's own style shows.
+  const part = { text: "Hello", bold: false, runs: [{ text: "He", bold: true as const }, { text: "llo" }] };
+  assert.equal(whole(part).bold, false);
+  assert.equal(whole({ text: "Hi", size: 12 }).size, 12);
+  // Bold set on the whole caption: the runs lose theirs, and keep the rest.
+  assert.deepEqual(without(c.runs, ["bold"]), [{ text: "Hello", font: "Georgia" }]);
+  assert.deepEqual(without(part.runs, ["bold"]), [{ text: "Hello" }]);
+  assert.deepEqual(without(part.runs, ["align"]), part.runs);
 }
 console.log("richtext.check: ok");

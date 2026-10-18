@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowsIn, ArrowsOut, CopySimple, X } from "@phosphor-icons/react";
 import { acsText, detailsTable, multiplicity, quality, type Nucleus, type Prediction, type Signal } from "./nmr";
 import { Select } from "./Select";
+import { Segmented } from "./Fields";
 import { listOpen } from "./Menu";
 import { useMovable } from "./movable";
 import { HIGHLIGHTS } from "./docstyle";
@@ -173,10 +174,7 @@ export function SpectrumPanel(p: Props) {
         </span>
       </header>
       <div className="spectrum-controls">
-        <span className="segmented" role="radiogroup" aria-label="Nucleus">
-          <button role="radio" aria-checked={p.nucleus === "1H"} onClick={() => p.onNucleus("1H")}>¹H</button>
-          <button role="radio" aria-checked={p.nucleus === "13C"} onClick={() => p.onNucleus("13C")}>¹³C</button>
-        </span>
+        <Segmented label="Nucleus" value={p.nucleus} options={[["1H", "¹H"], ["13C", "¹³C"]]} onChange={p.onNucleus} />
         <Select label="Frequency" value={String(p.mhz)} options={FIELDS.map((f) => [String(f), `${f} MHz`])} onChange={(v) => p.onMhz(Number(v))} />
         <Select label="Solvent" value={p.solvent} options={SOLVENTS.map((s) => [s, s])} onChange={p.onSolvent} />
         <button className="spectrum-button" aria-pressed={p.solventPeaks} onClick={() => p.onSolventPeaks(!p.solventPeaks)} title={p.solventPeaks ? "Hide the solvent's peaks" : "Show the solvent's peaks"}>Solvent peaks</button>
