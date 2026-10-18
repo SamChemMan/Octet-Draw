@@ -4,13 +4,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CaretDown, Check, FileText, Files, Keyboard, MagnifyingGlass, Palette, Plus, SlidersHorizontal, X } from "@phosphor-icons/react";
 import { ColourPicker } from "./ColourPicker";
+import { Dialog } from "./Dialog";
 import { Select } from "./Select";
 import { FontPick } from "./Actions";
 import { listOpen } from "./Menu";
-import { NumberField, Segmented } from "./Fields";
+import { NumberField, Segmented, Switch } from "./Fields";
 import type { Swatch } from "./settings";
 import type { ExportFormat } from "./export";
-import { BACKGROUNDS, COLOURS, FONTS, PAGE_NAMES, PAGES, PRESETS, pageSize, presetOf, type DocStyle, type PageName } from "./docstyle";
+import { BACKGROUNDS, COLOURS, FONTS, PAGE_NAMES, PAGES, PRESETS, PURPOSES, pageSize, pickPage, presetAt, presetOf, withScale, type DocStyle, type PageName } from "./docstyle";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
 
 export type ModuleId = "document" | "keys" | "panel" | "files" | "colours";
@@ -30,6 +31,9 @@ type Props = {
   preview: React.ReactNode; // a sample structure drawn in the style
   onStyle: (style: DocStyle) => void;
   onDefault: () => void;
+  purposes: { id: string; name: string }[]; // Octet's purposes, then the user's own
+  onPurpose: (id: string) => void; // the open drawing takes a purpose's sizes and page
+  onSavePurpose?: (name: string) => void; // the style as a purpose of the user's own; unset when they have as many as Octet keeps
   keys: Keymap; // the user's changes to the shortcuts
   onKeys: (keys: Keymap) => void;
   files: FilePrefs;
@@ -79,10 +83,6 @@ function PaletteEditor({ palette, onPalette, adding }: { palette: Swatch[]; onPa
 
 // ——— Fields ———
 
-function Switch({ on, label, onChange }: { on: boolean; label: string; onChange: (on: boolean) => void }) {
-  return <button className="switch" role="switch" aria-checked={on} aria-label={label} onClick={() => onChange(!on)}><span /></button>;
-}
-
 // A page drawn to scale inside a small box.
 function PageThumb({ w, h, size = 26 }: { w: number; h: number; size?: number }) {
   const k = size / Math.max(w, h);
@@ -112,6 +112,8 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   const [w, h] = pageSize(style);
   const names = Object.keys(PAGES) as Exclude<PageName, "Custom">[];
+  // Each option shows the page the way round the pick gives it (pickPage).
+  const turned = (n: PageName) => pickPage(style, n).landscape;
   const custom = style.page === "Custom";
   const setCustom = (i: 0 | 1, v: number) => {
     const mm = unit === "in" ? v * 25.4 : unit === "cm" ? v * 10 : v, size = [...pageSize({ ...style, landscape: false })] as [number, number];
@@ -129,10 +131,10 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
         <div ref={menu} className={place.above ? "page-menu above" : "page-menu"} role="dialog" aria-label="Page size" style={{ left: place.left, top: place.top, width }}>
           <div className="page-options" role="radiogroup" aria-label="Page sizes">
             {names.map((n) => {
-              const [pw, ph] = PAGES[n];
+              const [pw, ph] = turned(n) ? [PAGES[n][1], PAGES[n][0]] : PAGES[n];
               return (
-                <button key={n} role="radio" aria-checked={style.page === n} className="page-option" onClick={() => { change({ page: n }); setOpen(false); }}>
-                  <span className="page-option-thumb"><PageThumb w={style.landscape ? ph : pw} h={style.landscape ? pw : ph} size={34} /></span>
+                <button key={n} role="radio" aria-checked={style.page === n} className="page-option" onClick={() => { change(pickPage(style, n)); setOpen(false); }}>
+                  <span className="page-option-thumb"><PageThumb w={pw} h={ph} size={34} /></span>
                   <span className="page-option-name">{PAGE_NAMES[n]}</span>
                   <span className="page-option-size">{fmt(pw, unit)} × {fmt(ph, unit)} {unit}</span>
                 </button>
@@ -169,7 +171,8 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
 
 // ——— Settings as data, so search can find and show any of them ———
 
-type Def = { module: ModuleId; section: string; label: string; keywords: string; control: React.ReactNode; wide?: boolean };
+// head: the control goes in the section's head, beside its title, not in a row.
+type Def = { module: ModuleId; section: string; label: string; keywords: string; control: React.ReactNode; wide?: boolean; head?: boolean };
 const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: string }[] = [
   { id: "document", name: "Document", icon: <FileText size={16} />, words: "document style page text" },
   { id: "keys", name: "Keyboard shortcuts", icon: <Keyboard size={16} />, words: "keyboard shortcut hotkey keys" },
@@ -207,11 +210,12 @@ function Row({ def }: { def: Def }) {
 // A section of rows, two to a line on a wide window.
 function Section({ title, defs, aside }: { title: string; defs: Def[]; aside?: React.ReactNode }) {
   if (!defs.length) return null;
+  const rows = defs.filter((d) => !d.head);
   return (
     <section className="settings-section">
-      <div className="section-head"><h3>{title}</h3>{aside}</div>
-      <div className="settings-grid">{defs.filter((d) => !d.wide).map((d) => <Row key={d.label} def={d} />)}</div>
-      {defs.filter((d) => d.wide).map((d) => <Row key={d.label} def={d} />)}
+      <div className="section-head"><h3>{title}</h3>{aside ?? defs.find((d) => d.head)?.control}</div>
+      {rows.some((d) => !d.wide) && <div className="settings-grid">{rows.filter((d) => !d.wide).map((d) => <Row key={d.label} def={d} />)}</div>}
+      {rows.filter((d) => d.wide).map((d) => <Row key={d.label} def={d} />)}
     </section>
   );
 }
@@ -243,6 +247,7 @@ export function SettingsWindow(p: Props) {
   const search = useRef<HTMLInputElement>(null);
   const [recording, setRecording] = useState<{ id: string; index: number }>();
   const [note, setNote] = useState<{ id: string; text: string; undo: Keymap }>();
+  const [naming, setNaming] = useState<string>(); // the name typed for a new purpose, while its dialog is open
   const map = keymap(p.keys);
   const style = p.style;
   const change = (patch: Partial<DocStyle>) => { const next = { ...style, ...patch }; p.onStyle({ ...next, preset: presetOf(next) }); };
@@ -250,6 +255,7 @@ export function SettingsWindow(p: Props) {
   // Escape: stops recording a key, then clears the search, then closes the window. ⌘F goes to the search.
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      if (naming !== undefined) return; // the new purpose's dialog has the keys
       if (recording) {
         e.preventDefault();
         e.stopPropagation();
@@ -276,7 +282,7 @@ export function SettingsWindow(p: Props) {
     };
     addEventListener("keydown", key, true);
     return () => removeEventListener("keydown", key, true);
-  }, [recording, query, map, p]);
+  }, [recording, query, map, p, naming]);
   useEffect(() => { search.current?.focus(); }, []);
 
   const presets: [string, string][] = [...Object.keys(PRESETS).map((x): [string, string] => [x, x]), ...(style.preset === "Custom" ? [["Custom", "Custom"] as [string, string]] : [])];
@@ -287,6 +293,16 @@ export function SettingsWindow(p: Props) {
     const num = (k: keyof DocStyle, label: string, unit: string, words: string, section = "Style") =>
       d("document", section, label, words, <NumberField label={label} unit={unit} value={style[k] as number} onChange={(n) => change({ [k]: n })} />);
     return [
+      // What the drawing is for (IDEA-SIZE-8): a purpose sets the style, its scale and the page in one step.
+      { ...d("document", "For", "For", "purpose for paper thesis slides poster talk presentation new size page", (
+        <span className="segmented purposes" role="radiogroup" aria-label="For">
+          {p.purposes.map((x) => <button key={x.id} role="radio" aria-checked={style.purpose === x.id} onClick={() => p.onPurpose(x.id)}>{x.name}</button>)}
+        </span>
+      )), head: true },
+      // One size for the whole style (decision 0007): every length and text size times it, the preset kept. 10% to 1000%.
+      d("document", "Style", "Scale", "scale size bigger smaller poster slides percent proportion", (
+        <NumberField label="Scale" unit="%" lazy step={1} value={Math.round(style.scale * 1000) / 10} onChange={(n) => p.onStyle(withScale(style, Math.min(10, Math.max(0.1, n / 100))))} />
+      )),
       num("bond", "Bond length", "pt", "bond length fixed size"), num("line", "Line width", "pt", "line width bonds arrows"),
       num("bold", "Bold width", "pt", "bold width wedge"), num("spacing", "Bond spacing", "%", "double bond spacing gap"),
       num("hash", "Hash spacing", "pt", "hash hashed wedge spacing"), num("margin", "Margin", "pt", "label margin clearance"),
@@ -348,7 +364,7 @@ export function SettingsWindow(p: Props) {
       d("colours", "Colours", "Your colours", "colour colours palette custom swatch named add", <PaletteEditor palette={p.palette} onPalette={p.onPalette} adding={p.adding} />, true),
       d("files", "Import", "Keep ChemDraw styles", "import open cdxml chemdraw style keep", <Switch on={files.keepStyle} label="Keep ChemDraw styles" onChange={(on) => setFiles({ keepStyle: on })} />),
     ];
-  }, [style, map, recording, note, files, p.palette, p.adding, p.panelMenus, p.captionOptionReturn, p.menuKeys.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.adding, p.panelMenus, p.captionOptionReturn, p.menuKeys.length, p.purposes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query)) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));
@@ -360,10 +376,11 @@ export function SettingsWindow(p: Props) {
         {!query && <div className="style-preview" aria-hidden>{p.preview}</div>}
         {sections(module, list).map((s) => (
           <Section key={s} title={s} defs={list.filter((x) => x.module === module && x.section === s)}
-            aside={s === "Style" ? <Select label="Style preset" value={style.preset} options={presets} onChange={(v) => v in PRESETS && p.onStyle({ ...style, ...PRESETS[v], preset: v })} /> : undefined} />
+            aside={s === "Style" ? <Select label="Style preset" value={style.preset} options={presets} onChange={(v) => v in PRESETS && p.onStyle({ ...style, ...presetAt(v, style.scale), preset: v })} /> : undefined} />
         ))}
         {!query && (
           <div className="settings-foot">
+            {p.onSavePurpose && <button className="text-button" onClick={() => setNaming("")}>Save as a new purpose…</button>}
             {p.isDefault
               ? <span className="quiet-note"><Check size={16} aria-hidden /> Default for new documents</span>
               : <button className="text-button" onClick={p.onDefault}>Use for new documents</button>}
@@ -420,6 +437,15 @@ export function SettingsWindow(p: Props) {
           </div>
         </div>
       </div>
+      {naming !== undefined && (() => {
+        // A name of the user's own: not empty, and not one of Octet's purposes. The same name again saves over it.
+        const name = naming.trim(), ok = !!name && !Object.values(PURPOSES).some((x) => x.name.toLowerCase() === name.toLowerCase());
+        return (
+          <Dialog title="New purpose" action="Save" onClose={() => setNaming(undefined)} onAction={() => { if (ok) { p.onSavePurpose?.(name); setNaming(undefined); } }}>
+            <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={naming} maxLength={40} spellCheck={false} onChange={(e) => setNaming(e.target.value)} /></span></label>
+          </Dialog>
+        );
+      })()}
     </div>
   );
 }

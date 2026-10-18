@@ -152,7 +152,8 @@ circle.mark {
 .arrow-mark.mark {
   fill: none;
 }
-/* Page corner marks for A4, A3 and A2. Faint, so they never compete with the drawing. */
+/* Page outlines: the page and its purpose's guides (columns, a text block, A1 in A0). Faint, so they never compete
+   with the drawing. */
 .pages path {
   fill: none;
   stroke: var(--outline);
@@ -987,6 +988,16 @@ button.variant.add {
   color: var(--ink-muted);
   font: 600 11px/14px var(--font-sans);
 }
+/* The selection's scale: its title, and the field in percent at the end of the row. */
+.scale-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-2) var(--space-1) 0;
+}
+.scale-row .tray-title {
+  padding: 0 var(--space-2);
+}
 /* The colour section: its title, the swatches and the highlight buttons, with a hairline under it before the rows. */
 .colour-block {
   display: grid;
@@ -1617,6 +1628,13 @@ button.variant.add {
   background: var(--brand-mist);
   color: var(--brand);
 }
+/* An option or switch that does not apply now (Scale… with no bond chosen, or text alone): faint. */
+.segmented button:disabled {
+  color: var(--ink-faint);
+}
+.switch:disabled {
+  opacity: 0.5;
+}
 .page-glyph {
   width: 9px;
   height: 12px;
@@ -1925,6 +1943,17 @@ button.variant.add {
 .page-custom .times {
   color: var(--ink-faint);
 }
+/* Settings > Document > For: one button for each purpose, on more lines when there are many. */
+.segmented.purposes {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  height: auto;
+  min-height: 28px;
+}
+.segmented.purposes button {
+  height: 22px;
+  font: 13px var(--font-sans);
+}
 .segmented.units button {
   width: 28px;
   font: 11px var(--font-sans);
@@ -2107,6 +2136,7 @@ button.variant.add {
 .settings-foot {
   display: flex;
   justify-content: flex-end;
+  gap: var(--space-4);
   padding-top: var(--space-2);
   border-top: 1px solid var(--hairline);
 }
@@ -2652,7 +2682,22 @@ button.variant.add {
   font: 11px var(--font-sans);
 }
 
-/* The selection's rotation handle (top right of the selection), and the angle shown while turning. */
+/* The selection's frame and its resize handles: small squares at the corners and the middles of the sides. */
+.selection-frame {
+  fill: none;
+  stroke: var(--brand-bright);
+  stroke-width: 1;
+}
+.resize-handle {
+  fill: var(--canvas);
+  stroke: var(--brand-bright);
+  stroke-width: 1.25;
+  transition: fill 120ms ease-out;
+}
+.resize-handle.hot {
+  fill: var(--brand-mist);
+}
+/* The selection's rotation handle (top right of the selection), and the angle (or the scale) shown while dragging. */
 .turn-handle circle {
   fill: var(--surface-raised);
   stroke: var(--brand-bright);
@@ -3820,6 +3865,46 @@ button.variant.add {
   align-items: baseline;
   justify-content: space-between;
 }
+/* New: a tile for each purpose, smaller than a recent drawing's. Its picture is its page, white on the sunken ground,
+   with its outlines and a small scheme at its true size on that page. */
+.home-grid.purposes {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-4) var(--space-4);
+}
+.home-grid.purposes .home-thumb {
+  position: relative;
+  background: var(--surface-sunken);
+}
+.home-thumb svg {
+  position: absolute;
+  inset: 12%;
+  width: 76%;
+  height: 76%;
+  overflow: visible;
+}
+.home-thumb .sheet {
+  fill: var(--canvas);
+  stroke: var(--outline);
+  stroke-width: 1;
+}
+.home-thumb .guide {
+  fill: none;
+  stroke: var(--outline);
+  stroke-width: 0.75;
+  stroke-dasharray: 2 2;
+  opacity: 0.6;
+}
+.home-thumb .scheme {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+@media (hover: hover) and (pointer: fine) {
+  .home-tile.new:hover .sheet {
+    stroke: var(--brand-bright);
+  }
+}
 .home-name {
   overflow: hidden;
   font: 500 13px/18px var(--font-sans);
@@ -4062,4 +4147,9 @@ button.variant.add {
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
+}
+
+/* Scale…: a choice that does not apply (the median bond rows with no bond chosen) is dimmed. */
+.dialog-row:has(input:disabled) {
+  color: var(--ink-muted);
 }

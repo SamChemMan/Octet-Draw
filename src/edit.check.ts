@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, resizeShape } from "./edit.ts";
+import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, transformParts } from "./edit.ts";
 import { inShape, settleShape, shapeBounds, shapeCorners, tableLayout, type Mol, type Shape } from "./render.ts";
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
@@ -359,6 +359,34 @@ console.log("edit.check: align ok");
   console.log("edit.check: ring bonds and mark directions ok");
 }
 
+// IDEA-SCALE-7: bonds, chains, rings, groups and templates drawn from a scaled atom take its scale, so they match.
+{
+  const len = (mol: typeof m, b: { atoms: [number, number] }) => Math.hypot(pos(mol, b.atoms[1])[0] - pos(mol, b.atoms[0])[0], pos(mol, b.atoms[1])[1] - pos(mol, b.atoms[0])[1]);
+  const big = { atoms: [{ label: "C", location: [0, 0, 0] as [number, number, number], scale: 2 }, { label: "C", location: [2, 0, 0] as [number, number, number], scale: 2 }], bonds: [{ type: 1, atoms: [0, 1] as [number, number] }] };
+  const one = sprout(big, 1);
+  assert.ok(Math.abs(len(one, one.bonds[1]) - 2) < 1e-9 && one.atoms[2].scale === 2, "a sprouted bond is two bond lengths, and its atom is at 200%");
+  const chain = chainTo(big, 1, [2 + 4 * Math.cos(Math.PI / 6) * 2, 0]);
+  assert.equal(chain.bonds, 4, "a chain counts bonds at the atom's scale");
+  assert.ok(chain.mol.bonds.slice(1).every((b) => Math.abs(len(chain.mol, b) - 2) < 1e-9) && chain.mol.atoms.slice(2).every((a) => a.scale === 2));
+  const fused = addRing(big, 6, false, { bond: 0 });
+  assert.equal(fused.atoms.length, 6, "a ring fused on a long bond joins both its atoms");
+  assert.ok(fused.bonds.every((b) => Math.abs(len(fused, b) - 2) < 1e-9) && fused.atoms.every((a) => a.scale === 2), "its bonds are as long as the bond it is on");
+  const spiro = addRing(big, 5, false, { atom: 1 });
+  assert.ok(spiro.bonds.slice(1).every((b) => Math.abs(len(spiro, b) - 2) < 1e-9));
+  const methyl = addGroup(big, 1, "tBu");
+  assert.ok(methyl.bonds.slice(1).every((b) => Math.abs(len(methyl, b) - 2) < 1e-9) && methyl.atoms.slice(2).every((a) => a.scale === 2), "a group at the atom's scale");
+  const benzene = normalise(addRing(EMPTY, 6, true, { point: [0, 0] }));
+  const onAtom = addTemplate(big, benzene, { atom: 1 }), onBond = addTemplate(big, benzene, { bond: 0 });
+  assert.ok(onAtom.bonds.slice(1).every((b) => Math.abs(len(onAtom, b) - 2) < 1e-6) && onAtom.atoms.slice(2).every((a) => a.scale === 2), "a template on a scaled atom");
+  assert.ok(onBond.bonds.every((b) => Math.abs(len(onBond, b) - 2) < 1e-6) && onBond.atoms.every((a) => a.scale === 2), "a template on a scaled bond");
+  const chair = addChair(big, 1, { bond: 0 });
+  assert.ok(chair.atoms.every((a) => a.scale === 2));
+  // On a plain atom nothing changes: unit bonds, no scale written.
+  const plain = sprout(sprout(EMPTY, [0, 0]), 1);
+  assert.ok(plain.atoms.every((a) => !("scale" in a)) && Math.abs(len(plain, plain.bonds[1]) - 1) < 1e-9);
+  console.log("edit.check: drawing on a scaled structure ok");
+}
+
 // Groups (ChemDraw's Object > Group): a group holds whole structures, so atoms drawn onto a grouped structure join it,
 // and groups that come to share a structure become one. An integral group cannot be split: a selection that touches
 // it takes all of it. Option-drag copies keep their group and the compound number under the structure.
@@ -560,10 +588,14 @@ console.log("edit.check: align ok");
   assert.ok(inShape(turned, [2, 1]) && !inShape(turned, [4, 0]) && inShape(box, [4, 0]));
   const b = shapeBounds(turned);
   assert.ok(b[0] < 0 && b[2] > 4, "the box round a turned shape is wider than the shape");
-  // Drag the "to" corner out by one along the box's own x axis: "from" stays, the width grows by one, the angle stays.
-  const out = resizeShape(turned, "to", [c.to[0] + Math.cos(Math.PI / 6), c.to[1] + Math.sin(Math.PI / 6)]), grown = { ...turned, ...out };
-  assert.ok(near(shapeCorners(grown).from, c.from) && Math.abs(Math.abs(grown.to[0] - grown.from[0]) - 5) < 1e-9 && Math.abs(Math.abs(grown.to[1] - grown.from[1]) - 2) < 1e-9);
-  assert.deepEqual(resizeShape(box, "c1", [-1, 3]), { from: [-1, 2], to: [4, 3] }, "upright, a corner drag is as before");
+  // The selection's handles and Scale…: a turned box scaled about its "from" corner keeps that corner and its angle,
+  // and grows along its own sides. A turn adds to its angle; a flip turns its angle the other way.
+  const one = new Set([1]), m: Mol = { atoms: [], bonds: [], shapes: [turned] };
+  const grown = transformParts(m, new Set(), one, (q) => [c.from[0] + (q[0] - c.from[0]) * 2, c.from[1] + (q[1] - c.from[1]) * 2], [2, 2]).shapes![0];
+  assert.ok(near(shapeCorners(grown).from, c.from) && Math.abs(grown.angle! - 30) < 1e-9 && Math.abs(Math.abs(grown.to[0] - grown.from[0]) - 8) < 1e-9 && Math.abs(Math.abs(grown.to[1] - grown.from[1]) - 4) < 1e-9);
+  const r = Math.PI / 12, spun = transformParts(m, new Set(), one, (q) => [q[0] * Math.cos(r) - q[1] * Math.sin(r), q[0] * Math.sin(r) + q[1] * Math.cos(r)]).shapes![0];
+  assert.ok(Math.abs(spun.angle! - 45) < 1e-9, "a turn of 15° adds 15° to the angle");
+  assert.equal(transformParts(m, new Set(), one, (q) => [4 - q[0], q[1]], [1, 1], undefined, 1, "across").shapes![0].angle, -30, "a flip turns the angle the other way");
   console.log("edit.check: turned shapes ok");
 }
 
