@@ -123,6 +123,8 @@ type Drag =
   // alt: Option was held at the press (a click on an atom then opens its label, or the Text tool repeats the last).
   | { kind: "bond"; from: number | P; at: P; start: [number, number]; target: Hover; to?: P; alt?: boolean }
   | { kind: "click"; at: P; start: [number, number]; target: Hover; alt?: boolean }
+  // A ring tool's press: a drag sets the ring's first bond (to). alt, meta, shift: Option, Command and Shift at the press.
+  | { kind: "ring"; from: number | P; at: P; start: [number, number]; target: Hover; to?: P; alt?: boolean; meta?: boolean; shift?: boolean }
   // A chain: side, the side of the drag its first bond goes; path, its points when it snakes (Command held); alt,
   // Option was held at the press (a click then repeats the last chain).
   | { kind: "chain"; from: number | P; start: [number, number]; target: Hover; to?: P; side?: number; path?: P[]; alt?: boolean }
@@ -1030,10 +1032,18 @@ export default function Editor() {
   const chainCount = (d: { from: number | P; to?: P; side?: number; path?: P[] }) => chainPath(d).length + (typeof d.from === "number" ? 0 : 1);
   // A part of the drawing shown alone for a moment, to take its picture (copy and export).
   const [exporting, setExporting] = useState<Mol>();
+  // A ring dragged with a ring tool: its first bond from the press (or the atom pressed) to the pointer, the ring on
+  // that bond's left, as ChemDraw draws it. Command and Shift at the press work as on a click. A chair faces the drag.
+  const ringDrop = (d: Extract<Drag, { kind: "ring" }>): Mol => {
+    const r: { n: number; aromatic: boolean; chair?: 1 | 2 } = RINGS[ringKind as RingKind], origin = typeof d.from === "number" ? pos(doc, d.from) : d.from, to = d.to!;
+    if (r.chair) return addChair(doc, r.chair, { point: origin, turn: Math.atan2(to[1] - origin[1], to[0] - origin[0]) });
+    return addRing(doc, r.n, r.aromatic || !!d.meta, { along: [origin, to], ...(typeof d.from === "number" ? { atom: d.from } : {}) }, { firstSingle: d.shift, circle: d.meta });
+  };
   const shown = useMemo(() => {
     if (exporting) return exporting;
     if (drag?.kind === "bond" && drag.to) return dragBond(doc, drag.from, drag.to, bondSpec);
     if (drag?.kind === "chain" && drag.to) return chainThrough(doc, drag.from, chainPath(drag)).mol;
+    if (drag?.kind === "ring" && drag.to) return ringDrop(drag);
     if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "tableedge") return placeCentres(drag.working);
     if (drag?.kind === "arrow" && drag.to) return addArrow(doc, newArrow(drag.from, drag.to, drag.side, drag.make))[0];
     if (drag?.kind === "shape" && drag.to) { const sh = shapeFrom(drag.from, drag.to); return sh ? addShape(doc, sh)[0] : doc; }
@@ -1932,11 +1942,11 @@ export default function Editor() {
     // A bond tool's Shift-drag moves the atom (or bond) pressed, as ChemDraw's does. Dropped on a neighbour, the atom
     // joins it, so a ring loses an atom (Reducing Ring Size).
     if (tool === "bond" && e.shiftKey && (t.atom !== undefined || t.bond !== undefined)) return startMove(p, screen, t, new Set(), new Set(atomsOf(doc, t)), false, true);
-    pressTool(p, t, screen, e.altKey);
+    pressTool(p, t, screen, e.altKey, { meta: MOD === "⌘" ? e.metaKey : e.ctrlKey, shift: e.shiftKey });
     startHold(p, t, screen);
   }
   // What a press does with each drawing tool in hand: starts its drag (a click when the pointer never moves).
-  function pressTool(p: P, t: Hover, screen: [number, number], alt = false) {
+  function pressTool(p: P, t: Hover, screen: [number, number], alt = false, more: { meta?: boolean; shift?: boolean } = {}) {
     if (tool === "arrow") return setDrag({ kind: "arrow", from: curved({ kind: arrowKind }) ? electronAt(p, t) : p, start: screen, target: t });
     if (tool === "shape" && "line" in shapePick) {
       const make: Make = { kind: shapePick.line, ...(shapePick.sweep ? { bend: sweepBend(shapePick.sweep) } : {}), ...(shapePick.style ? { style: shapePick.style } : {}) };
@@ -1950,6 +1960,7 @@ export default function Editor() {
     if (tool === "erase") return setDrag({ kind: "erase", trail: [p], bonds: new Set(), atoms: new Set(), captions: new Set(), start: screen, target: t, moved: false });
     if (tool === "bond") return setDrag({ kind: "bond", from: t.atom ?? p, at: p, start: screen, target: t, alt });
     if (tool === "chain") return setDrag({ kind: "chain", from: t.atom ?? p, start: screen, target: t, alt });
+    if (tool === "ring" && ringKind in RINGS) return setDrag({ kind: "ring", from: t.atom ?? p, at: p, start: screen, target: t, alt, ...more });
     setDrag({ kind: "click", at: p, start: screen, target: t, alt });
   }
   // Every drawing tool: hold still for HOLD_MS and Select takes over until release. On the selection it moves it;
@@ -2027,6 +2038,16 @@ export default function Editor() {
       case "map":
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         return setDrag({ ...drag, to: p });
+      case "ring": {
+        // The ring's first bond follows the pointer, as the bond tool's does (on to an atom there, if any). A chair
+        // faces the drag, across the page or up and down.
+        if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
+        stopHold();
+        if (drag.target.bond !== undefined && drag.target.atom === undefined) return; // dragging from a bond does nothing
+        const origin = typeof drag.from === "number" ? pos(doc, drag.from) : drag.from, onto = hitAt(p).atom;
+        if ((RINGS[ringKind as RingKind] as { chair?: number } | undefined)?.chair) { const a = Math.round(Math.atan2(p[1] - origin[1], p[0] - origin[0]) / (Math.PI / 2)) * (Math.PI / 2); return setDrag({ ...drag, to: [origin[0] + Math.cos(a), origin[1] + Math.sin(a)] }); }
+        return setDrag({ ...drag, to: onto !== undefined && onto !== drag.from ? pos(doc, onto) : fixedEnd(origin, p, e.altKey) });
+      }
       case "spot": {
         const sh = drag.base.shapes?.find((x) => x.id === drag.plate);
         if (!sh?.tlc) return;
@@ -3143,8 +3164,8 @@ export default function Editor() {
     if (alt) return addChainOf(from, chainLength.current);
     setDialog({ kind: "chain", from, atoms: String(chainLength.current) });
   }
-  // What a click does with each tool in hand. alt: Option was held.
-  function click(t: Hover, at: P, alt = false) {
+  // What a click does with each tool in hand. alt, more: Option, and Command and Shift, were held.
+  function click(t: Hover, at: P, alt = false, more: { meta?: boolean; shift?: boolean } = {}) {
     // Select: Shift-click adds what was clicked to the selection, or takes it out if it was all selected already;
     // Option-click takes it out. Either way from the selection as it was before the press.
     const mods = pressMods.current;
@@ -3222,7 +3243,11 @@ export default function Editor() {
       if (custom) return set(addTemplate(doc, custom.mol, t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : { point: at }));
       const r: { n: number; aromatic: boolean; chair?: 1 | 2 } = RINGS[ringKind as RingKind];
       if (r.chair) return set(addChair(doc, r.chair, t.bond !== undefined ? { bond: t.bond } : { point: at }));
-      return set(addRing(doc, r.n, r.aromatic, t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : { point: at }));
+      // As in ChemDraw: a click on an atom makes a spiro ring, and Option-click sprouts the ring on a new bond (the
+      // other way round with Sprout rings on a click in Settings). Command draws the ring delocalised, with a circle;
+      // Shift makes its first bond single.
+      const sproutIt = t.atom !== undefined && alt !== settings.sproutRings;
+      return set(addRing(doc, r.n, r.aromatic || !!more.meta, t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : { point: at }, { sprout: sproutIt, firstSingle: more.shift, circle: more.meta }));
     }
     if (tool === "text") {
       if (t.atom !== undefined) return editLabel(t.atom);
@@ -3291,6 +3316,8 @@ export default function Editor() {
         return chainClick(drag.from, !!drag.alt);
       case "click":
         return click(drag.target, drag.at, drag.alt);
+      case "ring":
+        return drag.to ? set(ringDrop(drag)) : click(drag.target, drag.at, drag.alt, { meta: drag.meta, shift: drag.shift });
       case "erase": {
         // A click removes the atom, bond or object under the pointer; a rub removes everything it marked.
         const t = drag.target;

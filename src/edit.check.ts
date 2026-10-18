@@ -647,3 +647,32 @@ console.log("edit.check: align ok");
   assert.deepEqual([keyElement(chain, 0, "N").atoms[0].label, keyElement(chain, 0, "N").atoms[0].shown], ["N", undefined]);
   console.log("edit.check: shown carbons ok");
 }
+
+// Ring tools as ChemDraw's: a drag sets the first bond and the ring lies on its left; Shift makes the first bond
+// single; Command draws it delocalised (alternating bonds, every atom marked for its circle); Option-click on an atom
+// sprouts the ring on a new bond; a dragged chair turns to face the drag.
+{
+  const right = addRing(EMPTY, 6, true, { along: [[0, 0], [1, 0]] });
+  assert.ok(near(pos(right, 0), [0, 0]) && near(pos(right, 1), [1, 0]), "the first bond is the drag");
+  assert.ok(right.atoms.every((a) => a.location[1] >= -1e-9), "a drag to the right puts the ring above");
+  assert.equal(right.bonds.find((b) => b.atoms.includes(0) && b.atoms.includes(1))!.type, 2, "benzene's first bond is double");
+  const shifted = addRing(EMPTY, 6, true, { along: [[0, 0], [1, 0]] }, { firstSingle: true });
+  assert.equal(shifted.bonds.find((b) => b.atoms.includes(0) && b.atoms.includes(1))!.type, 1, "Shift: the first bond single");
+  assert.equal(shifted.bonds.filter((b) => b.type === 2).length, 3);
+  const long = addRing(EMPTY, 5, false, { along: [[0, 0], [0, 2]] });
+  for (const b of long.bonds) assert.ok(Math.abs(Math.hypot(pos(long, b.atoms[0])[0] - pos(long, b.atoms[1])[0], pos(long, b.atoms[0])[1] - pos(long, b.atoms[1])[1]) - 2) < 1e-9, "a free drag sizes the ring");
+  assert.ok(long.atoms.every((a) => a.location[0] <= 1e-9), "a drag up puts the ring on the left");
+  const deloc = addRing(EMPTY, 6, true, { point: [0, 0] }, { circle: true });
+  assert.ok(deloc.atoms.every((a) => a.circle));
+  // From an atom: the ring shares it, and a drag on to an existing atom takes that atom.
+  const ethane = sprout(EMPTY, [0, 0]), from = addRing(ethane, 6, false, { atom: 1, along: [pos(ethane, 1), pos(ethane, 0)] });
+  assert.equal(from.atoms.length, 6, "the ring takes both atoms of the bond it was dragged along");
+  const chain = sprout(sprout(EMPTY, [0, 0]), 1), spiro = addRing(chain, 6, false, { atom: 1 }), sprouted = addRing(chain, 6, false, { atom: 1 }, { sprout: true });
+  assert.equal(spiro.atoms.length, chain.atoms.length + 5);
+  assert.equal(sprouted.atoms.length, chain.atoms.length + 6, "sprouted: on a new bond from the atom");
+  assert.ok(sprouted.bonds.some((b) => b.atoms.includes(1) && !chain.bonds.some((c) => c.atoms[0] === b.atoms[0] && c.atoms[1] === b.atoms[1])));
+  const flat = addChair(EMPTY, 1, { point: [0, 0] }), up = addChair(EMPTY, 1, { point: [0, 0], turn: Math.PI / 2 });
+  const span = (m: typeof flat, k: 0 | 1) => Math.max(...m.atoms.map((a) => a.location[k])) - Math.min(...m.atoms.map((a) => a.location[k]));
+  assert.ok(span(flat, 0) > span(flat, 1) && span(up, 1) > span(up, 0), "a chair dragged up stands up");
+  console.log("edit.check: ring tool drags and keys ok");
+}

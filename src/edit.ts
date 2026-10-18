@@ -573,11 +573,26 @@ export const deleteBond = (m: Mol, i: number) => removeAtoms({ ...m, bonds: m.bo
 // A ring of n atoms. On a bond: fused on the side with fewer neighbours. On an atom: sharing that atom, pointing
 // the way a new bond would go (in line with the bond to a chain end, so the bonds there meet at 120°), with all its
 // other atoms new. On empty canvas: centred on the point, with a vertex at the top.
-// Benzene (aromatic) gets alternating double bonds that avoid atoms that already have one.
-export function addRing(m: Mol, n: number, aromatic: boolean, target: { bond?: number; atom?: number; point?: P }): Mol {
-  const r = 1 / (2 * Math.sin(Math.PI / n)), on = target.atom;
+// along: the ring's first bond, from a point (or from target.atom, which the ring then shares) to another, as a ring
+// dragged with ChemDraw's ring tools: the ring lies on the bond's left (above a bond drawn to the right), its bonds as
+// long as that one, and it takes atoms already where its atoms go.
+// Benzene (aromatic) gets alternating double bonds that avoid atoms that already have one, the first bond double.
+// Options, as ChemDraw's ring tools: sprout, on an atom, puts the ring on a new bond from it (Option-click);
+// firstSingle makes the first bond single (Shift); circle draws the ring delocalised, with a circle (Command).
+export type RingOptions = { sprout?: boolean; firstSingle?: boolean; circle?: boolean };
+export function addRing(m: Mol, n: number, aromatic: boolean, target: { bond?: number; atom?: number; point?: P; along?: [P, P] }, o: RingOptions = {}): Mol {
+  if (o.sprout && target.atom !== undefined && !target.along) {
+    let end: number;
+    [m, end] = atomOrNew(m, add(pos(m, target.atom), nextDirection(m, target.atom)));
+    return addRing(withBond(m, target.atom, end), n, aromatic, { atom: end }, { ...o, sprout: false });
+  }
+  const r = 1 / (2 * Math.sin(Math.PI / n)), on = target.atom, along = target.along;
   let centre: P, start: P;
-  if (target.bond !== undefined) {
+  if (along) {
+    const d = sub(along[1], along[0]), l = len(d) || 1;
+    start = on !== undefined ? pos(m, on) : along[0];
+    centre = add(mul(add(start, along[1]), 0.5), mul([-d[1] / l, d[0] / l], l / (2 * Math.tan(Math.PI / n))));
+  } else if (target.bond !== undefined) {
     const [i, j] = m.bonds[target.bond].atoms, a = pos(m, i), b = pos(m, j), mid = mul(add(a, b), 0.5);
     const normal: P = unit([-(b[1] - a[1]), b[0] - a[0]]);
     const others = [...neighbours(m, i), ...neighbours(m, j)].filter((k) => k !== i && k !== j);
@@ -598,16 +613,16 @@ export function addRing(m: Mol, n: number, aromatic: boolean, target: { bond?: n
   for (let k = 0; k < n; k++) {
     const p = add(centre, rot(sub(start, centre), (2 * Math.PI * k) / n));
     let id: number;
-    [m, id] = on === undefined ? atomOrNew(m, p) : k ? withAtom(m, p) : [m, on];
+    [m, id] = on !== undefined && !k ? [m, on] : on === undefined || along ? atomOrNew(m, p) : withAtom(m, p);
     ids.push(id);
   }
   const hasDouble = (i: number) => m.bonds.some((b) => b.type === 2 && b.atoms.includes(i));
   for (let k = 0; k < n; k++) {
     const i = ids[k], j = ids[(k + 1) % n];
     if (bondIndex(m, i, j) >= 0) continue;
-    m = withBond(m, i, j, { type: aromatic && !hasDouble(i) && !hasDouble(j) ? 2 : 1 });
+    m = withBond(m, i, j, { type: aromatic && !hasDouble(i) && !hasDouble(j) && !(o.firstSingle && !k) ? 2 : 1 });
   }
-  return m;
+  return o.circle ? { ...m, atoms: m.atoms.map((a, i) => (ids.includes(i) ? { ...a, circle: true } : a)) } : m;
 }
 
 // An atom copied with its atoms numbered again (to, undefined for an atom not copied): a multi-centre point keeps
@@ -1023,7 +1038,8 @@ export function chairPoints(which: 1 | 2): P[] {
 
 // Places a chair on empty canvas (centred on the point), or fuses it onto a bond on the side away from the
 // bond's other neighbours. The two chairs on one bond are mirror images, on the same side.
-export function addChair(m: Mol, which: 1 | 2, target: { bond?: number; point?: P }): Mol {
+// turn: on empty canvas, the chair turned that far (radians) from across the page, as a dragged chair faces the drag.
+export function addChair(m: Mol, which: 1 | 2, target: { bond?: number; point?: P; turn?: number }): Mol {
   let pts = chairPoints(which);
   if (target.bond !== undefined) {
     const [i, j] = m.bonds[target.bond].atoms, a = pos(m, i), b = pos(m, j);
@@ -1040,8 +1056,8 @@ export function addChair(m: Mol, which: 1 | 2, target: { bond?: number; point?: 
       pts = pts.map((p) => { const d = (p[0] - a[0]) * normal[0] + (p[1] - a[1]) * normal[1]; return sub(p, mul(normal, 2 * d)); });
     }
   } else {
-    const c = target.point!;
-    pts = pts.map((p) => add(p, c));
+    const c = target.point!, turn = target.turn ?? 0;
+    pts = pts.map((p) => add(rot(p, turn), c));
   }
   const ids: number[] = [];
   for (const p of pts) { let id: number; [m, id] = atomOrNew(m, p); ids.push(id); }
