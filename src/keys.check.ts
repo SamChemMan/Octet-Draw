@@ -80,19 +80,32 @@ assert.equal(textEntry({ tagName: "DIV", isContentEditable: true }), true);
 assert.equal(textEntry({ tagName: "DIV", isContentEditable: false }), false);
 assert.equal(textEntry({ tagName: "BUTTON" }), false);
 assert.equal(textEntry(null), false);
-// Home's tiles, four to a row, ten in all: right, down a row, up from the top row stays, down to a short last row.
-assert.equal(tileTo("ArrowRight", 0, 10, 4), 1);
-assert.equal(tileTo("ArrowDown", 1, 10, 4), 5);
-assert.equal(tileTo("ArrowUp", 2, 10, 4), 2);
-assert.equal(tileTo("ArrowDown", 7, 10, 4), 9);
-// Down from the last row stays: one row of four (New drawing and the three starters), and the short last row.
-assert.equal(tileTo("ArrowDown", 0, 4, 4), 0);
-assert.equal(tileTo("ArrowDown", 8, 10, 4), 8);
-assert.equal(tileTo("ArrowRight", 9, 10, 4), 9);
-assert.equal(tileTo("ArrowLeft", 0, 10, 4), 0);
-assert.equal(tileTo("ArrowDown", -1, 10, 4), 0);
-assert.equal(tileTo("Enter", 3, 10, 4), undefined);
-assert.equal(tileTo("ArrowDown", -1, 0, 4), undefined);
+// Home's tiles: the New row (six narrow tiles) over the recent drawings (four wide tiles to a row, ten in all, so the
+// last row has two). Up and Down go to the tile in the next row whose middle is nearest across, not by reading order.
+const newRow = [0, 1, 2, 3, 4, 5].map((k) => ({ x: k * 166, y: 100, width: 150, height: 130 }));
+const recent = [...Array(10).keys()].map((k) => ({ x: (k % 4) * 240, y: 300 + Math.floor(k / 4) * 224 + (k % 2), width: 220, height: 200 }));
+const home = [...newRow, ...recent];
+// Down from the fourth New tile (middle 573) goes to the third recent drawing (middle 590), not the fourth.
+assert.equal(tileTo("ArrowDown", 3, home), 8);
+assert.equal(tileTo("ArrowDown", 0, home), 6);
+assert.equal(tileTo("ArrowDown", 5, home), 9);
+// Up from a recent drawing goes to the nearest New tile; up from the New row stays.
+assert.equal(tileTo("ArrowUp", 9, home), 5);
+assert.equal(tileTo("ArrowUp", 7, home), 2);
+assert.equal(tileTo("ArrowUp", 2, home), 2);
+// Down a recent row, and down to the short last row with nothing under: its nearest tile. Down from the last row stays.
+assert.equal(tileTo("ArrowDown", 7, home), 11);
+assert.equal(tileTo("ArrowDown", 13, home), 15);
+assert.equal(tileTo("ArrowDown", 15, home), 15);
+// Left and Right go in reading order, from the end of the New row to the first recent drawing; the ends stay.
+assert.equal(tileTo("ArrowRight", 5, home), 6);
+assert.equal(tileTo("ArrowLeft", 6, home), 5);
+assert.equal(tileTo("ArrowLeft", 0, home), 0);
+assert.equal(tileTo("ArrowRight", 15, home), 15);
+// No tile with the focus: any arrow goes to the first. Other keys, or no tiles, do nothing.
+assert.equal(tileTo("ArrowDown", -1, home), 0);
+assert.equal(tileTo("Enter", 3, home), undefined);
+assert.equal(tileTo("ArrowDown", -1, []), undefined);
 // Home blocks the drawing's menu commands as a dialog does. New (and New For), Open, Settings, About and the tutorial
 // still run; Undo, Redo and Select All run on the text of the name box.
 const onHome = { home: true, modal: false, typing: false };

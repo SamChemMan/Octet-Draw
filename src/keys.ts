@@ -226,15 +226,21 @@ export function controlTakes(key: string, el: Focus, byKeyboard: boolean) {
   return el.tagName === "INPUT" && el.type === "range" && SLIDER_KEYS.includes(key);
 }
 
-// Arrow keys on tiles in reading order, row tiles across: the tile to go to from at (-1: no tile has the focus).
-// Up from the top row and down from the last row stay; down to a short last row with nothing under it goes to its
-// last tile.
-export function tileTo(key: string, at: number, count: number, row: number): number | undefined {
-  const step = ({ ArrowRight: 1, ArrowLeft: -1, ArrowDown: row, ArrowUp: -row } as Record<string, number>)[key];
-  if (!step || !count) return undefined;
-  if (at < 0) return 0;
-  const to = at + step;
-  if (to < 0) return at;
-  if (to < count) return to;
-  return key === "ArrowDown" && Math.floor(at / row) < Math.floor((count - 1) / row) ? count - 1 : at;
+// Arrow keys on Home's tiles: the New row and the recent drawings, each grid with its own number of columns. from:
+// the tile with the focus (-1: none, then any arrow goes to the first tile). Left and Right go to the tile before or
+// after in reading order. Up and Down go to the nearest row above or below, to the tile there whose middle is nearest
+// across (the left one of two as near); with no row there, the focus stays.
+type Rect = { x: number; y: number; width: number; height: number };
+export function tileTo(key: string, from: number, tiles: Rect[]): number | undefined {
+  const step = ({ ArrowRight: 1, ArrowLeft: -1, ArrowDown: 1, ArrowUp: -1 } as Record<string, number>)[key];
+  if (!step || !tiles.length) return undefined;
+  if (from < 0) return 0;
+  if (key === "ArrowRight" || key === "ArrowLeft") return Math.min(tiles.length - 1, Math.max(0, from + step));
+  const at = tiles[from], mid = (r: Rect) => r.x + r.width / 2, half = Math.min(...tiles.map((r) => r.height)) / 2;
+  // A row is the tiles whose tops are less than half a tile apart (the tiles move a little as Home arrives).
+  const next = tiles.map((r, k) => ({ r, k })).filter(({ r }) => (r.y - at.y) * step > half);
+  if (!next.length) return from;
+  const top = step > 0 ? Math.min(...next.map(({ r }) => r.y)) : Math.max(...next.map(({ r }) => r.y));
+  const row = next.filter(({ r }) => Math.abs(r.y - top) < half), off = (r: Rect) => Math.abs(mid(r) - mid(at));
+  return row.reduce((a, b) => (off(b.r) < off(a.r) - 0.5 ? b : a)).k;
 }

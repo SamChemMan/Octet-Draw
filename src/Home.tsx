@@ -87,14 +87,14 @@ export function Home(p: Props) {
   // Home covers the editor, which takes no keys or clicks until Home goes.
   useModal(page, !p.leaving);
   // Return makes a new drawing for the purpose picked last (as decision 0003 asks) unless a tile has the focus; arrow
-  // keys move between tiles, up and down by a row. A dialog over Home (Save changes) makes Home inert and keeps the keys.
+  // keys move between tiles, up and down to the nearest tile in the row there (tileTo). A dialog over Home (Save
+  // changes) makes Home inert and keeps the keys.
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (p.leaving || page.current?.inert || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
       const tiles = [...(grid.current?.querySelectorAll<HTMLElement>(".home-tile") ?? [])], at = tiles.indexOf(document.activeElement as HTMLElement);
       if (e.key === "Enter" && at < 0 && !(document.activeElement instanceof HTMLButtonElement)) { e.preventDefault(); p.onNew(p.purpose); return; }
-      const row = tiles.filter((t) => t.getBoundingClientRect().top === tiles[0].getBoundingClientRect().top).length;
-      const to = tileTo(e.key, at, tiles.length, row);
+      const to = tileTo(e.key, at, tiles.map((t) => t.getBoundingClientRect()));
       if (to !== undefined) { e.preventDefault(); tiles[to].focus(); }
     };
     addEventListener("keydown", key);
