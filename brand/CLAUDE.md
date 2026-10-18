@@ -11,7 +11,7 @@ Octet is a chemical drawing app (a ChemDraw replacement). Every UI, page, guide 
 ## Hard rules
 - Colours: blue family and neutrals only (`--brand`, `--brand-bright`, `--brand-mist`, `--navy`, neutrals). Do not add other hues. Status colours only for status.
 - Fonts: Instrument Sans for all UI text (`--font-sans`), IBM Plex Mono for SMILES, InChI, formulae and coordinates (`--font-mono`). No serif fonts. No Times New Roman. No Geist or Inter.
-- Icons: Phosphor Icons only (`@phosphor-icons/react`, Regular weight, 20px). Draw missing chemistry tool icons in Phosphor's style. Record the package in THIRD_PARTY.md when you add it.
+- Icons: Phosphor Icons only (`@phosphor-icons/react`, Regular weight; 20px tools, 18px rows, 16px chips and buttons, 12px small actions, as BRAND.md Iconography lists). Draw missing chemistry tool icons in Phosphor's style. Record the package in THIRD_PARTY.md when you add it.
 - Feel: calm and quiet. One elevation (`--shadow-float`). Motion 150–200 ms ease-out, no bounce (one exception: the toolbar drop, see BRAND.md Motion). No gradients, no shadcn-default look, no template hero sections.
 - Canvas: white (`--canvas`). New documents use ACS Document 1996 by the book, including Arial 10 pt atom labels (`--atom-label-font` and the other drawing tokens). Users can change the style. Export matches the page exactly.
 - Spelling: British English for all user-facing text (colour, centre, optimise). Chemistry spelling follows IUPAC and the RSC: sulfur, sulfate, aluminium, caesium. Code identifiers keep standard spellings (`color`).

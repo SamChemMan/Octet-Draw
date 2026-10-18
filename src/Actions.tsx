@@ -5,32 +5,35 @@
 // ChemDraw users expect it (menus and keys).
 import { useEffect, useRef, useState } from "react";
 import {
-  AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, ArrowsInSimple, ArrowClockwise, ArrowsClockwise, ArrowsDownUp, CaretRight, SignIn, SignOut, ArrowCounterClockwise, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretDown,
+  AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, ArrowsInSimple, ArrowsClockwise, ArrowsDownUp, CaretRight, SignIn, SignOut, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretUpDown,
+  AlignBottomSimple, AlignTopSimple, ArrowLineDown, ArrowLineUp, CursorText, DotsThree, DotsThreeVertical, Faders, Polygon, Rectangle, ArrowArcLeft, ArrowArcRight, ArrowsCounterClockwise, ArrowUDownLeft, CircleDashed, CornersOut, MagnifyingGlass, Swap,
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
-  PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAa, TextAlignCenter, TextAlignLeft,
-  TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Eraser, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
+  PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
+  TextAlignJustify, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Eraser, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
-import { Menu } from "./Menu";
+import { Menu, Pick, type MenuItem } from "./Menu";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
 import { invoke } from "@tauri-apps/api/core";
-import { COLOURS, fontStack, TINTS } from "./docstyle";
-import { ArrowGlyph, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, SymbolGlyph, type BondKind } from "./tools";
+import { COLOURS, fontStack, HIGHLIGHTS, SIZES, TINTS } from "./docstyle";
+import { ArrowGlyph, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, SymbolGlyph, TlcGlyph, type BondKind } from "./tools";
 
 // A selected atom label's text style (the first labelled atom's, for a structure), for the label style buttons.
 export type LabelText = { bold: boolean; italic: boolean; underline: boolean; font: string; size: number };
 export type Context =
   | { kind: "empty" }
   | { kind: "drawing"; nameable: boolean }
-  | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; cip?: boolean; numbers?: boolean; halo?: string; fill?: string }
+  // Different kinds of thing picked together: count things; atoms, when structures are among them.
+  | { kind: "selection"; count: number; atoms: boolean }
+  | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; cip?: boolean; numbers?: boolean; circles?: boolean; halo?: string; fill?: string }
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
-  | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right"; attached: boolean; attachable: boolean;
+  | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
       script?: "sub" | "super"; font?: string; fonts?: string[] }
   | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
-      heads: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string }
-  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[]; shade: { depth: number; blur: number; opacity: number; pt: number } }
+      heads: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string; width: number }
+  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[]; shade: { depth: number; blur: number; opacity: number; pt: number }; text?: LabelText }
   | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean; grid: boolean }
   | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; halo?: string; fill?: string; numbered?: boolean }
@@ -66,136 +69,45 @@ const ENDS = [["OH", "O"], ["NH₂", "N"], ["Me", "Me"], ["OMe", "OMe"], ["CO₂
 const SUBSCRIPT = "₀₁₂₃₄₅₆₇₈₉";
 const formula = (f: string) => f.replace(/\d/g, (d) => SUBSCRIPT[Number(d)]);
 
-// The caption size: click for a menu of sizes; Enter or double-click to type any size.
-const SIZES = [8, 9, 10, 12, 14, 18, 24, 36];
-// The font of the text selected (or the caption): a list of the document fonts, each shown in itself.
-// A setting with a few choices, as one small button showing the current choice: a click opens its choices, each drawn
-// as itself with its name.
+// A setting with a few choices, as one small button showing the current choice: a click opens its choices (a Pick
+// list), each drawn as itself with its name.
 function PickButton({ label, value, options, onPick }: { label: string; value: string; options: { id: string; name: string; glyph: React.ReactNode }[]; onPick: (id: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
-    const escape = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); setOpen(false); } };
-    const scrolled = closeOnScroll(box, () => setOpen(false));
-    addEventListener("pointerdown", away, true);
-    addEventListener("keydown", escape, true);
-    addEventListener("scroll", scrolled, true);
-    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); removeEventListener("scroll", scrolled, true); };
-  }, [open]);
   const current = options.find((o) => o.id === value) ?? options[0];
-  // The menu is pinned to the window, above the button (or below it near the top), so a scrolling panel never cuts it off.
-  const place = (): React.CSSProperties => {
-    const r = box.current!.getBoundingClientRect(), tall = options.length * 30 + 10;
-    // Left-aligned with the button, or right-aligned when that would run past the window's right edge.
-    const across = r.left + 200 > innerWidth - 8 ? { left: "auto", right: innerWidth - r.right } : { left: r.left, right: "auto" };
-    return { position: "fixed", ...across, ...(r.top > tall + 8 ? { bottom: innerHeight - r.top + 4 } : { top: r.bottom + 4, bottom: "auto" }) };
-  };
   return (
-    <div className="pick" ref={box}>
-      <button className="chip pick-button" aria-haspopup="menu" aria-expanded={open} aria-label={`${label}: ${current.name}`} title={`${label}: ${current.name}`} onClick={() => setOpen(!open)}>
+    <div className="pick">
+      <Pick label={label} value={value} groups={[options.map((o) => ({ key: o.id, name: o.name, icon: <span className="pick-glyph" aria-hidden>{o.glyph}</span> }))]} onPick={onPick}
+        className="chip pick-button" title={`${label}: ${current.name}`}>
         <span className="pick-label" aria-hidden>{label}</span>
         {current.glyph}
-      </button>
-      {open && (
-        <div className="size-menu pick-menu" role="menu" aria-label={label} style={place()}>
-          {options.map((o) => (
-            <button key={o.id} role="menuitemradio" aria-checked={o.id === value} onClick={() => { setOpen(false); if (o.id !== value) onPick(o.id); }}>
-              <span className="pick-glyph" aria-hidden>{o.glyph}</span>{o.name}
-            </button>
-          ))}
-        </div>
-      )}
+      </Pick>
     </div>
   );
 }
-
-// Where a font or size list opens: fixed to the window, so the panel's scrolling never cuts it off. Every list opens
-// over its button (Sam, 17 October 2026), right edges lined up, scrolling when it is taller than the room there; under
-// it only when not even six rows fit above and there is more room below.
-function dropStyle(anchor: HTMLElement | null, items: number): React.CSSProperties {
-  if (!anchor) return {};
-  const r = anchor.getBoundingClientRect(), want = items * 26 + 10, below = innerHeight - r.bottom - 12, above = r.top - 12;
-  const down = above < Math.min(want, 6 * 26 + 10) && below > above;
-  return {
-    position: "fixed", right: innerWidth - r.right, minWidth: r.width, zIndex: 20, overflowY: "auto", maxHeight: Math.max(80, (down ? below : above) - 4),
-    ...(down ? { top: r.bottom + 4, bottom: "auto", transformOrigin: "top right" } : { bottom: innerHeight - r.top + 4, top: "auto", transformOrigin: "bottom right" }),
-  };
-}
-// A list closes when its button scrolls away under it, as when the panel scrolls.
-const closeOnScroll = (box: React.RefObject<HTMLDivElement | null>, close: () => void) => (e: Event) => { if (!box.current?.contains(e.target as Node)) close(); };
 
 // The computer's fonts, asked for once (the app lists them; a browser cannot).
 const TAURI = "__TAURI_INTERNALS__" in window;
 let installed: Promise<string[]> | undefined;
 const systemFonts = () => (installed ??= invoke<string[]>("system_fonts").catch(() => []));
+const fontItem = (f: string): MenuItem => ({ key: f, name: f, icon: null, style: { fontFamily: fontStack(f) } });
 
-// The font list: Octet's fonts and the drawing's, then More fonts…, which lists every font on the computer with a
-// field to find one, as ChemDraw's Font menu lists every installed font.
-function FontButton({ font, fonts, run }: { font: string; fonts: string[]; run: (command: string) => void }) {
-  const [open, setOpen] = useState(false), [all, setAll] = useState<string[]>(), [query, setQuery] = useState("");
-  const show = (o: boolean) => { setOpen(o); setAll(undefined); setQuery(""); };
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
-    const escape = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); setOpen(false); } };
-    const scrolled = closeOnScroll(box, () => setOpen(false));
-    addEventListener("pointerdown", away, true);
-    addEventListener("keydown", escape, true);
-    addEventListener("scroll", scrolled, true);
-    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); removeEventListener("scroll", scrolled, true); };
-  }, [open]);
+// Octet's one font list: Octet's fonts and the drawing's (each shown in itself), then More fonts…, which lists every
+// font on the computer with a field to find one, as ChemDraw's Font menu lists every installed font (Sam: the list
+// stays short until it is asked for more). The Actions panel, Settings and Text > Other Font… use it.
+export function FontPick({ label, font, fonts, onPick, className = "chip size-button", start }: { label: string; font: string; fonts: string[]; onPick: (font: string) => void; className?: string; start?: boolean }) {
   return (
-    <div className="size font" ref={box}>
-      <button className="chip size-button" aria-haspopup="menu" aria-expanded={open} title="Font" onClick={() => show(!open)} style={{ fontFamily: fontStack(font) }}>
-        <span className="font-name">{font}</span>
-        <CaretDown size={12} aria-hidden />
-      </button>
-      {open && (() => {
-        const pick = (f: string) => { show(false); if (f !== font) run(`caption.font.${f}`); };
-        const item = (f: string) => <button key={f} role="menuitemradio" aria-checked={f === font} style={{ fontFamily: fontStack(f) }} onClick={() => pick(f)}>{f}</button>;
-        const shortList = fonts.includes(font) ? fonts : [font, ...fonts];
-        const found = all?.filter((f) => f.toLowerCase().includes(query.trim().toLowerCase())) ?? [];
-        return (
-          <div className="size-menu font-menu" role="menu" aria-label="Font" style={dropStyle(box.current, all ? 14 : shortList.length + (TAURI ? 1 : 0))}>
-            {all === undefined ? (
-              <>
-                {shortList.map(item)}
-                {TAURI && <button className="more-fonts" onClick={() => void systemFonts().then(setAll)}>More fonts…</button>}
-              </>
-            ) : (
-              <>
-                <input className="font-search" autoFocus placeholder="Find a font" aria-label="Find a font" value={query} spellCheck={false}
-                  onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && found[0]) { e.preventDefault(); pick(found[0]); } }} />
-                {found.slice(0, 300).map(item)}
-                {!found.length && <p className="font-none">No fonts match</p>}
-              </>
-            )}
-          </div>
-        );
-      })()}
-    </div>
+    <Pick label={label} value={font} groups={[(fonts.includes(font) ? fonts : [font, ...fonts]).map(fontItem)]} onPick={onPick} className={className} title={label} style={{ fontFamily: fontStack(font) }} start={start}
+      more={TAURI ? { name: "More fonts…", find: "Find a font", load: () => systemFonts().then((all) => all.map(fontItem)) } : undefined}>
+      <span className="font-name">{font}</span>
+      <CaretUpDown size={12} aria-hidden />
+    </Pick>
   );
 }
 
+// The text size: a click opens the sizes, and Other size…, Return or a double-click types any size.
 function SizeButton({ size, run }: { size: number; run: (command: string) => void }) {
-  const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState<string>();
   const typing = useRef(false); // Enter, Escape and blur all end typing; only the first one counts
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
-    const escape = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); setOpen(false); } };
-    const scrolled = closeOnScroll(box, () => setOpen(false));
-    addEventListener("pointerdown", away, true);
-    addEventListener("keydown", escape, true);
-    addEventListener("scroll", scrolled, true);
-    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); removeEventListener("scroll", scrolled, true); };
-  }, [open]);
-  const startTyping = () => { typing.current = true; setOpen(false); setTyped(String(size)); };
+  const startTyping = () => { typing.current = true; setTyped(String(size)); };
   const endTyping = (keep: boolean) => {
     if (!typing.current) return;
     typing.current = false;
@@ -204,7 +116,7 @@ function SizeButton({ size, run }: { size: number; run: (command: string) => voi
     if (keep && pt >= 4 && pt <= 144 && pt !== size) run(`caption.size.${pt}`);
   };
   return (
-    <div className="size" ref={box}>
+    <div className="size">
       {typed !== undefined ? (
         <input
           className="chip size-input"
@@ -218,27 +130,12 @@ function SizeButton({ size, run }: { size: number; run: (command: string) => voi
           onBlur={() => endTyping(true)}
         />
       ) : (
-        <button
-          className="chip size-button"
-          aria-haspopup="menu"
-          aria-expanded={open}
-          title="Size"
-          onClick={() => setOpen(!open)}
-          onDoubleClick={startTyping}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); startTyping(); } }}
-        >
+        <Pick label="Size" value={String(size)} groups={[SIZES.map((pt) => ({ key: String(pt), name: `${pt} pt`, icon: null })), [{ key: "other", name: "Other size…", icon: null }]]}
+          onPick={(k) => (k === "other" ? startTyping() : run(`caption.size.${k}`))} className="chip size-button" title="Size" onDoubleClick={startTyping}
+          onKey={(e) => { if (e.key !== "Enter") return false; e.preventDefault(); startTyping(); return true; }}>
           {size} pt
-          <CaretDown size={12} aria-hidden />
-        </button>
-      )}
-      {open && (
-        <div className="size-menu" role="menu" aria-label="Size" style={dropStyle(box.current, SIZES.length)}>
-          {SIZES.map((pt) => (
-            <button key={pt} role="menuitemradio" aria-checked={pt === size} onClick={() => { setOpen(false); if (pt !== size) run(`caption.size.${pt}`); }}>
-              {pt} pt
-            </button>
-          ))}
-        </div>
+          <CaretUpDown size={12} aria-hidden />
+        </Pick>
       )}
     </div>
   );
@@ -285,106 +182,116 @@ function TableGlyph({ on, faint }: { on: TableLine[]; faint?: boolean }) {
 // small: shown as a small button by default (the user can drag it into the rows, and any row out of them).
 export type Item = { icon: React.ReactNode; name: string; command: string; accent?: boolean; small?: boolean };
 // The small actions fall into sets, each a section of small buttons under a small title (Sam, 17 October 2026):
-// Analyse; Turn and flip (every turn, rotation and flip); Display and copy (what is shown on the structure, the
-// rest, the clipboard and library, and Delete last); Arrange and View when they apply.
-const SETS = ["analysis", "turn", "more", "arrange", "view"] as const;
+// the object's own edits (a table's, a plate's, a cycle's); Analyse; Turn and flip (every turn, rotation and flip);
+// Display and copy (what is shown on the structure, the rest, the clipboard and library); Arrange, File and View
+// when they apply. Delete is the last small button in every panel, with no title.
+const SETS = ["table", "plate", "cycle", "analysis", "turn", "more", "arrange", "file", "view", "delete"] as const;
 type SetId = (typeof SETS)[number];
-const SET_TITLES: Record<SetId, string> = { analysis: "Analyse", turn: "Turn and flip", more: "Display and copy", arrange: "Arrange", view: "View" };
+const SET_TITLES: Record<SetId, string> = { table: "Table", plate: "Plate", cycle: "Cycle", analysis: "Analyse", turn: "Turn and flip", more: "Display and copy", arrange: "Arrange", file: "File", view: "View", delete: "Delete" };
 // Each set's icon, for its row when the sets show as menus.
-const SET_ICONS: Record<SetId, React.ReactNode> = { analysis: <Flask size={18} />, turn: <ArrowsClockwise size={18} />, more: <Eye size={18} />, arrange: <AlignCenterHorizontal size={18} />, view: <ArrowsOutSimple size={18} /> };
+const SET_ICONS: Record<SetId, React.ReactNode> = { table: <Table size={18} />, plate: <TlcGlyph />, cycle: <ArrowsClockwise size={18} />, analysis: <Flask size={18} />, turn: <ArrowArcRight size={18} />, more: <Eye size={18} />,
+  arrange: <AlignCenterHorizontal size={18} />, file: <FileArrowDown size={18} />, view: <MagnifyingGlass size={18} />, delete: <Trash size={18} /> };
 // Each action's kind. Kinds make up the sets; the kinds in Display and copy keep this order within it.
-const SET_FOR: Record<string, SetId> = { analysis: "analysis", arrange: "arrange", view: "view", turn: "turn", marks: "more", other: "more", library: "more", delete: "more" };
-const MORE_GROUPS = ["marks", "other", "library", "delete"];
+const SET_FOR: Record<string, SetId> = { table: "table", plate: "plate", cycle: "cycle", analysis: "analysis", arrange: "arrange", file: "file", view: "view", turn: "turn", marks: "more", other: "more", library: "more", delete: "delete" };
+const MORE_GROUPS = ["marks", "other", "library"];
 const KIND_OF: Record<string, string> = {
-  select_all: "view", zoom_fit: "view", import: "library",
+  select_all: "view", zoom_fit: "view", import: "file",
+  "shape.row.before": "table", "shape.col.before": "table", "shape.row.delete": "table", "shape.col.delete": "table", "shape.fit": "table", "shape.clear": "table", "shape.dashed": "table",
+  "shape.hide.origin": "plate", "shape.hide.front": "plate", "shape.hide.border": "plate", "cycle.reverse": "cycle", "cycle.ungroup": "cycle",
   properties: "analysis", show_stereo: "analysis", predict_1h: "analysis", predict_13c: "analysis",
   "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "turn", flatten: "turn",
   pairs: "marks", number: "marks", atom_numbers: "marks", show_warnings: "marks", "caption.add": "marks", colour_by_element: "marks", aromatic_display: "marks", contract_label: "marks",
   "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "arrange", ungroup: "arrange", group_integral: "arrange",
   arrange_left: "arrange", arrange_centre: "arrange", arrange_right: "arrange", arrange_top: "arrange", arrange_middle: "arrange", arrange_bottom: "arrange",
-  arrange_across: "arrange", arrange_down: "arrange", "shape.front": "arrange", "shape.back": "arrange",
+  arrange_across: "arrange", arrange_down: "arrange", bring_front: "arrange", send_back: "arrange",
   copy_smiles: "library", "template.add": "library", delete: "delete",
 };
 const kindOf = (command: string) => KIND_OF[command] ?? "other";
 const setOf = (command: string) => SET_FOR[kindOf(command)];
-// Highlight and ring fill colours: clear at 40% behind a structure on white.
-const HIGHLIGHTS: [string, string][] = [["Blue", "#2F6FED"], ["Orange", "#F28C28"], ["Green", "#2BA84A"], ["Red", "#E5484D"], ["Purple", "#8E4EC6"], ["Teal", "#12A594"], ["Pink", "#D6409F"], ["Gold", "#C9A000"]];
 
 // The actions for a selection, likeliest first. The panel shows them; the command palette lists them too.
 export function actionItems(context: Context, messy: boolean, hiddenWarnings = false): Item[] {
   const items: Item[] = [];
   const it = (icon: React.ReactNode, name: string, command: string, accent?: boolean, small?: boolean): Item => ({ icon, name, command, accent, small });
   const small = (i: Item): Item => ({ ...i, small: true });
-  const clean = it(<MagicWand size={18} />, "Clean up", "clean_up", messy);
-  const nameIt = it(<TagSimple size={18} />, "Structure to name", "structure_to_name");
-  const del = it(<Trash size={18} />, "Delete", "delete");
+  const clean = it(<MagicWand size={18} />, "Clean up structure", "clean_up", messy);
+  const nameIt = it(<TagSimple size={18} />, "Convert structure to name", "structure_to_name");
+  const del = small(it(<Trash size={18} />, "Delete", "delete")); // the last small button in every panel
   // Rotate 180° keeps stereochemistry (arrows round), Flip mirrors it (mirror glyphs).
   const flips = [it(<ArrowsLeftRight size={18} />, "Rotate 180° horizontal", "flip_h", false, true), it(<ArrowsDownUp size={18} />, "Rotate 180° vertical", "flip_v", false, true)];
   const mirrors = [it(<FlipHorizontal size={18} />, "Flip horizontal", "mirror_h", false, true), it(<FlipVertical size={18} />, "Flip vertical", "mirror_v", false, true)];
+  // Every turn and flip, for any selection they act on (as ChemDraw's Object menu, for every kind of object).
+  const turnings = [small(it(<ArrowArcRight size={18} />, "Turn 15° clockwise", "rotate.cw15")), small(it(<ArrowArcLeft size={18} />, "Turn 15° anticlockwise", "rotate.ccw15"))];
+  const turnsAndFlips = [...turnings, ...flips, ...mirrors];
+  // The draw order, for every kind of object (Object menu: Bring to Front, Send to Back). On an atom or a bond it moves
+  // the whole structure, as the menu command does.
+  const order = [it(<StackSimple size={18} />, "Bring to front", "bring_front", false, true), it(<Stack size={18} />, "Send to back", "send_back", false, true)];
 
   switch (context.kind) {
     case "empty":
-      items.push(it(<Atom size={18} />, "Name to structure", "name_to_structure"), it(<ClipboardText size={18} />, "Paste a SMILES or MOL", "paste_hint"),
-        small(it(<FileArrowDown size={18} />, "Import a structure", "import")));
+      items.push(it(<Atom size={18} />, "Convert name to structure", "name_to_structure"), it(<ClipboardText size={18} />, "Paste a SMILES or MOL", "paste_hint"),
+        small(it(<FileArrowDown size={18} />, "Import a structure…", "import")));
       break;
     case "drawing":
-      items.push(clean, ...(context.nameable ? [nameIt] : []), it(<Atom size={18} />, "Name to structure", "name_to_structure"), ...flips,
-        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<FileArrowDown size={18} />, "Import a structure", "import")),
-        small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<ArrowsOutSimple size={18} />, "Zoom to fit", "zoom_fit")));
+      items.push(clean, ...(context.nameable ? [nameIt] : []), it(<Atom size={18} />, "Convert name to structure", "name_to_structure"), ...flips,
+        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<FileArrowDown size={18} />, "Import a structure…", "import")),
+        small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<CornersOut size={18} />, "Fit to window", "zoom_fit")));
+      break;
+    case "selection":
+      items.push(...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...turnsAndFlips, ...order, del);
       break;
     case "structure":
       // Sam (17 October 2026): Clean up and Structure to name as rows; every turn, rotation and flip in one sub-menu;
       // what is shown on it, the clipboard and library, and Delete in another.
-      items.push(clean, ...(context.nameable ? [nameIt] : []), ...flips);
+      items.push(clean, ...(context.nameable ? [nameIt] : []), ...flips, ...order);
       if (context.pairs) items.push(small(it(<SymbolGlyph kind="pair" />, context.pairs === "shown" ? "Hide lone pairs" : "Show lone pairs", "pairs")));
       items.push(small(it(<ListNumbers size={18} />, context.structures > 1 ? "Number these compounds" : "Number this compound", "number")),
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
         ...(hiddenWarnings ? [small(it(<Warning size={18} />, "Show warnings", "show_warnings"))] : []),
         small(it(<TextT size={18} />, "Add a caption", "caption.add")),
-        small(it(<ArrowClockwise size={18} />, "Turn 15° right", "rotate.cw15")), small(it(<ArrowCounterClockwise size={18} />, "Turn 15° left", "rotate.ccw15")),
-        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")), small(it(<Flask size={18} />, "Properties", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, "Toggle aromatic display", "aromatic_display")), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C NMR shifts", "predict_13c")));
-      if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<AlignCenterHorizontal size={18} />, "Line up in a row", "align.row")),
-        small(it(<AlignCenterVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
+        ...turnings, small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")), small(it(<Flask size={18} />, "Properties", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")));
+      if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<DotsThree size={18} />, "Line up in a row", "align.row")),
+        small(it(<DotsThreeVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
       if (context.depth !== undefined) items.push(small(it(<Cube size={18} />, context.depth ? "Draw flat" : "Draw with depth", "structure_perspective")), small(it(<Square size={18} />, "Flatten", "flatten")));
-      items.push(...mirrors, small(del));
+      items.push(...mirrors, del);
       break;
     case "atom":
-      items.push(it(<TextAa size={18} />, "Type a label", "atom.label"), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
-        ...(context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label) ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<SlidersHorizontal size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"),
-        ...(hiddenWarnings ? [it(<Warning size={18} />, "Show warnings", "show_warnings")] : []), del);
+      items.push(it(<CursorText size={18} />, "Type a label", "atom.label"), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
+        ...(context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label) ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<Faders size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"),
+        ...(hiddenWarnings ? [it(<Warning size={18} />, "Show warnings", "show_warnings")] : []), ...order, del);
       break;
     case "bond":
       if (context.double) items.push(it(<span className="glyph-text">L</span>, "Second line on the left", "bond.left"), it(<span className="glyph-text">C</span>, "Centre the double bond", "bond.centre"), it(<span className="glyph-text">R</span>, "Second line on the right", "bond.right"));
-      if (context.flippable) items.push(it(<FlipHorizontal size={18} />, "Point the other way", "bond.flip"));
-      items.push(del);
+      if (context.flippable) items.push(it(<ArrowUDownLeft size={18} />, "Point the other way", "bond.flip"));
+      items.push(...order, del);
       break;
     case "caption":
       if (context.mode !== "picked") break;
-      if (context.convertible) items.push(it(<Atom size={18} />, "Convert to structure", "name_to_structure"));
+      if (context.convertible) items.push(it(<Atom size={18} />, "Convert name to structure", "name_to_structure"));
       if (context.count === 1) items.push(it(<PencilSimpleLine size={18} />, "Edit text", "caption.edit"));
       if (context.attached) items.push(it(<LinkBreak size={18} />, "Un-tie from structure", "caption.detach"));
       else if (context.attachable) items.push(it(<LinkSimple size={18} />, "Tie to structure", "caption.attach"));
-      items.push(del);
+      items.push(...order, del);
       break;
     case "reaction":
       items.push(it(<MagicWand size={18} />, "Clean up reaction", "reaction.clean", !context.clean),
         it(<ListNumbers size={18} />, "Number these compounds", "number"), small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")),
-        it(<span className="glyph-text">A→A</span>, "Map atoms", "reaction.map"), it(<Table size={18} />, context.grid ? "Remove stoichiometry" : "Analyze stoichiometry", "stoichiometry"), ...(context.mapped ? [small(it(<X size={18} />, "Clear atom map", "reaction.unmap"))] : []), small(del));
+        it(<span className="glyph-text">A→A</span>, "Map atoms", "reaction.map"), it(<Table size={18} />, context.grid ? "Remove stoichiometry" : "Analyse stoichiometry", "stoichiometry"), ...(context.mapped ? [small(it(<X size={18} />, "Clear atom map", "reaction.unmap"))] : []), ...turnsAndFlips, ...order, del);
       break;
     case "cycle":
       if (!context.centre) items.push(it(<TextT size={18} />, "Add a centre label", "cycle.centre"));
       items.push(it(<SignIn size={18} />, "Add a reagent coming in", "cycle.in"), it(<SignOut size={18} />, "Add a product going out", "cycle.out"),
-        it(<MagicWand size={18} />, "Tidy the cycle", "cycle.tidy"), small(it(<ArrowsLeftRight size={18} />, "Reverse the direction", "cycle.reverse")),
-        small(it(<LinkBreak size={18} />, "Ungroup", "cycle.ungroup")), small(del));
+        it(<MagicWand size={18} />, "Tidy the cycle", "cycle.tidy"), small(it(<ArrowsCounterClockwise size={18} />, "Reverse the direction", "cycle.reverse")),
+        small(it(<CircleDashed size={18} />, "Remove the cycle", "cycle.ungroup")), ...turnsAndFlips, ...order, del);
       break;
     case "shape":
       if (context.shape === "tlc") {
         const hidden = (k: string) => context.hide?.includes(k);
         items.push(it(<Plus size={18} />, "Add a lane", "shape.lanes.1"), it(<Minus size={18} />, "Remove a lane", "shape.lanes.-1"),
           it(<span className="glyph-text">Rf</span>, context.rf ? "Hide Rf values" : "Show Rf values", "shape.rf"),
-          small(it(<Minus size={18} />, hidden("origin") ? "Show the origin" : "Hide the origin", "shape.hide.origin")),
-          small(it(<LineSegments size={18} />, hidden("front") ? "Show the solvent front" : "Hide the solvent front", "shape.hide.front")),
-          small(it(<Square size={18} />, hidden("border") ? "Show the border" : "Hide the border", "shape.hide.border")), del);
+          small(it(<AlignBottomSimple size={18} />, hidden("origin") ? "Show the origin" : "Hide the origin", "shape.hide.origin")),
+          small(it(<AlignTopSimple size={18} />, hidden("front") ? "Show the solvent front" : "Hide the solvent front", "shape.hide.front")),
+          small(it(<Rectangle size={18} />, hidden("border") ? "Show the border" : "Hide the border", "shape.hide.border")), ...order, del);
         break;
       }
       if (context.shape === "table") {
@@ -393,23 +300,23 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
           small(it(<RowsPlusTop size={18} />, "Add a row above", "shape.row.before")), small(it(<ColumnsPlusLeft size={18} />, "Add a column before", "shape.col.before")),
           small(it(<Rows size={18} />, context.cell ? "Delete the row" : "Delete the last row", "shape.row.delete")), small(it(<Columns size={18} />, context.cell ? "Delete the column" : "Delete the last column", "shape.col.delete")),
           small(it(<ArrowsInLineHorizontal size={18} />, "Size to fit contents", "shape.fit")), small(it(<Eraser size={18} />, "Clear contents", "shape.clear")),
-          small(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed")), del);
+          small(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed")), ...order, del);
         break;
       }
       if (isBracket({ kind: context.shape })) items.push(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed"));
-      items.push(small(it(<StackSimple size={18} />, "Bring to front", "shape.front")), small(it(<Stack size={18} />, "Send to back", "shape.back")), del);
+      items.push(...turnsAndFlips, ...order, del);
       break;
     case "spot":
       items.push(it(<span className="glyph-text">Rf</span>, context.rf ? "Hide its Rf" : "Show its Rf", "spot.rf"), del);
       break;
     case "arrow":
-      if (context.arrow === "orbital") { items.push(it(<ArrowsLeftRight size={18} />, "Swap the phases", "orbital.swap"), del); break; }
-      if (context.arrow === "curve") { items.push(it(<Circle size={18} />, context.closed ? "Open the curve" : "Close the curve", "arrow.closed"), it(<ArrowsLeftRight size={18} />, "Reverse", "arrow.reverse"), del); break; }
-      if (isLine({ kind: context.arrow })) { items.push(it(<ArrowsLeftRight size={18} />, "Reverse", "arrow.reverse"), ...(context.curved ? [it(<FlipVertical size={18} />, "Flip the curve", "arrow.flip")] : []), del); break; }
-      if (context.count === 1 && !context.curved) items.push(it(<TextT size={18} />, "Add conditions above", "arrow.above"), it(<TextT size={18} />, "Add conditions below", "arrow.below"));
-      items.push(it(<ArrowsLeftRight size={18} />, "Reverse", "arrow.reverse"));
+      if (context.arrow === "orbital") { items.push(it(<Swap size={18} />, "Swap the phases", "orbital.swap"), ...turnsAndFlips, ...order, del); break; }
+      if (context.arrow === "curve") { items.push(it(<Polygon size={18} />, context.closed ? "Open the curve" : "Close the curve", "arrow.closed"), it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...turnsAndFlips, ...order, del); break; }
+      if (isLine({ kind: context.arrow })) { items.push(it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...(context.curved ? [it(<FlipVertical size={18} />, "Flip the curve", "arrow.flip")] : []), ...turnsAndFlips, ...order, del); break; }
+      if (context.count === 1 && !context.curved) items.push(it(<ArrowLineUp size={18} />, "Add conditions above", "arrow.above"), it(<ArrowLineDown size={18} />, "Add conditions below", "arrow.below"));
+      items.push(it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"));
       if (context.curved) items.push(it(<FlipVertical size={18} />, "Flip the curve", "arrow.flip"));
-      items.push(del);
+      items.push(...turnsAndFlips, ...order, del);
       break;
   }
   return items;
@@ -483,6 +390,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
   const title = {
     empty: "Actions",
     drawing: "Whole drawing",
+    selection: context.kind === "selection" ? `${context.count} objects` : "Objects",
     structure: context.kind === "structure" && context.structures > 1 ? `${context.structures} structures` : "Structure",
     atom: "Atom",
     bond: "Bond",
@@ -574,8 +482,8 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
     >
       <header>
         <h2>{title}</h2>
-        <button className="actions-close" onClick={() => onOpen(false)} aria-label="Hide actions" title="Hide actions">
-          <X size={14} />
+        <button className="actions-close" onClick={() => onOpen(false)} aria-label="Close actions" title="Close actions">
+          <X size={12} />
         </button>
       </header>
 
@@ -590,12 +498,12 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         <div className="problems" role="status">
           {problems.slice(0, 2).map((p) => (
             <div key={p.atom} className="problem">
-              <Warning size={16} weight="bold" aria-hidden />
+              <Warning size={16} aria-hidden />
               <p>{p.message}</p>
-              <button className="problem-hide" onClick={() => run(`hide_warning:${p.atom}`)} aria-label={`Hide this warning`} title="Hide this warning"><X size={12} weight="bold" /></button>
+              <button className="problem-hide" onClick={() => run(`hide_warning:${p.atom}`)} aria-label={`Hide this warning`} title="Hide this warning"><X size={12} /></button>
               <div className="problem-buttons">
                 {p.fix && <button onClick={() => run(`fix:${p.atom}:${p.fix!.charge}`)}>Fix</button>}
-                <button onClick={() => run(`show:${p.atom}`)}><Eye size={14} aria-hidden /> Show</button>
+                <button onClick={() => run(`show:${p.atom}`)}><Eye size={12} aria-hidden /> Show</button>
               </div>
             </div>
           ))}
@@ -668,26 +576,27 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
 
       {context.kind === "caption" && (
         <div className="chips" role="group" aria-label="Style">
-          {([["bold", "Bold", <TextB size={16} weight="bold" />, context.bold], ["italic", "Italic", <TextItalic size={16} />, context.italic], ["underline", "Underline", <TextUnderline size={16} />, context.underline],
+          {([["bold", "Bold", <TextB size={16} />, context.bold], ["italic", "Italic", <TextItalic size={16} />, context.italic], ["underline", "Underline", <TextUnderline size={16} />, context.underline],
             ["sub", "Subscript", <TextSubscript size={16} />, context.script === "sub"], ["super", "Superscript", <TextSuperscript size={16} />, context.script === "super"]] as const).map(([id, name, icon, on]) => (
             <button key={id} className="chip" aria-pressed={on} aria-label={name} title={hint(`caption.${id}`) ? `${name} (${hint(`caption.${id}`)})` : name} onClick={() => run(`caption.${id}`)}>{icon}</button>
           ))}
           <button className="chip" aria-label="Formula" title={`Formula: counts become subscripts (${hint("caption.formula")})`} onClick={() => run("caption.formula")}><span className="glyph-text">H<sub>2</sub>O</span></button>
-          {context.fonts && <FontButton font={context.font ?? context.fonts[0]} fonts={context.fonts} run={run} />}
+          {context.fonts && <div className="size font"><FontPick label="Font" font={context.font ?? context.fonts[0]} fonts={context.fonts} onPick={(f) => run(`caption.font.${f}`)} /></div>}
           <SizeButton size={context.size} run={run} />
-          {([["left", "Align left", <TextAlignLeft size={16} />], ["centre", "Centre", <TextAlignCenter size={16} />], ["right", "Align right", <TextAlignRight size={16} />]] as const).map(([id, name, icon]) => (
-            <button key={id} className="chip" aria-pressed={context.align === id} aria-label={name} title={name} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
+          {([["left", "Flush left", <TextAlignLeft size={16} />], ["centre", "Centre text", <TextAlignCenter size={16} />], ["right", "Flush right", <TextAlignRight size={16} />], ["justify", "Justified", <TextAlignJustify size={16} />]] as const).map(([id, name, icon]) => (
+            <button key={id} className="chip" aria-pressed={context.align === id} aria-label={name} title={hint(`caption.align.${id}`) ? `${name} (${hint(`caption.align.${id}`)})` : name} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
           ))}
         </div>
       )}
 
-      {(context.kind === "atom" || context.kind === "structure") && context.text && (
-        // A label styles as text does, as in ChemDraw: the Text menu's styles, font and size on the selected labels.
+      {(context.kind === "atom" || context.kind === "structure" || context.kind === "shape") && context.text && (
+        // A label styles as text does, as in ChemDraw: the Text menu's styles, font and size on the selected labels,
+        // and on a table's cells or a TLC plate's Rf values.
         <div className="chips label-style" role="group" aria-label="Label style">
-          {([["bold", "Bold", <TextB size={16} weight="bold" />, context.text.bold], ["italic", "Italic", <TextItalic size={16} />, context.text.italic], ["underline", "Underline", <TextUnderline size={16} />, context.text.underline]] as const).map(([id, name, icon, on]) => (
+          {([["bold", "Bold", <TextB size={16} />, context.text.bold], ["italic", "Italic", <TextItalic size={16} />, context.text.italic], ["underline", "Underline", <TextUnderline size={16} />, context.text.underline]] as const).map(([id, name, icon, on]) => (
             <button key={id} className="chip" aria-pressed={on} aria-label={name} title={hint(`caption.${id}`) ? `${name} (${hint(`caption.${id}`)})` : name} onClick={() => run(`caption.${id}`)}>{icon}</button>
           ))}
-          <FontButton font={context.text.font} fonts={fonts} run={run} />
+          <div className="size font"><FontPick label="Font" font={context.text.font} fonts={fonts} onPick={(f) => run(`caption.font.${f}`)} /></div>
           <SizeButton size={context.text.size} run={run} />
         </div>
       )}
@@ -750,7 +659,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
               ))}
             </div>
             <div className="chips" role="group" aria-label="Alignment">
-              {([["left", "Align left", <TextAlignLeft size={16} />], ["centre", "Centre", <TextAlignCenter size={16} />], ["right", "Align right", <TextAlignRight size={16} />]] as const).map(([id, name, icon]) => (
+              {([["left", "Flush left", <TextAlignLeft size={16} />], ["centre", "Centre text", <TextAlignCenter size={16} />], ["right", "Flush right", <TextAlignRight size={16} />]] as const).map(([id, name, icon]) => (
                 <button key={id} className="chip" aria-pressed={context.cellAlign === id} aria-label={name} title={name} onClick={() => run(`shape.align.${id}`)}>{icon}</button>
               ))}
             </div>
@@ -838,6 +747,12 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           </div>
         );
       })()}
+      {((context.kind === "shape" && context.shape !== "highlight" && context.shape !== "table" && context.style !== "solid" && context.style !== "shaded") || context.kind === "arrow") && (
+        // The width of the lines, for every object drawn in lines (a table's is with its lines, above).
+        <div className="sliders" role="group" aria-label="Lines">
+          <Slider name="Line width" value={context.kind === "arrow" ? context.width : context.weight} min={0.05} max={4} step={0.05} show={(v) => `${v.toFixed(2)} pt`} onChange={(v) => run(`${context.kind}.weight.${Math.round(v * 100)}`)} />
+        </div>
+      )}
       {colour && (
         // Colour is a section of its own, titled like the sets below, and set off from the main rows.
         <div className="colour-block" role="group" aria-label="Colour">
@@ -847,7 +762,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           {[...(colour.tints ? TINTS : COLOURS), ...palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => (
             <button key={`${name}${hex}`} role="radio" aria-checked={colour.value.toLowerCase() === hex.toLowerCase()} aria-label={name} title={name} className="swatch" style={{ background: hex }} onClick={() => run(`colour.${hex}`)} />
           ))}
-          <button className="swatch custom" title="Add a colour" aria-label="Add a colour" onClick={() => run("colours_add")}><PlusIcon size={10} weight="bold" aria-hidden /></button>
+          <button className="swatch custom" title="Add a colour" aria-label="Add a colour" onClick={() => run("colours_add")}><PlusIcon size={12} aria-hidden /></button>
         </div>
         {(context.kind === "structure" || context.kind === "atom") && (() => {
           // Highlight (a disc behind each atom) and ring fill (every ring wholly selected), each a labelled button.
@@ -874,7 +789,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
               {k === rows.length - 1 && carry?.to?.rows && carry.to.index >= rows.filter((r) => r.command !== carry.command).length && <span className="drop-line end" aria-hidden />}
             </div>
           ))}
-          {menus && sets.map(([s]) => (
+          {menus && sets.map(([s, list]) => s === "delete" ? <Row key={s} icon={list[0].icon} name={list[0].name} command={list[0].command} hint={hint(list[0].command)} run={run} /> : (
             <button key={s} className="action submenu-row" aria-haspopup="menu" aria-expanded={sub?.set === s}
               onClick={(e) => {
                 const r = e.currentTarget.getBoundingClientRect(), p = panel.current!.getBoundingClientRect();
@@ -882,7 +797,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
               }}>
               {SET_ICONS[s]}
               <span className="action-name">{SET_TITLES[s]}</span>
-              <CaretRight size={12} weight="bold" className="submenu-caret" aria-hidden />
+              <CaretRight size={12} className="submenu-caret" aria-hidden />
             </button>
           ))}
         </div>

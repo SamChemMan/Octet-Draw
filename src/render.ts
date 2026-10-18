@@ -8,7 +8,7 @@
 
 import { units } from "./labels.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
-import { lines as richLines, type TextRun } from "./richtext.ts";
+import { lines as richLines, plainOf, runsOf, styleOf, wrap, type RunStyle, type TextRun } from "./richtext.ts";
 import type { DocStyle } from "./docstyle.ts";
 import type { Cycle, CycleText } from "./cycle.ts";
 
@@ -35,6 +35,7 @@ export type Atom = {
   fill?: string; // #rrggbb ring fill: a ring whose atoms all have the same fill is filled with it at 30% opacity
   circle?: true; // Toggle Aromatic Display: an aromatic ring whose atoms all have this is drawn with a circle
   number?: string; // Show Atom Number: the number drawn beside the atom
+  order?: number; // the draw order of the atom's structure (order.ts); unset draws it in its layer
 };
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 // On a double bond: bold makes the main line bold, dashed the second line dashed, either crosses the two lines.
@@ -48,12 +49,17 @@ export type Bond = { type: number; atoms: [number, number]; stereo?: number; dis
 // on: conditions text, kept centred above or below an arrow (by the arrow's id).
 export type Caption = {
   id: number; text: string; x: number; y: number;
-  bold?: boolean; italic?: boolean; underline?: boolean; size?: number; align?: "left" | "centre" | "right"; under?: number[];
+  bold?: boolean; italic?: boolean; underline?: boolean; size?: number; align?: "left" | "centre" | "right" | "justify"; under?: number[];
   on?: { arrow: number; side: "above" | "below" };
   colour?: string; // #rrggbb; unset uses the document's text colour
   cycle?: CycleText; // a catalytic cycle's centre label, or a reagent or product on one of its steps
   font?: string; // the caption's font; unset uses the document's caption font
   runs?: TextRun[]; // the text in runs, each with its own style (rich text); text is always their text joined
+  order?: number; // draw order (order.ts)
+  width?: number; // the caption's width (bond lengths): its lines wrap to it, and justified lines fill it
+  // Line spacing (ChemDraw's Text > Line Spacing): unset is Automatic (every line as far apart as the caption's
+  // largest text needs), variable (each line as far from the last as their own text needs), or fixed, in pt.
+  lineHeight?: "variable" | number;
 };
 // An arrow from one point to another (drawing coordinates). bend: how far a curved arrow's middle sits off the
 // straight line, as a fraction of its length, to the left looking from start to end.
@@ -76,6 +82,8 @@ export type Arrow = {
   id: number; kind: ArrowKind; from: [number, number]; to: [number, number]; bend?: number; style?: LineStyle; orbital?: { shape: OrbitalShape; phase: Phase }; colour?: string;
   start?: Head; end?: Head; head?: HeadShape; // heads set by hand; unset uses the kind's own
   curve?: Curve; fill?: CurveFill; // a pen curve's points (from and to are its ends), and a closed one's fill
+  order?: number; // draw order (order.ts)
+  width?: number; // the line width in points; unset uses the document's
 };
 // Every kind a drawing's arrow list may hold.
 export const ALL_ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "curved", "fishhook", "double", "line", "arc", "orbital", "cut", "curve"];
@@ -135,16 +143,64 @@ export type Shape = {
   id: number; kind: ShapeKind; from: [number, number]; to: [number, number]; dashed?: boolean; colour?: string;
   fill?: "shaded" | "solid"; shadow?: boolean; side?: "left" | "right"; mark?: string; tlc?: Tlc; table?: Table;
   shade?: Shade; // a shadow's look, when it differs from SHADE
+  order?: number; // draw order (order.ts)
+  angle?: number; // degrees anticlockwise: the box from and to span is drawn turned about its middle (not TLC plates or tables)
+  width?: number; // the line width in points; unset uses the document's
+  // The text of a table's cells or a TLC plate's Rf values, as the Text menu sets it; unset is the document's caption
+  // style (an Rf value is 0.8 of its size).
+  font?: string; size?: number; bold?: true; italic?: true; underline?: true;
 };
 // A shadow: how far it falls down and right and how soft its edge is (bond lengths), and how dark it is (0 to 1).
 export type Shade = { depth: number; blur: number; opacity: number };
 export const SHADE: Shade = { depth: 0.12, blur: 0, opacity: 0.35 };
 export const isBracket = (sh: Pick<Shape, "kind">) => sh.kind === "brackets" || sh.kind === "parens" || sh.kind === "braces";
+// Boxes, ovals, highlights and brackets turn with a selection, as ChemDraw's graphics do. TLC plates and tables stay
+// upright and move by their middle (ChemDraw cannot turn a table).
+export const turns = (sh: Pick<Shape, "kind">) => sh.kind !== "tlc" && sh.kind !== "table";
+// A point turned about c by degrees, anticlockwise (drawing units, y up).
+export const turnPoint = (q: [number, number], c: [number, number], degrees: number): [number, number] => {
+  const r = (degrees * Math.PI) / 180, cs = Math.cos(r), sn = Math.sin(r), dx = q[0] - c[0], dy = q[1] - c[1];
+  return [c[0] + dx * cs - dy * sn, c[1] + dx * sn + dy * cs];
+};
+const middleOf = (sh: Pick<Shape, "from" | "to">): [number, number] => [(sh.from[0] + sh.to[0]) / 2, (sh.from[1] + sh.to[1]) / 2];
+// A shape's corners as drawn (drawing units): from, to and the other two (c1 has from's x and to's y), turned with it.
+export function shapeCorners(sh: Pick<Shape, "from" | "to" | "angle">): Record<"from" | "to" | "c1" | "c2", [number, number]> {
+  const c = middleOf(sh), t = (q: [number, number]) => (sh.angle ? turnPoint(q, c, sh.angle) : q);
+  return { from: t(sh.from), to: t(sh.to), c1: t([sh.from[0], sh.to[1]]), c2: t([sh.to[0], sh.from[1]]) };
+}
+// The upright box round a shape as drawn: [left, bottom, right, top] in drawing units.
+export function shapeBounds(sh: Pick<Shape, "from" | "to" | "angle">): Box {
+  const ps = Object.values(shapeCorners(sh)), xs = ps.map((q) => q[0]), ys = ps.map((q) => q[1]);
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+// Whether a point (drawing units) is inside a shape's box as drawn.
+export function inShape(sh: Pick<Shape, "from" | "to" | "angle">, p: [number, number]): boolean {
+  const q = sh.angle ? turnPoint(p, middleOf(sh), -sh.angle) : p;
+  return q[0] >= Math.min(sh.from[0], sh.to[0]) && q[0] <= Math.max(sh.from[0], sh.to[0]) && q[1] >= Math.min(sh.from[1], sh.to[1]) && q[1] <= Math.max(sh.from[1], sh.to[1]);
+}
+// A shape after a turn or flip, with its angle in (-90, 90] (or none): a shape turned a half is the same shape with
+// its corners swapped (one bracket alone then faces the other way), and a box, oval or highlight turned a quarter
+// takes its height for its width. So a shape stays upright whenever it can, and its corners go where the turn took them.
+export function settleShape(sh: Shape): Shape {
+  const { angle: _, ...rest } = sh;
+  if (!turns(sh)) return rest;
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-6, c = middleOf(sh);
+  const half = (s: Shape): Shape => ({ ...s, from: s.to, to: s.from, ...(s.side ? { side: s.side === "left" ? "right" as const : "left" as const } : {}) });
+  const quarter = (s: Shape, sign: number): Shape => {
+    const d = [s.from[0] - c[0], s.from[1] - c[1]], r = [-sign * d[1], sign * d[0]];
+    return { ...s, from: [c[0] + r[0], c[1] + r[1]], to: [c[0] - r[0], c[1] - r[1]] };
+  };
+  let a = (((((sh.angle ?? 0) + 180) % 360) + 360) % 360) - 180, out: Shape = rest; // [-180, 180)
+  if (a > 90 + 1e-6) { out = half(out); a -= 180; } else if (a <= -90 + 1e-6) { out = half(out); a += 180; }
+  if (near(a, 0)) return out;
+  if (!isBracket(sh) && near(Math.abs(a), 90)) return quarter(out, Math.sign(a));
+  return { ...out, angle: Math.round(a * 1e6) / 1e6 };
+}
 export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "table"];
 export const HIGHLIGHT = "#DCE4F6";
 // Captions, arrows, shapes and cycles share one set of ids.
 export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; style?: DocStyle };
-// A stoichiometry grid (Structure > Analyze Stoichiometry) under the reaction an arrow belongs to: what was typed for
+// A stoichiometry grid (Structure > Analyse Stoichiometry) under the reaction an arrow belongs to: what was typed for
 // each component ("r0", "r1"… reactants, "p0"… products, in reading order), in base units, and the limiting reactant.
 // Everything else is worked out from the reaction as it is drawn (stoich.ts).
 export type Grid = { arrow: number; typed: Record<string, Partial<Record<"mass" | "moles" | "equiv" | "volume" | "density" | "molarity" | "purity" | "measured", number>>>; limiting?: string };
@@ -887,34 +943,68 @@ function shiftOf(drawn: Atom[], atoms: Atom[], k: number): P | undefined {
 export const CAPTION_PT = 10;
 export const isNumber = (c: Caption) => !!c.bold && /^\d+[a-z]?$/.test(c.text);
 const GAP_PT = 15, GAP_ARROW_PT = 3, LINE = 1.2, ASCENT = 0.905, DESCENT = 0.212; // Arial's ascent and descent, in em
+// Each line's baseline below the first's (px), by the caption's line spacing (Caption.lineHeight). size: the
+// caption's text size (px); a run's own size is in pt. Variable, as ChemDraw's: each line is as tall as its tallest
+// character and lowest descender, with no gap between lines. ink: how far line j's text reaches above and below its
+// baseline (px); without it (or on an empty line), the ascent and descent of the line's largest text.
+export function lineOffsets(c: Pick<Caption, "lineHeight" | "runs" | "text">, size: number, pt: number, ink?: (j: number) => [number, number] | undefined): number[] {
+  const runLines = c.runs ? richLines(c.runs) : undefined, count = c.text.split("\n").length;
+  const tallest = (j: number) => Math.max(size, ...(runLines?.[j] ?? []).map((r) => (r.size ? r.size * pt : size) * (r.script ? 0.75 : 1)));
+  const all = Math.max(...Array.from({ length: count }, (_, j) => tallest(j)));
+  const out = [0];
+  for (let j = 1; j < count; j++) {
+    const below = ink?.(j - 1)?.[1] ?? DESCENT * tallest(j - 1), above = ink?.(j)?.[0] ?? ASCENT * tallest(j);
+    out.push(out[j - 1] + (typeof c.lineHeight === "number" ? c.lineHeight * pt : c.lineHeight === "variable" ? below + above : LINE * all));
+  }
+  return out;
+}
 export type Placed = {
   id: number; size: number; bold?: boolean; italic?: boolean; underline?: boolean; colour?: string; anchor: "start" | "middle" | "end"; font?: string;
-  lines: { text: string; x: number; y: number; runs?: TextRun[] }[]; box: Box;
+  lines: { text: string; x: number; y: number; runs?: TextRun[]; spacing?: number }[]; box: Box; // spacing: a justified line's extra space per space (px)
+  order?: number; // the caption's draw order (order.ts)
 };
 // pt: px per point in the drawing frame; size: the document's caption size in pt.
-// fixed: where captions placed by something else (a cycle's labels) go, in px.
+// fixed: where captions placed by something else (a cycle's labels) go, in px. measure: how wide a piece of text is
+// in a run's style (px), for captions with a width; without it they do not wrap. extent: how far a piece of text
+// reaches above and below its baseline (px), for Variable line spacing.
 export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width: (text: string, c: Caption, line: number) => number, arrows: Arrow[] = mol.arrows ?? [], pt = 4 / 3, defaultSize = CAPTION_PT,
-  fixed: Map<number, { x: number; y: number; anchor: Placed["anchor"] }> = new Map()): Placed[] {
+  fixed: Map<number, { x: number; y: number; anchor: Placed["anchor"] }> = new Map(), measure?: (text: string, c: Caption, style: RunStyle) => number,
+  extent?: (text: string, c: Caption, style: RunStyle) => [number, number]): Placed[] {
   const k = d.scale, below = new Map<string, number>(); // the next free baseline under each structure
   const beside = new Map<string, number>(); // how far the conditions on each side of each arrow already reach
   const order = (c: Caption) => (isNumber(c) ? 0 : 1);
-  return [...(mol.captions ?? [])].sort((a, b) => order(a) - order(b) || a.id - b.id).flatMap((c) => {
+  return [...(mol.captions ?? [])].sort((a, b) => order(a) - order(b) || a.id - b.id).flatMap((given) => {
+    // A caption with a width wraps to it: its soft breaks become lines here, and the lines they end are justified.
+    const wrapped = given.width && measure ? wrap(runsOf(given), given.width * k, (t, s) => measure(t, given, s)) : undefined;
+    const c = wrapped?.soft.length ? { ...given, text: plainOf(wrapped.runs), ...(given.runs ? { runs: wrapped.runs } : {}) } : given;
+    const softLines = new Set((wrapped?.soft ?? []).map((p) => c.text.slice(0, p).split("\n").length - 1));
     const size = (c.size ?? defaultSize) * pt, lines = c.text.split("\n"), align = c.align ?? "centre";
-    const anchor = align === "left" ? "start" : align === "right" ? "end" : "middle";
+    // A line's ink (Variable line spacing): its runs' reach, a subscript's lowered and a superscript's raised as drawn.
+    const inkLines = c.lineHeight === "variable" && extent ? (c.runs ? richLines(c.runs) : lines.map((text): TextRun[] => [{ text }])) : undefined;
+    const ink = inkLines && ((j: number): [number, number] | undefined => {
+      const parts = (inkLines[j] ?? []).filter((r) => r.text.trim());
+      if (!parts.length) return undefined;
+      return parts.reduce<[number, number]>(([up, down], r) => {
+        const [a, b] = extent!(r.text, c, styleOf(r)), shift = (r.script === "sub" ? 0.212 : r.script === "super" ? -0.33 : 0) * size;
+        return [Math.max(up, a - shift), Math.max(down, b + shift)];
+      }, [0, 0]);
+    });
+    const offs = lineOffsets(c, size, pt, ink);
+    const anchor = align === "left" || align === "justify" ? "start" : align === "right" ? "end" : "middle";
     let x: number, y: number, anchorOverride: Placed["anchor"] | undefined;
     const arrow = c.on && arrows.find((a) => a.id === c.on!.arrow);
     if (c.on && !arrow) return [];
     const pinned = fixed.get(c.id);
     if (c.cycle && !pinned) return [];
     if (pinned) {
-      [x, y, anchorOverride] = [pinned.x, pinned.y - (lines.length - 1) * LINE * size * (pinned.anchor === "middle" ? 0.5 : 0), pinned.anchor];
+      [x, y, anchorOverride] = [pinned.x, pinned.y - offs[offs.length - 1] * (pinned.anchor === "middle" ? 0.5 : 0), pinned.anchor];
     } else if (arrow) {
       // Conditions: centred on the arrow's middle, GAP_ARROW_PT clear of it, stacking away from it.
       const [s, t] = [[arrow.from[0] * k, -arrow.from[1] * k], [arrow.to[0] * k, -arrow.to[1] * k]];
       const mid = [(s[0] + t[0]) / 2, (s[1] + t[1]) / 2], len = Math.hypot(t[0] - s[0], t[1] - s[1]) || 1, u = [(t[0] - s[0]) / len, (t[1] - s[1]) / len];
       const key = `${arrow.id} ${c.on!.side}`, used = beside.get(key) ?? 0, gap = GAP_ARROW_PT * pt + used;
-      const block = (lines.length - 1) * LINE * size;
-      beside.set(key, used + (lines.length * LINE + 0.2) * size);
+      const block = offs[offs.length - 1];
+      beside.set(key, used + block + (LINE + 0.2) * size);
       if (Math.abs(u[0]) >= 0.5) {
         // A mostly horizontal arrow: text above or below its middle.
         x = mid[0];
@@ -931,18 +1021,20 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
       if (!atoms.length) return [];
       const b: Box = [Math.min(...atoms.map((i) => d.ink[i][0])), Math.min(...atoms.map((i) => d.ink[i][1])), Math.max(...atoms.map((i) => d.ink[i][2])), Math.max(...atoms.map((i) => d.ink[i][3]))];
       const key = [...c.under].sort((p, q) => p - q).join(" ");
-      x = align === "left" ? b[0] : align === "right" ? b[2] : (b[0] + b[2]) / 2;
+      x = align === "left" || align === "justify" ? b[0] : align === "right" ? b[2] : (b[0] + b[2]) / 2;
       y = below.get(key) ?? b[3] + GAP_PT * pt;
-      below.set(key, y + lines.length * LINE * size);
+      below.set(key, y + offs[offs.length - 1] + LINE * size);
     } else [x, y] = [c.x * k, -c.y * k];
     const at = anchorOverride ?? anchor;
-    const widths = lines.map((t, j) => width(t, c, j)), w = Math.max(...widths);
+    const widths = lines.map((t, j) => width(t, c, j)), full = align === "justify" && softLines.size ? c.width! * k : 0, w = Math.max(full, ...widths);
     const runLines = c.runs ? richLines(c.runs) : undefined;
     const left = at === "start" ? x : at === "end" ? x - w : x - w / 2;
+    // A justified line (one a soft break ends) spreads its spaces to fill the width.
+    const spacing = (j: number) => { const gaps = lines[j].split(" ").length - 1; return full && softLines.has(j) && gaps ? { spacing: (full - widths[j]) / gaps } : {}; };
     return [{
-      id: c.id, size, bold: c.bold, italic: c.italic, underline: c.underline, colour: c.colour, anchor: at, font: c.font,
-      lines: lines.map((text, j) => ({ text, x, y: y + j * LINE * size, ...(runLines ? { runs: runLines[j] ?? [] } : {}) })),
-      box: [left, y - ASCENT * size, left + w, y + (lines.length - 1) * LINE * size + DESCENT * size],
+      id: c.id, size, bold: c.bold, italic: c.italic, underline: c.underline, colour: c.colour, anchor: at, font: c.font, ...(c.order ? { order: c.order } : {}),
+      lines: lines.map((text, j) => ({ text, x, y: y + offs[j], ...(runLines ? { runs: runLines[j] ?? [] } : {}), ...spacing(j) })),
+      box: [left, y - ASCENT * size, left + w, y + offs[offs.length - 1] + DESCENT * size],
     }];
   });
 }
@@ -1098,6 +1190,13 @@ function offsetPath(path: P[], d: number): P[] {
 // A shape's lines in px (y down), as paths: the outline of a box or oval, or each bracket of a pair. A highlight's
 // outline is its edge. Rounded corners have a radius of 0.3 bond lengths; bracket ends reach 0.25 bond lengths in.
 export function shapePaths(sh: Shape, k: number, bond = k): P[][] {
+  const upright = uprightPaths(sh, k, bond);
+  if (!sh.angle || !turns(sh)) return upright;
+  // Turned about the middle: anticlockwise on the page is clockwise in px (y down).
+  const r = (sh.angle * Math.PI) / 180, cs = Math.cos(r), sn = Math.sin(r), c = middleOf(sh), cx = c[0] * k, cy = -c[1] * k;
+  return upright.map((path) => path.map(([x, y]): P => [cx + (x - cx) * cs + (y - cy) * sn, cy - (x - cx) * sn + (y - cy) * cs]));
+}
+function uprightPaths(sh: Shape, k: number, bond: number): P[][] {
   const x0 = Math.min(sh.from[0], sh.to[0]) * k, x1 = Math.max(sh.from[0], sh.to[0]) * k;
   const y0 = -Math.max(sh.from[1], sh.to[1]) * k, y1 = -Math.min(sh.from[1], sh.to[1]) * k;
   const w = x1 - x0, h = y1 - y0, arc = (c: P, r: [number, number], a0: number, a1: number, n = 12): P[] =>
@@ -1134,9 +1233,12 @@ export function shapePaths(sh: Shape, k: number, bond = k): P[][] {
 // A pair of brackets, or the one side asked for.
 const sides = (sh: Shape, left: P[], right: P[]): P[][] => (sh.side === "left" ? [left] : sh.side === "right" ? [right] : [left, right]);
 // Where a bracket's mark goes: just outside its top right corner (px, y down), or the top left for a left bracket alone.
+// A turned bracket's mark stays upright, beside the same corner.
 export function markAt(sh: Shape, k: number): { x: number; y: number; anchor: "start" | "end" } {
-  const x0 = Math.min(sh.from[0], sh.to[0]) * k, x1 = Math.max(sh.from[0], sh.to[0]) * k, y0 = -Math.max(sh.from[1], sh.to[1]) * k;
-  return sh.side === "left" ? { x: x0 - 0.08 * k, y: y0 + 0.1 * k, anchor: "end" } : { x: x1 + 0.08 * k, y: y0 + 0.1 * k, anchor: "start" };
+  const x0 = Math.min(sh.from[0], sh.to[0]), x1 = Math.max(sh.from[0], sh.to[0]), y0 = Math.max(sh.from[1], sh.to[1]);
+  const at = (x: number, y: number) => (sh.angle ? turnPoint([x, y], middleOf(sh), sh.angle) : [x, y]);
+  const [x, y] = sh.side === "left" ? at(x0 - 0.08, y0 - 0.1) : at(x1 + 0.08, y0 - 0.1);
+  return { x: x * k, y: -y * k, anchor: sh.side === "left" ? "end" : "start" };
 }
 
 // A shape's ink as filled polygons (px, y down), winding like the bonds: its lines at the line width, dashed when
@@ -1262,6 +1364,8 @@ export function spotPath(t: ReturnType<typeof tlcLayout>, x: Spot): [number, num
 // A table's layout (drawing units, y up). Each column is as wide as its widest text plus padding, and the columns
 // share out any width the box has to spare; rows are equal. measure: a cell's text width in drawing units.
 export const TABLE_PAD = 0.35, TABLE_ROW = 0.8; // bond lengths: padding each side of a column's text; least row height
+// A table's least row height: TABLE_ROW, taller for text over 10 pt.
+export const tableRow = (sh: Pick<Shape, "size">) => TABLE_ROW * Math.max(1, (sh.size ?? 0) / 10);
 export function tableLayout(sh: Shape, measure: (text: string) => number = () => 0) {
   const x0 = Math.min(sh.from[0], sh.to[0]), y1 = Math.max(sh.from[1], sh.to[1]);
   const cells = sh.table?.cells.length ? sh.table.cells : [[""]];
@@ -1271,7 +1375,7 @@ export function tableLayout(sh: Shape, measure: (text: string) => number = () =>
   // Columns and rows whose borders were dragged keep their sizes; the rest share the box.
   const widths = natural.map((w, c) => Math.max(w, sh.table?.widths?.[c] ?? w + spare)), edges = [x0];
   for (const w of widths) edges.push(edges[edges.length - 1] + w);
-  const h = Math.max(TABLE_ROW, Math.abs(sh.to[1] - sh.from[1]) / rows);
+  const h = Math.max(tableRow(sh), Math.abs(sh.to[1] - sh.from[1]) / rows);
   const heights = Array.from({ length: rows }, (_, r) => sh.table?.heights?.[r] ?? h), tops = [y1];
   for (const v of heights) tops.push(tops[tops.length - 1] - v);
   return { x0, x1: edges[cols], y0: tops[rows], y1, rows, cols, h, widths, heights, natural, col: (c: number) => edges[c], row: (r: number) => tops[r] }; // row 0 at the top

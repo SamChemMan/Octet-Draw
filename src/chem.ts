@@ -68,6 +68,15 @@ export function textWidth(text: string, size: number, bold?: boolean, italic?: b
   if (w === undefined) { meter.font = font; w = meter.measureText(text).width; widths.set(key, w); }
   return w;
 }
+// How far a piece of caption text reaches above and below its baseline in px: its tallest character and its lowest
+// descender, as drawn (Variable line spacing).
+const extents = new Map<string, [number, number]>();
+export function textExtent(text: string, size: number, bold?: boolean, italic?: boolean, family = CAPTION_FONT): [number, number] {
+  const font = `${italic ? "italic " : ""}${bold ? "bold " : ""}${size}px ${family}`, key = `${font}|${text}`;
+  let e = extents.get(key);
+  if (e === undefined) { meter.font = font; const m = meter.measureText(text); e = [m.actualBoundingBoxAscent, m.actualBoundingBoxDescent]; extents.set(key, e); }
+  return e;
+}
 export { CAPTION_FONT };
 
 function engine() {
