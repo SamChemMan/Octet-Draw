@@ -123,7 +123,7 @@ export function Menu(p: Props) {
 // the next option that starts with it, Return picks, Escape closes. A list opened by the keyboard takes the focus; one
 // opened by a click leaves it where it was (in text being typed, say).
 const ROW = 32; // px: a list option's height and the gap under it
-export const listOpen = () => !!document.querySelector(".strip.list:not(.leaving)"); // a list is open: its keys come first
+export const listOpen = () => !!document.querySelector(".strip.list:not(.leaving), .colour-pop:not(.leaving)"); // a list or a colour picker is open: its keys come first
 type PickProps = {
   label: string; // what the list chooses, read out and named on the button
   value: string; // the key chosen now

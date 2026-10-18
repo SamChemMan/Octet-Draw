@@ -59,7 +59,7 @@ for (const m of full.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
 // nearest one round it) starts with <Exit>{, and an Exit holds one conditional only: a second one beside the first
 // would keep Exit open for good, so neither would leave with a motion. The command palette stays instant.
 const sources = readdirSync(new URL(".", import.meta.url)).filter((f) => /\.tsx?$/.test(f) && !f.endsWith(".check.ts")).map((f) => ({ f, lines: read(`./${f}`).split("\n") }));
-const overlay = /<(Dialog|Menu|TemplateLibrary|NoticeBar|Properties|Spectrum|Coach|SettingsWindow|ExportDialog|About|Feedback)\b/;
+const overlay = /<(Dialog|Menu|TemplateLibrary|NoticeBar|Properties|Spectrum|Coach|SettingsWindow|ExportDialog|About|Feedback|ColourPop)\b/;
 const indent = (s: string) => s.length - s.trimStart().length;
 for (const { f, lines } of sources) {
   lines.forEach((text, i) => {

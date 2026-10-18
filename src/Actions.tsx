@@ -94,7 +94,7 @@ function PickButton({ label, value, options, onPick, onCustom }: { label: string
         <span className="pick-label" aria-hidden>{label}</span>
         {current.glyph}
       </Pick>
-      {custom && onCustom && <ColourPop anchor={custom} label={`${label} colour`} value={/^#[0-9a-f]{6}$/i.test(value) ? value : "#3F6BFF"} onChange={onCustom} onClose={() => setCustom(undefined)} />}
+      <Exit>{custom && onCustom && <ColourPop anchor={custom} label={`${label} colour`} value={/^#[0-9a-f]{6}$/i.test(value) ? value : "#3F6BFF"} onChange={onCustom} onClose={() => setCustom(undefined)} />}</Exit>
     </div>
   );
 }

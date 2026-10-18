@@ -2,6 +2,7 @@
 // Used wherever a colour is chosen freely (Settings, Colours). There is no system colour panel anywhere in Octet.
 import { useEffect, useRef, useState } from "react";
 import { holdCursor } from "./cursor";
+import { useLeaving } from "./motion";
 
 type HSV = [number, number, number]; // hue 0–360, saturation 0–1, value 0–1
 
@@ -66,20 +67,23 @@ export function ColourPicker({ value, onChange }: { value: string; onChange: (he
 }
 
 // The colour picker in a small window by the button that opens it (anchor: the button's box): under the button, or
-// over it when there is no room below. A click outside it (but on keep, the button) or Escape closes it.
+// over it when there is no room below. A click outside it (but on keep, the button) or Escape closes it. Wrap it in
+// Exit: it leaves with a motion, and takes no clicks or keys on its way out.
 export function ColourPop({ anchor, keep, label, value, onChange, onClose }: { anchor: DOMRect; keep?: HTMLElement | null; label: string; value: string; onChange: (hex: string) => void; onClose: () => void }) {
-  const box = useRef<HTMLDivElement>(null), close = useRef(onClose);
+  const box = useRef<HTMLDivElement>(null), close = useRef(onClose), leaving = useLeaving();
   close.current = onClose;
   useEffect(() => {
+    if (leaving) return;
     const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node) && !keep?.contains(e.target as Node)) close.current(); };
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close.current(); keep?.focus(); } };
+    // Escape closes this only, not the window it is in (Settings), whichever listener comes first (listOpen).
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); close.current(); keep?.focus(); } };
     addEventListener("pointerdown", away, true);
     addEventListener("keydown", esc, true);
     return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", esc, true); };
-  }, [keep]);
+  }, [keep, leaving]);
   const above = anchor.bottom + 260 > innerHeight - 8 && anchor.top - 260 > 8;
   return (
-    <div ref={box} className={above ? "page-menu colour-pop above" : "page-menu colour-pop"} role="dialog" aria-label={label}
+    <div ref={box} className={["page-menu colour-pop", above && "above", leaving && "leaving"].filter(Boolean).join(" ")} role="dialog" aria-label={label} inert={leaving}
       style={{ left: Math.max(8, Math.min(anchor.right - 208, innerWidth - 216)), top: above ? anchor.top - 6 : anchor.bottom + 6 }}>
       <ColourPicker value={value} onChange={onChange} />
     </div>

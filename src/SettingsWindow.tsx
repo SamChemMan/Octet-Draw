@@ -218,7 +218,7 @@ function Backgrounds({ value, onChange }: { value: DocStyle["background"]; onCha
         onClick={() => { if (!own) onChange("#FFFFFF"); setOpen(open ? undefined : button.current!.getBoundingClientRect()); }}>
         <span style={own ? { background: own } : undefined}>{!own && <Plus size={12} aria-hidden />}</span>
       </button>
-      {open && <ColourPop anchor={open} keep={button.current} label="Background colour" value={own ?? "#FFFFFF"} onChange={(hex) => onChange(hex as DocStyle["background"])} onClose={() => setOpen(undefined)} />}
+      <Exit>{open && <ColourPop anchor={open} keep={button.current} label="Background colour" value={own ?? "#FFFFFF"} onChange={(hex) => onChange(hex as DocStyle["background"])} onClose={() => setOpen(undefined)} />}</Exit>
     </span>
   );
 }
