@@ -396,8 +396,9 @@ export default function Editor() {
   const [brushes] = useState(() => store<P | undefined>(undefined));
   const setBrush = brushes.set;
   // The atom whose label is being typed, and the text so far. all: every atom the label goes on (several selected
-  // atoms, as ChemDraw's ! key labels them all); merge: the step the label joins (> adds a bond, then its label).
-  const [editing, setEditing] = useState<{ atom: number; value: string; all?: number[]; merge?: string }>();
+  // atoms, as ChemDraw's ! key labels them all); merge: the step the label joins (> adds a bond, then its label);
+  // blank: the box opened empty (the ! and > keys), so closing it with nothing typed keeps the atoms as they were.
+  const [editing, setEditing] = useState<{ atom: number; value: string; all?: number[]; merge?: string; blank?: true }>();
   const labelOpen = useRef(false);
   const editLabel = (atom: number) => {
     const a = doc.atoms[atom];
@@ -2146,7 +2147,7 @@ export default function Editor() {
     if (kind === "group") return each((m, i) => addGroupAt(m, i, arg as Group)[0], atoms), true;
     if (id === "atom.attach") { const on = atoms.some((i) => !doc.atoms[i].attach); return each((m, i) => setAtomMarks(m, i, { attach: on || undefined }), atoms), true; }
     if (id === "atom.number") return numberAtoms(atoms), true;
-    if (id === "atom.newlabel") { labelOpen.current = true; return setEditing({ atom: atoms[0], value: "", all: atoms }), true; }
+    if (id === "atom.newlabel") { labelOpen.current = true; return setEditing({ atom: atoms[0], value: "", all: atoms, blank: true }), true; }
     if (id === "atom.sproutlabel") return sproutLabel(atoms), true;
     if (kind === "bond" && arg in BONDS) return each((m, k) => setBondSpec(m, k, BONDS[arg as BondKind].spec), bonds), true;
     if (kind === "bond" && (arg === "left" || arg === "centre" || arg === "right")) return each((m, k) => (m.bonds[k].type === 2 ? setPosition(m, k, arg) : m), bonds), true;
@@ -2160,7 +2161,7 @@ export default function Editor() {
     const merge = `sprout-label ${++sprouts.current}`;
     set(m, false, merge);
     labelOpen.current = true;
-    setEditing({ atom: ends[0], value: "", ...(ends.length > 1 ? { all: ends } : {}), merge });
+    setEditing({ atom: ends[0], value: "", ...(ends.length > 1 ? { all: ends } : {}), merge, blank: true });
   }
   function run(id: string) {
     const [kind, arg] = id.split(".");
@@ -2187,7 +2188,7 @@ export default function Editor() {
     if (kind === "label" && atom !== undefined) return set(setLabel(doc, atom, arg));
     if (id === "atom.label" && atom !== undefined) return editLabel(atom);
     // ! asks for a new label for the atom; > adds a bond and asks for the label of its new end (ChemDraw's ? hotkeys).
-    if (id === "atom.newlabel" && atom !== undefined) { labelOpen.current = true; return setEditing({ atom, value: "" }); }
+    if (id === "atom.newlabel" && atom !== undefined) { labelOpen.current = true; return setEditing({ atom, value: "", blank: true }); }
     if (id === "atom.sproutlabel" && atom !== undefined) return sproutLabel([atom]);
     if (id === "charge.plus" && atom !== undefined) return set(addCharge(doc, atom, 1));
     if (id === "charge.minus" && atom !== undefined) return set(addCharge(doc, atom, -1));
@@ -3902,7 +3903,7 @@ export default function Editor() {
         const commit = () => {
           if (!labelOpen.current) return;
           labelOpen.current = false;
-          set((editing.all ?? [editing.atom]).reduce((m, i) => setLabel(m, i, editing.value), doc), !!editing.all, editing.merge);
+          if (editing.value.trim() || !editing.blank) set((editing.all ?? [editing.atom]).reduce((m, i) => setLabel(m, i, editing.value), doc), !!editing.all, editing.merge);
           setEditing(undefined);
         };
         return (
