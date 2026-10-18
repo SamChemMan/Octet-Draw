@@ -348,12 +348,14 @@ export function dragBond(m: Mol, from: number | P, q: P, spec: BondSpec = SINGLE
 
 // Removes atoms (and their bonds), then any bare carbons left with no bonds.
 function removeAtoms(m: Mol, gone: Set<number>): Mol {
+  // A multi-centre point goes with its ring (when fewer than two of its atoms are left).
+  m.atoms.forEach((a, i) => { if (a.centre && a.centre.filter((j) => !gone.has(j)).length < 2) gone.add(i); });
   const bonds = m.bonds.filter((b) => !gone.has(b.atoms[0]) && !gone.has(b.atoms[1]));
   const used = new Set(bonds.flatMap((b) => b.atoms));
   m.atoms.forEach((a, i) => { if (!used.has(i) && a.label === "C" && !a.charge) gone.add(i); });
   const map = new Map<number, number>();
-  const atoms = m.atoms.filter((_, i) => !gone.has(i));
   m.atoms.forEach((_, i) => { if (!gone.has(i)) map.set(i, map.size); });
+  const atoms = m.atoms.flatMap((a, i) => (gone.has(i) ? [] : [a.centre ? { ...a, centre: a.centre.filter((j) => map.has(j)).map((j) => map.get(j)!) } : a]));
   // Captions under a structure follow its atoms' new numbers, and go when all of its atoms go.
   const captions = m.captions?.flatMap((c) => {
     if (!c.under) return [c];
@@ -434,12 +436,20 @@ export function addRing(m: Mol, n: number, aromatic: boolean, target: { bond?: n
   return m;
 }
 
+// An atom copied with its atoms numbered again (to, undefined for an atom not copied): a multi-centre point keeps
+// the copied atoms of its ring, and is a plain point when fewer than two of them are copied.
+function renumbered(a: Atom, to: (i: number) => number | undefined): Atom {
+  if (!a.centre) return { ...a };
+  const centre = a.centre.flatMap((j) => { const k = to(j); return k === undefined ? [] : [k]; });
+  const { centre: _, ...rest } = a;
+  return centre.length >= 2 ? { ...rest, centre } : rest;
+}
 // Adds a fragment (from a paste) shifted by offset.
 export function merge(m: Mol, frag: Mol, offset: P): Mol {
   const base = m.atoms.length;
   return {
     ...m,
-    atoms: [...m.atoms, ...frag.atoms.map((a) => ({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }))],
+    atoms: [...m.atoms, ...frag.atoms.map((a) => ({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number], ...(a.centre ? { centre: a.centre.map((j) => j + base) } : {}) }))],
     bonds: [...m.bonds, ...frag.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number] }))],
   };
 }
@@ -542,6 +552,8 @@ export function onSelection(m: Mol, ids: Set<number>, p: P, r = 0.45): boolean {
 // Groups of connected atoms.
 export function fragments(m: Mol): number[][] {
   const near = bondedTo(m), seen = new Set<number>(), out: number[][] = [];
+  // A multi-centre point is part of its ring's structure.
+  m.atoms.forEach((a, i) => { for (const j of a.centre ?? []) if (near[j]) { near[i].push(j); near[j].push(i); } });
   m.atoms.forEach((_, start) => {
     if (seen.has(start)) return;
     const group: number[] = [], stack = [start];
@@ -579,7 +591,7 @@ export function joinOverlaps(m: Mol, moved: Set<number>): { mol: Mol; joined: bo
 
 // ChemDraw-style group keys on an atom. Each adds a group and keeps the bond rules above.
 export type Group = "chain" | "other" | "acetyl" | "phenyl" | "cyclopropyl" | "cyclobutyl" | "cyclopentyl" | "cyclohexyl"
-  | "wedgeMe" | "hashMe" | "methylidene" | "dimethyl" | "alkyne" | "sulfonyl" | "tBu";
+  | "wedgeMe" | "hashMe" | "methylidene" | "dimethyl" | "alkyne" | "sulfonyl" | "tBu" | "cpLigand" | "phenylLigand";
 const RING_GROUPS: Partial<Record<Group, [number, boolean]>> = {
   phenyl: [6, true], cyclopropyl: [3, false], cyclobutyl: [4, false], cyclopentyl: [5, false], cyclohexyl: [6, false],
 };
@@ -688,6 +700,8 @@ export function addGroupAt(m: Mol, i: number, g: Group): [Mol, number] {
       for (const t of [-30, 30]) { const o = drop(i, { type: 2 }, rot(open, t * deg)); m = setElement(m, o, "O"); }
       return [m, hot];
     }
+    case "cpLigand": return ligand(m, i, 5);
+    case "phenylLigand": return ligand(m, i, 6);
     case "tBu": {
       const a = m.atoms[i];
       if (a.text) return [m, i];
@@ -703,6 +717,51 @@ export function addGroupAt(m: Mol, i: number, g: Group): [Mol, number] {
     }
   }
   return [m, i];
+}
+
+// Elements that are not metals; any other element (and the generic M) is a metal.
+const NONMETALS = new Set(["H", "D", "He", "B", "C", "N", "O", "F", "Ne", "Si", "P", "S", "Cl", "Ar", "Ge", "As", "Se", "Br", "Kr", "Sb", "Te", "I", "Xe", "At", "Rn"]);
+const isMetal = (a: Atom) => (a.text ? a.text === "M" : isElement(a.label) && !NONMETALS.has(a.label));
+// ChemDraw's j and Shift+J keys: an η5 cyclopentadienyl (n 5) or η6 phenyl (n 6) π ligand, its ring of delocalised
+// bonds drawn in perspective across a bond to its multi-centre point. On a metal with no more than one bond the
+// ring goes on a new bond, below the metal or on the far side from its other bond, and the hotspot stays on the
+// metal. On an atom with one single bond the atom becomes the point, and the hotspot moves to the other end of the
+// bond. Elsewhere nothing happens. The ring is seen from a little above: its near side lowest, drawn with a bold
+// edge or a front atom between two wedges; a Cp above its metal is turned a fifth of a turn (staggered).
+function ligand(m: Mol, i: number, n: 5 | 6): [Mol, number] {
+  const a = m.atoms[i], ns = neighbours(m, i), metal = isMetal(a);
+  if (metal ? ns.length > 1 : ns.length !== 1 || orderBetween(m, i, ns[0]) !== 1 || !!a.centre) return [m, i];
+  let point = i, anchor = ns[0];
+  if (metal) {
+    const d: P = ns.length ? unit(sub(pos(m, i), pos(m, ns[0]))) : [0, -1];
+    [m, point] = withAtom(m, add(pos(m, i), d));
+    m = withBond(m, i, point);
+    anchor = i;
+  }
+  const c = pos(m, point), b = unit(sub(c, pos(m, anchor))), front: P = b[1] <= 1e-9 ? b : mul(b, -1), across: P = [-front[1], front[0]];
+  const R = 1 / (2 * Math.sin(Math.PI / n)), turn = n === 6 || (n === 5 && b[1] > 1e-9) ? 180 / n : 0;
+  const base = m.atoms.length, ring = Array.from({ length: n }, (_, k) => base + k), t = (k: number) => (90 + turn + (360 / n) * k) * deg;
+  for (let k = 0; k < n; k++) m = withAtom(m, add(c, add(mul(across, R * Math.cos(t(k))), mul(front, R * 0.45 * Math.sin(t(k))))))[0];
+  // The near atoms: the one, or the two, nearest the viewer.
+  const top = Math.max(...ring.map((_, k) => Math.sin(t(k)))), near = (k: number) => Math.sin(t(k)) > top - 1e-6;
+  for (let k = 0; k < n; k++) {
+    const j = (k + 1) % n, [p, q] = [near(k), near(j)];
+    const spec: BondSpec = p && q ? { type: 4, display: "bold" } : p || q ? { type: 4, stereo: 1 } : { type: 4 };
+    m = { ...m, bonds: [...m.bonds, makeBond(p && !q ? [base + j, base + k] : [base + k, base + j], spec)] };
+  }
+  m = setAtom(m, point, { label: "C", text: undefined, charge: undefined, centre: ring });
+  return [m, metal ? i : anchor];
+}
+// Each multi-centre point where its ring's middle is now (after its ring moved, or turned in 3D).
+export function placeCentres(m: Mol): Mol {
+  let atoms: Atom[] | undefined;
+  m.atoms.forEach((a, i) => {
+    const ps = (a.centre ?? []).filter((j) => j < m.atoms.length).map((j) => m.atoms[j].location);
+    if (!ps.length) return;
+    const c = [0, 1, 2].map((k) => ps.reduce((sum, q) => sum + (q[k] ?? 0), 0) / ps.length) as [number, number, number];
+    if (Math.hypot(c[0] - a.location[0], c[1] - a.location[1], c[2] - (a.location[2] ?? 0)) > 1e-9) (atoms ??= [...m.atoms])[i] = { ...a, location: c };
+  });
+  return atoms ? { ...m, atoms } : m;
 }
 
 // The keyboard hotspot: the atom or bond the next key acts on, as ChemDraw's.
@@ -1209,7 +1268,7 @@ export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>)
   const captions = (m.captions ?? []).filter((c) => (c.under ? c.under.every((i) => map.has(i)) : c.on ? keep.has(c.on.arrow) : c.cycle ? keep.has(c.cycle.cycle) : keep.has(c.id)));
   const ids = new Set([...keep, ...captions.map((c) => c.id)]);
   return {
-    atoms: sel.map((i) => ({ ...m.atoms[i] })),
+    atoms: sel.map((i) => renumbered(m.atoms[i], (j) => map.get(j))),
     bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] as [number, number] })),
     captions: captions.map((c) => ({ ...c, ...(c.under ? { under: c.under.map((i) => map.get(i)!) } : {}) })),
     arrows, shapes: (m.shapes ?? []).filter((x) => items.has(x.id)),
@@ -1227,7 +1286,7 @@ export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
   const by = (q: [number, number]): [number, number] => [q[0] + offset[0], q[1] + offset[1]];
   const mol: Mol = {
     ...m,
-    atoms: [...m.atoms, ...add.atoms.map((a) => ({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }))],
+    atoms: [...m.atoms, ...add.atoms.map((a) => ({ ...renumbered(a, at), location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }))],
     bonds: [...m.bonds, ...add.bonds.map((b) => ({ ...b, atoms: [at(b.atoms[0]), at(b.atoms[1])] as [number, number] }))],
     arrows: [...(m.arrows ?? []), ...(add.arrows ?? []).map((a) => ({ ...a, id: ids.get(a.id)!, from: by(a.from), to: by(a.to),
       ...(a.curve ? { curve: { ...a.curve, points: a.curve.points.map((q) => ({ at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) }))],
@@ -1254,7 +1313,7 @@ export function duplicateSelection(m: Mol, atoms: Set<number>, items: Set<number
   const atom = (i: number) => map.get(i) ?? i;
   const mol: Mol = {
     ...m,
-    atoms: [...m.atoms, ...sel.map((i) => ({ ...m.atoms[i] }))],
+    atoms: [...m.atoms, ...sel.map((i) => renumbered(m.atoms[i], (j) => map.get(j)))],
     bonds: [...m.bonds, ...m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [atom(b.atoms[0]), atom(b.atoms[1])] as [number, number] }))],
     arrows: [...(m.arrows ?? []), ...(m.arrows ?? []).filter((a) => ids.has(a.id)).map((a) => ({ ...a, id: ids.get(a.id)! }))],
     shapes: [...(m.shapes ?? []), ...(m.shapes ?? []).filter((x) => ids.has(x.id)).map((x) => ({ ...x, id: ids.get(x.id)! }))],

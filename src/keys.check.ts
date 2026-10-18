@@ -34,8 +34,8 @@ import { label } from "./keys.ts";
 assert.equal(label("+"), "+");
 assert.ok(["↩", "Enter"].includes(label("enter")));
 // ChemDraw's ! and > over an atom (type a label; add a bond and type its label), and Shift+Option+arrows.
-assert.equal(actionFor(map, press("!", { shiftKey: true }) ?? "", "atom"), "atom.label");
-assert.equal(actionFor(map, press(">", { shiftKey: true }) ?? "", "atom"), "atom.sproutLabel");
+assert.equal(actionFor(map, press("!", { shiftKey: true }) ?? "", "atom"), "atom.newlabel");
+assert.equal(actionFor(map, press(">", { shiftKey: true }) ?? "", "atom"), "atom.sproutlabel");
 assert.equal(press("ArrowLeft", { altKey: true, shiftKey: true }), "alt+shift+arrowleft");
 assert.equal(actionFor(map, "alt+shift+arrowleft", "none"), "tilt.left");
 assert.equal(actionFor(map, "alt+arrowup", "none"), "rotate.ccw15");

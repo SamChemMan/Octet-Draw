@@ -169,6 +169,8 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
   let out: Mol = { atoms: mol.atoms.map((a) => ({ ...a })), bonds: mol.bonds.map((b) => ({ ...b })) };
   const origin = mol.atoms.map((_, i) => i);
   mol.atoms.forEach((a, i) => {
+    // A multi-centre point (an η ligand's) is not an atom: it and its bond are left out.
+    if (a.centre) { out.atoms[i] = { ...out.atoms[i], removed: true } as Mol["atoms"][number]; return; }
     if (!a.text) return;
     const frag = labelGroup(a.text);
     if (!frag?.atoms.length) { out.atoms[i] = { ...out.atoms[i], label: "*", text: undefined }; return; }
@@ -191,7 +193,7 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
   let next = 0;
   out.atoms.forEach((_, k) => { if (keep[k]) map[k] = next++; });
   return {
-    mol: { atoms: out.atoms.filter((_, k) => keep[k]), bonds: out.bonds.map((b) => ({ ...b, atoms: [map[b.atoms[0]], map[b.atoms[1]]] as [number, number] })) },
+    mol: { atoms: out.atoms.filter((_, k) => keep[k]), bonds: out.bonds.filter((b) => keep[b.atoms[0]] && keep[b.atoms[1]]).map((b) => ({ ...b, atoms: [map[b.atoms[0]], map[b.atoms[1]]] as [number, number] })) },
     from: origin.filter((_, k) => keep[k]),
   };
 }

@@ -35,6 +35,9 @@ export type Atom = {
   fill?: string; // #rrggbb ring fill: a ring whose atoms all have the same fill is filled with it at 30% opacity
   circle?: true; // Toggle Aromatic Display: an aromatic ring whose atoms all have this is drawn with a circle
   number?: string; // Show Atom Number: the number drawn beside the atom
+  // A multi-centre attachment point (ChemDraw's MultiAttachment node), as for an η5 Cp or η6 arene ligand: not an
+  // atom but the middle of these atoms (a ring's), where a bond to the ligand ends. It has no label and no chemistry.
+  centre?: number[];
 };
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 // On a double bond: bold makes the main line bold, dashed the second line dashed, either crosses the two lines.
@@ -195,6 +198,14 @@ export function ringCircleRadius(n: number, L: number, spacing: number): number 
   const k = n === 4 ? 1.6 : n === 5 ? 1.5 : n >= 7 ? 1.2 : 4 / 3;
   return L * (1 / (2 * Math.tan(Math.PI / n)) - spacing * k);
 }
+// A π ligand's ellipse: round the ring's middle c, its axes across and along the bond to the ring's multi-centre point
+// (from: the atom at the bond's other end), each the ring's reach that way scaled as an aromatic circle is for a ring
+// of its size (spacing: the double bond spacing as a fraction of the bond length). Any units, y either way.
+export function ligandEllipse(ring: P[], c: P, from: P | undefined, spacing: number): { across: P; along: P; ra: number; rb: number } {
+  const along: P = from && len(sub(c, from)) > 1e-9 ? unit(sub(c, from)) : [0, 1], across = perp(along), n = ring.length;
+  const reach = (d: P) => Math.max(...ring.map((q) => Math.abs(dot(sub(q, c), d)))), f = ringCircleRadius(n, 1, spacing) * 2 * Math.sin(Math.PI / n);
+  return { across, along, ra: reach(across) * f, rb: reach(along) * f };
+}
 // The rings Toggle Aromatic Display draws with a circle: aromatic rings of 5 to 8 atoms, every atom marked.
 export function circledRings(mol: Mol): number[][] {
   if (!mol.atoms.some((a) => a.circle)) return [];
@@ -309,7 +320,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const dir = (i: number, j: number) => unit(sub(pts[j], pts[i]));
 
   // Labels. Heteroatoms and lone carbons get one; skeletal carbons don't, even when charged.
-  const labelled = mol.atoms.map((a, i) => !a.attach && !a.bead && (a.label !== 'C' || !deg(i) || !!a.text || !!a.isotope || (deg(i) === 1 ? !!s.terminal : !!s.carbons)));
+  const labelled = mol.atoms.map((a, i) => !a.attach && !a.bead && !a.centre && (a.label !== 'C' || !deg(i) || !!a.text || !!a.isotope || (deg(i) === 1 ? !!s.terminal : !!s.carbons)));
   const labels: Label[] = [], labelAtom = new Map<Label, number>();
   const marks: P[][] = mol.atoms.map(() => []); // ink that is not a label shape (a skeletal carbon's charge)
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
@@ -493,8 +504,10 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const near = (x: number, y: number, sd: number) =>
       nbrs[x].filter((j) => j !== y && side(j) === sd).map((j) => angle(sub(pts[y], pts[x]), sub(pts[j], pts[x]))).sort((m, l) => m - l);
 
-    if (bond.type === 1 && (bond.stereo === 1 || bond.stereo === 6)) { plan.kind = bond.stereo === 1 ? 'wedge' : 'hash'; return plan; }
-    if (bond.type === 1 && bond.display) {
+    // A delocalised bond takes the single bond styles too (a π ligand's ring drawn in perspective).
+    const single = bond.type === 1 || bond.type === 4;
+    if (single && (bond.stereo === 1 || bond.stereo === 6)) { plan.kind = bond.stereo === 1 ? 'wedge' : 'hash'; return plan; }
+    if (single && bond.display) {
       if (bond.display === 'bold') plan.half = s.bold / 2;
       else if (bond.display === 'dative') plan.head = true;
       else plan.kind = bond.display === 'dashed' ? 'dash' : bond.display === 'hashed' ? 'hashbar' : bond.display === 'hollow' ? 'hollow' : 'wavy';
@@ -774,6 +787,16 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     }
     for (const poly of polygons.slice(before)) { colours.push(mol.atoms[r[0]].colour); alphas.push(1); for (const q of poly) grow(r[0], q); }
   }
+  // A π ligand (a ring of delocalised bonds round a multi-centre point) has an ellipse inside, sized as an aromatic
+  // circle for the ring and flattened with it: its axes across and along the bond to the point.
+  mol.atoms.forEach((a, i) => {
+    const r = a.centre ?? [];
+    if (r.length < 3 || !r.every((x) => r.filter((y) => bondAt.get(key(x, y))?.type === 4).length === 2)) return;
+    const c = pts[i], { across, along, ra, rb } = ligandEllipse(r.map((x) => pts[x]), c, nbrs[i].length ? pts[nbrs[i][0]] : undefined, s.spacing / s.bond);
+    const at = (t: number) => add(c, add(mul(across, Math.cos(t) * ra), mul(along, Math.sin(t) * rb))), steps = 72, before = polygons.length;
+    for (let k = 0; k < steps; k++) { const S = at((2 * Math.PI * k) / steps), E = at((2 * Math.PI * (k + 1.05)) / steps); bar(S, E, perp(unit(sub(E, S))), hw); }
+    for (const poly of polygons.slice(before)) { colours.push(mol.atoms[r[0]].colour); alphas.push(1); for (const q of poly) grow(r[0], q); }
+  });
   // Joints in a 3D structure: a disc at each unlabelled atom as wide as its widest bond there, so tapered bonds meet.
   mol.atoms.forEach((_, x) => {
     if (depth[x] === undefined || labelled[x] || !nbrs[x].length) return;
@@ -822,6 +845,8 @@ export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: F
   const find = (i: number) => { while (root[i] !== i) i = root[i] = root[root[i]]; return i; };
   const join = (i: number, j: number) => { const p = find(i), q = find(j); if (p !== q) root[Math.max(p, q)] = Math.min(p, q); };
   for (const b of mol.bonds) join(b.atoms[0], b.atoms[1]);
+  // A multi-centre point is drawn with its ring (the ring's ellipse goes round it).
+  mol.atoms.forEach((a, i) => { for (const j of a.centre ?? []) if (j < mol.atoms.length) join(i, j); });
   const depth = depthOf(mol), first = depth.findIndex((t) => t !== undefined);
   if (first >= 0) depth.forEach((t, i) => { if (t !== undefined) join(i, first); });
   const groups = new Map<number, { ids: number[]; bonds: Bond[] }>();
@@ -841,7 +866,7 @@ export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: F
     if (part && still && (part.at[0] || part.at[1])) part = { atoms, bonds, drawn: atoms, drawing: shifted(part.drawing, part.at), at: [0, 0] };
     if (!part) {
       const local = new Map(ids.map((i, k) => [i, k]));
-      const drawing = render({ atoms, bonds: bonds.map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] })) }, s, measure, scale);
+      const drawing = render({ atoms: atoms.map((a) => (a.centre ? { ...a, centre: a.centre.flatMap((j) => (local.has(j) ? [local.get(j)!] : [])) } : a)), bonds: bonds.map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] })) }, s, measure, scale);
       part = { atoms, bonds, drawn: atoms, drawing, at: [0, 0] };
     }
     cache.parts.set(atoms[0], part);
