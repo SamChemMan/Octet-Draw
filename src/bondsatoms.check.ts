@@ -5,7 +5,7 @@ import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
 import { problems } from "./check.ts";
-import { atomAt, bondAt, bondOrders, cycleBond, orderBonds, setPosition, toggleHydrogens } from "./edit.ts";
+import { addSymbol, atomAt, bondAt, bondOrders, cycleBond, orderBonds, setPosition, toggleHydrogens } from "./edit.ts";
 import { HBOND, QUADRUPLE, render, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
 
 type P = [number, number];
@@ -138,3 +138,34 @@ console.log("bondsatoms.check: label alignment ok");
   assert.equal(parse(serialize(t)).atoms[1].hidden, true);
 }
 console.log("bondsatoms.check: hidden hydrogens ok");
+
+// CD-26. A mark moved round its atom keeps its angle; lone pairs can be bars; an attachment point can be ChemDraw's
+// diamond or star, and the bond stops at it.
+{
+  const water = (more: Partial<Atom> = {}): Mol => ({ atoms: [A("O", 0, 0, { pairs: 2, ...more }), A("C", 1, 0)], bonds: [b(0, 1)] });
+  const at = (m: Mol, key: string) => { const e = render(m, S, ink).electrons.find((x) => x.key === key)!; return Math.round((Math.atan2(-e.at[1], e.at[0]) * 180) / Math.PI); };
+  assert.equal(at(water({ angles: { pair0: 90 } }), "pair0"), 90, "pair0 straight up");
+  assert.notEqual(at(water({ angles: { pair0: 90 } }), "pair1"), 90, "pair1 goes elsewhere");
+  const dots = render(water(), S, ink).polygons.length, bars = render(water({ bars: true }), S, ink).polygons.length;
+  assert.equal(dots - bars, 2, "two bars for four dots");
+  assert.deepEqual([addSymbol(water(), 0, "pair", true).atoms[0].bars, addSymbol(water({ bars: true }), 0, "pair", true).atoms[0].bars], [true, undefined], "Option-click switches the lone pairs' style");
+  // Diamond and star: the bond stops at the shape, which is drawn as an outline.
+  const point = (attach: Atom["attach"]): Mol => ({ atoms: [A("C", 0, 0), A("C", 1, 0, { attach })], bonds: [b(0, 1)] });
+  const reach = (m: Mol) => Math.max(...render(m, S, ink).polygons[0].map((q) => q[0]));
+  assert.ok(reach(point("diamond")) < S.bond - (0.75 * S.size + 2 * S.line) / 2 + 0.5, "the bond stops at the diamond");
+  assert.ok(reach(point(true)) > S.bond - 1, "a wavy point does not cut the bond");
+  assert.deepEqual([addSymbol(point(true), 1, "attachStar").atoms[1].attach, addSymbol(point("star"), 1, "attachStar").atoms[1].attach], ["star", undefined]);
+  for (const attach of [true, "diamond", "star"] as const) assert.equal(roundTrip(point(attach)).atoms[1].attach, attach);
+  assert.match(toCdxml(point("diamond"), DEFAULT_STYLE), /ExternalConnectionType="Diamond"/);
+  // CDXML: bars are LonePairBar symbols; angles go back exactly in Octet's files and from the symbols' places in
+  // ChemDraw's.
+  const moved = water({ bars: true, angles: { pair0: 90 } }), text = toCdxml(moved, DEFAULT_STYLE);
+  assert.equal((text.match(/SymbolType="LonePairBar"/g) ?? []).length, 2);
+  assert.deepEqual(fromCdxml(text).mol.atoms[0].angles, { pair0: 90 });
+  const foreign = roundTrip(moved).atoms[0];
+  assert.equal(foreign.bars, true);
+  assert.equal(foreign.angles?.pair0, 90, "ChemDraw's copy: the symbol's place gives the angle");
+  assert.deepEqual(parse(serialize(moved)).atoms[0].angles, { pair0: 90 });
+  assert.equal(parse(serialize(point("star"))).atoms[1].attach, "star");
+}
+console.log("bondsatoms.check: placed and styled symbols ok");

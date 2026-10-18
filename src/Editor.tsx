@@ -140,6 +140,8 @@ type Drag =
   // TLC: a spot moved (lane and Rf) or sized (Shift: width across, height up, tail down), or the origin or front moved.
   | { kind: "spot"; plate: number; index: number; base: Mol; from: P; size: boolean; moved: boolean; working: Mol }
   | { kind: "tlcline"; plate: number; which: "origin" | "front"; base: Mol; working: Mol }
+  // A mark (lone pair, radical, circled or partial charge) moved round its atom by Shift-drag, by its key (Atom.angles).
+  | { kind: "mark"; atom: number; key: string; base: Mol; working: Mol }
   // Tables: a column or row border dragged with the Table tool (index 0 is the left or top edge).
   | { kind: "tableedge"; id: number; axis: "col" | "row"; index: number; base: Mol; working: Mol }
   | { kind: "tilt"; base: Mol; ids: Set<number>; centre: [number, number, number]; start: [number, number]; hinge?: [number, number]; working: Mol }
@@ -1024,7 +1026,7 @@ export default function Editor() {
     if (exporting) return exporting;
     if (drag?.kind === "bond" && drag.to) return bondTo(doc, drag.from, drag.to, bondSpec);
     if (drag?.kind === "chain" && drag.to) return chainTo(doc, drag.from, drag.to).mol;
-    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "tableedge") return drag.working;
+    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "tableedge" || drag?.kind === "mark") return drag.working;
     if (drag?.kind === "arrow" && drag.to) return addArrow(doc, newArrow(drag.from, drag.to, drag.side, drag.make))[0];
     if (drag?.kind === "shape" && drag.to) { const sh = shapeFrom(drag.from, drag.to); return sh ? addShape(doc, sh)[0] : doc; }
     if (pen || drag?.kind === "pen") {
@@ -1410,7 +1412,7 @@ export default function Editor() {
   // Curved arrows start and end on atoms and bond middles, where electrons are.
   const electronAt = (p: P, t: Hover): P => {
     // A lone pair or radical dot near the pointer comes first: the arrow starts at the electrons themselves.
-    const near = drawing.electrons.map((e) => ({ e, d: Math.hypot(e.at[0] / L - p[0], -e.at[1] / L - p[1]) })).filter((x) => x.d < 0.3).sort((a, b) => a.d - b.d)[0];
+    const near = drawing.electrons.filter((e) => e.key !== "charge" && e.key !== "partial").map((e) => ({ e, d: Math.hypot(e.at[0] / L - p[0], -e.at[1] / L - p[1]) })).filter((x) => x.d < 0.3).sort((a, b) => a.d - b.d)[0];
     if (near) return [near.e.at[0] / L, -near.e.at[1] / L];
     if (t.atom !== undefined) return pos(doc, t.atom);
     if (t.bond !== undefined) { const [a, b] = doc.bonds[t.bond].atoms.map((i) => pos(doc, i)); return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; }
@@ -1890,6 +1892,9 @@ export default function Editor() {
     // Shift with the Arrow tool over an arrow's end, or its middle point, starts a new arrow joined there.
     const join = tool === "arrow" && e.shiftKey ? joinAt(p) : undefined;
     if (join) { setSelection(new Set()); setPicked(new Set()); return setDrag({ kind: "arrow", from: join, start: screen, target: {} }); }
+    // Shift-drag on a mark with Select or the Symbols tool moves it round its atom, as in ChemDraw.
+    const mark = e.shiftKey && (tool === "select" || tool === "symbol") ? drawing.electrons.filter((x) => x.key && Math.hypot(x.at[0] / L - p[0], -x.at[1] / L - p[1]) < 0.2).sort((x, y) => Math.hypot(x.at[0] / L - p[0], -x.at[1] / L - p[1]) - Math.hypot(y.at[0] / L - p[0], -y.at[1] / L - p[1]))[0] : undefined;
+    if (mark) return setDrag({ kind: "mark", atom: mark.atom, key: mark.key!, base: doc, working: doc });
     const handle = tool !== "erase" ? handleAt(p) : undefined;
     // The middle mark: a press moves the arrow as usual; a click (no move) gives it its point.
     addPoint.current = handle?.which === "add" ? handle.id : undefined;
@@ -2056,6 +2061,10 @@ export default function Editor() {
           ? i === 0 ? { widths: t.widths.map((w) => (w * Math.max(0.1, t.x1 - p[0])) / (t.x1 - t.x0)), x0: Math.min(p[0], t.x1 - 0.1) } : { widths: t.widths.map((w, c) => (c === i - 1 ? p[0] - t.col(c) : w)) }
           : i === 0 ? { heights: t.heights.map((h) => (h * Math.max(0.1, p[1] - t.y0)) / (t.y1 - t.y0)), y1: Math.max(p[1], t.y0 + 0.1) } : { heights: t.heights.map((h, r) => (r === i - 1 ? t.row(r) - p[1] : h)) };
         return setDrag({ ...drag, working: updateShape(drag.base, drag.id, sizeTable(sh, size, cellWidth)) });
+      }
+      case "mark": {
+        const a = drag.base.atoms[drag.atom], deg = Math.round((Math.atan2(p[1] - a.location[1], p[0] - a.location[0]) * 180) / Math.PI);
+        return setDrag({ ...drag, working: { ...drag.base, atoms: drag.base.atoms.map((x, i) => (i === drag.atom ? { ...x, angles: { ...x.angles, [drag.key]: deg } } : x)) } });
       }
       case "tlcline": {
         const sh = drag.base.shapes?.find((x) => x.id === drag.plate);
@@ -3133,7 +3142,8 @@ export default function Editor() {
       return set(setBondSpec(doc, t.bond, bondSpec));
     }
     if (tool === "chain") return set(sprout(doc, t.atom ?? at));
-    if (tool === "symbol") return t.atom !== undefined ? set(addSymbol(doc, t.atom, symbolKind)) : undefined;
+    // Option-click with the lone pair draws the atom's lone pairs as bars (or as dots again), as in ChemDraw.
+    if (tool === "symbol") return t.atom !== undefined ? set(addSymbol(doc, t.atom, symbolKind, pressAlt.current)) : undefined;
     if (tool === "bracket" && "mark" in bracketPick) {
       // A dagger goes on a bracket clicked (again takes it off), or stands alone where clicked.
       const sh = t.arrow !== undefined ? doc.shapes?.find((x) => x.id === t.arrow && isBracket(x)) : undefined;
@@ -3220,6 +3230,7 @@ export default function Editor() {
         return setSpotPick({ plate: drag.plate, index: drag.index });
       case "tlcline":
       case "tableedge":
+      case "mark":
         return drag.working !== drag.base ? set(drag.working, true) : undefined;
       case "pen":
         setPenAt(drag.at);

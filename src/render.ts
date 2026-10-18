@@ -16,13 +16,14 @@ type P = [number, number];
 // text: a label that is not one element (OMe, CO2Et, Ph). label then holds the element it attaches through.
 // Marks drawn around an atom: radical (unpaired electrons, 1 or 2), pairs (lone pairs shown), circled (the charge
 // drawn as ⊕ or ⊖ beside the atom), partial (δ+ or δ−). A radical counts against the atom's hydrogens.
-// hmark: a hydrogen shown by a dot on the atom (towards the viewer) or a short hash (away). attach: a wavy line
-// across the bond at this end, for a point of attachment. bead: a polymer bead (a resin sphere) at this atom.
+// hmark: a hydrogen shown by a dot on the atom (towards the viewer) or a short hash (away). attach: a point of
+// attachment, in ChemDraw's three styles: a wavy line across the bond at this end (true), or a diamond or a star on
+// the atom that the bond stops at. bead: a polymer bead (a resin sphere) at this atom.
 export type Atom = {
   label: string; location: [number, number, number]; charge?: number; implicitHCount?: number; text?: string;
   radical?: number; // 1 a doublet (one unpaired electron), 2 a triplet (two), 3 a singlet (a paired carbene)
   isotope?: number; // mass number, written before the element (13C, 2H)
-  pairs?: number; circled?: boolean; partial?: "+" | "-"; hmark?: "dot" | "dash"; attach?: boolean; bead?: boolean;
+  pairs?: number; circled?: boolean; partial?: "+" | "-"; hmark?: "dot" | "dash"; attach?: boolean | "diamond" | "star"; bead?: boolean;
   map?: number; // a reaction atom map number: the same atom before and after
   enhanced?: string; // enhanced stereo: the stereocentre's group, "abs", "&1" (and) or "or1" (or)
   colour?: string; // #rrggbb for the atom's label and marks; unset draws in the document's ink
@@ -40,6 +41,10 @@ export type Atom = {
   // stack the rest of the label over or under the atom's own unit. Unset is Automatic: it reads away from the bonds.
   align?: "left" | "centre" | "right" | "above" | "below";
   hidden?: true; // Toggle Hydrogen Display: an explicit H that is not drawn, nor its bond (it still counts in the formula)
+  // Marks moved round the atom by hand (Shift-drag): each mark's angle in degrees, anticlockwise from the right, by its
+  // key: charge (a circled one), partial, radical0, radical1, pair0 to pair3. Marks without one go in the widest gaps.
+  angles?: Record<string, number>;
+  bars?: true; // the lone pairs drawn as bars, not dot pairs (ChemDraw's LonePairBar)
 };
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 // On a double bond: bold makes the main line bold, dashed the second line dashed, either crosses the two lines.
@@ -217,11 +222,12 @@ export type Face = { font?: string; bold?: boolean; italic?: boolean };
 export type Box = [number, number, number, number];
 // ink: each atom's ink box (its label and the bonds that touch it), for placing captions. label: the ink box of an
 // atom's label alone (NH2, OMe), for highlighting it; undefined for an unlabelled atom. scale: px per bond length.
-// electrons: where each lone pair and radical dot is drawn (px), for curly arrows to start from. beads: polymer beads,
+// electrons: where each lone pair and radical dot is drawn (px), for curly arrows to start from, and with key, every
+// mark (circled and partial charges too), for moving it round its atom (Atom.angles). beads: polymer beads,
 // drawn shaded by the caller.
 export type Drawing = {
   polygons: P[][]; colours: (string | undefined)[]; alphas: number[]; labels: Label[]; box: Box; ink: Box[]; label: (Box | undefined)[]; scale: number;
-  electrons: { atom: number; at: P }[]; beads: { at: P; r: number }[];
+  electrons: { atom: number; at: P; key?: string }[]; beads: { at: P; r: number }[];
 };
 
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
@@ -366,7 +372,17 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const labels: Label[] = [], labelAtom = new Map<Label, number>();
   const marks: P[][] = mol.atoms.map(() => []); // ink that is not a label shape (a skeletal carbon's charge)
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
+  // A diamond or star attachment point, ChemDraw's size: three quarters of the label size and two line widths across.
+  const pointR = (0.75 * s.size + 2 * s.line) / 2;
+  const pointOutline = (st: "diamond" | "star"): P[] => st === "diamond"
+    ? [[pointR, 0], [0, pointR], [-pointR, 0], [0, -pointR]]
+    : Array.from({ length: 10 }, (_, k): P => { const t = -Math.PI / 2 + (k * Math.PI) / 5, r = k % 2 ? 0.45 * pointR : pointR; return [r * Math.cos(t), r * Math.sin(t)]; });
   const shapes: Piece[][] = mol.atoms.map((a, i) => {
+    // The bond stops at a diamond or star: its outline, drawn in a margin, cuts the bond as a label does.
+    if (a.attach === "diamond" || a.attach === "star") {
+      const inset = Math.max(0.2, 1 - s.margin / pointR), edge = pointOutline(a.attach);
+      return [{ pts: edge.flatMap((q, k) => { const r = edge[(k + 1) % edge.length]; return Array.from({ length: 6 }, (_, j): P => mul(add(q, mul(sub(r, q), j / 6)), inset)); }), x: pts[i][0], y: pts[i][1], f: 1 }];
+    }
     if (!labelled[i]) {
       // A charged skeletal carbon: the sign alone, in the direction furthest from its bonds (up-right on a tie).
       if (a.charge && !a.circled) {
@@ -459,7 +475,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   // charge sits up and to the right when that is clear; the rest share out the widest gaps between the bonds and
   // the label, evenly spaced, and each sits just clear of the label.
   const symbols: P[][][] = mol.atoms.map(() => []);
-  const electrons: { atom: number; at: P }[] = [], beads: { at: P; r: number }[] = [];
+  const electrons: { atom: number; at: P; key?: string }[] = [], beads: { at: P; r: number }[] = [];
   const TAU = 2 * Math.PI, turn = (x: number) => ((x % TAU) + TAU) % TAU;
   // Every polygon winds one way (see polygons below); a disc or ring built here is turned to match.
   const wound = (poly: P[]) => (poly.reduce((sum, q, j) => sum + cross(q, poly[(j + 1) % poly.length]), 0) > 0 ? poly.reverse() : poly);
@@ -479,8 +495,11 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     for (const q of [...shape, ...marks[i]]) if (len(sub(q, X)) > 0.62 * z) taken.push(Math.atan2(q[1] - X[1], q[0] - X[0]));
     const clearOf = (t: number, need: number) => taken.every((b) => Math.abs(Math.atan2(Math.sin(t - b), Math.cos(t - b))) >= need);
     const at = new Map<number, number>(); // index in kinds → angle
+    // Marks placed by hand keep their angle (y is down here, so the angle turns the other way).
+    const keys = kinds.map((kind, k) => (kind === 'charge' || kind === 'partial' ? kind : `${kind}${kinds.slice(0, k).filter((x) => x === kind).length}`));
+    keys.forEach((key, k) => { const deg = a.angles?.[key]; if (deg !== undefined) { at.set(k, (-deg * Math.PI) / 180); taken.push((-deg * Math.PI) / 180); } });
     const UP_RIGHT = -Math.PI / 4;
-    if ((kinds[0] === 'charge' || kinds[0] === 'partial') && clearOf(UP_RIGHT, Math.PI / 5)) { at.set(0, UP_RIGHT); taken.push(UP_RIGHT); }
+    if (!at.has(0) && (kinds[0] === 'charge' || kinds[0] === 'partial') && clearOf(UP_RIGHT, Math.PI / 5)) { at.set(0, UP_RIGHT); taken.push(UP_RIGHT); }
     const rest = kinds.map((_, k) => k).filter((k) => !at.has(k));
     const sorted = taken.map(turn).sort((x, y) => x - y);
     const gaps = sorted.length
@@ -504,7 +523,13 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       let hi = lo + 3 * z;
       if (!fits(lo)) { for (let j = 0; j < 24; j++) { const mid = (lo + hi) / 2; if (fits(mid)) hi = mid; else lo = mid; } lo = hi; }
       const c = add(X, mul(d, lo));
-      if (kind === 'radical' || kind === 'pair') { for (const [o, pr] of parts) symbols[i].push(disc(add(c, mul(n, o)), pr)); electrons.push({ atom: i, at: c }); }
+      if (kind === 'pair' && a.bars) {
+        // A lone pair as a bar across the way out, as long as the dot pair is wide, in the line width.
+        const e = 0.19 * z + R;
+        symbols[i].push(wound([add(add(c, mul(n, -e)), mul(d, -hw)), add(add(c, mul(n, e)), mul(d, -hw)), add(add(c, mul(n, e)), mul(d, hw)), add(add(c, mul(n, -e)), mul(d, hw))]));
+        electrons.push({ atom: i, at: c, key: keys[k] });
+      } else if (kind === 'radical' || kind === 'pair') { for (const [o, pr] of parts) symbols[i].push(disc(add(c, mul(n, o)), pr)); electrons.push({ atom: i, at: c, key: keys[k] }); }
+      else electrons.push({ atom: i, at: c, key: keys[k] });
       if (kind === 'charge') {
         // A ring the line width thick, with the sign inside it.
         for (let j = 0; j < 40; j++) {
@@ -544,7 +569,11 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
         symbols[i].push(wound([add(add(c, mul(n, -half)), mul(u, -hw)), add(add(c, mul(n, half)), mul(u, -hw)), add(add(c, mul(n, half)), mul(u, hw)), add(add(c, mul(n, -half)), mul(u, hw))]));
       }
     }
-    if (a.attach) {
+    if (a.attach === "diamond" || a.attach === "star") {
+      // Its outline, in three quarters of the line width.
+      const edge = pointOutline(a.attach).map((q) => add(X, q)), w = 0.375 * s.line;
+      edge.forEach((q, k) => { const r = edge[(k + 1) % edge.length], u = unit(sub(r, q)), n = perp(u); symbols[i].push(wound([add(add(q, mul(n, -w)), mul(u, -w)), add(add(q, mul(n, w)), mul(u, -w)), add(add(r, mul(n, w)), mul(u, w)), add(add(r, mul(n, -w)), mul(u, w))])); });
+    } else if (a.attach) {
       // A wave across the bond, 0.6 bond lengths long.
       const u = dirs[0] ?? [1, 0], n = perp(u), wave = waveAlong([add(X, mul(n, -0.3 * L)), add(X, mul(n, 0.3 * L))], 0.05 * L, 0.15 * L);
       for (let k = 0; k + 1 < wave.length; k++) {
@@ -686,7 +715,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const atAtom: { pl: Plan; i: number }[][] = mol.atoms.map(() => []);
   plans.forEach((pl, i) => { atAtom[pl.a].push({ pl, i }); if (pl.b !== pl.a) atAtom[pl.b].push({ pl, i }); });
   mol.atoms.forEach((_, x) => {
-    if (labelled[x]) return;
+    if (labelled[x] || shapes[x].length) return; // a label, or an attachment point's diamond or star, cuts its bonds
     const X = pts[x];
     const members = atAtom[x]
       .filter(({ pl }) => !pl.hidden && (pl.kind === 'line' || pl.kind === 'wedge'))
@@ -954,7 +983,7 @@ export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: F
     const move = (b: Box): Box => (moved ? [b[0] + ax, b[1] + ay, b[2] + ax, b[3] + ay] : b);
     out.parts.push({ ids, drawing: d, at: part.at });
     for (const x of d.beads) out.beads.push(moved ? { at: [x.at[0] + ax, x.at[1] + ay], r: x.r } : x);
-    for (const e of d.electrons) out.electrons.push({ atom: ids[e.atom], at: moved ? [e.at[0] + ax, e.at[1] + ay] : e.at });
+    for (const e of d.electrons) out.electrons.push({ ...e, atom: ids[e.atom], at: moved ? [e.at[0] + ax, e.at[1] + ay] : e.at });
     ids.forEach((i, k) => { out.ink[i] = move(d.ink[k]); const l = d.label[k]; out.label[i] = l && move(l); });
     const b = out.box, db = move(d.box);
     b[0] = Math.min(b[0], db[0]); b[1] = Math.min(b[1], db[1]); b[2] = Math.max(b[2], db[2]); b[3] = Math.max(b[3], db[3]);

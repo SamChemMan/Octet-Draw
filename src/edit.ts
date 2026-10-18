@@ -162,9 +162,12 @@ export const addCharge = (m: Mol, i: number, delta: number) => trimPairs(setAtom
 // atom. A radical or partial charge toggles. A lone pair adds one more each click, up to the atom's free pairs
 // (at least one), and the click after that clears them.
 export type SymbolKind = "plus" | "minus" | "circledPlus" | "circledMinus" | "radical" | "pair" | "partialPlus" | "partialMinus"
-  | "radicalCation" | "radicalAnion" | "hDot" | "hDash" | "attach" | "bead";
-export function addSymbol(m: Mol, i: number, kind: SymbolKind): Mol {
+  | "radicalCation" | "radicalAnion" | "hDot" | "hDash" | "attach" | "attachDiamond" | "attachStar" | "bead";
+// bar (Option-click with the lone pair, as in ChemDraw): the atom's lone pairs drawn as bars, or as dots again; an
+// atom with none gets one bar.
+export function addSymbol(m: Mol, i: number, kind: SymbolKind, bar = false): Mol {
   const a = m.atoms[i];
+  if (kind === "pair" && bar) return a.pairs ? setAtom(m, i, { bars: a.bars ? undefined : true }) : setAtom(m, i, { pairs: 1, bars: true });
   switch (kind) {
     case "plus": case "minus": case "circledPlus": case "circledMinus": {
       const charge = (a.charge ?? 0) + (kind === "plus" || kind === "circledPlus" ? 1 : -1);
@@ -179,7 +182,9 @@ export function addSymbol(m: Mol, i: number, kind: SymbolKind): Mol {
       return trimPairs(setAtom(m, i, { radical: on ? undefined : 1, charge: on ? undefined : charge, circled: undefined }), i);
     }
     case "hDot": case "hDash": { const h = kind === "hDot" ? "dot" : "dash"; return setAtom(m, i, { hmark: a.hmark === h ? undefined : h }); }
-    case "attach": return setAtom(m, i, { attach: !a.attach || undefined });
+    // An attachment point in ChemDraw's three styles: wavy (true), diamond and star. Its own style again takes it off.
+    case "attach": return setAtom(m, i, { attach: a.attach === true ? undefined : true });
+    case "attachDiamond": case "attachStar": { const st = kind === "attachDiamond" ? "diamond" : "star"; return setAtom(m, i, { attach: a.attach === st ? undefined : st }); }
     case "bead": return setAtom(m, i, { bead: !a.bead || undefined });
   }
 }

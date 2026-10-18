@@ -98,7 +98,7 @@ export const SHAPES: Record<ShapeKind, string> = {
 export const SYMBOLS: Record<SymbolKind, string> = {
   plus: "Positive charge", minus: "Negative charge", circledPlus: "Circled positive", circledMinus: "Circled negative",
   radical: "Radical", pair: "Lone pair", partialPlus: "Partial positive", partialMinus: "Partial negative",
-  radicalCation: "Radical cation", radicalAnion: "Radical anion", hDot: "H dot", hDash: "H dash", attach: "Attachment point", bead: "Polymer bead",
+  radicalCation: "Radical cation", radicalAnion: "Radical anion", hDot: "H dot", hDash: "H dash", attach: "Attachment point", attachDiamond: "Attachment point, diamond", attachStar: "Attachment point, star", bead: "Polymer bead",
 };
 export type SelectKind = keyof typeof SELECTS;
 
@@ -237,6 +237,8 @@ export function SymbolGlyph({ kind }: { kind: SymbolKind }) {
     case "hDot": return <Icon><polyline points="48,72 128,128 208,72" /><line x1={128} y1={128} x2={128} y2={216} />{dot(128, 26)}</Icon>;
     case "hDash": return <Icon><polyline points="48,184 128,128 208,184" /><line x1={128} y1={128} x2={128} y2={40} /><line x1={104} y1={96} x2={152} y2={96} /><line x1={96} y1={68} x2={160} y2={68} /></Icon>;
     case "attach": return <Icon><line x1={40} y1={208} x2={168} y2={80} /><path d="M128,40 q24,16 12,40 t12,40 t12,40 t12,40" /></Icon>;
+    case "attachDiamond": return <Icon><line x1={40} y1={216} x2={128} y2={128} /><polygon points="176,80 224,128 176,176 128,128" /></Icon>;
+    case "attachStar": return <Icon><line x1={40} y1={216} x2={128} y2={128} /><polygon points={Array.from({ length: 10 }, (_, k) => { const t = -Math.PI / 2 + (k * Math.PI) / 5, r = k % 2 ? 24 : 56; return `${176 + r * Math.cos(t)},${120 + r * Math.sin(t)}`; }).join(" ")} /></Icon>;
     case "bead": return <Icon><line x1={40} y1={216} x2={116} y2={140} /><circle cx={164} cy={92} r={56} fill="currentColor" fillOpacity={0.35} stroke="none" /><circle cx={146} cy={74} r={16} fill="var(--surface-raised)" stroke="none" /></Icon>;
   }
 }

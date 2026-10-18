@@ -435,12 +435,12 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const z = a.location[2] ?? 0;
     const xml = el("n", {
       id: nodeId.get(i)!, p: pt(X), Z: Z(), Visible: a.hidden ? "no" : undefined, NodeType: type, Element: element && element !== 6 ? element : undefined, Isotope: type ? undefined : a.isotope ?? (a.label === "D" ? 2 : undefined), Charge: charge || undefined,
-      Radical: a.radical ? RADICALS[a.radical === 3 ? 1 : Math.min(2, a.radical) + 1] : undefined, NumHydrogens: h, ExternalConnectionType: a.attach ? "Wavy" : a.bead ? "PolymerBead" : undefined,
+      Radical: a.radical ? RADICALS[a.radical === 3 ? 1 : Math.min(2, a.radical) + 1] : undefined, NumHydrogens: h, ExternalConnectionType: a.attach ? (a.attach === "diamond" ? "Diamond" : a.attach === "star" ? "Star" : "Wavy") : a.bead ? "PolymerBead" : undefined,
       NeedsClean: shown ? "yes" : undefined, GenericNickname: generic ? a.text : undefined, LabelDisplay: shown && a.align ? { left: "Left", centre: "Center", right: "Right", above: "Above", below: "Below" }[a.align] : undefined,
       EnhancedStereoType: enhanced ? { abs: "Absolute", "&": "And", or: "Or" }[enhanced[1]] : undefined, EnhancedStereoGroupNum: enhanced?.[2] || undefined,
       color: colour(a.colour), highlightColor: colour(a.halo), ShowAtomStereo: a.cip ? "yes" : undefined, ShowAtomNumber: a.number ? "yes" : undefined, AtomNumber: a.number, IgnoreWarnings: a.ignoreWarnings ? "yes" : undefined, xyz: z ? `${pt(X)} ${fmt(z * B)}` : undefined,
       BondOrdering: inner && deg > 1 ? bondsAt[i].map((k) => bondId[k]).join(" ") : undefined,
-      Octet: priv({ hmark: a.hmark, partial: a.partial, depth: a.depth === false ? false : undefined, map: a.map, circle: a.circle }),
+      Octet: priv({ hmark: a.hmark, partial: a.partial, depth: a.depth === false ? false : undefined, map: a.map, circle: a.circle, angles: a.angles }),
     }, (inner ? nested(i, inner) : "") + (label?.xml ?? ""));
     if (a.partial) note(a.partial === "+" ? "δ+" : "δ−", [X[0] + 0.45 * B, X[1] - 0.45 * B] as P, style.labelSize * 0.75, "left", a.colour);
     return { xml, box: label?.box ?? [X[0], X[1], X[0], X[1]] };
@@ -541,19 +541,23 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     // A singlet radical (carbene) is a pair of electrons that stands for the radical.
     if (a.radical === 3) list.push(["LonePair", ["Radical"]]);
     else for (let r = 0; r < Math.min(2, a.radical ?? 0); r++) list.push(["Electron", ["Radical"]]);
-    for (let r = 0; r < Math.min(4, a.pairs ?? 0); r++) list.push(["LonePair", []]);
+    for (let r = 0; r < Math.min(4, a.pairs ?? 0); r++) list.push([a.bars ? "LonePairBar" : "LonePair", []]);
     if (!list.length) return "";
     const taken = nbrs[i].map((j) => { const d = sub(page(j), X); return Math.atan2(d[1], d[0]); });
     if (shown && (a.text || a.label !== "C")) taken.push(a.text && nbrs[i].length && taken.every((t) => Math.cos(t) > 0) ? Math.PI : 0);
-    const angles: number[] = [];
-    if (list[0][1][0] === "Charge" && taken.every((t) => Math.abs(Math.atan2(Math.sin(t + Math.PI / 4), Math.cos(t + Math.PI / 4))) >= Math.PI / 5)) { angles.push(-Math.PI / 4); taken.push(-Math.PI / 4); }
-    const sorted = taken.map(turn).sort((p, q) => p - q);
+    // Marks moved by hand (Atom.angles, by the renderer's keys) keep their angle; the page's y is down.
+    const keys = list.map(([type], k) => (type === "Electron" ? `radical${list.slice(0, k).filter(([x]) => x === "Electron").length}` : type.startsWith("LonePair") && list[k][1][0] !== "Radical" ? `pair${list.slice(0, k).filter(([x, r]) => x.startsWith("LonePair") && r[0] !== "Radical").length}` : a.circled ? "charge" : ""));
+    const angles: (number | undefined)[] = keys.map((key) => (key && a.angles?.[key] !== undefined ? (-a.angles[key] * Math.PI) / 180 : undefined));
+    for (const t of angles) if (t !== undefined) taken.push(t);
+    if (angles[0] === undefined && list[0][1][0] === "Charge" && taken.every((t) => Math.abs(Math.atan2(Math.sin(t + Math.PI / 4), Math.cos(t + Math.PI / 4))) >= Math.PI / 5)) { angles[0] = -Math.PI / 4; taken.push(-Math.PI / 4); }
+    const sorted = taken.map(turn).sort((p, q) => p - q), free = angles.flatMap((t, k) => (t === undefined ? [k] : []));
     const gaps = sorted.length ? sorted.map((t, k) => ({ start: t, size: k + 1 < sorted.length ? sorted[k + 1] - t : sorted[0] + 2 * Math.PI - t, n: 0 })) : [{ start: -Math.PI / 2, size: 2 * Math.PI, n: 0 }];
-    for (let k = angles.length; k < list.length; k++) gaps.reduce((best, g) => (g.size / (g.n + 1) > best.size / (best.n + 1) + 1e-6 ? g : best)).n++;
-    for (const g of gaps) for (let k = 0; k < g.n; k++) angles.push(g.start + (g.size * (k + 1)) / (g.n + 1));
+    for (const _ of free) gaps.reduce((best, g) => (g.size / (g.n + 1) > best.size / (best.n + 1) + 1e-6 ? g : best)).n++;
+    let next = 0;
+    for (const g of gaps) for (let k = 0; k < g.n; k++) angles[free[next++]] = g.start + (g.size * (k + 1)) / (g.n + 1);
     const r = 0.5 * B, size = (7.5 * style.labelSize) / 10;
     return list.map(([type, represent], k) => {
-      const c: P = [X[0] + r * Math.cos(angles[k]), X[1] + r * Math.sin(angles[k])];
+      const c: P = [X[0] + r * Math.cos(angles[k]!), X[1] + r * Math.sin(angles[k]!)];
       return el("graphic", { id: fresh(), BoundingBox: `${pt(c)} ${pt([c[0] - size, c[1]])}`, Z: Z(), color: colour(a.colour), GraphicType: "Symbol", SymbolType: type },
         represent.map((what) => `<represent attribute="${what}" object="${nodeId.get(i)}"/>`).join(""));
     }).join("");
@@ -915,7 +919,7 @@ export function fromCdxml(text: string): CdxmlRead {
     const radical = RADICALS.indexOf(n.attrs.Radical ?? "");
     if (radical > 0) a.radical = radical === 1 ? 3 : radical === 2 ? 1 : 2;
     if (type === "Element" && isotope && !(element === 1 && isotope === 2) && isotope >= 1 && isotope <= 300) a.isotope = isotope;
-    if (type === "ExternalConnectionPoint") { if (n.attrs.ExternalConnectionType === "PolymerBead") a.bead = true; else a.attach = true; }
+    if (type === "ExternalConnectionPoint") { const ext = n.attrs.ExternalConnectionType; if (ext === "PolymerBead") a.bead = true; else a.attach = ext === "Diamond" ? "diamond" : ext === "Star" ? "star" : true; }
     if (["MultiAttachment", "VariableAttachment", "LinkNode", "AnonymousAlternativeGroup", "Monomer"].includes(type)) lose(type);
     const colour = colourOf(n.attrs.color), halo = colourOf(n.attrs.highlightColor);
     if (colour) a.colour = colour;
@@ -930,6 +934,9 @@ export function fromCdxml(text: string): CdxmlRead {
     if (p?.depth === false) a.depth = false;
     if (Number.isInteger(p?.map) && isNum(p!.map, 1, 9999)) a.map = p!.map as number;
     if (p?.circle === true) a.circle = true;
+    // Marks moved round the atom by hand, in Octet's own files (a ChemDraw file's symbols keep their places below).
+    const angles = p?.angles && typeof p.angles === "object" ? Object.entries(p.angles as Record<string, unknown>).filter(([k, v]) => /^(charge|partial|radical[01]|pair[0-3])$/.test(k) && isNum(v, -360, 360)) : [];
+    if (angles.length) a.angles = Object.fromEntries(angles) as Record<string, number>;
     const number = yes(n.attrs.ShowAtomNumber) ? (n.attrs.AtomNumber ?? "").trim() : "";
     if (number) { if (/^[\w'′*-]{1,8}$/.test(number)) a.number = number; else lose("atom number"); }
     if (yes(n.attrs.IgnoreWarnings)) a.ignoreWarnings = true;
@@ -1399,8 +1406,11 @@ export function fromCdxml(text: string): CdxmlRead {
       if (type === "LonePair" || type === "LonePairBar" || type === "Electron") {
         const i = nearest(c, atoms) ?? nearest(c, everyAtom);
         if (i === undefined) { lose("symbol"); continue; }
-        const a = mol.atoms[i];
+        const a = mol.atoms[i], key = type === "Electron" ? `radical${a.radical ?? 0}` : `pair${a.pairs ?? 0}`;
         if (type === "Electron") a.radical = Math.min(2, (a.radical ?? 0) + 1); else a.pairs = Math.min(4, (a.pairs ?? 0) + 1);
+        if (type === "LonePairBar") a.bars = true;
+        // A ChemDraw file's lone pairs and radicals stay where it put them round the atom.
+        if (!octet && /^(radical[01]|pair[0-3])$/.test(key)) a.angles = { ...a.angles, [key]: Math.round((Math.atan2(c[1] - a.location[1], c[0] - a.location[0]) * 1800) / Math.PI) / 10 };
         continue;
       }
       const text = SYMBOL_TEXT[type];
