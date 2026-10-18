@@ -5,7 +5,8 @@ import { flushSync } from "react-dom";
 import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Cube, Eraser, Lasso, Plus, PushPin, Selection, TextT, Trash, X } from "@phosphor-icons/react";
 import { chairPoints, type BondSpec, type SymbolKind } from "./edit";
 import { ARROW_SIZES, HBOND, headOfLength, QUADRUPLE, SWEEPS, type ArrowKind, type ArrowSize, type HeadSize, type Mol, type ShapeKind } from "./render";
-import { templateKind, type Template } from "./templates";
+import { MY_SET, templateKind, type Template } from "./templates";
+import type { TemplateSetActions } from "./TemplateLibrary";
 import { libraryItem } from "./library";
 import { LibraryPanel } from "./TemplateLibrary";
 import { columnsFor, DEFAULT_COLUMNS, Menu, menuWidth, type MenuItem } from "./Menu";
@@ -348,6 +349,14 @@ function ringsOnly(m: Mol): Mol {
 // A template's icon: its bonds as strokes in the tool icons' style, and heteroatoms as letters with the bonds
 // stopping short of them, as in a drawn structure.
 export function TemplateGlyph({ mol: whole }: { mol: Mol }) {
+  // A template with no structure (arrows, shapes, text): its arrows and shapes as lines, or its text as a T.
+  if (!whole.atoms.length) {
+    const lines = [...(whole.arrows ?? []).map((a) => [a.from, a.to]), ...(whole.shapes ?? []).flatMap((x) => [[x.from, [x.to[0], x.from[1]]], [[x.to[0], x.from[1]], x.to], [x.to, [x.from[0], x.to[1]]], [[x.from[0], x.to[1]], x.from]])];
+    if (!lines.length) return <TextT size={20} />;
+    const xs = lines.flat().map((q) => q[0]), ys = lines.flat().map((q) => -q[1]), [x0, y0] = [Math.min(...xs), Math.min(...ys)];
+    const span = Math.max(Math.max(...xs) - x0, Math.max(...ys) - y0, 1), k = 176 / span;
+    return <Icon>{lines.map(([p, q], i) => <line key={i} x1={40 + (p[0] - x0) * k} y1={40 + (-p[1] - y0) * k} x2={40 + (q[0] - x0) * k} y2={40 + (-q[1] - y0) * k} />)}</Icon>;
+  }
   const mol = ringsOnly(whole), xs = mol.atoms.map((a) => a.location[0]), ys = mol.atoms.map((a) => -a.location[1]);
   const [x0, y0] = [Math.min(...xs), Math.min(...ys)], span = Math.max(Math.max(...xs) - x0, Math.max(...ys) - y0, 1);
   const k = 176 / span, ox = 40 + (176 - (Math.max(...xs) - x0) * k) / 2, oy = 40 + (176 - (Math.max(...ys) - y0) * k) / 2;
@@ -388,6 +397,8 @@ type PaletteProps = {
   coach?: Tool; // the tool the tutorial asks for: it pulses until chosen
   variants: Variants;
   templates: Template[];
+  templateSets: string[]; // the user's named template sets (the library's own categories after My templates)
+  onTemplateSets: TemplateSetActions;
   pinned: string[]; // options on the toolbar, as "tool:variant"
   popKey: number; // changes when a hold switches to Select, to replay its pop
   canUndo: boolean;
@@ -401,7 +412,7 @@ type PaletteProps = {
   onVariant: (t: keyof Variants, kind: string) => void;
   onPinned: (pinned: string[]) => void;
   onAddName: (name: string) => boolean;
-  onAddSelection: () => void;
+  onAddSelection: (set?: string) => void; // the selection as a template, in a set (My templates unless named)
   onRename: (id: string, name: string) => void;
   onRemoveTemplate: (id: string) => void;
   onUndo: () => void;
@@ -457,6 +468,10 @@ export function Palette(p: PaletteProps) {
   useEffect(() => { if (p.renaming) setOpen("ring"); }, [p.renaming]);
 
   const template = (kind: string) => p.templates.find((t) => templateKind(t.id) === kind);
+  // The user's own templates in the library, set by set, and what the library can do with them.
+  const mine = p.templates.map((x) => ({ kind: templateKind(x.id), name: x.name, category: x.set ?? MY_SET, mol: x.mol }));
+  const own = { sets: p.templateSets, onSets: p.onTemplateSets, onAddSelection: p.canAddSelection ? p.onAddSelection : undefined,
+    onRemove: (kind: string) => { const t = template(kind); if (t) p.onRemoveTemplate(t.id); } };
   const shapeOf = (kind: string) => template(kind)?.mol ?? libraryItem(kind)?.mol;
   const nameOf = (tool: Strip, kind: string) =>
     tool === "more" ? SPECIAL_TOOLS[kind]?.name : tool === "bond" ? BONDS[kind as BondKind]?.name : tool === "template" ? (template(kind)?.name ?? libraryItem(kind)?.name) : tool === "symbol" ? SYMBOLS[kind as SymbolKind] : tool === "shape" ? shapeName(kind) : tool === "orbital" ? orbitalName(kind) : tool === "bracket" ? BRACKETS[kind] : tool === "ring" ? (RINGS[kind as RingKind]?.name ?? template(kind)?.name ?? libraryItem(kind)?.name)
@@ -632,7 +647,7 @@ export function Palette(p: PaletteProps) {
                 onPress={(e, id) => startCarry(e, `more:${id}`)} onChoose={(id) => { if (!dragged.current) choose("more", id); }} onRelease={(id) => { if (held) choose("more", id); }} />
             )}
             {t.id === "template" && open === "template" && (
-              <LibraryPanel current={p.variants.template} mine={p.templates.map((x) => ({ kind: templateKind(x.id), name: x.name, category: "My templates", mol: x.mol }))}
+              <LibraryPanel current={p.variants.template} mine={mine} {...own}
                 onChoose={(kind) => { if (!dragged.current) choose("template", kind); }}
                 onPress={(e, kind) => startCarry(e, `template:${kind}`)} />
             )}
@@ -679,7 +694,7 @@ export function Palette(p: PaletteProps) {
                       onKeyDown={(e) => { if (e.key === "Enter") addByName(); if (e.key === "Escape") { e.preventDefault(); e.currentTarget.blur(); } }} />
                   </label>
                   {p.canAddSelection && (
-                    <button className="variant add" onClick={p.onAddSelection}>
+                    <button className="variant add" onClick={() => p.onAddSelection()}>
                       <Plus size={20} />
                       <span className="variant-name">Add selection</span>
                     </button>
@@ -705,8 +720,7 @@ export function Palette(p: PaletteProps) {
                       onPress={(e, v) => startCarry(e, `arrow:${v}`)} onChoose={(v) => { if (!dragged.current) choose("arrow", v); }} />
                   )}
                   {tool === "ring" && library && (
-                    <LibraryPanel current={p.variants.ring} kept={p.libraryRings} dimmed={curveCarry}
-                      mine={p.templates.map((x) => ({ kind: templateKind(x.id), name: x.name, category: "My templates", mol: x.mol }))}
+                    <LibraryPanel current={p.variants.ring} kept={p.libraryRings} dimmed={curveCarry} mine={mine} {...own}
                       onChoose={(kind) => { if (!dragged.current) choose("ring", kind); }}
                       onKeep={(kind, on) => (on ? keep("ring", kind) : unkeep("ring", kind))}
                       onPress={(e, kind) => startCarry(e, `ring:${kind}`)} />

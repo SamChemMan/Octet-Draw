@@ -287,6 +287,8 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
     ["frame_rounded_shadow", "Rounded with shadow", <ElementGlyph v="rounded-shadow" />]] as const).map(([command, name, icon]) => small(it(icon, name, command)));
   const objects = [rotate, scale, centre];
   const join = (context.kind === "structure" || context.kind === "selection") && context.joinable ? [it(<Unite size={18} />, "Join", "join")] : [];
+  // Any selection as a template, with its text, arrows and shapes (CD-33).
+  const keep = small(it(<BookmarkSimple size={18} />, "Add to templates", "template.add"));
   // On an atom or a bond: its whole structure (ChemDraw's Molecule > Select).
   const whole = small(it(<SelectionPlus size={18} />, "Select structure", "select_structure"));
 
@@ -301,7 +303,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<CornersOut size={18} />, "Fit to window", "zoom_fit")), centre);
       break;
     case "selection":
-      items.push(...join, ...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...turnsAndFlips, ...objects, ...order, ...frames, del);
+      items.push(...join, ...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...turnsAndFlips, ...objects, ...order, ...frames, keep, del);
       break;
     case "structure":
       // Sam (17 October 2026): Clean up and Structure to name as rows; every turn, rotation and flip in one sub-menu;
@@ -312,7 +314,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
         ...(hiddenWarnings ? [small(it(<Warning size={18} />, "Show warnings", "show_warnings"))] : []),
         small(it(<TextT size={18} />, "Add a caption", "caption.add")),
-        ...turnings, small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), ...searches, small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")), small(it(<Flask size={18} />, "Properties", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), ...(context.hydrogens ? [small(it(<EyeSlash size={18} />, "Toggle hydrogen display", "hydrogen_display"))] : []), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")));
+        ...turnings, small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), ...searches, keep, small(it(<Flask size={18} />, "Properties", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), ...(context.hydrogens ? [small(it(<EyeSlash size={18} />, "Toggle hydrogen display", "hydrogen_display"))] : []), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")));
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<DotsThree size={18} />, "Line up in a row", "align.row")),
         small(it(<DotsThreeVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
       if (context.depth !== undefined) items.push(small(it(<Cube size={18} />, context.depth ? "Draw flat" : "Draw with depth", "structure_perspective")), small(it(<Square size={18} />, "Flatten", "flatten")));
@@ -334,18 +336,18 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       if (context.count === 1) items.push(it(<PencilSimpleLine size={18} />, "Edit text", "caption.edit"));
       if (context.attached) items.push(it(<LinkBreak size={18} />, "Un-tie from structure", "caption.detach"));
       else if (context.attachable) items.push(it(<LinkSimple size={18} />, "Tie to structure", "caption.attach"));
-      items.push(small(it(<Paragraph size={18} />, "Line spacing…", "line_spacing")), ...turnings, rotate, centre, ...order, del);
+      items.push(small(it(<Paragraph size={18} />, "Line spacing…", "line_spacing")), ...turnings, rotate, centre, ...order, keep, del);
       break;
     case "reaction":
       items.push(it(<MagicWand size={18} />, "Clean up reaction", "reaction.clean", !context.clean),
         { ...it(<ListNumbers size={18} />, "Number these compounds", "number"), short: "Number compounds" }, small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")),
-        it(<span className="glyph-text">A→A</span>, "Map atoms", "reaction.map"), it(<Table size={18} />, context.grid ? "Remove stoichiometry" : "Analyse stoichiometry", "stoichiometry"), ...(context.mapped ? [small(it(<X size={18} />, "Clear atom map", "reaction.unmap"))] : []), ...turnsAndFlips, ...objects, ...order, ...frames, del);
+        it(<span className="glyph-text">A→A</span>, "Map atoms", "reaction.map"), it(<Table size={18} />, context.grid ? "Remove stoichiometry" : "Analyse stoichiometry", "stoichiometry"), ...(context.mapped ? [small(it(<X size={18} />, "Clear atom map", "reaction.unmap"))] : []), ...turnsAndFlips, ...objects, ...order, ...frames, keep, del);
       break;
     case "cycle":
       if (!context.centre) items.push(it(<TextT size={18} />, "Add a centre label", "cycle.centre"));
       items.push(it(<SignIn size={18} />, "Add a reagent coming in", "cycle.in"), it(<SignOut size={18} />, "Add a product going out", "cycle.out"),
         it(<MagicWand size={18} />, "Tidy the cycle", "cycle.tidy"), small(it(<ArrowsCounterClockwise size={18} />, "Reverse the direction", "cycle.reverse")),
-        small(it(<CircleDashed size={18} />, "Remove the cycle", "cycle.ungroup")), ...turnsAndFlips, ...objects, ...order, del);
+        small(it(<CircleDashed size={18} />, "Remove the cycle", "cycle.ungroup")), ...turnsAndFlips, ...objects, ...order, keep, del);
       break;
     case "shape":
       if (context.shape === "tlc") {
@@ -372,21 +374,21 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         break;
       }
       if (isBracket({ kind: context.shape })) items.push(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed"));
-      items.push(...turnsAndFlips, ...objects, ...order, del);
+      items.push(...turnsAndFlips, ...objects, ...order, keep, del);
       break;
     case "spot":
       items.push(it(<PencilSimpleLine size={18} />, "Set Rf…", "spot.setrf"), it(<span className="glyph-text">Rf</span>, context.rf ? "Hide its Rf" : "Show its Rf", "spot.rf"), del);
       break;
     case "arrow":
-      if (context.arrow === "orbital") { items.push(it(<Swap size={18} />, "Swap the phases", "orbital.swap"), ...turnsAndFlips, ...objects, ...order, del); break; }
-      if (context.arrow === "curve") { items.push(it(<Polygon size={18} />, context.closed ? "Open the curve" : "Close the curve", "arrow.closed"), it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...turnsAndFlips, ...objects, ...order, del); break; }
+      if (context.arrow === "orbital") { items.push(it(<Swap size={18} />, "Swap the phases", "orbital.swap"), ...turnsAndFlips, ...objects, ...order, keep, del); break; }
+      if (context.arrow === "curve") { items.push(it(<Polygon size={18} />, context.closed ? "Open the curve" : "Close the curve", "arrow.closed"), it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...turnsAndFlips, ...objects, ...order, keep, del); break; }
       {
         // A straight arrow or line takes a point, which bends it; a bent one flips its curve, as a curved arrow does.
         const point = context.point === "add" ? [it(<BezierCurve size={18} />, "Add a point", "arrow.point")] : context.point ? [it(<LineSegment size={18} />, "Remove the point", "arrow.point")] : [];
         const flip = context.curved || context.point === "bent" ? [it(<FlipVertical size={18} />, "Flip the curve", "arrow.flip")] : [];
-        if (isLine({ kind: context.arrow })) { items.push(it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...flip, ...point, ...turnsAndFlips, ...objects, ...order, del); break; }
+        if (isLine({ kind: context.arrow })) { items.push(it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...flip, ...point, ...turnsAndFlips, ...objects, ...order, keep, del); break; }
         if (context.count === 1 && !context.curved) items.push(it(<ArrowLineUp size={18} />, "Add conditions above", "arrow.above"), it(<ArrowLineDown size={18} />, "Add conditions below", "arrow.below"));
-        items.push(it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...flip, ...point, ...turnsAndFlips, ...objects, ...order, del);
+        items.push(it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...flip, ...point, ...turnsAndFlips, ...objects, ...order, keep, del);
       }
       break;
   }

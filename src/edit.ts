@@ -1321,44 +1321,49 @@ export function inRing(m: Mol, k: number): boolean {
 // Places a template (a structure drawn at bond length 1): fused along a clicked bond, on the open side; sharing a
 // clicked atom (the template's first atom), pointing away from that atom's bonds; or centred on a point. On a bond
 // or atom it takes their scale. Template atoms that land on existing atoms join them, and a double bond that would
-// give an atom two is single.
+// give an atom two is single. The template's atoms and bonds keep their own look (colour, labels, marks), and its
+// other objects (text, arrows, shapes, cycles, groups and ring fills) come with it, moved as its atoms move (CD-33).
 export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: number; point?: P }): Mol {
-  if (!t.atoms.length) return m;
-  let pts: P[] = t.atoms.map((a) => [a.location[0], a.location[1]]), mirrored = false, scale = 1;
+  if (!t.atoms.length) return t.captions?.length || t.arrows?.length || t.shapes?.length ? withObjects(m, t, [], (q) => add(target.point ?? [0, 0], q), 1, false) : m;
+  const at0: P[] = t.atoms.map((a) => [a.location[0], a.location[1]]);
   const middle = (ps: P[]) => mul(ps.reduce((s, p) => add(s, p), [0, 0] as P), 1 / ps.length);
+  // Where each point of the template goes (f), and whether it is mirrored.
+  let f = (q: P): P => q, mirrored = false, scale = 1;
   // Fuse along a ring bond on the template's outside edge (the rest of it on one side), so nothing overlaps.
   const ring = t.bonds.filter((_, k) => inRing(t, k));
   const edge = ring.find((b) => {
-    const a = pts[b.atoms[0]], n: P = [-(pts[b.atoms[1]][1] - a[1]), pts[b.atoms[1]][0] - a[0]], sides = pts.map((q) => dot(sub(q, a), n));
+    const a = at0[b.atoms[0]], n: P = [-(at0[b.atoms[1]][1] - a[1]), at0[b.atoms[1]][0] - a[0]], sides = at0.map((q) => dot(sub(q, a), n));
     return sides.every((d) => d > -1e-6) || sides.every((d) => d < 1e-6);
   }) ?? ring[0] ?? t.bonds[0];
   if (target.bond !== undefined && edge) {
     // Map the template's first ring bond onto the clicked bond, then mirror it off the crowded side.
     const [i, j] = m.bonds[target.bond].atoms, a = pos(m, i), b = pos(m, j);
     scale = (scaleAt(m, i) + scaleAt(m, j)) / 2;
-    const e0 = pts[edge.atoms[0]], te = sub(pts[edge.atoms[1]], e0), be = sub(b, a);
+    const e0 = at0[edge.atoms[0]], te = sub(at0[edge.atoms[1]], e0), be = sub(b, a);
     const k = len(be) / len(te), turn = Math.atan2(be[1], be[0]) - Math.atan2(te[1], te[0]);
-    pts = pts.map((p) => add(a, mul(rot(sub(p, e0), turn), k)));
+    const fused = (q: P) => add(a, mul(rot(sub(q, e0), turn), k));
     const normal = unit([-be[1], be[0]]), side = (p: P) => Math.sign(dot(sub(p, a), normal));
     const others = [...neighbours(m, i), ...neighbours(m, j)].filter((x) => x !== i && x !== j);
-    if (others.reduce((s, x) => s + side(pos(m, x)), 0) * side(middle(pts)) > 0) { pts = pts.map((p) => sub(p, mul(normal, 2 * dot(sub(p, a), normal)))); mirrored = true; }
+    mirrored = others.reduce((s, x) => s + side(pos(m, x)), 0) * side(middle(at0.map(fused))) > 0;
+    f = mirrored ? (q) => { const p = fused(q); return sub(p, mul(normal, 2 * dot(sub(p, a), normal))); } : fused;
   } else if (target.atom !== undefined) {
-    const a = pos(m, target.atom), dir = nextDirection(m, target.atom), v = sub(middle(pts), pts[0]);
-    const turn = len(v) > 1e-6 ? Math.atan2(dir[1], dir[0]) - Math.atan2(v[1], v[0]) : 0, from = pts[0];
+    const a = pos(m, target.atom), dir = nextDirection(m, target.atom), v = sub(middle(at0), at0[0]);
+    const turn = len(v) > 1e-6 ? Math.atan2(dir[1], dir[0]) - Math.atan2(v[1], v[0]) : 0, from = at0[0];
     scale = scaleAt(m, target.atom);
-    pts = pts.map((p) => add(a, mul(rot(sub(p, from), turn), scale)));
+    f = (q) => add(a, mul(rot(sub(q, from), turn), scale));
   } else {
-    const c = middle(pts), at = target.point ?? [0, 0];
-    pts = pts.map((p) => add(at, sub(p, c)));
+    const c = middle(at0), to = target.point ?? [0, 0];
+    f = (q) => add(to, sub(q, c));
   }
   const ids: number[] = [];
-  for (const [k, p] of pts.entries()) {
+  for (const [k, p] of at0.map(f).entries()) {
     const before = m.atoms.length;
     let id: number;
     [m, id] = atomOrNew(m, p, scale);
     if (id >= before) {
-      const { label, charge, text, radical } = t.atoms[k];
-      m = { ...m, atoms: m.atoms.map((x, n) => (n === id ? { ...x, label, ...(charge ? { charge } : {}), ...(text ? { text } : {}), ...(radical ? { radical } : {}) } : x)) };
+      // A new atom takes the template atom's label, marks and look; its place and size are the drawing's.
+      const { location: _, scale: __, order: ___, ...own } = t.atoms[k];
+      m = { ...m, atoms: m.atoms.map((x, n) => (n === id ? { ...x, ...own } : x)) };
     }
     ids.push(id);
   }
@@ -1369,17 +1374,46 @@ export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: numb
     // A mirrored template keeps its stereochemistry: wedges and hashes swap.
     const stereo = mirrored && (b.stereo === 1 || b.stereo === 6) ? 7 - b.stereo : b.stereo;
     m = withBond(m, i, j, { type, ...(stereo ? { stereo } : {}), ...(b.display ? { display: b.display } : {}) });
+    // The bond keeps its look too (colour, highlight, the side of its second line).
+    const k = m.bonds.findIndex((x) => x.atoms.includes(i) && x.atoms.includes(j)), { colour, halo, position, z } = b;
+    if (k >= 0 && (colour || halo || position || z)) m = { ...m, bonds: m.bonds.map((x, n) => (n === k ? { ...x, ...(colour ? { colour } : {}), ...(halo ? { halo } : {}), ...(position ? { position: mirrored && position !== "centre" ? (position === "left" ? "right" : "left") : position } : {}), ...(z ? { z } : {}) } : x)) };
   }
-  return m;
+  const k = target.bond !== undefined && edge ? len(sub(f([1, 0]), f([0, 0]))) : scale;
+  return withObjects(m, t, ids, f, k, mirrored);
+}
+// A template's objects (text, arrows, shapes, cycles, groups) and ring fills added to the drawing with new ids, its
+// atoms as ids gives them, moved by f (k: how much f grows them).
+function withObjects(m: Mol, t: Mol, ids: number[], f: (q: P) => P, k: number, mirrored: boolean): Mol {
+  const objects = [...(t.captions ?? []), ...(t.arrows ?? []), ...(t.shapes ?? []), ...(t.cycles ?? []), ...(t.groups ?? [])];
+  if (!objects.length && !t.fills?.length) return m;
+  let id = nextId(m);
+  const to = new Map<number, number>(), atom = (i: number) => ids[i];
+  for (const x of objects) to.set(x.id, id++);
+  const out: Mol = {
+    ...m,
+    ...(t.captions?.length ? { captions: [...(m.captions ?? []), ...t.captions.map((c) => ({ ...c, id: to.get(c.id)!, ...(c.under ? { under: c.under.map(atom) } : {}),
+      ...(c.on ? { on: { ...c.on, arrow: to.get(c.on.arrow) ?? c.on.arrow } } : {}), ...(c.cycle ? { cycle: { ...c.cycle, cycle: to.get(c.cycle.cycle) ?? c.cycle.cycle } } : {}) }))] } : {}),
+    ...(t.arrows?.length ? { arrows: [...(m.arrows ?? []), ...t.arrows.map((a) => ({ ...a, id: to.get(a.id)! }))] } : {}),
+    ...(t.shapes?.length ? { shapes: [...(m.shapes ?? []), ...t.shapes.map((x) => ({ ...x, id: to.get(x.id)! }))] } : {}),
+    ...(t.cycles?.length ? { cycles: [...(m.cycles ?? []), ...t.cycles.map((c) => ({ ...c, id: to.get(c.id)!, nodes: c.nodes.map((n) => n.map(atom)) }))] } : {}),
+    ...(t.groups?.length ? { groups: [...(m.groups ?? []), ...t.groups.map((g) => ({ ...g, id: to.get(g.id)!, atoms: g.atoms.map(atom), items: g.items.map((x) => to.get(x) ?? x) }))] } : {}),
+    ...(t.fills?.length ? { fills: [...(m.fills ?? []), ...t.fills.map((x) => ({ ...x, atoms: x.atoms.map(atom) }))] } : {}),
+  };
+  return transformParts(out, new Set(), new Set(to.values()), f, [k, k], undefined, 1, mirrored ? "across" : undefined);
 }
 
-// A structure as a template: median bond 1, centred on the origin.
+// A structure, or any selection, as a template: median bond 1 (1 for no bonds), centred on the origin (its atoms'
+// middle, or its objects' when it has no atoms). Everything in it comes too, but the document's style.
 export function normalise(m: Mol): Mol {
   const lengths = m.bonds.map((b) => len(sub(pos(m, b.atoms[0]), pos(m, b.atoms[1])))).sort((x, y) => x - y);
-  const k = 1 / (lengths[Math.floor(lengths.length / 2)] || 1), b = bounds(m);
-  if (!b) return m;
-  const c: P = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
-  return { atoms: m.atoms.map((a) => ({ ...a, location: [(a.location[0] - c[0]) * k, (a.location[1] - c[1]) * k, (a.location[2] ?? 0) * k] })), bonds: m.bonds };
+  const k = 1 / (lengths[Math.floor(lengths.length / 2)] || 1), points: P[] = [...m.atoms.map((a): P => [a.location[0], a.location[1]]),
+    ...(m.atoms.length ? [] : [...(m.arrows ?? []).flatMap((a) => [a.from, a.to]), ...(m.shapes ?? []).flatMap((x) => [x.from, x.to]), ...(m.captions ?? []).map((c): P => [c.x, c.y])])];
+  if (!points.length) return m;
+  const xs = points.map((q) => q[0]), ys = points.map((q) => q[1]), c: P = [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+  const atoms = m.atoms.map((a) => ({ ...a, location: [(a.location[0] - c[0]) * k, (a.location[1] - c[1]) * k, (a.location[2] ?? 0) * k] as [number, number, number] }));
+  const objects = [...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? [])].map((x) => x.id);
+  const { style: _, guides: __, ...rest } = objects.length ? transformParts({ ...m, atoms }, new Set(), new Set(objects), (q) => [(q[0] - c[0]) * k, (q[1] - c[1]) * k], [k, k]) : { ...m, atoms };
+  return Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined && (!Array.isArray(v) || v.length || v === rest.atoms || v === rest.bonds))) as unknown as Mol;
 }
 
 // The turn (degrees, anticlockwise) that sets a structure's bottom ring bond level with the page: of the ring bonds

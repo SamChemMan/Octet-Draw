@@ -67,7 +67,7 @@ import { checkedName, graphOf, setNamer } from "./naming";
 import { iupacName } from "./namer";
 
 setNamer(iupacName);
-import { loadTemplates, newTemplate, templateKind } from "./templates";
+import { loadTemplates, MY_SET, newTemplate, setName, templateKind } from "./templates";
 import { formulaRuns, isElement } from "./labels";
 import { interpretLabels } from "./edit";
 import { common, edited, lines as richLines, normalise, plainOf, runsOf, styleRange, styled, whole, without, type RunStyle, type TextRun } from "./richtext";
@@ -385,8 +385,8 @@ export default function Editor() {
   const templates = useMemo(() => loadTemplates(settings.templates), [settings.templates]);
   const ringKind = settings.variants.ring in RINGS || templates.some((t) => templateKind(t.id) === settings.variants.ring) || libraryItem(settings.variants.ring) ? settings.variants.ring : "benzene";
   const [renaming, setRenaming] = useState<string>();
-  function addRingTemplate(name: string, mol: Mol) {
-    const t = newTemplate(name, mol);
+  function addRingTemplate(name: string, mol: Mol, set?: string) {
+    const t = newTemplate(name, mol, set);
     setSettings((s) => ({ ...s, templates: [...s.templates, t], variants: { ...s.variants, ring: templateKind(t.id) } }));
     setTool("ring");
     return t;
@@ -399,10 +399,24 @@ export default function Editor() {
       variants: s.variants.ring === templateKind(id) ? { ...s.variants, ring: "benzene" } : s.variants,
     }));
   }
-  // The selection becomes a ring template; its name is typed in the ring list straight away.
-  const addSelectionAsRing = () => {
-    if (!selection.size) return;
-    setRenaming(addRingTemplate(`Ring ${templates.length + 1}`, subset(doc, selection)).id);
+  // The selection becomes a template, with everything in it (its text, arrows, shapes and look, as ChemDraw's templates
+  // keep them), in a set (My templates unless one is named); its name is typed in the Ring list straight away.
+  const addSelectionAsRing = (set?: string) => {
+    const part = selectedPart();
+    if (!part) return;
+    setRenaming(addRingTemplate(`${part.atoms.length ? "Ring" : "Template"} ${templates.length + 1}`, part, set).id);
+  };
+  // Template sets (the library's categories of the user's own): a new one, one renamed (its templates go with it), one
+  // removed (its templates go to My templates), and a template moved to another set.
+  const templateSets = {
+    add: (name: string) => setSettings((s) => (s.templateSets.includes(setName(name)) || setName(name) === MY_SET || !setName(name) ? s : { ...s, templateSets: [...s.templateSets, setName(name)] })),
+    rename: (from: string, name: string) => setSettings((s) => {
+      const to = setName(name);
+      if (!to || to === from || to === MY_SET || s.templateSets.includes(to)) return s;
+      return { ...s, templateSets: s.templateSets.map((x) => (x === from ? to : x)), templates: s.templates.map((t) => (t.set === from ? { ...t, set: to } : t)) };
+    }),
+    remove: (name: string) => setSettings((s) => ({ ...s, templateSets: s.templateSets.filter((x) => x !== name), templates: s.templates.map((t) => (t.set === name ? { ...t, set: undefined } : t)) })),
+    move: (id: string, set: string) => setSettings((s) => ({ ...s, templates: s.templates.map((t) => (t.id === id ? { ...t, set: set === MY_SET ? undefined : set } : t)) })),
   };
   const selectKind = (settings.variants.select in SELECTS ? settings.variants.select : "box") as SelectKind;
   const symbolKind = (settings.variants.symbol in SYMBOLS ? settings.variants.symbol : "plus") as SymbolKind;
@@ -5064,9 +5078,11 @@ export default function Editor() {
         libraryRings={settings.libraryRings}
         onLibraryRings={(libraryRings) => setSettings((s) => ({ ...s, libraryRings }))}
         templates={templates}
+        templateSets={settings.templateSets}
+        onTemplateSets={templateSets}
         pinned={settings.pinned}
         onPinned={(pinned) => setSettings((s) => ({ ...s, pinned }))}
-        canAddSelection={selection.size > 0}
+        canAddSelection={selection.size > 0 || picked.size > 0}
         renaming={renaming}
         preview={(name) => structureFor(name) ?? (() => { const s = suggestName(name, false); return s ? structureFor(s) : undefined; })()}
         onAddName={(typed) => {

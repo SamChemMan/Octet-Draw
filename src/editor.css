@@ -2480,6 +2480,51 @@ button.variant.add {
   outline: none;
   box-shadow: var(--shadow-focus);
 }
+/* The user's template sets: × on hover removes one (in place of its count); New set under them, then the library's. */
+.library-set {
+  position: relative;
+  display: grid;
+  gap: 2px;
+}
+.library-set > .variant-action {
+  top: 15px;
+  right: var(--space-1);
+}
+.library-set:hover > .variant-action {
+  opacity: 1;
+}
+.library-set:hover:has(> .variant-action) .library-category span {
+  visibility: hidden;
+}
+.library-set.last {
+  margin-bottom: var(--space-1);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--hairline);
+}
+.library-new {
+  justify-content: flex-start;
+  gap: 6px;
+  color: var(--ink-muted);
+}
+.library-set-name {
+  min-width: 0;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--brand-bright);
+  border-radius: var(--radius-sm);
+  outline: none;
+  background: var(--canvas);
+  box-shadow: var(--shadow-focus);
+  color: var(--ink);
+  font: 13px var(--font-sans);
+}
+.library-add {
+  color: var(--ink-muted);
+}
+.library-add > svg {
+  margin: 26px;
+}
 .library-none {
   grid-column: 1 / -1;
   margin: var(--space-4) var(--space-2);

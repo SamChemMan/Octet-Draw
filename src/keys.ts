@@ -59,7 +59,7 @@ export const ACTIONS: Action[] = [
   // The Actions panel's own actions (no menu command or canvas key does them): each can take a key here, so every
   // action the panel and its right-click menu show can run from the keyboard. ChemDraw has no keys for them.
   ...([["select_structure", "Select the whole structure"], ["pairs", "Show or hide lone pairs"], ["number", "Number the compounds"], ["show_warnings", "Show hidden warnings"],
-    ["caption.add", "Add a caption under the structure"], ["template.add", "Add the structure to the rings"], ["cycle.make", "Make a catalytic cycle"], ["align.row", "Line up structures in a row"],
+    ["caption.add", "Add a caption under the structure"], ["template.add", "Add the selection to the templates"], ["cycle.make", "Make a catalytic cycle"], ["align.row", "Line up structures in a row"],
     ["align.column", "Line up structures in a column"], ["align.spread-row", "Space structures evenly"], ["bond.flip", "Point the bond the other way"], ["caption.edit", "Edit the text"],
     ["caption.attach", "Tie the text to its structure"], ["caption.detach", "Un-tie the text from its structure"], ["reaction.map", "Map the reaction's atoms"], ["reaction.unmap", "Clear the atom map"],
     ["cycle.centre", "Add a centre label to the cycle"], ["cycle.in", "Add a reagent coming in"], ["cycle.out", "Add a product going out"], ["cycle.tidy", "Tidy the cycle"],

@@ -83,3 +83,29 @@ import type { Shape } from "./render.ts";
   assert.deepEqual(parse(serialize({ atoms: [], bonds: [], shapes: [mine] })).shapes![0].tlc, mine.tlc);
   console.log("objects.check: TLC lanes, spot styles, side ticks and transparency ok");
 }
+
+// CD-33: a template keeps the whole selection (its text, arrows, shapes and look) and goes where it is placed.
+import { addTemplate, extractSelection, normalise } from "./edit.ts";
+import { loadTemplates, newTemplate } from "./templates.ts";
+{
+  const ring = addRing(EMPTY, 6, false, { point: [0, 0] });
+  const drawn = { ...ring, atoms: ring.atoms.map((a, i) => (i === 0 ? { ...a, colour: "#E5484D", label: "N" } : a)), bonds: ring.bonds.map((b, k) => (k === 1 ? { ...b, colour: "#2F6FED" } : b)),
+    arrows: [{ id: 10, kind: "reaction" as const, from: [2, 0] as [number, number], to: [4, 0] as [number, number] }], captions: [{ id: 11, text: "heat", x: 3, y: 0.5 }, { id: 12, text: "1", x: 0, y: 0, under: [0, 1, 2, 3, 4, 5] }],
+    shapes: [{ id: 13, kind: "box" as const, from: [-2, -2] as [number, number], to: [5, 2] as [number, number] }] };
+  const part = extractSelection(drawn, new Set(drawn.atoms.map((_, i) => i)), new Set([10, 11, 13]));
+  const saved = newTemplate("Step", part, "Reactions"), [t] = loadTemplates([saved]);
+  assert.equal(t.set, "Reactions");
+  assert.deepEqual([t.mol.atoms.length, t.mol.arrows?.length, t.mol.captions?.length, t.mol.shapes?.length], [6, 1, 2, 1]);
+  // Placed at a point, its middle is there, and everything keeps its place against the ring.
+  const placed = addTemplate(EMPTY, t.mol, { point: [10, 10] }), n = placed.atoms.findIndex((a) => a.label === "N");
+  assert.deepEqual([placed.atoms[n].colour, placed.bonds.filter((b) => b.colour === "#2F6FED").length, placed.arrows?.length, placed.captions?.length, placed.shapes?.length], ["#E5484D", 1, 1, 2, 1]);
+  const dx = placed.arrows![0].from[0] - placed.atoms[n].location[0];
+  assert.ok(Math.abs(dx - (2 - drawn.atoms[0].location[0])) < 1e-9, "the arrow keeps its place against the structure");
+  assert.deepEqual(placed.captions!.find((c) => c.text === "1")!.under!.length, 6, "a compound number stays under its structure");
+  // A template with no structure (an arrow and its text) places at the point, centred.
+  const arrowOnly = normalise(extractSelection(drawn, new Set(), new Set([10, 11])));
+  assert.equal(loadTemplates([newTemplate("Arrow", arrowOnly)]).length, 1, "a template with no atoms is kept");
+  const a = addTemplate(EMPTY, arrowOnly, { point: [5, 5] }).arrows![0];
+  assert.ok(Math.abs((a.from[0] + a.to[0]) / 2 - 5) < 1e-9 && a.from[1] < 5);
+  console.log("objects.check: templates keep the whole selection ok");
+}
