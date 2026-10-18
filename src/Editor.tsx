@@ -490,11 +490,19 @@ export default function Editor() {
   const pointer = useRef<P>(undefined);
   // Every edit clears the selection, except a move, which keeps the same atoms selected. Groups keep whole structures,
   // so atoms drawn onto a grouped structure join its group (wholeGroups).
+  // Returns the drawing as it goes in the history.
   const set = (mol: Mol, keepSelection = false, merge?: string) => {
-    dispatch({ type: "set", mol: onTop(doc, wholeGroups(placeCentres(mol)), fragments), merge });
+    const next = onTop(doc, wholeGroups(placeCentres(mol)), fragments);
+    dispatch({ type: "set", mol: next, merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
+    return next;
   };
+  // The drawings made by a scale of the whole drawing, each with how far it zoomed the view (commitScale). Undo and redo
+  // of such a scale zoom back and again, so the drawing and the page look as they did.
+  const zoomedBy = useRef(new WeakMap<Mol, number>());
   const undo = (redo = false) => {
+    const step = redo ? h.stack[h.at + 1] : h.at > 0 ? h.stack[h.at] : undefined, r = step && zoomedBy.current.get(step);
+    if (r) setView((v) => ({ ...v, zoom: clampZoom(redo ? v.zoom * r : v.zoom / r) }));
     dispatch({ type: redo ? "redo" : "undo" });
     setSelection(new Set());
     setPicked(new Set());
@@ -1926,10 +1934,11 @@ export default function Editor() {
     if (whole && lines && size[0] === size[1] && k !== 1 && Math.abs(next.scale - style.scale * k) < 1e-9) {
       const d: P = [c[0] * (1 / k - 1), c[1] * (1 / k - 1)], all = new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id));
       const moved = transformParts(doc, new Set(doc.atoms.map((_, i) => i)), all, (q) => [q[0] + d[0], q[1] + d[1]]);
-      const nk = frameStyle(next, L).k, r = frame.k / nk;
+      const nk = frameStyle(next, L).k, was = views.get().zoom, zoom = clampZoom(was * (frame.k / nk));
       lastK.current = nk * next.scale;
-      setView((v) => ({ ...v, zoom: clampZoom(v.zoom * r) }));
-      return set({ ...scaleSizes(moved, k), style: next }, true);
+      setView((v) => ({ ...v, zoom }));
+      zoomedBy.current.set(set({ ...scaleSizes(moved, k), style: next }, true), zoom / was);
+      return;
     }
     // A drag of the whole drawing in proportion only showed it scaled (its working copy is the drawing as it was), so
     // a scale the document cannot take (outside 10% to 1000%, or past a style limit) is made here, as object scales.
