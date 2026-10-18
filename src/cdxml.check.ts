@@ -31,13 +31,13 @@ const atoms: Atom[] = [
 atoms[10].location[2] = 0.5;
 const b = (i: number, j: number, more: Partial<Bond> = {}): Bond => ({ type: 1, atoms: [i, j], ...more });
 const bonds: Bond[] = [
-  b(0, 1), b(1, 2, { type: 2, position: "left" }), b(2, 3, { stereo: 1 }), b(3, 4), b(1, 5, { colour: "#1D49A7" }), b(0, 6, { stereo: 6 }), b(6, 7, { display: "wavy" }), b(6, 8, { display: "bold" }),
+  b(0, 1), b(1, 2, { type: 2, position: "left" }), b(2, 3, { stereo: 1 }), b(3, 4), b(1, 5, { colour: "#213C99" }), b(0, 6, { stereo: 6 }), b(6, 7, { display: "wavy" }), b(6, 8, { display: "bold" }),
   b(9, 10, { type: 2, display: "bold" }), b(10, 11, { display: "dashed" }), b(9, 12, { display: "hashed" }), b(12, 13), b(9, 14, { display: "dative" }), b(10, 15, { type: 2, display: "either" }),
   b(16, 17, { display: "hollow" }), b(17, 18, { type: 3 }), b(18, 19, { type: 2, position: "right" }), b(19, 20, { type: 2, position: "centre", display: "dashed" }), b(20, 21), b(21, 16, { type: 2, colour: "#22775B" }),
 ];
 const captions: Caption[] = [
   { id: 1, text: "Plain caption", x: 0, y: 4 },
-  { id: 2, text: "Line one\nLine two", x: -2, y: 6, bold: true, italic: true, underline: true, size: 12, colour: "#1D49A7", font: "Times New Roman", align: "left" },
+  { id: 2, text: "Line one\nLine two", x: -2, y: 6, bold: true, italic: true, underline: true, size: 12, colour: "#213C99", font: "Times New Roman", align: "left" },
   {
     id: 3, text: "K2CO3, H2O (aq)+", x: 4, y: 5, runs: [{ text: "K" }, { text: "2", script: "sub" }, { text: "CO" }, { text: "3", script: "sub" }, { text: ", " }, { text: "H", bold: true },
       { text: "2", script: "sub", bold: true }, { text: "O (aq)", italic: true, colour: "#B42323", font: "Georgia", size: 8 }, { text: "+", script: "super" }],
@@ -53,7 +53,7 @@ const arrows: Arrow[] = [
   arrow(101, "reaction", [4.5, 0], [6.5, 0]), arrow(102, "equilibrium", [0, -4], [3, -4]), arrow(103, "resonance", [4, -4], [7, -4]), arrow(104, "retro", [8, -4], [11, -4]),
   arrow(105, "nogo", [12, -4], [15, -4]), arrow(106, "curved", [0, -12], [2, -12], { bend: 0.3 }), arrow(107, "fishhook", [3, -12], [5, -12], { bend: -0.4 }),
   arrow(108, "fishhook", [6, -12], [8, -12], { bend: 0.25, end: "right" }), arrow(109, "double", [9, -12], [11, -12], { bend: 0.5, colour: "#8B4E18" }),
-  arrow(110, "line", [12, -12], [14, -11], { start: "full", end: "left", style: "dashed", head: "hollow", colour: "#2C6FFF" }), arrow(111, "arc", [15, -12], [17, -12], { bend: -0.2, style: "wavy" }),
+  arrow(110, "line", [12, -12], [14, -11], { start: "full", end: "left", style: "dashed", head: "hollow", colour: "#3F6BFF" }), arrow(111, "arc", [15, -12], [17, -12], { bend: -0.2, style: "wavy" }),
   arrow(112, "orbital", [0, -16], [0.8, -16], { orbital: { shape: "p", phase: "filled" } }), arrow(113, "orbital", [2, -16], [2.8, -16], { orbital: { shape: "hybrid", phase: "phased" } }),
   arrow(114, "orbital", [4, -16], [4, -15.2], { orbital: { shape: "dz2", phase: "plain" } }), arrow(115, "orbital", [6, -16], [6.8, -16], { orbital: { shape: "s", phase: "shaded" } }),
   arrow(116, "orbital", [8, -16], [8.8, -16.4], { orbital: { shape: "d", phase: "filled" }, colour: "#B42323" }), arrow(117, "orbital", [10, -16], [10.8, -16], { orbital: { shape: "oval", phase: "plain" } }),
@@ -69,19 +69,19 @@ const shapes: Shape[] = [
   { id: 201, kind: "highlight", from: [-1, -1], to: [3.5, 1.5] },
   { id: 202, kind: "box", from: [30, 0], to: [32, 2], dashed: true },
   { id: 203, kind: "rounded", from: [33, 2], to: [36, 0], fill: "shaded", shadow: true, shade: { depth: 0.2, blur: 0.1, opacity: 0.5 } },
-  { id: 204, kind: "oval", from: [37, 0], to: [39, 2], fill: "solid", colour: "#1D49A7" },
+  { id: 204, kind: "oval", from: [37, 0], to: [39, 2], fill: "solid", colour: "#213C99" },
   { id: 205, kind: "oval", from: [40, 0], to: [43, 1.5], shadow: true },
   { id: 206, kind: "brackets", from: [30, -6], to: [33, -3], mark: "‡", dashed: true, colour: "#B42323" },
   { id: 207, kind: "parens", from: [34, -6], to: [36, -3], side: "left" },
   { id: 208, kind: "braces", from: [37, -6], to: [39.5, -3], side: "right", mark: "n" },
   {
-    id: 209, kind: "tlc", from: [30, -16], to: [34, -10], colour: "#2C6FFF", tlc: {
+    id: 209, kind: "tlc", from: [30, -16], to: [34, -10], colour: "#3F6BFF", tlc: {
       lanes: 3, rf: true, origin: 0.2, front: 0.15, hide: ["front"],
       spots: [{ lane: 2, rf: 0.7, colour: "#B42323" }, { lane: 0, rf: 0.3, style: "hollow", w: 0.3, h: 0.2 }, { lane: 1, rf: 0.5, style: "shaded", tail: 0.4, showRf: true }, { lane: 0, rf: 0.9 }],
     },
   },
   { id: 210, kind: "tlc", from: [35, -16], to: [37, -10], tlc: { lanes: 1, spots: [{ lane: 0, rf: 0.5 }] } },
-  { id: 211, kind: "table", from: [40, -16], to: [46, -12], dashed: true, colour: "#1D49A7", table: { cells: [["Entry", "Yield"], ["1", "72%"], ["2", "n.d."]], lines: ["top", "header", "bottom", "cols"], align: ["left", "right"], widths: [2.5, 3], heights: [1, 1.2, 1], weight: 0.8 } },
+  { id: 211, kind: "table", from: [40, -16], to: [46, -12], dashed: true, colour: "#213C99", table: { cells: [["Entry", "Yield"], ["1", "72%"], ["2", "n.d."]], lines: ["top", "header", "bottom", "cols"], align: ["left", "right"], widths: [2.5, 3], heights: [1, 1.2, 1], weight: 0.8 } },
   { id: 212, kind: "highlight", from: [7, -2], to: [10, 2], colour: "#DCEFE6" },
   { id: 213, kind: "box", from: [40, 3], to: [42, 5], fill: "solid", colour: "#FFFFFF" },
 ];
