@@ -9,7 +9,7 @@
 
 import { FONTS, PAGES, fontName, pageSize, readStyle, type DocStyle } from "./docstyle.ts";
 import {
-  HIGHLIGHT, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, tlcLayout, turnPoint,
+  HIGHLIGHT, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, tlcLayout, turnPoint, TABLE_PAD,
   ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS,
   type Arrow, type ArrowKind, type Atom, type AtomQuery, type Bond, type Polymer, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape,
   type LineStyle, type Mol, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
@@ -266,6 +266,13 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const kept = Object.entries(o).filter(([, v]) => v !== undefined);
     return kept.length ? JSON.stringify(Object.fromEntries(kept)) : undefined;
   };
+  // An object at a scale other than 1 carries its own drawing settings, so ChemDraw draws it as Octet does
+  // (decision 0007): a graphic its line and bold widths, a bond also its length, hash spacing and margin.
+  // An object's own lines: its line width (its own, or the document's) and bold width times its scale, when either is
+  // its own.
+  const ownLines = (f: number, w?: number) => (f === 1 && w === undefined ? {} : { LineWidth: fmt((w ?? line) * f), ...(f === 1 ? {} : { BoldWidth: fmt(style.bold * f) }) });
+  const ownBond = (f: number) => (f === 1 ? {} : { BondLength: fmt(B * f), ...ownLines(f), HashSpacing: fmt(style.hash * f), MarginWidth: fmt(style.margin * f) });
+  const ownScale = (x: { scale?: number }) => (x.scale && x.scale !== 1 ? x.scale : undefined);
   // A reaction arrow's stoichiometry grid, kept in Octet's own data on the arrow (ChemDraw's grid is not in CDXML).
   const gridOf = (arrow: number) => { const g = mol.grids?.find((x) => x.arrow === arrow); return g && { typed: g.typed, limiting: g.limiting }; };
 
@@ -335,14 +342,14 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const page = (q: P): P => [middle[0] + (q[0] - c[0]) / B, middle[1] - (q[1] - c[1]) / B];
     const frame = { Center3D: pt3(c), MajorAxisEnd3D: pt3(turned(page([c[0] + hw, c[1]]))), MinorAxisEnd3D: pt3(turned(page([c[0], c[1] + hh]))) };
     const shadow = sh.shadow ? Math.round(((sh.shade ?? SHADE).depth * B * 100) / line) : undefined;
-    const ink = colour(sh.kind === "highlight" ? sh.colour ?? HIGHLIGHT : sh.colour), width = sh.width === undefined ? undefined : fmt(sh.width);
+    const ink = colour(sh.kind === "highlight" ? sh.colour ?? HIGHLIGHT : sh.colour), f = scaleOf(sh), mine = ownLines(f, sh.width);
     if (sh.kind === "box" || sh.kind === "rounded" || sh.kind === "highlight") {
       const bits = [sh.kind === "rounded" && "RoundEdge", sh.shadow && "Shadow", sh.fill === "shaded" && "Shaded", (sh.fill === "solid" || sh.kind === "highlight") && "Filled", sh.dashed && "Dashed"].filter(Boolean);
-      put(el("graphic", { id, BoundingBox: `${fmt(box[2])} ${fmt(box[3])} ${fmt(box[0])} ${fmt(box[1])}`, Z: Z(), color: ink, LineWidth: width, GraphicType: "Rectangle", RectangleType: bits.join(" ") || "Plain",
-        CornerRadius: sh.kind === "rounded" ? Math.round((0.3 * B * 100) / line) : undefined, ShadowSize: shadow, ...frame, Octet: priv({ kind: sh.kind === "highlight" ? "highlight" : undefined, shade: sh.shade, angle: sh.angle }) }), 3, box, sh.id);
+      put(el("graphic", { id, BoundingBox: `${fmt(box[2])} ${fmt(box[3])} ${fmt(box[0])} ${fmt(box[1])}`, Z: Z(), color: ink, GraphicType: "Rectangle", RectangleType: bits.join(" ") || "Plain",
+        CornerRadius: sh.kind === "rounded" ? Math.round((0.3 * B * 100) / line) : undefined, ShadowSize: shadow, ...frame, ...mine, Octet: priv({ kind: sh.kind === "highlight" ? "highlight" : undefined, shade: sh.shade, angle: sh.angle, scale: ownScale(sh) }) }), 3, box, sh.id);
     } else if (sh.kind === "oval") {
       const bits = [Math.abs(hw - hh) < 0.01 && "Circle", sh.fill === "shaded" && "Shaded", sh.fill === "solid" && "Filled", sh.dashed && "Dashed", sh.shadow && "Shadowed"].filter(Boolean);
-      put(el("graphic", { id, BoundingBox: `${pt(turned(page([c[0] + hw, c[1]])))} ${pt(c)}`, Z: Z(), color: ink, LineWidth: width, GraphicType: "Oval", OvalType: bits.join(" "), ShadowSize: shadow, ...frame, Octet: priv({ shade: sh.shade, angle: sh.angle }) }), 3, box, sh.id);
+      put(el("graphic", { id, BoundingBox: `${pt(turned(page([c[0] + hw, c[1]])))} ${pt(c)}`, Z: Z(), color: ink, GraphicType: "Oval", OvalType: bits.join(" "), ShadowSize: shadow, ...frame, ...mine, Octet: priv({ shade: sh.shade, angle: sh.angle, scale: ownScale(sh) }) }), 3, box, sh.id);
     } else if (isBracket(sh)) {
       // Each bracket runs so its lips point inward: the left one upward, the right one downward (spec 9.9), turned
       // with the shape.
@@ -357,42 +364,43 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       sides.forEach((side, k) => {
         const ends = side === "left" ? [[x0, y1], [x0, y0]] : [[x1, y0], [x1, y1]], last = p && side === "right";
         ids.push(k ? fresh() : id);
-        put(el("graphic", { id: ids[k], BoundingBox: ends.map((q) => pt(turned(page(q as P)))).join(" "), Z: Z(), color: ink, LineWidth: width, LineType: sh.dashed ? "Dashed" : undefined, GraphicType: "Bracket", BracketType: { brackets: "Square", parens: "Round", braces: "Curly" }[sh.kind as "brackets"], IgnoreWarnings: sh.ignoreWarnings ? "yes" : undefined,
+        put(el("graphic", { id: ids[k], BoundingBox: ends.map((q) => pt(turned(page(q as P)))).join(" "), Z: Z(), color: ink, LineType: sh.dashed ? "Dashed" : undefined, GraphicType: "Bracket", BracketType: { brackets: "Square", parens: "Round", braces: "Curly" }[sh.kind as "brackets"], IgnoreWarnings: sh.ignoreWarnings ? "yes" : undefined, ...mine,
           BracketUsage: last ? USAGES[p.usage].cdxml : undefined, PolymerRepeatPattern: last && p.pattern ? { hh: "HeadToHead", eu: "EitherUnknown" }[p.pattern] : undefined, PolymerFlipType: last && p.flip ? { noflip: "NoFlip", flip: "Flip" }[p.flip] : undefined,
-          Octet: priv(k ? { pair: id } : { mark: sh.mark, span: sh.side ? [Math.min(sh.from[0], sh.to[0]), Math.max(sh.from[0], sh.to[0])] : undefined, angle: sh.angle, polymer: p }) }, last ? tags : ""), 3, box, sh.id);
+          Octet: priv(k ? { pair: id } : { mark: sh.mark, span: sh.side ? [Math.min(sh.from[0], sh.to[0]), Math.max(sh.from[0], sh.to[0])] : undefined, angle: sh.angle, scale: ownScale(sh), polymer: p }) }, last ? tags : ""), 3, box, sh.id);
       });
       if (p) polymerIds.push({ sh, ids });
-      if (sh.mark) { const m = markAt(sh, 1); note(sh.mark, at([m.x, -m.y]), style.captionSize, m.anchor === "end" ? "right" : "left", sh.colour, sh.id); }
+      if (sh.mark) { const m = markAt(sh, 1); note(sh.mark, at([m.x, -m.y]), style.captionSize * f, m.anchor === "end" ? "right" : "left", sh.colour, sh.id); }
     } else if (sh.kind === "tlc") {
       const t = tlcLayout(sh), tlc: Tlc = sh.tlc ?? { lanes: 1, spots: [] }, hide = new Set(tlc.hide ?? []);
       // Spots go in their lanes; Octet's own order comes back from its data when it differs.
       const order = tlc.spots.map((_, k) => k).sort((p, q) => tlc.spots[p].lane - tlc.spots[q].lane || p - q);
       const spot = (x: Spot) => {
         const { rx, ry } = t.size(x);
-        return el("tlcspot", { id: fresh(), color: colour(x.colour), Rf: num6(x.rf), Width: Math.round(2 * rx * B * 65536), Height: Math.round(2 * ry * B * 65536), Tail: Math.round((x.tail ?? 0) * B * 65536),
+        return el("tlcspot", { id: fresh(), color: colour(x.colour), Rf: num6(x.rf), Width: Math.round(2 * rx * B * 65536), Height: Math.round(2 * ry * B * 65536), Tail: Math.round((x.tail ?? 0) * f * B * 65536),
           CurveType: x.style === "shaded" ? 256 : undefined, ShowRf: tlc.rf || x.showRf ? "yes" : undefined });
       };
       const lanes = Array.from({ length: tlc.lanes }, (_, k) => el("tlclane", { id: fresh() }, order.filter((j) => tlc.spots[j].lane === k).map((j) => spot(tlc.spots[j])).join(""))).join("");
       const face = (sh.bold ? 1 : 0) | (sh.italic ? 2 : 0) | (sh.underline ? 4 : 0);
-      put(el("tlcplate", { id, BoundingBox: boxText(box), Z: Z(), color: ink, LineWidth: width, LabelFont: sh.font ? font(sh.font) : undefined, LabelSize: sh.size ? fmtSize(sh.size) : undefined, LabelFace: face || undefined, TopLeft: pt([x0, y0]), TopRight: pt([x1, y0]), BottomRight: pt([x1, y1]), BottomLeft: pt([x0, y1]),
+      put(el("tlcplate", { id, BoundingBox: boxText(box), Z: Z(), color: ink, LabelFont: sh.font ? font(sh.font) : undefined, LabelSize: sh.size ? fmtSize(sh.size * f) : undefined, LabelFace: face || undefined, TopLeft: pt([x0, y0]), TopRight: pt([x1, y0]), BottomRight: pt([x1, y1]), BottomLeft: pt([x0, y1]), ...mine,
         OriginFraction: num6(tlc.origin ?? TLC_ORIGIN), SolventFrontFraction: num6(tlc.front ?? TLC_FRONT), ShowOrigin: hide.has("origin") ? undefined : "yes", ShowSolventFront: hide.has("front") ? undefined : "yes", ShowBorders: hide.has("border") ? undefined : "yes",
         Octet: priv({ rf: tlc.rf, hollow: tlc.spots.flatMap((x, k) => (x.style === "hollow" ? [k] : [])).join(" ") || undefined, own: tlc.rf ? tlc.spots.flatMap((x, k) => (x.showRf ? [k] : [])).join(" ") || undefined : undefined,
-          order: order.some((j, k) => j !== k) ? order.join(" ") : undefined }) }, lanes), 5, box, sh.id);
+          order: order.some((j, k) => j !== k) ? order.join(" ") : undefined, scale: ownScale(sh) }) }, lanes), 5, box, sh.id);
     } else if (sh.kind === "table") {
       // The table's rules and cells, laid out as Octet lays them out (text measured with Arial's widths).
-      const size = sh.size ?? style.captionSize, face = (sh.bold ? 1 : 0) | (sh.italic ? 2 : 0) | (sh.underline ? 4 : 0);
-      const t = tableLayout(sh, (s) => widthOf(s, size) / B), lines = new Set(linesOf(sh.table)), inner = (n: number) => Array.from({ length: Math.max(0, n - 1) }, (_, k) => k + 1);
+      // The text at its own size (or the document's) times the table's scale.
+      const own = sh.size ?? style.captionSize, size = own * f, face = (sh.bold ? 1 : 0) | (sh.italic ? 2 : 0) | (sh.underline ? 4 : 0);
+      const t = tableLayout(sh, (s) => widthOf(s, own) / B, style.captionSize), lines = new Set(linesOf(sh.table)), inner = (n: number) => Array.from({ length: Math.max(0, n - 1) }, (_, k) => k + 1);
       const across = [...(lines.has("top") ? [t.y1] : []), ...inner(t.rows).filter((r) => lines.has("rows") || (r === 1 && lines.has("header"))).map((r) => t.row(r)), ...(lines.has("bottom") ? [t.y0] : [])];
       const down = [...(lines.has("left") ? [t.x0] : []), ...(lines.has("cols") ? inner(t.cols).map((k) => t.col(k)) : []), ...(lines.has("right") ? [t.x1] : [])];
       const rules = [...across.map((v): [P, P] => [at([t.x0, v]), at([t.x1, v])]), ...down.map((v): [P, P] => [at([v, t.y1]), at([v, t.y0])])];
-      const kids = rules.map(([p, q]) => el("graphic", { id: fresh(), BoundingBox: `${pt(p)} ${pt(q)}`, Z: Z(), color: colour(sh.colour), LineWidth: sh.table?.weight === undefined ? undefined : fmt(sh.table.weight), LineType: sh.dashed ? "Dashed" : undefined, GraphicType: "Line", Octet: DERIVED }));
+      const kids = rules.map(([p, q]) => el("graphic", { id: fresh(), BoundingBox: `${pt(p)} ${pt(q)}`, Z: Z(), color: colour(sh.colour), LineType: sh.dashed ? "Dashed" : undefined, GraphicType: "Line", ...(sh.table?.weight || f !== 1 ? { LineWidth: fmt((sh.table?.weight ?? line) * f) } : {}), Octet: DERIVED }));
       (sh.table?.cells ?? []).forEach((row, r) => row.forEach((text, k) => {
         if (!text) return;
-        const align = sh.table?.align?.[k] ?? "centre", x = align === "left" ? t.col(k) + 0.35 : align === "right" ? t.col(k + 1) - 0.35 : t.col(k) + t.widths[k] / 2;
+        const align = sh.table?.align?.[k] ?? "centre", x = align === "left" ? t.col(k) + TABLE_PAD * f : align === "right" ? t.col(k + 1) - TABLE_PAD * f : t.col(k) + t.widths[k] / 2;
         const p = at([x, t.row(r) - t.heights[r] / 2]), q: P = [p[0], p[1] + 0.35 * size], just = align === "centre" ? "Center" : align === "right" ? "Right" : undefined;
         kids.push(el("t", { id: fresh(), p: pt(q), Z: Z(), color: colour(sh.colour), CaptionJustification: just, Justification: just, LineHeight: "auto", Octet: DERIVED }, run(text, { font: sh.font ?? style.captionFont, size, colour: sh.colour, face })));
       }));
-      put(el("group", { id, BoundingBox: boxText(box), Z: Z(), color: colour(sh.colour), Octet: priv({ kind: "table", table: sh.table ?? { cells: [[""]] }, dashed: sh.dashed, font: sh.font, size: sh.size, face: face || undefined }) }, kids.join("")), 0, box, sh.id);
+      put(el("group", { id, BoundingBox: boxText(box), Z: Z(), color: colour(sh.colour), Octet: priv({ kind: "table", table: sh.table ?? { cells: [[""]] }, dashed: sh.dashed, font: sh.font, size: sh.size, face: face || undefined, scale: ownScale(sh) }) }, kids.join("")), 0, box, sh.id);
     }
   }
 
@@ -402,9 +410,9 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const bits = (c.closed ? 1 : 0) | (a.style === "dashed" ? 2 : 0) | (a.style === "bold" ? 4 : 0) | (end === "full" ? 8 : 0) | (start === "full" ? 16 : 0) | (half(end) ? 32 : 0) | (half(start) ? 64 : 0)
       | (a.fill === "solid" ? 128 : 0) | (a.fill === "shaded" || a.fill === "faded" ? 256 : 0) | (a.style === "doubled" ? 512 : 0);
     const qs = c.points.flatMap((q) => [q.c1 ?? q.at, q.at, q.c2 ?? q.at]).map(at), heads = start !== "none" || end !== "none";
-    put(el("curve", { id: idOf.get(a.id)!, Z: Z(), color: colour(a.colour), LineWidth: a.width === undefined ? undefined : fmt(a.width), FillType: a.fill === "solid" ? "Solid" : a.fill ? "Shaded" : undefined, CurveType: bits || undefined,
+    put(el("curve", { id: idOf.get(a.id)!, Z: Z(), color: colour(a.colour), FillType: a.fill === "solid" ? "Solid" : a.fill ? "Shaded" : undefined, CurveType: bits || undefined, ...ownLines(scaleOf(a), a.width),
       ArrowheadHead: HEADS[end], ArrowheadTail: HEADS[start], ArrowheadType: HEAD_SHAPES[a.head ?? "solid"], HeadSize: heads ? 1000 : undefined, ArrowheadCenterSize: heads ? 875 : undefined, ArrowheadWidth: heads ? 250 : undefined,
-      Closed: c.closed ? "yes" : undefined, CurvePoints: qs.map(pt).join(" "), Octet: priv({ fill: a.fill === "faded" ? "faded" : undefined, style: a.style === "wavy" ? "wavy" : undefined }) }), 4, boxOf(qs), a.id);
+      Closed: c.closed ? "yes" : undefined, CurvePoints: qs.map(pt).join(" "), Octet: priv({ fill: a.fill === "faded" ? "faded" : undefined, style: a.style === "wavy" ? "wavy" : undefined, scale: ownScale(a) }) }), 4, boxOf(qs), a.id);
   };
   for (const a of mol.arrows ?? []) {
     zOrder = a.order;
@@ -412,8 +420,8 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       const { shape, phase } = a.orbital;
       const name = (ORBITALS.find(([, s, p]) => s === shape && p === phase) ?? ORBITALS.find(([n, s]) => s === shape && n.endsWith("Filled") === (phase === "filled")) ?? ORBITALS.find(([, s]) => s === shape)!)[0];
       const back = ORBITALS.find(([n]) => n === name)!, tip = at(a.to), nucleus = at(a.from);
-      put(el("graphic", { id: idOf.get(a.id)!, BoundingBox: `${pt(tip)} ${pt(nucleus)}`, Z: Z(), color: colour(a.colour), LineWidth: a.width === undefined ? undefined : fmt(a.width), GraphicType: "Orbital", OrbitalType: name,
-        Octet: back[1] === shape && back[2] === phase ? undefined : priv({ orbital: a.orbital }) }), 3, boxOf([nucleus], len(sub(tip, nucleus))), a.id);
+      put(el("graphic", { id: idOf.get(a.id)!, BoundingBox: `${pt(tip)} ${pt(nucleus)}`, Z: Z(), color: colour(a.colour), GraphicType: "Orbital", OrbitalType: name, ...ownLines(scaleOf(a), a.width),
+        Octet: back[1] === shape && back[2] === phase && !ownScale(a) ? undefined : priv({ orbital: back[1] === shape && back[2] === phase ? undefined : a.orbital, scale: ownScale(a) }) }), 3, boxOf([nucleus], len(sub(tip, nucleus))), a.id);
     } else if (a.kind === "curve" && a.curve?.closed && a.fill) curveOut(a);
   }
 
@@ -533,16 +541,19 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       EnhancedStereoType: enhanced ? { abs: "Absolute", "&": "And", or: "Or" }[enhanced[1]] : undefined, EnhancedStereoGroupNum: enhanced?.[2] || undefined,
       color: colour(a.colour), highlightColor: colour(a.halo), ShowAtomStereo: a.cip ? "yes" : undefined, ShowAtomNumber: a.number ? "yes" : undefined, AtomNumber: a.number, IgnoreWarnings: a.ignoreWarnings ? "yes" : undefined, xyz: z ? `${pt(X)} ${fmt(z * B)}` : undefined,
       BondOrdering: (inner || alternatives.length) && deg > 1 ? bondsAt[i].map((k) => bondId[k]).join(" ") : undefined,
-      Octet: priv({ hmark: a.hmark, partial: a.partial, depth: a.depth === false ? false : undefined, map: a.map, circle: a.circle }),
+      // A scaled atom's label size, as drawn (its own size, or the document's, times its scale), and its line width
+      // (an atom with no bonds takes its scale back from it).
+      LabelSize: shown && scaleOf(a) !== 1 ? fmtSize((a.size ?? style.labelSize) * scaleOf(a)) : undefined, LineWidth: scaleOf(a) !== 1 ? fmt(line * scaleOf(a)) : undefined,
+      Octet: priv({ hmark: a.hmark, partial: a.partial, depth: a.depth === false ? false : undefined, map: a.map, circle: a.circle, scale: ownScale(a) }),
     }, (inner ? nested(i, inner) : "") + alternatives.map((m) => nested(i, m)).join("") + (label?.xml ?? ""));
-    if (a.partial) note(a.partial === "+" ? "δ+" : "δ−", [X[0] + 0.45 * B, X[1] - 0.45 * B] as P, style.labelSize * 0.75, "left", a.colour);
+    if (a.partial) note(a.partial === "+" ? "δ+" : "δ−", [X[0] + 0.45 * B * scaleOf(a), X[1] - 0.45 * B * scaleOf(a)] as P, (a.size ?? style.labelSize) * scaleOf(a) * 0.75, "left", a.colour);
     return { xml, box: label?.box ?? [X[0], X[1], X[0], X[1]] };
   }
 
   // An atom's label as ChemDraw stores it: the text in formula face, any charge as a superscript run after it, and
   // its anchor placed so the attaching glyph sits on the atom (spec 13.1). H goes where Octet draws it.
   function labelOf(i: number, h: number): { xml: string; box: Box } {
-    const a = mol.atoms[i], X = page(i), size = a.size ?? style.labelSize, charge = a.charge ?? 0, deg = nbrs[i].length;
+    const a = mol.atoms[i], X = page(i), size = (a.size ?? style.labelSize) * scaleOf(a), charge = a.charge ?? 0, deg = nbrs[i].length;
     const v = nbrs[i].reduce<P>((acc, j) => { const d = sub(page(j), X), l = len(d) || 1; return [acc[0] + d[0] / l, acc[1] + d[1] / l]; }, [0, 0]);
     const steep = len(v) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180), right = deg > 0 && !steep && v[0] > 1e-6;
     let text = a.text ?? a.label, just = a.text && right ? "Right" : "Left", stack: string | undefined;
@@ -622,6 +633,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       Topology: b.topology && TOPOLOGY[b.topology], RxnParticipation: b.rxn && RXN[b.rxn],
       Display: ring ? undefined : dashed && d === "aromatic" ? "Dash" : display, Display2: dashed ? "Dash" : undefined, Octet: ring ? priv({ order: b.type }) : b.query ? priv({ type: b.type }) : undefined, DoublePosition: b.type === 2 && b.position ? { left: "Left", right: "Right", centre: "Center" }[b.position] : undefined,
       color: colour(b.colour), ShowBondStereo: mol.atoms[i].cip && mol.atoms[j].cip ? "yes" : undefined, BondCircularOrdering: circular, IgnoreWarnings: b.ignoreWarnings ? "yes" : undefined,
+      ...ownBond((scaleOf(mol.atoms[i]) + scaleOf(mol.atoms[j])) / 2),
     });
   }
 
@@ -645,7 +657,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const gaps = sorted.length ? sorted.map((t, k) => ({ start: t, size: k + 1 < sorted.length ? sorted[k + 1] - t : sorted[0] + 2 * Math.PI - t, n: 0 })) : [{ start: -Math.PI / 2, size: 2 * Math.PI, n: 0 }];
     for (let k = angles.length; k < list.length; k++) gaps.reduce((best, g) => (g.size / (g.n + 1) > best.size / (best.n + 1) + 1e-6 ? g : best)).n++;
     for (const g of gaps) for (let k = 0; k < g.n; k++) angles.push(g.start + (g.size * (k + 1)) / (g.n + 1));
-    const r = 0.5 * B, size = (7.5 * style.labelSize) / 10;
+    const r = 0.5 * B * scaleOf(a), size = (7.5 * (a.size ?? style.labelSize) * scaleOf(a)) / 10;
     return list.map(([type, represent], k) => {
       const c: P = [X[0] + r * Math.cos(angles[k]), X[1] + r * Math.sin(angles[k])];
       return el("graphic", { id: fresh(), BoundingBox: `${pt(c)} ${pt([c[0] - size, c[1]])}`, Z: Z(), color: colour(a.colour), GraphicType: "Symbol", SymbolType: type },
@@ -681,7 +693,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     }
     const kind = kindOf({ arc: !!arc, head, tail, type, spacing: !!spacing, nogo });
     const lineType = a.style === "dashed" ? "Dashed" : a.style === "bold" ? "Bold" : a.style === "wavy" ? "Wavy" : undefined;
-    const box = boxOf(path, head || tail ? (sizes[2] * line) / 100 : line / 2), z = Z(), legacy = fresh(), c = colour(a.colour), width = a.width === undefined ? undefined : fmt(a.width);
+    const f = scaleOf(a), lines = ownLines(f, a.width), box = boxOf(path, head || tail ? (sizes[2] * line * f) / 100 : (line * f) / 2), z = Z(), legacy = fresh(), c = colour(a.colour);
     // A catalytic cycle's arrow goes in the cycle's group, and names its cycle so Octet reads the group back.
     const cycle = derived ? (a as Arrow & { cycle?: number }).cycle : undefined, item = derived ? cycle : a.id;
     const tag = cycle !== undefined && idOf.has(cycle) ? priv({ d: 1, cycle: idOf.get(cycle) }) : DERIVED;
@@ -690,12 +702,12 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const legacyType = a.kind === "equilibrium" ? "Equilibrium" : a.kind === "retro" ? "RetroSynthetic" : head === "Full" && tail === "Full" ? "Resonance"
       : head === "Full" || (!head && tail === "Full") ? "FullHead" : head || tail ? "HalfHead" : undefined;
     const flip = !arc && !head && !!tail, snapped = arc ? [90, 120, 180, 270].reduce((best, s) => (Math.abs(Math.abs(angular!) - s) < Math.abs(Math.abs(angular!) - best) ? s : best)) * (head && angular! < 0 ? -1 : 1) : undefined;
-    put(el("graphic", { id: legacy, SupersededBy: id, BoundingBox: arc ? `${pt(T)} ${pt(arc.O)}` : flip ? `${pt(S)} ${pt(T)}` : `${pt(T)} ${pt(S)}`, Z: z, color: c, LineWidth: width, LineType: lineType,
+    put(el("graphic", { id: legacy, SupersededBy: id, BoundingBox: arc ? `${pt(T)} ${pt(arc.O)}` : flip ? `${pt(S)} ${pt(T)}` : `${pt(T)} ${pt(S)}`, Z: z, color: c, LineType: lineType, ...lines,
       GraphicType: arc ? "Arc" : "Line", ArrowType: legacyType, HeadSize: 1000, AngularSize: snapped, Octet: derived ? tag : undefined }), 3, box, item);
     put(el("arrow", {
-      id, BoundingBox: boxText(box), Z: z, color: c, LineWidth: width, LineType: lineType, FillType: "None", ArrowheadHead: head, ArrowheadTail: tail, ArrowheadType: type,
+      id, BoundingBox: boxText(box), Z: z, color: c, LineType: lineType, FillType: "None", ArrowheadHead: head, ArrowheadTail: tail, ArrowheadType: type, ...lines,
       HeadSize: sizes[0], ArrowheadCenterSize: sizes[1], ArrowheadWidth: sizes[2], ArrowShaftSpacing: spacing, NoGo: nogo ? "Cross" : undefined, AngularSize: angular === undefined ? undefined : fmtAngle(angular),
-      Head3D: pt3(T), Tail3D: pt3(S), ...frame, Octet: derived ? tag : priv({ kind: kind === a.kind ? undefined : a.kind, style: a.style === "doubled" ? "doubled" : undefined, bend: arc ? a.bend : undefined, grid: gridOf(a.id) }),
+      Head3D: pt3(T), Tail3D: pt3(S), ...frame, Octet: derived ? tag : priv({ kind: kind === a.kind ? undefined : a.kind, style: a.style === "doubled" ? "doubled" : undefined, bend: arc ? a.bend : undefined, grid: gridOf(a.id), scale: ownScale(a) }),
     }), 6, box, item);
   };
   for (const a of mol.arrows ?? []) {
@@ -802,7 +814,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     ChemPropBoilingPt: "Boiling Point: ", ChemPropMeltingPt: "Melting Point: ", ChemPropCritTemp: "Critical Temp: ", ChemPropCritPres: "Critical Pres: ", ChemPropCritVol: "Critical Vol: ",
     ChemPropGibbs: "Gibbs Energy: ", ChemPropLogP: "Log P: ", ChemPropMR: "MR: ", ChemPropHenry: "Henry's Law: ", ChemPropEForm: "Heat of Form: ", ChemProptPSA: "tPSA: ", ChemPropID: "", ChemPropFragmentLabel: "",
     color: doc, bgcolor: 1, RxnAutonumberStart: 1, RxnAutonumberConditions: "no", RxnAutonumberStyle: "Roman", RxnAutonumberFormat: "(#)",
-    Octet: priv({ v: 1, page: style.page, custom: style.custom, landscape: style.landscape || undefined, edges: style.edges ? undefined : false, grid: style.grid || undefined,
+    Octet: priv({ v: 1, page: style.page, custom: style.custom, landscape: style.landscape || undefined, edges: style.edges ? undefined : false, grid: style.grid || undefined, scale: style.scale !== 1 ? style.scale : undefined, purpose: style.purpose,
       background: style.background === "white" ? undefined : style.background, cycles: cycles.length ? cycles : undefined }),
   }, tables + pageXml);
   return `<?xml version="1.0" encoding="UTF-8" ?>\n<!DOCTYPE CDXML SYSTEM "http://www.cambridgesoft.com/xml/cdxml.dtd" >\n${root}\n`;
@@ -858,9 +870,9 @@ function readTable(v: unknown): Table | undefined {
   const t = v as Record<string, unknown>, list = (x: unknown, most: number, ok: (y: unknown) => boolean) => x === undefined || (Array.isArray(x) && x.length <= most && x.every(ok));
   if (!t || typeof t !== "object" || !Array.isArray(t.cells) || !t.cells.length || t.cells.length > 100) return undefined;
   if (!t.cells.every((r) => Array.isArray(r) && r.length >= 1 && r.length <= 20 && r.every((c) => typeof c === "string" && c.length <= 500 && !/[\u0000-\u0009\u000b-\u001f]/.test(c)))) return undefined;
-  const size = (n: unknown) => isNum(n, 0.2, 50);
+  const size = (n: unknown) => isNum(n, 0.002, 5000);
   if (!list(t.widths, 20, size) || !list(t.heights, 100, size) || !list(t.lines, 7, (x) => ["top", "bottom", "left", "right", "header", "rows", "cols"].includes(x as string))
-    || !list(t.align, 20, (x) => ["left", "centre", "right"].includes(x as string)) || (t.weight !== undefined && !isNum(t.weight, 0.1, 10)) || (t.grid !== undefined && t.grid !== true)) return undefined;
+    || !list(t.align, 20, (x) => ["left", "centre", "right"].includes(x as string)) || (t.weight !== undefined && !isNum(t.weight, 0.001, 1000)) || (t.grid !== undefined && t.grid !== true)) return undefined;
   return {
     cells: t.cells as string[][], ...(t.grid ? { grid: true } : {}), ...(t.widths ? { widths: t.widths as number[] } : {}), ...(t.heights ? { heights: t.heights as number[] } : {}),
     ...(t.lines ? { lines: [...new Set(t.lines as TableLine[])] } : {}), ...(t.align ? { align: t.align as Table["align"] } : {}), ...(t.weight !== undefined ? { weight: t.weight as number } : {}),
@@ -920,7 +932,7 @@ export function fromCdxml(text: string): CdxmlRead {
   const paper = Object.entries(PAGES).find(([, [w, h]]) => (Math.abs(w - mm[0]) < 1 && Math.abs(h - mm[1]) < 1) || (Math.abs(h - mm[0]) < 1 && Math.abs(w - mm[1]) < 1));
   const style = readStyle({
     page: paper?.[0] ?? "Custom", landscape: !!paper && mm[0] > mm[1] + 1, custom: mm.map((v) => Math.round(Math.min(2000, Math.max(10, v)) * 100) / 100),
-    ...(octet ? { page: top!.page, custom: top!.custom, landscape: top!.landscape === true, edges: top!.edges !== false, grid: top!.grid, background: top!.background } : {}),
+    ...(octet ? { page: top!.page, custom: top!.custom, landscape: top!.landscape === true, edges: top!.edges !== false, grid: top!.grid, background: top!.background, scale: top!.scale, purpose: top!.purpose } : {}),
     bond: B, line: real(r.LineWidth), bold: real(r.BoldWidth), margin: real(r.MarginWidth), hash: real(r.HashSpacing), spacing: real(r.BondSpacing),
     labelFont: fontOf(fonts.get(int(r.LabelFont) ?? -1)).font, labelSize: real(r.LabelSize), captionFont: fontOf(fonts.get(int(r.CaptionFont) ?? -1)).font, captionSize: real(r.CaptionSize),
     colour: colourOf(r.color) ?? "#000000",
@@ -937,11 +949,11 @@ export function fromCdxml(text: string): CdxmlRead {
   };
   // A table's or TLC plate's text style: a font named, a size in pt, and face bits (bold 1, italic 2, underline 4).
   const textStyleOf = (name: unknown, size: unknown, face: unknown): Partial<Shape> => ({
-    ...(typeof name === "string" && fontName(name) && name !== style.captionFont ? { font: name } : {}), ...(isNum(size, 4, 144) ? { size: size as number } : {}),
+    ...(typeof name === "string" && fontName(name) && name !== style.captionFont ? { font: name } : {}), ...(isNum(size, 0.1, 999) ? { size: size as number } : {}),
     ...(isNum(face, 0, 0xffff) && (face as number) & 1 ? { bold: true as const } : {}), ...(isNum(face, 0, 0xffff) && (face as number) & 2 ? { italic: true as const } : {}), ...(isNum(face, 0, 0xffff) && (face as number) & 4 ? { underline: true as const } : {}),
   });
-  // A line width set on an object (pt), when it is not the document's.
-  const lineWidthOf = (x: Xml) => { const w = real(x.attrs.LineWidth); return w !== undefined && w >= 0.05 && w <= 20 && Math.abs(w - style.line) > 1e-3 ? w : undefined; };
+  // An object's own line width: its LineWidth over its scale f, when that is not the document's.
+  const lineWidthOf = (x: Xml, f = 1) => { const lw = real(x.attrs.LineWidth), w = lw === undefined ? undefined : Math.round((lw / f) * 1e4) / 1e4; return w !== undefined && w >= 0.05 && w <= 20 && Math.abs(w - style.line) > 1e-3 ? w : undefined; };
 
   // Octet ids: the file's own when Octet wrote it, otherwise numbered afresh.
   const taken = new Set<number>();
@@ -959,6 +971,8 @@ export function fromCdxml(text: string): CdxmlRead {
   type G = { id: number; atoms: Set<number>; items: number[]; integral?: true; parent?: G };
   const groups: G[] = [];
   const nodeIds: number[] = [], bondIds: number[] = [];
+  // Each bond's own drawing settings (ChemDraw's per-object settings, pt), and each label's size as written.
+  const bondSettings: { line?: number; bold?: number; hash?: number; margin?: number; spacing?: number }[] = [], labelSizes = new Map<number, number>(), nodeLines = new Map<number, number>();
   const atomOf = new Map<number, number>(), objectOf = new Map<number, number>(), arrowOfGraphic = new Map<number, number>();
   const labels: { i: number; text: string; type: string; isotope?: number }[] = [];
   const numH = new Map<number, number>(), delocalised: { k: number; order?: 1 | 2 }[] = [], ovals: { id: number; c: P; r: number }[] = [];
@@ -1046,6 +1060,7 @@ export function fromCdxml(text: string): CdxmlRead {
     if (p?.depth === false) a.depth = false;
     if (Number.isInteger(p?.map) && isNum(p!.map, 1, 9999)) a.map = p!.map as number;
     if (p?.circle === true) a.circle = true;
+    if (isNum(p?.scale, 0.01, 100) && p!.scale !== 1) a.scale = p!.scale as number;
     const number = yes(n.attrs.ShowAtomNumber) ? (n.attrs.AtomNumber ?? "").trim() : "";
     if (number) { if (/^[\w'′*-]{1,8}$/.test(number)) a.number = number; else lose("atom number"); }
     if (yes(n.attrs.IgnoreWarnings)) a.ignoreWarnings = true;
@@ -1067,6 +1082,8 @@ export function fromCdxml(text: string): CdxmlRead {
     if (type === "MultiAttachment" || type === "VariableAttachment") centres.push({ i, ids: idList(n.attrs.Attachments).slice(0, 64), variable: type === "VariableAttachment" });
     nodeIds.push(int(n.attrs.id) ?? 0);
     numH.set(i, int(n.attrs.NumHydrogens) ?? 0);
+    const lw = real(n.attrs.LineWidth);
+    if (lw !== undefined) nodeLines.set(i, lw);
     atomOf.set(int(n.attrs.id) ?? -1, i);
     const t = n.kids.find((k) => k.name === "t");
     // The label's own text style, where it differs from the document's: bold, italic, underline, font and size.
@@ -1077,7 +1094,7 @@ export function fromCdxml(text: string): CdxmlRead {
       if (f & 2) a.italic = true;
       if (f & 4) a.underline = true;
       if (font && font !== style.labelFont) a.font = font;
-      if (size && size >= 4 && size <= 72 && Math.abs(size - style.labelSize) > 0.01) a.size = size;
+      if (size && size >= 0.1 && size <= 999) { labelSizes.set(i, size); if (Math.abs(size - style.labelSize) > 0.01) a.size = size; }
     }
     if (t) labels.push({ i, text: t.kids.filter((k) => k.name === "s").map((k) => k.text).join(""), type, isotope });
     else if (type === "GenericNickname" && n.attrs.GenericNickname) labels.push({ i, text: n.attrs.GenericNickname, type });
@@ -1138,7 +1155,55 @@ export function fromCdxml(text: string): CdxmlRead {
       if (rxn) bond.rxn = rxn as Bond["rxn"];
       mol.bonds.push(bond);
       bondIds.push(int(b.attrs.id) ?? 0);
+      bondSettings.push({ line: real(b.attrs.LineWidth), bold: real(b.attrs.BoldWidth), hash: real(b.attrs.HashSpacing), margin: real(b.attrs.MarginWidth), spacing: real(b.attrs.BondSpacing) });
     }
+  }
+
+  // Structures at their own size (decision 0007). A structure takes a scale when its bonds carry LineWidth and every
+  // width, hash spacing and margin they carry agrees with LineWidth's ratio to the document's within 2%. Bond length
+  // is not used: ChemDraw keeps a structure's old fixed length on it after a resize. Settings that do not agree, and
+  // a bond's own spacing, are listed as not kept. An atom with no bonds takes its scale from its own LineWidth. A
+  // scaled atom's label keeps its size over the scale.
+  function readScales() {
+    const fits = (f: number) => Math.round(Math.min(100, Math.max(0.01, f)) * 1e4) / 1e4;
+    const has = (x: (typeof bondSettings)[number]) => x.line !== undefined || x.bold !== undefined || x.hash !== undefined || x.margin !== undefined;
+    const root = mol.atoms.map((_, i) => i), find = (i: number) => { while (root[i] !== i) i = root[i] = root[root[i]]; return i; };
+    for (const b of mol.bonds) root[find(b.atoms[0])] = find(b.atoms[1]);
+    const parts = new Map<number, number[]>();
+    mol.bonds.forEach((b, k) => { const r = find(b.atoms[0]); let ks = parts.get(r); if (!ks) parts.set(r, (ks = [])); ks.push(k); });
+    for (const ks of parts.values()) {
+      const atoms = [...new Set(ks.flatMap((k) => mol.bonds[k].atoms))], set = ks.map((k) => bondSettings[k]);
+      for (const x of set) if (x.spacing !== undefined && Math.abs(x.spacing - style.spacing) > 0.05) lose("bond spacing");
+      if (atoms.some((i) => mol.atoms[i].scale) || !set.some(has)) continue;
+      const f = set[0].line === undefined ? NaN : set[0].line / style.line;
+      const agrees = (v: number | undefined, base: number) => v === undefined || Math.abs(v / base - f) <= 0.02 * f;
+      if (!(f > 0) || !set.every((x) => x.line !== undefined && agrees(x.line, style.line) && agrees(x.bold, style.bold) && agrees(x.hash, style.hash) && agrees(x.margin, style.margin))) { lose("bond settings", set.filter(has).length); continue; }
+      if (Math.abs(f - 1) <= 0.02) continue;
+      for (const i of atoms) mol.atoms[i].scale = fits(f);
+    }
+    const bonded = new Set(mol.bonds.flatMap((b) => b.atoms));
+    for (const [i, lw] of nodeLines) {
+      const f = lw / style.line;
+      if (!bonded.has(i) && !mol.atoms[i].scale && f > 0 && Math.abs(f - 1) > 0.02) mol.atoms[i].scale = fits(f);
+    }
+    mol.atoms.forEach((a, i) => {
+      const raw = labelSizes.get(i);
+      if (!a.scale || raw === undefined) return;
+      const own = Math.round((raw / a.scale) * 100) / 100;
+      if (Math.abs(own - style.labelSize) > 0.01) a.size = own; else delete a.size;
+    });
+  }
+  // A graphic's own size: Octet's own, or (in another program's file) its LineWidth or BoldWidth against the
+  // document's when the two agree within 2%. Widths that do not agree are listed as not kept.
+  function graphicScale(x: Xml, p?: Record<string, unknown>): number | undefined {
+    if (isNum(p?.scale, 0.01, 100)) return p!.scale === 1 ? undefined : (p!.scale as number);
+    // A LineWidth alone is the object's own line width (lineWidthOf), as ChemDraw's Line Width sets it; with a
+    // BoldWidth it is a scale.
+    const lw = real(x.attrs.LineWidth), bw = real(x.attrs.BoldWidth);
+    if (octet || bw === undefined) return undefined;
+    const f = lw !== undefined ? lw / style.line : bw! / style.bold;
+    if (!(f > 0) || (lw !== undefined && bw !== undefined && Math.abs(bw / style.bold - f) > 0.02 * f)) { lose("line settings"); return undefined; }
+    return Math.abs(f - 1) <= 0.02 ? undefined : Math.round(Math.min(100, Math.max(0.01, f)) * 1e4) / 1e4;
   }
 
   // Labels: one element with the hydrogens Octet would draw is a plain atom; anything else is written text (OMe,
@@ -1215,7 +1280,7 @@ export function fromCdxml(text: string): CdxmlRead {
       if (s.attrs.font && fonts.has(int(s.attrs.font) ?? -1) && !named.font) lose("font");
       room -= text.length;
       const base = { ...(named.bold || f & 1 ? { bold: true as const } : {}), ...(named.italic || f & 2 ? { italic: true as const } : {}), ...(f & 4 ? { underline: true as const } : {}),
-        font: named.font ?? docFont, size: size ? Math.min(144, Math.max(4, size)) : docSize, ...(colour ? { colour } : {}) };
+        font: named.font ?? docFont, size: size ? Math.min(999, Math.max(0.1, size)) : docSize, ...(colour ? { colour } : {}) };
       if ((f & 0x60) === 0x60) for (const r of formulaRuns(text)) runs.push({ ...base, ...(r.sub ? { script: "sub" as const } : {}), text: r.text });
       else runs.push({ ...base, ...((f & 0x60) === 0x20 ? { script: "sub" as const } : (f & 0x60) === 0x40 ? { script: "super" as const } : {}), text });
     }
@@ -1224,7 +1289,7 @@ export function fromCdxml(text: string): CdxmlRead {
     const shared = <K extends keyof RunStyle>(k: K) => (runs.every((r) => r[k] === runs[0][k]) ? runs[0][k] : undefined);
     const cf = int(t.attrs.CaptionFace) ?? 0, cs = real(t.attrs.CaptionSize);
     const whole: RunStyle = octet
-      ? { bold: cf & 1 ? true : undefined, italic: cf & 2 ? true : undefined, underline: cf & 4 ? true : undefined, font: fontOf(fonts.get(int(t.attrs.CaptionFont) ?? -1)).font, size: cs ? Math.min(144, Math.max(4, cs)) : undefined, colour: colourOf(t.attrs.color) }
+      ? { bold: cf & 1 ? true : undefined, italic: cf & 2 ? true : undefined, underline: cf & 4 ? true : undefined, font: fontOf(fonts.get(int(t.attrs.CaptionFont) ?? -1)).font, size: cs ? Math.min(999, Math.max(0.1, cs)) : undefined, colour: colourOf(t.attrs.color) }
       : { bold: shared("bold"), italic: shared("italic"), underline: shared("underline"), font: shared("font") === docFont ? undefined : shared("font"), size: shared("size") === docSize ? undefined : shared("size"), colour: shared("colour") };
     const own = runs.map((r): TextRun => ({
       text: r.text, ...(r.bold && !whole.bold ? { bold: true } : {}), ...(r.italic && !whole.italic ? { italic: true } : {}), ...(r.underline && !whole.underline ? { underline: true } : {}), ...(r.script ? { script: r.script } : {}),
@@ -1240,7 +1305,7 @@ export function fromCdxml(text: string): CdxmlRead {
     if (wrapAt !== undefined && wrapAt >= B / 2 && wrapAt <= 1000 * B) c.width = isNum(p?.width, 0.5, 1000) ? (p!.width as number) : wrapAt / B;
     // Line spacing: auto (Octet's default), variable, or fixed in pt.
     const lh = t.attrs.LineHeight ?? t.attrs.CaptionLineHeight, fixed = real(lh);
-    if (lh === "variable") c.lineHeight = "variable"; else if (fixed !== undefined && fixed >= 1 && fixed <= 400) c.lineHeight = fixed;
+    if (lh === "variable") c.lineHeight = "variable"; else if (fixed !== undefined && fixed >= 0.1 && fixed <= 999) c.lineHeight = fixed;
     const normal = normalise(own);
     if (styled(normal)) c.runs = normal;
     if (p?.under) unders.push({ c, nodes: p.under });
@@ -1287,8 +1352,6 @@ export function fromCdxml(text: string): CdxmlRead {
       }
       const kind: ShapeKind = type === "Oval" ? "oval" : p?.kind === "highlight" ? "highlight" : bits.has("RoundEdge") ? "rounded" : "box";
       const sh = settled({ id: newId(x), kind, from: toOctet(b[0], b[3]), to: toOctet(b[2], b[1]), angle, z });
-      const w = lineWidthOf(x);
-      if (w) sh.width = w;
       if (kind !== "highlight" && bits.has("Filled")) sh.fill = "solid"; else if (kind !== "highlight" && bits.has("Shaded")) sh.fill = "shaded";
       if (bits.has("Shadow") || bits.has("Shadowed")) sh.shadow = true;
       if (bits.has("Dashed")) sh.dashed = true;
@@ -1302,7 +1365,8 @@ export function fromCdxml(text: string): CdxmlRead {
     if (type === "Orbital") {
       const named = ORBITALS.find(([n]) => n === x.attrs.OrbitalType) ?? ORBITALS[0], o = p?.orbital as Record<string, unknown> | undefined;
       const orbital = o && ORBITAL_SHAPES.includes(o.shape as OrbitalShape) && PHASES.includes(o.phase as Phase) ? { shape: o.shape as OrbitalShape, phase: o.phase as Phase } : { shape: named[1], phase: named[2] };
-      const a: Arrow & { z: number } = { id: newId(x), kind: "orbital", from: p2, to: p1, orbital, z, ...(colour ? { colour } : {}), ...(lineWidthOf(x) ? { width: lineWidthOf(x) } : {}) };
+      const f = graphicScale(x, p), w = lineWidthOf(x, f), a: Arrow & { z: number } = { id: newId(x), kind: "orbital", from: p2, to: p1, orbital, z, ...(colour ? { colour } : {}), ...(w ? { width: w } : {}) };
+      if (f) a.scale = f;
       arrows.push(a);
       objectOf.set(cid, a.id);
       return void member(group, a.id);
@@ -1311,6 +1375,12 @@ export function fromCdxml(text: string): CdxmlRead {
     lose(`graphic ${type ?? ""}`.trim());
   }
   function addShape(sh: Shape & { z: number }, x: Xml, group?: G) {
+    // A TLC plate's scale is read with its spots, so widths that do not agree are listed once.
+    const f = sh.kind === "tlc" ? undefined : sh.scale ?? graphicScale(x, priv(x));
+    if (f) sh.scale = f;
+    // Its own line width, over its scale (a TLC plate's is read with its spots).
+    const w = sh.kind === "tlc" ? undefined : lineWidthOf(x, sh.scale);
+    if (w) sh.width = w;
     shapes.push(sh);
     objectOf.set(int(x.attrs.id) ?? -1, sh.id);
     member(group, sh.id);
@@ -1331,7 +1401,8 @@ export function fromCdxml(text: string): CdxmlRead {
     const style = p?.style === "doubled" ? "doubled" : lines.has("Dashed") ? "dashed" : lines.has("Bold") ? "bold" : lines.has("Wavy") ? "wavy" : undefined;
     if (style) a.style = style;
     if (colour) a.colour = colour;
-    const w = lineWidthOf(x);
+    const f = graphicScale(x, p), w = lineWidthOf(x, f);
+    if (f) a.scale = f;
     if (w) a.width = w;
     if (takesHeads(a)) {
       const kind = headsOf(a), start = headOf(s.tail), end = headOf(s.head);
@@ -1387,7 +1458,8 @@ export function fromCdxml(text: string): CdxmlRead {
     if (start) a.start = headOf(start);
     if ((end || start) && x.attrs.ArrowheadType === "Hollow") a.head = "hollow"; else if ((end || start) && x.attrs.ArrowheadType === "Angle") a.head = "angled";
     if (colour) a.colour = colour;
-    const w = lineWidthOf(x);
+    const f = graphicScale(x, p), w = lineWidthOf(x, f);
+    if (f) a.scale = f;
     if (w) a.width = w;
     arrows.push(a);
     objectOf.set(int(x.attrs.id) ?? -1, a.id);
@@ -1400,11 +1472,12 @@ export function fromCdxml(text: string): CdxmlRead {
     const corners = ["TopLeft", "TopRight", "BottomRight", "BottomLeft"].map((k) => reals(x.attrs[k], 2)).filter((c): c is number[] => !!c);
     const box = corners.length === 4 ? boxOf(corners as P[]) : reals(x.attrs.BoundingBox, 4);
     if (!box) return lose("TLC plate");
-    const lanes = x.kids.filter((k) => k.name === "tlclane").slice(0, 40), spots: Spot[] = [];
+    const lanes = x.kids.filter((k) => k.name === "tlclane").slice(0, 40), spots: Spot[] = [], f = graphicScale(x, priv(x)) ?? 1;
     lanes.forEach((l, lane) => l.kids.forEach((s) => {
       if (s.name !== "tlcspot") return;
       if (spots.length >= 400) return lose("TLC spot");
-      const spot: Spot = { lane, rf: Math.min(1, Math.max(0, real(s.attrs.Rf) ?? 0)) }, size = (k: string, d: number) => Math.min(5, Math.max(0, (int(s.attrs[k]) ?? 0) / 65536 / d / B));
+      // Sizes as drawn, kept over the plate's scale.
+      const spot: Spot = { lane, rf: Math.min(1, Math.max(0, real(s.attrs.Rf) ?? 0)) }, size = (k: string, d: number) => Math.min(5, Math.max(0, (int(s.attrs[k]) ?? 0) / 65536 / d / B / f));
       const [w, h, tail] = [size("Width", 2), size("Height", 2), size("Tail", 1)], colour = colourOf(s.attrs.color);
       if (w) spot.w = w;
       if (h) spot.h = h;
@@ -1426,15 +1499,17 @@ export function fromCdxml(text: string): CdxmlRead {
     if (order.length === spots.length && new Set(order).size === spots.length) { const was = [...spots]; order.forEach((k, j) => { spots[k] = was[j]; }); }
     for (const k of list(p?.hollow)) spots[k].style = "hollow";
     if (p?.rf === true) { tlc.rf = true; const own = new Set(list(p.own)); spots.forEach((s, k) => { if (own.has(k)) s.showRf = true; else delete s.showRf; }); }
-    const sh: Shape & { z: number } = { id: newId(x), kind: "tlc", from: toOctet(box[0], box[3]), to: toOctet(box[2], box[1]), tlc, z: zOf(x) }, colour = colourOf(x.attrs.color), w = lineWidthOf(x);
+    const sh: Shape & { z: number } = { id: newId(x), kind: "tlc", from: toOctet(box[0], box[3]), to: toOctet(box[2], box[1]), tlc, z: zOf(x), ...(f !== 1 ? { scale: f } : {}) }, colour = colourOf(x.attrs.color), w = lineWidthOf(x, f);
     if (colour) sh.colour = colour;
     if (w) sh.width = w;
-    Object.assign(sh, textStyleOf(x.attrs.LabelFont === undefined ? undefined : fontOf(fonts.get(int(x.attrs.LabelFont) ?? -1)).font, real(x.attrs.LabelSize), int(x.attrs.LabelFace)));
+    // The Rf values' size is the plate's own size times its scale.
+    const labelSize = real(x.attrs.LabelSize);
+    Object.assign(sh, textStyleOf(x.attrs.LabelFont === undefined ? undefined : fontOf(fonts.get(int(x.attrs.LabelFont) ?? -1)).font, labelSize === undefined ? undefined : Math.round((labelSize / f) * 100) / 100, int(x.attrs.LabelFace)));
     const t = tlcLayout(sh);
     for (const s of spots) {
       const d = t.size({ lane: s.lane, rf: s.rf });
-      if (s.w !== undefined && Math.abs(s.w - d.rx) < 1e-3) delete s.w;
-      if (s.h !== undefined && Math.abs(s.h - d.ry) < 1e-3) delete s.h;
+      if (s.w !== undefined && Math.abs(s.w * f - d.rx) < 1e-3) delete s.w;
+      if (s.h !== undefined && Math.abs(s.h * f - d.ry) < 1e-3) delete s.h;
     }
     addShape(sh, x, group);
   }
@@ -1499,9 +1574,8 @@ export function fromCdxml(text: string): CdxmlRead {
         sh.to = [sh.to[0] + d[0], sh.to[1] + d[1]];
       }
       if (typeof p?.mark === "string" && p.mark.length <= 8) sh.mark = p.mark;
-      const colour = colourOf(b.x.attrs.color), width = lineWidthOf(b.x);
+      const colour = colourOf(b.x.attrs.color);
       if (colour) sh.colour = colour;
-      if (width) sh.width = width;
       if (b.x.attrs.LineType?.includes("Dashed")) sh.dashed = true;
       // Display Warnings off when every bracket of the pair has it off.
       if ([b, o].every((x) => !x || yes(x.x.attrs.IgnoreWarnings))) sh.ignoreWarnings = true;
@@ -1601,6 +1675,7 @@ export function fromCdxml(text: string): CdxmlRead {
   for (const c of cycleData) if (c && Number.isInteger(c.id) && (c.id as number) > 0 && (c.id as number) < 2 ** 31) taken.add(c.id as number);
   for (const pg of pages) for (const k of pg.kids) visit(k);
   readBonds();
+  readScales();
   readLabels();
   readDelocalised();
   readSymbols();
