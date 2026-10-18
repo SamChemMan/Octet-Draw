@@ -560,3 +560,20 @@ console.log("cdxml.check: every object kind round trips");
   assert.deepEqual(fromCdxml(out).mol.captions!.map((c) => c.align), ["left", "left", "left"], "the conditions' own alignment comes back");
   console.log("cdxml.check: rounded corners, shadow depths and conditions as drawn ok");
 }
+
+// The grid: a file's grid step is one Settings offers, or the bond length (1e-20 mm once hung Octet, drawing a line
+// per step); what the window shows (grid, rulers, crosshair) comes back from Octet's own data, checked as the rest is.
+{
+  const page = (octet: string) => fromCdxml(`<CDXML BondLength="14.4" Octet='${octet}'><page BoundingBox="0 0 540 720"/></CDXML>`);
+  for (const grid of ["1e-20", "0.001", "-1", "7", "1e400", '"x"', "null"]) assert.equal(page(`{"v":1,"grid":${grid}}`).style.grid, "bond", grid);
+  assert.equal(page('{"v":1,"grid":5}').style.grid, 5);
+  assert.equal(page('{"v":1,"grid":6.35}').style.grid, 6.35);
+  assert.deepEqual(page('{"v":1,"guides":{"grid":true,"rulers":true,"crosshair":[1.5,-2]}}').mol.guides, { grid: true, rulers: true, crosshair: [1.5, -2] });
+  assert.deepEqual(page('{"v":1,"guides":{"grid":"yes","rulers":1,"crosshair":[1e99,0],"x":1}}').mol.guides, {});
+  assert.equal(page('{"v":1}').mol.guides, undefined); // saved without them: the user's own choice applies
+  assert.equal(page('{"v":2,"guides":{"grid":true}}').mol.guides, undefined); // not Octet's own data
+  const shown = { grid: true as const, crosshair: [2, 3] as [number, number] };
+  assert.deepEqual(fromCdxml(toCdxml({ atoms: [], bonds: [], guides: shown }, { ...DEFAULT_STYLE, grid: 10 })).mol.guides, shown);
+  assert.deepEqual(fromCdxml(toCdxml({ atoms: [], bonds: [], guides: {} }, DEFAULT_STYLE)).mol.guides, {});
+  console.log("cdxml.check: grid and guides ok");
+}

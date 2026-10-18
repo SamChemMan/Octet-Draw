@@ -37,4 +37,8 @@ assert.equal(lostText({}), "");
 // Files opened from Finder or dropped on the window: drawings go to readOct, structure files to Indigo.
 assert.ok(isDrawingText(file) && isDrawingText('{"atoms":[],"bonds":[]}') && isDrawingText('<?xml version="1.0"?>\n<CDXML>'));
 assert.ok(!isDrawingText("\n  Octet\n\n  1  0  0  0  0  0  0  0  0  0999 V2000\nM  END\n") && !isDrawingText("CCO") && !isDrawingText("c1ccccc1 benzene <CDXMLX>"));
+// What the window showed (View > Show Grid, Show Rulers, Show Crosshair) comes back with the drawing.
+const guides = { rulers: true as const, crosshair: [1, -0.5] as [number, number] };
+assert.deepEqual(readOct(writeOct({ ...mol, guides }, style)).mol.guides, guides);
+assert.equal(readOct(file).mol.guides, undefined);
 console.log("oct.check: ok");

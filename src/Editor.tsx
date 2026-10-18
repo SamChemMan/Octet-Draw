@@ -3,14 +3,16 @@ import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
   FrameCorners, GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
   TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa, TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
-  Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table, FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, LinkSimple, MagnetStraight, Paragraph, Resize, Ruler, CopySimple, IdentificationBadge, Key, FileCode,
+  Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table, FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, LinkSimple, MagnetStraight, Paragraph, Resize, Ruler, CopySimple, IdentificationBadge, Key, FileCode, GridFour, CrosshairSimple,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
 import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, toMolText, toInchiKey, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
-import { MAX_PURPOSES, PURPOSES, fontStack, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, sizesAt, type DocStyle, type PurposeKind } from "./docstyle";
+import { MAX_PURPOSES, PURPOSES, fontStack, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, sizesAt, type DocStyle, type Guides, type PurposeKind } from "./docstyle";
+import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
+import { Rulers } from "./Rulers";
 import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
 import {
@@ -21,9 +23,9 @@ import {
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
-import { loadSettings, saveSettings } from "./settings";
+import { loadSettings, RULER_UNITS, saveSettings } from "./settings";
 import { ACTIONS, actionFor, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
-import { Actions, actionItems, FontPick, type Context } from "./Actions";
+import { Actions, actionItems, FontPick, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties, propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./Properties";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
@@ -46,7 +48,8 @@ import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb } from "./TemplateLibrary";
-import { cleanUpReaction, findReaction, GAP, layoutRow, reactionClean, rowOf } from "./reaction";
+import { cleanUpReaction, findReaction, GAP, layoutRow, reactionClean, roleOf, rowOf, type Reaction } from "./reaction";
+import { SEARCHES, searchNow, searchQuery } from "./search";
 import { SettingsWindow, type ModuleId } from "./SettingsWindow";
 import { layoutCycles, orderAround, spreadCycle, type Cycle, type CycleText } from "./cycle";
 import { LIBRARY, libraryItem } from "./library";
@@ -157,7 +160,9 @@ type Drag =
   // Resizing the selection by one of its frame's handles (resize.ts): the frame at the press (drawing units), what is
   // scaled, each free caption's middle, the stops, the factors and the point they scale about now. whole: the whole
   // drawing with Labels and lines, which a scale in proportion only zooms (it shows the drawing as it is, scaled).
-  | { kind: "resize"; side: Side; frame: RBox; atoms: Set<number>; items: Set<number>; middles: Map<number, P>; stops: number[]; size: P; anchor: P; whole: boolean; labels: boolean; lines: boolean; working: Mol };
+  | { kind: "resize"; side: Side; frame: RBox; atoms: Set<number>; items: Set<number>; middles: Map<number, P>; stops: number[]; size: P; anchor: P; whole: boolean; labels: boolean; lines: boolean; working: Mol }
+  // Moving the crosshair (View > Show Crosshair): from where it was, to where it is now.
+  | { kind: "crosshair"; from: P; at: P };
 
 // Draws again whenever a store changes, by calling its children with the value; nothing else draws again.
 function Live<T>({ store: from, children }: { store: Store<T>; children: (value: T) => React.ReactNode }) {
@@ -337,6 +342,8 @@ export default function Editor() {
   // parts that show them draw again (Live), and handlers read them as they run.
   const [views] = useState(() => { const s = loadSettings(); return store<View>({ x: innerWidth / 2, y: innerHeight / 2, zoom: Math.min(8, Math.max(0.25, openZoom(styleFor(s, s.purpose)))) }); });
   const setView = (next: View | ((v: View) => View)) => views.set(typeof next === "function" ? next(views.get()) : next);
+  // A window made larger shows more of the grid and the rulers, which are drawn for the window alone.
+  useEffect(() => { const grow = () => views.set({ ...views.get() }); addEventListener("resize", grow); return () => removeEventListener("resize", grow); }, [views]);
   const [hovers] = useState(() => store<Hover>({}, sameHover));
   const setHover = hovers.set;
   const [selection, setSelection] = useState<Set<number>>(new Set());
@@ -370,6 +377,10 @@ export default function Editor() {
   const [pop, setPop] = useState<{ n: number; x: number; y: number }>();
   const [cursor, setCursor] = useState<string>();
   const [settings, setSettings] = useState(loadSettings);
+  // What this drawing shows over its page (View > Show Grid, Show Rulers, Show Crosshair). Not an edit: no undo step.
+  const [guides, setGuides] = useState<Guides>({});
+  // Where the pointer is (drawing coordinates), for the rulers' marks.
+  const [pointers] = useState(() => store<P | undefined>(undefined));
   const bondKind = (settings.variants.bond in BONDS ? settings.variants.bond : "single") as BondKind;
   // The user's own rings, and the one in hand (a built-in RingKind or a template's kind).
   const templates = useMemo(() => loadTemplates(settings.templates), [settings.templates]);
@@ -439,8 +450,8 @@ export default function Editor() {
   // What the pointer is over, for the cursor and the page and rotation handle highlights: the selection, the
   // selection's rotation handle, a table border with the Table tool (which way it drags), and a page's edge. It
   // changes as the pointer moves, so it lives in a store too.
-  const [overs] = useState(() => store<{ selection: boolean; turn: boolean; edge?: "col" | "row"; page?: string; resize?: Side }>({ selection: false, turn: false },
-    (a, b) => a.selection === b.selection && a.turn === b.turn && a.edge === b.edge && a.page === b.page && a.resize === b.resize));
+  const [overs] = useState(() => store<{ selection: boolean; turn: boolean; edge?: "col" | "row"; page?: string; resize?: Side; cross?: boolean }>({ selection: false, turn: false },
+    (a, b) => a.selection === b.selection && a.turn === b.turn && a.edge === b.edge && a.page === b.page && a.resize === b.resize && a.cross === b.cross));
   // Where the eraser outline is drawn (drawing coordinates), while the Eraser is in hand. It follows the pointer, so
   // it lives in a store too.
   const [brushes] = useState(() => store<P | undefined>(undefined));
@@ -669,8 +680,8 @@ export default function Editor() {
     }
     try {
       // A .cdx file, or one the Save dialog could make, gets ChemDraw's binary form too (decision 0009).
-      const cdx = as || !file.path || /\.cdx$/i.test(file.path) ? toBase64(writeCdx(doc, style, cdxmlOptions())) : undefined;
-      const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), name, contents: writeOct(doc, style, cdxmlOptions()), cdx });
+      const cdx = as || !file.path || /\.cdx$/i.test(file.path) ? toBase64(writeCdx({ ...doc, guides }, style, cdxmlOptions())) : undefined;
+      const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), name, contents: writeOct({ ...doc, guides }, style, cdxmlOptions()), cdx });
       if (path) setFile({ path, saved: doc });
       return !!path;
     } catch (e) {
@@ -722,13 +733,13 @@ export default function Editor() {
   // Return and ⌘N start the purpose picked last, as ChemDraw's New takes the stationery used last.
   const newDrawing = (id = settings.purpose) => keepWork(() => {
     const style = styleFor(settings, id), fresh: Mol = { ...EMPTY, style };
-    drawingColours.current = []; set(fresh); setFile({ saved: fresh }); setHome(false); setCoach(0); openView(style);
+    drawingColours.current = []; set(fresh); setFile({ saved: fresh }); setGuides(freshGuides([0, 0])); setHome(false); setCoach(0); openView(style);
     setSettings((s) => ({ ...s, purpose: purposeOf(s, id) ? id : "paper" }));
   });
   // The tutorial is always on Paper (IDEA-SIZE-14): its steps are made for a manuscript's sizes.
   const startTutorial = () => keepWork(() => {
     const style = styleFor(settings, "paper"), fresh: Mol = { ...EMPTY, style };
-    set(fresh); setFile({ saved: fresh }); setHome(false); openView(style); setTool("bond"); setSeen(NOTHING_SEEN); setCoach((n) => n + 1);
+    set(fresh); setFile({ saved: fresh }); setGuides(freshGuides([0, 0])); setHome(false); openView(style); setTool("bond"); setSeen(NOTHING_SEEN); setCoach((n) => n + 1);
     setSettings((s) => ({ ...s, tutorialDone: true }));
   });
   // The open view for a new drawing in a style: the page's middle in the window's middle, at the open zoom. The page
@@ -849,15 +860,18 @@ export default function Editor() {
         if (!b) throw new Error("There are no structures in this file.");
         read = { mol: merge(EMPTY, mol, [-(b[0] + b[2]) / 2, -(b[1] + b[3]) / 2]), lost: {} };
       }
-      const lost = read.lost;
+      const lost = read.lost, { guides: saved, ...kept } = read.mol;
       // Settings > Files > Keep ChemDraw styles off: another program's drawing takes Octet's default style.
-      const mol = wholeGroups(read.foreign && !settings.files.keepStyle ? { ...read.mol, style: undefined } : read.mol);
+      const mol = wholeGroups(read.foreign && !settings.files.keepStyle ? { ...kept, style: undefined } : kept);
+      // The grid, rulers and crosshair as the drawing was saved with them; the user's last choice when it says none.
+      // A drawing saved before Show Grid, with Gridlines set (a step in mm), shows its grid as it did. The view centres
+      // on the structures, or on everything else when there are none (text, arrows, pictures).
+      const b = bounds(mol) ?? extent(mol);
+      setGuides(saved ?? { ...freshGuides(b && [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]), ...(typeof kept.style?.grid === "number" ? { grid: true } : {}) });
       set(mol);
       setFile(path ? { path, saved: mol, lost: Object.keys(lost).length ? lost : undefined } : { saved: EMPTY, name: title });
       setHome(false); setCoach(0); outlineFrom.current = undefined;
       sayLost(lost);
-      // The view centres on the structures, or on everything else when there are none (text, arrows, pictures).
-      const b = bounds(mol) ?? extent(mol);
       if (b) setView((v) => ({ ...v, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * v.zoom * L, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * v.zoom * L }));
     } catch (e) {
       setNotice(e instanceof Error ? e.message : `Octet cannot open this file. ${e}`);
@@ -961,6 +975,10 @@ export default function Editor() {
       setPicked(new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id)));
     },
     snap: () => setSettings((s) => ({ ...s, snap: !s.snap })),
+    snap_grid: () => setSettings((s) => ({ ...s, snapGrid: !s.snapGrid })),
+    grid: () => showGuide("grid"),
+    rulers: () => showGuide("rulers"),
+    crosshair: () => showGuide("crosshair"),
     warnings: () => setSettings((s) => ({ ...s, warnings: !s.warnings })),
     // Display Warnings back on for the selected atoms (their whole structures when a structure is selected).
     show_warnings: () => set({ ...doc, atoms: doc.atoms.map((a, k) => (selection.has(k) && a.ignoreWarnings ? { ...a, ignoreWarnings: undefined } : a)) }, true),
@@ -1135,6 +1153,8 @@ export default function Editor() {
     }])),
     recent_clear: () => refreshRecents(),
     revert: () => revertToSaved(),
+    // Search Reaxys and Search PubChem (the Search menu and the Actions panel), while Settings > Online search is on.
+    ...(settings.onlineSearch ? Object.fromEntries(Object.entries(SEARCHES).map(([id, [site, exact]]) => [id, () => searchOnline(site, exact)])) : {}),
     // Bring to Front (⌘[) and Send to Back (⌘]), as ChemDraw's: any selected structure (a picked atom or bond takes its
     // whole structure) and object goes over, or under, everything else.
     bring_front: () => restack(true),
@@ -1189,11 +1209,13 @@ export default function Editor() {
     setView({ zoom, x: cx - (cx - view.x) * k, y: cy - (cy - view.y) * k });
   }
   // Keep the setting on disk and the View menu ticks in step with it.
-  const syncChecks = () => Promise.all([["snap", settings.snap], ["warnings", settings.warnings]].map(([id, checked]) => invoke("set_check", { id, checked }))).catch(() => {});
+  const syncChecks = () => Promise.all(([["grid", !!guides.grid], ["rulers", !!guides.rulers], ["crosshair", !!guides.crosshair], ["snap", settings.snap], ["snap_grid", settings.snapGrid],
+    ["warnings", settings.warnings]] as const).map(([id, checked]) => invoke("set_check", { id, checked }))).catch(() => {});
   useEffect(() => {
     saveSettings(settings);
     if (TAURI) syncChecks();
   }, [settings]);
+  useEffect(() => { if (TAURI) syncChecks(); }, [guides]); // eslint-disable-line react-hooks/exhaustive-deps
   // The Colour menu lists the user's colours by name: the menu bar is built again when they change.
   const paletteNames = settings.palette.map((c) => c.name).join("\n");
   useEffect(() => {
@@ -1215,10 +1237,12 @@ export default function Editor() {
   }, []);
   // Every menu command's shortcut can be changed in Settings, with the canvas keys: the menu lists its commands, and
   // is built again with the user's shortcuts (Command or Ctrl ones; the page handles any other key itself).
+  // Settings > Online search: the Search menu is built only while it is on, so the list is read after it is set.
   const [menuReady, setMenuReady] = useState(0);
   useEffect(() => {
-    if (TAURI) invoke<[string, string, string, string][]>("menu_items").then((items) => { registerMenu(items); setMenuReady(items.length); }).catch(() => {});
-  }, []);
+    if (TAURI) invoke("set_online_search", { on: settings.onlineSearch }).then(() => invoke<[string, string, string, string][]>("menu_items"))
+      .then((items) => { registerMenu(items); setMenuReady(items.length); }).then(syncChecks).catch(() => {});
+  }, [settings.onlineSearch]); // eslint-disable-line react-hooks/exhaustive-deps
   const sentMenuKeys = useRef("");
   useEffect(() => {
     if (!TAURI || !menuReady) return;
@@ -1343,6 +1367,39 @@ export default function Editor() {
     const [x, y] = [(w / 2) * mm, (h / 2) * mm], dx = Math.abs(Math.abs(p[0]) - x), dy = Math.abs(Math.abs(p[1]) - y), near = 5 / (views.get().zoom * L);
     return (dx < near && Math.abs(p[1]) <= y + near) || (dy < near && Math.abs(p[0]) <= x + near);
   });
+  // The grid (grid.ts): the document's step, counted from the page's top-left corner (where the rulers start), or
+  // from the crosshair while it shows. It shows on engineering paper and with View > Show Grid; the crosshair shows
+  // its heavier lines. Snap to Grid snaps to the lines that show, within 6 screen px; ⌘ frees.
+  const corner: P = [-(pages[0][1] / 2) * mm, (pages[0][2] / 2) * mm];
+  const cross = drag?.kind === "crosshair" ? drag.at : guides.crosshair;
+  const grid = gridOf(style.grid, mm, cross ?? corner), heavy = { ...grid, minor: grid.minor * grid.every, every: 1 };
+  const gridShown = !!guides.grid || paper === "blueprint";
+  const snapGrid = !settings.snapGrid ? undefined : gridShown ? grid : guides.crosshair ? heavy : undefined;
+  const toGrid = (p: P, free = false): P => {
+    if (!snapGrid || free) return p;
+    const [x, y] = snapToGrid(snapGrid, p, views.get().zoom * L, 6);
+    return [x ?? p[0], y ?? p[1]];
+  };
+  const onCrosshair = (p: P, t: Hover) => !!cross && t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined && t.cycle === undefined
+    && Math.hypot(p[0] - cross[0], p[1] - cross[1]) * L * views.get().zoom < 8;
+  // The crosshair's place when it is shown, as ChemDraw's: the middle of the window (or a point given), on the
+  // nearest heavier grid line from the page's corner.
+  const crosshairHome = (at?: P): [number, number] => {
+    const c = at ?? toDoc(innerWidth / 2, innerHeight / 2), step = grid.minor * grid.every;
+    return [0, 1].map((k) => corner[k] + Math.round((c[k] - corner[k]) / step) * step) as [number, number];
+  };
+  // New drawings, and drawings saved without them, show what the user last chose in the View menu.
+  const freshGuides = (at?: P): Guides => ({
+    ...(settings.guides.grid ? { grid: true } : {}), ...(settings.guides.rulers ? { rulers: true } : {}), ...(settings.guides.crosshair ? { crosshair: crosshairHome(at) } : {}),
+  });
+  const showGuide = (k: "grid" | "rulers" | "crosshair") => {
+    const on = !guides[k], next: Guides = { ...guides };
+    if (!on) delete next[k];
+    else if (k === "crosshair") next.crosshair = crosshairHome();
+    else next[k] = true;
+    setGuides(next);
+    setSettings((s) => ({ ...s, guides: { ...s.guides, [k]: on } }));
+  };
   // The Settings window, open at a module.
   const [settingsOpen, setSettingsOpen] = useState<ModuleId>();
   const [addingColour, setAddingColour] = useState(false); // Settings opened from a colour row's +, to add a colour
@@ -2209,6 +2266,8 @@ export default function Editor() {
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* the pointer is already gone */ }
     const p = toDoc(e.clientX, e.clientY), t = hit(p), screen: [number, number] = [e.clientX, e.clientY];
     pointer.current = p;
+    // The crosshair's middle drags it, whatever tool is in hand (a structure or object there comes first).
+    if (onCrosshair(p, t)) return setDrag({ kind: "crosshair", from: cross!, at: cross! });
     const handle = tool !== "erase" ? handleAt(p) : undefined;
     if (handle) return setDrag({ kind: "handle", ...handle, working: doc });
     // Option-drag on the centre mark moves the centre the selection turns about (it snaps to atoms).
@@ -2268,7 +2327,8 @@ export default function Editor() {
     }
     // Pressing away from the selection with a drawing tool clears it, as ChemDraw does.
     if (selection.size || picked.size) { setSelection(new Set()); setPicked(new Set()); }
-    pressTool(p, t, screen);
+    // Snap to Grid: a press on empty canvas starts on the grid (the new atom, the text, an arrow's or shape's start).
+    pressTool(tool !== "erase" && t.atom === undefined && t.bond === undefined ? toGrid(p, e.metaKey) : p, t, screen);
     startHold(p, t, screen);
   }
   // What a press does with each drawing tool in hand: starts its drag (a click when the pointer never moves).
@@ -2308,6 +2368,7 @@ export default function Editor() {
   function onPointerMove(e: React.PointerEvent<SVGSVGElement>) {
     const p = toDoc(e.clientX, e.clientY);
     pointer.current = p;
+    if (guides.rulers) pointers.set(p);
     if (hold.current && holdFrom.current && Math.hypot(e.clientX - holdFrom.current[0], e.clientY - holdFrom.current[1]) >= 4) stopHold();
     if (tool === "erase") setBrush(p);
     if (pen && !drag) setPenAt(p);
@@ -2315,7 +2376,7 @@ export default function Editor() {
       const t = hit(p);
       overs.set({
         selection: tool !== "erase" && selection.size > 0 && onSelection(doc, selection, p), turn: tool !== "erase" && onTurnHandle(p), edge: tool === "table" ? tableEdge(p)?.axis : undefined, resize: resizeAt(p),
-        page: t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined ? pageEdgeAt(p)?.[0] : undefined,
+        page: t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined ? pageEdgeAt(p)?.[0] : undefined, cross: onCrosshair(p, t),
       });
       return setHover(t);
     }
@@ -2323,6 +2384,13 @@ export default function Editor() {
       case "click":
         if (Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) >= 4) stopHold();
         return;
+      case "crosshair": {
+        // On the page's grid, a lighter step at a time from its corner (⌘ frees it); Shift keeps it to one axis.
+        const step = gridOf(style.grid, mm, corner).minor;
+        let q: P = e.metaKey ? p : [0, 1].map((k) => corner[k] + Math.round((p[k] - corner[k]) / step) * step) as P;
+        if (e.shiftKey) q = Math.abs(q[0] - drag.from[0]) >= Math.abs(q[1] - drag.from[1]) ? [q[0], drag.from[1]] : [drag.from[0], q[1]];
+        return setDrag({ ...drag, at: q });
+      }
       case "bond": {
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         stopHold();
@@ -2352,8 +2420,10 @@ export default function Editor() {
           return setDrag({ ...drag, to, trail, side });
         }
         const far = Math.hypot(p[0] - drag.from[0], p[1] - drag.from[1]), raw = Math.atan2(p[1] - drag.from[1], p[0] - drag.from[0]);
-        const a = e.altKey ? raw : Math.round(raw / SNAP) * SNAP;
-        return setDrag({ ...drag, to: [drag.from[0] + far * Math.cos(a), drag.from[1] + far * Math.sin(a)] });
+        const a = e.altKey ? raw : Math.round(raw / SNAP) * SNAP, to: P = [drag.from[0] + far * Math.cos(a), drag.from[1] + far * Math.sin(a)];
+        // Snap to Grid: a level or upright arrow ends on a grid line too (other angles keep their 15° steps).
+        const turn = ((Math.round(a / SNAP) % 12) + 12) % 12, g = toGrid(to, e.metaKey || e.altKey);
+        return setDrag({ ...drag, to: turn === 0 ? [g[0], to[1]] : turn === 6 ? [to[0], g[1]] : to });
       }
       case "map":
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
@@ -2430,7 +2500,7 @@ export default function Editor() {
         stopHold();
         // Shift makes it square (or round).
         const w = p[0] - drag.from[0], h = p[1] - drag.from[1], side = Math.max(Math.abs(w), Math.abs(h));
-        return setDrag({ ...drag, to: e.shiftKey ? [drag.from[0] + Math.sign(w || 1) * side, drag.from[1] + Math.sign(h || 1) * side] : p });
+        return setDrag({ ...drag, to: e.shiftKey ? [drag.from[0] + Math.sign(w || 1) * side, drag.from[1] + Math.sign(h || 1) * side] : toGrid(p, e.metaKey) });
       }
       case "handle": {
         // A caption's width: from its anchor to the pointer (both ways from a centred caption's middle). Dragged out
@@ -2499,6 +2569,16 @@ export default function Editor() {
           : moving.size ? snapMove(base, moving, raw, tol, boxes)
           : boxes ? { ...snapBoxes(boxes.moving, boxes.targets, raw, tol), point: undefined }
           : { d: raw, guides: [] as Guide[], point: undefined };
+        // Snap to Grid, on each axis an atom or object snap left free: the atom grabbed (a bond's nearer atom), or else
+        // the nearest corner or middle of the moving box, lands on a grid line.
+        if (snapGrid && !e.metaKey && !snapped.point) {
+          const t = drag.target, grabbed = t.atom ?? (t.bond !== undefined ? base.bonds[t.bond].atoms.reduce((a, b) => (Math.hypot(pos(base, a)[0] - drag.from[0], pos(base, a)[1] - drag.from[1]) <= Math.hypot(pos(base, b)[0] - drag.from[0], pos(base, b)[1] - drag.from[1]) ? a : b)) : undefined);
+          const b = grabbed !== undefined && moving.has(grabbed) ? undefined : drag.snap()?.moving;
+          const points: P[] = grabbed !== undefined && moving.has(grabbed) ? [pos(base, grabbed)] : b ? [b[0], (b[0] + b[2]) / 2, b[2]].flatMap((x) => [b[1], (b[1] + b[3]) / 2, b[3]].map((y): P => [x, y])) : [];
+          const nudge = gridNudge(snapGrid, points.map((q) => [q[0] + snapped.d[0], q[1] + snapped.d[1]]), views.get().zoom * L, 6);
+          const free = (axis: "x" | "y") => !snapped.guides.some((g) => g.axis === axis);
+          snapped.d = [snapped.d[0] + (free("x") ? nudge[0] ?? 0 : 0), snapped.d[1] + (free("y") ? nudge[1] ?? 0 : 0)];
+        }
         return setDrag({ ...drag, working: moveAll(base, snapped.d, drag.captions, drag.arrows, drag.cycles, moving), moved: true, guides: snapped.guides, point: snapped.point });
       }
     }
@@ -2609,6 +2689,29 @@ export default function Editor() {
     const inSalt = new Set(merged.flat());
     return [...all.filter((g) => !inSalt.has(g)), ...merged.map((gs) => gs.flat())];
   };
+  // Search Reaxys and Search PubChem (decision 0008): the selection, or the whole drawing when nothing is selected
+  // (as Copy), opens in the user's browser. Structures on one side of a reaction search Reaxys's reactions for them
+  // in that part, as ChemDraw's Reactant and Reaction product searches. Only a press runs a search.
+  function searchOnline(site: "reaxys" | "pubchem", exact: boolean) {
+    if (!loaded) return;
+    const all = !selection.size && !picked.size, part = all ? doc : extractSelection(doc, selection, picked);
+    if (!part.atoms.length) return setNotice("Select a structure to search.");
+    const reactions: Reaction[] = [], seen = new Set<number>();
+    for (const a of arrows.filter((x) => straightArrow(x))) {
+      if (seen.has(a.id)) continue;
+      const r = reactionOf(a.id);
+      r?.arrows.forEach((id) => seen.add(id));
+      if (r) reactions.push(r);
+    }
+    const role = roleOf(reactions, fragments(doc).filter((g) => all || g.some((i) => selection.has(i))));
+    if (role === "mixed") return setNotice("Select the starting materials or the products of the reaction.");
+    let query: ReturnType<typeof searchQuery>;
+    try { query = searchQuery(part); } catch { return setNotice("Octet cannot read this structure."); }
+    if (!searchNow()) return;
+    // A query with generic labels always looks for substructures.
+    invoke("search_online", { site, ...query, exact: exact && !query.molfile, role: site === "reaxys" ? role : undefined })
+      .catch((e) => setNotice(typeof e === "string" ? e : "Search runs in the Octet app."));
+  }
   // The selection to the front or the back of the draw order (order.ts): each structure it touches, as a whole, and
   // each picked object (a picked cycle takes its intermediates too).
   function restack(front: boolean) {
@@ -3084,6 +3187,7 @@ export default function Editor() {
     invert_selection: `⇧${MOD}I`, clean_reaction: `⇧${MOD}X`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}/`, copy_smiles: `⌥${MOD}C`, copy: `${MOD}C`, delete: "⌫",
     copy_cdxml: `${MOD}D`, copy_mol: `⌥${MOD}O`, copy_mol_v2000: `⇧⌥${MOD}O`,
     structure_to_name: `⌥${MOD}N`, bring_front: `${MOD}[`, send_back: `${MOD}]`, "caption.align.justify": `⇧${MOD}J`,
+    search_reaxys: `⌥${MOD}F`, search_reaxys_exact: `⇧⌥${MOD}F`, search_pubchem: `⌥${MOD}U`, search_pubchem_sub: `⇧⌥${MOD}U`,
     settings: `${MOD},`, name_to_structure: `⇧${MOD}N`, "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.sub": `${MOD}−`, "caption.super": `${MOD}+`, "caption.plain": `${MOD}T`, "caption.formula": `${MOD}F`, "caption.edit": keyLabel("enter"),
   };
   const hint = (command: string) => {
@@ -3140,6 +3244,10 @@ export default function Editor() {
     zoom_actual: ["Actual size", `${MOD}\\`, <FrameCorners size={18} />], zoom_fit: ["Fit to window", `${MOD}/`, <CornersOut size={18} />],
     name_to_structure: ["Convert name to structure", `⇧${MOD}N`, <AtomIcon size={18} />],
     snap: [settings.snap ? "Turn snapping off" : "Turn snapping on", undefined, <MagnetStraight size={18} />],
+    grid: [guides.grid ? "Hide grid" : "Show grid", `${MOD}'`, <GridFour size={18} />],
+    snap_grid: [settings.snapGrid ? "Turn grid snapping off" : "Turn grid snapping on", `⇧${MOD}'`, <GridFour size={18} />],
+    rulers: [guides.rulers ? "Hide rulers" : "Show rulers", `${MOD};`, <Ruler size={18} />],
+    crosshair: [guides.crosshair ? "Hide crosshair" : "Show crosshair", `⌥${MOD}X`, <CrosshairSimple size={18} />],
     warnings: [settings.warnings ? "Hide chemical warnings" : "Show chemical warnings", undefined, <Warning size={18} />],
     actions: [settings.actions ? "Hide the Actions panel" : "Show the Actions panel", undefined, <SlidersHorizontal size={18} />],
     text_bold: ["Bold", `${MOD}B`, <TextB size={18} />], text_italic: ["Italic", `${MOD}I`, <TextItalic size={18} />], text_underline: ["Underline", `${MOD}U`, <TextUnderline size={18} />],
@@ -3147,6 +3255,10 @@ export default function Editor() {
     align_justify: ["Justified", `⇧${MOD}J`, <TextAlignJustify size={18} />],
     font_other: ["Other font…", "", <TextAa size={18} />], size_other: ["Other size…", "", <Ruler size={18} />], line_spacing: ["Line spacing…", "", <Paragraph size={18} />],
     bring_front: ["Bring to front", `${MOD}[`, <StackSimple size={18} />], send_back: ["Send to back", `${MOD}]`, <Stack size={18} />],
+    ...(settings.onlineSearch ? {
+      search_reaxys: ["Search Reaxys", `⌥${MOD}F`, <SearchGlyph letter="R" />], search_reaxys_exact: ["Search Reaxys for exact structure", `⇧⌥${MOD}F`, <SearchGlyph letter="R" />],
+      search_pubchem: ["Search PubChem", `⌥${MOD}U`, <SearchGlyph letter="P" />], search_pubchem_sub: ["Search PubChem for substructures", `⇧⌥${MOD}U`, <SearchGlyph letter="P" />],
+    } as Record<string, [string, string, React.ReactNode]> : {}),
   };
   const paletteCommands = (): Command[] => {
     const toolKey = (id: string) => { const k = keymap(settings.keys)[id]?.[0]; return k ? keyLabel(k) : undefined; };
@@ -3154,7 +3266,7 @@ export default function Editor() {
     const variants = (t: Tool, slot: string, list: [string, string, React.ReactNode][], group: string, words = ""): Command[] =>
       list.map(([kind, name, icon]) => ({ id: `${t}:${kind}`, name, group, icon, words, run: pick(t, [slot, kind]) }));
     // A menu command that is also one of the selection's actions shows once, as the action.
-    const acts = actionItems(contextOf(), untidy, [...selection].some((i) => doc.atoms[i]?.ignoreWarnings)), acted = new Set(acts.map((i) => i.command));
+    const acts = actionItems(contextOf(), untidy, [...selection].some((i) => doc.atoms[i]?.ignoreWarnings), settings.onlineSearch), acted = new Set(acts.map((i) => i.command));
     return [
       ...acts.map((i) => ({ id: `action:${i.command}`, name: i.name, group: "Actions", icon: i.icon, keys: hint(i.command), run: () => runAction(i.command) })),
       ...Object.entries(MENU_NAMES).filter(([id]) => commands.current[id] && !acted.has(id)).map(([id, [name, , icon]]) => ({ id: `menu:${id}`, name, group: "Commands", keys: hint(id), icon, run: () => commands.current[id]() })),
@@ -3564,6 +3676,8 @@ export default function Editor() {
     if (!drag) return;
     setDrag(undefined);
     switch (drag.kind) {
+      case "crosshair":
+        return setGuides((g) => ({ ...g, crosshair: drag.at }));
       case "bond": {
         const { to, from, target: t, at } = drag;
         if (to) return set(bondTo(doc, from, to, bondSpec));
@@ -3950,13 +4064,30 @@ export default function Editor() {
     return () => clearTimeout(t);
   }, [homeLeaving]);
 
-  // The page's gridlines, inside the document's page.
-  const gridLines = style.grid > 0 && (() => {
-    const [, w, h] = pages[0], [x, y] = [(w / 2) * mm * L, (h / 2) * mm * L], g = style.grid * mm * L, lines: string[] = [];
-    for (let v = -x + g; v < x - 0.01; v += g) lines.push(`M${v} ${-y}V${y}`);
-    for (let v = -y + g; v < y - 0.01; v += g) lines.push(`M${-x} ${v}H${x}`);
-    return <path className="grid" d={lines.join("")} vectorEffect="non-scaling-stroke" />;
-  })();
+  // The selection's extent (px at 100%), for the rulers' band: its atoms with their labels and text, picked text, and
+  // picked arrows and shapes by their ends. It follows a move as it goes.
+  const rulerExtent = guides.rulers && (selection.size || picked.size) ? union([
+    withCaptions(selection), ...placed.filter((c) => picked.has(c.id)).map((c) => c.box),
+    ...[...(shown.arrows ?? []), ...(shown.shapes ?? [])].filter((a) => picked.has(a.id)).map((a): Box => [Math.min(a.from[0], a.to[0]) * L, -Math.max(a.from[1], a.to[1]) * L, Math.max(a.from[0], a.to[0]) * L, -Math.min(a.from[1], a.to[1]) * L]),
+  ].filter((b): b is Box => !!b)) : undefined;
+  // The grid across the window, lighter and heavier lines (only the ones far enough apart to read at this zoom), and
+  // the crosshair over it: two lines across the window, with a tick at each lighter step when the grid is off, as
+  // ChemDraw's. Drawn for the window alone, so it costs the same at every zoom. Never exported or printed.
+  const gridMarks = (view: { x: number; y: number; zoom: number }) => {
+    if (!gridShown && !cross) return null;
+    const scale = view.zoom * L, box: [number, number, number, number] = [-view.x / scale, (view.y - innerHeight) / scale, (innerWidth - view.x) / scale, view.y / scale];
+    const [top, bottom, left, right] = [-box[3] * L, -box[1] * L, box[0] * L, box[2] * L], lines = gridLines(gridShown ? grid : heavy, box, scale);
+    const path = (major: boolean) => [...lines.x.filter(([, m]) => m === major).map(([x]) => `M${x * L} ${top}V${bottom}`), ...lines.y.filter(([, m]) => m === major).map(([y]) => `M${left} ${-y * L}H${right}`)].join("");
+    const ticks = cross && !gridShown && shownStep(grid, scale) === grid.minor ? gridLines(grid, box, scale) : undefined, t = 5 / view.zoom;
+    return (
+      <>
+        <path className="grid" d={path(false)} vectorEffect="non-scaling-stroke" />
+        <path className="grid major" d={path(true)} vectorEffect="non-scaling-stroke" />
+        {cross && <path className="crosshair" vectorEffect="non-scaling-stroke"
+          d={`M${cross[0] * L} ${top}V${bottom}M${left} ${-cross[1] * L}H${right}${ticks ? [...ticks.x.map(([x]) => `M${x * L} ${-cross[1] * L - t}v${2 * t}`), ...ticks.y.map(([y]) => `M${cross[0] * L - t} ${-y * L}h${2 * t}`)].join("") : ""}`} />}
+      </>
+    );
+  };
   // A shape's fill: a highlight, a solid or shaded fill, or a shadow.
   const shapeFill = (sh: Shape) => {
     if (!(sh.kind === "highlight" || sh.fill || sh.shadow)) return null;
@@ -4231,22 +4362,20 @@ export default function Editor() {
   }, [shown, frame, darkPaper, draggedSpot, spotPick, style, pt, cell?.id, cell?.r, cell?.c, drawing, labelTexts, placed, arrows, cycleArrows, writing?.id, reagents]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="editor">
+    <div className={guides.rulers && !home ? "editor with-rulers" : "editor"}>
       {/* The canvas draws again as the view, or what the pointer is over, changes. The drawing's layers in it are made
           by the editor (under, marks, ink and over), so React passes over them. */}
-      <Live store={views}>{(view) => <Live store={overs}>{({ selection: overSelection, turn: overTurn, edge: edgeHover, page: pageHover, resize: overResize }) => (
+      <Live store={views}>{(view) => <Live store={overs}>{({ selection: overSelection, turn: overTurn, edge: edgeHover, page: pageHover, resize: overResize, cross: overCross }) => (
       <svg
         ref={svg}
         className={`canvas paper-${paper}${view.pinch ? " pinch" : ""}`}
         data-theme={darkPaper ? "dark" : "light"}
         data-tool={tool}
         style={{
-          ...(pageHover && !drag ? { cursor: "zoom-in" } : (overResize && !drag) || drag?.kind === "resize" ? { cursor: CURSORS[drag?.kind === "resize" ? drag.side : overResize!] }
+          ...((overCross && !drag) || drag?.kind === "crosshair" ? { cursor: "move" } : pageHover && !drag ? { cursor: "zoom-in" } : (overResize && !drag) || drag?.kind === "resize" ? { cursor: CURSORS[drag?.kind === "resize" ? drag.side : overResize!] }
             : (overTurn && !drag) || drag?.kind === "turn" ? { cursor: turnCursor ?? "grab" } : overSelection || drag?.kind === "move" ? { cursor: "move" } : tool === "select" && cursor ? { cursor } : {}),
           ...((edgeHover && !drag) || drag?.kind === "tableedge" ? { cursor: (drag?.kind === "tableedge" ? drag.axis : edgeHover) === "col" ? "col-resize" : "row-resize" } : {}),
           ...(darkPaper ? { "--ink": "#FFFFFF" } : {}),
-          // Engineering paper: a 1 mm grid with a heavier line every 5 mm, fixed to the page as it moves and zooms.
-          ...(paper === "blueprint" ? { backgroundSize: `${5 * mm * L * view.zoom}px ${5 * mm * L * view.zoom}px, ${5 * mm * L * view.zoom}px ${5 * mm * L * view.zoom}px, ${mm * L * view.zoom}px ${mm * L * view.zoom}px, ${mm * L * view.zoom}px ${mm * L * view.zoom}px`, backgroundPosition: `${view.x}px ${view.y}px` } : {}),
         } as React.CSSProperties}
         role="img"
         aria-label="Drawing canvas"
@@ -4254,7 +4383,7 @@ export default function Editor() {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        onPointerLeave={() => { pointer.current = undefined; setBrush(undefined); if (!drag) setHover({}); }}
+        onPointerLeave={() => { pointer.current = undefined; pointers.set(undefined); setBrush(undefined); if (!drag) setHover({}); }}
         onDoubleClick={(e) => {
           // A double-click ends the Pen's curve.
           if (pen) return finishPen();
@@ -4290,9 +4419,10 @@ export default function Editor() {
         }}
       >
         <g transform={`translate(${view.x} ${view.y}) scale(${view.zoom})`}>
+          {/* The grid and the crosshair, drawn for the window. Not part of the drawing. */}
+          <g className="pages" aria-hidden>{gridMarks(view)}</g>
           {/* The page outlines: the page and what its purpose needs, each an edge with corner marks and its name. Not part of the drawing. */}
           <g className="pages" aria-hidden ref={pagesEl}>
-            {gridLines}
             {style.edges && pages.map(([name, w, h]) => {
               const [x, y, t] = [(w / 2) * mm * L, (h / 2) * mm * L, 10 / view.zoom];
               return (
@@ -4419,6 +4549,10 @@ export default function Editor() {
         </g>
       </svg>
       )}</Live>}</Live>
+      {guides.rulers && !home && <Live store={views}>{(view) => <Live store={pointers}>{(at) => (
+        <Rulers view={view} scale={L} mm={mm} origin={corner} unit={settings.rulerUnit} pointer={at} extent={rulerExtent}
+          onUnit={() => setSettings((s) => ({ ...s, rulerUnit: RULER_UNITS[(RULER_UNITS.findIndex(([u]) => u === s.rulerUnit) + 1) % RULER_UNITS.length][0] }))} />
+      )}</Live>}</Live>}
       {editing && doc.atoms[editing.atom] && <Live store={views}>{(view) => {
         // The label box sits on the atom, in the label font at the size the label is drawn and the current zoom.
         const [ax, ay] = pos(doc, editing.atom), a = doc.atoms[editing.atom], drawn = (a.size ?? style.labelSize) * scaleOf(a);
@@ -4640,6 +4774,10 @@ export default function Editor() {
           onCaptionOptionReturn={(captionOptionReturn) => setSettings((s) => ({ ...s, captionOptionReturn }))}
           panelMenus={settings.panelMenus}
           onPanelMenus={(panelMenus) => setSettings((s) => ({ ...s, panelMenus }))}
+          onlineSearch={settings.onlineSearch}
+          onOnlineSearch={(onlineSearch) => setSettings((s) => ({ ...s, onlineSearch }))}
+          rulerUnit={settings.rulerUnit}
+          onRulerUnit={(rulerUnit) => setSettings((s) => ({ ...s, rulerUnit }))}
           menuKeys={menuReady ? [] : Object.values(MENU_NAMES).flatMap(([name, keys]) => (keys ? [[name, platformLabel(keys)!] as [string, string]] : []))}
           palette={settings.palette}
           onPalette={(palette) => setSettings((s) => ({ ...s, palette }))}
@@ -4743,6 +4881,7 @@ export default function Editor() {
             problems={found}
             fonts={fontList}
             hiddenWarnings={[...selection].some((i) => doc.atoms[i]?.ignoreWarnings)}
+            online={settings.onlineSearch}
             messy={untidy}
             hint={hint}
             onOpen={(open) => setSettings((s) => ({ ...s, actions: open }))}

@@ -23,6 +23,8 @@ resvg = { version = "0.45", default-features = false, features = ["text"] }
 miniz_oxide = "0.8"
 png = "0.17"
 base64 = "0.22"
+# Opens web addresses and files in the user's own programs. On Windows it calls ShellExecuteExW, not cmd.exe.
+open = { version = "5.4", features = ["shellexecute-on-windows"] }
 
 # A second launch on Windows and Linux gives its files to the Octet that runs (src/open.rs).
 [target.'cfg(any(windows, target_os = "linux"))'.dependencies]

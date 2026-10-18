@@ -85,7 +85,7 @@ pub fn crash_report(app: AppHandle) -> Option<String> {
 #[tauri::command]
 pub fn show_log(app: AppHandle) -> Result<(), String> {
     let path = app.path().app_log_dir().map_err(|e| e.to_string())?.join(LOG);
-    crate::system_open(path.as_os_str()).map_err(|_| "Octet could not open the log.".into())
+    crate::open_external(&path).map_err(|_| "Octet could not open the log.".into())
 }
 
 #[cfg(test)]

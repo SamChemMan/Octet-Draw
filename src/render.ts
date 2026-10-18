@@ -9,7 +9,7 @@
 import { units } from "./labels.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
 import { lines as richLines, plainOf, runsOf, styleOf, wrap, type RunStyle, type TextRun } from "./richtext.ts";
-import type { DocStyle } from "./docstyle.ts";
+import type { DocStyle, Guides } from "./docstyle.ts";
 import type { Cycle, CycleText } from "./cycle.ts";
 
 type P = [number, number];
@@ -217,7 +217,8 @@ export function settleShape(sh: Shape): Shape {
 export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "table", "picture"];
 export const HIGHLIGHT = "#DCE4F6";
 // Captions, arrows, shapes and cycles share one set of ids.
-export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; annotations?: Annotation[]; style?: DocStyle };
+// guides: what the file asks the window to show (grid, rulers, crosshair), when Octet saved it; files only.
+export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; annotations?: Annotation[]; style?: DocStyle; guides?: Guides };
 // A keyword and content pair on the document or a group (ChemDraw's File > Document Annotations, and the GUIDs ChemDraw
 // writes). Not drawn: Octet keeps them from a ChemDraw file and writes them back (REL-28).
 export type Annotation = { keyword: string; content: string };

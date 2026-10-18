@@ -20,6 +20,14 @@ mod open;
 mod quit;
 mod recent;
 mod recovery;
+mod search;
+
+// Opens a web address or a file in the user's own program for it (the browser, the mail app). On Windows the open
+// crate asks the shell (ShellExecuteExW) directly: cmd.exe would read each & in an address as a new command. ::open is
+// the crate, not src/open.rs.
+pub fn open_external(target: impl AsRef<std::ffi::OsStr>) -> std::io::Result<()> {
+    ::open::that_detached(target)
+}
 
 // File > Print: the system's print dialog for the window, which prints only the page the editor laid out for it.
 #[tauri::command]
@@ -54,8 +62,9 @@ type Built = (Menu<Wry>, Vec<CheckMenuItem<Wry>>, Vec<(String, String, String, S
 fn rebuild(app: &AppHandle) -> Result<(), String> {
     let names = app.state::<Palette>().0.lock().unwrap().clone();
     let keys = app.state::<MenuKeys>().0.lock().unwrap().clone();
+    let online = *app.state::<search::Online>().0.lock().unwrap();
     let text = app.state::<TextLists>().0.lock().unwrap().clone();
-    let (bar, checks, list) = menu(app, &names, &text, &keys).or_else(|_| menu(app, &names, &text, &HashMap::new())).map_err(|e| e.to_string())?;
+    let (bar, checks, list) = menu(app, &names, &text, &keys, online).or_else(|_| menu(app, &names, &text, &HashMap::new(), online)).map_err(|e| e.to_string())?;
     if let Some(old) = app.try_state::<Checks>() {
         for (c, was) in checks.iter().filter_map(|c| old.0.lock().unwrap().iter().find(|o| o.id() == c.id()).map(|o| (c, o.is_checked()))) {
             let _ = c.set_checked(was.unwrap_or(true));
@@ -78,6 +87,13 @@ fn menu_items(list: State<'_, MenuList>) -> Vec<(String, String, String, String)
 fn set_menu_keys(app: AppHandle, keys: HashMap<String, String>) -> Result<(), String> {
     let keys: HashMap<String, String> = keys.into_iter().filter(|(id, k)| id.len() <= 60 && k.len() <= 40 && !k.chars().any(char::is_control)).take(500).collect();
     *app.state::<MenuKeys>().0.lock().unwrap() = keys;
+    rebuild(&app)
+}
+
+// Settings > Online search: the Search menu is there only while it is on.
+#[tauri::command]
+fn set_online_search(app: AppHandle, on: bool) -> Result<(), String> {
+    *app.state::<search::Online>().0.lock().unwrap() = on;
     rebuild(&app)
 }
 
@@ -195,29 +211,14 @@ async fn revert_drawing(picked: State<'_, Picked>, path: String) -> Result<Strin
     read_text_or_cdx(&p).map_err(|e| e.to_string())
 }
 
-// Opens a link or a file in the system's own app for it.
-pub fn system_open(what: &std::ffi::OsStr) -> std::io::Result<()> {
-    #[cfg(target_os = "macos")]
-    let mut command = std::process::Command::new("open");
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        let mut c = std::process::Command::new("cmd");
-        c.args(["/C", "start", ""]);
-        c
-    };
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let mut command = std::process::Command::new("xdg-open");
-    command.arg(what).spawn().map(|_| ())
-}
-
 // Opens one of Octet's own links in the browser. The page names it; only these fixed addresses can be opened.
 #[tauri::command]
-fn open_link(name: String) -> Result<(), String> {
+async fn open_link(name: String) -> Result<(), String> {
     let url = match name.as_str() {
         "author" => "https://www.linkedin.com/in/sam-ellis-132781206/",
         _ => return Err("Octet has no such link.".into()),
     };
-    system_open(url.as_ref()).map_err(|e| e.to_string())
+    open_external(url).map_err(|e| e.to_string())
 }
 
 // Import a structure from another program's file (MOL, SDF, RXN, SMILES, InChI, CDXML, CDX). Returns its name and
@@ -279,7 +280,7 @@ async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<St
 
 // File and Edit menus. Custom items send their id to the page as a "menu" event; Cut, Copy and Paste
 // stay native so the page gets ordinary clipboard events. Select All selects the drawing, not the page.
-fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), overrides: &HashMap<String, String>) -> tauri::Result<Built> {
+fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), overrides: &HashMap<String, String>, online: bool) -> tauri::Result<Built> {
     // Every command goes through here: it is listed (with the menu it is in) and takes the user's shortcut if they
     // set one, else its default ("" for none).
     let (list, section) = (RefCell::new(Vec::new()), RefCell::new(String::new()));
@@ -287,6 +288,12 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         list.borrow_mut().push((id.to_string(), text.to_string(), section.borrow().clone(), keys.to_string()));
         let k = overrides.get(id).cloned().unwrap_or_else(|| keys.to_string());
         MenuItem::with_id(app, id, text, true, if k.is_empty() { None } else { Some(k) })
+    };
+    // A tickable command, listed and given the user's shortcut as `item` does. The page sets its tick.
+    let check = |id: &str, text: &str, keys: &str| {
+        list.borrow_mut().push((id.to_string(), text.to_string(), section.borrow().clone(), keys.to_string()));
+        let k = overrides.get(id).cloned().unwrap_or_else(|| keys.to_string());
+        CheckMenuItem::with_id(app, id, text, true, false, if k.is_empty() { None } else { Some(k) })
     };
     let sep = || PredefinedMenuItem::separator(app);
     // Open Recent, as ChemDraw's and every Mac app's: the recent drawings (Home's list), newest first, then Clear Menu.
@@ -365,10 +372,16 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         &copy_as,
     ])?;
-    let snap = CheckMenuItem::with_id(app, "snap", "Snap to Objects", true, true, None::<&str>)?;
-    // ChemDraw's View > Show Chemical Warnings.
-    let warnings = CheckMenuItem::with_id(app, "warnings", "Show Chemical Warnings", true, true, None::<&str>)?;
     section.replace("View".into());
+    // ChemDraw's Show Crosshair (⌥⌘X) and Show Rulers (⌘;), in its order. ChemDraw has no grid: Show Grid (⌘') and
+    // Snap to Grid (⇧⌘') take Affinity Designer's and Illustrator's keys.
+    let grid = check("grid", "Show Grid", "CmdOrCtrl+'")?;
+    let crosshair = check("crosshair", "Show Crosshair", "Alt+CmdOrCtrl+X")?;
+    let rulers = check("rulers", "Show Rulers", "CmdOrCtrl+;")?;
+    let snap = check("snap", "Snap to Objects", "")?;
+    let snap_grid = check("snap_grid", "Snap to Grid", "Shift+CmdOrCtrl+'")?;
+    // ChemDraw's View > Show Chemical Warnings.
+    let warnings = check("warnings", "Show Chemical Warnings", "")?;
     let view = Submenu::with_items(app, "View", true, &[
         // ChemDraw's keys: Magnify, Reduce and Fit to Window.
         &item("zoom_actual", "Actual Size", "CmdOrCtrl+\\")?,
@@ -376,7 +389,12 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("zoom_in", "Magnify", "CmdOrCtrl+Shift+.")?,
         &item("zoom_out", "Reduce", "CmdOrCtrl+Shift+,")?,
         &sep()?,
+        &grid,
+        &crosshair,
+        &rulers,
+        &sep()?,
         &snap,
+        &snap_grid,
         &warnings,
         &item("actions", "Show or Hide Actions", "")?,
         &item("properties", "Show or Hide Properties", "")?,
@@ -536,6 +554,16 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     colour_items.push(&sep2);
     colour_items.push(&edit_colours);
     let colour = Submenu::with_items(app, "Colour", true, &colour_items)?;
+    // Search, after Colour, as ChemDraw's Search menu (Search Reaxys…). Each search is one press, with no dialog.
+    // Not ⌥⌘R or ⌥⌘P, which are ChemDraw's (Re-run Script, Paste SMILES).
+    section.replace("Search".into());
+    let search = Submenu::with_items(app, "Search", true, &[
+        &item("search_reaxys", "Search Reaxys", "Alt+CmdOrCtrl+F")?,
+        &item("search_reaxys_exact", "Search Reaxys for Exact Structure", "Alt+Shift+CmdOrCtrl+F")?,
+        &sep()?,
+        &item("search_pubchem", "Search PubChem", "Alt+CmdOrCtrl+U")?,
+        &item("search_pubchem_sub", "Search PubChem for Substructures", "Alt+Shift+CmdOrCtrl+U")?,
+    ])?;
     section.replace("Window".into());
     let window = Submenu::with_items(app, "Window", true, &[
         &PredefinedMenuItem::minimize(app, None)?,
@@ -562,9 +590,14 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let mut items: Vec<&dyn IsMenuItem<Wry>> = Vec::new();
     #[cfg(target_os = "macos")]
     items.push(&octet);
-    items.extend([&file as &dyn IsMenuItem<Wry>, &edit, &view, &object, &structure, &text, &curves, &colour, &window]);
-    let listed = list.borrow().clone();
-    Ok((Menu::with_items(app, &items)?, vec![snap, warnings], listed))
+    items.extend([&file as &dyn IsMenuItem<Wry>, &edit, &view, &object, &structure, &text, &curves, &colour]);
+    if online {
+        items.push(&search);
+    }
+    items.push(&window);
+    // Commands of a menu that is not there are not listed (Settings shows no shortcuts for them).
+    let listed = list.borrow().iter().filter(|c| online || c.2 != "Search").cloned().collect();
+    Ok((Menu::with_items(app, &items)?, vec![grid, rulers, crosshair, snap, snap_grid, warnings], listed))
 }
 
 fn main() {
@@ -583,9 +616,10 @@ fn main() {
         .manage(MenuKeys::default())
         .manage(MenuList::default())
         .manage(Palette::default())
+        .manage(search::Online(Mutex::new(true)))
         .manage(TextLists::default())
         .manage(Purposes::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, revert_drawing, menu_items, set_menu_keys, open_link, open_drawing, save_drawing, set_check, set_palette, set_text_lists, set_purposes, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, open::take_opened])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, open_link, open_drawing, save_drawing, set_check, set_palette, set_text_lists, set_purposes, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, open::take_opened])
         .setup(|app| {
             let handle = app.handle();
             // Files named when Octet starts (Explorer and file managers pass them as arguments).
@@ -594,7 +628,7 @@ fn main() {
             crashlog::install(handle);
             quit::install(handle);
             app.manage(recovery::start(handle));
-            let (bar, checks, list) = menu(handle, &[], &Default::default(), &HashMap::new())?;
+            let (bar, checks, list) = menu(handle, &[], &Default::default(), &HashMap::new(), true)?;
             app.set_menu(bar)?;
             app.manage(Checks(Mutex::new(checks)));
             *app.state::<MenuList>().0.lock().unwrap() = list;
