@@ -2767,9 +2767,11 @@ export default function Editor() {
   const untidy = useMemo(() => messy(doc, selection), [doc, selection]);
   // Text the panel asked to copy; the copy handler uses it instead of SMILES.
   const copyText = useRef<string>(undefined);
-  // Text on the clipboard, as text only (a value from a panel, Copy As SMILES). The copy event puts it there. Where
-  // the webview allows no copy outside a click (Windows, from a menu), the Clipboard API does.
+  // Text on the clipboard, as text only (a value from a panel, Copy As SMILES). In the app, the app puts it there
+  // (CH-7): the webview lets a page copy only during a click, and a menu command is not one. In a browser, the copy
+  // event puts it there, or else the Clipboard API.
   const copyPlain = (text: string) => {
+    if (NATIVE_CLIP) return void copyToClipboard({ text }).then(() => setNotice("Copied."), (err) => setNotice(`Octet cannot copy this. ${err}`));
     copyText.current = text;
     if (document.execCommand("copy")) return;
     copyText.current = undefined;
@@ -2791,7 +2793,7 @@ export default function Editor() {
     }
     const [name, write] = COPY_AS[what];
     let text = "";
-    try { text = part.atoms.length && loaded ? write(part).trim() : ""; } catch { text = ""; }
+    try { text = part.atoms.length && loaded ? write(part).trimEnd() : ""; } catch { text = ""; }
     if (text) copyPlain(text);
     else setNotice(part.atoms.length ? `Octet cannot write this structure as ${name}.` : "There is no structure to copy.");
   };

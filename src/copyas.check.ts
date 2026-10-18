@@ -20,6 +20,11 @@ const v3000 = toMolText(ethanol, 3000), v2000 = toMolText(ethanol, 2000);
 assert.match(v3000, /V3000/);
 assert.match(v3000, /M {2}V30 COUNTS 3 2/);
 assert.match(v2000, / {2}3 {2}2 .*V2000/);
+// The header keeps its three lines (the first, the name, is empty), so the counts are on line 4 and the text reads back.
+for (const [text, counts] of [[v2000, /V2000$/], [v3000, /V3000$/]] as const) {
+  assert.match(text.split("\n")[3], counts);
+  assert.equal(importStructure(text).atoms.length, 3);
+}
 // An InChI file (Import a Structure) reads as its structure, laid out.
 assert.equal(importStructure("InChI=1S/C2H6O/c1-2-3/h3H,2H2,1H3\n").atoms.length, 3);
 // An RXN file brings its reactants and products.

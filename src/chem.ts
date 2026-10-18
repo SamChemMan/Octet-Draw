@@ -221,7 +221,8 @@ export function toMolText(drawn: Mol, version: 2000 | 3000): string {
   const ind = engine(), opts = new ind.MapStringString();
   try {
     opts.set("molfile-saving-mode", String(version));
-    return ind.convert(ketOf(drawn), "molfile", opts).trim();
+    // trimEnd: the first line (the name) is empty, and a molfile has three header lines before its counts.
+    return ind.convert(ketOf(drawn), "molfile", opts).trimEnd();
   } finally {
     opts.delete();
   }

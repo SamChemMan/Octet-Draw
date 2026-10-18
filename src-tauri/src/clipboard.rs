@@ -23,8 +23,9 @@ pub const SMILES: &str = "org.opensmiles.smiles";
 // Octet's own type. A UTI under the app's identifier: macOS refuses MIME-style names such as
 // application/x-octet+json on the pasteboard. Windows and Linux use that name.
 pub const OCTET: &str = "io.github.samchemman.octet.json";
-// The Windows bitmap is a standard format (CF_DIB), not a registered name.
+// The Windows bitmap and text are standard formats (CF_DIB, CF_UNICODETEXT), not registered names.
 pub const DIB: &str = "CF_DIB";
+pub const UNICODE_TEXT: &str = "CF_UNICODETEXT";
 
 const MAX_TYPE: usize = 64 << 20;
 
@@ -48,6 +49,7 @@ enum Kind {
     Molfile,
     Smiles,
     Octet,
+    Text,
 }
 
 // Each system's names for a kind, in the order copy writes them; paste reads the first one there. Empty: that system's
@@ -62,6 +64,7 @@ fn names(s: System, k: Kind) -> &'static [&'static str] {
             Molfile => &[MOLFILE],
             Smiles => &[SMILES],
             Octet => &[OCTET],
+            Text => &["public.utf8-plain-text"],
             Png | Bitmap | Svg => &[],
         },
         System::Windows => match k {
@@ -72,6 +75,7 @@ fn names(s: System, k: Kind) -> &'static [&'static str] {
             Molfile => &["MDLCT"],
             Smiles => &["SMILES"],
             Octet => &["application/x-octet+json"],
+            Text => &[UNICODE_TEXT],
             Pdf | Svg => &[],
         },
         System::Linux => match k {
@@ -82,6 +86,7 @@ fn names(s: System, k: Kind) -> &'static [&'static str] {
             Molfile => &["chemical/x-mdl-molfile"],
             Smiles => &["chemical/x-daylight-smiles"],
             Octet => &["application/x-octet+json"],
+            Text => &["text/plain;charset=utf-8", "UTF8_STRING", "text/plain"],
             Pdf | Bitmap => &[],
         },
     }
@@ -194,6 +199,13 @@ fn types(s: System, svg: Option<&str>, cdxml: Option<&str>, cdxml_type: bool, cd
     Ok(out)
 }
 
+// Text alone on the clipboard (Edit > Copy As, a value from a panel), as ChemDraw's Copy As puts it: UTF-8, or on
+// Windows UTF-16 with a NUL. Under each of the system's names for text.
+fn text_types(s: System, text: &str) -> Vec<(&'static str, Vec<u8>)> {
+    let bytes = if s == System::Windows { text.encode_utf16().chain([0]).flat_map(u16::to_le_bytes).collect() } else { text.as_bytes().to_vec() };
+    names(s, Kind::Text).iter().map(|n| (*n, bytes.clone())).collect()
+}
+
 // The first of a kind's names on the clipboard: its bytes (`read` gives a type's bytes if it is on the clipboard).
 fn first(s: System, k: Kind, read: &impl Fn(&str) -> Option<Vec<u8>>) -> Option<Vec<u8>> {
     names(s, k).iter().find_map(|n| read(n))
@@ -272,16 +284,21 @@ mod win;
 #[path = "clipboard_linux.rs"]
 mod linux;
 
-// Copy: the selection as a picture, CDX (base64 from the page), CDXML, a molfile, SMILES and Octet's JSON.
+// Copy: the selection as a picture, CDX (base64 from the page), CDXML, a molfile, SMILES and Octet's JSON. With
+// `text`, only that text (CH-7): the app puts it there, as the webview allows a page to copy only during a click.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
-pub async fn copy_to_clipboard(app: tauri::AppHandle, svg: Option<String>, cdxml: Option<String>, cdxml_type: Option<bool>, cdx: Option<String>, molfile: Option<String>, smiles: Option<String>, octet_json: Option<String>) -> Result<(), String> {
+pub async fn copy_to_clipboard(app: tauri::AppHandle, svg: Option<String>, cdxml: Option<String>, cdxml_type: Option<bool>, cdx: Option<String>, molfile: Option<String>, smiles: Option<String>, octet_json: Option<String>, text: Option<String>) -> Result<(), String> {
     use base64::Engine;
     let cdx = match cdx {
         Some(c) if c.len() <= MAX_TYPE / 3 * 4 + 4 => Some(base64::engine::general_purpose::STANDARD.decode(c).map_err(|_| "Octet could not copy this.".to_string())?),
         _ => None,
     };
-    let types = types(HERE, svg.as_deref(), cdxml.as_deref(), cdxml_type.unwrap_or(false), cdx, molfile.as_deref(), smiles.as_deref(), octet_json)?;
+    let types = match text {
+        Some(t) if t.len() <= MAX_TYPE => text_types(HERE, &t),
+        Some(_) => return Err("This text is too long to copy.".into()),
+        None => types(HERE, svg.as_deref(), cdxml.as_deref(), cdxml_type.unwrap_or(false), cdx, molfile.as_deref(), smiles.as_deref(), octet_json)?,
+    };
     let _ = &app;
     #[cfg(target_os = "macos")]
     return mac::write(&mac::general(), &types);
@@ -418,6 +435,14 @@ mod tests {
         }
         // Paste reads only names its system has.
         assert!(readable(System::Windows).contains(&"MDLCT") && !readable(System::Linux).contains(&PDF));
+    }
+
+    // CH-7: Copy As puts the text alone, under each system's names for text (on Windows UTF-16 with a NUL).
+    #[test]
+    fn copy_as_puts_text() {
+        assert_eq!(text_types(System::Mac, "CCO"), [("public.utf8-plain-text", b"CCO".to_vec())]);
+        assert_eq!(text_types(System::Windows, "Cé"), [(UNICODE_TEXT, vec![b'C', 0, 0xe9, 0, 0, 0])]);
+        assert_eq!(text_types(System::Linux, "CCO").iter().map(|(n, _)| *n).collect::<Vec<_>>(), ["text/plain;charset=utf-8", "UTF8_STRING", "text/plain"]);
     }
 
     // A long drawing goes on the clipboard at a lower resolution, so the picture has at most 8,192 pixels on a side.

@@ -6,15 +6,17 @@ use std::ptr::{copy_nonoverlapping, null_mut};
 use windows_sys::Win32::Foundation::GlobalFree;
 use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard, RegisterClipboardFormatW, SetClipboardData};
 use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE};
-use windows_sys::Win32::System::Ole::CF_DIB;
+use windows_sys::Win32::System::Ole::{CF_DIB, CF_UNICODETEXT};
 
-use super::{DIB, MAX_TYPE};
+use super::{DIB, MAX_TYPE, UNICODE_TEXT};
 
-// A format's number: CF_DIB for the bitmap, else the name registered (the same number in every app). 0 if Windows
-// refuses the name.
+// A format's number: CF_DIB for the bitmap and CF_UNICODETEXT for text, else the name registered (the same number in
+// every app). 0 if Windows refuses the name.
 fn format(name: &str) -> u32 {
-    if name == DIB {
-        return u32::from(CF_DIB);
+    match name {
+        DIB => return u32::from(CF_DIB),
+        UNICODE_TEXT => return u32::from(CF_UNICODETEXT),
+        _ => {}
     }
     let wide: Vec<u16> = name.encode_utf16().chain([0]).collect();
     // SAFETY: `wide` is a NUL-terminated UTF-16 string that lives for the call.
