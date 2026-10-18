@@ -1,7 +1,7 @@
-// Feedback (Sam, 17 October 2026), for testers: only in builds made with it (vite.config.ts), never in the public
-// release (REL-8). ⌘ held with 1, 2 and 3 pressed together (Ctrl on Windows and Linux) takes a picture of the window,
-// then opens this box. Send opens an email to Sam in the mail app with the note and the picture attached; the tester
-// sends it from there.
+// Feedback (Sam, 17 October 2026), for testers: in every build except the public release, which the release workflow
+// makes with OCTET_FEEDBACK=0 (vite.config.ts, REL-8). ⌘ held with 1, 2 and 3 pressed together (Ctrl on Windows and
+// Linux) takes a picture of the window, then opens this box. Send opens an email to Sam in the mail app with the note
+// and the picture attached; the tester sends it from there.
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Dialog } from "./Dialog";

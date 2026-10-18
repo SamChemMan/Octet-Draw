@@ -15,7 +15,7 @@ use tauri_plugin_dialog::DialogExt;
 mod clipboard;
 mod crashlog;
 mod export;
-// Feedback, for testers: only in builds made with it (build.rs, REL-8).
+// Feedback, for testers: not in the public release (build.rs, REL-8).
 #[cfg(feedback)]
 mod feedback;
 mod open;
@@ -377,7 +377,10 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     #[cfg(target_os = "linux")]
     file.append(&item("close", "Close Window", "CmdOrCtrl+W")?)?;
     #[cfg(not(target_os = "macos"))]
-    file.append(&item("quit", "Exit", "CmdOrCtrl+Q")?)?;
+    {
+        file.append(&sep()?)?;
+        file.append(&item("quit", "Exit", "CmdOrCtrl+Q")?)?;
+    }
     // Copy As, as ChemDraw's: each puts the selected structures (or all of them) on the clipboard as text. ChemDraw's
     // keys: ⌥⌘C SMILES, ⌘D CDXML Text, ⌥⌘O MOL Text (V3000 since ChemDraw 26.1), ⇧⌥⌘O MOL V2000 Text.
     section.replace("Edit › Copy As".into());

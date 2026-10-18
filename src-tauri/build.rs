@@ -1,10 +1,10 @@
 fn main() {
-    // Feedback (src/feedback.rs) is for testers (REL-8). OCTET_FEEDBACK=1 puts it in a build and OCTET_FEEDBACK=0
-    // leaves it out; with neither, debug builds have it and release builds do not. vite.config.ts reads the same.
+    // Feedback (src/feedback.rs) is for testers (REL-8), so every build has it while friends test Octet.
+    // OCTET_FEEDBACK=0 leaves it out: the release workflow sets it for the public release. vite.config.ts reads the
+    // same variable.
     println!("cargo::rustc-check-cfg=cfg(feedback)");
     println!("cargo::rerun-if-env-changed=OCTET_FEEDBACK");
-    let debug = std::env::var("PROFILE").as_deref() == Ok("debug");
-    if std::env::var("OCTET_FEEDBACK").map_or(debug, |v| v == "1") {
+    if std::env::var("OCTET_FEEDBACK").as_deref() != Ok("0") {
         println!("cargo::rustc-cfg=feedback");
     }
     tauri_build::build()

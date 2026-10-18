@@ -1,7 +1,8 @@
 # 0010: Octet asks on first launch whether to check for updates
 
-Status: decided by Sam, 18 October 2026, for plan item REL-10. Answers brief section 11, question 5
-("Auto-update: on by default, or ask on first launch?"). Built on stream/release.
+Status: built for plan item REL-10 on stream/release, 18 October 2026. Sam must still confirm the answer to brief
+section 11, question 5 ("Auto-update: on by default, or ask on first launch?"). Octet asks, because Octet goes
+online only when the user says so. For checks on by default, `updates` starts as true and the question goes.
 
 ## Decision
 

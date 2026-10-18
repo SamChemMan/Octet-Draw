@@ -355,7 +355,7 @@ export default function Editor() {
   // A notice is an error (warning icon, error colour) unless it is information, such as "Copied.".
   const [notice, setNoticeState] = useState<{ text: string; info?: boolean }>();
   const setNotice = (text?: string, info?: boolean) => setNoticeState(text ? { text, info } : undefined);
-  // Feedback (for testers, only in builds made with it: vite.config.ts): ⌘ held with 1, 2 and 3 pressed together (Ctrl
+  // Feedback (for testers, not in the public release: vite.config.ts): ⌘ held with 1, 2 and 3 pressed together (Ctrl
   // on Windows and Linux; keys.ts feedbackChord) takes a picture of the window, then opens the feedback box
   // (Feedback.tsx). The picture is taken first, so it shows the window as it was.
   const [feedback, setFeedback] = useState<{ picture?: string }>();
@@ -4980,7 +4980,7 @@ export default function Editor() {
           <p className="dialog-note">Octet keeps no other copy of these changes.</p>
         </Dialog>
       )}
-      {/* Email Log uses Feedback's email draft to Sam (for testers): only in builds with Feedback (REL-8). */}
+      {/* Email Log uses Feedback's email draft to Sam (for testers): not in the public release (REL-8). */}
       {dialog?.kind === "crashed" && (
         <Dialog title="Octet stopped because of an error" action={__FEEDBACK__ ? "Email Log" : undefined} onClose={() => setDialog(undefined)}
           alt={{ label: "Show Log", onClick: () => void invoke("show_log").catch((e) => setNotice(String(e))) }}

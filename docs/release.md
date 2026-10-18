@@ -87,7 +87,8 @@ update key.
 6. Publish the draft release. Each Octet that checks for updates then finds it.
 7. For the first release, remove the line "No release is out yet…" from `README.md`.
 
-The public release has no Feedback box (REL-8).
+The public release has no Feedback box (REL-8): the workflow builds a tag with `OCTET_FEEDBACK=0`. Make the public
+release only from a tag, never with a local `npm run tauri build`, which has Feedback.
 
 ## Test builds for testers
 
@@ -97,8 +98,8 @@ cleared. The installers are under Artifacts at the bottom of the run's page. A t
 Until the Mac build is signed (REL-5), a tester opens it the first time from System Settings > Privacy & Security >
 Open Anyway.
 
-On the Mac: `npm run tauri dev` has Feedback. `OCTET_FEEDBACK=1 npm run tauri build` makes a test build;
-`npm run tauri build` makes one with no Feedback.
+On the Mac: `npm run tauri dev` and `npm run tauri build` have Feedback, so a build made there for testers has it.
+`OCTET_FEEDBACK=0 npm run tauri build` makes one with no Feedback, as the public release is.
 
 ## What each release has
 
