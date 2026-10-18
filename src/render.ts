@@ -150,6 +150,7 @@ export type Shape = {
   // The text of a table's cells or a TLC plate's Rf values, as the Text menu sets it; unset is the document's caption
   // style (an Rf value is 0.8 of its size).
   font?: string; size?: number; bold?: true; italic?: true; underline?: true;
+  ignoreWarnings?: true; // Display Warnings off for a pair of brackets (ChemDraw's IgnoreWarnings): its problem is not marked
 };
 // A shadow: how far it falls down and right and how soft its edge is (bond lengths), and how dark it is (0 to 1).
 export type Shade = { depth: number; blur: number; opacity: number };

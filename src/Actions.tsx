@@ -510,7 +510,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
               <div key={`${on}${p.type}${p.message}`} className="problem">
                 <Warning size={16} aria-hidden />
                 <p>{p.message}</p>
-                {p.shape === undefined && <button className="problem-hide" onClick={() => run(`hide_warning:${on}`)} aria-label="Hide this warning" title="Hide this warning"><X size={12} /></button>}
+                <button className="problem-hide" onClick={() => run(`hide_warning:${on}`)} aria-label="Hide this warning" title="Hide this warning"><X size={12} /></button>
                 <div className="problem-buttons">
                   {p.fix && <button onClick={() => run(p.fix!.command)} title={p.fix.label}>Fix</button>}
                   <button onClick={() => run(`show:${on}`)}><Eye size={12} aria-hidden /> Show</button>

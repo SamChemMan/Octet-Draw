@@ -863,10 +863,11 @@ export default function Editor() {
     },
     snap: () => setSettings((s) => ({ ...s, snap: !s.snap })),
     warnings: () => setSettings((s) => ({ ...s, warnings: !s.warnings })),
-    // Display Warnings back on for the selected atoms and the bonds between them.
+    // Display Warnings back on for the selected atoms, the bonds between them and the picked brackets.
     show_warnings: () => set({
       ...doc, atoms: doc.atoms.map((a, k) => (selection.has(k) && a.ignoreWarnings ? { ...a, ignoreWarnings: undefined } : a)),
       bonds: doc.bonds.map((b) => (b.ignoreWarnings && selection.has(b.atoms[0]) && selection.has(b.atoms[1]) ? { ...b, ignoreWarnings: undefined } : b)),
+      ...(doc.shapes ? { shapes: doc.shapes.map((x) => (x.ignoreWarnings && picked.has(x.id) ? { ...x, ignoreWarnings: undefined } : x)) } : {}),
     }, true),
     // Structure commands act on the selection, or on the whole drawing when nothing is selected.
     clean_up: () => {
@@ -1023,7 +1024,7 @@ export default function Editor() {
     // Explain This Warning (ChemDraw's context menu): the warnings marked on the selection, in a dialog.
     explain_warning: () => { const list = selectedOf(found); return list.length ? setExplaining(list) : setNotice("Select an object with a warning."); },
     // Structure > Check Structure: the selection's problems (or the drawing's) one at a time (see checkThen).
-    check_structure: () => checkThen(selection.size ? subsetProblems() : allProblems(), () => {}, true),
+    check_structure: () => checkThen(selection.size || picked.size ? subsetProblems() : allProblems(), () => {}, true),
     // Structure > Enhanced Stereochemistry, as ChemDraw's: on the selected stereocentres (every one with nothing
     // selected). Clear All takes their flags off; Mark as Absolute flags them abs; Create Or Group and Create And Group
     // put each structure's selected centres in a new group, numbered with the lowest number its structure has free.
@@ -2761,8 +2762,10 @@ export default function Editor() {
   // Settings > Warnings > Check structure when copying or exporting: the selection's problems (or the drawing's)
   // first, then the copy or export.
   const checkFirst = (then: () => void) => (settings.checkCopy ? checkThen(selection.size || picked.size ? subsetProblems() : allProblems(), then) : then());
-  // Whether a selected atom, or a bond between selected atoms, has its warnings hidden (for Show warnings).
-  const hiddenHere = () => [...selection].some((i) => doc.atoms[i]?.ignoreWarnings) || doc.bonds.some((b) => b.ignoreWarnings && selection.has(b.atoms[0]) && selection.has(b.atoms[1]));
+  // Whether a selected atom, a bond between selected atoms or picked brackets have their warnings hidden (for Show
+  // warnings).
+  const hiddenHere = () => [...selection].some((i) => doc.atoms[i]?.ignoreWarnings) || doc.bonds.some((b) => b.ignoreWarnings && selection.has(b.atoms[0]) && selection.has(b.atoms[1]))
+    || !!doc.shapes?.some((x) => x.ignoreWarnings && picked.has(x.id));
   function showProblem(p: Problem) {
     if (p.atom !== undefined) { setSelection(new Set([p.atom])); setPicked(new Set()); }
     else if (p.bond !== undefined && doc.bonds[p.bond]) { setSelection(new Set(doc.bonds[p.bond].atoms)); setPicked(new Set()); }
@@ -3082,6 +3085,7 @@ export default function Editor() {
       const what = command.slice(command.indexOf(":") + 1), n = Number(what.slice(1)), on = what[0];
       if (command.startsWith("show:")) return showProblem(on === "b" ? { type: "misc", message: "", bond: n } : on === "s" ? { type: "misc", message: "", shape: n } : { type: "misc", message: "", atom: on === "a" ? n : Number(what) });
       if (on === "b") return doc.bonds[n] && set({ ...doc, bonds: doc.bonds.map((b, k) => (k === n ? { ...b, ignoreWarnings: true as const } : b)) }, true);
+      if (on === "s") return doc.shapes?.some((x) => x.id === n) && set({ ...doc, shapes: doc.shapes.map((x) => (x.id === n ? { ...x, ignoreWarnings: true as const } : x)) }, true);
       const i = on === "a" ? n : Number(what);
       return doc.atoms[i] && set({ ...doc, atoms: doc.atoms.map((a, k) => (k === i ? { ...a, ignoreWarnings: true as const } : a)) }, true);
     }

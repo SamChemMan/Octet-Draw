@@ -334,7 +334,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       const sides = sh.side ? [sh.side] : ["left", "right"];
       sides.forEach((side, k) => {
         const ends = side === "left" ? [[x0, y1], [x0, y0]] : [[x1, y0], [x1, y1]];
-        put(el("graphic", { id: k ? fresh() : id, BoundingBox: ends.map((q) => pt(turned(page(q as P)))).join(" "), Z: Z(), color: ink, LineWidth: width, LineType: sh.dashed ? "Dashed" : undefined, GraphicType: "Bracket", BracketType: { brackets: "Square", parens: "Round", braces: "Curly" }[sh.kind as "brackets"],
+        put(el("graphic", { id: k ? fresh() : id, BoundingBox: ends.map((q) => pt(turned(page(q as P)))).join(" "), Z: Z(), color: ink, LineWidth: width, LineType: sh.dashed ? "Dashed" : undefined, GraphicType: "Bracket", BracketType: { brackets: "Square", parens: "Round", braces: "Curly" }[sh.kind as "brackets"], IgnoreWarnings: sh.ignoreWarnings ? "yes" : undefined,
           Octet: priv(k ? { pair: id } : { mark: sh.mark, span: sh.side ? [Math.min(sh.from[0], sh.to[0]), Math.max(sh.from[0], sh.to[0])] : undefined, angle: sh.angle }) }), 3, box, sh.id);
       });
       if (sh.mark) { const m = markAt(sh, 1); note(sh.mark, at([m.x, -m.y]), style.captionSize, m.anchor === "end" ? "right" : "left", sh.colour, sh.id); }
@@ -1367,6 +1367,8 @@ export function fromCdxml(text: string): CdxmlRead {
       if (colour) sh.colour = colour;
       if (width) sh.width = width;
       if (b.x.attrs.LineType?.includes("Dashed")) sh.dashed = true;
+      // Display Warnings off when every bracket of the pair has it off.
+      if ([b, o].every((x) => !x || yes(x.x.attrs.IgnoreWarnings))) sh.ignoreWarnings = true;
       addShape(settled(sh), b.x, b.group);
     });
   }

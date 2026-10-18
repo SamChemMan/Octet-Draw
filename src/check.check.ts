@@ -84,6 +84,11 @@ assert.deepEqual(said(star("C", 5)), ["valence: C1 has 5 bonds. Carbon has a max
   const lone = sprout(EMPTY, [0, 0]), hid = { ...lone, bonds: [{ ...lone.bonds[0], ignoreWarnings: true as const }] };
   assert.deepEqual(problems(hid), []);
   assert.deepEqual(problems(hid, undefined, true).map((p) => p.hidden), [true]);
+  // Brackets with Display Warnings off, as ChemDraw keeps it on any picked object.
+  const path: Mol = { atoms: [[-2, 0], [-1, 0.5], [0, 0], [1, 0.5]].map(([x, y]) => ({ label: "C", location: [x, y, 0] as [number, number, number] })), bonds: [0, 1, 2].map((k) => ({ type: 1, atoms: [k, k + 1] as [number, number] })) };
+  const hidBrackets: Mol = { ...path, shapes: [{ id: 1, kind: "brackets", from: [-0.5, -1], to: [1.5, 1], ignoreWarnings: true }] };
+  assert.deepEqual(problems(hidBrackets), []);
+  assert.deepEqual(problems(hidBrackets, undefined, true).map((p) => [p.shape, p.hidden]), [[1, true]]);
 }
 // The stereochemistry warnings from Indigo's facts: a wedge between two stereocentres; a wedge drawn the wrong way
 // round (its fix swaps the ends); unset and conflicting centres only where Show Stereochemistry is on; enhanced flags.

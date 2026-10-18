@@ -88,7 +88,7 @@ const shapes: Shape[] = [
   // Turned shapes and line widths (UI-7, CD-3, UI-42): a box, an oval, a pair of brackets and one bracket alone.
   { id: 214, kind: "box", from: [44, 0], to: [47, 2], angle: 30, width: 1.2 },
   { id: 215, kind: "oval", from: [48, 0], to: [51, 2], angle: -45, dashed: true },
-  { id: 216, kind: "brackets", from: [44, -6], to: [47, -3], angle: 90 },
+  { id: 216, kind: "brackets", from: [44, -6], to: [47, -3], angle: 90, ignoreWarnings: true },
   { id: 217, kind: "parens", from: [48, -6], to: [49, -3], side: "left", angle: 30, width: 2 },
   { id: 218, kind: "tlc", from: [52, -16], to: [54, -10], width: 0.8, tlc: { lanes: 1, spots: [] }, size: 9, italic: true },
   { id: 219, kind: "table", from: [56, -16], to: [62, -12], table: { cells: [["Entry", "Yield"], ["1", "72%"]] }, font: "Georgia", size: 12, bold: true, underline: true },

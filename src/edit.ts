@@ -867,7 +867,7 @@ export const setEnhanced = (m: Mol, ids: number[], label?: string): Mol => {
   return { ...m, atoms: m.atoms.map((a, i) => (on.has(i) ? { ...a, enhanced: label } : a)) };
 };
 // The lowest number of an "&" (and) or "or" group that no atom among `atoms` uses, but those in `moving` (which are
-// about to join the new group), as ChemDraw numbers a new group in a structure.
+// about to join the new group), as ChemDraw numbers a new group in a structure. At most 99, the most a file keeps.
 export function nextGroup(m: Mol, atoms: number[], kind: "&" | "or", moving = new Set<number>()): number {
   const used = new Set<number>();
   for (const i of atoms) {
@@ -875,7 +875,7 @@ export function nextGroup(m: Mol, atoms: number[], kind: "&" | "or", moving = ne
     if (g && g[1] === kind && !moving.has(i)) used.add(Number(g[2]));
   }
   let n = 1;
-  while (used.has(n)) n++;
+  while (used.has(n) && n < 99) n++;
   return n;
 }
 

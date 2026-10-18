@@ -28,7 +28,7 @@ export function serialize(mol: Mol): string {
   const shapes = (mol.shapes ?? []).map((x) => ({ kind: x.kind, x1: round(x.from[0]), y1: round(x.from[1]), x2: round(x.to[0]), y2: round(x.to[1]), ...(x.dashed ? { dashed: true } : {}), ...(x.colour ? { colour: x.colour } : {}),
     ...(x.fill ? { fill: x.fill } : {}), ...(x.shadow ? { shadow: true } : {}), ...(x.side ? { side: x.side } : {}), ...(x.mark ? { mark: x.mark } : {}), ...(x.tlc ? { tlc: x.tlc } : {}), ...(x.table ? { table: x.table } : {}), ...(x.shade ? { shade: x.shade } : {}), ...(x.order ? { order: x.order } : {}),
     ...(x.angle ? { angle: round(x.angle) } : {}), ...(x.width ? { width: x.width } : {}),
-    ...(x.font ? { font: x.font } : {}), ...(x.size ? { size: x.size } : {}), ...(x.bold ? { bold: true } : {}), ...(x.italic ? { italic: true } : {}), ...(x.underline ? { underline: true } : {}) }));
+    ...(x.font ? { font: x.font } : {}), ...(x.size ? { size: x.size } : {}), ...(x.bold ? { bold: true } : {}), ...(x.italic ? { italic: true } : {}), ...(x.underline ? { underline: true } : {}), ...(x.ignoreWarnings ? { ignoreWarnings: true } : {}) }));
   const captions = [...(mol.captions ?? [])].sort((a, b) => a.id - b.id).map((c) => ({
     text: c.text, x: round(c.x), y: round(c.y), ...(c.bold ? { bold: true } : {}), ...(c.italic ? { italic: true } : {}), ...(c.underline ? { underline: true } : {}),
     ...(c.size ? { size: c.size } : {}), ...(c.align ? { align: c.align } : {}), ...(c.under ? { under: c.under } : {}), ...(c.colour ? { colour: c.colour } : {}),
@@ -226,7 +226,8 @@ export function parse(text: string): Mol {
         ...(x.fill ? { fill: x.fill as "shaded" | "solid" } : {}), ...(x.shadow ? { shadow: true } : {}), ...(x.side ? { side: x.side as "left" | "right" } : {}), ...(x.mark ? { mark: x.mark as string } : {}),
         ...(x.tlc ? { tlc: readTlc(x.tlc)! } : {}), ...(x.table ? { table: readTable(x.table)! } : {}), ...(x.shade ? { shade: readShade(x.shade)! } : {}), ...orderOf(x.order),
         ...(x.angle ? { angle: x.angle as number } : {}), ...(x.width ? { width: x.width as number } : {}),
-        ...(x.font ? { font: x.font as string } : {}), ...(x.size ? { size: x.size as number } : {}), ...(x.bold ? { bold: true as const } : {}), ...(x.italic ? { italic: true as const } : {}), ...(x.underline ? { underline: true as const } : {}) };
+        ...(x.font ? { font: x.font as string } : {}), ...(x.size ? { size: x.size as number } : {}), ...(x.bold ? { bold: true as const } : {}), ...(x.italic ? { italic: true as const } : {}), ...(x.underline ? { underline: true as const } : {}),
+        ...(x.ignoreWarnings === true ? { ignoreWarnings: true as const } : {}) };
     });
   }
   if (d.captions !== undefined) readCaptions(d.captions, out, num, int);

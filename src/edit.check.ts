@@ -587,9 +587,12 @@ console.log("edit.check: align ok");
   g = setEnhanced(setEnhanced(g, [0, 1], "&1"), [2], "or1");
   assert.equal(nextGroup(g, [0, 1, 2, 3], "&"), 2);
   assert.equal(nextGroup(g, [0, 1, 2, 3], "or"), 2);
-  assert.equal(nextGroup(g, [2, 3], "&"), 1, "another structure's groups do not count");
+  assert.equal(nextGroup(g, [2, 3], "&"), 1, "only the atoms given count, so another structure's groups do not");
   assert.equal(nextGroup(g, [0, 1, 2, 3], "&", new Set([0, 1])), 1, "the whole of group 1 moving frees its number");
   g = setEnhanced(g, [1], `&${nextGroup(g, [0, 1, 2, 3], "&", new Set([1]))}`);
   assert.deepEqual(g.atoms.map((a) => a.enhanced), ["&1", "&2", "or1", undefined]);
+  // A file keeps groups up to 99, so a structure with every and group used gets 99 again.
+  const full: Mol = { ...g, atoms: Array.from({ length: 99 }, (_, k) => ({ label: "C", location: [k, 0, 0] as [number, number, number], enhanced: `&${k + 1}` })) };
+  assert.equal(nextGroup(full, full.atoms.map((_, k) => k), "&"), 99);
   console.log("edit.check: enhanced stereo groups ok");
 }

@@ -23,7 +23,8 @@ export const WARNING_TYPES: { id: WarningType; name: string; on: boolean }[] = [
 ];
 
 // A problem is on an atom, a bond or a shape (brackets). fix: a command that mends it, with its button's name.
-// hidden: the object's Display Warnings is off (ChemDraw's IgnoreWarnings); Check Structure still reports it.
+// hidden: the object's Display Warnings is off (ChemDraw's IgnoreWarnings, on atoms, bonds and brackets); Check
+// Structure still reports it.
 export type Problem = { type: WarningType; atom?: number; bond?: number; shape?: number; message: string; fix?: { label: string; command: string }; hidden?: true };
 // What Indigo works out about a drawing's stereocentres (chem.ts stereoFacts), by atom: centres (atoms that can be
 // stereocentres), unset (centres whose configuration the drawing does not set), conflict (centres whose wedges and
@@ -201,7 +202,7 @@ export function problems(m: Mol, stereo?: StereoFacts, all = false): Problem[] {
   });
   // Brackets that cross a different number of bonds on each side.
   for (const sh of m.shapes ?? []) {
-    if (!isBracket(sh) || sh.side) continue;
+    if (!isBracket(sh) || sh.side || (sh.ignoreWarnings && !all)) continue;
     const [x0, x1] = [Math.min(sh.from[0], sh.to[0]), Math.max(sh.from[0], sh.to[0])], [y0, y1] = [Math.min(sh.from[1], sh.to[1]), Math.max(sh.from[1], sh.to[1])];
     const crosses = (x: number) => m.bonds.filter((b) => {
       const [p, q] = [pos(m, b.atoms[0]), pos(m, b.atoms[1])];
@@ -210,7 +211,7 @@ export function problems(m: Mol, stereo?: StereoFacts, all = false): Problem[] {
       return y > y0 && y < y1;
     }).length;
     const [left, right] = [crosses(x0), crosses(x1)];
-    if (left !== right) out.push({ shape: sh.id, type: "parens", message: `These brackets cross ${plural(left, "bond")} on the left and ${right} on the right. Make the two sides cross the same bonds.` });
+    if (left !== right) out.push({ shape: sh.id, type: "parens", message: `These brackets cross ${plural(left, "bond")} on the left and ${right} on the right. Make the two sides cross the same bonds.`, ...(sh.ignoreWarnings ? { hidden: true as const } : {}) });
   }
   if (stereo) stereoProblems(m, stereo, atomOf, bondOf);
   return out;
