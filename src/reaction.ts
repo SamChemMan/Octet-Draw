@@ -76,12 +76,18 @@ export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (ato
   const near = (q: P, b: Box, slack = 0.5) => q[0] >= b[0] - slack && q[0] <= b[2] + slack && q[1] >= b[1] - slack && q[1] <= b[3] + slack;
   const structures = items.filter((it) => it.step.kind === "structure");
 
-  // 1. Text that clings to a structure, and the lines that tie it on.
+  // 1. Text that clings to a structure, and the lines that tie it on. A small structure drawn over a larger one (a
+  //    substituent's bond drawn apart from its ring) clings to the larger one, as the walk below cannot take both.
   const clings = new Map<Item, Item>(), ties = new Map<Item, number[]>();
   for (const it of items) {
     if (it.step.kind !== "text") continue;
     const s = structures.map((x) => [x, gapOf(it.step.box, x.step.box)] as const).filter(([, g]) => g < 0.3).sort((p, q) => p[1] - q[1])[0];
     if (s) clings.set(it, s[0]);
+  }
+  const size = (it: Item) => (it.step as { atoms: number[] }).atoms.length;
+  for (const it of structures) {
+    const s = structures.filter((x) => size(x) > size(it) && Math.min(x.hi, it.hi) - Math.max(x.lo, it.lo) > 0.3 && Math.abs(x.off - it.off) < x.half + it.half).sort((p, q) => size(q) - size(p))[0];
+    if (s) clings.set(it, s);
   }
   for (const x of arrows) {
     if (x.kind !== "line" && x.kind !== "arc") continue;
@@ -92,13 +98,14 @@ export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (ato
     ties.set(s, [...(ties.get(s) ?? []), x.id]);
   }
 
-  // 2. The row. A structure reaches as far as the text that clings to it.
+  // 2. The row. A structure reaches as far as the text that clings to it (not as far as a structure that clings to it,
+  //    which can reach past the arrow's end).
   const frames = (m.shapes ?? []).filter((x) => x.kind !== "highlight").map((x): [number, Box, boolean] => [x.id, [Math.min(x.from[0], x.to[0]), Math.min(x.from[1], x.to[1]), Math.max(x.from[0], x.to[0]), Math.max(x.from[1], x.to[1])], x.kind === "box" || x.kind === "rounded" || x.kind === "oval"]);
   const inside = (b: Box, f: Box) => (b[0] + b[2]) / 2 > f[0] && (b[0] + b[2]) / 2 < f[2] && (b[1] + b[3]) / 2 > f[1] && (b[1] + b[3]) / 2 < f[3];
   const arrowBox: Box = [Math.min(a.from[0], a.to[0]), Math.min(a.from[1], a.to[1]), Math.max(a.from[0], a.to[0]), Math.max(a.from[1], a.to[1])];
   const fenced = (it: Item) => frames.some(([, f, box]) => box && inside(it.step.box, f) && !inside(arrowBox, f));
   const span = new Map(items.map((it) => [it, { lo: it.lo, hi: it.hi }]));
-  for (const [t, s] of clings) { const w = span.get(s)!; w.lo = Math.min(w.lo, t.lo); w.hi = Math.max(w.hi, t.hi); }
+  for (const [t, s] of clings) if (t.step.kind === "text") { const w = span.get(s)!; w.lo = Math.min(w.lo, t.lo); w.hi = Math.max(w.hi, t.hi); }
   const lo = (it: Item) => span.get(it)!.lo, hi = (it: Item) => span.get(it)!.hi;
   const inLine = items.filter((it) => !clings.has(it) && !fenced(it) && Math.abs(it.off) < it.half + 0.4);
   const start = inLine.find((it) => it.step.kind === "arrow" && it.step.id === arrowId);
@@ -127,7 +134,12 @@ export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (ato
   const taken = new Set<Step>([...row, ...against].map((r) => r.step)); // (an arrow of another reaction is no one's to carry)
   // A structure's clinging text and the lines that tie it on go with it, wherever the structure goes.
   const bring = (k: Carry, s: Item) => {
-    for (const [t, by] of clings) if (by === s && !taken.has(t.step)) { k.captions.push((t.step as { id: number }).id); k.boxes.push(t.step.box); taken.add(t.step); }
+    for (const [t, by] of clings) {
+      if (by !== s || taken.has(t.step)) continue;
+      taken.add(t.step);
+      k.boxes.push(t.step.box);
+      if (t.step.kind === "structure") { k.atoms.push(...t.step.atoms); bring(k, t); } else k.captions.push((t.step as { id: number }).id);
+    }
     k.arrows.push(...(ties.get(s) ?? []));
   };
   for (const r of row) if (r.step.kind === "structure") bring(carry(r.step), r);
@@ -142,10 +154,19 @@ export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (ato
     carry(s).boxes.push(f);
     reach.set(r, item({ kind: "text", id: -1, box: union([w, f]) }));
   }
+  // What is close over or under a part, and not in a frame the part is not in.
+  const close = (it: Item, x: Item) => { const w = reach.get(x)!; return Math.max(0, Math.abs(it.off - w.off) - it.half - w.half) <= CLOSE && !frames.some(([, f]) => inside(it.step.box, f) && !inside(x.step.box, f)); };
   const owner = (it: Item): Part | undefined => {
-    const x = parts.find((r) => it.lo >= reach.get(r)!.lo - 0.75 && it.hi <= reach.get(r)!.hi + 0.75), w = x && reach.get(x)!;
-    if (!x || !w || Math.max(0, Math.abs(it.off - w.off) - it.half - w.half) > CLOSE || frames.some(([, f]) => inside(it.step.box, f) && !inside(x.step.box, f))) return undefined;
-    return x.step as Part;
+    const x = parts.find((r) => it.lo >= reach.get(r)!.lo - 0.75 && it.hi <= reach.get(r)!.hi + 0.75);
+    return x && close(it, x) ? (x.step as Part) : undefined;
+  };
+  // A name: text under a part of a row across the page, wider than the part, with its middle within the part and no
+  // other part's middle within it. It goes with the part, so the part does not move away from its name.
+  const middle = (r: Item) => (reach.get(r)!.lo + reach.get(r)!.hi) / 2;
+  const nameOf = (it: Item): Part | undefined => {
+    const x = u[1] ? undefined : parts.find((r) => it.step.box[1] + it.step.box[3] < r.step.box[1] + r.step.box[3] && Math.abs((it.lo + it.hi) / 2 - middle(r)) <= (reach.get(r)!.hi - reach.get(r)!.lo) / 2
+      && parts.every((o) => o === r || middle(o) <= it.lo || middle(o) >= it.hi));
+    return x && close(it, x) ? (x.step as Part) : undefined;
   };
   for (const it of items) {
     if (taken.has(it.step) || clings.has(it) || it.step.kind === "arrow" || it.step.kind === "plus") continue;
@@ -159,7 +180,9 @@ export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (ato
       if (it.step.kind === "structure") bring(carry(it.step), it);
       continue;
     }
-    const o = owner(it);
+    const o = owner(it), name = !o && it.step.kind === "text" ? nameOf(it) : undefined;
+    // (A name takes no room beside its part: the row is spaced as it is without it.)
+    if (name) { carry(name).captions.push((it.step as { id: number }).id); taken.add(it.step); }
     if (!o) continue;
     const k = carry(o);
     if (it.step.kind === "structure") { k.atoms.push(...it.step.atoms); bring(k, it); } else k.captions.push((it.step as { id: number }).id);
@@ -429,6 +452,60 @@ export function cleanUpReaction(m: Mol, r: Reaction, arrows: Arrow[], o: Layout,
     }),
     shapes: out.shapes?.map((x) => { const dv = shapeBy.get(x.id); return dv ? { ...x, from: by(x.from, dv), to: by(x.to, dv) } : x; }),
   };
+}
+
+// Clean Up Reaction on a drawing: lays out every reaction `pick` takes, one after another. A structure one reaction
+// has placed stays where it is for the next, so reactions that share a structure stay joined. arrows: the drawing's
+// arrows as drawn (grown to fit their text); inkOf: the boxes of a drawing's structures. Returns the drawing, how many
+// reactions it laid out, and how many it left as drawn.
+export function cleanUpReactions(m: Mol, arrows: Arrow[], inkOf: (mol: Mol) => (atoms: number[]) => Box | undefined, o: Layout, pick: (r: Reaction) => boolean): { mol: Mol; count: number; kept: number } {
+  const drawn = m, fixed = new Set<number>(), done = new Set<number>();
+  let ink = inkOf(m), count = 0, kept = 0;
+  for (const a of arrows.filter((x) => straightArrow(x))) {
+    if (done.has(a.id)) continue;
+    // The arrows as drawn (grown to fit their text), or as the last reaction left them.
+    const now = arrows.map((x) => { const y = m.arrows?.find((z) => z.id === x.id); return y && (y.from !== x.from || y.to !== x.to) && drawn.arrows?.find((z) => z.id === x.id) !== y ? y : x; });
+    const r = findReaction(m, a.id, now, ink, o.captionBox);
+    if (!r) continue;
+    r.arrows.forEach((id) => done.add(id));
+    if (!pick(r)) continue;
+    // A structure at an end of another reaction's arrow, or of a line it does not carry (a scheme that turns a corner),
+    // stays where it is, as does one an earlier reaction placed. A reaction with two such structures is left as
+    // drawn: a new layout would pull it away from one of them.
+    const ends = now.filter((x) => (straightArrow(x) && !r.arrows.includes(x.id)) || (x.kind === "line" && !r.carried.includes(x.id))).flatMap((x) => [x.from, x.to]);
+    const pinned = r.steps.flatMap((s) => (s.kind === "structure" && (s.atoms.some((i) => fixed.has(i)) || ends.some((q) => q[0] > s.box[0] - 1.5 && q[0] < s.box[2] + 1.5 && q[1] > s.box[1] - 1.5 && q[1] < s.box[3] + 1.5)) ? [s.atoms] : []));
+    if (pinned.length > 1) { kept++; continue; }
+    const next = cleanUpReaction(m, r, now, o, new Set([...fixed, ...(pinned[0] ?? [])])), inkNext = inkOf(next);
+    // A layout that puts what it moves over a structure, text or arrow it leaves where it is, and was clear of
+    // before (a wrapped line on a legend below the reaction), is not used.
+    if (covers(m, next, ink, inkNext, o.captionBox)) { kept++; continue; }
+    m = next;
+    r.atoms.forEach((i) => fixed.add(i));
+    ink = inkNext;
+    count++;
+  }
+  return { mol: m, count, kept };
+}
+// Whether a layout (m to next) moves a structure, text or straight arrow on to one it does not move and was clear of.
+function covers(m: Mol, next: Mol, ink: (atoms: number[]) => Box | undefined, inkNext: (atoms: number[]) => Box | undefined, captionBox: (id: number) => Box | undefined): boolean {
+  type Thing = { was?: Box; now?: Box };
+  const span = (p: P, q: P): Box => [Math.min(p[0], q[0]), Math.min(p[1], q[1]), Math.max(p[0], q[0]), Math.max(p[1], q[1])];
+  const shift = (b: Box | undefined, d: P): Box | undefined => b && [b[0] + d[0], b[1] + d[1], b[2] + d[0], b[3] + d[1]];
+  const same = (p?: Box, q?: Box) => !p || !q || p.every((v, k) => Math.abs(v - q[k]) < 1e-6);
+  const meet = (p?: Box, q?: Box) => !!p && !!q && p[0] < q[2] - 0.1 && q[0] < p[2] - 0.1 && p[1] < q[3] - 0.1 && q[1] < p[3] - 0.1;
+  const things: Thing[] = fragments(m).map((g) => ({ was: ink(g), now: inkNext(g) }));
+  const mid = (x?: Arrow): P => (x ? [(x.from[0] + x.to[0]) / 2, (x.from[1] + x.to[1]) / 2] : [0, 0]);
+  for (const a of m.arrows ?? []) {
+    const b = next.arrows?.find((x) => x.id === a.id);
+    if (b && (straightArrow(a) || a.kind === "line")) things.push({ was: span(a.from, a.to), now: span(b.from, b.to) });
+  }
+  // (A name or number under a structure goes with it; it is not counted apart.)
+  for (const c of (m.captions ?? []).filter((x) => !x.under && !x.cycle)) {
+    const d = next.captions?.find((x) => x.id === c.id), on = d?.on && m.arrows?.find((x) => x.id === d.on!.arrow), was = mid(on), now = mid(on && next.arrows?.find((x) => x.id === on.id));
+    if (d) things.push({ was: captionBox(c.id), now: shift(captionBox(c.id), on ? [now[0] - was[0], now[1] - was[1]] : [d.x - c.x, d.y - c.y]) });
+  }
+  const moved = things.filter((t) => !same(t.was, t.now)), still = things.filter((t) => same(t.was, t.now));
+  return moved.some((t) => still.some((s) => meet(t.now, s.was) && !meet(t.was, s.was)));
 }
 
 // Whether a reaction is clean: Clean Up Reaction would change nothing in it (within 0.02 bond lengths).

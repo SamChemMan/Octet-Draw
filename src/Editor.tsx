@@ -52,7 +52,7 @@ import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb } from "./TemplateLibrary";
-import { cleanUpReaction, findReaction, gapFor, layoutRow, reactionClean, roleOf, rowOf, withStructure, type Layout, type Reaction } from "./reaction";
+import { cleanUpReactions, findReaction, gapFor, layoutRow, reactionClean, roleOf, rowOf, withStructure, type Layout, type Reaction } from "./reaction";
 import { SEARCHES, searchNow, searchQuery } from "./search";
 import { SettingsWindow, type ModuleId } from "./SettingsWindow";
 import { layoutCycles, orderAround, spreadCycle, type Cycle, type CycleText } from "./cycle";
@@ -1624,58 +1624,10 @@ export default function Editor() {
       && (p.captions?.length ?? 0) === (q.captions?.length ?? 0) && (p.captions ?? []).every((c, k) => { const d = q.captions![k]; return near([c.x, c.y], [d.x, d.y]) && c.on?.arrow === d.on?.arrow && c.on?.side === d.on?.side; })
       && (p.arrows ?? []).every((a, k) => near(a.from, q.arrows![k].from) && near(a.to, q.arrows![k].to)) && (p.shapes ?? []).every((x, k) => near(x.from, q.shapes![k].from) && near(x.to, q.shapes![k].to));
   };
-  // Lays out every reaction `pick` takes, one after another (reaction.ts). A structure one reaction has placed stays
-  // where it is for the next, so reactions that share a structure stay joined. Returns the drawing, how many it laid
-  // out, and how many it left as drawn.
+  // Lays out every reaction `pick` takes (reaction.ts cleanUpReactions), measured as drawn now.
   function cleanReactions(m: Mol, pick: (r: Reaction) => boolean): { mol: Mol; count: number; kept: number } {
-    const fixed = new Set<number>(), done = new Set<number>(), layout = reactionLayout(placedBox);
     const inkOf = (mol: Mol) => { const d = mol === doc ? drawing : render(mol, frame, measure, L); return (atoms: number[]) => { const b = union(atoms.filter((i) => d.ink[i]).map((i) => d.ink[i])); return b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L] as Box; }; };
-    let ink = inkOf(m), count = 0, kept = 0;
-    for (const a of arrows.filter((x) => straightArrow(x))) {
-      if (done.has(a.id)) continue;
-      // The arrows as drawn (grown to fit their text), or as the last reaction left them.
-      const now = arrows.map((x) => { const y = m.arrows?.find((z) => z.id === x.id); return y && (y.from !== x.from || y.to !== x.to) && doc.arrows?.find((z) => z.id === x.id) !== y ? y : x; });
-      const r = findReaction(m, a.id, now, ink, placedBox);
-      if (!r) continue;
-      r.arrows.forEach((id) => done.add(id));
-      if (!pick(r)) continue;
-      // A structure at an end of another reaction's arrow, or of a line it does not carry (a scheme that turns a corner),
-      // stays where it is, as does one an earlier reaction placed. A reaction with two such structures is left as
-      // drawn: a new layout would pull it away from one of them.
-      const ends = now.filter((x) => (straightArrow(x) && !r.arrows.includes(x.id)) || (x.kind === "line" && !r.carried.includes(x.id))).flatMap((x) => [x.from, x.to]);
-      const pinned = r.steps.flatMap((s) => (s.kind === "structure" && (s.atoms.some((i) => fixed.has(i)) || ends.some((q) => q[0] > s.box[0] - 1.5 && q[0] < s.box[2] + 1.5 && q[1] > s.box[1] - 1.5 && q[1] < s.box[3] + 1.5)) ? [s.atoms] : []));
-      if (pinned.length > 1) { kept++; continue; }
-      const next = cleanUpReaction(m, r, now, layout, new Set([...fixed, ...(pinned[0] ?? [])])), inkNext = inkOf(next);
-      // A layout that puts what it moves over a structure, text or arrow it leaves where it is, and was clear of
-      // before (a wrapped line on a legend below the reaction), is not used.
-      if (covers(m, next, ink, inkNext)) { kept++; continue; }
-      m = next;
-      r.atoms.forEach((i) => fixed.add(i));
-      ink = inkNext;
-      count++;
-    }
-    return { mol: m, count, kept };
-  }
-  // Whether a layout (m to next) moves a structure, text or straight arrow on to one it does not move and was clear of.
-  function covers(m: Mol, next: Mol, ink: (atoms: number[]) => Box | undefined, inkNext: (atoms: number[]) => Box | undefined): boolean {
-    type Thing = { was?: Box; now?: Box };
-    const span = (p: P, q: P): Box => [Math.min(p[0], q[0]), Math.min(p[1], q[1]), Math.max(p[0], q[0]), Math.max(p[1], q[1])];
-    const shift = (b: Box | undefined, d: P): Box | undefined => b && [b[0] + d[0], b[1] + d[1], b[2] + d[0], b[3] + d[1]];
-    const same = (p?: Box, q?: Box) => !p || !q || p.every((v, k) => Math.abs(v - q[k]) < 1e-6);
-    const meet = (p?: Box, q?: Box) => !!p && !!q && p[0] < q[2] - 0.1 && q[0] < p[2] - 0.1 && p[1] < q[3] - 0.1 && q[1] < p[3] - 0.1;
-    const things: Thing[] = fragments(m).map((g) => ({ was: ink(g), now: inkNext(g) }));
-    const mid = (x?: Arrow): P => (x ? [(x.from[0] + x.to[0]) / 2, (x.from[1] + x.to[1]) / 2] : [0, 0]);
-    for (const a of m.arrows ?? []) {
-      const b = next.arrows?.find((x) => x.id === a.id);
-      if (b && (straightArrow(a) || a.kind === "line")) things.push({ was: span(a.from, a.to), now: span(b.from, b.to) });
-    }
-    // (A name or number under a structure goes with it; it is not counted apart.)
-    for (const c of (m.captions ?? []).filter((x) => !x.under && !x.cycle)) {
-      const d = next.captions?.find((x) => x.id === c.id), on = d?.on && m.arrows?.find((x) => x.id === d.on!.arrow), was = mid(on), now = mid(on && next.arrows?.find((x) => x.id === on.id));
-      if (d) things.push({ was: placedBox(c.id), now: shift(placedBox(c.id), on ? [now[0] - was[0], now[1] - was[1]] : [d.x - c.x, d.y - c.y]) });
-    }
-    const moved = things.filter((t) => !same(t.was, t.now)), still = things.filter((t) => same(t.was, t.now));
-    return moved.some((t) => still.some((s) => meet(t.now, s.was) && !meet(t.was, s.was)));
+    return cleanUpReactions(m, arrows, inkOf, reactionLayout(placedBox), pick);
   }
   // The reaction picked, when exactly a whole reaction is: its arrows and its structures.
   const reactionPicked = () => {

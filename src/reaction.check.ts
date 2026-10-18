@@ -2,9 +2,14 @@
 // Reaction lays it out as ChemDraw 26.1's does (see reaction.ts): one level line, even gaps, arrows two gaps long or
 // as long as their conditions, plus signs where they are missing, conditions above and below, wrapped lines.
 import assert from "node:assert/strict";
-import { addArrow, addCaption, addRing, addShape, EMPTY, fragments, pos } from "./edit.ts";
-import { cleanUpReaction, findReaction, gapFor, reactionClean, roleOf, withStructure, type Layout, type Reaction } from "./reaction.ts";
-import type { Arrow, Box, Mol } from "./render.ts";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { frameStyle, pageSize, readStyle } from "./docstyle.ts";
+import { addArrow, addCaption, addRing, addShape, EMPTY, fragments, pos, wholeGroups } from "./edit.ts";
+import { readOct } from "./oct.ts";
+import { cleanUpReaction, cleanUpReactions, findReaction, gapFor, reactionClean, roleOf, withStructure, type Layout, type Reaction } from "./reaction.ts";
+import { ASCENT, DESCENT, fitArrows, placeCaptions, render, straightArrow, type Arrow, type Box, type Mol } from "./render.ts";
 
 // Structures' boxes from their atoms; a caption's box from its text (0.5 wide a letter, 0.6 high, about its point).
 const ink = (mol: Mol) => (atoms: number[]): Box => { const ps = atoms.map((i) => pos(mol, i)); return [Math.min(...ps.map((p) => p[0])), Math.min(...ps.map((p) => p[1])), Math.max(...ps.map((p) => p[0])), Math.max(...ps.map((p) => p[1]))]; };
@@ -235,6 +240,80 @@ for (const id of [first, second]) {
   const real = addRing(t, 6, false, { point: [-5.5, 0] });
   assert.deepEqual(find(real, arrow).steps.map((s) => s.kind), ["structure", "text", "arrow", "text"]);
   assert.ok(withStructure(find(real, arrow)), "a ring before the arrow");
+}
+
+// A name under a structure, wider than it, goes with it: the structure does not move away from its name. The name takes
+// no room in the row. A second clean-up changes nothing.
+{
+  let t: Mol = addRing(EMPTY, 6, false, { point: [0, 0.4] }); // above the arrow's line, so it moves
+  let arrow: number, name: number;
+  [t, name] = addCaption(t, { text: "compound name", x: 0, y: -1.6, align: "centre" });
+  [t, arrow] = addArrow(t, { kind: "reaction", from: [3, 0], to: [6, 0] });
+  t = addRing(t, 6, false, { point: [8.5, 0] });
+  const done = clean(t, find(t, arrow)), ring = fragments(t)[0], a = arrowOf(done, arrow);
+  const dv = [0, 1].map((k) => pos(done, ring[0])[k] - pos(t, ring[0])[k]), was = t.captions!.find((c) => c.id === name)!, now = done.captions!.find((c) => c.id === name)!;
+  assert.ok(Math.abs(dv[1]) > 0.1, "the ring moves to the level line");
+  assert.ok(Math.abs(now.x - was.x - dv[0]) < 1e-9 && Math.abs(now.y - was.y - dv[1]) < 1e-9, "its name goes with it");
+  assert.ok(Math.abs(Math.min(a.from[0], a.to[0]) - ink(done)(ring)[2] - gap) < 1e-6, "the arrow is a gap after the ring, not after the name");
+  assert.deepEqual(clean(done, find(done, arrow)), done, "a second clean-up changes nothing");
+}
+
+// A small structure drawn over a larger one (a substituent's bond drawn apart from its ring) goes with it, and the
+// larger one stays in the row, wherever the small one starts. A second clean-up changes nothing.
+{
+  let t: Mol = addRing(EMPTY, 6, false, { point: [0, 0] });
+  let arrow: number;
+  [t, arrow] = addArrow(t, { kind: "reaction", from: [2, 0], to: [5, 0] });
+  t = addRing(t, 6, false, { point: [8, 0] }); // from 7.13 to 8.87 across the page
+  const n = t.atoms.length;
+  t = { ...t, atoms: [...t.atoms, { label: "C", location: [6.5, -0.3, 0] }, { label: "C", location: [7.6, -0.3, 0] }], bonds: [...t.bonds, { type: 1, atoms: [n, n + 1] }] };
+  const r = find(t, arrow);
+  assert.deepEqual(r.steps.map((s) => (s.kind === "structure" ? s.atoms.length : s.kind)), [6, "arrow", 6], "the product ring is in the row, not the bond");
+  assert.deepEqual((r.steps[2] as { carry?: { atoms: number[] } }).carry?.atoms, [n, n + 1], "the ring carries the bond");
+  const done = clean(t, r);
+  assert.deepEqual(clean(done, find(done, arrow)), done, "a second clean-up changes nothing");
+}
+
+// Sam's corpus (on this Mac only): Clean Up Reaction on the whole drawing, as the editor runs it, is a fixed point. On
+// each file with a straight arrow, a second clean-up changes no coordinate. Node has no fonts, so text is measured
+// roughly here (0.6 of its size a letter); the editor measures it in its font.
+const CORPUS = join(homedir(), "octet-research/corpus/sam");
+if (!existsSync(CORPUS)) console.log("reaction.check: no corpus here, corpus part skipped");
+else {
+  const L = 19.2, toDoc = (b: Box): Box => [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L];
+  const cleanAll = (m: Mol) => {
+    const style = readStyle(m.style ?? {}), frame = frameStyle(style, L), pt = (4 / 3) * frame.k;
+    const measure = (text: string) => { const s = frame.size, w = 0.6 * s * text.length; return { width: w, ascent: 0.72 * s, outline: [[0, -0.72 * s], [w, -0.72 * s], [w, 0.2 * s], [0, 0.2 * s]] as [number, number][] }; };
+    const width = (text: string, c: { size?: number }) => 0.55 * (c.size ?? style.captionSize) * pt * text.length;
+    const drawing = render(m, frame, measure, L), arrows = fitArrows(m, L, (c) => Math.max(...c.text.split("\n").map((x) => width(x, c))), pt);
+    const placed = placeCaptions(m, drawing, width, arrows, pt, style.captionSize);
+    const captionBox = (id: number) => { const c = placed.find((x) => x.id === id); return c && toDoc(c.box); };
+    const inkOf = (mol: Mol) => {
+      const d = mol === m ? drawing : render(mol, frame, measure, L);
+      return (atoms: number[]): Box | undefined => { const bs = atoms.flatMap((i) => (d.ink[i] ? [d.ink[i]] : [])); return bs.length ? toDoc([Math.min(...bs.map((b) => b[0])), Math.min(...bs.map((b) => b[1])), Math.max(...bs.map((b) => b[2])), Math.max(...bs.map((b) => b[3]))]) : undefined; };
+    };
+    const size = (style.captionSize * pt) / L, w = width("+", {}) / L;
+    const o: Layout = { gap: gapFor(style.captionSize, style.bond), width: ((pageSize(style)[0] * 72) / 25.4 - 72) / style.bond, captionBox, plusBox: [-w / 2, -DESCENT * size, w / 2, ASCENT * size], captionPt: style.captionSize, bondPt: style.bond };
+    return cleanUpReactions(m, arrows, inkOf, o, withStructure);
+  };
+  const points = (m: Mol) => [
+    ...m.atoms.map((a) => a.location.slice(0, 2)), ...(m.captions ?? []).map((c) => [c.x, c.y]), ...(m.shapes ?? []).flatMap((x) => [x.from, x.to]),
+    ...(m.arrows ?? []).flatMap((a) => [a.from, a.to, ...(a.curve?.points.map((q) => q.at) ?? [])]),
+  ];
+  let files = 0, laid = 0;
+  for (const f of readdirSync(CORPUS).filter((x) => x.endsWith(".cdxml")).sort()) {
+    const start = wholeGroups(readOct(readFileSync(join(CORPUS, f), "utf8")).mol);
+    if (!(start.arrows ?? []).some((a) => straightArrow(a))) continue;
+    files++;
+    const once = cleanAll(start), twice = cleanAll(once.mol);
+    if (once.count) laid++;
+    const p = points(once.mol), q = points(twice.mol);
+    assert.equal(q.length, p.length, `${f}: the second clean-up adds nothing`);
+    const moved = p.flatMap((x, k) => { const d = Math.hypot(x[0] - q[k][0], x[1] - q[k][1]); return d > 1e-6 ? [d] : []; });
+    assert.equal(moved.length, 0, `${f}: the second clean-up moves ${moved.length} points, up to ${Math.max(0, ...moved).toFixed(3)} bond lengths`);
+  }
+  assert.ok(laid > 10, `the corpus has reactions to lay out (${laid})`);
+  console.log(`reaction.check: ${files} corpus files with a straight arrow (${laid} laid out), a second clean-up moves nothing`);
 }
 
 // Search Reaxys: a structure's part in the scheme A + B → C → D, or none for one in no reaction.
