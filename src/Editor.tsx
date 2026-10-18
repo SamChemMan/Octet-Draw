@@ -787,9 +787,8 @@ export default function Editor() {
   function attach(variable: boolean) {
     const atoms = [...selection].filter((i) => doc.atoms[i] && !doc.atoms[i].centre && !doc.atoms[i].attach);
     if (atoms.length < 2) return setNotice("Select the atoms the attachment joins: two or more.");
-    const [m, i] = addAttachment(doc, atoms, variable);
-    set(m);
-    setSelection(new Set([i]));
+    // Not selected: a drag from it with the Bond tool then draws its bond, and does not move it.
+    set(addAttachment(doc, atoms, variable)[0]);
   }
   // Structure > Enhanced Stereochemistry on the selected stereocentres (every one with nothing selected).
   function enhance(kind: "abs" | "or" | "&" | undefined) {
@@ -1074,15 +1073,17 @@ export default function Editor() {
     bracket_properties: () => bracketProperties(),
     rlogic: () => rLogic(),
     // Add Multi-Centre Attachment and Add Variable Attachment (Structure menu): an attachment at the centre of the
-    // selected atoms, selected, for a bond to be drawn from it (to the metal of an η ligand, or to a substituent).
+    // selected atoms, for a bond to be drawn from it (to the metal of an η ligand, or to a substituent).
     add_multicentre: () => attach(false),
     add_variable: () => attach(true),
     // An R-group definition round the selected structures, named with the next R number.
     define_rgroup: () => {
       const atoms = fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat();
       if (!atoms.length) return setNotice("Select the fragments that the R-group stands for.");
-      const xs = atoms.map((i) => doc.atoms[i].location[0]), ys = atoms.map((i) => doc.atoms[i].location[1]);
-      const [m, id] = addShape(doc, { kind: "box", from: [Math.min(...xs) - 0.7, Math.max(...ys) + 0.7], to: [Math.max(...xs) + 0.7, Math.min(...ys) - 0.7], rgroup: { name: nextRGroup(doc) } });
+      // The box clears the structures as drawn, labels and the text under them too.
+      const ink = withCaptions(atoms), xs = atoms.map((i) => doc.atoms[i].location[0]), ys = atoms.map((i) => doc.atoms[i].location[1]);
+      const [x0, y0, x1, y1] = ink ? [ink[0] / L, -ink[3] / L, ink[2] / L, -ink[1] / L] : [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+      const [m, id] = addShape(doc, { kind: "box", from: [x0 - 0.4, y1 + 0.4], to: [x1 + 0.4, y0 - 0.4], rgroup: { name: nextRGroup(doc) } });
       set(m);
       setPicked(new Set([id]));
     },
@@ -1375,7 +1376,7 @@ export default function Editor() {
   const pressMods = useRef<{ shift: boolean; alt: boolean; atoms: Set<number>; picks: Set<number> } | undefined>(undefined);
   const [exportView, setExportView] = useState<{ all?: string; selection?: string; parts: { all: Mol; selection?: Mol } }>();
   const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }
-    | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string; stereo: string; group: string; targets: number[]; q: AtomQuery; q0: AtomQuery }
+    | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string; stereo: string; group: string; targets: number[]; q: AtomQuery; q0: AtomQuery; reset?: true }
     | { kind: "bond"; bonds: number[]; type: string; topology: string; rxn: string; start: { type: string; topology: string; rxn: string } }
     | { kind: "bracket"; shape: number; usage: string; label: string; count: string; order: string; mw: string; pattern: string; flip: string; flippable: boolean }
     | { kind: "rlogic"; rows: { id: number; name: string; occur: string; restH: boolean; then: string }[] }
@@ -4144,7 +4145,7 @@ export default function Editor() {
       })()}
       {/* A polymer bracket's usage label at its lower right, and its repeat pattern and flip at its upper right. */}
       {sh.polymer && isBracket(sh) && !sh.side && (() => {
-        const at = polymerLabelsAt(sh, L), label = polymerLabel(sh.polymer), tags = polymerTags(sh.polymer), font = { font: `${0.75 * style.captionSize * pt}px ${fontStack(style.captionFont)}` }, fill = sh.colour ? textInk(sh.colour) : "var(--ink)";
+        const at = polymerLabelsAt(sh, L), label = polymerLabel(sh.polymer), tags = polymerTags(sh.polymer), font = { font: `${0.75 * style.captionSize * pt * scaleOf(sh)}px ${fontStack(style.captionFont)}` }, fill = sh.colour ? textInk(sh.colour) : "var(--ink)";
         return (
           <Fragment key={`p${sh.id}`}>
             {label && <text x={at.label.x} y={at.label.y} fill={fill} style={font}>{label}</text>}
@@ -4154,7 +4155,7 @@ export default function Editor() {
       })()}
       {/* An R-group definition's name, in a tab on its box's upper left edge (ChemDraw's alternative group title). */}
       {sh.rgroup && (() => {
-        const x0 = Math.min(sh.from[0], sh.to[0]) * L, y0 = -Math.max(sh.from[1], sh.to[1]) * L, size = style.captionSize * pt, w = textWidth(sh.rgroup.name, size, false, false, fontStack(style.captionFont)) + 0.8 * size, h = 1.5 * size;
+        const x0 = Math.min(sh.from[0], sh.to[0]) * L, y0 = -Math.max(sh.from[1], sh.to[1]) * L, size = style.captionSize * pt * scaleOf(sh), w = textWidth(sh.rgroup.name, size, false, false, fontStack(style.captionFont)) + 0.8 * size, h = 1.5 * size;
         const fill = sh.colour ? textInk(sh.colour) : "var(--ink)";
         return (
           <g key={`rg${sh.id}`}>
@@ -4883,18 +4884,19 @@ export default function Editor() {
             const charge = Math.max(-9, Math.min(9, Math.round(Number(d.charge) || 0))), isotope = Math.round(Number(d.isotope));
             const group = Math.max(1, Math.min(99, Math.round(Number(d.group)) || 1)), enhanced = d.stereo === "abs" ? "abs" : d.stereo ? `${d.stereo}${group}` : undefined;
             m = { ...m, atoms: m.atoms.map((x, k) => (k === d.atom ? { ...x, charge: charge || undefined, isotope: isotope >= 1 && isotope <= 300 ? isotope : undefined, radical: Number(d.radical) || undefined, enhanced } : x)) };
-            // The query properties changed in the dialog, on every selected atom.
+            // The query properties changed in the dialog, on every selected atom. After Use Defaults, every selected
+            // atom starts from none.
             const changed = (Object.keys({ ...d.q, ...d.q0 }) as (keyof AtomQuery)[]).filter((k) => JSON.stringify(d.q[k]) !== JSON.stringify(d.q0[k]));
-            if (changed.length) m = { ...m, atoms: m.atoms.map((x, k) => {
+            if (changed.length || d.reset) m = { ...m, atoms: m.atoms.map((x, k) => {
               if (!d.targets.includes(k)) return x;
-              const q: AtomQuery = { ...x.query };
-              for (const key of changed) { if (d.q[key] === undefined) delete q[key]; else (q as Record<string, unknown>)[key] = d.q[key]; }
+              const q: AtomQuery = d.reset ? {} : { ...x.query };
+              for (const key of d.reset ? (Object.keys(d.q) as (keyof AtomQuery)[]) : changed) { if (d.q[key] === undefined) delete q[key]; else (q as Record<string, unknown>)[key] = d.q[key]; }
               return { ...x, query: anyQuery(q) ? q : undefined };
             }) };
             set(m, true);
             setDialog(undefined);
           }}
-          alt={{ label: "Use Defaults", onClick: () => setDialog({ ...dialog, q: {} }) }}>
+          alt={{ label: "Use Defaults", onClick: () => setDialog({ ...dialog, q: {}, reset: true }) }}>
           <label className="dialog-row"><span>Element</span><span className="unit-field text"><input aria-label="Element" value={dialog.element} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, element: e.target.value.slice(0, 40) })} /></span></label>
           <label className="dialog-row"><span>Charge</span><NumberField label="Charge" min={-9} max={9} step={1} value={Number(dialog.charge) || 0} onChange={(n) => setDialog({ ...dialog, charge: String(Math.round(n)) })} /></label>
           <label className="dialog-row"><span>Isotope</span><NumberField label="Isotope (mass number)" min={1} max={300} step={1} placeholder="Natural" value={dialog.isotope ? Number(dialog.isotope) : undefined}
@@ -4996,7 +4998,7 @@ export default function Editor() {
               <label className="dialog-row"><span>{u === "sru" ? "SRU label" : "Label"}</span><span className="unit-field text"><input aria-label="Label" value={d.label} placeholder={u === "sru" ? "n" : "n, 3 or 2-5"} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...d, label: e.target.value.slice(0, 20) })} /></span></label>
             )}
             {u === "param" && <label className="dialog-row"><span>Mw or Mn</span><NumberField label="Mw or Mn" min={0.01} max={1e8} step={1} value={d.mw ? Number(d.mw) : undefined} placeholder="None" onChange={(v) => setDialog({ ...d, mw: String(v) })} onClear={() => setDialog({ ...d, mw: "" })} /></label>}
-            {u === "mult" && <label className="dialog-row"><span>Repeat count</span><NumberField label="Repeat count" min={0.01} max={1e6} step={1} value={Number(d.count) || 2} onChange={(v) => setDialog({ ...d, count: String(v) })} /></label>}
+            {u === "mult" && <label className="dialog-row"><span>Repeat count</span><NumberField label="Repeat count" min={1} max={1e6} step={1} value={Number(d.count) || 2} onChange={(v) => setDialog({ ...d, count: String(Math.max(1, Math.round(v))) })} /></label>}
             {u === "c" && <label className="dialog-row"><span>Order</span><NumberField label="Component order" min={0} max={999} step={1} value={Number(d.order) || 0} onChange={(v) => setDialog({ ...d, order: String(Math.round(v)) })} /></label>}
             {repeats && (
               <div className="dialog-row"><span>Repeat pattern</span>

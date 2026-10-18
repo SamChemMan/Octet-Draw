@@ -275,7 +275,7 @@ export function readV3000(text: string): Mol {
       } else if (block === "COLLECTION") {
         const name = /^MDLV30\/(\w+)/.exec(fs[0] ?? "")?.[1];
         if (name) t.collections.push([name, ints(kv.ATOMS)]);
-      } else if (fs[0] === "LINKNODE") t.links.push(fs.slice(1).map(Number));
+      } else if (fs[0] === "LINKNODE" && t.links.length < 1000) t.links.push(fs.slice(1, 8).map(Number));
     }
     throw bad();
   };

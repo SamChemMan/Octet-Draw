@@ -473,13 +473,16 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const ql = queryLabel(a.text);
     if (a.text && (ql === 'list' || ql === 'alt' || ql === 'link')) {
       // An element list, alternative group or link node reads as typed, never reversed: its first glyph sits on the
-      // atom, or its last when the bonds come from the right. A link node's repeat range is subscript ([CH2]₃₋₇).
-      const range = ql === 'link' ? /\d{1,2}-\d{1,2}$/.exec(a.text)![0] : '', main = a.text.slice(0, a.text.length - range.length);
-      const width = M(main).width + (range ? M(range).width * SUB : 0), first = M(main[0]), base = y + first.ascent / 2;
-      const end = range ? M(range[range.length - 1]).width * SUB : M(main[main.length - 1]).width;
+      // atom, or its last when the bonds come from the right. Counts in it (CH₂) and a link node's repeat range
+      // ([CH₂]₃₋₇) are subscript.
+      const range = ql === 'link' ? /\d{1,2}-\d{1,2}$/.exec(a.text)![0] : '', pieces: { t: string; f: number }[] = [];
+      for (const t of a.text.slice(0, a.text.length - range.length).match(/\d+|\D+/g) ?? []) pieces.push({ t, f: /^\d/.test(t) && /[A-Za-z)]$/.test(pieces[pieces.length - 1]?.t ?? '') ? SUB : 1 });
+      if (range) pieces.push({ t: range, f: SUB });
+      const width = pieces.reduce((n, p) => n + M(p.t).width * p.f, 0), first = M(a.text[0]), base = y + first.ascent / 2, last = pieces[pieces.length - 1];
+      const end = M(last.t[last.t.length - 1]).width * last.f;
       const cx = deg(i) > 0 && !steep && v[0] > 1e-6 ? x + end / 2 - width : x - first.width / 2;
-      run(main, cx, base);
-      if (range) run(range, cx + M(main).width, base + DROP * S, SUB);
+      let px = cx;
+      for (const p of pieces) { run(p.t, px, p.f === 1 ? base : base + DROP * S, p.f); px += M(p.t).width * p.f; }
       if (a.charge && !a.circled) run(sign(a.charge), cx + width, base - RISE * S, SUB);
       return shape;
     }
@@ -924,19 +927,39 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     colours.push(mol.atoms[x].colour);
     alphas.push(fade(depth[x]!));
   });
-  // A bond's query indicators (S/D, Rng, Rxn), small, beside its middle on the side with more room (inside a ring).
+  // A bond's query indicators (S/D, Rng, Rxn), small, beside its middle: inside its smallest ring, else on the side with
+  // more room. Where that covers a label, an atom's indicator, another bond's indicator or another bond, a little along
+  // the bond, then the other side, then further out.
+  const outlines: P[][] = [], told: Box[] = [];
   mol.bonds.forEach((bond, k) => {
     const text = bondIndicator(bond);
     if (!text) return;
+    if (!outlines.length) outlines.push(...shapes.map(placedPoints));
     const pl = plans[k], z = pl.z, m = grown(measure(text), z.size / s.size), mid = mul(add(pts[pl.a], pts[pl.b]), 0.5), w = m.width * SUB, h = m.ascent * SUB;
-    // Far enough out that the text's box clears the bond's double line; the side whose nearest other atom is further.
-    const at = (sd: number) => { const d = mul(pl.n, sd); return add(mid, mul(d, z.spacing + 0.5 * (Math.abs(d[0]) * w + Math.abs(d[1]) * h) + 0.1 * z.L)); };
+    // Far enough out that the text's box clears the bond's double line, and out more.
+    const at = (sd: number, more: number, along = 0) => { const d = mul(pl.n, sd); return add(add(mid, mul(pl.u, along * z.L)), mul(d, z.spacing + 0.5 * (Math.abs(d[0]) * w + Math.abs(d[1]) * h) + (0.1 + more) * z.L)); };
     const room = (c: P) => Math.min(Infinity, ...pts.filter((_, j) => j !== pl.a && j !== pl.b).map((q) => len(sub(q, c))));
-    // A ring bond's goes inside its smallest ring, where nothing else is drawn.
     const ring = ringsThrough(pl.a, pl.b, nbrs).sort((p, q) => p.length - q.length)[0];
     const inward = ring && Math.sign(dot(sub(mul(ring.reduce<P>((t, j) => add(t, pts[j]), [0, 0]), 1 / ring.length), pts[pl.a]), pl.n));
-    const c = inward ? at(inward) : room(at(1)) >= room(at(-1)) ? at(1) : at(-1), x = c[0] - w / 2, y = c[1] + h / 2;
+    const first = inward || (room(at(1, 0)) >= room(at(-1, 0)) ? 1 : -1);
+    // How much a place covers: points of labels, marks, bare atoms and other bonds in its box, and other indicators.
+    const covers = (c: P) => {
+      const gx = w / 2 + 0.08 * z.L, gy = h / 2 + 0.08 * z.L, inside = (q: P) => Math.abs(q[0] - c[0]) < gx && Math.abs(q[1] - c[1]) < gy;
+      let n = told.filter((b) => b[0] < c[0] + gx && b[2] > c[0] - gx && b[1] < c[1] + gy && b[3] > c[1] - gy).length;
+      for (const list of [...outlines, ...marks]) for (const q of list) if (inside(q)) n++;
+      pts.forEach((q, j) => { if (j !== pl.a && j !== pl.b && !labelled[j] && inside(q)) n++; });
+      plans.forEach((o) => { if (o !== pl) for (const t of [0.25, 0.5, 0.75]) if (inside(add(pts[o.a], mul(sub(pts[o.b], pts[o.a]), t)))) n++; });
+      return n;
+    };
+    let c = at(first, 0), least = covers(c);
+    for (const more of [0, 0.4, 0.8]) for (const sd of [first, -first]) for (const along of [0, -0.3, 0.3]) {
+      if (!least) break;
+      const q = at(sd, more, along), n = covers(q);
+      if (n < least) { c = q; least = n; }
+    }
+    const x = c[0] - w / 2, y = c[1] + h / 2;
     labels.push({ text, x, y, size: z.size * SUB, colour: bond.colour });
+    told.push([x, y - h, x + w, y]);
     marks[pl.a].push([x, y - h], [x + w, y]);
   });
   // A label's ink is its glyphs' boxes.

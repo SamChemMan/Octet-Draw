@@ -96,7 +96,7 @@ const bonds: Bond[] = [
   b(30, 31), b(31, 32), b(32, 33),
 ];
 const shapes: Shape[] = [
-  { id: 1, kind: "box", from: [13, 2], to: [16.5, -1.5], rgroup: { name: "R1", occur: "1-3", restH: true } },
+  { id: 1, kind: "box", from: [13, 2], to: [16.5, -1.5], rgroup: { name: "R1", occur: "1-3", restH: true }, dashed: true, width: 1.2 },
   { id: 2, kind: "brackets", from: [0.5, -8.4], to: [2.5, -9.6], polymer: { usage: "sru", pattern: "hh" } },
 ];
 const drawing: Mol = { atoms, bonds, shapes };
@@ -156,6 +156,16 @@ console.log("query.check: attachments through edits ok");
   assert.ok(mols.every((x) => x.atoms.filter((a, i) => a.label === "Br" && degree(x, i) === 1).length === 1));
   assert.equal(new Set(mols.map((x) => { const i = x.atoms.findIndex((a, k) => a.label === "Br" && degree(x, k) === 1), bond = x.bonds.find((y) => y.atoms.includes(i))!; return bond.atoms.find((k) => k !== i); })).size, 3);
   assert.equal(layoutGrid(mols).atoms.length, mols.reduce((n, x) => n + x.atoms.length, 0));
+  // A joined fragment keeps a zigzag: CH2OH (drawn with no mark) and an ethyl drawn with its mark meet the ring at 120°.
+  {
+    const r: Mol = { atoms: [A("C", 0, 0), A("C", 1, 0, { text: "R1" }), A("C", 5, 0), A("O", 6, 0), A("C", 5, -2), A("C", 5.87, -2.5), A("C", 4.13, -2.5, { attach: true })],
+      bonds: [b(0, 1), b(2, 3), b(4, 5), b(4, 6)], shapes: [{ id: 1, kind: "box", from: [3.5, 1], to: [7, -3.5], rgroup: { name: "R1" } }] };
+    const angle = (x: Mol, i: number) => { const ns = x.bonds.filter((y) => y.atoms.includes(i)).map((y) => x.atoms[y.atoms[0] === i ? y.atoms[1] : y.atoms[0]].location), c = x.atoms[i].location;
+      const [u, v] = ns.map((q) => Math.atan2(q[1] - c[1], q[0] - c[0])); return Math.round((Math.abs(Math.atan2(Math.sin(u - v), Math.cos(u - v))) * 180) / Math.PI); };
+    const out = expandGeneric(r, [0, 1]).mols;
+    assert.deepEqual(out.map((x) => x.atoms.map((a) => a.label).join("")), ["CCO", "CCC"]);
+    assert.deepEqual(out.map((x) => angle(x, 1)), [120, 120], "not a straight line at the joining atom");
+  }
   // A wavy bond stands for a wedge and a hash.
   const wavy = expandGeneric({ atoms: [A("C", 0, 0), A("C", 1, 0), A("O", 1.5, 0.866), A("N", 1.5, -0.866), A("C", 2, 0)], bonds: [b(0, 1), b(1, 2), b(1, 3), b(1, 4, { display: "wavy" })] }, [0]);
   assert.deepEqual(wavy.mols.map((x) => x.bonds[3].stereo), [1, 6]);
@@ -166,7 +176,7 @@ console.log("query.check: expand generic structure ok");
 const facts = (m: Mol) => ({
   atoms: m.atoms.map((a) => [a.label, a.text, a.query, a.centre, a.attach]),
   bonds: m.bonds.map((x) => [x.atoms, x.type, x.query, x.topology, x.rxn]),
-  shapes: (m.shapes ?? []).map((s) => [s.kind, s.rgroup, s.polymer]),
+  shapes: (m.shapes ?? []).map((s) => [s.kind, s.rgroup, s.polymer, s.dashed, s.width]),
 });
 const same = (a: Mol, z: Mol, what: string) => assert.deepEqual(facts(a), facts(z), what);
 
@@ -193,6 +203,8 @@ assert.deepEqual(chemdraw.atoms.slice(0, 6).map((a) => [a.text, a.query]), atoms
 assert.deepEqual(chemdraw.atoms.filter((a) => a.centre).map((a) => a.centre), atoms.filter((a) => a.centre).map((a) => a.centre));
 assert.deepEqual(chemdraw.bonds.slice(0, 4).map((x) => [x.query, x.topology, x.rxn, x.type]), bonds.slice(0, 4).map((x) => [x.query, x.topology, x.rxn, x.type]));
 assert.deepEqual(chemdraw.shapes?.map((s) => [s.rgroup, s.polymer]), shapes.map((s) => [s.rgroup, s.polymer]));
+// ChemDraw writes every R-Logic field: RLogicRestH="no" is Rest H off.
+assert.deepEqual(fromCdxml(text.replace(/ Octet="[^"]*"/g, "").replace(/CreationProgram="[^"]*"/, "").replace('RLogicRestH="yes"', 'RLogicRestH="no"')).mol.shapes?.find((s) => s.rgroup)?.rgroup, { name: "R1", occur: "1-3" });
 // ChemDraw keeps the connection point Octet wrote for the chlorine: it comes back as the chlorine's attachment mark.
 assert.equal(chemdraw.atoms.length, atoms.length + 1);
 const cl = chemdraw.atoms.findIndex((a) => a.label === "Cl");

@@ -358,7 +358,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       // usage, repeat pattern and flip type, and its labels as object tags, which ChemDraw places itself.
       const p = sh.side ? undefined : sh.polymer;
       const tag = (name: string, text: string) => el("objecttag", { id: fresh(), TagType: "Unknown", Name: name },
-        el("t", { p: "0 0", BoundingBox: `0 ${fmt(-0.716 * 0.75 * style.captionSize)} ${fmt(widthOf(text, 0.75 * style.captionSize))} 0`, CaptionLineHeight: "variable" }, run(text, { font: style.captionFont, size: 0.75 * style.captionSize, colour: sh.colour, face: 0 })));
+        el("t", { p: "0 0", BoundingBox: `0 ${fmt(-0.716 * 0.75 * style.captionSize * f)} ${fmt(widthOf(text, 0.75 * style.captionSize * f))} 0`, CaptionLineHeight: "variable" }, run(text, { font: style.captionFont, size: 0.75 * style.captionSize * f, colour: sh.colour, face: 0 })));
       const tags = p ? [polymerLabel(p) && (p.usage !== "param" || p.label) ? tag(p.usage === "param" ? "parameterizedBracketLabel" : "bracketusage", polymerLabel(p)) : "", p.usage === "param" && p.mw ? tag("molecularWeightOverride", String(p.mw)) : "",
         p.pattern ? tag("polymerrepeat", p.pattern) : "", p.flip === "flip" ? tag("polymerflip", "flip") : ""].join("") : "";
       sides.forEach((side, k) => {
@@ -480,11 +480,12 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   rgroups.forEach(({ sh }, k) => {
     zOrder = sh.order;
     const [x0, y0] = at([Math.min(sh.from[0], sh.to[0]), Math.max(sh.from[1], sh.to[1])]), [x1, y1] = at([Math.max(sh.from[0], sh.to[0]), Math.min(sh.from[1], sh.to[1])]);
-    const name = sh.rgroup!.name, size = style.captionSize, w = widthOf(name, size), frame: Box = [x0, y0 - 1.5 * size, x0 + w + 0.8 * size, y0];
+    const name = sh.rgroup!.name, size = style.captionSize * scaleOf(sh), w = widthOf(name, size), frame: Box = [x0, y0 - 1.5 * size, x0 + w + 0.8 * size, y0];
     const title = el("t", { id: fresh(), p: pt([x0 + 0.4 * size, y0 - 0.4 * size]), BoundingBox: boxText([x0 + 0.4 * size, y0 - 1.1 * size, x0 + 0.4 * size + w, y0 - 0.4 * size]), Z: Z(), LineHeight: "auto" },
       run(name, { font: style.captionFont, size, colour: sh.colour, face: 0 }));
     const box = union([[x0, frame[1], x1, y1], ...memberBoxes[k]])!;
-    put(el("altgroup", { id: idOf.get(sh.id)!, BoundingBox: boxText(box), Z: altZ.get(sh.id) ?? Z(), color: colour(sh.colour), TextFrame: boxText(frame), GroupFrame: boxText([x0, y0, x1, y1]), Valence: 1 }, title + members[k].join("")), 1, box, sh.id);
+    put(el("altgroup", { id: idOf.get(sh.id)!, BoundingBox: boxText(box), Z: altZ.get(sh.id) ?? Z(), color: colour(sh.colour), TextFrame: boxText(frame), GroupFrame: boxText([x0, y0, x1, y1]), Valence: 1,
+      ...ownLines(scaleOf(sh), sh.width), Octet: priv({ scale: ownScale(sh), dashed: sh.dashed }) }, title + members[k].join("")), 1, box, sh.id);
   });
   // R-Logic: one row for each R-group that has any (ChemDraw writes every field of a row, empty or not).
   const logic = rgroups.filter(({ sh }) => sh.rgroup!.occur || sh.rgroup!.restH || sh.rgroup!.then);
@@ -1523,6 +1524,7 @@ export function fromCdxml(text: string): CdxmlRead {
       const sh: Shape & { z: number } = { id: newId(x), kind: "box", from: toOctet(Math.min(frame[0], frame[2]), Math.max(frame[1], frame[3])), to: toOctet(Math.max(frame[0], frame[2]), Math.min(frame[1], frame[3])), rgroup: { name }, z: zOf(x) };
       const colour = colourOf(x.attrs.color);
       if (colour) sh.colour = colour;
+      if (priv(x)?.dashed === true) sh.dashed = true;
       addShape(sh, x, group);
     } else lose("R-group definition");
     for (const k of x.kids) if (k !== title) visit(k, group);
@@ -1691,7 +1693,7 @@ export function fromCdxml(text: string): CdxmlRead {
   for (const row of logic) {
     const sh = shapes.find((x) => x.rgroup?.name === row.attrs.RLogicGroup);
     if (!sh) continue;
-    const r = readRgroup({ name: sh.rgroup!.name, occur: row.attrs.RLogicOccurrence || undefined, restH: row.attrs.RLogicRestH !== undefined ? true : undefined, then: row.attrs.RLogicIfThenGroup || undefined });
+    const r = readRgroup({ name: sh.rgroup!.name, occur: row.attrs.RLogicOccurrence || undefined, restH: yes(row.attrs.RLogicRestH) ? true : undefined, then: row.attrs.RLogicIfThenGroup || undefined });
     if (r) sh.rgroup = r;
   }
   for (const { c, nodes } of unders) {

@@ -19,8 +19,8 @@ export function expandGeneric(drawing: Mol, atoms: number[]): { mols: Mol[]; tot
   const members = new Set(defs.flatMap((d) => d.members.flat())), chosen = new Set(atoms);
   const scaffold = frags.filter((f) => f.some((i) => chosen.has(i)) && !f.some((i) => members.has(i)));
   // R-group fragments, each with its attaching atom first and its attachment marks left out.
-  const groups = new Map<number, Mol[]>();
-  for (const d of defs) groups.set(rNumber(d.sh.rgroup!.name)!, d.members.map((f) => fragmentOf(drawing, f)).filter((m) => m.atoms.length));
+  const groups = new Map<number, Fragment[]>();
+  for (const d of defs) groups.set(rNumber(d.sh.rgroup!.name)!, d.members.map((f) => fragmentOf(drawing, f)).filter((g) => g.mol.atoms.length));
   const out: Mol[] = [];
   let total = 0;
   for (const f of scaffold) {
@@ -63,15 +63,21 @@ function part(m: Mol, ids: number[]): Mol {
     bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] as [number, number] })),
   };
 }
-// An R-group fragment: its attaching atom first (the atom an attachment mark is on, or its first atom), marks left out.
-function fragmentOf(m: Mol, ids: number[]): Mol {
+// An R-group fragment: its attaching atom first (the atom an attachment mark is on, or its first atom), marks left out,
+// and the way from that atom to the rest of the structure: to its mark, else 120° from its one bond, so a chain
+// joined on keeps its zigzag (unset: away from the middle of its bonds).
+type Fragment = { mol: Mol; way?: P };
+function fragmentOf(m: Mol, ids: number[]): Fragment {
   const p = part(m, ids), marks = new Set(p.atoms.flatMap((a, i) => (a.attach ? [i] : [])));
   const mark = [...marks][0], on = mark === undefined ? 0 : p.bonds.find((b) => b.atoms.includes(mark))?.atoms.find((i) => i !== mark) ?? 0;
   const order = [on, ...p.atoms.map((_, i) => i).filter((i) => i !== on && !marks.has(i))], map = new Map(order.map((i, k) => [i, k]));
-  return { atoms: order.map((i) => p.atoms[i]), bonds: p.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] as [number, number] })) };
+  const at = (i: number): P => [p.atoms[i].location[0], p.atoms[i].location[1]], d = (i: number): P => [at(i)[0] - at(on)[0], at(i)[1] - at(on)[1]];
+  const near = p.bonds.flatMap((b) => (b.atoms.includes(on) ? b.atoms.filter((i) => i !== on && !marks.has(i)) : []));
+  const way: P | undefined = mark !== undefined && on !== mark ? d(mark) : near.length === 1 ? [d(near[0])[0] * -0.5 - d(near[0])[1] * 0.866, d(near[0])[0] * 0.866 + d(near[0])[1] * -0.5] : undefined;
+  return { mol: { atoms: order.map((i) => p.atoms[i]), bonds: p.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] as [number, number] })) }, way };
 }
-// The R atom i becomes the fragment, joined where the R label was and turned away from its neighbour.
-const joinAt = (m: Mol, i: number, g: Mol): Mol => expandLabel(m, i, { atoms: g.atoms.map((a) => ({ ...a })), bonds: g.bonds });
+// The R atom i becomes the fragment, joined where the R label was, its bond to the rest of the structure on its way.
+const joinAt = (m: Mol, i: number, g: Fragment): Mol => expandLabel(m, i, { atoms: g.mol.atoms.map((a) => ({ ...a })), bonds: g.mol.bonds }, g.way);
 // A variable attachment i on atom j: its substituents bond to j instead, moved to point out from the ring there.
 function attachAt(m: Mol, i: number, j: number): Mol {
   const c = m.atoms[i], ring = c.centre!.atoms, at = (k: number): P => [m.atoms[k].location[0], m.atoms[k].location[1]];
