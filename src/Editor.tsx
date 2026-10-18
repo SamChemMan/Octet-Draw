@@ -643,13 +643,13 @@ export default function Editor() {
   // Return and ⌘N start the purpose picked last, as ChemDraw's New takes the stationery used last.
   const newDrawing = (id = settings.purpose) => keepWork(() => {
     const style = styleFor(settings, id), fresh: Mol = { ...EMPTY, style };
-    drawingColours.current = []; set(fresh); setFile({ saved: fresh }); setGuides(freshGuides([0, 0])); setHome(false); setCoach(0); openView(style);
+    drawingColours.current = []; set(fresh); setFile({ saved: fresh }); setGuides(freshGuides([0, 0], style)); setHome(false); setCoach(0); openView(style);
     setSettings((s) => ({ ...s, purpose: purposeOf(s, id) ? id : "paper" }));
   });
   // The tutorial is always on Paper (IDEA-SIZE-14): its steps are made for a manuscript's sizes.
   const startTutorial = () => keepWork(() => {
     const style = styleFor(settings, "paper"), fresh: Mol = { ...EMPTY, style };
-    set(fresh); setFile({ saved: fresh }); setGuides(freshGuides([0, 0])); setHome(false); openView(style); setTool("bond"); setSeen(NOTHING_SEEN); setCoach((n) => n + 1);
+    set(fresh); setFile({ saved: fresh }); setGuides(freshGuides([0, 0], style)); setHome(false); openView(style); setTool("bond"); setSeen(NOTHING_SEEN); setCoach((n) => n + 1);
     setSettings((s) => ({ ...s, tutorialDone: true }));
   });
   // The open view for a new drawing in a style: the page's middle in the window's middle, at the open zoom. The page
@@ -717,7 +717,7 @@ export default function Editor() {
       // The grid, rulers and crosshair as the drawing was saved with them; the user's last choice when it says none.
       // A drawing saved before Show Grid, with Gridlines set (a step in mm), shows its grid as it did.
       const b = bounds(mol);
-      setGuides(saved ?? { ...freshGuides(b && [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]), ...(typeof kept.style?.grid === "number" ? { grid: true } : {}) });
+      setGuides(saved ?? { ...freshGuides(b && [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], readStyle(mol.style ?? newStyle)), ...(typeof kept.style?.grid === "number" ? { grid: true } : {}) });
       set(mol);
       setFile({ path, saved: mol });
       setHome(false); setCoach(0); outlineFrom.current = undefined;
@@ -1210,20 +1210,26 @@ export default function Editor() {
   const onCrosshair = (p: P, t: Hover) => !!cross && t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined && t.cycle === undefined
     && Math.hypot(p[0] - cross[0], p[1] - cross[1]) * L * views.get().zoom < 8;
   // The crosshair's place when it is shown, as ChemDraw's: the middle of the window (or a point given), on the
-  // nearest heavier grid line from the page's corner.
-  const crosshairHome = (at?: P): [number, number] => {
-    const c = at ?? toDoc(innerWidth / 2, innerHeight / 2), step = grid.minor * grid.every;
-    return [0, 1].map((k) => corner[k] + Math.round((c[k] - corner[k]) / step) * step) as [number, number];
+  // nearest heavier grid line from the page's corner. d: the style of a drawing about to open, whose page and grid
+  // it takes.
+  const crosshairHome = (at?: P, d?: DocStyle): [number, number] => {
+    const k = d ? ((72 / 25.4) * (4 / 3) * frameStyle(d, L).k) / L : mm, [, w, h] = d ? pageOutlines(d, purposeOf(settings, d.purpose)?.kind)[0] : pages[0];
+    const o: P = [-(w / 2) * k, (h / 2) * k], g = d ? gridOf(d.grid, k, o) : grid, step = g.minor * g.every, c = at ?? toDoc(innerWidth / 2, innerHeight / 2);
+    return [0, 1].map((i) => o[i] + Math.round((c[i] - o[i]) / step) * step) as [number, number];
   };
   // New drawings, and drawings saved without them, show what the user last chose in the View menu.
-  const freshGuides = (at?: P): Guides => ({
-    ...(settings.guides.grid ? { grid: true } : {}), ...(settings.guides.rulers ? { rulers: true } : {}), ...(settings.guides.crosshair ? { crosshair: crosshairHome(at) } : {}),
+  const freshGuides = (at?: P, d?: DocStyle): Guides => ({
+    ...(settings.guides.grid ? { grid: true } : {}), ...(settings.guides.rulers ? { rulers: true } : {}), ...(settings.guides.crosshair ? { crosshair: crosshairHome(at, d) } : {}),
   });
+  // The guides as last set, so View commands that arrive before the page draws again each see the one before.
+  const guidesNow = useRef(guides);
+  guidesNow.current = guides;
   const showGuide = (k: "grid" | "rulers" | "crosshair") => {
-    const on = !guides[k], next: Guides = { ...guides };
+    const was = guidesNow.current, on = !was[k], next: Guides = { ...was };
     if (!on) delete next[k];
     else if (k === "crosshair") next.crosshair = crosshairHome();
     else next[k] = true;
+    guidesNow.current = next;
     setGuides(next);
     setSettings((s) => ({ ...s, guides: { ...s.guides, [k]: on } }));
   };
