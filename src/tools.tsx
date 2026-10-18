@@ -383,11 +383,14 @@ export function Palette(p: PaletteProps) {
   const timer = useRef<number>(undefined);
   const nav = useRef<HTMLElement>(null);
   // A window too short for one column of tools gets two, and the user's choice stays as it was. The toggle goes
-  // until one column fits again. one: the toolbar's height in one column, measured when it last was.
-  const [short, setShort] = useState(false), one = useRef(0), wide = p.wide || short;
+  // until one column fits again. one: the toolbar's height in one column, measured when it last was. While an option
+  // is carried, the columns stay as they are, so the gap it opens never moves the toolbar from under the pointer (a
+  // drop meant for the toolbar would go on the canvas); they are fitted again when it is let go.
+  const [short, setShort] = useState(false), one = useRef(0), wide = p.wide || short, carrying = !!carry;
   useLayoutEffect(() => {
     const box = nav.current!;
     const fit = () => {
+      if (carrying) return;
       if (!wide) one.current = box.offsetHeight;
       setShort(!p.wide && one.current > innerHeight - 2 * box.offsetTop);
     };
@@ -396,7 +399,7 @@ export function Palette(p: PaletteProps) {
     watch.observe(box);
     addEventListener("resize", fit);
     return () => { watch.disconnect(); removeEventListener("resize", fit); };
-  }, [wide, p.wide]);
+  }, [wide, p.wide, carrying]);
 
   // Close the strip on Escape or a press anywhere else.
   useEffect(() => {
