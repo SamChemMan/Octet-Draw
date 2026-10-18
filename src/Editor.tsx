@@ -3275,14 +3275,17 @@ export default function Editor() {
     if (m !== doc) set(m, true);
   }
   const nameable = loaded && doc.atoms.length > 0;
-  // The colour the Actions panel shows as chosen: the first selected thing's, for every kind of selection.
+  // Of the things picked, the first that draws a line: the Actions panel shows its colour and line width. A filled pen
+  // curve's outline is only a hairline, so a flask shows its glass, not its liquid.
+  const lineOf = <T extends Arrow | Shape | Cycle | Caption>(xs: T[]) => xs.find((x) => !("curve" in x && x.curve?.closed && x.fill)) ?? xs[0];
+  // The colour the Actions panel shows as chosen: the first selected thing's (lineOf), for every kind of selection.
   const selectionColour = (context: Context): { value: string; tints?: boolean } | undefined => {
     if (context.kind === "caption" || context.kind === "shape") return { value: context.colour, tints: context.kind === "shape" && context.shape === "highlight" };
     if (context.kind === "spot" && spotPick) return { value: doc.shapes?.find((x) => x.id === spotPick.plate)?.tlc?.spots[spotPick.index]?.colour ?? "#000000" };
     if (context.kind === "empty" || context.kind === "drawing") return undefined;
     // A bond alone takes its own colour (the colour action sets the bond only), so its row shows the bond's.
     if (context.kind === "bond") return { value: doc.bonds.find((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1]))?.colour ?? "#000000" };
-    const first = [...selection][0], thing = [...(doc.arrows ?? []), ...(doc.cycles ?? []), ...(doc.shapes ?? []), ...(doc.captions ?? [])].find((x) => picked.has(x.id));
+    const first = [...selection][0], thing = lineOf([...(doc.arrows ?? []), ...(doc.cycles ?? []), ...(doc.shapes ?? []), ...(doc.captions ?? [])].filter((x) => picked.has(x.id)));
     return { value: (first !== undefined ? doc.atoms[first]?.colour : thing?.colour) ?? "#000000" };
   };
   // The kinds of thing selected (structures, captions, arrows, shapes, cycles) and how many things. A caption under a
@@ -3322,7 +3325,7 @@ export default function Editor() {
     if (pickedCycle && mix.kinds === 1) return { kind: "cycle", clockwise: pickedCycle.clockwise, steps: pickedCycle.nodes.length, centre: !!doc.captions?.some((c) => c.cycle?.cycle === pickedCycle.id && c.cycle.side === "centre"), width: widthOf(pickedCycle) };
     // Different kinds of thing picked together (an arrow and a box, a caption and an atom, everything): what applies to
     // all of them. Lines picked together (arrows, shapes and cycles only) share one line width.
-    const lined = mix.lines ? [...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].find((x) => picked.has(x.id)) : undefined;
+    const lined = mix.lines ? lineOf([...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].filter((x) => picked.has(x.id))) : undefined;
     if (mix.kinds > 1) return { kind: "selection", count: mix.count, atoms: mix.atoms, joinable: mix.atoms && !!joinSelection(doc, selection), ...(lined ? { width: widthOf(lined) } : {}) };
     // A TLC spot picked on its plate.
     const plate = spotPick && !selection.size && picked.size === 1 && picked.has(spotPick.plate) ? doc.shapes?.find((x) => x.id === spotPick.plate) : undefined, spot = plate?.tlc?.spots[spotPick!.index];
@@ -3355,7 +3358,7 @@ export default function Editor() {
         kind: "arrow", count: pickedArrows.length, arrow: pickedArrows[0].kind, curved: pickedArrows.some(curved), style: pickedArrows[0].style ?? "plain", orbital: pickedArrows[0].orbital,
         heads: pickedArrows.every(takesHeads), ...headsOf(pickedArrows[0]), head: pickedArrows[0].head ?? "solid",
         closed: pickedArrows[0].curve ? !!pickedArrows[0].curve.closed : undefined, fill: pickedArrows[0].fill ?? "none",
-        width: widthOf(pickedArrows[0]),
+        width: widthOf(lineOf(pickedArrows)),
         // The sweep the curved ones share, if it is one on offer.
         sweep: SWEEPS.find((sw) => pickedArrows.filter(curved).every((a) => Math.abs(sweepOf(a.bend ?? 0) - sw) < 2)),
         size: pickedArrows.every(headed) ? sizeOf(pickedArrows[0]) ?? "own" : undefined, ratio: pickedArrows[0].ratio ?? 1,

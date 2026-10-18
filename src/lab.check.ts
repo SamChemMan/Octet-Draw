@@ -54,6 +54,8 @@ for (const t of lab.items) {
   const ids = new Set(placed.arrows!.map((a) => a.id));
   const [a0, b0, a1, b1] = box(placed.arrows!);
   assert.ok(near((a0 + a1) / 2, 10, 0.002) && near((b0 + b1) / 2, 5, 0.002), `${t.name} goes where it is placed`);
+  // It keeps its way up: every point moves by the same step, so a lamp's rays stay above its glass.
+  placed.arrows!.forEach((a, i) => assert.ok(near(a.from[0], t.arrows[i].from[0] + 10) && near(a.from[1], t.arrows[i].from[1] + 5), `${t.name} keeps its way up`));
   assert.equal(placed.groups?.length, 1);
   assert.deepEqual(new Set(placed.groups![0].items), ids);
   // A click on a bond or atom with it in hand puts it at the click, not at the drawing's origin.
