@@ -3123,6 +3123,10 @@ button.variant.add {
   bottom: calc(var(--space-4) * 2 + var(--below, 0px));
   max-height: min(40%, calc(100% - var(--below, 0px) - var(--space-4) * 4));
 }
+/* A full-screen Spectrum leaves no room above it, so Properties waits until it is docked again. */
+.spectrum.expanded ~ .properties {
+  display: none;
+}
 .properties header,
 .spectrum header {
   cursor: grab;
