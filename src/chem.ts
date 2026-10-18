@@ -58,15 +58,16 @@ const plain = measurer(FONT, STYLE.size);
 export const measure = (text: string, face?: Face): Ink =>
   face ? measurer(face.font ? fontStack(face.font) : FONT, STYLE.size, !!face.bold, !!face.italic)(text) : plain(text);
 
-// A caption line's advance width in px, in the caption font.
+// A caption line's advance width in px, in the caption font. A width grows with the size (to within 0.04 px up to
+// 40 px), so each text is measured once, at 100 px, for every size: a scale drag measures nothing again.
 const CAPTION_FONT = token("--caption-font");
 const widths = new Map<string, number>();
 const meter = document.createElement("canvas").getContext("2d")!;
 export function textWidth(text: string, size: number, bold?: boolean, italic?: boolean, family = CAPTION_FONT): number {
-  const font = `${italic ? "italic " : ""}${bold ? "bold " : ""}${size}px ${family}`, key = `${font}|${text}`;
+  const face = `${italic ? "italic " : ""}${bold ? "bold " : ""}`, key = `${face}${family}|${text}`;
   let w = widths.get(key);
-  if (w === undefined) { meter.font = font; w = meter.measureText(text).width; widths.set(key, w); }
-  return w;
+  if (w === undefined) { meter.font = `${face}100px ${family}`; w = meter.measureText(text).width / 100; widths.set(key, w); }
+  return w * size;
 }
 // How far a piece of caption text reaches above and below its baseline in px: its tallest character and its lowest
 // descender, as drawn (Variable line spacing).
@@ -209,8 +210,7 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
 
 // The drawing as SMILES. Throws if Indigo can't read it (for example, a valence it rejects).
 // A drawing as KET, with labels expanded into atoms. KET has no bond display styles (bold, wavy and so on).
-function ketOf(drawn: Mol): string {
-  const mol = expandLabels(drawn);
+function ketOf(drawn: Mol, mol = expandLabels(drawn)): string {
   const bonds = mol.bonds.map(({ type, atoms, stereo }) => (stereo ? { type, atoms, stereo } : { type, atoms }));
   // KET radicals: 1 a singlet, 2 one unpaired electron (doublet), 3 two (triplet).
   const atoms = mol.atoms.map(({ label, location, charge, radical, isotope }) => ({ label, location, ...(charge ? { charge } : {}), ...(radical ? { radical: radical === 3 ? 1 : radical + 1 } : {}), ...(isotope ? { isotope } : {}) }));
@@ -227,6 +227,22 @@ function convert(input: string, format: string): string {
 export const toSmiles = (drawn: Mol): string => convert(ketOf(drawn), "smiles");
 // The drawing's molecules as a molfile.
 export const toMolfile = (drawn: Mol): string => convert(ketOf(drawn), "molfile");
+// Generic labels as query atoms (any atom A, heteroatom Q, metal M, halogen X, and each with H, as ChemDraw's).
+// SMILES cannot keep them; a molfile can, for a Reaxys search. undefined when the drawing has none.
+// As ChemDraw 26.1 writes a molfile (CoreChemistry IsAcceptableGeneric): A, Q and X go as the atom symbol; the
+// others go as a carbon with the label as its alias ("A  n" and the label on the next line).
+const GENERIC = new Set(["A", "AH", "Q", "QH", "M", "MH", "X", "XH"]), SYMBOL = new Set(["A", "Q", "X"]);
+export function toQueryMolfile(drawn: Mol): string | undefined {
+  if (!drawn.atoms.some((a) => a.text && GENERIC.has(a.text))) return undefined;
+  const generic = (a: Mol["atoms"][number]) => !!a.text && GENERIC.has(a.text);
+  const query = { ...drawn, atoms: drawn.atoms.map((a) => (generic(a) ? { ...a, label: SYMBOL.has(a.text!) ? a.text! : "C", text: undefined } : a)) };
+  const { mol, from } = expandWithOrigins(query);
+  const aliases = drawn.atoms.flatMap((a, i) => (generic(a) && !SYMBOL.has(a.text!) ? [`A  ${String(from.indexOf(i) + 1).padStart(3)}`, a.text!] : []));
+  // From the counts line on, under the header Reaxys was seen to read: a name, the program, a blank line.
+  // (A V3000 molfile, for 1000 atoms or more, goes whole: no search link can hold it, and the app says so.)
+  const lines = convert(ketOf(query, mol), "molfile").split("\n"), at = lines.findIndex((l) => l.endsWith("V2000")), end = lines.lastIndexOf("M  END");
+  return ["Octet", "  Octet", "", ...lines.slice(Math.max(0, at), end), ...aliases, ...lines.slice(end), ""].join("\n");
+}
 // CIP labels for a drawing's stereocentres (R, S) and double bonds (E, Z), in its atom and bond order.
 export function cipOf(drawn: Mol): { atoms: (string | undefined)[]; bonds: (string | undefined)[] } | undefined {
   const ind = engine(), opts = new ind.MapStringString();
@@ -313,8 +329,9 @@ const PASS = 100;
 export const MOST_CLEAN = MOST_ATOMS;
 
 // Clean Up Structure: bond lengths and angles straightened, structure by structure. Each structure the selection
-// touches (or every structure, with nothing selected) is cleaned whole, scaled back to one bond length per bond, and
-// kept centred where it was. A structure of more than MOST_CLEAN atoms is left as drawn.
+// touches (or every structure, with nothing selected) is cleaned whole, scaled to one bond length per bond at the
+// structure's own scale (the median of its atoms' scales, decision 0007), and kept centred where it was. A structure
+// of more than MOST_CLEAN atoms is left as drawn.
 // pass: the ms each of the two passes may take for one structure.
 export function cleanUp(mol: Mol, ids?: Set<number>, pass = PASS): Mol {
   const atoms = mol.atoms.map((a) => ({ ...a }));
@@ -327,7 +344,8 @@ export function cleanUp(mol: Mol, ids?: Set<number>, pass = PASS): Mol {
       const [p, q] = [out[local.get(b.atoms[0])!], out[local.get(b.atoms[1])!]];
       return Math.hypot(q[0] - p[0], q[1] - p[1]);
     }).sort((a, b) => a - b);
-    const scale = 1 / (lengths[Math.floor(lengths.length / 2)] || 1);
+    const own = frag.map((i) => mol.atoms[i].scale ?? 1).sort((a, b) => a - b)[Math.floor(frag.length / 2)];
+    const scale = own / (lengths[Math.floor(lengths.length / 2)] || 1);
     const centre = (pts: readonly (readonly number[])[]) => [0, 1].map((k) => pts.reduce((sum, p) => sum + p[k], 0) / pts.length);
     const [ox, oy] = centre(frag.map((i) => mol.atoms[i].location)), [nx, ny] = centre(out);
     frag.forEach((i, k) => {

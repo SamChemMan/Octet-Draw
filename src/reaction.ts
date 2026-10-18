@@ -473,3 +473,23 @@ export function layoutRow(m: Mol, steps: Step[], gap: number): { mol: Mol; level
   }
   return { mol: out, level, right: x - gap };
 }
+
+// The part structures take in the drawing's reactions, for a Reaxys reaction search (ChemDraw's Reactant search
+// and Reaction product search): what goes in (before a reaction's first arrow), what comes out (after its last), or
+// either (between two arrows). structures: each one's atoms. undefined: in no reaction. "mixed": more than one
+// part (a whole reaction), or some in a reaction and some not.
+export type Role = "starting_material" | "product" | "all_reactions";
+export function roleOf(reactions: Reaction[], structures: number[][]): Role | "mixed" | undefined {
+  const roles = new Set(structures.map((atoms) => {
+    for (const r of reactions) {
+      const k = r.steps.findIndex((s) => s.kind === "structure" && s.atoms.includes(atoms[0]));
+      if (k < 0) continue;
+      const arrows = r.steps.flatMap((s, i) => (s.kind === "arrow" ? [i] : []));
+      return k < arrows[0] ? "starting_material" : k > arrows[arrows.length - 1] ? "product" : "all_reactions";
+    }
+    return "none";
+  }));
+  if (roles.size > 1) return "mixed";
+  const [role] = roles;
+  return role === "none" ? undefined : role;
+}

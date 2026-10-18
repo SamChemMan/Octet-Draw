@@ -14,10 +14,11 @@ import {
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
 import { Menu, Pick, type MenuItem } from "./Menu";
+import { NumberField } from "./Fields";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
 import { invoke } from "@tauri-apps/api/core";
-import { COLOURS, fontStack, HIGHLIGHTS, SIZES, TINTS } from "./docstyle";
+import { COLOURS, fontStack, HIGHLIGHTS, roundPt, TINTS } from "./docstyle";
 import { ArrowGlyph, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, SymbolGlyph, TlcGlyph, type BondKind } from "./tools";
 
 // A selected atom label's text style (the first labelled atom's, for a structure), for the label style buttons.
@@ -58,6 +59,9 @@ type Props = {
   palette: { name: string; hex: string }[]; // the user's own colours, after Octet's
   grouping?: { grouped: boolean; integral: boolean; group: boolean }; // a group touched (Ungroup), two or more things that can be grouped (Group)
   menus?: boolean; // Settings > Actions panel: each set of small actions as a titled row that opens its menu
+  sizes: number[]; // the text sizes on offer: ChemDraw's, times the document scale
+  scale?: number | null; // the selection's scale against the document (decision 0007); null when its parts differ
+  online?: boolean; // Settings > Online search: Search Reaxys and Search PubChem are offered
 };
 
 const ELEMENTS = ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"];
@@ -103,17 +107,18 @@ export function FontPick({ label, font, fonts, onPick, className = "chip size-bu
   );
 }
 
-// The text size: a click opens the sizes, and Other size…, Return or a double-click types any size.
-function SizeButton({ size, run }: { size: number; run: (command: string) => void }) {
+// The text size: a click opens the sizes (ChemDraw's sizes times the document scale), and Other size…, Return or a
+// double-click types any size.
+function SizeButton({ size, sizes, run }: { size: number; sizes: number[]; run: (command: string) => void }) {
   const [typed, setTyped] = useState<string>();
   const typing = useRef(false); // Enter, Escape and blur all end typing; only the first one counts
   const startTyping = () => { typing.current = true; setTyped(String(size)); };
   const endTyping = (keep: boolean) => {
     if (!typing.current) return;
     typing.current = false;
-    const pt = Math.round(Number(typed) * 2) / 2;
+    const n = Number(typed), pt = roundPt(n);
     setTyped(undefined);
-    if (keep && pt >= 4 && pt <= 144 && pt !== size) run(`caption.size.${pt}`);
+    if (keep && n > 0 && pt <= 999 && pt !== size) run(`caption.size.${pt}`);
   };
   return (
     <div className="size">
@@ -130,7 +135,7 @@ function SizeButton({ size, run }: { size: number; run: (command: string) => voi
           onBlur={() => endTyping(true)}
         />
       ) : (
-        <Pick label="Size" value={String(size)} groups={[SIZES.map((pt) => ({ key: String(pt), name: `${pt} pt`, icon: null })), [{ key: "other", name: "Other size…", icon: null }]]}
+        <Pick label="Size" value={String(size)} groups={[sizes.map((pt) => ({ key: String(pt), name: `${pt} pt`, icon: null })), [{ key: "other", name: "Other size…", icon: null }]]}
           onPick={(k) => (k === "other" ? startTyping() : run(`caption.size.${k}`))} className="chip size-button" title="Size" onDoubleClick={startTyping}
           onKey={(e) => { if (e.key !== "Enter") return false; e.preventDefault(); startTyping(); return true; }}>
           {size} pt
@@ -141,6 +146,17 @@ function SizeButton({ size, run }: { size: number; run: (command: string) => voi
   );
 }
 
+// The selection's scale against the document's style, in percent: blank when its parts differ. A typed value sets it
+// (100 matches the document). Enter or leaving the field sets it; Escape leaves it as it was.
+function ScaleField({ scale, run }: { scale: number | null; run: (command: string) => void }) {
+  return (
+    <label className="scale-row">
+      <span className="tray-title">Scale</span>
+      <NumberField label="Scale" unit="%" lazy step={1} max={10000} placeholder={scale === null ? "Mixed" : undefined}
+        value={scale === null ? undefined : Math.round(scale * 1000) / 10} onChange={(n) => run(`scale.${n}`)} />
+    </label>
+  );
+}
 
 // Octet's one slider: a name, the track, and the value as it reads. Use it wherever a value is dragged.
 export function Slider({ name, value, min, max, step, show, onChange }: { name: string; value: number; min: number; max: number; step: number; show: (v: number) => string; onChange: (v: number) => void }) {
@@ -182,23 +198,25 @@ function TableGlyph({ on, faint }: { on: TableLine[]; faint?: boolean }) {
 // small: shown as a small button by default (the user can drag it into the rows, and any row out of them).
 export type Item = { icon: React.ReactNode; name: string; command: string; accent?: boolean; small?: boolean };
 // The small actions fall into sets, each a section of small buttons under a small title (Sam, 17 October 2026):
-// the object's own edits (a table's, a plate's, a cycle's); Analyse; Turn and flip (every turn, rotation and flip);
-// Display and copy (what is shown on the structure, the rest, the clipboard and library); Arrange, File and View
-// when they apply. Delete is the last small button in every panel, with no title.
-const SETS = ["table", "plate", "cycle", "analysis", "turn", "more", "arrange", "file", "view", "delete"] as const;
+// the object's own edits (a table's, a plate's, a cycle's); Analyse; Search (Reaxys and PubChem, when Online search is
+// on); Turn and flip (every turn, rotation and flip); Display and copy (what is shown on the structure, the rest, the
+// clipboard and library); Arrange, File and View when they apply. Delete is the last small button in every panel,
+// with no title.
+const SETS = ["table", "plate", "cycle", "analysis", "search", "turn", "more", "arrange", "file", "view", "delete"] as const;
 type SetId = (typeof SETS)[number];
-const SET_TITLES: Record<SetId, string> = { table: "Table", plate: "Plate", cycle: "Cycle", analysis: "Analyse", turn: "Turn and flip", more: "Display and copy", arrange: "Arrange", file: "File", view: "View", delete: "Delete" };
+const SET_TITLES: Record<SetId, string> = { table: "Table", plate: "Plate", cycle: "Cycle", analysis: "Analyse", search: "Search", turn: "Turn and flip", more: "Display and copy", arrange: "Arrange", file: "File", view: "View", delete: "Delete" };
 // Each set's icon, for its row when the sets show as menus.
-const SET_ICONS: Record<SetId, React.ReactNode> = { table: <Table size={18} />, plate: <TlcGlyph />, cycle: <ArrowsClockwise size={18} />, analysis: <Flask size={18} />, turn: <ArrowArcRight size={18} />, more: <Eye size={18} />,
-  arrange: <AlignCenterHorizontal size={18} />, file: <FileArrowDown size={18} />, view: <MagnifyingGlass size={18} />, delete: <Trash size={18} /> };
+const SET_ICONS: Record<SetId, React.ReactNode> = { table: <Table size={18} />, plate: <TlcGlyph />, cycle: <ArrowsClockwise size={18} />, analysis: <Flask size={18} />, search: <MagnifyingGlass size={18} />, turn: <ArrowArcRight size={18} />, more: <Eye size={18} />,
+  arrange: <AlignCenterHorizontal size={18} />, file: <FileArrowDown size={18} />, view: <CornersOut size={18} />, delete: <Trash size={18} /> };
 // Each action's kind. Kinds make up the sets; the kinds in Display and copy keep this order within it.
-const SET_FOR: Record<string, SetId> = { table: "table", plate: "plate", cycle: "cycle", analysis: "analysis", arrange: "arrange", file: "file", view: "view", turn: "turn", marks: "more", other: "more", library: "more", delete: "delete" };
+const SET_FOR: Record<string, SetId> = { table: "table", plate: "plate", cycle: "cycle", analysis: "analysis", search: "search", arrange: "arrange", file: "file", view: "view", turn: "turn", marks: "more", other: "more", library: "more", delete: "delete" };
 const MORE_GROUPS = ["marks", "other", "library"];
 const KIND_OF: Record<string, string> = {
   select_all: "view", zoom_fit: "view", import: "file",
   "shape.row.before": "table", "shape.col.before": "table", "shape.row.delete": "table", "shape.col.delete": "table", "shape.fit": "table", "shape.clear": "table", "shape.dashed": "table",
   "shape.hide.origin": "plate", "shape.hide.front": "plate", "shape.hide.border": "plate", "cycle.reverse": "cycle", "cycle.ungroup": "cycle",
   properties: "analysis", show_stereo: "analysis", predict_1h: "analysis", predict_13c: "analysis",
+  search_reaxys: "search", search_reaxys_exact: "search", search_pubchem: "search", search_pubchem_sub: "search",
   "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "turn", flatten: "turn",
   pairs: "marks", number: "marks", atom_numbers: "marks", show_warnings: "marks", "caption.add": "marks", colour_by_element: "marks", aromatic_display: "marks", contract_label: "marks",
   "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "arrange", ungroup: "arrange", group_integral: "arrange",
@@ -209,8 +227,14 @@ const KIND_OF: Record<string, string> = {
 const kindOf = (command: string) => KIND_OF[command] ?? "other";
 const setOf = (command: string) => SET_FOR[kindOf(command)];
 
+// Search Reaxys and Search PubChem: Phosphor's magnifier and the site's first letter. No logos.
+export function SearchGlyph({ letter }: { letter: string }) {
+  return <span className="glyph-text search-glyph" aria-hidden><MagnifyingGlass size={16} />{letter}</span>;
+}
+
 // The actions for a selection, likeliest first. The panel shows them; the command palette lists them too.
-export function actionItems(context: Context, messy: boolean, hiddenWarnings = false): Item[] {
+// online: Search Reaxys and Search PubChem are offered (Settings > Online search).
+export function actionItems(context: Context, messy: boolean, hiddenWarnings = false, online = false): Item[] {
   const items: Item[] = [];
   const it = (icon: React.ReactNode, name: string, command: string, accent?: boolean, small?: boolean): Item => ({ icon, name, command, accent, small });
   const small = (i: Item): Item => ({ ...i, small: true });
@@ -220,6 +244,9 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   // Rotate 180° keeps stereochemistry (arrows round), Flip mirrors it (mirror glyphs).
   const flips = [it(<ArrowsLeftRight size={18} />, "Rotate 180° horizontal", "flip_h", false, true), it(<ArrowsDownUp size={18} />, "Rotate 180° vertical", "flip_v", false, true)];
   const mirrors = [it(<FlipHorizontal size={18} />, "Flip horizontal", "mirror_h", false, true), it(<FlipVertical size={18} />, "Flip vertical", "mirror_v", false, true)];
+  // One press each: the selection (or the whole drawing) opens in the browser. The exact and substructure searches
+  // that are not the default are in the Search menu, with keys.
+  const searches = online ? [it(<SearchGlyph letter="R" />, "Search Reaxys", "search_reaxys", false, true), it(<SearchGlyph letter="P" />, "Search PubChem", "search_pubchem", false, true)] : [];
   // Every turn and flip, for any selection they act on (as ChemDraw's Object menu, for every kind of object).
   const turnings = [small(it(<ArrowArcRight size={18} />, "Turn 15° clockwise", "rotate.cw15")), small(it(<ArrowArcLeft size={18} />, "Turn 15° anticlockwise", "rotate.ccw15"))];
   const turnsAndFlips = [...turnings, ...flips, ...mirrors];
@@ -234,7 +261,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       break;
     case "drawing":
       items.push(clean, ...(context.nameable ? [nameIt] : []), it(<Atom size={18} />, "Convert name to structure", "name_to_structure"), ...flips,
-        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<FileArrowDown size={18} />, "Import a structure…", "import")),
+        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), ...searches, small(it(<FileArrowDown size={18} />, "Import a structure…", "import")),
         small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<CornersOut size={18} />, "Fit to window", "zoom_fit")));
       break;
     case "selection":
@@ -249,7 +276,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
         ...(hiddenWarnings ? [small(it(<Warning size={18} />, "Show warnings", "show_warnings"))] : []),
         small(it(<TextT size={18} />, "Add a caption", "caption.add")),
-        ...turnings, small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")), small(it(<Flask size={18} />, "Properties", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")));
+        ...turnings, small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), ...searches, small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")), small(it(<Flask size={18} />, "Properties", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")));
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<DotsThree size={18} />, "Line up in a row", "align.row")),
         small(it(<DotsThreeVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
       if (context.depth !== undefined) items.push(small(it(<Cube size={18} />, context.depth ? "Draw flat" : "Draw with depth", "structure_perspective")), small(it(<Square size={18} />, "Flatten", "flatten")));
@@ -333,7 +360,7 @@ function Row({ icon, name, command, hint, run, accent }: { icon: React.ReactNode
   );
 }
 
-export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus }: Props) {
+export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus, sizes, scale, online }: Props) {
   // An action being dragged to a new place: in the rows (index among rows) or the small buttons (index among them).
   const [carry, setCarry] = useState<{ command: string; x: number; y: number; to?: { rows: boolean; index: number } }>();
   const dragged = useRef(false);
@@ -406,7 +433,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
   }[context.kind];
   const whole = context.kind === "drawing" || context.kind === "structure";
 
-  const items = actionItems(context, messy, hiddenWarnings);
+  const items = actionItems(context, messy, hiddenWarnings, online);
   // Group and Ungroup, and Align and Distribute, for any selection of two or more things, as small buttons.
   if (grouping) items.push(...([["arrange_left", "Align left edges", <AlignLeft size={18} />], ["arrange_centre", "Align left-right centres", <AlignCenterHorizontal size={18} />], ["arrange_right", "Align right edges", <AlignRight size={18} />],
     ["arrange_top", "Align top edges", <AlignTop size={18} />], ["arrange_middle", "Align top-bottom centres", <AlignCenterVertical size={18} />], ["arrange_bottom", "Align bottom edges", <AlignBottom size={18} />],
@@ -582,7 +609,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           ))}
           <button className="chip" aria-label="Formula" title={`Formula: counts become subscripts (${hint("caption.formula")})`} onClick={() => run("caption.formula")}><span className="glyph-text">H<sub>2</sub>O</span></button>
           {context.fonts && <div className="size font"><FontPick label="Font" font={context.font ?? context.fonts[0]} fonts={context.fonts} onPick={(f) => run(`caption.font.${f}`)} /></div>}
-          <SizeButton size={context.size} run={run} />
+          <SizeButton size={context.size} sizes={sizes} run={run} />
           {([["left", "Flush left", <TextAlignLeft size={16} />], ["centre", "Centre text", <TextAlignCenter size={16} />], ["right", "Flush right", <TextAlignRight size={16} />], ["justify", "Justified", <TextAlignJustify size={16} />]] as const).map(([id, name, icon]) => (
             <button key={id} className="chip" aria-pressed={context.align === id} aria-label={name} title={hint(`caption.align.${id}`) ? `${name} (${hint(`caption.align.${id}`)})` : name} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
           ))}
@@ -597,7 +624,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
             <button key={id} className="chip" aria-pressed={on} aria-label={name} title={hint(`caption.${id}`) ? `${name} (${hint(`caption.${id}`)})` : name} onClick={() => run(`caption.${id}`)}>{icon}</button>
           ))}
           <div className="size font"><FontPick label="Font" font={context.text.font} fonts={fonts} onPick={(f) => run(`caption.font.${f}`)} /></div>
-          <SizeButton size={context.text.size} run={run} />
+          <SizeButton size={context.text.size} sizes={sizes} run={run} />
         </div>
       )}
 
@@ -753,6 +780,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           <Slider name="Line width" value={context.kind === "arrow" ? context.width : context.weight} min={0.05} max={4} step={0.05} show={(v) => `${v.toFixed(2)} pt`} onChange={(v) => run(`${context.kind}.weight.${Math.round(v * 100)}`)} />
         </div>
       )}
+      {scale !== undefined && <ScaleField scale={scale} run={run} />}
       {colour && (
         // Colour is a section of its own, titled like the sets below, and set off from the main rows.
         <div className="colour-block" role="group" aria-label="Colour">

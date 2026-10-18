@@ -11,7 +11,7 @@ g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
 g.window = globalThis;
 g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
-const { analyse, expandWithOrigins, fragmentMasses, ready, stereoLabels, structures } = await import("./chem.ts");
+const { analyse, cleanUp, expandWithOrigins, fragmentMasses, ready, stereoLabels, structures } = await import("./chem.ts");
 const { render } = await import("./render.ts");
 type Mol = import("./render.ts").Mol;
 await ready;
@@ -56,6 +56,16 @@ assert.equal(formula(onEthyl("CO2H")), "C3H6O2");
 // A label Indigo cannot read stays one unknown atom.
 assert.deepEqual(expandWithOrigins(onEthyl("Xx")).mol.atoms.map((a) => a.label), ["C", "C", "*"]);
 console.log("chem.check: labels ok");
+
+// IDEA-SCALE-7: Clean Up keeps a structure's own scale: its bonds come out at its scale (the median of its atoms'),
+// not at one bond length.
+{
+  const big: Mol = { atoms: ([[0, 0], [2.1, 0.3], [3.9, -0.2], [6, 0.4]] as const).map(([x, y]) => ({ label: "C", location: [x, y, 0] as [number, number, number], scale: 2 })),
+    bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [1, 2] }, { type: 1, atoms: [2, 3] }] };
+  const done = cleanUp(big), lengths = done.bonds.map((b) => Math.hypot(done.atoms[b.atoms[1]].location[0] - done.atoms[b.atoms[0]].location[0], done.atoms[b.atoms[1]].location[1] - done.atoms[b.atoms[0]].location[1]));
+  assert.ok(Math.abs([...lengths].sort((a, b) => a - b)[1] - 2) < 1e-9 && lengths.every((l) => Math.abs(l - 2) < 0.04), `bonds at 200%: ${lengths}`);
+  console.log("chem.check: clean up keeps the scale");
+}
 
 // The formula and masses come one entry per structure, in the drawing's order (a lone label and a lone carbon too),
 // up to the number asked for. Each structure's values are kept by its content: moving it gives the same values, and

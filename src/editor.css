@@ -152,7 +152,8 @@ circle.mark {
 .arrow-mark.mark {
   fill: none;
 }
-/* Page corner marks for A4, A3 and A2. Faint, so they never compete with the drawing. */
+/* Page outlines: the page and its purpose's guides (columns, a text block, A1 in A0). Faint, so they never compete
+   with the drawing. */
 .pages path {
   fill: none;
   stroke: var(--outline);
@@ -758,8 +759,8 @@ button.variant.add {
   box-shadow: var(--shadow-float);
   transform-origin: bottom right;
   animation: panel-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
-  /* Never taller than the window, below the Export button; a long panel scrolls. */
-  max-height: calc(100% - 3 * var(--space-4) - 32px);
+  /* Never taller than the window, below the Export button (and the ruler); a long panel scrolls. */
+  max-height: calc(100% - 3 * var(--space-4) - 32px - var(--ruler, 0px));
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -986,6 +987,16 @@ button.variant.add {
   padding: 0 6px;
   color: var(--ink-muted);
   font: 600 11px/14px var(--font-sans);
+}
+/* The selection's scale: its title, and the field in percent at the end of the row. */
+.scale-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-2) var(--space-1) 0;
+}
+.scale-row .tray-title {
+  padding: 0 var(--space-2);
 }
 /* The colour section: its title, the swatches and the highlight buttons, with a hairline under it before the rows. */
 .colour-block {
@@ -1455,7 +1466,13 @@ button.variant.add {
   place-items: center;
   background: var(--canvas);
 }
+/* The sample on engineering paper shows a grid, as the canvas does (the canvas draws its own grid in Editor.tsx). */
 .style-paper.paper-blueprint {
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 0.24) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.24) 1px, transparent 1px),
+    linear-gradient(to right, rgb(255 255 255 / 0.1) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.1) 1px, transparent 1px);
   background-size: 20px 20px, 20px 20px, 4px 4px, 4px 4px;
 }
 .modal section {
@@ -1617,6 +1634,13 @@ button.variant.add {
   background: var(--brand-mist);
   color: var(--brand);
 }
+/* An option or switch that does not apply now (Scale… with no bond chosen, or text alone): faint. */
+.segmented button:disabled {
+  color: var(--ink-faint);
+}
+.switch:disabled {
+  opacity: 0.5;
+}
 .page-glyph {
   width: 9px;
   height: 12px;
@@ -1761,11 +1785,31 @@ button.variant.add {
     background: var(--brand-hover);
   }
 }
+/* The grid (View > Show Grid, and engineering paper): one device pixel per line, a lighter line at each step and a
+   heavier one at each bond length or every 5 steps. The crosshair is brand blue over it. */
 .pages .grid {
   fill: none;
   stroke: var(--hairline);
-  stroke-width: 0.5;
+  stroke-width: 1;
+  opacity: 1;
+  shape-rendering: crispEdges;
+}
+.pages .grid.major {
+  stroke: var(--outline);
+  stroke-opacity: 0.5;
+}
+.pages .crosshair {
+  fill: none;
+  stroke: var(--brand-bright);
+  stroke-width: 1;
   opacity: 0.7;
+  shape-rendering: crispEdges;
+}
+@media (min-resolution: 2dppx) {
+  .pages .grid,
+  .pages .crosshair {
+    stroke-width: 0.5;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .modal {
@@ -1923,6 +1967,17 @@ button.variant.add {
 }
 .page-custom .times {
   color: var(--ink-faint);
+}
+/* Settings > Document > For: one button for each purpose, on more lines when there are many. */
+.segmented.purposes {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  height: auto;
+  min-height: 28px;
+}
+.segmented.purposes button {
+  height: 22px;
+  font: 13px var(--font-sans);
 }
 .segmented.units button {
   width: 28px;
@@ -2106,6 +2161,7 @@ button.variant.add {
 .settings-foot {
   display: flex;
   justify-content: flex-end;
+  gap: var(--space-4);
   padding-top: var(--space-2);
   border-top: 1px solid var(--hairline);
 }
@@ -2651,7 +2707,22 @@ button.variant.add {
   font: 11px var(--font-sans);
 }
 
-/* The selection's rotation handle (top right of the selection), and the angle shown while turning. */
+/* The selection's frame and its resize handles: small squares at the corners and the middles of the sides. */
+.selection-frame {
+  fill: none;
+  stroke: var(--brand-bright);
+  stroke-width: 1;
+}
+.resize-handle {
+  fill: var(--canvas);
+  stroke: var(--brand-bright);
+  stroke-width: 1.25;
+  transition: fill 120ms ease-out;
+}
+.resize-handle.hot {
+  fill: var(--brand-mist);
+}
+/* The selection's rotation handle (top right of the selection), and the angle (or the scale) shown while dragging. */
 .turn-handle circle {
   fill: var(--surface-raised);
   stroke: var(--brand-bright);
@@ -2717,11 +2788,6 @@ button.variant.add {
 .style-paper.paper-blueprint {
   --canvas: #1D4B86;
   background-color: #1D4B86;
-  background-image:
-    linear-gradient(to right, rgb(255 255 255 / 0.22) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(255 255 255 / 0.22) 1px, transparent 1px),
-    linear-gradient(to right, rgb(255 255 255 / 0.09) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(255 255 255 / 0.09) 1px, transparent 1px);
 }
 /* The background choices in Settings: each a small page of itself. */
 .paper-choices {
@@ -2773,9 +2839,27 @@ button.variant.add {
 .canvas.paper-blueprint .pages text {
   fill: rgb(255 255 255 / 0.75);
 }
-.canvas.paper-dark .pages .grid,
+.canvas.paper-dark .pages .grid {
+  stroke: rgb(255 255 255 / 0.09);
+}
+.canvas.paper-dark .pages .grid.major {
+  stroke: rgb(255 255 255 / 0.16);
+  stroke-opacity: 1;
+}
 .canvas.paper-blueprint .pages .grid {
-  stroke: rgb(255 255 255 / 0.18);
+  stroke: rgb(255 255 255 / 0.1);
+}
+.canvas.paper-blueprint .pages .grid.major {
+  stroke: rgb(255 255 255 / 0.24);
+  stroke-opacity: 1;
+}
+.canvas.paper-dark .pages .crosshair {
+  stroke: var(--brand-bright);
+  opacity: 0.85;
+}
+.canvas.paper-blueprint .pages .crosshair {
+  stroke: #FFFFFF;
+  opacity: 0.7;
 }
 .canvas.paper-dark .pages .page.hovered .page-edge,
 .canvas.paper-dark .pages .page.hovered path,
@@ -2802,6 +2886,12 @@ button.variant.add {
   letter-spacing: -0.02em;
   text-align: center;
   white-space: nowrap;
+}
+
+/* Search Reaxys and Search PubChem: the magnifier, then the site's letter (a letter in the lens reads as ®). */
+.search-glyph {
+  display: inline-flex;
+  align-items: center;
 }
 
 /* The box a table cell is typed in: over the cell, text centred. */
@@ -3809,6 +3899,46 @@ button.variant.add {
   align-items: baseline;
   justify-content: space-between;
 }
+/* New: a tile for each purpose, smaller than a recent drawing's. Its picture is its page, white on the sunken ground,
+   with its outlines and a small scheme at its true size on that page. */
+.home-grid.purposes {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-4) var(--space-4);
+}
+.home-grid.purposes .home-thumb {
+  position: relative;
+  background: var(--surface-sunken);
+}
+.home-thumb svg {
+  position: absolute;
+  inset: 12%;
+  width: 76%;
+  height: 76%;
+  overflow: visible;
+}
+.home-thumb .sheet {
+  fill: var(--canvas);
+  stroke: var(--outline);
+  stroke-width: 1;
+}
+.home-thumb .guide {
+  fill: none;
+  stroke: var(--outline);
+  stroke-width: 0.75;
+  stroke-dasharray: 2 2;
+  opacity: 0.6;
+}
+.home-thumb .scheme {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+@media (hover: hover) and (pointer: fine) {
+  .home-tile.new:hover .sheet {
+    stroke: var(--brand-bright);
+  }
+}
 .home-name {
   overflow: hidden;
   font: 500 13px/18px var(--font-sans);
@@ -4051,4 +4181,106 @@ button.variant.add {
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
+}
+
+/* Scale…: a choice that does not apply (the median bond rows with no bond chosen) is dimmed. */
+.dialog-row:has(input:disabled) {
+  color: var(--ink-muted);
+}
+
+/* Rulers (View > Show Rulers): along the top and left of the window, under the floating panels, which move in to
+   clear them. The unit is in the corner where they meet. */
+.editor {
+  --ruler: 0px;
+}
+.editor.with-rulers {
+  --ruler: var(--space-6);
+}
+.with-rulers .palette {
+  top: calc(var(--space-4) + var(--ruler));
+  left: calc(var(--space-4) + var(--ruler));
+}
+.with-rulers .export,
+.with-rulers .spectrum.expanded,
+.with-rulers .name-field,
+.with-rulers .coach {
+  top: calc(var(--space-4) + var(--ruler));
+}
+.with-rulers .name-suggestion,
+.with-rulers .name-history {
+  top: calc(var(--space-4) + 44px + var(--ruler));
+}
+.with-rulers .properties,
+.with-rulers .spectrum {
+  left: calc(var(--space-4) * 2 + 48px + var(--ruler));
+}
+.rulers {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.ruler {
+  position: absolute;
+  background: var(--surface);
+  overflow: hidden;
+}
+.ruler.across {
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: var(--ruler);
+  border-bottom: 1px solid var(--hairline);
+}
+.ruler.down {
+  top: 0;
+  left: 0;
+  width: var(--ruler);
+  height: 100%;
+  border-right: 1px solid var(--hairline);
+}
+.ruler-ticks {
+  fill: none;
+  stroke: var(--outline);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+.ruler text {
+  fill: var(--ink-faint);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.ruler-band {
+  fill: var(--selection);
+}
+.ruler-edge,
+.ruler-pointer {
+  fill: none;
+  stroke: var(--brand-bright);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+.ruler-corner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--ruler);
+  height: var(--ruler);
+  padding: 0;
+  border: 0;
+  border-right: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface);
+  color: var(--ink-faint);
+  font: 500 11px/1 var(--font-sans);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.ruler-corner:hover {
+  color: var(--brand);
+}
+.ruler-corner:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }

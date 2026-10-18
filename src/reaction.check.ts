@@ -3,7 +3,7 @@
 // as long as their conditions, plus signs where they are missing, conditions above and below, wrapped lines.
 import assert from "node:assert/strict";
 import { addArrow, addCaption, addRing, addShape, EMPTY, fragments, pos } from "./edit.ts";
-import { cleanUpReaction, findReaction, gapFor, reactionClean, withStructure, type Layout, type Reaction } from "./reaction.ts";
+import { cleanUpReaction, findReaction, gapFor, reactionClean, roleOf, withStructure, type Layout, type Reaction } from "./reaction.ts";
 import type { Arrow, Box, Mol } from "./render.ts";
 
 // Structures' boxes from their atoms; a caption's box from its text (0.5 wide a letter, 0.6 high, about its point).
@@ -235,5 +235,17 @@ for (const id of [first, second]) {
   const real = addRing(t, 6, false, { point: [-5.5, 0] });
   assert.deepEqual(find(real, arrow).steps.map((s) => s.kind), ["structure", "text", "arrow", "text"]);
   assert.ok(withStructure(find(real, arrow)), "a ring before the arrow");
+}
+
+// Search Reaxys: a structure's part in the scheme A + B → C → D, or none for one in no reaction.
+{
+  const [a, b, c, d] = fragments(mol), all = [find(mol, first)];
+  assert.equal(roleOf(all, [a]), "starting_material");
+  assert.equal(roleOf(all, [a, b]), "starting_material", "both starting materials");
+  assert.equal(roleOf(all, [c]), "all_reactions", "between two arrows: made in one step, used in the next");
+  assert.equal(roleOf(all, [d]), "product");
+  assert.equal(roleOf(all, [a, d]), "mixed", "both sides: a reaction search");
+  assert.equal(roleOf([], [a]), undefined, "in no reaction: a substance search");
+  assert.equal(roleOf([], [a, b]), undefined);
 }
 console.log("reaction.check: ok");
