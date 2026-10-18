@@ -402,6 +402,10 @@ console.log("cdxml.check: every object kind round trips");
   assert.deepEqual([hashOnly.mol.atoms.map((a) => a.scale), hashOnly.lost], [[undefined, undefined], { "bond settings": 1, "bond spacing": 1 }]);
   assert.deepEqual(one(`LineWidth="1.20" BoldWidth="2"`).lost, { "bond settings": 1 });
   assert.deepEqual(one(`LineWidth="0.90" BoldWidth="3.02" HashSpacing="3.75"`).mol.atoms.map((a) => a.scale), [1.5, 1.5], "agreeing within 2%");
+  // A TLC plate's widths: its scale from them, or listed once when they disagree (it was counted twice).
+  const plate = (attrs: string) => fromCdxml(`<CDXML BondLength="14.40" LineWidth="0.60" BoldWidth="2"><page><tlcplate id="5" TopLeft="100 100" TopRight="200 100"
+ BottomRight="200 300" BottomLeft="100 300" ${attrs}><tlclane id="6"><tlcspot id="7" Rf="0.5"/></tlclane></tlcplate></page></CDXML>`);
+  assert.deepEqual([plate(`LineWidth="1.20" BoldWidth="4"`).mol.shapes?.[0].scale, plate(`LineWidth="1.20" BoldWidth="2"`).lost], [2, { "line settings": 1 }]);
   console.log("cdxml.check: scaled objects and the document scale ok");
 }
 

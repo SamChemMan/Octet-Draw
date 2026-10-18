@@ -1651,9 +1651,9 @@ export default function Editor() {
   // matches: positions are in bond lengths, so each one moves to keep c in its place, sizes in points go with it,
   // and the view zooms with the document, so the drawing looks as it did in the drag.
   function commitScale(size: P, c: P, lines: boolean, working?: Mol) {
-    const { atoms, items, whole } = chosen(), k = size[0], target = style.scale * k;
-    if (whole && lines && size[0] === size[1] && k !== 1 && target >= 0.1 && target <= 10) {
-      const next = withScale(style, target), d: P = [c[0] * (1 / k - 1), c[1] * (1 / k - 1)], all = new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id));
+    const { atoms, items, whole } = chosen(), k = size[0], next = withScale(style, style.scale * k);
+    if (whole && lines && size[0] === size[1] && k !== 1 && Math.abs(next.scale - style.scale * k) < 1e-9) {
+      const d: P = [c[0] * (1 / k - 1), c[1] * (1 / k - 1)], all = new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id));
       const moved = transformParts(doc, new Set(doc.atoms.map((_, i) => i)), all, (q) => [q[0] + d[0], q[1] + d[1]]);
       const nk = frameStyle(next, L).k, r = frame.k / nk;
       lastK.current = nk * next.scale;
@@ -1661,7 +1661,7 @@ export default function Editor() {
       return set({ ...scaleSizes(moved, k), style: next }, true);
     }
     // A drag of the whole drawing in proportion only showed it scaled (its working copy is the drawing as it was), so
-    // a scale outside the document's 10% to 1000% is made here, as object scales.
+    // a scale the document cannot take (outside 10% to 1000%, or past a style limit) is made here, as object scales.
     set(working && working !== doc ? working : scaledParts(doc, atoms, items, size, c, lines, captionMiddles()), true);
   }
   // The selection's scale against the document (decision 0007), for the Actions panel's Scale field: its atoms',

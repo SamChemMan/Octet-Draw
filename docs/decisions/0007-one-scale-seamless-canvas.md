@@ -32,7 +32,8 @@ decision 0003 (templates on New drawing).
   when its bonds carry LineWidth and every other value they carry agrees with it. An atom with no bonds takes its
   scale from its own LineWidth.
 - Limits widen so that no scaled value falls back to a default: lengths to 10 times their old upper limits,
-  font sizes 0.1 to 999 pt (ChemDraw: 5 to 999 pt).
+  font sizes 0.1 to 999 pt (ChemDraw: 5 to 999 pt). A document scale that would take a value past its limit stops
+  at the limit (a custom 100 pt bond goes to 720%, not 1000%).
 
 - The selection's frame has 8 resize handles for every kind of selection (IDEA-SCALE-3). A corner scales in
   proportion, a side stretches and moves geometry only, Shift turns proportion over, Option scales about the middle.

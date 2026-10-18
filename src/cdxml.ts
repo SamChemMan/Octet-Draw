@@ -1185,7 +1185,8 @@ export function fromCdxml(text: string): CdxmlRead {
     lose(`graphic ${type ?? ""}`.trim());
   }
   function addShape(sh: Shape & { z: number }, x: Xml, group?: G) {
-    const f = sh.scale ?? graphicScale(x, priv(x));
+    // A TLC plate's scale is read with its spots, so widths that do not agree are listed once.
+    const f = sh.kind === "tlc" ? undefined : sh.scale ?? graphicScale(x, priv(x));
     if (f) sh.scale = f;
     shapes.push(sh);
     objectOf.set(int(x.attrs.id) ?? -1, sh.id);

@@ -28,6 +28,13 @@ import { tableLayout, type Mol, type Shape } from "./render.ts";
   assert.deepEqual(s, { ...DEFAULT_STYLE }, "back to 100% exactly after many scales");
   const own = withScale({ ...DEFAULT_STYLE, line: 0.7, preset: "Custom" }, 2);
   assert.deepEqual([own.line, own.bond, own.preset], [1.4, 28.8, "Custom"], "a style of one's own multiplies");
+  // A scale that would take a value past its limits stops at them: a 100 pt bond at 1000% fell back to 14.4 pt.
+  const long = withScale(readStyle({ ...DEFAULT_STYLE, bond: 100 }), 10);
+  assert.deepEqual([long.scale, long.bond, long.line], [7.2, 720, 4.32], "a 100 pt bond stops at 720%");
+  assert.deepEqual(readStyle(JSON.parse(JSON.stringify(long))), long, "and reads back as it is");
+  const thin = withScale(readStyle({ ...DEFAULT_STYLE, line: 0.05 }), 0.1);
+  assert.deepEqual([thin.scale, thin.line], [0.2, 0.01], "a 0.05 pt line stops at 20%");
+  assert.deepEqual([withScale(DEFAULT_STYLE, 50).scale, withScale(DEFAULT_STYLE, 0.01).scale], [10, 0.1], "1000% and 10% at most");
   console.log("scale.check: document scale ok");
 }
 

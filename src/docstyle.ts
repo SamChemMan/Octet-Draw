@@ -66,6 +66,11 @@ export const PRESETS: Record<string, Drawn> = {
 export const DEFAULT_STYLE: DocStyle = { preset: "ACS Document 1996", page: "A4", custom: [180, 120], landscape: false, edges: true, grid: 0, background: "white", colour: "#000000", terminalLabels: false, carbonLabels: false, hideH: false, scale: 1, ...PRESETS["ACS Document 1996"] };
 // The lengths and sizes a document scale multiplies (bond spacing is a percent, so it stays).
 export const SCALED = ["bond", "line", "bold", "margin", "hash", "labelSize", "captionSize"] as const;
+// The values readStyle keeps for each of them (pt); anything else falls back to the default. Lengths reach 10 times
+// the old limits each way, so a scale of 10% to 1000% keeps every preset in proportion.
+const LIMITS: Record<(typeof SCALED)[number], [number, number]> = {
+  bond: [0.4, 720], line: [0.01, 60], bold: [0.02, 120], margin: [0, 100], hash: [0.05, 100], labelSize: [0.1, 999], captionSize: [0.1, 999],
+};
 const round = (n: number) => Math.round(n * 1e4) / 1e4;
 // A preset's values at a scale.
 export const presetAt = (name: string, scale: number): Drawn => {
@@ -80,9 +85,17 @@ export const roundPt = (pt: number) => (pt >= 5 ? Math.round(pt * 2) / 2 : Math.
 // can be anything from 0.1 to 999 pt.
 export const TEXT_SIZES = [5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 24];
 export const sizeAt = (pt: number, scale: number) => roundPt(pt * scale);
-// The style at another document scale: its scaled values multiplied by the change, the rest kept. A preset's values
-// are worked out again from the preset, so a change of scale and back leaves no rounding behind.
-export function withScale(s: DocStyle, scale: number): DocStyle {
+// The style at another document scale (10% to 1000%): its scaled values multiplied by the change, the rest kept. A
+// preset's values are worked out again from the preset, so a change of scale and back leaves no rounding behind. A
+// scale that would take a value past its limits stops where that value reaches them, so no value falls back to the
+// default (a custom 100 pt bond goes to 720%, not 1000%).
+export function withScale(s: DocStyle, want: number): DocStyle {
+  let scale = Math.min(10, Math.max(0.1, want));
+  for (const k of SCALED) {
+    const v = s[k] / s.scale;
+    if (v > 0) scale = Math.min(Math.max(scale, LIMITS[k][0] / v), LIMITS[k][1] / v);
+  }
+  scale = Math.round(scale * 1e9) / 1e9;
   const name = presetOf(s), next = { ...s, scale, ...(name in PRESETS ? presetAt(name, scale) : {}) };
   if (!(name in PRESETS)) for (const k of SCALED) next[k] = round(s[k] * (scale / s.scale));
   return { ...next, preset: presetOf(next) };
@@ -124,10 +137,9 @@ export function readStyle(v: unknown): DocStyle {
     custom: Array.isArray(s.custom) && s.custom.length === 2 && s.custom.every((n) => typeof n === "number" && n >= 10 && n <= 2000) ? [s.custom[0], s.custom[1]] : DEFAULT_STYLE.custom,
     landscape: s.landscape === true, edges: s.edges !== false, grid: num("grid", 0, 50),
     background: BACKGROUNDS.some(([b]) => b === s.background) ? (s.background as Background) : "white",
-    // Lengths reach 10 times the old limits each way, so a scale of 10% to 1000% keeps every preset in proportion.
-    bond: num("bond", 0.4, 720), line: num("line", 0.01, 60), bold: num("bold", 0.02, 120), margin: num("margin", 0, 100), hash: num("hash", 0.05, 100), spacing: num("spacing", 5, 40),
-    labelFont: text("labelFont", fontName), labelSize: num("labelSize", 0.1, 999),
-    captionFont: text("captionFont", fontName), captionSize: num("captionSize", 0.1, 999),
+    bond: num("bond", ...LIMITS.bond), line: num("line", ...LIMITS.line), bold: num("bold", ...LIMITS.bold), margin: num("margin", ...LIMITS.margin), hash: num("hash", ...LIMITS.hash), spacing: num("spacing", 5, 40),
+    labelFont: text("labelFont", fontName), labelSize: num("labelSize", ...LIMITS.labelSize),
+    captionFont: text("captionFont", fontName), captionSize: num("captionSize", ...LIMITS.captionSize),
     colour: text("colour", (t) => /^#[0-9a-f]{6}$/i.test(t)),
     terminalLabels: s.terminalLabels === true, carbonLabels: s.carbonLabels === true, hideH: s.hideH === true,
     scale: num("scale", 0.1, 10),
