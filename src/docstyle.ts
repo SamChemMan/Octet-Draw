@@ -58,7 +58,7 @@ export const fontStack = (f: string) =>
 
 // Text colours: black for print, then the brand's colours. Any other colour can be picked too.
 export const COLOURS: [string, string][] = [
-  ["Black", "#000000"], ["Ink", "#0F172A"], ["Octet Blue", "#1D49A7"], ["Bright blue", "#2C6FFF"],
+  ["Black", "#000000"], ["Ink", "#0F172A"], ["Octet Blue", "#213C99"], ["Bright blue", "#3F6BFF"],
   ["Green", "#22775B"], ["Amber", "#8B4E18"], ["Red", "#B42323"],
 ];
 
@@ -68,7 +68,7 @@ export const ELEMENT_COLOURS: Record<string, string> = { N: "#2F55D4", O: "#D934
 
 // Highlight fills: light tints of the brand's colours, pale enough to print behind black ink.
 export const TINTS: [string, string][] = [
-  ["Light blue", "#DCE4F5"], ["Light green", "#DCEFE6"], ["Light amber", "#F6E6D3"], ["Light red", "#F6DCDC"], ["Light grey", "#E9ECF0"],
+  ["Light blue", "#DCE4F6"], ["Light green", "#DCEFE6"], ["Light amber", "#F6E6D3"], ["Light red", "#F6DCDC"], ["Light grey", "#E9ECF0"],
 ];
 
 // The preset a style matches, if any.

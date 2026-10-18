@@ -973,17 +973,19 @@ export function normalise(m: Mol): Mol {
 // The turn (degrees, anticlockwise) that sets a structure's bottom ring bond level with the page: of the ring bonds
 // that would end up lowest, the one needing the smallest turn. 0 for a structure without rings.
 export function levelTurn(m: Mol, atoms: number[]): number {
-  const inside = new Set(atoms), ring = m.bonds.map((b, k) => ({ b, k })).filter(({ b, k }) => inside.has(b.atoms[0]) && inside.has(b.atoms[1]) && inRing(m, k));
+  const inside = new Set(atoms), inRings = ringBonds(m), ring = m.bonds.filter((b, k) => inside.has(b.atoms[0]) && inside.has(b.atoms[1]) && inRings[k]);
   if (!ring.length) return 0;
+  const mids = ring.map((b): P => { const p = pos(m, b.atoms[0]), q = pos(m, b.atoms[1]); return [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]; });
   let best = 0, found = false;
-  for (const { b } of ring) {
+  for (const [k, b] of ring.entries()) {
     const p = pos(m, b.atoms[0]), q = pos(m, b.atoms[1]);
     let t = -Math.atan2(q[1] - p[1], q[0] - p[0]) / deg;
     t = ((t % 180) + 270) % 180 - 90; // the smaller way round, in (-90, 90]
     // After this turn, is the bond at the bottom of its structure?
     const c = Math.cos(t * deg), s = Math.sin(t * deg), y = (r: P) => r[0] * s + r[1] * c;
-    const mid = (y(p) + y(q)) / 2, lowest = Math.min(...ring.map(({ b: x }) => (y(pos(m, x.atoms[0])) + y(pos(m, x.atoms[1]))) / 2));
-    if (mid > lowest + 0.05) continue;
+    let lowest = Infinity;
+    for (const r of mids) lowest = Math.min(lowest, y(r));
+    if (y(mids[k]) > lowest + 0.05) continue;
     if (!found || Math.abs(t) < Math.abs(best)) { best = t; found = true; }
   }
   return Math.abs(best) < 0.5 ? 0 : best;
