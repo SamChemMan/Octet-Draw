@@ -3,7 +3,8 @@
 // intermediates are, so editing an intermediate keeps every arrow fitted to it.
 import type { Arrow, Box, Caption, Mol } from "./render.ts";
 
-export type Cycle = { id: number; centre: [number, number]; radius: number; clockwise: boolean; nodes: number[][]; colour?: string; order?: number };
+// scale: the cycle's size against the document style (decision 0007): its arrows, gaps and side arrows follow it.
+export type Cycle = { id: number; centre: [number, number]; radius: number; clockwise: boolean; nodes: number[][]; colour?: string; order?: number; scale?: number };
 // A cycle's caption: its centre label, or the reagent coming in or product going out on a step (node k to k + 1).
 export type CycleText = { cycle: number; step: number; side: "in" | "out" | "centre" };
 
@@ -23,12 +24,12 @@ export function layoutCycles(m: Mol, k: number, pt: number, ink: (atoms: number[
   const out: CycleLayout = { arrows: [], anchors: new Map() };
   let next = DERIVED;
   for (const c of m.cycles ?? []) {
-    const centre: P = [c.centre[0] * k, -c.centre[1] * k], R = c.radius * k, dir = c.clockwise ? 1 : -1;
+    const f = c.scale ?? 1, own = f !== 1 ? { scale: f } : {}, centre: P = [c.centre[0] * k, -c.centre[1] * k], R = c.radius * k, dir = c.clockwise ? 1 : -1;
     const boxes = c.nodes.map(ink);
     const angle = (b: Box | undefined, i: number) => (b ? Math.atan2((b[1] + b[3]) / 2 - centre[1], (b[0] + b[2]) / 2 - centre[0]) : -Math.PI / 2 + (dir * 2 * Math.PI * i) / c.nodes.length);
     const angles = boxes.map(angle);
     const at = (a: number, r = R): P => [centre[0] + r * Math.cos(a), centre[1] + r * Math.sin(a)];
-    const gap = GAP_PT * pt;
+    const gap = GAP_PT * f * pt;
     const inside = (p: P, b: Box | undefined) => !!b && p[0] > b[0] - gap && p[0] < b[2] + gap && p[1] > b[1] - gap && p[1] < b[3] + gap;
     const toDoc = (p: P): [number, number] => [p[0] / k, -p[1] / k];
     for (let s = 0; s < c.nodes.length; s++) {
@@ -44,23 +45,23 @@ export function layoutCycles(m: Mol, k: number, pt: number, ink: (atoms: number[
       while (to > span / 2 && inside(at(a0 + dir * to), boxes[t])) to -= step;
       if (to - from < 0.05) continue;
       const A = at(a0 + dir * from), B = at(a0 + dir * to), mid = at(a0 + dir * (from + to) / 2);
-      out.arrows.push({ id: next--, kind: "curved", from: toDoc(A), to: toDoc(B), bend: bendFor(A, B, mid), cycle: c.id, step: s, ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}) });
+      out.arrows.push({ id: next--, kind: "curved", from: toDoc(A), to: toDoc(B), bend: bendFor(A, B, mid), cycle: c.id, step: s, ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}), ...own });
       // Side arrows: a reagent joins the arc before its middle; a product leaves after it.
       for (const cap of m.captions ?? []) {
         const on = cap.cycle;
         if (!on || on.cycle !== c.id || on.step !== s || on.side === "centre") continue;
-        const f = on.side === "in" ? 0.38 : 0.62, g = on.side === "in" ? 0.18 : 0.82;
-        const onArc = at(a0 + dir * (from + (to - from) * f)), away = at(a0 + dir * (from + (to - from) * g), R + 1.1 * k);
+        const fa = on.side === "in" ? 0.38 : 0.62, g = on.side === "in" ? 0.18 : 0.82;
+        const onArc = at(a0 + dir * (from + (to - from) * fa)), away = at(a0 + dir * (from + (to - from) * g), R + 1.1 * f * k);
         const [p, q] = on.side === "in" ? [away, onArc] : [onArc, away];
-        const bulge = at(a0 + dir * (from + (to - from) * (f + g) / 2), R + 0.75 * k);
-        out.arrows.push({ id: next--, kind: "curved", from: toDoc(p), to: toDoc(q), bend: bendFor(p, q, bulge) * 0.6, cycle: c.id, step: s, ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}) });
+        const bulge = at(a0 + dir * (from + (to - from) * (fa + g) / 2), R + 0.75 * f * k);
+        out.arrows.push({ id: next--, kind: "curved", from: toDoc(p), to: toDoc(q), bend: bendFor(p, q, bulge) * 0.6, cycle: c.id, step: s, ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}), ...own });
         // The text sits beyond the outer end of the side arrow.
-        const outward = Math.atan2(away[1] - centre[1], away[0] - centre[0]), textAt = at(outward, R + 1.1 * k + gap);
+        const outward = Math.atan2(away[1] - centre[1], away[0] - centre[0]), textAt = at(outward, R + 1.1 * f * k + gap);
         const anchor = Math.cos(outward) > 0.35 ? "start" : Math.cos(outward) < -0.35 ? "end" : "middle";
-        out.anchors.set(cap.id, { x: textAt[0], y: textAt[1] + (Math.sin(outward) > 0.35 ? 10 * pt : Math.sin(outward) < -0.35 ? -2 * pt : 3.5 * pt), anchor });
+        out.anchors.set(cap.id, { x: textAt[0], y: textAt[1] + (Math.sin(outward) > 0.35 ? 10 : Math.sin(outward) < -0.35 ? -2 : 3.5) * f * pt, anchor });
       }
     }
-    for (const cap of m.captions ?? []) if (cap.cycle?.cycle === c.id && cap.cycle.side === "centre") out.anchors.set(cap.id, { x: centre[0], y: centre[1] + 3.5 * pt, anchor: "middle" });
+    for (const cap of m.captions ?? []) if (cap.cycle?.cycle === c.id && cap.cycle.side === "centre") out.anchors.set(cap.id, { x: centre[0], y: centre[1] + 3.5 * f * pt, anchor: "middle" });
   }
   return out;
 }
