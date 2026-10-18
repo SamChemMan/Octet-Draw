@@ -1,16 +1,18 @@
-// Copy and paste with Word, PowerPoint, Keynote and ChemDraw, as ChemDraw's own clipboard works (macOS).
-// Copy puts one pasteboard item holding, in this order: a vector PDF of the selection with its CDXML in the
-// catalog /Metadata (Office keeps it; ChemDraw and Octet read the structure back out of it), ChemDraw's CDX type
-// under its PerkinElmer and Revvity names (ChemDraw reads it first, so the whole drawing pastes into ChemDraw), the
-// CDXML type, a molfile as length-prefixed lines, SMILES with a NUL, and Octet's own JSON for a lossless paste into
-// Octet. Settings > Import and export > Copy switches the PDF, CDX, CDXML, MOL and SMILES types off (REL-19, CH-8);
-// Octet's JSON always goes on.
-// No plain text: ChemDraw reads text before pictures and would paste it as a caption.
-// Windows and Linux: the page copies and pastes through the webview's own clipboard (Octet's JSON and SMILES as
-// text), and these commands are not used there.
+// Copy and paste with Word, PowerPoint, Keynote and ChemDraw, as ChemDraw's own clipboard works.
+// Copy puts one item holding, in this order: a picture of the selection, ChemDraw's CDX (ChemDraw reads it first, so
+// the whole drawing pastes into ChemDraw), CDXML, a molfile, SMILES, and Octet's own JSON for a lossless paste into
+// Octet. Settings > Import and export > Copy switches the picture, CDX, CDXML, MOL and SMILES off (REL-19, CH-8);
+// Octet's JSON always goes on. No plain text: ChemDraw reads text before pictures and would paste it as a caption,
+// and Word pastes text before a picture.
+// - macOS: the picture is a vector PDF with the CDXML in its catalog /Metadata (Office keeps it; ChemDraw and Octet
+//   read the structure back out of it). The types are ChemDraw's (notes/clipboard-blackbox.md).
+// - Windows (REL-3, CH-1): Office for Windows pastes no PDF, so the picture is a PNG and a bitmap. The other formats
+//   have the names ChemDraw's own clipboard code uses there: "ChemDraw Interchange Format" (CDX), "CDXML", "MDLCT" (a
+//   molfile as length-prefixed lines) and "SMILES".
+// - Linux: the picture is a PNG and an SVG, and the chemistry has its MIME types (chemical/x-cdx and so on).
 //
-// WebKit keeps the page's own clipboard types in a blob of its own and shows a page only text, HTML and URLs
-// from other apps, so the page cannot read these types itself: paste calls read_clipboard.
+// The webview keeps a page's own clipboard types in a form of its own and shows a page only text, HTML and URLs from
+// other apps, so the page cannot read these types itself: paste calls read_clipboard.
 
 pub const PDF: &str = "com.adobe.pdf";
 // ChemDraw 26.1 declares the Revvity name too.
@@ -19,10 +21,71 @@ pub const CDXML: &str = "com.perkinelmer.cdxml";
 pub const MOLFILE: &str = "com.mdli.molfile";
 pub const SMILES: &str = "org.opensmiles.smiles";
 // Octet's own type. A UTI under the app's identifier: macOS refuses MIME-style names such as
-// application/x-octet+json on the pasteboard.
+// application/x-octet+json on the pasteboard. Windows and Linux use that name.
 pub const OCTET: &str = "io.github.samchemman.octet.json";
+// The Windows bitmap is a standard format (CF_DIB), not a registered name.
+pub const DIB: &str = "CF_DIB";
 
 const MAX_TYPE: usize = 64 << 20;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum System {
+    Mac,
+    Windows,
+    Linux,
+}
+pub const HERE: System = if cfg!(target_os = "macos") { System::Mac } else if cfg!(windows) { System::Windows } else { System::Linux };
+
+// What one copy can hold.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Kind {
+    Pdf,
+    Png,
+    Bitmap,
+    Svg,
+    Cdx,
+    Cdxml,
+    Molfile,
+    Smiles,
+    Octet,
+}
+
+// Each system's names for a kind, in the order copy writes them; paste reads the first one there. Empty: that system's
+// clipboard does not have the kind.
+fn names(s: System, k: Kind) -> &'static [&'static str] {
+    use Kind::*;
+    match s {
+        System::Mac => match k {
+            Pdf => &[PDF],
+            Cdx => &CDX,
+            Cdxml => &[CDXML],
+            Molfile => &[MOLFILE],
+            Smiles => &[SMILES],
+            Octet => &[OCTET],
+            Png | Bitmap | Svg => &[],
+        },
+        System::Windows => match k {
+            Png => &["PNG"],
+            Bitmap => &[DIB],
+            Cdx => &["ChemDraw Interchange Format"],
+            Cdxml => &["CDXML"],
+            Molfile => &["MDLCT"],
+            Smiles => &["SMILES"],
+            Octet => &["application/x-octet+json"],
+            Pdf | Svg => &[],
+        },
+        System::Linux => match k {
+            Png => &["image/png"],
+            Svg => &["image/svg+xml"],
+            Cdx => &["chemical/x-cdx"],
+            Cdxml => &["chemical/x-cdxml"],
+            Molfile => &["chemical/x-mdl-molfile"],
+            Smiles => &["chemical/x-daylight-smiles"],
+            Octet => &["application/x-octet+json"],
+            Pdf | Bitmap => &[],
+        },
+    }
+}
 
 // What paste found on the clipboard. Each is None when absent or unreadable.
 #[derive(serde::Serialize, Default, Debug, PartialEq)]
@@ -34,8 +97,8 @@ pub struct Clip {
     smiles: Option<String>,
 }
 
-// ChemDraw's form of a molfile on the clipboard: each line as one length byte, then the line, with no line ends.
-// None if a line is longer than 255 bytes (V2000 lines never are).
+// ChemDraw's form of a molfile on the clipboard (MDL's MDLCT): each line as one length byte, then the line, with no
+// line ends. None if a line is longer than 255 bytes (V2000 lines never are).
 pub fn prefixed_lines(text: &str) -> Option<Vec<u8>> {
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
     let text = text.strip_suffix('\n').unwrap_or(&text);
@@ -80,49 +143,85 @@ pub fn smiles_text(b: &[u8]) -> Option<String> {
     (!s.is_empty() && s.is_ascii() && !s.contains('\0')).then(|| s.to_string())
 }
 
-// The types for one copy, in ChemDraw's order. svg: the picture, for the PDF (None: no PDF). cdxml: hidden in the
-// PDF, and also put on as its own type when `cdxml_type` is set. cdx: ChemDraw's binary drawing.
-fn types(svg: Option<&str>, cdxml: Option<&str>, cdxml_type: bool, cdx: Option<Vec<u8>>, molfile: Option<&str>, smiles: Option<&str>, octet_json: Option<String>) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
-    let mut out = Vec::new();
+// Text from the clipboard as UTF-8, without the NULs a Windows clipboard can add at the end.
+fn text_of(b: Vec<u8>) -> Option<String> {
+    let end = b.iter().rposition(|&c| c != 0).map_or(0, |k| k + 1);
+    String::from_utf8(b[..end].to_vec()).ok()
+}
+
+// The types for one copy on system `s`, in ChemDraw's order, as (name, bytes). svg: the picture (None: no picture).
+// cdxml: hidden in the PDF (macOS), and also put on as its own type when `cdxml_type` is set. cdx: ChemDraw's binary
+// drawing.
+#[allow(clippy::too_many_arguments)]
+fn types(s: System, svg: Option<&str>, cdxml: Option<&str>, cdxml_type: bool, cdx: Option<Vec<u8>>, molfile: Option<&str>, smiles: Option<&str>, octet_json: Option<String>) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
+    let mut out: Vec<(&'static str, Vec<u8>)> = Vec::new();
+    let mut put = |k: Kind, b: Vec<u8>| out.extend(names(s, k).iter().take(if k == Kind::Cdx { 2 } else { 1 }).map(|n| (*n, b.clone())));
     if let Some(svg) = svg {
-        out.push((PDF, crate::export::make_pdf(svg, cdxml)?));
+        if s == System::Mac {
+            put(Kind::Pdf, crate::export::make_pdf(svg, cdxml)?);
+        } else {
+            let (png, bitmap) = crate::export::clipboard_pictures(svg, s == System::Windows)?;
+            put(Kind::Png, png);
+            if let Some(b) = bitmap {
+                put(Kind::Bitmap, b);
+            }
+            if s == System::Linux {
+                put(Kind::Svg, svg.as_bytes().to_vec());
+            }
+        }
     }
     if let Some(b) = cdx.filter(|b| b.starts_with(b"VjCD0100")) {
-        out.push((CDX[0], b.clone()));
-        out.push((CDX[1], b));
+        put(Kind::Cdx, b);
     }
     if let Some(x) = cdxml.filter(|_| cdxml_type) {
-        out.push((CDXML, crate::export::cdxml_document(x).into_bytes()));
+        put(Kind::Cdxml, crate::export::cdxml_document(x).into_bytes());
     }
-    if let Some(m) = molfile.filter(|m| !m.trim().is_empty()).and_then(prefixed_lines) {
-        out.push((MOLFILE, m));
+    // A molfile as length-prefixed lines where ChemDraw writes it so (macOS, Windows); as text on Linux.
+    if let Some(m) = molfile.filter(|m| !m.trim().is_empty()) {
+        if s == System::Linux {
+            put(Kind::Molfile, m.replace("\r\n", "\n").into_bytes());
+        } else if let Some(b) = prefixed_lines(m) {
+            put(Kind::Molfile, b);
+        }
     }
-    if let Some(s) = smiles.map(str::trim).filter(|s| !s.is_empty() && s.is_ascii()) {
-        out.push((SMILES, [s.as_bytes(), b"\0"].concat()));
+    // SMILES with a NUL, as ChemDraw writes it (macOS, Windows); as text on Linux.
+    if let Some(m) = smiles.map(str::trim).filter(|m| !m.is_empty() && m.is_ascii()) {
+        put(Kind::Smiles, if s == System::Linux { m.as_bytes().to_vec() } else { [m.as_bytes(), b"\0"].concat() });
     }
     if let Some(j) = octet_json {
-        out.push((OCTET, j.into_bytes()));
+        put(Kind::Octet, j.into_bytes());
     }
     Ok(out)
 }
 
-// What paste can use, from each type's bytes (`read` gives a type's bytes if it is on the clipboard).
-fn clip(read: impl Fn(&str) -> Option<Vec<u8>>) -> Clip {
+// The first of a kind's names on the clipboard: its bytes (`read` gives a type's bytes if it is on the clipboard).
+fn first(s: System, k: Kind, read: &impl Fn(&str) -> Option<Vec<u8>>) -> Option<Vec<u8>> {
+    names(s, k).iter().find_map(|n| read(n))
+}
+
+// What paste can use on system `s`, from each type's bytes.
+fn clip(s: System, read: impl Fn(&str) -> Option<Vec<u8>>) -> Clip {
     use base64::Engine;
-    let text = |t: &str| read(t).and_then(|b| String::from_utf8(b).ok());
     let mut c = Clip {
-        octet: text(OCTET),
-        cdxml: text(CDXML),
-        cdx: CDX.iter().find_map(|t| read(t)).map(|b| base64::engine::general_purpose::STANDARD.encode(b)),
-        molfile: read(MOLFILE).and_then(|b| molfile_text(&b)),
-        smiles: read(SMILES).and_then(|b| smiles_text(&b)),
+        octet: first(s, Kind::Octet, &read).and_then(text_of),
+        cdxml: first(s, Kind::Cdxml, &read).and_then(text_of),
+        cdx: first(s, Kind::Cdx, &read).map(|b| base64::engine::general_purpose::STANDARD.encode(b)),
+        molfile: first(s, Kind::Molfile, &read).and_then(|b| molfile_text(&b)),
+        smiles: first(s, Kind::Smiles, &read).and_then(|b| smiles_text(&b)),
     };
     // The PDF's CDXML when there is no Octet JSON or CDXML type: it holds the whole drawing, arrows, text and shapes
     // too (REL-4, CH-2). ChemDraw's CDX is the page's next choice, for a copy with no PDF.
     if c.octet.is_none() && c.cdxml.is_none() {
-        c.cdxml = read(PDF).and_then(|b| crate::export::cdxml_from_pdf(&b));
+        c.cdxml = first(s, Kind::Pdf, &read).and_then(|b| crate::export::cdxml_from_pdf(&b));
     }
     c
+}
+
+// Every name paste may read on system `s`.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+fn readable(s: System) -> Vec<&'static str> {
+    use Kind::*;
+    [Octet, Cdxml, Cdx, Molfile, Smiles, Pdf].iter().flat_map(|k| names(s, *k).iter().copied()).collect()
 }
 
 #[cfg(target_os = "macos")]
@@ -150,7 +249,7 @@ mod mac {
     pub fn read(pb: &NSPasteboard) -> super::Clip {
         autoreleasepool(|_| {
             let present: Vec<String> = pb.types().map(|a| a.iter().map(|t| t.to_string()).collect()).unwrap_or_default();
-            super::clip(|t| {
+            super::clip(super::System::Mac, |t| {
                 if !present.iter().any(|p| p == t) {
                     return None;
                 }
@@ -165,32 +264,47 @@ mod mac {
     }
 }
 
-// Copy: the selection as a PDF picture (with its CDXML hidden in it), CDX (base64 from the page), CDXML, a molfile,
-// SMILES and Octet's JSON.
+#[cfg(windows)]
+#[path = "clipboard_windows.rs"]
+mod win;
+
+#[cfg(target_os = "linux")]
+#[path = "clipboard_linux.rs"]
+mod linux;
+
+// Copy: the selection as a picture, CDX (base64 from the page), CDXML, a molfile, SMILES and Octet's JSON.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
-pub async fn copy_to_clipboard(svg: Option<String>, cdxml: Option<String>, cdxml_type: Option<bool>, cdx: Option<String>, molfile: Option<String>, smiles: Option<String>, octet_json: Option<String>) -> Result<(), String> {
+pub async fn copy_to_clipboard(app: tauri::AppHandle, svg: Option<String>, cdxml: Option<String>, cdxml_type: Option<bool>, cdx: Option<String>, molfile: Option<String>, smiles: Option<String>, octet_json: Option<String>) -> Result<(), String> {
     use base64::Engine;
     let cdx = match cdx {
         Some(c) if c.len() <= MAX_TYPE / 3 * 4 + 4 => Some(base64::engine::general_purpose::STANDARD.decode(c).map_err(|_| "Octet could not copy this.".to_string())?),
         _ => None,
     };
-    let types = types(svg.as_deref(), cdxml.as_deref(), cdxml_type.unwrap_or(false), cdx, molfile.as_deref(), smiles.as_deref(), octet_json)?;
+    let types = types(HERE, svg.as_deref(), cdxml.as_deref(), cdxml_type.unwrap_or(false), cdx, molfile.as_deref(), smiles.as_deref(), octet_json)?;
+    let _ = &app;
     #[cfg(target_os = "macos")]
     return mac::write(&mac::general(), &types);
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = types;
-        Err("Copying pictures is not yet available on this system.".into())
-    }
+    #[cfg(windows)]
+    return win::write(&types);
+    #[cfg(target_os = "linux")]
+    return linux::write(&app, types).await;
+    #[allow(unreachable_code)]
+    Err("Octet cannot copy on this system.".into())
 }
 
 // Paste: everything Octet can use from the clipboard.
 #[tauri::command]
-pub async fn read_clipboard() -> Result<Clip, String> {
+pub async fn read_clipboard(app: tauri::AppHandle) -> Result<Clip, String> {
+    let _ = &app;
     #[cfg(target_os = "macos")]
     return Ok(mac::read(&mac::general()));
-    #[cfg(not(target_os = "macos"))]
-    Err("Pasting structures from other apps is not yet available on this system.".into())
+    #[cfg(windows)]
+    return win::read(&readable(HERE)).map(|found| clip(HERE, |t| found.iter().find(|(n, _)| *n == t).map(|(_, b)| b.clone())));
+    #[cfg(target_os = "linux")]
+    return linux::read(&app, readable(HERE)).await.map(|found| clip(HERE, |t| found.iter().find(|(n, _)| *n == t).map(|(_, b)| b.clone())));
+    #[allow(unreachable_code)]
+    Err("Octet cannot paste on this system.".into())
 }
 
 #[cfg(test)]
@@ -223,24 +337,24 @@ mod tests {
     #[test]
     fn copy_types_in_chemdraws_order() {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="20pt" height="10pt" viewBox="0 0 20 10"><path d="M1 1H19V2H1Z"/></svg>"#;
-        let t = types(Some(svg), Some("<CDXML/>"), true, Some(b"VjCD0100\x04\x03\x02\x01".to_vec()), Some(MOL), Some("CO"), Some("{}".into())).unwrap();
+        let t = types(System::Mac, Some(svg), Some("<CDXML/>"), true, Some(b"VjCD0100\x04\x03\x02\x01".to_vec()), Some(MOL), Some("CO"), Some("{}".into())).unwrap();
         assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [PDF, CDX[0], CDX[1], CDXML, MOLFILE, SMILES, OCTET]);
         assert!(t[1].1.starts_with(b"VjCD0100") && t[1].1 == t[2].1);
-        let t = types(Some(svg), Some("<CDXML/>"), true, None, Some(MOL), Some("CO"), Some("{}".into())).unwrap();
+        let t = types(System::Mac, Some(svg), Some("<CDXML/>"), true, None, Some(MOL), Some("CO"), Some("{}".into())).unwrap();
         assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [PDF, CDXML, MOLFILE, SMILES, OCTET]);
         assert!(t[1].1.starts_with(b"<?xml") && t[1].1.ends_with(b"<CDXML/>"));
         assert_eq!(t[3].1, b"CO\0");
         // Paste reads them all back; the PDF is not needed when Octet's JSON is there.
         let read = |name: &str| t.iter().find(|(n, _)| *n == name).map(|(_, b)| b.clone());
-        let c = clip(read);
+        let c = clip(System::Mac, read);
         assert_eq!((c.octet.as_deref(), c.molfile.as_deref(), c.smiles.as_deref()), (Some("{}"), Some(MOL), Some("CO")));
         // Without it (a picture copied back out of Word), the CDXML comes out of the PDF.
-        let c = clip(|name| (name == PDF).then(|| t[0].1.clone()));
+        let c = clip(System::Mac, |name| (name == PDF).then(|| t[0].1.clone()));
         assert!(c.cdxml.unwrap().contains("<CDXML/>"));
         // The Copy switches in Settings: with all four off, only Octet's JSON goes on; CDXML off keeps it in the PDF.
-        let t = types(None, Some("<CDXML/>"), false, None, None, None, Some("{}".into())).unwrap();
+        let t = types(System::Mac, None, Some("<CDXML/>"), false, None, None, None, Some("{}".into())).unwrap();
         assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [OCTET]);
-        let t = types(Some(svg), Some("<CDXML/>"), false, None, None, Some("CO"), None).unwrap();
+        let t = types(System::Mac, Some(svg), Some("<CDXML/>"), false, None, None, Some("CO"), None).unwrap();
         assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [PDF, SMILES]);
         assert!(crate::export::cdxml_from_pdf(&t[0].1).unwrap().contains("<CDXML/>"));
     }
@@ -251,7 +365,7 @@ mod tests {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="20pt" height="10pt" viewBox="0 0 20 10"><path d="M1 1H19V2H1Z"/></svg>"#;
         let pdf = crate::export::make_pdf(svg, Some("<CDXML><page><arrow/></page></CDXML>")).unwrap();
         for cdx in CDX {
-            let c = clip(|name| match name {
+            let c = clip(System::Mac, |name| match name {
                 PDF => Some(pdf.clone()),
                 n if n == cdx => Some(b"VjCD0100".to_vec()),
                 MOLFILE => Some(prefixed_lines(MOL).unwrap()),
@@ -262,8 +376,58 @@ mod tests {
         }
         // Sam's dump of ChemDraw 22.2's copy (see export.rs reads_chemdraws_pdf).
         let Ok(dir) = std::env::var("OCTET_CLIPBOARD_DUMPS") else { return };
-        let c = clip(|name| std::fs::read(format!("{dir}/chemdraw-copy/0_{name}")).ok());
+        let c = clip(System::Mac, |name| std::fs::read(format!("{dir}/chemdraw-copy/0_{name}")).ok());
         assert!(c.cdxml.unwrap().contains("<CDXML") && c.cdx.is_some() && c.molfile.is_some() && c.smiles.is_some());
+    }
+
+    // REL-3, CH-1: Windows and Linux copy the same things as the Mac, under their own names, with a PNG for the picture
+    // (and a bitmap on Windows, an SVG on Linux). Paste reads them back.
+    #[test]
+    fn windows_and_linux_copy_the_same() {
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="20pt" height="10pt" viewBox="0 0 20 10"><path d="M1 1H19V2H1Z"/></svg>"#;
+        let cdx = b"VjCD0100\x04\x03\x02\x01".to_vec();
+        let all = |s| types(s, Some(svg), Some("<CDXML/>"), true, Some(cdx.clone()), Some(MOL), Some("CO"), Some("{}".into())).unwrap();
+        let t = all(System::Windows);
+        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), ["PNG", DIB, "ChemDraw Interchange Format", "CDXML", "MDLCT", "SMILES", "application/x-octet+json"]);
+        assert!(t[0].1.starts_with(b"\x89PNG\r\n\x1a\n"));
+        // 20 pt by 10 pt at 300 dpi: 84 by 42 pixels, as a bottom-up 24-bit bitmap on white with rows of 252 bytes.
+        let dib = &t[1].1;
+        let int = |k: usize| i32::from_le_bytes(dib[k..k + 4].try_into().unwrap());
+        assert_eq!((int(0), int(4), int(8), dib[14]), (40, 84, 42, 24));
+        assert_eq!(dib.len(), 40 + 252 * 42);
+        assert_eq!(&dib[40..43], [255, 255, 255], "the bottom row is white");
+        assert!(dib[40..].chunks(3).any(|c| c == [0, 0, 0]), "the bar is black");
+        assert_eq!((t[4].1.clone(), t[5].1.clone()), (prefixed_lines(MOL).unwrap(), b"CO\0".to_vec()));
+        let read = |t: &Vec<(&str, Vec<u8>)>, n: &str| t.iter().find(|(x, _)| *x == n).map(|(_, b)| b.clone());
+        let c = clip(System::Windows, |n| read(&t, n));
+        assert_eq!((c.octet.as_deref(), c.molfile.as_deref(), c.smiles.as_deref()), (Some("{}"), Some(MOL), Some("CO")));
+        assert!(c.cdxml.unwrap().ends_with("<CDXML/>") && c.cdx.is_some());
+        // A block of Windows memory can be larger than what was put in it: text reads without the NULs after it.
+        let c = clip(System::Windows, |n| (n == "application/x-octet+json").then(|| b"{}\0\0\0".to_vec()));
+        assert_eq!(c.octet.as_deref(), Some("{}"));
+        let t = all(System::Linux);
+        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), ["image/png", "image/svg+xml", "chemical/x-cdx", "chemical/x-cdxml", "chemical/x-mdl-molfile", "chemical/x-daylight-smiles", "application/x-octet+json"]);
+        assert_eq!((t[1].1.as_slice(), t[4].1.as_slice(), t[5].1.as_slice()), (svg.as_bytes(), MOL.as_bytes(), b"CO".as_slice()));
+        let c = clip(System::Linux, |n| read(&t, n));
+        assert_eq!((c.octet.as_deref(), c.molfile.as_deref(), c.smiles.as_deref()), (Some("{}"), Some(MOL), Some("CO")));
+        assert!(c.cdxml.unwrap().ends_with("<CDXML/>") && c.cdx.is_some());
+        // The Copy switches: with all five off, only Octet's JSON goes on.
+        for s in [System::Windows, System::Linux] {
+            let t = types(s, None, None, false, None, None, None, Some("{}".into())).unwrap();
+            assert_eq!(t.len(), 1);
+        }
+        // Paste reads only names its system has.
+        assert!(readable(System::Windows).contains(&"MDLCT") && !readable(System::Linux).contains(&PDF));
+    }
+
+    // A long drawing goes on the clipboard at a lower resolution, so the picture has at most 8,192 pixels on a side.
+    #[test]
+    fn large_pictures_fit() {
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="3000pt" height="100pt" viewBox="0 0 3000 100"><path d="M1 1H2999V99H1Z"/></svg>"#;
+        let (png, dib) = crate::export::clipboard_pictures(svg, true).unwrap();
+        let width = u32::from_be_bytes(png[16..20].try_into().unwrap());
+        assert_eq!(width, 8192);
+        assert_eq!(i32::from_le_bytes(dib.unwrap()[4..8].try_into().unwrap()), 8192);
     }
 
     // On a private pasteboard, so the user's clipboard is untouched.

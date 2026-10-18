@@ -11,7 +11,7 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | tauri-plugin-single-instance (Rust) | 2.5 | Apache-2.0 OR MIT | Windows and Linux: a file opened from Explorer or a file manager goes to the Octet that runs. On Linux it brings zbus, zvariant and endi (MIT) and the smol async crates (Apache-2.0 OR MIT) |
 | svg2pdf, pdf-writer, subsetter (Rust, typst project) | 0.13, 0.12, 0.2 | MIT OR Apache-2.0 | Vector PDF of the drawing for export and the clipboard, with font subsets and the CDXML in the PDF |
 | resvg, usvg (Rust, linebender) | 0.45 | Apache-2.0 OR MIT | Reads the drawing's SVG; draws the PNG export |
-| tiny-skia (Rust) | 0.11 | BSD-3-Clause | Raster drawing for the PNG export (used by resvg) |
+| tiny-skia (Rust) | 0.11 | BSD-3-Clause | Raster drawing for the PNG export and the clipboard picture on Windows and Linux (used by resvg) |
 | fontdb (Rust) | 0.23 | MIT | Finds the system fonts to embed in PDFs (used by usvg) |
 | slotmap (Rust) | 1.1 | Zlib | Used by fontdb. Zlib approved by Sam, 17 October 2026 |
 | png (Rust) | 0.17 | MIT OR Apache-2.0 | Writes the PNG export with its resolution |
@@ -21,6 +21,8 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | serde_json (Rust) | 1 | MIT OR Apache-2.0 | The recent drawings list on Home (already in the build through Tauri) |
 | objc2, objc2-foundation, objc2-app-kit (Rust) | 0.6, 0.3, 0.3 | MIT; MIT; Zlib OR Apache-2.0 OR MIT | The macOS clipboard (NSPasteboard). Already used by Tauri |
 | objc2-web-kit, block2 (Rust) | 0.3, 0.6 | Zlib OR Apache-2.0 OR MIT; MIT | Feedback's picture of the window (WKWebView snapshot). Already used by Tauri |
+| windows-sys (Rust, Microsoft) | 0.61 | MIT OR Apache-2.0 | The Windows clipboard (copy and paste). Already used by Tauri |
+| gtk (Rust, gtk-rs project) | 0.18 | MIT | The Linux clipboard (copy and paste, through GTK). Already used by Tauri |
 | indigo-ketcher | 1.46 | Apache-2.0 | Chemistry engine, CDX/CDXML |
 | Indigo's MoleculeCleaner2d and BiconnectedDecomposer (indigo-core) | 1.46.0 | Apache-2.0 | Clean Up's geometry, ported to TypeScript and changed in `src/clean2d.ts` (EPAM's copyright notice kept there) |
 | react, react-dom | 19.3 | MIT | UI |

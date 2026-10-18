@@ -105,9 +105,14 @@ pub fn make_pdf(svg: &str, cdxml: Option<&str>) -> Result<Vec<u8>, String> {
 // A PNG of the SVG at `dpi` (of its true size), white or transparent behind. It records its resolution, so
 // Word, PowerPoint and Keynote place it at true size.
 pub fn make_png(svg: &str, dpi: f32, transparent: bool) -> Result<Vec<u8>, String> {
-    use resvg::tiny_skia::{Color, Pixmap, Transform};
     let tree = tree(svg)?;
     let dpi = if dpi.is_finite() { dpi.clamp(36.0, 2400.0) } else { 300.0 };
+    png_of(&draw(&tree, dpi, transparent)?, dpi)
+}
+
+// The SVG drawn at `dpi` of its true size, white or transparent behind.
+fn draw(tree: &usvg::Tree, dpi: f32, transparent: bool) -> Result<resvg::tiny_skia::Pixmap, String> {
+    use resvg::tiny_skia::{Color, Pixmap, Transform};
     let scale = dpi / 96.0;
     let (w, h) = ((tree.size().width() * scale).ceil() as u32, (tree.size().height() * scale).ceil() as u32);
     let too_big = "This picture is too large for a PNG at this resolution. Choose a lower resolution.";
@@ -118,7 +123,11 @@ pub fn make_png(svg: &str, dpi: f32, transparent: bool) -> Result<Vec<u8>, Strin
     if !transparent {
         pixmap.fill(Color::WHITE);
     }
-    resvg::render(&tree, Transform::from_scale(scale, scale), &mut pixmap.as_mut());
+    resvg::render(tree, Transform::from_scale(scale, scale), &mut pixmap.as_mut());
+    Ok(pixmap)
+}
+
+fn png_of(pixmap: &resvg::tiny_skia::Pixmap, dpi: f32) -> Result<Vec<u8>, String> {
     let rgba: Vec<u8> = pixmap.pixels().iter().flat_map(|p| {
         let c = p.demultiply();
         [c.red(), c.green(), c.blue(), c.alpha()]
@@ -133,6 +142,47 @@ pub fn make_png(svg: &str, dpi: f32, transparent: bool) -> Result<Vec<u8>, Strin
     writer.write_image_data(&rgba).map_err(|e| e.to_string())?;
     writer.finish().map_err(|e| e.to_string())?;
     Ok(out)
+}
+
+// The picture on the clipboard on Windows and Linux, where Office pastes no PDF: a transparent PNG at 300 dpi of
+// true size (lower for a large drawing, so it has at most 16 million pixels and 8,192 on a side), and with `bitmap`
+// the same on white as a Windows bitmap (a DIB), for programs that read no PNG.
+pub fn clipboard_pictures(svg: &str, bitmap: bool) -> Result<(Vec<u8>, Option<Vec<u8>>), String> {
+    let tree = tree(svg)?;
+    let (w, h) = (tree.size().width().max(1.0), tree.size().height().max(1.0));
+    let dpi = 300f32.min(96.0 * (16e6 / (w * h)).sqrt()).min(96.0 * 8192.0 / w.max(h));
+    let pixmap = draw(&tree, dpi, true)?;
+    Ok((png_of(&pixmap, dpi)?, bitmap.then(|| dib(&pixmap, dpi))))
+}
+
+// A device-independent bitmap as the Windows clipboard holds it (CF_DIB): a BITMAPINFOHEADER, then rows of blue,
+// green and red from the bottom up, each padded to 4 bytes. The picture is put on white.
+fn dib(pixmap: &resvg::tiny_skia::Pixmap, dpi: f32) -> Vec<u8> {
+    let (w, h) = (pixmap.width() as usize, pixmap.height() as usize);
+    let row = (w * 3 + 3) & !3;
+    let ppm = ((dpi / 0.0254).round() as i32).to_le_bytes();
+    let mut out = Vec::with_capacity(40 + row * h);
+    out.extend(40u32.to_le_bytes());
+    out.extend((w as i32).to_le_bytes());
+    out.extend((h as i32).to_le_bytes());
+    out.extend(1u16.to_le_bytes()); // planes
+    out.extend(24u16.to_le_bytes()); // bits per pixel
+    out.extend(0u32.to_le_bytes()); // BI_RGB
+    out.extend(((row * h) as u32).to_le_bytes());
+    out.extend(ppm);
+    out.extend(ppm);
+    out.extend([0u8; 8]); // colours used, colours important
+    let px = pixmap.pixels();
+    for y in (0..h).rev() {
+        let start = out.len();
+        // Premultiplied colour on white: each channel plus what the alpha leaves.
+        for c in &px[y * w..(y + 1) * w] {
+            let white = 255 - c.alpha();
+            out.extend([c.blue().saturating_add(white), c.green().saturating_add(white), c.red().saturating_add(white)]);
+        }
+        out.resize(start + row, 0);
+    }
+    out
 }
 
 // What File > Export… can write: id, name in the Save dialog, extensions (the first is the default).

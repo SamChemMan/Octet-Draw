@@ -69,14 +69,15 @@ import { Dialog } from "./Dialog";
 import "./editor.css";
 
 
-const MOD = navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+";
+const MAC = navigator.platform.startsWith("Mac");
+const MOD = MAC ? "⌘" : "Ctrl+";
 // Export: ⌃⌘E on the Mac; Ctrl+Shift+E elsewhere, where ⌃ and ⌘ are both Ctrl (src-tauri/src/main.rs).
 const EXPORT_KEYS = navigator.platform.startsWith("Mac") ? "⌃⌘E" : "⇧Ctrl+E";
 // In the desktop app the native menu owns undo, redo and the file commands; in a browser (dev only) the page does.
 const TAURI = "__TAURI_INTERNALS__" in window;
-// On the Mac, copy and paste go through the app (src-tauri/src/clipboard.rs), with the types ChemDraw and Office use.
-// On Windows and Linux they use the webview's own clipboard: Octet's own form, and SMILES as text (REL-3, CH-1).
-const NATIVE_CLIP = TAURI && navigator.platform.startsWith("Mac");
+// In the app, copy and paste go through the app (src-tauri/src/clipboard.rs), with the types ChemDraw and Office use
+// on each system (REL-3, CH-1). In a browser (dev only), the page uses the browser's clipboard.
+const NATIVE_CLIP = TAURI;
 
 // Undo history: every edit pushes a new Mol; undo and redo move along the list.
 // merge: edits with the same key one after another (a slider being dragged) make one step.
@@ -3491,14 +3492,15 @@ export default function Editor() {
       e.preventDefault();
       saw("copy");
       const on = settings.files.clipboard, octetJson = serialize({ ...part, style: undefined });
-      // On the Mac: as ChemDraw copies, for Word, PowerPoint and Keynote (a vector picture at true size with the
-      // structure hidden in it, so it pastes back as a structure), then CDX, CDXML, a molfile and SMILES, then Octet's own form.
+      // In the app: as ChemDraw copies, for Word, PowerPoint and Keynote (a picture at true size: on the Mac a vector
+      // PDF with the structure hidden in it, so it pastes back as a structure), then CDX, CDXML, a molfile and SMILES,
+      // then Octet's own form. The CDXML goes in the PDF too.
       if (NATIVE_CLIP) {
         const ask = (yes: boolean, f: PartFormat) => (yes ? formatOf(part, f) : undefined);
-        return copyToClipboard({ svg: on.pdf ? pictureOf(part) : undefined, cdxml: ask(on.pdf || on.cdxml, "cdxml"), cdxmlType: on.cdxml, cdx: ask(on.cdx, "cdx"), molfile: ask(on.mol, "molfile"), smiles: ask(on.smiles, "smiles"), octetJson })
+        return copyToClipboard({ svg: on.pdf ? pictureOf(part) : undefined, cdxml: ask(on.cdxml || (MAC && on.pdf), "cdxml"), cdxmlType: on.cdxml, cdx: ask(on.cdx, "cdx"), molfile: ask(on.mol, "molfile"), smiles: ask(on.smiles, "smiles"), octetJson })
           .then(() => true, (err) => { setNotice(`Octet cannot copy this. ${err}`); return false; });
       }
-      // Windows, Linux and a browser: the webview's own clipboard, with Octet's form and SMILES (or the text) as text.
+      // A browser (dev only): its own clipboard, with Octet's form and SMILES (or the text) as text.
       e.clipboardData?.setData(OCTET_CLIP, octetJson);
       const text = (on.smiles ? formatOf(part, "smiles") : undefined) ?? (part.captions ?? []).map((c) => c.text).join("\n");
       if (text) e.clipboardData?.setData("text/plain", text);
