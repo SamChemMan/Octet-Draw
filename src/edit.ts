@@ -1215,9 +1215,9 @@ const caption = (c: Caption, k: number, size?: number): Caption => {
   return { ...c, ...(own ? { size: points(own * k) } : {}), ...(c.runs ? { runs: c.runs.map((r) => (r.size ? { ...r, size: points(r.size * k) } : r)) } : {}),
     ...(typeof c.lineHeight === "number" ? { lineHeight: points(c.lineHeight * k) } : {}) };
 };
-// An arrow's or shape's sizes in points times k: its own line width, a table's or TLC plate's text size and a table's
+// An arrow's, shape's or cycle's sizes in points times k: its own line width, a table's or TLC plate's text size and a table's
 // line weight.
-const pointsOf = <T extends Arrow | Shape>(x: T, k: number): T => ({
+const pointsOf = <T extends Arrow | Shape | Cycle>(x: T, k: number): T => ({
   ...x, ...(x.width ? { width: Math.round(x.width * k * 1e4) / 1e4 } : {}), ...("size" in x && x.size ? { size: points(x.size * k) } : {}),
   ...("table" in x && x.table?.weight ? { table: { ...x.table, weight: Math.round(x.table.weight * k * 1e4) / 1e4 } } : {}),
 });
@@ -1247,6 +1247,7 @@ export function scaleSizes(m: Mol, r: number): Mol {
     captions: m.captions?.map((c) => (c.size || c.runs?.some((x) => x.size) || typeof c.lineHeight === "number" ? caption(c, r) : c)),
     arrows: m.arrows?.map((a) => pointsOf(a, r)),
     shapes: m.shapes?.map((x) => pointsOf(x, r)),
+    cycles: m.cycles?.map((c) => pointsOf(c, r)),
   };
 }
 // Rotate…, Scale…, the selection's handles, the Turn keys and the flips: the chosen atoms and objects moved point by
@@ -1309,6 +1310,7 @@ export function fitSizes(m: Mol, from: Pick<DocStyle, "bond" | "labelSize" | "ca
     captions: m.captions?.map(fitted),
     arrows: m.arrows?.map((a) => pointsOf(a, k)),
     shapes: m.shapes?.map((x) => pointsOf(x, k)),
+    cycles: m.cycles?.map((c) => pointsOf(c, k)),
   };
 }
 // Atom maps. Pairing two atoms gives both the first one's number, or the second's, or the next free number; the

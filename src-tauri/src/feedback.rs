@@ -18,7 +18,7 @@ pub async fn snapshot(window: WebviewWindow) -> Result<String, String> {
         let png = tauri::async_runtime::spawn_blocking(move || rx.recv_timeout(std::time::Duration::from_secs(5)).ok().flatten())
             .await
             .map_err(|e| e.to_string())?
-            .ok_or("Octet could not take a picture of the window.")?;
+            .ok_or("Octet cannot take a picture of the window.")?;
         Ok(base64::engine::general_purpose::STANDARD.encode(png))
     }
     #[cfg(not(target_os = "macos"))]
@@ -96,5 +96,5 @@ pub async fn send_feedback(app: AppHandle, note: String, picture: Option<String>
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join("Octet feedback.eml");
     std::fs::write(&path, eml).map_err(|e| e.to_string())?;
-    crate::open_external(&path).map_err(|_| "Octet could not open your mail app.".into())
+    crate::open_external(&path).map_err(|_| "Octet cannot open your mail app.".into())
 }

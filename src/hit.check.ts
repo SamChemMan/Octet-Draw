@@ -39,6 +39,12 @@ assert.notEqual(shapeTrace(shapes[0], L, L), shapeTrace(shapes[0], L, 2 * L));
 const orbital: Arrow = { id: 1, kind: "orbital", from: [0, 0], to: [1, 1], orbital: { shape: "p", phase: "shaded" } };
 assert.deepEqual(lobesOf(orbital, L), orbitalPaths(orbital, L));
 assert.equal(lobesOf(orbital, L), lobesOf(orbital, L));
+// A p orbital's lobes reach past its nucleus, outside the line from the nucleus to the tip, so the box round a
+// selection takes the lobes (CD-3: the rotation handle and the centre a turn goes about).
+{
+  const ps = lobesOf(orbital, L).flatMap((l) => l.path), line = arrowTrace(orbital, L).box;
+  assert.ok(Math.min(...ps.map((q) => q[0])) < line[0] - 0.5 * L && Math.max(...ps.map((q) => q[1])) > line[3] + 0.5 * L);
+}
 let made = 0;
 const cache = new WeakMap<object, [unknown, number]>(), key = {};
 kept(cache, key, 1, () => ++made); kept(cache, key, 1, () => ++made);

@@ -179,3 +179,11 @@ console.log("scale.check: text sizes ok");
   assert.equal(fitSizes(m, to, to), m, "the same sizes change nothing");
   console.log("scale.check: paste sizes ok");
 }
+
+// A catalytic cycle's own line width (UI-42) is a size in points, so it goes with the document scale and a paste.
+{
+  const m: Mol = { atoms: [{ label: "C", location: [0, 0, 0] }, { label: "C", location: [4, 0, 0] }], bonds: [], cycles: [{ id: 1, centre: [2, 0], radius: 2, clockwise: true, nodes: [[0], [1]], width: 1.2 }] };
+  assert.equal(scaleSizes(m, 2).cycles![0].width, 2.4);
+  assert.equal(fitSizes(m, { bond: 30, labelSize: 10, captionSize: 10 }, { bond: 15, labelSize: 10, captionSize: 10 }).cycles![0].width, 0.6);
+  console.log("scale.check: cycle line width ok");
+}

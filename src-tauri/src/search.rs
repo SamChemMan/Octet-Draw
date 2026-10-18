@@ -61,7 +61,7 @@ pub async fn search_online(app: AppHandle, site: String, smiles: Option<String>,
         return Err(TOO_LONG.into());
     }
     let url = address(&site, smiles.as_deref(), molfile.as_deref(), exact, role.as_deref(), &app.package_info().version.to_string())?;
-    crate::open_external(&url).map_err(|_| "Octet could not open your browser.".into())
+    crate::open_external(&url).map_err(|_| "Octet cannot open your browser.".into())
 }
 
 // The address for a search on one of the two sites, and no other.
