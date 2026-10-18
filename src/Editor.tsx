@@ -1524,7 +1524,8 @@ export default function Editor() {
   const drawnBox = (atoms: Iterable<number>, items: Set<number>): Box | undefined => union([
     ...[withCaptions(atoms)].filter((b): b is Box => !!b),
     ...placed.filter((c) => items.has(c.id)).map((c) => c.box),
-    ...[...arrows.filter((a) => items.has(a.id)), ...cycleArrows.filter((a) => items.has(a.cycle))].map((a) => arrowTrace(a, L).box),
+    // An orbital by its lobes, which reach past its nucleus and out to its sides.
+    ...[...arrows.filter((a) => items.has(a.id)), ...cycleArrows.filter((a) => items.has(a.cycle))].map((a) => (isOrbital(a) && union(lobesOf(a, L).flatMap((l) => l.path.map(([x, y]): Box => [x, y, x, y])))) || arrowTrace(a, L).box),
     ...(shown.shapes ?? []).filter((sh) => items.has(sh.id)).map((sh): Box => { const b = shapeBounds(sh); return [b[0] * L, -b[3] * L, b[2] * L, -b[1] * L]; }),
   ]);
   // The structure a caption at this point (drawing coordinates) would sit under: one whose ink is just above it.
