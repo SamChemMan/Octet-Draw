@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { EMPTY, addGroupAt, deleteAtoms, extractSelection, fragments, insertMol, moveAtoms, neighbours, placeCentres, pos, sprout } from "./edit.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
+import { parse, serialize } from "./file.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
 import { render, type Ink, type Mol } from "./render.ts";
 
@@ -90,6 +91,18 @@ const curve = xml.replace("</fragment>", `<curve id="9999" Closed="yes" CurvePoi
 })()}"/></fragment>`);
 assert.equal(fromCdxml(curve).mol.arrows?.filter((a) => a.kind === "curve").length ?? 0, 0);
 console.log("ligand.check: CDXML ok");
+
+// Octet's own JSON (the clipboard between Octet windows, templates and the copy inside .oct files) keeps the points
+// and the ring's delocalised bonds, and refuses a point that stands for itself, a missing atom, one atom or a point.
+const json = parse(serialize(ferrocene));
+assert.deepEqual(json.atoms.map((a) => a.centre), ferrocene.atoms.map((a) => a.centre));
+assert.equal(style(json), style(ferrocene));
+const raw = JSON.parse(serialize(ferrocene)), point = centres(ferrocene)[0];
+for (const bad of [[point, 2], [2, 999], [2], [2, centres(ferrocene)[1]], "2 3"]) {
+  raw.structure.atoms[point].centre = bad;
+  assert.throws(() => parse(JSON.stringify(raw)), /damaged/);
+}
+console.log("ligand.check: Octet JSON ok");
 
 // Drawing: the point has no label, and each ring has an ellipse inside.
 const ink = (): Ink => ({ width: 9.6, ascent: 9.5, outline: [[0, 0], [9.6, -9.5]] });
