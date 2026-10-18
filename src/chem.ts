@@ -209,9 +209,9 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
 // The drawing as SMILES. Throws if Indigo can't read it (for example, a valence it rejects).
 // A drawing as KET, with labels expanded into atoms. KET has no bond display styles (bold, wavy and so on).
 // Hydrogen bonds are left out (they are not chemistry Indigo works out), unless hbonds asks for them; a quadruple
-// bond, which Indigo has no type for, goes as a single bond.
-function ketOf(drawn: Mol, hbonds = false): string {
-  const mol = expandLabels(!hbonds && drawn.bonds.some((b) => b.type === HBOND) ? { ...drawn, bonds: drawn.bonds.filter((b) => b.type !== HBOND) } : drawn);
+// bond, which Indigo has no type for, goes as a single bond. expanded: the molecule with its labels expanded already.
+function ketOf(drawn: Mol, hbonds = false, expanded?: Mol): string {
+  const mol = expanded ?? expandLabels(!hbonds && drawn.bonds.some((b) => b.type === HBOND) ? { ...drawn, bonds: drawn.bonds.filter((b) => b.type !== HBOND) } : drawn);
   const bonds = mol.bonds.map(({ type: t, atoms, stereo }) => { const type = t === QUADRUPLE ? 1 : t; return stereo ? { type, atoms, stereo } : { type, atoms }; });
   // KET radicals: 1 a singlet, 2 one unpaired electron (doublet), 3 two (triplet).
   const atoms = mol.atoms.map(({ label, location, charge, radical, isotope }) => ({ label, location, ...(charge ? { charge } : {}), ...(radical ? { radical: radical === 3 ? 1 : radical + 1 } : {}), ...(isotope ? { isotope } : {}) }));
@@ -230,6 +230,22 @@ export const toSmiles = (drawn: Mol): string => convert(ketOf(drawn), "smiles");
 // The drawing's molecules as a molfile. A hydrogen bond is bond type 10 and a quadruple bond single, as ChemDraw
 // writes them.
 export const toMolfile = (drawn: Mol): string => convert(ketOf(drawn, true), "molfile");
+// Generic labels as query atoms (any atom A, heteroatom Q, metal M, halogen X, and each with H, as ChemDraw's).
+// SMILES cannot keep them; a molfile can, for a Reaxys search. undefined when the drawing has none.
+// As ChemDraw 26.1 writes a molfile (CoreChemistry IsAcceptableGeneric): A, Q and X go as the atom symbol; the
+// others go as a carbon with the label as its alias ("A  n" and the label on the next line).
+const GENERIC = new Set(["A", "AH", "Q", "QH", "M", "MH", "X", "XH"]), SYMBOL = new Set(["A", "Q", "X"]);
+export function toQueryMolfile(drawn: Mol): string | undefined {
+  if (!drawn.atoms.some((a) => a.text && GENERIC.has(a.text))) return undefined;
+  const generic = (a: Mol["atoms"][number]) => !!a.text && GENERIC.has(a.text);
+  const query = { ...drawn, atoms: drawn.atoms.map((a) => (generic(a) ? { ...a, label: SYMBOL.has(a.text!) ? a.text! : "C", text: undefined } : a)) };
+  const { mol, from } = expandWithOrigins(query);
+  const aliases = drawn.atoms.flatMap((a, i) => (generic(a) && !SYMBOL.has(a.text!) ? [`A  ${String(from.indexOf(i) + 1).padStart(3)}`, a.text!] : []));
+  // From the counts line on, under the header Reaxys was seen to read: a name, the program, a blank line.
+  // (A V3000 molfile, for 1000 atoms or more, goes whole: no search link can hold it, and the app says so.)
+  const lines = convert(ketOf(query, true, mol), "molfile").split("\n"), at = lines.findIndex((l) => l.endsWith("V2000")), end = lines.lastIndexOf("M  END");
+  return ["Octet", "  Octet", "", ...lines.slice(Math.max(0, at), end), ...aliases, ...lines.slice(end), ""].join("\n");
+}
 // CIP labels for a drawing's stereocentres (R, S) and double bonds (E, Z), in its atom and bond order.
 export function cipOf(drawn: Mol): { atoms: (string | undefined)[]; bonds: (string | undefined)[] } | undefined {
   const ind = engine(), opts = new ind.MapStringString();
