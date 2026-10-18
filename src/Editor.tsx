@@ -149,7 +149,7 @@ type Drag =
   // Resizing the selection by one of its frame's handles (resize.ts): the frame at the press (drawing units), what is
   // scaled, each free caption's middle, the stops, the factors and the point they scale about now. whole: the whole
   // drawing with Labels and lines, which a scale in proportion only zooms (it shows the drawing as it is, scaled).
-  | { kind: "resize"; side: Side; frame: RBox; atoms: Set<number>; items: Set<number>; middles: Map<number, P>; stops: number[]; size: P; anchor: P; whole: boolean; working: Mol };
+  | { kind: "resize"; side: Side; frame: RBox; atoms: Set<number>; items: Set<number>; middles: Map<number, P>; stops: number[]; size: P; anchor: P; whole: boolean; labels: boolean; lines: boolean; working: Mol };
 
 // Draws again whenever a store changes, by calling its children with the value; nothing else draws again.
 function Live<T>({ store: from, children }: { store: Store<T>; children: (value: T) => React.ReactNode }) {
@@ -1649,6 +1649,10 @@ export default function Editor() {
     const atoms = none ? new Set(doc.atoms.map((_, i) => i)) : selection, items = none ? new Set([...(doc.captions ?? []), ...objects].map((x) => x.id)) : picked;
     return { atoms, items, whole: none || (atoms.size === doc.atoms.length && objects.every((x) => items.has(x.id))) };
   };
+  // Text alone (captions and nothing else). Scale… and the handles always scale its size, as ChemDraw scales the text
+  // of one label whatever its checkbox says, so Labels and lines counts as on for it.
+  const textAlone = () => !selection.size && picked.size > 0 && [...picked].every((id) => doc.captions?.some((c) => c.id === id));
+  const scalesText = () => settings.scaleLabels || textAlone();
   // Each free caption's middle, from its laid-out box (drawing units).
   const captionMiddles = () => new Map(placed.filter((c) => c.id !== DRAFT).map((c) => [c.id, [(c.box[0] + c.box[2]) / 2 / L, -(c.box[1] + c.box[3]) / 2 / L] as P]));
   // A scale of the chosen atoms and objects by size (across, up) about c. Shapes, tables and cycles grow with it.
@@ -1704,7 +1708,7 @@ export default function Editor() {
     const c = selectionMiddle(), k = axis === "horizontal" ? 0 : 1, { atoms, items } = chosen();
     set(transformParts(flipAtoms(doc, atoms, axis, mirror, c[k]), new Set(), items, (q) => (k ? [q[0], 2 * c[1] - q[1]] : [2 * c[0] - q[0], q[1]]), [1, 1], captionMiddles(), 1, k ? "down" : "across"), true);
   }
-  function scaleBy(k: number, lines = settings.scaleLabels) {
+  function scaleBy(k: number, lines = scalesText()) {
     if (!(k > 0) || !Number.isFinite(k)) return;
     commitScale([k, k], selectionMiddle(), lines);
   }
@@ -1900,8 +1904,7 @@ export default function Editor() {
     const ids = [...picked], arrow = ids.length === 1 && !selection.size ? arrows.find((x) => x.id === ids[0]) : undefined;
     if ((arrow && arrow.kind !== "curve") || (!picked.size && (!selection.size || (selection.size === 1 && neighbours(doc, [...selection][0]).length)))) return undefined;
     const box = drawnBox(selection, new Set(ids.filter((id) => id !== DRAFT)));
-    const text = !selection.size && ids.every((id) => placed.some((c) => c.id === id));
-    return box && { box, corners: text, turns: !(selection.size + ids.length === 1 && !arrow) };
+    return box && { box, corners: textAlone(), turns: !(selection.size + ids.length === 1 && !arrow) };
   }, [!drag, selection, picked, drawing, placed, arrows, cycleArrows, shown.shapes]); // eslint-disable-line react-hooks/exhaustive-deps
   // The frame in drawing units (y up), 4 px clear of what it holds at this zoom, and the handles it shows: the side
   // handles only when that side is long enough on screen to hold them apart.
@@ -1933,7 +1936,7 @@ export default function Editor() {
     const side = resizeAt(p);
     if (side) {
       const frame = frameBox(views.get().zoom)!, { atoms, items, whole } = chosen(), median = medianBond(doc, atoms);
-      return setDrag({ kind: "resize", side, frame, atoms, items, middles: captionMiddles(), stops: [1, ...(median ? [1 / median] : [])], size: [1, 1], anchor: handlePoint(frame, side), whole: whole && settings.scaleLabels, working: doc });
+      return setDrag({ kind: "resize", side, frame, atoms, items, middles: captionMiddles(), stops: [1, ...(median ? [1 / median] : [])], size: [1, 1], anchor: handlePoint(frame, side), whole, labels: scalesText(), lines: scalesText(), working: doc });
     }
     if (tool !== "erase" && onTurnHandle(p)) {
       const centre = selectionMiddle();
@@ -2117,10 +2120,12 @@ export default function Editor() {
         return setDrag({ ...drag, degrees, working: turnedParts(doc, degrees, drag.centre, drag.middles) });
       }
       case "resize": {
-        // ⌘ turns the soft stops off, as it turns snapping off while moving.
+        // ⌘ turns the soft stops off, as it turns snapping off while moving. Control turns Labels and lines over for
+        // this drag, as ChemDraw's Ctrl does on its handles.
         const { size, anchor } = resizeBy(drag.frame, drag.side, p, { shift: e.shiftKey, alt: e.altKey }, e.metaKey ? [] : drag.stops, 6 / (views.get().zoom * L));
-        if (size[0] === drag.size[0] && size[1] === drag.size[1] && anchor[0] === drag.anchor[0] && anchor[1] === drag.anchor[1]) return;
-        return setDrag({ ...drag, size, anchor, working: drag.whole && size[0] === size[1] ? doc : scaledParts(doc, drag.atoms, drag.items, size, anchor, settings.scaleLabels, drag.middles) });
+        const lines = drag.labels !== e.ctrlKey;
+        if (size[0] === drag.size[0] && size[1] === drag.size[1] && anchor[0] === drag.anchor[0] && anchor[1] === drag.anchor[1] && lines === drag.lines) return;
+        return setDrag({ ...drag, size, anchor, lines, working: drag.whole && lines && size[0] === size[1] ? doc : scaledParts(doc, drag.atoms, drag.items, size, anchor, lines, drag.middles) });
       }
       case "shape": {
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
@@ -3212,7 +3217,7 @@ export default function Editor() {
       case "turn":
         return drag.degrees ? set(drag.working, true) : undefined;
       case "resize":
-        return drag.size[0] !== 1 || drag.size[1] !== 1 ? commitScale(drag.size, drag.anchor, settings.scaleLabels, drag.working) : undefined;
+        return drag.size[0] !== 1 || drag.size[1] !== 1 ? commitScale(drag.size, drag.anchor, drag.lines, drag.working) : undefined;
       case "chain":
         if (drag.to) return set(chainTo(doc, drag.from, drag.to).mol);
         return click(drag.target, typeof drag.from === "number" ? pos(doc, drag.from) : drag.from);
@@ -3835,7 +3840,7 @@ export default function Editor() {
           {/* The drawing and its marks, without the page, so the Spectrum panel can show the structure beside its spectrum. */}
           <g id="world">
           {/* The whole drawing scaled in proportion is shown scaled as it is, as nothing in it changes but its size. */}
-          <g transform={drag?.kind === "resize" && drag.whole && drag.size[0] === drag.size[1] && drag.size[0] !== 1
+          <g transform={drag?.kind === "resize" && drag.whole && drag.lines && drag.size[0] === drag.size[1] && drag.size[0] !== 1
             ? `translate(${drag.anchor[0] * L * (1 - drag.size[0])} ${-drag.anchor[1] * L * (1 - drag.size[0])}) scale(${drag.size[0]})` : undefined}>
           {under}
           {marks}
@@ -4355,7 +4360,7 @@ export default function Editor() {
           ))}
           {/* ChemDraw's "Scale atom labels and settings": label sizes, line widths and the rest scale with the positions. */}
           <label className="dialog-row">
-            <input type="checkbox" checked={settings.scaleLabels} onChange={(e) => setSettings((s) => ({ ...s, scaleLabels: e.target.checked }))} />
+            <input type="checkbox" checked={scalesText()} disabled={textAlone()} onChange={(e) => setSettings((s) => ({ ...s, scaleLabels: e.target.checked }))} />
             <span>Labels and lines</span>
           </label>
         </Dialog>

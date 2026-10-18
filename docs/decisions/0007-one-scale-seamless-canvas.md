@@ -37,6 +37,8 @@ decision 0003 (templates on New drawing).
 
 - The selection's frame has 8 resize handles for every kind of selection (IDEA-SCALE-3). A corner scales in
   proportion, a side stretches and moves geometry only, Shift turns proportion over, Option scales about the middle.
+  Control turns "Labels and lines" over for one drag, as ChemDraw's Ctrl does on its handles. Text alone always
+  scales its size (Control turns that off), as ChemDraw scales the text of one label whatever its checkbox says.
   The drag stops softly at 100% and where the median bond is the document's bond length (⌘ turns the stops off).
   A double-click on a handle opens Scale…. ChemDraw 26.1 has no key for "about the middle" on its handles.
 - The whole drawing (nothing selected, or everything) scaled in proportion with "Labels and lines" on changes the
