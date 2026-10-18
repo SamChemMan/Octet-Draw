@@ -1,6 +1,6 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { hydrogens, lonePairs, tableLayout, TABLE_ROW, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape, type Table } from "./render.ts";
+import { hydrogens, lonePairs, tableLayout, tableRow, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape, type Table } from "./render.ts";
 import type { Cycle } from "./cycle.ts";
 import { anchorElement, isElement } from "./labels.ts";
 
@@ -312,7 +312,9 @@ export const outerGroups = (gs: Grouped[]) => { const parents = groupParents(gs)
 // Groups after an edit or a read: each lists an atom or object once, only those that are there, and the text that
 // belongs to its members unless another group has that text. Two groups that share something without one holding
 // the other become one (Integral if either was). A group holds two or more things (structures, objects or groups);
-// one with fewer goes, and gives its Integral to a group it held alone. Returns the same drawing when nothing changes.
+// one with fewer goes, and gives its Integral to a group it held alone. A group of one text that belongs to something
+// in another group stays: a ChemDraw file keeps conditions out of the arrow's group that way, and without it the
+// text would join that group on the next edit or save. Returns the same drawing when nothing changes.
 export function tidyGroups(m: Mol, frags = m.groups?.length ? fragments(m) : []): Mol {
   if (!m.groups?.length) return m;
   const ids = new Set([...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? [])].map((x) => x.id));
@@ -338,10 +340,12 @@ export function tidyGroups(m: Mol, frags = m.groups?.length ? fragments(m) : [])
     const held = membersOf({ atoms: kids[k].flatMap((j) => gs[j].atoms), items: kids[k].flatMap((j) => gs[j].items) });
     return kids[k].length + new Set(gs[k].atoms.filter((i) => !held.atoms.has(i)).map((i) => of.get(i) ?? -1 - i)).size + gs[k].items.filter((id) => !held.items.has(id)).length;
   };
+  const captions = new Map((m.captions ?? []).map((c) => [c.id, c])), inGroups = membersOf({ atoms: gs.flatMap((g) => g.atoms), items: gs.flatMap((g) => g.items) });
+  const ownText = (g: Grouped) => { const c = !g.atoms.length && g.items.length === 1 ? captions.get(g.items[0]) : undefined; return !!c && (c.under?.length ? inGroups.atoms.has(c.under[0]) : c.on ? inGroups.items.has(c.on.arrow) : !!c.cycle && inGroups.items.has(c.cycle.cycle)); };
   const integral = gs.map((g) => !!g.integral), gone = new Set<number>();
   for (const k of gs.map((_, k) => k).sort((p, q) => sizeOf(gs[q]) - sizeOf(gs[p]) || p - q)) {
     const n = things(k);
-    if (n >= 2) continue;
+    if (n >= 2 || (!kids[k].length && ownText(gs[k]))) continue;
     gone.add(k);
     if (integral[k] && n === 1 && kids[k].length === 1) integral[kids[k][0]] = true;
   }
@@ -806,6 +810,15 @@ export function addShape(m: Mol, sh: Omit<Shape, "id">): [Mol, number] {
   // A highlight goes behind the shapes already there; anything else on top.
   return [{ ...m, shapes: sh.kind === "highlight" ? [{ ...sh, id }, ...(m.shapes ?? [])] : [...(m.shapes ?? []), { ...sh, id }] }, id];
 }
+// A shape's corner dragged to p (drawing units): the opposite corner stays where it is, and a turned shape keeps its
+// angle, so it grows or shrinks along its own sides.
+export function resizeShape(sh: Shape, which: "from" | "to" | "c1" | "c2", p: P): Pick<Shape, "from" | "to"> {
+  const sign = { from: [-1, -1], to: [1, 1], c1: [-1, 1], c2: [1, -1] }[which], r = ((sh.angle ?? 0) * Math.PI) / 180, cs = Math.cos(r), sn = Math.sin(r);
+  const c = [(sh.from[0] + sh.to[0]) / 2, (sh.from[1] + sh.to[1]) / 2], off = [(-sign[0] * (sh.to[0] - sh.from[0])) / 2, (-sign[1] * (sh.to[1] - sh.from[1])) / 2];
+  const fixed = [c[0] + off[0] * cs - off[1] * sn, c[1] + off[0] * sn + off[1] * cs], d = [p[0] - fixed[0], p[1] - fixed[1]];
+  const v = [d[0] * cs + d[1] * sn, -d[0] * sn + d[1] * cs], mid = [(fixed[0] + p[0]) / 2, (fixed[1] + p[1]) / 2], half = [(sign[0] * v[0]) / 2, (sign[1] * v[1]) / 2];
+  return { from: [mid[0] - half[0], mid[1] - half[1]], to: [mid[0] + half[0], mid[1] + half[1]] };
+}
 export const updateShape = (m: Mol, id: number, change: Partial<Shape>): Mol =>
   ({ ...m, shapes: m.shapes?.map((x) => (x.id === id ? { ...x, ...change } : x)) });
 // Atom maps. Pairing two atoms gives both the first one's number, or the second's, or the next free number; the
@@ -901,7 +914,7 @@ export function sizeTable(sh: Shape, size: { widths?: number[]; heights?: number
 export function fitTable(sh: Shape, measure?: (text: string) => number): Partial<Shape> {
   const { widths: _w, heights: _h, ...table } = sh.table!, t = tableLayout({ ...sh, table }, measure);
   void _w; void _h;
-  return { from: [t.x0, t.y1], to: [t.x0 + t.natural.reduce((a, b) => a + b, 0), t.y1 - t.rows * TABLE_ROW], table };
+  return { from: [t.x0, t.y1], to: [t.x0 + t.natural.reduce((a, b) => a + b, 0), t.y1 - t.rows * tableRow(sh)], table };
 }
 // Clear Contents: every cell empty, except the entry numbers and their header when the first column counts.
 export function clearTable(sh: Shape): Partial<Shape> {
@@ -1100,10 +1113,18 @@ export function hingeOf(m: Mol, ids: Set<number>): [number, number] | undefined 
   const [a, b] = joins[0].atoms;
   return ids.has(a) ? [a, b] : [b, a];
 }
+// The atom a turn of some atoms goes about, as ChemDraw's: the one atom every bond out of them leaves from (a
+// substituent turns about the atom that joins it to the rest), else the one atom left out that every bond out of them
+// goes to (a structure with one atom not selected turns about that atom). None when there is no such atom.
+export function pivotOf(m: Mol, ids: Set<number>): number | undefined {
+  const out = m.bonds.filter((b) => ids.has(b.atoms[0]) !== ids.has(b.atoms[1]));
+  const one = (end: (b: Bond) => number) => { const ends = new Set(out.map(end)); return ends.size === 1 ? [...ends][0] : undefined; };
+  return one((b) => (ids.has(b.atoms[0]) ? b.atoms[0] : b.atoms[1])) ?? one((b) => (ids.has(b.atoms[0]) ? b.atoms[1] : b.atoms[0]));
+}
 
 // Copy: the selected atoms (with the bonds between them) and picked objects as a drawing of their own, with the
-// text that belongs to them (captions under the copied atoms, conditions on copied arrows, labels of copied cycles)
-// and the groups wholly inside. Ids stay as they were; insertMol gives new ones.
+// text that belongs to them (captions under the copied atoms, conditions on copied arrows, labels of copied cycles),
+// the groups wholly inside and the stoichiometry grids of copied arrows. Ids stay as they were; insertMol gives new ones.
 export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>): Mol {
   const sel = [...atoms].filter((i) => i < m.atoms.length).sort((p, q) => p - q), map = new Map(sel.map((i, k) => [i, k]));
   const arrows = (m.arrows ?? []).filter((a) => items.has(a.id)), cycles = (m.cycles ?? []).filter((c) => items.has(c.id) && c.nodes.every((n) => n.every((i) => map.has(i))));
@@ -1117,6 +1138,7 @@ export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>)
     arrows, shapes: (m.shapes ?? []).filter((x) => items.has(x.id)),
     cycles: cycles.map((c) => ({ ...c, nodes: c.nodes.map((n) => n.map((i) => map.get(i)!)) })),
     groups: (m.groups ?? []).filter((g) => g.atoms.every((i) => map.has(i)) && g.items.every((id) => ids.has(id))).map((g) => ({ ...g, atoms: g.atoms.map((i) => map.get(i)!) })),
+    grids: (m.grids ?? []).filter((g) => keep.has(g.arrow)),
   };
 }
 // Paste: another drawing added to this one, moved by offset, with new ids for its objects. Returns the drawing, the

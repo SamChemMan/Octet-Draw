@@ -58,7 +58,7 @@ export function Coach({ doc, selected, seen, keys, onTool, onSkip, onFinish }: P
       ) : (
         <div className="coach-body" key={step} aria-live="polite">
           <h2 className={done ? "done" : undefined}>
-            {done && <CheckCircle size={18} weight="fill" aria-hidden />}
+            {done && <CheckCircle size={18} aria-hidden />}
             {all[step].title}
           </h2>
           <p>{all[step].text}</p>

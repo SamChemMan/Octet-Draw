@@ -27,11 +27,11 @@ export function Rulers({ view, scale, mm, origin, unit, pointer, extent, onUnit 
     return [
       <g key="across">
         <path className="ruler-ticks" d={across.map((t) => `M${ux(t.at) + 0.5} ${RULER}v${-len[t.size]}`).join("")} />
-        {across.filter((t) => t.label).map((t) => <text key={t.at} x={ux(t.at) + 3} y={9}>{t.label}</text>)}
+        {across.filter((t) => t.label).map((t) => <text key={t.at} x={ux(t.at) + 3} y={10}>{t.label}</text>)}
       </g>,
       <g key="down">
         <path className="ruler-ticks" d={down.map((t) => `M${RULER} ${uy(t.at) + 0.5}h${-len[t.size]}`).join("")} />
-        {down.filter((t) => t.label).map((t) => <text key={t.at} transform={`translate(9 ${uy(t.at) + 3}) rotate(-90)`} textAnchor="end">{t.label}</text>)}
+        {down.filter((t) => t.label).map((t) => <text key={t.at} transform={`translate(10 ${uy(t.at) + 3}) rotate(-90)`} textAnchor="end">{t.label}</text>)}
       </g>,
     ];
   }, [x0, y0, per, unit, innerWidth, innerHeight]); // a larger window shows more of each ruler

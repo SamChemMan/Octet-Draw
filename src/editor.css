@@ -425,6 +425,7 @@ rect.mark {
   opacity: 1;
 }
 .variant-action[aria-pressed="true"] {
+  background: var(--brand-mist);
   color: var(--brand);
 }
 .variant-action:focus-visible {
@@ -694,6 +695,7 @@ button.variant.add {
   position: absolute;
   bottom: var(--space-6);
   left: 50%;
+  z-index: 4; /* over the panels, so a notice is never hidden */
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -702,7 +704,7 @@ button.variant.add {
   transform: translateX(-50%);
   background: var(--surface-raised);
   border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-float);
   animation: fade-in 150ms ease-out;
 }
@@ -752,7 +754,7 @@ button.variant.add {
   padding: var(--space-1) var(--space-1) var(--space-2);
   background: var(--surface-raised);
   border: 1px solid var(--hairline);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-float);
   transform-origin: bottom right;
   animation: panel-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
@@ -837,12 +839,12 @@ button.variant.add {
 /* A menu command's fixed shortcut in Settings > Keyboard shortcuts. */
 .menu-key {
   color: var(--ink-muted);
-  font: 12px var(--font-sans);
+  font: 11px var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
 .action kbd {
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: 11px;
   color: var(--ink-faint);
 }
 .chips {
@@ -868,7 +870,7 @@ button.variant.add {
   background: transparent;
   color: var(--ink);
   font-family: var(--atom-label-font);
-  font-size: 14px;
+  font-size: 13px;
 }
 .chip[aria-pressed="true"] {
   background: var(--brand-mist);
@@ -938,7 +940,7 @@ button.variant.add {
 }
 .name-suggestion kbd {
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: 11px;
   color: var(--ink-faint);
 }
 .ghost {
@@ -1104,7 +1106,7 @@ button.variant.add {
   background: var(--ink);
   color: var(--canvas);
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 16px;
   white-space: pre;
   transform: translate(-50%, calc(-100% - 6px));
@@ -1135,82 +1137,10 @@ button.variant.add {
   outline: none;
   box-shadow: var(--shadow-focus);
 }
-.size-menu {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 4px);
-  z-index: 2;
-  display: grid;
-  min-width: 100%;
-  padding: 4px;
-  background: var(--surface-raised);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-float);
-  transform-origin: bottom right;
-  animation: panel-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
-}
-.size-menu button {
-  height: 26px;
-  padding: 0 var(--space-2);
-  border: 0;
-  border-radius: var(--radius-xs);
-  background: transparent;
-  color: var(--ink);
-  font-family: var(--font-sans);
-  font-size: 13px;
-  text-align: left;
-}
-/* The font list: More fonts… under a hairline, and the computer's fonts with a field to find one. */
-.font-menu {
-  width: 220px;
-  max-width: calc(100vw - 32px);
-}
-.font-menu button {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.font-menu .more-fonts {
-  margin-top: 4px;
-  padding-top: 4px;
-  border-top: 1px solid var(--hairline);
-  border-radius: 0 0 var(--radius-xs) var(--radius-xs);
-  color: var(--ink-muted);
-}
-.font-search {
-  position: sticky;
-  top: -4px;
-  z-index: 1;
-  height: 28px;
-  margin: -4px -4px 4px;
-  padding: 0 var(--space-2);
-  border: 0;
-  border-bottom: 1px solid var(--hairline);
-  background: var(--surface-raised);
-  color: var(--ink);
-  font: 13px var(--font-sans);
-  outline: none;
-}
-.font-none {
-  margin: 0;
-  padding: var(--space-2);
-  color: var(--ink-muted);
-  font-size: 13px;
-}
 .size-button .font-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.size-menu button[aria-checked="true"] {
-  color: var(--brand);
-  font-weight: 600;
-}
-.size-menu button:hover,
-.size-menu button:focus-visible {
-  background: var(--surface-sunken);
-  outline: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .actions.leaving {
@@ -1225,8 +1155,62 @@ button.variant.add {
     opacity: 0;
   }
 }
+/* A list of choices from a button (Pick in Menu.tsx): the menu as one column, over its button. Its options are a
+   little shorter than a tool menu's, and a long list scrolls inside the room it has. */
+.strip.list {
+  animation: list-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@keyframes list-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+.strip.list .menu-body {
+  min-height: 0;
+  max-height: none;
+}
+.strip.list .variant {
+  height: 30px;
+}
+.strip.list .variant:hover {
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
+.strip.list .variant[aria-checked="true"] {
+  background: var(--brand-mist);
+  color: var(--brand);
+}
+.menu-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-raised);
+}
+.list-find {
+  width: 100%;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  color: var(--ink);
+  font: 13px var(--font-sans);
+  outline: none;
+}
+.list-find:focus-visible {
+  border-color: var(--brand-bright);
+  box-shadow: var(--shadow-focus);
+}
+.list-none {
+  margin: 0;
+  padding: var(--space-2);
+  color: var(--ink-muted);
+  font-size: 13px;
+}
 @media (prefers-reduced-motion: reduce) {
-  .size-menu {
+  .strip.list {
     animation: fade-in 150ms ease-out;
   }
 }
@@ -1286,12 +1270,13 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
   color: var(--ink-muted);
-  font-size: 12px;
+  font-size: 13px;
   text-align: left;
 }
-.facts .formula {
-  font-family: var(--font-mono);
-  font-size: 13px;
+/* Every formula in the panels uses the formula token (text-formula): IBM Plex Mono, 13 px, weight 500. */
+.facts .formula,
+.prop-value.formula {
+  font: 500 13px/18px var(--font-mono);
   color: var(--ink);
 }
 .problems {
@@ -1341,7 +1326,7 @@ button.variant.add {
 }
 .problem p {
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 16px;
   color: var(--ink);
 }
@@ -1360,12 +1345,12 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: var(--surface-raised);
   color: var(--ink);
-  font-size: 12px;
+  font-size: 11px;
 }
 .more-problems {
   margin: 0;
   padding: 0 var(--space-2);
-  font-size: 12px;
+  font-size: 11px;
   color: var(--ink-muted);
 }
 .action small {
@@ -1458,13 +1443,20 @@ button.variant.add {
 }
 .style-preview {
   display: grid;
-  place-items: center;
   height: 132px;
   margin-bottom: var(--space-2);
   overflow: hidden;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-md);
+}
+/* The sample on the page's paper (Editor.tsx, preview): white, dark or blue, as the canvas shows it. */
+.style-paper {
+  display: grid;
+  place-items: center;
   background: var(--canvas);
+}
+.style-paper.paper-blueprint {
+  background-size: 20px 20px, 20px 20px, 4px 4px, 4px 4px;
 }
 .modal section {
   padding: var(--space-3) 0 var(--space-2);
@@ -1541,6 +1533,13 @@ button.variant.add {
   -webkit-user-select: text;
   user-select: text;
 }
+/* A field that does not apply now (Scale to the document's bond length): its value shows, faint. */
+.unit-field[aria-disabled] {
+  background: var(--surface);
+}
+.unit-field input:disabled {
+  color: var(--ink-faint);
+}
 /* A field for text, such as an element or label. */
 .unit-field.text {
   width: 160px;
@@ -1551,43 +1550,44 @@ button.variant.add {
 .unit-field .unit {
   margin-left: 4px;
   color: var(--ink-faint);
-  font-size: 12px;
+  font-size: 11px;
 }
-/* A select drawn like the fields, over the native control. */
+/* A select (Select.tsx): a button drawn like the fields, whose choices open as a list (Pick in Menu.tsx). */
 .select-field {
-  position: relative;
   display: inline-flex;
   align-items: center;
-}
-.select-field select {
+  justify-content: space-between;
+  gap: var(--space-2);
   height: 28px;
   min-width: 112px;
-  padding: 0 28px 0 var(--space-2);
+  padding: 0 9px 0 var(--space-2);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
   background: var(--canvas);
   color: var(--ink);
   font: 13px var(--font-sans);
-  appearance: none;
-  -webkit-appearance: none;
+  text-align: left;
   transition: border-color 120ms ease-out, box-shadow 120ms ease-out;
 }
-.section-head .select-field select {
+.select-field > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.section-head .select-field {
   min-width: 196px;
 }
 .select-field svg {
-  position: absolute;
-  right: 9px;
+  flex: none;
   color: var(--ink-faint);
-  pointer-events: none;
 }
-.select-field select:focus-visible {
+.select-field:focus-visible {
   outline: none;
   border-color: var(--brand-bright);
   box-shadow: var(--shadow-focus);
 }
 @media (hover: hover) and (pointer: fine) {
-  .select-field select:hover,
+  .select-field:hover,
   .unit-field:hover {
     border-color: var(--outline);
   }
@@ -1678,6 +1678,15 @@ button.variant.add {
   border: 1px solid color-mix(in oklab, var(--ink) 12%, transparent);
   border-radius: var(--radius-pill);
   transition: transform 120ms ease-out, box-shadow 120ms ease-out;
+}
+/* On a dark panel the Ink and Black swatches need a clear ring: the control border (--outline) in the dark theme. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .swatch {
+    border-color: var(--outline);
+  }
+}
+[data-theme="dark"] .swatch {
+  border-color: var(--outline);
 }
 .swatch[aria-checked="true"],
 .swatch.custom[data-checked] {
@@ -1877,7 +1886,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink);
-  font: 12px var(--font-sans);
+  font: 11px var(--font-sans);
   transition: background 120ms ease-out;
 }
 .page-option-thumb {
@@ -2131,7 +2140,7 @@ button.variant.add {
   padding: var(--space-2) 0;
   border-bottom: 1px solid var(--hairline);
   color: var(--ink-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
 }
 .settings-empty {
@@ -2159,7 +2168,7 @@ button.variant.add {
   border-radius: var(--radius-xs);
   background: var(--canvas);
   color: var(--ink);
-  font: 12px var(--font-sans);
+  font: 11px var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
 .key-chip.recording > button:first-child {
@@ -2221,7 +2230,7 @@ button.variant.add {
   gap: 4px;
   margin-left: var(--space-2);
   color: var(--warning);
-  font-size: 12px;
+  font-size: 11px;
   animation: fade-in 150ms ease-out;
 }
 /* The Actions panel's Settings button: always last. */
@@ -2250,7 +2259,7 @@ button.variant.add {
 }
 .actions-settings kbd {
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: 11px;
   color: var(--ink-faint);
 }
 .actions-home {
@@ -2290,7 +2299,7 @@ button.variant.add {
   }
 }
 /* Row controls share one width, so their edges line up down each column. */
-.setting-control .select-field select,
+.setting-control .select-field,
 .setting-control .page-button {
   width: 140px;
 }
@@ -2370,7 +2379,7 @@ button.variant.add {
 }
 .library-category span {
   color: var(--ink-faint);
-  font-size: 12px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 .library-category[aria-pressed="true"] {
@@ -2413,7 +2422,7 @@ button.variant.add {
   max-width: 100%;
   overflow: hidden;
   color: var(--ink-muted);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 16px;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -2534,7 +2543,7 @@ button.variant.add {
 .command-group {
   flex: none;
   color: var(--ink-faint);
-  font-size: 12px;
+  font-size: 11px;
 }
 .command kbd {
   flex: none;
@@ -2544,7 +2553,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: var(--canvas);
   color: var(--ink-muted);
-  font: 12px var(--font-sans);
+  font: 11px var(--font-sans);
   text-align: center;
 }
 .command-none {
@@ -2591,7 +2600,7 @@ button.variant.add {
   padding: 0 var(--space-2);
   border-radius: var(--radius-sm);
   color: var(--ink);
-  font-size: 14px;
+  font-size: 13px;
   cursor: default;
 }
 .name-recent.show-all {
@@ -2678,6 +2687,12 @@ button.variant.add {
 .turn-handle.hot circle {
   fill: var(--brand-mist);
 }
+.turn-centre {
+  fill: none;
+  stroke: var(--brand);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
 .turn-angle {
   fill: var(--brand);
   font-family: var(--font-sans);
@@ -2712,13 +2727,14 @@ button.variant.add {
   width: 22px;
   height: 22px;
   border-radius: var(--radius-pill);
-  background: rgb(180 35 35 / 0.16);
-  color: rgb(180 35 35 / 0.75);
+  background: color-mix(in oklab, var(--error) 16%, transparent);
+  color: var(--error);
   animation: lift 150ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 /* Page backgrounds. Dark takes the dark theme's canvas; engineering paper is blue with a fine white grid. */
-.canvas.paper-blueprint {
+.canvas.paper-blueprint,
+.style-paper.paper-blueprint {
   --canvas: #1D4B86;
   background-color: #1D4B86;
 }
@@ -2752,8 +2768,9 @@ button.variant.add {
   box-shadow: var(--shadow-focus);
 }
 .paper-choice.white span { background: #FFFFFF; }
-.paper-choice.dark span { background: #151A23; }
-.paper-choice.system span { background: linear-gradient(135deg, #FFFFFF 50%, #151A23 50%); }
+/* #000B24: the dark theme's --canvas, which dark paper takes. */
+.paper-choice.dark span { background: #000B24; }
+.paper-choice.system span { background: linear-gradient(135deg, #FFFFFF 50%, #000B24 50%); }
 .paper-choice.blueprint span {
   background-color: #1D4B86;
   background-image: linear-gradient(to right, rgb(255 255 255 / 0.35) 1px, transparent 1px), linear-gradient(to bottom, rgb(255 255 255 / 0.35) 1px, transparent 1px);
@@ -2959,7 +2976,8 @@ button.variant.add {
 }
 .slider {
   display: grid;
-  grid-template-columns: 64px 1fr 48px;
+  /* The track takes what is left; the value column fits its text, so "0.60 pt" is never cut off. */
+  grid-template-columns: 64px minmax(0, 1fr) max-content;
   align-items: center;
   gap: var(--space-2);
   font: 13px/18px var(--font-sans);
@@ -2973,6 +2991,8 @@ button.variant.add {
 .slider input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
+  width: 100%;
+  min-width: 0;
   height: 4px;
   margin: 0;
   border-radius: var(--radius-pill);
@@ -3050,13 +3070,13 @@ button.variant.add {
 }
 .about-version {
   color: var(--ink-muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 .about-made {
   margin-top: var(--space-2) !important;
 }
 .about-heart {
-  color: var(--error);
+  color: var(--brand);
   vertical-align: -1px;
 }
 .about-link {
@@ -3126,22 +3146,21 @@ button.variant.add {
   padding: var(--space-1) var(--space-1) var(--space-2);
   background: var(--surface-raised);
   border: 1px solid var(--hairline);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-float);
   transform-origin: top right;
   animation: panel-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 .properties.stacked {
-  bottom: auto;
-  top: calc(var(--space-4) * 2 + 32px);
+  bottom: calc(var(--space-4) * 2 + var(--below, 0px));
+  max-height: min(40%, calc(100% - var(--below, 0px) - var(--space-4) * 4));
 }
 .properties header,
 .spectrum header {
   cursor: grab;
 }
 .properties header button,
-.spectrum header button,
-.spectrum header select {
+.spectrum header button {
   cursor: default;
 }
 .properties header {
@@ -3150,7 +3169,8 @@ button.variant.add {
   justify-content: space-between;
   padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
 }
-.properties h2 {
+.properties h2,
+.spectrum h2 {
   margin: 0;
   font-size: 13px;
   line-height: 18px;
@@ -3185,7 +3205,7 @@ button.variant.add {
   text-align: left;
 }
 .prop-name {
-  font: 12px/16px var(--font-sans);
+  font: 13px/18px var(--font-sans);
   color: var(--ink-muted);
   white-space: nowrap;
 }
@@ -3196,7 +3216,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink);
-  font: 12px/16px var(--font-sans);
+  font: 13px/18px var(--font-sans);
   font-variant-numeric: tabular-nums;
   text-align: right;
   overflow-wrap: anywhere;
@@ -3227,7 +3247,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink);
-  font: 12px/18px var(--font-sans);
+  font: 13px/18px var(--font-sans);
 }
 .prop-add:hover:not(:disabled) {
   background: var(--surface-sunken);
@@ -3259,19 +3279,30 @@ button.variant.add {
   padding: var(--space-1) var(--space-2) var(--space-2);
   background: var(--surface-raised);
   border: 1px solid var(--hairline);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-float);
   transform-origin: bottom center;
   animation: panel-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 .spectrum header {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-right: calc(-1 * var(--space-1));
+  padding: var(--space-1);
+}
+.spectrum-head-buttons {
+  display: flex;
+  gap: 2px;
+}
+.spectrum-controls {
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) 0;
+  padding-bottom: var(--space-1);
 }
-.spectrum header .select-field select {
+.spectrum-controls .select-field {
   min-width: 0;
 }
 /* Full screen: the panel fills the canvas beside the toolbar, the spectrum grows, and the structure sits beside it. */
@@ -3304,7 +3335,7 @@ button.variant.add {
 }
 .spectrum-solvent-label {
   fill: var(--ink-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 .spectrum-swatches {
   display: flex;
@@ -3343,7 +3374,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink);
-  font: 12px var(--font-sans);
+  font: 13px var(--font-sans);
   white-space: nowrap;
 }
 .spectrum-button:hover:not(:disabled) {
@@ -3387,7 +3418,7 @@ button.variant.add {
 }
 .spectrum-signal .spectrum-integral {
   fill: var(--ink-muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 .spectrum-leader {
   fill: none;
@@ -3414,7 +3445,7 @@ button.variant.add {
 }
 .spectrum-text {
   margin: 0;
-  font: 12px/18px var(--font-sans);
+  font: 13px/18px var(--font-sans);
   color: var(--ink);
   user-select: text;
   overflow-wrap: anywhere;
@@ -3467,20 +3498,8 @@ button.variant.add {
   padding: 0 var(--space-1) 0 var(--space-2);
 }
 .pick-label {
-  font: 12px var(--font-sans);
+  font: 11px var(--font-sans);
   color: var(--ink-muted);
-}
-.size-menu.pick-menu {
-  left: 0;
-  right: auto;
-  min-width: 152px;
-  transform-origin: bottom left;
-}
-.pick-menu button {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  height: 30px;
 }
 .pick-glyph {
   display: grid;
@@ -3503,7 +3522,7 @@ button.variant.add {
 .spectrum-details table {
   flex: 1;
   border-collapse: collapse;
-  font: 12px/18px var(--font-sans);
+  font: 13px/18px var(--font-sans);
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
@@ -3545,8 +3564,8 @@ button.variant.add {
   fill: var(--brand);
 }
 .quality.medium, .nmr-shift.q-medium {
-  color: #B7791F;
-  fill: #B7791F;
+  color: var(--warning);
+  fill: var(--warning);
 }
 .quality.rough, .nmr-shift.q-rough {
   color: var(--error);
@@ -3642,7 +3661,7 @@ button.variant.add {
   justify-self: stretch;
   margin: 0;
   color: var(--ink-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
@@ -3719,8 +3738,8 @@ button.variant.add {
 }
 .home-greeting {
   margin: var(--space-16) 0 0;
-  font: 600 30px/36px var(--font-sans);
-  letter-spacing: -0.02em;
+  font: 600 32px/38px var(--font-sans);
+  letter-spacing: -0.025em;
   text-wrap: balance;
 }
 .home-row {
@@ -3751,7 +3770,7 @@ button.variant.add {
 .home-caption kbd {
   margin-left: var(--space-1);
   color: var(--ink-faint);
-  font: 12px var(--font-sans);
+  font: 11px var(--font-sans);
 }
 .home-open:active {
   transform: scale(0.97);
@@ -3837,7 +3856,7 @@ button.variant.add {
 }
 .home-when {
   color: var(--ink-faint);
-  font: 12px/16px var(--font-sans);
+  font: 11px/14px var(--font-sans);
 }
 .home-initial {
   color: var(--ink-faint);
@@ -3885,8 +3904,8 @@ button.variant.add {
 }
 .name-title {
   margin: var(--space-2) 0 0;
-  font: 600 24px/30px var(--font-sans);
-  letter-spacing: -0.02em;
+  font: 600 20px/26px var(--font-sans);
+  letter-spacing: -0.015em;
   text-align: center;
   text-wrap: balance;
 }
@@ -3999,7 +4018,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
   color: var(--ink);
-  font: 500 12px var(--font-sans);
+  font: 500 11px var(--font-sans);
 }
 .coach-foot {
   display: flex;
@@ -4133,7 +4152,7 @@ button.variant.add {
 .ruler text {
   fill: var(--ink-faint);
   font-family: var(--font-sans);
-  font-size: 9px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 .ruler-band {
@@ -4158,7 +4177,8 @@ button.variant.add {
   border-bottom: 1px solid var(--hairline);
   background: var(--surface);
   color: var(--ink-faint);
-  font: 600 8px/1 var(--font-sans);
+  font: 500 11px/1 var(--font-sans);
+  letter-spacing: -0.04em;
   pointer-events: auto;
   cursor: pointer;
 }
