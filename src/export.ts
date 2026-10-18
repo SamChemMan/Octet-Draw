@@ -87,11 +87,15 @@ export const copyToClipboard = (c: { svg: string; cdxml?: string; molfile?: stri
 export type Clipboard = { octet: string | null; cdxml: string | null; cdx: string | null; molfile: string | null; smiles: string | null; text: string | null };
 export const readClipboard = () => invoke<Clipboard>("read_clipboard");
 
-export type ExportFormat = "oct" | "pdf" | "svg" | "png" | "cdxml" | "mol" | "mol2000" | "sdf" | "sdf2000" | "rxn" | "rxn2000" | "rdf" | "rdf2000" | "smi";
+export type ExportFormat = "oct" | "pdf" | "svg" | "png" | "emf" | "eps" | "tif" | "jpg" | "gif" | "cdxml" | "mol" | "mol2000" | "sdf" | "sdf2000" | "rxn" | "rxn2000" | "rdf" | "rdf2000" | "smi";
+// The pictures: vector (PDF, SVG, EMF, EPS) and pixels at a resolution (PNG, TIFF, JPEG, GIF; JPEG is always on white).
+export const PICTURES: ExportFormat[] = ["pdf", "png", "svg", "emf", "eps", "tif", "jpg", "gif"];
+export const RASTERS: ExportFormat[] = ["png", "tif", "jpg", "gif"];
 // The MDL formats, each V3000 (as ChemDraw 26.1 saves them) and V2000, as ChemDraw lists them.
 export const MDL: ExportFormat[] = ["mol", "mol2000", "sdf", "sdf2000", "rxn", "rxn2000", "rdf", "rdf2000"];
 // Every format, with its name in Export and Settings.
-export const EXPORT_FORMATS: [ExportFormat, string][] = [["oct", "Octet drawing (.oct)"], ["pdf", "PDF"], ["png", "PNG"], ["svg", "SVG"], ["cdxml", "CDXML (ChemDraw)"], ["mol", "MOL"], ["mol2000", "MOL V2000"],
+export const EXPORT_FORMATS: [ExportFormat, string][] = [["oct", "Octet drawing (.oct)"], ["pdf", "PDF"], ["png", "PNG"], ["svg", "SVG"], ["emf", "EMF (Windows Office)"], ["eps", "EPS"],
+  ["tif", "TIFF"], ["jpg", "JPEG"], ["gif", "GIF"], ["cdxml", "CDXML (ChemDraw)"], ["mol", "MOL"], ["mol2000", "MOL V2000"],
   ["sdf", "SDF"], ["sdf2000", "SDF V2000"], ["rxn", "RXN"], ["rxn2000", "RXN V2000"], ["rdf", "RDF"], ["rdf2000", "RDF V2000"], ["smi", "SMILES"]];
 // A picture from standaloneSvg with a margin of `pt` all round: its size and view box grow by that much.
 export function withMargin(svg: string, pt: number): string {

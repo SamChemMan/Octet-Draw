@@ -115,6 +115,9 @@ const smilesAtoms = (smiles: string) => smiles.split(/\s/)[0].match(/\[[^\]]*\]|
 // Coordinates are scaled so the median bond is one bond length; SMILES (no drawing) is laid out. A reaction keeps its
 // arrows and plus signs; an RD file's reactions stand one under another.
 // Throws a RangeError, with the reason to show, for text over Octet's limits.
+// An MDL file (MOL, SDF, RXN, RDF) whose only enhanced stereochemistry is its chiral flag: no V3000 stereo collections.
+// Indigo reads the flag as abs (1) or &1 (0) on every stereocentre.
+export const chiralFlagOnly = (text: string) => /V2000|V3000/.test(text) && !/MDLV30\/STE(ABS|RAC|REL)/.test(text);
 export function importStructure(text: string): Mol {
   if (text.length > MOST_CHARACTERS) throw over(MOST_CHARACTERS, "characters");
   const ind = engine(), opts = new ind.MapStringString();
@@ -625,7 +628,8 @@ export function fragmentMasses(mol: Mol, cut: number[]): { atoms: number[]; form
 
 // Atom map numbers for one reaction step, from Indigo's automapper: for each reactant and product (in order), each
 // atom's number, or undefined where an atom has no partner. Written labels count as the element they attach by.
-export function mapReaction(reactants: Mol[], products: Mol[]): { reactants: (number | undefined)[][]; products: (number | undefined)[][] } | undefined {
+// keep: the atoms' map numbers (pairs mapped by hand) stay, and only the rest are mapped (Indigo's keep mode).
+export function mapReaction(reactants: Mol[], products: Mol[], keep = false): { reactants: (number | undefined)[][]; products: (number | undefined)[][] } | undefined {
   if (!indigo || !reactants.length || !products.length) return undefined;
   const ind = indigo, opts = new ind.MapStringString();
   try {
@@ -634,13 +638,13 @@ export function mapReaction(reactants: Mol[], products: Mol[]): { reactants: (nu
       const o = new ind.MapStringString();
       try {
         return ind.convert(JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule",
-          atoms: m.atoms.map((a) => ({ label: /^[A-Z][a-z]?$/.test(a.label) ? a.label : "C", location: a.location, ...(a.charge ? { charge: a.charge } : {}) })),
+          atoms: m.atoms.map((a) => ({ label: /^[A-Z][a-z]?$/.test(a.label) ? a.label : "C", location: a.location, ...(a.charge ? { charge: a.charge } : {}), ...(keep && a.map ? { mapping: a.map } : {}) })),
           bonds: m.bonds.map((b) => ({ type: Math.min(b.type, 3), atoms: b.atoms })) } }), "molfile", o).replace(/\s+$/, "");
       } finally { o.delete(); }
     };
     const rxn = ["$RXN", "", "  Octet", "", `${String(reactants.length).padStart(3)}${String(products.length).padStart(3)}`, ...[...reactants, ...products].flatMap((m) => ["$MOL", molfile(m)])].join("\n");
     opts.set("output-content-type", "application/json");
-    const ket = JSON.parse(JSON.parse(ind.automap(rxn, "discard", "ket", opts)).struct);
+    const ket = JSON.parse(JSON.parse(ind.automap(rxn, keep ? "keep" : "discard", "ket", opts)).struct);
     const mols = (ket.root.nodes as { $ref?: string }[]).flatMap((n) => (n.$ref && ket[n.$ref]?.type === "molecule" ? [ket[n.$ref].atoms.map((a: { mapping?: number }) => a.mapping)] : []));
     if (mols.length !== reactants.length + products.length) return undefined;
     return { reactants: mols.slice(0, reactants.length), products: mols.slice(reactants.length) };

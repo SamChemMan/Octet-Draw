@@ -11,7 +11,7 @@ g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
 g.window = globalThis;
 g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
-const { analyse, cleanUp, expandWithOrigins, fragmentMasses, importStructure, ready, stereoLabels, structures, toMolfile } = await import("./chem.ts");
+const { analyse, chiralFlagOnly, cleanUp, expandWithOrigins, fragmentMasses, importStructure, mapReaction, ready, stereoLabels, structures, toMolfile } = await import("./chem.ts");
 const { render } = await import("./render.ts");
 type Mol = import("./render.ts").Mol;
 await ready;
@@ -148,4 +148,20 @@ console.log("chem.check: labels ok");
     bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [1, 2] }, { type: 1, atoms: [2, 3] }] };
   assert.doesNotMatch(toMolfile(query), /MRV SMA/);
   console.log("chem.check: molfile ok");
+}
+
+// Settings (CH-34). Automatic reaction mapping keeps the pairs mapped by hand (Indigo's keep mode) and maps the rest.
+{
+  const chain = (maps: (number | undefined)[]): Mol => ({ atoms: ["C", "C", "C", "O"].map((label, i) => ({ label, location: [i * 0.866, i % 2 ? 0.5 : 0, 0] as [number, number, number], ...(maps[i] ? { map: maps[i] } : {}) })),
+    bonds: [0, 1, 2].map((i) => ({ type: 1, atoms: [i, i + 1] as [number, number] })) });
+  const kept = mapReaction([chain([undefined, undefined, undefined, 7])], [chain([undefined, undefined, undefined, 7])], true)!;
+  assert.equal(kept.reactants[0][3], 7);
+  assert.equal(kept.products[0][3], 7);
+  assert.deepEqual(kept.reactants[0].slice(0, 3), kept.products[0].slice(0, 3));
+  assert.ok(kept.reactants[0].slice(0, 3).every((n) => n !== undefined && n !== 7));
+  // An MDL file's chiral flag alone (no V3000 stereo collections) is what Stereo flags from the chiral flag hides.
+  assert.ok(chiralFlagOnly("\n  Octet\n\n  1  0  0  0  1  0  0  0  0  0999 V2000\n"));
+  assert.ok(!chiralFlagOnly("M  V30 BEGIN COLLECTION\nM  V30 MDLV30/STERAC1 ATOMS=(1 2)\nM  V30 END COLLECTION\n V3000"));
+  assert.ok(!chiralFlagOnly("CC(O)CC"));
+  console.log("chem.check: settings ok");
 }

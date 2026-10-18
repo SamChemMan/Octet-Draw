@@ -7,7 +7,8 @@ import { Dialog } from "./Dialog";
 import { Menu } from "./Menu";
 import { Select } from "./Select";
 import { NumberField, Segmented } from "./Fields";
-import { EXPORT_FORMATS as FORMATS, withMargin, type ExportFormat } from "./export";
+import { EXPORT_FORMATS as FORMATS, PICTURES, RASTERS, withMargin } from "./export";
+import type { ExportFormat } from "./export";
 import { DPIS, type FilePrefs } from "./SettingsWindow";
 
 export function ExportButton({ onQuick, onExport, hint }: { onQuick: () => void; onExport: () => void; hint?: string }) {
@@ -36,7 +37,6 @@ export function ExportButton({ onQuick, onExport, hint }: { onQuick: () => void;
   );
 }
 
-const PICTURES: ExportFormat[] = ["pdf", "png", "svg"];
 export type ExportSettings = Pick<FilePrefs, "dpi" | "background" | "margin"> & { format: ExportFormat };
 
 // The settings before saving. pictures: the picture of the whole drawing and, when something is selected, of the
@@ -50,18 +50,19 @@ export function ExportDialog({ prefs, onPrefs, pictures, chemistry, onExport, on
   const [part, setPart] = useState<"all" | "selection">(pictures.selection ? "selection" : "all");
   const has = chemistry(part), picture = pictures[part], format = prefs.format;
   const usable = FORMATS.filter(([f]) => (PICTURES.includes(f) ? !!picture : has[f]));
-  const isPicture = PICTURES.includes(format), svg = picture && isPicture ? withMargin(picture, prefs.margin) : undefined;
+  const isPicture = PICTURES.includes(format), raster = RASTERS.includes(format), clear = raster && format !== "jpg" && prefs.background === "transparent";
+  const svg = picture && isPicture ? withMargin(picture, prefs.margin) : undefined;
   const size = svg ? (/viewBox="[-\d.]+ [-\d.]+ ([\d.]+) ([\d.]+)"/.exec(svg) ?? []).slice(1).map(Number) : [];
   const mm = (pt: number) => Math.round((pt * 25.4) / 72);
   const ok = usable.some(([f]) => f === format);
   return (
     <Dialog title="Export" action="Export…" onClose={onClose} onAction={() => { if (ok) onExport(part); }}>
-      <div className={["export-preview", format === "png" && prefs.background === "transparent" && "transparent"].filter(Boolean).join(" ")}>
+      <div className={["export-preview", clear && "transparent"].filter(Boolean).join(" ")}>
         {svg ? <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`} alt="Preview" /> : <span className="export-none">{ok ? FORMATS.find(([f]) => f === format)?.[1] : "Nothing to export in this format"}</span>}
       </div>
       {size.length === 2 && (
         <p className="export-size">
-          {mm(size[0])} × {mm(size[1])} mm{format === "png" ? ` · ${Math.round((size[0] * prefs.dpi) / 72).toLocaleString()} × ${Math.round((size[1] * prefs.dpi) / 72).toLocaleString()} px` : ""}
+          {mm(size[0])} × {mm(size[1])} mm{raster ? ` · ${Math.round((size[0] * prefs.dpi) / 72).toLocaleString()} × ${Math.round((size[1] * prefs.dpi) / 72).toLocaleString()} px` : ""}
         </p>
       )}
       {pictures.selection && (
@@ -70,12 +71,12 @@ export function ExportDialog({ prefs, onPrefs, pictures, chemistry, onExport, on
       <label className="dialog-row"><span>Format</span>
         <Select label="Format" value={format} options={usable.length ? usable : FORMATS} onChange={(v) => onPrefs({ format: v as ExportFormat })} />
       </label>
-      {format === "png" && (
+      {raster && (
         <label className="dialog-row"><span>Resolution</span>
           <Select label="Resolution" value={String(prefs.dpi)} options={DPIS} onChange={(v) => onPrefs({ dpi: Number(v) })} />
         </label>
       )}
-      {format === "png" && (
+      {raster && format !== "jpg" && (
         <label className="dialog-row"><span>Background</span>
           <Select label="Background" value={prefs.background} options={[["transparent", "Transparent"], ["white", "White"]]} onChange={(v) => onPrefs({ background: v as FilePrefs["background"] })} />
         </label>

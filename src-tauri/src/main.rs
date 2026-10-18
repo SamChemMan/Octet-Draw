@@ -17,6 +17,7 @@ mod export;
 mod feedback;
 mod recent;
 mod search;
+mod vector;
 
 // Opens a web address or a file in the user's own program for it (the browser, the mail app). On Windows the open
 // crate asks the shell (ShellExecuteExW) directly: cmd.exe would read each & in an address as a new command.
@@ -174,6 +175,20 @@ async fn open_drawing(app: AppHandle, picked: State<'_, Picked>) -> Result<Optio
     Ok(Some((path.to_string_lossy().into_owned(), text)))
 }
 
+// File > Apply Settings From File… (ChemDraw's Apply Document Settings from > Other…): a drawing to take the style
+// from. Only read: it is not remembered for Save and does not go in the recent drawings.
+#[tauri::command]
+async fn pick_style_file(app: AppHandle) -> Result<Option<String>, String> {
+    let Some(file) = app.dialog().file().add_filter(OPEN.0, OPEN.1).blocking_pick_file() else {
+        return Ok(None);
+    };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    if fs::metadata(&path).map_err(|e| e.to_string())?.len() > MAX_BYTES {
+        return Err("This file is larger than 64 MB. Octet cannot open it.".into());
+    }
+    fs::read_to_string(&path).map(Some).map_err(|e| e.to_string())
+}
+
 // Opens one of Octet's own links in the browser. The page names it; only these fixed addresses can be opened.
 #[tauri::command]
 async fn open_link(name: String) -> Result<(), String> {
@@ -201,8 +216,9 @@ async fn import_structure(app: AppHandle) -> Result<Option<(String, String)>, St
 }
 
 // Saves to `path` if the user picked it earlier, otherwise asks where to save. Returns the path, or None if cancelled.
+// format: what the Save dialog offers first, "oct" or "cdxml" (Settings > Import and export > Save new drawings as).
 #[tauri::command]
-async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<String>, contents: String) -> Result<Option<String>, String> {
+async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<String>, contents: String, format: Option<String>) -> Result<Option<String>, String> {
     if contents.len() as u64 > MAX_BYTES {
         return Err("This drawing is larger than 64 MB. Octet cannot save it.".into());
     }
@@ -213,13 +229,16 @@ async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<St
     let target = match known {
         Some(p) => p,
         None => {
-            let dialog = SAVE.iter().fold(app.dialog().file(), |d, (name, ext)| d.add_filter(*name, ext));
-            let Some(file) = dialog.set_file_name(format!("{stem}.oct")).blocking_save_file() else {
+            let ext = if format.as_deref() == Some("cdxml") { "cdxml" } else { "oct" };
+            let mut filters: Vec<_> = SAVE.iter().collect();
+            filters.sort_by_key(|(_, e)| e[0] != ext);
+            let dialog = filters.iter().fold(app.dialog().file(), |d, (name, e)| d.add_filter(*name, e));
+            let Some(file) = dialog.set_file_name(format!("{stem}.{ext}")).blocking_save_file() else {
                 return Ok(None);
             };
             let mut p = file.into_path().map_err(|e| e.to_string())?;
             if p.extension().is_none_or(|e| e != "oct" && e != "cdxml") {
-                p.set_extension("oct");
+                p.set_extension(ext);
             }
             p
         }
@@ -279,8 +298,11 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         &item("page_setup", "Page Setup…", "CmdOrCtrl+Shift+P")?,
         &item("print", "Print…", "CmdOrCtrl+P")?,
+        // ChemDraw's Print dialog: Selection.
+        &item("print_selection", "Print Selection…", "")?,
         &sep()?,
         &item("document", "Document Settings…", "")?,
+        &item("apply_style_file", "Apply Settings From File…", "")?,
         &sep()?,
         &PredefinedMenuItem::close_window(app, None)?,
     ])?;
@@ -316,6 +338,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         // ChemDraw's keys: Magnify, Reduce and Fit to Window.
         &item("zoom_actual", "Actual Size", "CmdOrCtrl+\\")?,
         &item("zoom_fit", "Fit to Window", "CmdOrCtrl+/")?,
+        // ChemDraw's Show Document: the whole page.
+        &item("show_page", "Show Page", "")?,
         &item("zoom_in", "Magnify", "CmdOrCtrl+Shift+.")?,
         &item("zoom_out", "Reduce", "CmdOrCtrl+Shift+,")?,
         &sep()?,
@@ -568,7 +592,7 @@ fn main() {
         .manage(search::Online(Mutex::new(true)))
         .manage(TextLists::default())
         .manage(Purposes::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, set_online_search, search::search_online, open_link, open_drawing, save_drawing, set_check, set_palette, set_text_lists, set_purposes, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, menu_items, set_menu_keys, set_online_search, search::search_online, open_link, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback])
         .setup(|app| {
             let handle = app.handle();
             let (bar, checks, list) = menu(handle, &[], &Default::default(), &HashMap::new(), true)?;

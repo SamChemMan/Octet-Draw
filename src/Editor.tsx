@@ -7,7 +7,7 @@ import {
   MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, TextAlignCenter,
   TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa, TextB, TextItalic, TextT, TextUnderline, Warning, Stack,
   StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon,
-  Hash, ArrowsInSimple, Table, FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, LinkSimple,
+  Hash, ArrowsInSimple, Table, FileDashed, File as PageIcon, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, LinkSimple,
   MagnetStraight, Paragraph, Resize, Ruler, Angle as AngleIcon, GridFour, CrosshairSimple, TagSimple, CheckCircle,
   Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, CopySimple,
 } from "@phosphor-icons/react";
@@ -15,8 +15,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
-import { analyse, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
-import { MAX_PURPOSES, PURPOSES, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, sizesAt, type DocStyle, type Guides, type PurposeKind } from "./docstyle";
+import { analyse, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
+import { MAX_PRINT_PAGES, MAX_PURPOSES, PURPOSES, pagesOver, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, sizesAt, type DocStyle, type Guides, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
 import { Rulers } from "./Rulers";
 import { messy, problems, WARNING_TYPES, type Problem, type WarningType } from "./check";
@@ -42,10 +42,12 @@ import { loadSettings, RULER_UNITS, saveSettings } from "./settings";
 import { ACTIONS, actionFor, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
 import { Actions, actionItems, FontPick, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
-import { Properties, propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./Properties";
+import { Properties } from "./Properties";
+import { propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./proprows";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { acsText, multiplicity, quality } from "./nmr";
 import { nmrReady, predict, type Nucleus } from "./nmr";
+import { spectrumFigure } from "./spectrumplot";
 import { rings } from "./rings";
 import { NumberField, Segmented, Switch } from "./Fields";
 import { fromCdxml, toCdxml, type CdxmlOptions } from "./cdxml";
@@ -55,7 +57,7 @@ import { Home, NameBox, type RecentEntry } from "./Home";
 import { Coach, NOTHING_SEEN, type Seen } from "./Coach";
 import { Feedback } from "./Feedback";
 import { ExportButton, ExportDialog } from "./ExportDialog";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { copyToClipboard, exportFile, MDL, readClipboard, standaloneSvg, UI, withMargin, type ExportFormat } from "./export";
 import { formatAmount, formulaWeight, keyColumns, parseAmount, solve, type Field } from "./stoich";
 import { logS, properties as calculate } from "./props";
@@ -73,7 +75,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, Palette, RingGlyph, RINGS, SELECTS, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowShapes, bendPoint, curved, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type Bond, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
+import { arrowPath, arrowShapes, bendPoint, curved, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type Bond, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { loadNames, nameToSmiles, suggestName, knownName, looksLikeSmiles } from "./names";
@@ -83,6 +85,7 @@ import { iupacName } from "./namer";
 setNamer(iupacName);
 import { loadTemplates, newTemplate, templateKind } from "./templates";
 import { formulaRuns } from "./labels";
+import { bendOf, cutSides } from "./masscut";
 import { common, edited, lines as richLines, normalise, plainOf, runsOf, styleRange, styled, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
 import { Dialog } from "./Dialog";
@@ -158,7 +161,7 @@ type Drag =
   // snap: the boxes snapping uses, made at the first move (a click does not need them) and kept for the drag.
   | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; snap: () => { moving: number[]; targets: number[][] } | undefined; base?: Mol; atoms?: Set<number> }
   // Drawing an arrow, and dragging one of a picked arrow's handles (an end, or the middle of a curved one).
-  | { kind: "arrow"; from: P; start: [number, number]; target: Hover; to?: P; trail?: P[]; side?: number; make?: Make }
+  | { kind: "arrow"; from: P; start: [number, number]; target: Hover; to?: P; trail?: P[]; side?: number; make?: Make; alt?: boolean }
   // Drawing a shape from corner to corner.
   | { kind: "shape"; from: P; start: [number, number]; target: Hover; to?: P }
   | { kind: "handle"; id: number; which: Corner; working: Mol }
@@ -377,7 +380,9 @@ export default function Editor() {
   const [pop, setPop] = useState<{ n: number; x: number; y: number }>();
   const [cursor, setCursor] = useState<string>();
   const [settings, setSettings] = useState(loadSettings);
-  const drawingPrefs = useMemo(() => ({ fixedLengths: settings.fixedLengths, fixedAngles: settings.fixedAngles, sproutRings: settings.sproutRings }), [settings.fixedLengths, settings.fixedAngles, settings.sproutRings]);
+  const drawingPrefs = useMemo(() => ({ fixedLengths: settings.fixedLengths, fixedAngles: settings.fixedAngles, sproutRings: settings.sproutRings,
+    autoMap: settings.autoMap, stereoParens: settings.stereoParens, hideAbs: settings.hideAbs, mdlFlags: settings.mdlFlags, aromaticOnOpen: settings.aromaticOnOpen }),
+  [settings.fixedLengths, settings.fixedAngles, settings.sproutRings, settings.autoMap, settings.stereoParens, settings.hideAbs, settings.mdlFlags, settings.aromaticOnOpen]);
   // What this drawing shows over its page (View > Show Grid, Show Rulers, Show Crosshair). Not an edit: no undo step.
   const [guides, setGuides] = useState<Guides>({});
   // Where the pointer is (drawing coordinates), for the rulers' marks.
@@ -595,7 +600,7 @@ export default function Editor() {
     const named = lines ? undefined : structureFor(s);
     if (named || !loaded || !(lines || looksLikeSmiles(s))) return named;
     // A MOL file keeps its first line, which is often blank (the name).
-    try { const m = parseStructure(lines ? text.trimEnd() : s); return m.atoms.length ? m : undefined; } catch (err) { if (err instanceof RangeError) refused?.(err.message); return undefined; }
+    try { const m = parseStructure(lines ? text.trimEnd() : s); return m.atoms.length ? asOpened(m, text) : undefined; } catch (err) { if (err instanceof RangeError) refused?.(err.message); return undefined; }
   };
   // A structure for a name typed with a slip in it: the name as typed, or else Octet's suggestion (thorough: from every
   // name one keystroke away too, 30 to 90 ms).
@@ -628,18 +633,7 @@ export default function Editor() {
     if (!canvas) return undefined;
     flushSync(() => setExporting(part));
     try {
-      const world = canvas.querySelector<SVGGElement>("#world"), inv = world?.getCTM()?.inverse();
-      if (!world || !inv) return undefined;
-      let box: [number, number, number, number] | undefined;
-      for (const el of world.querySelectorAll<SVGGraphicsElement>("path, polygon, polyline, line, rect, circle, ellipse, text, image, use")) {
-        if (el.closest(UI)) continue;
-        const b = el.getBBox(), m = el.getCTM();
-        if ((!b.width && !b.height) || !m) continue;
-        for (const [x, y] of [[b.x, b.y], [b.x + b.width, b.y], [b.x, b.y + b.height], [b.x + b.width, b.y + b.height]]) {
-          const q = new DOMPoint(x, y).matrixTransform(inv.multiply(m));
-          box = box ? [Math.min(box[0], q.x), Math.min(box[1], q.y), Math.max(box[2], q.x), Math.max(box[3], q.y)] : [q.x, q.y, q.x, q.y];
-        }
-      }
+      const box = canvasInk(canvas);
       return box && standaloneSvg(canvas, box, 1 / pt);
     } finally {
       flushSync(() => setExporting(undefined));
@@ -674,19 +668,46 @@ export default function Editor() {
     if (kind === "rxn") return steps.length === 1 ? toReaction(part, steps, "rxn", v2000) : undefined;
     return steps.length ? toReaction(part, steps, "rdf", v2000) : undefined;
   }
-  // File > Print (⌘P): the document's page at true size, the drawing where it sits on the page, as a picture the
-  // print layout shows alone (the editor's chrome is hidden for printing), then the system's print dialog.
-  const [printing, setPrinting] = useState<{ src: string; w: number; h: number }>();
-  async function printDrawing() {
-    const canvas = svg.current, [, w, h] = pages[0], x = (w / 2) * mm * L, y = (h / 2) * mm * L;
+  // The ink of what the canvas shows (px, in the drawing's frame): every drawn element but Octet's own layers.
+  function canvasInk(canvas: SVGSVGElement): [number, number, number, number] | undefined {
+    const world = canvas.querySelector<SVGGElement>("#world"), inv = world?.getCTM()?.inverse();
+    if (!world || !inv) return undefined;
+    let box: [number, number, number, number] | undefined;
+    for (const el of world.querySelectorAll<SVGGraphicsElement>("path, polygon, polyline, line, rect, circle, ellipse, text, image, use")) {
+      if (el.closest(UI)) continue;
+      const b = el.getBBox(), m = el.getCTM();
+      if ((!b.width && !b.height) || !m) continue;
+      for (const [x, y] of [[b.x, b.y], [b.x + b.width, b.y], [b.x, b.y + b.height], [b.x + b.width, b.y + b.height]]) {
+        const q = new DOMPoint(x, y).matrixTransform(inv.multiply(m));
+        box = box ? [Math.min(box[0], q.x), Math.min(box[1], q.y), Math.max(box[2], q.x), Math.max(box[3], q.y)] : [q.x, q.y, q.x, q.y];
+      }
+    }
+    return box;
+  }
+  // File > Print (⌘P): every page the drawing covers, at true size, the drawing where it sits on them, as pictures the
+  // print layout shows alone (the editor's chrome is hidden for printing), then the system's print dialog. The pages
+  // tile the canvas from the document's page, as ChemDraw's poster pages do, in reading order. File > Print Selection
+  // prints the selection alone, on the pages it covers (ChemDraw's Print dialog: Selection).
+  const [printing, setPrinting] = useState<{ srcs: string[]; w: number; h: number }>();
+  async function printDrawing(selectionOnly = false) {
+    const canvas = svg.current, [, w, h] = pages[0], pw = w * mm * L, ph = h * mm * L;
+    const part = selectionOnly ? selectedPart() : doc;
     if (!canvas) return;
-    flushSync(() => setExporting(doc));
-    let text: string;
-    try { text = standaloneSvg(canvas, [-x, -y, x, y], 1 / pt); } finally { flushSync(() => setExporting(undefined)); }
-    const bytes = new TextEncoder().encode(text);
-    let bin = "";
-    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    flushSync(() => setPrinting({ src: `data:image/svg+xml;base64,${btoa(bin)}`, w: (w * 72) / 25.4, h: (h * 72) / 25.4 }));
+    if (!part) return setNotice("Select what to print first.");
+    flushSync(() => setExporting(part));
+    const texts: string[] = [];
+    try {
+      const { count, pages: sheets } = pagesOver(canvasInk(canvas) ?? [0, 0, 0, 0], pw, ph);
+      if (count > MAX_PRINT_PAGES) return setNotice(`The drawing covers ${count} pages. Octet prints ${MAX_PRINT_PAGES} pages at most. Move the drawing nearer to the page, or make it smaller.`);
+      for (const [i, j] of sheets) texts.push(standaloneSvg(canvas, [(i - 0.5) * pw, (j - 0.5) * ph, (i + 0.5) * pw, (j + 0.5) * ph], 1 / pt));
+    } finally { flushSync(() => setExporting(undefined)); }
+    const srcs = texts.map((text) => {
+      const bytes = new TextEncoder().encode(text);
+      let bin = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return `data:image/svg+xml;base64,${btoa(bin)}`;
+    });
+    flushSync(() => setPrinting({ srcs, w: (w * 72) / 25.4, h: (h * 72) / 25.4 }));
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     try { await invoke("print_page"); } catch (e) { setNotice(`Octet cannot print. ${e}`); }
   }
@@ -741,7 +762,7 @@ export default function Editor() {
   // Resolves true when the drawing was saved.
   async function save(as: boolean): Promise<boolean> {
     try {
-      const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), contents: writeOct({ ...doc, guides }, style, cdxmlOptions()) });
+      const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), contents: writeOct({ ...doc, guides }, style, cdxmlOptions()), format: settings.files.saveAs });
       if (path) setFile({ path, saved: doc });
       return !!path;
     } catch (e) {
@@ -767,6 +788,21 @@ export default function Editor() {
   // The open view for a new drawing in a style: the page's middle in the window's middle, at the open zoom. The page
   // outlines do not grow into place.
   const openView = (d: DocStyle) => { lastK.current = frameStyle(d, L).k * d.scale; outlineFrom.current = undefined; setView({ x: innerWidth / 2, y: innerHeight / 2, zoom: openZoom(d) }); };
+  // File > Apply Settings From File… (ChemDraw's Apply Document Settings from > Other…): the open drawing takes the
+  // whole style of another drawing (.oct or ChemDraw's CDXML): its lengths, text, labels, page and background, with
+  // one undo step. Its purpose stays, so its outlines do too.
+  async function applyStyleFile() {
+    try {
+      const text = await invoke<string | null>("pick_style_file");
+      if (text === null) return;
+      const from = readOct(text).mol.style;
+      if (!from) return setNotice("This file has no document settings.");
+      const next = readStyle({ ...from, purpose: style.purpose });
+      set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true);
+    } catch (e) {
+      setNotice(e instanceof Error ? `Octet cannot read this file. ${e.message}` : String(e));
+    }
+  }
   // Settings > Document > For, and For in the command palette: the open drawing takes a purpose's sizes and page in one
   // undo step. The sizes it holds in points go with the scale (decision 0007).
   const applyPurpose = (id: string) => {
@@ -785,6 +821,8 @@ export default function Editor() {
     return s.ownPurposes.some((p) => p.id === id) ? { ...s, ownPurposes: s.ownPurposes.map((p) => (p.id === id ? { ...p, style: kept } : p)) }
       : { ...s, purposeStyles: { ...s.purposeStyles, [id]: kept } };
   });
+  // A purpose of the user's own goes from Home, File > New For and Settings; New then starts Paper if it started that one.
+  const removePurpose = (id: string) => setSettings((s) => ({ ...s, ownPurposes: s.ownPurposes.filter((p) => p.id !== id), purpose: s.purpose === id ? "paper" : s.purpose }));
   const savePurpose = (name: string) => setSettings((s) => {
     const same = s.ownPurposes.find((p) => p.name.toLowerCase() === name.toLowerCase()), id = same?.id ?? `u${Date.now().toString(36)}`;
     const own = { id, name, kind: purposeOf(s, style.purpose)?.kind ?? "paper", style: { ...style, purpose: id } };
@@ -825,7 +863,7 @@ export default function Editor() {
     try {
       const read = readOct(text), lost = read.lost, { guides: saved, ...kept } = read.mol;
       // Settings > Files > Keep ChemDraw styles off: another program's drawing takes Octet's default style.
-      const mol = wholeGroups(read.foreign && !settings.files.keepStyle ? { ...kept, style: undefined } : kept);
+      const mol = wholeGroups(asOpened(read.foreign && !settings.files.keepStyle ? { ...kept, style: undefined } : kept, "", !!read.foreign));
       // The grid, rulers and crosshair as the drawing was saved with them; the user's last choice when it says none.
       // A drawing saved before Show Grid, with Gridlines set (a step in mm), shows its grid as it did.
       const b = bounds(mol);
@@ -885,6 +923,8 @@ export default function Editor() {
   function enhance(kind: "abs" | "or" | "&" | undefined) {
     const centres = stereocentres(doc, selection.size ? selection : undefined);
     if (!centres.length) return setNotice("Select a stereocentre: an atom at the narrow end of a wedge or hash bond.");
+    // ChemDraw asks before it sets a flag its preferences hide; Octet sets it and says so.
+    if (kind === "abs" && settings.hideAbs) setNotice("Abs flags are hidden in Settings > Drawing.");
     if (kind !== "or" && kind !== "&") return set(setEnhanced(doc, centres, kind), true);
     let m = doc;
     const moving = new Set(centres);
@@ -901,6 +941,16 @@ export default function Editor() {
     for (const g of fragments(doc)) [...g].sort((p, q) => p - q).forEach((i, k) => place.set(i, k + 1));
     set({ ...doc, atoms: doc.atoms.map((a, i) => (!atoms.includes(i) ? a : hide ? { ...a, number: undefined } : a.number ? a : { ...a, number: String(place.get(i) ?? 1) })) }, true);
   }
+  // A structure from another program's file or the clipboard, as Settings asks: MDL files' chiral flag shows as stereo
+  // flags only with Stereo flags from the chiral flag on (ChemDraw's Show Stereoflags When Opening MDL Format Files);
+  // enhanced stereo the file sets itself always stays. aromatic: the aromatic rings as Settings > Aromatic rings asks
+  // (ChemDraw's Normalize Aromatic Display), for files opened or imported.
+  function asOpened(m: Mol, text = "", aromatic = false): Mol {
+    let out = m;
+    if (!settings.mdlFlags && chiralFlagOnly(text)) out = { ...out, atoms: out.atoms.map((a) => (a.enhanced ? (({ enhanced: _, ...rest }) => rest)(a) : a)) };
+    if (aromatic && settings.aromaticOnOpen) out = { ...out, atoms: out.atoms.map((a) => ({ ...a, circle: settings.aromaticOnOpen === "circles" || undefined })) };
+    return out;
+  }
   // Import a structure file: it lands to the right of the drawing (or in the middle of an empty canvas), selected.
   async function importFile() {
     try {
@@ -909,13 +959,13 @@ export default function Editor() {
       if (/<CDXML[\s>/]/.test(picked[1].slice(0, 65536))) {
         // A ChemDraw drawing: all of it, arrows and text too, to the right of what is there.
         const { mol: add, style: from, lost } = fromCdxml(picked[1]);
-        const r = insertMol(doc, fitSizes(add, from, style), add.atoms.length ? landing(add) : [0, 0]);
+        const r = insertMol(doc, fitSizes(asOpened(add, "", true), from, style), add.atoms.length ? landing(add) : [0, 0]);
         set(r.mol, true);
         setSelection(r.atoms);
         setPicked(r.items);
         return sayLost(lost);
       }
-      place(importStructure(picked[1]));
+      place(asOpened(importStructure(picked[1]), picked[1], true));
     } catch (e) {
       setNotice(e instanceof Error ? `Octet cannot read this file. ${e.message}` : String(e));
     }
@@ -1194,6 +1244,8 @@ export default function Editor() {
     export: () => checkFirst(openExport),
     export_quick: () => checkFirst(() => void quickExport()),
     print: () => void printDrawing(),
+    print_selection: () => void printDrawing(true),
+    apply_style_file: () => void applyStyleFile(),
     about: () => setAbout(true),
     // Atom Properties (Structure menu): the selected atom's element or label, charge, isotope and radical.
     atom_properties: () => atomProperties([...selection][0] ?? hovers.get().atom),
@@ -1347,8 +1399,12 @@ export default function Editor() {
       const c = writing ? { ...doc.captions?.find((x) => x.id === writing.id), ...writing.style } : doc.captions?.find((x) => picked.has(x.id)) ?? textStyle, lh = c.lineHeight;
       setDialog({ kind: "spacing", mode: lh === "variable" ? "variable" : typeof lh === "number" ? "fixed" : "auto", pt: String(typeof lh === "number" ? lh : Math.round((c.size ?? style.captionSize) * 1.2 * 10) / 10) });
     },
+    // View > Show Page (ChemDraw's Show Document): the whole page in the window, centred. Fit to Window (⌘/) fits the
+    // drawing.
+    show_page: () => fitPage(pages[0]),
     zoom_fit: () => {
-      const b = bounds(doc);
+      // Everything drawn (text, arrows and shapes too), or the atoms when the canvas is not there.
+      const ink = svg.current ? canvasInk(svg.current) : undefined, b = ink ? [ink[0] / L, -ink[3] / L, ink[2] / L, -ink[1] / L] : bounds(doc);
       if (!b) return setView({ x: innerWidth / 2, y: innerHeight / 2, zoom: openZoom(style) });
       const free = [innerWidth - 160, innerHeight - 120], size = [(b[2] - b[0] + 1) * L, (b[3] - b[1] + 1) * L];
       const zoom = clampZoom(Math.min(free[0] / size[0], free[1] / size[1]));
@@ -1423,6 +1479,7 @@ export default function Editor() {
     if (drag?.kind === "chain" && drag.to) return chainThrough(doc, drag.from, chainPath(drag)).mol;
     if (drag?.kind === "ring" && drag.to) return ringDrop(drag);
     if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "resize" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "tableedge") return placeCentres(drag.working);
+    if (drag?.kind === "arrow" && drag.to && drag.make?.kind === "cut") return massCut(drag, true).mol;
     if (drag?.kind === "arrow" && drag.to) return addArrow(doc, newArrow(drag.from, drag.to, drag.side, drag.make))[0];
     if (drag?.kind === "shape" && drag.to) { const sh = shapeFrom(drag.from, drag.to); return sh ? addShape(doc, sh)[0] : doc; }
     if (pen || drag?.kind === "pen") {
@@ -1739,6 +1796,32 @@ export default function Editor() {
       });
     });
   }, [arrows, shown, loaded]);
+  // A cut with the Mass fragmentation tool (ChemDraw's): one caption for each side, its pieces' formula (counts as
+  // subscripts) and exact mass added up, beside the cut's end on that side (the left side's at its start). The
+  // captions move, change and delete as any caption does. The cut line goes when the pointer is released; with Option
+  // held it stays, as a dashed line or arc, curved as the pointer went. The mass has the Properties panel's decimals.
+  function massCut(d: { from: P; to?: P; trail?: P[]; alt?: boolean }, keepLine: boolean): { mol: Mol; items: number[] } {
+    if (!d.to) return { mol: doc, items: [] };
+    const bend = d.alt ? bendOf([...(d.trail ?? [d.from]), d.to]) : 0;
+    const line: Omit<Arrow, "id"> = { kind: bend ? "arc" : "line", from: d.from, to: d.to, ...(bend ? { bend } : {}), style: "dashed" };
+    const path = arrowPath({ ...line, id: 0 }, 1).map(([x, y]): P => [x, -y]);
+    let m = doc;
+    const items: number[] = [];
+    if (keepLine) { const [next, id] = addArrow(m, line); m = next; items.push(id); }
+    for (const s of (loaded && cutSides(doc, path, fragmentMasses)) || []) {
+      // The end of the path on this side, its direction there, and the normal out to this side.
+      const [end, before] = s.side > 0 ? [path[0], path[1]] : [path[path.length - 1], path[path.length - 2]];
+      const u: P = s.side > 0 ? [before[0] - end[0], before[1] - end[1]] : [end[0] - before[0], end[1] - before[1]], len = Math.hypot(...u) || 1;
+      const n: P = [(-u[1] / len) * s.side, (u[0] / len) * s.side], f = Math.max(...s.atoms.map((i) => scaleOf(doc.atoms[i] ?? {})), 1);
+      const runs: TextRun[] = [];
+      for (const [, letters, digits] of s.formula.matchAll(/(\D*)(\d*)/g)) { if (letters) runs.push({ text: letters }); if (digits) runs.push({ text: digits, script: "sub" }); }
+      runs.push({ text: ` ${s.exact.toFixed(settings.decimals ?? 4)}` });
+      const clean = normalise(runs), [next, id] = addCaption(m, { text: plainOf(clean), x: end[0] + n[0] * 0.25 * f, y: end[1] + n[1] * 0.25 * f, align: n[0] >= 0 ? "left" : "right", runs: clean });
+      m = next;
+      items.push(id);
+    }
+    return { mol: m, items };
+  }
   // The cycle arc (or side arrow) under a point.
   // A thicker line (an object's scale) is as easy to hit as it is wide.
   const cycleAt = (p: P) => cycleArrows.find((a) => nearTrace([p[0] * L, -p[1] * L], arrowTrace(a, L), 5 / views.get().zoom + frame.line * 2 * scaleOf(a)));
@@ -2683,6 +2766,9 @@ export default function Editor() {
       case "arrow": {
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         stopHold();
+        // A mass-fragmentation cut keeps the pointer's path: with Option held it is curved as the pointer goes, and stays.
+        if (drag.make?.kind === "cut" && e.altKey) return setDrag({ ...drag, to: p, trail: [...(drag.trail ?? [drag.from]), p], alt: true });
+        const cut = drag.make?.kind === "cut" ? { trail: [...(drag.trail ?? [drag.from]), p], alt: false } : {};
         // A curved arrow ends on an atom or bond; a straight one snaps to 15° steps (⌥/Alt frees it).
         if (curved({ kind: drag.make?.kind ?? arrowKind })) {
           // The arc bulges the way the drag went: the sign of the area between the pointer's path and the line.
@@ -2697,7 +2783,7 @@ export default function Editor() {
         const a = e.altKey || !settings.fixedAngles ? raw : Math.round(raw / SNAP) * SNAP, to: P = [drag.from[0] + far * Math.cos(a), drag.from[1] + far * Math.sin(a)];
         // Snap to Grid: a level or upright arrow ends on a grid line too (other angles keep their 15° steps).
         const turn = ((Math.round(a / SNAP) % 12) + 12) % 12, g = toGrid(to, e.metaKey || e.altKey), stepped = a !== raw || raw % SNAP === 0;
-        return setDrag({ ...drag, to: stepped && turn === 0 ? [g[0], to[1]] : stepped && turn === 6 ? [to[0], g[1]] : to });
+        return setDrag({ ...drag, ...cut, to: stepped && turn === 0 ? [g[0], to[1]] : stepped && turn === 6 ? [to[0], g[1]] : to });
       }
       case "map":
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
@@ -3389,8 +3475,8 @@ export default function Editor() {
       if (!calculated.has(s)) { const p = calculate(g); calculated.set(s, { ...p, pka: p.pka.filter((x) => x.pka < 13), logS: s.logP !== undefined ? logS(s.logP, s.weight, p) : undefined }); }
       return calculated.get(s);
     };
-    return { atoms: kept.map((x) => x.atoms), values: propertyValues(kept.map((x) => x.s!), calc) };
-  }, [loaded, settings.properties, doc, propertySelection]);
+    return { atoms: kept.map((x) => x.atoms), values: propertyValues(kept.map((x) => x.s!), calc, settings.decimals) };
+  }, [loaded, settings.properties, settings.decimals, doc, propertySelection]);
   lastProperties.current = properties;
   // The Spectrum panel's structure (the first in the selection, or the drawing's largest), its predicted spectrum
   // once the shift tables are loaded, and which drawn atom each of the prediction's atoms is.
@@ -3413,8 +3499,8 @@ export default function Editor() {
     const groups = fragments(doc), kept = nmrTarget && groups.find((g) => g.length === nmrTarget.length && g.every((i) => nmrTarget.includes(i)));
     const pick = kept ?? [...groups].sort((a, b) => b.length - a.length)[0];
     const ids = [...pick].sort((a, b) => a - b), { mol, from } = expandWithOrigins(subset(doc, new Set(ids))), g = graphOf(mol);
-    return { prediction: g && nmrTables ? predict(g, spectrum) : undefined, toDoc: from.map((i) => ids[i]) };
-  }, [spectrum, loaded, doc, nmrTarget, nmrTables]);
+    return { prediction: g && nmrTables ? predict(g, spectrum, settings.nmrSolvent) : undefined, toDoc: from.map((i) => ids[i]) };
+  }, [spectrum, loaded, doc, nmrTarget, nmrTables, settings.nmrSolvent]);
   // The prediction's atoms lit by pointing at an atom on the canvas, and the drawn atoms lit from the spectrum.
   const nmrLit = (atom?: number) => new Set(nmr && atom !== undefined ? nmr.toDoc.flatMap((d, k) => (d === atom ? [k] : [])) : []);
   const nmrMarks = new Set(nmr && nmrPoint ? nmrPoint.map((k) => nmr.toDoc[k]) : []);
@@ -3480,13 +3566,15 @@ export default function Editor() {
   // have it on, in the caption font a little smaller, italic as IUPAC writes them.
   // Atom numbers go first, upright, and the stereo labels find room around them.
   function stereoMarks() {
+    // Settings > Drawing > Parentheses round R and S (ChemDraw's Include Parentheses When Showing Stereochemistry).
+    const paren = (c: string) => (settings.stereoParens ? `(${c})` : c);
     // Each in its atom's scale (its bond's mean for E and Z).
     const out: { key: string; x: number; y: number; anchor: "start" | "middle" | "end"; text: string; colour?: string; upright?: boolean; size: number }[] = [], taken: number[][] = [], base = style.captionSize * pt * 0.8;
     shown.atoms.forEach((a, i) => { const size = base * scaleOf(a); if (a.number) out.push({ key: `n${i}`, ...besideAtom(i, a.number.length * size * 0.55, size, taken, 0.55 * scaleOf(a)), text: a.number, colour: a.colour, upright: true, size }); });
     if (!stereo) return out;
     stereo.atoms.forEach((c, i) => {
       if (!c || !shown.atoms[i]?.cip) return;
-      const text = `(${c})`, size = base * scaleOf(shown.atoms[i]);
+      const text = paren(c), size = base * scaleOf(shown.atoms[i]);
       out.push({ key: `a${i}`, ...besideAtom(i, text.length * size * 0.55, size, taken, 0.55 * scaleOf(shown.atoms[i])), text, colour: shown.atoms[i].colour, size });
     });
     stereo.bonds.forEach((c, k) => {
@@ -3496,7 +3584,7 @@ export default function Editor() {
       const [p, q] = b.atoms.map((i) => pos(shown, i)), mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2, d = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, nx = -(q[1] - p[1]) / d, ny = (q[0] - p[0]) / d;
       const side = shown.bonds.filter((o) => o !== b && o.atoms.some((i) => b.atoms.includes(i))).map((o) => { const far = pos(shown, b.atoms.includes(o.atoms[0]) ? o.atoms[1] : o.atoms[0]); return Math.sign((far[0] - mx) * nx + (far[1] - my) * ny); }).reduce((s, v) => s + v, 0) > 0 ? -1 : 1;
       const f = (scaleOf(shown.atoms[b.atoms[0]]) + scaleOf(shown.atoms[b.atoms[1]])) / 2;
-      out.push({ key: `b${k}`, x: (mx + side * nx * 0.5 * f) * L, y: -(my + side * ny * 0.5 * f) * L, anchor: "middle", text: `(${c})`, colour: b.colour, size: base * f });
+      out.push({ key: `b${k}`, x: (mx + side * nx * 0.5 * f) * L, y: -(my + side * ny * 0.5 * f) * L, anchor: "middle", text: paren(c), colour: b.colour, size: base * f });
     });
     return out;
   }
@@ -3569,6 +3657,42 @@ export default function Editor() {
     const atoms = [...new Set(nmr!.toDoc)];
     m = addCaption(m, { text: plainOf(normalise(runs)), x: 0, y: 0, under: atoms, runs: normalise(runs) })[0];
     set(m, true);
+  }
+  // Add to drawing > Shifts beside atoms: each predicted shift as a caption where the panel shows it, so it saves,
+  // prints and exports with the drawing (the panel's own shift labels are not part of the drawing).
+  function addShifts() {
+    const size = style.captionSize * 0.8;
+    let m = doc;
+    for (const l of shiftLabels()) m = addCaption(m, { text: l.text, x: l.x / L, y: -(l.y + 0.35 * size * pt) / L, size, align: l.anchor === "start" ? "left" : l.anchor === "end" ? "right" : "centre" })[0];
+    if (m !== doc) set(m);
+  }
+  // Add to drawing > Spectrum: the spectrum as the panel shows it (its shift range, solvent peaks and peak colours) as
+  // lines, a curve and captions under the structure, picked as one (an integral group), with the line that names it
+  // and the notice the nmrshiftdb2 licence asks a published prediction to carry.
+  function addSpectrum(range: [number, number]) {
+    const p = nmr?.prediction;
+    if (!p) return;
+    const atoms = [...new Set(nmr!.toDoc)].filter((i) => doc.atoms[i]), ps = atoms.map((i) => pos(doc, i));
+    if (!ps.length) return;
+    const f = atoms.reduce((s0, i) => s0 + scaleOf(doc.atoms[i]), 0) / atoms.length, labelPt = style.captionSize * 0.8 * f, em = labelPt / style.bond;
+    const W = 14 * f, H = 3.5 * f, cx = (Math.min(...ps.map((q) => q[0])) + Math.max(...ps.map((q) => q[0]))) / 2;
+    const fig = spectrumFigure({ prediction: p, nucleus: p.nucleus, mhz: settings.nmrMhz, solvent: settings.nmrSolvent, solventPeaks: settings.nmrSolventPeaks, range, colours: nmrColours, width: W, height: H, em });
+    // The figure's top (its title's) sits one bond length under the structure.
+    const top = H + 0.45 + 2.6 * em, x0 = cx - W / 2, y0 = Math.min(...ps.map((q) => q[1])) - 1 - 1.4 * em - top;
+    const at = (q: [number, number]): [number, number] => [x0 + q[0], y0 + q[1]], GREY = "#808080";
+    let m = doc;
+    const items: number[] = [];
+    const keep = ([next, id]: [Mol, number]) => { m = next; items.push(id); };
+    for (const l of fig.lines) keep(addArrow(m, { kind: "line", from: at(l.from), to: at(l.to), ...(l.colour || l.grey ? { colour: l.colour ?? GREY } : {}) }));
+    for (const c of fig.curves) { const pts = c.points.map(at); keep(addArrow(m, { kind: "curve", from: pts[0], to: pts[pts.length - 1], curve: { points: pts.map((q) => ({ at: q })) }, ...(c.grey ? { colour: GREY } : {}) })); }
+    for (const t of fig.texts) keep(addCaption(m, { text: t.text, x: at(t.at)[0], y: at(t.at)[1], size: Math.round(labelPt * t.size * 10) / 10, align: t.align, ...(t.colour || t.grey ? { colour: t.colour ?? GREY } : {}) }));
+    keep(addCaption(m, { text: `${acsText({ ...p, signals: [] }, settings.nmrMhz, settings.nmrSolvent).replace(/ δ \.$/, "")}, predicted`, x: x0, y: y0 + top + 0.4 * em, size: Math.round(labelPt * 10) / 10, align: "left" }));
+    keep(addCaption(m, { text: "Contains information from nmrshiftdb2 (www.nmrshiftdb.org)", x: x0, y: y0 - 0.15 - 1.9 * em, size: Math.round(labelPt * 0.7 * 10) / 10, align: "left", colour: GREY }));
+    const grouped = groupSelection(m, new Set(), new Set(items));
+    if (grouped) m = { ...grouped[0], groups: grouped[0].groups?.map((g) => (g.id === grouped[1] ? { ...g, integral: true as const } : g)) };
+    set(m);
+    setSelection(new Set());
+    setPicked(new Set(items));
   }
   // Add to drawing: the chosen rows as a caption under each structure, the formula's counts as subscripts.
   function addProperties() {
@@ -3668,7 +3792,7 @@ export default function Editor() {
     copy_mol: ["Copy as MOL", `⌥${MOD}O`, <CopySimple size={18} />], copy_mol2000: ["Copy as MOL V2000", `⇧⌥${MOD}O`, <CopySimple size={18} />],
     new: ["New drawing", `${MOD}N`, <FilePlus size={18} />], open: ["Open…", `${MOD}O`, <FolderOpen size={18} />], import: ["Import a structure…", "", <FileArrowDown size={18} />],
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDiskBack size={18} />],
-    export: ["Export…", EXPORT_KEYS, <ExportIcon size={18} />], print: ["Print…", `${MOD}P`, <Printer size={18} />], page_setup: ["Page setup…", `⇧${MOD}P`, <FileDashed size={18} />],
+    export: ["Export…", EXPORT_KEYS, <ExportIcon size={18} />], print: ["Print…", `${MOD}P`, <Printer size={18} />], print_selection: ["Print selection…", "", <Printer size={18} />], apply_style_file: ["Apply settings from file…", "", <FileArrowDown size={18} />], page_setup: ["Page setup…", `⇧${MOD}P`, <FileDashed size={18} />],
     about: ["About Octet", "", <Info size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />],
     bond_properties: ["Bond properties…", "", <Faders size={18} />], bracket_properties: ["Bracket properties…", "", <Faders size={18} />], rlogic: ["R-Logic query…", "", <Faders size={18} />],
     add_multicentre: ["Add multi-centre attachment", "", <Asterisk size={18} />], add_variable: ["Add variable attachment", "", <AsteriskSimple size={18} />],
@@ -3688,7 +3812,7 @@ export default function Editor() {
     arrange_across: ["Distribute horizontally", `⌥⇧${MOD}H`, <ArrowsOutLineHorizontal size={18} />], arrange_down: ["Distribute vertically", `⌥⇧${MOD}V`, <ArrowsOutLineVertical size={18} />], select_all: ["Select all", `${MOD}A`, <SelectionAll size={18} />],
     clean_up: ["Clean up structure", `⇧${MOD}K`, <MagicWand size={18} />], flip_h: ["Rotate 180° horizontal", `⇧${MOD}H`, <ArrowsLeftRight size={18} />], flip_v: ["Rotate 180° vertical", `⇧${MOD}V`, <ArrowsDownUp size={18} />],
     zoom_in: ["Magnify", `⇧${MOD}>`, <MagnifyingGlassPlus size={18} />], zoom_out: ["Reduce", `⇧${MOD}<`, <MagnifyingGlassMinus size={18} />],
-    zoom_actual: ["Actual size", `${MOD}\\`, <FrameCorners size={18} />], zoom_fit: ["Fit to window", `${MOD}/`, <CornersOut size={18} />],
+    zoom_actual: ["Actual size", `${MOD}\\`, <FrameCorners size={18} />], zoom_fit: ["Fit to window", `${MOD}/`, <CornersOut size={18} />], show_page: ["Show page", "", <PageIcon size={18} />],
     name_to_structure: ["Convert name to structure", `⇧${MOD}N`, <AtomIcon size={18} />],
     check_structure: ["Check structure", "", <CheckCircle size={18} />], stereo_clear: ["Clear enhanced stereochemistry", "", <TagSimple size={18} />],
     stereo_abs: ["Mark as absolute", "", <TagSimple size={18} />], stereo_or: ["Create or group", "", <TagSimple size={18} />], stereo_and: ["Create and group", "", <TagSimple size={18} />],
@@ -4209,6 +4333,12 @@ export default function Editor() {
         return click(t, at, drag.alt);
       }
       case "arrow": {
+        if (drag.make?.kind === "cut") {
+          if (!drag.to) return;
+          const { mol, items } = massCut(drag, !!drag.alt);
+          if (mol !== doc) { set(mol); setPicked(new Set(items)); }
+          return;
+        }
         // A click makes an arrow of the usual length (three bonds; a short arc for a curved one), going right.
         const to: P = drag.to ?? (drag.make?.kind === "orbital" ? orbitalTip(drag.make, drag.from, drag.target) : curved({ kind: drag.make?.kind ?? arrowKind }) ? [drag.from[0] + 1.5, drag.from[1]] : [drag.from[0] + 3, drag.from[1]]);
         if (Math.hypot(to[0] - drag.from[0], to[1] - drag.from[1]) < 0.2) return;
@@ -4249,7 +4379,14 @@ export default function Editor() {
         // Dropped on another atom: the two are mapped to each other. A click on a mapped atom takes its number off.
         const to = drag.to ? hitAt(drag.to).atom : drag.atom;
         if (to === drag.atom) return doc.atoms[drag.atom].map ? set(clearMap(doc, drag.atom), true) : undefined;
-        return to !== undefined ? set(pairMap(doc, drag.atom, to), true) : undefined;
+        if (to === undefined) return;
+        // Settings > Drawing > Map the rest of a reaction (ChemDraw's Automatic Reaction Mapping, on by default): the
+        // rest of the pair's reaction is mapped too, keeping the pairs mapped by hand.
+        const paired = pairMap(doc, drag.atom, to), hit = settings.autoMap ? reactions().find(({ r }) => r.atoms.includes(drag.atom) && r.atoms.includes(to)) : undefined;
+        if (!hit) return set(paired, true);
+        const structures = (list: Part[]) => list.flatMap((x) => (x.kind === "structure" ? [x.atoms] : []));
+        const steps = hit.steps.map((x) => ({ reactants: structures(x.reactants), products: structures(x.products) }));
+        return set(mapScheme(paired, steps, (rs, ps) => mapReaction(rs, ps, true), (atoms) => pickAtoms(paired, atoms)) ?? paired, true);
       }
       case "turn":
         return drag.degrees ? turnTo(drag.working, drag.centre) : undefined;
@@ -4430,7 +4567,7 @@ export default function Editor() {
           for (const source of [clip.molfile, clip.smiles]) {
             if (!source || !loaded) continue;
             let frag: Mol | undefined;
-            try { frag = importStructure(source); } catch (err) { frag = undefined; if (err instanceof RangeError) refused(err.message); }
+            try { frag = asOpened(importStructure(source), source); } catch (err) { frag = undefined; if (err instanceof RangeError) refused(err.message); }
             if (frag?.atoms.length) return place(frag);
           }
           if (!text?.trim()) return;
@@ -4886,7 +5023,7 @@ export default function Editor() {
       {stereoMarks().map((m) => <text key={m.key} className="stereo-label" x={m.x} y={m.y} textAnchor={m.anchor} dominantBaseline="middle" fill={m.colour ?? "var(--ink)"} style={{ font: `${m.upright ? "" : "italic "}${m.size}px ${fontStack(style.captionFont)}` }}>{m.text}</text>)}
       {problemMarks()}
     </>
-  ), [shown, drawing, frame, darkPaper, arrows, pt, gridKey, gridEdit, style, stereo, ringsOf, found, doc.atoms]); // eslint-disable-line react-hooks/exhaustive-deps
+  ), [shown, drawing, frame, darkPaper, arrows, pt, gridKey, gridEdit, style, stereo, ringsOf, found, doc.atoms, settings.stereoParens]); // eslint-disable-line react-hooks/exhaustive-deps
   // The selection's marks, and the mark on what is under the pointer (Live: a pointer move draws only that again).
   const marks = (
     <>
@@ -4929,8 +5066,9 @@ export default function Editor() {
   const over = useMemo(() => (
     <>
       {(shown.shapes ?? []).filter(level).map(shapeLines)}
-      {shown.atoms.map((a, i) => a.enhanced && drawing.ink[i] ? (
-        // Enhanced stereo flags: small, by the stereocentre on its open side, as ChemDraw prints them.
+      {shown.atoms.map((a, i) => a.enhanced && drawing.ink[i] && !(settings.hideAbs && a.enhanced === "abs") ? (
+        // Enhanced stereo flags: small, by the stereocentre on its open side, as ChemDraw prints them. Settings > Drawing >
+        // Hide abs flags hides the absolute ones (ChemDraw's Hide Absolute Stereoflags).
         <text key={`st${i}`} className="stereo-flag" textAnchor="middle" fill="var(--ink)" x={(pos(shown, i)[0] + 0.5 * scaleOf(a) * markDirs.get(i)![0]) * L} y={-(pos(shown, i)[1] + 0.5 * scaleOf(a) * markDirs.get(i)![1]) * L + 0.25 * frame.size * scaleOf(a)}
           style={{ font: `${frame.size * 0.7 * scaleOf(a)}px ${fontStack(style.labelFont)}` }}>{a.enhanced}</text>
       ) : null)}
@@ -4943,7 +5081,7 @@ export default function Editor() {
         <CaptionText key={`c${c.id}`} c={c} fill={textInk(c.colour ?? style.colour)} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} />
       ))}
     </>
-  ), [shown, frame, darkPaper, draggedSpot, spotPick, style, pt, cell?.id, cell?.r, cell?.c, drawing, markDirs, labelTexts, placed, writing?.id, reagents]); // eslint-disable-line react-hooks/exhaustive-deps
+  ), [shown, frame, darkPaper, draggedSpot, spotPick, style, pt, cell?.id, cell?.r, cell?.c, drawing, markDirs, labelTexts, placed, writing?.id, reagents, settings.hideAbs]); // eslint-disable-line react-hooks/exhaustive-deps
   // Things with a draw order (order.ts), each drawn whole: under all the layers (below zero) or over them, lowest first.
   const lifted = useMemo(() => {
     const things: [number, React.ReactNode][] = [];
@@ -5198,12 +5336,13 @@ export default function Editor() {
           />
         );
       }}</Live>}
-      {printing && (
-        // What Print prints: only this, at true size (see editor.css, @media print).
+      {printing && createPortal(
+        // What Print prints: only this, a page to a sheet, at true size (see editor.css, @media print). It is the body's
+        // own child, so it flows from sheet to sheet while everything else is left out.
         <div className="print-root" aria-hidden>
           <style>{`@page { size: ${printing.w.toFixed(2)}pt ${printing.h.toFixed(2)}pt; margin: 0; }`}</style>
-          <img src={printing.src} alt="" style={{ width: `${printing.w}pt`, height: `${printing.h}pt` }} />
-        </div>
+          {printing.srcs.map((src, k) => <img key={k} src={src} alt="" style={{ display: "block", width: `${printing.w}pt`, height: `${printing.h}pt`, breakAfter: k < printing.srcs.length - 1 ? "page" : undefined }} />)}
+        </div>, document.body,
       )}
       {gridEdit && <Live store={views}>{(view) => {
         // The stoichiometry cell box, over the cell; Enter keeps it, Escape leaves it as it was.
@@ -5387,6 +5526,10 @@ export default function Editor() {
           purposes={purposeList}
           onPurpose={applyPurpose}
           onSavePurpose={settings.ownPurposes.length < MAX_PURPOSES ? savePurpose : undefined}
+          ownPurposes={settings.ownPurposes}
+          onRenamePurpose={(id, name) => setSettings((s) => ({ ...s, ownPurposes: s.ownPurposes.map((x) => (x.id === id ? { ...x, name } : x)) }))}
+          onRemovePurpose={removePurpose}
+          onApplyFile={TAURI ? () => void applyStyleFile() : undefined}
           keys={settings.keys}
           onKeys={(keys) => setSettings((s) => ({ ...s, keys }))}
           files={settings.files}
@@ -5485,7 +5628,7 @@ export default function Editor() {
           onDetails={(on) => setSettings((s) => ({ ...s, nmrDetails: on }))}
           onColour={(k, c) => haloSignals(() => c, k)}
           onColourAll={(on) => haloSignals((k) => (on ? PEAK_COLOURS[k % PEAK_COLOURS.length] : undefined))}
-          onKey={addKey}
+          onAdd={(what, range) => (what === "key" ? addKey() : what === "shifts" ? addShifts() : addSpectrum(range))}
           onSolventPeaks={(on) => setSettings((s) => ({ ...s, nmrSolventPeaks: on }))}
         />
       )}</Live>}
@@ -5498,6 +5641,8 @@ export default function Editor() {
           onAdd={addProperties}
           onClose={() => setSettings((s) => ({ ...s, properties: false }))}
           stacked={!!spectrum}
+          decimals={settings.decimals}
+          onDecimals={(decimals) => setSettings((s) => ({ ...s, decimals }))}
         />
       )}
       <Live store={carets}>{() => {
@@ -5541,7 +5686,7 @@ export default function Editor() {
         ? <NameBox leaving={!home} onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone) startTutorial(); }} />
         : <Home leaving={!home} name={settings.userName ?? ""} first={welcomed} away={away} recents={recents} newKey={keyLabel("enter")} openKey={hint("open")}
             purposes={purposeList} purpose={settings.purpose} onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent}
-            onRemovePurpose={(id) => setSettings((s) => ({ ...s, ownPurposes: s.ownPurposes.filter((p) => p.id !== id), purpose: s.purpose === id ? "paper" : s.purpose }))}
+            onRemovePurpose={removePurpose}
             onRemove={(r) => void invoke("recent_remove", { path: r.path }).then(refreshRecents).catch(() => {})} />)}
       {coach > 0 && !home && (
         <Coach key={coach} doc={doc} selected={selection.size} seen={seen} keys={{ clean: hint("clean_up") ?? "", copy: keyLabel("mod+c") }}

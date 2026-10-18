@@ -277,3 +277,15 @@ export function frameStyle(d: DocStyle, frame: number): Style & { k: number } {
   return { bond: frame, line: px(d.line), bold: px(d.bold), spacing: (d.spacing / 100) * frame, hash: px(d.hash), margin: px((d.margin * 1.69) / 1.6), size: px(d.labelSize), labelPt: d.labelSize, k,
     terminal: d.terminalLabels, carbons: d.carbonLabels, hideH: d.hideH };
 }
+
+// Print: the pages a box (in any unit, y down) covers when pages w by h tile the plane from a page centred on the
+// origin, as [column, row] (the origin's page is [0, 0]), row by row from the top. A box within `slack` of a page's
+// edge does not reach the next page. count: how many pages that is; pages is empty past MAX_PRINT_PAGES.
+export const MAX_PRINT_PAGES = 64;
+export function pagesOver(box: [number, number, number, number], w: number, h: number, slack = 1): { count: number; pages: [number, number][] } {
+  const first = (lo: number, size: number) => Math.floor((lo + slack) / size + 0.5), last = (hi: number, size: number) => Math.ceil((hi - slack) / size - 0.5);
+  const [i0, j0] = [first(box[0], w), first(box[1], h)], [i1, j1] = [Math.max(i0, last(box[2], w)), Math.max(j0, last(box[3], h))];
+  const count = (i1 - i0 + 1) * (j1 - j0 + 1), pages: [number, number][] = [];
+  if (count <= MAX_PRINT_PAGES) for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) pages.push([i, j]);
+  return { count, pages };
+}

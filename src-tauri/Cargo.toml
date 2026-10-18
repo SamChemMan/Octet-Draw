@@ -22,6 +22,8 @@ pdf-writer = "0.12"
 resvg = { version = "0.45", default-features = false, features = ["text"] }
 miniz_oxide = "0.8"
 png = "0.17"
+# JPEG and GIF export (its encoders; svg2pdf already builds it with these features).
+image = { version = "0.25", default-features = false, features = ["jpeg", "gif"] }
 base64 = "0.22"
 # Opens web addresses and files in the user's own programs. On Windows it calls ShellExecuteExW, not cmd.exe.
 open = { version = "5.4", features = ["shellexecute-on-windows"] }

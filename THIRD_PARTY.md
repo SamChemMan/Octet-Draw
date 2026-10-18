@@ -14,6 +14,8 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | fontdb (Rust) | 0.23 | MIT | Finds the system fonts to embed in PDFs (used by usvg) |
 | slotmap (Rust) | 1.1 | Zlib | Used by fontdb. Zlib approved by Sam, 17 October 2026 |
 | png (Rust) | 0.17 | MIT OR Apache-2.0 | Writes the PNG export with its resolution |
+| image (Rust, image-rs) | 0.25 | MIT OR Apache-2.0 | Writes the JPEG and GIF exports (already in the build through svg2pdf) |
+| gif, color_quant (Rust, image-rs) | 0.14, 1.1 | MIT OR Apache-2.0; MIT | The GIF export's encoder and its 256-colour palette (used by image) |
 | miniz_oxide (Rust) | 0.8 | MIT OR Zlib OR Apache-2.0 | Compresses and reads the CDXML stream in PDFs |
 | base64 (Rust) | 0.22 | MIT OR Apache-2.0 | ChemDraw's CDX from the clipboard, sent to the page |
 | serde (Rust) | 1 | MIT OR Apache-2.0 | Export and paste data between the page and the app |

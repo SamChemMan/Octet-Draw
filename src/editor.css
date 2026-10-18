@@ -3333,8 +3333,23 @@ button.variant.add {
   border-color: var(--brand);
   background: var(--brand);
 }
-.prop-add {
+.prop-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
   margin: var(--space-2) var(--space-1) 0;
+}
+.prop-decimals {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.prop-add {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
@@ -3681,18 +3696,11 @@ button.variant.add {
   display: none;
 }
 @media print {
-  body * {
-    visibility: hidden;
-  }
-  .print-root,
-  .print-root * {
-    visibility: visible;
+  body > :not(.print-root) {
+    display: none !important;
   }
   .print-root {
     display: block;
-    position: fixed;
-    top: 0;
-    left: 0;
   }
 }
 

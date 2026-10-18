@@ -12,7 +12,8 @@ export type Nucleus = "1H" | "13C";
 // how sure the prediction is (the spread of the shifts it was based on, in ppm, and how many there were).
 // group: what the signal comes from, as chemists name it ("CH3", "2 × CH"); level: how many spheres of the atom's
 // surroundings matched the table (1 to 6); each coupling also names the groups it couples to (graph indices).
-export type Signal = { atoms: number[]; shift: number; nuclei: number; couplings: { j: number; n: number; with?: number[] }[]; broad?: boolean; sd: number; based: number; group?: string; level?: number };
+// solvent: the shift comes from spectra measured in the solvent asked for (unset: from spectra in any solvent).
+export type Signal = { atoms: number[]; shift: number; nuclei: number; couplings: { j: number; n: number; with?: number[] }[]; broad?: boolean; sd: number; based: number; group?: string; level?: number; solvent?: string };
 export type Prediction = { nucleus: Nucleus; signals: Signal[] };
 
 export const LEVELS = 6; // spheres in the longest code
@@ -125,33 +126,43 @@ export function codeHash(nucleus: Nucleus, code: string): number {
 }
 
 // A table: sorted code hashes, each with the median shift, the spread (standard deviation) and how many measured
-// shifts it holds. The file holds the ¹³C table, then the ¹H one: "ONMR", version, the two counts, then per table
-// the hashes (u32), shifts (i16, ppm × 100), spreads (u16, ppm × 100) and counts (u16).
+// shifts it holds. Version 1 of the file holds the ¹³C table, then the ¹H one: "ONMR", version, the two counts, then
+// per table the hashes (u32), shifts (i16, ppm × 100), spreads (u16, ppm × 100) and counts (u16). Version 2 adds the
+// solvent tables, ¹³C then ¹H (four counts, four tables): codes measured in one solvent (solventCode) whose shifts
+// there differ from the shifts in every solvent.
 export type Table = { hash: Uint32Array; shift: Int16Array; sd: Uint16Array; n: Uint16Array };
-const tables: Partial<Record<Nucleus, Table>> = {};
+export type Tables = Record<Nucleus, Table> & { solvent?: Record<Nucleus, Table> };
+const tables: Partial<Record<Nucleus, Table>> = {}, solventTables: Partial<Record<Nucleus, Table>> = {};
 
 export function readTables(bytes: Uint8Array) {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (bytes.length < 16 || String.fromCharCode(...bytes.slice(0, 4)) !== "ONMR" || view.getUint32(4, true) !== 1) throw new Error("Not a shift table");
-  let at = 16;
-  (["13C", "1H"] as Nucleus[]).forEach((nucleus, k) => {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), version = bytes.length >= 8 ? view.getUint32(4, true) : 0;
+  if (bytes.length < 16 || String.fromCharCode(...bytes.slice(0, 4)) !== "ONMR" || (version !== 1 && version !== 2)) throw new Error("Not a shift table");
+  const parts = version === 2 ? 4 : 2, head = 8 + 4 * parts;
+  if (bytes.length < head) throw new Error("Shift table is cut short");
+  let at = head;
+  delete solventTables["13C"];
+  delete solventTables["1H"];
+  for (let k = 0; k < parts; k++) {
     const count = view.getUint32(8 + 4 * k, true);
     if (at + count * 10 > bytes.length) throw new Error("Shift table is cut short");
     const copy = <T>(make: (b: ArrayBuffer) => T, size: number) => { const b = new Uint8Array(bytes.subarray(at, at + count * size)).buffer; at += count * size; return make(b); };
-    tables[nucleus] = { hash: copy((b) => new Uint32Array(b), 4), shift: copy((b) => new Int16Array(b), 2), sd: copy((b) => new Uint16Array(b), 2), n: copy((b) => new Uint16Array(b), 2) };
-  });
+    const t = { hash: copy((b) => new Uint32Array(b), 4), shift: copy((b) => new Int16Array(b), 2), sd: copy((b) => new Uint16Array(b), 2), n: copy((b) => new Uint16Array(b), 2) };
+    (k < 2 ? tables : solventTables)[k % 2 ? "1H" : "13C"] = t;
+  }
 }
-export function writeTables(t: Record<Nucleus, Table>): Uint8Array {
-  const parts = (["13C", "1H"] as Nucleus[]).map((k) => t[k]), size = 16 + parts.reduce((s, p) => s + p.hash.length * 10, 0);
-  const out = new Uint8Array(size), view = new DataView(out.buffer);
+export function writeTables(t: Tables): Uint8Array {
+  const parts = [t["13C"], t["1H"], ...(t.solvent ? [t.solvent["13C"], t.solvent["1H"]] : [])], head = 8 + 4 * parts.length;
+  const out = new Uint8Array(head + parts.reduce((s, p) => s + p.hash.length * 10, 0)), view = new DataView(out.buffer);
   out.set([..."ONMR"].map((c) => c.charCodeAt(0)));
-  view.setUint32(4, 1, true);
+  view.setUint32(4, t.solvent ? 2 : 1, true);
   parts.forEach((p, k) => view.setUint32(8 + 4 * k, p.hash.length, true));
-  let at = 16;
+  let at = head;
   for (const p of parts) for (const arr of [p.hash, p.shift, p.sd, p.n]) { out.set(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength), at); at += arr.byteLength; }
   return out;
 }
-export const useTables = (t: Record<Nucleus, Table>) => Object.assign(tables, t);
+export const useTables = (t: Tables) => { Object.assign(tables, { "13C": t["13C"], "1H": t["1H"] }); if (t.solvent) Object.assign(solventTables, t.solvent); };
+// A code as measured in one solvent: the solvent's name (as SOLVENTS in spectrumplot.ts lists it) before it.
+export const solventCode = (solvent: string, code: string) => `${solvent}|${code}`;
 
 function find(t: Table, h: number) {
   let lo = 0, hi = t.hash.length - 1;
@@ -162,14 +173,18 @@ function find(t: Table, h: number) {
   }
   return -1;
 }
-// An atom's shift: from its longest code the table has. Undefined when not even its first sphere is there.
-export function lookup(env: Env, nucleus: Nucleus, atom: number): { shift: number; sd: number; based: number; level: number } | undefined {
-  const t = tables[nucleus];
+// An atom's shift: from its longest code the table has, as measured in `solvent` where the solvent table has that
+// code. Undefined when not even its first sphere is there.
+export function lookup(env: Env, nucleus: Nucleus, atom: number, solvent?: string): { shift: number; sd: number; based: number; level: number; solvent?: string } | undefined {
+  const t = tables[nucleus], st = solvent ? solventTables[nucleus] : undefined;
   if (!t) return undefined;
   const codes = hose(env, atom);
   for (let level = codes.length; level >= 1; level--) {
     const i = find(t, codeHash(nucleus, codes[level - 1]));
-    if (i >= 0) return { shift: t.shift[i] / 100, sd: t.sd[i] / 100, based: t.n[i], level };
+    if (i < 0) continue;
+    const j = st ? find(st, codeHash(nucleus, solventCode(solvent!, codes[level - 1]))) : -1;
+    if (j >= 0) return { shift: st!.shift[j] / 100, sd: st!.sd[j] / 100, based: st!.n[j], level, solvent };
+    return { shift: t.shift[i] / 100, sd: t.sd[i] / 100, based: t.n[i], level };
   }
   return undefined;
 }
@@ -201,16 +216,19 @@ function vicinal(env: Env, a: number, b: number): number {
   return sp2(a) || sp2(b) ? 7.5 : 7;
 }
 
-// The predicted spectrum, or undefined before the tables are loaded or when no atom is covered.
-export function predict(drawn: Graph, nucleus: Nucleus): Prediction | undefined {
+// Solvents that exchange their deuterium with OH, NH and SH hydrogens, so those hydrogens give no ¹H peak.
+const EXCHANGING = ["D₂O", "CD₃OD"];
+// The predicted spectrum, or undefined before the tables are loaded or when no atom is covered. solvent: shifts
+// measured in it are used where the table has them (ChemDraw has CDCl₃ and DMSO only).
+export function predict(drawn: Graph, nucleus: Nucleus, solvent?: string): Prediction | undefined {
   if (!tables[nucleus]) return undefined;
   const { g, from } = heavy(drawn), env = environment(g), done = new Set<number>(), signals: Signal[] = [];
-  const centres = g.atoms.map((_, i) => i).filter((i) => (nucleus === "13C" ? g.atoms[i].el === "C" : g.atoms[i].h > 0));
-  const exchange = (i: number) => ["O", "N", "S"].includes(g.atoms[i].el);
+  const exchange = (i: number) => ["O", "N", "S"].includes(g.atoms[i].el), gone = nucleus === "1H" && !!solvent && EXCHANGING.includes(solvent);
+  const centres = g.atoms.map((_, i) => i).filter((i) => (nucleus === "13C" ? g.atoms[i].el === "C" : g.atoms[i].h > 0 && !(gone && exchange(i))));
   for (const c of centres) {
     if (done.has(env.cls[c])) continue;
     done.add(env.cls[c]);
-    const found = lookup(env, nucleus, c);
+    const found = lookup(env, nucleus, c, solvent);
     if (!found) continue;
     const members = centres.filter((i) => env.cls[i] === env.cls[c]);
     const nuclei = nucleus === "13C" ? members.length : members.reduce((s, i) => s + g.atoms[i].h, 0);
@@ -231,7 +249,7 @@ export function predict(drawn: Graph, nucleus: Nucleus): Prediction | undefined 
     }
     signals.push({
       atoms: members.map((i) => from[i]), shift: found.shift, nuclei, couplings: couplings.sort((a, b) => b.j - a.j),
-      ...(nucleus === "1H" && exchange(c) ? { broad: true } : {}), sd: found.sd, based: found.based, level: found.level,
+      ...(nucleus === "1H" && exchange(c) ? { broad: true } : {}), sd: found.sd, based: found.based, level: found.level, ...(found.solvent ? { solvent: found.solvent } : {}),
       group: `${members.length > 1 ? `${members.length} × ` : ""}${g.atoms[c].el}${g.atoms[c].h ? `H${g.atoms[c].h > 1 ? g.atoms[c].h : ""}` : ""}`,
     });
   }
@@ -249,11 +267,11 @@ export function quality(s: Signal, nucleus: Nucleus): "good" | "medium" | "rough
 }
 // The details as a table (tab-separated, for a spreadsheet): one row per signal.
 export function detailsTable(p: Prediction): string {
-  const head = p.nucleus === "1H" ? ["Group", "δ (ppm)", "Multiplicity", "J (Hz)", "Integral", "Spheres matched", "Measured shifts", "Spread (ppm)", "Quality"]
-    : ["Group", "δ (ppm)", "Carbons", "Spheres matched", "Measured shifts", "Spread (ppm)", "Quality"];
+  const head = p.nucleus === "1H" ? ["Group", "δ (ppm)", "Multiplicity", "J (Hz)", "Integral", "Spheres matched", "Measured shifts", "Measured in", "Spread (ppm)", "Quality"]
+    : ["Group", "δ (ppm)", "Carbons", "Spheres matched", "Measured shifts", "Measured in", "Spread (ppm)", "Quality"];
   const rows = [...p.signals].sort((a, b) => b.shift - a.shift).map((s) => (p.nucleus === "1H"
-    ? [s.group ?? "", s.shift.toFixed(2), multiplicity(s), s.couplings.map((c) => c.j.toFixed(1)).join(", "), `${s.nuclei}H`, String(s.level ?? ""), String(s.based), s.sd.toFixed(2), quality(s, p.nucleus)]
-    : [s.group ?? "", s.shift.toFixed(1), String(s.nuclei), String(s.level ?? ""), String(s.based), s.sd.toFixed(1), quality(s, p.nucleus)]));
+    ? [s.group ?? "", s.shift.toFixed(2), multiplicity(s), s.couplings.map((c) => c.j.toFixed(1)).join(", "), `${s.nuclei}H`, String(s.level ?? ""), String(s.based), s.solvent ?? "any solvent", s.sd.toFixed(2), quality(s, p.nucleus)]
+    : [s.group ?? "", s.shift.toFixed(1), String(s.nuclei), String(s.level ?? ""), String(s.based), s.solvent ?? "any solvent", s.sd.toFixed(1), quality(s, p.nucleus)]));
   return [head, ...rows].map((r) => r.join("\t")).join("\n");
 }
 

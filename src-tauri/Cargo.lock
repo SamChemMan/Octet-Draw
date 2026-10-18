@@ -2305,6 +2305,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "block2",
+ "image",
  "miniz_oxide 0.8.9",
  "objc2",
  "objc2-app-kit",
