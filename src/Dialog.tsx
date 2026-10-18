@@ -3,6 +3,7 @@
 // With no action it only shows something (About Octet): one Close button, which Return presses too. plain: the
 // body carries its own heading, so the title is only read out.
 import { useEffect, useRef } from "react";
+import { listOpen } from "./Menu";
 
 // The modal cards open now, the top one last. Only the top one takes keys.
 const open: React.RefObject<HTMLElement | null>[] = [];
@@ -45,14 +46,16 @@ type Props = { title: string; action?: string; onAction?: () => void; onClose: (
 export function Dialog({ title, action, onClose, onAction = onClose, plain, alt, children }: Props) {
   const card = useRef<HTMLDivElement>(null);
   const top = useModal(card);
-  // The latest handlers, so the keys and the first field's focus are set up once, when the dialog opens.
+  // The latest handlers, so the keys and the first field's focus are set up once, when the dialog opens: a dialog
+  // draws again as its fields change, and the focus stays in the field being typed in (or the choice moved along
+  // with the arrow keys).
   const handlers = useRef({ onAction, onClose });
   handlers.current = { onAction, onClose };
   useEffect(() => {
     // Never the third choice (Don't Save, Replace): Space on it would lose work.
-    card.current?.querySelector<HTMLElement>("textarea, input, button:not(.alt), select")?.focus();
+    card.current?.querySelector<HTMLElement>("textarea, input, button:not(.alt):not([tabindex='-1']), select")?.focus();
     const key = (e: KeyboardEvent) => {
-      if (!top()) return;
+      if (!top() || listOpen()) return; // only the top card; an open list takes its own keys
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); handlers.current.onClose(); }
       // Return in a text area makes a new line; ⌘Return (Ctrl+Enter) sends.
       if (e.key === "Enter" && (!(e.target instanceof HTMLTextAreaElement) || e.metaKey || e.ctrlKey)) { e.preventDefault(); e.stopPropagation(); handlers.current.onAction(); }

@@ -103,7 +103,7 @@ export function Home(p: Props) {
                   <span className="home-when">Recovered · {when(r.at, now)}</span>
                 </span>
               </button>
-              <button className="home-remove" onClick={() => p.onDiscard(r)} aria-label={`Discard ${r.name}`} title="Discard"><X size={12} weight="bold" /></button>
+              <button className="home-remove" onClick={() => p.onDiscard(r)} aria-label={`Discard ${r.name}`} title="Discard"><X size={12} /></button>
             </div>
           ))}
           {p.recents.map((r) => (
@@ -117,7 +117,7 @@ export function Home(p: Props) {
                   <span className="home-when">{r.found ? when(r.at, now) : "Moved or deleted"}</span>
                 </span>
               </button>
-              <button className="home-remove" onClick={() => p.onRemove(r)} aria-label={`Remove ${r.name} from Home`} title="Remove from Home"><X size={12} weight="bold" /></button>
+              <button className="home-remove" onClick={() => p.onRemove(r)} aria-label={`Remove ${r.name} from Home`} title="Remove from Home"><X size={12} /></button>
             </div>
           ))}
         </div>

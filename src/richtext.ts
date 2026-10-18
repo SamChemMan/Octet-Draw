@@ -54,6 +54,13 @@ export function common(runs: TextRun[], start: number, end: number): RunStyle {
   return Object.fromEntries(KEYS.filter((k) => picked.every((s) => s[k] === picked[0][k]) && picked[0][k] !== undefined).map((k) => [k, picked[0][k]])) as RunStyle;
 }
 
+// A caption as a whole: its own style, with the style all its runs share over it (a font picked for the whole caption,
+// or Subscript on it, moves its bold, italic and underline into the runs). What the style buttons show for it.
+export const whole = <T extends { text: string; runs?: TextRun[] }>(c: T): T & RunStyle => (c.runs?.length ? { ...c, ...common(c.runs, 0, c.text.length) } : c);
+// The runs without the styles named, so a style set on the whole caption shows on all of it.
+export const without = (runs: TextRun[], keys: string[]): TextRun[] =>
+  normalise(runs.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !keys.includes(k))) as TextRun));
+
 // The runs after the text was typed to `next`: what changed is found by the longest common start and end, and
 // new characters take `pending` (a style set with nothing selected) or the style of the character before them.
 export function edited(runs: TextRun[], next: string, pending?: RunStyle): TextRun[] {
@@ -87,4 +94,42 @@ export function lines(runs: TextRun[]): TextRun[][] {
     });
   }
   return out;
+}
+
+// Soft line breaks for a caption with a width (ChemDraw's caption width): each line breaks at the last space that
+// keeps it no wider than max, and a word wider than max goes on a line of its own. A breaking space becomes a line
+// break, so every character keeps its place. width: how wide a piece of text is in a run's style. soft: the places
+// of the breaks made.
+export function wrap(runs: TextRun[], max: number, width: (text: string, style: RunStyle) => number): { runs: TextRun[]; soft: number[] } {
+  const text = plainOf(runs), soft: number[] = [];
+  const measure = (a: number, b: number) => {
+    let w = 0, at = 0;
+    for (const r of runs) {
+      const s = Math.max(a, at), e = Math.min(b, at + r.text.length);
+      if (e > s) w += width(r.text.slice(s - at, e - at), styleOf(r));
+      at += r.text.length;
+    }
+    return w;
+  };
+  let start = 0;
+  for (const line of text.split("\n")) {
+    const end = start + line.length;
+    let from = start;
+    while (measure(from, end) > max) {
+      let brk = -1;
+      for (let i = from + 1; i < end; i++) {
+        if (text[i] !== " ") continue;
+        if (measure(from, i) <= max || brk < 0) brk = i;
+        if (measure(from, i) > max) break;
+      }
+      if (brk < 0) break;
+      soft.push(brk);
+      from = brk + 1;
+    }
+    start = end + 1;
+  }
+  if (!soft.length) return { runs, soft };
+  const breaks = new Set(soft);
+  let at = 0;
+  return { runs: runs.map((r) => { const t = r.text.split("").map((ch, k) => (breaks.has(at + k) ? "\n" : ch)).join(""); at += r.text.length; return { ...r, text: t }; }), soft };
 }

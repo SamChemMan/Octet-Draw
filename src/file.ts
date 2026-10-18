@@ -16,23 +16,25 @@ export function serialize(mol: Mol): string {
   const atoms = mol.atoms.map((a) => ({ label: a.label, x: round(a.location[0]), y: round(a.location[1]), ...(round(a.location[2] ?? 0) ? { z: round(a.location[2]) } : {}), ...(a.depth === false ? { depth: false } : {}), ...(a.charge ? { charge: a.charge } : {}), ...(a.text ? { text: a.text } : {}),
     ...(a.radical ? { radical: a.radical } : {}), ...(a.isotope ? { isotope: a.isotope } : {}), ...(a.pairs ? { pairs: a.pairs } : {}), ...(a.circled ? { circled: true } : {}), ...(a.partial ? { partial: a.partial } : {}),
     ...(a.hmark ? { hmark: a.hmark } : {}), ...(a.attach ? { attach: true } : {}), ...(a.bead ? { bead: true } : {}), ...(a.map ? { map: a.map } : {}), ...(a.enhanced ? { enhanced: a.enhanced } : {}), ...(a.colour ? { colour: a.colour } : {}), ...(a.cip ? { cip: true } : {}), ...(a.halo ? { halo: a.halo } : {}), ...(a.fill ? { fill: a.fill } : {}), ...(a.circle ? { circle: true } : {}), ...(a.number ? { number: a.number } : {}), ...(a.ignoreWarnings ? { ignoreWarnings: true } : {}),
-    ...(a.font ? { font: a.font } : {}), ...(a.size ? { size: a.size } : {}), ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}) }));
+    ...(a.font ? { font: a.font } : {}), ...(a.size ? { size: a.size } : {}), ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}), ...(a.order ? { order: a.order } : {}) }));
   const bonds = mol.bonds.map((b) => ({ atoms: b.atoms, type: b.type, ...(b.stereo ? { stereo: b.stereo } : {}), ...(b.display ? { display: b.display } : {}), ...(b.position ? { position: b.position } : {}), ...(b.colour ? { colour: b.colour } : {}), ...(b.halo ? { halo: b.halo } : {}), ...(b.query ? { query: b.query } : {}) }));
   // Arrows and captions are saved in id order; ids are not saved. Conditions name their arrow by its place in the list.
   const arrowList = [...(mol.arrows ?? [])].sort((a, b) => a.id - b.id);
   const cycleList = [...(mol.cycles ?? [])].sort((a, b) => a.id - b.id);
-  const cycles = cycleList.map((c) => ({ x: round(c.centre[0]), y: round(c.centre[1]), radius: round(c.radius), ...(c.clockwise ? {} : { anticlockwise: true }), nodes: c.nodes, ...(c.colour ? { colour: c.colour } : {}) }));
+  const cycles = cycleList.map((c) => ({ x: round(c.centre[0]), y: round(c.centre[1]), radius: round(c.radius), ...(c.clockwise ? {} : { anticlockwise: true }), nodes: c.nodes, ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}) }));
   const arrows = arrowList.map((a) => ({ kind: a.kind, x1: round(a.from[0]), y1: round(a.from[1]), x2: round(a.to[0]), y2: round(a.to[1]), ...(a.bend ? { bend: round(a.bend) } : {}),
     ...(a.style ? { style: a.style } : {}), ...(a.orbital ? { orbital: a.orbital } : {}), ...(a.colour ? { colour: a.colour } : {}),
-    ...(a.start ? { start: a.start } : {}), ...(a.end ? { end: a.end } : {}), ...(a.head ? { head: a.head } : {}), ...(a.curve ? { curve: a.curve } : {}), ...(a.fill ? { fill: a.fill } : {}) }));
-  // Shapes keep their order, which is the order they are drawn in.
+    ...(a.start ? { start: a.start } : {}), ...(a.end ? { end: a.end } : {}), ...(a.head ? { head: a.head } : {}), ...(a.curve ? { curve: a.curve } : {}), ...(a.fill ? { fill: a.fill } : {}), ...(a.order ? { order: a.order } : {}), ...(a.width ? { width: a.width } : {}) }));
+  // Shapes keep their order in the list, which is the order they are drawn in within their layer (order.ts).
   const shapes = (mol.shapes ?? []).map((x) => ({ kind: x.kind, x1: round(x.from[0]), y1: round(x.from[1]), x2: round(x.to[0]), y2: round(x.to[1]), ...(x.dashed ? { dashed: true } : {}), ...(x.colour ? { colour: x.colour } : {}),
-    ...(x.fill ? { fill: x.fill } : {}), ...(x.shadow ? { shadow: true } : {}), ...(x.side ? { side: x.side } : {}), ...(x.mark ? { mark: x.mark } : {}), ...(x.tlc ? { tlc: x.tlc } : {}), ...(x.table ? { table: x.table } : {}), ...(x.shade ? { shade: x.shade } : {}),
+    ...(x.fill ? { fill: x.fill } : {}), ...(x.shadow ? { shadow: true } : {}), ...(x.side ? { side: x.side } : {}), ...(x.mark ? { mark: x.mark } : {}), ...(x.tlc ? { tlc: x.tlc } : {}), ...(x.table ? { table: x.table } : {}), ...(x.shade ? { shade: x.shade } : {}), ...(x.order ? { order: x.order } : {}),
+    ...(x.angle ? { angle: round(x.angle) } : {}), ...(x.width ? { width: x.width } : {}),
+    ...(x.font ? { font: x.font } : {}), ...(x.size ? { size: x.size } : {}), ...(x.bold ? { bold: true } : {}), ...(x.italic ? { italic: true } : {}), ...(x.underline ? { underline: true } : {}),
     ...(x.picture ? { picture: x.picture } : {}), ...(x.polymer ? { polymer: x.polymer } : {}) }));
   const captions = [...(mol.captions ?? [])].sort((a, b) => a.id - b.id).map((c) => ({
     text: c.text, x: round(c.x), y: round(c.y), ...(c.bold ? { bold: true } : {}), ...(c.italic ? { italic: true } : {}), ...(c.underline ? { underline: true } : {}),
     ...(c.size ? { size: c.size } : {}), ...(c.align ? { align: c.align } : {}), ...(c.under ? { under: c.under } : {}), ...(c.colour ? { colour: c.colour } : {}),
-    ...(c.font ? { font: c.font } : {}), ...(c.runs ? { runs: c.runs } : {}), ...(c.property ? { property: c.property } : {}),
+    ...(c.font ? { font: c.font } : {}), ...(c.runs ? { runs: c.runs } : {}), ...(c.property ? { property: c.property } : {}), ...(c.order ? { order: c.order } : {}), ...(c.lineHeight ? { lineHeight: c.lineHeight } : {}), ...(c.width ? { width: round(c.width) } : {}),
     ...(c.on ? { on: { arrow: arrowList.findIndex((a) => a.id === c.on!.arrow), side: c.on.side } } : {}),
     ...(c.cycle ? { cycle: { cycle: cycleList.findIndex((x) => x.id === c.cycle!.cycle), step: c.cycle.step, side: c.cycle.side } } : {}),
   }));
@@ -48,6 +50,8 @@ export function serialize(mol: Mol): string {
   return JSON.stringify({ format: FORMAT, version: VERSION, structure: { atoms, bonds }, ...(arrows.length ? { arrows } : {}), ...(cycles.length ? { cycles } : {}), ...(shapes.length ? { shapes } : {}), ...(captions.length ? { captions } : {}), ...(groups.length ? { groups } : {}), ...(grids.length ? { grids } : {}), ...(mol.annotations?.length ? { annotations: mol.annotations } : {}), ...(mol.style ? { style: mol.style } : {}) }, null, 1) + "\n";
 }
 const round = (n: number) => Math.round(n * 1e4) / 1e4;
+// A thing's draw order (order.ts): a whole number other than zero; anything else is left out.
+const orderOf = (v: unknown) => (Number.isInteger(v) && v !== 0 && Math.abs(v as number) <= 1e6 ? { order: v as number } : {});
 // A caption's runs, if they are sound: up to 2000, each with text and only known styles, joining to the caption's text.
 function readRuns(v: unknown, text: string): TextRun[] | undefined {
   if (!Array.isArray(v) || !v.length || v.length > 2000) return undefined;
@@ -128,6 +132,7 @@ export function parse(text: string): Mol {
   if (!Array.isArray(atoms) || !Array.isArray(bonds) || atoms.length > MAX_ATOMS || bonds.length > MAX_ATOMS * 4) throw new Error("This drawing is damaged.");
   const num = (v: unknown) => typeof v === "number" && Number.isFinite(v) && Math.abs(v) < 1e6;
   const badColour = (v: unknown) => v !== undefined && !(typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v));
+  const badWidth = (v: unknown) => v !== undefined && !(typeof v === "number" && v >= 0.05 && v <= 20); // a line width, in points
   const int = (v: unknown, lo: number, hi: number) => Number.isInteger(v) && (v as number) >= lo && (v as number) <= hi;
   const out: Mol = { atoms: [], bonds: [] };
   for (const a of atoms as Record<string, unknown>[]) {
@@ -164,6 +169,7 @@ export function parse(text: string): Mol {
     if (a.bold === true) atom.bold = true;
     if (a.italic === true) atom.italic = true;
     if (a.underline === true) atom.underline = true;
+    Object.assign(atom, orderOf(a.order));
     out.atoms.push(atom);
   }
   for (const b of bonds as Record<string, unknown>[]) {
@@ -191,11 +197,11 @@ export function parse(text: string): Mol {
         || (a.start !== undefined && !HEADS.includes(a.start as Head)) || (a.end !== undefined && !HEADS.includes(a.end as Head))
         || (a.head !== undefined && !["solid", "hollow", "angled"].includes(a.head as string)) || (a.fill !== undefined && !["solid", "shaded", "faded"].includes(a.fill as string))
         || ((a.kind === "curve") !== (a.curve !== undefined)) || (a.curve !== undefined && !readCurve(a.curve))
-        || (orb !== undefined && (!ORBITAL_SHAPES.includes(orb?.shape as OrbitalShape) || !PHASES.includes(orb?.phase as Phase))) || ((a.kind === "orbital") !== (orb !== undefined)) || badColour(a.colour)) throw new Error("This drawing is damaged.");
+        || (orb !== undefined && (!ORBITAL_SHAPES.includes(orb?.shape as OrbitalShape) || !PHASES.includes(orb?.phase as Phase))) || ((a.kind === "orbital") !== (orb !== undefined)) || badColour(a.colour) || badWidth(a.width)) throw new Error("This drawing is damaged.");
       return { id: captionCount + k + 1, kind: a.kind as ArrowKind, from: [a.x1 as number, a.y1 as number], to: [a.x2 as number, a.y2 as number], ...(a.bend ? { bend: a.bend as number } : {}),
         ...(a.style ? { style: a.style as LineStyle } : {}), ...(orb ? { orbital: { shape: orb.shape as OrbitalShape, phase: orb.phase as Phase } } : {}), ...(a.colour ? { colour: a.colour as string } : {}),
         ...(a.start ? { start: a.start as Head } : {}), ...(a.end ? { end: a.end as Head } : {}), ...(a.head ? { head: a.head as HeadShape } : {}),
-        ...(a.curve ? { curve: readCurve(a.curve)! } : {}), ...(a.fill ? { fill: a.fill as CurveFill } : {}) };
+        ...(a.curve ? { curve: readCurve(a.curve)! } : {}), ...(a.fill ? { fill: a.fill as CurveFill } : {}), ...orderOf(a.order), ...(a.width ? { width: a.width as number } : {}) };
     });
   }
   // Cycles take ids after the arrows'.
@@ -205,7 +211,7 @@ export function parse(text: string): Mol {
       const nodes = c?.nodes as unknown[];
       if (!num(c?.x) || !num(c.y) || !num(c.radius) || (c.radius as number) <= 0 || !Array.isArray(nodes) || nodes.length < 2 || nodes.length > 64
         || !nodes.every((n) => Array.isArray(n) && n.length > 0 && n.every((i) => int(i, 0, out.atoms.length - 1))) || badColour(c.colour)) throw new Error("This drawing is damaged.");
-      return { id: captionCount + (out.arrows?.length ?? 0) + k + 1, centre: [c.x as number, c.y as number], radius: c.radius as number, clockwise: c.anticlockwise !== true, nodes: nodes as number[][], ...(c.colour ? { colour: c.colour as string } : {}) };
+      return { id: captionCount + (out.arrows?.length ?? 0) + k + 1, centre: [c.x as number, c.y as number], radius: c.radius as number, clockwise: c.anticlockwise !== true, nodes: nodes as number[][], ...(c.colour ? { colour: c.colour as string } : {}), ...orderOf(c.order) };
     });
   }
   // Shapes take ids after the cycles'.
@@ -226,10 +232,15 @@ export function parse(text: string): Mol {
         || (x.fill !== undefined && x.fill !== "shaded" && x.fill !== "solid") || (x.shadow !== undefined && typeof x.shadow !== "boolean")
         || (x.side !== undefined && x.side !== "left" && x.side !== "right") || (x.mark !== undefined && !(typeof x.mark === "string" && x.mark.length <= 8))
         || (x.tlc !== undefined && !readTlc(x.tlc)) || (x.table !== undefined && !readTable(x.table)) || (x.shade !== undefined && !readShade(x.shade))
-        || (x.picture !== undefined && !readPictureData(x.picture)) || ((x.kind === "picture") !== (x.picture !== undefined)) || (x.polymer !== undefined && !readKept(x.polymer, POLYMER_ATTRS, out.atoms.length))) throw new Error("This drawing is damaged.");
+        || (x.picture !== undefined && !readPictureData(x.picture)) || ((x.kind === "picture") !== (x.picture !== undefined)) || (x.polymer !== undefined && !readKept(x.polymer, POLYMER_ATTRS, out.atoms.length))
+        || (x.angle !== undefined && !(num(x.angle) && Math.abs(x.angle as number) <= 360)) || badWidth(x.width)
+        || (x.font !== undefined && !fontName(x.font)) || (x.size !== undefined && !(num(x.size) && (x.size as number) >= 4 && (x.size as number) <= 144))
+        || [x.bold, x.italic, x.underline].some((v) => v !== undefined && typeof v !== "boolean")) throw new Error("This drawing is damaged.");
       return { id: first + k, kind: x.kind as ShapeKind, from: [x.x1 as number, x.y1 as number], to: [x.x2 as number, x.y2 as number], ...(x.dashed ? { dashed: true } : {}), ...(x.colour ? { colour: x.colour as string } : {}),
         ...(x.fill ? { fill: x.fill as "shaded" | "solid" } : {}), ...(x.shadow ? { shadow: true } : {}), ...(x.side ? { side: x.side as "left" | "right" } : {}), ...(x.mark ? { mark: x.mark as string } : {}),
-        ...(x.tlc ? { tlc: readTlc(x.tlc)! } : {}), ...(x.table ? { table: readTable(x.table)! } : {}), ...(x.shade ? { shade: readShade(x.shade)! } : {}),
+        ...(x.tlc ? { tlc: readTlc(x.tlc)! } : {}), ...(x.table ? { table: readTable(x.table)! } : {}), ...(x.shade ? { shade: readShade(x.shade)! } : {}), ...orderOf(x.order),
+        ...(x.angle ? { angle: x.angle as number } : {}), ...(x.width ? { width: x.width as number } : {}),
+        ...(x.font ? { font: x.font as string } : {}), ...(x.size ? { size: x.size as number } : {}), ...(x.bold ? { bold: true as const } : {}), ...(x.italic ? { italic: true as const } : {}), ...(x.underline ? { underline: true as const } : {}),
         ...(x.picture ? { picture: readPictureData(x.picture)! } : {}), ...(x.polymer ? { polymer: readKept(x.polymer, POLYMER_ATTRS, out.atoms.length)! } : {}) };
     });
   }
@@ -281,7 +292,7 @@ function readCaptions(raw: unknown, out: Mol, num: (v: unknown) => boolean, int:
     if (typeof c?.text !== "string" || c.text.length > MAX_TEXT || /[\u0000-\u0009\u000b-\u001f]/.test(c.text) || !num(c.x) || !num(c.y)
       || (c.bold !== undefined && typeof c.bold !== "boolean") || (c.italic !== undefined && typeof c.italic !== "boolean") || (c.underline !== undefined && typeof c.underline !== "boolean")
       || (c.size !== undefined && !(num(c.size) && (c.size as number) >= 4 && (c.size as number) <= 144))
-      || (c.align !== undefined && !["left", "centre", "right"].includes(c.align as string))
+      || (c.align !== undefined && !["left", "centre", "right", "justify"].includes(c.align as string))
       || (c.colour !== undefined && !(typeof c.colour === "string" && /^#[0-9a-f]{6}$/i.test(c.colour)))
       || (under !== undefined && (!Array.isArray(under) || !under.length || under.length > out.atoms.length || !under.every((i) => int(i, 0, out.atoms.length - 1))))
       || (on !== undefined && (!int(on?.arrow, 0, (out.arrows?.length ?? 0) - 1) || (on.side !== "above" && on.side !== "below")))
@@ -298,6 +309,11 @@ function readCaptions(raw: unknown, out: Mol, num: (v: unknown) => boolean, int:
     if (c.font) caption.font = c.font as string;
     if (c.runs) caption.runs = readRuns(c.runs, c.text);
     if (c.property) caption.property = readKept(c.property, PROPERTY_ATTRS, out.atoms.length);
+    Object.assign(caption, orderOf(c.order));
+    // Line spacing: variable, or fixed from 1 to 400 pt; anything else is Automatic.
+    if (c.lineHeight === "variable" || (typeof c.lineHeight === "number" && c.lineHeight >= 1 && c.lineHeight <= 400)) caption.lineHeight = c.lineHeight;
+    // A width from half a bond length to 1000 bond lengths; anything else leaves the caption unwrapped.
+    if (typeof c.width === "number" && c.width >= 0.5 && c.width <= 1000) caption.width = c.width;
     if (under) caption.under = under as number[];
     if (on) caption.on = { arrow: out.arrows![on.arrow as number].id, side: on.side as "above" | "below" };
     if (cyc) caption.cycle = { cycle: out.cycles![cyc.cycle as number].id, step: cyc.step as number, side: cyc.side as "in" | "out" | "centre" };
