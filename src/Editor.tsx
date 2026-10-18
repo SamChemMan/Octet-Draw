@@ -29,7 +29,7 @@ import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
 import { loadSettings, RULER_UNITS, saveSettings } from "./settings";
 import { Menu, menuWidth } from "./Menu";
-import { ACTIONS, actionFor, controlTakes, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, textEntry, toAccelerator } from "./keys";
+import { ACTIONS, actionFor, controlTakes, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, textEntry, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, HIGHLIGHT_COLOURS, RING_FILLS, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties, propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./Properties";
@@ -235,7 +235,7 @@ const DRAFT = Number.MAX_SAFE_INTEGER;
 // Typing in a text field, or in a caption's rich text box (contentEditable): keys and Select All are the text's, not the
 // drawing's. A focused slider (Line width) or button does not count (textEntry).
 const typing = () => textEntry(document.activeElement as HTMLElement | null);
-// A dialog or Settings is open: the drawing behind it takes no keys, menu commands, paste or cut.
+// A dialog or Settings is open: the drawing behind it takes no keys, menu commands, paste, copy or cut.
 const modal = () => document.querySelector('[aria-modal="true"]') !== null;
 
 // Rubbing out: marks every bond within radius r of the pointer's path between two points, and any lone atom.
@@ -635,6 +635,8 @@ export default function Editor() {
   // Home (decision 0003): where Octet opens (?editor skips it, for tests), with the name box on first launch and the
   // tutorial then, or from Octet > Tutorial. Recent drawings come from the app (src-tauri/src/recent.rs).
   const [home, setHome] = useState(() => !new URLSearchParams(location.search).has("editor"));
+  const homeOpen = useRef(home); // for the menu listener, which is set up once
+  homeOpen.current = home;
   const [welcomed, setWelcomed] = useState(false), [recents, setRecents] = useState<RecentEntry[]>([]);
   // The tutorial (Coach.tsx) on a new drawing: which run it is (0 when off), what it saw done, and the tool it points at.
   const [coach, setCoach] = useState(0), [seen, setSeen] = useState<Seen>(NOTHING_SEEN), [coachTool, setCoachTool] = useState<Tool>();
@@ -1340,8 +1342,8 @@ export default function Editor() {
   useEffect(() => { if (TAURI) syncChecks(); }, [guides]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!TAURI) return;
-    // Over a dialog or Settings, the menu only edits the text in its fields, as a Mac app's menu does over a sheet.
-    const off = listen<string>("menu", (e) => { if (!modal() || (typing() && ["undo", "redo", "select_all"].includes(e.payload))) commands.current[e.payload]?.(); });
+    // Over a dialog, Settings or Home, the menu does not work on the drawing (menuRuns).
+    const off = listen<string>("menu", (e) => { if (menuRuns(e.payload, { home: homeOpen.current, modal: modal(), typing: typing() })) commands.current[e.payload]?.(); });
     return () => { off.then((f) => f()); };
   }, []);
   // Every menu command's shortcut can be changed in Settings, with the canvas keys: the menu lists its commands, and
@@ -4623,7 +4625,7 @@ export default function Editor() {
     };
     // Copy puts the selection, or the whole drawing, on the clipboard as SMILES (or text the panel asked for).
     const onCopy = (e: ClipboardEvent) => {
-      if (typing() && !copyText.current) return;
+      if ((typing() || home || modal()) && !copyText.current) return; // the text's, or nothing to copy on Home or a dialog
       if (copyText.current) {
         e.clipboardData?.setData("text/plain", copyText.current);
         e.preventDefault();
@@ -4653,7 +4655,7 @@ export default function Editor() {
     };
     // Cut: copy, then delete what was selected.
     const onCut = (e: ClipboardEvent) => {
-      if (typing() || modal() || (!selection.size && !picked.size)) return;
+      if (typing() || home || modal() || (!selection.size && !picked.size)) return;
       onCopy(e);
       set(deleteGraphics(deleteAtoms(doc, selection), picked));
     };

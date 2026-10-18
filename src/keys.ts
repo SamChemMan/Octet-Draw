@@ -174,6 +174,15 @@ export function toAccelerator(key: string): string {
   const name = ACCEL[last] ?? (/^f\d{1,2}$/.test(last) ? last.toUpperCase() : last.length === 1 ? last.toUpperCase() : last);
   return [mods.has("mod") ? "CmdOrCtrl" : "", mods.has("ctrl") ? "Ctrl" : "", mods.has("alt") ? "Alt" : "", mods.has("shift") ? "Shift" : "", name].filter(Boolean).join("+");
 }
+// Whether a menu command runs now. Over a dialog or Settings only Undo, Redo and Select All run, on the text in its
+// fields, as a Mac app's menu does over a sheet. Home covers the drawing in the same way: there only the commands that
+// start or open a drawing, or open Settings, About or the tutorial, run (Quit is the system's own).
+const HOME_COMMANDS = ["home", "new", "open", "settings", "about", "tutorial"];
+export function menuRuns(id: string, over: { home: boolean; modal: boolean; typing: boolean }) {
+  if (over.typing && ["undo", "redo", "select_all"].includes(id)) return true;
+  if (over.modal) return false;
+  return !over.home || HOME_COMMANDS.includes(id) || id.startsWith("new_");
+}
 export function registerMenu(items: [string, string, string, string][]) {
   // A command no longer in the menu (the Search menu, with Online search off) leaves the list.
   const ids = new Set(items.map(([id]) => `menu.${id}`));

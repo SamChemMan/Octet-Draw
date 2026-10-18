@@ -1,6 +1,6 @@
 // Run: node src/keys.check.ts. Fails loudly if shortcut lookup breaks.
 import assert from "node:assert/strict";
-import { actionFor, clashes, controlTakes, keyOf, keymap, textEntry, tileTo } from "./keys.ts";
+import { actionFor, clashes, controlTakes, keyOf, keymap, menuRuns, textEntry, tileTo } from "./keys.ts";
 
 const press = (key: string, mods: Partial<{ shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean }> = {}) =>
   keyOf({ key, shiftKey: false, altKey: false, metaKey: false, ctrlKey: false, ...mods });
@@ -93,3 +93,15 @@ assert.equal(tileTo("ArrowLeft", 0, 10, 4), 0);
 assert.equal(tileTo("ArrowDown", -1, 10, 4), 0);
 assert.equal(tileTo("Enter", 3, 10, 4), undefined);
 assert.equal(tileTo("ArrowDown", -1, 0, 4), undefined);
+// Home blocks the drawing's menu commands as a dialog does. New (and New For), Open, Settings, About and the tutorial
+// still run; Undo, Redo and Select All run on the text of the name box.
+const onHome = { home: true, modal: false, typing: false };
+for (const id of ["select_all", "flip_h", "mirror_v", "clean_up", "zoom_in", "export", "save", "import", "command_palette", "colour_0"]) assert.equal(menuRuns(id, onHome), false, id);
+for (const id of ["new", "new_paper", "new_own_0", "open", "settings", "about", "tutorial", "home"]) assert.equal(menuRuns(id, onHome), true, id);
+assert.equal(menuRuns("select_all", { ...onHome, typing: true }), true);
+assert.equal(menuRuns("flip_h", { ...onHome, typing: true }), false);
+// A dialog blocks every command but the text ones; with no dialog and no Home, every command runs.
+assert.equal(menuRuns("new", { home: false, modal: true, typing: false }), false);
+assert.equal(menuRuns("undo", { home: false, modal: true, typing: true }), true);
+assert.equal(menuRuns("flip_h", { home: false, modal: false, typing: false }), true);
+assert.equal(menuRuns("text_bold", { home: false, modal: false, typing: true }), true);
