@@ -1463,7 +1463,6 @@ export function depthOf(m: Mol): (number | undefined)[] {
   });
   return out;
 }
-// Where segments p1–p2 and q1–q2 cross, as fractions along each (inside both), or undefined.
 // Bonds whose lines cross (not at an atom they share), as [behind, in front]: the one later in the list is in front.
 // Bonds are sorted into a grid of cells `cell` wide, so only near bonds are tested; the tests stop at a fixed number,
 // so a hostile file of long bonds cannot hold the drawing up (a gap is only a look).
@@ -1497,6 +1496,7 @@ function clipSide(poly: P[], o: P, n: P, d: number): P[] {
   });
   return out.length >= 3 ? out : [];
 }
+// Where segments p1–p2 and q1–q2 cross, as fractions along each (inside both), or undefined.
 function crossing(p1: P, p2: P, q1: P, q2: P): [number, number] | undefined {
   const r = sub(p2, p1), s = sub(q2, q1), d = cross(r, s);
   if (Math.abs(d) < 1e-9) return undefined;

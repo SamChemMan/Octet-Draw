@@ -50,7 +50,7 @@ import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb } from "./TemplateLibrary";
-import { cleanUpReaction, findReaction, gapFor, layoutRow, reactionClean, rowOf, type Layout, type Reaction } from "./reaction";
+import { cleanUpReaction, findReaction, gapFor, layoutRow, reactionClean, rowOf, withStructure, type Layout, type Reaction } from "./reaction";
 import { SettingsWindow, type ModuleId } from "./SettingsWindow";
 import { layoutCycles, orderAround, spreadCycle, type Cycle, type CycleText } from "./cycle";
 import { LIBRARY, libraryItem } from "./library";
@@ -421,6 +421,9 @@ export default function Editor() {
   const lastLabel = useRef<string>(undefined);
   // The bond tool's last click on an atom, and the drawing it made: a second click there soon after is a double-click.
   const lastClick = useRef<{ atom: number; time: number; after: Mol }>(undefined);
+  // Select's last click on an atom or bond: a second click on it soon after is a double-click. The browser sends no
+  // double-click when the first click drew the selection over what the second click presses.
+  const lastPick = useRef<{ on: string; time: number }>(undefined);
   const editLabel = (atom: number) => {
     const a = doc.atoms[atom];
     labelOpen.current = true;
@@ -819,7 +822,7 @@ export default function Editor() {
       // Structures in a reaction keep their sides: each reaction they are in is laid out again, as Clean Up Reaction
       // does (reactants, the arrow, products), measured after the clean-up.
       const touched = new Set(ids ? fragments(m).filter((g) => g.some((i) => ids.has(i))).flat() : m.atoms.map((_, i) => i));
-      const laid = cleanReactions(m, (r) => r.atoms.some((i) => touched.has(i)));
+      const laid = cleanReactions(m, (r) => withStructure(r) && r.atoms.some((i) => touched.has(i)));
       if (laid.count) return set(laid.mol, true);
       // Otherwise several structures that overlap, or have a plus sign among them, go in a row like a reaction's
       // starting materials. With a plus sign, an arrow after them is offered: Tab draws it.
@@ -887,8 +890,8 @@ export default function Editor() {
     // or every reaction in the drawing when nothing is selected, as Clean Up Structure works on the whole drawing.
     clean_reaction: () => {
       const items = new Set(picked), atoms = selection, any = !items.size && !atoms.size;
-      const laid = cleanReactions(doc, (r) => any || r.atoms.some((i) => atoms.has(i)) || r.arrows.some((id) => items.has(id)) || r.captions.some((id) => items.has(id)));
-      if (!laid.count) return setNotice("Octet finds no reaction to clean up. Draw a straight arrow with a structure on each side.");
+      const laid = cleanReactions(doc, (r) => r.arrows.some((id) => items.has(id)) || (withStructure(r) && (any || r.atoms.some((i) => atoms.has(i)) || r.captions.some((id) => items.has(id)))));
+      if (!laid.count) return setNotice(laid.kept ? "Octet leaves the reaction as drawn. A new layout would move it on to, or away from, the rest of the drawing." : "Octet finds no reaction to clean up. Draw a straight arrow with a structure on each side.");
       if (!sameLayout(doc, laid.mol)) set(laid.mol, true); // nothing to undo when it was clean already
     },
     // Zoom about the middle of the window. Actual size is 100%: bonds at their true 14.4 pt.
@@ -1050,6 +1053,9 @@ export default function Editor() {
   // Screen (px from the window's top left) to drawing coordinates (bond lengths, y up).
   const toDoc = (sx: number, sy: number): P => { const view = views.get(); return [(sx - view.x) / (view.zoom * L), -(sy - view.y) / (view.zoom * L)]; };
 
+  // The document's style (or the default for new documents), as widths and sizes in the drawing frame. It comes before
+  // the Chain tool's path, which uses its chain angle while the drawing is shown.
+  const style: DocStyle = useMemo(() => readStyle(doc.style ?? settings.docStyle), [doc.style, settings.docStyle]);
   // The Chain tool. A drag's points (snaking or straight), and how many atoms they draw: one per bond, and the first
   // atom too on empty canvas (ChemDraw's count).
   const chainPath = (d: { from: number | P; to?: P; side?: number; path?: P[] }) => d.path ?? chainPoints(doc, d.from, d.to ?? (typeof d.from === "number" ? pos(doc, d.from) : d.from), d.side ?? 1, style.chainAngle);
@@ -1078,8 +1084,6 @@ export default function Editor() {
     }
     return doc;
   }, [doc, drag, pen, penAt]); // eslint-disable-line react-hooks/exhaustive-deps
-  // The document's style (or the default for new documents), as widths and sizes in the drawing frame.
-  const style: DocStyle = useMemo(() => readStyle(doc.style ?? settings.docStyle), [doc.style, settings.docStyle]);
   // The space between the parts of a reaction (Clean Up Reaction, the reaction shortcut, a product pasted after an arrow).
   const reactionGap = gapFor(style.captionSize, style.bond);
   // The font lists: Octet's fonts, then any other font the drawing uses (one picked from More fonts, or a file's).
@@ -1479,11 +1483,12 @@ export default function Editor() {
       && (p.arrows ?? []).every((a, k) => near(a.from, q.arrows![k].from) && near(a.to, q.arrows![k].to)) && (p.shapes ?? []).every((x, k) => near(x.from, q.shapes![k].from) && near(x.to, q.shapes![k].to));
   };
   // Lays out every reaction `pick` takes, one after another (reaction.ts). A structure one reaction has placed stays
-  // where it is for the next, so reactions that share a structure stay joined. Returns the drawing and how many.
-  function cleanReactions(m: Mol, pick: (r: Reaction) => boolean): { mol: Mol; count: number } {
+  // where it is for the next, so reactions that share a structure stay joined. Returns the drawing, how many it laid
+  // out, and how many it left as drawn.
+  function cleanReactions(m: Mol, pick: (r: Reaction) => boolean): { mol: Mol; count: number; kept: number } {
     const fixed = new Set<number>(), done = new Set<number>(), layout = reactionLayout(placedBox);
     const inkOf = (mol: Mol) => { const d = mol === doc ? drawing : render(mol, frame, measure, L); return (atoms: number[]) => { const b = union(atoms.filter((i) => d.ink[i]).map((i) => d.ink[i])); return b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L] as Box; }; };
-    let ink = inkOf(m), count = 0;
+    let ink = inkOf(m), count = 0, kept = 0;
     for (const a of arrows.filter((x) => straightArrow(x))) {
       if (done.has(a.id)) continue;
       // The arrows as drawn (grown to fit their text), or as the last reaction left them.
@@ -1492,12 +1497,43 @@ export default function Editor() {
       if (!r) continue;
       r.arrows.forEach((id) => done.add(id));
       if (!pick(r)) continue;
-      m = cleanUpReaction(m, r, now, layout, fixed);
+      // A structure at an end of another reaction's arrow, or of a line it does not carry (a scheme that turns a corner),
+      // stays where it is, as does one an earlier reaction placed. A reaction with two such structures is left as
+      // drawn: a new layout would pull it away from one of them.
+      const ends = now.filter((x) => (straightArrow(x) && !r.arrows.includes(x.id)) || (x.kind === "line" && !r.carried.includes(x.id))).flatMap((x) => [x.from, x.to]);
+      const pinned = r.steps.flatMap((s) => (s.kind === "structure" && (s.atoms.some((i) => fixed.has(i)) || ends.some((q) => q[0] > s.box[0] - 1.5 && q[0] < s.box[2] + 1.5 && q[1] > s.box[1] - 1.5 && q[1] < s.box[3] + 1.5)) ? [s.atoms] : []));
+      if (pinned.length > 1) { kept++; continue; }
+      const next = cleanUpReaction(m, r, now, layout, new Set([...fixed, ...(pinned[0] ?? [])])), inkNext = inkOf(next);
+      // A layout that puts what it moves over a structure, text or arrow it leaves where it is, and was clear of
+      // before (a wrapped line on a legend below the reaction), is not used.
+      if (covers(m, next, ink, inkNext)) { kept++; continue; }
+      m = next;
       r.atoms.forEach((i) => fixed.add(i));
-      ink = inkOf(m);
+      ink = inkNext;
       count++;
     }
-    return { mol: m, count };
+    return { mol: m, count, kept };
+  }
+  // Whether a layout (m to next) moves a structure, text or straight arrow on to one it does not move and was clear of.
+  function covers(m: Mol, next: Mol, ink: (atoms: number[]) => Box | undefined, inkNext: (atoms: number[]) => Box | undefined): boolean {
+    type Thing = { was?: Box; now?: Box };
+    const span = (p: P, q: P): Box => [Math.min(p[0], q[0]), Math.min(p[1], q[1]), Math.max(p[0], q[0]), Math.max(p[1], q[1])];
+    const shift = (b: Box | undefined, d: P): Box | undefined => b && [b[0] + d[0], b[1] + d[1], b[2] + d[0], b[3] + d[1]];
+    const same = (p?: Box, q?: Box) => !p || !q || p.every((v, k) => Math.abs(v - q[k]) < 1e-6);
+    const meet = (p?: Box, q?: Box) => !!p && !!q && p[0] < q[2] - 0.1 && q[0] < p[2] - 0.1 && p[1] < q[3] - 0.1 && q[1] < p[3] - 0.1;
+    const things: Thing[] = fragments(m).map((g) => ({ was: ink(g), now: inkNext(g) }));
+    const mid = (x?: Arrow): P => (x ? [(x.from[0] + x.to[0]) / 2, (x.from[1] + x.to[1]) / 2] : [0, 0]);
+    for (const a of m.arrows ?? []) {
+      const b = next.arrows?.find((x) => x.id === a.id);
+      if (b && (straightArrow(a) || a.kind === "line")) things.push({ was: span(a.from, a.to), now: span(b.from, b.to) });
+    }
+    // (A name or number under a structure goes with it; it is not counted apart.)
+    for (const c of (m.captions ?? []).filter((x) => !x.under && !x.cycle)) {
+      const d = next.captions?.find((x) => x.id === c.id), on = d?.on && m.arrows?.find((x) => x.id === d.on!.arrow), was = mid(on), now = mid(on && next.arrows?.find((x) => x.id === on.id));
+      if (d) things.push({ was: placedBox(c.id), now: shift(placedBox(c.id), on ? [now[0] - was[0], now[1] - was[1]] : [d.x - c.x, d.y - c.y]) });
+    }
+    const moved = things.filter((t) => !same(t.was, t.now)), still = things.filter((t) => same(t.was, t.now));
+    return moved.some((t) => still.some((s) => meet(t.now, s.was) && !meet(t.was, s.was)));
   }
   // The reaction picked, when exactly a whole reaction is: its arrows and its structures.
   const reactionPicked = () => {
@@ -3172,7 +3208,11 @@ export default function Editor() {
     if (command === "delete" && context.kind === "spot") return runAction("spot.delete");
     if (command === "delete") return selection.size || picked.size ? set(deleteGraphics(deleteAtoms(doc, selection), picked)) : undefined;
     if (command === "number") return numberStructures();
-    if (command === "reaction.clean") { const r = reactionPicked(); return r ? set(cleanReactions(doc, (x) => x.arrows.includes(r.arrows[0])).mol, true) : undefined; }
+    if (command === "reaction.clean") {
+      const r = reactionPicked(), laid = r && cleanReactions(doc, (x) => x.arrows.includes(r.arrows[0]));
+      if (laid && !laid.count && laid.kept) return setNotice("Octet leaves the reaction as drawn. A new layout would move it on to, or away from, the rest of the drawing.");
+      return laid && !sameLayout(doc, laid.mol) ? set(laid.mol, true) : undefined;
+    }
     // Atom mapping: the first step of the picked reaction (what stands before its first arrow, and between that
     // arrow and the next), numbered by Indigo; or every number cleared.
     if (command === "reaction.map" || command === "reaction.unmap") {
@@ -3412,6 +3452,13 @@ export default function Editor() {
     if (alt) return addChainOf(from, chainLength.current);
     setDialog({ kind: "chain", from, atoms: String(chainLength.current) });
   }
+  // Select's double-click on an atom or bond, as ChemDraw's: the whole of the outermost group it is in, else its whole
+  // structure.
+  function pickWhole(t: Hover) {
+    const g = outermost(groupsOf(doc, new Set(atomsOf(doc, t)), new Set(itemsOf(t)))), one = atomsOf(doc, t)[0];
+    setPicked(new Set(g?.items ?? []));
+    setSelection(new Set(g?.atoms ?? fragments(doc).find((x) => x.includes(one)) ?? [one]));
+  }
   // What a click does with each tool in hand. alt, more: Option, and Command and Shift, were held.
   function click(t: Hover, at: P, alt = false, more: { meta?: boolean; shift?: boolean } = {}) {
     // Select: Shift-click adds what was clicked to the selection, or takes it out if it was all selected already;
@@ -3432,7 +3479,13 @@ export default function Editor() {
     }
     // Select: a click on part of a wider selection keeps that part alone (a whole integral group; a cycle keeps the
     // intermediates its press picked).
-    if (tool === "select") return t.cycle !== undefined ? undefined : choose(atomsOf(doc, t), itemsOf(t));
+    if (tool === "select") {
+      if (t.cycle !== undefined) return;
+      const on = t.atom !== undefined ? `atom ${t.atom}` : t.bond !== undefined ? `bond ${t.bond}` : undefined, was = lastPick.current, now = performance.now();
+      lastPick.current = on === undefined ? undefined : { on, time: now };
+      if (on !== undefined && was?.on === on && now - was.time < DOUBLE_MS) { lastPick.current = undefined; return pickWhole(t); }
+      return choose(atomsOf(doc, t), itemsOf(t));
+    }
     if ((t.caption !== undefined || t.cycle !== undefined) && tool !== "text") return; // a caption or cycle was picked, not drawn on
     if (tool === "table" && tableAt(at)) return openCell(tableAt(at)!, at);
     if (tool === "tlc" && plateAt(at)) return spotAt(plateAt(at)!, at, [0, 0], false, false);
@@ -4224,11 +4277,7 @@ export default function Editor() {
           if (t.caption !== undefined && tool !== "erase") startWriting({ id: t.caption });
           // With Select, a double-click on an atom or bond picks its whole structure, as in ChemDraw. (Enter, the Text
           // tool and Option-click with a drawing tool type an atom's label.)
-          else if (tool === "select" && atomsOf(doc, t).length) {
-            const one = atomsOf(doc, t)[0];
-            setPicked(new Set());
-            setSelection(new Set(fragments(doc).find((g) => g.includes(one)) ?? [one]));
-          }
+          else if (tool === "select" && atomsOf(doc, t).length) pickWhole(t);
         }}
       >
         <g transform={`translate(${view.x} ${view.y}) scale(${view.zoom})`}>

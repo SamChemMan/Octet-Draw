@@ -3,7 +3,7 @@
 // as long as their conditions, plus signs where they are missing, conditions above and below, wrapped lines.
 import assert from "node:assert/strict";
 import { addArrow, addCaption, addRing, addShape, EMPTY, fragments, pos } from "./edit.ts";
-import { cleanUpReaction, findReaction, gapFor, reactionClean, type Layout, type Reaction } from "./reaction.ts";
+import { cleanUpReaction, findReaction, gapFor, reactionClean, withStructure, type Layout, type Reaction } from "./reaction.ts";
 import type { Arrow, Box, Mol } from "./render.ts";
 
 // Structures' boxes from their atoms; a caption's box from its text (0.5 wide a letter, 0.6 high, about its point).
@@ -217,5 +217,23 @@ for (const id of [first, second]) {
   assert.ok(Math.min(a.from[0], a.to[0]) <= 4 + d - gap + 1e-6 && Math.max(a.from[0], a.to[0]) >= 6.6 + d + gap - 1e-6, "the arrow reaches past them");
   assert.equal(done.captions!.filter((x) => x.text === "+").length, 0, "+H2O has its plus sign");
   assert.ok(done.captions!.find((x) => x.id === water));
+}
+
+// Clean up with nothing picked lays out only a reaction with a structure in its row. Arrows among text alone (a
+// spectrum's labels) and a lone atom used as a word are not a reaction to lay out.
+{
+  let t: Mol = EMPTY, arrow: number;
+  [t] = addCaption(t, { text: "Ru(bpy)3", x: -1, y: 0, align: "centre" });
+  [t, arrow] = addArrow(t, { kind: "reaction", from: [1.5, 0], to: [4.5, 0] });
+  [t] = addCaption(t, { text: "Eosin Y", x: 6, y: 0, align: "centre" });
+  [t] = addCaption(t, { text: "visible light", x: 3, y: 0.6, align: "centre" });
+  const words = find(t, arrow);
+  assert.deepEqual(words.steps.map((s) => s.kind), ["text", "arrow", "text"]);
+  assert.ok(!withStructure(words), "text alone");
+  const word: Mol = { ...t, atoms: [{ label: "C", text: "Direct", location: [0, 0, 0] }], captions: t.captions!.filter((c) => c.text !== "Ru(bpy)3") };
+  assert.ok(!withStructure(find(word, arrow)), "a lone atom used as a word");
+  const real = addRing(t, 6, false, { point: [-5.5, 0] });
+  assert.deepEqual(find(real, arrow).steps.map((s) => s.kind), ["structure", "text", "arrow", "text"]);
+  assert.ok(withStructure(find(real, arrow)), "a ring before the arrow");
 }
 console.log("reaction.check: ok");

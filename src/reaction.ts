@@ -189,7 +189,9 @@ export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (ato
     if (it.step.kind === "structure") { k.atoms.push(...it.step.atoms); bring(k, it); } else k.captions.push((it.step as { id: number }).id);
     k.boxes.push(it.step.box);
   }
-  // A carried thing brings the rest of its group (a picture drawn in layers), unless the group holds part of the row.
+  // A carried thing brings the rest of its group (a picture drawn in layers), unless the group holds part of the row
+  // or another reaction's arrow (the next step of a scheme that turns a corner).
+  const otherArrows = new Set(arrows.filter((x) => straightArrow(x) && !arrowIds.includes(x.id)).map((x) => x.id));
   const rowAtoms = new Set(steps.flatMap((s) => (s.kind === "structure" ? s.atoms : []))), rowIds = new Set(steps.flatMap((s) => (s.kind === "structure" ? [] : [s.id])));
   const condAll = [...conditions.values()].flatMap((c) => [...c.above, ...c.below]);
   const condAtoms = new Set(condAll.flatMap((x) => (x.kind === "structure" ? x.atoms : []))), condIds = new Set(condAll.flatMap((x) => (x.kind === "structure" ? [] : [x.id])));
@@ -199,7 +201,7 @@ export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (ato
     if (!k) continue;
     for (const g of m.groups ?? []) {
       const has = g.atoms.some((i) => k.atoms.includes(i)) || g.items.some((id) => k.captions.includes(id) || k.arrows.includes(id) || k.shapes.includes(id));
-      if (!has || g.atoms.some((i) => rowAtoms.has(i)) || g.items.some((id) => rowIds.has(id))) continue;
+      if (!has || g.atoms.some((i) => rowAtoms.has(i)) || g.items.some((id) => rowIds.has(id) || otherArrows.has(id))) continue;
       // (Its conditions are left out: they move with their arrow already.)
       k.atoms = [...new Set([...k.atoms, ...g.atoms.filter((i) => !condAtoms.has(i))])];
       for (const id of g.items) { const kind = kindOf.get(id); if (kind && !k[kind].includes(id) && !condIds.has(id)) k[kind].push(id); }
@@ -216,6 +218,10 @@ export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (ato
   return { steps, arrows: arrowIds, atoms, captions, carried: [...new Set(carries.flatMap((k) => [...k.arrows, ...k.shapes, ...k.ends.map((e) => e[0])]))], conditions };
 }
 const union = (bs: Box[]): Box => [Math.min(...bs.map((b) => b[0])), Math.min(...bs.map((b) => b[1])), Math.max(...bs.map((b) => b[2])), Math.max(...bs.map((b) => b[3]))];
+// Whether a reaction has a structure with a bond in its row (ChemDraw reads a reaction only from parts with atoms).
+// Clean up lays out only such reactions unless their arrow is picked, so arrows among text alone (a spectrum's
+// labels, the electrons of an energy diagram, a lone atom used as a word) stay as they are drawn.
+export const withStructure = (r: Reaction) => r.steps.some((s) => s.kind === "structure" && s.atoms.length > 1);
 
 // The space between neighbours in a cleaned reaction (bond lengths), as ChemDraw sets it: a bond length, or 1.5 times
 // the caption size when that is larger (ACS Document 1996: 15 pt, 1.04 bond lengths).
