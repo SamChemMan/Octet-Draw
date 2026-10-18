@@ -4,7 +4,7 @@
 
 Do not open a public issue for a security problem.
 
-1. Go to the [Security tab](https://github.com/SamChemMan/Octet/security) of this repository.
+1. Go to the [Security tab](https://github.com/SamChemMan/Octet-Draw/security) of this repository.
 2. Select **Report a vulnerability**.
 3. Describe the problem and the steps to reproduce it.
 

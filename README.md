@@ -12,7 +12,7 @@ Octet is a free, offline desktop app for Mac, Windows, and Linux.
 
 ## Download
 
-Get the latest version from the [Releases page](https://github.com/SamChemMan/Octet/releases/latest).
+Get the latest version from the [Releases page](https://github.com/SamChemMan/Octet-Draw/releases/latest).
 No release is out yet. Until then, run Octet from source (below).
 
 | Computer | File |
@@ -41,7 +41,7 @@ Octet needs no account and no internet connection.
 
 ## Report a problem
 
-Use Help > Report a Problem in Octet, or open an [issue](https://github.com/SamChemMan/Octet/issues/new).
+Use Help > Report a Problem in Octet, or open an [issue](https://github.com/SamChemMan/Octet-Draw/issues/new).
 For a security problem, follow [SECURITY.md](SECURITY.md) instead.
 
 ## Run from source

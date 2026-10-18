@@ -245,7 +245,7 @@ async fn open_link(name: String) -> Result<(), String> {
     let url = match name.as_str() {
         "author" => "https://www.linkedin.com/in/sam-ellis-132781206/",
         // Help > Report a Problem.
-        "issues" => "https://github.com/SamChemMan/Octet/issues/new",
+        "issues" => "https://github.com/SamChemMan/Octet-Draw/issues/new",
         _ => return Err("Octet has no such link.".into()),
     };
     open_external(url).map_err(|e| e.to_string())

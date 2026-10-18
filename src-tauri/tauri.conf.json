@@ -33,7 +33,7 @@
     "category": "Education",
     "shortDescription": "Draw chemical structures and reactions",
     "longDescription": "Octet is a free, open-source app to draw chemical structures and reactions. It opens and saves ChemDraw files (CDXML and CDX), and it works with no internet connection.",
-    "homepage": "https://github.com/SamChemMan/Octet",
+    "homepage": "https://github.com/SamChemMan/Octet-Draw",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -86,7 +86,7 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM1NUUxQTZCQTg2RjE4QjYKUldTMkdHK29heHBlTmJMeHM4YytxN2gxMVVaWm8rWFdaUEtmZm5SdjhKVGE1d3diOW8yb0dYOFQK",
-      "endpoints": ["https://github.com/SamChemMan/Octet/releases/latest/download/latest.json"]
+      "endpoints": ["https://github.com/SamChemMan/Octet-Draw/releases/latest/download/latest.json"]
     }
   }
 }

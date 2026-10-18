@@ -4,7 +4,7 @@ name = "octet"
 description = "A chemical structure drawing editor"
 authors = ["Sam Ellis"]
 license = "Apache-2.0"
-repository = "https://github.com/SamChemMan/Octet"
+repository = "https://github.com/SamChemMan/Octet-Draw"
 edition = "2024"
 
 [build-dependencies]
