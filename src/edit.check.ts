@@ -1,7 +1,8 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, transformParts } from "./edit.ts";
+import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot, transformParts } from "./edit.ts";
 import { inShape, settleShape, shapeBounds, shapeCorners, tableLayout, type Mol, type Shape } from "./render.ts";
+const sub = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1]], cross = (a: number[], b: number[]) => a[0] * b[1] - a[1] * b[0];
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
 
@@ -117,7 +118,7 @@ console.log("edit.check: bond styles and chain ok");
 // ChemDraw group keys: 3 on a chain end adds a phenyl; 2 on a CH2 in a chain makes it C=O; z then 1 runs straight.
 const propane = sprout(sprout(EMPTY, [0, 0]), 1);
 const phenyl = addGroup(propane, 2, "phenyl");
-assert.equal(phenyl.atoms.length, 3 + 6);
+assert.equal(phenyl.atoms.length, 3 + 5, "the chain end becomes the ring's first atom");
 assert.equal(phenyl.bonds.filter((b) => b.type === 2).length, 3);
 const ketone = addGroup(propane, 1, "acetyl");
 assert.equal(ketone.atoms.length, 4);
@@ -138,6 +139,17 @@ const lengths = chair.bonds.map((b) => Math.hypot(pos(chair, b.atoms[1])[0] - po
 assert.ok(Math.abs(lengths.reduce((s, x) => s + x, 0) / 6 - 1) < 1e-9, "average bond length is 1");
 const fused = addChair(sprout(EMPTY, [0, 0]), 2, { bond: 0 });
 assert.equal(fused.atoms.length, 6);
+// Fused on a bond (keys 9 and 0), every bond of either chair is one bond long, and the two chairs are mirror
+// images on the same side of the bond.
+{
+  const base = sprout(sprout(EMPTY, [0, 0]), 1), bondLen = (m: typeof base) => m.bonds.map((b) => Math.hypot(pos(m, b.atoms[1])[0] - pos(m, b.atoms[0])[0], pos(m, b.atoms[1])[1] - pos(m, b.atoms[0])[1]));
+  const [one, two] = [addChair(base, 1, { bond: 1 }), addChair(base, 2, { bond: 1 })];
+  for (const c of [one, two, addChair(EMPTY, 2, { point: [0, 0] })]) for (const l of bondLen(c)) assert.ok(Math.abs(l - 1) < 1e-9, `chair bond ${l}`);
+  const far = (m: typeof base) => m.atoms.slice(3).map((a) => a.location[1]).sort().join();
+  assert.notEqual(far(one), far(two), "chairs 1 and 2 differ");
+  const side = (m: typeof base) => Math.sign(m.atoms.slice(3).reduce((s, a) => s + a.location[1], 0) / 4 - (pos(base, 1)[1] + pos(base, 2)[1]) / 2);
+  assert.equal(side(one), side(two), "both on the open side");
+}
 // Lasso: atoms inside the path are picked.
 assert.deepEqual(atomsInPolygon(chair, [[-5, -5], [5, -5], [5, 5], [-5, 5]]).length, 6);
 assert.deepEqual(atomsInPolygon(chair, [[10, 10], [11, 10], [11, 11]]), []);
@@ -359,6 +371,96 @@ console.log("edit.check: align ok");
   console.log("edit.check: ring bonds and mark directions ok");
 }
 
+// Atom hotkeys build what ChemDraw 26.1 builds, and move the keyboard hotspot to the atom it moves to.
+{
+  const angle = (m: ReturnType<typeof sprout>, i: number, j: number) => Math.round((Math.atan2(pos(m, j)[1] - pos(m, i)[1], pos(m, j)[0] - pos(m, i)[0]) * 180) / Math.PI);
+  const valence = (m: ReturnType<typeof sprout>, i: number) => m.bonds.reduce((s, b) => s + (b.atoms.includes(i) ? (b.type === 4 ? 1.5 : b.type) : 0), 0);
+  const bond = (m: ReturnType<typeof sprout>, i: number, j: number) => m.bonds.find((b) => b.atoms.includes(i) && b.atoms.includes(j));
+  const ethane = sprout(EMPTY, [0, 0]); // atom 1 is a chain end, the bond at 30°
+  const propane = sprout(ethane, 1); // atom 1 is a CH2, its open side straight up
+  const isobutane = addGroup(propane, 1, "chain"); // atom 1 is branched
+  const benzene = addRing(EMPTY, 6, true, { point: [0, 0] }); // atom 0 is aromatic
+  const keys: Group[] = ["chain", "other", "acetyl", "phenyl", "wedgeMe", "hashMe", "cyclohexyl", "cyclopentyl", "methylidene", "dimethyl", "alkyne", "cyclopropyl", "cyclobutyl", "sulfonyl", "tBu"];
+  // No key gives a carbon more than four bonds, on a chain end, a CH2, a branched carbon or an aromatic carbon.
+  for (const [m, i] of [[ethane, 1], [propane, 1], [isobutane, 1], [benzene, 0]] as const) {
+    for (const g of keys) {
+      const [out, hot] = addGroupAt(m, i, g);
+      out.atoms.forEach((a, k) => assert.ok(a.label !== "C" || valence(out, k) <= 4, `${g} on atom ${i} of ${m.atoms.length}: C${k} has ${valence(out, k)} bonds`));
+      assert.ok(hot >= 0 && hot < out.atoms.length, `${g}: the hotspot is an atom`);
+      // No new atom sits on another (a ring never takes a methyl in its way).
+      out.atoms.forEach((_, a) => out.atoms.forEach((__, b) => assert.ok(a >= b || Math.hypot(pos(out, a)[0] - pos(out, b)[0], pos(out, a)[1] - pos(out, b)[1]) > 0.5, `${g}: atoms ${a} and ${b} overlap`)));
+    }
+  }
+  // Chain end: 2 gives acetone (=O up, the hotspot on the new methyl), 3 makes the end a phenyl's first atom (the
+  // hotspot across the ring), k makes it SO2Me, ⇧K its quaternary carbon, 4 a wedge up and a methyl.
+  let [m, hot] = addGroupAt(ethane, 1, "acetyl");
+  const o = m.atoms.findIndex((a) => a.label === "O");
+  assert.deepEqual([m.atoms.length, bond(m, 1, o)?.type, angle(m, 1, o), angle(m, 1, hot)], [4, 2, 90, -30]);
+  [m, hot] = addGroupAt(ethane, 1, "phenyl");
+  assert.equal(m.atoms.length, 7);
+  assert.ok(Math.abs(Math.hypot(pos(m, hot)[0] - pos(m, 1)[0], pos(m, hot)[1] - pos(m, 1)[1]) - 2) < 1e-9, "the hotspot goes to the para atom");
+  [m, hot] = addGroupAt(ethane, 1, "sulfonyl");
+  assert.deepEqual([m.atoms[1].label, m.atoms.filter((a) => a.label === "O").length, angle(m, 1, hot)], ["S", 2, -30]);
+  [m, hot] = addGroupAt(ethane, 1, "tBu");
+  assert.deepEqual([neighbours(m, 1).length, angle(m, 1, hot)], [4, 30], "t-Bu on the end carbon, the hotspot straight on");
+  [m, hot] = addGroupAt(ethane, 1, "wedgeMe");
+  const w = m.bonds.find((b) => b.stereo)!;
+  assert.deepEqual([w.stereo, w.atoms[0], angle(m, 1, w.atoms[1]), angle(m, 1, hot)], [1, 1, 90, -30]);
+  // A ring off a chain end: the bonds at the join meet at 120°, the ring's centre in line with the chain's bond.
+  for (const g of ["cyclohexyl", "cyclopentyl", "cyclopropyl", "cyclobutyl"] as Group[]) {
+    const out = addGroupAt(ethane, 1, g)[0], [a, b] = neighbours(out, 1).filter((k) => k !== 0);
+    assert.equal(out.atoms[a] && neighbours(out, 1).length, 3, `${g}: the end atom is in the ring`);
+    assert.ok(Math.abs(Math.abs(angle(out, 1, a) - 30) - Math.abs(angle(out, 1, b) - 30)) <= 1, `${g}: symmetric about the bond`);
+  }
+  // CH2 in a chain: 2 makes C=O and keeps the hotspot; 9 a pair 60° apart about the open side (the hotspot on the
+  // right one); ⇧K a hashed and a wedged methyl; 0 a bond 1.75 long; 6 a spiro ring.
+  [m, hot] = addGroupAt(propane, 1, "acetyl");
+  assert.deepEqual([m.atoms.length, hot], [4, 1]);
+  [m, hot] = addGroupAt(propane, 1, "dimethyl");
+  assert.deepEqual([angle(m, 1, 3), angle(m, 1, 4), hot], [60, 120, 3]);
+  [m, hot] = addGroupAt(propane, 1, "tBu");
+  assert.deepEqual([bond(m, 1, 3)?.stereo, bond(m, 1, 4)?.stereo, hot], [6, 1, 3]);
+  [m, hot] = addGroupAt(propane, 1, "other");
+  assert.ok(Math.abs(Math.hypot(pos(m, hot)[0] - pos(m, 1)[0], pos(m, hot)[1] - pos(m, 1)[1]) - 1.75) < 1e-9 && angle(m, 1, hot) === 90);
+  assert.equal(addGroup(propane, 1, "cyclohexyl").atoms.length, 3 + 5, "spiro");
+  // Branched and aromatic carbons get a C–C bond first: 9 on a branched carbon is an isopropyl, 6 a cyclohexyl.
+  assert.equal(addGroup(isobutane, 1, "dimethyl").atoms.length, 4 + 3);
+  assert.equal(addGroup(benzene, 0, "cyclohexyl").atoms.length, 6 + 6);
+  // A wedge on a branched carbon goes opposite the upright bond.
+  [m, hot] = addGroupAt(isobutane, 1, "wedgeMe");
+  assert.deepEqual([angle(m, 1, hot), bond(m, 1, hot)?.stereo], [-90, 1]);
+  // z carries straight on; 1 1 1 types a chain; 8 then 1 gives the E alkene and 8 then 0 the Z.
+  [m, hot] = addGroupAt(ethane, 1, "alkyne");
+  assert.equal(angle(m, 1, hot), 30);
+  [m, hot] = [ethane, 1];
+  for (let k = 0; k < 3; k++) [m, hot] = addGroupAt(m, hot, "chain");
+  assert.ok(m.atoms.every((_, k) => neighbours(m, k).length <= 2) && m.atoms.length === 5, "1 1 1 makes a chain");
+  const side = (m: ReturnType<typeof sprout>, k: number) => Math.sign(cross(sub(pos(m, 2), pos(m, 1)), sub(pos(m, k), pos(m, 1))));
+  const [ene, end] = addGroupAt(ethane, 1, "methylidene");
+  assert.equal(end, 2);
+  assert.notEqual(side(addGroup(ene, end, "chain"), 3), side(ene, 0), "8 then 1: E");
+  assert.equal(side(addGroup(ene, end, "other"), 3), side(ene, 0), "8 then 0: Z");
+  // The arrow keys walk the hotspot atom to bond to atom; where two bonds point as much that way, it stays.
+  assert.deepEqual(walkHot(propane, { atom: 1 }, [-1, 0]), { bond: 0 });
+  assert.deepEqual(walkHot(propane, { bond: 0 }, [-1, 0]), { atom: 0 });
+  assert.deepEqual(walkHot(propane, { atom: 1 }, [0, -1]), { atom: 1 });
+  // Shift+arrow jumps about three bonds along a chain, and past the end comes round from the other side.
+  const { mol: hexane } = chainTo(EMPTY, [0, 0], [5 * Math.cos(Math.PI / 6), 0]);
+  assert.deepEqual(jumpHot(hexane, { atom: 0 }, [1, 0]), { atom: 3 });
+  assert.deepEqual(jumpHot(hexane, { atom: 0 }, [-1, 0]), { atom: 5 }, "round to the right end");
+  // A ring fused by a bond key puts the hotspot on the ring's far bond.
+  const fusedOn = addRing(propane, 6, false, { bond: 0 }), far = farBond(fusedOn, 0, propane.bonds.length)!;
+  const mid = (m: typeof fusedOn, k: number) => [0, 1].map((d) => (pos(m, m.bonds[k].atoms[0])[d] + pos(m, m.bonds[k].atoms[1])[d]) / 2);
+  assert.ok(Math.abs(Math.hypot(mid(fusedOn, far)[0] - mid(fusedOn, 0)[0], mid(fusedOn, far)[1] - mid(fusedOn, 0)[1]) - Math.sqrt(3)) < 1e-9, "the opposite bond");
+  // After another edit the hotspot stays on its atom or bond: as it is if nothing was removed, found again where it
+  // was if atoms were renumbered, and gone with its atom.
+  assert.deepEqual(keepHot(hexane, setElement(hexane, 2, "O"), { atom: 2 }), { atom: 2 });
+  assert.deepEqual(keepHot(hexane, deleteAtoms(hexane, new Set([0])), { atom: 3 }), { atom: 2 });
+  assert.deepEqual(keepHot(hexane, deleteAtoms(hexane, new Set([0])), { bond: 3 }), { bond: 2 });
+  assert.equal(keepHot(hexane, deleteAtoms(hexane, new Set([3])), { atom: 3 }), undefined);
+  console.log("edit.check: atom hotkeys ok");
+}
+
 // IDEA-SCALE-7: bonds, chains, rings, groups and templates drawn from a scaled atom take its scale, so they match.
 {
   const len = (mol: typeof m, b: { atoms: [number, number] }) => Math.hypot(pos(mol, b.atoms[1])[0] - pos(mol, b.atoms[0])[0], pos(mol, b.atoms[1])[1] - pos(mol, b.atoms[0])[1]);
@@ -566,6 +668,57 @@ console.log("edit.check: align ok");
   assert.equal(freePairs(m, 1), 1); // an amine N: one lone pair
   assert.equal(freePairs(aromatic, 1, used[1]), freePairs(aromatic, 1));
   console.log("edit.check: bond orders ok");
+}
+
+// ChemDraw's c key, and C typed as a label, show the carbon's label; setting an element (or Delete's first press)
+// takes it off again. Other element keys work as before.
+{
+  const { keyElement, setLabel } = await import("./edit.ts");
+  const chain = sprout(sprout(EMPTY, [0, 0]), 1);
+  assert.equal(keyElement(chain, 0, "C").atoms[0].shown, true);
+  assert.equal(setLabel(chain, 0, "C").atoms[0].shown, true);
+  assert.equal(setElement(keyElement(chain, 0, "C"), 0, "C").atoms[0].shown, undefined);
+  assert.deepEqual([keyElement(chain, 0, "N").atoms[0].label, keyElement(chain, 0, "N").atoms[0].shown], ["N", undefined]);
+  console.log("edit.check: shown carbons ok");
+}
+
+// Ring tools as ChemDraw's: a drag sets the first bond and the ring lies on its left; Shift makes the first bond
+// single; Command draws it delocalised (alternating bonds, every atom marked for its circle); Option-click on an atom
+// sprouts the ring on a new bond; a dragged chair turns to face the drag.
+{
+  const right = addRing(EMPTY, 6, true, { along: [[0, 0], [1, 0]] });
+  assert.ok(near(pos(right, 0), [0, 0]) && near(pos(right, 1), [1, 0]), "the first bond is the drag");
+  assert.ok(right.atoms.every((a) => a.location[1] >= -1e-9), "a drag to the right puts the ring above");
+  assert.equal(right.bonds.find((b) => b.atoms.includes(0) && b.atoms.includes(1))!.type, 2, "benzene's first bond is double");
+  const shifted = addRing(EMPTY, 6, true, { along: [[0, 0], [1, 0]] }, { firstSingle: true });
+  assert.equal(shifted.bonds.find((b) => b.atoms.includes(0) && b.atoms.includes(1))!.type, 1, "Shift: the first bond single");
+  assert.equal(shifted.bonds.filter((b) => b.type === 2).length, 3);
+  const long = addRing(EMPTY, 5, false, { along: [[0, 0], [0, 2]] });
+  for (const b of long.bonds) assert.ok(Math.abs(Math.hypot(pos(long, b.atoms[0])[0] - pos(long, b.atoms[1])[0], pos(long, b.atoms[0])[1] - pos(long, b.atoms[1])[1]) - 2) < 1e-9, "a free drag sizes the ring");
+  assert.ok(long.atoms.every((a) => a.location[0] <= 1e-9), "a drag up puts the ring on the left");
+  const deloc = addRing(EMPTY, 6, true, { point: [0, 0] }, { circle: true });
+  assert.ok(deloc.atoms.every((a) => a.circle));
+  // From an atom: the ring shares it, and a drag on to an existing atom takes that atom.
+  const ethane = sprout(EMPTY, [0, 0]), from = addRing(ethane, 6, false, { atom: 1, along: [pos(ethane, 1), pos(ethane, 0)] });
+  assert.equal(from.atoms.length, 6, "the ring takes both atoms of the bond it was dragged along");
+  const chain = sprout(sprout(EMPTY, [0, 0]), 1), spiro = addRing(chain, 6, false, { atom: 1 }), sprouted = addRing(chain, 6, false, { atom: 1 }, { sprout: true });
+  assert.equal(spiro.atoms.length, chain.atoms.length + 5);
+  assert.equal(sprouted.atoms.length, chain.atoms.length + 6, "sprouted: on a new bond from the atom");
+  assert.ok(sprouted.bonds.some((b) => b.atoms.includes(1) && !chain.bonds.some((c) => c.atoms[0] === b.atoms[0] && c.atoms[1] === b.atoms[1])));
+  const flat = addChair(EMPTY, 1, { point: [0, 0] }), up = addChair(EMPTY, 1, { point: [0, 0], turn: Math.PI / 2 });
+  const span = (m: typeof flat, k: 0 | 1) => Math.max(...m.atoms.map((a) => a.location[k])) - Math.min(...m.atoms.map((a) => a.location[k]));
+  assert.ok(span(flat, 0) > span(flat, 1) && span(up, 1) > span(up, 0), "a chair dragged up stands up");
+  console.log("edit.check: ring tool drags and keys ok");
+}
+
+// Bring to Front and Send to Back order the selected bonds: the front one is last.
+{
+  const { toFront } = await import("./edit.ts");
+  const m = sprout(sprout(sprout(EMPTY, [0, 0]), 1), 2);
+  assert.deepEqual(toFront(m, new Set([0, 1])).bonds.map((b) => b.atoms), [[1, 2], [2, 3], [0, 1]]);
+  assert.deepEqual(toFront(m, new Set([2, 3]), true).bonds.map((b) => b.atoms), [[2, 3], [0, 1], [1, 2]]);
+  assert.equal(toFront(m, new Set([0])), m, "no bond: nothing changes");
+  console.log("edit.check: bond order ok");
 }
 
 // Turned shapes (CD-3, UI-7): a quarter turn of a box or oval swaps its sides and leaves it upright; a half turn
