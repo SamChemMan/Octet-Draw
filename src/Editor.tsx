@@ -3078,9 +3078,10 @@ export default function Editor() {
     }
     if (t.caption !== undefined && tool !== "text") return; // a caption was picked, not drawn on
     if (tool === "bond") {
-      // On an atom (anywhere on its label), a bond the way that keeps it out from under the label.
+      // On an atom (anywhere on its label), a bond the way that keeps it out from under a label such as CO2Me. An
+      // element's label (OH, NH2) moves its H out of the way, so there the zig-zag goes on.
       if (t.atom !== undefined) {
-        const box = drawing.label[t.atom], off = box ? (box[0] + box[2]) / 2 / L - pos(doc, t.atom)[0] : 0;
+        const box = doc.atoms[t.atom].text ? drawing.label[t.atom] : undefined, off = box ? (box[0] + box[2]) / 2 / L - pos(doc, t.atom)[0] : 0;
         return set(sprout(doc, t.atom, bondSpec, Math.abs(off) > 0.15 ? Math.sign(off) : 0));
       }
       if (t.bond === undefined) return set(sprout(doc, at, bondSpec));
