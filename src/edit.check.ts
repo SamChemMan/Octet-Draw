@@ -774,6 +774,18 @@ console.log("edit.check: align ok");
   const r = Math.PI / 12, spun = transformParts(m, new Set(), one, (q) => [q[0] * Math.cos(r) - q[1] * Math.sin(r), q[0] * Math.sin(r) + q[1] * Math.cos(r)]).shapes![0];
   assert.ok(Math.abs(spun.angle! - 45) < 1e-9, "a turn of 15° adds 15° to the angle");
   assert.equal(transformParts(m, new Set(), one, (q) => [4 - q[0], q[1]], [1, 1], undefined, 1, "across").shapes![0].angle, -30, "a flip turns the angle the other way");
+  // A turned caption flipped: it reads the same way, turned the other way, and its middle goes where the flip puts it
+  // (its anchor keeps its place on the text). Flipped twice, it is as it was.
+  const cap: Mol = { atoms: [], bonds: [], captions: [{ id: 2, text: "Turned text", x: 1, y: 2, angle: 30 }] }, mid: P = [2.5, 2.9];
+  const centres = new Map([[2, mid]]), two = new Set([2]), across = (q: P): P => [4 - q[0], q[1]], down = (q: P): P => [q[0], 6 - q[1]];
+  for (const [f, how] of [[across, "across"], [down, "down"]] as const) {
+    const flipped = transformParts(cap, new Set(), two, f, [1, 1], centres, 1, how).captions![0];
+    const along = (x: number, y: number, deg: number): P => { const r = (-deg * Math.PI) / 180; return [x * Math.cos(r) - y * Math.sin(r), x * Math.sin(r) + y * Math.cos(r)]; };
+    assert.equal(flipped.angle, -30);
+    assert.ok(near(along(flipped.x - f(mid)[0], flipped.y - f(mid)[1], -30), along(1 - mid[0], 2 - mid[1], 30)), `flipped ${how}, the anchor keeps its place on the text`);
+    const again = transformParts({ ...cap, captions: [flipped] }, new Set(), two, f, [1, 1], new Map([[2, f(mid)]]), 1, how).captions![0];
+    assert.ok(near([again.x, again.y], [1, 2]) && Math.abs(again.angle! - 30) < 1e-9, `flipped ${how} twice, as it was`);
+  }
   console.log("edit.check: turned shapes ok");
 }
 

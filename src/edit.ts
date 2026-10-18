@@ -305,8 +305,9 @@ export function toggleLonePairs(m: Mol, atoms: number[]): Mol {
   return hetero.reduce((acc, i) => setAtom(acc, i, { pairs: shown ? undefined : freePairs(m, i, used[i]) }), m);
 }
 // Single, then double, then triple, then single again. A wedge or hash becomes a plain double, and a quadruple bond
-// single. A hydrogen bond stays one, as in ChemDraw. A bond keeps its place where bonds cross.
-const respec = (m: Mol, i: number, spec: BondSpec): Mol => ({ ...m, bonds: m.bonds.map((b, k) => (k === i ? makeBond(b.atoms, spec) : b)) });
+// single. A hydrogen bond stays one, as in ChemDraw. A bond keeps its place where bonds cross, and its colour and
+// highlight.
+const respec = (m: Mol, i: number, spec: BondSpec): Mol => ({ ...m, bonds: m.bonds.map((b, k) => (k === i ? { ...makeBond(b.atoms, spec), ...(b.colour ? { colour: b.colour } : {}), ...(b.halo ? { halo: b.halo } : {}) } : b)) });
 export const cycleBond = (m: Mol, i: number) => {
   const b = m.bonds[i];
   return b.type === HBOND ? m : respec(m, i, { type: b.type === QUADRUPLE ? 1 : b.stereo || b.display ? 2 : (b.type % 3) + 1 });
@@ -374,14 +375,14 @@ export function clickBond(m: Mol, k: number, spec: BondSpec, at: P, side = 0): M
   }
   return m;
 }
-// Drawing a bond over an existing one (a bond tool dragged from one of its atoms to the other) raises its order:
-// single to double, double to triple, and triple back to the tool's single bond, a wedge narrow at the atom dragged
-// from (Octet has no quadruple bond yet; ChemDraw goes on to quadruple first). A single bond becomes a double of the
-// tool's style: Bold a bold double, Dashed a dashed double (an aromatic double over a dashed bond), and Solid over a
-// dashed bond a dashed double.
+// Drawing a bond over an existing one (a bond tool dragged from one of its atoms to the other) raises its order, as
+// ChemDraw's does: single to double, double to triple, triple to quadruple, and quadruple back to the tool's single
+// bond, a wedge narrow at the atom dragged from. A single bond becomes a double of the tool's style: Bold a bold
+// double, Dashed a dashed double (an aromatic double over a dashed bond), and Solid over a dashed bond a dashed double.
 export function overBond(m: Mol, k: number, spec: BondSpec, from = m.bonds[k].atoms[0]): Mol {
   const b = m.bonds[k];
   if (b.type === 2) return setBondSpec(m, k, { type: 3 });
+  if (b.type === 3) return setBondSpec(m, k, { type: QUADRUPLE });
   if (b.type !== 1) {
     const single = spec.type === 1 ? spec : SINGLE, to = b.atoms[0] === from ? b.atoms[1] : b.atoms[0];
     return { ...m, bonds: m.bonds.map((x, n) => (n === k ? makeBond([from, to], single) : x)) };
@@ -1401,10 +1402,12 @@ export function scaleSizes(m: Mol, r: number): Mol {
 export function transformParts(m: Mol, atoms: Set<number>, items: Set<number>, f: (q: P) => P, size: P = [1, 1], centres?: Map<number, P>, text = 1, mirror?: "across" | "down"): Mol {
   const mean = (size[0] + size[1]) / 2, both = Math.sqrt(Math.abs(size[0] * size[1]));
   // Free text turns as f turns the page (CD-19, ChemDraw's RotationAngle): its anchor goes round its middle. A flip
-  // leaves it reading the same way, its turn the other way.
-  const o = f([0, 0]), e1 = f([1, 0]), turn = mirror ? 0 : (Math.atan2(e1[1] - o[1], e1[0] - o[0]) * 180) / Math.PI, cs = Math.cos((turn * Math.PI) / 180), sn = Math.sin((turn * Math.PI) / 180);
+  // leaves it reading the same way, its turn the other way, so its anchor goes round its middle by twice its turn,
+  // back: the text keeps its middle where the flip puts it.
+  const o = f([0, 0]), e1 = f([1, 0]), turn = mirror ? 0 : (Math.atan2(e1[1] - o[1], e1[0] - o[0]) * 180) / Math.PI;
   const caption = (c: Caption): Caption => {
     const middle = centres?.get(c.id), d = middle ? mul(sub([c.x, c.y], middle), text) : undefined;
+    const by = ((mirror ? -2 * (c.angle ?? 0) : turn) * Math.PI) / 180, cs = Math.cos(by), sn = Math.sin(by);
     const [x, y] = middle && d ? add(f(middle), [d[0] * cs - d[1] * sn, d[0] * sn + d[1] * cs]) : f([c.x, c.y]);
     const a = ((((mirror ? -(c.angle ?? 0) : (c.angle ?? 0) + turn) + 180) % 360) + 360) % 360 - 180;
     return { ...c, x, y, angle: Math.abs(a) > 1e-9 ? a : undefined };

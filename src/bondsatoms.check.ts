@@ -86,6 +86,16 @@ console.log("bondsatoms.check: quadruple and hydrogen bonds ok");
   assert.deepEqual(parse(serialize(fronted)).bonds.map((x) => x.atoms), [[2, 3], [1, 3], [0, 1]]);
   // Automatic position: a set side can be taken off again.
   assert.equal(setPosition(setPosition(cross, 0, "left"), 0).bonds[0].position, undefined);
+  // Bond Properties (setBondSpec) on a bond brought to the front: it stays in front, with its colour and highlight;
+  // a quadruple bond in front still cuts the bond behind.
+  const red = { ...fronted, bonds: fronted.bonds.map((x, k) => (k === 2 ? { ...x, colour: "#FF0000", halo: "#00FF00" } : x)) };
+  for (const type of [2, 3, QUADRUPLE]) {
+    const set = setBondSpec(red, 2, { type });
+    assert.deepEqual(set.bonds.map((x) => x.atoms), [[2, 3], [1, 3], [0, 1]], "its place where bonds cross");
+    assert.deepEqual([set.bonds[2].type, set.bonds[2].colour, set.bonds[2].halo], [type, "#FF0000", "#00FF00"]);
+    assert.equal(pieces(set).filter((poly) => Math.max(...xs(poly)) - Math.min(...xs(poly)) < 1).length, 2, "the bond behind keeps its gap");
+  }
+  assert.equal(setBondSpec(red, 2, { type: 1, stereo: 1 }).bonds[2].colour, "#FF0000", "a wedge keeps the colour too");
 }
 console.log("bondsatoms.check: crossing bonds and bond order ok");
 

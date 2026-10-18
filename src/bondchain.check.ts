@@ -1,7 +1,7 @@
 // Run: node src/bondchain.check.ts. Fails loudly if the bond and chain tools stop acting as ChemDraw's do.
 import assert from "node:assert/strict";
 import { EMPTY, addChain, chainPoints, chainTo, clickBond, dragBond, jumpHot, merge, nextSide, pos, snake, sprout, type BondSpec, type P } from "./edit.ts";
-import type { Mol } from "./render.ts";
+import { QUADRUPLE, type Mol } from "./render.ts";
 
 const SOLID: BondSpec = { type: 1 }, BOLD: BondSpec = { type: 1, display: "bold" }, DASHED: BondSpec = { type: 1, display: "dashed" };
 const WAVY: BondSpec = { type: 1, display: "wavy" }, WEDGE: BondSpec = { type: 1, stereo: 1 }, DOUBLE: BondSpec = { type: 2 };
@@ -71,9 +71,10 @@ const lone: Mol = { atoms: [{ label: "O", text: "OH", location: [0, 0, 0] }], bo
 assert.ok(pos(sprout(lone, 0, SOLID, 1), 1)[0] < 0, "a lone label's first bond goes the other way");
 console.log("bondchain.check: bonds clear of labels ok");
 
-// CORE-11: a bond drawn over a bond raises its order, and after a triple goes back to single.
+// CORE-11: a bond drawn over a bond raises its order, as ChemDraw's: up to quadruple, then back to single.
 m = dragBond(ethane, 0, pos(ethane, 1)); assert.equal(kind(m), "2");
 m = dragBond(m, 0, pos(m, 1)); assert.equal(kind(m), "3");
+m = dragBond(m, 0, pos(m, 1)); assert.equal(kind(m), String(QUADRUPLE), "a drag along a triple bond makes it quadruple");
 m = dragBond(m, 1, pos(m, 0)); assert.equal(kind(m), "1");
 assert.equal(kind(dragBond(ethane, 0, pos(ethane, 1), BOLD)), "2 bold");
 assert.equal(kind(dragBond(clickBond(ethane, 0, DASHED, mid(ethane)), 0, pos(ethane, 1), DASHED)), "2 aromatic");
