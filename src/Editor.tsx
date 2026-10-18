@@ -4462,10 +4462,12 @@ export default function Editor() {
   }, []);
 
   // Whether the focus came from the keyboard (Tab) or from a click. A click anywhere gives the keys back to the drawing.
+  // Keys in a dialog do not count: a dialog gives the focus back to the control that opened it, and that focus is the
+  // keyboard's only if the control had it from the keyboard.
   const keyFocus = useRef(false);
   useEffect(() => {
     let clicked = false;
-    const click = () => { clicked = true; keyFocus.current = false; }, key = () => { clicked = false; }, focus = () => { keyFocus.current = !clicked; };
+    const click = () => { clicked = true; keyFocus.current = false; }, key = () => { if (!modal()) clicked = false; }, focus = () => { keyFocus.current = !clicked; };
     addEventListener("pointerdown", click, true);
     addEventListener("keydown", key, true);
     addEventListener("focusin", focus, true);
