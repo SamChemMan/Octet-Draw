@@ -18,9 +18,15 @@ export function pageSize(s: Pick<DocStyle, "page" | "custom" | "landscape">): [n
   return s.landscape ? [h, w] : [w, h];
 }
 
-// The page's background: white, dark, the system's light or dark, or engineering paper (blue, with a grid). On a
-// dark or blue page the structures and text are drawn white.
-export type Background = "white" | "dark" | "system" | "blueprint";
+// The page's background: white, dark, the system's light or dark, engineering paper (blue, with a grid), or a colour
+// of the user's own (#rrggbb, ChemDraw's document background colour). On a dark or blue page, or a dark colour, the
+// structures and text are drawn white.
+export type Background = "white" | "dark" | "system" | "blueprint" | `#${string}`;
+// A colour that black text does not read on as well as white text does (WCAG relative luminance below 0.179).
+export const darkColour = (hex: string) => {
+  const [r, g, b] = [1, 3, 5].map((k) => { const c = parseInt(hex.slice(k, k + 2), 16) / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.179;
+};
 export const BACKGROUNDS: [Background, string][] = [["white", "White"], ["dark", "Dark"], ["system", "Match the system"], ["blueprint", "Engineering paper"]];
 export type DocStyle = {
   preset: string; // the preset the style came from, or "Custom"
@@ -86,7 +92,7 @@ export function readStyle(v: unknown): DocStyle {
     page: text("page", (t) => t in PAGES || t === "Custom") as PageName,
     custom: Array.isArray(s.custom) && s.custom.length === 2 && s.custom.every((n) => typeof n === "number" && n >= 10 && n <= 2000) ? [s.custom[0], s.custom[1]] : DEFAULT_STYLE.custom,
     landscape: s.landscape === true, edges: s.edges !== false, grid: num("grid", 0, 50),
-    background: BACKGROUNDS.some(([b]) => b === s.background) ? (s.background as Background) : "white",
+    background: BACKGROUNDS.some(([b]) => b === s.background) || (typeof s.background === "string" && /^#[0-9a-f]{6}$/i.test(s.background)) ? (s.background as Background) : "white",
     bond: num("bond", 4, 72), line: num("line", 0.1, 6), bold: num("bold", 0.2, 12), margin: num("margin", 0, 10), hash: num("hash", 0.5, 10), spacing: num("spacing", 5, 40),
     labelFont: text("labelFont", fontName), labelSize: num("labelSize", 4, 72),
     captionFont: text("captionFont", fontName), captionSize: num("captionSize", 4, 72),

@@ -44,6 +44,9 @@ export type Atom = {
   // key: charge (a circled one), partial, radical0, radical1, pair0 to pair3. Marks without one go in the widest gaps.
   angles?: Record<string, number>;
   bars?: true; // the lone pairs drawn as bars, not dot pairs (ChemDraw's LonePairBar)
+  // Interpret Chemically off (ChemDraw's InterpretChemically="no" on the label): the label is its text, not chemistry.
+  // Chemistry reads the atom as an unknown atom (*), as it reads a label it cannot read.
+  chemical?: false;
 };
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 // On a double bond: bold makes the main line bold, dashed the second line dashed, either crosses the two lines.
@@ -250,7 +253,7 @@ const angle = (a: P, b: P) => Math.acos(Math.max(-1, Math.min(1, dot(a, b) / (le
 const SUB = 0.75, DROP = 0.212, RISE = 0.33;
 const TIP = 0.0165; // wedge half-width at the stereocentre, as a fraction of the bond length
 const MAX_TRIM = 0.67; // an inner-line trim longer than this (times the bond length) is skipped
-const H_FIRST = new Set(['O', 'F', 'S', 'Cl', 'Se', 'Br', 'Te', 'I']); // H2O, HCl; but NH3, CH4
+export const H_FIRST = new Set(['O', 'F', 'S', 'Cl', 'Se', 'Br', 'Te', 'I']); // H2O, HCl; but NH3, CH4
 const VALENCE: Record<string, number> = { C: 4, Si: 4, N: 3, P: 3, As: 3, B: 3, Al: 3, O: 2, S: 2, Se: 2, Te: 2, F: 1, Cl: 1, Br: 1, I: 1 };
 
 // A ring's aromatic circle, as ChemDraw sizes it (Toggle Aromatic Display): the ring's inradius for its shortest bond

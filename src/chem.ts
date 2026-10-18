@@ -170,7 +170,7 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
   const origin = mol.atoms.map((_, i) => i);
   mol.atoms.forEach((a, i) => {
     if (!a.text) return;
-    const frag = labelGroup(a.text);
+    const frag = a.chemical === false ? undefined : labelGroup(a.text);
     if (!frag?.atoms.length) { out.atoms[i] = { ...out.atoms[i], label: "*", text: undefined }; return; }
     const base = out.atoms.length;
     origin.push(...frag.atoms.map(() => i));
@@ -198,10 +198,10 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
 
 // The drawing as SMILES. Throws if Indigo can't read it (for example, a valence it rejects).
 // A drawing as KET, with labels expanded into atoms. KET has no bond display styles (bold, wavy and so on).
-// Hydrogen bonds are left out (they are not chemistry Indigo works out); a quadruple bond, which Indigo has no type
-// for, goes as a single bond.
-function ketOf(drawn: Mol): string {
-  const mol = expandLabels(drawn.bonds.some((b) => b.type === HBOND) ? { ...drawn, bonds: drawn.bonds.filter((b) => b.type !== HBOND) } : drawn);
+// Hydrogen bonds are left out (they are not chemistry Indigo works out), unless hbonds asks for them; a quadruple
+// bond, which Indigo has no type for, goes as a single bond.
+function ketOf(drawn: Mol, hbonds = false): string {
+  const mol = expandLabels(!hbonds && drawn.bonds.some((b) => b.type === HBOND) ? { ...drawn, bonds: drawn.bonds.filter((b) => b.type !== HBOND) } : drawn);
   const bonds = mol.bonds.map(({ type: t, atoms, stereo }) => { const type = t === QUADRUPLE ? 1 : t; return stereo ? { type, atoms, stereo } : { type, atoms }; });
   // KET radicals: 1 a singlet, 2 one unpaired electron (doublet), 3 two (triplet).
   const atoms = mol.atoms.map(({ label, location, charge, radical, isotope }) => ({ label, location, ...(charge ? { charge } : {}), ...(radical ? { radical: radical === 3 ? 1 : radical + 1 } : {}), ...(isotope ? { isotope } : {}) }));
@@ -216,8 +216,9 @@ function convert(input: string, format: string): string {
   }
 }
 export const toSmiles = (drawn: Mol): string => convert(ketOf(drawn), "smiles");
-// The drawing's molecules as a molfile.
-export const toMolfile = (drawn: Mol): string => convert(ketOf(drawn), "molfile");
+// The drawing's molecules as a molfile. A hydrogen bond is bond type 10 and a quadruple bond single, as ChemDraw
+// writes them.
+export const toMolfile = (drawn: Mol): string => convert(ketOf(drawn, true), "molfile");
 // CIP labels for a drawing's stereocentres (R, S) and double bonds (E, Z), in its atom and bond order.
 export function cipOf(drawn: Mol): { atoms: (string | undefined)[]; bonds: (string | undefined)[] } | undefined {
   const ind = engine(), opts = new ind.MapStringString();
@@ -430,7 +431,7 @@ function pieces(mol: Mol): Mol[] {
   return parts;
 }
 // A structure's content as text: what its formula, masses and properties come from (not where it is drawn).
-const contentOf = (m: Mol) => JSON.stringify([m.atoms.map((a) => [a.label, a.text, a.charge, a.isotope, a.radical, a.implicitHCount]), m.bonds.map((b) => [b.type, b.stereo, b.atoms])]);
+const contentOf = (m: Mol) => JSON.stringify([m.atoms.map((a) => [a.label, a.text, a.charge, a.isotope, a.radical, a.implicitHCount, a.chemical]), m.bonds.map((b) => [b.type, b.stereo, b.atoms])]);
 // A value kept by its key, so it is worked out only once. The store is cleared when it grows large.
 function remembered<T>(store: Map<string, T>, key: string, make: () => T): T {
   if (store.has(key)) return store.get(key) as T;

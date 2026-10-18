@@ -22,14 +22,14 @@ import { COLOURS, fontStack, TINTS } from "./docstyle";
 import { ArrowGlyph, arrowName, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, STRAIGHT, SymbolGlyph, withSize, type BondKind } from "./tools";
 
 // A selected atom label's text style (the first labelled atom's, for a structure), for the label style buttons.
-export type LabelText = { bold: boolean; italic: boolean; underline: boolean; font: string; size: number; align: string };
+export type LabelText = { bold: boolean; italic: boolean; underline: boolean; font: string; size: number; align: string; chemical: boolean };
 export type Context =
   | { kind: "empty" }
   | { kind: "drawing"; nameable: boolean }
   | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; cip?: boolean; numbers?: boolean; halo?: string; fill?: string; hydrogens?: boolean }
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
   | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right"; attached: boolean; attachable: boolean;
-      script?: "sub" | "super"; font?: string; fonts?: string[] }
+      script?: "sub" | "super"; font?: string; fonts?: string[]; labelable?: boolean } // labelable: Octet can read a picked caption as an atom label
   // size: the heads' palette size ("own" for a size set by hand), when the arrows have heads. ratio: an equilibrium's.
   // fillable: closed curves and block arrows, which take a fill.
   | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
@@ -378,7 +378,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       break;
     case "atom":
       items.push(it(<TextAa size={18} />, "Type a label", "atom.label"), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
-        ...(context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label) ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<SlidersHorizontal size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"),
+        ...((context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label)) && context.text?.chemical !== false ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<SlidersHorizontal size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"),
         ...(hiddenWarnings ? [it(<Warning size={18} />, "Show warnings", "show_warnings")] : []), del);
       break;
     case "bond":
@@ -676,7 +676,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       {context.kind === "bond" && (
         <>
           <div className="chips styles" role="group" aria-label="Bond style">
-            {STYLES.map((kind) => (
+            {STYLES.filter((kind) => kind !== "hydrogen" || context.style === kind).map((kind) => (
               <button key={kind} className="chip" aria-pressed={context.style === kind} aria-label={BONDS[kind].name}
                 title={hint(`bond.${kind}`) ? `${BONDS[kind].name} (${hint(`bond.${kind}`)})` : BONDS[kind].name} onClick={() => run(`bond.${kind}`)}>
                 <BondGlyph kind={kind} />
@@ -709,6 +709,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           {([["left", "Align left", <TextAlignLeft size={16} />], ["centre", "Centre", <TextAlignCenter size={16} />], ["right", "Align right", <TextAlignRight size={16} />]] as const).map(([id, name, icon]) => (
             <button key={id} className="chip" aria-pressed={context.align === id} aria-label={name} title={name} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
           ))}
+          {context.labelable && <button className="chip" aria-pressed={false} aria-label="Interpret chemically" title="Interpret chemically" onClick={() => run("interpret")}><Atom size={16} /></button>}
         </div>
       )}
 
@@ -724,6 +725,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
             ["above", "Stacked above", <ArrowLineUp size={16} />], ["auto", "Automatic", <span className="glyph-text">A</span>]] as const).map(([id, name, icon]) => (
             <button key={id} className="chip" aria-pressed={context.text!.align === id} aria-label={name} title={name} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
           ))}
+          <button className="chip" aria-pressed={context.text.chemical} aria-label="Interpret chemically" title="Interpret chemically" onClick={() => run("interpret")}><Atom size={16} /></button>
         </div>
       )}
 

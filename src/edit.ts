@@ -1,6 +1,6 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { HBOND, hydrogens, lonePairs, orderOf, QUADRUPLE, tableLayout, TABLE_ROW, type Arrow, type Atom, type Bond, type Caption, type Curve, type CurvePoint, type Mol, type Shape, type Table } from "./render.ts";
+import { HBOND, H_FIRST, hydrogens, lonePairs, orderOf, QUADRUPLE, tableLayout, TABLE_ROW, type Arrow, type Atom, type Bond, type Caption, type Curve, type CurvePoint, type Mol, type Shape, type Table } from "./render.ts";
 import type { Cycle } from "./cycle.ts";
 import { anchorElement, isElement } from "./labels.ts";
 
@@ -156,6 +156,23 @@ export function setLabel(m: Mol, i: number, text: string): Mol {
   if (isElement(t)) return setElement(m, i, t);
   return setAtom(m, i, { label: anchorElement(t) ?? "C", text: t });
 }
+// What an atom's label shows, with its H (NH2; a lone O as H2O), as Octet draws it. hideH: the document leaves off H.
+export function labelWords(m: Mol, i: number, hideH = false, used = bondOrders(m)[i]): string {
+  const a = m.atoms[i], h = hideH ? 0 : a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used, a.radical === 3 ? 2 : a.radical), hs = h ? `H${h > 1 ? h : ""}` : "";
+  return a.text ?? (!neighbours(m, i).length && H_FIRST.has(a.label) ? hs + a.label : a.label + hs);
+}
+// Interpret Chemically (ChemDraw's command on labels). Off, each label is its text, not chemistry: it keeps what it
+// shows (an N with two H stays NH2 whatever its bonds). On, it is chemistry again, and a label that reads as its
+// element with its usual H goes back to the element.
+export function interpretLabels(m: Mol, ids: Iterable<number>, on: boolean, hideH = false): Mol {
+  const pick = new Set(ids), used = bondOrders(m);
+  return { ...m, atoms: m.atoms.map((a, i) => {
+    if (!pick.has(i)) return a;
+    if (!on) return { ...a, text: labelWords(m, i, hideH, used[i]), chemical: false };
+    const { chemical: _, text, ...rest } = a;
+    return text === labelWords({ ...m, atoms: m.atoms.map((x, k) => (k === i ? rest : x)) }, i, hideH, used[i]) ? rest : { ...rest, text };
+  }) };
+}
 export const addCharge = (m: Mol, i: number, delta: number) => trimPairs(setAtom(m, i, { charge: (m.atoms[i].charge ?? 0) + delta || undefined }), i);
 
 // The Symbols tool's marks. A charge adds to the atom's charge, drawn as a superscript sign or circled beside the
@@ -220,7 +237,8 @@ export const cycleBond = (m: Mol, i: number) => {
   return b.type === HBOND ? m : respec(m, i, { type: b.type === QUADRUPLE ? 1 : b.stereo || b.display ? 2 : (b.type % 3) + 1 });
 };
 export const setBond = (m: Mol, i: number, type: number, stereo?: number) => respec(m, i, { type, stereo });
-export const setBondSpec = (m: Mol, i: number, spec: BondSpec) => respec(m, i, spec);
+// No bond becomes a hydrogen bond, as in ChemDraw: the hydrogen bond tool only joins two atoms.
+export const setBondSpec = (m: Mol, i: number, spec: BondSpec) => (spec.type === HBOND && m.bonds[i].type !== HBOND ? m : respec(m, i, spec));
 // A double bond's second line on one side, centred, or (unset) placed automatically.
 export const setPosition = (m: Mol, i: number, position?: "left" | "centre" | "right") => setBondAt(m, i, { position });
 // Bring to Front and Send to Back where bonds cross (ChemDraw's f key on a bond): the bonds go in front of (or behind)

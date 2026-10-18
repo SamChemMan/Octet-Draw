@@ -11,7 +11,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
 import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
-import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, ELEMENT_COLOURS, FONTS, type DocStyle, type PageName } from "./docstyle";
+import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, ELEMENT_COLOURS, FONTS, darkColour, type DocStyle, type PageName } from "./docstyle";
 import { messy, problems, showWarnedHydrogens } from "./check";
 import { parse, serialize } from "./file";
 import {
@@ -63,7 +63,8 @@ import { iupacName } from "./namer";
 
 setNamer(iupacName);
 import { loadTemplates, newTemplate, templateKind } from "./templates";
-import { formulaRuns } from "./labels";
+import { formulaRuns, isElement } from "./labels";
+import { interpretLabels } from "./edit";
 import { common, edited, lines as richLines, normalise, plainOf, runsOf, styleRange, styled, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
 import { Dialog } from "./Dialog";
@@ -264,9 +265,12 @@ const nicknameMol = (name: string) => {
   if (!nicknameMols.has(name)) { const smiles = labelSmiles(name); try { nicknameMols.set(name, smiles ? parseStructure(smiles) : undefined); } catch { nicknameMols.set(name, undefined); } }
   return nicknameMols.get(name);
 };
+// A caption Octet can read as an atom label (NH2, OMe, CH3OH): one word, not tied to a structure, arrow or cycle.
+const labelable = (c: Caption) => { const t = c.text.trim(); return !c.on && !c.under && !c.cycle && !!t && !/\s/.test(t) && (isElement(t) || !!labelSmiles(t)); };
 // A bond's style in the tool's list, if it is one of them.
 const bondKindOf = (b: Bond) => (Object.keys(BONDS) as BondKind[]).find((k) => { const spec: BondSpec = BONDS[k].spec; return spec.type === b.type && spec.stereo === b.stereo && spec.display === b.display; });
-// The Bond Properties list, in the order of ChemDraw's Bond Type list (then Octet's hydrogen bond).
+// The Bond Properties list, in the order of ChemDraw's Bond Type list. A hydrogen bond is in it only on a hydrogen
+// bond: no bond becomes one, as in ChemDraw.
 const BOND_TYPES: BondKind[] = ["single", "dashed", "hashed", "hashwedge", "bold", "wedge", "wavy", "hollow", "dative", "double", "eitherdouble", "bolddouble", "aromaticdouble", "dasheddouble", "triple", "quadruple", "hydrogen"];
 let contracted: [string, string][] | undefined;
 function contractLabelText(want: string): string | undefined {
@@ -917,7 +921,7 @@ export default function Editor() {
     // Expand Label (Structure menu): each selected label (OMe, CO2Et, Boc) drawn out as its atoms.
     expand_label: () => {
       let m = doc;
-      const labelled = [...selection].filter((i) => doc.atoms[i]?.text).sort((a, b) => b - a);
+      const labelled = [...selection].filter((i) => doc.atoms[i]?.text && doc.atoms[i].chemical !== false).sort((a, b) => b - a);
       if (!labelled.length) return setNotice("Pick a labelled atom, such as OMe or Boc.");
       for (const i of labelled) {
         const smiles = labelSmiles(doc.atoms[i].text!);
@@ -925,6 +929,39 @@ export default function Editor() {
         try { m = expandLabel(m, i, parseStructure(smiles)); } catch { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); }
       }
       set(m);
+    },
+    // Interpret Chemically, as ChemDraw's (on labels and captions): the selected labels become text, not chemistry, and
+    // a label with no bonds becomes a caption where it was; or they are chemistry again. A picked caption that reads as
+    // a label becomes an atom with that label.
+    interpret: () => {
+      const ids = [...selection].filter((i) => drawing.label[i]);
+      if (ids.length) {
+        const on = ids.some((i) => doc.atoms[i].chemical === false), lone = on ? [] : ids.filter((i) => !neighbours(doc, i).length);
+        let m = interpretLabels(doc, ids, on, style.hideH);
+        for (const i of lone) {
+          const a = m.atoms[i], k = (a.size ?? style.labelSize) / style.labelSize, first = measure((doc.atoms[i].text ?? a.label)[0]);
+          const runs = formulaRuns(a.text!).map((r) => (r.sub ? { text: r.text, script: "sub" as const } : { text: r.text }));
+          [m] = addCaption(m, { text: a.text!, x: drawing.label[i]![0] / L, y: (a.location[1] * L - (first.ascent * k) / 2) / L, align: "left", ...(runs.some((r) => r.script) ? { runs } : {}),
+            ...(a.size || style.labelSize !== style.captionSize ? { size: a.size ?? style.labelSize } : {}), ...(a.font || style.labelFont !== style.captionFont ? { font: a.font ?? style.labelFont } : {}),
+            ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}), ...(a.colour ? { colour: a.colour } : {}) });
+        }
+        if (lone.length) { m = deleteAtoms(m, new Set(lone)); setSelection(new Set()); }
+        return set(m, true);
+      }
+      const caps = (doc.captions ?? []).filter((c) => picked.has(c.id) && labelable(c));
+      if (!caps.length) return setNotice("Select a label, or a caption that reads as a label.");
+      let m = doc;
+      for (const c of caps) {
+        const p = placed.find((x) => x.id === c.id), t = c.text.trim();
+        if (!p) continue;
+        // The label's first glyph goes where the caption's was, as an atom label sits on its atom.
+        const first = measure(t[0]), k = p.size / frame.size, size = c.size ?? style.captionSize, font = c.font ?? style.captionFont;
+        const at: [number, number, number] = [(p.box[0] + (first.width * k) / 2) / L, -(p.lines[0].y - (first.ascent * k) / 2) / L, 0];
+        m = setLabel({ ...m, atoms: [...m.atoms, { label: "C", location: at, ...(size !== style.labelSize ? { size } : {}), ...(font !== style.labelFont ? { font } : {}),
+          ...(c.bold ? { bold: true as const } : {}), ...(c.italic ? { italic: true as const } : {}), ...(c.underline ? { underline: true as const } : {}), ...(c.colour ? { colour: c.colour } : {}) }] }, m.atoms.length, t);
+      }
+      setPicked(new Set());
+      return set(deleteGraphics(m, new Set(caps.map((c) => c.id))), true);
     },
     // Contract Label (Structure menu): the selected substituent (joined to the rest by one bond) becomes one labelled
     // atom: the abbreviation it is (OMe, CO2Et, Boc, TBS), recognised whatever way it was drawn, or else its formula.
@@ -1071,7 +1108,7 @@ export default function Editor() {
   // The text style of the first labelled atom among these, for the label style buttons; none when no atom has a label.
   const labelText = (ids: number[]) => {
     const i = ids.find((k) => drawing.label[k]), a = i === undefined ? undefined : doc.atoms[i];
-    return a && { bold: !!a.bold, italic: !!a.italic, underline: !!a.underline, font: a.font ?? style.labelFont, size: a.size ?? style.labelSize, align: a.align ?? "auto" };
+    return a && { bold: !!a.bold, italic: !!a.italic, underline: !!a.underline, font: a.font ?? style.labelFont, size: a.size ?? style.labelSize, align: a.align ?? "auto", chemical: a.chemical !== false };
   };
   // An atom label's font: its own font, bold and italic when it has them, else the document's label font.
   const labelFont = (l: { size: number; font?: string; bold?: boolean; italic?: boolean }) =>
@@ -1100,7 +1137,9 @@ export default function Editor() {
     q.addEventListener("change", on);
     return () => q.removeEventListener("change", on);
   }, []);
-  const paper = style.background === "system" ? (systemDark ? "dark" : "white") : style.background;
+  // A colour of the user's own is dark or light paper by how light it is.
+  const own = style.background.startsWith("#") ? style.background : undefined;
+  const paper = style.background === "system" ? (systemDark ? "dark" : "white") : own ? (darkColour(own) ? "dark" : "white") : style.background;
   const darkPaper = paper === "dark" || paper === "blueprint";
   const textInk = (c: string) => (darkPaper && /^#(000000|0f172a)$/i.test(c) ? "#FFFFFF" : c);
   const pages = useMemo(() => {
@@ -2034,6 +2073,8 @@ export default function Editor() {
         if (drag.target.bond !== undefined && drag.target.atom === undefined) return; // dragging from a bond does nothing
         const origin = typeof drag.from === "number" ? pos(doc, drag.from) : drag.from;
         const onto = atomAt(doc, p);
+        // A hydrogen bond goes from an atom to another atom, never to a new one.
+        if (bondKind === "hydrogen" && (typeof drag.from !== "number" || onto === undefined || onto === drag.from)) return setDrag({ ...drag, to: undefined });
         let to: P;
         if (onto !== undefined && onto !== drag.from) to = pos(doc, onto);
         else {
@@ -2415,7 +2456,7 @@ export default function Editor() {
       const cs = (doc.captions ?? []).filter((c) => picked.has(c.id)), c = cs[0];
       if (c) {
         const p = placed.find((x) => x.id === c.id);
-        return { kind: "caption", mode: "picked", colour: c.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!c.bold, italic: !!c.italic, underline: !!c.underline, size: c.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: c.font ?? style.captionFont, fonts: fontList };
+        return { kind: "caption", mode: "picked", colour: c.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!c.bold, italic: !!c.italic, underline: !!c.underline, size: c.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: c.font ?? style.captionFont, fonts: fontList, labelable: cs.some(labelable) };
       }
     }
     if (!selection.size) return doc.atoms.length || doc.captions?.length || doc.arrows?.length || doc.shapes?.length ? { kind: "drawing", nameable } : { kind: "empty" };
@@ -2799,6 +2840,7 @@ export default function Editor() {
     actions: [settings.actions ? "Hide the Actions panel" : "Show the Actions panel", undefined, <SlidersHorizontal size={18} />],
     text_bold: ["Bold", `${MOD}B`, <TextB size={18} />], text_italic: ["Italic", `${MOD}I`, <TextItalic size={18} />], text_underline: ["Underline", `${MOD}U`, <TextUnderline size={18} />],
     align_left: ["Flush left", `⇧${MOD}L`, <TextAlignLeft size={18} />], align_centre: ["Centre text", `⇧${MOD}C`, <TextAlignCenter size={18} />], align_right: ["Flush right", `⇧${MOD}R`, <TextAlignRight size={18} />], align_above: ["Stacked above", "", <ArrowLineUp size={18} />], align_auto: ["Automatic label alignment", `⇧${MOD}M`, <TextAa size={18} />],
+    interpret: ["Interpret chemically", "", <AtomIcon size={18} />],
   };
   const paletteCommands = (): Command[] => {
     const toolKey = (id: string) => { const k = keymap(settings.keys)[id]?.[0]; return k ? keyLabel(k) : undefined; };
@@ -3171,6 +3213,8 @@ export default function Editor() {
     // Option-click on an atom with a bond, chain or ring tool opens its label, as in ChemDraw.
     if (pressAlt.current && t.atom !== undefined && (tool === "bond" || tool === "chain" || tool === "ring")) return editLabel(t.atom);
     if (tool === "bond") {
+      // The hydrogen bond tool only joins two atoms (a drag from an H atom to an acceptor), as in ChemDraw.
+      if (bondKind === "hydrogen") return;
       if (t.atom !== undefined) return set(sprout(doc, t.atom, bondSpec));
       if (t.bond === undefined) return set(sprout(doc, at, bondSpec));
       // On a bond: single cycles 1, 2, 3; any other style sets it; a wedge or dative clicked again flips round.
@@ -3231,6 +3275,8 @@ export default function Editor() {
     switch (drag.kind) {
       case "bond": {
         const { to, from, target: t, at } = drag;
+        // ChemDraw's hydrogen bond tool says so when the two atoms already have a bond.
+        if (to && bondKind === "hydrogen" && typeof from === "number" && neighbours(doc, from).includes(atomAt(doc, to)!)) return setNotice("These atoms already have a bond.");
         if (to) return set(bondTo(doc, from, to, bondSpec));
         return click(t, at);
       }
@@ -3852,6 +3898,7 @@ export default function Editor() {
           ...(pageHover && !drag ? { cursor: "zoom-in" } : (overTurn && !drag) || drag?.kind === "turn" ? { cursor: turnCursor ?? "grab" } : overSelection || drag?.kind === "move" ? { cursor: "move" } : tool === "select" && cursor ? { cursor } : {}),
           ...((edgeHover && !drag) || drag?.kind === "tableedge" ? { cursor: (drag?.kind === "tableedge" ? drag.axis : edgeHover) === "col" ? "col-resize" : "row-resize" } : {}),
           ...(darkPaper ? { "--ink": "#FFFFFF" } : {}),
+          ...(own ? { "--canvas": own } : {}),
           // Engineering paper: a 1 mm grid with a heavier line every 5 mm, fixed to the page as it moves and zooms.
           ...(paper === "blueprint" ? { backgroundSize: `${5 * mm * L * view.zoom}px ${5 * mm * L * view.zoom}px, ${5 * mm * L * view.zoom}px ${5 * mm * L * view.zoom}px, ${mm * L * view.zoom}px ${mm * L * view.zoom}px, ${mm * L * view.zoom}px ${mm * L * view.zoom}px`, backgroundPosition: `${view.x}px ${view.y}px` } : {}),
         } as React.CSSProperties}
@@ -4451,7 +4498,7 @@ export default function Editor() {
             setDialog(undefined);
           }}>
           <label className="dialog-row"><span>Bond type</span>
-            <Select label="Bond type" value={dialog.style} options={BOND_TYPES.map((k) => [k, BONDS[k].name])} onChange={(v) => setDialog({ ...dialog, style: v as BondKind })} />
+            <Select label="Bond type" value={dialog.style} options={BOND_TYPES.filter((k) => k !== "hydrogen" || doc.bonds[dialog.bond]?.type === BONDS.hydrogen.spec.type).map((k) => [k, BONDS[k].name])} onChange={(v) => setDialog({ ...dialog, style: v as BondKind })} />
           </label>
           {BONDS[dialog.style].spec.type === 2 && (
             <label className="dialog-row"><span>Second line</span>

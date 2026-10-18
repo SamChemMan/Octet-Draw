@@ -223,6 +223,41 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
   );
 }
 
+// The page backgrounds, each a small page of itself, then a colour of the user's own (ChemDraw keeps a background
+// colour in each document): its button opens the colour picker under it.
+function Backgrounds({ value, onChange }: { value: DocStyle["background"]; onChange: (b: DocStyle["background"]) => void }) {
+  const [open, setOpen] = useState(false);
+  const button = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null), own = value.startsWith("#") ? value : undefined;
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => { if (!menu.current?.contains(e.target as Node) && !button.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setOpen(false); button.current?.focus(); } };
+    addEventListener("pointerdown", away, true);
+    addEventListener("keydown", esc, true);
+    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", esc, true); };
+  }, [open]);
+  // The picker opens below the button, or above it when there is no room below.
+  const r = open ? button.current?.getBoundingClientRect() : undefined, above = !!r && r.bottom + 260 > innerHeight - 8 && r.top - 260 > 8;
+  return (
+    <span className="paper-choices" role="radiogroup" aria-label="Background">
+      {BACKGROUNDS.map(([b, name]) => (
+        <button key={b} role="radio" aria-checked={value === b} aria-label={name} title={name} className={`paper-choice ${b}`} onClick={() => onChange(b)}>
+          <span />
+        </button>
+      ))}
+      <button ref={button} role="radio" aria-checked={!!own} aria-label="Custom colour" title="Custom colour" aria-haspopup="dialog" aria-expanded={open} className="paper-choice own"
+        onClick={() => { if (!own) onChange("#FFFFFF"); setOpen(!open); }}>
+        <span style={own ? { background: own } : undefined}>{!own && <Plus size={10} weight="bold" aria-hidden />}</span>
+      </button>
+      {open && r && (
+        <div ref={menu} className={above ? "page-menu paper-picker above" : "page-menu paper-picker"} role="dialog" aria-label="Background colour" style={{ left: Math.max(8, Math.min(r.right - 208, innerWidth - 216)), top: above ? r.top - 6 : r.bottom + 6 }}>
+          <ColourPicker value={own ?? "#FFFFFF"} onChange={(hex) => onChange(hex as DocStyle["background"])} />
+        </div>
+      )}
+    </span>
+  );
+}
+
 // ——— Settings as data, so search can find and show any of them ———
 
 type Def = { module: ModuleId; section: string; label: string; keywords: string; control: React.ReactNode; wide?: boolean };
@@ -371,15 +406,8 @@ export function SettingsWindow(p: Props) {
       )),
       d("document", "Page", "Gridlines", "grid gridlines guides page", <Select label="Gridlines" value={String(style.grid)} options={[["0", "None"], ["5", "5 mm"], ["10", "10 mm"], ["20", "20 mm"]]} onChange={(v) => change({ grid: Number(v) })} />),
       d("document", "Page", "Page edges", "page edges outline guides", <Switch on={style.edges} label="Page edges" onChange={(on) => change({ edges: on })} />),
-      d("document", "Page", "Background", "background page colour dark mode night white system engineering paper blueprint blue grid", (
-        // Each background as a small page of itself.
-        <span className="paper-choices" role="radiogroup" aria-label="Background">
-          {BACKGROUNDS.map(([b, name]) => (
-            <button key={b} role="radio" aria-checked={style.background === b} aria-label={name} title={name} className={`paper-choice ${b}`} onClick={() => change({ background: b })}>
-              <span />
-            </button>
-          ))}
-        </span>
+      d("document", "Page", "Background", "background page colour custom dark mode night white system engineering paper blueprint blue grid", (
+        <Backgrounds value={style.background} onChange={(background) => change({ background })} />
       )),
       d("panel", "Small actions", "Show as", "actions panel small actions menus sections pop out buttons", (
         <span className="segmented" role="radiogroup" aria-label="Show small actions as">

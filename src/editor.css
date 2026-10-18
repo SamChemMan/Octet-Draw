@@ -2749,6 +2749,19 @@ button.variant.add {
 .paper-choice.white span { background: #FFFFFF; }
 .paper-choice.dark span { background: #151A23; }
 .paper-choice.system span { background: linear-gradient(135deg, #FFFFFF 50%, #151A23 50%); }
+.paper-choice.own span {
+  display: grid;
+  place-items: center;
+  background: var(--canvas);
+  color: var(--ink-muted);
+}
+.paper-picker {
+  width: 208px;
+}
+.paper-picker .colour-picker {
+  width: auto;
+  padding: 0;
+}
 .paper-choice.blueprint span {
   background-color: #1D4B86;
   background-image: linear-gradient(to right, rgb(255 255 255 / 0.35) 1px, transparent 1px), linear-gradient(to bottom, rgb(255 255 255 / 0.35) 1px, transparent 1px);

@@ -432,8 +432,9 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   function node(i: number): { xml: string; box: Box } {
     const a = mol.atoms[i], X = page(i), deg = nbrs[i].length, charge = a.charge ?? 0;
     const shown = !a.attach && !a.bead && (a.label !== "C" || !deg || !!a.text || !!a.isotope || (deg === 1 ? style.terminalLabels : style.carbonLabels));
-    const generic = !!a.text && /^(R\d{0,2}'{0,2}|X|Y|M|Q|A)$/.test(a.text);
-    const inner = a.text && !generic ? opts.expand?.(a.text) : undefined;
+    // A label with Interpret Chemically off is a node of no known kind (Unspecified), its text marked as not chemistry.
+    const plain = a.chemical === false, generic = !plain && !!a.text && /^(R\d{0,2}'{0,2}|X|Y|M|Q|A)$/.test(a.text);
+    const inner = a.text && !generic && !plain ? opts.expand?.(a.text) : undefined;
     const type = a.attach || a.bead ? "ExternalConnectionPoint" : generic ? "GenericNickname" : a.text ? (inner?.atoms.length ? "Fragment" : "Unspecified") : undefined;
     const element = type ? undefined : a.label === "D" ? 1 : SYMBOLS.indexOf(a.label) + 1;
     const h = shown && !a.text ? a.implicitHCount ?? hydrogens(a.label, charge, used(i), a.radical === 3 ? 2 : a.radical) : undefined;
@@ -477,7 +478,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const box: Box = [left, y - 0.716 * size, left + width, y + (/\d/.test(text) ? 0.15 * size : 0)];
     const style2 = { font: a.font ?? style.labelFont, size, colour: a.colour }, look = (a.bold ? 1 : 0) | (a.italic ? 2 : 0) | (a.underline ? 4 : 0);
     return {
-      xml: el("t", { p: pt([x, y]), BoundingBox: boxText(box), color: colour(a.colour), LabelJustification: just, Justification: just === "Left" ? undefined : just, LabelAlignment: stack },
+      xml: el("t", { p: pt([x, y]), BoundingBox: boxText(box), color: colour(a.colour), LabelJustification: just, Justification: just === "Left" ? undefined : just, LabelAlignment: stack, InterpretChemically: a.chemical === false ? "no" : undefined },
         (iso ? run(iso, { ...style2, face: 0x40 | look }) : "") + run(text, { ...style2, face: 0x60 | look }) + (sign ? run(sign, { ...style2, face: 0x40 | look }) : "")),
       box,
     };
@@ -705,7 +706,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   const top = outs.filter((o) => o.group !== -1), all = union(top.map((o) => o.box)) ?? [0, 0, 0, 0];
   const cycles = (mol.cycles ?? []).map((c: Cycle) => ({ id: idOf.get(c.id), centre: c.centre, radius: c.radius, clockwise: c.clockwise, nodes: c.nodes.map((n) => n.map((i) => nodeId.get(i)).filter((v) => v !== undefined)), colour: c.colour }));
   const pageXml = el("page", { id: fresh(), BoundingBox: `0 0 ${fmt(W)} ${fmt(H)}`, HeaderPosition: 36, FooterPosition: 36, PrintTrimMarks: "yes", HeightPages: 1, WidthPages: 1 }, RANKED(top).map((o) => o.xml).join("") + schemes.join(""));
-  const doc = colour(style.colour) ?? 0;
+  const doc = colour(style.colour) ?? 0, bg = style.background.startsWith("#") ? colour(style.background)! : 1;
   // The document's palette goes in its colour table, as ChemDraw keeps a document's colours there.
   for (const c of style.palette ?? []) colour(c.hex);
   const rgb = (c: string) => [1, 3, 5].map((k) => fmtColour(parseInt(c.slice(k, k + 2), 16) / 255));
@@ -720,7 +721,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     ChemPropName: "", ChemPropFormula: "Chemical Formula: ", ChemPropExactMass: "Exact Mass: ", ChemPropMolWt: "Molecular Weight: ", ChemPropMOverZ: "m/z: ", ChemPropAnalysis: "Elemental Analysis: ",
     ChemPropBoilingPt: "Boiling Point: ", ChemPropMeltingPt: "Melting Point: ", ChemPropCritTemp: "Critical Temp: ", ChemPropCritPres: "Critical Pres: ", ChemPropCritVol: "Critical Vol: ",
     ChemPropGibbs: "Gibbs Energy: ", ChemPropLogP: "Log P: ", ChemPropMR: "MR: ", ChemPropHenry: "Henry's Law: ", ChemPropEForm: "Heat of Form: ", ChemProptPSA: "tPSA: ", ChemPropID: "", ChemPropFragmentLabel: "",
-    color: doc, bgcolor: 1, RxnAutonumberStart: 1, RxnAutonumberConditions: "no", RxnAutonumberStyle: "Roman", RxnAutonumberFormat: "(#)",
+    color: doc, bgcolor: bg, RxnAutonumberStart: 1, RxnAutonumberConditions: "no", RxnAutonumberStyle: "Roman", RxnAutonumberFormat: "(#)",
     Octet: priv({ v: 1, page: style.page, custom: style.custom, landscape: style.landscape || undefined, edges: style.edges ? undefined : false, grid: style.grid || undefined,
       background: style.background === "white" ? undefined : style.background, cycles: cycles.length ? cycles : undefined, palette: style.palette }),
   }, tables + pageXml);
@@ -844,6 +845,8 @@ export function fromCdxml(text: string): CdxmlRead {
     bond: B, line: real(r.LineWidth), bold: real(r.BoldWidth), margin: real(r.MarginWidth), hash: real(r.HashSpacing), spacing: real(r.BondSpacing),
     labelFont: fontOf(fonts.get(int(r.LabelFont) ?? -1)).font, labelSize: real(r.LabelSize), captionFont: fontOf(fonts.get(int(r.CaptionFont) ?? -1)).font, captionSize: real(r.CaptionSize),
     colour: colourOf(r.color) ?? "#000000",
+    // ChemDraw's document background colour, when it is not white (Octet's own files say which background they have).
+    ...(!octet && r.bgcolor !== undefined && colourOf(r.bgcolor) !== "#FFFFFF" ? { background: colourOf(r.bgcolor) ?? "#000000" } : {}),
     terminalLabels: yes(r.ShowTerminalCarbonLabels), carbonLabels: yes(r.ShowNonTerminalCarbonLabels), hideH: yes(r.HideImplicitHydrogens),
   });
 
@@ -864,7 +867,7 @@ export function fromCdxml(text: string): CdxmlRead {
   const groups: G[] = [];
   const nodeIds: number[] = [], bondIds: number[] = [], bondZs: number[] = [], areas: Xml[] = [];
   const atomOf = new Map<number, number>(), objectOf = new Map<number, number>(), arrowOfGraphic = new Map<number, number>();
-  const labels: { i: number; text: string; type: string; isotope?: number }[] = [];
+  const labels: { i: number; text: string; type: string; isotope?: number; plain?: boolean }[] = [];
   const numH = new Map<number, number>(), delocalised: { k: number; order?: 1 | 2 }[] = [], ovals: { id: number; c: P; r: number }[] = [];
   const bondsToRead: Xml[] = [], symbols: { x: Xml; atoms: number[]; group?: G }[] = [], steps: Xml[] = [], unders: { c: Caption; nodes: unknown }[] = [];
   const brackets: { x: Xml; id: number; z: number; group?: G; ends: number[] }[] = [];
@@ -971,7 +974,7 @@ export function fromCdxml(text: string): CdxmlRead {
       if (font && font !== style.labelFont) a.font = font;
       if (size && size >= 4 && size <= 72 && Math.abs(size - style.labelSize) > 0.01) a.size = size;
     }
-    if (t) labels.push({ i, text: t.kids.filter((k) => k.name === "s").map((k) => k.text).join(""), type, isotope });
+    if (t) labels.push({ i, text: t.kids.filter((k) => k.name === "s").map((k) => k.text).join(""), type, isotope, plain: t.attrs.InterpretChemically !== undefined && !yes(t.attrs.InterpretChemically) });
     return i;
   }
 
@@ -1083,21 +1086,23 @@ export function fromCdxml(text: string): CdxmlRead {
   function readLabels() {
     const used = mol.atoms.map(() => 0), degree = mol.atoms.map(() => 0);
     for (const b of mol.bonds) for (const i of b.atoms) { used[i] += orderOf(b.type); degree[i]++; }
-    for (const { i, text: raw, type, isotope } of labels) {
+    for (const { i, text: raw, type, isotope, plain } of labels) {
       const a = mol.atoms[i], charge = a.charge ?? 0;
       let text = cleanText(raw).replace(/\n/g, "").trim();
       const sign = /(\d*)([+\-−–])$/.exec(text);
       if (charge && sign && (sign[2] === "+") === charge > 0) text = text.slice(0, text.length - (sign[1] === String(Math.abs(charge)) ? sign[0].length : 1));
       if (!text || text === "\ufffc" || a.attach || a.bead) continue;
-      if (type === "Element" && (!isotope || a.label === "D" || a.isotope)) {
+      if (type === "Element" && !plain && (!isotope || a.label === "D" || a.isotope)) {
         if (a.isotope && text.startsWith(String(a.isotope))) text = text.slice(String(a.isotope).length);
         const m = new RegExp(`^(?:H(\\d*))?${a.label}(?:H(\\d*))?$`).exec(text);
         const h = m ? (m[1] === undefined ? 0 : Number(m[1] || 1)) + (m[2] === undefined ? 0 : Number(m[2] || 1)) : -1;
         if (m && (a.label !== "C" || !degree[i] || a.isotope || (degree[i] === 1 ? style.terminalLabels : style.carbonLabels)) && h === hydrogens(a.label, charge, used[i], a.radical === 3 ? 2 : a.radical)) continue;
       } else if (isotope) lose("isotope");
       if (text.length > MAX_LABEL || /[<>]/.test(text)) { lose("label text"); text = text.replace(/[<>]/g, "").slice(0, MAX_LABEL); }
-      if (isElement(text)) a.label = text;
+      if (isElement(text) && !plain) a.label = text;
       else { a.text = text; a.label = anchorElement(text) ?? "C"; }
+      // Interpret Chemically off on the label: its text, not chemistry.
+      if (plain) a.chemical = false;
     }
   }
 

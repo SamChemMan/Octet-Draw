@@ -2,10 +2,10 @@
 // quadruple and hydrogen bonds, crossing bonds, label alignment, hidden hydrogens and placed symbols, and their CDXML.
 import assert from "node:assert/strict";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
-import { DEFAULT_STYLE, readStyle } from "./docstyle.ts";
+import { DEFAULT_STYLE, darkColour, readStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
 import { problems, showWarnedHydrogens } from "./check.ts";
-import { addSymbol, atomAt, bondAt, bondOrders, cycleBond, deleteAtoms, flipAtoms, orderBonds, rotateAtoms, setPosition, toggleHydrogens } from "./edit.ts";
+import { addSymbol, atomAt, bondAt, bondOrders, cycleBond, deleteAtoms, flipAtoms, interpretLabels, labelWords, orderBonds, rotateAtoms, setBondSpec, setPosition, toggleHydrogens } from "./edit.ts";
 import { HBOND, QUADRUPLE, render, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
 
 type P = [number, number];
@@ -45,6 +45,9 @@ const roundTrip = (m: Mol) => fromCdxml(toCdxml(m, DEFAULT_STYLE).replace(/ Octe
   assert.equal(fromCdxml(text.replace('Display="DottedHydrogen"', 'Order="hydrogen"')).mol.bonds[1].type, HBOND);
   assert.equal(fromCdxml(text.replace('Display="DottedHydrogen"', 'Display="Dot"')).mol.bonds[1].type, HBOND);
   assert.equal(cycleBond(m, 1).bonds[1].type, HBOND, "a hydrogen bond stays one");
+  // No bond becomes a hydrogen bond (ChemDraw's tool only joins two atoms); a hydrogen bond can become another bond.
+  assert.equal(setBondSpec(m, 0, { type: HBOND }), m);
+  assert.equal(setBondSpec(m, 1, { type: 1 }).bonds[1].type, 1);
   assert.equal(problems(m).length, 0, "H to N is a sound hydrogen bond");
   const wrong: Mol = { ...m, bonds: [b(0, 1), b(0, 2, { type: HBOND })] };
   assert.match(problems(wrong)[0]?.message ?? "", /^The hydrogen bond at O1 does not join an H atom to an acceptor\./);
@@ -115,6 +118,28 @@ console.log("bondsatoms.check: crossing bonds and bond order ok");
 }
 console.log("bondsatoms.check: label alignment ok");
 
+// CD-21. Interpret Chemically off: the label is its text (an N with two H stays NH2), saved as an Unspecified node
+// whose label is InterpretChemically="no", as ChemDraw saves it. On again, a label that reads as its element with its
+// usual H goes back to the element.
+{
+  const m: Mol = { atoms: [A("N", 0, 0), A("C", 1, 0)], bonds: [b(0, 1)] };
+  const off = interpretLabels(m, [0], false);
+  assert.deepEqual([off.atoms[0].text, off.atoms[0].chemical], ["NH2", false]);
+  assert.deepEqual(interpretLabels(off, [0], true).atoms[0], m.atoms[0], "back to the element");
+  const ome = interpretLabels({ ...m, atoms: [A("O", 0, 0, { text: "OMe" }), A("C", 1, 0)] }, [0], false);
+  assert.equal(interpretLabels(ome, [0], true).atoms[0].text, "OMe", "a written label keeps its text");
+  assert.equal(labelWords({ atoms: [A("O", 0, 0)], bonds: [] }, 0), "H2O", "a lone O reads H2O, as Octet draws it");
+  assert.equal(labelWords(m, 0, true), "N", "no H where the document hides them");
+  const text = toCdxml(off, DEFAULT_STYLE);
+  assert.match(text, /<n\s[^>]*NodeType="Unspecified"/);
+  assert.match(text, /<t\s[^>]*InterpretChemically="no"/);
+  assert.doesNotMatch(toCdxml(m, DEFAULT_STYLE), /InterpretChemically="no"/);
+  const back = roundTrip(off).atoms[0];
+  assert.deepEqual([back.text, back.chemical], ["NH2", false]);
+  assert.equal(parse(serialize(off)).atoms[0].chemical, false);
+}
+console.log("bondsatoms.check: interpret chemically ok");
+
 // CD-35. Toggle Hydrogen Display hides explicit H on carbon and keeps an H that means something: on a heteroatom,
 // charged, an isotope, on a stereo bond or a stereocentre. A hidden H is not drawn nor hit, still counts towards
 // valence, and is saved as Visible="no".
@@ -182,7 +207,7 @@ console.log("bondsatoms.check: hidden hydrogens ok");
 console.log("bondsatoms.check: placed and styled symbols ok");
 
 // CD-28. The named palette is saved with the document, in Octet's data and in the CDXML colour table (ChemDraw's
-// document palette); Octet reads the names back.
+// document palette); Octet reads the names back. So is a background colour of the user's own.
 {
   const palette = [{ name: "Catalyst", hex: "#12A594" }, { name: "Product", hex: "#8E4EC6" }];
   const style = { ...DEFAULT_STYLE, palette }, m: Mol = { atoms: [A("C", 0, 0), A("O", 1, 0)], bonds: [b(0, 1)] };
@@ -192,5 +217,13 @@ console.log("bondsatoms.check: placed and styled symbols ok");
   assert.equal(fromCdxml(text.replace(/ Octet="[^"]*"/g, "").replace(/CreationProgram="[^"]*"/, "")).style.palette, undefined, "a ChemDraw copy has the colours, not the names");
   assert.deepEqual(parse(serialize({ ...m, style })).style?.palette, palette);
   assert.equal(readStyle({ palette: [{ name: "x", hex: "red" }, { name: 3, hex: "#000000" }] }).palette, undefined, "bad entries are left out");
+  // A page background of the user's own colour is ChemDraw's document bgcolor; Octet reads it from both kinds of file.
+  const tinted = { ...DEFAULT_STYLE, background: "#FFF4D6" as const }, page = toCdxml(m, tinted), strip = (t: string) => t.replace(/ Octet="[^"]*"/g, "").replace(/CreationProgram="[^"]*"/, "");
+  assert.notEqual(/<CDXML\s[^>]*bgcolor="(\d+)"/.exec(page)?.[1], "1");
+  assert.equal(fromCdxml(page).style.background.toUpperCase(), "#FFF4D6");
+  assert.equal(fromCdxml(strip(page)).style.background.toUpperCase(), "#FFF4D6");
+  assert.equal(fromCdxml(strip(text)).style.background, "white", "a white page stays white");
+  assert.equal(readStyle({ background: "#FFF4D" }).background, "white");
+  assert.deepEqual([darkColour("#1D4B86"), darkColour("#FFF4D6"), darkColour("#808080")], [true, false, false]);
 }
-console.log("bondsatoms.check: document palette ok");
+console.log("bondsatoms.check: document palette and background ok");
