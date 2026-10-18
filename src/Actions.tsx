@@ -431,7 +431,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       items.push(it(<span className="glyph-text">Rf</span>, context.rf ? "Hide its Rf" : "Show its Rf", "spot.rf"), del);
       break;
     case "arrow":
-      if (context.arrow === "orbital") { items.push(it(<ArrowsLeftRight size={18} />, "Swap the phases", "orbital.swap"), small(it(<LineSegments size={18} />, context.style === "dashed" ? "Solid lines" : "Dashed lines", "arrow.style.dashed")), ...order, del); break; }
+      if (context.arrow === "orbital") { items.push(it(<ArrowsLeftRight size={18} />, "Swap the phases", "orbital.swap"), ...order, del); break; }
       if (context.arrow === "curve") { items.push(it(<Circle size={18} />, context.closed ? "Open the curve" : "Close the curve", "arrow.closed"), it(<ArrowsLeftRight size={18} />, "Reverse", "arrow.reverse"), ...order, del); break; }
       {
         const point = context.point === "add" ? [it(<BezierCurve size={18} />, "Add a point", "arrow.point")] : context.point ? [it(<LineSegment size={18} />, "Remove the point", "arrow.point")] : [];
@@ -860,14 +860,15 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           ))}
         </div>
       )}
-      {context.kind === "arrow" && (context.heads || context.curved || context.fillable || context.size !== undefined) && (() => {
+      {context.kind === "arrow" && (context.heads || context.curved || context.fillable || context.size !== undefined || context.arrow === "orbital") && (() => {
         // The rest of ChemDraw's Curves menu, one small button each: the line, the head at each end, the heads' shape,
-        // the curve's sweep and a closed curve's fill. Each shows its choice; a click opens the others.
-        const c = context, HEADS = [["none", "None"], ["full", "Arrowhead"], ["left", "Half, left"], ["right", "Half, right"]] as const;
+        // the curve's sweep and a closed curve's fill. Each shows its choice; a click opens the others. An orbital's
+        // line is plain, dashed or bold, as ChemDraw's drawing element menu has it.
+        const c = context, HEADS = [["none", "None"], ["full", "Arrowhead"], ["left", "Half, left"], ["right", "Half, right"]] as const, orbital = c.arrow === "orbital";
         return (
           <div className="picks" role="group" aria-label="Line and arrowheads">
-            {c.heads && <PickButton label="Line" value={c.style ?? "plain"} onPick={(v) => run(`arrow.style.${v}`)}
-              options={([["plain", "Plain"], ["dashed", "Dashed"], ["bold", "Bold"], ["doubled", "Double"], ["wavy", "Wavy"]] as const).map(([id, name]) => ({ id, name, glyph: <LineGlyph style={id} /> }))} />}
+            {(c.heads || orbital) && <PickButton label="Line" value={c.style ?? "plain"} onPick={(v) => run(`arrow.style.${v}`)}
+              options={([["plain", "Plain"], ["dashed", "Dashed"], ["bold", "Bold"], ["doubled", "Double"], ["wavy", "Wavy"]] as const).filter(([id]) => !orbital || id === "plain" || id === "dashed" || id === "bold").map(([id, name]) => ({ id, name, glyph: <LineGlyph style={id} /> }))} />}
             {c.heads && <PickButton label="Start" value={c.start ?? "none"} onPick={(v) => run(`arrow.start.${v}`)} options={HEADS.map(([id, name]) => ({ id, name, glyph: <LineGlyph start={id} head={c.head} /> }))} />}
             {c.heads && <PickButton label="End" value={c.end ?? "none"} onPick={(v) => run(`arrow.end.${v}`)} options={HEADS.map(([id, name]) => ({ id, name, glyph: <LineGlyph end={id} head={c.head} /> }))} />}
             {c.heads && (c.start !== "none" || c.end !== "none") && <PickButton label="Heads" value={c.head ?? "solid"} onPick={(v) => run(`arrow.head.${v}`)}

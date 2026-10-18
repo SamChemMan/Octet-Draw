@@ -107,16 +107,18 @@ export type Arrow = {
 export type HeadSize = { length: number; centre: number; width: number };
 // ChemDraw's Arrows palette: heads 22.5, 15 or 10 line widths long, notched at 7/8 of that and a quarter of it wide
 // each side. Its hollow block arrows: heads 12 or 6 long, flat at the back, on a shaft as wide as the head is long.
+// Its arc arrows (curved, fishhook, double-headed and elliptical): heads 8 long, which is their Small.
 export const ARROW_SIZES = { large: 22.5, medium: 15, small: 10 } as const;
 export const BLOCK_SIZES = { large: 12, medium: 6, small: 6 } as const;
+export const ARC_HEAD = 8;
 export type ArrowSize = keyof typeof ARROW_SIZES;
 export const headOfLength = (length: number, flat = false): HeadSize => ({ length, centre: flat ? length : length * 0.875, width: length / 4 });
-// An arrow's head size: its own, or its kind's (a block arrow's is the large one). As in ChemDraw, a bold arrow's
-// heads are twice the size.
+// An arrow's head size: its own, or its kind's (a block arrow's is the large one, an arc's 8). As in ChemDraw, a bold
+// arrow's heads are twice the size.
 export const headSize = (a: Pick<Arrow, "kind" | "headSize" | "style">): HeadSize => a.headSize ?? sizedHead(a, a.kind === "block" ? "large" : "small");
 // A palette size's head for an arrow of this kind and line.
 export const sizedHead = (a: Pick<Arrow, "kind" | "style">, size: ArrowSize): HeadSize =>
-  headOfLength((a.kind === "block" ? BLOCK_SIZES : ARROW_SIZES)[size] * (a.style === "bold" ? 2 : 1), a.kind === "block");
+  headOfLength((a.kind === "block" ? BLOCK_SIZES[size] : size === "small" && curved(a) ? ARC_HEAD : ARROW_SIZES[size]) * (a.style === "bold" ? 2 : 1), a.kind === "block");
 // The palette size an arrow's heads are, if they are one of them.
 export const sizeOf = (a: Pick<Arrow, "kind" | "headSize" | "style">): ArrowSize | undefined => {
   const h = headSize(a);
@@ -1512,7 +1514,7 @@ export function ellipseArrow(from: [number, number], to: [number, number], clock
   // quarter (anticlockwise, or clockwise): so to - from = -(a + b), solved for a.
   const a: [number, number] = [-q * (d[0] + s * 0.4 * d[1]), -q * (d[1] - s * 0.4 * d[0])], b: [number, number] = [-s * 0.4 * a[1], s * 0.4 * a[0]];
   const points = ellipsePoints([from[0] - a[0], from[1] - a[1]], a, b, 0, (3 * Math.PI) / 2);
-  return { kind: "curve", from, to, curve: { points }, end: "full" };
+  return { kind: "curve", from, to, curve: { points }, end: "full", headSize: headOfLength(ARC_HEAD) };
 }
 // A curve's box (drawing units) over its anchors and handles: [from, to] as a shape stores them.
 export function curveBox(c: Curve): [[number, number], [number, number]] {

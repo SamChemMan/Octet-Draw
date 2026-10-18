@@ -71,6 +71,7 @@ const arrows: Arrow[] = [
   arrow(131, "block", [16, -24], [19, -24], { headSize: headOfLength(6, true), fill: "shaded" }), arrow(132, "block", [20, -24], [23, -24], { fill: "faded", shaft: 8 }),
   arrow(133, "reaction", [24, -24], [27, -24], { point: true, bend: 0.25 }), { ...ellipseArrow([28, -24], [28.6, -22.8], true), id: 134 } as Arrow,
   arrow(135, "orbital", [30, -24], [30.8, -24], { orbital: { shape: "p", phase: "plain" }, style: "dashed" }),
+  arrow(136, "orbital", [32, -24], [32.8, -24], { orbital: { shape: "s", phase: "plain" }, style: "bold" }),
 ];
 const shapes: Shape[] = [
   { id: 201, kind: "highlight", from: [-1, -1], to: [3.5, 1.5] },
@@ -328,6 +329,14 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
   const { mol, lost } = fromCdxml(file);
   assert.deepEqual([lost, mol.captions![0].angle], [{}, -54]);
   assert.ok(/RotationAngle="3538944"/.test(toCdxml(mol, DEFAULT_STYLE)));
+  // Turned conditions in a reaction step stay where ChemDraw put them (Octet lays conditions out level); level ones
+  // become the arrow's conditions.
+  const step = `<?xml version="1.0" encoding="UTF-8" ?><CDXML BondLength="14.40" CaptionFont="3" CaptionSize="10"><fonttable><font id="3" name="Arial"/></fonttable><page id="1" BoundingBox="0 0 540 720">
+<arrow id="10" Z="1" BoundingBox="300 295 400 305" ArrowheadHead="Full" ArrowheadType="Solid" HeadSize="1000" Head3D="400 300 0" Tail3D="300 300 0"/>
+<t id="11" p="330 290" RotationAngle="3538944"><s font="3" size="10">KMnO4</s></t><t id="12" p="330 315"><s font="3" size="10">H2O</s></t>
+<scheme id="20"><step id="21" ReactionStepArrows="10" ReactionStepObjectsAboveArrow="11" ReactionStepObjectsBelowArrow="12"/></scheme></page></CDXML>`;
+  const [turned, level] = fromCdxml(step).mol.captions!;
+  assert.deepEqual([turned.text, turned.angle, turned.on, level.text, level.on?.side], ["KMnO4", -54, undefined, "H2O", "below"]);
   console.log("cdxml.check: ChemDraw's turned text read and written");
 }
 

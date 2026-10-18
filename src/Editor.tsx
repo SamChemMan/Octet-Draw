@@ -1683,10 +1683,13 @@ export default function Editor() {
       }),
     }, true);
   }
-  // The middle of the selection (or the whole drawing), in drawing units.
+  // The middle of the selection (or the whole drawing), in drawing units. Free captions count by their box, so text
+  // turned or scaled on its own stays in place.
   const selectionMiddle = (): P => {
-    const all = !selection.size && !picked.size, pts: P[] = [...doc.atoms.map((_, i) => i).filter((i) => all || selection.has(i)).map((i) => pos(doc, i)),
-      ...[...(doc.arrows ?? []), ...(doc.shapes ?? [])].filter((x) => all || picked.has(x.id)).flatMap((x) => [x.from, x.to])];
+    const all = !selection.size && !picked.size, free = new Set((doc.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle && (all || picked.has(c.id))).map((c) => c.id));
+    const pts: P[] = [...doc.atoms.map((_, i) => i).filter((i) => all || selection.has(i)).map((i) => pos(doc, i)),
+      ...[...(doc.arrows ?? []), ...(doc.shapes ?? [])].filter((x) => all || picked.has(x.id)).flatMap((x) => [x.from, x.to]),
+      ...placed.filter((c) => free.has(c.id)).flatMap((c): P[] => [[c.box[0] / L, -c.box[1] / L], [c.box[2] / L, -c.box[3] / L]])];
     return pts.length ? [(Math.min(...pts.map((q) => q[0])) + Math.max(...pts.map((q) => q[0]))) / 2, (Math.min(...pts.map((q) => q[1])) + Math.max(...pts.map((q) => q[1]))) / 2] : [0, 0];
   };
   function rotateBy(degrees: number) {
@@ -1914,17 +1917,17 @@ export default function Editor() {
     pressAlt.current = e.altKey;
     // Shift with the Arrow tool over an arrow's end, or its middle point, starts a new arrow joined there.
     const join = tool === "arrow" && e.shiftKey ? joinAt(p) : undefined;
-    if (join) { setSelection(new Set()); setPicked(new Set()); return setDrag({ kind: "arrow", from: join, start: screen, target: {} }); }
+    if (join) { setSelection(new Set()); setPicked(new Set()); overs.set({ ...overs.get(), join: undefined }); return setDrag({ kind: "arrow", from: join, start: screen, target: {} }); }
     // Shift-drag on a mark with Select or the Symbols tool moves it round its atom, as in ChemDraw.
     const mark = e.shiftKey && (tool === "select" || tool === "symbol") ? drawing.electrons.filter((x) => x.key && Math.hypot(x.at[0] / L - p[0], -x.at[1] / L - p[1]) < 0.2).sort((x, y) => Math.hypot(x.at[0] / L - p[0], -x.at[1] / L - p[1]) - Math.hypot(y.at[0] / L - p[0], -y.at[1] / L - p[1]))[0] : undefined;
     if (mark) return setDrag({ kind: "mark", atom: mark.atom, key: mark.key!, base: doc, working: doc });
     const handle = tool !== "erase" ? handleAt(p) : undefined;
     // The middle mark: a press moves the arrow as usual; a click (no move) gives it its point.
     addPoint.current = handle?.which === "add" ? handle.id : undefined;
-    // With Edit curve, Option-click takes an anchor out.
+    // With Edit curve, Option-click takes an anchor out (a curve keeps two).
     if (handle && editCurve && e.altKey && handle.which.endsWith(":at")) {
       const a = doc.arrows?.find((x) => x.id === handle.id);
-      return a?.curve ? set(updateArrow(doc, a.id, withCurve(removeCurvePoint(a.curve, Number(handle.which.slice(1, -3))))), true) : undefined;
+      return a?.curve && a.curve.points.length > 2 ? set(updateArrow(doc, a.id, withCurve(removeCurvePoint(a.curve, Number(handle.which.slice(1, -3))))), true) : undefined;
     }
     if (handle && handle.which !== "add") return setDrag({ kind: "handle", ...handle, working: doc });
     // Edit curve keeps its curve picked: a click on the curve adds a point there, a click away adds one at its end.
@@ -3700,7 +3703,7 @@ export default function Editor() {
             {orbitals.flatMap((a) => lobesOf(a, L).map((l, i) => {
               const ink = a.colour ? textInk(a.colour) : "var(--ink)", ph = a.orbital!.phase;
               const fill = ph === "filled" || (ph === "phased" && !l.second) ? ink : ph === "shaded" ? `url(#lobe${a.colour ? a.id : ""})` : "var(--canvas)";
-              return <path key={`${a.id}-${i}`} d={toPath([l.path])} fill={fill} fillRule="evenodd" stroke={ink} strokeWidth={frame.line} strokeDasharray={a.style === "dashed" ? `${0.15 * frame.bond} ${0.1 * frame.bond}` : undefined} />;
+              return <path key={`${a.id}-${i}`} d={toPath([l.path])} fill={fill} fillRule="evenodd" stroke={ink} strokeWidth={a.style === "bold" ? frame.bold : frame.line} strokeDasharray={a.style === "dashed" ? `${0.15 * frame.bond} ${0.1 * frame.bond}` : undefined} />;
             }))}
           </g>
         );

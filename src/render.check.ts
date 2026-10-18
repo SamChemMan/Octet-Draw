@@ -131,8 +131,10 @@ console.log("render.check: written labels ok");
   const [tip, barb, notch] = head({ headSize: headOfLength(22.5) });
   assert.ok(Math.abs(tip[0] - 4 * k) < 1e-9 && Math.abs(barb[0] - (4 * k - 22.5 * lw)) < 1e-9 && Math.abs(Math.abs(barb[1]) - 5.625 * lw) < 1e-9 && Math.abs(notch[0] - (4 * k - 19.6875 * lw)) < 1e-9, "large head");
   assert.deepEqual([sizeOf({ kind: "reaction" }), sizeOf({ kind: "reaction", headSize: headOfLength(15) }), sizeOf({ kind: "reaction", headSize: { length: 9, centre: 8, width: 2 } })], ["small", "medium", undefined]);
-  // A bold arrow's own heads are twice the size, as ChemDraw draws them.
+  // A bold arrow's own heads are twice the size, as ChemDraw draws them. Arc arrows' heads are 8 line widths (their
+  // Small), as ChemDraw's palette and every arc in Sam's files have them; elliptical ones too.
   assert.equal(headSize({ kind: "reaction", style: "bold" }).length, 20);
+  assert.deepEqual([headSize({ kind: "curved" }), headSize({ kind: "fishhook", style: "bold" }).length, sizeOf({ kind: "double" }), ellipseArrow([0, 0], [0.6, 1.2], true).headSize], [headOfLength(8), 16, "small", headOfLength(8)]);
   // A head is kept to two thirds of a short arrow.
   const short = arrowShapes({ ...a, to: [0.3, 0] }, S, k), shortHead = short[short.length - 1];
   assert.ok(Math.abs(shortHead[1][0] - (0.3 * k) / 3) < 1e-9, "head two thirds of the arrow");

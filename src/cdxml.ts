@@ -378,7 +378,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       const { shape, phase } = a.orbital;
       const name = (ORBITALS.find(([, s, p]) => s === shape && p === phase) ?? ORBITALS.find(([n, s]) => s === shape && n.endsWith("Filled") === (phase === "filled")) ?? ORBITALS.find(([, s]) => s === shape)!)[0];
       const back = ORBITALS.find(([n]) => n === name)!, tip = at(a.to), nucleus = at(a.from);
-      put(el("graphic", { id: idOf.get(a.id)!, BoundingBox: `${pt(tip)} ${pt(nucleus)}`, Z: Z(), color: colour(a.colour), LineType: a.style === "dashed" ? "Dashed" : undefined, GraphicType: "Orbital", OrbitalType: name,
+      put(el("graphic", { id: idOf.get(a.id)!, BoundingBox: `${pt(tip)} ${pt(nucleus)}`, Z: Z(), color: colour(a.colour), LineType: a.style === "dashed" ? "Dashed" : a.style === "bold" ? "Bold" : undefined, GraphicType: "Orbital", OrbitalType: name,
         Octet: back[1] === shape && back[2] === phase ? undefined : priv({ orbital: a.orbital }) }), 3, boxOf([nucleus], len(sub(tip, nucleus))), a.id);
     } else if (a.kind === "curve" && a.curve?.closed && a.fill) curveOut(a);
   }
@@ -1207,7 +1207,7 @@ export function fromCdxml(text: string): CdxmlRead {
     if (type === "Orbital") {
       const named = ORBITALS.find(([n]) => n === x.attrs.OrbitalType) ?? ORBITALS[0], o = p?.orbital as Record<string, unknown> | undefined;
       const orbital = o && ORBITAL_SHAPES.includes(o.shape as OrbitalShape) && PHASES.includes(o.phase as Phase) ? { shape: o.shape as OrbitalShape, phase: o.phase as Phase } : { shape: named[1], phase: named[2] };
-      const a: Arrow & { z: number } = { id: newId(x), kind: "orbital", from: p2, to: p1, orbital, z, ...(colour ? { colour } : {}), ...(x.attrs.LineType?.includes("Dashed") ? { style: "dashed" as const } : {}) };
+      const a: Arrow & { z: number } = { id: newId(x), kind: "orbital", from: p2, to: p1, orbital, z, ...(colour ? { colour } : {}), ...(x.attrs.LineType?.includes("Dashed") ? { style: "dashed" as const } : x.attrs.LineType?.includes("Bold") ? { style: "bold" as const } : {}) };
       arrows.push(a);
       objectOf.set(cid, a.id);
       return void member(group, a.id);
@@ -1453,7 +1453,8 @@ export function fromCdxml(text: string): CdxmlRead {
   }
 
   // Steps: conditions above and below an arrow become that arrow's conditions (straight arrows, or any in Octet's
-  // own files), and atom-map pairs give both atoms one map number (spec 14).
+  // own files), and atom-map pairs give both atoms one map number (spec 14). Turned text stays where the file puts
+  // it, as Octet lays conditions out level.
   function readSteps() {
     let maps = mol.atoms.reduce((m, a) => Math.max(m, a.map ?? 0), 0);
     for (const s of steps) {
@@ -1461,7 +1462,7 @@ export function fromCdxml(text: string): CdxmlRead {
       if (arrow && (octet || straightArrow(arrow))) for (const side of ["above", "below"] as const) {
         for (const cid of idList(s.attrs[side === "above" ? "ReactionStepObjectsAboveArrow" : "ReactionStepObjectsBelowArrow"])) {
           const c = captions.find((x) => x.id === objectOf.get(cid));
-          if (c && !c.cycle && !c.on && !unders.some((u) => u.c === c)) c.on = { arrow: arrow.id, side };
+          if (c && !c.cycle && !c.on && !c.angle && !unders.some((u) => u.c === c)) c.on = { arrow: arrow.id, side };
         }
       }
       for (const key of ["ReactionStepAtomMap", "ReactionStepAtomMapManual", "ReactionStepAtomMapAuto"]) {
