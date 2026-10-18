@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Cube, Eraser, Lasso, Plus, PushPin, Selection, TextT, Trash, X } from "@phosphor-icons/react";
 import { chairPoints, type BondSpec, type SymbolKind } from "./edit";
-import { ARROW_SIZES, HBOND, headOfLength, QUADRUPLE, SWEEPS, type ArrowKind, type ArrowSize, type HeadSize, type Mol, type ShapeKind } from "./render";
+import { ARROW_SIZES, curvePath, HBOND, headOfLength, QUADRUPLE, SWEEPS, type ArrowKind, type ArrowSize, type HeadSize, type Mol, type ShapeKind } from "./render";
 import { MY_SET, templateKind, type Template } from "./templates";
 import type { TemplateSetActions } from "./TemplateLibrary";
 import { libraryItem } from "./library";
@@ -362,13 +362,17 @@ function ringsOnly(m: Mol): Mol {
 // A template's icon: its bonds as strokes in the tool icons' style, and heteroatoms as letters with the bonds
 // stopping short of them, as in a drawn structure.
 export function TemplateGlyph({ mol: whole }: { mol: Mol }) {
-  // A template with no structure (arrows, shapes, text): its arrows and shapes as lines, or its text as a T.
+  // A template with no structure (arrows, pen curves, shapes, text): its arrows and shapes as lines, a pen curve along
+  // its path, or its text as a T.
   if (!whole.atoms.length) {
-    const lines = [...(whole.arrows ?? []).map((a) => [a.from, a.to]), ...(whole.shapes ?? []).flatMap((x) => [[x.from, [x.to[0], x.from[1]]], [[x.to[0], x.from[1]], x.to], [x.to, [x.from[0], x.to[1]]], [[x.from[0], x.to[1]], x.from]])];
+    const lines = [
+      ...(whole.arrows ?? []).map((a) => (a.curve ? curvePath(a.curve, 1).map(([x, y]) => [x, -y]).concat(a.curve.closed ? [a.curve.points[0].at] : []) : [a.from, a.to])),
+      ...(whole.shapes ?? []).flatMap((x) => [[x.from, [x.to[0], x.from[1]]], [[x.to[0], x.from[1]], x.to], [x.to, [x.from[0], x.to[1]]], [[x.from[0], x.to[1]], x.from]]),
+    ];
     if (!lines.length) return <TextT size={20} />;
     const xs = lines.flat().map((q) => q[0]), ys = lines.flat().map((q) => -q[1]), [x0, y0] = [Math.min(...xs), Math.min(...ys)];
-    const span = Math.max(Math.max(...xs) - x0, Math.max(...ys) - y0, 1), k = 176 / span;
-    return <Icon>{lines.map(([p, q], i) => <line key={i} x1={40 + (p[0] - x0) * k} y1={40 + (-p[1] - y0) * k} x2={40 + (q[0] - x0) * k} y2={40 + (-q[1] - y0) * k} />)}</Icon>;
+    const w = Math.max(...xs) - x0, h = Math.max(...ys) - y0, k = 176 / Math.max(w, h, 1), ox = 40 + (176 - w * k) / 2, oy = 40 + (176 - h * k) / 2;
+    return <Icon>{lines.map((ps, i) => <polyline key={i} points={ps.map((q) => `${ox + (q[0] - x0) * k},${oy + (-q[1] - y0) * k}`).join(" ")} />)}</Icon>;
   }
   const mol = ringsOnly(whole), xs = mol.atoms.map((a) => a.location[0]), ys = mol.atoms.map((a) => -a.location[1]);
   const [x0, y0] = [Math.min(...xs), Math.min(...ys)], span = Math.max(Math.max(...xs) - x0, Math.max(...ys) - y0, 1);
@@ -504,7 +508,7 @@ export function Palette(p: PaletteProps) {
   const mine = p.templates.map((x) => ({ kind: templateKind(x.id), name: x.name, category: x.set ?? MY_SET, mol: x.mol }));
   const own = { sets: p.templateSets, onSets: p.onTemplateSets, onAddSelection: p.canAddSelection ? p.onAddSelection : undefined,
     onRemove: (kind: string) => { const t = template(kind); if (t) p.onRemoveTemplate(t.id); } };
-  const shapeOf = (kind: string) => template(kind)?.mol ?? libraryItem(kind)?.mol;
+  const shapeOf = (kind: string) => template(kind)?.mol ?? libraryItem(kind)?.icon ?? libraryItem(kind)?.mol;
   const nameOf = (tool: Strip, kind: string) =>
     tool === "more" ? SPECIAL_TOOLS[kind]?.name : tool === "bond" ? BONDS[kind as BondKind]?.name : tool === "template" ? (template(kind)?.name ?? libraryItem(kind)?.name) : tool === "symbol" ? SYMBOLS[kind as SymbolKind] : tool === "shape" ? shapeName(kind) : tool === "orbital" ? orbitalName(kind) : tool === "bracket" ? BRACKETS[kind] : tool === "ring" ? (RINGS[kind as RingKind]?.name ?? template(kind)?.name ?? libraryItem(kind)?.name)
       : tool === "arrow" ? arrowName(kind) : SELECTS[kind as SelectKind]?.name;

@@ -1,7 +1,9 @@
 // Builds src/library.json, Octet's own template library: each entry's name goes through OPSIN (or its SMILES is
 // given), Indigo lays it out, and the drawing is kept at bond length 1, centred. Run: node tools/library/build.mjs
 // Everything here is a structure from its systematic or trivial name; nothing comes from another program's files.
+// The Lab group (glassware and lamps) is drawn in lab.mjs.
 import { readFileSync, writeFileSync } from "node:fs";
+import { LAB } from "./lab.mjs";
 
 const root = new URL("../../", import.meta.url);
 const pack = readFileSync(new URL("src/vendor/opsin/opsin-data.bin", root));
@@ -88,5 +90,6 @@ for (const [category, entries] of Object.entries(LIBRARY)) {
   }
   out.push({ name: category, items });
 }
+out.push({ name: "Lab", items: LAB });
 writeFileSync(new URL("src/library.json", root), JSON.stringify(out) + "\n");
 console.log(`library: ${out.reduce((n, c) => n + c.items.length, 0)} templates${failed.length ? `; not read: ${failed.join(", ")}` : ""}`);
