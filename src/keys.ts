@@ -32,6 +32,7 @@ export const ACTIONS: Action[] = [
   group("phenyl", "Add a phenyl"), group("wedgeMe", "Add a wedged methyl"), group("hashMe", "Add a hashed methyl"),
   group("cyclohexyl", "Add a cyclohexyl"), group("cyclopentyl", "Add a cyclopentyl"), group("cyclobutyl", "Add a cyclobutyl"),
   group("cyclopropyl", "Add a cyclopropyl"), group("methylidene", "Add =CH2"), group("dimethyl", "Add two methyls"), group("alkyne", "Add an alkyne"),
+  group("cpLigand", "Add a cyclopentadienyl ligand (η5)"), group("phenylLigand", "Add a phenyl ligand (η6)"),
   group("sulfonyl", "Add a sulfonyl"), group("tBu", "Add a tert-butyl"),
   bond("single", "Make bond single"), bond("double", "Make bond double"), bond("triple", "Make bond triple"), bond("quadruple", "Make bond quadruple"), bond("hydrogen", "Make bond a hydrogen bond"), bond("bolddouble", "Make bond bold double"), bond("dasheddouble", "Make bond dashed double"), bond("aromaticdouble", "Make bond aromatic double"), bond("eitherdouble", "Make bond double either"),
   bond("wedge", "Make bond a wedge"), bond("hashwedge", "Make bond a hashed wedge"), bond("hashed", "Make bond hashed"),
@@ -49,12 +50,16 @@ export const ACTIONS: Action[] = [
   any("tool.bracket", "Bracket tool", "Tools"), any("tool.tlc", "TLC plate tool", "Tools"), any("tool.orbital", "Orbital tool", "Tools"),
   { id: "select.here", name: "Select the atom or bond under the pointer", group: "Selection", place: "item" },
   any("eraser.smaller", "Make the eraser smaller", "Tools"), any("eraser.bigger", "Make the eraser bigger", "Tools"),
-  any("nudge.left", "Move the selection left 1 pt", "Selection"), any("nudge.right", "Move the selection right 1 pt", "Selection"),
-  any("nudge.up", "Move the selection up 1 pt", "Selection"), any("nudge.down", "Move the selection down 1 pt", "Selection"),
-  any("nudge.left10", "Move the selection left 10 pt", "Selection"), any("nudge.right10", "Move the selection right 10 pt", "Selection"),
-  any("nudge.up10", "Move the selection up 10 pt", "Selection"), any("nudge.down10", "Move the selection down 10 pt", "Selection"),
+  any("nudge.left", "Move the selection left 1 pt, or the highlight one step left", "Selection"), any("nudge.right", "Move the selection right 1 pt, or the highlight one step right", "Selection"),
+  any("nudge.up", "Move the selection up 1 pt, or the highlight one step up", "Selection"), any("nudge.down", "Move the selection down 1 pt, or the highlight one step down", "Selection"),
+  any("nudge.left10", "Move the selection left 10 pt, or the highlight about three bonds left", "Selection"), any("nudge.right10", "Move the selection right 10 pt, or the highlight about three bonds right", "Selection"),
+  any("nudge.up10", "Move the selection up 10 pt, or the highlight about three bonds up", "Selection"), any("nudge.down10", "Move the selection down 10 pt, or the highlight about three bonds down", "Selection"),
   any("rotate.ccw15", "Turn the selection 15° anticlockwise", "Selection"), any("rotate.cw15", "Turn the selection 15° clockwise", "Selection"),
   any("rotate.ccw1", "Turn the selection 1° anticlockwise", "Selection"), any("rotate.cw1", "Turn the selection 1° clockwise", "Selection"),
+  any("tilt.left", "Turn the selection 12° in 3D to the left, or move the highlight to the next structure left", "Selection"),
+  any("tilt.right", "Turn the selection 12° in 3D to the right, or move the highlight to the next structure right", "Selection"),
+  any("tilt.up", "Turn the selection 12° in 3D up, or move the highlight to the next structure up", "Selection"),
+  any("tilt.down", "Turn the selection 12° in 3D down, or move the highlight to the next structure down", "Selection"),
   any("edit.delete", "Delete the selection, or what is under the pointer", "Edit"),
   // The Actions panel's own actions (no menu command or canvas key does them): each can take a key here, so every
   // action the panel and its right-click menu show can run from the keyboard. ChemDraw has no keys for them.
@@ -71,6 +76,9 @@ export const ACTIONS: Action[] = [
     ["spot.rf", "Show or hide the spot's Rf"], ["shape.row.after", "Add a table row below"], ["shape.col.after", "Add a table column after"], ["shape.row.before", "Add a table row above"],
     ["shape.col.before", "Add a table column before"], ["shape.row.delete", "Delete the table row"], ["shape.col.delete", "Delete the table column"], ["shape.fit", "Size the table to fit"],
     ["shape.clear", "Clear the table"], ["shape.dashed", "Dashed or solid lines"]] as const).map(([command, name]): Action => ({ id: `action.${command}`, name, group: "Actions panel", place: "any" })),
+  // ChemDraw's reaction shortcut: a reaction arrow and a copy of the selected structures beyond it, that way.
+  any("reaction.right", "Add a reaction arrow and a copy of the selection to the right", "Selection"), any("reaction.left", "Add a reaction arrow and a copy of the selection to the left", "Selection"),
+  any("reaction.up", "Add a reaction arrow and a copy of the selection above", "Selection"), any("reaction.down", "Add a reaction arrow and a copy of the selection below", "Selection"),
 ];
 
 // ChemDraw's defaults. Where its table and its help disagree (Boc: y or Shift+Y), both keys work.
@@ -85,6 +93,7 @@ export const DEFAULT_KEYS: Record<string, string[]> = {
   "charge.plus": ["+"], "charge.minus": ["-"],
   "group.chain": ["1"], "group.other": ["0"], "group.acetyl": ["2"], "group.phenyl": ["3", "a"], "group.wedgeMe": ["4"], "group.hashMe": ["5"],
   "group.cyclohexyl": ["6"], "group.cyclopentyl": ["7"], "group.methylidene": ["8"], "group.dimethyl": ["9"], "group.alkyne": ["z"],
+  "group.cpLigand": ["j"], "group.phenylLigand": ["shift+j"],
   "group.cyclopropyl": ["v"], "group.cyclobutyl": ["u"], "group.sulfonyl": ["k"], "group.tBu": ["shift+k"],
   "bond.single": ["1"], "bond.double": ["2"], "bond.triple": ["3"], "bond.quadruple": [], "bond.hydrogen": [], "bond.wedge": ["w"], "bond.hashwedge": ["h", "shift+w"],
   "bond.hashed": ["shift+h"], "bond.bold": ["b"], "bond.bolddouble": ["shift+b"], "bond.dasheddouble": ["shift+d"], "bond.aromaticdouble": [], "bond.eitherdouble": [], "bond.dashed": ["d"], "bond.wavy": ["y"],
@@ -98,7 +107,9 @@ export const DEFAULT_KEYS: Record<string, string[]> = {
   "nudge.left": ["arrowleft"], "nudge.right": ["arrowright"], "nudge.up": ["arrowup"], "nudge.down": ["arrowdown"],
   "nudge.left10": ["shift+arrowleft"], "nudge.right10": ["shift+arrowright"], "nudge.up10": ["shift+arrowup"], "nudge.down10": ["shift+arrowdown"],
   "rotate.ccw15": ["alt+arrowup"], "rotate.cw15": ["alt+arrowdown"], "rotate.ccw1": ["alt+arrowleft"], "rotate.cw1": ["alt+arrowright"],
+  "tilt.left": ["alt+shift+arrowleft"], "tilt.right": ["alt+shift+arrowright"], "tilt.up": ["alt+shift+arrowup"], "tilt.down": ["alt+shift+arrowdown"],
   "edit.delete": ["delete", "backspace"],
+  "reaction.right": ["mod+arrowright"], "reaction.left": ["mod+arrowleft"], "reaction.up": ["mod+arrowup"], "reaction.down": ["mod+arrowdown"],
 };
 
 export type Keymap = Record<string, string[]>;

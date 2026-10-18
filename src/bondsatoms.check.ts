@@ -5,7 +5,7 @@ import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { DEFAULT_STYLE, darkColour, readStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
 import { problems, showWarnedHydrogens } from "./check.ts";
-import { addSymbol, atomAt, bondAt, bondOrders, cycleBond, deleteAtoms, flipAtoms, interpretLabels, labelWords, orderBonds, rotateAtoms, setBondSpec, setPosition, toggleHydrogens } from "./edit.ts";
+import { addSymbol, atomAt, bondAt, bondOrders, cycleBond, deleteAtoms, flipAtoms, interpretLabels, labelWords, rotateAtoms, toFront, setBondSpec, setPosition, toggleHydrogens } from "./edit.ts";
 import { HBOND, QUADRUPLE, render, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
 
 type P = [number, number];
@@ -57,7 +57,7 @@ const roundTrip = (m: Mol) => fromCdxml(toCdxml(m, DEFAULT_STYLE).replace(/ Octe
 console.log("bondsatoms.check: quadruple and hydrogen bonds ok");
 
 // CD-9. Two bonds that cross in a flat drawing: the one behind has a gap where the front one passes, as wide as the
-// front bond and a margin either side. The later bond is in front, unless a bond's z puts it forward.
+// front bond and clear of it by a margin. The later bond is in front; in a structure with depth, the nearer one.
 {
   // One structure: a horizontal bond, a vertical bond across it, and a bond joining their ends.
   const cross: Mol = { atoms: [A("C", -0.5, 0), A("C", 0.5, 0), A("C", 0, -0.5), A("C", 0, 0.5)], bonds: [b(0, 1), b(2, 3), b(1, 3)] };
@@ -68,24 +68,22 @@ console.log("bondsatoms.check: quadruple and hydrogen bonds ok");
   const horiz = flat.filter((poly) => Math.max(...ys(poly)) - Math.min(...ys(poly)) < 1);
   assert.equal(horiz.length, 2, "the horizontal bond (behind) is in two pieces");
   const gap = Math.min(...horiz.map((poly) => Math.min(...xs(poly).map(Math.abs))));
-  assert.ok(Math.abs(gap - (S.line / 2 + S.margin)) < 1e-6, `gap half-width ${gap}`);
-  const front = pieces({ ...cross, bonds: [b(0, 1, { z: 1 }), b(2, 3), b(1, 3)] });
-  assert.equal(front.filter((poly) => Math.max(...xs(poly)) - Math.min(...xs(poly)) < 1).length, 2, "with z the first bond is in front");
+  assert.ok(gap >= S.line / 2 + S.margin - 1e-6 && gap < 3 * (S.line + S.margin), `gap half-width ${gap}`);
+  const front = pieces({ ...cross, bonds: [b(2, 3), b(0, 1), b(1, 3)] });
+  assert.equal(front.filter((poly) => Math.max(...xs(poly)) - Math.min(...xs(poly)) < 1).length, 2, "the later bond is in front");
+  const raised = pieces({ ...cross, atoms: cross.atoms.map((a, i) => ({ ...a, depth: false, location: [a.location[0], a.location[1], i < 2 ? 0.2 : 0] })) });
+  assert.equal(raised.filter((poly) => Math.max(...xs(poly)) - Math.min(...xs(poly)) < 1).length, 2, "drawn flat, the nearer bond is in front");
   // A double bond in front cuts a gap as wide as both its lines.
   const dbl = pieces({ ...cross, bonds: [b(0, 1), b(2, 3, { type: 2, position: "left" }), b(1, 3)] }).filter((poly) => Math.max(...ys(poly)) - Math.min(...ys(poly)) < 1);
   assert.equal(dbl.length, 2);
   // Bonds that share an atom never cut each other.
   assert.equal(pieces({ atoms: [A("C", 0, 0), A("C", 1, 0), A("C", 0.5, 0.8)], bonds: [b(0, 1), b(1, 2), b(2, 0)] }).length, 3);
-  // f (orderBonds) brings a bond to the front and keeps the rest in order; CDXML keeps the order through Z.
-  const fronted = orderBonds(cross, [0], true);
-  assert.deepEqual(fronted.bonds.map((x) => x.z), [1, undefined, undefined]);
-  assert.deepEqual(orderBonds(fronted, [0], false).bonds.map((x) => x.z), [-1, undefined, undefined]);
-  const text = toCdxml(fronted, DEFAULT_STYLE), zs = [...text.matchAll(/<b\s[^>]*?id="(\d+)"[^>]*?Z="(\d+)"/g)];
-  assert.ok(zs.length === 3 && Number(zs[2][2]) > Number(zs[1][2]) && Number(zs[2][1]) < Number(zs[0][1]), "the front bond is written last, with the higher Z");
+  // f (toFront) brings a bond to the front and keeps the rest in order; CDXML keeps the order through Z.
+  const fronted = toFront(cross, new Set([0, 1]));
+  assert.deepEqual(fronted.bonds.map((x) => x.atoms), [[2, 3], [1, 3], [0, 1]]);
   const back = roundTrip(fronted);
   assert.equal(pieces(back).filter((poly) => Math.max(...xs(poly)) - Math.min(...xs(poly)) < 1).length, 2, "the first bond is still in front");
-  assert.equal(roundTrip(cross).bonds.some((x) => x.z), false, "bonds in their own order keep no z");
-  assert.deepEqual(parse(serialize(fronted)).bonds.map((x) => x.z), [1, undefined, undefined]);
+  assert.deepEqual(parse(serialize(fronted)).bonds.map((x) => x.atoms), [[2, 3], [1, 3], [0, 1]]);
   // Automatic position: a set side can be taken off again.
   assert.equal(setPosition(setPosition(cross, 0, "left"), 0).bonds[0].position, undefined);
 }

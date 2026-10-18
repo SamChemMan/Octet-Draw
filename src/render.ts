@@ -34,6 +34,9 @@ export type Atom = {
   cip?: true; // Show Stereochemistry is on for this atom's structure: its R/S (and its double bonds' E/Z) labels show
   halo?: string; // #rrggbb highlight behind the atom at 40% opacity (ChemDraw's highlight colours; NMR peak colours)
   circle?: true; // Toggle Aromatic Display: an aromatic ring whose atoms all have this is drawn with a circle
+  // A multi-centre attachment point (ChemDraw's MultiAttachment node), as for an η5 Cp or η6 arene ligand: not an
+  // atom but the middle of these atoms (a ring's), where a bond to the ligand ends. It has no label and no chemistry.
+  centre?: number[];
   number?: string; // Show Atom Number: the number drawn beside the atom
   // The label's alignment set by hand (ChemDraw's Flush Left, Centered, Flush Right and Stacked Above on a label;
   // LabelDisplay in CDXML): left reads from the atom, right ends at it (MeO, H2N), centre sits on it, above and below
@@ -47,6 +50,7 @@ export type Atom = {
   // Interpret Chemically off (ChemDraw's InterpretChemically="no" on the label): the label is its text, not chemistry.
   // Chemistry reads the atom as an unknown atom (*), as it reads a label it cannot read.
   chemical?: false;
+  shown?: true; // a carbon whose label shows with its hydrogens (CH3, CH2): ChemDraw's c key, or C typed as a label
   order?: number; // the draw order of the atom's structure (order.ts); unset draws it in its layer
   scale?: number; // the atom's size against the document style (decision 0007); unset is 1
 };
@@ -58,7 +62,7 @@ export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow
 // z: the bond's place where bonds cross (ChemDraw's bond Z order). Of two bonds that cross, the one with the higher z
 // (then the later one) is in front, and the one behind has a gap cut in it. Unset is 0.
 // halo: a highlight colour, drawn as a band along the bond (ChemDraw's highlightColor on a bond).
-export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string; z?: number; halo?: string };
+export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string; halo?: string };
 // Bond types: 1 to 3 by order, 4 aromatic and 10 a hydrogen bond (KET's numbers), and 14 a quadruple bond (KET has
 // none; 14 keeps clear of KET's types). A hydrogen bond is drawn dotted and adds nothing to an atom's valence.
 export const AROMATIC = 4, HBOND = 10, QUADRUPLE = 14;
@@ -294,6 +298,7 @@ export type Box = [number, number, number, number];
 // shaded by the caller. labelAt: where each label's atom is (px), which the label keeps level about while a drag turns
 // its structure.
 export type Drawing = {
+  sides?: number[]; // each bond's second line as drawn, for a double bond: -1 left, 1 right of its first atom to its second on screen, 0 centred
   polygons: P[][]; colours: (string | undefined)[]; alphas: number[]; labels: Label[]; box: Box; ink: Box[]; label: (Box | undefined)[]; scale: number;
   electrons: { atom: number; at: P; key?: string }[]; beads: { at: P; r: number }[]; labelAt: P[];
 };
@@ -323,6 +328,14 @@ const VALENCE: Record<string, number> = { C: 4, Si: 4, N: 3, P: 3, As: 3, B: 3, 
 export function ringCircleRadius(n: number, L: number, spacing: number): number {
   const k = n === 4 ? 1.6 : n === 5 ? 1.5 : n >= 7 ? 1.2 : 4 / 3;
   return L * (1 / (2 * Math.tan(Math.PI / n)) - spacing * k);
+}
+// A π ligand's ellipse: round the ring's middle c, its axes across and along the bond to the ring's multi-centre point
+// (from: the atom at the bond's other end), each the ring's reach that way scaled as an aromatic circle is for a ring
+// of its size (spacing: the double bond spacing as a fraction of the bond length). Any units, y either way.
+export function ligandEllipse(ring: P[], c: P, from: P | undefined, spacing: number): { across: P; along: P; ra: number; rb: number } {
+  const along: P = from && len(sub(c, from)) > 1e-9 ? unit(sub(c, from)) : [0, 1], across = perp(along), n = ring.length;
+  const reach = (d: P) => Math.max(...ring.map((q) => Math.abs(dot(sub(q, c), d)))), f = ringCircleRadius(n, 1, spacing) * 2 * Math.sin(Math.PI / n);
+  return { across, along, ra: reach(across) * f, rb: reach(along) * f };
 }
 // The rings Toggle Aromatic Display draws with a circle: aromatic rings of 5 to 8 atoms, every atom marked.
 export function circledRings(mol: Mol): number[][] {
@@ -384,6 +397,7 @@ type Plan = {
   cross?: boolean; // a double bond drawn as two crossing lines (either geometry)
   cut: [number, number];
   hidden?: boolean;
+  side?: number; // a double bond's second line: -1 left, 1 right, 0 centred
   z: Z; // the bond's lengths at its scale
 };
 // The lengths an object draws at one scale (px): bond, half line width, wedge half-width at each end, bold width,
@@ -450,7 +464,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const dir = (i: number, j: number) => unit(sub(pts[j], pts[i]));
 
   // Labels. Heteroatoms and lone carbons get one; skeletal carbons don't, even when charged.
-  const labelled = mol.atoms.map((a, i) => !a.attach && !a.bead && !a.hidden && (a.label !== 'C' || !deg(i) || !!a.text || !!a.isotope || (deg(i) === 1 ? !!s.terminal : !!s.carbons)));
+  const labelled = mol.atoms.map((a, i) => !a.attach && !a.bead && !a.hidden && !a.centre && (a.label !== 'C' || !deg(i) || !!a.text || !!a.isotope || !!a.shown || (deg(i) === 1 ? !!s.terminal : !!s.carbons)));
   const labels: Label[] = [], labelAtom = new Map<Label, number>();
   const marks: P[][] = mol.atoms.map(() => []); // ink that is not a label shape (a skeletal carbon's charge)
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
@@ -677,8 +691,10 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const near = (x: number, y: number, sd: number) =>
       nbrs[x].filter((j) => j !== y && side(j) === sd).map((j) => angle(sub(pts[y], pts[x]), sub(pts[j], pts[x]))).sort((m, l) => m - l);
 
-    if (bond.type === 1 && (bond.stereo === 1 || bond.stereo === 6)) { plan.kind = bond.stereo === 1 ? 'wedge' : 'hash'; return plan; }
-    if (bond.type === 1 && bond.display) {
+    // A delocalised bond takes the single bond styles too (a π ligand's ring drawn in perspective).
+    const single = bond.type === 1 || bond.type === 4;
+    if (single && (bond.stereo === 1 || bond.stereo === 6)) { plan.kind = bond.stereo === 1 ? 'wedge' : 'hash'; return plan; }
+    if (single && bond.display) {
       if (bond.display === 'bold') plan.half = z.bold / 2;
       else if (bond.display === 'dative') plan.head = true;
       else plan.kind = bond.display === 'dashed' ? 'dash' : bond.display === 'hashed' ? 'hashbar' : bond.display === 'hollow' ? 'hollow' : 'wavy';
@@ -719,6 +735,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       }
     }
 
+    plan.side = sd;
     if (!sd) {
       // Centred: lines at ±spacing/2 that stay out of the fan and run on to the neighbouring bond's axis.
       plan.kind = 'none';
@@ -947,38 +964,30 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       }
     }
   };
+  // Crossing bonds in a flat drawing (ChemDraw's Bond Crossing): the bond drawn later is in front (Bring to Front and
+  // the f key move a bond to the end of the list), and the bond behind it has a section cut out where they cross, as
+  // wide as the front bond and clear of it by its margin.
+  const fronts: number[][] = plans.map(() => []);
+  // A structure with depth drawn flat: the nearer bond is in front, as its atoms' depth says.
+  const near = (k: number) => mol.bonds[k].atoms.reduce((t, a) => t + (mol.atoms[a].location[2] ?? 0), 0);
+  for (const [r, f] of crossingBonds(mol.bonds, (i) => pts[i], s.bond)) {
+    if (deep(plans[r]) || deep(plans[f]) || plans[r].hidden || plans[f].hidden) continue;
+    if (near(r) - near(f) > 1e-6) fronts[f].push(r); else fronts[r].push(f);
+  }
+  const reachOf = (pl: Plan) => Math.max(0, ...pl.lines.map((l) => Math.abs(l.o) + (l.half ?? pl.z.hw))) + (pl.kind === 'none' ? 0 : pl.kind === 'wedge' || pl.kind === 'hash' || pl.kind === 'hollow' ? pl.z.wide : half(pl));
+  const cutFronts = (i: number, from: number) => {
+    for (const f of fronts[i]) {
+      const front = plans[f], g = reachOf(front) + 2.5 * plans[i].z.hw + plans[i].z.margin, o = pts[front.a];
+      const pieces = polygons.splice(from).flatMap((poly) => [clipSide(poly, o, front.n, g), clipSide(poly, o, mul(front.n, -1), g)].filter((q) => q.length));
+      polygons.push(...pieces);
+    }
+  };
   // Each polygon's colour (its bond's, or for a mark, its atom's) and how strongly it is drawn (fainter further back).
   const colours: (string | undefined)[] = [], alphas: number[] = [];
   const order = plans.map((_, i) => i).sort((i, j) => (deep(plans[i]) && deep(plans[j]) ? depth[plans[i].a]! + depth[plans[i].b]! - depth[plans[j].a]! - depth[plans[j].b]! : 0));
-  // Bonds that cross in a flat drawing (ChemDraw's Bond Crossing): the bond behind has a gap where the bond in front
-  // passes over it, as wide as the front bond's lines with a label margin either side, and running a margin past the
-  // front bond's ends. In front is the nearer bond (in a structure with depth), else the one with the higher z, then
-  // the later one.
-  const gaps = new Map<number, P[][]>();
-  const flat = plans.map((_, i) => i).filter((i) => !plans[i].hidden && !deep(plans[i]));
-  if (flat.length > 1) {
-    const span = (i: number) => { const pl = plans[i]; return [Math.min(pts[pl.a][0], pts[pl.b][0]), Math.max(pts[pl.a][0], pts[pl.b][0])]; };
-    flat.sort((i, j) => span(i)[0] - span(j)[0]);
-    flat.forEach((i, k) => {
-      for (let m = k + 1; m < flat.length; m++) {
-        const j = flat[m];
-        if (span(j)[0] > span(i)[1]) break;
-        const p = plans[i], q = plans[j];
-        if (p.a === q.a || p.a === q.b || p.b === q.a || p.b === q.b || !crossing(pts[p.a], pts[p.b], pts[q.a], pts[q.b])) continue;
-        // A structure with depth drawn flat: the nearer bond is in front, as its atoms' depth says.
-        const near = (x: Plan) => (mol.atoms[x.a].location[2] ?? 0) + (mol.atoms[x.b].location[2] ?? 0), dz = near(q) - near(p);
-        const zi = mol.bonds[i].z ?? 0, zj = mol.bonds[j].z ?? 0, front = Math.abs(dz) > 1e-6 ? (dz > 0 ? j : i) : zj > zi || (zj === zi && j > i) ? j : i, back = front === i ? j : i, f = plans[front];
-        const offsets = [...(f.kind === 'none' ? [] : [0]), ...f.lines.map((l) => l.o)], w = Math.max(...widths(f, f.a), ...widths(f, f.b)) + f.z.margin;
-        const lo = Math.min(...offsets) - w, hi = Math.max(...offsets) + w, A = sub(pts[f.a], mul(f.u, f.z.margin)), B = add(pts[f.b], mul(f.u, f.z.margin));
-        gaps.set(back, [...(gaps.get(back) ?? []), [add(A, mul(f.n, lo)), add(B, mul(f.n, lo)), add(B, mul(f.n, hi)), add(A, mul(f.n, hi))]]);
-      }
-    });
-  }
   order.forEach((i) => {
     const pl = plans[i], before = polygons.length, d = deep(pl);
-    if (d) drawDeep(pl); else drawPlan(pl, i);
-    const cut = gaps.get(i);
-    if (cut) polygons.push(...polygons.splice(before).flatMap((poly) => cut.reduce((parts, q) => parts.flatMap((x) => minus(x, q)), [poly])));
+    if (d) drawDeep(pl); else { drawPlan(pl, i); cutFronts(i, before); }
     const alpha = d ? fade((depth[pl.a]! + depth[pl.b]!) / 2) : 1;
     for (const poly of polygons.slice(before)) { colours.push(mol.bonds[i].colour); alphas.push(alpha); for (const q of poly) { grow(pl.a, q); grow(pl.b, q); } }
   });
@@ -993,6 +1002,16 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     }
     for (const poly of polygons.slice(before)) { colours.push(mol.atoms[r[0]].colour); alphas.push(1); for (const q of poly) grow(r[0], q); }
   }
+  // A π ligand (a ring of delocalised bonds round a multi-centre point) has an ellipse inside, sized as an aromatic
+  // circle for the ring and flattened with it: its axes across and along the bond to the point.
+  mol.atoms.forEach((a, i) => {
+    const r = a.centre ?? [];
+    if (r.length < 3 || !r.every((x) => r.filter((y) => bondAt.get(key(x, y))?.type === 4).length === 2)) return;
+    const c = pts[i], { across, along, ra, rb } = ligandEllipse(r.map((x) => pts[x]), c, nbrs[i].length ? pts[nbrs[i][0]] : undefined, s.spacing / s.bond);
+    const at = (t: number) => add(c, add(mul(across, Math.cos(t) * ra), mul(along, Math.sin(t) * rb))), steps = 72, before = polygons.length;
+    for (let k = 0; k < steps; k++) { const S = at((2 * Math.PI * k) / steps), E = at((2 * Math.PI * (k + 1.05)) / steps); bar(S, E, perp(unit(sub(E, S))), atomZ[r[0]].hw); }
+    for (const poly of polygons.slice(before)) { colours.push(mol.atoms[r[0]].colour); alphas.push(1); for (const q of poly) grow(r[0], q); }
+  });
   // Joints in a 3D structure: a disc at each unlabelled atom as wide as its widest bond there, so tapered bonds meet.
   mol.atoms.forEach((_, x) => {
     if (depth[x] === undefined || labelled[x] || !nbrs[x].length) return;
@@ -1024,7 +1043,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     return b;
   });
   const labelAt = labels.map((l): P => pts[labelAtom.get(l) ?? -1] ?? [l.x, l.y]);
-  return { polygons, colours, alphas, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad], ink, label, scale: k, electrons, beads, labelAt };
+  return { polygons, colours, alphas, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad], ink, label, scale: k, electrons, beads, labelAt, sides: plans.map((pl) => pl.side ?? 0) };
 }
 
 // The same drawing as render's, made structure by structure. Each structure's drawing stays in `cache` while its
@@ -1046,8 +1065,12 @@ export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: F
   const find = (i: number) => { while (root[i] !== i) i = root[i] = root[root[i]]; return i; };
   const join = (i: number, j: number) => { const p = find(i), q = find(j); if (p !== q) root[Math.max(p, q)] = Math.min(p, q); };
   for (const b of mol.bonds) join(b.atoms[0], b.atoms[1]);
+  // A multi-centre point is drawn with its ring (the ring's ellipse goes round it).
+  mol.atoms.forEach((a, i) => { for (const j of a.centre ?? []) if (j < mol.atoms.length) join(i, j); });
   const depth = depthOf(mol), first = depth.findIndex((t) => t !== undefined);
   if (first >= 0) depth.forEach((t, i) => { if (t !== undefined) join(i, first); });
+  // Structures whose bonds cross are drawn as one, so the bond behind gets its gap.
+  for (const [r, f] of crossingBonds(mol.bonds, (i) => mol.atoms[i].location as unknown as P, 1)) join(mol.bonds[r].atoms[0], mol.bonds[f].atoms[0]);
   const groups = new Map<number, { ids: number[]; bonds: Bond[] }>();
   mol.atoms.forEach((_, i) => { const r = find(i); let g = groups.get(r); if (!g) groups.set(r, (g = { ids: [], bonds: [] })); g.ids.push(i); });
   for (const b of mol.bonds) groups.get(find(b.atoms[0]))!.bonds.push(b);
@@ -1066,7 +1089,7 @@ export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: F
     if (part && still && (part.at[0] || part.at[1])) part = { atoms, bonds, drawn: atoms, drawing: shifted(part.drawing, part.at), at: [0, 0], k: 1, turn: 0 };
     if (!part) {
       const local = new Map(ids.map((i, k) => [i, k]));
-      const drawing = render({ atoms, bonds: bonds.map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] })) }, s, measure, scale);
+      const drawing = render({ atoms: atoms.map((a) => (a.centre ? { ...a, centre: a.centre.flatMap((j) => (local.has(j) ? [local.get(j)!] : [])) } : a)), bonds: bonds.map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] })) }, s, measure, scale);
       part = { atoms, bonds, drawn: atoms, drawing, at: [0, 0], k: 1, turn: 0 };
     }
     cache.parts.set(atoms[0], part);
@@ -1145,7 +1168,7 @@ function turnOf(drawn: Atom[], atoms: Atom[], px: number): { at: P; k: number; t
 // LINE (1.2 em) is provisional until it is measured against ChemDraw.
 export const CAPTION_PT = 10;
 export const isNumber = (c: Caption) => !!c.bold && /^\d+[a-z]?$/.test(c.text);
-const GAP_PT = 15, GAP_ARROW_PT = 3, LINE = 1.2, ASCENT = 0.905, DESCENT = 0.212; // Arial's ascent and descent, in em
+export const GAP_PT = 15, GAP_ARROW_PT = 3, LINE = 1.2, ASCENT = 0.905, DESCENT = 0.212; // Arial's ascent and descent, in em
 // A turned caption (angle) turns about its anchor on the first baseline (pivot, px); frame is its box before the turn,
 // and box the box round it turned.
 // Each line's baseline below the first's (px), by the caption's line spacing (Caption.lineHeight). size: the
@@ -1705,27 +1728,38 @@ export function depthOf(m: Mol): (number | undefined)[] {
   });
   return out;
 }
-// A polygon's part on the side of f(p) >= 0 (Sutherland–Hodgman), winding as it did.
-function clip(poly: P[], f: (p: P) => number): P[] {
-  const out: P[] = [];
-  poly.forEach((p, k) => {
-    const q = poly[(k + 1) % poly.length], fp = f(p), fq = f(q);
-    if (fp >= 0) out.push(p);
-    if (fp >= 0 !== fq >= 0) out.push(add(p, mul(sub(q, p), fp / (fp - fq))));
+// Bonds whose lines cross (not at an atom they share), as [behind, in front]: the one later in the list is in front.
+// Bonds are sorted into a grid of cells `cell` wide, so only near bonds are tested; the tests stop at a fixed number,
+// so a hostile file of long bonds cannot hold the drawing up (a gap is only a look).
+export function crossingBonds(bonds: Bond[], at: (i: number) => P, cell: number): [number, number][] {
+  const grid = new Map<number, number[]>(), out: [number, number][] = [], seen = new Set<number>();
+  const c = (v: number) => Math.max(-1e6, Math.min(1e6, Math.floor(v / cell)));
+  bonds.forEach((b, k) => {
+    const p = at(b.atoms[0]), q = at(b.atoms[1]), x0 = c(Math.min(p[0], q[0])), x1 = c(Math.max(p[0], q[0])), y0 = c(Math.min(p[1], q[1])), y1 = c(Math.max(p[1], q[1]));
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) > 4096) return; // a bond across thousands of cells (no real drawing has one)
+    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) { const key = x * 4194304 + y, list = grid.get(key); if (list) list.push(k); else grid.set(key, [k]); }
   });
-  return out;
-}
-// A polygon less a convex quadrilateral q: the parts outside each of q's edges in turn, each inside the edges before.
-function minus(poly: P[], q: P[]): P[][] {
-  const w = Math.sign(q.reduce((t, a, k) => t + cross(a, q[(k + 1) % q.length]), 0)) || 1, out: P[][] = [];
-  let rest = poly;
-  for (let k = 0; k < q.length && rest.length >= 3; k++) {
-    const e = sub(q[(k + 1) % q.length], q[k]), side = (p: P) => w * cross(e, sub(p, q[k]));
-    const outside = clip(rest, (p) => -side(p));
-    if (outside.length >= 3) out.push(outside);
-    rest = clip(rest, side);
+  let tests = 0;
+  for (const list of grid.values()) for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+    if (++tests > 2e6) return out;
+    const r = list[i], f = list[j], key = r * bonds.length + f;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const a = bonds[r].atoms, b = bonds[f].atoms;
+    if (a[0] === b[0] || a[0] === b[1] || a[1] === b[0] || a[1] === b[1]) continue;
+    if (crossing(at(a[0]), at(a[1]), at(b[0]), at(b[1]))) out.push([r, f]);
   }
   return out;
+}
+// The part of a polygon where dot(q − o, n) ≥ d (Sutherland–Hodgman against one line); empty when nothing is left.
+function clipSide(poly: P[], o: P, n: P, d: number): P[] {
+  const out: P[] = [], f = (q: P) => dot(sub(q, o), n) - d;
+  poly.forEach((q, k) => {
+    const r = poly[(k + 1) % poly.length], fq = f(q), fr = f(r);
+    if (fq >= 0) out.push(q);
+    if ((fq >= 0) !== (fr >= 0)) out.push(add(q, mul(sub(r, q), fq / (fq - fr))));
+  });
+  return out.length >= 3 ? out : [];
 }
 // Where segments p1–p2 and q1–q2 cross, as fractions along each (inside both), or undefined.
 function crossing(p1: P, p2: P, q1: P, q2: P): [number, number] | undefined {

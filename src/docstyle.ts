@@ -60,6 +60,7 @@ export type DocStyle = {
   // The named colours saved with the document (ChemDraw keeps a palette in each document): the user's own colours
   // when it was saved. Another computer shows them in the drawing's colour row.
   palette?: { name: string; hex: string }[];
+  chainAngle: number; // ChemDraw's Chain Angle: the angle between the bonds of a chain drawn with the Chain tool (°)
   // The style's size against its preset (1 is 100%): bond, line, bold, margin, hash and the two text sizes hold the
   // preset's values times it (decision 0007). Bond spacing is a percent, so it does not change.
   scale: number;
@@ -85,7 +86,7 @@ export const PRESETS: Record<string, Drawn> = {
   "New Document (ChemDraw)": { bond: 30, line: 1, bold: 4, margin: 2, hash: 2.7, spacing: 12, labelFont: "Arial", labelSize: 10, captionFont: "Arial", captionSize: 12 },
   "New Slide (ChemDraw)": { bond: 30, line: 1.6, bold: 4, margin: 2, hash: 2.7, spacing: 15, labelFont: "Arial", labelSize: 12, captionFont: "Arial", captionSize: 16 },
 };
-export const DEFAULT_STYLE: DocStyle = { preset: "ACS Document 1996", page: "A4", custom: [180, 120], landscape: false, edges: true, grid: "bond", background: "white", colour: "#000000", terminalLabels: false, carbonLabels: false, hideH: false, scale: 1, ...PRESETS["ACS Document 1996"] };
+export const DEFAULT_STYLE: DocStyle = { preset: "ACS Document 1996", page: "A4", custom: [180, 120], landscape: false, edges: true, grid: "bond", background: "white", colour: "#000000", terminalLabels: false, carbonLabels: false, hideH: false, chainAngle: 120, scale: 1, ...PRESETS["ACS Document 1996"] };
 // The lengths and sizes a document scale multiplies (bond spacing is a percent, so it stays).
 export const SCALED = ["bond", "line", "bold", "margin", "hash", "labelSize", "captionSize"] as const;
 // The values readStyle keeps for each of them (pt); anything else falls back to the default. Lengths reach 10 times
@@ -195,6 +196,7 @@ export function readStyle(v: unknown): DocStyle {
     captionFont: text("captionFont", fontName), captionSize: num("captionSize", ...LIMITS.captionSize),
     colour: text("colour", (t) => /^#[0-9a-f]{6}$/i.test(t)),
     terminalLabels: s.terminalLabels === true, carbonLabels: s.carbonLabels === true, hideH: s.hideH === true,
+    chainAngle: num("chainAngle", 90, 179),
     scale: num("scale", 0.1, 10),
     ...(typeof s.purpose === "string" && /^[a-z0-9-]{1,40}$/.test(s.purpose) ? { purpose: s.purpose } : {}),
   };

@@ -91,6 +91,24 @@ console.log("chem.check: labels ok");
   console.log("chem.check: analysis by structure ok");
 }
 
+// Stereo labels are worked out structure by structure and kept: each copy of a structure gets its own labels, a
+// moved copy keeps them, and a wedge turned to a hash gives the other label.
+{
+  const at = (x: number, y: number): [number, number, number] => [x, y, 0];
+  const centre = (dx: number, stereo: number): Mol => ({
+    atoms: [{ label: "C", location: at(dx, 0) }, { label: "F", location: at(dx + 0.866, 0.5) }, { label: "Cl", location: at(dx - 0.866, 0.5) }, { label: "Br", location: at(dx, -1) }],
+    bonds: [{ type: 1, atoms: [0, 1], stereo }, { type: 1, atoms: [0, 2] }, { type: 1, atoms: [0, 3] }],
+  });
+  const join = (a: Mol, b: Mol): Mol => ({ atoms: [...a.atoms, ...b.atoms], bonds: [...a.bonds, ...b.bonds.map((x) => ({ ...x, atoms: x.atoms.map((i) => i + a.atoms.length) as [number, number] }))] });
+  const two = join(centre(0, 1), centre(5, 1)), moved = join(centre(0, 1), centre(9, 1)), other = join(centre(0, 1), centre(5, 6));
+  assert.deepEqual(analyse(two)?.map((a) => a.formula), ["CHBrClF", "CHBrClF"]);
+  const label = (m: Mol) => stereoLabels(m)?.atoms;
+  assert.ok(label(two)?.[0] && label(two)?.[0] === label(two)?.[4], "both copies labelled the same");
+  assert.deepEqual(label(moved), label(two), "a moved copy keeps its label");
+  assert.notEqual(label(other)?.[4], label(other)?.[0], "a hash gives the other label");
+  console.log("chem.check: kept stereo labels ok");
+}
+
 // A label Indigo cannot read, alone, has no entry. A structure Indigo reads as a bad valence (a pyridine N bonded to
 // Ru) keeps its formula and weight. Each exact mass is the structure's own monoisotopic mass.
 {
