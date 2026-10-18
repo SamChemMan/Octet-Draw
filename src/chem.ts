@@ -3,7 +3,7 @@ import Indigo from "indigo-ketcher/binaryWasmNoRender";
 import { hydrogens, NONMETAL, ORDER, type Face, type Ink, type Mol } from "./render.ts";
 import { fontStack } from "./docstyle.ts";
 import { labelSmiles } from "./labels.ts";
-import { fragments, levelTurn, renumberCentre, subset } from "./edit.ts";
+import { fragments, insertMol, labelPlacer, levelTurn, renumberCentre, subset } from "./edit.ts";
 import { graphOf, type Graph } from "./naming.ts";
 import { clean2d } from "./clean2d.ts";
 import { counts } from "./mass.ts";
@@ -90,9 +90,13 @@ function engine() {
   return indigo;
 }
 
-// A KET atom as Octet's: KET radicals 2 and 3 are one and two unpaired electrons.
-const atomOfKet = (a: { label: string; location: [number, number, number]; charge?: number; radical?: number }): Mol["atoms"][number] =>
-  ({ label: a.label, location: a.location, charge: a.charge, ...(a.radical ? { radical: a.radical === 1 ? 3 : a.radical - 1 } : {}), ...((a as { isotope?: number }).isotope ? { isotope: (a as { isotope?: number }).isotope } : {}) });
+// A KET atom as Octet's: KET radicals 2 and 3 are one and two unpaired electrons. A map number and an enhanced
+// stereo flag (abs, &n, orn) are kept.
+type KetAtom = { label: string; location: [number, number, number]; charge?: number; radical?: number; isotope?: number; mapping?: number; stereoLabel?: string };
+const atomOfKet = (a: KetAtom): Mol["atoms"][number] =>
+  ({ label: a.label, location: a.location, charge: a.charge, ...(a.radical ? { radical: a.radical === 1 ? 3 : a.radical - 1 } : {}), ...(a.isotope ? { isotope: a.isotope } : {}),
+    ...(Number.isInteger(a.mapping) && a.mapping! > 0 && a.mapping! <= 9999 ? { map: a.mapping } : {}),
+    ...(/^(abs|&[1-9]\d?|or[1-9]\d?)$/.test(a.stereoLabel ?? "") ? { enhanced: a.stereoLabel } : {}) });
 
 // Pasted, typed and imported text can stop the editor, as Indigo runs on the main thread: it reads very long text
 // slowly, and its layout can tidy a crowded structure (a ring atom with five phenyls, a dense dendrimer) for minutes.
@@ -107,8 +111,9 @@ const over = (most: number, what: string) => new RangeError(`It has more than ${
 // Atoms in a SMILES (bracket atoms and the organic subset), up to the first space (CXSMILES and names come after it).
 const smilesAtoms = (smiles: string) => smiles.split(/\s/)[0].match(/\[[^\]]*\]|Br|Cl|[BCNOPSFIbcnops*]/g)?.length ?? 0;
 
-// A structure file (MOL, SDF, CDXML, KET, SMILES), keeping the file's own drawing where it has one.
-// Coordinates are scaled so the median bond is one bond length; SMILES (no drawing) is laid out.
+// A structure file (MOL, SDF, RXN, RDF, CDXML, KET, SMILES), keeping the file's own drawing where it has one.
+// Coordinates are scaled so the median bond is one bond length; SMILES (no drawing) is laid out. A reaction keeps its
+// arrows and plus signs; an RD file's reactions stand one under another.
 // Throws a RangeError, with the reason to show, for text over Octet's limits.
 export function importStructure(text: string): Mol {
   if (text.length > MOST_CHARACTERS) throw over(MOST_CHARACTERS, "characters");
@@ -116,33 +121,89 @@ export function importStructure(text: string): Mol {
   try {
     opts.set("output-content-type", "application/json");
     opts.set("dearomatize-on-load", "true");
-    const hasDrawing = /V2000|V3000|<CDXML|"root"/.test(text);
+    const hasDrawing = /V2000|V3000|<CDXML|"root"|<cml[\s>]/i.test(text);
     if (!hasDrawing) return parseStructure(text);
+    if (/^\s*\$RDFILE/.test(text)) return readRdf(text);
     // A query or Markush molfile: read by Octet, so its query data is kept (molv3.ts). A V2000 one (R-groups, atom
     // lists, substitution counts, S-groups) is made V3000 by Indigo first.
-    const v2000 = /V2000/.test(text) && /^M {2}(RGP|ALS|SUB|UNS|RBC|LIN|STY|LOG)|^\$RGP|^(?:.{31})(R#|L |A |Q )|^.{6}  [5-8] /m.test(text);
+    const reaction = /^\s*\$RXN/.test(text);
+    const v2000 = !reaction && /V2000/.test(text) && /^M {2}(RGP|ALS|SUB|UNS|RBC|LIN|STY|LOG)|^\$RGP|^(?:.{31})(R#|L |A |Q )|^.{6}  [5-8] /m.test(text);
     const v3000 = v2000 ? (() => { try { return convert(text, "molfile", { "molfile-saving-mode": "3000" }); } catch { return ""; } })() : text;
-    if (isQueryMolfile(v3000)) {
+    if (!reaction && isQueryMolfile(v3000)) {
       const mol = readV3000(v3000);
       const lengths = mol.bonds.map((b) => Math.hypot(mol.atoms[b.atoms[1]].location[0] - mol.atoms[b.atoms[0]].location[0], mol.atoms[b.atoms[1]].location[1] - mol.atoms[b.atoms[0]].location[1])).sort((a, b) => a - b);
       const k = 1 / (lengths[Math.floor(lengths.length / 2)] || 1), at = (q: [number, number]): [number, number] => [q[0] * k, q[1] * k];
       return { ...mol, atoms: mol.atoms.map((a) => ({ ...a, location: [a.location[0] * k, a.location[1] * k, (a.location[2] ?? 0) * k] })), ...(mol.shapes ? { shapes: mol.shapes.map((sh) => ({ ...sh, from: at(sh.from), to: at(sh.to) })) } : {}) };
     }
-    const ket = JSON.parse(JSON.parse(ind.convert(text, "ket", opts)).struct);
-    const mol: Mol = { atoms: [], bonds: [] };
-    for (const { $ref } of ket.root.nodes as { $ref: string }[]) {
-      const frag = ket[$ref];
-      if (frag?.type !== "molecule") continue;
-      const base = mol.atoms.length;
-      mol.atoms.push(...frag.atoms.map(atomOfKet));
-      mol.bonds.push(...frag.bonds.map((b: Mol["bonds"][number]) => ({ type: b.type, atoms: [b.atoms[0] + base, b.atoms[1] + base], stereo: b.stereo })));
-    }
-    const lengths = mol.bonds.map((b) => Math.hypot(mol.atoms[b.atoms[1]].location[0] - mol.atoms[b.atoms[0]].location[0], mol.atoms[b.atoms[1]].location[1] - mol.atoms[b.atoms[0]].location[1])).sort((a, b) => a - b);
-    const k = 1 / (lengths[Math.floor(lengths.length / 2)] || 1);
-    return { ...mol, atoms: mol.atoms.map((a) => ({ ...a, location: [a.location[0] * k, a.location[1] * k, (a.location[2] ?? 0) * k] })) };
+    return scaled(fromKet(JSON.parse(JSON.parse(ind.convert(text, "ket", opts)).struct), /^\$\$\$\$/m.test(text)));
   } finally {
     opts.delete();
   }
+}
+// A drawing with its median bond one bond length long.
+function scaled(mol: Mol): Mol {
+  const lengths = mol.bonds.map((b) => Math.hypot(mol.atoms[b.atoms[1]].location[0] - mol.atoms[b.atoms[0]].location[0], mol.atoms[b.atoms[1]].location[1] - mol.atoms[b.atoms[0]].location[1])).sort((a, b) => a - b);
+  const k = 1 / (lengths[Math.floor(lengths.length / 2)] || 1), at = (q: [number, number]): [number, number] => [q[0] * k, q[1] * k];
+  return {
+    ...mol, atoms: mol.atoms.map((a) => ({ ...a, location: [a.location[0] * k, a.location[1] * k, (a.location[2] ?? 0) * k] })),
+    ...(mol.arrows ? { arrows: mol.arrows.map((a) => ({ ...a, from: at(a.from), to: at(a.to) })) } : {}),
+    // A plus sign's point is its middle; its caption's point is its baseline, a quarter of a bond length lower.
+    ...(mol.captions ? { captions: mol.captions.map((c) => ({ ...c, x: c.x * k, y: c.y * k - 0.25 })) } : {}),
+  };
+}
+// Indigo's KET as a drawing: its molecules, with their map numbers and enhanced stereo, and a reaction's arrows and
+// plus signs (Octet's reaction arrows and "+" captions). apart: the molecules are an SD file's records, which other
+// programs often draw at one place; when two overlap, they are set in a row.
+function fromKet(ket: Record<string, unknown> & { root: { nodes: Record<string, unknown>[] } }, apart = false): Mol {
+  const mol: Mol = { atoms: [], bonds: [] }, arrows: NonNullable<Mol["arrows"]> = [], captions: NonNullable<Mol["captions"]> = [];
+  let id = 1;
+  for (const node of ket.root.nodes) {
+    const frag = typeof node.$ref === "string" ? ket[node.$ref] as { type?: string; atoms: KetAtom[]; bonds: Mol["bonds"] } : undefined;
+    if (frag?.type === "molecule") {
+      const base = mol.atoms.length;
+      mol.atoms.push(...frag.atoms.map(atomOfKet));
+      mol.bonds.push(...frag.bonds.map((b) => ({ type: b.type, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number], stereo: b.stereo })));
+    } else if (node.type === "plus" && Array.isArray(node.location)) {
+      const [x, y] = (node.location as number[]).map(Number);
+      if (Number.isFinite(x) && Number.isFinite(y)) captions.push({ id: id++, text: "+", x, y, align: "centre" });
+    } else if (node.type === "arrow") {
+      const d = node.data as { mode?: string; pos?: { x: number; y: number }[] } | undefined, [p, q] = d?.pos ?? [];
+      if (!p || !q || ![p.x, p.y, q.x, q.y].every(Number.isFinite)) continue;
+      const mode = String(d?.mode ?? "");
+      const kind = /equilibrium/.test(mode) ? "equilibrium" : /retrosynthetic/.test(mode) ? "retro" : /failed/.test(mode) ? "nogo" : /both-ends/.test(mode) ? "resonance" : "reaction";
+      arrows.push({ id: id++, kind, from: [p.x, p.y], to: [q.x, q.y], ...(/dashed/.test(mode) ? { style: "dashed" as const } : {}) });
+    }
+  }
+  if (apart) {
+    const groups = fragments(mol), box = (g: number[]) => [0, 1].flatMap((k) => [Math.min(...g.map((i) => mol.atoms[i].location[k])), Math.max(...g.map((i) => mol.atoms[i].location[k]))]);
+    const boxes = groups.map(box), touch = (p: number[], q: number[]) => p[0] <= q[1] && q[0] <= p[1] && p[2] <= q[3] && q[2] <= p[3];
+    if (boxes.some((p, k) => boxes.slice(k + 1).some((q) => touch(p, q)))) {
+      const lengths = mol.bonds.map((b) => Math.hypot(...[0, 1].map((k) => mol.atoms[b.atoms[1]].location[k] - mol.atoms[b.atoms[0]].location[k]))).sort((x, y) => x - y);
+      const gap = 2 * (lengths[Math.floor(lengths.length / 2)] || 1);
+      let x = 0;
+      groups.forEach((g, k) => {
+        const [x0, x1, y0, y1] = boxes[k], dx = x - x0, dy = -(y0 + y1) / 2;
+        for (const i of g) mol.atoms[i] = { ...mol.atoms[i], location: [mol.atoms[i].location[0] + dx, mol.atoms[i].location[1] + dy, mol.atoms[i].location[2]] };
+        x += x1 - x0 + gap;
+      });
+    }
+  }
+  return { ...mol, ...(arrows.length ? { arrows } : {}), ...(captions.length ? { captions } : {}) };
+}
+// An RD file: each reaction (and molecule) record read on its own, one under another, so no two overlap.
+function readRdf(text: string): Mol {
+  const records = text.replace(/\r\n?/g, "\n").split(/^\$[RM]FMT[^\n]*\n/m).slice(1).slice(0, 200)
+    .map((r) => r.replace(/^\$(RIREG|REREG|MIREG|MEREG)[^\n]*\n/, "").split(/^\$DTYPE/m)[0].trimEnd()).filter((r) => r.trim());
+  if (!records.length) throw new Error("This RD file has no reactions.");
+  let out: Mol = { atoms: [], bonds: [] }, top = 0;
+  for (const r of records) {
+    const part = importStructure(r.startsWith("$RXN") ? r : `${r}\n`), ys = [...part.atoms.map((a) => a.location[1]), ...(part.arrows ?? []).flatMap((a) => [a.from[1], a.to[1]])];
+    if (!ys.length) continue;
+    const dy = top - Math.max(...ys);
+    out = insertMol(out, part, [0, dy]).mol;
+    top += Math.min(...ys) - Math.max(...ys) - 3;
+  }
+  return out;
 }
 
 // SMILES (or a MOL file) to a laid-out molecule with Kekulé bonds and stereo wedges. All fragments are kept.
@@ -158,16 +219,9 @@ export function parseStructure(text: string): Mol {
     opts.set("output-content-type", "application/json");
     opts.set("dearomatize-on-load", "true");
     opts.set("layout-max-iterations", String(Math.min(50, Math.max(10, Math.round(4000 / atoms)))));
-    const ket = JSON.parse(JSON.parse(ind.layout(text, "ket", opts)).struct);
-    const out: Mol = { atoms: [], bonds: [] };
-    for (const { $ref } of ket.root.nodes as { $ref: string }[]) {
-      const frag = ket[$ref];
-      if (frag?.type !== "molecule") continue;
-      const base = out.atoms.length;
-      out.atoms.push(...frag.atoms.map(atomOfKet));
-      out.bonds.push(...frag.bonds.map((b: Mol["bonds"][number]) => ({ type: b.type, atoms: [b.atoms[0] + base, b.atoms[1] + base], stereo: b.stereo })));
-    }
-    return out;
+    // A reaction (reactants>agents>products) keeps its arrow and plus signs.
+    const out = fromKet(JSON.parse(JSON.parse(ind.layout(text, "ket", opts)).struct));
+    return out.captions ? { ...out, captions: out.captions.map((c) => ({ ...c, y: c.y - 0.25 })) } : out;
   } finally {
     opts.delete();
   }
@@ -205,12 +259,13 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
     if (!a.text) return;
     const frag = labelGroup(a.text);
     if (!frag?.atoms.length) { out.atoms[i] = { ...out.atoms[i], label: "*", text: undefined }; return; }
-    const base = out.atoms.length;
+    const base = out.atoms.length, place = labelPlacer(mol, i, frag);
     origin.push(...frag.atoms.map(() => i));
-    // The group's first atom takes the label atom's place: bonds to the label atom move to it. The kept group's atoms
-    // are copied, so no change to the result can change it.
+    // The group's first atom takes the label atom's place: bonds to the label atom move to it, and the group points
+    // away from the rest as Expand Label draws it, so a wedge beside a label reads right. The kept group's atoms are
+    // copied, so no change to the result can change it.
     out = {
-      atoms: [...out.atoms, ...frag.atoms.map((x) => ({ ...x }))],
+      atoms: [...out.atoms, ...frag.atoms.map((x) => ({ ...x, location: place(x.location) }))],
       bonds: [
         ...out.bonds.map((b) => ({ ...b, atoms: b.atoms.map((k) => (k === i ? base : k)) as [number, number] })),
         ...frag.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number] })),
@@ -232,7 +287,11 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
 // The drawing as SMILES. Throws if Indigo can't read it (for example, a valence it rejects).
 // A drawing as KET, with labels expanded into atoms. KET has no bond display styles (bold, wavy and so on). Without
 // wedges (wedges = false), Indigo also reads a drawing whose wedges it rejects: formulas and masses do not need them.
-function ketOf(drawn: Mol, wedges = true, mol = expandLabels(drawn)): string {
+// keep: each atom's map number and enhanced stereo flag go too, for MDL and reaction files.
+function ketOf(drawn: Mol, wedges = true, mol = expandLabels(drawn), keep = false): string {
+  return JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: ketMol(mol, wedges, keep) });
+}
+function ketMol(mol: Mol, wedges: boolean, keep: boolean) {
   const bonds = mol.bonds.map(({ type, atoms, stereo }) => (stereo && wedges ? { type, atoms, stereo } : { type, atoms }));
   // An atom bonded to a metal keeps the hydrogens Octet draws on it (as render.ts counts them): Indigo would count the P
   // of a PPh3 bonded to Pd as PH (valence 5), where the drawing shows P. It goes to Indigo as the atom's valence: as a
@@ -240,10 +299,12 @@ function ketOf(drawn: Mol, wedges = true, mol = expandLabels(drawn)): string {
   const used = mol.atoms.map(() => 0), metalled = mol.atoms.map(() => false);
   for (const b of mol.bonds) for (const [i, j] of [b.atoms, [b.atoms[1], b.atoms[0]]]) { used[i] += ORDER[b.type] ?? 1; if (!NONMETAL.has(mol.atoms[j].label)) metalled[i] = true; }
   const valence = (i: number, a: Mol["atoms"][number]) => Math.round(used[i]) + (a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used[i], a.radical === 3 ? 2 : a.radical));
-  // KET radicals: 1 a singlet, 2 one unpaired electron (doublet), 3 two (triplet).
+  // KET radicals: 1 a singlet, 2 one unpaired electron (doublet), 3 two (triplet). KET's stereo labels are Octet's
+  // flags ("abs", "&1", "or1").
   const atoms = mol.atoms.map((a, i) => ({ label: a.label, location: a.location, ...(a.charge ? { charge: a.charge } : {}), ...(a.radical ? { radical: a.radical === 3 ? 1 : a.radical + 1 } : {}), ...(a.isotope ? { isotope: a.isotope } : {}),
-    ...(metalled[i] && NONMETAL.has(a.label) ? { explicitValence: valence(i, a) } : {}) }));
-  return JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule", atoms, bonds } });
+    ...(metalled[i] && NONMETAL.has(a.label) ? { explicitValence: valence(i, a) } : {}),
+    ...(keep && a.map ? { mapping: a.map } : {}), ...(keep && /^(abs|&\d+|or\d+)$/.test(a.enhanced ?? "") ? { stereoLabel: a.enhanced } : {}) }));
+  return { type: "molecule", atoms, bonds };
 }
 function convert(input: string, format: string, options: Record<string, string> = {}): string {
   const ind = engine(), opts = new ind.MapStringString();
@@ -256,9 +317,61 @@ function convert(input: string, format: string, options: Record<string, string> 
   }
 }
 export const toSmiles = (drawn: Mol): string => convert(ketOf(drawn), "smiles");
-// The drawing's molecules as a molfile. A query or Markush structure is written as V3000 by Octet itself (molv3.ts),
-// with its written labels drawn out as Indigo reads them.
-export const toMolfile = (drawn: Mol): string => (hasQuery(drawn) ? writeV3000(drawn, labelGroup) : convert(ketOf(drawn), "molfile"));
+// The drawing's molecules as a molfile: V3000, as ChemDraw 26.1 saves it, or V2000 (as ChemDraw puts it on the
+// clipboard). Map numbers and enhanced stereo go too; V2000 has no enhanced stereo. A query or Markush structure is
+// written as V3000 by Octet itself (molv3.ts), with its written labels drawn out as Indigo reads them; its V2000 is
+// Indigo's, read from that.
+export function toMolfile(drawn: Mol, v2000 = false): string {
+  const mode = { "molfile-saving-mode": v2000 ? "2000" : "3000" };
+  if (!hasQuery(drawn)) return convert(ketOf(drawn, true, undefined, true), "molfile", mode);
+  const v3 = writeV3000(drawn, labelGroup);
+  return v2000 ? convert(v3, "molfile", mode) : v3;
+}
+// An SD file: one record for each structure, as ChemDraw saves one. A drawing with R-group definitions is one record,
+// so its definitions stay with it.
+export function toSdf(drawn: Mol, v2000 = false): string {
+  const parts = drawn.shapes?.some((sh) => sh.rgroup) ? [drawn] : fragments(drawn).map((g) => subset(drawn, new Set(g)));
+  return parts.map((p) => `${toMolfile(p, v2000)}\n$$$$\n`).join("");
+}
+
+// One step of a reaction, for RXN, RDF and reaction SMILES: its reactants, its products, and its agents (the structures
+// drawn above and below its arrow), each a structure's atoms.
+export type RxnStep = { reactants: number[][]; products: number[][]; agents: number[][] };
+// A step as a KET reaction for Indigo: each structure keeps its own drawing, set in a row with plus signs between, the
+// arrow after the reactants with the agents over it, then the products, so Indigo reads each part as the step says.
+function reactionKet(drawn: Mol, step: RxnStep): string {
+  const out: Record<string, unknown> = {}, nodes: unknown[] = [];
+  let x = 0, k = 0;
+  // A structure at x (its left edge), its middle at y; returns its width.
+  const put = (atoms: number[], at: number, y = 0) => {
+    const m = ketMol(expandLabels(subset(drawn, new Set(atoms))), true, true), xs = m.atoms.map((a) => a.location[0]), ys = m.atoms.map((a) => a.location[1]);
+    const dx = at - Math.min(...xs), dy = y - (Math.min(...ys) + Math.max(...ys)) / 2;
+    m.atoms = m.atoms.map((a) => ({ ...a, location: [a.location[0] + dx, a.location[1] + dy, 0] as [number, number, number] }));
+    out[`mol${k}`] = m;
+    nodes.push({ $ref: `mol${k++}` });
+    return Math.max(...xs) - Math.min(...xs);
+  };
+  const row = (list: number[][]) => list.forEach((atoms, j) => { if (j) { nodes.push({ type: "plus", location: [x + 0.75, 0, 0] }); x += 1.5; } x += put(atoms, x) + 1.5; });
+  row(step.reactants);
+  const widths = step.agents.map((atoms) => { const xs = atoms.map((i) => drawn.atoms[i].location[0]); return Math.max(...xs) - Math.min(...xs); });
+  const span = Math.max(3, widths.reduce((s, w) => s + w + 1, 1));
+  let ax = x + (span - widths.reduce((s, w) => s + w + 1, -1)) / 2;
+  step.agents.forEach((atoms, j) => { put(atoms, ax, 1.5); ax += widths[j] + 1; });
+  nodes.push({ type: "arrow", data: { mode: "open-angle", pos: [{ x, y: 0, z: 0 }, { x: x + span, y: 0, z: 0 }] } });
+  x += span + 1.5;
+  row(step.products);
+  return JSON.stringify({ root: { nodes }, ...out });
+}
+// Reactions as an RXN file (the first step), an RD file (every step, one record each) or reaction SMILES (one line
+// for each step), with their map numbers. RXN and RD files are V3000, as ChemDraw 26.1 saves them, or V2000.
+export function toReaction(drawn: Mol, steps: RxnStep[], kind: "rxn" | "rdf" | "smiles", v2000 = false): string {
+  const mode = { "molfile-saving-mode": v2000 ? "2000" : "3000" };
+  if (kind === "smiles") return steps.map((s) => convert(reactionKet(drawn, s), "smiles")).join("\n");
+  if (kind === "rxn") return convert(reactionKet(drawn, steps[0]), "rxnfile", mode);
+  const d = new Date(), two = (n: number) => String(n).padStart(2, "0");
+  const date = `${two(d.getMonth() + 1)}/${two(d.getDate())}/${two(d.getFullYear() % 100)} ${two(d.getHours())}:${two(d.getMinutes())}`;
+  return [`$RDFILE 1`, `$DATM    ${date}`, ...steps.flatMap((s) => ["$RFMT", convert(reactionKet(drawn, s), "rxnfile", mode)])].join("\n") + "\n";
+}
 // Generic labels as query atoms (any atom A, heteroatom Q, metal M, halogen X, and each with H, as ChemDraw's).
 // SMILES cannot keep them; a molfile can, for a Reaxys search. undefined when the drawing has none.
 // As ChemDraw 26.1 writes a molfile (CoreChemistry IsAcceptableGeneric): A, Q and X go as the atom symbol; the

@@ -184,17 +184,18 @@ async fn open_link(name: String) -> Result<(), String> {
     open_external(url).map_err(|e| e.to_string())
 }
 
-// Import a structure from another program's file (MOL, SDF, SMILES, CDXML). Returns its name and text.
+// Import a structure or reaction from another program's file (MOL, SDF, RXN, RDF, CML, SMILES, CDXML). Returns its name
+// and text.
 #[tauri::command]
 async fn import_structure(app: AppHandle) -> Result<Option<(String, String)>, String> {
-    let Some(file) = app.dialog().file().add_filter("Structures", &["mol", "sdf", "smi", "smiles", "cdxml", "ket", "txt"]).blocking_pick_file() else {
+    let Some(file) = app.dialog().file().add_filter("Structures", &["mol", "sdf", "sd", "rxn", "rdf", "rd", "cml", "smi", "smiles", "cdxml", "ket", "txt"]).blocking_pick_file() else {
         return Ok(None);
     };
     let path = file.into_path().map_err(|e| e.to_string())?;
     if fs::metadata(&path).map_err(|e| e.to_string())?.len() > MAX_BYTES {
         return Err("This file is larger than 64 MB. Octet cannot import it.".into());
     }
-    let text = fs::read_to_string(&path).map_err(|_| "Octet can only import text files (MOL, SDF, SMILES, CDXML).".to_string())?;
+    let text = fs::read_to_string(&path).map_err(|_| "Octet can only import text files (MOL, SDF, RXN, RDF, CML, SMILES, CDXML).".to_string())?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     Ok(Some((name, text)))
 }
@@ -295,6 +296,9 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("invert_selection", "Invert Selection", "CmdOrCtrl+Shift+I")?,
         &sep()?,
         &item("copy_smiles", "Copy As SMILES", "Alt+CmdOrCtrl+C")?,
+        // ChemDraw 26.1's Copy As MOL Text (V3000) and MOL V2000 Text, with its keys.
+        &item("copy_mol", "Copy As MOL", "Alt+CmdOrCtrl+O")?,
+        &item("copy_mol2000", "Copy As MOL V2000", "Alt+Shift+CmdOrCtrl+O")?,
     ])?;
     section.replace("View".into());
     // ChemDraw's Show Crosshair (⌥⌘X) and Show Rulers (⌘;), in its order. ChemDraw has no grid: Show Grid (⌘') and

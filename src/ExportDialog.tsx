@@ -7,7 +7,7 @@ import { Dialog } from "./Dialog";
 import { Menu } from "./Menu";
 import { Select } from "./Select";
 import { NumberField, Segmented } from "./Fields";
-import { withMargin, type ExportFormat } from "./export";
+import { EXPORT_FORMATS as FORMATS, withMargin, type ExportFormat } from "./export";
 import { DPIS, type FilePrefs } from "./SettingsWindow";
 
 export function ExportButton({ onQuick, onExport, hint }: { onQuick: () => void; onExport: () => void; hint?: string }) {
@@ -36,7 +36,6 @@ export function ExportButton({ onQuick, onExport, hint }: { onQuick: () => void;
   );
 }
 
-const FORMATS: [ExportFormat, string][] = [["oct", "Octet drawing (.oct)"], ["pdf", "PDF"], ["png", "PNG"], ["svg", "SVG"], ["cdxml", "CDXML (ChemDraw)"], ["mol", "MOL"], ["sdf", "SDF"], ["smi", "SMILES"]];
 const PICTURES: ExportFormat[] = ["pdf", "png", "svg"];
 export type ExportSettings = Pick<FilePrefs, "dpi" | "background" | "margin"> & { format: ExportFormat };
 

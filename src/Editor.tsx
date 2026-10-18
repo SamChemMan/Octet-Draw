@@ -4,13 +4,13 @@ import {
   FrameCorners, GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
   TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa, TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
   Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table, FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, LinkSimple, MagnetStraight, Paragraph, Resize, Ruler, CheckCircle,
-  Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, GridFour, CrosshairSimple,
+  Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, GridFour, CrosshairSimple, CopySimple,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
-import { analyse, structures, expandWithOrigins, stereoFacts, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
+import { analyse, structures, expandWithOrigins, stereoFacts, stereoLabels, toMolfile, toReaction, toSdf, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
 import { MAX_PURPOSES, PURPOSES, fontStack, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, sizesAt, type DocStyle, type Guides, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
 import { Rulers } from "./Rulers";
@@ -42,13 +42,14 @@ import { Coach, NOTHING_SEEN, type Seen } from "./Coach";
 import { Feedback } from "./Feedback";
 import { ExportButton, ExportDialog } from "./ExportDialog";
 import { flushSync } from "react-dom";
-import { copyToClipboard, exportFile, readClipboard, standaloneSvg, UI, withMargin, type ExportFormat } from "./export";
+import { copyToClipboard, exportFile, MDL, readClipboard, standaloneSvg, UI, withMargin, type ExportFormat } from "./export";
 import { formatAmount, formulaWeight, parseAmount, solve, type Field } from "./stoich";
 import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb } from "./TemplateLibrary";
 import { cleanUpReaction, findReaction, GAP, layoutRow, reactionClean, roleOf, rowOf, type Reaction } from "./reaction";
+import { interpret, type Part, type RoleStep } from "./interpret";
 import { SEARCHES, searchNow, searchQuery } from "./search";
 import { SettingsWindow, type ModuleId } from "./SettingsWindow";
 import { layoutCycles, orderAround, spreadCycle, type Cycle, type CycleText } from "./cycle";
@@ -170,7 +171,9 @@ function Live<T>({ store: from, children }: { store: Store<T>; children: (value:
 // The view: where the drawing's origin is on screen (px) and the zoom. pinch: a zoom gesture goes on (see onWheel).
 type View = { x: number; y: number; zoom: number; pinch?: boolean };
 // What Export and Copy make from the drawing for other programs (pictures aside).
-type PartFormat = "cdxml" | "oct" | "molfile" | "smiles";
+// molfile: V2000, as ChemDraw puts it on the clipboard; mol, sdf, rxn and rdf: V3000 (or V2000 with 2000), as ChemDraw
+// 26.1 saves them.
+type PartFormat = "cdxml" | "oct" | "molfile" | "smiles" | "mol" | "mol2000" | "sdf" | "sdf2000" | "rxn" | "rxn2000" | "rdf" | "rdf2000";
 const sameHover = (a: Hover, b: Hover) => a.atom === b.atom && a.bond === b.bond && a.caption === b.caption && a.arrow === b.arrow && a.cycle === b.cycle && a.step === b.step;
 // Ink as SVG path data, kept with the arrow or shape it is made from, for each document style.
 const arrowInks = new WeakMap<Arrow, [unknown, string]>(), shapeInks = new WeakMap<Shape, [unknown, string]>(), outlines = new WeakMap<object, [unknown, string]>();
@@ -593,9 +596,20 @@ export default function Editor() {
     let out: string | undefined;
     try {
       out = (f === "cdxml" ? toCdxml(part, style, cdxmlOptions()) : f === "oct" ? cdxml && writeOct(part, style, cdxmlOptions(), cdxml)
-        : part.atoms.length && loaded ? (f === "molfile" ? toMolfile(part) : toSmiles(part)) : undefined) || undefined;
+        : part.atoms.length && loaded ? chemistryOf(part, f) : undefined) || undefined;
     } catch { out = undefined; }
     return (kept.formats[f] = out);
+  }
+  // A part's molecules or reactions as MDL files and SMILES. A drawing with reactions copies as reaction SMILES (one line
+  // for each step, with its map numbers); an RXN file holds one step, an RD file every step.
+  function chemistryOf(part: Mol, f: PartFormat): string | undefined {
+    const v2000 = f.endsWith("2000"), kind = f.replace("2000", "");
+    if (f === "molfile" || kind === "mol") return toMolfile(part, f === "molfile" || v2000);
+    if (kind === "sdf") return toSdf(part, v2000);
+    const steps = stepsIn(part);
+    if (f === "smiles") return steps.length ? toReaction(part, steps, "smiles") : toSmiles(part);
+    if (kind === "rxn") return steps.length === 1 ? toReaction(part, steps, "rxn", v2000) : undefined;
+    return steps.length ? toReaction(part, steps, "rdf", v2000) : undefined;
   }
   // File > Print (⌘P): the document's page at true size, the drawing where it sits on the page, as a picture the
   // print layout shows alone (the editor's chrome is hidden for printing), then the system's print dialog.
@@ -632,9 +646,9 @@ export default function Editor() {
     const v = exportView, svg = v?.[part], mol = v?.parts[part], f = filePrefs;
     if (!v || !mol) return;
     // Only what the format needs: a PDF carries the CDXML.
-    const make = (pf: PartFormat, ...fs: ExportFormat[]) => (fs.includes(f.format) ? formatOf(mol, pf) : undefined), molfile = make("molfile", "mol", "sdf");
+    const make = (pf: PartFormat, ...fs: ExportFormat[]) => (fs.includes(f.format) ? formatOf(mol, pf) : undefined);
     try {
-      const path = await exportFile({ name, format: f.format, oct: make("oct", "oct"), svg: svg && withMargin(svg, f.margin), cdxml: make("cdxml", "cdxml", "pdf"), molfile, sdf: molfile ? `${molfile.trimEnd()}\n$$$$\n` : undefined, smiles: make("smiles", "smi"), dpi: f.dpi, transparent: f.background === "transparent" });
+      const path = await exportFile({ name, format: f.format, oct: make("oct", "oct"), svg: svg && withMargin(svg, f.margin), cdxml: make("cdxml", "cdxml", "pdf"), mdl: MDL.includes(f.format) ? formatOf(mol, f.format as PartFormat) : undefined, smiles: make("smiles", "smi"), dpi: f.dpi, transparent: f.background === "transparent" });
       if (path) setExportView(undefined);
     } catch (e) {
       setNotice(`Octet cannot export this drawing. ${e}`);
@@ -863,8 +877,8 @@ export default function Editor() {
   // Puts a new fragment in place and selects it.
   function place(frag: Mol, base: Mol = doc, at?: P) {
     if (!frag.atoms.length) throw new Error("It has no atoms.");
-    // A query file's R-group boxes and polymer brackets come with its atoms.
-    if (frag.shapes?.length) {
+    // A query file's R-group boxes and polymer brackets, and a reaction's arrows and plus signs, come with its atoms.
+    if (frag.shapes?.length || frag.arrows?.length || frag.captions?.length) {
       const r = insertMol(base, frag, landing(frag, at));
       set(r.mol);
       setSelection(r.atoms);
@@ -1186,6 +1200,13 @@ export default function Editor() {
     settings: () => setSettingsOpen((settings.settingsModule as ModuleId) ?? "document"),
     structure_to_name: () => nameStructures(),
     copy_smiles: () => void document.execCommand("copy"),
+    // Copy As MOL (⌥⌘O, V3000, as ChemDraw 26.1's) and Copy As MOL V2000 (⇧⌥⌘O): the selection, or the drawing, as text.
+    ...Object.fromEntries(([["copy_mol", "mol"], ["copy_mol2000", "mol2000"]] as const).map(([id, f]) => [id, () => {
+      const text = formatOf(selectedPart() ?? doc, f);
+      if (!text) return setNotice("Octet cannot write this drawing as a molfile.");
+      copyText.current = text;
+      document.execCommand("copy");
+    }])),
     // Search Reaxys and Search PubChem (the Search menu and the Actions panel), while Settings > Online search is on.
     ...(settings.onlineSearch ? Object.fromEntries(Object.entries(SEARCHES).map(([id, [site, exact]]) => [id, () => searchOnline(site, exact)])) : {}),
     // Bring to Front (⌘[) and Send to Back (⌘]), as ChemDraw's: any selected structure (a picked atom or bond takes its
@@ -1719,9 +1740,31 @@ export default function Editor() {
     return [...placed].reverse().find((c) => c.id !== DRAFT && x >= c.box[0] - pad && x <= c.box[2] + pad && y >= c.box[1] - pad && y <= c.box[3] + pad)?.id;
   };
   // A reaction around an arrow, from what is drawn now: structures' and captions' boxes in drawing units.
-  const reactionOf = (arrowId: number) => findReaction(doc, arrowId, arrows,
-    (atoms) => { const b = union(atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i])); return b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L]; },
-    (id) => { const c = placed.find((x) => x.id === id); return c && [c.box[0] / L, -c.box[3] / L, c.box[2] / L, -c.box[1] / L]; });
+  const inkBox = (atoms: number[]): Box | undefined => { const b = union(atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i])); return b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L]; };
+  const captionBox = (id: number): Box | undefined => { const c = placed.find((x) => x.id === id); return c && [c.box[0] / L, -c.box[3] / L, c.box[2] / L, -c.box[1] / L]; };
+  const reactionOf = (arrowId: number) => findReaction(doc, arrowId, arrows, inkBox, captionBox);
+  // Every reaction in the drawing, each once, with its steps as Octet reads them (interpret.ts).
+  const reactions = () => {
+    const out: { r: Reaction; steps: RoleStep[] }[] = [], seen = new Set<number>();
+    for (const a of arrows) {
+      if (seen.has(a.id) || !straightArrow(a)) continue;
+      const r = reactionOf(a.id);
+      if (!r) continue;
+      r.arrows.forEach((id) => seen.add(id));
+      out.push({ r, steps: interpret(doc, r, arrows, inkBox, captionBox) });
+    }
+    return out;
+  };
+  // The reaction steps in a part of the drawing (the drawing, or the selection's part), for RXN and RD files and
+  // reaction SMILES: each step's reactant, product and agent structures, by the part's atoms. A step needs a reactant
+  // and a product structure, and all of it in the part.
+  const stepsIn = (part: Mol): RxnStep[] => {
+    const at = part === doc ? undefined : new Map([...selection].filter((i) => i < doc.atoms.length).sort((p, q) => p - q).map((i, k) => [i, k]));
+    const structures = (list: Part[]) => list.flatMap((x) => (x.kind === "structure" ? [x.atoms] : []));
+    return reactions().flatMap(({ steps }) => steps).map((s) => ({ reactants: structures(s.reactants), products: structures(s.products), agents: structures([...s.above, ...s.below]) }))
+      .filter((s) => s.reactants.length && s.products.length && (!at || [...s.reactants, ...s.products, ...s.agents].flat().every((i) => at.has(i))))
+      .map((s) => (at ? { reactants: s.reactants.map((g) => g.map((i) => at.get(i)!)), products: s.products.map((g) => g.map((i) => at.get(i)!)), agents: s.agents.map((g) => g.map((i) => at.get(i)!)) } : s));
+  };
   // The reaction picked, when exactly a whole reaction is: its arrows and its structures.
   const reactionPicked = () => {
     const first = arrows.find((a) => picked.has(a.id) && !curved(a) && !isLine(a));
@@ -3236,7 +3279,7 @@ export default function Editor() {
 
   // The key to show beside an action: menu shortcuts, then the user's shortcut table.
   const MENU_KEYS: Record<string, string> = {
-    invert_selection: `⇧${MOD}I`, clean_reaction: `⇧${MOD}X`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}/`, copy_smiles: `⌥${MOD}C`, copy: `${MOD}C`, delete: "⌫",
+    invert_selection: `⇧${MOD}I`, clean_reaction: `⇧${MOD}X`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}/`, copy_smiles: `⌥${MOD}C`, copy_mol: `⌥${MOD}O`, copy_mol2000: `⇧⌥${MOD}O`, copy: `${MOD}C`, delete: "⌫",
     structure_to_name: `⌥${MOD}N`, bring_front: `${MOD}[`, send_back: `${MOD}]`, "caption.align.justify": `⇧${MOD}J`,
     search_reaxys: `⌥${MOD}F`, search_reaxys_exact: `⇧⌥${MOD}F`, search_pubchem: `⌥${MOD}U`, search_pubchem_sub: `⇧⌥${MOD}U`,
     settings: `${MOD},`, name_to_structure: `⇧${MOD}N`, "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.sub": `${MOD}−`, "caption.super": `${MOD}+`, "caption.plain": `${MOD}T`, "caption.formula": `${MOD}F`, "caption.edit": keyLabel("enter"),
@@ -3274,6 +3317,7 @@ export default function Editor() {
   // variant (templates too), and the Settings modules. Each shows its shortcut where it has one. The aromatic display
   // names what it shows next for the structures it acts on, worked out only while the palette is open.
   const MENU_NAMES: Record<string, [string, string | undefined, React.ReactNode]> = {
+    copy_mol: ["Copy as MOL", `⌥${MOD}O`, <CopySimple size={18} />], copy_mol2000: ["Copy as MOL V2000", `⇧⌥${MOD}O`, <CopySimple size={18} />],
     new: ["New drawing", `${MOD}N`, <FilePlus size={18} />], open: ["Open…", `${MOD}O`, <FolderOpen size={18} />], import: ["Import a structure…", "", <FileArrowDown size={18} />],
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDiskBack size={18} />],
     export: ["Export…", EXPORT_KEYS, <ExportIcon size={18} />], print: ["Print…", `${MOD}P`, <Printer size={18} />], page_setup: ["Page setup…", `⇧${MOD}P`, <FileDashed size={18} />],
@@ -5006,9 +5050,9 @@ export default function Editor() {
           chemistry={(part) => {
             // The chosen format is made now, so the dialog says at once when it cannot be. The others are offered
             // when the part can have them, and made when they are chosen.
-            const mol = exportView.parts[part], may = !!mol?.atoms.length && loaded, f = settings.files.format;
-            const has: Partial<Record<ExportFormat, boolean>> = { oct: true, cdxml: true, mol: may, sdf: may, smi: may };
-            const of: Partial<Record<ExportFormat, PartFormat>> = { oct: "oct", cdxml: "cdxml", mol: "molfile", sdf: "molfile", smi: "smiles" }, pf = of[f];
+            const mol = exportView.parts[part], may = !!mol?.atoms.length && loaded, f = settings.files.format, steps = may && mol ? stepsIn(mol).length : 0;
+            const has: Partial<Record<ExportFormat, boolean>> = { oct: true, cdxml: true, smi: may, ...Object.fromEntries(MDL.map((x) => [x, x.startsWith("rxn") ? steps === 1 : x.startsWith("rdf") ? steps > 0 : may])) };
+            const pf: PartFormat | undefined = f === "oct" || f === "cdxml" ? f : f === "smi" ? "smiles" : MDL.includes(f) ? (f as PartFormat) : undefined;
             if (pf && mol) has[f] = !!formatOf(mol, pf);
             return has;
           }}

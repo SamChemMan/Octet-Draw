@@ -134,15 +134,22 @@ pub fn make_png(svg: &str, dpi: f32, transparent: bool) -> Result<Vec<u8>, Strin
     Ok(out)
 }
 
-// What File > Export… can write: id, name in the Save dialog, extensions (the first is the default).
-const FORMATS: [(&str, &str, &[&str]); 8] = [
+// What File > Export… can write: id, name in the Save dialog, extensions (the first is the default). The MDL formats
+// are V3000, and V2000 apart, with ChemDraw's names.
+const FORMATS: [(&str, &str, &[&str]); 14] = [
     ("oct", "Octet drawing", &["oct"]),
     ("pdf", "PDF", &["pdf"]),
     ("svg", "SVG", &["svg"]),
     ("png", "PNG", &["png"]),
     ("cdxml", "ChemDraw XML (CDXML)", &["cdxml"]),
     ("mol", "MDL Molfile", &["mol"]),
-    ("sdf", "SD File", &["sdf"]),
+    ("mol2000", "MDL Molfile V2000", &["mol"]),
+    ("sdf", "MDL SDfile", &["sdf", "sd"]),
+    ("sdf2000", "MDL SDfile V2000", &["sdf", "sd"]),
+    ("rxn", "Reaction Molfile (RXN)", &["rxn"]),
+    ("rxn2000", "Reaction Molfile V2000 (RXN)", &["rxn"]),
+    ("rdf", "MDL RDfile", &["rdf", "rd"]),
+    ("rdf2000", "MDL RDfile V2000", &["rdf", "rd"]),
     ("smi", "SMILES", &["smi", "smiles"]),
 ];
 
@@ -153,8 +160,7 @@ pub struct Export {
     oct: Option<String>,
     svg: Option<String>,
     cdxml: Option<String>,
-    molfile: Option<String>,
-    sdf: Option<String>,
+    mdl: Option<String>,
     smiles: Option<String>,
     dpi: Option<f32>,
     transparent: Option<bool>,
@@ -170,9 +176,8 @@ pub async fn export_file(app: AppHandle, export: Export) -> Result<Option<String
         "oct" => e.oct.is_some(),
         "pdf" | "svg" | "png" => e.svg.is_some(),
         "cdxml" => e.cdxml.is_some(),
-        "mol" => e.molfile.is_some(),
-        "sdf" => e.sdf.is_some(),
-        _ => e.smiles.is_some(),
+        "smi" => e.smiles.is_some(),
+        _ => e.mdl.is_some(),
     };
     let offered: Vec<_> = FORMATS.iter().filter(|f| has(f.0) && e.format.as_deref().is_none_or(|x| x == f.0)).collect();
     let Some(first) = offered.first() else {
@@ -203,9 +208,8 @@ pub async fn export_file(app: AppHandle, export: Export) -> Result<Option<String
         "png" => make_png(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false))?,
         "oct" => text(&e.oct),
         "cdxml" => text(&e.cdxml),
-        "mol" => text(&e.molfile),
-        "sdf" => text(&e.sdf),
-        _ => format!("{}\n", e.smiles.as_deref().unwrap_or_default().trim()).into_bytes(),
+        "smi" => format!("{}\n", e.smiles.as_deref().unwrap_or_default().trim()).into_bytes(),
+        _ => text(&e.mdl),
     };
     crate::write_atomic(&path, &bytes).map_err(|e| e.to_string())?;
     Ok(Some(path.to_string_lossy().into_owned()))
