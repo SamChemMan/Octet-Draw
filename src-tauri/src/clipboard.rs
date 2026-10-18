@@ -120,12 +120,12 @@ mod mac {
             let item = NSPasteboardItem::new();
             for (t, bytes) in types {
                 if !item.setData_forType(&NSData::with_bytes(bytes), &NSString::from_str(t)) {
-                    return Err("Octet could not copy this.".to_string());
+                    return Err("The clipboard did not accept the data.".to_string());
                 }
             }
             pb.clearContents();
             let items: Retained<NSArray<ProtocolObject<dyn objc2_app_kit::NSPasteboardWriting>>> = NSArray::from_retained_slice(&[ProtocolObject::from_retained(item)]);
-            if pb.writeObjects(&items) { Ok(()) } else { Err("Octet could not copy this.".to_string()) }
+            if pb.writeObjects(&items) { Ok(()) } else { Err("The clipboard did not accept the data.".to_string()) }
         })
     }
 

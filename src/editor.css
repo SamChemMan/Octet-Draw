@@ -1719,11 +1719,12 @@ button.variant.add {
 .swatch:active {
   transform: scale(0.92);
 }
+/* Add a colour: an empty swatch with a +, on the raised surface in both themes. */
 .swatch.custom {
   display: grid;
   place-items: center;
   overflow: hidden;
-  background: var(--canvas);
+  background: var(--surface-raised);
   color: var(--ink-muted);
 }
 .swatch.custom input {
@@ -2876,7 +2877,7 @@ button.variant.add {
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
-/* Short text standing in for an icon (L, C, R, Rf, A→A) fits the icon's square. */
+/* Short text standing in for an icon (L, C, R, Rf, R/S) fits the icon's square. */
 .glyph-text {
   display: inline-block;
   width: auto;
@@ -2886,6 +2887,12 @@ button.variant.add {
   letter-spacing: -0.02em;
   text-align: center;
   white-space: nowrap;
+}
+/* In a row, a wide glyph (R/S) keeps the icon column: it is centred on it, so every name starts at the same place. */
+.action > .glyph-text {
+  display: flex;
+  justify-content: center;
+  width: 18px;
 }
 
 /* Search Reaxys and Search PubChem: the magnifier, then the site's letter (a letter in the lens reads as ®). */
@@ -3205,6 +3212,10 @@ button.variant.add {
 .properties.stacked {
   bottom: calc(var(--space-4) * 2 + var(--below, 0px));
   max-height: min(40%, calc(100% - var(--below, 0px) - var(--space-4) * 4));
+}
+/* A full-screen Spectrum leaves no room above it, so Properties waits until it is docked again. */
+.spectrum.expanded ~ .properties {
+  display: none;
 }
 .properties header,
 .spectrum header {
