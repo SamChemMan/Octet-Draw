@@ -1,6 +1,6 @@
 // The chemistry engine (Indigo) and the drawing style, shared by the editor and the dev gallery.
 import Indigo from "indigo-ketcher/binaryWasmNoRender";
-import { hydrogens, NONMETAL, type Face, type Ink, type Mol } from "./render.ts";
+import { hydrogens, NONMETAL, ORDER, type Face, type Ink, type Mol } from "./render.ts";
 import { fontStack } from "./docstyle.ts";
 import { labelSmiles } from "./labels.ts";
 import { fragments, levelTurn, subset } from "./edit.ts";
@@ -199,17 +199,20 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
 }
 
 // The drawing as SMILES. Throws if Indigo can't read it (for example, a valence it rejects).
-// A drawing as KET, with labels expanded into atoms. KET has no bond display styles (bold, wavy and so on).
-function ketOf(drawn: Mol): string {
+// A drawing as KET, with labels expanded into atoms. KET has no bond display styles (bold, wavy and so on). Without
+// wedges (wedges = false), Indigo also reads a drawing whose wedges it rejects: formulas and masses do not need them.
+function ketOf(drawn: Mol, wedges = true): string {
   const mol = expandLabels(drawn);
-  const bonds = mol.bonds.map(({ type, atoms, stereo }) => (stereo ? { type, atoms, stereo } : { type, atoms }));
-  // An atom bonded to a metal keeps the hydrogens Octet draws on it: Indigo would count the P of a PPh3 bonded to Pd
-  // as PH (valence 5), where the drawing shows P.
+  const bonds = mol.bonds.map(({ type, atoms, stereo }) => (stereo && wedges ? { type, atoms, stereo } : { type, atoms }));
+  // An atom bonded to a metal keeps the hydrogens Octet draws on it (as render.ts counts them): Indigo would count the P
+  // of a PPh3 bonded to Pd as PH (valence 5), where the drawing shows P. It goes to Indigo as the atom's valence: as a
+  // hydrogen count, a drawing with an R group (a query) would write it into a molfile as a query feature.
   const used = mol.atoms.map(() => 0), metalled = mol.atoms.map(() => false);
-  for (const b of mol.bonds) for (const [i, j] of [b.atoms, [b.atoms[1], b.atoms[0]]]) { used[i] += b.type; if (!NONMETAL.has(mol.atoms[j].label)) metalled[i] = true; }
+  for (const b of mol.bonds) for (const [i, j] of [b.atoms, [b.atoms[1], b.atoms[0]]]) { used[i] += ORDER[b.type] ?? 1; if (!NONMETAL.has(mol.atoms[j].label)) metalled[i] = true; }
+  const valence = (i: number, a: Mol["atoms"][number]) => Math.round(used[i]) + (a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used[i], a.radical === 3 ? 2 : a.radical));
   // KET radicals: 1 a singlet, 2 one unpaired electron (doublet), 3 two (triplet).
-  const atoms = mol.atoms.map(({ label, location, charge, radical, isotope, implicitHCount }, i) => ({ label, location, ...(charge ? { charge } : {}), ...(radical ? { radical: radical === 3 ? 1 : radical + 1 } : {}), ...(isotope ? { isotope } : {}),
-    ...(metalled[i] && NONMETAL.has(label) ? { implicitHCount: implicitHCount ?? hydrogens(label, charge ?? 0, used[i], radical) } : {}) }));
+  const atoms = mol.atoms.map((a, i) => ({ label: a.label, location: a.location, ...(a.charge ? { charge: a.charge } : {}), ...(a.radical ? { radical: a.radical === 3 ? 1 : a.radical + 1 } : {}), ...(a.isotope ? { isotope: a.isotope } : {}),
+    ...(metalled[i] && NONMETAL.has(a.label) ? { explicitValence: valence(i, a) } : {}) }));
   return JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule", atoms, bonds } });
 }
 function convert(input: string, format: string): string {
@@ -458,7 +461,7 @@ export function structures(mol: Mol, groups = fragments(mol)): (Structure | unde
       const part = subset(mol, new Set(ids));
       out.push(remembered(structured, contentOf(part), () => {
         try {
-          const ket = ketOf(part), calc = JSON.parse(ind.calculate(ket, opts, sel));
+          const ket = ketOf(part, false), calc = JSON.parse(ind.calculate(ket, opts, sel));
           const heavy = expandLabels(part).atoms.filter((a) => a.label !== "H").length;
           return {
             formula: String(calc["gross-formula"]).replace(/\s+/g, ""), weight: Number(calc["molecular-weight"]), exact: Number(calc["monoisotopic-mass"]),
@@ -521,7 +524,7 @@ function remembered<T>(store: Map<string, T>, key: string, make: () => T): T {
 function analyseAll(mol: Mol): Analysis | undefined {
   const ind = engine(), opts = new ind.MapStringString(), sel = new ind.VectorInt();
   try {
-    const ket = ketOf(mol);
+    const ket = ketOf(mol, false);
     // Indigo reports each structure separately ("C8 H9 N O2; C4 H12 N"): one entry per structure.
     const out = JSON.parse(ind.calculate(ket, opts, sel));
     const split = (key: string) => String(out[key]).split(";").map((x) => x.trim());

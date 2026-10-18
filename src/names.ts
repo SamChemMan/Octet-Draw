@@ -108,9 +108,13 @@ function parts(s: string): string | undefined {
 // ring numbers, in one word (a CXSMILES |...| part may follow). A title may follow the SMILES, as in a SMILES file
 // ("c1ccccc1 benzene"), when the SMILES has a ring number, a bracket, a branch or a bond: a word alone ("CCO
 // ethanol", "NBS reagent") could be a name. It has an atom: Indigo reads "5" or "2:1" as an unknown atom. Indigo also
-// reads words such as "aspirin" or "spiro" (as query atoms), so text that fails this is never read as SMILES.
+// reads words such as "aspirin" or "spiro" (as query atoms), so text that fails this is never read as SMILES. An
+// aromatic atom (lower case) is in a ring, so SMILES with one has a ring number: "Boc", "Bn", "Cs" and "Co" are not SMILES.
 const SMILES = /^(?:Cl|Br|[BCNOPSFI]|[bcnops]|\[[^\][]{1,40}\]|%\d\d|[-=#$:/\\.()0-9*~>])+$/;
-const smiles = (s: string) => SMILES.test(s) && /[A-Za-z]/.test(s);
+const smiles = (s: string) => {
+  const bare = s.replace(/\[[^\]]*\]/g, "");
+  return SMILES.test(s) && /[A-Za-z]/.test(s) && (!/[bcnops]/.test(bare) || /\d/.test(bare));
+};
 export function looksLikeSmiles(text: string): boolean {
   const t = text.trim().replace(/\s+\|[^|]*\|$/, ""), first = t.split(/\s/)[0];
   return /^InChI=1S?\//.test(t) || smiles(t) || (first !== t && smiles(first) && /[\d()[\]=#/\\]/.test(first));

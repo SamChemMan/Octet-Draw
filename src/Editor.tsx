@@ -762,9 +762,9 @@ export default function Editor() {
     // The caption being typed.
     if (writing) {
       const text = writing.value.trim(), c = placed.find((x) => x.id === (writing.id ?? DRAFT)), found = text ? structureOrSuggestion(text, true) : undefined;
-      if (!found || !c) { commitWriting(); return openNaming(text); }
-      writingOpen.current = false;
-      setWriting(undefined);
+      // The caption is kept first, so Undo gives back the text as typed (as in ChemDraw, where the caption is there).
+      commitWriting();
+      if (!found || !c) return openNaming(text);
       return convertInPlace(found, writing.id !== undefined ? deleteGraphics(doc, new Set([writing.id])) : doc, [(c.box[0] + c.box[2]) / 2 / L, -(c.box[1] + c.box[3]) / 2 / L]);
     }
     // The label being typed: an atom with no bonds becomes the structure. Otherwise the label is kept, as Return keeps
@@ -774,8 +774,9 @@ export default function Editor() {
       labelOpen.current = false;
       setEditing(undefined);
       const [x, y] = doc.atoms[editing.atom].location;
-      if (found) return convertInPlace(found, deleteAtom(doc, editing.atom), [x, y]);
+      // The label is kept first, as Return keeps it, so Undo gives back the text as typed.
       set(setLabel(doc, editing.atom, editing.value));
+      if (found) return convertInPlace(found, deleteAtom(doc, editing.atom), [x, y]);
       return openNaming(text);
     }
     // A picked caption, or one picked atom with a label and no bonds.

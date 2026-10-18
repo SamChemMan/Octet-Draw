@@ -101,6 +101,11 @@ console.log("chem.check: labels ok");
   const [a] = analyse(bound) ?? [];
   assert.equal(a?.formula, "C5H5NRu");
   assert.ok(Number.isFinite(a?.weight));
+  // Wedges Indigo rejects (three wedges on one carbon) do not take away the formula, the masses or the properties.
+  const wedged: Mol = { atoms: [{ label: "C", location: [0, 0, 0] }, { label: "C", location: [0.866, 0.5, 0] }, { label: "C", location: [1.732, 0, 0] }, { label: "O", location: [0.866, 1.5, 0] }],
+    bonds: [{ type: 1, atoms: [1, 0], stereo: 1 }, { type: 1, atoms: [1, 2], stereo: 1 }, { type: 1, atoms: [1, 3], stereo: 6 }] };
+  assert.equal(analyse(wedged)?.[0].formula, "C3H8O");
+  assert.equal(structures(wedged)?.[0]?.formula, "C3H8O");
   console.log("chem.check: unreadable structures ok");
 }
 
@@ -109,5 +114,10 @@ console.log("chem.check: labels ok");
   const molfile = toMolfile(onEthyl("OH"));
   assert.match(molfile, /^\n {2}-INDIGO-/);
   assert.deepEqual(importStructure(molfile).atoms.map((a) => a.label), ["C", "C", "O"]);
+  // An atom bonded to a metal goes out with its valence, not a hydrogen count: in a drawing with an R group (a query)
+  // that would be a query feature (M  MRV SMA) in the molfile.
+  const query: Mol = { atoms: [{ label: "Pd", location: [0, 0, 0] }, { label: "N", location: [1, 0, 0] }, { label: "C", location: [2, 0, 0] }, { label: "*", location: [3, 0, 0] }],
+    bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [1, 2] }, { type: 1, atoms: [2, 3] }] };
+  assert.doesNotMatch(toMolfile(query), /MRV SMA/);
   console.log("chem.check: molfile ok");
 }

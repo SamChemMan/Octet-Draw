@@ -56,6 +56,9 @@ export const COMMON: Record<string, string> = {
   TBSOTf: "smiles:CC(C)(C)[Si](C)(C)OS(=O)(=O)C(F)(F)F", TIPSOTf: "smiles:CC(C)[Si](OS(=O)(=O)C(F)(F)F)(C(C)C)C(C)C",
   "Fmoc-Cl": "smiles:ClC(=O)OCC1c2ccccc2-c2ccccc12", "Cbz-Cl": "benzyl carbonochloridate", BnBr: "(bromomethyl)benzene",
   BnCl: "(chloromethyl)benzene", MOMCl: "chloro(methoxy)methane", SEMCl: "smiles:C[Si](C)(C)CCOCCl",
+  MeI: "iodomethane", CH3I: "iodomethane", EtI: "iodoethane", EtBr: "bromoethane", Me2SO4: "dimethyl sulfate",
+  MeOTf: "methyl trifluoromethanesulfonate", CCl4: "tetrachloromethane", CBr4: "tetrabromomethane", CHBr3: "tribromomethane",
+  SiCl4: "tetrachlorosilane",
   "proton sponge": "N1,N1,N8,N8-tetramethylnaphthalene-1,8-diamine",
   // Inorganic acids, bases, salts and elements, by formula. A formula that is also SMILES ("CO", "NO") is left out.
   HCl: "smiles:Cl", HBr: "smiles:Br", HI: "smiles:I", HF: "smiles:F", H2SO4: "smiles:OS(=O)(=O)O", HNO3: "smiles:O[N+]([O-])=O",
@@ -102,6 +105,7 @@ export const COMMON: Record<string, string> = {
   bpy: "2,2'-bipyridine", dtbbpy: "4,4'-di-tert-butyl-2,2'-bipyridine", phen: "1,10-phenanthroline", ppy: "2-phenylpyridine",
   dppe: "ethane-1,2-diylbis(diphenylphosphane)", dppp: "propane-1,3-diylbis(diphenylphosphane)",
   Xantphos: "(9,9-dimethylxanthene-4,5-diyl)bis(diphenylphosphane)", BINAP: "[1,1'-binaphthalene]-2,2'-diylbis(diphenylphosphane)",
+  XPhos: "dicyclohexyl[2',4',6'-tri(propan-2-yl)biphenyl-2-yl]phosphane", SPhos: "dicyclohexyl(2',6'-dimethoxybiphenyl-2-yl)phosphane",
   cod: "cycloocta-1,5-diene", acac: "pentane-2,4-dione", dba: "1,5-diphenylpenta-1,4-dien-3-one",
   // Photocatalysts and dyes
   "4CzIPN": "2,4,5,6-tetra(carbazol-9-yl)benzene-1,3-dicarbonitrile",
@@ -133,5 +137,6 @@ export const COMMON: Record<string, string> = {
   TPT: "2,4,6-triphenylpyrylium tetrafluoroborate", Selectfluor: "1-(chloromethyl)-4-fluoro-1,4-diazoniabicyclo[2.2.2]octane bis(tetrafluoroborate)",
 };
 
-// How keys are compared: lower case, without spaces, hyphens or apostrophes.
-export const commonKey = (name: string) => name.toLowerCase().replace(/[\s‐-―'’ʼ-]/g, "");
+// How keys are compared: lower case, without spaces, hyphens or apostrophes, and with a full stop or bullet between
+// parts read as "·" ("Et3N.HCl" is "Et3N·HCl").
+export const commonKey = (name: string) => name.toLowerCase().replace(/[\s‐-―'’ʼ-]/g, "").replace(/[.•∙⋅]/g, "·");

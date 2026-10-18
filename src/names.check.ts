@@ -37,7 +37,7 @@ const partKeys = (smiles: string) => smiles.split(".").map(keyOf).sort();
 // Text that looks like SMILES, and text that does not (Indigo would read "aspirin" and "spiro" as query atoms).
 for (const t of ["CCO", "c1ccccc1", "C[C@@H](N)C(=O)O", "OC(=O)c1ccccc1OC(C)=O", "[Na+].[Cl-]", "InChI=1S/CH4/h1H4", "CC>>CO", "C1CC1 |$_R1;;$|", "c1ccccc1 benzene", "CC(=O)O acetic acid"])
   assert.ok(looksLikeSmiles(t), `${t} looks like SMILES`);
-for (const t of ["aspirin", "spiro", "ethyl acetate", "Pd(PPh3)4", "2-methylpropane", "caffeine", "Et3N·HCl", "CCO ethanol", "NBS reagent", "5", "2:1", "1.5", "5 mg"]) assert.ok(!looksLikeSmiles(t), `${t} does not look like SMILES`);
+for (const t of ["aspirin", "spiro", "ethyl acetate", "Pd(PPh3)4", "2-methylpropane", "caffeine", "Et3N·HCl", "CCO ethanol", "NBS reagent", "5", "2:1", "1.5", "5 mg", "Boc", "Bn", "Cs", "Co", "Sn", "on"]) assert.ok(!looksLikeSmiles(t), `${t} does not look like SMILES`);
 assert.equal(nameToSmiles("spiro"), undefined);
 // A formula that is not SMILES reads from the table (SO2, COCl2). A formula that is also SMILES ("CO") is read as SMILES.
 assert.equal(nameToSmiles("SO2"), "O=S=O");
@@ -69,6 +69,9 @@ for (const name of ["EtOH/H2O", "ethanol--water (0.72/0.28)", "ethanol + water",
   assert.deepEqual(partKeys(nameToSmiles(name) ?? ""), [ethanol, water].sort(), name);
 assert.deepEqual(partKeys(nameToSmiles("CuSO4·5H2O") ?? ""), partKeys(`${COMMON.CuSO4.slice(7)}.O.O.O.O.O`), "CuSO4·5H2O");
 assert.deepEqual(partKeys(nameToSmiles("sertraline hydrochloride") ?? ""), partKeys(`${DRUGS.sertraline}.Cl`), "sertraline hydrochloride");
+// A full stop between parts reads as "·" does: the same structure from the table.
+assert.equal(nameToSmiles("Et3N.HCl"), nameToSmiles("Et3N·HCl"));
+assert.equal(keyOf(nameToSmiles("MeI") ?? ""), keyOf("CI"));
 assert.deepEqual(partKeys(nameToSmiles("EDC·HCl") ?? ""), partKeys(`${opsin.parseToSmiles(COMMON.EDC)}.Cl`), "EDC·HCl");
 assert.equal(nameToSmiles("ethanol and unobtainium"), undefined);
 
