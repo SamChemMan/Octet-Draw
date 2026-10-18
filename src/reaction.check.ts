@@ -275,13 +275,14 @@ for (const id of [first, second]) {
 }
 
 // Sam's corpus (on this Mac only): Clean Up Reaction on the whole drawing, as the editor runs it, is a fixed point. On
-// each file with a straight arrow, a second clean-up changes no coordinate. Node has no fonts, so text is measured
-// roughly here (0.6 of its size a letter); the editor measures it in its font.
+// each file with a straight arrow, a second clean-up changes no coordinate, with nothing selected (reactions with a
+// structure) and with everything selected (every reaction, a spectrum's arrows and labels too). Node has no fonts, so
+// text is measured roughly here (0.6 of its size a letter); the editor measures it in its font.
 const CORPUS = join(homedir(), "octet-research/corpus/sam");
 if (!existsSync(CORPUS)) console.log("reaction.check: no corpus here, corpus part skipped");
 else {
   const L = 19.2, toDoc = (b: Box): Box => [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L];
-  const cleanAll = (m: Mol) => {
+  const cleanAll = (m: Mol, pick: (r: Reaction) => boolean) => {
     const style = readStyle(m.style ?? {}), frame = frameStyle(style, L), pt = (4 / 3) * frame.k;
     const measure = (text: string) => { const s = frame.size, w = 0.6 * s * text.length; return { width: w, ascent: 0.72 * s, outline: [[0, -0.72 * s], [w, -0.72 * s], [w, 0.2 * s], [0, 0.2 * s]] as [number, number][] }; };
     const width = (text: string, c: { size?: number }) => 0.55 * (c.size ?? style.captionSize) * pt * text.length;
@@ -294,7 +295,7 @@ else {
     };
     const size = (style.captionSize * pt) / L, w = width("+", {}) / L;
     const o: Layout = { gap: gapFor(style.captionSize, style.bond), width: ((pageSize(style)[0] * 72) / 25.4 - 72) / style.bond, captionBox, plusBox: [-w / 2, -DESCENT * size, w / 2, ASCENT * size], captionPt: style.captionSize, bondPt: style.bond };
-    return cleanUpReactions(m, arrows, inkOf, o, withStructure);
+    return cleanUpReactions(m, arrows, inkOf, o, pick);
   };
   const points = (m: Mol) => [
     ...m.atoms.map((a) => a.location.slice(0, 2)), ...(m.captions ?? []).map((c) => [c.x, c.y]), ...(m.shapes ?? []).flatMap((x) => [x.from, x.to]),
@@ -305,12 +306,14 @@ else {
     const start = wholeGroups(readOct(readFileSync(join(CORPUS, f), "utf8")).mol);
     if (!(start.arrows ?? []).some((a) => straightArrow(a))) continue;
     files++;
-    const once = cleanAll(start), twice = cleanAll(once.mol);
-    if (once.count) laid++;
-    const p = points(once.mol), q = points(twice.mol);
-    assert.equal(q.length, p.length, `${f}: the second clean-up adds nothing`);
-    const moved = p.flatMap((x, k) => { const d = Math.hypot(x[0] - q[k][0], x[1] - q[k][1]); return d > 1e-6 ? [d] : []; });
-    assert.equal(moved.length, 0, `${f}: the second clean-up moves ${moved.length} points, up to ${Math.max(0, ...moved).toFixed(3)} bond lengths`);
+    for (const [pick, how] of [[withStructure, "nothing selected"], [() => true, "everything selected"]] as const) {
+      const once = cleanAll(start, pick), twice = cleanAll(once.mol, pick);
+      if (once.count && pick === withStructure) laid++;
+      const p = points(once.mol), q = points(twice.mol);
+      assert.equal(q.length, p.length, `${f}, ${how}: the second clean-up adds nothing`);
+      const moved = p.flatMap((x, k) => { const d = Math.hypot(x[0] - q[k][0], x[1] - q[k][1]); return d > 1e-6 ? [d] : []; });
+      assert.equal(moved.length, 0, `${f}, ${how}: the second clean-up moves ${moved.length} points, up to ${Math.max(0, ...moved).toFixed(3)} bond lengths`);
+    }
   }
   assert.ok(laid > 10, `the corpus has reactions to lay out (${laid})`);
   console.log(`reaction.check: ${files} corpus files with a straight arrow (${laid} laid out), a second clean-up moves nothing`);

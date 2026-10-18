@@ -458,14 +458,42 @@ export function cleanUpReaction(m: Mol, r: Reaction, arrows: Arrow[], o: Layout,
 // has placed stays where it is for the next, so reactions that share a structure stay joined. arrows: the drawing's
 // arrows as drawn (grown to fit their text); inkOf: the boxes of a drawing's structures. Returns the drawing, how many
 // reactions it laid out, and how many it left as drawn.
-export function cleanUpReactions(m: Mol, arrows: Arrow[], inkOf: (mol: Mol) => (atoms: number[]) => Box | undefined, o: Layout, pick: (r: Reaction) => boolean): { mol: Mol; count: number; kept: number } {
-  const drawn = m, fixed = new Set<number>(), done = new Set<number>();
+// A reaction laid out later can move text that an earlier one read (a spectrum's labels, with every arrow picked).
+// Thus the layout runs again on its result until nothing moves (4 times at most), and a second Clean Up Reaction
+// moves nothing.
+export function cleanUpReactions(drawn: Mol, arrows: Arrow[], inkOf: (mol: Mol) => (atoms: number[]) => Box | undefined, o: Layout, pick: (r: Reaction) => boolean): { mol: Mol; count: number; kept: number } {
+  let out = layOutReactions(drawn, drawn, arrows, inkOf, o, pick);
+  for (let k = 0; k < 3 && out.count; k++) {
+    const again = layOutReactions(out.mol, drawn, arrows, inkOf, o, pick);
+    if (samePlaces(out.mol, again.mol)) break;
+    out = { ...again, count: Math.max(out.count, again.count) };
+  }
+  return out;
+}
+// Whether two drawings have each atom, caption, arrow and shape at the same place.
+const samePlaces = (p: Mol, q: Mol) => {
+  const at = (m: Mol) => [...m.atoms.flatMap((a) => a.location.slice(0, 2)), ...(m.captions ?? []).flatMap((c) => [c.x, c.y]), ...(m.arrows ?? []).flatMap((a) => [...a.from, ...a.to, ...(a.curve?.points.flatMap((x) => x.at) ?? [])]), ...(m.shapes ?? []).flatMap((x) => [...x.from, ...x.to])];
+  const a = at(p), b = at(q);
+  return a.length === b.length && a.every((v, k) => Math.abs(v - b[k]) < 1e-9);
+};
+// One pass of cleanUpReactions over m. drawn: the drawing that arrows and o.captionBox measure.
+function layOutReactions(m: Mol, drawn: Mol, arrows: Arrow[], inkOf: (mol: Mol) => (atoms: number[]) => Box | undefined, o: Layout, pick: (r: Reaction) => boolean): { mol: Mol; count: number; kept: number } {
+  const fixed = new Set<number>(), done = new Set<number>(), middle = (x?: Arrow): P => (x ? [(x.from[0] + x.to[0]) / 2, (x.from[1] + x.to[1]) / 2] : [0, 0]);
   let ink = inkOf(m), count = 0, kept = 0;
   for (const a of arrows.filter((x) => straightArrow(x))) {
     if (done.has(a.id)) continue;
     // The arrows as drawn (grown to fit their text), or as the last reaction left them.
     const now = arrows.map((x) => { const y = m.arrows?.find((z) => z.id === x.id); return y && (y.from !== x.from || y.to !== x.to) && drawn.arrows?.find((z) => z.id === x.id) !== y ? y : x; });
-    const r = findReaction(m, a.id, now, ink, o.captionBox);
+    // Each caption where it is now: its box as drawn, moved as far as the caption (or the arrow it is on) has moved
+    // since. A plus sign that clean-up added has the box of a new plus sign.
+    const was = m, lo: Layout = { ...o, captionBox: (id) => {
+      const b = o.captionBox(id), c = was.captions?.find((x) => x.id === id), d = drawn.captions?.find((x) => x.id === id), q = o.plusBox;
+      if (c && !d && c.text === "+") return [c.x + q[0], c.y + q[1], c.x + q[2], c.y + q[3]];
+      if (!b || !c || !d || c === d) return b;
+      const [p0, p1] = c.on ? middle(was.arrows?.find((x) => x.id === c.on!.arrow)) : [c.x, c.y], [d0, d1] = c.on ? middle(drawn.arrows?.find((x) => x.id === c.on!.arrow)) : [d.x, d.y];
+      return [b[0] + p0 - d0, b[1] + p1 - d1, b[2] + p0 - d0, b[3] + p1 - d1];
+    } };
+    const r = findReaction(m, a.id, now, ink, lo.captionBox);
     if (!r) continue;
     r.arrows.forEach((id) => done.add(id));
     if (!pick(r)) continue;
@@ -475,10 +503,10 @@ export function cleanUpReactions(m: Mol, arrows: Arrow[], inkOf: (mol: Mol) => (
     const ends = now.filter((x) => (straightArrow(x) && !r.arrows.includes(x.id)) || (x.kind === "line" && !r.carried.includes(x.id))).flatMap((x) => [x.from, x.to]);
     const pinned = r.steps.flatMap((s) => (s.kind === "structure" && (s.atoms.some((i) => fixed.has(i)) || ends.some((q) => q[0] > s.box[0] - 1.5 && q[0] < s.box[2] + 1.5 && q[1] > s.box[1] - 1.5 && q[1] < s.box[3] + 1.5)) ? [s.atoms] : []));
     if (pinned.length > 1) { kept++; continue; }
-    const next = cleanUpReaction(m, r, now, o, new Set([...fixed, ...(pinned[0] ?? [])])), inkNext = inkOf(next);
+    const next = cleanUpReaction(m, r, now, lo, new Set([...fixed, ...(pinned[0] ?? [])])), inkNext = inkOf(next);
     // A layout that puts what it moves over a structure, text or arrow it leaves where it is, and was clear of
     // before (a wrapped line on a legend below the reaction), is not used.
-    if (covers(m, next, ink, inkNext, o.captionBox)) { kept++; continue; }
+    if (covers(m, next, ink, inkNext, lo.captionBox)) { kept++; continue; }
     m = next;
     r.atoms.forEach((i) => fixed.add(i));
     ink = inkNext;
