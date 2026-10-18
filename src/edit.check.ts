@@ -1,7 +1,7 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot } from "./edit.ts";
-import { tableLayout, type Mol } from "./render.ts";
+import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, resizeShape, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot } from "./edit.ts";
+import { inShape, settleShape, shapeBounds, shapeCorners, tableLayout, type Mol, type Shape } from "./render.ts";
 const sub = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1]], cross = (a: number[], b: number[]) => a[0] * b[1] - a[1] * b[0];
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
@@ -317,6 +317,12 @@ console.log("edit.check: align ok");
   assert.equal(heat.length, 2);
   assert.ok(r.mol.arrows!.some((a) => a.id === heat[1].on!.arrow && a.id !== 10), "the pasted conditions are on the pasted arrow");
   assert.deepEqual(r.mol.captions!.find((c) => c.text === "1" && c.id !== 12)!.under, [3, 4, 5]);
+  // The arrow's stoichiometry grid comes too, on the pasted arrow (UI-35); an arrow left out leaves its grid.
+  const gridded = { ...m, grids: [{ arrow: 10, typed: { r0: { mass: 0.5 } }, limiting: "r0" }] };
+  const withGrid = insertMol(gridded, extractSelection(gridded, new Set([0, 1, 2]), new Set([10])), [1, -1]).mol;
+  assert.equal(withGrid.grids?.length, 2);
+  assert.deepEqual(withGrid.grids![1], { arrow: withGrid.arrows![1].id, typed: { r0: { mass: 0.5 } }, limiting: "r0" });
+  assert.deepEqual(extractSelection(gridded, new Set([0, 1, 2]), new Set()).grids, []);
   console.log("edit.check: copy and paste ok");
 }
 
@@ -677,11 +683,51 @@ console.log("edit.check: align ok");
   console.log("edit.check: ring tool drags and keys ok");
 }
 
-// Bring to Front and Send to Back order the selected bonds (and picked shapes): the front one is last.
+// Bring to Front and Send to Back order the selected bonds: the front one is last.
 {
   const { toFront } = await import("./edit.ts");
   const m = sprout(sprout(sprout(EMPTY, [0, 0]), 1), 2);
-  assert.deepEqual(toFront(m, new Set([0, 1]), new Set()).bonds.map((b) => b.atoms), [[1, 2], [2, 3], [0, 1]]);
-  assert.deepEqual(toFront(m, new Set([2, 3]), new Set(), true).bonds.map((b) => b.atoms), [[2, 3], [0, 1], [1, 2]]);
+  assert.deepEqual(toFront(m, new Set([0, 1])).bonds.map((b) => b.atoms), [[1, 2], [2, 3], [0, 1]]);
+  assert.deepEqual(toFront(m, new Set([2, 3]), true).bonds.map((b) => b.atoms), [[2, 3], [0, 1], [1, 2]]);
+  assert.equal(toFront(m, new Set([0])), m, "no bond: nothing changes");
   console.log("edit.check: bond order ok");
+}
+
+// Turned shapes (CD-3, UI-7): a quarter turn of a box or oval swaps its sides and leaves it upright; a half turn
+// leaves it as it was; a pair of brackets keeps a quarter turn as its angle; one bracket turned a half faces the
+// other way. A corner dragged on a turned box keeps the opposite corner where it is and the angle as it is.
+{
+  const box: Shape = { id: 1, kind: "box", from: [0, 2], to: [4, 0] };
+  assert.deepEqual(settleShape({ ...box, angle: 90 }), { id: 1, kind: "box", from: [1, -1], to: [3, 3] });
+  assert.deepEqual(settleShape({ ...box, angle: -180 }), { ...box, from: box.to, to: box.from });
+  assert.deepEqual(settleShape({ ...box, angle: 360 + 1e-9 }), box, "24 turns of 15° come back upright");
+  assert.equal(settleShape({ ...box, angle: 135 }).angle, -45);
+  assert.equal(settleShape({ ...box, kind: "table", angle: 30 }).angle, undefined, "a table stays upright");
+  assert.equal(settleShape({ ...box, kind: "brackets", angle: 270 }).angle, 90);
+  assert.deepEqual(settleShape(settleShape({ ...box, angle: -90 })), { ...box, from: [3, 3], to: [1, -1] }, "a quarter turn back the other way");
+  assert.deepEqual(settleShape({ ...box, kind: "parens", side: "left", angle: 180 }), { ...box, kind: "parens", side: "right", from: box.to, to: box.from });
+  const tilted = settleShape({ ...box, kind: "parens", side: "left", angle: 200 });
+  assert.deepEqual([tilted.side, tilted.angle], ["right", 20], "one bracket turned most of a half faces the other way, turned a little");
+  const turned: Shape = { ...box, angle: 30 }, c = shapeCorners(turned);
+  assert.ok(near(c.from, [2 - 2 * Math.cos(Math.PI / 6) - Math.sin(Math.PI / 6), 1 - 2 * Math.sin(Math.PI / 6) + Math.cos(Math.PI / 6)]));
+  assert.ok(inShape(turned, [2, 1]) && !inShape(turned, [4, 0]) && inShape(box, [4, 0]));
+  const b = shapeBounds(turned);
+  assert.ok(b[0] < 0 && b[2] > 4, "the box round a turned shape is wider than the shape");
+  // Drag the "to" corner out by one along the box's own x axis: "from" stays, the width grows by one, the angle stays.
+  const out = resizeShape(turned, "to", [c.to[0] + Math.cos(Math.PI / 6), c.to[1] + Math.sin(Math.PI / 6)]), grown = { ...turned, ...out };
+  assert.ok(near(shapeCorners(grown).from, c.from) && Math.abs(Math.abs(grown.to[0] - grown.from[0]) - 5) < 1e-9 && Math.abs(Math.abs(grown.to[1] - grown.from[1]) - 2) < 1e-9);
+  assert.deepEqual(resizeShape(box, "c1", [-1, 3]), { from: [-1, 2], to: [4, 3] }, "upright, a corner drag is as before");
+  console.log("edit.check: turned shapes ok");
+}
+
+// The atom a turn goes about (ChemDraw's centre of rotation): a substituent turns about the atom that joins it to the
+// rest; a structure with one atom left out turns about that atom; a whole structure about its middle (none here).
+{
+  const chain = sprout(sprout(sprout(sprout(EMPTY, [0, 0]), 1), 2), 3); // 0-1-2-3-4
+  assert.equal(pivotOf(chain, new Set([2, 3, 4])), 2, "a substituent turns about the atom joining it");
+  assert.equal(pivotOf(chain, new Set([1, 2, 3, 4])), 1, "taking in the bond and the next atom moves the centre there");
+  assert.equal(pivotOf(chain, new Set([0, 1, 3, 4])), 2, "one atom left out in the middle is the centre");
+  assert.equal(pivotOf(chain, new Set([0, 1, 2, 3, 4])), undefined);
+  assert.equal(pivotOf(chain, new Set([0, 4])), undefined, "two ways out, from two atoms to two atoms: the middle");
+  console.log("edit.check: centre of rotation ok");
 }

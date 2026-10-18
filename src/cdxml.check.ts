@@ -36,16 +36,17 @@ const bonds: Bond[] = [
 ];
 const captions: Caption[] = [
   { id: 1, text: "Plain caption", x: 0, y: 4 },
-  { id: 2, text: "Line one\nLine two", x: -2, y: 6, bold: true, italic: true, underline: true, size: 12, colour: "#213C99", font: "Times New Roman", align: "left" },
+  { id: 2, text: "Line one\nLine two", x: -2, y: 6, bold: true, italic: true, underline: true, size: 12, colour: "#213C99", font: "Times New Roman", align: "left", lineHeight: 18 },
   {
     id: 3, text: "K2CO3, H2O (aq)+", x: 4, y: 5, runs: [{ text: "K" }, { text: "2", script: "sub" }, { text: "CO" }, { text: "3", script: "sub" }, { text: ", " }, { text: "H", bold: true },
       { text: "2", script: "sub", bold: true }, { text: "O (aq)", italic: true, colour: "#B42323", font: "Georgia", size: 8 }, { text: "+", script: "super" }],
   },
   { id: 4, text: "1", x: 0, y: 0, bold: true, under: [9, 10, 11] },
   { id: 5, text: "hν", x: 0, y: 0, on: { arrow: 101, side: "above" } },
-  { id: 6, text: "DMF, 80 °C\n12 h", x: 0, y: 0, on: { arrow: 101, side: "below" } },
+  { id: 6, text: "DMF, 80 °C\n12 h", x: 0, y: 0, on: { arrow: 101, side: "below" }, lineHeight: "variable" },
   { id: 7, text: "ArB(OH)2", x: 23, y: 3, cycle: { cycle: 300, step: 0, side: "in" } },
   { id: 8, text: `a < b & "c" 'd' > e`, x: 2, y: -6, align: "right" },
+  { id: 9, text: "A caption with a width, justified", x: 10, y: -8, align: "justify", width: 4 },
 ];
 const arrow = (id: number, kind: Arrow["kind"], from: [number, number], to: [number, number], more: Partial<Arrow> = {}): Arrow => ({ id, kind, from, to, ...more });
 const arrows: Arrow[] = [
@@ -63,6 +64,7 @@ const arrows: Arrow[] = [
   arrow(122, "curve", [8, -20], [8.5, -19], { curve: { points: [{ at: [8, -20] }, { at: [9, -20] }, { at: [8.5, -19] }], closed: true }, fill: "faded", style: "doubled" }),
   arrow(123, "curve", [10, -20], [11, -20], { curve: { points: [{ at: [10, -20] }, { at: [11, -20] }] }, style: "wavy", end: "full", head: "angled" }),
   arrow(124, "reaction", [12, -20], [15, -20], { style: "bold" }), arrow(125, "curved", [16, -20], [18, -20]), arrow(126, "reaction", [19, -20], [21, -20], { start: "full", end: "none" }),
+  arrow(127, "reaction", [22, -20], [25, -20], { width: 1.5 }), arrow(128, "curve", [26, -20], [27, -20], { curve: { points: [{ at: [26, -20] }, { at: [27, -20] }] }, width: 0.3 }),
 ];
 const shapes: Shape[] = [
   { id: 201, kind: "highlight", from: [-1, -1], to: [3.5, 1.5] },
@@ -83,6 +85,13 @@ const shapes: Shape[] = [
   { id: 211, kind: "table", from: [40, -16], to: [46, -12], dashed: true, colour: "#213C99", table: { cells: [["Entry", "Yield"], ["1", "72%"], ["2", "n.d."]], lines: ["top", "header", "bottom", "cols"], align: ["left", "right"], widths: [2.5, 3], heights: [1, 1.2, 1], weight: 0.8 } },
   { id: 212, kind: "highlight", from: [7, -2], to: [10, 2], colour: "#DCEFE6" },
   { id: 213, kind: "box", from: [40, 3], to: [42, 5], fill: "solid", colour: "#FFFFFF" },
+  // Turned shapes and line widths (UI-7, CD-3, UI-42): a box, an oval, a pair of brackets and one bracket alone.
+  { id: 214, kind: "box", from: [44, 0], to: [47, 2], angle: 30, width: 1.2 },
+  { id: 215, kind: "oval", from: [48, 0], to: [51, 2], angle: -45, dashed: true },
+  { id: 216, kind: "brackets", from: [44, -6], to: [47, -3], angle: 90 },
+  { id: 217, kind: "parens", from: [48, -6], to: [49, -3], side: "left", angle: 30, width: 2 },
+  { id: 218, kind: "tlc", from: [52, -16], to: [54, -10], width: 0.8, tlc: { lanes: 1, spots: [] }, size: 9, italic: true },
+  { id: 219, kind: "table", from: [56, -16], to: [62, -12], table: { cells: [["Entry", "Yield"], ["1", "72%"]] }, font: "Georgia", size: 12, bold: true, underline: true },
 ];
 const drawing: Mol = {
   atoms, bonds, captions, arrows, shapes,
@@ -136,6 +145,13 @@ assert.deepEqual(back.lost, {});
 parse(serialize(back.mol));
 const second = toCdxml(back.mol, back.style, { name: "check.cdxml" }), third = fromCdxml(second);
 assert.equal(toCdxml(third.mol, third.style, { name: "check.cdxml" }), second, "after one save, saving again changes nothing");
+// Line spacing and a caption's width, as ChemDraw writes them on a text: LineHeight auto or pt, Variable as the caption
+// style's (CaptionLineHeight), WordWrapWidth in pt with decimals.
+assert.ok(/<t\s[^>]*\sLineHeight="18"/.test(text) && /<t\s[^>]*\sCaptionLineHeight="variable"/.test(text) && !/\sLineHeight="variable"/.test(text), "line spacing");
+{
+  const wrapped = fromCdxml('<CDXML BondLength="14.4"><page><t p="0 0" WordWrapWidth="57.6" CaptionLineHeight="variable"><s font="3" size="10">a b</s></t></page></CDXML>');
+  assert.deepEqual([wrapped.mol.captions?.[0].width, wrapped.mol.captions?.[0].lineHeight], [57.6 / wrapped.style.bond, "variable"]);
+}
 console.log("cdxml.check: every object kind round trips");
 
 // The file is laid out as ChemDraw writes it: the two header lines, the root's ACS settings, tables, then the page.
@@ -242,6 +258,34 @@ console.log("cdxml.check: every object kind round trips");
   assert.deepEqual(mol.groups!.map((g) => [g.atoms, g.items]), [[[0, 1, 2, 3], [one.id]]]);
   parse(serialize(mol));
   console.log("cdxml.check: ChemDraw's form read");
+}
+
+// Turned shapes in ChemDraw's form: a box turned 30° by its axes, with its own line width; one bracket lying down
+// (as in Sam's files) and a pair lying down, facing each other.
+{
+  const r = Math.PI / 6, f = (v: number) => v.toFixed(2);
+  const file = `<?xml version="1.0" encoding="UTF-8" ?><CDXML BondLength="14.40" LineWidth="0.60"><page id="1" BoundingBox="0 0 540 720">
+<graphic id="2" BoundingBox="290 350 250 370" GraphicType="Rectangle" RectangleType="Plain" LineWidth="1.5" Center3D="270 360 0" MajorAxisEnd3D="${f(270 + 20 * Math.cos(r))} ${f(360 - 20 * Math.sin(r))} 0" MinorAxisEnd3D="${f(270 + 10 * Math.sin(r))} ${f(360 + 10 * Math.cos(r))} 0"/>
+<graphic id="3" BoundingBox="442.02 313.74 403.76 313.74" GraphicType="Bracket" BracketType="Square"/>
+<graphic id="4" BoundingBox="440 420 400 420" GraphicType="Bracket" BracketType="Round"/>
+<graphic id="5" BoundingBox="400 380 440 380" GraphicType="Bracket" BracketType="Round"/>
+</page></CDXML>`;
+  const { mol, lost } = fromCdxml(file);
+  assert.deepEqual(lost, {});
+  const [box, one, pair] = mol.shapes!, size = (sh: Shape) => [Math.abs(sh.to[0] - sh.from[0]), Math.abs(sh.to[1] - sh.from[1])].map((v) => +v.toFixed(2));
+  assert.deepEqual([box.kind, Math.round(box.angle! * 10) / 10, box.width, size(box)], ["box", 30, 1.5, [+(40 / 14.4).toFixed(2), +(20 / 14.4).toFixed(2)]]);
+  assert.deepEqual([one.kind, one.side, one.angle], ["brackets", "left", 90], "a bracket lying with its lips up is a left bracket turned a quarter");
+  assert.deepEqual([pair.kind, pair.side, pair.angle, size(pair)], ["parens", undefined, 90, [+(40 / 14.4).toFixed(2), +(40 / 14.4).toFixed(2)]]);
+  // Upright boxes whose axes run left, or down the page (as in Sam's files), read with their corners low and high, so
+  // they read back the same once Octet has written them.
+  const upright = fromCdxml(`<?xml version="1.0" encoding="UTF-8" ?><CDXML BondLength="14.40" LineWidth="0.60"><page id="1" BoundingBox="0 0 540 720">
+<graphic id="2" BoundingBox="47 467 214 252" GraphicType="Rectangle" RectangleType="Shadow" Center3D="130.5 359.5 0" MajorAxisEnd3D="47 359.5 0" MinorAxisEnd3D="130.5 467 0"/>
+<graphic id="3" BoundingBox="34 538 224 490" GraphicType="Rectangle" RectangleType="RoundEdge" Center3D="129 514 0" MajorAxisEnd3D="129 538 0" MinorAxisEnd3D="34 514 0"/>
+</page></CDXML>`).mol;
+  assert.deepEqual(upright.shapes!.map((sh) => [sh.angle, sh.from[0] < sh.to[0], sh.from[1] < sh.to[1], size(sh)]), [[undefined, true, true, [+(167 / 14.4).toFixed(2), +(215 / 14.4).toFixed(2)]], [undefined, true, true, [+(190 / 14.4).toFixed(2), +(48 / 14.4).toFixed(2)]]]);
+  const again = fromCdxml(toCdxml(upright, DEFAULT_STYLE)).mol;
+  assert.deepEqual(again.shapes!.map((sh) => [sh.from, sh.to].flat().map((v) => +v.toFixed(3))), upright.shapes!.map((sh) => [sh.from, sh.to].flat().map((v) => +v.toFixed(3))));
+  console.log("cdxml.check: turned shapes read");
 }
 
 // Hostile files are refused with a message, or read with the bad parts left out; nothing is expanded or fetched.

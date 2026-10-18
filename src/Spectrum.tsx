@@ -6,7 +6,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowsIn, ArrowsOut, CopySimple, X } from "@phosphor-icons/react";
 import { acsText, detailsTable, multiplicity, quality, type Nucleus, type Prediction, type Signal } from "./nmr";
 import { Select } from "./Select";
+import { Segmented } from "./Fields";
+import { listOpen } from "./Menu";
 import { useMovable } from "./movable";
+import { HIGHLIGHTS } from "./docstyle";
 
 export const SOLVENTS = ["CDCl₃", "DMSO-d₆", "CD₃OD", "D₂O", "C₆D₆", "Acetone-d₆", "CD₃CN"];
 const FIELDS = [60, 80, 90, 200, 300, 400, 500, 600, 700, 800];
@@ -32,8 +35,8 @@ function deuterated(ppm: number, n: number, j: number, mhz: number, total: numbe
   return row.map((h, i) => ({ ppm: ppm + ((i - n) * j) / mhz, h: (h / sum) * total }));
 }
 
-// Colours for peaks and the discs behind their atoms: distinct, and clear on white at 40% behind a structure.
-export const PEAK_COLOURS = ["#2F6FED", "#F28C28", "#2BA84A", "#E5484D", "#8E4EC6", "#12A594", "#D6409F", "#C9A000", "#A0522D", "#5B6B8C"];
+// Colours for peaks and the discs behind their atoms: the highlight colours.
+export const PEAK_COLOURS = HIGHLIGHTS.map(([, hex]) => hex);
 
 type Props = {
   prediction?: Prediction; nucleus: Nucleus; mhz: number; solvent: string; lit: Set<number>; solventPeaks: boolean;
@@ -94,7 +97,7 @@ export function SpectrumPanel(p: Props) {
   // Escape leaves full screen.
   useEffect(() => {
     if (!expanded) return;
-    const key = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); setExpanded(false); } };
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape" && !listOpen()) { e.stopPropagation(); setExpanded(false); } };
     addEventListener("keydown", key, true);
     return () => removeEventListener("keydown", key, true);
   }, [expanded]);
@@ -161,11 +164,17 @@ export function SpectrumPanel(p: Props) {
 
   return (
     <section className={expanded ? "spectrum expanded" : "spectrum"} aria-label="Spectrum" style={move.style}>
+      {/* The shared panel header (as Actions and Properties): the title at the left, the close button at the top right.
+          The controls sit in a row of their own under it. */}
       <header onPointerDown={move.onPointerDown}>
-        <span className="segmented" role="radiogroup" aria-label="Nucleus">
-          <button role="radio" aria-checked={p.nucleus === "1H"} onClick={() => p.onNucleus("1H")}>¹H</button>
-          <button role="radio" aria-checked={p.nucleus === "13C"} onClick={() => p.onNucleus("13C")}>¹³C</button>
+        <h2>{p.nucleus === "1H" ? "¹H NMR" : "¹³C NMR"}</h2>
+        <span className="spectrum-head-buttons">
+          <button className="actions-close" onClick={() => setExpanded(!expanded)} aria-label={expanded ? "Leave full screen" : "Full screen"} title={expanded ? "Leave full screen" : "Full screen"}>{expanded ? <ArrowsIn size={12} /> : <ArrowsOut size={12} />}</button>
+          <button className="actions-close" onClick={p.onClose} aria-label="Close spectrum" title="Close spectrum"><X size={12} /></button>
         </span>
+      </header>
+      <div className="spectrum-controls">
+        <Segmented label="Nucleus" value={p.nucleus} options={[["1H", "¹H"], ["13C", "¹³C"]]} onChange={p.onNucleus} />
         <Select label="Frequency" value={String(p.mhz)} options={FIELDS.map((f) => [String(f), `${f} MHz`])} onChange={(v) => p.onMhz(Number(v))} />
         <Select label="Solvent" value={p.solvent} options={SOLVENTS.map((s) => [s, s])} onChange={p.onSolvent} />
         <button className="spectrum-button" aria-pressed={p.solventPeaks} onClick={() => p.onSolventPeaks(!p.solventPeaks)} title={p.solventPeaks ? "Hide the solvent's peaks" : "Show the solvent's peaks"}>Solvent peaks</button>
@@ -174,16 +183,14 @@ export function SpectrumPanel(p: Props) {
         {chosen !== undefined && (
           // The clicked peak's colour, which its atoms take as a highlight too.
           <span className="spectrum-swatches" role="radiogroup" aria-label="Peak colour">
-            {PEAK_COLOURS.map((c) => <button key={c} role="radio" aria-checked={p.colours[chosen] === c} aria-label={c} className="swatch" style={{ background: c }} onClick={() => p.onColour(chosen, c)} />)}
+            {HIGHLIGHTS.map(([name, c]) => <button key={c} role="radio" aria-checked={p.colours[chosen] === c} aria-label={name} title={name} className="swatch" style={{ background: c }} onClick={() => p.onColour(chosen, c)} />)}
             <button role="radio" aria-checked={!p.colours[chosen]} aria-label="No colour" title="No colour" className="swatch none" onClick={() => p.onColour(chosen, undefined)} />
           </span>
         )}
         <button className="spectrum-button" onClick={() => p.onColourAll(!anyColour)} disabled={!signals.length}>{anyColour ? "Clear colours" : "Colour peaks"}</button>
         <button className="spectrum-button" onClick={p.onKey} disabled={!signals.length} title="Add the key (coloured shifts) under the structure">Add key</button>
-        <button className="spectrum-button" onClick={() => p.onCopy(text)} disabled={!text} title="Copy the characterisation line"><CopySimple size={14} /> Copy</button>
-        <button className="actions-close" onClick={() => setExpanded(!expanded)} aria-label={expanded ? "Leave full screen" : "Full screen"} title={expanded ? "Leave full screen" : "Full screen"}>{expanded ? <ArrowsIn size={14} /> : <ArrowsOut size={14} />}</button>
-        <button className="actions-close" onClick={p.onClose} aria-label="Close the spectrum" title="Close the spectrum"><X size={14} /></button>
-      </header>
+        <button className="spectrum-button" onClick={() => p.onCopy(text)} disabled={!text} title="Copy the characterisation line"><CopySimple size={16} /> Copy</button>
+      </div>
       <div className="spectrum-body">
       <div ref={box} className="spectrum-plot">
         <svg
@@ -297,7 +304,7 @@ export function SpectrumPanel(p: Props) {
                 })}
               </tbody>
             </table>
-            <button className="spectrum-button" onClick={() => p.onCopy(detailsTable(p.prediction!))}><CopySimple size={14} /> Copy table</button>
+            <button className="spectrum-button" onClick={() => p.onCopy(detailsTable(p.prediction!))}><CopySimple size={16} /> Copy table</button>
           </div>
         );
       })()}

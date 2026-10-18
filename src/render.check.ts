@@ -1,6 +1,6 @@
 // Run: node src/render.check.ts. Fails loudly if the ACS drawing rules break.
 import assert from "node:assert/strict";
-import { arrowShapes, fitArrows, placeCaptions, render, renderParts, type Box, type Drawing, type Ink, type Mol, type PartCache } from "./render.ts";
+import { arrowShapes, fitArrows, lineOffsets, placeCaptions, render, renderParts, type Caption, type Box, type Drawing, type Ink, type Mol, type PartCache } from "./render.ts";
 
 type P = [number, number];
 const pt = 4 / 3;
@@ -223,3 +223,39 @@ console.log("render.check: written labels ok");
   assert.equal(parts.parts.length, 1, "crossing structures draw together");
   console.log("render.check: crossing bonds ok");
 }
+
+// Line spacing: Automatic spaces every line by the caption's largest text, Variable each line by its own, and Fixed
+// by the points given.
+{
+  const two = { text: "a\nb" }, big = { text: "a\nb", runs: [{ text: "a\n" }, { text: "b", size: 20 }] };
+  assert.deepEqual(lineOffsets(two, 10, 1), [0, 12]);
+  assert.deepEqual(lineOffsets({ ...big }, 10, 1), [0, 24]);
+  assert.deepEqual(lineOffsets({ ...two, lineHeight: 15 }, 10, 2), [0, 30]);
+  const v = lineOffsets({ ...big, lineHeight: "variable" }, 10, 1);
+  assert.ok(v[1] > 12 && v[1] < 24, `variable: between the two sizes' spacing (${v[1]})`);
+  // Variable, as ChemDraw's: the line above's lowest descender and this line's tallest character, with no gap. An empty
+  // line has no ink, so it takes the ascent and descent of its text size.
+  assert.deepEqual(lineOffsets({ ...two, lineHeight: "variable" }, 10, 1, (j) => (j === 0 ? [7, 2] : [8, 0])), [0, 10]);
+  const gap = lineOffsets({ text: "a\n\nb", lineHeight: "variable" }, 10, 1, (j) => (j === 1 ? undefined : [7, 2]));
+  assert.ok(Math.abs(gap[1] - (2 + 9.05)) < 1e-9 && Math.abs(gap[2] - gap[1] - (2.12 + 7)) < 1e-9, `empty line: ${gap}`);
+  // placeCaptions measures each line's runs, a subscript lowered as it is drawn.
+  const placed = placeCaptions({ atoms: [], bonds: [], captions: [{ id: 1, text: "H2\nO", x: 0, y: 0, lineHeight: "variable", runs: [{ text: "H" }, { text: "2", script: "sub" }, { text: "\nO" }] }] },
+    { ink: [], scale: 19.2 }, (t) => t.length, [], 1, 10, new Map(), undefined, (_, __, r) => (r.script ? [5, 1] : [7, 0]))[0];
+  assert.ok(Math.abs(placed.lines[1].y - placed.lines[0].y - (1 + 0.212 * 10 + 7)) < 1e-9, `subscript ink: ${placed.lines.map((l) => l.y)}`);
+  console.log("render.check: line spacing ok");
+}
+
+// A caption with a width wraps to it, and a justified one fills it on every line but the last.
+{
+  const pc = (align: Caption["align"]) => placeCaptions({ atoms: [], bonds: [], captions: [{ id: 1, text: "aa bb cc dd", x: 0, y: 0, width: 6 / 19.2, align }] }, { ink: [], scale: 19.2 },
+    (t) => t.length, [], 1, 10, new Map(), (t) => t.length)[0];
+  const left = pc("left");
+  assert.deepEqual(left.lines.map((l) => l.text), ["aa bb", "cc dd"]);
+  assert.ok(left.lines.every((l) => !l.spacing));
+  const full = pc("justify");
+  assert.equal(full.anchor, "start");
+  assert.ok(Math.abs(full.lines[0].spacing! - 1) < 1e-9, "the first line's one space takes the one spare px");
+  assert.equal(full.lines[1].spacing, undefined, "the last line is not spread");
+  console.log("render.check: caption width ok");
+}
+
