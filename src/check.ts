@@ -1,17 +1,16 @@
 // Checks a drawing the way a chemist would at a glance: atoms with too many bonds, and messy geometry.
 // Messages follow the brief's style: what is wrong, the rule, then what to do.
 import { bondedTo, bondOrders, LARGE, neighbours, pos, type P } from "./edit.ts";
-import type { Bond, Mol } from "./render.ts";
+import { HBOND, type Bond, type Mol } from "./render.ts";
 
 const NAMES: Record<string, string> = { C: "Carbon", N: "Nitrogen", O: "Oxygen", S: "Sulfur", P: "Phosphorus", B: "Boron", F: "Fluorine", Cl: "Chlorine", Br: "Bromine", I: "Iodine", H: "Hydrogen", Si: "Silicon" };
 // Highest normal valence for a neutral atom (S and P can expand). A charge moves it: N+ and O+ take one more bond.
 const MAX: Record<string, number> = { C: 4, Si: 4, N: 3, O: 2, S: 6, P: 5, B: 3, F: 1, Cl: 1, Br: 1, I: 1, H: 1 };
-const ORDER: Record<number, number> = { 1: 1, 2: 2, 3: 3, 4: 1.5 };
 
 export type Problem = { atom: number; message: string; fix?: { label: string; charge: number } };
 
 export function problems(m: Mol): Problem[] {
-  const out: Problem[] = [], orders = bondOrders(m, (type) => ORDER[type] ?? 1);
+  const out: Problem[] = [], orders = bondOrders(m);
   m.atoms.forEach((a, i) => {
     if (a.text || a.ignoreWarnings || !(a.label in MAX)) return;
     const used = orders[i];
@@ -26,7 +25,28 @@ export function problems(m: Mol): Problem[] {
       fix: canCharge ? { label: "Add a positive charge", charge: charge + 1 } : undefined,
     });
   });
+  // A hydrogen bond goes from an explicit H to an acceptor atom, as ChemDraw's Invalid or ambiguous H-Bond warning asks.
+  m.bonds.forEach((b) => {
+    if (b.type !== HBOND) return;
+    const isH = (i: number) => m.atoms[i].label === "H" && !m.atoms[i].text, [p, q] = b.atoms, h = isH(p) ? p : isH(q) ? q : undefined;
+    const other = h === p ? q : p, at = h ?? p;
+    if ((h !== undefined && !isH(other) && ACCEPTORS.has(m.atoms[other].label) && !m.atoms[other].text) || m.atoms[at].ignoreWarnings) return;
+    out.push({ atom: at, message: `The hydrogen bond at ${m.atoms[at].text ?? m.atoms[at].label}${at + 1} does not join an H atom to an acceptor. Draw it from an H atom to an N, O or F atom.` });
+  });
   return out;
+}
+const ACCEPTORS = new Set(["N", "O", "F", "S", "Se", "P", "Cl", "Br", "I"]);
+
+// Hidden H atoms (Toggle Hydrogen Display) on an atom with a warning are shown again, as ChemDraw shows them, so the
+// warning can be read. While the warning stays, they stay shown.
+export function showWarnedHydrogens(m: Mol): Mol {
+  if (!m.atoms.some((a) => a.hidden)) return m;
+  const warned = new Set(problems(m).map((p) => p.atom)), show = new Set<number>();
+  for (const { atoms: [p, q] } of m.bonds) {
+    if (m.atoms[p].hidden && warned.has(q)) show.add(p);
+    if (m.atoms[q].hidden && warned.has(p)) show.add(q);
+  }
+  return show.size ? { ...m, atoms: m.atoms.map((a, i) => (show.has(i) ? { ...a, hidden: undefined } : a)) } : m;
 }
 
 // Is f true for a pair of points (by index) that may be within `cell` of each other? Each point is put in a grid of

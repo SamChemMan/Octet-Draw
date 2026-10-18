@@ -2,8 +2,8 @@
 // modules (Document, Keyboard shortcuts, Import and export) under a search field that is always there. With text
 // in it, every matching setting from every module shows on the right, grouped by module and ready to use.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CaretDown, Check, FileText, Files, Keyboard, MagnifyingGlass, PencilSimpleLine, Plus, Swatches, X } from "@phosphor-icons/react";
-import { ColourPicker } from "./ColourPicker";
+import { ArrowCounterClockwise, CaretDown, Check, FileText, Files, Keyboard, MagnifyingGlass, PencilSimpleLine, Plus, Swatches, X } from "@phosphor-icons/react";
+import { ColourPicker, ColourPop } from "./ColourPicker";
 import { Dialog, useModal } from "./Dialog";
 import { holdCursor } from "./cursor";
 import { Exit, useLeaving } from "./motion";
@@ -13,7 +13,7 @@ import { listOpen } from "./Menu";
 import { NumberField, Segmented, Switch } from "./Fields";
 import { RULER_UNITS, type RulerUnit, type Swatch } from "./settings";
 import type { ExportFormat } from "./export";
-import { BACKGROUNDS, COLOURS, FONTS, GRID_IN, GRID_MM, PAGE_NAMES, PAGES, PRESETS, PURPOSES, pageSize, pickPage, presetAt, presetOf, withScale, type DocStyle, type PageName } from "./docstyle";
+import { BACKGROUNDS, COLOURS, ELEMENT_COLOURS, FONTS, GRID_IN, GRID_MM, PAGE_NAMES, PAGES, PRESETS, PURPOSES, pageSize, pickPage, presetAt, presetOf, withScale, type DocStyle, type PageName } from "./docstyle";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
 
 export type ModuleId = "document" | "drawing" | "keys" | "appearance" | "files";
@@ -55,6 +55,8 @@ type Props = {
   menuKeys: [string, string][]; // the menu commands that have a shortcut: name, shortcut as this platform shows it
   palette: Swatch[]; // the user's own colours
   onPalette: (palette: Swatch[]) => void;
+  elementColours: Record<string, string>; // Colour by Element: the user's colour for an element, where it is not Octet's
+  onElementColours: (colours: Record<string, string>) => void;
   adding?: boolean; // opened to add a colour: a new one is made, ready to set
   onClose: () => void;
 };
@@ -85,6 +87,28 @@ function PaletteEditor({ palette, onPalette, adding }: { palette: Swatch[]; onPa
         </div>
       ))}
       {palette.length < 20 && <button className="palette-add" onClick={add}><Plus size={12} aria-hidden /> Add a colour</button>}
+    </div>
+  );
+}
+
+// Colour by Element: each element's colour, set with Octet's picker under it; Reset gives Octet's colour back.
+function ElementColours({ colours, onColours }: { colours: Record<string, string>; onColours: (c: Record<string, string>) => void }) {
+  const [open, setOpen] = useState<string>();
+  return (
+    <div className="palette-editor">
+      {Object.entries(ELEMENT_COLOURS).map(([el, base]) => {
+        const hex = colours[el] ?? base;
+        return (
+          <div key={el} className={open === el ? "palette-row open" : "palette-row"}>
+            <div className="palette-line">
+              <button className="swatch" style={{ background: hex }} aria-label={`Change ${el}`} aria-expanded={open === el} onClick={() => setOpen(open === el ? undefined : el)} />
+              <span className="palette-name">{el}</span>
+              {colours[el] && <button className="text-button" aria-label={`Reset ${el}`} data-tip="Reset" onClick={() => { const { [el]: _, ...rest } = colours; onColours(rest); }}><ArrowCounterClockwise size={12} /></button>}
+            </div>
+            {open === el && <ColourPicker value={hex} onChange={(h) => onColours({ ...colours, [el]: h })} />}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -175,6 +199,27 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
         </div>
       )}</Exit>
     </>
+  );
+}
+
+// The page backgrounds, each a small page of itself, then a colour of the user's own (ChemDraw keeps a background
+// colour in each document): its button opens the colour picker by it.
+function Backgrounds({ value, onChange }: { value: DocStyle["background"]; onChange: (b: DocStyle["background"]) => void }) {
+  const [open, setOpen] = useState<DOMRect>();
+  const button = useRef<HTMLButtonElement>(null), own = value.startsWith("#") ? value : undefined;
+  return (
+    <span className="paper-choices" role="radiogroup" aria-label="Background">
+      {BACKGROUNDS.map(([b, name]) => (
+        <button key={b} role="radio" aria-checked={value === b} aria-label={name} data-tip={name} className={`paper-choice ${b}`} onClick={() => onChange(b)}>
+          <span />
+        </button>
+      ))}
+      <button ref={button} role="radio" aria-checked={!!own} aria-label="Custom colour" data-tip="Custom colour" aria-haspopup="dialog" aria-expanded={!!open} className="paper-choice own"
+        onClick={() => { if (!own) onChange("#FFFFFF"); setOpen(open ? undefined : button.current!.getBoundingClientRect()); }}>
+        <span style={own ? { background: own } : undefined}>{!own && <Plus size={12} aria-hidden />}</span>
+      </button>
+      {open && <ColourPop anchor={open} keep={button.current} label="Background colour" value={own ?? "#FFFFFF"} onChange={(hex) => onChange(hex as DocStyle["background"])} onClose={() => setOpen(undefined)} />}
+    </span>
   );
 }
 
@@ -353,15 +398,8 @@ export function SettingsWindow(p: Props) {
         <Select label="Ruler units" value={p.rulerUnit} options={RULER_UNITS} onChange={(v) => p.onRulerUnit(v as RulerUnit)} />
       )),
       d("document", "Page", "Page edges", "page edges outline guides", <Switch on={style.edges} label="Page edges" onChange={(on) => change({ edges: on })} />),
-      d("document", "Page", "Background", "background page colour dark mode night white system engineering paper blueprint blue grid", (
-        // Each background as a small page of itself.
-        <span className="paper-choices" role="radiogroup" aria-label="Background">
-          {BACKGROUNDS.map(([b, name]) => (
-            <button key={b} role="radio" aria-checked={style.background === b} aria-label={name} data-tip={name} className={`paper-choice ${b}`} onClick={() => change({ background: b })}>
-              <span />
-            </button>
-          ))}
-        </span>
+      d("document", "Page", "Background", "background page colour custom dark mode night white system engineering paper blueprint blue grid", (
+        <Backgrounds value={style.background} onChange={(background) => change({ background })} />
       )),
       d("appearance", "Actions panel", "Small actions", "actions panel small actions show as menus sections pop out buttons", (
         <Segmented label="Show small actions as" value={p.panelMenus ? "menus" : "sections"} onChange={(v) => p.onPanelMenus(v === "menus")} options={[["sections", "Sections"], ["menus", "Menus"]]} />
@@ -392,11 +430,12 @@ export function SettingsWindow(p: Props) {
         </span>
       ), true),
       d("appearance", "Colours", "Your colours", "colour colours palette custom swatch named add", <PaletteEditor palette={p.palette} onPalette={p.onPalette} adding={p.adding} />, true),
+      d("appearance", "Colours", "Colour by element", "colour by element atoms heteroatoms nitrogen oxygen sulfur periodic table", <ElementColours colours={p.elementColours} onColours={p.onElementColours} />, true),
       d("files", "Import", "Keep ChemDraw styles", "import open cdxml chemdraw style keep", <Switch on={files.keepStyle} label="Keep ChemDraw styles" onChange={(on) => setFiles({ keepStyle: on })} />),
       // Off hides Search Reaxys and Search PubChem everywhere (decision 0008).
       d("files", "Online", "Online search", "online search reaxys pubchem internet web browser network privacy offline", <Switch on={p.onlineSearch} label="Online search" onChange={p.onOnlineSearch} />),
     ];
-  }, [style, map, recording, note, files, p.palette, p.adding, p.panelMenus, p.captionOptionReturn, p.onlineSearch, p.rulerUnit, p.menuKeys.length, p.purposes, p.drawing]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.onlineSearch, p.rulerUnit, p.menuKeys.length, p.purposes, p.drawing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query)) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));

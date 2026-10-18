@@ -11,7 +11,7 @@ g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
 g.window = globalThis;
 g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
-const { analyse, cleanUp, expandWithOrigins, fragmentMasses, ready, stereoLabels, structures } = await import("./chem.ts");
+const { analyse, cleanUp, expandWithOrigins, fragmentMasses, importStructure, ready, stereoLabels, structures, toMolfile } = await import("./chem.ts");
 const { render } = await import("./render.ts");
 type Mol = import("./render.ts").Mol;
 await ready;
@@ -120,4 +120,26 @@ console.log("chem.check: labels ok");
   assert.equal(a?.formula, "C5H5NRu");
   assert.ok(Number.isFinite(a?.weight));
   console.log("chem.check: unreadable structures ok");
+}
+
+// A structure with a quadruple bond (Re2Cl8 drawn as Cl–Re≣Re–Cl) and one with a hydrogen bond keep a formula.
+{
+  const at = (label: string, x: number) => ({ label, location: [x, 0, 0] as [number, number, number] });
+  const quad: Mol = { atoms: [at("Cl", 0), at("Re", 1), at("Re", 2), at("Cl", 3)], bonds: [{ type: 1, atoms: [0, 1] }, { type: 14, atoms: [1, 2] }, { type: 1, atoms: [2, 3] }] };
+  assert.deepEqual(analyse(quad)?.map((a) => a.formula), ["Cl2Re2"]);
+  const dimer: Mol = { atoms: [at("O", 0), at("H", 1), at("O", 2)], bonds: [{ type: 1, atoms: [0, 1] }, { type: 10, atoms: [1, 2] }] };
+  assert.deepEqual(analyse(dimer)?.map((a) => a.formula), ["H4O2"]);
+  // A molfile has the hydrogen bond as bond type 10 and the quadruple bond as single, as ChemDraw writes them.
+  const bondLines = (m: Mol) => toMolfile(m).split("\n").filter((l) => /^\s*\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s*$/.test(l)).map((l) => l.trim().split(/\s+/).slice(0, 3).join(" "));
+  assert.deepEqual(bondLines(dimer), ["1 2 1", "2 3 10"]);
+  assert.deepEqual(bondLines(quad), ["1 2 1", "2 3 1", "3 4 1"]);
+  // The molfile keeps its three header lines (the first, its name, is blank), so it reads back, hydrogen bond and all.
+  assert.match(toMolfile(dimer).split("\n")[3], /V2000$/);
+  assert.deepEqual(importStructure(toMolfile(dimer)).bonds.map((b) => b.type), [1, 10]);
+  console.log("chem.check: quadruple and hydrogen bonds ok");
+  // A label with Interpret Chemically off is text, not chemistry: it adds nothing to the formula.
+  const amine: Mol = { atoms: [{ ...at("N", 0), text: "NH2", chemical: false }, at("C", 1)], bonds: [{ type: 1, atoms: [0, 1] }] };
+  assert.deepEqual(analyse(amine)?.map((a) => a.formula), ["CH3"]);
+  assert.deepEqual(analyse({ ...amine, atoms: [{ ...at("N", 0), text: "NH2" }, at("C", 1)] })?.map((a) => a.formula), ["CH5N"]);
+  console.log("chem.check: labels that are not chemistry ok");
 }

@@ -1,9 +1,10 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { hydrogens, lonePairs, settleShape, tableLayout, tableRow, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape, type Table } from "./render.ts";
+import { HBOND, H_FIRST, hydrogens, lonePairs, orderOf, QUADRUPLE, settleShape, tableLayout, tableRow, type Arrow, type Atom, type Bond, type Box, type Caption, type Curve, type CurvePoint, type Mol, type Shape, type Spot, type Table } from "./render.ts";
 import type { Cycle } from "./cycle.ts";
 import { anchorElement, isElement } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
+import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
 
 export type P = [number, number];
 export const EMPTY: Mol = { atoms: [], bonds: [] };
@@ -36,14 +37,16 @@ const bondIndex = (m: Mol, i: number, j: number) =>
   m.bonds.findIndex((b) => (b.atoms[0] === i && b.atoms[1] === j) || (b.atoms[0] === j && b.atoms[1] === i));
 
 // Hit testing, in bond lengths.
+// Hidden H atoms (Toggle Hydrogen Display) and their bonds are not hit.
 export function atomAt(m: Mol, p: P, r = 0.3): number | undefined {
   let best: number | undefined, bestD = r;
-  m.atoms.forEach((_, i) => { const d = len(sub(pos(m, i), p)); if (d < bestD) { best = i; bestD = d; } });
+  m.atoms.forEach((x, i) => { const d = len(sub(pos(m, i), p)); if (d < bestD && !x.hidden) { best = i; bestD = d; } });
   return best;
 }
 export function bondAt(m: Mol, p: P, r = 0.2): number | undefined {
   let best: number | undefined, bestD = r;
   m.bonds.forEach((b, i) => {
+    if (m.atoms[b.atoms[0]].hidden || m.atoms[b.atoms[1]].hidden) return;
     const a = pos(m, b.atoms[0]), ab = sub(pos(m, b.atoms[1]), a);
     const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1]) / (ab[0] ** 2 + ab[1] ** 2 || 1)));
     const d = len(sub(p, add(a, mul(ab, t))));
@@ -228,15 +231,35 @@ export function setLabel(m: Mol, i: number, text: string): Mol {
   if (isElement(t)) return setElement(m, i, t);
   return setAtom(m, i, { label: anchorElement(t) ?? "C", text: t });
 }
+// What an atom's label shows, with its H (NH2; a lone O as H2O), as Octet draws it. hideH: the document leaves off H.
+export function labelWords(m: Mol, i: number, hideH = false, used = bondOrders(m)[i]): string {
+  const a = m.atoms[i], h = hideH ? 0 : a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used, a.radical === 3 ? 2 : a.radical), hs = h ? `H${h > 1 ? h : ""}` : "";
+  return a.text ?? (!neighbours(m, i).length && H_FIRST.has(a.label) ? hs + a.label : a.label + hs);
+}
+// Interpret Chemically (ChemDraw's command on labels). Off, each label is its text, not chemistry: it keeps what it
+// shows (an N with two H stays NH2 whatever its bonds). On, it is chemistry again, and a label that reads as its
+// element with its usual H goes back to the element.
+export function interpretLabels(m: Mol, ids: Iterable<number>, on: boolean, hideH = false): Mol {
+  const pick = new Set(ids), used = bondOrders(m);
+  return { ...m, atoms: m.atoms.map((a, i) => {
+    if (!pick.has(i)) return a;
+    if (!on) return { ...a, text: labelWords(m, i, hideH, used[i]), chemical: false };
+    const { chemical: _, text, ...rest } = a;
+    return text === labelWords({ ...m, atoms: m.atoms.map((x, k) => (k === i ? rest : x)) }, i, hideH, used[i]) ? rest : { ...rest, text };
+  }) };
+}
 export const addCharge = (m: Mol, i: number, delta: number) => trimPairs(setAtom(m, i, { charge: (m.atoms[i].charge ?? 0) + delta || undefined }), i);
 
 // The Symbols tool's marks. A charge adds to the atom's charge, drawn as a superscript sign or circled beside the
 // atom. A radical or partial charge toggles. A lone pair adds one more each click, up to the atom's free pairs
 // (at least one), and the click after that clears them.
 export type SymbolKind = "plus" | "minus" | "circledPlus" | "circledMinus" | "radical" | "pair" | "partialPlus" | "partialMinus"
-  | "radicalCation" | "radicalAnion" | "hDot" | "hDash" | "attach" | "bead";
-export function addSymbol(m: Mol, i: number, kind: SymbolKind): Mol {
+  | "radicalCation" | "radicalAnion" | "hDot" | "hDash" | "attach" | "attachDiamond" | "attachStar" | "bead";
+// bar (Option-click with the lone pair, as in ChemDraw): the atom's lone pairs drawn as bars, or as dots again; an
+// atom with none gets one bar.
+export function addSymbol(m: Mol, i: number, kind: SymbolKind, bar = false): Mol {
   const a = m.atoms[i];
+  if (kind === "pair" && bar) return a.pairs ? setAtom(m, i, { bars: a.bars ? undefined : true }) : setAtom(m, i, { pairs: 1, bars: true });
   switch (kind) {
     case "plus": case "minus": case "circledPlus": case "circledMinus": {
       const charge = (a.charge ?? 0) + (kind === "plus" || kind === "circledPlus" ? 1 : -1);
@@ -251,14 +274,16 @@ export function addSymbol(m: Mol, i: number, kind: SymbolKind): Mol {
       return trimPairs(setAtom(m, i, { radical: on ? undefined : 1, charge: on ? undefined : charge, circled: undefined }), i);
     }
     case "hDot": case "hDash": { const h = kind === "hDot" ? "dot" : "dash"; return setAtom(m, i, { hmark: a.hmark === h ? undefined : h }); }
-    case "attach": return setAtom(m, i, { attach: !a.attach || undefined });
+    // An attachment point in ChemDraw's three styles: wavy (true), diamond and star. Its own style again takes it off.
+    case "attach": return setAtom(m, i, { attach: a.attach === true ? undefined : true });
+    case "attachDiamond": case "attachStar": { const st = kind === "attachDiamond" ? "diamond" : "star"; return setAtom(m, i, { attach: a.attach === st ? undefined : st }); }
     case "bead": return setAtom(m, i, { bead: !a.bead || undefined });
   }
 }
 // Lone pairs shown never outnumber the ones the atom has (after a charge or radical changes them).
 const trimPairs = (m: Mol, i: number) => (m.atoms[i].pairs ? setAtom(m, i, { pairs: Math.min(m.atoms[i].pairs!, freePairs(m, i)) || undefined }) : m);
-// Each atom's bond orders added up, in one pass over the bonds. An aromatic bond counts 1.5, unless order says else.
-export function bondOrders(m: Mol, order = (type: number) => (type === 4 ? 1.5 : type)): number[] {
+// Each atom's bond orders added up, in one pass over the bonds (orderOf: an aromatic bond counts 1.5, a hydrogen bond 0).
+export function bondOrders(m: Mol, order = orderOf): number[] {
   const used = m.atoms.map(() => 0);
   for (const { type, atoms: [p, q] } of m.bonds) {
     used[p] += order(type);
@@ -279,12 +304,18 @@ export function toggleLonePairs(m: Mol, atoms: number[]): Mol {
   const shown = hetero.every((i) => (m.atoms[i].pairs ?? 0) >= freePairs(m, i, used[i]));
   return hetero.reduce((acc, i) => setAtom(acc, i, { pairs: shown ? undefined : freePairs(m, i, used[i]) }), m);
 }
-// Single, then double, then triple, then single again. A wedge or hash becomes a plain double.
+// Single, then double, then triple, then single again. A wedge or hash becomes a plain double, and a quadruple bond
+// single. A hydrogen bond stays one, as in ChemDraw. A bond keeps its place where bonds cross.
 const respec = (m: Mol, i: number, spec: BondSpec): Mol => ({ ...m, bonds: m.bonds.map((b, k) => (k === i ? makeBond(b.atoms, spec) : b)) });
-export const cycleBond = (m: Mol, i: number) => respec(m, i, { type: m.bonds[i].stereo || m.bonds[i].display ? 2 : (m.bonds[i].type % 3) + 1 });
+export const cycleBond = (m: Mol, i: number) => {
+  const b = m.bonds[i];
+  return b.type === HBOND ? m : respec(m, i, { type: b.type === QUADRUPLE ? 1 : b.stereo || b.display ? 2 : (b.type % 3) + 1 });
+};
 export const setBond = (m: Mol, i: number, type: number, stereo?: number) => respec(m, i, { type, stereo });
-export const setBondSpec = (m: Mol, i: number, spec: BondSpec) => respec(m, i, spec);
-export const setPosition = (m: Mol, i: number, position: "left" | "centre" | "right") => setBondAt(m, i, { position });
+// No bond becomes a hydrogen bond, as in ChemDraw: the hydrogen bond tool only joins two atoms.
+export const setBondSpec = (m: Mol, i: number, spec: BondSpec) => (spec.type === HBOND && m.bonds[i].type !== HBOND ? m : respec(m, i, spec));
+// A double bond's second line on one side, centred, or (unset) placed automatically.
+export const setPosition = (m: Mol, i: number, position?: "left" | "centre" | "right") => setBondAt(m, i, { position });
 // Swaps a bond's ends, so a wedge points the other way.
 export const flipBond = (m: Mol, i: number) => setBondAt(m, i, { atoms: [m.bonds[i].atoms[1], m.bonds[i].atoms[0]] });
 
@@ -365,13 +396,14 @@ export function dragBond(m: Mol, from: number | P, q: P, spec: BondSpec = SINGLE
   return k >= 0 ? overBond(m, k, spec, from as number) : bondTo(m, from, q, spec);
 }
 
-// Removes atoms (and their bonds), then any bare carbons left with no bonds.
+// Removes atoms (and their bonds), then any bare carbons left with no bonds, and hidden H atoms (Toggle Hydrogen
+// Display) whose atom went: they cannot be seen or picked alone.
 function removeAtoms(m: Mol, gone: Set<number>): Mol {
   // A multi-centre point goes with its ring (when fewer than two of its atoms are left).
   m.atoms.forEach((a, i) => { if (a.centre && a.centre.filter((j) => !gone.has(j)).length < 2) gone.add(i); });
   const bonds = m.bonds.filter((b) => !gone.has(b.atoms[0]) && !gone.has(b.atoms[1]));
   const used = new Set(bonds.flatMap((b) => b.atoms));
-  m.atoms.forEach((a, i) => { if (!used.has(i) && a.label === "C" && !a.charge) gone.add(i); });
+  m.atoms.forEach((a, i) => { if (!used.has(i) && ((a.label === "C" && !a.charge) || a.hidden)) gone.add(i); });
   const map = new Map<number, number>();
   m.atoms.forEach((_, i) => { if (!gone.has(i)) map.set(i, map.size); });
   const atoms = m.atoms.flatMap((a, i) => (gone.has(i) ? [] : [a.centre ? { ...a, centre: a.centre.filter((j) => map.has(j)).map((j) => map.get(j)!) } : a]));
@@ -388,8 +420,13 @@ function removeAtoms(m: Mol, gone: Set<number>): Mol {
   });
   const kept = new Set(cycles?.map((c) => c.id));
   return tidyGroups({ ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || kept.has(c.cycle.cycle)), cycles,
-    groups: m.groups?.map((g) => ({ ...g, atoms: g.atoms.filter((i) => map.has(i)).map((i) => map.get(i)!) })) });
+    groups: m.groups?.map((g) => ({ ...g, atoms: g.atoms.filter((i) => map.has(i)).map((i) => map.get(i)!) })), fills: refill(m.fills, map) });
 }
+// Ring fills follow their atoms' new numbers; a fill goes when one of its atoms goes.
+const refill = (fills: Mol["fills"], map: Map<number, number>) => {
+  const out = fills?.filter((f) => f.atoms.every((i) => map.has(i))).map((f) => ({ ...f, atoms: f.atoms.map((i) => map.get(i)!) }));
+  return out?.length ? out : undefined;
+};
 
 // Groups nest, as ChemDraw's do. A group lists every atom and object in it (those of the groups in it too), so two
 // groups are apart or one holds the other. Text that belongs to a structure, arrow or cycle (a compound number,
@@ -663,6 +700,7 @@ export function merge(m: Mol, frag: Mol, offset: P): Mol {
     ...m,
     atoms: [...m.atoms, ...frag.atoms.map((a) => ({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number], ...(a.centre ? { centre: a.centre.map((j) => j + base) } : {}) }))],
     bonds: [...m.bonds, ...frag.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number] }))],
+    ...(frag.fills?.length ? { fills: [...(m.fills ?? []), ...frag.fills.map((f) => ({ ...f, atoms: f.atoms.map((i) => i + base) }))] } : {}),
   };
 }
 
@@ -692,7 +730,7 @@ export function expandLabel(m: Mol, i: number, frag: Mol): Mol {
 }
 // Contract Label: the atoms in `group` other than `keep` go, and `keep` (the one bonded to the rest) carries the label.
 export function contractLabel(m: Mol, keep: number, group: Set<number>, text: string): Mol {
-  const labelled = { ...m, atoms: m.atoms.map((a, k) => (k === keep ? { ...a, text, label: a.label, charge: undefined } : a)) };
+  const labelled = { ...m, atoms: m.atoms.map((a, k) => (k === keep ? { ...a, text, label: anchorElement(text) ?? a.label, charge: undefined } : a)) };
   return removeAtoms(labelled, new Set([...group].filter((k) => k !== keep)));
 }
 export function moveAtoms(m: Mol, ids: Set<number>, d: P): Mol {
@@ -781,7 +819,8 @@ export function fragments(m: Mol): number[][] {
 }
 
 // After a move: each moved atom that sits exactly on another atom joins it, so no atom hides under another.
-// The other atom keeps its label unless it is a plain carbon. Returns the drawing and whether anything joined.
+// The other atom keeps its label unless it is a plain carbon (then it takes the moved atom's label). Returns the
+// drawing and whether anything joined.
 export function joinOverlaps(m: Mol, moved: Set<number>): { mol: Mol; joined: boolean } {
   const into = new Map<number, number>();
   for (const i of moved) {
@@ -791,14 +830,68 @@ export function joinOverlaps(m: Mol, moved: Set<number>): { mol: Mol; joined: bo
   }
   if (!into.size) return { mol: m, joined: false };
   let atoms = m.atoms;
-  for (const [i, j] of into) if (atoms[j].label === "C" && atoms[i].label !== "C") atoms = atoms.map((a, k) => (k === j ? { ...a, label: atoms[i].label } : a));
+  for (const [i, j] of into) if (atoms[j].label === "C" && !atoms[j].text && (atoms[i].label !== "C" || atoms[i].text)) atoms = atoms.map((a, k) => (k === j ? { ...a, label: atoms[i].label, text: atoms[i].text } : a));
   const bonds: Bond[] = [];
   for (const b of m.bonds) {
     const ends = b.atoms.map((k) => into.get(k) ?? k) as [number, number];
     if (ends[0] === ends[1] || bonds.some((c) => (c.atoms[0] === ends[0] && c.atoms[1] === ends[1]) || (c.atoms[0] === ends[1] && c.atoms[1] === ends[0]))) continue;
     bonds.push({ ...b, atoms: ends });
   }
-  return { mol: removeAtoms({ ...m, atoms, bonds }, new Set(into.keys())), joined: true };
+  // A ring fill goes on with its ring: a joined atom's place in it is taken by the atom it joined. One ring filled
+  // twice keeps the first fill.
+  const seen = new Set<string>(), fills = m.fills?.map((f) => ({ ...f, atoms: f.atoms.map((k) => into.get(k) ?? k) })).filter((f) => {
+    const key = [...f.atoms].sort((p, q) => p - q).join(",");
+    if (new Set(f.atoms).size !== f.atoms.length || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return { mol: removeAtoms({ ...m, atoms, bonds, ...(m.fills ? { fills } : {}) }, new Set(into.keys())), joined: true };
+}
+
+// Object > Join (⌘J), as ChemDraw's (decompiled DoJoin and ObjectJoinHandler). One atom in each of two structures:
+// the earlier-drawn atom's structure moves onto the other atom, and the two become one. One atom in each of three or
+// more structures: each structure moves so its atom is at their centroid, and they become one (the first selected
+// atom's, with its label and colour).
+// One bond in each of two structures: the earlier-drawn bond's structure turns and moves so the bond lies on the
+// other, on its far side, and the two bonds become one shared bond. The atom that stays keeps its label,
+// or takes the other's if it has none. Returns undefined when the selection is none of these.
+export function joinSelection(m: Mol, ids: Set<number>): Mol | undefined {
+  const frags = fragments(m), fragOf: number[] = [];
+  frags.forEach((g, k) => g.forEach((i) => (fragOf[i] = k)));
+  const picks = [...ids].filter((i) => i < m.atoms.length), sel = [...picks].sort((p, q) => p - q), touched = [...new Set(sel.map((i) => fragOf[i]))];
+  if (sel.length < 2 || touched.length < 2) return undefined;
+  const moveFrag = (mol: Mol, k: number, f: (q: P) => P): Mol => ({ ...mol, atoms: mol.atoms.map((a, i) => (fragOf[i] === k ? { ...a, location: [...f([a.location[0], a.location[1]]), a.location[2] ?? 0] as [number, number, number] } : a)) });
+  const atomsOf = (ks: number[]) => new Set(m.atoms.map((_, i) => i).filter((i) => ks.includes(fragOf[i])));
+  // Two bonds: two atoms selected in each of two structures, joined by a bond.
+  const bondIn = (k: number) => { const mine = sel.filter((i) => fragOf[i] === k); return mine.length === 2 && m.bonds.some((b) => b.atoms.includes(mine[0]) && b.atoms.includes(mine[1])) ? mine : undefined; };
+  if (sel.length === 4 && touched.length === 2 && bondIn(touched[0]) && bondIn(touched[1])) {
+    const [back, front] = [bondIn(touched[0])!, bondIn(touched[1])!].sort((p, q) => Math.max(...p) - Math.max(...q));
+    const [a0, a1] = front.map((i) => pos(m, i)), ma: P = [(a0[0] + a1[0]) / 2, (a0[1] + a1[1]) / 2];
+    // The back bond laid on the front one with its ends either way round. ChemDraw puts each end on the nearer end;
+    // Octet takes the way that puts the two structures on opposite sides of the bond, so rings fuse wherever they are.
+    const middle = (k: number, mol: Mol) => { const g = frags[k]; return [g.reduce((t, i) => t + pos(mol, i)[0], 0) / g.length, g.reduce((t, i) => t + pos(mol, i)[1], 0) / g.length] as P; };
+    const lay = (ends: number[]) => {
+      const [b0, b1] = ends.map((i) => pos(m, i)), mb: P = [(b0[0] + b1[0]) / 2, (b0[1] + b1[1]) / 2];
+      const turn = Math.atan2(a1[1] - a0[1], a1[0] - a0[0]) - Math.atan2(b1[1] - b0[1], b1[0] - b0[0]), [c, s] = [Math.cos(turn), Math.sin(turn)];
+      const out = moveFrag(m, fragOf[back[0]], (q) => { const d = sub(q, mb); return [ma[0] + d[0] * c - d[1] * s, ma[1] + d[0] * s + d[1] * c]; });
+      // The two ends sit exactly on the other bond's, however long the bonds are.
+      return { ...out, atoms: out.atoms.map((a, i) => (i === ends[0] ? { ...a, location: [a0[0], a0[1], a.location[2] ?? 0] } : i === ends[1] ? { ...a, location: [a1[0], a1[1], a.location[2] ?? 0] } : a)) } as Mol;
+    };
+    const [one, two] = [lay(back), lay([back[1], back[0]])], apart = (mol: Mol) => len(sub(middle(fragOf[back[0]], mol), middle(fragOf[front[0]], mol)));
+    return joinOverlaps(apart(one) >= apart(two) ? one : two, atomsOf([fragOf[back[0]]])).mol;
+  }
+  // Atoms: one in each structure.
+  if (touched.length !== sel.length) return undefined;
+  if (sel.length === 2) {
+    const [back, front] = sel, d = sub(pos(m, front), pos(m, back));
+    return joinOverlaps(moveFrag(m, fragOf[back], (q) => add(q, d)), atomsOf([fragOf[back]])).mol;
+  }
+  const centre: P = [sel.reduce((t, i) => t + pos(m, i)[0], 0) / sel.length, sel.reduce((t, i) => t + pos(m, i)[1], 0) / sel.length];
+  let out = m;
+  for (const i of sel) { const d = sub(centre, pos(m, i)); out = moveFrag(out, fragOf[i], (q) => add(q, d)); }
+  out = { ...out, atoms: out.atoms.map((a, i) => (sel.includes(i) ? { ...a, location: [centre[0], centre[1], a.location[2] ?? 0] } : a)) };
+  // The selection keeps the order the atoms were picked in: the first one stays.
+  return joinOverlaps(out, atomsOf(picks.slice(1).map((i) => fragOf[i]))).mol;
 }
 
 // ChemDraw-style group keys on an atom. Each adds a group and keeps the bond rules above.
@@ -1046,9 +1139,12 @@ export function rotateAtoms(m: Mol, ids: Set<number>, degrees: number): Mol {
   return { ...m, atoms: m.atoms.map((a, i) => {
     if (!ids.has(i)) return a;
     const r = add(c, rot(sub(pos(m, i), c), degrees * deg));
-    return { ...a, location: [r[0], r[1], a.location[2] ?? 0] };
+    return { ...a, location: [r[0], r[1], a.location[2] ?? 0], ...turnMarks(a, (t) => t + degrees) };
   }) };
 }
+// Marks placed by hand (Atom.angles) turn and flip with their atom, so they keep their place beside it.
+const turnMarks = (a: Atom, f: (degrees: number) => number) =>
+  a.angles ? { angles: Object.fromEntries(Object.entries(a.angles).map(([k, t]) => [k, ((((f(t) + 180) % 360) + 360) % 360) - 180])) } : {};
 
 // Chair cyclohexane, drawn the textbook way (as ChemDraw draws it): three pairs of parallel bonds, all one bond
 // long, a steep pair at the ends (the first bond, 0-1), a pair sloping up and a pair near level. Chair 2 is chair 1
@@ -1120,7 +1216,7 @@ export function flipAtoms(m: Mol, ids: Set<number>, axis: "horizontal" | "vertic
       if (!ids.has(i)) return a;
       const loc: [number, number, number] = [a.location[0], a.location[1], mirror ? a.location[2] ?? 0 : -(a.location[2] ?? 0)];
       loc[k] = 2 * mid - loc[k];
-      return { ...a, location: loc };
+      return { ...a, location: loc, ...turnMarks(a, (t) => (k ? -t : 180 - t)) };
     }),
     bonds: m.bonds.map((b) => {
       if (!ids.has(b.atoms[0]) || !ids.has(b.atoms[1])) return b;
@@ -1176,6 +1272,68 @@ export function addArrow(m: Mol, a: Omit<Arrow, "id">): [Mol, number] {
 }
 export const updateArrow = (m: Mol, id: number, change: Partial<Arrow>): Mol =>
   ({ ...m, arrows: m.arrows?.map((a) => (a.id === id ? { ...a, ...change } : a)) });
+// Editing a pen curve (ChemDraw's Edit Curve tool). Segment i runs from point i to the next (a closed curve's last
+// segment back to its first point). A segment with no handles at either end is straight.
+type Q = [number, number];
+const lerp = (a: Q, b: Q, t: number): Q => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+const segments = (c: Curve) => (c.closed && c.points.length > 2 ? c.points.length : c.points.length - 1);
+function segment(c: Curve, i: number): [Q, Q, Q, Q] {
+  const a = c.points[i], b = c.points[(i + 1) % c.points.length];
+  return [a.at, a.c2 ?? a.at, b.c1 ?? b.at, b.at];
+}
+const bezier = ([p0, p1, p2, p3]: [Q, Q, Q, Q], t: number): Q => lerp(lerp(lerp(p0, p1, t), lerp(p1, p2, t), t), lerp(lerp(p1, p2, t), lerp(p2, p3, t), t), t);
+// The place on a curve nearest a point: its segment, how far along it (0 to 1) and the distance (drawing units).
+export function nearestOnCurve(c: Curve, p: Q): { seg: number; t: number; d: number } {
+  let best = { seg: 0, t: 0, d: Infinity };
+  for (let i = 0; i < segments(c); i++) {
+    const s = segment(c, i);
+    for (let j = 0; j <= 48; j++) { const q = bezier(s, j / 48), d = Math.hypot(q[0] - p[0], q[1] - p[1]); if (d < best.d) best = { seg: i, t: j / 48, d }; }
+  }
+  // Closer still about the best sample.
+  for (let k = 0; k < 20; k++) {
+    const s = segment(c, best.seg), step = 1 / 48 / 2 ** (k + 1);
+    for (const t of [best.t - step, best.t + step]) if (t >= 0 && t <= 1) { const q = bezier(s, t), d = Math.hypot(q[0] - p[0], q[1] - p[1]); if (d < best.d) best = { ...best, t, d }; }
+  }
+  return best;
+}
+// A point added on segment seg at t, splitting it (de Casteljau) so the curve keeps its shape. A straight segment
+// gets a corner point and stays straight.
+export function splitCurve(c: Curve, seg: number, t: number): Curve {
+  const n = c.points.length, a = c.points[seg], b = c.points[(seg + 1) % n], [p0, p1, p2, p3] = segment(c, seg);
+  const pts = c.points.map((q) => ({ ...q }));
+  let mid: CurvePoint;
+  if (!a.c2 && !b.c1) mid = { at: lerp(p0, p3, t) };
+  else {
+    const q0 = lerp(p0, p1, t), q1 = lerp(p1, p2, t), q2 = lerp(p2, p3, t), r0 = lerp(q0, q1, t), r1 = lerp(q1, q2, t);
+    mid = { at: lerp(r0, r1, t), c1: r0, c2: r1 };
+    pts[seg] = { ...pts[seg], c2: q0 };
+    pts[(seg + 1) % n] = { ...pts[(seg + 1) % n], c1: q2 };
+  }
+  pts.splice(seg + 1, 0, mid);
+  return { ...c, points: pts };
+}
+// A point moved: its anchor (its handles move with it), or one handle. A smooth point's other handle turns to stay
+// opposite, keeping its own length, unless free (Option) breaks the point into a corner.
+export function moveCurvePoint(c: Curve, i: number, part: "at" | "c1" | "c2", p: Q, free = false): Curve {
+  const q = c.points[i], d: Q = [p[0] - q.at[0], p[1] - q.at[1]], shift = (h?: Q): Q | undefined => h && [h[0] + d[0], h[1] + d[1]];
+  let next: CurvePoint;
+  if (part === "at") next = { at: p, ...(q.c1 ? { c1: shift(q.c1) } : {}), ...(q.c2 ? { c2: shift(q.c2) } : {}) };
+  else {
+    const other = part === "c1" ? "c2" : "c1", o = q[other], h = q[part];
+    next = { ...q, [part]: p };
+    const len = o && Math.hypot(o[0] - q.at[0], o[1] - q.at[1]), out = Math.hypot(p[0] - q.at[0], p[1] - q.at[1]);
+    // Smooth: its handles point opposite ways (to within about 2°). A corner stays a corner.
+    const a = h && [h[0] - q.at[0], h[1] - q.at[1]], b = o && [o[0] - q.at[0], o[1] - q.at[1]];
+    const smooth = !!a && !!b && a[0] * b[0] + a[1] * b[1] < 0 && Math.abs(a[0] * b[1] - a[1] * b[0]) <= 0.035 * Math.hypot(a[0], a[1]) * Math.hypot(b[0], b[1]);
+    if (o && smooth && !free && len && out > 1e-9) next[other] = [q.at[0] - ((p[0] - q.at[0]) * len) / out, q.at[1] - ((p[1] - q.at[1]) * len) / out];
+  }
+  return { ...c, points: c.points.map((x, k) => (k === i ? next : x)) };
+}
+// A point taken out (a curve keeps at least two), or one added at the end (a straight segment to it).
+export const removeCurvePoint = (c: Curve, i: number): Curve => (c.points.length <= 2 ? c : { ...c, points: c.points.filter((_, k) => k !== i), ...(c.points.length <= 3 ? { closed: undefined } : {}) });
+export const appendCurvePoint = (c: Curve, p: Q): Curve => ({ ...c, points: [...c.points, { at: p }] });
+// A curve arrow with new points: its ends follow its first and last points.
+export const withCurve = (c: Curve): Partial<Arrow> => ({ curve: c, from: c.points[0].at, to: c.points[c.points.length - 1].at });
 export function addShape(m: Mol, sh: Omit<Shape, "id">): [Mol, number] {
   const id = nextId(m);
   // A highlight goes behind the shapes already there; anything else on top.
@@ -1242,10 +1400,14 @@ export function scaleSizes(m: Mol, r: number): Mol {
 // a single bracket faces and a cycle goes the other way. A flip turns the atoms over first (flipAtoms) and gives none.
 export function transformParts(m: Mol, atoms: Set<number>, items: Set<number>, f: (q: P) => P, size: P = [1, 1], centres?: Map<number, P>, text = 1, mirror?: "across" | "down"): Mol {
   const mean = (size[0] + size[1]) / 2, both = Math.sqrt(Math.abs(size[0] * size[1]));
+  // Free text turns as f turns the page (CD-19, ChemDraw's RotationAngle): its anchor goes round its middle. A flip
+  // leaves it reading the same way, its turn the other way.
+  const o = f([0, 0]), e1 = f([1, 0]), turn = mirror ? 0 : (Math.atan2(e1[1] - o[1], e1[0] - o[0]) * 180) / Math.PI, cs = Math.cos((turn * Math.PI) / 180), sn = Math.sin((turn * Math.PI) / 180);
   const caption = (c: Caption): Caption => {
-    const middle = centres?.get(c.id);
-    const [x, y] = middle ? add(f(middle), mul(sub([c.x, c.y], middle), text)) : f([c.x, c.y]);
-    return { ...c, x, y };
+    const middle = centres?.get(c.id), d = middle ? mul(sub([c.x, c.y], middle), text) : undefined;
+    const [x, y] = middle && d ? add(f(middle), [d[0] * cs - d[1] * sn, d[0] * sn + d[1] * cs]) : f([c.x, c.y]);
+    const a = ((((mirror ? -(c.angle ?? 0) : (c.angle ?? 0) + turn) + 180) % 360) + 360) % 360 - 180;
+    return { ...c, x, y, angle: Math.abs(a) > 1e-9 ? a : undefined };
   };
   const over = (h?: Arrow["start"]) => (h === "left" ? "right" : h === "right" ? "left" : h);
   return {
@@ -1304,6 +1466,19 @@ export function pairMap(m: Mol, a: number, b: number): Mol {
 }
 export const clearMap = (m: Mol, i: number): Mol => ({ ...m, atoms: m.atoms.map((x, j) => (j === i ? { ...x, map: undefined } : x)) });
 
+// Toggle Hydrogen Display, as ChemDraw's: each explicit H on a carbon among these atoms is hidden, or shown again.
+// It keeps an H with a charge, an isotope, a radical or a label, an H on a stereo bond or a stereocentre, and an H
+// that is not on exactly one carbon (on a heteroatom, bridging, or in a hydrogen bond).
+export function toggleHydrogens(m: Mol, atoms: Iterable<number>): Mol {
+  const centres = new Set(stereocentres(m)), flip = new Set<number>();
+  for (const i of atoms) {
+    const a = m.atoms[i], bonds = m.bonds.filter((b) => b.atoms.includes(i)), b = bonds[0];
+    if (a?.label !== "H" || a.text || a.charge || a.isotope || a.radical || bonds.length !== 1 || b.type !== 1 || b.stereo || b.display) continue;
+    const c = b.atoms[0] === i ? b.atoms[1] : b.atoms[0];
+    if (m.atoms[c].label === "C" && !m.atoms[c].text && !centres.has(c)) flip.add(i);
+  }
+  return flip.size ? { ...m, atoms: m.atoms.map((a, i) => (flip.has(i) ? { ...a, hidden: a.hidden ? undefined : true } : a)) } : m;
+}
 // Stereocentres: the atoms at the narrow end of a wedge or hashed wedge (among some atoms, if given).
 export const stereocentres = (m: Mol, among?: Set<number>) =>
   [...new Set(m.bonds.filter((b) => b.stereo === 1 || b.stereo === 6).map((b) => b.atoms[0]))].filter((i) => !among || among.has(i));
@@ -1339,6 +1514,47 @@ export function markDirections(m: Mol, ids: number[]): Map<number, P> {
 // Enhanced stereo flags on atoms: "abs", "&1" or "or1", or none.
 export const setEnhanced = (m: Mol, ids: number[], label?: string): Mol =>
   ({ ...m, atoms: m.atoms.map((a, i) => (ids.includes(i) ? { ...a, enhanced: label } : a)) });
+
+// TLC plate lanes, as ChemDraw's Add Lane, Duplicate Lane, Delete Lane and a drag of a lane's origin tick. A lane
+// added or taken away widens or narrows the plate on its right by one lane, so every lane keeps its width, and spots
+// stay in their lanes. at: where the new lane goes (0 is first); copy: the lane whose spots it takes (Duplicate).
+const TLC_LANES = 40;
+const widen = (sh: Shape, d: number): Shape => (sh.to[0] >= sh.from[0] ? { ...sh, to: [sh.to[0] + d, sh.to[1]] } : { ...sh, from: [sh.from[0] + d, sh.from[1]] });
+export function addLane(sh: Shape, at: number, copy?: number): Shape {
+  const tlc = sh.tlc ?? { lanes: 1, spots: [] };
+  if (tlc.lanes >= TLC_LANES) return sh;
+  const k = Math.max(0, Math.min(tlc.lanes, at)), w = Math.abs(sh.to[0] - sh.from[0]) / tlc.lanes;
+  const spots = [...tlc.spots.map((x) => (x.lane >= k ? { ...x, lane: x.lane + 1 } : x)), ...(copy === undefined ? [] : tlc.spots.filter((x) => x.lane === copy).map((x) => ({ ...x, lane: k })))];
+  return { ...widen(sh, w), tlc: { ...tlc, lanes: tlc.lanes + 1, spots } };
+}
+// A lane and its spots taken away (a plate keeps one lane).
+export function deleteLane(sh: Shape, k: number): Shape {
+  const tlc = sh.tlc ?? { lanes: 1, spots: [] };
+  if (tlc.lanes <= 1 || k < 0 || k >= tlc.lanes) return sh;
+  const w = Math.abs(sh.to[0] - sh.from[0]) / tlc.lanes;
+  return { ...widen(sh, -w), tlc: { ...tlc, lanes: tlc.lanes - 1, spots: tlc.spots.filter((x) => x.lane !== k).map((x) => (x.lane > k ? { ...x, lane: x.lane - 1 } : x)) } };
+}
+// A lane moved to another place among the lanes, with its spots; the others close up behind it.
+export function moveLane(sh: Shape, from: number, to: number): Shape {
+  const tlc = sh.tlc ?? { lanes: 1, spots: [] };
+  if (from === to || from < 0 || to < 0 || from >= tlc.lanes || to >= tlc.lanes) return sh;
+  const order = Array.from({ length: tlc.lanes }, (_, k) => k).filter((k) => k !== from);
+  order.splice(to, 0, from);
+  return { ...sh, tlc: { ...tlc, spots: tlc.spots.map((x) => ({ ...x, lane: order.indexOf(x.lane) })) } };
+}
+
+// A TLC spot's style, as ChemDraw's spot styles go together: Filled, Hollow and Octet's Shaded are its fill; Dashed
+// (which is hollow), Bold and Doubled (which is not dashed) are set on (on true) or off. A filled spot is not dashed.
+export function restyleSpot(x: Spot, what: string, on = true): Spot {
+  const out: Spot = { ...x }, off = (k: "style" | "dashed" | "bold" | "doubled") => { delete out[k]; };
+  if (what === "filled") { off("style"); off("dashed"); }
+  else if (what === "shaded") { out.style = "shaded"; off("dashed"); }
+  else if (what === "hollow") out.style = "hollow";
+  else if (what === "dashed") { if (on) { out.dashed = true; out.style = "hollow"; off("doubled"); } else off("dashed"); }
+  else if (what === "doubled") { if (on) { out.doubled = true; off("dashed"); } else off("doubled"); }
+  else if (what === "bold") { if (on) out.bold = true; else off("bold"); }
+  return out;
+}
 
 // Tables. A new one has an Entry column numbered down its rows, under a header row.
 export const newTable = (rows: number, cols: number): Table =>
@@ -1468,47 +1684,54 @@ export function inRing(m: Mol, k: number): boolean {
 // Places a template (a structure drawn at bond length 1): fused along a clicked bond, on the open side; sharing a
 // clicked atom (the template's first atom), pointing away from that atom's bonds; or centred on a point. On a bond
 // or atom it takes their scale. Template atoms that land on existing atoms join them, and a double bond that would
-// give an atom two is single.
+// give an atom two is single. The template's atoms and bonds keep their own look (colour, labels, marks), and its
+// other objects (text, arrows, shapes, cycles, groups and ring fills) come with it, moved as its atoms move (CD-33).
 export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: number; point?: P }): Mol {
-  if (!t.atoms.length) return m;
-  let pts: P[] = t.atoms.map((a) => [a.location[0], a.location[1]]), mirrored = false, scale = 1;
+  if (!t.atoms.length) return t.captions?.length || t.arrows?.length || t.shapes?.length ? withObjects(m, t, [], (q) => add(target.point ?? [0, 0], q), 1, false) : m;
+  const at0: P[] = t.atoms.map((a) => [a.location[0], a.location[1]]);
   const middle = (ps: P[]) => mul(ps.reduce((s, p) => add(s, p), [0, 0] as P), 1 / ps.length);
+  // Where each point of the template goes (f), and whether it is mirrored.
+  let f = (q: P): P => q, mirrored = false, scale = 1;
   // Fuse along a ring bond on the template's outside edge (the rest of it on one side), so nothing overlaps.
   const ring = t.bonds.filter((_, k) => inRing(t, k));
   const edge = ring.find((b) => {
-    const a = pts[b.atoms[0]], n: P = [-(pts[b.atoms[1]][1] - a[1]), pts[b.atoms[1]][0] - a[0]], sides = pts.map((q) => dot(sub(q, a), n));
+    const a = at0[b.atoms[0]], n: P = [-(at0[b.atoms[1]][1] - a[1]), at0[b.atoms[1]][0] - a[0]], sides = at0.map((q) => dot(sub(q, a), n));
     return sides.every((d) => d > -1e-6) || sides.every((d) => d < 1e-6);
   }) ?? ring[0] ?? t.bonds[0];
   if (target.bond !== undefined && edge) {
     // Map the template's first ring bond onto the clicked bond, then mirror it off the crowded side.
     const [i, j] = m.bonds[target.bond].atoms, a = pos(m, i), b = pos(m, j);
     scale = (scaleAt(m, i) + scaleAt(m, j)) / 2;
-    const e0 = pts[edge.atoms[0]], te = sub(pts[edge.atoms[1]], e0), be = sub(b, a);
+    const e0 = at0[edge.atoms[0]], te = sub(at0[edge.atoms[1]], e0), be = sub(b, a);
     const k = len(be) / len(te), turn = Math.atan2(be[1], be[0]) - Math.atan2(te[1], te[0]);
-    pts = pts.map((p) => add(a, mul(rot(sub(p, e0), turn), k)));
+    const fused = (q: P) => add(a, mul(rot(sub(q, e0), turn), k));
     const normal = unit([-be[1], be[0]]), side = (p: P) => Math.sign(dot(sub(p, a), normal));
     const others = [...neighbours(m, i), ...neighbours(m, j)].filter((x) => x !== i && x !== j);
-    if (others.reduce((s, x) => s + side(pos(m, x)), 0) * side(middle(pts)) > 0) { pts = pts.map((p) => sub(p, mul(normal, 2 * dot(sub(p, a), normal)))); mirrored = true; }
+    mirrored = others.reduce((s, x) => s + side(pos(m, x)), 0) * side(middle(at0.map(fused))) > 0;
+    f = mirrored ? (q) => { const p = fused(q); return sub(p, mul(normal, 2 * dot(sub(p, a), normal))); } : fused;
   } else if (target.atom !== undefined) {
-    const a = pos(m, target.atom), dir = nextDirection(m, target.atom), v = sub(middle(pts), pts[0]);
-    const turn = len(v) > 1e-6 ? Math.atan2(dir[1], dir[0]) - Math.atan2(v[1], v[0]) : 0, from = pts[0];
+    const a = pos(m, target.atom), dir = nextDirection(m, target.atom), v = sub(middle(at0), at0[0]);
+    const turn = len(v) > 1e-6 ? Math.atan2(dir[1], dir[0]) - Math.atan2(v[1], v[0]) : 0, from = at0[0];
     scale = scaleAt(m, target.atom);
-    pts = pts.map((p) => add(a, mul(rot(sub(p, from), turn), scale)));
+    f = (q) => add(a, mul(rot(sub(q, from), turn), scale));
   } else {
-    const c = middle(pts), at = target.point ?? [0, 0];
-    pts = pts.map((p) => add(at, sub(p, c)));
+    const c = middle(at0), to = target.point ?? [0, 0];
+    f = (q) => add(to, sub(q, c));
   }
   const ids: number[] = [];
-  for (const [k, p] of pts.entries()) {
+  for (const [k, p] of at0.map(f).entries()) {
     const before = m.atoms.length;
     let id: number;
     [m, id] = atomOrNew(m, p, scale);
     if (id >= before) {
-      const { label, charge, text, radical } = t.atoms[k];
-      m = { ...m, atoms: m.atoms.map((x, n) => (n === id ? { ...x, label, ...(charge ? { charge } : {}), ...(text ? { text } : {}), ...(radical ? { radical } : {}) } : x)) };
+      // A new atom takes the template atom's label, marks and look; its place and size are the drawing's.
+      const { location: _, scale: __, order: ___, ...own } = t.atoms[k];
+      m = { ...m, atoms: m.atoms.map((x, n) => (n === id ? { ...x, ...own } : x)) };
     }
     ids.push(id);
   }
+  // A multi-centre point names the atoms of its ring by number: they take their numbers in the drawing.
+  t.atoms.forEach((a, k) => { if (a.centre) m = { ...m, atoms: m.atoms.map((x, n) => (n === ids[k] && x.centre ? { ...x, centre: a.centre!.map((i) => ids[i]) } : x)) }; });
   const hasDouble = (i: number) => m.bonds.some((b) => b.type === 2 && b.atoms.includes(i));
   for (const b of t.bonds) {
     const [i, j] = [ids[b.atoms[0]], ids[b.atoms[1]]];
@@ -1516,17 +1739,46 @@ export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: numb
     // A mirrored template keeps its stereochemistry: wedges and hashes swap.
     const stereo = mirrored && (b.stereo === 1 || b.stereo === 6) ? 7 - b.stereo : b.stereo;
     m = withBond(m, i, j, { type, ...(stereo ? { stereo } : {}), ...(b.display ? { display: b.display } : {}) });
+    // The bond keeps its look too (colour, highlight, the side of its second line).
+    const k = m.bonds.findIndex((x) => x.atoms.includes(i) && x.atoms.includes(j)), { colour, halo, position } = b;
+    if (k >= 0 && (colour || halo || position)) m = { ...m, bonds: m.bonds.map((x, n) => (n === k ? { ...x, ...(colour ? { colour } : {}), ...(halo ? { halo } : {}), ...(position ? { position: mirrored && position !== "centre" ? (position === "left" ? "right" : "left") : position } : {}) } : x)) };
   }
-  return m;
+  const k = target.bond !== undefined && edge ? len(sub(f([1, 0]), f([0, 0]))) : scale;
+  return withObjects(m, t, ids, f, k, mirrored);
+}
+// A template's objects (text, arrows, shapes, cycles, groups) and ring fills added to the drawing with new ids, its
+// atoms as ids gives them, moved by f (k: how much f grows them).
+function withObjects(m: Mol, t: Mol, ids: number[], f: (q: P) => P, k: number, mirrored: boolean): Mol {
+  const objects = [...(t.captions ?? []), ...(t.arrows ?? []), ...(t.shapes ?? []), ...(t.cycles ?? []), ...(t.groups ?? [])];
+  if (!objects.length && !t.fills?.length) return m;
+  let id = nextId(m);
+  const to = new Map<number, number>(), atom = (i: number) => ids[i];
+  for (const x of objects) to.set(x.id, id++);
+  const out: Mol = {
+    ...m,
+    ...(t.captions?.length ? { captions: [...(m.captions ?? []), ...t.captions.map((c) => ({ ...c, id: to.get(c.id)!, ...(c.under ? { under: c.under.map(atom) } : {}),
+      ...(c.on ? { on: { ...c.on, arrow: to.get(c.on.arrow) ?? c.on.arrow } } : {}), ...(c.cycle ? { cycle: { ...c.cycle, cycle: to.get(c.cycle.cycle) ?? c.cycle.cycle } } : {}) }))] } : {}),
+    ...(t.arrows?.length ? { arrows: [...(m.arrows ?? []), ...t.arrows.map((a) => ({ ...a, id: to.get(a.id)! }))] } : {}),
+    ...(t.shapes?.length ? { shapes: [...(m.shapes ?? []), ...t.shapes.map((x) => ({ ...x, id: to.get(x.id)! }))] } : {}),
+    ...(t.cycles?.length ? { cycles: [...(m.cycles ?? []), ...t.cycles.map((c) => ({ ...c, id: to.get(c.id)!, nodes: c.nodes.map((n) => n.map(atom)) }))] } : {}),
+    ...(t.groups?.length ? { groups: [...(m.groups ?? []), ...t.groups.map((g) => ({ ...g, id: to.get(g.id)!, atoms: g.atoms.map(atom), items: g.items.map((x) => to.get(x) ?? x) }))] } : {}),
+    ...(t.fills?.length ? { fills: [...(m.fills ?? []), ...t.fills.map((x) => ({ ...x, atoms: x.atoms.map(atom) }))] } : {}),
+  };
+  return transformParts(out, new Set(), new Set(to.values()), f, [k, k], undefined, 1, mirrored ? "across" : undefined);
 }
 
-// A structure as a template: median bond 1, centred on the origin.
+// A structure, or any selection, as a template: median bond 1 (1 for no bonds), centred on the origin (its atoms'
+// middle, or its objects' when it has no atoms). Everything in it comes too, but the document's style.
 export function normalise(m: Mol): Mol {
   const lengths = m.bonds.map((b) => len(sub(pos(m, b.atoms[0]), pos(m, b.atoms[1])))).sort((x, y) => x - y);
-  const k = 1 / (lengths[Math.floor(lengths.length / 2)] || 1), b = bounds(m);
-  if (!b) return m;
-  const c: P = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
-  return { atoms: m.atoms.map((a) => ({ ...a, location: [(a.location[0] - c[0]) * k, (a.location[1] - c[1]) * k, (a.location[2] ?? 0) * k] })), bonds: m.bonds };
+  const k = 1 / (lengths[Math.floor(lengths.length / 2)] || 1), points: P[] = [...m.atoms.map((a): P => [a.location[0], a.location[1]]),
+    ...(m.atoms.length ? [] : [...(m.arrows ?? []).flatMap((a) => [a.from, a.to]), ...(m.shapes ?? []).flatMap((x) => [x.from, x.to]), ...(m.captions ?? []).map((c): P => [c.x, c.y])])];
+  if (!points.length) return m;
+  const xs = points.map((q) => q[0]), ys = points.map((q) => q[1]), c: P = [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+  const atoms = m.atoms.map((a) => ({ ...a, location: [(a.location[0] - c[0]) * k, (a.location[1] - c[1]) * k, (a.location[2] ?? 0) * k] as [number, number, number] }));
+  const objects = [...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? [])].map((x) => x.id);
+  const { style: _, guides: __, ...rest } = objects.length ? transformParts({ ...m, atoms }, new Set(), new Set(objects), (q) => [(q[0] - c[0]) * k, (q[1] - c[1]) * k], [k, k]) : { ...m, atoms };
+  return Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined && (!Array.isArray(v) || v.length || v === rest.atoms || v === rest.bonds))) as unknown as Mol;
 }
 
 // The turn (degrees, anticlockwise) that sets a structure's bottom ring bond level with the page: of the ring bonds
@@ -1616,6 +1868,7 @@ export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>)
     arrows, shapes: (m.shapes ?? []).filter((x) => items.has(x.id)),
     cycles: cycles.map((c) => ({ ...c, nodes: c.nodes.map((n) => n.map((i) => map.get(i)!)) })),
     groups: (m.groups ?? []).filter((g) => g.atoms.every((i) => map.has(i)) && g.items.every((id) => ids.has(id))).map((g) => ({ ...g, atoms: g.atoms.map((i) => map.get(i)!) })),
+    fills: refill(m.fills, map),
     grids: (m.grids ?? []).filter((g) => keep.has(g.arrow)),
   };
 }
@@ -1641,6 +1894,7 @@ export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
     }))],
     groups: [...(m.groups ?? []), ...(add.groups ?? []).map((g) => ({ ...g, id: ids.get(g.id)!, atoms: g.atoms.map(at), items: g.items.map((x) => ids.get(x) ?? x) }))],
     ...(add.grids?.length ? { grids: [...(m.grids ?? []), ...add.grids.flatMap((g) => (ids.has(g.arrow) ? [{ ...g, arrow: ids.get(g.arrow)! }] : []))] } : {}),
+    ...(add.fills?.length ? { fills: [...(m.fills ?? []), ...add.fills.map((f) => ({ ...f, atoms: f.atoms.map(at) }))] } : {}),
   };
   return { mol, atoms: new Set(add.atoms.map((_, i) => at(i))), items: new Set([...(add.captions ?? []), ...(add.arrows ?? []), ...(add.shapes ?? []), ...(add.cycles ?? [])].map((x) => ids.get(x.id)!)), ids };
 }
@@ -1654,4 +1908,53 @@ export function duplicateSelection(m: Mol, atoms: Set<number>, items: Set<number
   const left = (m.captions ?? []).filter((c) => items.has(c.id) && !had.has(c.id)).map(({ under: _, ...c }) => c);
   const r = insertMol(m, { ...part, captions: [...(part.captions ?? []), ...left] });
   return { mol: r.mol, atoms: r.atoms, items: r.items, ids: r.ids };
+}
+
+// ChemDraw's Synthesis and Retrosynthesis tools (decompiled TrackFragmentation): a line dragged through bonds of a
+// structure cuts them. The structure, whole, is copied; the bonds the line crossed are taken out of the original, so it
+// falls into pieces; and the two are laid out as a reaction on one level line with even gaps: Synthesis as the pieces
+// (with plus signs between) and a reaction arrow to the structure, Retrosynthesis as the structure and a
+// retrosynthetic arrow to the pieces. Bonds in aromatic rings are not cut, as in ChemDraw. Returns the drawing, the
+// bonds cut, the aromatic bonds left whole, and how far the whole structure moved; undefined when the line crosses
+// no bond.
+export function cutReaction(m: Mol, from: P, to: P, retro: boolean): { mol: Mol; cut: number; aromatic: number; moved: P } | undefined {
+  const side = (p: P, q: P, x: P) => cross(sub(q, p), sub(x, p));
+  const crossed = m.bonds.flatMap((b, k) => {
+    const [p, q] = [pos(m, b.atoms[0]), pos(m, b.atoms[1])];
+    return b.type !== HBOND && side(from, to, p) * side(from, to, q) < 0 && side(p, q, from) * side(p, q, to) < 0 ? [k] : [];
+  });
+  if (!crossed.length) return undefined;
+  // Aromatic atoms (Hückel, rings.ts), and so aromatic ring bonds: both ends aromatic and the bond in a ring.
+  const used = m.atoms.map(() => 0);
+  for (const b of m.bonds) for (const i of b.atoms) used[i] += orderOf(b.type);
+  const kept = m.bonds.flatMap((b, k) => (b.type === HBOND ? [] : [k])), g = { atoms: m.atoms.map((a, i) => ({ el: a.text ? "X" : a.label, charge: a.charge ?? 0, h: a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used[i]) })),
+    bonds: kept.map((k) => ({ a: m.bonds[k].atoms[0], b: m.bonds[k].atoms[1], order: (m.bonds[k].type === 2 || m.bonds[k].type === 3 ? m.bonds[k].type : 1) as 1 | 2 | 3 })) };
+  const arom = aromaticAtoms(g), ringPairs = new Set(ringsOf(g).flatMap((r) => r.map((v, i) => [v, r[(i + 1) % r.length]].sort((x, y) => x - y).join(","))));
+  const aromatic = (k: number) => m.bonds[k].type === 4 || (arom[m.bonds[k].atoms[0]] && arom[m.bonds[k].atoms[1]] && ringPairs.has([...m.bonds[k].atoms].sort((x, y) => x - y).join(",")));
+  const cut = crossed.filter((k) => !aromatic(k));
+  if (!cut.length) return { mol: m, cut: 0, aromatic: crossed.length, moved: [0, 0] };
+  // The structures cut, copied whole, then the original's bonds taken out.
+  const frags = fragments(m).filter((f) => f.some((i) => cut.some((k) => m.bonds[k].atoms.includes(i)))), atoms = new Set(frags.flat());
+  const whole = subset(m, atoms), drop = new Set(cut);
+  let out: Mol = { ...m, bonds: m.bonds.filter((_, k) => !drop.has(k)) };
+  const copy = insertMol(out, whole);
+  out = copy.mol;
+  const product = [...copy.atoms], pieces = fragments(out).filter((f) => f.some((i) => atoms.has(i)));
+  // The row: each part's box (its atoms, with room for a label across, as HO or OEt reads), in reading order, from
+  // the original's left edge.
+  const box = (ids: number[]): Box => {
+    const r = (i: number) => (out.atoms[i].label === "C" && !out.atoms[i].text ? 0.25 : 0.25 + 0.3 * (out.atoms[i].text ?? out.atoms[i].label).length), ps = ids.map((i) => pos(out, i));
+    return [Math.min(...ids.map((i, k) => ps[k][0] - r(i))), Math.min(...ps.map((q) => q[1])) - 0.3, Math.max(...ids.map((i, k) => ps[k][0] + r(i))), Math.max(...ps.map((q) => q[1])) + 0.3];
+  };
+  const start = box(pieces.flat()), level = (start[1] + start[3]) / 2, ARROW = 3, GAP = 0.8, PLUS = 1.6;
+  const sorted = [...pieces].sort((p, q) => box(p)[0] + box(p)[2] - box(q)[0] - box(q)[2]);
+  let x = start[0];
+  const place = (ids: number[]) => { const b = box(ids); out = moveAtoms(out, new Set(ids), [x - b[0], level - (b[1] + b[3]) / 2]); x += b[2] - b[0]; };
+  const row = (parts: number[][]) => parts.forEach((ids, k) => {
+    if (k) { [out] = addCaption(out, { text: "+", x: x + PLUS / 2, y: level - 0.24, align: "centre" }); x += PLUS; }
+    place(ids);
+  });
+  const arrow = () => { x += GAP; [out] = addArrow(out, { kind: retro ? "retro" : "reaction", from: [x, level], to: [x + ARROW, level] }); x += ARROW + GAP; };
+  if (retro) { place(product); arrow(); row(sorted); } else { row(sorted); arrow(); place(product); }
+  return { mol: out, cut: cut.length, aromatic: crossed.length - cut.length, moved: sub(pos(out, product[0]), pos(whole, 0)) };
 }

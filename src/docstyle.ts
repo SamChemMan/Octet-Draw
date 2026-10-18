@@ -26,9 +26,15 @@ export function pickPage(s: Pick<DocStyle, "page" | "landscape">, page: PageName
   return { page, landscape: slide(page) !== slide(s.page) ? slide(page) : s.landscape };
 }
 
-// The page's background: white, dark, the system's light or dark, or engineering paper (blue, with a grid). On a
-// dark or blue page the structures and text are drawn white.
-export type Background = "white" | "dark" | "system" | "blueprint";
+// The page's background: white, dark, the system's light or dark, engineering paper (blue, with a grid), or a colour
+// of the user's own (#rrggbb, ChemDraw's document background colour). On a dark or blue page, or a dark colour, the
+// structures and text are drawn white.
+export type Background = "white" | "dark" | "system" | "blueprint" | `#${string}`;
+// A colour that black text does not read on as well as white text does (WCAG relative luminance below 0.179).
+export const darkColour = (hex: string) => {
+  const [r, g, b] = [1, 3, 5].map((k) => { const c = parseInt(hex.slice(k, k + 2), 16) / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.179;
+};
 export const BACKGROUNDS: [Background, string][] = [["white", "White"], ["dark", "Dark"], ["system", "Match the system"], ["blueprint", "Engineering paper"]];
 // The grid's step: the document's bond length (a line each bond length, a lighter one at each half), or a step in
 // mm (US pages offer 1/8, 1/4 and 1/2 in, held in mm). Only these: a file cannot ask for a grid of a million lines.
@@ -51,6 +57,9 @@ export type DocStyle = {
   labelFont: string; labelSize: number; captionFont: string; captionSize: number; colour: string;
   // Atom labels (ChemDraw's Show Labels on Terminal Carbons, on Non-Terminal Carbons, and Hide Implicit Hydrogens).
   terminalLabels: boolean; carbonLabels: boolean; hideH: boolean;
+  // The named colours saved with the document (ChemDraw keeps a palette in each document): the user's own colours
+  // when it was saved. Another computer shows them in the drawing's colour row.
+  palette?: { name: string; hex: string }[];
   chainAngle: number; // ChemDraw's Chain Angle: the angle between the bonds of a chain drawn with the Chain tool (°)
   // The style's size against its preset (1 is 100%): bond, line, bold, margin, hash and the two text sizes hold the
   // preset's values times it (decision 0007). Bond spacing is a percent, so it does not change.
@@ -131,6 +140,10 @@ export const COLOURS: [string, string][] = [
   ["Green", "#22775B"], ["Amber", "#8B4E18"], ["Red", "#B42323"],
 ];
 
+// Colour by Element: heteroatom labels in their usual colours (N blue, O red, S gold, P orange, halogens green, Br
+// brown, I purple); carbon and hydrogen keep the ink. Settings > Colours can change each one.
+export const ELEMENT_COLOURS: Record<string, string> = { N: "#2F55D4", O: "#D9342B", S: "#B58900", P: "#E07B00", F: "#1E9E4A", Cl: "#1E9E4A", Br: "#A5442A", I: "#7B2FBE", B: "#C76B6B", Si: "#8A6D3B", Se: "#B58900" };
+
 // Highlight fills: light tints of the brand's colours, pale enough to print behind black ink.
 export const TINTS: [string, string][] = [
   ["Light blue", "#DCE4F6"], ["Light green", "#DCEFE6"], ["Light amber", "#F6E6D3"], ["Light red", "#F6DCDC"], ["Light grey", "#E9ECF0"],
@@ -177,7 +190,7 @@ export function readStyle(v: unknown): DocStyle {
     page: text("page", (t) => t in PAGES || t === "Custom") as PageName,
     custom: Array.isArray(s.custom) && s.custom.length === 2 && s.custom.every((n) => typeof n === "number" && n >= 10 && n <= 2000) ? [s.custom[0], s.custom[1]] : DEFAULT_STYLE.custom,
     landscape: s.landscape === true, edges: s.edges !== false, grid: gridStepOk(s.grid) ? s.grid : "bond",
-    background: BACKGROUNDS.some(([b]) => b === s.background) ? (s.background as Background) : "white",
+    background: BACKGROUNDS.some(([b]) => b === s.background) || (typeof s.background === "string" && /^#[0-9a-f]{6}$/i.test(s.background)) ? (s.background as Background) : "white",
     bond: num("bond", ...LIMITS.bond), line: num("line", ...LIMITS.line), bold: num("bold", ...LIMITS.bold), margin: num("margin", ...LIMITS.margin), hash: num("hash", ...LIMITS.hash), spacing: num("spacing", 5, 40),
     labelFont: text("labelFont", fontName), labelSize: num("labelSize", ...LIMITS.labelSize),
     captionFont: text("captionFont", fontName), captionSize: num("captionSize", ...LIMITS.captionSize),
@@ -187,7 +200,11 @@ export function readStyle(v: unknown): DocStyle {
     scale: num("scale", 0.1, 10),
     ...(typeof s.purpose === "string" && /^[a-z0-9-]{1,40}$/.test(s.purpose) ? { purpose: s.purpose } : {}),
   };
-  return { ...style, preset: presetOf(style) };
+  const palette = (Array.isArray(s.palette) ? s.palette : []).flatMap((c: unknown) => {
+    const x = c as { name?: unknown; hex?: unknown };
+    return typeof x?.name === "string" && x.name.length <= 40 && typeof x.hex === "string" && /^#[0-9a-f]{6}$/i.test(x.hex) ? [{ name: x.name, hex: x.hex }] : [];
+  }).slice(0, 24);
+  return { ...style, ...(palette.length ? { palette } : {}), preset: presetOf(style) };
 }
 
 // What a drawing is for (IDEA-SIZE-1 to 3): a journal style at a scale, on a page. Paper and Thesis keep the journal's

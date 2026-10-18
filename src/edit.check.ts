@@ -1,7 +1,8 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot, transformParts } from "./edit.ts";
-import { inShape, settleShape, shapeBounds, shapeCorners, tableLayout, type Mol, type Shape } from "./render.ts";
+import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot, transformParts, splitCurve, nearestOnCurve, moveCurvePoint, removeCurvePoint, appendCurvePoint } from "./edit.ts";
+import { curvePath, inShape, settleShape, shapeBounds, shapeCorners, tableLayout, type Mol, type Shape } from "./render.ts";
+import { distToPath } from "./hit.ts";
 const sub = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1]], cross = (a: number[], b: number[]) => a[0] * b[1] - a[1] * b[0];
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
@@ -668,6 +669,30 @@ console.log("edit.check: align ok");
   assert.equal(freePairs(m, 1), 1); // an amine N: one lone pair
   assert.equal(freePairs(aromatic, 1, used[1]), freePairs(aromatic, 1));
   console.log("edit.check: bond orders ok");
+}
+
+// Editing a pen curve (CD-17): a point added on a segment keeps the curve's shape, a straight segment stays straight,
+// moving a handle turns the other one of a smooth point, and points come out (never below two) and go on the end.
+{
+  const c = { points: [{ at: [0, 0] as [number, number], c2: [1, 2] as [number, number] }, { at: [3, 0] as [number, number], c1: [2, 2] as [number, number] }, { at: [5, 0] as [number, number] }] };
+  const before = curvePath(c, 1), split = splitCurve(c, 0, 0.3), after = curvePath(split, 1);
+  assert.equal(split.points.length, 4);
+  assert.ok(before.every((q) => distToPath(q, after) < 0.005) && after.every((q) => distToPath(q, before) < 0.005), "same shape after a split");
+  const straight = splitCurve(c, 1, 0.5);
+  assert.deepEqual([straight.points[2], straight.points[1].c2, straight.points[3].c1], [{ at: [4, 0] }, undefined, undefined]);
+  const n = nearestOnCurve(c, [4, 0.1]);
+  assert.ok(n.seg === 1 && Math.abs(n.t - 0.5) < 1e-3 && Math.abs(n.d - 0.1) < 1e-6);
+  const smooth = { points: [{ at: [0, 0] as [number, number] }, { at: [2, 0] as [number, number], c1: [1, 1] as [number, number], c2: [3, -1] as [number, number] }, { at: [4, 0] as [number, number] }] };
+  const turned = moveCurvePoint(smooth, 1, "c2", [2, 2]);
+  assert.ok(near(turned.points[1].c1!, [2, -Math.SQRT2]), "the other handle turns, keeping its length");
+  assert.ok(near(moveCurvePoint(smooth, 1, "c2", [2, 2], true).points[1].c1!, [1, 1]), "Option leaves it");
+  const corner = { points: [smooth.points[0], { ...smooth.points[1], c2: [3, 1] as [number, number] }, smooth.points[2]] };
+  assert.ok(near(moveCurvePoint(corner, 1, "c2", [2, 2]).points[1].c1!, [1, 1]), "a corner stays a corner");
+  const moved = moveCurvePoint(smooth, 1, "at", [2, 1]);
+  assert.ok(near(moved.points[1].c1!, [1, 2]) && near(moved.points[1].c2!, [3, 0]), "handles go with their anchor");
+  assert.equal(removeCurvePoint(removeCurvePoint(smooth, 1), 0).points.length, 2);
+  assert.deepEqual(appendCurvePoint(smooth, [5, 5]).points[3], { at: [5, 5] });
+  console.log("edit.check: curve editing ok");
 }
 
 // ChemDraw's c key, and C typed as a label, show the carbon's label; setting an element (or Delete's first press)

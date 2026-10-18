@@ -1,36 +1,36 @@
 import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import {
-  ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom,
+  ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, Graph as GraphIcon, SelectionInverse, Cube, Flask, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom,
   AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen, FrameCorners,
   GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa,
   TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table,
-  FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, LineSegment, CompassTool, ArrowsVertical,
+  FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
+  EyeSlash, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
 import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
-import { MAX_PURPOSES, PURPOSES, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, sizesAt, type DocStyle, type Guides, type PurposeKind } from "./docstyle";
+import { MAX_PURPOSES, PURPOSES, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, sizesAt, darkColour, type DocStyle, type Guides, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
 import { Rulers } from "./Rulers";
-import { messy, problems } from "./check";
+import { messy, problems, showWarnedHydrogens } from "./check";
 import { parse, serialize } from "./file";
 import {
-  EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bounds, complete,
-  deleteAtom, deleteAtoms, deleteBond, erase, flipBond, addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours,
-  onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset, addShape, addSymbol, bondOrders, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec,
-  type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced,
-  markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, wholeIntegral, wholeGroups,
-  groupTargets, selectedGroups, outermost, outerGroups, pivotOf, toFront, addChain, chainPoints, chainThrough, snake, clickBond, dragBond, addGroupAt, farBond, jumpHot, keepHot, walkHot,
-  type Hot, keyElement, placeCentres, scaleSettings, scaleSizes, transformParts, medianBond, fitSizes, scaleAt,
+  EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bounds, complete, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
+  addChair, addGroup, addLane, addTemplate, alignFragments, cutReaction, deleteLane, moveLane, restyleSpot, atomsInPolygon, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset,
+  addShape, addSymbol, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
+  toFront, addChain, chainPoints, chainThrough, snake, clickBond, dragBond, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, placeCentres,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
+import { clean3d, MOST_3D } from "./clean3d";
 import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
 import { loadSettings, RULER_UNITS, saveSettings } from "./settings";
+import { Menu, menuWidth } from "./Menu";
 import { ACTIONS, actionFor, buttonTakes, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
-import { Actions, actionItems, FontPick, SearchGlyph, type Context } from "./Actions";
+import { Actions, ActionsMenu, actionItems, FontPick, HIGHLIGHT_COLOURS, RING_FILLS, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties, propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./Properties";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
@@ -59,10 +59,10 @@ import { layoutCycles, orderAround, spreadCycle, type Cycle, type CycleText } fr
 import { LIBRARY, libraryItem } from "./library";
 import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
 import {
-  ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, HOLD_MS, Palette, RingGlyph, RINGS, SELECTS, SymbolGlyph, SYMBOLS, TemplateGlyph,
-  type BondKind, type RingKind, type SelectKind, type Tool,
+  ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, ELLIPSES, HOLD_MS, Palette, pickHead, RingGlyph, RINGS, SELECTS, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
+  type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowShapes, bendPoint, curved, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign, ASCENT, DESCENT } from "./render";
+import { arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, ASCENT, DESCENT } from "./render";
 import { dragCursor, rotateCursor, selectCursor } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { loadNames, nameToSmiles, suggestName } from "./names";
@@ -70,8 +70,9 @@ import { checkedName, graphOf, setNamer } from "./naming";
 import { iupacName } from "./namer";
 
 setNamer(iupacName);
-import { loadTemplates, newTemplate, templateKind } from "./templates";
-import { formulaRuns } from "./labels";
+import { loadTemplates, MY_SET, newTemplate, setName, templateKind } from "./templates";
+import { formulaRuns, isElement } from "./labels";
+import { interpretLabels } from "./edit";
 import { common, edited, lines as richLines, normalise, plainOf, runsOf, styleRange, styled, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
 import { Dialog } from "./Dialog";
@@ -80,6 +81,7 @@ import { Exit, reduced, timing, tween } from "./motion";
 import { between, MOST_GLIDE, moving } from "./glide";
 import { Tooltips } from "./Tooltip";
 import { failure, fileName, type NoticeKind } from "./notice";
+import { Select } from "./Select";
 import "./editor.css";
 
 
@@ -88,6 +90,7 @@ const MOD = navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+";
 const EXPORT_KEYS = navigator.platform.startsWith("Mac") ? "⌃⌘E" : "⇧Ctrl+E";
 // In the desktop app the native menu owns undo, redo and the file commands; in a browser (dev only) the page does.
 const TAURI = "__TAURI_INTERNALS__" in window;
+const MAC = navigator.platform.startsWith("Mac");
 
 // Undo history: every edit pushes a new Mol; undo and redo move along the list.
 // merge: edits with the same key one after another (a slider being dragged) make one step.
@@ -109,13 +112,18 @@ const L = STYLE.bond; // px per bond length at 100%
 const OPEN_ZOOM = 1.25;
 const openZoom = (d: DocStyle) => OPEN_ZOOM / (frameStyle(d, L).k * d.scale);
 const SNAP = (15 * Math.PI) / 180; // dragged bonds snap to 15° steps
+// The menu commands and panel actions Edit > Repeat can run again: turns, flips, scaling, arrangement, frames, colours
+// and text styles.
+const REPEATS = /^(flip_[hv]|mirror_[hv]|flatten|arrange_\w+|frame_\w+|colour_\d+|colour_user_\d+|highlight_\d+|ringfill_\d+|text_\w+|size_\d+|font_\d+|align_\w+|curves_\w+|bring_front|send_back|rotate\.\w+|colour\.#\w+|halo\.#?\w+|ringfill\.#?\w+|caption\.(bold|italic|underline|plain|sub|super|formula|size\.\d+|font\..+)|arrow\.(style|start|end|head|size|fill)\.\w+)$/;
 const DOUBLE_MS = 500; // two clicks this close together (ms) are a double-click
 const toPath = (polys: P[][]) => polys.map((poly) => "M" + poly.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join("L") + "Z").join("");
 
 // A line, arc or orbital drawn the way arrows are: its kind, its bend for one sweep (signed by the drag), its style.
 type Make = { kind: "line" | "arc" | "orbital" | "cut"; bend?: number; style?: Arrow["style"]; orbital?: Arrow["orbital"] };
-// A handle: an arrow's ends or middle, or a picked caption's width.
-type Corner = "from" | "to" | "bend" | "width";
+// A handle: an arrow's ends or middle, or a picked caption's width. head: the barb of an arrow's end head, which
+// sizes the head. add: the mark in a straight arrow's middle, which a click turns into a point (and only then does
+// the arrow bend). A pen curve's point i: its anchor (at) or one of its handles (c1 in, c2 out).
+type Corner = "from" | "to" | "bend" | "width" | "head" | "add" | `p${number}:${"at" | "c1" | "c2"}`;
 // arrow: an arrow or a shape (they share ids).
 // key: the keyboard hotspot (ChemDraw's), put there by a key rather than by the pointer.
 type Hover = { atom?: number; bond?: number; caption?: number; arrow?: number; cycle?: number; step?: number; key?: true };
@@ -158,6 +166,9 @@ type Drag =
   // TLC: a spot moved (lane and Rf) or sized (Shift: width across, height up, tail down), or the origin or front moved.
   | { kind: "spot"; plate: number; index: number; base: Mol; from: P; size: boolean; moved: boolean; working: Mol }
   | { kind: "tlcline"; plate: number; which: "origin" | "front"; base: Mol; working: Mol }
+  | { kind: "lane"; plate: number; from: number; to: number; base: Mol; working: Mol } // a lane dragged by its origin tick
+  // A mark (lone pair, radical, circled or partial charge) moved round its atom by Shift-drag, by its key (Atom.angles).
+  | { kind: "mark"; atom: number; key: string; base: Mol; working: Mol }
   // Tables: a column or row border dragged with the Table tool (index 0 is the left or top edge).
   | { kind: "tableedge"; id: number; axis: "col" | "row"; index: number; base: Mol; working: Mol }
   | { kind: "tilt"; base: Mol; ids: Set<number>; centre: [number, number, number]; start: [number, number]; hinge?: [number, number]; working: Mol }
@@ -185,7 +196,7 @@ type PartFormat = "cdxml" | "oct" | "molfile" | "smiles";
 const sameHover = (a: Hover, b: Hover) => a.atom === b.atom && a.bond === b.bond && a.caption === b.caption && a.arrow === b.arrow && a.cycle === b.cycle && a.step === b.step && a.key === b.key;
 const nothing = (t: Hover) => t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined && t.cycle === undefined;
 // Ink as SVG path data, kept with the arrow or shape it is made from, for each document style.
-const arrowInks = new WeakMap<Arrow, [unknown, string]>(), shapeInks = new WeakMap<Shape, [unknown, string]>(), outlines = new WeakMap<object, [unknown, string]>();
+const arrowInks = new WeakMap<Arrow, [unknown, string]>(), shapeInks = new WeakMap<Shape, [unknown, string]>(), outlines = new WeakMap<object, [unknown, string]>(), blockOutlines = new WeakMap<Arrow, [unknown, P[]]>();
 // Octet's own calculators' values (props.ts), kept with the structure's values they are from (chem.ts keeps those by
 // structure), so each structure is worked out once.
 const calculated = new WeakMap<Structure, Calculated>();
@@ -198,8 +209,26 @@ function drawnRings(m: Mol): number[][] {
   return found;
 }
 
+// A ring by its atoms, whatever atom it starts at and whichever way round.
+const ringKey = (atoms: number[]) => [...atoms].sort((p, q) => p - q).join(",");
+// The rings a ring fill goes in: every ring wholly selected; failing that, every ring with a selected atom in it;
+// failing that, every ring of the structures the selection touches (a substituent picked).
+function fillRings(m: Mol, atoms: Set<number>): number[][] {
+  const all = drawnRings(m).filter((r) => r.length <= 12), whole = all.filter((r) => r.every((i) => atoms.has(i)));
+  if (whole.length) return whole;
+  const part = all.filter((r) => r.some((i) => atoms.has(i)));
+  if (part.length) return part;
+  const touched = new Set(fragments(m).filter((g) => g.some((i) => atoms.has(i))).flat());
+  return all.filter((r) => r.every((i) => touched.has(i)));
+}
+// The ring fill those rings share, if each has the same one.
+function fillOf(m: Mol, atoms: Set<number>): string | undefined {
+  const keys = new Set(fillRings(m, atoms).map(ringKey)), on = (m.fills ?? []).filter((f) => keys.has(ringKey(f.atoms)));
+  return on.length === keys.size && on.every((f) => f.colour === on[0].colour) ? on[0]?.colour : undefined;
+}
+
 // A caption's anchor in drawing coordinates: the start, middle or end of its first baseline.
-const anchorOf = (c: Placed): P => [(c.anchor === "start" ? c.box[0] : c.anchor === "end" ? c.box[2] : (c.box[0] + c.box[2]) / 2) / L, -c.lines[0].y / L];
+const anchorOf = (c: Placed): P => { const b = c.frame ?? c.box; return [(c.anchor === "start" ? b[0] : c.anchor === "end" ? b[2] : (b[0] + b[2]) / 2) / L, -c.lines[0].y / L]; };
 const union = (boxes: Box[]): Box | undefined => boxes.length ? [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))] : undefined;
 // The draft caption being typed sorts after every real one.
 const DRAFT = Number.MAX_SAFE_INTEGER;
@@ -266,6 +295,20 @@ const OCTET_CLIP = "application/x-octet+json";
 const CONTRACTED = ["OMe", "OEt", "OiPr", "OtBu", "OAc", "OBz", "OBn", "OPh", "OTs", "OMs", "OTf", "OTBS", "OTIPS", "OTBDPS", "OTMS", "OMOM", "OTHP", "OPMB",
   "CO2Me", "CO2Et", "CO2tBu", "CO2Bn", "CO2H", "CHO", "CN", "NO2", "CF3", "CCl3", "OCF3", "SMe", "SO2Me", "NMe2", "NEt2", "NHAc", "NHBoc", "NHCbz", "NHFmoc",
   "NHTs", "NBoc2", "CONH2", "CONMe2", "N3", "SO3H", "COMe", "COPh"];
+// Choose Nickname (the = key): Octet's group names, then the condensed labels, each drawn as its structure (made once).
+const NICKNAMES = [Object.keys(GROUPS), CONTRACTED];
+const nicknameMols = new Map<string, Mol | undefined>();
+const nicknameMol = (name: string) => {
+  if (!nicknameMols.has(name)) { const smiles = labelSmiles(name); try { nicknameMols.set(name, smiles ? parseStructure(smiles) : undefined); } catch { nicknameMols.set(name, undefined); } }
+  return nicknameMols.get(name);
+};
+// A caption Octet can read as an atom label (NH2, OMe, CH3OH): one word, not tied to a structure, arrow or cycle.
+const labelable = (c: Caption) => { const t = c.text.trim(); return !c.on && !c.under && !c.cycle && !!t && !/\s/.test(t) && (isElement(t) || !!labelSmiles(t)); };
+// A bond's style in the tool's list, if it is one of them.
+const bondKindOf = (b: Bond) => (Object.keys(BONDS) as BondKind[]).find((k) => { const spec: BondSpec = BONDS[k].spec; return spec.type === b.type && spec.stereo === b.stereo && spec.display === b.display; });
+// The Bond Properties list, in the order of ChemDraw's Bond Type list. A hydrogen bond is in it only on a hydrogen
+// bond: no bond becomes one, as in ChemDraw.
+const BOND_TYPES: BondKind[] = ["single", "dashed", "hashed", "hashwedge", "bold", "wedge", "wavy", "hollow", "dative", "double", "eitherdouble", "bolddouble", "aromaticdouble", "dasheddouble", "triple", "quadruple", "hydrogen"];
 let contracted: [string, string][] | undefined;
 function contractLabelText(want: string): string | undefined {
   contracted ??= [...CONTRACTED, ...Object.keys(GROUPS)].flatMap((name) => { const smiles = labelSmiles(name), inchi = smiles ? toInchi(`[Xe]${smiles}`) : undefined; return inchi ? [[name, inchi] as [string, string]] : []; });
@@ -293,11 +336,12 @@ const formulaWidth = (text: string, size: number, bold?: boolean, italic?: boole
 // A caption's text on the canvas. It draws again only when its layout or look changes, so typing in one caption
 // passes over all the others. reagent: its counts print as subscripts (reaction conditions, a cycle's reagents).
 const samePlaced = (a: Placed, b: Placed) => a === b || (a.id === b.id && a.size === b.size && a.bold === b.bold && a.italic === b.italic && a.underline === b.underline
-  && a.colour === b.colour && a.anchor === b.anchor && a.font === b.font && a.lines.length === b.lines.length
+  && a.colour === b.colour && a.anchor === b.anchor && a.font === b.font && a.angle === b.angle && a.lines.length === b.lines.length
   && a.lines.every((l, j) => l.text === b.lines[j].text && l.x === b.lines[j].x && l.y === b.lines[j].y && l.spacing === b.lines[j].spacing && JSON.stringify(l.runs) === JSON.stringify(b.lines[j].runs)));
 type CaptionProps = { c: Placed; fill: string; font: string; reagent: boolean; pt: number };
 const CaptionText = memo(({ c, fill, font, reagent, pt }: CaptionProps) => (
-  <text className="caption" textAnchor={c.anchor} textDecoration={c.underline ? "underline" : undefined} fill={fill} style={{ font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${c.size}px ${font}` }}>
+  <text className="caption" textAnchor={c.anchor} textDecoration={c.underline ? "underline" : undefined} fill={fill} style={{ font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${c.size}px ${font}` }}
+    transform={c.angle && c.pivot ? `rotate(${-c.angle} ${c.pivot[0]} ${c.pivot[1]})` : undefined}>
     {c.lines.map((l, j) => <tspan key={j} x={l.x} y={l.y} style={l.spacing ? { wordSpacing: l.spacing } : undefined}>{l.runs ? richSpans(l.runs, c.size, pt) : reagent ? formula(l.text, c.size) : l.text}</tspan>)}
   </text>
 ), (a: CaptionProps, b: CaptionProps) => a.fill === b.fill && a.font === b.font && a.reagent === b.reagent && a.pt === b.pt && samePlaced(a.c, b.c));
@@ -367,8 +411,8 @@ export default function Editor() {
   const templates = useMemo(() => loadTemplates(settings.templates), [settings.templates]);
   const ringKind = settings.variants.ring in RINGS || templates.some((t) => templateKind(t.id) === settings.variants.ring) || libraryItem(settings.variants.ring) ? settings.variants.ring : "benzene";
   const [renaming, setRenaming] = useState<string>();
-  function addRingTemplate(name: string, mol: Mol) {
-    const t = newTemplate(name, mol);
+  function addRingTemplate(name: string, mol: Mol, set?: string) {
+    const t = newTemplate(name, mol, set);
     setSettings((s) => ({ ...s, templates: [...s.templates, t], variants: { ...s.variants, ring: templateKind(t.id) } }));
     setTool("ring");
     return t;
@@ -381,10 +425,24 @@ export default function Editor() {
       variants: s.variants.ring === templateKind(id) ? { ...s.variants, ring: "benzene" } : s.variants,
     }));
   }
-  // The selection becomes a ring template; its name is typed in the ring list straight away.
-  const addSelectionAsRing = () => {
-    if (!selection.size) return;
-    setRenaming(addRingTemplate(`Ring ${templates.length + 1}`, subset(doc, selection)).id);
+  // The selection becomes a template, with everything in it (its text, arrows, shapes and look, as ChemDraw's templates
+  // keep them), in a set (My templates unless one is named); its name is typed in the Ring list straight away.
+  const addSelectionAsRing = (set?: string) => {
+    const part = selectedPart();
+    if (!part) return;
+    setRenaming(addRingTemplate(`${part.atoms.length ? "Ring" : "Template"} ${templates.length + 1}`, part, set).id);
+  };
+  // Template sets (the library's categories of the user's own): a new one, one renamed (its templates go with it), one
+  // removed (its templates go to My templates), and a template moved to another set.
+  const templateSets = {
+    add: (name: string) => setSettings((s) => (s.templateSets.includes(setName(name)) || setName(name) === MY_SET || !setName(name) ? s : { ...s, templateSets: [...s.templateSets, setName(name)] })),
+    rename: (from: string, name: string) => setSettings((s) => {
+      const to = setName(name);
+      if (!to || to === from || to === MY_SET || s.templateSets.includes(to)) return s;
+      return { ...s, templateSets: s.templateSets.map((x) => (x === from ? to : x)), templates: s.templates.map((t) => (t.set === from ? { ...t, set: to } : t)) };
+    }),
+    remove: (name: string) => setSettings((s) => ({ ...s, templateSets: s.templateSets.filter((x) => x !== name), templates: s.templates.map((t) => (t.set === name ? { ...t, set: undefined } : t)) })),
+    move: (id: string, set: string) => setSettings((s) => ({ ...s, templates: s.templates.map((t) => (t.id === id ? { ...t, set: set === MY_SET ? undefined : set } : t)) })),
   };
   const selectKind = (settings.variants.select in SELECTS ? settings.variants.select : "box") as SelectKind;
   const symbolKind = (settings.variants.symbol in SYMBOLS ? settings.variants.symbol : "plus") as SymbolKind;
@@ -395,6 +453,7 @@ export default function Editor() {
   const shapeChoice = shapeSpec(settings.variants.shape) ? settings.variants.shape : "box-plain";
   const bracketChoice = bracketSpec(settings.variants.bracket) ? settings.variants.bracket : "brackets";
   const shapePick = shapeSpec(shapeChoice)!, bracketPick = bracketSpec(bracketChoice)!;
+  const editCurve = tool === "shape" && "edit" in shapePick; // Edit curve in hand
   const orbitalChoice = orbitalSpec(settings.variants.orbital) ? settings.variants.orbital : "p-shaded";
   // A clicked orbital's tip: s orbitals a third of a bond across, lobes most of a bond long, pointing up, or for a
   // single lobe or hybrid on an atom, out into the atom's widest gap.
@@ -414,25 +473,30 @@ export default function Editor() {
     }
     const spec = tool === "bracket" ? bracketPick : shapePick;
     if (!("shape" in spec)) return undefined;
-    const style = { ...("dashed" in spec && spec.dashed ? { dashed: true } : {}), ...("fill" in spec && spec.fill ? { fill: spec.fill } : {}), ...("shadow" in spec && spec.shadow ? { shadow: true } : {}), ...("side" in spec && spec.side ? { side: spec.side } : {}) };
+    const style = { ...("dashed" in spec && spec.dashed ? { dashed: true } : {}), ...("fill" in spec && spec.fill ? { fill: spec.fill } : {}), ...("shadow" in spec && spec.shadow ? { shadow: true } : {}), ...("side" in spec && spec.side ? { side: spec.side } : {}), ...("bold" in spec && spec.bold ? { bold: true as const } : {}) };
     if ("circle" in spec && spec.circle) { const r = Math.hypot(to[0] - from[0], to[1] - from[1]); return { kind: "oval", from: [from[0] - r, from[1] - r], to: [from[0] + r, from[1] + r], ...style }; }
     return { kind: spec.shape, from, to, ...style };
   };
-  const arrowPick = arrowVariant(settings.variants.arrow) ?? { kind: "reaction" as ArrowKind };
+  const arrowPick: ArrowPick = arrowVariant(settings.variants.arrow) ?? { kind: "reaction" };
   const arrowKind = arrowPick.kind;
   // A new arrow of the kind in hand. A curved one is an arc of the sweep in hand, bent to the left of its line, or
   // to the right (side -1) when the drag curved that way.
-  const newArrow = (from: P, to: P, side = 1, make?: Make): Omit<Arrow, "id"> => (make
-    ? { ...make, from, to, ...(make.bend ? { bend: side * make.bend } : {}) }
-    : { kind: arrowKind, from, to, ...(curved({ kind: arrowKind }) ? { bend: side * sweepBend(arrowPick.sweep ?? 120) } : {}) });
+  // An elliptical one is a pen curve with a head. A size or ratio the variant names comes with it.
+  const newArrow = (from: P, to: P, side = 1, make?: Make): Omit<Arrow, "id"> => {
+    if (make) return { ...make, from, to, ...(make.bend ? { bend: side * make.bend } : {}) };
+    if (arrowPick.ellipse) return ellipseArrow(from, to, arrowPick.ellipse === "cw");
+    const head = pickHead(arrowPick);
+    return { kind: arrowKind, from, to, ...(curved({ kind: arrowKind }) ? { bend: side * sweepBend(arrowPick.sweep ?? 120) } : {}), ...(head ? { headSize: head } : {}), ...(arrowPick.ratio ? { ratio: arrowPick.ratio } : {}) };
+  };
   // The offered sweep nearest an arc's.
   const nearestSweep = (bend: number) => SWEEPS.reduce((best, s) => (Math.abs(s - sweepOf(bend)) < Math.abs(best - sweepOf(bend)) ? s : best));
   const bondSpec: BondSpec = BONDS[bondKind].spec;
   // What the pointer is over, for the cursor and the page and rotation handle highlights: the selection, the
   // selection's rotation handle, a table border with the Table tool (which way it drags), and a page's edge. It
   // changes as the pointer moves, so it lives in a store too.
-  const [overs] = useState(() => store<{ selection: boolean; turn: boolean; edge?: "col" | "row"; page?: string; resize?: Side; cross?: boolean }>({ selection: false, turn: false },
-    (a, b) => a.selection === b.selection && a.turn === b.turn && a.edge === b.edge && a.page === b.page && a.resize === b.resize && a.cross === b.cross));
+  // join: where Shift with the Arrow tool would start an arrow joined to another (an end, or a middle point).
+  const [overs] = useState(() => store<{ selection: boolean; turn: boolean; edge?: "col" | "row"; page?: string; resize?: Side; join?: P; cross?: boolean }>({ selection: false, turn: false },
+    (a, b) => a.selection === b.selection && a.turn === b.turn && a.edge === b.edge && a.page === b.page && a.resize === b.resize && a.join?.[0] === b.join?.[0] && a.join?.[1] === b.join?.[1] && a.cross === b.cross));
   // Where the eraser outline is drawn (drawing coordinates), while the Eraser is in hand. It follows the pointer, so
   // it lives in a store too.
   const [brushes] = useState(() => store<P | undefined>(undefined));
@@ -511,7 +575,7 @@ export default function Editor() {
   // so atoms drawn onto a grouped structure join its group (wholeGroups).
   // Returns the drawing as it goes in the history.
   const set = (mol: Mol, keepSelection = false, merge?: string) => {
-    const next = onTop(doc, wholeGroups(placeCentres(mol)), fragments);
+    const next = onTop(doc, wholeGroups(placeCentres(settings.warnings ? showWarnedHydrogens(mol) : mol)), fragments);
     dispatch({ type: "set", mol: next, merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
     return next;
@@ -664,7 +728,7 @@ export default function Editor() {
     const cdxml = f === "oct" ? formatOf(part, "cdxml") : undefined;
     let out: string | undefined;
     try {
-      out = (f === "cdxml" ? toCdxml(part, style, cdxmlOptions()) : f === "oct" ? cdxml && writeOct(part, style, cdxmlOptions(), cdxml)
+      out = (f === "cdxml" ? toCdxml(part, savedStyle(), cdxmlOptions()) : f === "oct" ? cdxml && writeOct(part, savedStyle(), cdxmlOptions(), cdxml)
         : part.atoms.length && loaded ? (f === "molfile" ? toMolfile(part) : toSmiles(part)) : undefined) || undefined;
     } catch { out = undefined; }
     return (kept.formats[f] = out);
@@ -743,7 +807,7 @@ export default function Editor() {
   // Resolves true when the drawing was saved.
   async function save(as: boolean): Promise<boolean> {
     try {
-      const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), contents: writeOct({ ...doc, guides }, style, cdxmlOptions()) });
+      const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), contents: writeOct({ ...doc, guides }, savedStyle(), cdxmlOptions()) });
       if (path) setFile({ path, saved: doc });
       // A save to a new place says where it went. A save in place does not: the window's title shows it.
       if (path && path !== file.path) saved(path);
@@ -847,7 +911,15 @@ export default function Editor() {
   function atomProperties(i: number | undefined) {
     if (i === undefined || !doc.atoms[i]) return setNotice("Select an atom first.", "info");
     const a = doc.atoms[i];
-    setDialog({ kind: "atom", atom: i, element: a.text ?? a.label, charge: String(a.charge ?? 0), isotope: a.isotope ? String(a.isotope) : "", radical: String(a.radical ?? 0) });
+    const enhanced = /^(abs|&|or)(\d*)$/.exec(a.enhanced ?? "");
+    setDialog({ kind: "atom", atom: i, element: a.text ?? a.label, charge: String(a.charge ?? 0), isotope: a.isotope ? String(a.isotope) : "", radical: String(a.radical ?? 0), stereo: enhanced?.[1] ?? "", group: enhanced?.[2] || "1" });
+  }
+  // Bond Properties (/ over a bond, or the Structure menu): the bond's type, in ChemDraw's order, and where a double
+  // bond's second line goes.
+  function bondProperties(k: number | undefined) {
+    const b = k === undefined ? undefined : doc.bonds[k];
+    if (!b) return setNotice("Select a bond first.");
+    setDialog({ kind: "bond", bond: k!, style: bondKindOf(b) ?? "single", position: b.position ?? "auto" });
   }
   // Show or hide atom numbers. Each atom's number is its place in its structure, counting from 1, as ChemDraw numbers
   // atoms in the order they were drawn. When every one of the atoms already shows its number, they are hidden.
@@ -908,6 +980,8 @@ export default function Editor() {
     void loadNames().then(() => setNamesLoaded(true));
     setNaming(c?.text ?? "");
   }
+  // The command Repeat runs again (see repeatLast).
+  const lastRepeat = useRef<{ menu?: string; action?: string; rotate?: number; scale?: number }>(undefined);
   // Menu commands. New and Open go on the undo list, so they never lose work.
   const commands = useRef<Record<string, () => void>>({});
   commands.current = {
@@ -922,7 +996,7 @@ export default function Editor() {
     save_as: () => void save(true),
     // While a label or caption is being typed, the Edit menu works on its text.
     undo: () => (typing() ? void document.execCommand("undo") : undo()),
-    redo: () => (typing() ? void document.execCommand("redo") : undo(true)),
+    redo: () => (typing() ? void document.execCommand("redo") : h.at < h.stack.length - 1 ? undo(true) : repeatLast()),
     select_all: () => {
       if (typing()) {
         const el = document.activeElement as HTMLElement;
@@ -1000,6 +1074,17 @@ export default function Editor() {
       set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.includes(i) ? { ...a, depth: off ? undefined : false } : a)) }, true);
     },
     flatten: () => set(flattenAtoms(doc, selection.size ? selection : new Set(doc.atoms.map((_, i) => i))), true),
+    // 3D Clean Up (⇧⌘D, Structure menu), as ChemDraw's: the selected structures (or every one) in 3D, drawn with depth,
+    // up to 500 atoms each; again to improve it. Then, as ChemDraw does, Select is Structure Perspective, to turn them.
+    clean_3d: () => {
+      const all = fragments(doc).filter((g) => !selection.size || g.some((i) => selection.has(i))), ok = all.filter((g) => g.length <= MOST_3D && g.length > 1);
+      if (all.some((g) => g.length > MOST_3D)) setNotice(`Octet cannot clean up in 3D a structure of more than ${MOST_3D} atoms.`);
+      if (!ok.length) return;
+      // Each structure on its own, so the time grows with the structures and not with all their atoms squared.
+      set(ok.reduce((m, g) => clean3d(m, g), doc), true);
+      setSettings((s) => ({ ...s, variants: { ...s.variants, select: "perspective" } }));
+      setTool("select");
+    },
     // Align (⇧⌥⌘ L, C, R, T, M, B) and Distribute (⇧⌥⌘ H, V), as ChemDraw's Object menu: every selected structure,
     // group and object is one thing; they line up on the one highest on the page, or space out evenly between the
     // two at the ends.
@@ -1010,6 +1095,25 @@ export default function Editor() {
     // is", which loses that. Median bond to types the chosen bonds' median in. With no bond chosen, it opens on Scale by
     // 100% (the median rows are dimmed).
     scale_dialog: () => setDialog({ kind: "scale", how: chosenMedian() ? "document" : "percent", value: "100" }),
+    // Join (⌘J), as ChemDraw's Object > Join: atoms or bonds from different structures become one (joinSelection).
+    join: () => {
+      const m = joinSelection(doc, selection);
+      if (!m) return setNotice("Select one atom in each structure, or one bond in each of two structures.");
+      set(m);
+    },
+    // Center on Page (Object menu), as ChemDraw's: the box round the selection (its labels and text too), or round
+    // the whole drawing, moves so its middle is the middle of the page.
+    centre_page: () => {
+      const { atoms, items } = chosen(), b = drawnBox(atoms, items);
+      if (!b) return;
+      // The page's middle is the drawing's origin. drawnBox is in px, y down.
+      const d: P = [-(b[0] + b[2]) / 2 / L, (b[1] + b[3]) / 2 / L];
+      if (Math.hypot(...d) > 1e-9) set(transformParts(doc, atoms, items, (q) => [q[0] + d[0], q[1] + d[1]], [1, 1], captionMiddles()), true);
+    },
+    // Repeat (Edit menu, and ⌘Y when there is nothing to redo), as ChemDraw's.
+    repeat: () => repeatLast(),
+    // The whole structure of the selected atom or bond (ChemDraw's Molecule > Select), as Space over it selects it.
+    select_structure: () => choose(fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat(), picked),
     // Group (⌘G) and Ungroup (⇧⌘G), as ChemDraw's: the selected structures and objects select and move as one.
     group: () => {
       const r = groupSelection(doc, selection, picked);
@@ -1047,6 +1151,8 @@ export default function Editor() {
     about: () => setAbout(true),
     // Atom Properties (Structure menu): the selected atom's element or label, charge, isotope and radical.
     atom_properties: () => atomProperties([...selection][0] ?? hovers.get().atom),
+    // Bond Properties (Structure menu): the selected bond's (or the one under the pointer).
+    bond_properties: () => bondProperties(selection.size === 2 ? doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])) : hovers.get().bond),
     // Show Atom Number (Object menu): each atom's number beside it, for the selected atoms or the whole drawing.
     atom_numbers: () => numberAtoms(selection.size ? [...selection] : doc.atoms.map((_, i) => i)),
     // Page Setup (⇧⌘P): the page's size and orientation, which live in the document's settings.
@@ -1063,7 +1169,7 @@ export default function Editor() {
     // Expand Label (Structure menu): each selected label (OMe, CO2Et, Boc) drawn out as its atoms.
     expand_label: () => {
       let m = doc;
-      const labelled = [...selection].filter((i) => doc.atoms[i]?.text).sort((a, b) => b - a);
+      const labelled = [...selection].filter((i) => doc.atoms[i]?.text && doc.atoms[i].chemical !== false).sort((a, b) => b - a);
       if (!labelled.length) return setNotice("Select a labelled atom, such as OMe or Boc.", "info");
       for (const i of labelled) {
         const smiles = labelSmiles(doc.atoms[i].text!);
@@ -1072,8 +1178,42 @@ export default function Editor() {
       }
       set(m);
     },
+    // Interpret Chemically, as ChemDraw's (on labels and captions): the selected labels become text, not chemistry, and
+    // a label with no bonds becomes a caption where it was; or they are chemistry again. A picked caption that reads as
+    // a label becomes an atom with that label.
+    interpret: () => {
+      const ids = [...selection].filter((i) => drawing.label[i]);
+      if (ids.length) {
+        const on = ids.some((i) => doc.atoms[i].chemical === false), lone = on ? [] : ids.filter((i) => !neighbours(doc, i).length);
+        let m = interpretLabels(doc, ids, on, style.hideH);
+        for (const i of lone) {
+          const a = m.atoms[i], k = (a.size ?? style.labelSize) / style.labelSize, first = measure((doc.atoms[i].text ?? a.label)[0]);
+          const runs = formulaRuns(a.text!).map((r) => (r.sub ? { text: r.text, script: "sub" as const } : { text: r.text }));
+          [m] = addCaption(m, { text: a.text!, x: drawing.label[i]![0] / L, y: (a.location[1] * L - (first.ascent * k) / 2) / L, align: "left", ...(runs.some((r) => r.script) ? { runs } : {}),
+            ...(a.size || style.labelSize !== style.captionSize ? { size: a.size ?? style.labelSize } : {}), ...(a.font || style.labelFont !== style.captionFont ? { font: a.font ?? style.labelFont } : {}),
+            ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}), ...(a.colour ? { colour: a.colour } : {}) });
+        }
+        if (lone.length) { m = deleteAtoms(m, new Set(lone)); setSelection(new Set()); }
+        return set(m, true);
+      }
+      const caps = (doc.captions ?? []).filter((c) => picked.has(c.id) && labelable(c));
+      if (!caps.length) return setNotice("Select a label, or a caption that reads as a label.");
+      let m = doc;
+      for (const c of caps) {
+        const p = placed.find((x) => x.id === c.id), t = c.text.trim();
+        if (!p) continue;
+        // The label's first glyph goes where the caption's was, as an atom label sits on its atom.
+        const first = measure(t[0]), k = p.size / frame.size, size = c.size ?? style.captionSize, font = c.font ?? style.captionFont;
+        const at: [number, number, number] = [(p.box[0] + (first.width * k) / 2) / L, -(p.lines[0].y - (first.ascent * k) / 2) / L, 0];
+        m = setLabel({ ...m, atoms: [...m.atoms, { label: "C", location: at, ...(size !== style.labelSize ? { size } : {}), ...(font !== style.labelFont ? { font } : {}),
+          ...(c.bold ? { bold: true as const } : {}), ...(c.italic ? { italic: true as const } : {}), ...(c.underline ? { underline: true as const } : {}), ...(c.colour ? { colour: c.colour } : {}) }] }, m.atoms.length, t);
+      }
+      setPicked(new Set());
+      return set(deleteGraphics(m, new Set(caps.map((c) => c.id))), true);
+    },
     // Contract Label (Structure menu): the selected substituent (joined to the rest by one bond) becomes one labelled
     // atom: the abbreviation it is (OMe, CO2Et, Boc, TBS), recognised whatever way it was drawn, or else its formula.
+    // The label to contract to is asked for, as in ChemDraw, with Octet's suggestion filled in.
     contract_label: () => {
       const group = new Set([...selection].filter((i) => i < doc.atoms.length));
       const links = doc.bonds.filter((b) => group.has(b.atoms[0]) !== group.has(b.atoms[1]));
@@ -1083,8 +1223,15 @@ export default function Editor() {
       const capped = subset({ ...doc, atoms: doc.atoms.map((a, i) => (i === outside ? { ...a, label: "Xe", text: undefined, charge: undefined } : a)) }, new Set([...group, outside]));
       const want = toInchi(capped), text = want && contractLabelText(want);
       const formula = analyse(subset(doc, group))?.[0]?.formula;
-      set(contractLabel(doc, keep, group, text ?? formula ?? "R"));
-      setSelection(new Set());
+      setDialog({ kind: "contract", text: text ?? formula ?? "R", keep, group: [...group], want });
+    },
+    // Toggle Hydrogen Display (Structure menu): explicit H atoms on carbon in the selection (or the drawing) hidden or
+    // shown again, as ChemDraw's.
+    hydrogen_display: () => {
+      const m = toggleHydrogens(doc, selection.size ? selection : doc.atoms.map((_, i) => i));
+      // An H on an atom with a warning stays shown (set shows it again).
+      const same = (settings.warnings ? showWarnedHydrogens(m) : m).atoms.every((a, i) => a.hidden === doc.atoms[i].hidden);
+      return same ? setNotice("Select a structure with H atoms on carbon.") : set(m, true);
     },
     // Toggle Aromatic Display (⌥⌘K): the selected structures' aromatic rings with circles, or back to Kekulé bonds.
     aromatic_display: () => {
@@ -1125,10 +1272,13 @@ export default function Editor() {
     },
     text_italic: () => runAction("caption.italic"),
     text_underline: () => runAction("caption.underline"),
-    align_left: () => restyle(() => ({ align: "left" })),
-    align_centre: () => restyle(() => ({ align: "centre" })),
-    align_right: () => restyle(() => ({ align: "right" })),
+    // Text alignment: on captions, and on the selected atom labels (with Stacked Above and Automatic), as in ChemDraw.
+    align_left: () => runAction("caption.align.left"),
+    align_centre: () => runAction("caption.align.centre"),
+    align_right: () => runAction("caption.align.right"),
     align_justify: () => restyle(() => ({ align: "justify" })),
+    align_above: () => runAction("caption.align.above"),
+    align_auto: () => runAction("caption.align.auto"),
     // The Curves menu: line styles, heads at either end (again takes one off), and a closed curve's fill.
     ...Object.fromEntries(["plain", "dashed", "bold", "doubled"].map((st) => [`curves_${st}`, () => runAction(`arrow.style.${st}`)])),
     ...Object.fromEntries((["start", "end"] as const).flatMap((at) => (["full", "left", "right"] as const).map((h) => [`curves_${at}_${h}`, () => runAction(`arrow.${at}.${h}`)]))),
@@ -1136,7 +1286,12 @@ export default function Editor() {
     ...Object.fromEntries(["solid", "shaded", "faded"].map((f) => [`curves_${f}`, () => runAction(`arrow.fill.${f}`)])),
     // The Colour menu: each colour in COLOURS by its place, and Other Colour… for the system picker.
     ...Object.fromEntries(COLOURS.map(([, hex], k) => [`colour_${k}`, () => runAction(`colour.${hex}`)])),
-    ...Object.fromEntries(settings.palette.map((c, k) => [`colour_user_${k}`, () => runAction(`colour.${c.hex}`)])),
+    // The user's colours, then the drawing's own (its saved palette and the colours it uses), as the menu lists them.
+    ...Object.fromEntries(Array.from({ length: 44 }, (_, k) => [`colour_user_${k}`, () => { const c = [...settings.palette, ...docColours][k]; if (c) runAction(`colour.${c.hex}`); }])),
+    // By Element, Highlight and Ring Fill, as in the Actions panel (and ChemDraw's Colors menu and toolbars).
+    colour_by_element: () => colourByElement(),
+    ...Object.fromEntries(["none", ...HIGHLIGHT_COLOURS.map(([, hex]) => hex)].map((v, k) => [`highlight_${k}`, () => runAction(`halo.${v}`)])),
+    ...Object.fromEntries(["none", ...RING_FILLS.map(([, hex]) => hex)].map((v, k) => [`ringfill_${k}`, () => runAction(`ringfill.${v}`)])),
     colour_other: () => setSettingsOpen("appearance"),
     colours_add: () => { setAddingColour(true); setSettingsOpen("appearance"); },
     // Text > Size (its sizes are set with the font list, below): Other Size… types any size; Last Typed Size uses that
@@ -1156,6 +1311,20 @@ export default function Editor() {
       moveView({ zoom, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * L * zoom, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * L * zoom });
     },
   };
+  // Edit > Repeat, as ChemDraw's: the last turn, flip, scale, arrangement, frame, colour or text style again, on what
+  // is selected now. Each of those menu commands, panel actions and dialogs notes itself as the one to repeat.
+  for (const id of Object.keys(commands.current)) {
+    if (!REPEATS.test(id)) continue;
+    const run = commands.current[id];
+    commands.current[id] = () => { lastRepeat.current = { menu: id }; run(); };
+  }
+  function repeatLast() {
+    const r = lastRepeat.current;
+    if (r?.menu) commands.current[r.menu]?.();
+    else if (r?.action) runAction(r.action);
+    else if (r?.rotate !== undefined) rotateBy(r.rotate);
+    else if (r?.scale !== undefined) scaleBy(r.scale);
+  }
   function zoomTo(target: number) {
     const view = views.get(), zoom = clampZoom(target), k = zoom / view.zoom, cx = innerWidth / 2, cy = innerHeight / 2;
     moveView({ zoom, x: cx - (cx - view.x) * k, y: cy - (cy - view.y) * k });
@@ -1168,11 +1337,6 @@ export default function Editor() {
     if (TAURI) syncChecks();
   }, [settings]);
   useEffect(() => { if (TAURI) syncChecks(); }, [guides]); // eslint-disable-line react-hooks/exhaustive-deps
-  // The Colour menu lists the user's colours by name: the menu bar is built again when they change.
-  const paletteNames = settings.palette.map((c) => c.name).join("\n");
-  useEffect(() => {
-    if (TAURI) invoke("set_palette", { names: settings.palette.map((c) => c.name) }).then(syncChecks).catch(() => {});
-  }, [paletteNames]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!TAURI) return;
     // Over a dialog or Settings, the menu only edits the text in its fields, as a Mac app's menu does over a sheet.
@@ -1228,7 +1392,7 @@ export default function Editor() {
     if (drag?.kind === "bond" && drag.to) return dragBond(doc, drag.from, drag.to, bondSpec);
     if (drag?.kind === "chain" && drag.to) return chainThrough(doc, drag.from, chainPath(drag)).mol;
     if (drag?.kind === "ring" && drag.to) return ringDrop(drag);
-    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "resize" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "tableedge") return placeCentres(drag.working);
+    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "resize" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "lane" || drag?.kind === "tableedge" || drag?.kind === "mark") return placeCentres(drag.working);
     if (drag?.kind === "arrow" && drag.to) return addArrow(doc, newArrow(drag.from, drag.to, drag.side, drag.make))[0];
     if (drag?.kind === "shape" && drag.to) { const sh = shapeFrom(drag.from, drag.to); return sh ? addShape(doc, sh)[0] : doc; }
     if (pen || drag?.kind === "pen") {
@@ -1263,7 +1427,7 @@ export default function Editor() {
   const labelText = (ids: number[]) => {
     const i = ids.find((k) => drawing.label[k]), a = i === undefined ? undefined : doc.atoms[i];
     // The size the label is drawn at: its own size (or the document's) times its atom's scale.
-    return a && { bold: !!a.bold, italic: !!a.italic, underline: !!a.underline, font: a.font ?? style.labelFont, size: Math.round((a.size ?? style.labelSize) * scaleOf(a) * 100) / 100 };
+    return a && { bold: !!a.bold, italic: !!a.italic, underline: !!a.underline, font: a.font ?? style.labelFont, size: Math.round((a.size ?? style.labelSize) * scaleOf(a) * 100) / 100, align: a.align ?? "auto", chemical: a.chemical !== false };
   };
   // An atom label's font: its own font, bold and italic when it has them, else the document's label font.
   const labelFont = (l: { size: number; font?: string; bold?: boolean; italic?: boolean }) =>
@@ -1311,7 +1475,9 @@ export default function Editor() {
     q.addEventListener("change", on);
     return () => q.removeEventListener("change", on);
   }, []);
-  const paper = style.background === "system" ? (systemDark ? "dark" : "white") : style.background;
+  // A colour of the user's own is dark or light paper by how light it is.
+  const own = style.background.startsWith("#") ? style.background : undefined;
+  const paper = style.background === "system" ? (systemDark ? "dark" : "white") : own ? (darkColour(own) ? "dark" : "white") : style.background;
   const darkPaper = paper === "dark" || paper === "blueprint";
   const textInk = (c: string) => (darkPaper && /^#(000000|0f172a)$/i.test(c) ? "#FFFFFF" : c);
   // The page outlines (mm): the page, then what the drawing's purpose needs (IDEA-SIZE-6).
@@ -1378,14 +1544,33 @@ export default function Editor() {
   const [addingColour, setAddingColour] = useState(false); // Settings opened from a colour row's +, to add a colour
   // Object > Rotate… (⌘R) and Scale… (⌘K): the dialog open, and what is typed in it.
   const [about, setAbout] = useState(false);
+  // The right-click menu (ActionsMenu): where it opens, and whether a key opened it. noMenu: a Control-press on the Mac
+  // that went to a resize handle (Control there turns Labels and lines over), whose right-click opens no menu.
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number; keyboard?: boolean }>();
+  const noMenu = useRef(false);
   // The Select tool's modifiers at the last press, and the selection before it, for a click with Shift or Option.
   const pressMods = useRef<{ shift: boolean; alt: boolean; atoms: Set<number>; picks: Set<number> } | undefined>(undefined);
+  // Option held at the last press, with any tool (Option-click opens or repeats a label).
+  const pressAlt = useRef(false);
   const [exportView, setExportView] = useState<{ all?: string; selection?: string; parts: { all: Mol; selection?: Mol } }>();
   const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }
-    | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string }
+    | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string; stereo: string; group: string }
+    | { kind: "contract"; text: string; keep: number; group: number[]; want?: string; warn?: string }
+    | { kind: "bond"; bond: number; style: BondKind; position: "auto" | "left" | "centre" | "right" }
     | { kind: "font"; font: string } | { kind: "size"; size: string } | { kind: "spacing"; mode: "auto" | "variable" | "fixed"; pt: string }
-    | { kind: "unsaved"; next: () => void } | { kind: "chain"; from: number | P; atoms: string }>();
+    | { kind: "unsaved"; next: () => void } | { kind: "rf"; plate: number; index: number; value: string } | { kind: "chain"; from: number | P; atoms: string }>();
   const [commandsOpen, setCommandsOpen] = useState(false);
+  // Choose Nickname: the list open by an atom (its place on screen). A click outside it or Escape closes it.
+  const [nicknames, setNicknames] = useState<{ atom: number; x: number; y: number }>();
+  const nicknameBox = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!nicknames) return;
+    const away = (e: PointerEvent) => { if (!nicknameBox.current?.contains(e.target as Node)) setNicknames(undefined); };
+    const escape = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setNicknames(undefined); } };
+    addEventListener("pointerdown", away, true);
+    addEventListener("keydown", escape, true);
+    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); };
+  }, [nicknames]);
   // An arrow Octet offers after a row of starting materials (from Clean up). Tab draws it; any other change drops it.
   const [offer, setOffer] = useState<{ from: P; to: P; doc: Mol }>();
   useEffect(() => { if (offer && offer.doc !== doc) setOffer(undefined); }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1549,7 +1734,9 @@ export default function Editor() {
   // Which step of a cycle was last pressed: reagents and products go on that step.
   const [cycleStep, setCycleStep] = useState(0);
   // The arrow under a point (drawing coordinates), within a few px of its line.
-  const arrowAt = (p: P) => [...arrows].reverse().find((a) => !isOrbital(a) && nearTrace([p[0] * L, -p[1] * L], arrowTrace(a, L), 5 / views.get().zoom + frame.line * 2 * scaleOf(a)))?.id;
+  // A block arrow is hit anywhere inside its outline too.
+  const arrowAt = (p: P) => [...arrows].reverse().find((a) => !isOrbital(a) && (nearTrace([p[0] * L, -p[1] * L], arrowTrace(a, L), 5 / views.get().zoom + frame.line * 2 * scaleOf(a))
+    || (a.kind === "block" && inPolygon([p[0] * L, -p[1] * L], kept(blockOutlines, a, frame, () => blockOutline(a, frame, L))))))?.id;
   // The orbital whose lobes a point is in.
   const orbitalAt = (p: P) => [...arrows].reverse().find((a) => isOrbital(a) && lobesOf(a, L).some((l) => inPolygon([p[0] * L, -p[1] * L], l.path)))?.id;
   // The shape whose line is under a point; with the Select tool, also a highlight the point is inside.
@@ -1565,6 +1752,22 @@ export default function Editor() {
   // drags it (Option: a copy of it; Shift: its size); on the origin or front, moves that line; anywhere else on the
   // plate, adds a spot there. A spot pressed and not moved is picked, for its colour, style and size.
   const [spotPick, setSpotPick] = useState<{ plate: number; index: number }>();
+  // The lane a plate's lane actions act on (Add, Duplicate and Delete Lane): the last one pressed or right-clicked, as
+  // ChemDraw's act on the lane under the pointer.
+  const [lanePick, setLanePick] = useState<{ plate: number; lane: number }>();
+  const laneOf = (sh: Shape, p: P) => { const t = tlcLayout(sh); return Math.min(t.lanes - 1, Math.max(0, Math.floor((p[0] - t.x0) / t.width))); };
+  // A lane's origin tick under a point, within 5 px.
+  const tickAt = (sh: Shape, p: P) => {
+    const t = tlcLayout(sh), near = 5 / (views.get().zoom * L);
+    if (sh.tlc?.hide?.includes("origin") || Math.abs(p[1] - t.origin) > near) return undefined;
+    const k = laneOf(sh, p);
+    return Math.abs(p[0] - t.lane(k)) < near ? k : undefined;
+  };
+  // The spot whose Rf value (shown) is under a point.
+  const rfAt = (sh: Shape, p: P) => {
+    const t = tlcLayout(sh);
+    return (sh.tlc?.spots ?? []).findIndex((x) => (sh.tlc?.rf || x.showRf) && p[0] >= t.lane(x.lane) + t.size(x).rx && p[0] <= t.lane(x.lane) + t.size(x).rx + 0.8 * t.f && Math.abs(p[1] - t.at(x.rf) + 0.05 * t.f) < 0.2 * t.f);
+  };
   // A spot is hit within 4 px of its edge (its tail included), the nearest one first.
   const spotHit = (sh: Shape, p: P) => {
     const t = tlcLayout(sh), slack = 4 / (views.get().zoom * L);
@@ -1581,6 +1784,7 @@ export default function Editor() {
   const spotAt = (sh: Shape, p: P, screen: [number, number], copy: boolean, size: boolean) => {
     setSelection(new Set());
     setPicked(new Set([sh.id]));
+    setLanePick({ plate: sh.id, lane: laneOf(sh, p) });
     const t = tlcLayout(sh), spots = sh.tlc?.spots ?? [], hit = spotHit(sh, p);
     if (hit >= 0) {
       const base = copy ? updateShape(doc, sh.id, { tlc: { ...sh.tlc!, spots: [...spots, { ...spots[hit] }] } }) : doc;
@@ -1594,12 +1798,16 @@ export default function Editor() {
     setSpotPick({ plate: sh.id, index: spots.length });
     void screen;
   };
-  useEffect(() => { if (spotPick && (!picked.has(spotPick.plate) || picked.size !== 1)) setSpotPick(undefined); }, [picked]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (spotPick && (!picked.has(spotPick.plate) || picked.size !== 1)) setSpotPick(undefined);
+    if (lanePick && !picked.has(lanePick.plate)) setLanePick(undefined);
+  }, [picked]); // eslint-disable-line react-hooks/exhaustive-deps
   // A spot's changes, on the plate it is on.
-  const editSpot = (m: Mol, plate: number, index: number, change: (x: NonNullable<Shape["tlc"]>["spots"][number]) => Partial<NonNullable<Shape["tlc"]>["spots"][number]>): Mol => {
+  // whole: the change is the whole new spot (so what it leaves out goes).
+  const editSpot = (m: Mol, plate: number, index: number, change: (x: Spot) => Partial<Spot>, whole = false): Mol => {
     const sh = m.shapes?.find((x) => x.id === plate);
     if (!sh?.tlc) return m;
-    return updateShape(m, plate, { tlc: { ...sh.tlc, spots: sh.tlc.spots.map((x, i) => (i === index ? { ...x, ...change(x) } : x)) } });
+    return updateShape(m, plate, { tlc: { ...sh.tlc, spots: sh.tlc.spots.map((x, i) => (i === index ? (whole ? change(x) as Spot : { ...x, ...change(x) }) : x)) } });
   };
   // Tables: a cell's text width (drawing units), the table a point is on, and opening a cell to type in.
   const cellWidth = (sh: Shape) => (text: string) => formulaWidth(text, (sh.size ?? style.captionSize) * pt, sh.bold, sh.italic, fontStack(sh.font ?? style.captionFont)) / L;
@@ -1661,8 +1869,12 @@ export default function Editor() {
   }
   // The caption under a point (drawing coordinates), with a few px of slack.
   const captionAt = (p: P) => {
-    const [x, y] = [p[0] * L, -p[1] * L], pad = 3 / views.get().zoom;
-    return [...placed].reverse().find((c) => c.id !== DRAFT && x >= c.box[0] - pad && x <= c.box[2] + pad && y >= c.box[1] - pad && y <= c.box[3] + pad)?.id;
+    const at: P = [p[0] * L, -p[1] * L], pad = 3 / views.get().zoom;
+    // A turned caption: the point turned back about its pivot, against its own box.
+    return [...placed].reverse().find((c) => {
+      const [x, y] = c.angle && c.pivot ? turnPx(at, c.pivot, -c.angle) : at, b = c.frame ?? c.box;
+      return c.id !== DRAFT && x >= b[0] - pad && x <= b[2] + pad && y >= b[1] - pad && y <= b[3] + pad;
+    })?.id;
   };
   // A reaction around an arrow, from what is drawn now: structures' and captions' boxes in drawing units.
   const reactionOf = (arrowId: number) => findReaction(doc, arrowId, arrows,
@@ -1765,7 +1977,7 @@ export default function Editor() {
   // Curved arrows start and end on atoms and bond middles, where electrons are.
   const electronAt = (p: P, t: Hover): P => {
     // A lone pair or radical dot near the pointer comes first: the arrow starts at the electrons themselves.
-    const near = drawing.electrons.map((e) => ({ e, d: Math.hypot(e.at[0] / L - p[0], -e.at[1] / L - p[1]) })).filter((x) => x.d < 0.3).sort((a, b) => a.d - b.d)[0];
+    const near = drawing.electrons.filter((e) => e.key !== "charge" && e.key !== "partial").map((e) => ({ e, d: Math.hypot(e.at[0] / L - p[0], -e.at[1] / L - p[1]) })).filter((x) => x.d < 0.3).sort((a, b) => a.d - b.d)[0];
     if (near) return [near.e.at[0] / L, -near.e.at[1] / L];
     if (t.atom !== undefined) return pos(doc, t.atom);
     if (t.bond !== undefined) { const [a, b] = doc.bonds[t.bond].atoms.map((i) => pos(doc, i)); return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; }
@@ -1810,6 +2022,7 @@ export default function Editor() {
 
   // Typing captions. Enter, Escape or a click elsewhere keeps the text. Empty text deletes the caption.
   function startWriting(target: { id: number } | { at: P }) {
+    tabRow.current = undefined;
     setSelection(new Set());
     setPicked(new Set());
     if ("id" in target) {
@@ -1823,6 +2036,23 @@ export default function Editor() {
     // Clicked just under a structure: the caption is centred under it, by the ACS rule.
     const under = structureAbove(target.at);
     openWriting(under ? { value: "", under, style: { ...textStyle } } : { value: "", at: target.at, style: { align: "left", ...textStyle } });
+  }
+  // Tab in a new caption makes a quick table, as in ChemDraw: the caption is kept and the next one starts 20 pt to its
+  // right (or under the column the rows above have there), in that column's style; Tab on an empty caption starts a
+  // new row 20 pt under the first caption of the row.
+  const tabRow = useRef<{ x: number[]; style: Partial<Caption>[]; k: number }>(undefined);
+  function tabCaption() {
+    const w = writing, at = w?.at;
+    if (!w || !at) return;
+    const text = w.value.replace(/\s+$/, ""), gap = (20 * pt) / L, row = tabRow.current ?? { x: [at[0]], style: [w.style], k: 0 };
+    commitWriting();
+    if (!text) { tabRow.current = { ...row, k: 0 }; return openWriting({ value: "", at: [row.x[0], at[1] - gap], style: { ...row.style[0] } }); }
+    const size = (w.style.size ?? style.captionSize) * pt, font = fontStack(w.style.font ?? style.captionFont), align = w.style.align ?? "left";
+    const wide = Math.max(...text.split("\n").map((t) => textWidth(t, size, w.style.bold, w.style.italic, font))) / L, k = row.k + 1;
+    row.style[row.k] = w.style;
+    if (row.x[k] === undefined) row.x[k] = at[0] + wide * (align === "right" ? 0 : align === "centre" ? 0.5 : 1) + gap;
+    tabRow.current = { ...row, k };
+    openWriting({ value: "", at: [row.x[k], at[1]], style: { ...(row.style[k] ?? w.style) } });
   }
   function commitWriting() {
     const w = writing;
@@ -1958,6 +2188,8 @@ export default function Editor() {
     hold.current = undefined;
     setHolding(undefined);
   };
+  const addPoint = useRef<number>(undefined); // the arrow whose middle mark the press went down on
+  const editPress = useRef<number>(undefined); // the curve Edit curve had picked when the press went down
   const holdFrom = useRef<[number, number]>(undefined); // where the press that may become a hold went down
 
   // Select tool press: on something selected, move the selection; on something else, select it and move it;
@@ -2062,8 +2294,10 @@ export default function Editor() {
   };
   const turnTo = (mol: Mol, centre: P) => { lastTurn.current = { mol, selection, picked, centre }; set(mol, true); };
   // A turn of 15° or more glides round the centre, so the structure keeps its shape on the way (a 1° turn is at once).
+  // Every turn by an angle (the Turn keys and actions, Rotate…) is the one Edit > Repeat does next.
   const rotateBy = (degrees: number) => {
     const c = turnCentre(), mol = turnedParts(doc, degrees, c), from = doc;
+    lastRepeat.current = { rotate: degrees };
     lastTurn.current = { mol, selection, picked, centre: c };
     glideTo(mol, Math.abs(degrees) >= 15 && ((t) => turnedParts(from, degrees * t, c)));
   };
@@ -2075,6 +2309,7 @@ export default function Editor() {
   }
   function scaleBy(k: number, lines = scalesText()) {
     if (!(k > 0) || !Number.isFinite(k)) return;
+    lastRepeat.current = { scale: k };
     commitScale([k, k], selectionMiddle(), lines);
   }
   // The median bond length of what is chosen, in drawing units: bonds with both atoms chosen. Undefined with none.
@@ -2262,7 +2497,7 @@ export default function Editor() {
   const HANDLE_GAP = 0.35; // em: the handle's clearance from the text
   const widthHandle = (): { id: number; at: P; c: Placed } | undefined => {
     const ids = [...picked], c = ids.length === 1 && !selection.size ? placed.find((x) => x.id === ids[0]) : undefined, w = c && shown.captions?.find((x) => x.id === c.id)?.width;
-    if (!c || writing) return undefined;
+    if (!c || writing || c.angle) return undefined; // a turned caption keeps its width (its handle would not turn with it)
     const x = c.lines[0].x, k = w ? w * L : 0, m = HANDLE_GAP * c.size;
     const hx = c.anchor === "end" ? (w ? x - k : c.box[0]) - m : (c.anchor === "middle" ? (w ? x + k / 2 : c.box[2]) : w ? x + k : c.box[2]) + m;
     return { id: c.id, at: [hx / L, -(c.box[1] + c.box[3]) / 2 / L], c };
@@ -2273,9 +2508,34 @@ export default function Editor() {
     const near = (q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) * L * views.get().zoom < 8;
     const wh = widthHandle();
     if (wh && near(wh.at)) return { id: wh.id, which: "width" };
-    if (!a || a.kind === "curve") return undefined;
-    return near(a.to) ? { id: a.id, which: "to" } : near(a.from) ? { id: a.id, which: "from" } : curved(a) && near(bendPoint(a)) ? { id: a.id, which: "bend" } : undefined;
+    // A picked pen curve's anchors, then their handles.
+    if (a?.kind === "curve" && a.curve) {
+      const i = a.curve.points.findIndex((q) => near(q.at));
+      if (i >= 0) return { id: a.id, which: `p${i}:at` };
+      for (const [k, q] of a.curve.points.entries()) for (const part of ["c1", "c2"] as const) { const h = q[part]; if (h && near(h)) return { id: a.id, which: `p${k}:${part}` }; }
+      return undefined;
+    }
+    if (!a) return undefined;
+    const barb = headBarb(a, frame, L);
+    return near(a.to) ? { id: a.id, which: "to" } : near(a.from) ? { id: a.id, which: "from" } : (curved(a) || a.point) && near(bendPoint(a)) ? { id: a.id, which: "bend" }
+      : barb && near([barb[0] / L, -barb[1] / L]) ? { id: a.id, which: "head" } : pointable(a) && !a.point && near(bendPoint(a)) ? { id: a.id, which: "add" } : undefined;
   };
+  // The end of an arrow or line under a point, or its middle where it has a point (a curved arrow always does), as
+  // the exact place a joined arrow starts from.
+  const joinAt = (p: P): P | undefined => {
+    const near = (q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) * L * views.get().zoom < 8;
+    for (const a of [...arrows].reverse()) {
+      if (isOrbital(a) || a.kind === "cut") continue;
+      const spots: [number, number][] = [a.to, a.from, ...((curved(a) || a.point) ? [bendPoint(a)] : [])];
+      const hit = spots.find(near);
+      if (hit) return [hit[0], hit[1]];
+    }
+    return undefined;
+  };
+  // The one pen curve picked, if it is one.
+  const pickedCurve = () => (picked.size === 1 && !selection.size ? doc.arrows?.find((a) => picked.has(a.id) && a.kind === "curve" && a.curve) : undefined);
+  // Straight arrows and lines that can take a point in their middle, to bend and branch from.
+  const pointable = (a: Arrow) => (straightArrow(a) || a.kind === "line") && a.kind !== "block" && a.kind !== "retro";
   // The frame round the selection (px, y down) with its resize handles (resize.ts) and its rotation handle, by one
   // rule for every kind of selection: atoms, text, arrows, shapes, cycles, groups or a mix, as ChemDraw's selection
   // frame. It holds what is chosen as drawn (drawnBox), as a group's frame does. A lone straight arrow keeps its own
@@ -2314,17 +2574,60 @@ export default function Editor() {
   const centreMark = useMemo(() => (selectionFrame?.turns ? turnCentre() : undefined), [selectionFrame, pivot, doc]); // eslint-disable-line react-hooks/exhaustive-deps
   const onCentreMark = (p: P) => !!centreMark && Math.hypot(p[0] - centreMark[0], p[1] - centreMark[1]) * L * views.get().zoom < 8;
 
+  // Right-click (Control-click on the Mac): what is under the pointer is selected, unless it is selected already, and
+  // the Actions menu opens there. On a TLC plate the plate is picked, with the spot under the pointer.
+  function onContextMenu(e: React.MouseEvent<SVGSVGElement>) {
+    e.preventDefault();
+    if (noMenu.current || drag || writing) { noMenu.current = false; return; }
+    const p = toDoc(e.clientX, e.clientY), t = hit(p), free = t.atom === undefined && t.bond === undefined && t.caption === undefined && t.cycle === undefined;
+    const plate = free && (t.arrow === undefined || doc.shapes?.some((x) => x.id === t.arrow && x.kind === "tlc")) ? plateAt(p) : undefined;
+    if (plate) {
+      const k = spotHit(plate, p);
+      setSelection(new Set());
+      setPicked(new Set([plate.id]));
+      setSpotPick(k >= 0 ? { plate: plate.id, index: k } : undefined);
+      setLanePick({ plate: plate.id, lane: laneOf(plate, p) });
+    } else {
+      const found: Hover = free && t.arrow === undefined ? { arrow: highlightAt(p) ?? orbitalAt(p) } : t;
+      const atoms = atomsOf(doc, found), items = itemsOf(found), cycle = doc.cycles?.find((c) => c.id === found.cycle);
+      const on = atoms.length || items.length ? atoms.every((i) => selection.has(i)) && items.every((x) => picked.has(x)) : selection.size > 0 && onSelection(doc, selection, p);
+      if (!on) choose([...atoms, ...(cycle?.nodes.flat() ?? [])], items);
+    }
+    setMenuAt({ x: e.clientX, y: e.clientY });
+  }
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
     stopCamera(); // what is drawn is where the press lands
     if (e.button !== 0) return;
+    // On the Mac a Control-click is the right-click (onContextMenu): the press does nothing more, but on a resize handle.
+    if (MAC && e.ctrlKey) {
+      if (!resizeAt(toDoc(e.clientX, e.clientY))) return;
+      noMenu.current = true;
+    }
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* the pointer is already gone */ }
     const p = toDoc(e.clientX, e.clientY), t = hit(p), screen: [number, number] = [e.clientX, e.clientY];
     pointer.current = p;
+    pressAlt.current = e.altKey;
+    // A press on a TLC plate's lane makes it the lane the plate's lane actions act on.
+    const lanePlate = tool === "select" || tool === "tlc" ? plateAt(p) : undefined;
+    if (lanePlate) setLanePick({ plate: lanePlate.id, lane: laneOf(lanePlate, p) });
     if (hovers.get().key) setHover(t); // a press takes over from the keyboard hotspot
     // The crosshair's middle drags it, whatever tool is in hand (a structure or object there comes first).
     if (onCrosshair(p, t)) return setDrag({ kind: "crosshair", from: cross!, at: cross! });
+    // Shift with the Arrow tool over an arrow's end, or its middle point, starts a new arrow joined there.
+    const join = tool === "arrow" && e.shiftKey ? joinAt(p) : undefined;
+    if (join) { setSelection(new Set()); setPicked(new Set()); overs.set({ ...overs.get(), join: undefined }); return setDrag({ kind: "arrow", from: join, start: screen, target: {} }); }
+    // Shift-drag on a mark with Select or the Symbols tool moves it round its atom, as in ChemDraw.
+    const mark = e.shiftKey && (tool === "select" || tool === "symbol") ? drawing.electrons.filter((x) => x.key && Math.hypot(x.at[0] / L - p[0], -x.at[1] / L - p[1]) < 0.2).sort((x, y) => Math.hypot(x.at[0] / L - p[0], -x.at[1] / L - p[1]) - Math.hypot(y.at[0] / L - p[0], -y.at[1] / L - p[1]))[0] : undefined;
+    if (mark) return setDrag({ kind: "mark", atom: mark.atom, key: mark.key!, base: doc, working: doc });
     const handle = tool !== "erase" ? handleAt(p) : undefined;
-    if (handle) return setDrag({ kind: "handle", ...handle, working: doc });
+    // The middle mark: a press moves the arrow as usual; a click (no move) gives it its point.
+    addPoint.current = handle?.which === "add" ? handle.id : undefined;
+    // With Edit curve, Option-click takes an anchor out (a curve keeps two).
+    if (handle && editCurve && e.altKey && handle.which.endsWith(":at")) {
+      const a = doc.arrows?.find((x) => x.id === handle.id);
+      return a?.curve && a.curve.points.length > 2 ? set(updateArrow(doc, a.id, withCurve(removeCurvePoint(a.curve, Number(handle.which.slice(1, -3))))), true) : undefined;
+    }
+    if (handle && handle.which !== "add") return setDrag({ kind: "handle", ...handle, working: doc });
     // Option-drag on the centre mark moves the centre the selection turns about (it snaps to atoms).
     if (tool !== "erase" && e.altKey && onCentreMark(p)) {
       if (tool === "select") pressMods.current = { shift: e.shiftKey, alt: true, atoms: selection, picks: picked };
@@ -2337,12 +2640,23 @@ export default function Editor() {
       const frame = frameBox(views.get().zoom)!, { atoms, items, whole } = chosen(), median = medianBond(doc, atoms);
       return setDrag({ kind: "resize", side, frame, atoms, items, middles: captionMiddles(), stops: [1, ...(median ? [1 / median] : [])], size: [1, 1], anchor: handlePoint(frame, side), whole, labels: scalesText(), lines: scalesText(), working: doc });
     }
+    // Edit curve keeps its curve picked: a click on the curve adds a point there, a click away adds one at its end.
+    editPress.current = editCurve ? pickedCurve()?.id : undefined;
+    if (editCurve && editPress.current !== undefined && t.arrow === undefined && t.caption === undefined && t.atom === undefined) return setDrag({ kind: "click", at: p, start: screen, target: t });
     if (tool !== "erase" && onTurnHandle(p)) {
       const centre = turnCentre();
       return setDrag({ kind: "turn", centre, middles: captionMiddles(), start: Math.atan2(p[1] - centre[1], p[0] - centre[0]), degrees: 0, working: doc });
     }
     const page = edgePage(p, t);
     if (page) return fitPage(page);
+    // A TLC lane's origin tick drags the lane to another place among the lanes (ChemDraw's way to order lanes), with
+    // Select or the TLC tool.
+    const tick = lanePlate ? tickAt(lanePlate, p) : undefined;
+    if (lanePlate && tick !== undefined) {
+      setSelection(new Set());
+      setPicked(new Set([lanePlate.id]));
+      return setDrag({ kind: "lane", plate: lanePlate.id, from: tick, to: tick, base: doc, working: doc });
+    }
     if (tool === "select") {
       pressMods.current = { shift: e.shiftKey, alt: e.altKey, atoms: selection, picks: picked };
       return pressSelect(p, t, e.shiftKey, screen, e.altKey);
@@ -2375,10 +2689,15 @@ export default function Editor() {
       else setDrag({ kind: "click", at: p, start: screen, target: t });
       return startHold(p, t, screen);
     }
-    // The eraser takes a TLC spot off its plate.
+    // The eraser takes a TLC spot off its plate, and a click inside a lane takes the lane away (as ChemDraw's). A lane
+    // whose last spot is erased goes too, as in ChemDraw.
     if (tool === "erase" && plateAt(p) && spotHit(plateAt(p)!, p) >= 0) {
-      const sh = plateAt(p)!, i = spotHit(sh, p);
-      return set(updateShape(doc, sh.id, { tlc: { ...sh.tlc!, spots: sh.tlc!.spots.filter((_, k) => k !== i) } }));
+      const sh = plateAt(p)!, i = spotHit(sh, p), lane = sh.tlc!.spots[i].lane, left = { ...sh, tlc: { ...sh.tlc!, spots: sh.tlc!.spots.filter((_, k) => k !== i) } };
+      return set(updateShape(doc, sh.id, left.tlc.spots.some((x) => x.lane === lane) ? { tlc: left.tlc } : deleteLane(left, lane)));
+    }
+    if (tool === "erase" && t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined && plateAt(p) && (plateAt(p)!.tlc?.lanes ?? 1) > 1) {
+      const sh = plateAt(p)!;
+      return set(updateShape(doc, sh.id, deleteLane(sh, laneOf(sh, p))));
     }
     // Pressing away from the selection with a drawing tool clears it, as ChemDraw does.
     if (selection.size || picked.size) { setSelection(new Set()); setPicked(new Set()); }
@@ -2398,7 +2717,7 @@ export default function Editor() {
     }
     if (tool === "shape" || tool === "bracket" || tool === "tlc" || tool === "table") return setDrag({ kind: "shape", from: p, start: screen, target: t });
     if (tool === "map" && t.atom !== undefined) return setDrag({ kind: "map", atom: t.atom, start: screen });
-    if (tool === "fragment") return setDrag({ kind: "arrow", from: p, start: screen, target: t, make: { kind: "cut" } });
+    if (tool === "fragment" || tool === "synthesis" || tool === "retro") return setDrag({ kind: "arrow", from: p, start: screen, target: t, make: { kind: "cut" } });
     // An orbital grows from the atom pressed (or the point) towards the pointer.
     if (tool === "orbital") return setDrag({ kind: "arrow", from: t.atom !== undefined ? pos(doc, t.atom) : p, start: screen, target: t, make: { kind: "orbital", orbital: orbitalSpec(orbitalChoice)! } });
     if (tool === "erase") return setDrag({ kind: "erase", trail: [p], bonds: new Set(), atoms: new Set(), captions: new Set(), start: screen, target: t, moved: false });
@@ -2446,6 +2765,7 @@ export default function Editor() {
       overs.set({
         selection: tool !== "erase" && selection.size > 0 && onSelection(doc, selection, p), turn: tool !== "erase" && onTurnHandle(p), edge: tool === "table" ? tableEdge(p)?.axis : undefined, resize: resizeAt(p),
         page: edgePage(p, t)?.[0], cross: onCrosshair(p, t),
+        join: tool === "arrow" && e.shiftKey ? joinAt(p) : undefined,
       });
       // A keyboard hotspot stays until the pointer moves on to something other than what it was over.
       if (hovers.get().key) {
@@ -2471,6 +2791,8 @@ export default function Editor() {
         if (drag.target.bond !== undefined && drag.target.atom === undefined) return; // dragging from a bond does nothing
         const origin = typeof drag.from === "number" ? pos(doc, drag.from) : drag.from;
         const onto = hitAt(p).atom;
+        // A hydrogen bond goes from an atom to another atom, never to a new one.
+        if (bondKind === "hydrogen" && (typeof drag.from !== "number" || onto === undefined || onto === drag.from)) return setDrag({ ...drag, to: undefined });
         return setDrag({ ...drag, to: onto !== undefined && onto !== drag.from ? pos(doc, onto) : fixedEnd(origin, p, e.altKey, typeof drag.from === "number" ? scaleAt(doc, drag.from) : 1) });
       }
       case "arrow": {
@@ -2531,6 +2853,17 @@ export default function Editor() {
           : i === 0 ? { heights: t.heights.map((h) => (h * Math.max(0.1, p[1] - t.y0)) / (t.y1 - t.y0)), y1: Math.max(p[1], t.y0 + 0.1) } : { heights: t.heights.map((h, r) => (r === i - 1 ? t.row(r) - p[1] : h)) };
         return setDrag({ ...drag, working: updateShape(drag.base, drag.id, sizeTable(sh, size, cellWidth(sh), style.captionSize)) });
       }
+      case "mark": {
+        const a = drag.base.atoms[drag.atom], deg = Math.round((Math.atan2(p[1] - a.location[1], p[0] - a.location[0]) * 180) / Math.PI);
+        return setDrag({ ...drag, working: { ...drag.base, atoms: drag.base.atoms.map((x, i) => (i === drag.atom ? { ...x, angles: { ...x.angles, [drag.key]: deg } } : x)) } });
+      }
+      case "lane": {
+        // The lane goes where the pointer is among the lanes, its spots with it.
+        const sh = drag.base.shapes?.find((x) => x.id === drag.plate);
+        if (!sh?.tlc) return;
+        const to = laneOf(sh, p);
+        return to === drag.to ? undefined : setDrag({ ...drag, to, working: updateShape(drag.base, drag.plate, moveLane(sh, drag.from, to)) });
+      }
       case "tlcline": {
         const sh = drag.base.shapes?.find((x) => x.id === drag.plate);
         if (!sh?.tlc) return;
@@ -2590,6 +2923,26 @@ export default function Editor() {
         }
         const a = doc.arrows?.find((x) => x.id === drag.id);
         if (!a) return;
+        if (a.curve && drag.which.startsWith("p")) {
+          const [i, part] = drag.which.slice(1).split(":");
+          return setDrag({ ...drag, working: updateArrow(doc, a.id, withCurve(moveCurvePoint(a.curve, Number(i), part as "at" | "c1" | "c2", p, e.altKey))) });
+        }
+        if (drag.which === "head") {
+          // The barb's distance back from the tip sets the head's length, its distance off the shaft its width; the
+          // notch keeps its place between them.
+          const len = Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]) || 1, u = [(a.to[0] - a.from[0]) / len, (a.to[1] - a.from[1]) / len], lw = frame.line / L, h = headSize(a);
+          const along = ((a.to[0] - p[0]) * u[0] + (a.to[1] - p[1]) * u[1]) / lw, across = Math.abs((p[0] - a.to[0]) * -u[1] + (p[1] - a.to[1]) * u[0]) / lw;
+          const length = Math.max(2, Math.min(500, along)), width = Math.max(0.5, Math.min(500, across));
+          return setDrag({ ...drag, working: updateArrow(doc, a.id, { headSize: { length, centre: (length * h.centre) / h.length, width } }) });
+        }
+        if (a.kind === "equilibrium" && e.altKey && (drag.which === "from" || drag.which === "to")) {
+          // Option-drag on an equilibrium's end shortens one of its arrows about the middle, never past its full
+          // length (ChemDraw's ratio): the end's handle, the forward arrow; the start's, the back arrow.
+          const len = Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]) || 1, u = [(a.to[0] - a.from[0]) / len, (a.to[1] - a.from[1]) / len];
+          const reach = Math.abs((p[0] - (a.from[0] + a.to[0]) / 2) * u[0] + (p[1] - (a.from[1] + a.to[1]) / 2) * u[1]) * 2, notch = (headSize(a).centre * frame.line) / L;
+          const ratio = drag.which === "to" ? Math.max(0.05, Math.min(1, reach / len)) : Math.max(1, Math.min(20, a.bend ? len / Math.max(1e-3, reach) : (len - notch) / Math.max(1e-3, reach - notch)));
+          return setDrag({ ...drag, working: updateArrow(doc, a.id, { ratio: Math.abs(ratio - 1) < 0.02 ? undefined : ratio }) });
+        }
         if (drag.which === "bend") {
           // The middle follows the pointer across the line; how far across sets the bend.
           const len = Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]) || 1, n = [-(a.to[1] - a.from[1]) / len, (a.to[0] - a.from[0]) / len];
@@ -2766,6 +3119,10 @@ export default function Editor() {
     if (id === "atom.attach" && atom !== undefined) return set(setAtomMarks(doc, atom, { attach: !doc.atoms[atom].attach || undefined }));
     if (id === "atom.number" && atom !== undefined) return numberAtoms([atom]);
     if (id === "atom.properties" && atom !== undefined) return atomProperties(atom);
+    if (id === "atom.nickname" && atom !== undefined) {
+      const view = views.get(), q = doc.atoms[atom].location;
+      return setNicknames({ atom, x: view.x + q[0] * L * view.zoom, y: view.y - q[1] * L * view.zoom });
+    }
     if (kind === "element" && atom !== undefined) return set(keyElement(doc, atom, arg));
     if (kind === "label" && atom !== undefined) return set(setLabel(doc, atom, arg));
     if (id === "atom.label" && atom !== undefined) return editLabel(atom);
@@ -2775,12 +3132,13 @@ export default function Editor() {
     if (id === "charge.plus" && atom !== undefined) return set(addCharge(doc, atom, 1));
     if (id === "charge.minus" && atom !== undefined) return set(addCharge(doc, atom, -1));
     if (kind === "menu") return commands.current[id.slice(5)]?.(); // a menu command on a key (Settings)
+    if (kind === "action") { runAction(id.slice(7)); return; } // an Actions panel action on a key (Settings)
     // As in ChemDraw, a group key moves the hotspot on to the group's new end, and a ring fused by a key moves it
     // to the ring's far bond, so the next key carries on from there.
     if (kind === "group" && atom !== undefined) { const [mol, hot] = addGroupAt(doc, atom, arg as Group); return keyEdit(mol, { atom: hot }, { atom }); }
     if (kind === "bond" && bond !== undefined) {
       if (arg in BONDS) return set(setBondSpec(doc, bond, BONDS[arg as BondKind].spec));
-      if (arg === "left" || arg === "centre" || arg === "right") return set(setPosition(doc, bond, arg));
+      if (arg === "left" || arg === "centre" || arg === "right" || arg === "auto") return set(setPosition(doc, bond, arg === "auto" ? undefined : arg));
       // ChemDraw's f: the bond goes to the front, so where it crosses another bond, the other one has the gap.
       if (arg === "front") {
         const mol = toFront(doc, new Set(doc.bonds[bond].atoms)), at = mol.bonds.length - 1;
@@ -2789,6 +3147,7 @@ export default function Editor() {
         if (hover.bond === bond) setHover({ ...hover, bond: at });
         return;
       }
+      if (arg === "properties") return bondProperties(bond);
       const fuse = (mol: Mol) => { const far = farBond(mol, bond, doc.bonds.length); return keyEdit(mol, far === undefined ? undefined : { bond: far }, { bond }); };
       if (arg === "chair1" || arg === "chair2") return fuse(addChair(doc, arg === "chair1" ? 1 : 2, { bond }));
       const ring = arg.startsWith("ring") ? RINGS[arg.slice(4) as RingKind] : RINGS[arg as RingKind];
@@ -2939,6 +3298,8 @@ export default function Editor() {
   const widthOf = (x: Arrow | Shape | Cycle) => (("table" in x && x.table ? x.table.weight : x.width) ?? ("curve" in x && x.curve?.closed && x.fill ? 0.05 : style.line)) * scaleOf(x);
   // What the Actions panel shows: it follows the selection (and, while typing, the caret). Worked out when the panel
   // draws and when an action runs.
+  // Arrows and lines with a head at either end (or heads of their own kind), which the head size acts on.
+  const headed = (a: Arrow) => a.kind === "equilibrium" || a.kind === "retro" || a.kind === "block" || (!isOrbital(a) && a.kind !== "cut" && (headsOf(a).start !== "none" || headsOf(a).end !== "none"));
   const contextOf = (): Context => {
     // Typing, or the Text tool in hand: the panel is a text editor for that text (or the next text).
     if (writing) {
@@ -2959,13 +3320,13 @@ export default function Editor() {
     // Different kinds of thing picked together (an arrow and a box, a caption and an atom, everything): what applies to
     // all of them. Lines picked together (arrows, shapes and cycles only) share one line width.
     const lined = mix.lines ? [...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].find((x) => picked.has(x.id)) : undefined;
-    if (mix.kinds > 1) return { kind: "selection", count: mix.count, atoms: mix.atoms, ...(lined ? { width: widthOf(lined) } : {}) };
+    if (mix.kinds > 1) return { kind: "selection", count: mix.count, atoms: mix.atoms, joinable: mix.atoms && !!joinSelection(doc, selection), ...(lined ? { width: widthOf(lined) } : {}) };
     // A TLC spot picked on its plate.
     const plate = spotPick && !selection.size && picked.size === 1 && picked.has(spotPick.plate) ? doc.shapes?.find((x) => x.id === spotPick.plate) : undefined, spot = plate?.tlc?.spots[spotPick!.index];
     if (plate && spot) {
       // The sizes shown are the sizes drawn, at the plate's scale.
       const t = tlcLayout(plate), { rx, ry } = t.size(spot);
-      return { kind: "spot", style: spot.style ?? "filled", w: rx, h: ry, tail: (spot.tail ?? 0) * t.f, rf: !!spot.showRf, pt: style.bond };
+      return { kind: "spot", style: spot.style ?? "filled", dashed: !!spot.dashed, bold: !!spot.bold, doubled: !!spot.doubled, w: rx, h: ry, tail: (spot.tail ?? 0) * t.f, rf: !!spot.showRf, pt: style.bond };
     }
     // A table's lines, the alignment of the column last typed in (or of every column, when they share one), and its
     // lines' width.
@@ -2979,8 +3340,8 @@ export default function Editor() {
     if (!selection.size && pickedShapes.length && pickedShapes.length === picked.size) {
       const first = pickedShapes[0];
       return {
-        kind: "shape", count: pickedShapes.length, shape: first.kind, dashed: !!first.dashed, colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
-        style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, ...tableContext(first), hide: first.tlc?.hide ?? [], shade: { ...SHADE, ...first.shade, pt: style.bond },
+        kind: "shape", count: pickedShapes.length, shape: first.kind, dashed: !!first.dashed, boldLine: !!first.boldLine, colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
+        style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, ...tableContext(first), hide: first.tlc?.hide ?? [], ticks: !!first.tlc?.ticks, transparent: !!first.tlc?.transparent, lane: lanePick?.plate === first.id, shade: { ...SHADE, ...first.shade, pt: style.bond },
         ...(first.kind === "table" || first.kind === "tlc" ? { text: { bold: !!first.bold, italic: !!first.italic, underline: !!first.underline, font: first.font ?? style.captionFont, size: first.size ?? (first.kind === "tlc" ? style.captionSize * 0.8 : style.captionSize) } } : {}),
       };
     }
@@ -2994,12 +3355,15 @@ export default function Editor() {
         width: widthOf(pickedArrows[0]),
         // The sweep the curved ones share, if it is one on offer.
         sweep: SWEEPS.find((sw) => pickedArrows.filter(curved).every((a) => Math.abs(sweepOf(a.bend ?? 0) - sw) < 2)),
+        size: pickedArrows.every(headed) ? sizeOf(pickedArrows[0]) ?? "own" : undefined, ratio: pickedArrows[0].ratio ?? 1,
+        fillable: pickedArrows.every((a) => a.kind === "block" || !!a.curve?.closed),
+        point: pickedArrows.length === 1 && pointable(pickedArrows[0]) ? (pickedArrows[0].point ? (pickedArrows[0].bend ? "bent" : "remove") : "add") : undefined,
       };
     if (!selection.size && picked.size) {
       const cs = (doc.captions ?? []).filter((c) => picked.has(c.id)), c = cs[0];
       if (c) {
         const p = placed.find((x) => x.id === c.id), w = whole(c);
-        return { kind: "caption", mode: "picked", colour: c.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList };
+        return { kind: "caption", mode: "picked", colour: c.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some(labelable) };
       }
     }
     if (!selection.size) return doc.atoms.length || doc.captions?.length || doc.arrows?.length || doc.shapes?.length ? { kind: "drawing", nameable } : { kind: "empty" };
@@ -3008,16 +3372,12 @@ export default function Editor() {
     if (!ids.length) return { kind: "drawing", nameable };
     if (ids.length === 1) {
       const a = doc.atoms[ids[0]];
-      return { kind: "atom", text: labelText([ids[0]]), label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre: stereocentres(doc).includes(ids[0]), enhanced: a.enhanced, halo: a.halo, fill: a.fill, numbered: !!a.number, repeat: lastLabel.current };
+      return { kind: "atom", text: labelText([ids[0]]), label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre: stereocentres(doc).includes(ids[0]), enhanced: a.enhanced, halo: a.halo, fill: fillOf(doc, selection), numbered: !!a.number, repeat: lastLabel.current };
     }
     const bi = ids.length === 2 ? doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])) : -1;
     if (bi >= 0) {
-      const b = doc.bonds[bi];
-      const style = (Object.keys(BONDS) as BondKind[]).find((k) => {
-        const spec: BondSpec = BONDS[k].spec;
-        return spec.type === b.type && spec.stereo === b.stereo && spec.display === b.display;
-      });
-      return { kind: "bond", style, double: b.type === 2, flippable: !!b.stereo || b.display === "dative" || b.display === "hollow" };
+      const b = doc.bonds[bi], style = bondKindOf(b);
+      return { kind: "bond", style, double: b.type === 2, flippable: !!b.stereo || b.display === "dative" || b.display === "hollow", halo: b.halo, fill: fillOf(doc, selection), ring: drawnRings(doc).some((r) => r.includes(b.atoms[0]) && r.includes(b.atoms[1])) };
     }
     // Lone pairs: whether the heteroatoms have any to show, and whether they all show already.
     const used = bondOrders(doc), hetero = ids.filter((i) => doc.atoms[i].label !== "C" && freePairs(doc, i, used[i]) > 0);
@@ -3027,13 +3387,12 @@ export default function Editor() {
     const stereo = !centres.length ? undefined : flags.size > 1 ? "mixed" : flags.has("&1") ? "racemic" : flags.has("or1") ? "relative" : flags.has("") ? "absolute" : "mixed";
     // A 3D structure (Structure Perspective): drawn with depth, or flat.
     const solid = ids.some((i) => Math.abs(doc.atoms[i].location[2] ?? 0) > 1e-3);
-    return { kind: "structure", text: labelText(ids), atoms: ids.length, structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextNumber(doc), nameable, pairs, stereo,
+    return { kind: "structure", text: labelText(ids), atoms: ids.length, hydrogens: ids.some((i) => doc.atoms[i].label === "H" && !doc.atoms[i].text), structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextNumber(doc), nameable, pairs, stereo, joinable: !!joinSelection(doc, selection),
       ...(solid ? { depth: !ids.some((i) => doc.atoms[i].depth === false) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
       // Aromatic rings drawn with circles, so the aromatic display action can name what it shows next.
       circles: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].circle),
-      // The highlight and ring fill the selected atoms share, if they share one.
-      halo: ids.every((i) => doc.atoms[i].halo === doc.atoms[ids[0]].halo) ? doc.atoms[ids[0]].halo : undefined,
-      fill: ids.filter((i) => doc.atoms[i].fill).every((i) => doc.atoms[i].fill === doc.atoms[ids.find((k) => doc.atoms[k].fill) ?? 0].fill) ? doc.atoms[ids.find((k) => doc.atoms[k].fill) ?? 0]?.fill : undefined,
+      // The highlight the selected atoms share, and the ring fill of the rings a fill would go in, if they share one.
+      halo: ids.every((i) => doc.atoms[i].halo === doc.atoms[ids[0]].halo) ? doc.atoms[ids[0]].halo : undefined, fill: fillOf(doc, selection),
       properties: settings.properties }; // so the Properties action names what it does next, as the palette does
   };
   // The panel's context, worked out again only when something it reads changes: not on each frame of a drag or of
@@ -3041,7 +3400,7 @@ export default function Editor() {
   // drawing again). While text is typed, the caret changes it too, so the panel works it out as it draws (see Actions
   // below).
   const settled = shown === doc;
-  const panelContext = useMemo(() => (writing ? undefined : contextOf()), [doc, selection, picked, writing, tool, textStyle, spotPick, lastCell, namesLoaded, loaded, style, fontList, settled && drawing, settled && placed, settings.properties]); // eslint-disable-line react-hooks/exhaustive-deps
+  const panelContext = useMemo(() => (writing ? undefined : contextOf()), [doc, selection, picked, writing, tool, textStyle, spotPick, lanePick, lastCell, namesLoaded, loaded, style, fontList, settled && drawing, settled && placed, settings.properties]); // eslint-disable-line react-hooks/exhaustive-deps
   // The formula and mass the panel shows (of the selection, or everything): only while it is open and shows them, and
   // only for the first three structures, as it shows no more.
   const facts = settings.actions && (panelContext?.kind === "drawing" || panelContext?.kind === "structure");
@@ -3322,8 +3681,15 @@ export default function Editor() {
       }
     };
     walk(doc);
-    return drawingColours.current.filter((h) => !known.has(h)).slice(0, 24).map((hex) => ({ name: hex.toUpperCase(), hex }));
-  }, [doc, settings.palette]);
+    // The palette saved with the document (by name) comes first.
+    const named = (style.palette ?? []).filter((c, k, all) => !known.has(c.hex.toLowerCase()) && all.findIndex((x) => x.hex.toLowerCase() === c.hex.toLowerCase()) === k);
+    return [...named, ...drawingColours.current.filter((h) => !known.has(h) && !named.some((c) => c.hex.toLowerCase() === h)).map((hex) => ({ name: hex.toUpperCase(), hex }))].slice(0, 24);
+  }, [doc, settings.palette, style.palette]);
+  // The Colour menu lists the user's colours and the drawing's own by name: the menu bar is built again when they change.
+  const paletteNames = [...settings.palette, ...docColours].map((c) => c.name).join("\n");
+  useEffect(() => {
+    if (TAURI) invoke("set_palette", { names: paletteNames.split("\n").filter(Boolean) }).then(syncChecks).catch(() => {});
+  }, [paletteNames]); // eslint-disable-line react-hooks/exhaustive-deps
   const untidy = useMemo(() => messy(doc, selection), [doc, selection]);
   // Text the panel asked to copy; the copy handler uses it instead of SMILES.
   const copyText = useRef<string>(undefined);
@@ -3339,6 +3705,8 @@ export default function Editor() {
     // A menu command's shortcut as the user has it (Settings), else as the menu has it.
     const own = menuReady ? keymap(settings.keys)[`menu.${command}`] : undefined;
     if (own) return own[0] ? keyLabel(own[0]) : undefined;
+    const panelKey = keymap(settings.keys)[`action.${command}`]?.[0]; // an Actions panel action's own key (Settings)
+    if (panelKey) return keyLabel(panelKey);
     if (MENU_KEYS[command]) return platformLabel(MENU_KEYS[command]);
     if (MENU_NAMES[command]?.[1]) return platformLabel(MENU_NAMES[command][1]);
     const first = keymap(settings.keys)[command]?.[0];
@@ -3371,13 +3739,14 @@ export default function Editor() {
     new: ["New drawing", `${MOD}N`, <FilePlus size={18} />], open: ["Open…", `${MOD}O`, <FolderOpen size={18} />], import: ["Import a structure…", "", <FileArrowDown size={18} />],
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDiskBack size={18} />],
     export: ["Export…", EXPORT_KEYS, <ExportIcon size={18} />], print: ["Print…", `${MOD}P`, <Printer size={18} />], page_setup: ["Page setup…", `⇧${MOD}P`, <FileDashed size={18} />],
-    about: ["About Octet", "", <Info size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
+    about: ["About Octet", "", <Info size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />], bond_properties: ["Bond properties…", "", <FadersHorizontal size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
     expand_label: ["Expand label", "", <ArrowsOutSimple size={18} />], contract_label: ["Contract label", "", <ArrowsInSimple size={18} />], stoichiometry: ["Analyse stoichiometry", "", <Table size={18} />],
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <Broom size={18} />],
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
-    properties: [settings.properties ? "Hide the Properties panel" : "Show the Properties panel", "", <Flask size={18} />], aromatic_display: [commandsOpen && (selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i)).some((i) => doc.atoms[i].circle) ? "Show Kekulé bonds" : "Show aromatic circles", `⌥${MOD}K`, <Circle size={18} />], show_stereo: ["Show stereochemistry", "", <span className="glyph-text">R/S</span>], predict_1h: ["Predict ¹H-NMR shifts", "", <span className="glyph-text">¹H</span>], predict_13c: ["Predict ¹³C-NMR shifts", "", <span className="glyph-text">¹³C</span>], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />],
+    properties: [settings.properties ? "Hide the Properties panel" : "Show the Properties panel", "", <Flask size={18} />], aromatic_display: [commandsOpen && (selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i)).some((i) => doc.atoms[i].circle) ? "Show Kekulé bonds" : "Show aromatic circles", `⌥${MOD}K`, <Circle size={18} />], hydrogen_display: ["Toggle hydrogen display", "", <EyeSlash size={18} />], show_stereo: ["Show stereochemistry", "", <span className="glyph-text">R/S</span>], predict_1h: ["Predict ¹H-NMR shifts", "", <span className="glyph-text">¹H</span>], predict_13c: ["Predict ¹³C-NMR shifts", "", <span className="glyph-text">¹³C</span>], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />], clean_3d: ["3D clean up", `⇧${MOD}D`, <CubeTransparent size={18} />],
     rotate_dialog: ["Rotate…", `${MOD}R`, <Angle size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <Resize size={18} />],
     group: ["Group", `${MOD}G`, <BoundingBox size={18} />], ungroup: ["Ungroup", `⇧${MOD}G`, <SelectionSlash size={18} />], group_integral: ["Pick as one", "", <Unite size={18} />],
+    join: ["Join", `${MOD}J`, <ArrowsMerge size={18} />], centre_page: ["Centre on page", "", <ArrowsInCardinal size={18} />], repeat: ["Repeat", "", <Repeat size={18} />],
     arrange_left: ["Align left edges", `⌥⇧${MOD}L`, <AlignLeft size={18} />], arrange_centre: ["Align left-right centres", `⌥⇧${MOD}C`, <AlignCenterHorizontal size={18} />],
     arrange_right: ["Align right edges", `⌥⇧${MOD}R`, <AlignRight size={18} />], arrange_top: ["Align top edges", `⌥⇧${MOD}T`, <AlignTop size={18} />],
     arrange_middle: ["Align top-bottom centres", `⌥⇧${MOD}M`, <AlignCenterVertical size={18} />], arrange_bottom: ["Align bottom edges", `⌥⇧${MOD}B`, <AlignBottom size={18} />],
@@ -3392,12 +3761,13 @@ export default function Editor() {
     rulers: [guides.rulers ? "Hide rulers" : "Show rulers", `${MOD};`, <Ruler size={18} />],
     crosshair: [guides.crosshair ? "Hide crosshair" : "Show crosshair", `⌥${MOD}X`, <CrosshairSimple size={18} />],
     warnings: [settings.warnings ? "Hide chemical warnings" : "Show chemical warnings", undefined, <Warning size={18} />],
-    fixed_lengths: [settings.fixedLengths ? "Turn fixed lengths off" : "Turn fixed lengths on", `${MOD}L`, <LineSegment size={18} />],
+    fixed_lengths: [settings.fixedLengths ? "Turn fixed lengths off" : "Turn fixed lengths on", `${MOD}L`, <PencilRuler size={18} />],
     fixed_angles: [settings.fixedAngles ? "Turn fixed angles off" : "Turn fixed angles on", `${MOD}E`, <CompassTool size={18} />],
     actions: [settings.actions ? "Hide the Actions panel" : "Show the Actions panel", undefined, <SlidersHorizontal size={18} />],
     text_bold: ["Bold", `${MOD}B`, <TextB size={18} />], text_italic: ["Italic", `${MOD}I`, <TextItalic size={18} />], text_underline: ["Underline", `${MOD}U`, <TextUnderline size={18} />],
     align_left: ["Flush left", `⇧${MOD}L`, <TextAlignLeft size={18} />], align_centre: ["Centre text", `⇧${MOD}C`, <TextAlignCenter size={18} />], align_right: ["Flush right", `⇧${MOD}R`, <TextAlignRight size={18} />],
-    align_justify: ["Justified", `⇧${MOD}J`, <TextAlignJustify size={18} />],
+    align_justify: ["Justified", `⇧${MOD}J`, <TextAlignJustify size={18} />], align_above: ["Stacked above", "", <CaretLineUp size={18} />], align_auto: ["Automatic label alignment", `⇧${MOD}M`, <Sparkle size={18} />],
+    interpret: ["Interpret chemically", "", <GraphIcon size={18} />],
     font_other: ["Other font…", "", <TextAa size={18} />], size_other: ["Other size…", "", <ArrowsVertical size={18} />], line_spacing: ["Line spacing…", "", <Paragraph size={18} />],
     bring_front: ["Bring to front", `${MOD}[`, <StackSimple size={18} />], send_back: ["Send to back", `${MOD}]`, <Stack size={18} />],
     ...(settings.onlineSearch ? {
@@ -3425,7 +3795,7 @@ export default function Editor() {
       ...LIBRARY.flatMap((c) => variants("template", "template", c.items.map((t) => [t.kind, t.name, <TemplateGlyph mol={t.mol} />]), c.name, "template")),
       ...templates.map((t) => ({ id: `template:${templateKind(t.id)}`, name: t.name, group: "My templates", icon: <TemplateGlyph mol={t.mol} />, run: pick("template", ["template", templateKind(t.id)]) })),
       ...variants("symbol", "symbol", Object.entries(SYMBOLS).map(([k, n]) => [k, n, <SymbolGlyph kind={k as SymbolKind} />]), "Symbols"),
-      ...variants("arrow", "arrow", ["reaction", "equilibrium", "resonance", "retro", "nogo", ...["curved", "fishhook", "double"].flatMap((k) => SWEEPS.map((sw) => `${k}-${sw}`))]
+      ...variants("arrow", "arrow", [...STRAIGHT, ...["curved", "fishhook", "double"].flatMap((k) => SWEEPS.map((sw) => `${k}-${sw}`)), ...ELLIPSES]
         .map((k) => [k, `${arrowName(k)} arrow`, <ArrowGlyph kind={k} />]), "Arrows"),
       ...variants("shape", "shape", [...SHAPE_GRID.flat(), ...SHAPE_EXTRA].map((k) => [k, shapeName(k)!, <ElementGlyph v={k} />]), "Shapes"),
       ...variants("bracket", "bracket", Object.entries(BRACKETS).map(([k, n]) => [k, n, <BracketGlyph v={k} />]), "Brackets"),
@@ -3450,9 +3820,22 @@ export default function Editor() {
   };
 
   // Runs an action from the panel on the selected atom, bond or atoms.
+  // Colour by Element: the selected (or every) heteroatom label in its element's colour (the brand's element colours,
+  // with the user's own from Settings > Colours); carbon and hydrogen keep the ink.
+  function colourByElement() {
+    const by = { ...elementColours(), ...settings.elementColours }, atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i));
+    set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) && by[a.label] ? { ...a, colour: by[a.label] } : a)) }, true);
+  }
+  // The document's style as saved: with the user's colours and the drawing's own palette (ChemDraw keeps a palette in
+  // each document).
+  const savedStyle = (): DocStyle => {
+    const own = [...settings.palette, ...(style.palette ?? []).filter((c) => !settings.palette.some((u) => u.hex.toLowerCase() === c.hex.toLowerCase()))].slice(0, 24);
+    return own.length ? { ...style, palette: own } : style;
+  };
   function runAction(command: string) {
     const ids = [...selection];
     if (commands.current[command]) return commands.current[command]();
+    if (REPEATS.test(command)) lastRepeat.current = { action: command };
     // The Actions panel's Scale field: the selection takes that scale with its labels and lines, about its middle; when
     // its parts differ, each structure, group and object takes it about its own middle.
     if (command.startsWith("scale.")) {
@@ -3486,25 +3869,19 @@ export default function Editor() {
         captions: doc.captions?.map((c) => (picked.has(c.id) ? { ...c, colour: hex.toLowerCase() === style.colour.toLowerCase() ? undefined : hex } : c)),
       }, true);
     }
-    // Highlight colours (a disc behind each selected atom) and ring fills, as ChemDraw's Highlight and Ring Fill colour
-    // toolbars; none takes them off. A ring fill goes in every ring wholly selected; failing that, every ring with a
-    // selected atom in it; failing that, every ring of the structures the selection touches (a substituent picked).
+    // Highlight colours and ring fills, as ChemDraw's Highlight and Ring Fill colour toolbars; none takes them off. A
+    // highlight goes on the selected atoms and the bonds between them. A ring fill goes in the rings fillRings finds,
+    // and replaces the fill each one had, so fused rings keep their own. A custom colour dragged in the picker is one
+    // step to undo (merge).
     if (command.startsWith("halo.") || command.startsWith("ringfill.")) {
-      const value = command.split(".")[1], c = value === "none" ? undefined : value, key = command.startsWith("halo.") ? "halo" : "fill";
-      const atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i));
-      const all = key === "fill" ? drawnRings(doc) : [];
-      const touched = new Set(fragments(doc).filter((g) => g.some((i) => atoms.has(i))).flat());
-      const whole = all.filter((r) => r.every((i) => atoms.has(i))), part = all.filter((r) => r.some((i) => atoms.has(i)));
-      const inRing = key === "fill" ? new Set((whole.length ? whole : part.length ? part : all.filter((r) => r.every((i) => touched.has(i)))).flat()) : atoms;
-      return set({ ...doc, atoms: doc.atoms.map((a, i) => (inRing.has(i) ? { ...a, [key]: c } : a)) }, true);
+      const value = command.split(".")[1], c = value === "none" ? undefined : value;
+      const atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i)), merge = command.endsWith(".drag") ? command.split(".")[0] : undefined;
+      if (command.startsWith("halo.")) return set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) ? { ...a, halo: c } : a)), bonds: doc.bonds.map((b) => (atoms.has(b.atoms[0]) && atoms.has(b.atoms[1]) ? { ...b, halo: c } : b)) }, true, merge);
+      const targets = fillRings(doc, atoms), keys = new Set(targets.map(ringKey)), rest = (doc.fills ?? []).filter((f) => !keys.has(ringKey(f.atoms)));
+      const fills = [...rest, ...(c ? targets.map((r) => ({ atoms: r, colour: c })) : [])];
+      return set({ ...doc, fills: fills.length ? fills : undefined }, true, merge);
     }
-    // Colour by Element: heteroatom labels in their usual colours (N blue, O red, S gold, P orange, halogens green,
-    // Br brown, I purple); carbon and hydrogen keep the ink.
-    if (command === "colour_by_element") {
-      const BY = elementColours();
-      const atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i));
-      return set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) && BY[a.label] ? { ...a, colour: BY[a.label] } : a)) }, true);
-    }
+
     if (command === "copy_smiles" || command === "copy") return void document.execCommand("copy");
     if (command === "paste_hint") return setNotice(`Copy a name, SMILES string or MOL file. Then press ${MOD}V here.`, "info");
     if (command.startsWith("copy_text:")) { copyText.current = command.slice(10); document.execCommand("copy"); return; }
@@ -3546,7 +3923,9 @@ export default function Editor() {
     // A picked TLC spot: style, size (hundredths of a bond length), tail, its own Rf, removal.
     if (command.startsWith("spot.") && spotPick) {
       const [, what, arg] = command.split("."), at = (change: Parameters<typeof editSpot>[3]) => set(editSpot(doc, spotPick.plate, spotPick.index, change), true, `spot-${what}`);
-      if (what === "style") return at(() => ({ style: arg === "filled" ? undefined : (arg as "hollow" | "shaded") }));
+      if (what === "style") return set(editSpot(doc, spotPick.plate, spotPick.index, (x) => restyleSpot(x, arg, !(arg === "dashed" || arg === "bold" || arg === "doubled") || !x[arg]), true), true);
+      // Set Rf…: its Rf typed in (the spot moves to it).
+      if (what === "setrf") { const x = doc.shapes?.find((y) => y.id === spotPick.plate)?.tlc?.spots[spotPick.index]; return x && setDialog({ kind: "rf", plate: spotPick.plate, index: spotPick.index, value: String(x.rf) }); }
       // The size shown is the size drawn; the spot keeps it over its plate's scale.
       if (what === "w" || what === "h" || what === "tail") return at(() => ({ [what]: Number(arg) / 100 / scaleOf(doc.shapes?.find((x) => x.id === spotPick.plate) ?? {}) }));
       if (what === "rf") return at((x) => ({ showRf: x.showRf ? undefined : true }));
@@ -3571,12 +3950,23 @@ export default function Editor() {
         const value = Number(arg) / 100;
         return set({ ...doc, shapes: doc.shapes?.map((x) => (ids.has(x.id) ? { ...x, shade: { ...SHADE, ...x.shade, [what]: value } } : x)) }, true, `shade-${what}-${[...ids].join()}`);
       }
-      // TLC plates: a lane more or fewer (spots in a lane that goes go with it), and Rf values on or off.
-      if (what === "lanes") return each((x) => { const lanes = Math.max(1, Math.min(40, (x.tlc?.lanes ?? 1) + Number(arg))); return { tlc: { ...x.tlc!, lanes, spots: (x.tlc?.spots ?? []).filter((y) => y.lane < lanes) } }; });
+      // TLC plates, as ChemDraw's Add Lane, Duplicate Lane and Delete Lane: at the lane last pressed or right-clicked
+      // (a new lane goes after it), or at the last lane. The plate grows or shrinks by a lane. Rf values on or off.
+      if (what === "lanes") return each((x) => {
+        const n = x.tlc?.lanes ?? 1, k = lanePick?.plate === x.id ? Math.min(n - 1, lanePick.lane) : n - 1;
+        if (arg !== "-1") setLanePick({ plate: x.id, lane: k + 1 });
+        return arg === "-1" ? deleteLane(x, k) : addLane(x, k + 1, arg === "copy" ? k : undefined);
+      });
       if (what === "rf") return each((x) => ({ tlc: { ...x.tlc!, rf: !x.tlc?.rf || undefined } }));
+      // Show Side Ticks and Transparent, as ChemDraw's plate menu.
+      if (what === "ticks" || what === "transparent") return each((x) => ({ tlc: { ...x.tlc!, [what]: !x.tlc?.[what] || undefined } }));
       // A plate's origin, front or border shown or hidden, and one style for all its spots.
       if (what === "hide") return each((x) => { const h = new Set(x.tlc?.hide ?? []), k = arg as "origin" | "front" | "border"; if (h.has(k)) h.delete(k); else h.add(k); return { tlc: { ...x.tlc!, hide: h.size ? [...h] : undefined } }; });
-      if (what === "spots") return each((x) => ({ tlc: { ...x.tlc!, spots: (x.tlc?.spots ?? []).map((s) => ({ ...s, style: arg === "filled" ? undefined : (arg as "hollow" | "shaded") })) } }));
+      // Every spot's style at once (a toggle goes on unless every spot has it already).
+      if (what === "spots") return each((x) => {
+        const spots = x.tlc?.spots ?? [], on = !spots.every((y) => (arg === "dashed" || arg === "bold" || arg === "doubled") && y[arg]);
+        return { tlc: { ...x.tlc!, spots: spots.map((y) => restyleSpot(y, arg, on)) } };
+      });
       // Tables: rows and columns added or deleted at the cell last typed in (at the end without one), the lines drawn
       // (a set, or one line on or off), the cells' alignment (the cell's column, or all), the lines' width, Clear
       // Contents and Size To Fit Contents.
@@ -3594,7 +3984,8 @@ export default function Editor() {
       if (what === "clear") return each((x) => clearTable(x));
       if (what === "fit") return each((x) => fitTable(x, cellWidth(x), style.captionSize));
       // One style at a time: plain, dashed, shaded, filled or with a shadow.
-      if (what === "style") return each(() => ({ dashed: arg === "dashed" || undefined, fill: arg === "shaded" || arg === "solid" ? arg : undefined, shadow: arg === "shadow" || undefined }));
+      if (what === "style") return each(() => ({ dashed: arg === "dashed" || undefined, fill: arg === "shaded" || arg === "solid" || arg === "faded" ? arg : undefined, shadow: arg === "shadow" || undefined }));
+      if (what === "boldline") return each((x) => ({ boldLine: !x.boldLine || undefined }));
       if (what === "side") return each(() => ({ side: arg === "both" ? undefined : (arg as "left" | "right") }));
       if (what === "mark") return each((x) => ({ mark: x.mark === arg ? undefined : arg }));
       if (what === "colour") return each(() => ({ colour: arg.toLowerCase() === "#000000" ? undefined : arg }));
@@ -3627,11 +4018,19 @@ export default function Editor() {
       const ids = new Set((doc.arrows ?? []).filter((a) => picked.has(a.id)).map((a) => a.id)), id = [...ids][0];
       const each = (f: (a: Arrow) => Partial<Arrow>) => set({ ...doc, arrows: doc.arrows?.map((a) => (ids.has(a.id) ? { ...a, ...f(a) } : a)) }, true);
       if (what === "kind") {
-        // Switching between straight and curved adds or drops the bend.
-        const kind = arg as ArrowKind, bent = curved({ kind }), first = doc.arrows?.find((a) => ids.has(a.id));
-        setSettings((s) => ({ ...s, variants: { ...s.variants, arrow: bent ? `${kind}-${first?.bend ? nearestSweep(first.bend) : 120}` : kind } }));
-        return each((a) => ({ kind, bend: bent ? (a.bend || sweepBend(120)) : undefined }));
+        // Switching between straight and curved adds or drops the bend (a straight arrow with a point keeps its own).
+        // An unbalanced equilibrium has a ratio of 3. To and from a block arrow, the heads take the new kind's size.
+        const pick = arrowVariant(arg), kind = pick?.kind ?? (arg as ArrowKind), bent = curved({ kind }), first = doc.arrows?.find((a) => ids.has(a.id));
+        setSettings((s) => ({ ...s, variants: { ...s.variants, arrow: bent ? `${kind}-${first?.bend ? nearestSweep(first.bend) : 120}` : arg } }));
+        return each((a) => ({ kind, bend: bent ? (a.bend || sweepBend(120)) : a.point ? a.bend : undefined, point: bent ? undefined : a.point, ratio: pick?.ratio,
+          ...((a.kind === "block") !== (kind === "block") ? { headSize: undefined, shaft: undefined, fill: undefined } : {}) }));
       }
+      // ChemDraw's arrow sizes (Large, Medium, Small) for the heads; a kind's own size is left unset.
+      if (what === "size" && (arg === "large" || arg === "medium" || arg === "small")) return each((a) => {
+        if (!headed(a)) return {};
+        const head = sizedHead(a, arg), own = sizedHead(a, a.kind === "block" ? "large" : "small");
+        return { headSize: head.length === own.length ? undefined : head };
+      });
       if (what === "sweep") {
         const first = doc.arrows?.find((a) => ids.has(a.id) && curved(a));
         if (first) setSettings((s) => ({ ...s, variants: { ...s.variants, arrow: `${first.kind}-${arg}` } }));
@@ -3646,10 +4045,20 @@ export default function Editor() {
       }
       if (what === "head") return each(() => ({ head: arg === "solid" ? undefined : (arg as HeadShape) }));
       if (what === "closed") return each((a) => (a.curve ? { curve: { ...a.curve, closed: !a.curve.closed || undefined }, ...(a.curve.closed ? { fill: undefined } : {}) } : {}));
-      if (what === "fill") return each((a) => (a.curve?.closed ? { fill: arg === "none" || a.fill === arg ? undefined : (arg as CurveFill) } : {}));
-      // A style chip sets it; the arrows' Dashed line action turns dashes on and off.
-      if (what === "style") return each((a) => ({ style: arg === "plain" || (arg === "dashed" && a.style === "dashed" && !isLine(a) && a.kind !== "curve") ? undefined : (arg as Arrow["style"]) }));
+      if (what === "fill") return each((a) => (a.curve?.closed || a.kind === "block" ? { fill: arg === "none" || a.fill === arg ? undefined : (arg as CurveFill) } : {}));
+      // A style chip sets it; the arrows' Dashed line action turns dashes on and off. Heads set by hand double as
+      // the line goes bold and halve as it stops being bold, as in ChemDraw (a kind's own size follows by itself).
+      if (what === "style") return each((a) => {
+        const style = arg === "plain" || (arg === "dashed" && a.style === "dashed" && !isLine(a) && a.kind !== "curve") ? undefined : (arg as Arrow["style"]);
+        const k = (style === "bold") === (a.style === "bold") ? 1 : style === "bold" ? 2 : 0.5, h = a.headSize;
+        return { style, ...(h && k !== 1 ? { headSize: { length: h.length * k, centre: h.centre * k, width: h.width * k } } : {}) };
+      });
       if (what === "flip") return each((a) => ({ bend: -(a.bend ?? sweepBend(120)) }));
+      // A straight arrow's point: added (it may then bend and branch), or taken off with its bend.
+      if (what === "point") return each((a) => (pointable(a) ? (a.point ? { point: undefined, bend: undefined } : { point: true }) : {}));
+      // The line width, as for shapes (one undo step for a whole slider drag).
+      // The width shown is the width drawn; the arrow keeps it over its scale.
+      if (what === "weight") return set({ ...doc, arrows: doc.arrows?.map((a) => (ids.has(a.id) ? { ...a, width: Number(arg) / 100 / scaleOf(a) } : a)) }, true, `arrow-weight-${[...ids].join()}`);
       if ((what === "above" || what === "below") && id !== undefined) {
         setPicked(new Set());
         return openWriting({ value: "", on: { arrow: id, side: what }, style: { ...textStyle } });
@@ -3666,9 +4075,10 @@ export default function Editor() {
       const [, what, ...rest] = command.split("."), arg = rest.join(".");
       // On selected atoms, the Text menu and the label style buttons style their labels, as in ChemDraw.
       const labelled = !writing && !picked.size ? [...selection].filter((i) => drawing.label[i]) : [];
-      if (labelled.length && ["bold", "italic", "underline", "plain", "font", "size"].includes(what)) {
+      if (labelled.length && ["bold", "italic", "underline", "plain", "font", "size", "align"].includes(what)) {
         const first = doc.atoms[labelled[0]], ids = new Set(labelled);
         const change: Partial<Atom> = what === "plain" ? { bold: undefined, italic: undefined, underline: undefined }
+          : what === "align" ? { align: arg === "auto" ? undefined : (arg as Atom["align"]) }
           : what === "font" ? { font: arg === style.labelFont ? undefined : arg }
           : { [what]: first[what as "bold" | "italic" | "underline"] ? undefined : true };
         // A size is the size drawn: the label's own size is it over the atom's scale.
@@ -3700,7 +4110,7 @@ export default function Editor() {
       if (what === "underline") return restyle((c) => ({ underline: !c.underline }));
       if (what === "size" && writing && richApi.current?.range()?.[0] !== richApi.current?.range()?.[1]) return styleText((s) => ({ ...s, size: Number(arg) }), what);
       if (what === "size") return restyle(() => ({ size: Number(arg) === style.captionSize ? undefined : Number(arg) }));
-      if (what === "align") return restyle(() => ({ align: arg as Caption["align"] }));
+      if (what === "align" && arg !== "above" && arg !== "auto") return restyle(() => ({ align: arg as Caption["align"] }));
       if (what === "colour") return restyle(() => ({ colour: arg.toLowerCase() === style.colour.toLowerCase() ? undefined : arg }));
       const id = [...picked][0];
       if (what === "edit" && id !== undefined) return startWriting({ id });
@@ -3736,8 +4146,9 @@ export default function Editor() {
       if (arg in BONDS) return set(setBondSpec(doc, bi, BONDS[arg as BondKind].spec), true);
       const ring = arg.startsWith("ring") ? RINGS[arg.slice(4) as RingKind] : arg === "benzene" ? RINGS.benzene : undefined;
       if (ring) return set(addRing(doc, ring.n, ring.aromatic, { bond: bi }));
-      if (arg === "left" || arg === "centre" || arg === "right") return set(setPosition(doc, bi, arg), true);
+      if (arg === "left" || arg === "centre" || arg === "right" || arg === "auto") return set(setPosition(doc, bi, arg === "auto" ? undefined : arg), true);
       if (arg === "flip") return set(flipBond(doc, bi), true);
+      if (arg === "properties") return bondProperties(bi);
     }
   }
 
@@ -3789,6 +4200,15 @@ export default function Editor() {
       setPicked(picks);
       return;
     }
+    // Edit curve: a click on the curve it had picked adds a point there; a click away from it, a point at its end.
+    if (editCurve) {
+      const c = doc.arrows?.find((a) => a.id === editPress.current && a.curve);
+      if (!c?.curve) return;
+      const near = nearestOnCurve(c.curve, at), on = near.d * L * views.get().zoom < 8;
+      if (t.arrow === c.id && on) return set(updateArrow(doc, c.id, withCurve(splitCurve(c.curve, near.seg, near.t))), true);
+      if (t.arrow === undefined) return set(updateArrow(doc, c.id, withCurve(appendCurvePoint(c.curve, at))), true);
+      return;
+    }
     // Select: a click on part of a wider selection keeps that part alone (a whole integral group; a cycle keeps the
     // intermediates its press picked).
     if (tool === "select") {
@@ -3801,6 +4221,15 @@ export default function Editor() {
     if ((t.caption !== undefined || t.cycle !== undefined) && tool !== "text") return; // a caption or cycle was picked, not drawn on
     if (tool === "table" && tableAt(at)) return openCell(tableAt(at)!, at);
     if (tool === "tlc" && plateAt(at)) return spotAt(plateAt(at)!, at, [0, 0], false, false);
+    // An arrow clicked with the Arrow tool, as in ChemDraw: one like the tool's, unchanged but for its ends, turns
+    // round; one like it but changed goes back to the tool's own; any other becomes the tool's kind.
+    const clicked = tool === "arrow" && t.arrow !== undefined ? doc.arrows?.find((a) => a.id === t.arrow && (straightArrow(a) || curved(a)) && a.kind !== "arc") : undefined;
+    if (clicked && !arrowPick.ellipse) {
+      const fresh = newArrow(clicked.from, clicked.to, Math.sign(clicked.bend ?? 1) || 1), same = clicked.kind === fresh.kind;
+      const keys = ["bend", "style", "start", "end", "head", "headSize", "ratio", "shaft", "fill", "point"] as const, changed = keys.some((k) => JSON.stringify(clicked[k]) !== JSON.stringify(fresh[k]));
+      if (same && !changed) return set(updateArrow(doc, clicked.id, { from: clicked.to, to: clicked.from, ...(clicked.bend ? { bend: -clicked.bend } : {}) }), true);
+      return set(updateArrow(doc, clicked.id, { kind: fresh.kind, ...Object.fromEntries(keys.map((k) => [k, fresh[k]])) }), true);
+    }
     // As in ChemDraw: Option-click on an atom with the bond or template tool opens its label, and so does a
     // double-click with the bond tool (its first click's bond is taken back). The Text tool's Option-click puts the
     // last label typed on the atom at once.
@@ -3813,6 +4242,8 @@ export default function Editor() {
       return editLabel(t.atom);
     }
     if (tool === "bond") {
+      // The hydrogen bond tool only joins two atoms (a drag from an H atom to an acceptor), as in ChemDraw.
+      if (bondKind === "hydrogen") return;
       // On an atom (anywhere on its label), a bond the way that keeps it out from under a label such as CO2Me. An
       // element's label (OH, NH2) moves its H out of the way, so there the zig-zag goes on.
       if (t.atom !== undefined) {
@@ -3826,7 +4257,8 @@ export default function Editor() {
       return set(clickBond(doc, t.bond, bondSpec, at, drawnSide(t.bond)));
     }
     if (tool === "chain") return chainClick(t.atom ?? at, false);
-    if (tool === "symbol") return t.atom !== undefined ? set(addSymbol(doc, t.atom, symbolKind)) : undefined;
+    // Option-click with the lone pair draws the atom's lone pairs as bars (or as dots again), as in ChemDraw.
+    if (tool === "symbol") return t.atom !== undefined ? set(addSymbol(doc, t.atom, symbolKind, pressAlt.current)) : undefined;
     if (tool === "bracket" && "mark" in bracketPick) {
       // A dagger goes on a bracket clicked (again takes it off), or stands alone where clicked.
       const sh = t.arrow !== undefined ? doc.shapes?.find((x) => x.id === t.arrow && isBracket(x)) : undefined;
@@ -3865,7 +4297,8 @@ export default function Editor() {
       return set(addRing(doc, r.n, r.aromatic || !!more.meta, t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : { point: at }, { sprout: sproutIt, firstSingle: more.shift, circle: more.meta }));
     }
     if (tool === "text") {
-      if (t.atom !== undefined) return editLabel(t.atom);
+      // Option-click repeats the last label typed, as in ChemDraw.
+      if (t.atom !== undefined) return pressAlt.current && lastLabel.current ? set(setLabel(doc, t.atom, lastLabel.current)) : editLabel(t.atom);
       return startWriting(t.caption !== undefined ? { id: t.caption } : { at });
     }
   }
@@ -3892,12 +4325,26 @@ export default function Editor() {
         return setGuides((g) => ({ ...g, crosshair: drag.at }));
       case "bond": {
         const { to, from, target: t, at } = drag;
+        // ChemDraw's hydrogen bond tool says so when the two atoms already have a bond.
+        if (to && bondKind === "hydrogen" && typeof from === "number" && neighbours(doc, from).includes(atomAt(doc, to)!)) return setNotice("These atoms already have a bond.");
         if (to) return set(dragBond(doc, from, to, bondSpec));
         return click(t, at, drag.alt);
       }
       case "arrow": {
+        // Synthesis and Retrosynthesis (ChemDraw's): the line cut the bonds it crossed, and the reaction is drawn
+        // (cutReaction). With Option held, the line stays, dashed, on the whole structure.
+        if (tool === "synthesis" || tool === "retro") {
+          const r = drag.to && cutReaction(doc, drag.from, drag.to, tool === "retro");
+          if (!r) return setNotice("Drag the line across one or more bonds.");
+          if (!r.cut) return setNotice("Octet does not cut bonds in aromatic rings.");
+          let m = r.mol;
+          if (pressAlt.current) [m] = addArrow(m, { kind: "line", style: "dashed", from: [drag.from[0] + r.moved[0], drag.from[1] + r.moved[1]], to: [drag.to![0] + r.moved[0], drag.to![1] + r.moved[1]] });
+          setNotice(r.aromatic ? `${r.aromatic === 1 ? "One bond" : `${r.aromatic} bonds`} in aromatic rings stayed whole.` : undefined, "info");
+          return set(m);
+        }
         // A click makes an arrow of the usual length (three bonds; a short arc for a curved one), going right.
-        const to: P = drag.to ?? (drag.make?.kind === "orbital" ? orbitalTip(drag.make, drag.from, drag.target) : curved({ kind: drag.make?.kind ?? arrowKind }) ? [drag.from[0] + 1.5, drag.from[1]] : [drag.from[0] + 3, drag.from[1]]);
+        const to: P = drag.to ?? (drag.make?.kind === "orbital" ? orbitalTip(drag.make, drag.from, drag.target) : !drag.make && arrowPick.ellipse ? [drag.from[0] + (arrowPick.ellipse === "cw" ? 0.6 : -0.6), drag.from[1] + 1.2]
+          : curved({ kind: drag.make?.kind ?? arrowKind }) ? [drag.from[0] + 1.5, drag.from[1]] : [drag.from[0] + 3, drag.from[1]]);
         if (Math.hypot(to[0] - drag.from[0], to[1] - drag.from[1]) < 0.2) return;
         const [mol, id] = addArrow(doc, newArrow(drag.from, to, drag.side, drag.make));
         set(mol);
@@ -3926,8 +4373,12 @@ export default function Editor() {
       case "spot":
         if (drag.moved) return set(drag.working, true);
         return setSpotPick({ plate: drag.plate, index: drag.index });
+      case "lane":
+        setLanePick({ plate: drag.plate, lane: drag.to });
+        return drag.working !== drag.base ? set(drag.working, true) : undefined;
       case "tlcline":
       case "tableedge":
+      case "mark":
         return drag.working !== drag.base ? set(drag.working, true) : undefined;
       case "pen":
         setPenAt(drag.at);
@@ -3939,7 +4390,9 @@ export default function Editor() {
         return to !== undefined ? set(pairMap(doc, drag.atom, to), true) : undefined;
       }
       case "turn":
-        return drag.degrees ? turnTo(drag.working, drag.centre) : undefined;
+        if (!drag.degrees) return;
+        lastRepeat.current = { rotate: drag.degrees }; // Edit > Repeat turns the next selection as far
+        return turnTo(drag.working, drag.centre);
       case "pivot":
         return drag.moved ? undefined : click(drag.target, drag.at);
       case "resize":
@@ -3964,6 +4417,7 @@ export default function Editor() {
         if (!drag.moved) choose([...drag.base, ...atomsOf(doc, drag.target)], [...drag.picks, ...[drag.target.caption ?? drag.target.arrow].filter((x): x is number => x !== undefined)]);
         return;
       case "move": {
+        if (!drag.moved && addPoint.current !== undefined) return set(updateArrow(doc, addPoint.current, { point: true }), true);
         if (!drag.moved) return click(drag.target, drag.from);
         saw("move");
         // An atom dropped exactly on another joins it. Joining renumbers atoms, so the selection clears then.
@@ -3973,6 +4427,13 @@ export default function Editor() {
     }
   }
 
+  // The web view's own menu (Reload, Inspect) never shows: a right-click on the canvas opens the Actions menu, and text
+  // fields keep the system's menu for cut, copy and paste.
+  useEffect(() => {
+    const block = (e: MouseEvent) => { if (!(e.target as Element).closest?.("input, textarea, [contenteditable]")) e.preventDefault(); };
+    addEventListener("contextmenu", block);
+    return () => removeEventListener("contextmenu", block);
+  }, []);
   // Trackpad: scroll pans, pinch (or ⌘/Ctrl + scroll) zooms around the pointer. While a zoom goes on (until 150 ms
   // after its last step), the drawing's text is laid out at its own size and scaled with the drawing (pinch, in
   // editor.css), so a zoom step does not lay out all the text again. When the zoom stops, the text is laid out for
@@ -4016,9 +4477,9 @@ export default function Editor() {
       // Drawing with the Pen: Return or Escape ends the curve; Delete takes back the last point.
       if (pen && (e.key === "Enter" || e.key === "Escape")) { e.preventDefault(); return finishPen(); }
       if (pen && (e.key === "Backspace" || e.key === "Delete")) { e.preventDefault(); return setPen(pen.length > 1 ? pen.slice(0, -1) : undefined); }
-      // Redo is ⌘Y (ChemDraw's) in the menu; ⇧⌘Z, the Mac's own, works too.
+      // Redo is ⌘Y (ChemDraw's) in the menu, and Repeat when there is nothing to redo; ⇧⌘Z, the Mac's own, works too.
       if (!TAURI && mod && key === "z") { e.preventDefault(); return undo(e.shiftKey); }
-      if (mod && key === "y") { e.preventDefault(); return undo(true); }
+      if (mod && key === "y") { e.preventDefault(); return commands.current.redo(); }
       if (TAURI && mod && e.shiftKey && key === "z") { e.preventDefault(); return undo(true); }
       if (!TAURI && mod && key === "a" && !e.shiftKey) { e.preventDefault(); return commands.current.select_all(); }
       if (!TAURI && mod && key === "a" && e.shiftKey) { e.preventDefault(); return commands.current.command_palette(); }
@@ -4026,6 +4487,13 @@ export default function Editor() {
       // such a key without taking it from text boxes too). Command and Ctrl keys are the menu's own in the app.
       const pressedKey = keyOf(e), bound = pressedKey && actionFor(keymap(settings.keys), pressedKey, "none");
       if (bound?.startsWith("menu.") && (!TAURI || !native(pressedKey!))) { e.preventDefault(); return commands.current[bound.slice(5)]?.(); }
+      if (bound?.startsWith("action.")) { e.preventDefault(); return runAction(bound.slice(7)); }
+      // The Menu key and Shift+F10 open the Actions menu at the selection (or the middle of the window).
+      if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+        e.preventDefault();
+        const view = views.get(), c = selection.size || picked.size ? selectionMiddle() : undefined;
+        return setMenuAt(c ? { x: view.x + c[0] * L * view.zoom, y: view.y - c[1] * L * view.zoom, keyboard: true } : { x: innerWidth / 2, y: innerHeight / 2, keyboard: true });
+      }
       // ChemDraw's reaction shortcut (⌘ + an arrow key, Ctrl + an arrow key elsewhere).
       if (bound?.startsWith("reaction.")) { if (reactionShortcut(bound.slice(9) as "left" | "right" | "up" | "down")) e.preventDefault(); return; }
       if (mod) return;
@@ -4209,8 +4677,8 @@ export default function Editor() {
   const captionMark = (id: number, key: string, cls: string) => {
     const c = placed.find((x) => x.id === id);
     if (!c) return null;
-    const pad = 0.12 * L;
-    return <rect key={key} className={cls} x={c.box[0] - pad} y={c.box[1] - pad} width={c.box[2] - c.box[0] + 2 * pad} height={c.box[3] - c.box[1] + 2 * pad} rx={pad} />;
+    const pad = 0.12 * L, b = c.frame ?? c.box;
+    return <rect key={key} className={cls} x={b[0] - pad} y={b[1] - pad} width={b[2] - b[0] + 2 * pad} height={b[3] - b[1] + 2 * pad} rx={pad} transform={c.angle && c.pivot ? `rotate(${-c.angle} ${c.pivot[0]} ${c.pivot[1]})` : undefined} />;
   };
   // An arrow's mark: a wide soft line along it.
   const arrowMark = (id: number, key: string, cls: string) => {
@@ -4239,8 +4707,9 @@ export default function Editor() {
     </>
   ) : null;
   const selected = drag?.kind === "erase" ? [] : [
-    ...shown.bonds.flatMap((b, i) => (selection.has(b.atoms[0]) && selection.has(b.atoms[1]) ? [bondMark(i, `sb${i}`, "")] : [])),
-    ...[...selection].filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `sa${i}`, "")),
+    // Hidden H atoms (Toggle Hydrogen Display) and their bonds are selected with their structure but not marked.
+    ...shown.bonds.flatMap((b, i) => (selection.has(b.atoms[0]) && selection.has(b.atoms[1]) && !shown.atoms[b.atoms[0]].hidden && !shown.atoms[b.atoms[1]].hidden ? [bondMark(i, `sb${i}`, "")] : [])),
+    ...[...selection].filter((i) => i < shown.atoms.length && !shown.atoms[i].hidden).map((i) => atomMark(i, `sa${i}`, "")),
     ...[...picked].map((id) => captionMark(id, `sc${id}`, "") ?? arrowMark(id, `sr${id}`, "")),
     ...cycleArrows.filter((a) => picked.has(a.cycle)).map((a) => <polyline key={`sy${a.id}`} className="arrow-mark" points={arrowTrace(a, L).paths[0].map((q) => q.join(",")).join(" ")} strokeWidth={0.36 * L} />),
   ];
@@ -4322,12 +4791,14 @@ export default function Editor() {
       </>
     );
   };
-  // A shape's fill: a highlight, a solid or shaded fill, or a shadow.
+  // A shape's fill: a highlight, a solid, shaded or faded fill, or a shadow.
   const shapeFill = (sh: Shape) => {
+    // A TLC plate is the page's colour, as ChemDraw's, unless it is Transparent.
+    if (sh.kind === "tlc" && !sh.tlc?.transparent) { const t = tlcLayout(sh); return <rect key={`f${sh.id}`} x={t.x0 * L} y={-t.y1 * L} width={(t.x1 - t.x0) * L} height={(t.y1 - t.y0) * L} fill="var(--canvas)" />; }
     if (!(sh.kind === "highlight" || sh.fill || sh.shadow)) return null;
     const d = kept(outlines, sh, frame.bond, () => toPath(shapeTrace(sh, L, frame.bond).paths.slice(0, 1))), shade = { ...SHADE, ...sh.shade }, off = shade.depth * L * scaleOf(sh);
     if (sh.kind === "highlight") return <path key={`f${sh.id}`} d={d} fill={sh.colour ?? HIGHLIGHT} />;
-    if (sh.fill) return <path key={`f${sh.id}`} d={d} fill={sh.fill === "shaded" ? `url(#shade${sh.id})` : sh.colour ? textInk(sh.colour) : "var(--ink)"} />;
+    if (sh.fill) return <path key={`f${sh.id}`} d={d} fill={sh.fill !== "solid" ? `url(#shade${sh.id})` : sh.colour ? textInk(sh.colour) : "var(--ink)"} />;
     // A shadow falls down and to the right, in the shape's colour at its opacity, softened by a blur. It shows
     // only outside the shape, so the shape stays unfilled: what is behind it shows through, and an export on a
     // transparent background has nothing in it.
@@ -4392,25 +4863,34 @@ export default function Editor() {
     );
   };
   // A TLC plate's lines and spots.
+  // The lane marked on a picked plate (lanePick), for the drawing's memos below.
+  const laneMark = lanePick && picked.has(lanePick.plate) ? lanePick : undefined;
   const tlcInk = (sh: Shape) => {
-    // A plate's origin line, dashed solvent front, spots, and their Rf values when shown.
+    // A plate's origin line, dashed solvent front, side ticks (every 0.1 Rf, longer at 0, 0.5 and 1), spots, and their
+    // Rf values when shown. The lane its actions act on is marked while the plate is picked.
     const t = tlcLayout(sh), y = (v: number) => -v * L, ink = sh.colour ? textInk(sh.colour) : "var(--ink)", hide = new Set(sh.tlc?.hide ?? []), w = lined(sh.width).line * t.f;
-    const dragging = drag?.kind === "spot" && drag.plate === sh.id ? drag.index : undefined;
+    const dragging = drag?.kind === "spot" && drag.plate === sh.id ? drag.index : undefined, path = (q: [number, number][]) => "M" + q.map(([px, py]) => `${(px * L).toFixed(2)} ${(-py * L).toFixed(2)}`).join("L") + "Z";
+    const ticks = sh.tlc?.ticks && Array.from({ length: 11 }, (_, k) => { const at = y(t.at(k / 10)), n = (k % 5 ? 0.09 : 0.16) * L * t.f; return `M${t.x0 * L} ${at}h${n}M${t.x1 * L} ${at}h${-n}`; }).join("");
     return (
       <g key={`tlc${sh.id}`} className="tlc">
+        {laneMark?.plate === sh.id && laneMark.lane < t.lanes && <rect className="lane-picked" x={(t.x0 + t.width * laneMark.lane) * L} y={y(t.y1)} width={t.width * L} height={(t.y1 - t.y0) * L} />}
+        {ticks && <path d={ticks} stroke={ink} strokeWidth={w} fill="none" />}
         {!hide.has("origin") && <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.origin)} y2={y(t.origin)} stroke={ink} strokeWidth={w} />}
         {!hide.has("origin") && Array.from({ length: t.lanes }, (_, k) => <line key={`t${k}`} x1={t.lane(k) * L} x2={t.lane(k) * L} y1={y(t.origin) - 0.08 * L * t.f} y2={y(t.origin) + 0.08 * L * t.f} stroke={ink} strokeWidth={w} />)}
         {!hide.has("front") && <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.front)} y2={y(t.front)} stroke={ink} strokeWidth={w} strokeDasharray={`${0.12 * L * t.f} ${0.08 * L * t.f}`} />}
         {(sh.tlc?.spots ?? []).map((x, i) => {
-          // A spot in its own colour (or the plate's): filled, hollow (its outline) or shaded (lit from the top left).
-          const c = x.colour ? textInk(x.colour) : ink, d = "M" + spotPath(t, x).map(([px, py]) => `${(px * L).toFixed(2)} ${(-py * L).toFixed(2)}`).join("L") + "Z", { rx } = t.size(x);
+          // A spot in its own colour (or the plate's): filled, hollow (its outline) or shaded (lit from the top left); its
+          // outline dashed (and hollow) or bold; doubled, with a second outline round it, clear of the first by its width and
+          // two line widths.
+          const c = x.colour ? textInk(x.colour) : ink, d = path(spotPath(t, x)), { rx } = t.size(x), filled = x.style !== "hollow" && !x.dashed, sw = x.bold ? lined(sh.width).bold * t.f : w, grow = x.doubled ? (2 * sw + 2 * w) / L : 0;
           const picked = spotPick?.plate === sh.id && spotPick.index === i;
           return (
             <g key={i}>
-              {x.style === "shaded" && <defs><radialGradient id={`spot${sh.id}-${i}`} cx="0.36" cy="0.32" r="0.75"><stop offset="0" stopColor="#FFFFFF" /><stop offset="1" style={{ stopColor: c }} /></radialGradient></defs>}
-              <path d={d} fill={x.style === "hollow" ? "none" : x.style === "shaded" ? `url(#spot${sh.id}-${i})` : c} stroke={x.style === "hollow" ? c : undefined} strokeWidth={w} />
+              {x.style === "shaded" && filled && <defs><radialGradient id={`spot${sh.id}-${i}`} cx="0.36" cy="0.32" r="0.75"><stop offset="0" stopColor="#FFFFFF" /><stop offset="1" style={{ stopColor: c }} /></radialGradient></defs>}
+              <path d={d} fill={!filled ? "none" : x.style === "shaded" ? `url(#spot${sh.id}-${i})` : c} stroke={!filled || x.bold ? c : undefined} strokeWidth={sw} strokeDasharray={x.dashed ? `${3 * sw} ${2 * sw}` : undefined} />
+              {x.doubled && <path d={path(spotPath(t, x, grow))} fill="none" stroke={c} strokeWidth={sw} />}
               {picked && <path d={d} className="spot-picked" fill="none" vectorEffect="non-scaling-stroke" />}
-              {(sh.tlc?.rf || x.showRf || dragging === i) && <text x={(t.lane(x.lane) + rx + 0.1 * t.f) * L} y={y(t.at(x.rf)) + 0.12 * L * t.f} fill={c} style={textFace(sh, (sh.size ?? style.captionSize * 0.8) * pt * t.f)}>{x.rf.toFixed(2)}</text>}
+              {(sh.tlc?.rf || x.showRf || dragging === i) && <text x={(t.lane(x.lane) + rx + grow + 0.1 * t.f) * L} y={y(t.at(x.rf)) + 0.12 * L * t.f} fill={c} style={textFace(sh, (sh.size ?? style.captionSize * 0.8) * pt * t.f)}>{x.rf.toFixed(2)}</text>}
             </g>
           );
         })}
@@ -4458,22 +4938,45 @@ export default function Editor() {
   const under = useMemo(() => (
     <>
       {/* Fills go behind the structures: highlights, shadows (with the shape white over them), solid and shaded shapes. */}
-      {/* Ring fills: a ring whose atoms all have one fill, filled with it behind the bonds. */}
-      {shown.atoms.some((at) => at.fill) && drawnRings(shown)
-        .filter((r) => r.length <= 12 && shown.atoms[r[0]].fill && r.every((i) => shown.atoms[i].fill === shown.atoms[r[0]].fill))
-        .map((r) => <polygon key={`fill${r.join("-")}`} points={r.map((i) => `${pos(shown, i)[0] * L},${-pos(shown, i)[1] * L}`).join(" ")} fill={shown.atoms[r[0]].fill} fillOpacity={0.3} />)}
-      {/* Highlight colours: a disc behind each highlighted atom, one group per colour so overlapping discs don't darken. */}
-      {[...new Set(shown.atoms.map((at) => at.halo).filter((c): c is string => !!c))].map((c) => (
-        <g key={`halo${c}`} className="atom-halo" opacity={0.4} fill={c}>
-          {shown.atoms.map((at, i) => at.halo === c && <circle key={i} cx={pos(shown, i)[0] * L} cy={-pos(shown, i)[1] * L} r={0.46 * L * scaleOf(at)} />)}
-        </g>
-      ))}
+      {/* Ring fills: each ring that is still closed, filled with its colour behind the bonds. */}
+      {shown.fills?.length && (() => {
+        const joined = new Set(shown.bonds.map((b) => ringKey(b.atoms)));
+        return shown.fills.filter((f) => f.atoms.every((i, k) => i < shown.atoms.length && joined.has(ringKey([i, f.atoms[(k + 1) % f.atoms.length]])))).map((f) => (
+          <polygon key={`fill${f.atoms.join("-")}`} points={f.atoms.map((i) => `${pos(shown, i)[0] * L},${-pos(shown, i)[1] * L}`).join(" ")} fill={f.colour} fillOpacity={0.3} />
+        ));
+      })()}
+      {/* Highlight colours, as ChemDraw draws them: a band along each highlighted bond (as wide as a bond's outline:
+          its line and three bond spacings), a disc on a highlighted atom with no bond of its colour, and a ring round a
+          label. One group per colour, so the parts do not darken where they overlap. */}
+      {[...new Set([...shown.atoms.map((at) => at.halo), ...shown.bonds.map((b) => b.halo)].filter((c): c is string => !!c))].map((c) => {
+        const band = frame.line + 3 * frame.spacing, own = new Set(shown.bonds.flatMap((b) => (b.halo === c ? b.atoms : [])));
+        return (
+          <g key={`halo${c}`} className="atom-halo" opacity={0.4} fill={c} stroke={c} strokeLinecap="round">
+            {shown.bonds.map((b, k) => b.halo === c && <line key={`b${k}`} x1={pos(shown, b.atoms[0])[0] * L} y1={-pos(shown, b.atoms[0])[1] * L} x2={pos(shown, b.atoms[1])[0] * L} y2={-pos(shown, b.atoms[1])[1] * L} strokeWidth={band} />)}
+            {shown.atoms.map((at, i) => {
+              if (at.halo !== c) return null;
+              const box = drawing.label[i];
+              if (!box) return !own.has(i) && <circle key={i} cx={pos(shown, i)[0] * L} cy={-pos(shown, i)[1] * L} r={band / 2} stroke="none" />;
+              // A label: a circle round one letter, or a box with round ends round a longer label.
+              const [w, h] = [box[2] - box[0], box[3] - box[1]], pad = band / 4 + 0.08 * L;
+              if (Math.abs(w - h) < 0.6 * h) return <circle key={i} cx={(box[0] + box[2]) / 2} cy={(box[1] + box[3]) / 2} r={Math.max(w, h) / 2 + pad} stroke="none" />;
+              return <rect key={i} x={box[0] - pad - h / 4} y={box[1] - pad} width={w + 2 * pad + h / 2} height={h + 2 * pad} rx={h / 4 + pad} ry={h / 2 + pad} stroke="none" />;
+            })}
+          </g>
+        );
+      })}
       <defs>
         {(shown.shapes ?? []).filter((sh) => sh.fill === "shaded").map((sh) => (
           <radialGradient key={sh.id} id={`shade${sh.id}`} cx="0.36" cy="0.32" r="0.72">
             <stop offset="0" stopColor="#FFFFFF" />
             <stop offset="1" style={{ stopColor: sh.colour ? textInk(sh.colour) : "var(--ink)" }} />
           </radialGradient>
+        ))}
+        {(shown.shapes ?? []).filter((sh) => sh.fill === "faded").map((sh) => (
+          <linearGradient key={sh.id} id={`shade${sh.id}`} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" style={{ stopColor: sh.colour ?? "var(--ink)" }} />
+            <stop offset="1" style={{ stopColor: sh.colour ?? "var(--ink)" }} stopOpacity={0} />
+          </linearGradient>
         ))}
       </defs>
       {(shown.shapes ?? []).filter(level).map(shapeFill)}
@@ -4556,7 +5059,7 @@ export default function Editor() {
         <CaptionText key={`c${c.id}`} c={c} fill={textInk(c.colour ?? style.colour)} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} />
       ))}
     </>
-  ), [shown, frame, darkPaper, draggedSpot, spotPick, style, pt, cell?.id, cell?.r, cell?.c, drawing, markDirs, labelTexts, placed, writing?.id, reagents]); // eslint-disable-line react-hooks/exhaustive-deps
+  ), [shown, frame, darkPaper, draggedSpot, spotPick, laneMark?.plate, laneMark?.lane, style, pt, cell?.id, cell?.r, cell?.c, drawing, markDirs, labelTexts, placed, writing?.id, reagents]); // eslint-disable-line react-hooks/exhaustive-deps
   // Things with a draw order (order.ts), each drawn whole: under all the layers (below zero) or over them, lowest first.
   const lifted = useMemo(() => {
     const things: [number, React.ReactNode][] = [];
@@ -4578,13 +5081,13 @@ export default function Editor() {
     for (const c of placed) if (c.order && c.id !== (writing?.id ?? DRAFT) && c.id !== DRAFT) things.push([c.order, <CaptionText key={`oc${c.id}`} c={c} fill={textInk(c.colour ?? style.colour)} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} />]);
     things.sort((a, b) => a[0] - b[0]);
     return { back: things.filter(([o]) => o < 0).map(([, x]) => x), front: things.filter(([o]) => o > 0).map(([, x]) => x) };
-  }, [shown, frame, darkPaper, draggedSpot, spotPick, style, pt, cell?.id, cell?.r, cell?.c, drawing, labelTexts, placed, arrows, cycleArrows, writing?.id, reagents]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [shown, frame, darkPaper, draggedSpot, spotPick, laneMark?.plate, laneMark?.lane, style, pt, cell?.id, cell?.r, cell?.c, drawing, labelTexts, placed, arrows, cycleArrows, writing?.id, reagents]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className={guides.rulers && !home ? "editor with-rulers" : "editor"}>
       {/* The canvas draws again as the view, or what the pointer is over, changes. The drawing's layers in it are made
           by the editor (under, marks, ink and over), so React passes over them. */}
-      <Live store={views}>{(view) => <Live store={overs}>{({ selection: overSelection, turn: overTurn, edge: edgeHover, page: pageHover, resize: overResize, cross: overCross }) => (
+      <Live store={views}>{(view) => <Live store={overs}>{({ selection: overSelection, turn: overTurn, edge: edgeHover, page: pageHover, resize: overResize, join: overJoin, cross: overCross }) => (
       <svg
         ref={svg}
         className={`canvas paper-${paper}${view.pinch ? " pinch" : ""}`}
@@ -4595,10 +5098,12 @@ export default function Editor() {
             : (overTurn && !drag) || drag?.kind === "turn" ? { cursor: turnCursor ?? "grab" } : overSelection || drag?.kind === "move" ? { cursor: "move" } : tool === "select" && cursor ? { cursor } : {}),
           ...((edgeHover && !drag) || drag?.kind === "tableedge" ? { cursor: (drag?.kind === "tableedge" ? drag.axis : edgeHover) === "col" ? "col-resize" : "row-resize" } : {}),
           ...(darkPaper ? { "--ink": "#FFFFFF" } : {}),
+          ...(own ? { "--canvas": own } : {}),
         } as React.CSSProperties}
         role="img"
         aria-label="Drawing canvas"
         onPointerDown={onPointerDown}
+        onContextMenu={onContextMenu}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
@@ -4623,6 +5128,12 @@ export default function Editor() {
           if (gc && !["formula", "mw", "expected", "yield"].includes(gc.row)) {
             const v = gridViews.find((x) => x.arrow === gc.arrow)!, c = v.cols.find((x) => x.key === gc.key)!, row = GRID_ROWS.find((r) => r.id === gc.row)!;
             return setGridEdit({ ...gc, value: c.typed[row.field as Field] !== undefined ? gridText(v, c, row).text : "" });
+          }
+          // Double-click a TLC spot, or its Rf value, to type its Rf (ChemDraw's Set Rf; the spot moves to it).
+          const plate = tool !== "erase" ? plateAt(toDoc(e.clientX, e.clientY)) : undefined;
+          if (plate) {
+            const q = toDoc(e.clientX, e.clientY), k = spotHit(plate, q) >= 0 ? spotHit(plate, q) : rfAt(plate, q);
+            if (k >= 0) return setDialog({ kind: "rf", plate: plate.id, index: k, value: String(plate.tlc!.spots[k].rf) });
           }
           // Double-click a table to type in the cell.
           const table = tool !== "erase" ? tableAt(toDoc(e.clientX, e.clientY)) : undefined;
@@ -4716,10 +5227,31 @@ export default function Editor() {
             // A picked arrow's handles: its ends, and the middle of a curved one.
             const ids = [...picked], a = ids.length === 1 && !selection.size && drag?.kind !== "move" ? arrows.find((x) => x.id === ids[0]) : undefined;
             const wh = drag?.kind === "move" ? undefined : widthHandle();
+            if (a?.kind === "curve" && a.curve && !wh) {
+              // A picked pen curve: every anchor as a small square, and each handle as a dot on a line from its anchor.
+              const r = 3.5 / view.zoom, c = a.curve;
+              return (
+                <g className="pen-points" aria-hidden>
+                  {c.points.flatMap((q, i) => (["c1", "c2"] as const).flatMap((part) => { const h = q[part]; return h ? [<line key={`l${i}${part}`} x1={q.at[0] * L} y1={-q.at[1] * L} x2={h[0] * L} y2={-h[1] * L} />] : []; }))}
+                  {c.points.flatMap((q, i) => (["c1", "c2"] as const).flatMap((part) => { const h = q[part]; return h ? [<circle key={`h${i}${part}`} cx={h[0] * L} cy={-h[1] * L} r={r * 0.8} />] : []; }))}
+                  {c.points.map((q, i) => <rect key={`p${i}`} x={q.at[0] * L - r} y={-q.at[1] * L - r} width={2 * r} height={2 * r} />)}
+                </g>
+              );
+            }
             if ((!a || a.kind === "curve") && !wh) return null;
-            const points = wh ? [wh.at] : [a!.from, a!.to, ...(curved(a!) ? [bendPoint(a!)] : [])];
-            return points.map((q, i) => <circle key={`hd${i}`} className="handle" cx={q[0] * L} cy={-q[1] * L} r={4 / view.zoom} vectorEffect="non-scaling-stroke" />);
+            const barb = !wh && a ? headBarb(a, frame, L) : undefined;
+            const points = wh ? [wh.at] : [a!.from, a!.to, ...(curved(a!) || a!.point ? [bendPoint(a!)] : []), ...(barb ? [[barb[0] / L, -barb[1] / L] as P] : [])];
+            return (
+              <>
+                {points.map((q, i) => <circle key={`hd${i}`} className="handle" cx={q[0] * L} cy={-q[1] * L} r={4 / view.zoom} vectorEffect="non-scaling-stroke" />)}
+                {!wh && a && pointable(a) && !a.point && (() => { const m = bendPoint(a); return <circle className="handle add" cx={m[0] * L} cy={-m[1] * L} r={3 / view.zoom} vectorEffect="non-scaling-stroke" />; })()}
+              </>
+            );
           })()}
+          {overJoin && !drag && (
+            // Where a joined arrow would start: a small square, as ChemDraw marks it.
+            <rect className="handle join" x={overJoin[0] * L - 3 / view.zoom} y={-overJoin[1] * L - 3 / view.zoom} width={6 / view.zoom} height={6 / view.zoom} vectorEffect="non-scaling-stroke" />
+          )}
           {(() => {
             // The selection's frame with its resize handles and rotation handle, and the centre the selection turns
             // about (a +, which Option-drag moves); while resizing, the frame as it is now and the scale in its middle;
@@ -4875,13 +5407,16 @@ export default function Editor() {
         const c = placed.find((x) => x.id === (writing.id ?? DRAFT));
         if (!c) return null;
         // Its lines as far apart as the caption's line spacing puts them (the first two lines' gap), each baseline where
-        // the canvas draws it: the leading split above and below Arial's ascent and descent.
+        // the canvas draws it: the leading split above and below Arial's ascent and descent. A turned caption's box
+        // turns with it, about its pivot.
         const z = view.zoom, size = c.size * z, slack = 0.5 * size, gap = c.lines.length > 1 ? c.lines[1].y - c.lines[0].y : 1.2 * c.size, lead = (gap - 1.117 * c.size) / 2 + 0.905 * c.size;
         // A caption with a width wraps in the box as it does on the canvas: the box is that wide, from its anchor.
-        const own = writing.id !== undefined ? doc.captions?.find((x) => x.id === writing.id) : undefined, wrapAt = (writing.style.width ?? own?.width ?? 0) * L;
-        const x0 = !wrapAt ? c.box[0] : c.anchor === "end" ? c.lines[0].x - wrapAt : c.anchor === "middle" ? c.lines[0].x - wrapAt / 2 : c.lines[0].x;
+        const own = writing.id !== undefined ? doc.captions?.find((x) => x.id === writing.id) : undefined, wrapAt = (writing.style.width ?? own?.width ?? 0) * L, b = c.frame ?? c.box;
+        const x0 = !wrapAt ? b[0] : c.anchor === "end" ? c.lines[0].x - wrapAt : c.anchor === "middle" ? c.lines[0].x - wrapAt / 2 : c.lines[0].x;
+        const left = view.x + x0 * z - slack, top = view.y + (c.lines[0].y - lead) * z;
         return (
           <RichBox
+            key={writing.at ? writing.at.join(" ") : undefined} // a new box for each caption Tab starts
             returnNewLine={!settings.captionOptionReturn}
             runs={writing.runs ?? [{ text: writing.value }]}
             version={writing.version ?? 0}
@@ -4894,9 +5429,9 @@ export default function Editor() {
               fontSize: r.size ? `${r.size * pt * z * (r.script ? 0.75 : 1)}px` : r.script ? "75%" : "",
             })}
             style={{
-              left: view.x + x0 * z - slack,
-              top: view.y + (c.lines[0].y - lead) * z,
-              width: (wrapAt || c.box[2] - c.box[0]) * z + 2 * slack,
+              left, top,
+              width: (wrapAt || b[2] - b[0]) * z + 2 * slack,
+              ...(c.angle && c.pivot ? { transform: `rotate(${-c.angle}deg)`, transformOrigin: `${view.x + c.pivot[0] * z - left}px ${view.y + c.pivot[1] * z - top}px` } : {}),
               whiteSpace: wrapAt ? "pre-wrap" : undefined,
               height: c.lines.length * gap * z,
               font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${size}px/${gap * z}px ${fontStack(c.font ?? style.captionFont)}`,
@@ -4909,6 +5444,7 @@ export default function Editor() {
             onKeyDown={(e) => {
               // Return reaches here only when it does not make a new line (Settings: Option-Return for a new line).
               if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); commitWriting(); }
+              if (e.key === "Tab" && !e.shiftKey && writing.at && writing.id === undefined) { e.preventDefault(); tabCaption(); }
               if (e.key === "Escape") { e.preventDefault(); commitWriting(); } // Escape keeps the text, as a click elsewhere does
               // ChemDraw's text keys, in the browser (the desktop app's Text menu has them too).
               if (!TAURI && (e.metaKey || e.ctrlKey)) {
@@ -5015,6 +5551,8 @@ export default function Editor() {
           menuKeys={menuReady ? [] : Object.values(MENU_NAMES).flatMap(([name, keys]) => (keys ? [[name, platformLabel(keys)!] as [string, string]] : []))}
           palette={settings.palette}
           onPalette={(palette) => setSettings((s) => ({ ...s, palette }))}
+          elementColours={settings.elementColours}
+          onElementColours={(elementColours) => setSettings((s) => ({ ...s, elementColours }))}
           adding={addingColour}
           onClose={() => { setSettingsOpen(undefined); setAddingColour(false); }}
         />
@@ -5036,9 +5574,11 @@ export default function Editor() {
         libraryRings={settings.libraryRings}
         onLibraryRings={(libraryRings) => setSettings((s) => ({ ...s, libraryRings }))}
         templates={templates}
+        templateSets={settings.templateSets}
+        onTemplateSets={templateSets}
         pinned={settings.pinned}
         onPinned={(pinned) => setSettings((s) => ({ ...s, pinned }))}
-        canAddSelection={selection.size > 0}
+        canAddSelection={selection.size > 0 || picked.size > 0}
         renaming={renaming}
         preview={(name) => structureFor(name) ?? (() => { const s = suggestName(name, false); return s ? structureFor(s) : undefined; })()}
         onAddName={(typed) => {
@@ -5137,6 +5677,21 @@ export default function Editor() {
           />
         );
       }}</Live>
+      <Exit>{menuAt && (() => {
+        const context = panelContext ?? contextOf();
+        return <ActionsMenu at={menuAt} keyboard={menuAt.keyboard} context={context} messy={untidy} hiddenWarnings={[...selection].some((i) => doc.atoms[i]?.ignoreWarnings)} grouping={grouping}
+          layout={settings.actionLayout} hint={hint} colour={selectionColour(context)} palette={[...settings.palette, ...docColours]} online={settings.onlineSearch} run={runAction} onClose={() => setMenuAt(undefined)} />;
+      })()}</Exit>
+      <Exit>{dialog?.kind === "rf" && (
+        // Set Rf…, as ChemDraw's: the spot moves to the Rf typed.
+        <Dialog title="Set Rf" action="Set" onClose={() => setDialog(undefined)}
+          onAction={() => { const v = Number(dialog.value); if (v >= 0 && v <= 1) set(editSpot(doc, dialog.plate, dialog.index, () => ({ rf: Math.round(v * 1000) / 1000 })), true); setDialog(undefined); }}>
+          <label className="dialog-row">
+            <span>Rf</span>
+            <NumberField label="Rf" min={0} max={1} step={0.01} value={Number(dialog.value)} onChange={(n) => setDialog({ ...dialog, value: String(n) })} />
+          </label>
+        </Dialog>
+      )}</Exit>
       <Exit>{dialog?.kind === "rotate" && (
         <Dialog title="Rotate" action="Rotate" onClose={() => setDialog(undefined)}
           onAction={() => { const a = Number(dialog.angle); if (Number.isFinite(a)) rotateBy(dialog.clockwise ? -a : a); setDialog(undefined); }}>
@@ -5183,22 +5738,68 @@ export default function Editor() {
       )}</Exit>
       <Exit>{dialog?.kind === "atom" && (
         <Dialog title="Atom Properties" action="Apply" onClose={() => setDialog(undefined)}
+          alt={{ label: "Use Defaults", onClick: () => setDialog({ ...dialog, charge: "0", isotope: "", radical: "0", stereo: "", group: "1" }) }}
           onAction={() => {
             const d = dialog, a = doc.atoms[d.atom];
             if (!a) return setDialog(undefined);
             let m = d.element.trim() && d.element.trim() !== (a.text ?? a.label) ? setLabel(doc, d.atom, d.element.trim()) : doc;
-            const charge = Math.max(-9, Math.min(9, Math.round(Number(d.charge) || 0))), isotope = Math.round(Number(d.isotope));
-            m = { ...m, atoms: m.atoms.map((x, k) => (k === d.atom ? { ...x, charge: charge || undefined, isotope: isotope >= 1 && isotope <= 300 ? isotope : undefined, radical: Number(d.radical) || undefined } : x)) };
+            // ChemDraw's ranges: charge −8 to +8, an enhanced stereo group from 1 to 99.
+            const charge = Math.max(-8, Math.min(8, Math.round(Number(d.charge) || 0))), isotope = Math.round(Number(d.isotope)), group = Math.max(1, Math.min(99, Math.round(Number(d.group) || 1)));
+            const enhanced = d.stereo === "abs" ? "abs" : d.stereo ? `${d.stereo}${group}` : undefined;
+            m = { ...m, atoms: m.atoms.map((x, k) => (k === d.atom ? { ...x, charge: charge || undefined, isotope: isotope >= 1 && isotope <= 300 ? isotope : undefined, radical: Number(d.radical) || undefined, enhanced } : x)) };
             set(m, true);
             setDialog(undefined);
           }}>
           <label className="dialog-row"><span>Element</span><span className="unit-field text"><input aria-label="Element" value={dialog.element} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, element: e.target.value.slice(0, 40) })} /></span></label>
-          <label className="dialog-row"><span>Charge</span><NumberField label="Charge" min={-9} max={9} step={1} value={Number(dialog.charge) || 0} onChange={(n) => setDialog({ ...dialog, charge: String(Math.round(n)) })} /></label>
+          <label className="dialog-row"><span>Charge</span><NumberField label="Charge" min={-8} max={8} step={1} value={Number(dialog.charge) || 0} onChange={(n) => setDialog({ ...dialog, charge: String(Math.round(n)) })} /></label>
           <label className="dialog-row"><span>Isotope</span><NumberField label="Isotope (mass number)" min={1} max={300} step={1} placeholder="Natural" value={dialog.isotope ? Number(dialog.isotope) : undefined}
             onChange={(n) => setDialog({ ...dialog, isotope: String(Math.round(n)) })} onClear={() => setDialog({ ...dialog, isotope: "" })} /></label>
           <div className="dialog-row"><span>Radical</span>
             <Segmented label="Radical" value={dialog.radical} options={[["0", "None"], ["1", "•", "Doublet"], ["2", "••", "Triplet"], ["3", ":", "Singlet"]]} onChange={(v) => setDialog({ ...dialog, radical: v })} />
           </div>
+          <div className="dialog-row"><span>Enhanced stereo</span>
+            <Segmented label="Enhanced stereo" value={dialog.stereo} options={[["", "None"], ["abs", "Absolute"], ["or", "Or"], ["&", "And"]]} onChange={(v) => setDialog({ ...dialog, stereo: v })} />
+          </div>
+          {(dialog.stereo === "or" || dialog.stereo === "&") && (
+            <label className="dialog-row"><span>Group</span><NumberField label="Enhanced stereo group" min={1} max={99} step={1} value={Number(dialog.group) || 1} onChange={(n) => setDialog({ ...dialog, group: String(Math.round(n)) })} /></label>
+          )}
+        </Dialog>
+      )}</Exit>
+      <Exit>{dialog?.kind === "contract" && (
+        <Dialog title="Contract Label" action="Contract" onClose={() => setDialog(undefined)}
+          onAction={() => {
+            const d = dialog, text = d.text.trim();
+            if (!text || !d.group.every((i) => doc.atoms[i])) return setDialog(undefined);
+            // A known abbreviation that is not what is selected is checked once, as ChemDraw's Possible Error in Drawing.
+            const smiles = labelSmiles(text), other = smiles && d.want && toInchi(`[Xe]${smiles}`) !== d.want;
+            if (other && d.warn !== text) return setDialog({ ...d, warn: text });
+            set(contractLabel(doc, d.keep, new Set(d.group), text));
+            setSelection(new Set());
+            setDialog(undefined);
+          }}>
+          <label className="dialog-row"><span>Label</span><span className="unit-field text"><input aria-label="Label" value={dialog.text} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, text: e.target.value.slice(0, 40) })} /></span></label>
+          {dialog.warn && dialog.warn === dialog.text.trim() && <p className="dialog-note">{dialog.warn} is not the selected group. Select Contract again to use it.</p>}
+        </Dialog>
+      )}</Exit>
+      <Exit>{dialog?.kind === "bond" && (
+        <Dialog title="Bond Properties" action="Apply" onClose={() => setDialog(undefined)}
+          alt={{ label: "Use Defaults", onClick: () => setDialog({ ...dialog, style: "single", position: "auto" }) }}
+          onAction={() => {
+            const d = dialog, b = doc.bonds[d.bond];
+            if (!b) return setDialog(undefined);
+            let m = bondKindOf(b) === d.style ? doc : setBondSpec(doc, d.bond, BONDS[d.style].spec);
+            if (m.bonds[d.bond].type === 2) m = setPosition(m, d.bond, d.position === "auto" ? undefined : d.position);
+            set(m, true);
+            setDialog(undefined);
+          }}>
+          <label className="dialog-row"><span>Bond type</span>
+            <Select label="Bond type" value={dialog.style} options={BOND_TYPES.filter((k) => k !== "hydrogen" || doc.bonds[dialog.bond]?.type === BONDS.hydrogen.spec.type).map((k) => [k, BONDS[k].name])} onChange={(v) => setDialog({ ...dialog, style: v as BondKind })} />
+          </label>
+          {BONDS[dialog.style].spec.type === 2 && (
+            <label className="dialog-row"><span>Second line</span>
+              <Select label="Second line" value={dialog.position} options={[["auto", "Automatic"], ["left", "Left"], ["centre", "Centre"], ["right", "Right"]]} onChange={(v) => setDialog({ ...dialog, position: v as "auto" })} />
+            </label>
+          )}
         </Dialog>
       )}</Exit>
       <Exit>{dialog?.kind === "font" && (
@@ -5252,6 +5853,14 @@ export default function Editor() {
             <Switch on={scalesText()} label="Labels and lines" disabled={textAlone()} onChange={(on) => setSettings((s) => ({ ...s, scaleLabels: on }))} />
           </label>
         </Dialog>
+      )}</Exit>
+      <Exit>{nicknames && (
+        <div ref={nicknameBox}>
+          <Menu label="Choose a nickname" className="nickname-menu" columns={3}
+            style={{ position: "fixed", left: Math.max(8, Math.min(nicknames.x + 16, innerWidth - 8 - menuWidth(3))), top: Math.max(8, nicknames.y - 20) }}
+            groups={NICKNAMES.map((g) => g.map((name) => { const m = nicknameMol(name); return { key: name, name, icon: m?.bonds.length ? <TemplateGlyph mol={m} /> : <TextAa size={20} />, checked: doc.atoms[nicknames.atom]?.text === name }; }))}
+            onChoose={(name) => { const i = nicknames.atom; setNicknames(undefined); if (doc.atoms[i]) set(setLabel(doc, i, name), true); }} />
+        </div>
       )}</Exit>
       {commandsOpen && <CommandPalette commands={paletteCommands()} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}
       <Exit>{notice && <NoticeBar notice={notice} onGone={() => showNotice(undefined)} />}</Exit>

@@ -104,9 +104,10 @@ console.log("scale.check: text sizes ok");
   assert.deepEqual([off.x, off.y], [10, 5], "the text keeps its size and its middle");
   const grown = scaleSettings(m, new Set(), new Set([1]), 2, 10).captions![0];
   assert.equal(grown.size, 20, "its size doubles from the document's");
-  // A turn moves a caption's middle, not its anchor, so a lone caption stays where it is.
+  // A turn turns a caption about its middle, as ChemDraw turns text with the selection (CD-19): a lone caption keeps
+  // its middle, and its anchor goes round it.
   const turned = transformParts(m, new Set(), new Set([1]), ([x, y]) => [12 - (y - 5.3), 5.3 + (x - 12)], [1, 1], middle).captions![0];
-  assert.deepEqual([turned.x, turned.y], [10, 5]);
+  assert.ok(Math.abs(turned.x - 12.3) < 1e-9 && Math.abs(turned.y - 3.3) < 1e-9 && turned.angle === 90, `${turned.x} ${turned.y} ${turned.angle}`);
   console.log("scale.check: captions ok");
 }
 

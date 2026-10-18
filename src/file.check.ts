@@ -103,9 +103,16 @@ console.log("file.check: bad files refused");
     { kind: "arc" as const, from: [0, 0] as [number, number], to: [2, 0] as [number, number], bend: 0.5, style: "dashed" as const },
     { kind: "reaction" as const, from: [0, 1] as [number, number], to: [3, 1] as [number, number], style: "dashed" as const },
     { kind: "orbital" as const, from: [0, 0] as [number, number], to: [0, 1] as [number, number], orbital: { shape: "p" as const, phase: "phased" as const } },
+    // ChemDraw's sizes and kinds, and a straight arrow's point and bend.
+    { kind: "equilibrium" as const, from: [0, 2] as [number, number], to: [3, 2] as [number, number], ratio: 3, headSize: { length: 15, centre: 13.125, width: 3.75 } },
+    { kind: "block" as const, from: [0, 3] as [number, number], to: [3, 3] as [number, number], shaft: 8, fill: "faded" as const },
+    { kind: "hash" as const, from: [0, 4] as [number, number], to: [3, 4] as [number, number] }, { kind: "dipole" as const, from: [0, 5] as [number, number], to: [3, 5] as [number, number] },
+    { kind: "reaction" as const, from: [0, 6] as [number, number], to: [3, 6] as [number, number], point: true as const, bend: 0.2 },
   ]) m = addArrow(m, a)[0];
   const again = parse(serialize(m));
   assert.deepEqual(again.arrows?.map(({ id: _, ...a }) => a), m.arrows?.map(({ id: _, ...a }) => a));
+  for (const bad of [{ headSize: { length: 0, centre: 1, width: 1 } }, { ratio: -1 }, { shaft: "wide" }, { point: 1 }])
+    assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, arrows: [{ kind: "reaction", x1: 0, y1: 0, x2: 1, y2: 0, ...bad }] })), /damaged/);
   console.log("file.check: lines and orbitals ok");
 }
 
@@ -116,6 +123,7 @@ console.log("file.check: bad files refused");
     { kind: "oval" as const, from: [0, 0] as [number, number], to: [1, 1] as [number, number], fill: "shaded" as const },
     { kind: "box" as const, from: [0, 0] as [number, number], to: [2, 1] as [number, number], shadow: true },
     { kind: "brackets" as const, from: [0, 0] as [number, number], to: [2, 2] as [number, number], side: "left" as const, mark: "‡" },
+    { kind: "rounded" as const, from: [0, 0] as [number, number], to: [2, 1] as [number, number], fill: "faded" as const, boldLine: true as const, angle: 30, order: 2 },
     { kind: "tlc" as const, from: [0, 0] as [number, number], to: [3, 4] as [number, number], tlc: { lanes: 3, spots: [{ lane: 0, rf: 0.42 }, { lane: 2, rf: 0.7 }], rf: true } },
     { kind: "table" as const, from: [0, 3] as [number, number], to: [6, 0] as [number, number], table: { cells: [["Entry", "Solvent", "Yield (%)"], ["1", "THF", "72"]], grid: true } },
     { kind: "table" as const, from: [0, 3] as [number, number], to: [6, 0] as [number, number], dashed: true,
@@ -129,7 +137,7 @@ console.log("file.check: bad files refused");
   assert.deepEqual(again.shapes?.map(({ id: _, ...x }) => x), m.shapes?.map(({ id: _, ...x }) => x));
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "tlc", x1: 0, y1: 0, x2: 1, y2: 1, tlc: { lanes: 2, spots: [{ lane: 5, rf: 0.5 }] } }] })), /damaged/);
   // Widths reach 200 pt and sizes 0.1 to 999 pt, so a document scaled 10% to 1000% keeps them (decision 0007).
-  for (const bad of [{ angle: 1e7 }, { angle: "30" }, { width: 0 }, { width: 999 }, { size: 0.01 }, { size: 2000 }, { font: "x".repeat(300) }, { bold: 1 }])
+  for (const bad of [{ angle: 1e7 }, { angle: "30" }, { width: 0 }, { width: 999 }, { size: 0.01 }, { size: 2000 }, { font: "x".repeat(300) }, { bold: 1 }, { angle: "up" }, { angle: 1e4 }, { boldLine: 1 }, { fill: "glow" }])
     assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "box", x1: 0, y1: 0, x2: 1, y2: 1, ...bad }] })), /damaged/, JSON.stringify(bad));
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, arrows: [{ kind: "reaction", x1: 0, y1: 0, x2: 1, y2: 1, width: -1 }] })), /damaged/);
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "table", x1: 0, y1: 0, x2: 1, y2: 1, table: { cells: [[1]] } }] })), /damaged/);
@@ -163,6 +171,9 @@ console.log("file.check: bad files refused");
   assert.deepEqual({ font: back.font, runs: back.runs }, { font: cap.font, runs: cap.runs });
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, captions: [{ text: "H2O", x: 0, y: 0, runs: [{ text: "CO2" }] }] })), /damaged/);
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, captions: [{ text: "H", x: 0, y: 0, runs: [{ text: "H", onclick: "x" }] }] })), /damaged/);
+  // A turned caption keeps its turn (CD-19); a turn that is not a number is refused.
+  assert.equal(parse(serialize({ ...mol, captions: [{ id: 4, text: "x", x: 0, y: 0, angle: -54 }] })).captions![0].angle, -54);
+  assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, captions: [{ text: "x", x: 0, y: 0, angle: "up" }] })), /damaged/);
   console.log("file.check: rich text ok");
 }
 

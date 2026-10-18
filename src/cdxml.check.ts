@@ -5,7 +5,7 @@ import { DAMAGED, NOT_CDXML, TOO_BIG, fmt, fmtAngle, fmtColour, fmtSize, fromCdx
 import { DEFAULT_STYLE, PRESETS, readStyle, withScale, type DocStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
 import { fitSizes } from "./edit.ts";
-import { HIGHLIGHT, bendPoint, headsOf, takesHeads, tlcLayout, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape } from "./render.ts";
+import { HIGHLIGHT, bendPoint, ellipseArrow, headOfLength, headsOf, takesHeads, tlcLayout, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape } from "./render.ts";
 import { layoutCycles } from "./cycle.ts";
 
 // Numbers as ChemDraw writes them (spec 1.2).
@@ -48,6 +48,7 @@ const captions: Caption[] = [
   { id: 6, text: "DMF, 80 °C\n12 h", x: 0, y: 0, on: { arrow: 101, side: "below" }, lineHeight: "variable" },
   { id: 7, text: "ArB(OH)2", x: 23, y: 3, cycle: { cycle: 300, step: 0, side: "in" } },
   { id: 8, text: `a < b & "c" 'd' > e`, x: 2, y: -6, align: "right" },
+  { id: 10, text: "Turned text", x: 6, y: -6, angle: 30, align: "left" }, // CD-19
   { id: 9, text: "A caption with a width, justified", x: 10, y: -8, align: "justify", width: 4 },
 ];
 const arrow = (id: number, kind: Arrow["kind"], from: [number, number], to: [number, number], more: Partial<Arrow> = {}): Arrow => ({ id, kind, from, to, ...more });
@@ -66,7 +67,15 @@ const arrows: Arrow[] = [
   arrow(122, "curve", [8, -20], [8.5, -19], { curve: { points: [{ at: [8, -20] }, { at: [9, -20] }, { at: [8.5, -19] }], closed: true }, fill: "faded", style: "doubled" }),
   arrow(123, "curve", [10, -20], [11, -20], { curve: { points: [{ at: [10, -20] }, { at: [11, -20] }] }, style: "wavy", end: "full", head: "angled" }),
   arrow(124, "reaction", [12, -20], [15, -20], { style: "bold" }), arrow(125, "curved", [16, -20], [18, -20]), arrow(126, "reaction", [19, -20], [21, -20], { start: "full", end: "none" }),
-  arrow(127, "reaction", [22, -20], [25, -20], { width: 1.5 }), arrow(128, "curve", [26, -20], [27, -20], { curve: { points: [{ at: [26, -20] }, { at: [27, -20] }] }, width: 0.3 }),
+  // ChemDraw's sizes and kinds (CD-14, CD-15): a large head, an unbalanced medium equilibrium, the hashed no-go, a dipole,
+  // block arrows (medium and shaded; faded), a straight arrow given a point and bent (CD-16), and an elliptical arc.
+  arrow(127, "reaction", [0, -24], [3, -24], { headSize: headOfLength(22.5) }), arrow(128, "equilibrium", [4, -24], [7, -24], { ratio: 3, headSize: headOfLength(15) }),
+  arrow(129, "hash", [8, -24], [11, -24]), arrow(130, "dipole", [12, -24], [15, -24], { colour: "#1D49A7" }),
+  arrow(131, "block", [16, -24], [19, -24], { headSize: headOfLength(6, true), fill: "shaded" }), arrow(132, "block", [20, -24], [23, -24], { fill: "faded", shaft: 8 }),
+  arrow(133, "reaction", [24, -24], [27, -24], { point: true, bend: 0.25 }), { ...ellipseArrow([28, -24], [28.6, -22.8], true), id: 134 } as Arrow,
+  arrow(135, "orbital", [30, -24], [30.8, -24], { orbital: { shape: "p", phase: "plain" }, style: "dashed" }),
+  arrow(136, "orbital", [32, -24], [32.8, -24], { orbital: { shape: "s", phase: "plain" }, style: "bold" }),
+  arrow(137, "reaction", [22, -20], [25, -20], { width: 1.5 }), arrow(138, "curve", [26, -20], [27, -20], { curve: { points: [{ at: [26, -20] }, { at: [27, -20] }] }, width: 0.3 }),
 ];
 const shapes: Shape[] = [
   { id: 201, kind: "highlight", from: [-1, -1], to: [3.5, 1.5] },
@@ -87,6 +96,12 @@ const shapes: Shape[] = [
   { id: 211, kind: "table", from: [40, -16], to: [46, -12], dashed: true, colour: "#213C99", table: { cells: [["Entry", "Yield"], ["1", "72%"], ["2", "n.d."]], lines: ["top", "header", "bottom", "cols"], align: ["left", "right"], widths: [2.5, 3], heights: [1, 1.2, 1], weight: 0.8 } },
   { id: 212, kind: "highlight", from: [7, -2], to: [10, 2], colour: "#DCEFE6" },
   { id: 213, kind: "box", from: [40, 3], to: [42, 5], fill: "solid", colour: "#FFFFFF" },
+  // CD-18: turned, bold and faded shapes, a filled one, and turned brackets.
+  { id: 220, kind: "box", from: [44, 3], to: [47, 5], angle: 30, boldLine: true },
+  { id: 221, kind: "oval", from: [48, 3], to: [51, 5], fill: "faded", angle: -60 },
+  { id: 222, kind: "brackets", from: [44, -11], to: [47, -8], angle: 90, mark: "n" },
+  { id: 223, kind: "parens", from: [48, -11], to: [50, -8], side: "right", angle: 45 },
+  { id: 224, kind: "rounded", from: [52, 3], to: [54, 5], fill: "solid", colour: "#DCE4F5" },
   // Turned shapes and line widths (UI-7, CD-3, UI-42): a box, an oval, a pair of brackets and one bracket alone.
   { id: 214, kind: "box", from: [44, 0], to: [47, 2], angle: 30, width: 1.2 },
   { id: 215, kind: "oval", from: [48, 0], to: [51, 2], angle: -45, dashed: true },
@@ -254,9 +269,9 @@ console.log("cdxml.check: every object kind round trips");
   assert.deepEqual([one.text, one.bold, one.italic, one.font, one.align], ["1", true, true, undefined, undefined]);
   assert.deepEqual(solvent.runs?.map((r) => [r.text, r.script]), [["CH", undefined], ["2", "sub"], ["Cl", undefined], ["2", "sub"]]);
   assert.deepEqual([conditions.text, conditions.align, conditions.runs?.[1]], ["rt, 24\nh", "left", { text: "24\nh", colour: "#FF0000" }]);
-  // Arrows in reading order: the graphics (legacy ones on their own), the curve, then the arrows.
-  assert.deepEqual(mol.arrows!.map((a) => a.kind), ["equilibrium", "curved", "orbital", "curve", "reaction", "curved"]);
-  const [equilibrium, legacyArc, orbital, curve, reaction, arc] = mol.arrows!;
+  // Arrows in drawing order (by Z): the reaction arrow, the legacy graphics on their own, the orbital, the curve, the arc.
+  assert.deepEqual(mol.arrows!.map((a) => a.kind), ["reaction", "equilibrium", "curved", "orbital", "curve", "curved"]);
+  const [reaction, equilibrium, legacyArc, orbital, curve, arc] = mol.arrows!;
   assert.deepEqual([solvent.on, conditions.on], [{ arrow: reaction.id, side: "above" }, { arrow: reaction.id, side: "below" }]);
   assert.deepEqual([reaction.from, reaction.to], [[30 / 14.4, 0], [110 / 14.4, 0]]);
   assert.deepEqual([equilibrium.from, equilibrium.to].map((p) => p.map((v) => +v.toFixed(3))), [[-90 / 14.4, 60 / 14.4].map((v) => +v.toFixed(3)), [-70 / 14.4, 60 / 14.4].map((v) => +v.toFixed(3))]);
@@ -268,6 +283,86 @@ console.log("cdxml.check: every object kind round trips");
   assert.deepEqual(mol.groups!.map((g) => [g.atoms, g.items]), [[[0, 1, 2, 3], [one.id]]]);
   parse(serialize(mol));
   console.log("cdxml.check: ChemDraw's form read");
+}
+
+// ChemDraw's arrow sizes and kinds as its own files hold them (CD-14, CD-15): a bold arrow's doubled head (its own
+// size, so left unset), a medium head, an unbalanced equilibrium, a hashed no-go, a dipole, a hollow block arrow as
+// Sam's files hold it, and a 270° elliptical arc read as a curve on that ellipse.
+{
+  const head = (id: number, more: string) => `<arrow id="${id}" Z="${id}" FillType="None" ArrowheadType="Solid" ${more}/>`;
+  const file = `<?xml version="1.0" encoding="UTF-8" ?><CDXML BondLength="14.40" LineWidth="0.60" BoldWidth="2"><page id="1" BoundingBox="0 0 540 720">
+${head(2, 'LineType="Bold" ArrowheadHead="Full" HeadSize="2000" ArrowheadCenterSize="1750" ArrowheadWidth="500" Head3D="100 100 0" Tail3D="40 100 0"')}
+${head(3, 'ArrowheadHead="Full" HeadSize="1500" ArrowheadCenterSize="1313" ArrowheadWidth="375" Head3D="100 130 0" Tail3D="40 130 0"')}
+${head(4, 'ArrowheadHead="HalfLeft" ArrowheadTail="HalfLeft" ArrowShaftSpacing="300" ArrowEquilibriumRatio="300" HeadSize="1000" Head3D="100 160 0" Tail3D="40 160 0"')}
+${head(5, 'ArrowheadHead="Full" NoGo="Hash" HeadSize="1000" Head3D="100 190 0" Tail3D="40 190 0"')}
+${head(6, 'ArrowheadHead="Full" Dipole="yes" HeadSize="1000" Head3D="100 220 0" Tail3D="40 220 0"')}
+<arrow id="7" Z="7" FillType="None" ArrowheadHead="Full" ArrowheadType="Hollow" HeadSize="1200" ArrowheadCenterSize="1200" ArrowheadWidth="300" ArrowShaftSpacing="1200" Head3D="446.56 569.80 0" Tail3D="84.33 569.80 0" Center3D="84.33 569.80 0" MajorAxisEnd3D="117.79 569.80 0" MinorAxisEnd3D="84.33 576.16 0"/>
+${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCenterSize="700" ArrowheadWidth="200" Head3D="220 300 0" Tail3D="200 350 0" Center3D="200 300 0" MajorAxisEnd3D="200 350 0" MinorAxisEnd3D="220 300 0"')}
+</page></CDXML>`;
+  const { mol } = fromCdxml(file);
+  assert.deepEqual(mol.arrows!.map((a) => a.kind), ["reaction", "reaction", "equilibrium", "hash", "dipole", "block", "curve"]);
+  const [bold, medium, unbalanced, , , block, ellipse] = mol.arrows!;
+  assert.deepEqual([bold.style, bold.headSize, medium.headSize, unbalanced.ratio, block.headSize, block.shaft], ["bold", undefined, headOfLength(15), 3, undefined, undefined]);
+  // The ellipse: centre (200, 300), long half-axis 50 down the page, short 20 across; the arc runs 270° from the tail
+  // at the end of the long axis to the head at the end of the short one, every point on the ellipse.
+  const pts = ellipse.curve!.points, c = pts.map((q) => [q.at[0] * 14.4, -q.at[1] * 14.4]), [cx, cy] = [c[0][0], c[0][1] - 50];
+  assert.ok(pts.length === 4 && c.every(([x, y]) => Math.abs(((x - cx) / 20) ** 2 + ((y - cy) / 50) ** 2 - 1) < 1e-6) && Math.abs(c[3][0] - c[0][0] - 20) < 1e-6 && Math.abs(c[3][1] - c[0][1] + 50) < 1e-6);
+  assert.deepEqual([ellipse.end, ellipse.headSize], ["full", headOfLength(8)]);
+  // Octet writes them back as ChemDraw holds them.
+  const out = toCdxml(mol, DEFAULT_STYLE);
+  const written = [...out.matchAll(/<arrow\b[^>]*>/g)].map((m) => m[0].replace(/\s+/g, " "));
+  for (const attrs of ['ArrowEquilibriumRatio="300"', 'NoGo="Hash"', 'Dipole="yes"', 'ArrowheadType="Hollow" HeadSize="1200" ArrowheadCenterSize="1200" ArrowheadWidth="300" ArrowShaftSpacing="1200"', 'HeadSize="2000" ArrowheadCenterSize="1750" ArrowheadWidth="500"', 'HeadSize="1500" ArrowheadCenterSize="1313" ArrowheadWidth="375"'])
+    assert.ok(written.some((w) => w.includes(attrs)), attrs);
+  parse(serialize(mol));
+  // A retrosynthetic arrow's size (it has no barb handle, only the palette's sizes) comes back too.
+  const retro: Arrow = { id: 1, kind: "retro", from: [0, 0], to: [3, 0], headSize: headOfLength(22.5) };
+  assert.deepEqual(fromCdxml(toCdxml({ atoms: [], bonds: [], arrows: [retro] }, DEFAULT_STYLE)).mol.arrows![0].headSize, headOfLength(22.5));
+  // A bent equilibrium is ChemDraw's curved one: an arc with two half heads and a shaft spacing. It comes back as an
+  // equilibrium with its point and bend, from Octet's file and from one without Octet's data (as ChemDraw writes it).
+  const curvedEq: Arrow = { id: 1, kind: "equilibrium", from: [0, 0], to: [3, 0], point: true, bend: 0.3, ratio: 3 };
+  const eqOut = toCdxml({ atoms: [], bonds: [], arrows: [curvedEq] }, DEFAULT_STYLE);
+  assert.ok(/<arrow\b[^>]*AngularSize=[^>]*ArrowShaftSpacing|<arrow\b[^>]*ArrowShaftSpacing=[^>]*AngularSize/.test(eqOut), "written as an arc");
+  for (const text of [eqOut, eqOut.replace(/ Octet="[^"]*"/g, "")]) {
+    const back = fromCdxml(text).mol.arrows![0];
+    assert.deepEqual([back.kind, back.point, Math.abs(back.bend! - 0.3) < 1e-3, back.ratio], ["equilibrium", true, true, 3]);
+  }
+  console.log("cdxml.check: ChemDraw's arrow sizes and kinds read and written");
+}
+
+// ChemDraw's turned and bold shapes (CD-18): a box turned 30° (its frame's axes turned, clockwise on the page with y
+// down), a bold oval behind the structure, and a filled box above it, which Bring to Front's draw order puts in front.
+{
+  const c = [200, 300], [cs, sn] = [Math.cos(Math.PI / 6), Math.sin(Math.PI / 6)], f = (v: number) => v.toFixed(2);
+  const file = `<?xml version="1.0" encoding="UTF-8" ?><CDXML BondLength="14.40" LineWidth="0.60" BoldWidth="2"><page id="1" BoundingBox="0 0 540 720">
+<graphic id="2" Z="2" BoundingBox="130 100 100 100" GraphicType="Oval" OvalType="Bold Dashed" Center3D="100 100 0" MajorAxisEnd3D="130 100 0" MinorAxisEnd3D="100 115 0"/>
+<fragment id="3" Z="5"><n id="4" p="300 300"/></fragment>
+<graphic id="5" Z="10" BoundingBox="0 0 1 1" GraphicType="Rectangle" RectangleType="Filled" Center3D="${f(c[0])} ${f(c[1])} 0" MajorAxisEnd3D="${f(c[0] + 40 * cs)} ${f(c[1] - 40 * sn)} 0" MinorAxisEnd3D="${f(c[0] + 20 * sn)} ${f(c[1] + 20 * cs)} 0"/>
+</page></CDXML>`;
+  const { mol, lost } = fromCdxml(file);
+  assert.deepEqual(lost, {});
+  const [oval, box] = mol.shapes!;
+  assert.deepEqual([oval.kind, oval.boldLine, oval.dashed, oval.order, box.kind, box.fill, box.order], ["oval", true, true, undefined, "box", "solid", 1]);
+  assert.ok(Math.abs(box.angle! - 30) < 0.05 && Math.abs(Math.abs(box.to[0] - box.from[0]) - 80 / 14.4) < 2e-3 && Math.abs(Math.abs(box.to[1] - box.from[1]) - 40 / 14.4) < 2e-3);
+  console.log("cdxml.check: ChemDraw's turned, bold and front shapes read");
+}
+
+// ChemDraw's turned text (CD-19): RotationAngle is degrees clockwise on the page times 65536, as in its samples (KMnO4
+// on a bond at 54°); Octet turns anticlockwise, so it reads -54, and writes it back the same.
+{
+  const file = `<?xml version="1.0" encoding="UTF-8" ?><CDXML BondLength="14.40" CaptionFont="3" CaptionSize="10"><fonttable><font id="3" name="Arial"/></fonttable><page id="1" BoundingBox="0 0 540 720">
+<t id="2" p="345.14 363.88" RotationAngle="3538944"><s font="3" size="10">KMnO4</s></t></page></CDXML>`;
+  const { mol, lost } = fromCdxml(file);
+  assert.deepEqual([lost, mol.captions![0].angle], [{}, -54]);
+  assert.ok(/RotationAngle="3538944"/.test(toCdxml(mol, DEFAULT_STYLE)));
+  // Turned conditions in a reaction step stay where ChemDraw put them (Octet lays conditions out level); level ones
+  // become the arrow's conditions.
+  const step = `<?xml version="1.0" encoding="UTF-8" ?><CDXML BondLength="14.40" CaptionFont="3" CaptionSize="10"><fonttable><font id="3" name="Arial"/></fonttable><page id="1" BoundingBox="0 0 540 720">
+<arrow id="10" Z="1" BoundingBox="300 295 400 305" ArrowheadHead="Full" ArrowheadType="Solid" HeadSize="1000" Head3D="400 300 0" Tail3D="300 300 0"/>
+<t id="11" p="330 290" RotationAngle="3538944"><s font="3" size="10">KMnO4</s></t><t id="12" p="330 315"><s font="3" size="10">H2O</s></t>
+<scheme id="20"><step id="21" ReactionStepArrows="10" ReactionStepObjectsAboveArrow="11" ReactionStepObjectsBelowArrow="12"/></scheme></page></CDXML>`;
+  const [turned, level] = fromCdxml(step).mol.captions!;
+  assert.deepEqual([turned.text, turned.angle, turned.on, level.text, level.on?.side], ["KMnO4", -54, undefined, "H2O", "below"]);
+  console.log("cdxml.check: ChemDraw's turned text read and written");
 }
 
 // Turned shapes in ChemDraw's form: a box turned 30° by its axes, with its own line width; one bracket lying down

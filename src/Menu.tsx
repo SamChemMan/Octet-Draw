@@ -7,6 +7,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { holdCursor } from "./cursor";
 import { Exit, useLeaving } from "./motion";
+import { CaretRight } from "@phosphor-icons/react";
 
 export type MenuItem = {
   key: string;
@@ -18,6 +19,8 @@ export type MenuItem = {
   editing?: React.ReactNode; // in place of the name: a field to type it in
   arrived?: boolean; // it just came into the menu, so it settles in
   style?: React.CSSProperties; // the name's own look (a font's name in that font)
+  more?: boolean; // it opens a sub-menu beside the menu (a caret on its right)
+  hint?: string; // its key, named with its name when the pointer rests on it
 };
 
 export const CELL = 192, GAP = 2, PAD = 4; // px: an option's width and height, the gap and the padding
@@ -69,10 +72,11 @@ export function Menu(p: Props) {
               {item.editing ? (
                 <div className="variant" role="none">{item.icon}{item.editing}</div>
               ) : (
-                <button role="menuitemradio" aria-checked={!!item.checked} className="variant" data-tip={item.name} data-tip-cut
+                <button role="menuitemradio" aria-checked={!!item.checked} aria-haspopup={item.more ? "menu" : undefined} className="variant" data-tip={item.name} data-tip-cut={!item.hint || undefined} data-key={item.hint} data-item={item.key}
                   onPointerDown={(e) => p.onPress?.(e, item.key)} onClick={() => p.onChoose(item.key)} onPointerUp={() => p.onRelease?.(item.key)}>
                   {item.icon}
                   <span className="variant-name" style={item.style}>{item.name}</span>
+                  {item.more && <CaretRight size={12} className="submenu-caret" aria-hidden />}
                 </button>
               )}
               {item.action && (
@@ -135,6 +139,21 @@ type PickProps = {
   start?: boolean; // open as it comes on screen, with the longer list (Text > Font > Other Font…)
 };
 
+// A list's keys (Pick's, the Actions menu's): up and down move along its options, Home and End go to the ends, a
+// letter to the next option that starts with it. True when it used the key.
+export function listKeys(e: React.KeyboardEvent, list: HTMLElement): boolean {
+  const options = [...list.querySelectorAll<HTMLElement>(".variant")], at = options.indexOf(document.activeElement as HTMLElement);
+  const go = (k: number) => { e.preventDefault(); e.stopPropagation(); options[Math.max(0, Math.min(options.length - 1, k))]?.focus(); return true; };
+  if (e.key === "ArrowDown") return go(at + 1);
+  if (e.key === "ArrowUp") return go(at < 0 ? options.length - 1 : at - 1);
+  if (e.key === "Home" || e.key === "End") return go(e.key === "Home" ? 0 : options.length - 1);
+  if (e.key.length === 1 && e.key !== " " && !e.metaKey && !e.ctrlKey && !(e.target instanceof HTMLInputElement)) {
+    const k = options.findIndex((o, j) => j > at && o.textContent?.toLowerCase().startsWith(e.key.toLowerCase())), first = options.findIndex((o) => o.textContent?.toLowerCase().startsWith(e.key.toLowerCase()));
+    return go(k >= 0 ? k : first >= 0 ? first : at);
+  }
+  return false;
+}
+
 export function Pick(p: PickProps) {
   const [open, setOpen] = useState<{ focus: boolean }>(), [all, setAll] = useState<MenuItem[]>(), [query, setQuery] = useState("");
   const button = useRef<HTMLButtonElement>(null), list = useRef<HTMLDivElement>(null);
@@ -176,18 +195,9 @@ export function Pick(p: PickProps) {
     return { position: "fixed", ...across, maxHeight: Math.min(innerHeight - 16, Math.max(80, (down ? below : above) - 4)), zIndex: 20,
       ...(down ? { top: Math.min(Math.max(8, r.bottom + 4), innerHeight - 88), bottom: "auto", transformOrigin: "top right" } : { top: "auto", bottom: Math.min(Math.max(8, innerHeight - r.top + 4), innerHeight - 88), transformOrigin: "bottom right" }) };
   };
-  // Up and down move along the options, Home and End go to the ends, a letter to the next option that starts with it.
   const keys = (e: React.KeyboardEvent) => {
-    const options = [...list.current!.querySelectorAll<HTMLElement>(".variant")], at = options.indexOf(document.activeElement as HTMLElement);
-    const go = (k: number) => { e.preventDefault(); e.stopPropagation(); options[Math.max(0, Math.min(options.length - 1, k))]?.focus(); };
-    if (e.key === "ArrowDown") return go(at + 1);
-    if (e.key === "ArrowUp") return go(at < 0 ? options.length - 1 : at - 1);
-    if (e.key === "Home" || e.key === "End") return go(e.key === "Home" ? 0 : options.length - 1);
     if (e.key === "Tab") return close();
-    if (e.key.length === 1 && e.key !== " " && !e.metaKey && !e.ctrlKey && !(e.target instanceof HTMLInputElement)) {
-      const k = options.findIndex((o, j) => j > at && o.textContent?.toLowerCase().startsWith(e.key.toLowerCase())), first = options.findIndex((o) => o.textContent?.toLowerCase().startsWith(e.key.toLowerCase()));
-      return go(k >= 0 ? k : first >= 0 ? first : at);
-    }
+    if (listKeys(e, list.current!)) return;
     if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLInputElement) e.stopPropagation(); // the list's keys are its own
   };
   return (

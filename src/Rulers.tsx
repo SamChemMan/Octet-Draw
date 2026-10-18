@@ -58,7 +58,7 @@ export function Rulers({ view, scale, mm, origin, unit, pointer, extent, onUnit 
         {marks(false)}
       </svg>
       {/* The unit, in the corner where the rulers meet: a click changes it. */}
-      <button className="ruler-corner" aria-label={`Ruler unit: ${unit}. Change the unit.`} title="Ruler unit" onClick={onUnit}>{unit}</button>
+      <button className="ruler-corner" aria-label={`Ruler unit: ${unit}. Change the unit.`} data-tip="Ruler unit" onClick={onUnit}>{unit}</button>
     </div>
   );
 }

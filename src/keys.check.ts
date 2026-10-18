@@ -30,6 +30,13 @@ assert.equal(actionFor(mine, "n", "atom"), undefined);
 assert.deepEqual(clashes(map, "element.N", "o"), ["element.O"]);
 assert.deepEqual(clashes(map, "element.N", "2"), ["group.acetyl"]);
 assert.deepEqual(clashes(map, "bond.double", "n"), []);
+// Every Actions panel action can take a key (CD-34): none has one by default, as in ChemDraw, and a key set for one
+// runs it anywhere.
+import { ACTIONS, registerMenu } from "./keys.ts";
+const panelActions = ACTIONS.filter((a) => a.id.startsWith("action."));
+assert.ok(panelActions.length > 30 && panelActions.every((a) => !map[a.id]?.length));
+assert.equal(new Set(ACTIONS.map((a) => a.id)).size, ACTIONS.length, "action ids are unique");
+assert.equal(actionFor(keymap({ "action.cycle.reverse": ["shift+r"] }), "shift+r", "atom"), "action.cycle.reverse");
 import { label } from "./keys.ts";
 assert.equal(label("+"), "+");
 assert.ok(["↩", "Enter"].includes(label("enter")));
@@ -40,7 +47,7 @@ assert.equal(press("ArrowLeft", { altKey: true, shiftKey: true }), "alt+shift+ar
 assert.equal(actionFor(map, "alt+shift+arrowleft", "none"), "tilt.left");
 assert.equal(actionFor(map, "alt+arrowup", "none"), "rotate.ccw15");
 // The menu's commands join the list; one no longer in the menu (Online search off removes the Search menu) leaves it.
-import { ACTIONS, registerMenu } from "./keys.ts";
+
 registerMenu([["clean_up", "Clean Up Structure", "Structure", "CmdOrCtrl+Shift+K"], ["search_reaxys", "Search Reaxys", "Search", "Alt+CmdOrCtrl+F"]]);
 assert.ok(ACTIONS.some((a) => a.id === "menu.search_reaxys") && ACTIONS.some((a) => a.id === "menu.clean_up"));
 assert.equal(actionFor(keymap({}), "mod+alt+f", "none"), "menu.search_reaxys");

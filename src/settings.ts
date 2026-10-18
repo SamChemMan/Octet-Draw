@@ -30,9 +30,11 @@ export type Settings = {
   settingsModule: string; // the Settings module last open
   curvedArrows: string[];
   libraryRings: string[]; // library templates kept in the Ring strip, as "lib:name"
+  templateSets: string[]; // the user's named template sets, in order (My templates is always first and not listed)
   nameHistory: { name: string; smiles: string }[]; // names drawn with Name to structure, newest first (50 at most), each with its structure
   paletteWide: boolean; // the toolbar in two columns
   palette: Swatch[]; // the user's own colours, named, after Octet's in every colour row and the Colour menu (20 at most)
+  elementColours: Record<string, string>; // Colour by Element: the user's colour for an element, where it differs from Octet's
   properties: boolean; // the Chemical Properties panel is open
   propertyRows: string[]; // the rows Add to drawing writes under a structure
   nmrMhz: number; nmrSolvent: string; nmrSolventPeaks: boolean; nmrDetails: boolean; // the predicted spectrum's frequency (¹H, MHz), solvent, and whether its peaks show
@@ -45,7 +47,7 @@ export type Settings = {
 export type Swatch = { name: string; hex: string };
 export type RulerUnit = "mm" | "cm" | "in" | "pt" | "pc";
 export const RULER_UNITS: [RulerUnit, string][] = [["mm", "Millimetres"], ["cm", "Centimetres"], ["in", "Inches"], ["pt", "Points"], ["pc", "Picas"]];
-const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, warnings: true, lastSeen: 0, purpose: "paper", purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], nameHistory: [], paletteWide: false, palette: [], properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, scaleLabels: true, onlineSearch: true, fixedLengths: true, fixedAngles: true, sproutRings: false };
+const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, warnings: true, lastSeen: 0, purpose: "paper", purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, scaleLabels: true, onlineSearch: true, fixedLengths: true, fixedAngles: true, sproutRings: false };
 const KEY = "octet.settings";
 
 export function loadSettings(): Settings {
@@ -57,6 +59,7 @@ export function loadSettings(): Settings {
       templates: list<SavedTemplate>(saved.templates, (t) => typeof t === "object" && t !== null),
       pinned: list<string>(saved.pinned, (k) => typeof k === "string"),
       libraryRings: list<string>(saved.libraryRings, (k) => typeof k === "string"),
+      templateSets: list<string>(saved.templateSets, (k) => typeof k === "string" && !!k.trim() && k.length <= 40).slice(0, 50),
       nameHistory: (Array.isArray(saved.nameHistory) ? saved.nameHistory : []).flatMap((k: unknown) =>
         typeof k === "string" ? [{ name: k, smiles: "" }] : typeof k === "object" && k && typeof (k as { name?: unknown }).name === "string" && typeof (k as { smiles?: unknown }).smiles === "string" ? [k as { name: string; smiles: string }] : [],
       ).filter((k: { name: string; smiles: string }) => k.name.length <= 300 && k.smiles.length <= 2000).slice(0, 50),
@@ -78,6 +81,7 @@ export function loadSettings(): Settings {
       scaleLabels: saved.scaleLabels !== false,
       onlineSearch: saved.onlineSearch !== false,
       propertyRows: Array.isArray(saved.propertyRows) ? list<string>(saved.propertyRows, (k) => typeof k === "string" && k.length < 20).slice(0, 30) : DEFAULTS.propertyRows,
+      elementColours: Object.fromEntries(Object.entries(typeof saved.elementColours === "object" && saved.elementColours ? saved.elementColours : {}).filter(([k, v]) => /^[A-Z][a-z]?$/.test(k) && typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v))) as Record<string, string>,
       palette: list<Swatch>(saved.palette, (c) => typeof c === "object" && c !== null && typeof (c as Swatch).name === "string" && /^#[0-9a-f]{6}$/i.test((c as Swatch).hex)).slice(0, 20),
       // Layouts arranged before the panel's sub-menus (17 October 2026) start again from the new defaults.
       actionLayout: saved.layoutVersion === 3 && typeof saved.actionLayout === "object" && saved.actionLayout !== null && !Array.isArray(saved.actionLayout) ? saved.actionLayout : {},

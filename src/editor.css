@@ -238,6 +238,16 @@ circle.mark {
 [data-drag-cursor] * {
   cursor: var(--drag-cursor) !important;
 }
+/* Where Shift with the Arrow tool starts a joined arrow. */
+.handle.join {
+  fill: var(--brand-bright);
+}
+/* The mark in a straight arrow's middle: smaller and fainter than a handle, until a click makes it a point. */
+.handle.add {
+  stroke-opacity: 0.6;
+  stroke-width: 1.2;
+  cursor: pointer;
+}
 .selection-marks rect {
   fill: var(--brand-bright);
 }
@@ -2683,6 +2693,51 @@ button.variant.add {
   outline: none;
   box-shadow: var(--shadow-focus);
 }
+/* The user's template sets: × on hover removes one (in place of its count); New set under them, then the library's. */
+.library-set {
+  position: relative;
+  display: grid;
+  gap: 2px;
+}
+.library-set > .variant-action {
+  top: 15px;
+  right: var(--space-1);
+}
+.library-set:hover > .variant-action {
+  opacity: 1;
+}
+.library-set:hover:has(> .variant-action) .library-category span {
+  visibility: hidden;
+}
+.library-set.last {
+  margin-bottom: var(--space-1);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--hairline);
+}
+.library-new {
+  justify-content: flex-start;
+  gap: 6px;
+  color: var(--ink-muted);
+}
+.library-set-name {
+  min-width: 0;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--brand-bright);
+  border-radius: var(--radius-sm);
+  outline: none;
+  background: var(--canvas);
+  box-shadow: var(--shadow-focus);
+  color: var(--ink);
+  font: 13px var(--font-sans);
+}
+.library-add {
+  color: var(--ink-muted);
+}
+.library-add > svg {
+  margin: 26px;
+}
 .library-none {
   grid-column: 1 / -1;
   margin: var(--space-4) var(--space-2);
@@ -3048,6 +3103,20 @@ button.variant.add {
 /* #000B24: the dark theme's --canvas, which dark paper takes. */
 .paper-choice.dark span { background: #000B24; }
 .paper-choice.system span { background: linear-gradient(135deg, #FFFFFF 50%, #000B24 50%); }
+.paper-choice.own span {
+  display: grid;
+  place-items: center;
+  background: var(--canvas);
+  color: var(--ink-muted);
+}
+/* The colour picker by the button that opens it (ColourPop). */
+.colour-pop {
+  width: 208px;
+}
+.colour-pop .colour-picker {
+  width: auto;
+  padding: 0;
+}
 .paper-choice.blueprint span {
   background-color: #1D4B86;
   background-image: linear-gradient(to right, rgb(255 255 255 / 0.35) 1px, transparent 1px), linear-gradient(to bottom, rgb(255 255 255 / 0.35) 1px, transparent 1px);
@@ -3332,10 +3401,11 @@ button.variant.add {
   gap: var(--space-2);
   min-height: 32px;
 }
-/* A field's name, when it leads the row, takes one width so the fields line up. */
+/* A field's name, when it leads the row, takes one width so the fields line up (wide enough for the longest,
+   Enhanced stereo). */
 .dialog-row > span:first-child {
   flex: none;
-  width: 88px;
+  width: 104px;
 }
 /* About Octet: the mark, the name and version, who made it, then the credits, centred. */
 .about {
@@ -3443,6 +3513,11 @@ button.variant.add {
   stroke: var(--brand-bright);
   stroke-width: 2px;
   stroke-dasharray: 3 2;
+}
+/* The lane a picked plate's lane actions act on (the last one pressed or right-clicked). */
+.lane-picked {
+  fill: var(--brand-bright);
+  fill-opacity: 0.08;
 }
 
 /* The Properties panel: the Actions panel's look, at the top right. */
@@ -3894,6 +3969,44 @@ button.variant.add {
   height: 14px;
   border-radius: 50%;
   opacity: 0.7;
+}
+/* Highlight and ring fill colours: a grid of swatches, then Custom colour… and the picker. */
+.size-menu.swatch-menu {
+  min-width: 0;
+  width: max-content;
+}
+.swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 28px);
+  gap: 2px;
+}
+.swatch-grid button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+.swatch-grid button[aria-checked="true"] {
+  box-shadow: inset 0 0 0 1.5px var(--brand);
+}
+.swatch-grid .pick-swatch {
+  width: 18px;
+  height: 18px;
+}
+.swatch-menu .swatch-custom {
+  margin-top: 4px;
+  padding-top: 0;
+  border-top: 1px solid var(--hairline);
+  border-radius: 0 0 var(--radius-xs) var(--radius-xs);
+  color: var(--ink-muted);
+}
+.swatch-menu .colour-picker {
+  width: 172px;
+  padding: var(--space-2) 2px 2px;
+}
+.swatch-menu .picker-square {
+  height: 100px;
 }
 .pick-swatch.none {
   background: linear-gradient(135deg, transparent 45%, var(--ink-faint) 45% 55%, transparent 55%);
@@ -4557,6 +4670,10 @@ button.variant.add {
 /* Scale…: a choice that does not apply (the median bond rows with no bond chosen) is dimmed. */
 .dialog-row:has(input:disabled) {
   color: var(--ink-muted);
+}
+/* The right-click menu (ActionsMenu in Actions.tsx): the Actions panel's list at the pointer. */
+.context-menu:focus {
+  outline: none;
 }
 
 /* Rulers (View > Show Rulers): along the top and left of the window, under the floating panels, which move in to

@@ -4,20 +4,22 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Cube, Eraser, Lasso, Plus, PushPin, Selection, TextT, Trash, X } from "@phosphor-icons/react";
 import { chairPoints, type BondSpec, type SymbolKind } from "./edit";
-import { ARROW_KINDS, curved, SWEEPS, type ArrowKind, type Mol, type ShapeKind } from "./render";
-import { templateKind, type Template } from "./templates";
+import { ARROW_SIZES, HBOND, headOfLength, QUADRUPLE, SWEEPS, type ArrowKind, type ArrowSize, type HeadSize, type Mol, type ShapeKind } from "./render";
+import { MY_SET, templateKind, type Template } from "./templates";
+import type { TemplateSetActions } from "./TemplateLibrary";
 import { libraryItem } from "./library";
 import { LibraryPanel } from "./TemplateLibrary";
 import { columnsFor, DEFAULT_COLUMNS, Menu, menuWidth, type MenuItem } from "./Menu";
 import { Exit, reduced, timing } from "./motion";
 import { BracketGlyph, BRACKETS, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, SHAPE_EXTRA, SHAPE_GRID, shapeName } from "./elements";
 
-export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "shape" | "bracket" | "tlc" | "table" | "fragment" | "map" | "text" | "erase";
+export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "shape" | "bracket" | "tlc" | "table" | "fragment" | "synthesis" | "retro" | "map" | "text" | "erase";
 
 export const BONDS = {
   single: { name: "Single", spec: { type: 1 } },
   double: { name: "Double", spec: { type: 2 } },
   triple: { name: "Triple", spec: { type: 3 } },
+  quadruple: { name: "Quadruple", spec: { type: QUADRUPLE } },
   bolddouble: { name: "Bold double", spec: { type: 2, display: "bold" } },
   dasheddouble: { name: "Dashed double", spec: { type: 2, display: "dashed" } },
   aromaticdouble: { name: "Aromatic double", spec: { type: 2, display: "aromatic" } },
@@ -30,6 +32,7 @@ export const BONDS = {
   dashed: { name: "Dashed", spec: { type: 1, display: "dashed" } },
   wavy: { name: "Wavy", spec: { type: 1, display: "wavy" } },
   dative: { name: "Dative", spec: { type: 1, display: "dative" } },
+  hydrogen: { name: "Hydrogen bond", spec: { type: HBOND } },
 } satisfies Record<string, { name: string; spec: BondSpec }>;
 export type BondKind = keyof typeof BONDS;
 
@@ -49,18 +52,43 @@ export type RingKind = keyof typeof RINGS;
 
 export const ARROWS: Record<ArrowKind, string> = {
   reaction: "Reaction", equilibrium: "Equilibrium", resonance: "Resonance", retro: "Retrosynthetic",
-  nogo: "No reaction", curved: "Curved", fishhook: "Fishhook", double: "Double-headed", line: "Line", arc: "Arc", orbital: "Orbital", cut: "Fragmentation line", curve: "Curve",
+  nogo: "No reaction", hash: "No reaction, hashed", dipole: "Dipole", block: "Block", curved: "Curved", fishhook: "Fishhook", double: "Double-headed", line: "Line", arc: "Arc", orbital: "Orbital", cut: "Fragmentation line", curve: "Curve",
 };
 // Curved arrows come in four sweeps. Their variants are "kind-sweep", for example "fishhook-180"; a bare kind is 120°.
+// ChemDraw's elliptical arcs are "ellipse-cw" and "ellipse-ccw": 270° round an ellipse 0.4 times as wide as it is long.
 const CURVED: ArrowKind[] = ["curved", "fishhook", "double"];
-const STRAIGHT = ARROW_KINDS.filter((k) => !curved({ kind: k }));
+export const ELLIPSES = ["ellipse-cw", "ellipse-ccw"];
+// Straight arrows, in the order of ChemDraw's Arrows palette. An unbalanced equilibrium has a ratio of 3.
+export const STRAIGHT = ["reaction", "equilibrium", "unbalanced", "resonance", "retro", "nogo", "hash", "dipole", "block"];
 export const DEFAULT_CURVED = ["curved-120", "fishhook-120"];
-export function arrowVariant(v: string): { kind: ArrowKind; sweep?: number } | undefined {
+// A straight arrow's variant can name its size after a space ("reaction large"). Unnamed is Small, ChemDraw's
+// default, except for a block arrow, whose sizes are Large (unnamed) and Medium.
+export type ArrowPick = { kind: ArrowKind; sweep?: number; size?: Exclude<ArrowSize, "small">; ratio?: number; ellipse?: "cw" | "ccw" };
+export function arrowVariant(v: string): ArrowPick | undefined {
   const m = /^(curved|fishhook|double)(?:-(90|120|180|270))?$/.exec(v);
   if (m) return { kind: m[1] as ArrowKind, sweep: Number(m[2] ?? 120) };
-  return STRAIGHT.includes(v as ArrowKind) ? { kind: v as ArrowKind } : undefined;
+  const e = /^ellipse-(cw|ccw)$/.exec(v);
+  if (e) return { kind: "curve", sweep: 270, ellipse: e[1] as "cw" | "ccw" };
+  const [k, size, ...rest] = v.split(" ");
+  if (!STRAIGHT.includes(k) || rest.length || (size !== undefined && size !== "large" && size !== "medium") || (k === "block" && size === "large")) return undefined;
+  return { kind: k === "unbalanced" ? "equilibrium" : (k as ArrowKind), ...(k === "unbalanced" ? { ratio: 3 } : {}), ...(size ? { size: size as "large" | "medium" } : {}) };
 }
-export const arrowName = (v: string) => { const a = arrowVariant(v); return a && (a.sweep ? `${ARROWS[a.kind]}, ${a.sweep}°` : ARROWS[a.kind]); };
+// The variant's own head size, when it is not its kind's.
+export const pickHead = (p: ArrowPick): HeadSize | undefined =>
+  p.kind === "block" ? (p.size === "medium" ? headOfLength(6, true) : undefined) : p.size ? headOfLength(ARROW_SIZES[p.size]) : undefined;
+const SIZE_NAMES = { large: "Large", medium: "Medium", small: "Small" };
+export const arrowName = (v: string) => {
+  const a = arrowVariant(v), base = v.split(" ")[0];
+  if (!a) return undefined;
+  if (a.ellipse) return `Elliptical, ${a.ellipse === "cw" ? "clockwise" : "anticlockwise"}`;
+  const name = base === "unbalanced" ? "Unbalanced equilibrium" : ARROWS[a.kind];
+  return a.sweep ? `${name}, ${a.sweep}°` : a.size ? `${name}, ${a.size}` : name;
+};
+// The same straight arrow at another size (the strip's size options).
+export const withSize = (v: string, size: ArrowSize) => {
+  const base = arrowVariant(v) && !arrowVariant(v)!.sweep ? v.split(" ")[0] : "reaction";
+  return base === "block" ? (size === "large" ? "block" : "block medium") : size === "small" ? base : `${base} ${size}`;
+};
 
 export const SELECTS = { box: { name: "Box" }, lasso: { name: "Lasso" }, perspective: { name: "Structure perspective" } };
 
@@ -72,7 +100,7 @@ export const SHAPES: Record<ShapeKind, string> = {
 export const SYMBOLS: Record<SymbolKind, string> = {
   plus: "Positive charge", minus: "Negative charge", circledPlus: "Circled positive", circledMinus: "Circled negative",
   radical: "Radical", pair: "Lone pair", partialPlus: "Partial positive", partialMinus: "Partial negative",
-  radicalCation: "Radical cation", radicalAnion: "Radical anion", hDot: "H dot", hDash: "H dash", attach: "Attachment point", bead: "Polymer bead",
+  radicalCation: "Radical cation", radicalAnion: "Radical anion", hDot: "H dot", hDash: "H dash", attach: "Attachment point", attachDiamond: "Attachment point, diamond", attachStar: "Attachment point, star", bead: "Polymer bead",
 };
 export type SelectKind = keyof typeof SELECTS;
 
@@ -80,7 +108,7 @@ export type SelectKind = keyof typeof SELECTS;
 // template: a library template ("lib:name") or one of the user's own ("custom:id").
 export type Variants = { select: SelectKind; bond: BondKind; ring: string; template: string; symbol: SymbolKind; orbital: string; arrow: string; shape: string; bracket: string; more: string };
 // Specialist tools share one slot at the bottom of the toolbar, which shows the one last used.
-const SPECIAL: Tool[] = ["tlc", "table", "fragment", "map"];
+const SPECIAL: Tool[] = ["tlc", "table", "fragment", "synthesis", "retro", "map"];
 type Strip = "select" | "bond" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "shape" | "bracket" | "more";
 const isStrip = (t: Tool): t is Exclude<Strip, "more"> => t === "select" || t === "bond" || t === "ring" || t === "template" || t === "symbol" || t === "orbital" || t === "arrow" || t === "shape" || t === "bracket";
 // Strips laid out as a grid of icons (named on hover): each row a shape across its styles.
@@ -103,6 +131,8 @@ export function BondGlyph({ kind }: { kind: BondKind }) {
   switch (kind) {
     case "double": return <Icon>{line(-14)}{line(14)}</Icon>;
     case "triple": return <Icon>{line(-24)}{line(0)}{line(24)}</Icon>;
+    case "quadruple": return <Icon>{[-33, -11, 11, 33].map((o) => line(o, o))}</Icon>;
+    case "hydrogen": return <Icon><line x1={x1} y1={y1} x2={x2} y2={y2} strokeDasharray="0 30" /></Icon>;
     case "dasheddouble": return <Icon>{line(-14)}<line x1={x1 + 14 * d} y1={y1 + 14 * d} x2={x2 + 14 * d} y2={y2 + 14 * d} strokeDasharray="22 18" strokeLinecap="butt" /></Icon>;
     case "aromaticdouble": return <Icon>{[-14, 14].map((o) => <line key={o} x1={x1 + o * d} y1={y1 + o * d} x2={x2 + o * d} y2={y2 + o * d} strokeDasharray="22 18" strokeLinecap="butt" />)}</Icon>;
     case "eitherdouble": return <Icon><line x1={x1 - 14 * d} y1={y1 - 14 * d} x2={x2 + 14 * d} y2={y2 + 14 * d} /><line x1={x1 + 14 * d} y1={y1 + 14 * d} x2={x2 - 14 * d} y2={y2 - 14 * d} /></Icon>;
@@ -158,17 +188,40 @@ export function RingGlyph({ kind }: { kind: RingKind }) {
 const BooksGlyph = () => <Icon><polygon points="128,40 196,80 196,160 128,200 60,160 60,80" /><line x1={40} y1={224} x2={216} y2={224} /></Icon>;
 export const ChainGlyph = () => <Icon><polyline points="32,168 80,104 128,168 176,104 224,168" /></Icon>;
 
-// Arrow icons: each draws its arrow, with open heads in the icon style. kind is an arrow variant.
+// Arrow icons: each draws its arrow, with open heads in the icon style. kind is an arrow variant; its size sets
+// how long the barbs are.
 export function ArrowGlyph({ kind: variant }: { kind: string }) {
   const v = arrowVariant(variant), kind = v?.kind;
+  if (v?.ellipse) return <EllipseGlyph clockwise={v.ellipse === "cw"} />;
   if (v?.sweep) return <CurvedGlyph kind={v.kind} sweep={v.sweep} />;
+  const b = v?.size === "large" ? 88 : v?.size === "medium" ? 66 : 48, head = (x: number, y: number) => <polyline points={`${x - b},${y - b} ${x},${y} ${x - b},${y + b}`} />;
+  const e = (b * 5) / 6;
   switch (kind) {
-    case "equilibrium": return <Icon><polyline points="32,100 216,100 176,64" /><polyline points="224,156 40,156 80,192" /></Icon>;
-    case "resonance": return <Icon><line x1={32} y1={128} x2={224} y2={128} /><polyline points="80,80 32,128 80,176" /><polyline points="176,80 224,128 176,176" /></Icon>;
+    case "equilibrium":
+      return v?.ratio
+        ? <Icon><polyline points={`32,100 216,100 ${216 - e},${100 - e}`} /><polyline points={`168,156 88,156 ${88 + e},${156 + e}`} /></Icon>
+        : <Icon><polyline points={`32,100 216,100 ${216 - e},${100 - e}`} /><polyline points={`224,156 40,156 ${40 + e},${156 + e}`} /></Icon>;
+    case "resonance": return <Icon><line x1={32} y1={128} x2={224} y2={128} /><polyline points={`${32 + b},${128 - b} 32,128 ${32 + b},${128 + b}`} />{head(224, 128)}</Icon>;
     case "retro": return <Icon><line x1={32} y1={100} x2={184} y2={100} /><line x1={32} y1={156} x2={184} y2={156} /><polyline points="160,56 224,128 160,200" /></Icon>;
-    case "nogo": return <Icon><line x1={32} y1={128} x2={216} y2={128} /><polyline points="168,80 216,128 168,176" /><line x1={88} y1={88} x2={136} y2={168} /><line x1={136} y1={88} x2={88} y2={168} /></Icon>;
-    default: return <Icon><line x1={32} y1={128} x2={216} y2={128} /><polyline points="168,80 216,128 168,176" /></Icon>;
+    case "nogo": return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}<line x1={88} y1={88} x2={136} y2={168} /><line x1={136} y1={88} x2={88} y2={168} /></Icon>;
+    case "hash": return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}<line x1={76} y1={168} x2={100} y2={88} /><line x1={112} y1={168} x2={136} y2={88} /></Icon>;
+    case "dipole": return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}<line x1={68} y1={92} x2={68} y2={164} /></Icon>;
+    case "block": { const w = v?.size === "medium" ? 28 : 40; return <Icon><polygon points={`32,${128 - w / 2} 148,${128 - w / 2} 148,${128 - w * 1.6} 224,128 148,${128 + w * 1.6} 148,${128 + w / 2} 32,${128 + w / 2}`} /></Icon>; }
+    default: return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}</Icon>;
   }
+}
+// An elliptical arc's icon: a tall loop from the bottom round the far side, ending with a head pointing down beside it.
+function EllipseGlyph({ clockwise }: { clockwise: boolean }) {
+  const pts = Array.from({ length: 31 }, (_, i) => { const t = Math.PI / 2 + ((3 * Math.PI) / 2) * (i / 30); return [118 + 46 * Math.cos(t), 128 + 92 * Math.sin(t)]; });
+  const line = (q: number[][]) => q.map((x) => x.map((c) => c.toFixed(1)).join(",")).join(" ");
+  return (
+    <Icon>
+      <g transform={clockwise ? undefined : "matrix(-1 0 0 1 256 0)"}>
+        <polyline points={line(pts)} />
+        <polyline points="132,100 164,132 196,100" />
+      </g>
+    </Icon>
+  );
 }
 
 // Symbol icons: the mark itself.
@@ -188,6 +241,8 @@ export function SymbolGlyph({ kind }: { kind: SymbolKind }) {
     case "hDot": return <Icon><polyline points="48,72 128,128 208,72" /><line x1={128} y1={128} x2={128} y2={216} />{dot(128, 26)}</Icon>;
     case "hDash": return <Icon><polyline points="48,184 128,128 208,184" /><line x1={128} y1={128} x2={128} y2={40} /><line x1={104} y1={96} x2={152} y2={96} /><line x1={96} y1={68} x2={160} y2={68} /></Icon>;
     case "attach": return <Icon><line x1={40} y1={208} x2={168} y2={80} /><path d="M128,40 q24,16 12,40 t12,40 t12,40 t12,40" /></Icon>;
+    case "attachDiamond": return <Icon><line x1={40} y1={216} x2={128} y2={128} /><polygon points="176,80 224,128 176,176 128,128" /></Icon>;
+    case "attachStar": return <Icon><line x1={40} y1={216} x2={128} y2={128} /><polygon points={Array.from({ length: 10 }, (_, k) => { const t = -Math.PI / 2 + (k * Math.PI) / 5, r = k % 2 ? 24 : 56; return `${176 + r * Math.cos(t)},${120 + r * Math.sin(t)}`; }).join(" ")} /></Icon>;
     case "bead": return <Icon><line x1={40} y1={216} x2={116} y2={140} /><circle cx={164} cy={92} r={56} fill="currentColor" fillOpacity={0.35} stroke="none" /><circle cx={146} cy={74} r={16} fill="var(--surface-raised)" stroke="none" /></Icon>;
   }
 }
@@ -246,8 +301,18 @@ export const FragmentGlyph = () => (
   </Icon>
 );
 
+// Synthesis and Retrosynthesis: the cut chain under the arrow each draws (a reaction arrow, or a retrosynthetic one).
+export const SynthesisGlyph = ({ retro }: { retro?: boolean }) => (
+  <Icon>
+    <polyline points="32,200 80,152 128,200 176,152 224,200" />
+    <line x1={128} y1={120} x2={128} y2={232} strokeWidth={12} strokeDasharray="16 14" />
+    {retro ? <><path d="M40,48H196M40,80H196" /><polyline points="180,32 216,64 180,96" /></> : <><line x1={40} y1={64} x2={212} y2={64} /><polyline points="176,36 212,64 176,92" /></>}
+  </Icon>
+);
+
 // The specialist tools' names and icons.
-const SPECIAL_TOOLS: Record<string, { name: string; icon: React.ReactNode }> = { tlc: { name: "TLC plate", icon: <TlcGlyph /> }, table: { name: "Table", icon: <TableGlyph /> }, fragment: { name: "Mass fragmentation", icon: <FragmentGlyph /> }, map: { name: "Atom map", icon: <MapGlyph /> } };
+const SPECIAL_TOOLS: Record<string, { name: string; icon: React.ReactNode }> = { tlc: { name: "TLC plate", icon: <TlcGlyph /> }, table: { name: "Table", icon: <TableGlyph /> }, fragment: { name: "Mass fragmentation", icon: <FragmentGlyph /> },
+  synthesis: { name: "Synthesis", icon: <SynthesisGlyph /> }, retro: { name: "Retrosynthesis", icon: <SynthesisGlyph retro /> }, map: { name: "Atom map", icon: <MapGlyph /> } };
 
 // A curved arrow's icon: its arc at its true sweep, bulging up, with a head at the right-hand end (both ends for a
 // double-headed arrow, and one barb on the outside for a fishhook).
@@ -297,6 +362,14 @@ function ringsOnly(m: Mol): Mol {
 // A template's icon: its bonds as strokes in the tool icons' style, and heteroatoms as letters with the bonds
 // stopping short of them, as in a drawn structure.
 export function TemplateGlyph({ mol: whole }: { mol: Mol }) {
+  // A template with no structure (arrows, shapes, text): its arrows and shapes as lines, or its text as a T.
+  if (!whole.atoms.length) {
+    const lines = [...(whole.arrows ?? []).map((a) => [a.from, a.to]), ...(whole.shapes ?? []).flatMap((x) => [[x.from, [x.to[0], x.from[1]]], [[x.to[0], x.from[1]], x.to], [x.to, [x.from[0], x.to[1]]], [[x.from[0], x.to[1]], x.from]])];
+    if (!lines.length) return <TextT size={20} />;
+    const xs = lines.flat().map((q) => q[0]), ys = lines.flat().map((q) => -q[1]), [x0, y0] = [Math.min(...xs), Math.min(...ys)];
+    const span = Math.max(Math.max(...xs) - x0, Math.max(...ys) - y0, 1), k = 176 / span;
+    return <Icon>{lines.map(([p, q], i) => <line key={i} x1={40 + (p[0] - x0) * k} y1={40 + (-p[1] - y0) * k} x2={40 + (q[0] - x0) * k} y2={40 + (-q[1] - y0) * k} />)}</Icon>;
+  }
   const mol = ringsOnly(whole), xs = mol.atoms.map((a) => a.location[0]), ys = mol.atoms.map((a) => -a.location[1]);
   const [x0, y0] = [Math.min(...xs), Math.min(...ys)], span = Math.max(Math.max(...xs) - x0, Math.max(...ys) - y0, 1);
   const k = 176 / span, ox = 40 + (176 - (Math.max(...xs) - x0) * k) / 2, oy = 40 + (176 - (Math.max(...ys) - y0) * k) / 2;
@@ -337,6 +410,8 @@ type PaletteProps = {
   coach?: Tool; // the tool the tutorial asks for: it pulses until chosen
   variants: Variants;
   templates: Template[];
+  templateSets: string[]; // the user's named template sets (the library's own categories after My templates)
+  onTemplateSets: TemplateSetActions;
   pinned: string[]; // options on the toolbar, as "tool:variant"
   popKey: number; // changes when a hold switches to Select, to replay its pop
   canUndo: boolean;
@@ -349,7 +424,7 @@ type PaletteProps = {
   onVariant: (t: keyof Variants, kind: string) => void;
   onPinned: (pinned: string[]) => void;
   onAddName: (name: string) => boolean;
-  onAddSelection: () => void;
+  onAddSelection: (set?: string) => void; // the selection as a template, in a set (My templates unless named)
   onRename: (id: string, name: string) => void;
   onRemoveTemplate: (id: string) => void;
   onUndo: () => void;
@@ -425,6 +500,10 @@ export function Palette(p: PaletteProps) {
   useEffect(() => { if (p.renaming) setOpen("ring"); }, [p.renaming]);
 
   const template = (kind: string) => p.templates.find((t) => templateKind(t.id) === kind);
+  // The user's own templates in the library, set by set, and what the library can do with them.
+  const mine = p.templates.map((x) => ({ kind: templateKind(x.id), name: x.name, category: x.set ?? MY_SET, mol: x.mol }));
+  const own = { sets: p.templateSets, onSets: p.onTemplateSets, onAddSelection: p.canAddSelection ? p.onAddSelection : undefined,
+    onRemove: (kind: string) => { const t = template(kind); if (t) p.onRemoveTemplate(t.id); } };
   const shapeOf = (kind: string) => template(kind)?.mol ?? libraryItem(kind)?.mol;
   const nameOf = (tool: Strip, kind: string) =>
     tool === "more" ? SPECIAL_TOOLS[kind]?.name : tool === "bond" ? BONDS[kind as BondKind]?.name : tool === "template" ? (template(kind)?.name ?? libraryItem(kind)?.name) : tool === "symbol" ? SYMBOLS[kind as SymbolKind] : tool === "shape" ? shapeName(kind) : tool === "orbital" ? orbitalName(kind) : tool === "bracket" ? BRACKETS[kind] : tool === "ring" ? (RINGS[kind as RingKind]?.name ?? template(kind)?.name ?? libraryItem(kind)?.name)
@@ -443,12 +522,15 @@ export function Palette(p: PaletteProps) {
     return mol ? <TemplateGlyph mol={mol} /> : <RingGlyph kind={kind as RingKind} />;
   };
   const options = (tool: Strip) =>
-    tool === "bond" ? Object.keys(BONDS) : tool === "template" ? [p.variants.template] : tool === "symbol" ? Object.keys(SYMBOLS) : tool === "shape" ? [...SHAPE_GRID.flat(), ...SHAPE_EXTRA] : tool === "orbital" ? ORBITAL_GRID.flat() : tool === "bracket" ? Object.keys(BRACKETS) : tool === "select" ? Object.keys(SELECTS) : tool === "arrow" ? [...STRAIGHT, ...p.curvedArrows.filter((v) => arrowVariant(v)?.sweep)] : [...Object.keys(RINGS), ...p.templates.map((t) => templateKind(t.id)), ...p.libraryRings.filter((k) => libraryItem(k))];
+    tool === "bond" ? Object.keys(BONDS) : tool === "template" ? [p.variants.template] : tool === "symbol" ? Object.keys(SYMBOLS) : tool === "shape" ? [...SHAPE_GRID.flat(), ...SHAPE_EXTRA] : tool === "orbital" ? ORBITAL_GRID.flat() : tool === "bracket" ? Object.keys(BRACKETS) : tool === "select" ? Object.keys(SELECTS) : tool === "arrow" ? [...STRAIGHT.map((k) => (!arrowSize || (k === "block" && arrowSize === "small") ? k : withSize(k, arrowSize))), ...p.curvedArrows.filter((v) => arrowVariant(v)?.sweep)] : [...Object.keys(RINGS), ...p.templates.map((t) => templateKind(t.id)), ...p.libraryRings.filter((k) => libraryItem(k))];
   // A menu's groups: shapes across their styles, then lines, arcs and the rest; each orbital across its phases;
   // one group for everything else.
+  // The Arrow strip's last group: the sizes of the straight arrow in hand, as ChemDraw's Large, Medium and Small rows.
   const groupsOf = (tool: Strip, list: string[]): string[][] =>
     tool === "shape" ? [...SHAPE_GRID.map((r) => r.slice(0, 5)), SHAPE_GRID.map((r) => r[5]), SHAPE_GRID.flatMap((r) => r.slice(6)), SHAPE_EXTRA]
-      : tool === "orbital" ? ORBITAL_GRID : [list];
+      : tool === "orbital" ? ORBITAL_GRID : tool === "arrow" ? [list, (p.variants.arrow.startsWith("block") ? ["large", "medium"] : ["large", "medium", "small"]).map((x) => `size:${x}`)] : [list];
+  // The size the straight arrow in hand is drawn at (Small when unnamed), which the strip's arrows show.
+  const pick = arrowVariant(p.variants.arrow), arrowSize: ArrowSize | undefined = pick && !pick.sweep ? (pick.size ?? (pick.kind === "block" ? "large" : "small")) : undefined;
   // The columns a menu opens with: the user's own, or two across.
   const columnsOf = (key: string) => (p.stripWidths[key] ? columnsFor(p.stripWidths[key]) : DEFAULT_COLUMNS);
   // Pinned shortcuts whose option still exists.
@@ -617,13 +699,17 @@ export function Palette(p: PaletteProps) {
                 onPress={(e, id) => startCarry(e, `more:${id}`)} onChoose={(id) => { if (!dragged.current) choose("more", id); }} onRelease={(id) => { if (held) choose("more", id); }} />
             )}</Exit>
             <Exit>{t.id === "template" && open === "template" && (
-              <LibraryPanel current={p.variants.template} mine={p.templates.map((x) => ({ kind: templateKind(x.id), name: x.name, category: "My templates", mol: x.mol }))}
+              <LibraryPanel current={p.variants.template} mine={mine} {...own}
                 onChoose={(kind) => { if (!dragged.current) choose("template", kind); }}
                 onPress={(e, kind) => startCarry(e, `template:${kind}`)} />
             )}</Exit>
             <Exit>{strip && isStrip(t.id) && t.id !== "template" && open === t.id && (() => {
               const tool = t.id, curveCarry = !!carry && keepable(carry.key) === tool;
               const item = (kind: string): MenuItem => {
+                if (kind.startsWith("size:")) {
+                  const size = kind.slice(5) as ArrowSize, v = withSize(p.variants.arrow, size);
+                  return { key: kind, name: SIZE_NAMES[size], icon: <ArrowGlyph kind={v} />, checked: arrowSize === size };
+                }
                 const name = nameOf(tool, kind)!, custom = template(kind);
                 const kept = (tool === "arrow" && !!arrowVariant(kind)?.sweep) || (tool === "ring" && !!libraryItem(kind));
                 return {
@@ -660,7 +746,7 @@ export function Palette(p: PaletteProps) {
                       onKeyDown={(e) => { if (e.key === "Enter") addByName(); if (e.key === "Escape") { e.preventDefault(); e.currentTarget.blur(); } }} />
                   </label>
                   {p.canAddSelection && (
-                    <button className="variant add" onClick={p.onAddSelection}>
+                    <button className="variant add" onClick={() => p.onAddSelection()}>
                       <Plus size={20} />
                       <span className="variant-name">Add selection</span>
                     </button>
@@ -668,15 +754,17 @@ export function Palette(p: PaletteProps) {
                 </>
               ) : undefined;
               // Every curved arrow, one group per kind: the pin keeps one in the Arrow menu.
-              const curveGroups = CURVED.map((kind) => SWEEPS.map((sweep): MenuItem => {
-                const v = `${kind}-${sweep}`, name = arrowName(v)!, isKept = p.curvedArrows.includes(v);
+              const curveGroups = [...CURVED.map((kind) => SWEEPS.map((sweep) => `${kind}-${sweep}`)), ELLIPSES].map((g) => g.map((v): MenuItem => {
+                const name = arrowName(v)!, isKept = p.curvedArrows.includes(v);
                 return { key: v, name, icon: <ArrowGlyph kind={v} />, checked: p.variants.arrow === v,
                   action: { icon: <PushPin size={12} />, label: isKept ? "In the Arrow menu" : "Keep in the Arrow menu", pressed: isKept, onClick: () => (isKept ? unkeep("arrow", v) : keep("arrow", v)) } };
               }));
               return (
                 <Menu label={`${t.name} options`} tool={tool} groups={groups} className={[carry && !curveCarry && "carrying", carry?.toList && "receiving"].filter(Boolean).join(" ")}
                   columns={columnsOf(tool)} onColumns={(n) => p.onStripWidth(tool, menuWidth(n))}
-                  onPress={(e, kind) => startCarry(e, `${tool}:${kind}`)} onChoose={(kind) => { if (!dragged.current) choose(tool, kind); }} onRelease={(kind) => { if (held) choose(tool, kind); }}
+                  onPress={(e, kind) => { if (!kind.startsWith("size:")) startCarry(e, `${tool}:${kind}`); }}
+                  onChoose={(kind) => { if (!dragged.current) choose(tool, kind.startsWith("size:") ? withSize(p.variants.arrow, kind.slice(5) as ArrowSize) : kind); }}
+                  onRelease={(kind) => { if (held) choose(tool, kind.startsWith("size:") ? withSize(p.variants.arrow, kind.slice(5) as ArrowSize) : kind); }}
                   extra={extra}>
                   <Exit>{tool === "arrow" && curves && (
                     <Menu label="Curved arrows" className={["submenu", curveCarry && "carrying"].filter(Boolean).join(" ")} groups={curveGroups}
@@ -684,8 +772,7 @@ export function Palette(p: PaletteProps) {
                       onPress={(e, v) => startCarry(e, `arrow:${v}`)} onChoose={(v) => { if (!dragged.current) choose("arrow", v); }} />
                   )}</Exit>
                   <Exit>{tool === "ring" && library && (
-                    <LibraryPanel current={p.variants.ring} kept={p.libraryRings} dimmed={curveCarry}
-                      mine={p.templates.map((x) => ({ kind: templateKind(x.id), name: x.name, category: "My templates", mol: x.mol }))}
+                    <LibraryPanel current={p.variants.ring} kept={p.libraryRings} dimmed={curveCarry} mine={mine} {...own}
                       onChoose={(kind) => { if (!dragged.current) choose("ring", kind); }}
                       onKeep={(kind, on) => (on ? keep("ring", kind) : unkeep("ring", kind))}
                       onPress={(e, kind) => startCarry(e, `ring:${kind}`)} />

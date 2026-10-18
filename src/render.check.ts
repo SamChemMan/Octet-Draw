@@ -1,6 +1,6 @@
 // Run: node src/render.check.ts. Fails loudly if the ACS drawing rules break.
 import assert from "node:assert/strict";
-import { ALL_ARROW_KINDS, SHAPE_KINDS, arrowShapes, fitArrows, lineOffsets, markAt, placeCaptions, render, renderParts, shapeInk, spotPath, tableLayout, tlcLayout, type Arrow, type Atom, type Bond, type Box, type Caption, type Drawing, type Ink, type Mol, type PartCache, type Shape } from "./render.ts";
+import { ALL_ARROW_KINDS, SHAPE_KINDS, arrowShapes, blockOutline, ellipseArrow, fitArrows, headOfLength, headSize, lineOffsets, markAt, placeCaptions, render, renderParts, shapeInk, shapePaths, sizeOf, spotPath, tableLayout, tlcLayout, turnedWith, type Arrow, type Atom, type Bond, type Box, type Caption, type Drawing, type Ink, type Mol, type PartCache, type Shape } from "./render.ts";
 import { layoutCycles, type Cycle } from "./cycle.ts";
 
 type P = [number, number];
@@ -121,6 +121,84 @@ console.log("render.check: written labels ok");
   const [fitted] = fitArrows({ atoms: [], bonds: [], arrows: [a], captions: [{ id: 2, text: "x", x: 0, y: 0, on: { arrow: 1, side: "above" } }] }, S.bond, () => 200);
   assert.ok(fitted.from[0] < 0 && fitted.to[0] > 2 && Math.abs(fitted.from[0] + fitted.to[0] - 2) < 1e-9, "lengthened about its middle");
   console.log("render.check: arrows ok");
+}
+
+// ChemDraw's head sizes and arrow kinds (CD-14, CD-15). Arrows run along +x at k = S.bond px per bond length.
+{
+  const a = { id: 1, kind: "reaction" as const, from: [0, 0] as [number, number], to: [4, 0] as [number, number] }, k = S.bond, lw = S.line;
+  const ys = (polys: [number, number][][]) => polys.flat().map((q) => q[1]), xs = (polys: [number, number][][]) => polys.flat().map((q) => q[0]);
+  const head = (more: Partial<Arrow>) => { const p = arrowShapes({ ...a, ...more }, S, k); return p[p.length - 1]; };
+  // The head: tip, barb its length back and its width off the shaft, notch between. Large is 22.5, 19.6875 and 5.625.
+  const [tip, barb, notch] = head({ headSize: headOfLength(22.5) });
+  assert.ok(Math.abs(tip[0] - 4 * k) < 1e-9 && Math.abs(barb[0] - (4 * k - 22.5 * lw)) < 1e-9 && Math.abs(Math.abs(barb[1]) - 5.625 * lw) < 1e-9 && Math.abs(notch[0] - (4 * k - 19.6875 * lw)) < 1e-9, "large head");
+  assert.deepEqual([sizeOf({ kind: "reaction" }), sizeOf({ kind: "reaction", headSize: headOfLength(15) }), sizeOf({ kind: "reaction", headSize: { length: 9, centre: 8, width: 2 } })], ["small", "medium", undefined]);
+  // A bold arrow's own heads are twice the size, as ChemDraw draws them. Arc arrows' heads are 8 line widths (their
+  // Small), as ChemDraw's palette and every arc in Sam's files have them; elliptical ones too.
+  assert.equal(headSize({ kind: "reaction", style: "bold" }).length, 20);
+  assert.deepEqual([headSize({ kind: "curved" }), headSize({ kind: "fishhook", style: "bold" }).length, sizeOf({ kind: "double" }), ellipseArrow([0, 0], [0.6, 1.2], true).headSize], [headOfLength(8), 16, "small", headOfLength(8)]);
+  // A head is kept to two thirds of a short arrow.
+  const short = arrowShapes({ ...a, to: [0.3, 0] }, S, k), shortHead = short[short.length - 1];
+  assert.ok(Math.abs(shortHead[1][0] - (0.3 * k) / 3) < 1e-9, "head two thirds of the arrow");
+  // No-go: a cross 2 head widths each way on the middle; hash: two slashes there; dipole: a bar across at the notch.
+  const nogo = arrowShapes({ ...a, kind: "nogo" }, S, k), hash = arrowShapes({ ...a, kind: "hash" }, S, k), dipole = arrowShapes({ ...a, kind: "dipole" }, S, k);
+  assert.deepEqual([nogo.length, hash.length, dipole.length], [4, 4, 3]);
+  const reach = 5 * lw + (lw / 2) * Math.SQRT1_2;
+  assert.ok(Math.abs(Math.max(...xs(nogo.slice(2))) - (2 * k + reach)) < 1e-9 && Math.abs(Math.max(...ys(nogo.slice(2))) - reach) < 1e-9, "the cross");
+  assert.ok(Math.abs(Math.min(...xs(dipole.slice(2))) - (8.75 * lw - lw / 2)) < 1e-9 && Math.abs(Math.max(...ys(dipole.slice(2))) - 2.5 * lw) < 1e-9, "the dipole bar");
+  // An unbalanced equilibrium (ratio 3): the back arrow is its notch plus a third of the rest, about the middle.
+  const eq = arrowShapes({ ...a, kind: "equilibrium", ratio: 3 }, S, k), back = eq[2].map((q) => q[0]), want = 8.75 * lw + (4 * k - 8.75 * lw) / 3;
+  assert.ok(Math.abs(Math.max(...back) - Math.min(...back) - want) < 1e-6 && Math.abs(Math.max(...back) + Math.min(...back) - 4 * k) < 1e-6, "short back arrow");
+  // A bent equilibrium (a point, then its middle dragged): two arcs beside its own, each with its half head; with a
+  // ratio of 3 the back arc sweeps a third of the forward one.
+  const bentEq = arrowShapes({ ...a, kind: "equilibrium", point: true, bend: 0.3 }, S, k), bentShort = arrowShapes({ ...a, kind: "equilibrium", point: true, bend: 0.3, ratio: 3 }, S, k);
+  assert.ok(Math.min(...ys(bentEq)) < -0.3 * 4 * k + 0.2 * k && bentShort.length < bentEq.length, "curved equilibrium");
+  // A block arrow: shaft 12 line widths wide, barbs 12 off the axis and 12 back from the tip.
+  const o = blockOutline({ ...a, kind: "block" }, S, k);
+  const X = (4 * k) / lw, round = (v: number) => Math.round(v * 1e6) / 1e6 + 0;
+  assert.deepEqual(o.map(([x, y]) => [round(x / lw), round(y / lw)]), [[0, 6], [X - 12, 6], [X - 12, 12], [X, 0], [X - 12, -12], [X - 12, -6], [0, -6]].map(([x, y]) => [round(x), round(y)]));
+  // An elliptical arrow: from the tail 270° round to the head, every point on one ellipse whose short axis is 0.4 of
+  // its long one.
+  const e = ellipseArrow([0, 0], [0.5, 1.2], true), pts = e.curve!.points.map((q) => q.at);
+  assert.ok(pts.length === 4 && Math.hypot(pts[0][0], pts[0][1]) < 1e-9 && Math.hypot(pts[3][0] - 0.5, pts[3][1] - 1.2) < 1e-9 && e.end === "full");
+  const c = [(pts[0][0] + pts[2][0]) / 2, (pts[0][1] + pts[2][1]) / 2], long = Math.hypot(pts[0][0] - c[0], pts[0][1] - c[1]), shortAxis = Math.hypot(pts[3][0] - c[0], pts[3][1] - c[1]);
+  assert.ok(Math.abs(shortAxis / long - 0.4) < 1e-9, "axes 0.4");
+  // A closed pen curve (it ends where it starts) is still drawn.
+  assert.equal(arrowShapes({ id: 2, kind: "curve", from: [0, 0], to: [0, 0], curve: { points: [{ at: [0, 0] }, { at: [1, 0] }, { at: [0, 1] }], closed: true } }, S, k).length, 3);
+  // A pen curve whose ends are close together (a loop) keeps its whole head: only straight arrows are kept to two thirds.
+  const loop = arrowShapes({ id: 3, kind: "curve", from: [0, 0], to: [0.3, 0], end: "full", curve: { points: [{ at: [0, 0], c2: [-2, 2] }, { at: [0.3, 0], c1: [2.3, 2] }] } }, S, k);
+  const loopHead = loop[loop.length - 1];
+  assert.ok(Math.abs(Math.hypot(loopHead[2][0] - loopHead[0][0], loopHead[2][1] - loopHead[0][1]) - 8.75 * lw) < 1e-6, "a curve's whole head");
+  // Every polygon winds the same way, so a head over its shaft, or over an arrow joined at its tip, leaves no hole.
+  const area = (p: [number, number][]) => p.reduce((s, q, i) => s + q[0] * p[(i + 1) % p.length][1] - p[(i + 1) % p.length][0] * q[1], 0);
+  for (const more of [{}, { headSize: headOfLength(22.5) }, { style: "bold" }, { kind: "equilibrium" }, { kind: "resonance" }, { end: "right" }, { start: "left" }, { kind: "nogo" }, { kind: "block" }] as Partial<Arrow>[])
+    assert.ok(arrowShapes({ ...a, ...more }, S, k).every((p) => area(p) < 0), `winding: ${JSON.stringify(more)}`);
+  console.log("render.check: arrow sizes and kinds ok");
+}
+
+// Shapes (CD-18): a turned box's outline is the level one turned about its middle (anticlockwise on the page), a bold
+// one's lines are the bold width, and a bracket's mark turns with it.
+{
+  const box = { id: 1, kind: "box" as const, from: [0, 0] as [number, number], to: [2, 1] as [number, number] }, k = S.bond;
+  const level = shapePaths(box, k)[0], turned = shapePaths({ ...box, angle: 90 }, k)[0];
+  // Turned a quarter: (x, y) about the middle (1, 0.5) goes to (1 - (y - 0.5), 0.5 + (x - 1)); px have y down.
+  level.forEach(([x, y], i) => { const X = x / k, Y = -y / k, want = [1 - (Y - 0.5), 0.5 + (X - 1)]; assert.ok(Math.abs(turned[i][0] / k - want[0]) < 1e-9 && Math.abs(-turned[i][1] / k - want[1]) < 1e-9, "turned box"); });
+  const width = (polys: [number, number][][]) => Math.hypot(polys[0][1][0] - polys[0][0][0], polys[0][1][1] - polys[0][0][1]);
+  assert.ok(Math.abs(width(shapeInk({ ...box, boldLine: true }, S, k)) - S.bold) < 1e-9 && Math.abs(width(shapeInk(box, S, k)) - S.line) < 1e-9, "bold lines");
+  const m = markAt({ id: 2, kind: "brackets", from: [0, 0], to: [2, 2], angle: 180 }, k);
+  assert.ok(Math.abs(m.x / k - (2 - 2.08)) < 1e-9 && Math.abs(-m.y / k - (2 - 1.9)) < 1e-9, "mark turns with the brackets");
+  assert.deepEqual(turnedWith({ kind: "tlc", from: [0, 0], to: [2, 2], angle: 90 }, [0, 0]), [0, 0], "a TLC plate stays level");
+  console.log("render.check: turned and bold shapes ok");
+}
+
+// A turned caption (CD-19) turns about its anchor on the first baseline: its frame is the level box, and its box is
+// the box round the frame turned (a quarter turn anticlockwise puts its width up the page).
+{
+  const mol: Mol = { atoms: [], bonds: [], captions: [{ id: 1, text: "Turned", x: 0, y: 0, align: "left", angle: 90 }] };
+  const [c] = placeCaptions(mol, { ink: [], scale: S.bond }, () => 50);
+  assert.ok(Math.hypot(...c.pivot!) === 0);
+  const f = c.frame!, b = c.box;
+  assert.ok(Math.abs(b[0] - f[1]) < 1e-9 && Math.abs(b[1] - -f[2]) < 1e-9 && Math.abs(b[2] - f[3]) < 1e-9 && Math.abs(b[3] - -f[0]) < 1e-9, "box round the turned frame");
+  console.log("render.check: turned captions ok");
 }
 
 // Document label options: terminal carbons labelled (CH3), every carbon labelled, and implicit H hidden.

@@ -9,7 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 export const UI = [
   "pages", "grid", "selection-marks", "nmr-marks", "nmr-shift", "problem-mark", "mark", "arrow-mark", "suggested",
   "ghost", "pen-points", "mapping", "handle", "turn-handle", "turn-centre", "turn-angle", "box", "trail", "erase-marks", "brush",
-  "count", "guide", "snap-point", "spot-picked", "group-frame",
+  "count", "guide", "snap-point", "spot-picked", "lane-picked", "group-frame",
 ].map((c) => `.${c}`).join(",");
 
 // Inherited properties: written where an element's value differs from its parent's.

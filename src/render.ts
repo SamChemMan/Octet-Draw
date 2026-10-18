@@ -16,13 +16,14 @@ type P = [number, number];
 // text: a label that is not one element (OMe, CO2Et, Ph). label then holds the element it attaches through.
 // Marks drawn around an atom: radical (unpaired electrons, 1 or 2), pairs (lone pairs shown), circled (the charge
 // drawn as ⊕ or ⊖ beside the atom), partial (δ+ or δ−). A radical counts against the atom's hydrogens.
-// hmark: a hydrogen shown by a dot on the atom (towards the viewer) or a short hash (away). attach: a wavy line
-// across the bond at this end, for a point of attachment. bead: a polymer bead (a resin sphere) at this atom.
+// hmark: a hydrogen shown by a dot on the atom (towards the viewer) or a short hash (away). attach: a point of
+// attachment, in ChemDraw's three styles: a wavy line across the bond at this end (true), or a diamond or a star on
+// the atom that the bond stops at. bead: a polymer bead (a resin sphere) at this atom.
 export type Atom = {
   label: string; location: [number, number, number]; charge?: number; implicitHCount?: number; text?: string;
   radical?: number; // 1 a doublet (one unpaired electron), 2 a triplet (two), 3 a singlet (a paired carbene)
   isotope?: number; // mass number, written before the element (13C, 2H)
-  pairs?: number; circled?: boolean; partial?: "+" | "-"; hmark?: "dot" | "dash"; attach?: boolean; bead?: boolean;
+  pairs?: number; circled?: boolean; partial?: "+" | "-"; hmark?: "dot" | "dash"; attach?: boolean | "diamond" | "star"; bead?: boolean;
   map?: number; // a reaction atom map number: the same atom before and after
   enhanced?: string; // enhanced stereo: the stereocentre's group, "abs", "&1" (and) or "or1" (or)
   colour?: string; // #rrggbb for the atom's label and marks; unset draws in the document's ink
@@ -31,13 +32,24 @@ export type Atom = {
   font?: string; size?: number; bold?: true; italic?: true; underline?: true;
   ignoreWarnings?: true; // Display Warnings off for this atom (ChemDraw's IgnoreWarnings): its problems are not marked
   cip?: true; // Show Stereochemistry is on for this atom's structure: its R/S (and its double bonds' E/Z) labels show
-  halo?: string; // #rrggbb highlight: a disc behind the atom at 40% opacity (ChemDraw's highlight colours; NMR peak colours)
-  fill?: string; // #rrggbb ring fill: a ring whose atoms all have the same fill is filled with it at 30% opacity
+  halo?: string; // #rrggbb highlight behind the atom at 40% opacity (ChemDraw's highlight colours; NMR peak colours)
   circle?: true; // Toggle Aromatic Display: an aromatic ring whose atoms all have this is drawn with a circle
   // A multi-centre attachment point (ChemDraw's MultiAttachment node), as for an η5 Cp or η6 arene ligand: not an
   // atom but the middle of these atoms (a ring's), where a bond to the ligand ends. It has no label and no chemistry.
   centre?: number[];
   number?: string; // Show Atom Number: the number drawn beside the atom
+  // The label's alignment set by hand (ChemDraw's Flush Left, Centered, Flush Right and Stacked Above on a label;
+  // LabelDisplay in CDXML): left reads from the atom, right ends at it (MeO, H2N), centre sits on it, above and below
+  // stack the rest of the label over or under the atom's own unit. Unset is Automatic: it reads away from the bonds.
+  align?: "left" | "centre" | "right" | "above" | "below";
+  hidden?: true; // Toggle Hydrogen Display: an explicit H that is not drawn, nor its bond (it still counts in the formula)
+  // Marks moved round the atom by hand (Shift-drag): each mark's angle in degrees, anticlockwise from the right, by its
+  // key: charge (a circled one), partial, radical0, radical1, pair0 to pair3. Marks without one go in the widest gaps.
+  angles?: Record<string, number>;
+  bars?: true; // the lone pairs drawn as bars, not dot pairs (ChemDraw's LonePairBar)
+  // Interpret Chemically off (ChemDraw's InterpretChemically="no" on the label): the label is its text, not chemistry.
+  // Chemistry reads the atom as an unknown atom (*), as it reads a label it cannot read.
+  chemical?: false;
   shown?: true; // a carbon whose label shows with its hydrogens (CH3, CH2): ChemDraw's c key, or C typed as a label
   order?: number; // the draw order of the atom's structure (order.ts); unset draws it in its layer
   scale?: number; // the atom's size against the document style (decision 0007); unset is 1
@@ -47,7 +59,14 @@ export type Atom = {
 // A double bond's dashed (ChemDraw's Tautomeric: the second line dashed) and aromatic (both lines dashed) displays.
 export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow" | "either" | "aromatic";
 // position: where a double bond's second line goes, looking from atoms[0] to atoms[1]; unset means automatic.
-export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string };
+// Where two bonds cross, the later one in the list is in front, and the one behind has a gap cut in it.
+// halo: a highlight colour, drawn as a band along the bond (ChemDraw's highlightColor on a bond).
+export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string; halo?: string };
+// Bond types: 1 to 3 by order, 4 aromatic and 10 a hydrogen bond (KET's numbers), and 14 a quadruple bond (KET has
+// none; 14 keeps clear of KET's types). A hydrogen bond is drawn dotted and adds nothing to an atom's valence.
+export const AROMATIC = 4, HBOND = 10, QUADRUPLE = 14;
+// A bond's order, for valence and hydrogens. Any other type (a query bond) counts 1.
+export const orderOf = (type: number) => (type === AROMATIC ? 1.5 : type === HBOND ? 0 : type === QUADRUPLE ? 4 : type === 2 || type === 3 ? type : 1);
 // A caption: free text at x, y (bond lengths, y up; the text's anchor point by its alignment), or, with under
 // set, kept centred under those atoms by the ACS rule (baseline 15 pt below the structure's ink box).
 // Captions under the same structure stack one line apart, in id order.
@@ -58,6 +77,7 @@ export type Caption = {
   on?: { arrow: number; side: "above" | "below" };
   colour?: string; // #rrggbb; unset uses the document's text colour
   cycle?: CycleText; // a catalytic cycle's centre label, or a reagent or product on one of its steps
+  angle?: number; // turned anticlockwise about its anchor (the start, middle or end of its first baseline), in degrees
   font?: string; // the caption's font; unset uses the document's caption font
   runs?: TextRun[]; // the text in runs, each with its own style (rich text); text is always their text joined
   order?: number; // draw order (order.ts)
@@ -72,7 +92,9 @@ export type Caption = {
 // (dashed suits a proposed step; wavy and bold are for lines).
 // orbital: an atomic or hybrid orbital drawn from its nucleus (from) to the tip of its main lobe (to).
 // cut: a mass-fragmentation line across bonds; the pieces it makes are labelled with their formula and mass.
-export type ArrowKind = "reaction" | "equilibrium" | "resonance" | "retro" | "nogo" | "curved" | "fishhook" | "double" | "line" | "arc" | "orbital" | "cut" | "curve";
+// nogo and hash: a reaction arrow crossed out, or struck through with two slashes (ChemDraw's No-Go Cross and Hash).
+// dipole: an arrow with a bar across its tail. block: a hollow block arrow (a wide shaft and head drawn as an outline).
+export type ArrowKind = "reaction" | "equilibrium" | "resonance" | "retro" | "nogo" | "hash" | "dipole" | "block" | "curved" | "fishhook" | "double" | "line" | "arc" | "orbital" | "cut" | "curve";
 export type LineStyle = "dashed" | "bold" | "wavy" | "doubled";
 // The Curves model, as ChemDraw's Curves menu: a head at either end of a line (none, full, or a half head with its
 // barb on the left or right, looking the way the head points), the heads' shape, and a closed curve's fill.
@@ -83,30 +105,59 @@ export type OrbitalShape = "s" | "oval" | "lobe" | "hybrid" | "p" | "d" | "dz2";
 export type Phase = "plain" | "shaded" | "filled" | "phased";
 export const ORBITAL_SHAPES: OrbitalShape[] = ["s", "oval", "lobe", "hybrid", "p", "d", "dz2"];
 export const PHASES: Phase[] = ["plain", "shaded", "filled", "phased"];
+// headSize: the heads' size set by hand (ChemDraw's Large, Medium and Small arrows, or a head handle dragged).
+// ratio: an equilibrium's forward arrow against its back arrow (ChemDraw's ArrowEquilibriumRatio): above 1 the back
+// arrow is shorter, below 1 the forward one. shaft: a block arrow's shaft width, in line widths.
+// point: a straight arrow given a point in its middle, which bends it (bend) and starts branches.
 export type Arrow = {
   id: number; kind: ArrowKind; from: [number, number]; to: [number, number]; bend?: number; style?: LineStyle; orbital?: { shape: OrbitalShape; phase: Phase }; colour?: string;
   start?: Head; end?: Head; head?: HeadShape; // heads set by hand; unset uses the kind's own
-  curve?: Curve; fill?: CurveFill; // a pen curve's points (from and to are its ends), and a closed one's fill
+  curve?: Curve; fill?: CurveFill; // a pen curve's points (from and to are its ends), and a closed one's or a block arrow's fill
+  headSize?: HeadSize; ratio?: number; shaft?: number; point?: true;
   order?: number; // draw order (order.ts)
   width?: number; // the line width in points; unset uses the document's. The scale multiplies it.
   scale?: number; // the arrow's size against the document style (decision 0007); unset is 1
 };
+// An arrowhead's size in line widths, as CDXML keeps it in hundredths (HeadSize, ArrowheadCenterSize, ArrowheadWidth):
+// how far back from the tip it reaches, how far back its notch is, and how far each barb stands off the shaft.
+export type HeadSize = { length: number; centre: number; width: number };
+// ChemDraw's Arrows palette: heads 22.5, 15 or 10 line widths long, notched at 7/8 of that and a quarter of it wide
+// each side. Its hollow block arrows: heads 12 or 6 long, flat at the back, on a shaft as wide as the head is long.
+// Its arc arrows (curved, fishhook, double-headed and elliptical): heads 8 long, which is their Small.
+export const ARROW_SIZES = { large: 22.5, medium: 15, small: 10 } as const;
+export const BLOCK_SIZES = { large: 12, medium: 6, small: 6 } as const;
+export const ARC_HEAD = 8;
+export type ArrowSize = keyof typeof ARROW_SIZES;
+export const headOfLength = (length: number, flat = false): HeadSize => ({ length, centre: flat ? length : length * 0.875, width: length / 4 });
+// An arrow's head size: its own, or its kind's (a block arrow's is the large one, an arc's 8). As in ChemDraw, a bold
+// arrow's heads are twice the size.
+export const headSize = (a: Pick<Arrow, "kind" | "headSize" | "style">): HeadSize => a.headSize ?? sizedHead(a, a.kind === "block" ? "large" : "small");
+// A palette size's head for an arrow of this kind and line.
+export const sizedHead = (a: Pick<Arrow, "kind" | "style">, size: ArrowSize): HeadSize =>
+  headOfLength((a.kind === "block" ? BLOCK_SIZES[size] : size === "small" && curved(a) ? ARC_HEAD : ARROW_SIZES[size]) * (a.style === "bold" ? 2 : 1), a.kind === "block");
+// The palette size an arrow's heads are, if they are one of them.
+export const sizeOf = (a: Pick<Arrow, "kind" | "headSize" | "style">): ArrowSize | undefined => {
+  const h = headSize(a);
+  return (["large", "medium", "small"] as const).find((k) => { const o = sizedHead(a, k); return Math.abs(o.length - h.length) < 0.01 && Math.abs(o.centre - h.centre) < 0.01 && Math.abs(o.width - h.width) < 0.01; });
+};
 // Every kind a drawing's arrow list may hold.
-export const ALL_ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "curved", "fishhook", "double", "line", "arc", "orbital", "cut", "curve"];
+export const ALL_ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "hash", "dipole", "block", "curved", "fishhook", "double", "line", "arc", "orbital", "cut", "curve"];
 export const isOrbital = (a: Pick<Arrow, "kind">) => a.kind === "orbital";
-export const ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "curved", "fishhook", "double"];
+export const ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "hash", "dipole", "block", "curved", "fishhook", "double"];
 export const LINE_KINDS: ArrowKind[] = ["line", "arc"];
 export const curved = (a: Pick<Arrow, "kind">) => a.kind === "curved" || a.kind === "fishhook" || a.kind === "double" || a.kind === "arc";
 // Arrows that carry reaction conditions and make up reactions: straight ones with heads.
 export const straightArrow = (a: Pick<Arrow, "kind">) => !curved(a) && a.kind !== "line" && a.kind !== "orbital" && a.kind !== "cut" && a.kind !== "curve";
 export const isLine = (a: Pick<Arrow, "kind">) => a.kind === "line" || a.kind === "arc" || a.kind === "curve";
-// Lines that take the Curves menu's heads: everything drawn as one shaft (not equilibrium, retrosynthetic or
-// no-reaction arrows, orbitals or fragmentation cuts).
-export const takesHeads = (a: Pick<Arrow, "kind">) => !["equilibrium", "retro", "nogo", "orbital", "cut"].includes(a.kind);
+// Lines that take the Curves menu's heads: everything drawn as one shaft (not equilibrium, retrosynthetic, block or
+// no-reaction and dipole arrows, orbitals or fragmentation cuts).
+export const takesHeads = (a: Pick<Arrow, "kind">) => !["equilibrium", "retro", "nogo", "hash", "dipole", "block", "orbital", "cut"].includes(a.kind);
+// Arrows drawn as one shaft with a mark on it: no-go (a cross or two slashes) and dipole (a bar at the tail).
+export const marked = (a: Pick<Arrow, "kind">) => a.kind === "nogo" || a.kind === "hash" || a.kind === "dipole";
 // A line's heads: the ones set by hand, or its kind's.
 export function headsOf(a: Pick<Arrow, "kind" | "bend" | "start" | "end">): { start: Head; end: Head } {
   const own: Record<string, [Head, Head]> = {
-    reaction: ["none", "full"], curved: ["none", "full"], double: ["full", "full"], resonance: ["full", "full"], nogo: ["none", "full"],
+    reaction: ["none", "full"], curved: ["none", "full"], double: ["full", "full"], resonance: ["full", "full"], nogo: ["none", "full"], hash: ["none", "full"], dipole: ["none", "full"], block: ["none", "full"],
     fishhook: ["none", (a.bend ?? 0) >= 0 ? "left" : "right"], // the barb on the outside of the curve
   };
   const [start, end] = own[a.kind] ?? ["none", "none"];
@@ -141,14 +192,19 @@ export type Curve = { points: CurvePoint[]; closed?: boolean };
 // A TLC plate's lanes and spots: each spot in a lane at its Rf (0 at the origin, 1 at the solvent front).
 // A TLC plate: its lanes and spots, Rf values shown for all, the origin's height and the front's depth (fractions of
 // the plate, from the bottom and the top), and parts hidden, as ChemDraw's TLC tool.
-export type Tlc = { lanes: number; spots: Spot[]; rf?: boolean; origin?: number; front?: number; hide?: ("origin" | "front" | "border")[] };
+// ticks: Rf ticks along both sides (ChemDraw's Show Side Ticks). transparent: what is behind the plate shows through
+// it (ChemDraw's Transparent); otherwise the plate is the page's colour.
+export type Tlc = { lanes: number; spots: Spot[]; rf?: boolean; origin?: number; front?: number; hide?: ("origin" | "front" | "border")[]; ticks?: true; transparent?: true };
 // A spot: its lane and Rf, and when set by hand its colour, style, half-width and half-height, the smear below it
-// (bond lengths), and its own Rf label.
-export type Spot = { lane: number; rf: number; colour?: string; style?: "hollow" | "shaded"; w?: number; h?: number; tail?: number; showRf?: true };
+// (bond lengths), and its own Rf label. style is its fill (unset: filled); dashed and bold are its outline's, and
+// doubled draws a second outline round it (ChemDraw's spot styles: Filled, Hollow, Dashed, Bold, Doubled).
+export type Spot = { lane: number; rf: number; colour?: string; style?: "hollow" | "shaded"; dashed?: true; bold?: true; doubled?: true; w?: number; h?: number; tail?: number; showRf?: true };
+// faded: a fill fading to nothing at the bottom right (as a closed curve's).
 export type Shape = {
   id: number; kind: ShapeKind; from: [number, number]; to: [number, number]; dashed?: boolean; colour?: string;
-  fill?: "shaded" | "solid"; shadow?: boolean; side?: "left" | "right"; mark?: string; tlc?: Tlc; table?: Table;
+  fill?: "shaded" | "solid" | "faded"; shadow?: boolean; side?: "left" | "right"; mark?: string; tlc?: Tlc; table?: Table;
   shade?: Shade; // a shadow's look, when it differs from SHADE
+  boldLine?: true; // the outline in the bold width (ChemDraw's Bold line)
   order?: number; // draw order (order.ts)
   angle?: number; // degrees anticlockwise: the box from and to span is drawn turned about its middle (not TLC plates or tables)
   width?: number; // the line width in points; unset uses the document's. The scale multiplies it.
@@ -170,6 +226,8 @@ export const turnPoint = (q: [number, number], c: [number, number], degrees: num
   return [c[0] + dx * cs - dy * sn, c[1] + dx * sn + dy * cs];
 };
 const middleOf = (sh: Pick<Shape, "from" | "to">): [number, number] => [(sh.from[0] + sh.to[0]) / 2, (sh.from[1] + sh.to[1]) / 2];
+// A point (drawing units) turned with a shape about its middle.
+export const turnedWith = (sh: Pick<Shape, "kind" | "from" | "to" | "angle">, q: [number, number]): [number, number] => (sh.angle && turns(sh) ? turnPoint(q, middleOf(sh), sh.angle) : q);
 // A shape's corners as drawn (drawing units): from, to and the other two (c1 has from's x and to's y), turned with it.
 export function shapeCorners(sh: Pick<Shape, "from" | "to" | "angle">): Record<"from" | "to" | "c1" | "c2", [number, number]> {
   const c = middleOf(sh), t = (q: [number, number]) => (sh.angle ? turnPoint(q, c, sh.angle) : q);
@@ -207,7 +265,11 @@ export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", 
 export const HIGHLIGHT = "#DCE4F6";
 // Captions, arrows, shapes and cycles share one set of ids.
 // guides: what the file asks the window to show (grid, rulers, crosshair), when Octet saved it; files only.
-export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; style?: DocStyle; guides?: Guides };
+export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; fills?: RingFill[]; style?: DocStyle; guides?: Guides };
+// A ring fill (ChemDraw's Ring Fill colours, its ColoredMolecularArea): one ring, by its atoms in ring order, filled
+// with the colour at 30% opacity behind the bonds. Each ring keeps its own fill, so fused rings can differ. A fill
+// whose ring is broken is not drawn.
+export type RingFill = { atoms: number[]; colour: string };
 // A stoichiometry grid (Structure > Analyse Stoichiometry) under the reaction an arrow belongs to: what was typed for
 // each component ("r0", "r1"… reactants, "p0"… products, in reading order), in base units, and the limiting reactant.
 // Everything else is worked out from the reaction as it is drawn (stoich.ts).
@@ -230,13 +292,14 @@ export type Face = { font?: string; bold?: boolean; italic?: boolean };
 export type Box = [number, number, number, number];
 // ink: each atom's ink box (its label and the bonds that touch it), for placing captions. label: the ink box of an
 // atom's label alone (NH2, OMe), for highlighting it; undefined for an unlabelled atom. scale: px per bond length.
-// electrons: where each lone pair and radical dot is drawn (px), for curly arrows to start from. beads: polymer beads,
-// drawn shaded by the caller. labelAt: where each label's atom is (px), which the label keeps level about while a drag
-// turns its structure.
+// electrons: where each lone pair and radical dot is drawn (px), for curly arrows to start from, and with key, every
+// mark (circled and partial charges too), for moving it round its atom (Atom.angles). beads: polymer beads, drawn
+// shaded by the caller. labelAt: where each label's atom is (px), which the label keeps level about while a drag turns
+// its structure.
 export type Drawing = {
   sides?: number[]; // each bond's second line as drawn, for a double bond: -1 left, 1 right of its first atom to its second on screen, 0 centred
   polygons: P[][]; colours: (string | undefined)[]; alphas: number[]; labels: Label[]; box: Box; ink: Box[]; label: (Box | undefined)[]; scale: number;
-  electrons: { atom: number; at: P }[]; beads: { at: P; r: number }[]; labelAt: P[];
+  electrons: { atom: number; at: P; key?: string }[]; beads: { at: P; r: number }[]; labelAt: P[];
 };
 
 // An object's scale: its own, or 1.
@@ -256,9 +319,8 @@ const angle = (a: P, b: P) => Math.acos(Math.max(-1, Math.min(1, dot(a, b) / (le
 const SUB = 0.75, DROP = 0.212, RISE = 0.33;
 const TIP = 0.0165; // wedge half-width at the stereocentre, as a fraction of the bond length
 const MAX_TRIM = 0.67; // an inner-line trim longer than this (times the bond length) is skipped
-const H_FIRST = new Set(['O', 'F', 'S', 'Cl', 'Se', 'Br', 'Te', 'I']); // H2O, HCl; but NH3, CH4
+export const H_FIRST = new Set(['O', 'F', 'S', 'Cl', 'Se', 'Br', 'Te', 'I']); // H2O, HCl; but NH3, CH4
 const VALENCE: Record<string, number> = { C: 4, Si: 4, N: 3, P: 3, As: 3, B: 3, Al: 3, O: 2, S: 2, Se: 2, Te: 2, F: 1, Cl: 1, Br: 1, I: 1 };
-const ORDER: Record<number, number> = { 1: 1, 2: 2, 3: 3, 4: 1.5 };
 
 // A ring's aromatic circle, as ChemDraw sizes it (Toggle Aromatic Display): the ring's inradius for its shortest bond
 // L, less the double bond spacing (spacing, a fraction of the bond length) times a factor for the ring's size.
@@ -278,8 +340,8 @@ export function ligandEllipse(ring: P[], c: P, from: P | undefined, spacing: num
 export function circledRings(mol: Mol): number[][] {
   if (!mol.atoms.some((a) => a.circle)) return [];
   const used = mol.atoms.map(() => 0);
-  for (const b of mol.bonds) for (const i of b.atoms) used[i] += b.type;
-  const g = { atoms: mol.atoms.map((a, i) => ({ el: a.text ? "X" : a.label, charge: a.charge ?? 0, h: a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used[i]) })), bonds: mol.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: Math.min(3, Math.max(1, b.type)) as 1 | 2 | 3 })) };
+  for (const b of mol.bonds) for (const i of b.atoms) used[i] += orderOf(b.type);
+  const g = { atoms: mol.atoms.map((a, i) => ({ el: a.text ? "X" : a.label, charge: a.charge ?? 0, h: a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used[i]) })), bonds: mol.bonds.filter((b) => b.type !== HBOND).map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: Math.min(3, Math.max(1, b.type)) as 1 | 2 | 3 })) };
   const aromatic = aromaticAtoms(g);
   return ringsOf(g).filter((r) => r.length >= 5 && r.length <= 8 && r.every((i) => mol.atoms[i].circle && aromatic[i]));
 }
@@ -320,13 +382,13 @@ function ringsThrough(a: number, b: number, nbrs: number[][]): number[][] {
 }
 
 // A bond, planned. Kinds 'line' and 'wedge' join the fans; 'none' is a centred double bond (its two lines only).
-// 'dash', 'hashbar' and 'wavy' are drawn along the axis and stay out of the fans. half: the line's half-width
+// 'dash', 'hashbar', 'wavy' and 'dot' (a hydrogen bond) are drawn along the axis and stay out of the fans. half: the line's half-width
 // when it is not the normal one (bold). head: an arrowhead at b (dative bond).
 // lines: extra lines parallel to the axis at offset o, trimmed t0 at a and t1 at b (negative runs past the atom).
 // cut: distance from a and from b at which a label stops the bond.
 type Plan = {
   a: number; b: number; u: P; n: P; length: number;
-  kind: 'line' | 'wedge' | 'hash' | 'none' | 'dash' | 'hashbar' | 'wavy' | 'hollow';
+  kind: 'line' | 'wedge' | 'hash' | 'none' | 'dash' | 'hashbar' | 'wavy' | 'hollow' | 'dot';
   half?: number;
   head?: boolean;
   // half: a line's own half width (a bold double's); dashed: drawn as dashes (a dashed double's second line).
@@ -387,6 +449,8 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const bondAt = new Map<string, Bond>();
   const key = (i: number, j: number) => (i < j ? `${i} ${j}` : `${j} ${i}`);
   mol.bonds.forEach((b) => bondAt.set(key(b.atoms[0], b.atoms[1]), b));
+  // Rings go through covalent bonds only: a hydrogen bond closes no ring.
+  const covalent = mol.bonds.some((b) => b.type === HBOND) ? nbrs.map((ns, i) => ns.filter((j) => bondAt.get(key(i, j))!.type !== HBOND)) : nbrs;
   // Each atom's lengths at its scale, made once per scale.
   const zs = new Map<number, Z>();
   const zOf = (f: number): Z => {
@@ -399,14 +463,24 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const dir = (i: number, j: number) => unit(sub(pts[j], pts[i]));
 
   // Labels. Heteroatoms and lone carbons get one; skeletal carbons don't, even when charged.
-  const labelled = mol.atoms.map((a, i) => !a.attach && !a.bead && !a.centre && (a.label !== 'C' || !deg(i) || !!a.text || !!a.isotope || !!a.shown || (deg(i) === 1 ? !!s.terminal : !!s.carbons)));
+  const labelled = mol.atoms.map((a, i) => !a.attach && !a.bead && !a.hidden && !a.centre && (a.label !== 'C' || !deg(i) || !!a.text || !!a.isotope || !!a.shown || (deg(i) === 1 ? !!s.terminal : !!s.carbons)));
   const labels: Label[] = [], labelAtom = new Map<Label, number>();
   const marks: P[][] = mol.atoms.map(() => []); // ink that is not a label shape (a skeletal carbon's charge)
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
+  // A diamond or star attachment point, ChemDraw's size: three quarters of the label size and two line widths across.
+  const pointR = (0.75 * s.size + 2 * s.line) / 2;
+  const pointOutline = (st: "diamond" | "star"): P[] => st === "diamond"
+    ? [[pointR, 0], [0, pointR], [-pointR, 0], [0, -pointR]]
+    : Array.from({ length: 10 }, (_, k): P => { const t = -Math.PI / 2 + (k * Math.PI) / 5, r = k % 2 ? 0.45 * pointR : pointR; return [r * Math.cos(t), r * Math.sin(t)]; });
   // Each label's size against the document's: its own size, times its atom's scale.
   const ratio = mol.atoms.map((a) => (a.size && s.labelPt ? a.size / s.labelPt : 1) * scaleOf(a));
   const grown = (m: Ink, r: number): Ink => (r === 1 ? m : { width: m.width * r, ascent: m.ascent * r, outline: m.outline.map(([px, py]) => [px * r, py * r] as P) });
   const shapes: Piece[][] = mol.atoms.map((a, i) => {
+    // The bond stops at a diamond or star: its outline, drawn in a margin, cuts the bond as a label does.
+    if (a.attach === "diamond" || a.attach === "star") {
+      const f = scaleOf(a), inset = Math.max(0.2, 1 - s.margin / pointR), edge = pointOutline(a.attach).map((q) => mul(q, f));
+      return [{ pts: edge.flatMap((q, k) => { const r = edge[(k + 1) % edge.length]; return Array.from({ length: 6 }, (_, j): P => mul(add(q, mul(sub(r, q), j / 6)), inset)); }), x: pts[i][0], y: pts[i][1], f: 1 }];
+    }
     // The label in its own style: measured in its face, and scaled by its size against the document's.
     const face: Face | undefined = a.font || a.bold || a.italic ? { font: a.font, bold: a.bold, italic: a.italic } : undefined;
     const r = ratio[i], S = s.size * r;
@@ -436,40 +510,57 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     // Which way the label reads: away from the bonds. Bonds on the right (within 70° of horizontal) reverse it.
     const v = nbrs[i].reduce<P>((acc, j) => add(acc, dir(i, j)), [0, 0]);
     const steep = len(v) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180);
+    const align = a.align;
     if (a.text) {
       // A written label: units in order, reversed when it reads right to left (OMe as MeO). The attaching
-      // unit's first glyph sits centred on the atom.
-      const us = units(a.text), reversed = deg(i) > 0 && !steep && v[0] > 1e-6;
+      // unit's first glyph sits centred on the atom. Centred, the whole label sits on the atom; stacked, each unit
+      // after the first goes one line further up (or down), centred over the atom.
+      const us = units(a.text), reversed = align ? align === "right" : deg(i) > 0 && !steep && v[0] > 1e-6;
       const width = (u: (typeof us)[number]) => M(u.text).width + (u.count ? M(u.count).width * SUB : 0);
       const first = M(us[0].text[0]), base = y + first.ascent / 2;
+      if (align === "above" || align === "below") {
+        const pitch = 1.1 * M('H').ascent * (align === "above" ? -1 : 1);
+        us.forEach((u, k) => {
+          const ux = k ? x - width(u) / 2 : x - first.width / 2, uy = base + k * pitch;
+          run(u.text, ux, uy);
+          if (u.count) run(u.count, ux + M(u.text).width, uy + DROP * S, SUB);
+        });
+        if (a.charge && !a.circled) run(sign(a.charge), x - first.width / 2 + width(us[0]), base - RISE * S, SUB);
+        return shape;
+      }
       const order = reversed ? [...us].reverse() : us;
-      let cx = x - first.width / 2 - (reversed ? order.slice(0, -1).reduce((w, u) => w + width(u), 0) : 0);
+      let cx = align === "centre" ? x - us.reduce((w, u) => w + width(u), 0) / 2 : x - first.width / 2 - (reversed ? order.slice(0, -1).reduce((w, u) => w + width(u), 0) : 0);
       for (const u of order) {
         run(u.text, cx, base);
         if (u.count) run(u.count, cx + M(u.text).width, base + DROP * S, SUB);
         cx += width(u);
       }
-      const right = reversed ? x - first.width / 2 + width(us[0]) : cx;
+      const right = reversed && align !== "centre" ? x - first.width / 2 + width(us[0]) : cx;
       if (a.charge && !a.circled) run(sign(a.charge), right, base - RISE * S, SUB);
       return shape;
     }
-    const first = M(a.label[0]);
-    const ox = x - first.width / 2, base = y + first.ascent / 2;
-    run(a.label, ox, base);
-    // An isotope's mass number, raised, just before the element.
-    if (a.isotope) { const t = String(a.isotope); run(t, ox - M(t).width * SUB, base - RISE * S, SUB); }
-    const charge = a.charge ?? 0;
-    const used = nbrs[i].reduce((n, j) => n + (ORDER[bondAt.get(key(i, j))!.type] ?? 1), 0);
+    const first = M(a.label[0]), charge = a.charge ?? 0;
+    const used = nbrs[i].reduce((n, j) => n + orderOf(bondAt.get(key(i, j))!.type), 0);
     const h = s.hideH ? 0 : a.implicitHCount ?? hydrogens(a.label, charge, used, a.radical === 3 ? 2 : a.radical);
     const count = h > 1 ? String(h) : '';
     const hW = M('H').width, cW = count ? M(count).width * SUB : 0;
+    // Centred by hand: the element and its H together sit on the atom.
+    const ox = align === "centre" && h ? x - (M(a.label).width + hW + cW) / 2 : x - first.width / 2, base = y + first.ascent / 2;
+    run(a.label, ox, base);
+    // An isotope's mass number, raised, just before the element.
+    if (a.isotope) { const t = String(a.isotope); run(t, ox - M(t).width * SUB, base - RISE * S, SUB); }
     const hs = (hx: number, hy: number) => { run('H', hx, hy); if (count) run(count, hx + hW, hy + DROP * S, SUB); };
     let end = ox + M(a.label).width; // the charge goes here
-    if (h) {
+    const pitch = 1.1 * M('H').ascent;
+    if (h && align) {
+      if (align === "right") hs(ox - hW - cW, base);
+      else if (align === "above" || align === "below") hs(x - hW / 2, base + (align === "above" ? -pitch : pitch));
+      else { hs(end, base); end += hW + cW; }
+    } else if (h) {
       // Sum of the bond directions: within 70° of horizontal, H goes on the far side; steeper, H stacks (indole NH).
       if (deg(i) ? !steep && v[0] > 1e-6 : H_FIRST.has(a.label)) hs(ox - hW - cW, base); // HO, H2N
       else if (!steep || deg(i) < 2) { hs(end, base); end += hW + cW; } // OH, NH2
-      else { const pitch = 1.1 * M('H').ascent; hs(x - hW / 2, base + (v[1] > 0 ? -pitch : pitch)); }
+      else hs(x - hW / 2, base + (v[1] > 0 ? -pitch : pitch));
     }
     if (charge && !a.circled) run(sign(charge), end, base - RISE * S, SUB);
     return shape;
@@ -479,12 +570,13 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   // charge sits up and to the right when that is clear; the rest share out the widest gaps between the bonds and
   // the label, evenly spaced, and each sits just clear of the label.
   const symbols: P[][][] = mol.atoms.map(() => []);
-  const electrons: { atom: number; at: P }[] = [], beads: { at: P; r: number }[] = [];
+  const electrons: { atom: number; at: P; key?: string }[] = [], beads: { at: P; r: number }[] = [];
   const TAU = 2 * Math.PI, turn = (x: number) => ((x % TAU) + TAU) % TAU;
   // Every polygon winds one way (see polygons below); a disc or ring built here is turned to match.
   const wound = (poly: P[]) => (poly.reduce((sum, q, j) => sum + cross(q, poly[(j + 1) % poly.length]), 0) > 0 ? poly.reverse() : poly);
   const disc = (c: P, r: number): P[] => wound(Array.from({ length: 20 }, (_, j) => add(c, [r * Math.cos((TAU * j) / 20), r * Math.sin((TAU * j) / 20)])));
   mol.atoms.forEach((a, i) => {
+    if (a.hidden) return;
     const kinds: ('charge' | 'partial' | 'radical' | 'pair')[] = [];
     if (a.circled && a.charge) kinds.push('charge');
     if (a.partial) kinds.push('partial');
@@ -499,8 +591,11 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     for (const q of [...shape, ...marks[i]]) if (len(sub(q, X)) > 0.62 * z) taken.push(Math.atan2(q[1] - X[1], q[0] - X[0]));
     const clearOf = (t: number, need: number) => taken.every((b) => Math.abs(Math.atan2(Math.sin(t - b), Math.cos(t - b))) >= need);
     const at = new Map<number, number>(); // index in kinds → angle
+    // Marks placed by hand keep their angle (y is down here, so the angle turns the other way).
+    const keys = kinds.map((kind, k) => (kind === 'charge' || kind === 'partial' ? kind : `${kind}${kinds.slice(0, k).filter((x) => x === kind).length}`));
+    keys.forEach((key, k) => { const deg = a.angles?.[key]; if (deg !== undefined) { at.set(k, (-deg * Math.PI) / 180); taken.push((-deg * Math.PI) / 180); } });
     const UP_RIGHT = -Math.PI / 4;
-    if ((kinds[0] === 'charge' || kinds[0] === 'partial') && clearOf(UP_RIGHT, Math.PI / 5)) { at.set(0, UP_RIGHT); taken.push(UP_RIGHT); }
+    if (!at.has(0) && (kinds[0] === 'charge' || kinds[0] === 'partial') && clearOf(UP_RIGHT, Math.PI / 5)) { at.set(0, UP_RIGHT); taken.push(UP_RIGHT); }
     const rest = kinds.map((_, k) => k).filter((k) => !at.has(k));
     const sorted = taken.map(turn).sort((x, y) => x - y);
     const gaps = sorted.length
@@ -524,7 +619,13 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       let hi = lo + 3 * z;
       if (!fits(lo)) { for (let j = 0; j < 24; j++) { const mid = (lo + hi) / 2; if (fits(mid)) hi = mid; else lo = mid; } lo = hi; }
       const c = add(X, mul(d, lo));
-      if (kind === 'radical' || kind === 'pair') { for (const [o, pr] of parts) symbols[i].push(disc(add(c, mul(n, o)), pr)); electrons.push({ atom: i, at: c }); }
+      if (kind === 'pair' && a.bars) {
+        // A lone pair as a bar across the way out, as long as the dot pair is wide, in the line width.
+        const e = 0.19 * z + R;
+        symbols[i].push(wound([add(add(c, mul(n, -e)), mul(d, -hw)), add(add(c, mul(n, e)), mul(d, -hw)), add(add(c, mul(n, e)), mul(d, hw)), add(add(c, mul(n, -e)), mul(d, hw))]));
+        electrons.push({ atom: i, at: c, key: keys[k] });
+      } else if (kind === 'radical' || kind === 'pair') { for (const [o, pr] of parts) symbols[i].push(disc(add(c, mul(n, o)), pr)); electrons.push({ atom: i, at: c, key: keys[k] }); }
+      else electrons.push({ atom: i, at: c, key: keys[k] });
       if (kind === 'charge') {
         // A ring the line width thick, with the sign inside it.
         for (let j = 0; j < 40; j++) {
@@ -564,7 +665,11 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
         symbols[i].push(wound([add(add(c, mul(n, -half)), mul(u, -hw)), add(add(c, mul(n, half)), mul(u, -hw)), add(add(c, mul(n, half)), mul(u, hw)), add(add(c, mul(n, -half)), mul(u, hw))]));
       }
     }
-    if (a.attach) {
+    if (a.attach === "diamond" || a.attach === "star") {
+      // Its outline, in three quarters of the line width.
+      const edge = pointOutline(a.attach).map((q) => add(X, mul(q, scaleOf(a)))), w = 0.375 * s.line * scaleOf(a);
+      edge.forEach((q, k) => { const r = edge[(k + 1) % edge.length], u = unit(sub(r, q)), n = perp(u); symbols[i].push(wound([add(add(q, mul(n, -w)), mul(u, -w)), add(add(q, mul(n, w)), mul(u, -w)), add(add(r, mul(n, w)), mul(u, w)), add(add(r, mul(n, -w)), mul(u, w))])); });
+    } else if (a.attach) {
       // A wave across the bond, 0.6 bond lengths long.
       const u = dirs[0] ?? [1, 0], n = perp(u), wave = waveAlong([add(X, mul(n, -0.3 * L)), add(X, mul(n, 0.3 * L))], 0.05 * L, 0.15 * L);
       for (let k = 0; k + 1 < wave.length; k++) {
@@ -579,7 +684,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const [a, b] = bond.atoms, p = pts[a], q = pts[b];
     const length = len(sub(q, p)), u = unit(sub(q, p)), n = perp(u);
     const z = zOf((scaleOf(mol.atoms[a]) + scaleOf(mol.atoms[b])) / 2), { L, hw } = z;
-    const plan: Plan = { a, b, u, n, length, kind: 'line', lines: [], cut: [0, 0], z };
+    const plan: Plan = { a, b, u, n, length, kind: 'line', lines: [], cut: [0, 0], z, ...(mol.atoms[a].hidden || mol.atoms[b].hidden ? { hidden: true } : {}) };
     const side = (j: number) => Math.sign(dot(sub(pts[j], p), n));
     // Angles at x from the bond to x's other neighbours on one side, smallest first.
     const near = (x: number, y: number, sd: number) =>
@@ -594,7 +699,10 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       else plan.kind = bond.display === 'dashed' ? 'dash' : bond.display === 'hashed' ? 'hashbar' : bond.display === 'hollow' ? 'hollow' : 'wavy';
       return plan;
     }
+    if (bond.type === HBOND) { plan.kind = 'dot'; return plan; }
     if (bond.type === 3) { plan.lines = [z.spacing, -z.spacing].map((o) => ({ o, t0: 0, t1: 0 })); return plan; }
+    // A quadruple bond, as ChemDraw draws it: four lines one spacing apart, centred on the axis.
+    if (bond.type === QUADRUPLE) { plan.kind = 'none'; plan.lines = [1.5, 0.5, -0.5, -1.5].map((k) => ({ o: k * z.spacing, t0: 0, t1: 0 })); return plan; }
     if (bond.type !== 2) return plan;
     // Bold double (ChemDraw's ⇧B): the main line bold, the second line normal and moved out by the extra width, so
     // the gap between them looks the same as a plain double bond's.
@@ -605,7 +713,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     // Side of the second line: into the ring with the most double bonds (then six-membered, then smallest),
     // toward the inside of the angle at an unlabelled degree-2 end, or toward more substituents. 0 = centred.
     let sd = 0, ring: number[] | undefined;
-    const rings = ringsThrough(a, b, nbrs);
+    const rings = ringsThrough(a, b, covalent);
     // A position the user set wins. On screen (y down) the left of a→b is the -n side.
     if (bond.position) sd = bond.position === "centre" ? 0 : bond.position === "left" ? -1 : 1;
     else if (rings.length) {
@@ -707,7 +815,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const atAtom: { pl: Plan; i: number }[][] = mol.atoms.map(() => []);
   plans.forEach((pl, i) => { atAtom[pl.a].push({ pl, i }); if (pl.b !== pl.a) atAtom[pl.b].push({ pl, i }); });
   mol.atoms.forEach((_, x) => {
-    if (labelled[x]) return;
+    if (labelled[x] || shapes[x].length) return; // a label, or an attachment point's diamond or star, cuts its bonds
     const X = pts[x];
     const members = atAtom[x]
       .filter(({ pl }) => !pl.hidden && (pl.kind === 'line' || pl.kind === 'wedge'))
@@ -749,6 +857,12 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       // Evenly spaced dashes, one per hash spacing, the first and last flush with the ends.
       const count = Math.max(1, Math.round(D / hash)), dash = Math.min(D, hash * 0.55), step = count > 1 ? (D - dash) / (count - 1) : 0;
       for (let k = 0; k < count; k++) bar(add(S, mul(pl.u, k * step)), add(S, mul(pl.u, k * step + dash)), pl.n, hw);
+    }
+    if (pl.kind === 'dot') {
+      // A hydrogen bond: round dots the line width across, one every half hash spacing (ChemDraw's dotted bond
+      // spacing), the first and last at the ends.
+      const count = Math.max(1, Math.round(D / (hash / 2)));
+      for (let k = 0; k <= count; k++) polygons.push(disc(add(S, mul(pl.u, (D * k) / count)), hw));
     }
     if (pl.kind === 'hashbar') {
       // Marks of one length (the bold width), evenly spaced from end to end.
@@ -853,7 +967,12 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   // the f key move a bond to the end of the list), and the bond behind it has a section cut out where they cross, as
   // wide as the front bond and clear of it by its margin.
   const fronts: number[][] = plans.map(() => []);
-  for (const [r, f] of crossingBonds(mol.bonds, (i) => pts[i], s.bond)) if (!deep(plans[r]) && !deep(plans[f]) && !plans[r].hidden && !plans[f].hidden) fronts[r].push(f);
+  // A structure with depth drawn flat: the nearer bond is in front, as its atoms' depth says.
+  const near = (k: number) => mol.bonds[k].atoms.reduce((t, a) => t + (mol.atoms[a].location[2] ?? 0), 0);
+  for (const [r, f] of crossingBonds(mol.bonds, (i) => pts[i], s.bond)) {
+    if (deep(plans[r]) || deep(plans[f]) || plans[r].hidden || plans[f].hidden) continue;
+    if (near(r) - near(f) > 1e-6) fronts[f].push(r); else fronts[r].push(f);
+  }
   const reachOf = (pl: Plan) => Math.max(0, ...pl.lines.map((l) => Math.abs(l.o) + (l.half ?? pl.z.hw))) + (pl.kind === 'none' ? 0 : pl.kind === 'wedge' || pl.kind === 'hash' || pl.kind === 'hollow' ? pl.z.wide : half(pl));
   const cutFronts = (i: number, from: number) => {
     for (const f of fronts[i]) {
@@ -912,7 +1031,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
 
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
   const take = (x: number, y: number) => { if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; };
-  for (const [x, y] of pts) take(x, y);
+  pts.forEach(([x, y], i) => { if (!mol.atoms[i].hidden) take(x, y); });
   for (const poly of polygons) for (const [x, y] of poly) take(x, y);
   const pad = s.bond / 2;
   const label = labelBoxes.map((bs): Box | undefined => {
@@ -985,7 +1104,7 @@ export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: F
     };
     out.parts.push({ ids, drawing: d, at: part.at, k: f, turn });
     for (const x of d.beads) out.beads.push(moved ? { at: to(x.at), r: x.r * f } : x);
-    for (const e of d.electrons) out.electrons.push({ atom: ids[e.atom], at: moved ? to(e.at) : e.at });
+    for (const e of d.electrons) out.electrons.push({ ...e, atom: ids[e.atom], at: moved ? to(e.at) : e.at });
     ids.forEach((i, k) => { out.ink[i] = move(d.ink[k]); const l = d.label[k]; out.label[i] = l && move(l); });
     const b = out.box, db = move(d.box);
     b[0] = Math.min(b[0], db[0]); b[1] = Math.min(b[1], db[1]); b[2] = Math.max(b[2], db[2]); b[3] = Math.max(b[3], db[3]);
@@ -1049,6 +1168,8 @@ function turnOf(drawn: Atom[], atoms: Atom[], px: number): { at: P; k: number; t
 export const CAPTION_PT = 10;
 export const isNumber = (c: Caption) => !!c.bold && /^\d+[a-z]?$/.test(c.text);
 export const GAP_PT = 15, GAP_ARROW_PT = 3, LINE = 1.2, ASCENT = 0.905, DESCENT = 0.212; // Arial's ascent and descent, in em
+// A turned caption (angle) turns about its anchor on the first baseline (pivot, px); frame is its box before the turn,
+// and box the box round it turned.
 // Each line's baseline below the first's (px), by the caption's line spacing (Caption.lineHeight). size: the
 // caption's text size (px); a run's own size is in pt. Variable, as ChemDraw's: each line is as tall as its tallest
 // character and lowest descender, with no gap between lines. ink: how far line j's text reaches above and below its
@@ -1068,7 +1189,13 @@ export type Placed = {
   id: number; size: number; bold?: boolean; italic?: boolean; underline?: boolean; colour?: string; anchor: "start" | "middle" | "end"; font?: string;
   lines: { text: string; x: number; y: number; runs?: TextRun[]; spacing?: number }[]; box: Box; // spacing: a justified line's extra space per space (px)
   order?: number; // the caption's draw order (order.ts)
+  angle?: number; pivot?: P; frame?: Box;
 };
+// A point (px) turned anticlockwise on the page by degrees about a pivot (px, y down).
+export function turnPx(q: P, pivot: P, degrees: number): P {
+  const r = (degrees * Math.PI) / 180, dx = q[0] - pivot[0], dy = q[1] - pivot[1];
+  return [pivot[0] + dx * Math.cos(r) + dy * Math.sin(r), pivot[1] - dx * Math.sin(r) + dy * Math.cos(r)];
+}
 // pt: px per point in the drawing frame; size: the document's caption size in pt.
 // fixed: where captions placed by something else (a cycle's labels) go, in px. measure: how wide a piece of text is
 // in a run's style (px), for captions with a width; without it they do not wrap. extent: how far a piece of text
@@ -1139,10 +1266,13 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
     const left = at === "start" ? x : at === "end" ? x - w : x - w / 2;
     // A justified line (one a soft break ends) spreads its spaces to fill the width.
     const spacing = (j: number) => { const gaps = lines[j].split(" ").length - 1; return full && softLines.has(j) && gaps ? { spacing: (full - widths[j]) / gaps } : {}; };
+    const frame: Box = [left, y - ASCENT * size, left + w, y + offs[offs.length - 1] + DESCENT * size];
+    const turned = c.angle ? ([[frame[0], frame[1]], [frame[2], frame[1]], [frame[2], frame[3]], [frame[0], frame[3]]] as P[]).map((q) => turnPx(q, [x, y], c.angle!)) : undefined;
     return [{
       id: c.id, size, bold: c.bold, italic: c.italic, underline: c.underline, colour: c.colour, anchor: at, font: c.font, ...(c.order ? { order: c.order } : {}),
       lines: lines.map((text, j) => ({ text, x, y: y + offs[j], ...(runLines ? { runs: runLines[j] ?? [] } : {}), ...spacing(j) })),
-      box: [left, y - ASCENT * size, left + w, y + offs[offs.length - 1] + DESCENT * size],
+      box: turned ? [Math.min(...turned.map((q) => q[0])), Math.min(...turned.map((q) => q[1])), Math.max(...turned.map((q) => q[0])), Math.max(...turned.map((q) => q[1]))] : frame,
+      ...(turned ? { angle: c.angle, pivot: [x, y] as P, frame } : {}),
     }];
   });
 }
@@ -1173,7 +1303,7 @@ export function bendPoint(a: Arrow): [number, number] {
 export function arrowPath(a: Arrow, k: number): P[] {
   if (a.kind === "curve" && a.curve) return curvePath(a.curve, k);
   const S: P = [a.from[0] * k, -a.from[1] * k], T: P = [a.to[0] * k, -a.to[1] * k];
-  if (!curved(a) || !a.bend) return [S, T];
+  if (!a.bend || (!curved(a) && !a.point)) return [S, T];
   const m = bendPoint(a), M: P = [m[0] * k, -m[1] * k];
   const d = 2 * (S[0] * (M[1] - T[1]) + M[0] * (T[1] - S[1]) + T[0] * (S[1] - M[1]));
   if (Math.abs(d) < 1e-9) return [S, T];
@@ -1192,13 +1322,16 @@ export function arrowPath(a: Arrow, k: number): P[] {
   return Array.from({ length: n + 1 }, (_, i) => (i === 0 ? S : i === n ? T : [O[0] + r * Math.cos(a0 + (sweep * i) / n), O[1] + r * Math.sin(a0 + (sweep * i) / n)] as P));
 }
 
-// An arrow as filled polygons in px (y down). Heads follow ChemDraw's CDXML defaults (HeadSize 1000,
-// ArrowheadCenterSize 875, ArrowheadWidth 250, read as hundredths of the line width): 10 line widths long,
-// 2.5 wide on each side, the back notched in to 8.75. Provisional until measured against ChemDraw's output.
+// How much of its own size a straight arrow's head is drawn at: ChemDraw keeps a head to two thirds of the arrow.
+// Arcs and pen curves keep their whole head (a curve's ends can be close together).
+const headFit = (a: Arrow, s: Style, k: number) => (a.bend || a.kind === "curve" ? 1 : Math.min(1,(2 * Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]) * k) / 3 / (headSize(a).length * s.line || 1)));
+// An arrow as filled polygons in px (y down). Heads are drawn as ChemDraw draws them, at their size (headSize) in
+// line widths: the tip, the barbs their length back and their width off the shaft, and the notch between.
 export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
   const f = scaleOf(a);
   if (f !== 1) s = { ...s, line: s.line * f, bold: s.bold * f, bond: s.bond * f };
-  const hw = s.line / 2, H = 10 * s.line, C = 8.75 * s.line, W = 2.5 * s.line;
+  const size = headSize(a), fit = headFit(a, s, k);
+  const hw = s.line / 2, H = size.length * s.line * fit, C = size.centre * s.line * fit, W = size.width * s.line * fit;
   const out: P[][] = [];
   const bar = (p: P, q: P, w = hw) => { const u = unit(sub(q, p)), n = perp(u); out.push([add(p, mul(n, w)), add(q, mul(n, w)), add(q, mul(n, -w)), add(p, mul(n, -w))]); };
   // Points shortened at their end by `trim` (where a head takes over).
@@ -1243,24 +1376,29 @@ export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
       if (!half) bar(add(base, mul(n, W)), add(base, mul(n, -W)));
       return;
     }
-    if (!half) out.push([T, add(base, mul(n, W)), notch, add(base, mul(n, -W))]);
-    else out.push([T, add(base, mul(n, half === "left" ? -W : W)), add(notch, mul(n, half === "left" ? -hw : hw))]);
+    // Wound the way the bars are, so where a head and a line overlap (its own shaft, or an arrow joined at its tip)
+    // the fill adds up and leaves no hole.
+    if (!half) out.push([T, add(base, mul(n, -W)), notch, add(base, mul(n, W))]);
+    else if (half === "left") out.push([T, add(base, mul(n, -W)), add(notch, mul(n, -hw))]);
+    else out.push([T, add(notch, mul(n, hw)), add(base, mul(n, W))]);
   };
   // How far a head takes over the shaft: to its notch (solid), its base (hollow), or not at all (angled).
   const takes = (h: Head) => (h === "none" ? 0 : shape === "angled" ? hw : shape === "hollow" ? H : h === "full" ? C : 0);
   const path = arrowPath(a, k), [S, T] = [path[0], path[path.length - 1]];
-  const u = unit(sub(T, S)), n = perp(u);
-  if (takesHeads(a)) {
+  // A closed curve ends where it starts: its marks have no direction to go by, and it needs none.
+  const u: P = len(sub(T, S)) > 1e-9 ? unit(sub(T, S)) : [1, 0], n = perp(u);
+  if (takesHeads(a) || marked(a)) {
     // One shaft, and a head at either end as set (the Curves menu) or as the kind has them.
     const { start, end } = headsOf(a), reversed = [...path].reverse();
     line(cut(cut(path, takes(end)).reverse(), takes(start)).reverse(), 0);
     if (end !== "none") head(path, end === "full" ? undefined : end);
     if (start !== "none") head(reversed, start === "full" ? undefined : start);
-    if (a.kind === "nogo") {
-      // A cross on the middle of the shaft.
-      const m = mul(add(S, T), 0.5), r = 0.22 * s.bond;
-      for (const d of [add(u, n), sub(u, n)]) bar(add(m, mul(unit(d), -r)), add(m, mul(unit(d), r)));
-    }
+    // ChemDraw's marks, d (twice the head's half-width) each way: on the middle of the shaft a cross, or two
+    // parallel slashes (hash); across the tail, at the notch's depth from it, a dipole's bar as wide as the head.
+    const m = a.bend ? path[Math.floor(path.length / 2)] : mul(add(S, T), 0.5), d = 2 * W, at = (p: P, x: number, y: number) => add(add(p, mul(u, x * d)), mul(n, y * d));
+    if (a.kind === "nogo") { bar(at(m, 1, 1), at(m, -1, -1)); bar(at(m, -1, 1), at(m, 1, -1)); }
+    if (a.kind === "hash") { bar(at(m, 1, -1), at(m, 0, 1)); bar(at(m, 0, -1), at(m, -1, 1)); }
+    if (a.kind === "dipole") { const b = add(S, mul(u, C)); bar(add(b, mul(n, -W)), add(b, mul(n, W))); }
     return out;
   }
   switch (a.kind) {
@@ -1268,12 +1406,25 @@ export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
       line(path, 0);
       break;
     case "equilibrium": {
-      // Two half-headed arrows, one each way, barbs on the outside.
-      const g = 0.11 * s.bond, top: P[] = [add(S, mul(n, -g)), add(T, mul(n, -g))], bottom: P[] = [add(T, mul(n, g)), add(S, mul(n, g))];
+      // Two half-headed arrows, one each way, barbs on the outside. An unbalanced one (ratio) shortens one of them
+      // about the middle, as ChemDraw does: above 1 the back arrow, to its notch plus the rest over the ratio; below 1
+      // the forward arrow, to the ratio of the whole. A bent one (from its point) is two arcs beside its own, and a
+      // short one sweeps the ratio of its arc (ChemDraw's curved equilibrium).
+      const g = 0.11 * s.bond, along = (q: P[]) => q.slice(1).reduce((sum, p, i) => sum + len(sub(p, q[i])), 0), whole = along(path), r = a.ratio ?? 1;
+      const ahead = r < 1 ? whole * r : whole, back = r > 1 ? (a.bend ? whole / r : C + (whole - C) / r) : whole;
+      // Part of a path about its middle: the fraction f of its length.
+      const middle = (q: P[], f: number) => { const t = ((1 - f) / 2) * along(q); return cut(cut(q, t).reverse(), t).reverse(); };
+      const top = middle(offsetPath(path, -g), ahead / (whole || 1)), bottom = middle(offsetPath(path, g), back / (whole || 1)).reverse();
       line(top, 0);
       head(top, "left");
       line(bottom, 0);
       head(bottom, "left");
+      break;
+    }
+    case "block": {
+      // Its outline, with the lines run on half a width at each corner so the corners close.
+      const o = blockOutline({ ...a, scale: undefined }, s, k); // s is at the arrow's scale already
+      o.forEach((p, i) => { const q = o[(i + 1) % o.length], e = unit(sub(q, p)); bar(add(p, mul(e, -hw)), add(q, mul(e, hw))); });
       break;
     }
     case "retro": {
@@ -1287,6 +1438,28 @@ export function arrowShapes(a: Arrow, s: Style, k: number): P[][] {
     }
   }
   return out;
+}
+
+// Where a straight arrow's end head has a barb (px, y down): the handle that sizes the head. undefined when it has none.
+export function headBarb(a: Arrow, s: Style, k: number): P | undefined {
+  if (scaleOf(a) !== 1) s = { ...s, line: s.line * scaleOf(a) };
+  const end = headsOf(a).end, S: P = [a.from[0] * k, -a.from[1] * k], T: P = [a.to[0] * k, -a.to[1] * k];
+  if (a.bend || end === "none" || !(takesHeads(a) || marked(a)) || a.kind === "curve" || len(sub(T, S)) < 1e-9) return undefined;
+  const u = unit(sub(T, S)), size = headSize(a), f = headFit(a, s, k);
+  return add(add(T, mul(u, -size.length * s.line * f)), mul(perp(u), (end === "left" ? -1 : 1) * size.width * s.line * f));
+}
+
+// A block arrow's outline (px, y down), as ChemDraw draws one: a shaft `shaft` line widths wide, and a head whose barbs
+// stand off the axis by its notch depth, its length back from the tip. The shaft's edges meet the head's back edges.
+export function blockOutline(a: Arrow, s: Style, k: number): P[] {
+  if (scaleOf(a) !== 1) s = { ...s, line: s.line * scaleOf(a) };
+  const S: P = [a.from[0] * k, -a.from[1] * k], T: P = [a.to[0] * k, -a.to[1] * k];
+  if (len(sub(T, S)) < 1e-9) return [];
+  const u = unit(sub(T, S)), n = perp(u), size = headSize(a), fit = headFit(a, s, k);
+  const H = size.length * s.line * fit, C = size.centre * s.line * fit, o = ((a.shaft ?? size.length) * s.line) / 2;
+  const t = C > 0 ? Math.min(1, Math.max(0, 1 - o / C)) : 1, back = H - t * (H - C);
+  const at = (along: number, across: number): P => add(add(T, mul(u, -along)), mul(n, across));
+  return [add(S, mul(n, o)), at(back, o), at(H, C), T, at(H, -C), at(back, -o), add(S, mul(n, -o))];
 }
 
 // A path moved sideways by d (px) at every point, along the path's own normal there.
@@ -1355,7 +1528,7 @@ export function markAt(sh: Shape, k: number): { x: number; y: number; anchor: "s
 // asked (dashes and gaps of 0.2 bond lengths). A highlight has no lines; its fill is its outline.
 export function shapeInk(sh: Shape, s: Style, k: number): P[][] {
   if (sh.kind === "highlight") return [];
-  const f = scaleOf(sh), hw = (s.line / 2) * f, out: P[][] = [], dash = 0.2 * s.bond * f;
+  const f = scaleOf(sh), hw = ((sh.boldLine ? s.bold : s.line) / 2) * f, out: P[][] = [], dash = 0.2 * s.bond * f;
   const bar = (p: P, q: P) => { const d = len(sub(q, p)); if (d < 1e-9) return; const n = perp(unit(sub(q, p))); out.push([add(p, mul(n, -hw)), add(p, mul(n, hw)), add(q, mul(n, hw)), add(q, mul(n, -hw))]); };
   for (const path of shapePaths(sh, k, s.bond)) {
     // Lines run on by half a width at each joint so corners close.
@@ -1460,9 +1633,10 @@ export function tlcLayout(sh: Shape) {
   const f = scaleOf(sh), size = (x: Spot) => ({ rx: (x.w ?? Math.min((0.3 * width) / f, 0.34)) * f, ry: (x.h ?? 0.15) * f });
   return { x0, x1, y0, y1, origin, front, lanes, width, lane, size, f, at: (rf: number) => origin + (front - origin) * rf };
 }
-// A spot's outline (drawing units): an ellipse, drawn out below into a smear when it has a tail.
-export function spotPath(t: ReturnType<typeof tlcLayout>, x: Spot): [number, number][] {
-  const cx = t.lane(x.lane), cy = t.at(x.rf), { rx, ry } = t.size(x), tail = (x.tail ?? 0) * t.f, n = 32, out: [number, number][] = [];
+// A spot's outline (drawing units): an ellipse, drawn out below into a smear when it has a tail. grow: how far out
+// (a doubled spot's second outline).
+export function spotPath(t: ReturnType<typeof tlcLayout>, x: Spot, grow = 0): [number, number][] {
+  const cx = t.lane(x.lane), cy = t.at(x.rf), size = t.size(x), [rx, ry] = [size.rx + grow, size.ry + grow], tail = (x.tail ?? 0) * t.f, n = 32, out: [number, number][] = [];
   for (let i = 0; i <= n; i++) {
     const a = (Math.PI * 2 * i) / n, sin = Math.sin(a);
     // The lower half stretches down by the tail, narrowing a little, so a smear reads as a streak.
@@ -1509,6 +1683,27 @@ export function curvePath(c: Curve, k: number): P[] {
     }
   }
   return out;
+}
+// Part of an ellipse as Bézier points (drawing units): the ellipse centre + cos t·a + sin t·b, from t0 to t1 (radians),
+// one segment for each quarter turn or less. An affine map keeps Bézier points, so these are a circle's, mapped.
+export function ellipsePoints(c: [number, number], a: [number, number], b: [number, number], t0: number, t1: number): CurvePoint[] {
+  const n = Math.max(1, Math.ceil(Math.abs(t1 - t0) / (Math.PI / 2) - 1e-9)), dt = (t1 - t0) / n, k = (4 / 3) * Math.tan(dt / 4);
+  const at = (t: number): [number, number] => [c[0] + Math.cos(t) * a[0] + Math.sin(t) * b[0], c[1] + Math.cos(t) * a[1] + Math.sin(t) * b[1]];
+  const along = (t: number): [number, number] => [-Math.sin(t) * a[0] + Math.cos(t) * b[0], -Math.sin(t) * a[1] + Math.cos(t) * b[1]];
+  return Array.from({ length: n + 1 }, (_, i) => {
+    const t = t0 + i * dt, p = at(t), d = along(t);
+    return { at: p, ...(i > 0 ? { c1: [p[0] - k * d[0], p[1] - k * d[1]] as [number, number] } : {}), ...(i < n ? { c2: [p[0] + k * d[0], p[1] + k * d[1]] as [number, number] } : {}) };
+  });
+}
+// ChemDraw's elliptical arrow (its 270° Elliptical arrows): from the end of an ellipse's long axis 270° round, clockwise
+// or not, to the end of its short axis, which is 0.4 times as long. from and to are its tail and head.
+export function ellipseArrow(from: [number, number], to: [number, number], clockwise: boolean): Omit<Arrow, "id"> {
+  const d = [to[0] - from[0], to[1] - from[1]], s = clockwise ? -1 : 1, q = 1 / 1.16;
+  // The tail is the centre plus the long half-axis a; the head is the centre less the short one, b = 0.4 a turned a
+  // quarter (anticlockwise, or clockwise): so to - from = -(a + b), solved for a.
+  const a: [number, number] = [-q * (d[0] + s * 0.4 * d[1]), -q * (d[1] - s * 0.4 * d[0])], b: [number, number] = [-s * 0.4 * a[1], s * 0.4 * a[0]];
+  const points = ellipsePoints([from[0] - a[0], from[1] - a[1]], a, b, 0, (3 * Math.PI) / 2);
+  return { kind: "curve", from, to, curve: { points }, end: "full", headSize: headOfLength(ARC_HEAD) };
 }
 // A curve's box (drawing units) over its anchors and handles: [from, to] as a shape stores them.
 export function curveBox(c: Curve): [[number, number], [number, number]] {

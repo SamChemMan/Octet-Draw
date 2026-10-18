@@ -94,11 +94,11 @@ fn set_check(checks: State<'_, Checks>, id: String, checked: bool) -> Result<(),
     item.set_checked(checked).map_err(|e| e.to_string())
 }
 
-// The user's own colours, by name, in the Colour menu: the menu bar is built again with them (20 at most, names
-// cut to 40 characters). The frontend sets its check marks again afterwards.
+// The user's own colours (20 at most), then the drawing's own (24 at most), by name, in the Colour menu: the menu
+// bar is built again with them (names cut to 40 characters). The frontend sets its check marks again afterwards.
 #[tauri::command]
 fn set_palette(app: AppHandle, names: Vec<String>) -> Result<(), String> {
-    let names: Vec<String> = names.into_iter().take(20).map(|n| n.chars().filter(|c| !c.is_control()).take(40).collect()).collect();
+    let names: Vec<String> = names.into_iter().take(44).map(|n| n.chars().filter(|c| !c.is_control()).take(40).collect()).collect();
     *app.state::<Palette>().0.lock().unwrap() = names;
     rebuild(&app)
 }
@@ -317,6 +317,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let edit = Submenu::with_items(app, "Edit", true, &[
         &item("undo", "Undo", "CmdOrCtrl+Z")?,
         &item("redo", "Redo", "CmdOrCtrl+Y")?,
+        // ChemDraw's Repeat: the last turn, flip, scale or style again. Redo's ⌘Y repeats when there is nothing to redo.
+        &item("repeat", "Repeat", "")?,
         &sep()?,
         &PredefinedMenuItem::cut(app, None)?,
         &PredefinedMenuItem::copy(app, None)?,
@@ -360,11 +362,15 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let structure = Submenu::with_items(app, "Structure", true, &[
         &item("clean_up", "Clean Up Structure", "CmdOrCtrl+Shift+K")?,
         &item("clean_reaction", "Clean Up Reaction", "CmdOrCtrl+Shift+X")?,
+        // ChemDraw's 3D Clean Up (⇧⌘D): a 3D shape for the selected structures.
+        &item("clean_3d", "3D Clean Up", "CmdOrCtrl+Shift+D")?,
         &item("atom_properties", "Atom Properties…", "")?,
+        &item("bond_properties", "Bond Properties…", "")?,
         &sep()?,
         &item("expand_label", "Expand Label", "")?,
         &item("contract_label", "Contract Label", "")?,
         &item("aromatic_display", "Toggle Aromatic Display", "Alt+CmdOrCtrl+K")?,
+        &item("hydrogen_display", "Toggle Hydrogen Display", "")?,
         &item("structure_perspective", "Structure Perspective", "Alt+CmdOrCtrl+S")?,
         &sep()?,
         &item("stoichiometry", "Analyse Stoichiometry", "")?,
@@ -409,6 +415,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let object = Submenu::with_items(app, "Object", true, &[
         &align,
         &distribute,
+        &item("centre_page", "Centre on Page", "")?,
         &sep()?,
         &fixed_lengths,
         &fixed_angles,
@@ -420,6 +427,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("ungroup", "Ungroup", "CmdOrCtrl+Shift+G")?,
         // ChemDraw's Group > Integral: a click on any part picks the whole group.
         &item("group_integral", "Pick as One", "")?,
+        // ChemDraw's Join (⌘J): atoms or bonds from different structures become one.
+        &item("join", "Join", "CmdOrCtrl+J")?,
         &sep()?,
         &item("bring_front", "Bring to Front", "CmdOrCtrl+[")?,
         &item("send_back", "Send to Back", "CmdOrCtrl+]")?,
@@ -472,6 +481,9 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("align_centre", "Centre", "CmdOrCtrl+Shift+C")?,
         &item("align_right", "Flush Right", "CmdOrCtrl+Shift+R")?,
         &item("align_justify", "Justified", "CmdOrCtrl+Shift+J")?,
+        // Atom labels only, as ChemDraw's: the rest of the label stacked over the atom's own unit, or back to automatic.
+        &item("align_above", "Stacked Above", "")?,
+        &item("align_auto", "Automatic", "CmdOrCtrl+Shift+M")?,
         &sep()?,
         &size,
         &item("line_spacing", "Line Spacing…", "")?,
@@ -505,14 +517,29 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let mine = palette.iter().enumerate()
         .map(|(k, name)| item(&format!("colour_user_{k}"), name, ""))
         .collect::<tauri::Result<Vec<_>>>()?;
-    let (sep1, sep2) = (sep()?, sep()?);
+    let (sep1, sep2, sep3) = (sep()?, sep()?, sep()?);
     let edit_colours = item("colour_other", "Edit Colours…", "")?;
+    // ChemDraw's By Element, and its highlight and ring fill colours (the Actions panel's Highlight and Ring fill lists).
+    let by_element = item("colour_by_element", "By Element", "")?;
+    // The names of Actions.tsx's HIGHLIGHTS and RING_FILLS, in the same order.
+    let fills = ["None", "Blue", "Sky", "Cyan", "Teal", "Green", "Lime", "Yellow", "Gold", "Orange", "Coral", "Red", "Crimson", "Pink", "Magenta", "Purple", "Violet", "Indigo", "Brown", "Grey", "Slate", "Mint", "Peach", "Lavender", "Sand", "Olive"];
+    section.replace("Colour › Highlight".into());
+    let highlights = fills[..21].iter().enumerate().map(|(k, name)| item(&format!("highlight_{k}"), name, "")).collect::<tauri::Result<Vec<_>>>()?;
+    let highlight = Submenu::with_items(app, "Highlight", true, &highlights.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect::<Vec<_>>())?;
+    section.replace("Colour › Ring Fill".into());
+    let ringfills = fills.iter().enumerate().map(|(k, name)| item(&format!("ringfill_{k}"), name, "")).collect::<tauri::Result<Vec<_>>>()?;
+    let ringfill = Submenu::with_items(app, "Ring Fill", true, &ringfills.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect::<Vec<_>>())?;
+    section.replace("Colour".into());
     let mut colour_items: Vec<&dyn IsMenuItem<Wry>> = builtin.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
     if !mine.is_empty() {
         colour_items.push(&sep1);
         colour_items.extend(mine.iter().map(|m| m as &dyn IsMenuItem<Wry>));
     }
     colour_items.push(&sep2);
+    colour_items.push(&by_element);
+    colour_items.push(&highlight);
+    colour_items.push(&ringfill);
+    colour_items.push(&sep3);
     colour_items.push(&edit_colours);
     let colour = Submenu::with_items(app, "Colour", true, &colour_items)?;
     // Search, after Colour, as ChemDraw's Search menu (Search Reaxys…). Each search is one press, with no dialog.

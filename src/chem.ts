@@ -1,6 +1,6 @@
 // The chemistry engine (Indigo) and the drawing style, shared by the editor and the dev gallery.
 import Indigo from "indigo-ketcher/binaryWasmNoRender";
-import { hydrogens, type Face, type Ink, type Mol } from "./render.ts";
+import { HBOND, hydrogens, orderOf, QUADRUPLE, type Face, type Ink, type Mol } from "./render.ts";
 import { fontStack } from "./docstyle.ts";
 import { labelSmiles } from "./labels.ts";
 import { fragments, levelTurn, subset } from "./edit.ts";
@@ -182,7 +182,7 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
     // A multi-centre point (an η ligand's) is not an atom: it and its bond are left out.
     if (a.centre) { out.atoms[i] = { ...out.atoms[i], removed: true } as Mol["atoms"][number]; return; }
     if (!a.text) return;
-    const frag = labelGroup(a.text);
+    const frag = a.chemical === false ? undefined : labelGroup(a.text);
     if (!frag?.atoms.length) { out.atoms[i] = { ...out.atoms[i], label: "*", text: undefined }; return; }
     const base = out.atoms.length;
     origin.push(...frag.atoms.map(() => i));
@@ -210,23 +210,28 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
 
 // The drawing as SMILES. Throws if Indigo can't read it (for example, a valence it rejects).
 // A drawing as KET, with labels expanded into atoms. KET has no bond display styles (bold, wavy and so on).
-function ketOf(drawn: Mol, mol = expandLabels(drawn)): string {
-  const bonds = mol.bonds.map(({ type, atoms, stereo }) => (stereo ? { type, atoms, stereo } : { type, atoms }));
+// Hydrogen bonds are left out (they are not chemistry Indigo works out), unless hbonds asks for them; a quadruple
+// bond, which Indigo has no type for, goes as a single bond. expanded: the molecule with its labels expanded already.
+function ketOf(drawn: Mol, hbonds = false, expanded?: Mol): string {
+  const mol = expanded ?? expandLabels(!hbonds && drawn.bonds.some((b) => b.type === HBOND) ? { ...drawn, bonds: drawn.bonds.filter((b) => b.type !== HBOND) } : drawn);
+  const bonds = mol.bonds.map(({ type: t, atoms, stereo }) => { const type = t === QUADRUPLE ? 1 : t; return stereo ? { type, atoms, stereo } : { type, atoms }; });
   // KET radicals: 1 a singlet, 2 one unpaired electron (doublet), 3 two (triplet).
   const atoms = mol.atoms.map(({ label, location, charge, radical, isotope }) => ({ label, location, ...(charge ? { charge } : {}), ...(radical ? { radical: radical === 3 ? 1 : radical + 1 } : {}), ...(isotope ? { isotope } : {}) }));
   return JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule", atoms, bonds } });
 }
+// Only the end is trimmed: a molfile's first line (its name) is blank, and without it no program reads the file.
 function convert(input: string, format: string): string {
   const ind = engine(), opts = new ind.MapStringString();
   try {
-    return ind.convert(input, format, opts).trim();
+    return ind.convert(input, format, opts).trimEnd();
   } finally {
     opts.delete();
   }
 }
 export const toSmiles = (drawn: Mol): string => convert(ketOf(drawn), "smiles");
-// The drawing's molecules as a molfile.
-export const toMolfile = (drawn: Mol): string => convert(ketOf(drawn), "molfile");
+// The drawing's molecules as a molfile. A hydrogen bond is bond type 10 and a quadruple bond single, as ChemDraw
+// writes them.
+export const toMolfile = (drawn: Mol): string => convert(ketOf(drawn, true), "molfile");
 // Generic labels as query atoms (any atom A, heteroatom Q, metal M, halogen X, and each with H, as ChemDraw's).
 // SMILES cannot keep them; a molfile can, for a Reaxys search. undefined when the drawing has none.
 // As ChemDraw 26.1 writes a molfile (CoreChemistry IsAcceptableGeneric): A, Q and X go as the atom symbol; the
@@ -240,7 +245,7 @@ export function toQueryMolfile(drawn: Mol): string | undefined {
   const aliases = drawn.atoms.flatMap((a, i) => (generic(a) && !SYMBOL.has(a.text!) ? [`A  ${String(from.indexOf(i) + 1).padStart(3)}`, a.text!] : []));
   // From the counts line on, under the header Reaxys was seen to read: a name, the program, a blank line.
   // (A V3000 molfile, for 1000 atoms or more, goes whole: no search link can hold it, and the app says so.)
-  const lines = convert(ketOf(query, mol), "molfile").split("\n"), at = lines.findIndex((l) => l.endsWith("V2000")), end = lines.lastIndexOf("M  END");
+  const lines = convert(ketOf(query, true, mol), "molfile").split("\n"), at = lines.findIndex((l) => l.endsWith("V2000")), end = lines.lastIndexOf("M  END");
   return ["Octet", "  Octet", "", ...lines.slice(Math.max(0, at), end), ...aliases, ...lines.slice(end), ""].join("\n");
 }
 // CIP labels for a drawing's stereocentres (R, S) and double bonds (E, Z), in its atom and bond order.
@@ -303,7 +308,9 @@ function labelsOf(part: Mol): Labels | null {
     if (!ket || ket.atoms.length !== from.length) return null;
     const atoms: (string | undefined)[] = part.atoms.map(() => undefined);
     ket.atoms.forEach((a: { cip?: string }, k: number) => { if (clean(a.cip) && !part.atoms[from[k]].text) atoms[from[k]] = clean(a.cip); });
-    return { atoms, bonds: part.bonds.map((_, j) => clean(ket.bonds[j]?.cip)) };
+    // ketOf leaves hydrogen bonds out, so Indigo's bonds are the others, in order.
+    let n = 0;
+    return { atoms, bonds: part.bonds.map((b) => (b.type === HBOND ? undefined : clean(ket.bonds[n++]?.cip))) };
   } catch {
     return null;
   } finally {
@@ -319,6 +326,8 @@ export function toInchi(drawn: Mol | string): string | undefined {
   }
 }
 
+// A bond's type for a layout: a hydrogen or quadruple bond as a single bond, as Indigo has no type for them.
+const shapeType = (type: number) => (type === HBOND || type === QUADRUPLE ? 1 : Math.min(type, 3));
 // Clean Up's time. Indigo's clean-up (two passes of up to 1,000 rounds) costs about N^3 a round, from 0.27 s at 120
 // atoms to 3 to 5 minutes at 1,000, and Indigo stops a pass only after 2 s. So Octet runs its own port of it
 // (src/clean2d.ts): the same rounds at about N a round. Structures of up to about 40 atoms are cleaned as Indigo cleans
@@ -339,7 +348,7 @@ export function cleanUp(mol: Mol, ids?: Set<number>, pass = PASS): Mol {
   for (const frag of groups) {
     const local = new Map(frag.map((i, k) => [i, k]));
     const bonds = mol.bonds.filter((b) => local.has(b.atoms[0]) && local.has(b.atoms[1]));
-    const out = clean2d(frag.map((i) => mol.atoms[i].location), bonds.map((b) => ({ atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!], order: b.type })), pass * Math.min(1, 2 / groups.length));
+    const out = clean2d(frag.map((i) => mol.atoms[i].location), bonds.map((b) => ({ atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!], order: shapeType(b.type) })), pass * Math.min(1, 2 / groups.length));
     const lengths = bonds.map((b) => {
       const [p, q] = [out[local.get(b.atoms[0])!], out[local.get(b.atoms[1])!]];
       return Math.hypot(q[0] - p[0], q[1] - p[1]);
@@ -368,7 +377,7 @@ export function fragmentMasses(mol: Mol, cut: number[]): { atoms: number[]; form
   if (!indigo || !cut.length) return undefined;
   const ind = indigo, full = expandLabels(mol), cutSet = new Set(cut);
   const used = full.atoms.map(() => 0);
-  full.bonds.forEach((b) => b.atoms.forEach((i) => (used[i] += b.type)));
+  full.bonds.forEach((b) => b.atoms.forEach((i) => (used[i] += orderOf(b.type))));
   const h = full.atoms.map((a, i) => a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used[i], a.radical));
   // Pieces: atoms joined by the bonds that are not cut.
   const root = full.atoms.map((_, i) => i), find = (i: number): number => (root[i] === i ? i : (root[i] = find(root[i])));
@@ -379,7 +388,7 @@ export function fragmentMasses(mol: Mol, cut: number[]): { atoms: number[]; form
     const atoms = full.atoms.map((_, i) => i).filter((i) => find(i) === r), local = new Map(atoms.map((i, k) => [i, k]));
     const ket = JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule",
       atoms: atoms.map((i) => ({ label: full.atoms[i].label, location: full.atoms[i].location, implicitHCount: h[i], ...(full.atoms[i].charge ? { charge: full.atoms[i].charge } : {}) })),
-      bonds: full.bonds.filter((b, k) => !cutSet.has(k) && local.has(b.atoms[0]) && local.has(b.atoms[1])).map((b) => ({ type: b.type, atoms: [local.get(b.atoms[0]), local.get(b.atoms[1])] })) } });
+      bonds: full.bonds.filter((b, k) => !cutSet.has(k) && local.has(b.atoms[0]) && local.has(b.atoms[1])).map((b) => ({ type: b.type === QUADRUPLE ? 1 : b.type, atoms: [local.get(b.atoms[0]), local.get(b.atoms[1])] })) } });
     const opts = new ind.MapStringString(), sel = new ind.VectorInt();
     try {
       const res = JSON.parse(ind.calculate(ket, opts, sel));
@@ -406,7 +415,7 @@ export function mapReaction(reactants: Mol[], products: Mol[]): { reactants: (nu
       try {
         return ind.convert(JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule",
           atoms: m.atoms.map((a) => ({ label: /^[A-Z][a-z]?$/.test(a.label) ? a.label : "C", location: a.location, ...(a.charge ? { charge: a.charge } : {}) })),
-          bonds: m.bonds.map((b) => ({ type: Math.min(b.type, 3), atoms: b.atoms })) } }), "molfile", o).replace(/\s+$/, "");
+          bonds: m.bonds.filter((b) => b.type !== HBOND).map((b) => ({ type: shapeType(b.type), atoms: b.atoms })) } }), "molfile", o).replace(/\s+$/, "");
       } finally { o.delete(); }
     };
     const rxn = ["$RXN", "", "  Octet", "", `${String(reactants.length).padStart(3)}${String(products.length).padStart(3)}`, ...[...reactants, ...products].flatMap((m) => ["$MOL", molfile(m)])].join("\n");
@@ -485,7 +494,7 @@ function pieces(mol: Mol): Mol[] {
   return parts;
 }
 // A structure's content as text: what its formula, masses and properties come from (not where it is drawn).
-const contentOf = (m: Mol) => JSON.stringify([m.atoms.map((a) => [a.label, a.text, a.charge, a.isotope, a.radical, a.implicitHCount]), m.bonds.map((b) => [b.type, b.stereo, b.atoms])]);
+const contentOf = (m: Mol) => JSON.stringify([m.atoms.map((a) => [a.label, a.text, a.charge, a.isotope, a.radical, a.implicitHCount, a.chemical]), m.bonds.map((b) => [b.type, b.stereo, b.atoms])]);
 // A value kept by its key, so it is worked out only once. The store is cleared when it grows large.
 function remembered<T>(store: Map<string, T>, key: string, make: () => T): T {
   if (store.has(key)) return store.get(key) as T;
@@ -500,7 +509,8 @@ function remembered<T>(store: Map<string, T>, key: string, make: () => T): T {
 function analyseAll(mol: Mol): Analysis | undefined {
   const ind = engine(), opts = new ind.MapStringString(), sel = new ind.VectorInt();
   try {
-    const full = expandLabels(mol), bonds = full.bonds.map(({ type, atoms }) => ({ type, atoms }));
+    // A quadruple bond goes as a single bond (Indigo has no type for it), so its structure still has a formula.
+    const full = expandLabels(mol), bonds = full.bonds.map(({ type, atoms }) => ({ type: type === QUADRUPLE ? 1 : type, atoms }));
     const atoms = full.atoms.map(({ label, location, charge, isotope }) => ({ label, location, ...(charge ? { charge } : {}), ...(isotope ? { isotope } : {}) }));
     const ket = JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule", atoms, bonds } });
     // Indigo reports each structure separately ("C8 H9 N O2; C4 H12 N"): one entry per structure.
