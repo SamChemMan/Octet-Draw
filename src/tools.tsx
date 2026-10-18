@@ -622,7 +622,7 @@ export function Palette(p: PaletteProps) {
                 const kept = (tool === "arrow" && !!arrowVariant(kind)?.sweep) || (tool === "ring" && !!libraryItem(kind));
                 return {
                   key: kind, name, icon: iconOf(tool, kind), checked: p.variants[tool] === kind, arrived: arrived === kind,
-                  ...(custom || kept ? { action: { icon: <X size={12} weight="bold" />, label: `Remove ${name}`, onClick: () => (custom ? p.onRemoveTemplate(custom.id) : unkeep(tool, kind)) } } : {}),
+                  ...(custom || kept ? { action: { icon: <X size={12} />, label: `Remove ${name}`, onClick: () => (custom ? p.onRemoveTemplate(custom.id) : unkeep(tool, kind)) } } : {}),
                   ...(custom && p.renaming === custom.id ? {
                     editing: (
                       <input className="variant-input" aria-label="Name" autoFocus defaultValue={custom.name} onFocus={(e) => e.target.select()}
@@ -665,7 +665,7 @@ export function Palette(p: PaletteProps) {
               const curveGroups = CURVED.map((kind) => SWEEPS.map((sweep): MenuItem => {
                 const v = `${kind}-${sweep}`, name = arrowName(v)!, isKept = p.curvedArrows.includes(v);
                 return { key: v, name, icon: <ArrowGlyph kind={v} />, checked: p.variants.arrow === v,
-                  action: { icon: <PushPin size={12} weight={isKept ? "fill" : "bold"} />, label: isKept ? "In the Arrow menu" : "Keep in the Arrow menu", pressed: isKept, onClick: () => (isKept ? unkeep("arrow", v) : keep("arrow", v)) } };
+                  action: { icon: <PushPin size={12} />, label: isKept ? "In the Arrow menu" : "Keep in the Arrow menu", pressed: isKept, onClick: () => (isKept ? unkeep("arrow", v) : keep("arrow", v)) } };
               }));
               return (
                 <Menu label={`${t.name} options`} tool={tool} groups={groups} className={[carry && !curveCarry && "carrying", carry?.toList && "receiving"].filter(Boolean).join(" ")}
@@ -720,7 +720,7 @@ export function Palette(p: PaletteProps) {
       </button>
       {!short && (
         <button className="palette-toggle" aria-label={p.wide ? "One column" : "Two columns"} onClick={toggleWide}>
-          {p.wide ? <CaretLeft size={12} weight="bold" /> : <CaretRight size={12} weight="bold" />}
+          {p.wide ? <CaretLeft size={12} /> : <CaretRight size={12} />}
         </button>
       )}
       {carry && (() => {
@@ -732,7 +732,7 @@ export function Palette(p: PaletteProps) {
             {leaving && <div className={carry.phase === "drop" ? "remove-shade going" : "remove-shade"} aria-hidden />}
             <span className={`carry ${carry.phase}${leaving ? " removing" : ""}`} style={{ left: carry.x, top: carry.y, "--tilt": `${carry.tilt}deg` } as React.CSSProperties} aria-hidden>
               {iconOf(tool as Strip, rest.join(":"))}
-              {leaving && <span className="remove-bin"><Trash size={14} weight="fill" /></span>}
+              {leaving && <span className="remove-bin"><Trash size={12} /></span>}
             </span>
           </>
         );

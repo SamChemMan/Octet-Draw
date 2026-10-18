@@ -3,6 +3,7 @@
 // Save). Every dialog uses it (brand/CLAUDE.md). With no action it only shows something (About Octet): one Close
 // button, which Return presses too. plain: the body carries its own heading, so the title is only read out.
 import { useEffect, useLayoutEffect, useRef } from "react";
+import { listOpen } from "./Menu";
 import { useLeaving } from "./motion";
 
 // While a modal (a dialog, Settings, the command palette or Home) is open, everything beside it in the window is
@@ -27,12 +28,16 @@ export function Dialog({ title, action, onClose, onAction = onClose, plain, disa
   // Leaving (motion.tsx, Exit), it gives the window back at once and takes no keys.
   const card = useRef<HTMLDivElement>(null), backdrop = useRef<HTMLDivElement>(null), leaving = useLeaving();
   useModal(backdrop, !leaving);
+  // The first field (a text box, a list or a choice) takes the focus when the dialog opens, and only then: a dialog
+  // draws again as its fields change, and the focus stays in the field being typed in. With no field, the action has it.
   useEffect(() => {
-    card.current?.querySelector<HTMLElement>("textarea, input, select, .dialog-button.primary")?.focus();
+    const c = card.current;
+    (c?.querySelector<HTMLElement>("textarea, input, select, .dialog-body button:not([tabindex='-1'])") ?? c?.querySelector<HTMLElement>(".dialog-button.primary"))?.focus();
   }, []);
   useEffect(() => {
     if (leaving) return;
     const key = (e: KeyboardEvent) => {
+      if (listOpen()) return; // an open list takes its own keys
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); }
       // Return in a text area makes a new line; ⌘Return (Ctrl+Enter) sends.
       if (e.key === "Enter" && (!(e.target instanceof HTMLTextAreaElement) || e.metaKey || e.ctrlKey)) { e.preventDefault(); e.stopPropagation(); if (!disabled) onAction(); }

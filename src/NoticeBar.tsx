@@ -9,9 +9,9 @@ import { useLeaving } from "./motion";
 export type Notice = { text: string; kind: NoticeKind; action?: { label: string; run: () => void }; n: number };
 
 const ICONS: Record<NoticeKind, React.ReactNode> = {
-  error: <Warning size={16} weight="bold" aria-hidden />,
-  info: <Info size={16} weight="bold" aria-hidden />,
-  done: <CheckCircle size={16} weight="bold" aria-hidden />,
+  error: <Warning size={16} aria-hidden />,
+  info: <Info size={16} aria-hidden />,
+  done: <CheckCircle size={16} aria-hidden />,
 };
 
 export function NoticeBar({ notice, onGone }: { notice: Notice; onGone: () => void }) {
@@ -43,7 +43,7 @@ export function NoticeBar({ notice, onGone }: { notice: Notice; onGone: () => vo
       {ICONS[notice.kind]}
       <span className="notice-text text-ui">{notice.text}</span>
       {notice.action && <button className="text-button" onClick={() => { notice.action!.run(); onGone(); }}>{notice.action.label}</button>}
-      <button className="notice-close" aria-label="Close" onClick={onGone}><X size={12} weight="bold" /></button>
+      <button className="notice-close" aria-label="Close" onClick={onGone}><X size={12} /></button>
     </div>
   );
 }

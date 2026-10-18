@@ -1,7 +1,7 @@
 // The Properties panel: ChemDraw's Analysis and Chemical Properties windows in one, for every structure in the
 // selection (or the drawing; values for several structures are separated by semicolons, as ChemDraw does). A
 // click on a value copies its row; the boxes choose the rows Add to drawing writes under each structure.
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo, useState } from "react";
 import { Check, X } from "@phosphor-icons/react";
 import type { Structure } from "./chem";
 import type { Graph } from "./naming";
@@ -65,11 +65,23 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
   // It opens where the Spectrum opens, along the bottom (above the Spectrum when that is open too), and moves by its
   // header.
   const move = useMovable("properties"), leaving = useLeaving();
+  // Stacked: it sits on the Spectrum's top edge and shrinks to the room above it, so it never covers the Spectrum's
+  // controls.
+  const [below, setBelow] = useState(0);
+  useLayoutEffect(() => {
+    const el = stacked ? document.querySelector<HTMLElement>(".spectrum") : null;
+    if (!el) return setBelow(0);
+    const fit = () => setBelow(el.offsetHeight);
+    fit();
+    const watch = new ResizeObserver(fit);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [stacked]);
   return (
-    <section className={["properties", stacked && "stacked", leaving && "leaving"].filter(Boolean).join(" ")} aria-label="Properties" style={move.style} inert={leaving}>
+    <section className={["properties", stacked && "stacked", leaving && "leaving"].filter(Boolean).join(" ")} aria-label="Properties" inert={leaving} style={{ ...move.style, ...(stacked ? { "--below": `${below}px` } : {}) } as React.CSSProperties}>
       <header onPointerDown={move.onPointerDown}>
         <h2>Properties</h2>
-        <button className="actions-close" onClick={onClose} aria-label="Hide properties" data-tip="Hide properties"><X size={14} /></button>
+        <button className="actions-close" onClick={onClose} aria-label="Close properties" data-tip="Close properties"><X size={12} /></button>
       </header>
       <div className="prop-list">
         {groups.map((g, k) => (
@@ -79,10 +91,10 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
               return (
                 <div key={row.key} className={`prop-row${text.length > 18 ? " long" : ""}`}>
                   <button className="prop-check" role="checkbox" aria-checked={on} aria-label={`Add ${row.name} to the drawing`} data-tip="Add to drawing" onClick={() => onChoose(row.key)}>
-                    {on && <Check size={11} weight="bold" />}
+                    {on && <Check size={12} />}
                   </button>
                   <span className="prop-name">{row.name}</span>
-                  <button className="prop-value" data-tip="Copy" onClick={() => onCopy(`${row.name}: ${text}`)}>{show(row.key, text)}</button>
+                  <button className={row.key === "formula" ? "prop-value formula" : "prop-value"} data-tip="Copy" onClick={() => onCopy(`${row.name}: ${text}`)}>{show(row.key, text)}</button>
                 </div>
               );
             })}

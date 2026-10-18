@@ -75,7 +75,16 @@ Why Instrument Sans: it is a clean, precise grotesque with the polish of San Fra
 
 ## Iconography
 
-Every icon comes from [Phosphor Icons](https://phosphoricons.com) (MIT), Regular weight, at 20px. Chemistry tools Phosphor lacks (bond types, rings, curly and fishhook arrows) are drawn in Phosphor's style: 256-unit grid, 16-unit stroke, round caps and joins. Icons are drawn in `ink-muted`, and `brand` when active. No other icon sets. Chemistry tools draw the real object: the bond tool is a bond, the ring tool is a hexagon, the arrow tool is a curly arrow. No filled glyphs, no emoji, no clip-art flasks.
+Every icon comes from [Phosphor Icons](https://phosphoricons.com) (MIT), Regular weight. One size per role:
+
+| Size | Role |
+| --- | --- |
+| 20px | Toolbar tools |
+| 18px | Panel rows, menu options, command palette rows |
+| 16px | Icons in chips, in buttons with text and in fields |
+| 12px | Small actions: close, remove, add, carets, checks, pins |
+
+Give each action its own icon, at least within one panel and in the command palette. Chemistry tools Phosphor lacks (bond types, rings, curly and fishhook arrows) are drawn in Phosphor's style: 256-unit grid, 16-unit stroke, round caps and joins. Icons are drawn in `ink-muted`, and `brand` when active. No other icon sets. Chemistry tools draw the real object: the bond tool is a bond, the ring tool is a hexagon, the arrow tool is a curly arrow. No filled glyphs, no emoji, no clip-art flasks.
 
 ## Voice
 

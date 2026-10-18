@@ -431,6 +431,7 @@ rect.mark {
   opacity: 1;
 }
 .variant-action[aria-pressed="true"] {
+  background: var(--brand-mist);
   color: var(--link);
 }
 .variant-action:focus-visible {
@@ -714,7 +715,7 @@ button.variant.add {
   padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
   background: var(--surface-raised);
   border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-float);
   color: var(--ink);
   animation: notice-in var(--motion-fast) var(--ease-out);
@@ -821,7 +822,7 @@ button.variant.add {
   padding: var(--space-1) var(--space-1) var(--space-2);
   background: var(--surface-raised);
   border: 1px solid var(--hairline);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-float);
   transform-origin: bottom right;
   animation: panel-in var(--motion-fast) var(--ease-out);
@@ -906,12 +907,12 @@ button.variant.add {
 /* A menu command's fixed shortcut in Settings > Keyboard shortcuts. */
 .menu-key {
   color: var(--ink-muted);
-  font: 12px var(--font-sans);
+  font: 11px var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
 .action kbd {
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: 11px;
   color: var(--ink-faint);
 }
 /* On the sunken colour of a hovered row, the faint ink is too light for small text (4.5:1). */
@@ -944,7 +945,7 @@ button.variant.add {
   background: transparent;
   color: var(--ink);
   font-family: var(--atom-label-font);
-  font-size: 14px;
+  font-size: 13px;
 }
 .chip[aria-pressed="true"] {
   background: var(--brand-mist);
@@ -1014,7 +1015,7 @@ button.variant.add {
 }
 .name-suggestion kbd {
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: 11px;
   color: var(--ink-faint);
 }
 .ghost {
@@ -1226,87 +1227,10 @@ button.variant.add {
   outline: none;
   box-shadow: var(--shadow-focus);
 }
-.size-menu {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 4px);
-  z-index: 2;
-  display: grid;
-  min-width: 100%;
-  padding: 4px;
-  background: var(--surface-raised);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-float);
-  transform-origin: bottom right;
-  animation: panel-in var(--motion-fast) var(--ease-out);
-}
-.size-menu button {
-  height: 26px;
-  padding: 0 var(--space-2);
-  border: 0;
-  border-radius: var(--radius-xs);
-  background: transparent;
-  color: var(--ink);
-  font-family: var(--font-sans);
-  font-size: 13px;
-  text-align: left;
-}
-/* The font list: More fonts… under a hairline, and the computer's fonts with a field to find one. */
-.font-menu {
-  width: 220px;
-  max-width: calc(100vw - 32px);
-}
-.font-menu button {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.font-menu .more-fonts {
-  margin-top: 4px;
-  padding-top: 4px;
-  border-top: 1px solid var(--hairline);
-  border-radius: 0 0 var(--radius-xs) var(--radius-xs);
-  color: var(--ink-muted);
-}
-.font-search {
-  position: sticky;
-  top: -4px;
-  z-index: 1;
-  height: 28px;
-  margin: -4px -4px 4px;
-  padding: 0 var(--space-2);
-  border: 0;
-  border-bottom: 1px solid var(--hairline);
-  background: var(--surface-raised);
-  color: var(--ink);
-  font: 13px var(--font-sans);
-  outline: none;
-}
-/* The menu clips the ring at the top and sides, so the line under the field takes the focus colour too. */
-.font-search:focus-visible {
-  border-bottom-color: var(--brand-bright);
-  box-shadow: var(--shadow-focus);
-}
-.font-none {
-  margin: 0;
-  padding: var(--space-2);
-  color: var(--ink-muted);
-  font-size: 13px;
-}
 .size-button .font-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.size-menu button[aria-checked="true"] {
-  color: var(--link);
-  font-weight: 600;
-}
-.size-menu button:hover,
-.size-menu button:focus-visible {
-  background: var(--surface-sunken);
-  outline: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .actions.leaving {
@@ -1324,8 +1248,9 @@ button.variant.add {
 /* Overlays leave the way they came in, a little faster (motion.tsx, Exit): a fade and a small shrink toward where
    they opened. A dialog's dim only fades. With reduced motion they go at once. The page menu opened above and the
    tutorial card at the bottom have their own way in, so they are named here too. */
-:is(.strip, .library, .size-menu, .page-menu, .properties, .spectrum, .coach, .name-field, .name-suggestion, .name-history).leaving,
+:is(.strip, .library, .page-menu, .properties, .spectrum, .coach, .name-field, .name-suggestion, .name-history).leaving,
 .page-menu.above.leaving,
+.strip.list.leaving,
 .coach.low.leaving,
 .modal-backdrop.leaving > * {
   pointer-events: none;
@@ -1341,8 +1266,62 @@ button.variant.add {
     scale: 0.98;
   }
 }
+/* A list of choices from a button (Pick in Menu.tsx): the menu as one column, over its button. Its options are a
+   little shorter than a tool menu's, and a long list scrolls inside the room it has. */
+.strip.list {
+  animation: list-in var(--motion-fast) var(--ease-out);
+}
+@keyframes list-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+.strip.list .menu-body {
+  min-height: 0;
+  max-height: none;
+}
+.strip.list .variant {
+  height: 30px;
+}
+.strip.list .variant:hover {
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
+.strip.list .variant[aria-checked="true"] {
+  background: var(--brand-mist);
+  color: var(--link);
+}
+.menu-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-raised);
+}
+.list-find {
+  width: 100%;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  color: var(--ink);
+  font: 13px var(--font-sans);
+  outline: none;
+}
+.list-find:focus-visible {
+  border-color: var(--brand-bright);
+  box-shadow: var(--shadow-focus);
+}
+.list-none {
+  margin: 0;
+  padding: var(--space-2);
+  color: var(--ink-muted);
+  font-size: 13px;
+}
 @media (prefers-reduced-motion: reduce) {
-  .size-menu {
+  .strip.list {
     animation: fade-in var(--motion-fast) var(--ease-out);
   }
 }
@@ -1402,7 +1381,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
   color: var(--ink-muted);
-  font-size: 12px;
+  font-size: 13px;
   text-align: left;
   transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out);
 }
@@ -1415,9 +1394,10 @@ button.variant.add {
 .facts:active {
   transform: scale(0.98);
 }
-.facts .formula {
-  font-family: var(--font-mono);
-  font-size: 13px;
+/* Every formula in the panels uses the formula token (text-formula): IBM Plex Mono, 13 px, weight 500. */
+.facts .formula,
+.prop-value.formula {
+  font: 500 13px/18px var(--font-mono);
   color: var(--ink);
 }
 .problems {
@@ -1467,7 +1447,7 @@ button.variant.add {
 }
 .problem p {
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 16px;
   color: var(--ink);
 }
@@ -1486,7 +1466,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: var(--surface-raised);
   color: var(--ink);
-  font-size: 12px;
+  font-size: 11px;
   transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out);
 }
 @media (hover: hover) and (pointer: fine) {
@@ -1500,7 +1480,7 @@ button.variant.add {
 .more-problems {
   margin: 0;
   padding: 0 var(--space-2);
-  font-size: 12px;
+  font-size: 11px;
   color: var(--ink-muted);
 }
 .action small {
@@ -1676,6 +1656,13 @@ button.variant.add {
   -webkit-user-select: text;
   user-select: text;
 }
+/* A field that does not apply now (Scale to the document's bond length): its value shows, faint. */
+.unit-field[aria-disabled] {
+  background: var(--surface);
+}
+.unit-field input:disabled {
+  color: var(--ink-faint);
+}
 /* A field for text, such as an element or label. */
 .unit-field.text {
   width: 160px;
@@ -1686,43 +1673,44 @@ button.variant.add {
 .unit-field .unit {
   margin-left: 4px;
   color: var(--ink-faint);
-  font-size: 12px;
+  font-size: 11px;
 }
-/* A select drawn like the fields, over the native control. */
+/* A select (Select.tsx): a button drawn like the fields, whose choices open as a list (Pick in Menu.tsx). */
 .select-field {
-  position: relative;
   display: inline-flex;
   align-items: center;
-}
-.select-field select {
+  justify-content: space-between;
+  gap: var(--space-2);
   height: 28px;
   min-width: 112px;
-  padding: 0 28px 0 var(--space-2);
+  padding: 0 9px 0 var(--space-2);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
   background: var(--canvas);
   color: var(--ink);
   font: 13px var(--font-sans);
-  appearance: none;
-  -webkit-appearance: none;
+  text-align: left;
   transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
 }
-.section-head .select-field select {
+.select-field > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.section-head .select-field {
   min-width: 196px;
 }
 .select-field svg {
-  position: absolute;
-  right: 9px;
+  flex: none;
   color: var(--ink-faint);
-  pointer-events: none;
 }
-.select-field select:focus-visible {
+.select-field:focus-visible {
   outline: none;
   border-color: var(--brand-bright);
   box-shadow: var(--shadow-focus);
 }
 @media (hover: hover) and (pointer: fine) {
-  .select-field select:hover,
+  .select-field:hover,
   .unit-field:hover {
     border-color: var(--outline);
   }
@@ -1827,6 +1815,15 @@ button.variant.add {
   border: 1px solid var(--swatch-edge);
   border-radius: var(--radius-pill);
   transition: transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
+}
+/* On a dark panel the Ink and Black swatches need a clear ring: the control border (--outline) in the dark theme. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .swatch {
+    border-color: var(--outline);
+  }
+}
+[data-theme="dark"] .swatch {
+  border-color: var(--outline);
 }
 .swatch[aria-checked="true"],
 .swatch.custom[data-checked] {
@@ -1982,7 +1979,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink);
-  font: 12px var(--font-sans);
+  font: 11px var(--font-sans);
   transition: background var(--motion-fast) var(--ease-out);
 }
 .page-option-thumb {
@@ -2236,7 +2233,7 @@ button.variant.add {
   padding: var(--space-2) 0;
   border-bottom: 1px solid var(--hairline);
   color: var(--ink-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
 }
 .settings-empty {
@@ -2264,7 +2261,7 @@ button.variant.add {
   border-radius: var(--radius-xs);
   background: var(--canvas);
   color: var(--ink);
-  font: 12px var(--font-sans);
+  font: 11px var(--font-sans);
   font-variant-numeric: tabular-nums;
 }
 .key-chip.recording > button:first-child {
@@ -2326,7 +2323,7 @@ button.variant.add {
   gap: 4px;
   margin-left: var(--space-2);
   color: var(--warning);
-  font-size: 12px;
+  font-size: 11px;
   animation: fade-in var(--motion-fast) var(--ease-out);
 }
 /* The Actions panel's Settings button: always last. */
@@ -2355,7 +2352,7 @@ button.variant.add {
 }
 .actions-settings kbd {
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: 11px;
   color: var(--ink-faint);
 }
 .actions-home {
@@ -2395,7 +2392,7 @@ button.variant.add {
   }
 }
 /* Row controls share one width, so their edges line up down each column. */
-.setting-control .select-field select,
+.setting-control .select-field,
 .setting-control .page-button {
   width: 140px;
 }
@@ -2475,7 +2472,7 @@ button.variant.add {
 }
 .library-category span {
   color: var(--ink-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 .library-category[aria-pressed="true"] {
@@ -2518,7 +2515,7 @@ button.variant.add {
   max-width: 100%;
   overflow: hidden;
   color: var(--ink-muted);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 16px;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -2639,7 +2636,7 @@ button.variant.add {
 .command-group {
   flex: none;
   color: var(--ink-faint);
-  font-size: 12px;
+  font-size: 11px;
 }
 .command[aria-selected="true"] .command-group {
   color: var(--ink-muted);
@@ -2652,7 +2649,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: var(--canvas);
   color: var(--ink-muted);
-  font: 12px var(--font-sans);
+  font: 11px var(--font-sans);
   text-align: center;
 }
 .command-none {
@@ -2699,7 +2696,7 @@ button.variant.add {
   padding: 0 var(--space-2);
   border-radius: var(--radius-sm);
   color: var(--ink);
-  font-size: 14px;
+  font-size: 13px;
   cursor: default;
 }
 .name-recent.show-all {
@@ -2786,6 +2783,12 @@ button.variant.add {
 .turn-handle.hot circle {
   fill: var(--brand-mist);
 }
+.turn-centre {
+  fill: none;
+  stroke: var(--brand);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
 .turn-angle {
   fill: var(--link);
   font-family: var(--font-sans);
@@ -2870,7 +2873,7 @@ button.variant.add {
   box-shadow: var(--shadow-focus);
 }
 .paper-choice.white span { background: #FFFFFF; }
-/* Dark paper is the dark theme's canvas (--canvas, dark). */
+/* #000B24: the dark theme's --canvas, which dark paper takes. */
 .paper-choice.dark span { background: #000B24; }
 .paper-choice.system span { background: linear-gradient(135deg, #FFFFFF 50%, #000B24 50%); }
 .paper-choice.blueprint span {
@@ -3057,7 +3060,8 @@ button.variant.add {
 }
 .slider {
   display: grid;
-  grid-template-columns: 64px 1fr 48px;
+  /* The track takes what is left; the value column fits its text, so "0.60 pt" is never cut off. */
+  grid-template-columns: 64px minmax(0, 1fr) max-content;
   align-items: center;
   gap: var(--space-2);
   font: 13px/18px var(--font-sans);
@@ -3071,6 +3075,8 @@ button.variant.add {
 .slider input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
+  width: 100%;
+  min-width: 0;
   height: 4px;
   margin: 0;
   border-radius: var(--radius-pill);
@@ -3149,13 +3155,13 @@ button.variant.add {
 }
 .about-version {
   color: var(--ink-muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 .about-made {
   margin-top: var(--space-2) !important;
 }
 .about-heart {
-  color: var(--error);
+  color: var(--brand);
   vertical-align: -1px;
 }
 .about-link {
@@ -3252,22 +3258,21 @@ button.variant.add {
   padding: var(--space-1) var(--space-1) var(--space-2);
   background: var(--surface-raised);
   border: 1px solid var(--hairline);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-float);
   transform-origin: top right;
   animation: panel-in var(--motion-fast) var(--ease-out);
 }
 .properties.stacked {
-  bottom: auto;
-  top: calc(var(--space-4) * 2 + 32px);
+  bottom: calc(var(--space-4) * 2 + var(--below, 0px));
+  max-height: min(40%, calc(100% - var(--below, 0px) - var(--space-4) * 4));
 }
 .properties header,
 .spectrum header {
   cursor: grab;
 }
 .properties header button,
-.spectrum header button,
-.spectrum header select {
+.spectrum header button {
   cursor: default;
 }
 .properties header {
@@ -3276,7 +3281,8 @@ button.variant.add {
   justify-content: space-between;
   padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
 }
-.properties h2 {
+.properties h2,
+.spectrum h2 {
   margin: 0;
   font-size: 13px;
   line-height: 18px;
@@ -3311,7 +3317,7 @@ button.variant.add {
   text-align: left;
 }
 .prop-name {
-  font: 12px/16px var(--font-sans);
+  font: 13px/18px var(--font-sans);
   color: var(--ink-muted);
   white-space: nowrap;
 }
@@ -3322,7 +3328,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink);
-  font: 12px/16px var(--font-sans);
+  font: 13px/18px var(--font-sans);
   font-variant-numeric: tabular-nums;
   text-align: right;
   overflow-wrap: anywhere;
@@ -3353,7 +3359,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink);
-  font: 12px/18px var(--font-sans);
+  font: 13px/18px var(--font-sans);
 }
 .prop-add:hover:not(:disabled) {
   background: var(--surface-sunken);
@@ -3385,33 +3391,30 @@ button.variant.add {
   padding: var(--space-1) var(--space-2) var(--space-2);
   background: var(--surface-raised);
   border: 1px solid var(--hairline);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-float);
   transform-origin: bottom center;
   animation: panel-in var(--motion-fast) var(--ease-out);
 }
 .spectrum header {
   display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  padding: var(--space-1) 0;
+  align-items: center;
+  justify-content: space-between;
+  margin-right: calc(-1 * var(--space-1));
+  padding: var(--space-1);
+}
+.spectrum-head-buttons {
+  display: flex;
+  gap: 2px;
 }
 .spectrum-controls {
   display: flex;
-  flex: 1;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  min-width: 0;
+  padding-bottom: var(--space-1);
 }
-.spectrum-window {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--space-1);
-  min-height: 28px;
-}
-.spectrum header .select-field select {
+.spectrum-controls .select-field {
   min-width: 0;
 }
 /* Full screen: the panel fills the canvas beside the toolbar, the spectrum grows, and the structure sits beside it. */
@@ -3444,7 +3447,7 @@ button.variant.add {
 }
 .spectrum-solvent-label {
   fill: var(--ink-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 .spectrum-swatches {
   display: flex;
@@ -3482,7 +3485,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink);
-  font: 12px var(--font-sans);
+  font: 13px var(--font-sans);
   white-space: nowrap;
 }
 .spectrum-button:hover:not(:disabled) {
@@ -3526,7 +3529,7 @@ button.variant.add {
 }
 .spectrum-signal .spectrum-integral {
   fill: var(--ink-muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 .spectrum-leader {
   fill: none;
@@ -3553,7 +3556,7 @@ button.variant.add {
 }
 .spectrum-text {
   margin: 0;
-  font: 12px/18px var(--font-sans);
+  font: 13px/18px var(--font-sans);
   color: var(--ink);
   user-select: text;
   overflow-wrap: anywhere;
@@ -3606,20 +3609,8 @@ button.variant.add {
   padding: 0 var(--space-1) 0 var(--space-2);
 }
 .pick-label {
-  font: 12px var(--font-sans);
+  font: 11px var(--font-sans);
   color: var(--ink-muted);
-}
-.size-menu.pick-menu {
-  left: 0;
-  right: auto;
-  min-width: 152px;
-  transform-origin: bottom left;
-}
-.pick-menu button {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  height: 30px;
 }
 .pick-glyph {
   display: grid;
@@ -3642,7 +3633,7 @@ button.variant.add {
 .spectrum-details table {
   flex: 1;
   border-collapse: collapse;
-  font: 12px/18px var(--font-sans);
+  font: 13px/18px var(--font-sans);
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
@@ -3789,7 +3780,7 @@ button.variant.add {
   justify-self: stretch;
   margin: 0;
   color: var(--ink-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
@@ -3868,8 +3859,8 @@ button.variant.add {
 }
 .home-greeting {
   margin: var(--space-16) 0 0;
-  font: 600 30px/36px var(--font-sans);
-  letter-spacing: -0.02em;
+  font: 600 32px/38px var(--font-sans);
+  letter-spacing: -0.025em;
   text-wrap: balance;
 }
 .home-row {
@@ -3905,7 +3896,7 @@ button.variant.add {
 .home-caption kbd {
   margin-left: var(--space-1);
   color: var(--ink-faint);
-  font: 12px var(--font-sans);
+  font: 11px var(--font-sans);
 }
 .home-open:active {
   transform: scale(0.97);
@@ -3996,7 +3987,7 @@ button.variant.add {
 }
 .home-when {
   color: var(--ink-faint);
-  font: 12px/16px var(--font-sans);
+  font: 11px/14px var(--font-sans);
 }
 .home-initial {
   color: var(--ink-faint);
@@ -4053,8 +4044,8 @@ button.variant.add {
 }
 .name-title {
   margin: var(--space-2) 0 0;
-  font: 600 24px/30px var(--font-sans);
-  letter-spacing: -0.02em;
+  font: 600 20px/26px var(--font-sans);
+  letter-spacing: -0.015em;
   text-align: center;
   text-wrap: balance;
 }
@@ -4182,7 +4173,7 @@ button.variant.add {
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
   color: var(--ink);
-  font: 500 12px var(--font-sans);
+  font: 500 11px var(--font-sans);
 }
 .coach-foot {
   display: flex;

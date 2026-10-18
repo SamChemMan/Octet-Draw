@@ -31,7 +31,7 @@ const rules = [...bare.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => m[2].inc
 assert.deepEqual(rules, [".tool.landed .glyph", ".palette.rippling .slot .glyph, .palette.rippling .tool:not(.landed) .glyph"]);
 
 // Every overlay that leaves through Exit (motion.tsx) has an exit motion.
-const overlays = ["strip", "library", "size-menu", "page-menu", "properties", "spectrum", "coach", "name-field", "name-suggestion", "name-history"];
+const overlays = ["strip", "library", "page-menu", "properties", "spectrum", "coach", "name-field", "name-suggestion", "name-history"];
 for (const overlay of overlays)
   assert.ok(new RegExp(`:is\\([^)]*\\.${overlay}(?=[,)])[^)]*\\)\\.leaving`).test(css), `.${overlay}.leaving`);
 assert.match(css, /\.modal-backdrop\.leaving > \*/);

@@ -7,6 +7,7 @@ import { Dialog } from "./Dialog";
 import { Menu } from "./Menu";
 import { Exit } from "./motion";
 import { Select } from "./Select";
+import { NumberField, Segmented } from "./Fields";
 import { withMargin, type ExportFormat } from "./export";
 import { DPIS, type FilePrefs } from "./SettingsWindow";
 
@@ -68,10 +69,7 @@ export function ExportDialog({ prefs, onPrefs, pictures, chemistry, onExport, on
         </p>
       )}
       {pictures.selection && (
-        <span className="segmented" role="radiogroup" aria-label="What to export">
-          <button role="radio" aria-checked={part === "all"} onClick={() => setPart("all")}>Whole drawing</button>
-          <button role="radio" aria-checked={part === "selection"} onClick={() => setPart("selection")}>Selection</button>
-        </span>
+        <Segmented label="What to export" value={part} onChange={setPart} options={[["all", "Whole drawing"], ["selection", "Selection"]]} />
       )}
       <label className="dialog-row"><span>Format</span>
         <Select label="Format" value={format} options={ok ? usable : usable.length ? [...usable, ...FORMATS.filter(([f]) => f === format)] : FORMATS} onChange={(v) => onPrefs({ format: v as ExportFormat })} />
@@ -88,8 +86,7 @@ export function ExportDialog({ prefs, onPrefs, pictures, chemistry, onExport, on
       )}
       {isPicture && (
         <label className="dialog-row"><span>Margin</span>
-          <span className="unit-field"><input aria-label="Margin" inputMode="decimal" value={String(prefs.margin)} onFocus={(e) => e.target.select()}
-            onChange={(e) => { const n = Number(e.target.value.replace(/[^\d.]/g, "")); if (Number.isFinite(n)) onPrefs({ margin: Math.min(72, n) }); }} /><span className="unit">pt</span></span>
+          <NumberField label="Margin" unit="pt" min={0} max={72} step={1} value={prefs.margin} onChange={(n) => onPrefs({ margin: n })} />
         </label>
       )}
     </Dialog>

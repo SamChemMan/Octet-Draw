@@ -48,7 +48,7 @@ export function LibraryPanel(p: {
     <div className={["library", p.dimmed && "carrying", leaving && "leaving"].filter(Boolean).join(" ")} role="dialog" aria-label="Templates" inert={leaving}>
       <div className="library-side">
         <label className="library-search">
-          <MagnifyingGlass size={14} aria-hidden />
+          <MagnifyingGlass size={16} aria-hidden />
           <input placeholder="Search" aria-label="Search templates" spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Escape" && query) { e.stopPropagation(); setQuery(""); } }} />
         </label>
@@ -70,7 +70,7 @@ export function LibraryPanel(p: {
               </button>
               {p.onKeep && (
                 <button className="variant-action" aria-pressed={kept} aria-label={`Keep ${t.name} in the Ring menu`} data-tip={kept ? "In the Ring menu" : "Keep in the Ring menu"} onClick={() => p.onKeep!(t.kind, !kept)}>
-                  <PushPin size={10} weight={kept ? "fill" : "bold"} />
+                  <PushPin size={12} />
                 </button>
               )}
             </div>
