@@ -36,6 +36,11 @@ const cases: Record<string, Mol> = {
   lone: mol([["O", 0, 0, { map: 5 }]], []),
   pyridine: (() => { const m = mol([...ring(6, 0, 0, 1, "N", { map: 9 }), ["C", 2 * c, 1]], [0, 1, 2, 3, 4, 5].map((k): [number, number, number] => [k, (k + 1) % 6, k % 2 ? 1 : 2])); m.bonds.push({ type: 1, atoms: [2, 6] }); m.atoms[2].map = 10; return m; })(),
   pyrrole: mol(ring(5, 0, 0, 0.85, "N", { map: 14 }), [0, 1, 2, 3, 4].map((k): [number, number, number] => [k, (k + 1) % 5, k === 1 || k === 3 ? 2 : 1])),
+  // Every atom mapped, the fused atoms (0 and 1) on the shared bond.
+  naphthalene: mol(([[0, s], [0, -s], [-c, 1], [-2 * c, s], [-2 * c, -s], [-c, -1], [c, 1], [2 * c, s], [2 * c, -s], [c, -1]] as P[]).map(([x, y], i): [string, number, number, Partial<Atom>] => ["C", x, y, { map: 20 + i }]),
+    [[0, 1, 2], [0, 2], [2, 3, 2], [3, 4], [4, 5, 2], [5, 1], [0, 6], [6, 7, 2], [7, 8], [8, 9, 2], [9, 1]]),
+  // A spiro atom (0): one ring above it, one below.
+  spiro: mol([["C", 0, 0, { map: 40 }], ["C", -0.7, 0.7], ["C", 0, 1.4], ["C", 0.7, 0.7], ["C", -0.7, -0.7], ["C", 0, -1.4], ["C", 0.7, -0.7]], [[0, 1], [1, 2], [2, 3], [3, 0], [0, 4], [4, 5], [5, 6], [6, 0]]),
 };
 
 const L = S.bond, X = (m: Mol, i: number): P => [m.atoms[i].location[0] * L, -m.atoms[i].location[1] * L];
@@ -89,6 +94,15 @@ level("ethanol", 1); level("reversed", -1); level("ammonium", 1); level("chlorid
     const here = X(cases[name], n.atom);
     if (cases[name].atoms[n.atom].label !== "C" || cases[name].atoms[n.atom].charge) continue;
     assert.ok(Math.hypot(n.at[0] - here[0], n.at[1] - here[1]) < 1.2 * S.size, `${name}: map ${cases[name].atoms[n.atom].map} near its carbon`);
+  }
+}
+// A fused or spiro atom: its number goes out of every ring, not into a gap between two bonds of one ring.
+{
+  const inPolygon = (q: P, poly: P[]) => poly.reduce((inside, p, k) => { const r = poly[(k + 1) % poly.length]; return (p[1] > q[1]) !== (r[1] > q[1]) && q[0] < p[0] + ((q[1] - p[1]) * (r[0] - p[0])) / (r[1] - p[1]) ? !inside : inside; }, false);
+  for (const [name, rings] of [["naphthalene", [[0, 2, 3, 4, 5, 1], [0, 6, 7, 8, 9, 1]]], ["spiro", [[0, 1, 2, 3], [0, 4, 5, 6]]]] as const) {
+    const m = cases[name];
+    for (const n of render(m, S, measure, L).maps) for (const r of rings)
+      assert.ok(!inPolygon(n.at, r.map((i) => X(m, i))), `${name}: map ${n.text} out of the ring ${r.join(" ")}`);
   }
 }
 // Drawn structure by structure, each number keeps its place and gets the drawing's atom number.

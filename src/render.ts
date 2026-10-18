@@ -1057,7 +1057,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   });
   // Map numbers, as ChemDraw draws them: in the label's face at three quarters of its size. After a label that reads
   // one way (OH, H2N, NH3+), level with the atom, if no bond is there; else out on the atom's open side (the middle
-  // of its widest gap between bonds, not inside a ring that a bond leaves, lower on a tie). Either way just clear of
+  // of its widest gap between bonds that is not inside a ring, lower on a tie). Either way just clear of
   // the atom's label (element, H, counts, charge), its marks and its bonds.
   const maps: MapNumber[] = [];
   mol.atoms.forEach((a, i) => {
@@ -1078,11 +1078,12 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       if (clear(c)) at = c;
     }
     if (!at) {
-      const sides = nbrs[i].map((j) => ({ t: Math.atan2(pts[j][1] - X[1], pts[j][0] - X[0]), ring: ringsThrough(i, j, covalent).length > 0 })).sort((p, q) => p.t - q.t);
+      const sides = nbrs[i].map((j) => ({ j, t: Math.atan2(pts[j][1] - X[1], pts[j][0] - X[0]), rings: ringsThrough(i, j, covalent) })).sort((p, q) => p.t - q.t);
       let d: P = [0, 1], best = -Infinity;
       sides.forEach((p, k) => {
         const q = sides[(k + 1) % sides.length], size = sides.length === 1 ? TAU : turn(q.t - p.t) || TAU, mid = p.t + size / 2;
-        const score = size - (sides.length > 2 && p.ring && q.ring && sides.some((x) => !x.ring) ? 10 : 0) + 0.01 * Math.sin(mid);
+        // A gap between two bonds of one ring is inside that ring (on a fused or spiro atom too).
+        const score = size - (p.rings.some((r) => r[1] === q.j) ? 10 : 0) + 0.01 * Math.sin(mid);
         if (score > best) { best = score; d = [Math.cos(mid), Math.sin(mid)]; }
       });
       for (let r = 0; r <= 5 * z && !at; r += 0.02 * z) if (clear(add(X, mul(d, r)))) at = add(X, mul(d, r));
