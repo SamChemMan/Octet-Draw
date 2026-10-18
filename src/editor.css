@@ -4205,3 +4205,7 @@ button.variant.add {
 .dialog-row:has(input:disabled) {
   color: var(--ink-muted);
 }
+/* The right-click menu (ActionsMenu in Actions.tsx): the Actions panel's list at the pointer. */
+.context-menu:focus {
+  outline: none;
+}

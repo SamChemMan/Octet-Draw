@@ -30,6 +30,13 @@ assert.equal(actionFor(mine, "n", "atom"), undefined);
 assert.deepEqual(clashes(map, "element.N", "o"), ["element.O"]);
 assert.deepEqual(clashes(map, "element.N", "2"), ["group.acetyl"]);
 assert.deepEqual(clashes(map, "bond.double", "n"), []);
+// Every Actions panel action can take a key (CD-34): none has one by default, as in ChemDraw, and a key set for one
+// runs it anywhere.
+import { ACTIONS } from "./keys.ts";
+const panelActions = ACTIONS.filter((a) => a.id.startsWith("action."));
+assert.ok(panelActions.length > 30 && panelActions.every((a) => !map[a.id]?.length));
+assert.equal(new Set(ACTIONS.map((a) => a.id)).size, ACTIONS.length, "action ids are unique");
+assert.equal(actionFor(keymap({ "action.cycle.reverse": ["shift+r"] }), "shift+r", "atom"), "action.cycle.reverse");
 import { label } from "./keys.ts";
 assert.equal(label("+"), "+");
 assert.ok(["↩", "Enter"].includes(label("enter")));

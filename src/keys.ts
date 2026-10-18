@@ -56,6 +56,20 @@ export const ACTIONS: Action[] = [
   any("rotate.ccw15", "Turn the selection 15° anticlockwise", "Selection"), any("rotate.cw15", "Turn the selection 15° clockwise", "Selection"),
   any("rotate.ccw1", "Turn the selection 1° anticlockwise", "Selection"), any("rotate.cw1", "Turn the selection 1° clockwise", "Selection"),
   any("edit.delete", "Delete the selection, or what is under the pointer", "Edit"),
+  // The Actions panel's own actions (no menu command or canvas key does them): each can take a key here, so every
+  // action the panel and its right-click menu show can run from the keyboard. ChemDraw has no keys for them.
+  ...([["select_structure", "Select the whole structure"], ["pairs", "Show or hide lone pairs"], ["number", "Number the compounds"], ["show_warnings", "Show hidden warnings"],
+    ["caption.add", "Add a caption under the structure"], ["template.add", "Add the structure to the rings"], ["cycle.make", "Make a catalytic cycle"], ["align.row", "Line up structures in a row"],
+    ["align.column", "Line up structures in a column"], ["align.spread-row", "Space structures evenly"], ["bond.flip", "Point the bond the other way"], ["caption.edit", "Edit the text"],
+    ["caption.attach", "Tie the text to its structure"], ["caption.detach", "Un-tie the text from its structure"], ["reaction.map", "Map the reaction's atoms"], ["reaction.unmap", "Clear the atom map"],
+    ["cycle.centre", "Add a centre label to the cycle"], ["cycle.in", "Add a reagent coming in"], ["cycle.out", "Add a product going out"], ["cycle.tidy", "Tidy the cycle"],
+    ["cycle.reverse", "Reverse the cycle"], ["cycle.ungroup", "Remove the cycle"], ["arrow.reverse", "Reverse the arrow"], ["arrow.flip", "Flip the arrow's curve"],
+    ["arrow.point", "Add or remove the arrow's point"], ["arrow.closed", "Open or close the curve"], ["arrow.above", "Add conditions above the arrow"], ["arrow.below", "Add conditions below the arrow"],
+    ["orbital.swap", "Swap the orbital's phases"], ["shape.lanes.1", "Add a lane to the plate"], ["shape.lanes.-1", "Remove a lane from the plate"], ["shape.rf", "Show or hide the plate's Rf values"],
+    ["shape.hide.origin", "Show or hide the plate's origin"], ["shape.hide.front", "Show or hide the solvent front"], ["shape.hide.border", "Show or hide the plate's border"],
+    ["spot.rf", "Show or hide the spot's Rf"], ["shape.row.after", "Add a table row below"], ["shape.col.after", "Add a table column after"], ["shape.row.before", "Add a table row above"],
+    ["shape.col.before", "Add a table column before"], ["shape.row.delete", "Delete the table row"], ["shape.col.delete", "Delete the table column"], ["shape.fit", "Size the table to fit"],
+    ["shape.clear", "Clear the table"], ["shape.dashed", "Dashed or solid lines"]] as const).map(([command, name]): Action => ({ id: `action.${command}`, name, group: "Actions panel", place: "any" })),
 ];
 
 // ChemDraw's defaults. Where its table and its help disagree (Boc: y or Shift+Y), both keys work.

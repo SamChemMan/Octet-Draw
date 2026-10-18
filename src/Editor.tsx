@@ -25,7 +25,7 @@ import { store, type Store } from "./store";
 import { loadSettings, saveSettings } from "./settings";
 import { Menu, menuWidth } from "./Menu";
 import { ACTIONS, actionFor, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
-import { Actions, actionItems, FontPick, HIGHLIGHT_COLOURS, RING_FILLS, type Context } from "./Actions";
+import { Actions, ActionsMenu, actionItems, FontPick, HIGHLIGHT_COLOURS, RING_FILLS, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties, propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./Properties";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
@@ -79,6 +79,7 @@ const MOD = navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+";
 const EXPORT_KEYS = navigator.platform.startsWith("Mac") ? "⌃⌘E" : "⇧Ctrl+E";
 // In the desktop app the native menu owns undo, redo and the file commands; in a browser (dev only) the page does.
 const TAURI = "__TAURI_INTERNALS__" in window;
+const MAC = navigator.platform.startsWith("Mac");
 
 // Undo history: every edit pushes a new Mol; undo and redo move along the list.
 // merge: edits with the same key one after another (a slider being dragged) make one step.
@@ -957,6 +958,8 @@ export default function Editor() {
     },
     // Repeat (Edit menu, and ⌘Y when there is nothing to redo), as ChemDraw's.
     repeat: () => repeatLast(),
+    // The whole structure of the selected atom or bond (ChemDraw's Molecule > Select), as Space over it selects it.
+    select_structure: () => choose(fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat(), picked),
     // Group (⌘G) and Ungroup (⇧⌘G), as ChemDraw's: the selected structures and objects select and move as one.
     group: () => {
       const r = groupSelection(doc, selection, picked);
@@ -1315,6 +1318,10 @@ export default function Editor() {
   const [addingColour, setAddingColour] = useState(false); // Settings opened from a colour row's +, to add a colour
   // Object > Rotate… (⌘R) and Scale… (⌘K): the dialog open, and what is typed in it.
   const [about, setAbout] = useState(false);
+  // The right-click menu (ActionsMenu): where it opens, and whether a key opened it. noMenu: a Control-press on the Mac
+  // that went to a resize handle (Control there turns Labels and lines over), whose right-click opens no menu.
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number; keyboard?: boolean }>();
+  const noMenu = useRef(false);
   // The Select tool's modifiers at the last press, and the selection before it, for a click with Shift or Option.
   const pressMods = useRef<{ shift: boolean; alt: boolean; atoms: Set<number>; picks: Set<number> } | undefined>(undefined);
   // Option held at the last press, with any tool (Option-click opens or repeats a label), and the last label typed.
@@ -2238,8 +2245,33 @@ export default function Editor() {
   const centreMark = useMemo(() => (selectionFrame?.turns ? turnCentre() : undefined), [selectionFrame, pivot, doc]); // eslint-disable-line react-hooks/exhaustive-deps
   const onCentreMark = (p: P) => !!centreMark && Math.hypot(p[0] - centreMark[0], p[1] - centreMark[1]) * L * views.get().zoom < 8;
 
+  // Right-click (Control-click on the Mac): what is under the pointer is selected, unless it is selected already, and
+  // the Actions menu opens there. On a TLC plate the plate is picked, with the spot under the pointer.
+  function onContextMenu(e: React.MouseEvent<SVGSVGElement>) {
+    e.preventDefault();
+    if (noMenu.current || drag || writing) { noMenu.current = false; return; }
+    const p = toDoc(e.clientX, e.clientY), t = hit(p), free = t.atom === undefined && t.bond === undefined && t.caption === undefined && t.cycle === undefined;
+    const plate = free && (t.arrow === undefined || doc.shapes?.some((x) => x.id === t.arrow && x.kind === "tlc")) ? plateAt(p) : undefined;
+    if (plate) {
+      const k = spotHit(plate, p);
+      setSelection(new Set());
+      setPicked(new Set([plate.id]));
+      setSpotPick(k >= 0 ? { plate: plate.id, index: k } : undefined);
+    } else {
+      const found: Hover = free && t.arrow === undefined ? { arrow: highlightAt(p) ?? orbitalAt(p) } : t;
+      const atoms = atomsOf(doc, found), items = itemsOf(found), cycle = doc.cycles?.find((c) => c.id === found.cycle);
+      const on = atoms.length || items.length ? atoms.every((i) => selection.has(i)) && items.every((x) => picked.has(x)) : selection.size > 0 && onSelection(doc, selection, p);
+      if (!on) choose([...atoms, ...(cycle?.nodes.flat() ?? [])], items);
+    }
+    setMenuAt({ x: e.clientX, y: e.clientY });
+  }
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
     if (e.button !== 0) return;
+    // On the Mac a Control-click is the right-click (onContextMenu): the press does nothing more, but on a resize handle.
+    if (MAC && e.ctrlKey) {
+      if (!resizeAt(toDoc(e.clientX, e.clientY))) return;
+      noMenu.current = true;
+    }
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* the pointer is already gone */ }
     const p = toDoc(e.clientX, e.clientY), t = hit(p), screen: [number, number] = [e.clientX, e.clientY];
     pointer.current = p;
@@ -2638,6 +2670,7 @@ export default function Editor() {
     if (id === "charge.plus" && atom !== undefined) return set(addCharge(doc, atom, 1));
     if (id === "charge.minus" && atom !== undefined) return set(addCharge(doc, atom, -1));
     if (kind === "menu") return commands.current[id.slice(5)]?.(); // a menu command on a key (Settings)
+    if (kind === "action") { runAction(id.slice(7)); return; } // an Actions panel action on a key (Settings)
     if (kind === "group" && atom !== undefined) return set(addGroup(doc, atom, arg as Group));
     if (kind === "bond" && bond !== undefined) {
       if (arg in BONDS) return set(setBondSpec(doc, bond, BONDS[arg as BondKind].spec));
@@ -2767,7 +2800,7 @@ export default function Editor() {
     if (pickedCycle && mix.kinds === 1) return { kind: "cycle", clockwise: pickedCycle.clockwise, steps: pickedCycle.nodes.length, centre: !!doc.captions?.some((c) => c.cycle?.cycle === pickedCycle.id && c.cycle.side === "centre") };
     // Different kinds of thing picked together (an arrow and a box, a caption and an atom, everything): what applies to
     // all of them.
-    if (mix.kinds > 1) return { kind: "selection", count: mix.count, atoms: mix.atoms };
+    if (mix.kinds > 1) return { kind: "selection", count: mix.count, atoms: mix.atoms, joinable: mix.atoms && !!joinSelection(doc, selection) };
     // A TLC spot picked on its plate.
     const plate = spotPick && !selection.size && picked.size === 1 && picked.has(spotPick.plate) ? doc.shapes?.find((x) => x.id === spotPick.plate) : undefined, spot = plate?.tlc?.spots[spotPick!.index];
     if (plate && spot) {
@@ -2835,7 +2868,7 @@ export default function Editor() {
     const stereo = !centres.length ? undefined : flags.size > 1 ? "mixed" : flags.has("&1") ? "racemic" : flags.has("or1") ? "relative" : flags.has("") ? "absolute" : "mixed";
     // A 3D structure (Structure Perspective): drawn with depth, or flat.
     const solid = ids.some((i) => Math.abs(doc.atoms[i].location[2] ?? 0) > 1e-3);
-    return { kind: "structure", text: labelText(ids), atoms: ids.length, hydrogens: ids.some((i) => doc.atoms[i].label === "H" && !doc.atoms[i].text), structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextNumber(doc), nameable, pairs, stereo,
+    return { kind: "structure", text: labelText(ids), atoms: ids.length, hydrogens: ids.some((i) => doc.atoms[i].label === "H" && !doc.atoms[i].text), structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextNumber(doc), nameable, pairs, stereo, joinable: !!joinSelection(doc, selection),
       ...(solid ? { depth: !ids.some((i) => doc.atoms[i].depth === false) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
       // Aromatic rings drawn with circles, so the aromatic display action can name what it shows next.
       circles: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].circle),
@@ -3151,6 +3184,8 @@ export default function Editor() {
     // A menu command's shortcut as the user has it (Settings), else as the menu has it.
     const own = menuReady ? keymap(settings.keys)[`menu.${command}`] : undefined;
     if (own) return own[0] ? keyLabel(own[0]) : undefined;
+    const panelKey = keymap(settings.keys)[`action.${command}`]?.[0]; // an Actions panel action's own key (Settings)
+    if (panelKey) return keyLabel(panelKey);
     if (MENU_KEYS[command]) return platformLabel(MENU_KEYS[command]);
     if (MENU_NAMES[command]?.[1]) return platformLabel(MENU_NAMES[command][1]);
     const first = keymap(settings.keys)[command]?.[0];
@@ -3759,6 +3794,13 @@ export default function Editor() {
     }
   }
 
+  // The web view's own menu (Reload, Inspect) never shows: a right-click on the canvas opens the Actions menu, and text
+  // fields keep the system's menu for cut, copy and paste.
+  useEffect(() => {
+    const block = (e: MouseEvent) => { if (!(e.target as Element).closest?.("input, textarea, [contenteditable]")) e.preventDefault(); };
+    addEventListener("contextmenu", block);
+    return () => removeEventListener("contextmenu", block);
+  }, []);
   // Trackpad: scroll pans, pinch (or ⌘/Ctrl + scroll) zooms around the pointer. While a zoom goes on (until 150 ms
   // after its last step), the drawing's text is laid out at its own size and scaled with the drawing (pinch, in
   // editor.css), so a zoom step does not lay out all the text again. When the zoom stops, the text is laid out for
@@ -3800,6 +3842,13 @@ export default function Editor() {
       // such a key without taking it from text boxes too). Command and Ctrl keys are the menu's own in the app.
       const pressedKey = keyOf(e), bound = pressedKey && actionFor(keymap(settings.keys), pressedKey, "none");
       if (bound?.startsWith("menu.") && (!TAURI || !native(pressedKey!))) { e.preventDefault(); return commands.current[bound.slice(5)]?.(); }
+      if (bound?.startsWith("action.")) { e.preventDefault(); return runAction(bound.slice(7)); }
+      // The Menu key and Shift+F10 open the Actions menu at the selection (or the middle of the window).
+      if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+        e.preventDefault();
+        const view = views.get(), c = selection.size || picked.size ? selectionMiddle() : undefined;
+        return setMenuAt(c ? { x: view.x + c[0] * L * view.zoom, y: view.y - c[1] * L * view.zoom, keyboard: true } : { x: innerWidth / 2, y: innerHeight / 2, keyboard: true });
+      }
       if (mod) return;
       // Option keys run only what the shortcut table gives them: Option + arrows turn the selection (as ChemDraw's).
       if (e.altKey) {
@@ -4360,6 +4409,7 @@ export default function Editor() {
         role="img"
         aria-label="Drawing canvas"
         onPointerDown={onPointerDown}
+        onContextMenu={onContextMenu}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
@@ -4892,6 +4942,11 @@ export default function Editor() {
           />
         );
       }}</Live>
+      {menuAt && (() => {
+        const context = panelContext ?? contextOf();
+        return <ActionsMenu at={menuAt} keyboard={menuAt.keyboard} context={context} messy={untidy} hiddenWarnings={[...selection].some((i) => doc.atoms[i]?.ignoreWarnings)} grouping={grouping}
+          layout={settings.actionLayout} hint={hint} colour={selectionColour(context)} palette={[...settings.palette, ...docColours]} run={runAction} onClose={() => setMenuAt(undefined)} />;
+      })()}
       {dialog?.kind === "rotate" && (
         <Dialog title="Rotate" action="Rotate" onClose={() => setDialog(undefined)}
           onAction={() => { const a = Number(dialog.angle); if (Number.isFinite(a)) rotateBy(dialog.clockwise ? -a : a); setDialog(undefined); }}>

@@ -3,22 +3,23 @@
 // what is wrong with it (problems, each with a fix), then its actions, likeliest first. A long list keeps its first
 // rows and folds the rest into small buttons that name themselves on hover. Every action also lives where
 // ChemDraw users expect it (menus and keys).
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, ArrowsInSimple, ArrowsClockwise, ArrowsDownUp, CaretRight, SignIn, SignOut, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretUpDown, Graph,
   AlignBottomSimple, AlignTopSimple, ArrowLineDown, ArrowLineUp, CursorText, DotsThree, DotsThreeVertical, Faders, Polygon, Rectangle, ArrowArcLeft, ArrowArcRight, ArrowsCounterClockwise, ArrowUDownLeft, CircleDashed, CornersOut, MagnifyingGlass, Swap,
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
   TextAlignJustify, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, BezierCurve, Eraser, Circle, LineSegment, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
-  EyeSlash,
+  EyeSlash, Angle, Resize, CrosshairSimple, Unite, SelectionPlus, Paragraph,
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
-import { Menu, Pick, type MenuItem } from "./Menu";
+import { listKeys, Menu, menuWidth, Pick, type MenuItem } from "./Menu";
 import { ColourPop } from "./ColourPicker";
 import { NumberField } from "./Fields";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
-import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
+import { BracketGlyph, ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
 import { invoke } from "@tauri-apps/api/core";
 import { COLOURS, fontStack, roundPt, TINTS } from "./docstyle";
 import { ArrowGlyph, arrowName, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, STRAIGHT, SymbolGlyph, TlcGlyph, withSize, type BondKind } from "./tools";
@@ -29,8 +30,8 @@ export type Context =
   | { kind: "empty" }
   | { kind: "drawing"; nameable: boolean }
   // Different kinds of thing picked together: count things; atoms, when structures are among them.
-  | { kind: "selection"; count: number; atoms: boolean }
-  | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; cip?: boolean; numbers?: boolean; circles?: boolean; halo?: string; fill?: string; hydrogens?: boolean }
+  | { kind: "selection"; count: number; atoms: boolean; joinable?: boolean } // joinable: Join applies (atoms or bonds in two structures)
+  | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; joinable?: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; cip?: boolean; numbers?: boolean; circles?: boolean; halo?: string; fill?: string; hydrogens?: boolean }
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
   | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
       script?: "sub" | "super"; font?: string; fonts?: string[]; labelable?: boolean } // labelable: Octet can read a picked caption as an atom label
@@ -202,30 +203,32 @@ function TableGlyph({ on, faint }: { on: TableLine[]; faint?: boolean }) {
 }
 
 // small: shown as a small button by default (the user can drag it into the rows, and any row out of them).
-export type Item = { icon: React.ReactNode; name: string; command: string; accent?: boolean; small?: boolean };
+// short: the name in a menu's cell, where the full name does not fit (the panel's rows show the full name).
+export type Item = { icon: React.ReactNode; name: string; command: string; accent?: boolean; small?: boolean; short?: string };
 // The small actions fall into sets, each a section of small buttons under a small title (Sam, 17 October 2026):
 // the object's own edits (a table's, a plate's, a cycle's); Analyse; Turn and flip (every turn, rotation and flip);
 // Display and copy (what is shown on the structure, the rest, the clipboard and library); Arrange, File and View
 // when they apply. Delete is the last small button in every panel, with no title.
-const SETS = ["table", "plate", "cycle", "analysis", "turn", "more", "arrange", "file", "view", "delete"] as const;
+const SETS = ["table", "plate", "cycle", "analysis", "turn", "more", "arrange", "frame", "file", "view", "delete"] as const;
 type SetId = (typeof SETS)[number];
-const SET_TITLES: Record<SetId, string> = { table: "Table", plate: "Plate", cycle: "Cycle", analysis: "Analyse", turn: "Turn and flip", more: "Display and copy", arrange: "Arrange", file: "File", view: "View", delete: "Delete" };
+const SET_TITLES: Record<SetId, string> = { table: "Table", plate: "Plate", cycle: "Cycle", analysis: "Analyse", turn: "Turn and flip", more: "Display and copy", arrange: "Arrange", frame: "Add frame", file: "File", view: "View", delete: "Delete" };
 // Each set's icon, for its row when the sets show as menus.
 const SET_ICONS: Record<SetId, React.ReactNode> = { table: <Table size={18} />, plate: <TlcGlyph />, cycle: <ArrowsClockwise size={18} />, analysis: <Flask size={18} />, turn: <ArrowArcRight size={18} />, more: <Eye size={18} />,
-  arrange: <AlignCenterHorizontal size={18} />, file: <FileArrowDown size={18} />, view: <MagnifyingGlass size={18} />, delete: <Trash size={18} /> };
+  arrange: <AlignCenterHorizontal size={18} />, frame: <BracketGlyph v="brackets" />, file: <FileArrowDown size={18} />, view: <MagnifyingGlass size={18} />, delete: <Trash size={18} /> };
 // Each action's kind. Kinds make up the sets; the kinds in Display and copy keep this order within it.
-const SET_FOR: Record<string, SetId> = { table: "table", plate: "plate", cycle: "cycle", analysis: "analysis", arrange: "arrange", file: "file", view: "view", turn: "turn", marks: "more", other: "more", library: "more", delete: "delete" };
+const SET_FOR: Record<string, SetId> = { table: "table", plate: "plate", cycle: "cycle", analysis: "analysis", arrange: "arrange", frame: "frame", file: "file", view: "view", turn: "turn", marks: "more", other: "more", library: "more", delete: "delete" };
 const MORE_GROUPS = ["marks", "other", "library"];
 const KIND_OF: Record<string, string> = {
-  select_all: "view", zoom_fit: "view", import: "file",
+  select_all: "view", zoom_fit: "view", import: "file", select_structure: "view",
   "shape.row.before": "table", "shape.col.before": "table", "shape.row.delete": "table", "shape.col.delete": "table", "shape.fit": "table", "shape.clear": "table", "shape.dashed": "table",
   "shape.hide.origin": "plate", "shape.hide.front": "plate", "shape.hide.border": "plate", "cycle.reverse": "cycle", "cycle.ungroup": "cycle",
   properties: "analysis", show_stereo: "analysis", predict_1h: "analysis", predict_13c: "analysis",
-  "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "turn", flatten: "turn",
+  "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "turn", flatten: "turn", rotate_dialog: "turn", scale_dialog: "turn",
   pairs: "marks", number: "marks", atom_numbers: "marks", show_warnings: "marks", "caption.add": "marks", colour_by_element: "marks", aromatic_display: "marks", hydrogen_display: "marks", contract_label: "marks",
   "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "arrange", ungroup: "arrange", group_integral: "arrange",
   arrange_left: "arrange", arrange_centre: "arrange", arrange_right: "arrange", arrange_top: "arrange", arrange_middle: "arrange", arrange_bottom: "arrange",
-  arrange_across: "arrange", arrange_down: "arrange", bring_front: "arrange", send_back: "arrange",
+  arrange_across: "arrange", arrange_down: "arrange", bring_front: "arrange", send_back: "arrange", centre_page: "arrange", join: "arrange",
+  frame_brackets: "frame", frame_parens: "frame", frame_braces: "frame", frame_box: "frame", frame_rounded: "frame", frame_box_shadow: "frame", frame_rounded_shadow: "frame",
   copy_smiles: "library", "template.add": "library", delete: "delete",
 };
 const kindOf = (command: string) => KIND_OF[command] ?? "other";
@@ -244,7 +247,8 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   const it = (icon: React.ReactNode, name: string, command: string, accent?: boolean, small?: boolean): Item => ({ icon, name, command, accent, small });
   const small = (i: Item): Item => ({ ...i, small: true });
   const clean = it(<MagicWand size={18} />, "Clean up structure", "clean_up", messy);
-  const nameIt = it(<TagSimple size={18} />, "Convert structure to name", "structure_to_name");
+  const nameIt = { ...it(<TagSimple size={18} />, "Convert structure to name", "structure_to_name"), short: "Structure to name" };
+  const toStructure = { ...it(<Atom size={18} />, "Convert name to structure", "name_to_structure"), short: "Name to structure" };
   const del = small(it(<Trash size={18} />, "Delete", "delete")); // the last small button in every panel
   // Rotate 180° keeps stereochemistry (arrows round), Flip mirrors it (mirror glyphs).
   const flips = [it(<ArrowsLeftRight size={18} />, "Rotate 180° horizontal", "flip_h", false, true), it(<ArrowsDownUp size={18} />, "Rotate 180° vertical", "flip_v", false, true)];
@@ -255,26 +259,37 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   // The draw order, for every kind of object (Object menu: Bring to Front, Send to Back). On an atom or a bond it moves
   // the whole structure, as the menu command does.
   const order = [it(<StackSimple size={18} />, "Bring to front", "bring_front", false, true), it(<Stack size={18} />, "Send to back", "send_back", false, true)];
+  // The rest of ChemDraw's Object menu, for every object it acts on: Rotate…, Scale…, Centre on Page, Add Frame and
+  // Join (a main action when the selection can join).
+  const rotate = small(it(<Angle size={18} />, "Rotate…", "rotate_dialog")), scale = small(it(<Resize size={18} />, "Scale…", "scale_dialog"));
+  const centre = small(it(<CrosshairSimple size={18} />, "Centre on page", "centre_page"));
+  const frames = ([["frame_brackets", "Brackets", <BracketGlyph v="brackets" />], ["frame_parens", "Parentheses", <BracketGlyph v="parens" />], ["frame_braces", "Braces", <BracketGlyph v="braces" />],
+    ["frame_box", "Rectangle", <ElementGlyph v="box-plain" />], ["frame_rounded", "Rounded rectangle", <ElementGlyph v="rounded-plain" />], ["frame_box_shadow", "Rectangle with shadow", <ElementGlyph v="box-shadow" />],
+    ["frame_rounded_shadow", "Rounded with shadow", <ElementGlyph v="rounded-shadow" />]] as const).map(([command, name, icon]) => small(it(icon, name, command)));
+  const objects = [rotate, scale, centre];
+  const join = (context.kind === "structure" || context.kind === "selection") && context.joinable ? [it(<Unite size={18} />, "Join", "join")] : [];
+  // On an atom or a bond: its whole structure (ChemDraw's Molecule > Select).
+  const whole = small(it(<SelectionPlus size={18} />, "Select structure", "select_structure"));
 
   switch (context.kind) {
     case "empty":
-      items.push(it(<Atom size={18} />, "Convert name to structure", "name_to_structure"), it(<ClipboardText size={18} />, "Paste a SMILES or MOL", "paste_hint"),
+      items.push(toStructure, it(<ClipboardText size={18} />, "Paste a SMILES or MOL", "paste_hint"),
         small(it(<FileArrowDown size={18} />, "Import a structure…", "import")));
       break;
     case "drawing":
-      items.push(clean, ...(context.nameable ? [nameIt] : []), it(<Atom size={18} />, "Convert name to structure", "name_to_structure"), ...flips,
+      items.push(clean, ...(context.nameable ? [nameIt] : []), toStructure, ...flips,
         small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<FileArrowDown size={18} />, "Import a structure…", "import")),
-        small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<CornersOut size={18} />, "Fit to window", "zoom_fit")));
+        small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<CornersOut size={18} />, "Fit to window", "zoom_fit")), centre);
       break;
     case "selection":
-      items.push(...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...turnsAndFlips, ...order, del);
+      items.push(...join, ...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...turnsAndFlips, ...objects, ...order, ...frames, del);
       break;
     case "structure":
       // Sam (17 October 2026): Clean up and Structure to name as rows; every turn, rotation and flip in one sub-menu;
       // what is shown on it, the clipboard and library, and Delete in another.
-      items.push(clean, ...(context.nameable ? [nameIt] : []), ...flips, ...order);
+      items.push(...join, clean, ...(context.nameable ? [nameIt] : []), ...flips, ...order);
       if (context.pairs) items.push(small(it(<SymbolGlyph kind="pair" />, context.pairs === "shown" ? "Hide lone pairs" : "Show lone pairs", "pairs")));
-      items.push(small(it(<ListNumbers size={18} />, context.structures > 1 ? "Number these compounds" : "Number this compound", "number")),
+      items.push(small({ ...it(<ListNumbers size={18} />, context.structures > 1 ? "Number these compounds" : "Number this compound", "number"), short: context.structures > 1 ? "Number compounds" : undefined }),
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
         ...(hiddenWarnings ? [small(it(<Warning size={18} />, "Show warnings", "show_warnings"))] : []),
         small(it(<TextT size={18} />, "Add a caption", "caption.add")),
@@ -282,36 +297,36 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<DotsThree size={18} />, "Line up in a row", "align.row")),
         small(it(<DotsThreeVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
       if (context.depth !== undefined) items.push(small(it(<Cube size={18} />, context.depth ? "Draw flat" : "Draw with depth", "structure_perspective")), small(it(<Square size={18} />, "Flatten", "flatten")));
-      items.push(...mirrors, del);
+      items.push(...mirrors, ...objects, ...frames, del);
       break;
     case "atom":
       items.push(it(<CursorText size={18} />, "Type a label", "atom.label"), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
         ...((context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label)) && context.text?.chemical !== false ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<Faders size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"),
-        ...(hiddenWarnings ? [it(<Warning size={18} />, "Show warnings", "show_warnings")] : []), ...order, del);
+        ...(hiddenWarnings ? [it(<Warning size={18} />, "Show warnings", "show_warnings")] : []), ...order, whole, del);
       break;
     case "bond":
-      if (context.double) items.push(it(<span className="glyph-text">A</span>, "Second line placed automatically", "bond.auto"), it(<span className="glyph-text">L</span>, "Second line on the left", "bond.left"), it(<span className="glyph-text">C</span>, "Centre the double bond", "bond.centre"), it(<span className="glyph-text">R</span>, "Second line on the right", "bond.right"));
+      if (context.double) items.push({ ...it(<span className="glyph-text">A</span>, "Second line placed automatically", "bond.auto"), short: "Automatic position" }, it(<span className="glyph-text">L</span>, "Second line on the left", "bond.left"), it(<span className="glyph-text">C</span>, "Centre the double bond", "bond.centre"), it(<span className="glyph-text">R</span>, "Second line on the right", "bond.right"));
       if (context.flippable) items.push(it(<ArrowUDownLeft size={18} />, "Point the other way", "bond.flip"));
-      items.push(it(<Faders size={18} />, "Bond properties…", "bond.properties"), ...order, del);
+      items.push(it(<Faders size={18} />, "Bond properties…", "bond.properties"), ...order, whole, del);
       break;
     case "caption":
       if (context.mode !== "picked") break;
-      if (context.convertible) items.push(it(<Atom size={18} />, "Convert name to structure", "name_to_structure"));
+      if (context.convertible) items.push(toStructure);
       if (context.count === 1) items.push(it(<PencilSimpleLine size={18} />, "Edit text", "caption.edit"));
       if (context.attached) items.push(it(<LinkBreak size={18} />, "Un-tie from structure", "caption.detach"));
       else if (context.attachable) items.push(it(<LinkSimple size={18} />, "Tie to structure", "caption.attach"));
-      items.push(...order, del);
+      items.push(small(it(<Paragraph size={18} />, "Line spacing…", "line_spacing")), ...turnings, rotate, centre, ...order, del);
       break;
     case "reaction":
       items.push(it(<MagicWand size={18} />, "Clean up reaction", "reaction.clean", !context.clean),
-        it(<ListNumbers size={18} />, "Number these compounds", "number"), small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")),
-        it(<span className="glyph-text">A→A</span>, "Map atoms", "reaction.map"), it(<Table size={18} />, context.grid ? "Remove stoichiometry" : "Analyse stoichiometry", "stoichiometry"), ...(context.mapped ? [small(it(<X size={18} />, "Clear atom map", "reaction.unmap"))] : []), ...turnsAndFlips, ...order, del);
+        { ...it(<ListNumbers size={18} />, "Number these compounds", "number"), short: "Number compounds" }, small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")),
+        it(<span className="glyph-text">A→A</span>, "Map atoms", "reaction.map"), it(<Table size={18} />, context.grid ? "Remove stoichiometry" : "Analyse stoichiometry", "stoichiometry"), ...(context.mapped ? [small(it(<X size={18} />, "Clear atom map", "reaction.unmap"))] : []), ...turnsAndFlips, ...objects, ...order, ...frames, del);
       break;
     case "cycle":
       if (!context.centre) items.push(it(<TextT size={18} />, "Add a centre label", "cycle.centre"));
       items.push(it(<SignIn size={18} />, "Add a reagent coming in", "cycle.in"), it(<SignOut size={18} />, "Add a product going out", "cycle.out"),
         it(<MagicWand size={18} />, "Tidy the cycle", "cycle.tidy"), small(it(<ArrowsCounterClockwise size={18} />, "Reverse the direction", "cycle.reverse")),
-        small(it(<CircleDashed size={18} />, "Remove the cycle", "cycle.ungroup")), ...turnsAndFlips, ...order, del);
+        small(it(<CircleDashed size={18} />, "Remove the cycle", "cycle.ungroup")), ...turnsAndFlips, ...objects, ...order, del);
       break;
     case "shape":
       if (context.shape === "tlc") {
@@ -320,7 +335,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
           it(<span className="glyph-text">Rf</span>, context.rf ? "Hide Rf values" : "Show Rf values", "shape.rf"),
           small(it(<AlignBottomSimple size={18} />, hidden("origin") ? "Show the origin" : "Hide the origin", "shape.hide.origin")),
           small(it(<AlignTopSimple size={18} />, hidden("front") ? "Show the solvent front" : "Hide the solvent front", "shape.hide.front")),
-          small(it(<Rectangle size={18} />, hidden("border") ? "Show the border" : "Hide the border", "shape.hide.border")), ...order, del);
+          small(it(<Rectangle size={18} />, hidden("border") ? "Show the border" : "Hide the border", "shape.hide.border")), scale, centre, ...order, del);
         break;
       }
       if (context.shape === "table") {
@@ -329,31 +344,57 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
           small(it(<RowsPlusTop size={18} />, "Add a row above", "shape.row.before")), small(it(<ColumnsPlusLeft size={18} />, "Add a column before", "shape.col.before")),
           small(it(<Rows size={18} />, context.cell ? "Delete the row" : "Delete the last row", "shape.row.delete")), small(it(<Columns size={18} />, context.cell ? "Delete the column" : "Delete the last column", "shape.col.delete")),
           small(it(<ArrowsInLineHorizontal size={18} />, "Size to fit contents", "shape.fit")), small(it(<Eraser size={18} />, "Clear contents", "shape.clear")),
-          small(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed")), ...order, del);
+          small(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed")), scale, centre, ...order, del);
         break;
       }
       if (isBracket({ kind: context.shape })) items.push(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed"));
-      items.push(...turnsAndFlips, ...order, del);
+      items.push(...turnsAndFlips, ...objects, ...order, del);
       break;
     case "spot":
       items.push(it(<span className="glyph-text">Rf</span>, context.rf ? "Hide its Rf" : "Show its Rf", "spot.rf"), del);
       break;
     case "arrow":
-      if (context.arrow === "orbital") { items.push(it(<Swap size={18} />, "Swap the phases", "orbital.swap"), ...turnsAndFlips, ...order, del); break; }
-      if (context.arrow === "curve") { items.push(it(<Polygon size={18} />, context.closed ? "Open the curve" : "Close the curve", "arrow.closed"), it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...turnsAndFlips, ...order, del); break; }
+      if (context.arrow === "orbital") { items.push(it(<Swap size={18} />, "Swap the phases", "orbital.swap"), ...turnsAndFlips, ...objects, ...order, del); break; }
+      if (context.arrow === "curve") { items.push(it(<Polygon size={18} />, context.closed ? "Open the curve" : "Close the curve", "arrow.closed"), it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...turnsAndFlips, ...objects, ...order, del); break; }
       {
         // A straight arrow or line takes a point, which bends it; a bent one flips its curve, as a curved arrow does.
         const point = context.point === "add" ? [it(<BezierCurve size={18} />, "Add a point", "arrow.point")] : context.point ? [it(<LineSegment size={18} />, "Remove the point", "arrow.point")] : [];
         const flip = context.curved || context.point === "bent" ? [it(<FlipVertical size={18} />, "Flip the curve", "arrow.flip")] : [];
-        if (isLine({ kind: context.arrow })) { items.push(it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...flip, ...point, ...turnsAndFlips, ...order, del); break; }
+        if (isLine({ kind: context.arrow })) { items.push(it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...flip, ...point, ...turnsAndFlips, ...objects, ...order, del); break; }
         if (context.count === 1 && !context.curved) items.push(it(<ArrowLineUp size={18} />, "Add conditions above", "arrow.above"), it(<ArrowLineDown size={18} />, "Add conditions below", "arrow.below"));
-        items.push(it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...flip, ...point, ...turnsAndFlips, ...order, del);
+        items.push(it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...flip, ...point, ...turnsAndFlips, ...objects, ...order, del);
       }
       break;
   }
   return items;
 }
 
+
+// The panel's actions as the user arranged them: rows first, then the small actions set by set. The Actions panel
+// and the right-click menu (ActionsMenu) both show them this way.
+export function arrangedActions(context: Context, messy: boolean, hiddenWarnings: boolean | undefined, grouping: Props["grouping"], layout: Props["layout"]) {
+  const items = actionItems(context, messy, hiddenWarnings);
+  // Group and Ungroup, and Align and Distribute, for any selection of two or more things, as small buttons.
+  if (grouping) items.push(...([["arrange_left", "Align left edges", <AlignLeft size={18} />], ["arrange_centre", "Align left-right centres", <AlignCenterHorizontal size={18} />], ["arrange_right", "Align right edges", <AlignRight size={18} />],
+    ["arrange_top", "Align top edges", <AlignTop size={18} />], ["arrange_middle", "Align top-bottom centres", <AlignCenterVertical size={18} />], ["arrange_bottom", "Align bottom edges", <AlignBottom size={18} />],
+    ["arrange_across", "Distribute horizontally", <ArrowsOutLineHorizontal size={18} />], ["arrange_down", "Distribute vertically", <ArrowsOutLineVertical size={18} />]] as const).map(([command, name, icon]) => ({ icon, name, command, small: true })));
+  if (grouping?.group) items.push({ icon: <BoundingBox size={18} />, name: "Group", command: "group", small: true });
+  if (grouping?.grouped) items.push({ icon: <SelectionSlash size={18} />, name: "Ungroup", command: "ungroup", small: true }, { icon: <LinkSimple size={18} />, name: grouping.integral ? "Let parts be picked" : "Pick as one", command: "group_integral", small: true });
+  // The user's order first (actions it does not know keep their place after it), then their split into rows.
+  const mine = layout[context.kind];
+  if (mine) items.sort((a, b) => {
+    const [i, j] = [mine.order.indexOf(a.command), mine.order.indexOf(b.command)];
+    return i < 0 || j < 0 ? 0 : i - j;
+  });
+  // By default the main actions come first as rows, and the ones marked small follow as small buttons, set by set.
+  if (!mine) items.sort((a, b) => Number(!!a.small) - Number(!!b.small) || (a.small ? SETS.indexOf(setOf(a.command)) - SETS.indexOf(setOf(b.command)) : 0));
+  const split = Math.min(items.length, mine ? mine.rows : items.filter((i) => !i.small).length);
+  const rows = items.slice(0, split), tray = items.slice(split);
+  // The small actions set by set, whatever order they were arranged in.
+  const sets = SETS.map((s) => [s, tray.filter((i) => setOf(i.command) === s)
+    .sort((a, b) => (s === "more" ? MORE_GROUPS.indexOf(kindOf(a.command)) - MORE_GROUPS.indexOf(kindOf(b.command)) : 0))] as const).filter(([, list]) => list.length);
+  return { items, rows, sets };
+}
 
 function Row({ icon, name, command, hint, run, accent }: { icon: React.ReactNode; name: string; command: string; hint?: string; run: (c: string) => void; accent?: boolean }) {
   return (
@@ -438,26 +479,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
   }[context.kind];
   const whole = context.kind === "drawing" || context.kind === "structure";
 
-  const items = actionItems(context, messy, hiddenWarnings);
-  // Group and Ungroup, and Align and Distribute, for any selection of two or more things, as small buttons.
-  if (grouping) items.push(...([["arrange_left", "Align left edges", <AlignLeft size={18} />], ["arrange_centre", "Align left-right centres", <AlignCenterHorizontal size={18} />], ["arrange_right", "Align right edges", <AlignRight size={18} />],
-    ["arrange_top", "Align top edges", <AlignTop size={18} />], ["arrange_middle", "Align top-bottom centres", <AlignCenterVertical size={18} />], ["arrange_bottom", "Align bottom edges", <AlignBottom size={18} />],
-    ["arrange_across", "Distribute horizontally", <ArrowsOutLineHorizontal size={18} />], ["arrange_down", "Distribute vertically", <ArrowsOutLineVertical size={18} />]] as const).map(([command, name, icon]) => ({ icon, name, command, small: true })));
-  if (grouping?.group) items.push({ icon: <BoundingBox size={18} />, name: "Group", command: "group", small: true });
-  if (grouping?.grouped) items.push({ icon: <SelectionSlash size={18} />, name: "Ungroup", command: "ungroup", small: true }, { icon: <LinkSimple size={18} />, name: grouping.integral ? "Let parts be picked" : "Pick as one", command: "group_integral", small: true });
-  // The user's order first (actions it does not know keep their place after it), then their split into rows.
-  const mine = layout[context.kind];
-  if (mine) items.sort((a, b) => {
-    const [i, j] = [mine.order.indexOf(a.command), mine.order.indexOf(b.command)];
-    return i < 0 || j < 0 ? 0 : i - j;
-  });
-  // By default the main actions come first as rows, and the ones marked small follow as small buttons, set by set.
-  if (!mine) items.sort((a, b) => Number(!!a.small) - Number(!!b.small) || (a.small ? SETS.indexOf(setOf(a.command)) - SETS.indexOf(setOf(b.command)) : 0));
-  const split = Math.min(items.length, mine ? mine.rows : items.filter((i) => !i.small).length);
-  const rows = items.slice(0, split), tray = items.slice(split);
-  // The small actions set by set, whatever order they were arranged in.
-  const sets = SETS.map((s) => [s, tray.filter((i) => setOf(i.command) === s)
-    .sort((a, b) => (s === "more" ? MORE_GROUPS.indexOf(kindOf(a.command)) - MORE_GROUPS.indexOf(kindOf(b.command)) : 0))] as const).filter(([, list]) => list.length);
+  const { items, rows, sets } = arrangedActions(context, messy, hiddenWarnings, grouping, layout);
 
   // Drag any action to a new place: along the rows, along the small buttons, or from one to the other.
   function startCarry(e: React.PointerEvent, command: string) {
@@ -860,7 +882,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         return (
           <div ref={subBox}>
             <Menu label={SET_TITLES[sub.set]} className="panel-submenu" columns={1} style={{ position: "fixed", top: sub.top, right: sub.right, left: "auto" }}
-              groups={groups.map((g) => g.map((i) => ({ key: i.command, name: i.name, icon: i.icon })))}
+              groups={groups.map((g) => g.map((i) => ({ key: i.command, name: i.short ?? i.name, icon: i.icon })))}
               onChoose={(command) => { setSub(undefined); run(command); }} />
           </div>
         );
@@ -913,4 +935,80 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       })()}
     </section>
   );
+}
+
+// Right-click (or Control-click, or the Menu key or Shift+F10): the Actions panel as a short menu at the pointer, so
+// nothing lives only here (Sam: no options buried under right-click). Its rows come first, then each set of small
+// actions as one row that opens the set beside it, then Colour, then Delete. Up and down move along it, right opens
+// a set, left closes it, Return chooses and Escape closes.
+type MenuProps = Pick<Props, "context" | "messy" | "hiddenWarnings" | "grouping" | "layout" | "hint" | "run" | "colour" | "palette"> & { at: { x: number; y: number }; keyboard?: boolean; onClose: () => void };
+export function ActionsMenu({ at, keyboard, context, messy, hiddenWarnings, grouping, layout, hint, run, colour, palette, onClose }: MenuProps) {
+  const { rows, sets } = arrangedActions(context, messy, hiddenWarnings, grouping, layout);
+  const [sub, setSub] = useState<{ key: string; top: number; focus: boolean }>();
+  const main = useRef<HTMLDivElement>(null), side = useRef<HTMLDivElement>(null);
+  const item = (i: Item): MenuItem => ({ key: i.command, name: i.short ?? i.name, icon: i.icon, hint: hint(i.command) });
+  const del = sets.find(([s]) => s === "delete")?.[1] ?? [];
+  const groups: MenuItem[][] = [rows.map(item), sets.filter(([s]) => s !== "delete").map(([s]) => ({ key: `set:${s}`, name: SET_TITLES[s], icon: SET_ICONS[s], more: true })),
+    [...(colour ? [{ key: "set:colour", name: "Colour", icon: <Palette size={18} />, more: true }] : []), ...del.map(item)]];
+  // The open set's actions (Display and copy in its kinds' groups), or the colours.
+  const subGroups = (key: string): MenuItem[][] => {
+    if (key === "set:colour") return [[...(colour?.tints ? TINTS : COLOURS), ...palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => ({ key: `colour.${hex}`, name, icon: <span className="pick-swatch" style={{ background: hex }} />, checked: colour?.value.toLowerCase() === hex.toLowerCase() }))];
+    const list = sets.find(([s]) => `set:${s}` === key)?.[1] ?? [];
+    return key === "set:more" ? MORE_GROUPS.map((k) => list.filter((i) => kindOf(i.command) === k).map(item)) : [list.map(item)];
+  };
+  const width = menuWidth(1), left = Math.max(8, Math.min(at.x, innerWidth - width - 8)), subLeft = left + width + 4 + width > innerWidth - 8 ? left - width - 4 : left + width + 4;
+  const open = (key: string, focus: boolean) => {
+    const row = main.current?.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`);
+    if (row) setSub({ key, top: row.getBoundingClientRect().top - 5, focus });
+  };
+  const choose = (key: string) => {
+    if (key.startsWith("set:")) return open(key, true);
+    onClose();
+    run(key);
+  };
+  // A click away, a scroll or the window losing the focus closes it.
+  useEffect(() => {
+    const away = (e: PointerEvent) => { if (!main.current?.contains(e.target as Node) && !side.current?.contains(e.target as Node)) onClose(); };
+    const gone = () => onClose();
+    addEventListener("pointerdown", away, true);
+    addEventListener("wheel", gone, true);
+    addEventListener("blur", gone);
+    addEventListener("resize", gone);
+    return () => { removeEventListener("pointerdown", away, true); removeEventListener("wheel", gone, true); removeEventListener("blur", gone); removeEventListener("resize", gone); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Opened from the keyboard, the first option takes the focus; from the pointer, the menu does (so the arrow keys
+  // work at once). A set opened from the keyboard gives the focus to its first option.
+  useLayoutEffect(() => { (keyboard ? main.current?.querySelector<HTMLElement>(".variant") : main.current)?.focus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => { if (sub?.focus) side.current?.querySelector<HTMLElement>(".variant")?.focus(); }, [sub]);
+  const keys = (e: React.KeyboardEvent, inSide: boolean) => {
+    const focused = (document.activeElement as HTMLElement | null)?.dataset.key;
+    if (e.key === "Escape" || e.key === "ArrowLeft") {
+      e.preventDefault(); e.stopPropagation();
+      if (!inSide && e.key === "Escape") return onClose();
+      if (!inSide) return;
+      const key = sub?.key;
+      setSub(undefined);
+      if (key) main.current?.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`)?.focus();
+      return;
+    }
+    if (e.key === "ArrowRight" && !inSide && focused?.startsWith("set:")) { e.preventDefault(); e.stopPropagation(); return open(focused, true); }
+    if (e.key === "Tab") { e.preventDefault(); return onClose(); }
+    if (listKeys(e, (inSide ? side : main).current!)) return;
+    e.stopPropagation(); // the menu's keys are its own
+  };
+  return createPortal(
+    <>
+      <div ref={main} tabIndex={-1} className="context-menu" onKeyDown={(e) => keys(e, false)} onContextMenu={(e) => e.preventDefault()}
+        // A set opens as the pointer comes onto its row; another row closes it.
+        onPointerOver={(e) => { const key = (e.target as HTMLElement).closest<HTMLElement>("[data-key]")?.dataset.key; if (key && key !== sub?.key) { if (key.startsWith("set:")) open(key, false); else setSub(undefined); } }}>
+        <Menu label="Actions" className="list" placed columns={1} groups={groups.map((g) => g.map((i) => ({ ...i, checked: i.more && sub?.key === i.key })))} onChoose={choose}
+          style={{ position: "fixed", left, top: Math.max(8, Math.min(at.y, innerHeight - 8 - Math.min(innerHeight - 16, groups.flat().length * 32 + 24))), maxHeight: innerHeight - 16, zIndex: 30, transformOrigin: "top left" }} />
+      </div>
+      {sub && (
+        <div ref={side} className="context-menu" onKeyDown={(e) => keys(e, true)} onContextMenu={(e) => e.preventDefault()}>
+          <Menu label={sub.key === "set:colour" ? "Colour" : SET_TITLES[sub.key.slice(4) as SetId]} className="list" placed columns={1} groups={subGroups(sub.key)} onChoose={choose}
+            style={{ position: "fixed", left: subLeft, top: Math.max(8, Math.min(sub.top, innerHeight - 8 - subGroups(sub.key).flat().length * 32 - 24)), maxHeight: innerHeight - 16, zIndex: 31, transformOrigin: subLeft < left ? "top right" : "top left" }} />
+        </div>
+      )}
+    </>, document.body);
 }
