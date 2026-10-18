@@ -2,6 +2,7 @@
 import { fontName, readStyle } from "./docstyle.ts";
 import { normalise, plainOf, type TextRun } from "./richtext.ts";
 import { MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD, POLYMER_ATTRS, PROPERTY_ATTRS, readPictureData } from "./cdxml.ts";
+import { tidyGroups } from "./edit.ts";
 import { ALL_ARROW_KINDS, ORBITAL_SHAPES, PHASES, SHAPE_KINDS, type Annotation, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type Grid, type TableLine, type CellAlign, type Tlc, type Atom, type Bond, type Caption, type Display, type Kept, type Mol } from "./render.ts";
 
 export const FORMAT = "octet";
@@ -259,7 +260,8 @@ export function parse(text: string): Mol {
     });
   }
   if (d.annotations !== undefined) out.annotations = readAnnotations(d.annotations);
-  return out;
+  // Groups as an edit leaves them: each atom and object once, nested or apart, and two or more things in each.
+  return tidyGroups(out);
 }
 
 // Annotations (keyword and content pairs from ChemDraw), checked as the CDXML reader checks them.

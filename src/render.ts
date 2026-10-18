@@ -161,7 +161,8 @@ export type Annotation = { keyword: string; content: string };
 // Everything else is worked out from the reaction as it is drawn (stoich.ts).
 export type Grid = { arrow: number; typed: Record<string, Partial<Record<"mass" | "moles" | "equiv" | "volume" | "density" | "molarity" | "purity" | "measured", number>>>; limiting?: string };
 // A group (Object > Group): atoms and other objects (captions, arrows, shapes, cycles, by id) that select and move as
-// one. An integral group is never split: a click on any part picks all of it.
+// one. Groups nest: a group lists everything in it, the groups inside it too (edit.ts, tidyGroups). An integral group
+// is never split: a click on any part picks all of it.
 export type Group = { id: number; atoms: number[]; items: number[]; integral?: true; annotations?: Annotation[] };
 // Sizes in px: bond length, line width, bold width, double-bond spacing, hash spacing, label margin, label font size.
 // terminal, carbons: label carbons at chain ends (CH3), or every other carbon too; hideH: labels leave off implicit H.
