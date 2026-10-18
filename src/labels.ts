@@ -23,6 +23,22 @@ export const GROUPS: Record<string, string> = {
 };
 const GROUP_NAMES = Object.keys(GROUPS).sort((a, b) => b.length - a.length);
 
+// ChemDraw's generic labels (Insert Generic Label): A, M, Q, X and R, then the 38 Reaxys classes, each with what it
+// stands for. Y, and R with a number (R1 to R99) and primes (R', R''), are generic too. A generic label is a query
+// atom: it is never read as atoms (CYC is not C–Y–C).
+export const GENERICS: [string, string][] = [
+  ["A", "Any atom but H"], ["M", "Metal"], ["Q", "Any atom but C or H"], ["X", "Halogen"], ["R", "Any group"],
+  ["AH", "Any atom or H"], ["MH", "Metal or H"], ["QH", "Any atom but C, or H"], ["XH", "Halogen or H"], ["G", "Any group"], ["GH", "Any group or H"],
+  ["G*", "Any group, ring closure allowed"], ["GH*", "Any group or H, ring closure allowed"], ["ACY", "Acyclic"], ["ACH", "Acyclic or H"],
+  ["ABC", "Carbacyclic"], ["ABH", "Carbacyclic or H"], ["AYL", "Alkynyl"], ["AYH", "Alkynyl or H"], ["ALK", "Alkyl"], ["ALH", "Alkyl or H"],
+  ["AEL", "Alkenyl"], ["AEH", "Alkenyl or H"], ["AHC", "Hetero acyclic"], ["AHH", "Hetero acyclic or H"], ["AOX", "Alkoxy"], ["AOH", "Alkoxy or H"],
+  ["CYC", "Cyclic"], ["CYH", "Cyclic or H"], ["CBC", "Carbocyclic"], ["CBH", "Carbocyclic or H"], ["ARY", "Aryl"], ["ARH", "Aryl or H"],
+  ["CAL", "Cycloalkyl"], ["CAH", "Cycloalkyl or H"], ["CEL", "Cycloalkenyl"], ["CEH", "Cycloalkenyl or H"], ["CHC", "Heterocyclic"], ["CHH", "Heterocyclic or H"],
+  ["HAR", "Heteroaryl"], ["HAH", "Heteroaryl or H"], ["CXX", "No carbon"], ["CXH", "No carbon or H"],
+];
+const GENERIC_NAMES = new Set([...GENERICS.map(([g]) => g), "Y"]);
+export const isGeneric = (label: string) => GENERIC_NAMES.has(label) || /^R([1-9]\d?)?'{0,2}$/.test(label);
+
 export type Unit = { text: string; count?: string; kind: "element" | "group" | "bracket" | "other" };
 
 // Splits a label into units. Groups win over elements where both fit (so "Bu" is butyl, not boron-u).
@@ -73,6 +89,7 @@ const FORMULAS: Record<string, string> = {
 // reversed: when its reverse is a formula above, or when it starts with a group and ends with one heavy atom.
 export function labelSmiles(label: string): string | undefined {
   if (GROUPS[label]) return GROUPS[label];
+  if (isGeneric(label)) return undefined;
   if (FORMULAS[label]) return FORMULAS[label];
   let us = units(label);
   if (!us.length) return undefined;

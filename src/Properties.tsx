@@ -7,6 +7,7 @@ import type { Structure } from "./chem";
 import type { Graph } from "./naming";
 import { elementalAnalysis, isotopePattern } from "./mass";
 import { useMovable } from "./movable";
+import { massText } from "./query";
 
 // What Octet's own calculators (props.ts) give for a structure.
 export type Calculated = {
@@ -25,8 +26,8 @@ const unit = (x: number | undefined, places: number, u: string) => (x === undefi
 export const PROPERTY_ROWS: Row[][] = [
   [
     { key: "formula", name: "Formula", value: (s) => s.formula },
-    { key: "exact", name: "Exact mass", value: (s) => (Number.isFinite(s.exact) ? s.exact.toFixed(4) : undefined) },
-    { key: "weight", name: "Molecular weight", value: (s) => s.weight.toFixed(2) },
+    { key: "exact", name: "Exact mass", value: (s) => (Number.isFinite(s.exact) ? massText(s, "exact", 4) : undefined) },
+    { key: "weight", name: "Molecular weight", value: (s) => massText(s, "weight", 2) },
     { key: "mz", name: "m/z", value: (s) => isotopePattern(s.formula)?.slice(0, 6).map((p) => `${p.mz.toFixed(2)} (${p.rel.toFixed(1)}%)`).join(", ") },
     { key: "analysis", name: "Elemental analysis", value: (s) => elementalAnalysis(s.composition) },
   ],

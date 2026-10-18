@@ -6,6 +6,8 @@ import { labelSmiles } from "./labels.ts";
 import { fragments, levelTurn, subset } from "./edit.ts";
 import { graphOf, type Graph } from "./naming.ts";
 import { clean2d } from "./clean2d.ts";
+import { hasQuery, polymerBrackets, polymerLabel, repeatCount } from "./query.ts";
+import { isQueryMolfile, readV3000, writeV3000 } from "./molv3.ts";
 import { axialLabels } from "./axial.ts";
 import type { StereoFacts } from "./check.ts";
 
@@ -114,6 +116,13 @@ export function importStructure(text: string): Mol {
     opts.set("dearomatize-on-load", "true");
     const hasDrawing = /V2000|V3000|<CDXML|"root"/.test(text);
     if (!hasDrawing) return parseStructure(text);
+    // A V3000 query or Markush file: read by Octet, so its query data is kept (molv3.ts).
+    if (isQueryMolfile(text)) {
+      const mol = readV3000(text);
+      const lengths = mol.bonds.map((b) => Math.hypot(mol.atoms[b.atoms[1]].location[0] - mol.atoms[b.atoms[0]].location[0], mol.atoms[b.atoms[1]].location[1] - mol.atoms[b.atoms[0]].location[1])).sort((a, b) => a - b);
+      const k = 1 / (lengths[Math.floor(lengths.length / 2)] || 1), at = (q: [number, number]): [number, number] => [q[0] * k, q[1] * k];
+      return { ...mol, atoms: mol.atoms.map((a) => ({ ...a, location: [a.location[0] * k, a.location[1] * k, (a.location[2] ?? 0) * k] })), ...(mol.shapes ? { shapes: mol.shapes.map((sh) => ({ ...sh, from: at(sh.from), to: at(sh.to) })) } : {}) };
+    }
     const ket = JSON.parse(JSON.parse(ind.convert(text, "ket", opts)).struct);
     const mol: Mol = { atoms: [], bonds: [] };
     for (const { $ref } of ket.root.nodes as { $ref: string }[]) {
@@ -179,6 +188,14 @@ export const expandLabels = (mol: Mol): Mol => expandWithOrigins(mol).mol;
 export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
   let out: Mol = { atoms: mol.atoms.map((a) => ({ ...a })), bonds: mol.bonds.map((b) => ({ ...b })) };
   const origin = mol.atoms.map((_, i) => i);
+  // A multi-centre attachment (an η bond) is left out of the chemistry, with its bonds. A variable attachment's
+  // substituent is joined to the first of its atoms: every positional isomer has the same formula.
+  mol.atoms.forEach((a, i) => {
+    if (!a.centre) return;
+    const to = a.centre.variable ? a.centre.atoms.find((j) => mol.atoms[j] && !mol.atoms[j].centre) : undefined;
+    out.bonds = out.bonds.flatMap((b) => (!b.atoms.includes(i) ? [b] : to === undefined ? [] : [{ ...b, atoms: b.atoms.map((k) => (k === i ? to : k)) as [number, number] }]));
+    out.atoms[i] = { ...out.atoms[i], label: "*", text: undefined, centre: undefined, removed: true } as Mol["atoms"][number];
+  });
   mol.atoms.forEach((a, i) => {
     if (!a.text) return;
     const frag = labelGroup(a.text);
@@ -234,8 +251,9 @@ function convert(input: string, format: string): string {
   }
 }
 export const toSmiles = (drawn: Mol): string => convert(ketOf(drawn), "smiles");
-// The drawing's molecules as a molfile.
-export const toMolfile = (drawn: Mol): string => convert(ketOf(drawn), "molfile");
+// The drawing's molecules as a molfile. A query or Markush structure is written as V3000 by Octet itself (molv3.ts),
+// with its written labels drawn out as Indigo reads them.
+export const toMolfile = (drawn: Mol): string => (hasQuery(drawn) ? writeV3000(drawn, labelGroup) : convert(ketOf(drawn), "molfile"));
 // CIP labels for a drawing's stereocentres (R, S) and double bonds (E, Z), in its atom and bond order.
 export function cipOf(drawn: Mol): { atoms: (string | undefined)[]; bonds: (string | undefined)[] } | undefined {
   const ind = engine(), opts = new ind.MapStringString();
@@ -369,7 +387,9 @@ export const MOST_CLEAN = MOST_ATOMS;
 // pass: the ms each of the two passes may take for one structure.
 export function cleanUp(mol: Mol, ids?: Set<number>, pass = PASS): Mol {
   const atoms = mol.atoms.map((a) => ({ ...a }));
-  const groups = fragments(mol).filter((frag) => frag.length > 1 && frag.length <= MOST_CLEAN && (!ids?.size || frag.some((i) => ids.has(i))));
+  // Structures joined by bonds alone; one with a multi-centre or variable attachment keeps its place (the attachment
+  // sits at the centre of its atoms).
+  const groups = fragments(mol, false).filter((frag) => frag.length > 1 && frag.length <= MOST_CLEAN && (!ids?.size || frag.some((i) => ids.has(i))) && !frag.some((i) => mol.atoms[i].centre));
   for (const frag of groups) {
     const local = new Map(frag.map((i, k) => [i, k]));
     const bonds = mol.bonds.filter((b) => local.has(b.atoms[0]) && local.has(b.atoms[1]));
@@ -458,7 +478,7 @@ export function mapReaction(reactants: Mol[], products: Mol[]): { reactants: (nu
 // The Chemical Properties panel's values for each structure in a drawing (or a selection): formula, masses and
 // composition from Indigo; Wildman–Crippen logP and molar refractivity from Indigo, one structure at a time (it adds
 // a mixture's together); and the structure's graph for Octet's own calculators (props.ts).
-export type Structure = { formula: string; weight: number; exact: number; composition: string; logP?: number; mr?: number; graph?: Graph };
+export type Structure = { formula: string; weight: number; exact: number; composition: string; logP?: number; mr?: number; graph?: Graph; repeat?: Repeat };
 const structured = new Map<string, Structure | undefined>();
 export function structures(mol: Mol, groups = fragments(mol)): (Structure | undefined)[] | undefined {
   if (!indigo || !mol.atoms.length) return undefined;
@@ -468,6 +488,9 @@ export function structures(mol: Mol, groups = fragments(mol)): (Structure | unde
   try {
     for (const ids of groups.slice(0, 12)) {
       const part = subset(mol, new Set(ids));
+      // A polymer: its repeat units counted as its brackets say (no logP or properties for a polymer).
+      const polymer = polymerValues(part);
+      if (polymer) { out.push(polymer); continue; }
       out.push(remembered(structured, contentOf(part), () => {
         try {
           const ket = ketOf(part, false), calc = JSON.parse(ind.calculate(ket, opts, sel));
@@ -492,16 +515,95 @@ export function structures(mol: Mol, groups = fragments(mol)): (Structure | unde
 // Formula and masses for the drawing or a selection, one entry for each structure in it (the first limit of them),
 // with written labels counted as their atoms. Each structure is worked out on its own and kept by its content.
 // Undefined while Indigo is loading or if it cannot read any structure.
-export type Analysis = { formula: string; weight: number; exact: number }[];
+export type Analysis = { formula: string; weight: number; exact: number; repeat?: Repeat }[];
 const analysed = new Map<string, Analysis | undefined>();
 export function analyse(mol: Mol, limit = Infinity): Analysis | undefined {
   if (!indigo || !mol.atoms.length) return undefined;
   const out: Analysis = [];
   for (const part of pieces(mol)) {
     if (out.length >= limit) break;
+    const polymer = mol.shapes?.some((sh) => sh.polymer) ? polymerValues({ ...part, shapes: mol.shapes }) : undefined;
+    if (polymer) { out.push(polymer); continue; }
     out.push(...(remembered(analysed, contentOf(part), () => analyseAll(part)) ?? []));
   }
   return out.length ? out.slice(0, limit) : undefined;
+}
+
+// A polymer's formula and masses (ChemDraw's Bracket Properties): a multiple group's or parameterizable bracket's atoms
+// counted as many times as it repeats (a parameterizable bracket's Mw sets its count), and an SRU's repeat unit apart
+// from the end groups, as C2H6(C2H4)n. Where a bond crosses an SRU's bracket to a bare carbon with no other bond, the
+// chain goes on: that carbon is not an end group (polyethylene drawn as –[CH2CH2]n– is (C2H4)n, not C4H10).
+// Undefined for a structure with no such brackets. Each atom keeps the hydrogens it has in the whole structure.
+export type Repeat = { label: string; weight: number; exact: number; ends?: { weight: number; exact: number } };
+type Values = { formula: string; weight: number; exact: number; composition: string; repeat?: Repeat };
+function polymerValues(part: Mol): Values | undefined {
+  const brackets = polymerBrackets(part).filter((b) => ["sru", "mult", "param"].includes(b.sh.polymer!.usage));
+  if (!brackets.length || !indigo) return undefined;
+  const ind = indigo, { mol: x, from } = expandWithOrigins(part), used = x.atoms.map(() => 0), deg = part.atoms.map(() => 0);
+  x.bonds.forEach((b) => b.atoms.forEach((i) => (used[i] += ORDER[b.type] ?? 1)));
+  part.bonds.forEach((b) => b.atoms.forEach((i) => deg[i]++));
+  const h = x.atoms.map((a, i) => a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used[i], a.radical === 3 ? 2 : a.radical));
+  const inOf = new Map<number, number>();
+  brackets.forEach((b, k) => b.atoms.forEach((i) => { if (!inOf.has(i)) inOf.set(i, k); }));
+  const open = new Set(part.atoms.flatMap((a, i) => (!inOf.has(i) && a.label === "C" && !a.text && !a.charge && !a.isotope && deg[i] === 1
+    && part.bonds.some((b) => b.atoms.includes(i) && inOf.has(b.atoms[0] === i ? b.atoms[1] : b.atoms[0])) ? [i] : [])));
+  // Formula, masses and composition of some of the expanded atoms, from Indigo.
+  const calc = (atoms: number[]) => {
+    if (!atoms.length) return { counts: {} as Record<string, number>, weight: 0, exact: 0, masses: {} as Record<string, number> };
+    const local = new Map(atoms.map((i, k) => [i, k]));
+    const ket = JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule",
+      atoms: atoms.map((i) => ({ label: x.atoms[i].label, location: x.atoms[i].location, implicitHCount: h[i], ...(x.atoms[i].charge ? { charge: x.atoms[i].charge } : {}), ...(x.atoms[i].isotope ? { isotope: x.atoms[i].isotope } : {}) })),
+      bonds: x.bonds.filter((b) => local.has(b.atoms[0]) && local.has(b.atoms[1])).map((b) => ({ type: Math.min(3, b.type), atoms: [local.get(b.atoms[0]), local.get(b.atoms[1])] })) } });
+    const opts = new ind.MapStringString(), sel = new ind.VectorInt();
+    try {
+      const r = JSON.parse(ind.calculate(ket, opts, sel)), weight = Number(r["molecular-weight"]), comp = String(r["mass-composition"]).trim().split(/\s+/), masses: Record<string, number> = {};
+      for (let k = 0; k + 1 < comp.length; k += 2) masses[comp[k]] = (masses[comp[k]] ?? 0) + (Number(comp[k + 1]) * weight) / 100;
+      const counts = formulaCounts(String(r["gross-formula"]));
+      return counts && Number.isFinite(weight) ? { counts, weight, exact: Number(r["monoisotopic-mass"]), masses } : undefined;
+    } catch { return undefined; } finally { opts.delete(); sel.delete(); }
+  };
+  const ends = calc(x.atoms.map((_, j) => j).filter((j) => !inOf.has(from[j]) && !open.has(from[j])));
+  const units = brackets.map((b, k) => ({ p: b.sh.polymer!, v: calc(x.atoms.map((_, j) => j).filter((j) => inOf.get(from[j]) === k)) }));
+  if (!ends || units.some((u) => !u.v)) return undefined;
+  // Numbered repeats are counted into the rest; the first SRU or label repeat stays as its unit and label.
+  const rest = { counts: { ...ends.counts }, weight: ends.weight, exact: ends.exact, masses: { ...ends.masses } };
+  let symbolic: { label: string; v: NonNullable<ReturnType<typeof calc>> } | undefined, more = "";
+  for (const u of units) {
+    const k = repeatCount(u.p, u.v!.weight);
+    if (k === undefined) {
+      const label = polymerLabel(u.p) || "n";
+      if (!symbolic) symbolic = { label, v: u.v! }; else more += `(${hill(u.v!.counts)})${label}`;
+      continue;
+    }
+    for (const [el, c] of Object.entries(u.v!.counts)) rest.counts[el] = (rest.counts[el] ?? 0) + k * c;
+    for (const [el, w] of Object.entries(u.v!.masses)) rest.masses[el] = (rest.masses[el] ?? 0) + k * w;
+    rest.weight += k * u.v!.weight;
+    rest.exact += k * u.v!.exact;
+  }
+  const compose = (masses: Record<string, number>, weight: number) => Object.entries(masses).map(([el, w]) => `${el} ${((100 * w) / (weight || 1)).toFixed(2)}`).join(" ");
+  if (!symbolic) return { formula: hill(rest.counts), weight: rest.weight, exact: rest.exact, composition: compose(rest.masses, rest.weight) };
+  const hasRest = Object.keys(rest.counts).length > 0;
+  return {
+    formula: `${hasRest ? hill(rest.counts) : ""}(${hill(symbolic.v.counts)})${symbolic.label}${more}`, weight: rest.weight + symbolic.v.weight, exact: rest.exact + symbolic.v.exact,
+    composition: compose(symbolic.v.masses, symbolic.v.weight),
+    repeat: { label: symbolic.label, weight: symbolic.v.weight, exact: symbolic.v.exact, ...(hasRest ? { ends: { weight: rest.weight, exact: rest.exact } } : {}) },
+  };
+}
+// "C2 H4" as element counts.
+function formulaCounts(f: string): Record<string, number> | undefined {
+  const out: Record<string, number> = {};
+  for (const t of f.trim().split(/\s+/)) {
+    const m = /^([A-Z][a-z]?)(\d*)$/.exec(t);
+    if (!m) return t ? undefined : out;
+    out[m[1]] = (out[m[1]] ?? 0) + (m[2] ? Number(m[2]) : 1);
+  }
+  return out;
+}
+// Element counts in Hill order (C, H, then by symbol; by symbol alone with no carbon), fractional counts to 2 places.
+function hill(counts: Record<string, number>): string {
+  const els = Object.keys(counts).filter((el) => counts[el] > 1e-9).sort((a, b) => a.localeCompare(b, "en"));
+  const order = counts.C ? ["C", ...(counts.H ? ["H"] : []), ...els.filter((e) => e !== "C" && e !== "H")] : els;
+  return order.map((el) => { const n = counts[el], t = Math.abs(n - Math.round(n)) < 1e-9 ? String(Math.round(n)) : String(+n.toFixed(2)); return el + (t === "1" ? "" : t); }).join("");
 }
 // Each structure (atoms joined by bonds) on its own, in the drawing's order, with no atom left out.
 function pieces(mol: Mol): Mol[] {
@@ -518,7 +620,7 @@ function pieces(mol: Mol): Mol[] {
   return parts;
 }
 // A structure's content as text: what its formula, masses and properties come from (not where it is drawn).
-const contentOf = (m: Mol) => JSON.stringify([m.atoms.map((a) => [a.label, a.text, a.charge, a.isotope, a.radical, a.implicitHCount]), m.bonds.map((b) => [b.type, b.stereo, b.atoms])]);
+const contentOf = (m: Mol) => JSON.stringify([m.atoms.map((a) => [a.label, a.text, a.charge, a.isotope, a.radical, a.implicitHCount, a.centre]), m.bonds.map((b) => [b.type, b.stereo, b.atoms])]);
 // A value kept by its key, so it is worked out only once. The store is cleared when it grows large.
 function remembered<T>(store: Map<string, T>, key: string, make: () => T): T {
   if (store.has(key)) return store.get(key) as T;

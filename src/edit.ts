@@ -214,14 +214,21 @@ export const setPosition = (m: Mol, i: number, position: "left" | "centre" | "ri
 // Swaps a bond's ends, so a wedge points the other way.
 export const flipBond = (m: Mol, i: number) => setBondAt(m, i, { atoms: [m.bonds[i].atoms[1], m.bonds[i].atoms[0]] });
 
-// Removes atoms (and their bonds), then any bare carbons left with no bonds.
+// Removes atoms (and their bonds), then any bare carbons left with no bonds, and any multi-centre or variable
+// attachment left with fewer than two of its atoms.
 function removeAtoms(m: Mol, gone: Set<number>): Mol {
-  const bonds = m.bonds.filter((b) => !gone.has(b.atoms[0]) && !gone.has(b.atoms[1]));
-  const used = new Set(bonds.flatMap((b) => b.atoms));
-  m.atoms.forEach((a, i) => { if (!used.has(i) && a.label === "C" && !a.charge) gone.add(i); });
+  let bonds = m.bonds;
+  for (let size = -1; size !== gone.size;) {
+    size = gone.size;
+    bonds = m.bonds.filter((b) => !gone.has(b.atoms[0]) && !gone.has(b.atoms[1]));
+    const used = new Set(bonds.flatMap((b) => b.atoms));
+    m.atoms.forEach((a, i) => {
+      if (a.centre ? a.centre.atoms.filter((j) => !gone.has(j)).length < 2 : !used.has(i) && a.label === "C" && !a.charge) gone.add(i);
+    });
+  }
   const map = new Map<number, number>();
-  const atoms = m.atoms.filter((_, i) => !gone.has(i));
   m.atoms.forEach((_, i) => { if (!gone.has(i)) map.set(i, map.size); });
+  const atoms = m.atoms.filter((_, i) => !gone.has(i)).map((a) => renumberCentre(a, map));
   // Captions under a structure follow its atoms' new numbers, and go when all of its atoms go.
   const captions = m.captions?.flatMap((c) => {
     if (!c.under) return [c];
@@ -236,6 +243,13 @@ function removeAtoms(m: Mol, gone: Set<number>): Mol {
   const kept = new Set(cycles?.map((c) => c.id));
   return tidyGroups({ ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || kept.has(c.cycle.cycle)), cycles,
     groups: m.groups?.map((g) => ({ ...g, atoms: g.atoms.filter((i) => map.has(i)).map((i) => map.get(i)!) })) });
+}
+
+// An atom with its multi-centre or variable attachment's atoms renumbered by map (those not in it left out).
+export function renumberCentre(a: Atom, map: Map<number, number> | ((i: number) => number | undefined)): Atom {
+  if (!a.centre) return a;
+  const to = typeof map === "function" ? map : (i: number) => map.get(i);
+  return { ...a, centre: { ...a.centre, atoms: a.centre.atoms.map(to).filter((i): i is number => i !== undefined) } };
 }
 
 // Groups nest, as ChemDraw's do. A group lists every atom and object in it (those of the groups in it too), so two
@@ -470,7 +484,7 @@ export function merge(m: Mol, frag: Mol, offset: P): Mol {
   const base = m.atoms.length;
   return {
     ...m,
-    atoms: [...m.atoms, ...frag.atoms.map((a) => ({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }))],
+    atoms: [...m.atoms, ...frag.atoms.map((a) => renumberCentre({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }, (i) => i + base))],
     bonds: [...m.bonds, ...frag.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number] }))],
   };
 }
@@ -570,9 +584,11 @@ export function onSelection(m: Mol, ids: Set<number>, p: P, r = 0.45): boolean {
   return h.some((a, k) => segDist(p, a, h[(k + 1) % h.length]) <= r);
 }
 
-// Groups of connected atoms.
-export function fragments(m: Mol): number[][] {
+// Groups of connected atoms. A multi-centre or variable attachment joins its atoms' structure (ferrocene is one
+// structure), unless attached is false.
+export function fragments(m: Mol, attached = true): number[][] {
   const near = bondedTo(m), seen = new Set<number>(), out: number[][] = [];
+  if (attached) m.atoms.forEach((a, i) => { for (const j of a.centre?.atoms ?? []) if (near[j]) { near[i].push(j); near[j].push(i); } });
   m.atoms.forEach((_, start) => {
     if (seen.has(start)) return;
     const group: number[] = [], stack = [start];
@@ -1146,7 +1162,7 @@ export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>)
   const captions = (m.captions ?? []).filter((c) => (c.under ? c.under.every((i) => map.has(i)) : c.on ? keep.has(c.on.arrow) : c.cycle ? keep.has(c.cycle.cycle) : keep.has(c.id)));
   const ids = new Set([...keep, ...captions.map((c) => c.id)]);
   return {
-    atoms: sel.map((i) => ({ ...m.atoms[i] })),
+    atoms: sel.map((i) => renumberCentre({ ...m.atoms[i] }, map)),
     bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] as [number, number] })),
     captions: captions.map((c) => ({ ...c, ...(c.under ? { under: c.under.map((i) => map.get(i)!) } : {}) })),
     arrows, shapes: (m.shapes ?? []).filter((x) => items.has(x.id)),
@@ -1165,7 +1181,7 @@ export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
   const by = (q: [number, number]): [number, number] => [q[0] + offset[0], q[1] + offset[1]];
   const mol: Mol = {
     ...m,
-    atoms: [...m.atoms, ...add.atoms.map((a) => ({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }))],
+    atoms: [...m.atoms, ...add.atoms.map((a) => renumberCentre({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }, at))],
     bonds: [...m.bonds, ...add.bonds.map((b) => ({ ...b, atoms: [at(b.atoms[0]), at(b.atoms[1])] as [number, number] }))],
     arrows: [...(m.arrows ?? []), ...(add.arrows ?? []).map((a) => ({ ...a, id: ids.get(a.id)!, from: by(a.from), to: by(a.to),
       ...(a.curve ? { curve: { ...a.curve, points: a.curve.points.map((q) => ({ at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) }))],

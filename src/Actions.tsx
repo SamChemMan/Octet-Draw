@@ -13,6 +13,7 @@ import {
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
+import { massText } from "./query";
 import { Menu, Pick, type MenuItem } from "./Menu";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
@@ -495,9 +496,9 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       </header>
 
       {facts.current && whole && facts.current.slice(0, 3).map((a, k) => (
-        <button key={k} className="facts" onClick={() => run(`copy_text:${a.formula}, ${a.weight.toFixed(2)} g/mol`)} title={`${Number.isFinite(a.exact) ? `Exact mass ${a.exact.toFixed(4)}. ` : ""}Click to copy.`}>
+        <button key={k} className="facts" onClick={() => run(`copy_text:${a.formula}, ${massText(a, "weight", 2)} g/mol`)} title={`${Number.isFinite(a.exact) ? `Exact mass ${massText(a, "exact", 4)}. ` : ""}Click to copy.`}>
           <span className="formula">{formula(a.formula)}</span>
-          <span>{a.weight.toFixed(2)} g/mol</span>
+          <span>{massText(a, "weight", 2)} g/mol</span>
         </button>
       ))}
 

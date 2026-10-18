@@ -1,0 +1,190 @@
+// Run: node src/query.check.ts. Fails loudly if a query or Markush feature (CH-16 to CH-19) is read wrongly, or is
+// lost on a round trip through Octet's file, CDXML (Octet's own and as ChemDraw keeps it) or MOL V3000.
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fromCdxml, toCdxml } from "./cdxml.ts";
+import { DEFAULT_STYLE } from "./docstyle.ts";
+import { deleteAtoms, extractSelection, fragments, insertMol, merge, subset } from "./edit.ts";
+import { parse, serialize } from "./file.ts";
+import { isQueryMolfile, readV3000, writeV3000 } from "./molv3.ts";
+import {
+  altGroup, atomIndicator, bondIndicator, elementList, enclosed, GENERICS, hasQuery, isGeneric, linkNode, massText, placeAttachments, polymerLabel, polymerTags, queryLabel, repeatCount, rgroupMembers,
+} from "./query.ts";
+import { labelSmiles } from "./labels.ts";
+import type { Atom, Bond, Mol, Shape } from "./render.ts";
+
+const A = (label: string, x: number, y: number, more: Partial<Atom> = {}): Atom => ({ label, location: [x, y, 0], ...more });
+const b = (i: number, j: number, more: Partial<Bond> = {}): Bond => ({ type: 1, atoms: [i, j], ...more });
+
+// Labels: ChemDraw's 43 generic labels, R numbers, element and NOT lists, link nodes and anonymous alternative groups.
+assert.equal(GENERICS.length, 43);
+for (const g of ["A", "Q", "M", "X", "R", "R1", "R12", "R'", "G*", "GH*", "CYC", "ALK", "CXH"]) assert.ok(isGeneric(g), g);
+for (const g of ["R0", "R100", "Ph", "C", "Cy"]) assert.ok(!isGeneric(g), g);
+assert.equal(labelSmiles("CYC"), undefined, "a generic label is never read as atoms (not C–Y–C)");
+assert.equal(labelSmiles("CHC"), undefined);
+assert.deepEqual(elementList("[Cl, Br, I]"), { not: false, elements: ["Cl", "Br", "I"] });
+assert.deepEqual(elementList("Cl,Br"), { not: false, elements: ["Cl", "Br"] }, "brackets are optional");
+assert.deepEqual(elementList("[NOT O, S]"), { not: true, elements: ["O", "S"] });
+assert.deepEqual(elementList("[-N]"), { not: true, elements: ["N"] }, "a minus sign for NOT");
+assert.equal(elementList("[Cl]"), undefined, "one element is an element, not a list");
+assert.equal(elementList("[CH3, OMe]"), undefined);
+assert.deepEqual(altGroup("[CH3, CH2OH, Ph]"), ["CH3", "CH2OH", "Ph"]);
+assert.deepEqual(linkNode("[CH2]3-7"), { element: "C", h: 2, low: 3, high: 7 });
+assert.deepEqual(linkNode("O1-3"), { element: "O", h: 0, low: 1, high: 3 });
+assert.deepEqual(linkNode("(CH2)2-4"), { element: "C", h: 2, low: 2, high: 4 });
+assert.equal(linkNode("[CH2]5-3"), undefined, "the range must rise");
+assert.deepEqual(["R1", "[Cl,Br]", "[CH2]1-5", "[OMe, Ph]", "OMe", undefined].map(queryLabel), ["generic", "list", "link", "alt", undefined, undefined]);
+console.log("query.check: labels ok");
+
+// Indicators, as ChemDraw draws them.
+assert.equal(atomIndicator({ subst: { kind: "free", n: 2 } }), "*2");
+assert.equal(atomIndicator({ subst: { kind: "upto", n: 3 }, noH: true, rings: "simple", unsat: "present", change: true, stereo: "inversion", translation: "broad" }), "U3HRSCTL");
+assert.equal(atomIndicator({ subst: { kind: "exactly", n: 1 }, valence: true, abundance: "natural" }), "X1", "abnormal valence and abundance have none");
+assert.equal(bondIndicator({ query: "sd", topology: "ring", rxn: "makebreak" }), "S/D Rng Rxn");
+assert.equal(bondIndicator({ query: "any", topology: "either" }), "Any R/C");
+// Polymer labels and counts.
+assert.deepEqual([polymerLabel({ usage: "sru" }), polymerLabel({ usage: "sru", label: "m" }), polymerLabel({ usage: "mult", label: "3" }), polymerLabel({ usage: "c", order: 2 }), polymerLabel({ usage: "co" }), polymerLabel({ usage: "gen" })],
+  ["n", "m", "3", "c2", "co", ""]);
+assert.equal(polymerTags({ usage: "sru", pattern: "hh", flip: "flip" }), "hh flip");
+assert.deepEqual([repeatCount({ usage: "mult" }), repeatCount({ usage: "mult", label: "2.5" }), repeatCount({ usage: "param", label: "3-5" }), repeatCount({ usage: "param", mw: 200 }, 78.11), repeatCount({ usage: "sru" })],
+  [2, 2.5, 4, 200 / 78.11, undefined]);
+assert.equal(massText({ weight: 58.12, exact: 58.08, repeat: { label: "n", weight: 28.05, exact: 28.03, ends: { weight: 30.07, exact: 30.05 } } }, "weight", 2), "30.07 + (28.05)n");
+console.log("query.check: indicators and polymer labels ok");
+
+// A query drawing with every CH-16 to CH-19 feature: a scaffold with query atoms and bonds, an R1, an element list, a
+// link node, an anonymous alternative group, a variable attachment on a ring, ferrocene's multi-centre attachments, an
+// R-group definition with two fragments and R-Logic, and polyethylene in SRU brackets.
+const ring = (cx: number, cy: number, n: number, r = 1) => Array.from({ length: n }, (_, k) => A("C", cx + r * Math.cos((2 * Math.PI * k) / n), cy + r * Math.sin((2 * Math.PI * k) / n)));
+const atoms: Atom[] = [
+  A("C", 0, 0, { query: { subst: { kind: "exactly", n: 3 }, noH: true, rings: "simple", unsat: "present", change: true, stereo: "retention", translation: "narrow", abundance: "enriched", valence: true } }), // 0
+  A("N", 1, 0, { query: { subst: { kind: "free", n: 0 } } }), // 1
+  A("C", 2, 0.5, { text: "R1" }), // 2
+  A("C", 2, -0.5, { text: "[Cl,Br,I]" }), // 3
+  A("C", -1, 0.5, { text: "[CH2]1-3", query: { subst: { kind: "upto", n: 2 } } }), // 4
+  A("C", -2, 0, { text: "[OMe, Ph]" }), // 5
+  ...ring(0, -4, 6), // 6–11: benzene for the variable attachment
+  A("C", 0, -4, { centre: { atoms: [6, 7, 8], variable: true } }), // 12
+  A("Br", 1.5, -2.5), // 13
+  ...ring(8, 1.5, 5, 0.85), // 14–18: a Cp ring
+  ...ring(8, -1.5, 5, 0.85), // 19–23: the other
+  A("C", 8, 1.5, { centre: { atoms: [14, 15, 16, 17, 18] } }), // 24
+  A("C", 8, -1.5, { centre: { atoms: [19, 20, 21, 22, 23] } }), // 25
+  A("Fe", 8, 0), // 26
+  // R1's definition: a methyl (attached by a mark) and a chlorine (attached by itself).
+  A("C", 15, 1), A("C", 14, 1, { attach: true }), A("Cl", 15, -0.5), // 27–29
+  // Polyethylene: open ends and two CH2 in SRU brackets.
+  A("C", 0, -9), A("C", 1, -9), A("C", 2, -9), A("C", 3, -9), // 30–33
+];
+const bonds: Bond[] = [
+  b(0, 1, { query: "sd", topology: "ring", rxn: "makebreak" }), b(1, 2, { query: "any", rxn: "nochange" }), b(1, 3, { query: "da", type: 2, topology: "chain" }), b(0, 4, { query: "sa" }), b(4, 5),
+  b(6, 7, { type: 2 }), b(7, 8), b(8, 9, { type: 2 }), b(9, 10), b(10, 11, { type: 2 }), b(11, 6), b(12, 13),
+  b(14, 15), b(15, 16), b(16, 17), b(17, 18), b(18, 14), b(19, 20), b(20, 21), b(21, 22), b(22, 23), b(23, 19), b(24, 26), b(25, 26),
+  b(27, 28),
+  b(30, 31), b(31, 32), b(32, 33),
+];
+const shapes: Shape[] = [
+  { id: 1, kind: "box", from: [13, 2], to: [16.5, -1.5], rgroup: { name: "R1", occur: "1-3", restH: true } },
+  { id: 2, kind: "brackets", from: [0.5, -8.4], to: [2.5, -9.6], polymer: { usage: "sru", pattern: "hh" } },
+];
+const drawing: Mol = { atoms, bonds, shapes };
+assert.ok(hasQuery(drawing));
+assert.ok(!hasQuery({ atoms: [A("C", 0, 0)], bonds: [] }));
+// Ferrocene is one structure; the R-group's fragments are found in its box; the SRU encloses the middle two carbons.
+const frags = fragments(drawing);
+assert.ok(frags.some((f) => [14, 19, 24, 25, 26].every((i) => f.includes(i))), "ferrocene is one structure");
+assert.deepEqual(rgroupMembers(drawing, frags)[0].members.map((f) => [...f].sort((p, q) => p - q)), [[27, 28], [29]]);
+assert.deepEqual(enclosed(drawing, shapes[1]), { atoms: [31, 32], crossing: [25, 27] });
+console.log("query.check: drawing ok");
+
+// Attachments keep their atoms through edits: deleting, copying and pasting renumber them; an attachment left with
+// fewer than two atoms goes; it stays at the centre of its atoms.
+const gone = deleteAtoms(drawing, new Set([0]));
+assert.deepEqual(gone.atoms.find((a) => a.centre?.variable)!.centre!.atoms, [5, 6, 7]);
+const noRing = deleteAtoms(drawing, new Set([14, 15, 16, 17]));
+assert.equal(noRing.atoms.filter((a) => a.centre).length, 2, "the Cp attachment goes with its ring");
+assert.equal(deleteAtoms({ atoms: [A("C", 0, 0), A("C", 1, 0), A("C", 0.5, 0, { centre: { atoms: [0, 1] } })], bonds: [b(0, 1)] }, new Set()).atoms.length, 3, "an attachment with no bond stays");
+const copy = extractSelection(drawing, new Set([6, 7, 8, 9, 10, 11, 12, 13]), new Set());
+assert.deepEqual(copy.atoms[6].centre!.atoms, [0, 1, 2]);
+assert.deepEqual(merge(drawing, copy, [0, 0]).atoms[drawing.atoms.length + 6].centre!.atoms, [34, 35, 36]);
+assert.deepEqual(insertMol(drawing, copy, [5, 5]).mol.atoms[drawing.atoms.length + 6].centre!.atoms, [34, 35, 36]);
+assert.deepEqual(subset(drawing, new Set([12, 13])).atoms.map((a) => a.label), ["Br"], "an attachment without its atoms is not copied");
+const moved = placeAttachments({ ...drawing, atoms: drawing.atoms.map((a, i) => (i >= 14 && i <= 18 ? { ...a, location: [a.location[0] + 1, a.location[1], 0] } : a)) });
+assert.deepEqual(moved.atoms[24].location.slice(0, 2).map((v) => +v.toFixed(6)), [9, 1.5]);
+console.log("query.check: attachments through edits ok");
+
+// What a round trip must keep: each atom's label, query and attachment, each bond's query, the shapes' meanings.
+const facts = (m: Mol) => ({
+  atoms: m.atoms.map((a) => [a.label, a.text, a.query, a.centre, a.attach]),
+  bonds: m.bonds.map((x) => [x.atoms, x.type, x.query, x.topology, x.rxn]),
+  shapes: (m.shapes ?? []).map((s) => [s.kind, s.rgroup, s.polymer]),
+});
+const same = (a: Mol, z: Mol, what: string) => assert.deepEqual(facts(a), facts(z), what);
+
+// Octet's own file (JSON) keeps everything.
+same(parse(serialize(drawing)), drawing, "Octet's file");
+assert.throws(() => parse(serialize(drawing).replace('"atoms": [\n     6', '"atoms": [\n     99')), /damaged/, "an attachment to an atom the file does not have");
+
+// CDXML, Octet's own file: everything comes back exactly.
+const text = toCdxml(drawing, DEFAULT_STYLE);
+same(fromCdxml(text).mol, drawing, "CDXML read back");
+assert.deepEqual(fromCdxml(text).lost, {});
+// What ChemDraw reads: the query attributes, query bond orders, node types and the polymer and R-group objects.
+for (const want of [/SubstituentsExactly="3"/, /ImplicitHydrogens="yes"/, /RingBondCount="SimpleRing"/, /UnsaturatedBonds="MustBePresent"/, /RxnChange="yes"/, /RxnStereo="Retention"/,
+  /Translation="Narrow"/, /IsotopicAbundance="Enriched"/, /AbnormalValence="yes"/, /FreeSites="0"/, /SubstituentsUpTo="2"/, /Order="1 2"/, /Order="any"/, /Order="2 1.5"/, /Order="1 1.5"/,
+  /Topology="Ring"/, /Topology="Chain"/, /RxnParticipation="MakeOrBreak"/, /RxnParticipation="NoChange"/, /NodeType="NamedAlternativeGroup"/, /NodeType="ElementList"\s[^>]*ElementList="17 35 53"/,
+  /NodeType="LinkNode"\s[^>]*LinkCountLow="1"\s+LinkCountHigh="3"/, /NodeType="AnonymousAlternativeGroup"/, /NodeType="VariableAttachment"/, /NodeType="MultiAttachment"/, /<altgroup\s[^>]*Valence="1"/,
+  /<rlogicitem\s[^>]*RLogicGroup="R1"\s+RLogicOccurrence="1-3"\s+RLogicIfThenGroup=""\s+RLogicRestH="yes"/, /BracketUsage="SRU"\s+PolymerRepeatPattern="HeadToHead"/, /Name="bracketusage"/, /Name="polymerrepeat"/,
+  /<bracketedgroup\s[^>]*BracketUsage="SRU"/, /<crossingbond/]) assert.match(text, want);
+assert.doesNotMatch(text, /RectangleType/, "an R-group box is its alternative group, not a rectangle");
+// The same file with Octet's own data gone, as after ChemDraw saves it: the meaning comes back from ChemDraw's fields.
+const bare = fromCdxml(text.replace(/ Octet="[^"]*"/g, "").replace(/\n Octet='[^']*'/g, "").replace(/CreationProgram="[^"]*"/, ""));
+const chemdraw = bare.mol;
+assert.deepEqual(chemdraw.atoms.slice(0, 6).map((a) => [a.text, a.query]), atoms.slice(0, 6).map((a) => [a.text, a.query]));
+assert.deepEqual(chemdraw.atoms.filter((a) => a.centre).map((a) => a.centre), atoms.filter((a) => a.centre).map((a) => a.centre));
+assert.deepEqual(chemdraw.bonds.slice(0, 4).map((x) => [x.query, x.topology, x.rxn, x.type]), bonds.slice(0, 4).map((x) => [x.query, x.topology, x.rxn, x.type]));
+assert.deepEqual(chemdraw.shapes?.map((s) => [s.rgroup, s.polymer]), shapes.map((s) => [s.rgroup, s.polymer]));
+// ChemDraw keeps the connection point Octet wrote for the chlorine: it comes back as the chlorine's attachment mark.
+assert.equal(chemdraw.atoms.length, atoms.length + 1);
+const cl = chemdraw.atoms.findIndex((a) => a.label === "Cl");
+assert.ok(chemdraw.bonds.some((x) => x.atoms.includes(cl) && chemdraw.atoms[x.atoms[0] === cl ? x.atoms[1] : x.atoms[0]].attach));
+console.log("query.check: CDXML ok");
+
+// ChemDraw's own bracket meaning: a multiple group with its count in a tag, a parameterizable bracket, a component.
+const cdxml = (inner: string) => `<?xml version="1.0"?><CDXML BondLength="14.4"><page id="1" BoundingBox="0 0 540 720"><fragment id="2"><n id="3" p="100 100"/><n id="4" p="114 100"/><b id="5" B="3" E="4"/></fragment>${inner}</page></CDXML>`;
+const pair = (attrs: string, kids: string) => `<graphic id="10" BoundingBox="95 110 95 90" GraphicType="Bracket" BracketType="Square"${attrs}>${kids}</graphic><graphic id="11" BoundingBox="119 90 119 110" GraphicType="Bracket" BracketType="Square"/>`;
+const tag = (name: string, t: string) => `<objecttag id="7" TagType="Unknown" Name="${name}"><t p="0 0"><s font="3" size="7.5">${t}</s></t></objecttag>`;
+assert.deepEqual(fromCdxml(cdxml(pair(' BracketUsage="MultipleGroup"', tag("bracketusage", "3")))).mol.shapes?.[0].polymer, { usage: "mult", label: "3" });
+assert.deepEqual(fromCdxml(cdxml(pair(' BracketUsage="MultipleGroup"', tag("parameterizedBracketLabel", "2-4") + tag("molecularWeightOverride", "200")))).mol.shapes?.[0].polymer, { usage: "param", label: "2-4", mw: 200 });
+assert.deepEqual(fromCdxml(cdxml(pair(' BracketUsage="Component"', tag("bracketusage", "c2")))).mol.shapes?.[0].polymer, { usage: "c", order: 2 });
+assert.deepEqual(fromCdxml(cdxml(pair(' BracketUsage="CopolymerAlternating" PolymerFlipType="Flip"', ""))).mol.shapes?.[0].polymer, { usage: "alt", flip: "flip" });
+// The corpus's own bracketed group (a multiple group of 1) reads with its count, and is no longer reported lost.
+const corpus = `${process.env.HOME}/octet-research/corpus/sam/R+D figure 1 copy.cdxml`;
+try {
+  const r = fromCdxml(readFileSync(corpus, "utf8"));
+  assert.ok(!("bracket meaning" in r.lost));
+  assert.deepEqual(r.mol.shapes?.filter((s) => s.polymer).map((s) => s.polymer), [{ usage: "param", label: "n" }], "a multiple group with a parameterized label is parameterizable");
+} catch (e) { if ((e as { code?: string }).code !== "ENOENT") throw e; }
+console.log("query.check: ChemDraw bracket meanings ok");
+
+// MOL V3000: written by Octet, and read back by Octet with every MDL query feature kept.
+const mol = writeV3000(drawing);
+assert.ok(isQueryMolfile(mol));
+for (const want of [/^M {2}V30 1 C [-\d.]+ [-\d.]+ [-\d.]+ 0 HCOUNT=-1 SUBST=3 RBCNT=2 UNSAT=1 EXACHG=1 INVRET=2$/m, / SUBST=-2/, /^M {2}V30 \d+ R# .* RGROUPS=\(1 1\)/m, /^M {2}V30 \d+ \[Cl,Br,I\] /m,
+  /^M {2}V30 \d+ 5 1 2 TOPO=1 RXCTR=4$/m, /^M {2}V30 \d+ 8 2 3 RXCTR=2$/m, /^M {2}V30 \d+ 7 2 4 TOPO=2$/m, /^M {2}V30 \d+ 6 1 5$/m, /ENDPTS=\(3 7 8 9\) ATTACH=ANY/, /ENDPTS=\(5 15 16 17 18 19\) ATTACH=ALL/,
+  /^M {2}V30 LINKNODE 1 3 2 5 1 5 6$/m, /^M {2}V30 1 SRU 0 ATOMS=\(2 \d+ \d+\) XBONDS=\(2 \d+ \d+\) BRKXYZ=/m, /CONNECT=HH/, /^M {2}V30 BEGIN RGROUP 1$/m, /^M {2}V30 RLOGIC 0 1 1-3$/m,
+  /^M {2}V30 BEGIN RGROUP 2$/m, /ATTCHPT=1/]) assert.match(mol.replace(/-\nM {2}V30 /g, ""), want);
+assert.ok(mol.split("\n").every((l) => l.length <= 80), "no line over 80 characters");
+const back = readV3000(mol);
+// The anonymous alternative group came back as an R-group of its own (MOL has none); the rest as drawn.
+assert.equal(back.atoms[5].text, "R2");
+assert.deepEqual(back.atoms.slice(0, 5).map((a) => [a.label, a.text]), atoms.slice(0, 5).map((a) => [a.label, a.text]));
+assert.deepEqual(back.atoms[0].query, { subst: { kind: "exactly", n: 3 }, noH: true, rings: "simple", unsat: "present", change: true, stereo: "retention" }, "what MDL can hold of atom 0");
+assert.deepEqual(back.atoms[1].query, { subst: { kind: "free", n: 0 } });
+assert.deepEqual(back.bonds.slice(0, 4).map((x) => [x.query, x.topology, x.rxn, x.type]), bonds.slice(0, 4).map((x) => [x.query, x.topology, x.rxn, x.type]));
+assert.deepEqual(back.atoms.filter((a) => a.centre).map((a) => a.centre), atoms.filter((a) => a.centre).map((a) => a.centre));
+assert.deepEqual(back.shapes?.filter((s) => s.polymer).map((s) => s.polymer), [{ usage: "sru", pattern: "hh" }]);
+assert.deepEqual(back.shapes?.filter((s) => s.rgroup).map((s) => s.rgroup), [{ name: "R1", occur: "1-3", restH: true }, { name: "R2" }]);
+// Read back, the drawing writes the same molfile again (the R-groups' fragments laid out afresh).
+const placeless = (t: string) => t.replace(/-\nM {2}V30 /g, "").replace(/^(M {2}V30 \d+ \S+) [-\d.]+ [-\d.]+ [-\d.]+/gm, "$1").replace(/BRKXYZ=\([^)]*\)/g, "");
+assert.equal(placeless(writeV3000(back)), placeless(mol), "a second round trip is stable");
+console.log("query.check: MOL V3000 ok");

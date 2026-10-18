@@ -761,6 +761,13 @@ export default function Editor() {
   // Puts a new fragment in place and selects it.
   function place(frag: Mol, base: Mol = doc, at?: P) {
     if (!frag.atoms.length) throw new Error("It has no atoms.");
+    // A query file's R-group boxes and polymer brackets come with its atoms.
+    if (frag.shapes?.length) {
+      const r = insertMol(base, frag, landing(frag, at));
+      set(r.mol);
+      setSelection(r.atoms);
+      return setPicked(r.items);
+    }
     set(merge(base, frag, landing(frag, at)));
     setSelection(new Set(frag.atoms.map((_, i) => base.atoms.length + i)));
   }

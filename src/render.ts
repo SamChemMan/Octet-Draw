@@ -36,14 +36,41 @@ export type Atom = {
   circle?: true; // Toggle Aromatic Display: an aromatic ring whose atoms all have this is drawn with a circle
   number?: string; // Show Atom Number: the number drawn beside the atom
   order?: number; // the draw order of the atom's structure (order.ts); unset draws it in its layer
+  query?: AtomQuery; // ChemDraw's atom query properties (Atom Properties), for a database search
+  // A multi-centre attachment (an η ligand's bond goes to all these atoms) or, with variable, a variable attachment
+  // (a substituent on one of these atoms, a positional isomer). The atom has no label: it sits at the centre of its
+  // atoms, and a bond to it is drawn from there. Atom numbers, as in the drawing.
+  centre?: { atoms: number[]; variable?: true };
 };
+// ChemDraw's atom query properties; unset is ChemDraw's default for each. subst: Substituents, as Free Sites (as drawn
+// plus up to n more), Up To n or Exactly n (0 to 15). noH: Implicit Hydrogens not allowed. rings: Ring Bond Count.
+// unsat: Unsaturation. change: Reaction Change must be as specified. stereo: Reaction Stereo. valence: Abnormal Valence
+// allowed.
+export type AtomQuery = {
+  subst?: { kind: "free" | "upto" | "exactly"; n: number };
+  noH?: true;
+  rings?: "none" | "drawn" | "simple" | "fusion" | "spiro";
+  unsat?: "absent" | "present";
+  change?: true;
+  stereo?: "inversion" | "retention";
+  translation?: "broad" | "narrow" | "any";
+  abundance?: "any" | "natural" | "enriched" | "deficient" | "nonnatural";
+  valence?: true;
+};
+// ChemDraw's bond query properties. query: the bond types a search accepts (Any, Single or Double, Single or Aromatic,
+// Double or Aromatic); the bond is drawn as its type says. topology: Ring, Chain, or Ring or Chain. rxn: Reaction
+// Center (Center, Make/Break, Change, Make & Change, Not Center, Not Modified, Unmapped).
+export type BondQuery = Pick<Bond, "query" | "topology" | "rxn">;
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 // On a double bond: bold makes the main line bold, dashed the second line dashed, either crosses the two lines.
 // A double bond's dashed (ChemDraw's Tautomeric: the second line dashed) and aromatic (both lines dashed) displays.
 export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow" | "either" | "aromatic";
 // position: where a double bond's second line goes, looking from atoms[0] to atoms[1]; unset means automatic.
 // ignoreWarnings: Display Warnings off for this bond (ChemDraw's IgnoreWarnings): its problems are not marked.
-export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string; ignoreWarnings?: true };
+export type Bond = {
+  type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string; ignoreWarnings?: true;
+  query?: "any" | "sd" | "sa" | "da"; topology?: "ring" | "chain" | "either"; rxn?: "centre" | "makebreak" | "change" | "makechange" | "not" | "nochange" | "unmapped";
+};
 // A caption: free text at x, y (bond lengths, y up; the text's anchor point by its alignment), or, with under
 // set, kept centred under those atoms by the ACS rule (baseline 15 pt below the structure's ink box).
 // Captions under the same structure stack one line apart, in id order.
@@ -151,7 +178,18 @@ export type Shape = {
   // style (an Rf value is 0.8 of its size).
   font?: string; size?: number; bold?: true; italic?: true; underline?: true;
   ignoreWarnings?: true; // Display Warnings off for a pair of brackets (ChemDraw's IgnoreWarnings): its problem is not marked
+  polymer?: Polymer; // a pair of brackets' meaning (ChemDraw's Bracket Properties)
+  // An R-group definition (ChemDraw's alternative group): a box titled with its name (R1), the structures in it the
+  // fragments R1 stands for, and its R-Logic (occurrence, Rest H, and the R-group that must then be present too).
+  rgroup?: { name: string; occur?: string; restH?: true; then?: string };
 };
+// A bracket's usage, ChemDraw's Bracket Usage: SRU (n), monomer, mer, copolymer (and its alternating, random and block
+// kinds), crosslink, graft, modification, component, unordered and ordered mixture, multiple group (#), generic,
+// anypolymer, and parameterizable (a label, count or range, or a molecular weight). label: an SRU's label (unset is n),
+// a multiple group's repeat count, a parameterizable bracket's label. order: a component's number. pattern: how the
+// repeating units join, unset head-to-tail. flip: a ladder polymer's flip type. mw: a parameterizable bracket's Mw or Mn.
+export type BracketUsage = "sru" | "mon" | "mer" | "co" | "alt" | "ran" | "blk" | "xl" | "grf" | "mod" | "c" | "mix" | "f" | "mult" | "gen" | "anyp" | "param";
+export type Polymer = { usage: BracketUsage; label?: string; order?: number; pattern?: "hh" | "eu"; flip?: "noflip" | "flip"; mw?: number };
 // A shadow: how far it falls down and right and how soft its edge is (bond lengths), and how dark it is (0 to 1).
 export type Shade = { depth: number; blur: number; opacity: number };
 export const SHADE: Shade = { depth: 0.12, blur: 0, opacity: 0.35 };
