@@ -54,6 +54,13 @@ export function common(runs: TextRun[], start: number, end: number): RunStyle {
   return Object.fromEntries(KEYS.filter((k) => picked.every((s) => s[k] === picked[0][k]) && picked[0][k] !== undefined).map((k) => [k, picked[0][k]])) as RunStyle;
 }
 
+// A caption as a whole: its own style, with the style all its runs share over it (a font picked for the whole caption,
+// or Subscript on it, moves its bold, italic and underline into the runs). What the style buttons show for it.
+export const whole = <T extends { text: string; runs?: TextRun[] }>(c: T): T & RunStyle => (c.runs?.length ? { ...c, ...common(c.runs, 0, c.text.length) } : c);
+// The runs without the styles named, so a style set on the whole caption shows on all of it.
+export const without = (runs: TextRun[], keys: string[]): TextRun[] =>
+  normalise(runs.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !keys.includes(k))) as TextRun));
+
 // The runs after the text was typed to `next`: what changed is found by the longest common start and end, and
 // new characters take `pending` (a style set with nothing selected) or the style of the character before them.
 export function edited(runs: TextRun[], next: string, pending?: RunStyle): TextRun[] {
