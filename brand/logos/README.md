@@ -3,7 +3,8 @@
 The mark is a regular octagon with a regular hexagon cut out of it (same centre, hexagon point up). It is rebuilt as exact vector geometry from the master PSD (99.7% pixel overlap at 1500 px; every edge within 1 px).
 
 - Logo Blue: **#213C99** (from the PSD)
-- Icon tile: cream **#F3F0E9**, no stroke, no shadow
+- Icon tile: cream **#F3F0E9**, no shadow
+- Black (#000000) stroke right on the tile edge, inside it: 10 px on a 1024 px canvas (1%), never thinner than 1 px. Full-bleed squares (Icon Composer, Apple touch icon, maskable PWA icon) have no stroke, because the system cuts the edge off
 - Wordmark: "octet", Instrument Sans Medium (500), −0.03em, ink #0F172A (outlined in the SVGs)
 
 ## Install in the app (Tauri)
