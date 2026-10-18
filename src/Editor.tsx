@@ -882,12 +882,27 @@ export default function Editor() {
     // A query file's R-group boxes and polymer brackets, and a reaction's arrows and plus signs, come with its atoms.
     if (frag.shapes?.length || frag.arrows?.length || frag.captions?.length) {
       const r = insertMol(base, frag, landing(frag, at));
-      set(r.mol);
+      set(frag.arrows?.length ? laidOut(r.mol, (frag.arrows ?? []).map((a) => r.ids.get(a.id)!)) : r.mol);
       setSelection(r.atoms);
       return setPicked(r.items);
     }
     set(merge(base, frag, landing(frag, at)));
     setSelection(new Set(frag.atoms.map((_, i) => base.atoms.length + i)));
+  }
+  // A reaction that came in (a file or text with arrows) laid out as Clean Up Reaction lays it out, measured as it will
+  // be drawn. arrowIds: its arrows.
+  function laidOut(m: Mol, arrowIds: number[]): Mol {
+    const d = render(m, frame, measure, L), box = (b?: Box): Box | undefined => b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L];
+    const width = (t: string, c: Caption) => textWidth(t, (c.size ?? style.captionSize) * pt, c.bold, c.italic, fontStack(c.font ?? style.captionFont));
+    const caps = placeCaptions(m, d, width, m.arrows ?? [], pt, style.captionSize), done = new Set<number>();
+    for (const id of arrowIds) {
+      if (done.has(id)) continue;
+      const r = findReaction(m, id, m.arrows ?? [], (atoms) => box(union(atoms.filter((i) => d.ink[i]).map((i) => d.ink[i]))), (cid) => box(caps.find((c) => c.id === cid)?.box));
+      if (!r) continue;
+      r.arrows.forEach((a) => done.add(a));
+      m = cleanUpReaction(m, r, m.arrows ?? []);
+    }
+    return m;
   }
   // Name to structure (⇧⌘N), from what is in hand, as ChemDraw does: the caption or lone atom label being typed or
   // picked becomes its structure, in its place. Text that is not a name opens the name field with that text. With
