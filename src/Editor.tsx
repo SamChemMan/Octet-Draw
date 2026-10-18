@@ -64,7 +64,7 @@ import { iupacName } from "./namer";
 setNamer(iupacName);
 import { loadTemplates, newTemplate, templateKind } from "./templates";
 import { formulaRuns } from "./labels";
-import { common, edited, lines as richLines, normalise, plainOf, runsOf, styleRange, styled, type RunStyle, type TextRun } from "./richtext";
+import { common, edited, lines as richLines, normalise, plainOf, runsOf, styleRange, styled, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
 import { Dialog } from "./Dialog";
 import "./editor.css";
@@ -1626,8 +1626,11 @@ export default function Editor() {
     if (!picked.size) return tool === "text" ? setTextStyle((s) => ({ ...s, ...change(s) })) : undefined;
     const first = doc.captions?.find((c) => picked.has(c.id));
     if (!first) return;
-    const delta = change(first); // one change for all, so Bold on a mixed set makes them all bold
-    set({ ...doc, captions: doc.captions?.map((c) => (picked.has(c.id) ? { ...c, ...delta } : c)) }, true);
+    // One change for all, so Bold on a mixed set makes them all bold. It is on the whole of each caption, so its runs
+    // lose that style.
+    const delta = change(whole(first)), keys = Object.keys(delta);
+    const restyled = (c: Caption): Caption => { const runs = c.runs && without(c.runs, keys); return { ...c, ...delta, ...(c.runs ? { runs: runs && styled(runs) ? runs : undefined } : {}) }; };
+    set({ ...doc, captions: doc.captions?.map((c) => (picked.has(c.id) ? restyled(c) : c)) }, true);
   }
   // Moves the selected atoms and the moving captions. A caption under a structure that is not moving comes
   // away from it and stays where it is dragged.
@@ -2552,8 +2555,8 @@ export default function Editor() {
     if (!selection.size && picked.size) {
       const cs = (doc.captions ?? []).filter((c) => picked.has(c.id)), c = cs[0];
       if (c) {
-        const p = placed.find((x) => x.id === c.id);
-        return { kind: "caption", mode: "picked", colour: c.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!c.bold, italic: !!c.italic, underline: !!c.underline, size: c.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: c.font ?? style.captionFont, fonts: fontList };
+        const p = placed.find((x) => x.id === c.id), w = whole(c);
+        return { kind: "caption", mode: "picked", colour: c.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList };
       }
     }
     if (!selection.size) return doc.atoms.length || doc.captions?.length || doc.arrows?.length || doc.shapes?.length ? { kind: "drawing", nameable } : { kind: "empty" };
