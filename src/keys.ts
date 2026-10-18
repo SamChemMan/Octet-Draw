@@ -54,8 +54,10 @@ export const ACTIONS: Action[] = [
   any("nudge.up10", "Move the selection up 10 pt, or the highlight about three bonds up", "Selection"), any("nudge.down10", "Move the selection down 10 pt, or the highlight about three bonds down", "Selection"),
   any("rotate.ccw15", "Turn the selection 15° anticlockwise", "Selection"), any("rotate.cw15", "Turn the selection 15° clockwise", "Selection"),
   any("rotate.ccw1", "Turn the selection 1° anticlockwise", "Selection"), any("rotate.cw1", "Turn the selection 1° clockwise", "Selection"),
-  any("tilt.left", "Turn the selection 12° in 3D, front to the left", "Selection"), any("tilt.right", "Turn the selection 12° in 3D, front to the right", "Selection"),
-  any("tilt.up", "Turn the selection 12° in 3D, front up", "Selection"), any("tilt.down", "Turn the selection 12° in 3D, front down", "Selection"),
+  any("tilt.left", "Turn the selection 12° in 3D to the left, or move the highlight to the next structure left", "Selection"),
+  any("tilt.right", "Turn the selection 12° in 3D to the right, or move the highlight to the next structure right", "Selection"),
+  any("tilt.up", "Turn the selection 12° in 3D up, or move the highlight to the next structure up", "Selection"),
+  any("tilt.down", "Turn the selection 12° in 3D down, or move the highlight to the next structure down", "Selection"),
   any("edit.delete", "Delete the selection, or what is under the pointer", "Edit"),
 ];
 

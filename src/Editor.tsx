@@ -2226,7 +2226,11 @@ export default function Editor() {
     }
     if (kind === "rotate" && selection.size) return set(rotateAtoms(doc, selection, (arg.startsWith("ccw") ? 1 : -1) * Number(arg.replace(/\D/g, ""))), true);
     // Shift+Option+arrows (ChemDraw's): a 12° turn in 3D about the middle of the selection, left and right about the
-    // vertical axis and up and down about the horizontal one, the front going the way of the arrow.
+    // vertical axis and up and down about the horizontal one, the front going the way of the arrow. With nothing
+    // selected they move the hotspot to the nearest structure that way.
+    if (kind === "tilt" && !selection.size && !picked.size && (atom !== undefined || bond !== undefined)) {
+      return keyHot(jumpHot(doc, { atom, bond }, arg === "left" ? [-1, 0] : arg === "right" ? [1, 0] : arg === "up" ? [0, 1] : [0, -1], true));
+    }
     if (kind === "tilt" && selection.size) {
       const ps = [...selection].filter((i) => i < doc.atoms.length).map((i) => doc.atoms[i].location);
       const centre = [0, 1, 2].map((k) => (Math.min(...ps.map((q) => q[k] ?? 0)) + Math.max(...ps.map((q) => q[k] ?? 0))) / 2) as [number, number, number];

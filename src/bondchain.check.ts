@@ -1,6 +1,6 @@
 // Run: node src/bondchain.check.ts. Fails loudly if the bond and chain tools stop acting as ChemDraw's do.
 import assert from "node:assert/strict";
-import { EMPTY, addChain, chainPoints, chainTo, clickBond, dragBond, nextSide, pos, snake, sprout, type BondSpec, type P } from "./edit.ts";
+import { EMPTY, addChain, chainPoints, chainTo, clickBond, dragBond, jumpHot, merge, nextSide, pos, snake, sprout, type BondSpec, type P } from "./edit.ts";
 import type { Mol } from "./render.ts";
 
 const SOLID: BondSpec = { type: 1 }, BOLD: BondSpec = { type: 1, display: "bold" }, DASHED: BondSpec = { type: 1, display: "dashed" };
@@ -117,3 +117,10 @@ const turned = path.length;
 path = snake([0, 0], path, [0.9, 0.5]);
 assert.ok(path.length < turned && path.length >= 1, "going back takes atoms off");
 console.log("bondchain.check: chain tool ok");
+
+// CORE-16: Shift+Option+arrow moves the hotspot to the nearest atom of another structure that way, round past the edge.
+const pair = merge(merge(ethane, ethane, [4, 0]), ethane, [-8, 0]);
+assert.equal(jumpHot(pair, { atom: 1 }, [1, 0], true).atom, 2);
+assert.equal(jumpHot(pair, { atom: 1 }, [-1, 0], true).atom! >= 4, true, "to the structure on the left");
+assert.deepEqual(jumpHot(ethane, { atom: 1 }, [1, 0], true), { atom: 1 }, "no other structure: it stays");
+console.log("bondchain.check: hotspot to the next structure ok");

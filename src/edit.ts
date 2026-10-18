@@ -309,6 +309,7 @@ export function nextSide(m: Mol, k: number, side: number): "left" | "centre" | "
 // - On a triple bond a single bond tool sets its single bond.
 export function clickBond(m: Mol, k: number, spec: BondSpec, at: P, side = 0): Mol {
   const b = m.bonds[k], cycle = () => setPosition(m, k, nextSide(m, k, side));
+  if (b.type === 10) return m; // a hydrogen bond (KET's type 10) stays as it is, as in ChemDraw
   if (spec.type > 1) return spec.type === 2 && sameStyle(b, spec) ? cycle() : sameStyle(b, spec) ? m : setBondSpec(m, k, spec);
   if (b.type === 1) {
     if (!sameStyle(b, spec)) return pointed(spec) ? pointedAt(m, k, spec, at) : setBondSpec(m, k, spec);
@@ -783,16 +784,18 @@ export function walkHot(m: Mol, hot: Hot, dir: P): Hot {
   return sa < sb - 1e-9 ? { atom: a } : sb < sa - 1e-9 ? { atom: b } : hot;
 }
 // Shift+arrow: to the atom of the same structure nearest a point about three bonds (2.45 bond lengths) that way.
-// Past the structure's edge it comes round from the other side.
-export function jumpHot(m: Mol, hot: Hot, dir: P): Hot {
+// Past the structure's edge it comes round from the other side. other (Shift+Option+arrow, ChemDraw 22's): to the
+// nearest atom of another structure instead, coming round past the edge of the drawing.
+export function jumpHot(m: Mol, hot: Hot, dir: P, other = false): Hot {
   const ends = hot.bond !== undefined ? m.bonds[hot.bond].atoms : hot.atom !== undefined ? [hot.atom] : [];
   if (!ends.length) return hot;
   const at = mul(ends.reduce((s, k) => add(s, pos(m, k)), [0, 0] as P), 1 / ends.length), group = fragments(m).find((g) => g.includes(ends[0]))!;
   const inside = new Set(group), bonds = m.bonds.filter((b) => inside.has(b.atoms[0]));
   const step = 2.45 * (bonds.reduce((s, b) => s + len(sub(pos(m, b.atoms[1]), pos(m, b.atoms[0]))), 0) / (bonds.length || 1) || 1), target = add(at, mul(dir, step));
-  const span = [0, 1].map((k) => Math.max(...group.map((i) => pos(m, i)[k])) - Math.min(...group.map((i) => pos(m, i)[k])) + step);
+  const pool = other ? m.atoms.flatMap((a, i) => (inside.has(i) || a.centre ? [] : [i])) : group, all = other ? m.atoms.map((_, i) => i) : group;
+  const span = [0, 1].map((k) => Math.max(...all.map((i) => pos(m, i)[k])) - Math.min(...all.map((i) => pos(m, i)[k])) + step);
   let best: number | undefined, near = Infinity;
-  for (const i of group) {
+  for (const i of pool) {
     if (i === hot.atom) continue;
     const p = pos(m, i);
     for (const k of [0, 1]) if (dir[k] && Math.sign(p[k] - at[k]) === -Math.sign(dir[k])) p[k] += Math.sign(dir[k]) * span[k];
