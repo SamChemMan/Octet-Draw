@@ -24,8 +24,9 @@ The brief's principle still holds in spirit: download, install, draw.
 ## How it is built (17 October 2026)
 
 - Home greets the user by name and time of day ("Welcome to Octet" on the first visit, "Welcome back" after a
-  week away). New drawing is the first tile; recent drawings follow as pictures; Open… is beside them. File >
-  Home returns to it. Return makes a new drawing; the arrow keys move between tiles.
+  week away). New is the first row: Paper, Thesis, Slides and Poster, then the user's own purposes (decision 0007);
+  recent drawings follow as pictures; Open… is beside New. File >
+  Home returns to it. Return makes a new drawing for the purpose picked last; the arrow keys move between tiles.
 - First launch asks the user's name (in the dotted frame of a selected group; Skip leaves it out), then opens
   a new drawing with the tutorial (src/Coach.tsx). A card at the top of the page gives one step at a time: draw
   two bonds, add a ring, label an atom O, hold to select, hold to move, clean up, copy. The user does each step

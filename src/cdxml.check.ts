@@ -2,8 +2,9 @@
 // accepts a bad file.
 import assert from "node:assert/strict";
 import { DAMAGED, NOT_CDXML, TOO_BIG, fmt, fmtAngle, fmtColour, fmtSize, fromCdxml, parseXml, toCdxml, type Xml } from "./cdxml.ts";
-import { DEFAULT_STYLE, PRESETS, readStyle, type DocStyle } from "./docstyle.ts";
+import { DEFAULT_STYLE, PRESETS, readStyle, withScale, type DocStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
+import { fitSizes } from "./edit.ts";
 import { HIGHLIGHT, ellipseArrow, headOfLength, headsOf, takesHeads, tlcLayout, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape } from "./render.ts";
 
 // Numbers as ChemDraw writes them (spec 1.2).
@@ -401,9 +402,9 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
   assert.equal(({} as Record<string, unknown>).x, undefined);
   // Bad numbers, ids and references: those objects are dropped and counted, the rest read.
   const bad = fromCdxml(`<CDXML><page><fragment><n id="1" p="NaN 0"/><n id="2" p="1e999 0"/><n id="3" p="10 10" Charge="99" Element="999"/><n id="4" p="20 10"/><b B="3" E="7"/><b B="3" E="3"/><b B="3" E="4"/><b B="4" E="3"/></fragment>
-<t p="0 0"><s font="3" size="500">a\u0001b\tc</s></t><arrow id="9" Head3D="x"/><curve CurvePoints="1 2 3"/><graphic GraphicType="Rectangle" BoundingBox="0 0"/><unknownthing/></page></CDXML>`);
+<t p="0 0"><s font="3" size="5000">a\u0001b\tc</s></t><arrow id="9" Head3D="x"/><curve CurvePoints="1 2 3"/><graphic GraphicType="Rectangle" BoundingBox="0 0"/><unknownthing/></page></CDXML>`);
   assert.deepEqual([bad.mol.atoms.length, bad.mol.bonds.length, bad.mol.atoms[0].label, bad.mol.atoms[0].charge], [2, 1, "C", undefined]);
-  assert.deepEqual(bad.mol.captions?.map((c) => [c.text, c.size]), [["ab c", 144]]);
+  assert.deepEqual(bad.mol.captions?.map((c) => [c.text, c.size]), [["ab c", 999]]);
   assert.deepEqual(bad.lost, { atom: 2, charge: 1, bond: 3, arrow: 1, curve: 1, graphic: 1, unknownthing: 1 });
   parse(serialize(bad.mol));
   // Octet's own data is checked like the rest: wrong kinds, types and sizes are ignored.
@@ -504,4 +505,57 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
   assert.deepEqual([fromCdxml(arText).mol.bonds[0].type, fromCdxml(arText).mol.bonds[0].display], [2, "aromatic"]);
   assert.equal(fromCdxml(arText.replace('Order="1.5"', 'Order="2"').replace(/\s+Display2="Dash"/, "")).mol.bonds[0].display, "aromatic");
   console.log("cdxml.check: delocalised rings, dashed and aromatic doubles ok");
+}
+
+// Decision 0007: a structure, an arrow and a box at 200%, in a document at 250%. ChemDraw sees each object's own
+// settings and the document's true sizes; Octet reads its own scales back exactly, and another program's from
+// LineWidth when every width agrees with it.
+{
+  const m: Mol = {
+    atoms: [A("C", 0, 0, { scale: 2 }), A("O", 1.732, 1, { scale: 2, size: 12 }), A("N", 3.464, 0, { scale: 2 }), A("C", 0, -3), A("C", 1, -3)],
+    bonds: [b(0, 1), b(1, 2, { type: 2 }), b(3, 4)],
+    arrows: [{ id: 1, kind: "reaction", from: [5, 0], to: [8, 0], scale: 2 }],
+    shapes: [{ id: 2, kind: "box", from: [0, 4], to: [3, 2], scale: 2 }],
+  };
+  const text = toCdxml(m, DEFAULT_STYLE), bondsXml = text.match(/<b\s[^>]*\/>/g)!;
+  for (const x of bondsXml.slice(0, 2)) assert.match(x, /BondLength="28.80"\s+LineWidth="1.20"\s+BoldWidth="4"\s+HashSpacing="5"\s+MarginWidth="3.20"/, "a scaled bond's own settings");
+  assert.doesNotMatch(bondsXml[2], /LineWidth/, "a bond at 100% has none");
+  assert.match(text, /<n\s[^>]*LabelSize="24"[^>]*><t\s[^>]*><s [^>]*size="24"[^>]*>O</, "the O label at its own 12 pt times 2");
+  assert.match(text, /<arrow\s[^>]*LineWidth="1.20"\s+BoldWidth="4"/);
+  assert.match(text, /<graphic\s[^>]*GraphicType="Rectangle"[^>]*LineWidth="1.20"\s+BoldWidth="4"/);
+  const same = (x: Mol) => [x.atoms.map((a) => [a.scale, a.size]), x.arrows?.map((a) => a.scale), x.shapes?.map((s) => s.scale)];
+  const want = [[[2, undefined], [2, 12], [2, undefined], [undefined, undefined], [undefined, undefined]], [2], [2]];
+  assert.deepEqual(same(fromCdxml(text).mol), want, "Octet's own file: scales and the own label size back exactly");
+  const chemdraw = fromCdxml(text.replace(/ Octet="[^"]*"/g, "").replace(/CreationProgram="[^"]*"/, ""));
+  assert.deepEqual(same(chemdraw.mol), want, "ChemDraw's copy: scales from LineWidth");
+  assert.deepEqual(chemdraw.lost, {});
+  // The document's scale: true sizes for ChemDraw, the scale and the preset's name for Octet.
+  const poster = withScale(DEFAULT_STYLE, 2.5), posterText = toCdxml(m, poster);
+  assert.match(posterText, /LabelSize="25"[^>]*CaptionSize="25"\s+HashSpacing="6.25"\s+MarginWidth="4"\s+LineWidth="1.50"\s+BoldWidth="5"\s+BondLength="36"/);
+  assert.deepEqual([fromCdxml(posterText).style.scale, fromCdxml(posterText).style.preset], [2.5, "ACS Document 1996"]);
+  // Bonds whose settings do not give one scale keep 1, and what is not kept is listed: a bond with only HashSpacing
+  // (Sam's files have them), widths that disagree, and a bond's own spacing.
+  const one = (attrs: string) => fromCdxml(`<CDXML BondLength="14.40" LineWidth="0.60" BoldWidth="2" HashSpacing="2.50" MarginWidth="1.60" BondSpacing="18"><page><fragment>
+<n id="1" p="100 100"/><n id="2" p="114.4 100"/><b id="3" B="1" E="2" ${attrs}/></fragment></page></CDXML>`);
+  const hashOnly = one(`BondLength="30" HashSpacing="2.70" BondSpacing="12"`);
+  assert.deepEqual([hashOnly.mol.atoms.map((a) => a.scale), hashOnly.lost], [[undefined, undefined], { "bond settings": 1, "bond spacing": 1 }]);
+  assert.deepEqual(one(`LineWidth="1.20" BoldWidth="2"`).lost, { "bond settings": 1 });
+  assert.deepEqual(one(`LineWidth="0.90" BoldWidth="3.02" HashSpacing="3.75"`).mol.atoms.map((a) => a.scale), [1.5, 1.5], "agreeing within 2%");
+  // A TLC plate's widths: its scale from them, or listed once when they disagree (it was counted twice).
+  const plate = (attrs: string) => fromCdxml(`<CDXML BondLength="14.40" LineWidth="0.60" BoldWidth="2"><page><tlcplate id="5" TopLeft="100 100" TopRight="200 100"
+ BottomRight="200 300" BottomLeft="100 300" ${attrs}><tlclane id="6"><tlcspot id="7" Rf="0.5"/></tlclane></tlcplate></page></CDXML>`);
+  assert.deepEqual([plate(`LineWidth="1.20" BoldWidth="4"`).mol.shapes?.[0].scale, plate(`LineWidth="1.20" BoldWidth="2"`).lost], [2, { "line settings": 1 }]);
+  console.log("cdxml.check: scaled objects and the document scale ok");
+}
+
+// IDEA-SCALE-10: a ChemDraw drawing pasted or imported into one of other sizes keeps its text in proportion. A 24 pt
+// caption beside 30 pt bonds lands at 11.52 pt beside 14.4 pt bonds (and the source's 12 pt default at 5.76 pt); an
+// 8 pt label in a 16 pt-label drawing lands at 7 pt in a 14 pt one.
+{
+  const r = fromCdxml(`<CDXML BondLength="30" LabelSize="16" CaptionSize="12" LineWidth="1" BoldWidth="2" HashSpacing="2.50" MarginWidth="1.60" BondSpacing="18"><fonttable><font id="3" charset="iso-8859-1" name="Arial"/></fonttable><page><fragment>
+<n id="1" p="100 100" Element="7"><t p="96 104"><s font="3" size="8" face="96">N</s></t></n><n id="2" p="130 100"/><b id="3" B="1" E="2"/></fragment>
+<t id="4" p="100 160"><s font="3" size="24" face="0">Big caption</s></t><t id="5" p="100 200"><s font="3" size="12" face="0">Default caption</s></t></page></CDXML>`);
+  const fit = fitSizes(r.mol, r.style, { ...DEFAULT_STYLE, labelSize: 14 });
+  assert.deepEqual([fit.atoms.map((a) => a.size), fit.captions!.map((c) => c.size)], [[7, undefined], [11.52, 5.76]]);
+  console.log("cdxml.check: paste sizes ok");
 }
