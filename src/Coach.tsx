@@ -1,7 +1,7 @@
 // The tutorial: a few steps done on a real drawing, as ChemDraw's own tutorials teach (Help > Tutorials: draw a
 // bond, click its end, point at an atom and type O, add a ring to a bond), then Octet's hold to select and move,
 // Clean up and Copy. A card at the top of the page says what to do. Each step is done when the user does it, and the
-// next one comes. It shows once after the name box, and from Octet > Tutorial, always on a Paper drawing (its steps
+// next one comes. It shows once after the name box, and from Help > Tutorial, always on a Paper drawing (its steps
 // are made for a manuscript's sizes). Skip is at the card's bottom right.
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle } from "@phosphor-icons/react";

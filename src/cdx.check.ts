@@ -9,6 +9,7 @@ import { parse, serialize } from "./file.ts";
 import { deleteAtoms, extractSelection, insertMol } from "./edit.ts";
 import { isDrawingText, readCdx, readOct, writeCdx } from "./oct.ts";
 import type { Mol } from "./render.ts";
+import pkg from "../package.json" with { type: "json" };
 
 // A CDX file by hand: the header, then objects and properties as [tag, bytes] in little-endian order.
 const u16 = (v: number) => [v & 0xff, (v >> 8) & 0xff], u32 = (v: number) => [...u16(v & 0xffff), ...u16(v >>> 16)];
@@ -161,8 +162,9 @@ const kept: Mol = {
   assert.deepEqual(readOct(text).mol, { ...kept, style: DEFAULT_STYLE });
   assert.equal(readCdx(bytes).foreign, undefined);
   // A changed byte (the program's name, say) makes the hash fail: ChemDraw's drawing is read, with nothing lost.
-  const edited = new Uint8Array(bytes), at = Buffer.from(bytes).lastIndexOf("Octet 0.1.0");
-  edited[at + 6] = "9".charCodeAt(0);
+  const edited = new Uint8Array(bytes), at = Buffer.from(bytes).lastIndexOf(`Octet ${pkg.version}`);
+  assert.ok(at >= 0);
+  edited[at + 6] ^= 1;
   const foreign = readCdx(edited);
   assert.equal(foreign.foreign, true);
   assert.equal(foreign.mol.atoms.length, kept.atoms.length);

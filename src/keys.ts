@@ -168,3 +168,14 @@ export function clashes(map: Keymap, id: string, key: string): string[] {
   const near = (p?: Place) => p === place || (p === "item" && (place === "atom" || place === "bond")) || (place === "item" && (p === "atom" || p === "bond"));
   return ACTIONS.filter((a) => a.id !== id && near(a.place) && map[a.id]?.includes(key)).map((a) => a.id);
 }
+
+// Feedback's keys (for testers, REL-8): ⌘ (Ctrl on Windows and Linux) held, with 1, 2 and 3 all pressed within
+// 400 ms. Only the presses count, as macOS sends no key-up while ⌘ is held. pressed: when each digit was last
+// pressed (ms); it is emptied when the keys are complete.
+export function feedbackChord(pressed: Map<string, number>, digit: string, at: number): boolean {
+  pressed.set(digit, at);
+  const times = ["1", "2", "3"].map((d) => pressed.get(d) ?? -Infinity);
+  if (Math.max(...times) - Math.min(...times) > 400) return false;
+  pressed.clear();
+  return true;
+}

@@ -15,12 +15,15 @@ use tauri_plugin_dialog::DialogExt;
 mod clipboard;
 mod crashlog;
 mod export;
+// Feedback, for testers: only in builds made with it (build.rs, REL-8).
+#[cfg(feedback)]
 mod feedback;
 mod open;
 mod quit;
 mod recent;
 mod recovery;
 mod search;
+mod update;
 
 // Opens a web address or a file in the user's own program for it (the browser, the mail app). On Windows the open
 // crate asks the shell (ShellExecuteExW) directly: cmd.exe would read each & in an address as a new command. ::open is
@@ -57,6 +60,16 @@ struct Palette(Mutex<Vec<String>>);
 struct TextLists(Mutex<(Vec<String>, Vec<f64>)>);
 type Built = (Menu<Wry>, Vec<CheckMenuItem<Wry>>, Vec<(String, String, String, String)>);
 
+// The menu bar goes on the app. On the Mac, Help becomes the system's Help menu, which only works once it is on the app.
+fn set_bar(app: &AppHandle, bar: Menu<Wry>) -> tauri::Result<()> {
+    app.set_menu(bar.clone())?;
+    #[cfg(target_os = "macos")]
+    if let Some(help) = bar.get("help").and_then(|h| h.as_submenu().cloned()) {
+        help.set_as_help_menu_for_nsapp()?;
+    }
+    Ok(())
+}
+
 // The menu bar built again with the user's colours and shortcuts, and the recent drawings. A shortcut the menu cannot
 // take leaves every command on its default, so the menu is never lost. The ticks stay as they were.
 fn rebuild(app: &AppHandle) -> Result<(), String> {
@@ -70,7 +83,7 @@ fn rebuild(app: &AppHandle) -> Result<(), String> {
             let _ = c.set_checked(was.unwrap_or(true));
         }
     }
-    app.set_menu(bar).map_err(|e| e.to_string())?;
+    set_bar(app, bar).map_err(|e| e.to_string())?;
     *app.state::<Checks>().0.lock().unwrap() = checks;
     *app.state::<MenuList>().0.lock().unwrap() = list;
     Ok(())
@@ -216,9 +229,18 @@ async fn revert_drawing(picked: State<'_, Picked>, path: String) -> Result<Strin
 async fn open_link(name: String) -> Result<(), String> {
     let url = match name.as_str() {
         "author" => "https://www.linkedin.com/in/sam-ellis-132781206/",
+        // Help > Report a Problem.
+        "issues" => "https://github.com/SamChemMan/Octet/issues/new",
         _ => return Err("Octet has no such link.".into()),
     };
     open_external(url).map_err(|e| e.to_string())
+}
+
+// About > Licences: the licence notices Octet ships (scripts/licences.mjs), in the system's text app.
+#[tauri::command]
+async fn open_licences(app: AppHandle) -> Result<(), String> {
+    let path = app.path().resolve("licences/third-party.txt", tauri::path::BaseDirectory::Resource).map_err(|e| e.to_string())?;
+    open_external(&path).map_err(|e| e.to_string())
 }
 
 // Import a structure from another program's file (MOL, SDF, RXN, SMILES, InChI, CDXML, CDX). Returns its name and
@@ -346,8 +368,16 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         &item("document", "Document Settings…", "")?,
         &sep()?,
-        &PredefinedMenuItem::close_window(app, None)?,
     ])?;
+    // Close Window: the system's item on the Mac and Windows, Octet's own on Linux, where GTK has none. Windows and
+    // Linux end Octet from File > Exit, as their apps do (REL-18); on the Mac it is Octet > Quit Octet. Not the
+    // system's quit, which closes Octet at once: the page asks to save unsaved changes first.
+    #[cfg(not(target_os = "linux"))]
+    file.append(&PredefinedMenuItem::close_window(app, None)?)?;
+    #[cfg(target_os = "linux")]
+    file.append(&item("close", "Close Window", "CmdOrCtrl+W")?)?;
+    #[cfg(not(target_os = "macos"))]
+    file.append(&item("quit", "Exit", "CmdOrCtrl+Q")?)?;
     // Copy As, as ChemDraw's: each puts the selected structures (or all of them) on the clipboard as text. ChemDraw's
     // keys: ⌥⌘C SMILES, ⌘D CDXML Text, ⌥⌘O MOL Text (V3000 since ChemDraw 26.1), ⇧⌥⌘O MOL V2000 Text.
     section.replace("Edit › Copy As".into());
@@ -372,6 +402,12 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         &copy_as,
     ])?;
+    // Windows and Linux: Settings at the end of Edit, as their apps have it; on the Mac it is in the Octet menu.
+    #[cfg(not(target_os = "macos"))]
+    {
+        edit.append(&sep()?)?;
+        edit.append(&item("settings", "Settings…", "CmdOrCtrl+,")?)?;
+    }
     section.replace("View".into());
     // ChemDraw's Show Crosshair (⌥⌘X) and Show Rulers (⌘;), in its order. ChemDraw has no grid: Show Grid (⌘') and
     // Snap to Grid (⇧⌘') take Affinity Designer's and Illustrator's keys.
@@ -564,17 +600,35 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("search_pubchem", "Search PubChem", "Alt+CmdOrCtrl+U")?,
         &item("search_pubchem_sub", "Search PubChem for Substructures", "Alt+Shift+CmdOrCtrl+U")?,
     ])?;
+    // Window: what the system supports. GTK on Linux has neither item, so Linux has no Window menu; Windows has no
+    // full screen item.
     section.replace("Window".into());
-    let window = Submenu::with_items(app, "Window", true, &[
-        &PredefinedMenuItem::minimize(app, None)?,
-        &PredefinedMenuItem::fullscreen(app, None)?,
+    let window = Submenu::with_items(app, "Window", true, &[&PredefinedMenuItem::minimize(app, None)?])?;
+    #[cfg(target_os = "macos")]
+    window.append(&PredefinedMenuItem::fullscreen(app, None)?)?;
+    // Help on every platform, as ChemDraw's (REL-18). On the Mac, set_bar makes it the system's Help menu, with its
+    // search field.
+    section.replace("Help".into());
+    let help = Submenu::with_id_and_items(app, "help", "Help", true, &[
+        &item("tutorial", "Tutorial", "")?,
+        &item("shortcuts", "Keyboard Shortcuts", "")?,
+        &sep()?,
+        &item("report_problem", "Report a Problem…", "")?,
     ])?;
+    // Windows and Linux: Check for Updates and About at the end of Help; on the Mac they are in the Octet menu.
+    #[cfg(not(target_os = "macos"))]
+    {
+        help.append(&item("check_updates", "Check for Updates…", "")?)?;
+        help.append(&sep()?)?;
+        help.append(&item("about", "About Octet", "")?)?;
+    }
     section.replace("Octet".into());
     #[cfg(target_os = "macos")]
     let octet = Submenu::with_items(app, "Octet", true, &[
         // Octet's own About window (src/About.tsx): the mark, who made it, and the credits the licences ask for.
         &item("about", "About Octet", "")?,
-        &item("tutorial", "Tutorial", "")?,
+        // As ChemDraw 26.1's ChemDraw > Check for Updates… (decision 0010).
+        &item("check_updates", "Check for Updates…", "")?,
         &sep()?,
         &item("settings", "Settings…", "CmdOrCtrl+,")?,
         &sep()?,
@@ -594,7 +648,10 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     if online {
         items.push(&search);
     }
-    items.push(&window);
+    if !cfg!(target_os = "linux") {
+        items.push(&window);
+    }
+    items.push(&help);
     // Commands of a menu that is not there are not listed (Settings shows no shortcuts for them).
     let listed = list.borrow().iter().filter(|c| online || c.2 != "Search").cloned().collect();
     Ok((Menu::with_items(app, &items)?, vec![grid, rulers, crosshair, snap, snap_grid, warnings], listed))
@@ -610,7 +667,9 @@ fn main() {
     }));
     builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Picked::default())
+        .manage(update::Found::default())
         .manage(open::Waiting::default())
         .manage(recent::Recents::default())
         .manage(MenuKeys::default())
@@ -619,7 +678,7 @@ fn main() {
         .manage(search::Online(Mutex::new(true)))
         .manage(TextLists::default())
         .manage(Purposes::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, open_link, open_drawing, save_drawing, set_check, set_palette, set_text_lists, set_purposes, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, feedback::snapshot, feedback::send_feedback, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, open::take_opened])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, open_link, open_licences, open_drawing, save_drawing, set_check, set_palette, set_text_lists, set_purposes, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, open::take_opened])
         .setup(|app| {
             let handle = app.handle();
             // Files named when Octet starts (Explorer and file managers pass them as arguments).
@@ -629,7 +688,7 @@ fn main() {
             quit::install(handle);
             app.manage(recovery::start(handle));
             let (bar, checks, list) = menu(handle, &[], &Default::default(), &HashMap::new(), true)?;
-            app.set_menu(bar)?;
+            set_bar(handle, bar)?;
             app.manage(Checks(Mutex::new(checks)));
             *app.state::<MenuList>().0.lock().unwrap() = list;
             app.on_menu_event(|app, event| {

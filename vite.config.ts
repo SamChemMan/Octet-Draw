@@ -5,8 +5,12 @@ import process from "node:process";
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
-export default defineConfig(() => ({
+export default defineConfig(({ command }) => ({
   plugins: [react()],
+
+  // Feedback (src/Feedback.tsx) is for testers (REL-8). OCTET_FEEDBACK=1 puts it in a build and OCTET_FEEDBACK=0
+  // leaves it out; with neither, `npm run dev` has it and builds do not. src-tauri/build.rs reads the same.
+  define: { __FEEDBACK__: JSON.stringify(process.env.OCTET_FEEDBACK ? process.env.OCTET_FEEDBACK === "1" : command === "serve") },
 
   // Pre-bundling breaks the relative URL Indigo uses to find its .wasm file.
   optimizeDeps: { exclude: ["indigo-ketcher"] },

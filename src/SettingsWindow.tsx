@@ -1,8 +1,8 @@
 // Settings: one window, in the middle of the screen, laid out like the Mac's own settings. A sidebar lists the
-// modules (Document, Keyboard shortcuts, Import and export) under a search field that is always there. With text
+// modules (General, Document, Keyboard shortcuts, Import and export) under a search field that is always there. With text
 // in it, every matching setting from every module shows on the right, grouped by module and ready to use.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowsDownUp, CaretDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, Plus, SlidersHorizontal, X } from "@phosphor-icons/react";
+import { ArrowsDownUp, CaretDown, Check, FileText, GearSix, Keyboard, MagnifyingGlass, Palette, Plus, SlidersHorizontal, X } from "@phosphor-icons/react";
 import { ColourPicker } from "./ColourPicker";
 import { Dialog, useModal } from "./Dialog";
 import { Select } from "./Select";
@@ -14,7 +14,7 @@ import type { ExportFormat } from "./export";
 import { BACKGROUNDS, COLOURS, FONTS, GRID_IN, GRID_MM, PAGE_NAMES, PAGES, PRESETS, PURPOSES, pageSize, pickPage, presetAt, presetOf, withScale, type DocStyle, type PageName } from "./docstyle";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
 
-export type ModuleId = "document" | "keys" | "panel" | "files" | "colours";
+export type ModuleId = "general" | "document" | "keys" | "panel" | "files" | "colours";
 export type FilePrefs = {
   format: ExportFormat; dpi: number; background: "white" | "transparent"; margin: number;
   clipboard: { pdf: boolean; cdx: boolean; cdxml: boolean; mol: boolean; smiles: boolean }; keepStyle: boolean;
@@ -53,6 +53,9 @@ type Props = {
   palette: Swatch[]; // the user's own colours
   onPalette: (palette: Swatch[]) => void;
   adding?: boolean; // opened to add a colour: a new one is made, ready to set
+  updates: boolean; // check for updates when Octet opens (decision 0010)
+  onUpdates: (on: boolean) => void;
+  onCheckUpdates: () => void;
   onClose: () => void;
 };
 
@@ -181,6 +184,7 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
 // head: the control goes in the section's head, beside its title, not in a row.
 type Def = { module: ModuleId; section: string; label: string; keywords: string; control: React.ReactNode; wide?: boolean; head?: boolean };
 const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: string }[] = [
+  { id: "general", name: "General", icon: <GearSix size={16} />, words: "general updates version" },
   { id: "document", name: "Document", icon: <FileText size={16} />, words: "document style page text" },
   { id: "keys", name: "Keyboard shortcuts", icon: <Keyboard size={16} />, words: "keyboard shortcut hotkey keys" },
   { id: "panel", name: "Actions panel", icon: <SlidersHorizontal size={16} />, words: "actions panel side menus sections" },
@@ -381,12 +385,13 @@ export function SettingsWindow(p: Props) {
       // the Mac, a PNG on Windows, and a PNG and an SVG on Linux (src-tauri/src/clipboard.rs).
       ...([["pdf", PICTURE, "picture image pdf png svg word powerpoint keynote office"], ["cdx", "CDX", "cdx chemdraw binary"], ["cdxml", "CDXML", "cdxml chemdraw"], ["mol", "MOL", "mol molfile"], ["smiles", "SMILES", "smiles text"]] as const).map(([k, name, words]) =>
         d("files", "Copy", name, `clipboard copy paste ${words}`, <Switch on={files.clipboard[k]} label={name} onChange={(on) => setFiles({ clipboard: { ...files.clipboard, [k]: on } })} />)),
+      d("general", "Updates", "Check automatically", "updates update check automatically new version internet", <Switch on={p.updates} label="Check for updates automatically" onChange={p.onUpdates} />),
       d("colours", "Colours", "Your colours", "colour colours palette custom swatch named add", <PaletteEditor palette={p.palette} onPalette={p.onPalette} adding={p.adding} />, true),
       d("files", "Import", "Keep ChemDraw styles", "import open cdxml chemdraw style keep", <Switch on={files.keepStyle} label="Keep ChemDraw styles" onChange={(on) => setFiles({ keepStyle: on })} />),
       // Off hides Search Reaxys and Search PubChem everywhere (decision 0008).
       d("files", "Online", "Online search", "online search reaxys pubchem internet web browser network privacy offline", <Switch on={p.onlineSearch} label="Online search" onChange={p.onOnlineSearch} />),
     ];
-  }, [style, map, recording, note, files, p.palette, p.adding, p.panelMenus, p.captionOptionReturn, p.onlineSearch, p.rulerUnit, p.menuKeys.length, p.purposes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.adding, p.panelMenus, p.captionOptionReturn, p.onlineSearch, p.rulerUnit, p.menuKeys.length, p.purposes, p.updates]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query)) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));
@@ -418,7 +423,8 @@ export function SettingsWindow(p: Props) {
         ))}
       </>
     );
-    return <>{sections(module, list).map((s) => <Section key={s} title={s} defs={list.filter((x) => x.module === module && x.section === s)} />)}</>;
+    return <>{sections(module, list).map((s) => <Section key={s} title={s} defs={list.filter((x) => x.module === module && x.section === s)}
+      aside={s === "Updates" ? <button className="text-button" onClick={p.onCheckUpdates}>Check Now</button> : undefined} />)}</>;
   };
 
   return (

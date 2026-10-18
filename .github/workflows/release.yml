@@ -1,0 +1,169 @@
+# Installers for macOS (one universal app for Apple silicon and Intel), Windows and Linux (REL-7).
+# - A tag such as v1.0.0 makes a draft GitHub release with every installer and the updater's latest.json. The tag
+#   must be the version in package.json. The public release has no Feedback box (REL-8).
+# - Actions > Release > Run workflow makes a test build: the installers are the run's artifacts, and Feedback is in
+#   them unless it is turned off.
+# Signing (REL-5, REL-6, REL-10) uses the repository's secrets, listed in docs/release.md. A secret that is not set
+# is left out, and the build is not signed in that way: an unsigned build still works, with the system's warning.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      feedback:
+        description: Put the Feedback box in the test build
+        type: boolean
+        default: true
+
+jobs:
+  check:
+    uses: ./.github/workflows/check.yml
+
+  build:
+    needs: check
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: --target universal-apple-darwin
+          - platform: windows-latest
+            args: ""
+          - platform: ubuntu-22.04
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    env:
+      OCTET_FEEDBACK: ${{ github.event_name == 'workflow_dispatch' && inputs.feedback && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ github.job }}-cargo-
+      - name: Linux libraries for Tauri
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+
+      - name: The tag is the version in package.json
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::The tag is $GITHUB_REF_NAME, but package.json has $version."
+            exit 1
+          fi
+
+      - name: Signing keys that are set
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          WINDOWS_SIGN_COMMAND: ${{ secrets.WINDOWS_SIGN_COMMAND }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        run: |
+          # The Tauri CLI signs when a variable is set, even to nothing, so only the secrets that have a value go on.
+          names="TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+          if [ "$RUNNER_OS" = macOS ]; then names="$names APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID"; fi
+          if [ "$RUNNER_OS" = Windows ]; then names="$names WINDOWS_SIGN_COMMAND AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TENANT_ID"; fi
+          for name in $names; do
+            if [ -n "${!name}" ]; then
+              { echo "$name<<OCTET_SECRET_END"; echo "${!name}"; echo "OCTET_SECRET_END"; } >> "$GITHUB_ENV"
+            else
+              echo "$name is not set."
+            fi
+          done
+
+      - name: Windows certificate (a .pfx file)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE) { Write-Output "WINDOWS_CERTIFICATE is not set."; exit 0 }
+          $pfx = Join-Path $env:RUNNER_TEMP "octet.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          Remove-Item $pfx
+          "WINDOWS_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
+
+      - name: Windows signing tool (Azure Trusted Signing)
+        if: runner.os == 'Windows' && startsWith(env.WINDOWS_SIGN_COMMAND, 'trusted-signing-cli')
+        run: cargo install trusted-signing-cli --locked
+
+      - name: Build settings
+        shell: bash
+        run: |
+          # Updater files only with the updater key; Windows signing only with a certificate or a sign command. The
+          # second file is the Windows installer that needs no internet (REL-21): it carries the WebView2 runtime.
+          node -e '
+            const fs = require("fs"), env = process.env, bundle = {};
+            if (env.TAURI_SIGNING_PRIVATE_KEY) bundle.createUpdaterArtifacts = true;
+            if (env.WINDOWS_THUMBPRINT) bundle.windows = { certificateThumbprint: env.WINDOWS_THUMBPRINT };
+            else if (env.WINDOWS_SIGN_COMMAND) bundle.windows = { signCommand: env.WINDOWS_SIGN_COMMAND };
+            fs.writeFileSync("ci-build.conf.json", JSON.stringify({ bundle }));
+            fs.writeFileSync("ci-offline.conf.json", JSON.stringify({ bundle: { createUpdaterArtifacts: false, windows: { webviewInstallMode: { type: "offlineInstaller", silent: true } } } }));
+          '
+          node scripts/licences.mjs
+
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        id: tauri
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # A test build (Run workflow) names no release, so the action makes none.
+          tagName: ${{ github.event_name == 'push' && github.ref_name || '' }}
+          releaseName: ${{ github.event_name == 'push' && 'Octet __VERSION__' || '' }}
+          releaseBody: ${{ github.event_name == 'push' && 'Download the installer for your computer below.' || '' }}
+          releaseDraft: true
+          prerelease: false
+          updaterJsonPreferNsis: true
+          uploadWorkflowArtifacts: true
+          args: ${{ matrix.args }} --config ci-build.conf.json
+
+      - name: Clear the first Windows installers, which are uploaded
+        if: runner.os == 'Windows'
+        shell: bash
+        run: rm -rf src-tauri/target/release/bundle
+
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        if: runner.os == 'Windows'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          releaseId: ${{ steps.tauri.outputs.releaseId }}
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+          uploadWorkflowArtifacts: true
+          releaseAssetNamePattern: "[name]_[version]_[arch]-offline[setup][ext]"
+          workflowArtifactNamePattern: "[platform]-[arch]-[bundle]-offline"
+          args: --bundles nsis --config ci-build.conf.json --config ci-offline.conf.json

@@ -36,8 +36,10 @@ const local = (v: string) => v.replace(/url\(\s*(["']?)[^#"')]*#([^"')]+)\1\s*\)
 export function standaloneSvg(canvas: SVGSVGElement, bounds: [number, number, number, number], ptPerPx: number): string {
   const [x0, y0] = [Math.floor(bounds[0] * ptPerPx), Math.floor(bounds[1] * ptPerPx)];
   const [w, h] = [Math.max(1, Math.ceil(bounds[2] * ptPerPx) - x0), Math.max(1, Math.ceil(bounds[3] * ptPerPx) - y0)];
-  // The light theme for a moment: nothing is painted before the attributes go back.
-  const saved = ["data-theme", "class", "style"].map((a) => [a, canvas.getAttribute(a)] as const);
+  // The light theme for a moment: nothing is painted before the attributes go back. The colours go back through
+  // element.style, as the CSP allows no style attribute.
+  const saved = ["data-theme", "class"].map((a) => [a, canvas.getAttribute(a)] as const);
+  const colours = ["--ink", "--canvas"].map((k) => [k, canvas.style.getPropertyValue(k)] as const);
   canvas.setAttribute("data-theme", "light");
   canvas.setAttribute("class", "canvas");
   canvas.style.removeProperty("--ink");
@@ -72,6 +74,7 @@ export function standaloneSvg(canvas: SVGSVGElement, bounds: [number, number, nu
     return new XMLSerializer().serializeToString(copy);
   } finally {
     for (const [a, v] of saved) if (v === null) canvas.removeAttribute(a); else canvas.setAttribute(a, v);
+    for (const [k, v] of colours) if (v) canvas.style.setProperty(k, v);
   }
 }
 

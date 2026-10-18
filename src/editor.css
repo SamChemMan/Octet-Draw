@@ -1,5 +1,11 @@
 /* Editor chrome. Every value comes from brand/tokens.css. */
 
+/* Here, not in index.html: the CSP allows no inline styles (REL-31). */
+body {
+  margin: 0;
+  background: var(--surface);
+}
+
 /* No page selection anywhere: WebKit (the Mac and Linux app) needs the prefixed property too. */
 .editor {
   position: fixed;

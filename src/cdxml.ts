@@ -20,6 +20,7 @@ import { findReaction } from "./reaction.ts";
 import { fragments, groupParents, tidyGroups } from "./edit.ts";
 import { kekulise, rings } from "./rings.ts";
 import type { Cycle } from "./cycle.ts";
+import pkg from "../package.json" with { type: "json" };
 
 export const TOO_BIG = "This file is too large to open.";
 export const NOT_CDXML = "This file is not a ChemDraw drawing.";
@@ -219,7 +220,8 @@ export type CdxmlOptions = {
   expand?: (text: string) => Mol | undefined; // a written label's atoms (atom 0 attaches), for ChemDraw's abbreviation
   name?: string; // the document's name
 };
-const PROGRAM = "Octet 0.1.0";
+// The one version is package.json's (REL-9).
+const PROGRAM = `Octet ${pkg.version}`;
 const DERIVED = '{"d":1}';
 const GRID_FIELDS = ["mass", "moles", "equiv", "volume", "density", "molarity", "purity", "measured"];
 const num6 = (v: number) => String(+v.toFixed(6));

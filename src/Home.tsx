@@ -183,3 +183,25 @@ export function NameBox({ onDone, leaving }: { onDone: (name: string) => void; l
     </main>
   );
 }
+
+// First launch, after the name: whether Octet checks for updates when it opens (decision 0010). Nothing is checked
+// before the user answers. Escape is No. Settings > General changes the answer.
+export function UpdatesBox({ onDone, leaving }: { onDone: (check: boolean) => void; leaving?: boolean }) {
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); onDone(false); } };
+    addEventListener("keydown", key);
+    return () => removeEventListener("keydown", key);
+  });
+  return (
+    <main className={leaving ? "home name-box leaving" : "home name-box"} aria-label="Updates" inert={leaving}>
+      <div className="name-box-inner">
+        <Mark size={56} />
+        <h1 className="name-title">Check for updates automatically?</h1>
+        <div className="name-actions">
+          <button className="dialog-button primary" onClick={() => onDone(true)} autoFocus>Check Automatically</button>
+          <button className="text-button" onClick={() => onDone(false)}>Don’t Check</button>
+        </div>
+      </div>
+    </main>
+  );
+}

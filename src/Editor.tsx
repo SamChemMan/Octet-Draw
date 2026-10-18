@@ -3,7 +3,7 @@ import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
   FrameCorners, GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
   TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa, TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
-  Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table, FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, LinkSimple, MagnetStraight, Paragraph, Resize, Ruler, CopySimple, IdentificationBadge, Key, FileCode, GridFour, CrosshairSimple,
+  Info, Printer, Export as ExportIcon, ArrowsClockwise, Bug, GraduationCap, Hash, ArrowsInSimple, Table, FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, LinkSimple, MagnetStraight, Paragraph, Resize, Ruler, CopySimple, IdentificationBadge, Key, FileCode, GridFour, CrosshairSimple,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -24,7 +24,7 @@ import { snapBoxes, snapMove, type Guide } from "./snap";
 import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
 import { loadSettings, RULER_UNITS, saveSettings } from "./settings";
-import { ACTIONS, actionFor, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
+import { ACTIONS, actionFor, feedbackChord, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
 import { Actions, actionItems, FontPick, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties, propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./Properties";
@@ -37,7 +37,7 @@ import { fromCdxml, parseXml, toCdxml, type CdxmlOptions } from "./cdxml";
 import { isDrawingText, lostText, readCdx, readOct, writeCdx, writeOct } from "./oct";
 import { BASE64_MAGIC, fromBase64, hexToBase64, toBase64, xmlToCdx } from "./cdx";
 import { About } from "./About";
-import { Home, NameBox, type RecentEntry, type RecoveredEntry } from "./Home";
+import { Home, NameBox, UpdatesBox, type RecentEntry, type RecoveredEntry } from "./Home";
 import { Coach, NOTHING_SEEN, type Seen } from "./Coach";
 import { Feedback } from "./Feedback";
 import { ExportButton, ExportDialog } from "./ExportDialog";
@@ -80,6 +80,8 @@ const MOD = MAC ? "⌘" : "Ctrl+";
 const EXPORT_KEYS = navigator.platform.startsWith("Mac") ? "⌃⌘E" : "⇧Ctrl+E";
 // In the desktop app the native menu owns undo, redo and the file commands; in a browser (dev only) the page does.
 const TAURI = "__TAURI_INTERNALS__" in window;
+// File > Print's paper size (printDrawing).
+let pageSheet: CSSStyleSheet | undefined;
 // In the app, copy and paste go through the app (src-tauri/src/clipboard.rs), with the types ChemDraw and Office use
 // on each system (REL-3, CH-1). In a browser (dev only), the page uses the browser's clipboard.
 const NATIVE_CLIP = TAURI;
@@ -353,21 +355,17 @@ export default function Editor() {
   // A notice is an error (warning icon, error colour) unless it is information, such as "Copied.".
   const [notice, setNoticeState] = useState<{ text: string; info?: boolean }>();
   const setNotice = (text?: string, info?: boolean) => setNoticeState(text ? { text, info } : undefined);
-  // Feedback (for testing): ⌘1, ⌘2 and ⌘3 within 1.5 s, ⌘ held or not between them (Ctrl elsewhere), takes a picture
-  // of the window, then opens the feedback box (Feedback.tsx). The picture is taken first, so it shows the window as it was.
+  // Feedback (for testers, only in builds made with it: vite.config.ts): ⌘ held with 1, 2 and 3 pressed together (Ctrl
+  // on Windows and Linux; keys.ts feedbackChord) takes a picture of the window, then opens the feedback box
+  // (Feedback.tsx). The picture is taken first, so it shows the window as it was.
   const [feedback, setFeedback] = useState<{ picture?: string }>();
-  const chord = useRef({ digits: new Set<string>(), at: 0 });
   useEffect(() => {
-    const mac = navigator.platform.startsWith("Mac");
+    if (!__FEEDBACK__) return;
+    const mac = navigator.platform.startsWith("Mac"), pressed = new Map<string, number>();
     const down = (e: KeyboardEvent) => {
-      if (["Meta", "Control", "Shift", "Alt"].includes(e.key)) return;
-      const c = chord.current, digit = (mac ? e.metaKey : e.ctrlKey) ? /^Digit([123])$/.exec(e.code)?.[1] : undefined;
-      if (!digit) return c.digits.clear();
+      const digit = (mac ? e.metaKey : e.ctrlKey) && !e.repeat ? /^Digit([123])$/.exec(e.code)?.[1] : undefined;
+      if (!digit || !feedbackChord(pressed, digit, e.timeStamp)) return;
       e.preventDefault();
-      if (Date.now() - c.at > 1500) { c.digits.clear(); c.at = Date.now(); }
-      c.digits.add(digit);
-      if (c.digits.size < 3) return;
-      c.digits.clear();
       void invoke<string>("snapshot").then((picture) => setFeedback({ picture }), () => setFeedback({}));
     };
     addEventListener("keydown", down, true);
@@ -515,7 +513,7 @@ export default function Editor() {
   const undo = (redo = false) => { dispatch({ type: redo ? "redo" : "undo" }); setSelection(new Set()); setPicked(new Set()); };
   const [file, setFile] = useState<FileState>(() => rescue.current?.file ?? { saved: EMPTY });
   // Home (decision 0003): where Octet opens (?editor skips it, for tests), with the name box on first launch and the
-  // tutorial then, or from Octet > Tutorial. Recent drawings come from the app (src-tauri/src/recent.rs), and drawings
+  // tutorial then, or from Help > Tutorial. Recent drawings come from the app (src-tauri/src/recent.rs), and drawings
   // a crash took from src-tauri/src/recovery.rs.
   const [home, setHome] = useState(() => rescue.current?.home ?? !new URLSearchParams(location.search).has("editor"));
   const [welcomed, setWelcomed] = useState(false), [recents, setRecents] = useState<RecentEntry[]>([]), [recovered, setRecovered] = useState<RecoveredEntry[]>([]);
@@ -622,7 +620,12 @@ export default function Editor() {
     const bytes = new TextEncoder().encode(text);
     let bin = "";
     for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    flushSync(() => setPrinting({ src: `data:image/svg+xml;base64,${btoa(bin)}`, w: (w * 72) / 25.4, h: (h * 72) / 25.4 }));
+    const size = { w: (w * 72) / 25.4, h: (h * 72) / 25.4 };
+    // The paper size, as an @page rule in a sheet made here: the CSP allows no <style> element (REL-31).
+    pageSheet ??= new CSSStyleSheet();
+    pageSheet.replaceSync(`@page { size: ${size.w.toFixed(2)}pt ${size.h.toFixed(2)}pt; margin: 0; }`);
+    if (!document.adoptedStyleSheets.includes(pageSheet)) document.adoptedStyleSheets = [...document.adoptedStyleSheets, pageSheet];
+    flushSync(() => setPrinting({ src: `data:image/svg+xml;base64,${btoa(bin)}`, ...size }));
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     try { await invoke("print_page"); } catch (e) { setNotice(`Octet cannot print. ${e}`); }
   }
@@ -692,13 +695,30 @@ export default function Editor() {
   // Before the drawing is replaced (New, Open, a recent drawing) or the window closes: with unsaved changes, ask to
   // save them first.
   const keepWork = (next: () => void) => (dirty ? setDialog({ kind: "unsaved", next }) : next());
-  // Close and Quit (REL-2): the window closes after the question, and the copy kept for recovery goes with it.
-  const closeWindow = () => keepWork(() => {
+  // Close, Quit (REL-2) and Update: after the question about unsaved changes, the copy kept for recovery goes, then
+  // Octet does then (closes the window, or installs the update).
+  const leave = (then: () => Promise<unknown>) => keepWork(() => {
     clearTimeout(keeper.timer);
     keeper.timer = 0;
     keeper.kept = false;
-    void keep("recovery_clear").catch(() => {}).then(() => getCurrentWindow().destroy());
+    void keep("recovery_clear").catch(() => {}).then(then).catch((e) => setNotice(String(e)));
   });
+  const closeWindow = () => leave(() => getCurrentWindow().destroy());
+  // Updates (decision 0010, src-tauri/src/update.rs): a check when Octet opens, only if the user said yes to it, and
+  // Check for Updates…. An update found asks before it installs, but never over another question: then it asks at the
+  // next check. asked: the user chose Check for Updates, so the result shows also when there is no update or no network.
+  const checkUpdates = (asked: boolean) => {
+    if (!TAURI) return;
+    void invoke<string | null>("update_check").then(
+      (version) => (version ? setDialog((d) => d ?? { kind: "update", version }) : asked && setNotice("Octet is up to date.")),
+      () => asked && setNotice("Octet cannot check for updates. Connect to the internet and try again."),
+    );
+  };
+  useEffect(() => {
+    if (!settings.updates) return;
+    const t = setTimeout(() => checkUpdates(false), 5000);
+    return () => clearTimeout(t);
+  }, [settings.updates === true]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!TAURI) return;
     const off = getCurrentWindow().onCloseRequested((e) => { e.preventDefault(); commands.current.quit(); });
@@ -940,7 +960,7 @@ export default function Editor() {
     const fixed = c && suggestName(c.text);
     const frag = c && (structureFor(c.text) ?? (fixed ? structureFor(fixed) : undefined)), p = c && placed.find((x) => x.id === c.id);
     if (c && frag && p) return place(frag, deleteGraphics(doc, new Set([c.id])), [(p.box[0] + p.box[2]) / 2 / L, -(p.box[1] + p.box[3]) / 2 / L]);
-    void loadNames().then(() => setNamesLoaded(true));
+    void loadNames().then(() => setNamesLoaded(true)).catch(() => {});
     setNaming(c?.text ?? "");
   }
   // Menu commands. New and Open go on the undo list, so they never lose work.
@@ -953,7 +973,12 @@ export default function Editor() {
     opened: () => void takeOpened().catch((e) => setNotice(`Octet cannot open this file. ${e}`)),
     home: () => setHome(true),
     quit: () => closeWindow(),
+    // File > Close Window on Linux, where GTK has no Close Window of its own (REL-18).
+    close: () => closeWindow(),
     tutorial: () => startTutorial(),
+    shortcuts: () => setSettingsOpen("keys"),
+    report_problem: () => void invoke("open_link", { name: "issues" }).catch((e) => setNotice(String(e))),
+    check_updates: () => checkUpdates(true),
     import: () => void importFile(),
     save: () => void save(false),
     save_as: () => void save(true),
@@ -1159,7 +1184,7 @@ export default function Editor() {
     // whole structure) and object goes over, or under, everything else.
     bring_front: () => restack(true),
     send_back: () => restack(false),
-    command_palette: () => { setCommandsOpen((o) => !o); if (!namesLoaded) void loadNames().then(() => setNamesLoaded(true)); },
+    command_palette: () => { setCommandsOpen((o) => !o); if (!namesLoaded) void loadNames().then(() => setNamesLoaded(true)).catch(() => {}); },
     // The Text menu styles the caption being typed, or the picked captions.
     text_bold: () => runAction("caption.bold"),
     text_plain: () => runAction("caption.plain"),
@@ -1412,7 +1437,7 @@ export default function Editor() {
     | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string }
     | { kind: "font"; font: string } | { kind: "size"; size: string } | { kind: "spacing"; mode: "auto" | "variable" | "fixed"; pt: string }
     | { kind: "unsaved"; next: () => void } | { kind: "lossy"; lost: Record<string, number>; done: (saved: boolean) => void } | { kind: "revert" }
-    | { kind: "discard"; entry: RecoveredEntry } | { kind: "crashed"; log: string }>();
+    | { kind: "discard"; entry: RecoveredEntry } | { kind: "crashed"; log: string } | { kind: "update"; version: string }>();
   const [commandsOpen, setCommandsOpen] = useState(false);
   // An arrow Octet offers after a row of starting materials (from Clean up). Tab draws it; any other change drops it.
   const [offer, setOffer] = useState<{ from: P; to: P; doc: Mol }>();
@@ -2721,7 +2746,7 @@ export default function Editor() {
   }
   // Structure to name: each named structure gets its name centred underneath (after its compound number).
   function nameStructures() {
-    if (!namesLoaded) { void loadNames().then(() => setNamesLoaded(true)); return setNotice("Loading names. Try again in a moment.", true); }
+    if (!namesLoaded) { void loadNames().then(() => setNamesLoaded(true)).catch(() => {}); return setNotice("Loading names. Try again in a moment.", true); }
     let m = doc, missed = 0;
     for (const atoms of targets()) {
       const name = nameFor(atoms);
@@ -3228,7 +3253,7 @@ export default function Editor() {
     copy_smiles: ["Copy as SMILES", `⌥${MOD}C`, <CopySimple size={18} />], copy_inchi: ["Copy as InChI", "", <IdentificationBadge size={18} />], copy_inchikey: ["Copy as InChIKey", "", <Key size={18} />],
     copy_cdxml: ["Copy as CDXML text", `${MOD}D`, <FileCode size={18} />], copy_mol: ["Copy as MOL text", `⌥${MOD}O`, <FileCode size={18} />], copy_mol_v2000: ["Copy as MOL V2000 text", `⇧⌥${MOD}O`, <FileCode size={18} />],
     export: ["Export…", EXPORT_KEYS, <ExportIcon size={18} />], print: ["Print…", `${MOD}P`, <Printer size={18} />], page_setup: ["Page setup…", `⇧${MOD}P`, <FileDashed size={18} />],
-    about: ["About Octet", "", <Info size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
+    about: ["About Octet", "", <Info size={18} />], check_updates: ["Check for updates…", "", <ArrowsClockwise size={18} />], report_problem: ["Report a problem…", "", <Bug size={18} />], tutorial: ["Tutorial", "", <GraduationCap size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
     expand_label: ["Expand label", "", <ArrowsOutSimple size={18} />], contract_label: ["Contract label", "", <ArrowsInSimple size={18} />], stoichiometry: ["Analyse stoichiometry", "", <Table size={18} />],
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <MagicWand size={18} />],
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
@@ -3260,6 +3285,8 @@ export default function Editor() {
       search_pubchem: ["Search PubChem", `⌥${MOD}U`, <SearchGlyph letter="P" />], search_pubchem_sub: ["Search PubChem for substructures", `⇧⌥${MOD}U`, <SearchGlyph letter="P" />],
     } as Record<string, [string, string, React.ReactNode]> : {}),
   };
+  // Other spellings people search with (American ones), by command.
+  const WORDS: Record<string, string> = { stoichiometry: "analyze analysis" };
   const paletteCommands = (): Command[] => {
     const toolKey = (id: string) => { const k = keymap(settings.keys)[id]?.[0]; return k ? keyLabel(k) : undefined; };
     const pick = (t: Tool, variant?: [string, string]) => () => { if (variant) setSettings((s) => ({ ...s, variants: { ...s.variants, [variant[0]]: variant[1] } })); setTool(t); };
@@ -3268,8 +3295,8 @@ export default function Editor() {
     // A menu command that is also one of the selection's actions shows once, as the action.
     const acts = actionItems(contextOf(), untidy, [...selection].some((i) => doc.atoms[i]?.ignoreWarnings), settings.onlineSearch), acted = new Set(acts.map((i) => i.command));
     return [
-      ...acts.map((i) => ({ id: `action:${i.command}`, name: i.name, group: "Actions", icon: i.icon, keys: hint(i.command), run: () => runAction(i.command) })),
-      ...Object.entries(MENU_NAMES).filter(([id]) => commands.current[id] && !acted.has(id)).map(([id, [name, , icon]]) => ({ id: `menu:${id}`, name, group: "Commands", keys: hint(id), icon, run: () => commands.current[id]() })),
+      ...acts.map((i) => ({ id: `action:${i.command}`, name: i.name, group: "Actions", icon: i.icon, keys: hint(i.command), words: WORDS[i.command], run: () => runAction(i.command) })),
+      ...Object.entries(MENU_NAMES).filter(([id]) => commands.current[id] && !acted.has(id)).map(([id, [name, , icon]]) => ({ id: `menu:${id}`, name, group: "Commands", keys: hint(id), icon, words: WORDS[id], run: () => commands.current[id]() })),
       ...purposeList.map((p) => ({ id: `new:${p.id}`, name: `New ${p.name}`, group: "Commands", words: "new drawing purpose", icon: <FilePlus size={18} />, run: () => newDrawing(p.id) })),
       ...purposeList.map((p) => ({ id: `for:${p.id}`, name: `For ${p.name}`, group: "Document", words: "purpose size page scale", icon: <FileText size={18} />, run: () => applyPurpose(p.id) })),
       { id: "tool:select", name: "Select", group: "Tools", keys: toolKey("tool.select"), icon: <Selection size={18} />, run: pick("select", ["select", "box"]) },
@@ -4055,8 +4082,8 @@ export default function Editor() {
     return gs.length || count >= 2 ? { grouped: gs.length > 0, integral: gs.length > 0 && gs.every((g) => g.integral), group } : undefined;
   }, [doc, selection, picked]);
   // Home stays on screen while it fades out, so going to a drawing (or the tutorial) is one smooth move.
-  const [homeLeaving, setHomeLeaving] = useState(false), [wasHome, setWasHome] = useState(home), homeKind = useRef<"name" | "home">("home");
-  if (home) homeKind.current = settings.userName === null ? "name" : "home";
+  const [homeLeaving, setHomeLeaving] = useState(false), [wasHome, setWasHome] = useState(home), homeKind = useRef<"name" | "updates" | "home">("home");
+  if (home) homeKind.current = settings.userName === null ? "name" : settings.updates === null ? "updates" : "home";
   if (wasHome !== home) { setWasHome(home); setHomeLeaving(wasHome); }
   useEffect(() => {
     if (!homeLeaving) return;
@@ -4580,7 +4607,6 @@ export default function Editor() {
       {printing && (
         // What Print prints: only this, at true size (see editor.css, @media print).
         <div className="print-root" aria-hidden>
-          <style>{`@page { size: ${printing.w.toFixed(2)}pt ${printing.h.toFixed(2)}pt; margin: 0; }`}</style>
           <img src={printing.src} alt="" style={{ width: `${printing.w}pt`, height: `${printing.h}pt` }} />
         </div>
       )}
@@ -4782,6 +4808,9 @@ export default function Editor() {
           palette={settings.palette}
           onPalette={(palette) => setSettings((s) => ({ ...s, palette }))}
           adding={addingColour}
+          updates={settings.updates === true}
+          onUpdates={(updates) => setSettings((s) => ({ ...s, updates }))}
+          onCheckUpdates={() => checkUpdates(true)}
           onClose={() => { setSettingsOpen(undefined); setAddingColour(false); }}
         />
       )}
@@ -4908,7 +4937,9 @@ export default function Editor() {
         </Dialog>
       )}
       {(home || homeLeaving) && (homeKind.current === "name"
-        ? <NameBox leaving={!home} onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone) startTutorial(); }} />
+        ? <NameBox leaving={!home} onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone && settings.updates !== null) startTutorial(); }} />
+        : homeKind.current === "updates"
+        ? <UpdatesBox leaving={!home} onDone={(updates) => { setSettings((s) => ({ ...s, updates })); if (!settings.tutorialDone) startTutorial(); }} />
         : <Home leaving={!home} name={settings.userName ?? ""} first={welcomed} away={away} recents={recents} newKey={keyLabel("enter")} openKey={hint("open")}
             recovered={recovered} onRecovered={openRecovered} onDiscard={(entry) => setDialog({ kind: "discard", entry })}
             purposes={purposeList} purpose={settings.purpose} onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent}
@@ -4943,21 +4974,30 @@ export default function Editor() {
           <p className="dialog-note">Octet keeps no other copy of these changes.</p>
         </Dialog>
       )}
-      {/* Email Log uses Feedback's email draft to Sam (for testing): it goes when Feedback goes. */}
+      {/* Email Log uses Feedback's email draft to Sam (for testers): only in builds with Feedback (REL-8). */}
       {dialog?.kind === "crashed" && (
-        <Dialog title="Octet stopped because of an error" action="Email Log" onClose={() => setDialog(undefined)}
+        <Dialog title="Octet stopped because of an error" action={__FEEDBACK__ ? "Email Log" : undefined} onClose={() => setDialog(undefined)}
           alt={{ label: "Show Log", onClick: () => void invoke("show_log").catch((e) => setNotice(String(e))) }}
-          onAction={() => {
+          onAction={__FEEDBACK__ ? () => {
             const log = dialog.log;
             setDialog(undefined);
             void invoke("send_feedback", { note: `Octet stopped because of an error.\n\n${log}`, picture: null })
               .then(() => setNotice("The log is ready to send in your mail app."), (e) => setNotice(String(e)));
-          }}>
-          <p className="dialog-note">The log of the error is on this computer only. Octet sends nothing. To help fix the error, email the log.</p>
+          } : undefined}>
+          <p className="dialog-note">The log of the error is on this computer only. Octet sends nothing.{__FEEDBACK__ && " To help fix the error, email the log."}</p>
+        </Dialog>
+      )}
+      {dialog?.kind === "update" && (
+        <Dialog title={`Update to Octet ${dialog.version}?`} action="Update" onClose={() => setDialog(undefined)}
+          onAction={() => { setDialog(undefined); leave(() => {
+            setNotice("Downloading the update.", true);
+            return invoke("update_install").catch((e) => { throw `Octet cannot install the update. ${e}`; });
+          }); }}>
+          <p className="dialog-note">Octet starts again after the update.</p>
         </Dialog>
       )}
       {about && <About onClose={() => setAbout(false)} />}
-      {feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={setNotice}
+      {__FEEDBACK__ && feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={setNotice}
         onSent={() => { setFeedback(undefined); setNotice("Your feedback is ready to send in your mail app.", true); }} />}
       <ExportButton hint={platformLabel(EXPORT_KEYS)} onQuick={() => void quickExport()} onExport={openExport} />
       {exportView && (

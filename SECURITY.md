@@ -17,4 +17,6 @@ Only the maintainer can see the report. Expect a first reply within 7 days.
 
 ## Supported versions
 
-Octet has no release yet. After the first release, security fixes go into the latest version.
+Only the latest release gets security fixes. To get them, update Octet: Octet > Check for Updates… on the Mac,
+Help > Check for Updates… on Windows and Linux. Each update is signed, and Octet installs it only when the
+signature is correct.

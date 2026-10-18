@@ -1,0 +1,4 @@
+# cargo audit, in CI (REL-26). glib 0.18 is unsound (RUSTSEC-2024-0429) in VariantStrIter, which Octet never calls.
+# glib comes only on Linux, through the GTK 0.18 crates that Tauri uses.
+[advisories]
+ignore = ["RUSTSEC-2024-0429"]

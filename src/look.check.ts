@@ -8,8 +8,9 @@ const src = new URL(".", import.meta.url);
 const read = (name: string) => readFileSync(new URL(name, src), "utf8");
 const tsx = readdirSync(src).filter((f) => f.endsWith(".tsx")).map((f) => [f, read(f)] as const);
 const code = [...tsx, ...readdirSync(src).filter((f) => f.endsWith(".ts") && !f.endsWith(".check.ts") && !["cdxml.ts", "cdx.ts", "cdxtags.ts"].includes(f)).map((f) => [f, read(f)] as const), ["main.rs", read("../src-tauri/src/main.rs")] as const];
-// The string literals in a file, without its comments.
-const strings = (text: string) => text.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n").match(/"[^"\n]*"|`[^`\n]*`/g) ?? [];
+// The string literals in a file, without its comments and without the other spellings the command palette finds
+// (Editor.tsx WORDS, such as "analyze"), which no user reads.
+const strings = (text: string) => text.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*|const WORDS\b)/.test(l)).join("\n").match(/"[^"\n]*"|`[^`\n]*`/g) ?? [];
 
 // British English in every word a user reads (code identifiers keep standard spellings; cdxml.ts, cdx.ts and cdxtags.ts
 // write ChemDraw's own attribute names and values, so they are left out).
