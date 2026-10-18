@@ -276,6 +276,15 @@ console.log("cdxml.check: every object kind round trips");
   assert.deepEqual([box.kind, Math.round(box.angle! * 10) / 10, box.width, size(box)], ["box", 30, 1.5, [+(40 / 14.4).toFixed(2), +(20 / 14.4).toFixed(2)]]);
   assert.deepEqual([one.kind, one.side, one.angle], ["brackets", "left", 90], "a bracket lying with its lips up is a left bracket turned a quarter");
   assert.deepEqual([pair.kind, pair.side, pair.angle, size(pair)], ["parens", undefined, 90, [+(40 / 14.4).toFixed(2), +(40 / 14.4).toFixed(2)]]);
+  // Upright boxes whose axes run left, or down the page (as in Sam's files), read with their corners low and high, so
+  // they read back the same once Octet has written them.
+  const upright = fromCdxml(`<?xml version="1.0" encoding="UTF-8" ?><CDXML BondLength="14.40" LineWidth="0.60"><page id="1" BoundingBox="0 0 540 720">
+<graphic id="2" BoundingBox="47 467 214 252" GraphicType="Rectangle" RectangleType="Shadow" Center3D="130.5 359.5 0" MajorAxisEnd3D="47 359.5 0" MinorAxisEnd3D="130.5 467 0"/>
+<graphic id="3" BoundingBox="34 538 224 490" GraphicType="Rectangle" RectangleType="RoundEdge" Center3D="129 514 0" MajorAxisEnd3D="129 538 0" MinorAxisEnd3D="34 514 0"/>
+</page></CDXML>`).mol;
+  assert.deepEqual(upright.shapes!.map((sh) => [sh.angle, sh.from[0] < sh.to[0], sh.from[1] < sh.to[1], size(sh)]), [[undefined, true, true, [+(167 / 14.4).toFixed(2), +(215 / 14.4).toFixed(2)]], [undefined, true, true, [+(190 / 14.4).toFixed(2), +(48 / 14.4).toFixed(2)]]]);
+  const again = fromCdxml(toCdxml(upright, DEFAULT_STYLE)).mol;
+  assert.deepEqual(again.shapes!.map((sh) => [sh.from, sh.to].flat().map((v) => +v.toFixed(3))), upright.shapes!.map((sh) => [sh.from, sh.to].flat().map((v) => +v.toFixed(3))));
   console.log("cdxml.check: turned shapes read");
 }
 

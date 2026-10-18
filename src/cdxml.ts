@@ -841,6 +841,12 @@ export function fromCdxml(text: string): CdxmlRead {
 
   // Octet's own angle for a turned shape, when the shape as ChemDraw holds it agrees (to 0.1°); else the one read.
   const exact = (own: unknown, read: number) => (isNum(own, -360, 360) && Math.abs(((((own as number) - read) % 360) + 540) % 360 - 180) < 0.1 ? (own as number) : read);
+  // A turned shape set upright (settleShape), with its corners low and high whichever way ChemDraw ran its axes, so
+  // it reads back the same once Octet has written it. The corners' order does not change how a shape draws.
+  const settled = (sh: Shape & { z: number }): Shape & { z: number } => {
+    const s = settleShape(sh) as Shape & { z: number };
+    return { ...s, from: [Math.min(s.from[0], s.to[0]), Math.min(s.from[1], s.to[1])], to: [Math.max(s.from[0], s.to[0]), Math.max(s.from[1], s.to[1])] };
+  };
   // A table's or TLC plate's text style: a font named, a size in pt, and face bits (bold 1, italic 2, underline 4).
   const textStyleOf = (name: unknown, size: unknown, face: unknown): Partial<Shape> => ({
     ...(typeof name === "string" && fontName(name) && name !== style.captionFont ? { font: name } : {}), ...(isNum(size, 4, 144) ? { size: size as number } : {}),
@@ -1157,7 +1163,7 @@ export function fromCdxml(text: string): CdxmlRead {
         b = [box[2] - (wide ? a : other), box[3] - (wide ? other : a), box[2] + (wide ? a : other), box[3] + (wide ? other : a)];
       }
       const kind: ShapeKind = type === "Oval" ? "oval" : p?.kind === "highlight" ? "highlight" : bits.has("RoundEdge") ? "rounded" : "box";
-      const sh = settleShape({ id: newId(x), kind, from: toOctet(b[0], b[3]), to: toOctet(b[2], b[1]), angle, z } as Shape) as Shape & { z: number };
+      const sh = settled({ id: newId(x), kind, from: toOctet(b[0], b[3]), to: toOctet(b[2], b[1]), angle, z });
       const w = lineWidthOf(x);
       if (w) sh.width = w;
       if (kind !== "highlight" && bits.has("Filled")) sh.fill = "solid"; else if (kind !== "highlight" && bits.has("Shaded")) sh.fill = "shaded";
@@ -1360,7 +1366,7 @@ export function fromCdxml(text: string): CdxmlRead {
       if (colour) sh.colour = colour;
       if (width) sh.width = width;
       if (b.x.attrs.LineType?.includes("Dashed")) sh.dashed = true;
-      addShape(settleShape(sh) as Shape & { z: number }, b.x, b.group);
+      addShape(settled(sh), b.x, b.group);
     });
   }
 

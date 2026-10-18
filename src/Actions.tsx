@@ -750,7 +750,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       {((context.kind === "shape" && context.shape !== "highlight" && context.shape !== "table" && context.style !== "solid" && context.style !== "shaded") || context.kind === "arrow") && (
         // The width of the lines, for every object drawn in lines (a table's is with its lines, above).
         <div className="sliders" role="group" aria-label="Lines">
-          <Slider name="Line width" value={context.kind === "arrow" ? context.width : context.weight} min={0.1} max={4} step={0.05} show={(v) => `${v.toFixed(2)} pt`} onChange={(v) => run(`${context.kind}.weight.${Math.round(v * 100)}`)} />
+          <Slider name="Line width" value={context.kind === "arrow" ? context.width : context.weight} min={0.05} max={4} step={0.05} show={(v) => `${v.toFixed(2)} pt`} onChange={(v) => run(`${context.kind}.weight.${Math.round(v * 100)}`)} />
         </div>
       )}
       {colour && (
