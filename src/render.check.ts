@@ -248,6 +248,26 @@ console.log("render.check: written labels ok");
   console.log("render.check: label cuts ok");
 }
 
+// Crossing bonds (ChemDraw's Bond Crossing): the bond later in the list is in front; the one behind has a gap where
+// they cross, as wide as the front bond and clear of it by its margin. Two separate structures that cross draw as one.
+{
+  const cross: Mol = {
+    atoms: [{ label: "C", location: [0, -1, 0] }, { label: "C", location: [0, 1, 0] }, { label: "C", location: [-1, 0, 0] }, { label: "C", location: [1, 0, 0] }],
+    bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [2, 3] }],
+  };
+  const inside = (poly: P[], q: P) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) if ((poly[i][1] > q[1]) !== (poly[j][1] > q[1]) && q[0] < ((poly[j][0] - poly[i][0]) * (q[1] - poly[i][1])) / (poly[j][1] - poly[i][1]) + poly[i][0]) c = !c; return c; };
+  const covered = (dr: Drawing, q: P) => dr.polygons.some((poly) => inside(poly, q));
+  const dc = render(cross, S, ink, L);
+  assert.ok(covered(dc, [0.5, 0]) && covered(dc, [-0.5, 0]), "the front bond (drawn later) runs through the crossing");
+  assert.ok(!covered(dc, [0, 0.5]) && !covered(dc, [0, -0.5]) && !covered(dc, [0, -3]), "the bond behind has a gap");
+  assert.ok(covered(dc, [0, -8]) && covered(dc, [0, 8]), "the bond behind is drawn on both sides of its gap");
+  const swapped = render({ ...cross, bonds: [cross.bonds[1], cross.bonds[0]] }, S, ink, L);
+  assert.ok(covered(swapped, [0, 0.5]) && !covered(swapped, [3, 0]), "Bring to Front swaps them");
+  const parts = renderParts(cross, S, ink, L, { parts: new WeakMap(), last: new Map() } as PartCache);
+  assert.equal(parts.parts.length, 1, "crossing structures draw together");
+  console.log("render.check: crossing bonds ok");
+}
+
 // Line spacing: Automatic spaces every line by the caption's largest text, Variable each line by its own, and Fixed
 // by the points given.
 {

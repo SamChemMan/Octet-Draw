@@ -201,7 +201,8 @@ const bare = fromCdxml(text.replace(/ Octet="[^"]*"/g, "").replace(/\n Octet='[^
 const chemdraw = bare.mol;
 assert.deepEqual(chemdraw.atoms.slice(0, 6).map((a) => [a.text, a.query]), atoms.slice(0, 6).map((a) => [a.text, a.query]));
 assert.deepEqual(chemdraw.atoms.filter((a) => a.centre).map((a) => a.centre), atoms.filter((a) => a.centre).map((a) => a.centre));
-assert.deepEqual(chemdraw.bonds.slice(0, 4).map((x) => [x.query, x.topology, x.rxn, x.type]), bonds.slice(0, 4).map((x) => [x.query, x.topology, x.rxn, x.type]));
+// (Bonds come back in their drawing order (Z); the bond to the chlorine's connection point, which ChemDraw keeps, is left out.)
+assert.deepEqual(chemdraw.bonds.filter((x) => !x.atoms.some((i) => chemdraw.atoms[i].attach)).slice(0, 4).map((x) => [x.query, x.topology, x.rxn, x.type]), bonds.slice(0, 4).map((x) => [x.query, x.topology, x.rxn, x.type]));
 assert.deepEqual(chemdraw.shapes?.map((s) => [s.rgroup, s.polymer]), shapes.map((s) => [s.rgroup, s.polymer]));
 // ChemDraw writes every R-Logic field: RLogicRestH="no" is Rest H off.
 assert.deepEqual(fromCdxml(text.replace(/ Octet="[^"]*"/g, "").replace(/CreationProgram="[^"]*"/, "").replace('RLogicRestH="yes"', 'RLogicRestH="no"')).mol.shapes?.find((s) => s.rgroup)?.rgroup, { name: "R1", occur: "1-3" });

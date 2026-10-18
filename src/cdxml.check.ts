@@ -412,6 +412,49 @@ console.log("cdxml.check: every object kind round trips");
   console.log("cdxml.check: delocalised rings, dashed and aromatic doubles ok");
 }
 
+// A shown carbon (ChemDraw's c key): its label goes out with its hydrogens and comes back as a shown carbon, so its
+// hydrogens stay right when a bond is added. A hidden carbon stays hidden.
+{
+  const m = { atoms: [A("C", 0, 0, { shown: true }), A("C", 0.866, 0.5), A("C", 1.732, 0)], bonds: [b(0, 1), b(1, 2)] } as Mol;
+  const text = toCdxml(m, DEFAULT_STYLE), again = fromCdxml(text).mol;
+  assert.match(text, /NumHydrogens="3"/);
+  assert.deepEqual(again.atoms.map((a) => [a.shown, a.text]), [[true, undefined], [undefined, undefined], [undefined, undefined]]);
+  assert.equal(parse(serialize(m)).atoms[0].shown, true);
+  console.log("cdxml.check: shown carbons ok");
+}
+
+// The document's chain angle goes out as ChemDraw's ChainAngle and comes back.
+{
+  const m = { atoms: [A("C", 0, 0), A("C", 1, 0)], bonds: [b(0, 1)] } as Mol;
+  const text = toCdxml(m, readStyle({ ...DEFAULT_STYLE, chainAngle: 110 }));
+  assert.match(text, /ChainAngle="110"/);
+  assert.equal(fromCdxml(text).style.chainAngle, 110);
+  assert.equal(fromCdxml(text.replace('ChainAngle="110"', "")).style.chainAngle, 120);
+  console.log("cdxml.check: chain angle ok");
+}
+
+// Bonds come in in the order ChemDraw draws them (Z), so a bond brought to the front stays in front.
+{
+  const m = { atoms: [A("C", 0, -1), A("C", 0, 1), A("C", -1, 0), A("C", 1, 0)], bonds: [b(0, 1), b(2, 3)] } as Mol;
+  const text = toCdxml(m, DEFAULT_STYLE), zs = [...text.matchAll(/<b\s+id="\d+"\s+Z="(\d+)"/g)].map((x) => x[1]);
+  assert.equal(zs.length, 2);
+  const swapped = text.replace(new RegExp(`Z="${zs[0]}"`), 'Z="ZA"').replace(new RegExp(`Z="${zs[1]}"`), `Z="${zs[0]}"`).replace('Z="ZA"', `Z="${zs[1]}"`);
+  assert.deepEqual(fromCdxml(swapped.replace(/ Octet="[^"]*"/g, "").replace(/CreationProgram="[^"]*"/, "")).mol.bonds.map((x) => x.atoms), [[2, 3], [0, 1]], "ChemDraw's file: by Z");
+  console.log("cdxml.check: bond order ok");
+}
+
+// A structure drawn above a reaction arrow goes out as one of its step's objects above the arrow.
+{
+  const m = {
+    atoms: [A("C", 0, 0), A("C", 1, 0), A("C", 6, 0), A("C", 7, 0), A("C", 3, 1.5), A("C", 4, 1.5)],
+    bonds: [b(0, 1), b(2, 3), b(4, 5)],
+    arrows: [{ id: 50, kind: "reaction", from: [2, 0], to: [5, 0] }],
+  } as Mol;
+  const text = toCdxml(m, DEFAULT_STYLE), frags = [...text.matchAll(/<fragment\s+id="(\d+)"/g)].map((x) => x[1]);
+  assert.match(text, new RegExp(`ReactionStepObjectsAboveArrow="${frags[2]}"`));
+  console.log("cdxml.check: structures above the arrow ok");
+}
+
 // Decision 0007: a structure, an arrow and a box at 200%, in a document at 250%. ChemDraw sees each object's own
 // settings and the document's true sizes; Octet reads its own scales back exactly, and another program's from
 // LineWidth when every width agrees with it.

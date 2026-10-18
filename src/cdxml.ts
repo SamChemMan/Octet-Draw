@@ -17,10 +17,10 @@ import {
 import { ELEMENTS, anchorElement, formulaRuns, isElement, units } from "./labels.ts";
 import { normalise, runsOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
 import { findReaction } from "./reaction.ts";
-import { interpret, type RoleStep } from "./interpret.ts";
 import { readGrid } from "./stoich.ts";
 import { fragments, groupParents, renumberCentre, tidyGroups } from "./edit.ts";
 import { altGroup, elementList, enclosed, linkNode, polymerLabel, queryLabel, readPolymer, readRgroup, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
+import { ligandEllipse } from "./render.ts";
 import { kekulise, rings } from "./rings.ts";
 import type { Cycle } from "./cycle.ts";
 
@@ -451,6 +451,14 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // R-group definitions: the structures inside each one's box go in its alternative group.
   const rgroups = rgroupMembers(mol, frags), hostOf = new Map<number[], number>(), members: string[][] = rgroups.map(() => []), memberBoxes: Box[][] = rgroups.map(() => []);
   rgroups.forEach((r, k) => r.members.forEach((f) => hostOf.set(f, k)));
+  // A π ligand's ellipse, which Octet draws itself: written for ChemDraw as an oval inside the ring (its own ligands
+  // have one).
+  const ellipses = (atoms: number[]) => atoms.filter((i) => !mol.atoms[i].centre?.variable && (mol.atoms[i].centre?.atoms.length ?? 0) >= 3).map((i) => {
+    const c = page(i), nb = nbrs[i][0], { across, along, ra, rb } = ligandEllipse(mol.atoms[i].centre!.atoms.map(page), c, nb === undefined ? undefined : page(nb), style.spacing / 100);
+    const major: P = [c[0] + across[0] * ra, c[1] + across[1] * ra], minor: P = [c[0] + along[0] * rb, c[1] + along[1] * rb];
+    return el("graphic", { id: fresh(), BoundingBox: `${pt(major)} ${pt(c)}`, Z: Z(), color: colour(mol.atoms[mol.atoms[i].centre!.atoms[0]].colour), GraphicType: "Oval",
+      Center3D: pt3(c), MajorAxisEnd3D: pt3(major), MinorAxisEnd3D: pt3(minor), Octet: DERIVED });
+  }).join("");
   for (const atoms of frags) {
     zOrder = mol.atoms[atoms[0]].order;
     let xml = "";
@@ -462,7 +470,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     }
     for (const k of [...new Set(atoms.flatMap((i) => bondsAt[i]))].sort((p, q) => p - q)) xml += bond(k);
     for (const i of atoms) xml += marks(i);
-    xml += circles(atoms);
+    xml += circles(atoms) + ellipses(atoms);
     const box = union(boxes)!, host = hostOf.get(atoms);
     if (host !== undefined) {
       // An R-group's fragment attaches through a connection point; one Octet draws none for (Cl, OMe) attaches
@@ -516,7 +524,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // A node, with its label and, for an abbreviation Octet can expand, the abbreviation's atoms (spec 13.3).
   function node(i: number): { xml: string; box: Box } {
     const a = mol.atoms[i], X = page(i), deg = nbrs[i].length, charge = a.charge ?? 0;
-    const shown = !a.attach && !a.bead && !a.centre && (a.label !== "C" || !deg || !!a.text || !!a.isotope || (deg === 1 ? style.terminalLabels : style.carbonLabels));
+    const shown = !a.attach && !a.bead && !a.centre && (a.label !== "C" || !deg || !!a.text || !!a.isotope || !!a.shown || (deg === 1 ? style.terminalLabels : style.carbonLabels));
     // Query labels: a generic label (an R-group's, when the drawing defines it), an element or NOT list, a link node
     // and an anonymous alternative group (each alternative's atoms inside it, as an abbreviation's).
     const q = queryLabel(a.text), named = q === "generic" ? altIds.get(a.text!) : undefined;
@@ -608,7 +616,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // A bond: order, display, forced double-bond side, colour, and its neighbours' order round a double bond (spec 13.4).
   function bond(k: number): string {
     const b = mol.bonds[k], d = b.display, [i, j] = b.atoms;
-    const display = b.type === 1 ? (b.stereo === 1 ? "WedgeBegin" : b.stereo === 6 ? "WedgedHashBegin" : d ? ({ bold: "Bold", dashed: "Dash", hashed: "Hash", wavy: "Wavy", hollow: "HollowWedgeBegin" } as Record<string, string>)[d] : undefined)
+    const display = b.type === 1 || b.type === 4 ? (b.stereo === 1 ? "WedgeBegin" : b.stereo === 6 ? "WedgedHashBegin" : d ? ({ bold: "Bold", dashed: "Dash", hashed: "Hash", wavy: "Wavy", hollow: "HollowWedgeBegin" } as Record<string, string>)[d] : undefined)
       : b.type === 2 ? ({ bold: "Bold", either: "Wavy" } as Record<string, string>)[d ?? ""] : undefined;
     let circular: string | undefined;
     if (b.type === 2 && nbrs[i].length > 1 && nbrs[j].length > 1) {
@@ -643,7 +651,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // electrons and lone pairs, each in the widest gap between the atom's bonds and label.
   function marks(i: number): string {
     const a = mol.atoms[i], X = page(i), charge = a.charge ?? 0, deg = nbrs[i].length;
-    const shown = !a.attach && !a.bead && (a.label !== "C" || !deg || !!a.text || !!a.isotope || (deg === 1 ? style.terminalLabels : style.carbonLabels));
+    const shown = !a.attach && !a.bead && (a.label !== "C" || !deg || !!a.text || !!a.isotope || !!a.shown || (deg === 1 ? style.terminalLabels : style.carbonLabels));
     const list: [string, string[]][] = [];
     if (charge && (a.circled || !shown)) list.push([a.circled ? (charge > 0 ? "CirclePlus" : "CircleMinus") : charge > 0 ? "Plus" : "Minus", ["Charge"]]);
     // A singlet radical (carbene) is a pair of electrons that stands for the radical.
@@ -765,13 +773,11 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     return [x0, c.y - 0.2 * size, x0 + w, c.y + 0.7 * size];
   };
   type RowStep = NonNullable<ReturnType<typeof findReaction>>["steps"][number];
-  const step = (arrowId: number, before: RowStep[], after: RowStep[], drawn?: RoleStep) => {
+  // Conditions: the text kept on the arrow, and the structures drawn above and below it (findReaction's conditions).
+  const step = (arrowId: number, before: RowStep[], after: RowStep[], drawn?: { above: RowStep[]; below: RowStep[] }) => {
     const frag = (s: RowStep[]) => s.flatMap((x) => (x.kind === "structure" ? [fragId.get(x.atoms[0])!] : []));
     const list = (ids: number[]) => (ids.length ? ids.join(" ") : undefined);
-    // Above and below the arrow: the text kept on it, and the structures drawn there (interpret.ts), as ChemDraw lists
-    // its reagents. (Free text drawn there is not listed: a reader keeps listed text on the arrow.)
-    const on = (side: "above" | "below") => [...captions.filter((c) => c.on?.arrow === arrowId && c.on.side === side).map((c) => idOf.get(c.id)!),
-      ...(drawn?.[side] ?? []).flatMap((x) => (x.kind === "structure" && fragId.has(x.atoms[0]) ? [fragId.get(x.atoms[0])!] : []))];
+    const on = (side: "above" | "below") => [...captions.filter((c) => c.on?.arrow === arrowId && c.on.side === side).map((c) => idOf.get(c.id)!), ...frag(drawn?.[side] ?? [])];
     const mapped = (s: RowStep[]) => s.flatMap((x) => (x.kind === "structure" ? x.atoms.filter((i) => mol.atoms[i].map) : []));
     const pairs = mapped(before).flatMap((i) => { const j = mapped(after).find((k) => mol.atoms[k].map === mol.atoms[i].map); return j === undefined ? [] : [nodeId.get(i)!, nodeId.get(j)!]; });
     return el("step", {
@@ -783,11 +789,11 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     if (!straightArrow(a) || done.has(a.id)) continue;
     const r = findReaction(mol, a.id, arrows, ink, captionBox);
     if (!r) continue;
-    const at = r.steps.flatMap((s, k) => (s.kind === "arrow" ? [k] : [])), roles = interpret(mol, r, arrows, ink, captionBox);
+    const at = r.steps.flatMap((s, k) => (s.kind === "arrow" ? [k] : []));
     schemes.push(el("scheme", { id: fresh() }, at.map((k, n) => {
       const id = (r.steps[k] as { id: number }).id;
       done.add(id);
-      return step(id, r.steps.slice(n ? at[n - 1] + 1 : 0, k), r.steps.slice(k + 1, n + 1 < at.length ? at[n + 1] : r.steps.length), roles[n]);
+      return step(id, r.steps.slice(n ? at[n - 1] + 1 : 0, k), r.steps.slice(k + 1, n + 1 < at.length ? at[n + 1] : r.steps.length), r.conditions.get(id));
     }).join("")));
   }
   for (const a of arrows) if (!done.has(a.id) && legacyOf.has(a.id) && captions.some((c) => c.on?.arrow === a.id)) schemes.push(el("scheme", { id: fresh() }, step(a.id, [], [])));
@@ -813,7 +819,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     ShowAtomQuery: "yes", ShowAtomStereo: "no", ShowAtomEnhancedStereo: "yes", ShowAtomNumber: "no", ShowResidueID: "no", ShowBondQuery: "yes", ShowBondRxn: "yes", ShowBondStereo: "no",
     ShowTerminalCarbonLabels: style.terminalLabels ? "yes" : "no", ShowNonTerminalCarbonLabels: style.carbonLabels ? "yes" : "no", HideImplicitHydrogens: style.hideH ? "yes" : "no", LabelFont: font(style.labelFont), LabelSize: fmtSize(style.labelSize), LabelFace: 96,
     CaptionFont: font(style.captionFont), CaptionSize: fmtSize(style.captionSize), HashSpacing: fmt(style.hash), MarginWidth: fmt(style.margin), LineWidth: fmt(style.line), BoldWidth: fmt(style.bold),
-    BondLength: fmt(style.bond), BondSpacing: fmtSize(style.spacing), ChainAngle: 120, LabelJustification: "Auto", CaptionJustification: "Left", AminoAcidTermini: "HOH", ShowSequenceTermini: "yes",
+    BondLength: fmt(style.bond), BondSpacing: fmtSize(style.spacing), ChainAngle: fmt(style.chainAngle), LabelJustification: "Auto", CaptionJustification: "Left", AminoAcidTermini: "HOH", ShowSequenceTermini: "yes",
     ShowSequenceBonds: "yes", ShowSequenceUnlinkedBranches: "no", ResidueWrapCount: 40, ResidueBlockCount: 10, PrintMargins: "36 36 36 36",
     ChemPropName: "", ChemPropFormula: "Chemical Formula: ", ChemPropExactMass: "Exact Mass: ", ChemPropMolWt: "Molecular Weight: ", ChemPropMOverZ: "m/z: ", ChemPropAnalysis: "Elemental Analysis: ",
     ChemPropBoilingPt: "Boiling Point: ", ChemPropMeltingPt: "Melting Point: ", ChemPropCritTemp: "Critical Temp: ", ChemPropCritPres: "Critical Pres: ", ChemPropCritVol: "Critical Vol: ",
@@ -942,6 +948,7 @@ export function fromCdxml(text: string): CdxmlRead {
     labelFont: fontOf(fonts.get(int(r.LabelFont) ?? -1)).font, labelSize: real(r.LabelSize), captionFont: fontOf(fonts.get(int(r.CaptionFont) ?? -1)).font, captionSize: real(r.CaptionSize),
     colour: colourOf(r.color) ?? "#000000",
     terminalLabels: yes(r.ShowTerminalCarbonLabels), carbonLabels: yes(r.ShowNonTerminalCarbonLabels), hideH: yes(r.HideImplicitHydrogens),
+    chainAngle: real(r.ChainAngle),
   });
 
   // Octet's own angle for a turned shape, when the shape as ChemDraw holds it agrees (to 0.1°); else the one read.
@@ -1114,8 +1121,18 @@ export function fromCdxml(text: string): CdxmlRead {
   // Bonds join nodes by id, the last node read with an id winning; a bond to a missing node, to its own atom or
   // repeating another is dropped (spec 2).
   function readBonds() {
+    // A multi-centre or variable attachment stands for two or more atoms read here, by node id; a multi-centre ring's
+    // 1.5 bonds stay delocalised.
+    const ligand = new Set<number>();
+    for (const c of centres) {
+      const atoms = [...new Set(c.ids.map((id) => atomOf.get(id)).filter((j): j is number => j !== undefined && j !== c.i && !mol.atoms[j].centre))];
+      if (atoms.length < 2) { lose("attachment"); continue; }
+      mol.atoms[c.i].centre = { atoms, ...(c.variable ? { variable: true as const } : {}) };
+      if (!c.variable) for (const j of atoms) ligand.add(j);
+    }
     const seen = new Set<string>();
-    for (const b of bondsToRead) {
+    // In the order they are drawn (Z), so a bond ChemDraw brought to the front stays in front where bonds cross.
+    for (const b of [...bondsToRead].sort((p, q) => zOf(p) - zOf(q))) {
       if (priv(b)?.d === 1) continue; // to a connection point Octet wrote for ChemDraw only
       const i = atomOf.get(int(b.attrs.B) ?? -1), j = atomOf.get(int(b.attrs.E) ?? -1);
       const key = i === undefined || j === undefined ? "" : i < j ? `${i} ${j}` : `${j} ${i}`;
@@ -1130,12 +1147,15 @@ export function fromCdxml(text: string): CdxmlRead {
       const deloc = order.size === 1 && order.has("1.5"), dashed = deloc && !!d2 && d2 !== "Solid";
       const bond: Bond = { type: order.has("3") ? 3 : order.has("2") || dashed ? 2 : 1, atoms: [i!, j!] };
       if (dashed) bond.display = d === "Dash" ? "aromatic" : "dashed";
+      // A delocalised bond of a π ligand's ring, or with a single bond style (a ring drawn in perspective), stays
+      // delocalised (Octet's order 4).
+      else if (deloc && (priv(b)?.order === 4 || (ligand.has(i!) && ligand.has(j!)) || (d && d !== "Solid"))) bond.type = 4;
       else if (deloc) { const kept = priv(b)?.order; delocalised.push({ k: mol.bonds.length, order: kept === 1 || kept === 2 ? kept : undefined }); }
       if (bond.type === 1 && order.size === 1 && order.has("dative")) bond.display = "dative";
       else if (bond.type === 1 && order.has("hydrogen")) bond.display = "dashed";
       else if (!deloc && [...order].some((o) => !["1", "2", "3"].includes(o))) lose("bond order");
       let swap = false;
-      if (bond.type === 1 && !bond.display) {
+      if ((bond.type === 1 || bond.type === 4) && !bond.display) {
         const single: Record<string, [Display | undefined, number | undefined, boolean]> = {
           WedgeBegin: [undefined, 1, false], WedgeEnd: [undefined, 1, true], WedgedHashBegin: [undefined, 6, false], WedgedHashEnd: [undefined, 6, true], Bold: ["bold", undefined, false],
           Dash: ["dashed", undefined, false], Dot: ["dashed", undefined, false], DashDot: ["dashed", undefined, false], Hash: ["hashed", undefined, false], Wavy: ["wavy", undefined, false],
@@ -1215,6 +1235,25 @@ export function fromCdxml(text: string): CdxmlRead {
   // Delocalised rings: ChemDraw's ring bonds of order 1.5, and any ring with a circle inside it (ChemDraw reads a single
   // bond near a closed circle as aromatic). Octet draws such a ring with its circle, from Kekulé bonds: each atom that
   // can take a double bond gets one where it can, carbons first. A circle Octet takes as a ring's is not kept as a shape.
+  // A π ligand's ellipse is Octet's to draw: an unfilled oval or closed curve round the middle of a multi-centre
+  // point's ring is not kept as a shape.
+  function readLigands() {
+    const near = mol.atoms.flatMap((a) => {
+      if (!a.centre || a.centre.variable) return [];
+      const ring = a.centre.atoms.map((j) => mol.atoms[j].location), c = a.location, r = Math.max(...ring.map((q) => Math.hypot(q[0] - c[0], q[1] - c[1])));
+      return [(q: P, reach: number) => Math.hypot(q[0] - c[0], q[1] - c[1]) < 0.3 * r && reach < r];
+    });
+    if (!near.length) return;
+    const inside = (q: P, reach: number) => near.some((f) => f(q, reach));
+    const mid = (ps: P[]): P => [ps.reduce((t, q) => t + q[0], 0) / ps.length, ps.reduce((t, q) => t + q[1], 0) / ps.length];
+    const kept = shapes.filter((sh) => !(sh.kind === "oval" && !sh.fill && inside(mid([sh.from, sh.to]), Math.hypot(sh.to[0] - sh.from[0], sh.to[1] - sh.from[1]) / 2)));
+    if (kept.length < shapes.length) shapes.splice(0, shapes.length, ...kept);
+    const curves = arrows.filter((a) => !(a.kind === "curve" && a.curve?.closed && !a.fill && (() => {
+      const ps = a.curve!.points.map((q) => q.at), c = mid(ps);
+      return inside(c, Math.max(...ps.map((q) => Math.hypot(q[0] - c[0], q[1] - c[1]))));
+    })()));
+    if (curves.length < arrows.length) arrows.splice(0, arrows.length, ...curves);
+  }
   function readDelocalised() {
     const ring = new Set<number>(), taken = new Set<number>(), g = { atoms: mol.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: mol.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) };
     const bondOf = (x: number, y: number) => mol.bonds.findIndex((b) => (b.atoms[0] === x && b.atoms[1] === y) || (b.atoms[0] === y && b.atoms[1] === x));
@@ -1264,6 +1303,8 @@ export function fromCdxml(text: string): CdxmlRead {
         const m = new RegExp(`^(?:H(\\d*))?${a.label}(?:H(\\d*))?$`).exec(text);
         const h = m ? (m[1] === undefined ? 0 : Number(m[1] || 1)) + (m[2] === undefined ? 0 : Number(m[2] || 1)) : -1;
         if (m && (a.label !== "C" || !degree[i] || a.isotope || (degree[i] === 1 ? style.terminalLabels : style.carbonLabels)) && h === hydrogens(a.label, charge, used[i], a.radical === 3 ? 2 : a.radical)) continue;
+        // A carbon shown with its own hydrogens (CH3 at a chain end): a shown carbon, which keeps its hydrogens right.
+        if (m && a.label === "C" && h === hydrogens("C", charge, used[i], a.radical === 3 ? 2 : a.radical)) { a.shown = true; continue; }
       } else if (isotope) lose("isotope");
       if (text.length > MAX_LABEL || /[<>]/.test(text)) { lose("label text"); text = text.replace(/[<>]/g, "").slice(0, MAX_LABEL); }
       if (isElement(text)) a.label = text;
@@ -1682,15 +1723,10 @@ export function fromCdxml(text: string): CdxmlRead {
   readScales();
   readLabels();
   readDelocalised();
+  readLigands();
   readSymbols();
   readBrackets();
   readSteps();
-  // Multi-centre and variable attachments: their atoms, by node id.
-  for (const c of centres) {
-    const atoms = [...new Set(c.ids.map((id) => atomOf.get(id)).filter((j): j is number => j !== undefined && j !== c.i))];
-    if (atoms.length >= 2) mol.atoms[c.i].centre = { atoms, ...(c.variable ? { variable: true as const } : {}) };
-    else lose("attachment");
-  }
   // R-Logic rows, on the R-group definitions they name.
   for (const row of logic) {
     const sh = shapes.find((x) => x.rgroup?.name === row.attrs.RLogicGroup);

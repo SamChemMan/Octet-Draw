@@ -399,9 +399,16 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("frame_rounded_shadow", "Rounded Rectangle with Shadow", "")?,
     ])?;
     section.replace("Object".into());
+    // ChemDraw's Fixed Lengths (⌘L) and Fixed Angles (⌘E): ticked, a dragged bond is one bond length long and at a
+    // 15° step.
+    let fixed_lengths = check("fixed_lengths", "Fixed Lengths", "CmdOrCtrl+L")?;
+    let fixed_angles = check("fixed_angles", "Fixed Angles", "CmdOrCtrl+E")?;
     let object = Submenu::with_items(app, "Object", true, &[
         &align,
         &distribute,
+        &sep()?,
+        &fixed_lengths,
+        &fixed_angles,
         &sep()?,
         &item("show_stereo", "Show Stereochemistry", "")?,
         &item("atom_numbers", "Show Atom Numbers", "")?,
@@ -547,7 +554,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     items.push(&window);
     // Commands of a menu that is not there are not listed (Settings shows no shortcuts for them).
     let listed = list.borrow().iter().filter(|c| online || c.2 != "Search").cloned().collect();
-    Ok((Menu::with_items(app, &items)?, vec![grid, rulers, crosshair, snap, snap_grid, warnings, interpretation], listed))
+    Ok((Menu::with_items(app, &items)?, vec![grid, rulers, crosshair, snap, snap_grid, warnings, interpretation, fixed_lengths, fixed_angles], listed))
 }
 
 fn main() {
