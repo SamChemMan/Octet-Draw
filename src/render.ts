@@ -41,7 +41,8 @@ export type Atom = {
 // A double bond's dashed (ChemDraw's Tautomeric: the second line dashed) and aromatic (both lines dashed) displays.
 export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow" | "either" | "aromatic";
 // position: where a double bond's second line goes, looking from atoms[0] to atoms[1]; unset means automatic.
-export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string };
+// ignoreWarnings: Display Warnings off for this bond (ChemDraw's IgnoreWarnings): its problems are not marked.
+export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string; ignoreWarnings?: true };
 // A caption: free text at x, y (bond lengths, y up; the text's anchor point by its alignment), or, with under
 // set, kept centred under those atoms by the ACS rule (baseline 15 pt below the structure's ink box).
 // Captions under the same structure stack one line apart, in id order.
@@ -536,9 +537,10 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       // Centred: lines at ±spacing/2 that stay out of the fan and run on to the neighbouring bond's axis.
       plan.kind = 'none';
       const h = spacing / 2;
+      // A neighbour in line (an allene's middle atom, drawn with rounding) is met end to end, not run on to.
       const reach = (x: number, y: number, o: number) => {
         const phi = labelled[x] ? undefined : near(x, y, Math.sign(o))[0];
-        return phi === undefined ? 0 : h / Math.tan(phi);
+        return phi === undefined || Math.sin(phi) < 0.05 ? 0 : h / Math.tan(phi);
       };
       plan.lines = [h, -h].map((o, k) => ({ o, t0: reach(a, b, o), t1: reach(b, a, o), ...(bold && !k ? { half: s.bold / 2 } : {}), ...((bond.display === "dashed" && k) || bond.display === "aromatic" ? { dashed: true } : {}) }));
       return plan;

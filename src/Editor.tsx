@@ -3,20 +3,20 @@ import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Waveform, TagSimple, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen,
   FrameCorners, GearSix, Keyboard, Lasso, LinkSimple, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
   TextAlignCenter, TextAlignLeft, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Warning, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
-  Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table, FileDashed, ArrowsLeftRight,
+  Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table, FileDashed, ArrowsLeftRight, CheckCircle,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
-import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
+import { analyse, structures, expandWithOrigins, stereoFacts, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
 import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, FONTS, type DocStyle, type PageName } from "./docstyle";
-import { messy, problems } from "./check";
+import { messy, problems, WARNING_TYPES, type Problem, type WarningType } from "./check";
 import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
-  addShape, addSymbol, bondOrders, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
+  addShape, addSymbol, bondOrders, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, nextGroup, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
@@ -687,7 +687,21 @@ export default function Editor() {
   function atomProperties(i: number | undefined) {
     if (i === undefined || !doc.atoms[i]) return setNotice("Pick an atom first.");
     const a = doc.atoms[i];
-    setDialog({ kind: "atom", atom: i, element: a.text ?? a.label, charge: String(a.charge ?? 0), isotope: a.isotope ? String(a.isotope) : "", radical: String(a.radical ?? 0) });
+    const g = /^(abs|&|or)(\d*)$/.exec(a.enhanced ?? "");
+    setDialog({ kind: "atom", atom: i, element: a.text ?? a.label, charge: String(a.charge ?? 0), isotope: a.isotope ? String(a.isotope) : "", radical: String(a.radical ?? 0), stereo: g?.[1] ?? "", group: g?.[2] ?? "1" });
+  }
+  // Structure > Enhanced Stereochemistry on the selected stereocentres (every one with nothing selected).
+  function enhance(kind: "abs" | "or" | "&" | undefined) {
+    const centres = stereocentres(doc, selection.size ? selection : undefined);
+    if (!centres.length) return setNotice("Select a stereocentre: an atom at the narrow end of a wedge or hash bond.");
+    if (kind !== "or" && kind !== "&") return set(setEnhanced(doc, centres, kind), true);
+    let m = doc;
+    const moving = new Set(centres);
+    for (const g of fragments(doc)) {
+      const ours = g.filter((i) => moving.has(i));
+      if (ours.length) m = setEnhanced(m, ours, `${kind}${nextGroup(doc, g, kind, moving)}`);
+    }
+    set(m, true);
   }
   // Show or hide atom numbers. Each atom's number is its place in its structure, counting from 1, as ChemDraw numbers
   // atoms in the order they were drawn. When every one of the atoms already shows its number, they are hidden.
@@ -836,8 +850,11 @@ export default function Editor() {
     },
     snap: () => setSettings((s) => ({ ...s, snap: !s.snap })),
     warnings: () => setSettings((s) => ({ ...s, warnings: !s.warnings })),
-    // Display Warnings back on for the selected atoms (their whole structures when a structure is selected).
-    show_warnings: () => set({ ...doc, atoms: doc.atoms.map((a, k) => (selection.has(k) && a.ignoreWarnings ? { ...a, ignoreWarnings: undefined } : a)) }, true),
+    // Display Warnings back on for the selected atoms and the bonds between them.
+    show_warnings: () => set({
+      ...doc, atoms: doc.atoms.map((a, k) => (selection.has(k) && a.ignoreWarnings ? { ...a, ignoreWarnings: undefined } : a)),
+      bonds: doc.bonds.map((b) => (b.ignoreWarnings && selection.has(b.atoms[0]) && selection.has(b.atoms[1]) ? { ...b, ignoreWarnings: undefined } : b)),
+    }, true),
     // Structure commands act on the selection, or on the whole drawing when nothing is selected.
     clean_up: () => {
       if (!loaded || !doc.atoms.length) return;
@@ -929,8 +946,8 @@ export default function Editor() {
     zoom_out: () => zoomTo(views.get().zoom / 1.25),
     zoom_actual: () => zoomTo(1 / frame.k),
     actions: () => setSettings((s) => ({ ...s, actions: !s.actions })),
-    export: () => openExport(),
-    export_quick: () => void quickExport(),
+    export: () => checkFirst(openExport),
+    export_quick: () => checkFirst(() => void quickExport()),
     print: () => void printDrawing(),
     about: () => setAbout(true),
     // Atom Properties (Structure menu): the selected atom's element or label, charge, isotope and radical.
@@ -987,6 +1004,15 @@ export default function Editor() {
       set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.includes(i) ? { ...a, cip: on || undefined } : a)) }, true);
     },
     predict_13c: () => openSpectrum("13C"),
+    // Structure > Check Structure: the selection's problems (or the drawing's) one at a time (see checkThen).
+    check_structure: () => checkThen(selection.size ? subsetProblems(selection) : allProblems(), () => {}, true),
+    // Structure > Enhanced Stereochemistry, as ChemDraw's: on the selected stereocentres (every one with nothing
+    // selected). Clear All takes their flags off; Mark as Absolute flags them abs; Create Or Group and Create And Group
+    // put each structure's selected centres in a new group, numbered with the lowest number its structure has free.
+    stereo_clear: () => enhance(undefined),
+    stereo_abs: () => enhance("abs"),
+    stereo_or: () => enhance("or"),
+    stereo_and: () => enhance("&"),
     name_to_structure: () => nameToStructure(),
     document: () => setSettingsOpen("document"),
     settings: () => setSettingsOpen((settings.settingsModule as ModuleId) ?? "document"),
@@ -1148,8 +1174,11 @@ export default function Editor() {
   const pressMods = useRef<{ shift: boolean; alt: boolean; atoms: Set<number>; picks: Set<number> } | undefined>(undefined);
   const [exportView, setExportView] = useState<{ all?: string; selection?: string; parts: { all: Mol; selection?: Mol } }>();
   const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }
-    | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string }
+    | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string; stereo: string; group: string }
     | { kind: "unsaved"; next: () => void }>();
+  // Check Structure's dialog: the problems, the one shown, and what runs after them (a copy or export that asked).
+  // select: Check Structure itself, which selects each problem's objects as it shows it.
+  const [checking, setChecking] = useState<{ list: Problem[]; at: number; then: () => void; select: boolean }>();
   const [commandsOpen, setCommandsOpen] = useState(false);
   // An arrow Octet offers after a row of starting materials (from Clean up). Tab draws it; any other change drops it.
   const [offer, setOffer] = useState<{ from: P; to: P; doc: Mol }>();
@@ -2307,7 +2336,10 @@ export default function Editor() {
     if (!ids.length) return { kind: "drawing", nameable };
     if (ids.length === 1) {
       const a = doc.atoms[ids[0]];
-      return { kind: "atom", text: labelText([ids[0]]), label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre: stereocentres(doc).includes(ids[0]), enhanced: a.enhanced, halo: a.halo, fill: a.fill, numbered: !!a.number };
+      // Its structure's and and or groups, and the lowest new one of each, for the stereo flag buttons.
+      const centre = stereocentres(doc).includes(ids[0]), structure = centre ? fragments(doc).find((g) => g.includes(ids[0])) ?? [] : [];
+      const groups = (kind: "&" | "or") => [...new Set([...structure.flatMap((i) => { const g = /^(&|or)(\d+)$/.exec(doc.atoms[i].enhanced ?? ""); return g && g[1] === kind ? [Number(g[2])] : []; }), nextGroup(doc, structure, kind)])].sort((p, q) => p - q);
+      return { kind: "atom", text: labelText([ids[0]]), label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre, enhanced: a.enhanced, groups: centre ? { and: groups("&"), or: groups("or") } : undefined, halo: a.halo, fill: a.fill, numbered: !!a.number };
     }
     const bi = ids.length === 2 ? doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])) : -1;
     if (bi >= 0) {
@@ -2475,6 +2507,47 @@ export default function Editor() {
     });
     return out;
   }
+  // The problem marks: a red ring round each atom, bond (at its middle) or pair of brackets with a problem. Pointing at
+  // one shows what is wrong, as ChemDraw's tooltip on a warning does.
+  function problemMarks() {
+    const at = new Map<string, { x: number; y: number; r: number; w?: number; h?: number; text: string[] }>();
+    for (const p of found) {
+      let mark: { key: string; x: number; y: number; r: number; w?: number; h?: number } | undefined;
+      if (p.atom !== undefined && shown.atoms[p.atom]) { const [x, y] = pos(shown, p.atom); mark = { key: `a${p.atom}`, x: x * L, y: -y * L, r: 0.42 * L }; }
+      else if (p.bond !== undefined && shown.bonds[p.bond]) {
+        const [q, r] = shown.bonds[p.bond].atoms.map((i) => pos(shown, i));
+        mark = { key: `b${p.bond}`, x: ((q[0] + r[0]) / 2) * L, y: (-(q[1] + r[1]) / 2) * L, r: 0.5 * L };
+      } else if (p.shape !== undefined) {
+        const sh = shown.shapes?.find((x) => x.id === p.shape), pad = 0.15;
+        if (sh) mark = { key: `s${p.shape}`, x: (Math.min(sh.from[0], sh.to[0]) - pad) * L, y: -(Math.max(sh.from[1], sh.to[1]) + pad) * L, r: 0.2 * L, w: (Math.abs(sh.to[0] - sh.from[0]) + 2 * pad) * L, h: (Math.abs(sh.to[1] - sh.from[1]) + 2 * pad) * L };
+      }
+      if (!mark) continue;
+      const kept = at.get(mark.key);
+      if (kept) kept.text.push(p.message); else at.set(mark.key, { ...mark, text: [p.message] });
+    }
+    return [...at.entries()].map(([key, m]) => (m.w !== undefined
+      ? <rect key={key} className="problem-mark" x={m.x} y={m.y} width={m.w} height={m.h} rx={m.r} vectorEffect="non-scaling-stroke"><title>{m.text.join("\n")}</title></rect>
+      : <circle key={key} className="problem-mark" cx={m.x} cy={m.y} r={m.r} vectorEffect="non-scaling-stroke"><title>{m.text.join("\n")}</title></circle>));
+  }
+  // Check Structure (ChemDraw's Possible Error in Drawing): the problems one at a time, with Stop, Ignore and Ignore
+  // All. Ignore goes to the next problem; after the last one, and on Ignore All, `then` runs (the copy or export that
+  // asked for the check); Stop runs nothing. With no problems `then` runs at once, and Check Structure itself says so.
+  // asked: Check Structure itself, which also selects each problem's atoms, bond or brackets as it shows it.
+  function checkThen(list: Problem[], then: () => void, asked = false) {
+    if (!list.length) { if (asked) setNotice("Octet found no problems."); return then(); }
+    if (asked) showProblem(list[0]);
+    setChecking({ list, at: 0, then, select: asked });
+  }
+  // Settings > Warnings > Check structure when copying or exporting: the selection's problems (or the drawing's)
+  // first, then the copy or export.
+  const checkFirst = (then: () => void) => (settings.checkCopy ? checkThen(selection.size || picked.size ? subsetProblems(selection) : allProblems(), then) : then());
+  // Whether a selected atom, or a bond between selected atoms, has its warnings hidden (for Show warnings).
+  const hiddenHere = () => [...selection].some((i) => doc.atoms[i]?.ignoreWarnings) || doc.bonds.some((b) => b.ignoreWarnings && selection.has(b.atoms[0]) && selection.has(b.atoms[1]));
+  function showProblem(p: Problem) {
+    if (p.atom !== undefined) { setSelection(new Set([p.atom])); setPicked(new Set()); }
+    else if (p.bond !== undefined && doc.bonds[p.bond]) { setSelection(new Set(doc.bonds[p.bond].atoms)); setPicked(new Set()); }
+    else if (p.shape !== undefined) { setSelection(new Set()); setPicked(new Set([p.shape])); }
+  }
   // Peak colours are the highlights of the peak's atoms, so the colours are part of the drawing: saved, undone,
   // printed and pasted with it. Colour peaks gives every signal its own colour; Add key writes the coloured shifts
   // under the structure.
@@ -2598,7 +2671,16 @@ export default function Editor() {
     });
     if (m !== doc) set(m);
   }
-  const found = useMemo(() => (exporting || !settings.warnings ? [] : problems(doc)), [doc, exporting, settings.warnings]);
+  // Chemical warnings (View > Show Chemical Warnings), of the kinds switched on in Settings > Warnings. The
+  // stereochemistry warnings need Indigo's facts, read only when one of their kinds is on.
+  const warnOn = (t: WarningType) => settings.warningTypes[t] ?? WARNING_TYPES.find((w) => w.id === t)!.on;
+  const stereoWarnings = (["unspecified", "ambiguous", "enhanced", "between", "backwards"] as const).some(warnOn);
+  const stereoOf = (m: Mol) => { try { return loaded && stereoWarnings ? stereoFacts(m, warnOn("enhanced")) : undefined; } catch { return undefined; } };
+  const found = useMemo(() => (exporting || !settings.warnings ? [] : problems(doc, stereoOf(doc)).filter((p) => warnOn(p.type))), [doc, exporting, settings.warnings, settings.warningTypes, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Every problem, those on objects with their warnings hidden too (for Check Structure), of the kinds switched on.
+  const allProblems = () => problems(doc, stereoOf(doc), true).filter((p) => warnOn(p.type));
+  // The problems on what is selected: its atoms, the bonds between them, and the picked shapes.
+  const subsetProblems = (atoms: Set<number>) => allProblems().filter((p) => (p.atom !== undefined ? atoms.has(p.atom) : p.bond !== undefined ? doc.bonds[p.bond]?.atoms.every((i) => atoms.has(i)) : picked.has(p.shape!)));
   // The drawing's own colours (a ChemDraw file's, say) join the Colour row after Octet's and the user's, as ChemDraw's
   // Color menu lists each document's colours. A colour stays in the row until another drawing opens.
   const drawingColours = useRef<string[]>([]);
@@ -2675,6 +2757,8 @@ export default function Editor() {
     zoom_in: ["Magnify", `⇧${MOD}>`, <MagnifyingGlassPlus size={18} />], zoom_out: ["Reduce", `⇧${MOD}<`, <MagnifyingGlassMinus size={18} />],
     zoom_actual: ["Actual size", `${MOD}\\`, <FrameCorners size={18} />], zoom_fit: ["Fit to window", `${MOD}/`, <ArrowsOutSimple size={18} />],
     name_to_structure: ["Name to structure", `⇧${MOD}N`, <AtomIcon size={18} />],
+    check_structure: ["Check structure", "", <CheckCircle size={18} />], stereo_clear: ["Clear enhanced stereochemistry", "", <TagSimple size={18} />],
+    stereo_abs: ["Mark as absolute", "", <TagSimple size={18} />], stereo_or: ["Create or group", "", <TagSimple size={18} />], stereo_and: ["Create and group", "", <TagSimple size={18} />],
     snap: [settings.snap ? "Turn snapping off" : "Turn snapping on", undefined, <LinkSimple size={18} />],
     warnings: [settings.warnings ? "Hide chemical warnings" : "Show chemical warnings", undefined, <Warning size={18} />],
     actions: [settings.actions ? "Hide the Actions panel" : "Show the Actions panel", undefined, <SlidersHorizontal size={18} />],
@@ -2687,7 +2771,7 @@ export default function Editor() {
     const variants = (t: Tool, slot: string, list: [string, string, React.ReactNode][], group: string, words = ""): Command[] =>
       list.map(([kind, name, icon]) => ({ id: `${t}:${kind}`, name, group, icon, words, run: pick(t, [slot, kind]) }));
     // A menu command that is also one of the selection's actions shows once, as the action.
-    const acts = actionItems(contextOf(), untidy, [...selection].some((i) => doc.atoms[i]?.ignoreWarnings)), acted = new Set(acts.map((i) => i.command));
+    const acts = actionItems(contextOf(), untidy, hiddenHere()), acted = new Set(acts.map((i) => i.command));
     return [
       ...acts.map((i) => ({ id: `action:${i.command}`, name: i.name, group: "Actions", icon: i.icon, keys: hint(i.command), run: () => runAction(i.command) })),
       ...Object.entries(MENU_NAMES).filter(([id]) => commands.current[id] && !acted.has(id)).map(([id, [name, keys, icon]]) => ({ id: `menu:${id}`, name, group: "Commands", keys: platformLabel(keys), icon, run: () => commands.current[id]() })),
@@ -2706,7 +2790,7 @@ export default function Editor() {
       ...variants("orbital", "orbital", ORBITAL_GRID.flat().map((k) => [k, orbitalName(k)!, <OrbitalGlyph v={k} />]), "Orbitals"),
       { id: "tool:text", name: "Text", group: "Tools", keys: toolKey("tool.text"), icon: <TextT size={18} />, run: pick("text") },
       { id: "tool:erase", name: "Eraser", group: "Tools", icon: <Eraser size={18} />, run: pick("erase") },
-      ...([["document", "Document settings", <FileText size={18} />], ["keys", "Keyboard shortcuts", <Keyboard size={18} />], ["files", "Import and export settings", <ArrowsDownUp size={18} />]] as [ModuleId, string, React.ReactNode][])
+      ...([["document", "Document settings", <FileText size={18} />], ["keys", "Keyboard shortcuts", <Keyboard size={18} />], ["files", "Import and export settings", <ArrowsDownUp size={18} />], ["warnings", "Warnings settings", <Warning size={18} />]] as [ModuleId, string, React.ReactNode][])
         .map(([id, name, icon]) => ({ id: `settings:${id}`, name, group: "Settings", icon, run: () => setSettingsOpen(id) })),
       { id: "settings:open", name: "Settings", group: "Settings", keys: `${MOD},`, icon: <GearSix size={18} />, run: () => commands.current.settings() },
     ];
@@ -2765,12 +2849,17 @@ export default function Editor() {
     if (command === "paste_hint") return setNotice(`Copy a SMILES string or MOL file, then press ${MOD}V here.`);
     if (command.startsWith("copy_text:")) { copyText.current = command.slice(10); document.execCommand("copy"); return; }
     if (command.startsWith("fix:")) { const [, i, charge] = command.split(":"); return set(addCharge(doc, Number(i), Number(charge) - (doc.atoms[Number(i)].charge ?? 0)), true); }
-    if (command.startsWith("show:")) return setSelection(new Set([Number(command.slice(5))]));
-    // Hide a warning: the atom's Display Warnings goes off, as in ChemDraw (saved as IgnoreWarnings).
-    if (command.startsWith("hide_warning:")) {
-      const i = Number(command.slice(13));
+    // A problem's atom (a3), bond (b5) or brackets (s7): shown (selected), or its warnings hidden (the object's
+    // Display Warnings goes off, as in ChemDraw; saved as IgnoreWarnings).
+    if (command.startsWith("show:") || command.startsWith("hide_warning:")) {
+      const what = command.slice(command.indexOf(":") + 1), n = Number(what.slice(1)), on = what[0];
+      if (command.startsWith("show:")) return showProblem(on === "b" ? { type: "misc", message: "", bond: n } : on === "s" ? { type: "misc", message: "", shape: n } : { type: "misc", message: "", atom: on === "a" ? n : Number(what) });
+      if (on === "b") return doc.bonds[n] && set({ ...doc, bonds: doc.bonds.map((b, k) => (k === n ? { ...b, ignoreWarnings: true as const } : b)) }, true);
+      const i = on === "a" ? n : Number(what);
       return doc.atoms[i] && set({ ...doc, atoms: doc.atoms.map((a, k) => (k === i ? { ...a, ignoreWarnings: true as const } : a)) }, true);
     }
+    // A wedge or hash drawn the wrong way round: its ends swapped.
+    if (command.startsWith("flip_bond:")) { const k = Number(command.slice(10)); return doc.bonds[k] && set(flipBond(doc, k), true); }
     if (command.startsWith("align.")) return set(alignFragments(doc, selection, command.slice(6) as "row" | "column" | "spread-row"), true);
     if (command === "delete" && context.kind === "spot") return runAction("spot.delete");
     if (command === "delete") return selection.size || picked.size ? set(deleteGraphics(deleteAtoms(doc, selection), picked)) : undefined;
@@ -3286,7 +3375,8 @@ export default function Editor() {
       });
     };
     // Copy puts the selection, or the whole drawing, on the clipboard as SMILES (or text the panel asked for).
-    const onCopy = (e: ClipboardEvent) => {
+    // cut: a cut's copy, whose delete waits for the check too. False when the copy waits for Check Structure.
+    const onCopy = (e: ClipboardEvent, cut = false): boolean | void => {
       if (typing() && !copyText.current) return;
       if (copyText.current) {
         e.clipboardData?.setData("text/plain", copyText.current);
@@ -3299,6 +3389,15 @@ export default function Editor() {
       const part = selectedPart() ?? doc;
       if (!part.atoms.length && !part.captions?.length && !part.arrows?.length && !part.shapes?.length) return;
       e.preventDefault();
+      // Check Structure first when Settings asks for it; the copy (and a cut's delete) waits for Ignore All, then
+      // goes to the clipboard with no copy event (the app's clipboard, or the browser's as text).
+      if (settings.checkCopy) {
+        const list = selection.size || picked.size ? subsetProblems(selection) : allProblems();
+        if (list.length) { checkThen(list, () => { copyOut(part); if (cut) runAction("delete"); }); return false; }
+      }
+      copyOut(part, e);
+    };
+    const copyOut = (part: Mol, e?: ClipboardEvent) => {
       saw("copy");
       // In the app: as ChemDraw copies, for Word, PowerPoint and Keynote (a vector picture at true size with the
       // structure hidden in it, so it pastes back as a structure), then a molfile and SMILES, then Octet's own form.
@@ -3309,14 +3408,15 @@ export default function Editor() {
           .catch((err) => setNotice(`Octet cannot copy this. ${err}`));
         return;
       }
+      const text = formatOf(part, "smiles") ?? (part.captions ?? []).map((c) => c.text).join("\n");
+      if (!e) return void navigator.clipboard?.writeText(text).catch(() => setNotice("Octet cannot copy this."));
       e.clipboardData?.setData(OCTET_CLIP, serialize({ ...part, style: undefined }));
-      const text = (part.captions ?? []).map((c) => c.text).join("\n");
-      e.clipboardData?.setData("text/plain", formatOf(part, "smiles") ?? text);
+      e.clipboardData?.setData("text/plain", text);
     };
     // Cut: copy, then delete what was selected.
     const onCut = (e: ClipboardEvent) => {
       if (typing() || (!selection.size && !picked.size)) return;
-      onCopy(e);
+      if (onCopy(e, true) === false) return;
       set(deleteGraphics(deleteAtoms(doc, selection), picked));
     };
     addEventListener("keydown", onKey);
@@ -3527,7 +3627,7 @@ export default function Editor() {
         );
       })}
       {stereoMarks().map((m) => <text key={m.key} className="stereo-label" x={m.x} y={m.y} textAnchor={m.anchor} dominantBaseline="middle" fill={m.colour ?? "var(--ink)"} style={{ font: `${m.upright ? "" : "italic "}${style.captionSize * pt * 0.8}px ${fontStack(style.captionFont)}` }}>{m.text}</text>)}
-      {found.map((p) => doc.atoms[p.atom] && <circle key={`p${p.atom}`} className="problem-mark" cx={pos(shown, p.atom)[0] * L} cy={-pos(shown, p.atom)[1] * L} r={0.42 * L} vectorEffect="non-scaling-stroke" />)}
+      {problemMarks()}
     </>
   ), [shown, drawing, frame, darkPaper, arrows, pt, gridKey, gridEdit, style, stereo, ringsOf, found, doc.atoms]); // eslint-disable-line react-hooks/exhaustive-deps
   // The selection's marks, and the mark on what is under the pointer (Live: a pointer move draws only that again).
@@ -4013,6 +4113,12 @@ export default function Editor() {
           menuKeys={menuReady ? [] : Object.values(MENU_NAMES).flatMap(([name, keys]) => (keys ? [[name, platformLabel(keys)!] as [string, string]] : []))}
           palette={settings.palette}
           onPalette={(palette) => setSettings((s) => ({ ...s, palette }))}
+          warnings={settings.warnings}
+          onWarnings={(warnings) => setSettings((s) => ({ ...s, warnings }))}
+          warningTypes={settings.warningTypes}
+          onWarningTypes={(warningTypes) => setSettings((s) => ({ ...s, warningTypes }))}
+          checkCopy={settings.checkCopy}
+          onCheckCopy={(checkCopy) => setSettings((s) => ({ ...s, checkCopy }))}
           adding={addingColour}
           onClose={() => { setSettingsOpen(undefined); setAddingColour(false); }}
         />
@@ -4111,7 +4217,7 @@ export default function Editor() {
             analysis={analysis}
             problems={found}
             fonts={fontList}
-            hiddenWarnings={[...selection].some((i) => doc.atoms[i]?.ignoreWarnings)}
+            hiddenWarnings={hiddenHere()}
             messy={untidy}
             hint={hint}
             onOpen={(open) => setSettings((s) => ({ ...s, actions: open }))}
@@ -4157,7 +4263,7 @@ export default function Editor() {
       {about && <About onClose={() => setAbout(false)} />}
       {feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={setNotice}
         onSent={() => { setFeedback(undefined); setNotice("Your feedback is ready to send in your mail app."); }} />}
-      <ExportButton hint={platformLabel(EXPORT_KEYS)} onQuick={() => void quickExport()} onExport={openExport} />
+      <ExportButton hint={platformLabel(EXPORT_KEYS)} onQuick={() => checkFirst(() => void quickExport())} onExport={() => checkFirst(openExport)} />
       {exportView && (
         <ExportDialog prefs={settings.files} onPrefs={(p) => setSettings((s) => ({ ...s, files: { ...s.files, ...p } }))} pictures={exportView}
           chemistry={(part) => {
@@ -4178,7 +4284,8 @@ export default function Editor() {
             if (!a) return setDialog(undefined);
             let m = d.element.trim() && d.element.trim() !== (a.text ?? a.label) ? setLabel(doc, d.atom, d.element.trim()) : doc;
             const charge = Math.max(-9, Math.min(9, Math.round(Number(d.charge) || 0))), isotope = Math.round(Number(d.isotope));
-            m = { ...m, atoms: m.atoms.map((x, k) => (k === d.atom ? { ...x, charge: charge || undefined, isotope: isotope >= 1 && isotope <= 300 ? isotope : undefined, radical: Number(d.radical) || undefined } : x)) };
+            const group = Math.max(1, Math.min(99, Math.round(Number(d.group)) || 1)), enhanced = d.stereo === "abs" ? "abs" : d.stereo ? `${d.stereo}${group}` : undefined;
+            m = { ...m, atoms: m.atoms.map((x, k) => (k === d.atom ? { ...x, charge: charge || undefined, isotope: isotope >= 1 && isotope <= 300 ? isotope : undefined, radical: Number(d.radical) || undefined, enhanced } : x)) };
             set(m, true);
             setDialog(undefined);
           }}>
@@ -4188,6 +4295,15 @@ export default function Editor() {
           <label className="dialog-row"><span>Radical</span>
             <Select label="Radical" value={dialog.radical} options={[["0", "None"], ["1", "Doublet (•)"], ["2", "Triplet (••)"], ["3", "Singlet (:)"]]} onChange={(v) => setDialog({ ...dialog, radical: v })} />
           </label>
+          {/* ChemDraw's Enhanced Stereochemistry, for a stereocentre: None, Absolute, Or or And, with a group number. */}
+          {(stereocentres(doc).includes(dialog.atom) || doc.atoms[dialog.atom]?.enhanced) && (
+            <label className="dialog-row"><span>Enhanced stereo</span>
+              <Select label="Enhanced stereo" value={dialog.stereo} options={[["", "None"], ["abs", "Absolute"], ["or", "Or"], ["&", "And"]]} onChange={(v) => setDialog({ ...dialog, stereo: v })} />
+            </label>
+          )}
+          {(dialog.stereo === "or" || dialog.stereo === "&") && (
+            <label className="dialog-row"><span>Group</span><span className="unit-field"><input aria-label="Group number" inputMode="numeric" value={dialog.group} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, group: e.target.value.replace(/\D/g, "").slice(0, 2) })} /></span></label>
+          )}
         </Dialog>
       )}
       {dialog?.kind === "scale" && (
@@ -4207,6 +4323,19 @@ export default function Editor() {
               )}
             </label>
           ))}
+        </Dialog>
+      )}
+      {checking && (
+        <Dialog title="Possible Error in Drawing" action="Ignore" cancel="Stop" onClose={() => setChecking(undefined)}
+          alt={{ label: "Ignore All", onClick: () => { const c = checking; setChecking(undefined); c.then(); } }}
+          onAction={() => {
+            const c = checking, at = c.at + 1;
+            if (at >= c.list.length) { setChecking(undefined); return c.then(); }
+            if (c.select) showProblem(c.list[at]);
+            setChecking({ ...c, at });
+          }}>
+          <p className="dialog-note">{checking.list[checking.at].message}</p>
+          {checking.list.length > 1 && <p className="dialog-note">{checking.at + 1} of {checking.list.length}</p>}
         </Dialog>
       )}
       {commandsOpen && <CommandPalette commands={paletteCommands()} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}

@@ -684,9 +684,23 @@ export function markDirections(m: Mol, ids: number[]): Map<number, P> {
   }
   return out;
 }
-// Enhanced stereo flags on atoms: "abs", "&1" or "or1", or none.
-export const setEnhanced = (m: Mol, ids: number[], label?: string): Mol =>
-  ({ ...m, atoms: m.atoms.map((a, i) => (ids.includes(i) ? { ...a, enhanced: label } : a)) });
+// Enhanced stereo flags on atoms: "abs", "&1" or "or1" (and 2 onwards), or none.
+export const setEnhanced = (m: Mol, ids: number[], label?: string): Mol => {
+  const on = new Set(ids);
+  return { ...m, atoms: m.atoms.map((a, i) => (on.has(i) ? { ...a, enhanced: label } : a)) };
+};
+// The lowest number of an "&" (and) or "or" group that no atom among `atoms` uses, but those in `moving` (which are
+// about to join the new group), as ChemDraw numbers a new group in a structure.
+export function nextGroup(m: Mol, atoms: number[], kind: "&" | "or", moving = new Set<number>()): number {
+  const used = new Set<number>();
+  for (const i of atoms) {
+    const g = /^(&|or)(\d+)$/.exec(m.atoms[i]?.enhanced ?? "");
+    if (g && g[1] === kind && !moving.has(i)) used.add(Number(g[2]));
+  }
+  let n = 1;
+  while (used.has(n)) n++;
+  return n;
+}
 
 // Tables. A new one has an Entry column numbered down its rows, under a header row.
 export const newTable = (rows: number, cols: number): Table =>

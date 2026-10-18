@@ -2,15 +2,16 @@
 // modules (Document, Keyboard shortcuts, Import and export) under a search field that is always there. With text
 // in it, every matching setting from every module shows on the right, grouped by module and ready to use.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowsDownUp, CaretDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, Plus, SlidersHorizontal, X } from "@phosphor-icons/react";
+import { ArrowsDownUp, CaretDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, Plus, SlidersHorizontal, Warning, X } from "@phosphor-icons/react";
 import { ColourPicker } from "./ColourPicker";
 import { Select } from "./Select";
 import type { Swatch } from "./settings";
 import type { ExportFormat } from "./export";
 import { BACKGROUNDS, COLOURS, FONTS, PAGE_NAMES, PAGES, PRESETS, pageSize, presetOf, type DocStyle, type PageName } from "./docstyle";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
+import { WARNING_TYPES, type WarningType } from "./check";
 
-export type ModuleId = "document" | "keys" | "panel" | "files" | "colours";
+export type ModuleId = "document" | "keys" | "panel" | "files" | "colours" | "warnings";
 export type FilePrefs = {
   format: ExportFormat; dpi: number; background: "white" | "transparent"; margin: number;
   clipboard: { pdf: boolean; cdxml: boolean; mol: boolean; smiles: boolean }; keepStyle: boolean;
@@ -38,6 +39,14 @@ type Props = {
   menuKeys: [string, string][]; // the menu commands that have a shortcut: name, shortcut as this platform shows it
   palette: Swatch[]; // the user's own colours
   onPalette: (palette: Swatch[]) => void;
+  // Chemical warnings: shown at all (View > Show Chemical Warnings), each kind on or off, and Check Structure on copy
+  // and export.
+  warnings: boolean;
+  onWarnings: (on: boolean) => void;
+  warningTypes: Partial<Record<WarningType, boolean>>;
+  onWarningTypes: (types: Partial<Record<WarningType, boolean>>) => void;
+  checkCopy: boolean;
+  onCheckCopy: (on: boolean) => void;
   adding?: boolean; // opened to add a colour: a new one is made, ready to set
   onClose: () => void;
 };
@@ -208,6 +217,7 @@ const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: strin
   { id: "panel", name: "Actions panel", icon: <SlidersHorizontal size={16} />, words: "actions panel side menus sections" },
   { id: "files", name: "Import and export", icon: <ArrowsDownUp size={16} />, words: "import export file clipboard" },
   { id: "colours", name: "Colours", icon: <Palette size={16} />, words: "colour colours palette custom swatch named" },
+  { id: "warnings", name: "Warnings", icon: <Warning size={16} />, words: "warnings chemical check structure errors problems" },
 ];
 // Words people use for the same thing.
 const SYNONYMS: Record<string, string> = {
@@ -385,8 +395,14 @@ export function SettingsWindow(p: Props) {
         d("files", "Copy", name, `clipboard copy paste ${words}`, <Switch on={files.clipboard[k]} label={name} onChange={(on) => setFiles({ clipboard: { ...files.clipboard, [k]: on } })} />)),
       d("colours", "Colours", "Your colours", "colour colours palette custom swatch named add", <PaletteEditor palette={p.palette} onPalette={p.onPalette} adding={p.adding} />, true),
       d("files", "Import", "Keep ChemDraw styles", "import open cdxml chemdraw style keep", <Switch on={files.keepStyle} label="Keep ChemDraw styles" onChange={(on) => setFiles({ keepStyle: on })} />),
+      // ChemDraw's Warnings preferences: one switch for each kind, then its General preference to check on copy.
+      d("warnings", "Show", "Show chemical warnings", "chemical warnings marks show hide", <Switch on={p.warnings} label="Show chemical warnings" onChange={p.onWarnings} />),
+      ...WARNING_TYPES.map((w) => d("warnings", "Kinds", w.name, `warning ${w.name} ${w.id}`, (
+        <Switch on={p.warningTypes[w.id] ?? w.on} label={w.name} onChange={(on) => p.onWarningTypes({ ...p.warningTypes, [w.id]: on })} />
+      ))),
+      d("warnings", "Check Structure", "Check when copying or exporting", "check structure copy export clipboard", <Switch on={p.checkCopy} label="Check when copying or exporting" onChange={p.onCheckCopy} />),
     ];
-  }, [style, map, recording, note, files, p.palette, p.adding, p.panelMenus, p.captionOptionReturn, p.menuKeys.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.adding, p.panelMenus, p.captionOptionReturn, p.menuKeys.length, p.warnings, p.warningTypes, p.checkCopy]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query)) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));

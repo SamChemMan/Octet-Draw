@@ -67,7 +67,7 @@ const OPS: [string, number, (m: Mol, all: Set<number>, half: Set<number>, text: 
   ["messy, all selected (each selection)", 10, (m, all) => messy(m, all)],
   ["groupSelection (Group)", 4, (m, all) => groupSelection(m, all, new Set())],
   ["fragments (structures)", 1, (m) => fragments(m)],
-  ["problems (valence warnings)", 0.5, (m) => problems(m)],
+  ["problems (chemical warnings)", 3, (m) => problems(m)],
   ["bondOrders", 0.3, (m) => bondOrders(m)],
   ["atomsIn (atoms in a selection box)", 0.3, (m) => atomsIn(m, [-1, -1], [30, 30])],
   ["toCdxml (Save, Export, Copy)", 50, (m) => toCdxml(m, DEFAULT_STYLE)],

@@ -8,6 +8,7 @@
 import type { SavedTemplate } from "./templates";
 import { DEFAULT_STYLE, readStyle, type DocStyle } from "./docstyle";
 import { DEFAULT_FILES, type FilePrefs } from "./SettingsWindow";
+import { WARNING_TYPES, type WarningType } from "./check";
 
 export type Settings = {
   snap: boolean; eraser: number; keys: Record<string, string[]>; variants: { select: string; bond: string; ring: string; template: string; symbol: string; orbital: string; arrow: string; shape: string; bracket: string; more: string };
@@ -20,6 +21,8 @@ export type Settings = {
   // was last opened (ms), for "Welcome back".
   userName: string | null; tutorialDone: boolean; lastSeen: number;
   warnings: boolean; // View > Show Chemical Warnings: problems marked on the drawing and listed in Actions
+  warningTypes: Partial<Record<WarningType, boolean>>; // Settings > Warnings: each kind switched on or off (unset: its default)
+  checkCopy: boolean; // ChemDraw's "Check Structure When Copying to Clipboard or Exporting"
   docStyle: DocStyle; // the style new documents start with
   files: FilePrefs; // export, copy and import preferences
   settingsModule: string; // the Settings module last open
@@ -33,7 +36,7 @@ export type Settings = {
   nmrMhz: number; nmrSolvent: string; nmrSolventPeaks: boolean; nmrDetails: boolean; // the predicted spectrum's frequency (¹H, MHz), solvent, and whether its peaks show
 };
 export type Swatch = { name: string; hex: string };
-const DEFAULTS: Settings = { snap: true, eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, warnings: true, lastSeen: 0, docStyle: DEFAULT_STYLE, files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], nameHistory: [], paletteWide: false, palette: [], properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false };
+const DEFAULTS: Settings = { snap: true, eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, warnings: true, warningTypes: {}, checkCopy: false, lastSeen: 0, docStyle: DEFAULT_STYLE, files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], nameHistory: [], paletteWide: false, palette: [], properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false };
 const KEY = "octet.settings";
 
 export function loadSettings(): Settings {
@@ -52,6 +55,8 @@ export function loadSettings(): Settings {
       docStyle: readStyle(saved.docStyle),
       files: { ...DEFAULT_FILES, ...(typeof saved.files === "object" && saved.files ? saved.files : {}), clipboard: { ...DEFAULT_FILES.clipboard, ...(saved.files?.clipboard ?? {}) } },
       paletteWide: saved.paletteWide === true,
+      warningTypes: Object.fromEntries(WARNING_TYPES.flatMap((w) => (typeof saved.warningTypes?.[w.id] === "boolean" ? [[w.id, saved.warningTypes[w.id]]] : []))),
+      checkCopy: saved.checkCopy === true,
       properties: saved.properties === true,
       nmrMhz: typeof saved.nmrMhz === "number" && saved.nmrMhz >= 20 && saved.nmrMhz <= 1500 ? saved.nmrMhz : DEFAULTS.nmrMhz,
       nmrSolvent: typeof saved.nmrSolvent === "string" && saved.nmrSolvent.length < 20 ? saved.nmrSolvent : DEFAULTS.nmrSolvent,

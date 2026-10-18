@@ -506,7 +506,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       id: bondId[k], Z: Z(), B: nodeId.get(i)!, E: nodeId.get(j)!,
       Order: ring || dashed || b.type === 4 ? "1.5" : d === "dative" ? "dative" : b.type === 2 ? "2" : b.type === 3 ? "3" : undefined,
       Display: ring ? undefined : dashed && d === "aromatic" ? "Dash" : display, Display2: dashed ? "Dash" : undefined, Octet: ring ? priv({ order: b.type }) : undefined, DoublePosition: b.type === 2 && b.position ? { left: "Left", right: "Right", centre: "Center" }[b.position] : undefined,
-      color: colour(b.colour), ShowBondStereo: mol.atoms[i].cip && mol.atoms[j].cip ? "yes" : undefined, BondCircularOrdering: circular,
+      color: colour(b.colour), ShowBondStereo: mol.atoms[i].cip && mol.atoms[j].cip ? "yes" : undefined, BondCircularOrdering: circular, IgnoreWarnings: b.ignoreWarnings ? "yes" : undefined,
     });
   }
 
@@ -957,6 +957,7 @@ export function fromCdxml(text: string): CdxmlRead {
       const colour = colourOf(b.attrs.color);
       if (colour) bond.colour = colour;
       if (b.attrs.highlightColor) lose("bond highlight");
+      if (yes(b.attrs.IgnoreWarnings)) bond.ignoreWarnings = true;
       mol.bonds.push(bond);
       bondIds.push(int(b.attrs.id) ?? 0);
     }

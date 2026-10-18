@@ -32,7 +32,7 @@ const b = (i: number, j: number, more: Partial<Bond> = {}): Bond => ({ type: 1, 
 const bonds: Bond[] = [
   b(0, 1), b(1, 2, { type: 2, position: "left" }), b(2, 3, { stereo: 1 }), b(3, 4), b(1, 5, { colour: "#213C99" }), b(0, 6, { stereo: 6 }), b(6, 7, { display: "wavy" }), b(6, 8, { display: "bold" }),
   b(9, 10, { type: 2, display: "bold" }), b(10, 11, { display: "dashed" }), b(9, 12, { display: "hashed" }), b(12, 13), b(9, 14, { display: "dative" }), b(10, 15, { type: 2, display: "either" }),
-  b(16, 17, { display: "hollow" }), b(17, 18, { type: 3 }), b(18, 19, { type: 2, position: "right" }), b(19, 20, { type: 2, position: "centre", display: "dashed" }), b(20, 21), b(21, 16, { type: 2, colour: "#22775B" }),
+  b(16, 17, { display: "hollow" }), b(17, 18, { type: 3 }), b(18, 19, { type: 2, position: "right" }), b(19, 20, { type: 2, position: "centre", display: "dashed" }), b(20, 21, { ignoreWarnings: true }), b(21, 16, { type: 2, colour: "#22775B" }),
 ];
 const captions: Caption[] = [
   { id: 1, text: "Plain caption", x: 0, y: 4 },

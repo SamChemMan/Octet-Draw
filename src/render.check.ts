@@ -36,6 +36,17 @@ for (const [x, y] of d.polygons.flat()) {
 assert.equal(d.labels.length, 1);
 console.log("render.check: pyridine ok");
 
+// An allene laid out with rounding (Indigo's 0.49999991 for 0.5): its two double bonds meet end to end at the middle
+// atom, with nothing drawn far away.
+{
+  const allene: Mol = {
+    atoms: [[-1.7321, 0], [-0.866, -0.5], [0, 0], [0.866025447, 0.49999991], [1.7321, 0]].map(([x, y]) => ({ label: "C", location: [x, y, 0] as [number, number, number] })),
+    bonds: [{ type: 1, atoms: [1, 0] }, { type: 2, atoms: [1, 2] }, { type: 2, atoms: [2, 3] }, { type: 1, atoms: [3, 4] }],
+  };
+  const far = Math.max(...render(allene, S, ink).polygons.flat().map(([x, y]) => Math.hypot(x, y)));
+  assert.ok(far < 2.5 * L, `an allene's bonds stay near it (${far.toFixed(0)} px)`);
+}
+
 // Isobutane centre: three bonds share the atom-centre vertex.
 const iso = render({
   atoms: [{ label: "C", location: [0, 0, 0] }, ...[90, 210, 330].map((a) => ({ label: "C", location: [Math.cos((a * Math.PI) / 180), Math.sin((a * Math.PI) / 180), 0] as [number, number, number] }))],

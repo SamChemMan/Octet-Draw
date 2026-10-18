@@ -33,7 +33,8 @@ export type Context =
   | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[]; shade: { depth: number; blur: number; opacity: number; pt: number } }
   | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean; grid: boolean }
-  | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; halo?: string; fill?: string; numbered?: boolean }
+  // groups: the and and or group numbers its structure uses, and the lowest new one of each.
+  | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; groups?: { and: number[]; or: number[] }; halo?: string; fill?: string; numbered?: boolean }
   | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean }
   | { kind: "spot"; style: "filled" | "hollow" | "shaded"; w: number; h: number; tail: number; rf: boolean; pt: number };
 
@@ -470,6 +471,8 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
     return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", escape, true); };
   }, [sub]);
   const hideTip = () => { clearTimeout(tipTimer.current); if (tip) tipShownAt.current = Date.now(); setTip(undefined); };
+  // The problems list shows two, then all of them once "N more" is clicked.
+  const [allProblems, setAllProblems] = useState(false);
 
   if (!shown) {
     return (
@@ -588,18 +591,22 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
 
       {problems.length > 0 && context.kind !== "empty" && (
         <div className="problems" role="status">
-          {problems.slice(0, 2).map((p) => (
-            <div key={p.atom} className="problem">
-              <Warning size={16} weight="bold" aria-hidden />
-              <p>{p.message}</p>
-              <button className="problem-hide" onClick={() => run(`hide_warning:${p.atom}`)} aria-label={`Hide this warning`} title="Hide this warning"><X size={12} weight="bold" /></button>
-              <div className="problem-buttons">
-                {p.fix && <button onClick={() => run(`fix:${p.atom}:${p.fix!.charge}`)}>Fix</button>}
-                <button onClick={() => run(`show:${p.atom}`)}><Eye size={14} aria-hidden /> Show</button>
+          {(allProblems ? problems : problems.slice(0, 2)).map((p) => {
+            // What the problem is on: an atom, a bond or a shape, as the editor's commands name it.
+            const on = p.atom !== undefined ? `a${p.atom}` : p.bond !== undefined ? `b${p.bond}` : `s${p.shape}`;
+            return (
+              <div key={`${on}${p.type}${p.message}`} className="problem">
+                <Warning size={16} weight="bold" aria-hidden />
+                <p>{p.message}</p>
+                {p.shape === undefined && <button className="problem-hide" onClick={() => run(`hide_warning:${on}`)} aria-label="Hide this warning" title="Hide this warning"><X size={12} weight="bold" /></button>}
+                <div className="problem-buttons">
+                  {p.fix && <button onClick={() => run(p.fix!.command)} title={p.fix.label}>Fix</button>}
+                  <button onClick={() => run(`show:${on}`)}><Eye size={14} aria-hidden /> Show</button>
+                </div>
               </div>
-            </div>
-          ))}
-          {problems.length > 2 && <p className="more-problems">{problems.length - 2} more</p>}
+            );
+          })}
+          {problems.length > 2 && <button className="more-problems" aria-expanded={allProblems} onClick={() => setAllProblems((a) => !a)}>{allProblems ? "Show fewer" : `${problems.length - 2} more`}</button>}
         </div>
       )}
 
@@ -627,7 +634,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           ) : null}
           {context.centre && (
             <div className="chips groups" role="group" aria-label="Stereo flag">
-              {([["abs", "Absolute"], ["&1", "And group 1 (racemic)"], ["or1", "Or group 1 (relative)"]] as const).map(([flag, name]) => (
+              {[["abs", "Absolute"], ...(context.groups?.and ?? [1]).map((n) => [`&${n}`, `And group ${n}`]), ...(context.groups?.or ?? [1]).map((n) => [`or${n}`, `Or group ${n}`])].map(([flag, name]) => (
                 <button key={flag} className="chip" aria-pressed={context.enhanced === flag} onClick={() => run(`stereo.atom.${flag}`)} title={name}>{flag}</button>
               ))}
             </div>

@@ -252,9 +252,18 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
         // Not ⌘K, which is ChemDraw's Scale.
         &item("command_palette", "Command Palette…", "CmdOrCtrl+Shift+A")?,
     ])?;
+    // Structure > Enhanced Stereochemistry, as ChemDraw's.
+    section.replace("Structure › Enhanced Stereochemistry".into());
+    let enhanced = Submenu::with_items(app, "Enhanced Stereochemistry", true, &[
+        &item("stereo_clear", "Clear All", "")?,
+        &item("stereo_abs", "Mark as Absolute", "")?,
+        &item("stereo_or", "Create Or Group", "")?,
+        &item("stereo_and", "Create And Group", "")?,
+    ])?;
     // Structure commands keep ChemDraw's shortcuts.
     section.replace("Structure".into());
     let structure = Submenu::with_items(app, "Structure", true, &[
+        &item("check_structure", "Check Structure", "")?,
         &item("clean_up", "Clean Up Structure", "CmdOrCtrl+Shift+K")?,
         &item("clean_reaction", "Clean Up Reaction", "CmdOrCtrl+Shift+X")?,
         &item("atom_properties", "Atom Properties…", "")?,
@@ -263,6 +272,7 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
         &item("contract_label", "Contract Label", "")?,
         &item("aromatic_display", "Toggle Aromatic Display", "Alt+CmdOrCtrl+K")?,
         &item("structure_perspective", "Structure Perspective", "Alt+CmdOrCtrl+S")?,
+        &enhanced,
         &sep()?,
         &item("stoichiometry", "Analyze Stoichiometry", "")?,
         &sep()?,

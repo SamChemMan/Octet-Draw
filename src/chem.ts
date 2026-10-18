@@ -6,6 +6,8 @@ import { labelSmiles } from "./labels.ts";
 import { fragments, levelTurn, subset } from "./edit.ts";
 import { graphOf, type Graph } from "./naming.ts";
 import { clean2d } from "./clean2d.ts";
+import { axialLabels } from "./axial.ts";
+import type { StereoFacts } from "./check.ts";
 
 type IndigoModule = Awaited<ReturnType<typeof Indigo>>;
 let indigo: IndigoModule | undefined;
@@ -236,9 +238,10 @@ export function cipOf(drawn: Mol): { atoms: (string | undefined)[]; bonds: (stri
     opts.delete();
   }
 }
-// Show Stereochemistry's labels, in the drawing's own atom and bond order: R, S (and r, s) on stereocentres and E, Z
-// on double bonds. Each structure is labelled on its own (Indigo splits a drawing into molecules). Written labels
-// (OMe, CO2Et) are expanded first; stereocentres inside a label have no drawn atom and are left out.
+// Show Stereochemistry's labels, in the drawing's own atom and bond order: R, S (and r, s) on stereocentres, E, Z on
+// double bonds, and M, P on the middle atom of an allene and on a biaryl's axis bond. Each structure is labelled on its
+// own (Indigo splits a drawing into molecules). Written labels (OMe, CO2Et) are expanded first; stereocentres inside a
+// label have no drawn atom and are left out.
 export function stereoLabels(drawn: Mol): { atoms: (string | undefined)[]; bonds: (string | undefined)[] } | undefined {
   const ind = engine(), opts = new ind.MapStringString(), atoms: (string | undefined)[] = drawn.atoms.map(() => undefined), bonds: (string | undefined)[] = drawn.bonds.map(() => undefined);
   const clean = (c?: string) => c?.replace(/[()]/g, "") || undefined;
@@ -246,13 +249,17 @@ export function stereoLabels(drawn: Mol): { atoms: (string | undefined)[]; bonds
     opts.set("output-content-type", "application/json");
     for (const group of fragments(drawn)) {
       if (group.length < 3) continue;
-      const ids = [...group].sort((a, b) => a - b), part = subset(drawn, new Set(ids)), { from } = expandWithOrigins(part);
+      const ids = [...group].sort((a, b) => a - b), part = subset(drawn, new Set(ids)), { mol: expanded, from } = expandWithOrigins(part);
       const keep = new Set(ids), partBonds = drawn.bonds.map((b, k) => (keep.has(b.atoms[0]) && keep.has(b.atoms[1]) ? k : -1)).filter((k) => k >= 0);
+      // Octet's own (M) and (P) for allene and biaryl axes, which Indigo does not label.
+      const axial = axialLabels(expanded);
+      axial.atoms.forEach((c, k) => { const d = ids[from[k]]; if (c && !drawn.atoms[d].text) atoms[d] = c; });
+      partBonds.forEach((k, j) => { if (axial.bonds[j]) bonds[k] = axial.bonds[j]; });
       let ket;
       try { ket = JSON.parse(JSON.parse(ind.calculateCip(ketOf(part), "ket", opts)).struct).mol0; } catch { continue; }
       if (!ket || ket.atoms.length !== from.length) continue;
       ket.atoms.forEach((a: { cip?: string }, k: number) => { const d = ids[from[k]]; if (clean(a.cip) && !drawn.atoms[d].text) atoms[d] = clean(a.cip); });
-      partBonds.forEach((k, j) => { bonds[k] = clean(ket.bonds[j]?.cip); });
+      partBonds.forEach((k, j) => { bonds[k] = clean(ket.bonds[j]?.cip) ?? bonds[k]; });
     }
     return atoms.some(Boolean) || bonds.some(Boolean) ? { atoms, bonds } : undefined;
   } finally {
@@ -266,6 +273,73 @@ export function toInchi(drawn: Mol | string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+// What Indigo knows of a drawing's stereocentres, for the stereochemistry warnings (check.ts), by drawn atom: the atoms
+// that can be stereocentres (read with no wedges), those whose configuration the wedges and hashes do not set, and
+// those whose wedges conflict (Indigo cannot read them). A wedge that starts at an atom that cannot be a stereocentre
+// is left out of the second reading, as Indigo then lists no atoms. Only structures with a wedge or hash, Show
+// Stereochemistry on, or an enhanced stereo flag are read. With `chiral`, structures with an and or or flag are also
+// tested for chirality: one whose mirror image (each wedge made a hash) has the same InChI is not chiral. Each
+// structure's answer is kept by its atoms and bonds, so an edit reads again only the structures it changed.
+type Facts = { centres: number[]; unset: number[]; conflict: number[]; achiral: boolean };
+const factsKept = new Map<string, Facts>();
+export function stereoFacts(drawn: Mol, chiral = false): StereoFacts {
+  const out: StereoFacts = { centres: new Set(), unset: new Set(), conflict: new Set(), achiral: new Set() };
+  const wedge = (b: Mol["bonds"][number]) => b.stereo === 1 || b.stereo === 6, wedged = new Set(drawn.bonds.filter(wedge).flatMap((b) => b.atoms));
+  const groups = fragments(drawn), groupOf = new Int32Array(drawn.atoms.length), bondsOf: Mol["bonds"][] = groups.map(() => []);
+  groups.forEach((g, k) => { for (const i of g) groupOf[i] = k; });
+  for (const b of drawn.bonds) bondsOf[groupOf[b.atoms[0]]].push(b);
+  groups.forEach((group, k) => {
+    if (!group.some((i) => wedged.has(i) || drawn.atoms[i].cip || drawn.atoms[i].enhanced)) return;
+    const flagged = chiral && group.some((i) => /^(&|or)/.test(drawn.atoms[i].enhanced ?? ""));
+    // The structure on its own (atoms in drawing order), and its key: what Indigo's answer depends on.
+    const ids = [...group].sort((a, b) => a - b), local = new Map(ids.map((d, j) => [d, j]));
+    const part: Mol = { atoms: ids.map((i) => drawn.atoms[i]), bonds: bondsOf[k].map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] as [number, number] })) };
+    const key = JSON.stringify([part.atoms.map((a) => [a.label, a.text, a.charge, a.isotope, a.radical, a.location[0], a.location[1]]), part.bonds.map((b) => [b.type, b.atoms, b.stereo]), flagged]);
+    let f = factsKept.get(key);
+    if (!f) {
+      // Read with labels expanded; kept by the structure's own atoms (an atom inside a label is left out).
+      const { mol, from } = expandWithOrigins(part), read = readFacts(mol, flagged);
+      const own = (list: number[]) => list.flatMap((j) => (part.atoms[from[j]] && !part.atoms[from[j]].text ? [from[j]] : []));
+      f = { centres: own(read.centres), unset: own(read.unset), conflict: own(read.conflict), achiral: read.achiral };
+      if (factsKept.size > 500) factsKept.clear();
+      factsKept.set(key, f);
+    }
+    for (const [list, set] of [[f.centres, out.centres], [f.unset, out.unset], [f.conflict, out.conflict]] as const) for (const j of list) set.add(ids[j]);
+    if (f.achiral) for (const i of ids) out.achiral.add(i);
+  });
+  return out;
+}
+function readFacts(mol: Mol, chiral: boolean): Facts {
+  const ind = engine();
+  // The atoms Indigo lists as stereocentres with no set configuration. Throws when the wedges conflict.
+  const unsetOf = (m: Mol): number[] => {
+    const opts = new ind.MapStringString();
+    try {
+      const said = JSON.parse(ind.check(ketOf(m), "stereo", opts)).stereo as string | undefined, list = said && /\(([\d,\s]+)\)/.exec(said);
+      return list ? list[1].split(",").map(Number) : [];
+    } finally {
+      opts.delete();
+    }
+  };
+  let centres: number[] = [];
+  try { centres = unsetOf({ ...mol, bonds: mol.bonds.map((b) => ({ ...b, stereo: undefined })) }); } catch { /* no centres read */ }
+  const can = new Set(centres), conflict: number[] = [];
+  let kept: Mol = { ...mol, bonds: mol.bonds.map((b) => ((b.stereo === 1 || b.stereo === 6) && !can.has(b.atoms[0]) ? { ...b, stereo: undefined } : b)) }, unset: number[] = [];
+  for (let k = 0; k < 8; k++) {
+    try { unset = unsetOf(kept); break; } catch (err) {
+      // "stereocenters: all 3 bonds up near stereoatom 0", "one bond up, one bond down -- indefinite case near atom 0"
+      const at = /near (?:stereo)?atom (\d+)/.exec(String(err));
+      if (!at) { unset = []; break; }
+      const i = Number(at[1]);
+      conflict.push(i);
+      kept = { ...kept, bonds: kept.bonds.map((b) => (b.atoms[0] === i ? { ...b, stereo: undefined } : b)) };
+    }
+  }
+  const mirror = (m: Mol): Mol => ({ ...m, bonds: m.bonds.map((b) => (b.stereo === 1 ? { ...b, stereo: 6 } : b.stereo === 6 ? { ...b, stereo: 1 } : b)) });
+  const inchi = chiral ? toInchi(kept) : undefined;
+  return { centres, unset: unset.filter((i) => can.has(i)), conflict, achiral: !!inchi && inchi === toInchi(mirror(kept)) };
 }
 
 // Clean Up's time. Indigo's clean-up (two passes of up to 1,000 rounds) costs about N^3 a round, from 0.27 s at 120
