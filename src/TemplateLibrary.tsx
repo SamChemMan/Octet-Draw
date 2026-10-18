@@ -8,7 +8,7 @@ import { MagnifyingGlass, Plus, PushPin, X } from "@phosphor-icons/react";
 import { measure, STYLE } from "./chem";
 import { fontStack } from "./docstyle";
 import { LIBRARY, type LibraryItem } from "./library";
-import { render, type Label, type Mol } from "./render";
+import { arrowShapes, curvePath, isOrbital, render, shapeInk, shapePaths, type Arrow, type Label, type Mol } from "./render";
 import { useLeaving } from "./motion";
 import { MY_SET } from "./templates";
 
@@ -17,24 +17,28 @@ export type TemplateSetActions = { add: (name: string) => void; rename: (from: s
 
 const toPath = (polys: [number, number][][]) => polys.map((poly) => "M" + poly.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L") + "Z").join("");
 // Thumbnails are drawn once. Small structures keep their size (the view is at least five bonds across); big ones shrink to fit.
-const thumbs = new Map<string, { d: string; labels: Label[]; view: string }>();
+const thumbs = new Map<string, { d: string; fills: { d: string; colour?: string }[]; labels: Label[]; view: string }>();
 const Thumb = ({ item }: { item: LibraryItem }) => <StructureThumb id={item.kind} mol={item.mol} />;
 // Any structure as a thumbnail, drawn once per id.
-// A template's arrows and shapes show as their lines, and its text as its words.
+// A template's arrows, pen curves and shapes show as they draw on the page (a closed curve's fill behind the lines),
+// a highlight as its edge, an orbital as its axis, and its text as its words.
 export function StructureThumb({ id, mol }: { id: string; mol: Mol }) {
   let t = thumbs.get(id);
   if (!t) {
     const L = STYLE.bond, drawing = render(mol, STYLE, measure, L), at = (q: [number, number]) => [q[0] * L, -q[1] * L];
-    const lines = [...(mol.arrows ?? []).map((a) => [at(a.from), at(a.to)]), ...(mol.shapes ?? []).flatMap((x) => { const [p, q] = [at(x.from), at(x.to)]; return [[p, [q[0], p[1]]], [[q[0], p[1]], q], [q, [p[0], q[1]]], [[p[0], q[1]], p]]; })];
+    const filled = (a: Arrow) => !!(a.curve?.closed && a.fill), arrows = mol.arrows ?? [];
+    const ink = [...arrows.filter((a) => !filled(a)).flatMap((a) => (isOrbital(a) ? [[at(a.from), at(a.to)] as [number, number][]] : arrowShapes(a, STYLE, L))), ...(mol.shapes ?? []).flatMap((x) => (x.kind === "highlight" ? shapePaths(x, L) : shapeInk(x, STYLE, L)))];
+    const fills = arrows.filter(filled).map((a) => curvePath(a.curve!, L));
     const words: Label[] = (mol.captions ?? []).filter((c) => !c.under && !c.on).map((c) => { const [x, y] = at([c.x, c.y]); return { text: c.text, x, y, size: (c.size ?? 10) * (4 / 3) }; });
-    const xs = [...lines.flat().map((q) => q[0]), ...words.map((w) => w.x)], ys = [...lines.flat().map((q) => q[1]), ...words.map((w) => w.y)];
+    const points = [...ink, ...fills].flat(), xs = [...points.map((q) => q[0]), ...words.map((w) => w.x)], ys = [...points.map((q) => q[1]), ...words.map((w) => w.y)];
     const [x0, y0, x1, y1] = mol.atoms.length || !xs.length ? [Math.min(drawing.box[0], ...xs), Math.min(drawing.box[1], ...ys), Math.max(drawing.box[2], ...xs), Math.max(drawing.box[3], ...ys)] : [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
     const side = Math.max(x1 - x0, y1 - y0, 5 * L), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
-    t = { d: toPath(drawing.polygons) + lines.map(([p, q]) => `M${p[0].toFixed(1)} ${p[1].toFixed(1)}L${q[0].toFixed(1)} ${q[1].toFixed(1)}`).join(""), labels: [...drawing.labels, ...words], view: `${cx - side / 2} ${cy - side / 2} ${side} ${side}` };
+    t = { d: toPath([...drawing.polygons, ...ink]), fills: arrows.filter(filled).map((a, k) => ({ d: toPath([fills[k]]), colour: a.colour })), labels: [...drawing.labels, ...words], view: `${cx - side / 2} ${cy - side / 2} ${side} ${side}` };
     thumbs.set(id, t);
   }
   return (
     <svg className="thumb" viewBox={t.view} aria-hidden>
+      {t.fills.map((f, i) => <path key={i} d={f.d} fill={f.colour ?? "currentColor"} />)}
       <path d={t.d} fill="currentColor" stroke="currentColor" strokeWidth={STYLE.line} />
       {t.labels.map((l, i) => <text key={i} x={l.x} y={l.y} fill="currentColor" style={{ font: `${l.size}px ${fontStack("Arial")}` }}>{l.text}</text>)}
     </svg>
@@ -62,7 +66,7 @@ export function LibraryPanel(p: {
   const open = categories.find((c) => c.name === category) ?? categories[0];
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? categories.flatMap((c) => c.items).filter((t) => t.name.toLowerCase().includes(q) || t.category.toLowerCase().includes(q)) : open.items;
+    return q ? categories.flatMap((c) => c.items).filter((t) => t.name.toLowerCase().includes(q) || t.category.toLowerCase().includes(q) || !!t.also?.toLowerCase().includes(q)) : open.items;
   }, [open, query, categories]);
   const done = (keep: boolean) => {
     const n = naming;

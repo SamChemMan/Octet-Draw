@@ -6,7 +6,7 @@ Sam moved these three features from 1.0 to 1.1.0 on 18 October 2026. They are th
 
 ### 1. Template and clip-art library (audit item CD-32)
 
-Octet has 98 templates in 6 groups: amino acids, sugars, nucleobases, heterocycles, polycyclics and ligands. ChemDraw ships 29 template sets. Octet must draw its own sets and must not copy ChemDraw's art or data.
+Octet has 106 templates in 7 groups: amino acids, sugars, nucleobases, heterocycles, polycyclics, ligands and lab. ChemDraw ships 29 template sets. Octet must draw its own sets and must not copy ChemDraw's art or data.
 
 Draw Octet's own sets in this order:
 
@@ -17,7 +17,7 @@ Draw Octet's own sets in this order:
 5. Hexoses.
 6. Functional groups.
 7. Cp and arene rings, with metallocenes.
-8. Lab clip art in Octet's own line style: round-bottom flask, beaker, conical flask, condenser, separatory funnel, test tube, light bulb and LED for photochemistry, heating mantle and stirrer bar.
+8. Lab clip art in Octet's own line style: round-bottom flask, beaker, conical flask, condenser, separatory funnel, test tube, light bulb and LED for photochemistry, heating mantle and stirrer bar. A starter set of eight (light bulb, LED, round-bottom flask, beaker, conical flask, reflux condenser, separatory funnel and test tube) ships in 1.0 as the library's Lab group.
 
 Give every item a name, so the library search finds it. Each item must look right at the brand line weights and in dark mode.
 
