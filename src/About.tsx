@@ -1,4 +1,4 @@
-// About Octet: the app's mark, its version, who made it, and the credits the data and libraries' licences ask for.
+// About Octet Draw: the app's mark, its version, who made it, and the credits the data and libraries' licences ask for.
 import { invoke } from "@tauri-apps/api/core";
 import { Heart } from "@phosphor-icons/react";
 import { Dialog } from "./Dialog";
@@ -7,10 +7,10 @@ import { version } from "../package.json";
 
 export function About({ onClose }: { onClose: () => void }) {
   return (
-    <Dialog title="About Octet" onClose={onClose} plain>
+    <Dialog title="About Octet Draw" onClose={onClose} plain>
       <div className="about">
         <img src={icon} alt="" width={96} height={96} draggable={false} />
-        <p className="about-name">Octet</p>
+        <p className="about-name">Octet Draw</p>
         <p className="about-version">Version {version}</p>
         <p className="about-made">
           Made with <Heart size={12} className="about-heart" aria-label="love" /> in Manchester and Cambridge by{" "}

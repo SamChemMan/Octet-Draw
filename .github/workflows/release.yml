@@ -142,7 +142,7 @@ jobs:
         with:
           # A test build (Run workflow) names no release, so the action makes none.
           tagName: ${{ github.event_name == 'push' && github.ref_name || '' }}
-          releaseName: ${{ github.event_name == 'push' && 'Octet __VERSION__' || '' }}
+          releaseName: ${{ github.event_name == 'push' && 'Octet Draw __VERSION__' || '' }}
           releaseBody: ${{ github.event_name == 'push' && 'Download the installer for your computer below.' || '' }}
           releaseDraft: true
           prerelease: false

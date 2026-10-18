@@ -139,8 +139,8 @@ through Tauri's GTK 0.18 crates. Octet does not call VariantStrIter."
 
 ## Before the first release
 
-- Keep the identifier `io.github.samchemman.octet` (`tauri.conf.json`), or change it now, for example to
-  `world.octet.octet` for the octet.world domain. It names the folder of Octet's settings and recent drawings,
-  and Octet's clipboard type, so it cannot change after the first release (REL-32). A change now resets the
-  settings and recent drawings of the copies already in use.
+- The identifier is `io.github.samchemman.octet-draw` (`tauri.conf.json`), set on 18 October 2026 when Sam named
+  the app Octet Draw (Octet is now the family name). It names the folder of the app's settings and recent drawings,
+  so it cannot change after the first release (REL-32). The clipboard type `io.github.samchemman.octet.json` and the
+  `.oct` document type stay Octet-wide, so the other Octet apps can share them.
 - Install the .deb and .rpm on Linux and check that Check for Updates works there (decision 0010).

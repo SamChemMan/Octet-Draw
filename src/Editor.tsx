@@ -787,7 +787,7 @@ export default function Editor() {
   }, [doc]);
 
   const name = file.path?.split(/[\\/]/).pop()?.replace(/\.(octet|oct|cdxml)$/i, "") ?? file.name ?? "Untitled";
-  useEffect(() => { if (TAURI) getCurrentWindow().setTitle(home ? "Octet" : dirty ? `${name} (edited)` : name); }, [name, dirty, home]);
+  useEffect(() => { if (TAURI) getCurrentWindow().setTitle(home ? "Octet Draw" : dirty ? `${name} (edited)` : name); }, [name, dirty, home]);
 
   // A picture of part of the drawing (or all of it) as a standalone SVG at true size: the canvas shows only that part
   // for a moment (nothing is painted in between), and the picture is cut to the ink of what it draws.
@@ -4491,7 +4491,7 @@ export default function Editor() {
     copy_smiles: ["Copy as SMILES", `⌥${MOD}C`, <CopySimple size={18} />], copy_inchi: ["Copy as InChI", "", <IdentificationBadge size={18} />], copy_inchikey: ["Copy as InChIKey", "", <Key size={18} />],
     copy_cdxml: ["Copy as CDXML text", `${MOD}D`, <FileCode size={18} />], copy_mol: ["Copy as MOL text", `⌥${MOD}O`, <FileTxt size={18} />], copy_mol_v2000: ["Copy as MOL V2000 text", `⇧⌥${MOD}O`, <Notepad size={18} />],
     export: ["Export…", EXPORT_KEYS, <ExportIcon size={18} />], print: ["Print…", `${MOD}P`, <Printer size={18} />], print_selection: ["Print selection…", "", <SelectionForeground size={18} />], apply_style_file: ["Apply settings from file…", "", <PaintRoller size={18} />], page_setup: ["Page setup…", `⇧${MOD}P`, <FileDashed size={18} />],
-    about: ["About Octet", "", <Info size={18} />], check_updates: ["Check for updates…", "", <CloudArrowDown size={18} />], report_problem: ["Report a problem…", "", <Bug size={18} />], tutorial: ["Tutorial", "", <GraduationCap size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />], bond_properties: ["Bond properties…", "", <FadersHorizontal size={18} />],
+    about: ["About Octet Draw", "", <Info size={18} />], check_updates: ["Check for updates…", "", <CloudArrowDown size={18} />], report_problem: ["Report a problem…", "", <Bug size={18} />], tutorial: ["Tutorial", "", <GraduationCap size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />], bond_properties: ["Bond properties…", "", <FadersHorizontal size={18} />],
     bracket_properties: ["Bracket properties…", "", <BracketsRound size={18} />], rlogic: ["R-Logic query…", "", <TreeStructure size={18} />],
     add_multicentre: ["Add multi-centre attachment", "", <Asterisk size={18} />], add_variable: ["Add variable attachment", "", <AsteriskSimple size={18} />],
     define_rgroup: ["Make an R-group definition", "", <BracketsSquare size={18} />], expand_generic: ["Expand generic structure", "", <SquaresFour size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],

@@ -42,7 +42,7 @@ fn append(dir: &Path, text: &str, crash: bool) {
 }
 
 fn head(app: &AppHandle) -> String {
-    format!("Octet {} on {} ({})", app.package_info().version, std::env::consts::OS, std::env::consts::ARCH)
+    format!("Octet Draw {} on {} ({})", app.package_info().version, std::env::consts::OS, std::env::consts::ARCH)
 }
 
 // A panic closes Octet (the release build aborts). The hook writes it to the log first.

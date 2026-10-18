@@ -78,10 +78,10 @@ pub async fn send_feedback(app: AppHandle, note: String, picture: Option<String>
     if png.as_ref().is_some_and(|p| !p.starts_with(b"\x89PNG\r\n\x1a\n")) {
         return Err("The picture is damaged.".into());
     }
-    let body = format!("{}\n\n— Octet {} on {}", note.trim(), app.package_info().version, std::env::consts::OS);
+    let body = format!("{}\n\n— Octet Draw {} on {}", note.trim(), app.package_info().version, std::env::consts::OS);
     let boundary = "octet-feedback-part";
     let mut eml = format!(
-        "To: {TO}\r\nSubject: Octet feedback\r\nX-Unsent: 1\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"{boundary}\"\r\n\r\n\
+        "To: {TO}\r\nSubject: Octet Draw feedback\r\nX-Unsent: 1\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"{boundary}\"\r\n\r\n\
          --{boundary}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{}\r\n",
         lines(&b64.encode(body))
     );

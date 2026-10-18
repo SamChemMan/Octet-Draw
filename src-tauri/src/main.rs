@@ -425,7 +425,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
     ])?;
     // Close Window: the system's item on the Mac and Windows, Octet's own on Linux, where GTK has none. Windows and
-    // Linux end Octet from File > Exit, as their apps do (REL-18); on the Mac it is Octet > Quit Octet. Not the
+    // Linux end Octet from File > Exit, as their apps do (REL-18); on the Mac it is Octet Draw > Quit Octet Draw. Not the
     // system's quit, which closes Octet at once: the page asks to save unsaved changes first.
     #[cfg(not(target_os = "linux"))]
     file.append(&PredefinedMenuItem::close_window(app, None)?)?;
@@ -736,13 +736,13 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     {
         help.append(&item("check_updates", "Check for Updates…", "")?)?;
         help.append(&sep()?)?;
-        help.append(&item("about", "About Octet", "")?)?;
+        help.append(&item("about", "About Octet Draw", "")?)?;
     }
-    section.replace("Octet".into());
+    section.replace("Octet Draw".into());
     #[cfg(target_os = "macos")]
-    let octet = Submenu::with_items(app, "Octet", true, &[
+    let octet = Submenu::with_items(app, "Octet Draw", true, &[
         // Octet's own About window (src/About.tsx): the mark, who made it, and the credits the licences ask for.
-        &item("about", "About Octet", "")?,
+        &item("about", "About Octet Draw", "")?,
         // As ChemDraw 26.1's ChemDraw > Check for Updates… (decision 0010).
         &item("check_updates", "Check for Updates…", "")?,
         &sep()?,
@@ -755,7 +755,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &PredefinedMenuItem::show_all(app, None)?,
         &sep()?,
         // Not the system's Quit, which closes Octet at once: the page asks to save unsaved changes first.
-        &item("quit", "Quit Octet", "CmdOrCtrl+Q")?,
+        &item("quit", "Quit Octet Draw", "CmdOrCtrl+Q")?,
     ])?;
     let mut items: Vec<&dyn IsMenuItem<Wry>> = Vec::new();
     #[cfg(target_os = "macos")]
