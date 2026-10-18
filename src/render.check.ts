@@ -191,6 +191,26 @@ console.log("render.check: written labels ok");
   const still = renderParts(grow(2), S, ink, S.bond, scaling, true);
   assert.notEqual(still.parts[1].drawing, start.parts[1].drawing, "drawn again when still");
   assert.equal(still.parts[1].k, 1);
+  // A turn during a drag (the rotation handle): the drawing is kept and turned, each label's atom is where the turn puts
+  // it, and the ink boxes hold where a new drawing puts the ink. Once still, it is drawn again. A change of shape is no
+  // turn.
+  const turn = (deg: number, c: P = [5, 1]): Mol => {
+    const r = (deg * Math.PI) / 180, [cs, sn] = [Math.cos(r), Math.sin(r)];
+    return { ...m, atoms: m.atoms.map((a, i) => (i >= 6 && i < 12 ? { ...a, location: [c[0] + (a.location[0] - c[0]) * cs - (a.location[1] - c[1]) * sn, c[1] + (a.location[0] - c[0]) * sn + (a.location[1] - c[1]) * cs, a.location[2]] as [number, number, number] } : a)) };
+  };
+  const turning: PartCache = { parts: new WeakMap(), last: new Map() }, flatOut = renderParts(m, S, ink, S.bond, turning, false), turned = renderParts(turn(30), S, ink, S.bond, turning, false);
+  assert.equal(turned.parts[1].drawing, flatOut.parts[1].drawing, "turned, not drawn again");
+  assert.ok(Math.abs(turned.parts[1].turn + 30) < 1e-9 && turned.parts[1].k === 1, "30° anticlockwise on the page is rotate(-30) in px");
+  const p = turned.parts[1], a = (p.turn * Math.PI) / 180, at = (q: P): P => [q[0] * Math.cos(a) - q[1] * Math.sin(a) + p.at[0], q[0] * Math.sin(a) + q[1] * Math.cos(a) + p.at[1]];
+  const nAtom = turn(30).atoms.findIndex((x, i) => i >= 6 && x.label === "N"), nAt = at(p.drawing.labelAt[p.drawing.labels.findIndex((l) => l.text === "N")]);
+  assert.ok(Math.abs(nAt[0] - turn(30).atoms[nAtom].location[0] * S.bond) < 1e-6 && Math.abs(nAt[1] + turn(30).atoms[nAtom].location[1] * S.bond) < 1e-6, "the N label keeps to its atom");
+  const real = render(turn(30), S, ink, S.bond).ink.slice(6, 12), held = turned.ink.slice(6, 12);
+  assert.ok(held.every((b, i) => b[0] <= real[i][0] + 1e-6 && b[1] <= real[i][1] + 1e-6 && b[2] >= real[i][2] - 1e-6 && b[3] >= real[i][3] - 1e-6), "each ink box holds the atom's ink");
+  assert.equal(turned.parts[0].drawing, flatOut.parts[0].drawing, "the first pyridine is not turned");
+  const bent = turn(30), wrong = { ...bent, atoms: bent.atoms.map((x, i) => (i === 6 ? { ...x, location: [x.location[0] + 0.2, x.location[1], 0] as [number, number, number] } : x)) };
+  assert.notEqual(renderParts(wrong, S, ink, S.bond, turning, false).parts[1].drawing, flatOut.parts[1].drawing, "a change of shape is drawn again");
+  const settled = renderParts(turn(30), S, ink, S.bond, turning, true);
+  assert.ok(settled.parts[1].drawing !== flatOut.parts[1].drawing && settled.parts[1].turn === 0, "drawn again when still");
   console.log("render.check: structure by structure ok");
 }
 

@@ -170,10 +170,11 @@ export type Box = [number, number, number, number];
 // ink: each atom's ink box (its label and the bonds that touch it), for placing captions. label: the ink box of an
 // atom's label alone (NH2, OMe), for highlighting it; undefined for an unlabelled atom. scale: px per bond length.
 // electrons: where each lone pair and radical dot is drawn (px), for curly arrows to start from. beads: polymer beads,
-// drawn shaded by the caller.
+// drawn shaded by the caller. labelAt: where each label's atom is (px), which the label keeps level about while a drag
+// turns its structure.
 export type Drawing = {
   polygons: P[][]; colours: (string | undefined)[]; alphas: number[]; labels: Label[]; box: Box; ink: Box[]; label: (Box | undefined)[]; scale: number;
-  electrons: { atom: number; at: P }[]; beads: { at: P; r: number }[];
+  electrons: { atom: number; at: P }[]; beads: { at: P; r: number }[]; labelAt: P[];
 };
 
 // An object's scale: its own, or 1.
@@ -824,7 +825,8 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     take(b[0], b[1]); take(b[2], b[3]);
     return b;
   });
-  return { polygons, colours, alphas, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad], ink, label, scale: k, electrons, beads };
+  const labelAt = labels.map((l): P => pts[labelAtom.get(l) ?? -1] ?? [l.x, l.y]);
+  return { polygons, colours, alphas, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad], ink, label, scale: k, electrons, beads, labelAt };
 }
 
 // The same drawing as render's, made structure by structure. Each structure's drawing stays in `cache` while its
@@ -835,9 +837,11 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
 // atoms' scales (decision 0007), keeps its drawing too, scaled by k and then moved by `at`; once it is still, it is
 // drawn again.
 // parts: each structure's own drawing, its atoms, and how far it is moved and scaled, in order of their first atom.
-export type Part = { atoms: Atom[]; bonds: Bond[]; drawn: Atom[]; drawing: Drawing; at: P; k: number };
+// A structure's drawing as a drag shows it: scaled by k, turned by turn (degrees, as SVG's rotate, y down), then moved
+// by at (px).
+export type Part = { atoms: Atom[]; bonds: Bond[]; drawn: Atom[]; drawing: Drawing; at: P; k: number; turn: number };
 export type PartCache = { parts: WeakMap<Atom, Part>; last: Map<number, Part> };
-export type Parts = Pick<Drawing, "box" | "ink" | "label" | "scale" | "electrons" | "beads"> & { parts: { ids: number[]; drawing: Drawing; at: P; k: number }[] };
+export type Parts = Pick<Drawing, "box" | "ink" | "label" | "scale" | "electrons" | "beads"> & { parts: { ids: number[]; drawing: Drawing; at: P; k: number; turn: number }[] };
 export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, scale: number, cache: PartCache, still = true): Parts {
   // Structures: atoms joined by bonds, each under its lowest atom.
   const root = mol.atoms.map((_, i) => i);
@@ -855,25 +859,32 @@ export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: F
     const same = (p?: Part): p is Part => !!p && p.atoms.length === atoms.length && p.bonds.length === bonds.length && p.bonds.every((b, k) => b === bonds[k]);
     let part = cache.parts.get(atoms[0]);
     if (!same(part) || part.atoms.some((a, k) => a !== atoms[k])) {
-      const was = cache.last.get(ids[0]), at = !still && same(was) ? shiftOf(was.drawn, atoms, scale) : undefined;
-      part = at && was ? { atoms, bonds, drawn: was.drawn, drawing: was.drawing, at: at.at, k: at.k } : undefined;
+      const was = cache.last.get(ids[0]), at = !still && same(was) ? shiftOf(was.drawn, atoms, scale) ?? turnOf(was.drawn, atoms, scale) : undefined;
+      part = at && was ? { atoms, bonds, drawn: was.drawn, drawing: was.drawing, at: at.at, k: at.k, turn: at.turn ?? 0 } : undefined;
     }
     // Once still, a moved structure's drawing is moved by the same numbers (render gives the same points there), as
-    // drawing it again is slow when a drag moves many structures. A scaled one is drawn again.
-    if (part && still && part.k !== 1) part = undefined;
-    if (part && still && (part.at[0] || part.at[1])) part = { atoms, bonds, drawn: atoms, drawing: shifted(part.drawing, part.at), at: [0, 0], k: 1 };
+    // drawing it again is slow when a drag moves many structures. A scaled or turned one is drawn again.
+    if (part && still && (part.k !== 1 || part.turn)) part = undefined;
+    if (part && still && (part.at[0] || part.at[1])) part = { atoms, bonds, drawn: atoms, drawing: shifted(part.drawing, part.at), at: [0, 0], k: 1, turn: 0 };
     if (!part) {
       const local = new Map(ids.map((i, k) => [i, k]));
       const drawing = render({ atoms, bonds: bonds.map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] })) }, s, measure, scale);
-      part = { atoms, bonds, drawn: atoms, drawing, at: [0, 0], k: 1 };
+      part = { atoms, bonds, drawn: atoms, drawing, at: [0, 0], k: 1, turn: 0 };
     }
     cache.parts.set(atoms[0], part);
     last.set(ids[0], part);
-    const d = part.drawing, [ax, ay] = part.at, f = part.k, moved = !!(ax || ay) || f !== 1;
-    const move = (b: Box): Box => (moved ? [b[0] * f + ax, b[1] * f + ay, b[2] * f + ax, b[3] * f + ay] : b);
-    out.parts.push({ ids, drawing: d, at: part.at, k: f });
-    for (const x of d.beads) out.beads.push(moved ? { at: [x.at[0] * f + ax, x.at[1] * f + ay], r: x.r * f } : x);
-    for (const e of d.electrons) out.electrons.push({ atom: ids[e.atom], at: moved ? [e.at[0] * f + ax, e.at[1] * f + ay] : e.at });
+    const d = part.drawing, [ax, ay] = part.at, f = part.k, turn = part.turn, moved = !!(ax || ay) || f !== 1 || !!turn;
+    const cs = Math.cos((turn * Math.PI) / 180) * f, sn = Math.sin((turn * Math.PI) / 180) * f;
+    const to = (q: P): P => (turn ? [q[0] * cs - q[1] * sn + ax, q[0] * sn + q[1] * cs + ay] : [q[0] * f + ax, q[1] * f + ay]);
+    const move = (b: Box): Box => {
+      if (!moved) return b;
+      if (!turn) return [b[0] * f + ax, b[1] * f + ay, b[2] * f + ax, b[3] * f + ay];
+      const qs = [to([b[0], b[1]]), to([b[2], b[1]]), to([b[2], b[3]]), to([b[0], b[3]])];
+      return [Math.min(...qs.map((q) => q[0])), Math.min(...qs.map((q) => q[1])), Math.max(...qs.map((q) => q[0])), Math.max(...qs.map((q) => q[1]))];
+    };
+    out.parts.push({ ids, drawing: d, at: part.at, k: f, turn });
+    for (const x of d.beads) out.beads.push(moved ? { at: to(x.at), r: x.r * f } : x);
+    for (const e of d.electrons) out.electrons.push({ atom: ids[e.atom], at: moved ? to(e.at) : e.at });
     ids.forEach((i, k) => { out.ink[i] = move(d.ink[k]); const l = d.label[k]; out.label[i] = l && move(l); });
     const b = out.box, db = move(d.box);
     b[0] = Math.min(b[0], db[0]); b[1] = Math.min(b[1], db[1]); b[2] = Math.max(b[2], db[2]); b[3] = Math.max(b[3], db[3]);
@@ -890,23 +901,43 @@ function shifted(d: Drawing, [x, y]: P): Drawing {
     labels: d.labels.map((l) => ({ ...l, x: l.x + x, y: l.y + y })),
     electrons: d.electrons.map((e) => ({ ...e, at: [e.at[0] + x, e.at[1] + y] })),
     beads: d.beads.map((b) => ({ ...b, at: [b.at[0] + x, b.at[1] + y] })),
+    labelAt: d.labelAt.map(([px, py]): P => [px + x, py + y]),
   };
 }
 // How atoms have moved from where they were drawn, when every one moved the same way and nothing else about them
 // changed: how far (px, y down), after a scale by k about the drawing's origin. A scale counts only when every atom's
 // own scale changed by the same k as the distances between them (Scale… or a resize handle with Labels and lines),
 // as the drawing is then the same drawing scaled. Otherwise undefined.
-function shiftOf(drawn: Atom[], atoms: Atom[], px: number): { at: P; k: number } | undefined {
+function shiftOf(drawn: Atom[], atoms: Atom[], px: number): { at: P; k: number; turn?: number } | undefined {
   // Scales are kept to 4 decimals (edit.ts), so a scaled structure is held to that.
   const k = scaleOf(atoms[0]) / scaleOf(drawn[0]), near = k === 1 ? 1e-9 : 1e-4;
   const dx = atoms[0].location[0] - drawn[0].location[0] * k, dy = atoms[0].location[1] - drawn[0].location[1] * k;
-  const rest = (x: Atom) => (Object.keys(x) as (keyof Atom)[]).filter((key) => key !== "location" && key !== "scale");
   for (let j = 0; j < atoms.length; j++) {
-    const a = atoms[j], b = drawn[j], ka = rest(a), kb = rest(b), off = (n: number, m: number, d: number) => Math.abs(n - m * k - d) > near * (1 + Math.abs(m * k));
-    if (off(a.location[0], b.location[0], dx) || off(a.location[1], b.location[1], dy) || off(a.location[2] ?? 0, b.location[2] ?? 0, 0) || off(scaleOf(a), scaleOf(b), 0)) return undefined;
-    if (ka.length !== kb.length || ka.some((key) => a[key] !== b[key])) return undefined;
+    const a = atoms[j], b = drawn[j], off = (n: number, m: number, d: number) => Math.abs(n - m * k - d) > near * (1 + Math.abs(m * k));
+    if (off(a.location[0], b.location[0], dx) || off(a.location[1], b.location[1], dy) || off(a.location[2] ?? 0, b.location[2] ?? 0, 0) || off(scaleOf(a), scaleOf(b), 0) || !alike(a, b)) return undefined;
   }
   return { at: [dx * px, -dy * px], k };
+}
+// Whether two atoms are the same but for where they are and their scale.
+const rest = (x: Atom) => (Object.keys(x) as (keyof Atom)[]).filter((key) => key !== "location" && key !== "scale");
+const alike = (a: Atom, b: Atom) => { const ka = rest(a), kb = rest(b); return ka.length === kb.length && ka.every((key) => a[key] === b[key]); };
+// How atoms have turned from where they were drawn, when every one turned and moved as one and nothing else about them
+// changed (the rotation handle): the turn (degrees, as SVG's rotate, y down) and then the move (px). The drawing turned
+// so is the same drawing but for its labels, which keep level. Otherwise undefined.
+function turnOf(drawn: Atom[], atoms: Atom[], px: number): { at: P; k: number; turn: number } | undefined {
+  const o = drawn[0].location, n = atoms[0].location;
+  let far = 0, reach = 0;
+  for (let j = 1; j < drawn.length; j++) { const r = Math.hypot(drawn[j].location[0] - o[0], drawn[j].location[1] - o[1]); if (r > reach) { reach = r; far = j; } }
+  if (reach < 1e-6) return undefined;
+  const phi = Math.atan2(atoms[far].location[1] - n[1], atoms[far].location[0] - n[0]) - Math.atan2(drawn[far].location[1] - o[1], drawn[far].location[0] - o[0]);
+  const c = Math.cos(phi), s = Math.sin(phi), near = 1e-6 * (1 + reach);
+  for (let j = 0; j < atoms.length; j++) {
+    const a = atoms[j].location, b = drawn[j].location, dx = b[0] - o[0], dy = b[1] - o[1];
+    if (Math.abs(a[0] - n[0] - dx * c + dy * s) > near || Math.abs(a[1] - n[1] - dx * s - dy * c) > near || (a[2] ?? 0) !== (b[2] ?? 0) || scaleOf(atoms[j]) !== scaleOf(drawn[j]) || !alike(atoms[j], drawn[j])) return undefined;
+  }
+  // q turns to n + R(q - o), so the drawing (px, y down) turns by -phi and then moves by n - R(o).
+  const t: P = [n[0] - (o[0] * c - o[1] * s), n[1] - (o[0] * s + o[1] * c)];
+  return { at: [t[0] * px, -t[1] * px], k: 1, turn: (-phi * 180) / Math.PI };
 }
 
 // Captions, placed in the drawing's px frame (y down). Sizes are in pt; 1 pt is 4/3 px.

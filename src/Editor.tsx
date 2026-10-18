@@ -203,8 +203,8 @@ function byColour(items: readonly (readonly [string | undefined, P[][]])[]): [st
   }
   return [...groups];
 }
-// A structure moved by a drag before it is drawn again (px), as an SVG transform.
-const moveBy = ([x, y]: P, k = 1) => (k !== 1 ? `translate(${x} ${y}) scale(${k})` : x || y ? `translate(${x} ${y})` : undefined);
+// A structure moved, scaled or turned by a drag before it is drawn again (px), as an SVG transform.
+const moveBy = ([x, y]: P, k = 1, turn = 0) => (turn ? `translate(${x} ${y}) rotate(${turn})${k !== 1 ? ` scale(${k})` : ""}` : k !== 1 ? `translate(${x} ${y}) scale(${k})` : x || y ? `translate(${x} ${y})` : undefined);
 // A structure's ink as one path per colour and, in 3D structures, per how strongly it is drawn (Structure
 // Perspective): [colour|alpha, path]. Made once for each drawing of the structure.
 const inkPaths = new WeakMap<Drawing, [string, string][]>();
@@ -1238,15 +1238,16 @@ export default function Editor() {
     return [...groups];
   }, [arrows, cycleArrows, frame]);
   // Structure ink: each structure's own paths, so a drag changes only the paths of what moved.
-  const structureInk = useMemo(() => drawing.parts.flatMap(({ ids, drawing: d, at, k }) => structurePaths(d).map(([key, path]) => [`${ids[0]}|${key}`, key, path, moveBy(at, k)] as const)), [drawing]);
+  const structureInk = useMemo(() => drawing.parts.flatMap(({ ids, drawing: d, at, k, turn }) => structurePaths(d).map(([key, path]) => [`${ids[0]}|${key}`, key, path, moveBy(at, k, turn)] as const)), [drawing]);
   // Atom labels as text, one group per structure, made once for each drawing of it: React passes over the ones that
-  // did not change, and a structure being moved only moves its group.
+  // did not change, and a structure being moved only moves its group. A structure being turned turns its group, and
+  // each label turns back about its atom, so it keeps level.
   const labelCache = useRef<{ look: string; parts: WeakMap<Drawing, React.ReactElement[]> }>(undefined);
   const labelTexts = useMemo(() => {
     const look = `${darkPaper}|${style.labelFont}`;
     if (labelCache.current?.look !== look) labelCache.current = { look, parts: new WeakMap() };
     const cache = labelCache.current.parts;
-    return drawing.parts.map(({ ids, drawing: d, at, k }) => {
+    return drawing.parts.map(({ ids, drawing: d, at, k, turn }) => {
       let texts = cache.get(d);
       if (!texts) {
         texts = d.labels.map((l, i) => (
@@ -1256,7 +1257,8 @@ export default function Editor() {
         ));
         cache.set(d, texts);
       }
-      return texts.length ? <g key={ids[0]} transform={moveBy(at, k)}>{texts}</g> : null;
+      if (turn) texts = texts.map((t, i) => <g key={i} transform={`rotate(${-turn} ${d.labelAt[i][0]} ${d.labelAt[i][1]})`}>{t}</g>);
+      return texts.length ? <g key={ids[0]} transform={moveBy(at, k, turn)}>{texts}</g> : null;
     });
   }, [drawing, darkPaper, style.labelFont]); // eslint-disable-line react-hooks/exhaustive-deps
   // Where each map number and stereo flag goes, worked out once per change of the atoms or bonds.
