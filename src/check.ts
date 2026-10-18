@@ -17,7 +17,8 @@ export const WARNING_TYPES: { id: WarningType; name: string; on: boolean }[] = [
   { id: "between", name: "Stereobond between chiral atoms", on: true },
   { id: "linear", name: "Linear atoms", on: true },
   { id: "hbonds", name: "Hydrogen bonds", on: true },
-  { id: "isolated", name: "Isolated bonds", on: true },
+  // Off by default, unlike ChemDraw (Sam, 18 October 2026): a lone bond drawn on purpose should not show a warning.
+  { id: "isolated", name: "Isolated bonds", on: false },
   { id: "isotopes", name: "Invalid isotopes", on: true },
   { id: "misc", name: "Miscellaneous warnings", on: true },
   { id: "backwards", name: "Stereobond originating from non-stereo atom", on: true },
