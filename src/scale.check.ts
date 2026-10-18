@@ -170,6 +170,8 @@ console.log("scale.check: text sizes ok");
   assert.deepEqual(resizeBy(b, "ne", [8, 4], {}), { size: [2, 2], anchor: [0, 0] });
   assert.deepEqual(resizeBy(b, "ne", [8, 2], { shift: true }), { size: [2, 1], anchor: [0, 0] }, "Shift: across only");
   assert.deepEqual(resizeBy(b, "sw", [-2, -1], { alt: true }), { size: [2, 2], anchor: [2, 1] }, "Option: about the middle");
+  assert.deepEqual(resizeBy(b, "ne", [7, 3], { about: [1, 1] }), { size: [2, 2], anchor: [1, 1] }, "about a moved centre mark");
+  assert.deepEqual(resizeBy(b, "ne", [6, 3], { about: [1, 1], alt: true }).anchor, [2, 1], "Option still scales about the middle");
   assert.deepEqual(resizeBy(b, "e", [6, 9], {}), { size: [1.5, 1], anchor: [0, 1] }, "a side stretches across only");
   assert.deepEqual(resizeBy(b, "n", [9, 3], { shift: true }).size, [1.5, 1.5], "Shift on a side keeps proportion");
   assert.deepEqual(resizeBy(b, "ne", [4.1, 2.05], {}, [1, 1.25], 0.2).size, [1, 1], "the 100% stop holds");

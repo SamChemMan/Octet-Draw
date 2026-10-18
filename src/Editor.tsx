@@ -454,7 +454,15 @@ export default function Editor() {
     dispatch({ type: "set", mol: onTop(doc, wholeGroups(mol), fragments), merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
   };
-  const undo = (redo = false) => { dispatch({ type: redo ? "redo" : "undo" }); setSelection(new Set()); setPicked(new Set()); };
+  // A scale of the whole drawing zooms the view with the document style (IDEA-SCALE-8, commitScale). Each such style
+  // keeps the style before it and the zoom it made, so undo and redo zoom back and forth too: the drawing looks as it
+  // did before and after, as an undo of a scale of some objects does.
+  const styleZooms = useRef(new WeakMap<DocStyle, { from?: DocStyle; by: number }>());
+  const undo = (redo = false) => {
+    const to = h.stack[h.at + (redo ? 1 : -1)], after = redo ? to?.style : doc.style, z = after && styleZooms.current.get(after);
+    if (to && z && z.from === (redo ? doc.style : to.style)) setView((v) => ({ ...v, zoom: redo ? v.zoom * z.by : v.zoom / z.by }));
+    dispatch({ type: redo ? "redo" : "undo" }); setSelection(new Set()); setPicked(new Set());
+  };
   // The file on disk and the drawing as last saved. Undoing back to the saved drawing makes it clean again.
   const [file, setFile] = useState<{ path?: string; saved: Mol }>({ saved: EMPTY });
   // Home (decision 0003): where Octet opens (?editor skips it, for tests), with the name box on first launch and the
@@ -1738,9 +1746,10 @@ export default function Editor() {
     if (whole && lines && size[0] === size[1] && k !== 1 && Math.abs(next.scale - style.scale * k) < 1e-9) {
       const d: P = [c[0] * (1 / k - 1), c[1] * (1 / k - 1)], all = new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id));
       const moved = transformParts(doc, new Set(doc.atoms.map((_, i) => i)), all, (q) => [q[0] + d[0], q[1] + d[1]]);
-      const nk = frameStyle(next, L).k, r = frame.k / nk;
+      const nk = frameStyle(next, L).k, was = views.get().zoom, zoom = clampZoom(was * (frame.k / nk));
       lastK.current = nk * next.scale;
-      setView((v) => ({ ...v, zoom: clampZoom(v.zoom * r) }));
+      setView((v) => ({ ...v, zoom }));
+      styleZooms.current.set(next, { from: doc.style, by: zoom / was });
       return set({ ...scaleSizes(moved, k), style: next }, true);
     }
     // A drag of the whole drawing in proportion only showed it scaled (its working copy is the drawing as it was), so
@@ -2047,7 +2056,7 @@ export default function Editor() {
     const side = resizeAt(p);
     if (side) {
       const frame = frameBox(views.get().zoom)!, { atoms, items, whole } = chosen(), median = medianBond(doc, atoms);
-      return setDrag({ kind: "resize", side, frame, atoms, items, middles: captionMiddles(), stops: [1, ...(median ? [1 / median] : [])], size: [1, 1], anchor: handlePoint(frame, side), whole, labels: scalesText(), lines: scalesText(), working: doc });
+      return setDrag({ kind: "resize", side, frame, atoms, items, middles: captionMiddles(), stops: [1, ...(median ? [1 / median] : [])], size: [1, 1], anchor: pivot ?? handlePoint(frame, side), whole, labels: scalesText(), lines: scalesText(), working: doc });
     }
     if (tool !== "erase" && onTurnHandle(p)) {
       const centre = turnCentre();
@@ -2245,8 +2254,8 @@ export default function Editor() {
       }
       case "resize": {
         // ⌘ turns the soft stops off, as it turns snapping off while moving. Control turns Labels and lines over for
-        // this drag, as ChemDraw's Ctrl does on its handles.
-        const { size, anchor } = resizeBy(drag.frame, drag.side, p, { shift: e.shiftKey, alt: e.altKey }, e.metaKey ? [] : drag.stops, 6 / (views.get().zoom * L));
+        // this drag, as ChemDraw's Ctrl does on its handles. A moved centre mark is the point it scales about.
+        const { size, anchor } = resizeBy(drag.frame, drag.side, p, { shift: e.shiftKey, alt: e.altKey, about: pivot }, e.metaKey ? [] : drag.stops, 6 / (views.get().zoom * L));
         const lines = drag.labels !== e.ctrlKey;
         if (size[0] === drag.size[0] && size[1] === drag.size[1] && anchor[0] === drag.anchor[0] && anchor[1] === drag.anchor[1] && lines === drag.lines) return;
         return setDrag({ ...drag, size, anchor, lines, working: drag.whole && lines && size[0] === size[1] ? doc : scaledParts(doc, drag.atoms, drag.items, size, anchor, lines, drag.middles) });

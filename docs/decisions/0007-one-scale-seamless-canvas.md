@@ -42,13 +42,15 @@ decision 0003 (templates on New drawing).
   Control turns "Labels and lines" over for one drag, as ChemDraw's Ctrl does on its handles. Text alone always
   scales its size (Control turns that off), as ChemDraw scales the text of one label whatever its checkbox says.
   The drag stops softly at 100% and where the median bond is the document's bond length (⌘ turns the stops off).
-  A double-click on a handle opens Scale…. ChemDraw 26.1 has no key for "about the middle" on its handles. A lone straight
+  A double-click on a handle opens Scale…. ChemDraw 26.1 has no key for "about the middle" on its handles. A centre
+  mark moved with Option-drag is the point a resize goes about, as ChemDraw's moved rotation centre is. A lone straight
   arrow and a lone turned shape keep their own handles (ends, or corners on the turned sides) and the rotation
   handle, and show no frame. A turned shape stretched by the frame grows along its own sides by as much as each
   side grows on the page.
 - The whole drawing (nothing selected, or everything) scaled in proportion with "Labels and lines" on changes the
   document scale, not each object's scale (IDEA-SCALE-8). Octet does not ask, as ChemDraw does. What is drawn next
-  then matches. The drawing keeps its place on screen.
+  then matches. The drawing keeps its place on screen. Undo and redo zoom back and forth with it, so the drawing
+  looks as it did before and after, as with an undo of a scale of some objects.
 - A bond, chain, ring, group or template drawn from an atom takes the atom's scale. Clean Up keeps each structure's
   scale (IDEA-SCALE-7). ChemDraw's sprouted bonds take the structure's own bond length too.
 - A paste or import from a drawing of other sizes keeps text in proportion, by ChemDraw's two rules: an atom's own

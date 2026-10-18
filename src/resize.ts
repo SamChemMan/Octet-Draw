@@ -1,8 +1,9 @@
 // The selection's resize handles (IDEA-SCALE-3): eight handles on the frame round the selection. A corner scales in
 // proportion about the opposite corner; a side stretches across or up from the opposite side and moves geometry only.
 // Shift turns proportion over (a corner stretches freely, as ChemDraw's Shift distorts; a side scales in proportion).
-// Option scales about the frame's middle. A proportional scale stops softly at its stops (100%, and the scale that
-// gives the median bond the document's bond length).
+// Option scales about the frame's middle; a centre mark that was moved is the point it scales about otherwise, as
+// ChemDraw's moved rotation centre is. A proportional scale stops softly at its stops (100%, and the scale that gives
+// the median bond the document's bond length).
 export type P = [number, number];
 // A box in drawing units, y up: [left, bottom, right, top].
 export type Box = [number, number, number, number];
@@ -25,11 +26,11 @@ export function sideAt(b: Box, sides: Side[], p: P, r: number, inner?: Box): Sid
   return sides.find((h) => { const q = handlePoint(b, h); return Math.hypot(p[0] - q[0], p[1] - q[1]) < r; });
 }
 
-// The factors across and up for the pointer at p, and the point they scale about. near: how far (drawing units) the
-// handle may be from where a stop puts it and still stop there. Factors stay 5% to 5000%, to 4 decimals, and never
-// flip.
-export function resizeBy(b: Box, h: Side, p: P, mods: { shift?: boolean; alt?: boolean }, stops: number[] = [1], near = 0): { size: P; anchor: P } {
-  const anchor: P = mods.alt ? [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2] : handlePoint(b, OPPOSITE[h]);
+// The factors across and up for the pointer at p, and the point they scale about (about: the moved centre mark).
+// near: how far (drawing units) the handle may be from where a stop puts it and still stop there. Factors stay 5% to
+// 5000%, to 4 decimals, and never flip.
+export function resizeBy(b: Box, h: Side, p: P, mods: { shift?: boolean; alt?: boolean; about?: P }, stops: number[] = [1], near = 0): { size: P; anchor: P } {
+  const anchor: P = mods.alt ? [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2] : mods.about ?? handlePoint(b, OPPOSITE[h]);
   const at = handlePoint(b, h), d: P = [at[0] - anchor[0], at[1] - anchor[1]];
   const clamp = (k: number) => Math.round(Math.min(50, Math.max(0.05, k)) * 1e4) / 1e4;
   const across = h.includes("e") || h.includes("w"), up = h.includes("n") || h.includes("s");
