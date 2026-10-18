@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowsDownUp, CaretDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, Plus, X } from "@phosphor-icons/react";
 import { ColourPicker } from "./ColourPicker";
 import { Dialog, useModal } from "./Dialog";
+import { holdCursor } from "./cursor";
 import { Exit, useLeaving } from "./motion";
 import { Select } from "./Select";
 import { FontPick } from "./Actions";
@@ -155,6 +156,7 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
             onPointerDown={(e) => {
               e.preventDefault();
               e.currentTarget.setPointerCapture(e.pointerId);
+              holdCursor(e.currentTarget);
               const x0 = e.clientX, w0 = width;
               const move = (ev: PointerEvent) => setWidth(Math.min(innerWidth - 16, Math.max(360, w0 + ev.clientX - x0)));
               const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); };
@@ -445,7 +447,7 @@ export function SettingsWindow(p: Props) {
           </div>
         </div>
       </div>
-      {naming !== undefined && (() => {
+      <Exit>{naming !== undefined && (() => {
         // A name of the user's own: not empty, and not one of Octet's purposes. The same name again saves over it.
         const name = naming.trim(), ok = !!name && !Object.values(PURPOSES).some((x) => x.name.toLowerCase() === name.toLowerCase());
         return (
@@ -453,7 +455,7 @@ export function SettingsWindow(p: Props) {
             <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={naming} maxLength={40} spellCheck={false} onChange={(e) => setNaming(e.target.value)} /></span></label>
           </Dialog>
         );
-      })()}
+      })()}</Exit>
     </div>
   );
 }

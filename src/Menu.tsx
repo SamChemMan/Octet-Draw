@@ -5,6 +5,7 @@
 // Do not build another menu: extend this one. Pick (below) is the menu as a list of choices from a button.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { holdCursor } from "./cursor";
 import { Exit, useLeaving } from "./motion";
 
 export type MenuItem = {
@@ -91,6 +92,7 @@ export function Menu(p: Props) {
             // Drag the corner: the menu snaps to whole columns, from one to as many as its longest group.
             e.preventDefault();
             e.currentTarget.setPointerCapture(e.pointerId);
+            holdCursor(e.currentTarget);
             const startX = e.clientX, start = menuWidth(p.columns);
             let width = start;
             const move = (ev: PointerEvent) => { width = Math.max(menuWidth(1), Math.min(menuWidth(most), start + ev.clientX - startX)); setLive(width); };

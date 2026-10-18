@@ -352,7 +352,7 @@ type PaletteProps = {
   onRemoveTemplate: (id: string) => void;
   onUndo: () => void;
   onRedo: () => void;
-  onDrop: (x: number, y: number) => void; // a ring or template, now in hand, was let go here on the canvas (px)
+  onDrop: (x: number, y: number) => void; // an option, now in hand, was let go here on the canvas (px)
   stripWidths: Record<string, number>; // widths the user dragged each menu to, by tool ("more", "curves" too)
   onStripWidth: (key: string, width: number) => void;
   curvedArrows: string[]; // curved arrow variants in the Arrow strip
@@ -484,7 +484,7 @@ export function Palette(p: PaletteProps) {
   });
 
   // Drag an option onto the toolbar to pin it there; drag a shortcut along the toolbar to move it, or off it to remove it.
-  // A ring or template let go on the canvas goes in there. pin: a shortcut is dragged, not an option from a menu.
+  // An option let go on the canvas goes in there. pin: a shortcut is dragged, not an option from a menu.
   function startCarry(e: React.PointerEvent, key: string, pin = false) {
     if (e.button !== 0) return;
     const [sx, sy] = [e.clientX, e.clientY];
@@ -523,12 +523,13 @@ export function Palette(p: PaletteProps) {
         return void setTimeout(() => setCarry(undefined), timing("--motion-fast").duration);
       }
       if (!inside(ev.clientX, ev.clientY)) {
-        // Off the toolbar: a shortcut is removed, an option goes back. Either way it fades where it was let go. A ring
-        // or template let go on the canvas is the tool in hand now, and goes in there as a click there would put it.
+        // Off the toolbar: a shortcut is removed, an option goes back. Either way it fades where it was let go. An
+        // option let go on the canvas is the tool in hand now, and goes in there as a click there would put it: a ring
+        // fused onto the bond under it, a symbol on the atom, a bond style on the bond, an arrow of the usual length.
         setCarry((c) => c && { ...c, tilt: 0, over: false, phase: "drop" });
         const [tool, ...kind] = key.split(":");
-        if (!pin && (tool === "ring" || tool === "template") && document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".canvas")) {
-          choose(tool, kind.join(":"));
+        if (!pin && document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".canvas")) {
+          choose(tool as Strip, kind.join(":"));
           p.onDrop(ev.clientX, ev.clientY);
         }
         return void setTimeout(() => { if (pin) p.onPinned(rest); setCarry(undefined); }, timing("--motion-fast").duration);

@@ -185,11 +185,11 @@ circle.mark {
   stroke-width: 1.5;
   cursor: grab;
 }
-/* A drag by something that shows the open hand (a handle, a panel's header) shows the closed hand until it ends,
-   wherever the pointer goes (cursor.ts, grabbing). */
-[data-grabbing],
-[data-grabbing] * {
-  cursor: grabbing !important;
+/* A drag keeps its cursor until it ends, wherever the pointer goes; one that shows the open hand (a handle, a
+   panel's header) shows the closed hand (cursor.ts, dragCursor). */
+[data-drag-cursor],
+[data-drag-cursor] * {
+  cursor: var(--drag-cursor) !important;
 }
 .selection-marks rect {
   fill: var(--brand-bright);
@@ -1257,12 +1257,13 @@ button.variant.add {
   }
 }
 /* Overlays leave the way they came in, a little faster (motion.tsx, Exit): a fade and a small shrink toward where
-   they opened. A dialog's dim only fades. With reduced motion they go at once. The page menu opened above and the
-   tutorial card at the bottom have their own way in, so they are named here too. */
-:is(.strip, .library, .page-menu, .properties, .spectrum, .coach, .name-field, .name-suggestion, .name-history).leaving,
+   they opened. A dialog's dim only fades. With reduced motion they go at once. The page menu opened above, the
+   tutorial card at the bottom and the next tip along a row have their own way in, so they are named here too. */
+:is(.strip, .library, .page-menu, .properties, .spectrum, .coach, .name-field, .name-suggestion, .name-history, .tip).leaving,
 .page-menu.above.leaving,
 .strip.list.leaving,
 .coach.low.leaving,
+.tip.instant.leaving,
 .modal-backdrop.leaving > * {
   pointer-events: none;
   animation: leave var(--motion-fast) var(--ease-out) forwards;

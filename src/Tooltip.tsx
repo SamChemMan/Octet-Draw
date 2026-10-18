@@ -3,8 +3,10 @@
 // only while the control's name is cut short). An icon-only button with no data-tip shows its aria-label. Inside
 // data-tips="right" (the toolbar down the left) tips sit beside the control, elsewhere above it (tip.ts).
 // The first tip waits 500 ms. While one shows, or just after, the next shows at once, so the pointer can run along
-// a row. Keyboard focus shows a tip at once. A press, a key, a scroll or a dialog over the control hides it.
+// a row. Keyboard focus shows a tip at once. A press, a key, a scroll or a dialog over the control hides it. A tip
+// fades out as it goes (Exit), unless the next one takes its place.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Exit } from "./motion";
 import { placeTip, showsWords } from "./tip";
 
 type Tip = { text: string; key?: string; at: DOMRect; side: "above" | "right"; instant: boolean };
@@ -96,10 +98,12 @@ export function Tooltips() {
     el.style.left = `${p.left}px`;
     el.style.top = `${p.top}px`;
   }, [tip]);
-  return tip ? (
-    <span ref={box} className={tip.instant ? "tip instant" : "tip"} role="tooltip">
-      {tip.text}
-      {tip.key && <kbd>{tip.key}</kbd>}
-    </span>
-  ) : null;
+  return (
+    <Exit>{tip && (
+      <span ref={box} className={tip.instant ? "tip instant" : "tip"} role="tooltip">
+        {tip.text}
+        {tip.key && <kbd>{tip.key}</kbd>}
+      </span>
+    )}</Exit>
+  );
 }

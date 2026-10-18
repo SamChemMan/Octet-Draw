@@ -1,7 +1,8 @@
 // Run: node src/motion.check.ts. Fails loudly if a motion value is typed by hand instead of taken from the motion tokens,
-// if tokens.css and tokens.json disagree on them, or if the toolbar drop's overshoot is used anywhere else.
+// if tokens.css and tokens.json disagree on them, if the toolbar drop's overshoot is used anywhere else, or if an
+// overlay leaves with no motion.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 const css = read("./editor.css"), tokensCss = read("../brand/tokens.css");
@@ -31,7 +32,7 @@ const rules = [...bare.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => m[2].inc
 assert.deepEqual(rules, [".tool.landed .glyph", ".palette.rippling .slot .glyph, .palette.rippling .tool:not(.landed) .glyph"]);
 
 // Every overlay that leaves through Exit (motion.tsx) has an exit motion.
-const overlays = ["strip", "library", "page-menu", "properties", "spectrum", "coach", "name-field", "name-suggestion", "name-history"];
+const overlays = ["strip", "library", "page-menu", "properties", "spectrum", "coach", "name-field", "name-suggestion", "name-history", "tip"];
 for (const overlay of overlays)
   assert.ok(new RegExp(`:is\\([^)]*\\.${overlay}(?=[,)])[^)]*\\)\\.leaving`).test(css), `.${overlay}.leaving`);
 assert.match(css, /\.modal-backdrop\.leaving > \*/);
@@ -52,4 +53,32 @@ for (const m of full.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       assert.ok(exit.includes(`${sel}.leaving`), `${sel} sets its own animation, so the exit rule needs ${sel}.leaving`);
   }
 }
+
+// Every overlay that comes and goes is wrapped in its own Exit. A conditional that shows one (on its line, or the
+// nearest one round it) starts with <Exit>{, and an Exit holds one conditional only: a second one beside the first
+// would keep Exit open for good, so neither would leave with a motion. The command palette stays instant.
+const sources = readdirSync(new URL(".", import.meta.url)).filter((f) => /\.tsx?$/.test(f) && !f.endsWith(".check.ts")).map((f) => ({ f, lines: read(`./${f}`).split("\n") }));
+const overlay = /<(Dialog|Menu|TemplateLibrary|NoticeBar|Properties|Spectrum|Coach|SettingsWindow|ExportDialog|About|Feedback)\b/;
+const indent = (s: string) => s.length - s.trimStart().length;
+for (const { f, lines } of sources) {
+  lines.forEach((text, i) => {
+    if (!overlay.test(text) || /^\s*(\/\/|\*|import)/.test(text)) return;
+    let at = text.includes("&& <") ? i : -1;
+    for (let j = i - 1, depth = indent(text); at < 0 && j >= 0 && depth > 0; j--) {
+      if (!lines[j].trim() || indent(lines[j]) >= depth) continue;
+      depth = indent(lines[j]);
+      if (/&& \(/.test(lines[j])) at = j;
+    }
+    if (at >= 0) assert.match(lines[at], /<Exit>\{/, `${f}:${i + 1} shows an overlay without Exit`);
+  });
+  lines.forEach((text, i) => {
+    if (!text.includes("<Exit>{") || text.includes("}</Exit>")) return;
+    for (let j = i + 1; j < lines.length && !lines[j].includes("}</Exit>"); j++)
+      assert.ok(indent(lines[j]) !== indent(text) || !lines[j].trimStart().startsWith("{"), `${f}:${j + 1} is a second overlay in the Exit at line ${i + 1}`);
+  });
+}
+
+// Animations made in script take their timing from the tokens too (motion.tsx, timing).
+for (const { f, lines } of sources.filter((x) => x.f !== "motion.tsx"))
+  lines.forEach((text, i) => assert.ok(!/cubic-bezier|duration: \d/.test(text), `${f}:${i + 1} types a motion value: ${text.trim()}`));
 console.log("motion.check: ok");

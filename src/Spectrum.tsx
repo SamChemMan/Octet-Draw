@@ -9,6 +9,7 @@ import { Select } from "./Select";
 import { Segmented } from "./Fields";
 import { listOpen } from "./Menu";
 import { useMovable } from "./movable";
+import { holdCursor } from "./cursor";
 import { useLeaving } from "./motion";
 import { HIGHLIGHTS } from "./docstyle";
 
@@ -202,7 +203,7 @@ export function SpectrumPanel(p: Props) {
             const h = Math.min(all[1], Math.max(all[0] + span, at + f * span));
             setRange([h - span, h]);
           }}
-          onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); drag.current = { from: e.clientX, range: [lo, hi], moved: false }; }}
+          onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); holdCursor(e.currentTarget); drag.current = { from: e.clientX, range: [lo, hi], moved: false }; }}
           onPointerMove={(e) => {
             if (drag.current && e.buttons && Math.abs(e.clientX - drag.current.from) > 3) {
               drag.current.moved = true;

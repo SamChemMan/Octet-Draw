@@ -1,6 +1,7 @@
 // Octet's colour picker: a square for how strong and how light the colour is, a strip for its hue, and its hex.
 // Used wherever a colour is chosen freely (Settings, Colours). There is no system colour panel anywhere in Octet.
 import { useEffect, useRef, useState } from "react";
+import { holdCursor } from "./cursor";
 
 type HSV = [number, number, number]; // hue 0–360, saturation 0–1, value 0–1
 
@@ -28,6 +29,7 @@ export function ColourPicker({ value, onChange }: { value: string; onChange: (he
     const go = (ev: { clientX: number; clientY: number }) => at(Math.min(1, Math.max(0, (ev.clientX - box.left) / box.width)), Math.min(1, Math.max(0, (ev.clientY - box.top) / box.height)));
     go(e);
     e.currentTarget.setPointerCapture(e.pointerId);
+    holdCursor(e.currentTarget);
     const move = (ev: PointerEvent) => go(ev), up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); };
     addEventListener("pointermove", move);
     addEventListener("pointerup", up);

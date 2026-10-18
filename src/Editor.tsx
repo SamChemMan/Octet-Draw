@@ -55,7 +55,7 @@ import {
   type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
 import { arrowShapes, bendPoint, curved, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
-import { grabbing, rotateCursor, selectCursor } from "./cursor";
+import { dragCursor, rotateCursor, selectCursor } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { loadNames, nameToSmiles, suggestName } from "./names";
 import { checkedName, graphOf, setNamer } from "./naming";
@@ -448,8 +448,17 @@ export default function Editor() {
   useEffect(() => { selectCursor.then(setCursor); }, []);
   const [turnCursor, setTurnCursor] = useState<string>();
   useEffect(() => { rotateCursor.then(setTurnCursor); }, []);
-  // A handle dragged shows the closed hand.
-  useEffect(() => { if (drag?.kind !== "handle") return; grabbing(true); return () => grabbing(false); }, [drag?.kind]);
+  // A drag on the canvas keeps its cursor wherever the pointer goes until it ends: the closed hand for a handle, the
+  // arrows for a resize, a turn or a table's edge, else the cursor the canvas showed at the press (not the Eraser's
+  // none, which would lose the pointer over a panel).
+  const dragShows = drag?.kind === "handle" ? "grabbing" : drag?.kind === "resize" ? CURSORS[drag.side] : drag?.kind === "turn" ? turnCursor
+    : drag?.kind === "move" ? "move" : drag?.kind === "tableedge" ? `${drag.axis}-resize` : undefined;
+  useEffect(() => {
+    const shows = drag && (dragShows ?? (svg.current && getComputedStyle(svg.current).cursor));
+    if (!shows || shows === "none") return;
+    dragCursor(shows);
+    return () => dragCursor();
+  }, [drag?.kind, dragShows]); // eslint-disable-line react-hooks/exhaustive-deps
   // Where the centre mark was put (Option-drag, as in ChemDraw): every turn of the selection goes about it until the
   // selection changes.
   const [pivot, setPivot] = useState<P>();
@@ -1180,8 +1189,8 @@ export default function Editor() {
   useEffect(() => {
     const now = pages[0][1] * mm, was = outlineFrom.current;
     outlineFrom.current = now;
-    if (was === undefined || Math.abs(was / now - 1) < 1e-3 || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    pagesEl.current?.animate([{ transform: `scale(${was / now})` }, { transform: "scale(1)" }], { duration: 200, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+    if (was === undefined || Math.abs(was / now - 1) < 1e-3 || reduced()) return;
+    pagesEl.current?.animate([{ transform: `scale(${was / now})` }, { transform: "scale(1)" }], timing("--motion-slow"));
   }, [pages, mm]);
   // The page whose edge is under a point (drawing coordinates), within a few screen px.
   const pageEdgeAt = (p: P) => pages.find(([, w, h]) => {
@@ -3366,16 +3375,17 @@ export default function Editor() {
     }
   }
 
-  // A ring or template dragged from the toolbar and let go on the canvas is the tool in hand now (Palette), and goes in
-  // there as a click with it would put it: fused onto a bond or joined to an atom under the point, else at the point.
-  // The click waits for the render that has the new tool.
+  // An option dragged from the toolbar and let go on the canvas is the tool in hand now (Palette), and goes in there as
+  // a click with it would put it. Once the new tool is in hand, Octet presses there and lets go a frame later, so the
+  // drop takes the same way as a click with every tool.
   const [dropAt, setDropAt] = useState<[number, number]>();
   useEffect(() => {
     if (!dropAt) return;
     setDropAt(undefined);
-    const at = toDoc(...dropAt);
-    click(hit(at), at);
-  }, [dropAt]); // eslint-disable-line react-hooks/exhaustive-deps
+    const [clientX, clientY] = dropAt, press = (type: string) => svg.current?.dispatchEvent(new PointerEvent(type, { clientX, clientY, bubbles: true, isPrimary: true, pointerType: "mouse", buttons: type === "pointerdown" ? 1 : 0 }));
+    press("pointerdown");
+    requestAnimationFrame(() => press("pointerup"));
+  }, [dropAt]);
 
   function onPointerUp() {
     stopHold();
@@ -4620,20 +4630,20 @@ export default function Editor() {
             <Segmented label="Radical" value={dialog.radical} options={[["0", "None"], ["1", "•", "Doublet"], ["2", "••", "Triplet"], ["3", ":", "Singlet"]]} onChange={(v) => setDialog({ ...dialog, radical: v })} />
           </div>
         </Dialog>
-      )}
-      {dialog?.kind === "font" && (
+      )}</Exit>
+      <Exit>{dialog?.kind === "font" && (
         <Dialog title="Font" action="Apply" onClose={() => setDialog(undefined)} onAction={() => { runAction(`caption.font.${dialog.font}`); setDialog(undefined); }}>
           <div className="dialog-row"><span>Font</span><FontPick label="Font" font={dialog.font} fonts={fontList} onPick={(font) => setDialog({ ...dialog, font })} className="select-field" start /></div>
         </Dialog>
-      )}
-      {dialog?.kind === "size" && (
+      )}</Exit>
+      <Exit>{dialog?.kind === "size" && (
         <Dialog title="Size" action="Apply" onClose={() => setDialog(undefined)}
           onAction={() => { const n = Number(dialog.size), pt = roundPt(n); if (n > 0 && pt <= 999) { lastSize.current = pt; runAction(`caption.size.${pt}`); } setDialog(undefined); }}>
           {/* Any size from 0.1 to 999 pt (decision 0007), to the nearest half point from 5 pt and the nearest tenth below. */}
           <label className="dialog-row"><span>Size</span><NumberField label="Size" unit="pt" min={0.1} max={999} step={1} value={Number(dialog.size)} onChange={(n) => setDialog({ ...dialog, size: String(n) })} /></label>
         </Dialog>
-      )}
-      {dialog?.kind === "spacing" && (
+      )}</Exit>
+      <Exit>{dialog?.kind === "spacing" && (
         <Dialog title="Line Spacing" action="Apply" onClose={() => setDialog(undefined)}
           onAction={() => { const pt = Number(dialog.pt); restyle(() => ({ lineHeight: dialog.mode === "variable" ? "variable" : dialog.mode === "fixed" && pt >= 0.1 && pt <= 999 ? pt : undefined })); setDialog(undefined); }}>
           {/* ChemDraw's three: Automatic (by the caption's largest text), Variable (each line by its own) and Fixed at. */}

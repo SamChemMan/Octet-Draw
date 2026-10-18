@@ -35,8 +35,20 @@ async function png(svg: string, scale: number): Promise<string> {
   return canvas.toDataURL("image/png");
 }
 
-// While a handle or a panel's header is dragged, the closed hand shows everywhere (editor.css).
-export const grabbing = (on: boolean) => void document.documentElement.toggleAttribute("data-grabbing", on);
+// While a drag runs, its cursor shows wherever the pointer goes, over panels and menus too (editor.css,
+// data-drag-cursor). The open hand closes. No cursor: the drag has ended.
+export function dragCursor(cursor?: string) {
+  const root = document.documentElement;
+  root.style.setProperty("--drag-cursor", cursor === "grab" ? "grabbing" : cursor ?? "");
+  root.toggleAttribute("data-drag-cursor", !!cursor);
+}
+// A press on a control that is dragged (a grip, a slider): its cursor holds until the pointer is let go.
+export function holdCursor(el: Element) {
+  dragCursor(getComputedStyle(el).cursor);
+  const end = () => { dragCursor(); removeEventListener("pointerup", end); removeEventListener("pointercancel", end); };
+  addEventListener("pointerup", end);
+  addEventListener("pointercancel", end);
+}
 
 // A CSS cursor value, or "default" if drawing it fails.
 export const selectCursor: Promise<string> = (async () => {

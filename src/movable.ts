@@ -1,7 +1,7 @@
 // A floating panel (Properties, the Spectrum) the user moves by its header: a press on the header's empty part drags
 // it, kept inside the window. Where each panel was moved to is kept while the app is open, so it reopens there.
 import { useState } from "react";
-import { grabbing } from "./cursor";
+import { dragCursor } from "./cursor";
 
 const kept = new Map<string, [number, number]>();
 
@@ -14,7 +14,7 @@ export function useMovable(key: string, off = false) {
     e.preventDefault();
     const r = panel.getBoundingClientRect(), start = [e.clientX, e.clientY], from = at, el = e.currentTarget;
     try { el.setPointerCapture(e.pointerId); } catch { /* a pointer the page cannot capture: the drag still follows it */ }
-    grabbing(true);
+    dragCursor("grabbing");
     const move = (ev: PointerEvent) => {
       // The whole panel stays in the window.
       const dx = Math.min(innerWidth - r.right, Math.max(-r.left, ev.clientX - start[0])), dy = Math.min(innerHeight - r.bottom, Math.max(-r.top, ev.clientY - start[1]));
@@ -22,7 +22,7 @@ export function useMovable(key: string, off = false) {
       kept.set(key, next);
       setAt(next);
     };
-    const up = () => { el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", up); grabbing(false); };
+    const up = () => { el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", up); dragCursor(); };
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerup", up);
     el.addEventListener("pointercancel", up);
