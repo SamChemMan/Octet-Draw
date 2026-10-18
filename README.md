@@ -32,6 +32,18 @@ Always up for a chat about my research, this project, or anything else.
 Reach me Sam[at]Octet.world
 or, for chemistry, Spe29[at]cam.ac.uk
 
+## Privacy
+
+Octet works with no network and sends nothing on its own: no account, no telemetry.
+Two commands send a structure off your computer, and only when you press them:
+
+- **Search Reaxys** opens Reaxys (Elsevier) in your browser with the selected structure in the address.
+- **Search PubChem** opens PubChem (the US National Library of Medicine) in your browser with the selected structure in the address.
+
+The structure stays in your browser's history. To hide both commands, turn off
+Settings > Import and export > Online search. See
+[decision 0008](docs/decisions/0008-online-search.md).
+
 ## Licence
 
 Octet is free and open-source software under the

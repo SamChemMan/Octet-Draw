@@ -2,7 +2,7 @@
 // Clean up reaction levels it with even gaps.
 import assert from "node:assert/strict";
 import { addArrow, addCaption, addRing, EMPTY, fragments, pos } from "./edit.ts";
-import { cleanUpReaction, findReaction, GAP, reactionClean } from "./reaction.ts";
+import { cleanUpReaction, findReaction, GAP, reactionClean, roleOf } from "./reaction.ts";
 import type { Box, Mol } from "./render.ts";
 
 let m: Mol = EMPTY;
@@ -48,5 +48,16 @@ assert.equal(fragments(clean).length, 4);
   assert.deepEqual(rr.steps.map((s) => s.kind), ["structure", "plus", "text", "arrow", "structure"]);
   const done = cleanUpReaction(tm, rr, tm.arrows!), a = done.arrows!.find((x) => x.id === arrow)!, w = done.captions!.find((c) => c.id === water)!;
   assert.ok(w.x + 0.5 < Math.min(a.from[0], a.to[0]) && Math.max(...fragments(done).map((g) => Math.min(...g.map((i) => pos(done, i)[0])))) > Math.max(a.from[0], a.to[0]), "H2O before the arrow, the product after it");
+}
+// Search Reaxys: a structure's part in the scheme A + B → C → D, or none for one in no reaction.
+{
+  const [a, b, c, d] = fragments(mol), all = [findReaction(mol, first, mol.arrows!, ink, capBox)!];
+  assert.equal(roleOf(all, [a]), "starting_material");
+  assert.equal(roleOf(all, [a, b]), "starting_material", "both starting materials");
+  assert.equal(roleOf(all, [c]), "all_reactions", "between two arrows: made in one step, used in the next");
+  assert.equal(roleOf(all, [d]), "product");
+  assert.equal(roleOf(all, [a, d]), "mixed", "both sides: a reaction search");
+  assert.equal(roleOf([], [a]), undefined, "in no reaction: a substance search");
+  assert.equal(roleOf([], [a, b]), undefined);
 }
 console.log("reaction.check: ok");

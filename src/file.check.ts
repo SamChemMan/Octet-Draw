@@ -200,3 +200,17 @@ console.log("file.check: bad files refused");
   assert.throws(() => parse(JSON.stringify({ ...base, structure: { atoms: [{ label: "C", x: 0, y: 0, scale: "2" }], bonds: [] } })), /damaged/);
   console.log("file.check: scales ok");
 }
+
+// The grid: only the steps Settings offers (1e-20 mm once hung Octet as it drew a line per step), and what the
+// window shows, checked like the rest of the file.
+{
+  const base = { format: "octet", version: 1, structure: { atoms: [], bonds: [] } };
+  for (const grid of [1e-20, 0.001, -1, 7, "5"]) assert.equal(parse(JSON.stringify({ ...base, style: { grid } })).style?.grid, "bond", String(grid));
+  assert.equal(parse(JSON.stringify({ ...base, style: { grid: 20 } })).style?.grid, 20);
+  const guides = { grid: true as const, rulers: true as const, crosshair: [0.5, -1] as [number, number] };
+  assert.deepEqual(parse(serialize({ ...mol, guides })).guides, guides);
+  assert.deepEqual(parse(serialize({ ...mol, guides: {} })).guides, {});
+  assert.equal(parse(serialize(mol)).guides, undefined);
+  assert.deepEqual(parse(JSON.stringify({ ...base, guides: { grid: 1, crosshair: [NaN, 0], rulers: "y" } })).guides, {});
+  console.log("file.check: grid and guides ok");
+}
