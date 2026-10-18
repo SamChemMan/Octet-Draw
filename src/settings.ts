@@ -8,6 +8,8 @@
 // templates: the user's own rings. pinned: options dragged onto the toolbar, as "tool:variant".
 // actionLayout: for each kind of selection, the user's order of Actions panel actions and how many show as rows.
 // curvedArrows: the curved arrows kept in the Arrow strip, as "kind-sweep".
+// folded: the Actions panel's titled sections folded to their title, by set ("turn", "colour"), for every kind of
+// selection. A new user has every section open.
 import type { SavedTemplate } from "./templates";
 import { readPurposes, type DocStyle, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { DEFAULT_FILES, type FilePrefs } from "./SettingsWindow";
@@ -17,6 +19,7 @@ export type Settings = {
   strips: Record<string, number>; actions: boolean; templates: SavedTemplate[]; pinned: string[];
   actionLayout: Record<string, { order: string[]; rows: number }>;
   layoutVersion: number; // the Actions panel's layout scheme the saved actionLayout was made for
+  folded: string[];
   panelMenus: boolean; // the Actions panel's sets of small actions as titled rows that open menus, not sections of buttons
   captionOptionReturn: boolean; // ChemDraw's "Require Option+Return to create new line in Captions": Return then closes the box
   // Home: the user's name (null until asked; "" when they skipped it), whether the tutorial was seen, and when Octet
@@ -47,7 +50,7 @@ export type Settings = {
 export type Swatch = { name: string; hex: string };
 export type RulerUnit = "mm" | "cm" | "in" | "pt" | "pc";
 export const RULER_UNITS: [RulerUnit, string][] = [["mm", "Millimetres"], ["cm", "Centimetres"], ["in", "Inches"], ["pt", "Points"], ["pc", "Picas"]];
-const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, warnings: true, lastSeen: 0, purpose: "paper", purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, scaleLabels: true, onlineSearch: true, fixedLengths: true, fixedAngles: true, sproutRings: false };
+const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, warnings: true, lastSeen: 0, purpose: "paper", purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, scaleLabels: true, onlineSearch: true, fixedLengths: true, fixedAngles: true, sproutRings: false };
 const KEY = "octet.settings";
 
 export function loadSettings(): Settings {
@@ -86,6 +89,7 @@ export function loadSettings(): Settings {
       // Layouts arranged before the panel's sub-menus (17 October 2026) start again from the new defaults.
       actionLayout: saved.layoutVersion === 3 && typeof saved.actionLayout === "object" && saved.actionLayout !== null && !Array.isArray(saved.actionLayout) ? saved.actionLayout : {},
       layoutVersion: 3,
+      folded: list<string>(saved.folded, (k) => typeof k === "string" && k.length <= 20).slice(0, 40),
       panelMenus: saved.panelMenus === true,
       captionOptionReturn: saved.captionOptionReturn === true,
       userName: typeof saved.userName === "string" ? saved.userName.slice(0, 40) : null,

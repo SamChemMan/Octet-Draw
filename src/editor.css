@@ -941,6 +941,8 @@ button.variant.add {
   max-height: calc(100% - 3 * var(--space-4) - 32px - var(--ruler, 0px));
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* A section that opens or folds never scrolls the panel (Fold in Actions.tsx). */
+  overflow-anchor: none;
   scrollbar-width: thin;
 }
 .actions.leaving {
@@ -1169,6 +1171,9 @@ button.variant.add {
 .tray-set + .tray-set {
   border-top: 1px solid var(--hairline);
 }
+.tray-set.fold {
+  padding: var(--space-1) 0;
+}
 /* With sets as menus: a set's row has a caret, and its menu opens to the left of the panel. */
 .submenu-caret {
   margin-left: auto;
@@ -1200,11 +1205,74 @@ button.variant.add {
   display: grid;
   gap: 2px;
   margin-bottom: var(--space-2);
-  padding: var(--space-1) 0 var(--space-2);
+  padding: 0 0 var(--space-1);
   border-bottom: 1px solid var(--hairline);
 }
-.colour-block .tray-title {
+.colour-block .fold-title {
   padding: 0 var(--space-2);
+}
+/* A titled section folds to its title row (Fold in Actions.tsx). The title is a button with a caret: it points right
+   when the section is folded, and down when it is open (shown on hover, so an open panel stays as calm as before). The
+   section opens and folds with its height and opacity. */
+.fold-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-muted);
+  font: 600 11px/14px var(--font-sans);
+  text-align: left;
+}
+.fold-caret {
+  flex: none;
+  color: var(--ink-faint);
+  transition: transform var(--motion-fast) var(--ease-out), opacity var(--motion-fast) var(--ease-out);
+}
+.fold[data-folded] .fold-caret {
+  transform: rotate(-90deg);
+}
+@media (hover: hover) and (pointer: fine) {
+  .fold:not([data-folded]) .fold-title:not(:hover, :focus-visible) .fold-caret {
+    opacity: 0;
+  }
+  .fold-title:hover,
+  .fold-title:hover .fold-caret {
+    color: var(--ink);
+  }
+}
+.fold-title:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.fold-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--motion) var(--ease-out), opacity var(--motion) var(--ease-out);
+}
+.fold-body:not([data-open]) {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition-duration: var(--motion-fast);
+}
+/* The 2px round the buttons keeps their focus ring clear of the clip. */
+.fold-body > div {
+  display: grid;
+  gap: 2px;
+  min-height: 0;
+  margin: -2px;
+  padding: 2px;
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fold-body,
+  .fold-caret {
+    transition: none;
+  }
 }
 .tray-buttons {
   display: flex;

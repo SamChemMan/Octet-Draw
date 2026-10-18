@@ -5674,6 +5674,8 @@ export default function Editor() {
             onLayout={(kind, layout) => setSettings((s) => ({ ...s, actionLayout: { ...s.actionLayout, [kind]: layout } }))}
             colour={selectionColour(context)}
             menus={settings.panelMenus}
+            folded={settings.folded}
+            onFold={(id, folded) => setSettings((s) => ({ ...s, folded: folded ? [...s.folded.filter((k) => k !== id), id] : s.folded.filter((k) => k !== id) }))}
             grouping={grouping}
             palette={[...settings.palette, ...docColours]}
             sizes={sizeList}
