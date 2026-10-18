@@ -467,3 +467,15 @@ console.log("edit.check: align ok");
   assert.equal(freePairs(aromatic, 1, used[1]), freePairs(aromatic, 1));
   console.log("edit.check: bond orders ok");
 }
+
+// ChemDraw's c key, and C typed as a label, show the carbon's label; setting an element (or Delete's first press)
+// takes it off again. Other element keys work as before.
+{
+  const { keyElement, setLabel } = await import("./edit.ts");
+  const chain = sprout(sprout(EMPTY, [0, 0]), 1);
+  assert.equal(keyElement(chain, 0, "C").atoms[0].shown, true);
+  assert.equal(setLabel(chain, 0, "C").atoms[0].shown, true);
+  assert.equal(setElement(keyElement(chain, 0, "C"), 0, "C").atoms[0].shown, undefined);
+  assert.deepEqual([keyElement(chain, 0, "N").atoms[0].label, keyElement(chain, 0, "N").atoms[0].shown], ["N", undefined]);
+  console.log("edit.check: shown carbons ok");
+}

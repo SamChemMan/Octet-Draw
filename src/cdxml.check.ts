@@ -366,3 +366,14 @@ console.log("cdxml.check: every object kind round trips");
   assert.equal(fromCdxml(arText.replace('Order="1.5"', 'Order="2"').replace(/\s+Display2="Dash"/, "")).mol.bonds[0].display, "aromatic");
   console.log("cdxml.check: delocalised rings, dashed and aromatic doubles ok");
 }
+
+// A shown carbon (ChemDraw's c key): its label goes out with its hydrogens and comes back as a shown carbon, so its
+// hydrogens stay right when a bond is added. A hidden carbon stays hidden.
+{
+  const m = { atoms: [A("C", 0, 0, { shown: true }), A("C", 0.866, 0.5), A("C", 1.732, 0)], bonds: [b(0, 1), b(1, 2)] } as Mol;
+  const text = toCdxml(m, DEFAULT_STYLE), again = fromCdxml(text).mol;
+  assert.match(text, /NumHydrogens="3"/);
+  assert.deepEqual(again.atoms.map((a) => [a.shown, a.text]), [[true, undefined], [undefined, undefined], [undefined, undefined]]);
+  assert.equal(parse(serialize(m)).atoms[0].shown, true);
+  console.log("cdxml.check: shown carbons ok");
+}

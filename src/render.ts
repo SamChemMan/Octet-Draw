@@ -38,6 +38,7 @@ export type Atom = {
   // atom but the middle of these atoms (a ring's), where a bond to the ligand ends. It has no label and no chemistry.
   centre?: number[];
   number?: string; // Show Atom Number: the number drawn beside the atom
+  shown?: true; // a carbon whose label shows with its hydrogens (CH3, CH2): ChemDraw's c key, or C typed as a label
 };
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 // On a double bond: bold makes the main line bold, dashed the second line dashed, either crosses the two lines.
@@ -320,7 +321,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const dir = (i: number, j: number) => unit(sub(pts[j], pts[i]));
 
   // Labels. Heteroatoms and lone carbons get one; skeletal carbons don't, even when charged.
-  const labelled = mol.atoms.map((a, i) => !a.attach && !a.bead && !a.centre && (a.label !== 'C' || !deg(i) || !!a.text || !!a.isotope || (deg(i) === 1 ? !!s.terminal : !!s.carbons)));
+  const labelled = mol.atoms.map((a, i) => !a.attach && !a.bead && !a.centre && (a.label !== 'C' || !deg(i) || !!a.text || !!a.isotope || !!a.shown || (deg(i) === 1 ? !!s.terminal : !!s.carbons)));
   const labels: Label[] = [], labelAtom = new Map<Label, number>();
   const marks: P[][] = mol.atoms.map(() => []); // ink that is not a label shape (a skeletal carbon's charge)
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;

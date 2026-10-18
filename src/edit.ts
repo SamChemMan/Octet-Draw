@@ -204,12 +204,17 @@ const setAtom = (m: Mol, i: number, change: Partial<Atom>): Mol => ({ ...m, atom
 export const setAtomMarks = (m: Mol, i: number, change: Pick<Partial<Atom>, "hmark" | "attach" | "bead">) => setAtom(m, i, change);
 const setBondAt = (m: Mol, i: number, change: Partial<Bond>): Mol => ({ ...m, bonds: m.bonds.map((b, k) => (k === i ? { ...b, ...change } : b)) });
 
-export const setElement = (m: Mol, i: number, label: string) => setAtom(m, i, { label, text: undefined });
+export const setElement = (m: Mol, i: number, label: string) => setAtom(m, i, { label, text: undefined, shown: undefined });
+// ChemDraw's c key, or C typed as a label: a carbon whose label shows with its hydrogens (CH3, CH2, CH).
+export const showCarbon = (m: Mol, i: number) => setAtom(m, i, { label: "C", text: undefined, shown: true });
+// An element key (or an element picked from a menu) on an atom: that element. C shows the carbon's label.
+export const keyElement = (m: Mol, i: number, label: string) => (label === "C" ? showCarbon(m, i) : setElement(m, i, label));
 // Sets what an atom reads as. One element symbol makes it that element; anything else (OMe, CO2Et, Ph) is a
 // written label attached through its first element, or through carbon for a group. Empty text clears it to carbon.
 export function setLabel(m: Mol, i: number, text: string): Mol {
   const t = text.trim();
   if (!t) return setElement(m, i, "C");
+  if (t === "C") return showCarbon(m, i);
   if (isElement(t)) return setElement(m, i, t);
   return setAtom(m, i, { label: anchorElement(t) ?? "C", text: t });
 }

@@ -15,7 +15,7 @@ import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bounds, addChain, chainPoints, chainThrough, snake, complete, clickBond, dragBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
-  addChair, addGroup, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
+  addChair, addGroup, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, keyElement, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
   addShape, addSymbol, placeCentres, bondOrders, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
@@ -1668,7 +1668,8 @@ export default function Editor() {
     }
     set(m, true);
   }
-  const startMove = (p: P, screen: [number, number], t: Hover, picks = picked, atoms = selection, copy = false) => {
+  // alone: the atoms move without becoming the selection (a bond tool's Shift-drag).
+  const startMove = (p: P, screen: [number, number], t: Hover, picks = picked, atoms = selection, copy = false, alone = false) => {
     // Option-drag moves copies, made now and kept only if the pointer moves.
     let base = doc, copies: Map<number, number> | undefined;
     const atoms0 = atoms, picks0 = picks;
@@ -1713,7 +1714,7 @@ export default function Editor() {
       ].filter((b): b is Box => !!b) : [];
       return (boxes = movingBox ? { moving: movingBox, targets } : undefined);
     };
-    setDrag({ kind: "move", from: p, working: base, moved: false, start: screen, target: t, guides: [], captions, arrows: arrowIds, cycles: cycleIds, snap, ...(copies ? { base, atoms } : {}) });
+    setDrag({ kind: "move", from: p, working: base, moved: false, start: screen, target: t, guides: [], captions, arrows: arrowIds, cycles: cycleIds, snap, ...(copies || alone ? { base, atoms } : {}) });
   };
   // A press on a cycle's arrows picks the cycle with all its intermediates, and grabs them.
   function pressCycle(p: P, t: Hover, screen: [number, number]) {
@@ -1861,6 +1862,9 @@ export default function Editor() {
     }
     // Pressing away from the selection with a drawing tool clears it, as ChemDraw does.
     if (selection.size || picked.size) { setSelection(new Set()); setPicked(new Set()); }
+    // A bond tool's Shift-drag moves the atom (or bond) pressed, as ChemDraw's does. Dropped on a neighbour, the atom
+    // joins it, so a ring loses an atom (Reducing Ring Size).
+    if (tool === "bond" && e.shiftKey && (t.atom !== undefined || t.bond !== undefined)) return startMove(p, screen, t, new Set(), new Set(atomsOf(doc, t)), false, true);
     pressTool(p, t, screen, e.altKey);
     startHold(p, t, screen);
   }
@@ -2141,7 +2145,7 @@ export default function Editor() {
   // on a selection this way.
   function runMany(id: string, many: { atoms: number[]; bonds: number[] }): boolean {
     const [kind, arg] = id.split("."), { atoms, bonds } = many, each = (f: (m: Mol, i: number) => Mol, ids: number[]) => set(ids.reduce(f, doc), true);
-    if (kind === "element") return each((m, i) => setElement(m, i, arg), atoms), true;
+    if (kind === "element") return each((m, i) => keyElement(m, i, arg), atoms), true;
     if (kind === "label") return each((m, i) => setLabel(m, i, arg), atoms), true;
     if (kind === "charge") return each((m, i) => addCharge(m, i, arg === "plus" ? 1 : -1), atoms), true;
     if (kind === "group") return each((m, i) => addGroupAt(m, i, arg as Group)[0], atoms), true;
@@ -2184,7 +2188,7 @@ export default function Editor() {
     if (id === "atom.attach" && atom !== undefined) return set(setAtomMarks(doc, atom, { attach: !doc.atoms[atom].attach || undefined }));
     if (id === "atom.number" && atom !== undefined) return numberAtoms([atom]);
     if (id === "atom.properties" && atom !== undefined) return atomProperties(atom);
-    if (kind === "element" && atom !== undefined) return set(setElement(doc, atom, arg));
+    if (kind === "element" && atom !== undefined) return set(keyElement(doc, atom, arg));
     if (kind === "label" && atom !== undefined) return set(setLabel(doc, atom, arg));
     if (id === "atom.label" && atom !== undefined) return editLabel(atom);
     // ! asks for a new label for the atom; > adds a bond and asks for the label of its new end (ChemDraw's ? hotkeys).
@@ -2242,7 +2246,7 @@ export default function Editor() {
       if (hover.caption !== undefined) return set(deleteGraphics(doc, new Set([hover.caption])));
       // As in ChemDraw: the first Delete on a labelled atom removes the label; the next removes the atom. Deleting
       // the keyboard hotspot's atom moves the hotspot back to the atom it was bonded to.
-      if (atom !== undefined && doc.atoms[atom].label !== "C") return set(setElement(doc, atom, "C"));
+      if (atom !== undefined && (doc.atoms[atom].label !== "C" || doc.atoms[atom].text || doc.atoms[atom].shown)) return set(setElement(doc, atom, "C"));
       if (atom !== undefined) {
         const mol = deleteAtom(doc, atom), back = hover.key ? neighbours(doc, atom).map((j) => atomAt(mol, pos(doc, j), 1e-6)).find((j) => j !== undefined) : undefined;
         return keyEdit(mol, back === undefined ? undefined : { atom: back }, { atom });
@@ -3022,7 +3026,7 @@ export default function Editor() {
     if (command === "pairs") return set(toggleLonePairs(doc, [...selection]), true);
     if (context.kind === "atom") {
       const i = ids[0], [kind, arg] = command.split(".");
-      if (kind === "element") return set(setElement(doc, i, arg), true);
+      if (kind === "element") return set(keyElement(doc, i, arg), true);
       if (command.startsWith("label:")) return set(setLabel(doc, i, command.slice(6)), true);
       if (kind === "group") return set(addGroup(doc, i, arg as Group));
       if (command === "atom.label") return editLabel(i);

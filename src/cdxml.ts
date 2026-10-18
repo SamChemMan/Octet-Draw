@@ -415,7 +415,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // A node, with its label and, for an abbreviation Octet can expand, the abbreviation's atoms (spec 13.3).
   function node(i: number): { xml: string; box: Box } {
     const a = mol.atoms[i], X = page(i), deg = nbrs[i].length, charge = a.charge ?? 0;
-    const shown = !a.attach && !a.bead && !a.centre && (a.label !== "C" || !deg || !!a.text || !!a.isotope || (deg === 1 ? style.terminalLabels : style.carbonLabels));
+    const shown = !a.attach && !a.bead && !a.centre && (a.label !== "C" || !deg || !!a.text || !!a.isotope || !!a.shown || (deg === 1 ? style.terminalLabels : style.carbonLabels));
     const generic = !!a.text && /^(R\d{0,2}'{0,2}|X|Y|M|Q|A)$/.test(a.text);
     const inner = a.text && !generic ? opts.expand?.(a.text) : undefined;
     const type = a.centre ? "MultiAttachment" : a.attach || a.bead ? "ExternalConnectionPoint" : generic ? "GenericNickname" : a.text ? (inner?.atoms.length ? "Fragment" : "Unspecified") : undefined;
@@ -524,7 +524,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // electrons and lone pairs, each in the widest gap between the atom's bonds and label.
   function marks(i: number): string {
     const a = mol.atoms[i], X = page(i), charge = a.charge ?? 0, deg = nbrs[i].length;
-    const shown = !a.attach && !a.bead && (a.label !== "C" || !deg || !!a.text || !!a.isotope || (deg === 1 ? style.terminalLabels : style.carbonLabels));
+    const shown = !a.attach && !a.bead && (a.label !== "C" || !deg || !!a.text || !!a.isotope || !!a.shown || (deg === 1 ? style.terminalLabels : style.carbonLabels));
     const list: [string, string[]][] = [];
     if (charge && (a.circled || !shown)) list.push([a.circled ? (charge > 0 ? "CirclePlus" : "CircleMinus") : charge > 0 ? "Plus" : "Minus", ["Charge"]]);
     // A singlet radical (carbene) is a pair of electrons that stands for the radical.
@@ -1056,6 +1056,8 @@ export function fromCdxml(text: string): CdxmlRead {
         const m = new RegExp(`^(?:H(\\d*))?${a.label}(?:H(\\d*))?$`).exec(text);
         const h = m ? (m[1] === undefined ? 0 : Number(m[1] || 1)) + (m[2] === undefined ? 0 : Number(m[2] || 1)) : -1;
         if (m && (a.label !== "C" || !degree[i] || a.isotope || (degree[i] === 1 ? style.terminalLabels : style.carbonLabels)) && h === hydrogens(a.label, charge, used[i], a.radical === 3 ? 2 : a.radical)) continue;
+        // A carbon shown with its own hydrogens (CH3 at a chain end): a shown carbon, which keeps its hydrogens right.
+        if (m && a.label === "C" && h === hydrogens("C", charge, used[i], a.radical === 3 ? 2 : a.radical)) { a.shown = true; continue; }
       } else if (isotope) lose("isotope");
       if (text.length > MAX_LABEL || /[<>]/.test(text)) { lose("label text"); text = text.replace(/[<>]/g, "").slice(0, MAX_LABEL); }
       if (isElement(text)) a.label = text;
