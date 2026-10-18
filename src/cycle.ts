@@ -4,7 +4,7 @@
 import type { Arrow, Box, Caption, Mol } from "./render.ts";
 
 // scale: the cycle's size against the document style (decision 0007): its arrows, gaps and side arrows follow it.
-export type Cycle = { id: number; centre: [number, number]; radius: number; clockwise: boolean; nodes: number[][]; colour?: string; scale?: number; order?: number };
+export type Cycle = { id: number; centre: [number, number]; radius: number; clockwise: boolean; nodes: number[][]; colour?: string; order?: number; scale?: number };
 // A cycle's caption: its centre label, or the reagent coming in or product going out on a step (node k to k + 1).
 export type CycleText = { cycle: number; step: number; side: "in" | "out" | "centre" };
 
@@ -45,7 +45,7 @@ export function layoutCycles(m: Mol, k: number, pt: number, ink: (atoms: number[
       while (to > span / 2 && inside(at(a0 + dir * to), boxes[t])) to -= step;
       if (to - from < 0.05) continue;
       const A = at(a0 + dir * from), B = at(a0 + dir * to), mid = at(a0 + dir * (from + to) / 2);
-      out.arrows.push({ id: next--, kind: "curved", from: toDoc(A), to: toDoc(B), bend: bendFor(A, B, mid), cycle: c.id, step: s, ...(c.colour ? { colour: c.colour } : {}), ...own, ...(c.order ? { order: c.order } : {}) });
+      out.arrows.push({ id: next--, kind: "curved", from: toDoc(A), to: toDoc(B), bend: bendFor(A, B, mid), cycle: c.id, step: s, ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}), ...own });
       // Side arrows: a reagent joins the arc before its middle; a product leaves after it.
       for (const cap of m.captions ?? []) {
         const on = cap.cycle;
@@ -54,7 +54,7 @@ export function layoutCycles(m: Mol, k: number, pt: number, ink: (atoms: number[
         const onArc = at(a0 + dir * (from + (to - from) * fa)), away = at(a0 + dir * (from + (to - from) * g), R + 1.1 * f * k);
         const [p, q] = on.side === "in" ? [away, onArc] : [onArc, away];
         const bulge = at(a0 + dir * (from + (to - from) * (fa + g) / 2), R + 0.75 * f * k);
-        out.arrows.push({ id: next--, kind: "curved", from: toDoc(p), to: toDoc(q), bend: bendFor(p, q, bulge) * 0.6, cycle: c.id, step: s, ...(c.colour ? { colour: c.colour } : {}), ...own, ...(c.order ? { order: c.order } : {}) });
+        out.arrows.push({ id: next--, kind: "curved", from: toDoc(p), to: toDoc(q), bend: bendFor(p, q, bulge) * 0.6, cycle: c.id, step: s, ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}), ...own });
         // The text sits beyond the outer end of the side arrow.
         const outward = Math.atan2(away[1] - centre[1], away[0] - centre[0]), textAt = at(outward, R + 1.1 * f * k + gap);
         const anchor = Math.cos(outward) > 0.35 ? "start" : Math.cos(outward) < -0.35 ? "end" : "middle";

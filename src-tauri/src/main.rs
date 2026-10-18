@@ -88,6 +88,17 @@ fn set_palette(app: AppHandle, names: Vec<String>) -> Result<(), String> {
     rebuild(&app)
 }
 
+// The Text menu's fonts (Octet's and the drawing's, 60 at most, names cut to 64 characters) and sizes (40 at most,
+// 0.1 to 999 pt), as the Actions panel lists them: ChemDraw's sizes times the document scale (decision 0007). The menu
+// bar is built again with them.
+#[tauri::command]
+fn set_text_lists(app: AppHandle, fonts: Vec<String>, sizes: Vec<f64>) -> Result<(), String> {
+    let fonts: Vec<String> = fonts.into_iter().take(60).map(|n| n.chars().filter(|c| !c.is_control()).take(64).collect()).collect();
+    let sizes: Vec<f64> = sizes.into_iter().filter(|s| s.is_finite() && (0.1..=999.0).contains(s)).take(40).collect();
+    *app.state::<TextLists>().0.lock().unwrap() = (fonts, sizes);
+    rebuild(&app)
+}
+
 // What new drawings are for (IDEA-SIZE-1): the user's own purposes by name (12 at most, names cut to 40 characters)
 // after Paper, Thesis, Slides and Poster in File > New For, and the name of the one File > New starts, which New shows
 // as ChemDraw's New shows its stationery. The menu bar is built again with them.
@@ -105,17 +116,6 @@ fn set_purposes(app: AppHandle, held: State<'_, Purposes>, names: Vec<String>, c
         }
         *held = next;
     }
-    rebuild(&app)
-}
-
-// The Text menu's fonts (Octet's and the drawing's, 60 at most, names cut to 64 characters) and sizes (40 at most,
-// 0.1 to 999 pt, as a document scale gives them, decision 0007), as the Actions panel lists them; the menu bar is
-// built again with them.
-#[tauri::command]
-fn set_text_lists(app: AppHandle, fonts: Vec<String>, sizes: Vec<f64>) -> Result<(), String> {
-    let fonts: Vec<String> = fonts.into_iter().take(60).map(|n| n.chars().filter(|c| !c.is_control()).take(64).collect()).collect();
-    let sizes: Vec<f64> = sizes.into_iter().filter(|s| s.is_finite() && (0.1..=999.0).contains(s)).take(40).collect();
-    *app.state::<TextLists>().0.lock().unwrap() = (fonts, sizes);
     rebuild(&app)
 }
 

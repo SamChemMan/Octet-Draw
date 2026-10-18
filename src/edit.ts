@@ -820,15 +820,6 @@ export function addShape(m: Mol, sh: Omit<Shape, "id">): [Mol, number] {
   // A highlight goes behind the shapes already there; anything else on top.
   return [{ ...m, shapes: sh.kind === "highlight" ? [{ ...sh, id }, ...(m.shapes ?? [])] : [...(m.shapes ?? []), { ...sh, id }] }, id];
 }
-// A shape's corner dragged to p (drawing units): the opposite corner stays where it is, and a turned shape keeps its
-// angle, so it grows or shrinks along its own sides.
-export function resizeShape(sh: Shape, which: "from" | "to" | "c1" | "c2", p: P): Pick<Shape, "from" | "to"> {
-  const sign = { from: [-1, -1], to: [1, 1], c1: [-1, 1], c2: [1, -1] }[which], r = ((sh.angle ?? 0) * Math.PI) / 180, cs = Math.cos(r), sn = Math.sin(r);
-  const c = [(sh.from[0] + sh.to[0]) / 2, (sh.from[1] + sh.to[1]) / 2], off = [(-sign[0] * (sh.to[0] - sh.from[0])) / 2, (-sign[1] * (sh.to[1] - sh.from[1])) / 2];
-  const fixed = [c[0] + off[0] * cs - off[1] * sn, c[1] + off[0] * sn + off[1] * cs], d = [p[0] - fixed[0], p[1] - fixed[1]];
-  const v = [d[0] * cs + d[1] * sn, -d[0] * sn + d[1] * cs], mid = [(fixed[0] + p[0]) / 2, (fixed[1] + p[1]) / 2], half = [(sign[0] * v[0]) / 2, (sign[1] * v[1]) / 2];
-  return { from: [mid[0] - half[0], mid[1] - half[1]], to: [mid[0] + half[0], mid[1] + half[1]] };
-}
 export const updateShape = (m: Mol, id: number, change: Partial<Shape>): Mol =>
   ({ ...m, shapes: m.shapes?.map((x) => (x.id === id ? { ...x, ...change } : x)) });
 
@@ -839,11 +830,19 @@ const scaled = <T extends { scale?: number }>(x: T, k: number): T => {
   return (f === 1 ? rest : { ...rest, scale: f }) as T;
 };
 const points = (pt: number) => Math.min(999, Math.max(0.1, Math.round(pt * 100) / 100));
-// A caption's size (its own, or `size` when it has none and size is given) and its runs' sizes times k.
+// A caption's size (its own, or `size` when it has none and size is given), its runs' sizes and a fixed line spacing
+// times k.
 const caption = (c: Caption, k: number, size?: number): Caption => {
   const own = c.size ?? size;
-  return { ...c, ...(own ? { size: points(own * k) } : {}), ...(c.runs ? { runs: c.runs.map((r) => (r.size ? { ...r, size: points(r.size * k) } : r)) } : {}) };
+  return { ...c, ...(own ? { size: points(own * k) } : {}), ...(c.runs ? { runs: c.runs.map((r) => (r.size ? { ...r, size: points(r.size * k) } : r)) } : {}),
+    ...(typeof c.lineHeight === "number" ? { lineHeight: points(c.lineHeight * k) } : {}) };
 };
+// An arrow's or shape's sizes in points times k: its own line width, a table's or TLC plate's text size and a table's
+// line weight.
+const pointsOf = <T extends Arrow | Shape>(x: T, k: number): T => ({
+  ...x, ...(x.width ? { width: Math.round(x.width * k * 1e4) / 1e4 } : {}), ...("size" in x && x.size ? { size: points(x.size * k) } : {}),
+  ...("table" in x && x.table?.weight ? { table: { ...x.table, weight: Math.round(x.table.weight * k * 1e4) / 1e4 } } : {}),
+});
 // Scale… with Labels and lines on: the chosen atoms', arrows', shapes' and cycles' scales times k, and the sizes of
 // the chosen captions and of the captions that go with them (under those atoms, on those arrows, in those cycles).
 // captionSize: the document's caption size, for captions that have none of their own. Positions move elsewhere.
@@ -855,29 +854,26 @@ export function scaleSettings(m: Mol, atoms: Set<number>, items: Set<number>, k:
     arrows: m.arrows?.map((a) => (items.has(a.id) ? scaled(a, k) : a)),
     shapes: m.shapes?.map((x) => (items.has(x.id) ? scaled(x, k) : x)),
     cycles: m.cycles?.map((c) => (items.has(c.id) ? scaled(c, k) : c)),
-    captions: m.captions?.map((c) => (goes(c) ? caption(c, k, captionSize) : c)),
+    // A caption's width (bond lengths) grows with its text, so it wraps where it did.
+    captions: m.captions?.map((c) => (goes(c) ? { ...caption(c, k, captionSize), ...(c.width ? { width: c.width * k } : {}) } : c)),
   };
 }
-// A new document scale: every size the drawing holds in points (an atom's own label size, caption and run sizes, an
-// arrow's or shape's own line width, a table's line weight, a table's or TLC plate's text size) times r, so text and
-// lines stay in proportion to the bonds.
+// A new document scale: every size the drawing holds in points (an atom's own label size, caption and run sizes and
+// line spacing, an object's own line width, a table's or TLC plate's text size, a table's line weight) times r, so
+// text and lines stay in proportion to the bonds.
 export function scaleSizes(m: Mol, r: number): Mol {
   if (r === 1) return m;
   return {
     ...m,
     atoms: m.atoms.map((a) => (a.size ? { ...a, size: points(a.size * r) } : a)),
-    captions: m.captions?.map((c) => (c.size || c.runs?.some((x) => x.size) ? caption(c, r) : c)),
-    shapes: m.shapes?.map((x) => owned(x, r)),
-    arrows: m.arrows?.map((a) => (a.width ? { ...a, width: times(a.width, r) } : a)),
+    captions: m.captions?.map((c) => (c.size || c.runs?.some((x) => x.size) || typeof c.lineHeight === "number" ? caption(c, r) : c)),
+    arrows: m.arrows?.map((a) => pointsOf(a, r)),
+    shapes: m.shapes?.map((x) => pointsOf(x, r)),
   };
 }
-// A shape's sizes in points times r: its line width, a table's line weight, and the size of a table's or TLC plate's text.
-const owned = (x: Shape, r: number): Shape => (x.width || x.size || x.table?.weight
-  ? { ...x, ...(x.width ? { width: times(x.width, r) } : {}), ...(x.size ? { size: points(x.size * r) } : {}), ...(x.table?.weight ? { table: { ...x.table, weight: times(x.table.weight, r) } } : {}) } : x);
 // Rotate…, Scale…, the selection's handles, the Turn keys and the flips: the chosen atoms and objects moved point by
 // point by f, as one thing, so a group's objects keep their places relative to each other (as ChemDraw's). size: how
-// much shapes, tables and cycles grow across and up (they keep their own shape, and boxes, ovals and brackets turn by
-// their angle; TLC plates and tables stay upright).
+// much shapes, tables and cycles grow across and up (they turn about their middles and keep their own shape).
 // centres: each free caption's middle (from its laid-out box). A caption's middle moves by f, and its anchor keeps its
 // place from the middle, times text (how much its text grows), so text reads the same way after a turn or a flip, and
 // grows about its middle or keeps its size. mirror: f turns the drawing over, so curved arrows bend, half heads point,
@@ -898,17 +894,14 @@ export function transformParts(m: Mol, atoms: Set<number>, items: Set<number>, f
       ...(mirror && a.bend ? { bend: -a.bend } : {}), ...(mirror && a.start ? { start: over(a.start) } : {}), ...(mirror && a.end ? { end: over(a.end) } : {}) } : a)),
     shapes: m.shapes?.map((x) => {
       if (!items.has(x.id)) return x;
-      // A turned shape stretched across or up grows along its own sides by as much as each side grows on the page,
-      // and leans as its long side does.
-      const c = mul(add(x.from, x.to), 0.5), to = f(c), r = ((x.angle ?? 0) * Math.PI) / 180, [cs, sn] = [Math.cos(r), Math.sin(r)];
-      const leans = !!x.angle && size[0] !== size[1], k: P = leans ? [Math.hypot(size[0] * cs, size[1] * sn), Math.hypot(size[0] * sn, size[1] * cs)] : size;
-      const half: P = [((x.to[0] - x.from[0]) / 2) * k[0], ((x.to[1] - x.from[1]) / 2) * k[1]], grows = size[0] !== 1 || size[1] !== 1;
+      // The middle moves by f, and the shape turns as f turns the page: a turn turns it, a scale keeps its angle and
+      // grows it along its own sides (turned by its angle), and a flip turns its angle the other way.
+      const c = mul(add(x.from, x.to), 0.5), to = f(c), r = ((x.angle ?? 0) * Math.PI) / 180, e = sub(f(add(c, [1, 0])), to);
+      const u = sub(f(add(c, [Math.cos(r), Math.sin(r)])), to), v = sub(f(add(c, [-Math.sin(r), Math.cos(r)])), to);
+      const half: P = [((x.to[0] - x.from[0]) / 2) * len(u), ((x.to[1] - x.from[1]) / 2) * len(v)], angle = mirror ? -(x.angle ?? 0) : (x.angle ?? 0) + (Math.atan2(e[1], e[0]) * 180) / Math.PI;
+      const grows = size[0] !== 1 || size[1] !== 1;
       const table = x.table && grows ? { ...x.table, ...(x.table.widths ? { widths: x.table.widths.map((w) => w * size[0]) } : {}), ...(x.table.heights ? { heights: x.table.heights.map((h) => h * size[1]) } : {}) } : x.table;
-      // Boxes, ovals and brackets turn as f turns them (their angle); a flip turns the angle the other way.
-      const e = f([c[0] + 1, c[1]]), turn = (Math.atan2(e[1] - to[1], e[0] - to[0]) * 180) / Math.PI;
-      const angle = leans ? (Math.atan2(size[1] * sn, size[0] * cs) * 180) / Math.PI : (x.angle ?? 0) + turn;
-      return settleShape({ ...x, from: sub(to, half), to: add(to, half), ...(table ? { table } : {}), ...(mirror === "across" && x.side ? { side: x.side === "left" ? "right" as const : "left" as const } : {}),
-        angle: mirror ? -(x.angle ?? 0) : angle });
+      return settleShape({ ...x, from: sub(to, half), to: add(to, half), ...(table ? { table } : {}), ...(mirror === "across" && x.side ? { side: x.side === "left" ? "right" as const : "left" as const } : {}), angle });
     }),
     cycles: m.cycles?.map((c) => (items.has(c.id) ? { ...c, centre: f(c.centre), radius: c.radius * both, ...(mirror ? { clockwise: !c.clockwise } : {}) } : c)),
   };
@@ -921,22 +914,23 @@ export function medianBond(m: Mol, atoms: Set<number>): number | undefined {
 // A paste or import from a drawing with other sizes, as ChemDraw scales it: positions are in bond lengths, so
 // structures, arrows and shapes take this drawing's bond length and keep their own scale. An atom's own label size
 // goes by the ratio of the label sizes; a caption's size, its own or the source's, by the ratio of the bond lengths
-// (24 pt beside 30 pt bonds becomes 11.5 pt beside 14.4 pt bonds), and so do own line widths, a table's line weight
-// and a table's or TLC plate's text size. A caption that comes out at this drawing's caption size is left without a
-// size of its own.
+// (24 pt beside 30 pt bonds becomes 11.5 pt beside 14.4 pt bonds), and so do a caption's line spacing, an object's
+// own line width, a table's or TLC plate's text size and a table's line weight. A caption that comes out at this
+// drawing's caption size is left without a size of its own.
 export function fitSizes(m: Mol, from: Pick<DocStyle, "bond" | "labelSize" | "captionSize">, to: Pick<DocStyle, "bond" | "labelSize" | "captionSize">): Mol {
   const label = to.labelSize / from.labelSize, k = to.bond / from.bond;
   if (Math.abs(label - 1) < 1e-9 && Math.abs(k - 1) < 1e-9) return m;
   const fitted = (c: Caption): Caption => {
     const own = points((c.size ?? from.captionSize) * k), { size: _, ...rest } = c;
-    return { ...(Math.abs(own - to.captionSize) < 0.01 ? rest : { ...rest, size: own }), ...(c.runs ? { runs: c.runs.map((r) => (r.size ? { ...r, size: points(r.size * k) } : r)) } : {}) };
+    return { ...(Math.abs(own - to.captionSize) < 0.01 ? rest : { ...rest, size: own }), ...(c.runs ? { runs: c.runs.map((r) => (r.size ? { ...r, size: points(r.size * k) } : r)) } : {}),
+      ...(typeof c.lineHeight === "number" ? { lineHeight: points(c.lineHeight * k) } : {}) };
   };
   return {
     ...m,
     atoms: m.atoms.map((a) => (a.size ? { ...a, size: points(a.size * label) } : a)),
     captions: m.captions?.map(fitted),
-    shapes: m.shapes?.map((x) => owned(x, k)),
-    arrows: m.arrows?.map((a) => (a.width ? { ...a, width: times(a.width, k) } : a)),
+    arrows: m.arrows?.map((a) => pointsOf(a, k)),
+    shapes: m.shapes?.map((x) => pointsOf(x, k)),
   };
 }
 // Atom maps. Pairing two atoms gives both the first one's number, or the second's, or the next free number; the
@@ -991,8 +985,8 @@ const counts = (cells: string[][]) => cells.length > 1 && cells.slice(1).every((
 // A table with rows or columns taken out and added at a place (at least one of each stays; at most 100 rows and 20
 // columns), and its box to match: the other rows keep their heights and the other columns their widths, and a new
 // column is as wide as the average one. Entry numbers in the first column are numbered again.
-export function spliceTable(sh: Shape, axis: "row" | "col", at: number, remove: number, add: number, measure?: (text: string) => number): Partial<Shape> {
-  const t = tableLayout(sh, measure), table: Table = sh.table ?? { cells: [[""]] }, numbered = counts(table.cells);
+export function spliceTable(sh: Shape, axis: "row" | "col", at: number, remove: number, add: number, measure?: (text: string) => number, caption?: number): Partial<Shape> {
+  const t = tableLayout(sh, measure, caption), table: Table = sh.table ?? { cells: [[""]] }, numbered = counts(table.cells);
   const cells = table.cells.map((r) => Array.from({ length: t.cols }, (_, c) => r[c] ?? ""));
   const widths = [...t.widths], heights = [...t.heights], align = table.align ? Array.from({ length: t.cols }, (_, c) => table.align![c] ?? "centre") : undefined;
   if (axis === "row") {
@@ -1011,28 +1005,28 @@ export function spliceTable(sh: Shape, axis: "row" | "col", at: number, remove: 
   return { from: [t.x0, t.y1], to: [t.x0 + width, t.y1 - height], table: next };
 }
 // A table with rows and columns added or taken off the end (at least one of each).
-export function resizeTable(sh: Shape, rows: number, cols: number, measure?: (text: string) => number): Partial<Shape> {
-  const R = Math.max(1, Math.min(100, rows)), C = Math.max(1, Math.min(20, cols)), now = tableLayout(sh, measure);
-  const tall = { ...sh, ...spliceTable(sh, "row", Math.min(R, now.rows), Math.max(0, now.rows - R), Math.max(0, R - now.rows), measure) };
-  const both = { ...tall, ...spliceTable(tall, "col", Math.min(C, now.cols), Math.max(0, now.cols - C), Math.max(0, C - now.cols), measure) };
+export function resizeTable(sh: Shape, rows: number, cols: number, measure?: (text: string) => number, caption?: number): Partial<Shape> {
+  const R = Math.max(1, Math.min(100, rows)), C = Math.max(1, Math.min(20, cols)), now = tableLayout(sh, measure, caption);
+  const tall = { ...sh, ...spliceTable(sh, "row", Math.min(R, now.rows), Math.max(0, now.rows - R), Math.max(0, R - now.rows), measure, caption) };
+  const both = { ...tall, ...spliceTable(tall, "col", Math.min(C, now.cols), Math.max(0, now.cols - C), Math.max(0, C - now.cols), measure, caption) };
   return { from: both.from, to: both.to, table: both.table };
 }
 // A table with its columns' widths or rows' heights set (each is kept from then on, as after dragging a border), and
 // its box to match. x0 and y1 move its left and top edges. The limits follow the table's scale.
-export function sizeTable(sh: Shape, size: { widths?: number[]; heights?: number[]; x0?: number; y1?: number }, measure?: (text: string) => number): Partial<Shape> {
-  const old = tableLayout(sh, measure), x0 = size.x0 ?? old.x0, y1 = size.y1 ?? old.y1, f = old.f;
+export function sizeTable(sh: Shape, size: { widths?: number[]; heights?: number[]; x0?: number; y1?: number }, measure?: (text: string) => number, caption?: number): Partial<Shape> {
+  const old = tableLayout(sh, measure, caption), x0 = size.x0 ?? old.x0, y1 = size.y1 ?? old.y1, f = old.f;
   const table: Table = {
     ...sh.table!, ...(size.widths ? { widths: size.widths.map((w) => Math.max(0.2 * f, Math.min(50 * f, w))) } : {}),
     ...(size.heights ? { heights: size.heights.map((h) => Math.max(0.5 * f, Math.min(50 * f, h))) } : {}),
   };
-  const t = tableLayout({ ...sh, from: [x0, y1], to: [x0 + old.x1 - old.x0, y1 - (old.y1 - old.y0)], table }, measure);
+  const t = tableLayout({ ...sh, from: [x0, y1], to: [x0 + old.x1 - old.x0, y1 - (old.y1 - old.y0)], table }, measure, caption);
   return { from: [t.x0, t.y1], to: [t.x1, t.y0], table };
 }
 // Size To Fit Contents: each column as wide as its text and each row the least height.
-export function fitTable(sh: Shape, measure?: (text: string) => number): Partial<Shape> {
-  const { widths: _w, heights: _h, ...table } = sh.table!, t = tableLayout({ ...sh, table }, measure);
+export function fitTable(sh: Shape, measure?: (text: string) => number, caption?: number): Partial<Shape> {
+  const { widths: _w, heights: _h, ...table } = sh.table!, t = tableLayout({ ...sh, table }, measure, caption);
   void _w; void _h;
-  return { from: [t.x0, t.y1], to: [t.x0 + t.natural.reduce((a, b) => a + b, 0), t.y1 - t.rows * tableRow(sh) * t.f], table };
+  return { from: [t.x0, t.y1], to: [t.x0 + t.natural.reduce((a, b) => a + b, 0), t.y1 - t.rows * tableRow(sh, caption)], table };
 }
 // Clear Contents: every cell empty, except the entry numbers and their header when the first column counts.
 export function clearTable(sh: Shape): Partial<Shape> {
@@ -1040,9 +1034,9 @@ export function clearTable(sh: Shape): Partial<Shape> {
   return { table: { ...sh.table!, cells: cells.map((r) => r.map((x, c) => (keep && c === 0 ? x : ""))) } };
 }
 // A table with one cell's text set, its box grown to fit the text if it no longer does.
-export function setTableCell(sh: Shape, r: number, c: number, text: string, measure?: (text: string) => number): Partial<Shape> {
+export function setTableCell(sh: Shape, r: number, c: number, text: string, measure?: (text: string) => number, caption?: number): Partial<Shape> {
   const cells = (sh.table?.cells ?? [[""]]).map((row, i) => (i === r ? row.map((x, j) => (j === c ? text : x)) : row));
-  const t = tableLayout({ ...sh, table: { ...sh.table, cells } }, measure);
+  const t = tableLayout({ ...sh, table: { ...sh.table, cells } }, measure, caption);
   return { from: [t.x0, t.y1], to: [t.x1, t.y0], table: { ...sh.table, cells } };
 }
 export const updateCaption = (m: Mol, id: number, change: Partial<Caption>): Mol =>

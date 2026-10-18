@@ -128,7 +128,8 @@ console.log("file.check: bad files refused");
   const again = parse(serialize(m));
   assert.deepEqual(again.shapes?.map(({ id: _, ...x }) => x), m.shapes?.map(({ id: _, ...x }) => x));
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "tlc", x1: 0, y1: 0, x2: 1, y2: 1, tlc: { lanes: 2, spots: [{ lane: 5, rf: 0.5 }] } }] })), /damaged/);
-  for (const bad of [{ angle: 1e7 }, { angle: "30" }, { width: 0 }, { width: 99 }, { size: 1000 }, { font: "x".repeat(300) }, { bold: 1 }])
+  // Widths reach 200 pt and sizes 0.1 to 999 pt, so a document scaled 10% to 1000% keeps them (decision 0007).
+  for (const bad of [{ angle: 1e7 }, { angle: "30" }, { width: 0 }, { width: 999 }, { size: 0.01 }, { size: 2000 }, { font: "x".repeat(300) }, { bold: 1 }])
     assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "box", x1: 0, y1: 0, x2: 1, y2: 1, ...bad }] })), /damaged/, JSON.stringify(bad));
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, arrows: [{ kind: "reaction", x1: 0, y1: 0, x2: 1, y2: 1, width: -1 }] })), /damaged/);
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "table", x1: 0, y1: 0, x2: 1, y2: 1, table: { cells: [[1]] } }] })), /damaged/);

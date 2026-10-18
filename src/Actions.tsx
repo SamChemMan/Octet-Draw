@@ -14,6 +14,7 @@ import {
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
 import { Menu, Pick, type MenuItem } from "./Menu";
+import { NumberField } from "./Fields";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
 import { invoke } from "@tauri-apps/api/core";
@@ -147,24 +148,11 @@ function SizeButton({ size, sizes, run }: { size: number; sizes: number[]; run: 
 // The selection's scale against the document's style, in percent: blank when its parts differ. A typed value sets it
 // (100 matches the document). Enter or leaving the field sets it; Escape leaves it as it was.
 function ScaleField({ scale, run }: { scale: number | null; run: (command: string) => void }) {
-  const shown = scale === null ? "" : String(Math.round(scale * 1000) / 10);
-  const [typed, setTyped] = useState<string>();
-  const cancel = useRef(false);
-  const done = () => {
-    const n = Number(typed), keep = !cancel.current && !!typed && n > 0 && n <= 10000 && typed !== shown;
-    cancel.current = false;
-    setTyped(undefined);
-    if (keep) run(`scale.${n}`);
-  };
   return (
     <label className="scale-row">
       <span className="tray-title">Scale</span>
-      <span className="unit-field">
-        <input aria-label="Scale" inputMode="decimal" placeholder={scale === null ? "Mixed" : undefined} value={typed ?? shown}
-          onFocus={(e) => { setTyped(shown); e.target.select(); }} onChange={(e) => setTyped(e.target.value.replace(/[^\d.]/g, ""))} onBlur={done}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); cancel.current = e.key === "Escape"; e.currentTarget.blur(); } }} />
-        <span className="unit">%</span>
-      </span>
+      <NumberField label="Scale" unit="%" lazy step={1} max={10000} placeholder={scale === null ? "Mixed" : undefined}
+        value={scale === null ? undefined : Math.round(scale * 1000) / 10} onChange={(n) => run(`scale.${n}`)} />
     </label>
   );
 }
@@ -774,13 +762,13 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           </div>
         );
       })()}
-      {scale !== undefined && <ScaleField scale={scale} run={run} />}
       {((context.kind === "shape" && context.shape !== "highlight" && context.shape !== "table" && context.style !== "solid" && context.style !== "shaded") || context.kind === "arrow") && (
         // The width of the lines, for every object drawn in lines (a table's is with its lines, above).
         <div className="sliders" role="group" aria-label="Lines">
           <Slider name="Line width" value={context.kind === "arrow" ? context.width : context.weight} min={0.05} max={4} step={0.05} show={(v) => `${v.toFixed(2)} pt`} onChange={(v) => run(`${context.kind}.weight.${Math.round(v * 100)}`)} />
         </div>
       )}
+      {scale !== undefined && <ScaleField scale={scale} run={run} />}
       {colour && (
         // Colour is a section of its own, titled like the sets below, and set off from the main rows.
         <div className="colour-block" role="group" aria-label="Colour">

@@ -8,7 +8,7 @@ import { Dialog } from "./Dialog";
 import { Select } from "./Select";
 import { FontPick } from "./Actions";
 import { listOpen } from "./Menu";
-import { NumberField, Segmented } from "./Fields";
+import { NumberField, Segmented, Switch } from "./Fields";
 import type { Swatch } from "./settings";
 import type { ExportFormat } from "./export";
 import { BACKGROUNDS, COLOURS, FONTS, PAGE_NAMES, PAGES, PRESETS, PURPOSES, pageSize, pickPage, presetAt, presetOf, withScale, type DocStyle, type PageName } from "./docstyle";
@@ -82,10 +82,6 @@ function PaletteEditor({ palette, onPalette, adding }: { palette: Swatch[]; onPa
 }
 
 // ——— Fields ———
-
-function Switch({ on, label, onChange }: { on: boolean; label: string; onChange: (on: boolean) => void }) {
-  return <button className="switch" role="switch" aria-checked={on} aria-label={label} onClick={() => onChange(!on)}><span /></button>;
-}
 
 // A page drawn to scale inside a small box.
 function PageThumb({ w, h, size = 26 }: { w: number; h: number; size?: number }) {

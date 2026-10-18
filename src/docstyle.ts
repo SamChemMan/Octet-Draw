@@ -81,7 +81,7 @@ export const presetAt = (name: string, scale: number): Drawn => {
 // A text size as Octet offers it: to the nearest half point from 5 pt, and to the nearest tenth below (so a small
 // document's sizes stay apart). 0.1 pt at least.
 export const roundPt = (pt: number) => (pt >= 5 ? Math.round(pt * 2) / 2 : Math.max(0.1, Math.round(pt * 10) / 10));
-// A text size on offer (SIZES) at the document scale. A typed size can be anything from 0.1 to 999 pt.
+// A text size on offer at a document scale.
 export const sizeAt = (pt: number, scale: number) => roundPt(pt * scale);
 // The style at another document scale (10% to 1000%): its scaled values multiplied by the change, the rest kept. A
 // preset's values are worked out again from the preset, so a change of scale and back leaves no rounding behind. A
@@ -101,8 +101,9 @@ export function withScale(s: DocStyle, want: number): DocStyle {
 
 export const FONTS = ["Arial", "Helvetica", "Times New Roman", "Calibri", "Cambria", "Georgia"];
 // Text sizes (pt) on offer in the Actions panel and the Text menu: ChemDraw's Size menu (5 to 24) and 36, times the
-// document scale (sizeAt). Any other size can be typed.
+// document scale (sizeAt). Any other size from 0.1 to 999 pt can be typed.
 export const SIZES = [5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 24, 36];
+export const sizesAt = (scale: number) => [...new Set(SIZES.map((pt) => sizeAt(pt, scale)))];
 // Any font on the computer can be used too, by its family name. A name with quotes, slashes or CSS punctuation is
 // refused, so a name from a file cannot break out of a style.
 export const fontName = (f: unknown): f is string => typeof f === "string" && f.trim() === f && /^[^"'\\;{}<>\u0000-\u001f]{1,64}$/.test(f);

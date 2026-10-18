@@ -258,14 +258,11 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   };
   // An object at a scale other than 1 carries its own drawing settings, so ChemDraw draws it as Octet does
   // (decision 0007): a graphic its line and bold widths, a bond also its length, hash spacing and margin.
-  const ownLines = (f: number) => (f === 1 ? {} : { LineWidth: fmt(line * f), BoldWidth: fmt(style.bold * f) });
+  // An object's own lines: its line width (its own, or the document's) and bold width times its scale, when either is
+  // its own.
+  const ownLines = (f: number, w?: number) => (f === 1 && w === undefined ? {} : { LineWidth: fmt((w ?? line) * f), ...(f === 1 ? {} : { BoldWidth: fmt(style.bold * f) }) });
   const ownBond = (f: number) => (f === 1 ? {} : { BondLength: fmt(B * f), ...ownLines(f), HashSpacing: fmt(style.hash * f), MarginWidth: fmt(style.margin * f) });
   const ownScale = (x: { scale?: number }) => (x.scale && x.scale !== 1 ? x.scale : undefined);
-  // A graphic's lines: its own line width (or the document's) times its scale, and its bold width times its scale.
-  const ownWidths = (x: { width?: number; scale?: number }) => {
-    const f = scaleOf(x);
-    return { ...(x.width !== undefined || f !== 1 ? { LineWidth: fmt((x.width ?? line) * f) } : {}), ...(f !== 1 ? { BoldWidth: fmt(style.bold * f) } : {}) };
-  };
   // A reaction arrow's stoichiometry grid, kept in Octet's own data on the arrow (ChemDraw's grid is not in CDXML).
   const gridOf = (arrow: number) => { const g = mol.grids?.find((x) => x.arrow === arrow); return g && { typed: g.typed, limiting: g.limiting }; };
 
@@ -330,7 +327,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const page = (q: P): P => [middle[0] + (q[0] - c[0]) / B, middle[1] - (q[1] - c[1]) / B];
     const frame = { Center3D: pt3(c), MajorAxisEnd3D: pt3(turned(page([c[0] + hw, c[1]]))), MinorAxisEnd3D: pt3(turned(page([c[0], c[1] + hh]))) };
     const shadow = sh.shadow ? Math.round(((sh.shade ?? SHADE).depth * B * 100) / line) : undefined;
-    const ink = colour(sh.kind === "highlight" ? sh.colour ?? HIGHLIGHT : sh.colour), f = scaleOf(sh), mine = ownWidths(sh);
+    const ink = colour(sh.kind === "highlight" ? sh.colour ?? HIGHLIGHT : sh.colour), f = scaleOf(sh), mine = ownLines(f, sh.width);
     if (sh.kind === "box" || sh.kind === "rounded" || sh.kind === "highlight") {
       const bits = [sh.kind === "rounded" && "RoundEdge", sh.shadow && "Shadow", sh.fill === "shaded" && "Shaded", (sh.fill === "solid" || sh.kind === "highlight") && "Filled", sh.dashed && "Dashed"].filter(Boolean);
       put(el("graphic", { id, BoundingBox: `${fmt(box[2])} ${fmt(box[3])} ${fmt(box[0])} ${fmt(box[1])}`, Z: Z(), color: ink, GraphicType: "Rectangle", RectangleType: bits.join(" ") || "Plain",
@@ -359,18 +356,19 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       };
       const lanes = Array.from({ length: tlc.lanes }, (_, k) => el("tlclane", { id: fresh() }, order.filter((j) => tlc.spots[j].lane === k).map((j) => spot(tlc.spots[j])).join(""))).join("");
       const face = (sh.bold ? 1 : 0) | (sh.italic ? 2 : 0) | (sh.underline ? 4 : 0);
-      put(el("tlcplate", { id, BoundingBox: boxText(box), Z: Z(), color: ink, LabelFont: sh.font ? font(sh.font) : undefined, LabelSize: sh.size ? fmtSize(sh.size) : undefined, LabelFace: face || undefined, TopLeft: pt([x0, y0]), TopRight: pt([x1, y0]), BottomRight: pt([x1, y1]), BottomLeft: pt([x0, y1]), ...mine,
+      put(el("tlcplate", { id, BoundingBox: boxText(box), Z: Z(), color: ink, LabelFont: sh.font ? font(sh.font) : undefined, LabelSize: sh.size ? fmtSize(sh.size * f) : undefined, LabelFace: face || undefined, TopLeft: pt([x0, y0]), TopRight: pt([x1, y0]), BottomRight: pt([x1, y1]), BottomLeft: pt([x0, y1]), ...mine,
         OriginFraction: num6(tlc.origin ?? TLC_ORIGIN), SolventFrontFraction: num6(tlc.front ?? TLC_FRONT), ShowOrigin: hide.has("origin") ? undefined : "yes", ShowSolventFront: hide.has("front") ? undefined : "yes", ShowBorders: hide.has("border") ? undefined : "yes",
         Octet: priv({ rf: tlc.rf, hollow: tlc.spots.flatMap((x, k) => (x.style === "hollow" ? [k] : [])).join(" ") || undefined, own: tlc.rf ? tlc.spots.flatMap((x, k) => (x.showRf ? [k] : [])).join(" ") || undefined : undefined,
           order: order.some((j, k) => j !== k) ? order.join(" ") : undefined, scale: ownScale(sh) }) }, lanes), 5, box, sh.id);
     } else if (sh.kind === "table") {
       // The table's rules and cells, laid out as Octet lays them out (text measured with Arial's widths).
+      // The text at its own size (or the document's) times the table's scale.
       const own = sh.size ?? style.captionSize, size = own * f, face = (sh.bold ? 1 : 0) | (sh.italic ? 2 : 0) | (sh.underline ? 4 : 0);
-      const t = tableLayout(sh, (s) => widthOf(s, own) / B), lines = new Set(linesOf(sh.table)), inner = (n: number) => Array.from({ length: Math.max(0, n - 1) }, (_, k) => k + 1);
+      const t = tableLayout(sh, (s) => widthOf(s, own) / B, style.captionSize), lines = new Set(linesOf(sh.table)), inner = (n: number) => Array.from({ length: Math.max(0, n - 1) }, (_, k) => k + 1);
       const across = [...(lines.has("top") ? [t.y1] : []), ...inner(t.rows).filter((r) => lines.has("rows") || (r === 1 && lines.has("header"))).map((r) => t.row(r)), ...(lines.has("bottom") ? [t.y0] : [])];
       const down = [...(lines.has("left") ? [t.x0] : []), ...(lines.has("cols") ? inner(t.cols).map((k) => t.col(k)) : []), ...(lines.has("right") ? [t.x1] : [])];
       const rules = [...across.map((v): [P, P] => [at([t.x0, v]), at([t.x1, v])]), ...down.map((v): [P, P] => [at([v, t.y1]), at([v, t.y0])])];
-      const kids = rules.map(([p, q]) => el("graphic", { id: fresh(), BoundingBox: `${pt(p)} ${pt(q)}`, Z: Z(), color: colour(sh.colour), LineType: sh.dashed ? "Dashed" : undefined, GraphicType: "Line", ...(sh.table?.weight !== undefined || f !== 1 ? { LineWidth: fmt((sh.table?.weight ?? line) * f) } : {}), Octet: DERIVED }));
+      const kids = rules.map(([p, q]) => el("graphic", { id: fresh(), BoundingBox: `${pt(p)} ${pt(q)}`, Z: Z(), color: colour(sh.colour), LineType: sh.dashed ? "Dashed" : undefined, GraphicType: "Line", ...(sh.table?.weight || f !== 1 ? { LineWidth: fmt((sh.table?.weight ?? line) * f) } : {}), Octet: DERIVED }));
       (sh.table?.cells ?? []).forEach((row, r) => row.forEach((text, k) => {
         if (!text) return;
         const align = sh.table?.align?.[k] ?? "centre", x = align === "left" ? t.col(k) + TABLE_PAD * f : align === "right" ? t.col(k + 1) - TABLE_PAD * f : t.col(k) + t.widths[k] / 2;
@@ -387,7 +385,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const bits = (c.closed ? 1 : 0) | (a.style === "dashed" ? 2 : 0) | (a.style === "bold" ? 4 : 0) | (end === "full" ? 8 : 0) | (start === "full" ? 16 : 0) | (half(end) ? 32 : 0) | (half(start) ? 64 : 0)
       | (a.fill === "solid" ? 128 : 0) | (a.fill === "shaded" || a.fill === "faded" ? 256 : 0) | (a.style === "doubled" ? 512 : 0);
     const qs = c.points.flatMap((q) => [q.c1 ?? q.at, q.at, q.c2 ?? q.at]).map(at), heads = start !== "none" || end !== "none";
-    put(el("curve", { id: idOf.get(a.id)!, Z: Z(), color: colour(a.colour), FillType: a.fill === "solid" ? "Solid" : a.fill ? "Shaded" : undefined, CurveType: bits || undefined, ...ownWidths(a),
+    put(el("curve", { id: idOf.get(a.id)!, Z: Z(), color: colour(a.colour), FillType: a.fill === "solid" ? "Solid" : a.fill ? "Shaded" : undefined, CurveType: bits || undefined, ...ownLines(scaleOf(a), a.width),
       ArrowheadHead: HEADS[end], ArrowheadTail: HEADS[start], ArrowheadType: HEAD_SHAPES[a.head ?? "solid"], HeadSize: heads ? 1000 : undefined, ArrowheadCenterSize: heads ? 875 : undefined, ArrowheadWidth: heads ? 250 : undefined,
       Closed: c.closed ? "yes" : undefined, CurvePoints: qs.map(pt).join(" "), Octet: priv({ fill: a.fill === "faded" ? "faded" : undefined, style: a.style === "wavy" ? "wavy" : undefined, scale: ownScale(a) }) }), 4, boxOf(qs), a.id);
   };
@@ -397,7 +395,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       const { shape, phase } = a.orbital;
       const name = (ORBITALS.find(([, s, p]) => s === shape && p === phase) ?? ORBITALS.find(([n, s]) => s === shape && n.endsWith("Filled") === (phase === "filled")) ?? ORBITALS.find(([, s]) => s === shape)!)[0];
       const back = ORBITALS.find(([n]) => n === name)!, tip = at(a.to), nucleus = at(a.from);
-      put(el("graphic", { id: idOf.get(a.id)!, BoundingBox: `${pt(tip)} ${pt(nucleus)}`, Z: Z(), color: colour(a.colour), GraphicType: "Orbital", OrbitalType: name, ...ownWidths(a),
+      put(el("graphic", { id: idOf.get(a.id)!, BoundingBox: `${pt(tip)} ${pt(nucleus)}`, Z: Z(), color: colour(a.colour), GraphicType: "Orbital", OrbitalType: name, ...ownLines(scaleOf(a), a.width),
         Octet: back[1] === shape && back[2] === phase && !ownScale(a) ? undefined : priv({ orbital: back[1] === shape && back[2] === phase ? undefined : a.orbital, scale: ownScale(a) }) }), 3, boxOf([nucleus], len(sub(tip, nucleus))), a.id);
     } else if (a.kind === "curve" && a.curve?.closed && a.fill) curveOut(a);
   }
@@ -607,7 +605,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     }
     const kind = kindOf({ arc: !!arc, head, tail, type, spacing: !!spacing, nogo });
     const lineType = a.style === "dashed" ? "Dashed" : a.style === "bold" ? "Bold" : a.style === "wavy" ? "Wavy" : undefined;
-    const w = (a.width ?? line) * scaleOf(a), box = boxOf(path, head || tail ? (sizes[2] * w) / 100 : w / 2), z = Z(), legacy = fresh(), c = colour(a.colour), mine = ownWidths(a);
+    const f = scaleOf(a), lines = ownLines(f, a.width), box = boxOf(path, head || tail ? (sizes[2] * line * f) / 100 : (line * f) / 2), z = Z(), legacy = fresh(), c = colour(a.colour);
     // A catalytic cycle's arrow goes in the cycle's group, and names its cycle so Octet reads the group back.
     const cycle = derived ? (a as Arrow & { cycle?: number }).cycle : undefined, item = derived ? cycle : a.id;
     const tag = cycle !== undefined && idOf.has(cycle) ? priv({ d: 1, cycle: idOf.get(cycle) }) : DERIVED;
@@ -616,10 +614,10 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const legacyType = a.kind === "equilibrium" ? "Equilibrium" : a.kind === "retro" ? "RetroSynthetic" : head === "Full" && tail === "Full" ? "Resonance"
       : head === "Full" || (!head && tail === "Full") ? "FullHead" : head || tail ? "HalfHead" : undefined;
     const flip = !arc && !head && !!tail, snapped = arc ? [90, 120, 180, 270].reduce((best, s) => (Math.abs(Math.abs(angular!) - s) < Math.abs(Math.abs(angular!) - best) ? s : best)) * (head && angular! < 0 ? -1 : 1) : undefined;
-    put(el("graphic", { id: legacy, SupersededBy: id, BoundingBox: arc ? `${pt(T)} ${pt(arc.O)}` : flip ? `${pt(S)} ${pt(T)}` : `${pt(T)} ${pt(S)}`, Z: z, color: c, LineType: lineType, ...mine,
+    put(el("graphic", { id: legacy, SupersededBy: id, BoundingBox: arc ? `${pt(T)} ${pt(arc.O)}` : flip ? `${pt(S)} ${pt(T)}` : `${pt(T)} ${pt(S)}`, Z: z, color: c, LineType: lineType, ...lines,
       GraphicType: arc ? "Arc" : "Line", ArrowType: legacyType, HeadSize: 1000, AngularSize: snapped, Octet: derived ? tag : undefined }), 3, box, item);
     put(el("arrow", {
-      id, BoundingBox: boxText(box), Z: z, color: c, LineType: lineType, FillType: "None", ArrowheadHead: head, ArrowheadTail: tail, ArrowheadType: type, ...mine,
+      id, BoundingBox: boxText(box), Z: z, color: c, LineType: lineType, FillType: "None", ArrowheadHead: head, ArrowheadTail: tail, ArrowheadType: type, ...lines,
       HeadSize: sizes[0], ArrowheadCenterSize: sizes[1], ArrowheadWidth: sizes[2], ArrowShaftSpacing: spacing, NoGo: nogo ? "Cross" : undefined, AngularSize: angular === undefined ? undefined : fmtAngle(angular),
       Head3D: pt3(T), Tail3D: pt3(S), ...frame, Octet: derived ? tag : priv({ kind: kind === a.kind ? undefined : a.kind, style: a.style === "doubled" ? "doubled" : undefined, bend: arc ? a.bend : undefined, grid: gridOf(a.id), scale: ownScale(a) }),
     }), 6, box, item);
@@ -866,7 +864,7 @@ export function fromCdxml(text: string): CdxmlRead {
     ...(typeof name === "string" && fontName(name) && name !== style.captionFont ? { font: name } : {}), ...(isNum(size, 0.1, 999) ? { size: size as number } : {}),
     ...(isNum(face, 0, 0xffff) && (face as number) & 1 ? { bold: true as const } : {}), ...(isNum(face, 0, 0xffff) && (face as number) & 2 ? { italic: true as const } : {}), ...(isNum(face, 0, 0xffff) && (face as number) & 4 ? { underline: true as const } : {}),
   });
-  // A line width set on an object (pt), when it is not the document's: its LineWidth over its scale f.
+  // An object's own line width: its LineWidth over its scale f, when that is not the document's.
   const lineWidthOf = (x: Xml, f = 1) => { const lw = real(x.attrs.LineWidth), w = lw === undefined ? undefined : Math.round((lw / f) * 1e4) / 1e4; return w !== undefined && w >= 0.05 && w <= 20 && Math.abs(w - style.line) > 1e-3 ? w : undefined; };
 
   // Octet ids: the file's own when Octet wrote it, otherwise numbered afresh.
@@ -1072,13 +1070,17 @@ export function fromCdxml(text: string): CdxmlRead {
       if (Math.abs(own - style.labelSize) > 0.01) a.size = own; else delete a.size;
     });
   }
-  // A graphic's own size: Octet's own, or (in another program's file) its BoldWidth against the document's. A
-  // LineWidth alone is the graphic's own line width (lineWidthOf), as ChemDraw's Object Settings sets it.
+  // A graphic's own size: Octet's own, or (in another program's file) its LineWidth or BoldWidth against the
+  // document's when the two agree within 2%. Widths that do not agree are listed as not kept.
   function graphicScale(x: Xml, p?: Record<string, unknown>): number | undefined {
     if (isNum(p?.scale, 0.01, 100)) return p!.scale === 1 ? undefined : (p!.scale as number);
-    const bw = real(x.attrs.BoldWidth), f = bw === undefined ? 1 : bw / style.bold;
-    if (octet || !(f > 0) || Math.abs(f - 1) <= 0.02) return undefined;
-    return Math.round(Math.min(100, Math.max(0.01, f)) * 1e4) / 1e4;
+    // A LineWidth alone is the object's own line width (lineWidthOf), as ChemDraw's Line Width sets it; with a
+    // BoldWidth it is a scale.
+    const lw = real(x.attrs.LineWidth), bw = real(x.attrs.BoldWidth);
+    if (octet || bw === undefined) return undefined;
+    const f = lw !== undefined ? lw / style.line : bw! / style.bold;
+    if (!(f > 0) || (lw !== undefined && bw !== undefined && Math.abs(bw / style.bold - f) > 0.02 * f)) { lose("line settings"); return undefined; }
+    return Math.abs(f - 1) <= 0.02 ? undefined : Math.round(Math.min(100, Math.max(0.01, f)) * 1e4) / 1e4;
   }
 
   // Labels: one element with the hydrogens Octet would draw is a plain atom; anything else is written text (OMe,
@@ -1180,7 +1182,7 @@ export function fromCdxml(text: string): CdxmlRead {
     if (wrapAt !== undefined && wrapAt >= B / 2 && wrapAt <= 1000 * B) c.width = isNum(p?.width, 0.5, 1000) ? (p!.width as number) : wrapAt / B;
     // Line spacing: auto (Octet's default), variable, or fixed in pt.
     const lh = t.attrs.LineHeight ?? t.attrs.CaptionLineHeight, fixed = real(lh);
-    if (lh === "variable") c.lineHeight = "variable"; else if (fixed !== undefined && fixed >= 1 && fixed <= 400) c.lineHeight = fixed;
+    if (lh === "variable") c.lineHeight = "variable"; else if (fixed !== undefined && fixed >= 0.1 && fixed <= 999) c.lineHeight = fixed;
     const normal = normalise(own);
     if (styled(normal)) c.runs = normal;
     if (p?.under) unders.push({ c, nodes: p.under });
@@ -1240,9 +1242,8 @@ export function fromCdxml(text: string): CdxmlRead {
     if (type === "Orbital") {
       const named = ORBITALS.find(([n]) => n === x.attrs.OrbitalType) ?? ORBITALS[0], o = p?.orbital as Record<string, unknown> | undefined;
       const orbital = o && ORBITAL_SHAPES.includes(o.shape as OrbitalShape) && PHASES.includes(o.phase as Phase) ? { shape: o.shape as OrbitalShape, phase: o.phase as Phase } : { shape: named[1], phase: named[2] };
-      const a: Arrow & { z: number } = { id: newId(x), kind: "orbital", from: p2, to: p1, orbital, z, ...(colour ? { colour } : {}) }, f = graphicScale(x, p), w = lineWidthOf(x, f);
+      const f = graphicScale(x, p), w = lineWidthOf(x, f), a: Arrow & { z: number } = { id: newId(x), kind: "orbital", from: p2, to: p1, orbital, z, ...(colour ? { colour } : {}), ...(w ? { width: w } : {}) };
       if (f) a.scale = f;
-      if (w) a.width = w;
       arrows.push(a);
       objectOf.set(cid, a.id);
       return void member(group, a.id);
@@ -1251,9 +1252,11 @@ export function fromCdxml(text: string): CdxmlRead {
     lose(`graphic ${type ?? ""}`.trim());
   }
   function addShape(sh: Shape & { z: number }, x: Xml, group?: G) {
-    // A TLC plate's scale is read with its spots. Its own line width is over its scale.
-    const f = sh.kind === "tlc" ? sh.scale : sh.scale ?? graphicScale(x, priv(x)), w = lineWidthOf(x, f);
+    // A TLC plate's scale is read with its spots, so widths that do not agree are listed once.
+    const f = sh.kind === "tlc" ? undefined : sh.scale ?? graphicScale(x, priv(x));
     if (f) sh.scale = f;
+    // Its own line width, over its scale (a TLC plate's is read with its spots).
+    const w = sh.kind === "tlc" ? undefined : lineWidthOf(x, sh.scale);
     if (w) sh.width = w;
     shapes.push(sh);
     objectOf.set(int(x.attrs.id) ?? -1, sh.id);
@@ -1373,9 +1376,12 @@ export function fromCdxml(text: string): CdxmlRead {
     if (order.length === spots.length && new Set(order).size === spots.length) { const was = [...spots]; order.forEach((k, j) => { spots[k] = was[j]; }); }
     for (const k of list(p?.hollow)) spots[k].style = "hollow";
     if (p?.rf === true) { tlc.rf = true; const own = new Set(list(p.own)); spots.forEach((s, k) => { if (own.has(k)) s.showRf = true; else delete s.showRf; }); }
-    const sh: Shape & { z: number } = { id: newId(x), kind: "tlc", from: toOctet(box[0], box[3]), to: toOctet(box[2], box[1]), tlc, z: zOf(x), ...(f !== 1 ? { scale: f } : {}) }, colour = colourOf(x.attrs.color);
+    const sh: Shape & { z: number } = { id: newId(x), kind: "tlc", from: toOctet(box[0], box[3]), to: toOctet(box[2], box[1]), tlc, z: zOf(x), ...(f !== 1 ? { scale: f } : {}) }, colour = colourOf(x.attrs.color), w = lineWidthOf(x, f);
     if (colour) sh.colour = colour;
-    Object.assign(sh, textStyleOf(x.attrs.LabelFont === undefined ? undefined : fontOf(fonts.get(int(x.attrs.LabelFont) ?? -1)).font, real(x.attrs.LabelSize), int(x.attrs.LabelFace)));
+    if (w) sh.width = w;
+    // The Rf values' size is the plate's own size times its scale.
+    const labelSize = real(x.attrs.LabelSize);
+    Object.assign(sh, textStyleOf(x.attrs.LabelFont === undefined ? undefined : fontOf(fonts.get(int(x.attrs.LabelFont) ?? -1)).font, labelSize === undefined ? undefined : Math.round((labelSize / f) * 100) / 100, int(x.attrs.LabelFace)));
     const t = tlcLayout(sh);
     for (const s of spots) {
       const d = t.size({ lane: s.lane, rf: s.rf });

@@ -35,8 +35,8 @@ export type Atom = {
   fill?: string; // #rrggbb ring fill: a ring whose atoms all have the same fill is filled with it at 30% opacity
   circle?: true; // Toggle Aromatic Display: an aromatic ring whose atoms all have this is drawn with a circle
   number?: string; // Show Atom Number: the number drawn beside the atom
-  scale?: number; // the atom's size against the document style (decision 0007); unset is 1
   order?: number; // the draw order of the atom's structure (order.ts); unset draws it in its layer
+  scale?: number; // the atom's size against the document style (decision 0007); unset is 1
 };
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 // On a double bond: bold makes the main line bold, dashed the second line dashed, either crosses the two lines.
@@ -83,9 +83,9 @@ export type Arrow = {
   id: number; kind: ArrowKind; from: [number, number]; to: [number, number]; bend?: number; style?: LineStyle; orbital?: { shape: OrbitalShape; phase: Phase }; colour?: string;
   start?: Head; end?: Head; head?: HeadShape; // heads set by hand; unset uses the kind's own
   curve?: Curve; fill?: CurveFill; // a pen curve's points (from and to are its ends), and a closed one's fill
-  scale?: number; // the arrow's size against the document style (decision 0007); unset is 1
   order?: number; // draw order (order.ts)
-  width?: number; // the line width in points; unset uses the document's
+  width?: number; // the line width in points; unset uses the document's. The scale multiplies it.
+  scale?: number; // the arrow's size against the document style (decision 0007); unset is 1
 };
 // Every kind a drawing's arrow list may hold.
 export const ALL_ARROW_KINDS: ArrowKind[] = ["reaction", "equilibrium", "resonance", "retro", "nogo", "curved", "fishhook", "double", "line", "arc", "orbital", "cut", "curve"];
@@ -145,13 +145,13 @@ export type Shape = {
   id: number; kind: ShapeKind; from: [number, number]; to: [number, number]; dashed?: boolean; colour?: string;
   fill?: "shaded" | "solid"; shadow?: boolean; side?: "left" | "right"; mark?: string; tlc?: Tlc; table?: Table;
   shade?: Shade; // a shadow's look, when it differs from SHADE
-  scale?: number; // the shape's size against the document style (decision 0007); unset is 1
   order?: number; // draw order (order.ts)
   angle?: number; // degrees anticlockwise: the box from and to span is drawn turned about its middle (not TLC plates or tables)
-  width?: number; // the line width in points; unset uses the document's
+  width?: number; // the line width in points; unset uses the document's. The scale multiplies it.
   // The text of a table's cells or a TLC plate's Rf values, as the Text menu sets it; unset is the document's caption
-  // style (an Rf value is 0.8 of its size).
+  // style (an Rf value is 0.8 of its size). The scale multiplies the size.
   font?: string; size?: number; bold?: true; italic?: true; underline?: true;
+  scale?: number; // the shape's size against the document style (decision 0007); unset is 1
 };
 // A shadow: how far it falls down and right and how soft its edge is (bond lengths), and how dark it is (0 to 1).
 export type Shade = { depth: number; blur: number; opacity: number };
@@ -1255,14 +1255,13 @@ function offsetPath(path: P[], d: number): P[] {
 // A shape's lines in px (y down), as paths: the outline of a box or oval, or each bracket of a pair. A highlight's
 // outline is its edge. Rounded corners have a radius of 0.3 bond lengths; bracket ends reach 0.25 bond lengths in.
 export function shapePaths(sh: Shape, k: number, bond = k): P[][] {
-  const upright = uprightPaths(sh, k, bond);
+  const upright = uprightPaths(sh, k, bond * scaleOf(sh));
   if (!sh.angle || !turns(sh)) return upright;
   // Turned about the middle: anticlockwise on the page is clockwise in px (y down).
   const r = (sh.angle * Math.PI) / 180, cs = Math.cos(r), sn = Math.sin(r), c = middleOf(sh), cx = c[0] * k, cy = -c[1] * k;
   return upright.map((path) => path.map(([x, y]): P => [cx + (x - cx) * cs + (y - cy) * sn, cy - (x - cx) * sn + (y - cy) * cs]));
 }
 function uprightPaths(sh: Shape, k: number, bond: number): P[][] {
-  bond *= scaleOf(sh);
   const x0 = Math.min(sh.from[0], sh.to[0]) * k, x1 = Math.max(sh.from[0], sh.to[0]) * k;
   const y0 = -Math.max(sh.from[1], sh.to[1]) * k, y1 = -Math.min(sh.from[1], sh.to[1]) * k;
   const w = x1 - x0, h = y1 - y0, arc = (c: P, r: [number, number], a0: number, a1: number, n = 12): P[] =>
@@ -1430,11 +1429,12 @@ export function spotPath(t: ReturnType<typeof tlcLayout>, x: Spot): [number, num
 
 // A table's layout (drawing units, y up). Each column is as wide as its widest text plus padding, and the columns
 // share out any width the box has to spare; rows are equal. measure: a cell's text width in drawing units at the
-// document's caption size. The text, padding and least sizes follow the table's scale.
+// table's own text size (or the document's caption size). caption: the document's caption size (pt). The text,
+// padding and least sizes follow the table's scale.
 export const TABLE_PAD = 0.35, TABLE_ROW = 0.8; // bond lengths: padding each side of a column's text; least row height
-// A table's least row height: TABLE_ROW, taller for text over 10 pt.
-export const tableRow = (sh: Pick<Shape, "size">) => TABLE_ROW * Math.max(1, (sh.size ?? 0) / 10);
-export function tableLayout(sh: Shape, measure: (text: string) => number = () => 0) {
+// A table's least row height: TABLE_ROW at its scale, taller for text larger than the document's caption size (pt).
+export const tableRow = (sh: Pick<Shape, "size" | "scale">, caption = 10) => TABLE_ROW * scaleOf(sh) * Math.max(1, (sh.size ?? caption) / caption);
+export function tableLayout(sh: Shape, measure: (text: string) => number = () => 0, caption?: number) {
   const x0 = Math.min(sh.from[0], sh.to[0]), y1 = Math.max(sh.from[1], sh.to[1]);
   const cells = sh.table?.cells.length ? sh.table.cells : [[""]];
   const rows = cells.length, cols = Math.max(...cells.map((r) => r.length)), f = scaleOf(sh);
@@ -1443,7 +1443,7 @@ export function tableLayout(sh: Shape, measure: (text: string) => number = () =>
   // Columns and rows whose borders were dragged keep their sizes; the rest share the box.
   const widths = natural.map((w, c) => Math.max(w, sh.table?.widths?.[c] ?? w + spare)), edges = [x0];
   for (const w of widths) edges.push(edges[edges.length - 1] + w);
-  const h = Math.max(tableRow(sh) * f, Math.abs(sh.to[1] - sh.from[1]) / rows);
+  const h = Math.max(tableRow(sh, caption), Math.abs(sh.to[1] - sh.from[1]) / rows);
   const heights = Array.from({ length: rows }, (_, r) => sh.table?.heights?.[r] ?? h), tops = [y1];
   for (const v of heights) tops.push(tops[tops.length - 1] - v);
   return { x0, x1: edges[cols], y0: tops[rows], y1, rows, cols, h, widths, heights, natural, f, col: (c: number) => edges[c], row: (r: number) => tops[r] }; // row 0 at the top

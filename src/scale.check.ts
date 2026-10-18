@@ -1,7 +1,7 @@
 // Run: node src/scale.check.ts. Fails loudly if a document scale or an object's scale stops keeping sizes in
 // proportion (decision 0007).
 import assert from "node:assert/strict";
-import { DEFAULT_STYLE, PRESETS, SIZES, presetAt, presetOf, readStyle, roundPt, sizeAt, withScale } from "./docstyle.ts";
+import { DEFAULT_STYLE, PRESETS, SIZES, presetAt, presetOf, readStyle, roundPt, sizesAt, withScale } from "./docstyle.ts";
 import { fitSizes, fitTable, medianBond, scaleSettings, scaleSizes, sizeTable, transformParts } from "./edit.ts";
 import { handlePoint, percentOf, resizeBy, sideAt, SIDES, type Box } from "./resize.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
@@ -39,11 +39,11 @@ import { tableLayout, type Mol, type Shape } from "./render.ts";
 }
 
 // The size lists are ChemDraw's sizes times the document scale, to the nearest half point.
-assert.deepEqual(SIZES.map((pt) => sizeAt(pt, 1)), [5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 24, 36]);
-assert.deepEqual(SIZES.map((pt) => sizeAt(pt, 2.5)), [12.5, 15, 17.5, 20, 22.5, 25, 30, 35, 40, 45, 60, 90]);
+assert.deepEqual(sizesAt(1), [5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 24, 36]);
+assert.deepEqual(sizesAt(2.5), [12.5, 15, 17.5, 20, 22.5, 25, 30, 35, 40, 45, 60, 90]);
 // Below 5 pt the sizes go to a tenth, so no two in the list are the same at any scale.
-assert.deepEqual(SIZES.map((pt) => sizeAt(pt, 0.1)), [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.2, 1.4, 1.6, 1.8, 2.4, 3.6]);
-for (let f = 0.1; f <= 10; f += 0.01) assert.equal(new Set(SIZES.map((pt) => sizeAt(pt, f))).size, SIZES.length, `the sizes at ${Math.round(f * 100)}% are all different`);
+assert.deepEqual(sizesAt(0.1), [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.2, 1.4, 1.6, 1.8, 2.4, 3.6]);
+for (let f = 0.1; f <= 10; f += 0.01) assert.equal(sizesAt(f).length, SIZES.length, `the sizes at ${Math.round(f * 100)}% are all different`);
 assert.deepEqual([roundPt(0.04), roundPt(3.33), roundPt(5.2), roundPt(12.3)], [0.1, 3.3, 5, 12.5]);
 console.log("scale.check: text sizes ok");
 
@@ -130,27 +130,6 @@ console.log("scale.check: text sizes ok");
   assert.equal(d.shapes![0].side, "left", "a bracket flipped down still faces the same way");
   assert.equal(transformParts(m, new Set(), items, across).arrows![0].bend, 0.5, "a move that is not a flip keeps the bend");
   console.log("scale.check: flips ok");
-}
-
-// Turns, flips and stretches of shapes go through the same transform: a box turns by its angle (a quarter turn swaps
-// its width and height and keeps it upright), a table stays upright and moves by its middle, a flip turns the angle the
-// other way, and a turned box stretched across grows along its own sides and leans as its long side does.
-{
-  const m: Mol = { atoms: [], bonds: [], shapes: [{ id: 1, kind: "box", from: [0, 0], to: [4, 2] }, { id: 2, kind: "table", from: [0, 0], to: [4, 2], table: { cells: [["a"]] } }] };
-  const turn = (deg: number) => ([x, y]: [number, number]): [number, number] => { const r = (deg * Math.PI) / 180; return [x * Math.cos(r) - y * Math.sin(r), x * Math.sin(r) + y * Math.cos(r)]; };
-  const near = (a: number[], b: number[]) => a.every((v, i) => Math.abs(v - b[i]) < 1e-9);
-  const size = (sh: Shape) => [Math.abs(sh.to[0] - sh.from[0]), Math.abs(sh.to[1] - sh.from[1])];
-  const mid = (sh: Shape) => [(sh.from[0] + sh.to[0]) / 2, (sh.from[1] + sh.to[1]) / 2];
-  const [box, table] = transformParts(m, new Set(), new Set([1, 2]), turn(30)).shapes!;
-  assert.ok(Math.abs(box.angle! - 30) < 1e-9 && near(size(box), [4, 2]) && near(mid(box), turn(30)([2, 1])), "a box turns by its angle about the turn's centre");
-  assert.ok(table.angle === undefined && near(size(table), [4, 2]) && near(mid(table), turn(30)([2, 1])), "a table stays upright");
-  const quarter = transformParts(m, new Set(), new Set([1]), turn(90)).shapes![0];
-  assert.ok(quarter.angle === undefined && near(size(quarter), [2, 4]), "a quarter turn keeps a box upright");
-  const turned: Mol = { ...m, shapes: [{ ...box, from: [0, 0], to: [4, 2] }] };
-  assert.equal(transformParts(turned, new Set(), new Set([1]), ([x, y]) => [4 - x, y], [1, 1], undefined, 1, "across").shapes![0].angle, -30, "a flip turns the angle the other way");
-  const wide = transformParts(turned, new Set(), new Set([1]), ([x, y]) => [2 + (x - 2) * 2, y], [2, 1]).shapes![0], r = Math.PI / 6;
-  assert.ok(near(size(wide), [4 * Math.hypot(2 * Math.cos(r), Math.sin(r)), 2 * Math.hypot(2 * Math.sin(r), Math.cos(r))]) && Math.abs(wide.angle! - (Math.atan2(Math.sin(r), 2 * Math.cos(r)) * 180) / Math.PI) < 1e-5, "a turned box stretched across");
-  console.log("scale.check: turned shapes ok");
 }
 
 // IDEA-SCALE-5: the median bond counts only bonds with both atoms chosen; none gives undefined.

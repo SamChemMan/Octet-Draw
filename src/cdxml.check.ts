@@ -446,18 +446,10 @@ console.log("cdxml.check: every object kind round trips");
   assert.deepEqual([hashOnly.mol.atoms.map((a) => a.scale), hashOnly.lost], [[undefined, undefined], { "bond settings": 1, "bond spacing": 1 }]);
   assert.deepEqual(one(`LineWidth="1.20" BoldWidth="2"`).lost, { "bond settings": 1 });
   assert.deepEqual(one(`LineWidth="0.90" BoldWidth="3.02" HashSpacing="3.75"`).mol.atoms.map((a) => a.scale), [1.5, 1.5], "agreeing within 2%");
-  // A graphic's scale is its BoldWidth against the document's, and its own line width is its LineWidth over that
-  // scale (ChemDraw's Object Settings > Line Width), so nothing is lost: a TLC plate at twice the widths, one with only
-  // its line width set, and one with both.
+  // A TLC plate's widths: its scale from them, or listed once when they disagree (it was counted twice).
   const plate = (attrs: string) => fromCdxml(`<CDXML BondLength="14.40" LineWidth="0.60" BoldWidth="2"><page><tlcplate id="5" TopLeft="100 100" TopRight="200 100"
  BottomRight="200 300" BottomLeft="100 300" ${attrs}><tlclane id="6"><tlcspot id="7" Rf="0.5"/></tlclane></tlcplate></page></CDXML>`);
-  const widths = (attrs: string) => { const r = plate(attrs); return [r.mol.shapes?.[0].scale, r.mol.shapes?.[0].width, r.lost]; };
-  assert.deepEqual([widths(`LineWidth="1.20" BoldWidth="4"`), widths(`LineWidth="1.20" BoldWidth="2"`), widths(`LineWidth="3" BoldWidth="4"`)], [[2, undefined, {}], [undefined, 1.2, {}], [2, 1.5, {}]]);
-  // An arrow and a box with their own line widths at 200%: drawn widths for ChemDraw, both read back.
-  const wide: Mol = { atoms: [], bonds: [], arrows: [{ id: 1, kind: "reaction", from: [0, 0], to: [3, 0], scale: 2, width: 1.5 }], shapes: [{ id: 2, kind: "box", from: [0, 2], to: [3, 1], scale: 2, width: 0.3 }] };
-  const wideText = toCdxml(wide, DEFAULT_STYLE), both = (x: Mol) => [x.arrows?.map((a) => [a.scale, a.width]), x.shapes?.map((sh) => [sh.scale, sh.width])];
-  assert.match(wideText, /<arrow\s[^>]*LineWidth="3"\s+BoldWidth="4"/);
-  assert.deepEqual([both(fromCdxml(wideText).mol), both(fromCdxml(wideText.replace(/ Octet="[^"]*"/g, "").replace(/CreationProgram="[^"]*"/, "")).mol)], [[[[2, 1.5]], [[2, 0.3]]], [[[2, 1.5]], [[2, 0.3]]]]);
+  assert.deepEqual([plate(`LineWidth="1.20" BoldWidth="4"`).mol.shapes?.[0].scale, plate(`LineWidth="1.20" BoldWidth="2"`).lost], [2, { "line settings": 1 }]);
   console.log("cdxml.check: scaled objects and the document scale ok");
 }
 

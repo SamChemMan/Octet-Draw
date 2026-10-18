@@ -1628,9 +1628,12 @@ button.variant.add {
   background: var(--brand-mist);
   color: var(--brand);
 }
-/* An option that does not apply now (Scale… by the median bond with no bond chosen). */
+/* An option or switch that does not apply now (Scale… with no bond chosen, or text alone): faint. */
 .segmented button:disabled {
   color: var(--ink-faint);
+}
+.switch:disabled {
+  opacity: 0.5;
 }
 .page-glyph {
   width: 9px;

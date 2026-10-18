@@ -237,6 +237,42 @@ console.log("render.check: written labels ok");
   console.log("render.check: label cuts ok");
 }
 
+// Line spacing: Automatic spaces every line by the caption's largest text, Variable each line by its own, and Fixed
+// by the points given.
+{
+  const two = { text: "a\nb" }, big = { text: "a\nb", runs: [{ text: "a\n" }, { text: "b", size: 20 }] };
+  assert.deepEqual(lineOffsets(two, 10, 1), [0, 12]);
+  assert.deepEqual(lineOffsets({ ...big }, 10, 1), [0, 24]);
+  assert.deepEqual(lineOffsets({ ...two, lineHeight: 15 }, 10, 2), [0, 30]);
+  const v = lineOffsets({ ...big, lineHeight: "variable" }, 10, 1);
+  assert.ok(v[1] > 12 && v[1] < 24, `variable: between the two sizes' spacing (${v[1]})`);
+  // Variable, as ChemDraw's: the line above's lowest descender and this line's tallest character, with no gap. An empty
+  // line has no ink, so it takes the ascent and descent of its text size.
+  assert.deepEqual(lineOffsets({ ...two, lineHeight: "variable" }, 10, 1, (j) => (j === 0 ? [7, 2] : [8, 0])), [0, 10]);
+  const gap = lineOffsets({ text: "a\n\nb", lineHeight: "variable" }, 10, 1, (j) => (j === 1 ? undefined : [7, 2]));
+  assert.ok(Math.abs(gap[1] - (2 + 9.05)) < 1e-9 && Math.abs(gap[2] - gap[1] - (2.12 + 7)) < 1e-9, `empty line: ${gap}`);
+  // placeCaptions measures each line's runs, a subscript lowered as it is drawn.
+  const placed = placeCaptions({ atoms: [], bonds: [], captions: [{ id: 1, text: "H2\nO", x: 0, y: 0, lineHeight: "variable", runs: [{ text: "H" }, { text: "2", script: "sub" }, { text: "\nO" }] }] },
+    { ink: [], scale: 19.2 }, (t) => t.length, [], 1, 10, new Map(), undefined, (_, __, r) => (r.script ? [5, 1] : [7, 0]))[0];
+  assert.ok(Math.abs(placed.lines[1].y - placed.lines[0].y - (1 + 0.212 * 10 + 7)) < 1e-9, `subscript ink: ${placed.lines.map((l) => l.y)}`);
+  console.log("render.check: line spacing ok");
+}
+
+// A caption with a width wraps to it, and a justified one fills it on every line but the last.
+{
+  const pc = (align: Caption["align"]) => placeCaptions({ atoms: [], bonds: [], captions: [{ id: 1, text: "aa bb cc dd", x: 0, y: 0, width: 6 / 19.2, align }] }, { ink: [], scale: 19.2 },
+    (t) => t.length, [], 1, 10, new Map(), (t) => t.length)[0];
+  const left = pc("left");
+  assert.deepEqual(left.lines.map((l) => l.text), ["aa bb", "cc dd"]);
+  assert.ok(left.lines.every((l) => !l.spacing));
+  const full = pc("justify");
+  assert.equal(full.anchor, "start");
+  assert.ok(Math.abs(full.lines[0].spacing! - 1) < 1e-9, "the first line's one space takes the one spare px");
+  assert.equal(full.lines[1].spacing, undefined, "the last line is not spread");
+  console.log("render.check: caption width ok");
+}
+
+
 // Decision 0007: every length an object draws is the document's length times the object's scale. One drawing with
 // every kind of object, at scale 1 and again at scale 2 with its positions doubled: every point and size doubles.
 // A new kind of object that forgets its scale fails here.
@@ -288,10 +324,10 @@ console.log("render.check: written labels ok");
     twice(arrowShapes(a, S, S.bond), arrowShapes(bigger, S, S.bond), `${a.kind} ${a.style ?? ""} ${a.head ?? ""} arrow`);
   }
   // Shapes of every kind, plain and dashed, and a bracket's mark; TLC spots; a table's columns, rows and text.
-  for (const kind of SHAPE_KINDS) for (const dashed of [false, true]) {
-    const sh: Shape = { id: 1, kind, from: [0, 2], to: [3, 0], dashed, mark: "‡" };
+  for (const kind of SHAPE_KINDS) for (const dashed of [false, true]) for (const angle of [undefined, 30]) {
+    const sh: Shape = { id: 1, kind, from: [0, 2], to: [3, 0], dashed, mark: "‡", ...(angle ? { angle } : {}) };
     const bigger: Shape = { ...sh, from: two(sh.from), to: two(sh.to), scale: 2 };
-    twice(shapeInk(sh, S, S.bond), shapeInk(bigger, S, S.bond), `${kind} shape`);
+    twice(shapeInk(sh, S, S.bond), shapeInk(bigger, S, S.bond), `${kind} shape${angle ? " turned" : ""}`);
     const m1 = markAt(sh, S.bond), m2 = markAt(bigger, S.bond);
     assert.ok(close(m2.x, 2 * m1.x) && close(m2.y, 2 * m1.y), `${kind} mark`);
   }
@@ -320,38 +356,3 @@ console.log("render.check: written labels ok");
   twice([[...l1.anchors.values()].map((x) => [x.x, x.y] as P)], [[...l2.anchors.values()].map((x) => [x.x, x.y] as P)], "cycle text");
   console.log("render.check: every object at scale 2 ok");
 }
-// Line spacing: Automatic spaces every line by the caption's largest text, Variable each line by its own, and Fixed
-// by the points given.
-{
-  const two = { text: "a\nb" }, big = { text: "a\nb", runs: [{ text: "a\n" }, { text: "b", size: 20 }] };
-  assert.deepEqual(lineOffsets(two, 10, 1), [0, 12]);
-  assert.deepEqual(lineOffsets({ ...big }, 10, 1), [0, 24]);
-  assert.deepEqual(lineOffsets({ ...two, lineHeight: 15 }, 10, 2), [0, 30]);
-  const v = lineOffsets({ ...big, lineHeight: "variable" }, 10, 1);
-  assert.ok(v[1] > 12 && v[1] < 24, `variable: between the two sizes' spacing (${v[1]})`);
-  // Variable, as ChemDraw's: the line above's lowest descender and this line's tallest character, with no gap. An empty
-  // line has no ink, so it takes the ascent and descent of its text size.
-  assert.deepEqual(lineOffsets({ ...two, lineHeight: "variable" }, 10, 1, (j) => (j === 0 ? [7, 2] : [8, 0])), [0, 10]);
-  const gap = lineOffsets({ text: "a\n\nb", lineHeight: "variable" }, 10, 1, (j) => (j === 1 ? undefined : [7, 2]));
-  assert.ok(Math.abs(gap[1] - (2 + 9.05)) < 1e-9 && Math.abs(gap[2] - gap[1] - (2.12 + 7)) < 1e-9, `empty line: ${gap}`);
-  // placeCaptions measures each line's runs, a subscript lowered as it is drawn.
-  const placed = placeCaptions({ atoms: [], bonds: [], captions: [{ id: 1, text: "H2\nO", x: 0, y: 0, lineHeight: "variable", runs: [{ text: "H" }, { text: "2", script: "sub" }, { text: "\nO" }] }] },
-    { ink: [], scale: 19.2 }, (t) => t.length, [], 1, 10, new Map(), undefined, (_, __, r) => (r.script ? [5, 1] : [7, 0]))[0];
-  assert.ok(Math.abs(placed.lines[1].y - placed.lines[0].y - (1 + 0.212 * 10 + 7)) < 1e-9, `subscript ink: ${placed.lines.map((l) => l.y)}`);
-  console.log("render.check: line spacing ok");
-}
-
-// A caption with a width wraps to it, and a justified one fills it on every line but the last.
-{
-  const pc = (align: Caption["align"]) => placeCaptions({ atoms: [], bonds: [], captions: [{ id: 1, text: "aa bb cc dd", x: 0, y: 0, width: 6 / 19.2, align }] }, { ink: [], scale: 19.2 },
-    (t) => t.length, [], 1, 10, new Map(), (t) => t.length)[0];
-  const left = pc("left");
-  assert.deepEqual(left.lines.map((l) => l.text), ["aa bb", "cc dd"]);
-  assert.ok(left.lines.every((l) => !l.spacing));
-  const full = pc("justify");
-  assert.equal(full.anchor, "start");
-  assert.ok(Math.abs(full.lines[0].spacing! - 1) < 1e-9, "the first line's one space takes the one spare px");
-  assert.equal(full.lines[1].spacing, undefined, "the last line is not spread");
-  console.log("render.check: caption width ok");
-}
-

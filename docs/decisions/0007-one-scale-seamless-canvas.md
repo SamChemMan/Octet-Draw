@@ -15,7 +15,8 @@ decision 0003 (templates on New drawing).
   bond length, line width, bold width, margin, hash spacing, label size and caption size together. Bond spacing
   stays a percent of the bond. The preset's name stays at every scale ("ACS Document 1996" at 250%).
 - A change to the document scale also multiplies every size the drawing holds in points (an atom's own label
-  size, caption and text-run sizes, table line weights), in the same undo step. Text stays in proportion.
+  size, caption and text-run sizes, a fixed line spacing, an object's own line width, a table's or TLC plate's text
+  size, table line weights), in the same undo step. Text stays in proportion.
 - Object > Scale… has a row "Labels and lines". On: the selection's scale is multiplied with its positions, as
   ChemDraw's "Scale atom labels and settings" does. Off: positions only. The app's settings keep the choice.
   It starts on, because Sam asked for scaling that keeps everything in proportion.
@@ -30,9 +31,8 @@ decision 0003 (templates on New drawing).
   object with a scale writes its own LineWidth, BoldWidth, HashSpacing, MarginWidth, BondLength and LabelSize.
   Octet's own data keeps the document scale and each object's scale. On import, a structure takes a scale only
   when its bonds carry LineWidth and every other value they carry agrees with it. An atom with no bonds takes its
-  scale from its own LineWidth. An arrow, curve or shape writes its own line width times its scale as LineWidth,
-  and its BoldWidth when it has a scale. On import it takes its scale from BoldWidth, and its LineWidth over that
-  scale is its own line width (ChemDraw's Object Settings > Line Width), so a LineWidth alone is a line width.
+  scale from its own LineWidth. An arrow, curve, orbital or shape takes a scale only when it carries a BoldWidth as
+  well; a LineWidth alone is its own line width (ChemDraw's Object Settings > Line Width), kept over its scale.
 - Limits widen so that no scaled value falls back to a default: lengths to 10 times their old upper limits,
   font sizes 0.1 to 999 pt (ChemDraw: 5 to 999 pt). A document scale that would take a value past its limit stops
   at the limit (a custom 100 pt bond goes to 720%, not 1000%).
@@ -43,10 +43,10 @@ decision 0003 (templates on New drawing).
   scales its size (Control turns that off), as ChemDraw scales the text of one label whatever its checkbox says.
   The drag stops softly at 100% and where the median bond is the document's bond length (⌘ turns the stops off).
   A double-click on a handle opens Scale…. ChemDraw 26.1 has no key for "about the middle" on its handles. A centre
-  mark moved with Option-drag is the point a resize goes about, as ChemDraw's moved rotation centre is. A lone straight
-  arrow and a lone turned shape keep their own handles (ends, or corners on the turned sides) and the rotation
-  handle, and show no frame. A turned shape stretched by the frame grows along its own sides by as much as each
-  side grows on the page.
+  mark moved with Option-drag is the point a resize goes about, as ChemDraw's moved rotation centre is.
+  A lone shape uses the frame in place of its own corner handles. A turned shape keeps its angle and grows along its
+  own sides. A lone straight arrow keeps its end handles and shows only the rotation handle. A lone caption keeps its
+  width handle beside the frame's corner handles.
 - The whole drawing (nothing selected, or everything) scaled in proportion with "Labels and lines" on changes the
   document scale, not each object's scale (IDEA-SCALE-8). Octet does not ask, as ChemDraw does. What is drawn next
   then matches. The drawing keeps its place on screen. Undo and redo zoom back and forth with it, so the drawing
