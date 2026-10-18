@@ -17,7 +17,7 @@ import {
 import { ELEMENTS, anchorElement, formulaRuns, isElement, units } from "./labels.ts";
 import { normalise, runsOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
 import { findReaction } from "./reaction.ts";
-import { fragments } from "./edit.ts";
+import { fragments, groupParents, tidyGroups } from "./edit.ts";
 import { kekulise, rings } from "./rings.ts";
 import type { Cycle } from "./cycle.ts";
 
@@ -277,10 +277,18 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // Everything on the page, with its type rank (ChemDraw writes children grouped by type, spec 7.2) and its group.
   type Out = { xml: string; rank: number; group?: number; box: Box };
   const outs: Out[] = [];
+  // Groups nest: each object goes in the smallest group that holds it, inner groups first. Text that belongs to a
+  // structure, arrow or cycle goes in the group of what it belongs to, so ChemDraw moves them together.
+  const groups = mol.groups ?? [], parentOf = groupParents(groups);
+  const innerFirst = groups.map((_, k) => k).sort((p, q) => groups[p].atoms.length + groups[p].items.length - groups[q].atoms.length - groups[q].items.length || q - p);
   const groupOfItem = new Map<number, number>(), groupOfAtom = new Map<number, number>();
-  for (const g of mol.groups ?? []) {
+  for (const g of innerFirst.map((k) => groups[k])) {
     for (const id of g.items) if (!groupOfItem.has(id)) groupOfItem.set(id, g.id);
     for (const i of g.atoms) if (!groupOfAtom.has(i)) groupOfAtom.set(i, g.id);
+  }
+  for (const c of mol.captions ?? []) {
+    const host = groupOfItem.get(c.id) ?? (c.under?.length ? groupOfAtom.get(c.under[0]) : c.on ? groupOfItem.get(c.on.arrow) : c.cycle && groupOfItem.get(c.cycle.cycle));
+    if (host !== undefined) groupOfItem.set(c.id, host);
   }
   const put = (xml: string, rank: number, box: Box, item?: number) => outs.push({ xml, rank, box, group: item === undefined ? undefined : groupOfItem.get(item) });
   const run = (text: string, s: { font: string; size: number; colour?: string; face: number }) => {
@@ -576,18 +584,21 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const kind = kindOf({ arc: !!arc, head, tail, type, spacing: !!spacing, nogo });
     const lineType = a.style === "dashed" ? "Dashed" : a.style === "bold" ? "Bold" : a.style === "wavy" ? "Wavy" : undefined;
     const f = scaleOf(a), box = boxOf(path, head || tail ? (sizes[2] * line * f) / 100 : (line * f) / 2), z = Z(), legacy = fresh(), c = colour(a.colour);
+    // A catalytic cycle's arrow goes in the cycle's group, and names its cycle so Octet reads the group back.
+    const cycle = derived ? (a as Arrow & { cycle?: number }).cycle : undefined, item = derived ? cycle : a.id;
+    const tag = cycle !== undefined && idOf.has(cycle) ? priv({ d: 1, cycle: idOf.get(cycle) }) : DERIVED;
     legacyOf.set(a.id, legacy);
     // The legacy copy: a line from head to tail, or an arc from the head round its centre, with the old arrow type.
     const legacyType = a.kind === "equilibrium" ? "Equilibrium" : a.kind === "retro" ? "RetroSynthetic" : head === "Full" && tail === "Full" ? "Resonance"
       : head === "Full" || (!head && tail === "Full") ? "FullHead" : head || tail ? "HalfHead" : undefined;
     const flip = !arc && !head && !!tail, snapped = arc ? [90, 120, 180, 270].reduce((best, s) => (Math.abs(Math.abs(angular!) - s) < Math.abs(Math.abs(angular!) - best) ? s : best)) * (head && angular! < 0 ? -1 : 1) : undefined;
     put(el("graphic", { id: legacy, SupersededBy: id, BoundingBox: arc ? `${pt(T)} ${pt(arc.O)}` : flip ? `${pt(S)} ${pt(T)}` : `${pt(T)} ${pt(S)}`, Z: z, color: c, LineType: lineType, ...ownLines(f),
-      GraphicType: arc ? "Arc" : "Line", ArrowType: legacyType, HeadSize: 1000, AngularSize: snapped, Octet: derived ? DERIVED : undefined }), 3, box, derived ? undefined : a.id);
+      GraphicType: arc ? "Arc" : "Line", ArrowType: legacyType, HeadSize: 1000, AngularSize: snapped, Octet: derived ? tag : undefined }), 3, box, item);
     put(el("arrow", {
       id, BoundingBox: boxText(box), Z: z, color: c, LineType: lineType, FillType: "None", ArrowheadHead: head, ArrowheadTail: tail, ArrowheadType: type, ...ownLines(f),
       HeadSize: sizes[0], ArrowheadCenterSize: sizes[1], ArrowheadWidth: sizes[2], ArrowShaftSpacing: spacing, NoGo: nogo ? "Cross" : undefined, AngularSize: angular === undefined ? undefined : fmtAngle(angular),
-      Head3D: pt3(T), Tail3D: pt3(S), ...frame, Octet: derived ? DERIVED : priv({ kind: kind === a.kind ? undefined : a.kind, style: a.style === "doubled" ? "doubled" : undefined, bend: arc ? a.bend : undefined, grid: gridOf(a.id), scale: ownScale(a) }),
-    }), 6, box, derived ? undefined : a.id);
+      Head3D: pt3(T), Tail3D: pt3(S), ...frame, Octet: derived ? tag : priv({ kind: kind === a.kind ? undefined : a.kind, style: a.style === "doubled" ? "doubled" : undefined, bend: arc ? a.bend : undefined, grid: gridOf(a.id), scale: ownScale(a) }),
+    }), 6, box, item);
   };
   for (const a of mol.arrows ?? []) {
     if (a.kind === "curve" && a.curve) { if (!(a.curve.closed && a.fill)) curveOut(a); }
@@ -660,13 +671,14 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   }
   for (const a of arrows) if (!done.has(a.id) && legacyOf.has(a.id) && captions.some((c) => c.on?.arrow === a.id)) schemes.push(el("scheme", { id: fresh() }, step(a.id, [], [])));
 
-  // Groups hold their structures and objects (Octet's groups do not nest).
+  // Groups hold their structures and objects, inner groups first, each in the group round it (with its own Integral).
   const RANKED = (list: Out[]) => [...list].sort((p, q) => p.rank - q.rank);
-  for (const g of mol.groups ?? []) {
-    const kids = outs.filter((o) => o.group === g.id), box = union(kids.map((o) => o.box));
+  for (const k of innerFirst) {
+    const g = groups[k], kids = outs.filter((o) => o.group === g.id), box = union(kids.map((o) => o.box));
     if (!kids.length || !box) continue;
     for (const o of kids) o.group = -1;
-    outs.push({ xml: el("group", { id: idOf.get(g.id)!, BoundingBox: boxText(box), Z: Z(), Integral: g.integral ? "yes" : undefined }, RANKED(kids).map((o) => o.xml).join("")), rank: 0, box });
+    const parent = parentOf[k];
+    outs.push({ xml: el("group", { id: idOf.get(g.id)!, BoundingBox: boxText(box), Z: Z(), Integral: g.integral ? "yes" : undefined }, RANKED(kids).map((o) => o.xml).join("")), rank: 0, box, group: parent === undefined ? undefined : groups[parent].id });
   }
   const top = outs.filter((o) => o.group !== -1), all = union(top.map((o) => o.box)) ?? [0, 0, 0, 0];
   const cycles = (mol.cycles ?? []).map((c: Cycle) => ({ id: idOf.get(c.id), centre: c.centre, radius: c.radius, clockwise: c.clockwise, nodes: c.nodes.map((n) => n.map((i) => nodeId.get(i)).filter((v) => v !== undefined)), colour: c.colour }));
@@ -705,8 +717,8 @@ function pick(m: Mol, sel: { atoms: Iterable<number>; items: Iterable<number> })
     return out;
   });
   const shapes = (m.shapes ?? []).filter((s) => items.has(s.id)), ids = new Set([...arrows, ...cycles, ...captions, ...shapes].map((x) => x.id));
-  const groups = (m.groups ?? []).map((g) => ({ ...g, atoms: keep(g.atoms), items: g.items.filter((id) => ids.has(id)) })).filter((g) => g.atoms.length + g.items.length >= 2);
-  return { atoms: m.atoms.filter((_, i) => map.has(i)), bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions, arrows, shapes, cycles, groups };
+  const groups = (m.groups ?? []).map((g) => ({ ...g, atoms: keep(g.atoms), items: g.items.filter((id) => ids.has(id)) }));
+  return tidyGroups({ atoms: m.atoms.filter((_, i) => map.has(i)), bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions, arrows, shapes, cycles, groups });
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -823,7 +835,7 @@ export function fromCdxml(text: string): CdxmlRead {
 
   const mol: Mol = { atoms: [], bonds: [] };
   const captions: (Caption & { z: number })[] = [], arrows: (Arrow & { z: number })[] = [], shapes: (Shape & { z: number })[] = [], grids: Grid[] = [];
-  type G = { id: number; atoms: Set<number>; items: number[]; integral?: true };
+  type G = { id: number; atoms: Set<number>; items: number[]; integral?: true; parent?: G };
   const groups: G[] = [];
   const nodeIds: number[] = [], bondIds: number[] = [];
   // Each bond's own drawing settings (ChemDraw's per-object settings, pt), and each label's size as written.
@@ -835,17 +847,19 @@ export function fromCdxml(text: string): CdxmlRead {
   const brackets: { x: Xml; id: number; z: number; group?: G; ends: number[] }[] = [];
   const zOf = (x: Xml) => int(x.attrs.Z) ?? 0;
   const count = () => { if (captions.length + arrows.length + shapes.length + groups.length > 4 * MAX_OBJECTS) throw new Error(TOO_BIG); };
-  const member = (g: G | undefined, id: number) => g?.items.push(id);
+  // Groups nest: what is in a group is in each group round it too.
+  const member = (g: G | undefined, id: number) => { for (let x = g; x; x = x.parent) x.items.push(id); };
 
   const visit = (x: Xml, group?: G, atoms?: number[]) => {
     const p = priv(x);
-    if (p?.d === 1) return; // written by Octet for ChemDraw's eyes only
+    // Written by Octet for ChemDraw's eyes only. A catalytic cycle's arrows name their cycle, so its group is known.
+    if (p?.d === 1) return void (Number.isInteger(p.cycle) && member(group, p.cycle as number));
     if (x.attrs.Visible !== undefined && !yes(x.attrs.Visible)) { lose("hidden object"); return; }
     count();
     switch (x.name) {
       case "group":
         if (p?.kind === "table") return readTableGroup(x, p, group);
-        { const g = group ?? newGroup(x); for (const k of x.kids) visit(k, g); }
+        { const g = newGroup(x, group); for (const k of x.kids) visit(k, g); }
         return;
       case "fragment": return readFragment(x, group);
       case "t": return readCaption(x, group);
@@ -864,8 +878,8 @@ export function fromCdxml(text: string): CdxmlRead {
       default: return lose(x.name);
     }
   };
-  const newGroup = (x: Xml): G => {
-    const g: G = { id: newId(x), atoms: new Set(), items: [], ...(x.attrs.Integral === "yes" ? { integral: true as const } : {}) };
+  const newGroup = (x: Xml, parent?: G): G => {
+    const g: G = { id: newId(x), atoms: new Set(), items: [], ...(x.attrs.Integral === "yes" ? { integral: true as const } : {}), parent };
     groups.push(g);
     return g;
   };
@@ -873,7 +887,7 @@ export function fromCdxml(text: string): CdxmlRead {
   // A fragment's nodes (not the atoms inside abbreviations), then its bonds, symbols and anything else in it.
   function readFragment(f: Xml, group?: G) {
     const atoms: number[] = [];
-    for (const k of f.kids) if (k.name === "n") { const i = readNode(k); if (i !== undefined) { atoms.push(i); group?.atoms.add(i); } }
+    for (const k of f.kids) if (k.name === "n") { const i = readNode(k); if (i !== undefined) { atoms.push(i); for (let g = group; g; g = g.parent) g.atoms.add(i); } }
     if (yes(f.attrs.ShowAtomStereo)) for (const i of atoms) mol.atoms[i].cip = true;
     for (const k of f.kids) {
       if (k.name === "b") bondsToRead.push(k);
@@ -1456,7 +1470,7 @@ export function fromCdxml(text: string): CdxmlRead {
   if (cycles.length) mol.cycles = cycles;
   if (grids.length) mol.grids = grids;
   const ids = new Set([...captions, ...arrows, ...shapes, ...cycles].map((x) => x.id));
-  const kept = groups.map((g): Group => ({ id: g.id, atoms: [...g.atoms].map(ix).sort((p, q) => p - q), items: g.items.filter((id) => ids.has(id)).sort((p, q) => p - q), ...(g.integral ? { integral: true } : {}) })).filter((g) => g.atoms.length + g.items.length >= 2);
+  const kept = groups.map((g): Group => ({ id: g.id, atoms: [...g.atoms].map(ix).sort((p, q) => p - q), items: [...new Set(g.items.filter((id) => ids.has(id)))].sort((p, q) => p - q), ...(g.integral ? { integral: true } : {}) }));
   if (kept.length) mol.groups = kept;
-  return { mol, style, lost };
+  return { mol: tidyGroups(mol), style, lost };
 }

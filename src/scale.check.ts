@@ -110,6 +110,28 @@ console.log("scale.check: text sizes ok");
   console.log("scale.check: captions ok");
 }
 
+// A flip goes through the same transform as a scale or a turn, and turns the objects over: a curved arrow bends and a
+// half head points the other way, a single bracket faces the other way (across only), and a cycle runs the other way.
+// The atoms are not moved again (flipAtoms turned them over first).
+{
+  const m: Mol = {
+    atoms: [{ label: "C", location: [1, 0, 0] }], bonds: [],
+    arrows: [{ id: 1, kind: "arrow", from: [0, 0], to: [2, 0], bend: 0.5, start: "left", end: "full" }],
+    shapes: [{ id: 2, kind: "bracket", from: [0, 0], to: [1, 2], side: "left" }],
+    cycles: [{ id: 3, centre: [0, 0], radius: 3, clockwise: true, nodes: [] }],
+  };
+  const across = ([x, y]: [number, number]): [number, number] => [4 - x, y], items = new Set([1, 2, 3]);
+  const a = transformParts(m, new Set(), items, across, [1, 1], undefined, 1, "across");
+  assert.deepEqual(a.atoms[0].location, [1, 0, 0], "the atoms stay as flipAtoms left them");
+  assert.deepEqual([a.arrows![0].from, a.arrows![0].to, a.arrows![0].bend, a.arrows![0].start, a.arrows![0].end], [[4, 0], [2, 0], -0.5, "right", "full"]);
+  assert.deepEqual([a.shapes![0].from, a.shapes![0].to, a.shapes![0].side], [[3, 0], [4, 2], "right"]);
+  assert.deepEqual([a.cycles![0].centre, a.cycles![0].clockwise], [[4, 0], false]);
+  const d = transformParts(m, new Set(), items, ([x, y]) => [x, -y], [1, 1], undefined, 1, "down");
+  assert.equal(d.shapes![0].side, "left", "a bracket flipped down still faces the same way");
+  assert.equal(transformParts(m, new Set(), items, across).arrows![0].bend, 0.5, "a move that is not a flip keeps the bend");
+  console.log("scale.check: flips ok");
+}
+
 // IDEA-SCALE-5: the median bond counts only bonds with both atoms chosen; none gives undefined.
 {
   const m: Mol = { atoms: [0, 1, 3, 6].map((x) => ({ label: "C", location: [x, 0, 0] as [number, number, number] })), bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [1, 2] }, { type: 1, atoms: [2, 3] }] };
