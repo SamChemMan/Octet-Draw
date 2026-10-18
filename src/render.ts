@@ -162,6 +162,7 @@ export type Shape = {
   order?: number; // draw order (order.ts)
   angle?: number; // degrees anticlockwise: the box from and to span is drawn turned about its middle (not TLC plates, tables or pictures)
   width?: number; // the line width in points; unset uses the document's. The scale multiplies it.
+  radius?: number; // a rounded box's corner radius in bond lengths, from ChemDraw's CornerRadius; unset is 0.3
   // The text of a table's cells or a TLC plate's Rf values, as the Text menu sets it; unset is the document's caption
   // style (an Rf value is 0.8 of its size). The scale multiplies the size.
   font?: string; size?: number; bold?: true; italic?: true; underline?: true;
@@ -1021,7 +1022,7 @@ function turnOf(drawn: Atom[], atoms: Atom[], px: number): { at: P; k: number; t
 // LINE (1.2 em) is provisional until it is measured against ChemDraw.
 export const CAPTION_PT = 10;
 export const isNumber = (c: Caption) => !!c.bold && /^\d+[a-z]?$/.test(c.text);
-const GAP_PT = 15, GAP_ARROW_PT = 3, LINE = 1.2, ASCENT = 0.905, DESCENT = 0.212; // Arial's ascent and descent, in em
+export const GAP_PT = 15, GAP_ARROW_PT = 3, LINE = 1.2, ASCENT = 0.905, DESCENT = 0.212; // Arial's ascent and descent, in em
 // Each line's baseline below the first's (px), by the caption's line spacing (Caption.lineHeight). size: the
 // caption's text size (px); a run's own size is in pt. Variable, as ChemDraw's: each line is as tall as its tallest
 // character and lowest descender, with no gap between lines. ink: how far line j's text reaches above and below its
@@ -1283,7 +1284,8 @@ function offsetPath(path: P[], d: number): P[] {
 }
 
 // A shape's lines in px (y down), as paths: the outline of a box or oval, or each bracket of a pair. A highlight's
-// outline is its edge. Rounded corners have a radius of 0.3 bond lengths; bracket ends reach 0.25 bond lengths in.
+// outline is its edge. Rounded corners have a radius of 0.3 bond lengths (or the box's own); bracket ends reach 0.25
+// bond lengths in.
 export function shapePaths(sh: Shape, k: number, bond = k): P[][] {
   const upright = uprightPaths(sh, k, bond * scaleOf(sh));
   if (!sh.angle || !turns(sh)) return upright;
@@ -1299,7 +1301,7 @@ function uprightPaths(sh: Shape, k: number, bond: number): P[][] {
   switch (sh.kind) {
     case "oval": return [arc([(x0 + x1) / 2, (y0 + y1) / 2], [w / 2, h / 2], 0, 2 * Math.PI, 72)];
     case "rounded": {
-      const r = Math.min(0.3 * bond, w / 2, h / 2);
+      const r = Math.min((sh.radius ?? 0.3) * bond, w / 2, h / 2);
       return [[...arc([x1 - r, y0 + r], [r, r], -Math.PI / 2, 0), ...arc([x1 - r, y1 - r], [r, r], 0, Math.PI / 2), ...arc([x0 + r, y1 - r], [r, r], Math.PI / 2, Math.PI), ...arc([x0 + r, y0 + r], [r, r], Math.PI, 1.5 * Math.PI), [x1 - r, y0]]];
     }
     case "brackets": {

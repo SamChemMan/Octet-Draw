@@ -10,7 +10,7 @@
 import { FONTS, PAGES, fontName, pageSize, readStyle, type DocStyle } from "./docstyle.ts";
 import {
   HIGHLIGHT, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, tlcLayout, turnedBox, turnPoint, TABLE_PAD,
-  ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS,
+  ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets,
   type Annotation, type Arrow, type ArrowKind, type Kept, type Atom, type Bond, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape,
   type LineStyle, type Mol, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
@@ -331,14 +331,15 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const drawn = shapeBounds(sh), box: Box = sh.angle ? [...at([drawn[0], drawn[3]]), ...at([drawn[2], drawn[1]])] as Box : up;
     const page = (q: P): P => [middle[0] + (q[0] - c[0]) / B, middle[1] - (q[1] - c[1]) / B];
     const frame = { Center3D: pt3(c), MajorAxisEnd3D: pt3(turned(page([c[0] + hw, c[1]]))), MinorAxisEnd3D: pt3(turned(page([c[0], c[1] + hh]))) };
-    const shadow = sh.shadow ? Math.round(((sh.shade ?? SHADE).depth * B * 100) / line) : undefined;
     // A box or oval at the bold width is ChemDraw's Bold, which ChemDraw draws at its bold width.
     const bold = (sh.kind === "box" || sh.kind === "rounded" || sh.kind === "oval") && sh.width !== undefined && Math.abs(sh.width - style.bold) < 1e-3;
     const ink = colour(sh.kind === "highlight" ? sh.colour ?? HIGHLIGHT : sh.colour), f = scaleOf(sh), mine = ownLines(f, bold ? undefined : sh.width);
+    // ChemDraw keeps a corner's radius and a shadow's depth in hundredths of the shape's line width.
+    const lw = "LineWidth" in mine ? Number(mine.LineWidth) : line, per = (v: number) => Math.round((v * B * f * 100) / lw), shadow = sh.shadow ? per((sh.shade ?? SHADE).depth) : undefined;
     if (sh.kind === "box" || sh.kind === "rounded" || sh.kind === "highlight") {
       const bits = [sh.kind === "rounded" && "RoundEdge", sh.shadow && "Shadow", sh.fill === "shaded" && "Shaded", (sh.fill === "solid" || sh.kind === "highlight") && "Filled", sh.dashed && "Dashed", bold && "Bold"].filter(Boolean);
       put(el("graphic", { id, BoundingBox: `${fmt(box[2])} ${fmt(box[3])} ${fmt(box[0])} ${fmt(box[1])}`, Z: Z(), color: ink, GraphicType: "Rectangle", RectangleType: bits.join(" ") || "Plain",
-        CornerRadius: sh.kind === "rounded" ? Math.round((0.3 * B * 100) / line) : undefined, ShadowSize: shadow, ...frame, ...mine, Octet: priv({ kind: sh.kind === "highlight" ? "highlight" : undefined, shade: sh.shade, angle: sh.angle, scale: ownScale(sh) }) }), 3, box, sh.id);
+        CornerRadius: sh.kind === "rounded" ? per(sh.radius ?? 0.3) : undefined, ShadowSize: shadow, ...frame, ...mine, Octet: priv({ kind: sh.kind === "highlight" ? "highlight" : undefined, shade: sh.shade, angle: sh.angle, scale: ownScale(sh) }) }), 3, box, sh.id);
     } else if (sh.kind === "oval") {
       const bits = [Math.abs(hw - hh) < 0.01 && "Circle", sh.fill === "shaded" && "Shaded", sh.fill === "solid" && "Filled", sh.dashed && "Dashed", bold && "Bold", sh.shadow && "Shadowed"].filter(Boolean);
       put(el("graphic", { id, BoundingBox: `${pt(turned(page([c[0] + hw, c[1]])))} ${pt(c)}`, Z: Z(), color: ink, GraphicType: "Oval", OvalType: bits.join(" "), ShadowSize: shadow, ...frame, ...mine, Octet: priv({ shade: sh.shade, angle: sh.angle, scale: ownScale(sh) }) }), 3, box, sh.id);
@@ -647,10 +648,20 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   const stacked = new Map<string, number>(), kept: string[] = [];
   // A live property's basis: its atoms' nodes and the bonds between them.
   const basis = (atoms: Set<number>) => [...[...atoms].sort((p, q) => p - q).map((i) => nodeId.get(i)), ...mol.bonds.flatMap((b, n) => (atoms.has(b.atoms[0]) && atoms.has(b.atoms[1]) ? [bondId[n]] : []))].join(" ");
+  // Conditions stack away from their arrow in the order Octet draws them (placeCaptions): compound numbers first, then
+  // by id. Each one's distance (pt) past the gap.
+  const besides = new Map<string, number>(), further = new Map<number, number>();
+  for (const c of [...captions].sort((p, q) => Number(isNumber(q)) - Number(isNumber(p)) || p.id - q.id)) {
+    if (!c.on || !mol.arrows?.some((a) => a.id === c.on!.arrow)) continue;
+    const size = c.size ?? style.captionSize, key = `${c.on.arrow} ${c.on.side}`, used = besides.get(key) ?? 0;
+    further.set(c.id, used);
+    const offs = lineOffsets(c, size, 1);
+    besides.set(key, used + offs[offs.length - 1] + (LINE + 0.2) * size);
+  }
   for (const c of captions) {
     zOrder = c.order;
-    const size = c.size ?? style.captionSize, align = c.align === "justify" ? "left" : c.align ?? "centre", lines = c.text.split("\n").length;
-    let [x, y] = [c.x, c.y];
+    const size = c.size ?? style.captionSize, own = c.align === "justify" ? "left" : c.align ?? "centre", lines = c.text.split("\n").length;
+    let [x, y] = [c.x, c.y], align = own;
     const arrow = c.on && mol.arrows?.find((a) => a.id === c.on!.arrow);
     const atoms = (c.under ?? []).filter((i) => i < mol.atoms.length);
     if (atoms.length) {
@@ -659,16 +670,20 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       x = align === "left" ? Math.min(...xs) - 0.3 : align === "right" ? Math.max(...xs) + 0.3 : (Math.min(...xs) + Math.max(...xs)) / 2;
       y = Math.min(...atoms.map((i) => mol.atoms[i].location[1])) - 0.3 - (15 + 0.905 * size + k * 1.2 * size) / B;
     } else if (arrow) {
-      const mid: P = [(arrow.from[0] + arrow.to[0]) / 2, (arrow.from[1] + arrow.to[1]) / 2], flat = Math.abs(arrow.to[0] - arrow.from[0]) >= Math.abs(arrow.to[1] - arrow.from[1]);
-      x = flat ? mid[0] : mid[0] + ((c.on!.side === "above" ? -1 : 1) * 3) / B;
-      y = flat ? mid[1] + (c.on!.side === "above" ? 3 + 0.212 * size + (lines - 1) * 1.2 * size : -(3 + 0.905 * size)) / B : mid[1];
+      // As Octet draws conditions: centred over an arrow within 60° of level, else ending left of it (above) or starting
+      // right of it (below), GAP_ARROW_PT clear, each further out than the last on its side (REL-15).
+      const mid: P = [(arrow.from[0] + arrow.to[0]) / 2, (arrow.from[1] + arrow.to[1]) / 2], d = sub(arrow.to, arrow.from), flat = Math.abs(d[0]) >= 0.5 * len(d);
+      const above = c.on!.side === "above", gap = GAP_ARROW_PT * scaleOf(arrow) + (further.get(c.id) ?? 0), offs = lineOffsets(c, size, 1), block = offs[offs.length - 1];
+      align = flat ? "centre" : above ? "right" : "left";
+      x = flat ? mid[0] : mid[0] + ((above ? -1 : 1) * gap) / B;
+      y = mid[1] + (flat ? (above ? gap + DESCENT * size + block : -(gap + ASCENT * size)) : (DESCENT * size) / 2 - (ASCENT * size - block) / 2) / B;
     }
     const p = at([x, y]), runs = runsOf(c), whole: RunStyle = { bold: c.bold || undefined, italic: c.italic || undefined, underline: c.underline || undefined };
     const width = Math.max(...c.text.split("\n").map((l) => widthOf(l, size))), left = align === "left" ? p[0] : align === "right" ? p[0] - width : p[0] - width / 2;
     const upright: Box = [left, p[1] - 0.716 * size, left + width, p[1] + (lines - 1) * 1.15 * size + 0.212 * size];
     // A turned caption: its box round the turned text, and its turn as ChemDraw's RotationAngle (about p).
     const box = c.angle ? turnedBox(upright, p, -c.angle) : upright;
-    const just = c.align === "justify" ? "Full" : align === "centre" ? "Center" : align === "right" ? "Right" : undefined, cf = face(whole);
+    const just = c.align === "justify" && align === own ? "Full" : align === "centre" ? "Center" : align === "right" ? "Right" : undefined, cf = face(whole);
     put(el("t", {
       id: idOf.get(c.id)!, p: pt(p), BoundingBox: boxText(box), Z: Z(), color: colour(c.colour), CaptionFont: c.font ? font(c.font) : undefined, CaptionSize: c.size, CaptionFace: cf || undefined,
       RotationAngle: c.angle ? Math.round((((-c.angle % 360) + 360) % 360) * 65536) || undefined : undefined,
@@ -677,7 +692,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       CaptionJustification: just, Justification: just, LineHeight: c.lineHeight === "variable" ? undefined : typeof c.lineHeight === "number" ? fmtSize(c.lineHeight) : "auto",
       CaptionLineHeight: c.lineHeight === "variable" ? "variable" : undefined,
       Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined,
-        width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined }),
+        align: align !== own ? c.align ?? "centre" : undefined, width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined }),
     }, runs.map((r) => run(r.text, { font: r.font ?? c.font ?? style.captionFont, size: r.size ?? size, colour: r.colour ?? c.colour, face: face({ ...whole, ...r }) })).join("")), 2, box, c.id);
     if (c.property) {
       const atoms = new Set(c.property.atoms.filter((i) => i < mol.atoms.length));
@@ -1262,6 +1277,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     const c: Caption & { z: number } = { id: newId(t), text, x, y, z: zOf(t) };
     for (const k of ["bold", "italic", "underline", "size", "colour", "font"] as const) if (whole[k] !== undefined) (c as Record<string, unknown>)[k] = whole[k];
     if (just === "Right") c.align = "right"; else if (just === "Full") c.align = "justify"; else if (just !== "Center") c.align = "left";
+    // Octet's own alignment for conditions it wrote as it draws them.
+    if (p?.align === "centre") delete c.align; else if (p?.align === "left" || p?.align === "right" || p?.align === "justify") c.align = p.align;
     // A width, in pt (spec WordWrapWidth): the caption wraps to it.
     const wrapAt = real(t.attrs.WordWrapWidth);
     if (wrapAt !== undefined && wrapAt >= B / 2 && wrapAt <= 1000 * B) c.width = isNum(p?.width, 0.5, 1000) ? (p!.width as number) : wrapAt / B;
@@ -1327,6 +1344,13 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       addShape(sh, x, group);
       // Bold: the outline at the bold width (the shape's own, else the document's), as the shape's own line width.
       if (kind !== "highlight" && bits.has("Bold")) { const f = sh.scale ?? 1, bw = real(x.attrs.BoldWidth); sh.width = Math.round(((bw ?? style.bold * f) / f) * 1e4) / 1e4; }
+      // A rounded box's corner and a shadow's depth (ChemDraw's CornerRadius and ShadowSize: hundredths of the shape's
+      // line width), in bond lengths, when they are not what Octet writes for its own.
+      const f = sh.scale ?? 1, lw = real(x.attrs.LineWidth) ?? style.line;
+      const per = (k: string, unset: number) => { const v = int(x.attrs[k]); return v && v > 0 && v !== Math.round((unset * B * f * 100) / lw) ? Math.round(((v * lw) / (100 * B * f)) * 1e6) / 1e6 : undefined; };
+      const radius = kind === "rounded" ? per("CornerRadius", 0.3) : undefined, depth = sh.shadow && !sh.shade ? per("ShadowSize", SHADE.depth) : undefined;
+      if (radius !== undefined) sh.radius = Math.min(radius, 10);
+      if (depth !== undefined) sh.shade = { ...SHADE, depth: Math.min(depth, 1) };
       return;
     }
     if (type === "Orbital") {

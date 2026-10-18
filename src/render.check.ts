@@ -1,6 +1,6 @@
 // Run: node src/render.check.ts. Fails loudly if the ACS drawing rules break.
 import assert from "node:assert/strict";
-import { ALL_ARROW_KINDS, SHAPE_KINDS, arrowShapes, fitArrows, lineOffsets, markAt, placeCaptions, render, renderParts, shapeInk, spotPath, tableLayout, tlcLayout, type Arrow, type Atom, type Bond, type Box, type Caption, type Drawing, type Ink, type Mol, type PartCache, type Shape } from "./render.ts";
+import { ALL_ARROW_KINDS, SHAPE_KINDS, arrowShapes, shapePaths, fitArrows, lineOffsets, markAt, placeCaptions, render, renderParts, shapeInk, spotPath, tableLayout, tlcLayout, type Arrow, type Atom, type Bond, type Box, type Caption, type Drawing, type Ink, type Mol, type PartCache, type Shape } from "./render.ts";
 import { layoutCycles, type Cycle } from "./cycle.ts";
 
 type P = [number, number];
@@ -377,4 +377,11 @@ console.log("render.check: written labels ok");
   };
   assert.ok(Math.abs(height(12) - height() - (0.12 - 0.18) * S.bond) < 1e-6, "the lines 12% of the bond length apart, not 18%");
   console.log("render.check: turned captions and a bond's own spacing ok");
+}
+
+// REL-15: a rounded box with its own corner radius (from ChemDraw's CornerRadius) draws it; others keep 0.3 bond lengths.
+{
+  const corner = (radius?: number) => shapePaths({ id: 1, kind: "rounded", from: [0, 1], to: [4, 0], ...(radius !== undefined ? { radius } : {}) }, 10)[0][0][0];
+  assert.deepEqual([corner(), corner(0.25)], [40 - 3, 40 - 2.5]);
+  console.log("render.check: a rounded box's own corner ok");
 }

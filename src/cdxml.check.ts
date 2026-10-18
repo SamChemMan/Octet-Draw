@@ -525,3 +525,38 @@ console.log("cdxml.check: every object kind round trips");
   assert.match(toCdxml({ ...r.mol, shapes: r.mol.shapes!.map((s) => ({ ...s, width: 1.5 })) }, r.style), /RectangleType="RoundEdge Dashed"[^>]*LineWidth="1.50"/);
   console.log("cdxml.check: turned text and bold shapes ok");
 }
+
+// REL-15: a rounded box's corner and a shadow's depth (ChemDraw's CornerRadius and ShadowSize, hundredths of the
+// shape's line width: ChemDraw's CDGraphicRectangle draws ratio × line width) are kept, drawn and written back. Octet's
+// own values stay unset. Conditions are written where Octet draws them: centred over a level arrow, one above the
+// other, and their own alignment comes back in Octet.
+{
+  const chemdraw = `<CDXML BondLength="14.40" LineWidth="0.60" BoldWidth="2"><page>
+<graphic id="1" BoundingBox="100 100 160 140" GraphicType="Rectangle" RectangleType="RoundEdge Shadow" CornerRadius="600" ShadowSize="400" Center3D="130 120 0" MajorAxisEnd3D="160 120 0" MinorAxisEnd3D="130 140 0"/>
+<graphic id="2" BoundingBox="200 100 260 140" GraphicType="Rectangle" RectangleType="RoundEdge Shadow" CornerRadius="720" ShadowSize="288" Center3D="230 120 0" MajorAxisEnd3D="260 120 0" MinorAxisEnd3D="230 140 0"/>
+<graphic id="3" BoundingBox="300 100 360 140" GraphicType="Rectangle" RectangleType="RoundEdge" CornerRadius="300" LineWidth="1.20" Center3D="330 120 0" MajorAxisEnd3D="360 120 0" MinorAxisEnd3D="330 140 0"/></page></CDXML>`;
+  const r = fromCdxml(chemdraw), [own, octet, wide] = r.mol.shapes!;
+  assert.deepEqual([own.radius, Math.round(own.shade!.depth * 1e4) / 1e4, octet.radius, octet.shade, wide.radius, wide.width], [0.25, 0.1667, undefined, undefined, 0.25, 1.2]);
+  const back = toCdxml(r.mol, r.style), boxes = back.match(/<graphic\s[^>]*GraphicType="Rectangle"[^>]*>/g)!;
+  assert.match(boxes[0], /CornerRadius="600"[^>]*ShadowSize="400"/);
+  assert.match(boxes[1], /CornerRadius="720"[^>]*ShadowSize="288"/);
+  assert.match(boxes[2], /CornerRadius="300"/);
+  assert.deepEqual(parse(serialize(r.mol)).shapes!.map((s) => s.radius), [0.25, undefined, 0.25], "Octet's own file keeps the radius");
+  assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "rounded", x1: 0, y1: 0, x2: 1, y2: 1, radius: -1 }] })), /damaged/);
+
+  // Two conditions above a level arrow and one beside a steep arrow, as ChemDraw keeps them: left-justified.
+  const steps = `<CDXML BondLength="14.40" LineWidth="0.60" BoldWidth="2" CaptionSize="10"><page>
+<arrow id="10" ArrowheadHead="Full" ArrowheadType="Solid" Head3D="300 200 0" Tail3D="200 200 0"/>
+<arrow id="11" ArrowheadHead="Full" ArrowheadType="Solid" Head3D="400 300 0" Tail3D="400 200 0"/>
+<t id="12" p="210 190"><s size="10">first</s></t><t id="13" p="210 180"><s size="10">second</s></t><t id="14" p="380 250"><s size="10">steep</s></t>
+<scheme id="20"><step id="21" ReactionStepArrows="10" ReactionStepObjectsAboveArrow="12 13"/><step id="22" ReactionStepArrows="11" ReactionStepObjectsAboveArrow="14"/></scheme></page></CDXML>`;
+  const s = fromCdxml(steps), out = toCdxml(s.mol, s.style), ts = out.match(/<t\s[^>]*>/g)!;
+  assert.deepEqual(s.mol.captions!.map((c) => [c.on?.side, c.align]), [["above", "left"], ["above", "left"], ["above", "left"]]);
+  const at = (t: string) => t.match(/ p="([^"]+)"/)![1].split(" ").map(Number), just = (t: string) => t.match(/ Justification="([^"]+)"/)?.[1];
+  const [first, second, steep] = ts.map(at);
+  assert.deepEqual([first[0], second[0], ts.slice(0, 2).map(just)], [250, 250, ["Center", "Center"]], "centred over the level arrow's middle");
+  assert.ok(second[1] < first[1] - 10, "the second sits a line above the first");
+  assert.ok(steep[0] < 400 && just(ts[2]) === "Right" && Math.abs(steep[1] - 250) < 5, "ends left of the steep arrow, level with its middle");
+  assert.deepEqual(fromCdxml(out).mol.captions!.map((c) => c.align), ["left", "left", "left"], "the conditions' own alignment comes back");
+  console.log("cdxml.check: rounded corners, shadow depths and conditions as drawn ok");
+}
