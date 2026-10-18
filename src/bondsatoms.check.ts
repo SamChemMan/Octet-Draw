@@ -199,6 +199,13 @@ console.log("bondsatoms.check: hidden hydrogens ok");
   assert.deepEqual([addSymbol(point(true), 1, "attachStar").atoms[1].attach, addSymbol(point("star"), 1, "attachStar").atoms[1].attach], ["star", undefined]);
   for (const attach of [true, "diamond", "star"] as const) assert.equal(roundTrip(point(attach)).atoms[1].attach, attach);
   assert.match(toCdxml(point("diamond"), DEFAULT_STYLE), /ExternalConnectionType="Diamond"/);
+  // As ChemDraw writes one (spec: ExternalConnectionType is for nodes of type ExternalConnectionPoint): no element,
+  // no H count and no label, so ChemDraw reads no carbon there.
+  for (const [attach, type] of [[true, "Wavy"], ["diamond", "Diamond"], ["star", "Star"]] as const) {
+    const n = /<n\b[^>]*NodeType="ExternalConnectionPoint"[^>]*>/.exec(toCdxml(point(attach), DEFAULT_STYLE))?.[0] ?? "";
+    assert.match(n, new RegExp(`ExternalConnectionType="${type}"`));
+    assert.doesNotMatch(n, /Element=|NumHydrogens=|\/>\s*<t\b/, type);
+  }
   // CDXML: bars are LonePairBar symbols; angles go back exactly in Octet's files and from the symbols' places in
   // ChemDraw's.
   const moved = water({ bars: true, angles: { pair0: 90 } }), text = toCdxml(moved, DEFAULT_STYLE);

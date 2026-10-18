@@ -57,6 +57,24 @@ assert.equal(formula(onEthyl("CO2H")), "C3H6O2");
 assert.deepEqual(expandWithOrigins(onEthyl("Xx")).mol.atoms.map((a) => a.label), ["C", "C", "*"]);
 console.log("chem.check: labels ok");
 
+// An attachment point (wavy, diamond or star) is not an atom: it counts in no formula, mass or analysis, and its bond
+// still takes up its neighbour's valence. C–O–C–N–C with both ends as attachment points is CH3NO (–O–CH2–NH–).
+{
+  const chain = (ends: Partial<Mol["atoms"][number]>): Mol => ({
+    atoms: ["C", "O", "C", "N", "C"].map((label, k) => ({ label, location: [k, 0, 0] as [number, number, number], ...(k % 4 ? {} : ends) })),
+    bonds: [0, 1, 2, 3].map((k) => ({ type: 1, atoms: [k, k + 1] as [number, number] })),
+  });
+  assert.equal(formula(chain({})), "C3H9NO");
+  for (const attach of [true, "diamond", "star"] as const) {
+    const a = analyse(chain({ attach }))?.[0], s = structures(chain({ attach }))?.[0];
+    assert.equal(a?.formula, "CH3NO", String(attach));
+    assert.ok(Math.abs((a?.weight ?? 0) - 45.04) < 0.01, "its mass");
+    assert.ok(!/C 4|C 3\d/.test(s?.composition ?? ""), "its elemental analysis has one carbon: " + s?.composition);
+  }
+  assert.equal(formula(chain({ bead: true })), "CH3NO", "a polymer bead is not an atom either");
+}
+console.log("chem.check: attachment points ok");
+
 // IDEA-SCALE-7: Clean Up keeps a structure's own scale: its bonds come out at its scale (the median of its atoms'),
 // not at one bond length.
 {

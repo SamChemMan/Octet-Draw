@@ -181,6 +181,9 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
   mol.atoms.forEach((a, i) => {
     // A multi-centre point (an η ligand's) is not an atom: it and its bond are left out.
     if (a.centre) { out.atoms[i] = { ...out.atoms[i], removed: true } as Mol["atoms"][number]; return; }
+    // An attachment point (wavy, diamond or star) or a polymer bead is not an atom either, but its bond takes up its
+    // neighbour's valence: it is a pseudo-atom ("*"), which counts in no formula, mass or analysis.
+    if (a.attach || a.bead) { out.atoms[i] = { ...out.atoms[i], label: "*", text: undefined, isotope: undefined, charge: undefined }; return; }
     if (!a.text) return;
     const frag = a.chemical === false ? undefined : labelGroup(a.text);
     if (!frag?.atoms.length) { out.atoms[i] = { ...out.atoms[i], label: "*", text: undefined }; return; }
@@ -494,7 +497,7 @@ function pieces(mol: Mol): Mol[] {
   return parts;
 }
 // A structure's content as text: what its formula, masses and properties come from (not where it is drawn).
-const contentOf = (m: Mol) => JSON.stringify([m.atoms.map((a) => [a.label, a.text, a.charge, a.isotope, a.radical, a.implicitHCount, a.chemical]), m.bonds.map((b) => [b.type, b.stereo, b.atoms])]);
+const contentOf = (m: Mol) => JSON.stringify([m.atoms.map((a) => [a.label, a.text, a.charge, a.isotope, a.radical, a.implicitHCount, a.chemical, a.attach, a.bead]), m.bonds.map((b) => [b.type, b.stereo, b.atoms])]);
 // A value kept by its key, so it is worked out only once. The store is cleared when it grows large.
 function remembered<T>(store: Map<string, T>, key: string, make: () => T): T {
   if (store.has(key)) return store.get(key) as T;
