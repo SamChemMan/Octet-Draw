@@ -15,7 +15,7 @@ the picture change from system to system (`src-tauri/src/clipboard.rs`).
 | --- | --- | --- | --- |
 | Picture | PDF (vector, CDXML in it) | "PNG" and a bitmap (CF_DIB) | image/png and image/svg+xml |
 | CDX | ChemDraw's PerkinElmer and Revvity types | "ChemDraw Interchange Format" | chemical/x-cdx |
-| CDXML | com.perkinelmer.cdxml | "CDXML" | chemical/x-cdxml |
+| CDXML | com.perkinelmer.cdxml and com.revvity.cdxml | "CDXML" | chemical/x-cdxml |
 | Molfile | com.mdli.molfile (length-prefixed lines) | "MDLCT" (length-prefixed lines) | chemical/x-mdl-molfile (text) |
 | SMILES | org.opensmiles.smiles (with a NUL) | "SMILES" (with a NUL) | chemical/x-daylight-smiles (text) |
 | Octet | io.github.samchemman.octet.json | application/x-octet+json | application/x-octet+json |
