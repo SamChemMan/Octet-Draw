@@ -35,6 +35,9 @@ async function png(svg: string, scale: number): Promise<string> {
   return canvas.toDataURL("image/png");
 }
 
+// While a handle or a panel's header is dragged, the closed hand shows everywhere (editor.css).
+export const grabbing = (on: boolean) => void document.documentElement.toggleAttribute("data-grabbing", on);
+
 // A CSS cursor value, or "default" if drawing it fails.
 export const selectCursor: Promise<string> = (async () => {
   const ink = lightInk(), d = glyphPaths();

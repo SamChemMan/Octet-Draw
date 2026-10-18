@@ -54,7 +54,7 @@ import {
   type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
 import { arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
-import { rotateCursor, selectCursor } from "./cursor";
+import { grabbing, rotateCursor, selectCursor } from "./cursor";
 import { loadNames, nameToSmiles, suggestName } from "./names";
 import { checkedName, graphOf, setNamer } from "./naming";
 import { iupacName } from "./namer";
@@ -66,6 +66,7 @@ import { common, edited, lines as richLines, normalise, plainOf, runsOf, styleRa
 import { RichBox, type RichApi } from "./RichBox";
 import { Dialog } from "./Dialog";
 import { NoticeBar, type Notice } from "./NoticeBar";
+import { Exit, reduced, timing } from "./motion";
 import { Tooltips } from "./Tooltip";
 import { failure, fileName, type NoticeKind } from "./notice";
 import "./editor.css";
@@ -436,6 +437,8 @@ export default function Editor() {
   useEffect(() => { selectCursor.then(setCursor); }, []);
   const [turnCursor, setTurnCursor] = useState<string>();
   useEffect(() => { rotateCursor.then(setTurnCursor); }, []);
+  // A handle dragged shows the closed hand.
+  useEffect(() => { if (drag?.kind !== "handle") return; grabbing(true); return () => grabbing(false); }, [drag?.kind]);
   const hold = useRef<number>(undefined);
   const svg = useRef<SVGSVGElement>(null);
   const pointer = useRef<P>(undefined);
@@ -948,15 +951,15 @@ export default function Editor() {
     ...Object.fromEntries([8, 9, 10, 12, 14, 18, 24].map((pt) => [`size_${pt}`, () => restyle(() => ({ size: pt === style.captionSize ? undefined : pt }))])),
     zoom_fit: () => {
       const b = bounds(doc);
-      if (!b) return setView({ x: innerWidth / 2, y: innerHeight / 2, zoom: OPEN_ZOOM / frame.k });
+      if (!b) return moveView({ x: innerWidth / 2, y: innerHeight / 2, zoom: OPEN_ZOOM / frame.k });
       const free = [innerWidth - 160, innerHeight - 120], size = [(b[2] - b[0] + 1) * L, (b[3] - b[1] + 1) * L];
       const zoom = Math.min(8, Math.max(0.25, Math.min(free[0] / size[0], free[1] / size[1])));
-      setView({ zoom, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * L * zoom, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * L * zoom });
+      moveView({ zoom, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * L * zoom, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * L * zoom });
     },
   };
   function zoomTo(target: number) {
     const view = views.get(), zoom = Math.min(8, Math.max(0.25, target)), k = zoom / view.zoom, cx = innerWidth / 2, cy = innerHeight / 2;
-    setView({ zoom, x: cx - (cx - view.x) * k, y: cy - (cy - view.y) * k });
+    moveView({ zoom, x: cx - (cx - view.x) * k, y: cy - (cy - view.y) * k });
   }
   // Keep the setting on disk and the View menu ticks in step with it.
   const syncChecks = () => Promise.all([["snap", settings.snap], ["warnings", settings.warnings]].map(([id, checked]) => invoke("set_check", { id, checked }))).catch(() => {});
@@ -1106,22 +1109,29 @@ export default function Editor() {
       </div>
     );
   }, [sample, frame, measure, style, pt, paper]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Moves the view smoothly (or at once, with reduced motion).
-  const flight = useRef<number>(undefined);
-  function flyTo(to: { x: number; y: number; zoom: number }) {
-    cancelAnimationFrame(flight.current!);
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return setView(to);
-    const from = views.get(), t0 = performance.now(), duration = 320;
-    const step = (now: number) => {
-      const t = Math.min(1, (now - t0) / duration), e = t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2;
-      setView({ zoom: from.zoom * (to.zoom / from.zoom) ** e, x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e });
-      if (t < 1) flight.current = requestAnimationFrame(step);
-    };
-    flight.current = requestAnimationFrame(step);
+  // Every view change Octet makes (Fit to window, Actual size, the zoom keys, a click on a page's edge, a panel that
+  // would cover the structure) moves the camera the same way: the view is set once, and the drawing glides there from
+  // where it is as a CSS transform on its group (motion token), so nothing draws again on the way. A new move starts
+  // from where the last one has got to; a scroll, pinch or press ends it. Instant with reduced motion.
+  const camera = useRef<SVGGElement>(null);
+  const paperGrid = (v: View) => {
+    const big = 5 * mm * L * v.zoom, small = mm * L * v.zoom;
+    return { backgroundSize: `${big}px ${big}px, ${big}px ${big}px, ${small}px ${small}px, ${small}px ${small}px`, backgroundPosition: `${v.x}px ${v.y}px` };
+  };
+  const stopCamera = () => { for (const el of [camera.current, svg.current]) el?.getAnimations().forEach((a) => a.cancel()); };
+  function moveView(to: View) {
+    const g = camera.current, now = g && getComputedStyle(g).transform;
+    const m = now && now !== "none" ? new DOMMatrix(now) : undefined, from: View = m ? { x: m.e, y: m.f, zoom: m.a } : views.get();
+    stopCamera();
+    setView(to);
+    if (!g || reduced() || (from.x === to.x && from.y === to.y && from.zoom === to.zoom)) return;
+    const at = (v: View) => ({ transform: `translate(${v.x}px, ${v.y}px) scale(${v.zoom})` });
+    g.animate([at(from), at(to)], timing());
+    if (paper === "blueprint") svg.current?.animate([paperGrid(from), paperGrid(to)], timing());
   }
   // A click on a page's edge fits that page in the window, centred.
   const fitPage = ([, w, h]: [string, number, number]) =>
-    flyTo({ x: innerWidth / 2, y: innerHeight / 2, zoom: Math.min((innerWidth - 160) / (w * mm * L), (innerHeight - 48) / (h * mm * L)) });
+    moveView({ x: innerWidth / 2, y: innerHeight / 2, zoom: Math.min((innerWidth - 160) / (w * mm * L), (innerHeight - 48) / (h * mm * L)) });
   // The structure for the name being typed, drawn faintly where it will land.
   // A suggestion when the text is not a name: from the common names straight away, or (after a pause in typing)
   // from every name one keystroke away.
@@ -1788,6 +1798,7 @@ export default function Editor() {
   const corners = (sh: Shape): Record<"from" | "to" | "c1" | "c2", P> => ({ from: sh.from, to: sh.to, c1: [sh.from[0], sh.to[1]], c2: [sh.to[0], sh.from[1]] });
 
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
+    stopCamera(); // what is drawn is where the press lands
     if (e.button !== 0) return;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* the pointer is already gone */ }
     const p = toDoc(e.clientX, e.clientY), t = hit(p), screen: [number, number] = [e.clientX, e.clientY];
@@ -2336,7 +2347,7 @@ export default function Editor() {
     const low = Math.min(...[...new Set(nmr.toDoc)].map((i) => pos(doc, i)[1]));
     if (!panel || !box || !Number.isFinite(low)) return;
     const view = views.get(), over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
-    if (over > 0) setView((v) => ({ ...v, y: v.y - over }));
+    if (over > 0) moveView({ ...view, y: view.y - over });
   }, [spectrum, !!nmr?.prediction, settings.nmrDetails]); // eslint-disable-line react-hooks/exhaustive-deps
   // Properties opens along the bottom too, and scrolls the canvas the same way so its structures stay in view.
   useEffect(() => {
@@ -2345,7 +2356,7 @@ export default function Editor() {
     const atoms = selection.size ? [...selection] : doc.atoms.map((_, i) => i), low = Math.min(...atoms.filter((i) => i < doc.atoms.length).map((i) => pos(doc, i)[1]));
     if (!panel || !box || !Number.isFinite(low)) return;
     const view = views.get(), over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
-    if (over > 0) setView((v) => ({ ...v, y: v.y - over }));
+    if (over > 0) moveView({ ...view, y: view.y - over });
   }, [settings.properties]); // eslint-disable-line react-hooks/exhaustive-deps
   for (const s of nmr?.prediction?.signals ?? []) for (const d of new Set(s.atoms.map((k) => nmr!.toDoc[k]))) { nmrShifts.set(d, [...(nmrShifts.get(d) ?? []), s.shift]); nmrQuality.set(d, quality(s, spectrum!)); }
   // Where each predicted shift goes on the canvas (px): in a gap between the atom's bonds, out of its rings (or away
@@ -2980,6 +2991,17 @@ export default function Editor() {
     if (tool === "select") setSelection(new Set(atomsOf(doc, t)));
   }
 
+  // A ring or template dragged from the toolbar and let go on the canvas is the tool in hand now (Palette), and goes in
+  // there as a click with it would put it: fused onto a bond or joined to an atom under the point, else at the point.
+  // The click waits for the render that has the new tool.
+  const [dropAt, setDropAt] = useState<[number, number]>();
+  useEffect(() => {
+    if (!dropAt) return;
+    setDropAt(undefined);
+    const at = toDoc(...dropAt);
+    click(hit(at), at);
+  }, [dropAt]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function onPointerUp() {
     stopHold();
     if (spring) { setTool(spring); setSpring(undefined); }
@@ -3079,6 +3101,7 @@ export default function Editor() {
     let stop: number | undefined;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      stopCamera();
       const zooming = e.ctrlKey || e.metaKey;
       setView((v) => {
         if (!zooming) return { ...v, x: v.x - e.deltaX, y: v.y - e.deltaY };
@@ -3341,7 +3364,7 @@ export default function Editor() {
   if (wasHome !== home) { setWasHome(home); setHomeLeaving(wasHome); }
   useEffect(() => {
     if (!homeLeaving) return;
-    const t = setTimeout(() => setHomeLeaving(false), 180);
+    const t = setTimeout(() => setHomeLeaving(false), timing().duration); // Home's exit (editor.css, home-out)
     return () => clearTimeout(t);
   }, [homeLeaving]);
 
@@ -3586,7 +3609,7 @@ export default function Editor() {
           ...((edgeHover && !drag) || drag?.kind === "tableedge" ? { cursor: (drag?.kind === "tableedge" ? drag.axis : edgeHover) === "col" ? "col-resize" : "row-resize" } : {}),
           ...(darkPaper ? { "--ink": "#FFFFFF" } : {}),
           // Engineering paper: a 1 mm grid with a heavier line every 5 mm, fixed to the page as it moves and zooms.
-          ...(paper === "blueprint" ? { backgroundSize: `${5 * mm * L * view.zoom}px ${5 * mm * L * view.zoom}px, ${5 * mm * L * view.zoom}px ${5 * mm * L * view.zoom}px, ${mm * L * view.zoom}px ${mm * L * view.zoom}px, ${mm * L * view.zoom}px ${mm * L * view.zoom}px`, backgroundPosition: `${view.x}px ${view.y}px` } : {}),
+          ...(paper === "blueprint" ? paperGrid(view) : {}),
         } as React.CSSProperties}
         role="img"
         aria-label="Drawing canvas"
@@ -3626,7 +3649,7 @@ export default function Editor() {
           else if (tool === "select" && t.atom !== undefined) editLabel(t.atom);
         }}
       >
-        <g transform={`translate(${view.x} ${view.y}) scale(${view.zoom})`}>
+        <g ref={camera} transform={`translate(${view.x} ${view.y}) scale(${view.zoom})`}>
           {/* Page corners: small marks where an A4, A3 and A2 page would end. Not part of the drawing. */}
           <g className="pages" aria-hidden>
             {gridLines}
@@ -3858,7 +3881,7 @@ export default function Editor() {
           />
         );
       }}</Live>}
-      {naming !== undefined && suggestion && !nameToSmiles(naming) && (() => {
+      <Exit>{naming !== undefined && suggestion && !nameToSmiles(naming) && (() => {
         // The suggested name under the field, with the letters it adds or changes marked. Tab takes it.
         const typed = naming.trim().toLowerCase(), name = suggestion;
         let a = 0, b = 0;
@@ -3870,8 +3893,8 @@ export default function Editor() {
             <kbd>Tab</kbd>
           </p>
         );
-      })()}
-      {naming !== undefined && (historyRows.length > 0) && (
+      })()}</Exit>
+      <Exit>{naming !== undefined && (historyRows.length > 0) && (
         // Names drawn before, newest first, matching what is typed. The field keeps focus while a row is clicked.
         <div className={["name-history", suggestion && !nameToSmiles(naming) && "below", recent.all && "all"].filter(Boolean).join(" ")} role="listbox" aria-label="Recent names" onPointerDown={(e) => e.preventDefault()}>
           {historyRows.map((entry, i) => {
@@ -3893,8 +3916,8 @@ export default function Editor() {
             </div>
           )}
         </div>
-      )}
-      {naming !== undefined && (
+      )}</Exit>
+      <Exit>{naming !== undefined && (
         <input
           ref={nameField}
           className="name-field"
@@ -3918,13 +3941,13 @@ export default function Editor() {
             if (recent.at >= 0 && historyRows[recent.at] !== undefined) return void pickHistory(historyRows[recent.at]);
             if (named) { place(named); rememberName(structureFor(naming.trim()) ? naming.trim() : suggestion ?? naming.trim(), named); setNaming(undefined); return; }
             // Not a name Octet can read: the field shakes.
-            if (!matchMedia("(prefers-reduced-motion: reduce)").matches)
-              e.currentTarget.animate([{ transform: "translateX(0)" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "translateX(0)" }], { duration: 240, easing: "ease-out" });
+            if (!reduced())
+              e.currentTarget.animate([{ transform: "translateX(0)" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "translateX(0)" }], timing("--motion-slow"));
           }}
           onBlur={() => setNaming(undefined)}
         />
-      )}
-      {settingsOpen && (
+      )}</Exit>
+      <Exit>{settingsOpen && (
         <SettingsWindow
           module={settingsOpen}
           onModule={(m) => { setSettingsOpen(m); setSettings((s) => ({ ...s, settingsModule: m })); }}
@@ -3947,7 +3970,7 @@ export default function Editor() {
           adding={addingColour}
           onClose={() => { setSettingsOpen(undefined); setAddingColour(false); }}
         />
-      )}
+      )}</Exit>
       {pop && <span key={pop.n} className="halo" style={{ left: pop.x, top: pop.y }} aria-hidden />}
 
       <Palette
@@ -3986,13 +4009,14 @@ export default function Editor() {
         onVariant={(t, kind) => setSettings((s) => ({ ...s, variants: { ...s.variants, [t]: kind } }))}
         onUndo={() => undo()}
         onRedo={() => undo(true)}
+        onDrop={(x, y) => setDropAt([x, y])}
         wide={settings.paletteWide}
         onWide={(wide) => setSettings((s) => ({ ...s, paletteWide: wide }))}
         stripWidths={settings.strips}
         onStripWidth={(t, width) => setSettings((s) => ({ ...s, strips: { ...s.strips, [t]: width } }))}
       />
 
-      {spectrum && <Live store={hovers}>{(hover) => (
+      <Exit>{spectrum && <Live store={hovers}>{(hover) => (
         <SpectrumPanel
           prediction={nmr?.prediction}
           nucleus={spectrum}
@@ -4021,8 +4045,8 @@ export default function Editor() {
           onKey={addKey}
           onSolventPeaks={(on) => setSettings((s) => ({ ...s, nmrSolventPeaks: on }))}
         />
-      )}</Live>}
-      {settings.properties && properties && (
+      )}</Live>}</Exit>
+      <Exit>{settings.properties && properties && (
         <Properties
           values={properties.values}
           chosen={settings.propertyRows}
@@ -4032,7 +4056,7 @@ export default function Editor() {
           onClose={() => setSettings((s) => ({ ...s, properties: false }))}
           stacked={!!spectrum}
         />
-      )}
+      )}</Exit>
       <Live store={carets}>{() => {
         const context = panelContext ?? contextOf();
         return (
@@ -4056,7 +4080,7 @@ export default function Editor() {
           />
         );
       }}</Live>
-      {dialog?.kind === "rotate" && (
+      <Exit>{dialog?.kind === "rotate" && (
         <Dialog title="Rotate" action="Rotate" onClose={() => setDialog(undefined)}
           onAction={() => { const a = Number(dialog.angle); if (Number.isFinite(a)) rotateBy(dialog.clockwise ? -a : a); setDialog(undefined); }}>
           <label className="dialog-row">
@@ -4068,28 +4092,28 @@ export default function Editor() {
             <button role="radio" aria-checked={dialog.clockwise} onClick={() => setDialog({ ...dialog, clockwise: true })}>Clockwise</button>
           </span>
         </Dialog>
-      )}
+      )}</Exit>
       {(home || homeLeaving) && (homeKind.current === "name"
         ? <NameBox leaving={!home} onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone) startTutorial(); }} />
         : <Home leaving={!home} name={settings.userName ?? ""} first={welcomed} away={away} recents={recents} newKey={keyLabel("enter")} openKey={hint("open")}
             onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent} onStarter={(text) => keepWork(() => load(undefined, text))}
             onRemove={(r) => void invoke("recent_remove", { path: r.path }).then(refreshRecents).catch(() => {})} />)}
-      {coach > 0 && !home && (
+      <Exit>{coach > 0 && !home && (
         <Coach key={coach} doc={doc} selected={selection.size} seen={seen} keys={{ clean: hint("clean_up") ?? "", copy: keyLabel("mod+c") }} low={naming !== undefined}
           onTool={setCoachTool} onSkip={() => setCoach(0)} onFinish={() => { setCoach(0); set(EMPTY); setFile({ saved: EMPTY }); }} />
-      )}
-      {dialog?.kind === "unsaved" && (
+      )}</Exit>
+      <Exit>{dialog?.kind === "unsaved" && (
         <Dialog title={`Save changes to “${name}”?`} action="Save" onClose={() => setDialog(undefined)}
           alt={{ label: "Don’t Save", onClick: () => { const d = dialog; setDialog(undefined); d.next(); } }}
           onAction={() => { const d = dialog; setDialog(undefined); void save(false).then((ok) => { if (ok) d.next(); }); }}>
           <p className="dialog-note">If you do not save, your changes are lost.</p>
         </Dialog>
-      )}
-      {about && <About onClose={() => setAbout(false)} />}
-      {feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={(e) => setNotice(failure("Octet cannot make your feedback.", e))}
-        onSent={() => { setFeedback(undefined); setNotice("Your feedback is ready to send in your mail app.", "done"); }} />}
+      )}</Exit>
+      <Exit>{about && <About onClose={() => setAbout(false)} />}</Exit>
+      <Exit>{feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={(e) => setNotice(failure("Octet cannot make your feedback.", e))}
+        onSent={() => { setFeedback(undefined); setNotice("Your feedback is ready to send in your mail app.", "done"); }} />}</Exit>
       <ExportButton hint={platformLabel(EXPORT_KEYS)} onQuick={() => void quickExport()} onExport={openExport} />
-      {exportView && (
+      <Exit>{exportView && (
         <ExportDialog prefs={settings.files} onPrefs={(p) => setSettings((s) => ({ ...s, files: { ...s.files, ...p } }))} pictures={exportView}
           chemistry={(part) => {
             // The chosen format is made now, so the dialog says at once when it cannot be. The others are offered
@@ -4101,8 +4125,8 @@ export default function Editor() {
             return has;
           }}
           onExport={(part) => void exportPart(part)} onClose={() => setExportView(undefined)} />
-      )}
-      {dialog?.kind === "atom" && (
+      )}</Exit>
+      <Exit>{dialog?.kind === "atom" && (
         <Dialog title="Atom Properties" action="Apply" onClose={() => setDialog(undefined)}
           onAction={() => {
             const d = dialog, a = doc.atoms[d.atom];
@@ -4120,8 +4144,8 @@ export default function Editor() {
             <Select label="Radical" value={dialog.radical} options={[["0", "None"], ["1", "Doublet (•)"], ["2", "Triplet (••)"], ["3", "Singlet (:)"]]} onChange={(v) => setDialog({ ...dialog, radical: v })} />
           </label>
         </Dialog>
-      )}
-      {dialog?.kind === "scale" && (
+      )}</Exit>
+      <Exit>{dialog?.kind === "scale" && (
         <Dialog title="Scale" action="Scale" onClose={() => setDialog(undefined)}
           onAction={() => {
             const v = Number(dialog.value), median = medianBond();
@@ -4139,9 +4163,9 @@ export default function Editor() {
             </label>
           ))}
         </Dialog>
-      )}
+      )}</Exit>
       {commandsOpen && <CommandPalette commands={paletteCommands()} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}
-      {notice && <NoticeBar notice={notice} onGone={() => showNotice(undefined)} />}
+      <Exit>{notice && <NoticeBar notice={notice} onGone={() => showNotice(undefined)} />}</Exit>
       <Tooltips />
     </div>
   );

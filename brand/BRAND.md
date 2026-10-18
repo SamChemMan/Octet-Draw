@@ -66,7 +66,9 @@ Why Instrument Sans: it is a clean, precise grotesque with the polish of San Fra
 - Controls use `radius-sm` (6px). Buttons and popovers `radius-md`. Panels and dialogs `radius-lg`.
 - One elevation only: `shadow-float`, for floating palettes and menus. Panels sit flat, divided by `hairline`.
 - Every control shows `shadow-focus` on keyboard focus.
-- Motion is short and soft: 150–200ms ease-out fades and slides. No bounce, no spring overshoot.
+- Motion is short and soft: 150–200ms ease-out fades and slides. No bounce, no spring overshoot. Use the motion
+  tokens (`motion-fast`, `motion`, `motion-slow`, `ease-out`), never a duration or curve typed by hand. Whatever
+  opens with a motion closes with one, a little faster.
   One exception, from Sam (16 October 2026): dragging an option onto the toolbar. The item settles into
   its slot and the other icons ripple a 2px bounce. It gives toolbar customising some character; it
   never touches the drawing. Reduced motion turns it off.

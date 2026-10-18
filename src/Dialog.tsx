@@ -3,6 +3,7 @@
 // Save). Every dialog uses it (brand/CLAUDE.md). With no action it only shows something (About Octet): one Close
 // button, which Return presses too. plain: the body carries its own heading, so the title is only read out.
 import { useEffect, useLayoutEffect, useRef } from "react";
+import { useLeaving } from "./motion";
 
 // While a modal (a dialog, Settings, the command palette or Home) is open, everything beside it in the window is
 // inert: Tab, clicks and screen readers stay in it, and a modal over Home blocks Home too. A layout effect, so a modal
@@ -23,12 +24,14 @@ export function useModal(ref: React.RefObject<HTMLElement | null>, on = true) {
 type Props = { title: string; action?: string; onAction?: () => void; onClose: () => void; plain?: boolean; disabled?: boolean; alt?: { label: string; onClick: () => void }; children: React.ReactNode };
 
 export function Dialog({ title, action, onClose, onAction = onClose, plain, disabled, alt, children }: Props) {
-  const card = useRef<HTMLDivElement>(null), backdrop = useRef<HTMLDivElement>(null);
-  useModal(backdrop);
+  // Leaving (motion.tsx, Exit), it gives the window back at once and takes no keys.
+  const card = useRef<HTMLDivElement>(null), backdrop = useRef<HTMLDivElement>(null), leaving = useLeaving();
+  useModal(backdrop, !leaving);
   useEffect(() => {
     card.current?.querySelector<HTMLElement>("textarea, input, select, .dialog-button.primary")?.focus();
   }, []);
   useEffect(() => {
+    if (leaving) return;
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); }
       // Return in a text area makes a new line; ⌘Return (Ctrl+Enter) sends.
@@ -36,10 +39,10 @@ export function Dialog({ title, action, onClose, onAction = onClose, plain, disa
     };
     addEventListener("keydown", key, true);
     return () => removeEventListener("keydown", key, true);
-  }, [onAction, onClose, disabled]);
+  }, [onAction, onClose, disabled, leaving]);
   return (
-    <div ref={backdrop} className="modal-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div ref={card} className="dialog" role="dialog" aria-modal="true" aria-label={title}>
+    <div ref={backdrop} className={leaving ? "modal-backdrop leaving" : "modal-backdrop"} inert={leaving} onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div ref={card} className="dialog" role="dialog" aria-modal={!leaving} aria-label={title}>
         {!plain && <h2>{title}</h2>}
         <div className="dialog-body">{children}</div>
         <div className="dialog-buttons">

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowsDownUp, CaretDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, Plus, X } from "@phosphor-icons/react";
 import { ColourPicker } from "./ColourPicker";
 import { useModal } from "./Dialog";
+import { Exit, useLeaving } from "./motion";
 import { Select } from "./Select";
 import type { Swatch } from "./settings";
 import type { ExportFormat } from "./export";
@@ -155,7 +156,7 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
         <span>{PAGE_NAMES[style.page]}</span>
         <CaretDown size={11} aria-hidden />
       </button>
-      {open && place && (
+      <Exit>{open && place && (
         <div ref={menu} className={place.above ? "page-menu above" : "page-menu"} role="dialog" aria-label="Page size" style={{ left: place.left, top: place.top, width }}>
           <div className="page-options" role="radiogroup" aria-label="Page sizes">
             {names.map((n) => {
@@ -194,7 +195,7 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
             }}
           />
         </div>
-      )}
+      )}</Exit>
     </>
   );
 }
@@ -274,8 +275,8 @@ function KeyChips({ id, map, recording, onRecord, onRemove }: { id: string; map:
 
 export function SettingsWindow(p: Props) {
   const [query, setQuery] = useState("");
-  const search = useRef<HTMLInputElement>(null), backdrop = useRef<HTMLDivElement>(null);
-  useModal(backdrop);
+  const search = useRef<HTMLInputElement>(null), backdrop = useRef<HTMLDivElement>(null), leaving = useLeaving();
+  useModal(backdrop, !leaving);
   const [recording, setRecording] = useState<{ id: string; index: number }>();
   const [note, setNote] = useState<{ id: string; text: string; undo: Keymap }>();
   const map = keymap(p.keys);
@@ -284,6 +285,7 @@ export function SettingsWindow(p: Props) {
 
   // Escape: stops recording a key, then clears the search, then closes the window. ⌘F goes to the search.
   useEffect(() => {
+    if (leaving) return;
     const key = (e: KeyboardEvent) => {
       if (recording) {
         e.preventDefault();
@@ -311,7 +313,7 @@ export function SettingsWindow(p: Props) {
     };
     addEventListener("keydown", key, true);
     return () => removeEventListener("keydown", key, true);
-  }, [recording, query, map, p]);
+  }, [recording, query, map, p, leaving]);
   useEffect(() => { search.current?.focus(); }, []);
 
   const fontOptions = FONTS.map((f): [string, string] => [f, f]);
@@ -429,8 +431,8 @@ export function SettingsWindow(p: Props) {
   };
 
   return (
-    <div ref={backdrop} className="modal-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) p.onClose(); }}>
-      <div className="settings-window" role="dialog" aria-modal="true" aria-label="Settings">
+    <div ref={backdrop} className={leaving ? "modal-backdrop leaving" : "modal-backdrop"} inert={leaving} onPointerDown={(e) => { if (e.target === e.currentTarget) p.onClose(); }}>
+      <div className="settings-window" role="dialog" aria-modal={!leaving} aria-label="Settings">
         <nav className="settings-sidebar" aria-label="Settings modules">
           <label className="settings-search">
             <MagnifyingGlass size={14} aria-hidden />

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { DownloadSimple, Export as ExportIcon, ImageSquare } from "@phosphor-icons/react";
 import { Dialog } from "./Dialog";
 import { Menu } from "./Menu";
+import { Exit } from "./motion";
 import { Select } from "./Select";
 import { withMargin, type ExportFormat } from "./export";
 import { DPIS, type FilePrefs } from "./SettingsWindow";
@@ -26,11 +27,11 @@ export function ExportButton({ onQuick, onExport, hint }: { onQuick: () => void;
         <ExportIcon size={16} aria-hidden />
         Export
       </button>
-      {open && (
+      <Exit>{open && (
         <Menu label="Export" className="export-menu" columns={1}
           groups={[[{ key: "quick", name: "Quick export as PNG", icon: <ImageSquare size={18} /> }, { key: "export", name: "Export…", icon: <DownloadSimple size={18} /> }]]}
           onChoose={(key) => { setOpen(false); if (key === "quick") onQuick(); else onExport(); }} />
-      )}
+      )}</Exit>
     </div>
   );
 }

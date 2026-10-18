@@ -4,6 +4,7 @@
 // shape across its styles, say) start on a new row under a hairline. A menu taller than the window scrolls.
 // Do not build another menu: extend this one.
 import { useLayoutEffect, useRef, useState } from "react";
+import { useLeaving } from "./motion";
 
 export type MenuItem = {
   key: string;
@@ -44,7 +45,7 @@ export function Menu(p: Props) {
   const most = Math.max(...p.groups.map((g) => g.length), 1);
   const columns = live === undefined ? p.columns : Math.max(1, Math.min(most, Math.floor((live - 2 * PAD - 2 + GAP) / (CELL + GAP))));
   // A menu that would run off the bottom of the window moves up until it fits (never above the top).
-  const box = useRef<HTMLDivElement>(null), [shift, setShift] = useState(0);
+  const box = useRef<HTMLDivElement>(null), [shift, setShift] = useState(0), leaving = useLeaving();
   useLayoutEffect(() => {
     const r = box.current?.getBoundingClientRect();
     if (!r) return;
@@ -52,7 +53,7 @@ export function Menu(p: Props) {
     if (Math.abs(next - shift) > 0.5) setShift(next);
   });
   return (
-    <div ref={box} className={["strip", live !== undefined && "resizing", p.className].filter(Boolean).join(" ")} data-tool={p.tool} role="menu" aria-label={p.label}
+    <div ref={box} className={["strip", live !== undefined && "resizing", p.className, leaving && "leaving"].filter(Boolean).join(" ")} data-tool={p.tool} role="menu" aria-label={p.label} inert={leaving}
       style={{ ...p.style, width: live ?? menuWidth(columns), marginTop: shift, "--columns": columns } as React.CSSProperties}>
       <div className="menu-body">
       {p.groups.filter((g) => g.length).map((g, i) => (

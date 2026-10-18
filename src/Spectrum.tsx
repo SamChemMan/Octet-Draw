@@ -7,6 +7,7 @@ import { ArrowsIn, ArrowsOut, CopySimple, X } from "@phosphor-icons/react";
 import { acsText, detailsTable, multiplicity, quality, type Nucleus, type Prediction, type Signal } from "./nmr";
 import { Select } from "./Select";
 import { useMovable } from "./movable";
+import { useLeaving } from "./motion";
 
 export const SOLVENTS = ["CDCl₃", "DMSO-d₆", "CD₃OD", "D₂O", "C₆D₆", "Acetone-d₆", "CD₃CN"];
 const FIELDS = [60, 80, 90, 200, 300, 400, 500, 600, 700, 800];
@@ -112,7 +113,7 @@ export function SpectrumPanel(p: Props) {
   const [chosen, setChosen] = useState<number>(); // the peak clicked, to colour
   useLayoutEffect(() => setChosen(undefined), [p.nucleus, p.prediction]);
   const drag = useRef<{ from: number; range: [number, number]; moved: boolean }>(undefined);
-  const move = useMovable("spectrum", expanded); // full screen stays put
+  const move = useMovable("spectrum", expanded), leaving = useLeaving(); // full screen stays put
   const anyColour = p.colours.some(Boolean);
 
   // The trace: ¹H as Lorentzian lines summed at each pixel (at least a pixel and a half wide, so narrow lines show
@@ -160,7 +161,7 @@ export function SpectrumPanel(p: Props) {
   };
 
   return (
-    <section className={expanded ? "spectrum expanded" : "spectrum"} aria-label="Spectrum" style={move.style}>
+    <section className={["spectrum", expanded && "expanded", leaving && "leaving"].filter(Boolean).join(" ")} aria-label="Spectrum" style={move.style} inert={leaving}>
       <header onPointerDown={move.onPointerDown}>
         {/* The controls wrap onto a second row in a narrow window; Full screen and Close stay at the top right. */}
         <div className="spectrum-controls">

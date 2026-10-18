@@ -7,6 +7,7 @@ import type { Structure } from "./chem";
 import type { Graph } from "./naming";
 import { elementalAnalysis, isotopePattern } from "./mass";
 import { useMovable } from "./movable";
+import { useLeaving } from "./motion";
 
 // What Octet's own calculators (props.ts) give for a structure.
 export type Calculated = {
@@ -63,9 +64,9 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
   const groups = useMemo(() => values.filter((g) => g.length), [values]);
   // It opens where the Spectrum opens, along the bottom (above the Spectrum when that is open too), and moves by its
   // header.
-  const move = useMovable("properties");
+  const move = useMovable("properties"), leaving = useLeaving();
   return (
-    <section className={stacked ? "properties stacked" : "properties"} aria-label="Properties" style={move.style}>
+    <section className={["properties", stacked && "stacked", leaving && "leaving"].filter(Boolean).join(" ")} aria-label="Properties" style={move.style} inert={leaving}>
       <header onPointerDown={move.onPointerDown}>
         <h2>Properties</h2>
         <button className="actions-close" onClick={onClose} aria-label="Hide properties" data-tip="Hide properties"><X size={14} /></button>

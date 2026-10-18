@@ -138,6 +138,12 @@
   --caption-font: Arial, Helvetica, sans-serif;
   --caption-size: 10pt;
   --arrow-head: 6pt;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --motion-fast: 150ms;
+  --motion: 180ms;
+  --motion-slow: 200ms;
+  --ease-drop: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --motion-drop: 260ms;
 }
 
 .text-display { font-family: var(--font-sans); font-size: 64px; line-height: 64px; font-weight: 600; letter-spacing: -0.035em; }

@@ -13,6 +13,7 @@ import {
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
 import { Menu } from "./Menu";
+import { Exit } from "./motion";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
 import { invoke } from "@tauri-apps/api/core";
@@ -98,7 +99,7 @@ function PickButton({ label, value, options, onPick }: { label: string; value: s
         <span className="pick-label" aria-hidden>{label}</span>
         {current.glyph}
       </button>
-      {open && (
+      <Exit>{open && (
         <div className="size-menu pick-menu" role="menu" aria-label={label} style={place()}>
           {options.map((o) => (
             <button key={o.id} role="menuitemradio" aria-checked={o.id === value} onClick={() => { setOpen(false); if (o.id !== value) onPick(o.id); }}>
@@ -106,7 +107,7 @@ function PickButton({ label, value, options, onPick }: { label: string; value: s
             </button>
           ))}
         </div>
-      )}
+      )}</Exit>
     </div>
   );
 }
@@ -153,7 +154,7 @@ function FontButton({ font, fonts, run }: { font: string; fonts: string[]; run: 
         <span className="font-name">{font}</span>
         <CaretDown size={12} aria-hidden />
       </button>
-      {open && (() => {
+      <Exit>{open && (() => {
         const pick = (f: string) => { show(false); if (f !== font) run(`caption.font.${f}`); };
         const item = (f: string) => <button key={f} role="menuitemradio" aria-checked={f === font} style={{ fontFamily: fontStack(f) }} onClick={() => pick(f)}>{f}</button>;
         const shortList = fonts.includes(font) ? fonts : [font, ...fonts];
@@ -175,7 +176,7 @@ function FontButton({ font, fonts, run }: { font: string; fonts: string[]; run: 
             )}
           </div>
         );
-      })()}
+      })()}</Exit>
     </div>
   );
 }
@@ -231,7 +232,7 @@ function SizeButton({ size, run }: { size: number; run: (command: string) => voi
           <CaretDown size={12} aria-hidden />
         </button>
       )}
-      {open && (
+      <Exit>{open && (
         <div className="size-menu" role="menu" aria-label="Size" style={dropStyle(box.current, SIZES.length)}>
           {SIZES.map((pt) => (
             <button key={pt} role="menuitemradio" aria-checked={pt === size} onClick={() => { setOpen(false); if (pt !== size) run(`caption.size.${pt}`); }}>
@@ -239,7 +240,7 @@ function SizeButton({ size, run }: { size: number; run: (command: string) => voi
             </button>
           ))}
         </div>
-      )}
+      )}</Exit>
     </div>
   );
 }
@@ -874,7 +875,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           ))}
         </div>
       )}
-      {menus && sub && (() => {
+      <Exit>{menus && sub && (() => {
         const list = sets.find(([s]) => s === sub.set)?.[1];
         if (!list) return null;
         const groups = sub.set === "more" ? MORE_GROUPS.map((k) => list.filter((i) => kindOf(i.command) === k)) : [list];
@@ -885,7 +886,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
               onChoose={(command) => { setSub(undefined); run(command); }} />
           </div>
         );
-      })()}
+      })()}</Exit>
 
       {((!menus && sets.length > 0) || carry) && (
         <div className={carry && !carry.to?.rows && carry.to ? "tray receiving" : "tray"} role="toolbar" aria-label="More actions">

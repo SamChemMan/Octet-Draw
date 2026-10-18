@@ -7,6 +7,7 @@ import { CheckCircle } from "@phosphor-icons/react";
 import { rings } from "./rings";
 import type { Mol } from "./render";
 import type { Tool } from "./tools";
+import { useLeaving } from "./motion";
 
 // Counts of what the editor saw happen: a selection area finished, a selection moved, Clean up, Copy.
 export type Seen = { select: number; move: number; clean: number; copy: number };
@@ -33,7 +34,7 @@ type Props = Now & { keys: { clean: string; copy: string }; low?: boolean; onToo
 export function Coach({ doc, selected, seen, keys, low, onTool, onSkip, onFinish }: Props) {
   const all = steps(keys), now = { doc, selected, seen };
   const [step, setStep] = useState(0), [from, setFrom] = useState<Now>(now), [done, setDone] = useState(false);
-  const latest = useRef(now);
+  const latest = useRef(now), leaving = useLeaving();
   latest.current = now;
   const end = step >= all.length;
   useEffect(() => onTool(all[step]?.tool), [step]);
@@ -47,7 +48,7 @@ export function Coach({ doc, selected, seen, keys, low, onTool, onSkip, onFinish
     return () => clearTimeout(t);
   }, [done]);
   return (
-    <section className={low ? "coach low" : "coach"} aria-label="Tutorial">
+    <section className={["coach", low && "low", leaving && "leaving"].filter(Boolean).join(" ")} aria-label="Tutorial" inert={leaving}>
       {end ? (
         <div className="coach-body" key="end">
           <h2>You’re ready.</h2>
