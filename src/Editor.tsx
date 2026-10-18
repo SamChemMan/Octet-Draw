@@ -1,10 +1,10 @@
-import { Fragment, memo, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, SelectionInverse, Cube, Flask, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom,
   AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen, FrameCorners,
   GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa,
   TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table,
-  FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, DotsNine, LineSegment, CompassTool, ArrowsVertical,
+  FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, LineSegment, CompassTool, ArrowsVertical,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -29,7 +29,7 @@ import { snapBoxes, snapMove, type Guide } from "./snap";
 import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
 import { loadSettings, RULER_UNITS, saveSettings } from "./settings";
-import { ACTIONS, actionFor, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
+import { ACTIONS, actionFor, buttonTakes, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
 import { Actions, actionItems, FontPick, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties, propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./Properties";
@@ -54,16 +54,16 @@ import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb } from "./TemplateLibrary";
 import { cleanUpReactions, findReaction, gapFor, layoutRow, reactionClean, roleOf, rowOf, withStructure, type Layout, type Reaction } from "./reaction";
 import { SEARCHES, searchNow, searchQuery } from "./search";
-import { SettingsWindow, type ModuleId } from "./SettingsWindow";
+import { moduleOf, SettingsWindow, type ModuleId } from "./SettingsWindow";
 import { layoutCycles, orderAround, spreadCycle, type Cycle, type CycleText } from "./cycle";
 import { LIBRARY, libraryItem } from "./library";
 import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
 import {
-  ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, Palette, RingGlyph, RINGS, SELECTS, SymbolGlyph, SYMBOLS, TemplateGlyph,
+  ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, HOLD_MS, Palette, RingGlyph, RINGS, SELECTS, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
 import { arrowShapes, bendPoint, curved, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign, ASCENT, DESCENT } from "./render";
-import { rotateCursor, selectCursor } from "./cursor";
+import { dragCursor, rotateCursor, selectCursor } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { loadNames, nameToSmiles, suggestName } from "./names";
 import { checkedName, graphOf, setNamer } from "./naming";
@@ -75,6 +75,11 @@ import { formulaRuns } from "./labels";
 import { common, edited, lines as richLines, normalise, plainOf, runsOf, styleRange, styled, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
 import { Dialog } from "./Dialog";
+import { NoticeBar, type Notice } from "./NoticeBar";
+import { Exit, reduced, timing, tween } from "./motion";
+import { between, MOST_GLIDE, moving } from "./glide";
+import { Tooltips } from "./Tooltip";
+import { failure, fileName, type NoticeKind } from "./notice";
 import "./editor.css";
 
 
@@ -105,8 +110,6 @@ const OPEN_ZOOM = 1.25;
 const openZoom = (d: DocStyle) => OPEN_ZOOM / (frameStyle(d, L).k * d.scale);
 const SNAP = (15 * Math.PI) / 180; // dragged bonds snap to 15° steps
 const DOUBLE_MS = 500; // two clicks this close together (ms) are a double-click
-// Holding still this long with a drawing tool in hand switches to Select until the pointer is released.
-const HOLD_MS = 400;
 const toPath = (polys: P[][]) => polys.map((poly) => "M" + poly.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join("L") + "Z").join("");
 
 // A line, arc or orbital drawn the way arrows are: its kind, its bend for one sweep (signed by the drag), its style.
@@ -202,6 +205,8 @@ const union = (boxes: Box[]): Box | undefined => boxes.length ? [Math.min(...box
 const DRAFT = Number.MAX_SAFE_INTEGER;
 // Typing in a field, or in a caption's rich text box (contentEditable): keys and Select All are the text's, not the drawing's.
 const typing = () => document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement || (document.activeElement as HTMLElement | null)?.isContentEditable === true;
+// A dialog or Settings is open: the drawing behind it takes no keys, menu commands, paste or cut.
+const modal = () => document.querySelector('[aria-modal="true"]') !== null;
 
 // Rubbing out: marks every bond within radius r of the pointer's path between two points, and any lone atom.
 // Nothing is removed until the pointer is released.
@@ -322,9 +327,10 @@ export default function Editor() {
   // Captions picked, by id. Atoms and captions are selected separately and move, delete and copy together.
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [drag, setDrag] = useState<Drag>();
-  // A notice is an error (warning icon, error colour) unless it is information, such as "Copied.".
-  const [notice, setNoticeState] = useState<{ text: string; info?: boolean }>();
-  const setNotice = (text?: string, info?: boolean) => setNoticeState(text ? { text, info } : undefined);
+  // The notice at the bottom of the window (NoticeBar.tsx). Without a kind it is an error; undefined clears it.
+  const [notice, showNotice] = useState<Notice>();
+  const setNotice = (text?: string, kind: NoticeKind = "error", action?: Notice["action"]) =>
+    showNotice(text ? (was) => ({ text, kind, action, n: (was?.n ?? 0) + 1 }) : undefined);
   // Feedback (for testing): ⌘1, ⌘2 and ⌘3 within 1.5 s, ⌘ held or not between them (Ctrl elsewhere), takes a picture
   // of the window, then opens the feedback box (Feedback.tsx). The picture is taken first, so it shows the window as it was.
   const [feedback, setFeedback] = useState<{ picture?: string }>();
@@ -347,6 +353,8 @@ export default function Editor() {
   }, []);
   // The hold-to-select switch: the tool icon pops and a ring pops at the pointer. pop.n restarts the animations.
   const [pop, setPop] = useState<{ n: number; x: number; y: number }>();
+  // While a press may become a hold: a thin ring at the pointer fills as the hold time goes (FEEL-37).
+  const [holding, setHolding] = useState<{ n: number; x: number; y: number }>();
   const [cursor, setCursor] = useState<string>();
   const [settings, setSettings] = useState(loadSettings);
   const drawingPrefs = useMemo(() => ({ fixedLengths: settings.fixedLengths, fixedAngles: settings.fixedAngles, sproutRings: settings.sproutRings }), [settings.fixedLengths, settings.fixedAngles, settings.sproutRings]);
@@ -481,6 +489,17 @@ export default function Editor() {
   useEffect(() => { selectCursor.then(setCursor); }, []);
   const [turnCursor, setTurnCursor] = useState<string>();
   useEffect(() => { rotateCursor.then(setTurnCursor); }, []);
+  // A drag on the canvas keeps its cursor wherever the pointer goes until it ends: the closed hand for a handle, the
+  // arrows for a resize, a turn or a table's edge, else the cursor the canvas showed at the press (not the Eraser's
+  // none, which would lose the pointer over a panel).
+  const dragShows = drag?.kind === "handle" ? "grabbing" : drag?.kind === "resize" ? CURSORS[drag.side] : drag?.kind === "turn" ? turnCursor
+    : drag?.kind === "move" ? "move" : drag?.kind === "tableedge" ? `${drag.axis}-resize` : undefined;
+  useEffect(() => {
+    const shows = drag && (dragShows ?? (svg.current && getComputedStyle(svg.current).cursor));
+    if (!shows || shows === "none") return;
+    dragCursor(shows);
+    return () => dragCursor();
+  }, [drag?.kind, dragShows]); // eslint-disable-line react-hooks/exhaustive-deps
   // Where the centre mark was put (Option-drag, as in ChemDraw): every turn of the selection goes about it until the
   // selection changes.
   const [pivot, setPivot] = useState<P>();
@@ -500,6 +519,43 @@ export default function Editor() {
   // The drawings made by a scale of the whole drawing, each with how far it zoomed the view (commitScale). Undo and redo
   // of such a scale zoom back and again, so the drawing and the page look as they did.
   const zoomedBy = useRef(new WeakMap<Mol, number>());
+  // Clean up, Rotate 180°, Flip, a turn of 15° or more, Align, Distribute and Line up glide into place (FEEL-38). The
+  // drawing changes at once, as one undo step. Only the picture on screen moves to it (glide). There is no glide with
+  // reduced motion, with more than MOST_GLIDE atoms moving, or for a command that comes again before the last glide is
+  // over (a key held down). path: the way there when it is not a straight line (a turn); false: no glide.
+  const [glide, setGlide] = useState<{ to: Mol; mol: Mol }>();
+  const glideNext = useRef<{ from: Mol; path?: (t: number) => Mol | undefined }>(undefined), glideAt = useRef(0);
+  const glideTo = (mol: Mol, path?: ((t: number) => Mol) | false) => {
+    const now = performance.now(), again = now - glideAt.current < timing().duration, n = moving(doc, mol);
+    glideAt.current = now;
+    if (path !== false && !again && !reduced() && n && n <= MOST_GLIDE) glideNext.current = { from: doc, path };
+    set(mol, true);
+  };
+  // The glide starts before the new drawing is first painted, from where the atoms were.
+  useLayoutEffect(() => {
+    const next = glideNext.current;
+    glideNext.current = undefined;
+    if (!next) return;
+    const to = doc, path = next.path ?? ((t: number) => between(next.from, to, t));
+    const step = (t: number) => {
+      if (t >= 1) return setGlide(undefined);
+      const mol = path(t);
+      if (mol) setGlide({ to, mol });
+    };
+    step(0);
+    // A new drawing (an edit, undo) ends the glide at once. Redo can bring back the same drawing, so none is kept.
+    const stop = tween(step);
+    return () => { stop(); setGlide(undefined); };
+  }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A structure placed from Name to structure settles from its faint ghost into full ink (FEEL-43): the first atom it
+  // has, in the drawing it went into.
+  const settleFrom = useRef<number>(undefined), [settle, setSettle] = useState<{ doc: Mol; from: number }>();
+  useLayoutEffect(() => {
+    const from = settleFrom.current;
+    settleFrom.current = undefined;
+    if (from !== undefined) setSettle({ doc, from });
+    else if (settle) setSettle(undefined); // so a redo to the same drawing does not settle again
+  }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps
   const undo = (redo = false) => {
     const step = redo ? h.stack[h.at + 1] : h.at > 0 ? h.stack[h.at] : undefined, r = step && zoomedBy.current.get(step);
     if (r) setView((v) => ({ ...v, zoom: clampZoom(redo ? v.zoom * r : v.zoom / r) }));
@@ -556,7 +612,6 @@ export default function Editor() {
     if (!smiles) return undefined;
     try { const m = parseStructure(smiles); return m.atoms.length ? m : undefined; } catch { return undefined; }
   };
-  useEffect(() => { if (notice) { const t = setTimeout(() => setNotice(undefined), 4000); return () => clearTimeout(t); } }, [notice]);
   // After an edit, the thing under a still pointer may have changed.
   // A keyboard hotspot stays on its atom or bond while that is still there (keepHot), or goes where a key put it.
   const lastDoc = useRef(doc);
@@ -628,7 +683,7 @@ export default function Editor() {
     for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
     flushSync(() => setPrinting({ src: `data:image/svg+xml;base64,${btoa(bin)}`, w: (w * 72) / 25.4, h: (h * 72) / 25.4 }));
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    try { await invoke("print_page"); } catch (e) { setNotice(`Octet cannot print. ${e}`); }
+    try { await invoke("print_page"); } catch (e) { setNotice(failure("Octet cannot print.", e)); }
   }
   // The selection as a drawing of its own, kept while the drawing and the selection stay the same.
   const partKept = useRef<{ doc: Mol; selection: Set<number>; picked: Set<number>; part: Mol }>(undefined);
@@ -652,20 +707,27 @@ export default function Editor() {
     const make = (pf: PartFormat, ...fs: ExportFormat[]) => (fs.includes(f.format) ? formatOf(mol, pf) : undefined), molfile = make("molfile", "mol", "sdf");
     try {
       const path = await exportFile({ name, format: f.format, oct: make("oct", "oct"), svg: svg && withMargin(svg, f.margin), cdxml: make("cdxml", "cdxml", "pdf"), molfile, sdf: molfile ? `${molfile.trimEnd()}\n$$$$\n` : undefined, smiles: make("smiles", "smi"), dpi: f.dpi, transparent: f.background === "transparent" });
-      if (path) setExportView(undefined);
+      if (path) { setExportView(undefined); saved(path); }
     } catch (e) {
-      setNotice(`Octet cannot export this drawing. ${e}`);
+      setNotice(failure("Octet cannot export this drawing.", e));
     }
   }
   // Quick export as PNG: the selection, or the whole drawing, straight to the Save dialog with the saved PNG settings.
   async function quickExport() {
     const svg = pictureOf(selectedPart() ?? doc), f = filePrefs;
-    if (!svg) return setNotice("There is nothing to export.");
+    if (!svg) return setNotice("There is nothing to export.", "info");
     try {
-      await exportFile({ name, format: "png", svg: withMargin(svg, f.margin), dpi: f.dpi, transparent: f.background === "transparent" });
+      const path = await exportFile({ name, format: "png", svg: withMargin(svg, f.margin), dpi: f.dpi, transparent: f.background === "transparent" });
+      if (path) saved(path);
     } catch (e) {
-      setNotice(`Octet cannot export this drawing. ${e}`);
+      setNotice(failure("Octet cannot export this drawing.", e));
     }
+  }
+  // A file written where the user chose (an export, or a save to a new place): its name, and a button that shows it
+  // in the system's file manager.
+  function saved(path: string) {
+    const reveal = TAURI && { label: navigator.platform.startsWith("Mac") ? "Show in Finder" : "Show in Folder", run: () => void invoke("reveal_file", { path }).catch((e) => setNotice(failure("Octet cannot show this file.", e))) };
+    setNotice(`Saved ${fileName(path)}.`, "done", reveal || undefined);
   }
   // What the CDXML writer needs from the editor: a catalytic cycle's arrows (drawn from the cycle, so not in the
   // drawing), each written label's atoms for ChemDraw's abbreviations, and the document's name.
@@ -683,9 +745,11 @@ export default function Editor() {
     try {
       const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), contents: writeOct({ ...doc, guides }, style, cdxmlOptions()) });
       if (path) setFile({ path, saved: doc });
+      // A save to a new place says where it went. A save in place does not: the window's title shows it.
+      if (path && path !== file.path) saved(path);
       return !!path;
     } catch (e) {
-      setNotice(`Octet cannot save this drawing. ${e}`);
+      setNotice(failure("Octet cannot save this drawing.", e));
       return false;
     }
   }
@@ -739,7 +803,7 @@ export default function Editor() {
   }, [purposeMenu]); // eslint-disable-line react-hooks/exhaustive-deps
   const openDrawing = () => keepWork(() => void open());
   const openRecent = (r: RecentEntry) => keepWork(() => void invoke<[string, string]>("open_recent", { path: r.path }).then((picked) => load(picked[0], picked[1]))
-    .catch((e) => { setNotice(String(e)); refreshRecents(); }));
+    .catch((e) => { setNotice(failure("Octet cannot open this drawing.", e)); refreshRecents(); }));
   const refreshRecents = () => { if (TAURI) invoke<RecentEntry[]>("recent_list").then(setRecents).catch(() => {}); };
   useEffect(() => { if (home) refreshRecents(); }, [home]); // eslint-disable-line react-hooks/exhaustive-deps
   // Opened or saved: the drawing's picture goes to its Home tile.
@@ -756,11 +820,11 @@ export default function Editor() {
       if (!picked) return;
       load(picked[0], picked[1]);
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : `Octet cannot open this file. ${e}`);
+      setNotice(failure("Octet cannot open this file.", e));
     }
   }
-  // A drawing read from a file, into the editor.
-  function load(path: string, text: string) {
+  // A drawing read from a file, into the editor. Without a path (a starter drawing from Home) it is a new drawing.
+  function load(path: string | undefined, text: string) {
     drawingColours.current = [];
     try {
       const read = readOct(text), lost = read.lost, { guides: saved, ...kept } = read.mol;
@@ -776,12 +840,12 @@ export default function Editor() {
       sayLost(lost);
       if (b) setView((v) => ({ ...v, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * v.zoom * L, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * v.zoom * L }));
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : `Octet cannot open this file. ${e}`);
+      setNotice(failure("Octet cannot open this file.", e));
     }
   }
   // Atom Properties: the atom's element or label, charge, isotope and radical, in one dialog.
   function atomProperties(i: number | undefined) {
-    if (i === undefined || !doc.atoms[i]) return setNotice("Select an atom first.");
+    if (i === undefined || !doc.atoms[i]) return setNotice("Select an atom first.", "info");
     const a = doc.atoms[i];
     setDialog({ kind: "atom", atom: i, element: a.text ?? a.label, charge: String(a.charge ?? 0), isotope: a.isotope ? String(a.isotope) : "", radical: String(a.radical ?? 0) });
   }
@@ -808,7 +872,7 @@ export default function Editor() {
       }
       place(importStructure(picked[1]));
     } catch (e) {
-      setNotice(e instanceof Error ? `Octet cannot read this file. ${e.message}` : String(e));
+      setNotice(failure("Octet cannot read this file.", e));
     }
   }
   // Where a new fragment goes: beside the drawing, or centred in an empty view (or centred on a given point).
@@ -898,7 +962,7 @@ export default function Editor() {
       // does (reactants, the arrow, products), measured after the clean-up.
       const touched = new Set(ids ? fragments(m).filter((g) => g.some((i) => ids.has(i))).flat() : m.atoms.map((_, i) => i));
       const laid = cleanReactions(m, (r) => withStructure(r) && r.atoms.some((i) => touched.has(i)));
-      if (laid.count) return set(laid.mol, true);
+      if (laid.count) return glideTo(laid.mol);
       // Otherwise several structures that overlap, or have a plus sign among them, go in a row like a reaction's
       // starting materials. With a plus sign, an arrow after them is offered: Tab draws it.
       const row = rowOf(m, ids, inkOf(m), captionOf);
@@ -908,7 +972,7 @@ export default function Editor() {
         const ahead = (doc.arrows ?? []).some((a) => !curved(a) && Math.min(a.from[0], a.to[0]) > laid.right - 0.5 && Math.abs((a.from[1] + a.to[1]) / 2 - laid.level) < 1.5);
         if (row.plus && !ahead) setOffer({ from: [laid.right + reactionGap, laid.level], to: [laid.right + 3 * reactionGap, laid.level], doc: m });
       }
-      set(m, true);
+      glideTo(m);
     },
     // ChemDraw's Rotate 180° Horizontal and Vertical (⇧⌘H, ⇧⌘V: stereo kept), and its Flip (a mirror image).
     flip_h: () => flip("horizontal"),
@@ -922,7 +986,7 @@ export default function Editor() {
         ...arrows.filter((x) => picked.has(x.id)).map((x): Box => [Math.min(x.from[0], x.to[0]) * L, -Math.max(x.from[1], x.to[1]) * L, Math.max(x.from[0], x.to[0]) * L, -Math.min(x.from[1], x.to[1]) * L]),
         ...(doc.shapes ?? []).filter((x) => picked.has(x.id)).map((x): Box => { const b = shapeBounds(x); return [b[0] * L, -b[3] * L, b[2] * L, -b[1] * L]; })];
       const b = boxes.length ? union(boxes) : undefined;
-      if (!b) return setNotice("Select what to frame first.");
+      if (!b) return setNotice("Select what to frame first.", "info");
       const pad = (isBracket({ kind }) ? 0.3 : 0.4) * L;
       const [mol, frameId] = addShape(doc, { kind, from: [(b[0] - pad) / L, -(b[3] + pad) / L], to: [(b[2] + pad) / L, -(b[1] - pad) / L], ...(shadow ? { shadow: true } : {}) });
       set(mol);
@@ -949,14 +1013,14 @@ export default function Editor() {
     // Group (⌘G) and Ungroup (⇧⌘G), as ChemDraw's: the selected structures and objects select and move as one.
     group: () => {
       const r = groupSelection(doc, selection, picked);
-      if (!r) return setNotice("Select two or more things to group.");
+      if (!r) return setNotice("Select two or more things to group.", "info");
       set(r[0], true);
     },
     ungroup: () => set(ungroupSelection(doc, selection, picked), true),
     // Pick as One (ChemDraw's Group > Integral): on the groups Ungroup would undo.
     group_integral: () => {
       const touched = new Set(groupTargets(doc, selection, picked)), on = [...touched].every((g) => g.integral);
-      if (!touched.size) return setNotice("Select a group.");
+      if (!touched.size) return setNotice("Select a group.", "info");
       set({ ...doc, groups: doc.groups?.map((g) => (touched.has(g) ? { ...g, integral: on ? undefined : true } : g)) }, true);
     },
     // Invert Selection (⇧⌘I): everything that was not selected is, and the rest is not.
@@ -969,8 +1033,8 @@ export default function Editor() {
     clean_reaction: () => {
       const items = new Set(picked), atoms = selection, any = !items.size && !atoms.size;
       const laid = cleanReactions(doc, (r) => r.arrows.some((id) => items.has(id)) || (withStructure(r) && (any || r.atoms.some((i) => atoms.has(i)) || r.captions.some((id) => items.has(id)))));
-      if (!laid.count) return setNotice(laid.kept ? "Octet leaves the reaction as drawn. A new layout would move it on to, or away from, the rest of the drawing." : "Octet finds no reaction to clean up. Draw a straight arrow with a structure on each side.");
-      if (!sameLayout(doc, laid.mol)) set(laid.mol, true); // nothing to undo when it was clean already
+      if (!laid.count) return setNotice(laid.kept ? "Octet leaves the reaction as drawn. A new layout would move it on to, or away from, the rest of the drawing." : "Octet finds no reaction to clean up. Draw a straight arrow with a structure on each side.", "info");
+      if (!sameLayout(doc, laid.mol)) glideTo(laid.mol); // nothing to undo when it was clean already
     },
     // Zoom about the middle of the window. Actual size is 100%: bonds at their true 14.4 pt.
     zoom_in: () => zoomTo(views.get().zoom * 1.25),
@@ -990,7 +1054,7 @@ export default function Editor() {
     // Analyse Stoichiometry: a grid under the picked reaction, or off again.
     stoichiometry: () => {
       const arrow = reactionPicked()?.arrows[0] ?? [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
-      if (arrow === undefined) return setNotice("Select a reaction first.");
+      if (arrow === undefined) return setNotice("Select a reaction first.", "info");
       const has = doc.grids?.some((g) => reactionOf(g.arrow)?.arrows.includes(arrow));
       set({ ...doc, grids: has ? doc.grids!.filter((g) => !reactionOf(g.arrow)?.arrows.includes(arrow)) : [...(doc.grids ?? []), { arrow, typed: {} }] }, true);
     },
@@ -1000,7 +1064,7 @@ export default function Editor() {
     expand_label: () => {
       let m = doc;
       const labelled = [...selection].filter((i) => doc.atoms[i]?.text).sort((a, b) => b - a);
-      if (!labelled.length) return setNotice("Select a labelled atom, such as OMe or Boc.");
+      if (!labelled.length) return setNotice("Select a labelled atom, such as OMe or Boc.", "info");
       for (const i of labelled) {
         const smiles = labelSmiles(doc.atoms[i].text!);
         if (!smiles) { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); continue; }
@@ -1013,7 +1077,7 @@ export default function Editor() {
     contract_label: () => {
       const group = new Set([...selection].filter((i) => i < doc.atoms.length));
       const links = doc.bonds.filter((b) => group.has(b.atoms[0]) !== group.has(b.atoms[1]));
-      if (group.size < 2 || links.length !== 1) return setNotice("Select a group joined to the rest of the structure by one bond.");
+      if (group.size < 2 || links.length !== 1) return setNotice("Select a group joined to the rest of the structure by one bond.", "info");
       const keep = group.has(links[0].atoms[0]) ? links[0].atoms[0] : links[0].atoms[1], outside = links[0].atoms[0] === keep ? links[0].atoms[1] : links[0].atoms[0];
       // The group with xenon in place of the rest of the structure, as an InChI, against each abbreviation's.
       const capped = subset({ ...doc, atoms: doc.atoms.map((a, i) => (i === outside ? { ...a, label: "Xe", text: undefined, charge: undefined } : a)) }, new Set([...group, outside]));
@@ -1037,7 +1101,7 @@ export default function Editor() {
     predict_13c: () => openSpectrum("13C"),
     name_to_structure: () => nameToStructure(),
     document: () => setSettingsOpen("document"),
-    settings: () => setSettingsOpen((settings.settingsModule as ModuleId) ?? "document"),
+    settings: () => setSettingsOpen(moduleOf(settings.settingsModule)),
     structure_to_name: () => nameStructures(),
     copy_smiles: () => void document.execCommand("copy"),
     // Search Reaxys and Search PubChem (the Search menu and the Actions panel), while Settings > Online search is on.
@@ -1073,8 +1137,8 @@ export default function Editor() {
     // The Colour menu: each colour in COLOURS by its place, and Other Colour… for the system picker.
     ...Object.fromEntries(COLOURS.map(([, hex], k) => [`colour_${k}`, () => runAction(`colour.${hex}`)])),
     ...Object.fromEntries(settings.palette.map((c, k) => [`colour_user_${k}`, () => runAction(`colour.${c.hex}`)])),
-    colour_other: () => setSettingsOpen("colours"),
-    colours_add: () => { setAddingColour(true); setSettingsOpen("colours"); },
+    colour_other: () => setSettingsOpen("appearance"),
+    colours_add: () => { setAddingColour(true); setSettingsOpen("appearance"); },
     // Text > Size (its sizes are set with the font list, below): Other Size… types any size; Last Typed Size uses that
     // size again (ChemDraw's Other… and Set Font Size To Last One).
     size_other: () => setDialog({ kind: "size", size: String(lastSize.current ?? style.captionSize) }),
@@ -1086,15 +1150,15 @@ export default function Editor() {
     },
     zoom_fit: () => {
       const b = bounds(doc);
-      if (!b) return setView({ x: innerWidth / 2, y: innerHeight / 2, zoom: openZoom(style) });
+      if (!b) return moveView({ x: innerWidth / 2, y: innerHeight / 2, zoom: openZoom(style) });
       const free = [innerWidth - 160, innerHeight - 120], size = [(b[2] - b[0] + 1) * L, (b[3] - b[1] + 1) * L];
       const zoom = clampZoom(Math.min(free[0] / size[0], free[1] / size[1]));
-      setView({ zoom, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * L * zoom, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * L * zoom });
+      moveView({ zoom, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * L * zoom, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * L * zoom });
     },
   };
   function zoomTo(target: number) {
     const view = views.get(), zoom = clampZoom(target), k = zoom / view.zoom, cx = innerWidth / 2, cy = innerHeight / 2;
-    setView({ zoom, x: cx - (cx - view.x) * k, y: cy - (cy - view.y) * k });
+    moveView({ zoom, x: cx - (cx - view.x) * k, y: cy - (cy - view.y) * k });
   }
   // Keep the setting on disk and the View menu ticks in step with it.
   const syncChecks = () => Promise.all(([["grid", !!guides.grid], ["rulers", !!guides.rulers], ["crosshair", !!guides.crosshair], ["snap", settings.snap], ["snap_grid", settings.snapGrid],
@@ -1111,7 +1175,8 @@ export default function Editor() {
   }, [paletteNames]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!TAURI) return;
-    const off = listen<string>("menu", (e) => commands.current[e.payload]?.());
+    // Over a dialog or Settings, the menu only edits the text in its fields, as a Mac app's menu does over a sheet.
+    const off = listen<string>("menu", (e) => { if (!modal() || (typing() && ["undo", "redo", "select_all"].includes(e.payload))) commands.current[e.payload]?.(); });
     return () => { off.then((f) => f()); };
   }, []);
   // Every menu command's shortcut can be changed in Settings, with the canvas keys: the menu lists its commands, and
@@ -1147,6 +1212,10 @@ export default function Editor() {
   const chainCount = (d: { from: number | P; to?: P; side?: number; path?: P[] }) => chainPath(d).length + (typeof d.from === "number" ? 0 : 1);
   // A part of the drawing shown alone for a moment, to take its picture (copy and export).
   const [exporting, setExporting] = useState<Mol>();
+  // A copy that worked (FEEL-41): the selection's tint rises and falls once, or with nothing selected the page's edge
+  // lights once. n restarts it; editor.css leaves it out with reduced motion.
+  const [copied, setCopied] = useState<{ n: number; page: boolean }>();
+  const ackCopy = (page: boolean) => setCopied((c) => ({ n: (c?.n ?? 0) + 1, page }));
   // A ring dragged with a ring tool: its first bond from the press (or the atom pressed) to the pointer, the ring on
   // that bond's left, as ChemDraw draws it. Command and Shift at the press work as on a click. A chair faces the drag.
   const ringDrop = (d: Extract<Drag, { kind: "ring" }>): Mol => {
@@ -1167,8 +1236,9 @@ export default function Editor() {
       const now = drag?.kind === "pen" ? penPoint(drag.at, drag.out) : penAt ? { at: penAt } : undefined, points = [...(pen ?? []), ...(now ? [now] : [])];
       if (points.length >= 2) return addArrow(doc, { kind: "curve", from: points[0].at, to: points[points.length - 1].at, curve: { points } })[0];
     }
+    if (glide?.to === doc) return glide.mol;
     return doc;
-  }, [doc, drag, pen, penAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [doc, drag, pen, penAt, glide]); // eslint-disable-line react-hooks/exhaustive-deps
   // The space between the parts of a reaction (Clean Up Reaction, the reaction shortcut, a product pasted after an arrow).
   const reactionGap = gapFor(style.captionSize, style.bond);
   // The font lists: Octet's fonts, then any other font the drawing uses (one picked from More fonts, or a file's).
@@ -1227,7 +1297,7 @@ export default function Editor() {
   // structure leaves the other structures' drawings as they were. A structure a drag moves keeps its drawing, moved by
   // a transform, and its points move where it lands.
   const partCache = useRef<{ frame: typeof frame; measure: typeof measure; cache: PartCache }>(undefined);
-  const still = !drag;
+  const still = !drag && glide?.to !== doc;
   const drawing = useMemo(() => {
     if (partCache.current?.frame !== frame || partCache.current.measure !== measure) partCache.current = { frame, measure, cache: { parts: new WeakMap(), last: new Map() } };
     return renderParts(shown, frame, measure, L, partCache.current.cache, still);
@@ -1253,8 +1323,8 @@ export default function Editor() {
   useEffect(() => {
     const now = pages[0][1] * mm, was = outlineFrom.current;
     outlineFrom.current = now;
-    if (was === undefined || Math.abs(was / now - 1) < 1e-3 || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    pagesEl.current?.animate([{ transform: `scale(${was / now})` }, { transform: "scale(1)" }], { duration: 200, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+    if (was === undefined || Math.abs(was / now - 1) < 1e-3 || reduced()) return;
+    pagesEl.current?.animate([{ transform: `scale(${was / now})` }, { transform: "scale(1)" }], timing("--motion-slow"));
   }, [pages, mm]);
   // The page whose edge is under a point (drawing coordinates), within a few screen px.
   const pageEdgeAt = (p: P) => pages.find(([, w, h]) => {
@@ -1321,7 +1391,8 @@ export default function Editor() {
   useEffect(() => { if (offer && offer.doc !== doc) setOffer(undefined); }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps
   const docOpen = settingsOpen === "document";
   // The Document window's preview: paracetamol with its compound number, drawn in the style at 125% of true size
-  // (smaller if it would not fit), so a change of preset shows as a change of size.
+  // (smaller if it would not fit), so a change of preset shows as a change of size. It is drawn on the page's own
+  // background, with the canvas's ink: white paper and black ink unless the Background is dark, in both themes.
   const sample = useMemo(() => (loaded && docOpen ? parseStructure("CC(=O)Nc1ccc(O)cc1") : undefined), [loaded, docOpen]);
   const preview = useMemo(() => {
     if (!sample) return null;
@@ -1333,31 +1404,33 @@ export default function Editor() {
     const scale = Math.min(OPEN_ZOOM / frame.k, 112 / (box[3] - box[1]), 420 / (box[2] - box[0]));
     // Drawn on the page's own paper, with the canvas's ink rule: white ink on dark and blue paper.
     return (
-      <div className={`style-paper paper-${paper}`} data-theme={darkPaper ? "dark" : "light"} style={darkPaper ? ({ "--ink": "#FFFFFF" } as React.CSSProperties) : undefined}>
+      <div className={`style-preview paper-${paper}`} data-theme={darkPaper ? "dark" : "light"} aria-hidden>
         <svg width={(box[2] - box[0]) * scale} height={(box[3] - box[1]) * scale} viewBox={`${box[0]} ${box[1]} ${box[2] - box[0]} ${box[3] - box[1]}`}>
-          <path d={toPath(d.polygons)} fill="var(--ink)" />
-          {d.labels.map((l, i) => <text key={i} x={l.x} y={l.y} fill="var(--ink)" textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>{l.text}</text>)}
+          <path d={toPath(d.polygons)} fill={textInk("#000000")} />
+          {d.labels.map((l, i) => <text key={i} x={l.x} y={l.y} fill={textInk("#000000")} textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>{l.text}</text>)}
           <text x={cap.lines[0].x} y={cap.lines[0].y} textAnchor="middle" fill={textInk(style.colour)} style={{ font: `bold ${cap.size}px ${fontStack(style.captionFont)}` }}>1</text>
         </svg>
       </div>
     );
   }, [sample, frame, measure, style, pt, paper]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Moves the view smoothly (or at once, with reduced motion).
-  const flight = useRef<number>(undefined);
-  function flyTo(to: { x: number; y: number; zoom: number }) {
-    cancelAnimationFrame(flight.current!);
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return setView(to);
-    const from = views.get(), t0 = performance.now(), duration = 320;
-    const step = (now: number) => {
-      const t = Math.min(1, (now - t0) / duration), e = t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2;
-      setView({ zoom: from.zoom * (to.zoom / from.zoom) ** e, x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e });
-      if (t < 1) flight.current = requestAnimationFrame(step);
-    };
-    flight.current = requestAnimationFrame(step);
+  // Every view change Octet makes (Fit to window, Actual size, the zoom keys, a click on a page's edge, a panel that
+  // would cover the structure) moves the camera the same way: the view is set once, and the drawing glides there from
+  // where it is as a CSS transform on its group (motion token), so nothing draws again on the way. A new move starts
+  // from where the last one has got to; a scroll, pinch or press ends it. Instant with reduced motion.
+  const camera = useRef<SVGGElement>(null);
+  const stopCamera = () => { for (const el of [camera.current, svg.current]) el?.getAnimations().forEach((a) => a.cancel()); };
+  function moveView(to: View) {
+    const g = camera.current, now = g && getComputedStyle(g).transform;
+    const m = now && now !== "none" ? new DOMMatrix(now) : undefined, from: View = m ? { x: m.e, y: m.f, zoom: m.a } : views.get();
+    stopCamera();
+    setView(to);
+    if (!g || reduced() || (from.x === to.x && from.y === to.y && from.zoom === to.zoom)) return;
+    const at = (v: View) => ({ transform: `translate(${v.x}px, ${v.y}px) scale(${v.zoom})` });
+    g.animate([at(from), at(to)], timing());
   }
   // A Select click on a page's edge (edgePage) fits that page in the window, centred.
   const fitZoom = ([, w, h]: [string, number, number]) => Math.min((innerWidth - 160) / (w * mm * L), (innerHeight - 48) / (h * mm * L));
-  const fitPage = (page: [string, number, number]) => flyTo({ x: innerWidth / 2, y: innerHeight / 2, zoom: fitZoom(page) });
+  const fitPage = (page: [string, number, number]) => moveView({ x: innerWidth / 2, y: innerHeight / 2, zoom: fitZoom(page) });
   // The zoom limits: a bond drawn 0.25 to 8 times its size, widened so that every page outline can be fitted. At
   // any document scale the page never stops a zoom, and no zoom jumps (decision 0007).
   zoomLimits.current = [Math.min(0.25, ...pages.map(fitZoom)), Math.max(8, ...pages.map(fitZoom))];
@@ -1421,7 +1494,9 @@ export default function Editor() {
     return [...groups];
   }, [arrows, cycleArrows, frame]);
   // Structure ink: each structure's own paths, so a drag changes only the paths of what moved.
-  const structureInk = useMemo(() => drawing.parts.filter(({ ids }) => level(shown.atoms[ids[0]])).flatMap(({ ids, drawing: d, at, k, turn }) => structurePaths(d).map(([key, path]) => [`${ids[0]}|${key}`, key, path, moveBy(at, k, turn)] as const)), [drawing]); // eslint-disable-line react-hooks/exhaustive-deps
+  const structureInk = useMemo(() => drawing.parts.filter(({ ids }) => level(shown.atoms[ids[0]])).flatMap(({ ids, drawing: d, at, k, turn }) => structurePaths(d).map(([key, path]) => [`${ids[0]}|${key}`, key, path, moveBy(at, k, turn), ids[0]] as const)), [drawing]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The structure that settles into ink (FEEL-43): its atoms from this one on.
+  const settling = settle?.doc === doc ? settle.from : Infinity;
   // Atom labels as text, one group per structure, made once for each drawing of it: React passes over the ones that
   // did not change, and a structure being moved only moves its group. A structure being turned turns its group, and
   // each label turns back about its atom, so it keeps level.
@@ -1441,9 +1516,9 @@ export default function Editor() {
         cache.set(d, texts);
       }
       if (turn) texts = texts.map((t, i) => <g key={i} transform={`rotate(${-turn} ${d.labelAt[i][0]} ${d.labelAt[i][1]})`}>{t}</g>);
-      return texts.length ? <g key={ids[0]} transform={moveBy(at, k, turn)}>{texts}</g> : null;
+      return texts.length ? <g key={ids[0]} className={ids[0] >= settling ? "settle" : undefined} transform={moveBy(at, k, turn)}>{texts}</g> : null;
     });
-  }, [drawing, darkPaper, style.labelFont]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [drawing, darkPaper, style.labelFont, settling]); // eslint-disable-line react-hooks/exhaustive-deps
   // Where each map number and stereo flag goes, worked out once per change of the atoms or bonds.
   const markDirs = useMemo(() => markDirections(shown, shown.atoms.flatMap((a, i) => (a.map || a.enhanced ? [i] : []))), [shown.atoms, shown.bonds]); // eslint-disable-line react-hooks/exhaustive-deps
   // Mass fragmentation: the bonds each cut line crosses, and the pieces they leave, labelled at the line's ends
@@ -1877,7 +1952,12 @@ export default function Editor() {
     if (m !== doc) set(m, true);
   }
 
-  const stopHold = () => { clearTimeout(hold.current); hold.current = undefined; };
+  const stopHold = () => {
+    if (hold.current === undefined) return;
+    clearTimeout(hold.current);
+    hold.current = undefined;
+    setHolding(undefined);
+  };
   const holdFrom = useRef<[number, number]>(undefined); // where the press that may become a hold went down
 
   // Select tool press: on something selected, move the selection; on something else, select it and move it;
@@ -1981,12 +2061,17 @@ export default function Editor() {
     return k !== undefined ? pos(doc, k) : selectionMiddle();
   };
   const turnTo = (mol: Mol, centre: P) => { lastTurn.current = { mol, selection, picked, centre }; set(mol, true); };
-  const rotateBy = (degrees: number) => { const c = turnCentre(); turnTo(turnedParts(doc, degrees, c), c); };
+  // A turn of 15° or more glides round the centre, so the structure keeps its shape on the way (a 1° turn is at once).
+  const rotateBy = (degrees: number) => {
+    const c = turnCentre(), mol = turnedParts(doc, degrees, c), from = doc;
+    lastTurn.current = { mol, selection, picked, centre: c };
+    glideTo(mol, Math.abs(degrees) >= 15 && ((t) => turnedParts(from, degrees * t, c)));
+  };
   // Rotate 180° (a turn through 3D) and Flip (a mirror), across or down, about the middle of what is chosen as drawn.
   // The atoms turn over first (flipAtoms keeps or inverts the stereochemistry), then the objects.
   function flip(axis: "horizontal" | "vertical", mirror = false) {
     const c = selectionMiddle(), k = axis === "horizontal" ? 0 : 1, { atoms, items } = chosen();
-    set(transformParts(flipAtoms(doc, atoms, axis, mirror, c[k]), new Set(), items, (q) => (k ? [q[0], 2 * c[1] - q[1]] : [2 * c[0] - q[0], q[1]]), [1, 1], captionMiddles(), 1, k ? "down" : "across"), true);
+    glideTo(transformParts(flipAtoms(doc, atoms, axis, mirror, c[k]), new Set(), items, (q) => (k ? [q[0], 2 * c[1] - q[1]] : [2 * c[0] - q[0], q[1]]), [1, 1], captionMiddles(), 1, k ? "down" : "across"));
   }
   function scaleBy(k: number, lines = scalesText()) {
     if (!(k > 0) || !Number.isFinite(k)) return;
@@ -2009,7 +2094,7 @@ export default function Editor() {
   };
   function arrange(how: "left" | "centre" | "right" | "top" | "middle" | "bottom" | "across" | "down") {
     const list = things();
-    if (list.length < (how === "across" || how === "down" ? 3 : 2)) return setNotice(how === "across" || how === "down" ? "Select three or more things to space out." : "Select two or more things to line up.");
+    if (list.length < (how === "across" || how === "down" ? 3 : 2)) return setNotice(how === "across" || how === "down" ? "Select three or more things to space out." : "Select two or more things to line up.", "info");
     let m = doc;
     if (how === "across" || how === "down") {
       const k = how === "across" ? 0 : 1, sorted = [...list].sort((p, q) => (p.box[k] + p.box[k + 2]) - (q.box[k] + q.box[k + 2]));
@@ -2025,7 +2110,7 @@ export default function Editor() {
         m = shiftThing(m, t, d);
       }
     }
-    set(m, true);
+    glideTo(m);
   }
   // What moves with some atoms and picked objects: the picked arrows, shapes and cycles, and each picked caption that
   // does not simply follow its structure, arrow or cycle (it comes away and moves alone, from where it is drawn).
@@ -2230,6 +2315,7 @@ export default function Editor() {
   const onCentreMark = (p: P) => !!centreMark && Math.hypot(p[0] - centreMark[0], p[1] - centreMark[1]) * L * views.get().zoom < 8;
 
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
+    stopCamera(); // what is drawn is where the press lands
     if (e.button !== 0) return;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* the pointer is already gone */ }
     const p = toDoc(e.clientX, e.clientY), t = hit(p), screen: [number, number] = [e.clientX, e.clientY];
@@ -2326,8 +2412,10 @@ export default function Editor() {
   function startHold(p: P, t: Hover, screen: [number, number]) {
     stopHold();
     holdFrom.current = screen;
+    setHolding((old) => ({ n: (old?.n ?? 0) + 1, x: screen[0], y: screen[1] }));
     hold.current = window.setTimeout(() => {
       hold.current = undefined;
+      setHolding(undefined);
       setSpring(tool);
       setTool("select");
       setPop((old) => ({ n: (old?.n ?? 0) + 1, x: screen[0], y: screen[1] }));
@@ -2814,7 +2902,7 @@ export default function Editor() {
   }
   // Structure to name: each named structure gets its name centred underneath (after its compound number).
   function nameStructures() {
-    if (!namesLoaded) { void loadNames().then(() => setNamesLoaded(true)); return setNotice("Loading names. Try again in a moment.", true); }
+    if (!namesLoaded) { void loadNames().then(() => setNamesLoaded(true)); return setNotice("Loading names. Try again in a moment.", "info"); }
     let m = doc, missed = 0;
     for (const atoms of targets()) {
       const name = nameFor(atoms);
@@ -3023,7 +3111,7 @@ export default function Editor() {
     const low = Math.min(...[...new Set(nmr.toDoc)].map((i) => pos(doc, i)[1]));
     if (!panel || !box || !Number.isFinite(low)) return;
     const view = views.get(), over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
-    if (over > 0) setView((v) => ({ ...v, y: v.y - over }));
+    if (over > 0) moveView({ ...view, y: view.y - over });
   }, [spectrum, !!nmr?.prediction, settings.nmrDetails]); // eslint-disable-line react-hooks/exhaustive-deps
   // Properties opens along the bottom too, and scrolls the canvas the same way so its structures stay in view.
   useEffect(() => {
@@ -3032,7 +3120,7 @@ export default function Editor() {
     const atoms = selection.size ? [...selection] : doc.atoms.map((_, i) => i), low = Math.min(...atoms.filter((i) => i < doc.atoms.length).map((i) => pos(doc, i)[1]));
     if (!panel || !box || !Number.isFinite(low)) return;
     const view = views.get(), over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
-    if (over > 0) setView((v) => ({ ...v, y: v.y - over }));
+    if (over > 0) moveView({ ...view, y: view.y - over });
   }, [settings.properties]); // eslint-disable-line react-hooks/exhaustive-deps
   for (const s of nmr?.prediction?.signals ?? []) for (const d of new Set(s.atoms.map((k) => nmr!.toDoc[k]))) { nmrShifts.set(d, [...(nmrShifts.get(d) ?? []), s.shift]); nmrQuality.set(d, quality(s, spectrum!)); }
   // Where each predicted shift goes on the canvas (px): in a gap between the atom's bonds, out of its rings (or away
@@ -3189,7 +3277,7 @@ export default function Editor() {
       const fields: Field[] = w.product ? ["measured", "purity"] : [row.field, "mass", "moles", "volume", "equiv", "density", "molarity", "purity"];
       const bare = /^\s*[\d.,]+(e[+-]?\d+)?\s*$/i.test(text), field = bare ? (w.product && row.field !== "purity" ? "measured" : row.field) : fields.find((f) => parseAmount(text, f) !== undefined);
       const value = field && parseAmount(text, field);
-      if (!field || value === undefined) return setNotice("Type an amount with its unit, such as 250 mg, 1.2 eq or 0.5 mL.");
+      if (!field || value === undefined) return setNotice("Type an amount with its unit, such as 250 mg, 1.2 eq or 0.5 mL.", "info");
       if (["mass", "moles", "volume", "equiv"].includes(field)) for (const f of ["mass", "moles", "volume", "equiv"] as Field[]) delete typed[f];
       typed[field] = value;
     }
@@ -3242,7 +3330,7 @@ export default function Editor() {
 
   // The key to show beside an action: menu shortcuts, then the user's shortcut table.
   const MENU_KEYS: Record<string, string> = {
-    invert_selection: `⇧${MOD}I`, clean_reaction: `⇧${MOD}X`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}/`, copy_smiles: `⌥${MOD}C`, copy: `${MOD}C`, delete: "⌫",
+    undo: `${MOD}Z`, redo: `${MOD}Y`, invert_selection: `⇧${MOD}I`, clean_reaction: `⇧${MOD}X`, paste_hint: `${MOD}V`, clean_up: `⇧${MOD}K`, flip_h: `⇧${MOD}H`, flip_v: `⇧${MOD}V`, select_all: `${MOD}A`, zoom_fit: `${MOD}/`, copy_smiles: `⌥${MOD}C`, copy: `${MOD}C`, delete: "⌫",
     structure_to_name: `⌥${MOD}N`, bring_front: `${MOD}[`, send_back: `${MOD}]`, "caption.align.justify": `⇧${MOD}J`,
     search_reaxys: `⌥${MOD}F`, search_reaxys_exact: `⇧⌥${MOD}F`, search_pubchem: `⌥${MOD}U`, search_pubchem_sub: `⇧⌥${MOD}U`,
     settings: `${MOD},`, name_to_structure: `⇧${MOD}N`, "caption.bold": `${MOD}B`, "caption.italic": `${MOD}I`, "caption.underline": `${MOD}U`, "caption.sub": `${MOD}−`, "caption.super": `${MOD}+`, "caption.plain": `${MOD}T`, "caption.formula": `${MOD}F`, "caption.edit": keyLabel("enter"),
@@ -3344,7 +3432,7 @@ export default function Editor() {
       ...variants("orbital", "orbital", ORBITAL_GRID.flat().map((k) => [k, orbitalName(k)!, <OrbitalGlyph v={k} />]), "Orbitals"),
       { id: "tool:text", name: "Text", group: "Tools", keys: toolKey("tool.text"), icon: <TextT size={18} />, run: pick("text") },
       { id: "tool:erase", name: "Eraser", group: "Tools", icon: <Eraser size={18} />, run: pick("erase") },
-      ...([["document", "Document settings", <FileText size={18} />], ["keys", "Keyboard shortcuts", <Keyboard size={18} />], ["files", "Import and export settings", <Files size={18} />]] as [ModuleId, string, React.ReactNode][])
+      ...([["document", "Document settings", <FileText size={18} />], ["keys", "Keyboard shortcuts", <Keyboard size={18} />], ["appearance", "Appearance settings", <Swatches size={18} />], ["files", "Import and export settings", <Files size={18} />]] as [ModuleId, string, React.ReactNode][])
         .map(([id, name, icon]) => ({ id: `settings:${id}`, name, group: "Settings", icon, run: () => setSettingsOpen(id) })),
       { id: "settings:open", name: "Settings", group: "Settings", keys: `${MOD},`, icon: <GearSix size={18} />, run: () => commands.current.settings() },
     ];
@@ -3418,7 +3506,7 @@ export default function Editor() {
       return set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) && BY[a.label] ? { ...a, colour: BY[a.label] } : a)) }, true);
     }
     if (command === "copy_smiles" || command === "copy") return void document.execCommand("copy");
-    if (command === "paste_hint") return setNotice(`Copy a name, SMILES string or MOL file. Then press ${MOD}V here.`, true);
+    if (command === "paste_hint") return setNotice(`Copy a name, SMILES string or MOL file. Then press ${MOD}V here.`, "info");
     if (command.startsWith("copy_text:")) { copyText.current = command.slice(10); document.execCommand("copy"); return; }
     if (command.startsWith("fix:")) { const [, i, charge] = command.split(":"); return set(addCharge(doc, Number(i), Number(charge) - (doc.atoms[Number(i)].charge ?? 0)), true); }
     if (command.startsWith("show:")) return setSelection(new Set([Number(command.slice(5))]));
@@ -3427,7 +3515,7 @@ export default function Editor() {
       const i = Number(command.slice(13));
       return doc.atoms[i] && set({ ...doc, atoms: doc.atoms.map((a, k) => (k === i ? { ...a, ignoreWarnings: true as const } : a)) }, true);
     }
-    if (command.startsWith("align.")) return set(alignFragments(doc, selection, command.slice(6) as "row" | "column" | "spread-row"), true);
+    if (command.startsWith("align.")) return glideTo(alignFragments(doc, selection, command.slice(6) as "row" | "column" | "spread-row"));
     if (command === "delete" && context.kind === "spot") return runAction("spot.delete");
     if (command === "delete") return selection.size || picked.size ? set(deleteGraphics(deleteAtoms(doc, selection), picked)) : undefined;
     if (command === "number") return numberStructures();
@@ -3782,6 +3870,18 @@ export default function Editor() {
     }
   }
 
+  // An option dragged from the toolbar and let go on the canvas is the tool in hand now (Palette), and goes in there as
+  // a click with it would put it. Once the new tool is in hand, Octet presses there and lets go a frame later, so the
+  // drop takes the same way as a click with every tool.
+  const [dropAt, setDropAt] = useState<[number, number]>();
+  useEffect(() => {
+    if (!dropAt) return;
+    setDropAt(undefined);
+    const [clientX, clientY] = dropAt, press = (type: string) => svg.current?.dispatchEvent(new PointerEvent(type, { clientX, clientY, bubbles: true, isPrimary: true, pointerType: "mouse", buttons: type === "pointerdown" ? 1 : 0 }));
+    press("pointerdown");
+    requestAnimationFrame(() => press("pointerup"));
+  }, [dropAt]);
+
   function onPointerUp() {
     stopHold();
     if (spring) { setTool(spring); setSpring(undefined); }
@@ -3882,6 +3982,7 @@ export default function Editor() {
     let stop: number | undefined;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      stopCamera();
       const zooming = e.ctrlKey || e.metaKey;
       setView((v) => {
         if (!zooming) return { ...v, x: v.x - e.deltaX, y: v.y - e.deltaY };
@@ -3896,10 +3997,21 @@ export default function Editor() {
     return () => { clearTimeout(stop); el.removeEventListener("wheel", onWheel); };
   }, []);
 
+  // Whether the focus came from the keyboard (Tab) or from a click. A click anywhere gives the keys back to the drawing.
+  const keyFocus = useRef(false);
+  useEffect(() => {
+    let clicked = false;
+    const click = () => { clicked = true; keyFocus.current = false; }, key = () => { clicked = false; }, focus = () => { keyFocus.current = !clicked; };
+    addEventListener("pointerdown", click, true);
+    addEventListener("keydown", key, true);
+    addEventListener("focusin", focus, true);
+    return () => { removeEventListener("pointerdown", click, true); removeEventListener("keydown", key, true); removeEventListener("focusin", focus, true); };
+  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (typing() || e.defaultPrevented) return; // typing in a label or caption box, or a box already used the key
-      if (home) return; // Home has its own keys
+      if (home || modal()) return; // Home and dialogs have their own keys
+      if (buttonTakes(e.key, document.activeElement instanceof HTMLButtonElement, keyFocus.current)) return;
       const mod = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
       // Drawing with the Pen: Return or Escape ends the curve; Delete takes back the last point.
       if (pen && (e.key === "Enter" || e.key === "Escape")) { e.preventDefault(); return finishPen(); }
@@ -3977,7 +4089,7 @@ export default function Editor() {
     };
     // Paste a SMILES string or MOL file: it goes to the right of the drawing, or in the middle of an empty canvas.
     const onPaste = (e: ClipboardEvent) => {
-      if (typing() || home) return; // pasting into a label or caption, or on Home
+      if (typing() || home || modal()) return; // pasting into a label or caption, or on Home or a dialog
       // In the app: the clipboard as Octet, ChemDraw and Office put it (Octet's own copy, then CDXML, which ChemDraw
       // hides in its pictures and Word keeps, then a molfile, then SMILES), and the plain text last.
       if (TAURI && !e.clipboardData?.getData(OCTET_CLIP)) {
@@ -4015,7 +4127,7 @@ export default function Editor() {
             if (frag?.atoms.length) return place(frag);
           }
           if (text) setNotice(`Octet cannot read this structure. ${why}`);
-        }).catch((err) => setNotice(`Octet cannot read the clipboard. ${err}`));
+        }).catch((err) => setNotice(failure("Octet cannot read the clipboard.", err)));
         return;
       }
       // Octet's own copy: everything that was selected, read as a hostile file is, a little down and right of where it was.
@@ -4047,12 +4159,12 @@ export default function Editor() {
         e.clipboardData?.setData("text/plain", copyText.current);
         e.preventDefault();
         copyText.current = undefined;
-        return setNotice("Copied.", true);
+        return setNotice("Copied.", "done");
       }
       // Everything selected (or the whole drawing) in Octet's own form, for pasting back with arrows, text and shapes,
       // with this drawing's style, so a paste into a drawing of another size keeps text in proportion (fitSizes);
       // and its structures as SMILES, for other programs.
-      const part = selectedPart() ?? doc;
+      const part = selectedPart() ?? doc, page = !selection.size && !picked.size;
       if (!part.atoms.length && !part.captions?.length && !part.arrows?.length && !part.shapes?.length) return;
       e.preventDefault();
       saw("copy");
@@ -4062,16 +4174,17 @@ export default function Editor() {
         const picture = pictureOf(part);
         if (!picture) return;
         void copyToClipboard({ svg: picture, cdxml: formatOf(part, "cdxml"), molfile: formatOf(part, "molfile"), smiles: formatOf(part, "smiles"), octetJson: serialize({ ...part, style }) })
-          .catch((err) => setNotice(`Octet cannot copy this. ${err}`));
+          .then(() => ackCopy(page), (err) => setNotice(failure("Octet cannot copy this.", err)));
         return;
       }
       e.clipboardData?.setData(OCTET_CLIP, serialize({ ...part, style }));
       const text = (part.captions ?? []).map((c) => c.text).join("\n");
       e.clipboardData?.setData("text/plain", formatOf(part, "smiles") ?? text);
+      ackCopy(page);
     };
     // Cut: copy, then delete what was selected.
     const onCut = (e: ClipboardEvent) => {
-      if (typing() || (!selection.size && !picked.size)) return;
+      if (typing() || modal() || (!selection.size && !picked.size)) return;
       onCopy(e);
       set(deleteGraphics(deleteAtoms(doc, selection), picked));
     };
@@ -4181,7 +4294,7 @@ export default function Editor() {
   if (wasHome !== home) { setWasHome(home); setHomeLeaving(wasHome); }
   useEffect(() => {
     if (!homeLeaving) return;
-    const t = setTimeout(() => setHomeLeaving(false), 180);
+    const t = setTimeout(() => setHomeLeaving(false), timing().duration); // Home's exit (editor.css, home-out)
     return () => clearTimeout(t);
   }, [homeLeaving]);
 
@@ -4392,7 +4505,7 @@ export default function Editor() {
   const marks = (
     <>
       {/* One group with one opacity, so overlapping marks don't stack up darker. */}
-      <g className="selection-marks">{selected}</g>
+      <g key={copied?.page === false ? `copied${copied.n}` : undefined} className={copied?.page === false ? "selection-marks copied" : "selection-marks"}>{selected}</g>
       {groupFrames}
       {nmrMarks.size > 0 && <g className="nmr-marks">{[...nmrMarks].filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `nmr${i}`, ""))}</g>}
       {shiftLabels().map((l) => (
@@ -4415,7 +4528,7 @@ export default function Editor() {
           {drawing.beads.map((b, i) => <circle key={`bd${i}`} cx={b.at[0]} cy={b.at[1]} r={b.r} fill="url(#bead)" />)}
         </>
       )}
-      {structureInk.map(([id, key, path, move]) => { const [colour, alpha] = key.split("|"); return <path key={`s${id}`} d={path} transform={move} fill={colour ? textInk(colour) : "var(--ink)"} fillOpacity={Number(alpha) < 1 ? Number(alpha) : undefined} />; })}
+      {structureInk.map(([id, key, path, move, first]) => { const [colour, alpha] = key.split("|"); return <path key={`s${id}`} className={first >= settling ? "settle" : undefined} d={path} transform={move} fill={colour ? textInk(colour) : "var(--ink)"} fillOpacity={Number(alpha) < 1 ? Number(alpha) : undefined} />; })}
       {arrowInk.map(([colour, d]) => <path key={`a${colour}`} d={d} fill={colour ? textInk(colour) : "var(--ink)"} />)}
       {cutLabels.map((c) => (
         <text key={c.key} x={c.at[0] * L} y={-c.at[1] * L} textAnchor={c.anchor} fill="var(--ink)" style={{ font: `${style.captionSize * pt * 0.9 * c.f}px ${fontStack(style.captionFont)}` }}>
@@ -4424,7 +4537,7 @@ export default function Editor() {
         </text>
       ))}
     </>
-  ), [drawing.beads, structureInk, arrowInk, darkPaper, cutLabels, style, pt]); // eslint-disable-line react-hooks/exhaustive-deps
+  ), [drawing.beads, structureInk, arrowInk, darkPaper, cutLabels, style, pt, settling]); // eslint-disable-line react-hooks/exhaustive-deps
   const draggedSpot = drag?.kind === "spot" ? `${drag.plate} ${drag.index}` : undefined;
   const over = useMemo(() => (
     <>
@@ -4526,7 +4639,7 @@ export default function Editor() {
           else if (tool === "select" && atomsOf(doc, t).length) pickWhole(t);
         }}
       >
-        <g transform={`translate(${view.x} ${view.y}) scale(${view.zoom})`}>
+        <g ref={camera} transform={`translate(${view.x} ${view.y}) scale(${view.zoom})`}>
           {/* The grid and the crosshair, drawn for the window. Not part of the drawing. */}
           <g className="pages" aria-hidden>{gridMarks(view)}</g>
           {/* The page outlines: the page and what its purpose needs, each an edge with corner marks and its name. Not part of the drawing. */}
@@ -4543,6 +4656,8 @@ export default function Editor() {
                 </g>
               );
             })}
+            {/* A copy of the whole drawing lights the page's edge once, shown or not (FEEL-41). */}
+            {copied?.page && <rect key={copied.n} className="page-copied" x={(-pages[0][1] / 2) * mm * L} y={(-pages[0][2] / 2) * mm * L} width={pages[0][1] * mm * L} height={pages[0][2] * mm * L} vectorEffect="non-scaling-stroke" />}
           </g>
           {/* The drawing and its marks, without the page, so the Spectrum panel can show the structure beside its spectrum. */}
           <g id="world">
@@ -4657,7 +4772,7 @@ export default function Editor() {
           {drag?.kind === "move" && drag.guides.map((g, i) => g.axis === "x"
             ? <line key={i} className="guide" x1={g.at * L} x2={g.at * L} y1={-g.from * L} y2={-g.to * L} vectorEffect="non-scaling-stroke" />
             : <line key={i} className="guide" y1={-g.at * L} y2={-g.at * L} x1={g.from * L} x2={g.to * L} vectorEffect="non-scaling-stroke" />)}
-          {drag?.kind === "move" && drag.point && <circle className="snap-point" cx={drag.point[0] * L} cy={-drag.point[1] * L} r={0.22 * L} vectorEffect="non-scaling-stroke" />}
+          {drag?.kind === "move" && drag.point && <circle key={drag.point.join()} className="snap-point" cx={drag.point[0] * L} cy={-drag.point[1] * L} r={0.22 * L} vectorEffect="non-scaling-stroke" />}
           </g>
         </g>
       </svg>
@@ -4805,7 +4920,7 @@ export default function Editor() {
           />
         );
       }}</Live>}
-      {naming !== undefined && suggestion && !nameToSmiles(naming) && (() => {
+      <Exit>{naming !== undefined && suggestion && !nameToSmiles(naming) && (() => {
         // The suggested name under the field, with the letters it adds or changes marked. Tab takes it.
         const typed = naming.trim().toLowerCase(), name = suggestion;
         let a = 0, b = 0;
@@ -4817,8 +4932,8 @@ export default function Editor() {
             <kbd>Tab</kbd>
           </p>
         );
-      })()}
-      {naming !== undefined && (historyRows.length > 0) && (
+      })()}</Exit>
+      <Exit>{naming !== undefined && (historyRows.length > 0) && (
         // Names drawn before, newest first, matching what is typed. The field keeps focus while a row is clicked.
         <div className={["name-history", suggestion && !nameToSmiles(naming) && "below", recent.all && "all"].filter(Boolean).join(" ")} role="listbox" aria-label="Recent names" onPointerDown={(e) => e.preventDefault()}>
           {historyRows.map((entry, i) => {
@@ -4827,7 +4942,7 @@ export default function Editor() {
               <div key={name} role="option" aria-selected={recent.at === i} className="name-recent" onPointerMove={() => setRecent((h) => ({ ...h, at: i }))} onClick={() => pickHistory(entry)}>
                 <span className="name-thumb">{mol ? <StructureThumb id={`name:${name}`} mol={mol} /> : <ClockCounterClockwise size={16} />}</span>
                 <span className="name-text">{name}</span>
-                <button className="name-forget" aria-label={`Remove ${name}`} title="Remove" onClick={(e) => { e.stopPropagation(); setSettings((s) => ({ ...s, nameHistory: s.nameHistory.filter((n) => n.name !== name) })); }}>
+                <button className="name-forget" aria-label={`Remove ${name}`} data-tip="Remove" onClick={(e) => { e.stopPropagation(); setSettings((s) => ({ ...s, nameHistory: s.nameHistory.filter((n) => n.name !== name) })); }}>
                   <X size={12} />
                 </button>
               </div>
@@ -4840,8 +4955,8 @@ export default function Editor() {
             </div>
           )}
         </div>
-      )}
-      {naming !== undefined && (
+      )}</Exit>
+      <Exit>{naming !== undefined && (
         <input
           ref={nameField}
           className="name-field"
@@ -4863,15 +4978,15 @@ export default function Editor() {
             if (e.key === "Enter" && recent.at === historyRows.length && historyMore) { e.preventDefault(); return setRecent({ all: true, at: -1 }); }
             if (e.key !== "Enter") return;
             if (recent.at >= 0 && historyRows[recent.at] !== undefined) return void pickHistory(historyRows[recent.at]);
-            if (named) { place(named); rememberName(structureFor(naming.trim()) ? naming.trim() : suggestion ?? naming.trim(), named); setNaming(undefined); return; }
+            if (named) { settleFrom.current = doc.atoms.length; place(named); rememberName(structureFor(naming.trim()) ? naming.trim() : suggestion ?? naming.trim(), named); setNaming(undefined); return; }
             // Not a name Octet can read: the field shakes.
-            if (!matchMedia("(prefers-reduced-motion: reduce)").matches)
-              e.currentTarget.animate([{ transform: "translateX(0)" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "translateX(0)" }], { duration: 240, easing: "ease-out" });
+            if (!reduced())
+              e.currentTarget.animate([{ transform: "translateX(0)" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "translateX(0)" }], timing("--motion-slow"));
           }}
           onBlur={() => setNaming(undefined)}
         />
-      )}
-      {settingsOpen && (
+      )}</Exit>
+      <Exit>{settingsOpen && (
         <SettingsWindow
           module={settingsOpen}
           onModule={(m) => { setSettingsOpen(m); setSettings((s) => ({ ...s, settingsModule: m })); }}
@@ -4903,6 +5018,12 @@ export default function Editor() {
           adding={addingColour}
           onClose={() => { setSettingsOpen(undefined); setAddingColour(false); }}
         />
+      )}</Exit>
+      {/* The ring and the halo need different keys. With the same key, React leaves an old ring on the page. */}
+      {holding && (
+        <svg key={`hold${holding.n}`} className="hold-ring" style={{ left: holding.x, top: holding.y, "--hold": `${HOLD_MS}ms` } as React.CSSProperties} viewBox="0 0 32 32" aria-hidden>
+          <circle cx={16} cy={16} r={13} pathLength={1} />
+        </svg>
       )}
       {pop && <span key={pop.n} className="halo" style={{ left: pop.x, top: pop.y }} aria-hidden />}
 
@@ -4937,19 +5058,19 @@ export default function Editor() {
         popKey={pop?.n ?? 0}
         canUndo={h.at > 0}
         canRedo={h.at < h.stack.length - 1}
-        undoKey={hint("undo")}
-        redoKey={hint("redo")}
+        keys={hint}
         onTool={setTool}
         onVariant={(t, kind) => setSettings((s) => ({ ...s, variants: { ...s.variants, [t]: kind } }))}
         onUndo={() => undo()}
         onRedo={() => undo(true)}
+        onDrop={(x, y) => setDropAt([x, y])}
         wide={settings.paletteWide}
         onWide={(wide) => setSettings((s) => ({ ...s, paletteWide: wide }))}
         stripWidths={settings.strips}
         onStripWidth={(t, width) => setSettings((s) => ({ ...s, strips: { ...s.strips, [t]: width } }))}
       />
 
-      {spectrum && <Live store={hovers}>{(hover) => (
+      <Exit>{spectrum && <Live store={hovers}>{(hover) => (
         <SpectrumPanel
           prediction={nmr?.prediction}
           nucleus={spectrum}
@@ -4978,8 +5099,8 @@ export default function Editor() {
           onKey={addKey}
           onSolventPeaks={(on) => setSettings((s) => ({ ...s, nmrSolventPeaks: on }))}
         />
-      )}</Live>}
-      {settings.properties && properties && (
+      )}</Live>}</Exit>
+      <Exit>{settings.properties && properties && (
         <Properties
           values={properties.values}
           chosen={settings.propertyRows}
@@ -4989,7 +5110,7 @@ export default function Editor() {
           onClose={() => setSettings((s) => ({ ...s, properties: false }))}
           stacked={!!spectrum}
         />
-      )}
+      )}</Exit>
       <Live store={carets}>{() => {
         const context = panelContext ?? contextOf();
         return (
@@ -5016,7 +5137,7 @@ export default function Editor() {
           />
         );
       }}</Live>
-      {dialog?.kind === "rotate" && (
+      <Exit>{dialog?.kind === "rotate" && (
         <Dialog title="Rotate" action="Rotate" onClose={() => setDialog(undefined)}
           onAction={() => { const a = Number(dialog.angle); if (Number.isFinite(a)) rotateBy(dialog.clockwise ? -a : a); setDialog(undefined); }}>
           <label className="dialog-row">
@@ -5025,29 +5146,29 @@ export default function Editor() {
           </label>
           <Segmented label="Direction" value={dialog.clockwise ? "cw" : "ccw"} options={[["ccw", "Anticlockwise"], ["cw", "Clockwise"]]} onChange={(v) => setDialog({ ...dialog, clockwise: v === "cw" })} />
         </Dialog>
-      )}
+      )}</Exit>
       {(home || homeLeaving) && (homeKind.current === "name"
         ? <NameBox leaving={!home} onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone) startTutorial(); }} />
         : <Home leaving={!home} name={settings.userName ?? ""} first={welcomed} away={away} recents={recents} newKey={keyLabel("enter")} openKey={hint("open")}
-            purposes={purposeList} purpose={settings.purpose} onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent}
+            purposes={purposeList} purpose={settings.purpose} onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent} onStarter={(text) => keepWork(() => load(undefined, text))}
             onRemovePurpose={(id) => setSettings((s) => ({ ...s, ownPurposes: s.ownPurposes.filter((p) => p.id !== id), purpose: s.purpose === id ? "paper" : s.purpose }))}
             onRemove={(r) => void invoke("recent_remove", { path: r.path }).then(refreshRecents).catch(() => {})} />)}
-      {coach > 0 && !home && (
-        <Coach key={coach} doc={doc} selected={selection.size} seen={seen} keys={{ clean: hint("clean_up") ?? "", copy: keyLabel("mod+c") }}
+      <Exit>{coach > 0 && !home && (
+        <Coach key={coach} doc={doc} selected={selection.size} seen={seen} keys={{ clean: hint("clean_up") ?? "", copy: keyLabel("mod+c") }} low={naming !== undefined}
           onTool={setCoachTool} onSkip={() => setCoach(0)} onFinish={() => { const fresh: Mol = { ...EMPTY, style: doc.style }; setCoach(0); set(fresh); setFile({ saved: fresh }); }} />
-      )}
-      {dialog?.kind === "unsaved" && (
+      )}</Exit>
+      <Exit>{dialog?.kind === "unsaved" && (
         <Dialog title={`Save changes to “${name}”?`} action="Save" onClose={() => setDialog(undefined)}
           alt={{ label: "Don’t Save", onClick: () => { const d = dialog; setDialog(undefined); d.next(); } }}
           onAction={() => { const d = dialog; setDialog(undefined); void save(false).then((ok) => { if (ok) d.next(); }); }}>
           <p className="dialog-note">If you do not save, your changes are lost.</p>
         </Dialog>
-      )}
-      {about && <About onClose={() => setAbout(false)} />}
-      {feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={setNotice}
-        onSent={() => { setFeedback(undefined); setNotice("Your feedback is ready to send in your mail app.", true); }} />}
+      )}</Exit>
+      <Exit>{about && <About onClose={() => setAbout(false)} />}</Exit>
+      <Exit>{feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={(e) => setNotice(failure("Octet cannot make your feedback.", e))}
+        onSent={() => { setFeedback(undefined); setNotice("Your feedback is ready to send in your mail app.", "done"); }} />}</Exit>
       <ExportButton hint={platformLabel(EXPORT_KEYS)} onQuick={() => void quickExport()} onExport={openExport} />
-      {exportView && (
+      <Exit>{exportView && (
         <ExportDialog prefs={settings.files} onPrefs={(p) => setSettings((s) => ({ ...s, files: { ...s.files, ...p } }))} pictures={exportView}
           chemistry={(part) => {
             // The chosen format is made now, so the dialog says at once when it cannot be. The others are offered
@@ -5059,8 +5180,8 @@ export default function Editor() {
             return has;
           }}
           onExport={(part) => void exportPart(part)} onClose={() => setExportView(undefined)} />
-      )}
-      {dialog?.kind === "atom" && (
+      )}</Exit>
+      <Exit>{dialog?.kind === "atom" && (
         <Dialog title="Atom Properties" action="Apply" onClose={() => setDialog(undefined)}
           onAction={() => {
             const d = dialog, a = doc.atoms[d.atom];
@@ -5079,34 +5200,34 @@ export default function Editor() {
             <Segmented label="Radical" value={dialog.radical} options={[["0", "None"], ["1", "•", "Doublet"], ["2", "••", "Triplet"], ["3", ":", "Singlet"]]} onChange={(v) => setDialog({ ...dialog, radical: v })} />
           </div>
         </Dialog>
-      )}
-      {dialog?.kind === "font" && (
+      )}</Exit>
+      <Exit>{dialog?.kind === "font" && (
         <Dialog title="Font" action="Apply" onClose={() => setDialog(undefined)} onAction={() => { runAction(`caption.font.${dialog.font}`); setDialog(undefined); }}>
           <div className="dialog-row"><span>Font</span><FontPick label="Font" font={dialog.font} fonts={fontList} onPick={(font) => setDialog({ ...dialog, font })} className="select-field" start /></div>
         </Dialog>
-      )}
-      {dialog?.kind === "size" && (
+      )}</Exit>
+      <Exit>{dialog?.kind === "size" && (
         <Dialog title="Size" action="Apply" onClose={() => setDialog(undefined)}
           onAction={() => { const n = Number(dialog.size), pt = roundPt(n); if (n > 0 && pt <= 999) { lastSize.current = pt; runAction(`caption.size.${pt}`); } setDialog(undefined); }}>
           {/* Any size from 0.1 to 999 pt (decision 0007), to the nearest half point from 5 pt and the nearest tenth below. */}
           <label className="dialog-row"><span>Size</span><NumberField label="Size" unit="pt" min={0.1} max={999} step={1} value={Number(dialog.size)} onChange={(n) => setDialog({ ...dialog, size: String(n) })} /></label>
         </Dialog>
-      )}
-      {dialog?.kind === "spacing" && (
+      )}</Exit>
+      <Exit>{dialog?.kind === "spacing" && (
         <Dialog title="Line Spacing" action="Apply" onClose={() => setDialog(undefined)}
           onAction={() => { const pt = Number(dialog.pt); restyle(() => ({ lineHeight: dialog.mode === "variable" ? "variable" : dialog.mode === "fixed" && pt >= 0.1 && pt <= 999 ? pt : undefined })); setDialog(undefined); }}>
           {/* ChemDraw's three: Automatic (by the caption's largest text), Variable (each line by its own) and Fixed at. */}
           <Segmented label="Line spacing" value={dialog.mode} onChange={(mode) => setDialog({ ...dialog, mode })} options={[["auto", "Automatic"], ["variable", "Variable"], ["fixed", "Fixed"]]} />
           <label className="dialog-row"><span>Fixed at</span><NumberField label="Fixed at" unit="pt" min={0.1} max={999} step={0.5} disabled={dialog.mode !== "fixed"} value={Number(dialog.pt)} onChange={(n) => setDialog({ ...dialog, pt: String(n) })} /></label>
         </Dialog>
-      )}
-      {dialog?.kind === "chain" && (
+      )}</Exit>
+      <Exit>{dialog?.kind === "chain" && (
         <Dialog title="Add Chain" action={typeof dialog.from === "number" ? "Attach" : "Add"} onClose={() => setDialog(undefined)}
           onAction={() => { const n = Number(dialog.atoms); if (n >= 1) addChainOf(dialog.from, n); setDialog(undefined); }}>
           <label className="dialog-row"><span>Number of atoms</span><span className="unit-field"><input aria-label="Number of atoms" inputMode="numeric" value={dialog.atoms} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, atoms: e.target.value.replace(/\D/g, "").slice(0, 3) })} /></span></label>
         </Dialog>
-      )}
-      {dialog?.kind === "scale" && (
+      )}</Exit>
+      <Exit>{dialog?.kind === "scale" && (
         <Dialog title="Scale" action="Scale" onClose={() => setDialog(undefined)}
           onAction={() => {
             const v = Number(dialog.value), median = chosenMedian();
@@ -5131,14 +5252,10 @@ export default function Editor() {
             <Switch on={scalesText()} label="Labels and lines" disabled={textAlone()} onChange={(on) => setSettings((s) => ({ ...s, scaleLabels: on }))} />
           </label>
         </Dialog>
-      )}
+      )}</Exit>
       {commandsOpen && <CommandPalette commands={paletteCommands()} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}
-      {notice && (
-        <p className="notice text-ui" role="status">
-          {!notice.info && <Warning size={16} aria-hidden />}
-          {notice.text}
-        </p>
-      )}
+      <Exit>{notice && <NoticeBar notice={notice} onGone={() => showNotice(undefined)} />}</Exit>
+      <Tooltips />
     </div>
   );
 }

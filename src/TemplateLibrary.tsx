@@ -7,6 +7,7 @@ import { measure, STYLE } from "./chem";
 import { fontStack } from "./docstyle";
 import { LIBRARY, type LibraryItem } from "./library";
 import { render, type Label, type Mol } from "./render";
+import { useLeaving } from "./motion";
 
 const toPath = (polys: [number, number][][]) => polys.map((poly) => "M" + poly.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L") + "Z").join("");
 // Thumbnails are drawn once. Small structures keep their size (the view is at least five bonds across); big ones shrink to fit.
@@ -38,13 +39,13 @@ export function LibraryPanel(p: {
   const categories = useMemo(() => (p.mine?.length ? [{ name: "My templates", items: p.mine }, ...LIBRARY] : LIBRARY), [p.mine]);
   // It opens on the category of the template in hand.
   const [category, setCategory] = useState(() => categories.find((c) => c.items.some((t) => t.kind === p.current))?.name ?? categories[0].name);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(""), leaving = useLeaving();
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     return q ? categories.flatMap((c) => c.items).filter((t) => t.name.toLowerCase().includes(q) || t.category.toLowerCase().includes(q)) : (categories.find((c) => c.name === category) ?? categories[0]).items;
   }, [category, query, categories]);
   return (
-    <div className={p.dimmed ? "library carrying" : "library"} role="dialog" aria-label="Templates">
+    <div className={["library", p.dimmed && "carrying", leaving && "leaving"].filter(Boolean).join(" ")} role="dialog" aria-label="Templates" inert={leaving}>
       <div className="library-side">
         <label className="library-search">
           <MagnifyingGlass size={16} aria-hidden />
@@ -62,13 +63,13 @@ export function LibraryPanel(p: {
           const kept = !!p.kept?.includes(t.kind);
           return (
             <div key={t.kind} className="library-cell">
-              <button role="menuitemradio" aria-checked={p.current === t.kind} className="library-item" title={t.name}
+              <button role="menuitemradio" aria-checked={p.current === t.kind} className="library-item" data-tip={t.name} data-tip-cut
                 onPointerDown={(e) => p.onPress(e, t.kind)} onClick={() => p.onChoose(t.kind)}>
                 <Thumb item={t} />
                 <span className="library-name">{t.name}</span>
               </button>
               {p.onKeep && (
-                <button className="variant-action" aria-pressed={kept} aria-label={`Keep ${t.name} in the Ring menu`} title={kept ? "In the Ring menu" : "Keep in the Ring menu"} onClick={() => p.onKeep!(t.kind, !kept)}>
+                <button className="variant-action" aria-pressed={kept} aria-label={`Keep ${t.name} in the Ring menu`} data-tip={kept ? "In the Ring menu" : "Keep in the Ring menu"} onClick={() => p.onKeep!(t.kind, !kept)}>
                   <PushPin size={12} />
                 </button>
               )}

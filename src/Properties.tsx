@@ -7,6 +7,7 @@ import type { Structure } from "./chem";
 import type { Graph } from "./naming";
 import { elementalAnalysis, isotopePattern } from "./mass";
 import { useMovable } from "./movable";
+import { useLeaving } from "./motion";
 
 // What Octet's own calculators (props.ts) give for a structure.
 export type Calculated = {
@@ -63,7 +64,7 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
   const groups = useMemo(() => values.filter((g) => g.length), [values]);
   // It opens where the Spectrum opens, along the bottom (above the Spectrum when that is open too), and moves by its
   // header.
-  const move = useMovable("properties");
+  const move = useMovable("properties"), leaving = useLeaving();
   // Stacked: it sits on the Spectrum's top edge and shrinks to the room above it, so it never covers the Spectrum's
   // controls.
   const [below, setBelow] = useState(0);
@@ -77,10 +78,10 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
     return () => watch.disconnect();
   }, [stacked]);
   return (
-    <section className={stacked ? "properties stacked" : "properties"} aria-label="Properties" style={{ ...move.style, ...(stacked ? { "--below": `${below}px` } : {}) } as React.CSSProperties}>
+    <section className={["properties", stacked && "stacked", leaving && "leaving"].filter(Boolean).join(" ")} aria-label="Properties" inert={leaving} style={{ ...move.style, ...(stacked ? { "--below": `${below}px` } : {}) } as React.CSSProperties}>
       <header onPointerDown={move.onPointerDown}>
         <h2>Properties</h2>
-        <button className="actions-close" onClick={onClose} aria-label="Close properties" title="Close properties"><X size={12} /></button>
+        <button className="actions-close" onClick={onClose} aria-label="Close properties" data-tip="Close properties"><X size={12} /></button>
       </header>
       <div className="prop-list">
         {groups.map((g, k) => (
@@ -89,11 +90,11 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
               const text = row.values.map((v) => (v === undefined ? "–" : v)).join("; "), on = chosen.includes(row.key);
               return (
                 <div key={row.key} className={`prop-row${text.length > 18 ? " long" : ""}`}>
-                  <button className="prop-check" role="checkbox" aria-checked={on} aria-label={`Add ${row.name} to the drawing`} title="Add to drawing" onClick={() => onChoose(row.key)}>
+                  <button className="prop-check" role="checkbox" aria-checked={on} aria-label={`Add ${row.name} to the drawing`} data-tip="Add to drawing" onClick={() => onChoose(row.key)}>
                     {on && <Check size={12} />}
                   </button>
                   <span className="prop-name">{row.name}</span>
-                  <button className={row.key === "formula" ? "prop-value formula" : "prop-value"} title="Copy" onClick={() => onCopy(`${row.name}: ${text}`)}>{show(row.key, text)}</button>
+                  <button className={row.key === "formula" ? "prop-value formula" : "prop-value"} data-tip="Copy" onClick={() => onCopy(`${row.name}: ${text}`)}>{show(row.key, text)}</button>
                 </div>
               );
             })}

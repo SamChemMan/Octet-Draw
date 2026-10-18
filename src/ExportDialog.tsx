@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { DownloadSimple, Export as ExportIcon, ImageSquare } from "@phosphor-icons/react";
 import { Dialog } from "./Dialog";
 import { Menu } from "./Menu";
+import { Exit } from "./motion";
 import { Select } from "./Select";
 import { NumberField, Segmented } from "./Fields";
 import { withMargin, type ExportFormat } from "./export";
@@ -23,15 +24,15 @@ export function ExportButton({ onQuick, onExport, hint }: { onQuick: () => void;
   }, [open]);
   return (
     <div className="export" ref={box}>
-      <button className="export-button" aria-haspopup="menu" aria-expanded={open} title={hint ? `Export (${hint})` : "Export"} onClick={() => setOpen(!open)}>
+      <button className="export-button" aria-haspopup="menu" aria-expanded={open} data-tip="Export" data-key={hint} onClick={() => setOpen(!open)}>
         <ExportIcon size={16} aria-hidden />
         Export
       </button>
-      {open && (
+      <Exit>{open && (
         <Menu label="Export" className="export-menu" columns={1}
           groups={[[{ key: "quick", name: "Quick export as PNG", icon: <ImageSquare size={18} /> }, { key: "export", name: "Export…", icon: <DownloadSimple size={18} /> }]]}
           onChoose={(key) => { setOpen(false); if (key === "quick") onQuick(); else onExport(); }} />
-      )}
+      )}</Exit>
     </div>
   );
 }
@@ -54,10 +55,12 @@ export function ExportDialog({ prefs, onPrefs, pictures, chemistry, onExport, on
   const isPicture = PICTURES.includes(format), svg = picture && isPicture ? withMargin(picture, prefs.margin) : undefined;
   const size = svg ? (/viewBox="[-\d.]+ [-\d.]+ ([\d.]+) ([\d.]+)"/.exec(svg) ?? []).slice(1).map(Number) : [];
   const mm = (pt: number) => Math.round((pt * 25.4) / 72);
+  // A saved format this drawing has nothing for stays in the list, so the list shows it and Export… is off.
   const ok = usable.some(([f]) => f === format);
+  // The preview is white paper in both themes, so it and the text on it take the light theme's colours.
   return (
-    <Dialog title="Export" action="Export…" onClose={onClose} onAction={() => { if (ok) onExport(part); }}>
-      <div className={["export-preview", format === "png" && prefs.background === "transparent" && "transparent"].filter(Boolean).join(" ")}>
+    <Dialog title="Export" action="Export…" onClose={onClose} onAction={() => onExport(part)} disabled={!ok}>
+      <div className={["export-preview", svg && format === "png" && prefs.background === "transparent" && "transparent"].filter(Boolean).join(" ")} data-theme="light">
         {svg ? <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`} alt="Preview" /> : <span className="export-none">{ok ? FORMATS.find(([f]) => f === format)?.[1] : "Nothing to export in this format"}</span>}
       </div>
       {size.length === 2 && (
@@ -69,7 +72,7 @@ export function ExportDialog({ prefs, onPrefs, pictures, chemistry, onExport, on
         <Segmented label="What to export" value={part} onChange={setPart} options={[["all", "Whole drawing"], ["selection", "Selection"]]} />
       )}
       <label className="dialog-row"><span>Format</span>
-        <Select label="Format" value={format} options={usable.length ? usable : FORMATS} onChange={(v) => onPrefs({ format: v as ExportFormat })} />
+        <Select label="Format" value={format} options={ok ? usable : usable.length ? [...usable, ...FORMATS.filter(([f]) => f === format)] : FORMATS} onChange={(v) => onPrefs({ format: v as ExportFormat })} />
       </label>
       {format === "png" && (
         <label className="dialog-row"><span>Resolution</span>
