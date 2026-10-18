@@ -17,7 +17,7 @@ import type { Analysis } from "./chem";
 import type { Problem } from "./check";
 import { listKeys, Menu, menuWidth, Pick, type MenuItem } from "./Menu";
 import { ColourPop } from "./ColourPicker";
-import { Exit } from "./motion";
+import { Exit, reduced, timing } from "./motion";
 import { NumberField } from "./Fields";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { BracketGlyph, ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
@@ -447,7 +447,7 @@ function Row({ icon, name, command, hint, run, accent }: { icon: React.ReactNode
 // nothing above it moves. A section above the pointer stays open until the pointer goes above it or out of the panel,
 // so nothing moves under the pointer either. When the pointer leaves, the panel takes its full height again.
 // held: the checks of open sections kept open as the pointer is below them, run again as the pointer moves.
-type Folds = { y: number | null; peeks: Set<string>; settle: Set<() => void>; held: Set<() => void>; hold: () => void; release: () => void };
+type Folds = { y: number | null; peeks: Set<string>; settle: Set<() => void>; held: Set<() => void>; hold: () => void; release: (now?: boolean) => void };
 const PEEK_DELAY = 100, PEEK_LINGER = 300; // ms the pointer rests before a folded section opens, and stays open after it leaves
 function Fold({ id, title, className, folded, onFold, folds, children }: { id: string; title: string; className: string; folded: boolean; onFold: (id: string, folded: boolean) => void; folds: Folds; children: React.ReactNode }) {
   const [peek, setPeek] = useState(false);
@@ -523,15 +523,33 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
   const subBox = useRef<HTMLDivElement>(null);
   useEffect(() => setSub(undefined), [context.kind]);
   // The pointer's height while it is in the panel, the folded sections open for now, and the panel's height kept while
-  // the pointer is in it (see Fold).
+  // the pointer is in it (see Fold). When the panel lets go of its height, it waits for a section to finish folding,
+  // then slides to its own height, so its top edge does not jump.
   const [folds] = useState(() => {
+    let wait = 0, slide: Animation | undefined;
     const f: Folds = { y: null, peeks: new Set(), settle: new Set(), held: new Set(),
-      hold: () => { const el = panel.current; if (el && f.y !== null && !el.style.height) el.style.height = getComputedStyle(el).height; },
-      release: () => { if (panel.current && !f.peeks.size && f.y === null) panel.current.style.height = ""; } };
+      hold: () => {
+        const el = panel.current;
+        if (!el || f.y === null || el.style.height) return;
+        el.style.height = getComputedStyle(el).height; // in a slide, the height the slide has got to
+        slide?.cancel();
+      },
+      release: (now) => {
+        clearTimeout(wait);
+        if (now) { slide?.cancel(); if (panel.current) panel.current.style.height = ""; return; }
+        wait = window.setTimeout(() => {
+          const el = panel.current;
+          if (!el || f.peeks.size || f.y !== null || !el.style.height) return;
+          const from = getComputedStyle(el).height;
+          el.style.height = "";
+          const to = getComputedStyle(el).height;
+          if (from !== to && !reduced()) slide = el.animate({ height: [from, to] }, timing());
+        }, reduced() ? 0 : timing().duration);
+      } };
     return f;
   });
   // A new kind of selection changes the panel: it takes its own height again.
-  useEffect(() => { if (panel.current) panel.current.style.height = ""; }, [context.kind]);
+  useEffect(() => { folds.release(true); }, [context.kind]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!sub) return;
     const away = (e: PointerEvent) => { const t = e.target as Element; if (!subBox.current?.contains(t) && !t.closest?.(".submenu-row")) setSub(undefined); };
