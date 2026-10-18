@@ -9,9 +9,10 @@ import { parse, serialize } from "./file.ts";
 import { isQueryMolfile, readV3000, writeV3000 } from "./molv3.ts";
 import { expandGeneric, layoutGrid } from "./expand.ts";
 import {
-  altGroup, atomIndicator, bondIndicator, elementList, enclosed, GENERICS, hasQuery, isGeneric, linkNode, massText, placeAttachments, polymerLabel, polymerTags, queryLabel, repeatCount, rgroupMembers,
+  altGroup, atomIndicator, bondIndicator, stepSubstituents, elementList, enclosed, GENERICS, hasQuery, isGeneric, linkNode, massText, placeAttachments, polymerLabel, polymerTags, queryLabel, repeatCount, rgroupMembers,
 } from "./query.ts";
 import { labelSmiles } from "./labels.ts";
+import { messy, problems } from "./check.ts";
 import type { Atom, Bond, Mol, Shape } from "./render.ts";
 
 const A = (label: string, x: number, y: number, more: Partial<Atom> = {}): Atom => ({ label, location: [x, y, 0], ...more });
@@ -50,6 +51,17 @@ assert.equal(polymerTags({ usage: "sru", pattern: "hh", flip: "flip" }), "hh fli
 assert.deepEqual([repeatCount({ usage: "mult" }), repeatCount({ usage: "mult", label: "2.5" }), repeatCount({ usage: "param", label: "3-5" }), repeatCount({ usage: "param", mw: 200 }, 78.11), repeatCount({ usage: "sru" })],
   [2, 2.5, 4, 200 / 78.11, undefined]);
 assert.equal(massText({ weight: 58.12, exact: 58.08, repeat: { label: "n", weight: 28.05, exact: 28.03, ends: { weight: 30.07, exact: 30.05 } } }, "weight", 2), "30.07 + (28.05)n");
+// The free-site, up-to and exactly keys step an atom's substituent count.
+{
+  let m: Mol = { atoms: [A("C", 0, 0)], bonds: [] };
+  m = stepSubstituents(stepSubstituents(m, 0, "free"), 0, "free");
+  assert.deepEqual(m.atoms[0].query, { subst: { kind: "free", n: 2 } });
+  assert.deepEqual(stepSubstituents(m, 0, "upto").atoms[0].query, { subst: { kind: "upto", n: 1 } }, "another kind starts at 1");
+  for (let k = 0; k < 12; k++) m = stepSubstituents(m, 0, "free");
+  assert.equal(m.atoms[0].query?.subst?.n, 9, "free sites go up to 9");
+  for (let k = 0; k < 10; k++) m = stepSubstituents(m, 0, "lower");
+  assert.equal(m.atoms[0].query, undefined, "lowered below 0, the count is unset");
+}
 console.log("query.check: indicators and polymer labels ok");
 
 // A query drawing with every CH-16 to CH-19 feature: a scaffold with query atoms and bonds, an R1, an element list, a
@@ -111,6 +123,18 @@ assert.deepEqual(insertMol(drawing, copy, [5, 5]).mol.atoms[drawing.atoms.length
 assert.deepEqual(subset(drawing, new Set([12, 13])).atoms.map((a) => a.label), ["Br"], "an attachment without its atoms is not copied");
 const moved = placeAttachments({ ...drawing, atoms: drawing.atoms.map((a, i) => (i >= 14 && i <= 18 ? { ...a, location: [a.location[0] + 1, a.location[1], 0] } : a)) });
 assert.deepEqual(moved.atoms[24].location.slice(0, 2).map((v) => +v.toFixed(6)), [9, 1.5]);
+// Warnings: an attachment sits among its atoms and its bonds cross its ring by design, an R-group fragment's
+// attachment mark is not a carbon, and Abnormal Valence allowed turns the valence warning off.
+{
+  const placed = placeAttachments(drawing);
+  assert.equal(messy(placed), false);
+  const found = problems(placed);
+  assert.ok(!found.some((p) => p.atom !== undefined && placed.atoms[p.atom].centre), "no warning on an attachment");
+  assert.ok(!found.some((p) => p.type === "isolated"), "an attachment mark's bond is not ethane");
+  const five: Mol = { atoms: [A("C", 0, 0, { query: { valence: true } }), ...[0, 1, 2, 3, 4].map((k) => A("C", Math.cos(k), Math.sin(k)))], bonds: [1, 2, 3, 4, 5].map((j) => b(0, j)) };
+  assert.ok(!problems(five).some((p) => p.type === "valence"));
+  assert.ok(problems({ ...five, atoms: [A("C", 0, 0), ...five.atoms.slice(1)] }).some((p) => p.type === "valence"));
+}
 console.log("query.check: attachments through edits ok");
 
 // Expand Generic Structure: each combination of the sites' choices, as its own structure.
@@ -253,6 +277,14 @@ console.log("query.check: MOL V3000 ok");
   assert.equal(pasted.bonds[0].query, "sd");
   // Its OMe alternative is drawn out as atoms in its R-group.
   assert.match(molfile, /BEGIN RGROUP 2[\s\S]*M {2}V30 \d+ O [\s\S]*END RGROUP/);
+  // A V2000 query molfile (an R-group, an atom list, a substitution count, an S/D bond) keeps its query too.
+  const v2000 = ["", "  test", "", "  4  3  0  0  0  0  0  0  0  0999 V2000",
+    "    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0", "    1.0000    0.0000    0.0000 R#  0  0  0  0  0  0  0  0  0  0  0  0",
+    "    2.0000    0.0000    0.0000 L   0  0  0  0  0  0  0  0  0  0  0  0", "    3.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0",
+    "  1  2  1  0  0  0  0", "  2  3  5  0  0  0  0", "  3  4  1  0  0  1  0", "M  RGP  1   2   1", "M  ALS   3  3 F Cl  Br  I   ", "M  SUB  1   1   2", "M  END"].join("\n");
+  const q2 = importStructure(v2000);
+  assert.deepEqual(q2.atoms.map((a) => a.text ?? a.label), ["C", "R1", "[Cl,Br,I]", "C"]);
+  assert.deepEqual([q2.atoms[0].query, q2.bonds[1].query, q2.bonds[2].topology], [{ subst: { kind: "exactly", n: 2 } }, "sd", "ring"]);
   // A plain structure's molfile stays Indigo's.
   assert.match(toMolfile({ atoms: [A("C", 0, 0), A("O", 1, 0)], bonds: [b(0, 1)] }), /-INDIGO-/);
   console.log("query.check: chemistry ok");

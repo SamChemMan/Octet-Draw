@@ -67,7 +67,7 @@ import { formulaRuns } from "./labels";
 import { common, edited, lines as richLines, normalise, plainOf, runsOf, styleRange, styled, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
 import { Dialog } from "./Dialog";
-import { addAttachment, anyQuery, enclosed, genericSites, nextRGroup, placeAttachments, polymerLabel, polymerTags, rNumber, USAGES, USAGE_KINDS } from "./query";
+import { addAttachment, stepSubstituents, anyQuery, enclosed, genericSites, nextRGroup, placeAttachments, polymerLabel, polymerTags, rNumber, USAGES, USAGE_KINDS } from "./query";
 import { Select } from "./Select";
 import { expandGeneric, layoutGrid, MOST } from "./expand";
 import "./editor.css";
@@ -2463,6 +2463,7 @@ export default function Editor() {
     if (id === "atom.label" && atom !== undefined) return editLabel(atom);
     if (id === "charge.plus" && atom !== undefined) return set(addCharge(doc, atom, 1));
     if (id === "charge.minus" && atom !== undefined) return set(addCharge(doc, atom, -1));
+    if (kind === "subst" && atom !== undefined) return set(stepSubstituents(doc, atom, arg as "free" | "upto" | "exactly" | "lower"));
     if (kind === "menu") return commands.current[id.slice(5)]?.(); // a menu command on a key (Settings)
     if (kind === "group" && atom !== undefined) return set(addGroup(doc, atom, arg as Group));
     if (kind === "bond" && bond !== undefined) {

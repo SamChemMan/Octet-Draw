@@ -175,7 +175,7 @@ export function problems(m: Mol, stereo?: StereoFacts, all = false): Problem[] {
   // bond tests the atoms in the cells its box, grown by NEAR, covers (a long bond, every atom).
   const NEAR = 0.15, grid = new Map<number, number[]>(), key = (x: number, y: number) => x * 4194304 + y, xy = m.atoms.map((a) => a.location);
   m.atoms.forEach((a, i) => {
-    if (a.text || a.label !== "C" || !count[i]) return;
+    if (a.text || a.label !== "C" || !count[i] || a.centre) return;
     const k = key(Math.floor(xy[i][0]), Math.floor(xy[i][1])), cell = grid.get(k);
     if (cell) cell.push(i); else grid.set(k, [i]);
   });
@@ -271,7 +271,8 @@ export function messy(m: Mol, ids?: Set<number>): boolean {
     return length < 0.75 || length > 1.3;
   });
   if (uneven) return true;
-  const atoms = m.atoms.map((_, i) => i).filter(inside), large = m.atoms.length > LARGE;
+  // A multi-centre or variable attachment sits among its atoms by design.
+  const atoms = m.atoms.map((_, i) => i).filter((i) => inside(i) && !m.atoms[i].centre), large = m.atoms.length > LARGE;
   const near = large ? bondedTo(m) : undefined;
   const close = (i: number, j: number) => {
     const [p, q]: P[] = [pos(m, i), pos(m, j)];

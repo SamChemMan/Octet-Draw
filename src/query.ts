@@ -223,3 +223,16 @@ export function genericSites(m: Mol, atoms: Iterable<number>): boolean {
   }
   return false;
 }
+// ChemDraw's Free Site tool and its free-site, up-to and exactly keys: the atom's substituent count one higher (a
+// count of another kind starts again at 1; free sites go up to 9, as the tool's do, the others to 15), or, with
+// lower, one lower (below 0 it is unset).
+export function stepSubstituents(m: Mol, i: number, kind: "free" | "upto" | "exactly" | "lower"): Mol {
+  const a = m.atoms[i], s = a?.query?.subst;
+  if (!a) return m;
+  let next: AtomQuery["subst"];
+  if (kind === "lower") next = s && s.n > 0 ? { kind: s.kind, n: s.n - 1 } : undefined;
+  else next = s?.kind === kind ? { kind, n: Math.min(kind === "free" ? 9 : 15, s.n + 1) } : { kind, n: 1 };
+  const query: AtomQuery = { ...a.query, subst: next };
+  if (!next) delete query.subst;
+  return { ...m, atoms: m.atoms.map((x, k) => (k === i ? { ...x, query: Object.keys(query).length ? query : undefined } : x)) };
+}

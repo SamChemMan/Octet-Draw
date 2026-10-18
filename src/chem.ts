@@ -117,9 +117,12 @@ export function importStructure(text: string): Mol {
     opts.set("dearomatize-on-load", "true");
     const hasDrawing = /V2000|V3000|<CDXML|"root"/.test(text);
     if (!hasDrawing) return parseStructure(text);
-    // A V3000 query or Markush file: read by Octet, so its query data is kept (molv3.ts).
-    if (isQueryMolfile(text)) {
-      const mol = readV3000(text);
+    // A query or Markush molfile: read by Octet, so its query data is kept (molv3.ts). A V2000 one (R-groups, atom
+    // lists, substitution counts, S-groups) is made V3000 by Indigo first.
+    const v2000 = /V2000/.test(text) && /^M {2}(RGP|ALS|SUB|UNS|RBC|LIN|STY|LOG)|^\$RGP|^(?:.{31})(R#|L |A |Q )|^.{6}  [5-8] /m.test(text);
+    const v3000 = v2000 ? (() => { try { return convert(text, "molfile", { "molfile-saving-mode": "3000" }); } catch { return ""; } })() : text;
+    if (isQueryMolfile(v3000)) {
+      const mol = readV3000(v3000);
       const lengths = mol.bonds.map((b) => Math.hypot(mol.atoms[b.atoms[1]].location[0] - mol.atoms[b.atoms[0]].location[0], mol.atoms[b.atoms[1]].location[1] - mol.atoms[b.atoms[0]].location[1])).sort((a, b) => a - b);
       const k = 1 / (lengths[Math.floor(lengths.length / 2)] || 1), at = (q: [number, number]): [number, number] => [q[0] * k, q[1] * k];
       return { ...mol, atoms: mol.atoms.map((a) => ({ ...a, location: [a.location[0] * k, a.location[1] * k, (a.location[2] ?? 0) * k] })), ...(mol.shapes ? { shapes: mol.shapes.map((sh) => ({ ...sh, from: at(sh.from), to: at(sh.to) })) } : {}) };
@@ -242,9 +245,10 @@ function ketOf(drawn: Mol, wedges = true): string {
     ...(metalled[i] && NONMETAL.has(a.label) ? { explicitValence: valence(i, a) } : {}) }));
   return JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule", atoms, bonds } });
 }
-function convert(input: string, format: string): string {
+function convert(input: string, format: string, options: Record<string, string> = {}): string {
   const ind = engine(), opts = new ind.MapStringString();
   try {
+    for (const [k, v] of Object.entries(options)) opts.set(k, v);
     // Only the end: a molfile's first line (its name) is blank, and without it the file does not read.
     return ind.convert(input, format, opts).trimEnd();
   } finally {

@@ -13,7 +13,7 @@ import {
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
-import { GENERICS, massText } from "./query";
+import { GENERICS, massText, queryLabel } from "./query";
 import { Menu, Pick, type MenuItem } from "./Menu";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
@@ -269,7 +269,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       break;
     case "atom":
       items.push(it(<CursorText size={18} />, "Type a label", "atom.label"), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
-        ...(context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label) ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<Faders size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"),
+        ...((context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label)) && !queryLabel(context.label) ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<Faders size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"),
         ...warnings(true), ...order, del);
       break;
     case "bond":
@@ -542,7 +542,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           {/* ChemDraw's Insert Generic Label: A, M, Q, X and R, then the Reaxys classes, each with what it stands for. */}
           <div className="chips groups" role="group" aria-label="Generic label">
             <Pick label="Generic label" value={context.label} onPick={(g) => run(`label:${g}`)} className="chip" title="Generic label"
-              groups={[GENERICS.slice(0, 5), GENERICS.slice(5)].map((list) => list.map(([g, name]) => ({ key: g, name: `${g}: ${name}`, icon: <span className="glyph-text">{g}</span> })))}>
+              groups={[GENERICS.slice(0, 5), GENERICS.slice(5)].map((list) => list.map(([g, name]) => ({ key: g, name, icon: <span className="glyph-text">{g}</span> })))}>
               Generic
             </Pick>
           </div>
