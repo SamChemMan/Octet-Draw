@@ -33,6 +33,18 @@ assert.deepEqual(clashes(map, "bond.double", "n"), []);
 import { label } from "./keys.ts";
 assert.equal(label("+"), "+");
 assert.ok(["↩", "Enter"].includes(label("enter")));
+// The menu's commands join the list; one no longer in the menu (Online search off removes the Search menu) leaves it.
+import { ACTIONS, registerMenu } from "./keys.ts";
+registerMenu([["clean_up", "Clean Up Structure", "Structure", "CmdOrCtrl+Shift+K"], ["search_reaxys", "Search Reaxys", "Search", "Alt+CmdOrCtrl+F"]]);
+assert.ok(ACTIONS.some((a) => a.id === "menu.search_reaxys") && ACTIONS.some((a) => a.id === "menu.clean_up"));
+assert.equal(actionFor(keymap({}), "mod+alt+f", "none"), "menu.search_reaxys");
+registerMenu([["clean_up", "Clean Up Structure", "Structure", "CmdOrCtrl+Shift+K"]]);
+assert.ok(!ACTIONS.some((a) => a.id === "menu.search_reaxys") && ACTIONS.some((a) => a.id === "menu.clean_up"));
+assert.equal(actionFor(keymap({}), "mod+alt+f", "none"), undefined);
+// View > Show Grid (⌘'), Show Rulers (⌘;) and Show Crosshair (⌥⌘X): their keys read as the page writes them.
+registerMenu([["grid", "Show Grid", "View", "CmdOrCtrl+'"], ["rulers", "Show Rulers", "View", "CmdOrCtrl+;"], ["crosshair", "Show Crosshair", "View", "Alt+CmdOrCtrl+X"]]);
+assert.deepEqual(["menu.grid", "menu.rulers", "menu.crosshair"].map((id) => keymap({})[id]), [["mod+'"], ["mod+;"], ["mod+alt+x"]]);
+assert.equal(actionFor(keymap({}), "mod+;", "none"), "menu.rulers");
 console.log("keys.check: ok");
 
 // A button the keyboard moved to takes Space and Return; after a click, Space stays the Select key.

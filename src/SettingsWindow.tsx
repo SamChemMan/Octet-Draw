@@ -11,9 +11,9 @@ import { Select } from "./Select";
 import { FontPick } from "./Actions";
 import { listOpen } from "./Menu";
 import { NumberField, Segmented, Switch } from "./Fields";
-import type { Swatch } from "./settings";
+import { RULER_UNITS, type RulerUnit, type Swatch } from "./settings";
 import type { ExportFormat } from "./export";
-import { BACKGROUNDS, COLOURS, FONTS, PAGE_NAMES, PAGES, PRESETS, PURPOSES, pageSize, pickPage, presetAt, presetOf, withScale, type DocStyle, type PageName } from "./docstyle";
+import { BACKGROUNDS, COLOURS, FONTS, GRID_IN, GRID_MM, PAGE_NAMES, PAGES, PRESETS, PURPOSES, pageSize, pickPage, presetAt, presetOf, withScale, type DocStyle, type PageName } from "./docstyle";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
 
 export type ModuleId = "document" | "keys" | "appearance" | "files";
@@ -44,6 +44,10 @@ type Props = {
   onCaptionOptionReturn: (on: boolean) => void;
   panelMenus: boolean; // the Actions panel's sets as menus, not sections
   onPanelMenus: (menus: boolean) => void;
+  onlineSearch: boolean; // Search Reaxys and Search PubChem are offered (decision 0008)
+  onOnlineSearch: (on: boolean) => void;
+  rulerUnit: RulerUnit; // View > Show Rulers: the rulers' unit, for every drawing
+  onRulerUnit: (unit: RulerUnit) => void;
   menuKeys: [string, string][]; // the menu commands that have a shortcut: name, shortcut as this platform shows it
   palette: Swatch[]; // the user's own colours
   onPalette: (palette: Swatch[]) => void;
@@ -187,7 +191,7 @@ export const moduleOf = (id: string): ModuleId => (id === "panel" || id === "col
 const SYNONYMS: Record<string, string> = {
   color: "colour", thickness: "width", thick: "width", weight: "width", stroke: "width", hotkey: "shortcut", hotkeys: "shortcut",
   key: "shortcut", keys: "shortcut", keybinding: "shortcut", paper: "page", sheet: "page", typeface: "font", fonts: "font",
-  grid: "gridlines", journal: "preset", template: "preset", image: "png", picture: "png", bitmap: "png", vector: "svg",
+  gridlines: "grid", journal: "preset", template: "preset", image: "png", picture: "png", bitmap: "png", vector: "svg",
   word: "clipboard", powerpoint: "clipboard", keynote: "clipboard", office: "clipboard", paste: "clipboard", copy: "clipboard",
   resolution: "scale", dpi: "scale", transparency: "background", landscape: "orientation", portrait: "orientation",
   chemdraw: "cdxml", length: "length", spacing: "spacing", double: "spacing",
@@ -329,7 +333,16 @@ export function SettingsWindow(p: Props) {
         <Segmented label="Orientation" value={style.landscape ? "landscape" : "portrait"} onChange={(v) => change({ landscape: v === "landscape" })}
           options={[["portrait", <span className="page-glyph" />, "Portrait"], ["landscape", <span className="page-glyph wide" />, "Landscape"]]} />
       )),
-      d("document", "Page", "Gridlines", "grid gridlines guides page", <Select label="Gridlines" value={String(style.grid)} options={[["0", "None"], ["5", "5 mm"], ["10", "10 mm"], ["20", "20 mm"]]} onChange={(v) => change({ grid: Number(v) })} />),
+      // View > Show Grid shows the grid; here is its step. A US page offers inches; a step the page does not offer
+      // (from another page, or a file) stays listed, so the list always shows what is set.
+      d("document", "Page", "Grid spacing", "grid gridlines spacing step snap bond length mm inches", (
+        <Select label="Grid spacing" value={String(style.grid)} onChange={(v) => change({ grid: v === "bond" ? "bond" : Number(v) })}
+          options={[["bond", "Bond length"], ...[...new Set([...(["Letter", "Legal", "Tabloid", "ACS1", "ACS2"].includes(style.page) ? GRID_IN : GRID_MM), ...(style.grid === "bond" ? [] : [style.grid])])]
+            .sort((a, b) => a - b).map((n): [string, string] => [String(n), GRID_IN.includes(n) ? `${["⅛", "¼", "½"][GRID_IN.indexOf(n)]} in` : `${n} mm`])]} />
+      )),
+      d("document", "Page", "Ruler units", "ruler rulers units mm cm inches points picas measure", (
+        <Select label="Ruler units" value={p.rulerUnit} options={RULER_UNITS} onChange={(v) => p.onRulerUnit(v as RulerUnit)} />
+      )),
       d("document", "Page", "Page edges", "page edges outline guides", <Switch on={style.edges} label="Page edges" onChange={(on) => change({ edges: on })} />),
       d("document", "Page", "Background", "background page colour dark mode night white system engineering paper blueprint blue grid", (
         // Each background as a small page of itself.
@@ -371,8 +384,10 @@ export function SettingsWindow(p: Props) {
       ), true),
       d("appearance", "Colours", "Your colours", "colour colours palette custom swatch named add", <PaletteEditor palette={p.palette} onPalette={p.onPalette} adding={p.adding} />, true),
       d("files", "Import", "Keep ChemDraw styles", "import open cdxml chemdraw style keep", <Switch on={files.keepStyle} label="Keep ChemDraw styles" onChange={(on) => setFiles({ keepStyle: on })} />),
+      // Off hides Search Reaxys and Search PubChem everywhere (decision 0008).
+      d("files", "Online", "Online search", "online search reaxys pubchem internet web browser network privacy offline", <Switch on={p.onlineSearch} label="Online search" onChange={p.onOnlineSearch} />),
     ];
-  }, [style, map, recording, note, files, p.palette, p.adding, p.panelMenus, p.captionOptionReturn, p.menuKeys.length, p.purposes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.adding, p.panelMenus, p.captionOptionReturn, p.onlineSearch, p.rulerUnit, p.menuKeys.length, p.purposes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query)) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));

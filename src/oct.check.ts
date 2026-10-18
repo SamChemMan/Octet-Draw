@@ -25,4 +25,8 @@ assert.equal(edited.mol.style?.labelSize, 14);
 // A damaged copy falls back to the CDXML; an old .octet file is the JSON alone.
 assert.equal(readOct(file.replace(/ ([A-Za-z0-9+/=]{8})/, " AAAA$1")).mol.atoms.length, 6);
 assert.equal(readOct(serialize(mol)).mol.atoms.length, 6);
+// What the window showed (View > Show Grid, Show Rulers, Show Crosshair) comes back with the drawing.
+const guides = { rulers: true as const, crosshair: [1, -0.5] as [number, number] };
+assert.deepEqual(readOct(writeOct({ ...mol, guides }, style)).mol.guides, guides);
+assert.equal(readOct(file).mol.guides, undefined);
 console.log("oct.check: ok");

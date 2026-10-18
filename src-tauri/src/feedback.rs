@@ -64,8 +64,9 @@ fn lines(b64: &str) -> String {
 
 // The feedback as an email draft to Sam, opened in the mail app ready to send: the note, the app's version and
 // system, and the picture attached. X-Unsent makes Mail (and Outlook) open it as a new message to send.
+// Async, off the main thread: the open crate waits for the Mac's open command to hand the file over.
 #[tauri::command]
-pub fn send_feedback(app: AppHandle, note: String, picture: Option<String>) -> Result<(), String> {
+pub async fn send_feedback(app: AppHandle, note: String, picture: Option<String>) -> Result<(), String> {
     if note.len() > MAX_NOTE || picture.as_ref().is_some_and(|p| p.len() > MAX_PICTURE) {
         return Err("This feedback is too large.".into());
     }
@@ -95,15 +96,5 @@ pub fn send_feedback(app: AppHandle, note: String, picture: Option<String>) -> R
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join("Octet feedback.eml");
     std::fs::write(&path, eml).map_err(|e| e.to_string())?;
-    #[cfg(target_os = "macos")]
-    let mut command = std::process::Command::new("open");
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        let mut c = std::process::Command::new("cmd");
-        c.args(["/C", "start", ""]);
-        c
-    };
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let mut command = std::process::Command::new("xdg-open");
-    command.arg(&path).spawn().map(|_| ()).map_err(|_| "Octet could not open your mail app.".into())
+    crate::open_external(&path).map_err(|_| "Octet could not open your mail app.".into())
 }

@@ -62,6 +62,7 @@ type Props = {
   menus?: boolean; // Settings > Actions panel: each set of small actions as a titled row that opens its menu
   sizes: number[]; // the text sizes on offer: ChemDraw's, times the document scale
   scale?: number | null; // the selection's scale against the document (decision 0007); null when its parts differ
+  online?: boolean; // Settings > Online search: Search Reaxys and Search PubChem are offered
 };
 
 const ELEMENTS = ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"];
@@ -198,23 +199,25 @@ function TableGlyph({ on, faint }: { on: TableLine[]; faint?: boolean }) {
 // small: shown as a small button by default (the user can drag it into the rows, and any row out of them).
 export type Item = { icon: React.ReactNode; name: string; command: string; accent?: boolean; small?: boolean };
 // The small actions fall into sets, each a section of small buttons under a small title (Sam, 17 October 2026):
-// the object's own edits (a table's, a plate's, a cycle's); Analyse; Turn and flip (every turn, rotation and flip);
-// Display and copy (what is shown on the structure, the rest, the clipboard and library); Arrange, File and View
-// when they apply. Delete is the last small button in every panel, with no title.
-const SETS = ["table", "plate", "cycle", "analysis", "turn", "more", "arrange", "file", "view", "delete"] as const;
+// the object's own edits (a table's, a plate's, a cycle's); Analyse; Search (Reaxys and PubChem, when Online search is
+// on); Turn and flip (every turn, rotation and flip); Display and copy (what is shown on the structure, the rest, the
+// clipboard and library); Arrange, File and View when they apply. Delete is the last small button in every panel,
+// with no title.
+const SETS = ["table", "plate", "cycle", "analysis", "search", "turn", "more", "arrange", "file", "view", "delete"] as const;
 type SetId = (typeof SETS)[number];
-const SET_TITLES: Record<SetId, string> = { table: "Table", plate: "Plate", cycle: "Cycle", analysis: "Analyse", turn: "Turn and flip", more: "Display and copy", arrange: "Arrange", file: "File", view: "View", delete: "Delete" };
+const SET_TITLES: Record<SetId, string> = { table: "Table", plate: "Plate", cycle: "Cycle", analysis: "Analyse", search: "Search", turn: "Turn and flip", more: "Display and copy", arrange: "Arrange", file: "File", view: "View", delete: "Delete" };
 // Each set's icon, for its row when the sets show as menus.
-const SET_ICONS: Record<SetId, React.ReactNode> = { table: <Table size={18} />, plate: <TlcGlyph />, cycle: <ArrowsClockwise size={18} />, analysis: <Flask size={18} />, turn: <ArrowArcRight size={18} />, more: <Eye size={18} />,
-  arrange: <AlignCenterHorizontal size={18} />, file: <FileArrowDown size={18} />, view: <MagnifyingGlass size={18} />, delete: <Trash size={18} /> };
+const SET_ICONS: Record<SetId, React.ReactNode> = { table: <Table size={18} />, plate: <TlcGlyph />, cycle: <ArrowsClockwise size={18} />, analysis: <Flask size={18} />, search: <MagnifyingGlass size={18} />, turn: <ArrowArcRight size={18} />, more: <Eye size={18} />,
+  arrange: <AlignCenterHorizontal size={18} />, file: <FileArrowDown size={18} />, view: <CornersOut size={18} />, delete: <Trash size={18} /> };
 // Each action's kind. Kinds make up the sets; the kinds in Display and copy keep this order within it.
-const SET_FOR: Record<string, SetId> = { table: "table", plate: "plate", cycle: "cycle", analysis: "analysis", arrange: "arrange", file: "file", view: "view", turn: "turn", marks: "more", other: "more", library: "more", delete: "delete" };
+const SET_FOR: Record<string, SetId> = { table: "table", plate: "plate", cycle: "cycle", analysis: "analysis", search: "search", arrange: "arrange", file: "file", view: "view", turn: "turn", marks: "more", other: "more", library: "more", delete: "delete" };
 const MORE_GROUPS = ["marks", "other", "library"];
 const KIND_OF: Record<string, string> = {
   select_all: "view", zoom_fit: "view", import: "file",
   "shape.row.before": "table", "shape.col.before": "table", "shape.row.delete": "table", "shape.col.delete": "table", "shape.fit": "table", "shape.clear": "table", "shape.dashed": "table",
   "shape.hide.origin": "plate", "shape.hide.front": "plate", "shape.hide.border": "plate", "cycle.reverse": "cycle", "cycle.ungroup": "cycle",
   properties: "analysis", show_stereo: "analysis", predict_1h: "analysis", predict_13c: "analysis",
+  search_reaxys: "search", search_reaxys_exact: "search", search_pubchem: "search", search_pubchem_sub: "search",
   "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "turn", flatten: "turn",
   pairs: "marks", number: "marks", atom_numbers: "marks", show_warnings: "marks", "caption.add": "marks", colour_by_element: "marks", aromatic_display: "marks", contract_label: "marks",
   "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "arrange", ungroup: "arrange", group_integral: "arrange",
@@ -225,8 +228,14 @@ const KIND_OF: Record<string, string> = {
 const kindOf = (command: string) => KIND_OF[command] ?? "other";
 const setOf = (command: string) => SET_FOR[kindOf(command)];
 
+// Search Reaxys and Search PubChem: Phosphor's magnifier and the site's first letter. No logos.
+export function SearchGlyph({ letter }: { letter: string }) {
+  return <span className="glyph-text search-glyph" aria-hidden><MagnifyingGlass size={16} />{letter}</span>;
+}
+
 // The actions for a selection, likeliest first. The panel shows them; the command palette lists them too.
-export function actionItems(context: Context, messy: boolean, hiddenWarnings = false): Item[] {
+// online: Search Reaxys and Search PubChem are offered (Settings > Online search).
+export function actionItems(context: Context, messy: boolean, hiddenWarnings = false, online = false): Item[] {
   const items: Item[] = [];
   const it = (icon: React.ReactNode, name: string, command: string, accent?: boolean, small?: boolean): Item => ({ icon, name, command, accent, small });
   const small = (i: Item): Item => ({ ...i, small: true });
@@ -236,6 +245,9 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   // Rotate 180° keeps stereochemistry (arrows round), Flip mirrors it (mirror glyphs).
   const flips = [it(<ArrowsLeftRight size={18} />, "Rotate 180° horizontal", "flip_h", false, true), it(<ArrowsDownUp size={18} />, "Rotate 180° vertical", "flip_v", false, true)];
   const mirrors = [it(<FlipHorizontal size={18} />, "Flip horizontal", "mirror_h", false, true), it(<FlipVertical size={18} />, "Flip vertical", "mirror_v", false, true)];
+  // One press each: the selection (or the whole drawing) opens in the browser. The exact and substructure searches
+  // that are not the default are in the Search menu, with keys.
+  const searches = online ? [it(<SearchGlyph letter="R" />, "Search Reaxys", "search_reaxys", false, true), it(<SearchGlyph letter="P" />, "Search PubChem", "search_pubchem", false, true)] : [];
   // Every turn and flip, for any selection they act on (as ChemDraw's Object menu, for every kind of object).
   const turnings = [small(it(<ArrowArcRight size={18} />, "Turn 15° clockwise", "rotate.cw15")), small(it(<ArrowArcLeft size={18} />, "Turn 15° anticlockwise", "rotate.ccw15"))];
   const turnsAndFlips = [...turnings, ...flips, ...mirrors];
@@ -250,7 +262,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       break;
     case "drawing":
       items.push(clean, ...(context.nameable ? [nameIt] : []), it(<Atom size={18} />, "Convert name to structure", "name_to_structure"), ...flips,
-        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<FileArrowDown size={18} />, "Import a structure…", "import")),
+        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), ...searches, small(it(<FileArrowDown size={18} />, "Import a structure…", "import")),
         small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<CornersOut size={18} />, "Fit to window", "zoom_fit")));
       break;
     case "selection":
@@ -265,7 +277,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
         ...(hiddenWarnings ? [small(it(<Warning size={18} />, "Show warnings", "show_warnings"))] : []),
         small(it(<TextT size={18} />, "Add a caption", "caption.add")),
-        ...turnings, small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")), small(it(<Flask size={18} />, "Properties", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")));
+        ...turnings, small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), ...searches, small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")), small(it(<Flask size={18} />, "Properties", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")));
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<DotsThree size={18} />, "Line up in a row", "align.row")),
         small(it(<DotsThreeVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
       if (context.depth !== undefined) items.push(small(it(<Cube size={18} />, context.depth ? "Draw flat" : "Draw with depth", "structure_perspective")), small(it(<Square size={18} />, "Flatten", "flatten")));
@@ -349,7 +361,7 @@ function Row({ icon, name, command, hint, run, accent }: { icon: React.ReactNode
   );
 }
 
-export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus, sizes, scale }: Props) {
+export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus, sizes, scale, online }: Props) {
   // An action being dragged to a new place: in the rows (index among rows) or the small buttons (index among them).
   const [carry, setCarry] = useState<{ command: string; x: number; y: number; to?: { rows: boolean; index: number } }>();
   const dragged = useRef(false);
@@ -411,7 +423,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
   }[context.kind];
   const whole = context.kind === "drawing" || context.kind === "structure";
 
-  const items = actionItems(context, messy, hiddenWarnings);
+  const items = actionItems(context, messy, hiddenWarnings, online);
   // Group and Ungroup, and Align and Distribute, for any selection of two or more things, as small buttons.
   if (grouping) items.push(...([["arrange_left", "Align left edges", <AlignLeft size={18} />], ["arrange_centre", "Align left-right centres", <AlignCenterHorizontal size={18} />], ["arrange_right", "Align right edges", <AlignRight size={18} />],
     ["arrange_top", "Align top edges", <AlignTop size={18} />], ["arrange_middle", "Align top-bottom centres", <AlignCenterVertical size={18} />], ["arrange_bottom", "Align bottom edges", <AlignBottom size={18} />],
