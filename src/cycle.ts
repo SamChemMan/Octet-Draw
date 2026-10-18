@@ -67,11 +67,11 @@ export function layoutCycles(m: Mol, k: number, pt: number, ink: (atoms: number[
 }
 
 // The bend (see render.ts) of a curve from A to B through M: M's offset to the left of A→B, as a fraction of |AB|.
-// Points are in px with y down; bend is measured in drawing coordinates (y up), so the side flips.
+// Points are in px with y down, where n is the left of A→B as drawn: the same side as in drawing coordinates.
 function bendFor(A: P, B: P, M: P): number {
   const len = Math.hypot(B[0] - A[0], B[1] - A[1]) || 1, n: P = [(B[1] - A[1]) / len, -(B[0] - A[0]) / len];
   // arrowPath draws the arc through M, so the cycle's arrows follow its circle.
-  return ((M[0] - (A[0] + B[0]) / 2) * n[0] + (M[1] - (A[1] + B[1]) / 2) * n[1]) / len * -1;
+  return ((M[0] - (A[0] + B[0]) / 2) * n[0] + (M[1] - (A[1] + B[1]) / 2) * n[1]) / len;
 }
 
 // Where each intermediate should go: evenly round a circle, starting at the top and turning the cycle's way, on a

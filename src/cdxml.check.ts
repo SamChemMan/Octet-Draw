@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { DAMAGED, NOT_CDXML, TOO_BIG, fmt, fmtAngle, fmtColour, fmtSize, fromCdxml, parseXml, toCdxml, type Xml } from "./cdxml.ts";
 import { DEFAULT_STYLE, PRESETS, readStyle, type DocStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
-import { HIGHLIGHT, headsOf, takesHeads, tlcLayout, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape } from "./render.ts";
+import { HIGHLIGHT, bendPoint, headsOf, takesHeads, tlcLayout, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape } from "./render.ts";
 import { layoutCycles } from "./cycle.ts";
 
 // Numbers as ChemDraw writes them (spec 1.2).
@@ -195,6 +195,10 @@ console.log("cdxml.check: every object kind round trips");
   const arcs = layoutCycles(drawing, 1, 1, () => undefined).arrows;
   assert.ok(arcs.length && arcs.every((a) => a.width === 1.4));
   assert.ok(toCdxml(drawing, DEFAULT_STYLE, { derived: arcs }).includes('LineWidth="1.40"'));
+  // Each arc follows the cycle's circle: its middle is on the circle, not bent in towards the centre.
+  const fromCentre = (q: [number, number]) => Math.hypot(q[0] - 20, q[1]);
+  const onCircle = arcs.filter((a) => Math.abs(fromCentre(a.from) - 3) < 1e-6 && Math.abs(fromCentre(a.to) - 3) < 1e-6);
+  assert.ok(onCircle.length === 3 && onCircle.every((a) => Math.abs(fromCentre(bendPoint(a)) - 3) < 1e-6));
   // A label Octet can expand goes to ChemDraw as an abbreviation with its own atoms; Octet keeps the label.
   const phenyl: Mol = { atoms: [0, 1, 2, 3, 4, 5].map((k) => A("C", Math.cos((k * Math.PI) / 3), Math.sin((k * Math.PI) / 3))), bonds: [0, 1, 2, 3, 4, 5].map((k) => b(k, (k + 1) % 6, { type: k % 2 ? 1 : 2 })) };
   const expanded = toCdxml(drawing, DEFAULT_STYLE, { expand: (t) => (t === "Ph" ? phenyl : undefined) });
