@@ -13,7 +13,7 @@ type P = [number, number];
 const RAD_OUT: Record<number, number> = { 1: 2, 2: 3, 3: 1 }; // Octet's radical (doublet, triplet, singlet) to MDL's
 const RAD_IN: Record<number, number> = { 1: 3, 2: 1, 3: 2 };
 const RINGS: Record<string, number> = { none: -1, drawn: -2, simple: 2, fusion: 3, spiro: 4 };
-const RXCTR: Record<string, number> = { centre: 1, makebreak: 4, change: 8, makechange: 12, not: -1, nochange: 2 };
+export const RXCTR: Record<string, number> = { centre: 1, makebreak: 4, change: 8, makechange: 12, not: -1, nochange: 2 };
 const BOND_TYPE: Record<string, number> = { sd: 5, sa: 6, da: 7, any: 8 };
 const num = (v: number) => String(+v.toFixed(4)).replace(/^-0$/, "0");
 const f4 = (v: number) => (Math.round(v * 1e4) / 1e4).toFixed(4);

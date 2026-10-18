@@ -8,7 +8,7 @@ import { graphOf, type Graph } from "./naming.ts";
 import { clean2d } from "./clean2d.ts";
 import { counts } from "./mass.ts";
 import { hasQuery, polymerBrackets, polymerLabel, repeatCount } from "./query.ts";
-import { isQueryMolfile, readV3000, writeV3000 } from "./molv3.ts";
+import { isQueryMolfile, readV3000, RXCTR, writeV3000 } from "./molv3.ts";
 import { axialLabels } from "./axial.ts";
 import type { StereoFacts } from "./check.ts";
 
@@ -162,7 +162,9 @@ function fromKet(ket: Record<string, unknown> & { root: { nodes: Record<string, 
     if (frag?.type === "molecule") {
       const base = mol.atoms.length;
       mol.atoms.push(...frag.atoms.map(atomOfKet));
-      mol.bonds.push(...frag.bonds.map((b) => ({ type: b.type, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number], stereo: b.stereo })));
+      // A bond's reacting centre (KET "center", the MDL code) is its Rxn mark.
+      const rxnOf = (b: { center?: number }) => Object.keys(RXCTR).find((k) => RXCTR[k] === b.center) as Mol["bonds"][number]["rxn"];
+      mol.bonds.push(...frag.bonds.map((b) => { const rxn = rxnOf(b as { center?: number }); return { type: b.type, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number], stereo: b.stereo, ...(rxn ? { rxn } : {}) }; }));
     } else if (node.type === "plus" && Array.isArray(node.location)) {
       const [x, y] = (node.location as number[]).map(Number);
       if (Number.isFinite(x) && Number.isFinite(y)) captions.push({ id: id++, text: "+", x, y, align: "centre" });
@@ -291,12 +293,12 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
 // The drawing as SMILES. Throws if Indigo can't read it (for example, a valence it rejects).
 // A drawing as KET, with labels expanded into atoms. KET has no bond display styles (bold, wavy and so on). Without
 // wedges (wedges = false), Indigo also reads a drawing whose wedges it rejects: formulas and masses do not need them.
-// keep: each atom's map number and enhanced stereo flag go too, for MDL and reaction files.
+// keep: each atom's map number and enhanced stereo flag, and each bond's Rxn mark, go too, for MDL and reaction files.
 function ketOf(drawn: Mol, wedges = true, mol = expandLabels(drawn), keep = false): string {
   return JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: ketMol(mol, wedges, keep) });
 }
 function ketMol(mol: Mol, wedges: boolean, keep: boolean) {
-  const bonds = mol.bonds.map(({ type, atoms, stereo }) => (stereo && wedges ? { type, atoms, stereo } : { type, atoms }));
+  const bonds = mol.bonds.map(({ type, atoms, stereo, rxn }) => ({ type, atoms, ...(stereo && wedges ? { stereo } : {}), ...(keep && rxn && RXCTR[rxn] !== undefined ? { center: RXCTR[rxn] } : {}) }));
   // An atom bonded to a metal keeps the hydrogens Octet draws on it (as render.ts counts them): Indigo would count the P
   // of a PPh3 bonded to Pd as PH (valence 5), where the drawing shows P. It goes to Indigo as the atom's valence: as a
   // hydrogen count, a drawing with an R group (a query) would write it into a molfile as a query feature.

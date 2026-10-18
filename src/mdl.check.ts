@@ -74,6 +74,11 @@ assert.equal(parseStructure(rdf).atoms.length, r2.atoms.length);
 const r3 = parseStructure("CC(=O)O.OCC>[H+]>CC(=O)OCC.O");
 assert.equal(r3.arrows?.length, 1);
 assert.equal(r3.captions?.filter((c) => c.text === "+").length, 2);
+// A bond's Rxn mark (reaction centre, from Map Reaction Atoms) goes in RXN files and comes back.
+const marked: Mol = { ...m, bonds: m.bonds.map((x, k) => (k === 4 ? { ...x, rxn: "change" as const } : x)) };
+assert.match(toReaction(marked, [step], "rxn"), /RXCTR=8/);
+assert.match(toReaction(marked, [step], "rxn", true).split("\n").find((l) => /^ {2}1 {2}2 {2}2/.test(l)) ?? "", / 8$/);
+assert.equal(importStructure(toReaction(marked, [step], "rxn")).bonds.find((x) => x.type === 2)?.rxn, "change");
 // An agent goes in the RXN file as one.
 const withAgent: Mol = { ...m, atoms: [...m.atoms, A("Pd", 3, 1)] };
 assert.match(toReaction(withAgent, [{ ...step, agents: [[7]] }], "rxn"), /BEGIN AGENT[\s\S]*Pd/);
