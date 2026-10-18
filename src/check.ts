@@ -130,7 +130,8 @@ export function problems(m: Mol, stereo?: StereoFacts, all = false): Problem[] {
   const atomOf = (i: number, p: Omit<Problem, "atom">) => { if (all || !m.atoms[i].ignoreWarnings) out.push({ atom: i, ...p, ...(m.atoms[i].ignoreWarnings ? { hidden: true as const } : {}) }); };
   const bondOf = (k: number, p: Omit<Problem, "bond">) => { if (all || !m.bonds[k].ignoreWarnings) out.push({ bond: k, ...p, ...(m.bonds[k].ignoreWarnings ? { hidden: true as const } : {}) }); };
   const name = (i: number) => `${m.atoms[i].text ?? m.atoms[i].label}${i + 1}`;
-  const plain = (i: number) => !m.atoms[i].text && m.atoms[i].label === "C";
+  // A plain carbon: not a label, an attachment mark or bead, or a multi-centre or variable attachment.
+  const plain = (i: number) => !m.atoms[i].text && m.atoms[i].label === "C" && !m.atoms[i].attach && !m.atoms[i].bead && !m.atoms[i].centre;
   m.atoms.forEach((a, i) => {
     const charge = a.charge ?? 0, radical = a.radical === 1 ? 1 : a.radical ? 2 : 0;
     if (a.text) {
@@ -139,14 +140,15 @@ export function problems(m: Mol, stereo?: StereoFacts, all = false): Problem[] {
       if (!balanced(a.text)) atomOf(i, { type: "parens", message: `The label ${a.text} has unbalanced parentheses. Add or remove a parenthesis.` });
       const iso = /^(\d+)([A-Z][a-z]?)/.exec(a.text);
       if (iso && !knownIsotope(iso[2], Number(iso[1]))) atomOf(i, { type: "isotopes", message: `${a.text} has an isotope that is not known: ${NAMES[iso[2]] ?? iso[2]} has no isotope of mass ${iso[1]}. Change the mass number.` });
-      const first = firstAtom(a.text), vs = first && valences(first.element, first.charge + charge), h = labelHydrogens(a.text);
+      const first = firstAtom(a.text), vs = first && !a.query?.valence && valences(first.element, first.charge + charge), h = labelHydrogens(a.text);
       if (!first || !vs || h === undefined) return;
       const own = first.inside + h + radical, room = vs[vs.length - 1] - own, n = orders[i];
       if (own + n > vs[vs.length - 1] + 1e-9) atomOf(i, { type: "valence", message: n ? `${a.text} has ${plural(n, "bond")}. It can have ${room > 0 ? room : "no bonds"}. ${room > 0 ? "Remove a bond." : "Remove its bonds or change the label."}` : `An atom in ${a.text} has too many bonds. Change the label.` });
       return;
     }
     if (a.isotope && !knownIsotope(a.label, a.isotope)) atomOf(i, { type: "isotopes", message: `${name(i)} has mass number ${a.isotope}. ${NAMES[a.label] ?? a.label} has no isotope of mass ${a.isotope}. Change the mass number.` });
-    const vs = valences(a.label, charge);
+    // Abnormal Valence allowed (a query property): its valence is not checked, as in ChemDraw.
+    const vs = a.query?.valence || a.centre ? undefined : valences(a.label, charge);
     if (vs) {
       // An aromatic bond counts 1.5 in the message; for the rule it can count 1 (pyrrole's N, furan's O).
       const used = orders[i] + radical, aromatic = least[i] !== orders[i];
@@ -263,7 +265,7 @@ function nearPair(ps: P[], cell: number, f: (i: number, j: number) => boolean): 
 export function messy(m: Mol, ids?: Set<number>): boolean {
   const inside = (i: number) => !ids?.size || ids.has(i);
   const uneven = m.bonds.some((b) => {
-    if (!inside(b.atoms[0]) || !inside(b.atoms[1])) return false;
+    if (!inside(b.atoms[0]) || !inside(b.atoms[1]) || m.atoms[b.atoms[0]].centre || m.atoms[b.atoms[1]].centre) return false;
     const [p, q] = [pos(m, b.atoms[0]), pos(m, b.atoms[1])];
     const length = Math.hypot(q[0] - p[0], q[1] - p[1]);
     return length < 0.75 || length > 1.3;
@@ -280,7 +282,8 @@ export function messy(m: Mol, ids?: Set<number>): boolean {
     : atoms.some((i, k) => atoms.slice(k + 1).some((j) => close(i, j)));
   if (crowded) return true;
   // Two bonds that cross (and share no atom) also need cleaning up.
-  const bonds = m.bonds.filter((b) => inside(b.atoms[0]) && inside(b.atoms[1]));
+  // A bond to a multi-centre or variable attachment crosses its ring by design.
+  const bonds = m.bonds.filter((b) => inside(b.atoms[0]) && inside(b.atoms[1]) && !m.atoms[b.atoms[0]].centre && !m.atoms[b.atoms[1]].centre);
   const cross = (a: P, b: P, c: P, d: P) => {
     const s = (p: P, q: P, r: P) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
     return s(a, b, c) * s(a, b, d) < 0 && s(c, d, a) * s(c, d, b) < 0;

@@ -7,6 +7,7 @@ import { DEFAULT_STYLE } from "./docstyle.ts";
 import { deleteAtoms, extractSelection, fragments, insertMol, merge, subset } from "./edit.ts";
 import { parse, serialize } from "./file.ts";
 import { isQueryMolfile, readV3000, writeV3000 } from "./molv3.ts";
+import { expandGeneric, layoutGrid } from "./expand.ts";
 import {
   altGroup, atomIndicator, bondIndicator, elementList, enclosed, GENERICS, hasQuery, isGeneric, linkNode, massText, placeAttachments, polymerLabel, polymerTags, queryLabel, repeatCount, rgroupMembers,
 } from "./query.ts";
@@ -112,6 +113,31 @@ const moved = placeAttachments({ ...drawing, atoms: drawing.atoms.map((a, i) => 
 assert.deepEqual(moved.atoms[24].location.slice(0, 2).map((v) => +v.toFixed(6)), [9, 1.5]);
 console.log("query.check: attachments through edits ok");
 
+// Expand Generic Structure: each combination of the sites' choices, as its own structure.
+{
+  // The variable bromine (3 places) on a ring with R1 (a methyl or a chlorine) and [Cl,Br] in two of its places.
+  const m: Mol = { atoms: [...drawing.atoms.slice(0, 14), ...drawing.atoms.slice(27, 30)], bonds: [], shapes: [shapes[0]] };
+  m.atoms[12] = { ...m.atoms[12], centre: { atoms: [6, 7, 8], variable: true } };
+  m.atoms[9] = { ...m.atoms[9], text: "R1" };
+  m.atoms[10] = { ...m.atoms[10], text: "[Cl,Br]" };
+  m.bonds = [b(6, 7, { type: 2 }), b(7, 8), b(8, 9), b(9, 10), b(10, 11), b(11, 6), b(12, 13), b(14, 15)];
+  const { mols, total } = expandGeneric(m, [6, 7, 8, 9, 10, 11, 12, 13]);
+  assert.equal(total, 12, "3 places × 2 R1 fragments × 2 elements");
+  assert.equal(mols.length, 12);
+  const labels = (x: Mol) => x.atoms.map((a) => a.text ?? a.label).sort().join(" ");
+  assert.deepEqual([...new Set(mols.map(labels))].sort(), ["Br Br C C C C C", "Br Br C C C C Cl", "Br C C C C C Cl", "Br C C C C Cl Cl"]);
+  assert.ok(mols.every((x) => !x.atoms.some((a) => a.centre || a.attach || a.text)), "no attachments, marks or query labels left");
+  // The attached bromine has one bond, to a ring carbon, in each structure; the three places all occur.
+  const degree = (x: Mol, i: number) => x.bonds.filter((y) => y.atoms.includes(i)).length;
+  assert.ok(mols.every((x) => x.atoms.filter((a, i) => a.label === "Br" && degree(x, i) === 1).length === 1));
+  assert.equal(new Set(mols.map((x) => { const i = x.atoms.findIndex((a, k) => a.label === "Br" && degree(x, k) === 1), bond = x.bonds.find((y) => y.atoms.includes(i))!; return bond.atoms.find((k) => k !== i); })).size, 3);
+  assert.equal(layoutGrid(mols).atoms.length, mols.reduce((n, x) => n + x.atoms.length, 0));
+  // A wavy bond stands for a wedge and a hash.
+  const wavy = expandGeneric({ atoms: [A("C", 0, 0), A("C", 1, 0), A("O", 1.5, 0.866), A("N", 1.5, -0.866), A("C", 2, 0)], bonds: [b(0, 1), b(1, 2), b(1, 3), b(1, 4, { display: "wavy" })] }, [0]);
+  assert.deepEqual(wavy.mols.map((x) => x.bonds[3].stereo), [1, 6]);
+}
+console.log("query.check: expand generic structure ok");
+
 // What a round trip must keep: each atom's label, query and attachment, each bond's query, the shapes' meanings.
 const facts = (m: Mol) => ({
   atoms: m.atoms.map((a) => [a.label, a.text, a.query, a.centre, a.attach]),
@@ -188,3 +214,46 @@ assert.deepEqual(back.shapes?.filter((s) => s.rgroup).map((s) => s.rgroup), [{ n
 const placeless = (t: string) => t.replace(/-\nM {2}V30 /g, "").replace(/^(M {2}V30 \d+ \S+) [-\d.]+ [-\d.]+ [-\d.]+/gm, "$1").replace(/BRKXYZ=\([^)]*\)/g, "");
 assert.equal(placeless(writeV3000(back)), placeless(mol), "a second round trip is stable");
 console.log("query.check: MOL V3000 ok");
+
+// Chemistry (Indigo, as chem.check.ts loads it): polymers count their repeat units, attachments their atoms, and a
+// query structure's molfile is Octet's V3000, which reads back as a query.
+{
+  const g = globalThis as Record<string, unknown>;
+  g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
+  g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
+  g.window = globalThis;
+  g.self = { location: { origin: "file://" } };
+  g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+  const { analyse, importStructure, ready, structures, toMolfile } = await import("./chem.ts");
+  await ready;
+  const pe: Mol = { atoms: [A("C", 0, 0), A("C", 1, 0), A("C", 2, 0), A("C", 3, 0)], bonds: [b(0, 1), b(1, 2), b(2, 3)], shapes: [{ id: 1, kind: "brackets", from: [0.5, 0.6], to: [2.5, -0.6], polymer: { usage: "sru" } }] };
+  const formula = (m: Mol) => analyse(m)?.map((a) => a.formula);
+  assert.deepEqual(formula(pe), ["(C2H4)n"], "polyethylene drawn with open ends is (C2H4)n");
+  const a = analyse(pe)![0];
+  assert.ok(Math.abs(a.repeat!.weight - 28.05) < 0.01 && !a.repeat!.ends, "its repeat unit's mass");
+  assert.equal(massText(a, "weight", 2), "(28.05)n");
+  // An end group (OH at one end, the chain going on at the other) is counted apart.
+  const ended: Mol = { ...pe, atoms: [...pe.atoms.slice(0, 3), A("O", 3, 0)], bonds: pe.bonds };
+  assert.deepEqual(formula(ended), ["HO(C2H4)n"], "–[CH2CH2]n–OH");
+  assert.equal(massText(analyse(ended)![0], "weight", 2), "17.01 + (28.05)n");
+  // A multiple group of 3 and a parameterizable bracket with an Mw multiply out.
+  assert.deepEqual(formula({ ...pe, shapes: [{ ...pe.shapes![0], polymer: { usage: "mult", label: "3" } }] }), ["C8H18"], "CH3(CH2CH2)3CH3");
+  const benzene: Mol = { atoms: ring(0, 0, 6), bonds: [b(0, 1, { type: 2 }), b(1, 2), b(2, 3, { type: 2 }), b(3, 4), b(4, 5, { type: 2 }), b(5, 0)], shapes: [{ id: 1, kind: "brackets", from: [-1.5, 1.5], to: [1.5, -1.5], polymer: { usage: "param", mw: 200 } }] };
+  const p200 = analyse(benzene)![0];
+  assert.ok(Math.abs(p200.weight - 200) < 1e-6 && p200.formula === "C15.36H15.36", `ChemDraw's example: Mw 200 on benzene is C15.36H15.36 (${p200.formula})`);
+  assert.equal(structures(pe)?.[0]?.formula, "(C2H4)n", "the Properties panel too");
+  // A variable attachment counts as a substituent on its ring (bromobenzene); a multi-centre one is left out.
+  assert.deepEqual(formula(subset(drawing, new Set([6, 7, 8, 9, 10, 11, 12, 13]))), ["C6H5Br"]);
+  // A query structure's molfile is V3000 by Octet, and pastes back as a query.
+  const molfile = toMolfile(subset(drawing, new Set([0, 1, 2, 3, 4, 5])));
+  assert.match(molfile, /V3000/);
+  assert.match(molfile, /HCOUNT=-1/);
+  const pasted = importStructure(molfile);
+  assert.deepEqual(pasted.atoms[0].query?.noH, true);
+  assert.equal(pasted.bonds[0].query, "sd");
+  // Its OMe alternative is drawn out as atoms in its R-group.
+  assert.match(molfile, /BEGIN RGROUP 2[\s\S]*M {2}V30 \d+ O [\s\S]*END RGROUP/);
+  // A plain structure's molfile stays Indigo's.
+  assert.match(toMolfile({ atoms: [A("C", 0, 0), A("O", 1, 0)], bonds: [b(0, 1)] }), /-INDIGO-/);
+  console.log("query.check: chemistry ok");
+}

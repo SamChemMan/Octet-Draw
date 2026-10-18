@@ -16,16 +16,18 @@ const STYLES = ["plain", "dashed", "shaded", "solid", "shadow"] as const;
 const LINES = ["plain", "dashed", "wavy", "bold"] as const;
 const ARCS = [270, 180, 120, 90];
 export const SHAPE_GRID: string[][] = SHAPE_ROWS.map((row, i) => [...STYLES.map((st) => `${row}-${st}`), `line-${LINES[i]}`, `arc-${ARCS[i]}`, `arc-${ARCS[i]}-dashed`]);
-export const SHAPE_EXTRA = ["highlight", "pen"];
+export const SHAPE_EXTRA = ["highlight", "pen", "rgroup"];
 
 // What a Shape tool variant draws: a shape (a circle is an oval drawn out from its middle), or a line or arc.
 export type ElementSpec =
-  | { shape: ShapeKind; circle?: boolean; dashed?: true; fill?: "shaded" | "solid"; shadow?: true }
+  | { shape: ShapeKind; circle?: boolean; dashed?: true; fill?: "shaded" | "solid"; shadow?: true; rgroup?: true }
   | { line: "line" | "arc"; sweep?: number; style?: LineStyle }
   | { pen: true };
 export function shapeSpec(v: string): ElementSpec | undefined {
   if (v === "highlight") return { shape: "highlight" };
   if (v === "pen") return { pen: true };
+  // An R-group definition (ChemDraw's Alternative Group tool): a box titled with its R number.
+  if (v === "rgroup") return { shape: "box", rgroup: true };
   let m = /^(circle|oval|rounded|box)(?:-(plain|dashed|shaded|solid|shadow))?$/.exec(v);
   if (m) {
     const st = m[2] ?? "plain";
@@ -45,6 +47,7 @@ const cap = (t: string) => t[0].toUpperCase() + t.slice(1);
 export function shapeName(v: string): string | undefined {
   if (v === "highlight") return "Highlight";
   if (v === "pen") return "Pen";
+  if (v === "rgroup") return "R-group definition";
   let m = /^(circle|oval|rounded|box)(?:-(plain|dashed|shaded|solid|shadow))?$/.exec(v);
   if (m) {
     const n = SHAPE_NAMES[m[1] as keyof typeof SHAPE_NAMES], st = m[2] ?? "plain";
@@ -61,6 +64,16 @@ export function shapeName(v: string): string | undefined {
 export function ElementGlyph({ v }: { v: string }) {
   const spec = shapeSpec(v);
   if (!spec) return null;
+  // An R-group definition: a box with its name's tab on its upper left.
+  if ("shape" in spec && spec.rgroup) {
+    return (
+      <Icon>
+        <rect x={36} y={84} width={184} height={136} />
+        <polyline points="36,84 36,40 124,40 124,84" />
+        <text x={80} y={73} textAnchor="middle" fontSize={44} fontWeight={600} fill="currentColor" stroke="none">R</text>
+      </Icon>
+    );
+  }
   // The pen: a Bézier curve with its two anchors and one handle.
   if ("pen" in spec) {
     return (

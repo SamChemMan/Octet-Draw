@@ -3,9 +3,10 @@ import Indigo from "indigo-ketcher/binaryWasmNoRender";
 import { hydrogens, NONMETAL, ORDER, type Face, type Ink, type Mol } from "./render.ts";
 import { fontStack } from "./docstyle.ts";
 import { labelSmiles } from "./labels.ts";
-import { fragments, levelTurn, subset } from "./edit.ts";
+import { fragments, levelTurn, renumberCentre, subset } from "./edit.ts";
 import { graphOf, type Graph } from "./naming.ts";
 import { clean2d } from "./clean2d.ts";
+import { counts } from "./mass.ts";
 import { hasQuery, polymerBrackets, polymerLabel, repeatCount } from "./query.ts";
 import { isQueryMolfile, readV3000, writeV3000 } from "./molv3.ts";
 import { axialLabels } from "./axial.ts";
@@ -325,7 +326,7 @@ export function stereoFacts(drawn: Mol, chiral = false): StereoFacts {
     const flagged = chiral && group.some((i) => /^(&|or)/.test(drawn.atoms[i].enhanced ?? ""));
     // The structure on its own (atoms in drawing order), and its key: what Indigo's answer depends on.
     const ids = [...group].sort((a, b) => a - b), local = new Map(ids.map((d, j) => [d, j]));
-    const part: Mol = { atoms: ids.map((i) => drawn.atoms[i]), bonds: bondsOf[k].map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] as [number, number] })) };
+    const part: Mol = { atoms: ids.map((i) => renumberCentre(drawn.atoms[i], local)), bonds: bondsOf[k].map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] as [number, number] })) };
     const key = JSON.stringify([part.atoms.map((a) => [a.label, a.text, a.charge, a.isotope, a.radical, a.location[0], a.location[1]]), part.bonds.map((b) => [b.type, b.atoms, b.stereo]), flagged]);
     let f = factsKept.get(key);
     if (!f) {
@@ -495,9 +496,10 @@ export function structures(mol: Mol, groups = fragments(mol)): (Structure | unde
         try {
           const ket = ketOf(part, false), calc = JSON.parse(ind.calculate(ket, opts, sel));
           const heavy = expandLabels(part).atoms.filter((a) => a.label !== "H").length;
+          // Ferrocene's pieces (its multi-centre attachments are left out of the chemistry) as one compound.
+          const one = summed(calc);
           return {
-            formula: String(calc["gross-formula"]).replace(/\s+/g, ""), weight: Number(calc["molecular-weight"]), exact: Number(calc["monoisotopic-mass"]),
-            composition: String(calc["mass-composition"]),
+            formula: one.formula, weight: one.weight, exact: one.exact, composition: one.composition,
             // ChemDraw stops at 150 heavy atoms for logP and 1,000 atoms for the rest; so does Octet.
             ...(heavy <= 150 ? { logP: num(ind.logp(ket, opts)), mr: num(ind.molarRefractivity(ket, opts)) } : {}),
             graph: heavy <= 1000 ? graphOf(expandLabels(part)) : undefined,
@@ -524,9 +526,26 @@ export function analyse(mol: Mol, limit = Infinity): Analysis | undefined {
     if (out.length >= limit) break;
     const polymer = mol.shapes?.some((sh) => sh.polymer) ? polymerValues({ ...part, shapes: mol.shapes }) : undefined;
     if (polymer) { out.push(polymer); continue; }
-    out.push(...(remembered(analysed, contentOf(part), () => analyseAll(part)) ?? []));
+    const entries = remembered(analysed, contentOf(part), () => analyseAll(part)) ?? [];
+    // A structure held together by multi-centre attachments (ferrocene) is one compound, not its pieces.
+    if (entries.length > 1 && part.atoms.some((a) => a.centre)) {
+      const total: Record<string, number> = {};
+      for (const e of entries) for (const [el, n] of Object.entries(counts(e.formula) ?? {})) total[el] = (total[el] ?? 0) + n;
+      out.push({ formula: hill(total), weight: entries.reduce((t, e) => t + e.weight, 0), exact: entries.reduce((t, e) => t + e.exact, 0) });
+    } else out.push(...entries);
   }
   return out.length ? out.slice(0, limit) : undefined;
+}
+// Indigo's values for a molecule as one compound: its pieces ("C5 H5; C5 H5; Fe") added together.
+function summed(calc: Record<string, unknown>): { formula: string; weight: number; exact: number; composition: string } {
+  const split = (key: string) => String(calc[key]).split(";").map((v) => v.trim());
+  const formulas = split("gross-formula");
+  if (formulas.length === 1) return { formula: formulas[0].replace(/\s+/g, ""), weight: Number(calc["molecular-weight"]), exact: Number(calc["monoisotopic-mass"]), composition: String(calc["mass-composition"]) };
+  const weights = split("molecular-weight").map(Number), counts: Record<string, number> = {}, masses: Record<string, number> = {};
+  for (const f of formulas) for (const [el, n] of Object.entries(formulaCounts(f) ?? {})) counts[el] = (counts[el] ?? 0) + n;
+  split("mass-composition").forEach((c, j) => { const t = c.split(/\s+/); for (let k = 0; k + 1 < t.length; k += 2) masses[t[k]] = (masses[t[k]] ?? 0) + (Number(t[k + 1]) * weights[j]) / 100; });
+  const weight = weights.reduce((a, b) => a + b, 0);
+  return { formula: hill(counts), weight, exact: split("monoisotopic-mass").map(Number).reduce((a, b) => a + b, 0), composition: Object.entries(masses).map(([el, w]) => `${el} ${((100 * w) / (weight || 1)).toFixed(2)}`).join(" ") };
 }
 
 // A polymer's formula and masses (ChemDraw's Bracket Properties): a multiple group's or parameterizable bracket's atoms
@@ -545,8 +564,10 @@ function polymerValues(part: Mol): Values | undefined {
   const h = x.atoms.map((a, i) => a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used[i], a.radical === 3 ? 2 : a.radical));
   const inOf = new Map<number, number>();
   brackets.forEach((b, k) => b.atoms.forEach((i) => { if (!inOf.has(i)) inOf.set(i, k); }));
+  // Open ends: only at a repeat with no number (an SRU's n); a multiple group's end carbons are methyl groups.
+  const numbered = brackets.map((b) => b.sh.polymer!.usage === "param" && !!b.sh.polymer!.mw || repeatCount(b.sh.polymer!) !== undefined);
   const open = new Set(part.atoms.flatMap((a, i) => (!inOf.has(i) && a.label === "C" && !a.text && !a.charge && !a.isotope && deg[i] === 1
-    && part.bonds.some((b) => b.atoms.includes(i) && inOf.has(b.atoms[0] === i ? b.atoms[1] : b.atoms[0])) ? [i] : [])));
+    && part.bonds.some((b) => { const j = b.atoms[0] === i ? b.atoms[1] : b.atoms[0]; return b.atoms.includes(i) && inOf.has(j) && !numbered[inOf.get(j)!]; }) ? [i] : [])));
   // Formula, masses and composition of some of the expanded atoms, from Indigo.
   const calc = (atoms: number[]) => {
     if (!atoms.length) return { counts: {} as Record<string, number>, weight: 0, exact: 0, masses: {} as Record<string, number> };
@@ -556,10 +577,13 @@ function polymerValues(part: Mol): Values | undefined {
       bonds: x.bonds.filter((b) => local.has(b.atoms[0]) && local.has(b.atoms[1])).map((b) => ({ type: Math.min(3, b.type), atoms: [local.get(b.atoms[0]), local.get(b.atoms[1])] })) } });
     const opts = new ind.MapStringString(), sel = new ind.VectorInt();
     try {
-      const r = JSON.parse(ind.calculate(ket, opts, sel)), weight = Number(r["molecular-weight"]), comp = String(r["mass-composition"]).trim().split(/\s+/), masses: Record<string, number> = {};
-      for (let k = 0; k + 1 < comp.length; k += 2) masses[comp[k]] = (masses[comp[k]] ?? 0) + (Number(comp[k + 1]) * weight) / 100;
-      const counts = formulaCounts(String(r["gross-formula"]));
-      return counts && Number.isFinite(weight) ? { counts, weight, exact: Number(r["monoisotopic-mass"]), masses } : undefined;
+      // Indigo gives each piece apart ("C H3; C H3"): their sums.
+      const r = JSON.parse(ind.calculate(ket, opts, sel)), split = (key: string) => String(r[key]).split(";").map((v) => v.trim());
+      const weights = split("molecular-weight").map(Number), exacts = split("monoisotopic-mass").map(Number), masses: Record<string, number> = {}, counts: Record<string, number> = {};
+      split("mass-composition").forEach((c, j) => { const t = c.split(/\s+/); for (let k = 0; k + 1 < t.length; k += 2) masses[t[k]] = (masses[t[k]] ?? 0) + (Number(t[k + 1]) * weights[j]) / 100; });
+      for (const f of split("gross-formula")) { const c = formulaCounts(f); if (!c) return undefined; for (const [el, n] of Object.entries(c)) counts[el] = (counts[el] ?? 0) + n; }
+      const weight = weights.reduce((a, b) => a + b, 0), exact = exacts.reduce((a, b) => a + b, 0);
+      return Number.isFinite(weight) ? { counts, weight, exact, masses } : undefined;
     } catch { return undefined; } finally { opts.delete(); sel.delete(); }
   };
   const ends = calc(x.atoms.map((_, j) => j).filter((j) => !inOf.has(from[j]) && !open.has(from[j])));
@@ -608,11 +632,13 @@ function hill(counts: Record<string, number>): string {
 // Each structure (atoms joined by bonds) on its own, in the drawing's order, with no atom left out.
 function pieces(mol: Mol): Mol[] {
   const at: [number, number][] = [];
-  const parts = fragments(mol).map((group, k) => {
+  const groups = fragments(mol).map((group, k) => {
     const ids = [...group].sort((a, b) => a - b);
     ids.forEach((i, j) => { at[i] = [k, j]; });
-    return { atoms: ids.map((i) => mol.atoms[i]), bonds: [] as Mol["bonds"] };
+    return ids;
   });
+  // A multi-centre or variable attachment's atoms, by their number in the piece.
+  const parts = groups.map((ids, k) => ({ atoms: ids.map((i) => renumberCentre(mol.atoms[i], (j) => (at[j]?.[0] === k ? at[j][1] : undefined))), bonds: [] as Mol["bonds"] }));
   for (const b of mol.bonds) {
     const [p, q] = [at[b.atoms[0]], at[b.atoms[1]]];
     if (p && q) parts[p[0]].bonds.push({ ...b, atoms: [p[1], q[1]] });

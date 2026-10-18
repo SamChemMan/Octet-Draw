@@ -206,7 +206,8 @@ export function toggleLonePairs(m: Mol, atoms: number[]): Mol {
   return hetero.reduce((acc, i) => setAtom(acc, i, { pairs: shown ? undefined : freePairs(m, i, used[i]) }), m);
 }
 // Single, then double, then triple, then single again. A wedge or hash becomes a plain double.
-const respec = (m: Mol, i: number, spec: BondSpec): Mol => ({ ...m, bonds: m.bonds.map((b, k) => (k === i ? makeBond(b.atoms, spec) : b)) });
+// A new bond style replaces a query bond type (Any, S/D); the bond's topology and reaction centre stay.
+const respec = (m: Mol, i: number, spec: BondSpec): Mol => ({ ...m, bonds: m.bonds.map((b, k) => (k === i ? { ...makeBond(b.atoms, spec), ...(b.topology ? { topology: b.topology } : {}), ...(b.rxn ? { rxn: b.rxn } : {}) } : b)) });
 export const cycleBond = (m: Mol, i: number) => respec(m, i, { type: m.bonds[i].stereo || m.bonds[i].display ? 2 : (m.bonds[i].type % 3) + 1 });
 export const setBond = (m: Mol, i: number, type: number, stereo?: number) => respec(m, i, { type, stereo });
 export const setBondSpec = (m: Mol, i: number, spec: BondSpec) => respec(m, i, spec);

@@ -9,11 +9,11 @@ import {
   AlignBottomSimple, AlignTopSimple, ArrowLineDown, ArrowLineUp, CursorText, DotsThree, DotsThreeVertical, Faders, Polygon, Rectangle, ArrowArcLeft, ArrowArcRight, ArrowsCounterClockwise, ArrowUDownLeft, CircleDashed, CornersOut, MagnifyingGlass, Swap,
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
-  TextAlignJustify, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, Info, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Eraser, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
+  TextAlignJustify, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, Info, X, Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Eraser, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
-import { massText } from "./query";
+import { GENERICS, massText } from "./query";
 import { Menu, Pick, type MenuItem } from "./Menu";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
@@ -25,16 +25,16 @@ import { ArrowGlyph, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, Sy
 export type LabelText = { bold: boolean; italic: boolean; underline: boolean; font: string; size: number };
 export type Context =
   | { kind: "empty" }
-  | { kind: "drawing"; nameable: boolean }
+  | { kind: "drawing"; nameable: boolean; generic?: boolean }
   // Different kinds of thing picked together: count things; atoms, when structures are among them.
   | { kind: "selection"; count: number; atoms: boolean }
-  | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; cip?: boolean; numbers?: boolean; circles?: boolean; halo?: string; fill?: string }
+  | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; cip?: boolean; numbers?: boolean; circles?: boolean; halo?: string; fill?: string; generic?: boolean }
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
   | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
       script?: "sub" | "super"; font?: string; fonts?: string[] }
   | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
       heads: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string; width: number }
-  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[]; shade: { depth: number; blur: number; opacity: number; pt: number }; text?: LabelText }
+  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[]; shade: { depth: number; blur: number; opacity: number; pt: number }; text?: LabelText; rgroup?: boolean }
   | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean; grid: boolean }
   // groups: the and and or group numbers its structure uses, and the lowest new one of each.
@@ -219,6 +219,8 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   const small = (i: Item): Item => ({ ...i, small: true });
   const clean = it(<MagicWand size={18} />, "Clean up structure", "clean_up", messy);
   const nameIt = it(<TagSimple size={18} />, "Convert structure to name", "structure_to_name");
+  // A generic (Markush) structure: every structure it stands for, in a new drawing.
+  const expandIt = it(<SquaresFour size={18} />, "Expand generic structure", "expand_generic");
   const del = small(it(<Trash size={18} />, "Delete", "delete")); // the last small button in every panel
   // Rotate 180° keeps stereochemistry (arrows round), Flip mirrors it (mirror glyphs).
   const flips = [it(<ArrowsLeftRight size={18} />, "Rotate 180° horizontal", "flip_h", false, true), it(<ArrowsDownUp size={18} />, "Rotate 180° vertical", "flip_v", false, true)];
@@ -239,7 +241,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         small(it(<FileArrowDown size={18} />, "Import a structure…", "import")));
       break;
     case "drawing":
-      items.push(clean, ...(context.nameable ? [nameIt] : []), it(<Atom size={18} />, "Convert name to structure", "name_to_structure"), ...flips,
+      items.push(clean, ...(context.nameable ? [nameIt] : []), ...(context.generic ? [expandIt] : []), it(<Atom size={18} />, "Convert name to structure", "name_to_structure"), ...flips,
         small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<FileArrowDown size={18} />, "Import a structure…", "import")),
         small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<CornersOut size={18} />, "Fit to window", "zoom_fit")));
       break;
@@ -249,7 +251,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
     case "structure":
       // Sam (17 October 2026): Clean up and Structure to name as rows; every turn, rotation and flip in one sub-menu;
       // what is shown on it, the clipboard and library, and Delete in another.
-      items.push(clean, ...(context.nameable ? [nameIt] : []), ...flips, ...order);
+      items.push(clean, ...(context.nameable ? [nameIt] : []), ...(context.generic ? [expandIt] : []), ...flips, ...order);
       if (context.pairs) items.push(small(it(<SymbolGlyph kind="pair" />, context.pairs === "shown" ? "Hide lone pairs" : "Show lone pairs", "pairs")));
       items.push(small(it(<ListNumbers size={18} />, context.structures > 1 ? "Number these compounds" : "Number this compound", "number")),
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
@@ -259,6 +261,10 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<DotsThree size={18} />, "Line up in a row", "align.row")),
         small(it(<DotsThreeVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
       if (context.depth !== undefined) items.push(small(it(<Cube size={18} />, context.depth ? "Draw flat" : "Draw with depth", "structure_perspective")), small(it(<Square size={18} />, "Flatten", "flatten")));
+      // Query and Markush structures (ChemDraw's Structure menu): attachments on the selected atoms, and an R-group
+      // definition round the selected structures.
+      if (context.atoms > 1) items.push(small(it(<Asterisk size={18} />, "Add multi-centre attachment", "add_multicentre")), small(it(<AsteriskSimple size={18} />, "Add variable attachment", "add_variable")));
+      items.push(small(it(<BracketsSquare size={18} />, "Make an R-group definition", "define_rgroup")));
       items.push(...mirrors, del);
       break;
     case "atom":
@@ -269,7 +275,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
     case "bond":
       if (context.double) items.push(it(<span className="glyph-text">L</span>, "Second line on the left", "bond.left"), it(<span className="glyph-text">C</span>, "Centre the double bond", "bond.centre"), it(<span className="glyph-text">R</span>, "Second line on the right", "bond.right"));
       if (context.flippable) items.push(it(<ArrowUDownLeft size={18} />, "Point the other way", "bond.flip"));
-      items.push(...warnings(true), ...order, del);
+      items.push(it(<Faders size={18} />, "Bond properties…", "bond_properties"), ...warnings(true), ...order, del);
       break;
     case "caption":
       if (context.mode !== "picked") break;
@@ -309,7 +315,8 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
           small(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed")), ...order, del);
         break;
       }
-      if (isBracket({ kind: context.shape })) items.push(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed"), ...warnings());
+      if (isBracket({ kind: context.shape })) items.push(it(<Faders size={18} />, "Bracket properties…", "bracket_properties"), it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed"), ...warnings());
+      if (context.rgroup) items.push(it(<Faders size={18} />, "R-Logic…", "rlogic"));
       items.push(...turnsAndFlips, ...order, del);
       break;
     case "spot":
@@ -531,6 +538,13 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
                 {el}
               </button>
             ))}
+          </div>
+          {/* ChemDraw's Insert Generic Label: A, M, Q, X and R, then the Reaxys classes, each with what it stands for. */}
+          <div className="chips groups" role="group" aria-label="Generic label">
+            <Pick label="Generic label" value={context.label} onPick={(g) => run(`label:${g}`)} className="chip" title="Generic label"
+              groups={[GENERICS.slice(0, 5), GENERICS.slice(5)].map((list) => list.map(([g, name]) => ({ key: g, name: `${g}: ${name}`, icon: <span className="glyph-text">{g}</span> })))}>
+              Generic
+            </Pick>
           </div>
           {context.terminal ? (
             <div className="chips groups" role="group" aria-label="Groups">

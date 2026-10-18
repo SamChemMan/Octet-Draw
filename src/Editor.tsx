@@ -4,6 +4,7 @@ import {
   FrameCorners, GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal,
   TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa, TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X,
   Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table, FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, LinkSimple, MagnetStraight, Paragraph, Resize, Ruler, CheckCircle,
+  Asterisk, AsteriskSimple, BracketsSquare, SquaresFour,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -54,7 +55,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, Palette, RingGlyph, RINGS, SELECTS, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, inShape, settleShape, shapeBounds, shapeCorners, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
+import { arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, inShape, settleShape, shapeBounds, shapeCorners, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, polymerLabelsAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type AtomQuery, type Bond, type BracketUsage, type Polymer, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
 import { knownName, loadNames, looksLikeSmiles, nameToSmiles, suggestName } from "./names";
 import { checkedName, graphOf, setNamer } from "./naming";
@@ -66,6 +67,9 @@ import { formulaRuns } from "./labels";
 import { common, edited, lines as richLines, normalise, plainOf, runsOf, styleRange, styled, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
 import { Dialog } from "./Dialog";
+import { addAttachment, anyQuery, enclosed, genericSites, nextRGroup, placeAttachments, polymerLabel, polymerTags, rNumber, USAGES, USAGE_KINDS } from "./query";
+import { Select } from "./Select";
+import { expandGeneric, layoutGrid, MOST } from "./expand";
 import "./editor.css";
 
 
@@ -381,6 +385,8 @@ export default function Editor() {
     if (!("shape" in spec)) return undefined;
     const style = { ...("dashed" in spec && spec.dashed ? { dashed: true } : {}), ...("fill" in spec && spec.fill ? { fill: spec.fill } : {}), ...("shadow" in spec && spec.shadow ? { shadow: true } : {}), ...("side" in spec && spec.side ? { side: spec.side } : {}) };
     if ("circle" in spec && spec.circle) { const r = Math.hypot(to[0] - from[0], to[1] - from[1]); return { kind: "oval", from: [from[0] - r, from[1] - r], to: [from[0] + r, from[1] + r], ...style }; }
+    // An R-group definition takes the next R number (one a label uses with no definition yet, first).
+    if ("rgroup" in spec && spec.rgroup) return { kind: "box", from, to, rgroup: { name: nextRGroup(doc) } };
     return { kind: spec.shape, from, to, ...style };
   };
   const arrowPick = arrowVariant(settings.variants.arrow) ?? { kind: "reaction" as ArrowKind };
@@ -455,7 +461,7 @@ export default function Editor() {
   // Every edit clears the selection, except a move, which keeps the same atoms selected. Groups keep whole structures,
   // so atoms drawn onto a grouped structure join its group (wholeGroups).
   const set = (mol: Mol, keepSelection = false, merge?: string) => {
-    dispatch({ type: "set", mol: onTop(doc, wholeGroups(mol), fragments), merge });
+    dispatch({ type: "set", mol: onTop(doc, wholeGroups(placeAttachments(mol)), fragments), merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
   };
   const undo = (redo = false) => { dispatch({ type: redo ? "redo" : "undo" }); setSelection(new Set()); setPicked(new Set()); };
@@ -700,7 +706,43 @@ export default function Editor() {
     if (i === undefined || !doc.atoms[i]) return setNotice("Select an atom first.");
     const a = doc.atoms[i];
     const g = /^(abs|&|or)(\d*)$/.exec(a.enhanced ?? "");
-    setDialog({ kind: "atom", atom: i, element: a.text ?? a.label, charge: String(a.charge ?? 0), isotope: a.isotope ? String(a.isotope) : "", radical: String(a.radical ?? 0), stereo: g?.[1] ?? "", group: g?.[2] ?? "1" });
+    // Its query properties apply to every selected atom (only those changed), as ChemDraw's dialog does.
+    const targets = selection.has(i) ? [...selection].filter((k) => doc.atoms[k]) : [i];
+    setDialog({ kind: "atom", atom: i, element: a.text ?? a.label, charge: String(a.charge ?? 0), isotope: a.isotope ? String(a.isotope) : "", radical: String(a.radical ?? 0), stereo: g?.[1] ?? "", group: g?.[2] ?? "1",
+      targets, q: { ...a.query }, q0: { ...a.query } });
+  }
+  // Bond Properties: the selected bonds' (or the bond pointed at) type, with ChemDraw's query types, topology and
+  // reaction centre.
+  function bondProperties() {
+    const picked = doc.bonds.flatMap((b, k) => (selection.has(b.atoms[0]) && selection.has(b.atoms[1]) ? [k] : [])), hovered = hovers.get().bond;
+    const bonds = picked.length ? picked : hovered !== undefined ? [hovered] : [];
+    if (!bonds.length) return setNotice("Select a bond first.");
+    const b = doc.bonds[bonds[0]], style = b.query ?? (Object.keys(BONDS) as BondKind[]).find((k) => { const sp: BondSpec = BONDS[k].spec; return sp.type === b.type && sp.stereo === b.stereo && sp.display === b.display; }) ?? "";
+    const now = { type: style, topology: b.topology ?? "", rxn: b.rxn ?? "" };
+    setDialog({ kind: "bond", bonds, ...now, start: now });
+  }
+  // Bracket Properties: a picked pair of brackets' usage and what goes with it.
+  function bracketProperties() {
+    const sh = (doc.shapes ?? []).find((x) => picked.has(x.id) && isBracket(x) && !x.side);
+    if (!sh) return setNotice("Select a pair of brackets first.");
+    const p = sh.polymer, e = enclosed(doc, sh);
+    // Flip Type is for a ladder polymer's brackets: two bonds crossing each bracket.
+    setDialog({ kind: "bracket", shape: sh.id, usage: p?.usage ?? "", label: p?.usage === "sru" || p?.usage === "param" ? p.label ?? "" : "", count: p?.usage === "mult" ? p.label ?? "2" : "2",
+      order: p?.order ? String(p.order) : "0", mw: p?.mw ? String(p.mw) : "", pattern: p?.pattern ?? "", flip: p?.flip ?? "", flippable: e.crossing.length === 4 });
+  }
+  // R-Logic Query: a row for each R-group definition.
+  function rLogic() {
+    const boxes = (doc.shapes ?? []).filter((x) => x.rgroup).sort((p, q) => (rNumber(p.rgroup!.name) ?? 0) - (rNumber(q.rgroup!.name) ?? 0));
+    if (!boxes.length) return setNotice("Draw an R-group definition first: use the Shape tool's R-group definition round its fragments.");
+    setDialog({ kind: "rlogic", rows: boxes.map((x) => ({ id: x.id, name: x.rgroup!.name, occur: x.rgroup!.occur ?? "", restH: !!x.rgroup!.restH, then: x.rgroup!.then ?? "" })) });
+  }
+  // An attachment on the selected atoms (two or more).
+  function attach(variable: boolean) {
+    const atoms = [...selection].filter((i) => doc.atoms[i] && !doc.atoms[i].centre && !doc.atoms[i].attach);
+    if (atoms.length < 2) return setNotice("Select the atoms the attachment joins: two or more.");
+    const [m, i] = addAttachment(doc, atoms, variable);
+    set(m);
+    setSelection(new Set([i]));
   }
   // Structure > Enhanced Stereochemistry on the selected stereocentres (every one with nothing selected).
   function enhance(kind: "abs" | "or" | "&" | undefined) {
@@ -976,6 +1018,35 @@ export default function Editor() {
     about: () => setAbout(true),
     // Atom Properties (Structure menu): the selected atom's element or label, charge, isotope and radical.
     atom_properties: () => atomProperties([...selection][0] ?? hovers.get().atom),
+    bond_properties: () => bondProperties(),
+    bracket_properties: () => bracketProperties(),
+    rlogic: () => rLogic(),
+    // Add Multi-Centre Attachment and Add Variable Attachment (Structure menu): an attachment at the centre of the
+    // selected atoms, selected, for a bond to be drawn from it (to the metal of an η ligand, or to a substituent).
+    add_multicentre: () => attach(false),
+    add_variable: () => attach(true),
+    // An R-group definition round the selected structures, named with the next R number.
+    define_rgroup: () => {
+      const atoms = fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat();
+      if (!atoms.length) return setNotice("Select the fragments that the R-group stands for.");
+      const xs = atoms.map((i) => doc.atoms[i].location[0]), ys = atoms.map((i) => doc.atoms[i].location[1]);
+      const [m, id] = addShape(doc, { kind: "box", from: [Math.min(...xs) - 0.7, Math.max(...ys) + 0.7], to: [Math.max(...xs) + 0.7, Math.min(...ys) - 0.7], rgroup: { name: nextRGroup(doc) } });
+      set(m);
+      setPicked(new Set([id]));
+    },
+    // Expand Generic Structure: every structure the selected generic structures (or all) stand for, in a new drawing.
+    expand_generic: () => {
+      const { mols, total } = expandGeneric(doc, selection.size ? [...selection] : doc.atoms.map((_, i) => i));
+      if (!mols.length) return setNotice("This structure has nothing to expand. Use an R-group, an element list, an alternative group, a variable attachment or a wavy bond.");
+      keepWork(() => {
+        const grid = layoutGrid(mols);
+        set(grid);
+        setFile({ saved: EMPTY });
+        if (total > MOST) setNotice(`Octet made the first ${MOST} of ${total.toLocaleString("en-GB")} structures.`, true);
+        const b = bounds(grid);
+        if (b) setView((v) => ({ ...v, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * v.zoom * L, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * v.zoom * L }));
+      });
+    },
     // Show Atom Number (Object menu): each atom's number beside it, for the selected atoms or the whole drawing.
     atom_numbers: () => numberAtoms(selection.size ? [...selection] : doc.atoms.map((_, i) => i)),
     // Page Setup (⇧⌘P): the page's size and orientation, which live in the document's settings.
@@ -1231,7 +1302,10 @@ export default function Editor() {
   const pressMods = useRef<{ shift: boolean; alt: boolean; atoms: Set<number>; picks: Set<number> } | undefined>(undefined);
   const [exportView, setExportView] = useState<{ all?: string; selection?: string; parts: { all: Mol; selection?: Mol } }>();
   const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }
-    | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string; stereo: string; group: string }
+    | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string; stereo: string; group: string; targets: number[]; q: AtomQuery; q0: AtomQuery }
+    | { kind: "bond"; bonds: number[]; type: string; topology: string; rxn: string; start: { type: string; topology: string; rxn: string } }
+    | { kind: "bracket"; shape: number; usage: string; label: string; count: string; order: string; mw: string; pattern: string; flip: string; flippable: boolean }
+    | { kind: "rlogic"; rows: { id: number; name: string; occur: string; restH: boolean; then: string }[] }
     | { kind: "font"; font: string } | { kind: "size"; size: string } | { kind: "spacing"; mode: "auto" | "variable" | "fixed"; pt: string }
     | { kind: "unsaved"; next: () => void }>();
   // Check Structure's dialog: the problems, the one shown, and what runs after them (a copy or export that asked).
@@ -2535,7 +2609,7 @@ export default function Editor() {
     if (!selection.size && pickedShapes.length && pickedShapes.length === picked.size) {
       const first = pickedShapes[0];
       return {
-        kind: "shape", count: pickedShapes.length, shape: first.kind, dashed: !!first.dashed, colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
+        kind: "shape", count: pickedShapes.length, shape: first.kind, dashed: !!first.dashed, colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"), rgroup: pickedShapes.some((x) => x.rgroup),
         style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, ...tableContext(first), hide: first.tlc?.hide ?? [], shade: { ...SHADE, ...first.shade, pt: style.bond },
         ...(first.kind === "table" || first.kind === "tlc" ? { text: { bold: !!first.bold, italic: !!first.italic, underline: !!first.underline, font: first.font ?? style.captionFont, size: first.size ?? (first.kind === "tlc" ? style.captionSize * 0.8 : style.captionSize) } } : {}),
       };
@@ -2559,7 +2633,7 @@ export default function Editor() {
         return { kind: "caption", mode: "picked", colour: c.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList };
       }
     }
-    if (!selection.size) return doc.atoms.length || doc.captions?.length || doc.arrows?.length || doc.shapes?.length ? { kind: "drawing", nameable } : { kind: "empty" };
+    if (!selection.size) return doc.atoms.length || doc.captions?.length || doc.arrows?.length || doc.shapes?.length ? { kind: "drawing", nameable, generic: genericSites(doc, doc.atoms.keys()) } : { kind: "empty" };
     // Atoms that are only in a drag (an Option-drag's copies, before they are kept) are not in the drawing yet.
     const ids = [...selection].filter((i) => i < doc.atoms.length);
     if (!ids.length) return { kind: "drawing", nameable };
@@ -2587,7 +2661,7 @@ export default function Editor() {
     const stereo = !centres.length ? undefined : flags.size > 1 ? "mixed" : flags.has("&1") ? "racemic" : flags.has("or1") ? "relative" : flags.has("") ? "absolute" : "mixed";
     // A 3D structure (Structure Perspective): drawn with depth, or flat.
     const solid = ids.some((i) => Math.abs(doc.atoms[i].location[2] ?? 0) > 1e-3);
-    return { kind: "structure", text: labelText(ids), atoms: ids.length, structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextNumber(doc), nameable, pairs, stereo,
+    return { kind: "structure", text: labelText(ids), atoms: ids.length, generic: genericSites(doc, fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat()), structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextNumber(doc), nameable, pairs, stereo,
       ...(solid ? { depth: !ids.some((i) => doc.atoms[i].depth === false) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
       // Aromatic rings drawn with circles, so the aromatic display action can name what it shows next.
       circles: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].circle),
@@ -2978,7 +3052,10 @@ export default function Editor() {
     new: ["New drawing", `${MOD}N`, <FilePlus size={18} />], open: ["Open…", `${MOD}O`, <FolderOpen size={18} />], import: ["Import a structure…", "", <FileArrowDown size={18} />],
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDiskBack size={18} />],
     export: ["Export…", EXPORT_KEYS, <ExportIcon size={18} />], print: ["Print…", `${MOD}P`, <Printer size={18} />], page_setup: ["Page setup…", `⇧${MOD}P`, <FileDashed size={18} />],
-    about: ["About Octet", "", <Info size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
+    about: ["About Octet", "", <Info size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />],
+    bond_properties: ["Bond properties…", "", <Faders size={18} />], bracket_properties: ["Bracket properties…", "", <Faders size={18} />], rlogic: ["R-Logic query…", "", <Faders size={18} />],
+    add_multicentre: ["Add multi-centre attachment", "", <Asterisk size={18} />], add_variable: ["Add variable attachment", "", <AsteriskSimple size={18} />],
+    define_rgroup: ["Make an R-group definition", "", <BracketsSquare size={18} />], expand_generic: ["Expand generic structure", "", <SquaresFour size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
     expand_label: ["Expand label", "", <ArrowsOutSimple size={18} />], contract_label: ["Contract label", "", <ArrowsInSimple size={18} />], stoichiometry: ["Analyse stoichiometry", "", <Table size={18} />],
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <MagicWand size={18} />],
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
@@ -3921,6 +3998,27 @@ export default function Editor() {
         const m = markAt(sh, L);
         return <text key={`m${sh.id}`} x={m.x} y={m.y} textAnchor={m.anchor} fill={sh.colour ? textInk(sh.colour) : "var(--ink)"} style={{ font: `${style.captionSize * pt}px ${fontStack(style.captionFont)}` }}>{sh.mark}</text>;
       })()}
+      {/* A polymer bracket's usage label at its lower right, and its repeat pattern and flip at its upper right. */}
+      {sh.polymer && isBracket(sh) && !sh.side && (() => {
+        const at = polymerLabelsAt(sh, L), label = polymerLabel(sh.polymer), tags = polymerTags(sh.polymer), font = { font: `${0.75 * style.captionSize * pt}px ${fontStack(style.captionFont)}` }, fill = sh.colour ? textInk(sh.colour) : "var(--ink)";
+        return (
+          <Fragment key={`p${sh.id}`}>
+            {label && <text x={at.label.x} y={at.label.y} fill={fill} style={font}>{label}</text>}
+            {tags && <text x={at.tags.x} y={at.tags.y} fill={fill} style={font}>{tags}</text>}
+          </Fragment>
+        );
+      })()}
+      {/* An R-group definition's name, in a tab on its box's upper left edge (ChemDraw's alternative group title). */}
+      {sh.rgroup && (() => {
+        const x0 = Math.min(sh.from[0], sh.to[0]) * L, y0 = -Math.max(sh.from[1], sh.to[1]) * L, size = style.captionSize * pt, w = textWidth(sh.rgroup.name, size, false, false, fontStack(style.captionFont)) + 0.8 * size, h = 1.5 * size;
+        const fill = sh.colour ? textInk(sh.colour) : "var(--ink)";
+        return (
+          <g key={`rg${sh.id}`}>
+            <path d={`M${x0} ${y0}V${y0 - h}H${x0 + w}V${y0}`} fill="none" stroke={fill} strokeWidth={lined(sh.width).line} strokeDasharray={sh.dashed ? `${0.2 * L} ${0.2 * L}` : undefined} />
+            <text x={x0 + 0.4 * size} y={y0 - 0.4 * size} fill={fill} style={{ font: `${size}px ${fontStack(style.captionFont)}` }}>{sh.rgroup.name}</text>
+          </g>
+        );
+      })()}
     </Fragment>
   );
   // The drawing's layers. Hovering, panning, zooming and the caret do not change them, and each is made again only
@@ -4615,9 +4713,18 @@ export default function Editor() {
             const charge = Math.max(-9, Math.min(9, Math.round(Number(d.charge) || 0))), isotope = Math.round(Number(d.isotope));
             const group = Math.max(1, Math.min(99, Math.round(Number(d.group)) || 1)), enhanced = d.stereo === "abs" ? "abs" : d.stereo ? `${d.stereo}${group}` : undefined;
             m = { ...m, atoms: m.atoms.map((x, k) => (k === d.atom ? { ...x, charge: charge || undefined, isotope: isotope >= 1 && isotope <= 300 ? isotope : undefined, radical: Number(d.radical) || undefined, enhanced } : x)) };
+            // The query properties changed in the dialog, on every selected atom.
+            const changed = (Object.keys({ ...d.q, ...d.q0 }) as (keyof AtomQuery)[]).filter((k) => JSON.stringify(d.q[k]) !== JSON.stringify(d.q0[k]));
+            if (changed.length) m = { ...m, atoms: m.atoms.map((x, k) => {
+              if (!d.targets.includes(k)) return x;
+              const q: AtomQuery = { ...x.query };
+              for (const key of changed) { if (d.q[key] === undefined) delete q[key]; else (q as Record<string, unknown>)[key] = d.q[key]; }
+              return { ...x, query: anyQuery(q) ? q : undefined };
+            }) };
             set(m, true);
             setDialog(undefined);
-          }}>
+          }}
+          alt={{ label: "Use Defaults", onClick: () => setDialog({ ...dialog, q: {} }) }}>
           <label className="dialog-row"><span>Element</span><span className="unit-field text"><input aria-label="Element" value={dialog.element} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, element: e.target.value.slice(0, 40) })} /></span></label>
           <label className="dialog-row"><span>Charge</span><NumberField label="Charge" min={-9} max={9} step={1} value={Number(dialog.charge) || 0} onChange={(n) => setDialog({ ...dialog, charge: String(Math.round(n)) })} /></label>
           <label className="dialog-row"><span>Isotope</span><NumberField label="Isotope (mass number)" min={1} max={300} step={1} placeholder="Natural" value={dialog.isotope ? Number(dialog.isotope) : undefined}
@@ -4634,8 +4741,130 @@ export default function Editor() {
           {(dialog.stereo === "or" || dialog.stereo === "&") && (
             <label className="dialog-row"><span>Group</span><NumberField label="Group number" min={1} max={99} step={1} value={Number(dialog.group) || 1} onChange={(n) => setDialog({ ...dialog, group: String(Math.round(n)) })} /></label>
           )}
+          {/* ChemDraw's atom query properties, for a search. Unset is ChemDraw's default for each. */}
+          {(() => {
+            const q = dialog.q, setQ = (k: keyof AtomQuery, v: unknown) => setDialog({ ...dialog, q: Object.fromEntries(Object.entries({ ...q, [k]: v }).filter(([, x]) => x !== undefined)) as AtomQuery });
+            const row = (k: keyof AtomQuery & string, name: string, options: [string, string][]) => (
+              <div className="dialog-row" key={k}><span>{name}</span><Select label={name} value={String(q[k] ?? "")} options={options} onChange={(v) => setQ(k, v === "yes" ? true : v || undefined)} /></div>
+            );
+            const yesNo = (k: keyof AtomQuery & string, name: string, no: string, yes: string) => (
+              <div className="dialog-row" key={k}><span>{name}</span><Segmented label={name} value={q[k] ? "yes" : ""} options={[["", no], ["yes", yes]]} onChange={(v) => setQ(k, v ? true : undefined)} /></div>
+            );
+            return (
+              <>
+                <div className="dialog-row"><span>Substituents</span>
+                  <Select label="Substituents" value={q.subst?.kind ?? ""} options={[["", "Unspecified"], ["free", "Free sites"], ["upto", "Up to"], ["exactly", "Exactly"]]}
+                    onChange={(v) => setQ("subst", v ? { kind: v, n: q.subst?.n ?? 0 } : undefined)} />
+                  {q.subst && <NumberField label="Substituents" min={0} max={15} step={1} value={q.subst.n} onChange={(n) => setQ("subst", { kind: q.subst!.kind, n: Math.round(n) })} />}
+                </div>
+                {yesNo("noH", "Implicit hydrogens", "Allowed", "Not allowed")}
+                {row("rings", "Ring bond count", [["", "Any"], ["none", "No ring bonds"], ["drawn", "As drawn"], ["simple", "Simple ring"], ["fusion", "Fusion"], ["spiro", "Spiro or higher"]])}
+                {row("unsat", "Unsaturation", [["", "Unspecified"], ["absent", "Must be absent"], ["present", "Must be present"]])}
+                {yesNo("change", "Reaction change", "May be anything", "Must be as specified")}
+                {row("stereo", "Reaction stereo", [["", "Any"], ["inversion", "Inversion"], ["retention", "Retention"]])}
+                {row("translation", "Translation", [["", "Equal"], ["broad", "Broad"], ["narrow", "Narrow"], ["any", "Any"]])}
+                {row("abundance", "Isotopic abundance", [["", "Unspecified"], ["any", "Any"], ["natural", "Natural"], ["enriched", "Enriched"], ["deficient", "Deficient"], ["nonnatural", "Nonnatural"]])}
+                {yesNo("valence", "Abnormal valence", "Not allowed", "Allowed")}
+              </>
+            );
+          })()}
         </Dialog>
       )}
+      {dialog?.kind === "bond" && (() => {
+        const d = dialog, kinds = Object.keys(BONDS) as BondKind[];
+        // Use Defaults: the bond's own drawn type, no topology or reaction centre.
+        const drawn = (k: number) => { const b = doc.bonds[k]; return kinds.find((x) => { const sp: BondSpec = BONDS[x].spec; return sp.type === b.type && sp.stereo === b.stereo && sp.display === b.display; }) ?? ""; };
+        return (
+          <Dialog title="Bond Properties" action="Apply" onClose={() => setDialog(undefined)} alt={{ label: "Use Defaults", onClick: () => setDialog({ ...d, type: drawn(d.bonds[0]), topology: "", rxn: "" }) }}
+            onAction={() => {
+              const kind = d.type !== d.start.type ? d.type : undefined;
+              set({ ...doc, bonds: doc.bonds.map((b, k) => {
+                if (!d.bonds.includes(k)) return b;
+                let x: Bond = b;
+                if (kind && kind in BONDS) { const sp: BondSpec = BONDS[kind as BondKind].spec; x = { ...x, type: sp.type, stereo: sp.stereo, display: sp.display, query: undefined }; }
+                else if (kind) x = { ...x, query: kind as Bond["query"] };
+                if (d.topology !== d.start.topology) x = { ...x, topology: (d.topology || undefined) as Bond["topology"] };
+                if (d.rxn !== d.start.rxn) x = { ...x, rxn: (d.rxn || undefined) as Bond["rxn"] };
+                return Object.fromEntries(Object.entries(x).filter(([, v]) => v !== undefined)) as Bond;
+              }) }, true);
+              setDialog(undefined);
+            }}>
+            <div className="dialog-row"><span>Bond type</span>
+              <Select label="Bond type" value={d.type} onChange={(type) => setDialog({ ...d, type })}
+                options={[...kinds.map((k): [string, string] => [k, BONDS[k].name]), ["any", "Any"], ["sd", "Single or double"], ["sa", "Single or aromatic"], ["da", "Double or aromatic"]]} />
+            </div>
+            <div className="dialog-row"><span>Topology</span>
+              <Select label="Topology" value={d.topology} onChange={(topology) => setDialog({ ...d, topology })} options={[["", "Unspecified"], ["ring", "Ring"], ["chain", "Chain"], ["either", "Ring or chain"]]} />
+            </div>
+            <div className="dialog-row"><span>Reaction centre</span>
+              <Select label="Reaction centre" value={d.rxn} onChange={(rxn) => setDialog({ ...d, rxn })}
+                options={[["", "Unspecified"], ["centre", "Centre"], ["makebreak", "Make or break"], ["change", "Change"], ["makechange", "Make and change"], ["not", "Not centre"], ["nochange", "Not modified"], ["unmapped", "Unmapped"]]} />
+            </div>
+          </Dialog>
+        );
+      })()}
+      {dialog?.kind === "bracket" && (() => {
+        const d = dialog, u = d.usage as BracketUsage | "";
+        // Repeat Pattern applies to repeating units, not to components, mixtures, multiple groups or generic brackets.
+        const repeats = !!u && !["c", "mix", "f", "mult", "gen"].includes(u);
+        return (
+          <Dialog title="Bracket Properties" action="Apply" onClose={() => setDialog(undefined)} alt={{ label: "Use Defaults", onClick: () => setDialog({ ...d, usage: "", label: "", count: "2", order: "0", mw: "", pattern: "", flip: "" }) }}
+            onAction={() => {
+              const n = Number(d.count), o = Math.round(Number(d.order)), mw = Number(d.mw);
+              const polymer: Polymer | undefined = !u ? undefined : {
+                usage: u, ...((u === "sru" || u === "param") && d.label.trim() && !(u === "sru" && d.label.trim() === "n") ? { label: d.label.trim().slice(0, 20) } : {}),
+                ...(u === "mult" && n > 0 && n !== 2 ? { label: String(n) } : {}), ...(u === "c" && o > 0 ? { order: Math.min(999, o) } : {}),
+                ...(u === "param" && mw > 0 ? { mw } : {}), ...(repeats && d.pattern ? { pattern: d.pattern as Polymer["pattern"] } : {}), ...(d.flippable && d.flip ? { flip: d.flip as Polymer["flip"] } : {}),
+              };
+              set(updateShape(doc, d.shape, { polymer }), true);
+              setDialog(undefined);
+            }}>
+            <div className="dialog-row"><span>Bracket usage</span>
+              <Select label="Bracket usage" value={d.usage} onChange={(usage) => setDialog({ ...d, usage })} options={[["", "Unspecified"], ...USAGE_KINDS.map((k): [string, string] => [k, USAGES[k].name])]} />
+            </div>
+            {(u === "sru" || u === "param") && (
+              <label className="dialog-row"><span>{u === "sru" ? "SRU label" : "Label"}</span><span className="unit-field text"><input aria-label="Label" value={d.label} placeholder={u === "sru" ? "n" : "n, 3 or 2-5"} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...d, label: e.target.value.slice(0, 20) })} /></span></label>
+            )}
+            {u === "param" && <label className="dialog-row"><span>Mw or Mn</span><NumberField label="Mw or Mn" min={0.01} max={1e8} step={1} value={d.mw ? Number(d.mw) : undefined} placeholder="None" onChange={(v) => setDialog({ ...d, mw: String(v) })} onClear={() => setDialog({ ...d, mw: "" })} /></label>}
+            {u === "mult" && <label className="dialog-row"><span>Repeat count</span><NumberField label="Repeat count" min={0.01} max={1e6} step={1} value={Number(d.count) || 2} onChange={(v) => setDialog({ ...d, count: String(v) })} /></label>}
+            {u === "c" && <label className="dialog-row"><span>Order</span><NumberField label="Component order" min={0} max={999} step={1} value={Number(d.order) || 0} onChange={(v) => setDialog({ ...d, order: String(Math.round(v)) })} /></label>}
+            {repeats && (
+              <div className="dialog-row"><span>Repeat pattern</span>
+                <Select label="Repeat pattern" value={d.pattern} onChange={(pattern) => setDialog({ ...d, pattern })} options={[["", "Head-to-tail"], ["hh", "Head-to-head"], ["eu", "Either or unknown"]]} />
+              </div>
+            )}
+            {d.flippable && u && (
+              <div className="dialog-row"><span>Flip type</span>
+                <Select label="Flip type" value={d.flip} onChange={(flip) => setDialog({ ...d, flip })} options={[["", "Unspecified"], ["noflip", "No flip"], ["flip", "Flip"]]} />
+              </div>
+            )}
+          </Dialog>
+        );
+      })()}
+      {dialog?.kind === "rlogic" && (() => {
+        const d = dialog, names = d.rows.map((r) => r.name), row = (k: number, change: Partial<(typeof d.rows)[number]>) => setDialog({ ...d, rows: d.rows.map((r, j) => (j === k ? { ...r, ...change } : r)) });
+        return (
+          <Dialog title="R-Logic" action="Apply" onClose={() => setDialog(undefined)}
+            onAction={() => {
+              const by = new Map(d.rows.map((r) => [r.id, r]));
+              set({ ...doc, shapes: doc.shapes?.map((x) => {
+                const r = by.get(x.id);
+                if (!r || !x.rgroup) return x;
+                const occur = r.occur.replace(/\s+/g, "");
+                return { ...x, rgroup: { name: x.rgroup.name, ...(/^[\d,<>=-]{1,20}$/.test(occur) && occur !== ">0" ? { occur } : {}), ...(r.restH ? { restH: true as const } : {}), ...(r.then && r.then !== r.name ? { then: r.then } : {}) } };
+              }) }, true);
+              setDialog(undefined);
+            }}>
+            {d.rows.map((r, k) => (
+              <Fragment key={r.id}>
+                <label className="dialog-row"><span>{r.name} occurrence</span><span className="unit-field text"><input aria-label={`${r.name} occurrence`} value={r.occur} placeholder=">0" onChange={(e) => row(k, { occur: e.target.value.slice(0, 20) })} /></span></label>
+                <div className="dialog-row"><span>{r.name} rest H</span><Segmented label={`${r.name} rest H`} value={r.restH ? "yes" : ""} options={[["", "Off"], ["yes", "On"]]} onChange={(v) => row(k, { restH: !!v })} /></div>
+                <div className="dialog-row"><span>If {r.name}, then</span><Select label={`If ${r.name}, then`} value={r.then} onChange={(then) => row(k, { then })} options={[["", "None"], ...names.filter((n) => n !== r.name).map((n): [string, string] => [n, n])]} /></div>
+              </Fragment>
+            ))}
+          </Dialog>
+        );
+      })()}
       {dialog?.kind === "font" && (
         <Dialog title="Font" action="Apply" onClose={() => setDialog(undefined)} onAction={() => { runAction(`caption.font.${dialog.font}`); setDialog(undefined); }}>
           <div className="dialog-row"><span>Font</span><FontPick label="Font" font={dialog.font} fonts={fontList} onPick={(font) => setDialog({ ...dialog, font })} className="select-field" start /></div>

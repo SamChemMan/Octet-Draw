@@ -197,3 +197,29 @@ export function massText(v: Repeated, key: "weight" | "exact", places: number): 
   if (!r) return v[key].toFixed(places);
   return `${r.ends ? `${r.ends[key].toFixed(places)} + ` : ""}(${r[key].toFixed(places)})${r.label}`;
 }
+// The name a new R-group definition takes: the lowest R number a label uses that has no definition yet, else the
+// lowest number with neither.
+export function nextRGroup(m: Mol): string {
+  const defined = new Set((m.shapes ?? []).flatMap((sh) => (sh.rgroup ? [rNumber(sh.rgroup.name)] : [])));
+  const used = m.atoms.flatMap((a) => (rNumber(a.text) && !defined.has(rNumber(a.text)) ? [rNumber(a.text)!] : [])).sort((p, q) => p - q);
+  if (used.length) return `R${used[0]}`;
+  let n = 1;
+  while (defined.has(n)) n++;
+  return `R${n}`;
+}
+// A multi-centre (an η ligand's) or variable attachment on some atoms: a new atom at their centre, with no bonds yet.
+export function addAttachment(m: Mol, atoms: number[], variable: boolean): [Mol, number] {
+  const at = [...new Set(atoms)].filter((i) => m.atoms[i] && !m.atoms[i].centre && !m.atoms[i].attach);
+  const c: [number, number, number] = [at.reduce((s, i) => s + m.atoms[i].location[0], 0) / at.length, at.reduce((s, i) => s + m.atoms[i].location[1], 0) / at.length, 0];
+  return [{ ...m, atoms: [...m.atoms, { label: "C", location: c, centre: { atoms: at, ...(variable ? { variable: true as const } : {}) } }] }, m.atoms.length];
+}
+// Whether some atoms hold a generic structure's site Expand Generic Structure enumerates: an R label with a
+// definition, an anonymous alternative group, an element list or a variable attachment.
+export function genericSites(m: Mol, atoms: Iterable<number>): boolean {
+  const defined = new Set((m.shapes ?? []).flatMap((sh) => (sh.rgroup ? [sh.rgroup.name] : [])));
+  for (const i of atoms) {
+    const a = m.atoms[i];
+    if (a && ((a.text && defined.has(a.text)) || altGroup(a.text ?? "") || elementList(a.text ?? "")?.not === false || a.centre?.variable)) return true;
+  }
+  return false;
+}

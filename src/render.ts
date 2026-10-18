@@ -7,6 +7,7 @@
 // - Labels are anchored on the advance centre and half the ink height of their first glyph.
 
 import { units } from "./labels.ts";
+import { atomIndicator, bondIndicator, queryLabel } from "./query.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
 import { lines as richLines, plainOf, runsOf, styleOf, wrap, type RunStyle, type TextRun } from "./richtext.ts";
 import type { DocStyle } from "./docstyle.ts";
@@ -406,7 +407,8 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const dir = (i: number, j: number) => unit(sub(pts[j], pts[i]));
 
   // Labels. Heteroatoms and lone carbons get one; skeletal carbons don't, even when charged.
-  const labelled = mol.atoms.map((a, i) => !a.attach && !a.bead && (a.label !== 'C' || !deg(i) || !!a.text || !!a.isotope || (deg(i) === 1 ? !!s.terminal : !!s.carbons)));
+  // A multi-centre or variable attachment shows only as an asterisk, until a bond is drawn to it.
+  const labelled = mol.atoms.map((a, i) => (a.centre ? !deg(i) : !a.attach && !a.bead && (a.label !== 'C' || !deg(i) || !!a.text || !!a.isotope || (deg(i) === 1 ? !!s.terminal : !!s.carbons))));
   const labels: Label[] = [], labelAtom = new Map<Label, number>();
   const marks: P[][] = mol.atoms.map(() => []); // ink that is not a label shape (a skeletal carbon's charge)
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
@@ -443,6 +445,24 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     // Which way the label reads: away from the bonds. Bonds on the right (within 70° of horizontal) reverse it.
     const v = nbrs[i].reduce<P>((acc, j) => add(acc, dir(i, j)), [0, 0]);
     const steep = len(v) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180);
+    if (a.centre) {
+      const m = M('*');
+      run('*', x - m.width / 2, y + m.ascent / 2);
+      return shape;
+    }
+    const ql = queryLabel(a.text);
+    if (a.text && (ql === 'list' || ql === 'alt' || ql === 'link')) {
+      // An element list, alternative group or link node reads as typed, never reversed: its first glyph sits on the
+      // atom, or its last when the bonds come from the right. A link node's repeat range is subscript ([CH2]₃₋₇).
+      const range = ql === 'link' ? /\d{1,2}-\d{1,2}$/.exec(a.text)![0] : '', main = a.text.slice(0, a.text.length - range.length);
+      const width = M(main).width + (range ? M(range).width * SUB : 0), first = M(main[0]), base = y + first.ascent / 2;
+      const end = range ? M(range[range.length - 1]).width * SUB : M(main[main.length - 1]).width;
+      const cx = deg(i) > 0 && !steep && v[0] > 1e-6 ? x + end / 2 - width : x - first.width / 2;
+      run(main, cx, base);
+      if (range) run(range, cx + M(main).width, base + DROP * S, SUB);
+      if (a.charge && !a.circled) run(sign(a.charge), cx + width, base - RISE * S, SUB);
+      return shape;
+    }
     if (a.text) {
       // A written label: units in order, reversed when it reads right to left (OMe as MeO). The attaching
       // unit's first glyph sits centred on the atom.
@@ -492,9 +512,12 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const wound = (poly: P[]) => (poly.reduce((sum, q, j) => sum + cross(q, poly[(j + 1) % poly.length]), 0) > 0 ? poly.reverse() : poly);
   const disc = (c: P, r: number): P[] => wound(Array.from({ length: 20 }, (_, j) => add(c, [r * Math.cos((TAU * j) / 20), r * Math.sin((TAU * j) / 20)])));
   mol.atoms.forEach((a, i) => {
-    const kinds: ('charge' | 'partial' | 'radical' | 'pair')[] = [];
+    const kinds: ('charge' | 'partial' | 'radical' | 'pair' | 'query')[] = [];
     if (a.circled && a.charge) kinds.push('charge');
     if (a.partial) kinds.push('partial');
+    // The query indicator ChemDraw draws beside an atom with query properties (X2, H, R…).
+    const indicator = atomIndicator(a.query);
+    if (indicator) kinds.push('query');
     for (let r = 0; r < Math.min(2, a.radical === 3 ? 0 : a.radical ?? 0); r++) kinds.push('radical');
     if (a.radical === 3) kinds.push('pair');
     for (let r = 0; r < Math.min(4, a.pairs ?? 0); r++) kinds.push('pair');
@@ -506,7 +529,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const clearOf = (t: number, need: number) => taken.every((b) => Math.abs(Math.atan2(Math.sin(t - b), Math.cos(t - b))) >= need);
     const at = new Map<number, number>(); // index in kinds → angle
     const UP_RIGHT = -Math.PI / 4;
-    if ((kinds[0] === 'charge' || kinds[0] === 'partial') && clearOf(UP_RIGHT, Math.PI / 5)) { at.set(0, UP_RIGHT); taken.push(UP_RIGHT); }
+    if ((kinds[0] === 'charge' || kinds[0] === 'partial' || kinds[0] === 'query') && clearOf(UP_RIGHT, Math.PI / 5)) { at.set(0, UP_RIGHT); taken.push(UP_RIGHT); }
     const rest = kinds.map((_, k) => k).filter((k) => !at.has(k));
     const sorted = taken.map(turn).sort((x, y) => x - y);
     const gaps = sorted.length
@@ -519,7 +542,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       const t = at.get(k)!, d: P = [Math.cos(t), Math.sin(t)], n = perp(d);
       // The mark as discs (centre offset across, radius); how far out it goes is found by search.
       const R = kind === 'charge' ? 0.34 * z : kind === 'radical' ? 0.1 * z : kind === 'pair' ? 0.09 * z : 0;
-      const text = kind === 'partial' ? (a.partial === '+' ? 'δ+' : 'δ–') : '', ink = text ? measure(text) : undefined;
+      const text = kind === 'partial' ? (a.partial === '+' ? 'δ+' : 'δ–') : kind === 'query' ? indicator : '', ink = text ? measure(text) : undefined;
       const parts: [number, number][] = kind === 'pair' ? [[0.19 * z, R], [-0.19 * z, R]] : ink ? [[0, (Math.max(ink.width, ink.ascent) * SUB) / 2]] : [[0, R]];
       const gap = 0.14 * z;
       const fits = (r: number) => parts.every(([o, pr]) => { const c = add(add(X, mul(d, r)), mul(n, o)); return shape.every((q) => len(sub(q, c)) >= pr + gap); });
@@ -877,6 +900,21 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     polygons.push(disc(pts[x], wideAt(depth[x]!)));
     colours.push(mol.atoms[x].colour);
     alphas.push(fade(depth[x]!));
+  });
+  // A bond's query indicators (S/D, Rng, Rxn), small, beside its middle on the side with more room (inside a ring).
+  mol.bonds.forEach((bond, k) => {
+    const text = bondIndicator(bond);
+    if (!text) return;
+    const pl = plans[k], m = measure(text), mid = mul(add(pts[pl.a], pts[pl.b]), 0.5), w = m.width * SUB, h = m.ascent * SUB;
+    // Far enough out that the text's box clears the bond's double line; the side whose nearest other atom is further.
+    const at = (sd: number) => { const d = mul(pl.n, sd); return add(mid, mul(d, s.spacing + 0.5 * (Math.abs(d[0]) * w + Math.abs(d[1]) * h) + 0.1 * L)); };
+    const room = (c: P) => Math.min(Infinity, ...pts.filter((_, j) => j !== pl.a && j !== pl.b).map((q) => len(sub(q, c))));
+    // A ring bond's goes inside its smallest ring, where nothing else is drawn.
+    const ring = ringsThrough(pl.a, pl.b, nbrs).sort((p, q) => p.length - q.length)[0];
+    const inward = ring && Math.sign(dot(sub(mul(ring.reduce<P>((t, j) => add(t, pts[j]), [0, 0]), 1 / ring.length), pts[pl.a]), pl.n));
+    const c = inward ? at(inward) : room(at(1)) >= room(at(-1)) ? at(1) : at(-1), x = c[0] - w / 2, y = c[1] + h / 2;
+    labels.push({ text, x, y, size: s.size * SUB, colour: bond.colour });
+    marks[pl.a].push([x, y - h], [x + w, y]);
   });
   // A label's ink is its glyphs' boxes.
   const labelBoxes = shapes.map((shape) => shape.map(pieceBox));
@@ -1282,6 +1320,14 @@ export function markAt(sh: Shape, k: number): { x: number; y: number; anchor: "s
   const at = (x: number, y: number) => (sh.angle ? turnPoint([x, y], middleOf(sh), sh.angle) : [x, y]);
   const [x, y] = sh.side === "left" ? at(x0 - 0.08, y0 - 0.1) : at(x1 + 0.08, y0 - 0.1);
   return { x: x * k, y: -y * k, anchor: sh.side === "left" ? "end" : "start" };
+}
+
+// Where a polymer bracket pair's labels go (px, y down, scale k): its usage label just outside the lower end of the
+// right bracket, and its repeat pattern and flip tags at the upper end (under a mark there), as ChemDraw places them.
+export function polymerLabelsAt(sh: Shape, k: number): { label: { x: number; y: number }; tags: { x: number; y: number } } {
+  const x1 = Math.max(sh.from[0], sh.to[0]), y0 = Math.min(sh.from[1], sh.to[1]), y1 = Math.max(sh.from[1], sh.to[1]);
+  const at = (x: number, y: number) => { const [px, py] = sh.angle ? turnPoint([x, y], middleOf(sh), sh.angle) : [x, y]; return { x: px * k, y: -py * k }; };
+  return { label: at(x1 + 0.08, y0 + 0.05), tags: at(x1 + 0.08, y1 - (sh.mark ? 0.45 : 0.1)) };
 }
 
 // A shape's ink as filled polygons (px, y down), winding like the bonds: its lines at the line width, dashed when
