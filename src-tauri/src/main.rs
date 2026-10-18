@@ -246,11 +246,11 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
         &item("copy_smiles", "Copy As SMILES", "Alt+CmdOrCtrl+C")?,
     ])?;
     section.replace("View".into());
-    // ChemDraw's Show Crosshair (⌥⌘X) and Show Rulers (⌘;). ChemDraw has no grid: Show Grid (⌘') and Snap to Grid (⇧⌘')
-    // take Affinity Designer's and Illustrator's keys.
+    // ChemDraw's Show Crosshair (⌥⌘X) and Show Rulers (⌘;), in its order. ChemDraw has no grid: Show Grid (⌘') and
+    // Snap to Grid (⇧⌘') take Affinity Designer's and Illustrator's keys.
     let grid = check("grid", "Show Grid", "CmdOrCtrl+'")?;
-    let rulers = check("rulers", "Show Rulers", "CmdOrCtrl+;")?;
     let crosshair = check("crosshair", "Show Crosshair", "Alt+CmdOrCtrl+X")?;
+    let rulers = check("rulers", "Show Rulers", "CmdOrCtrl+;")?;
     let snap = check("snap", "Snap to Objects", "")?;
     let snap_grid = check("snap_grid", "Snap to Grid", "Shift+CmdOrCtrl+'")?;
     // ChemDraw's View > Show Chemical Warnings.
@@ -263,8 +263,8 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
         &item("zoom_out", "Reduce", "CmdOrCtrl+Shift+,")?,
         &sep()?,
         &grid,
-        &rulers,
         &crosshair,
+        &rulers,
         &sep()?,
         &snap,
         &snap_grid,
