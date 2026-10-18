@@ -846,7 +846,7 @@ export default function Editor() {
     // Pick as One (ChemDraw's Group > Integral): on the groups Ungroup would undo.
     group_integral: () => {
       const touched = new Set(groupTargets(doc, selection, picked)), on = [...touched].every((g) => g.integral);
-      if (!touched.size) return setNotice("Select a group.");
+      if (!touched.size) return setNotice("Select a group.", "info");
       set({ ...doc, groups: doc.groups?.map((g) => (touched.has(g) ? { ...g, integral: on ? undefined : true } : g)) }, true);
     },
     // Invert Selection (⇧⌘I): everything that was not selected is, and the rest is not.
@@ -2230,7 +2230,7 @@ export default function Editor() {
       if (!name) { missed++; continue; }
       if (!m.captions?.some((c) => c.text === name && c.under?.some((i) => atoms.includes(i)))) m = addCaption(m, { text: name, x: 0, y: 0, under: atoms })[0];
     }
-    setNotice(missed === 0 ? undefined : missed === 1 ? "Octet can't name this structure yet." : `Octet can't name ${missed} of these structures yet.`);
+    setNotice(missed === 0 ? undefined : missed === 1 ? "Octet cannot name this structure yet." : `Octet cannot name ${missed} of these structures yet.`);
     if (m !== doc) set(m, true);
   }
   const nameable = loaded && doc.atoms.length > 0;
@@ -2786,7 +2786,7 @@ export default function Editor() {
       const left = side(0, first), right = side(first + 1, next);
       if (command === "reaction.unmap") return set({ ...doc, atoms: doc.atoms.map((a, i) => (r.atoms.includes(i) ? { ...a, map: undefined } : a)) }, true);
       const maps = mapReaction(left.map((g) => subset(doc, new Set(g))), right.map((g) => subset(doc, new Set(g))));
-      if (!maps) return setNotice("Octet couldn't map these atoms.");
+      if (!maps) return setNotice("Octet cannot map these atoms.");
       const number = new Map<number, number>();
       left.forEach((g, k) => g.forEach((i, j) => { const n = maps.reactants[k][j]; if (n) number.set(i, n); }));
       right.forEach((g, k) => g.forEach((i, j) => { const n = maps.products[k][j]; if (n) number.set(i, n); }));

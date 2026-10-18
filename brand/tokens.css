@@ -15,7 +15,7 @@
   --surface-raised: #FFFFFF;
   --surface-sunken: #EEF2F8;
   --hairline: #E2E8F0;
-  --outline: #94A3B8;
+  --outline: #8190A5;
   --swatch-edge: rgba(15, 23, 42, 0.12);
   --ink: #0F172A;
   --ink-muted: #475569;
@@ -51,7 +51,7 @@
     --surface-raised: #142650;
     --surface-sunken: #000B24;
     --hairline: #24335A;
-    --outline: #586B95;
+    --outline: #6073A0;
     --swatch-edge: #8494BD;
     --ink: #ECF0F8;
     --ink-muted: #AAB8D6;
@@ -87,7 +87,7 @@
   --surface-raised: #142650;
   --surface-sunken: #000B24;
   --hairline: #24335A;
-  --outline: #586B95;
+  --outline: #6073A0;
   --swatch-edge: #8494BD;
   --ink: #ECF0F8;
   --ink-muted: #AAB8D6;

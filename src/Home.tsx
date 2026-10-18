@@ -110,8 +110,9 @@ export function Home(p: Props) {
           {p.recents.map((r) => (
             <div key={r.path} className={r.found ? "home-slot" : "home-slot missing"}>
               <button className="home-tile" onClick={() => p.onRecent(r)} data-tip={r.path}>
-                {/* The picture is of the white page (export.ts draws it in the light theme), so it stays on white. */}
-                <span className="home-thumb" data-theme="light">
+                {/* The picture is of the white page (export.ts draws it in the light theme), so it stays on white. With
+                    no picture, the tile takes the theme, as New drawing does. */}
+                <span className="home-thumb" data-theme={r.thumb ? "light" : undefined}>
                   {r.thumb ? <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(r.thumb)}`} alt="" draggable={false} /> : <span className="home-initial" aria-hidden>{r.name.slice(0, 1).toUpperCase()}</span>}
                 </span>
                 <span className="home-caption">

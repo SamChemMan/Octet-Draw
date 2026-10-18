@@ -503,7 +503,9 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
   });
   // By default the main actions come first as rows, and the ones marked small follow as small buttons, set by set.
   if (!mine) items.sort((a, b) => Number(!!a.small) - Number(!!b.small) || (a.small ? SETS.indexOf(setOf(a.command)) - SETS.indexOf(setOf(b.command)) : 0));
-  const split = Math.min(items.length, mine ? mine.rows : items.filter((i) => !i.small).length);
+  // A lone small action is a row with its name: one icon on its own does not say what it does.
+  const small = items.filter((i) => i.small).length;
+  const split = Math.min(items.length, mine ? mine.rows : items.length - (small > 1 ? small : 0));
   const rows = items.slice(0, split), tray = items.slice(split);
   // The small actions set by set, whatever order they were arranged in.
   const sets = SETS.map((s) => [s, tray.filter((i) => setOf(i.command) === s)

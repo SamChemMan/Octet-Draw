@@ -255,7 +255,7 @@ rect.mark {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-float);
   isolation: isolate;
-  z-index: 2; /* above notices and the Actions panel, so its strips open over both */
+  z-index: 4; /* above notices, the tutorial card and the panels, so its strips open over them */
 }
 
 /* The active tool's background slides between tools, so a switch reads as one move. */
@@ -2716,7 +2716,7 @@ button.variant.add {
   place-items: center;
   width: 36px;
   height: 36px;
-  color: var(--ink-muted);
+  color: var(--ink);
 }
 .name-thumb .thumb {
   width: 36px;
@@ -2800,7 +2800,7 @@ button.variant.add {
   position: fixed;
   inset: 0;
   z-index: 2;
-  background: rgb(15 23 42 / 0.14);
+  background: var(--backdrop);
   pointer-events: none;
   animation: fade-in var(--motion-fast) var(--ease-out);
 }
@@ -2820,8 +2820,8 @@ button.variant.add {
   width: 22px;
   height: 22px;
   border-radius: var(--radius-pill);
-  background: rgb(180 35 35 / 0.16);
-  color: rgb(180 35 35 / 0.75);
+  background: color-mix(in oklab, var(--error) 16%, transparent);
+  color: var(--error);
   animation: lift var(--motion-fast) var(--ease-out);
 }
 
@@ -2858,7 +2858,7 @@ button.variant.add {
 .paper-choice span {
   width: 18px;
   height: 22px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--swatch-edge);
   border-radius: 2px;
 }
 .paper-choice[aria-checked="true"] {
@@ -2870,8 +2870,9 @@ button.variant.add {
   box-shadow: var(--shadow-focus);
 }
 .paper-choice.white span { background: #FFFFFF; }
-.paper-choice.dark span { background: #151A23; }
-.paper-choice.system span { background: linear-gradient(135deg, #FFFFFF 50%, #151A23 50%); }
+/* Dark paper is the dark theme's canvas (--canvas, dark). */
+.paper-choice.dark span { background: #000B24; }
+.paper-choice.system span { background: linear-gradient(135deg, #FFFFFF 50%, #000B24 50%); }
 .paper-choice.blueprint span {
   background-color: #1D4B86;
   background-image: linear-gradient(to right, rgb(255 255 255 / 0.35) 1px, transparent 1px), linear-gradient(to bottom, rgb(255 255 255 / 0.35) 1px, transparent 1px);
@@ -3455,8 +3456,7 @@ button.variant.add {
   height: 16px;
 }
 .spectrum-swatches .swatch.none {
-  background: linear-gradient(135deg, transparent 45%, var(--error) 45% 55%, transparent 55%), var(--canvas);
-  border: 1px solid var(--hairline);
+  background: linear-gradient(135deg, transparent 45%, var(--ink-faint) 45% 55%, transparent 55%), var(--canvas);
 }
 .spectrum-signal.chosen text:first-of-type {
   font-weight: 700;
