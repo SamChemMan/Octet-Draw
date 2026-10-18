@@ -312,7 +312,9 @@ export const outerGroups = (gs: Grouped[]) => { const parents = groupParents(gs)
 // Groups after an edit or a read: each lists an atom or object once, only those that are there, and the text that
 // belongs to its members unless another group has that text. Two groups that share something without one holding
 // the other become one (Integral if either was). A group holds two or more things (structures, objects or groups);
-// one with fewer goes, and gives its Integral to a group it held alone. Returns the same drawing when nothing changes.
+// one with fewer goes, and gives its Integral to a group it held alone. A group of one text that belongs to something
+// in another group stays: a ChemDraw file keeps conditions out of the arrow's group that way, and without it the
+// text would join that group on the next edit or save. Returns the same drawing when nothing changes.
 export function tidyGroups(m: Mol, frags = m.groups?.length ? fragments(m) : []): Mol {
   if (!m.groups?.length) return m;
   const ids = new Set([...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? [])].map((x) => x.id));
@@ -338,10 +340,12 @@ export function tidyGroups(m: Mol, frags = m.groups?.length ? fragments(m) : [])
     const held = membersOf({ atoms: kids[k].flatMap((j) => gs[j].atoms), items: kids[k].flatMap((j) => gs[j].items) });
     return kids[k].length + new Set(gs[k].atoms.filter((i) => !held.atoms.has(i)).map((i) => of.get(i) ?? -1 - i)).size + gs[k].items.filter((id) => !held.items.has(id)).length;
   };
+  const captions = new Map((m.captions ?? []).map((c) => [c.id, c])), inGroups = membersOf({ atoms: gs.flatMap((g) => g.atoms), items: gs.flatMap((g) => g.items) });
+  const ownText = (g: Grouped) => { const c = !g.atoms.length && g.items.length === 1 ? captions.get(g.items[0]) : undefined; return !!c && (c.under?.length ? inGroups.atoms.has(c.under[0]) : c.on ? inGroups.items.has(c.on.arrow) : !!c.cycle && inGroups.items.has(c.cycle.cycle)); };
   const integral = gs.map((g) => !!g.integral), gone = new Set<number>();
   for (const k of gs.map((_, k) => k).sort((p, q) => sizeOf(gs[q]) - sizeOf(gs[p]) || p - q)) {
     const n = things(k);
-    if (n >= 2) continue;
+    if (n >= 2 || (!kids[k].length && ownText(gs[k]))) continue;
     gone.add(k);
     if (integral[k] && n === 1 && kids[k].length === 1) integral[kids[k][0]] = true;
   }
