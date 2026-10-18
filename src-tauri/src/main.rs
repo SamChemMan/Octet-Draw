@@ -394,9 +394,10 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
     let edit_colours = item("colour_other", "Edit Colours…", "")?;
     // ChemDraw's By Element, and its highlight and ring fill colours (the Actions panel's Highlight and Ring fill lists).
     let by_element = item("colour_by_element", "By Element", "")?;
-    let fills = ["None", "Blue", "Orange", "Green", "Red", "Purple", "Teal", "Pink", "Gold"];
+    // The names of Actions.tsx's HIGHLIGHTS and RING_FILLS, in the same order.
+    let fills = ["None", "Blue", "Sky", "Cyan", "Teal", "Green", "Lime", "Yellow", "Gold", "Orange", "Coral", "Red", "Crimson", "Pink", "Magenta", "Purple", "Violet", "Indigo", "Brown", "Grey", "Slate", "Mint", "Peach", "Lavender", "Sand", "Olive"];
     section.replace("Colour › Highlight".into());
-    let highlights = fills.iter().enumerate().map(|(k, name)| item(&format!("highlight_{k}"), name, "")).collect::<tauri::Result<Vec<_>>>()?;
+    let highlights = fills[..21].iter().enumerate().map(|(k, name)| item(&format!("highlight_{k}"), name, "")).collect::<tauri::Result<Vec<_>>>()?;
     let highlight = Submenu::with_items(app, "Highlight", true, &highlights.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect::<Vec<_>>())?;
     section.replace("Colour › Ring Fill".into());
     let ringfills = fills.iter().enumerate().map(|(k, name)| item(&format!("ringfill_{k}"), name, "")).collect::<tauri::Result<Vec<_>>>()?;

@@ -11,7 +11,7 @@ import { FONTS, PAGES, fontName, pageSize, readStyle, type DocStyle } from "./do
 import {
   HBOND, HIGHLIGHT, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, straightArrow, tableLayout, takesHeads, tlcLayout,
   ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, headSize, headOfLength, marked, ellipsePoints, sizedHead, turns, type HeadSize,
-  type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape,
+  type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape, type RingFill,
   type LineStyle, type Mol, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
 import { ELEMENTS, anchorElement, formulaRuns, isElement, units } from "./labels.ts";
@@ -417,6 +417,13 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     for (const k of [...new Set(atoms.flatMap((i) => bondsAt[i]))].sort((p, q) => (mol.bonds[p].z ?? 0) - (mol.bonds[q].z ?? 0) || p - q)) xml += bond(k);
     for (const i of atoms) xml += marks(i);
     xml += circles(atoms);
+    // Ring fills, as ChemDraw keeps them: a ColoredMolecularArea in the fragment, its colour and its ring's bonds.
+    const inFrag = new Set(atoms);
+    for (const f of mol.fills ?? []) {
+      if (!f.atoms.every((i) => inFrag.has(i))) continue;
+      const ring = f.atoms.map((i, k) => bondsAt[i].find((n) => mol.bonds[n].atoms.includes(f.atoms[(k + 1) % f.atoms.length])));
+      if (ring.every((k) => k !== undefined)) xml += el("ColoredMolecularArea", { id: fresh(), bgcolor: colour(f.colour), BasisObjects: ring.map((k) => bondId[k!]).join(" ") });
+    }
     const box = union(boxes)!;
     outs.push({ xml: el("fragment", { id: fragId.get(atoms[0])!, BoundingBox: boxText(box), Z: Z() }, xml), rank: 1, box, group: atoms.map((i) => groupOfAtom.get(i)).find((g) => g !== undefined) });
   }
@@ -527,7 +534,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       id: bondId[k], Z: Z(), Visible: mol.atoms[i].hidden || mol.atoms[j].hidden ? "no" : undefined, B: nodeId.get(i)!, E: nodeId.get(j)!,
       Order: ring || dashed || b.type === 4 ? "1.5" : d === "dative" ? "dative" : b.type === 2 ? "2" : b.type === 3 ? "3" : b.type === QUADRUPLE ? "4" : undefined,
       Display: ring ? undefined : dashed && d === "aromatic" ? "Dash" : b.type === HBOND ? "DottedHydrogen" : display, Display2: dashed ? "Dash" : undefined, Octet: ring ? priv({ order: b.type }) : undefined, DoublePosition: b.type === 2 && b.position ? { left: "Left", right: "Right", centre: "Center" }[b.position] : undefined,
-      color: colour(b.colour), ShowBondStereo: mol.atoms[i].cip && mol.atoms[j].cip ? "yes" : undefined, BondCircularOrdering: circular,
+      color: colour(b.colour), highlightColor: colour(b.halo), ShowBondStereo: mol.atoms[i].cip && mol.atoms[j].cip ? "yes" : undefined, BondCircularOrdering: circular,
     });
   }
 
@@ -735,7 +742,8 @@ function pick(m: Mol, sel: { atoms: Iterable<number>; items: Iterable<number> })
   });
   const shapes = (m.shapes ?? []).filter((s) => items.has(s.id)), ids = new Set([...arrows, ...cycles, ...captions, ...shapes].map((x) => x.id));
   const groups = (m.groups ?? []).map((g) => ({ ...g, atoms: keep(g.atoms), items: g.items.filter((id) => ids.has(id)) })).filter((g) => g.atoms.length + g.items.length >= 2);
-  return { atoms: m.atoms.filter((_, i) => map.has(i)), bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions, arrows, shapes, cycles, groups };
+  const fills = (m.fills ?? []).filter((f) => f.atoms.every((i) => map.has(i))).map((f) => ({ ...f, atoms: keep(f.atoms) }));
+  return { atoms: m.atoms.filter((_, i) => map.has(i)), bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions, arrows, shapes, cycles, groups, ...(fills.length ? { fills } : {}) };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -854,7 +862,7 @@ export function fromCdxml(text: string): CdxmlRead {
   const captions: (Caption & { z: number })[] = [], arrows: (Arrow & { z: number })[] = [], shapes: (Shape & { z: number })[] = [], grids: Grid[] = [];
   type G = { id: number; atoms: Set<number>; items: number[]; integral?: true };
   const groups: G[] = [];
-  const nodeIds: number[] = [], bondIds: number[] = [], bondZs: number[] = [];
+  const nodeIds: number[] = [], bondIds: number[] = [], bondZs: number[] = [], areas: Xml[] = [];
   const atomOf = new Map<number, number>(), objectOf = new Map<number, number>(), arrowOfGraphic = new Map<number, number>();
   const labels: { i: number; text: string; type: string; isotope?: number }[] = [];
   const numH = new Map<number, number>(), delocalised: { k: number; order?: 1 | 2 }[] = [], ovals: { id: number; c: P; r: number }[] = [];
@@ -906,6 +914,7 @@ export function fromCdxml(text: string): CdxmlRead {
     if (yes(f.attrs.ShowAtomStereo)) for (const i of atoms) mol.atoms[i].cip = true;
     for (const k of f.kids) {
       if (k.name === "b") bondsToRead.push(k);
+      else if (k.name === "ColoredMolecularArea") areas.push(k);
       else if (k.name !== "n") visit(k, group, atoms);
     }
   }
@@ -966,6 +975,25 @@ export function fromCdxml(text: string): CdxmlRead {
     return i;
   }
 
+  // Ring fills (ChemDraw's ColoredMolecularArea): a colour and the bonds of one ring, read as the ring's atoms in
+  // order. One whose bonds do not close a ring of 3 to 40 atoms is lost.
+  function readFills(): RingFill[] {
+    const byId = new Map(bondIds.map((id, k) => [id, k]));
+    return areas.flatMap((x) => {
+      const colour = colourOf(x.attrs.bgcolor) ?? "#000000", ks = (x.attrs.BasisObjects ?? "").trim().split(/\s+/).slice(0, 41).map((v) => byId.get(int(v) ?? -1));
+      if (ks.length < 3 || ks.length > 40 || ks.some((k) => k === undefined)) { lose("ring fill"); return []; }
+      const left = ks.map((k) => mol.bonds[k!].atoms), ring = [...left.shift()!];
+      while (left.length) {
+        const at = left.findIndex((b) => b.includes(ring[ring.length - 1]));
+        if (at < 0) break;
+        const [b] = left.splice(at, 1), next = b[0] === ring[ring.length - 1] ? b[1] : b[0];
+        if (left.length) ring.push(next); else if (next !== ring[0]) ring.length = 0;
+      }
+      if (left.length || new Set(ring).size !== ks.length) { lose("ring fill"); return []; }
+      return [{ atoms: ring, colour }];
+    });
+  }
+
   // Bonds join nodes by id, the last node read with an id winning; a bond to a missing node, to its own atom or
   // repeating another is dropped (spec 2).
   function readBonds() {
@@ -1005,7 +1033,8 @@ export function fromCdxml(text: string): CdxmlRead {
       if (swap) bond.atoms = [j!, i!];
       const colour = colourOf(b.attrs.color);
       if (colour) bond.colour = colour;
-      if (b.attrs.highlightColor) lose("bond highlight");
+      const halo = colourOf(b.attrs.highlightColor);
+      if (halo) bond.halo = halo;
       mol.bonds.push(bond);
       bondIds.push(int(b.attrs.id) ?? 0);
       bondZs.push(zOf(b));
@@ -1454,6 +1483,7 @@ export function fromCdxml(text: string): CdxmlRead {
   for (const c of cycleData) if (c && Number.isInteger(c.id) && (c.id as number) > 0 && (c.id as number) < 2 ** 31) taken.add(c.id as number);
   for (const pg of pages) for (const k of pg.kids) visit(k);
   readBonds();
+  const fills = readFills();
   readLabels();
   readDelocalised();
   readSymbols();
@@ -1498,5 +1528,6 @@ export function fromCdxml(text: string): CdxmlRead {
   const ids = new Set([...captions, ...arrows, ...shapes, ...cycles].map((x) => x.id));
   const kept = groups.map((g): Group => ({ id: g.id, atoms: [...g.atoms].map(ix).sort((p, q) => p - q), items: g.items.filter((id) => ids.has(id)).sort((p, q) => p - q), ...(g.integral ? { integral: true } : {}) })).filter((g) => g.atoms.length + g.items.length >= 2);
   if (kept.length) mol.groups = kept;
+  if (fills.length) mol.fills = fills.map((f) => ({ ...f, atoms: f.atoms.map(ix) }));
   return { mol, style, lost };
 }

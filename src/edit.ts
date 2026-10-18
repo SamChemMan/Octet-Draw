@@ -257,8 +257,13 @@ function removeAtoms(m: Mol, gone: Set<number>): Mol {
   });
   const kept = new Set(cycles?.map((c) => c.id));
   return { ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || kept.has(c.cycle.cycle)), cycles,
-    groups: tidyGroups(m.groups?.map((g) => ({ ...g, atoms: g.atoms.filter((i) => map.has(i)).map((i) => map.get(i)!) }))) };
+    groups: tidyGroups(m.groups?.map((g) => ({ ...g, atoms: g.atoms.filter((i) => map.has(i)).map((i) => map.get(i)!) }))), fills: refill(m.fills, map) };
 }
+// Ring fills follow their atoms' new numbers; a fill goes when one of its atoms goes.
+const refill = (fills: Mol["fills"], map: Map<number, number>) => {
+  const out = fills?.filter((f) => f.atoms.every((i) => map.has(i))).map((f) => ({ ...f, atoms: f.atoms.map((i) => map.get(i)!) }));
+  return out?.length ? out : undefined;
+};
 // Groups with fewer than two members left are no longer groups.
 const tidyGroups = (gs?: Mol["groups"]) => gs?.filter((g) => g.atoms.length + g.items.length >= 2);
 // Groups: every group a selection touches (by its atoms or its other objects).
@@ -327,6 +332,7 @@ export function merge(m: Mol, frag: Mol, offset: P): Mol {
     ...m,
     atoms: [...m.atoms, ...frag.atoms.map((a) => ({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }))],
     bonds: [...m.bonds, ...frag.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number] }))],
+    ...(frag.fills?.length ? { fills: [...(m.fills ?? []), ...frag.fills.map((f) => ({ ...f, atoms: f.atoms.map((i) => i + base) }))] } : {}),
   };
 }
 
@@ -1053,6 +1059,7 @@ export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>)
     arrows, shapes: (m.shapes ?? []).filter((x) => items.has(x.id)),
     cycles: cycles.map((c) => ({ ...c, nodes: c.nodes.map((n) => n.map((i) => map.get(i)!)) })),
     groups: (m.groups ?? []).filter((g) => g.atoms.every((i) => map.has(i)) && g.items.every((id) => ids.has(id))).map((g) => ({ ...g, atoms: g.atoms.map((i) => map.get(i)!) })),
+    fills: refill(m.fills, map),
   };
 }
 // Paste: another drawing added to this one, moved by offset, with new ids for its objects. Returns the drawing, the
@@ -1077,6 +1084,7 @@ export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
     }))],
     groups: [...(m.groups ?? []), ...(add.groups ?? []).map((g) => ({ ...g, id: ids.get(g.id)!, atoms: g.atoms.map(at), items: g.items.map((x) => ids.get(x) ?? x) }))],
     ...(add.grids?.length ? { grids: [...(m.grids ?? []), ...add.grids.flatMap((g) => (ids.has(g.arrow) ? [{ ...g, arrow: ids.get(g.arrow)! }] : []))] } : {}),
+    ...(add.fills?.length ? { fills: [...(m.fills ?? []), ...add.fills.map((f) => ({ ...f, atoms: f.atoms.map(at) }))] } : {}),
   };
   return { mol, atoms: new Set(add.atoms.map((_, i) => at(i))), items: new Set([...(add.captions ?? []), ...(add.arrows ?? []), ...(add.shapes ?? []), ...(add.cycles ?? [])].map((x) => ids.get(x.id)!)), ids };
 }
@@ -1102,6 +1110,7 @@ export function duplicateSelection(m: Mol, atoms: Set<number>, items: Set<number
       ...(c.on && ids.has(c.on.arrow) ? { on: { ...c.on, arrow: ids.get(c.on.arrow)! } } : {}),
       ...(c.cycle && ids.has(c.cycle.cycle) ? { cycle: { ...c.cycle, cycle: ids.get(c.cycle.cycle)! } } : {}),
     }))],
+    ...(m.fills?.length ? { fills: [...m.fills, ...(refill(m.fills, map) ?? [])] } : {}),
   };
   return { mol, atoms: new Set(map.values()), items: new Set(ids.values()), ids };
 }

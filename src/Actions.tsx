@@ -14,6 +14,7 @@ import {
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
 import { Menu } from "./Menu";
+import { ColourPicker } from "./ColourPicker";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
 import { invoke } from "@tauri-apps/api/core";
@@ -38,7 +39,7 @@ export type Context =
   | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean; grid: boolean }
   | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; halo?: string; fill?: string; numbered?: boolean }
-  | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean }
+  | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean; halo?: string; fill?: string; ring?: boolean }
   | { kind: "spot"; style: "filled" | "hollow" | "shaded"; w: number; h: number; tail: number; rf: boolean; pt: number };
 
 type Props = {
@@ -75,8 +76,11 @@ const SIZES = [8, 9, 10, 12, 14, 18, 24, 36];
 // The font of the text selected (or the caption): a list of the document fonts, each shown in itself.
 // A setting with a few choices, as one small button showing the current choice: a click opens its choices, each drawn
 // as itself with its name.
-function PickButton({ label, value, options, onPick }: { label: string; value: string; options: { id: string; name: string; glyph: React.ReactNode }[]; onPick: (id: string) => void }) {
-  const [open, setOpen] = useState(false);
+// swatches: the choices are colours, shown as a grid of swatches; onCustom adds Custom colour…, which opens the colour
+// picker under them (each change of it is passed on as it is made).
+function PickButton({ label, value, options, onPick, swatches, onCustom }: { label: string; value: string; options: { id: string; name: string; glyph: React.ReactNode }[]; onPick: (id: string) => void; swatches?: boolean; onCustom?: (hex: string) => void }) {
+  const [open, setOpen] = useState(false), [custom, setCustom] = useState(false);
+  useEffect(() => { if (!open) setCustom(false); }, [open]);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -91,10 +95,12 @@ function PickButton({ label, value, options, onPick }: { label: string; value: s
   const current = options.find((o) => o.id === value) ?? options[0];
   // The menu is pinned to the window, above the button (or below it near the top), so a scrolling panel never cuts it off.
   const place = (): React.CSSProperties => {
-    const r = box.current!.getBoundingClientRect(), tall = options.length * 30 + 10;
+    const r = box.current!.getBoundingClientRect(), tall = swatches ? Math.ceil(options.length / 6) * 30 + (onCustom ? 40 : 10) + (custom ? 230 : 0) : options.length * 30 + 10;
     // Left-aligned with the button, or right-aligned when that would run past the window's right edge.
     const across = r.left + 200 > innerWidth - 8 ? { left: "auto", right: innerWidth - r.right } : { left: r.left, right: "auto" };
-    return { position: "fixed", ...across, ...(r.top > tall + 8 ? { bottom: innerHeight - r.top + 4 } : { top: r.bottom + 4, bottom: "auto" }) };
+    // Above only with room to spare over the Export button in the top corner, which sits above the panel.
+    // It scrolls when taller than the room it has.
+    return { position: "fixed", ...across, overflowY: "auto", ...(r.top > tall + 64 ? { bottom: innerHeight - r.top + 4, maxHeight: r.top - 12 } : { top: r.bottom + 4, bottom: "auto", maxHeight: innerHeight - r.bottom - 12 }) };
   };
   return (
     <div className="pick" ref={box}>
@@ -102,7 +108,18 @@ function PickButton({ label, value, options, onPick }: { label: string; value: s
         <span className="pick-label" aria-hidden>{label}</span>
         {current.glyph}
       </button>
-      {open && (
+      {open && swatches && (
+        <div className="size-menu pick-menu swatch-menu" role="menu" aria-label={label} style={place()}>
+          <div className="swatch-grid">
+            {options.map((o) => (
+              <button key={o.id} role="menuitemradio" aria-checked={o.id === value} aria-label={o.name} title={o.name} onClick={() => { setOpen(false); if (o.id !== value) onPick(o.id); }}>{o.glyph}</button>
+            ))}
+          </div>
+          {onCustom && <button className="swatch-custom" aria-expanded={custom} onClick={() => setCustom(!custom)}>Custom colour…</button>}
+          {custom && onCustom && <ColourPicker value={/^#[0-9a-f]{6}$/i.test(value) ? value : "#3F6BFF"} onChange={onCustom} />}
+        </div>
+      )}
+      {open && !swatches && (
         <div className="size-menu pick-menu" role="menu" aria-label={label} style={place()}>
           {options.map((o) => (
             <button key={o.id} role="menuitemradio" aria-checked={o.id === value} onClick={() => { setOpen(false); if (o.id !== value) onPick(o.id); }}>
@@ -311,9 +328,13 @@ const KIND_OF: Record<string, string> = {
 };
 const kindOf = (command: string) => KIND_OF[command] ?? "other";
 const setOf = (command: string) => SET_FOR[kindOf(command)];
-// Highlight and ring fill colours: clear at 40% behind a structure on white.
-// The highlight and ring fill colours (the Colour menu lists them too).
-export const HIGHLIGHTS: [string, string][] = [["Blue", "#2F6FED"], ["Orange", "#F28C28"], ["Green", "#2BA84A"], ["Red", "#E5484D"], ["Purple", "#8E4EC6"], ["Teal", "#12A594"], ["Pink", "#D6409F"], ["Gold", "#C9A000"]];
+// The highlight colours (20, as ChemDraw's Highlight Colors toolbar) and the ring fill colours (25, as its Ring Fill
+// Colors toolbar), each clear at 40% or 30% behind a structure on white and on the dark canvas. The Colour menu lists
+// them too (src-tauri/src/main.rs keeps their names in the same order).
+export const HIGHLIGHTS: [string, string][] = [["Blue", "#2F6FED"], ["Sky", "#3FA9F5"], ["Cyan", "#00B8D4"], ["Teal", "#12A594"], ["Green", "#2BA84A"], ["Lime", "#8CC63F"],
+  ["Yellow", "#F5D90A"], ["Gold", "#C9A000"], ["Orange", "#F28C28"], ["Coral", "#F2705B"], ["Red", "#E5484D"], ["Crimson", "#C2185B"], ["Pink", "#D6409F"], ["Magenta", "#C13CC4"],
+  ["Purple", "#8E4EC6"], ["Violet", "#6E56CF"], ["Indigo", "#3E4BA8"], ["Brown", "#9C6B3F"], ["Grey", "#8B8D98"], ["Slate", "#5B6B7F"]];
+export const RING_FILLS: [string, string][] = [...HIGHLIGHTS, ["Mint", "#3DD68C"], ["Peach", "#FFB380"], ["Lavender", "#B4A7F5"], ["Sand", "#D9C38A"], ["Olive", "#808A2E"]];
 
 // The actions for a selection, likeliest first. The panel shows them; the command palette lists them too.
 export function actionItems(context: Context, messy: boolean, hiddenWarnings = false): Item[] {
@@ -872,14 +893,16 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           ))}
           <button className="swatch custom" title="Add a colour" aria-label="Add a colour" onClick={() => run("colours_add")}><PlusIcon size={10} weight="bold" aria-hidden /></button>
         </div>
-        {(context.kind === "structure" || context.kind === "atom") && (() => {
-          // Highlight (a disc behind each atom) and ring fill (every ring wholly selected), each a labelled button.
+        {(context.kind === "structure" || context.kind === "atom" || context.kind === "bond") && (() => {
+          // Highlight (the selected atoms and the bonds between them) and ring fill (each ring on its own), each a
+          // labelled button with its colours and a custom colour.
           const swatch = (c: string) => <span className="pick-swatch" style={{ background: c }} />;
-          const options = [{ id: "none", name: "None", glyph: <span className="pick-swatch none" /> }, ...HIGHLIGHTS.map(([name, hex]) => ({ id: hex, name, glyph: swatch(hex) }))];
+          const options = (list: [string, string][], value?: string) => [{ id: "none", name: "None", glyph: <span className="pick-swatch none" /> }, ...list.map(([name, hex]) => ({ id: hex, name, glyph: swatch(hex) })),
+            ...(value && !list.some(([, hex]) => hex.toLowerCase() === value.toLowerCase()) ? [{ id: value, name: "Custom", glyph: swatch(value) }] : [])];
           return (
             <div className="picks" role="group" aria-label="Highlight and ring fill">
-              <PickButton label="Highlight" value={context.halo ?? "none"} options={options} onPick={(v) => run(`halo.${v}`)} />
-              <PickButton label="Ring fill" value={context.fill ?? "none"} options={options} onPick={(v) => run(`ringfill.${v}`)} />
+              <PickButton label="Highlight" value={context.halo ?? "none"} options={options(HIGHLIGHTS, context.halo)} swatches onPick={(v) => run(`halo.${v}`)} onCustom={(hex) => run(`halo.${hex}.drag`)} />
+              {(context.kind !== "bond" || context.ring) && <PickButton label="Ring fill" value={context.fill ?? "none"} options={options(RING_FILLS, context.fill)} swatches onPick={(v) => run(`ringfill.${v}`)} onCustom={(hex) => run(`ringfill.${hex}.drag`)} />}
             </div>
           );
         })()}

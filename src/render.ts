@@ -32,8 +32,7 @@ export type Atom = {
   font?: string; size?: number; bold?: true; italic?: true; underline?: true;
   ignoreWarnings?: true; // Display Warnings off for this atom (ChemDraw's IgnoreWarnings): its problems are not marked
   cip?: true; // Show Stereochemistry is on for this atom's structure: its R/S (and its double bonds' E/Z) labels show
-  halo?: string; // #rrggbb highlight: a disc behind the atom at 40% opacity (ChemDraw's highlight colours; NMR peak colours)
-  fill?: string; // #rrggbb ring fill: a ring whose atoms all have the same fill is filled with it at 30% opacity
+  halo?: string; // #rrggbb highlight behind the atom at 40% opacity (ChemDraw's highlight colours; NMR peak colours)
   circle?: true; // Toggle Aromatic Display: an aromatic ring whose atoms all have this is drawn with a circle
   number?: string; // Show Atom Number: the number drawn beside the atom
   // The label's alignment set by hand (ChemDraw's Flush Left, Centered, Flush Right and Stacked Above on a label;
@@ -53,7 +52,8 @@ export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow
 // position: where a double bond's second line goes, looking from atoms[0] to atoms[1]; unset means automatic.
 // z: the bond's place where bonds cross (ChemDraw's bond Z order). Of two bonds that cross, the one with the higher z
 // (then the later one) is in front, and the one behind has a gap cut in it. Unset is 0.
-export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string; z?: number };
+// halo: a highlight colour, drawn as a band along the bond (ChemDraw's highlightColor on a bond).
+export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string; z?: number; halo?: string };
 // Bond types: 1 to 3 by order, 4 aromatic and 10 a hydrogen bond (KET's numbers), and 14 a quadruple bond (KET has
 // none; 14 keeps clear of KET's types). A hydrogen bond is drawn dotted and adds nothing to an atom's valence.
 export const AROMATIC = 4, HBOND = 10, QUADRUPLE = 14;
@@ -202,7 +202,11 @@ export const isBracket = (sh: Pick<Shape, "kind">) => sh.kind === "brackets" || 
 export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "tlc", "table"];
 export const HIGHLIGHT = "#DCE4F6";
 // Captions, arrows, shapes and cycles share one set of ids.
-export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; style?: DocStyle };
+export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; fills?: RingFill[]; style?: DocStyle };
+// A ring fill (ChemDraw's Ring Fill colours, its ColoredMolecularArea): one ring, by its atoms in ring order, filled
+// with the colour at 30% opacity behind the bonds. Each ring keeps its own fill, so fused rings can differ. A fill
+// whose ring is broken is not drawn.
+export type RingFill = { atoms: number[]; colour: string };
 // A stoichiometry grid (Structure > Analyze Stoichiometry) under the reaction an arrow belongs to: what was typed for
 // each component ("r0", "r1"… reactants, "p0"… products, in reading order), in base units, and the limiting reactant.
 // Everything else is worked out from the reaction as it is drawn (stoich.ts).

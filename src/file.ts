@@ -1,6 +1,7 @@
 // Octet's own file format: versioned, human-readable JSON. Treat every file as hostile: check it fully on read.
 import { fontName, readStyle } from "./docstyle.ts";
 import { normalise, plainOf, type TextRun } from "./richtext.ts";
+import { rings } from "./rings.ts";
 import { ALL_ARROW_KINDS, HBOND, ORBITAL_SHAPES, QUADRUPLE, PHASES, SHAPE_KINDS, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type Grid, type TableLine, type CellAlign, type Tlc, type Atom, type Bond, type Caption, type Display, type Mol, type HeadSize } from "./render.ts";
 
 export const FORMAT = "octet";
@@ -13,9 +14,9 @@ const HEADS: Head[] = ["none", "full", "left", "right"];
 export function serialize(mol: Mol): string {
   const atoms = mol.atoms.map((a) => ({ label: a.label, x: round(a.location[0]), y: round(a.location[1]), ...(round(a.location[2] ?? 0) ? { z: round(a.location[2]) } : {}), ...(a.depth === false ? { depth: false } : {}), ...(a.charge ? { charge: a.charge } : {}), ...(a.text ? { text: a.text } : {}),
     ...(a.radical ? { radical: a.radical } : {}), ...(a.isotope ? { isotope: a.isotope } : {}), ...(a.pairs ? { pairs: a.pairs } : {}), ...(a.circled ? { circled: true } : {}), ...(a.partial ? { partial: a.partial } : {}),
-    ...(a.hmark ? { hmark: a.hmark } : {}), ...(a.attach ? { attach: a.attach } : {}), ...(a.bead ? { bead: true } : {}), ...(a.map ? { map: a.map } : {}), ...(a.enhanced ? { enhanced: a.enhanced } : {}), ...(a.colour ? { colour: a.colour } : {}), ...(a.cip ? { cip: true } : {}), ...(a.halo ? { halo: a.halo } : {}), ...(a.fill ? { fill: a.fill } : {}), ...(a.circle ? { circle: true } : {}), ...(a.number ? { number: a.number } : {}), ...(a.ignoreWarnings ? { ignoreWarnings: true } : {}), ...(a.align ? { align: a.align } : {}), ...(a.hidden ? { hidden: true } : {}), ...(a.bars ? { bars: true } : {}), ...(a.angles ? { angles: a.angles } : {}),
+    ...(a.hmark ? { hmark: a.hmark } : {}), ...(a.attach ? { attach: a.attach } : {}), ...(a.bead ? { bead: true } : {}), ...(a.map ? { map: a.map } : {}), ...(a.enhanced ? { enhanced: a.enhanced } : {}), ...(a.colour ? { colour: a.colour } : {}), ...(a.cip ? { cip: true } : {}), ...(a.halo ? { halo: a.halo } : {}), ...(a.circle ? { circle: true } : {}), ...(a.number ? { number: a.number } : {}), ...(a.ignoreWarnings ? { ignoreWarnings: true } : {}), ...(a.align ? { align: a.align } : {}), ...(a.hidden ? { hidden: true } : {}), ...(a.bars ? { bars: true } : {}), ...(a.angles ? { angles: a.angles } : {}),
     ...(a.font ? { font: a.font } : {}), ...(a.size ? { size: a.size } : {}), ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}) }));
-  const bonds = mol.bonds.map((b) => ({ atoms: b.atoms, type: b.type, ...(b.stereo ? { stereo: b.stereo } : {}), ...(b.display ? { display: b.display } : {}), ...(b.position ? { position: b.position } : {}), ...(b.colour ? { colour: b.colour } : {}), ...(b.z ? { z: b.z } : {}) }));
+  const bonds = mol.bonds.map((b) => ({ atoms: b.atoms, type: b.type, ...(b.stereo ? { stereo: b.stereo } : {}), ...(b.display ? { display: b.display } : {}), ...(b.position ? { position: b.position } : {}), ...(b.colour ? { colour: b.colour } : {}), ...(b.z ? { z: b.z } : {}), ...(b.halo ? { halo: b.halo } : {}) }));
   // Captions are saved in id order and arrows in their drawing order; ids are not saved. Conditions name their arrow
   // by its place in the list.
   const arrowList = [...(mol.arrows ?? [])];
@@ -45,7 +46,7 @@ export function serialize(mol: Mol): string {
   const groups = (mol.groups ?? []).map((g) => ({ atoms: g.atoms, items: g.items.map(ref).filter(Boolean), ...(g.integral ? { integral: true } : {}) }));
   // Stoichiometry grids name their arrow by its place in the list above.
   const grids = (mol.grids ?? []).map((g) => ({ arrow: arrowList.findIndex((a) => a.id === g.arrow), typed: g.typed, ...(g.limiting ? { limiting: g.limiting } : {}) })).filter((g) => g.arrow >= 0);
-  return JSON.stringify({ format: FORMAT, version: VERSION, structure: { atoms, bonds }, ...(arrows.length ? { arrows } : {}), ...(cycles.length ? { cycles } : {}), ...(shapes.length ? { shapes } : {}), ...(captions.length ? { captions } : {}), ...(groups.length ? { groups } : {}), ...(grids.length ? { grids } : {}), ...(mol.style ? { style: mol.style } : {}) }, null, 1) + "\n";
+  return JSON.stringify({ format: FORMAT, version: VERSION, structure: { atoms, bonds }, ...(arrows.length ? { arrows } : {}), ...(cycles.length ? { cycles } : {}), ...(shapes.length ? { shapes } : {}), ...(captions.length ? { captions } : {}), ...(groups.length ? { groups } : {}), ...(grids.length ? { grids } : {}), ...(mol.fills?.length ? { fills: mol.fills } : {}), ...(mol.style ? { style: mol.style } : {}) }, null, 1) + "\n";
 }
 const round = (n: number) => Math.round(n * 1e4) / 1e4;
 // A caption's runs, if they are sound: up to 2000, each with text and only known styles, joining to the caption's text.
@@ -117,7 +118,7 @@ function readTlc(v: unknown): Tlc | undefined {
 export function parse(text: string): Mol {
   let data: unknown;
   try { data = JSON.parse(text); } catch { throw new Error("This file is not an Octet drawing."); }
-  const d = data as { format?: unknown; version?: unknown; structure?: { atoms?: unknown; bonds?: unknown }; captions?: unknown; arrows?: unknown; style?: unknown; cycles?: unknown; shapes?: unknown; groups?: unknown; grids?: unknown };
+  const d = data as { format?: unknown; version?: unknown; structure?: { atoms?: unknown; bonds?: unknown }; captions?: unknown; arrows?: unknown; style?: unknown; cycles?: unknown; shapes?: unknown; groups?: unknown; grids?: unknown; fills?: unknown };
   if (d?.format !== FORMAT) throw new Error("This file is not an Octet drawing.");
   if (typeof d.version !== "number" || d.version > VERSION) throw new Error("This drawing comes from a newer version of Octet. Update Octet to open it.");
   const atoms = d.structure?.atoms, bonds = d.structure?.bonds;
@@ -126,6 +127,7 @@ export function parse(text: string): Mol {
   const badColour = (v: unknown) => v !== undefined && !(typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v));
   const int = (v: unknown, lo: number, hi: number) => Number.isInteger(v) && (v as number) >= lo && (v as number) <= hi;
   const out: Mol = { atoms: [], bonds: [] };
+  const legacy = new Map<number, string>(); // older files: a fill on each atom of a ring
   for (const a of atoms as Record<string, unknown>[]) {
     if (typeof a?.label !== "string" || !/^[A-Z][a-z]{0,2}$/.test(a.label) || !num(a.x) || !num(a.y) || (a.charge !== undefined && !int(a.charge, -9, 9)) || (a.text !== undefined && (typeof a.text !== "string" || a.text.length > 40 || /[\u0000-\u001f<>]/.test(a.text)))
       || (a.radical !== undefined && !int(a.radical, 0, 3)) || (a.isotope !== undefined && !int(a.isotope, 1, 300)) || (a.pairs !== undefined && !int(a.pairs, 0, 4)) || (a.circled !== undefined && typeof a.circled !== "boolean")
@@ -150,7 +152,7 @@ export function parse(text: string): Mol {
     if (a.colour) atom.colour = a.colour as string;
     if (a.cip) atom.cip = true;
     if (a.halo) atom.halo = a.halo as string;
-    if (a.fill) atom.fill = a.fill as string;
+    if (a.fill) legacy.set(out.atoms.length, a.fill as string);
     if (a.circle) atom.circle = true;
     if (a.number) atom.number = a.number as string;
     if (a.ignoreWarnings === true) atom.ignoreWarnings = true;
@@ -169,14 +171,30 @@ export function parse(text: string): Mol {
   }
   for (const b of bonds as Record<string, unknown>[]) {
     const ends = b?.atoms as unknown[];
-    if (!Array.isArray(ends) || ends.length !== 2 || !ends.every((i) => int(i, 0, out.atoms.length - 1)) || ends[0] === ends[1] || !(int(b.type, 1, 3) || b.type === HBOND || b.type === QUADRUPLE) || (b.z !== undefined && !int(b.z, -1e6, 1e6)) || (b.stereo !== undefined && b.stereo !== 1 && b.stereo !== 6) || (b.display !== undefined && !DISPLAYS.includes(b.display as Display)) || (b.position !== undefined && !["left", "centre", "right"].includes(b.position as string)) || badColour(b.colour)) throw new Error("This drawing is damaged.");
+    if (!Array.isArray(ends) || ends.length !== 2 || !ends.every((i) => int(i, 0, out.atoms.length - 1)) || ends[0] === ends[1] || !(int(b.type, 1, 3) || b.type === HBOND || b.type === QUADRUPLE) || (b.z !== undefined && !int(b.z, -1e6, 1e6)) || (b.stereo !== undefined && b.stereo !== 1 && b.stereo !== 6) || (b.display !== undefined && !DISPLAYS.includes(b.display as Display)) || (b.position !== undefined && !["left", "centre", "right"].includes(b.position as string)) || badColour(b.colour) || badColour(b.halo)) throw new Error("This drawing is damaged.");
     const bond: Bond = { type: b.type as number, atoms: [ends[0] as number, ends[1] as number] };
     if (b.stereo) bond.stereo = b.stereo as number;
     if (b.display) bond.display = b.display as Display;
     if (b.position) bond.position = b.position as Bond["position"];
     if (b.colour) bond.colour = b.colour as string;
     if (b.z) bond.z = b.z as number;
+    if (b.halo) bond.halo = b.halo as string;
     out.bonds.push(bond);
+  }
+  // Ring fills: each ring by its atoms in order (3 to 40, each once). An older file's atom fills become a fill for
+  // every ring whose atoms all had the same one.
+  if (d.fills !== undefined) {
+    if (!Array.isArray(d.fills) || d.fills.length > MAX_CAPTIONS) throw new Error("This drawing is damaged.");
+    out.fills = (d.fills as Record<string, unknown>[]).map((f) => {
+      const ring = f?.atoms as unknown[];
+      if (!Array.isArray(ring) || ring.length < 3 || ring.length > 40 || !ring.every((i) => int(i, 0, out.atoms.length - 1)) || new Set(ring).size !== ring.length
+        || typeof f.colour !== "string" || badColour(f.colour)) throw new Error("This drawing is damaged.");
+      return { atoms: ring as number[], colour: f.colour as string };
+    });
+  } else if (legacy.size) {
+    const found = rings({ atoms: out.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: out.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) });
+    const fills = found.filter((r) => legacy.has(r[0]) && r.every((i) => legacy.get(i) === legacy.get(r[0]))).map((r) => ({ atoms: r, colour: legacy.get(r[0])! }));
+    if (fills.length) out.fills = fills;
   }
   if (d.style !== undefined) out.style = readStyle(d.style);
   // Arrows take ids after the captions'.

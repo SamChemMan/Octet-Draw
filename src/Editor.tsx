@@ -25,7 +25,7 @@ import { store, type Store } from "./store";
 import { loadSettings, saveSettings } from "./settings";
 import { Menu, menuWidth } from "./Menu";
 import { ACTIONS, actionFor, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
-import { Actions, actionItems, HIGHLIGHTS, type Context } from "./Actions";
+import { Actions, actionItems, HIGHLIGHTS, RING_FILLS, type Context } from "./Actions";
 import { Properties, propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./Properties";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { acsText, multiplicity, quality } from "./nmr";
@@ -171,6 +171,24 @@ function drawnRings(m: Mol): number[][] {
   let found = ringLists.get(m.bonds);
   if (!found) ringLists.set(m.bonds, (found = rings({ atoms: m.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: m.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) })));
   return found;
+}
+
+// A ring by its atoms, whatever atom it starts at and whichever way round.
+const ringKey = (atoms: number[]) => [...atoms].sort((p, q) => p - q).join(",");
+// The rings a ring fill goes in: every ring wholly selected; failing that, every ring with a selected atom in it;
+// failing that, every ring of the structures the selection touches (a substituent picked).
+function fillRings(m: Mol, atoms: Set<number>): number[][] {
+  const all = drawnRings(m).filter((r) => r.length <= 12), whole = all.filter((r) => r.every((i) => atoms.has(i)));
+  if (whole.length) return whole;
+  const part = all.filter((r) => r.some((i) => atoms.has(i)));
+  if (part.length) return part;
+  const touched = new Set(fragments(m).filter((g) => g.some((i) => atoms.has(i))).flat());
+  return all.filter((r) => r.every((i) => touched.has(i)));
+}
+// The ring fill those rings share, if each has the same one.
+function fillOf(m: Mol, atoms: Set<number>): string | undefined {
+  const keys = new Set(fillRings(m, atoms).map(ringKey)), on = (m.fills ?? []).filter((f) => keys.has(ringKey(f.atoms)));
+  return on.length === keys.size && on.every((f) => f.colour === on[0].colour) ? on[0]?.colour : undefined;
 }
 
 // A caption's anchor in drawing coordinates: the start, middle or end of its first baseline.
@@ -977,7 +995,8 @@ export default function Editor() {
     ...Object.fromEntries(Array.from({ length: 44 }, (_, k) => [`colour_user_${k}`, () => { const c = [...settings.palette, ...docColours][k]; if (c) runAction(`colour.${c.hex}`); }])),
     // By Element, Highlight and Ring Fill, as in the Actions panel (and ChemDraw's Colors menu and toolbars).
     colour_by_element: () => colourByElement(),
-    ...Object.fromEntries(["none", ...HIGHLIGHTS.map(([, hex]) => hex)].flatMap((v, k) => [[`highlight_${k}`, () => runAction(`halo.${v}`)], [`ringfill_${k}`, () => runAction(`ringfill.${v}`)]])),
+    ...Object.fromEntries(["none", ...HIGHLIGHTS.map(([, hex]) => hex)].map((v, k) => [`highlight_${k}`, () => runAction(`halo.${v}`)])),
+    ...Object.fromEntries(["none", ...RING_FILLS.map(([, hex]) => hex)].map((v, k) => [`ringfill_${k}`, () => runAction(`ringfill.${v}`)])),
     colour_other: () => setSettingsOpen("colours"),
     colours_add: () => { setAddingColour(true); setSettingsOpen("colours"); },
     ...Object.fromEntries([8, 9, 10, 12, 14, 18, 24].map((pt) => [`size_${pt}`, () => restyle(() => ({ size: pt === style.captionSize ? undefined : pt }))])),
@@ -2402,12 +2421,12 @@ export default function Editor() {
     if (!ids.length) return { kind: "drawing", nameable };
     if (ids.length === 1) {
       const a = doc.atoms[ids[0]];
-      return { kind: "atom", text: labelText([ids[0]]), label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre: stereocentres(doc).includes(ids[0]), enhanced: a.enhanced, halo: a.halo, fill: a.fill, numbered: !!a.number };
+      return { kind: "atom", text: labelText([ids[0]]), label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre: stereocentres(doc).includes(ids[0]), enhanced: a.enhanced, halo: a.halo, fill: fillOf(doc, selection), numbered: !!a.number };
     }
     const bi = ids.length === 2 ? doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])) : -1;
     if (bi >= 0) {
       const b = doc.bonds[bi], style = bondKindOf(b);
-      return { kind: "bond", style, double: b.type === 2, flippable: !!b.stereo || b.display === "dative" || b.display === "hollow" };
+      return { kind: "bond", style, double: b.type === 2, flippable: !!b.stereo || b.display === "dative" || b.display === "hollow", halo: b.halo, fill: fillOf(doc, selection), ring: drawnRings(doc).some((r) => r.includes(b.atoms[0]) && r.includes(b.atoms[1])) };
     }
     // Lone pairs: whether the heteroatoms have any to show, and whether they all show already.
     const used = bondOrders(doc), hetero = ids.filter((i) => doc.atoms[i].label !== "C" && freePairs(doc, i, used[i]) > 0);
@@ -2419,9 +2438,8 @@ export default function Editor() {
     const solid = ids.some((i) => Math.abs(doc.atoms[i].location[2] ?? 0) > 1e-3);
     return { kind: "structure", text: labelText(ids), atoms: ids.length, hydrogens: ids.some((i) => doc.atoms[i].label === "H" && !doc.atoms[i].text), structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextNumber(doc), nameable, pairs, stereo,
       ...(solid ? { depth: !ids.some((i) => doc.atoms[i].depth === false) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
-      // The highlight and ring fill the selected atoms share, if they share one.
-      halo: ids.every((i) => doc.atoms[i].halo === doc.atoms[ids[0]].halo) ? doc.atoms[ids[0]].halo : undefined,
-      fill: ids.filter((i) => doc.atoms[i].fill).every((i) => doc.atoms[i].fill === doc.atoms[ids.find((k) => doc.atoms[k].fill) ?? 0].fill) ? doc.atoms[ids.find((k) => doc.atoms[k].fill) ?? 0]?.fill : undefined };
+      // The highlight the selected atoms share, and the ring fill of the rings a fill would go in, if they share one.
+      halo: ids.every((i) => doc.atoms[i].halo === doc.atoms[ids[0]].halo) ? doc.atoms[ids[0]].halo : undefined, fill: fillOf(doc, selection) };
   };
   // The panel's context, worked out again only when something it reads changes: not on each frame of a drag or of
   // the Pen (the drawing and the captions' places change then, and the context follows them when what is shown is the
@@ -2854,17 +2872,17 @@ export default function Editor() {
         captions: doc.captions?.map((c) => (picked.has(c.id) ? { ...c, colour: hex.toLowerCase() === style.colour.toLowerCase() ? undefined : hex } : c)),
       }, true);
     }
-    // Highlight colours (a disc behind each selected atom) and ring fills, as ChemDraw's Highlight and Ring Fill colour
-    // toolbars; none takes them off. A ring fill goes in every ring wholly selected; failing that, every ring with a
-    // selected atom in it; failing that, every ring of the structures the selection touches (a substituent picked).
+    // Highlight colours and ring fills, as ChemDraw's Highlight and Ring Fill colour toolbars; none takes them off. A
+    // highlight goes on the selected atoms and the bonds between them. A ring fill goes in the rings fillRings finds,
+    // and replaces the fill each one had, so fused rings keep their own. A custom colour dragged in the picker is one
+    // step to undo (merge).
     if (command.startsWith("halo.") || command.startsWith("ringfill.")) {
-      const value = command.split(".")[1], c = value === "none" ? undefined : value, key = command.startsWith("halo.") ? "halo" : "fill";
-      const atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i));
-      const all = key === "fill" ? drawnRings(doc) : [];
-      const touched = new Set(fragments(doc).filter((g) => g.some((i) => atoms.has(i))).flat());
-      const whole = all.filter((r) => r.every((i) => atoms.has(i))), part = all.filter((r) => r.some((i) => atoms.has(i)));
-      const inRing = key === "fill" ? new Set((whole.length ? whole : part.length ? part : all.filter((r) => r.every((i) => touched.has(i)))).flat()) : atoms;
-      return set({ ...doc, atoms: doc.atoms.map((a, i) => (inRing.has(i) ? { ...a, [key]: c } : a)) }, true);
+      const value = command.split(".")[1], c = value === "none" ? undefined : value;
+      const atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i)), merge = command.endsWith(".drag") ? command.split(".")[0] : undefined;
+      if (command.startsWith("halo.")) return set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) ? { ...a, halo: c } : a)), bonds: doc.bonds.map((b) => (atoms.has(b.atoms[0]) && atoms.has(b.atoms[1]) ? { ...b, halo: c } : b)) }, true, merge);
+      const targets = fillRings(doc, atoms), keys = new Set(targets.map(ringKey)), rest = (doc.fills ?? []).filter((f) => !keys.has(ringKey(f.atoms)));
+      const fills = [...rest, ...(c ? targets.map((r) => ({ atoms: r, colour: c })) : [])];
+      return set({ ...doc, fills: fills.length ? fills : undefined }, true, merge);
     }
 
     if (command === "copy_smiles") return void document.execCommand("copy");
@@ -3599,16 +3617,33 @@ export default function Editor() {
   const under = useMemo(() => (
     <>
       {/* Fills go behind the structures: highlights, shadows (with the shape white over them), solid and shaded shapes. */}
-      {/* Ring fills: a ring whose atoms all have one fill, filled with it behind the bonds. */}
-      {shown.atoms.some((at) => at.fill) && drawnRings(shown)
-        .filter((r) => r.length <= 12 && shown.atoms[r[0]].fill && r.every((i) => shown.atoms[i].fill === shown.atoms[r[0]].fill))
-        .map((r) => <polygon key={`fill${r.join("-")}`} points={r.map((i) => `${pos(shown, i)[0] * L},${-pos(shown, i)[1] * L}`).join(" ")} fill={shown.atoms[r[0]].fill} fillOpacity={0.3} />)}
-      {/* Highlight colours: a disc behind each highlighted atom, one group per colour so overlapping discs don't darken. */}
-      {[...new Set(shown.atoms.map((at) => at.halo).filter((c): c is string => !!c))].map((c) => (
-        <g key={`halo${c}`} className="atom-halo" opacity={0.4} fill={c}>
-          {shown.atoms.map((at, i) => at.halo === c && <circle key={i} cx={pos(shown, i)[0] * L} cy={-pos(shown, i)[1] * L} r={0.46 * L} />)}
-        </g>
-      ))}
+      {/* Ring fills: each ring that is still closed, filled with its colour behind the bonds. */}
+      {shown.fills?.length && (() => {
+        const joined = new Set(shown.bonds.map((b) => ringKey(b.atoms)));
+        return shown.fills.filter((f) => f.atoms.every((i, k) => i < shown.atoms.length && joined.has(ringKey([i, f.atoms[(k + 1) % f.atoms.length]])))).map((f) => (
+          <polygon key={`fill${f.atoms.join("-")}`} points={f.atoms.map((i) => `${pos(shown, i)[0] * L},${-pos(shown, i)[1] * L}`).join(" ")} fill={f.colour} fillOpacity={0.3} />
+        ));
+      })()}
+      {/* Highlight colours, as ChemDraw draws them: a band along each highlighted bond (as wide as a bond's outline:
+          its line and three bond spacings), a disc on a highlighted atom with no bond of its colour, and a ring round a
+          label. One group per colour, so the parts do not darken where they overlap. */}
+      {[...new Set([...shown.atoms.map((at) => at.halo), ...shown.bonds.map((b) => b.halo)].filter((c): c is string => !!c))].map((c) => {
+        const band = frame.line + 3 * frame.spacing, own = new Set(shown.bonds.flatMap((b) => (b.halo === c ? b.atoms : [])));
+        return (
+          <g key={`halo${c}`} className="atom-halo" opacity={0.4} fill={c} stroke={c} strokeLinecap="round">
+            {shown.bonds.map((b, k) => b.halo === c && <line key={`b${k}`} x1={pos(shown, b.atoms[0])[0] * L} y1={-pos(shown, b.atoms[0])[1] * L} x2={pos(shown, b.atoms[1])[0] * L} y2={-pos(shown, b.atoms[1])[1] * L} strokeWidth={band} />)}
+            {shown.atoms.map((at, i) => {
+              if (at.halo !== c) return null;
+              const box = drawing.label[i];
+              if (!box) return !own.has(i) && <circle key={i} cx={pos(shown, i)[0] * L} cy={-pos(shown, i)[1] * L} r={band / 2} stroke="none" />;
+              // A label: a circle round one letter, or a box with round ends round a longer label.
+              const [w, h] = [box[2] - box[0], box[3] - box[1]], pad = band / 4 + 0.08 * L;
+              if (Math.abs(w - h) < 0.6 * h) return <circle key={i} cx={(box[0] + box[2]) / 2} cy={(box[1] + box[3]) / 2} r={Math.max(w, h) / 2 + pad} stroke="none" />;
+              return <rect key={i} x={box[0] - pad - h / 4} y={box[1] - pad} width={w + 2 * pad + h / 2} height={h + 2 * pad} rx={h / 4 + pad} ry={h / 2 + pad} stroke="none" />;
+            })}
+          </g>
+        );
+      })}
       <defs>
         {(shown.shapes ?? []).filter((sh) => sh.fill === "shaded").map((sh) => (
           <radialGradient key={sh.id} id={`shade${sh.id}`} cx="0.36" cy="0.32" r="0.72">
