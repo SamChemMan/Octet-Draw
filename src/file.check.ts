@@ -118,10 +118,17 @@ console.log("file.check: bad files refused");
     { kind: "table" as const, from: [0, 3] as [number, number], to: [6, 0] as [number, number], table: { cells: [["Entry", "Solvent", "Yield (%)"], ["1", "THF", "72"]], grid: true } },
     { kind: "table" as const, from: [0, 3] as [number, number], to: [6, 0] as [number, number], dashed: true,
       table: { cells: [["a", "b"], ["c", "d"]], widths: [2, 3.5], heights: [1, 1.2], lines: ["top" as const, "rows" as const, "cols" as const], align: ["left" as const, "right" as const], weight: 0.8 } },
+    // A turned box with its own line width, and a table and plate with their text styles (UI-7, UI-41, UI-42).
+    { kind: "box" as const, from: [0, 0] as [number, number], to: [2, 1] as [number, number], angle: 30, width: 1.5 },
+    { kind: "table" as const, from: [0, 3] as [number, number], to: [6, 0] as [number, number], table: { cells: [["a"]] }, font: "Times New Roman", size: 12, bold: true as const, italic: true as const, underline: true as const },
+    { kind: "tlc" as const, from: [0, 0] as [number, number], to: [3, 4] as [number, number], tlc: { lanes: 1, spots: [] }, size: 9, width: 0.4 },
   ]) m = addShape(m, sh)[0];
   const again = parse(serialize(m));
   assert.deepEqual(again.shapes?.map(({ id: _, ...x }) => x), m.shapes?.map(({ id: _, ...x }) => x));
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "tlc", x1: 0, y1: 0, x2: 1, y2: 1, tlc: { lanes: 2, spots: [{ lane: 5, rf: 0.5 }] } }] })), /damaged/);
+  for (const bad of [{ angle: 1e7 }, { angle: "30" }, { width: 0 }, { width: 99 }, { size: 2 }, { font: "x".repeat(300) }, { bold: 1 }])
+    assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "box", x1: 0, y1: 0, x2: 1, y2: 1, ...bad }] })), /damaged/, JSON.stringify(bad));
+  assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, arrows: [{ kind: "reaction", x1: 0, y1: 0, x2: 1, y2: 1, width: -1 }] })), /damaged/);
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "table", x1: 0, y1: 0, x2: 1, y2: 1, table: { cells: [[1]] } }] })), /damaged/);
   for (const bad of [{ widths: [0] }, { heights: [1e9] }, { lines: ["diagonal"] }, { align: ["middle"] }, { weight: -1 }])
     assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "table", x1: 0, y1: 0, x2: 1, y2: 1, table: { cells: [["a"]], ...bad } }] })), /damaged/, JSON.stringify(bad));

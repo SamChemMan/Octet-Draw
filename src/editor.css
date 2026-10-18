@@ -2667,6 +2667,12 @@ button.variant.add {
 .turn-handle.hot circle {
   fill: var(--brand-mist);
 }
+.turn-centre {
+  fill: none;
+  stroke: var(--brand);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
 .turn-angle {
   fill: var(--brand);
   font-family: var(--font-sans);

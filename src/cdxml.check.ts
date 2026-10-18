@@ -64,6 +64,7 @@ const arrows: Arrow[] = [
   arrow(122, "curve", [8, -20], [8.5, -19], { curve: { points: [{ at: [8, -20] }, { at: [9, -20] }, { at: [8.5, -19] }], closed: true }, fill: "faded", style: "doubled" }),
   arrow(123, "curve", [10, -20], [11, -20], { curve: { points: [{ at: [10, -20] }, { at: [11, -20] }] }, style: "wavy", end: "full", head: "angled" }),
   arrow(124, "reaction", [12, -20], [15, -20], { style: "bold" }), arrow(125, "curved", [16, -20], [18, -20]), arrow(126, "reaction", [19, -20], [21, -20], { start: "full", end: "none" }),
+  arrow(127, "reaction", [22, -20], [25, -20], { width: 1.5 }), arrow(128, "curve", [26, -20], [27, -20], { curve: { points: [{ at: [26, -20] }, { at: [27, -20] }] }, width: 0.3 }),
 ];
 const shapes: Shape[] = [
   { id: 201, kind: "highlight", from: [-1, -1], to: [3.5, 1.5] },
@@ -84,6 +85,13 @@ const shapes: Shape[] = [
   { id: 211, kind: "table", from: [40, -16], to: [46, -12], dashed: true, colour: "#213C99", table: { cells: [["Entry", "Yield"], ["1", "72%"], ["2", "n.d."]], lines: ["top", "header", "bottom", "cols"], align: ["left", "right"], widths: [2.5, 3], heights: [1, 1.2, 1], weight: 0.8 } },
   { id: 212, kind: "highlight", from: [7, -2], to: [10, 2], colour: "#DCEFE6" },
   { id: 213, kind: "box", from: [40, 3], to: [42, 5], fill: "solid", colour: "#FFFFFF" },
+  // Turned shapes and line widths (UI-7, CD-3, UI-42): a box, an oval, a pair of brackets and one bracket alone.
+  { id: 214, kind: "box", from: [44, 0], to: [47, 2], angle: 30, width: 1.2 },
+  { id: 215, kind: "oval", from: [48, 0], to: [51, 2], angle: -45, dashed: true },
+  { id: 216, kind: "brackets", from: [44, -6], to: [47, -3], angle: 90 },
+  { id: 217, kind: "parens", from: [48, -6], to: [49, -3], side: "left", angle: 30, width: 2 },
+  { id: 218, kind: "tlc", from: [52, -16], to: [54, -10], width: 0.8, tlc: { lanes: 1, spots: [] }, size: 9, italic: true },
+  { id: 219, kind: "table", from: [56, -16], to: [62, -12], table: { cells: [["Entry", "Yield"], ["1", "72%"]] }, font: "Georgia", size: 12, bold: true, underline: true },
 ];
 const drawing: Mol = {
   atoms, bonds, captions, arrows, shapes,
@@ -250,6 +258,25 @@ console.log("cdxml.check: every object kind round trips");
   assert.deepEqual(mol.groups!.map((g) => [g.atoms, g.items]), [[[0, 1, 2, 3], [one.id]]]);
   parse(serialize(mol));
   console.log("cdxml.check: ChemDraw's form read");
+}
+
+// Turned shapes in ChemDraw's form: a box turned 30° by its axes, with its own line width; one bracket lying down
+// (as in Sam's files) and a pair lying down, facing each other.
+{
+  const r = Math.PI / 6, f = (v: number) => v.toFixed(2);
+  const file = `<?xml version="1.0" encoding="UTF-8" ?><CDXML BondLength="14.40" LineWidth="0.60"><page id="1" BoundingBox="0 0 540 720">
+<graphic id="2" BoundingBox="290 350 250 370" GraphicType="Rectangle" RectangleType="Plain" LineWidth="1.5" Center3D="270 360 0" MajorAxisEnd3D="${f(270 + 20 * Math.cos(r))} ${f(360 - 20 * Math.sin(r))} 0" MinorAxisEnd3D="${f(270 + 10 * Math.sin(r))} ${f(360 + 10 * Math.cos(r))} 0"/>
+<graphic id="3" BoundingBox="442.02 313.74 403.76 313.74" GraphicType="Bracket" BracketType="Square"/>
+<graphic id="4" BoundingBox="440 420 400 420" GraphicType="Bracket" BracketType="Round"/>
+<graphic id="5" BoundingBox="400 380 440 380" GraphicType="Bracket" BracketType="Round"/>
+</page></CDXML>`;
+  const { mol, lost } = fromCdxml(file);
+  assert.deepEqual(lost, {});
+  const [box, one, pair] = mol.shapes!, size = (sh: Shape) => [Math.abs(sh.to[0] - sh.from[0]), Math.abs(sh.to[1] - sh.from[1])].map((v) => +v.toFixed(2));
+  assert.deepEqual([box.kind, Math.round(box.angle! * 10) / 10, box.width, size(box)], ["box", 30, 1.5, [+(40 / 14.4).toFixed(2), +(20 / 14.4).toFixed(2)]]);
+  assert.deepEqual([one.kind, one.side, one.angle], ["brackets", "left", 90], "a bracket lying with its lips up is a left bracket turned a quarter");
+  assert.deepEqual([pair.kind, pair.side, pair.angle, size(pair)], ["parens", undefined, 90, [+(40 / 14.4).toFixed(2), +(40 / 14.4).toFixed(2)]]);
+  console.log("cdxml.check: turned shapes read");
 }
 
 // Hostile files are refused with a message, or read with the bad parts left out; nothing is expanded or fetched.

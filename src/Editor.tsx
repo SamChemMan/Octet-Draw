@@ -16,7 +16,7 @@ import { parse, serialize } from "./file";
 import {
   EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset,
-  addShape, addSymbol, bondOrders, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups,
+  addShape, addSymbol, bondOrders, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf, resizeShape,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
@@ -54,7 +54,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, Palette, RingGlyph, RINGS, SELECTS, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
+import { arrowShapes, bendPoint, curved, fitArrows, HIGHLIGHT, SHADE, inShape, settleShape, shapeBounds, shapeCorners, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
 import { loadNames, nameToSmiles, suggestName } from "./names";
 import { checkedName, graphOf, setNamer } from "./naming";
@@ -143,8 +143,10 @@ type Drag =
   | { kind: "tilt"; base: Mol; ids: Set<number>; centre: [number, number, number]; start: [number, number]; hinge?: [number, number]; working: Mol }
   // Mapping one atom to another with the Atom map tool: from the atom pressed to the pointer.
   | { kind: "map"; atom: number; start: [number, number]; to?: P }
-  // Turning the selection by its rotation handle: about its middle, from the angle the drag started at.
-  | { kind: "turn"; centre: P; start: number; degrees: number; working: Mol };
+  // Turning the selection by its rotation handle: about its centre, from the angle the drag started at.
+  | { kind: "turn"; centre: P; start: number; degrees: number; working: Mol }
+  // Moving the centre the selection turns about (Option-drag on the centre mark). Not moved, it is an Option-click.
+  | { kind: "pivot"; start: [number, number]; target: Hover; at: P; moved: boolean };
 
 // Draws again whenever a store changes, by calling its children with the value; nothing else draws again.
 function Live<T>({ store: from, children }: { store: Store<T>; children: (value: T) => React.ReactNode }) {
@@ -433,6 +435,10 @@ export default function Editor() {
   useEffect(() => { selectCursor.then(setCursor); }, []);
   const [turnCursor, setTurnCursor] = useState<string>();
   useEffect(() => { rotateCursor.then(setTurnCursor); }, []);
+  // Where the centre mark was put (Option-drag, as in ChemDraw): every turn of the selection goes about it until the
+  // selection changes.
+  const [pivot, setPivot] = useState<P>();
+  useEffect(() => setPivot(undefined), [selection, picked]);
   const hold = useRef<number>(undefined);
   const svg = useRef<SVGSVGElement>(null);
   const pointer = useRef<P>(undefined);
@@ -701,7 +707,7 @@ export default function Editor() {
     const ends = [
       ...(d ? [{ x: d[2], level: (d[1] + d[3]) / 2, arrow: false }] : []),
       ...arrows.filter((a) => !isOrbital(a)).map((a) => ({ x: Math.max(a.from[0], a.to[0]), level: (a.from[1] + a.to[1]) / 2, arrow: straightArrow(a) })),
-      ...(doc.shapes ?? []).map((sh) => ({ x: Math.max(sh.from[0], sh.to[0]), level: (sh.from[1] + sh.to[1]) / 2, arrow: false })),
+      ...(doc.shapes ?? []).map((sh) => ({ x: shapeBounds(sh)[2], level: (sh.from[1] + sh.to[1]) / 2, arrow: false })),
       ...placed.filter((c) => c.id !== DRAFT).map((c) => ({ x: c.box[2] / L, level: -(c.box[1] + c.box[3]) / 2 / L, arrow: false })),
     ];
     if (!ends.length) { const c = toDoc(innerWidth / 2, innerHeight / 2); return [c[0] - (f[0] + f[2]) / 2, c[1] - (f[1] + f[3]) / 2]; }
@@ -797,7 +803,8 @@ export default function Editor() {
     ...Object.fromEntries(([["frame_brackets", "brackets", false], ["frame_parens", "parens", false], ["frame_braces", "braces", false], ["frame_box", "box", false],
       ["frame_rounded", "rounded", false], ["frame_box_shadow", "box", true], ["frame_rounded_shadow", "rounded", true]] as const).map(([id, kind, shadow]) => [id, () => {
       const boxes = [...(selection.size ? [withCaptions(selection)].filter((b): b is Box => !!b) : []), ...placed.filter((c) => picked.has(c.id)).map((c) => c.box),
-        ...[...arrows, ...(doc.shapes ?? [])].filter((x) => picked.has(x.id)).map((x): Box => [Math.min(x.from[0], x.to[0]) * L, -Math.max(x.from[1], x.to[1]) * L, Math.max(x.from[0], x.to[0]) * L, -Math.min(x.from[1], x.to[1]) * L])];
+        ...arrows.filter((x) => picked.has(x.id)).map((x): Box => [Math.min(x.from[0], x.to[0]) * L, -Math.max(x.from[1], x.to[1]) * L, Math.max(x.from[0], x.to[0]) * L, -Math.min(x.from[1], x.to[1]) * L]),
+        ...(doc.shapes ?? []).filter((x) => picked.has(x.id)).map((x): Box => { const b = shapeBounds(x); return [b[0] * L, -b[3] * L, b[2] * L, -b[1] * L]; })];
       const b = boxes.length ? union(boxes) : undefined;
       if (!b) return setNotice("Select what to frame first.");
       const pad = (isBracket({ kind }) ? 0.3 : 0.4) * L;
@@ -1045,6 +1052,14 @@ export default function Editor() {
   const frame = useMemo(() => frameStyle(style, L), [style]);
   const measure = useMemo(() => measurer(fontStack(style.labelFont), frame.size), [style.labelFont, frame.size]);
   const pt = (4 / 3) * frame.k; // frame px per point
+  // The document's style with an object's own line width (points), one for each width, so ink is kept with it.
+  const lineStyles = useMemo(() => new Map<number, typeof frame>(), [frame]);
+  const lined = (width?: number) => {
+    if (width === undefined) return frame;
+    let s = lineStyles.get(width);
+    if (!s) lineStyles.set(width, (s = { ...frame, line: width * pt }));
+    return s;
+  };
   // A new bond length keeps the drawing the same size on screen relative to its true size.
   const lastK = useRef(frame.k);
   useEffect(() => { if (lastK.current !== frame.k) { const r = lastK.current / frame.k; lastK.current = frame.k; setView((v) => ({ ...v, zoom: v.zoom * r })); } }, [frame.k]);
@@ -1192,7 +1207,7 @@ export default function Editor() {
     const groups = new Map<string | undefined, string>();
     for (const a of [...arrows.filter((x) => level(x) && !(x.curve?.closed && x.fill)), ...cycleArrows.filter(level)]) {
       const key = a.colour?.toLowerCase();
-      groups.set(key, (groups.get(key) ?? "") + kept(arrowInks, a, frame, () => toPath(arrowShapes(a, frame, L))));
+      groups.set(key, (groups.get(key) ?? "") + kept(arrowInks, a, lined(a.width), () => toPath(arrowShapes(a, lined(a.width), L))));
     }
     return [...groups];
   }, [arrows, cycleArrows, frame]);
@@ -1255,8 +1270,7 @@ export default function Editor() {
     const q: P = [p[0] * L, -p[1] * L], near = 5 / views.get().zoom + frame.line * 2;
     return [...(shown.shapes ?? [])].reverse().find((sh) => (sh.kind === "table" ? tableAt(p)?.id === sh.id : nearTrace(q, shapeTrace(sh, L, frame.bond), near)))?.id;
   };
-  const highlightAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => sh.kind === "highlight"
-    && p[0] >= Math.min(sh.from[0], sh.to[0]) && p[0] <= Math.max(sh.from[0], sh.to[0]) && p[1] >= Math.min(sh.from[1], sh.to[1]) && p[1] <= Math.max(sh.from[1], sh.to[1]))?.id;
+  const highlightAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => sh.kind === "highlight" && inShape(sh, p))?.id;
   // The TLC plate a point is on, and a click on it: a spot in that lane at that height, or off again if one is there.
   const plateAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => sh.kind === "tlc"
     && p[0] >= Math.min(sh.from[0], sh.to[0]) && p[0] <= Math.max(sh.from[0], sh.to[0]) && p[1] >= Math.min(sh.from[1], sh.to[1]) && p[1] <= Math.max(sh.from[1], sh.to[1]));
@@ -1301,10 +1315,10 @@ export default function Editor() {
     return updateShape(m, plate, { tlc: { ...sh.tlc, spots: sh.tlc.spots.map((x, i) => (i === index ? { ...x, ...change(x) } : x)) } });
   };
   // Tables: a cell's text width (drawing units), the table a point is on, and opening a cell to type in.
-  const cellWidth = (text: string) => formulaWidth(text, style.captionSize * pt, false, false, fontStack(style.captionFont)) / L;
+  const cellWidth = (sh: Shape) => (text: string) => formulaWidth(text, (sh.size ?? style.captionSize) * pt, sh.bold, sh.italic, fontStack(sh.font ?? style.captionFont)) / L;
   const tableAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => {
     if (sh.kind !== "table") return false;
-    const t = tableLayout(sh, cellWidth);
+    const t = tableLayout(sh, cellWidth(sh));
     return p[0] >= t.x0 && p[0] <= t.x1 && p[1] >= t.y0 && p[1] <= t.y1;
   });
   // The border of a table under a point, within 4 px: a column's (0 is the left edge) or a row's (0 is the top).
@@ -1312,7 +1326,7 @@ export default function Editor() {
     const near = 4 / (views.get().zoom * L);
     for (const sh of [...(shown.shapes ?? [])].reverse()) {
       if (sh.kind !== "table") continue;
-      const t = tableLayout(sh, cellWidth);
+      const t = tableLayout(sh, cellWidth(sh));
       if (p[0] < t.x0 - near || p[0] > t.x1 + near || p[1] < t.y0 - near || p[1] > t.y1 + near) continue;
       const col = Array.from({ length: t.cols + 1 }, (_, i) => i).find((i) => Math.abs(p[0] - t.col(i)) < near);
       if (col !== undefined) return { sh, axis: "col" as const, index: col };
@@ -1322,7 +1336,7 @@ export default function Editor() {
     return undefined;
   };
   const openCell = (sh: Shape, p: P) => {
-    const t = tableLayout(sh, cellWidth);
+    const t = tableLayout(sh, cellWidth(sh));
     const c = Math.max(0, Array.from({ length: t.cols }, (_, i) => i).filter((i) => t.col(i) <= p[0]).pop() ?? 0);
     const r = Math.max(0, Array.from({ length: t.rows }, (_, i) => i).filter((i) => t.row(i) >= p[1]).pop() ?? 0);
     cellOpen.current = true;
@@ -1350,10 +1364,10 @@ export default function Editor() {
     const sh = doc.shapes?.find((x) => x.id === w.id);
     if (!sh?.table) { cellOpen.current = false; return setCell(undefined); }
     let cur = sh, m = doc;
-    if (w.value !== (sh.table.cells[w.r]?.[w.c] ?? "")) { cur = { ...cur, ...setTableCell(cur, w.r, w.c, w.value, cellWidth) }; m = updateShape(m, sh.id, cur); }
+    if (w.value !== (sh.table.cells[w.r]?.[w.c] ?? "")) { cur = { ...cur, ...setTableCell(cur, w.r, w.c, w.value, cellWidth(cur)) }; m = updateShape(m, sh.id, cur); }
     if (to) {
       const [r, c] = to, rows = cur.table!.cells.length;
-      if (r >= rows) { cur = { ...cur, ...resizeTable(cur, rows + 1, cur.table!.cells[0].length, cellWidth) }; m = updateShape(m, sh.id, cur); }
+      if (r >= rows) { cur = { ...cur, ...resizeTable(cur, rows + 1, cur.table!.cells[0].length, cellWidth(cur)) }; m = updateShape(m, sh.id, cur); }
       if (r >= 0) setCell({ id: sh.id, r, c, value: cur.table!.cells[r]?.[c] ?? "" });
     } else { cellOpen.current = false; setCell(undefined); }
     if (m !== doc) set(m, true);
@@ -1378,8 +1392,7 @@ export default function Editor() {
   const hit = (p: P): Hover => {
     // With Select, a filled shape or highlight brought to the front (order.ts) covers what is under it, so a click
     // there picks it unless what is under is in front of it too.
-    const cover = tool === "select" ? (shown.shapes ?? []).filter((sh) => (sh.order ?? 0) > 0 && (sh.kind === "highlight" || sh.fill)
-      && p[0] >= Math.min(sh.from[0], sh.to[0]) && p[0] <= Math.max(sh.from[0], sh.to[0]) && p[1] >= Math.min(sh.from[1], sh.to[1]) && p[1] <= Math.max(sh.from[1], sh.to[1]))
+    const cover = tool === "select" ? (shown.shapes ?? []).filter((sh) => (sh.order ?? 0) > 0 && (sh.kind === "highlight" || sh.fill) && inShape(sh, p))
       .sort((a, b) => b.order! - a.order!)[0] : undefined;
     if (cover) {
       const under = hitBelow(p), id = under.caption ?? under.arrow, x = under.atom !== undefined ? doc.atoms[under.atom] : under.bond !== undefined ? doc.atoms[doc.bonds[under.bond].atoms[0]] : id !== undefined ? [...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? [])].find((y) => y.id === id) : undefined;
@@ -1433,7 +1446,7 @@ export default function Editor() {
     ...[withCaptions(atoms)].filter((b): b is Box => !!b),
     ...placed.filter((c) => items.has(c.id)).map((c) => c.box),
     ...[...arrows.filter((a) => items.has(a.id)), ...cycleArrows.filter((a) => items.has(a.cycle))].map((a) => arrowTrace(a, L).box),
-    ...(shown.shapes ?? []).filter((sh) => items.has(sh.id)).map((sh): Box => [Math.min(sh.from[0], sh.to[0]) * L, -Math.max(sh.from[1], sh.to[1]) * L, Math.max(sh.from[0], sh.to[0]) * L, -Math.min(sh.from[1], sh.to[1]) * L]),
+    ...(shown.shapes ?? []).filter((sh) => items.has(sh.id)).map((sh): Box => { const b = shapeBounds(sh); return [b[0] * L, -b[3] * L, b[2] * L, -b[1] * L]; }),
   ]);
   // The structure a caption at this point (drawing coordinates) would sit under: one whose ink is just above it.
   const structureAbove = (p: P, reach = 2.5) => {
@@ -1591,32 +1604,38 @@ export default function Editor() {
   // Select tool press: on something selected, move the selection; on something else, select it and move it;
   // on empty canvas, start a selection box. Shift adds to the selection.
   // picks: the captions that will be picked once this press's state updates land.
-  // The selected things for Align and Distribute: each structure, group and object, with its box in drawing units
-  // (y up: [left, bottom, right, top]) and what moves with it. A group is one thing when it is all selected; the
-  // members of a group selected in part line up one by one.
+  // The selected things for Align and Distribute: each structure, group, cycle and object, with its box in drawing
+  // units (y up: [left, bottom, right, top]) and what moves with it. A group is one thing when it is all selected; the
+  // members of a group selected in part line up one by one. A picked cycle is one thing with its intermediates.
   function things() {
     const box = (b: Box): Box => [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L];
-    const out: { atoms: number[]; items: number[]; box: Box }[] = [];
-    const groups = selectedGroups(doc, selection, picked), inGroup = (atoms: number[], id?: number) => groups.find((g) => (id !== undefined ? g.items.includes(id) : atoms.some((i) => g.atoms.includes(i))));
+    const out: { atoms: number[]; items: number[]; box: Box; home?: object }[] = [];
+    const groups = selectedGroups(doc, selection, picked), cycles = (doc.cycles ?? []).filter((c) => picked.has(c.id));
+    const homeOf = (atoms: number[], id?: number): object | undefined => groups.find((g) => (id !== undefined ? g.items.includes(id) : atoms.some((i) => g.atoms.includes(i))))
+      ?? cycles.find((c) => (id !== undefined ? c.id === id : c.nodes.some((n) => n.some((i) => atoms.includes(i)))));
     const add = (atoms: number[], items: number[], b: Box | undefined) => {
       if (!b) return;
-      const g = inGroup(atoms, items[0]), mine = g && out.find((o) => o.atoms.some((i) => g.atoms.includes(i)) || o.items.some((id) => g.items.includes(id)));
+      const home = homeOf(atoms, items[0]), mine = home && out.find((o) => o.home === home);
       if (mine) { mine.atoms.push(...atoms); mine.items.push(...items); mine.box = [Math.min(mine.box[0], b[0]), Math.min(mine.box[1], b[1]), Math.max(mine.box[2], b[2]), Math.max(mine.box[3], b[3])]; }
-      else out.push({ atoms: [...atoms], items: [...items], box: b });
+      else out.push({ atoms: [...atoms], items: [...items], box: b, home });
     };
     for (const g of fragments(doc).filter((f) => f.some((i) => selection.has(i)))) { const b = withCaptions(g); add(g, [], b && box(b)); }
+    for (const c of cycles) { const b = drawnBox([], new Set([c.id])); add([], [c.id], b && box(b)); }
     for (const c of placed) if (picked.has(c.id)) { const cap = doc.captions?.find((x) => x.id === c.id); if (cap && !cap.under && !cap.on && !cap.cycle) add([], [c.id], box(c.box)); }
-    for (const a of [...(doc.arrows ?? []), ...(doc.shapes ?? [])]) if (picked.has(a.id)) {
-      const [f, t] = "curve" in a && a.curve ? curveBox(a.curve) : [a.from, a.to];
+    for (const a of doc.arrows ?? []) if (picked.has(a.id)) {
+      const [f, t] = a.curve ? curveBox(a.curve) : [a.from, a.to];
       add([], [a.id], [Math.min(f[0], t[0]), Math.min(f[1], t[1]), Math.max(f[0], t[0]), Math.max(f[1], t[1])]);
     }
+    for (const sh of doc.shapes ?? []) if (picked.has(sh.id)) add([], [sh.id], shapeBounds(sh));
     return out;
   }
   // Rotate…, Scale…, the rotation handle, the Turn keys and the flips: every point of the selection (or the whole
   // drawing) moved by f, as one thing, so a group's objects keep their places relative to each other (as ChemDraw's).
-  // Atoms, arrows and curves move point by point; text, shapes and cycles keep their own size and move by their
-  // middle. mirror: f turns the drawing over, so curved arrows bend, half heads point, a single bracket faces and a
-  // cycle goes the other way. atomsToo false: the atoms are turned over already (flipAtoms).
+  // Atoms, arrows and curves move point by point; text and cycles keep their own size and move by their middle.
+  // Shapes move by their middle too, and boxes, ovals and brackets turn as well (their angle; TLC plates and tables
+  // stay upright). mirror: f turns the drawing over, so curved arrows bend, half heads point, a single bracket faces
+  // and a cycle goes the other way, and a turned shape's angle goes the other way. atomsToo false: the atoms are
+  // turned over already (flipAtoms).
   function transformed(base: Mol, f: (q: P) => P, scale = 1, mirror?: "across" | "down", atomsToo = true): Mol {
     const all = !selection.size && !picked.size, atoms = all ? new Set(base.atoms.map((_, i) => i)) : selection;
     const items = all ? new Set([...(base.captions ?? []), ...(base.arrows ?? []), ...(base.shapes ?? []), ...(base.cycles ?? [])].map((x) => x.id)) : picked;
@@ -1639,7 +1658,9 @@ export default function Editor() {
       shapes: base.shapes?.map((x) => {
         if (!items.has(x.id)) return x;
         const c = mid(x.from, x.to), to = by(c), half: [number, number] = [((x.to[0] - x.from[0]) / 2) * scale, ((x.to[1] - x.from[1]) / 2) * scale];
-        return { ...x, from: [to[0] - half[0], to[1] - half[1]], to: [to[0] + half[0], to[1] + half[1]], ...(mirror === "across" && x.side ? { side: x.side === "left" ? "right" as const : "left" as const } : {}) };
+        const e = by([c[0] + 1, c[1]]), turn = (Math.atan2(e[1] - to[1], e[0] - to[0]) * 180) / Math.PI;
+        return settleShape({ ...x, from: [to[0] - half[0], to[1] - half[1]], to: [to[0] + half[0], to[1] + half[1]], ...(mirror === "across" && x.side ? { side: x.side === "left" ? "right" as const : "left" as const } : {}),
+          angle: mirror ? -(x.angle ?? 0) : (x.angle ?? 0) + turn });
       }),
       cycles: base.cycles?.map((c) => (items.has(c.id) ? { ...c, centre: by(c.centre), radius: c.radius * scale, ...(mirror ? { clockwise: !c.clockwise } : {}) } : c)),
     };
@@ -1660,7 +1681,20 @@ export default function Editor() {
     const r = (degrees * Math.PI) / 180, [cs, sn] = [Math.cos(r), Math.sin(r)];
     return transformed(base, (q) => [c[0] + (q[0] - c[0]) * cs - (q[1] - c[1]) * sn, c[1] + (q[0] - c[0]) * sn + (q[1] - c[1]) * cs]);
   };
-  const rotateBy = (degrees: number) => set(turned(doc, degrees, selectionMiddle()), true);
+  // The point every turn of the selection goes about (the handle, the Turn keys, Turn 15° and Rotate…), as ChemDraw's:
+  // the centre mark where it was put, else the one atom the selected atoms hang from (pivotOf), else the middle. Turns
+  // one after another keep the same centre, so turning back puts everything back (text stays upright, so the middle
+  // of what is drawn moves as it turns).
+  const lastTurn = useRef<{ mol: Mol; selection: Set<number>; picked: Set<number>; centre: P }>(undefined);
+  const turnCentre = (): P => {
+    if (pivot) return pivot;
+    const last = lastTurn.current;
+    if (last && last.mol === doc && last.selection === selection && last.picked === picked) return last.centre;
+    const k = selection.size ? pivotOf(doc, selection) : undefined;
+    return k !== undefined ? pos(doc, k) : selectionMiddle();
+  };
+  const turnTo = (mol: Mol, centre: P) => { lastTurn.current = { mol, selection, picked, centre }; set(mol, true); };
+  const rotateBy = (degrees: number) => { const c = turnCentre(); turnTo(turned(doc, degrees, c), c); };
   // Rotate 180° (a turn through 3D) and Flip (a mirror), across or down, about the middle of the selection as drawn.
   function flip(axis: "horizontal" | "vertical", mirror = false) {
     const c = selectionMiddle(), k = axis === "horizontal" ? 0 : 1, atoms = selection.size || picked.size ? selection : new Set(doc.atoms.map((_, i) => i));
@@ -1676,7 +1710,7 @@ export default function Editor() {
     const all = !selection.size, ls = doc.bonds.filter((b) => all || (selection.has(b.atoms[0]) && selection.has(b.atoms[1]))).map((b) => Math.hypot(pos(doc, b.atoms[0])[0] - pos(doc, b.atoms[1])[0], pos(doc, b.atoms[0])[1] - pos(doc, b.atoms[1])[1])).sort((p, q) => p - q);
     return ls.length ? ls[Math.floor(ls.length / 2)] : 1;
   };
-  // Moves one of those things by d (drawing units): its atoms, free captions, arrows, shapes and curve points.
+  // Moves one of those things by d (drawing units): its atoms, free captions, arrows, shapes, cycles and curve points.
   const shiftThing = (m: Mol, t: { atoms: number[]; items: number[] }, d: P): Mol => {
     const ids = new Set(t.items), by = (q: [number, number]): [number, number] => [q[0] + d[0], q[1] + d[1]];
     let out = moveAtoms(m, new Set(t.atoms), d);
@@ -1685,6 +1719,7 @@ export default function Editor() {
       captions: out.captions?.map((c) => (ids.has(c.id) ? { ...c, x: c.x + d[0], y: c.y + d[1] } : c)),
       arrows: out.arrows?.map((a) => (ids.has(a.id) ? { ...a, from: by(a.from), to: by(a.to), ...(a.curve ? { curve: { ...a.curve, points: a.curve.points.map((q) => ({ at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) } : a)),
       shapes: out.shapes?.map((x) => (ids.has(x.id) ? { ...x, from: by(x.from), to: by(x.to) } : x)),
+      cycles: out.cycles?.map((c) => (ids.has(c.id) ? { ...c, centre: by(c.centre) } : c)),
     };
     return out;
   };
@@ -1739,7 +1774,8 @@ export default function Editor() {
     const snap = () => {
       if (boxes !== null) return boxes;
       const up = (b: Box): Box => [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L];
-      const ends = (a: { from: P; to: P; curve?: { points: { at: P }[] } }): Box => {
+      const ends = (a: { from: P; to: P; curve?: { points: { at: P }[] }; angle?: number }): Box => {
+        if (a.angle) return shapeBounds(a);
         const ps = [a.from, a.to, ...(a.curve?.points.map((q) => q.at) ?? [])];
         return [Math.min(...ps.map((q) => q[0])), Math.min(...ps.map((q) => q[1])), Math.max(...ps.map((q) => q[0])), Math.max(...ps.map((q) => q[1]))];
       };
@@ -1823,6 +1859,9 @@ export default function Editor() {
     setSelection(a);
     setPicked(i);
   };
+  // What a selection area takes in: also each cycle whose intermediates it takes in, all of them.
+  const chooseArea = (atoms: Set<number>, items: number[]) =>
+    choose(atoms, [...items, ...(doc.cycles ?? []).filter((c) => c.nodes.some((n) => n.length) && c.nodes.every((n) => n.every((i) => atoms.has(i)))).map((c) => c.id)]);
   // A selection area: a box, or a lasso, as the Select tool is set.
   function startArea(p: P, t: Hover, base: Set<number>, picks = new Set<number>()) {
     if (selectKind === "lasso") setDrag({ kind: "lasso", points: [p], base, picks, target: t, moved: false });
@@ -1838,8 +1877,8 @@ export default function Editor() {
       return inside([(f[0] + t[0]) / 2, (f[1] + t[1]) / 2]);
     }).map((a) => a.id),
     ...(doc.shapes ?? []).filter((sh) => {
-      const lo = [Math.min(sh.from[0], sh.to[0]), Math.min(sh.from[1], sh.to[1])], hi = [Math.max(sh.from[0], sh.to[0]), Math.max(sh.from[1], sh.to[1])];
-      const within = (q: P) => q[0] > lo[0] && q[0] < hi[0] && q[1] > lo[1] && q[1] < hi[1];
+      const b = shapeBounds(sh), lo = [b[0], b[1]], hi = [b[2], b[3]];
+      const within = (q: P) => inShape(sh, q);
       const into = corners.filter(within).length;
       if (into === corners.length) return false; // drawn inside the shape
       // Takes in its middle, or crosses its frame: a corner inside, or (a box area) running right through it.
@@ -1871,16 +1910,20 @@ export default function Editor() {
   };
   // The selection's rotation handle, as in ChemDraw: just off the top right corner of the selection's box (px). The
   // box is worked out once for each selection, as the pointer tests the handle on every move.
-  // It shows for two or more things (a group is its parts); one arrow or shape has handles of its own.
+  // It shows for two or more things (a group is its parts), and for one arrow, curve or shape that can turn.
   const inMove = drag?.kind === "move";
-  const selectionBox = useMemo(() => (!inMove && (selection.size >= 2 || (picked.size && selection.size + picked.size >= 2)) ? drawnBox(selection, picked) : undefined), [inMove, selection, picked, shown.shapes, drawing, placed, arrows, cycleArrows]); // eslint-disable-line react-hooks/exhaustive-deps
+  const turnable = selection.size + picked.size >= 2 || (!selection.size && picked.size === 1 && [...(doc.arrows ?? []), ...(doc.shapes ?? []).filter(turns)].some((x) => picked.has(x.id)));
+  const selectionBox = useMemo(() => (!inMove && turnable ? drawnBox(selection, picked) : undefined), [inMove, turnable, selection, picked, shown.shapes, drawing, placed, arrows, cycleArrows]); // eslint-disable-line react-hooks/exhaustive-deps
   const turnHandle = (zoom: number): P | undefined => {
     const b = selectionBox;
     return b && [b[2] + 10 / zoom, b[1] - 10 / zoom];
   };
   const onTurnHandle = (p: P) => { const zoom = views.get().zoom, h = turnHandle(zoom); return !!h && Math.hypot(p[0] * L - h[0], -p[1] * L - h[1]) * zoom < 11; };
+  // The centre mark: where the selection turns about, worked out once for each selection and drawing.
+  const centreMark = useMemo(() => (selectionBox ? turnCentre() : undefined), [selectionBox, pivot, doc]); // eslint-disable-line react-hooks/exhaustive-deps
+  const onCentreMark = (p: P) => !!centreMark && Math.hypot(p[0] - centreMark[0], p[1] - centreMark[1]) * L * views.get().zoom < 8;
   // A shape's four corners, as handles.
-  const corners = (sh: Shape): Record<"from" | "to" | "c1" | "c2", P> => ({ from: sh.from, to: sh.to, c1: [sh.from[0], sh.to[1]], c2: [sh.to[0], sh.from[1]] });
+  const corners = (sh: Shape): Record<"from" | "to" | "c1" | "c2", P> => shapeCorners(sh);
 
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
     if (e.button !== 0) return;
@@ -1889,8 +1932,13 @@ export default function Editor() {
     pointer.current = p;
     const handle = tool !== "erase" ? handleAt(p) : undefined;
     if (handle) return setDrag({ kind: "handle", ...handle, working: doc });
+    // Option-drag on the centre mark moves the centre the selection turns about (it snaps to atoms).
+    if (tool !== "erase" && e.altKey && onCentreMark(p)) {
+      if (tool === "select") pressMods.current = { shift: e.shiftKey, alt: true, atoms: selection, picks: picked };
+      return setDrag({ kind: "pivot", start: screen, target: t, at: p, moved: false });
+    }
     if (tool !== "erase" && onTurnHandle(p)) {
-      const centre = selectionMiddle();
+      const centre = turnCentre();
       return setDrag({ kind: "turn", centre, start: Math.atan2(p[1] - centre[1], p[0] - centre[0]), degrees: 0, working: doc });
     }
     const page = t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined ? pageEdgeAt(p) : undefined;
@@ -1906,20 +1954,27 @@ export default function Editor() {
       return startHold(p, t, screen);
     }
     // With the Table tool, a border drags to size its column or row (the left and top edges size them all), and a
-    // press inside a cell opens it.
+    // click inside a cell opens it. A hold there gives Select, as with every tool.
     if (tool === "table" && tableEdge(p)) {
       const { sh, axis, index } = tableEdge(p)!;
       setSelection(new Set());
       setPicked(new Set([sh.id]));
-      return setDrag({ kind: "tableedge", id: sh.id, axis, index, base: doc, working: doc });
+      setDrag({ kind: "tableedge", id: sh.id, axis, index, base: doc, working: doc });
+      return startHold(p, t, screen);
     }
-    if (tool === "table" && tableAt(p)) return openCell(tableAt(p)!, p);
+    if (tool === "table" && tableAt(p)) { setDrag({ kind: "click", at: p, start: screen, target: t }); return startHold(p, t, screen); }
     // With something selected, a press on it (or inside it) grabs it, whatever tool is in hand. So does a press
     // on a caption, except with the Text tool, which edits it.
     if (tool !== "erase" && selection.size && onSelection(doc, selection, p)) return startMove(p, screen, t);
     if (tool !== "erase" && tool !== "text" && t.cycle !== undefined) return pressCycle(p, t, screen);
     if (tool !== "erase" && tool !== "text" && (t.caption !== undefined || t.arrow !== undefined)) return pressCaption(p, t, e.shiftKey, screen);
-    if (tool === "tlc" && plateAt(p)) return spotAt(plateAt(p)!, p, screen, e.altKey, e.shiftKey);
+    // With the TLC tool, a spot or a line on a plate drags, and a click adds a spot. A hold gives Select.
+    if (tool === "tlc" && plateAt(p)) {
+      const sh = plateAt(p)!;
+      if (spotHit(sh, p) >= 0 || lineHit(sh, p)) spotAt(sh, p, screen, e.altKey, e.shiftKey);
+      else setDrag({ kind: "click", at: p, start: screen, target: t });
+      return startHold(p, t, screen);
+    }
     // The eraser takes a TLC spot off its plate.
     if (tool === "erase" && plateAt(p) && spotHit(plateAt(p)!, p) >= 0) {
       const sh = plateAt(p)!, i = spotHit(sh, p);
@@ -2035,12 +2090,12 @@ export default function Editor() {
       case "tableedge": {
         const sh = drag.base.shapes?.find((x) => x.id === drag.id);
         if (!sh?.table) return;
-        const t = tableLayout(sh, cellWidth), i = drag.index;
+        const t = tableLayout(sh, cellWidth(sh)), i = drag.index;
         const size = drag.axis === "col"
           // The left edge scales every column, keeping the right edge; another border sizes the column before it.
           ? i === 0 ? { widths: t.widths.map((w) => (w * Math.max(0.1, t.x1 - p[0])) / (t.x1 - t.x0)), x0: Math.min(p[0], t.x1 - 0.1) } : { widths: t.widths.map((w, c) => (c === i - 1 ? p[0] - t.col(c) : w)) }
           : i === 0 ? { heights: t.heights.map((h) => (h * Math.max(0.1, p[1] - t.y0)) / (t.y1 - t.y0)), y1: Math.max(p[1], t.y0 + 0.1) } : { heights: t.heights.map((h, r) => (r === i - 1 ? t.row(r) - p[1] : h)) };
-        return setDrag({ ...drag, working: updateShape(drag.base, drag.id, sizeTable(sh, size, cellWidth)) });
+        return setDrag({ ...drag, working: updateShape(drag.base, drag.id, sizeTable(sh, size, cellWidth(sh))) });
       }
       case "tlcline": {
         const sh = drag.base.shapes?.find((x) => x.id === drag.plate);
@@ -2062,6 +2117,12 @@ export default function Editor() {
       case "pen":
         if (!drag.out && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         return setDrag({ ...drag, out: p });
+      case "pivot": {
+        if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
+        if (!drag.moved) setDrag({ ...drag, moved: true });
+        const a = atomAt(doc, p, 8 / (L * views.get().zoom));
+        return setPivot(a !== undefined ? pos(doc, a) : p);
+      }
       case "turn": {
         // Free, or in 15° steps with Shift. Anticlockwise is positive, as on the page.
         let degrees = ((Math.atan2(p[1] - drag.centre[1], p[0] - drag.centre[0]) - drag.start) * 180) / Math.PI;
@@ -2087,9 +2148,7 @@ export default function Editor() {
         }
         const sh = doc.shapes?.find((x) => x.id === drag.id);
         if (sh) {
-          const w = drag.which;
-          const change: Partial<Shape> = w === "from" ? { from: p } : w === "to" ? { to: p } : w === "c1" ? { from: [p[0], sh.from[1]], to: [sh.to[0], p[1]] } : { from: [sh.from[0], p[1]], to: [p[0], sh.to[1]] };
-          return setDrag({ ...drag, working: updateShape(doc, sh.id, change) });
+          return setDrag({ ...drag, working: updateShape(doc, sh.id, resizeShape(sh, drag.which as "from" | "to" | "c1" | "c2", p)) });
         }
         const a = doc.arrows?.find((x) => x.id === drag.id);
         if (!a) return;
@@ -2130,12 +2189,12 @@ export default function Editor() {
       case "box": {
         // Smart: atoms the box only just missed (all their neighbours are in it) come along too.
         const [lo, hi] = [[Math.min(drag.from[0], p[0]), Math.min(drag.from[1], p[1])], [Math.max(drag.from[0], p[0]), Math.max(drag.from[1], p[1])]];
-        choose(complete(doc, new Set([...drag.base, ...atomsIn(doc, drag.from, p)])), [...drag.picks, ...captionsWhere(([x, y]) => x >= lo[0] && x <= hi[0] && y >= lo[1] && y <= hi[1], [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]])]);
+        chooseArea(complete(doc, new Set([...drag.base, ...atomsIn(doc, drag.from, p)])), [...drag.picks, ...captionsWhere(([x, y]) => x >= lo[0] && x <= hi[0] && y >= lo[1] && y <= hi[1], [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]])]);
         return setDrag({ ...drag, to: p, moved: true });
       }
       case "lasso": {
         const points = [...drag.points, p];
-        choose(complete(doc, new Set([...drag.base, ...atomsInPolygon(doc, points)])), [...drag.picks, ...captionsWhere((q) => inPolygon(q, points), points)]);
+        chooseArea(complete(doc, new Set([...drag.base, ...atomsInPolygon(doc, points)])), [...drag.picks, ...captionsWhere((q) => inPolygon(q, points), points)]);
         return setDrag({ ...drag, points, moved: true });
       }
       case "move": {
@@ -2284,6 +2343,8 @@ export default function Editor() {
     if (context.kind === "caption" || context.kind === "shape") return { value: context.colour, tints: context.kind === "shape" && context.shape === "highlight" };
     if (context.kind === "spot" && spotPick) return { value: doc.shapes?.find((x) => x.id === spotPick.plate)?.tlc?.spots[spotPick.index]?.colour ?? "#000000" };
     if (context.kind === "empty" || context.kind === "drawing") return undefined;
+    // A bond alone takes its own colour (the colour action sets the bond only), so its row shows the bond's.
+    if (context.kind === "bond") return { value: doc.bonds.find((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1]))?.colour ?? "#000000" };
     const first = [...selection][0], thing = [...(doc.arrows ?? []), ...(doc.cycles ?? []), ...(doc.shapes ?? []), ...(doc.captions ?? [])].find((x) => picked.has(x.id));
     return { value: (first !== undefined ? doc.atoms[first]?.colour : thing?.colour) ?? "#000000" };
   };
@@ -2329,9 +2390,9 @@ export default function Editor() {
     // A table's lines, the alignment of the column last typed in (or of every column, when they share one), and its
     // lines' width.
     const tableContext = (sh: Shape) => {
-      const cols = sh.table ? tableLayout(sh, cellWidth).cols : 0, aligns = Array.from({ length: cols }, (_, c) => sh.table?.align?.[c] ?? "centre");
+      const cols = sh.table ? tableLayout(sh, cellWidth(sh)).cols : 0, aligns = Array.from({ length: cols }, (_, c) => sh.table?.align?.[c] ?? "centre");
       const cellAlign = lastCell?.id === sh.id ? aligns[lastCell.c] : aligns.every((a) => a === aligns[0]) ? aligns[0] : undefined;
-      return { lines: linesOf(sh.table), cellAlign, weight: sh.table?.weight ?? style.line, cell: lastCell?.id === sh.id };
+      return { lines: linesOf(sh.table), cellAlign, weight: (sh.table ? sh.table.weight : sh.width) ?? style.line, cell: lastCell?.id === sh.id };
     };
     // Shapes picked on their own.
     const pickedShapes = (doc.shapes ?? []).filter((x) => picked.has(x.id));
@@ -2340,6 +2401,7 @@ export default function Editor() {
       return {
         kind: "shape", count: pickedShapes.length, shape: first.kind, dashed: !!first.dashed, colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
         style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, ...tableContext(first), hide: first.tlc?.hide ?? [], shade: { ...SHADE, ...first.shade, pt: style.bond },
+        ...(first.kind === "table" || first.kind === "tlc" ? { text: { bold: !!first.bold, italic: !!first.italic, underline: !!first.underline, font: first.font ?? style.captionFont, size: first.size ?? (first.kind === "tlc" ? style.captionSize * 0.8 : style.captionSize) } } : {}),
       };
     }
     // Arrows picked on their own.
@@ -2348,7 +2410,7 @@ export default function Editor() {
       return {
         kind: "arrow", count: pickedArrows.length, arrow: pickedArrows[0].kind, curved: pickedArrows.some(curved), style: pickedArrows[0].style ?? "plain", orbital: pickedArrows[0].orbital,
         heads: pickedArrows.every(takesHeads), ...headsOf(pickedArrows[0]), head: pickedArrows[0].head ?? "solid",
-        closed: pickedArrows[0].curve ? !!pickedArrows[0].curve.closed : undefined, fill: pickedArrows[0].fill ?? "none",
+        closed: pickedArrows[0].curve ? !!pickedArrows[0].curve.closed : undefined, fill: pickedArrows[0].fill ?? "none", width: pickedArrows[0].width ?? style.line,
         // The sweep the curved ones share, if it is one on offer.
         sweep: SWEEPS.find((sw) => pickedArrows.filter(curved).every((a) => Math.abs(sweepOf(a.bend ?? 0) - sw) < 2)),
       };
@@ -2905,19 +2967,20 @@ export default function Editor() {
       // (a set, or one line on or off), the cells' alignment (the cell's column, or all), the lines' width, Clear
       // Contents and Size To Fit Contents.
       if (what === "row" || what === "col") return each((x) => {
-        const t = tableLayout(x, cellWidth), mine = lastCell?.id === x.id ? lastCell : undefined;
+        const t = tableLayout(x, cellWidth(x)), mine = lastCell?.id === x.id ? lastCell : undefined;
         const at = what === "row" ? mine?.r ?? t.rows - 1 : mine?.c ?? t.cols - 1, after = arg === "after" ? 1 : 0;
         if (mine && arg !== "delete") setLastCell({ ...mine, ...(after ? {} : what === "row" ? { r: mine.r + 1 } : { c: mine.c + 1 }) });
-        return arg === "delete" ? spliceTable(x, what, at, 1, 0, cellWidth) : spliceTable(x, what, at + after, 0, 1, cellWidth);
+        return arg === "delete" ? spliceTable(x, what, at, 1, 0, cellWidth(x)) : spliceTable(x, what, at + after, 0, 1, cellWidth(x));
       });
       if (what === "lines") return each((x) => ({ table: { ...x.table!, grid: undefined, lines: arg in TABLE_LINES ? TABLE_LINES[arg as keyof typeof TABLE_LINES] : linesOf(x.table).includes(arg as TableLine) ? linesOf(x.table).filter((l) => l !== arg) : [...linesOf(x.table), arg as TableLine] } }));
       if (what === "align") return each((x) => {
-        const cols = tableLayout(x, cellWidth).cols, only = lastCell?.id === x.id ? lastCell.c : undefined;
+        const cols = tableLayout(x, cellWidth(x)).cols, only = lastCell?.id === x.id ? lastCell.c : undefined;
         return { table: { ...x.table!, align: Array.from({ length: cols }, (_, c) => (only === undefined || c === only ? arg as CellAlign : x.table?.align?.[c] ?? "centre")) } };
       });
-      if (what === "weight") return set({ ...doc, shapes: doc.shapes?.map((x) => (ids.has(x.id) && x.table ? { ...x, table: { ...x.table, weight: Number(arg) / 100 } } : x)) }, true, `table-weight-${[...ids].join()}`);
+      // The lines' width: a table's rules, or any other shape's outline (ChemDraw's Object Settings > Line Width).
+      if (what === "weight") return set({ ...doc, shapes: doc.shapes?.map((x) => (!ids.has(x.id) ? x : x.table ? { ...x, table: { ...x.table, weight: Number(arg) / 100 } } : { ...x, width: Number(arg) / 100 })) }, true, `shape-weight-${[...ids].join()}`);
       if (what === "clear") return each((x) => clearTable(x));
-      if (what === "fit") return each((x) => fitTable(x, cellWidth));
+      if (what === "fit") return each((x) => fitTable(x, cellWidth(x)));
       // One style at a time: plain, dashed, shaded, filled or with a shadow.
       if (what === "style") return each(() => ({ dashed: arg === "dashed" || undefined, fill: arg === "shaded" || arg === "solid" ? arg : undefined, shadow: arg === "shadow" || undefined }));
       if (what === "side") return each(() => ({ side: arg === "both" ? undefined : (arg as "left" | "right") }));
@@ -2967,6 +3030,8 @@ export default function Editor() {
       // A style chip sets it; the arrows' Dashed line action turns dashes on and off.
       if (what === "style") return each((a) => ({ style: arg === "plain" || (arg === "dashed" && a.style === "dashed" && !isLine(a) && a.kind !== "curve") ? undefined : (arg as Arrow["style"]) }));
       if (what === "flip") return each((a) => ({ bend: -(a.bend ?? sweepBend(120)) }));
+      // The line width, as for shapes (one undo step for a whole slider drag).
+      if (what === "weight") return set({ ...doc, arrows: doc.arrows?.map((a) => (ids.has(a.id) ? { ...a, width: Number(arg) / 100 } : a)) }, true, `arrow-weight-${[...ids].join()}`);
       if ((what === "above" || what === "below") && id !== undefined) {
         setPicked(new Set());
         return openWriting({ value: "", on: { arrow: id, side: what }, style: { ...textStyle } });
@@ -2990,6 +3055,16 @@ export default function Editor() {
           : what === "size" ? { size: Number(arg) === style.labelSize ? undefined : Number(arg) }
           : { [what]: first[what as "bold" | "italic" | "underline"] ? undefined : true };
         return set({ ...doc, atoms: doc.atoms.map((a, k) => (ids.has(k) ? { ...a, ...change } : a)) }, true);
+      }
+      // On picked tables and TLC plates, the same styles set their text (the cells, or the Rf values), as in ChemDraw.
+      const texts = !writing && !selection.size ? (doc.shapes ?? []).filter((x) => picked.has(x.id) && (x.kind === "table" || x.kind === "tlc")) : [];
+      if (texts.length && ["bold", "italic", "underline", "plain", "font", "size"].includes(what)) {
+        const first = texts[0], ids = new Set(texts.map((x) => x.id));
+        const change = (x: Shape): Partial<Shape> => what === "plain" ? { bold: undefined, italic: undefined, underline: undefined }
+          : what === "font" ? { font: arg === style.captionFont ? undefined : arg }
+          : what === "size" ? { size: Number(arg) === (x.kind === "tlc" ? style.captionSize * 0.8 : style.captionSize) ? undefined : Number(arg) }
+          : { [what]: first[what as "bold" | "italic" | "underline"] ? undefined : true };
+        return set({ ...doc, shapes: doc.shapes?.map((x) => (ids.has(x.id) ? { ...x, ...change(x) } : x)) }, true);
       }
       // Text styles: on the characters selected while typing (or the next ones typed), else on whole captions.
       const toggle = (key: "bold" | "italic" | "underline") => (s: RunStyle, all: RunStyle): RunStyle => ({ ...s, [key]: all[key] ? undefined : true });
@@ -3066,7 +3141,9 @@ export default function Editor() {
     // Select: a click on part of a wider selection keeps that part alone (a whole integral group; a cycle keeps the
     // intermediates its press picked).
     if (tool === "select") return t.cycle !== undefined ? undefined : choose(atomsOf(doc, t), itemsOf(t));
-    if (t.caption !== undefined && tool !== "text") return; // a caption was picked, not drawn on
+    if ((t.caption !== undefined || t.cycle !== undefined) && tool !== "text") return; // a caption or cycle was picked, not drawn on
+    if (tool === "table" && tableAt(at)) return openCell(tableAt(at)!, at);
+    if (tool === "tlc" && plateAt(at)) return spotAt(plateAt(at)!, at, [0, 0], false, false);
     if (tool === "bond") {
       if (t.atom !== undefined) return set(sprout(doc, t.atom, bondSpec));
       if (t.bond === undefined) return set(sprout(doc, at, bondSpec));
@@ -3172,7 +3249,9 @@ export default function Editor() {
         return to !== undefined ? set(pairMap(doc, drag.atom, to), true) : undefined;
       }
       case "turn":
-        return drag.degrees ? set(drag.working, true) : undefined;
+        return drag.degrees ? turnTo(drag.working, drag.centre) : undefined;
+      case "pivot":
+        return drag.moved ? undefined : click(drag.target, drag.at);
       case "chain":
         if (drag.to) return set(chainTo(doc, drag.from, drag.to).mol);
         return click(drag.target, typeof drag.from === "number" ? pos(doc, drag.from) : drag.from);
@@ -3525,7 +3604,7 @@ export default function Editor() {
     // As ChemDraw draws them (checked in its SVG export): each curve's fill, then its outline as a 0.05 pt
     // hairline, in order, so a curve drawn later (a lamp's highlight over its glass, say) covers those under it.
     const ink = a.colour ? textInk(a.colour) : "var(--ink)", d = kept(outlines, a, L, () => toPath(arrowTrace(a, L).paths));
-    const outline = <path d={d} fill="none" stroke={ink} strokeWidth={0.05 * pt} />;
+    const outline = <path d={d} fill="none" stroke={ink} strokeWidth={(a.width ?? 0.05) * pt} />;
     if (a.fill === "solid") return <g key={`cf${a.id}`}><path d={d} fill={ink} />{outline}</g>;
     return (
       <g key={`cf${a.id}`}>
@@ -3559,7 +3638,7 @@ export default function Editor() {
         {orbitals.flatMap((a) => lobesOf(a, L).map((l, i) => {
           const ink = a.colour ? textInk(a.colour) : "var(--ink)", ph = a.orbital!.phase;
           const fill = ph === "filled" || (ph === "phased" && !l.second) ? ink : ph === "shaded" ? `url(#lobe${a.colour ? a.id : ""})` : "var(--canvas)";
-          return <path key={`${a.id}-${i}`} d={toPath([l.path])} fill={fill} fillRule="evenodd" stroke={ink} strokeWidth={frame.line} />;
+          return <path key={`${a.id}-${i}`} d={toPath([l.path])} fill={fill} fillRule="evenodd" stroke={ink} strokeWidth={lined(a.width).line} />;
         }))}
       </g>
     );
@@ -3567,13 +3646,13 @@ export default function Editor() {
   // A TLC plate's lines and spots.
   const tlcInk = (sh: Shape) => {
     // A plate's origin line, dashed solvent front, spots, and their Rf values when shown.
-    const t = tlcLayout(sh), y = (v: number) => -v * L, ink = sh.colour ? textInk(sh.colour) : "var(--ink)", hide = new Set(sh.tlc?.hide ?? []);
+    const t = tlcLayout(sh), y = (v: number) => -v * L, ink = sh.colour ? textInk(sh.colour) : "var(--ink)", hide = new Set(sh.tlc?.hide ?? []), w = lined(sh.width).line;
     const dragging = drag?.kind === "spot" && drag.plate === sh.id ? drag.index : undefined;
     return (
       <g key={`tlc${sh.id}`} className="tlc">
-        {!hide.has("origin") && <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.origin)} y2={y(t.origin)} stroke={ink} strokeWidth={frame.line} />}
-        {!hide.has("origin") && Array.from({ length: t.lanes }, (_, k) => <line key={`t${k}`} x1={t.lane(k) * L} x2={t.lane(k) * L} y1={y(t.origin) - 0.08 * L} y2={y(t.origin) + 0.08 * L} stroke={ink} strokeWidth={frame.line} />)}
-        {!hide.has("front") && <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.front)} y2={y(t.front)} stroke={ink} strokeWidth={frame.line} strokeDasharray={`${0.12 * L} ${0.08 * L}`} />}
+        {!hide.has("origin") && <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.origin)} y2={y(t.origin)} stroke={ink} strokeWidth={w} />}
+        {!hide.has("origin") && Array.from({ length: t.lanes }, (_, k) => <line key={`t${k}`} x1={t.lane(k) * L} x2={t.lane(k) * L} y1={y(t.origin) - 0.08 * L} y2={y(t.origin) + 0.08 * L} stroke={ink} strokeWidth={w} />)}
+        {!hide.has("front") && <line x1={t.x0 * L} x2={t.x1 * L} y1={y(t.front)} y2={y(t.front)} stroke={ink} strokeWidth={w} strokeDasharray={`${0.12 * L} ${0.08 * L}`} />}
         {(sh.tlc?.spots ?? []).map((x, i) => {
           // A spot in its own colour (or the plate's): filled, hollow (its outline) or shaded (lit from the top left).
           const c = x.colour ? textInk(x.colour) : ink, d = "M" + spotPath(t, x).map(([px, py]) => `${(px * L).toFixed(2)} ${(-py * L).toFixed(2)}`).join("L") + "Z", { rx } = t.size(x);
@@ -3581,20 +3660,22 @@ export default function Editor() {
           return (
             <g key={i}>
               {x.style === "shaded" && <defs><radialGradient id={`spot${sh.id}-${i}`} cx="0.36" cy="0.32" r="0.75"><stop offset="0" stopColor="#FFFFFF" /><stop offset="1" style={{ stopColor: c }} /></radialGradient></defs>}
-              <path d={d} fill={x.style === "hollow" ? "none" : x.style === "shaded" ? `url(#spot${sh.id}-${i})` : c} stroke={x.style === "hollow" ? c : undefined} strokeWidth={frame.line} />
+              <path d={d} fill={x.style === "hollow" ? "none" : x.style === "shaded" ? `url(#spot${sh.id}-${i})` : c} stroke={x.style === "hollow" ? c : undefined} strokeWidth={w} />
               {picked && <path d={d} className="spot-picked" fill="none" vectorEffect="non-scaling-stroke" />}
-              {(sh.tlc?.rf || x.showRf || dragging === i) && <text x={(t.lane(x.lane) + rx + 0.1) * L} y={y(t.at(x.rf)) + 0.12 * L} fill={c} style={{ font: `${style.captionSize * pt * 0.8}px ${fontStack(style.captionFont)}` }}>{x.rf.toFixed(2)}</text>}
+              {(sh.tlc?.rf || x.showRf || dragging === i) && <text x={(t.lane(x.lane) + rx + 0.1) * L} y={y(t.at(x.rf)) + 0.12 * L} fill={c} style={textFace(sh, (sh.size ?? style.captionSize * 0.8) * pt)}>{x.rf.toFixed(2)}</text>}
             </g>
           );
         })}
       </g>
     );
   };
+  // The text style of a table's cells or a TLC plate's Rf values (px size).
+  const textFace = (sh: Shape, size: number): React.CSSProperties => ({ font: `${sh.italic ? "italic " : ""}${sh.bold ? "bold " : ""}${size}px ${fontStack(sh.font ?? style.captionFont)}`, ...(sh.underline ? { textDecoration: "underline" } : {}) });
   // A table's lines and text.
   const tableInk = (sh: Shape) => {
     // A table: the lines it has (journal rules unless set otherwise), solid or dashed, and each cell's text
     // aligned in its column.
-    const t = tableLayout(sh, cellWidth), y = (v: number) => -v * L, ink = sh.colour ? textInk(sh.colour) : "var(--ink)", size = style.captionSize * pt;
+    const t = tableLayout(sh, cellWidth(sh)), y = (v: number) => -v * L, ink = sh.colour ? textInk(sh.colour) : "var(--ink)", size = (sh.size ?? style.captionSize) * pt;
     const lines = new Set(linesOf(sh.table)), inner = (n: number) => Array.from({ length: Math.max(0, n - 1) }, (_, i) => i + 1);
     const across = [...(lines.has("top") ? [t.y1] : []), ...inner(t.rows).filter((r) => lines.has("rows") || (r === 1 && lines.has("header"))).map((r) => t.row(r)), ...(lines.has("bottom") ? [t.y0] : [])];
     const down = [...(lines.has("left") ? [t.x0] : []), ...(lines.has("cols") ? inner(t.cols).map((c) => t.col(c)) : []), ...(lines.has("right") ? [t.x1] : [])];
@@ -3606,7 +3687,7 @@ export default function Editor() {
         {down.map((v, i) => <line key={`c${i}`} x1={v * L} x2={v * L} y1={y(t.y1)} y2={y(t.y0)} stroke={ink} strokeWidth={weight} strokeDasharray={dash} />)}
         {(sh.table?.cells ?? []).map((row, r) => row.map((text, c) => text && !(cell?.id === sh.id && cell.r === r && cell.c === c) ? (
           <text key={`${r}-${c}`} x={(anchor(c) === "left" ? t.col(c) + TABLE_PAD : anchor(c) === "right" ? t.col(c + 1) - TABLE_PAD : t.col(c) + t.widths[c] / 2) * L} y={y(t.row(r) - t.heights[r] / 2) + 0.35 * size}
-            textAnchor={anchor(c) === "left" ? "start" : anchor(c) === "right" ? "end" : "middle"} fill={ink} style={{ font: `${size}px ${fontStack(style.captionFont)}` }}>{formula(text, size)}</text>
+            textAnchor={anchor(c) === "left" ? "start" : anchor(c) === "right" ? "end" : "middle"} fill={ink} style={textFace(sh, size)}>{formula(text, size)}</text>
         ) : null))}
       </g>
     );
@@ -3614,7 +3695,7 @@ export default function Editor() {
   // A shape's lines: its outline, a TLC plate's lines and spots, a table's lines and text, and a bracket's sign.
   const shapeLines = (sh: Shape) => (
     <Fragment key={`sl${sh.id}`}>
-      {sh.kind !== "highlight" && sh.kind !== "table" && !sh.fill && !(sh.kind === "tlc" && sh.tlc?.hide?.includes("border")) && <path key={`sh${sh.id}`} d={kept(shapeInks, sh, frame, () => toPath(shapeInk(sh, frame, L)))} fill={sh.colour ? textInk(sh.colour) : "var(--ink)"} />}
+      {sh.kind !== "highlight" && sh.kind !== "table" && !sh.fill && !(sh.kind === "tlc" && sh.tlc?.hide?.includes("border")) && <path key={`sh${sh.id}`} d={kept(shapeInks, sh, lined(sh.width), () => toPath(shapeInk(sh, lined(sh.width), L)))} fill={sh.colour ? textInk(sh.colour) : "var(--ink)"} />}
       {sh.kind === "tlc" && tlcInk(sh)}
       {sh.kind === "table" && tableInk(sh)}
       {sh.mark && isBracket(sh) && (() => {
@@ -3743,7 +3824,7 @@ export default function Editor() {
     for (const sh of shown.shapes ?? []) if (sh.order) things.push([sh.order, <g key={`osh${sh.id}`}>{shapeFill(sh)}{shapeLines(sh)}</g>]);
     for (const a of [...arrows, ...cycleArrows]) if (a.order) things.push([a.order, (
       <g key={`oa${a.id}`}>
-        {isOrbital(a) ? orbitalsInk([a]) : a.curve?.closed && a.fill ? curveFill(a) : <path d={kept(arrowInks, a, frame, () => toPath(arrowShapes(a, frame, L)))} fill={a.colour ? textInk(a.colour) : "var(--ink)"} />}
+        {isOrbital(a) ? orbitalsInk([a]) : a.curve?.closed && a.fill ? curveFill(a) : <path d={kept(arrowInks, a, lined(a.width), () => toPath(arrowShapes(a, lined(a.width), L)))} fill={a.colour ? textInk(a.colour) : "var(--ink)"} />}
       </g>
     )]);
     for (const c of placed) if (c.order && c.id !== (writing?.id ?? DRAFT) && c.id !== DRAFT) things.push([c.order, <CaptionText key={`oc${c.id}`} c={c} fill={textInk(c.colour ?? style.colour)} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} />]);
@@ -3778,6 +3859,8 @@ export default function Editor() {
         onDoubleClick={(e) => {
           // A double-click ends the Pen's curve.
           if (pen) return finishPen();
+          // A double-click on the rotation handle opens Rotate, as in ChemDraw.
+          if (tool !== "erase" && onTurnHandle(toDoc(e.clientX, e.clientY))) return setDialog({ kind: "rotate", angle: "90", clockwise: false });
           // With Select, a double-click on any part of a group picks the whole of its outermost group (as ChemDraw's).
           if (tool === "select") {
             const h = hit(toDoc(e.clientX, e.clientY)), g = outermost(groupsOf(doc, new Set(atomsOf(doc, h)), new Set(itemsOf(h))));
@@ -3882,17 +3965,21 @@ export default function Editor() {
             return points.map((q, i) => <circle key={`hd${i}`} className="handle" cx={q[0] * L} cy={-q[1] * L} r={4 / view.zoom} vectorEffect="non-scaling-stroke" />);
           })()}
           {(() => {
-            // The rotation handle, and the angle while turning.
-            const h = drag?.kind === "turn" ? undefined : turnHandle(view.zoom);
+            // The rotation handle, the centre the selection turns about (a +, which Option-drag moves), and the angle
+            // while turning.
+            const h = drag?.kind === "turn" ? undefined : turnHandle(view.zoom), c = drag?.kind === "turn" ? drag.centre : h && centreMark;
+            const centre = c && <path className="turn-centre" d="M-5 0H5M0 -5V5" transform={`translate(${c[0] * L} ${-c[1] * L}) scale(${1 / view.zoom})`} aria-hidden />;
             if (drag?.kind === "turn") {
-              const c = drag.centre;
-              return <text className="turn-angle" x={c[0] * L} y={-c[1] * L} textAnchor="middle" style={{ fontSize: 11 / view.zoom }}>{`${Math.round(drag.degrees)}°`}</text>;
+              return <>{centre}<text className="turn-angle" x={c![0] * L} y={-c![1] * L - 10 / view.zoom} textAnchor="middle" style={{ fontSize: 11 / view.zoom }}>{`${Math.round(drag.degrees)}°`}</text></>;
             }
             return h && (
-              <g className={overTurn ? "turn-handle hot" : "turn-handle"} transform={`translate(${h[0]} ${h[1]}) scale(${1 / view.zoom})`} aria-hidden>
-                <circle r={9} />
-                <path d="M3.6 -3.2 A4.8 4.8 0 1 0 4.6 1.6 M3.6 -3.2 L3.8 -6.2 M3.6 -3.2 L0.7 -3" />
-              </g>
+              <>
+                {centre}
+                <g className={overTurn ? "turn-handle hot" : "turn-handle"} transform={`translate(${h[0]} ${h[1]}) scale(${1 / view.zoom})`} aria-hidden>
+                  <circle r={9} />
+                  <path d="M3.6 -3.2 A4.8 4.8 0 1 0 4.6 1.6 M3.6 -3.2 L3.8 -6.2 M3.6 -3.2 L0.7 -3" />
+                </g>
+              </>
             );
           })()}
           {box}
@@ -3964,8 +4051,8 @@ export default function Editor() {
         // row, Enter and the up and down arrows move down and up a column, and Tab past the last cell adds a row.
         const sh = doc.shapes?.find((x) => x.id === cell.id);
         if (!sh?.table) return null;
-        const t = tableLayout(sh, cellWidth), z = view.zoom, size = style.captionSize * pt * z, cols = t.cols;
-        const width = Math.max(t.widths[cell.c], cellWidth(cell.value) + 2 * TABLE_PAD) * L * z, align = sh.table.align?.[cell.c] ?? "centre";
+        const t = tableLayout(sh, cellWidth(sh)), z = view.zoom, size = (sh.size ?? style.captionSize) * pt * z, cols = t.cols;
+        const width = Math.max(t.widths[cell.c], cellWidth(sh)(cell.value) + 2 * TABLE_PAD) * L * z, align = sh.table.align?.[cell.c] ?? "centre";
         return (
           <input
             ref={cellInput}
@@ -3976,7 +4063,7 @@ export default function Editor() {
             value={cell.value}
             style={{
               left: view.x + ((t.col(cell.c) + t.widths[cell.c] / 2) * L * z) - width / 2, top: view.y - t.row(cell.r) * L * z,
-              width, height: t.heights[cell.r] * L * z, font: `${size}px ${fontStack(style.captionFont)}`, color: sh.colour ?? style.colour,
+              width, height: t.heights[cell.r] * L * z, ...textFace(sh, size), color: sh.colour ?? style.colour,
               textAlign: align === "centre" ? "center" : align, padding: `0 ${TABLE_PAD * L * z}px`,
             }}
             onChange={(e) => setCell({ ...cell, value: e.target.value })}

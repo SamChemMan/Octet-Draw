@@ -32,8 +32,8 @@ export type Context =
   | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
       script?: "sub" | "super"; font?: string; fonts?: string[] }
   | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
-      heads: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string }
-  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[]; shade: { depth: number; blur: number; opacity: number; pt: number } }
+      heads: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string; width: number }
+  | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[]; shade: { depth: number; blur: number; opacity: number; pt: number }; text?: LabelText }
   | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean; grid: boolean }
   | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; halo?: string; fill?: string; numbered?: boolean }
@@ -220,6 +220,9 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   // Rotate 180° keeps stereochemistry (arrows round), Flip mirrors it (mirror glyphs).
   const flips = [it(<ArrowsLeftRight size={18} />, "Rotate 180° horizontal", "flip_h", false, true), it(<ArrowsDownUp size={18} />, "Rotate 180° vertical", "flip_v", false, true)];
   const mirrors = [it(<FlipHorizontal size={18} />, "Flip horizontal", "mirror_h", false, true), it(<FlipVertical size={18} />, "Flip vertical", "mirror_v", false, true)];
+  // Every turn and flip, for any selection they act on (as ChemDraw's Object menu, for every kind of object).
+  const turnings = [small(it(<ArrowArcRight size={18} />, "Turn 15° clockwise", "rotate.cw15")), small(it(<ArrowArcLeft size={18} />, "Turn 15° anticlockwise", "rotate.ccw15"))];
+  const turnsAndFlips = [...turnings, ...flips, ...mirrors];
   // The draw order, for every kind of object (Object menu: Bring to Front, Send to Back). On an atom or a bond it moves
   // the whole structure, as the menu command does.
   const order = [it(<StackSimple size={18} />, "Bring to front", "bring_front", false, true), it(<Stack size={18} />, "Send to back", "send_back", false, true)];
@@ -235,7 +238,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<CornersOut size={18} />, "Fit to window", "zoom_fit")));
       break;
     case "selection":
-      items.push(...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...order, del);
+      items.push(...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...turnsAndFlips, ...order, del);
       break;
     case "structure":
       // Sam (17 October 2026): Clean up and Structure to name as rows; every turn, rotation and flip in one sub-menu;
@@ -246,8 +249,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
         ...(hiddenWarnings ? [small(it(<Warning size={18} />, "Show warnings", "show_warnings"))] : []),
         small(it(<TextT size={18} />, "Add a caption", "caption.add")),
-        small(it(<ArrowArcRight size={18} />, "Turn 15° clockwise", "rotate.cw15")), small(it(<ArrowArcLeft size={18} />, "Turn 15° anticlockwise", "rotate.ccw15")),
-        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")), small(it(<Flask size={18} />, "Properties", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")));
+        ...turnings, small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")), small(it(<Flask size={18} />, "Properties", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")));
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<DotsThree size={18} />, "Line up in a row", "align.row")),
         small(it(<DotsThreeVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
       if (context.depth !== undefined) items.push(small(it(<Cube size={18} />, context.depth ? "Draw flat" : "Draw with depth", "structure_perspective")), small(it(<Square size={18} />, "Flatten", "flatten")));
@@ -274,13 +276,13 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
     case "reaction":
       items.push(it(<MagicWand size={18} />, "Clean up reaction", "reaction.clean", !context.clean),
         it(<ListNumbers size={18} />, "Number these compounds", "number"), small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")),
-        it(<span className="glyph-text">A→A</span>, "Map atoms", "reaction.map"), it(<Table size={18} />, context.grid ? "Remove stoichiometry" : "Analyse stoichiometry", "stoichiometry"), ...(context.mapped ? [small(it(<X size={18} />, "Clear atom map", "reaction.unmap"))] : []), ...order, del);
+        it(<span className="glyph-text">A→A</span>, "Map atoms", "reaction.map"), it(<Table size={18} />, context.grid ? "Remove stoichiometry" : "Analyse stoichiometry", "stoichiometry"), ...(context.mapped ? [small(it(<X size={18} />, "Clear atom map", "reaction.unmap"))] : []), ...turnsAndFlips, ...order, del);
       break;
     case "cycle":
       if (!context.centre) items.push(it(<TextT size={18} />, "Add a centre label", "cycle.centre"));
       items.push(it(<SignIn size={18} />, "Add a reagent coming in", "cycle.in"), it(<SignOut size={18} />, "Add a product going out", "cycle.out"),
         it(<MagicWand size={18} />, "Tidy the cycle", "cycle.tidy"), small(it(<ArrowsCounterClockwise size={18} />, "Reverse the direction", "cycle.reverse")),
-        small(it(<CircleDashed size={18} />, "Remove the cycle", "cycle.ungroup")), ...order, del);
+        small(it(<CircleDashed size={18} />, "Remove the cycle", "cycle.ungroup")), ...turnsAndFlips, ...order, del);
       break;
     case "shape":
       if (context.shape === "tlc") {
@@ -302,19 +304,19 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         break;
       }
       if (isBracket({ kind: context.shape })) items.push(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed"));
-      items.push(...order, del);
+      items.push(...turnsAndFlips, ...order, del);
       break;
     case "spot":
       items.push(it(<span className="glyph-text">Rf</span>, context.rf ? "Hide its Rf" : "Show its Rf", "spot.rf"), del);
       break;
     case "arrow":
-      if (context.arrow === "orbital") { items.push(it(<Swap size={18} />, "Swap the phases", "orbital.swap"), ...order, del); break; }
-      if (context.arrow === "curve") { items.push(it(<Polygon size={18} />, context.closed ? "Open the curve" : "Close the curve", "arrow.closed"), it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...order, del); break; }
-      if (isLine({ kind: context.arrow })) { items.push(it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...(context.curved ? [it(<FlipVertical size={18} />, "Flip the curve", "arrow.flip")] : []), ...order, del); break; }
+      if (context.arrow === "orbital") { items.push(it(<Swap size={18} />, "Swap the phases", "orbital.swap"), ...turnsAndFlips, ...order, del); break; }
+      if (context.arrow === "curve") { items.push(it(<Polygon size={18} />, context.closed ? "Open the curve" : "Close the curve", "arrow.closed"), it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...turnsAndFlips, ...order, del); break; }
+      if (isLine({ kind: context.arrow })) { items.push(it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"), ...(context.curved ? [it(<FlipVertical size={18} />, "Flip the curve", "arrow.flip")] : []), ...turnsAndFlips, ...order, del); break; }
       if (context.count === 1 && !context.curved) items.push(it(<ArrowLineUp size={18} />, "Add conditions above", "arrow.above"), it(<ArrowLineDown size={18} />, "Add conditions below", "arrow.below"));
       items.push(it(<ArrowUDownLeft size={18} />, "Reverse", "arrow.reverse"));
       if (context.curved) items.push(it(<FlipVertical size={18} />, "Flip the curve", "arrow.flip"));
-      items.push(...order, del);
+      items.push(...turnsAndFlips, ...order, del);
       break;
   }
   return items;
@@ -587,8 +589,9 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         </div>
       )}
 
-      {(context.kind === "atom" || context.kind === "structure") && context.text && (
-        // A label styles as text does, as in ChemDraw: the Text menu's styles, font and size on the selected labels.
+      {(context.kind === "atom" || context.kind === "structure" || context.kind === "shape") && context.text && (
+        // A label styles as text does, as in ChemDraw: the Text menu's styles, font and size on the selected labels,
+        // and on a table's cells or a TLC plate's Rf values.
         <div className="chips label-style" role="group" aria-label="Label style">
           {([["bold", "Bold", <TextB size={16} />, context.text.bold], ["italic", "Italic", <TextItalic size={16} />, context.text.italic], ["underline", "Underline", <TextUnderline size={16} />, context.text.underline]] as const).map(([id, name, icon, on]) => (
             <button key={id} className="chip" aria-pressed={on} aria-label={name} title={hint(`caption.${id}`) ? `${name} (${hint(`caption.${id}`)})` : name} onClick={() => run(`caption.${id}`)}>{icon}</button>
@@ -744,6 +747,12 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           </div>
         );
       })()}
+      {((context.kind === "shape" && context.shape !== "highlight" && context.shape !== "table" && context.style !== "solid" && context.style !== "shaded") || context.kind === "arrow") && (
+        // The width of the lines, for every object drawn in lines (a table's is with its lines, above).
+        <div className="sliders" role="group" aria-label="Lines">
+          <Slider name="Line width" value={context.kind === "arrow" ? context.width : context.weight} min={0.1} max={4} step={0.05} show={(v) => `${v.toFixed(2)} pt`} onChange={(v) => run(`${context.kind}.weight.${Math.round(v * 100)}`)} />
+        </div>
+      )}
       {colour && (
         // Colour is a section of its own, titled like the sets below, and set off from the main rows.
         <div className="colour-block" role="group" aria-label="Colour">
