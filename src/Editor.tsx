@@ -1261,6 +1261,9 @@ export default function Editor() {
     const [x, y] = [(w / 2) * mm, (h / 2) * mm], dx = Math.abs(Math.abs(p[0]) - x), dy = Math.abs(Math.abs(p[1]) - y), near = 5 / (views.get().zoom * L);
     return (dx < near && Math.abs(p[1]) <= y + near) || (dy < near && Math.abs(p[0]) <= x + near);
   });
+  // The page a press fits in the window: with Select only, on a page's edge clear of the drawing. A drawing tool draws
+  // there. (ChemDraw's help gives a page boundary no click action; its View > Show Document fits the page.)
+  const edgePage = (p: P, t: Hover) => (tool === "select" && t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined ? pageEdgeAt(p) : undefined);
   // The grid (grid.ts): the document's step, counted from the page's top-left corner (where the rulers start), or
   // from the crosshair while it shows. It shows on engineering paper and with View > Show Grid; the crosshair shows
   // its heavier lines. Snap to Grid snaps to the lines that show, within 6 screen px; ⌘ frees.
@@ -1352,7 +1355,7 @@ export default function Editor() {
     };
     flight.current = requestAnimationFrame(step);
   }
-  // A click on a page's edge fits that page in the window, centred.
+  // A Select click on a page's edge (edgePage) fits that page in the window, centred.
   const fitZoom = ([, w, h]: [string, number, number]) => Math.min((innerWidth - 160) / (w * mm * L), (innerHeight - 48) / (h * mm * L));
   const fitPage = (page: [string, number, number]) => flyTo({ x: innerWidth / 2, y: innerHeight / 2, zoom: fitZoom(page) });
   // The zoom limits: a bond drawn 0.25 to 8 times its size, widened so that every page outline can be fitted. At
@@ -2251,7 +2254,7 @@ export default function Editor() {
       const centre = turnCentre();
       return setDrag({ kind: "turn", centre, middles: captionMiddles(), start: Math.atan2(p[1] - centre[1], p[0] - centre[0]), degrees: 0, working: doc });
     }
-    const page = t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined ? pageEdgeAt(p) : undefined;
+    const page = edgePage(p, t);
     if (page) return fitPage(page);
     if (tool === "select") {
       pressMods.current = { shift: e.shiftKey, alt: e.altKey, atoms: selection, picks: picked };
@@ -2353,7 +2356,7 @@ export default function Editor() {
       const t = hit(p);
       overs.set({
         selection: tool !== "erase" && selection.size > 0 && onSelection(doc, selection, p), turn: tool !== "erase" && onTurnHandle(p), edge: tool === "table" ? tableEdge(p)?.axis : undefined, resize: resizeAt(p),
-        page: t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined ? pageEdgeAt(p)?.[0] : undefined, cross: onCrosshair(p, t),
+        page: edgePage(p, t)?.[0], cross: onCrosshair(p, t),
       });
       // A keyboard hotspot stays until the pointer moves on to something other than what it was over.
       if (hovers.get().key) {
