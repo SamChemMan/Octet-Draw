@@ -3,7 +3,7 @@ import Indigo from "indigo-ketcher/binaryWasmNoRender";
 import { hydrogens, NONMETAL, ORDER, type Face, type Ink, type Mol } from "./render.ts";
 import { fontStack } from "./docstyle.ts";
 import { labelSmiles } from "./labels.ts";
-import { fragments, insertMol, labelPlacer, levelTurn, renumberCentre, subset } from "./edit.ts";
+import { fragments, insertMol, labelPlacer, levelTurn, pickAtoms, renumberCentre, subset } from "./edit.ts";
 import { graphOf, type Graph } from "./naming.ts";
 import { clean2d } from "./clean2d.ts";
 import { counts } from "./mass.ts";
@@ -344,7 +344,7 @@ function reactionKet(drawn: Mol, step: RxnStep): string {
   let x = 0, k = 0;
   // A structure at x (its left edge), its middle at y; returns its width.
   const put = (atoms: number[], at: number, y = 0) => {
-    const m = ketMol(expandLabels(subset(drawn, new Set(atoms))), true, true), xs = m.atoms.map((a) => a.location[0]), ys = m.atoms.map((a) => a.location[1]);
+    const m = ketMol(expandLabels(pickAtoms(drawn, atoms)), true, true), xs = m.atoms.map((a) => a.location[0]), ys = m.atoms.map((a) => a.location[1]);
     const dx = at - Math.min(...xs), dy = y - (Math.min(...ys) + Math.max(...ys)) / 2;
     m.atoms = m.atoms.map((a) => ({ ...a, location: [a.location[0] + dx, a.location[1] + dy, 0] as [number, number, number] }));
     out[`mol${k}`] = m;
@@ -808,4 +808,16 @@ function analyseAll(mol: Mol): Analysis | undefined {
     opts.delete();
     sel.delete();
   }
+}
+
+// A reagent's formula and molar mass from its SMILES (a reagent written as an abbreviation, such as MeOH or Et3N, read
+// by labels.ts), kept by the SMILES. Undefined while Indigo is loading or if it cannot read it.
+const reagents = new Map<string, { formula: string; weight: number } | undefined>();
+export function smilesWeight(smiles: string): { formula: string; weight: number } | undefined {
+  if (!indigo) return undefined;
+  const ind = indigo;
+  return remembered(reagents, smiles, () => {
+    const opts = new ind.MapStringString(), sel = new ind.VectorInt();
+    try { const one = summed(JSON.parse(ind.calculate(smiles, opts, sel))); return Number.isFinite(one.weight) && one.weight > 0 ? { formula: one.formula, weight: one.weight } : undefined; } catch { return undefined; } finally { opts.delete(); sel.delete(); }
+  });
 }

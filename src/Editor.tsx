@@ -10,14 +10,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
-import { analyse, structures, expandWithOrigins, stereoFacts, stereoLabels, toMolfile, toReaction, toSdf, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
+import { analyse, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toSmiles } from "./chem";
 import { MAX_PURPOSES, PURPOSES, fontStack, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, sizesAt, type DocStyle, type Guides, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
 import { Rulers } from "./Rulers";
 import { messy, problems, WARNING_TYPES, type Problem, type WarningType } from "./check";
 import { parse, serialize } from "./file";
 import {
-  EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
+  EMPTY, pickAtoms, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset,
   addShape, addSymbol, bondOrders, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, fitSizes, scaleAt, stereocentres, setEnhanced, nextGroup, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
 } from "./edit";
@@ -43,13 +43,13 @@ import { Feedback } from "./Feedback";
 import { ExportButton, ExportDialog } from "./ExportDialog";
 import { flushSync } from "react-dom";
 import { copyToClipboard, exportFile, MDL, readClipboard, standaloneSvg, UI, withMargin, type ExportFormat } from "./export";
-import { formatAmount, formulaWeight, parseAmount, solve, type Field } from "./stoich";
+import { formatAmount, formulaWeight, keyColumns, parseAmount, solve, type Field } from "./stoich";
 import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb } from "./TemplateLibrary";
 import { cleanUpReaction, findReaction, GAP, layoutRow, reactionClean, roleOf, rowOf, type Reaction } from "./reaction";
-import { interpret, type Part, type RoleStep } from "./interpret";
+import { alignByMap, clearScheme, interpret, mapScheme, rolesOf, type Part, type Role, type RoleStep } from "./interpret";
 import { SEARCHES, searchNow, searchQuery } from "./search";
 import { SettingsWindow, type ModuleId } from "./SettingsWindow";
 import { layoutCycles, orderAround, spreadCycle, type Cycle, type CycleText } from "./cycle";
@@ -59,7 +59,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, Palette, RingGlyph, RINGS, SELECTS, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowShapes, bendPoint, curved, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type Bond, type BracketUsage, type Polymer } from "./render";
+import { arrowShapes, bendPoint, curved, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type Bond, type BracketUsage, type Polymer, type Grid } from "./render";
 import { rotateCursor, selectCursor } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { loadNames, nameToSmiles, suggestName, knownName, looksLikeSmiles } from "./names";
@@ -271,13 +271,15 @@ function contractLabelText(want: string): string | undefined {
   return contracted.find(([, inchi]) => inchi === want)?.[0];
 }
 // The stoichiometry grid's rows, as ChemDraw's: what each component is, then amounts. shown: rows that appear only
-// once one of these was typed somewhere; product: rows for products (true) or reactants (false) only.
+// once one of these was typed somewhere; product: rows for products (true) or reactants (false) only. Equivalents are
+// a product's coefficient too, as ChemDraw's product column has them.
 const GRID_ROWS: { id: string; name: string; field?: Field; product?: boolean; shown?: Field[] }[] = [
   { id: "formula", name: "Formula" }, { id: "mw", name: "MW" }, { id: "limiting", name: "Limiting?", product: false },
-  { id: "equiv", name: "Equivalents", field: "equiv", product: false }, { id: "mass", name: "Mass", field: "mass", product: false }, { id: "moles", name: "Moles", field: "moles", product: false },
+  { id: "equiv", name: "Equivalents", field: "equiv" }, { id: "mass", name: "Mass", field: "mass", product: false }, { id: "moles", name: "Moles", field: "moles", product: false },
   { id: "volume", name: "Volume", field: "volume", product: false, shown: ["volume", "density", "molarity"] }, { id: "density", name: "Density", field: "density", product: false, shown: ["density"] },
   { id: "molarity", name: "Molarity", field: "molarity", product: false, shown: ["molarity"] }, { id: "purity", name: "Purity", field: "purity", shown: ["purity"] },
-  { id: "expected", name: "Expected mass", product: true }, { id: "measured", name: "Measured mass", field: "measured", product: true }, { id: "yield", name: "Yield", product: true },
+  { id: "expected", name: "Expected mass", product: true }, { id: "expectedMoles", name: "Expected moles", product: true },
+  { id: "measured", name: "Measured mass", field: "measured", product: true }, { id: "yield", name: "Yield", product: true },
 ];
 
 // A pen point: a corner, or (dragged out) a smooth point with its incoming handle mirroring its outgoing one.
@@ -1090,6 +1092,27 @@ export default function Editor() {
       const r = arrow !== undefined ? reactionOf(arrow) : undefined;
       return r ? set(cleanUpReaction(doc, r, arrows), true) : setNotice("Select a reaction arrow first.");
     },
+    // Augmented Clean Up Reaction (ChemDraw's): each product turned to lie as the reactant it came from, by the atom
+    // map (mapped for this and the map taken off again when the reaction had none), then Clean Up Reaction.
+    clean_reaction_augmented: () => {
+      const arrow = reactionPicked()?.arrows[0] ?? [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
+      const r = arrow !== undefined ? reactionOf(arrow) : undefined;
+      if (!r || arrow === undefined) return setNotice("Select a reaction arrow first.");
+      const structures = (list: Part[]) => list.flatMap((x) => (x.kind === "structure" ? [x.atoms] : []));
+      const steps = interpret(doc, r, arrows, inkBox, captionBox).map((x) => ({ reactants: structures(x.reactants), products: structures(x.products) }));
+      const had = r.atoms.some((i) => doc.atoms[i].map);
+      let m = alignByMap(had ? doc : mapScheme(doc, steps, mapReaction, (atoms) => pickAtoms(doc, atoms)) ?? doc, steps);
+      if (!had) m = { ...clearScheme(m, new Set(r.atoms)), bonds: m.bonds.map((b, k) => ({ ...b, rxn: doc.bonds[k].rxn })) };
+      // The reaction read again from where its parts now stand, then laid out.
+      const d = render(m, frame, measure, L), box = (b?: Box): Box | undefined => b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L];
+      const again = findReaction(m, arrow, arrows, (atoms) => box(union(atoms.filter((i) => d.ink[i]).map((i) => d.ink[i]))), captionBox);
+      set(again ? cleanUpReaction(m, again, arrows) : m, true);
+    },
+    // Show Reaction Interpretation (View menu): pointing at a reaction shows what each part of it is.
+    interpretation: () => setSettings((s) => ({ ...s, interpretation: !s.interpretation })),
+    // Structure > Map Reaction Atoms and Clear Reaction Map, as ChemDraw's.
+    map_reaction: () => runAction("reaction.map"),
+    clear_reaction_map: () => runAction("reaction.unmap"),
     // Zoom about the middle of the window. Actual size is 100%: bonds at their true 14.4 pt.
     zoom_in: () => zoomTo(views.get().zoom * 1.25),
     zoom_out: () => zoomTo(views.get().zoom / 1.25),
@@ -1264,7 +1287,7 @@ export default function Editor() {
   }
   // Keep the setting on disk and the View menu ticks in step with it.
   const syncChecks = () => Promise.all(([["grid", !!guides.grid], ["rulers", !!guides.rulers], ["crosshair", !!guides.crosshair], ["snap", settings.snap], ["snap_grid", settings.snapGrid],
-    ["warnings", settings.warnings]] as const).map(([id, checked]) => invoke("set_check", { id, checked }))).catch(() => {});
+    ["warnings", settings.warnings], ["interpretation", settings.interpretation]] as const).map(([id, checked]) => invoke("set_check", { id, checked }))).catch(() => {});
   useEffect(() => {
     saveSettings(settings);
     if (TAURI) syncChecks();
@@ -1755,6 +1778,9 @@ export default function Editor() {
     }
     return out;
   };
+  // Show Reaction Interpretation: each reaction's steps and what each part is, read again when the drawing changes.
+  const interpreted = useMemo(() => (settings.interpretation && loaded ? reactions().map(({ r, steps }) => ({ r, steps, roles: rolesOf(steps) })) : []),
+    [settings.interpretation, loaded, doc, drawing, placed]); // eslint-disable-line react-hooks/exhaustive-deps
   // The reaction steps in a part of the drawing (the drawing, or the selection's part), for RXN and RD files and
   // reaction SMILES: each step's reactant, product and agent structures, by the part's atoms. A step needs a reactant
   // and a product structure, and all of it in the part.
@@ -2815,6 +2841,7 @@ export default function Editor() {
     if (context.kind === "caption" || context.kind === "shape") return { value: context.colour, tints: context.kind === "shape" && context.shape === "highlight" };
     if (context.kind === "spot" && spotPick) return { value: doc.shapes?.find((x) => x.id === spotPick.plate)?.tlc?.spots[spotPick.index]?.colour ?? "#000000" };
     if (context.kind === "empty" || context.kind === "drawing") return undefined;
+    if (context.kind === "grid") return { value: doc.grids?.find((g) => g.arrow === gridPick?.arrow)?.colour ?? "#000000" };
     // A bond alone takes its own colour (the colour action sets the bond only), so its row shows the bond's.
     if (context.kind === "bond") return { value: doc.bonds.find((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1]))?.colour ?? "#000000" };
     const first = [...selection][0], thing = [...(doc.arrows ?? []), ...(doc.cycles ?? []), ...(doc.shapes ?? []), ...(doc.captions ?? [])].find((x) => picked.has(x.id));
@@ -2833,6 +2860,109 @@ export default function Editor() {
   };
   // What the Actions panel shows: it follows the selection (and, while typing, the caret). Worked out when the panel
   // draws and when an action runs.
+  // Stoichiometry grids, each laid out under its reaction: a column under each reactant, each reagent drawn or written
+  // above or below an arrow (as ChemDraw's grid takes them, as reactants), and each product; text reagents such as H2O
+  // or MeOH too, each item of a list such as "NaBH4, MeOH" on its own, their molar mass from the formula or the
+  // abbreviation. The row names on the left, the amounts worked out from what was typed (stoich.ts). Typed values show
+  // bold, worked-out ones plain, as ChemDraw's grid does. Hidden rows and columns are left out.
+  const gridViews = useMemo(() => (loaded && (!exporting || exporting === doc) ? doc.grids ?? [] : []).flatMap((g) => {
+    const r = reactionOf(g.arrow);
+    if (!r) return [];
+    const steps = interpret(doc, r, arrows, inkBox, captionBox);
+    if (!steps.length) return [];
+    const parts: { product: boolean; what: string; formula: string; mw: number; x: number; low: number }[] = [];
+    // conditions: only text with a molar mass makes a column ("0 °C" and "2 h" do not).
+    const add = (p: Part, product: boolean, conditions = false) => {
+      const x = (p.box[0] + p.box[2]) / 2, low = p.box[1];
+      if (p.kind === "structure") { const a = analyse(pickAtoms(doc, p.atoms))?.[0]; parts.push({ product, what: a?.formula ?? "?", formula: a?.formula ?? "", mw: a?.weight ?? 0, x, low }); return; }
+      const text = doc.captions?.find((c) => c.id === p.id)?.text ?? "", items = conditions ? text.split(/[,;\n]/).map((t) => t.trim()).filter(Boolean) : [text.trim()];
+      items.forEach((item, k) => {
+        const plain = item.replace(/^\d+\s+(?=\S)/, ""), weight = formulaWeight(plain), smiles = weight === undefined ? labelSmiles(plain) : undefined, read = smiles ? smilesWeight(smiles) : undefined;
+        if (conditions && !weight && !read) return;
+        parts.push({ product, what: `"${item}"`, formula: weight ? plain.replace(/\s+/g, "") : read?.formula ?? "", mw: weight ?? read?.weight ?? 0, x: x + k * 0.01, low });
+      });
+    };
+    steps[0].reactants.forEach((p) => add(p, false));
+    for (const st of steps) for (const p of [...st.above, ...st.below]) add(p, false, true);
+    steps[steps.length - 1].products.forEach((p) => add(p, true));
+    if (!parts.length) return [];
+    const keyed = keyColumns(parts, g.typed, g.limiting), all = keyed.cols, hidden = g.hidden ?? {};
+    const solved = solve(all, keyed.limiting), limiting = keyed.limiting ?? all.find((c) => !c.product)?.key;
+    // The grid takes its arrow's scale (decision 0007). Columns stand under what they are, a column's width apart.
+    const f = scaleOf(doc.arrows?.find((a) => a.id === g.arrow) ?? {}), width = 3.4 * f;
+    const cols = all.filter((c) => !hidden.cols?.includes(c.key)).sort((p, q) => p.x - q.x).map((c) => ({ ...c }));
+    cols.forEach((c, k) => { if (k && c.x < cols[k - 1].x + width) c.x = cols[k - 1].x + width; });
+    if (!cols.length) return [];
+    const used = (fd: Field) => cols.some((c) => c.typed[fd] !== undefined), products = cols.some((c) => c.product);
+    const rows = GRID_ROWS.filter((row) => !hidden.rows?.includes(row.id) && (row.product ? products : row.shown ? row.shown.some(used) : true));
+    // Below the components and the numbers under them.
+    const under = (doc.captions ?? []).filter((c) => c.under?.some((i) => r.atoms.includes(i))).map((c) => placed.find((p) => p.id === c.id)).filter(Boolean).map((p) => -p!.box[3] / L);
+    const top = Math.min(...cols.map((c) => c.low), ...under) - 0.9 * f, rh = (style.captionSize * pt * 0.9 * 1.6 * f) / L;
+    // The row names end a little before the first column; the rules start at the longest name.
+    const left = Math.min(...cols.map((c) => c.x)) - width / 2 - 0.3 * f, size = style.captionSize * pt * 0.9 * f;
+    const names = Math.max(...rows.map((row) => formulaWidth(row.name, size, false, false, fontStack(style.captionFont)) / L));
+    return [{ arrow: g.arrow, all, cols, rows, solved, limiting, top, rh, left, width, start: left - names - 0.2 * f, f, colour: g.colour, hiding: !!(hidden.rows?.length || hidden.cols?.length) }];
+  }), [loaded, doc, drawing, placed, exporting]); // eslint-disable-line react-hooks/exhaustive-deps
+  type GridView = (typeof gridViews)[number];
+  // A cell's text, and whether it was typed.
+  const gridText = (v: GridView, c: GridView["cols"][number], row: (typeof GRID_ROWS)[number]): { text: string; typed?: boolean } => {
+    const s = v.solved[c.key];
+    if (row.id === "formula") return { text: c.formula };
+    if (row.id === "mw") return { text: c.mw ? formatAmount(c.mw, "mw") : "" };
+    if (row.id === "limiting") return { text: c.product ? "" : v.limiting === c.key ? "Yes" : "" };
+    if (row.product !== c.product && row.product !== undefined) return { text: "" };
+    if (row.id === "expected") return { text: formatAmount(s?.expectedMass, "mass") };
+    if (row.id === "expectedMoles") return { text: formatAmount(s?.expectedMoles, "moles") };
+    if (row.id === "yield") return { text: formatAmount(s?.yield, "yield") };
+    if (!row.field || (c.product && !["purity", "measured", "equiv"].includes(row.field))) return { text: "" };
+    return { text: formatAmount(s?.[row.field as keyof typeof s] as number | undefined, row.field), typed: c.typed[row.field] !== undefined };
+  };
+  // The grid cell under a point (drawing units), if any.
+  const gridCellAt = (p: P) => {
+    for (const v of gridViews) {
+      const k = Math.floor((v.top - p[1]) / v.rh), c = v.cols.find((col) => Math.abs(p[0] - col.x) < v.width / 2);
+      if (k >= 0 && k < v.rows.length && c) return { arrow: v.arrow, key: c.key, row: v.rows[k].id, x: c.x, y: v.top - k * v.rh, product: c.product };
+    }
+    return undefined;
+  };
+  const [gridEdit, setGridEdit] = useState<{ arrow: number; key: string; row: string; x: number; y: number; product: boolean; value: string }>();
+  // A grid cell clicked with Select: picked, for the grid's actions (Set as limiting, Hide row and column, colour).
+  const [gridPick, setGridPick] = useState<{ arrow: number; key: string; row: string }>();
+  useEffect(() => { if (selection.size || picked.size) setGridPick(undefined); }, [selection, picked]);
+  // A grid changed: its typed values and limiting reactant saved under each column's key as the grid now reads them
+  // (keyColumns), so values matched by order are kept by key from now on.
+  const changeGrid = (arrow: number, change: (g: Grid, v: GridView) => Partial<Grid>) => {
+    const g = doc.grids?.find((x) => x.arrow === arrow), v = gridViews.find((x) => x.arrow === arrow);
+    if (!g || !v) return;
+    const now: Grid = { ...g, typed: Object.fromEntries(v.all.filter((c) => Object.keys(c.typed).length).map((c) => [c.key, c.typed])), limiting: v.limiting };
+    set({ ...doc, grids: doc.grids!.map((x) => (x === g ? { ...now, ...change(now, v) } : x)) }, true);
+  };
+  // Typing in a cell: the unit says what it is (250 mg a mass, 0.5 mL a volume, 1.2 eq equivalents), a bare number is
+  // the row's own quantity, and an empty cell clears it. A reactant's mass, moles, volume or equivalents replaces the
+  // others (they are four ways to say how much); a product's equivalents are its coefficient. Limiting? sets the
+  // limiting reactant.
+  function commitGridCell(text: string) {
+    const w = gridEdit;
+    setGridEdit(undefined);
+    if (!w) return;
+    const row = GRID_ROWS.find((r) => r.id === w.row)!;
+    if (row.id === "limiting") return w.product ? undefined : changeGrid(w.arrow, () => ({ limiting: w.key }));
+    if (!row.field) return;
+    const field0 = row.field;
+    changeGrid(w.arrow, (g) => {
+      const typed = { ...(g.typed[w.key] ?? {}) };
+      if (!text.trim()) delete typed[field0];
+      else {
+        const fields: Field[] = w.product ? ["measured", "purity", "equiv"] : [field0, "mass", "moles", "volume", "equiv", "density", "molarity", "purity"];
+        const bare = /^\s*[\d.,]+(e[+-]?\d+)?\s*$/i.test(text), field = bare ? (w.product && field0 !== "purity" && field0 !== "equiv" ? "measured" : field0) : fields.find((fd) => parseAmount(text, fd) !== undefined);
+        const value = field && parseAmount(text, field);
+        if (!field || value === undefined) { setNotice("Type an amount with its unit, such as 250 mg, 1.2 eq or 0.5 mL."); return {}; }
+        if (!w.product && ["mass", "moles", "volume", "equiv"].includes(field)) for (const fd of ["mass", "moles", "volume", "equiv"] as Field[]) delete typed[fd];
+        typed[field] = value;
+      }
+      return { typed: { ...g.typed, [w.key]: typed } };
+    });
+  }
   const contextOf = (): Context => {
     // Typing, or the Text tool in hand: the panel is a text editor for that text (or the next text).
     if (writing) {
@@ -2896,6 +3026,9 @@ export default function Editor() {
         return { kind: "caption", mode: "picked", colour: c.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList };
       }
     }
+    // A stoichiometry grid's cell picked.
+    const pickedGrid = gridPick && !selection.size && !picked.size ? gridViews.find((v) => v.arrow === gridPick.arrow) : undefined, pickedCol = pickedGrid?.all.find((c) => c.key === gridPick!.key);
+    if (pickedGrid && pickedCol) return { kind: "grid", product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding };
     if (!selection.size) return doc.atoms.length || doc.captions?.length || doc.arrows?.length || doc.shapes?.length ? { kind: "drawing", nameable, generic: genericSites(doc, doc.atoms.keys()) } : { kind: "empty" };
     // Atoms that are only in a drag (an Option-drag's copies, before they are kept) are not in the drawing yet.
     const ids = [...selection].filter((i) => i < doc.atoms.length);
@@ -2937,7 +3070,7 @@ export default function Editor() {
   // drawing again). While text is typed, the caret changes it too, so the panel works it out as it draws (see Actions
   // below).
   const settled = shown === doc;
-  const panelContext = useMemo(() => (writing ? undefined : contextOf()), [doc, selection, picked, writing, tool, textStyle, spotPick, lastCell, namesLoaded, loaded, style, fontList, settled && drawing, settled && placed]); // eslint-disable-line react-hooks/exhaustive-deps
+  const panelContext = useMemo(() => (writing ? undefined : contextOf()), [doc, selection, picked, writing, tool, textStyle, spotPick, lastCell, namesLoaded, loaded, style, fontList, settled && drawing, settled && placed, gridPick, gridViews]); // eslint-disable-line react-hooks/exhaustive-deps
   // The formula and mass the panel shows (of the selection, or everything): only while it is open and shows them, and
   // only for the first three structures, as it shows no more.
   const facts = settings.actions && (panelContext?.kind === "drawing" || panelContext?.kind === "structure");
@@ -3147,81 +3280,6 @@ export default function Editor() {
     m = addCaption(m, { text: plainOf(normalise(runs)), x: 0, y: 0, under: atoms, runs: normalise(runs) })[0];
     set(m, true);
   }
-  // Stoichiometry grids, each laid out under its reaction: a column under each reactant and product (text reagents
-  // such as H2O too, their molar mass from the formula), the row names on the left, the amounts worked out from what
-  // was typed (stoich.ts). Typed values show bold, worked-out ones plain, as ChemDraw's grid does.
-  const gridViews = useMemo(() => (loaded && (!exporting || exporting === doc) ? doc.grids ?? [] : []).flatMap((g) => {
-    const r = reactionOf(g.arrow);
-    if (!r) return [];
-    const at = r.steps.map((s, i) => (s.kind === "arrow" ? i : -1)).filter((i) => i >= 0), first = at[0], last = at[at.length - 1];
-    let nr = 0, np = 0;
-    const cols = r.steps.flatMap((s, i) => {
-      if ((s.kind !== "structure" && s.kind !== "text") || (i > first && i < last)) return [];
-      const product = i > last, key = product ? `p${np++}` : `r${nr++}`;
-      let formula = "", mw = 0;
-      if (s.kind === "structure") { const a = analyse(subset(doc, new Set(s.atoms)))?.[0]; if (a) { formula = a.formula; mw = a.weight; } }
-      else { const text = doc.captions?.find((c) => c.id === s.id)?.text ?? ""; mw = formulaWeight(text) ?? 0; formula = mw ? text.replace(/\s+/g, "") : ""; }
-      return [{ key, product, formula, mw, x: (s.box[0] + s.box[2]) / 2, low: s.box[1], typed: g.typed[key] ?? {} }];
-    });
-    if (!cols.length) return [];
-    const solved = solve(cols, g.limiting), limiting = g.limiting && cols.some((c) => c.key === g.limiting) ? g.limiting : cols.find((c) => !c.product)?.key;
-    const used = (f: Field) => cols.some((c) => c.typed[f] !== undefined), products = cols.some((c) => c.product);
-    const rows = GRID_ROWS.filter((row) => (row.product ? products : row.shown ? row.shown.some(used) : true));
-    // Below the components and the numbers under them.
-    const under = (doc.captions ?? []).filter((c) => c.under?.some((i) => r.atoms.includes(i))).map((c) => placed.find((p) => p.id === c.id)).filter(Boolean).map((p) => -p!.box[3] / L);
-    // The grid takes its arrow's scale (decision 0007).
-    const f = scaleOf(doc.arrows?.find((a) => a.id === g.arrow) ?? {});
-    const top = Math.min(...cols.map((c) => c.low), ...under) - 0.9 * f, rh = (style.captionSize * pt * 0.9 * 1.6 * f) / L;
-    // The row names end a little before the first column; the rules start at the longest name.
-    const width = 3.4 * f, left = Math.min(...cols.map((c) => c.x)) - width / 2 - 0.3 * f, size = style.captionSize * pt * 0.9 * f;
-    const names = Math.max(...rows.map((row) => formulaWidth(row.name, size, false, false, fontStack(style.captionFont)) / L));
-    return [{ arrow: g.arrow, cols, rows, solved, limiting, top, rh, left, width, start: left - names - 0.2 * f, f }];
-  }), [loaded, doc, drawing, placed, exporting]); // eslint-disable-line react-hooks/exhaustive-deps
-  type GridView = (typeof gridViews)[number];
-  // A cell's text, and whether it was typed.
-  const gridText = (v: GridView, c: GridView["cols"][number], row: (typeof GRID_ROWS)[number]): { text: string; typed?: boolean } => {
-    const s = v.solved[c.key];
-    if (row.id === "formula") return { text: c.formula };
-    if (row.id === "mw") return { text: c.mw ? formatAmount(c.mw, "mw") : "" };
-    if (row.id === "limiting") return { text: c.product ? "" : v.limiting === c.key ? "Yes" : "" };
-    if (row.product !== c.product && row.product !== undefined) return { text: "" };
-    if (row.id === "expected") return { text: formatAmount(s?.expectedMass, "mass") };
-    if (row.id === "yield") return { text: formatAmount(s?.yield, "yield") };
-    if (!row.field || (c.product && row.field !== "purity" && row.field !== "measured")) return { text: "" };
-    return { text: formatAmount(s?.[row.field as keyof typeof s] as number | undefined, row.field), typed: c.typed[row.field] !== undefined };
-  };
-  // The grid cell under a point (drawing units), if any.
-  const gridCellAt = (p: P) => {
-    for (const v of gridViews) {
-      const k = Math.floor((v.top - p[1]) / v.rh), c = v.cols.find((col) => Math.abs(p[0] - col.x) < v.width / 2);
-      if (k >= 0 && k < v.rows.length && c) return { arrow: v.arrow, key: c.key, row: v.rows[k].id, x: c.x, y: v.top - k * v.rh, product: c.product };
-    }
-    return undefined;
-  };
-  const [gridEdit, setGridEdit] = useState<{ arrow: number; key: string; row: string; x: number; y: number; product: boolean; value: string }>();
-  // Typing in a cell: the unit says what it is (250 mg a mass, 0.5 mL a volume, 1.2 eq equivalents), a bare number is
-  // the row's own quantity, and an empty cell clears it. A reactant's mass, moles, volume or equivalents replaces the
-  // others (they are four ways to say how much). Limiting? sets the limiting reactant.
-  function commitGridCell(text: string) {
-    const w = gridEdit;
-    setGridEdit(undefined);
-    if (!w) return;
-    const grids = doc.grids ?? [], g = grids.find((x) => x.arrow === w.arrow);
-    if (!g) return;
-    const row = GRID_ROWS.find((r) => r.id === w.row)!, typed = { ...(g.typed[w.key] ?? {}) };
-    if (row.id === "limiting") return w.product ? undefined : set({ ...doc, grids: grids.map((x) => (x === g ? { ...x, limiting: w.key } : x)) }, true);
-    if (!row.field) return;
-    if (!text.trim()) delete typed[row.field];
-    else {
-      const fields: Field[] = w.product ? ["measured", "purity"] : [row.field, "mass", "moles", "volume", "equiv", "density", "molarity", "purity"];
-      const bare = /^\s*[\d.,]+(e[+-]?\d+)?\s*$/i.test(text), field = bare ? (w.product && row.field !== "purity" ? "measured" : row.field) : fields.find((f) => parseAmount(text, f) !== undefined);
-      const value = field && parseAmount(text, field);
-      if (!field || value === undefined) return setNotice("Type an amount with its unit, such as 250 mg, 1.2 eq or 0.5 mL.");
-      if (["mass", "moles", "volume", "equiv"].includes(field)) for (const f of ["mass", "moles", "volume", "equiv"] as Field[]) delete typed[f];
-      typed[field] = value;
-    }
-    set({ ...doc, grids: grids.map((x) => (x === g ? { ...x, typed: { ...x.typed, [w.key]: typed } } : x)) }, true);
-  }
   // Add to drawing: the chosen rows as a caption under each structure, the formula's counts as subscripts.
   function addProperties() {
     if (!properties) return;
@@ -3327,6 +3385,9 @@ export default function Editor() {
     define_rgroup: ["Make an R-group definition", "", <BracketsSquare size={18} />], expand_generic: ["Expand generic structure", "", <SquaresFour size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
     expand_label: ["Expand label", "", <ArrowsOutSimple size={18} />], contract_label: ["Contract label", "", <ArrowsInSimple size={18} />], stoichiometry: ["Analyse stoichiometry", "", <Table size={18} />],
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <MagicWand size={18} />],
+    clean_reaction_augmented: ["Augmented clean up reaction", "", <MagicWand size={18} />],
+    map_reaction: ["Map atoms", "", <span className="glyph-text">A→A</span>], clear_reaction_map: ["Clear atom map", "", <X size={18} />],
+    interpretation: [settings.interpretation ? "Hide reaction interpretation" : "Show reaction interpretation", "", <Flask size={18} />],
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
     properties: [settings.properties ? "Hide the Properties panel" : "Show the Properties panel", "", <Flask size={18} />], aromatic_display: [commandsOpen && (selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i)).some((i) => doc.atoms[i].circle) ? "Show Kekulé bonds" : "Show aromatic circles", `⌥${MOD}K`, <Circle size={18} />], show_stereo: ["Show stereochemistry", "", <span className="glyph-text">R/S</span>], predict_1h: ["Predict ¹H-NMR shifts", "", <span className="glyph-text">¹H</span>], predict_13c: ["Predict ¹³C-NMR shifts", "", <span className="glyph-text">¹³C</span>], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />],
     rotate_dialog: ["Rotate…", `${MOD}R`, <Angle size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <Resize size={18} />],
@@ -3424,8 +3485,20 @@ export default function Editor() {
     // them, and every picked arrow, orbital, line, shape, table, TLC plate, cycle and caption, whatever else is picked
     // with them. Black is the document's ink, so it clears the colour. Only text being typed (or the Text tool's next
     // text) takes the colour as a text style.
+    // A picked grid cell: ChemDraw's Set Limiting, Hide Row, Hide Column and Show All, and removing the grid.
+    if (command.startsWith("grid.") && gridPick) {
+      const what = command.slice(5), { arrow, key, row } = gridPick;
+      if (what === "limiting") return changeGrid(arrow, () => ({ limiting: key }));
+      if (what === "show") return changeGrid(arrow, () => ({ hidden: undefined }));
+      setGridPick(undefined);
+      if (what === "hide.row") return changeGrid(arrow, (g) => ({ hidden: { ...g.hidden, rows: [...(g.hidden?.rows ?? []), row] } }));
+      if (what === "hide.col") return changeGrid(arrow, (g) => ({ hidden: { ...g.hidden, cols: [...(g.hidden?.cols ?? []), key] } }));
+      if (what === "remove") return set({ ...doc, grids: doc.grids?.filter((g) => g.arrow !== arrow) }, true);
+    }
+    if (command === "delete" && context.kind === "grid") return runAction("grid.remove");
     if (command.startsWith("colour.")) {
       const hex = command.slice(7), ink = hex.toLowerCase() === "#000000" ? undefined : hex;
+      if (context.kind === "grid" && gridPick) return changeGrid(gridPick.arrow, () => ({ colour: ink }));
       if (context.kind === "caption" && context.mode !== "picked") return runAction(`caption.colour.${hex}`);
       if (context.kind === "spot" && spotPick) return set(editSpot(doc, spotPick.plate, spotPick.index, () => ({ colour: ink })), true);
       const pick = <T extends { id: number; colour?: string }>(x: T): T => (picked.has(x.id) ? { ...x, colour: ink } : x);
@@ -3477,21 +3550,18 @@ export default function Editor() {
     if (command === "delete") return selection.size || picked.size ? set(deleteGraphics(deleteAtoms(doc, selection), picked)) : undefined;
     if (command === "number") return numberStructures();
     if (command === "reaction.clean") { const r = reactionPicked(); return r ? set(cleanUpReaction(doc, r, arrows), true) : undefined; }
-    // Atom mapping: the first step of the picked reaction (what stands before its first arrow, and between that
-    // arrow and the next), numbered by Indigo; or every number cleared.
+    if (command === "reaction.augment") return commands.current.clean_reaction_augmented();
+    // Atom mapping (Map Reaction Atoms): every step of the picked reaction, numbered by Indigo, with one numbering
+    // through the scheme and Rxn marks on the bonds the reaction changes (interpret.ts); or every number cleared.
     if (command === "reaction.map" || command === "reaction.unmap") {
-      const r = reactionPicked();
-      if (!r) return;
-      const first = r.steps.findIndex((x) => x.kind === "arrow"), next = r.steps.findIndex((x, k) => k > first && x.kind === "arrow");
-      const side = (from: number, to: number) => r.steps.slice(from, to < 0 ? undefined : to).flatMap((x) => (x.kind === "structure" ? [x.atoms] : []));
-      const left = side(0, first), right = side(first + 1, next);
-      if (command === "reaction.unmap") return set({ ...doc, atoms: doc.atoms.map((a, i) => (r.atoms.includes(i) ? { ...a, map: undefined } : a)) }, true);
-      const maps = mapReaction(left.map((g) => subset(doc, new Set(g))), right.map((g) => subset(doc, new Set(g))));
-      if (!maps) return setNotice("Octet cannot map these atoms.");
-      const number = new Map<number, number>();
-      left.forEach((g, k) => g.forEach((i, j) => { const n = maps.reactants[k][j]; if (n) number.set(i, n); }));
-      right.forEach((g, k) => g.forEach((i, j) => { const n = maps.products[k][j]; if (n) number.set(i, n); }));
-      return set({ ...doc, atoms: doc.atoms.map((a, i) => (number.has(i) ? { ...a, map: number.get(i) } : r.atoms.includes(i) ? { ...a, map: undefined } : a)) }, true);
+      const arrow = [...picked].find((id) => arrows.some((a) => a.id === id && straightArrow(a)));
+      const r = reactionPicked() ?? (arrow !== undefined ? reactionOf(arrow) : undefined);
+      if (!r) return setNotice("Select a reaction first.");
+      if (command === "reaction.unmap") return set(clearScheme(doc, new Set(r.atoms)), true);
+      const structures = (list: Part[]) => list.flatMap((x) => (x.kind === "structure" ? [x.atoms] : []));
+      const steps = interpret(doc, r, arrows, inkBox, captionBox).map((x) => ({ reactants: structures(x.reactants), products: structures(x.products) }));
+      const mapped = mapScheme(doc, steps, mapReaction, (atoms) => pickAtoms(doc, atoms));
+      return mapped ? set(mapped, true) : setNotice("Octet cannot map these atoms.");
     }
     if (command.startsWith("cycle.")) return cycleAction(command.slice(6));
 
@@ -3715,7 +3785,12 @@ export default function Editor() {
     }
     // Select: a click on part of a wider selection keeps that part alone (a whole integral group; a cycle keeps the
     // intermediates its press picked).
-    if (tool === "select") return t.cycle !== undefined ? undefined : choose(atomsOf(doc, t), itemsOf(t));
+    if (tool === "select") {
+      const gc = Object.values(t).every((v) => v === undefined) ? gridCellAt(at) : undefined;
+      if (gc) { choose([], []); return setGridPick({ arrow: gc.arrow, key: gc.key, row: gc.row }); }
+      setGridPick(undefined);
+      return t.cycle !== undefined ? undefined : choose(atomsOf(doc, t), itemsOf(t));
+    }
     if ((t.caption !== undefined || t.cycle !== undefined) && tool !== "text") return; // a caption or cycle was picked, not drawn on
     if (tool === "table" && tableAt(at)) return openCell(tableAt(at)!, at);
     if (tool === "tlc" && plateAt(at)) return spotAt(plateAt(at)!, at, [0, 0], false, false);
@@ -3845,8 +3920,12 @@ export default function Editor() {
       case "box":
       case "lasso":
         saw("select");
-        // A hold that never moved selects what it was held on.
-        if (!drag.moved) choose([...drag.base, ...atomsOf(doc, drag.target)], [...drag.picks, ...[drag.target.caption ?? drag.target.arrow].filter((x): x is number => x !== undefined)]);
+        // A hold that never moved selects what it was held on; on a stoichiometry grid's cell, picks the cell.
+        if (!drag.moved) {
+          const gc = drag.kind === "box" && !drag.base.size && Object.values(drag.target).every((v) => v === undefined) ? gridCellAt(drag.from) : undefined;
+          choose([...drag.base, ...atomsOf(doc, drag.target)], [...drag.picks, ...[drag.target.caption ?? drag.target.arrow].filter((x): x is number => x !== undefined)]);
+          setGridPick(gc && { arrow: gc.arrow, key: gc.key, row: gc.row });
+        }
         return;
       case "move": {
         if (!drag.moved) return click(drag.target, drag.from);
@@ -4130,9 +4209,50 @@ export default function Editor() {
     const w = integrals.find((x) => ids.some((i) => x.atoms.has(i)) || items.some((id) => x.items.has(id)));
     return w && (tool === "erase" || !(w.g.atoms.every((i) => selection.has(i)) && w.g.items.every((id) => picked.has(id)))) ? w : undefined;
   };
+  // The grid cell picked, marked as a selection is.
+  const gridPickMark = () => {
+    const v = gridPick && gridViews.find((x) => x.arrow === gridPick.arrow), c = v?.cols.find((x) => x.key === gridPick!.key), k = v ? v.rows.findIndex((r) => r.id === gridPick!.row) : -1;
+    return v && c && k >= 0 ? <rect className="grid-pick" x={(c.x - v.width / 2) * L} y={-(v.top - k * v.rh) * L} width={v.width * L} height={v.rh * L} /> : null;
+  };
+  // Show Reaction Interpretation: the reaction under the pointer, each part boxed and named by what it is.
+  const ROLE_NAMES: Record<Role, string> = { reactant: "Reactant", product: "Product", above: "Above arrow", below: "Below arrow" };
+  const interpretationAt = (hover: Hover) => {
+    if (!interpreted.length || drag) return null;
+    const atom = hover.atom ?? (hover.bond !== undefined ? doc.bonds[hover.bond]?.atoms[0] : undefined);
+    const x = interpreted.find(({ r, roles }) => (atom !== undefined && roles.atoms.has(atom)) || (hover.arrow !== undefined && r.arrows.includes(hover.arrow))
+      || (hover.caption !== undefined && (roles.captions.has(hover.caption) || r.captions.includes(hover.caption))));
+    if (!x) return null;
+    const pad = 0.15, seen = new Set<string>();
+    return (
+      <g className="interpretation" aria-hidden>
+        {x.steps.flatMap((st) => ([["reactant", st.reactants], ["product", st.products], ["above", st.above], ["below", st.below]] as [Role, Part[]][]).flatMap(([role, list]) => list.map((part) => {
+          const key = part.kind === "structure" ? `s${part.atoms[0]}` : `t${part.id}`, b = part.box;
+          // An intermediate is shown once, as the product it is first.
+          if (seen.has(key) || (role === "reactant" && st !== x.steps[0])) return null;
+          seen.add(key);
+          return (
+            <g key={key} className={role}>
+              <rect x={(b[0] - pad) * L} y={-(b[3] + pad) * L} width={(b[2] - b[0] + 2 * pad) * L} height={(b[3] - b[1] + 2 * pad) * L} rx={0.2 * L} />
+              <text x={(b[0] - pad) * L} y={-(b[3] + pad) * L - 3}>{ROLE_NAMES[role]}</text>
+            </g>
+          );
+        })))}
+      </g>
+    );
+  };
+  const hovered = (hover: Hover) => { const mark = hoveredMark(hover), shown = settings.interpretation ? interpretationAt(hover) : null; return shown ? <g key="h">{shown}{mark}</g> : mark; };
   // The mark on what is under the pointer, drawn by Live as the pointer moves.
-  const hovered = (hover: Hover, whole = drag ? undefined : integralAt(hover)) => drag ? null
+  const hoveredMark = (hover: Hover, whole = drag ? undefined : integralAt(hover)) => drag ? null
     : whole ? wholeMark(whole)
+    // The Reaction Atom-Atom Map tool on a mapped atom: its partners (the atoms with its number) ringed too.
+    : tool === "map" && hover.atom !== undefined && shown.atoms[hover.atom]?.map ? (
+      <g key="h">
+        {atomMark(hover.atom, "ha", "mark")}
+        <g className="mapping" aria-hidden>
+          {shown.atoms.flatMap((a, i) => (a.map === shown.atoms[hover.atom!].map && i !== hover.atom ? [<circle key={i} cx={pos(shown, i)[0] * L} cy={-pos(shown, i)[1] * L} r={0.32 * L} />] : []))}
+        </g>
+      </g>
+    )
     : hover.atom !== undefined && shown.atoms[hover.atom] ? atomMark(hover.atom, "h", "mark")
     : hover.caption !== undefined && !picked.has(hover.caption) ? captionMark(hover.caption, "h", "mark")
     : hover.arrow !== undefined && !picked.has(hover.arrow) ? arrowMark(hover.arrow, "h", "mark")
@@ -4373,9 +4493,9 @@ export default function Editor() {
         const size = style.captionSize * pt * 0.9 * v.f, font = `${size}px ${fontStack(style.captionFont)}`, y = (k: number) => -(v.top - (k + 0.5) * v.rh) * L + 0.35 * size;
         const x0 = v.start * L, x1 = (Math.max(...v.cols.map((c) => c.x)) + v.width / 2) * L;
         return (
-          <g key={`grid${v.arrow}`} className="stoich" fill="var(--ink)" style={{ font }}>
-            <line x1={x0} x2={x1} y1={-v.top * L} y2={-v.top * L} stroke="var(--ink)" strokeWidth={frame.line * v.f} />
-            <line x1={x0} x2={x1} y1={-(v.top - v.rows.length * v.rh) * L} y2={-(v.top - v.rows.length * v.rh) * L} stroke="var(--ink)" strokeWidth={frame.line * v.f} />
+          <g key={`grid${v.arrow}`} className="stoich" fill={v.colour ? textInk(v.colour) : "var(--ink)"} style={{ font }}>
+            <line x1={x0} x2={x1} y1={-v.top * L} y2={-v.top * L} stroke={v.colour ? textInk(v.colour) : "var(--ink)"} strokeWidth={frame.line * v.f} />
+            <line x1={x0} x2={x1} y1={-(v.top - v.rows.length * v.rh) * L} y2={-(v.top - v.rows.length * v.rh) * L} stroke={v.colour ? textInk(v.colour) : "var(--ink)"} strokeWidth={frame.line * v.f} />
             {v.rows.map((row, k) => <text key={row.id} x={v.left * L} y={y(k)} textAnchor="end">{row.name}</text>)}
             {v.rows.flatMap((row, k) => v.cols.map((c) => {
               const t = gridText(v, c, row);
@@ -4395,6 +4515,7 @@ export default function Editor() {
     <>
       {/* One group with one opacity, so overlapping marks don't stack up darker. */}
       <g className="selection-marks">{selected}</g>
+      {gridPickMark()}
       {groupFrames}
       {nmrMarks.size > 0 && <g className="nmr-marks">{[...nmrMarks].filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `nmr${i}`, ""))}</g>}
       {shiftLabels().map((l) => (
@@ -4508,8 +4629,8 @@ export default function Editor() {
           const t = hit(toDoc(e.clientX, e.clientY));
           // Double-click a stoichiometry cell to type in it (Limiting? sets the limiting reactant at once).
           const gc = tool !== "erase" ? gridCellAt(toDoc(e.clientX, e.clientY)) : undefined;
-          if (gc && gc.row === "limiting") { const g = doc.grids?.find((x) => x.arrow === gc.arrow); if (g && !gc.product) set({ ...doc, grids: doc.grids!.map((x) => (x === g ? { ...x, limiting: gc.key } : x)) }, true); return; }
-          if (gc && !["formula", "mw", "expected", "yield"].includes(gc.row)) {
+          if (gc && gc.row === "limiting") { if (!gc.product) changeGrid(gc.arrow, () => ({ limiting: gc.key })); return; }
+          if (gc && !["formula", "mw", "expected", "expectedMoles", "yield"].includes(gc.row)) {
             const v = gridViews.find((x) => x.arrow === gc.arrow)!, c = v.cols.find((x) => x.key === gc.key)!, row = GRID_ROWS.find((r) => r.id === gc.row)!;
             return setGridEdit({ ...gc, value: c.typed[row.field as Field] !== undefined ? gridText(v, c, row).text : "" });
           }

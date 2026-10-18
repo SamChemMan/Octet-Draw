@@ -246,9 +246,15 @@ export const HIGHLIGHT = "#DCE4F6";
 // guides: what the file asks the window to show (grid, rulers, crosshair), when Octet saved it; files only.
 export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; style?: DocStyle; guides?: Guides };
 // A stoichiometry grid (Structure > Analyse Stoichiometry) under the reaction an arrow belongs to: what was typed for
-// each component ("r0", "r1"… reactants, "p0"… products, in reading order), in base units, and the limiting reactant.
+// each component, in base units, and the limiting reactant. A component's key is its side and what it is ("r:C7H8O" a
+// reactant structure by its formula, 'r:"NaBH4"' a reagent written as text, "p:…" a product; "#2" on a second one the
+// same), so typed values stay with their compound when the reaction changes ("r0", "p0" in drawings from before).
+// hidden: rows (by id) and columns (by key) hidden with Hide Row and Hide Column; colour: the grid's ink.
 // Everything else is worked out from the reaction as it is drawn (stoich.ts).
-export type Grid = { arrow: number; typed: Record<string, Partial<Record<"mass" | "moles" | "equiv" | "volume" | "density" | "molarity" | "purity" | "measured", number>>>; limiting?: string };
+export type Grid = {
+  arrow: number; typed: Record<string, Partial<Record<"mass" | "moles" | "equiv" | "volume" | "density" | "molarity" | "purity" | "measured", number>>>; limiting?: string;
+  hidden?: { rows?: string[]; cols?: string[] }; colour?: string;
+};
 // A group (Object > Group): atoms and other objects (captions, arrows, shapes, cycles, by id) that select and move as
 // one. Groups nest: a group lists everything in it, the groups inside it too (edit.ts, tidyGroups). An integral group
 // is never split: a click on any part picks all of it.

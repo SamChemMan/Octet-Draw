@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, ArrowsInSimple, ArrowsClockwise, ArrowsDownUp, CaretRight, SignIn, SignOut, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretUpDown,
   AlignBottomSimple, AlignTopSimple, ArrowLineDown, ArrowLineUp, CursorText, DotsThree, DotsThreeVertical, Faders, Polygon, Rectangle, ArrowArcLeft, ArrowArcRight, ArrowsCounterClockwise, ArrowUDownLeft, CircleDashed, CornersOut, MagnifyingGlass, Swap,
-  ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
+  ClipboardText, CopySimple, EyeSlash, Target, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
   TextAlignJustify, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, Info, X, Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Eraser, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
 } from "@phosphor-icons/react";
@@ -38,6 +38,9 @@ export type Context =
   | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[]; shade: { depth: number; blur: number; opacity: number; pt: number }; text?: LabelText; rgroup?: boolean }
   | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean; grid: boolean }
+  // A stoichiometry grid's cell picked: its column a product or a reactant (the limiting one or not), and whether any
+  // of the grid's rows or columns are hidden.
+  | { kind: "grid"; product: boolean; limiting: boolean; hidden: boolean }
   // groups: the and and or group numbers its structure uses, and the lowest new one of each.
   | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; groups?: { and: number[]; or: number[] }; halo?: string; fill?: string; numbered?: boolean }
   | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean }
@@ -313,9 +316,15 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       items.push(...order, del);
       break;
     case "reaction":
-      items.push(it(<MagicWand size={18} />, "Clean up reaction", "reaction.clean", !context.clean),
+      items.push(it(<MagicWand size={18} />, "Clean up reaction", "reaction.clean", !context.clean), small(it(<MagicWand size={18} />, "Augmented clean up reaction", "reaction.augment")),
         it(<ListNumbers size={18} />, "Number these compounds", "number"), small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")),
         it(<span className="glyph-text">A→A</span>, "Map atoms", "reaction.map"), it(<Table size={18} />, context.grid ? "Remove stoichiometry" : "Analyse stoichiometry", "stoichiometry"), ...(context.mapped ? [small(it(<X size={18} />, "Clear atom map", "reaction.unmap"))] : []), ...warnings(), ...turnsAndFlips, ...order, del);
+      break;
+    case "grid":
+      // ChemDraw's grid menu: Set Limiting, Hide Row, Hide Column, Show All (and Colors, the colour row).
+      items.push(...(!context.product && !context.limiting ? [it(<Target size={18} />, "Set as limiting", "grid.limiting")] : []),
+        it(<EyeSlash size={18} />, "Hide row", "grid.hide.row"), it(<EyeSlash size={18} />, "Hide column", "grid.hide.col"),
+        ...(context.hidden ? [it(<Eye size={18} />, "Show all rows and columns", "grid.show")] : []), del);
       break;
     case "cycle":
       if (!context.centre) items.push(it(<TextT size={18} />, "Add a centre label", "cycle.centre"));
@@ -441,6 +450,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       : context.count > 1 ? `${context.count} ${context.arrow === "curve" ? "curves" : isLine({ kind: context.arrow }) ? "lines" : "arrows"}`
       : context.arrow === "curve" ? "Curve" : context.arrow === "arc" ? "Arc" : context.arrow === "line" ? "Line" : "Arrow",
     cycle: "Catalytic cycle",
+    grid: "Stoichiometry grid",
     reaction: context.kind === "reaction" && context.steps > 1 ? `${context.steps}-step reaction` : "Reaction",
     spot: "TLC spot",
     shape: context.kind === "shape" && context.count > 1 ? `${context.count} shapes` : context.kind === "shape" ? SHAPES[context.shape] : "Shape",

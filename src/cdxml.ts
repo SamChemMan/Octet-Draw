@@ -17,6 +17,8 @@ import {
 import { ELEMENTS, anchorElement, formulaRuns, isElement, units } from "./labels.ts";
 import { normalise, runsOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
 import { findReaction } from "./reaction.ts";
+import { interpret, type RoleStep } from "./interpret.ts";
+import { readGrid } from "./stoich.ts";
 import { fragments, groupParents, renumberCentre, tidyGroups } from "./edit.ts";
 import { altGroup, elementList, enclosed, linkNode, polymerLabel, queryLabel, readPolymer, readRgroup, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
 import { kekulise, rings } from "./rings.ts";
@@ -227,7 +229,6 @@ export type CdxmlOptions = {
 };
 const PROGRAM = "Octet 0.1.0";
 const DERIVED = '{"d":1}';
-const GRID_FIELDS = ["mass", "moles", "equiv", "volume", "density", "molarity", "purity", "measured"];
 const num6 = (v: number) => String(+v.toFixed(6));
 const union = (boxes: Box[]): Box | undefined => (boxes.length ? [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))] : undefined);
 const boxOf = (qs: P[], pad = 0): Box => [Math.min(...qs.map((q) => q[0])) - pad, Math.min(...qs.map((q) => q[1])) - pad, Math.max(...qs.map((q) => q[0])) + pad, Math.max(...qs.map((q) => q[1])) + pad];
@@ -274,7 +275,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   const ownBond = (f: number) => (f === 1 ? {} : { BondLength: fmt(B * f), ...ownLines(f), HashSpacing: fmt(style.hash * f), MarginWidth: fmt(style.margin * f) });
   const ownScale = (x: { scale?: number }) => (x.scale && x.scale !== 1 ? x.scale : undefined);
   // A reaction arrow's stoichiometry grid, kept in Octet's own data on the arrow (ChemDraw's grid is not in CDXML).
-  const gridOf = (arrow: number) => { const g = mol.grids?.find((x) => x.arrow === arrow); return g && { typed: g.typed, limiting: g.limiting }; };
+  const gridOf = (arrow: number) => { const g = mol.grids?.find((x) => x.arrow === arrow); return g && { typed: g.typed, limiting: g.limiting, hidden: g.hidden, colour: g.colour }; };
 
   // Ids: Octet's own object ids where they are sound, everything else from one counter above them (spec 2).
   const own = [...(mol.captions ?? []), ...(mol.arrows ?? []), ...(mol.shapes ?? []), ...(mol.cycles ?? []), ...(mol.groups ?? [])].map((x) => x.id);
@@ -764,10 +765,13 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     return [x0, c.y - 0.2 * size, x0 + w, c.y + 0.7 * size];
   };
   type RowStep = NonNullable<ReturnType<typeof findReaction>>["steps"][number];
-  const step = (arrowId: number, before: RowStep[], after: RowStep[]) => {
+  const step = (arrowId: number, before: RowStep[], after: RowStep[], drawn?: RoleStep) => {
     const frag = (s: RowStep[]) => s.flatMap((x) => (x.kind === "structure" ? [fragId.get(x.atoms[0])!] : []));
     const list = (ids: number[]) => (ids.length ? ids.join(" ") : undefined);
-    const on = (side: string) => captions.filter((c) => c.on?.arrow === arrowId && c.on.side === side).map((c) => idOf.get(c.id)!);
+    // Above and below the arrow: the text kept on it, and the structures drawn there (interpret.ts), as ChemDraw lists
+    // its reagents. (Free text drawn there is not listed: a reader keeps listed text on the arrow.)
+    const on = (side: "above" | "below") => [...captions.filter((c) => c.on?.arrow === arrowId && c.on.side === side).map((c) => idOf.get(c.id)!),
+      ...(drawn?.[side] ?? []).flatMap((x) => (x.kind === "structure" && fragId.has(x.atoms[0]) ? [fragId.get(x.atoms[0])!] : []))];
     const mapped = (s: RowStep[]) => s.flatMap((x) => (x.kind === "structure" ? x.atoms.filter((i) => mol.atoms[i].map) : []));
     const pairs = mapped(before).flatMap((i) => { const j = mapped(after).find((k) => mol.atoms[k].map === mol.atoms[i].map); return j === undefined ? [] : [nodeId.get(i)!, nodeId.get(j)!]; });
     return el("step", {
@@ -779,11 +783,11 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     if (!straightArrow(a) || done.has(a.id)) continue;
     const r = findReaction(mol, a.id, arrows, ink, captionBox);
     if (!r) continue;
-    const at = r.steps.flatMap((s, k) => (s.kind === "arrow" ? [k] : []));
+    const at = r.steps.flatMap((s, k) => (s.kind === "arrow" ? [k] : [])), roles = interpret(mol, r, arrows, ink, captionBox);
     schemes.push(el("scheme", { id: fresh() }, at.map((k, n) => {
       const id = (r.steps[k] as { id: number }).id;
       done.add(id);
-      return step(id, r.steps.slice(n ? at[n - 1] + 1 : 0, k), r.steps.slice(k + 1, n + 1 < at.length ? at[n + 1] : r.steps.length));
+      return step(id, r.steps.slice(n ? at[n - 1] + 1 : 0, k), r.steps.slice(k + 1, n + 1 < at.length ? at[n + 1] : r.steps.length), roles[n]);
     }).join("")));
   }
   for (const a of arrows) if (!done.has(a.id) && legacyOf.has(a.id) && captions.some((c) => c.on?.arrow === a.id)) schemes.push(el("scheme", { id: fresh() }, step(a.id, [], [])));
@@ -1413,10 +1417,8 @@ export function fromCdxml(text: string): CdxmlRead {
     }
     arrows.push(a);
     objectOf.set(int(x.attrs.id) ?? -1, a.id);
-    const g = p?.grid as Record<string, unknown> | undefined, typed = g?.typed as Record<string, Record<string, unknown>> | undefined;
-    if (typed && typeof typed === "object" && !Array.isArray(typed) && Object.keys(typed).length <= 40
-      && Object.entries(typed).every(([k, v]) => /^[rp]\d{1,2}$/.test(k) && typeof v === "object" && v && !Array.isArray(v) && Object.entries(v).every(([f, n]) => GRID_FIELDS.includes(f) && isNum(n, 0, 1e9)))
-      && (g!.limiting === undefined || (typeof g!.limiting === "string" && /^r\d{1,2}$/.test(g!.limiting)))) grids.push({ arrow: a.id, typed: typed as Grid["typed"], ...(g!.limiting ? { limiting: g!.limiting as string } : {}) });
+    const grid = p?.grid ? readGrid(p.grid, a.id) : undefined;
+    if (grid) grids.push(grid);
     member(group, a.id);
   }
   const headName = (v?: string) => (v === "Full" || v === "HalfLeft" || v === "HalfRight" ? v : undefined);

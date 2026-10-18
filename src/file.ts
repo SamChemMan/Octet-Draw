@@ -3,7 +3,8 @@ import { fontName, readGuides, readStyle } from "./docstyle.ts";
 import { normalise, plainOf, type TextRun } from "./richtext.ts";
 import { tidyGroups } from "./edit.ts";
 import { readAtomQuery, readBondQuery, readPolymer, readRgroup } from "./query.ts";
-import { ALL_ARROW_KINDS, isBracket, ORBITAL_SHAPES, PHASES, SHAPE_KINDS, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type Grid, type TableLine, type CellAlign, type Tlc, type Atom, type Bond, type Caption, type Display, type Mol } from "./render.ts";
+import { ALL_ARROW_KINDS, isBracket, ORBITAL_SHAPES, PHASES, SHAPE_KINDS, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type TableLine, type CellAlign, type Tlc, type Atom, type Bond, type Caption, type Display, type Mol } from "./render.ts";
+import { readGrid } from "./stoich.ts";
 
 export const FORMAT = "octet";
 export const VERSION = 1;
@@ -48,7 +49,7 @@ export function serialize(mol: Mol): string {
   };
   const groups = (mol.groups ?? []).map((g) => ({ atoms: g.atoms, items: g.items.map(ref).filter(Boolean), ...(g.integral ? { integral: true } : {}) }));
   // Stoichiometry grids name their arrow by its place in the list above.
-  const grids = (mol.grids ?? []).map((g) => ({ arrow: arrowList.findIndex((a) => a.id === g.arrow), typed: g.typed, ...(g.limiting ? { limiting: g.limiting } : {}) })).filter((g) => g.arrow >= 0);
+  const grids = (mol.grids ?? []).map((g) => ({ ...g, arrow: arrowList.findIndex((a) => a.id === g.arrow) })).filter((g) => g.arrow >= 0);
   return JSON.stringify({ format: FORMAT, version: VERSION, structure: { atoms, bonds }, ...(arrows.length ? { arrows } : {}), ...(cycles.length ? { cycles } : {}), ...(shapes.length ? { shapes } : {}), ...(captions.length ? { captions } : {}), ...(groups.length ? { groups } : {}), ...(grids.length ? { grids } : {}), ...(mol.style ? { style: mol.style } : {}), ...(mol.guides ? { guides: mol.guides } : {}) }, null, 1) + "\n";
 }
 const round = (n: number) => Math.round(n * 1e4) / 1e4;
@@ -255,15 +256,13 @@ export function parse(text: string): Mol {
   }
   if (d.captions !== undefined) readCaptions(d.captions, out, num, int);
   if (d.grids !== undefined) {
-    // Each grid's arrow by its place among the file's arrows; typed amounts finite and not negative, under known keys.
-    const saved = (out.arrows ?? []).slice(0, Array.isArray(d.arrows) ? d.arrows.length : 0), FIELDS = ["mass", "moles", "equiv", "volume", "density", "molarity", "purity", "measured"];
+    // Each grid's arrow by its place among the file's arrows; what it holds read by readGrid (stoich.ts).
+    const saved = (out.arrows ?? []).slice(0, Array.isArray(d.arrows) ? d.arrows.length : 0);
     if (!Array.isArray(d.grids) || d.grids.length > 100) throw new Error("This drawing is damaged.");
     out.grids = (d.grids as Record<string, unknown>[]).map((g) => {
-      const typed = g?.typed as Record<string, Record<string, unknown>>;
-      if (!int(g?.arrow, 0, saved.length - 1) || typeof typed !== "object" || !typed || Array.isArray(typed) || Object.keys(typed).length > 40
-        || !Object.entries(typed).every(([k, v]) => /^[rp]\d{1,2}$/.test(k) && typeof v === "object" && v && Object.entries(v).every(([f, x]) => FIELDS.includes(f) && typeof x === "number" && Number.isFinite(x) && x >= 0 && x < 1e9))
-        || (g.limiting !== undefined && !(typeof g.limiting === "string" && /^r\d{1,2}$/.test(g.limiting)))) throw new Error("This drawing is damaged.");
-      return { arrow: saved[g.arrow as number].id, typed: typed as Grid["typed"], ...(g.limiting ? { limiting: g.limiting as string } : {}) };
+      const grid = int(g?.arrow, 0, saved.length - 1) ? readGrid(g, saved[g.arrow as number].id) : undefined;
+      if (!grid) throw new Error("This drawing is damaged.");
+      return grid;
     });
   }
   if (d.groups !== undefined) {

@@ -540,6 +540,12 @@ export function atomsIn(m: Mol, a: P, b: P): number[] {
   const [x0, x1] = [Math.min(a[0], b[0]), Math.max(a[0], b[0])], [y0, y1] = [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
   return m.atoms.flatMap((_, i) => { const [x, y] = pos(m, i); return x >= x0 && x <= x1 && y >= y0 && y <= y1 ? [i] : []; });
 }
+// Some atoms (in drawing order) and the bonds between them, as their own drawing; unlike subset, a lone carbon (methane,
+// a label such as MeOH) stays.
+export function pickAtoms(m: Mol, ids: number[]): Mol {
+  const sorted = [...ids].sort((p, q) => p - q), at = new Map(sorted.map((i, k) => [i, k]));
+  return { atoms: sorted.map((i) => renumberCentre({ ...m.atoms[i] }, at)), bonds: m.bonds.filter((b) => at.has(b.atoms[0]) && at.has(b.atoms[1])).map((b) => ({ ...b, atoms: [at.get(b.atoms[0])!, at.get(b.atoms[1])!] as [number, number] })) };
+}
 // The selected atoms and the bonds between them, as their own drawing (for Copy).
 export function subset(m: Mol, ids: Set<number>): Mol {
   const keep = new Set([...ids].filter((i) => i < m.atoms.length));

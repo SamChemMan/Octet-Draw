@@ -2932,6 +2932,33 @@ button.variant.add {
   stroke-width: 1.4px;
   vector-effect: non-scaling-stroke;
 }
+/* A stoichiometry grid's cell picked with Select. */
+.grid-pick {
+  fill: var(--selection);
+  stroke: var(--brand-bright);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+/* Show Reaction Interpretation: each part of the reaction under the pointer boxed and named, in the brand's blues. */
+.interpretation rect {
+  fill: none;
+  stroke-width: 1.2px;
+  vector-effect: non-scaling-stroke;
+}
+.interpretation text {
+  font: 600 11px var(--font-sans);
+  paint-order: stroke;
+  stroke: var(--canvas);
+  stroke-width: 3px;
+}
+.interpretation .reactant rect { stroke: var(--brand-bright); }
+.interpretation .reactant text { fill: var(--brand-bright); }
+.interpretation .product rect { stroke: var(--brand); stroke-width: 2px; }
+.interpretation .product text { fill: var(--brand); }
+.interpretation .above rect { stroke: var(--brand-bright); stroke-dasharray: 4 3; }
+.interpretation .above text { fill: var(--brand-bright); }
+.interpretation .below rect { stroke: var(--ink-muted); stroke-dasharray: 4 3; }
+.interpretation .below text { fill: var(--ink-muted); }
 /* The Pen's points while it draws: small white squares, and the handle being dragged out, in brand blue. */
 .pen-points rect, .pen-points circle { fill: var(--canvas); stroke: var(--brand-bright); stroke-width: 1.2px; vector-effect: non-scaling-stroke; }
 .pen-points circle { fill: var(--brand-bright); }

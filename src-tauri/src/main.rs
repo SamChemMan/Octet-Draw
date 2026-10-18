@@ -310,6 +310,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let snap_grid = check("snap_grid", "Snap to Grid", "Shift+CmdOrCtrl+'")?;
     // ChemDraw's View > Show Chemical Warnings.
     let warnings = check("warnings", "Show Chemical Warnings", "")?;
+    // ChemDraw's View > Show Reaction Interpretation.
+    let interpretation = check("interpretation", "Show Reaction Interpretation", "")?;
     let view = Submenu::with_items(app, "View", true, &[
         // ChemDraw's keys: Magnify, Reduce and Fit to Window.
         &item("zoom_actual", "Actual Size", "CmdOrCtrl+\\")?,
@@ -324,6 +326,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &snap,
         &snap_grid,
         &warnings,
+        &interpretation,
         &item("actions", "Show or Hide Actions", "")?,
         &item("properties", "Show or Hide Properties", "")?,
         // Not ⌘K, which is ChemDraw's Scale.
@@ -343,6 +346,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("check_structure", "Check Structure", "")?,
         &item("clean_up", "Clean Up Structure", "CmdOrCtrl+Shift+K")?,
         &item("clean_reaction", "Clean Up Reaction", "CmdOrCtrl+Shift+X")?,
+        &item("clean_reaction_augmented", "Augmented Clean Up Reaction", "")?,
         &item("atom_properties", "Atom Properties…", "")?,
         &item("bond_properties", "Bond Properties…", "")?,
         &item("bracket_properties", "Bracket Properties…", "")?,
@@ -358,6 +362,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("rlogic", "R-Logic Query…", "")?,
         &enhanced,
         &sep()?,
+        &item("map_reaction", "Map Reaction Atoms", "")?,
+        &item("clear_reaction_map", "Clear Reaction Map", "")?,
         &item("stoichiometry", "Analyse Stoichiometry", "")?,
         &sep()?,
         &item("predict_1h", "Predict ¹H-NMR Shifts", "")?,
@@ -541,7 +547,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     items.push(&window);
     // Commands of a menu that is not there are not listed (Settings shows no shortcuts for them).
     let listed = list.borrow().iter().filter(|c| online || c.2 != "Search").cloned().collect();
-    Ok((Menu::with_items(app, &items)?, vec![grid, rulers, crosshair, snap, snap_grid, warnings], listed))
+    Ok((Menu::with_items(app, &items)?, vec![grid, rulers, crosshair, snap, snap_grid, warnings, interpretation], listed))
 }
 
 fn main() {
