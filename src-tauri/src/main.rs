@@ -390,14 +390,28 @@ fn menu(app: &AppHandle, palette: &[String], overrides: &HashMap<String, String>
     let mine = palette.iter().enumerate()
         .map(|(k, name)| item(&format!("colour_user_{k}"), name, ""))
         .collect::<tauri::Result<Vec<_>>>()?;
-    let (sep1, sep2) = (sep()?, sep()?);
+    let (sep1, sep2, sep3) = (sep()?, sep()?, sep()?);
     let edit_colours = item("colour_other", "Edit Colours…", "")?;
+    // ChemDraw's By Element, and its highlight and ring fill colours (the Actions panel's Highlight and Ring fill lists).
+    let by_element = item("colour_by_element", "By Element", "")?;
+    let fills = ["None", "Blue", "Orange", "Green", "Red", "Purple", "Teal", "Pink", "Gold"];
+    section.replace("Colour › Highlight".into());
+    let highlights = fills.iter().enumerate().map(|(k, name)| item(&format!("highlight_{k}"), name, "")).collect::<tauri::Result<Vec<_>>>()?;
+    let highlight = Submenu::with_items(app, "Highlight", true, &highlights.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect::<Vec<_>>())?;
+    section.replace("Colour › Ring Fill".into());
+    let ringfills = fills.iter().enumerate().map(|(k, name)| item(&format!("ringfill_{k}"), name, "")).collect::<tauri::Result<Vec<_>>>()?;
+    let ringfill = Submenu::with_items(app, "Ring Fill", true, &ringfills.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect::<Vec<_>>())?;
+    section.replace("Colour".into());
     let mut colour_items: Vec<&dyn IsMenuItem<Wry>> = builtin.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
     if !mine.is_empty() {
         colour_items.push(&sep1);
         colour_items.extend(mine.iter().map(|m| m as &dyn IsMenuItem<Wry>));
     }
     colour_items.push(&sep2);
+    colour_items.push(&by_element);
+    colour_items.push(&highlight);
+    colour_items.push(&ringfill);
+    colour_items.push(&sep3);
     colour_items.push(&edit_colours);
     let colour = Submenu::with_items(app, "Colour", true, &colour_items)?;
     section.replace("Window".into());

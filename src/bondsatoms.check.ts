@@ -2,7 +2,7 @@
 // quadruple and hydrogen bonds, crossing bonds, label alignment, hidden hydrogens and placed symbols, and their CDXML.
 import assert from "node:assert/strict";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
-import { DEFAULT_STYLE } from "./docstyle.ts";
+import { DEFAULT_STYLE, readStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
 import { problems } from "./check.ts";
 import { addSymbol, atomAt, bondAt, bondOrders, cycleBond, orderBonds, setPosition, toggleHydrogens } from "./edit.ts";
@@ -169,3 +169,17 @@ console.log("bondsatoms.check: hidden hydrogens ok");
   assert.equal(parse(serialize(point("star"))).atoms[1].attach, "star");
 }
 console.log("bondsatoms.check: placed and styled symbols ok");
+
+// CD-28. The named palette is saved with the document, in Octet's data and in the CDXML colour table (ChemDraw's
+// document palette); Octet reads the names back.
+{
+  const palette = [{ name: "Catalyst", hex: "#12A594" }, { name: "Product", hex: "#8E4EC6" }];
+  const style = { ...DEFAULT_STYLE, palette }, m: Mol = { atoms: [A("C", 0, 0), A("O", 1, 0)], bonds: [b(0, 1)] };
+  const text = toCdxml(m, style);
+  assert.match(text, /<colortable>[\s\S]*r="0.0706" g="0.6471" b="0.5804"[\s\S]*<\/colortable>/, "the colours are in the colour table");
+  assert.deepEqual(fromCdxml(text).style.palette, palette);
+  assert.equal(fromCdxml(text.replace(/ Octet="[^"]*"/g, "").replace(/CreationProgram="[^"]*"/, "")).style.palette, undefined, "a ChemDraw copy has the colours, not the names");
+  assert.deepEqual(parse(serialize({ ...m, style })).style?.palette, palette);
+  assert.equal(readStyle({ palette: [{ name: "x", hex: "red" }, { name: 3, hex: "#000000" }] }).palette, undefined, "bad entries are left out");
+}
+console.log("bondsatoms.check: document palette ok");

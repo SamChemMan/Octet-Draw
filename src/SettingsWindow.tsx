@@ -2,12 +2,12 @@
 // modules (Document, Keyboard shortcuts, Import and export) under a search field that is always there. With text
 // in it, every matching setting from every module shows on the right, grouped by module and ready to use.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowsDownUp, CaretDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, Plus, SlidersHorizontal, X } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, ArrowsDownUp, CaretDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, Plus, SlidersHorizontal, X } from "@phosphor-icons/react";
 import { ColourPicker } from "./ColourPicker";
 import { Select } from "./Select";
 import type { Swatch } from "./settings";
 import type { ExportFormat } from "./export";
-import { BACKGROUNDS, COLOURS, FONTS, PAGE_NAMES, PAGES, PRESETS, pageSize, presetOf, type DocStyle, type PageName } from "./docstyle";
+import { BACKGROUNDS, COLOURS, ELEMENT_COLOURS, FONTS, PAGE_NAMES, PAGES, PRESETS, pageSize, presetOf, type DocStyle, type PageName } from "./docstyle";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
 
 export type ModuleId = "document" | "keys" | "panel" | "files" | "colours";
@@ -38,6 +38,8 @@ type Props = {
   menuKeys: [string, string][]; // the menu commands that have a shortcut: name, shortcut as this platform shows it
   palette: Swatch[]; // the user's own colours
   onPalette: (palette: Swatch[]) => void;
+  elementColours: Record<string, string>; // Colour by Element: the user's colour for an element, where it is not Octet's
+  onElementColours: (colours: Record<string, string>) => void;
   adding?: boolean; // opened to add a colour: a new one is made, ready to set
   onClose: () => void;
 };
@@ -70,6 +72,28 @@ function PaletteEditor({ palette, onPalette, adding }: { palette: Swatch[]; onPa
         </div>
       ))}
       {palette.length < 20 && <button className="palette-add" onClick={add}><Plus size={12} weight="bold" aria-hidden /> Add a colour</button>}
+    </div>
+  );
+}
+
+// Colour by Element: each element's colour, set with Octet's picker under it; Reset gives Octet's colour back.
+function ElementColours({ colours, onColours }: { colours: Record<string, string>; onColours: (c: Record<string, string>) => void }) {
+  const [open, setOpen] = useState<string>();
+  return (
+    <div className="palette-editor">
+      {Object.entries(ELEMENT_COLOURS).map(([el, base]) => {
+        const hex = colours[el] ?? base;
+        return (
+          <div key={el} className={open === el ? "palette-row open" : "palette-row"}>
+            <div className="palette-line">
+              <button className="swatch" style={{ background: hex }} aria-label={`Change ${el}`} aria-expanded={open === el} onClick={() => setOpen(open === el ? undefined : el)} />
+              <span className="palette-name">{el}</span>
+              {colours[el] && <button className="text-button" aria-label={`Reset ${el}`} title="Reset" onClick={() => { const { [el]: _, ...rest } = colours; onColours(rest); }}><ArrowCounterClockwise size={12} weight="bold" /></button>}
+            </div>
+            {open === el && <ColourPicker value={hex} onChange={(h) => onColours({ ...colours, [el]: h })} />}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -384,9 +408,10 @@ export function SettingsWindow(p: Props) {
       ...([["pdf", "PDF, with the structure inside", "pdf word powerpoint keynote office"], ["cdxml", "CDXML", "cdxml chemdraw"], ["mol", "MOL", "mol molfile"], ["smiles", "SMILES", "smiles text"]] as const).map(([k, name, words]) =>
         d("files", "Copy", name, `clipboard copy paste ${words}`, <Switch on={files.clipboard[k]} label={name} onChange={(on) => setFiles({ clipboard: { ...files.clipboard, [k]: on } })} />)),
       d("colours", "Colours", "Your colours", "colour colours palette custom swatch named add", <PaletteEditor palette={p.palette} onPalette={p.onPalette} adding={p.adding} />, true),
+      d("colours", "Colours", "Colour by element", "colour by element atoms heteroatoms nitrogen oxygen sulfur periodic table", <ElementColours colours={p.elementColours} onColours={p.onElementColours} />, true),
       d("files", "Import", "Keep ChemDraw styles", "import open cdxml chemdraw style keep", <Switch on={files.keepStyle} label="Keep ChemDraw styles" onChange={(on) => setFiles({ keepStyle: on })} />),
     ];
-  }, [style, map, recording, note, files, p.palette, p.adding, p.panelMenus, p.captionOptionReturn, p.menuKeys.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.menuKeys.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query)) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));

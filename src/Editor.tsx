@@ -11,7 +11,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { labelSmiles, GROUPS } from "./labels";
 import { analyse, structures, expandWithOrigins, stereoLabels, toMolfile, type Structure, cipOf, cleanUp, expandLabels, fragmentMasses, mapReaction, importStructure, toInchi, measurer, parseStructure, ready, STYLE, textWidth, toSmiles } from "./chem";
-import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, FONTS, type DocStyle, type PageName } from "./docstyle";
+import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, ELEMENT_COLOURS, FONTS, type DocStyle, type PageName } from "./docstyle";
 import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
 import {
@@ -25,7 +25,7 @@ import { store, type Store } from "./store";
 import { loadSettings, saveSettings } from "./settings";
 import { Menu, menuWidth } from "./Menu";
 import { ACTIONS, actionFor, keyOf, keymap, label as keyLabel, native, platformLabel, registerMenu, toAccelerator } from "./keys";
-import { Actions, actionItems, type Context } from "./Actions";
+import { Actions, actionItems, HIGHLIGHTS, type Context } from "./Actions";
 import { Properties, propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./Properties";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { acsText, multiplicity, quality } from "./nmr";
@@ -552,7 +552,7 @@ export default function Editor() {
     const cdxml = f === "oct" ? formatOf(part, "cdxml") : undefined;
     let out: string | undefined;
     try {
-      out = (f === "cdxml" ? toCdxml(part, style, cdxmlOptions()) : f === "oct" ? cdxml && writeOct(part, style, cdxmlOptions(), cdxml)
+      out = (f === "cdxml" ? toCdxml(part, savedStyle(), cdxmlOptions()) : f === "oct" ? cdxml && writeOct(part, savedStyle(), cdxmlOptions(), cdxml)
         : part.atoms.length && loaded ? (f === "molfile" ? toMolfile(part) : toSmiles(part)) : undefined) || undefined;
     } catch { out = undefined; }
     return (kept.formats[f] = out);
@@ -624,7 +624,7 @@ export default function Editor() {
   // Resolves true when the drawing was saved.
   async function save(as: boolean): Promise<boolean> {
     try {
-      const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), contents: writeOct(doc, style, cdxmlOptions()) });
+      const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), contents: writeOct(doc, savedStyle(), cdxmlOptions()) });
       if (path) setFile({ path, saved: doc });
       return !!path;
     } catch (e) {
@@ -968,7 +968,11 @@ export default function Editor() {
     ...Object.fromEntries(["solid", "shaded", "faded"].map((f) => [`curves_${f}`, () => runAction(`arrow.fill.${f}`)])),
     // The Colour menu: each colour in COLOURS by its place, and Other Colour… for the system picker.
     ...Object.fromEntries(COLOURS.map(([, hex], k) => [`colour_${k}`, () => runAction(`colour.${hex}`)])),
-    ...Object.fromEntries(settings.palette.map((c, k) => [`colour_user_${k}`, () => runAction(`colour.${c.hex}`)])),
+    // The user's colours, then the drawing's own (its saved palette and the colours it uses), as the menu lists them.
+    ...Object.fromEntries(Array.from({ length: 44 }, (_, k) => [`colour_user_${k}`, () => { const c = [...settings.palette, ...docColours][k]; if (c) runAction(`colour.${c.hex}`); }])),
+    // By Element, Highlight and Ring Fill, as in the Actions panel (and ChemDraw's Colors menu and toolbars).
+    colour_by_element: () => colourByElement(),
+    ...Object.fromEntries(["none", ...HIGHLIGHTS.map(([, hex]) => hex)].flatMap((v, k) => [[`highlight_${k}`, () => runAction(`halo.${v}`)], [`ringfill_${k}`, () => runAction(`ringfill.${v}`)]])),
     colour_other: () => setSettingsOpen("colours"),
     colours_add: () => { setAddingColour(true); setSettingsOpen("colours"); },
     ...Object.fromEntries([8, 9, 10, 12, 14, 18, 24].map((pt) => [`size_${pt}`, () => restyle(() => ({ size: pt === style.captionSize ? undefined : pt }))])),
@@ -990,11 +994,6 @@ export default function Editor() {
     saveSettings(settings);
     if (TAURI) syncChecks();
   }, [settings]);
-  // The Colour menu lists the user's colours by name: the menu bar is built again when they change.
-  const paletteNames = settings.palette.map((c) => c.name).join("\n");
-  useEffect(() => {
-    if (TAURI) invoke("set_palette", { names: settings.palette.map((c) => c.name) }).then(syncChecks).catch(() => {});
-  }, [paletteNames]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!TAURI) return;
     const off = listen<string>("menu", (e) => commands.current[e.payload]?.());
@@ -2701,8 +2700,15 @@ export default function Editor() {
       }
     };
     walk(doc);
-    return drawingColours.current.filter((h) => !known.has(h)).slice(0, 24).map((hex) => ({ name: hex.toUpperCase(), hex }));
-  }, [doc, settings.palette]);
+    // The palette saved with the document (by name) comes first.
+    const named = (style.palette ?? []).filter((c, k, all) => !known.has(c.hex.toLowerCase()) && all.findIndex((x) => x.hex.toLowerCase() === c.hex.toLowerCase()) === k);
+    return [...named, ...drawingColours.current.filter((h) => !known.has(h) && !named.some((c) => c.hex.toLowerCase() === h)).map((hex) => ({ name: hex.toUpperCase(), hex }))].slice(0, 24);
+  }, [doc, settings.palette, style.palette]);
+  // The Colour menu lists the user's colours and the drawing's own by name: the menu bar is built again when they change.
+  const paletteNames = [...settings.palette, ...docColours].map((c) => c.name).join("\n");
+  useEffect(() => {
+    if (TAURI) invoke("set_palette", { names: paletteNames.split("\n").filter(Boolean) }).then(syncChecks).catch(() => {});
+  }, [paletteNames]); // eslint-disable-line react-hooks/exhaustive-deps
   const untidy = useMemo(() => messy(doc, selection), [doc, selection]);
   // Text the panel asked to copy; the copy handler uses it instead of SMILES.
   const copyText = useRef<string>(undefined);
@@ -2811,6 +2817,18 @@ export default function Editor() {
   };
 
   // Runs an action from the panel on the selected atom, bond or atoms.
+  // Colour by Element: the selected (or every) heteroatom label in its element's colour (ELEMENT_COLOURS, with the
+  // user's own from Settings > Colours); carbon and hydrogen keep the ink.
+  function colourByElement() {
+    const by = { ...ELEMENT_COLOURS, ...settings.elementColours }, atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i));
+    set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) && by[a.label] ? { ...a, colour: by[a.label] } : a)) }, true);
+  }
+  // The document's style as saved: with the user's colours and the drawing's own palette (ChemDraw keeps a palette in
+  // each document).
+  const savedStyle = (): DocStyle => {
+    const own = [...settings.palette, ...(style.palette ?? []).filter((c) => !settings.palette.some((u) => u.hex.toLowerCase() === c.hex.toLowerCase()))].slice(0, 24);
+    return own.length ? { ...style, palette: own } : style;
+  };
   function runAction(command: string) {
     const ids = [...selection];
     if (commands.current[command]) return commands.current[command]();
@@ -2843,13 +2861,7 @@ export default function Editor() {
       const inRing = key === "fill" ? new Set((whole.length ? whole : part.length ? part : all.filter((r) => r.every((i) => touched.has(i)))).flat()) : atoms;
       return set({ ...doc, atoms: doc.atoms.map((a, i) => (inRing.has(i) ? { ...a, [key]: c } : a)) }, true);
     }
-    // Colour by Element: heteroatom labels in their usual colours (N blue, O red, S gold, P orange, halogens green,
-    // Br brown, I purple); carbon and hydrogen keep the ink.
-    if (command === "colour_by_element") {
-      const BY: Record<string, string> = { N: "#2F55D4", O: "#D9342B", S: "#B58900", P: "#E07B00", F: "#1E9E4A", Cl: "#1E9E4A", Br: "#A5442A", I: "#7B2FBE", B: "#C76B6B", Si: "#8A6D3B", Se: "#B58900" };
-      const atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i));
-      return set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) && BY[a.label] ? { ...a, colour: BY[a.label] } : a)) }, true);
-    }
+
     if (command === "copy_smiles") return void document.execCommand("copy");
     if (command === "paste_hint") return setNotice(`Copy a SMILES string or MOL file, then press ${MOD}V here.`);
     if (command.startsWith("copy_text:")) { copyText.current = command.slice(10); document.execCommand("copy"); return; }
@@ -4179,6 +4191,8 @@ export default function Editor() {
           menuKeys={menuReady ? [] : Object.values(MENU_NAMES).flatMap(([name, keys]) => (keys ? [[name, platformLabel(keys)!] as [string, string]] : []))}
           palette={settings.palette}
           onPalette={(palette) => setSettings((s) => ({ ...s, palette }))}
+          elementColours={settings.elementColours}
+          onElementColours={(elementColours) => setSettings((s) => ({ ...s, elementColours }))}
           adding={addingColour}
           onClose={() => { setSettingsOpen(undefined); setAddingColour(false); }}
         />

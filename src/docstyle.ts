@@ -30,6 +30,9 @@ export type DocStyle = {
   labelFont: string; labelSize: number; captionFont: string; captionSize: number; colour: string;
   // Atom labels (ChemDraw's Show Labels on Terminal Carbons, on Non-Terminal Carbons, and Hide Implicit Hydrogens).
   terminalLabels: boolean; carbonLabels: boolean; hideH: boolean;
+  // The named colours saved with the document (ChemDraw keeps a palette in each document): the user's own colours
+  // when it was saved. Another computer shows them in the drawing's colour row.
+  palette?: { name: string; hex: string }[];
 };
 
 type Drawn = Pick<DocStyle, "bond" | "line" | "bold" | "margin" | "hash" | "spacing" | "labelFont" | "labelSize" | "captionFont" | "captionSize">;
@@ -59,6 +62,10 @@ export const COLOURS: [string, string][] = [
   ["Green", "#22775B"], ["Amber", "#8B4E18"], ["Red", "#B42323"],
 ];
 
+// Colour by Element: heteroatom labels in their usual colours (N blue, O red, S gold, P orange, halogens green, Br
+// brown, I purple); carbon and hydrogen keep the ink. Settings > Colours can change each one.
+export const ELEMENT_COLOURS: Record<string, string> = { N: "#2F55D4", O: "#D9342B", S: "#B58900", P: "#E07B00", F: "#1E9E4A", Cl: "#1E9E4A", Br: "#A5442A", I: "#7B2FBE", B: "#C76B6B", Si: "#8A6D3B", Se: "#B58900" };
+
 // Highlight fills: light tints of the brand's colours, pale enough to print behind black ink.
 export const TINTS: [string, string][] = [
   ["Light blue", "#DCE4F5"], ["Light green", "#DCEFE6"], ["Light amber", "#F6E6D3"], ["Light red", "#F6DCDC"], ["Light grey", "#E9ECF0"],
@@ -86,7 +93,11 @@ export function readStyle(v: unknown): DocStyle {
     colour: text("colour", (t) => /^#[0-9a-f]{6}$/i.test(t)),
     terminalLabels: s.terminalLabels === true, carbonLabels: s.carbonLabels === true, hideH: s.hideH === true,
   };
-  return { ...style, preset: presetOf(style) };
+  const palette = (Array.isArray(s.palette) ? s.palette : []).flatMap((c: unknown) => {
+    const x = c as { name?: unknown; hex?: unknown };
+    return typeof x?.name === "string" && x.name.length <= 40 && typeof x.hex === "string" && /^#[0-9a-f]{6}$/i.test(x.hex) ? [{ name: x.name, hex: x.hex }] : [];
+  }).slice(0, 24);
+  return { ...style, ...(palette.length ? { palette } : {}), preset: presetOf(style) };
 }
 
 // The drawing frame keeps every structure at `frame` px per bond length. A style with other lengths changes the
