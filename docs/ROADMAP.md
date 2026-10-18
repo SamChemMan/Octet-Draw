@@ -33,3 +33,25 @@ Octet predicts ¹H and ¹³C spectra. It cannot open a measured spectrum.
 The Synthesis and Retrosynthesis cut tools (audit item CD-39) are built in 1.0, so only Mass Spec Analysis stays in this step.
 
 - A Mass Spec Analysis mode beside Mass Fragmentation.
+
+### Moved from 1.0 on 18 October 2026 to save usage
+
+Sam wanted these in 1.0. They are not done yet.
+
+- ChemDraw file fidelity:
+  - Conditions keep their text positions from a ChemDraw file. Now Octet lays out the conditions of an arrow again, so text that ChemDraw placed by hand moves.
+  - Centred labels: a label with `LabelJustification="Center"` keeps it. Now Octet reads and writes the justification it works out itself.
+  - Label turns: a label's `RotationAngle` is kept. Now Octet keeps it on captions only.
+  - Arrowhead sizes and hollow block arrows are done.
+- Mixtures as ChemDraw 26.1 names them: Structure to Name gives one name with the component ratios for a grouped mixture, fractional ratios too. Name to Structure already reads these names.
+- Linux: Cut, Copy and Paste in the Edit menu as Octet's own items, as Close Window is.
+
+### Platform limits
+
+Octet cannot test these on Sam's Mac.
+
+- Windows and Linux: the clipboard and the menus have never run on a real Windows or Linux machine.
+- The build pipeline (`.github/workflows/release.yml`) has never run on GitHub.
+- Updates cannot be tested until the first release is published.
+- Signing and notarisation wait for Sam's Apple and Windows keys.
+- The Dock's Quit (`src-tauri/src/quit.rs`) was tried only in a probe. Try it in a built Octet with unsaved changes.
