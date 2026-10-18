@@ -1707,8 +1707,8 @@ export default function Editor() {
       return texts.length ? <g key={ids[0]} className={ids[0] >= settling ? "settle" : undefined} transform={moveBy(at, k, turn)}>{texts}</g> : null;
     });
   }, [drawing, darkPaper, style.labelFont, settling]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Where each map number and stereo flag goes, worked out once per change of the atoms or bonds.
-  const markDirs = useMemo(() => markDirections(shown, shown.atoms.flatMap((a, i) => (a.map || a.enhanced ? [i] : []))), [shown.atoms, shown.bonds]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Where each stereo flag goes, worked out once per change of the atoms or bonds.
+  const markDirs = useMemo(() => markDirections(shown, shown.atoms.flatMap((a, i) => (a.enhanced ? [i] : []))), [shown.atoms, shown.bonds]); // eslint-disable-line react-hooks/exhaustive-deps
   // Mass fragmentation: the bonds each cut line crosses, and the pieces they leave, labelled at the line's ends
   // on each piece's side with its formula and exact mass.
   const cutLabels = useMemo(() => {
@@ -5055,10 +5055,10 @@ export default function Editor() {
         <text key={`st${i}`} className="stereo-flag" textAnchor="middle" fill="var(--ink)" x={(pos(shown, i)[0] + 0.5 * scaleOf(a) * markDirs.get(i)![0]) * L} y={-(pos(shown, i)[1] + 0.5 * scaleOf(a) * markDirs.get(i)![1]) * L + 0.25 * frame.size * scaleOf(a)}
           style={{ font: `${frame.size * 0.7 * scaleOf(a)}px ${fontStack(style.labelFont)}` }}>{a.enhanced}</text>
       ) : null)}
-      {shown.atoms.map((a, i) => a.map && drawing.ink[i] ? (
-        // Atom map numbers: small, in brand blue, just off the atom on its open side.
-        <text key={`map${i}`} className="atom-map" textAnchor="middle" x={(pos(shown, i)[0] + 0.42 * scaleOf(a) * markDirs.get(i)![0]) * L} y={-(pos(shown, i)[1] + 0.42 * scaleOf(a) * markDirs.get(i)![1]) * L + 0.22 * frame.size * scaleOf(a)} style={{ fontSize: frame.size * 0.62 * scaleOf(a) }}>{a.map}</text>
-      ) : null)}
+      {drawing.maps.map((n) => (
+        // Atom map numbers: in brand blue, in the label's face, where render puts them (clear of the label and bonds).
+        <text key={`map${n.atom}`} className="atom-map" textAnchor="middle" x={n.at[0]} y={n.at[1] + n.h / 2} style={{ font: labelFont({ ...shown.atoms[n.atom], size: n.size }) }}>{n.text}</text>
+      ))}
       {labelTexts.filter((_, k) => level(shown.atoms[drawing.parts[k].ids[0]]))}
       {placed.filter(level).map((c) => c.id === (writing?.id ?? DRAFT) || c.id === DRAFT ? null : (
         <CaptionText key={`c${c.id}`} c={c} fill={textInk(c.colour ?? style.colour)} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} />

@@ -295,11 +295,12 @@ export type Box = [number, number, number, number];
 // electrons: where each lone pair and radical dot is drawn (px), for curly arrows to start from, and with key, every
 // mark (circled and partial charges too), for moving it round its atom (Atom.angles). beads: polymer beads, drawn
 // shaded by the caller. labelAt: where each label's atom is (px), which the label keeps level about while a drag turns
-// its structure.
+// its structure. maps: each atom map number (px): its text, the middle of its ink, its font size and ink height.
+export type MapNumber = { atom: number; text: string; at: P; size: number; h: number };
 export type Drawing = {
   sides?: number[]; // each bond's second line as drawn, for a double bond: -1 left, 1 right of its first atom to its second on screen, 0 centred
   polygons: P[][]; colours: (string | undefined)[]; alphas: number[]; labels: Label[]; box: Box; ink: Box[]; label: (Box | undefined)[]; scale: number;
-  electrons: { atom: number; at: P; key?: string }[]; beads: { at: P; r: number }[]; labelAt: P[];
+  electrons: { atom: number; at: P; key?: string }[]; beads: { at: P; r: number }[]; labelAt: P[]; maps: MapNumber[];
 };
 
 // An object's scale: its own, or 1.
@@ -365,6 +366,17 @@ const meet = (p: P, r: P, q: P, s: P): P | null => {
   const d = cross(r, s);
   return Math.abs(d) < 1e-9 ? null : add(p, mul(r, cross(sub(q, p), s) / d));
 };
+
+// Whether the line from p to q goes through box b.
+function crosses(b: Box, p: P, q: P): boolean {
+  let t0 = 0, t1 = 1;
+  for (const [e, f] of [[p[0] - q[0], p[0] - b[0]], [q[0] - p[0], b[2] - p[0]], [p[1] - q[1], p[1] - b[1]], [q[1] - p[1], b[3] - p[1]]]) {
+    if (Math.abs(e) < 1e-12) { if (f < 0) return false; continue; }
+    if (e < 0) t0 = Math.max(t0, f / e); else t1 = Math.min(t1, f / e);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
 
 // Small rings through bond a–b (simple paths from a back to b, up to 8 atoms).
 function ringsThrough(a: number, b: number, nbrs: number[][]): number[][] {
@@ -1043,8 +1055,44 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     take(b[0], b[1]); take(b[2], b[3]);
     return b;
   });
+  // Map numbers, as ChemDraw draws them: in the label's face at three quarters of its size. After a label that reads
+  // one way (OH, H2N, NH3+), level with the atom, if no bond is there; else out on the atom's open side (the middle
+  // of its widest gap between bonds, not inside a ring that a bond leaves, lower on a tie). Either way just clear of
+  // the atom's label (element, H, counts, charge), its marks and its bonds.
+  const maps: MapNumber[] = [];
+  mol.atoms.forEach((a, i) => {
+    if (!a.map || a.hidden) return;
+    const X = pts[i], z = s.size * ratio[i], { hw, spacing } = atomZ[i], gap = 0.2 * z, text = String(a.map);
+    const m = grown(measure(text, a.font || a.bold || a.italic ? { font: a.font, bold: a.bold, italic: a.italic } : undefined), ratio[i]);
+    const w = m.width * SUB, h = m.ascent * SUB;
+    const boxes = [...labelBoxes[i], ...[marks[i], ...symbols[i]].filter((q) => q.length).map(outlineBox)];
+    const bonds = nbrs[i].map((j) => { const b = bondAt.get(key(i, j))!; return { q: pts[j], t: hw + (b.type === 1 && !b.stereo && !b.display ? 0 : spacing) }; });
+    const clear = (c: P) => {
+      const b: Box = [c[0] - w / 2 - gap, c[1] - h / 2 - gap, c[0] + w / 2 + gap, c[1] + h / 2 + gap];
+      return boxes.every((o) => o[0] >= b[2] || o[2] <= b[0] || o[1] >= b[3] || o[3] <= b[1]) && bonds.every(({ q, t }) => !crosses([b[0] - t, b[1] - t, b[2] + t, b[3] + t], X, q));
+    };
+    let at: P | undefined;
+    const lb = label[i], reads = lb ? lb[2] - X[0] - (X[0] - lb[0]) : 0;
+    if (lb && Math.abs(reads) > 0.1 * z) {
+      const c: P = [reads > 0 ? lb[2] + gap + w / 2 + 0.01 : lb[0] - gap - w / 2 - 0.01, X[1]];
+      if (clear(c)) at = c;
+    }
+    if (!at) {
+      const sides = nbrs[i].map((j) => ({ t: Math.atan2(pts[j][1] - X[1], pts[j][0] - X[0]), ring: ringsThrough(i, j, covalent).length > 0 })).sort((p, q) => p.t - q.t);
+      let d: P = [0, 1], best = -Infinity;
+      sides.forEach((p, k) => {
+        const q = sides[(k + 1) % sides.length], size = sides.length === 1 ? TAU : turn(q.t - p.t) || TAU, mid = p.t + size / 2;
+        const score = size - (sides.length > 2 && p.ring && q.ring && sides.some((x) => !x.ring) ? 10 : 0) + 0.01 * Math.sin(mid);
+        if (score > best) { best = score; d = [Math.cos(mid), Math.sin(mid)]; }
+      });
+      for (let r = 0; r <= 5 * z && !at; r += 0.02 * z) if (clear(add(X, mul(d, r)))) at = add(X, mul(d, r));
+      at ??= add(X, mul(d, 5 * z));
+    }
+    maps.push({ atom: i, text, at, size: z * SUB, h });
+    for (const q of [[at[0] - w / 2, at[1] - h / 2], [at[0] + w / 2, at[1] + h / 2]] as P[]) { grow(i, q); take(q[0], q[1]); }
+  });
   const labelAt = labels.map((l): P => pts[labelAtom.get(l) ?? -1] ?? [l.x, l.y]);
-  return { polygons, colours, alphas, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad], ink, label, scale: k, electrons, beads, labelAt, sides: plans.map((pl) => pl.side ?? 0) };
+  return { polygons, colours, alphas, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad], ink, label, scale: k, electrons, beads, labelAt, maps, sides: plans.map((pl) => pl.side ?? 0) };
 }
 
 // The same drawing as render's, made structure by structure. Each structure's drawing stays in `cache` while its
@@ -1059,7 +1107,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
 // by at (px).
 export type Part = { atoms: Atom[]; bonds: Bond[]; drawn: Atom[]; drawing: Drawing; at: P; k: number; turn: number };
 export type PartCache = { parts: WeakMap<Atom, Part>; last: Map<number, Part> };
-export type Parts = Pick<Drawing, "box" | "ink" | "label" | "scale" | "electrons" | "beads"> & { parts: { ids: number[]; drawing: Drawing; at: P; k: number; turn: number }[] };
+export type Parts = Pick<Drawing, "box" | "ink" | "label" | "scale" | "electrons" | "beads" | "maps"> & { parts: { ids: number[]; drawing: Drawing; at: P; k: number; turn: number }[] };
 export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, scale: number, cache: PartCache, still = true): Parts {
   // Structures: atoms joined by bonds, each under its lowest atom.
   const root = mol.atoms.map((_, i) => i);
@@ -1075,7 +1123,7 @@ export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: F
   const groups = new Map<number, { ids: number[]; bonds: Bond[] }>();
   mol.atoms.forEach((_, i) => { const r = find(i); let g = groups.get(r); if (!g) groups.set(r, (g = { ids: [], bonds: [] })); g.ids.push(i); });
   for (const b of mol.bonds) groups.get(find(b.atoms[0]))!.bonds.push(b);
-  const out: Parts = { box: [Infinity, Infinity, -Infinity, -Infinity], ink: [], label: [], scale, electrons: [], beads: [], parts: [] }, last = new Map<number, Part>();
+  const out: Parts = { box: [Infinity, Infinity, -Infinity, -Infinity], ink: [], label: [], scale, electrons: [], beads: [], maps: [], parts: [] }, last = new Map<number, Part>();
   for (const { ids, bonds } of groups.values()) {
     const atoms = ids.map((i) => mol.atoms[i]);
     const same = (p?: Part): p is Part => !!p && p.atoms.length === atoms.length && p.bonds.length === bonds.length && p.bonds.every((b, k) => b === bonds[k]);
@@ -1107,6 +1155,7 @@ export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: F
     out.parts.push({ ids, drawing: d, at: part.at, k: f, turn });
     for (const x of d.beads) out.beads.push(moved ? { at: to(x.at), r: x.r * f } : x);
     for (const e of d.electrons) out.electrons.push({ ...e, atom: ids[e.atom], at: moved ? to(e.at) : e.at });
+    for (const n of d.maps) out.maps.push({ ...n, atom: ids[n.atom], ...(moved ? { at: to(n.at), size: n.size * f, h: n.h * f } : {}) });
     ids.forEach((i, k) => { out.ink[i] = move(d.ink[k]); const l = d.label[k]; out.label[i] = l && move(l); });
     const b = out.box, db = move(d.box);
     b[0] = Math.min(b[0], db[0]); b[1] = Math.min(b[1], db[1]); b[2] = Math.max(b[2], db[2]); b[3] = Math.max(b[3], db[3]);
@@ -1122,6 +1171,7 @@ function shifted(d: Drawing, [x, y]: P): Drawing {
     polygons: d.polygons.map((poly) => poly.map(([px, py]): P => [px + x, py + y])),
     labels: d.labels.map((l) => ({ ...l, x: l.x + x, y: l.y + y })),
     electrons: d.electrons.map((e) => ({ ...e, at: [e.at[0] + x, e.at[1] + y] })),
+    maps: d.maps.map((n) => ({ ...n, at: [n.at[0] + x, n.at[1] + y] })),
     beads: d.beads.map((b) => ({ ...b, at: [b.at[0] + x, b.at[1] + y] })),
     labelAt: d.labelAt.map(([px, py]): P => [px + x, py + y]),
   };

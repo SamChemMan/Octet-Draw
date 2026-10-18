@@ -3168,8 +3168,6 @@ button.variant.add {
 }
 .atom-map {
   fill: var(--brand);
-  font-family: var(--font-sans);
-  font-variant-numeric: tabular-nums;
 }
 /* Short text standing in for an icon (L, C, R, Rf, R/S) fits the icon's square. */
 .glyph-text {
