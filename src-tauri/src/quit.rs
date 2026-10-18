@@ -37,7 +37,7 @@ pub fn install(app: &AppHandle) {
         let Some(app) = APP.get().filter(|_| EDITED.load(Relaxed)).cloned() else { return 1 };
         std::thread::spawn(move || {
             front(&app);
-            app.emit("menu", "quit")
+            app.emit_to("main", "menu", "quit")
         });
         0
     }

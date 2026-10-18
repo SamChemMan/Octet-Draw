@@ -791,6 +791,10 @@ fn main() {
         // Files dropped on the window, with where they were dropped in CSS pixels from the top left. wry 0.57 gives
         // WebView2's point in device pixels, and WebKit's (Mac, Linux) in CSS pixels already.
         .on_window_event(|window, event| {
+            // Only the drawing's window takes files (not the Reaxys window).
+            if window.label() != "main" {
+                return;
+            }
             if let WindowEvent::DragDrop(DragDropEvent::Drop { paths, position }) = event {
                 #[cfg(windows)]
                 let position = position.to_logical::<f64>(window.scale_factor().unwrap_or(1.0));
