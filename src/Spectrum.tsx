@@ -3,39 +3,19 @@
 // atom lights its peak. The wheel zooms the shift axis, a drag pans it and a double-click shows all of it. Expanded,
 // the panel fills the canvas with the structure beside the spectrum (the canvas's own drawing, shown again).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowsIn, ArrowsOut, CopySimple, X } from "@phosphor-icons/react";
+import { ArrowsIn, ArrowsOut, ChartLine, CopySimple, ListBullets, Tag, X } from "@phosphor-icons/react";
 import { acsText, detailsTable, multiplicity, quality, type Nucleus, type Prediction, type Signal } from "./nmr";
 import { Select } from "./Select";
 import { Segmented } from "./Fields";
-import { listOpen } from "./Menu";
+import { listOpen, Pick } from "./Menu";
 import { useMovable } from "./movable";
 import { holdCursor } from "./cursor";
 import { useLeaving } from "./motion";
 import { HIGHLIGHT_COLOURS } from "./docstyle";
+import { fullRange, lines, lorentz as traceAt, solventPeaks, spread, ticks, SOLVENTS } from "./spectrumplot";
 
-export const SOLVENTS = ["CDCl₃", "DMSO-d₆", "CD₃OD", "D₂O", "C₆D₆", "Acetone-d₆", "CD₃CN"];
 const FIELDS = [60, 80, 90, 200, 300, 400, 500, 600, 700, 800];
 const HEIGHT = 184, TOP = 44, BASE = 26, PAD = 14; // px: the plot docked, room for labels above it and the axis below, and its ends
-
-// Residual solvent and water peaks (Fulmer et al., Organometallics 2010, 29, 2176): each peak's shift with the number
-// of deuteriums the nucleus couples to and J to deuterium (Hz). CHD₂ residual protons are quintets; CDCl₃ is a 1:1:1
-// triplet in ¹³C and CD₃ a septet.
-const SOLVENT_PEAKS: Record<string, { h: [number, number, number][]; water?: number; c: [number, number, number][] }> = {
-  "CDCl₃": { h: [[7.26, 0, 0]], water: 1.56, c: [[77.16, 1, 32]] },
-  "DMSO-d₆": { h: [[2.5, 2, 1.9]], water: 3.33, c: [[39.52, 3, 21]] },
-  "CD₃OD": { h: [[3.31, 2, 1.7]], water: 4.87, c: [[49.0, 3, 21.4]] },
-  "D₂O": { h: [[4.79, 0, 0]], c: [] },
-  "C₆D₆": { h: [[7.16, 0, 0]], water: 0.4, c: [[128.06, 1, 24]] },
-  "Acetone-d₆": { h: [[2.05, 2, 2.2]], water: 2.84, c: [[29.84, 3, 19.4], [206.26, 0, 0]] },
-  "CD₃CN": { h: [[1.94, 2, 2.5]], water: 2.13, c: [[1.32, 3, 21], [118.26, 0, 0]] },
-};
-// A peak split by n deuteriums (spin 1): 2n + 1 lines, heights from repeated 1:1:1, adding up to `total`.
-function deuterated(ppm: number, n: number, j: number, mhz: number, total: number) {
-  let row = [1];
-  for (let k = 0; k < n; k++) row = Array.from({ length: row.length + 2 }, (_, i) => (row[i - 2] ?? 0) + (row[i - 1] ?? 0) + (row[i] ?? 0));
-  const sum = row.reduce((a, b) => a + b, 0);
-  return row.map((h, i) => ({ ppm: ppm + ((i - n) * j) / mhz, h: (h / sum) * total }));
-}
 
 // Colours for peaks and the discs behind their atoms: ten of the highlight colours, in an order that keeps
 // neighbouring peaks far apart.
@@ -46,46 +26,14 @@ type Props = {
   prediction?: Prediction; nucleus: Nucleus; mhz: number; solvent: string; lit: Set<number>; solventPeaks: boolean;
   colours: (string | undefined)[]; // each signal's colour (its atoms' highlight)
   details: boolean; onDetails: (on: boolean) => void; // the table of how each shift was found
-  onColour: (signal: number, colour?: string) => void; onColourAll: (on: boolean) => void; onKey: () => void;
+  onColour: (signal: number, colour?: string) => void; onColourAll: (on: boolean) => void;
+  // Add to drawing: the spectrum as shown (its shift range), each shift beside its atom, or the key (coloured shifts),
+  // as objects on the page that save, print and export with it.
+  onAdd: (what: "spectrum" | "shifts" | "key", range: [number, number]) => void;
   inset?: [number, number, number, number]; // the structure's box on the canvas (px), shown beside the spectrum when expanded
   onNucleus: (n: Nucleus) => void; onMhz: (mhz: number) => void; onSolvent: (s: string) => void; onSolventPeaks: (on: boolean) => void;
   onPoint: (atoms?: number[]) => void; onCopy: (text: string) => void; onClose: () => void;
 };
-
-const binomial = (n: number) => { const row = [1]; for (let k = 1; k <= n; k++) row.push((row[k - 1] * (n - k + 1)) / k); return row; };
-// A ¹H signal's lines: first-order splitting by each coupling (n + 1 lines with binomial heights, J apart), the
-// heights adding up to the signal's number of hydrogens.
-function lines(s: Signal, mhz: number): { ppm: number; h: number }[] {
-  let out = [{ ppm: s.shift, h: s.nuclei }];
-  for (const c of s.couplings) {
-    const w = binomial(c.n), step = c.j / mhz, total = 2 ** c.n;
-    out = out.flatMap((l) => w.map((k, i) => ({ ppm: l.ppm + (i - c.n / 2) * step, h: (l.h * k) / total })));
-  }
-  return out;
-}
-// The shift range to show all of a spectrum: 0 to 10 ppm for ¹H and 0 to 200 for ¹³C, wider if a shift is outside.
-function fullRange(p: Prediction | undefined, nucleus: Nucleus): [number, number] {
-  const shifts = p?.signals.map((s) => s.shift) ?? [], [lo, hi] = nucleus === "1H" ? [0, 10] : [0, 200], pad = nucleus === "1H" ? 0.5 : 10;
-  return [Math.min(lo, ...shifts.map((x) => x - pad)), Math.max(hi, ...shifts.map((x) => x + pad))];
-}
-// Axis ticks: the first step that gives at most one label per 64 px.
-function ticks(lo: number, hi: number, width: number) {
-  const step = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50].find((s) => (hi - lo) / s <= width / 64) ?? 100;
-  const out: number[] = [];
-  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(Math.round(v / step) * step);
-  return { out, places: step < 0.1 ? 2 : step < 1 ? 1 : 0 };
-}
-// Labels at least `gap` px apart and inside the plot, each as near its peak as it can be: pushed right past the one
-// before, pulled back left from the right end, then each group of crowded labels centred on its peaks.
-function spread(xs: number[], gap: number, width: number): number[] {
-  const order = xs.map((x, i) => ({ x, i })).sort((a, b) => a.x - b.x), at = order.map((o) => o.x), n = at.length;
-  for (let k = 0; k < n; k++) at[k] = Math.max(at[k], k ? at[k - 1] + gap : gap / 2);
-  for (let k = n - 1; k >= 0; k--) at[k] = Math.min(at[k], k < n - 1 ? at[k + 1] - gap : width - gap / 2);
-  for (let k = 0; k < n; k++) at[k] = Math.max(at[k], k ? at[k - 1] + gap : gap / 2);
-  const out = xs.slice();
-  order.forEach((o, k) => { out[o.i] = at[k]; });
-  return out;
-}
 
 export function SpectrumPanel(p: Props) {
   const box = useRef<HTMLDivElement>(null), [width, setWidth] = useState(600), [expanded, setExpanded] = useState(false), [tall, setTall] = useState(HEIGHT);
@@ -124,25 +72,14 @@ export function SpectrumPanel(p: Props) {
 
   // The trace: ¹H as Lorentzian lines summed at each pixel (at least a pixel and a half wide, so narrow lines show
   // at any zoom); ¹³C as sticks, as tall as the carbons they count.
-  const lorentz = (ls: { ppm: number; h: number; w: number }[]) => {
-    const ys: number[] = [];
-    for (let px = 0; px <= width; px++) { const v = ppmAt(px); ys.push(ls.reduce((sum, l) => sum + (l.h * l.w * l.w) / ((v - l.ppm) ** 2 + l.w * l.w), 0)); }
-    return ys;
-  };
+  const lorentz = (ls: { ppm: number; h: number; w: number }[]) => traceAt(Array.from({ length: width + 1 }, (_, px) => ppmAt(px)), ls);
   const least = (0.75 * (hi - lo)) / width;
   const trace = useMemo(() => {
     if (p.nucleus !== "1H" || !signals.length) return undefined;
     return lorentz(signals.flatMap((s, k) => split[k].map((l) => ({ ...l, w: Math.max((s.broad ? 12 : 0.6) / p.mhz, least) }))));
   }, [split, signals, p.nucleus, p.mhz, lo, hi, width]); // eslint-disable-line react-hooks/exhaustive-deps
   // The solvent's own peaks, in grey: the residual peak (and water) in ¹H, the deuterated carbons in ¹³C.
-  const solvent = useMemo(() => {
-    const s = SOLVENT_PEAKS[p.solvent];
-    if (!p.solventPeaks || !s) return [];
-    const mhz = p.nucleus === "1H" ? p.mhz : p.mhz * 0.25145;
-    const peaks = p.nucleus === "1H" ? [...s.h.map(([ppm, n, j]) => ({ name: p.solvent, ppm, lines: deuterated(ppm, n, j, mhz, 1), broad: false })), ...(s.water !== undefined ? [{ name: "H₂O", ppm: s.water, lines: deuterated(s.water, 0, 0, mhz, 0.8), broad: true }] : [])]
-      : s.c.map(([ppm, n, j]) => ({ name: p.solvent, ppm, lines: deuterated(ppm, n, j, mhz, 1.5), broad: false }));
-    return peaks;
-  }, [p.solvent, p.solventPeaks, p.nucleus, p.mhz]);
+  const solvent = useMemo(() => (p.solventPeaks ? solventPeaks(p.solvent, p.nucleus, p.mhz) : []), [p.solvent, p.solventPeaks, p.nucleus, p.mhz]);
   const solventTrace = useMemo(() => (p.nucleus === "1H" && solvent.length ? lorentz(solvent.flatMap((s) => s.lines.map((l) => ({ ...l, w: Math.max((s.broad ? 6 : 0.6) / p.mhz, least) })))) : undefined),
     [solvent, p.nucleus, p.mhz, lo, hi, width]); // eslint-disable-line react-hooks/exhaustive-deps
   const top = p.nucleus === "1H" ? Math.max(1e-9, ...(trace ?? [0]), ...(solventTrace ?? [0])) : Math.max(1, ...signals.map((s) => s.nuclei), ...solvent.flatMap((s) => s.lines.map((l) => l.h)));
@@ -192,7 +129,11 @@ export function SpectrumPanel(p: Props) {
           </span>
         )}
         <button className="spectrum-button" onClick={() => p.onColourAll(!anyColour)} disabled={!signals.length}>{anyColour ? "Clear colours" : "Colour peaks"}</button>
-        <button className="spectrum-button" onClick={p.onKey} disabled={!signals.length} data-tip="Add the key (coloured shifts) under the structure">Add key</button>
+        <Pick label="Add to drawing" value="" className="spectrum-button" title="Put the spectrum, the shifts or the key on the page" disabled={!signals.length}
+          groups={[[{ key: "spectrum", name: "Spectrum", icon: <ChartLine size={18} /> }, { key: "shifts", name: "Shifts beside atoms", icon: <Tag size={18} /> }, { key: "key", name: "Key", icon: <ListBullets size={18} /> }]]}
+          onPick={(what) => p.onAdd(what as "spectrum" | "shifts" | "key", [lo, hi])}>
+          Add to drawing
+        </Pick>
         <button className="spectrum-button" onClick={() => p.onCopy(text)} disabled={!text} data-tip="Copy the characterisation line"><CopySimple size={16} /> Copy</button>
       </div>
       <div className="spectrum-body">
@@ -301,7 +242,7 @@ export function SpectrumPanel(p: Props) {
                           <td className="num">{s.nuclei}H</td>
                         </>
                       ) : <td className="num">{s.nuclei}</td>}
-                      <td>{s.level} {s.level === 1 ? "sphere" : "spheres"} matched, {s.based} measured, ±{s.sd.toFixed(p.nucleus === "1H" ? 2 : 1)}</td>
+                      <td>{s.level} {s.level === 1 ? "sphere" : "spheres"} matched, {s.based} measured in {s.solvent ?? "any solvent"}, ±{s.sd.toFixed(p.nucleus === "1H" ? 2 : 1)}</td>
                       <td><span className={`quality ${q}`}>{q[0].toUpperCase() + q.slice(1)}</span></td>
                     </tr>
                   );

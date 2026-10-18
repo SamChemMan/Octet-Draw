@@ -8,7 +8,8 @@ import { Menu } from "./Menu";
 import { Exit } from "./motion";
 import { Select } from "./Select";
 import { NumberField, Segmented } from "./Fields";
-import { withMargin, type ExportFormat } from "./export";
+import { EXPORT_FORMATS as FORMATS, PICTURES, RASTERS, withMargin } from "./export";
+import type { ExportFormat } from "./export";
 import { DPIS, type FilePrefs } from "./SettingsWindow";
 
 export function ExportButton({ onQuick, onExport, hint }: { onQuick: () => void; onExport: () => void; hint?: string }) {
@@ -37,8 +38,6 @@ export function ExportButton({ onQuick, onExport, hint }: { onQuick: () => void;
   );
 }
 
-const FORMATS: [ExportFormat, string][] = [["oct", "Octet drawing (.oct)"], ["pdf", "PDF"], ["png", "PNG"], ["svg", "SVG"], ["cdxml", "CDXML (ChemDraw)"], ["cdx", "CDX (ChemDraw)"], ["mol", "MOL"], ["sdf", "SDF"], ["smi", "SMILES"], ["inchi", "InChI"]];
-const PICTURES: ExportFormat[] = ["pdf", "png", "svg"];
 export type ExportSettings = Pick<FilePrefs, "dpi" | "background" | "margin"> & { format: ExportFormat };
 
 // The settings before saving. pictures: the picture of the whole drawing and, when something is selected, of the
@@ -52,7 +51,8 @@ export function ExportDialog({ prefs, onPrefs, pictures, chemistry, onExport, on
   const [part, setPart] = useState<"all" | "selection">(pictures.selection ? "selection" : "all");
   const has = chemistry(part), picture = pictures[part], format = prefs.format;
   const usable = FORMATS.filter(([f]) => (PICTURES.includes(f) ? !!picture : has[f]));
-  const isPicture = PICTURES.includes(format), svg = picture && isPicture ? withMargin(picture, prefs.margin) : undefined;
+  const isPicture = PICTURES.includes(format), raster = RASTERS.includes(format), clear = raster && format !== "jpg" && prefs.background === "transparent";
+  const svg = picture && isPicture ? withMargin(picture, prefs.margin) : undefined;
   const size = svg ? (/viewBox="[-\d.]+ [-\d.]+ ([\d.]+) ([\d.]+)"/.exec(svg) ?? []).slice(1).map(Number) : [];
   const mm = (pt: number) => Math.round((pt * 25.4) / 72);
   // A saved format this drawing has nothing for stays in the list, so the list shows it and Export… is off.
@@ -60,12 +60,12 @@ export function ExportDialog({ prefs, onPrefs, pictures, chemistry, onExport, on
   // The preview is white paper in both themes, so it and the text on it take the light theme's colours.
   return (
     <Dialog title="Export" action="Export…" onClose={onClose} onAction={() => onExport(part)} disabled={!ok}>
-      <div className={["export-preview", svg && format === "png" && prefs.background === "transparent" && "transparent"].filter(Boolean).join(" ")} data-theme="light">
+      <div className={["export-preview", svg && clear && "transparent"].filter(Boolean).join(" ")} data-theme="light">
         {svg ? <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`} alt="Preview" /> : <span className="export-none">{ok ? FORMATS.find(([f]) => f === format)?.[1] : "Nothing to export in this format"}</span>}
       </div>
       {size.length === 2 && (
         <p className="export-size">
-          {mm(size[0])} × {mm(size[1])} mm{format === "png" ? ` · ${Math.round((size[0] * prefs.dpi) / 72).toLocaleString()} × ${Math.round((size[1] * prefs.dpi) / 72).toLocaleString()} px` : ""}
+          {mm(size[0])} × {mm(size[1])} mm{raster ? ` · ${Math.round((size[0] * prefs.dpi) / 72).toLocaleString()} × ${Math.round((size[1] * prefs.dpi) / 72).toLocaleString()} px` : ""}
         </p>
       )}
       {pictures.selection && (
@@ -74,12 +74,12 @@ export function ExportDialog({ prefs, onPrefs, pictures, chemistry, onExport, on
       <label className="dialog-row"><span>Format</span>
         <Select label="Format" value={format} options={ok ? usable : usable.length ? [...usable, ...FORMATS.filter(([f]) => f === format)] : FORMATS} onChange={(v) => onPrefs({ format: v as ExportFormat })} />
       </label>
-      {format === "png" && (
+      {raster && (
         <label className="dialog-row"><span>Resolution</span>
           <Select label="Resolution" value={String(prefs.dpi)} options={DPIS} onChange={(v) => onPrefs({ dpi: Number(v) })} />
         </label>
       )}
-      {format === "png" && (
+      {raster && format !== "jpg" && (
         <label className="dialog-row"><span>Background</span>
           <Select label="Background" value={prefs.background} options={[["transparent", "Transparent"], ["white", "White"]]} onChange={(v) => onPrefs({ background: v as FilePrefs["background"] })} />
         </label>

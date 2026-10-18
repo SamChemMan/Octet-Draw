@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, extent, stack, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot, transformParts, splitCurve, nearestOnCurve, moveCurvePoint, removeCurvePoint, appendCurvePoint } from "./edit.ts";
+import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, extent, stack, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot, transformParts, splitCurve, nearestOnCurve, moveCurvePoint, removeCurvePoint, appendCurvePoint, nextGroup, setEnhanced } from "./edit.ts";
 import { curvePath, inShape, settleShape, shapeBounds, shapeCorners, tableLayout, type Mol, type Shape } from "./render.ts";
 import { distToPath } from "./hit.ts";
 const sub = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1]], cross = (a: number[], b: number[]) => a[0] * b[1] - a[1] * b[0];
@@ -814,4 +814,22 @@ console.log("edit.check: align ok");
   assert.equal(pivotOf(chain, new Set([0, 1, 2, 3, 4])), undefined);
   assert.equal(pivotOf(chain, new Set([0, 4])), undefined, "two ways out, from two atoms to two atoms: the middle");
   console.log("edit.check: centre of rotation ok");
+}
+
+// Enhanced stereo groups: a new and or or group takes the lowest number its structure has free (and and or counted
+// apart), and the atoms that move into it do not keep their old number in use.
+{
+  let g = sprout(EMPTY, [0, 0]);
+  for (let k = 1; k < 3; k++) g = sprout(g, k);
+  g = setEnhanced(setEnhanced(g, [0, 1], "&1"), [2], "or1");
+  assert.equal(nextGroup(g, [0, 1, 2, 3], "&"), 2);
+  assert.equal(nextGroup(g, [0, 1, 2, 3], "or"), 2);
+  assert.equal(nextGroup(g, [2, 3], "&"), 1, "only the atoms given count, so another structure's groups do not");
+  assert.equal(nextGroup(g, [0, 1, 2, 3], "&", new Set([0, 1])), 1, "the whole of group 1 moving frees its number");
+  g = setEnhanced(g, [1], `&${nextGroup(g, [0, 1, 2, 3], "&", new Set([1]))}`);
+  assert.deepEqual(g.atoms.map((a) => a.enhanced), ["&1", "&2", "or1", undefined]);
+  // A file keeps groups up to 99, so a structure with every and group used gets 99 again.
+  const full: Mol = { ...g, atoms: Array.from({ length: 99 }, (_, k) => ({ label: "C", location: [k, 0, 0] as [number, number, number], enhanced: `&${k + 1}` })) };
+  assert.equal(nextGroup(full, full.atoms.map((_, k) => k), "&"), 99);
+  console.log("edit.check: enhanced stereo groups ok");
 }

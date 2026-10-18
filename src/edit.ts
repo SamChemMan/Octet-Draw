@@ -306,8 +306,8 @@ export function toggleLonePairs(m: Mol, atoms: number[]): Mol {
 }
 // Single, then double, then triple, then single again. A wedge or hash becomes a plain double, and a quadruple bond
 // single. A hydrogen bond stays one, as in ChemDraw. A bond keeps its place where bonds cross, and its colour and
-// highlight.
-const respec = (m: Mol, i: number, spec: BondSpec): Mol => ({ ...m, bonds: m.bonds.map((b, k) => (k === i ? { ...makeBond(b.atoms, spec), ...(b.colour ? { colour: b.colour } : {}), ...(b.halo ? { halo: b.halo } : {}) } : b)) });
+// highlight. A new bond style replaces a query bond type (Any, S/D); the bond's topology and reaction centre stay.
+const respec = (m: Mol, i: number, spec: BondSpec): Mol => ({ ...m, bonds: m.bonds.map((b, k) => (k === i ? { ...makeBond(b.atoms, spec), ...(b.colour ? { colour: b.colour } : {}), ...(b.halo ? { halo: b.halo } : {}), ...(b.topology ? { topology: b.topology } : {}), ...(b.rxn ? { rxn: b.rxn } : {}) } : b)) });
 export const cycleBond = (m: Mol, i: number) => {
   const b = m.bonds[i];
   return b.type === HBOND ? m : respec(m, i, { type: b.type === QUADRUPLE ? 1 : b.stereo || b.display ? 2 : (b.type % 3) + 1 });
@@ -397,29 +397,33 @@ export function dragBond(m: Mol, from: number | P, q: P, spec: BondSpec = SINGLE
   return k >= 0 ? overBond(m, k, spec, from as number) : bondTo(m, from, q, spec);
 }
 
-// Kept ChemDraw data on a caption or shape (a live property, polymer brackets' meaning) with its atoms renumbered by
-// `to`; atoms `to` leaves out drop out, and the data goes when none are left.
+// Kept ChemDraw data on a caption (a live property) with its atoms renumbered by `to`; atoms `to` leaves out drop out,
+// and the data goes when none are left.
 export function remapKept<T extends Caption | Shape>(x: T, to: (i: number) => number | undefined): T {
-  const key = "property" in x && x.property ? "property" : "polymer" in x && x.polymer ? "polymer" : undefined;
-  if (!key) return x;
-  const k = (x as { [K in typeof key]?: Kept })[key]!, atoms = k.atoms.flatMap((i) => { const j = to(i); return j === undefined ? [] : [j]; });
-  const out = { ...x } as T & Record<string, unknown>;
-  if (atoms.length) out[key] = { ...k, atoms }; else delete out[key];
+  if (!("property" in x) || !x.property) return x;
+  const atoms = x.property.atoms.flatMap((i) => { const j = to(i); return j === undefined ? [] : [j]; });
+  const out = { ...x } as T & { property?: Kept };
+  if (atoms.length) out.property = { ...x.property, atoms }; else delete out.property;
   return out;
 }
-// Removes atoms (and their bonds), then any bare carbons left with no bonds, and hidden H atoms (Toggle Hydrogen
-// Display) whose atom went: they cannot be seen or picked alone.
+// Removes atoms (and their bonds), then any bare carbons left with no bonds, any multi-centre or variable attachment
+// left with fewer than two of its atoms, and hidden H atoms (Toggle Hydrogen Display) whose atom went: they cannot be
+// seen or picked alone.
 function removeAtoms(m: Mol, gone: Set<number>): Mol {
-  // A multi-centre point goes with its ring (when fewer than two of its atoms are left).
-  m.atoms.forEach((a, i) => { if (a.centre && a.centre.filter((j) => !gone.has(j)).length < 2) gone.add(i); });
-  const bonds = m.bonds.filter((b) => !gone.has(b.atoms[0]) && !gone.has(b.atoms[1]));
-  const used = new Set(bonds.flatMap((b) => b.atoms));
-  m.atoms.forEach((a, i) => { if (!used.has(i) && ((a.label === "C" && !a.charge) || a.hidden)) gone.add(i); });
+  let bonds = m.bonds;
+  for (let size = -1; size !== gone.size;) {
+    size = gone.size;
+    bonds = m.bonds.filter((b) => !gone.has(b.atoms[0]) && !gone.has(b.atoms[1]));
+    const used = new Set(bonds.flatMap((b) => b.atoms));
+    m.atoms.forEach((a, i) => {
+      if (a.centre ? a.centre.atoms.filter((j) => !gone.has(j)).length < 2 : !used.has(i) && ((a.label === "C" && !a.charge) || a.hidden)) gone.add(i);
+    });
+  }
   const map = new Map<number, number>();
   m.atoms.forEach((_, i) => { if (!gone.has(i)) map.set(i, map.size); });
-  const atoms = m.atoms.flatMap((a, i) => (gone.has(i) ? [] : [a.centre ? { ...a, centre: a.centre.filter((j) => map.has(j)).map((j) => map.get(j)!) } : a]));
+  const atoms = m.atoms.filter((_, i) => !gone.has(i)).map((a) => renumberCentre(a, map));
   // Captions under a structure follow its atoms' new numbers, and go when all of its atoms go. Kept ChemDraw data (a
-  // live property, polymer brackets' meaning) follows its atoms too, and goes when they all go.
+  // live property) follows its atoms too, and goes when they all go.
   const kept = <T extends Caption | Shape>(x: T): T => remapKept(x, (i) => map.get(i));
   const captions = m.captions?.flatMap((c) => {
     if (!c.under) return [kept(c)];
@@ -441,6 +445,13 @@ const refill = (fills: Mol["fills"], map: Map<number, number>) => {
   const out = fills?.filter((f) => f.atoms.every((i) => map.has(i))).map((f) => ({ ...f, atoms: f.atoms.map((i) => map.get(i)!) }));
   return out?.length ? out : undefined;
 };
+
+// An atom with its multi-centre or variable attachment's atoms renumbered by map (those not in it left out).
+export function renumberCentre(a: Atom, map: Map<number, number> | ((i: number) => number | undefined)): Atom {
+  if (!a.centre) return a;
+  const to = typeof map === "function" ? map : (i: number) => map.get(i);
+  return { ...a, centre: { ...a.centre, atoms: a.centre.atoms.map(to).filter((i): i is number => i !== undefined) } };
+}
 
 // Groups nest, as ChemDraw's do. A group lists every atom and object in it (those of the groups in it too), so two
 // groups are apart or one holds the other. Text that belongs to a structure, arrow or cycle (a compound number,
@@ -700,20 +711,12 @@ export function addRing(m: Mol, n: number, aromatic: boolean, target: { bond?: n
   return o.circle ? { ...m, atoms: m.atoms.map((a, i) => (ids.includes(i) ? { ...a, circle: true } : a)) } : m;
 }
 
-// An atom copied with its atoms numbered again (to, undefined for an atom not copied): a multi-centre point keeps
-// the copied atoms of its ring, and is a plain point when fewer than two of them are copied.
-function renumbered(a: Atom, to: (i: number) => number | undefined): Atom {
-  if (!a.centre) return { ...a };
-  const centre = a.centre.flatMap((j) => { const k = to(j); return k === undefined ? [] : [k]; });
-  const { centre: _, ...rest } = a;
-  return centre.length >= 2 ? { ...rest, centre } : rest;
-}
 // Adds a fragment (from a paste) shifted by offset.
 export function merge(m: Mol, frag: Mol, offset: P): Mol {
   const base = m.atoms.length;
   return {
     ...m,
-    atoms: [...m.atoms, ...frag.atoms.map((a) => ({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number], ...(a.centre ? { centre: a.centre.map((j) => j + base) } : {}) }))],
+    atoms: [...m.atoms, ...frag.atoms.map((a) => renumberCentre({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }, (i) => i + base))],
     bonds: [...m.bonds, ...frag.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number] }))],
     ...(frag.fills?.length ? { fills: [...(m.fills ?? []), ...frag.fills.map((f) => ({ ...f, atoms: f.atoms.map((i) => i + base) }))] } : {}),
   };
@@ -748,19 +751,25 @@ export function stack(list: Mol[]): Mol {
 export const deleteAtoms = (m: Mol, ids: Set<number>) => removeAtoms(m, new Set(ids));
 // Expand Label: the labelled atom i becomes the group its label names. frag is that group laid out (bond length 1),
 // its first atom the attachment point: it is turned to point away from i's neighbour and joined where the label was.
-export function expandLabel(m: Mol, i: number, frag: Mol): Mol {
+// way: the direction from the group's first atom to the rest of the structure, when the group says it (an R-group
+// fragment's attachment mark).
+export function expandLabel(m: Mol, i: number, frag: Mol, way?: P): Mol {
   if (!frag.atoms.length) return m;
-  const at = pos(m, i), nb = neighbours(m, i)[0], a0 = frag.atoms[0].location;
-  const want = nb === undefined ? 0 : Math.atan2(at[1] - pos(m, nb)[1], at[0] - pos(m, nb)[0]);
-  // The group points out along the bisector of its attachment atom's own bonds (C(=O)OEt: between =O and OEt).
-  const rest = frag.atoms.slice(1), near = frag.bonds.filter((b) => b.atoms.includes(0)).map((b) => frag.atoms[b.atoms[0] === 0 ? b.atoms[1] : b.atoms[0]].location);
-  const mid = near.length ? [near.reduce((s, q) => s + q[0], 0) / near.length, near.reduce((s, q) => s + q[1], 0) / near.length] : [a0[0] + 1, a0[1]];
-  const turn = want - Math.atan2(mid[1] - a0[1], mid[0] - a0[0]), c = Math.cos(turn), s = Math.sin(turn);
-  const place = (q: [number, number, number]): [number, number, number] => { const dx = q[0] - a0[0], dy = q[1] - a0[1]; return [at[0] + dx * c - dy * s, at[1] + dx * s + dy * c, 0]; };
+  const rest = frag.atoms.slice(1), place = labelPlacer(m, i, frag, way);
   const base = m.atoms.length, to = (k: number) => (k === 0 ? i : base + k - 1);
   const atoms = m.atoms.map((a, k) => (k === i ? { ...a, label: frag.atoms[0].label, text: undefined, charge: frag.atoms[0].charge } : a));
   for (const a of rest) atoms.push({ ...a, location: place(a.location) });
   return { ...m, atoms, bonds: [...m.bonds, ...frag.bonds.map((b) => ({ ...b, atoms: [to(b.atoms[0]), to(b.atoms[1])] as [number, number] }))] };
+}
+// Where a label's group goes when it is drawn out: its first atom on the label atom i, the rest turned to point away
+// from i's neighbour, along the bisector of the first atom's own bonds (C(=O)OEt: between =O and OEt).
+export function labelPlacer(m: Mol, i: number, frag: Mol, way?: P): (q: [number, number, number]) => [number, number, number] {
+  const at = pos(m, i), nb = neighbours(m, i)[0], a0 = frag.atoms[0].location;
+  const want = nb === undefined ? 0 : Math.atan2(at[1] - pos(m, nb)[1], at[0] - pos(m, nb)[0]);
+  const near = frag.bonds.filter((b) => b.atoms.includes(0)).map((b) => frag.atoms[b.atoms[0] === 0 ? b.atoms[1] : b.atoms[0]].location);
+  const mid = near.length ? [near.reduce((s, q) => s + q[0], 0) / near.length, near.reduce((s, q) => s + q[1], 0) / near.length] : [a0[0] + 1, a0[1]];
+  const turn = want - (way ? Math.atan2(-way[1], -way[0]) : Math.atan2(mid[1] - a0[1], mid[0] - a0[0])), c = Math.cos(turn), s = Math.sin(turn);
+  return (q) => { const dx = q[0] - a0[0], dy = q[1] - a0[1]; return [at[0] + dx * c - dy * s, at[1] + dx * s + dy * c, 0]; };
 }
 // Contract Label: the atoms in `group` other than `keep` go, and `keep` (the one bonded to the rest) carries the label.
 export function contractLabel(m: Mol, keep: number, group: Set<number>, text: string): Mol {
@@ -773,6 +782,12 @@ export function moveAtoms(m: Mol, ids: Set<number>, d: P): Mol {
 export function atomsIn(m: Mol, a: P, b: P): number[] {
   const [x0, x1] = [Math.min(a[0], b[0]), Math.max(a[0], b[0])], [y0, y1] = [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
   return m.atoms.flatMap((_, i) => { const [x, y] = pos(m, i); return x >= x0 && x <= x1 && y >= y0 && y <= y1 ? [i] : []; });
+}
+// Some atoms (in drawing order) and the bonds between them, as their own drawing; unlike subset, a lone carbon (methane,
+// a label such as MeOH) stays.
+export function pickAtoms(m: Mol, ids: number[]): Mol {
+  const sorted = [...ids].sort((p, q) => p - q), at = new Map(sorted.map((i, k) => [i, k]));
+  return { atoms: sorted.map((i) => renumberCentre({ ...m.atoms[i] }, at)), bonds: m.bonds.filter((b) => at.has(b.atoms[0]) && at.has(b.atoms[1])).map((b) => ({ ...b, atoms: [at.get(b.atoms[0])!, at.get(b.atoms[1])!] as [number, number] })) };
 }
 // The selected atoms and the bonds between them, as their own drawing (for Copy).
 export function subset(m: Mol, ids: Set<number>): Mol {
@@ -833,11 +848,11 @@ export function onSelection(m: Mol, ids: Set<number>, p: P, r = 0.45): boolean {
   return h.some((a, k) => segDist(p, a, h[(k + 1) % h.length]) <= r);
 }
 
-// Groups of connected atoms.
-export function fragments(m: Mol): number[][] {
+// Groups of connected atoms. A multi-centre or variable attachment joins its atoms' structure (ferrocene is one
+// structure), unless attached is false.
+export function fragments(m: Mol, attached = true): number[][] {
   const near = bondedTo(m), seen = new Set<number>(), out: number[][] = [];
-  // A multi-centre point is part of its ring's structure.
-  m.atoms.forEach((a, i) => { for (const j of a.centre ?? []) if (near[j]) { near[i].push(j); near[j].push(i); } });
+  if (attached) m.atoms.forEach((a, i) => { for (const j of a.centre?.atoms ?? []) if (near[j]) { near[i].push(j); near[j].push(i); } });
   m.atoms.forEach((_, start) => {
     if (seen.has(start)) return;
     const group: number[] = [], stack = [start];
@@ -1089,14 +1104,14 @@ function ligand(m: Mol, i: number, n: 5 | 6): [Mol, number] {
     const spec: BondSpec = p && q ? { type: 4, display: "bold" } : p || q ? { type: 4, stereo: 1 } : { type: 4 };
     m = { ...m, bonds: [...m.bonds, makeBond(p && !q ? [base + j, base + k] : [base + k, base + j], spec)] };
   }
-  m = setAtom(m, point, { label: "C", text: undefined, charge: undefined, centre: ring });
+  m = setAtom(m, point, { label: "C", text: undefined, charge: undefined, centre: { atoms: ring } });
   return [m, metal ? i : anchor];
 }
-// Each multi-centre point where its ring's middle is now (after its ring moved, or turned in 3D).
+// Each multi-centre or variable attachment where the middle of its atoms is now (after they moved, or turned in 3D).
 export function placeCentres(m: Mol): Mol {
   let atoms: Atom[] | undefined;
   m.atoms.forEach((a, i) => {
-    const ps = (a.centre ?? []).filter((j) => j < m.atoms.length).map((j) => m.atoms[j].location);
+    const ps = (a.centre?.atoms ?? []).filter((j) => j < m.atoms.length).map((j) => m.atoms[j].location);
     if (!ps.length) return;
     const c = [0, 1, 2].map((k) => ps.reduce((sum, q) => sum + (q[k] ?? 0), 0) / ps.length) as [number, number, number];
     if (Math.hypot(c[0] - a.location[0], c[1] - a.location[1], c[2] - (a.location[2] ?? 0)) > 1e-9) (atoms ??= [...m.atoms])[i] = { ...a, location: c };
@@ -1552,9 +1567,23 @@ export function markDirections(m: Mol, ids: number[]): Map<number, P> {
   }
   return out;
 }
-// Enhanced stereo flags on atoms: "abs", "&1" or "or1", or none.
-export const setEnhanced = (m: Mol, ids: number[], label?: string): Mol =>
-  ({ ...m, atoms: m.atoms.map((a, i) => (ids.includes(i) ? { ...a, enhanced: label } : a)) });
+// Enhanced stereo flags on atoms: "abs", "&1" or "or1" (and 2 onwards), or none.
+export const setEnhanced = (m: Mol, ids: number[], label?: string): Mol => {
+  const on = new Set(ids);
+  return { ...m, atoms: m.atoms.map((a, i) => (on.has(i) ? { ...a, enhanced: label } : a)) };
+};
+// The lowest number of an "&" (and) or "or" group that no atom among `atoms` uses, but those in `moving` (which are
+// about to join the new group), as ChemDraw numbers a new group in a structure. At most 99, the most a file keeps.
+export function nextGroup(m: Mol, atoms: number[], kind: "&" | "or", moving = new Set<number>()): number {
+  const used = new Set<number>();
+  for (const i of atoms) {
+    const g = /^(&|or)(\d+)$/.exec(m.atoms[i]?.enhanced ?? "");
+    if (g && g[1] === kind && !moving.has(i)) used.add(Number(g[2]));
+  }
+  let n = 1;
+  while (used.has(n) && n < 99) n++;
+  return n;
+}
 
 // TLC plate lanes, as ChemDraw's Add Lane, Duplicate Lane, Delete Lane and a drag of a lane's origin tick. A lane
 // added or taken away widens or narrows the plate on its right by one lane, so every lane keeps its width, and spots
@@ -1772,7 +1801,7 @@ export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: numb
     ids.push(id);
   }
   // A multi-centre point names the atoms of its ring by number: they take their numbers in the drawing.
-  t.atoms.forEach((a, k) => { if (a.centre) m = { ...m, atoms: m.atoms.map((x, n) => (n === ids[k] && x.centre ? { ...x, centre: a.centre!.map((i) => ids[i]) } : x)) }; });
+  t.atoms.forEach((a, k) => { if (a.centre) m = { ...m, atoms: m.atoms.map((x, n) => (n === ids[k] && x.centre ? { ...x, centre: { ...a.centre!, atoms: a.centre!.atoms.map((i) => ids[i]) } } : x)) }; });
   const hasDouble = (i: number) => m.bonds.some((b) => b.type === 2 && b.atoms.includes(i));
   for (const b of t.bonds) {
     const [i, j] = [ids[b.atoms[0]], ids[b.atoms[1]]];
@@ -1902,13 +1931,13 @@ export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>)
   const keep = new Set([...items, ...arrows.map((a) => a.id), ...cycles.map((c) => c.id)]);
   const captions = (m.captions ?? []).filter((c) => (c.under ? c.under.every((i) => map.has(i)) : c.on ? keep.has(c.on.arrow) : c.cycle ? keep.has(c.cycle.cycle) : keep.has(c.id)));
   const ids = new Set([...keep, ...captions.map((c) => c.id)]);
-  // Kept ChemDraw data comes with its caption or shape only when all its atoms come too.
+  // Kept ChemDraw data comes with its caption only when all its atoms come too.
   const copied = <T extends Caption | Shape>(x: T): T => {
-    const k = "property" in x ? x.property : "polymer" in x ? x.polymer : undefined;
+    const k = "property" in x ? x.property : undefined;
     return remapKept(x, (i) => (k?.atoms.every((j) => map.has(j)) ? map.get(i) : undefined));
   };
   return {
-    atoms: sel.map((i) => renumbered(m.atoms[i], (j) => map.get(j))),
+    atoms: sel.map((i) => renumberCentre({ ...m.atoms[i] }, map)),
     bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] as [number, number] })),
     captions: captions.map((c) => copied({ ...c, ...(c.under ? { under: c.under.map((i) => map.get(i)!) } : {}) })),
     arrows, shapes: (m.shapes ?? []).filter((x) => items.has(x.id)).map(copied),
@@ -1928,7 +1957,7 @@ export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
   const by = (q: [number, number]): [number, number] => [q[0] + offset[0], q[1] + offset[1]];
   const mol: Mol = {
     ...m,
-    atoms: [...m.atoms, ...add.atoms.map((a) => ({ ...renumbered(a, at), location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }))],
+    atoms: [...m.atoms, ...add.atoms.map((a) => renumberCentre({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }, at))],
     bonds: [...m.bonds, ...add.bonds.map((b) => ({ ...b, atoms: [at(b.atoms[0]), at(b.atoms[1])] as [number, number] }))],
     arrows: [...(m.arrows ?? []), ...(add.arrows ?? []).map((a) => ({ ...a, id: ids.get(a.id)!, from: by(a.from), to: by(a.to),
       ...(a.curve ? { curve: { ...a.curve, points: a.curve.points.map((q) => ({ at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) }))],

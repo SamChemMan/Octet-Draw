@@ -89,10 +89,19 @@ export const copyToClipboard = (c: { svg?: string; cdxml?: string; cdxmlType?: b
 // What paste can use from the clipboard, each null when absent: Octet's JSON; CDXML (ChemDraw's CDXML type, or
 // hidden in a pasted picture: Octet's, ChemDraw's, or either copied back out of Word); ChemDraw's CDX as base64;
 // a molfile or RXN file; SMILES. All of it comes from another program: read it as a hostile file.
-export type Clipboard = { octet: string | null; cdxml: string | null; cdx: string | null; molfile: string | null; smiles: string | null };
+export type Clipboard = { octet: string | null; cdxml: string | null; cdx: string | null; molfile: string | null; smiles: string | null; text: string | null };
 export const readClipboard = () => invoke<Clipboard>("read_clipboard");
 
-export type ExportFormat = "oct" | "pdf" | "svg" | "png" | "cdxml" | "cdx" | "mol" | "sdf" | "smi" | "inchi";
+export type ExportFormat = "oct" | "pdf" | "svg" | "png" | "emf" | "eps" | "tif" | "jpg" | "gif" | "cdxml" | "cdx" | "mol" | "mol2000" | "sdf" | "sdf2000" | "rxn" | "rxn2000" | "rdf" | "rdf2000" | "smi" | "inchi";
+// The pictures: vector (PDF, SVG, EMF, EPS) and pixels at a resolution (PNG, TIFF, JPEG, GIF; JPEG is always on white).
+export const PICTURES: ExportFormat[] = ["pdf", "png", "svg", "emf", "eps", "tif", "jpg", "gif"];
+export const RASTERS: ExportFormat[] = ["png", "tif", "jpg", "gif"];
+// The MDL formats, each V3000 (as ChemDraw 26.1 saves them) and V2000, as ChemDraw lists them.
+export const MDL: ExportFormat[] = ["mol", "mol2000", "sdf", "sdf2000", "rxn", "rxn2000", "rdf", "rdf2000"];
+// Every format, with its name in Export and Settings.
+export const EXPORT_FORMATS: [ExportFormat, string][] = [["oct", "Octet drawing (.oct)"], ["pdf", "PDF"], ["png", "PNG"], ["svg", "SVG"], ["emf", "EMF (Windows Office)"], ["eps", "EPS"],
+  ["tif", "TIFF"], ["jpg", "JPEG"], ["gif", "GIF"], ["cdxml", "CDXML (ChemDraw)"], ["cdx", "CDX (ChemDraw)"], ["mol", "MOL"], ["mol2000", "MOL V2000"],
+  ["sdf", "SDF"], ["sdf2000", "SDF V2000"], ["rxn", "RXN"], ["rxn2000", "RXN V2000"], ["rdf", "RDF"], ["rdf2000", "RDF V2000"], ["smi", "SMILES"], ["inchi", "InChI"]];
 // A picture from standaloneSvg with a margin of `pt` all round: its size and view box grow by that much.
 export function withMargin(svg: string, pt: number): string {
   const m = Math.max(0, Math.min(72, pt));
@@ -102,9 +111,9 @@ export function withMargin(svg: string, pt: number): string {
 // File > Export…: the drawing in every form the page has (svg from standaloneSvg). The app asks where to save,
 // offering those formats (or only `format`), and writes the one the file name's extension asks for. The PDF
 // carries the CDXML, as on the clipboard. PNG at `dpi` of true size (300 if not given), white unless
-// `transparent`. Resolves to the path written, or null if cancelled.
+// `transparent`. mdl: the text of the MDL format asked for. Resolves to the path written, or null if cancelled.
 export type ExportRequest = {
-  name: string; format?: ExportFormat; oct?: string; svg?: string; cdxml?: string; cdx?: string; molfile?: string; sdf?: string; smiles?: string; inchi?: string;
+  name: string; format?: ExportFormat; oct?: string; svg?: string; cdxml?: string; cdx?: string; mdl?: string; smiles?: string; inchi?: string;
   dpi?: number; transparent?: boolean;
 };
 export const exportFile = (request: ExportRequest) => invoke<string | null>("export_file", { export: request });

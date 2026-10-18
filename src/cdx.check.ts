@@ -54,7 +54,7 @@ const doc = file(
   // Octet reads it as it reads the CDXML: N+ bonded to a carbon by a query bond, highlighted, and the two captions.
   const r = fromCdxml(x);
   assert.deepEqual(r.mol.atoms.map((a) => [a.label, a.charge]), [["N", 1], ["C", undefined]]);
-  assert.deepEqual(r.mol.bonds.map((b) => [b.type, b.query, b.halo]), [[1, "1 2", "#FFFFFF"]]);
+  assert.deepEqual(r.mol.bonds.map((b) => [b.type, b.query, b.halo]), [[1, "sd", "#FFFFFF"]]);
   assert.deepEqual(r.mol.captions!.map((c) => c.text), ["• mac", "→ new"]);
   assert.deepEqual(r.lost, {});
   // Written back, the tree reads the same; the legacy copy stops where Mac Roman has no character (→), the UTF-8
@@ -106,11 +106,11 @@ const doc = file(
 const A = (label: string, x: number, y: number) => ({ label, location: [x, y, 0] as [number, number, number] });
 const kept: Mol = {
   atoms: [A("C", 0, 0), A("C", 1, 0), A("O", 2, 0), A("C", 6, 0), A("C", 7, 0), A("C", 8, 0)],
-  bonds: [{ type: 1, atoms: [0, 1], query: "1 2" }, { type: 2, atoms: [1, 2], halo: "#FFD966" }, { type: 1, atoms: [3, 4] }, { type: 1, atoms: [4, 5] }],
+  bonds: [{ type: 1, atoms: [0, 1], query: "sd" }, { type: 2, atoms: [1, 2], halo: "#FFD966" }, { type: 1, atoms: [3, 4] }, { type: 1, atoms: [4, 5] }],
   captions: [{ id: 1, text: "Ethanal", x: 1, y: -2, property: { attrs: { ChemicalPropertyType: "1" }, atoms: [0, 1, 2] } }],
   shapes: [
     { id: 2, kind: "picture", from: [0, 5], to: [4, 3], picture: { PNG: "89504E470D0A1A0A", RotationAngle: "11796480" } },
-    { id: 3, kind: "brackets", from: [5.5, -1], to: [7.5, 1], polymer: { attrs: { BracketUsage: "SRU", RepeatCount: "3" }, atoms: [3, 4] } },
+    { id: 3, kind: "brackets", from: [5.5, -1], to: [7.5, 1], polymer: { usage: "mult", label: "3" } },
   ],
 };
 {
@@ -124,30 +124,36 @@ const kept: Mol = {
   for (const read of [fromCdxml(cdxml), fromCdxml(cdxToXml(xmlToCdx(root)))]) {
     const m = read.mol;
     assert.deepEqual(read.lost, {});
-    assert.deepEqual(m.bonds.map((b) => [b.type, b.query, b.halo]), [[1, "1 2", undefined], [2, undefined, "#FFD966"], [1, undefined, undefined], [1, undefined, undefined]]);
+    assert.deepEqual(m.bonds.map((b) => [b.type, b.query, b.halo]), [[1, "sd", undefined], [2, undefined, "#FFD966"], [1, undefined, undefined], [1, undefined, undefined]]);
     assert.deepEqual(m.captions![0].property, { attrs: { ChemicalPropertyType: "1" }, atoms: [0, 1, 2] });
     const [picture, brackets] = m.shapes!;
     assert.deepEqual([picture.kind, picture.picture], ["picture", { PNG: "89504E470D0A1A0A", RotationAngle: "11796480" }]);
-    assert.deepEqual(brackets.polymer, { attrs: { BracketUsage: "SRU", RepeatCount: "3" }, atoms: [3, 4] });
+    assert.deepEqual(brackets.polymer, { usage: "mult", label: "3" });
   }
-  // A query bond in a ChemDraw file is drawn single, never as a double bond (CH-11); other query data is reported.
+  // A query bond in a ChemDraw file is drawn single, never as a double bond (CH-11), and keeps its query (CH-16). Orders
+  // that ChemDraw's Bond Properties do not offer are drawn single and reported.
   const q = fromCdxml('<CDXML><page><fragment><n id="1" p="0 0"/><n id="2" p="14.4 0" RingBondCount="AsDrawn"/><b B="1" E="2" Order="1 2" Topology="Ring"/></fragment></page></CDXML>');
-  assert.deepEqual([q.mol.bonds[0].type, q.mol.bonds[0].query, q.lost], [1, "1 2", { "atom query": 1, "bond query": 1 }]);
+  assert.deepEqual([q.mol.bonds[0].type, q.mol.bonds[0].query, q.mol.bonds[0].topology, q.mol.atoms[1].query, q.lost], [1, "sd", "ring", { rings: "drawn" }, {}]);
+  const odd = fromCdxml('<CDXML><page><fragment><n id="1" p="0 0"/><n id="2" p="14.4 0"/><b B="1" E="2" Order="1 3"/></fragment></page></CDXML>');
+  assert.deepEqual([odd.mol.bonds[0].type, odd.mol.bonds[0].query, odd.lost], [1, undefined, { "bond query": 1 }]);
   // Octet's own file keeps them all, and refuses a damaged picture or kept data that names atoms it lacks.
   const json = serialize(kept);
   assert.deepEqual(parse(json), kept);
   assert.throws(() => parse(json.replace('"89504E470D0A1A0A"', '"89504E47ZZ"')));
-  assert.throws(() => parse(json.replace('"atoms": [\n     3,\n     4\n    ]', '"atoms": [\n     3,\n     40\n    ]')));
-  // Editing: kept data follows its atoms, and goes with them.
+  const bad = JSON.parse(json);
+  bad.captions[0].property.atoms = [0, 40];
+  assert.throws(() => parse(JSON.stringify(bad)));
+  // Editing: kept data follows its atoms, and goes with them. A bracket pair's meaning stays on the brackets.
   const less = deleteAtoms(kept, new Set([0]));
   assert.deepEqual(less.captions![0].property?.atoms, [0, 1]);
-  assert.deepEqual(less.shapes![1].polymer?.atoms, [2, 3]);
-  assert.equal(deleteAtoms(kept, new Set([3, 4])).shapes![1].polymer, undefined);
+  assert.deepEqual(less.shapes![1].polymer, { usage: "mult", label: "3" });
+  assert.equal(deleteAtoms(kept, new Set([0, 1, 2])).captions![0].property, undefined);
   // A copy keeps kept data only with all its atoms; pasting renumbers them.
   assert.equal(extractSelection(kept, new Set([0, 1]), new Set([1])).captions![0].property, undefined);
-  const part = extractSelection(kept, new Set([3, 4]), new Set([3]));
-  assert.deepEqual(part.shapes![0].polymer?.atoms, [0, 1]);
-  assert.deepEqual(insertMol(kept, part).mol.shapes![2].polymer?.atoms, [6, 7]);
+  const part = extractSelection(kept, new Set([0, 1, 2]), new Set([1, 3]));
+  assert.deepEqual(part.captions![0].property?.atoms, [0, 1, 2]);
+  assert.deepEqual(part.shapes![0].polymer, { usage: "mult", label: "3" });
+  assert.deepEqual(insertMol(kept, part).mol.captions![1].property?.atoms, [6, 7, 8]);
   // A picture's bytes as an image the webview draws.
   assert.equal(hexToBase64("89504E47"), "iVBORw==");
   assert.equal(hexToBase64("8950ZZ"), undefined);

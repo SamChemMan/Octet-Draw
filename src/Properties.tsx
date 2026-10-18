@@ -1,65 +1,25 @@
 // The Properties panel: ChemDraw's Analysis and Chemical Properties windows in one, for every structure in the
 // selection (or the drawing; values for several structures are separated by semicolons, as ChemDraw does). A
-// click on a value copies its row; the boxes choose the rows Add to drawing writes under each structure.
+// click on a value copies its row; the boxes choose the rows Add to drawing writes under each structure. Decimals
+// sets the places of the exact mass, molecular weight and m/z (ChemDraw's Analysis window: 0 to 8, those three
+// rows only); Copy report copies every value with the method and source it comes from (ChemDraw's Report…).
 import { useLayoutEffect, useMemo, useState } from "react";
-import { Check, X } from "@phosphor-icons/react";
-import type { Structure } from "./chem";
-import type { Graph } from "./naming";
-import { elementalAnalysis, isotopePattern } from "./mass";
+import { Check, CopySimple, X } from "@phosphor-icons/react";
 import { useMovable } from "./movable";
+import { Select } from "./Select";
+import { propertyReport, type PropertyValues } from "./proprows";
 import { useLeaving } from "./motion";
 
-// What Octet's own calculators (props.ts) give for a structure.
-export type Calculated = {
-  tpsa: number; henry?: number; pka: { atom: number; kind: string; pka: number; sd: number }[];
-  joback?: { tb: number; tm: number; tc: number; pc: number; vc: number; hf: number; gf: number };
-  logS?: number;
-};
-type Row = { key: string; name: string; value: (s: Structure, c?: Calculated) => string | undefined };
-
 const SUB = "₀₁₂₃₄₅₆₇₈₉";
-const sign = (x: number, places: number) => x.toFixed(places).replace("-", "−");
-const celsius = (k?: number) => (k === undefined ? undefined : `${sign(k - 273.15, 1)} °C`);
-const unit = (x: number | undefined, places: number, u: string) => (x === undefined || !Number.isFinite(x) ? undefined : `${sign(x, places)} ${u}`);
+// Decimals: ChemDraw's 0 to 8, and Octet's standard places (4 for the exact mass, 2 for the rest).
+const DECIMALS: [string, string][] = [["", "Standard"], ...Array.from({ length: 9 }, (_, n): [string, string] => [String(n), String(n)])];
 
-// The rows, in ChemDraw's two windows' order: analysis, then physical properties, then the medicinal chemist's.
-export const PROPERTY_ROWS: Row[][] = [
-  [
-    { key: "formula", name: "Formula", value: (s) => s.formula },
-    { key: "exact", name: "Exact mass", value: (s) => (Number.isFinite(s.exact) ? s.exact.toFixed(4) : undefined) },
-    { key: "weight", name: "Molecular weight", value: (s) => s.weight.toFixed(2) },
-    { key: "mz", name: "m/z", value: (s) => isotopePattern(s.formula)?.slice(0, 6).map((p) => `${p.mz.toFixed(2)} (${p.rel.toFixed(1)}%)`).join(", ") },
-    { key: "analysis", name: "Elemental analysis", value: (s) => elementalAnalysis(s.composition) },
-  ],
-  [
-    { key: "tb", name: "Boiling point", value: (_, c) => celsius(c?.joback?.tb) },
-    { key: "tm", name: "Melting point", value: (_, c) => celsius(c?.joback?.tm) },
-    { key: "tc", name: "Critical temperature", value: (_, c) => celsius(c?.joback?.tc) },
-    { key: "pc", name: "Critical pressure", value: (_, c) => unit(c?.joback?.pc, 2, "bar") },
-    { key: "vc", name: "Critical volume", value: (_, c) => unit(c?.joback?.vc, 1, "cm³/mol") },
-    { key: "hf", name: "Heat of formation", value: (_, c) => unit(c?.joback?.hf, 2, "kJ/mol") },
-    { key: "gf", name: "Gibbs energy", value: (_, c) => unit(c?.joback?.gf, 2, "kJ/mol") },
-    { key: "henry", name: "Henry's law (log)", value: (_, c) => (c?.henry === undefined ? undefined : sign(c.henry, 2)) },
-  ],
-  [
-    { key: "logp", name: "logP", value: (s) => (s.logP === undefined ? undefined : sign(s.logP, 2)) },
-    { key: "mr", name: "Molar refractivity", value: (s) => unit(s.mr, 2, "cm³/mol") },
-    { key: "tpsa", name: "tPSA", value: (_, c) => unit(c?.tpsa, 2, "Å²") },
-    { key: "logs", name: "logS", value: (_, c) => (c?.logS === undefined ? undefined : sign(c.logS, 2)) },
-    { key: "pka", name: "pKa", value: (_, c) => (c?.pka.length ? c.pka.map((p) => `${p.pka.toFixed(1)} (${p.kind})`).join(", ") : undefined) },
-  ],
-];
+type Props = {
+  values: PropertyValues; chosen: string[]; onChoose: (key: string) => void; onCopy: (text: string) => void; onAdd: () => void; onClose: () => void; stacked?: boolean;
+  decimals?: number; onDecimals: (places?: number) => void;
+};
 
-// Each row's values, one per structure, for the rows that have any.
-export function propertyValues(structures: Structure[], calc?: (s: Structure, g: Graph) => Calculated | undefined) {
-  const calculated = structures.map((s) => (s.graph && calc ? calc(s, s.graph) : undefined));
-  return PROPERTY_ROWS.map((group) => group.map((row) => ({ ...row, values: structures.map((s, k) => row.value(s, calculated[k])) })).filter((r) => r.values.some((v) => v !== undefined)));
-}
-export type PropertyValues = ReturnType<typeof propertyValues>;
-
-type Props = { values: PropertyValues; chosen: string[]; onChoose: (key: string) => void; onCopy: (text: string) => void; onAdd: () => void; onClose: () => void; stacked?: boolean };
-
-export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, stacked }: Props) {
+export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, stacked, decimals, onDecimals }: Props) {
   const show = (key: string, v: string) => (key === "formula" ? v.replace(/\d/g, (d) => SUB[Number(d)]) : v);
   const groups = useMemo(() => values.filter((g) => g.length), [values]);
   // It opens where the Spectrum opens, along the bottom (above the Spectrum when that is open too), and moves by its
@@ -101,7 +61,14 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
           </div>
         ))}
       </div>
-      <button className="prop-add" onClick={onAdd} disabled={!chosen.length}>Add to drawing</button>
+      <div className="prop-foot">
+        <button className="prop-add" onClick={onAdd} disabled={!chosen.length}>Add to drawing</button>
+        <button className="prop-add" onClick={() => onCopy(propertyReport(values))} disabled={!groups.length} data-tip="Copy every value with its method and source"><CopySimple size={16} aria-hidden /> Copy report</button>
+        <span className="prop-decimals">
+          <span className="prop-name">Decimals</span>
+          <Select label="Decimals" value={decimals === undefined ? "" : String(decimals)} options={DECIMALS} onChange={(v) => onDecimals(v === "" ? undefined : Number(v))} />
+        </span>
+      </div>
     </section>
   );
 }

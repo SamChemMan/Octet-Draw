@@ -61,10 +61,11 @@ export function useModal(ref: React.RefObject<HTMLElement | null>, on = true): (
   return () => open[open.length - 1] === ref;
 }
 
-// alt: a third choice, before Cancel (Don't Save). disabled: the action has nothing to do yet (Return does nothing).
-type Props = { title: string; action?: string; onAction?: () => void; onClose: () => void; plain?: boolean; disabled?: boolean; alt?: { label: string; onClick: () => void }; children: React.ReactNode };
+// alt: a third choice, before Cancel (Don't Save). cancel: Cancel's name, when the dialog's own word is better (Stop).
+// disabled: the action has nothing to do yet (Return does nothing).
+type Props = { title: string; action?: string; onAction?: () => void; onClose: () => void; plain?: boolean; disabled?: boolean; alt?: { label: string; onClick: () => void }; cancel?: string; children: React.ReactNode };
 
-export function Dialog({ title, action, onClose, onAction = onClose, plain, disabled, alt, children }: Props) {
+export function Dialog({ title, action, onClose, onAction = onClose, plain, disabled, alt, cancel = "Cancel", children }: Props) {
   // Leaving (motion.tsx, Exit), it gives the window back at once and takes no keys.
   const card = useRef<HTMLDivElement>(null), backdrop = useRef<HTMLDivElement>(null), leaving = useLeaving();
   const top = useModal(backdrop, !leaving);
@@ -93,7 +94,7 @@ export function Dialog({ title, action, onClose, onAction = onClose, plain, disa
         <div className="dialog-body">{children}</div>
         <div className="dialog-buttons">
           {alt && <button className="dialog-button alt" onClick={alt.onClick}>{alt.label}</button>}
-          {action && <button className="dialog-button" onClick={onClose}>Cancel</button>}
+          {action && <button className="dialog-button" onClick={onClose}>{cancel}</button>}
           <button className="dialog-button primary" onClick={onAction} disabled={disabled}>{action ?? "Close"}</button>
         </div>
       </div>

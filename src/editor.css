@@ -1712,10 +1712,23 @@ button.variant.add {
   transform: scale(0.97);
 }
 .more-problems {
+  align-self: flex-start;
   margin: 0;
-  padding: 0 var(--space-2);
+  padding: 2px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
   font-size: 11px;
   color: var(--ink-muted);
+}
+@media (hover: hover) and (pointer: fine) {
+  .more-problems:hover {
+    color: var(--ink);
+  }
+}
+.more-problems:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 .action small {
   display: block;
@@ -1755,10 +1768,12 @@ button.variant.add {
   line-height: 16px;
   text-align: center;
 }
+/* A problem's mark. Its inside takes the pointer too, so pointing anywhere in it shows what is wrong. */
 .problem-mark {
   fill: none;
   stroke: var(--error);
   stroke-width: 1.5;
+  pointer-events: all;
 }
 
 /* Document settings: a window in the middle of the screen. Calm rows (label left, control right) divided by
@@ -3321,6 +3336,33 @@ button.variant.add {
   stroke-width: 1.4px;
   vector-effect: non-scaling-stroke;
 }
+/* A stoichiometry grid's cell picked with Select. */
+.grid-pick {
+  fill: var(--selection);
+  stroke: var(--brand-bright);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+/* Show Reaction Interpretation: each part of the reaction under the pointer boxed and named, in the brand's blues. */
+.interpretation rect {
+  fill: none;
+  stroke-width: 1.2px;
+  vector-effect: non-scaling-stroke;
+}
+.interpretation text {
+  font: 600 11px var(--font-sans);
+  paint-order: stroke;
+  stroke: var(--canvas);
+  stroke-width: 3px;
+}
+.interpretation .reactant rect { stroke: var(--brand-bright); }
+.interpretation .reactant text { fill: var(--brand-bright); }
+.interpretation .product rect { stroke: var(--brand); stroke-width: 2px; }
+.interpretation .product text { fill: var(--brand); }
+.interpretation .above rect { stroke: var(--brand-bright); stroke-dasharray: 4 3; }
+.interpretation .above text { fill: var(--brand-bright); }
+.interpretation .below rect { stroke: var(--ink-muted); stroke-dasharray: 4 3; }
+.interpretation .below text { fill: var(--ink-muted); }
 /* The Pen's points while it draws: small white squares, and the handle being dragged out, in brand blue. */
 .pen-points rect, .pen-points circle { fill: var(--canvas); stroke: var(--brand-bright); stroke-width: 1.2px; vector-effect: non-scaling-stroke; }
 .pen-points circle { fill: var(--brand-bright); }
@@ -3736,8 +3778,23 @@ button.variant.add {
   border-color: var(--brand);
   background: var(--brand);
 }
-.prop-add {
+.prop-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
   margin: var(--space-2) var(--space-1) 0;
+}
+.prop-decimals {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.prop-add {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
@@ -4121,18 +4178,11 @@ button.variant.add {
   display: none;
 }
 @media print {
-  body * {
-    visibility: hidden;
-  }
-  .print-root,
-  .print-root * {
-    visibility: visible;
+  body > :not(.print-root) {
+    display: none !important;
   }
   .print-root {
     display: block;
-    position: fixed;
-    top: 0;
-    left: 0;
   }
 }
 

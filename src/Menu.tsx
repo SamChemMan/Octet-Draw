@@ -143,6 +143,7 @@ type PickProps = {
   onDoubleClick?: () => void;
   onKey?: (e: React.KeyboardEvent<HTMLButtonElement>) => boolean | void; // a key on the closed button; true when it used it
   start?: boolean; // open as it comes on screen, with the longer list (Text > Font > Other Font…)
+  disabled?: boolean; // nothing to choose yet: the button shows, greyed, as a disabled button does
 };
 
 // A list's keys (Pick's, the Actions menu's): up and down move along its options, Home and End go to the ends, a
@@ -208,8 +209,8 @@ export function Pick(p: PickProps) {
   };
   return (
     <>
-      <button ref={button} className={p.className} aria-haspopup="menu" aria-expanded={!!open} aria-label={`${p.label}: ${[...p.groups.flat(), ...(all ?? [])].find((i) => i.key === p.value)?.name ?? p.value}`} data-tip={p.title}
-        style={p.style} onClick={() => (open ? close() : setOpen({ focus: false }))} onDoubleClick={p.onDoubleClick}
+      <button ref={button} className={p.className} aria-haspopup="menu" aria-expanded={!!open} aria-label={[p.label, [...p.groups.flat(), ...(all ?? [])].find((i) => i.key === p.value)?.name ?? p.value].filter(Boolean).join(": ")} data-tip={p.title}
+        style={p.style} disabled={p.disabled} onClick={() => (open ? close() : setOpen({ focus: false }))} onDoubleClick={p.onDoubleClick}
         onKeyDown={(e) => {
           if (p.onKey?.(e)) return;
           if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === " " || e.key === "Enter")) { e.preventDefault(); e.stopPropagation(); setOpen({ focus: true }); }

@@ -1,5 +1,5 @@
 // File > Export… and the picture on the clipboard. The page sends a standalone SVG of the drawing at true size
-// (src/export.ts); this makes a vector PDF or a PNG of it. The PDF carries the drawing's CDXML in its catalog
+// (src/export.ts); this makes a vector PDF, EPS or EMF (vector.rs), or a PNG, TIFF, JPEG or GIF of it. The PDF carries the drawing's CDXML in its catalog
 // /Metadata stream, as ChemDraw's does, so a picture pasted into Word and copied out again pastes back into
 // Octet and ChemDraw as a structure. cdxml_from_pdf reads it back from any PDF, treated as hostile.
 
@@ -42,7 +42,7 @@ pub async fn system_fonts() -> Vec<String> {
     names
 }
 
-fn tree(svg: &str) -> Result<usvg::Tree, String> {
+pub fn tree(svg: &str) -> Result<usvg::Tree, String> {
     if svg.len() > MAX_SVG {
         return Err("This drawing is too large to export.".into());
     }
@@ -105,20 +105,12 @@ pub fn make_pdf(svg: &str, cdxml: Option<&str>) -> Result<Vec<u8>, String> {
     Ok(pdf.finish())
 }
 
-// A PNG of the SVG at `dpi` (of its true size), white or transparent behind. It records its resolution, so
-// Word, PowerPoint and Keynote place it at true size.
-pub fn make_png(svg: &str, dpi: f32, transparent: bool) -> Result<Vec<u8>, String> {
-    let tree = tree(svg)?;
-    let dpi = if dpi.is_finite() { dpi.clamp(36.0, 2400.0) } else { 300.0 };
-    png_of(&draw(&tree, dpi, transparent)?, dpi)
-}
-
 // The SVG drawn at `dpi` of its true size, white or transparent behind.
 fn draw(tree: &usvg::Tree, dpi: f32, transparent: bool) -> Result<resvg::tiny_skia::Pixmap, String> {
     use resvg::tiny_skia::{Color, Pixmap, Transform};
     let scale = dpi / 96.0;
     let (w, h) = ((tree.size().width() * scale).ceil() as u32, (tree.size().height() * scale).ceil() as u32);
-    let too_big = "This picture is too large for a PNG at this resolution. Choose a lower resolution.";
+    let too_big = "This picture is too large at this resolution. Choose a lower resolution.";
     if w > 20_000 || h > 20_000 || u64::from(w) * u64::from(h) > 100_000_000 {
         return Err(too_big.into());
     }
@@ -130,13 +122,35 @@ fn draw(tree: &usvg::Tree, dpi: f32, transparent: bool) -> Result<resvg::tiny_sk
     Ok(pixmap)
 }
 
-fn png_of(pixmap: &resvg::tiny_skia::Pixmap, dpi: f32) -> Result<Vec<u8>, String> {
-    let rgba: Vec<u8> = pixmap.pixels().iter().flat_map(|p| {
+// A drawn picture as width, height and RGBA rows (not premultiplied).
+fn rgba_of(pixmap: &resvg::tiny_skia::Pixmap) -> (u32, u32, Vec<u8>) {
+    let rgba = pixmap.pixels().iter().flat_map(|p| {
         let c = p.demultiply();
         [c.red(), c.green(), c.blue(), c.alpha()]
     }).collect();
+    (pixmap.width(), pixmap.height(), rgba)
+}
+
+// The SVG as pixels at `dpi` (of its true size), white or transparent behind.
+fn pixels(svg: &str, dpi: f32, transparent: bool) -> Result<(u32, u32, Vec<u8>), String> {
+    Ok(rgba_of(&draw(&tree(svg)?, dpi, transparent)?))
+}
+
+fn dpi_of(dpi: f32) -> f32 {
+    if dpi.is_finite() { dpi.clamp(36.0, 2400.0) } else { 300.0 }
+}
+
+// A PNG of the SVG at `dpi` (of its true size), white or transparent behind. It records its resolution, so
+// Word, PowerPoint and Keynote place it at true size.
+pub fn make_png(svg: &str, dpi: f32, transparent: bool) -> Result<Vec<u8>, String> {
+    let dpi = dpi_of(dpi);
+    png_of(&draw(&tree(svg)?, dpi, transparent)?, dpi)
+}
+
+fn png_of(pixmap: &resvg::tiny_skia::Pixmap, dpi: f32) -> Result<Vec<u8>, String> {
+    let (w, h, rgba) = rgba_of(pixmap);
     let mut out = Vec::new();
-    let mut enc = png::Encoder::new(&mut out, pixmap.width(), pixmap.height());
+    let mut enc = png::Encoder::new(&mut out, w, h);
     enc.set_color(png::ColorType::Rgba);
     enc.set_depth(png::BitDepth::Eight);
     let ppm = (dpi / 0.0254).round() as u32;
@@ -188,16 +202,143 @@ fn dib(pixmap: &resvg::tiny_skia::Pixmap, dpi: f32) -> Vec<u8> {
     out
 }
 
-// What File > Export… can write: id, name in the Save dialog, extensions (the first is the default).
-const FORMATS: [(&str, &str, &[&str]); 10] = [
+// A JPEG of the SVG at `dpi`, on white (JPEG has no transparency), at quality 95, with its resolution.
+pub fn make_jpeg(svg: &str, dpi: f32) -> Result<Vec<u8>, String> {
+    use image::codecs::jpeg::{JpegEncoder, PixelDensity};
+    let dpi = dpi_of(dpi);
+    let (w, h, rgba) = pixels(svg, dpi, false)?;
+    let rgb: Vec<u8> = rgba.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
+    let mut out = Vec::new();
+    let mut enc = JpegEncoder::new_with_quality(&mut out, 95);
+    enc.set_pixel_density(PixelDensity::dpi(dpi.round() as u16));
+    enc.encode(&rgb, w, h, image::ExtendedColorType::Rgb8).map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+// A GIF of the SVG at `dpi`, white or transparent behind: 256 colours at most, chosen for the picture. GIF records no
+// resolution.
+pub fn make_gif(svg: &str, dpi: f32, transparent: bool) -> Result<Vec<u8>, String> {
+    let (w, h, mut rgba) = pixels(svg, dpi_of(dpi), transparent)?;
+    if w > u32::from(u16::MAX) || h > u32::from(u16::MAX) {
+        return Err("This picture is too large for a GIF. Choose a lower resolution.".into());
+    }
+    // GIF transparency is on or off: a pixel under half covered is clear, the rest are solid.
+    for p in rgba.chunks_exact_mut(4) {
+        p[3] = if p[3] < 128 { 0 } else { 255 };
+    }
+    let mut out = Vec::new();
+    let mut enc = image::codecs::gif::GifEncoder::new_with_speed(&mut out, 10);
+    enc.encode(&rgba, w, h, image::ExtendedColorType::Rgba8).map_err(|e| e.to_string())?;
+    drop(enc);
+    Ok(out)
+}
+
+// A TIFF of the SVG at `dpi`, white or transparent behind: baseline RGB (RGBA with transparency), 8 bits a sample,
+// PackBits compression, its resolution in pixels per inch. Little-endian, a strip every 16 rows.
+pub fn make_tiff(svg: &str, dpi: f32, transparent: bool) -> Result<Vec<u8>, String> {
+    let dpi = dpi_of(dpi);
+    let (w, h, rgba) = pixels(svg, dpi, transparent)?;
+    let spp: u32 = if transparent { 4 } else { 3 };
+    let rows = 16u32;
+    let mut out = vec![b'I', b'I', 42, 0, 0, 0, 0, 0];
+    let (mut offsets, mut counts) = (Vec::new(), Vec::new());
+    for strip in rgba.chunks((w * 4 * rows) as usize) {
+        offsets.push(out.len() as u32);
+        let start = out.len();
+        for row in strip.chunks_exact((w * 4) as usize) {
+            let line: Vec<u8> = row.chunks_exact(4).flat_map(|p| p[..spp as usize].to_vec()).collect();
+            packbits(&line, &mut out);
+        }
+        counts.push((out.len() - start) as u32);
+        if out.len() % 2 == 1 {
+            out.push(0);
+        }
+    }
+    // The arrays the directory points to: bits per sample, strip offsets and byte counts, the two resolutions.
+    let at = |data: &[u8], out: &mut Vec<u8>| -> u32 {
+        let o = out.len() as u32;
+        out.extend_from_slice(data);
+        if out.len() % 2 == 1 {
+            out.push(0);
+        }
+        o
+    };
+    let le = |v: &[u32]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+    let bits = at(&vec![8u8, 0].repeat(spp as usize), &mut out);
+    let offs = at(&le(&offsets), &mut out);
+    let lens = at(&le(&counts), &mut out);
+    let res = at(&le(&[(dpi * 100.0).round() as u32, 100]), &mut out);
+    let n = offsets.len() as u32;
+    // Tags in order: (tag, type, count, value or offset). Types: 3 SHORT, 4 LONG, 5 RATIONAL.
+    let mut tags: Vec<(u16, u16, u32, u32)> = vec![
+        (256, 4, 1, w), (257, 4, 1, h), (258, 3, spp, bits), (259, 3, 1, 32773), (262, 3, 1, 2),
+        (273, 4, n, if n == 1 { offsets[0] } else { offs }), (277, 3, 1, spp), (278, 4, 1, rows),
+        (279, 4, n, if n == 1 { counts[0] } else { lens }), (282, 5, 1, res), (283, 5, 1, res), (284, 3, 1, 1), (296, 3, 1, 2),
+    ];
+    if transparent {
+        tags.push((338, 3, 1, 2)); // ExtraSamples: unassociated alpha
+    }
+    let dir = out.len() as u32;
+    out[4..8].copy_from_slice(&dir.to_le_bytes());
+    out.extend_from_slice(&(tags.len() as u16).to_le_bytes());
+    for (tag, kind, count, value) in tags {
+        out.extend_from_slice(&tag.to_le_bytes());
+        out.extend_from_slice(&kind.to_le_bytes());
+        out.extend_from_slice(&count.to_le_bytes());
+        // A single SHORT sits in the first two bytes of the value.
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    out.extend_from_slice(&0u32.to_le_bytes());
+    Ok(out)
+}
+// PackBits (TIFF compression 32773): runs of 2 to 128 equal bytes as (1 - n, byte), the rest as (n - 1, n bytes).
+fn packbits(line: &[u8], out: &mut Vec<u8>) {
+    let mut i = 0;
+    while i < line.len() {
+        let mut run = 1;
+        while i + run < line.len() && run < 128 && line[i + run] == line[i] {
+            run += 1;
+        }
+        if run >= 2 {
+            out.push((1 - run as i32) as i8 as u8);
+            out.push(line[i]);
+            i += run;
+            continue;
+        }
+        let start = i;
+        while i < line.len() && i - start < 128 && !(i + 1 < line.len() && line[i + 1] == line[i]) {
+            i += 1;
+        }
+        if i == start {
+            i += 1;
+        }
+        out.push((i - start - 1) as u8);
+        out.extend_from_slice(&line[start..i]);
+    }
+}
+
+// What File > Export… can write: id, name in the Save dialog, extensions (the first is the default). The MDL formats
+// are V3000, and V2000 apart, with ChemDraw's names. The pictures are ChemDraw's Save As pictures.
+const FORMATS: [(&str, &str, &[&str]); 21] = [
     ("oct", "Octet drawing", &["oct"]),
     ("pdf", "PDF", &["pdf"]),
     ("svg", "SVG", &["svg"]),
     ("png", "PNG", &["png"]),
+    ("emf", "Windows Enhanced Metafile (EMF)", &["emf"]),
+    ("eps", "Encapsulated PostScript (EPS)", &["eps"]),
+    ("tif", "TIFF", &["tif", "tiff"]),
+    ("jpg", "JPEG", &["jpg", "jpeg"]),
+    ("gif", "GIF", &["gif"]),
     ("cdxml", "ChemDraw XML (CDXML)", &["cdxml"]),
     ("cdx", "ChemDraw (CDX)", &["cdx"]),
     ("mol", "MDL Molfile", &["mol"]),
-    ("sdf", "SD File", &["sdf"]),
+    ("mol2000", "MDL Molfile V2000", &["mol"]),
+    ("sdf", "MDL SDfile", &["sdf", "sd"]),
+    ("sdf2000", "MDL SDfile V2000", &["sdf", "sd"]),
+    ("rxn", "Reaction Molfile (RXN)", &["rxn"]),
+    ("rxn2000", "Reaction Molfile V2000 (RXN)", &["rxn"]),
+    ("rdf", "MDL RDfile", &["rdf", "rd"]),
+    ("rdf2000", "MDL RDfile V2000", &["rdf", "rd"]),
     ("smi", "SMILES", &["smi", "smiles"]),
     ("inchi", "InChI", &["inchi", "txt"]),
 ];
@@ -210,8 +351,7 @@ pub struct Export {
     svg: Option<String>,
     cdxml: Option<String>,
     cdx: Option<String>, // base64
-    molfile: Option<String>,
-    sdf: Option<String>,
+    mdl: Option<String>, // the text of the MDL format asked for
     smiles: Option<String>,
     inchi: Option<String>,
     dpi: Option<f32>,
@@ -231,13 +371,12 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
     let e = export;
     let has = |id: &str| match id {
         "oct" => e.oct.is_some(),
-        "pdf" | "svg" | "png" => e.svg.is_some(),
+        "pdf" | "svg" | "png" | "emf" | "eps" | "tif" | "jpg" | "gif" => e.svg.is_some(),
         "cdxml" => e.cdxml.is_some(),
         "cdx" => e.cdx.is_some(),
-        "mol" => e.molfile.is_some(),
-        "sdf" => e.sdf.is_some(),
         "inchi" => e.inchi.is_some(),
-        _ => e.smiles.is_some(),
+        "smi" => e.smiles.is_some(),
+        _ => e.mdl.is_some(),
     };
     let offered: Vec<_> = FORMATS.iter().filter(|f| has(f.0) && e.format.as_deref().is_none_or(|x| x == f.0)).collect();
     let Some(first) = offered.first() else {
@@ -266,13 +405,17 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
         "pdf" => make_pdf(e.svg.as_deref().unwrap_or_default(), e.cdxml.as_deref())?,
         "svg" => format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n{}\n", e.svg.as_deref().unwrap_or_default()).into_bytes(),
         "png" => make_png(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false))?,
+        "tif" => make_tiff(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false))?,
+        "jpg" => make_jpeg(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0))?,
+        "gif" => make_gif(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false))?,
+        "emf" => crate::vector::make_emf(&tree(e.svg.as_deref().unwrap_or_default())?),
+        "eps" => crate::vector::make_eps(&tree(e.svg.as_deref().unwrap_or_default())?),
         "oct" => text(&e.oct),
         "cdxml" => text(&e.cdxml),
         "cdx" => base64::engine::general_purpose::STANDARD.decode(e.cdx.as_deref().unwrap_or_default()).map_err(|_| "Octet cannot write this drawing as CDX.".to_string())?,
-        "mol" => text(&e.molfile),
-        "sdf" => text(&e.sdf),
         "inchi" => format!("{}\n", e.inchi.as_deref().unwrap_or_default().trim()).into_bytes(),
-        _ => format!("{}\n", e.smiles.as_deref().unwrap_or_default().trim()).into_bytes(),
+        "smi" => format!("{}\n", e.smiles.as_deref().unwrap_or_default().trim()).into_bytes(),
+        _ => text(&e.mdl),
     };
     crate::write_atomic(&path, &bytes).map_err(|e| e.to_string())?;
     exported.0.lock().unwrap().insert(path.clone());
@@ -634,6 +777,70 @@ mod tests {
         assert!(text.contains("/FontFile2"));
         #[cfg(target_os = "macos")]
         assert!(text.contains("+ArialMT"));
+    }
+
+    // PackBits read back (TIFF 6.0, section 9).
+    fn unpack(data: &[u8]) -> Vec<u8> {
+        let (mut out, mut i) = (Vec::new(), 0);
+        while i < data.len() {
+            let n = data[i] as i8;
+            i += 1;
+            if n >= 0 {
+                out.extend_from_slice(&data[i..i + n as usize + 1]);
+                i += n as usize + 1;
+            } else if n != -128 {
+                out.extend(std::iter::repeat_n(data[i], (1 - n as i32) as usize));
+                i += 1;
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn packbits_reads_back() {
+        for line in [vec![], vec![7], vec![1, 2, 3], vec![9; 300], [vec![1, 2], vec![5; 3], vec![6, 7, 8], vec![0; 129]].concat(), (0..=255).collect::<Vec<u8>>()] {
+            let mut out = Vec::new();
+            packbits(&line, &mut out);
+            assert_eq!(unpack(&out), line);
+        }
+    }
+
+    #[test]
+    fn rasters_have_their_size_and_resolution() {
+        // 86 x 65 pt at 144 dpi: 172 x 130 px.
+        let jpeg = make_jpeg(SVG, 144.0).unwrap();
+        let img = image::load_from_memory(&jpeg).unwrap();
+        assert_eq!((img.width(), img.height()), (172, 130));
+        let gif = make_gif(SVG, 144.0, true).unwrap();
+        assert!(gif.starts_with(b"GIF89a"));
+        assert_eq!(image::load_from_memory(&gif).unwrap().width(), 172);
+        let tiff = make_tiff(SVG, 144.0, true).unwrap();
+        assert!(tiff.starts_with(b"II*\0"));
+        let u16_at = |at: usize| u16::from_le_bytes([tiff[at], tiff[at + 1]]);
+        let u32_at = |at: usize| u32::from_le_bytes(tiff[at..at + 4].try_into().unwrap());
+        let dir = u32_at(4) as usize;
+        let tags: Vec<(u16, u32, u32)> = (0..u16_at(dir) as usize).map(|k| (u16_at(dir + 2 + 12 * k), u32_at(dir + 6 + 12 * k), u32_at(dir + 10 + 12 * k))).collect();
+        let tag = |t: u16| tags.iter().find(|x| x.0 == t).copied().unwrap();
+        assert_eq!((tag(256).2, tag(257).2), (172, 130));
+        assert_eq!(tag(259).2, 32773);
+        assert_eq!(tag(338).2, 2);
+        let res = tag(282).2 as usize;
+        assert_eq!((u32_at(res), u32_at(res + 4)), (14400, 100));
+        // The strips unpack to 4 bytes a pixel, 16 rows each but the last.
+        let (offs, lens) = (tag(273), tag(279));
+        let strips = offs.1 as usize;
+        let mut pixels = 0;
+        for k in 0..strips {
+            let (o, n) = (u32_at(offs.2 as usize + 4 * k) as usize, u32_at(lens.2 as usize + 4 * k) as usize);
+            pixels += unpack(&tiff[o..o + n]).len() / 4;
+        }
+        assert_eq!(pixels, 172 * 130);
+        if let Ok(dir) = std::env::var("OCTET_EXPORT_SAMPLES") {
+            for (name, bytes) in [("sample.tif", tiff), ("sample.jpg", jpeg), ("sample.gif", gif), ("sample-white.tif", make_tiff(SVG, 144.0, false).unwrap()),
+                ("sample.eps", crate::vector::make_eps(&tree(SVG).unwrap())), ("sample.emf", crate::vector::make_emf(&tree(SVG).unwrap()))] {
+                std::fs::write(std::path::Path::new(&dir).join(name), bytes).unwrap();
+            }
+        }
     }
 
     #[test]

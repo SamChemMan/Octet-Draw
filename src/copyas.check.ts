@@ -10,13 +10,13 @@ g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
 g.window = globalThis;
 g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
-const { importStructure, parseStructure, ready, toInchi, toInchiKey, toMolText } = await import("./chem.ts");
+const { importStructure, parseStructure, ready, toInchi, toInchiKey, toMolfile } = await import("./chem.ts");
 await ready;
 
 const ethanol = parseStructure("CCO");
 assert.equal(toInchi(ethanol), "InChI=1S/C2H6O/c1-2-3/h3H,2H2,1H3");
 assert.equal(toInchiKey(ethanol), "LFQSCWFLJHTTHZ-UHFFFAOYSA-N");
-const v3000 = toMolText(ethanol, 3000), v2000 = toMolText(ethanol, 2000);
+const v3000 = toMolfile(ethanol), v2000 = toMolfile(ethanol, true);
 assert.match(v3000, /V3000/);
 assert.match(v3000, /M {2}V30 COUNTS 3 2/);
 assert.match(v2000, / {2}3 {2}2 .*V2000/);

@@ -1,6 +1,7 @@
 // Names chemists use that OPSIN does not read: abbreviations, formulas and trade names of common solvents,
 // reagents, ligands and photocatalysts. Each maps to a systematic name that OPSIN reads (checked by
-// tools/opsin/check.mjs), or to SMILES ("smiles:...") where OPSIN cannot give the structure (TEMPO's radical).
+// tools/opsin/check.mjs), to SMILES ("smiles:...") where OPSIN cannot give the structure (TEMPO's radical), or to
+// another entry ("=Pd(PPh3)4").
 // Keys match without regard to case, spaces or hyphens.
 export const COMMON: Record<string, string> = {
   // Solvents
@@ -35,10 +36,76 @@ export const COMMON: Record<string, string> = {
   "Hantzsch ester": "diethyl 2,6-dimethyl-1,4-dihydropyridine-3,5-dicarboxylate", Tris: "2-amino-2-(hydroxymethyl)propane-1,3-diol",
   "tris(hydroxymethyl)aminomethane": "2-amino-2-(hydroxymethyl)propane-1,3-diol",
   HEPES: "2-[4-(2-hydroxyethyl)piperazin-1-yl]ethanesulfonic acid", DTT: "1,4-bis(sulfanyl)butane-2,3-diol",
+  "Et3N·HCl": "smiles:CC[NH+](CC)CC.[Cl-]", MeMgBr: "smiles:C[Mg]Br", EtMgBr: "smiles:CC[Mg]Br",
+  PhMgBr: "smiles:Br[Mg]c1ccccc1", iPrMgCl: "smiles:CC(C)[Mg]Cl", MeLi: "smiles:[Li]C", PhLi: "smiles:[Li]c1ccccc1",
+  LiTMP: "smiles:[Li+].CC1(C)CCCC(C)(C)[N-]1", KOtBu: "smiles:[K+].CC(C)(C)[O-]", NaOtBu: "smiles:[Na+].CC(C)(C)[O-]",
+  NaOMe: "smiles:[Na+].C[O-]", NaOEt: "smiles:[Na+].CC[O-]", NaOAc: "smiles:[Na+].CC([O-])=O", KOAc: "smiles:[K+].CC([O-])=O",
+  NH4OAc: "smiles:[NH4+].CC([O-])=O", TMSCN: "smiles:C[Si](C)(C)C#N", TMSCHN2: "smiles:C[Si](C)(C)C=[N+]=[N-]", CH2N2: "smiles:C=[N+]=[N-]",
+  Et3SiH: "smiles:CC[SiH](CC)CC", Bu3SnH: "smiles:CCCC[SnH](CCCC)CCCC", AIBN: "smiles:CC(C)(C#N)N=NC(C)(C)C#N", BPO: "dibenzoyl peroxide",
+  DAST: "smiles:CCN(CC)S(F)(F)F", "Burgess reagent": "smiles:COC(=O)[N-]S(=O)(=O)[N+](CC)(CC)CC",
+  "Lawesson's reagent": "smiles:COc1ccc(cc1)P1(=S)SP(=S)(S1)c1ccc(OC)cc1",
+  PCC: "smiles:c1cc[nH+]cc1.[O-][Cr](Cl)(=O)=O", PDC: "smiles:c1cc[nH+]cc1.c1cc[nH+]cc1.[O-][Cr](=O)(=O)O[Cr]([O-])(=O)=O",
+  DMP: "smiles:CC(=O)OI1(OC(C)=O)(OC(C)=O)OC(=O)c2ccccc12", "Dess-Martin periodinane": "smiles:CC(=O)OI1(OC(C)=O)(OC(C)=O)OC(=O)c2ccccc12",
+  IBX: "smiles:OI1(=O)OC(=O)c2ccccc12", TPAP: "smiles:CCC[N+](CCC)(CCC)CCC.[O-][Ru](=O)(=O)=O", NMO: "smiles:C[N+]1([O-])CCOCC1",
+  HATU: "smiles:CN(C)C(=[N+](C)C)N1N=[N+]([O-])C2=C1C=CC=N2.F[P-](F)(F)(F)(F)F",
+  HBTU: "smiles:CN(C)C(=[N+](C)C)ON1N=NC2=CC=CC=C21.F[P-](F)(F)(F)(F)F",
+  TBTU: "smiles:CN(C)C(=[N+](C)C)ON1N=NC2=CC=CC=C21.F[B-](F)(F)F",
+  PyBOP: "smiles:C1CCN(C1)[P+](N1CCCC1)(N1CCCC1)ON1N=NC2=CC=CC=C21.F[P-](F)(F)(F)(F)F", HOAt: "smiles:ON1N=NC2=C1N=CC=C2",
+  T3P: "smiles:CCCP1(=O)OP(=O)(CCC)OP(=O)(CCC)O1", EDCI: "3-(ethyliminomethylideneamino)-N,N-dimethylpropan-1-amine",
+  TBDPSCl: "smiles:CC(C)(C)[Si](Cl)(c1ccccc1)c1ccccc1", TIPSCl: "smiles:CC(C)[Si](Cl)(C(C)C)C(C)C", TESCl: "smiles:CC[Si](Cl)(CC)CC",
+  TBSOTf: "smiles:CC(C)(C)[Si](C)(C)OS(=O)(=O)C(F)(F)F", TIPSOTf: "smiles:CC(C)[Si](OS(=O)(=O)C(F)(F)F)(C(C)C)C(C)C",
+  "Fmoc-Cl": "smiles:ClC(=O)OCC1c2ccccc2-c2ccccc12", "Cbz-Cl": "benzyl carbonochloridate", BnBr: "(bromomethyl)benzene",
+  BnCl: "(chloromethyl)benzene", MOMCl: "chloro(methoxy)methane", SEMCl: "smiles:C[Si](C)(C)CCOCCl",
+  MeI: "iodomethane", CH3I: "iodomethane", EtI: "iodoethane", EtBr: "bromoethane", Me2SO4: "dimethyl sulfate",
+  MeOTf: "methyl trifluoromethanesulfonate", CCl4: "tetrachloromethane", CBr4: "tetrabromomethane", CHBr3: "tribromomethane",
+  SiCl4: "tetrachlorosilane",
+  "proton sponge": "N1,N1,N8,N8-tetramethylnaphthalene-1,8-diamine",
+  // Inorganic acids, bases, salts and elements, by formula. A formula that is also SMILES ("CO", "NO") is left out.
+  HCl: "smiles:Cl", HBr: "smiles:Br", HI: "smiles:I", HF: "smiles:F", H2SO4: "smiles:OS(=O)(=O)O", HNO3: "smiles:O[N+]([O-])=O",
+  H3PO4: "smiles:OP(O)(O)=O", H2O: "smiles:O", H2O2: "smiles:OO", NH3: "smiles:N", D2O: "smiles:[2H]O[2H]",
+  CDCl3: "smiles:[2H]C(Cl)(Cl)Cl", "DMSO-d6": "smiles:[2H]C([2H])([2H])S(=O)C([2H])([2H])[2H]", CD3OD: "smiles:[2H]OC([2H])([2H])[2H]",
+  C6D6: "smiles:[2H]c1c([2H])c([2H])c([2H])c([2H])c1[2H]", CD3CN: "smiles:[2H]C([2H])([2H])C#N",
+  NaOH: "smiles:[Na+].[OH-]", KOH: "smiles:[K+].[OH-]", LiOH: "smiles:[Li+].[OH-]", NaH: "smiles:[Na+].[H-]", KH: "smiles:[K+].[H-]",
+  CaH2: "smiles:[Ca+2].[H-].[H-]", NaNH2: "smiles:[Na+].[NH2-]",
+  K2CO3: "smiles:[K+].[K+].[O-]C([O-])=O", Na2CO3: "smiles:[Na+].[Na+].[O-]C([O-])=O", Cs2CO3: "smiles:[Cs+].[Cs+].[O-]C([O-])=O",
+  NaHCO3: "smiles:[Na+].OC([O-])=O", KHCO3: "smiles:[K+].OC([O-])=O", K3PO4: "smiles:[K+].[K+].[K+].[O-]P([O-])([O-])=O",
+  Na2SO4: "smiles:[Na+].[Na+].[O-]S([O-])(=O)=O", MgSO4: "smiles:[Mg+2].[O-]S([O-])(=O)=O",
+  NaCl: "smiles:[Na+].[Cl-]", KCl: "smiles:[K+].[Cl-]", LiCl: "smiles:[Li+].[Cl-]", NH4Cl: "smiles:[NH4+].[Cl-]", CaCl2: "smiles:[Ca+2].[Cl-].[Cl-]",
+  NaBr: "smiles:[Na+].[Br-]", KBr: "smiles:[K+].[Br-]", LiBr: "smiles:[Li+].[Br-]", NaI: "smiles:[Na+].[I-]", KI: "smiles:[K+].[I-]",
+  KF: "smiles:[K+].[F-]", CsF: "smiles:[Cs+].[F-]", NaN3: "smiles:[Na+].[N-]=[N+]=[N-]", NaNO2: "smiles:[Na+].[O-]N=O",
+  NaCN: "smiles:[Na+].[C-]#N", KCN: "smiles:[K+].[C-]#N", NaOCl: "smiles:[Na+].[O-]Cl", NaIO4: "smiles:[Na+].[O-]I(=O)(=O)=O",
+  KMnO4: "smiles:[K+].[O-][Mn](=O)(=O)=O", Na2S2O3: "smiles:[Na+].[Na+].[O-]S([O-])(=O)=S", NaHSO3: "smiles:[Na+].OS([O-])=O",
+  SOCl2: "smiles:O=S(Cl)Cl", SO2Cl2: "smiles:O=S(=O)(Cl)Cl", POCl3: "smiles:O=P(Cl)(Cl)Cl", PCl3: "smiles:ClP(Cl)Cl",
+  PCl5: "smiles:ClP(Cl)(Cl)(Cl)Cl", PBr3: "smiles:BrP(Br)Br", "(COCl)2": "oxalyl dichloride", BBr3: "smiles:BrB(Br)Br", BF3: "smiles:FB(F)F",
+  "BF3·OEt2": "smiles:FB(F)F.CCOCC", AlCl3: "smiles:Cl[Al](Cl)Cl", FeCl3: "smiles:Cl[Fe](Cl)Cl", TiCl4: "smiles:Cl[Ti](Cl)(Cl)Cl",
+  ZnCl2: "smiles:Cl[Zn]Cl", SnCl2: "smiles:Cl[Sn]Cl", SnCl4: "smiles:Cl[Sn](Cl)(Cl)Cl", CuI: "smiles:[Cu]I", CuBr: "smiles:[Cu]Br",
+  CuCl: "smiles:[Cu]Cl", CuCN: "smiles:[Cu+].[C-]#N", CuSO4: "smiles:[Cu+2].[O-]S([O-])(=O)=O", "Cu(OAc)2": "smiles:CC(=O)O[Cu]OC(C)=O",
+  "Cu(OTf)2": "smiles:FC(F)(F)S(=O)(=O)O[Cu]OS(=O)(=O)C(F)(F)F", AgNO3: "smiles:[Ag+].[O-][N+]([O-])=O", Ag2O: "smiles:[Ag]O[Ag]",
+  Ag2CO3: "smiles:[Ag+].[Ag+].[O-]C([O-])=O", OsO4: "smiles:O=[Os](=O)(=O)=O", CrO3: "smiles:O=[Cr](=O)=O", MnO2: "smiles:O=[Mn]=O",
+  SeO2: "smiles:O=[Se]=O", I2: "smiles:II", Br2: "smiles:BrBr", Cl2: "smiles:ClCl", H2: "smiles:[HH]", O2: "smiles:O=O", N2: "smiles:N#N",
+  O3: "smiles:[O-][O+]=O", CO2: "smiles:O=C=O", SO2: "smiles:O=S=O", SO3: "smiles:O=S(=O)=O", CS2: "smiles:S=C=S",
+  N2O: "smiles:[N-]=[N+]=O", COCl2: "smiles:O=C(Cl)Cl", BCl3: "smiles:ClB(Cl)Cl", SF6: "smiles:FS(F)(F)(F)(F)F",
+  // Metal catalysts, with the bonds to the metal drawn
+  "Pd(PPh3)4": "smiles:[Pd](P(c1ccccc1)(c1ccccc1)c1ccccc1)(P(c1ccccc1)(c1ccccc1)c1ccccc1)(P(c1ccccc1)(c1ccccc1)c1ccccc1)P(c1ccccc1)(c1ccccc1)c1ccccc1",
+  "Pd(OAc)2": "smiles:CC(=O)O[Pd]OC(C)=O", PdCl2: "smiles:Cl[Pd]Cl",
+  "PdCl2(PPh3)2": "smiles:Cl[Pd](Cl)(P(c1ccccc1)(c1ccccc1)c1ccccc1)P(c1ccccc1)(c1ccccc1)c1ccccc1",
+  "Pd(PPh3)2Cl2": "smiles:Cl[Pd](Cl)(P(c1ccccc1)(c1ccccc1)c1ccccc1)P(c1ccccc1)(c1ccccc1)c1ccccc1",
+  "Pd2(dba)3": "smiles:[Pd].[Pd].O=C(/C=C/c1ccccc1)/C=C/c1ccccc1.O=C(/C=C/c1ccccc1)/C=C/c1ccccc1.O=C(/C=C/c1ccccc1)/C=C/c1ccccc1",
+  "Pd(dba)2": "smiles:[Pd].O=C(/C=C/c1ccccc1)/C=C/c1ccccc1.O=C(/C=C/c1ccccc1)/C=C/c1ccccc1",
+  "Ni(cod)2": "smiles:[Ni].C1/C=C\\CC/C=C\\C1.C1/C=C\\CC/C=C\\C1",
+  "Grubbs catalyst": "smiles:Cl[Ru](Cl)(=Cc1ccccc1)(P(C1CCCCC1)(C1CCCCC1)C1CCCCC1)P(C1CCCCC1)(C1CCCCC1)C1CCCCC1",
+  "Grubbs I": "smiles:Cl[Ru](Cl)(=Cc1ccccc1)(P(C1CCCCC1)(C1CCCCC1)C1CCCCC1)P(C1CCCCC1)(C1CCCCC1)C1CCCCC1",
+  "Grubbs II": "smiles:Cc1cc(C)c(c(C)c1)N1CCN(C1=[Ru](Cl)(Cl)(=Cc1ccccc1)P(C1CCCCC1)(C1CCCCC1)C1CCCCC1)c1c(C)cc(C)cc1C",
+  "Hoveyda-Grubbs II": "smiles:CC(C)Oc1ccccc1C=[Ru](Cl)(Cl)=C1N(CCN1c1c(C)cc(C)cc1C)c1c(C)cc(C)cc1C",
+  "tetrakis(triphenylphosphine)palladium(0)": "=Pd(PPh3)4", "bis(triphenylphosphine)palladium(II) dichloride": "=PdCl2(PPh3)2",
+  "tris(dibenzylideneacetone)dipalladium(0)": "=Pd2(dba)3", "bis(dibenzylideneacetone)palladium(0)": "=Pd(dba)2",
+  "bis(cycloocta-1,5-diene)nickel(0)": "=Ni(cod)2",
+  "Wilkinson's catalyst": "smiles:Cl[Rh](P(c1ccccc1)(c1ccccc1)c1ccccc1)(P(c1ccccc1)(c1ccccc1)c1ccccc1)P(c1ccccc1)(c1ccccc1)c1ccccc1",
   // Ligands
   bpy: "2,2'-bipyridine", dtbbpy: "4,4'-di-tert-butyl-2,2'-bipyridine", phen: "1,10-phenanthroline", ppy: "2-phenylpyridine",
   dppe: "ethane-1,2-diylbis(diphenylphosphane)", dppp: "propane-1,3-diylbis(diphenylphosphane)",
   Xantphos: "(9,9-dimethylxanthene-4,5-diyl)bis(diphenylphosphane)", BINAP: "[1,1'-binaphthalene]-2,2'-diylbis(diphenylphosphane)",
+  XPhos: "dicyclohexyl[2',4',6'-tri(propan-2-yl)biphenyl-2-yl]phosphane", SPhos: "dicyclohexyl(2',6'-dimethoxybiphenyl-2-yl)phosphane",
   cod: "cycloocta-1,5-diene", acac: "pentane-2,4-dione", dba: "1,5-diphenylpenta-1,4-dien-3-one",
   // Photocatalysts and dyes
   "4CzIPN": "2,4,5,6-tetra(carbazol-9-yl)benzene-1,3-dicarbonitrile",
@@ -58,7 +125,7 @@ export const COMMON: Record<string, string> = {
   quinine: "(R)-(6-methoxyquinolin-4-yl)[(2S,4S,5R)-5-ethenyl-1-azabicyclo[2.2.2]octan-2-yl]methanol",
   cocaine: "methyl (1R,2R,3S,5S)-3-(benzoyloxy)-8-methyl-8-azabicyclo[3.2.1]octane-2-carboxylate",
   lidocaine: "2-(diethylamino)-N-(2,6-dimethylphenyl)acetamide", benzocaine: "ethyl 4-aminobenzoate", warfarin: "4-hydroxy-3-(3-oxo-1-phenylbutyl)-2H-chromen-2-one",
-  metformin: "smiles:CN(C)C(=N)NC(N)=N", sildenafil: "smiles:CCCc1nn(C)c2c1nc([nH]c2=O)-c1cc(ccc1OCC)S(=O)(=O)N1CCN(C)CC1",
+  metformin: "smiles:CN(C)C(=N)NC(N)=N", sildenafil: "smiles:CCCC1=NN(C)C2=C1N=C(NC2=O)C1=CC(=CC=C1OCC)S(=O)(=O)N1CCN(C)CC1",
   atorvastatin: "(3R,5R)-7-[2-(4-fluorophenyl)-3-phenyl-4-(phenylcarbamoyl)-5-(propan-2-yl)-1H-pyrrol-1-yl]-3,5-dihydroxyheptanoic acid",
   omeprazole: "6-methoxy-2-[(4-methoxy-3,5-dimethylpyridin-2-yl)methanesulfinyl]-1H-benzimidazole",
   fluoxetine: "N-methyl-3-phenyl-3-[4-(trifluoromethyl)phenoxy]propan-1-amine", diazepam: "7-chloro-1-methyl-5-phenyl-1,3-dihydro-2H-1,4-benzodiazepin-2-one",
@@ -70,5 +137,6 @@ export const COMMON: Record<string, string> = {
   TPT: "2,4,6-triphenylpyrylium tetrafluoroborate", Selectfluor: "1-(chloromethyl)-4-fluoro-1,4-diazoniabicyclo[2.2.2]octane bis(tetrafluoroborate)",
 };
 
-// How keys are compared: lower case, without spaces or hyphens.
-export const commonKey = (name: string) => name.toLowerCase().replace(/[\s‐-―-]/g, "");
+// How keys are compared: lower case, without spaces, hyphens or apostrophes, and with a full stop or bullet between
+// parts read as "·" ("Et3N.HCl" is "Et3N·HCl").
+export const commonKey = (name: string) => name.toLowerCase().replace(/[\s‐-―'’ʼ-]/g, "").replace(/[.•∙⋅]/g, "·");

@@ -112,9 +112,9 @@ import { loadTemplates, newTemplate } from "./templates.ts";
   const a = addTemplate(EMPTY, arrowOnly, { point: [5, 5] }).arrows![0];
   assert.ok(Math.abs((a.from[0] + a.to[0]) / 2 - 5) < 1e-9 && a.from[1] < 5);
   // A multi-centre point (a π ligand) names its ring's atoms as they are numbered in the drawing it goes into.
-  const cp = { ...ring, atoms: [...ring.atoms, { label: "C", location: [0, 0, 0] as [number, number, number], centre: [0, 1, 2, 3, 4, 5] }, { label: "Fe", location: [0, -1.5, 0] as [number, number, number] }], bonds: [...ring.bonds, { type: 1, atoms: [6, 7] as [number, number] }] };
+  const cp = { ...ring, atoms: [...ring.atoms, { label: "C", location: [0, 0, 0] as [number, number, number], centre: { atoms: [0, 1, 2, 3, 4, 5] } }, { label: "Fe", location: [0, -1.5, 0] as [number, number, number] }], bonds: [...ring.bonds, { type: 1, atoms: [6, 7] as [number, number] }] };
   const two = addTemplate(addRing(EMPTY, 5, false, { point: [-20, 0] }), normalise(cp), { point: [10, 0] }), point = two.atoms.find((x) => x.centre)!;
-  assert.deepEqual(point.centre!.map((i) => two.atoms[i].location[0] > 5), [true, true, true, true, true, true], "the ligand's atoms are the new ring's");
+  assert.deepEqual(point.centre!.atoms.map((i) => two.atoms[i].location[0] > 5), [true, true, true, true, true, true], "the ligand's atoms are the new ring's");
   console.log("objects.check: templates keep the whole selection ok");
 }
 

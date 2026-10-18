@@ -124,6 +124,7 @@ console.log("file.check: bad files refused");
     { kind: "box" as const, from: [0, 0] as [number, number], to: [2, 1] as [number, number], shadow: true },
     { kind: "brackets" as const, from: [0, 0] as [number, number], to: [2, 2] as [number, number], side: "left" as const, mark: "‡" },
     { kind: "rounded" as const, from: [0, 0] as [number, number], to: [2, 1] as [number, number], fill: "faded" as const, boldLine: true as const, angle: 30, order: 2 },
+    { kind: "brackets" as const, from: [0, 0] as [number, number], to: [2, 2] as [number, number], ignoreWarnings: true as const },
     { kind: "tlc" as const, from: [0, 0] as [number, number], to: [3, 4] as [number, number], tlc: { lanes: 3, spots: [{ lane: 0, rf: 0.42 }, { lane: 2, rf: 0.7 }], rf: true } },
     { kind: "table" as const, from: [0, 3] as [number, number], to: [6, 0] as [number, number], table: { cells: [["Entry", "Solvent", "Yield (%)"], ["1", "THF", "72"]], grid: true } },
     { kind: "table" as const, from: [0, 3] as [number, number], to: [6, 0] as [number, number], dashed: true,

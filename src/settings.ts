@@ -13,6 +13,7 @@
 import type { SavedTemplate } from "./templates";
 import { QUICK, readPurposes, type DocStyle, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { DEFAULT_FILES, type FilePrefs } from "./SettingsWindow";
+import { WARNING_TYPES, type WarningType } from "./check";
 
 export type Settings = {
   snap: boolean; snapGrid: boolean; guides: { grid: boolean; rulers: boolean; crosshair: boolean }; rulerUnit: RulerUnit; eraser: number; keys: Record<string, string[]>; variants: { select: string; bond: string; ring: string; template: string; symbol: string; orbital: string; arrow: string; shape: string; bracket: string; more: string };
@@ -27,6 +28,8 @@ export type Settings = {
   userName: string | null; tutorialDone: boolean; lastSeen: number;
   updates: boolean | null; // check for updates when Octet opens: null until the user answers on first launch (decision 0010)
   warnings: boolean; // View > Show Chemical Warnings: problems marked on the drawing and listed in Actions
+  warningTypes: Partial<Record<WarningType, boolean>>; // Settings > Warnings: each kind switched on or off (unset: its default)
+  checkCopy: boolean; // ChemDraw's "Check Structure When Copying to Clipboard or Exporting"
   // What new drawings are for (IDEA-SIZE-1): Quick start or the purpose ⌘N starts (the last one picked; Return on
   // Home starts Quick start), the style of Quick start and of each built-in purpose when the user made it their own
   // with "Use for new documents", and the user's own purposes (templates).
@@ -42,17 +45,25 @@ export type Settings = {
   elementColours: Record<string, string>; // Colour by Element: the user's colour for an element, where it differs from Octet's
   properties: boolean; // the Chemical Properties panel is open
   propertyRows: string[]; // the rows Add to drawing writes under a structure
+  decimals?: number; // Properties > Decimals: places for the exact mass, molecular weight and m/z (0 to 8); unset is 4, 2 and 2
   nmrMhz: number; nmrSolvent: string; nmrSolventPeaks: boolean; nmrDetails: boolean; // the predicted spectrum's frequency (¹H, MHz), solvent, and whether its peaks show
   scaleLabels: boolean; // Scale…'s Labels and lines: label sizes and line widths scale with the positions (decision 0007)
   onlineSearch: boolean; // Search Reaxys and Search PubChem are offered (decision 0008); off hides them everywhere
+  interpretation: boolean; // View > Show Reaction Interpretation: pointing at a reaction shows what each part of it is
   // ChemDraw's Object > Fixed Lengths and Fixed Angles: a dragged bond, ring or arrow is one bond length long and at a
   // 15° step (Option frees it while it is held). sproutRings: ChemDraw's "Sprout Rings Instead of Spiro When Clicking".
   fixedLengths: boolean; fixedAngles: boolean; sproutRings: boolean;
+  // ChemDraw's preferences (CH-34). autoMap: Automatic Reaction Mapping (a pair mapped with the Atom map tool maps the
+  // rest of its reaction). stereoParens: Include Parentheses When Showing Stereochemistry. hideAbs: Hide Absolute
+  // Stereoflags. mdlFlags: Show Stereoflags When Opening MDL Format Files (the chiral flag as abs or &1 flags).
+  // aromaticOnOpen: Normalize Aromatic Display (on opening and importing: alternating bonds or circles; "" leaves
+  // each structure as the file has it).
+  autoMap: boolean; stereoParens: boolean; hideAbs: boolean; mdlFlags: boolean; aromaticOnOpen: "" | "kekule" | "circles";
 };
 export type Swatch = { name: string; hex: string };
 export type RulerUnit = "mm" | "cm" | "in" | "pt" | "pc";
 export const RULER_UNITS: [RulerUnit, string][] = [["mm", "Millimetres"], ["cm", "Centimetres"], ["in", "Inches"], ["pt", "Points"], ["pc", "Picas"]];
-const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, updates: null, warnings: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, scaleLabels: true, onlineSearch: true, fixedLengths: true, fixedAngles: true, sproutRings: false };
+const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, updates: null, warnings: true, warningTypes: {}, checkCopy: false, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, scaleLabels: true, onlineSearch: true, fixedLengths: true, fixedAngles: true, sproutRings: false, interpretation: false, autoMap: true, stereoParens: true, hideAbs: false, mdlFlags: false, aromaticOnOpen: "" };
 const KEY = "octet.settings";
 
 export function loadSettings(): Settings {
@@ -70,8 +81,10 @@ export function loadSettings(): Settings {
       ).filter((k: { name: string; smiles: string }) => k.name.length <= 300 && k.smiles.length <= 2000).slice(0, 50),
       curvedArrows: Array.isArray(saved.curvedArrows) ? list<string>(saved.curvedArrows, (k) => typeof k === "string") : DEFAULTS.curvedArrows,
       ...readPurposes(saved),
-      files: { ...DEFAULT_FILES, ...(typeof saved.files === "object" && saved.files ? saved.files : {}), clipboard: { ...DEFAULT_FILES.clipboard, ...(saved.files?.clipboard ?? {}) } },
+      files: { ...DEFAULT_FILES, ...(typeof saved.files === "object" && saved.files ? saved.files : {}), clipboard: { ...DEFAULT_FILES.clipboard, ...(saved.files?.clipboard ?? {}) }, saveAs: saved.files?.saveAs === "cdxml" ? "cdxml" : "oct" },
       paletteWide: saved.paletteWide === true,
+      warningTypes: Object.fromEntries(WARNING_TYPES.flatMap((w) => (typeof saved.warningTypes?.[w.id] === "boolean" ? [[w.id, saved.warningTypes[w.id]]] : []))),
+      checkCopy: saved.checkCopy === true,
       snapGrid: saved.snapGrid === true,
       // Settings from before Show Grid: Gridlines set (a step in mm) in the default style, or in the style of the
       // purpose New starts, shows the grid.
@@ -83,8 +96,12 @@ export function loadSettings(): Settings {
       nmrSolventPeaks: saved.nmrSolventPeaks !== false,
       nmrDetails: saved.nmrDetails === true,
       fixedLengths: saved.fixedLengths !== false, fixedAngles: saved.fixedAngles !== false, sproutRings: saved.sproutRings === true,
+      autoMap: saved.autoMap !== false, stereoParens: saved.stereoParens !== false, hideAbs: saved.hideAbs === true, mdlFlags: saved.mdlFlags === true,
+      aromaticOnOpen: saved.aromaticOnOpen === "kekule" || saved.aromaticOnOpen === "circles" ? saved.aromaticOnOpen : "",
       scaleLabels: saved.scaleLabels !== false,
       onlineSearch: saved.onlineSearch !== false,
+      interpretation: saved.interpretation === true,
+      decimals: Number.isInteger(saved.decimals) && saved.decimals >= 0 && saved.decimals <= 8 ? saved.decimals : undefined,
       propertyRows: Array.isArray(saved.propertyRows) ? list<string>(saved.propertyRows, (k) => typeof k === "string" && k.length < 20).slice(0, 30) : DEFAULTS.propertyRows,
       elementColours: Object.fromEntries(Object.entries(typeof saved.elementColours === "object" && saved.elementColours ? saved.elementColours : {}).filter(([k, v]) => /^[A-Z][a-z]?$/.test(k) && typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v))) as Record<string, string>,
       palette: list<Swatch>(saved.palette, (c) => typeof c === "object" && c !== null && typeof (c as Swatch).name === "string" && /^#[0-9a-f]{6}$/i.test((c as Swatch).hex)).slice(0, 20),

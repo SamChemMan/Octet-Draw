@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { hydrogens } from "./render.ts";
 import type { Graph } from "./naming.ts";
-import { acsText, environment, hose, multiplicity, predict, readTables } from "./nmr.ts";
+import { acsText, detailsTable, environment, hose, multiplicity, predict, readTables, writeTables } from "./nmr.ts";
 
 // A graph from elements and bonds ([a, b, order]), with hydrogens filled in.
 function graph(els: string[], bonds: [number, number, number][]): Graph {
@@ -54,4 +54,25 @@ assert.deepEqual(tc.signals.map((s) => s.nuclei).sort(), [1, 1, 1, 2, 2]);
 near(tc.signals.find((s) => s.atoms.includes(6))?.shift, 21.4, 1.5, "toluene CH3");
 near(tc.signals.find((s) => s.atoms.includes(0))?.shift, 137.9, 2, "toluene ipso");
 near(predict(toluene, "1H")!.signals.find((s) => s.atoms.includes(6))?.shift, 2.35, 0.1, "toluene CH3 H");
+// Solvents (CH-28). OH, NH and SH hydrogens exchange with D₂O and CD₃OD, so they give no ¹H peak there.
+const ethanol = graph(["C", "C", "O"], [[0, 1, 1], [1, 2, 1]]);
+assert.deepEqual(predict(ethanol, "1H", "D₂O")!.signals.map((s) => s.group), ["CH2", "CH3"]);
+assert.deepEqual(predict(ethanol, "1H", "CD₃OD")!.signals.map((s) => s.group), ["CH2", "CH3"]);
+assert.deepEqual(predict(ethanol, "1H", "CDCl₃")!.signals.map((s) => s.group), ["CH2", "OH", "CH3"]);
+// ¹³C shifts measured in the solvent asked for, where the table has them; none without a solvent. ¹H has no solvent
+// table (it made ¹H worse on held-out spectra).
+const phenol = graph(["C", "C", "C", "C", "C", "C", "O"], [[0, 1, 2], [1, 2, 1], [2, 3, 2], [3, 4, 1], [4, 5, 2], [5, 0, 1], [0, 6, 1]]);
+const inWater = predict(phenol, "13C", "D₂O")!;
+assert.ok(inWater.signals.some((s) => s.solvent === "D₂O"));
+assert.ok(predict(phenol, "13C")!.signals.every((s) => !s.solvent));
+assert.ok(predict(phenol, "1H", "DMSO-d₆")!.signals.every((s) => !s.solvent));
+assert.match(detailsTable(inWater), /\tD₂O\t/);
+assert.match(detailsTable(predict(phenol, "13C")!), /\tany solvent\t/);
+// A version 1 table (no solvent tables) still reads; the version 2 file is read again after.
+const one = { hash: new Uint32Array([5]), shift: new Int16Array([100]), sd: new Uint16Array([1]), n: new Uint16Array([1]) };
+const v1 = writeTables({ "13C": one, "1H": one });
+assert.equal(new DataView(v1.buffer).getUint32(4, true), 1);
+readTables(v1);
+readTables(gunzipSync(readFileSync(new URL("../data/nmr/shifts.bin.gz", import.meta.url))));
+assert.throws(() => readTables(v1.slice(0, 20)));
 console.log("nmr.check: ok");

@@ -34,7 +34,7 @@ const b = (i: number, j: number, more: Partial<Bond> = {}): Bond => ({ type: 1, 
 const bonds: Bond[] = [
   b(0, 1), b(1, 2, { type: 2, position: "left" }), b(2, 3, { stereo: 1 }), b(3, 4), b(1, 5, { colour: "#213C99" }), b(0, 6, { stereo: 6 }), b(6, 7, { display: "wavy" }), b(6, 8, { display: "bold" }),
   b(9, 10, { type: 2, display: "bold" }), b(10, 11, { display: "dashed" }), b(9, 12, { display: "hashed" }), b(12, 13), b(9, 14, { display: "dative" }), b(10, 15, { type: 2, display: "either" }),
-  b(16, 17, { display: "hollow" }), b(17, 18, { type: 3 }), b(18, 19, { type: 2, position: "right" }), b(19, 20, { type: 2, position: "centre", display: "dashed" }), b(20, 21), b(21, 16, { type: 2, colour: "#22775B" }),
+  b(16, 17, { display: "hollow" }), b(17, 18, { type: 3 }), b(18, 19, { type: 2, position: "right" }), b(19, 20, { type: 2, position: "centre", display: "dashed" }), b(20, 21, { ignoreWarnings: true }), b(21, 16, { type: 2, colour: "#22775B" }),
 ];
 const captions: Caption[] = [
   { id: 1, text: "Plain caption", x: 0, y: 4 },
@@ -105,7 +105,7 @@ const shapes: Shape[] = [
   // Turned shapes and line widths (UI-7, CD-3, UI-42): a box, an oval, a pair of brackets and one bracket alone.
   { id: 214, kind: "box", from: [44, 0], to: [47, 2], angle: 30, width: 1.2 },
   { id: 215, kind: "oval", from: [48, 0], to: [51, 2], angle: -45, dashed: true },
-  { id: 216, kind: "brackets", from: [44, -6], to: [47, -3], angle: 90 },
+  { id: 216, kind: "brackets", from: [44, -6], to: [47, -3], angle: 90, ignoreWarnings: true },
   { id: 217, kind: "parens", from: [48, -6], to: [49, -3], side: "left", angle: 30, width: 2 },
   { id: 218, kind: "tlc", from: [52, -16], to: [54, -10], width: 0.8, tlc: { lanes: 1, spots: [] }, size: 9, italic: true },
   { id: 219, kind: "table", from: [56, -16], to: [62, -12], table: { cells: [["Entry", "Yield"], ["1", "72%"]] }, font: "Georgia", size: 12, bold: true, underline: true },

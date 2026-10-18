@@ -21,7 +21,12 @@ export const ACTIONS: Action[] = [
   { id: "atom.label", name: "Type a label on the atom", group: "Atoms", place: "atom" },
   { id: "atom.newlabel", name: "Type a new label on the atom", group: "Atoms", place: "atom" },
   { id: "atom.sproutlabel", name: "Add a bond and type a label on its end", group: "Atoms", place: "atom" },
-  ...["Me", "Et", "Ph", "Ac", "OMe", "CO2Me", "CF3", "NO2", "N3", "MgBr", "Fmoc", "Cbz", "Boc", "D", "R", "X"].map((t): Action => ({ id: `label.${t}`, name: `Set atom to ${t}`, group: "Atoms", place: "atom" })),
+  ...["Me", "Et", "Ph", "Ac", "OMe", "CO2Me", "CF3", "NO2", "N3", "MgBr", "Fmoc", "Cbz", "Boc", "D", "R", "X", "A", "Q", "M"].map((t): Action => ({ id: `label.${t}`, name: `Set atom to ${t}`, group: "Atoms", place: "atom" })),
+  // ChemDraw's FREE_SITE, UPTO_SITE and EXACT_SITE commands (no default key): an atom's substituent count, up or down.
+  { id: "subst.free", name: "Add a free site", group: "Atoms", place: "atom" },
+  { id: "subst.upto", name: "Raise the substituents up-to count", group: "Atoms", place: "atom" },
+  { id: "subst.exactly", name: "Raise the exact substituent count", group: "Atoms", place: "atom" },
+  { id: "subst.lower", name: "Lower the substituent count", group: "Atoms", place: "atom" },
   { id: "atom.attach", name: "Add an attachment point", group: "Atoms", place: "atom" },
   { id: "atom.number", name: "Show or hide the atom's number", group: "Atoms", place: "atom" },
   { id: "atom.properties", name: "Atom properties…", group: "Atoms", place: "atom" },

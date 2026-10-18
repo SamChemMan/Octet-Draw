@@ -1,7 +1,10 @@
 // Stoichiometry, as ChemDraw's Analyze Stoichiometry grid works it out: for each reactant, what was typed (mass,
 // moles, equivalents, volume with density or molarity, purity) gives its moles and the rest; equivalents are relative
-// to the limiting reactant; each product's expected amount follows from the limiting reactant (one to one), and a
-// measured mass gives its yield. Amounts are kept in base units: g, mol, mL, g/mL, mol/L, and fractions for purity.
+// to the limiting reactant; each product's expected amount follows from the limiting reactant times the product's
+// equivalents (its coefficient, 1 unless typed, as ChemDraw's product Equivalents row), and a measured mass gives its
+// yield. Amounts are kept in base units: g, mol, mL, g/mL, mol/L, and fractions for purity.
+
+import type { Grid } from "./render.ts";
 
 export type Field = "mass" | "moles" | "equiv" | "volume" | "density" | "molarity" | "purity" | "measured";
 export type Typed = Partial<Record<Field, number>>;
@@ -36,9 +39,9 @@ export function solve(components: Component[], limiting?: string): Record<string
     out[c.key] = { moles, mass, volume, purity, density: t.density, molarity: t.molarity, equiv: moles !== undefined && limMoles ? moles / limMoles : t.equiv };
   }
   for (const c of components.filter((x) => x.product)) {
-    const purity = c.typed.purity ?? 1, expectedMoles = limMoles, expectedMass = expectedMoles !== undefined ? expectedMoles * c.mw : undefined;
+    const purity = c.typed.purity ?? 1, equiv = c.typed.equiv ?? 1, expectedMoles = limMoles !== undefined ? limMoles * equiv : undefined, expectedMass = expectedMoles !== undefined ? expectedMoles * c.mw : undefined;
     const productMoles = c.typed.measured !== undefined && c.mw > 0 ? (c.typed.measured * purity) / c.mw : undefined;
-    out[c.key] = { purity, expectedMoles, expectedMass, measured: c.typed.measured, productMoles, yield: productMoles !== undefined && expectedMoles ? productMoles / expectedMoles : undefined };
+    out[c.key] = { purity, equiv, expectedMoles, expectedMass, measured: c.typed.measured, productMoles, yield: productMoles !== undefined && expectedMoles ? productMoles / expectedMoles : undefined };
   }
   return out;
 }
@@ -109,4 +112,41 @@ export function formulaWeight(text: string): number | undefined {
   };
   const w = group();
   return w !== undefined && i === s.length && w > 0 ? w : undefined;
+}
+
+// A saved grid read as a hostile file is: typed amounts finite and not negative under known fields, keys short, at most
+// 60 components and the rows Octet has; undefined when it is damaged.
+const FIELDS = ["mass", "moles", "equiv", "volume", "density", "molarity", "purity", "measured"];
+const KEY = /^(?:[rp]\d{1,2}|[rp]:[^\n\r]{1,80})$/;
+export const GRID_ROW_IDS = ["formula", "mw", "limiting", "equiv", "mass", "moles", "volume", "density", "molarity", "purity", "expected", "expectedMoles", "measured", "yield"];
+export function readGrid(raw: unknown, arrow: number): Grid | undefined {
+  const g = raw as Record<string, unknown> | undefined, typed = g?.typed as Record<string, Record<string, unknown>> | undefined;
+  if (!g || typeof typed !== "object" || !typed || Array.isArray(typed) || Object.keys(typed).length > 60) return undefined;
+  if (!Object.entries(typed).every(([k, v]) => KEY.test(k) && typeof v === "object" && v && !Array.isArray(v) && Object.entries(v).every(([f, x]) => FIELDS.includes(f) && typeof x === "number" && Number.isFinite(x) && x >= 0 && x < 1e9))) return undefined;
+  if (g.limiting !== undefined && !(typeof g.limiting === "string" && KEY.test(g.limiting) && g.limiting.startsWith("r"))) return undefined;
+  const h = g.hidden as { rows?: unknown; cols?: unknown } | undefined;
+  const rows = Array.isArray(h?.rows) ? (h!.rows as unknown[]).filter((x): x is string => typeof x === "string" && GRID_ROW_IDS.includes(x)).slice(0, 20) : [];
+  const cols = Array.isArray(h?.cols) ? (h!.cols as unknown[]).filter((x): x is string => typeof x === "string" && KEY.test(x)).slice(0, 60) : [];
+  const colour = typeof g.colour === "string" && /^#[0-9a-f]{6}$/i.test(g.colour) ? g.colour : undefined;
+  return { arrow, typed: typed as Grid["typed"], ...(g.limiting ? { limiting: g.limiting as string } : {}), ...(rows.length || cols.length ? { hidden: { ...(rows.length ? { rows } : {}), ...(cols.length ? { cols } : {}) } } : {}), ...(colour ? { colour } : {}) };
+}
+
+// Each grid column's key (its side and what it is: "r:C7H8O", 'r:"NaBH4"', and "#2" on the next one the same) and what
+// was typed for it: by its key, or else, for typed values whose key names no column (a compound redrawn, or a grid
+// from before keys named compounds, "r0"), by order: the first column on the same side with nothing of its own. The
+// limiting reactant follows its values.
+export function keyColumns<T extends { product: boolean; what: string }>(cols: T[], typed: Grid["typed"], limiting?: string): { cols: (T & { key: string; typed: Typed })[]; limiting?: string } {
+  const count = new Map<string, number>();
+  const keyed = cols.map((c) => { const base = `${c.product ? "p" : "r"}:${c.what}`, n = (count.get(base) ?? 0) + 1; count.set(base, n); return { ...c, key: n > 1 ? `${base}#${n}` : base, typed: typed[n > 1 ? `${base}#${n}` : base] ?? {} }; });
+  const keys = new Set(keyed.map((c) => c.key)), moved = new Map<string, string>();
+  const old = (k: string) => /^[rp]\d+$/.test(k);
+  const orphans = Object.keys(typed).filter((k) => !keys.has(k)).sort((a, b) => (old(a) && old(b) ? Number(a.slice(1)) - Number(b.slice(1)) : Number(old(b)) - Number(old(a))));
+  for (const k of orphans) {
+    const c = keyed.find((x) => (x.product ? "p" : "r") === k[0] && !Object.keys(x.typed).length && ![...moved.values()].includes(x.key));
+    if (!c || !Object.keys(typed[k]).length) continue;
+    c.typed = typed[k];
+    moved.set(k, c.key);
+  }
+  const lim = limiting && (keys.has(limiting) ? limiting : moved.get(limiting) ?? (old(limiting) ? keyed.filter((c) => !c.product)[Number(limiting.slice(1))]?.key : undefined));
+  return { cols: keyed, limiting: lim };
 }

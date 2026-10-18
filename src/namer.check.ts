@@ -154,5 +154,30 @@ function run(label: string, names: string[]) {
   console.log(`namer.check: ${label} ${ok}/${names.length} named, ${wrongHere.length} wrong`);
   assert.equal(wrongHere.length, 0, `a ${label} name OPSIN reads as a different structure`);
 }
+// Phase 4: salts with inorganic and organic ions, cations, phosphanes, imines and oximes, carbamates as prefixes,
+// and bicyclic von Baeyer and spiro rings.
+const classes = [
+  "sodium chloride", "potassium carbonate", "caesium carbonate", "sodium hydrogencarbonate", "sodium hydroxide", "sodium hydride",
+  "sodium azide", "sodium cyanide", "lithium chloride", "magnesium sulfate", "sodium sulfate", "tripotassium phosphate", "calcium chloride",
+  "potassium permanganate", "sodium methoxide", "potassium tert-butoxide", "sodium phenoxide", "ammonium chloride", "ammonium acetate",
+  "tetramethylammonium chloride", "tetrabutylammonium bromide", "triethylammonium chloride", "pyridinium chloride", "1-methylpyridin-1-ium iodide",
+  "anilinium chloride", "1,1-dimethylpiperidin-1-ium chloride", "choline chloride", "sodium tetrafluoroborate", "silver nitrate",
+  "triphenylphosphane", "tributylphosphane", "methyl(diphenyl)phosphane", "triphenylphosphane oxide", "1,2-bis(diphenylphosphanyl)ethane",
+  "4-(diphenylphosphanyl)benzoic acid", "diphenylmethanimine", "N-hydroxypropan-2-imine", "N-methylethanimine", "N-hydroxycyclohexanimine",
+  "2-(hydroxyimino)propanoic acid", "N-phenylpropan-2-imine", "1-phenylethan-1-one oxime",
+  "[(tert-butoxycarbonyl)amino]acetic acid", "2-{[(benzyloxy)carbonyl]amino}propanoic acid", "4-[(tert-butoxycarbonyl)amino]benzoic acid",
+  "bicyclo[2.2.1]heptane", "bicyclo[2.2.1]hept-2-ene", "bicyclo[2.2.2]octane", "bicyclo[3.2.1]octane", "bicyclo[1.1.1]pentane",
+  "bicyclo[3.3.1]nonane", "bicyclo[4.1.0]heptane", "bicyclo[2.2.1]hepta-2,5-diene", "1,7,7-trimethylbicyclo[2.2.1]heptan-2-one",
+  "2,6,6-trimethylbicyclo[3.1.1]hept-2-ene", "7-oxabicyclo[2.2.1]heptane", "8-azabicyclo[3.2.1]octane", "1,4-diazabicyclo[2.2.2]octane",
+  "1-azabicyclo[2.2.2]octane", "bicyclo[2.2.1]heptan-2-ol", "8-methyl-8-azabicyclo[3.2.1]octan-3-one",
+  "spiro[4.5]decane", "spiro[2.2]pentane", "spiro[4.4]nonane", "spiro[5.5]undecan-3-one", "1,4-dioxaspiro[4.5]decane", "spiro[4.5]decan-6-ol",
+];
 run("phase 2", more);
 run("phase 3", extra);
+run("phase 4", classes);
+// Aromatic ortho-fused rings take fusion names, never von Baeyer ones (2H-1,3-benzodioxole, not
+// 7,9-dioxabicyclo[4.3.0]nona-1,3,5-triene); without a fused name in the table they are not named yet.
+for (const input of ["2H-1,3-benzodioxole", "imidazo[1,2-a]pyridine", "5-phenyl-1,3-dihydro-2H-1,4-benzodiazepin-2-one"]) {
+  const smiles = opsin.parseToSmiles(input), g = graphOf(molOf(smiles), cipOf(smiles)), name = g && iupacName(g);
+  assert.ok(!name?.includes("bicyclo"), `${input} -> ${name}`);
+}

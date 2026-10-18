@@ -11,7 +11,7 @@ g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
 g.window = globalThis;
 g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
-const { analyse, cleanUp, expandWithOrigins, fragmentMasses, importStructure, ready, stereoLabels, structures, toMolfile } = await import("./chem.ts");
+const { analyse, chiralFlagOnly, cleanUp, expandWithOrigins, fragmentMasses, importStructure, mapReaction, ready, stereoLabels, structures, toMolfile } = await import("./chem.ts");
 const { render } = await import("./render.ts");
 type Mol = import("./render.ts").Mol;
 await ready;
@@ -55,6 +55,16 @@ assert.equal(formula(onEthyl("HOOC")), "C3H6O2");
 assert.equal(formula(onEthyl("CO2H")), "C3H6O2");
 // A label Indigo cannot read stays one unknown atom.
 assert.deepEqual(expandWithOrigins(onEthyl("Xx")).mol.atoms.map((a) => a.label), ["C", "C", "*"]);
+// A ligand bonded to a metal has the hydrogens the drawing shows: PPh3 on Pd is P, not PH.
+const ph3 = (at: number): Mol["atoms"] => [{ label: "P", location: [at, 1, 0] }, ...[0, 1, 2].flatMap((r) => Array.from({ length: 6 }, (_, k) => ({ label: "C", location: [at + r + Math.cos(k), 2 + Math.sin(k), 0] as [number, number, number] })))];
+const pd: Mol = { atoms: [{ label: "Pd", location: [0, 0, 0] }, ...ph3(1), ...ph3(-1)], bonds: [] };
+for (const p of [1, 20]) {
+  pd.bonds.push({ type: 1, atoms: [0, p] });
+  for (let r = 0; r < 3; r++) { const c = p + 1 + 6 * r; pd.bonds.push({ type: 1, atoms: [p, c] }); for (let k = 0; k < 6; k++) pd.bonds.push({ type: k % 2 ? 1 : 2, atoms: [c + k, c + ((k + 1) % 6)] }); }
+}
+pd.atoms.push({ label: "Cl", location: [0, -1, 0] }, { label: "Cl", location: [0, 1, 0] });
+pd.bonds.push({ type: 1, atoms: [0, 39] }, { type: 1, atoms: [0, 40] });
+assert.equal(formula(pd), "C36H30Cl2P2Pd");
 console.log("chem.check: labels ok");
 
 // An attachment point (wavy, diamond or star) is not an atom: it counts in no formula, mass or analysis, and its bond
@@ -137,6 +147,11 @@ console.log("chem.check: attachment points ok");
   const [a] = analyse(bound) ?? [];
   assert.equal(a?.formula, "C5H5NRu");
   assert.ok(Number.isFinite(a?.weight));
+  // Wedges Indigo rejects (three wedges on one carbon) do not take away the formula, the masses or the properties.
+  const wedged: Mol = { atoms: [{ label: "C", location: [0, 0, 0] }, { label: "C", location: [0.866, 0.5, 0] }, { label: "C", location: [1.732, 0, 0] }, { label: "O", location: [0.866, 1.5, 0] }],
+    bonds: [{ type: 1, atoms: [1, 0], stereo: 1 }, { type: 1, atoms: [1, 2], stereo: 1 }, { type: 1, atoms: [1, 3], stereo: 6 }] };
+  assert.equal(analyse(wedged)?.[0].formula, "C3H8O");
+  assert.equal(structures(wedged)?.[0]?.formula, "C3H8O");
   console.log("chem.check: unreadable structures ok");
 }
 
@@ -148,11 +163,14 @@ console.log("chem.check: attachment points ok");
   const dimer: Mol = { atoms: [at("O", 0), at("H", 1), at("O", 2)], bonds: [{ type: 1, atoms: [0, 1] }, { type: 10, atoms: [1, 2] }] };
   assert.deepEqual(analyse(dimer)?.map((a) => a.formula), ["H4O2"]);
   // A molfile has the hydrogen bond as bond type 10 and the quadruple bond as single, as ChemDraw writes them.
-  const bondLines = (m: Mol) => toMolfile(m).split("\n").filter((l) => /^\s*\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s*$/.test(l)).map((l) => l.trim().split(/\s+/).slice(0, 3).join(" "));
+  const bondLines = (m: Mol) => toMolfile(m, true).split("\n").filter((l) => /^\s*\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s*$/.test(l)).map((l) => l.trim().split(/\s+/).slice(0, 3).join(" "));
   assert.deepEqual(bondLines(dimer), ["1 2 1", "2 3 10"]);
   assert.deepEqual(bondLines(quad), ["1 2 1", "2 3 1", "3 4 1"]);
   // The molfile keeps its three header lines (the first, its name, is blank), so it reads back, hydrogen bond and all.
-  assert.match(toMolfile(dimer).split("\n")[3], /V2000$/);
+  assert.match(toMolfile(dimer, true).split("\n")[3], /V2000$/);
+  assert.deepEqual(importStructure(toMolfile(dimer, true)).bonds.map((b) => b.type), [1, 10]);
+  // V3000 (ChemDraw 26.1's MOL) keeps the hydrogen bond too.
+  assert.match(toMolfile(dimer), /V3000/);
   assert.deepEqual(importStructure(toMolfile(dimer)).bonds.map((b) => b.type), [1, 10]);
   console.log("chem.check: quadruple and hydrogen bonds ok");
   // A label with Interpret Chemically off is text, not chemistry: it adds nothing to the formula.
@@ -160,4 +178,33 @@ console.log("chem.check: attachment points ok");
   assert.deepEqual(analyse(amine)?.map((a) => a.formula), ["CH3"]);
   assert.deepEqual(analyse({ ...amine, atoms: [{ ...at("N", 0), text: "NH2" }, at("C", 1)] })?.map((a) => a.formula), ["CH5N"]);
   console.log("chem.check: labels that are not chemistry ok");
+}
+
+// A molfile keeps its blank first line (the name), so it reads back, in Octet and in other programs.
+{
+  const molfile = toMolfile(onEthyl("OH"));
+  assert.match(molfile, /^\n {2}-INDIGO-/);
+  assert.deepEqual(importStructure(molfile).atoms.map((a) => a.label), ["C", "C", "O"]);
+  // An atom bonded to a metal goes out with its valence, not a hydrogen count: in a drawing with an R group (a query)
+  // that would be a query feature (M  MRV SMA) in the molfile.
+  const query: Mol = { atoms: [{ label: "Pd", location: [0, 0, 0] }, { label: "N", location: [1, 0, 0] }, { label: "C", location: [2, 0, 0] }, { label: "*", location: [3, 0, 0] }],
+    bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [1, 2] }, { type: 1, atoms: [2, 3] }] };
+  assert.doesNotMatch(toMolfile(query), /MRV SMA/);
+  console.log("chem.check: molfile ok");
+}
+
+// Settings (CH-34). Automatic reaction mapping keeps the pairs mapped by hand (Indigo's keep mode) and maps the rest.
+{
+  const chain = (maps: (number | undefined)[]): Mol => ({ atoms: ["C", "C", "C", "O"].map((label, i) => ({ label, location: [i * 0.866, i % 2 ? 0.5 : 0, 0] as [number, number, number], ...(maps[i] ? { map: maps[i] } : {}) })),
+    bonds: [0, 1, 2].map((i) => ({ type: 1, atoms: [i, i + 1] as [number, number] })) });
+  const kept = mapReaction([chain([undefined, undefined, undefined, 7])], [chain([undefined, undefined, undefined, 7])], true)!;
+  assert.equal(kept.reactants[0][3], 7);
+  assert.equal(kept.products[0][3], 7);
+  assert.deepEqual(kept.reactants[0].slice(0, 3), kept.products[0].slice(0, 3));
+  assert.ok(kept.reactants[0].slice(0, 3).every((n) => n !== undefined && n !== 7));
+  // An MDL file's chiral flag alone (no V3000 stereo collections) is what Stereo flags from the chiral flag hides.
+  assert.ok(chiralFlagOnly("\n  Octet\n\n  1  0  0  0  1  0  0  0  0  0999 V2000\n"));
+  assert.ok(!chiralFlagOnly("M  V30 BEGIN COLLECTION\nM  V30 MDLV30/STERAC1 ATOMS=(1 2)\nM  V30 END COLLECTION\n V3000"));
+  assert.ok(!chiralFlagOnly("CC(O)CC"));
+  console.log("chem.check: settings ok");
 }

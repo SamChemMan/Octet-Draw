@@ -22,6 +22,8 @@ pub const CDX: [&str; 3] = ["com.perkinelmer.chemdraw.cdx-clipboard", "com.revvi
 pub const CDXML: [&str; 3] = ["com.perkinelmer.cdxml", "com.revvity.cdxml", "com.cambridgesoft.cdxml"];
 pub const MOLFILE: &str = "com.mdli.molfile";
 pub const SMILES: &str = "org.opensmiles.smiles";
+// Plain text, for Name to Structure (the name field opens with a name copied from elsewhere).
+pub const TEXT: &str = "public.utf8-plain-text";
 // Octet's own type. A UTI under the app's identifier: macOS refuses MIME-style names such as
 // application/x-octet+json on the pasteboard. Windows and Linux use that name.
 pub const OCTET: &str = "io.github.samchemman.octet.json";
@@ -30,6 +32,7 @@ pub const DIB: &str = "CF_DIB";
 pub const UNICODE_TEXT: &str = "CF_UNICODETEXT";
 
 const MAX_TYPE: usize = 64 << 20;
+const MAX_TEXT: usize = 64 << 10;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum System {
@@ -66,7 +69,7 @@ fn names(s: System, k: Kind) -> &'static [&'static str] {
             Molfile => &[MOLFILE],
             Smiles => &[SMILES],
             Octet => &[OCTET],
-            Text => &["public.utf8-plain-text"],
+            Text => &[TEXT],
             Png | Bitmap | Svg => &[],
         },
         System::Windows => match k {
@@ -102,6 +105,7 @@ pub struct Clip {
     cdx: Option<String>,     // ChemDraw's CDX, base64
     molfile: Option<String>, // a molfile or RXN file, with LF line ends
     smiles: Option<String>,
+    text: Option<String>,    // plain text of 64 KB or less
 }
 
 // ChemDraw's form of a molfile on the clipboard (MDL's MDLCT): each line as one length byte, then the line, with no
@@ -154,6 +158,16 @@ pub fn smiles_text(b: &[u8]) -> Option<String> {
 fn text_of(b: Vec<u8>) -> Option<String> {
     let end = b.iter().rposition(|&c| c != 0).map_or(0, |k| k + 1);
     String::from_utf8(b[..end].to_vec()).ok()
+}
+
+// Plain text from the clipboard: UTF-16 on Windows, UTF-8 elsewhere, without NULs at the end.
+fn plain_text(s: System, b: Vec<u8>) -> Option<String> {
+    if s != System::Windows {
+        return text_of(b);
+    }
+    let units: Vec<u16> = b.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+    let end = units.iter().rposition(|&c| c != 0).map_or(0, |k| k + 1);
+    String::from_utf16(&units[..end]).ok()
 }
 
 // The types for one copy on system `s`, in ChemDraw's order, as (name, bytes). svg: the picture (None: no picture).
@@ -222,6 +236,7 @@ fn clip(s: System, read: impl Fn(&str) -> Option<Vec<u8>>) -> Clip {
         cdx: first(s, Kind::Cdx, &read).map(|b| base64::engine::general_purpose::STANDARD.encode(b)),
         molfile: first(s, Kind::Molfile, &read).and_then(|b| molfile_text(&b)),
         smiles: first(s, Kind::Smiles, &read).and_then(|b| smiles_text(&b)),
+        text: first(s, Kind::Text, &read).filter(|b| b.len() <= MAX_TEXT).and_then(|b| plain_text(s, b)),
     };
     // The PDF's CDXML when there is no Octet JSON or CDXML type: it holds the whole drawing, arrows, text and shapes
     // too (REL-4, CH-2). ChemDraw's CDX is the page's next choice, for a copy with no PDF.
@@ -235,7 +250,7 @@ fn clip(s: System, read: impl Fn(&str) -> Option<Vec<u8>>) -> Clip {
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 fn readable(s: System) -> Vec<&'static str> {
     use Kind::*;
-    [Octet, Cdxml, Cdx, Molfile, Smiles, Pdf].iter().flat_map(|k| names(s, *k).iter().copied()).collect()
+    [Octet, Cdxml, Cdx, Molfile, Smiles, Pdf, Text].iter().flat_map(|k| names(s, *k).iter().copied()).collect()
 }
 
 #[cfg(target_os = "macos")]
@@ -369,6 +384,11 @@ mod tests {
         let read = |name: &str| t.iter().find(|(n, _)| *n == name).map(|(_, b)| b.clone());
         let c = clip(System::Mac, read);
         assert_eq!((c.octet.as_deref(), c.molfile.as_deref(), c.smiles.as_deref()), (Some("{}"), Some(MOL), Some("CO")));
+        // Plain text (a name copied from a paper) comes through for the name field, unless it is too long.
+        assert_eq!(clip(System::Mac, |name| (name == TEXT).then(|| b"aspirin".to_vec())).text.as_deref(), Some("aspirin"));
+        assert_eq!(clip(System::Mac, |name| (name == TEXT).then(|| vec![b'a'; MAX_TEXT + 1])).text, None);
+        let utf16: Vec<u8> = "aspirin".encode_utf16().chain([0]).flat_map(u16::to_le_bytes).collect();
+        assert_eq!(clip(System::Windows, |name| (name == UNICODE_TEXT).then(|| utf16.clone())).text.as_deref(), Some("aspirin"));
         // Without it (a picture copied back out of Word), the CDXML comes out of the PDF.
         let c = clip(System::Mac, |name| (name == PDF).then(|| t[0].1.clone()));
         assert!(c.cdxml.unwrap().contains("<CDXML/>"));
@@ -471,7 +491,7 @@ mod tests {
         let ours: Vec<&str> = names.iter().map(String::as_str).filter(|n| t.iter().any(|(x, _)| x == n)).collect();
         assert_eq!(ours, [PDF, MOLFILE, SMILES, OCTET], "{names:?}");
         let c = mac::read(&pb);
-        assert_eq!((c.octet.as_deref(), c.smiles.as_deref(), c.molfile.as_deref()), (Some("{}"), Some("CO"), Some(MOL)));
+        assert_eq!((c.octet.as_deref(), c.smiles.as_deref(), c.molfile.as_deref(), c.text.as_deref()), (Some("{}"), Some("CO"), Some(MOL), None));
         pb.clearContents();
     }
 }

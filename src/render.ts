@@ -7,6 +7,7 @@
 // - Labels are anchored on the advance centre and half the ink height of their first glyph.
 
 import { units } from "./labels.ts";
+import { atomIndicator, bondIndicator, queryLabel } from "./query.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
 import { lines as richLines, plainOf, runsOf, styleOf, wrap, type RunStyle, type TextRun } from "./richtext.ts";
 import type { DocStyle, Guides } from "./docstyle.ts";
@@ -34,9 +35,6 @@ export type Atom = {
   cip?: true; // Show Stereochemistry is on for this atom's structure: its R/S (and its double bonds' E/Z) labels show
   halo?: string; // #rrggbb highlight behind the atom at 40% opacity (ChemDraw's highlight colours; NMR peak colours)
   circle?: true; // Toggle Aromatic Display: an aromatic ring whose atoms all have this is drawn with a circle
-  // A multi-centre attachment point (ChemDraw's MultiAttachment node), as for an η5 Cp or η6 arene ligand: not an
-  // atom but the middle of these atoms (a ring's), where a bond to the ligand ends. It has no label and no chemistry.
-  centre?: number[];
   number?: string; // Show Atom Number: the number drawn beside the atom
   // The label's alignment set by hand (ChemDraw's Flush Left, Centered, Flush Right and Stacked Above on a label;
   // LabelDisplay in CDXML): left reads from the atom, right ends at it (MeO, H2N), centre sits on it, above and below
@@ -52,8 +50,32 @@ export type Atom = {
   chemical?: false;
   shown?: true; // a carbon whose label shows with its hydrogens (CH3, CH2): ChemDraw's c key, or C typed as a label
   order?: number; // the draw order of the atom's structure (order.ts); unset draws it in its layer
+  query?: AtomQuery; // ChemDraw's atom query properties (Atom Properties), for a database search
+  // A multi-centre attachment (an η ligand's bond goes to all these atoms) or, with variable, a variable attachment
+  // (a substituent on one of these atoms, a positional isomer). The atom has no label: it sits at the centre of its
+  // atoms, and a bond to it is drawn from there. Atom numbers, as in the drawing.
+  centre?: { atoms: number[]; variable?: true };
   scale?: number; // the atom's size against the document style (decision 0007); unset is 1
 };
+// ChemDraw's atom query properties; unset is ChemDraw's default for each. subst: Substituents, as Free Sites (as drawn
+// plus up to n more), Up To n or Exactly n (0 to 15). noH: Implicit Hydrogens not allowed. rings: Ring Bond Count.
+// unsat: Unsaturation. change: Reaction Change must be as specified. stereo: Reaction Stereo. valence: Abnormal Valence
+// allowed.
+export type AtomQuery = {
+  subst?: { kind: "free" | "upto" | "exactly"; n: number };
+  noH?: true;
+  rings?: "none" | "drawn" | "simple" | "fusion" | "spiro";
+  unsat?: "absent" | "present";
+  change?: true;
+  stereo?: "inversion" | "retention";
+  translation?: "broad" | "narrow" | "any";
+  abundance?: "any" | "natural" | "enriched" | "deficient" | "nonnatural";
+  valence?: true;
+};
+// ChemDraw's bond query properties. query: the bond types a search accepts (Any, Single or Double, Single or Aromatic,
+// Double or Aromatic); the bond is drawn as its type says. topology: Ring, Chain, or Ring or Chain. rxn: Reaction
+// Center (Center, Make/Break, Change, Make & Change, Not Center, Not Modified, Unmapped).
+export type BondQuery = Pick<Bond, "query" | "topology" | "rxn">;
 // KET stereo: 1 wedge, 6 hashed wedge. display: how a single bond is drawn when it is not plain.
 // On a double bond: bold makes the main line bold, dashed the second line dashed, either crosses the two lines.
 // A double bond's dashed (ChemDraw's Tautomeric: the second line dashed) and aromatic (both lines dashed) displays.
@@ -61,10 +83,10 @@ export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow
 // position: where a double bond's second line goes, looking from atoms[0] to atoms[1]; unset means automatic.
 // Where two bonds cross, the later one in the list is in front, and the one behind has a gap cut in it.
 // halo: #rrggbb highlight, a band behind the bond as an atom's halo is a disc (ChemDraw's highlightColor on a bond).
-// query: a ChemDraw query bond's orders as CDXML writes them ("1 2" is single or double, "any"); Octet draws it single
-// with ChemDraw's mark (S/D) and writes it back.
+// ignoreWarnings: Display Warnings off for this bond (ChemDraw's IgnoreWarnings): its problems are not marked.
 export type Bond = {
-  type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string; halo?: string; query?: string;
+  type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string; halo?: string; ignoreWarnings?: true;
+  query?: "any" | "sd" | "sa" | "da"; topology?: "ring" | "chain" | "either"; rxn?: "centre" | "makebreak" | "change" | "makechange" | "not" | "nochange" | "unmapped";
   spacing?: number; // a double bond's own spacing (% of the bond length, as ChemDraw's BondSpacing); unset is the document's
   own?: Record<string, string>; // ChemDraw's own settings on the bond that Octet does not turn into a scale, written back as they came
 };
@@ -216,7 +238,6 @@ export type Shape = {
   shade?: Shade; // a shadow's look, when it differs from SHADE
   boldLine?: true; // the outline in the bold width (ChemDraw's Bold line)
   picture?: Record<string, string>; // a picture's data as CDXML holds it: each format's bytes in hex, and its turn
-  polymer?: Kept; // ChemDraw's meaning for brackets (a repeat unit, a count) round these atoms, kept and written back
   order?: number; // draw order (order.ts)
   angle?: number; // degrees anticlockwise: the box from and to span is drawn turned about its middle (not TLC plates, tables or pictures)
   width?: number; // the line width in points; unset uses the document's. The scale multiplies it.
@@ -224,8 +245,20 @@ export type Shape = {
   // The text of a table's cells or a TLC plate's Rf values, as the Text menu sets it; unset is the document's caption
   // style (an Rf value is 0.8 of its size). The scale multiplies the size.
   font?: string; size?: number; bold?: true; italic?: true; underline?: true;
+  ignoreWarnings?: true; // Display Warnings off for a pair of brackets (ChemDraw's IgnoreWarnings): its problem is not marked
+  polymer?: Polymer; // a pair of brackets' meaning (ChemDraw's Bracket Properties)
+  // An R-group definition (ChemDraw's alternative group): a box titled with its name (R1), the structures in it the
+  // fragments R1 stands for, and its R-Logic (occurrence, Rest H, and the R-group that must then be present too).
+  rgroup?: { name: string; occur?: string; restH?: true; then?: string };
   scale?: number; // the shape's size against the document style (decision 0007); unset is 1
 };
+// A bracket's usage, ChemDraw's Bracket Usage: SRU (n), monomer, mer, copolymer (and its alternating, random and block
+// kinds), crosslink, graft, modification, component, unordered and ordered mixture, multiple group (#), generic,
+// anypolymer, and parameterizable (a label, count or range, or a molecular weight). label: an SRU's label (unset is n),
+// a multiple group's repeat count, a parameterizable bracket's label. order: a component's number. pattern: how the
+// repeating units join, unset head-to-tail. flip: a ladder polymer's flip type. mw: a parameterizable bracket's Mw or Mn.
+export type BracketUsage = "sru" | "mon" | "mer" | "co" | "alt" | "ran" | "blk" | "xl" | "grf" | "mod" | "c" | "mix" | "f" | "mult" | "gen" | "anyp" | "param";
+export type Polymer = { usage: BracketUsage; label?: string; order?: number; pattern?: "hh" | "eu"; flip?: "noflip" | "flip"; mw?: number };
 // A shadow: how far it falls down and right and how soft its edge is (bond lengths), and how dark it is (0 to 1).
 export type Shade = { depth: number; blur: number; opacity: number };
 export const SHADE: Shade = { depth: 0.12, blur: 0, opacity: 0.35 };
@@ -287,9 +320,15 @@ export type RingFill = { atoms: number[]; colour: string };
 // writes). Not drawn: Octet keeps them from a ChemDraw file and writes them back (REL-28).
 export type Annotation = { keyword: string; content: string };
 // A stoichiometry grid (Structure > Analyse Stoichiometry) under the reaction an arrow belongs to: what was typed for
-// each component ("r0", "r1"… reactants, "p0"… products, in reading order), in base units, and the limiting reactant.
+// each component, in base units, and the limiting reactant. A component's key is its side and what it is ("r:C7H8O" a
+// reactant structure by its formula, 'r:"NaBH4"' a reagent written as text, "p:…" a product; "#2" on a second one the
+// same), so typed values stay with their compound when the reaction changes ("r0", "p0" in drawings from before).
+// hidden: rows (by id) and columns (by key) hidden with Hide Row and Hide Column; colour: the grid's ink.
 // Everything else is worked out from the reaction as it is drawn (stoich.ts).
-export type Grid = { arrow: number; typed: Record<string, Partial<Record<"mass" | "moles" | "equiv" | "volume" | "density" | "molarity" | "purity" | "measured", number>>>; limiting?: string };
+export type Grid = {
+  arrow: number; typed: Record<string, Partial<Record<"mass" | "moles" | "equiv" | "volume" | "density" | "molarity" | "purity" | "measured", number>>>; limiting?: string;
+  hidden?: { rows?: string[]; cols?: string[] }; colour?: string;
+};
 // A group (Object > Group): atoms and other objects (captions, arrows, shapes, cycles, by id) that select and move as
 // one. Groups nest: a group lists everything in it, the groups inside it too (edit.ts, tidyGroups). An integral group
 // is never split: a click on any part picks all of it.
@@ -337,6 +376,8 @@ const SUB = 0.75, DROP = 0.212, RISE = 0.33;
 const TIP = 0.0165; // wedge half-width at the stereocentre, as a fraction of the bond length
 const MAX_TRIM = 0.67; // an inner-line trim longer than this (times the bond length) is skipped
 export const H_FIRST = new Set(['O', 'F', 'S', 'Cl', 'Se', 'Br', 'Te', 'I']); // H2O, HCl; but NH3, CH4
+// Elements that are not metals. A bond to a metal does not change the hydrogens Octet draws on an atom (chem.ts).
+export const NONMETAL = new Set(["H", "D", "He", "B", "C", "N", "O", "F", "Ne", "Si", "P", "S", "Cl", "Ar", "Ge", "As", "Se", "Br", "Kr", "Sb", "Te", "I", "Xe", "At", "Rn", "*", "R"]);
 const VALENCE: Record<string, number> = { C: 4, Si: 4, N: 3, P: 3, As: 3, B: 3, Al: 3, O: 2, S: 2, Se: 2, Te: 2, F: 1, Cl: 1, Br: 1, I: 1 };
 
 // A ring's aromatic circle, as ChemDraw sizes it (Toggle Aromatic Display): the ring's inradius for its shortest bond
@@ -493,7 +534,8 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const dir = (i: number, j: number) => unit(sub(pts[j], pts[i]));
 
   // Labels. Heteroatoms and lone carbons get one; skeletal carbons don't, even when charged.
-  const labelled = mol.atoms.map((a, i) => !a.attach && !a.bead && !a.hidden && !a.centre && (a.label !== 'C' || !deg(i) || !!a.text || !!a.isotope || !!a.shown || (deg(i) === 1 ? !!s.terminal : !!s.carbons)));
+  // A multi-centre or variable attachment shows only as an asterisk, until a bond is drawn to it.
+  const labelled = mol.atoms.map((a, i) => (a.centre ? !deg(i) : !a.attach && !a.bead && !a.hidden && (a.label !== 'C' || !deg(i) || !!a.text || !!a.isotope || !!a.shown || (deg(i) === 1 ? !!s.terminal : !!s.carbons))));
   const labels: Label[] = [], labelAtom = new Map<Label, number>();
   const marks: P[][] = mol.atoms.map(() => []); // ink that is not a label shape (a skeletal carbon's charge)
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
@@ -541,6 +583,27 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const v = nbrs[i].reduce<P>((acc, j) => add(acc, dir(i, j)), [0, 0]);
     const steep = len(v) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180);
     const align = a.align;
+    if (a.centre) {
+      const m = M('*');
+      run('*', x - m.width / 2, y + m.ascent / 2);
+      return shape;
+    }
+    const ql = queryLabel(a.text);
+    if (a.text && (ql === 'list' || ql === 'alt' || ql === 'link')) {
+      // An element list, alternative group or link node reads as typed, never reversed: its first glyph sits on the
+      // atom, or its last when the bonds come from the right. Counts in it (CH₂) and a link node's repeat range
+      // ([CH₂]₃₋₇) are subscript.
+      const range = ql === 'link' ? /\d{1,2}-\d{1,2}$/.exec(a.text)![0] : '', pieces: { t: string; f: number }[] = [];
+      for (const t of a.text.slice(0, a.text.length - range.length).match(/\d+|\D+/g) ?? []) pieces.push({ t, f: /^\d/.test(t) && /[A-Za-z)]$/.test(pieces[pieces.length - 1]?.t ?? '') ? SUB : 1 });
+      if (range) pieces.push({ t: range, f: SUB });
+      const width = pieces.reduce((n, p) => n + M(p.t).width * p.f, 0), first = M(a.text[0]), base = y + first.ascent / 2, last = pieces[pieces.length - 1];
+      const end = M(last.t[last.t.length - 1]).width * last.f;
+      const cx = deg(i) > 0 && !steep && v[0] > 1e-6 ? x + end / 2 - width : x - first.width / 2;
+      let px = cx;
+      for (const p of pieces) { run(p.t, px, p.f === 1 ? base : base + DROP * S, p.f); px += M(p.t).width * p.f; }
+      if (a.charge && !a.circled) run(sign(a.charge), cx + width, base - RISE * S, SUB);
+      return shape;
+    }
     if (a.text) {
       // A written label: units in order, reversed when it reads right to left (OMe as MeO). The attaching
       // unit's first glyph sits centred on the atom. Centred, the whole label sits on the atom; stacked, each unit
@@ -607,9 +670,12 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const disc = (c: P, r: number): P[] => wound(Array.from({ length: 20 }, (_, j) => add(c, [r * Math.cos((TAU * j) / 20), r * Math.sin((TAU * j) / 20)])));
   mol.atoms.forEach((a, i) => {
     if (a.hidden) return;
-    const kinds: ('charge' | 'partial' | 'radical' | 'pair')[] = [];
+    const kinds: ('charge' | 'partial' | 'radical' | 'pair' | 'query')[] = [];
     if (a.circled && a.charge) kinds.push('charge');
     if (a.partial) kinds.push('partial');
+    // The query indicator ChemDraw draws beside an atom with query properties (X2, H, R…).
+    const indicator = atomIndicator(a.query);
+    if (indicator) kinds.push('query');
     for (let r = 0; r < Math.min(2, a.radical === 3 ? 0 : a.radical ?? 0); r++) kinds.push('radical');
     if (a.radical === 3) kinds.push('pair');
     for (let r = 0; r < Math.min(4, a.pairs ?? 0); r++) kinds.push('pair');
@@ -625,7 +691,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const keys = kinds.map((kind, k) => (kind === 'charge' || kind === 'partial' ? kind : `${kind}${kinds.slice(0, k).filter((x) => x === kind).length}`));
     keys.forEach((key, k) => { const deg = a.angles?.[key]; if (deg !== undefined) { at.set(k, (-deg * Math.PI) / 180); taken.push((-deg * Math.PI) / 180); } });
     const UP_RIGHT = -Math.PI / 4;
-    if (!at.has(0) && (kinds[0] === 'charge' || kinds[0] === 'partial') && clearOf(UP_RIGHT, Math.PI / 5)) { at.set(0, UP_RIGHT); taken.push(UP_RIGHT); }
+    if (!at.has(0) && (kinds[0] === 'charge' || kinds[0] === 'partial' || kinds[0] === 'query') && clearOf(UP_RIGHT, Math.PI / 5)) { at.set(0, UP_RIGHT); taken.push(UP_RIGHT); }
     const rest = kinds.map((_, k) => k).filter((k) => !at.has(k));
     const sorted = taken.map(turn).sort((x, y) => x - y);
     const gaps = sorted.length
@@ -638,7 +704,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       const t = at.get(k)!, d: P = [Math.cos(t), Math.sin(t)], n = perp(d);
       // The mark as discs (centre offset across, radius); how far out it goes is found by search.
       const R = kind === 'charge' ? 0.34 * z : kind === 'radical' ? 0.1 * z : kind === 'pair' ? 0.09 * z : 0;
-      const text = kind === 'partial' ? (a.partial === '+' ? 'δ+' : 'δ–') : '', ink = text ? grown(measure(text), ratio[i]) : undefined;
+      const text = kind === 'partial' ? (a.partial === '+' ? 'δ+' : 'δ–') : kind === 'query' ? indicator : '', ink = text ? grown(measure(text), ratio[i]) : undefined;
       const parts: [number, number][] = kind === 'pair' ? [[0.19 * z, R], [-0.19 * z, R]] : ink ? [[0, (Math.max(ink.width, ink.ascent) * SUB) / 2]] : [[0, R]];
       const gap = 0.14 * z;
       const fits = (r: number) => parts.every(([o, pr]) => { const c = add(add(X, mul(d, r)), mul(n, o)); return shape.every((q) => len(sub(q, c)) >= pr + gap); });
@@ -770,9 +836,10 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       // Centred: lines at ±spacing/2 that stay out of the fan and run on to the neighbouring bond's axis.
       plan.kind = 'none';
       const h = spacing / 2;
+      // A neighbour in line (an allene's middle atom, drawn with rounding) is met end to end, not run on to.
       const reach = (x: number, y: number, o: number) => {
         const phi = labelled[x] ? undefined : near(x, y, Math.sign(o))[0];
-        return phi === undefined ? 0 : h / Math.tan(phi);
+        return phi === undefined || Math.sin(phi) < 0.05 ? 0 : h / Math.tan(phi);
       };
       plan.lines = [h, -h].map((o, k) => ({ o, t0: reach(a, b, o), t1: reach(b, a, o), ...(bold && !k ? { half: z.bold / 2 } : {}), ...((bond.display === "dashed" && k) || bond.display === "aromatic" ? { dashed: true } : {}) }));
       return plan;
@@ -1035,7 +1102,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   // A π ligand (a ring of delocalised bonds round a multi-centre point) has an ellipse inside, sized as an aromatic
   // circle for the ring and flattened with it: its axes across and along the bond to the point.
   mol.atoms.forEach((a, i) => {
-    const r = a.centre ?? [];
+    const r = a.centre && !a.centre.variable ? a.centre.atoms : [];
     if (r.length < 3 || !r.every((x) => r.filter((y) => bondAt.get(key(x, y))?.type === 4).length === 2)) return;
     const c = pts[i], { across, along, ra, rb } = ligandEllipse(r.map((x) => pts[x]), c, nbrs[i].length ? pts[nbrs[i][0]] : undefined, s.spacing / s.bond);
     const at = (t: number) => add(c, add(mul(across, Math.cos(t) * ra), mul(along, Math.sin(t) * rb))), steps = 72, before = polygons.length;
@@ -1048,6 +1115,41 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     polygons.push(disc(pts[x], wideAt(depth[x]!, atomZ[x])));
     colours.push(mol.atoms[x].colour);
     alphas.push(fade(depth[x]!));
+  });
+  // A bond's query indicators (S/D, Rng, Rxn), small, beside its middle: inside its smallest ring, else on the side with
+  // more room. Where that covers a label, an atom's indicator, another bond's indicator or another bond, a little along
+  // the bond, then the other side, then further out.
+  const outlines: P[][] = [], told: Box[] = [];
+  mol.bonds.forEach((bond, k) => {
+    const text = bondIndicator(bond);
+    if (!text) return;
+    if (!outlines.length) outlines.push(...shapes.map(placedPoints));
+    const pl = plans[k], z = pl.z, m = grown(measure(text), z.size / s.size), mid = mul(add(pts[pl.a], pts[pl.b]), 0.5), w = m.width * SUB, h = m.ascent * SUB;
+    // Far enough out that the text's box clears the bond's double line, and out more.
+    const at = (sd: number, more: number, along = 0) => { const d = mul(pl.n, sd); return add(add(mid, mul(pl.u, along * z.L)), mul(d, z.spacing + 0.5 * (Math.abs(d[0]) * w + Math.abs(d[1]) * h) + (0.1 + more) * z.L)); };
+    const room = (c: P) => Math.min(Infinity, ...pts.filter((_, j) => j !== pl.a && j !== pl.b).map((q) => len(sub(q, c))));
+    const ring = ringsThrough(pl.a, pl.b, nbrs).sort((p, q) => p.length - q.length)[0];
+    const inward = ring && Math.sign(dot(sub(mul(ring.reduce<P>((t, j) => add(t, pts[j]), [0, 0]), 1 / ring.length), pts[pl.a]), pl.n));
+    const first = inward || (room(at(1, 0)) >= room(at(-1, 0)) ? 1 : -1);
+    // How much a place covers: points of labels, marks, bare atoms and other bonds in its box, and other indicators.
+    const covers = (c: P) => {
+      const gx = w / 2 + 0.08 * z.L, gy = h / 2 + 0.08 * z.L, inside = (q: P) => Math.abs(q[0] - c[0]) < gx && Math.abs(q[1] - c[1]) < gy;
+      let n = told.filter((b) => b[0] < c[0] + gx && b[2] > c[0] - gx && b[1] < c[1] + gy && b[3] > c[1] - gy).length;
+      for (const list of [...outlines, ...marks]) for (const q of list) if (inside(q)) n++;
+      pts.forEach((q, j) => { if (j !== pl.a && j !== pl.b && !labelled[j] && inside(q)) n++; });
+      plans.forEach((o) => { if (o !== pl) for (const t of [0.25, 0.5, 0.75]) if (inside(add(pts[o.a], mul(sub(pts[o.b], pts[o.a]), t)))) n++; });
+      return n;
+    };
+    let c = at(first, 0), least = covers(c);
+    for (const more of [0, 0.4, 0.8]) for (const sd of [first, -first]) for (const along of [0, -0.3, 0.3]) {
+      if (!least) break;
+      const q = at(sd, more, along), n = covers(q);
+      if (n < least) { c = q; least = n; }
+    }
+    const x = c[0] - w / 2, y = c[1] + h / 2;
+    labels.push({ text, x, y, size: z.size * SUB, colour: bond.colour });
+    told.push([x, y - h, x + w, y]);
+    marks[pl.a].push([x, y - h], [x + w, y]);
   });
   // A label's ink is its glyphs' boxes.
   const labelBoxes = shapes.map((shape) => shape.map(pieceBox));
@@ -1133,7 +1235,7 @@ export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: F
   const join = (i: number, j: number) => { const p = find(i), q = find(j); if (p !== q) root[Math.max(p, q)] = Math.min(p, q); };
   for (const b of mol.bonds) join(b.atoms[0], b.atoms[1]);
   // A multi-centre point is drawn with its ring (the ring's ellipse goes round it).
-  mol.atoms.forEach((a, i) => { for (const j of a.centre ?? []) if (j < mol.atoms.length) join(i, j); });
+  mol.atoms.forEach((a, i) => { for (const j of a.centre?.atoms ?? []) if (j < mol.atoms.length) join(i, j); });
   const depth = depthOf(mol), first = depth.findIndex((t) => t !== undefined);
   if (first >= 0) depth.forEach((t, i) => { if (t !== undefined) join(i, first); });
   // Structures whose bonds cross are drawn as one, so the bond behind gets its gap.
@@ -1156,7 +1258,7 @@ export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: F
     if (part && still && (part.at[0] || part.at[1])) part = { atoms, bonds, drawn: atoms, drawing: shifted(part.drawing, part.at), at: [0, 0], k: 1, turn: 0 };
     if (!part) {
       const local = new Map(ids.map((i, k) => [i, k]));
-      const drawing = render({ atoms: atoms.map((a) => (a.centre ? { ...a, centre: a.centre.flatMap((j) => (local.has(j) ? [local.get(j)!] : [])) } : a)), bonds: bonds.map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] })) }, s, measure, scale);
+      const drawing = render({ atoms: atoms.map((a) => (a.centre ? { ...a, centre: { ...a.centre, atoms: a.centre.atoms.flatMap((j) => (local.has(j) ? [local.get(j)!] : [])) } } : a)), bonds: bonds.map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] })) }, s, measure, scale);
       part = { atoms, bonds, drawn: atoms, drawing, at: [0, 0], k: 1, turn: 0 };
     }
     cache.parts.set(atoms[0], part);
@@ -1593,6 +1695,14 @@ export function markAt(sh: Shape, k: number): { x: number; y: number; anchor: "s
   const at = (x: number, y: number) => (sh.angle ? turnPoint([x, y], middleOf(sh), sh.angle) : [x, y]);
   const [x, y] = sh.side === "left" ? at(x0 - 0.08 * f, y0 - 0.1 * f) : at(x1 + 0.08 * f, y0 - 0.1 * f);
   return { x: x * k, y: -y * k, anchor: sh.side === "left" ? "end" : "start" };
+}
+
+// Where a polymer bracket pair's labels go (px, y down, scale k): its usage label just outside the lower end of the
+// right bracket, and its repeat pattern and flip tags at the upper end (under a mark there), as ChemDraw places them.
+export function polymerLabelsAt(sh: Shape, k: number): { label: { x: number; y: number }; tags: { x: number; y: number } } {
+  const x1 = Math.max(sh.from[0], sh.to[0]), y0 = Math.min(sh.from[1], sh.to[1]), y1 = Math.max(sh.from[1], sh.to[1]);
+  const at = (x: number, y: number) => { const [px, py] = sh.angle ? turnPoint([x, y], middleOf(sh), sh.angle) : [x, y]; return { x: px * k, y: -py * k }; };
+  return { label: at(x1 + 0.08, y0 + 0.05), tags: at(x1 + 0.08, y1 - (sh.mark ? 0.45 : 0.1)) };
 }
 
 // A shape's ink as filled polygons (px, y down), winding like the bonds: its lines at the line width, dashed when

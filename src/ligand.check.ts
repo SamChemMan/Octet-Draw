@@ -15,7 +15,7 @@ const centres = (m: Mol) => m.atoms.flatMap((a, i) => (a.centre ? [i] : []));
 let [m, hot] = addGroupAt(iron, 0, "cpLigand");
 assert.equal(hot, 0);
 assert.equal(centres(m).length, 1);
-const p = centres(m)[0], ring = m.atoms[p].centre!;
+const p = centres(m)[0], ring = m.atoms[p].centre!.atoms;
 assert.equal(ring.length, 5);
 assert.ok(pos(m, p)[1] < 0, "below the metal");
 assert.deepEqual(neighbours(m, p), [0], "the metal is bonded to the point");
@@ -32,7 +32,7 @@ assert.ok(Math.hypot(mid[0] - pos(m, p)[0], mid[1] - pos(m, p)[1]) < 1e-9);
 // j again: a staggered Cp above (a bold front bond); a third time the metal has two bonds and nothing happens.
 [m, hot] = addGroupAt(m, 0, "cpLigand");
 assert.equal(centres(m).length, 2);
-const upper = m.atoms[centres(m)[1]].centre!;
+const upper = m.atoms[centres(m)[1]].centre!.atoms;
 assert.ok(pos(m, centres(m)[1])[1] > 0, "above the metal");
 assert.equal(m.bonds.filter((b) => upper.includes(b.atoms[0]) && upper.includes(b.atoms[1]) && b.display === "bold").length, 1);
 assert.equal(addGroupAt(m, 0, "cpLigand")[0], m);
@@ -45,7 +45,7 @@ console.log("ligand.check: Cp on a metal ok");
 const ethane = sprout(EMPTY, [0, 0]);
 const [arene, next] = addGroupAt(ethane, 1, "phenylLigand");
 assert.equal(next, 0);
-assert.equal(arene.atoms[1].centre?.length, 6);
+assert.equal(arene.atoms[1].centre?.atoms.length, 6);
 assert.equal(arene.bonds.filter((b) => b.display === "bold").length, 1);
 assert.equal(arene.bonds.filter((b) => b.stereo === 1).length, 2);
 // Not on an atom with two bonds.
@@ -54,12 +54,12 @@ assert.equal(addGroupAt(propane, 1, "phenylLigand")[0], propane);
 console.log("ligand.check: phenyl on a chain end ok");
 
 // Deleting the ring takes the point (and with it the bond to the metal); deleting one ring atom keeps it.
-const lower = ferrocene.atoms[centres(ferrocene)[0]].centre!;
+const lower = ferrocene.atoms[centres(ferrocene)[0]].centre!.atoms;
 const gone = deleteAtoms(ferrocene, new Set(lower));
 assert.equal(centres(gone).length, 1);
 assert.equal(gone.atoms.length, ferrocene.atoms.length - 6);
 const one = deleteAtoms(ferrocene, new Set([lower[0]]));
-assert.equal(one.atoms[centres(one)[0]].centre!.length, 4);
+assert.equal(one.atoms[centres(one)[0]].centre!.atoms.length, 4);
 // Moving a ring moves its point (as the editor keeps it).
 const moved = placeCentres(moveAtoms(ferrocene, new Set(lower), [3, 0]));
 assert.ok(Math.abs(pos(moved, centres(moved)[0])[0] - 3) < 1e-9);
@@ -67,7 +67,7 @@ assert.ok(Math.abs(pos(moved, centres(moved)[0])[0] - 3) < 1e-9);
 const copy = extractSelection(ferrocene, new Set(ferrocene.atoms.map((_, i) => i)), new Set());
 const twice = insertMol(ferrocene, copy, [10, 0]).mol;
 assert.equal(centres(twice).length, 4);
-assert.ok(centres(twice).slice(2).every((i) => twice.atoms[i].centre!.every((j) => j >= ferrocene.atoms.length)));
+assert.ok(centres(twice).slice(2).every((i) => twice.atoms[i].centre!.atoms.every((j) => j >= ferrocene.atoms.length)));
 console.log("ligand.check: delete, move and copy ok");
 
 // CDXML: a MultiAttachment node with its Attachments, and the ring's 1.5 bonds with their styles, read back the same.
@@ -76,7 +76,7 @@ assert.equal((xml.match(/NodeType="MultiAttachment"/g) ?? []).length, 2);
 const back = fromCdxml(xml);
 assert.equal(back.lost.MultiAttachment, undefined, JSON.stringify(back.lost));
 assert.equal(centres(back.mol).length, 2);
-assert.deepEqual(back.mol.atoms.map((a) => a.centre?.length ?? 0).filter(Boolean), [5, 5]);
+assert.deepEqual(back.mol.atoms.map((a) => a.centre?.atoms.length ?? 0).filter(Boolean), [5, 5]);
 const style = (x: Mol) => x.bonds.map((b) => `${b.type}${b.stereo ?? ""}${b.display ?? ""}`).sort().join(" ");
 assert.equal(style(back.mol), style(ferrocene));
 // ChemDraw does not draw a ligand's ellipse itself, so it is written as an oval; reading it back drops it again.
@@ -112,7 +112,7 @@ assert.equal(drawn.labels.filter((l) => l.text !== "Fe").length, 0, "no label on
 assert.ok(drawn.polygons.length > plain.polygons.length + 100, "two ellipses");
 console.log("ligand.check: drawing ok");
 
-// Chemistry: the points are not atoms; each ring is C5H5.
+// Chemistry: the points are not atoms; ferrocene is one compound, C10H10Fe, as ChemDraw gives it (chem.ts analyse).
 const g = globalThis as Record<string, unknown>;
 g.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
 g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
@@ -124,5 +124,5 @@ await ready;
 assert.equal(expandLabels(ferrocene).atoms.length, ferrocene.atoms.length - 2);
 assert.equal(expandLabels(ferrocene).bonds.length, ferrocene.bonds.length - 2);
 const formulas = analyse(ferrocene)?.map((a) => a.formula).sort();
-assert.deepEqual(formulas, ["C5H5", "C5H5", "Fe"]);
+assert.deepEqual(formulas, ["C10H10Fe"]);
 console.log("ligand.check: chemistry ok");

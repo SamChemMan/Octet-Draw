@@ -22,12 +22,15 @@ export function graphOf(m: Mol, cip?: Cip): Graph | undefined {
 let namer: ((g: Graph) => string | undefined) | undefined;
 export const setNamer = (n: typeof namer) => { namer = n; };
 
-// A checked name for a structure: the namer's name, if OPSIN's reading of it has the same InChI as the drawing.
-export function checkedName(drawn: Mol, expanded: Mol, read: (name: string) => string | undefined, inchi: (s: Mol | string) => string | undefined, cip?: (m: Mol) => Cip | undefined): string | undefined {
+// A checked name for a structure: the namer's name, if OPSIN's reading of it has the same InChI as the drawing. Else
+// a name from Octet's own tables (known), checked the same way.
+export function checkedName(drawn: Mol, expanded: Mol, read: (name: string) => string | undefined, inchi: (s: Mol | string) => string | undefined, cip?: (m: Mol) => Cip | undefined, known?: (inchi: string) => string | undefined): string | undefined {
+  const want = inchi(drawn);
+  if (!want) return undefined;
   const g = namer && graphOf(expanded, cip?.(expanded));
+  const reads = (name: string | undefined) => { const smiles = name && read(name); return !!smiles && inchi(smiles) === want; };
   const name = g && namer!(g);
-  const smiles = name && read(name);
-  if (!name || !smiles) return undefined;
-  const want = inchi(drawn), got = inchi(smiles);
-  return want && got && want === got ? name : undefined;
+  if (name && reads(name)) return name;
+  const other = known?.(want);
+  return other && reads(other) ? other : undefined;
 }

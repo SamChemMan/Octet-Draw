@@ -24,6 +24,7 @@ mod recent;
 mod recovery;
 mod search;
 mod update;
+mod vector;
 
 // Opens a web address or a file in the user's own program for it (the browser, the mail app). On Windows the open
 // crate asks the shell (ShellExecuteExW) directly: cmd.exe would read each & in an address as a new command. ::open is
@@ -224,6 +225,20 @@ async fn revert_drawing(picked: State<'_, Picked>, path: String) -> Result<Strin
     read_text_or_cdx(&p).map_err(|e| e.to_string())
 }
 
+// File > Apply Settings From File… (ChemDraw's Apply Document Settings from > Other…): a drawing to take the style
+// from. Only read: it is not remembered for Save and does not go in the recent drawings.
+#[tauri::command]
+async fn pick_style_file(app: AppHandle) -> Result<Option<String>, String> {
+    let Some(file) = app.dialog().file().add_filter(OPEN.0, OPEN.1).blocking_pick_file() else {
+        return Ok(None);
+    };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    if fs::metadata(&path).map_err(|e| e.to_string())?.len() > MAX_BYTES {
+        return Err("This file is larger than 64 MB. Octet cannot open it.".into());
+    }
+    read_text_or_cdx(&path).map(Some).map_err(|_| "Octet can only take settings from a drawing (Octet, CDXML or CDX).".to_string())
+}
+
 // Opens one of Octet's own links in the browser. The page names it; only these fixed addresses can be opened.
 #[tauri::command]
 async fn open_link(name: String) -> Result<(), String> {
@@ -273,18 +288,18 @@ async fn open_licences(app: AppHandle) -> Result<(), String> {
     open_external(&path).map_err(|e| e.to_string())
 }
 
-// Import a structure from another program's file (MOL, SDF, RXN, SMILES, InChI, CDXML, CDX). Returns its name and
-// text (a CDX file's bytes in base64).
+// Import a structure or reaction from another program's file (MOL, SDF, RXN, RDF, CML, SMILES, InChI, CDXML, CDX).
+// Returns its name and text (a CDX file's bytes in base64).
 #[tauri::command]
 async fn import_structure(app: AppHandle) -> Result<Option<(String, String)>, String> {
-    let Some(file) = app.dialog().file().add_filter("Structures", &["mol", "sdf", "rxn", "smi", "smiles", "inchi", "cdxml", "cdx", "ket", "txt"]).blocking_pick_file() else {
+    let Some(file) = app.dialog().file().add_filter("Structures", &["mol", "sdf", "sd", "rxn", "rdf", "rd", "cml", "smi", "smiles", "inchi", "cdxml", "cdx", "ket", "txt"]).blocking_pick_file() else {
         return Ok(None);
     };
     let path = file.into_path().map_err(|e| e.to_string())?;
     if fs::metadata(&path).map_err(|e| e.to_string())?.len() > MAX_BYTES {
         return Err("This file is larger than 64 MB. Octet cannot import it.".into());
     }
-    let text = read_text_or_cdx(&path).map_err(|_| "Octet can only import structure files (MOL, SDF, RXN, SMILES, InChI, CDXML, CDX).".to_string())?;
+    let text = read_text_or_cdx(&path).map_err(|_| "Octet can only import structure files (MOL, SDF, RXN, RDF, CML, SMILES, InChI, CDXML, CDX).".to_string())?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     Ok(Some((name, text)))
 }
@@ -292,8 +307,9 @@ async fn import_structure(app: AppHandle) -> Result<Option<(String, String)>, St
 // Saves to `path` if the user picked it earlier, otherwise asks where to save. Returns the path, or None if cancelled.
 // name: the name the Save dialog suggests when there is no path (a recovered drawing keeps its name). contents: the
 // .oct (and .cdxml) file; cdx: the .cdx file in base64, which the page sends when the file may be a .cdx.
+// format: what the Save dialog offers first, "oct" or "cdxml" (Settings > Import and export > Save new drawings as).
 #[tauri::command]
-async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<String>, name: Option<String>, contents: String, cdx: Option<String>) -> Result<Option<String>, String> {
+async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<String>, name: Option<String>, contents: String, cdx: Option<String>, format: Option<String>) -> Result<Option<String>, String> {
     if contents.len() as u64 > MAX_BYTES || cdx.as_ref().is_some_and(|c| c.len() as u64 > MAX_BYTES / 3 * 4 + 4) {
         return Err("This drawing is larger than 64 MB. Octet cannot save it.".into());
     }
@@ -306,13 +322,16 @@ async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<St
     let target = match known {
         Some(p) => p,
         None => {
-            let dialog = SAVE.iter().fold(app.dialog().file(), |d, (name, ext)| d.add_filter(*name, ext));
-            let Some(file) = dialog.set_file_name(format!("{stem}.oct")).blocking_save_file() else {
+            let ext = SAVES.iter().copied().find(|s| format.as_deref() == Some(*s)).unwrap_or("oct");
+            let mut filters: Vec<_> = SAVE.iter().collect();
+            filters.sort_by_key(|(_, e)| e[0] != ext);
+            let dialog = filters.iter().fold(app.dialog().file(), |d, (name, e)| d.add_filter(*name, e));
+            let Some(file) = dialog.set_file_name(format!("{stem}.{ext}")).blocking_save_file() else {
                 return Ok(None);
             };
             let mut p = file.into_path().map_err(|e| e.to_string())?;
             if p.extension().is_none_or(|e| !SAVES.iter().any(|s| e == *s)) {
-                p.set_extension("oct");
+                p.set_extension(ext);
             }
             p
         }
@@ -398,8 +417,11 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         &item("page_setup", "Page Setup…", "CmdOrCtrl+Shift+P")?,
         &item("print", "Print…", "CmdOrCtrl+P")?,
+        // ChemDraw's Print dialog: Selection.
+        &item("print_selection", "Print Selection…", "")?,
         &sep()?,
         &item("document", "Document Settings…", "")?,
+        &item("apply_style_file", "Apply Settings From File…", "")?,
         &sep()?,
     ])?;
     // Close Window: the system's item on the Mac and Windows, Octet's own on Linux, where GTK has none. Windows and
@@ -456,10 +478,14 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let snap_grid = check("snap_grid", "Snap to Grid", "Shift+CmdOrCtrl+'")?;
     // ChemDraw's View > Show Chemical Warnings.
     let warnings = check("warnings", "Show Chemical Warnings", "")?;
+    // ChemDraw's View > Show Reaction Interpretation.
+    let interpretation = check("interpretation", "Show Reaction Interpretation", "")?;
     let view = Submenu::with_items(app, "View", true, &[
         // ChemDraw's keys: Magnify, Reduce and Fit to Window.
         &item("zoom_actual", "Actual Size", "CmdOrCtrl+\\")?,
         &item("zoom_fit", "Fit to Window", "CmdOrCtrl+/")?,
+        // ChemDraw's Show Document: the whole page.
+        &item("show_page", "Show Page", "")?,
         &item("zoom_in", "Magnify", "CmdOrCtrl+Shift+.")?,
         &item("zoom_out", "Reduce", "CmdOrCtrl+Shift+,")?,
         &sep()?,
@@ -470,27 +496,47 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &snap,
         &snap_grid,
         &warnings,
+        &interpretation,
         &item("actions", "Show or Hide Actions", "")?,
         &item("properties", "Show or Hide Properties", "")?,
         // Not ⌘K, which is ChemDraw's Scale.
         &item("command_palette", "Command Palette…", "CmdOrCtrl+Shift+A")?,
     ])?;
+    // Structure > Enhanced Stereochemistry, as ChemDraw's.
+    section.replace("Structure › Enhanced Stereochemistry".into());
+    let enhanced = Submenu::with_items(app, "Enhanced Stereochemistry", true, &[
+        &item("stereo_clear", "Clear All", "")?,
+        &item("stereo_abs", "Mark as Absolute", "")?,
+        &item("stereo_or", "Create Or Group", "")?,
+        &item("stereo_and", "Create And Group", "")?,
+    ])?;
     // Structure commands keep ChemDraw's shortcuts.
     section.replace("Structure".into());
     let structure = Submenu::with_items(app, "Structure", true, &[
+        &item("check_structure", "Check Structure", "")?,
         &item("clean_up", "Clean Up Structure", "CmdOrCtrl+Shift+K")?,
         &item("clean_reaction", "Clean Up Reaction", "CmdOrCtrl+Shift+X")?,
+        &item("clean_reaction_augmented", "Augmented Clean Up Reaction", "")?,
         // ChemDraw's 3D Clean Up (⇧⌘D): a 3D shape for the selected structures.
         &item("clean_3d", "3D Clean Up", "CmdOrCtrl+Shift+D")?,
         &item("atom_properties", "Atom Properties…", "")?,
         &item("bond_properties", "Bond Properties…", "")?,
+        &item("bracket_properties", "Bracket Properties…", "")?,
         &sep()?,
         &item("expand_label", "Expand Label", "")?,
         &item("contract_label", "Contract Label", "")?,
+        &item("expand_generic", "Expand Generic Structure", "")?,
         &item("aromatic_display", "Toggle Aromatic Display", "Alt+CmdOrCtrl+K")?,
         &item("hydrogen_display", "Toggle Hydrogen Display", "")?,
         &item("structure_perspective", "Structure Perspective", "Alt+CmdOrCtrl+S")?,
+        // Query and Markush structures, as ChemDraw's Structure menu has them.
+        &item("add_multicentre", "Add Multi-Centre Attachment", "")?,
+        &item("add_variable", "Add Variable Attachment", "")?,
+        &item("rlogic", "R-Logic Query…", "")?,
+        &enhanced,
         &sep()?,
+        &item("map_reaction", "Map Reaction Atoms", "")?,
+        &item("clear_reaction_map", "Clear Reaction Map", "")?,
         &item("stoichiometry", "Analyse Stoichiometry", "")?,
         &sep()?,
         &item("predict_1h", "Predict ¹H-NMR Shifts", "")?,
@@ -724,7 +770,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     items.push(&help);
     // Commands of a menu that is not there are not listed (Settings shows no shortcuts for them).
     let listed = list.borrow().iter().filter(|c| online || c.2 != "Search").cloned().collect();
-    Ok((Menu::with_items(app, &items)?, vec![grid, rulers, crosshair, snap, snap_grid, warnings, fixed_lengths, fixed_angles], listed))
+    Ok((Menu::with_items(app, &items)?, vec![grid, rulers, crosshair, snap, snap_grid, warnings, interpretation, fixed_lengths, fixed_angles], listed))
 }
 
 fn main() {
@@ -749,7 +795,7 @@ fn main() {
         .manage(search::Online(Mutex::new(true)))
         .manage(TextLists::default())
         .manage(Purposes::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, open_link, open_licences, reveal_file, open_drawing, save_drawing, set_check, set_palette, set_text_lists, set_purposes, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, open::take_opened])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, open::take_opened])
         .setup(|app| {
             let handle = app.handle();
             // Files named when Octet starts (Explorer and file managers pass them as arguments).
