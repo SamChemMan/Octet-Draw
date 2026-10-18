@@ -1,8 +1,9 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { hydrogens, lonePairs, tableLayout, tableRow, type Arrow, type Atom, type Bond, type Caption, type Kept, type Mol, type Shape, type Table } from "./render.ts";
+import { hydrogens, lonePairs, settleShape, tableLayout, tableRow, type Arrow, type Atom, type Bond, type Caption, type Kept, type Mol, type Shape, type Table } from "./render.ts";
 import type { Cycle } from "./cycle.ts";
 import { anchorElement, isElement } from "./labels.ts";
+import type { DocStyle } from "./docstyle.ts";
 
 export type P = [number, number];
 export const EMPTY: Mol = { atoms: [], bonds: [] };
@@ -51,11 +52,14 @@ export function bondAt(m: Mol, p: P, r = 0.2): number | undefined {
   return best;
 }
 
-const withAtom = (m: Mol, p: P, label = "C"): [Mol, number] => [{ ...m, atoms: [...m.atoms, { label, location: [p[0], p[1], 0] }] }, m.atoms.length];
-// The atom at p, or a new carbon there.
-function atomOrNew(m: Mol, p: P): [Mol, number] {
-  const i = atomAt(m, p, 0.1);
-  return i === undefined ? withAtom(m, p) : [m, i];
+// An atom's scale (decision 0007). Bonds, chains, rings and templates drawn from an atom take it, so they match the
+// bonds already there (ChemDraw's sprouted bonds take the structure's own bond length too).
+export const scaleAt = (m: Mol, i: number) => m.atoms[i]?.scale ?? 1;
+const withAtom = (m: Mol, p: P, label = "C", scale = 1): [Mol, number] => [{ ...m, atoms: [...m.atoms, { label, location: [p[0], p[1], 0], ...(scale !== 1 ? { scale } : {}) }] }, m.atoms.length];
+// The atom at p, or a new carbon there at this scale.
+function atomOrNew(m: Mol, p: P, scale = 1): [Mol, number] {
+  const i = atomAt(m, p, 0.1 * Math.min(1, scale));
+  return i === undefined ? withAtom(m, p, "C", scale) : [m, i];
 }
 // What a new bond is: its order, and its stereo (1 wedge, 6 hashed wedge) or display style.
 export type BondSpec = Pick<Bond, "type" | "stereo" | "display">;
@@ -103,26 +107,27 @@ export function nextDirection(m: Mol, i: number): P {
   return [Math.cos(mid), Math.sin(mid)];
 }
 
-// A bond from atom i (or from a new atom at a point) to point q. Joins an existing atom at q.
-// A wedge's narrow end is at the start.
+// A bond from atom i (or from a new atom at a point) to point q. Joins an existing atom at q. A new atom takes the
+// scale of the atom the bond starts from. A wedge's narrow end is at the start.
 export function bondTo(m: Mol, from: number | P, q: P, spec: BondSpec = SINGLE): Mol {
   let i: number, j: number;
   if (typeof from === "number") i = from; else [m, i] = atomOrNew(m, from);
-  [m, j] = atomOrNew(m, q);
+  [m, j] = atomOrNew(m, q, scaleAt(m, i));
   return withBond(m, i, j, spec);
 }
 
-// A click with the bond tool: on an atom, add a bond in the next direction; on empty canvas, add a bond at 30°.
+// A click with the bond tool: on an atom, add a bond in the next direction (at the atom's scale); on empty canvas,
+// add a bond at 30°.
 export function sprout(m: Mol, from: number | P, spec: BondSpec = SINGLE): Mol {
-  if (typeof from === "number") return bondTo(m, from, add(pos(m, from), nextDirection(m, from)), spec);
+  if (typeof from === "number") return bondTo(m, from, add(pos(m, from), mul(nextDirection(m, from), scaleAt(m, from))), spec);
   return bondTo(m, from, add(from, [Math.cos(30 * deg), Math.sin(30 * deg)]), spec);
 }
 
-// A zig-zag chain from atom i (or a point) toward q: one bond per 0.866 bond lengths along the way, at ±30°
-// to the drag direction. Returns the drawing and the number of bonds added.
+// A zig-zag chain from atom i (or a point) toward q: one bond per 0.866 bond lengths (at the atom's scale) along
+// the way, at ±30° to the drag direction. Returns the drawing and the number of bonds added.
 export function chainTo(m: Mol, from: number | P, q: P): { mol: Mol; bonds: number } {
-  const start = typeof from === "number" ? pos(m, from) : from, axis = sub(q, start), along = len(axis);
-  const count = Math.max(1, Math.round(along / Math.cos(30 * deg)));
+  const start = typeof from === "number" ? pos(m, from) : from, axis = sub(q, start), along = len(axis), s = typeof from === "number" ? scaleAt(m, from) : 1;
+  const count = Math.max(1, Math.round(along / (Math.cos(30 * deg) * s)));
   const u = along > 1e-9 ? unit(axis) : ([1, 0] as P), v: P = [-u[1], u[0]];
   // Start the zig on the side away from an existing neighbour, so the chain carries on a zig-zag.
   let sign = 1;
@@ -132,10 +137,10 @@ export function chainTo(m: Mol, from: number | P, q: P): { mol: Mol; bonds: numb
   }
   let last: number | P = from;
   for (let k = 1; k <= count; k++) {
-    const p = add(add(start, mul(u, k * Math.cos(30 * deg))), mul(v, k % 2 ? sign * 0.5 : 0));
+    const p = add(add(start, mul(u, k * Math.cos(30 * deg) * s)), mul(v, k % 2 ? sign * 0.5 * s : 0));
     const before = m.atoms.length;
     m = bondTo(m, last, p);
-    last = atomAt(m, p, 0.1) ?? before;
+    last = atomAt(m, p, 0.1 * Math.min(1, s)) ?? before;
   }
   return { mol: m, bonds: count };
 }
@@ -443,22 +448,25 @@ export const ungroupSelection = (m: Mol, atoms: Set<number>, items: Set<number>)
 export const deleteAtom = (m: Mol, i: number) => removeAtoms(m, new Set([i]));
 export const deleteBond = (m: Mol, i: number) => removeAtoms({ ...m, bonds: m.bonds.filter((_, k) => k !== i) }, new Set());
 
-// A ring of n atoms. On a bond: fused on the side with fewer neighbours. On an atom: sharing that atom,
-// pointing the way a new bond would go. On empty canvas: centred on the point, with a vertex at the top.
-// Benzene (aromatic) gets alternating double bonds that avoid atoms that already have one.
+// A ring of n atoms. On a bond: fused on the side with fewer neighbours, its bonds as long as that bond. On an atom:
+// sharing that atom, pointing the way a new bond would go, at the atom's scale. On empty canvas: centred on the
+// point, with a vertex at the top. Benzene (aromatic) gets alternating double bonds that avoid atoms that already
+// have one. New atoms take the scale of the atoms the ring is drawn on.
 export function addRing(m: Mol, n: number, aromatic: boolean, target: { bond?: number; atom?: number; point?: P }): Mol {
   const r = 1 / (2 * Math.sin(Math.PI / n));
-  let centre: P, start: P;
+  let centre: P, start: P, scale = 1;
   if (target.bond !== undefined) {
-    const [i, j] = m.bonds[target.bond].atoms, a = pos(m, i), b = pos(m, j), mid = mul(add(a, b), 0.5);
+    const [i, j] = m.bonds[target.bond].atoms, a = pos(m, i), b = pos(m, j), mid = mul(add(a, b), 0.5), side = len(sub(b, a)) || 1;
     const normal: P = unit([-(b[1] - a[1]), b[0] - a[0]]);
     const others = [...neighbours(m, i), ...neighbours(m, j)].filter((k) => k !== i && k !== j);
     const pull = others.reduce((s, k) => s + Math.sign((pos(m, k)[0] - mid[0]) * normal[0] + (pos(m, k)[1] - mid[1]) * normal[1]), 0);
-    centre = add(mid, mul(normal, (pull > 0 ? -1 : 1) / (2 * Math.tan(Math.PI / n))));
+    centre = add(mid, mul(normal, ((pull > 0 ? -1 : 1) * side) / (2 * Math.tan(Math.PI / n))));
     start = a;
+    scale = (scaleAt(m, i) + scaleAt(m, j)) / 2;
   } else if (target.atom !== undefined) {
     start = pos(m, target.atom);
-    centre = add(start, mul(nextDirection(m, target.atom), r));
+    scale = scaleAt(m, target.atom);
+    centre = add(start, mul(nextDirection(m, target.atom), r * scale));
   } else {
     centre = target.point!;
     start = add(centre, [0, r]);
@@ -467,7 +475,7 @@ export function addRing(m: Mol, n: number, aromatic: boolean, target: { bond?: n
   const ids: number[] = [];
   for (let k = 0; k < n; k++) {
     let id: number;
-    [m, id] = atomOrNew(m, add(centre, rot(sub(start, centre), (2 * Math.PI * k) / n)));
+    [m, id] = atomOrNew(m, add(centre, rot(sub(start, centre), (2 * Math.PI * k) / n)), scale);
     ids.push(id);
   }
   const hasDouble = (i: number) => m.bonds.some((b) => b.type === 2 && b.atoms.includes(i));
@@ -647,11 +655,12 @@ export type Group = "chain" | "other" | "acetyl" | "phenyl" | "cyclopropyl" | "c
 const RING_GROUPS: Partial<Record<Group, [number, boolean]>> = {
   phenyl: [6, true], cyclopropyl: [3, false], cyclobutyl: [4, false], cyclopentyl: [5, false], cyclohexyl: [6, false],
 };
+// A group added to atom i, at the atom's scale.
 export function addGroup(m: Mol, i: number, g: Group): Mol {
-  const here = pos(m, i), dir = nextDirection(m, i);
+  const here = pos(m, i), dir = nextDirection(m, i), s = scaleAt(m, i);
   const grow = (mol: Mol, spec: BondSpec = SINGLE, d: P = nextDirection(mol, i)): [Mol, number] => {
-    const next = bondTo(mol, i, add(here, d), spec);
-    return [next, atomAt(next, add(here, d), 0.1)!];
+    const next = bondTo(mol, i, add(here, mul(d, s)), spec);
+    return [next, atomAt(next, add(here, mul(d, s)), 0.1 * Math.min(1, s))!];
   };
   const ring = RING_GROUPS[g];
   if (ring) {
@@ -673,10 +682,10 @@ export function addGroup(m: Mol, i: number, g: Group): Mol {
       // On a carbon with two neighbours, make it a C=O. Otherwise add C(=O)CH3.
       if (neighbours(m, i).length === 2) { const [m2, o] = grow(m, { type: 2 }); return setElement(m2, o, "O"); }
       const [m2, c] = grow(m);
-      const o = bondTo(m2, c, add(pos(m2, c), nextDirection(m2, c)), { type: 2 });
+      const o = bondTo(m2, c, add(pos(m2, c), mul(nextDirection(m2, c), s)), { type: 2 });
       const oi = o.atoms.length - 1;
       const withO = setElement(o, oi, "O");
-      return bondTo(withO, c, add(pos(withO, c), nextDirection(withO, c)));
+      return bondTo(withO, c, add(pos(withO, c), mul(nextDirection(withO, c), s)));
     }
     case "wedgeMe": return grow(m, { type: 1, stereo: 1 })[0];
     case "hashMe": return grow(m, { type: 1, stereo: 6 })[0];
@@ -687,14 +696,14 @@ export function addGroup(m: Mol, i: number, g: Group): Mol {
       // S with a C=O either side of the bond, square to it.
       const [m2, sAt] = grow(m), u = unit(sub(pos(m2, sAt), here)), side: P = [-u[1], u[0]];
       let out = setElement(m2, sAt, "S");
-      for (const d of [side, mul(side, -1)]) { out = bondTo(out, sAt, add(pos(out, sAt), d), { type: 2 }); out = setElement(out, out.atoms.length - 1, "O"); }
+      for (const d of [side, mul(side, -1)]) { out = bondTo(out, sAt, add(pos(out, sAt), mul(d, s)), { type: 2 }); out = setElement(out, out.atoms.length - 1, "O"); }
       return out;
     }
     case "tBu": {
       // A quaternary carbon with its three methyls at right angles: one straight on, one either side.
       const [m2, c] = grow(m), u = unit(sub(pos(m2, c), here)), side: P = [-u[1], u[0]];
       let out = m2;
-      for (const d of [u, side, mul(side, -1)]) out = bondTo(out, c, add(pos(out, c), d));
+      for (const d of [u, side, mul(side, -1)]) out = bondTo(out, c, add(pos(out, c), mul(d, s)));
       return out;
     }
   }
@@ -728,9 +737,10 @@ export function chairPoints(which: 1 | 2): P[] {
 // Places a chair on empty canvas (centred on the point), or fuses it onto a bond on the side away from the
 // bond's other neighbours.
 export function addChair(m: Mol, which: 1 | 2, target: { bond?: number; point?: P }): Mol {
-  let pts = chairPoints(which);
+  let pts = chairPoints(which), scale = 1;
   if (target.bond !== undefined) {
     const [i, j] = m.bonds[target.bond].atoms, a = pos(m, i), b = pos(m, j);
+    scale = (scaleAt(m, i) + scaleAt(m, j)) / 2;
     // Map chair edge 0-1 onto a-b (rotate, scale, move), then mirror across the bond if it lands on the crowded side.
     const e0 = pts[0], e1 = pts[1], te = sub(e1, e0), be = sub(b, a);
     const k = len(be) / len(te), turn = Math.atan2(be[1], be[0]) - Math.atan2(te[1], te[0]);
@@ -747,7 +757,7 @@ export function addChair(m: Mol, which: 1 | 2, target: { bond?: number; point?: 
     pts = pts.map((p) => add(p, c));
   }
   const ids: number[] = [];
-  for (const p of pts) { let id: number; [m, id] = atomOrNew(m, p); ids.push(id); }
+  for (const p of pts) { let id: number; [m, id] = atomOrNew(m, p, scale); ids.push(id); }
   for (let k = 0; k < 6; k++) m = withBond(m, ids[k], ids[(k + 1) % 6]);
   return m;
 }
@@ -843,17 +853,119 @@ export function addShape(m: Mol, sh: Omit<Shape, "id">): [Mol, number] {
   // A highlight goes behind the shapes already there; anything else on top.
   return [{ ...m, shapes: sh.kind === "highlight" ? [{ ...sh, id }, ...(m.shapes ?? [])] : [...(m.shapes ?? []), { ...sh, id }] }, id];
 }
-// A shape's corner dragged to p (drawing units): the opposite corner stays where it is, and a turned shape keeps its
-// angle, so it grows or shrinks along its own sides.
-export function resizeShape(sh: Shape, which: "from" | "to" | "c1" | "c2", p: P): Pick<Shape, "from" | "to"> {
-  const sign = { from: [-1, -1], to: [1, 1], c1: [-1, 1], c2: [1, -1] }[which], r = ((sh.angle ?? 0) * Math.PI) / 180, cs = Math.cos(r), sn = Math.sin(r);
-  const c = [(sh.from[0] + sh.to[0]) / 2, (sh.from[1] + sh.to[1]) / 2], off = [(-sign[0] * (sh.to[0] - sh.from[0])) / 2, (-sign[1] * (sh.to[1] - sh.from[1])) / 2];
-  const fixed = [c[0] + off[0] * cs - off[1] * sn, c[1] + off[0] * sn + off[1] * cs], d = [p[0] - fixed[0], p[1] - fixed[1]];
-  const v = [d[0] * cs + d[1] * sn, -d[0] * sn + d[1] * cs], mid = [(fixed[0] + p[0]) / 2, (fixed[1] + p[1]) / 2], half = [(sign[0] * v[0]) / 2, (sign[1] * v[1]) / 2];
-  return { from: [mid[0] - half[0], mid[1] - half[1]], to: [mid[0] + half[0], mid[1] + half[1]] };
-}
 export const updateShape = (m: Mol, id: number, change: Partial<Shape>): Mol =>
   ({ ...m, shapes: m.shapes?.map((x) => (x.id === id ? { ...x, ...change } : x)) });
+
+// Sizes (decision 0007). A scale is kept to 4 decimals and left unset at 1; a size in points stays 0.1 to 999.
+const times = (v: number, k: number) => Math.round(v * k * 1e4) / 1e4;
+const scaled = <T extends { scale?: number }>(x: T, k: number): T => {
+  const f = Math.min(100, Math.max(0.01, times(x.scale ?? 1, k))), { scale: _, ...rest } = x;
+  return (f === 1 ? rest : { ...rest, scale: f }) as T;
+};
+const points = (pt: number) => Math.min(999, Math.max(0.1, Math.round(pt * 100) / 100));
+// A caption's size (its own, or `size` when it has none and size is given), its runs' sizes and a fixed line spacing
+// times k.
+const caption = (c: Caption, k: number, size?: number): Caption => {
+  const own = c.size ?? size;
+  return { ...c, ...(own ? { size: points(own * k) } : {}), ...(c.runs ? { runs: c.runs.map((r) => (r.size ? { ...r, size: points(r.size * k) } : r)) } : {}),
+    ...(typeof c.lineHeight === "number" ? { lineHeight: points(c.lineHeight * k) } : {}) };
+};
+// An arrow's or shape's sizes in points times k: its own line width, a table's or TLC plate's text size and a table's
+// line weight.
+const pointsOf = <T extends Arrow | Shape>(x: T, k: number): T => ({
+  ...x, ...(x.width ? { width: Math.round(x.width * k * 1e4) / 1e4 } : {}), ...("size" in x && x.size ? { size: points(x.size * k) } : {}),
+  ...("table" in x && x.table?.weight ? { table: { ...x.table, weight: Math.round(x.table.weight * k * 1e4) / 1e4 } } : {}),
+});
+// Scale… with Labels and lines on: the chosen atoms', arrows', shapes' and cycles' scales times k, and the sizes of
+// the chosen captions and of the captions that go with them (under those atoms, on those arrows, in those cycles).
+// captionSize: the document's caption size, for captions that have none of their own. Positions move elsewhere.
+export function scaleSettings(m: Mol, atoms: Set<number>, items: Set<number>, k: number, captionSize: number): Mol {
+  const goes = (c: Caption) => items.has(c.id) || (!!c.under?.length && c.under.every((i) => atoms.has(i))) || (!!c.on && items.has(c.on.arrow)) || (!!c.cycle && items.has(c.cycle.cycle));
+  return {
+    ...m,
+    atoms: m.atoms.map((a, i) => (atoms.has(i) ? scaled(a, k) : a)),
+    arrows: m.arrows?.map((a) => (items.has(a.id) ? scaled(a, k) : a)),
+    shapes: m.shapes?.map((x) => (items.has(x.id) ? scaled(x, k) : x)),
+    cycles: m.cycles?.map((c) => (items.has(c.id) ? scaled(c, k) : c)),
+    // A caption's width (bond lengths) grows with its text, so it wraps where it did.
+    captions: m.captions?.map((c) => (goes(c) ? { ...caption(c, k, captionSize), ...(c.width ? { width: c.width * k } : {}) } : c)),
+  };
+}
+// A new document scale: every size the drawing holds in points (an atom's own label size, caption and run sizes and
+// line spacing, an object's own line width, a table's or TLC plate's text size, a table's line weight) times r, so
+// text and lines stay in proportion to the bonds.
+export function scaleSizes(m: Mol, r: number): Mol {
+  if (r === 1) return m;
+  return {
+    ...m,
+    atoms: m.atoms.map((a) => (a.size ? { ...a, size: points(a.size * r) } : a)),
+    captions: m.captions?.map((c) => (c.size || c.runs?.some((x) => x.size) || typeof c.lineHeight === "number" ? caption(c, r) : c)),
+    arrows: m.arrows?.map((a) => pointsOf(a, r)),
+    shapes: m.shapes?.map((x) => pointsOf(x, r)),
+  };
+}
+// Rotate…, Scale…, the selection's handles, the Turn keys and the flips: the chosen atoms and objects moved point by
+// point by f, as one thing, so a group's objects keep their places relative to each other (as ChemDraw's). size: how
+// much shapes, tables and cycles grow across and up (they turn about their middles and keep their own shape).
+// centres: each free caption's middle (from its laid-out box). A caption's middle moves by f, and its anchor keeps its
+// place from the middle, times text (how much its text grows), so text reads the same way after a turn or a flip, and
+// grows about its middle or keeps its size. mirror: f turns the drawing over, so curved arrows bend, half heads point,
+// a single bracket faces and a cycle goes the other way. A flip turns the atoms over first (flipAtoms) and gives none.
+export function transformParts(m: Mol, atoms: Set<number>, items: Set<number>, f: (q: P) => P, size: P = [1, 1], centres?: Map<number, P>, text = 1, mirror?: "across" | "down"): Mol {
+  const mean = (size[0] + size[1]) / 2, both = Math.sqrt(Math.abs(size[0] * size[1]));
+  const caption = (c: Caption): Caption => {
+    const middle = centres?.get(c.id);
+    const [x, y] = middle ? add(f(middle), mul(sub([c.x, c.y], middle), text)) : f([c.x, c.y]);
+    return { ...c, x, y };
+  };
+  const over = (h?: Arrow["start"]) => (h === "left" ? "right" : h === "right" ? "left" : h);
+  return {
+    ...m,
+    atoms: m.atoms.map((a, i) => (atoms.has(i) ? { ...a, location: [...f([a.location[0], a.location[1]]), (a.location[2] ?? 0) * mean] as [number, number, number] } : a)),
+    captions: m.captions?.map((c) => (items.has(c.id) && !c.under && !c.on && !c.cycle ? caption(c) : c)),
+    arrows: m.arrows?.map((a) => (items.has(a.id) ? { ...a, from: f(a.from), to: f(a.to), ...(a.curve ? { curve: { ...a.curve, points: a.curve.points.map((q) => ({ at: f(q.at), ...(q.c1 ? { c1: f(q.c1) } : {}), ...(q.c2 ? { c2: f(q.c2) } : {}) })) } } : {}),
+      ...(mirror && a.bend ? { bend: -a.bend } : {}), ...(mirror && a.start ? { start: over(a.start) } : {}), ...(mirror && a.end ? { end: over(a.end) } : {}) } : a)),
+    shapes: m.shapes?.map((x) => {
+      if (!items.has(x.id)) return x;
+      // The middle moves by f, and the shape turns as f turns the page: a turn turns it, a scale keeps its angle and
+      // grows it along its own sides (turned by its angle), and a flip turns its angle the other way.
+      const c = mul(add(x.from, x.to), 0.5), to = f(c), r = ((x.angle ?? 0) * Math.PI) / 180, e = sub(f(add(c, [1, 0])), to);
+      const u = sub(f(add(c, [Math.cos(r), Math.sin(r)])), to), v = sub(f(add(c, [-Math.sin(r), Math.cos(r)])), to);
+      const half: P = [((x.to[0] - x.from[0]) / 2) * len(u), ((x.to[1] - x.from[1]) / 2) * len(v)], angle = mirror ? -(x.angle ?? 0) : (x.angle ?? 0) + (Math.atan2(e[1], e[0]) * 180) / Math.PI;
+      const grows = size[0] !== 1 || size[1] !== 1;
+      const table = x.table && grows ? { ...x.table, ...(x.table.widths ? { widths: x.table.widths.map((w) => w * size[0]) } : {}), ...(x.table.heights ? { heights: x.table.heights.map((h) => h * size[1]) } : {}) } : x.table;
+      return settleShape({ ...x, from: sub(to, half), to: add(to, half), ...(table ? { table } : {}), ...(mirror === "across" && x.side ? { side: x.side === "left" ? "right" as const : "left" as const } : {}), angle });
+    }),
+    cycles: m.cycles?.map((c) => (items.has(c.id) ? { ...c, centre: f(c.centre), radius: c.radius * both, ...(mirror ? { clockwise: !c.clockwise } : {}) } : c)),
+  };
+}
+// The median bond length (bond lengths) among bonds whose two atoms are both chosen; undefined when there is none.
+export function medianBond(m: Mol, atoms: Set<number>): number | undefined {
+  const ls = m.bonds.filter((b) => atoms.has(b.atoms[0]) && atoms.has(b.atoms[1])).map((b) => len(sub(pos(m, b.atoms[0]), pos(m, b.atoms[1])))).sort((p, q) => p - q);
+  return ls.length ? ls[Math.floor(ls.length / 2)] : undefined;
+}
+// A paste or import from a drawing with other sizes, as ChemDraw scales it: positions are in bond lengths, so
+// structures, arrows and shapes take this drawing's bond length and keep their own scale. An atom's own label size
+// goes by the ratio of the label sizes; a caption's size, its own or the source's, by the ratio of the bond lengths
+// (24 pt beside 30 pt bonds becomes 11.5 pt beside 14.4 pt bonds), and so do a caption's line spacing, an object's
+// own line width, a table's or TLC plate's text size and a table's line weight. A caption that comes out at this
+// drawing's caption size is left without a size of its own.
+export function fitSizes(m: Mol, from: Pick<DocStyle, "bond" | "labelSize" | "captionSize">, to: Pick<DocStyle, "bond" | "labelSize" | "captionSize">): Mol {
+  const label = to.labelSize / from.labelSize, k = to.bond / from.bond;
+  if (Math.abs(label - 1) < 1e-9 && Math.abs(k - 1) < 1e-9) return m;
+  const fitted = (c: Caption): Caption => {
+    const own = points((c.size ?? from.captionSize) * k), { size: _, ...rest } = c;
+    return { ...(Math.abs(own - to.captionSize) < 0.01 ? rest : { ...rest, size: own }), ...(c.runs ? { runs: c.runs.map((r) => (r.size ? { ...r, size: points(r.size * k) } : r)) } : {}),
+      ...(typeof c.lineHeight === "number" ? { lineHeight: points(c.lineHeight * k) } : {}) };
+  };
+  return {
+    ...m,
+    atoms: m.atoms.map((a) => (a.size ? { ...a, size: points(a.size * label) } : a)),
+    captions: m.captions?.map(fitted),
+    arrows: m.arrows?.map((a) => pointsOf(a, k)),
+    shapes: m.shapes?.map((x) => pointsOf(x, k)),
+  };
+}
 // Atom maps. Pairing two atoms gives both the first one's number, or the second's, or the next free number; the
 // number leaves any other atom that had it. Clearing takes an atom's number off.
 export function pairMap(m: Mol, a: number, b: number): Mol {
@@ -906,8 +1018,8 @@ const counts = (cells: string[][]) => cells.length > 1 && cells.slice(1).every((
 // A table with rows or columns taken out and added at a place (at least one of each stays; at most 100 rows and 20
 // columns), and its box to match: the other rows keep their heights and the other columns their widths, and a new
 // column is as wide as the average one. Entry numbers in the first column are numbered again.
-export function spliceTable(sh: Shape, axis: "row" | "col", at: number, remove: number, add: number, measure?: (text: string) => number): Partial<Shape> {
-  const t = tableLayout(sh, measure), table: Table = sh.table ?? { cells: [[""]] }, numbered = counts(table.cells);
+export function spliceTable(sh: Shape, axis: "row" | "col", at: number, remove: number, add: number, measure?: (text: string) => number, caption?: number): Partial<Shape> {
+  const t = tableLayout(sh, measure, caption), table: Table = sh.table ?? { cells: [[""]] }, numbered = counts(table.cells);
   const cells = table.cells.map((r) => Array.from({ length: t.cols }, (_, c) => r[c] ?? ""));
   const widths = [...t.widths], heights = [...t.heights], align = table.align ? Array.from({ length: t.cols }, (_, c) => table.align![c] ?? "centre") : undefined;
   if (axis === "row") {
@@ -926,28 +1038,28 @@ export function spliceTable(sh: Shape, axis: "row" | "col", at: number, remove: 
   return { from: [t.x0, t.y1], to: [t.x0 + width, t.y1 - height], table: next };
 }
 // A table with rows and columns added or taken off the end (at least one of each).
-export function resizeTable(sh: Shape, rows: number, cols: number, measure?: (text: string) => number): Partial<Shape> {
-  const R = Math.max(1, Math.min(100, rows)), C = Math.max(1, Math.min(20, cols)), now = tableLayout(sh, measure);
-  const tall = { ...sh, ...spliceTable(sh, "row", Math.min(R, now.rows), Math.max(0, now.rows - R), Math.max(0, R - now.rows), measure) };
-  const both = { ...tall, ...spliceTable(tall, "col", Math.min(C, now.cols), Math.max(0, now.cols - C), Math.max(0, C - now.cols), measure) };
+export function resizeTable(sh: Shape, rows: number, cols: number, measure?: (text: string) => number, caption?: number): Partial<Shape> {
+  const R = Math.max(1, Math.min(100, rows)), C = Math.max(1, Math.min(20, cols)), now = tableLayout(sh, measure, caption);
+  const tall = { ...sh, ...spliceTable(sh, "row", Math.min(R, now.rows), Math.max(0, now.rows - R), Math.max(0, R - now.rows), measure, caption) };
+  const both = { ...tall, ...spliceTable(tall, "col", Math.min(C, now.cols), Math.max(0, now.cols - C), Math.max(0, C - now.cols), measure, caption) };
   return { from: both.from, to: both.to, table: both.table };
 }
 // A table with its columns' widths or rows' heights set (each is kept from then on, as after dragging a border), and
-// its box to match. x0 and y1 move its left and top edges.
-export function sizeTable(sh: Shape, size: { widths?: number[]; heights?: number[]; x0?: number; y1?: number }, measure?: (text: string) => number): Partial<Shape> {
-  const old = tableLayout(sh, measure), x0 = size.x0 ?? old.x0, y1 = size.y1 ?? old.y1;
+// its box to match. x0 and y1 move its left and top edges. The limits follow the table's scale.
+export function sizeTable(sh: Shape, size: { widths?: number[]; heights?: number[]; x0?: number; y1?: number }, measure?: (text: string) => number, caption?: number): Partial<Shape> {
+  const old = tableLayout(sh, measure, caption), x0 = size.x0 ?? old.x0, y1 = size.y1 ?? old.y1, f = old.f;
   const table: Table = {
-    ...sh.table!, ...(size.widths ? { widths: size.widths.map((w) => Math.max(0.2, Math.min(50, w))) } : {}),
-    ...(size.heights ? { heights: size.heights.map((h) => Math.max(0.5, Math.min(50, h))) } : {}),
+    ...sh.table!, ...(size.widths ? { widths: size.widths.map((w) => Math.max(0.2 * f, Math.min(50 * f, w))) } : {}),
+    ...(size.heights ? { heights: size.heights.map((h) => Math.max(0.5 * f, Math.min(50 * f, h))) } : {}),
   };
-  const t = tableLayout({ ...sh, from: [x0, y1], to: [x0 + old.x1 - old.x0, y1 - (old.y1 - old.y0)], table }, measure);
+  const t = tableLayout({ ...sh, from: [x0, y1], to: [x0 + old.x1 - old.x0, y1 - (old.y1 - old.y0)], table }, measure, caption);
   return { from: [t.x0, t.y1], to: [t.x1, t.y0], table };
 }
 // Size To Fit Contents: each column as wide as its text and each row the least height.
-export function fitTable(sh: Shape, measure?: (text: string) => number): Partial<Shape> {
-  const { widths: _w, heights: _h, ...table } = sh.table!, t = tableLayout({ ...sh, table }, measure);
+export function fitTable(sh: Shape, measure?: (text: string) => number, caption?: number): Partial<Shape> {
+  const { widths: _w, heights: _h, ...table } = sh.table!, t = tableLayout({ ...sh, table }, measure, caption);
   void _w; void _h;
-  return { from: [t.x0, t.y1], to: [t.x0 + t.natural.reduce((a, b) => a + b, 0), t.y1 - t.rows * tableRow(sh)], table };
+  return { from: [t.x0, t.y1], to: [t.x0 + t.natural.reduce((a, b) => a + b, 0), t.y1 - t.rows * tableRow(sh, caption)], table };
 }
 // Clear Contents: every cell empty, except the entry numbers and their header when the first column counts.
 export function clearTable(sh: Shape): Partial<Shape> {
@@ -955,9 +1067,9 @@ export function clearTable(sh: Shape): Partial<Shape> {
   return { table: { ...sh.table!, cells: cells.map((r) => r.map((x, c) => (keep && c === 0 ? x : ""))) } };
 }
 // A table with one cell's text set, its box grown to fit the text if it no longer does.
-export function setTableCell(sh: Shape, r: number, c: number, text: string, measure?: (text: string) => number): Partial<Shape> {
+export function setTableCell(sh: Shape, r: number, c: number, text: string, measure?: (text: string) => number, caption?: number): Partial<Shape> {
   const cells = (sh.table?.cells ?? [[""]]).map((row, i) => (i === r ? row.map((x, j) => (j === c ? text : x)) : row));
-  const t = tableLayout({ ...sh, table: { ...sh.table, cells } }, measure);
+  const t = tableLayout({ ...sh, table: { ...sh.table, cells } }, measure, caption);
   return { from: [t.x0, t.y1], to: [t.x1, t.y0], table: { ...sh.table, cells } };
 }
 export const updateCaption = (m: Mol, id: number, change: Partial<Caption>): Mol =>
@@ -1024,11 +1136,12 @@ export function inRing(m: Mol, k: number): boolean {
 }
 
 // Places a template (a structure drawn at bond length 1): fused along a clicked bond, on the open side; sharing a
-// clicked atom (the template's first atom), pointing away from that atom's bonds; or centred on a point.
-// Template atoms that land on existing atoms join them, and a double bond that would give an atom two is single.
+// clicked atom (the template's first atom), pointing away from that atom's bonds; or centred on a point. On a bond
+// or atom it takes their scale. Template atoms that land on existing atoms join them, and a double bond that would
+// give an atom two is single.
 export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: number; point?: P }): Mol {
   if (!t.atoms.length) return m;
-  let pts: P[] = t.atoms.map((a) => [a.location[0], a.location[1]]), mirrored = false;
+  let pts: P[] = t.atoms.map((a) => [a.location[0], a.location[1]]), mirrored = false, scale = 1;
   const middle = (ps: P[]) => mul(ps.reduce((s, p) => add(s, p), [0, 0] as P), 1 / ps.length);
   // Fuse along a ring bond on the template's outside edge (the rest of it on one side), so nothing overlaps.
   const ring = t.bonds.filter((_, k) => inRing(t, k));
@@ -1039,6 +1152,7 @@ export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: numb
   if (target.bond !== undefined && edge) {
     // Map the template's first ring bond onto the clicked bond, then mirror it off the crowded side.
     const [i, j] = m.bonds[target.bond].atoms, a = pos(m, i), b = pos(m, j);
+    scale = (scaleAt(m, i) + scaleAt(m, j)) / 2;
     const e0 = pts[edge.atoms[0]], te = sub(pts[edge.atoms[1]], e0), be = sub(b, a);
     const k = len(be) / len(te), turn = Math.atan2(be[1], be[0]) - Math.atan2(te[1], te[0]);
     pts = pts.map((p) => add(a, mul(rot(sub(p, e0), turn), k)));
@@ -1048,7 +1162,8 @@ export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: numb
   } else if (target.atom !== undefined) {
     const a = pos(m, target.atom), dir = nextDirection(m, target.atom), v = sub(middle(pts), pts[0]);
     const turn = len(v) > 1e-6 ? Math.atan2(dir[1], dir[0]) - Math.atan2(v[1], v[0]) : 0, from = pts[0];
-    pts = pts.map((p) => add(a, rot(sub(p, from), turn)));
+    scale = scaleAt(m, target.atom);
+    pts = pts.map((p) => add(a, mul(rot(sub(p, from), turn), scale)));
   } else {
     const c = middle(pts), at = target.point ?? [0, 0];
     pts = pts.map((p) => add(at, sub(p, c)));
@@ -1057,7 +1172,7 @@ export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: numb
   for (const [k, p] of pts.entries()) {
     const before = m.atoms.length;
     let id: number;
-    [m, id] = atomOrNew(m, p);
+    [m, id] = atomOrNew(m, p, scale);
     if (id >= before) {
       const { label, charge, text, radical } = t.atoms[k];
       m = { ...m, atoms: m.atoms.map((x, n) => (n === id ? { ...x, label, ...(charge ? { charge } : {}), ...(text ? { text } : {}), ...(radical ? { radical } : {}) } : x)) };

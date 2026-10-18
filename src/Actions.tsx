@@ -14,10 +14,11 @@ import {
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
 import { Menu, Pick, type MenuItem } from "./Menu";
+import { NumberField } from "./Fields";
 import { ARROW_KINDS, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, SWEEPS, TABLE_LINES, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 import { ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
 import { invoke } from "@tauri-apps/api/core";
-import { COLOURS, fontStack, HIGHLIGHTS, SIZES, TINTS } from "./docstyle";
+import { COLOURS, fontStack, HIGHLIGHTS, roundPt, TINTS } from "./docstyle";
 import { ArrowGlyph, ARROWS, BondGlyph, BONDS, RingGlyph, ShapeGlyph, SHAPES, SymbolGlyph, TlcGlyph, type BondKind } from "./tools";
 
 // A selected atom label's text style (the first labelled atom's, for a structure), for the label style buttons.
@@ -58,6 +59,8 @@ type Props = {
   palette: { name: string; hex: string }[]; // the user's own colours, after Octet's
   grouping?: { grouped: boolean; integral: boolean; group: boolean }; // a group touched (Ungroup), two or more things that can be grouped (Group)
   menus?: boolean; // Settings > Actions panel: each set of small actions as a titled row that opens its menu
+  sizes: number[]; // the text sizes on offer: ChemDraw's, times the document scale
+  scale?: number | null; // the selection's scale against the document (decision 0007); null when its parts differ
 };
 
 const ELEMENTS = ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"];
@@ -103,17 +106,18 @@ export function FontPick({ label, font, fonts, onPick, className = "chip size-bu
   );
 }
 
-// The text size: a click opens the sizes, and Other size…, Return or a double-click types any size.
-function SizeButton({ size, run }: { size: number; run: (command: string) => void }) {
+// The text size: a click opens the sizes (ChemDraw's sizes times the document scale), and Other size…, Return or a
+// double-click types any size.
+function SizeButton({ size, sizes, run }: { size: number; sizes: number[]; run: (command: string) => void }) {
   const [typed, setTyped] = useState<string>();
   const typing = useRef(false); // Enter, Escape and blur all end typing; only the first one counts
   const startTyping = () => { typing.current = true; setTyped(String(size)); };
   const endTyping = (keep: boolean) => {
     if (!typing.current) return;
     typing.current = false;
-    const pt = Math.round(Number(typed) * 2) / 2;
+    const n = Number(typed), pt = roundPt(n);
     setTyped(undefined);
-    if (keep && pt >= 4 && pt <= 144 && pt !== size) run(`caption.size.${pt}`);
+    if (keep && n > 0 && pt <= 999 && pt !== size) run(`caption.size.${pt}`);
   };
   return (
     <div className="size">
@@ -130,7 +134,7 @@ function SizeButton({ size, run }: { size: number; run: (command: string) => voi
           onBlur={() => endTyping(true)}
         />
       ) : (
-        <Pick label="Size" value={String(size)} groups={[SIZES.map((pt) => ({ key: String(pt), name: `${pt} pt`, icon: null })), [{ key: "other", name: "Other size…", icon: null }]]}
+        <Pick label="Size" value={String(size)} groups={[sizes.map((pt) => ({ key: String(pt), name: `${pt} pt`, icon: null })), [{ key: "other", name: "Other size…", icon: null }]]}
           onPick={(k) => (k === "other" ? startTyping() : run(`caption.size.${k}`))} className="chip size-button" title="Size" onDoubleClick={startTyping}
           onKey={(e) => { if (e.key !== "Enter") return false; e.preventDefault(); startTyping(); return true; }}>
           {size} pt
@@ -141,6 +145,17 @@ function SizeButton({ size, run }: { size: number; run: (command: string) => voi
   );
 }
 
+// The selection's scale against the document's style, in percent: blank when its parts differ. A typed value sets it
+// (100 matches the document). Enter or leaving the field sets it; Escape leaves it as it was.
+function ScaleField({ scale, run }: { scale: number | null; run: (command: string) => void }) {
+  return (
+    <label className="scale-row">
+      <span className="tray-title">Scale</span>
+      <NumberField label="Scale" unit="%" lazy step={1} max={10000} placeholder={scale === null ? "Mixed" : undefined}
+        value={scale === null ? undefined : Math.round(scale * 1000) / 10} onChange={(n) => run(`scale.${n}`)} />
+    </label>
+  );
+}
 
 // Octet's one slider: a name, the track, and the value as it reads. Use it wherever a value is dragged.
 export function Slider({ name, value, min, max, step, show, onChange }: { name: string; value: number; min: number; max: number; step: number; show: (v: number) => string; onChange: (v: number) => void }) {
@@ -333,7 +348,7 @@ function Row({ icon, name, command, hint, run, accent }: { icon: React.ReactNode
   );
 }
 
-export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus }: Props) {
+export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus, sizes, scale }: Props) {
   // An action being dragged to a new place: in the rows (index among rows) or the small buttons (index among them).
   const [carry, setCarry] = useState<{ command: string; x: number; y: number; to?: { rows: boolean; index: number } }>();
   const dragged = useRef(false);
@@ -582,7 +597,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           ))}
           <button className="chip" aria-label="Formula" title={`Formula: counts become subscripts (${hint("caption.formula")})`} onClick={() => run("caption.formula")}><span className="glyph-text">H<sub>2</sub>O</span></button>
           {context.fonts && <div className="size font"><FontPick label="Font" font={context.font ?? context.fonts[0]} fonts={context.fonts} onPick={(f) => run(`caption.font.${f}`)} /></div>}
-          <SizeButton size={context.size} run={run} />
+          <SizeButton size={context.size} sizes={sizes} run={run} />
           {([["left", "Flush left", <TextAlignLeft size={16} />], ["centre", "Centre text", <TextAlignCenter size={16} />], ["right", "Flush right", <TextAlignRight size={16} />], ["justify", "Justified", <TextAlignJustify size={16} />]] as const).map(([id, name, icon]) => (
             <button key={id} className="chip" aria-pressed={context.align === id} aria-label={name} title={hint(`caption.align.${id}`) ? `${name} (${hint(`caption.align.${id}`)})` : name} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
           ))}
@@ -597,7 +612,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
             <button key={id} className="chip" aria-pressed={on} aria-label={name} title={hint(`caption.${id}`) ? `${name} (${hint(`caption.${id}`)})` : name} onClick={() => run(`caption.${id}`)}>{icon}</button>
           ))}
           <div className="size font"><FontPick label="Font" font={context.text.font} fonts={fonts} onPick={(f) => run(`caption.font.${f}`)} /></div>
-          <SizeButton size={context.text.size} run={run} />
+          <SizeButton size={context.text.size} sizes={sizes} run={run} />
         </div>
       )}
 
@@ -753,6 +768,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           <Slider name="Line width" value={context.kind === "arrow" ? context.width : context.weight} min={0.05} max={4} step={0.05} show={(v) => `${v.toFixed(2)} pt`} onChange={(v) => run(`${context.kind}.weight.${Math.round(v * 100)}`)} />
         </div>
       )}
+      {scale !== undefined && <ScaleField scale={scale} run={run} />}
       {colour && (
         // Colour is a section of its own, titled like the sets below, and set off from the main rows.
         <div className="colour-block" role="group" aria-label="Colour">
