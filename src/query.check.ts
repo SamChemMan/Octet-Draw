@@ -220,6 +220,15 @@ assert.deepEqual(fromCdxml(cdxml(pair(' BracketUsage="MultipleGroup"', tag("brac
 assert.deepEqual(fromCdxml(cdxml(pair(' BracketUsage="MultipleGroup"', tag("parameterizedBracketLabel", "2-4") + tag("molecularWeightOverride", "200")))).mol.shapes?.[0].polymer, { usage: "param", label: "2-4", mw: 200 });
 assert.deepEqual(fromCdxml(cdxml(pair(' BracketUsage="Component"', tag("bracketusage", "c2")))).mol.shapes?.[0].polymer, { usage: "c", order: 2 });
 assert.deepEqual(fromCdxml(cdxml(pair(' BracketUsage="CopolymerAlternating" PolymerFlipType="Flip"', ""))).mol.shapes?.[0].polymer, { usage: "alt", flip: "flip" });
+// A bracketed group with no usage (ChemDraw's Unspecified) stays on its brackets and is written back round the atoms
+// inside; brackets with no group stay plain.
+const unspecified = fromCdxml(cdxml(pair("", "") + '<bracketedgroup id="12" BracketedObjectIDs="3 4"><bracketattachment id="13" GraphicID="10"/><bracketattachment id="14" GraphicID="11"/></bracketedgroup>'));
+assert.deepEqual([unspecified.lost, unspecified.mol.shapes?.map((s) => [s.bracketed, s.polymer])], [{}, [[true, undefined]]]);
+const unspecifiedText = toCdxml(unspecified.mol, unspecified.style);
+assert.match(unspecifiedText, /<bracketedgroup\s+id="\d+"\s+BracketedObjectIDs="\d+ \d+"\s*>/);
+assert.equal(fromCdxml(unspecifiedText).mol.shapes?.[0].bracketed, true);
+assert.equal(parse(serialize(unspecified.mol)).shapes?.[0].bracketed, true);
+assert.equal(fromCdxml(cdxml(pair("", ""))).mol.shapes?.[0].bracketed, undefined);
 // The corpus's own bracketed group (a multiple group of 1) reads with its count, and is no longer reported lost.
 const corpus = `${process.env.HOME}/octet-research/corpus/sam/R+D figure 1 copy.cdxml`;
 try {

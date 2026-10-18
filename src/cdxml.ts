@@ -387,7 +387,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
           BracketUsage: last ? USAGES[p.usage].cdxml : undefined, PolymerRepeatPattern: last && p.pattern ? { hh: "HeadToHead", eu: "EitherUnknown" }[p.pattern] : undefined, PolymerFlipType: last && p.flip ? { noflip: "NoFlip", flip: "Flip" }[p.flip] : undefined,
           Octet: priv(k ? { pair: id } : { mark: sh.mark, span: sh.side ? [Math.min(sh.from[0], sh.to[0]), Math.max(sh.from[0], sh.to[0])] : undefined, angle: sh.angle, scale: ownScale(sh), polymer: p }) }, last ? tags : ""), 3, box, sh.id);
       });
-      if (p) polymerIds.push({ sh, ids });
+      if (p || (sh.bracketed && !sh.side)) polymerIds.push({ sh, ids });
       if (sh.mark) { const m = markAt(sh, 1); note(sh.mark, at([m.x, -m.y]), style.captionSize * f, m.anchor === "end" ? "right" : "left", sh.colour, sh.id); }
     } else if (sh.kind === "picture" && sh.picture) {
       // A picture as ChemDraw holds it, its data as it came (REL-15).
@@ -533,8 +533,9 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       id: fresh(), RLogicGroup: sh.rgroup!.name, RLogicOccurrence: sh.rgroup!.occur ?? "", RLogicIfThenGroup: sh.rgroup!.then ?? "", RLogicRestH: sh.rgroup!.restH ? "yes" : undefined }) ).join("")), 2, [lx, ly, lx, ly]);
   }
   // Polymer brackets' bracketed groups: the atoms inside, each bracket and the bonds that cross it (spec 15.1, 15.2).
+  // A pair with no usage (bracketed) has its group with no usage, as ChemDraw keeps it.
   for (const { sh, ids } of polymerIds) {
-    const p = sh.polymer!, e = enclosed(mol, sh);
+    const p = sh.polymer, e = enclosed(mol, sh);
     if (!e.atoms.length) continue;
     const mid: P = [(sh.from[0] + sh.to[0]) / 2, (sh.from[1] + sh.to[1]) / 2], inside = new Set(e.atoms);
     // A crossing bond goes with the bracket on the side of its outer atom (the box turned upright).
@@ -543,11 +544,11 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       const b = mol.bonds[k];
       return el("crossingbond", { id: fresh(), BondID: bondId[k], InnerAtomID: nodeId.get(inside.has(b.atoms[0]) ? b.atoms[0] : b.atoms[1])! });
     }).join(""))).join("");
-    const count = p.usage === "mult" ? Number(p.label ?? 2) : undefined;
-    put(el("bracketedgroup", { id: fresh(), BracketedObjectIDs: [...e.atoms].sort((x, y) => x - y).map((i) => nodeId.get(i)).join(" "), BracketUsage: USAGES[p.usage].cdxml,
-      PolymerRepeatPattern: p.pattern && { hh: "HeadToHead", eu: "EitherUnknown" }[p.pattern], PolymerFlipType: p.flip && { noflip: "NoFlip", flip: "Flip" }[p.flip],
-      RepeatCount: count !== undefined && Number.isFinite(count) ? count : p.usage === "mult" ? 2 : undefined, ComponentOrder: p.usage === "c" && p.order ? p.order : undefined,
-      SRULabel: p.usage === "sru" && p.label ? p.label : undefined }, attachments), 7, union(e.atoms.map((i) => { const X = page(i); return [X[0], X[1], X[0], X[1]] as Box; }))!);
+    const count = p?.usage === "mult" ? Number(p.label ?? 2) : undefined;
+    put(el("bracketedgroup", { id: fresh(), BracketedObjectIDs: [...e.atoms].sort((x, y) => x - y).map((i) => nodeId.get(i)).join(" "), BracketUsage: p && USAGES[p.usage].cdxml,
+      PolymerRepeatPattern: p?.pattern && { hh: "HeadToHead", eu: "EitherUnknown" }[p.pattern], PolymerFlipType: p?.flip && { noflip: "NoFlip", flip: "Flip" }[p.flip],
+      RepeatCount: count !== undefined && Number.isFinite(count) ? count : p?.usage === "mult" ? 2 : undefined, ComponentOrder: p?.usage === "c" && p.order ? p.order : undefined,
+      SRULabel: p?.usage === "sru" && p.label ? p.label : undefined }, attachments), 7, union(e.atoms.map((i) => { const X = page(i); return [X[0], X[1], X[0], X[1]] as Box; }))!);
   }
 
   // A node, with its label and, for an abbreviation Octet can expand, the abbreviation's atoms (spec 13.3).
@@ -1848,7 +1849,11 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       // Display Warnings off when every bracket of the pair has it off.
       if ([b, o].every((x) => !x || yes(x.x.attrs.IgnoreWarnings))) sh.ignoreWarnings = true;
       // A pair's polymer meaning: Octet's own, else from the bracket that carries it (and its bracketed group).
-      if (!sh.side) { const poly = (octet ? readPolymer(p?.polymer) : undefined) ?? polymerOf([b, o].filter(Boolean).map((x) => x!.x), [b.id, o?.id ?? -1]); if (poly) sh.polymer = poly; }
+      if (!sh.side) {
+        const poly = (octet ? readPolymer(p?.polymer) : undefined) ?? polymerOf([b, o].filter(Boolean).map((x) => x!.x), [b.id, o?.id ?? -1]);
+        // A bracketed group with no usage (Unspecified) is kept on the pair, and written back round the atoms inside.
+        if (poly) sh.polymer = poly; else if (bracketed.some((g) => g.kids.some((k) => [b.id, o?.id ?? -1].includes(int(k.attrs.GraphicID) ?? -2)))) sh.bracketed = true;
+      }
       addShape(settled(sh), b.x, b.group);
       if (o) objectOf.set(o.id, sh.id);
     });

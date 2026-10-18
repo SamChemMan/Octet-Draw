@@ -247,6 +247,8 @@ export type Shape = {
   font?: string; size?: number; bold?: true; italic?: true; underline?: true;
   ignoreWarnings?: true; // Display Warnings off for a pair of brackets (ChemDraw's IgnoreWarnings): its problem is not marked
   polymer?: Polymer; // a pair of brackets' meaning (ChemDraw's Bracket Properties)
+  // A pair with no usage that a ChemDraw file holds as a bracketed group round the atoms inside: written back as one.
+  bracketed?: true;
   // An R-group definition (ChemDraw's alternative group): a box titled with its name (R1), the structures in it the
   // fragments R1 stands for, and its R-Logic (occurrence, Rest H, and the R-group that must then be present too).
   rgroup?: { name: string; occur?: string; restH?: true; then?: string };
