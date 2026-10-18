@@ -212,6 +212,8 @@ export function parseStructure(text: string): Mol {
   // SMILES is one line, counted as written (Indigo reads a long SMILES slowly); a MOL file or other file, through Indigo.
   const file = /^[{<]|[\r\n]/.test(text.trim()), most = file ? MOST_CHARACTERS : MOST_SMILES;
   if (text.length > most) throw over(most, "characters");
+  // An RD file (pasted as text) is read record by record, as Import reads it: Indigo reads only one of its reactions.
+  if (/^\s*\$RDFILE/.test(text)) return readRdf(text);
   const atoms = smilesAtoms(file ? convert(text, "smiles") : text);
   if (atoms > MOST_ATOMS) throw over(MOST_ATOMS, "atoms");
   const ind = engine(), opts = new ind.MapStringString();
@@ -330,9 +332,10 @@ export function toMolfile(drawn: Mol, v2000 = false): string {
   return v2000 ? convert(v3, "molfile", mode) : v3;
 }
 // An SD file: one record for each structure, as ChemDraw saves one. A drawing with R-group definitions is one record,
-// so its definitions stay with it.
+// so its definitions stay with it. A lone atom (methane, a label such as MeOH) is a record too; polymer brackets go
+// with each record, where they enclose its atoms.
 export function toSdf(drawn: Mol, v2000 = false): string {
-  const parts = drawn.shapes?.some((sh) => sh.rgroup) ? [drawn] : fragments(drawn).map((g) => subset(drawn, new Set(g)));
+  const parts = drawn.shapes?.some((sh) => sh.rgroup) ? [drawn] : fragments(drawn).map((g) => ({ ...pickAtoms(drawn, g), ...(drawn.shapes ? { shapes: drawn.shapes } : {}) }));
   return parts.map((p) => `${toMolfile(p, v2000)}\n$$$$\n`).join("");
 }
 

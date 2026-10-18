@@ -3037,6 +3037,8 @@ export default function Editor() {
     }
     if (id === "edit.delete") {
       if (selection.size || picked.size) return set(deleteGraphics(deleteAtoms(doc, selection), picked));
+      // A picked stoichiometry grid cell: the grid goes, as the panel's Delete removes it.
+      if (gridPick) { runAction("grid.remove"); return; }
       // As in ChemDraw: the first Delete on a labelled atom removes the label; the next removes the atom. Deleting
       // the keyboard hotspot's atom moves the hotspot back to the atom it was bonded to.
       const integral = atom !== undefined && groupsOf(doc, new Set([atom]), new Set()).some((g) => g.integral);
@@ -4343,9 +4345,10 @@ export default function Editor() {
       if (e.key === "Escape") {
         // Escape dismisses one thing at a time. With nothing left to dismiss it goes on to the window (which leaves
         // full screen).
-        if (!drag && !spring && !selection.size && !picked.size && !hold.current && !hovers.get().key) return;
+        if (!drag && !spring && !selection.size && !picked.size && !gridPick && !hold.current && !hovers.get().key) return;
         e.preventDefault();
         if (hovers.get().key) setHover(pointer.current ? hit(pointer.current) : {});
+        setGridPick(undefined);
         stopHold();
         setDrag(undefined);
         if (spring) { setTool(spring); setSpring(undefined); }

@@ -41,6 +41,9 @@ for (const text of [v3, v2]) {
 const sdf = toSdf(m);
 assert.equal(sdf.split("$$$$").length - 1, 2);
 assert.match(toSdf(m, true), /V2000/);
+// A lone atom is a record of its own, with its atom: methane, and a label such as MeOH drawn out.
+const lone = toSdf({ atoms: [A("C", 0, 0, { text: "MeOH" }), A("C", 3, 0), A("C", 6, 0), A("O", 7, 0)], bonds: [{ type: 1, atoms: [2, 3] }] });
+assert.deepEqual(lone.split("$$$$\n").slice(0, -1).map((r) => /COUNTS (\d+)/.exec(r)?.[1]), ["2", "1", "2"]);
 
 // A written label beside a wedge reads as the same structure drawn out (its group sits at the label, not at 0, 0).
 const lab: Mol = { atoms: [A("C", 0, 0), A("F", 0, 1), A("Cl", 0.87, -0.5), A("Br", 0.3, -0.9), A("C", -0.87, -0.5, { text: "OMe" })], bonds: [{ type: 1, atoms: [0, 1], stereo: 1 }, { type: 1, atoms: [0, 2] }, { type: 1, atoms: [0, 3] }, { type: 1, atoms: [0, 4] }] };
@@ -64,6 +67,9 @@ assert.equal(r1.atoms.length, 7);
 const r2 = importStructure(rdf), [a, b] = r2.arrows!;
 assert.equal(r2.arrows?.length, 2);
 assert.ok(Math.abs(a.from[1] - b.from[1]) > 2, "each reaction of an RD file on a line of its own");
+// An RD file pasted as text reads as Import reads it: every reaction, each with its arrow.
+assert.equal(parseStructure(rdf).arrows?.length, 2);
+assert.equal(parseStructure(rdf).atoms.length, r2.atoms.length);
 // Reaction SMILES keeps the arrow and the plus signs; an agent stands over the arrow.
 const r3 = parseStructure("CC(=O)O.OCC>[H+]>CC(=O)OCC.O");
 assert.equal(r3.arrows?.length, 1);
