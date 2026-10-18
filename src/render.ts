@@ -168,6 +168,7 @@ export type Box = [number, number, number, number];
 export type Drawing = {
   polygons: P[][]; colours: (string | undefined)[]; alphas: number[]; labels: Label[]; box: Box; ink: Box[]; label: (Box | undefined)[]; scale: number;
   electrons: { atom: number; at: P }[]; beads: { at: P; r: number }[];
+  sides?: number[]; // each bond's second line as drawn, for a double bond: -1 left, 1 right of its first atom to its second on screen, 0 centred
 };
 
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
@@ -254,6 +255,7 @@ type Plan = {
   cross?: boolean; // a double bond drawn as two crossing lines (either geometry)
   cut: [number, number];
   hidden?: boolean;
+  side?: number; // a double bond's second line: -1 left, 1 right, 0 centred
 };
 
 // A label's glyph outline where it is drawn: the measured outline (shared, not copied), placed at x, y and scaled by f.
@@ -530,6 +532,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       }
     }
 
+    plan.side = sd;
     if (!sd) {
       // Centred: lines at ±spacing/2 that stay out of the fan and run on to the neighbouring bond's axis.
       plan.kind = 'none';
@@ -801,7 +804,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     take(b[0], b[1]); take(b[2], b[3]);
     return b;
   });
-  return { polygons, colours, alphas, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad], ink, label, scale: k, electrons, beads };
+  return { polygons, colours, alphas, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad], ink, label, scale: k, electrons, beads, sides: plans.map((pl) => pl.side ?? 0) };
 }
 
 // The same drawing as render's, made structure by structure. Each structure's drawing stays in `cache` while its

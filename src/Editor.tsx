@@ -14,7 +14,7 @@ import { PAGE_NAMES, fontStack, pageSize, frameStyle, readStyle, COLOURS, FONTS,
 import { messy, problems } from "./check";
 import { parse, serialize } from "./file";
 import {
-  EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bondTo, bounds, chainTo, complete, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
+  EMPTY, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bounds, addChain, chainPoints, chainThrough, snake, complete, clickBond, dragBond, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, addTemplate, alignFragments, atomsInPolygon, flipAtoms, fragments, joinOverlaps, setLabel, merge, moveAtoms, neighbours, onSelection, pos, rotateAtoms, setBondSpec, setElement, setPosition, sprout, subset,
   addShape, addSymbol, bondOrders, freePairs, nextDirection, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol,
 } from "./edit";
@@ -115,7 +115,9 @@ const atomsOf = (m: Mol, t: Hover) => (t.atom !== undefined ? [t.atom] : t.bond 
 type Drag =
   | { kind: "bond"; from: number | P; at: P; start: [number, number]; target: Hover; to?: P }
   | { kind: "click"; at: P; start: [number, number]; target: Hover }
-  | { kind: "chain"; from: number | P; start: [number, number]; target: Hover; to?: P }
+  // A chain: side, the side of the drag its first bond goes; path, its points when it snakes (Command held); alt,
+  // Option was held at the press (a click then repeats the last chain).
+  | { kind: "chain"; from: number | P; start: [number, number]; target: Hover; to?: P; side?: number; path?: P[]; alt?: boolean }
   | { kind: "erase"; trail: P[]; bonds: Set<number>; atoms: Set<number>; captions: Set<number>; start: [number, number]; target: Hover; moved: boolean }
   | { kind: "box"; from: P; to: P; base: Set<number>; picks: Set<number>; target: Hover; moved: boolean }
   | { kind: "lasso"; points: P[]; base: Set<number>; picks: Set<number>; target: Hover; moved: boolean }
@@ -393,13 +395,14 @@ export default function Editor() {
   // it lives in a store too.
   const [brushes] = useState(() => store<P | undefined>(undefined));
   const setBrush = brushes.set;
-  // The atom whose label is being typed, and the text so far.
-  const [editing, setEditing] = useState<{ atom: number; value: string }>();
+  // The atom whose label is being typed, and the text so far. all: every atom the label goes on (several selected
+  // atoms, as ChemDraw's ! key labels them all); merge: the step the label joins (> adds a bond, then its label).
+  const [editing, setEditing] = useState<{ atom: number; value: string; all?: number[]; merge?: string }>();
   const labelOpen = useRef(false);
-  const editLabel = (atom: number) => {
-    const a = doc.atoms[atom];
+  const editLabel = (atom: number, all?: number[], merge?: string, mol = doc) => {
+    const a = mol.atoms[atom];
     labelOpen.current = true;
-    setEditing({ atom, value: a.text ?? (a.label === "C" ? "" : a.label) });
+    setEditing({ atom, value: a.text ?? (a.label === "C" ? "" : a.label), ...(all && all.length > 1 ? { all } : {}), ...(merge ? { merge } : {}) });
   };
   // The caption being typed: an existing one (id), or a new one at a point or under a structure, with its style.
   // runs: the text in styled runs as it is typed; version and caret: the box is built again (a style was applied)
@@ -999,12 +1002,16 @@ export default function Editor() {
   // Screen (px from the window's top left) to drawing coordinates (bond lengths, y up).
   const toDoc = (sx: number, sy: number): P => { const view = views.get(); return [(sx - view.x) / (view.zoom * L), -(sy - view.y) / (view.zoom * L)]; };
 
+  // The Chain tool. A drag's points (snaking or straight), and how many atoms they draw: one per bond, and the first
+  // atom too on empty canvas (ChemDraw's count).
+  const chainPath = (d: { from: number | P; to?: P; side?: number; path?: P[] }) => d.path ?? chainPoints(doc, d.from, d.to ?? (typeof d.from === "number" ? pos(doc, d.from) : d.from), d.side ?? 1);
+  const chainCount = (d: { from: number | P; to?: P; side?: number; path?: P[] }) => chainPath(d).length + (typeof d.from === "number" ? 0 : 1);
   // A part of the drawing shown alone for a moment, to take its picture (copy and export).
   const [exporting, setExporting] = useState<Mol>();
   const shown = useMemo(() => {
     if (exporting) return exporting;
-    if (drag?.kind === "bond" && drag.to) return bondTo(doc, drag.from, drag.to, bondSpec);
-    if (drag?.kind === "chain" && drag.to) return chainTo(doc, drag.from, drag.to).mol;
+    if (drag?.kind === "bond" && drag.to) return dragBond(doc, drag.from, drag.to, bondSpec);
+    if (drag?.kind === "chain" && drag.to) return chainThrough(doc, drag.from, chainPath(drag)).mol;
     if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "tableedge") return drag.working;
     if (drag?.kind === "arrow" && drag.to) return addArrow(doc, newArrow(drag.from, drag.to, drag.side, drag.make))[0];
     if (drag?.kind === "shape" && drag.to) { const sh = shapeFrom(drag.from, drag.to); return sh ? addShape(doc, sh)[0] : doc; }
@@ -1082,7 +1089,7 @@ export default function Editor() {
   const [exportView, setExportView] = useState<{ all?: string; selection?: string; parts: { all: Mol; selection?: Mol } }>();
   const [dialog, setDialog] = useState<{ kind: "rotate"; angle: string; clockwise: boolean } | { kind: "scale"; how: "document" | "length" | "percent"; value: string }
     | { kind: "atom"; atom: number; element: string; charge: string; isotope: string; radical: string }
-    | { kind: "unsaved"; next: () => void }>();
+    | { kind: "unsaved"; next: () => void } | { kind: "chain"; from: number | P; atoms: string }>();
   const [commandsOpen, setCommandsOpen] = useState(false);
   // An arrow Octet offers after a row of starting materials (from Clean up). Tab draws it; any other change drops it.
   const [offer, setOffer] = useState<{ from: P; to: P; doc: Mol }>();
@@ -1353,9 +1360,23 @@ export default function Editor() {
     const r = reactionOf(first.id);
     return r && r.atoms.length === selection.size && r.atoms.every((i) => selection.has(i)) && r.arrows.every((id) => picked.has(id)) ? r : undefined;
   };
+  // The atom whose label (all of it, as in ChemDraw, not only its first letter) is at a point, with a little slack.
+  const labelAt = (p: P) => {
+    const [x, y] = [p[0] * L, -p[1] * L], pad = 2 / views.get().zoom;
+    let found: number | undefined;
+    drawing.label.forEach((b, i) => { if (b && i < doc.atoms.length && x >= b[0] - pad && x <= b[2] + pad && y >= b[1] - pad && y <= b[3] + pad) found = i; });
+    return found;
+  };
+  // The atom or bond at a point: an atom's spot, then anywhere on its label, then a bond.
+  const hitAt = (p: P): Hover => {
+    const t = hitIn(doc, p);
+    if (t.atom !== undefined) return t;
+    const atom = labelAt(p);
+    return atom !== undefined ? { atom } : t;
+  };
   // Atoms come first, then captions, then bonds.
   const hit = (p: P): Hover => {
-    const t = hitIn(doc, p);
+    const t = hitAt(p);
     if (t.atom !== undefined) return t;
     const caption = captionAt(p);
     if (caption !== undefined) return { caption };
@@ -1835,11 +1856,11 @@ export default function Editor() {
     }
     // Pressing away from the selection with a drawing tool clears it, as ChemDraw does.
     if (selection.size || picked.size) { setSelection(new Set()); setPicked(new Set()); }
-    pressTool(p, t, screen);
+    pressTool(p, t, screen, e.altKey);
     startHold(p, t, screen);
   }
   // What a press does with each drawing tool in hand: starts its drag (a click when the pointer never moves).
-  function pressTool(p: P, t: Hover, screen: [number, number]) {
+  function pressTool(p: P, t: Hover, screen: [number, number], alt = false) {
     if (tool === "arrow") return setDrag({ kind: "arrow", from: curved({ kind: arrowKind }) ? electronAt(p, t) : p, start: screen, target: t });
     if (tool === "shape" && "line" in shapePick) {
       const make: Make = { kind: shapePick.line, ...(shapePick.sweep ? { bend: sweepBend(shapePick.sweep) } : {}), ...(shapePick.style ? { style: shapePick.style } : {}) };
@@ -1852,7 +1873,7 @@ export default function Editor() {
     if (tool === "orbital") return setDrag({ kind: "arrow", from: t.atom !== undefined ? pos(doc, t.atom) : p, start: screen, target: t, make: { kind: "orbital", orbital: orbitalSpec(orbitalChoice)! } });
     if (tool === "erase") return setDrag({ kind: "erase", trail: [p], bonds: new Set(), atoms: new Set(), captions: new Set(), start: screen, target: t, moved: false });
     if (tool === "bond") return setDrag({ kind: "bond", from: t.atom ?? p, at: p, start: screen, target: t });
-    if (tool === "chain") return setDrag({ kind: "chain", from: t.atom ?? p, start: screen, target: t });
+    if (tool === "chain") return setDrag({ kind: "chain", from: t.atom ?? p, start: screen, target: t, alt });
     setDrag({ kind: "click", at: p, start: screen, target: t });
   }
   // Every drawing tool: hold still for HOLD_MS and Select takes over until release. On the selection it moves it;
@@ -1900,7 +1921,7 @@ export default function Editor() {
         stopHold();
         if (drag.target.bond !== undefined && drag.target.atom === undefined) return; // dragging from a bond does nothing
         const origin = typeof drag.from === "number" ? pos(doc, drag.from) : drag.from;
-        const onto = atomAt(doc, p);
+        const onto = hitAt(p).atom;
         let to: P;
         if (onto !== undefined && onto !== drag.from) to = pos(doc, onto);
         else {
@@ -1915,7 +1936,7 @@ export default function Editor() {
         // A curved arrow ends on an atom or bond; a straight one snaps to 15° steps (⌥/Alt frees it).
         if (curved({ kind: drag.make?.kind ?? arrowKind })) {
           // The arc bulges the way the drag went: the sign of the area between the pointer's path and the line.
-          const to = drag.make ? p : electronAt(p, hitIn(doc, p)), trail = [...(drag.trail ?? [drag.from]), p], ring = [...trail, to];
+          const to = drag.make ? p : electronAt(p, hitAt(p)), trail = [...(drag.trail ?? [drag.from]), p], ring = [...trail, to];
           let area = 0;
           for (let i = 0; i < ring.length; i++) { const [a, b] = [ring[i], ring[(i + 1) % ring.length]]; area += a[0] * b[1] - b[0] * a[1]; }
           const chord = Math.hypot(to[0] - drag.from[0], to[1] - drag.from[1]);
@@ -2005,7 +2026,7 @@ export default function Editor() {
           return setDrag({ ...drag, working: updateArrow(doc, a.id, { bend: Math.max(-1.5, Math.min(1.5, off / len)) }) });
         }
         const other = drag.which === "from" ? a.to : a.from;
-        let q: P = curved(a) ? electronAt(p, hitIn(doc, p)) : p;
+        let q: P = curved(a) ? electronAt(p, hitAt(p)) : p;
         if (!curved(a) && !e.altKey) {
           const far = Math.hypot(q[0] - other[0], q[1] - other[1]), ang = Math.round(Math.atan2(q[1] - other[1], q[0] - other[0]) / SNAP) * SNAP;
           q = [other[0] + far * Math.cos(ang), other[1] + far * Math.sin(ang)];
@@ -2015,10 +2036,15 @@ export default function Editor() {
       case "chain": {
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         stopHold();
-        // The chain follows the pointer: its direction snaps to 15° steps, its length is free.
+        // The chain follows the pointer: its direction snaps to 15° steps, its length is free. The side of that line
+        // the pointer is on puts the first bond on that side (moving across the line turns the zig-zag over, as in
+        // ChemDraw). With Command held (Ctrl off the Mac) it snakes after the pointer instead.
         const origin = typeof drag.from === "number" ? pos(doc, drag.from) : drag.from, far = Math.hypot(p[0] - origin[0], p[1] - origin[1]);
-        const a = Math.round(Math.atan2(p[1] - origin[1], p[0] - origin[0]) / SNAP) * SNAP;
-        return setDrag({ ...drag, to: [origin[0] + far * Math.cos(a), origin[1] + far * Math.sin(a)] });
+        const raw = Math.atan2(p[1] - origin[1], p[0] - origin[0]), a = Math.round(raw / SNAP) * SNAP, off = Math.sin(raw - a) * far * L * views.get().zoom;
+        const to: P = [origin[0] + far * Math.cos(a), origin[1] + far * Math.sin(a)], side = Math.abs(off) >= 1 ? Math.sign(off) : drag.side ?? 1;
+        const snaking = MOD === "⌘" ? e.metaKey : e.ctrlKey;
+        const path = snaking ? snake(origin, drag.path ?? chainPoints(doc, drag.from, to, side).slice(0, 1), p) : undefined;
+        return setDrag({ ...drag, to, side, path });
       }
       case "erase": {
         if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
@@ -2084,6 +2110,53 @@ export default function Editor() {
     if (hot) keyHot(hot, mol);
     else if (hovers.get().key) setHover({});
   };
+  // With several atoms selected and the pointer away from the drawing or on the selection, an atom key acts on every
+  // selected atom and a bond key on every selected bond, as one step (ChemDraw's: Shift-click the four end carbons of
+  // neopentane and press n). onBond: the pointer is on a selected bond, or the selection is one bond, so a key that
+  // means something for bonds acts on the bonds first.
+  const manyTarget = (): { atoms: number[]; bonds: number[]; onBond: boolean } | undefined => {
+    const hover = hovers.get();
+    if (picked.size || selection.size < 2) return undefined;
+    if (hover.atom !== undefined && !selection.has(hover.atom)) return undefined;
+    if (hover.bond !== undefined && !doc.bonds[hover.bond]?.atoms.every((i) => selection.has(i))) return undefined;
+    if (hover.caption !== undefined || hover.arrow !== undefined) return undefined;
+    const atoms = [...selection].filter((i) => i < doc.atoms.length), bonds = doc.bonds.flatMap((b, k) => (selection.has(b.atoms[0]) && selection.has(b.atoms[1]) ? [k] : []));
+    return { atoms, bonds, onBond: hover.bond !== undefined || (atoms.length === 2 && bonds.length === 1) };
+  };
+  // The action a key runs on such a selection: its atom or bond action, else one that works anywhere.
+  const manyAction = (pressed: string, many: { onBond: boolean }) => {
+    const map = keymap(settings.keys);
+    for (const place of many.onBond ? ["bond", "atom"] as const : ["atom", "bond"] as const) {
+      const id = actionFor(map, pressed, place);
+      if (id && ACTIONS.find((a) => a.id === id)?.place === place) return id;
+    }
+    return actionFor(map, pressed, "none");
+  };
+  // An atom or bond key on every selected atom or bond (see manyTarget), as one step. False when the key does not act
+  // on a selection this way.
+  function runMany(id: string, many: { atoms: number[]; bonds: number[] }): boolean {
+    const [kind, arg] = id.split("."), { atoms, bonds } = many, each = (f: (m: Mol, i: number) => Mol, ids: number[]) => set(ids.reduce(f, doc), true);
+    if (kind === "element") return each((m, i) => setElement(m, i, arg), atoms), true;
+    if (kind === "label") return each((m, i) => setLabel(m, i, arg), atoms), true;
+    if (kind === "charge") return each((m, i) => addCharge(m, i, arg === "plus" ? 1 : -1), atoms), true;
+    if (kind === "group") return each((m, i) => addGroupAt(m, i, arg as Group)[0], atoms), true;
+    if (id === "atom.attach") { const on = atoms.some((i) => !doc.atoms[i].attach); return each((m, i) => setAtomMarks(m, i, { attach: on || undefined }), atoms), true; }
+    if (id === "atom.number") return numberAtoms(atoms), true;
+    if (id === "atom.label") return editLabel(atoms[0], atoms), true;
+    if (id === "atom.sproutLabel") return sproutLabel(atoms), true;
+    if (kind === "bond" && arg in BONDS) return each((m, k) => setBondSpec(m, k, BONDS[arg as BondKind].spec), bonds), true;
+    if (kind === "bond" && (arg === "left" || arg === "centre" || arg === "right")) return each((m, k) => (m.bonds[k].type === 2 ? setPosition(m, k, arg) : m), bonds), true;
+    return false;
+  }
+  // ChemDraw's > key: a bond from each atom (as 1 adds it), and a label typed for the new atoms, as one step.
+  const sprouts = useRef(0);
+  function sproutLabel(atoms: number[]) {
+    let m = doc;
+    const ends = atoms.map((i) => { let end: number; [m, end] = addGroupAt(m, i, "chain"); return end; });
+    const merge = `sprout-label ${++sprouts.current}`;
+    set(m, false, merge);
+    editLabel(ends[0], ends, merge, m);
+  }
   function run(id: string) {
     const [kind, arg] = id.split(".");
     const { atom, bond } = keyTarget();
@@ -2108,6 +2181,7 @@ export default function Editor() {
     if (kind === "element" && atom !== undefined) return set(setElement(doc, atom, arg));
     if (kind === "label" && atom !== undefined) return set(setLabel(doc, atom, arg));
     if (id === "atom.label" && atom !== undefined) return editLabel(atom);
+    if (id === "atom.sproutLabel" && atom !== undefined) return sproutLabel([atom]);
     if (id === "charge.plus" && atom !== undefined) return set(addCharge(doc, atom, 1));
     if (id === "charge.minus" && atom !== undefined) return set(addCharge(doc, atom, -1));
     if (kind === "menu") return commands.current[id.slice(5)]?.(); // a menu command on a key (Settings)
@@ -2144,6 +2218,13 @@ export default function Editor() {
       return set(moveAll(doc, d, captions), true);
     }
     if (kind === "rotate" && selection.size) return set(rotateAtoms(doc, selection, (arg.startsWith("ccw") ? 1 : -1) * Number(arg.replace(/\D/g, ""))), true);
+    // Shift+Option+arrows (ChemDraw's): a 12° turn in 3D about the middle of the selection, left and right about the
+    // vertical axis and up and down about the horizontal one, the front going the way of the arrow.
+    if (kind === "tilt" && selection.size) {
+      const ps = [...selection].filter((i) => i < doc.atoms.length).map((i) => doc.atoms[i].location);
+      const centre = [0, 1, 2].map((k) => (Math.min(...ps.map((q) => q[k] ?? 0)) + Math.max(...ps.map((q) => q[k] ?? 0))) / 2) as [number, number, number];
+      return set(tiltAtoms(doc, selection, centre, arg === "left" ? -12 : arg === "right" ? 12 : 0, arg === "up" ? -12 : arg === "down" ? 12 : 0), true);
+    }
     if (id === "edit.delete") {
       if (selection.size || picked.size) return set(deleteGraphics(deleteAtoms(doc, selection), picked));
       if (hover.caption !== undefined) return set(deleteGraphics(doc, new Set([hover.caption])));
@@ -2945,6 +3026,27 @@ export default function Editor() {
     }
   }
 
+  // Where bond k's second line is drawn now (render's sides), from the part of the drawing it is in.
+  const drawnSide = (k: number) => {
+    const part = drawing.parts.find((x) => x.ids.includes(doc.bonds[k].atoms[0]));
+    if (!part) return 0;
+    const ids = new Set(part.ids);
+    let n = 0;
+    for (let j = 0; j < k; j++) if (ids.has(doc.bonds[j].atoms[0])) n++;
+    return part.drawing.sides?.[n] ?? 0;
+  };
+  // The length the Add Chain box offers and Option-click repeats: the last one added or dragged (ChemDraw starts at 5).
+  const chainLength = useRef(5);
+  const addChainOf = (from: number | P, n: number) => {
+    const atoms = Math.max(2, Math.min(999, Math.round(n)));
+    chainLength.current = atoms;
+    set(addChain(doc, from, atoms).mol);
+  };
+  // A click opens Add Chain (Attach on an atom); Option-click adds the last length at once.
+  function chainClick(from: number | P, alt: boolean) {
+    if (alt) return addChainOf(from, chainLength.current);
+    setDialog({ kind: "chain", from, atoms: String(chainLength.current) });
+  }
   // What a click does with each tool in hand.
   function click(t: Hover, at: P) {
     // Select: Shift-click adds what was clicked to the selection, or takes it out if it was all selected already;
@@ -2963,15 +3065,16 @@ export default function Editor() {
     }
     if (t.caption !== undefined && tool !== "text") return; // a caption was picked, not drawn on
     if (tool === "bond") {
-      if (t.atom !== undefined) return set(sprout(doc, t.atom, bondSpec));
+      // A click on the far end of a label adds the bond at that end (ChemDraw's: bonds go from the part pointed at).
+      if (t.atom !== undefined) {
+        const here = pos(doc, t.atom), side = drawing.label[t.atom] && Math.abs(at[0] - here[0]) > 0.3 ? Math.sign(at[0] - here[0]) : 0;
+        return set(sprout(doc, t.atom, bondSpec, side));
+      }
       if (t.bond === undefined) return set(sprout(doc, at, bondSpec));
-      // On a bond: single cycles 1, 2, 3; any other style sets it; a wedge or dative clicked again flips round.
-      if (bondKind === "single") return set(cycleBond(doc, t.bond));
-      const b = doc.bonds[t.bond], same = b.type === bondSpec.type && b.stereo === bondSpec.stereo && b.display === bondSpec.display;
-      if (same && (bondSpec.stereo || bondSpec.display === "dative")) return set(flipBond(doc, t.bond));
-      return set(setBondSpec(doc, t.bond, bondSpec));
+      // On a bond, as ChemDraw: see clickBond (a single bond becomes double, a double bond's second line moves round).
+      return set(clickBond(doc, t.bond, bondSpec, at, drawnSide(t.bond)));
     }
-    if (tool === "chain") return set(sprout(doc, t.atom ?? at));
+    if (tool === "chain") return chainClick(t.atom ?? at, false);
     if (tool === "symbol") return t.atom !== undefined ? set(addSymbol(doc, t.atom, symbolKind)) : undefined;
     if (tool === "bracket" && "mark" in bracketPick) {
       // A dagger goes on a bracket clicked (again takes it off), or stands alone where clicked.
@@ -3021,7 +3124,7 @@ export default function Editor() {
     switch (drag.kind) {
       case "bond": {
         const { to, from, target: t, at } = drag;
-        if (to) return set(bondTo(doc, from, to, bondSpec));
+        if (to) return set(dragBond(doc, from, to, bondSpec));
         return click(t, at);
       }
       case "arrow": {
@@ -3063,15 +3166,15 @@ export default function Editor() {
         return setPen([...(pen ?? []), penPoint(drag.at, drag.out)]);
       case "map": {
         // Dropped on another atom: the two are mapped to each other. A click on a mapped atom takes its number off.
-        const to = drag.to ? hitIn(doc, drag.to).atom : drag.atom;
+        const to = drag.to ? hitAt(drag.to).atom : drag.atom;
         if (to === drag.atom) return doc.atoms[drag.atom].map ? set(clearMap(doc, drag.atom), true) : undefined;
         return to !== undefined ? set(pairMap(doc, drag.atom, to), true) : undefined;
       }
       case "turn":
         return drag.degrees ? set(drag.working, true) : undefined;
       case "chain":
-        if (drag.to) return set(chainTo(doc, drag.from, drag.to).mol);
-        return click(drag.target, typeof drag.from === "number" ? pos(doc, drag.from) : drag.from);
+        if (drag.to) { chainLength.current = chainCount(drag); return set(chainThrough(doc, drag.from, chainPath(drag)).mol); }
+        return chainClick(drag.from, !!drag.alt);
       case "click":
         return click(drag.target, drag.at);
       case "erase": {
@@ -3144,7 +3247,8 @@ export default function Editor() {
       // such a key without taking it from text boxes too). Command and Ctrl keys are the menu's own in the app.
       const pressedKey = keyOf(e), bound = pressedKey && actionFor(keymap(settings.keys), pressedKey, "none");
       if (bound?.startsWith("menu.") && (!TAURI || !native(pressedKey!))) { e.preventDefault(); return commands.current[bound.slice(5)]?.(); }
-      if (mod || e.altKey) return;
+      // An Option key goes on only when the table has it (Option+arrows turn the selection, as in ChemDraw).
+      if (mod || (e.altKey && !bound)) return;
       if (e.key === "Escape") {
         // Escape dismisses one thing at a time. With nothing left to dismiss it goes on to the window (which leaves
         // full screen).
@@ -3183,7 +3287,14 @@ export default function Editor() {
         return setPicked(new Set([id]));
       }
       // Everything else goes through the shortcut table (keys.ts), so every key can be changed.
-      const pressed = keyOf(e);
+      const pressed = keyOf(e), many = pressed ? manyTarget() : undefined;
+      if (pressed && many) {
+        const id = manyAction(pressed, many);
+        if (!id) return;
+        e.preventDefault();
+        if (!runMany(id, many)) run(id);
+        return;
+      }
       const target = keyTarget(), id = pressed && actionFor(keymap(settings.keys), pressed, target.atom !== undefined ? "atom" : target.bond !== undefined ? "bond" : "none");
       if (!id) return;
       e.preventDefault();
@@ -3708,7 +3819,7 @@ export default function Editor() {
           })()}
           {drag?.kind === "map" && drag.to && (() => {
             // The atom being mapped, joined by a dashed line to the pointer, or to the atom under it (ringed).
-            const a = pos(doc, drag.atom), on = hitIn(doc, drag.to).atom, b = on !== undefined && on !== drag.atom ? pos(doc, on) : drag.to;
+            const a = pos(doc, drag.atom), on = hitAt(drag.to).atom, b = on !== undefined && on !== drag.atom ? pos(doc, on) : drag.to;
             return (
               <g className="mapping" aria-hidden>
                 <circle cx={a[0] * L} cy={-a[1] * L} r={0.32 * L} />
@@ -3750,11 +3861,16 @@ export default function Editor() {
             <polygon className="box" points={drag.points.map(([x, y]) => `${x * L},${-y * L}`).join(" ")} vectorEffect="non-scaling-stroke" />
           )}
           {rubbing}
-          {drag?.kind === "chain" && drag.to && (
-            <text className="count" x={drag.to[0] * L + 6 / view.zoom} y={-drag.to[1] * L - 6 / view.zoom} style={{ fontSize: 12 / view.zoom }}>
-              {chainTo(doc, drag.from, drag.to).bonds}
-            </text>
-          )}
+          {drag?.kind === "chain" && drag.to && (() => {
+            // How many atoms the chain draws (ChemDraw's count), just past its end.
+            const points = chainPath(drag), end = points[points.length - 1], before = points.length > 1 ? points[points.length - 2] : typeof drag.from === "number" ? pos(doc, drag.from) : drag.from;
+            const d = Math.hypot(end[0] - before[0], end[1] - before[1]) || 1, gap = 12 / view.zoom;
+            return (
+              <text className="count" x={end[0] * L + ((end[0] - before[0]) / d) * gap} y={-end[1] * L - ((end[1] - before[1]) / d) * gap} textAnchor="middle" dominantBaseline="central" style={{ fontSize: 12 / view.zoom }}>
+                {chainCount(drag)}
+              </text>
+            );
+          })()}
           <Live store={brushes}>{(brush) => tool === "erase" && brush && <circle className="brush" cx={brush[0] * L} cy={-brush[1] * L} r={settings.eraser * L} vectorEffect="non-scaling-stroke" />}</Live>
           {drag?.kind === "move" && drag.guides.map((g, i) => g.axis === "x"
             ? <line key={i} className="guide" x1={g.at * L} x2={g.at * L} y1={-g.from * L} y2={-g.to * L} vectorEffect="non-scaling-stroke" />
@@ -3768,7 +3884,12 @@ export default function Editor() {
         // The label box sits on the atom, in the label font at the current zoom.
         const [ax, ay] = pos(doc, editing.atom);
         // Enter, Escape and a click elsewhere all keep the label; only the first one counts.
-        const commit = () => { if (!labelOpen.current) return; labelOpen.current = false; set(setLabel(doc, editing.atom, editing.value)); setEditing(undefined); };
+        const commit = () => {
+          if (!labelOpen.current) return;
+          labelOpen.current = false;
+          set((editing.all ?? [editing.atom]).reduce((m, i) => setLabel(m, i, editing.value), doc), !!editing.all, editing.merge);
+          setEditing(undefined);
+        };
         return (
           <input
             className="label-box"
@@ -4152,6 +4273,12 @@ export default function Editor() {
           <label className="dialog-row"><span>Radical</span>
             <Select label="Radical" value={dialog.radical} options={[["0", "None"], ["1", "Doublet (•)"], ["2", "Triplet (••)"], ["3", "Singlet (:)"]]} onChange={(v) => setDialog({ ...dialog, radical: v })} />
           </label>
+        </Dialog>
+      )}
+      {dialog?.kind === "chain" && (
+        <Dialog title="Add Chain" action={typeof dialog.from === "number" ? "Attach" : "Add"} onClose={() => setDialog(undefined)}
+          onAction={() => { const n = Number(dialog.atoms); if (n >= 1) addChainOf(dialog.from, n); setDialog(undefined); }}>
+          <label className="dialog-row"><span>Number of atoms</span><span className="unit-field"><input aria-label="Number of atoms" inputMode="numeric" value={dialog.atoms} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...dialog, atoms: e.target.value.replace(/\D/g, "").slice(0, 3) })} /></span></label>
         </Dialog>
       )}
       {dialog?.kind === "scale" && (

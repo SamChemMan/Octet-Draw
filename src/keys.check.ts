@@ -33,4 +33,10 @@ assert.deepEqual(clashes(map, "bond.double", "n"), []);
 import { label } from "./keys.ts";
 assert.equal(label("+"), "+");
 assert.ok(["↩", "Enter"].includes(label("enter")));
+// ChemDraw's ! and > over an atom (type a label; add a bond and type its label), and Shift+Option+arrows.
+assert.equal(actionFor(map, press("!", { shiftKey: true }) ?? "", "atom"), "atom.label");
+assert.equal(actionFor(map, press(">", { shiftKey: true }) ?? "", "atom"), "atom.sproutLabel");
+assert.equal(press("ArrowLeft", { altKey: true, shiftKey: true }), "alt+shift+arrowleft");
+assert.equal(actionFor(map, "alt+shift+arrowleft", "none"), "tilt.left");
+assert.equal(actionFor(map, "alt+arrowup", "none"), "rotate.ccw15");
 console.log("keys.check: ok");

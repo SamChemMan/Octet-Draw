@@ -19,6 +19,7 @@ export const ACTIONS: Action[] = [
   element("P", "phosphorus"), element("F", "fluorine"), element("Cl", "chlorine"), element("Br", "bromine"), element("I", "iodine"),
   element("B", "boron"), element("Si", "silicon"), element("Li", "lithium"),
   { id: "atom.label", name: "Type a label on the atom", group: "Atoms", place: "atom" },
+  { id: "atom.sproutLabel", name: "Add a bond and type the new atom's label", group: "Atoms", place: "atom" },
   ...["Me", "Et", "Ph", "Ac", "OMe", "CO2Me", "CF3", "NO2", "N3", "MgBr", "Fmoc", "Cbz", "Boc", "D", "R", "X"].map((t): Action => ({ id: `label.${t}`, name: `Set atom to ${t}`, group: "Atoms", place: "atom" })),
   { id: "atom.attach", name: "Add an attachment point", group: "Atoms", place: "atom" },
   { id: "atom.number", name: "Show or hide the atom's number", group: "Atoms", place: "atom" },
@@ -51,6 +52,8 @@ export const ACTIONS: Action[] = [
   any("nudge.up10", "Move the selection up 10 pt, or the highlight about three bonds up", "Selection"), any("nudge.down10", "Move the selection down 10 pt, or the highlight about three bonds down", "Selection"),
   any("rotate.ccw15", "Turn the selection 15° anticlockwise", "Selection"), any("rotate.cw15", "Turn the selection 15° clockwise", "Selection"),
   any("rotate.ccw1", "Turn the selection 1° anticlockwise", "Selection"), any("rotate.cw1", "Turn the selection 1° clockwise", "Selection"),
+  any("tilt.left", "Turn the selection 12° in 3D, front to the left", "Selection"), any("tilt.right", "Turn the selection 12° in 3D, front to the right", "Selection"),
+  any("tilt.up", "Turn the selection 12° in 3D, front up", "Selection"), any("tilt.down", "Turn the selection 12° in 3D, front down", "Selection"),
   any("edit.delete", "Delete the selection, or what is under the pointer", "Edit"),
 ];
 
@@ -59,7 +62,7 @@ export const DEFAULT_KEYS: Record<string, string[]> = {
   "element.C": ["c"], "element.H": ["h"], "element.N": ["n", "w"], "element.O": ["o", "q"], "element.S": ["s"], "element.P": ["p"],
   "element.F": ["f"], "element.Cl": ["l", "shift+c"], "element.Br": ["b"], "element.I": ["i"], "element.B": ["shift+b"],
   "element.Si": ["shift+s"], "element.Li": ["shift+l"],
-  "atom.label": ["enter"],
+  "atom.label": ["enter", "!"], "atom.sproutLabel": [">"],
   "label.Me": ["m"], "label.Et": ["e"], "label.Ph": ["shift+p"], "label.Ac": ["shift+a"], "label.OMe": ["shift+o"], "label.CO2Me": ["shift+e"],
   "label.CF3": ["shift+f"], "label.NO2": ["shift+n"], "label.N3": ["shift+z"], "label.MgBr": ["shift+m"], "label.Fmoc": ["shift+q"],
   "label.Cbz": ["shift+h"], "label.Boc": ["y", "shift+y"], "label.D": ["d"], "label.R": ["r"], "label.X": ["x"], "atom.attach": ["."], "atom.number": ["'"], "atom.properties": ["/", "?"], "select.here": ["g"],
@@ -79,6 +82,7 @@ export const DEFAULT_KEYS: Record<string, string[]> = {
   "nudge.left": ["arrowleft"], "nudge.right": ["arrowright"], "nudge.up": ["arrowup"], "nudge.down": ["arrowdown"],
   "nudge.left10": ["shift+arrowleft"], "nudge.right10": ["shift+arrowright"], "nudge.up10": ["shift+arrowup"], "nudge.down10": ["shift+arrowdown"],
   "rotate.ccw15": ["alt+arrowup"], "rotate.cw15": ["alt+arrowdown"], "rotate.ccw1": ["alt+arrowleft"], "rotate.cw1": ["alt+arrowright"],
+  "tilt.left": ["alt+shift+arrowleft"], "tilt.right": ["alt+shift+arrowright"], "tilt.up": ["alt+shift+arrowup"], "tilt.down": ["alt+shift+arrowdown"],
   "edit.delete": ["delete", "backspace"],
 };
 

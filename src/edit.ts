@@ -116,31 +116,84 @@ export function bondTo(m: Mol, from: number | P, q: P, spec: BondSpec = SINGLE):
 }
 
 // A click with the bond tool: on an atom, add a bond in the next direction; on empty canvas, add a bond at 30°.
-export function sprout(m: Mol, from: number | P, spec: BondSpec = SINGLE): Mol {
-  if (typeof from === "number") return bondTo(m, from, add(pos(m, from), nextDirection(m, from)), spec);
-  return bondTo(m, from, add(from, [Math.cos(30 * deg), Math.sin(30 * deg)]), spec);
+// side: the click was on the left (-1) or right (1) end of the atom's label, so the bond leaves that end (the next
+// direction turned to that side, when no bond is near that way).
+export function sprout(m: Mol, from: number | P, spec: BondSpec = SINGLE, side = 0): Mol {
+  if (typeof from !== "number") return bondTo(m, from, add(from, [Math.cos(30 * deg), Math.sin(30 * deg)]), spec);
+  let d = nextDirection(m, from);
+  const here = pos(m, from), turned: P = [-d[0], d[1]];
+  if (side && Math.sign(d[0]) === -side && neighbours(m, from).every((j) => dot(unit(sub(pos(m, j), here)), turned) < Math.cos(60 * deg))) d = turned;
+  return bondTo(m, from, add(here, d), spec);
 }
 
-// A zig-zag chain from atom i (or a point) toward q: one bond per 0.866 bond lengths along the way, at ±30°
-// to the drag direction. Returns the drawing and the number of bonds added.
-export function chainTo(m: Mol, from: number | P, q: P): { mol: Mol; bonds: number } {
-  const start = typeof from === "number" ? pos(m, from) : from, axis = sub(q, start), along = len(axis);
+// A zig-zag chain from atom i (or a point) toward q: the points after the start, one bond per 0.866 bond lengths of
+// the drag, each bond at ±30° to the chain's axis so every angle is 120°. From empty canvas or a lone atom the axis is
+// the drag, and the first bond goes to side (1 left of the drag, -1 right: the side the pointer is on, so a drag
+// back across the axis flips it, as in ChemDraw). From an atom with bonds the first bond is at 120° to them (as
+// nextDirection gives it, or either way off a chain end) and the axis is the one of those chains nearest the drag.
+export function chainPoints(m: Mol, from: number | P, q: P, side = 1): P[] {
+  const start = typeof from === "number" ? pos(m, from) : from, drag = sub(q, start), along = len(drag);
   const count = Math.max(1, Math.round(along / Math.cos(30 * deg)));
-  const u = along > 1e-9 ? unit(axis) : ([1, 0] as P), v: P = [-u[1], u[0]];
-  // Start the zig on the side away from an existing neighbour, so the chain carries on a zig-zag.
-  let sign = 1;
-  if (typeof from === "number") {
-    const prev = neighbours(m, from)[0];
-    if (prev !== undefined && cross(u, sub(pos(m, prev), start)) > 0) sign = -1;
+  const u = along > 1e-9 ? unit(drag) : ([1, 0] as P);
+  const ns = typeof from === "number" ? neighbours(m, from) : [];
+  // The axis and the first bond's side of it (the unit vector across the axis toward the first bond).
+  let axis = u, across: P = mul([-u[1], u[0]], side < 0 ? -1 : 1);
+  if (ns.length) {
+    const e = unit(sub(pos(m, ns[0]), start)), next = nextDirection(m, from as number);
+    const firsts = ns.length === 1 && orderBetween(m, from as number, ns[0]) !== 3 ? [next, rot(e, 120 * deg), rot(e, -120 * deg)] : [next];
+    let best = -Infinity;
+    for (const f of firsts) for (const t of [30, -30]) {
+      const a = rot(f, t * deg), score = dot(a, u);
+      if (score > best + 1e-9) { best = score; axis = a; across = unit(sub(f, mul(a, Math.cos(30 * deg)))); }
+    }
   }
-  let last: number | P = from;
-  for (let k = 1; k <= count; k++) {
-    const p = add(add(start, mul(u, k * Math.cos(30 * deg))), mul(v, k % 2 ? sign * 0.5 : 0));
+  return Array.from({ length: count }, (_, k) => add(add(start, mul(axis, (k + 1) * Math.cos(30 * deg))), mul(across, k % 2 ? 0 : 0.5)));
+}
+// The order of the bond between two atoms (1 when there is none).
+const orderBetween = (m: Mol, i: number, j: number) => m.bonds[bondIndex(m, i, j)]?.type ?? 1;
+// Bonds from atom i (or a new atom at a point) through each point in turn, joining atoms already there. Returns the
+// drawing and the last atom.
+export function chainThrough(m: Mol, from: number | P, points: P[]): { mol: Mol; last: number } {
+  let last: number;
+  if (typeof from === "number") last = from; else [m, last] = atomOrNew(m, from);
+  for (const p of points) {
     const before = m.atoms.length;
     m = bondTo(m, last, p);
     last = atomAt(m, p, 0.1) ?? before;
   }
-  return { mol: m, bonds: count };
+  return { mol: m, last };
+}
+// A chain dragged toward q (see chainPoints). Returns the drawing, the number of bonds added and the last atom.
+export function chainTo(m: Mol, from: number | P, q: P, side = 1): { mol: Mol; bonds: number; last: number } {
+  const points = chainPoints(m, from, q, side);
+  return { ...chainThrough(m, from, points), bonds: points.length };
+}
+// The Snaking Chain (the Chain tool with Command held, as in ChemDraw): the chain's points follow the pointer p. Each
+// new bond turns 60° from the one before (so every angle is 120°), to the side nearer the pointer, while that brings
+// the chain nearer it; when the pointer goes back past the last atom, that atom goes. path: the points so far after
+// the start; at least one stays.
+export function snake(start: P, path: P[], p: P): P[] {
+  const out = [...path], d = (q: P) => len(sub(p, q));
+  for (let guard = 0; guard < 200; guard++) {
+    const n = out.length, last = out[n - 1], prev = n > 1 ? out[n - 2] : start;
+    if (n > 1 && d(prev) < d(last) - 0.25) { out.pop(); continue; }
+    const way = unit(sub(last, prev)), next = [rot(way, 60 * deg), rot(way, -60 * deg)].map((w) => add(last, w)).sort((a, b) => d(a) - d(b))[0];
+    if (d(last) > 0.75 && d(next) < d(last) - 0.25) { out.push(next); continue; }
+    return out;
+  }
+  return out;
+}
+// Add Chain (a Chain tool click): a chain of n new atoms from atom i, or of n atoms from a point, each bond going the
+// way the next click with the bond tool would (so it zig-zags). Returns the drawing and the last atom.
+export function addChain(m: Mol, from: number | P, n: number): { mol: Mol; last: number } {
+  let last: number;
+  if (typeof from === "number") last = from; else [m, last] = atomOrNew(m, from);
+  for (let k = typeof from === "number" ? 0 : 1; k < n; k++) {
+    const q = add(pos(m, last), nextDirection(m, last)), before = m.atoms.length;
+    m = bondTo(m, last, q);
+    last = atomAt(m, q, 0.1) ?? before;
+  }
+  return { mol: m, last };
 }
 
 const setAtom = (m: Mol, i: number, change: Partial<Atom>): Mol => ({ ...m, atoms: m.atoms.map((a, k) => (k === i ? { ...a, ...change } : a)) });
@@ -216,6 +269,82 @@ export const setBondSpec = (m: Mol, i: number, spec: BondSpec) => respec(m, i, s
 export const setPosition = (m: Mol, i: number, position: "left" | "centre" | "right") => setBondAt(m, i, { position });
 // Swaps a bond's ends, so a wedge points the other way.
 export const flipBond = (m: Mol, i: number) => setBondAt(m, i, { atoms: [m.bonds[i].atoms[1], m.bonds[i].atoms[0]] });
+
+// The bond tools on an existing bond, as ChemDraw 26.1 changes it (its ChangeBondType and bond tracker).
+// A bond style with a narrow and a wide end (a wedge, a hashed or hollow wedge, a dative arrow).
+const pointed = (s: BondSpec) => !!s.stereo || s.display === "hollow" || s.display === "dative";
+const sameStyle = (b: Bond, s: BondSpec) => b.type === s.type && (b.stereo ?? 0) === (s.stereo ?? 0) && b.display === s.display;
+// Bond k with spec, its ends put so the narrow end is on the atom with more bonds; on a tie the wide end is on the
+// atom nearer the point clicked.
+function pointedAt(m: Mol, k: number, spec: BondSpec, at: P): Mol {
+  const [i, j] = m.bonds[k].atoms, di = neighbours(m, i).length, dj = neighbours(m, j).length;
+  const wideAtI = di !== dj ? di < dj : len(sub(at, pos(m, i))) < len(sub(at, pos(m, j)));
+  return { ...m, bonds: m.bonds.map((b, n) => (n === k ? makeBond(wideAtI ? [j, i] : [i, j], spec) : b)) };
+}
+// A double bond's second line with a new style, on the side it was.
+const restyle = (m: Mol, k: number, display?: Bond["display"]) => ({ ...m, bonds: m.bonds.map((b, n) => {
+  if (n !== k) return b;
+  const { display: _, ...rest } = b;
+  return display ? { ...rest, display } : rest;
+}) });
+// The side a click puts a double bond's second line on next, from the side it is drawn on now (side: -1 left, 0
+// centred, 1 right of the bond from its first atom, on screen): round centre, one side and the other, in the order
+// ChemDraw uses, which looks the same on screen whichever way the bond was drawn.
+export function nextSide(m: Mol, k: number, side: number): "left" | "centre" | "right" {
+  const [a, b] = m.bonds[k].atoms.map((i) => pos(m, i)), c = a[1] - b[1] <= a[0] - b[0];
+  if (side === 0) return c ? "right" : "left";
+  if (side > 0) return c ? "left" : "centre";
+  return c ? "centre" : "right";
+}
+// A click with a bond tool (spec) on bond k, at a point. side: where the double bond's second line is drawn now.
+// - A double or triple tool sets its bond; on a double bond of its own style it moves the second line instead.
+// - A single bond tool on a single bond of its own style makes it double (bold and dashed keep their style), or turns
+//   a wedge or dative round. On another single bond it sets its style, a wedge pointing as pointedAt says.
+// - On a double bond the Solid, Bold, Dashed and Wavy tools restyle one line, or move the second line when it already
+//   has that style: Solid gives a plain double, Bold a bold double, Dashed a dashed double and then an aromatic one,
+//   Wavy a double either. The Dative tool makes a single dative bond. The wedge tools leave it as it is.
+// - On a triple bond a single bond tool sets its single bond.
+export function clickBond(m: Mol, k: number, spec: BondSpec, at: P, side = 0): Mol {
+  const b = m.bonds[k], cycle = () => setPosition(m, k, nextSide(m, k, side));
+  if (spec.type > 1) return spec.type === 2 && sameStyle(b, spec) ? cycle() : sameStyle(b, spec) ? m : setBondSpec(m, k, spec);
+  if (b.type === 1) {
+    if (!sameStyle(b, spec)) return pointed(spec) ? pointedAt(m, k, spec, at) : setBondSpec(m, k, spec);
+    if (pointed(spec)) return flipBond(m, k);
+    return setBondSpec(m, k, { type: 2, ...(spec.display === "bold" || spec.display === "dashed" ? { display: spec.display } : {}) });
+  }
+  if (b.type !== 2) return pointed(spec) ? pointedAt(m, k, spec, at) : setBondSpec(m, k, spec);
+  if (spec.stereo) return m;
+  const d = b.display;
+  switch (spec.display) {
+    case undefined: return d === "bold" || d === "dashed" || d === "aromatic" ? restyle(m, k) : cycle();
+    case "bold": return d === "bold" ? cycle() : restyle(m, k, "bold");
+    case "dashed": return d === "dashed" ? restyle(m, k, "aromatic") : d === "aromatic" ? cycle() : restyle(m, k, "dashed");
+    case "wavy": return d === "either" ? cycle() : restyle(m, k, "either");
+    case "dative": return pointedAt(m, k, spec, at);
+  }
+  return m;
+}
+// Drawing a bond over an existing one (a bond tool dragged from one of its atoms to the other) raises its order:
+// single to double, double to triple, and triple back to the tool's single bond, a wedge narrow at the atom dragged
+// from (Octet has no quadruple bond yet; ChemDraw goes on to quadruple first). A single bond becomes a double of the
+// tool's style: Bold a bold double, Dashed a dashed double (an aromatic double over a dashed bond), and Solid over a
+// dashed bond a dashed double.
+export function overBond(m: Mol, k: number, spec: BondSpec, from = m.bonds[k].atoms[0]): Mol {
+  const b = m.bonds[k];
+  if (b.type === 2) return setBondSpec(m, k, { type: 3 });
+  if (b.type !== 1) {
+    const single = spec.type === 1 ? spec : SINGLE, to = b.atoms[0] === from ? b.atoms[1] : b.atoms[0];
+    return { ...m, bonds: m.bonds.map((x, n) => (n === k ? makeBond([from, to], single) : x)) };
+  }
+  const d = spec.type === 1 && spec.display === "dashed" ? (b.display === "dashed" ? "aromatic" : "dashed") : spec.type === 1 && spec.display === "bold" ? "bold"
+    : spec.type === 1 && !spec.display && !spec.stereo && b.display === "dashed" ? "dashed" : undefined;
+  return setBondSpec(m, k, { type: 2, ...(d ? { display: d } : {}) });
+}
+// A bond dragged from atom i (or a point) to q: on to i's neighbour it is drawn over their bond; otherwise as bondTo.
+export function dragBond(m: Mol, from: number | P, q: P, spec: BondSpec = SINGLE): Mol {
+  const j = typeof from === "number" ? atomAt(m, q, 0.1) : undefined, k = j === undefined ? -1 : bondIndex(m, from as number, j);
+  return k >= 0 ? overBond(m, k, spec, from as number) : bondTo(m, from, q, spec);
+}
 
 // Removes atoms (and their bonds), then any bare carbons left with no bonds.
 function removeAtoms(m: Mol, gone: Set<number>): Mol {
