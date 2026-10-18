@@ -3,8 +3,11 @@
 // in it, every matching setting from every module shows on the right, grouped by module and ready to use.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowCounterClockwise, ArrowsDownUp, CaretDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, Plus, SlidersHorizontal, X } from "@phosphor-icons/react";
-import { ColourPicker } from "./ColourPicker";
+import { ColourPicker, ColourPop } from "./ColourPicker";
 import { Select } from "./Select";
+import { FontPick } from "./Actions";
+import { listOpen } from "./Menu";
+import { NumberField, Segmented } from "./Fields";
 import type { Swatch } from "./settings";
 import type { ExportFormat } from "./export";
 import { BACKGROUNDS, COLOURS, ELEMENT_COLOURS, FONTS, PAGE_NAMES, PAGES, PRESETS, pageSize, presetOf, type DocStyle, type PageName } from "./docstyle";
@@ -66,12 +69,12 @@ function PaletteEditor({ palette, onPalette, adding }: { palette: Swatch[]; onPa
           <div className="palette-line">
             <button className="swatch" style={{ background: c.hex }} aria-label={`Change ${c.name}`} aria-expanded={open === k} onClick={() => setOpen(open === k ? undefined : k)} />
             <input className="palette-name" aria-label="Name" value={c.name} maxLength={40} onChange={(e) => change(k, { name: e.target.value })} onBlur={(e) => { if (!e.target.value.trim()) change(k, { name: `Colour ${k + 1}` }); }} />
-            <button className="text-button" aria-label={`Remove ${c.name}`} title="Remove" onClick={() => { onPalette(palette.filter((_, i) => i !== k)); setOpen(undefined); }}><X size={12} weight="bold" /></button>
+            <button className="text-button" aria-label={`Remove ${c.name}`} title="Remove" onClick={() => { onPalette(palette.filter((_, i) => i !== k)); setOpen(undefined); }}><X size={12} /></button>
           </div>
           {open === k && <ColourPicker value={c.hex} onChange={(hex) => change(k, { hex })} />}
         </div>
       ))}
-      {palette.length < 20 && <button className="palette-add" onClick={add}><Plus size={12} weight="bold" aria-hidden /> Add a colour</button>}
+      {palette.length < 20 && <button className="palette-add" onClick={add}><Plus size={12} aria-hidden /> Add a colour</button>}
     </div>
   );
 }
@@ -88,7 +91,7 @@ function ElementColours({ colours, onColours }: { colours: Record<string, string
             <div className="palette-line">
               <button className="swatch" style={{ background: hex }} aria-label={`Change ${el}`} aria-expanded={open === el} onClick={() => setOpen(open === el ? undefined : el)} />
               <span className="palette-name">{el}</span>
-              {colours[el] && <button className="text-button" aria-label={`Reset ${el}`} title="Reset" onClick={() => { const { [el]: _, ...rest } = colours; onColours(rest); }}><ArrowCounterClockwise size={12} weight="bold" /></button>}
+              {colours[el] && <button className="text-button" aria-label={`Reset ${el}`} title="Reset" onClick={() => { const { [el]: _, ...rest } = colours; onColours(rest); }}><ArrowCounterClockwise size={12} /></button>}
             </div>
             {open === el && <ColourPicker value={hex} onChange={(h) => onColours({ ...colours, [el]: h })} />}
           </div>
@@ -99,39 +102,6 @@ function ElementColours({ colours, onColours }: { colours: Record<string, string
 }
 
 // ——— Fields ———
-
-// A number with its unit inside the field. It keeps what is being typed (such as "0.") until it is a usable value.
-function NumberField({ value, unit, label, onChange }: { value: number; unit: string; label: string; onChange: (n: number) => void }) {
-  const [text, setText] = useState(String(value));
-  const focused = useRef(false);
-  useEffect(() => { if (!focused.current) setText(String(value)); }, [value]);
-  return (
-    <span className="unit-field">
-      <input
-        aria-label={label}
-        inputMode="decimal"
-        value={text}
-        onFocus={(e) => { focused.current = true; e.target.select(); }}
-        onBlur={() => { focused.current = false; setText(String(value)); }}
-        onChange={(e) => {
-          const t = e.target.value.replace(/[^\d.]/g, "");
-          setText(t);
-          const n = Number(t);
-          if (t && Number.isFinite(n) && n > 0) onChange(n);
-        }}
-        onKeyDown={(e) => {
-          // Up and down nudge the value: by 0.1, or by 1 with Shift.
-          if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-          e.preventDefault();
-          const step = e.shiftKey ? 1 : 0.1, n = Math.max(step, Math.round((value + (e.key === "ArrowUp" ? step : -step)) * 100) / 100);
-          setText(String(n));
-          onChange(n);
-        }}
-      />
-      <span className="unit">{unit}</span>
-    </span>
-  );
-}
 
 function Switch({ on, label, onChange }: { on: boolean; label: string; onChange: (on: boolean) => void }) {
   return <button className="switch" role="switch" aria-checked={on} aria-label={label} onClick={() => onChange(!on)}><span /></button>;
@@ -177,7 +147,7 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
       <button ref={button} className="page-button" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)}>
         <PageThumb w={w} h={h} size={14} />
         <span>{PAGE_NAMES[style.page]}</span>
-        <CaretDown size={11} aria-hidden />
+        <CaretDown size={12} aria-hidden />
       </button>
       {open && place && (
         <div ref={menu} className={place.above ? "page-menu above" : "page-menu"} role="dialog" aria-label="Page size" style={{ left: place.left, top: place.top, width }}>
@@ -198,9 +168,7 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
             <NumberField label="Width" unit={unit} value={fmt(w, unit)} onChange={(v) => setCustom(0, v)} />
             <span className="times">×</span>
             <NumberField label="Height" unit={unit} value={fmt(h, unit)} onChange={(v) => setCustom(1, v)} />
-            <span className="segmented units" role="radiogroup" aria-label="Units">
-              {(["mm", "cm", "in"] as const).map((u) => <button key={u} role="radio" aria-checked={unit === u} onClick={() => setUnit(u)}>{u}</button>)}
-            </span>
+            <Segmented className="units" label="Units" value={unit} options={[["mm", "mm"], ["cm", "cm"], ["in", "in"]]} onChange={setUnit} />
           </div>
           <span
             className="grip"
@@ -224,20 +192,10 @@ function PageSize({ style, change }: { style: DocStyle; change: (p: Partial<DocS
 }
 
 // The page backgrounds, each a small page of itself, then a colour of the user's own (ChemDraw keeps a background
-// colour in each document): its button opens the colour picker under it.
+// colour in each document): its button opens the colour picker by it.
 function Backgrounds({ value, onChange }: { value: DocStyle["background"]; onChange: (b: DocStyle["background"]) => void }) {
-  const [open, setOpen] = useState(false);
-  const button = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null), own = value.startsWith("#") ? value : undefined;
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: PointerEvent) => { if (!menu.current?.contains(e.target as Node) && !button.current?.contains(e.target as Node)) setOpen(false); };
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setOpen(false); button.current?.focus(); } };
-    addEventListener("pointerdown", away, true);
-    addEventListener("keydown", esc, true);
-    return () => { removeEventListener("pointerdown", away, true); removeEventListener("keydown", esc, true); };
-  }, [open]);
-  // The picker opens below the button, or above it when there is no room below.
-  const r = open ? button.current?.getBoundingClientRect() : undefined, above = !!r && r.bottom + 260 > innerHeight - 8 && r.top - 260 > 8;
+  const [open, setOpen] = useState<DOMRect>();
+  const button = useRef<HTMLButtonElement>(null), own = value.startsWith("#") ? value : undefined;
   return (
     <span className="paper-choices" role="radiogroup" aria-label="Background">
       {BACKGROUNDS.map(([b, name]) => (
@@ -245,15 +203,11 @@ function Backgrounds({ value, onChange }: { value: DocStyle["background"]; onCha
           <span />
         </button>
       ))}
-      <button ref={button} role="radio" aria-checked={!!own} aria-label="Custom colour" title="Custom colour" aria-haspopup="dialog" aria-expanded={open} className="paper-choice own"
-        onClick={() => { if (!own) onChange("#FFFFFF"); setOpen(!open); }}>
-        <span style={own ? { background: own } : undefined}>{!own && <Plus size={10} weight="bold" aria-hidden />}</span>
+      <button ref={button} role="radio" aria-checked={!!own} aria-label="Custom colour" title="Custom colour" aria-haspopup="dialog" aria-expanded={!!open} className="paper-choice own"
+        onClick={() => { if (!own) onChange("#FFFFFF"); setOpen(open ? undefined : button.current!.getBoundingClientRect()); }}>
+        <span style={own ? { background: own } : undefined}>{!own && <Plus size={12} aria-hidden />}</span>
       </button>
-      {open && r && (
-        <div ref={menu} className={above ? "page-menu paper-picker above" : "page-menu paper-picker"} role="dialog" aria-label="Background colour" style={{ left: Math.max(8, Math.min(r.right - 208, innerWidth - 216)), top: above ? r.top - 6 : r.bottom + 6 }}>
-          <ColourPicker value={own ?? "#FFFFFF"} onChange={(hex) => onChange(hex as DocStyle["background"])} />
-        </div>
-      )}
+      {open && <ColourPop anchor={open} keep={button.current} label="Background colour" value={own ?? "#FFFFFF"} onChange={(hex) => onChange(hex as DocStyle["background"])} onClose={() => setOpen(undefined)} />}
     </span>
   );
 }
@@ -317,12 +271,12 @@ function KeyChips({ id, map, recording, onRecord, onRemove }: { id: string; map:
       {keys.map((k, i) => (
         <span key={`${k}${i}`} className={recording === i ? "key-chip recording" : "key-chip"}>
           <button onClick={() => onRecord(i)} aria-label={`Change ${keyLabel(k)}`}>{recording === i ? "Press a key" : keyLabel(k)}</button>
-          {recording !== i && <button className="key-remove" onClick={() => onRemove(i)} aria-label={`Remove ${keyLabel(k)}`}><X size={9} weight="bold" /></button>}
+          {recording !== i && <button className="key-remove" onClick={() => onRemove(i)} aria-label={`Remove ${keyLabel(k)}`}><X size={12} /></button>}
         </span>
       ))}
       {recording === keys.length
         ? <span className="key-chip recording"><button>Press a key</button></span>
-        : <button className="key-add" onClick={() => onRecord(keys.length)} aria-label="Add a key" title="Add a key"><Plus size={11} weight="bold" /></button>}
+        : <button className="key-add" onClick={() => onRecord(keys.length)} aria-label="Add a key" title="Add a key"><Plus size={12} /></button>}
     </span>
   );
 }
@@ -359,7 +313,7 @@ export function SettingsWindow(p: Props) {
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") { e.preventDefault(); search.current?.focus(); return; }
-      if (e.key !== "Escape") return;
+      if (e.key !== "Escape" || listOpen()) return;
       e.preventDefault();
       e.stopPropagation();
       if (query) setQuery("");
@@ -370,7 +324,6 @@ export function SettingsWindow(p: Props) {
   }, [recording, query, map, p]);
   useEffect(() => { search.current?.focus(); }, []);
 
-  const fontOptions = FONTS.map((f): [string, string] => [f, f]);
   const presets: [string, string][] = [...Object.keys(PRESETS).map((x): [string, string] => [x, x]), ...(style.preset === "Custom" ? [["Custom", "Custom"] as [string, string]] : [])];
   const files = p.files, setFiles = (patch: Partial<FilePrefs>) => p.onFiles({ ...files, ...patch });
 
@@ -382,27 +335,25 @@ export function SettingsWindow(p: Props) {
       num("bond", "Bond length", "pt", "bond length fixed size"), num("line", "Line width", "pt", "line width bonds arrows"),
       num("bold", "Bold width", "pt", "bold width wedge"), num("spacing", "Bond spacing", "%", "double bond spacing gap"),
       num("hash", "Hash spacing", "pt", "hash hashed wedge spacing"), num("margin", "Margin", "pt", "label margin clearance"),
-      d("document", "Style", "Atom labels", "atom label font typeface", <Select label="Atom label font" value={style.labelFont} options={fontOptions} onChange={(v) => change({ labelFont: v })} />),
+      d("document", "Style", "Atom labels", "atom label font typeface", <FontPick label="Atom label font" font={style.labelFont} fonts={FONTS} onPick={(v) => change({ labelFont: v })} className="select-field" />),
       num("labelSize", "Label size", "pt", "atom label font size"),
       d("document", "Style", "Label terminal carbons", "terminal carbon labels ch3 methyl show", <Switch on={style.terminalLabels} label="Label terminal carbons" onChange={(on) => change({ terminalLabels: on })} />),
       d("document", "Style", "Label every carbon", "non-terminal carbon labels all carbons show", <Switch on={style.carbonLabels} label="Label every carbon" onChange={(on) => change({ carbonLabels: on })} />),
       d("document", "Style", "Hide implicit hydrogens", "implicit hydrogens hide labels h", <Switch on={style.hideH} label="Hide implicit hydrogens" onChange={(on) => change({ hideH: on })} />),
-      d("document", "Text", "Captions", "caption text font typeface", <Select label="Caption font" value={style.captionFont} options={fontOptions} onChange={(v) => change({ captionFont: v })} />),
+      d("document", "Text", "Captions", "caption text font typeface", <FontPick label="Caption font" font={style.captionFont} fonts={FONTS} onPick={(v) => change({ captionFont: v })} className="select-field" />),
       num("captionSize", "Caption size", "pt", "caption text font size", "Text"),
       d("document", "Text", "Colour", "text colour caption", (
         <span className="swatches" role="radiogroup" aria-label="Text colour">
           {[...COLOURS, ...p.palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => (
             <button key={`${name}${hex}`} role="radio" aria-checked={style.colour.toLowerCase() === hex.toLowerCase()} aria-label={name} title={name} className="swatch" style={{ background: hex }} onClick={() => change({ colour: hex })} />
           ))}
-          <button className="swatch custom" title="Add a colour" aria-label="Add a colour" onClick={() => p.onModule("colours")}><Plus size={10} weight="bold" aria-hidden /></button>
+          <button className="swatch custom" title="Add a colour" aria-label="Add a colour" onClick={() => p.onModule("colours")}><Plus size={12} aria-hidden /></button>
         </span>
       ), true),
       d("document", "Page", "Size", "page paper size a4 a3 letter custom half column", <PageSize style={style} change={change} />),
       d("document", "Page", "Orientation", "page orientation portrait landscape", (
-        <span className="segmented" role="radiogroup" aria-label="Orientation">
-          <button role="radio" aria-checked={!style.landscape} aria-label="Portrait" title="Portrait" onClick={() => change({ landscape: false })}><span className="page-glyph" /></button>
-          <button role="radio" aria-checked={style.landscape} aria-label="Landscape" title="Landscape" onClick={() => change({ landscape: true })}><span className="page-glyph wide" /></button>
-        </span>
+        <Segmented label="Orientation" value={style.landscape ? "landscape" : "portrait"} onChange={(v) => change({ landscape: v === "landscape" })}
+          options={[["portrait", <span className="page-glyph" />, "Portrait"], ["landscape", <span className="page-glyph wide" />, "Landscape"]]} />
       )),
       d("document", "Page", "Gridlines", "grid gridlines guides page", <Select label="Gridlines" value={String(style.grid)} options={[["0", "None"], ["5", "5 mm"], ["10", "10 mm"], ["20", "20 mm"]]} onChange={(v) => change({ grid: Number(v) })} />),
       d("document", "Page", "Page edges", "page edges outline guides", <Switch on={style.edges} label="Page edges" onChange={(on) => change({ edges: on })} />),
@@ -410,10 +361,7 @@ export function SettingsWindow(p: Props) {
         <Backgrounds value={style.background} onChange={(background) => change({ background })} />
       )),
       d("panel", "Small actions", "Show as", "actions panel small actions menus sections pop out buttons", (
-        <span className="segmented" role="radiogroup" aria-label="Show small actions as">
-          <button role="radio" aria-checked={!p.panelMenus} onClick={() => p.onPanelMenus(false)}>Sections</button>
-          <button role="radio" aria-checked={p.panelMenus} onClick={() => p.onPanelMenus(true)}>Menus</button>
-        </span>
+        <Segmented label="Show small actions as" value={p.panelMenus ? "menus" : "sections"} onChange={(v) => p.onPanelMenus(v === "menus")} options={[["sections", "Sections"], ["menus", "Menus"]]} />
       )),
       // ChemDraw's text preference: in a caption Return makes a new line, unless Option-Return is asked for.
       d("keys", "Typing", "New line in captions", "caption text new line return enter option", (
@@ -432,7 +380,7 @@ export function SettingsWindow(p: Props) {
       d("files", "Export", "Format", "export format pdf svg png cdxml file save", <Select label="Export format" value={files.format} options={[["oct", "Octet drawing"], ["pdf", "PDF"], ["png", "PNG"], ["svg", "SVG"], ["cdxml", "CDXML (ChemDraw)"], ["mol", "MOL"], ["sdf", "SDF"], ["smi", "SMILES"]]} onChange={(v) => setFiles({ format: v as FilePrefs["format"] })} />),
       d("files", "Export", "PNG resolution", "png image resolution dpi scale", <Select label="PNG resolution" value={String(files.dpi)} options={DPIS} onChange={(v) => setFiles({ dpi: Number(v) })} />),
       d("files", "Export", "Background", "background transparent white png svg", <Select label="Background" value={files.background} options={[["transparent", "Transparent"], ["white", "White"]]} onChange={(v) => setFiles({ background: v as FilePrefs["background"] })} />),
-      d("files", "Export", "Margin", "export margin padding border", <NumberField label="Margin" unit="pt" value={files.margin} onChange={(n) => setFiles({ margin: n })} />),
+      d("files", "Export", "Margin", "export margin padding border", <NumberField label="Margin" unit="pt" min={0} max={72} step={1} value={files.margin} onChange={(n) => setFiles({ margin: n })} />),
       ...([["pdf", "PDF, with the structure inside", "pdf word powerpoint keynote office"], ["cdxml", "CDXML", "cdxml chemdraw"], ["mol", "MOL", "mol molfile"], ["smiles", "SMILES", "smiles text"]] as const).map(([k, name, words]) =>
         d("files", "Copy", name, `clipboard copy paste ${words}`, <Switch on={files.clipboard[k]} label={name} onChange={(on) => setFiles({ clipboard: { ...files.clipboard, [k]: on } })} />)),
       d("colours", "Colours", "Your colours", "colour colours palette custom swatch named add", <PaletteEditor palette={p.palette} onPalette={p.onPalette} adding={p.adding} />, true),
@@ -456,7 +404,7 @@ export function SettingsWindow(p: Props) {
         {!query && (
           <div className="settings-foot">
             {p.isDefault
-              ? <span className="quiet-note"><Check size={14} weight="bold" aria-hidden /> Default for new documents</span>
+              ? <span className="quiet-note"><Check size={16} aria-hidden /> Default for new documents</span>
               : <button className="text-button" onClick={p.onDefault}>Use for new documents</button>}
           </div>
         )}
@@ -478,9 +426,9 @@ export function SettingsWindow(p: Props) {
       <div className="settings-window" role="dialog" aria-modal="true" aria-label="Settings">
         <nav className="settings-sidebar" aria-label="Settings modules">
           <label className="settings-search">
-            <MagnifyingGlass size={14} aria-hidden />
+            <MagnifyingGlass size={16} aria-hidden />
             <input ref={search} type="search" placeholder="Search" aria-label="Search settings" spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)} />
-            {query && <button className="search-clear" onClick={() => { setQuery(""); search.current?.focus(); }} aria-label="Clear search"><X size={10} weight="bold" /></button>}
+            {query && <button className="search-clear" onClick={() => { setQuery(""); search.current?.focus(); }} aria-label="Clear search"><X size={12} /></button>}
           </label>
           {MODULES.map((m) => (
             <button key={m.id} className="module" aria-current={!query && p.module === m.id ? "page" : undefined}
@@ -495,7 +443,7 @@ export function SettingsWindow(p: Props) {
         <div className="settings-main">
           <header>
             <h2>{query ? "Search" : MODULES.find((m) => m.id === p.module)!.name}</h2>
-            <button className="actions-close" onClick={p.onClose} aria-label="Close settings" title="Close"><X size={14} /></button>
+            <button className="actions-close" onClick={p.onClose} aria-label="Close settings" title="Close settings"><X size={12} /></button>
           </header>
           <div className="settings-body" key={query ? "search" : p.module}>
             {query

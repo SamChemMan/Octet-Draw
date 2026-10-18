@@ -9,7 +9,7 @@
 
 import { FONTS, PAGES, fontName, pageSize, readStyle, type DocStyle } from "./docstyle.ts";
 import {
-  HBOND, HIGHLIGHT, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, straightArrow, tableLayout, takesHeads, tlcLayout,
+  HBOND, HIGHLIGHT, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, tlcLayout, turnPoint,
   ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, headSize, headOfLength, marked, ellipsePoints, sizedHead, turns, type HeadSize,
   type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape, type RingFill,
   type LineStyle, type Mol, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
@@ -17,7 +17,7 @@ import {
 import { ELEMENTS, anchorElement, formulaRuns, isElement, units } from "./labels.ts";
 import { normalise, runsOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
 import { findReaction } from "./reaction.ts";
-import { fragments } from "./edit.ts";
+import { fragments, groupParents, tidyGroups } from "./edit.ts";
 import { kekulise, rings } from "./rings.ts";
 import type { Cycle } from "./cycle.ts";
 
@@ -273,16 +273,33 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   const fresh = () => next++;
   const idOf = new Map<number, number>(own.map((id) => [id, sound ? id : fresh()]));
   // Z: one drawing order for the page (spec 7.1), back to front as Octet draws: fills, orbitals, structures, arrows, text.
-  let z = 0;
-  const Z = () => (z < 32767 ? ++z : z);
+  // Things with a draw order (order.ts) each take a band of their own, under or over all of that, in their order.
+  const orders = [...new Set([...mol.atoms, ...(mol.captions ?? []), ...(mol.arrows ?? []), ...(mol.shapes ?? []), ...(mol.cycles ?? [])].flatMap((x) => (x.order ? [x.order] : [])))].sort((p, q) => p - q);
+  const band = Math.floor(16000 / Math.max(1, orders.length)), back = orders.filter((o) => o < 0).length, filled = new Map<number, number>();
+  const starts = new Map(orders.map((o, k) => [o, 1 + k * band + (o > 0 ? 16384 : 0)]));
+  let z = back * band, zOrder: number | undefined; // zOrder: the order of the thing being written
+  const Z = () => {
+    if (!zOrder) return z < back * band + 16384 ? ++z : z;
+    const n = filled.get(zOrder) ?? 0;
+    filled.set(zOrder, Math.min(n + 1, band - 1));
+    return starts.get(zOrder)! + n;
+  };
 
   // Everything on the page, with its type rank (ChemDraw writes children grouped by type, spec 7.2) and its group.
   type Out = { xml: string; rank: number; group?: number; box: Box };
   const outs: Out[] = [];
+  // Groups nest: each object goes in the smallest group that holds it, inner groups first. Text that belongs to a
+  // structure, arrow or cycle goes in the group of what it belongs to, so ChemDraw moves them together.
+  const groups = mol.groups ?? [], parentOf = groupParents(groups);
+  const innerFirst = groups.map((_, k) => k).sort((p, q) => groups[p].atoms.length + groups[p].items.length - groups[q].atoms.length - groups[q].items.length || q - p);
   const groupOfItem = new Map<number, number>(), groupOfAtom = new Map<number, number>();
-  for (const g of mol.groups ?? []) {
+  for (const g of innerFirst.map((k) => groups[k])) {
     for (const id of g.items) if (!groupOfItem.has(id)) groupOfItem.set(id, g.id);
     for (const i of g.atoms) if (!groupOfAtom.has(i)) groupOfAtom.set(i, g.id);
+  }
+  for (const c of mol.captions ?? []) {
+    const host = groupOfItem.get(c.id) ?? (c.under?.length ? groupOfAtom.get(c.under[0]) : c.on ? groupOfItem.get(c.on.arrow) : c.cycle && groupOfItem.get(c.cycle.cycle));
+    if (host !== undefined) groupOfItem.set(c.id, host);
   }
   const put = (xml: string, rank: number, box: Box, item?: number) => outs.push({ xml, rank, box, group: item === undefined ? undefined : groupOfItem.get(item) });
   const run = (text: string, s: { font: string; size: number; colour?: string; face: number }) => {
@@ -297,37 +314,36 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       run(text, { font: style.captionFont, size, colour: c, face: 0 })), 2, [left, p[1] - size, left + w, p[1]], item);
   };
 
-  // Shapes: boxes and ovals as graphics with their 3D frame (spec 9.2), brackets as one graphic a side, TLC plates,
-  // and tables as a group of lines and text that ChemDraw shows, with the table itself in Octet's data.
-  // A shape brought to the front is written after the structures, arrows and text, so its Z is above theirs.
-  const shapeOut = (sh: Shape) => {
+  // Shapes: boxes and ovals as graphics with their 3D frame (spec 9.2), turned as drawn, brackets as one graphic a
+  // side, TLC plates, and tables as a group of lines and text that ChemDraw shows, with the table itself in Octet's
+  // data. A line width set on the shape is its LineWidth. Faded, which CDXML cannot name, goes as Shaded and in Octet's
+  // data; a bold outline is the Bold line type.
+  for (const sh of mol.shapes ?? []) {
+    zOrder = sh.order;
     const id = idOf.get(sh.id)!, [x0, y0] = at([Math.min(sh.from[0], sh.to[0]), Math.max(sh.from[1], sh.to[1])]), [x1, y1] = at([Math.max(sh.from[0], sh.to[0]), Math.min(sh.from[1], sh.to[1])]);
-    const c: P = [(x0 + x1) / 2, (y0 + y1) / 2], hw = (x1 - x0) / 2, hh = (y1 - y0) / 2;
-    // A turned shape: its frame's axes turned (anticlockwise on the page is clockwise with y down), and its box round
-    // its turned corners.
-    const r = ((turns(sh) ? sh.angle ?? 0 : 0) * Math.PI) / 180, [cs, sn] = [Math.cos(r), Math.sin(r)];
-    const turned = (q: P): P => [c[0] + (q[0] - c[0]) * cs + (q[1] - c[1]) * sn, c[1] - (q[0] - c[0]) * sn + (q[1] - c[1]) * cs];
-    const box: Box = r ? boxOf([[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map((q) => turned(q as P))) : [x0, y0, x1, y1];
-    const frame = { Center3D: pt3(c), MajorAxisEnd3D: pt3(turned([c[0] + hw, c[1]])), MinorAxisEnd3D: pt3(turned([c[0], c[1] + hh])) };
+    const up: Box = [x0, y0, x1, y1], c: P = [(x0 + x1) / 2, (y0 + y1) / 2], hw = (x1 - x0) / 2, hh = (y1 - y0) / 2;
+    // Points of the upright shape (page coordinates) where the turned shape has them, and the box round it as drawn.
+    const middle: P = [(sh.from[0] + sh.to[0]) / 2, (sh.from[1] + sh.to[1]) / 2], turned = (q: P): P => (sh.angle ? at(turnPoint(q, middle, sh.angle)) : at(q));
+    const drawn = shapeBounds(sh), box: Box = sh.angle ? [...at([drawn[0], drawn[3]]), ...at([drawn[2], drawn[1]])] as Box : up;
+    const page = (q: P): P => [middle[0] + (q[0] - c[0]) / B, middle[1] - (q[1] - c[1]) / B];
+    const frame = { Center3D: pt3(c), MajorAxisEnd3D: pt3(turned(page([c[0] + hw, c[1]]))), MinorAxisEnd3D: pt3(turned(page([c[0], c[1] + hh]))) };
     const shadow = sh.shadow ? Math.round(((sh.shade ?? SHADE).depth * B * 100) / line) : undefined;
-    const ink = colour(sh.kind === "highlight" ? sh.colour ?? HIGHLIGHT : sh.colour);
-    // Faded, which CDXML cannot name, goes as Shaded and in Octet's data.
-    const own = { shade: sh.shade, fill: sh.fill === "faded" ? "faded" : undefined, front: sh.front, angle: r ? sh.angle : undefined };
+    const ink = colour(sh.kind === "highlight" ? sh.colour ?? HIGHLIGHT : sh.colour), width = sh.width === undefined ? undefined : fmt(sh.width), faded = sh.fill === "faded" ? "faded" : undefined;
     if (sh.kind === "box" || sh.kind === "rounded" || sh.kind === "highlight") {
-      const bits = [sh.kind === "rounded" && "RoundEdge", sh.shadow && "Shadow", (sh.fill === "shaded" || sh.fill === "faded") && "Shaded", (sh.fill === "solid" || sh.kind === "highlight") && "Filled", sh.dashed && "Dashed", sh.bold && "Bold"].filter(Boolean);
-      put(el("graphic", { id, BoundingBox: `${fmt(box[2])} ${fmt(box[3])} ${fmt(box[0])} ${fmt(box[1])}`, Z: Z(), color: ink, GraphicType: "Rectangle", RectangleType: bits.join(" ") || "Plain",
-        CornerRadius: sh.kind === "rounded" ? Math.round((0.3 * B * 100) / line) : undefined, ShadowSize: shadow, ...frame, Octet: priv({ kind: sh.kind === "highlight" ? "highlight" : undefined, ...own }) }), 3, box, sh.id);
+      const bits = [sh.kind === "rounded" && "RoundEdge", sh.shadow && "Shadow", (sh.fill === "shaded" || sh.fill === "faded") && "Shaded", (sh.fill === "solid" || sh.kind === "highlight") && "Filled", sh.dashed && "Dashed", sh.boldLine && "Bold"].filter(Boolean);
+      put(el("graphic", { id, BoundingBox: `${fmt(box[2])} ${fmt(box[3])} ${fmt(box[0])} ${fmt(box[1])}`, Z: Z(), color: ink, LineWidth: width, GraphicType: "Rectangle", RectangleType: bits.join(" ") || "Plain",
+        CornerRadius: sh.kind === "rounded" ? Math.round((0.3 * B * 100) / line) : undefined, ShadowSize: shadow, ...frame, Octet: priv({ kind: sh.kind === "highlight" ? "highlight" : undefined, shade: sh.shade, angle: sh.angle, fill: faded }) }), 3, box, sh.id);
     } else if (sh.kind === "oval") {
-      const bits = [Math.abs(hw - hh) < 0.01 && "Circle", (sh.fill === "shaded" || sh.fill === "faded") && "Shaded", sh.fill === "solid" && "Filled", sh.dashed && "Dashed", sh.bold && "Bold", sh.shadow && "Shadowed"].filter(Boolean);
-      put(el("graphic", { id, BoundingBox: `${pt(turned([c[0] + hw, c[1]]))} ${pt(c)}`, Z: Z(), color: ink, GraphicType: "Oval", OvalType: bits.join(" "), ShadowSize: shadow, ...frame, Octet: priv(own) }), 3, box, sh.id);
+      const bits = [Math.abs(hw - hh) < 0.01 && "Circle", (sh.fill === "shaded" || sh.fill === "faded") && "Shaded", sh.fill === "solid" && "Filled", sh.dashed && "Dashed", sh.boldLine && "Bold", sh.shadow && "Shadowed"].filter(Boolean);
+      put(el("graphic", { id, BoundingBox: `${pt(turned(page([c[0] + hw, c[1]])))} ${pt(c)}`, Z: Z(), color: ink, LineWidth: width, GraphicType: "Oval", OvalType: bits.join(" "), ShadowSize: shadow, ...frame, Octet: priv({ shade: sh.shade, angle: sh.angle, fill: faded }) }), 3, box, sh.id);
     } else if (isBracket(sh)) {
-      // Each bracket runs so its lips point inward: the left one upward, the right one downward (spec 9.9). Turned
-      // brackets keep their turn and their level corners in Octet's data.
+      // Each bracket runs so its lips point inward: the left one upward, the right one downward (spec 9.9), turned
+      // with the shape.
       const sides = sh.side ? [sh.side] : ["left", "right"];
       sides.forEach((side, k) => {
-        const ends = (side === "left" ? [[x0, y1], [x0, y0]] : [[x1, y0], [x1, y1]]).map((q) => pt(turned(q as P))).join(" ");
-        put(el("graphic", { id: k ? fresh() : id, BoundingBox: ends, Z: Z(), color: ink, LineType: sh.dashed ? "Dashed" : undefined, GraphicType: "Bracket", BracketType: { brackets: "Square", parens: "Round", braces: "Curly" }[sh.kind as "brackets"],
-          Octet: priv(k ? { pair: id } : { mark: sh.mark, span: sh.side ? [Math.min(sh.from[0], sh.to[0]), Math.max(sh.from[0], sh.to[0])] : undefined, ...(r ? { angle: sh.angle, corners: [sh.from, sh.to], side: sh.side } : {}) }) }), 3, box, sh.id);
+        const ends = side === "left" ? [[x0, y1], [x0, y0]] : [[x1, y0], [x1, y1]];
+        put(el("graphic", { id: k ? fresh() : id, BoundingBox: ends.map((q) => pt(turned(page(q as P)))).join(" "), Z: Z(), color: ink, LineWidth: width, LineType: sh.dashed ? "Dashed" : undefined, GraphicType: "Bracket", BracketType: { brackets: "Square", parens: "Round", braces: "Curly" }[sh.kind as "brackets"],
+          Octet: priv(k ? { pair: id } : { mark: sh.mark, span: sh.side ? [Math.min(sh.from[0], sh.to[0]), Math.max(sh.from[0], sh.to[0])] : undefined, angle: sh.angle }) }), 3, box, sh.id);
       });
       if (sh.mark) { const m = markAt(sh, 1); note(sh.mark, at([m.x, -m.y]), style.captionSize, m.anchor === "end" ? "right" : "left", sh.colour, sh.id); }
     } else if (sh.kind === "tlc") {
@@ -340,28 +356,28 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
           CurveType: x.style === "shaded" ? 256 : undefined, ShowRf: tlc.rf || x.showRf ? "yes" : undefined });
       };
       const lanes = Array.from({ length: tlc.lanes }, (_, k) => el("tlclane", { id: fresh() }, order.filter((j) => tlc.spots[j].lane === k).map((j) => spot(tlc.spots[j])).join(""))).join("");
-      put(el("tlcplate", { id, BoundingBox: boxText(box), Z: Z(), color: ink, TopLeft: pt([x0, y0]), TopRight: pt([x1, y0]), BottomRight: pt([x1, y1]), BottomLeft: pt([x0, y1]),
+      const face = (sh.bold ? 1 : 0) | (sh.italic ? 2 : 0) | (sh.underline ? 4 : 0);
+      put(el("tlcplate", { id, BoundingBox: boxText(box), Z: Z(), color: ink, LineWidth: width, LabelFont: sh.font ? font(sh.font) : undefined, LabelSize: sh.size ? fmtSize(sh.size) : undefined, LabelFace: face || undefined, TopLeft: pt([x0, y0]), TopRight: pt([x1, y0]), BottomRight: pt([x1, y1]), BottomLeft: pt([x0, y1]),
         OriginFraction: num6(tlc.origin ?? TLC_ORIGIN), SolventFrontFraction: num6(tlc.front ?? TLC_FRONT), ShowOrigin: hide.has("origin") ? undefined : "yes", ShowSolventFront: hide.has("front") ? undefined : "yes", ShowBorders: hide.has("border") ? undefined : "yes",
         Octet: priv({ rf: tlc.rf, hollow: tlc.spots.flatMap((x, k) => (x.style === "hollow" ? [k] : [])).join(" ") || undefined, own: tlc.rf ? tlc.spots.flatMap((x, k) => (x.showRf ? [k] : [])).join(" ") || undefined : undefined,
           order: order.some((j, k) => j !== k) ? order.join(" ") : undefined }) }, lanes), 5, box, sh.id);
     } else if (sh.kind === "table") {
       // The table's rules and cells, laid out as Octet lays them out (text measured with Arial's widths).
-      const t = tableLayout(sh, (s) => widthOf(s, style.captionSize) / B), lines = new Set(linesOf(sh.table)), inner = (n: number) => Array.from({ length: Math.max(0, n - 1) }, (_, k) => k + 1);
+      const size = sh.size ?? style.captionSize, face = (sh.bold ? 1 : 0) | (sh.italic ? 2 : 0) | (sh.underline ? 4 : 0);
+      const t = tableLayout(sh, (s) => widthOf(s, size) / B), lines = new Set(linesOf(sh.table)), inner = (n: number) => Array.from({ length: Math.max(0, n - 1) }, (_, k) => k + 1);
       const across = [...(lines.has("top") ? [t.y1] : []), ...inner(t.rows).filter((r) => lines.has("rows") || (r === 1 && lines.has("header"))).map((r) => t.row(r)), ...(lines.has("bottom") ? [t.y0] : [])];
       const down = [...(lines.has("left") ? [t.x0] : []), ...(lines.has("cols") ? inner(t.cols).map((k) => t.col(k)) : []), ...(lines.has("right") ? [t.x1] : [])];
       const rules = [...across.map((v): [P, P] => [at([t.x0, v]), at([t.x1, v])]), ...down.map((v): [P, P] => [at([v, t.y1]), at([v, t.y0])])];
-      const kids = rules.map(([p, q]) => el("graphic", { id: fresh(), BoundingBox: `${pt(p)} ${pt(q)}`, Z: Z(), color: colour(sh.colour), LineType: sh.dashed ? "Dashed" : undefined, GraphicType: "Line", Octet: DERIVED }));
-      const size = style.captionSize;
+      const kids = rules.map(([p, q]) => el("graphic", { id: fresh(), BoundingBox: `${pt(p)} ${pt(q)}`, Z: Z(), color: colour(sh.colour), LineWidth: sh.table?.weight === undefined ? undefined : fmt(sh.table.weight), LineType: sh.dashed ? "Dashed" : undefined, GraphicType: "Line", Octet: DERIVED }));
       (sh.table?.cells ?? []).forEach((row, r) => row.forEach((text, k) => {
         if (!text) return;
         const align = sh.table?.align?.[k] ?? "centre", x = align === "left" ? t.col(k) + 0.35 : align === "right" ? t.col(k + 1) - 0.35 : t.col(k) + t.widths[k] / 2;
         const p = at([x, t.row(r) - t.heights[r] / 2]), q: P = [p[0], p[1] + 0.35 * size], just = align === "centre" ? "Center" : align === "right" ? "Right" : undefined;
-        kids.push(el("t", { id: fresh(), p: pt(q), Z: Z(), color: colour(sh.colour), CaptionJustification: just, Justification: just, LineHeight: "auto", Octet: DERIVED }, run(text, { font: style.captionFont, size, colour: sh.colour, face: 0 })));
+        kids.push(el("t", { id: fresh(), p: pt(q), Z: Z(), color: colour(sh.colour), CaptionJustification: just, Justification: just, LineHeight: "auto", Octet: DERIVED }, run(text, { font: sh.font ?? style.captionFont, size, colour: sh.colour, face })));
       }));
-      put(el("group", { id, BoundingBox: boxText(box), Z: Z(), color: colour(sh.colour), Octet: priv({ kind: "table", table: sh.table ?? { cells: [[""]] }, dashed: sh.dashed }) }, kids.join("")), 0, box, sh.id);
+      put(el("group", { id, BoundingBox: boxText(box), Z: Z(), color: colour(sh.colour), Octet: priv({ kind: "table", table: sh.table ?? { cells: [[""]] }, dashed: sh.dashed, font: sh.font, size: sh.size, face: face || undefined }) }, kids.join("")), 0, box, sh.id);
     }
-  };
-  for (const sh of mol.shapes ?? []) if (!sh.front) shapeOut(sh);
+  }
 
   // Orbitals and filled pen curves sit behind the structures.
   const curveOut = (a: Arrow) => {
@@ -369,16 +385,17 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const bits = (c.closed ? 1 : 0) | (a.style === "dashed" ? 2 : 0) | (a.style === "bold" ? 4 : 0) | (end === "full" ? 8 : 0) | (start === "full" ? 16 : 0) | (half(end) ? 32 : 0) | (half(start) ? 64 : 0)
       | (a.fill === "solid" ? 128 : 0) | (a.fill === "shaded" || a.fill === "faded" ? 256 : 0) | (a.style === "doubled" ? 512 : 0);
     const qs = c.points.flatMap((q) => [q.c1 ?? q.at, q.at, q.c2 ?? q.at]).map(at), heads = start !== "none" || end !== "none";
-    put(el("curve", { id: idOf.get(a.id)!, Z: Z(), color: colour(a.colour), FillType: a.fill === "solid" ? "Solid" : a.fill ? "Shaded" : undefined, CurveType: bits || undefined,
+    put(el("curve", { id: idOf.get(a.id)!, Z: Z(), color: colour(a.colour), LineWidth: a.width === undefined ? undefined : fmt(a.width), FillType: a.fill === "solid" ? "Solid" : a.fill ? "Shaded" : undefined, CurveType: bits || undefined,
       ArrowheadHead: HEADS[end], ArrowheadTail: HEADS[start], ArrowheadType: HEAD_SHAPES[a.head ?? "solid"], HeadSize: heads ? Math.round(headSize(a).length * 100) : undefined, ArrowheadCenterSize: heads ? Math.round(headSize(a).centre * 100) : undefined, ArrowheadWidth: heads ? Math.round(headSize(a).width * 100) : undefined,
       Closed: c.closed ? "yes" : undefined, CurvePoints: qs.map(pt).join(" "), Octet: priv({ fill: a.fill === "faded" ? "faded" : undefined, style: a.style === "wavy" ? "wavy" : undefined }) }), 4, boxOf(qs), a.id);
   };
   for (const a of mol.arrows ?? []) {
+    zOrder = a.order;
     if (a.kind === "orbital" && a.orbital) {
       const { shape, phase } = a.orbital;
       const name = (ORBITALS.find(([, s, p]) => s === shape && p === phase) ?? ORBITALS.find(([n, s]) => s === shape && n.endsWith("Filled") === (phase === "filled")) ?? ORBITALS.find(([, s]) => s === shape)!)[0];
       const back = ORBITALS.find(([n]) => n === name)!, tip = at(a.to), nucleus = at(a.from);
-      put(el("graphic", { id: idOf.get(a.id)!, BoundingBox: `${pt(tip)} ${pt(nucleus)}`, Z: Z(), color: colour(a.colour), LineType: a.style === "dashed" ? "Dashed" : a.style === "bold" ? "Bold" : undefined, GraphicType: "Orbital", OrbitalType: name,
+      put(el("graphic", { id: idOf.get(a.id)!, BoundingBox: `${pt(tip)} ${pt(nucleus)}`, Z: Z(), color: colour(a.colour), LineWidth: a.width === undefined ? undefined : fmt(a.width), LineType: a.style === "dashed" ? "Dashed" : a.style === "bold" ? "Bold" : undefined, GraphicType: "Orbital", OrbitalType: name,
         Octet: back[1] === shape && back[2] === phase ? undefined : priv({ orbital: a.orbital }) }), 3, boxOf([nucleus], len(sub(tip, nucleus))), a.id);
     } else if (a.kind === "curve" && a.curve?.closed && a.fill) curveOut(a);
   }
@@ -406,6 +423,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       Center3D: pt3(c), MajorAxisEnd3D: pt3(major), MinorAxisEnd3D: pt3(minor), Octet: DERIVED });
   }).join("");
   for (const atoms of frags) {
+    zOrder = mol.atoms[atoms[0]].order;
     let xml = "";
     const boxes: Box[] = [];
     for (const i of atoms) {
@@ -602,35 +620,40 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     }
     const kind = kindOf({ arc: !!arc, head, tail, type, spacing: !!spacing, nogo, dipole: a.kind === "dipole" });
     const lineType = a.style === "dashed" ? "Dashed" : a.style === "bold" ? "Bold" : a.style === "wavy" ? "Wavy" : undefined;
-    const box = boxOf(path, head || tail ? (sizes[a.kind === "block" ? 1 : 2] * line) / 100 : line / 2), z = Z(), legacy = fresh(), c = colour(a.colour);
+    const box = boxOf(path, head || tail ? (sizes[a.kind === "block" ? 1 : 2] * line) / 100 : line / 2), z = Z(), legacy = fresh(), c = colour(a.colour), width = a.width === undefined ? undefined : fmt(a.width);
+    // A catalytic cycle's arrow goes in the cycle's group, and names its cycle so Octet reads the group back.
+    const cycle = derived ? (a as Arrow & { cycle?: number }).cycle : undefined, item = derived ? cycle : a.id;
+    const tag = cycle !== undefined && idOf.has(cycle) ? priv({ d: 1, cycle: idOf.get(cycle) }) : DERIVED;
     legacyOf.set(a.id, legacy);
     // The legacy copy: a line from head to tail, or an arc from the head round its centre, with the old arrow type.
     const legacyType = a.kind === "equilibrium" ? "Equilibrium" : a.kind === "retro" ? "RetroSynthetic" : a.kind === "block" ? "Hollow" : head === "Full" && tail === "Full" ? "Resonance"
       : head === "Full" || (!head && tail === "Full") ? "FullHead" : head || tail ? "HalfHead" : undefined;
     const flip = !arc && !head && !!tail, snapped = arc ? [90, 120, 180, 270].reduce((best, s) => (Math.abs(Math.abs(angular!) - s) < Math.abs(Math.abs(angular!) - best) ? s : best)) * (head && angular! < 0 ? -1 : 1) : undefined;
-    put(el("graphic", { id: legacy, SupersededBy: id, BoundingBox: arc ? `${pt(T)} ${pt(arc.O)}` : flip ? `${pt(S)} ${pt(T)}` : `${pt(T)} ${pt(S)}`, Z: z, color: c, LineType: lineType,
-      GraphicType: arc ? "Arc" : "Line", ArrowType: legacyType, HeadSize: sizes[0], AngularSize: snapped, Octet: derived ? DERIVED : undefined }), 3, box, derived ? undefined : a.id);
+    put(el("graphic", { id: legacy, SupersededBy: id, BoundingBox: arc ? `${pt(T)} ${pt(arc.O)}` : flip ? `${pt(S)} ${pt(T)}` : `${pt(T)} ${pt(S)}`, Z: z, color: c, LineWidth: width, LineType: lineType,
+      GraphicType: arc ? "Arc" : "Line", ArrowType: legacyType, HeadSize: sizes[0], AngularSize: snapped, Octet: derived ? tag : undefined }), 3, box, item);
     // A block arrow's fill: ChemDraw's FillType (faded, which CDXML cannot name, as shaded and in Octet's data).
     const fill = a.kind === "block" && a.fill ? a.fill : undefined;
     put(el("arrow", {
-      id, BoundingBox: boxText(box), Z: z, color: c, LineType: lineType, FillType: fill === "solid" ? "Solid" : fill ? "Shaded" : "None", ArrowheadHead: head, ArrowheadTail: tail, ArrowheadType: type,
+      id, BoundingBox: boxText(box), Z: z, color: c, LineWidth: width, LineType: lineType, FillType: fill === "solid" ? "Solid" : fill ? "Shaded" : "None", ArrowheadHead: head, ArrowheadTail: tail, ArrowheadType: type,
       HeadSize: sizes[0], ArrowheadCenterSize: sizes[1], ArrowheadWidth: sizes[2], ArrowShaftSpacing: spacing, ArrowEquilibriumRatio: a.kind === "equilibrium" && a.ratio && a.ratio !== 1 ? Math.round(a.ratio * 100) : undefined,
       NoGo: nogo, Dipole: a.kind === "dipole" ? "yes" : undefined, AngularSize: angular === undefined ? undefined : fmtAngle(angular),
-      Head3D: pt3(T), Tail3D: pt3(S), ...frame, Octet: derived ? DERIVED : priv({ kind: kind === a.kind ? undefined : a.kind, style: a.style === "doubled" ? "doubled" : undefined, bend: arc ? a.bend : undefined, point: a.point, fill: fill === "faded" ? "faded" : undefined, grid: gridOf(a.id) }),
-    }), 6, box, derived ? undefined : a.id);
+      Head3D: pt3(T), Tail3D: pt3(S), ...frame, Octet: derived ? tag : priv({ kind: kind === a.kind ? undefined : a.kind, style: a.style === "doubled" ? "doubled" : undefined, bend: arc ? a.bend : undefined, point: a.point, fill: fill === "faded" ? "faded" : undefined, grid: gridOf(a.id) }),
+    }), 6, box, item);
   };
   for (const a of mol.arrows ?? []) {
+    zOrder = a.order;
     if (a.kind === "curve" && a.curve) { if (!(a.curve.closed && a.fill)) curveOut(a); }
     else if (a.kind !== "orbital") arrowOut(a, false);
   }
-  for (const a of opts.derived ?? []) if (a.kind !== "orbital" && a.kind !== "curve") arrowOut(a, true);
+  for (const a of opts.derived ?? []) { zOrder = a.order; if (a.kind !== "orbital" && a.kind !== "curve") arrowOut(a, true); }
 
   // Captions: style runs (spec 8.1), the caption's own style as the text's caption style, and the anchor by its
   // alignment. Captions Octet places itself (under a structure, on an arrow) are written where Octet would put them.
   const captions = [...(mol.captions ?? [])].sort((p, q) => p.id - q.id);
   const stacked = new Map<string, number>();
   for (const c of captions) {
-    const size = c.size ?? style.captionSize, align = c.align ?? "centre", lines = c.text.split("\n").length;
+    zOrder = c.order;
+    const size = c.size ?? style.captionSize, align = c.align === "justify" ? "left" : c.align ?? "centre", lines = c.text.split("\n").length;
     let [x, y] = [c.x, c.y];
     const arrow = c.on && mol.arrows?.find((a) => a.id === c.on!.arrow);
     const atoms = (c.under ?? []).filter((i) => i < mol.atoms.length);
@@ -650,15 +673,17 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     // A turned caption (RotationAngle: degrees clockwise on the page, times 65536) turns about p; its box goes round it.
     const r = ((c.angle ?? 0) * Math.PI) / 180, box: Box = r ? boxOf(([[level[0], level[1]], [level[2], level[1]], [level[2], level[3]], [level[0], level[3]]] as P[])
       .map(([qx, qy]) => [p[0] + (qx - p[0]) * Math.cos(r) + (qy - p[1]) * Math.sin(r), p[1] - (qx - p[0]) * Math.sin(r) + (qy - p[1]) * Math.cos(r)] as P)) : level;
-    const just = align === "centre" ? "Center" : align === "right" ? "Right" : undefined, cf = face(whole);
+    const just = c.align === "justify" ? "Full" : align === "centre" ? "Center" : align === "right" ? "Right" : undefined, cf = face(whole);
     put(el("t", {
       id: idOf.get(c.id)!, p: pt(p), BoundingBox: boxText(box), Z: Z(), color: colour(c.colour), CaptionFont: c.font ? font(c.font) : undefined, CaptionSize: c.size, CaptionFace: cf || undefined,
-      CaptionJustification: just, Justification: just, LineHeight: "auto", RotationAngle: c.angle ? Math.round((((-c.angle % 360) + 360) % 360) * 65536) : undefined,
-      Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined }),
+      WordWrapWidth: c.width ? Math.round(c.width * B) : undefined,
+      // Line spacing as ChemDraw writes it: a text's LineHeight is auto or pt, and Variable is its caption style's.
+      CaptionJustification: just, Justification: just, LineHeight: c.lineHeight === "variable" ? undefined : typeof c.lineHeight === "number" ? fmtSize(c.lineHeight) : "auto",
+      CaptionLineHeight: c.lineHeight === "variable" ? "variable" : undefined, RotationAngle: c.angle ? Math.round((((-c.angle % 360) + 360) % 360) * 65536) : undefined,
+      Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined,
+        width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined }),
     }, runs.map((r) => run(r.text, { font: r.font ?? c.font ?? style.captionFont, size: r.size ?? size, colour: r.colour ?? c.colour, face: face({ ...whole, ...r }) })).join("")), 2, box, c.id);
   }
-
-  for (const sh of mol.shapes ?? []) if (sh.front) shapeOut(sh);
 
   // Reaction schemes: each reaction Octet finds (structures, plus signs and arrows in a row) as a scheme with a step
   // per arrow, listing fragments, the legacy arrow graphic, conditions above and below, and atom maps (spec 14).
@@ -695,13 +720,15 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   }
   for (const a of arrows) if (!done.has(a.id) && legacyOf.has(a.id) && captions.some((c) => c.on?.arrow === a.id)) schemes.push(el("scheme", { id: fresh() }, step(a.id, [], [])));
 
-  // Groups hold their structures and objects (Octet's groups do not nest).
+  zOrder = undefined;
+  // Groups hold their structures and objects, inner groups first, each in the group round it (with its own Integral).
   const RANKED = (list: Out[]) => [...list].sort((p, q) => p.rank - q.rank);
-  for (const g of mol.groups ?? []) {
-    const kids = outs.filter((o) => o.group === g.id), box = union(kids.map((o) => o.box));
+  for (const k of innerFirst) {
+    const g = groups[k], kids = outs.filter((o) => o.group === g.id), box = union(kids.map((o) => o.box));
     if (!kids.length || !box) continue;
     for (const o of kids) o.group = -1;
-    outs.push({ xml: el("group", { id: idOf.get(g.id)!, BoundingBox: boxText(box), Z: Z(), Integral: g.integral ? "yes" : undefined }, RANKED(kids).map((o) => o.xml).join("")), rank: 0, box });
+    const parent = parentOf[k];
+    outs.push({ xml: el("group", { id: idOf.get(g.id)!, BoundingBox: boxText(box), Z: Z(), Integral: g.integral ? "yes" : undefined }, RANKED(kids).map((o) => o.xml).join("")), rank: 0, box, group: parent === undefined ? undefined : groups[parent].id });
   }
   const top = outs.filter((o) => o.group !== -1), all = union(top.map((o) => o.box)) ?? [0, 0, 0, 0];
   const cycles = (mol.cycles ?? []).map((c: Cycle) => ({ id: idOf.get(c.id), centre: c.centre, radius: c.radius, clockwise: c.clockwise, nodes: c.nodes.map((n) => n.map((i) => nodeId.get(i)).filter((v) => v !== undefined)), colour: c.colour }));
@@ -742,9 +769,9 @@ function pick(m: Mol, sel: { atoms: Iterable<number>; items: Iterable<number> })
     return out;
   });
   const shapes = (m.shapes ?? []).filter((s) => items.has(s.id)), ids = new Set([...arrows, ...cycles, ...captions, ...shapes].map((x) => x.id));
-  const groups = (m.groups ?? []).map((g) => ({ ...g, atoms: keep(g.atoms), items: g.items.filter((id) => ids.has(id)) })).filter((g) => g.atoms.length + g.items.length >= 2);
+  const groups = (m.groups ?? []).map((g) => ({ ...g, atoms: keep(g.atoms), items: g.items.filter((id) => ids.has(id)) }));
   const fills = (m.fills ?? []).filter((f) => f.atoms.every((i) => map.has(i))).map((f) => ({ ...f, atoms: keep(f.atoms) }));
-  return { atoms: m.atoms.filter((_, i) => map.has(i)), bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions, arrows, shapes, cycles, groups, ...(fills.length ? { fills } : {}) };
+  return tidyGroups({ atoms: m.atoms.filter((_, i) => map.has(i)), bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions, arrows, shapes, cycles, groups, ...(fills.length ? { fills } : {}) });
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -850,6 +877,22 @@ export function fromCdxml(text: string): CdxmlRead {
     terminalLabels: yes(r.ShowTerminalCarbonLabels), carbonLabels: yes(r.ShowNonTerminalCarbonLabels), hideH: yes(r.HideImplicitHydrogens),
   });
 
+  // Octet's own angle for a turned shape, when the shape as ChemDraw holds it agrees (to 0.1°); else the one read.
+  const exact = (own: unknown, read: number) => (isNum(own, -360, 360) && Math.abs(((((own as number) - read) % 360) + 540) % 360 - 180) < 0.1 ? (own as number) : read);
+  // A turned shape set upright (settleShape), with its corners low and high whichever way ChemDraw ran its axes, so
+  // it reads back the same once Octet has written it. The corners' order does not change how a shape draws.
+  const settled = (sh: Shape & { z: number }): Shape & { z: number } => {
+    const s = settleShape(sh) as Shape & { z: number };
+    return { ...s, from: [Math.min(s.from[0], s.to[0]), Math.min(s.from[1], s.to[1])], to: [Math.max(s.from[0], s.to[0]), Math.max(s.from[1], s.to[1])] };
+  };
+  // A table's or TLC plate's text style: a font named, a size in pt, and face bits (bold 1, italic 2, underline 4).
+  const textStyleOf = (name: unknown, size: unknown, face: unknown): Partial<Shape> => ({
+    ...(typeof name === "string" && fontName(name) && name !== style.captionFont ? { font: name } : {}), ...(isNum(size, 4, 144) ? { size: size as number } : {}),
+    ...(isNum(face, 0, 0xffff) && (face as number) & 1 ? { bold: true as const } : {}), ...(isNum(face, 0, 0xffff) && (face as number) & 2 ? { italic: true as const } : {}), ...(isNum(face, 0, 0xffff) && (face as number) & 4 ? { underline: true as const } : {}),
+  });
+  // A line width set on an object (pt), when it is not the document's.
+  const lineWidthOf = (x: Xml) => { const w = real(x.attrs.LineWidth); return w !== undefined && w >= 0.05 && w <= 20 && Math.abs(w - style.line) > 1e-3 ? w : undefined; };
+
   // Octet ids: the file's own when Octet wrote it, otherwise numbered afresh.
   const taken = new Set<number>();
   let nextId = octet ? maxId + 1 : 1;
@@ -863,7 +906,7 @@ export function fromCdxml(text: string): CdxmlRead {
 
   const mol: Mol = { atoms: [], bonds: [] };
   const captions: (Caption & { z: number })[] = [], arrows: (Arrow & { z: number })[] = [], shapes: (Shape & { z: number })[] = [], grids: Grid[] = [];
-  type G = { id: number; atoms: Set<number>; items: number[]; integral?: true };
+  type G = { id: number; atoms: Set<number>; items: number[]; integral?: true; parent?: G };
   const groups: G[] = [];
   const nodeIds: number[] = [], bondIds: number[] = [], bondZs: number[] = [], areas: Xml[] = [];
   const atomOf = new Map<number, number>(), objectOf = new Map<number, number>(), arrowOfGraphic = new Map<number, number>();
@@ -874,17 +917,19 @@ export function fromCdxml(text: string): CdxmlRead {
   const zOf = (x: Xml) => int(x.attrs.Z) ?? 0;
   let fragmentZ = -Infinity; // the highest Z of a structure read so far
   const count = () => { if (captions.length + arrows.length + shapes.length + groups.length > 4 * MAX_OBJECTS) throw new Error(TOO_BIG); };
-  const member = (g: G | undefined, id: number) => g?.items.push(id);
+  // Groups nest: what is in a group is in each group round it too.
+  const member = (g: G | undefined, id: number) => { for (let x = g; x; x = x.parent) x.items.push(id); };
 
   const visit = (x: Xml, group?: G, atoms?: number[]) => {
     const p = priv(x);
-    if (p?.d === 1) return; // written by Octet for ChemDraw's eyes only
+    // Written by Octet for ChemDraw's eyes only. A catalytic cycle's arrows name their cycle, so its group is known.
+    if (p?.d === 1) return void (Number.isInteger(p.cycle) && member(group, p.cycle as number));
     if (x.attrs.Visible !== undefined && !yes(x.attrs.Visible)) { lose("hidden object"); return; }
     count();
     switch (x.name) {
       case "group":
         if (p?.kind === "table") return readTableGroup(x, p, group);
-        { const g = group ?? newGroup(x); for (const k of x.kids) visit(k, g); }
+        { const g = newGroup(x, group); for (const k of x.kids) visit(k, g); }
         return;
       case "fragment": return readFragment(x, group);
       case "t": return readCaption(x, group);
@@ -903,8 +948,8 @@ export function fromCdxml(text: string): CdxmlRead {
       default: return lose(x.name);
     }
   };
-  const newGroup = (x: Xml): G => {
-    const g: G = { id: newId(x), atoms: new Set(), items: [], ...(x.attrs.Integral === "yes" ? { integral: true as const } : {}) };
+  const newGroup = (x: Xml, parent?: G): G => {
+    const g: G = { id: newId(x), atoms: new Set(), items: [], ...(x.attrs.Integral === "yes" ? { integral: true as const } : {}), parent };
     groups.push(g);
     return g;
   };
@@ -913,7 +958,7 @@ export function fromCdxml(text: string): CdxmlRead {
   function readFragment(f: Xml, group?: G) {
     fragmentZ = Math.max(fragmentZ, zOf(f));
     const atoms: number[] = [];
-    for (const k of f.kids) if (k.name === "n") { const i = readNode(k); if (i !== undefined) { atoms.push(i); group?.atoms.add(i); } }
+    for (const k of f.kids) if (k.name === "n") { const i = readNode(k); if (i !== undefined) { atoms.push(i); for (let g = group; g; g = g.parent) g.atoms.add(i); } }
     if (yes(f.attrs.ShowAtomStereo)) for (const i of atoms) mol.atoms[i].cip = true;
     for (const k of f.kids) {
       if (k.name === "b") bondsToRead.push(k);
@@ -1140,7 +1185,13 @@ export function fromCdxml(text: string): CdxmlRead {
     const [x, y] = Array.isArray(xy) && xy.length === 2 && xy.every((v) => isNum(v, -1e6, 1e6)) ? (xy as P) : toOctet(q[0], q[1]);
     const c: Caption & { z: number } = { id: newId(t), text, x, y, z: zOf(t), ...(Number.isFinite(turn) && Math.abs(turn) > 1e-6 ? { angle: Math.round(turn * 1e6) / 1e6 } : {}) };
     for (const k of ["bold", "italic", "underline", "size", "colour", "font"] as const) if (whole[k] !== undefined) (c as Record<string, unknown>)[k] = whole[k];
-    if (just === "Right") c.align = "right"; else if (just !== "Center") c.align = "left";
+    if (just === "Right") c.align = "right"; else if (just === "Full") c.align = "justify"; else if (just !== "Center") c.align = "left";
+    // A width, in pt (spec WordWrapWidth): the caption wraps to it.
+    const wrapAt = real(t.attrs.WordWrapWidth);
+    if (wrapAt !== undefined && wrapAt >= B / 2 && wrapAt <= 1000 * B) c.width = isNum(p?.width, 0.5, 1000) ? (p!.width as number) : wrapAt / B;
+    // Line spacing: auto (Octet's default), variable, or fixed in pt.
+    const lh = t.attrs.LineHeight ?? t.attrs.CaptionLineHeight, fixed = real(lh);
+    if (lh === "variable") c.lineHeight = "variable"; else if (fixed !== undefined && fixed >= 1 && fixed <= 400) c.lineHeight = fixed;
     const normal = normalise(own);
     if (styled(normal)) c.runs = normal;
     if (p?.under) unders.push({ c, nodes: p.under });
@@ -1173,21 +1224,12 @@ export function fromCdxml(text: string): CdxmlRead {
     if (type === "Rectangle" || type === "Oval") {
       const [C, U, V] = [x.attrs.Center3D, x.attrs.MajorAxisEnd3D, x.attrs.MinorAxisEnd3D].map((s) => reals(s, 2) as P | undefined);
       const bits = new Set(((type === "Rectangle" ? x.attrs.RectangleType : x.attrs.OvalType) ?? "").split(/\s+/));
-      let b: Box;
-      let angle = 0;
+      let b: Box, angle = 0;
       if (C && U && V) {
-        const u = sub(U, C), v = sub(V, C);
-        if (Math.abs(u[1]) > 0.01 || Math.abs(v[0]) > 0.01) {
-          // Turned: its half-sides along the frame's axes, and its turn from the long axis (anticlockwise on the page,
-          // a half turn left out as the shape is the same).
-          if (Math.abs(u[0] * v[0] + u[1] * v[1]) > 0.02 * len(u) * len(v)) lose("skewed shape");
-          angle = (Math.atan2(-u[1], u[0]) * 180) / Math.PI;
-          if (angle > 90) angle -= 180; else if (angle <= -90) angle += 180;
-          b = [C[0] - len(u), C[1] - len(v), C[0] + len(u), C[1] + len(v)];
-        } else {
-          const hx = type === "Oval" ? Math.hypot(u[0], v[0]) : Math.abs(u[0]) + Math.abs(v[0]), hy = type === "Oval" ? Math.hypot(u[1], v[1]) : Math.abs(u[1]) + Math.abs(v[1]);
-          b = [C[0] - hx, C[1] - hy, C[0] + hx, C[1] + hy];
-        }
+        // The sides run along the axes; a turned shape takes its angle from the major axis (y runs down the page).
+        const u = sub(U, C), v = sub(V, C), hx = len(u), hy = len(v);
+        angle = exact(p?.angle, Math.round((Math.atan2(-u[1], u[0]) * 180000) / Math.PI) / 1000);
+        b = [C[0] - hx, C[1] - hy, C[0] + hx, C[1] + hy];
       } else if (type === "Rectangle") b = [Math.min(box[0], box[2]), Math.min(box[1], box[3]), Math.max(box[0], box[2]), Math.max(box[1], box[3])];
       else {
         // Only the end of one axis and the centre: the other axis as ChemDraw's own export guesses it (spec 9.7).
@@ -1195,14 +1237,13 @@ export function fromCdxml(text: string): CdxmlRead {
         b = [box[2] - (wide ? a : other), box[3] - (wide ? other : a), box[2] + (wide ? a : other), box[3] + (wide ? other : a)];
       }
       const kind: ShapeKind = type === "Oval" ? "oval" : p?.kind === "highlight" ? "highlight" : bits.has("RoundEdge") ? "rounded" : "box";
-      const sh: Shape & { z: number } = { id: newId(x), kind, from: toOctet(b[0], b[3]), to: toOctet(b[2], b[1]), z };
+      const sh = settled({ id: newId(x), kind, from: toOctet(b[0], b[3]), to: toOctet(b[2], b[1]), angle, z });
+      const w = lineWidthOf(x);
+      if (w) sh.width = w;
       if (kind !== "highlight" && bits.has("Filled")) sh.fill = "solid"; else if (kind !== "highlight" && bits.has("Shaded")) sh.fill = p?.fill === "faded" ? "faded" : "shaded";
       if (bits.has("Shadow") || bits.has("Shadowed")) sh.shadow = true;
       if (bits.has("Dashed")) sh.dashed = true;
-      if (bits.has("Bold")) sh.bold = true;
-      // Octet's own turn is exact; the frame gives it to within the file's 0.01 pt.
-      if (Math.abs(angle) > 1e-3) sh.angle = octet && isNum(p?.angle, -360, 360) && Math.abs(((((p!.angle as number) - angle) % 180) + 270) % 180 - 90) < 0.5 ? p!.angle as number : Math.round(angle * 1e4) / 1e4;
-      if (p?.front === true) sh.front = true;
+      if (bits.has("Bold")) sh.boldLine = true;
       if (colour && !(kind === "highlight" && colour === HIGHLIGHT)) sh.colour = colour;
       const shade = p?.shade as Record<string, unknown> | undefined;
       if (shade && isNum(shade.depth, 0, 1) && isNum(shade.blur, 0, 1) && isNum(shade.opacity, 0, 1)) sh.shade = { depth: shade.depth, blur: shade.blur, opacity: shade.opacity };
@@ -1212,7 +1253,7 @@ export function fromCdxml(text: string): CdxmlRead {
     if (type === "Orbital") {
       const named = ORBITALS.find(([n]) => n === x.attrs.OrbitalType) ?? ORBITALS[0], o = p?.orbital as Record<string, unknown> | undefined;
       const orbital = o && ORBITAL_SHAPES.includes(o.shape as OrbitalShape) && PHASES.includes(o.phase as Phase) ? { shape: o.shape as OrbitalShape, phase: o.phase as Phase } : { shape: named[1], phase: named[2] };
-      const a: Arrow & { z: number } = { id: newId(x), kind: "orbital", from: p2, to: p1, orbital, z, ...(colour ? { colour } : {}), ...(x.attrs.LineType?.includes("Dashed") ? { style: "dashed" as const } : x.attrs.LineType?.includes("Bold") ? { style: "bold" as const } : {}) };
+      const a: Arrow & { z: number } = { id: newId(x), kind: "orbital", from: p2, to: p1, orbital, z, ...(colour ? { colour } : {}), ...(lineWidthOf(x) ? { width: lineWidthOf(x) } : {}), ...(x.attrs.LineType?.includes("Dashed") ? { style: "dashed" as const } : x.attrs.LineType?.includes("Bold") ? { style: "bold" as const } : {}) };
       arrows.push(a);
       objectOf.set(cid, a.id);
       return void member(group, a.id);
@@ -1246,6 +1287,8 @@ export function fromCdxml(text: string): CdxmlRead {
     const style = p?.style === "doubled" ? "doubled" : lines.has("Dashed") ? "dashed" : lines.has("Bold") ? "bold" : lines.has("Wavy") ? "wavy" : undefined;
     if (style) a.style = style;
     if (colour) a.colour = colour;
+    const w = lineWidthOf(x);
+    if (w) a.width = w;
     if (takesHeads(a)) {
       const kind = headsOf(a), start = headOf(s.tail), end = headOf(s.head);
       if (start !== kind.start) a.start = start;
@@ -1323,6 +1366,8 @@ export function fromCdxml(text: string): CdxmlRead {
       if (Math.abs(hs.length - own.length) > 1e-3 || Math.abs(hs.centre - own.centre) > 1e-3 || Math.abs(hs.width - own.width) > 1e-3) a.headSize = hs;
     }
     if (colour) a.colour = colour;
+    const w = lineWidthOf(x);
+    if (w) a.width = w;
     arrows.push(a);
     objectOf.set(int(x.attrs.id) ?? -1, a.id);
     member(group, a.id);
@@ -1360,8 +1405,10 @@ export function fromCdxml(text: string): CdxmlRead {
     if (order.length === spots.length && new Set(order).size === spots.length) { const was = [...spots]; order.forEach((k, j) => { spots[k] = was[j]; }); }
     for (const k of list(p?.hollow)) spots[k].style = "hollow";
     if (p?.rf === true) { tlc.rf = true; const own = new Set(list(p.own)); spots.forEach((s, k) => { if (own.has(k)) s.showRf = true; else delete s.showRf; }); }
-    const sh: Shape & { z: number } = { id: newId(x), kind: "tlc", from: toOctet(box[0], box[3]), to: toOctet(box[2], box[1]), tlc, z: zOf(x) }, colour = colourOf(x.attrs.color);
+    const sh: Shape & { z: number } = { id: newId(x), kind: "tlc", from: toOctet(box[0], box[3]), to: toOctet(box[2], box[1]), tlc, z: zOf(x) }, colour = colourOf(x.attrs.color), w = lineWidthOf(x);
     if (colour) sh.colour = colour;
+    if (w) sh.width = w;
+    Object.assign(sh, textStyleOf(x.attrs.LabelFont === undefined ? undefined : fontOf(fonts.get(int(x.attrs.LabelFont) ?? -1)).font, real(x.attrs.LabelSize), int(x.attrs.LabelFace)));
     const t = tlcLayout(sh);
     for (const s of spots) {
       const d = t.size({ lane: s.lane, rf: s.rf });
@@ -1375,33 +1422,46 @@ export function fromCdxml(text: string): CdxmlRead {
   function readTableGroup(x: Xml, p: Record<string, unknown>, group?: G) {
     const table = readTable(p.table), box = reals(x.attrs.BoundingBox, 4), colour = colourOf(x.attrs.color);
     if (!table || !box) return lose("table");
-    const sh: Shape & { z: number } = { id: newId(x), kind: "table", from: toOctet(box[0], box[3]), to: toOctet(box[2], box[1]), table, z: zOf(x) };
+    const sh: Shape & { z: number } = { id: newId(x), kind: "table", from: toOctet(box[0], box[3]), to: toOctet(box[2], box[1]), table, z: zOf(x), ...textStyleOf(typeof p.font === "string" ? p.font : undefined, p.size, p.face) };
     if (p.dashed === true) sh.dashed = true;
     if (colour) sh.colour = colour;
     addShape(sh, x, group);
   }
 
-  // Brackets: Octet's pairs from its data; ChemDraw's by facing pairs of the same type that overlap (spec 9.9).
+  // Brackets: Octet's pairs from its data; ChemDraw's by facing pairs of the same type that overlap (spec 9.9). A
+  // bracket's lips are on the right of the way it runs, so one that runs up the page is a left bracket, and one that
+  // runs any other way is a left bracket turned (a right bracket is one turned a half).
   function readBrackets() {
-    const done = new Set<number>(), up = (b: (typeof brackets)[number]) => b.ends[3] < b.ends[1];
-    const overlap = (a: number[], b: number[]) => {
-      const lo = Math.max(Math.min(a[1], a[3]), Math.min(b[1], b[3])), hi = Math.min(Math.max(a[1], a[3]), Math.max(b[1], b[3]));
-      return hi - lo > 0.5 * Math.min(Math.abs(a[1] - a[3]), Math.abs(b[1] - b[3]));
+    const done = new Set<number>(), ends = (b: (typeof brackets)[number]): [P, P] => [toOctet(b.ends[0], b.ends[1]), toOctet(b.ends[2], b.ends[3])];
+    const way = (b: (typeof brackets)[number]): P => { const [A, Z] = ends(b), d = sub(Z, A), l = len(d) || 1; return [d[0] / l, d[1] / l]; };
+    const dot = (a: P, b: P) => a[0] * b[0] + a[1] * b[1], mid = (b: (typeof brackets)[number]): P => { const [A, Z] = ends(b); return [(A[0] + Z[0]) / 2, (A[1] + Z[1]) / 2]; };
+    // o faces b: it runs the other way, on b's lips side, and the two overlap along b by half the shorter.
+    const faces = (b: (typeof brackets)[number], o: (typeof brackets)[number]) => {
+      const t = way(b), n: P = [t[1], -t[0]], along = (q: P) => dot(q, t), [A, Z] = ends(b), [C, D] = ends(o);
+      const lo = Math.max(Math.min(along(A), along(Z)), Math.min(along(C), along(D))), hi = Math.min(Math.max(along(A), along(Z)), Math.max(along(C), along(D)));
+      return dot(way(o), t) < -0.99 && dot(sub(mid(o), mid(b)), n) > 0 && hi - lo > 0.5 * Math.min(len(sub(Z, A)), len(sub(D, C)));
     };
     brackets.forEach((b, k) => {
       if (done.has(k) || (octet && priv(b.x)?.pair !== undefined)) return;
       done.add(k);
       const type = b.x.attrs.BracketType ?? "RoundPair", kind = BRACKETS[type] ?? "parens", pair = type.endsWith("Pair"), p = priv(b.x);
-      const j = pair ? -1 : brackets.findIndex((o, n) => !done.has(n) && (octet ? priv(o.x)?.pair === b.id
-        : BRACKETS[o.x.attrs.BracketType ?? ""] === kind && up(o) !== up(b) && (up(b) ? o.ends[0] > b.ends[0] : o.ends[0] < b.ends[0]) && overlap(b.ends, o.ends)));
+      const j = pair ? -1 : brackets.findIndex((o, n) => !done.has(n) && (octet ? priv(o.x)?.pair === b.id : BRACKETS[o.x.attrs.BracketType ?? ""] === kind && (faces(b, o) || faces(o, b))));
       if (j >= 0) done.add(j);
-      const o = brackets[j], xs = [b.ends[0], b.ends[2], ...(o ? [o.ends[0], o.ends[2]] : [])], ys = [b.ends[1], b.ends[3], ...(o ? [o.ends[1], o.ends[3]] : [])];
-      const sh: Shape & { z: number } = { id: newId(b.x), kind, from: toOctet(Math.min(...xs), Math.max(...ys)), to: toOctet(Math.max(...xs), Math.min(...ys)), z: b.z };
+      // The angle from the way the first bracket runs (a pair is the same turned a half); the shape's box is its
+      // brackets' ends turned upright about their middle.
+      const o = brackets[j], t = way(b), angle = exact(p?.angle, Math.round((Math.atan2(t[1], t[0]) * 180000) / Math.PI) / 1000 - 90);
+      const points = [...ends(b), ...(o ? ends(o) : [])], c: P = [points.reduce((v, q) => v + q[0], 0) / points.length, points.reduce((v, q) => v + q[1], 0) / points.length];
+      const upright = points.map((q) => turnPoint(q, c, -angle)), xs = upright.map((q) => q[0]), ys = upright.map((q) => q[1]);
+      const sh: Shape & { z: number } = { id: newId(b.x), kind, from: [Math.min(...xs), Math.max(...ys)], to: [Math.max(...xs), Math.min(...ys)], angle, z: b.z };
       if (!pair && !o) {
-        sh.side = up(b) ? "left" : "right";
-        const span = p?.span;
-        if (Array.isArray(span) && span.length === 2 && span.every((v) => isNum(v, -1e6, 1e6))) [sh.from[0], sh.to[0]] = span as P;
-        else if (sh.side === "left") sh.to[0] = sh.from[0] + 1; else sh.from[0] = sh.to[0] - 1;
+        // One bracket alone: its box reaches its width to the right of it (Octet's width, or a bond length).
+        sh.side = "left";
+        const span = p?.span, w = Array.isArray(span) && span.length === 2 && span.every((v) => isNum(v, -1e6, 1e6)) ? Math.abs((span[1] as number) - (span[0] as number)) : 1;
+        sh.to[0] = sh.from[0] + Math.max(0.05, w);
+        // The box was turned upright about the bracket's middle: it goes back about its own.
+        const m: P = [(sh.from[0] + sh.to[0]) / 2, (sh.from[1] + sh.to[1]) / 2], d = sub(turnPoint(m, c, angle), m);
+        sh.from = [sh.from[0] + d[0], sh.from[1] + d[1]];
+        sh.to = [sh.to[0] + d[0], sh.to[1] + d[1]];
       }
       // Turned brackets of Octet's own: their level corners and turn.
       const corners = p?.corners as unknown[] | undefined;
@@ -1411,10 +1471,11 @@ export function fromCdxml(text: string): CdxmlRead {
         if (p!.side === "left" || p!.side === "right") sh.side = p!.side; else delete sh.side;
       }
       if (typeof p?.mark === "string" && p.mark.length <= 8) sh.mark = p.mark;
-      const colour = colourOf(b.x.attrs.color);
+      const colour = colourOf(b.x.attrs.color), width = lineWidthOf(b.x);
       if (colour) sh.colour = colour;
+      if (width) sh.width = width;
       if (b.x.attrs.LineType?.includes("Dashed")) sh.dashed = true;
-      addShape(sh, b.x, b.group);
+      addShape(settled(sh), b.x, b.group);
     });
   }
 
@@ -1526,14 +1587,14 @@ export function fromCdxml(text: string): CdxmlRead {
   // Captions and arrows in id order (Octet draws them by kind); shapes in drawing order, which Octet keeps.
   if (captions.length) mol.captions = byZ(captions).sort((p, q) => p.id - q.id);
   if (arrows.length) mol.arrows = byZ(arrows); // in drawing order (Bring to front and Send to back)
-  // ChemDraw's filled shapes drawn above every structure are in front of them, as Octet's Bring to front puts them.
-  if (!octet) for (const sh of shapes) if ((sh.fill || sh.kind === "highlight") && turns(sh) && sh.z > fragmentZ && fragmentZ > -Infinity) sh.front = true;
+  // ChemDraw's filled shapes drawn above every structure are in front of them, as Octet's Bring to Front puts them.
+  if (!octet) for (const sh of shapes) if ((sh.fill || sh.kind === "highlight") && turns(sh) && sh.z > fragmentZ && fragmentZ > -Infinity && !sh.order) sh.order = 1;
   if (shapes.length) mol.shapes = byZ(shapes);
   if (cycles.length) mol.cycles = cycles;
   if (grids.length) mol.grids = grids;
   const ids = new Set([...captions, ...arrows, ...shapes, ...cycles].map((x) => x.id));
-  const kept = groups.map((g): Group => ({ id: g.id, atoms: [...g.atoms].map(ix).sort((p, q) => p - q), items: g.items.filter((id) => ids.has(id)).sort((p, q) => p - q), ...(g.integral ? { integral: true } : {}) })).filter((g) => g.atoms.length + g.items.length >= 2);
+  const kept = groups.map((g): Group => ({ id: g.id, atoms: [...g.atoms].map(ix).sort((p, q) => p - q), items: [...new Set(g.items.filter((id) => ids.has(id)))].sort((p, q) => p - q), ...(g.integral ? { integral: true } : {}) }));
   if (kept.length) mol.groups = kept;
   if (fills.length) mol.fills = fills.map((f) => ({ ...f, atoms: f.atoms.map(ix) }));
-  return { mol, style, lost };
+  return { mol: tidyGroups(mol), style, lost };
 }

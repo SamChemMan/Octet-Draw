@@ -82,6 +82,17 @@ console.log("file.check: bad files refused");
   console.log("file.check: shapes ok");
 }
 
+// Draw order (Bring to Front, Send to Back) survives a save and reopen on every kind; a bad order is left out.
+{
+  const [one] = addShape(mol, { kind: "box", from: [0, 0], to: [2, 1], order: -1 });
+  const m = { ...one, atoms: one.atoms.map((a) => ({ ...a, order: 2 })), captions: [{ id: 90, text: "A", x: 0, y: 0, order: 3 }], arrows: [{ id: 91, kind: "reaction" as const, from: [0, 0] as [number, number], to: [1, 0] as [number, number], order: 4 }] };
+  const again = parse(serialize(m));
+  assert.deepEqual([again.shapes![0].order, again.atoms[0].order, again.captions![0].order, again.arrows![0].order], [-1, 2, 3, 4]);
+  const bad = parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [{ label: "C", x: 0, y: 0, order: 0.5 }], bonds: [] } }));
+  assert.equal(bad.atoms[0].order, undefined);
+  console.log("file.check: draw order ok");
+}
+
 // Lines, arcs, dashed arrows and orbitals survive a save and reopen.
 {
   let m = mol;
@@ -110,17 +121,22 @@ console.log("file.check: bad files refused");
     { kind: "oval" as const, from: [0, 0] as [number, number], to: [1, 1] as [number, number], fill: "shaded" as const },
     { kind: "box" as const, from: [0, 0] as [number, number], to: [2, 1] as [number, number], shadow: true },
     { kind: "brackets" as const, from: [0, 0] as [number, number], to: [2, 2] as [number, number], side: "left" as const, mark: "‡" },
-    { kind: "rounded" as const, from: [0, 0] as [number, number], to: [2, 1] as [number, number], fill: "faded" as const, bold: true as const, angle: 30, front: true as const },
+    { kind: "rounded" as const, from: [0, 0] as [number, number], to: [2, 1] as [number, number], fill: "faded" as const, boldLine: true as const, angle: 30, order: 2 },
     { kind: "tlc" as const, from: [0, 0] as [number, number], to: [3, 4] as [number, number], tlc: { lanes: 3, spots: [{ lane: 0, rf: 0.42 }, { lane: 2, rf: 0.7 }], rf: true } },
     { kind: "table" as const, from: [0, 3] as [number, number], to: [6, 0] as [number, number], table: { cells: [["Entry", "Solvent", "Yield (%)"], ["1", "THF", "72"]], grid: true } },
     { kind: "table" as const, from: [0, 3] as [number, number], to: [6, 0] as [number, number], dashed: true,
       table: { cells: [["a", "b"], ["c", "d"]], widths: [2, 3.5], heights: [1, 1.2], lines: ["top" as const, "rows" as const, "cols" as const], align: ["left" as const, "right" as const], weight: 0.8 } },
+    // A turned box with its own line width, and a table and plate with their text styles (UI-7, UI-41, UI-42).
+    { kind: "box" as const, from: [0, 0] as [number, number], to: [2, 1] as [number, number], angle: 30, width: 1.5 },
+    { kind: "table" as const, from: [0, 3] as [number, number], to: [6, 0] as [number, number], table: { cells: [["a"]] }, font: "Times New Roman", size: 12, bold: true as const, italic: true as const, underline: true as const },
+    { kind: "tlc" as const, from: [0, 0] as [number, number], to: [3, 4] as [number, number], tlc: { lanes: 1, spots: [] }, size: 9, width: 0.4 },
   ]) m = addShape(m, sh)[0];
   const again = parse(serialize(m));
   assert.deepEqual(again.shapes?.map(({ id: _, ...x }) => x), m.shapes?.map(({ id: _, ...x }) => x));
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "tlc", x1: 0, y1: 0, x2: 1, y2: 1, tlc: { lanes: 2, spots: [{ lane: 5, rf: 0.5 }] } }] })), /damaged/);
-  for (const bad of [{ bold: 1 }, { angle: "up" }, { angle: 1e4 }, { front: "yes" }, { fill: "glow" }])
-    assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "box", x1: 0, y1: 0, x2: 1, y2: 1, ...bad }] })), /damaged/);
+  for (const bad of [{ angle: 1e7 }, { angle: "30" }, { angle: "up" }, { angle: 1e4 }, { width: 0 }, { width: 99 }, { size: 2 }, { font: "x".repeat(300) }, { bold: 1 }, { boldLine: 1 }, { fill: "glow" }])
+    assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "box", x1: 0, y1: 0, x2: 1, y2: 1, ...bad }] })), /damaged/, JSON.stringify(bad));
+  assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, arrows: [{ kind: "reaction", x1: 0, y1: 0, x2: 1, y2: 1, width: -1 }] })), /damaged/);
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "table", x1: 0, y1: 0, x2: 1, y2: 1, table: { cells: [[1]] } }] })), /damaged/);
   for (const bad of [{ widths: [0] }, { heights: [1e9] }, { lines: ["diagonal"] }, { align: ["middle"] }, { weight: -1 }])
     assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "table", x1: 0, y1: 0, x2: 1, y2: 1, table: { cells: [["a"]], ...bad } }] })), /damaged/, JSON.stringify(bad));
@@ -168,5 +184,12 @@ console.log("file.check: bad files refused");
   assert.deepEqual(g.items.map((id) => back.arrows?.some((a) => a.id === id) ? "arrow" : back.captions?.some((c) => c.id === id) ? "caption" : "?"), ["arrow", "caption"]);
   assert.equal(g.integral, true);
   assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, groups: [{ atoms: [], items: [["a", 3]] }] })), /damaged/);
+  // Nested groups keep both levels and each its own Integral.
+  const nested = parse(serialize({ ...m, groups: [{ id: 50, atoms: [0, 1, 2, 3, 4, 5], items: [40, 41] }, { id: 51, atoms: [], items: [40, 41], integral: true as const }] }));
+  assert.deepEqual(nested.groups!.map((x) => [x.atoms.length, x.items.length, !!x.integral]), [[6, 2, false], [0, 2, true]]);
+  // Read as an edit leaves groups (GRP-11): an atom twice is listed once, a group of one thing goes.
+  const one = parse(JSON.stringify({ format: "octet", version: 1, structure: JSON.parse(serialize(mol)).structure, arrows: [{ kind: "reaction", x1: 0, y1: 0, x2: 3, y2: 0 }],
+    groups: [{ atoms: [0], items: [] }, { atoms: [0, 0, 1], items: [["a", 0]] }] }));
+  assert.deepEqual(one.groups!.map((x) => [x.atoms, x.items.length]), [[[0, 1], 1]]);
   console.log("file.check: groups ok");
 }

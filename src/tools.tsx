@@ -392,7 +392,8 @@ type PaletteProps = {
   popKey: number; // changes when a hold switches to Select, to replay its pop
   canUndo: boolean;
   canRedo: boolean;
-  modKey: string;
+  undoKey?: string; // the menu's keys for Undo and Redo, as the user has them
+  redoKey?: string;
   canAddSelection: boolean; // something is selected that could become a ring
   renaming?: string; // a template just added, whose name is being typed
   preview: (name: string) => Mol | undefined; // the structure for a name, if it is one
@@ -646,7 +647,7 @@ export function Palette(p: PaletteProps) {
                 const kept = (tool === "arrow" && !!arrowVariant(kind)?.sweep) || (tool === "ring" && !!libraryItem(kind));
                 return {
                   key: kind, name, icon: iconOf(tool, kind), checked: p.variants[tool] === kind, arrived: arrived === kind,
-                  ...(custom || kept ? { action: { icon: <X size={12} weight="bold" />, label: `Remove ${name}`, onClick: () => (custom ? p.onRemoveTemplate(custom.id) : unkeep(tool, kind)) } } : {}),
+                  ...(custom || kept ? { action: { icon: <X size={12} />, label: `Remove ${name}`, onClick: () => (custom ? p.onRemoveTemplate(custom.id) : unkeep(tool, kind)) } } : {}),
                   ...(custom && p.renaming === custom.id ? {
                     editing: (
                       <input className="variant-input" aria-label="Name" autoFocus defaultValue={custom.name} onFocus={(e) => e.target.select()}
@@ -689,7 +690,7 @@ export function Palette(p: PaletteProps) {
               const curveGroups = [...CURVED.map((kind) => SWEEPS.map((sweep) => `${kind}-${sweep}`)), ELLIPSES].map((g) => g.map((v): MenuItem => {
                 const name = arrowName(v)!, isKept = p.curvedArrows.includes(v);
                 return { key: v, name, icon: <ArrowGlyph kind={v} />, checked: p.variants.arrow === v,
-                  action: { icon: <PushPin size={12} weight={isKept ? "fill" : "bold"} />, label: isKept ? "In the Arrow menu" : "Keep in the Arrow menu", pressed: isKept, onClick: () => (isKept ? unkeep("arrow", v) : keep("arrow", v)) } };
+                  action: { icon: <PushPin size={12} />, label: isKept ? "In the Arrow menu" : "Keep in the Arrow menu", pressed: isKept, onClick: () => (isKept ? unkeep("arrow", v) : keep("arrow", v)) } };
               }));
               return (
                 <Menu label={`${t.name} options`} tool={tool} groups={groups} className={[carry && !curveCarry && "carrying", carry?.toList && "receiving"].filter(Boolean).join(" ")}
@@ -739,14 +740,14 @@ export function Palette(p: PaletteProps) {
         return items.length ? <><hr />{items}</> : null;
       })()}
       <hr />
-      <button className="tool" aria-label="Undo" title={`Undo (${p.modKey}Z)`} disabled={!p.canUndo} onClick={p.onUndo}>
+      <button className="tool" aria-label="Undo" title={p.undoKey ? `Undo (${p.undoKey})` : "Undo"} disabled={!p.canUndo} onClick={p.onUndo}>
         <ArrowCounterClockwise size={20} />
       </button>
-      <button className="tool" aria-label="Redo" title={`Redo (${p.modKey}⇧Z)`} disabled={!p.canRedo} onClick={p.onRedo}>
+      <button className="tool" aria-label="Redo" title={p.redoKey ? `Redo (${p.redoKey})` : "Redo"} disabled={!p.canRedo} onClick={p.onRedo}>
         <ArrowClockwise size={20} />
       </button>
       <button className="palette-toggle" aria-label={p.wide ? "One column" : "Two columns"} title={p.wide ? "One column" : "Two columns"} onClick={toggleWide}>
-        {p.wide ? <CaretLeft size={12} weight="bold" /> : <CaretRight size={12} weight="bold" />}
+        {p.wide ? <CaretLeft size={12} /> : <CaretRight size={12} />}
       </button>
       {carry && (() => {
         const [tool, ...rest] = carry.key.split(":");
@@ -757,7 +758,7 @@ export function Palette(p: PaletteProps) {
             {leaving && <div className={carry.phase === "drop" ? "remove-shade going" : "remove-shade"} aria-hidden />}
             <span className={`carry ${carry.phase}${leaving ? " removing" : ""}`} style={{ left: carry.x, top: carry.y, "--tilt": `${carry.tilt}deg` } as React.CSSProperties} aria-hidden>
               {iconOf(tool as Strip, rest.join(":"))}
-              {leaving && <span className="remove-bin"><Trash size={14} weight="fill" /></span>}
+              {leaving && <span className="remove-bin"><Trash size={12} /></span>}
             </span>
           </>
         );
