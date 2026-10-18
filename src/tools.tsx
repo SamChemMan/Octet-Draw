@@ -540,7 +540,7 @@ export function Palette(p: PaletteProps) {
   });
 
   const tools: { id: Tool; name: string; icon: React.ReactNode }[] = [
-    { id: "select", name: p.variants.select === "lasso" ? "Lasso" : p.variants.select === "perspective" ? "Structure perspective" : "Select", icon: p.variants.select === "lasso" ? <Lasso size={20} /> : p.variants.select === "perspective" ? <Cube size={20} /> : <Selection size={20} /> },
+    { id: "select", name: p.variants.select === "lasso" ? "Lasso" : p.variants.select === "perspective" ? "Structure perspective (3D turn mode)" : "Select", icon: p.variants.select === "lasso" ? <Lasso size={20} /> : p.variants.select === "perspective" ? <Cube size={20} /> : <Selection size={20} /> },
     { id: "bond", name: `${BONDS[p.variants.bond].name} bond`, icon: <BondGlyph kind={p.variants.bond} /> },
     { id: "chain", name: "Chain", icon: <ChainGlyph /> },
     { id: "ring", name: nameOf("ring", p.variants.ring) ?? "Ring", icon: iconOf("ring", p.variants.ring) },
@@ -666,7 +666,7 @@ export function Palette(p: PaletteProps) {
         return (
           <div key={t.id} className="slot" data-col={wide ? i % 2 : undefined} style={{ "--d": Math.abs(i - (tools.length + 1 + pins.findIndex((x) => x.key === landed?.key))) } as React.CSSProperties}>
             <button
-              className={p.coach === t.id && p.tool !== t.id ? "tool coach-target" : "tool"}
+              className={["tool", p.coach === t.id && p.tool !== t.id && "coach-target", t.id === "select" && p.variants.select === "perspective" && "turn-3d"].filter(Boolean).join(" ")}
               aria-pressed={p.tool === t.id && !lit}
               aria-label={t.name}
               aria-haspopup={strip ? "menu" : undefined}
