@@ -6615,7 +6615,7 @@ export default function Editor() {
       }}</Live>
       <Exit>{menuAt && (() => {
         const context = panelContext ?? contextOf();
-        return <ActionsMenu at={menuAt} keyboard={menuAt.keyboard} context={context} messy={untidy} hiddenWarnings={[...selection].some((i) => doc.atoms[i]?.ignoreWarnings)} grouping={grouping}
+        return <ActionsMenu at={menuAt} keyboard={menuAt.keyboard} context={context} messy={untidy} hiddenWarnings={hiddenHere()} warned={selectedOf(found).length} grouping={grouping}
           layout={settings.actionLayout} hint={hint} colour={selectionColour(context)} palette={[...settings.palette, ...docColours]} online={settings.onlineSearch} run={runAction} onClose={() => setMenuAt(undefined)} />;
       })()}</Exit>
       <Exit>{dialog?.kind === "rf" && (
