@@ -109,3 +109,25 @@ import { loadTemplates, newTemplate } from "./templates.ts";
   assert.ok(Math.abs((a.from[0] + a.to[0]) / 2 - 5) < 1e-9 && a.from[1] < 5);
   console.log("objects.check: templates keep the whole selection ok");
 }
+
+// CD-39: the Synthesis and Retrosynthesis tools: a line through bonds makes the reaction that forms (or breaks) them.
+import { cutReaction } from "./edit.ts";
+{
+  const butane: Mol = { atoms: [0, 1, 2, 3].map((k) => ({ label: "C", location: [k * 0.87, k % 2 ? 0.5 : 0, 0] as [number, number, number] })), bonds: [0, 1, 2].map((k) => ({ type: 1, atoms: [k, k + 1] as [number, number] })) };
+  const s = cutReaction(butane, [1.3, 1], [1.3, -1], false)!;
+  assert.deepEqual([s.cut, s.mol.atoms.length, s.mol.bonds.length, s.mol.arrows?.map((a) => a.kind), s.mol.captions?.map((c) => c.text)], [1, 8, 5, ["reaction"], ["+"]]);
+  // Synthesis: the pieces, then the arrow, then the structure, all on one level line.
+  const arrow = s.mol.arrows![0], xs = (ids: number[]) => ids.map((i) => s.mol.atoms[i].location[0]);
+  assert.ok(Math.max(...xs([0, 1, 2, 3])) < arrow.from[0] && Math.min(...xs([4, 5, 6, 7])) > arrow.to[0]);
+  assert.ok(Math.abs(fragments(s.mol).length - 3) === 0);
+  // Retrosynthesis: the structure, a retrosynthetic arrow, then the pieces.
+  const r = cutReaction(butane, [1.3, 1], [1.3, -1], true)!, ra = r.mol.arrows![0];
+  assert.equal(ra.kind, "retro");
+  assert.ok(Math.max(...[4, 5, 6, 7].map((i) => r.mol.atoms[i].location[0])) < ra.from[0] && Math.min(...[0, 1, 2, 3].map((i) => r.mol.atoms[i].location[0])) > ra.to[0]);
+  // Bonds in aromatic rings stay whole, as in ChemDraw.
+  const benzene = addRing(EMPTY, 6, true, { point: [0, 0] }), mid = (k: number) => { const [a, b] = benzene.bonds[k].atoms.map((i) => pos(benzene, i)); return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; };
+  const [mx, my] = mid(0), across = cutReaction(benzene, [mx - 0.3, my - 0.3 * (mx || 1)], [mx + 0.3, my + 0.3 * (mx || 1)], false);
+  assert.deepEqual(across && [across.cut, across.aromatic], [0, 1]);
+  assert.equal(cutReaction(butane, [5, 5], [6, 6], false), undefined, "a line through no bond does nothing");
+  console.log("objects.check: Synthesis and Retrosynthesis ok");
+}

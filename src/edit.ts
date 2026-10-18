@@ -1,9 +1,10 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { HBOND, H_FIRST, hydrogens, lonePairs, orderOf, QUADRUPLE, settleShape, tableLayout, tableRow, type Arrow, type Atom, type Bond, type Caption, type Curve, type CurvePoint, type Mol, type Shape, type Spot, type Table } from "./render.ts";
+import { HBOND, H_FIRST, hydrogens, lonePairs, orderOf, QUADRUPLE, settleShape, tableLayout, tableRow, type Arrow, type Atom, type Bond, type Box, type Caption, type Curve, type CurvePoint, type Mol, type Shape, type Spot, type Table } from "./render.ts";
 import type { Cycle } from "./cycle.ts";
 import { anchorElement, isElement } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
+import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
 
 export type P = [number, number];
 export const EMPTY: Mol = { atoms: [], bonds: [] };
@@ -1543,4 +1544,53 @@ export function duplicateSelection(m: Mol, atoms: Set<number>, items: Set<number
   const left = (m.captions ?? []).filter((c) => items.has(c.id) && !had.has(c.id)).map(({ under: _, ...c }) => c);
   const r = insertMol(m, { ...part, captions: [...(part.captions ?? []), ...left] });
   return { mol: r.mol, atoms: r.atoms, items: r.items, ids: r.ids };
+}
+
+// ChemDraw's Synthesis and Retrosynthesis tools (decompiled TrackFragmentation): a line dragged through bonds of a
+// structure cuts them. The structure, whole, is copied; the bonds the line crossed are taken out of the original, so it
+// falls into pieces; and the two are laid out as a reaction on one level line with even gaps: Synthesis as the pieces
+// (with plus signs between) and a reaction arrow to the structure, Retrosynthesis as the structure and a
+// retrosynthetic arrow to the pieces. Bonds in aromatic rings are not cut, as in ChemDraw. Returns the drawing, the
+// bonds cut, the aromatic bonds left whole, and how far the whole structure moved; undefined when the line crosses
+// no bond.
+export function cutReaction(m: Mol, from: P, to: P, retro: boolean): { mol: Mol; cut: number; aromatic: number; moved: P } | undefined {
+  const side = (p: P, q: P, x: P) => cross(sub(q, p), sub(x, p));
+  const crossed = m.bonds.flatMap((b, k) => {
+    const [p, q] = [pos(m, b.atoms[0]), pos(m, b.atoms[1])];
+    return b.type !== HBOND && side(from, to, p) * side(from, to, q) < 0 && side(p, q, from) * side(p, q, to) < 0 ? [k] : [];
+  });
+  if (!crossed.length) return undefined;
+  // Aromatic atoms (Hückel, rings.ts), and so aromatic ring bonds: both ends aromatic and the bond in a ring.
+  const used = m.atoms.map(() => 0);
+  for (const b of m.bonds) for (const i of b.atoms) used[i] += orderOf(b.type);
+  const kept = m.bonds.flatMap((b, k) => (b.type === HBOND ? [] : [k])), g = { atoms: m.atoms.map((a, i) => ({ el: a.text ? "X" : a.label, charge: a.charge ?? 0, h: a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used[i]) })),
+    bonds: kept.map((k) => ({ a: m.bonds[k].atoms[0], b: m.bonds[k].atoms[1], order: (m.bonds[k].type === 2 || m.bonds[k].type === 3 ? m.bonds[k].type : 1) as 1 | 2 | 3 })) };
+  const arom = aromaticAtoms(g), ringPairs = new Set(ringsOf(g).flatMap((r) => r.map((v, i) => [v, r[(i + 1) % r.length]].sort((x, y) => x - y).join(","))));
+  const aromatic = (k: number) => m.bonds[k].type === 4 || (arom[m.bonds[k].atoms[0]] && arom[m.bonds[k].atoms[1]] && ringPairs.has([...m.bonds[k].atoms].sort((x, y) => x - y).join(",")));
+  const cut = crossed.filter((k) => !aromatic(k));
+  if (!cut.length) return { mol: m, cut: 0, aromatic: crossed.length, moved: [0, 0] };
+  // The structures cut, copied whole, then the original's bonds taken out.
+  const frags = fragments(m).filter((f) => f.some((i) => cut.some((k) => m.bonds[k].atoms.includes(i)))), atoms = new Set(frags.flat());
+  const whole = subset(m, atoms), drop = new Set(cut);
+  let out: Mol = { ...m, bonds: m.bonds.filter((_, k) => !drop.has(k)) };
+  const copy = insertMol(out, whole);
+  out = copy.mol;
+  const product = [...copy.atoms], pieces = fragments(out).filter((f) => f.some((i) => atoms.has(i)));
+  // The row: each part's box (its atoms, with room for a label across, as HO or OEt reads), in reading order, from
+  // the original's left edge.
+  const box = (ids: number[]): Box => {
+    const r = (i: number) => (out.atoms[i].label === "C" && !out.atoms[i].text ? 0.25 : 0.25 + 0.3 * (out.atoms[i].text ?? out.atoms[i].label).length), ps = ids.map((i) => pos(out, i));
+    return [Math.min(...ids.map((i, k) => ps[k][0] - r(i))), Math.min(...ps.map((q) => q[1])) - 0.3, Math.max(...ids.map((i, k) => ps[k][0] + r(i))), Math.max(...ps.map((q) => q[1])) + 0.3];
+  };
+  const start = box(pieces.flat()), level = (start[1] + start[3]) / 2, ARROW = 3, GAP = 0.8, PLUS = 1.6;
+  const sorted = [...pieces].sort((p, q) => box(p)[0] + box(p)[2] - box(q)[0] - box(q)[2]);
+  let x = start[0];
+  const place = (ids: number[]) => { const b = box(ids); out = moveAtoms(out, new Set(ids), [x - b[0], level - (b[1] + b[3]) / 2]); x += b[2] - b[0]; };
+  const row = (parts: number[][]) => parts.forEach((ids, k) => {
+    if (k) { [out] = addCaption(out, { text: "+", x: x + PLUS / 2, y: level - 0.24, align: "centre" }); x += PLUS; }
+    place(ids);
+  });
+  const arrow = () => { x += GAP; [out] = addArrow(out, { kind: retro ? "retro" : "reaction", from: [x, level], to: [x + ARROW, level] }); x += ARROW + GAP; };
+  if (retro) { place(product); arrow(); row(sorted); } else { row(sorted); arrow(); place(product); }
+  return { mol: out, cut: cut.length, aromatic: crossed.length - cut.length, moved: sub(pos(out, product[0]), pos(whole, 0)) };
 }
