@@ -62,7 +62,7 @@ import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb } from "./TemplateLibrary";
-import { cleanUpReaction, findReaction, gapFor, layoutRow, reactionClean, roleOf, rowOf, withStructure, type Layout, type Reaction } from "./reaction";
+import { cleanUpReaction, cleanUpReactions, findReaction, gapFor, layoutRow, reactionClean, roleOf, rowOf, withStructure, type Layout, type Reaction } from "./reaction";
 import { alignByMap, clearScheme, interpret, mapScheme, rolesOf, type Part, type Role, type RoleStep } from "./interpret";
 import { SEARCHES, searchNow, searchQuery } from "./search";
 import { SettingsWindow, type ModuleId } from "./SettingsWindow";
@@ -520,11 +520,19 @@ export default function Editor() {
   const pointer = useRef<P>(undefined);
   // Every edit clears the selection, except a move, which keeps the same atoms selected. Groups keep whole structures,
   // so atoms drawn onto a grouped structure join its group (wholeGroups).
+  // Returns the drawing as it goes in the history.
   const set = (mol: Mol, keepSelection = false, merge?: string) => {
-    dispatch({ type: "set", mol: onTop(doc, wholeGroups(placeCentres(mol)), fragments), merge });
+    const next = onTop(doc, wholeGroups(placeCentres(mol)), fragments);
+    dispatch({ type: "set", mol: next, merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
+    return next;
   };
+  // The drawings made by a scale of the whole drawing, each with how far it zoomed the view (commitScale). Undo and redo
+  // of such a scale zoom back and again, so the drawing and the page look as they did.
+  const zoomedBy = useRef(new WeakMap<Mol, number>());
   const undo = (redo = false) => {
+    const step = redo ? h.stack[h.at + 1] : h.at > 0 ? h.stack[h.at] : undefined, r = step && zoomedBy.current.get(step);
+    if (r) setView((v) => ({ ...v, zoom: clampZoom(redo ? v.zoom * r : v.zoom / r) }));
     dispatch({ type: redo ? "redo" : "undo" });
     setSelection(new Set());
     setPicked(new Set());
@@ -1516,6 +1524,9 @@ export default function Editor() {
     const [x, y] = [(w / 2) * mm, (h / 2) * mm], dx = Math.abs(Math.abs(p[0]) - x), dy = Math.abs(Math.abs(p[1]) - y), near = 5 / (views.get().zoom * L);
     return (dx < near && Math.abs(p[1]) <= y + near) || (dy < near && Math.abs(p[0]) <= x + near);
   });
+  // The page a press fits in the window: with Select only, on a page's edge clear of the drawing. A drawing tool draws
+  // there. (ChemDraw's help gives a page boundary no click action; its View > Show Document fits the page.)
+  const edgePage = (p: P, t: Hover) => (tool === "select" && t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined ? pageEdgeAt(p) : undefined);
   // The grid (grid.ts): the document's step, counted from the page's top-left corner (where the rulers start), or
   // from the crosshair while it shows. It shows on engineering paper and with View > Show Grid; the crosshair shows
   // its heavier lines. Snap to Grid snaps to the lines that show, within 6 screen px; ⌘ frees.
@@ -1615,7 +1626,7 @@ export default function Editor() {
     };
     flight.current = requestAnimationFrame(step);
   }
-  // A click on a page's edge fits that page in the window, centred.
+  // A Select click on a page's edge (edgePage) fits that page in the window, centred.
   const fitZoom = ([, w, h]: [string, number, number]) => Math.min((innerWidth - 160) / (w * mm * L), (innerHeight - 48) / (h * mm * L));
   const fitPage = (page: [string, number, number]) => flyTo({ x: innerWidth / 2, y: innerHeight / 2, zoom: fitZoom(page) });
   // The zoom limits: a bond drawn 0.25 to 8 times its size, widened so that every page outline can be fitted. At
@@ -1920,58 +1931,10 @@ export default function Editor() {
       && (p.captions?.length ?? 0) === (q.captions?.length ?? 0) && (p.captions ?? []).every((c, k) => { const d = q.captions![k]; return near([c.x, c.y], [d.x, d.y]) && c.on?.arrow === d.on?.arrow && c.on?.side === d.on?.side; })
       && (p.arrows ?? []).every((a, k) => near(a.from, q.arrows![k].from) && near(a.to, q.arrows![k].to)) && (p.shapes ?? []).every((x, k) => near(x.from, q.shapes![k].from) && near(x.to, q.shapes![k].to));
   };
-  // Lays out every reaction `pick` takes, one after another (reaction.ts). A structure one reaction has placed stays
-  // where it is for the next, so reactions that share a structure stay joined. Returns the drawing, how many it laid
-  // out, and how many it left as drawn.
+  // Lays out every reaction `pick` takes (reaction.ts cleanUpReactions), measured as drawn now.
   function cleanReactions(m: Mol, pick: (r: Reaction) => boolean): { mol: Mol; count: number; kept: number } {
-    const fixed = new Set<number>(), done = new Set<number>(), layout = reactionLayout(placedBox);
     const inkOf = (mol: Mol) => { const d = mol === doc ? drawing : render(mol, frame, measure, L); return (atoms: number[]) => { const b = union(atoms.filter((i) => d.ink[i]).map((i) => d.ink[i])); return b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L] as Box; }; };
-    let ink = inkOf(m), count = 0, kept = 0;
-    for (const a of arrows.filter((x) => straightArrow(x))) {
-      if (done.has(a.id)) continue;
-      // The arrows as drawn (grown to fit their text), or as the last reaction left them.
-      const now = arrows.map((x) => { const y = m.arrows?.find((z) => z.id === x.id); return y && (y.from !== x.from || y.to !== x.to) && doc.arrows?.find((z) => z.id === x.id) !== y ? y : x; });
-      const r = findReaction(m, a.id, now, ink, placedBox);
-      if (!r) continue;
-      r.arrows.forEach((id) => done.add(id));
-      if (!pick(r)) continue;
-      // A structure at an end of another reaction's arrow, or of a line it does not carry (a scheme that turns a corner),
-      // stays where it is, as does one an earlier reaction placed. A reaction with two such structures is left as
-      // drawn: a new layout would pull it away from one of them.
-      const ends = now.filter((x) => (straightArrow(x) && !r.arrows.includes(x.id)) || (x.kind === "line" && !r.carried.includes(x.id))).flatMap((x) => [x.from, x.to]);
-      const pinned = r.steps.flatMap((s) => (s.kind === "structure" && (s.atoms.some((i) => fixed.has(i)) || ends.some((q) => q[0] > s.box[0] - 1.5 && q[0] < s.box[2] + 1.5 && q[1] > s.box[1] - 1.5 && q[1] < s.box[3] + 1.5)) ? [s.atoms] : []));
-      if (pinned.length > 1) { kept++; continue; }
-      const next = cleanUpReaction(m, r, now, layout, new Set([...fixed, ...(pinned[0] ?? [])])), inkNext = inkOf(next);
-      // A layout that puts what it moves over a structure, text or arrow it leaves where it is, and was clear of
-      // before (a wrapped line on a legend below the reaction), is not used.
-      if (covers(m, next, ink, inkNext)) { kept++; continue; }
-      m = next;
-      r.atoms.forEach((i) => fixed.add(i));
-      ink = inkNext;
-      count++;
-    }
-    return { mol: m, count, kept };
-  }
-  // Whether a layout (m to next) moves a structure, text or straight arrow on to one it does not move and was clear of.
-  function covers(m: Mol, next: Mol, ink: (atoms: number[]) => Box | undefined, inkNext: (atoms: number[]) => Box | undefined): boolean {
-    type Thing = { was?: Box; now?: Box };
-    const span = (p: P, q: P): Box => [Math.min(p[0], q[0]), Math.min(p[1], q[1]), Math.max(p[0], q[0]), Math.max(p[1], q[1])];
-    const shift = (b: Box | undefined, d: P): Box | undefined => b && [b[0] + d[0], b[1] + d[1], b[2] + d[0], b[3] + d[1]];
-    const same = (p?: Box, q?: Box) => !p || !q || p.every((v, k) => Math.abs(v - q[k]) < 1e-6);
-    const meet = (p?: Box, q?: Box) => !!p && !!q && p[0] < q[2] - 0.1 && q[0] < p[2] - 0.1 && p[1] < q[3] - 0.1 && q[1] < p[3] - 0.1;
-    const things: Thing[] = fragments(m).map((g) => ({ was: ink(g), now: inkNext(g) }));
-    const mid = (x?: Arrow): P => (x ? [(x.from[0] + x.to[0]) / 2, (x.from[1] + x.to[1]) / 2] : [0, 0]);
-    for (const a of m.arrows ?? []) {
-      const b = next.arrows?.find((x) => x.id === a.id);
-      if (b && (straightArrow(a) || a.kind === "line")) things.push({ was: span(a.from, a.to), now: span(b.from, b.to) });
-    }
-    // (A name or number under a structure goes with it; it is not counted apart.)
-    for (const c of (m.captions ?? []).filter((x) => !x.under && !x.cycle)) {
-      const d = next.captions?.find((x) => x.id === c.id), on = d?.on && m.arrows?.find((x) => x.id === d.on!.arrow), was = mid(on), now = mid(on && next.arrows?.find((x) => x.id === on.id));
-      if (d) things.push({ was: placedBox(c.id), now: shift(placedBox(c.id), on ? [now[0] - was[0], now[1] - was[1]] : [d.x - c.x, d.y - c.y]) });
-    }
-    const moved = things.filter((t) => !same(t.was, t.now)), still = things.filter((t) => same(t.was, t.now));
-    return moved.some((t) => still.some((s) => meet(t.now, s.was) && !meet(t.was, s.was)));
+    return cleanUpReactions(m, arrows, inkOf, reactionLayout(placedBox), pick);
   }
   // The reaction picked, when exactly a whole reaction is: its arrows and its structures.
   const reactionPicked = () => {
@@ -2270,10 +2233,11 @@ export default function Editor() {
     if (whole && lines && size[0] === size[1] && k !== 1 && Math.abs(next.scale - style.scale * k) < 1e-9) {
       const d: P = [c[0] * (1 / k - 1), c[1] * (1 / k - 1)], all = new Set([...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].map((x) => x.id));
       const moved = transformParts(doc, new Set(doc.atoms.map((_, i) => i)), all, (q) => [q[0] + d[0], q[1] + d[1]]);
-      const nk = frameStyle(next, L).k, r = frame.k / nk;
+      const nk = frameStyle(next, L).k, was = views.get().zoom, zoom = clampZoom(was * (frame.k / nk));
       lastK.current = nk * next.scale;
-      setView((v) => ({ ...v, zoom: clampZoom(v.zoom * r) }));
-      return set({ ...scaleSizes(moved, k), style: next }, true);
+      setView((v) => ({ ...v, zoom }));
+      zoomedBy.current.set(set({ ...scaleSizes(moved, k), style: next }, true), zoom / was);
+      return;
     }
     // A drag of the whole drawing in proportion only showed it scaled (its working copy is the drawing as it was), so
     // a scale the document cannot take (outside 10% to 1000%, or past a style limit) is made here, as object scales.
@@ -2586,7 +2550,7 @@ export default function Editor() {
       const centre = turnCentre();
       return setDrag({ kind: "turn", centre, middles: captionMiddles(), start: Math.atan2(p[1] - centre[1], p[0] - centre[0]), degrees: 0, working: doc });
     }
-    const page = t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined ? pageEdgeAt(p) : undefined;
+    const page = edgePage(p, t);
     if (page) return fitPage(page);
     if (tool === "select") {
       pressMods.current = { shift: e.shiftKey, alt: e.altKey, atoms: selection, picks: picked };
@@ -2688,7 +2652,7 @@ export default function Editor() {
       const t = hit(p);
       overs.set({
         selection: tool !== "erase" && selection.size > 0 && onSelection(doc, selection, p), turn: tool !== "erase" && onTurnHandle(p), edge: tool === "table" ? tableEdge(p)?.axis : undefined, resize: resizeAt(p),
-        page: t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined ? pageEdgeAt(p)?.[0] : undefined, cross: onCrosshair(p, t),
+        page: edgePage(p, t)?.[0], cross: onCrosshair(p, t),
       });
       // A keyboard hotspot stays until the pointer moves on to something other than what it was over.
       if (hovers.get().key) {
