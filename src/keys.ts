@@ -150,6 +150,9 @@ export function toAccelerator(key: string): string {
   return [mods.has("mod") ? "CmdOrCtrl" : "", mods.has("ctrl") ? "Ctrl" : "", mods.has("alt") ? "Alt" : "", mods.has("shift") ? "Shift" : "", name].filter(Boolean).join("+");
 }
 export function registerMenu(items: [string, string, string, string][]) {
+  // A command no longer in the menu (the Search menu, with Online search off) leaves the list.
+  const ids = new Set(items.map(([id]) => `menu.${id}`));
+  for (let k = ACTIONS.length - 1; k >= 0; k--) if (ACTIONS[k].id.startsWith("menu.") && !ids.has(ACTIONS[k].id)) ACTIONS.splice(k, 1);
   for (const [id, name, section, keys] of items) {
     const action = `menu.${id}`;
     if (!ACTIONS.some((a) => a.id === action)) ACTIONS.push({ id: action, name: name.replace(/…$/, ""), group: section || "Menu", place: "any" });

@@ -20,6 +20,9 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | serde_json (Rust) | 1 | MIT OR Apache-2.0 | The recent drawings list on Home (already in the build through Tauri) |
 | objc2, objc2-foundation, objc2-app-kit (Rust) | 0.6, 0.3, 0.3 | MIT; MIT; Zlib OR Apache-2.0 OR MIT | The macOS clipboard (NSPasteboard). Already used by Tauri |
 | objc2-web-kit, block2 (Rust) | 0.3, 0.6 | Zlib OR Apache-2.0 OR MIT; MIT | Feedback's picture of the window (WKWebView snapshot). Already used by Tauri |
+| open (Rust, Byron) | 5.4 | MIT | Opens web addresses (Search Reaxys, Search PubChem, links) and the feedback draft in the user's own programs. On Windows it calls ShellExecuteExW, not cmd.exe |
+| is-wsl, is-docker (Rust) | 0.4, 0.2 | MIT | Used by open on Linux |
+| dunce (Rust) | 1.0 | CC0-1.0 OR MIT-0 OR Apache-2.0 (used under Apache-2.0) | Used by open on Windows. Already used by Tauri |
 | indigo-ketcher | 1.46 | Apache-2.0 | Chemistry engine, CDX/CDXML |
 | Indigo's MoleculeCleaner2d and BiconnectedDecomposer (indigo-core) | 1.46.0 | Apache-2.0 | Clean Up's geometry, ported to TypeScript and changed in `src/clean2d.ts` (EPAM's copyright notice kept there) |
 | react, react-dom | 19.3 | MIT | UI |

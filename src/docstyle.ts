@@ -30,9 +30,22 @@ export function pickPage(s: Pick<DocStyle, "page" | "landscape">, page: PageName
 // dark or blue page the structures and text are drawn white.
 export type Background = "white" | "dark" | "system" | "blueprint";
 export const BACKGROUNDS: [Background, string][] = [["white", "White"], ["dark", "Dark"], ["system", "Match the system"], ["blueprint", "Engineering paper"]];
+// The grid's step: the document's bond length (a line each bond length, a lighter one at each half), or a step in
+// mm (US pages offer 1/8, 1/4 and 1/2 in, held in mm). Only these: a file cannot ask for a grid of a million lines.
+export type GridStep = "bond" | number;
+export const GRID_MM = [1, 2, 5, 10, 20], GRID_IN = [3.175, 6.35, 12.7];
+export const gridStepOk = (v: unknown): v is GridStep => v === "bond" || GRID_MM.includes(v as number) || GRID_IN.includes(v as number);
+// What the window shows over the page: the grid, the rulers, and the crosshair at a point (drawing coordinates, bond
+// lengths). Saved with the document, but not part of its style: showing them is not an edit and makes no undo step.
+export type Guides = { grid?: true; rulers?: true; crosshair?: [number, number] };
+export function readGuides(v: unknown): Guides {
+  const g = (typeof v === "object" && v !== null ? v : {}) as Record<string, unknown>, c = g.crosshair;
+  const point = Array.isArray(c) && c.length === 2 && c.every((n) => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= 1e4);
+  return { ...(g.grid === true ? { grid: true } : {}), ...(g.rulers === true ? { rulers: true } : {}), ...(point ? { crosshair: [(c as number[])[0], (c as number[])[1]] as [number, number] } : {}) };
+}
 export type DocStyle = {
   preset: string; // the preset the style came from, or "Custom"
-  page: PageName; custom: [number, number]; landscape: boolean; edges: boolean; grid: number; // custom: mm; grid: mm, 0 for none
+  page: PageName; custom: [number, number]; landscape: boolean; edges: boolean; grid: GridStep; // custom: mm
   background: Background;
   bond: number; line: number; bold: number; margin: number; hash: number; spacing: number; // pt; spacing in % of bond
   labelFont: string; labelSize: number; captionFont: string; captionSize: number; colour: string;
@@ -63,7 +76,7 @@ export const PRESETS: Record<string, Drawn> = {
   "New Document (ChemDraw)": { bond: 30, line: 1, bold: 4, margin: 2, hash: 2.7, spacing: 12, labelFont: "Arial", labelSize: 10, captionFont: "Arial", captionSize: 12 },
   "New Slide (ChemDraw)": { bond: 30, line: 1.6, bold: 4, margin: 2, hash: 2.7, spacing: 15, labelFont: "Arial", labelSize: 12, captionFont: "Arial", captionSize: 16 },
 };
-export const DEFAULT_STYLE: DocStyle = { preset: "ACS Document 1996", page: "A4", custom: [180, 120], landscape: false, edges: true, grid: 0, background: "white", colour: "#000000", terminalLabels: false, carbonLabels: false, hideH: false, scale: 1, ...PRESETS["ACS Document 1996"] };
+export const DEFAULT_STYLE: DocStyle = { preset: "ACS Document 1996", page: "A4", custom: [180, 120], landscape: false, edges: true, grid: "bond", background: "white", colour: "#000000", terminalLabels: false, carbonLabels: false, hideH: false, scale: 1, ...PRESETS["ACS Document 1996"] };
 // The lengths and sizes a document scale multiplies (bond spacing is a percent, so it stays).
 export const SCALED = ["bond", "line", "bold", "margin", "hash", "labelSize", "captionSize"] as const;
 // The values readStyle keeps for each of them (pt); anything else falls back to the default. Lengths reach 10 times
@@ -162,7 +175,7 @@ export function readStyle(v: unknown): DocStyle {
     preset: "Custom",
     page: text("page", (t) => t in PAGES || t === "Custom") as PageName,
     custom: Array.isArray(s.custom) && s.custom.length === 2 && s.custom.every((n) => typeof n === "number" && n >= 10 && n <= 2000) ? [s.custom[0], s.custom[1]] : DEFAULT_STYLE.custom,
-    landscape: s.landscape === true, edges: s.edges !== false, grid: num("grid", 0, 50),
+    landscape: s.landscape === true, edges: s.edges !== false, grid: gridStepOk(s.grid) ? s.grid : "bond",
     background: BACKGROUNDS.some(([b]) => b === s.background) ? (s.background as Background) : "white",
     bond: num("bond", ...LIMITS.bond), line: num("line", ...LIMITS.line), bold: num("bold", ...LIMITS.bold), margin: num("margin", ...LIMITS.margin), hash: num("hash", ...LIMITS.hash), spacing: num("spacing", 5, 40),
     labelFont: text("labelFont", fontName), labelSize: num("labelSize", ...LIMITS.labelSize),

@@ -232,8 +232,7 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
 // The drawing as SMILES. Throws if Indigo can't read it (for example, a valence it rejects).
 // A drawing as KET, with labels expanded into atoms. KET has no bond display styles (bold, wavy and so on). Without
 // wedges (wedges = false), Indigo also reads a drawing whose wedges it rejects: formulas and masses do not need them.
-function ketOf(drawn: Mol, wedges = true): string {
-  const mol = expandLabels(drawn);
+function ketOf(drawn: Mol, wedges = true, mol = expandLabels(drawn)): string {
   const bonds = mol.bonds.map(({ type, atoms, stereo }) => (stereo && wedges ? { type, atoms, stereo } : { type, atoms }));
   // An atom bonded to a metal keeps the hydrogens Octet draws on it (as render.ts counts them): Indigo would count the P
   // of a PPh3 bonded to Pd as PH (valence 5), where the drawing shows P. It goes to Indigo as the atom's valence: as a
@@ -260,6 +259,22 @@ export const toSmiles = (drawn: Mol): string => convert(ketOf(drawn), "smiles");
 // The drawing's molecules as a molfile. A query or Markush structure is written as V3000 by Octet itself (molv3.ts),
 // with its written labels drawn out as Indigo reads them.
 export const toMolfile = (drawn: Mol): string => (hasQuery(drawn) ? writeV3000(drawn, labelGroup) : convert(ketOf(drawn), "molfile"));
+// Generic labels as query atoms (any atom A, heteroatom Q, metal M, halogen X, and each with H, as ChemDraw's).
+// SMILES cannot keep them; a molfile can, for a Reaxys search. undefined when the drawing has none.
+// As ChemDraw 26.1 writes a molfile (CoreChemistry IsAcceptableGeneric): A, Q and X go as the atom symbol; the
+// others go as a carbon with the label as its alias ("A  n" and the label on the next line).
+const GENERIC = new Set(["A", "AH", "Q", "QH", "M", "MH", "X", "XH"]), SYMBOL = new Set(["A", "Q", "X"]);
+export function toQueryMolfile(drawn: Mol): string | undefined {
+  if (!drawn.atoms.some((a) => a.text && GENERIC.has(a.text))) return undefined;
+  const generic = (a: Mol["atoms"][number]) => !!a.text && GENERIC.has(a.text);
+  const query = { ...drawn, atoms: drawn.atoms.map((a) => (generic(a) ? { ...a, label: SYMBOL.has(a.text!) ? a.text! : "C", text: undefined } : a)) };
+  const { mol, from } = expandWithOrigins(query);
+  const aliases = drawn.atoms.flatMap((a, i) => (generic(a) && !SYMBOL.has(a.text!) ? [`A  ${String(from.indexOf(i) + 1).padStart(3)}`, a.text!] : []));
+  // From the counts line on, under the header Reaxys was seen to read: a name, the program, a blank line.
+  // (A V3000 molfile, for 1000 atoms or more, goes whole: no search link can hold it, and the app says so.)
+  const lines = convert(ketOf(query, true, mol), "molfile").split("\n"), at = lines.findIndex((l) => l.endsWith("V2000")), end = lines.lastIndexOf("M  END");
+  return ["Octet", "  Octet", "", ...lines.slice(Math.max(0, at), end), ...aliases, ...lines.slice(end), ""].join("\n");
+}
 // CIP labels for a drawing's stereocentres (R, S) and double bonds (E, Z), in its atom and bond order.
 export function cipOf(drawn: Mol): { atoms: (string | undefined)[]; bonds: (string | undefined)[] } | undefined {
   const ind = engine(), opts = new ind.MapStringString();
