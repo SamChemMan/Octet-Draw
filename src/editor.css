@@ -1455,7 +1455,13 @@ button.variant.add {
   place-items: center;
   background: var(--canvas);
 }
+/* The sample on engineering paper shows a grid, as the canvas does (the canvas draws its own grid in Editor.tsx). */
 .style-paper.paper-blueprint {
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 0.24) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.24) 1px, transparent 1px),
+    linear-gradient(to right, rgb(255 255 255 / 0.1) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.1) 1px, transparent 1px);
   background-size: 20px 20px, 20px 20px, 4px 4px, 4px 4px;
 }
 .modal section {
@@ -4098,7 +4104,7 @@ button.variant.add {
   --ruler: 0px;
 }
 .editor.with-rulers {
-  --ruler: 20px;
+  --ruler: var(--space-6);
 }
 .with-rulers .palette {
   top: calc(var(--space-4) + var(--ruler));
@@ -4178,7 +4184,6 @@ button.variant.add {
   background: var(--surface);
   color: var(--ink-faint);
   font: 500 11px/1 var(--font-sans);
-  letter-spacing: -0.04em;
   pointer-events: auto;
   cursor: pointer;
 }

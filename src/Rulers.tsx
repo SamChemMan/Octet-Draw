@@ -8,7 +8,7 @@ import type { RulerUnit } from "./settings";
 type P = [number, number];
 // mm in each unit.
 const MM: Record<RulerUnit, number> = { mm: 1, cm: 10, in: 25.4, pt: 25.4 / 72, pc: 25.4 / 6 };
-export const RULER = 20; // px
+export const RULER = 24; // px
 
 // view: the canvas's pan and zoom; scale: screen px per bond length at 100%; mm: bond lengths per mm; origin: the
 // page's top-left corner (drawing coordinates); pointer: drawing coordinates; extent: the selection (px at 100%).
@@ -27,11 +27,11 @@ export function Rulers({ view, scale, mm, origin, unit, pointer, extent, onUnit 
     return [
       <g key="across">
         <path className="ruler-ticks" d={across.map((t) => `M${ux(t.at) + 0.5} ${RULER}v${-len[t.size]}`).join("")} />
-        {across.filter((t) => t.label).map((t) => <text key={t.at} x={ux(t.at) + 3} y={10}>{t.label}</text>)}
+        {across.filter((t) => t.label).map((t) => <text key={t.at} x={ux(t.at) + 3} y={11}>{t.label}</text>)}
       </g>,
       <g key="down">
         <path className="ruler-ticks" d={down.map((t) => `M${RULER} ${uy(t.at) + 0.5}h${-len[t.size]}`).join("")} />
-        {down.filter((t) => t.label).map((t) => <text key={t.at} transform={`translate(10 ${uy(t.at) + 3}) rotate(-90)`} textAnchor="end">{t.label}</text>)}
+        {down.filter((t) => t.label).map((t) => <text key={t.at} transform={`translate(11 ${uy(t.at) + 3}) rotate(-90)`} textAnchor="end">{t.label}</text>)}
       </g>,
     ];
   }, [x0, y0, per, unit, innerWidth, innerHeight]); // a larger window shows more of each ruler
