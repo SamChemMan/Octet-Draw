@@ -6,6 +6,7 @@ import Editor, { keepNow, rescue } from "./Editor";
 import Gallery from "./Gallery";
 import { Dialog } from "./Dialog";
 import { logError } from "./crashlog";
+import { failure } from "./notice";
 
 // ?gallery, ?smiles=… or ?labels opens a renderer test page instead of the editor.
 const params = new URLSearchParams(location.search);
@@ -41,7 +42,7 @@ class Guard extends Component<{ children: ReactNode }, { failed: boolean; key: n
       rescue.current = { ...r, file: { path, saved: r.h.stack[r.h.at] } };
       this.reopen();
     } catch (e) {
-      this.setState({ note: `Octet cannot save this drawing. ${e}` });
+      this.setState({ note: failure("Octet cannot save this drawing.", e) });
     }
   };
   render() {

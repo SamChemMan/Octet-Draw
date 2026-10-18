@@ -48,7 +48,7 @@ impl Drop for Open {
 
 // Puts the types on the clipboard in their order, in place of what was there.
 pub fn write(types: &[(&str, Vec<u8>)]) -> Result<(), String> {
-    let fail = || "Octet could not copy this.".to_string();
+    let fail = || "Octet cannot copy this.".to_string();
     let formats: Vec<u32> = types.iter().map(|(n, _)| format(n)).collect();
     if formats.contains(&0) {
         return Err(fail());

@@ -27,7 +27,7 @@ pub async fn write(app: &AppHandle, types: Vec<(&'static str, Vec<u8>)>) -> Resu
         })
     })
     .await?;
-    if done { Ok(()) } else { Err("Octet could not copy this.".into()) }
+    if done { Ok(()) } else { Err("Octet cannot copy this.".into()) }
 }
 
 // The bytes of each named type on the clipboard (64 MB at most), read only if the clipboard has that type.

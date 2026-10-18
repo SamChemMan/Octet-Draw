@@ -293,7 +293,7 @@ mod linux;
 pub async fn copy_to_clipboard(app: tauri::AppHandle, svg: Option<String>, cdxml: Option<String>, cdxml_type: Option<bool>, cdx: Option<String>, molfile: Option<String>, smiles: Option<String>, octet_json: Option<String>, text: Option<String>) -> Result<(), String> {
     use base64::Engine;
     let cdx = match cdx {
-        Some(c) if c.len() <= MAX_TYPE / 3 * 4 + 4 => Some(base64::engine::general_purpose::STANDARD.decode(c).map_err(|_| "Octet could not copy this.".to_string())?),
+        Some(c) if c.len() <= MAX_TYPE / 3 * 4 + 4 => Some(base64::engine::general_purpose::STANDARD.decode(c).map_err(|_| "Octet cannot copy this.".to_string())?),
         _ => None,
     };
     let types = match text {
