@@ -1007,7 +1007,8 @@ export default function Editor() {
       const all = fragments(doc).filter((g) => !selection.size || g.some((i) => selection.has(i))), ok = all.filter((g) => g.length <= MOST_3D && g.length > 1);
       if (all.some((g) => g.length > MOST_3D)) setNotice(`Octet cannot clean up in 3D a structure of more than ${MOST_3D} atoms.`);
       if (!ok.length) return;
-      set(clean3d(doc, ok.flat()), true);
+      // Each structure on its own, so the time grows with the structures and not with all their atoms squared.
+      set(ok.reduce((m, g) => clean3d(m, g), doc), true);
       setSettings((s) => ({ ...s, variants: { ...s.variants, select: "perspective" } }));
       setTool("select");
     },
@@ -2635,10 +2636,11 @@ export default function Editor() {
       else setDrag({ kind: "click", at: p, start: screen, target: t });
       return startHold(p, t, screen);
     }
-    // The eraser takes a TLC spot off its plate, and a click inside a lane takes the lane away (as ChemDraw's).
+    // The eraser takes a TLC spot off its plate, and a click inside a lane takes the lane away (as ChemDraw's). A lane
+    // whose last spot is erased goes too, as in ChemDraw.
     if (tool === "erase" && plateAt(p) && spotHit(plateAt(p)!, p) >= 0) {
-      const sh = plateAt(p)!, i = spotHit(sh, p);
-      return set(updateShape(doc, sh.id, { tlc: { ...sh.tlc!, spots: sh.tlc!.spots.filter((_, k) => k !== i) } }));
+      const sh = plateAt(p)!, i = spotHit(sh, p), lane = sh.tlc!.spots[i].lane, left = { ...sh, tlc: { ...sh.tlc!, spots: sh.tlc!.spots.filter((_, k) => k !== i) } };
+      return set(updateShape(doc, sh.id, left.tlc.spots.some((x) => x.lane === lane) ? { tlc: left.tlc } : deleteLane(left, lane)));
     }
     if (tool === "erase" && t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined && plateAt(p) && (plateAt(p)!.tlc?.lanes ?? 1) > 1) {
       const sh = plateAt(p)!;
@@ -5586,7 +5588,7 @@ export default function Editor() {
       {menuAt && (() => {
         const context = panelContext ?? contextOf();
         return <ActionsMenu at={menuAt} keyboard={menuAt.keyboard} context={context} messy={untidy} hiddenWarnings={[...selection].some((i) => doc.atoms[i]?.ignoreWarnings)} grouping={grouping}
-          layout={settings.actionLayout} hint={hint} colour={selectionColour(context)} palette={[...settings.palette, ...docColours]} run={runAction} onClose={() => setMenuAt(undefined)} />;
+          layout={settings.actionLayout} hint={hint} colour={selectionColour(context)} palette={[...settings.palette, ...docColours]} online={settings.onlineSearch} run={runAction} onClose={() => setMenuAt(undefined)} />;
       })()}
       {dialog?.kind === "rf" && (
         // Set Rf…, as ChemDraw's: the spot moves to the Rf typed.

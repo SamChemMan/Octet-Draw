@@ -59,8 +59,7 @@ export type Atom = {
 // A double bond's dashed (ChemDraw's Tautomeric: the second line dashed) and aromatic (both lines dashed) displays.
 export type Display = "bold" | "dashed" | "hashed" | "wavy" | "dative" | "hollow" | "either" | "aromatic";
 // position: where a double bond's second line goes, looking from atoms[0] to atoms[1]; unset means automatic.
-// z: the bond's place where bonds cross (ChemDraw's bond Z order). Of two bonds that cross, the one with the higher z
-// (then the later one) is in front, and the one behind has a gap cut in it. Unset is 0.
+// Where two bonds cross, the later one in the list is in front, and the one behind has a gap cut in it.
 // halo: a highlight colour, drawn as a band along the bond (ChemDraw's highlightColor on a bond).
 export type Bond = { type: number; atoms: [number, number]; stereo?: number; display?: Display; position?: "left" | "centre" | "right"; colour?: string; halo?: string };
 // Bond types: 1 to 3 by order, 4 aromatic and 10 a hydrogen bond (KET's numbers), and 14 a quadruple bond (KET has

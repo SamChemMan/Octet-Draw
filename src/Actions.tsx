@@ -362,7 +362,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
           small(it(<AlignTopSimple size={18} />, hidden("front") ? "Show the solvent front" : "Hide the solvent front", "shape.hide.front")),
           small(it(<Rectangle size={18} />, hidden("border") ? "Show the border" : "Hide the border", "shape.hide.border")),
           small(it(<Ruler size={18} />, context.ticks ? "Hide the side ticks" : "Show the side ticks", "shape.ticks")),
-          small(it(<Checkerboard size={18} />, context.transparent ? "Make opaque" : "Make transparent", "shape.transparent")), scale, centre, ...order, del);
+          small(it(<Checkerboard size={18} />, context.transparent ? "Make opaque" : "Make transparent", "shape.transparent")), scale, centre, ...order, keep, del);
         break;
       }
       if (context.shape === "table") {
@@ -371,7 +371,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
           small(it(<RowsPlusTop size={18} />, "Add a row above", "shape.row.before")), small(it(<ColumnsPlusLeft size={18} />, "Add a column before", "shape.col.before")),
           small(it(<Rows size={18} />, context.cell ? "Delete the row" : "Delete the last row", "shape.row.delete")), small(it(<Columns size={18} />, context.cell ? "Delete the column" : "Delete the last column", "shape.col.delete")),
           small(it(<ArrowsInLineHorizontal size={18} />, "Size to fit contents", "shape.fit")), small(it(<Eraser size={18} />, "Clear contents", "shape.clear")),
-          small(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed")), scale, centre, ...order, del);
+          small(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed")), scale, centre, ...order, keep, del);
         break;
       }
       if (isBracket({ kind: context.shape })) items.push(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed"));
@@ -680,11 +680,12 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           ))}
           <div className="size font"><FontPick label="Font" font={context.text.font} fonts={fonts} onPick={(f) => run(`caption.font.${f}`)} /></div>
           <SizeButton size={context.text.size} sizes={sizes} run={run} />
-          {([["left", "Flush left", <TextAlignLeft size={16} />], ["centre", "Centred", <TextAlignCenter size={16} />], ["right", "Flush right", <TextAlignRight size={16} />],
+          {/* Alignment and Interpret Chemically are a label's own: a table's cells and a plate's Rf values have neither. */}
+          {context.kind !== "shape" && ([["left", "Flush left", <TextAlignLeft size={16} />], ["centre", "Centred", <TextAlignCenter size={16} />], ["right", "Flush right", <TextAlignRight size={16} />],
             ["above", "Stacked above", <ArrowLineUp size={16} />], ["auto", "Automatic", <span className="glyph-text">A</span>]] as const).map(([id, name, icon]) => (
             <button key={id} className="chip" aria-pressed={context.text!.align === id} aria-label={name} title={name} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
           ))}
-          <button className="chip" aria-pressed={context.text.chemical} aria-label="Interpret chemically" title="Interpret chemically" onClick={() => run("interpret")}><Graph size={16} /></button>
+          {context.kind !== "shape" && <button className="chip" aria-pressed={context.text.chemical} aria-label="Interpret chemically" title="Interpret chemically" onClick={() => run("interpret")}><Graph size={16} /></button>}
         </div>
       )}
 

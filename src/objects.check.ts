@@ -44,6 +44,10 @@ const chain = (x: number, y: number, label = "C", dx = 1, dy = 0): Mol => ({ ato
   assert.equal(fragments(out).length, 1);
   // The later ring stays where it was; the earlier one moved onto it.
   for (let i = 6; i < 12; i++) assert.ok(out.atoms.some((_, k) => Math.hypot(pos(out, k)[0] - pos(m, i)[0], pos(out, k)[1] - pos(m, i)[1]) < 1e-9));
+  // Each ring keeps its fill (CD-27): the moved ring's fill takes the atoms it joined.
+  const filled = joinSelection({ ...m, fills: [{ atoms: [0, 1, 2, 3, 4, 5], colour: "#2F6FED" }, { atoms: [6, 7, 8, 9, 10, 11], colour: "#E5484D" }] }, new Set([p, q, r, s]))!;
+  assert.equal(filled.fills?.length, 2);
+  for (const f of filled.fills!) assert.ok(f.atoms.every((i, k) => filled.bonds.some((b) => b.atoms.includes(i) && b.atoms.includes(f.atoms[(k + 1) % 6]))), "each fill is still a closed ring");
   console.log("objects.check: Join two bonds ok");
 }
 
@@ -107,6 +111,10 @@ import { loadTemplates, newTemplate } from "./templates.ts";
   assert.equal(loadTemplates([newTemplate("Arrow", arrowOnly)]).length, 1, "a template with no atoms is kept");
   const a = addTemplate(EMPTY, arrowOnly, { point: [5, 5] }).arrows![0];
   assert.ok(Math.abs((a.from[0] + a.to[0]) / 2 - 5) < 1e-9 && a.from[1] < 5);
+  // A multi-centre point (a π ligand) names its ring's atoms as they are numbered in the drawing it goes into.
+  const cp = { ...ring, atoms: [...ring.atoms, { label: "C", location: [0, 0, 0] as [number, number, number], centre: [0, 1, 2, 3, 4, 5] }, { label: "Fe", location: [0, -1.5, 0] as [number, number, number] }], bonds: [...ring.bonds, { type: 1, atoms: [6, 7] as [number, number] }] };
+  const two = addTemplate(addRing(EMPTY, 5, false, { point: [-20, 0] }), normalise(cp), { point: [10, 0] }), point = two.atoms.find((x) => x.centre)!;
+  assert.deepEqual(point.centre!.map((i) => two.atoms[i].location[0] > 5), [true, true, true, true, true, true], "the ligand's atoms are the new ring's");
   console.log("objects.check: templates keep the whole selection ok");
 }
 

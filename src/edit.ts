@@ -837,7 +837,15 @@ export function joinOverlaps(m: Mol, moved: Set<number>): { mol: Mol; joined: bo
     if (ends[0] === ends[1] || bonds.some((c) => (c.atoms[0] === ends[0] && c.atoms[1] === ends[1]) || (c.atoms[0] === ends[1] && c.atoms[1] === ends[0]))) continue;
     bonds.push({ ...b, atoms: ends });
   }
-  return { mol: removeAtoms({ ...m, atoms, bonds }, new Set(into.keys())), joined: true };
+  // A ring fill goes on with its ring: a joined atom's place in it is taken by the atom it joined. One ring filled
+  // twice keeps the first fill.
+  const seen = new Set<string>(), fills = m.fills?.map((f) => ({ ...f, atoms: f.atoms.map((k) => into.get(k) ?? k) })).filter((f) => {
+    const key = [...f.atoms].sort((p, q) => p - q).join(",");
+    if (new Set(f.atoms).size !== f.atoms.length || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return { mol: removeAtoms({ ...m, atoms, bonds, ...(m.fills ? { fills } : {}) }, new Set(into.keys())), joined: true };
 }
 
 // Object > Join (⌘J), as ChemDraw's (decompiled DoJoin and ObjectJoinHandler). One atom in each of two structures:
@@ -1720,6 +1728,8 @@ export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: numb
     }
     ids.push(id);
   }
+  // A multi-centre point names the atoms of its ring by number: they take their numbers in the drawing.
+  t.atoms.forEach((a, k) => { if (a.centre) m = { ...m, atoms: m.atoms.map((x, n) => (n === ids[k] && x.centre ? { ...x, centre: a.centre!.map((i) => ids[i]) } : x)) }; });
   const hasDouble = (i: number) => m.bonds.some((b) => b.type === 2 && b.atoms.includes(i));
   for (const b of t.bonds) {
     const [i, j] = [ids[b.atoms[0]], ids[b.atoms[1]]];
