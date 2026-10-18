@@ -4609,7 +4609,8 @@ export default function Editor() {
           return (
             <g key={key} className={role}>
               <rect x={(b[0] - pad) * L} y={-(b[3] + pad) * L} width={(b[2] - b[0] + 2 * pad) * L} height={(b[3] - b[1] + 2 * pad) * L} rx={0.2 * L} />
-              <text x={(b[0] - pad) * L} y={-(b[3] + pad) * L - 3}>{ROLE_NAMES[role]}</text>
+              {/* The name over its box; under it below the arrow, so it clears what is above the arrow. */}
+              <text x={(b[0] - pad) * L} y={role === "below" ? -(b[1] - pad) * L + 11 : -(b[3] + pad) * L - 3}>{ROLE_NAMES[role]}</text>
             </g>
           );
         })))}
