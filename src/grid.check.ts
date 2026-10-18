@@ -29,6 +29,13 @@ const corner: [number, number] = [-105 * mm, 148.5 * mm]; // A4 portrait's top-l
   assert.ok(Math.abs(lines.y[lines.y.length - 1][0] - corner[1]) < 1e-9);
 }
 
+// A grid in inches: a heavier line at each inch (8, 4 or 2 steps), as the rulers in inches count.
+{
+  assert.deepEqual([3.175, 6.35, 12.7].map((step) => gridOf(step, mm, corner).every), [8, 4, 2]);
+  const g = gridOf(6.35, mm, [0, 0]), lines = gridLines(g, [0, 0, 25.4 * mm, 0], 40);
+  assert.deepEqual(lines.x.map(([, major]) => major), [true, false, false, false, true]);
+}
+
 // Never more than MAX_LINES, whatever the window or the step: a huge window, a tiny step, a bad scale.
 {
   assert.ok(gridLines(gridOf(1, mm, [0, 0]), [-1e6, -1e6, 1e6, 1e6], 1000).x.length <= MAX_LINES);

@@ -1762,7 +1762,8 @@ button.variant.add {
   shape-rendering: crispEdges;
 }
 .pages .grid.major {
-  stroke: rgb(148 163 184 / 0.5);
+  stroke: var(--outline);
+  stroke-opacity: 0.5;
 }
 .pages .crosshair {
   fill: none;
@@ -2771,16 +2772,18 @@ button.variant.add {
   fill: rgb(255 255 255 / 0.75);
 }
 .canvas.paper-dark .pages .grid {
-  stroke: rgb(255 255 255 / 0.07);
+  stroke: rgb(255 255 255 / 0.09);
 }
 .canvas.paper-dark .pages .grid.major {
   stroke: rgb(255 255 255 / 0.16);
+  stroke-opacity: 1;
 }
 .canvas.paper-blueprint .pages .grid {
   stroke: rgb(255 255 255 / 0.1);
 }
 .canvas.paper-blueprint .pages .grid.major {
   stroke: rgb(255 255 255 / 0.24);
+  stroke-opacity: 1;
 }
 .canvas.paper-dark .pages .crosshair {
   stroke: var(--brand-bright);

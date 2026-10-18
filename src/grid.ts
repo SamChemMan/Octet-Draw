@@ -1,6 +1,6 @@
 // The grid: where its lines fall in the window, which of them show at this zoom, and snapping to them. Drawing
 // coordinates (bond lengths, y up) throughout. Pure, so grid.check.ts tests it.
-import type { GridStep } from "./docstyle.ts";
+import { GRID_IN, type GridStep } from "./docstyle.ts";
 
 type P = [number, number];
 // A grid: a line every `minor` from `origin`, and a heavier one every `every` lines.
@@ -11,9 +11,10 @@ export const MIN_GAP = 8;
 export const MAX_LINES = 2000;
 
 // The document's grid. mm: bond lengths per mm. A bond-length grid has a line each bond length and a lighter one at
-// each half; a grid in mm or inches has a heavier line every 5 steps.
+// each half; a grid in mm has a heavier line every 5 steps, and a grid in inches one at each inch, where the rulers
+// show their numbers.
 export function gridOf(step: GridStep, mm: number, origin: P): GridSpec {
-  return step === "bond" ? { origin, minor: 0.5, every: 2 } : { origin, minor: step * mm, every: 5 };
+  return step === "bond" ? { origin, minor: 0.5, every: 2 } : { origin, minor: step * mm, every: GRID_IN.includes(step) ? Math.round(25.4 / step) : 5 };
 }
 
 // The step of the finest lines that show at this scale (px per bond length), or undefined when none do.
