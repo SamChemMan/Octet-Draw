@@ -1,6 +1,7 @@
 // Octet's own file format: versioned, human-readable JSON. Treat every file as hostile: check it fully on read.
 import { fontName, readGuides, readStyle } from "./docstyle.ts";
 import { normalise, plainOf, type TextRun } from "./richtext.ts";
+import { tidyGroups } from "./edit.ts";
 import { ALL_ARROW_KINDS, ORBITAL_SHAPES, PHASES, SHAPE_KINDS, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type Grid, type TableLine, type CellAlign, type Tlc, type Atom, type Bond, type Caption, type Display, type Mol } from "./render.ts";
 
 export const FORMAT = "octet";
@@ -242,7 +243,8 @@ export function parse(text: string): Mol {
       return { id: next++, atoms: atoms as number[], items: (items as [string, number][]).map(([kind, k]) => lists[kind][k].id), ...(g.integral ? { integral: true as const } : {}) };
     });
   }
-  return out;
+  // Groups as an edit leaves them: each atom and object once, nested or apart, and two or more things in each.
+  return tidyGroups(out);
 }
 
 // Captions, checked and read into the drawing (their ids come first, from 1).
