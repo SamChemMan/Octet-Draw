@@ -22,7 +22,7 @@ export const ACTIONS: Action[] = [
   ...["Me", "Et", "Ph", "Ac", "OMe", "CO2Me", "CF3", "NO2", "N3", "MgBr", "Fmoc", "Cbz", "Boc", "D", "R", "X"].map((t): Action => ({ id: `label.${t}`, name: `Set atom to ${t}`, group: "Atoms", place: "atom" })),
   { id: "atom.attach", name: "Add an attachment point", group: "Atoms", place: "atom" },
   { id: "atom.number", name: "Show or hide the atom's number", group: "Atoms", place: "atom" },
-  { id: "atom.properties", name: "Atom properties", group: "Atoms", place: "atom" },
+  { id: "atom.properties", name: "Atom properties…", group: "Atoms", place: "atom" },
   { id: "charge.plus", name: "Add a positive charge", group: "Atoms", place: "atom" },
   { id: "charge.minus", name: "Add a negative charge", group: "Atoms", place: "atom" },
   group("chain", "Add a bond (zig-zag)"), group("other", "Add a bond the other way"), group("acetyl", "Add an acetyl, or make C=O"),

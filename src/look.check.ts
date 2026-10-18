@@ -38,6 +38,28 @@ for (const [file, text] of tsx) {
 for (const [file, text] of tsx) {
   for (const m of text.matchAll(/className="actions-close"[^>]*aria-label="([^"]+)"/g)) assert.ok(/^(Close|Full screen)/.test(m[1]), `${file}: close button "${m[1]}"`);
 }
+// One icon for one action (BRAND.md Iconography): across the Actions panel, the menu commands and the palette's own
+// rows, an icon stands for one command. Two pairs share an icon but never show together: Copy (a mixed selection) and
+// Copy as SMILES (structures), and Reverse (arrows) and Point the other way (bonds).
+const shared = [["copy", "copy_smiles"], ["arrow.reverse", "bond.flip"]];
+const actionsTsx = read("Actions.tsx"), editorTsx = read("Editor.tsx");
+const uses: [string, string][] = [];
+for (const m of actionsTsx.matchAll(/it\(<(\w+)[^>]*\/>,\s*[^,]*?(?:"[^"]*"\s*:\s*)?"[^"]*",\s*"([^"]+)"/g)) uses.push([m[1], m[2]]);
+for (const m of actionsTsx.matchAll(/\["(\w+)", "[^"]+", <(\w+) size=\{18\} \/>\]/g)) uses.push([m[2], m[1]]);
+for (const m of actionsTsx.matchAll(/\{ icon: <(\w+) size=\{18\} \/>, name: [^,]+, command: "([^"]+)"/g)) uses.push([m[1], m[2]]);
+const menuBlock = editorTsx.slice(editorTsx.indexOf("const MENU_NAMES"), editorTsx.indexOf("const paletteCommands")).split(/\b(\w+): \[/);
+for (let k = 1; k < menuBlock.length; k += 2) { const icon = [...menuBlock[k + 1].matchAll(/<(\w+) size=\{18\} \/>\]/g)].pop(); if (icon) uses.push([icon[1], menuBlock[k]]); }
+const paletteBlock = editorTsx.slice(editorTsx.indexOf("const paletteCommands"), editorTsx.indexOf("const drawCommand"));
+for (const m of paletteBlock.matchAll(/id: "([^"]+)", name: "[^"]*"[^}]*?icon: <(\w+) size=\{18\} \/>/g)) uses.push([m[2], m[1]]);
+for (const m of paletteBlock.matchAll(/\["(\w+)", "[^"]+", <(\w+) size=\{18\} \/>\]/g)) uses.push([m[2], `settings:${m[1]}`]);
+assert.ok(uses.length > 120, `look.check found only ${uses.length} icons; update its patterns`);
+const commandsOf = new Map<string, Set<string>>();
+for (const [icon, command] of uses) commandsOf.set(icon, (commandsOf.get(icon) ?? new Set()).add(command));
+for (const [icon, commands] of commandsOf) {
+  const list = [...commands].sort();
+  assert.ok(list.length === 1 || shared.some((pair) => pair.join() === list.join()), `${icon} stands for ${list.join(", ")}`);
+}
+
 // UI text sizes on the type scale (tokens.json): 11, 13, 15, 20, 32, 64 px. The wordmark and the drawing's NMR shift
 // labels (drawing units, not UI type) are the only exceptions.
 const css = read("editor.css");

@@ -2,7 +2,7 @@
 // modules (Document, Keyboard shortcuts, Import and export) under a search field that is always there. With text
 // in it, every matching setting from every module shows on the right, grouped by module and ready to use.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowsDownUp, CaretDown, Check, FileText, Keyboard, MagnifyingGlass, Palette, Plus, SlidersHorizontal, X } from "@phosphor-icons/react";
+import { CaretDown, Check, FileText, Files, Keyboard, MagnifyingGlass, Palette, Plus, SlidersHorizontal, X } from "@phosphor-icons/react";
 import { ColourPicker } from "./ColourPicker";
 import { Select } from "./Select";
 import { FontPick } from "./Actions";
@@ -174,7 +174,7 @@ const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: strin
   { id: "document", name: "Document", icon: <FileText size={16} />, words: "document style page text" },
   { id: "keys", name: "Keyboard shortcuts", icon: <Keyboard size={16} />, words: "keyboard shortcut hotkey keys" },
   { id: "panel", name: "Actions panel", icon: <SlidersHorizontal size={16} />, words: "actions panel side menus sections" },
-  { id: "files", name: "Import and export", icon: <ArrowsDownUp size={16} />, words: "import export file clipboard" },
+  { id: "files", name: "Import and export", icon: <Files size={16} />, words: "import export file clipboard" },
   { id: "colours", name: "Colours", icon: <Palette size={16} />, words: "colour colours palette custom swatch named" },
 ];
 // Words people use for the same thing.
@@ -357,7 +357,7 @@ export function SettingsWindow(p: Props) {
   const content = (module: ModuleId, list: Def[]) => {
     if (module === "document") return (
       <>
-        {!query && <div className="style-preview" data-theme="light" aria-hidden>{p.preview}</div>}
+        {!query && <div className="style-preview" aria-hidden>{p.preview}</div>}
         {sections(module, list).map((s) => (
           <Section key={s} title={s} defs={list.filter((x) => x.module === module && x.section === s)}
             aside={s === "Style" ? <Select label="Style preset" value={style.preset} options={presets} onChange={(v) => v in PRESETS && p.onStyle({ ...style, ...PRESETS[v], preset: v })} /> : undefined} />
