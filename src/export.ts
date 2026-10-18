@@ -8,7 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 // handles, guides, the rubber band, the eraser and the rest.
 export const UI = [
   "pages", "grid", "selection-marks", "nmr-marks", "nmr-shift", "problem-mark", "mark", "arrow-mark", "suggested",
-  "ghost", "pen-points", "mapping", "handle", "turn-handle", "turn-angle", "box", "trail", "erase-marks", "brush",
+  "ghost", "pen-points", "mapping", "handle", "turn-handle", "turn-centre", "turn-angle", "box", "trail", "erase-marks", "brush",
   "count", "guide", "snap-point", "spot-picked", "group-frame",
 ].map((c) => `.${c}`).join(",");
 
@@ -16,7 +16,7 @@ export const UI = [
 const INHERITED = [
   "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity", "stroke-dasharray", "stroke-dashoffset",
   "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "paint-order", "font-family", "font-size", "font-style",
-  "font-weight", "text-anchor", "letter-spacing", "visibility",
+  "font-weight", "text-anchor", "letter-spacing", "word-spacing", "visibility",
 ];
 // The rest: written where they differ from the default (as WebKit or Chromium reports it).
 const OWN: [string, string[]][] = [
