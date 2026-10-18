@@ -2354,14 +2354,17 @@ export default function Editor() {
   // The kinds of thing selected (structures, captions, arrows, shapes, cycles) and how many things. A caption under a
   // selected structure, on a picked arrow or in a picked cycle goes with it, and so do a picked cycle's intermediates.
   const mixOf = () => {
-    if (!picked.size) return { kinds: selection.size ? 1 : 0, count: 0, atoms: selection.size > 0 };
+    if (!picked.size) return { kinds: selection.size ? 1 : 0, count: 0, atoms: selection.size > 0, lines: false };
     const cycles = (doc.cycles ?? []).filter((c) => picked.has(c.id)), inCycle = new Set(cycles.flatMap((c) => c.nodes.flat()));
     const arrowIds = new Set((doc.arrows ?? []).filter((a) => picked.has(a.id)).map((a) => a.id)), shapes = (doc.shapes ?? []).filter((x) => picked.has(x.id)).length;
     const captions = (doc.captions ?? []).filter((c) => picked.has(c.id) && !c.under?.some((i) => selection.has(i)) && !(c.on && arrowIds.has(c.on.arrow)) && !(c.cycle && cycles.some((y) => y.id === c.cycle!.cycle))).length;
     const structures = fragments(doc).filter((g) => g.some((i) => selection.has(i) && !inCycle.has(i))).length;
     const counts = [structures, captions, arrowIds.size, shapes, cycles.length];
-    return { kinds: counts.filter(Boolean).length, count: counts.reduce((a, b) => a + b, 0), atoms: structures > 0 };
+    return { kinds: counts.filter(Boolean).length, count: counts.reduce((a, b) => a + b, 0), atoms: structures > 0, lines: !structures && !captions };
   };
+  // The line width an arrow, shape or cycle is drawn with: its own, a table's rules', or the document's (a filled pen
+  // curve's outline is a hairline unless set; curveFill).
+  const widthOf = (x: Arrow | Shape | Cycle) => ("table" in x && x.table ? x.table.weight : x.width) ?? ("curve" in x && x.curve?.closed && x.fill ? 0.05 : style.line);
   // What the Actions panel shows: it follows the selection (and, while typing, the caret). Worked out when the panel
   // draws and when an action runs.
   const contextOf = (): Context => {
@@ -2380,10 +2383,11 @@ export default function Editor() {
     // A cycle picked (with its intermediates), when it is all that is picked.
     const mix = mixOf();
     const pickedCycle = (doc.cycles ?? []).find((c) => picked.has(c.id));
-    if (pickedCycle && mix.kinds === 1) return { kind: "cycle", clockwise: pickedCycle.clockwise, steps: pickedCycle.nodes.length, centre: !!doc.captions?.some((c) => c.cycle?.cycle === pickedCycle.id && c.cycle.side === "centre") };
+    if (pickedCycle && mix.kinds === 1) return { kind: "cycle", clockwise: pickedCycle.clockwise, steps: pickedCycle.nodes.length, centre: !!doc.captions?.some((c) => c.cycle?.cycle === pickedCycle.id && c.cycle.side === "centre"), width: widthOf(pickedCycle) };
     // Different kinds of thing picked together (an arrow and a box, a caption and an atom, everything): what applies to
-    // all of them.
-    if (mix.kinds > 1) return { kind: "selection", count: mix.count, atoms: mix.atoms };
+    // all of them. Lines picked together (arrows, shapes and cycles only) share one line width.
+    const lined = mix.lines ? [...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].find((x) => picked.has(x.id)) : undefined;
+    if (mix.kinds > 1) return { kind: "selection", count: mix.count, atoms: mix.atoms, ...(lined ? { width: widthOf(lined) } : {}) };
     // A TLC spot picked on its plate.
     const plate = spotPick && !selection.size && picked.size === 1 && picked.has(spotPick.plate) ? doc.shapes?.find((x) => x.id === spotPick.plate) : undefined, spot = plate?.tlc?.spots[spotPick!.index];
     if (plate && spot) {
@@ -2414,8 +2418,7 @@ export default function Editor() {
         kind: "arrow", count: pickedArrows.length, arrow: pickedArrows[0].kind, curved: pickedArrows.some(curved), style: pickedArrows[0].style ?? "plain", orbital: pickedArrows[0].orbital,
         heads: pickedArrows.every(takesHeads), ...headsOf(pickedArrows[0]), head: pickedArrows[0].head ?? "solid",
         closed: pickedArrows[0].curve ? !!pickedArrows[0].curve.closed : undefined, fill: pickedArrows[0].fill ?? "none",
-        // The width drawn: a filled pen curve's outline is a hairline unless set (curveFill).
-        width: pickedArrows[0].width ?? (pickedArrows[0].curve?.closed && pickedArrows[0].fill ? 0.05 : style.line),
+        width: widthOf(pickedArrows[0]),
         // The sweep the curved ones share, if it is one on offer.
         sweep: SWEEPS.find((sw) => pickedArrows.filter(curved).every((a) => Math.abs(sweepOf(a.bend ?? 0) - sw) < 2)),
       };
@@ -2982,8 +2985,6 @@ export default function Editor() {
         const cols = tableLayout(x, cellWidth(x)).cols, only = lastCell?.id === x.id ? lastCell.c : undefined;
         return { table: { ...x.table!, align: Array.from({ length: cols }, (_, c) => (only === undefined || c === only ? arg as CellAlign : x.table?.align?.[c] ?? "centre")) } };
       });
-      // The lines' width: a table's rules, or any other shape's outline (ChemDraw's Object Settings > Line Width).
-      if (what === "weight") return set({ ...doc, shapes: doc.shapes?.map((x) => (!ids.has(x.id) ? x : x.table ? { ...x, table: { ...x.table, weight: Number(arg) / 100 } } : { ...x, width: Number(arg) / 100 })) }, true, `shape-weight-${[...ids].join()}`);
       if (what === "clear") return each((x) => clearTable(x));
       if (what === "fit") return each((x) => fitTable(x, cellWidth(x)));
       // One style at a time: plain, dashed, shaded, filled or with a shadow.
@@ -3006,6 +3007,13 @@ export default function Editor() {
       }
       // Turning an orbital round swaps its phases.
       if (what === "swap") return each((a) => ({ to: [2 * a.from[0] - a.to[0], 2 * a.from[1] - a.to[1]] }));
+    }
+    // The line width of every picked arrow, shape (a table's rules, 0.1 pt at least) and cycle, as ChemDraw's Object
+    // Settings > Line Width: one undo step for a whole slider drag.
+    if (command.startsWith("lines.weight.")) {
+      const w = Number(command.slice(13)) / 100, on = (x: { id: number }) => picked.has(x.id);
+      return set({ ...doc, arrows: doc.arrows?.map((a) => (on(a) ? { ...a, width: w } : a)), cycles: doc.cycles?.map((c) => (on(c) ? { ...c, width: w } : c)),
+        shapes: doc.shapes?.map((x) => (!on(x) ? x : x.table ? { ...x, table: { ...x.table, weight: Math.max(0.1, w) } } : { ...x, width: w })) }, true, `lines-weight-${[...picked].join()}`);
     }
     if (command.startsWith("arrow.")) {
       const [, what, arg] = command.split(".");
@@ -3035,8 +3043,6 @@ export default function Editor() {
       // A style chip sets it; the arrows' Dashed line action turns dashes on and off.
       if (what === "style") return each((a) => ({ style: arg === "plain" || (arg === "dashed" && a.style === "dashed" && !isLine(a) && a.kind !== "curve") ? undefined : (arg as Arrow["style"]) }));
       if (what === "flip") return each((a) => ({ bend: -(a.bend ?? sweepBend(120)) }));
-      // The line width, as for shapes (one undo step for a whole slider drag).
-      if (what === "weight") return set({ ...doc, arrows: doc.arrows?.map((a) => (ids.has(a.id) ? { ...a, width: Number(arg) / 100 } : a)) }, true, `arrow-weight-${[...ids].join()}`);
       if ((what === "above" || what === "below") && id !== undefined) {
         setPicked(new Set());
         return openWriting({ value: "", on: { arrow: id, side: what }, style: { ...textStyle } });

@@ -182,3 +182,12 @@ console.log("file.check: bad files refused");
   assert.deepEqual(one.groups!.map((x) => [x.atoms, x.items.length]), [[[0, 1], 1]]);
   console.log("file.check: groups ok");
 }
+
+// A catalytic cycle keeps its own line width (UI-42); a bad width is refused.
+{
+  const m = { ...mol, cycles: [{ id: 60, centre: [0, 0] as [number, number], radius: 3, clockwise: true, nodes: [[0, 1], [3, 4]], width: 1.2 }] };
+  assert.equal(parse(serialize(m)).cycles?.[0].width, 1.2);
+  const structure = JSON.parse(serialize(mol)).structure;
+  assert.throws(() => parse(JSON.stringify({ format: "octet", version: 1, structure, cycles: [{ x: 0, y: 0, radius: 3, nodes: [[0], [3]], width: 0 }] })), /damaged/);
+  console.log("file.check: cycle line width ok");
+}

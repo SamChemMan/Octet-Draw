@@ -5,6 +5,7 @@ import { DAMAGED, NOT_CDXML, TOO_BIG, fmt, fmtAngle, fmtColour, fmtSize, fromCdx
 import { DEFAULT_STYLE, PRESETS, readStyle, type DocStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
 import { HIGHLIGHT, headsOf, takesHeads, tlcLayout, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape } from "./render.ts";
+import { layoutCycles } from "./cycle.ts";
 
 // Numbers as ChemDraw writes them (spec 1.2).
 assert.deepEqual([fmt(30), fmt(14.4), fmt(0.6), fmt(-0.001), fmt(523.2756), fmt(2)], ["30", "14.40", "0.60", "0", "523.28", "2"]);
@@ -95,7 +96,7 @@ const shapes: Shape[] = [
 ];
 const drawing: Mol = {
   atoms, bonds, captions, arrows, shapes,
-  cycles: [{ id: 300, centre: [20, 0], radius: 3, clockwise: false, nodes: [[16, 17], [18], [19, 20]], colour: "#8B4E18" }],
+  cycles: [{ id: 300, centre: [20, 0], radius: 3, clockwise: false, nodes: [[16, 17], [18], [19, 20]], colour: "#8B4E18", width: 1.4 }],
   groups: [{ id: 400, atoms: [9, 10, 11, 12, 13, 14, 15], items: [4, 5, 106] }, { id: 401, atoms: [], items: [202, 203], integral: true }],
 };
 
@@ -190,6 +191,10 @@ console.log("cdxml.check: every object kind round trips");
   const count = (xml: string) => xml.split("<arrow\n").length - 1;
   assert.equal(count(withDerived), count(toCdxml(drawing, DEFAULT_STYLE)) + 1);
   same(drawing, fromCdxml(withDerived).mol, "derived arrows");
+  // A cycle's arrows take its line width (UI-42), so ChemDraw draws them as wide as Octet does.
+  const arcs = layoutCycles(drawing, 1, 1, () => undefined).arrows;
+  assert.ok(arcs.length && arcs.every((a) => a.width === 1.4));
+  assert.ok(toCdxml(drawing, DEFAULT_STYLE, { derived: arcs }).includes('LineWidth="1.40"'));
   // A label Octet can expand goes to ChemDraw as an abbreviation with its own atoms; Octet keeps the label.
   const phenyl: Mol = { atoms: [0, 1, 2, 3, 4, 5].map((k) => A("C", Math.cos((k * Math.PI) / 3), Math.sin((k * Math.PI) / 3))), bonds: [0, 1, 2, 3, 4, 5].map((k) => b(k, (k + 1) % 6, { type: k % 2 ? 1 : 2 })) };
   const expanded = toCdxml(drawing, DEFAULT_STYLE, { expand: (t) => (t === "Ph" ? phenyl : undefined) });

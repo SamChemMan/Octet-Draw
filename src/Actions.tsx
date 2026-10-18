@@ -26,7 +26,7 @@ export type Context =
   | { kind: "empty" }
   | { kind: "drawing"; nameable: boolean }
   // Different kinds of thing picked together: count things; atoms, when structures are among them.
-  | { kind: "selection"; count: number; atoms: boolean }
+  | { kind: "selection"; count: number; atoms: boolean; width?: number } // width: lines picked together (no structures or text)
   | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; cip?: boolean; numbers?: boolean; circles?: boolean; halo?: string; fill?: string; properties?: boolean }
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
   | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
@@ -34,7 +34,7 @@ export type Context =
   | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
       heads: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string; width: number }
   | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[]; shade: { depth: number; blur: number; opacity: number; pt: number }; text?: LabelText }
-  | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean }
+  | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean; width: number }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean; grid: boolean }
   | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; halo?: string; fill?: string; numbered?: boolean }
   | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean }
@@ -664,7 +664,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
               ))}
             </div>
             <div className="sliders" role="group" aria-label="Lines">
-              <Slider name="Line width" value={context.weight} min={0.1} max={4} step={0.05} show={(v) => `${v.toFixed(2)} pt`} onChange={(v) => run(`shape.weight.${Math.round(v * 100)}`)} />
+              <Slider name="Line width" value={context.weight} min={0.1} max={4} step={0.05} show={(v) => `${v.toFixed(2)} pt`} onChange={(v) => run(`lines.weight.${Math.round(v * 100)}`)} />
             </div>
           </>
         );
@@ -747,10 +747,11 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           </div>
         );
       })()}
-      {((context.kind === "shape" && context.shape !== "highlight" && context.shape !== "table" && context.style !== "solid" && context.style !== "shaded") || context.kind === "arrow") && (
-        // The width of the lines, for every object drawn in lines (a table's is with its lines, above).
+      {((context.kind === "shape" && context.shape !== "highlight" && context.shape !== "table" && context.style !== "solid" && context.style !== "shaded") || context.kind === "arrow" || context.kind === "cycle" || (context.kind === "selection" && context.width !== undefined)) && (
+        // The width of the lines, for every object drawn in lines, and for lines picked together (a table's is with its
+        // lines, above).
         <div className="sliders" role="group" aria-label="Lines">
-          <Slider name="Line width" value={context.kind === "arrow" ? context.width : context.weight} min={0.05} max={4} step={0.05} show={(v) => `${v.toFixed(2)} pt`} onChange={(v) => run(`${context.kind}.weight.${Math.round(v * 100)}`)} />
+          <Slider name="Line width" value={context.kind === "shape" ? context.weight : context.width!} min={0.05} max={4} step={0.05} show={(v) => `${v.toFixed(2)} pt`} onChange={(v) => run(`lines.weight.${Math.round(v * 100)}`)} />
         </div>
       )}
       {colour && (
