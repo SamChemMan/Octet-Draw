@@ -1812,18 +1812,10 @@ button.variant.add {
   width: 18px;
   height: 18px;
   padding: 0;
+  /* The swatch edge is strong in the dark theme, so the Ink and Black swatches keep a clear ring on a dark panel. */
   border: 1px solid var(--swatch-edge);
   border-radius: var(--radius-pill);
   transition: transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
-}
-/* On a dark panel the Ink and Black swatches need a clear ring: the control border (--outline) in the dark theme. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .swatch {
-    border-color: var(--outline);
-  }
-}
-[data-theme="dark"] .swatch {
-  border-color: var(--outline);
 }
 .swatch[aria-checked="true"],
 .swatch.custom[data-checked] {
