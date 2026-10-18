@@ -49,4 +49,12 @@ for (const label of ["A", "AH", "Q", "QH", "M", "MH", "X", "XH"]) {
 // Reaxys looks for substructures by default, as ChemDraw does; PubChem for the same structure.
 assert.deepEqual(SEARCHES.search_reaxys, ["reaxys", false]);
 assert.deepEqual(SEARCHES.search_pubchem, ["pubchem", true]);
+// A held key repeats the command: one search a second at most.
+{
+  const { searchNow } = await import("./search.ts");
+  assert.equal(searchNow(10_000), true);
+  assert.equal(searchNow(10_030), false, "a key repeat");
+  assert.equal(searchNow(10_900), false);
+  assert.equal(searchNow(11_000), true, "a second press, a second later");
+}
 console.log("search.check: ok");

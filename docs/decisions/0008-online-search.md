@@ -8,7 +8,8 @@ feature works with no network, and a search runs only when the user asks for one
 
 - A search runs only when the user presses Search Reaxys or Search PubChem: in the Actions panel, the Search
   menu (with its keys) or the command palette. Octet never searches on a selection change, for every structure
-  in a document, in a loop or in the background. The Elsevier terms forbid automated searches.
+  in a document, in a loop or in the background. The Elsevier terms forbid automated searches. Octet runs at
+  most one search a second, because a held key repeats its menu command.
 - Settings > Import and export > Online search turns the searches on or off. It is on by default. Off removes the
   Search menu, the panel's Search set and the palette's search commands, and the app refuses a search.
 - The searches use a magnifier icon and a text label. Octet shows no Reaxys or PubChem logo. "Reaxys" is an

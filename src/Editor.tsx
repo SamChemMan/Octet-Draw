@@ -47,7 +47,7 @@ import type { Graph } from "./naming";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb } from "./TemplateLibrary";
 import { cleanUpReaction, findReaction, GAP, layoutRow, reactionClean, roleOf, rowOf, type Reaction } from "./reaction";
-import { SEARCHES, searchQuery } from "./search";
+import { SEARCHES, searchNow, searchQuery } from "./search";
 import { SettingsWindow, type ModuleId } from "./SettingsWindow";
 import { layoutCycles, orderAround, spreadCycle, type Cycle, type CycleText } from "./cycle";
 import { LIBRARY, libraryItem } from "./library";
@@ -2230,6 +2230,7 @@ export default function Editor() {
     if (role === "mixed") return setNotice("Select the starting materials or the products of the reaction.");
     let query: ReturnType<typeof searchQuery>;
     try { query = searchQuery(part); } catch { return setNotice("Octet cannot read this structure."); }
+    if (!searchNow()) return;
     // A query with generic labels always looks for substructures.
     invoke("search_online", { site, ...query, exact: exact && !query.molfile, role: site === "reaxys" ? role : undefined })
       .catch((e) => setNotice(typeof e === "string" ? e : "Search runs in the Octet app."));
