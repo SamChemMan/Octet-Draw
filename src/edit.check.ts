@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, resizeShape } from "./edit.ts";
+import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, resizeShape, nextGroup, setEnhanced } from "./edit.ts";
 import { inShape, settleShape, shapeBounds, shapeCorners, tableLayout, type Mol, type Shape } from "./render.ts";
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
@@ -577,4 +577,19 @@ console.log("edit.check: align ok");
   assert.equal(pivotOf(chain, new Set([0, 1, 2, 3, 4])), undefined);
   assert.equal(pivotOf(chain, new Set([0, 4])), undefined, "two ways out, from two atoms to two atoms: the middle");
   console.log("edit.check: centre of rotation ok");
+}
+
+// Enhanced stereo groups: a new and or or group takes the lowest number its structure has free (and and or counted
+// apart), and the atoms that move into it do not keep their old number in use.
+{
+  let g = sprout(EMPTY, [0, 0]);
+  for (let k = 1; k < 3; k++) g = sprout(g, k);
+  g = setEnhanced(setEnhanced(g, [0, 1], "&1"), [2], "or1");
+  assert.equal(nextGroup(g, [0, 1, 2, 3], "&"), 2);
+  assert.equal(nextGroup(g, [0, 1, 2, 3], "or"), 2);
+  assert.equal(nextGroup(g, [2, 3], "&"), 1, "another structure's groups do not count");
+  assert.equal(nextGroup(g, [0, 1, 2, 3], "&", new Set([0, 1])), 1, "the whole of group 1 moving frees its number");
+  g = setEnhanced(g, [1], `&${nextGroup(g, [0, 1, 2, 3], "&", new Set([1]))}`);
+  assert.deepEqual(g.atoms.map((a) => a.enhanced), ["&1", "&2", "or1", undefined]);
+  console.log("edit.check: enhanced stereo groups ok");
 }

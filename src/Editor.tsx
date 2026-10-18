@@ -1020,8 +1020,10 @@ export default function Editor() {
       set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.includes(i) ? { ...a, cip: on || undefined } : a)) }, true);
     },
     predict_13c: () => openSpectrum("13C"),
+    // Explain This Warning (ChemDraw's context menu): the warnings marked on the selection, in a dialog.
+    explain_warning: () => { const list = selectedOf(found); return list.length ? setExplaining(list) : setNotice("Select an object with a warning."); },
     // Structure > Check Structure: the selection's problems (or the drawing's) one at a time (see checkThen).
-    check_structure: () => checkThen(selection.size ? subsetProblems(selection) : allProblems(), () => {}, true),
+    check_structure: () => checkThen(selection.size ? subsetProblems() : allProblems(), () => {}, true),
     // Structure > Enhanced Stereochemistry, as ChemDraw's: on the selected stereocentres (every one with nothing
     // selected). Clear All takes their flags off; Mark as Absolute flags them abs; Create Or Group and Create And Group
     // put each structure's selected centres in a new group, numbered with the lowest number its structure has free.
@@ -1227,6 +1229,8 @@ export default function Editor() {
   // Check Structure's dialog: the problems, the one shown, and what runs after them (a copy or export that asked).
   // select: Check Structure itself, which selects each problem's objects as it shows it.
   const [checking, setChecking] = useState<{ list: Problem[]; at: number; then: () => void; select: boolean }>();
+  // Explain This Warning's dialog: the selection's warnings.
+  const [explaining, setExplaining] = useState<Problem[]>();
   const [commandsOpen, setCommandsOpen] = useState(false);
   // An arrow Octet offers after a row of starting materials (from Clean up). Tab draws it; any other change drops it.
   const [offer, setOffer] = useState<{ from: P; to: P; doc: Mol }>();
@@ -2756,7 +2760,7 @@ export default function Editor() {
   }
   // Settings > Warnings > Check structure when copying or exporting: the selection's problems (or the drawing's)
   // first, then the copy or export.
-  const checkFirst = (then: () => void) => (settings.checkCopy ? checkThen(selection.size || picked.size ? subsetProblems(selection) : allProblems(), then) : then());
+  const checkFirst = (then: () => void) => (settings.checkCopy ? checkThen(selection.size || picked.size ? subsetProblems() : allProblems(), then) : then());
   // Whether a selected atom, or a bond between selected atoms, has its warnings hidden (for Show warnings).
   const hiddenHere = () => [...selection].some((i) => doc.atoms[i]?.ignoreWarnings) || doc.bonds.some((b) => b.ignoreWarnings && selection.has(b.atoms[0]) && selection.has(b.atoms[1]));
   function showProblem(p: Problem) {
@@ -2896,7 +2900,8 @@ export default function Editor() {
   // Every problem, those on objects with their warnings hidden too (for Check Structure), of the kinds switched on.
   const allProblems = () => problems(doc, stereoOf(doc), true).filter((p) => warnOn(p.type));
   // The problems on what is selected: its atoms, the bonds between them, and the picked shapes.
-  const subsetProblems = (atoms: Set<number>) => allProblems().filter((p) => (p.atom !== undefined ? atoms.has(p.atom) : p.bond !== undefined ? doc.bonds[p.bond]?.atoms.every((i) => atoms.has(i)) : picked.has(p.shape!)));
+  const selectedOf = (list: Problem[]) => list.filter((p) => (p.atom !== undefined ? selection.has(p.atom) : p.bond !== undefined ? doc.bonds[p.bond]?.atoms.every((i) => selection.has(i)) : picked.has(p.shape!)));
+  const subsetProblems = () => selectedOf(allProblems());
   // The drawing's own colours (a ChemDraw file's, say) join the Colour row after Octet's and the user's, as ChemDraw's
   // Color menu lists each document's colours. A colour stays in the row until another drawing opens.
   const drawingColours = useRef<string[]>([]);
@@ -2992,7 +2997,7 @@ export default function Editor() {
     const variants = (t: Tool, slot: string, list: [string, string, React.ReactNode][], group: string, words = ""): Command[] =>
       list.map(([kind, name, icon]) => ({ id: `${t}:${kind}`, name, group, icon, words, run: pick(t, [slot, kind]) }));
     // A menu command that is also one of the selection's actions shows once, as the action.
-    const acts = actionItems(contextOf(), untidy, hiddenHere()), acted = new Set(acts.map((i) => i.command));
+    const acts = actionItems(contextOf(), untidy, hiddenHere(), selectedOf(found).length), acted = new Set(acts.map((i) => i.command));
     return [
       ...acts.map((i) => ({ id: `action:${i.command}`, name: i.name, group: "Actions", icon: i.icon, keys: hint(i.command), run: () => runAction(i.command) })),
       ...Object.entries(MENU_NAMES).filter(([id]) => commands.current[id] && !acted.has(id)).map(([id, [name, , icon]]) => ({ id: `menu:${id}`, name, group: "Commands", keys: hint(id), icon, run: () => commands.current[id]() })),
@@ -3630,7 +3635,7 @@ export default function Editor() {
       // Check Structure first when Settings asks for it; the copy (and a cut's delete) waits for Ignore All, then
       // goes to the clipboard with no copy event (the app's clipboard, or the browser's as text).
       if (settings.checkCopy) {
-        const list = selection.size || picked.size ? subsetProblems(selection) : allProblems();
+        const list = selection.size || picked.size ? subsetProblems() : allProblems();
         if (list.length) { checkThen(list, () => { copyOut(part); if (cut) runAction("delete"); }); return false; }
       }
       copyOut(part, e);
@@ -4530,6 +4535,7 @@ export default function Editor() {
             problems={found}
             fonts={fontList}
             hiddenWarnings={hiddenHere()}
+            warned={selectedOf(found).length}
             messy={untidy}
             hint={hint}
             onOpen={(open) => setSettings((s) => ({ ...s, actions: open }))}
@@ -4664,6 +4670,13 @@ export default function Editor() {
           }}>
           <p className="dialog-note">{checking.list[checking.at].message}</p>
           {checking.list.length > 1 && <p className="dialog-note">{checking.at + 1} of {checking.list.length}</p>}
+        </Dialog>
+      )}
+      {explaining && (
+        // One warning with a fix offers the fix; otherwise the dialog only shows the warnings.
+        <Dialog title="Possible Error in Drawing" onClose={() => setExplaining(undefined)} cancel="Close"
+          {...(explaining.length === 1 && explaining[0].fix ? { action: explaining[0].fix.label, onAction: () => { setExplaining(undefined); runAction(explaining[0].fix!.command); } } : {})}>
+          {explaining.map((p, k) => <p key={k} className="dialog-note">{p.message}</p>)}
         </Dialog>
       )}
       {commandsOpen && <CommandPalette commands={paletteCommands()} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}

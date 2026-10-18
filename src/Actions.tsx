@@ -9,7 +9,7 @@ import {
   AlignBottomSimple, AlignTopSimple, ArrowLineDown, ArrowLineUp, CursorText, DotsThree, DotsThreeVertical, Faders, Polygon, Rectangle, ArrowArcLeft, ArrowArcRight, ArrowsCounterClockwise, ArrowUDownLeft, CircleDashed, CornersOut, MagnifyingGlass, Swap,
   ClipboardText, CopySimple, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
-  TextAlignJustify, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Eraser, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
+  TextAlignJustify, TextAlignRight, TextB, TextItalic, TextT, TextUnderline, Trash, Warning, Info, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Eraser, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical,
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
@@ -47,7 +47,8 @@ type Props = {
   analysis?: Analysis;
   problems: Problem[];
   fonts: string[]; // Octet's fonts, then the other fonts the drawing uses
-  hiddenWarnings?: boolean; // a selected atom has its warnings hidden
+  hiddenWarnings?: boolean; // a selected atom or bond has its warnings hidden
+  warned?: number; // how many warnings are marked on the selection
   messy: boolean;
   hint: (command: string) => string | undefined; // the key for a command, if it has one
   onOpen: (open: boolean) => void;
@@ -201,7 +202,7 @@ const KIND_OF: Record<string, string> = {
   "shape.hide.origin": "plate", "shape.hide.front": "plate", "shape.hide.border": "plate", "cycle.reverse": "cycle", "cycle.ungroup": "cycle",
   properties: "analysis", show_stereo: "analysis", predict_1h: "analysis", predict_13c: "analysis",
   "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "turn", flatten: "turn",
-  pairs: "marks", number: "marks", atom_numbers: "marks", show_warnings: "marks", "caption.add": "marks", colour_by_element: "marks", aromatic_display: "marks", contract_label: "marks",
+  pairs: "marks", number: "marks", atom_numbers: "marks", show_warnings: "marks", explain_warning: "marks", "caption.add": "marks", colour_by_element: "marks", aromatic_display: "marks", contract_label: "marks",
   "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "arrange", ungroup: "arrange", group_integral: "arrange",
   arrange_left: "arrange", arrange_centre: "arrange", arrange_right: "arrange", arrange_top: "arrange", arrange_middle: "arrange", arrange_bottom: "arrange",
   arrange_across: "arrange", arrange_down: "arrange", bring_front: "arrange", send_back: "arrange",
@@ -211,7 +212,7 @@ const kindOf = (command: string) => KIND_OF[command] ?? "other";
 const setOf = (command: string) => SET_FOR[kindOf(command)];
 
 // The actions for a selection, likeliest first. The panel shows them; the command palette lists them too.
-export function actionItems(context: Context, messy: boolean, hiddenWarnings = false): Item[] {
+export function actionItems(context: Context, messy: boolean, hiddenWarnings = false, warned = 0): Item[] {
   const items: Item[] = [];
   const it = (icon: React.ReactNode, name: string, command: string, accent?: boolean, small?: boolean): Item => ({ icon, name, command, accent, small });
   const small = (i: Item): Item => ({ ...i, small: true });
@@ -227,6 +228,9 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   // The draw order, for every kind of object (Object menu: Bring to Front, Send to Back). On an atom or a bond it moves
   // the whole structure, as the menu command does.
   const order = [it(<StackSimple size={18} />, "Bring to front", "bring_front", false, true), it(<Stack size={18} />, "Send to back", "send_back", false, true)];
+  // ChemDraw's Explain This Warning and Display Warnings, for every selection with a warning marked or hidden on it.
+  const warnings = (rows = false) => [...(warned ? [it(<Info size={18} />, warned > 1 ? "Explain these warnings" : "Explain this warning", "explain_warning", false, !rows)] : []),
+    ...(hiddenWarnings ? [it(<Warning size={18} />, "Show warnings", "show_warnings", false, !rows)] : [])];
 
   switch (context.kind) {
     case "empty":
@@ -239,7 +243,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<CornersOut size={18} />, "Fit to window", "zoom_fit")));
       break;
     case "selection":
-      items.push(...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...turnsAndFlips, ...order, del);
+      items.push(...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...warnings(), ...turnsAndFlips, ...order, del);
       break;
     case "structure":
       // Sam (17 October 2026): Clean up and Structure to name as rows; every turn, rotation and flip in one sub-menu;
@@ -248,7 +252,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       if (context.pairs) items.push(small(it(<SymbolGlyph kind="pair" />, context.pairs === "shown" ? "Hide lone pairs" : "Show lone pairs", "pairs")));
       items.push(small(it(<ListNumbers size={18} />, context.structures > 1 ? "Number these compounds" : "Number this compound", "number")),
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
-        ...(hiddenWarnings ? [small(it(<Warning size={18} />, "Show warnings", "show_warnings"))] : []),
+        ...warnings(),
         small(it(<TextT size={18} />, "Add a caption", "caption.add")),
         ...turnings, small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<BookmarkSimple size={18} />, "Add to rings", "template.add")), small(it(<Flask size={18} />, "Properties", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")));
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<DotsThree size={18} />, "Line up in a row", "align.row")),
@@ -259,12 +263,12 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
     case "atom":
       items.push(it(<CursorText size={18} />, "Type a label", "atom.label"), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
         ...(context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label) ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<Faders size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"),
-        ...(hiddenWarnings ? [it(<Warning size={18} />, "Show warnings", "show_warnings")] : []), ...order, del);
+        ...warnings(true), ...order, del);
       break;
     case "bond":
       if (context.double) items.push(it(<span className="glyph-text">L</span>, "Second line on the left", "bond.left"), it(<span className="glyph-text">C</span>, "Centre the double bond", "bond.centre"), it(<span className="glyph-text">R</span>, "Second line on the right", "bond.right"));
       if (context.flippable) items.push(it(<ArrowUDownLeft size={18} />, "Point the other way", "bond.flip"));
-      items.push(...order, del);
+      items.push(...warnings(true), ...order, del);
       break;
     case "caption":
       if (context.mode !== "picked") break;
@@ -277,7 +281,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
     case "reaction":
       items.push(it(<MagicWand size={18} />, "Clean up reaction", "reaction.clean", !context.clean),
         it(<ListNumbers size={18} />, "Number these compounds", "number"), small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")),
-        it(<span className="glyph-text">A→A</span>, "Map atoms", "reaction.map"), it(<Table size={18} />, context.grid ? "Remove stoichiometry" : "Analyse stoichiometry", "stoichiometry"), ...(context.mapped ? [small(it(<X size={18} />, "Clear atom map", "reaction.unmap"))] : []), ...turnsAndFlips, ...order, del);
+        it(<span className="glyph-text">A→A</span>, "Map atoms", "reaction.map"), it(<Table size={18} />, context.grid ? "Remove stoichiometry" : "Analyse stoichiometry", "stoichiometry"), ...(context.mapped ? [small(it(<X size={18} />, "Clear atom map", "reaction.unmap"))] : []), ...warnings(), ...turnsAndFlips, ...order, del);
       break;
     case "cycle":
       if (!context.centre) items.push(it(<TextT size={18} />, "Add a centre label", "cycle.centre"));
@@ -304,7 +308,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
           small(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed")), ...order, del);
         break;
       }
-      if (isBracket({ kind: context.shape })) items.push(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed"));
+      if (isBracket({ kind: context.shape })) items.push(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed"), ...warnings());
       items.push(...turnsAndFlips, ...order, del);
       break;
     case "spot":
@@ -334,7 +338,7 @@ function Row({ icon, name, command, hint, run, accent }: { icon: React.ReactNode
   );
 }
 
-export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus }: Props) {
+export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, warned, messy, hint, onOpen, run, layout, onLayout, colour, palette, grouping, menus }: Props) {
   // An action being dragged to a new place: in the rows (index among rows) or the small buttons (index among them).
   const [carry, setCarry] = useState<{ command: string; x: number; y: number; to?: { rows: boolean; index: number } }>();
   const dragged = useRef(false);
@@ -409,7 +413,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
   }[context.kind];
   const whole = context.kind === "drawing" || context.kind === "structure";
 
-  const items = actionItems(context, messy, hiddenWarnings);
+  const items = actionItems(context, messy, hiddenWarnings, warned);
   // Group and Ungroup, and Align and Distribute, for any selection of two or more things, as small buttons.
   if (grouping) items.push(...([["arrange_left", "Align left edges", <AlignLeft size={18} />], ["arrange_centre", "Align left-right centres", <AlignCenterHorizontal size={18} />], ["arrange_right", "Align right edges", <AlignRight size={18} />],
     ["arrange_top", "Align top edges", <AlignTop size={18} />], ["arrange_middle", "Align top-bottom centres", <AlignCenterVertical size={18} />], ["arrange_bottom", "Align bottom edges", <AlignBottom size={18} />],
