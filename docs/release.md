@@ -126,7 +126,8 @@ internet, but it is much larger. The brief asks for a small download, so the sma
 ## Licence notices
 
 `node scripts/licences.mjs` writes `src-tauri/licences/third-party.txt`: the licence of every Rust crate and
-npm package Octet ships, with OPSIN's and nmrshiftdb2's notices (REL-12). About > Licences opens it. Run the
+npm package Octet ships, with OPSIN's, nmrshiftdb2's and PubChem's notices (REL-12). Sam approved the InChI 1.06,
+MPL-2.0, Unicode-3.0 and PubChem data licences on 18 October 2026. About > Licences opens it. Run the
 script after a dependency changes and commit the file. The release workflow runs it before each build.
 
 ## The glib alert in Dependabot (REL-26)
@@ -138,9 +139,6 @@ through Tauri's GTK 0.18 crates. Octet does not call VariantStrIter."
 
 ## Before the first release
 
-- Approve, or not, the licences that `THIRD_PARTY.md` marks **Waiting for Sam's approval**: InChI 1.06 inside
-  Indigo's WASM (IUPAC/InChI-Trust Licence, based on the LGPL 2.1), the MPL-2.0 crates and the Unicode-3.0 code
-  crates that Tauri needs (REL-12).
 - Keep the identifier `io.github.samchemman.octet` (`tauri.conf.json`), or change it now, for example to
   `world.octet.octet` for the octet.world domain. It names the folder of Octet's settings and recent drawings,
   and Octet's clipboard type, so it cannot change after the first release (REL-32). A change now resets the

@@ -31,9 +31,9 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | dunce (Rust) | 1.0 | CC0-1.0 OR MIT-0 OR Apache-2.0 (used under Apache-2.0) | Used by open on Windows. Already used by Tauri |
 | indigo-ketcher | 1.46 | Apache-2.0 | Chemistry engine, CDX/CDXML |
 | Inside indigo-ketcher's WASM: libpng, zlib, TinyXML-2, RapidJSON, cppcodec, object_threadsafe | 1.6.54 (libpng) | libpng-2.0, Zlib, Zlib, MIT, MIT, Apache-2.0 | Built into Indigo (its `third_party` folder). Notices in `src-tauri/licences/indigo-wasm.txt` |
-| Inside indigo-ketcher's WASM: InChI Software | 1.06 | IUPAC/InChI-Trust InChI Licence No. 1.0, which is based on the LGPL 2.1. **Waiting for Sam's approval** | InChI and InChIKey (Copy As, Export). Octet uses Indigo's own WASM build, not changed. Its licence text is in `src-tauri/licences/indigo-wasm.txt` |
-| MPL-2.0 crates inside Tauri: cssparser, selectors, dtoa-short (through tauri-utils' dom_query), option-ext (through dirs) | 0.37, 0.38, 0.3, 0.2 | MPL-2.0, not changed. **Waiting for Sam's approval** | Octet does not call them. Tauri needs them. Their text and source location are in the shipped licences file |
-| Unicode-3.0 code crates inside Tauri: icu_collections, icu_normalizer, icu_properties, icu_provider and the ICU4X crates they use (through url) | 2.3 | Unicode-3.0. **Waiting for Sam's approval** (approved so far for data only) | Octet does not call them. Tauri needs them for web addresses |
+| Inside indigo-ketcher's WASM: InChI Software | 1.06 | IUPAC/InChI-Trust InChI Licence No. 1.0, which is based on the LGPL 2.1. Sam approved, 18 October 2026 | InChI and InChIKey (Copy As, Export). Octet uses Indigo's own WASM build, not changed. Its licence text is in `src-tauri/licences/indigo-wasm.txt` |
+| MPL-2.0 crates inside Tauri: cssparser, selectors, dtoa-short (through tauri-utils' dom_query), option-ext (through dirs) | 0.37, 0.38, 0.3, 0.2 | MPL-2.0, not changed. Sam approved, 18 October 2026 | Octet does not call them. Tauri needs them. Their text and source location are in the shipped licences file |
+| Unicode-3.0 code crates inside Tauri: icu_collections, icu_normalizer, icu_properties, icu_provider and the ICU4X crates they use (through url) | 2.3 | Unicode-3.0. Sam approved, 18 October 2026 (code and data) | Octet does not call them. Tauri needs them for web addresses |
 | Indigo's MoleculeCleaner2d and BiconnectedDecomposer (indigo-core) | 1.46.0 | Apache-2.0 | Clean Up's geometry, ported to TypeScript and changed in `src/clean2d.ts` (EPAM's copyright notice kept there) |
 | react, react-dom | 19.3 | MIT | UI |
 | vite, @vitejs/plugin-react | 8.3, 6.1 | MIT | Bundler (dev only) |
@@ -52,7 +52,7 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | Dimorphite-DL site table (Durrant lab) | 2.1.0, `dimorphite_dl/smarts/site_substructures.smarts` | Apache-2.0 | Ionisable groups with mean pKa and SD in `src/props.ts` (values only; Octet's own group tests) |
 | PatWalters/solubility, ESOL coefficients | `esol.py`, master of 16 October 2026 | MIT | ESOL logS coefficients refitted for Crippen logP in `src/props.ts` |
 | RDKit | 2026.09.1 | BSD-3-Clause | Reference values in `src/props.check.ts` (TPSA, rotatable bonds, aromatic atoms, logP, weight). Not shipped |
-| PubChem (NCBI) | Records read 17 October 2026 | NCBI places no restrictions on PubChem data; structures are facts | Reference InChIKeys in `src/names.check.ts`. Octet's drug names (`src/drugs.ts`) are Octet's own SMILES checked against PubChem; a few complex ones (tetracyclines, steroids, paclitaxel, strychnine) follow PubChem's SMILES. Waiting for Sam's approval |
+| PubChem (NCBI) | Records read 17 October 2026 | NCBI places no restrictions on PubChem data; structures are facts | Reference InChIKeys in `src/names.check.ts`. Octet's drug names (`src/drugs.ts`) are Octet's own SMILES checked against PubChem; a few complex ones (tetracyclines, steroids, paclitaxel, strychnine) follow PubChem's SMILES. Sam approved, 18 October 2026. Notice in `src-tauri/licences/pubchem.txt` |
 
 The OPSIN build's notices are in [src/vendor/opsin/NOTICES.txt](src/vendor/opsin/NOTICES.txt). The app ships them as `licences/opsin.txt`.
 

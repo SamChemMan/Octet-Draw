@@ -13341,3 +13341,16 @@ jurisdiction includes additional rights not granted under this License,
 these additional rights are granted in this License in order to meet the
 terms of this License.
 
+================================================================================
+PubChem data
+================================================================================
+
+PubChem
+National Center for Biotechnology Information (NCBI), U.S. National Library of Medicine
+https://pubchem.ncbi.nlm.nih.gov
+
+Octet's drug and reagent names (Name to Structure and Structure to Name) give Octet's own structures, checked
+against PubChem's records read on 17 October 2026. A few complex structures (tetracyclines, steroids, paclitaxel,
+strychnine) follow PubChem's SMILES. NCBI places no restrictions on the use or distribution of PubChem data.
+Octet names PubChem as the source of these records.
+
