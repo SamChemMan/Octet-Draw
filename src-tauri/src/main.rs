@@ -239,17 +239,27 @@ async fn pick_style_file(app: AppHandle) -> Result<Option<String>, String> {
     read_text_or_cdx(&path).map(Some).map_err(|_| "Octet can only take settings from a drawing (Octet, CDXML or CDX).".to_string())
 }
 
-// Opens one of Octet's own links in the browser. The page names it; only these fixed addresses can be opened.
+// Opens one of Octet's own links in the browser (or, for feedback, the mail app). The page names it; only these fixed
+// addresses can be opened.
 #[tauri::command]
-async fn open_link(name: String) -> Result<(), String> {
+async fn open_link(app: tauri::AppHandle, name: String) -> Result<(), String> {
     let url = match name.as_str() {
-        "author" => "https://www.linkedin.com/in/sam-ellis-132781206/",
+        "author" => "https://www.linkedin.com/in/sam-ellis-132781206/".to_string(),
         // Help > Report a Problem.
-        "issues" => "https://github.com/SamChemMan/Octet-Draw/issues/new",
+        "issues" => "https://github.com/SamChemMan/Octet-Draw/issues/new".to_string(),
+        // The Feedback button: a new mail to Sam, with the version and system filled in.
+        "feedback" => format!(
+            "mailto:{FEEDBACK_TO}?subject=Octet%20Draw%20feedback&body=%0A%0A--%0AOctet%20Draw%20{}%20on%20{}",
+            app.package_info().version,
+            std::env::consts::OS
+        ),
         _ => return Err("Octet has no such link.".into()),
     };
     open_external(url).map_err(|e| e.to_string())
 }
+
+// Where the Feedback button's mail goes (Sam, 19 October 2026).
+const FEEDBACK_TO: &str = "samellis1892@gmail.com";
 
 // Shows a file the user opened, saved or exported this session in the system's file manager: Finder on the Mac,
 // File Explorer on Windows, its folder on Linux. The page can name no other file.

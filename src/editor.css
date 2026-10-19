@@ -4261,6 +4261,56 @@ button.variant.add {
     transition: none;
   }
 }
+/* Feedback (FeedbackLink.tsx): a round button at the top left, beside the palette, that opens to show its name. */
+.feedback-link {
+  position: absolute;
+  top: var(--space-4);
+  left: 64px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 7px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-float);
+  color: var(--ink-muted);
+  font: 500 13px var(--font-sans);
+  white-space: nowrap;
+  transition: transform var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), padding var(--motion) var(--ease-out);
+}
+.feedback-link span {
+  display: inline-block;
+  overflow: hidden;
+  max-width: 0;
+  opacity: 0;
+  transition: max-width var(--motion) var(--ease-out), opacity var(--motion-fast) var(--ease-out), margin var(--motion) var(--ease-out);
+}
+.feedback-link:hover,
+.feedback-link:focus-visible {
+  padding: 0 var(--space-3) 0 7px;
+  color: var(--ink);
+}
+.feedback-link:hover span,
+.feedback-link:focus-visible span {
+  max-width: 80px;
+  margin-left: var(--space-1);
+  opacity: 1;
+}
+.feedback-link:active {
+  transform: scale(0.97);
+}
+.feedback-link:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+@media (prefers-reduced-motion: reduce) {
+  .feedback-link,
+  .feedback-link span {
+    transition: none;
+  }
+}
 
 /* Home (Home.tsx): where Octet opens. The page ground, the greeting, New drawing first, then the recent drawings as
    pictures on the canvas white. It sits over the editor and under dialogs, notices and Settings. */
