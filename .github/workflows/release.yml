@@ -167,3 +167,31 @@ jobs:
           releaseAssetNamePattern: "[name]_[version]_[arch]-offline[setup][ext]"
           workflowArtifactNamePattern: "[platform]-[arch]-[bundle]-offline"
           args: --bundles nsis --config ci-build.conf.json --config ci-offline.conf.json
+
+  stable-names:
+    # Copies of the installers under names that never change, so the website's links to
+    # releases/latest/download/<name> always give the newest published version.
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Upload Octet-Draw-mac.dmg, Octet-Draw-windows.exe and Octet-Draw-linux.AppImage
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir out
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir out --pattern '*.dmg' --pattern '*-setup.exe' --pattern '*.AppImage'
+          copy() {
+            local f
+            f=$(ls out | grep -E "$1" | grep -v -- '-offline' | head -n 1 || true)
+            if [ -z "$f" ]; then echo "No installer matches $1"; exit 1; fi
+            cp "out/$f" "$2"
+            gh release upload "$TAG" "$2" --repo "$GITHUB_REPOSITORY" --clobber
+          }
+          copy '_universal\.dmg$' Octet-Draw-mac.dmg
+          copy '_x64-setup\.exe$' Octet-Draw-windows.exe
+          copy '_amd64\.AppImage$' Octet-Draw-linux.AppImage
