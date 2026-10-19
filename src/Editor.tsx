@@ -3275,8 +3275,13 @@ export default function Editor() {
       const sh = plateAt(p)!;
       return set(updateShape(doc, sh.id, deleteLane(sh, laneOf(sh, p))));
     }
-    // Pressing away from the selection with a drawing tool clears it, as ChemDraw does.
-    if (selection.size || picked.size) { setSelection(new Set()); setPicked(new Set()); }
+    // Pressing away from the selection with a drawing tool clears it. On empty canvas that is all the press does, so
+    // the next press draws (Sam, 19 October 2026; ChemDraw also draws). A hold still gives Select.
+    if (selection.size || picked.size) {
+      setSelection(new Set());
+      setPicked(new Set());
+      if (t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined && t.cycle === undefined) return startHold(p, t, screen);
+    }
     // A bond tool's Shift-drag moves the atom (or bond) pressed, as ChemDraw's does. Dropped on a neighbour, the atom
     // joins it, so a ring loses an atom (Reducing Ring Size).
     if (tool === "bond" && e.shiftKey && (t.atom !== undefined || t.bond !== undefined)) return startMove(p, screen, t, new Set(), new Set(atomsOf(doc, t)), false, true);
