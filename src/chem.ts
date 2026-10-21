@@ -10,6 +10,7 @@ import { counts } from "./mass.ts";
 import { hasQuery, polymerBrackets, polymerLabel, repeatCount } from "./query.ts";
 import { isQueryMolfile, readV3000, RXCTR, writeV3000 } from "./molv3.ts";
 import { axialLabels } from "./axial.ts";
+import { cipLabels } from "./cip.ts";
 import type { StereoFacts } from "./check.ts";
 
 type IndigoModule = Awaited<ReturnType<typeof Indigo>>;
@@ -409,24 +410,31 @@ export function toQueryMolfile(drawn: Mol): string | undefined {
   const lines = convert(ketOf(query, { hbonds: true, mol }), "molfile").split("\n"), at = lines.findIndex((l) => l.endsWith("V2000")), end = lines.lastIndexOf("M  END");
   return ["Octet", "  Octet", "", ...lines.slice(Math.max(0, at), end), ...aliases, ...lines.slice(end), ""].join("\n");
 }
-// CIP labels for a drawing's stereocentres (R, S) and double bonds (E, Z), in its atom and bond order.
-export function cipOf(drawn: Mol): { atoms: (string | undefined)[]; bonds: (string | undefined)[] } | undefined {
-  const ind = engine(), opts = new ind.MapStringString();
-  try {
-    opts.set("output-content-type", "application/json");
-    const ket = JSON.parse(JSON.parse(ind.calculateCip(ketOf(drawn), "ket", opts)).struct).mol0;
-    if (!ket || ket.atoms.length !== drawn.atoms.length) return undefined;
-    return { atoms: ket.atoms.map((a: { cip?: string }) => a.cip), bonds: ket.bonds.map((b: { cip?: string }) => b.cip) };
-  } catch {
-    return undefined;
-  } finally {
-    opts.delete();
-  }
+// CIP labels for a drawing's stereocentres (R, S, r, s) and double bonds (E, Z), in its atom and bond order, from
+// Octet's own labeller (src/cip.ts). The namer takes these.
+export function cipOf(drawn: Mol): Labels {
+  const { mol, from } = expandWithOrigins(drawn);
+  return onDrawing(drawn, mol, from, cipLabels(mol));
 }
-// The structures (connected atoms) of a drawing, each with its atoms in order, its bonds, and a key for what
-// Indigo sees of it for stereo: its atoms (element, label, charge, radical, isotope, and place relative to its first
-// atom) and bonds (with their stereo). Two structures with one key give the same labels, so labels kept by key are
-// worked out again only for the structures an edit changes, wherever they are on the page.
+// Labels of a structure with its written labels expanded, on the drawn atoms and bonds. Atoms and bonds inside a
+// written label (OMe, CO2Et) have no drawn place and are left out, and so is a double bond to a label.
+function onDrawing(part: Mol, expanded: Mol, from: number[], labels: Labels, into?: Labels): Labels {
+  const out = into ?? { atoms: part.atoms.map(() => undefined), bonds: part.bonds.map(() => undefined) };
+  const drawn = (i: number) => !!part.atoms[i] && !part.atoms[i].text;
+  labels.atoms.forEach((c, k) => { if (c && drawn(from[k])) out.atoms[from[k]] = c; });
+  if (!labels.bonds.some(Boolean)) return out;
+  const index = new Map(part.bonds.map((b, j) => [`${Math.min(...b.atoms)} ${Math.max(...b.atoms)}`, j]));
+  labels.bonds.forEach((c, k) => {
+    const [p, q] = expanded.bonds[k].atoms.map((i) => from[i]), j = index.get(`${Math.min(p, q)} ${Math.max(p, q)}`);
+    if (c && j !== undefined && p !== q && drawn(p) && drawn(q)) out.bonds[j] = c;
+  });
+  return out;
+}
+// The structures (connected atoms) of a drawing, each with its atoms in order, its bonds, and a key for what its
+// stereo labels depend on: its atoms (element, label, charge, radical, isotope, hydrogens set by hand, how the label
+// reads, and place relative to its first atom) and bonds (with their stereo and display: a wavy bond or a crossed
+// double bond has no label). Two structures with one key give the same labels, so labels kept by key are worked out
+// again only for the structures an edit changes, wherever they are on the page.
 function keyed(mol: Mol): { ids: number[]; bonds: number[]; key: string; part: () => Mol }[] {
   const groups = fragments(mol).map((g) => g.sort((a, b) => a - b)), of: number[] = [];
   groups.forEach((g, k) => g.forEach((i) => { of[i] = k; }));
@@ -436,24 +444,25 @@ function keyed(mol: Mol): { ids: number[]; bonds: number[]; key: string; part: (
     const local = new Map(ids.map((i, n) => [i, n])), o = mol.atoms[ids[0]].location;
     const atoms = ids.map((i) => {
       const a = mol.atoms[i];
-      return [a.label, a.text ?? "", a.charge ?? 0, a.radical ?? 0, a.isotope ?? 0, ...[0, 1, 2].map((d) => Math.round(((a.location[d] ?? 0) - (o[d] ?? 0)) * 1e4))].join(" ");
+      return [a.label, a.text ?? "", a.charge ?? 0, a.radical ?? 0, a.isotope ?? 0, a.implicitHCount ?? "", a.chemical === false ? 0 : 1, a.attach || a.bead ? 1 : 0, ...[0, 1, 2].map((d) => Math.round(((a.location[d] ?? 0) - (o[d] ?? 0)) * 1e4))].join(" ");
     });
-    const bs = bonds[k].map((n) => { const b = mol.bonds[n]; return [b.type, b.stereo ?? 0, local.get(b.atoms[0]), local.get(b.atoms[1])].join(" "); });
+    const bs = bonds[k].map((n) => { const b = mol.bonds[n]; return [b.type, b.stereo ?? 0, b.display ?? "", local.get(b.atoms[0]), local.get(b.atoms[1])].join(" "); });
     const part = (): Mol => ({ atoms: ids.map((i) => renumberCentre(mol.atoms[i], local)), bonds: bonds[k].map((n) => ({ ...mol.bonds[n], atoms: mol.bonds[n].atoms.map((i) => local.get(i)!) as [number, number] })) });
     return { ids, bonds: bonds[k], key: `${atoms.join(",")};${bs.join(",")}`, part };
   });
 }
 // Show Stereochemistry's labels, in the drawing's own atom and bond order: R, S (and r, s) on stereocentres, E, Z on
-// double bonds, and M, P on the middle atom of an allene and on a biaryl's axis bond. Each structure is labelled on its own (Indigo splits a drawing into molecules), and only once
-// while it does not change. Written labels (OMe, CO2Et) are expanded first; stereocentres inside a label have no
-// drawn atom and are left out.
+// double bonds (src/cip.ts), and M, P on the middle atom of an allene and on a biaryl's axis bond (src/axial.ts). Each
+// structure is labelled on its own, and only once while it does not change. Written labels (OMe, CO2Et) are expanded
+// first; stereocentres inside a label have no drawn atom and are left out.
 type Labels = { atoms: (string | undefined)[]; bonds: (string | undefined)[] };
-const labelled = new Map<string, Labels | null>();
+const labelled = new Map<string, Labels | null>(), STEREO_DISPLAYS = new Set(["hashed", "dashed", "bold", "hollow"]);
 export function stereoLabels(drawn: Mol): Labels | undefined {
   const atoms: (string | undefined)[] = drawn.atoms.map(() => undefined), bonds: (string | undefined)[] = drawn.bonds.map(() => undefined);
   for (const { ids, bonds: own, key, part } of keyed(drawn)) {
-    // A structure with no wedge, hash or double bond has no R, S, E or Z.
-    if (ids.length < 3 || !own.some((k) => drawn.bonds[k].stereo || drawn.bonds[k].type === 2)) continue;
+    // A structure with no stereo bond (a wedge or hash, or a hashed, dashed or bold bond) or double bond has no R, S, E
+    // or Z.
+    if (ids.length < 3 || !own.some((k) => drawn.bonds[k].stereo || drawn.bonds[k].type === 2 || STEREO_DISPLAYS.has(drawn.bonds[k].display ?? ""))) continue;
     const found = remembered(labelled, key, () => labelsOf(part()));
     found?.atoms.forEach((c, n) => { atoms[ids[n]] = c; });
     found?.bonds.forEach((c, n) => { bonds[own[n]] = c; });
@@ -462,28 +471,12 @@ export function stereoLabels(drawn: Mol): Labels | undefined {
 }
 // One structure's labels, in its own atom and bond order.
 function labelsOf(part: Mol): Labels | null {
-  const ind = engine(), opts = new ind.MapStringString(), clean = (c?: string) => c?.replace(/[()]/g, "") || undefined;
   try {
-    opts.set("output-content-type", "application/json");
     const { mol: expanded, from } = expandWithOrigins(part);
-    const atoms: (string | undefined)[] = part.atoms.map(() => undefined), bonds: (string | undefined)[] = part.bonds.map(() => undefined);
-    // Octet's own (M) and (P) for allene and biaryl axes, which Indigo does not label.
-    const axial = axialLabels(expanded);
-    axial.atoms.forEach((c, k) => { if (c && !part.atoms[from[k]].text) atoms[from[k]] = c; });
-    part.bonds.forEach((_, j) => { if (axial.bonds[j]) bonds[j] = axial.bonds[j]; });
-    let ket;
-    try { ket = JSON.parse(JSON.parse(ind.calculateCip(ketOf(part), "ket", opts)).struct).mol0; } catch { ket = undefined; }
-    if (ket && ket.atoms.length === from.length) {
-      ket.atoms.forEach((a: { cip?: string }, k: number) => { if (clean(a.cip) && !part.atoms[from[k]].text) atoms[from[k]] = clean(a.cip); });
-      // ketOf leaves hydrogen bonds out, so Indigo's bonds are the others, in order.
-      let n = 0;
-      part.bonds.forEach((b, j) => { if (b.type !== HBOND) bonds[j] = clean(ket.bonds[n++]?.cip) ?? bonds[j]; });
-    }
-    return atoms.some(Boolean) || bonds.some(Boolean) ? { atoms, bonds } : null;
+    const out = onDrawing(part, expanded, from, cipLabels(expanded), onDrawing(part, expanded, from, axialLabels(expanded)));
+    return out.atoms.some(Boolean) || out.bonds.some(Boolean) ? out : null;
   } catch {
     return null;
-  } finally {
-    opts.delete();
   }
 }
 // Standard InChI, for telling whether two structures are the same. Undefined if Indigo cannot make one.
@@ -531,6 +524,12 @@ export function stereoFacts(drawn: Mol, chiral = false): StereoFacts {
     for (const [list, set] of [[f.centres, out.centres], [f.unset, out.unset], [f.conflict, out.conflict]] as const) for (const j of list) set.add(ids[j]);
     if (f.achiral) for (const i of ids) out.achiral.add(i);
   });
+  // A centre Show Stereochemistry labels is not unset or conflicting, whatever Indigo reads: Octet's labeller also
+  // reads ChemDraw's other stereo bonds (a hashed, dashed or bold bond, a wedge's wide end; src/cip.ts).
+  if ([...out.unset, ...out.conflict].some((i) => drawn.atoms[i]?.cip)) {
+    const shown = stereoLabels(drawn);
+    for (const set of [out.unset, out.conflict]) for (const i of set) if (drawn.atoms[i].cip && shown?.atoms[i]) set.delete(i);
+  }
   return out;
 }
 function readFacts(mol: Mol, chiral: boolean): Facts {

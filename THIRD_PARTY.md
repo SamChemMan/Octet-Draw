@@ -51,7 +51,8 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | thermo (Caleb Bell), Joback group values | 0.6.1, `thermo/group_contribution/joback.py` | MIT | The Joback & Reid group contribution table in `src/props.ts` (values only; Octet's own group typer) |
 | Dimorphite-DL site table (Durrant lab) | 2.1.0, `dimorphite_dl/smarts/site_substructures.smarts` | Apache-2.0 | Ionisable groups with mean pKa and SD in `src/props.ts` (values only; Octet's own group tests) |
 | PatWalters/solubility, ESOL coefficients | `esol.py`, master of 16 October 2026 | MIT | ESOL logS coefficients refitted for Crippen logP in `src/props.ts` |
-| RDKit | 2026.09.1 | BSD-3-Clause | Reference values in `src/props.check.ts` (TPSA, rotatable bonds, aromatic atoms, logP, weight). Not shipped |
+| RDKit | 2026.09.1 | BSD-3-Clause | Reference values in `src/props.check.ts` (TPSA, rotatable bonds, aromatic atoms, logP, weight). Its CIP labeller (after John Mayfield's Centres) was read for the details `src/cip.ts` settles as the CIP validation suite's authors do; no code is copied. Not shipped |
+| CIP validation suite (Hanson, Mayfield, Vainio, Yerin, Musacchio and Redkin, J. Chem. Inf. Model. 2018) | v1.0 | No licence, so not in this repository | Reference labels for `src/cip.ts`, run locally by `scripts/cip-suite.ts` from `~/octet-research`. Not shipped |
 | PubChem (NCBI) | Records read 17 October 2026 | NCBI places no restrictions on PubChem data; structures are facts | Reference InChIKeys in `src/names.check.ts`. Octet's drug names (`src/drugs.ts`) are Octet's own SMILES checked against PubChem; a few complex ones (tetracyclines, steroids, paclitaxel, strychnine) follow PubChem's SMILES. Sam approved, 18 October 2026. Notice in `src-tauri/licences/pubchem.txt` |
 
 The OPSIN build's notices are in [src/vendor/opsin/NOTICES.txt](src/vendor/opsin/NOTICES.txt). The app ships them as `licences/opsin.txt`.
