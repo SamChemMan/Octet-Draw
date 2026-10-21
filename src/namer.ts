@@ -306,6 +306,7 @@ class Namer {
       if (others.length === 0) {
         if (cs.length === 2) this.mark(c, "ketone", cs);
         else if (!this.inRing[c] && h[c] >= 1) this.mark(c, "aldehyde", cs);
+        else if (!this.inRing[c] && cs.length === 1 && this.ord(c, cs[0]) === 2) this.mark(c, "ketone", cs); // a ketene: ethenone, 2-phenylethen-1-one
         else throw new Error("carbonyl");
         continue;
       }
@@ -351,7 +352,9 @@ class Namer {
     // Phosphanes and phosphane oxides (P-68.3.2): P with three single bonds to carbon or hydrogen, and perhaps =O.
     for (let i = 0; i < this.n; i++) {
       if (el[i] !== "P") continue;
-      const os = adj[i].filter((j) => el[j] === "O" && this.ord(i, j) === 2 && adj[j].length === 1 && !q[j]), rest = adj[i].filter((j) => !os.includes(j));
+      // A ring P with three bonds (phosphinane, 1H-phosphole) is named with its ring (P-22.2.2).
+      if (this.inRing[i] && !q[i] && !this.cip[i] && adj[i].reduce((t, j) => t + this.ord(i, j), 0) + h[i] === 3 && adj[i].every((j) => this.ringOf[j] === this.ringOf[i] || (el[j] === "C" && this.ord(i, j) === 1))) continue;
+      const os =adj[i].filter((j) => el[j] === "O" && this.ord(i, j) === 2 && adj[j].length === 1 && !q[j]), rest = adj[i].filter((j) => !os.includes(j));
       if (this.inRing[i] || q[i] || os.length > 1 || rest.length + h[i] !== 3 || rest.some((j) => el[j] !== "C" || this.ord(i, j) !== 1 || this.carbonylO[j] >= 0) || this.cip[i]) throw new Error("phosphorus");
       this.phosphorus.add(i);
       for (const j of os) this.phosphorus.add(j);
@@ -597,7 +600,8 @@ class Namer {
     const atoms = this.rings[k], sys = new Set(atoms), ring = (a: number) => this.adj[a].filter((j) => sys.has(j));
     const bonds = atoms.flatMap((a) => ring(a).filter((b) => a < b).map((b): [number, number] => [a, b]));
     if (bonds.length !== atoms.length + 1 || atoms.some((a) => !["C", "N", "O", "S"].includes(this.el[a]) || (this.el[a] !== "C" && this.q[a]))) return undefined;
-    if (bonds.some(([a, b]) => this.ord(a, b) === 3)) return undefined;
+    // Triple bonds are named as -yne (bicyclo[2.2.1]hept-2-yne); an atom with two multiple bonds is not covered.
+    if (atoms.some((a) => ring(a).filter((j) => this.ord(a, j) > 1).length > 1)) return undefined;
     // The atoms from `from` (not included) along `start` until `end`.
     const walk = (from: number, start: number, end: number) => {
       const path: number[] = [];

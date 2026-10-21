@@ -112,6 +112,18 @@ run("ring unsaturation", [
   "cyclohexene = cyclohexene", "cyclooctyne = cyclooctyne", "cyclohex-2-en-1-ol = cyclohex-2-en-1-ol", "cyclohex-2-ene-1-carboxylic acid = cyclohex-2-ene-1-carboxylic acid",
   "cyclopent-2-en-1-amine = cyclopent-2-en-1-amine", "p-menthyne", "benzyne", "(1Z,5Z)-cycloocta-1,5-diene",
   "cytidine = 4-amino-1-[(2R,3R,4S,5R)-3,4-dihydroxy-5-(hydroxymethyl)oxolan-2-yl]pyrimidin-2(1H)-one",
+  "bicyclo[2.2.1]hept-2-yne = bicyclo[2.2.1]hept-2-yne", "bornyne = 1,7,7-trimethylbicyclo[2.2.1]hept-2-yne", "tropyne", "caryne", "spiro[4.5]dec-6-yne",
+]);
+
+// Rings with phosphorus (P-22.2.2.1): phosphinine, 1H-phosphole, 1,3,2-dioxaphospholane.
+run("phosphorus rings", [
+  "phosphinine = phosphinine", "phosphinane = phosphinane", "1H-phosphole = 1H-phosphole", "1-phenyl-1H-phosphole", "1,3,2-dioxaphospholane = 1,3,2-dioxaphospholane",
+  "2-methyl-1,3,2-dioxaphospholane", "1-methylphospholane", "1,2-azaphosphinine",
+]);
+
+// Ketenes (P-64.1): the C=O carbon is a ketone at the end of a chain with a double bond.
+run("ketenes", [
+  "ethenone = ethenone", "2-phenylethen-1-one", "diphenylethenone", "dimethylketene = 2-methylprop-1-en-1-one", "fulvenone",
 ]);
 
 // Chains of any length (P-14.2.1 numerical terms) and polyenes.
