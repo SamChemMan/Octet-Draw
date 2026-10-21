@@ -928,7 +928,8 @@ const INORGANIC: [string, string][] = [
   ["NF", "fluoramine"], ["NCl", "chloramine"], ["NBr", "bromamine"], ["FNF", "difluoramine"], ["ClNCl", "dichloramine"], ["BrNBr", "dibromamine"],
   ["FN(F)F", "nitrogen trifluoride"], ["ClN(Cl)Cl", "nitrogen trichloride"],
   ["O=S=O", "sulfur dioxide"], ["O=S(=O)=O", "sulfur trioxide"], ["OSO", "sulfoxylic acid"], ["OOS(=O)(=O)O", "peroxomonosulfuric acid"],
-  ["OS(=O)(=O)S(=O)(=O)O", "dithionic acid"], ["OS(=O)(=O)SS(=O)(=O)O", "trithionic acid"], ["OS(=O)(=O)SSS(=O)(=O)O", "tetrathionic acid"], ["OS(=O)(=O)SSSS(=O)(=O)O", "pentathionic acid"], ["FP(F)(F)(F)F", "phosphorus pentafluoride"], ["ClP(Cl)(Cl)(Cl)Cl", "phosphorus pentachloride"],
+  ["OS(=O)(=O)S(=O)(=O)O", "dithionic acid"], ["OS(=O)(=O)SS(=O)(=O)O", "trithionic acid"], ["OS(=O)(=O)SSS(=O)(=O)O", "tetrathionic acid"], ["OS(=O)(=O)SSSS(=O)(=O)O", "pentathionic acid"],
+  ["OS(=O)(=O)OS(=O)(=O)O", "disulfuric acid"], ["OS(=O)(=O)OS(=O)(=O)OS(=O)(=O)O", "trisulfuric acid"], ["FP(F)(F)(F)F", "phosphorus pentafluoride"], ["ClP(Cl)(Cl)(Cl)Cl", "phosphorus pentachloride"],
 ];
 const VALENCE: Record<string, number> = { N: 3, O: 2, S: 2, P: 3, F: 1, Cl: 1, Br: 1, I: 1 };
 // A structure's signature: each atom's element, hydrogens, charge and bonds, sorted.
@@ -954,7 +955,7 @@ function smilesSignature(s: string): string {
 let inorganic: Map<string, string> | undefined;
 // The name of a small molecule with no carbon from the table, or undefined.
 export function inorganicName(n: Namer): string | undefined {
-  if (n.n > 14 || n.el.some((e) => !VALENCE[e])) return undefined;
+  if (n.n > 16 || n.el.some((e) => !VALENCE[e])) return undefined;
   inorganic ??= new Map(INORGANIC.map(([s, name]) => [smilesSignature(s), name]));
   const bonds = [...n.bond].map(([k, o]): [number, number, number] => { const [a, b] = k.split(" ").map(Number); return [a, b, o]; });
   return inorganic.get(signature(n.el, n.h, n.q, bonds));

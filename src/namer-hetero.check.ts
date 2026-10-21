@@ -92,7 +92,8 @@ must("N-N", [
   "cyclohexylidenehydrazine", "1-benzylidene-2-phenylhydrazine", "2-(2-phenylhydrazinylidene)propanoic acid", "2-hydrazinylidenepropanoic acid",
   "4-[2-(4-nitrophenyl)hydrazinylidene]pentanoic acid", "diphenyldiazene", "(E)-diphenyldiazene", "(Z)-diphenyldiazene", "methyl(phenyl)diazene",
   "phenyldiazene", "4-(phenyldiazenyl)benzoic acid", "4-[(E)-phenyldiazenyl]benzoic acid", "4-[(E)-(4-hydroxyphenyl)diazenyl]benzoic acid",
-  "2-methyl-2-(phenyldiazenyl)propanenitrile",
+  "2-methyl-2-(phenyldiazenyl)propanenitrile", "2,2'-azobis(2-methylpropionitrile)", "smiles:C(#N)C(C)(C)/N=N/C(C#N)(C)C",
+  "4-cyanobutanoic acid", "3-cyanopropanoyl chloride", "4-(cyanomethyl)benzoic acid", "4-(2-cyanopropan-2-yl)benzoic acid",
 ]);
 // Hydroxylamines, N-hydroxy and N-alkoxy amides and rings, nitroso compounds (P-68.3.1.1, P-61.5.1).
 must("N-O", [
@@ -210,5 +211,5 @@ must("inorganic", [
   "dichloramine", "nitrogen trichloride", "nitrogen trifluoride", "sulfur dioxide", "sulfur trioxide", "phosphorus pentachloride",
   "hydroxylamine", "hydrazine", "sulfuric acid", "phosphoric acid", "phosphoryl trichloride", "trichlorophosphane", "sulfurous dichloride",
   "sulfoxylic acid", "peroxomonosulfuric acid", "dithionic acid", "trithionic acid", "tetrathionic acid", "hypodiphosphoric acid",
-  "nitrous amide", "amidosulfurous acid",
+  "nitrous amide", "amidosulfurous acid", "pentathionic acid", "disulfuric acid", "trisulfuric acid",
 ]);

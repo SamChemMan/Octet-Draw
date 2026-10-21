@@ -890,7 +890,8 @@ class Namer {
 
   // Acyclic carbon paths (no ring atoms) through or from `start`, not crossing `from`.
   paths(start: number, from: number, fromStart: boolean): number[][] {
-    const ok = (j: number) => this.el[j] === "C" && !this.inRing[j] && j !== from && !this.het.has(j);
+    // A substituent's chain leaves out a nitrile carbon, which is its cyano prefix (cyanomethyl, 2-cyanopropan-2-yl).
+    const ok = (j: number) => this.el[j] === "C" && !this.inRing[j] && j !== from && !this.het.has(j) && !(from >= 0 && j !== start && this.isNitrileC(j));
     const walk = (a: number, seen: Set<number>): number[][] => {
       const next = this.adj[a].filter((j) => ok(j) && !seen.has(j) && (j === start || this.carbonylO[j] < 0 || true));
       const ends = next.flatMap((j) => walk(j, new Set([...seen, j])).map((p) => [j, ...p]));
@@ -950,7 +951,8 @@ class Namer {
   parentName(kind: Kind | undefined, skip = new Set<number>(), within?: Set<number>): Name | undefined {
     const carbons = [...Array(this.n).keys()].filter((i) => this.el[i] === "C" && !this.inRing[i] && (!within || within.has(i)) && !skip.has(i) && !this.het.has(i));
     const chains: number[][] = [];
-    for (const a of carbons) for (const p of this.paths(a, -1, true)) if (p.every((i) => !skip.has(i) && (!within || within.has(i)))) chains.push(p);
+    // A nitrile carbon is in the chain only when the nitrile is the suffix; else it is a cyano prefix (4-cyanobutanoic acid).
+    for (const a of carbons) for (const p of this.paths(a, -1, true)) if (p.every((i) => !skip.has(i) && (!within || within.has(i)) && (kind === "nitrile" || !this.isNitrileC(i)))) chains.push(p);
     const count = (atoms: number[], ring: boolean) => {
       if (!kind) return 0;
       let c = 0;
