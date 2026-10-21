@@ -218,3 +218,10 @@ check("peroxy", [
 // N-hydroxy lactams and imides (cyclic hydroxamic acids).
 check("N-hydroxy imides", ["1-hydroxypyrrolidine-2,5-dione", "1-hydroxypyrrolidin-2-one", "1-methoxypiperidin-2-one", ["isatinol", "1-hydroxy-1H-indole-2,3-dione"]]);
 check("nitro acyl, carbohydrazide", ["1-nitropropan-1-one", "nitro(phenyl)methanone", "4-nitro-4-oxobutanoic acid", ["carbohydrazide", "carbonic dihydrazide"]]);
+
+// Carboxy, not 2-hydroxy-2-oxoethyl; bis for compound prefixes; stereodescriptors ignored in alphanumerical order.
+check("carboxy prefixes", [
+  ["smiles:OC(=O)CN(CC(=O)O)CC(=O)O", "[bis(carboxymethyl)amino]acetic acid"], ["diglycolic acid", "(carboxymethoxy)acetic acid"],
+  ["phthalonic acid", "2-(carboxycarbonyl)benzoic acid"], ["cystathionine", "(2S)-2-amino-4-{[(2R)-2-amino-2-carboxyethyl]sulfanyl}butanoic acid"],
+  "4-[(2-chloroethyl)(methyl)amino]benzoic acid", ["triethanolamine", "2-[bis(2-hydroxyethyl)amino]ethanol"],
+]);

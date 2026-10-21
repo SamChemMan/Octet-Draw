@@ -944,6 +944,7 @@ class Namer {
     if (acyl) {
       if (ring) return parent === "benzene" ? "benzoyl" : `${parent}-${at}-carbonyl`;
       if (size === 2 && parent === "ethane") return "acetyl";
+      if (size === 1) return "carbonyl"; // a substituted formyl: carboxycarbonyl (P-65.1.7.2.2)
       return parent.replace(/e$/, "") + "oyl";
     }
     if (info?.ring) {
@@ -1033,10 +1034,9 @@ class Namer {
       // N-acyl, N-alkyl: acetyl(methyl)amino, diacetylamino.
       const subs = others.map((j) => (this.carbonylO[j] >= 0 ? this.acylName(j, x) : this.substituent(j, x)));
       if (!subs.length) return { text: "amino", compound: false };
-      if (subs.length === 1) return { text: subs[0].text === "phenyl" ? "anilino" : `${enclose(subs[0])}amino`, compound: true };
-      if (subs.length === 2 && subs[0].text === subs[1].text) return { text: `di${enclose(subs[0])}amino`, compound: true };
-      const [a, b] = subs.sort((s, t) => alphaKey(s.text).localeCompare(alphaKey(t.text)));
-      return { text: `${a.text}(${b.text})amino`, compound: true };
+      if (subs.length === 1) return { text: subs[0].text === "phenyl" ? "anilino" : `${enclose(subs[0])}amino`, compound: subs[0].text !== "phenyl" };
+      // dimethylamino, bis(carboxymethyl)amino, (2-chloroethyl)(methyl)amino, with brackets nested as they should be.
+      return { text: `${substituted(subs)}amino`, compound: true };
     }
     if (el !== "C") throw new Error("substituent");
     // Functional carbons cited as prefixes.
@@ -1141,7 +1141,9 @@ class Namer {
     const fv = (p: number[]) => Math.min(p.indexOf(x) + 1, p.length - p.indexOf(x));
     const subs = (p: number[]) => p.reduce((s, a) => s + this.adj[a].filter((j) => !p.includes(j) && j !== from).length, 0);
     const score = (p: number[]) => [-p.length, -multiple(p), -multiple(p, 2), fv(p), -subs(p)];
-    return this.paths(x, from, fromStart).sort((a, b) => compare(score(a), score(b)))[0];
+    // An acid's carbon is never in a substituent chain: carboxymethyl (P-65.1.2.3), not 2-hydroxy-2-oxoethyl.
+    const acids = new Set([...this.bearer.keys()].filter((g) => this.el[g] === "C" && (this.group[g] === "acid" || this.group[g] === "peroxy") && g !== x));
+    return this.paths(x, from, fromStart, false, acids).sort((a, b) => compare(score(a), score(b)))[0];
   }
 
   // ——— The whole molecule ———
@@ -1451,7 +1453,7 @@ function citedLabels(text: string): number {
 // Alphabetical order ignores multiplying prefixes of simple substituents, locants and italic prefixes (P-14.5).
 function alphaKey(t: string): string {
   // Brackets and locants at the start, as often as they come: {2-[4-(hydroxymethyl)phenyl]hydrazinyl} sorts at h.
-  for (let k = ""; k !== t; ) { k = t; t = t.replace(/^[([{]+/, "").replace(/^((tert|sec|N|\d+[a-z]?'*(,\d+[a-z]?'*)*)-)+/, "").replace(/^(\d+[a-z]?H-)+/, ""); }
+  for (let k = ""; k !== t; ) { k = t; t = t.replace(/^\((\d+[a-z]?'*)?[RSEZ](,(\d+[a-z]?'*)?[RSEZ])*\)-/, "").replace(/^[([{]/, "").replace(/^((tert|sec|N|\d+[a-z]?'*(,\d+[a-z]?'*)*)-)+/, "").replace(/^(\d+[a-z]?H-)+/, ""); }
   return t.replace(/[()[\]{}]/g, "");
 }
 // Substituents on a parent without locants (amino, phosphane): phenyl, diphenyl, methyl(diphenyl), in alphabetical order.
@@ -1459,7 +1461,7 @@ function substituted(subs: Name[]): string {
   const groups = new Map<string, { name: Name; n: number }>();
   for (const s of subs) groups.set(s.text, { name: s, n: (groups.get(s.text)?.n ?? 0) + 1 });
   const sorted = [...groups.values()].sort((a, b) => alphaKey(a.name.text).localeCompare(alphaKey(b.name.text)));
-  const parts = sorted.map((g) => (g.n > 1 ? (g.name.compound ? MULT_COMPLEX[g.n] + enclose(g.name) : MULT[g.n] + g.name.text) : enclose(g.name)));
+  const parts = sorted.map((g) => (g.n > 1 ? times(g.n, g.name) : enclose(g.name)));
   // After the first, each substituent goes in brackets: methyl(diphenyl)phosphane, ethyl(methyl)(phenyl)phosphane.
   return parts.map((t, k) => (k === 0 || /^[([{]/.test(t) ? t : `(${t})`)).join("");
 }
