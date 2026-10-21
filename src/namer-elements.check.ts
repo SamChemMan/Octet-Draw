@@ -69,7 +69,10 @@ const cases: [string, string?][] = [
   ["1-(trimethylsilyl)-1H-imidazole", "1-(trimethylsilyl)-1H-imidazole"], ["azido(trimethyl)silane", "azido(trimethyl)silane"],
   ["octamethylcyclotetrasiloxane", "2,2,4,4,6,6,8,8-octamethyl-1,3,5,7,2,4,6,8-tetraoxatetrasilocane"],
   ["1,1-dimethylsilolane", "1,1-dimethylsilolane"], ["silinane", "silinane"], ["1,1-dimethyl-1H-silole", "1,1-dimethyl-1H-silole"],
-  ["tert-butyl(dimethyl){[(2S)-oxiran-2-yl]methoxy}silane"],
+  ["tert-butyl(dimethyl){[(2S)-oxiran-2-yl]methoxy}silane"], ["trimethyl(trifluoromethyl)silane"], ["smiles:C=C(O[Si](C)(C)C)c1ccccc1"],
+  ["smiles:CC(C)(C)[Si](c1ccccc1)(c1ccccc1)OCCO", "2-{[tert-butyl(diphenyl)silyl]oxy}ethanol"], ["smiles:CCO[Si](CCCN)(OCC)OCC", "3-(triethoxysilyl)propan-1-amine"],
+  ["smiles:C[Si](C)(C)C#N", "trimethylsilanecarbonitrile"], ["smiles:N#C[Si](C)(C)c1ccc(C(=O)O)cc1"], ["smiles:C[Si](C)(C)SC"],
+  ["smiles:O=C(O[Si](C)(C)C)C(F)(F)F", "trimethylsilyl trifluoroacetate"], ["smiles:C[Si](C)(C)CC(=O)Cl"],
   // Boron: boronic and borinic acids, boronate esters (pinacol, neopentyl glycol), boranes, borates.
   ["phenylboronic acid", "phenylboronic acid"], ["(4-formylphenyl)boronic acid", "(4-formylphenyl)boronic acid"], ["4-boronobenzoic acid", "4-boronobenzoic acid"],
   ["(pyridin-3-yl)boronic acid", "(pyridin-3-yl)boronic acid"], ["(3-aminophenyl)boronic acid"], ["(2,4-difluorophenyl)boronic acid"], ["1,4-phenylenebis(boronic acid)"],
@@ -83,6 +86,10 @@ const cases: [string, string?][] = [
   ["dimethyl phenylboronate", "dimethyl phenylboronate"], ["trimethyl borate", "trimethyl borate"], ["triisopropyl borate"], ["methyl diphenylborinate"],
   ["smiles:COB(OC)c1ccc(C(C)=O)cc1", "dimethyl (4-acetylphenyl)boronate"], ["triethylborane", "triethylborane"], ["dichloro(phenyl)borane"],
   ["9-borabicyclo[3.3.1]nonane", "9-borabicyclo[3.3.1]nonane"], ["borinane"], ["1H-borole"], ["borinine"],
+  ["tribromoborane"], ["tris(pentafluorophenyl)borane"], ["smiles:CC(C)C[C@@H](NC(=O)[C@H](Cc1ccccc1)NC(=O)c1cnccn1)B(O)O"],
+  ["potassium trifluoro(phenyl)boranuide", "potassium trifluoro(phenyl)boranuide"], ["potassium ethenyl(trifluoro)boranuide"],
+  ["sodium tris(acetyloxy)boranuide", "sodium tris(acetyloxy)boranuide"], ["sodium cyanoboranuide", "sodium cyanoboranuide"],
+  ["sodium tetraphenylboranuide"], ["lithium triethylboranuide"], ["smiles:C[N+](C)(C)C.F[B-](F)(F)c1ccccc1"],
   // Selenium and tellurium, like sulfur: selanyl prefixes, selenols, diselanes, selenoxides, Se acids, selenophene.
   ["(methylselanyl)benzene", "(methylselanyl)benzene"], ["(phenylselanyl)benzene"], ["benzeneselenol", "benzeneselenol"], ["methaneselenol"],
   ["(phenyldiselanyl)benzene", "(phenyldiselanyl)benzene"], ["(methaneseleninyl)benzene", "(methaneseleninyl)benzene"], ["(methaneselenonyl)benzene"],
@@ -103,7 +110,8 @@ const cases: [string, string?][] = [
   ["tetraethylgermane", "tetraethylgermane"], ["tributyl(phenyl)stannane", "tributyl(phenyl)stannane"], ["tributyl(chloro)stannane"],
   ["tributyl(thiophen-2-yl)stannane"], ["tributyl(prop-2-en-1-yl)stannane"], ["hexabutyldistannane", "hexabutyldistannane"],
   ["hexabutyldistannoxane", "hexabutyldistannoxane"], ["2-(trimethylstannyl)pyridine"], ["tetraethylplumbane", "tetraethylplumbane"],
-  ["triethylalumane"], ["trimethylgallane"], ["trimethylindigane"], ["1H-alumole"],
+  ["triethylalumane"], ["trimethylgallane"], ["trimethylindigane"], ["1H-alumole"], ["bis(2-methylpropyl)alumane"], ["chloro(diethyl)alumane"],
+  ["smiles:CCCC[Sn](CCCC)(CCCC)SC1=CC=CC=C1", "tributyl(phenylsulfanyl)stannane"], ["smiles:CC[Hg]Sc1ccccc1C(=O)O", "2-[(ethylmercurio)sulfanyl]benzoic acid"],
   ["dimethylmercury", "dimethylmercury"], ["chloro(methyl)mercury", "chloro(methyl)mercury"], ["diphenylmercury"],
   ["(acetyloxy)(phenyl)mercury", "(acetyloxy)(phenyl)mercury"], ["4-(chloromercurio)benzoic acid", "4-(chloromercurio)benzoic acid"],
 ];
