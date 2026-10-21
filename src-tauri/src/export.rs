@@ -942,6 +942,34 @@ mod tests {
         }
     }
 
+    // A picture in the drawing (dropped, pasted, or from a ChemDraw file) shows in every export: the page writes it as
+    // an <image> with its PNG, JPEG or GIF bytes in a data: address.
+    #[test]
+    fn pictures_show_in_exports() {
+        use base64::Engine;
+        let mut png_bytes = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut png_bytes, 8, 4);
+            enc.set_color(png::ColorType::Rgba);
+            enc.set_depth(png::BitDepth::Eight);
+            enc.write_header().unwrap().write_image_data(&[255, 0, 0, 255].repeat(32)).unwrap();
+        }
+        let red = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(8, 4, image::Rgb([255, 0, 0])));
+        let made = |f: image::ImageFormat| {
+            let mut out = std::io::Cursor::new(Vec::new());
+            red.write_to(&mut out, f).unwrap();
+            out.into_inner()
+        };
+        for (mime, bytes) in [("png", png_bytes), ("jpeg", made(image::ImageFormat::Jpeg)), ("gif", made(image::ImageFormat::Gif))] {
+            let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+            let svg = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="40pt" height="20pt" viewBox="0 0 40 20"><image href="data:image/{mime};base64,{b64}" x="0" y="0" width="40" height="20" preserveAspectRatio="none"/></svg>"#);
+            let (w, h, rgba) = pixels(&svg, 72.0, true).unwrap();
+            let k = ((h / 2) * w + w / 2) as usize * 4;
+            assert!(rgba[k] > 200 && rgba[k + 1] < 60 && rgba[k + 3] > 200, "{mime}: {:?}", &rgba[k..k + 4]);
+            assert!(find(&make_pdf(&svg, None).unwrap(), b"/Subtype /Image").is_some(), "{mime}");
+        }
+    }
+
     #[test]
     fn png_is_true_size_at_the_resolution() {
         let png = make_png(SVG, 300.0, true).unwrap();

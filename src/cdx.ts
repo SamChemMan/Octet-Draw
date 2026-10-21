@@ -70,7 +70,7 @@ function macByte(ch: string): number | undefined {
 
 // Bytes as uppercase hex and back, as CDXML holds pictures: by table, as a picture can be megabytes.
 const HEX = Array.from({ length: 256 }, (_, k) => k.toString(16).padStart(2, "0").toUpperCase());
-function hex(b: Uint8Array): string {
+export function hex(b: Uint8Array): string {
   const parts: string[] = [];
   for (let i = 0; i < b.length; i += 0x8000) parts.push(Array.from(b.subarray(i, i + 0x8000), (x) => HEX[x]).join(""));
   return parts.join("");

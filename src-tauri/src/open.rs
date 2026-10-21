@@ -14,6 +14,7 @@ use crate::{recent, Picked, MAX_BYTES};
 
 const MOST: usize = 20; // files kept waiting at one time
 const DRAWINGS: [&str; 4] = ["oct", "cdxml", "cdx", "octet"];
+const PICTURES: [&str; 8] = ["png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff", "webp"];
 
 // The files waiting for the page, each with the point in the window (CSS pixels) where it was dropped, if it was.
 #[derive(Default)]
@@ -52,6 +53,7 @@ pub struct OpenedFile {
     name: String,         // the file's name
     path: Option<String>, // set for a drawing Octet can save over (.oct, .cdxml, .cdx, .octet) that opens
     text: Option<String>,
+    picture: Option<String>, // a picture's bytes in base64
     error: Option<String>,
     at: Option<(f64, f64)>, // where it was dropped
 }
@@ -65,8 +67,16 @@ pub async fn take_opened(app: AppHandle, picked: State<'_, Picked>, insert: bool
         .into_iter()
         .map(|(path, at)| {
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+            if PICTURES.contains(&ext.as_str()) {
+                let (picture, error) = match picture(&path, &name) {
+                    Ok(b) => (Some(b), None),
+                    Err(e) => (None, Some(e)),
+                };
+                return OpenedFile { name, path: None, text: None, picture, error, at };
+            }
             let read = read(&path, &name);
-            let drawing = path.extension().and_then(|e| e.to_str()).is_some_and(|e| DRAWINGS.contains(&e.to_ascii_lowercase().as_str()));
+            let drawing = DRAWINGS.contains(&ext.as_str());
             let kept = read.is_ok() && drawing && (at.is_none() || !insert);
             if kept {
                 picked.0.lock().unwrap().insert(path.clone());
@@ -76,7 +86,7 @@ pub async fn take_opened(app: AppHandle, picked: State<'_, Picked>, insert: bool
                 Ok(t) => (Some(t), None),
                 Err(e) => (None, Some(e)),
             };
-            OpenedFile { name, path: kept.then(|| path.to_string_lossy().into_owned()), text, error, at }
+            OpenedFile { name, path: kept.then(|| path.to_string_lossy().into_owned()), text, picture: None, error, at }
         })
         .collect())
 }
@@ -86,7 +96,18 @@ fn read(path: &Path, name: &str) -> Result<String, String> {
     match fs::metadata(path) {
         Err(_) => Err("This file is not where it was. It was moved or deleted.".into()),
         Ok(m) if m.len() > MAX_BYTES => Err("This file is larger than 64 MB. Octet cannot open it.".into()),
-        Ok(_) => crate::read_text_or_cdx(path).map_err(|_| format!("Octet cannot open {name}. It opens Octet and ChemDraw drawings (CDX and CDXML), MOL, SDF, RXN, SMILES and InChI files.")),
+        Ok(_) => crate::read_text_or_cdx(path).map_err(|_| format!("Octet cannot open {name}. It opens Octet and ChemDraw drawings (CDX and CDXML), MOL, SDF, RXN, SMILES and InChI files, and pictures.")),
+    }
+}
+
+// A picture file's bytes in base64, with Open's limit of 64 MB. The page checks what they are, decodes them and keeps
+// 12 MB of pictures in a drawing at most (src/picture.ts).
+fn picture(path: &Path, name: &str) -> Result<String, String> {
+    use base64::Engine;
+    match fs::metadata(path) {
+        Err(_) => Err("This file is not where it was. It was moved or deleted.".into()),
+        Ok(m) if m.len() > MAX_BYTES => Err(format!("Octet cannot insert {name}. It is larger than 64 MB.")),
+        Ok(_) => fs::read(path).map(|b| base64::engine::general_purpose::STANDARD.encode(b)).map_err(|_| format!("Octet cannot read {name}.")),
     }
 }
 
@@ -117,6 +138,9 @@ mod tests {
         assert_eq!(read(&cdx, "d.cdx").as_deref(), Ok("VmpDRDAxMDAEAwIB/w=="));
         assert!(read(&big, "c.cdxml").unwrap_err().contains("64 MB"));
         assert!(read(&dir.join("gone.oct"), "gone.oct").unwrap_err().contains("moved or deleted"));
+        // A picture comes as its bytes, with the same limit.
+        assert_eq!(picture(&png, "b.png").as_deref(), Ok("iVBOR//+"));
+        assert!(picture(&big, "c.png").unwrap_err().contains("64 MB"));
         fs::remove_dir_all(&dir).unwrap();
     }
 }
