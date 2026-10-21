@@ -930,7 +930,7 @@ class Namer {
     if (this.inRing[x]) return this.nameParent({ atoms: this.rings[this.ringOf[x]], ring: true }, { attach: [x, from] });
     // Groups Octet does not yet cite as prefixes.
     const g = this.group[x];
-    if (g === "anhydride" || g === "sulfonylhalide" || g === "aminium") throw new Error(`${g} as a prefix`);
+    if (g === "sulfonylhalide" || g === "aminium") throw new Error(`${g} as a prefix`);
     // A carbonyl carbon reached from its own N or O is an acyl group: N-acetyl, carbamoyl, (methoxycarbonyl)oxy.
     if (el === "C" && this.carbonylO[x] >= 0 && this.groupHetero(x).includes(from) && !this.inRing[from]) return this.acylName(x, from);
     // Phosphanyl and phosphoryl (P-68.3.2.3): diphenylphosphanyl, diphenylphosphoryl.
@@ -1019,7 +1019,7 @@ class Namer {
       const o = this.esterO.get(x)!, r = this.adj[o].find((j) => j !== x)!;
       const alkoxy = this.substituent(o, x); // named from the oxygen
       void r;
-      return { text: `${enclose(alkoxy)}carbonyl`.replace(/^\(([a-z-]+oxy)\)carbonyl$/, "$1carbonyl"), compound: true };
+      return { text: `${enclose(alkoxy)}carbonyl`, compound: true }; // methoxycarbonyl, [(benzyloxy)carbonyl]
     }
     if (this.carbonylO[x] >= 0) return this.acylName(x, from);
     // tert-butyl and benzyl are retained prefixes (P-29.6).
@@ -1059,7 +1059,7 @@ class Namer {
     if (y !== undefined) {
       if (HALO[this.el[y]] || this.prefixOnly.has(y)) return { text: `${HALO[this.el[y]] ?? this.prefixOnly.get(y)}carbonyl`, compound: true };
       if (this.el[y] === "O" && this.adj[y].length === 1) return { text: "carboxy", compound: false };
-      if (this.el[y] === "O") return { text: `${enclose(this.substituent(y, c))}carbonyl`.replace(/^\(([a-z-]+oxy)\)carbonyl$/, "$1carbonyl"), compound: true };
+      if (this.el[y] === "O") return { text: `${enclose(this.substituent(y, c))}carbonyl`, compound: true };
       if (this.el[y] !== "N") throw new Error("acyl");
       const subs = this.adj[y].filter((j) => j !== c).map((j) => this.substituent(j, y));
       return { text: `${substituted(subs)}carbamoyl`, compound: subs.length > 0 };

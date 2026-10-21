@@ -186,3 +186,10 @@ check("cyano and pseudohalides", [
   ["smiles:CC1=C(N=CN1)CSCCNC(=NC)NC#N", "smiles:"], // cimetidine
   "benzoyl isothiocyanate", "acetyl isocyanate", "benzoyl cyanate", "benzoyl thiocyanate", "butanedioyl diisocyanate", "4-(isothiocyanatocarbonyl)benzoic acid",
 ]);
+
+// Anhydrides as prefixes, and alkoxycarbonyl prefixes with their brackets: [(benzyloxy)carbonyl] (P-65.7.7, P-65.6.3.3).
+check("anhydride prefixes", [
+  "2-[(acetyloxy)carbonyl]benzoic acid", "4-[(benzoyloxy)carbonyl]benzoic acid", ["smiles:CC(=O)OC(=O)CC(O)=O", "3-(acetyloxy)-3-oxopropanoic acid"],
+  "acetic benzoic anhydride", "4-methylbenzoic anhydride", "4-[(benzyloxy)carbonyl]benzoic acid",
+  ["smiles:C[C@H](NC(=O)OCc1ccccc1)C(O)=O", "(2S)-2-{[(benzyloxy)carbonyl]amino}propanoic acid"],
+]);
