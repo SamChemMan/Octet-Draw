@@ -90,6 +90,8 @@ const FORMULAS: Record<string, string> = {
 export function labelSmiles(label: string): string | undefined {
   if (GROUPS[label]) return GROUPS[label];
   if (isGeneric(label)) return undefined;
+  // An element with an oxidation state, Os(II) or Fe(III), is not read: (II) is not two iodine atoms.
+  if (/^[A-Z][a-z]?\((?:0|I{1,3}|IV|VI{0,3}|IX|X)\)$/.test(label)) return undefined;
   if (FORMULAS[label]) return FORMULAS[label];
   let us = units(label);
   if (!us.length) return undefined;
