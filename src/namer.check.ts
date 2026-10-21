@@ -100,8 +100,8 @@ const list = [
   "4-(dimethylamino)pyridine","pyrimidine","pyrazine","furan","thiophene","1H-pyrrole",
   "furan-2-carbaldehyde","thiophene-2-carboxylic acid","1-methyl-1H-pyrrole","1H-imidazole","1-methyl-1H-imidazole","piperidine",
   "morpholine","piperazine","pyrrolidine","oxolane","oxane","1-methylpiperidine",
-  "4-methylmorpholine","piperidin-4-one","1,4-dioxane","2-aminoethanol","3-aminopropanoic acid","4-hydroxybutan-2-one",
-  "2-chloro-N,N-dimethylacetamide","2-(dimethylamino)ethanol","nitromethane","nitrobenzene","1,3-dinitrobenzene","2-methyl-1-nitropropane",
+  "4-methylmorpholine","piperidin-4-one","1,4-dioxane","2-aminoethan-1-ol","3-aminopropanoic acid","4-hydroxybutan-2-one",
+  "2-chloro-N,N-dimethylacetamide","2-(dimethylamino)ethan-1-ol","nitromethane","nitrobenzene","1,3-dinitrobenzene","2-methyl-1-nitropropane",
 ];
 
 let named = 0, missed: string[] = [];
@@ -149,7 +149,7 @@ const extra = [
   "1H-isoindole-1,3(2H)-dione", "1H-indene-1,3(2H)-dione", "2-benzofuran-1(3H)-one", "1,3-benzoxazol-2(3H)-one", "quinazolin-4(3H)-one",
   "3,4-dihydroquinolin-2(1H)-one", "4H-1-benzopyran-4-one", "4-oxo-1,4-dihydroquinoline-3-carboxylic acid", "1,3,7-trimethyl-3,7-dihydro-1H-purine-2,6-dione",
   "2-amino-1,9-dihydro-6H-purin-6-one", "L-tryptophan", "(2S)-2-(6-methoxynaphthalen-2-yl)propanoic acid", "1H-indol-1-ylmethanol",
-  "pyrrolidin-2-one", "oxolan-2-one", "1-methylpyrrolidin-2-one", "1H-pyrazole", "pyridazine", "2-(piperidin-1-yl)ethanol",
+  "pyrrolidin-2-one", "oxolan-2-one", "1-methylpyrrolidin-2-one", "1H-pyrazole", "pyridazine", "2-(piperidin-1-yl)ethan-1-ol",
   "[1,1'-biphenyl]-4-carboxylic acid", "4'-methyl[1,1'-biphenyl]-4-ol", "2,3'-bipyridine", "1,1'-binaphthalene", "2,2'-bithiophene",
   "butanedioyl dichloride", "cyclohexanecarbonyl chloride", "naphthalene-2-carbonyl chloride", "acetic propanoic anhydride", "propanoic anhydride",
   "benzene-1,3-disulfonic acid", "4-sulfobenzoic acid", "4-methylbenzene-1-sulfonyl chloride", "N,N'-dimethylurea", "N,N,N',N'-tetramethylurea",

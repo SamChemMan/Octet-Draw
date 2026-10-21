@@ -96,7 +96,7 @@ check("ring N", [
   "piperidine-1-carboxylic acid", "piperidine-1-carbaldehyde", "morpholine-4-carbaldehyde", "1H-indole-1-carbaldehyde",
   "tert-butyl 3-hydroxy-3-methylazetidine-1-carboxylate", "piperidine-1-carbonyl chloride", "N,N-dimethylpiperidine-1-carboxamide",
   "N-phenylpiperidine-1-carboxamide", "piperidine-1-carbonitrile", "1-acetylpiperidine-4-carboxylic acid", "1-carbamoylpiperidine-4-carboxylic acid",
-  "4-(piperidine-1-carbonyl)benzoic acid", ["1-(piperidin-1-yl)ethan-1-one", "1-(piperidin-1-yl)ethanone"], "phenyl(pyrrolidin-1-yl)methanone",
+  "4-(piperidine-1-carbonyl)benzoic acid", ["1-(piperidin-1-yl)ethan-1-one", "1-(piperidin-1-yl)ethan-1-one"], "phenyl(pyrrolidin-1-yl)methanone",
   ["di(1H-imidazol-1-yl)methanone", "bis(1H-imidazol-1-yl)methanone"], "1-acetylpyrrolidin-2-one",
   ["2-[(piperidine-1-carbonyl)oxy]acetic acid", "[(piperidine-1-carbonyl)oxy]acetic acid"],
   // Sam's Boc-protected azetidine (corpus).
@@ -107,7 +107,7 @@ check("ring N", [
 // polyol with one acid, the polyol's "diyl" name; other esters as acyloxy and alkoxy-oxo prefixes (P-65.6.3.3).
 check("esters", [
   // Sam's dimethyl diazomalonate.
-  ["dimethyl diazopropanedioate", "dimethyl 2-diazopropanedioate"], "diethyl propanedioate", "diethyl butanedioate", "dimethyl ethanedioate",
+  ["dimethyl diazopropanedioate", "dimethyl diazopropanedioate"], "diethyl propanedioate", "diethyl butanedioate", "dimethyl ethanedioate",
   ["ethyl methyl butanedioate", "1-ethyl 4-methyl butanedioate"], "1-ethyl 4-methyl 2-hydroxybutanedioate", "4-ethyl 1-methyl 2-hydroxybutanedioate",
   "dimethyl (2R,3R)-2,3-dihydroxybutanedioate", "dimethyl benzene-1,4-dicarboxylate", "di-tert-butyl butanedioate",
   "3-ethyl 5-methyl 2,6-dimethylpyridine-3,5-dicarboxylate", ["triacetin", "propane-1,2,3-triyl triacetate"], "ethane-1,2-diyl diacetate",
@@ -124,7 +124,7 @@ check("carbonic", [
   "dimethyl carbonate", "ethyl methyl carbonate", "diphenyl carbonate", ["triphosgene", "bis(trichloromethyl) carbonate"], "methyl hydrogen carbonate",
   "ethyl carbonochloridate", ["diphosgene", "trichloromethyl carbonochloridate"], ["phosgene", "carbonyl dichloride"], "carbonyl difluoride",
   "carbamoyl chloride", ["dimethylcarbamoyl chloride", "N,N-dimethylcarbamoyl chloride"], "di-tert-butyl dicarbonate", "dicarbonic acid",
-  "N-cyclohexyl-N'-phenylurea", ["biuret", "N-carbamoylurea"], ["triuret", "N,N'-dicarbamoylurea"], ["allophanic acid", "N-carbamoylcarbamic acid"],
+  "N-cyclohexyl-N'-phenylurea", ["biuret", "carbamoylurea"], ["triuret", "N,N'-dicarbamoylurea"], ["allophanic acid", "N-carbamoylcarbamic acid"],
   ["smiles:CCCC(C)(COC(N)=O)COC(N)=O", "2-methyl-2-propylpropane-1,3-diyl dicarbamate"], ["smiles:CNC(=O)Oc1cccc2ccccc12", "naphthalen-1-yl N-methylcarbamate"],
   ["smiles:CC(C)(C)OC(=O)NCCNC(=O)OC(C)(C)C", "tert-butyl N-{2-[(tert-butoxycarbonyl)amino]ethyl}carbamate"],
   ["smiles:ClC(=O)OCC1c2ccccc2-c2ccccc12", "(9H-fluoren-9-yl)methyl carbonochloridate"],
@@ -132,7 +132,7 @@ check("carbonic", [
   ["citrulline", "(2S)-2-amino-5-(carbamoylamino)pentanoic acid"], ["isatoic acid", "2-(carboxyamino)benzoic acid"], "(carbamoylamino)acetic acid",
   "4-[(methoxycarbonyl)oxy]benzoic acid", "4-[(dimethylcarbamoyl)oxy]benzoic acid", "4-(chlorocarbonyl)benzoic acid", "4-chloro-4-oxobutanoic acid",
   "4-[(chlorocarbonyl)amino]benzoic acid", ["oxaluric acid", "(carbamoylamino)(oxo)acetic acid"],
-  "N-acetylacetamide", "N,N-diacetylacetamide", "N-benzoylbenzamide", ["N-acetylurea", "N-carbamoylacetamide"], ["tert-butyl acetylcarbamate", "tert-butyl N-acetylcarbamate"],
+  "N-acetylacetamide", "N,N-diacetylacetamide", "N-benzoylbenzamide", ["acetylurea", "N-carbamoylacetamide"], ["tert-butyl acetylcarbamate", "tert-butyl N-acetylcarbamate"],
   "4-(diacetylamino)benzoic acid", "4-[acetyl(methyl)amino]benzoic acid",
 ]);
 
@@ -149,7 +149,7 @@ check("imines", [
   "isocyanic acid", "isocyanatobenzene", "isothiocyanatomethane", "1,6-diisocyanatohexane", "2,4-diisocyanato-1-methylbenzene",
   ["allyl isothiocyanate", "3-isothiocyanatoprop-1-ene"], "cyanatobenzene", "thiocyanatobenzene", "cyanic acid",
   "cyanamide", "N,N-dimethylcyanamide", "(cyanoamino)acetic acid", ["cyanogen bromide", "carbononitridic bromide"], "carbononitridic chloride",
-  "ethenone", ["2-phenylethen-1-one", "2-phenylethenone"], ["dimethylketene", "2-methylprop-1-en-1-one"],
+  "ethenone", ["2-phenylethen-1-one", "phenylethenone"], ["dimethylketene", "2-methylprop-1-en-1-one"],
   // Prefixes without locants: brackets after the first.
   ["bromochloromethane", "bromo(chloro)methane"], ["mandelic acid", "hydroxy(phenyl)acetic acid"],
 ]);
@@ -158,9 +158,9 @@ check("imines", [
 check("hydrazides", [
   "acetohydrazide", "benzohydrazide", "propanehydrazide", "formohydrazide", "butanedihydrazide", "N'-phenylacetohydrazide", "N-methylacetohydrazide",
   "N',N'-dimethylbenzohydrazide", "pyridine-4-carbohydrazide", "N'-acetylacetohydrazide", "4-(hydrazinecarbonyl)benzoic acid",
-  "4-(2-acetylhydrazinyl)benzoic acid", ["semioxamazide", "hydrazinyl(oxo)acetamide"],
+  "4-(2-acetylhydrazinyl)benzoic acid", ["semioxamazide", "2-hydrazinyl-2-oxoacetamide"],
   ["agaritine", "(2S)-2-amino-5-{2-[4-(hydroxymethyl)phenyl]hydrazinyl}-5-oxopentanoic acid"],
-  "N-hydroxyacetamide", "N-hydroxybenzamide", "N-hydroxy-N-phenylacetamide", "N-methoxy-N-methylbenzamide", "N-hydroxyurea", "N,N'-dihydroxyurea",
+  "N-hydroxyacetamide", "N-hydroxybenzamide", "N-hydroxy-N-phenylacetamide", "N-methoxy-N-methylbenzamide", "hydroxyurea", "N,N'-dihydroxyurea",
   "tert-butyl N-hydroxycarbamate", ["smiles:ONC(=O)CCCCCCC(=O)Nc1ccccc1", "N1-hydroxy-N8-phenyloctanediamide"], // vorinostat
 ]);
 check("ring acyl", [["dibenzamide", "N-benzoylbenzamide"], ["tribenzamide", "N,N-dibenzoylbenzamide"], "1H-pyrrole-2-carbonyl chloride",
@@ -208,6 +208,17 @@ check("brackets", [
   ["smiles:N#Cc1ccc(cc1)-c1ccc(OCCCCCO)cc1", "4'-[(5-hydroxypentyl)oxy][1,1'-biphenyl]-4-carbonitrile"],
 ]);
 
+// Locants are left out only where nothing else could be meant (P-14.3.4, P-31.1.4.2.4): Blue Book examples.
+check("locants", [
+  "chloromethane", "ethanol", "chloroethane", "chloroethene", "propene", "propyne", "propan-2-one", "butan-2-one",
+  "prop-2-enoic acid", "prop-2-ynoic acid", "propa-1,2-diene", "cyclohexanethiol", "bromobenzene", "pyrazinecarboxylic acid",
+  "methylurea", "tetrafluorourea", "chloropropanedioic acid", "chlorobutanedioic acid", "2-methylpropanediamide",
+  "N1,N3-dimethylpropanediamide", "difluoroacetic acid", "heptafluorobutanoic acid", "2,2,3,3,3-pentafluoropropan-1-ol",
+  "hexachlorobenzene", "1-chloro-2-(pentafluoroethyl)benzene", "decahydronaphthalene", "diphenylethenone",
+  ["smiles:CC(=O)c1ccccc1", "1-phenylethan-1-one"], ["smiles:CC(=O)c1ccccn1", "1-(pyridin-2-yl)ethan-1-one"],
+  ["smiles:OCCCl", "2-chloroethan-1-ol"], ["smiles:ClCC(N)=O", "2-chloroacetamide"], ["smiles:NCCS(O)(=O)=O", "2-aminoethane-1-sulfonic acid"],
+]);
+
 // N-cyano guanidines and amidines (cimetidine); acid pseudohalides (P-65.5.3).
 check("cyano and pseudohalides", [
   "N-cyanoguanidine", ["smiles:N#CN=C(N)N", "N''-cyanoguanidine"], "N'-cyano-N,N-dimethylmethanimidamide",
@@ -226,7 +237,7 @@ check("anhydride prefixes", [
 check("tricarboxylic", [
   ["citric acid", "2-hydroxypropane-1,2,3-tricarboxylic acid"], "triethyl 2-hydroxypropane-1,2,3-tricarboxylate", "propane-1,2,3-tricarboxylic acid",
   "butane-1,2,4-tricarboxylic acid", "methanetricarboxylic acid", "triethyl methanetricarboxylate", "propane-1,2,3-tricarbonitrile",
-  ["aconitic acid", "prop-1-ene-1,2,3-tricarboxylic acid"], "butanedioic acid", "2-methylbutanedioic acid",
+  ["aconitic acid", "prop-1-ene-1,2,3-tricarboxylic acid"], "butanedioic acid", "methylbutanedioic acid",
 ]);
 
 // N-acyl lactams; a substituted acetyl group needs no locant (phenylacetyl). Sam's
@@ -251,7 +262,7 @@ check("nitro acyl, carbohydrazide", ["1-nitropropan-1-one", "nitro(phenyl)methan
 check("carboxy prefixes", [
   ["smiles:OC(=O)CN(CC(=O)O)CC(=O)O", "[bis(carboxymethyl)amino]acetic acid"], ["diglycolic acid", "(carboxymethoxy)acetic acid"],
   ["phthalonic acid", "2-(carboxycarbonyl)benzoic acid"], ["cystathionine", "(2S)-2-amino-4-{[(2R)-2-amino-2-carboxyethyl]sulfanyl}butanoic acid"],
-  "4-[(2-chloroethyl)(methyl)amino]benzoic acid", ["triethanolamine", "2-[bis(2-hydroxyethyl)amino]ethanol"],
+  "4-[(2-chloroethyl)(methyl)amino]benzoic acid", ["triethanolamine", "2-[bis(2-hydroxyethyl)amino]ethan-1-ol"],
 ]);
 check("C=N stereo", [["smiles:C/C(=N/O)/N", "(1Z)-N'-hydroxyethanimidamide"], ["smiles:CCO/C(C)=N/c1ccccc1", "ethyl (1E)-N-phenylethanimidate"],
   ["smiles:CC/C(Cl)=N/c1ccccc1", "(1Z)-N-phenylpropanimidoyl chloride"]]);

@@ -120,11 +120,11 @@ run("monocycles", [
 run("ylidene", [
   "alpha-myrcene = 2-methyl-6-methylideneocta-1,7-diene", "beta-myrcene = 7-methyl-3-methylideneocta-1,6-diene", "beta-farnesene",
   "beta-pinene = 6,6-dimethyl-2-methylidenebicyclo[3.1.1]heptane", "camphene", "beta-terpinene", "terpinolene = 1-methyl-4-(propan-2-ylidene)cyclohex-1-ene",
-  "fulvene = 5-methylidenecyclopenta-1,3-diene", "gamma-terpineol", "itaconic acid = 2-methylidenebutanedioic acid", "methylidenecyclohexane = methylidenecyclohexane",
+  "fulvene = 5-methylidenecyclopenta-1,3-diene", "gamma-terpineol", "itaconic acid = methylidenebutanedioic acid", "methylidenecyclohexane = methylidenecyclohexane",
   "(2E)-2-ethylidenecyclohexan-1-one = (2E)-2-ethylidenecyclohexan-1-one", "(2Z)-2-ethylidenecyclohexan-1-one", "2-methylidenebutanoic acid",
   "(2Z)-2-benzylidene-1-benzofuran-3(2H)-one", "4-methylidene-4H-pyran", "3-methylideneoxolan-2-one", "(propan-2-ylidene)propanedioic acid",
   "cyclohexylidenemethanol", "(cyclohexylidene)acetic acid", "5-benzylidene-1,3-thiazolidine-2,4-dione", "2-(oxolan-3-ylidene)acetic acid",
-  "2,2-dimethyl-5-methylidene-1,3-dioxane-4,6-dione", "2-(diphenylmethylidene)propanedinitrile", "(2E)-2-[(2Z)-but-2-en-1-ylidene]cyclohexan-1-one",
+  "2,2-dimethyl-5-methylidene-1,3-dioxane-4,6-dione", "(diphenylmethylidene)propanedinitrile", "(2E)-2-[(2Z)-but-2-en-1-ylidene]cyclohexan-1-one",
 ]);
 
 // Ring unsaturation: a ring's one multiple bond takes no locant on its own, and does with a suffix; ring triple bonds.
@@ -184,7 +184,7 @@ run("large rings", ["smiles:C1CCCCCCCCN(C)CC=N1", "smiles:C1CS(=O)N=NN=CC=NC=PC=
 // Hydrogen drawn as an atom counts on its neighbour: 15 of the 114 structures in Sam's corpus have one.
 run("drawn hydrogen", [
   "smiles:O1C[C@H](CC2=CC=CC=C2)N([H])C1=O = (4S)-4-(phenylmethyl)-1,3-oxazolidin-2-one",
-  "smiles:C(=O)(C[H])C1C=CC=CC=1 = 1-phenylethanone", "smiles:[H][C@@](C)(O)CC = (2S)-butan-2-ol",
+  "smiles:C(=O)(C[H])C1C=CC=CC=1 = 1-phenylethan-1-one", "smiles:[H][C@@](C)(O)CC = (2S)-butan-2-ol",
 ]);
 
 // A ring's acyl group is numbered as the ring, with its indicated hydrogen: pyrrolysine, (1H-pyrrole-2-carbonyl).

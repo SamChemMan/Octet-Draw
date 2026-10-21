@@ -99,7 +99,7 @@ must("thio", [
   "4-[(methylsulfanyl)carbonyl]benzoic acid", "4-(methoxycarbonothioyl)benzoic acid", "4-methanethioylbenzoic acid", "4-(sulfanylcarbonyl)benzoic acid",
   "4-(hydroxycarbonothioyl)benzoic acid", "4-(sulfanylcarbonothioyl)benzoic acid", "4-(ethanethioyl)benzoic acid", "4-(4-methylbenzenecarbothioyl)benzoic acid",
   "4-(cyclohexanecarbothioyl)benzoic acid", "4-(ethanethioyloxy)benzoic acid", "4-sulfanylidenecyclohexan-1-one", "3-amino-3-sulfanylidenepropanamide",
-  "sulfanylideneacetic acid", "thiourea", "N-prop-2-en-1-ylthiourea", "N,N'-diphenylthiourea", "O-methyl carbamothioate",
+  "sulfanylideneacetic acid", "thiourea", "prop-2-en-1-ylthiourea", "N,N'-diphenylthiourea", "O-methyl carbamothioate",
   "2-{[(tert-butoxy)carbonothioyl]amino}acetic acid",
 ]);
 

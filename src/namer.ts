@@ -1359,6 +1359,7 @@ class Namer {
     if (opts.attach) nums = this.lowest(nums, (num) => [loc(num, opts.attach![0])]);
     if (opts.acyl && !p.ring) nums = nums.filter((num) => num[0] === atoms[0]);
     nums = this.lowest(nums, (num) => sites.map((s) => loc(num, s.atom)));
+    const bySites = nums; // the numberings that keep the suffixes in place
     // A ring's cationic centres (-ium) come next, as suffixes do (P-31.1.4.2.4): 6-methylpyrimidin-1-ium.
     if (p.ring) nums = this.lowest(nums, (num) => atoms.filter((a) => this.q[a] === 1 && (this.cationN(a) || this.ions.has(a))).map((a) => loc(num, a)));
     if (fused) {
@@ -1384,13 +1385,33 @@ class Namer {
     const added = fused ? sat(num) : undefined;
     const sitesLoc = sites.map((s) => s.atom).sort((a, b) => loc(num, a) - loc(num, b))
       .map((a, i, all) => label(num, a) + (added && ys(added).length && (added.yOn === a || (added.yOn === undefined && i === all.length - 1)) ? `(${ys(added).map((y) => `${label(num, y)}H`).join(",")})` : ""));
-    // Locants are left out where nothing else could be meant (P-14.3.4).
-    const single = !p.ring ? size <= 2 && !opts.attach : !fused && !assembly && !bridged && (info?.ring?.name === "benzene" || (!info?.ring && size > 0));
-    const prefixText = assemblePrefixes(prefixes.map((x) => ({ loc: x.n ? (manyN ? `N${label(num, x.atom)}` : prime.has(x) ? "N'" : "N") : label(num, x.atom), name: x.name })),
-      // An amide's N is a position too: 2-chloro-N-methylacetamide (P-14.3.4).
-      (retained && !p.ring && size === 2 && !(prefixes.some((x) => x.n) && prefixes.some((x) => !x.n))) || (!p.ring && size === 1) ||
-      (!!opts.acyl && !p.ring && size === 2 && !multiple(num).length) || // phenylacetyl, chloroacetyl
-      (single && prefixes.length + sites.length <= 1 && !opts.attach && !multiple(num).length))
+    // Locants are left out only where nothing else could be meant (P-14.3.4). Substitutable hydrogen is on the parent's
+    // atoms and on the N of its suffix; not on the O of an acid or alcohol, nor on a formyl carbon (P-14.3.4.5).
+    const plain = !fused && !assembly && !bridged && !p.attached, cPrefixes = prefixes.filter((x) => !x.n);
+    const nH = cPrefixes.length < prefixes.length || sites.some((s) => [s.group, ...this.adj[s.group]].some((x) => !inParent.has(x) && this.el[x] === "N" && this.h[x] > 0));
+    const hAt = (a: number) => this.h[a] > 0 && !(kind === "aldehyde" && sites.some((s) => s.group === a));
+    const places = atoms.filter((a) => hAt(a) || cPrefixes.some((x) => x.atom === a));
+    // Where a symmetry of the parent (a numbering that keeps its atoms and multiple bonds) takes atom a.
+    const orbit = (ns: number[][], a: number) => new Set(ns.filter((n) => atoms.every((b) => {
+      const f = n[num.indexOf(b)];
+      return this.el[f] === this.el[b] && (!!info?.aromatic || this.adj[b].every((c) => !inParent.has(c) || this.ord(b, c) === this.ord(f, n[num.indexOf(c)])));
+    })).map((n) => n[num.indexOf(a)]));
+    // One substituent, prefix or suffix, on a parent hydride with one kind of substitutable hydrogen (P-14.3.4.2,
+    // P-14.3.4.3): ethanol, chloroethene, bromobenzene, pyrazinecarboxylic acid; but 2-chloroethan-1-ol and
+    // 1-phenylethan-1-one (P-31.1.4.2.4).
+    const subs = [...cPrefixes.map((x) => x.atom), ...sites.map((s) => s.atom), ...(opts.sulfo ? [opts.attach![0]] : [])];
+    const hydride = plain && (!opts.attach || !!opts.sulfo) && subs.length === 1 && atoms.filter((a) => hAt(a) || subs.includes(a)).every((a) => orbit(numberings, subs[0]).has(a));
+    // Substitutable hydrogen of the parent compound at one place (P-14.3.4.6): difluoroacetic acid, chloroacetyl,
+    // diphenylethenone; or one prefix and one kind of place on a chain acid, nitrile and the like (P-14.3.4.3):
+    // chlorobutanedioic acid, but 2-methylpropanediamide and 1-ethyl 4-methyl 2-hydroxybutanedioate. A stereo
+    // descriptor tells those places apart: (2S)-2-aminobutanedioic acid.
+    const stereoOn = atoms.some((a) => this.cip[a] === "R" || this.cip[a] === "S" || this.adj[a].some((b) => /^[EZ]$/.test(this.cipBond.get(this.key(a, b)) ?? "")));
+    const compound = plain && !nH && cPrefixes.length > 0 && ((places.length === 1 && (size === 2 || !multiple(num).length)) ||
+      (cPrefixes.length === 1 && !p.ring && !stereoOn && ["acid", "nitrile", "aldehyde", "halide", "carboxylate"].includes(kind!) && places.every((a) => orbit(bySites, cPrefixes[0].atom).has(a))));
+    // One prefix in every place (P-14.3.4.5): hexachlorobenzene, pentafluoropropanoic acid, tetrafluoroethene.
+    const full = plain && !nH && cPrefixes.length > 0 && !atoms.some(hAt) && cPrefixes.every((x) => x.name.text === cPrefixes[0].name.text);
+    const free = (!p.ring && size === 1) || hydride || compound; // no locants at all: chloromethane, ethanol
+    const prefixText = assemblePrefixes(prefixes.map((x) => ({ loc: x.n ? (manyN ? `N${label(num, x.atom)}` : prime.has(x) ? "N'" : "N") : label(num, x.atom), name: x.name })), free || full)
       // Isotopes on the parent and its suffix's heteroatoms go after the prefixes (P-82): trichloro(²H₁)methane.
       + (!this.isotopic ? "" : isotopeText(this, atoms, [...used, ...(kind && CARBON_GROUP.has(kind) ? sites.flatMap((s) => [s.group, ...this.groupHetero(s.group), this.carbonylO[s.group]]) : [])]
         .filter((a, k, all) => a >= 0 && !inParent.has(a) && all.indexOf(a) === k), (a) => label(num, a)));
@@ -1424,8 +1445,9 @@ class Namer {
       parent = (replaced ? `${replaced}${/^\d/.test(bridged.prefix) ? "-" : ""}` : "") + (bridged.retained ?? bridged.prefix + chainStem(size, closure(multiple(num, 2)), closure(multiple(num, 3)), true));
     }
     else parent = (p.ring ? "cyclo" : "") + chainStem(size, multiple(num, 2), multiple(num, 3), p.ring);
-    // A ring's one multiple bond needs no locant when nothing else is cited (P-31.1.4.2.4): cyclohexene, cyclooctyne.
-    if (p.ring && !info?.ring && !fused && !bridged && !assembly && multiple(num).length === 1 && !prefixes.length && !sites.length && !opts.attach) parent = parent.replace(/-1-(ene|yne)$/, "$1");
+    // A ring's one multiple bond needs no locant when nothing else is cited (P-31.1.4.2.4): cyclohexene, cyclooctyne;
+    // likewise propene and propyne (P-14.3.4.2).
+    if ((p.ring ? !info?.ring && !fused && !bridged && !assembly : size === 3) && multiple(num).length === 1 && !prefixes.length && !sites.length && !opts.attach) parent = parent.replace(/-1-(ene|yne)$/, "$1");
     // A ring cation (P-73.1.2): pyridin-1-ium, 1-methylpyridin-1-ium, acridin-10-ium; with an anion suffix,
     // 1-methylpyridin-1-ium-3-carboxylate; as a prefix, pyridin-1-ium-1-yl.
     const ium = p.ring && !bridged ? atoms.filter((a) => this.cationN(a) || (fused && this.ions.has(a) && this.q[a] === 1)) : [];
@@ -1436,7 +1458,7 @@ class Namer {
     let text: string;
     // N-substituents need no ring locant: N-methylcyclohexanecarboxamide.
     const locantFree = p.ring && !fused && !assembly && !bridged && (!info?.ring || info.ring.name === "benzene") && prefixes.every((x) => x.n) && !multiple(num).length;
-    if (opts.sulfo) text = joinPrefixes(prefixText, withSuffix(parent, undefined, [label(num, opts.attach![0])], p.ring, locantFree, !p.ring && size <= 2, opts.sulfo));
+    if (opts.sulfo) text = joinPrefixes(prefixText, withSuffix(parent, undefined, [label(num, opts.attach![0])], p.ring, locantFree, free, opts.sulfo));
     else if (opts.attach) text = joinPrefixes(prefixText, ium.length ? `${parent}-${label(num, opts.attach[0])}-yl` : this.substituentForm(parent, info, label(num, opts.attach[0]), p.ring, size, !!opts.acyl, multiple(num).length > 0));
     else if (retained) text = prefixText + retained; // benzoic acid, acetic acid: the suffix locant is understood
     else if (kind === "ylium") {
@@ -1445,7 +1467,7 @@ class Namer {
       const yl = this.substituentForm(parent, info, sitesLoc[0], p.ring, size, false, multiple(num).length > 0);
       text = joinPrefixes(prefixText, (yl === "phenyl" ? (prefixes.length ? `benzen-${sitesLoc[0]}-yl` : "benzenyl") : yl) + "ium");
     }
-    else text = joinPrefixes(prefixText, withSuffix(parent, kind, sitesLoc, p.ring || !!p.attached, locantFree, !p.ring && !p.attached && size <= 2, thio));
+    else text = joinPrefixes(prefixText, withSuffix(parent, kind, sitesLoc, p.ring || !!p.attached, locantFree, !p.attached && free, thio));
     if (p.attached && size === 1) text = text.replace(/methane-1(,1)+-/, "methane"); // methanetricarboxylic acid
     text += oxideText(this, oxides, (a) => label(num, a)); // after the suffix: N,N-dimethylaniline N-oxide
     // Stereodescriptors (P-91, P-93): R and S on the parent's atoms, E and Z on its double bonds, in locant order,
@@ -2180,7 +2202,11 @@ class Namer {
     nums = this.lowest(nums, (num) => prefixes.map((x) => num.indexOf(x.n) + 1));
     for (const t of [...new Set(prefixes.map((x) => x.name.text))].sort((a, b) => alphaKey(a).localeCompare(alphaKey(b))))
       nums = this.lowest(nums, (num) => prefixes.filter((x) => x.name.text === t).map((x) => num.indexOf(x.n) + 1));
-    const text = assemblePrefixes(prefixes.map((x) => ({ loc: ["N", "N'", "N''"][nums[0].indexOf(x.n)], name: x.name })), false);
+    // Urea needs no N locants with one substituent, or one prefix in all four places (P-14.3.4.3, P-14.3.4.5):
+    // methylurea, tetramethylurea; but N,N-dimethylurea.
+    const same = prefixes.every((x) => x.name.text === prefixes[0]?.name.text);
+    const free = kind === "urea" && !imidic && ns.length === 2 && (prefixes.length === 1 || (prefixes.length === 4 && same));
+    const text = free ? substituted(prefixes.map((x) => x.name)) : assemblePrefixes(prefixes.map((x) => ({ loc: ["N", "N'", "N''"][nums[0].indexOf(x.n)], name: x.name })), false);
     // Thiourea (P-66.1.6.1.2); O-alkyl carbamothioates come below.
     const thio = thioDouble(this, c);
     // E or Z on a guanidine's C=N, in front: (E)-N''-cyano-N-methyl-N'-…guanidine (cimetidine).

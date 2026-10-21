@@ -153,7 +153,7 @@ run("carbonic acid derivatives", [
   "smiles:CC(=O)SSC(C)=O = diacetyl disulfide", "smiles:CC(=O)SC(C)=O = diacetyl sulfide",
   "biguanidine = hydrazine-1,2-dicarboximidamide", "aminoguanidine = hydrazinecarboximidamide", "isosemicarbazide = hydrazinecarboximidic acid",
   "carbazone = diazenecarbohydrazide", "diazenecarboxamide = diazenecarboxamide", "carbodiazone = didiazenylmethanone",
-  "smiles:O=C(N=Nc1ccccc1)NNc1ccccc1 = N',2-diphenyldiazene-1-carbohydrazide", "smiles:CC(=O)N=Nc1ccccc1 = 1-(phenyldiazenyl)ethanone", "cyanogen azide = carbononitridic azide",
+  "smiles:O=C(N=Nc1ccccc1)NNc1ccccc1 = N',2-diphenyldiazene-1-carbohydrazide", "smiles:CC(=O)N=Nc1ccccc1 = 1-(phenyldiazenyl)ethan-1-one", "cyanogen azide = carbononitridic azide",
   "smiles:Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CC2CCCC2C1 = N-(4-methylbenzene-1-sulfonyl)-N'-(octahydrocyclopenta[c]pyrrol-2-yl)urea",
   "smiles:Cc1cnc(cn1)C(=O)NCCc1ccc(cc1)S(=O)(=O)NC(=O)NC1CCCCC1", "smiles:COc1ccc(Cl)cc1C(=O)NCCc1ccc(cc1)S(=O)(=O)NC(=O)NC1CCCCC1",
   "smiles:CC1Cc2ccccc2N1NC(=O)c1ccc(Cl)c(c1)S(N)(=O)=O = 4-chloro-N-(2-methyl-2,3-dihydro-1H-indol-1-yl)-3-sulfamoylbenzamide",
@@ -165,7 +165,7 @@ run("ring heteroatoms", [
   "bromole = 1λ³-bromole", "chlorole = 1λ³-chlorole", "iodole = 1λ³-iodole", "methoxychlorole = 2-methoxy-1λ³-chlorole",
   "chlorazinane = 1λ³,2-chlorazinane", "chlorazinine = 2H-1λ³,2-chlorazine", "chlorazinal = 2H-1λ³,2-chlorazine-3-carbaldehyde",
   "chlorazinone = 2H-1λ⁵,2-chlorazin-1-one", "arsindolinic acid = 2,3-dihydro-1H-1-benzarsole-1-carboxylic acid",
-  "phosphindolinal = 2,3-dihydro-1H-1-benzophosphole-1-carbaldehyde", "smiles:CC(=O)P1CCCC1 = 1-(phospholan-1-yl)ethanone",
+  "phosphindolinal = 2,3-dihydro-1H-1-benzophosphole-1-carbaldehyde", "smiles:CC(=O)P1CCCC1 = 1-(phospholan-1-yl)ethan-1-one",
   // Hypervalent iodine in a ring with OH, O-alkyl, acyloxy and =O on it: IBA, IBX, Dess–Martin periodinane, Togni reagents.
   "1-hydroxy-1λ3,2-benziodoxol-3(1H)-one = 1-hydroxy-3H-1λ³,2-benziodoxol-3-one", "smiles:OI1(=O)OC(=O)c2ccccc12 = 1-hydroxy-3H-1λ⁵,2-benziodoxole-1,3-dione",
   "smiles:CC(=O)OI1(OC(C)=O)(OC(C)=O)OC(=O)c2ccccc12 = 1,1,1-tris(acetyloxy)-3H-1λ⁵,2-benziodoxol-3-one",
