@@ -109,6 +109,108 @@ function lambdaChain(g: Graph, nbrs: (i: number) => number[]): string | undefine
   return lam ? `${lam}-${t}` : t;
 }
 
+// ——— Drawings with five bonds to N ———
+// A neutral N with five bonds and a terminal =O, as nitro groups and N-oxides are often drawn (R-N(=O)=O,
+// pyridine as O=N1=CC=CC=C1), is the same compound as its charge-separated form (N⁺-O⁻), which IUPAC names (P-62.5,
+// P-61.5) and the standard InChI keeps. The structure in that form; the same object when there is nothing to change.
+export function chargeSeparated(g: Graph): Graph {
+  let out: Graph | undefined;
+  for (let i = 0; i < g.atoms.length; i++) {
+    const a = g.atoms[i], bonds = g.bonds.filter((b) => b.a === i || b.b === i);
+    if (a.el !== "N" || a.charge || bonds.reduce((t, b) => t + b.order, 0) + a.h !== 5) continue;
+    const k = bonds.findIndex((b) => { const o = g.atoms[b.a === i ? b.b : b.a]; return b.order === 2 && o.el === "O" && !o.charge && !o.h && g.bonds.filter((x) => x.a === (b.a === i ? b.b : b.a) || x.b === (b.a === i ? b.b : b.a)).length === 1; });
+    if (k < 0) continue;
+    out ??= { atoms: g.atoms.map((x) => ({ ...x })), bonds: g.bonds.map((x) => ({ ...x })) };
+    const b = out.bonds[g.bonds.indexOf(bonds[k])], o = b.a === i ? b.b : b.a;
+    b.order = 1;
+    out.atoms[i].charge = 1;
+    out.atoms[o].charge = -1;
+  }
+  return out ?? g;
+}
+
+// ——— Isotopically substituted compounds (P-82) ———
+// The nuclides are cited in parentheses before the part of the name they are in, with their locants, in
+// alphabetical order of symbol, each with its count: (²H₃)methanol, trichloro(²H₁)methane, (1,1-²H₂)ethanol,
+// (O-²H₁)ethanol, [(²H₃)methanesulfinyl](²H₃)methane. Superscript mass numbers and subscript counts as IUPAC prints
+// them (OPSIN reads them); the count is always given, as OPSIN reads "(²H)" as indicated hydrogen.
+const SUP = "⁰¹²³⁴⁵⁶⁷⁸⁹", SUB = "₀₁₂₃₄₅₆₇₈₉";
+const sup = (k: number) => String(k).replace(/\d/g, (d) => SUP[Number(d)]);
+const sub = (k: number) => String(k).replace(/\d/g, (d) => SUB[Number(d)]);
+const isotopic = (n: Namer, a: number) => !!n.iso[a] || n.hx[a].length > 0;
+// A nuclide and its count: ²H₃, ¹³C (a count of one left out but for hydrogen).
+const nuclide = (el: string, mass: number, k: number) => `${sup(mass)}${el}${el === "H" || k > 1 ? sub(k) : ""}`;
+// A nuclide in a name: a mass number, then the element.
+export const NUCLIDE = /[⁰¹²³⁴⁵⁶⁷⁸⁹]+[A-Z]/;
+// The descriptor for a part of a name: its skeleton atoms (locants from loc) and the heteroatoms of its suffix (locants
+// O, N, S: (O-²H₁)ethanol). Locants are left out when the nuclides fill every position of their kind, or there is only
+// one: (²H₆)benzene, (²H₄)methanol, chloro(²H₁)methane; and for hydrogen when they fill every position on the
+// skeleton, as OPSIN reads it: (²H₃)methanol is CD3-OH. "" when the part has no isotopes.
+export function isotopeText(n: Namer, skeleton: number[], suffix: number[], loc: (a: number) => string): string {
+  const part = [...skeleton, ...suffix];
+  if (!part.some((a) => isotopic(n, a))) return "";
+  const letters = suffix.filter((a) => isotopic(n, a)).map((a) => n.el[a]);
+  if (new Set(letters).size !== letters.length || letters.some((e) => !/^[NOS]$/.test(e))) throw new Error("isotope");
+  const groups = new Map<string, { el: string; mass: number; locs: string[]; onSkeleton: boolean }>();
+  const add = (el: string, mass: number, a: number) => {
+    const key = `${el} ${String(mass).padStart(3, "0")}`, g = groups.get(key) ?? { el, mass, locs: [], onSkeleton: true };
+    g.locs.push(skeleton.includes(a) ? loc(a) : n.el[a]);
+    g.onSkeleton &&= skeleton.includes(a);
+    groups.set(key, g);
+  };
+  for (const a of part) {
+    if (n.iso[a]) add(n.el[a], n.iso[a]!, a);
+    for (const m of n.hx[a]) add("H", m, a);
+  }
+  const hSkeleton = skeleton.reduce((t, a) => t + n.h[a], 0), hAll = part.reduce((t, a) => t + n.h[a], 0), hNuclides = [...groups.values()].filter((g) => g.el === "H").length;
+  const omit = [...groups.values()].every((g) => {
+    if (g.el !== "H") { const all = part.filter((a) => n.el[a] === g.el).length; return all === 1 || g.locs.length === all; }
+    if (hNuclides > 1) return false;
+    if (g.locs.length === hAll && hSkeleton > 0) return true;
+    return g.onSkeleton && (g.locs.length === hSkeleton || skeleton.filter((a) => n.h[a] > 0).length === 1);
+  });
+  const order = (x: string, y: string) => (/^\d/.test(x) !== /^\d/.test(y) ? (/^\d/.test(x) ? -1 : 1) : parseInt(x) - parseInt(y) || (x < y ? -1 : x > y ? 1 : 0));
+  return `(${[...groups.keys()].sort().map((k) => groups.get(k)!).map((g) => `${omit ? "" : `${g.locs.sort(order).join(",")}-`}${nuclide(g.el, g.mass, g.locs.length)}`).join(",")})`;
+}
+// A terminal heteroatom with isotopes cited as a prefix: (²H₁)hydroxy, (²H₂)amino, (¹⁸O)hydroxy. Undefined for others.
+export function isotopePrefix(n: Namer, x: number, from: number): { text: string; compound: boolean } | undefined {
+  if (!isotopic(n, x) || n.el[x] === "C" || n.adj[x].length !== 1 || n.inRing[x]) return undefined;
+  const text = isotopeText(n, [x], [], () => n.el[x]), keep = [n.iso[x], n.hx[x]];
+  n.iso[x] = undefined; n.hx[x] = [];
+  try { return { text: text + n.substituent(x, from).text, compound: true }; } finally { [n.iso[x], n.hx[x]] = keep as [number | undefined, number[]]; }
+}
+// A simple species with isotopes (water, ammonia, tetrahydroborate) named by its name without them: (²H₂)water,
+// (²H₄)tetrahydroborate, (¹⁵N)ammonia. Only where no locants are needed: the isotopic hydrogens on its one H-bearing
+// atom or all of them, a heavy nuclide on its element's one atom or all. Undefined for the rest.
+export function isotopeSpecies(g: Graph, name: (plain: Graph) => string | undefined): string | undefined {
+  const base = name({ atoms: g.atoms.map(({ iso: _i, hx: _h, ...a }) => a), bonds: g.bonds });
+  if (!base) return undefined;
+  const counts = new Map<string, { el: string; mass: number; k: number }>();
+  for (const a of g.atoms) for (const [el, mass] of [...(a.iso ? [[a.el, a.iso] as const] : []), ...(a.hx ?? []).map((m) => ["H", m] as const)]) {
+    const key = `${el} ${String(mass).padStart(3, "0")}`, c = counts.get(key) ?? { el, mass, k: 0 };
+    c.k++;
+    counts.set(key, c);
+  }
+  const hAtoms = g.atoms.filter((a) => a.h > 0).length, hAll = g.atoms.reduce((t, a) => t + a.h, 0), hKinds = [...counts.values()].filter((c) => c.el === "H").length;
+  const plain = [...counts.values()].every((c) => (c.el === "H" ? hKinds === 1 && (hAtoms === 1 || c.k === hAll) : [1, c.k].includes(g.atoms.filter((a) => a.el === c.el).length)));
+  return plain ? `(${[...counts.keys()].sort().map((k) => counts.get(k)!).map((c) => `${nuclide(c.el, c.mass, c.k)}`).join(",")})${base}` : undefined;
+}
+// The number of nuclides a name cites, each counted as often as its multiplying prefix says: bis[(²H₃)methyl] cites six.
+export function citedNuclides(text: string): number {
+  const times = [1];
+  let k = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === ")" || ch === "]" || ch === "}") { times.pop(); continue; }
+    if (ch !== "(" && ch !== "[" && ch !== "{") continue;
+    const m = text.slice(0, i).match(/(bis|tris|tetrakis|pentakis|hexakis|heptakis|octakis)$/), here = times[times.length - 1];
+    const d = ch === "(" ? text.slice(i).match(/^\(([^()]*)\)/) : null;
+    if (d && NUCLIDE.test(d[1])) for (const x of d[1].matchAll(/[⁰¹²³⁴⁵⁶⁷⁸⁹]+[A-Z][a-z]?([₀-₉]*)/g)) k += here * (x[1] ? Number([...x[1]].map((c) => SUB.indexOf(c)).join("")) : 1);
+    times.push(here * (m ? ["", "", "bis", "tris", "tetrakis", "pentakis", "hexakis", "heptakis", "octakis"].indexOf(m[1]) : 1));
+  }
+  return k;
+}
+
 // The stem of a chalcogen's acid names: sulfonate, selenonate, tellurinate.
 export const chalcogenStem = (el: string) => ({ S: "sulf", Se: "selen", Te: "tellur" } as Record<string, string>)[el] ?? "sulf";
 

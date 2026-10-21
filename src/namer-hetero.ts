@@ -248,7 +248,8 @@ function ligand(n: Namer, x: number, j: number): string | undefined {
   if (n.el[j] === "O" && !n.inRing[j]) {
     if (n.adj[j].length === 1) return n.h[j] === 1 ? "OH" : undefined;
     const k = n.adj[j].find((y) => y !== x)!;
-    if (n.adj[j].length === 2 && plainC(n, k)) return "OR";
+    // On a carbon, or on Si, Ge or Sn (trimethylsilyl trifluoromethanesulfonate).
+    if (n.adj[j].length === 2 && (plainC(n, k) || (["Si", "Ge", "Sn"].includes(n.el[k]) && !n.inRing[k] && !n.q[k]))) return "OR";
     if (n.adj[j].length === 2 && ((n.el[k] === "S" && oxo(n, k).length === 2) || n.el[k] === "P") && !n.inRing[k] && !n.q[k]) return "bridge";
     return undefined;
   }
