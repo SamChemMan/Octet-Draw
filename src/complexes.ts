@@ -498,16 +498,17 @@ type Kappas = { parts: string[]; form?: string };
 function kappaParts(m: Mol, g: Graph, lig: Ligand, named: Named, metals: number[], api: ComplexApi, located = false): Kappas | undefined {
   const groups = donorGroups(lig, metals), els = [...new Set(groups.flat().map((d) => g.atoms[d].el))].sort();
   if (groups.flat().some((d) => !MARK[g.atoms[d].el])) return undefined;
-  // Kept between calls by the ligand marked at its donor atoms, metal by metal.
-  const k = `${named.key}|${located}|${markedInchi(m, g, lig, groups, api)}`;
-  if (!kappaMemo.has(k)) {
-    if (kappaMemo.size > 400) kappaMemo.clear();
-    const parts = numbered(m, g, lig, named, groups, els, api), portion = parts ? undefined : (located ? undefined : portioned(m, g, lig, named, groups, els, api)) ?? unitKappa(m, g, lig, named, groups, els, api, located);
-    kappaMemo.set(k, parts ? { parts } : portion ? { parts: [portion.kappa], form: portion.form } : (p => (p ? { parts: p } : null))(primed(m, g, lig, groups, els, api)));
-  }
-  return kappaMemo.get(k) ?? undefined;
+  // Kept between calls by the ligand marked at its donor atoms, metal by metal (found ones only).
+  const k = `${named.key}|${located}|${markedInchi(m, g, lig, groups, api)}`, kept = kappaMemo.get(k);
+  if (kept) return kept;
+  const numbers = numbered(m, g, lig, named, groups, els, api);
+  const portion = numbers ? undefined : (located ? undefined : portioned(m, g, lig, named, groups, els, api)) ?? unitKappa(m, g, lig, named, groups, els, api, located);
+  const primes = numbers || portion ? undefined : primed(m, g, lig, groups, els, api);
+  const found = numbers ? { parts: numbers } : portion ? { parts: [portion.kappa], form: portion.form } : primes ? { parts: primes } : undefined;
+  if (found) { if (kappaMemo.size > 400) kappaMemo.clear(); kappaMemo.set(k, found); }
+  return found;
 }
-const kappaMemo = new Map<string, Kappas | null>();
+const kappaMemo = new Map<string, Kappas>();
 // A group's κ: each element in turn, with its count (κ2N1,N1', κN1,κO).
 const kappaText = (cited: { el: string; loc: string }[], els: string[]) => els.filter((el) => cited.some((c) => c.el === el)).map((el) => {
   const ls = cited.filter((c) => c.el === el).map((c) => c.loc);
@@ -1152,16 +1153,15 @@ function verify(name: string, c: Context, ions: Ion[]): boolean {
 }
 
 // ——— The name ———
-const memo = new Map<string, Named | null>();
-// A ligand's name, once for alike ligands (by its InChI, kept between calls).
+const memo = new Map<string, Named>();
+// A ligand's name, once for alike ligands (by its InChI, the names found kept between calls).
 function ligandName(m: Mol, g: Graph, lig: Ligand, api: ComplexApi): Named | undefined {
   if (lig.lex) return nameLigand(m, g, lig, api);
-  const k = `${lig.carbon ? lig.bonds[0].order : 0} ${api.inchi(ligandMol(m, g, lig, new Map(), !!lig.carbon))}`;
-  if (!memo.has(k)) {
-    if (memo.size > 400) memo.clear();
-    memo.set(k, nameLigand(m, g, lig, api) ?? null);
-  }
-  return memo.get(k) ?? undefined;
+  const k = `${lig.carbon ? lig.bonds[0].order : 0} ${api.inchi(ligandMol(m, g, lig, new Map(), !!lig.carbon))}`, kept = memo.get(k);
+  if (kept) return kept;
+  const found = nameLigand(m, g, lig, api);
+  if (found) { if (memo.size > 400) memo.clear(); memo.set(k, found); }
+  return found;
 }
 // The name of a structure with metal atoms bonded to ligands: one complex, alone or with one kind of counter-ion.
 // Undefined unless every check agrees (see the top of this file).
@@ -1210,10 +1210,16 @@ function stereoable(m: Mol): boolean {
   for (const b of m.bonds) { adj[b.atoms[0]].push(b.atoms[1]); adj[b.atoms[1]].push(b.atoms[0]); }
   return m.bonds.some((b) => b.type === 2 && b.stereo !== 3 && !linked(adj, b.atoms[0], b.atoms[1], () => true));
 }
-// The API with OPSIN's readings and InChIs kept for one name: the check reads many names and structures twice.
+// The API with OPSIN's readings and InChIs kept for one name: the check reads many names and structures twice. At most
+// 150 readings and 600 InChIs for one name, so that no drawing can keep it busy: past that, nothing reads, and no
+// name is given.
 function keep(api: ComplexApi): ComplexApi {
   const read = new Map<string, string | undefined>(), atoms = new Map<string, string | undefined>(), inchi = new Map<string, string | undefined>();
-  const once = <T>(map: Map<string, T>, k: string, f: () => T) => { if (!map.has(k)) map.set(k, f()); return map.get(k)!; };
+  let readings = 0, inchis = 0;
+  const once = <T>(map: Map<string, T | undefined>, k: string, f: () => T | undefined) => {
+    if (!map.has(k)) map.set(k, (map === inchi ? ++inchis > 600 : ++readings > 150) ? undefined : f());
+    return map.get(k);
+  };
   return {
     read: (n) => once(read, n, () => api.read(n)),
     atoms: (n) => once(atoms, n, () => api.atoms(n)),
