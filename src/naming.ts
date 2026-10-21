@@ -22,9 +22,12 @@ export function graphOf(m: Mol, cip?: Cip): Graph | undefined {
 // The namer, once it is loaded.
 let namer: ((g: Graph) => string | undefined) | undefined;
 export const setNamer = (n: typeof namer) => { namer = n; };
+// Names for coordination compounds (complexes.ts), with κ that OPSIN does not read: checked there in parts instead.
+let complexNamer: ((expanded: Mol) => string | undefined) | undefined;
+export const setComplexNamer = (n: typeof complexNamer) => { complexNamer = n; };
 
 // A checked name for a structure: the namer's name, if OPSIN's reading of it has the same InChI as the drawing. Else
-// a name from Octet's own tables (known), checked the same way.
+// a name from Octet's own tables (known), checked the same way. Else a coordination compound's name (complexNamer).
 export function checkedName(drawn: Mol, expanded: Mol, read: (name: string) => string | undefined, inchi: (s: Mol | string) => string | undefined, cip?: (m: Mol) => Cip | undefined, known?: (inchi: string) => string | undefined): string | undefined {
   const want = inchi(drawn);
   if (!want) return undefined;
@@ -33,5 +36,5 @@ export function checkedName(drawn: Mol, expanded: Mol, read: (name: string) => s
   const name = g && namer!(g);
   if (name && reads(name)) return name;
   const other = known?.(want);
-  return other && reads(other) ? other : undefined;
+  return other && reads(other) ? other : complexNamer?.(expanded);
 }
