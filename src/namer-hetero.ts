@@ -224,7 +224,7 @@ export function heteroAmine(n: Namer, i: number): boolean {
   if ((n.q[i] && !nOxideN(n, i)) || !single(n, i)) return false;
   const on = n.adj[i].filter((j) => plainC(n, j) || (n.el[j] === "N" && n.inRing[j] && !n.q[j]));
   const rest = n.adj[i].filter((j) => !on.includes(j));
-  if (!on.length || (!rest.length && on.every((j) => n.el[j] === "C")) || !rest.every((j) => n.het.get(j) === "NX" || n.het.get(j) === "N=O" || n.het.get(j) === "SN-" || nOxideO(n, j))) return false;
+  if (!on.length || (!rest.length && on.every((j) => n.el[j] === "C")) || !rest.every((j) => n.het.get(j) === "NX" || n.het.get(j) === "N=O" || n.het.get(j) === "SN-" || nOxideO(n, j) || n.nitroAtom(j))) return false;
   n.mark(i, "amine", on);
   return true;
 }
