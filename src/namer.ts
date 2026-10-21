@@ -106,7 +106,14 @@ const FUSED_NAMES: [string, string, string][] = [
   ["phenazine", "phenothiazine", "S5 N10"],
   ["phenanthrene", "phenanthrene", ""], ["fluorene", "fluorene", ""], ["fluorene", "carbazole", "N9"],
   ["purine", "purine", "N1 N3 N7 N9"],
+  // Benzo names with Se, Te and B (P-25.2.2.4): ebselen is 2-phenyl-1,2-benzoselenazol-3(2H)-one, tavaborole
+  // 5-fluoro-1,3-dihydro-2,1-benzoxaborol-1-ol, catechol boronates 2-phenyl-1,3,2-benzodioxaborole.
+  ["indene", "1-benzoselenophene", "Se1"], ["indene", "2-benzoselenophene", "Se2"], ["indene", "1-benzotellurophene", "Te1"],
+  ["indene", "1,3-benzoselenazole", "Se1 N3"], ["indene", "1,2-benzoselenazole", "Se1 N2"], ["indene", "2,1,3-benzoselenadiazole", "N1 Se2 N3"],
+  ["indene", "1,3,2-benzodioxaborole", "O1 B2 O3"], ["indene", "2,1-benzoxaborole", "B1 O2"],
 ];
+// Ring atoms that take a ring double bond in a fused parent; O, S, Se and Te do not.
+const PI_ATOMS = new Set(["C", "N", "B"]);
 // Locant order: 4 < 4a < 4b < 5.
 const locOrder = (a: string, b: string) => parseInt(a) - parseInt(b) || (a < b ? -1 : a > b ? 1 : 0);
 type Fused = { name: string; labels: string[]; el: string[]; adj: number[][]; order: number[]; bonds: number; formula: string; odd: boolean };
@@ -114,13 +121,13 @@ const FUSED: Fused[] = FUSED_NAMES.map(([skeleton, name, hetero]) => {
   const pairs = SKELETONS[skeleton].split(" ").map((b) => b.split("-"));
   const labels = [...new Set(pairs.flat())].sort(locOrder);
   const el = labels.map(() => "C");
-  for (const h of hetero.split(" ").filter(Boolean)) el[labels.indexOf(h.replace(/^[A-Z]/, ""))] = h[0];
+  for (const h of hetero.split(" ").filter(Boolean)) { const e = h.match(/^[A-Z][a-z]?/)![0]; el[labels.indexOf(h.slice(e.length))] = e; }
   const adj = labels.map(() => [] as number[]);
   for (const [a, b] of pairs) { adj[labels.indexOf(a)].push(labels.indexOf(b)); adj[labels.indexOf(b)].push(labels.indexOf(a)); }
   // Search order: each atom after the first is bonded to one already placed.
   const order = [0];
   for (let k = 0; k < order.length; k++) for (const j of adj[order[k]]) if (!order.includes(j)) order.push(j);
-  const cn = el.filter((e) => e === "C" || e === "N").length;
+  const cn = el.filter((e) => PI_ATOMS.has(e)).length;
   return { name, labels, el, adj, order, bonds: pairs.length, formula: [...el].sort().join(""), odd: cn % 2 === 1 };
 });
 // A fused system in a molecule: the parent's numberings (atom at each locant), its C and N atoms, those with no ring
@@ -510,7 +517,7 @@ class Namer {
       const doubles = ring(a).filter((j) => this.ord(a, j) === 2).length;
       if (doubles > 1 || ring(a).some((j) => this.ord(a, j) === 3)) throw new Error("ring bonds");
       if (this.adj[a].some((j) => !sys.has(j) && this.ord(a, j) > 1 && j !== this.carbonylO[a])) throw new Error("exocyclic double bond");
-      if (this.el[a] === "C" || this.el[a] === "N") { cn.push(a); if (!doubles) d.push(a); }
+      if (PI_ATOMS.has(this.el[a])) { cn.push(a); if (!doubles) d.push(a); }
       else if (doubles) throw new Error("ring heteroatom double bond");
     }
     const bonds = atoms.reduce((t, a) => t + ring(a).length, 0) / 2, formula = atoms.map((a) => this.el[a]).sort().join("");

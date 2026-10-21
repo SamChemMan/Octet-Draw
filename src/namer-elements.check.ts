@@ -100,6 +100,12 @@ const cases: [string, string?][] = [
   ["1-(selenophen-2-yl)ethan-1-one"], ["2,2'-biselenophene"], ["1,3-selenazole", "1,3-selenazole"], ["1,2,5-selenadiazole", "1,2,5-selenadiazole"],
   ["selenane"], ["selenolane"], ["1,3-selenazolidine"],
   ["(methyltellanyl)benzene"], ["(phenyltellanyl)benzene"], ["benzenetellurol"], ["benzenetelluronic acid"],
+  // Benzo-fused rings with Se, Te and B: ebselen, tavaborole, crisaborole, catechol boronates.
+  ["1-benzoselenophene", "1-benzoselenophene"], ["1-benzoselenophene-2-carboxylic acid"], ["1-benzotellurophene"], ["2-benzoselenophene"],
+  ["2,1,3-benzoselenadiazole", "2,1,3-benzoselenadiazole"], ["5-bromo-2,1,3-benzoselenadiazole"], ["1,3-benzoselenazole"], ["2-methyl-1,3-benzoselenazole"],
+  ["2-phenyl-1,2-benzoselenazol-3(2H)-one", "2-phenyl-1,2-benzoselenazol-3(2H)-one"], ["2-phenyl-1,3,2-benzodioxaborole", "2-phenyl-2H-1,3,2-benzodioxaborole"],
+  ["5-fluoro-2,1-benzoxaborol-1(3H)-ol", "5-fluoro-1-hydroxy-1,3-dihydro-2,1-benzoxaborole"],
+  ["4-[(1-hydroxy-1,3-dihydro-2,1-benzoxaborol-5-yl)oxy]benzonitrile", "4-[(1-hydroxy-1,3-dihydro-2,1-benzoxaborol-5-yl)oxy]benzonitrile"],
   // Arsenic, antimony, bismuth: arsanes, arsonic and arsinic acids, oxides.
   ["triphenylarsane", "triphenylarsane"], ["triphenylstibane", "triphenylstibane"], ["triphenylbismuthane", "triphenylbismuthane"],
   ["phenylarsonic acid", "phenylarsonic acid"], ["(4-aminophenyl)arsonic acid", "(4-aminophenyl)arsonic acid"], ["dimethylarsinic acid", "dimethylarsinic acid"],
