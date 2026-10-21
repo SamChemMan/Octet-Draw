@@ -1,6 +1,7 @@
 // Octet's IUPAC namer, part 2: groups built on N, O, S, P and the halogens (IUPAC 2013, P-6). Clean room, from the
 // published rules. namer.ts calls these functions at a few fixed points (perception, suffixes, prefixes and the
 // whole-molecule name); each takes the namer itself. Every name is still read back by OPSIN before the app shows it.
+import type { Graph } from "./naming.ts";
 import { assemblePrefixes, alphaKey, enclose, substituted, HALO, MULT, MULT_COMPLEX, SENIORITY, type Name, type Namer } from "./namer.ts";
 
 // ——— Variants of principal groups: thio analogues and peroxy groups ———
@@ -905,4 +906,17 @@ export function inorganicName(n: Namer): string | undefined {
   inorganic ??= new Map(INORGANIC.map(([s, name]) => [smilesSignature(s), name]));
   const bonds = [...n.bond].map(([k, o]): [number, number, number] => { const [a, b] = k.split(" ").map(Number); return [a, b, o]; });
   return inorganic.get(signature(n.el, n.h, n.q, bonds));
+}
+
+// Hydrogen atoms drawn as atoms (O-H, C-H, N-H in Sam's drawings) join their neighbour's hydrogen count, so H-O-O-C(=O)Ar
+// is named as the peroxy acid it is. H2 and H bonded to two atoms are left alone.
+export function foldHydrogens(g: Graph): Graph {
+  const hs = g.atoms.map((a, i) => (a.el === "H" && !a.charge && !a.h ? g.bonds.filter((b) => b.a === i || b.b === i) : [])).map((bs, i) =>
+    bs.length === 1 && bs[0].order === 1 && g.atoms[bs[0].a === i ? bs[0].b : bs[0].a].el !== "H" ? (bs[0].a === i ? bs[0].b : bs[0].a) : -1);
+  if (hs.every((x) => x < 0)) return g;
+  const keep = g.atoms.map((_, i) => hs[i] < 0), index = new Map<number, number>();
+  g.atoms.forEach((_, i) => { if (keep[i]) index.set(i, index.size); });
+  const atoms = g.atoms.filter((_, i) => keep[i]).map((a) => ({ ...a }));
+  for (const to of hs) if (to >= 0) atoms[index.get(to)!].h += 1;
+  return { atoms, bonds: g.bonds.filter((b) => keep[b.a] && keep[b.b]).map((b) => ({ ...b, a: index.get(b.a)!, b: index.get(b.b)! })) };
 }

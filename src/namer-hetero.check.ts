@@ -192,6 +192,11 @@ must("sulfenyl, thiosulfonates", [
   "(R)-2-methylpropane-2-sulfinamide", "(S)-2-methylpropane-2-sulfinamide", "(S)-4-methylbenzene-1-sulfinamide",
   "(R)-N-[(E)-phenylmethylidene]-2-methylpropane-2-sulfinamide", "N-benzylidene-2-methylpropane-2-sulfinamide",
 ]);
+// Hydrogen drawn as atoms, as in Sam's ChemDraw files (his mCPBA is drawn with its peroxy H).
+must("drawn H", [
+  "smiles:C(OO[H])(=O)C1=CC=CC(Cl)=C1", "smiles:OO[H]", "smiles:C([H])(=O)C", "smiles:[C@]1([H])(C2C=CC=CC=2)CCCC[C@@]1([H])O",
+  "smiles:C1([H])OC1(C)C1=CC=CC=C1",
+]);
 // Small molecules with no carbon (IUPAC 2005, IR-6, IR-8). Single atoms (water, HCl) are not named: a lone atom
 // drawn is ambiguous.
 must("inorganic", [
