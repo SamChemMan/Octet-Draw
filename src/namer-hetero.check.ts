@@ -165,7 +165,8 @@ must("more", [
   "O,O,S-trimethyl phosphorodithioate", "4-[(dimethoxyphosphorothioyl)sulfanyl]butanoic acid", "diazinon", "isothiocyanatobenzene",
   "isothiocyanatomethane", "4-isothiocyanatobenzoic acid", "1-isothiocyanato-4-methylbenzene", "thiocyanatobenzene", "4-thiocyanatobenzoic acid",
   "isocyanatobenzene", "cyanatobenzene", "thiolane 1,1-dioxide", "thiolane 1-oxide", "thiophene 1-oxide", "4-methylthiane 1,1-dioxide",
-  "thiolane-3-carboxylic acid 1,1-dioxide", "[bis(acetyloxy)-λ3-iodanyl]benzene", "[bis(trifluoroacetyloxy)iodo]benzene", "(dichloro-λ3-iodanyl)benzene",
+  "thiolane-3-carboxylic acid 1,1-dioxide", "3-(1,1-dioxo-1λ6-thiolan-3-yl)propanoic acid", "4-(1-oxo-1λ4-thian-4-yl)benzoic acid",
+  "N-(1,1-dioxo-1λ6-thiolan-3-yl)acetamide", "biotin sulfone","[bis(acetyloxy)-λ3-iodanyl]benzene", "[bis(trifluoroacetyloxy)iodo]benzene", "(dichloro-λ3-iodanyl)benzene",
   "iodosylbenzene", "iodylbenzene", "4-iodosylbenzoic acid", "diphenyliodanium chloride", "methyl hypochlorite", "tert-butyl hypochlorite",
   "4-(chlorooxy)butanoic acid", "4-(dihydroxyamino)benzoic acid", "alanosine",
 ]);

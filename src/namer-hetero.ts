@@ -470,9 +470,18 @@ export function nOxides(n: Namer, atoms: number[], sites: { atom: number; group:
   const sOxide = (a: number) => n.el[a] === "S" || n.el[a] === "P" ? n.adj[a].filter((o) => n.het.get(o) === "S=O") : [];
   const ring = atoms.flatMap((a) => (nOxideN(n, a) ? [a] : sOxide(a).map(() => a))), amine = kind === "amine" ? sites.map((s) => s.group).filter((g) => nOxideN(n, g)) : [];
   if (!ring.length && !amine.length) return [];
+  // On a substituent ring, S=O and P=O are oxo prefixes with the λ convention (P-14.1.3): 1,1-dioxo-1λ6-thiolan-3-yl.
+  if (!whole && !amine.length && ring.every((a) => n.el[a] !== "N")) return [];
   if (!whole || (kind && !["acid", "sulfonic", "ester", "amide", "sulfonamide", "nitrile", "aldehyde", "ketone", "alcohol", "thiol", "amine"].includes(kind)) || (ring.length && amine.length) || amine.length > 1) throw new Error("oxide");
   for (const x of [...ring, ...amine]) for (const o of n.adj[x]) if (nOxideO(n, o) || n.het.get(o) === "S=O") used.add(o);
   return [...ring, ...amine];
+}
+// The λ descriptors of a substituent ring's S and P with =O, in front of the ring's name: "1λ6-" (thiolan-3-yl).
+export function lambdaText(n: Namer, atoms: number[], label: (a: number) => string): string {
+  const xs = atoms.filter((a) => (n.el[a] === "S" || n.el[a] === "P") && n.adj[a].some((o) => n.het.get(o) === "S=O"));
+  if (!xs.length) return "";
+  const bonds = (a: number) => n.adj[a].reduce((t, j) => t + n.ord(a, j), 0) + n.h[a];
+  return `${xs.sort((a, b) => parseInt(label(a)) - parseInt(label(b))).map((a) => `${label(a)}λ${bonds(a)}`).join(",")}-`;
 }
 // The text after the name for its N-oxides: " 1-oxide", " 1,4-dioxide", " N-oxide" (P-74.2.1.2).
 export function oxideText(n: Namer, oxides: number[], label: (a: number) => string): string {
@@ -882,7 +891,7 @@ const INORGANIC: [string, string][] = [
   ["NF", "fluoramine"], ["NCl", "chloramine"], ["NBr", "bromamine"], ["FNF", "difluoramine"], ["ClNCl", "dichloramine"], ["BrNBr", "dibromamine"],
   ["FN(F)F", "nitrogen trifluoride"], ["ClN(Cl)Cl", "nitrogen trichloride"],
   ["O=S=O", "sulfur dioxide"], ["O=S(=O)=O", "sulfur trioxide"], ["OSO", "sulfoxylic acid"], ["OOS(=O)(=O)O", "peroxomonosulfuric acid"],
-  ["OS(=O)(=O)S(=O)(=O)O", "dithionic acid"], ["OS(=O)(=O)SS(=O)(=O)O", "trithionic acid"], ["OS(=O)(=O)SSS(=O)(=O)O", "tetrathionic acid"], ["FP(F)(F)(F)F", "phosphorus pentafluoride"], ["ClP(Cl)(Cl)(Cl)Cl", "phosphorus pentachloride"],
+  ["OS(=O)(=O)S(=O)(=O)O", "dithionic acid"], ["OS(=O)(=O)SS(=O)(=O)O", "trithionic acid"], ["OS(=O)(=O)SSS(=O)(=O)O", "tetrathionic acid"], ["OS(=O)(=O)SSSS(=O)(=O)O", "pentathionic acid"], ["FP(F)(F)(F)F", "phosphorus pentafluoride"], ["ClP(Cl)(Cl)(Cl)Cl", "phosphorus pentachloride"],
 ];
 const VALENCE: Record<string, number> = { N: 3, O: 2, S: 2, P: 3, F: 1, Cl: 1, Br: 1, I: 1 };
 // A structure's signature: each atom's element, hydrogens, charge and bonds, sorted.
@@ -908,7 +917,7 @@ function smilesSignature(s: string): string {
 let inorganic: Map<string, string> | undefined;
 // The name of a small molecule with no carbon from the table, or undefined.
 export function inorganicName(n: Namer): string | undefined {
-  if (n.n > 12 || n.el.some((e) => !VALENCE[e])) return undefined;
+  if (n.n > 14 || n.el.some((e) => !VALENCE[e])) return undefined;
   inorganic ??= new Map(INORGANIC.map(([s, name]) => [smilesSignature(s), name]));
   const bonds = [...n.bond].map(([k, o]): [number, number, number] => { const [a, b] = k.split(" ").map(Number); return [a, b, o]; });
   return inorganic.get(signature(n.el, n.h, n.q, bonds));

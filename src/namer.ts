@@ -12,7 +12,7 @@
 // oxa, thia and aza replacement; R/S and E/Z. Not yet: polycyclic bridged rings (adamantane), fused systems outside
 // the table, larger ring assemblies, and other charged atoms. Octet's own name tables cover some of these (naming.ts).
 import type { Graph } from "./naming.ts";
-import { amideHetero, foldHydrogens, groupVariant, suffixStereo, heteroAmine, heteroBond, heteroCharged, heteroParentName, inorganicName, nOxideN, nOxides, oxideText, perceivePseudo, heteroPrefix, perceiveHetero, peroxyCarbonyl, sulfonamideN, sulfonateName, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
+import { amideHetero, foldHydrogens, groupVariant, lambdaText, suffixStereo, heteroAmine, heteroBond, heteroCharged, heteroParentName, inorganicName, nOxideN, nOxides, oxideText, perceivePseudo, heteroPrefix, perceiveHetero, peroxyCarbonyl, sulfonamideN, sulfonateName, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
 
 type Name = { text: string; compound: boolean }; // compound: needs brackets when cited as a prefix
 
@@ -728,7 +728,7 @@ class Namer {
     let text: string;
     const locantFree = p.ring && !fused && !assembly && !bridged && (!info?.ring || info.ring.name === "benzene") && prefixes.length === 0;
     if (opts.sulfo) text = joinPrefixes(prefixText, withSuffix(parent, undefined, [label(num, opts.attach![0])], p.ring, locantFree, !p.ring && size <= 2, opts.sulfo));
-    else if (opts.attach) text = joinPrefixes(prefixText, this.substituentForm(parent, info, label(num, opts.attach[0]), p.ring, size, !!opts.acyl, multiple(num).length > 0));
+    else if (opts.attach) text = joinPrefixes(prefixText, lambdaText(this, p.ring && info?.ring ? atoms : [], (a) => label(num, a)) + this.substituentForm(parent, info, label(num, opts.attach[0]), p.ring, size, !!opts.acyl, multiple(num).length > 0));
     else if (retained) text = prefixText + retained; // benzoic acid, acetic acid: the suffix locant is understood
     else text = joinPrefixes(prefixText, withSuffix(parent, kind, sitesLoc, p.ring, locantFree, !p.ring && size <= 2, thio));
     text += oxideText(this, oxides, (a) => label(num, a)); // after the suffix: N,N-dimethylaniline N-oxide
