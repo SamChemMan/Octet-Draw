@@ -198,3 +198,9 @@ run("large rings", [
   "benzo[18]annulene", "cyclododeca[b]pyridine", "benzo[10]annulene", "6,7,8,9,10,11-hexahydro-5H-benzo[9]annulene",
   "2,3,5,6,8,9,11,12,14,15-decahydro-1,4,7,10,13,16-benzohexaoxacyclooctadecine",
 ]);
+// Acyl groups on fused and other rings, numbered as the ring (these once failed with "Cannot read properties of
+// undefined (reading 'indexOf')"): folic acid, methotrexate, carbonyldiimidazole and imidazole acids.
+run("ring acyl groups", [
+  "folic acid", "smiles:CN(Cc1cnc2nc(N)nc(N)c2n1)c1ccc(cc1)C(=O)N[C@@H](CCC(O)=O)C(O)=O", "1,1'-carbonyldiimidazole",
+  "carbonyldiimidazolal", "carbonyldiimidazoleic acid", "1,1'-carbonylbis(2-methylimidazole)", "1,1'-carbonyldi(1,2,4-triazole)",
+]);
