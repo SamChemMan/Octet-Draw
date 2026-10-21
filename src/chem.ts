@@ -456,12 +456,13 @@ function keyed(mol: Mol): { ids: number[]; bonds: number[]; key: string; part: (
 // structure is labelled on its own, and only once while it does not change. Written labels (OMe, CO2Et) are expanded
 // first; stereocentres inside a label have no drawn atom and are left out.
 type Labels = { atoms: (string | undefined)[]; bonds: (string | undefined)[] };
-const labelled = new Map<string, Labels | null>();
+const labelled = new Map<string, Labels | null>(), STEREO_DISPLAYS = new Set(["hashed", "dashed", "bold", "hollow"]);
 export function stereoLabels(drawn: Mol): Labels | undefined {
   const atoms: (string | undefined)[] = drawn.atoms.map(() => undefined), bonds: (string | undefined)[] = drawn.bonds.map(() => undefined);
   for (const { ids, bonds: own, key, part } of keyed(drawn)) {
-    // A structure with no wedge, hash or double bond has no R, S, E or Z.
-    if (ids.length < 3 || !own.some((k) => drawn.bonds[k].stereo || drawn.bonds[k].type === 2)) continue;
+    // A structure with no stereo bond (a wedge or hash, or a hashed, dashed or bold bond) or double bond has no R, S, E
+    // or Z.
+    if (ids.length < 3 || !own.some((k) => drawn.bonds[k].stereo || drawn.bonds[k].type === 2 || STEREO_DISPLAYS.has(drawn.bonds[k].display ?? ""))) continue;
     const found = remembered(labelled, key, () => labelsOf(part()));
     found?.atoms.forEach((c, n) => { atoms[ids[n]] = c; });
     found?.bonds.forEach((c, n) => { bonds[own[n]] = c; });
@@ -523,6 +524,12 @@ export function stereoFacts(drawn: Mol, chiral = false): StereoFacts {
     for (const [list, set] of [[f.centres, out.centres], [f.unset, out.unset], [f.conflict, out.conflict]] as const) for (const j of list) set.add(ids[j]);
     if (f.achiral) for (const i of ids) out.achiral.add(i);
   });
+  // A centre Show Stereochemistry labels is not unset or conflicting, whatever Indigo reads: Octet's labeller also
+  // reads ChemDraw's other stereo bonds (a hashed, dashed or bold bond, a wedge's wide end; src/cip.ts).
+  if ([...out.unset, ...out.conflict].some((i) => drawn.atoms[i]?.cip)) {
+    const shown = stereoLabels(drawn);
+    for (const set of [out.unset, out.conflict]) for (const i of set) if (drawn.atoms[i].cip && shown?.atoms[i]) set.delete(i);
+  }
   return out;
 }
 function readFacts(mol: Mol, chiral: boolean): Facts {

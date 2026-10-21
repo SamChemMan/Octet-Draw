@@ -12,7 +12,8 @@ g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
 g.window = globalThis;
 g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
-const { cipOf, parseStructure, ready, stereoLabels } = await import("./chem.ts");
+const { cipOf, parseStructure, ready, stereoFacts, stereoLabels } = await import("./chem.ts");
+const { problems } = await import("./check.ts");
 const { cipLabels } = await import("./cip.ts");
 const { DRUGS } = await import("./drugs.ts");
 type Mol = import("./render.ts").Mol;
@@ -123,6 +124,17 @@ assert.equal(cipLabels(ring(8)).bonds[0], "Z");
 // An R group ranks above H, as ChemDraw ranks it: R–CH=CH–CHO with R and CHO on opposite sides is E.
 const generic: Mol = { atoms: [atom("C", [0, 0, 0]), atom("C", [1, 0, 0]), atom("C", at(120), { text: "R" }), atom("C", at(300, 1, [1, 0])), atom("O", at(0, 1, at(300, 1, [1, 0]) as [number, number]))], bonds: [bond(0, 1, { type: 2 }), bond(0, 2), bond(1, 3), bond(3, 4, { type: 2 })] };
 assert.equal(stereoLabels(generic)?.bonds[0], "E");
+
+// ---- The stereochemistry warnings agree ----
+// With Show Stereochemistry on, a centre set by a plain hashed bond is labelled and gets no "no wedge or hash"
+// warning (Indigo, which the warnings come from, does not read that bond).
+const shown = (m: Mol): Mol => ({ ...m, atoms: m.atoms.map((a) => ({ ...a, cip: true as const })) });
+const hashed = shown(butanol({ display: "hashed" }));
+assert.equal(stereoLabels(hashed)?.atoms[0], "S");
+assert.ok(!stereoFacts(hashed).unset.has(0));
+assert.ok(!problems(hashed, stereoFacts(hashed)).some((p) => p.type === "unspecified" || p.type === "ambiguous"));
+// With no stereo bond the warning stays.
+assert.ok(problems(shown(butanol({})), stereoFacts(shown(butanol({})))).some((p) => p.type === "unspecified"));
 
 // ---- Written labels ----
 // Butan-2-ol with its ethyl written as a label (Et) and its OH as OH: the centre is labelled, nothing inside a label is.
