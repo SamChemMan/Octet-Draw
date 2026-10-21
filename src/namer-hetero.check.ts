@@ -167,7 +167,13 @@ must("more", [
   "isocyanatobenzene", "cyanatobenzene", "thiolane 1,1-dioxide", "thiolane 1-oxide", "thiophene 1-oxide", "4-methylthiane 1,1-dioxide",
   "thiolane-3-carboxylic acid 1,1-dioxide", "[bis(acetyloxy)-λ3-iodanyl]benzene", "[bis(trifluoroacetyloxy)iodo]benzene", "(dichloro-λ3-iodanyl)benzene",
   "iodosylbenzene", "iodylbenzene", "4-iodosylbenzoic acid", "diphenyliodanium chloride", "methyl hypochlorite", "tert-butyl hypochlorite",
-  "4-(chlorooxy)butanoic acid", "4-(dihydroxyamino)benzoic acid",
+  "4-(chlorooxy)butanoic acid", "4-(dihydroxyamino)benzoic acid", "alanosine",
+]);
+// Sulfanium and sulfoxonium salts, phosphorus ylides (Wittig reagents).
+must("onium, ylides", [
+  "trimethylsulfanium iodide", "trimethylsulfoxonium iodide", "dimethyl(phenyl)sulfanium bromide", "(triphenyl-λ5-phosphanylidene)methane",
+  "ethyl (triphenyl-λ5-phosphanylidene)acetate", "1-(triphenyl-λ5-phosphanylidene)propan-2-one", "(cyclohexylidene)(triphenyl)-λ5-phosphane",
+  "triphenyl(propan-2-ylidene)-λ5-phosphane", "4-(triphenyl-λ5-phosphanylidene)butanoic acid",
 ]);
 // Small molecules with no carbon (IUPAC 2005, IR-6, IR-8). Single atoms (water, HCl) are not named: a lone atom
 // drawn is ambiguous.
@@ -177,4 +183,5 @@ must("inorganic", [
   "hypoiodous acid", "iodic acid", "periodic acid", "orthoperiodic acid", "nitrous acid", "nitric acid", "nitrosyl chloride", "chloramine",
   "dichloramine", "nitrogen trichloride", "nitrogen trifluoride", "sulfur dioxide", "sulfur trioxide", "phosphorus pentachloride",
   "hydroxylamine", "hydrazine", "sulfuric acid", "phosphoric acid", "phosphoryl trichloride", "trichlorophosphane", "sulfurous dichloride",
+  "sulfoxylic acid", "peroxomonosulfuric acid", "dithionic acid", "trithionic acid", "tetrathionic acid",
 ]);

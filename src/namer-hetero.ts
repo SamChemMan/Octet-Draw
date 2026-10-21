@@ -206,13 +206,14 @@ export function perceiveHetero(n: Namer) {
       continue;
     }
     // Hydroxylamines: an N with one O (OH or O-C), and otherwise plain carbons and H.
-    if ((os.length === 1 || os.length === 2) && !ns.length && single(n, i) && adj[i].length + h[i] === 3 && os.every((o) => oxyOnN(n, o, i)) && adj[i].every((j) => os.includes(j) || plainC(n, j))) {
+    const nitrosoN = (j: number) => el[j] === "N" && !n.q[j] && adj[j].length === 2 && adj[j].some((o) => el[o] === "O" && n.ord(j, o) === 2 && adj[o].length === 1);
+    if ((os.length === 1 || os.length === 2) && ns.every(nitrosoN) && single(n, i) && adj[i].length + h[i] === 3 && os.every((o) => oxyOnN(n, o, i)) && adj[i].every((j) => os.includes(j) || plainC(n, j) || nitrosoN(j))) {
       n.het.set(i, "NO");
       for (const o of os) n.het.set(o, "NO"); // N,N-dihydroxy: (dihydroxyamino)
     }
   }
   // Ring S with =O: thiolane 1,1-dioxide, thiophene 1-oxide (cited like N-oxides).
-  for (let i = 0; i < n.n; i++) if (el[i] === "S" && n.inRing[i] && !n.q[i]) for (const o of oxo(n, i)) n.het.set(o, "S=O");
+  for (let i = 0; i < n.n; i++) if ((el[i] === "S" || el[i] === "P") && n.inRing[i] && !n.q[i]) for (const o of oxo(n, i)) n.het.set(o, "S=O"); // phospholane 1-oxide
   // Ring N bearing OH or OR: N-hydroxy (piperidin-1-ol, 1-hydroxypyrrolidine-2,5-dione), N-alkoxy.
   for (let i = 0; i < n.n; i++) {
     if (el[i] !== "N" || !n.inRing[i] || n.q[i]) continue;
@@ -344,6 +345,12 @@ function perceiveCentres(n: Namer) {
   for (let p = 0; p < n.n; p++) {
     if (n.inRing[p] || n.cip[p] || n.het.has(p)) continue;
     if (n.el[p] === "P" && n.q[p] === 1 && n.adj[p].length + n.h[p] === 4 && n.adj[p].every((j) => plainC(n, j) && n.ord(p, j) === 1)) { n.het.set(p, "P+"); continue; }
+    if (n.el[p] === "S" && n.q[p] === 1 && !n.h[p] && sulfonium(n, p)) { n.het.set(p, "S+"); for (const o of oxo(n, p)) n.het.set(o, "S+"); continue; }
+    if (n.el[p] === "P" && !n.q[p] && !n.h[p] && n.adj[p].length === 4) {
+      // A phosphorus ylide (P-68.3.2.3.2): R3P=CR2, triphenyl-λ5-phosphanylidene.
+      const dbl = n.adj[p].filter((j) => n.ord(p, j) === 2);
+      if (dbl.length === 1 && n.el[dbl[0]] === "C" && n.carbonylO[dbl[0]] < 0 && n.adj[p].every((j) => n.el[j] === "C" && (j === dbl[0] || plainC(n, j)))) { n.het.set(p, "P=C"); continue; }
+    }
     if (n.el[p] === "N") { nitrate(n, p); continue; }
     if (n.el[p] === "I" && n.q[p] === 1 && n.adj[p].length === 2 && n.adj[p].every((j) => plainC(n, j) && n.ord(p, j) === 1)) { n.het.set(p, "I+"); continue; }
     if (HALO[n.el[p]]) { hypohalite(n, p); continue; }
@@ -357,6 +364,11 @@ function perceiveCentres(n: Namer) {
     lig.forEach((j, k) => { if (types[k] !== "Nring" && !n.het.has(j)) n.het.set(j, "P-"); });
   }
 }
+// A sulfanium cation (R3S+, trimethylsulfanium) or sulfoxonium cation (R3S+=O, trimethylsulfoxonium) at x.
+const sulfonium = (n: Namer, x: number) => {
+  const os = oxo(n, x), cs = n.adj[x].filter((j) => !os.includes(j));
+  return os.length <= 1 && cs.length === 3 && cs.every((j) => plainC(n, j) && n.ord(x, j) === 1);
+};
 // A hypohalite ester (R-O-X: tert-butyl hypochlorite) with its halogen at x.
 function hypohalite(n: Namer, x: number) {
   const o = n.adj[x][0];
@@ -385,7 +397,7 @@ export const nOxideN = (n: Namer, x: number) => n.el[x] === "N" && n.adj[x].some
 // The N-oxides of a parent (ring N atoms, or the N of an amine suffix): their O atoms join `used` (no prefix). Throws
 // for an N-oxide the parent cannot cite (on a substituent, or with an ester or other group named after the parent).
 export function nOxides(n: Namer, atoms: number[], sites: { atom: number; group: number }[], kind: string | undefined, used: Set<number>, whole: boolean): number[] {
-  const sOxide = (a: number) => n.el[a] === "S" ? n.adj[a].filter((o) => n.het.get(o) === "S=O") : [];
+  const sOxide = (a: number) => n.el[a] === "S" || n.el[a] === "P" ? n.adj[a].filter((o) => n.het.get(o) === "S=O") : [];
   const ring = atoms.flatMap((a) => (nOxideN(n, a) ? [a] : sOxide(a).map(() => a))), amine = kind === "amine" ? sites.map((s) => s.group).filter((g) => nOxideN(n, g)) : [];
   if (!ring.length && !amine.length) return [];
   if (!whole || (kind && !["acid", "sulfonic", "ester", "amide", "sulfonamide", "nitrile", "aldehyde", "ketone", "alcohol", "thiol", "amine"].includes(kind)) || (ring.length && amine.length) || amine.length > 1) throw new Error("oxide");
@@ -402,6 +414,7 @@ export function oxideText(n: Namer, oxides: number[], label: (a: number) => stri
 export function heteroCharged(n: Namer, i: number): boolean {
   const { el, q, adj } = n;
   if (el[i] === "I" && q[i] === 1) return !n.inRing[i] && adj[i].length === 2 && adj[i].every((j) => el[j] === "C" && n.ord(i, j) === 1); // diphenyliodanium
+  if (el[i] === "S" && q[i] === 1) return !n.inRing[i] && !n.h[i] && sulfonium(n, i); // trimethylsulfanium
   if (nOxideO(n, i) || (el[i] === "N" && q[i] === 1 && adj[i].some((o) => nOxideO(n, o)))) return true;
   if (el[i] === "P" && q[i] === 1) return !n.inRing[i] && adj[i].length + n.h[i] === 4 && adj[i].every((j) => el[j] === "C" && n.ord(i, j) === 1);
   const x = el[i] === "N" ? i : el[i] === "O" && q[i] === -1 && adj[i].length === 1 ? adj[i][0] : -1;
@@ -419,7 +432,7 @@ const centreOf = (n: Namer, x: number): Centre => {
 // when it cannot be the parent (anhydrides, ring N).
 function centreClass(n: Namer, x: number): string | undefined {
   const role = n.het.get(x);
-  if (role === "P+" || role === "I+") return "cation";
+  if (role === "P+" || role === "I+" || role === "S+") return "cation";
   if (role === "NO3" || role === "NO2" || role === "OX") return "ester";
   const c = centreOf(n, x);
   if (c.types.includes("bridge")) { const chain = phosphateChain(n, x); return !chain ? undefined : chain.oh ? "acid" : "ester"; }
@@ -564,7 +577,7 @@ function sulfonicAnhydrideName(n: Namer): string | undefined {
 // A centre (S, P or N) that outranks the molecule's senior characteristic group, named as the parent; or a
 // phosphanium cation (P-73.1): methyl(triphenyl)phosphanium.
 function centreName(n: Namer, kind: string | undefined): string | undefined {
-  const centres = [...n.het].filter(([x, r]) => (r === "S" && !n.group[x]) || r === "P" || r === "P+" || r === "I+" || ((r === "NO3" || r === "NO2") && n.el[x] === "N") || (r === "OX" && n.el[x] !== "O")).map(([x]) => x);
+  const centres = [...n.het].filter(([x, r]) => (r === "S" && !n.group[x]) || r === "P" || r === "P+" || r === "I+" || (r === "S+" && n.el[x] === "S") || ((r === "NO3" || r === "NO2") && n.el[x] === "N") || (r === "OX" && n.el[x] !== "O")).map(([x]) => x);
   const order = ["cation", "acid", "ester", "halide", "amide"];
   const ranked = centres.map((x) => ({ x, cls: centreClass(n, x) })).filter((c) => c.cls).sort((a, b) => order.indexOf(a.cls!) - order.indexOf(b.cls!));
   const best = ranked[0];
@@ -572,7 +585,10 @@ function centreName(n: Namer, kind: string | undefined): string | undefined {
   if (kind && best.cls !== "cation" && SENIORITY.indexOf(kind as never) <= SENIORITY.indexOf(OUTRANKED_BY[best.cls!] as never)) return undefined;
   if (kind === "aminium") return undefined;
   const x = best.x, role = n.het.get(x);
-  if (role === "P+" || role === "I+") return `${substituted(n.adj[x].map((j) => n.substituent(j, x)))}${role === "P+" ? "phosphanium" : "iodanium"}`;
+  if (role === "P+" || role === "I+" || role === "S+") {
+    const subs = n.adj[x].filter((j) => n.el[j] === "C").map((j) => n.substituent(j, x));
+    return `${substituted(subs)}${role === "P+" ? "phosphanium" : role === "I+" ? "iodanium" : oxo(n, x).length ? "sulfoxonium" : "sulfanium"}`;
+  }
   if (role === "OX") { const o = n.adj[x][0]; return `${n.substituent(n.adj[o].find((j) => j !== x)!, o).text} hypo${{ F: "fluor", Cl: "chlor", Br: "brom", I: "iod" }[n.el[x]]}ite`; }
   if (n.el[x] === "P" && centreOf(n, x).types.includes("bridge")) return phosphateChainName(n, phosphateChain(n, x)!);
   if (role === "NO3" || role === "NO2") {
@@ -587,7 +603,13 @@ function centreName(n: Namer, kind: string | undefined): string | undefined {
 function centrePrefix(n: Namer, x: number, from: number): Name | undefined {
   const role = n.het.get(x);
   if (role === "NO3" || role === "NO2") return n.el[x] === "N" ? { text: role === "NO3" ? "nitro" : "nitroso", compound: false } : undefined;
-  if (role === "P+" || role === "I+") throw new Error("cation as a prefix");
+  if (role === "P+" || role === "I+" || role === "S+") throw new Error("cation as a prefix");
+  if (role === "P=C") {
+    // On the ylide carbon's parent: (triphenyl-λ5-phosphanylidene); from one of its other carbons, the ylide as a
+    // phosphanyl group: [methylidene(diphenyl)-λ5-phosphanyl].
+    const subs = n.adj[x].filter((j) => j !== from).map((j) => (n.ord(x, j) === 2 ? ylidene(n, j, x) : n.substituent(j, x)));
+    return { text: `${substituted(subs)}-λ5-phosphanyl${n.ord(x, from) === 2 ? "idene" : ""}`, compound: true };
+  }
   if (role !== "P") return undefined;
   if (n.h[x]) throw new Error("phosphorus");
   const os = [...oxo(n, x), ...thioxo(n, x)], subs = n.adj[x].filter((j) => j !== from && !os.includes(j)).map((j) => n.substituent(j, x));
@@ -671,10 +693,10 @@ function hydrazineSub(n: Namer, j: number, on: number): Name {
 // E or Z on the double bond to `from` is cited in front: (E)-(5-nitrofuran-2-yl)methylidene.
 export function ylidene(n: Namer, c: number, from: number): Name {
   const p = n.inRing[c] ? { atoms: n.rings[n.ringOf[c]], ring: true } : { atoms: n.bestChain(c, from), ring: false };
-  const t = n.nameParent(p, { attach: [c, from] }).text;
+  const named = n.nameParent(p, { attach: [c, from] }), t = named.text;
   if (!/yl$/.test(t)) throw new Error("ylidene");
   const ez = n.cipBond.get(n.key(c, from));
-  return { text: ez === "E" || ez === "Z" ? `(${ez})-${t}idene` : `${t}idene`, compound: true };
+  return ez === "E" || ez === "Z" ? { text: `(${ez})-${t}idene`, compound: true } : { text: `${t}idene`, compound: named.compound };
 }
 
 // ——— Parents ———
@@ -686,6 +708,8 @@ export function heteroParentName(n: Namer, kind: string | undefined): string | u
   const centre = centreName(n, kind);
   if (centre || kind) return centre;
   const roles = [...n.het.values()];
+  const ylides = [...n.het].filter(([, r]) => r === "P=C").map(([x]) => x);
+  if (ylides.length === 1) { const x = ylides[0]; return `${substituted(n.adj[x].map((j) => (n.ord(x, j) === 2 ? ylidene(n, j, x) : n.substituent(j, x))))}-λ5-phosphane`; }
   const count = (r: string) => roles.filter((x) => x === r).length;
   const pair = (r: string) => { const a = [...n.het].find(([, v]) => v === r)![0]; return [a, n.adj[a].find((j) => n.het.get(j) === r)!]; };
   if (count("NN") === 2 && !count("hz") && !count("N=N")) {
@@ -745,7 +769,8 @@ const INORGANIC: [string, string][] = [
   ["ON=O", "nitrous acid"], ["O[N+](=O)[O-]", "nitric acid"], ["N=O", "azanone"], ["ClN=O", "nitrosyl chloride"],
   ["NF", "fluoramine"], ["NCl", "chloramine"], ["NBr", "bromamine"], ["FNF", "difluoramine"], ["ClNCl", "dichloramine"], ["BrNBr", "dibromamine"],
   ["FN(F)F", "nitrogen trifluoride"], ["ClN(Cl)Cl", "nitrogen trichloride"],
-  ["O=S=O", "sulfur dioxide"], ["O=S(=O)=O", "sulfur trioxide"], ["FP(F)(F)(F)F", "phosphorus pentafluoride"], ["ClP(Cl)(Cl)(Cl)Cl", "phosphorus pentachloride"],
+  ["O=S=O", "sulfur dioxide"], ["O=S(=O)=O", "sulfur trioxide"], ["OSO", "sulfoxylic acid"], ["OOS(=O)(=O)O", "peroxomonosulfuric acid"],
+  ["OS(=O)(=O)S(=O)(=O)O", "dithionic acid"], ["OS(=O)(=O)SS(=O)(=O)O", "trithionic acid"], ["OS(=O)(=O)SSS(=O)(=O)O", "tetrathionic acid"], ["FP(F)(F)(F)F", "phosphorus pentafluoride"], ["ClP(Cl)(Cl)(Cl)Cl", "phosphorus pentachloride"],
 ];
 const VALENCE: Record<string, number> = { N: 3, O: 2, S: 2, P: 3, F: 1, Cl: 1, Br: 1, I: 1 };
 // A structure's signature: each atom's element, hydrogens, charge and bonds, sorted.
@@ -771,7 +796,7 @@ function smilesSignature(s: string): string {
 let inorganic: Map<string, string> | undefined;
 // The name of a small molecule with no carbon from the table, or undefined.
 export function inorganicName(n: Namer): string | undefined {
-  if (n.n > 7 || n.el.some((e) => !VALENCE[e])) return undefined;
+  if (n.n > 12 || n.el.some((e) => !VALENCE[e])) return undefined;
   inorganic ??= new Map(INORGANIC.map(([s, name]) => [smilesSignature(s), name]));
   const bonds = [...n.bond].map(([k, o]): [number, number, number] => { const [a, b] = k.split(" ").map(Number); return [a, b, o]; });
   return inorganic.get(signature(n.el, n.h, n.q, bonds));

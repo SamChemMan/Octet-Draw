@@ -316,7 +316,7 @@ class Namer {
     }
     // Phosphanes and phosphane oxides (P-68.3.2): P with three single bonds to carbon or hydrogen, and perhaps =O.
     for (let i = 0; i < this.n; i++) {
-      if (el[i] !== "P" || this.het.has(i) || (this.inRing[i] && !q[i] && adj[i].every((j) => this.inRing[j] || this.ord(i, j) === 1))) continue; // ring P: the ring's name
+      if (el[i] !== "P" || this.het.has(i) || (this.inRing[i] && !q[i] && adj[i].every((j) => this.inRing[j] || this.ord(i, j) === 1 || this.het.has(j)))) continue; // ring P: the ring's name
       const os = adj[i].filter((j) => el[j] === "O" && this.ord(i, j) === 2 && adj[j].length === 1 && !q[j]), rest = adj[i].filter((j) => !os.includes(j));
       if (this.inRing[i] || q[i] || os.length > 1 || rest.length + h[i] !== 3 || rest.some((j) => el[j] !== "C" || this.ord(i, j) !== 1 || this.carbonylO[j] >= 0) || this.cip[i]) throw new Error("phosphorus");
       this.phosphorus.add(i);
