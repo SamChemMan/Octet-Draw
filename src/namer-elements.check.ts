@@ -114,7 +114,7 @@ const cases: [string, string?][] = [
   ["4-[(1-hydroxy-1,3-dihydro-2,1-benzoxaborol-5-yl)oxy]benzonitrile", "4-[(1-hydroxy-1,3-dihydro-2,1-benzoxaborol-5-yl)oxy]benzonitrile"],
   // Arsenic, antimony, bismuth: arsanes, arsonic and arsinic acids, oxides.
   ["N,N-dimethylboranamine", "N,N-dimethylboranamine"], ["1,1-diethyl-N,N-dimethylboranamine"], ["N,N-di(propan-2-yl)boranamine"],
-  ["dodecamethylcyclohexasilane", "1,1,2,2,3,3,4,4,5,5,6,6-dodecamethyl-1,2,3,4,5,6-hexasilinane"], ["tetradecafluorohexane"],
+  ["dodecamethylcyclohexasilane", "1,1,2,2,3,3,4,4,5,5,6,6-dodecamethylhexasilinane"], ["tetradecafluorohexane"],
   ["triphenylarsane", "triphenylarsane"], ["triphenylstibane", "triphenylstibane"], ["triphenylbismuthane", "triphenylbismuthane"],
   ["phenylarsonic acid", "phenylarsonic acid"], ["(4-aminophenyl)arsonic acid", "(4-aminophenyl)arsonic acid"], ["dimethylarsinic acid", "dimethylarsinic acid"],
   ["4-arsonobenzoic acid", "4-arsonobenzoic acid"], ["triphenylarsane oxide", "triphenylarsane oxide"], ["phenylstibonic acid"], ["diphenylstibinic acid"],
