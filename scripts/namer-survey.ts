@@ -49,7 +49,25 @@ const molOf = (smiles: string): Mol => {
   // A radical stays on its atom (KET's 1, 2 and 3 are Octet's 3, 1 and 2), so graphOf leaves the structure out.
   return { atoms: m.atoms.map((a) => ({ label: a.label, charge: a.charge, ...(a.radical ? { radical: a.radical === 1 ? 3 : a.radical - 1 } : {}), location: [0, 0, 0] as [number, number, number] })), bonds: m.bonds.map((b) => ({ type: b.type, atoms: b.atoms })) };
 };
-const cipOf = (smiles: string) => { const m = parsed(smiles); return { atoms: m.atoms.map((a) => a.cip), bonds: m.bonds.map((b) => b.cip) }; };
+// The CIP labels Octet gives (src/cip.ts) the structure as it draws it from the SMILES (Indigo's layout, with wedges),
+// on the atoms and bonds of `parsed`. chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does;
+// these stand in for the browser.
+const gl = globalThis as Record<string, unknown>;
+gl.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
+gl.getComputedStyle = () => ({ getPropertyValue: () => "10" });
+gl.window = globalThis;
+gl.self = { location: { origin: "file://" } };
+gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+const chem = await import("../src/chem.ts");
+await chem.ready;
+let otherOrder = 0;
+const cipOf = (smiles: string) => {
+  const p = parsed(smiles), m = chem.parseStructure(smiles), cip = chem.cipOf(m), key = (b: { atoms: number[] }) => `${Math.min(...b.atoms)} ${Math.max(...b.atoms)}`;
+  if (m.atoms.length !== p.atoms.length || m.atoms.some((a, i) => a.label !== p.atoms[i].label)) { otherOrder++; throw new Error("atom order"); }
+  const bond = new Map(m.bonds.map((b, k) => [key(b), k]));
+  // A drawn double bond always has a geometry; one the SMILES leaves open (Indigo gives it no label) has no E or Z.
+  return { atoms: cip.atoms, bonds: p.bonds.map((b) => (b.cip ? cip.bonds[bond.get(key(b)) ?? -1] : undefined)) };
+};
 // The hydrogens in the input (Indigo's gross formula). A name that reads back wrong for a structure drawn with a
 // different count from the input's is not counted: the drawing is not the input. withHydrogens() below gives each
 // atom its count, so this is a check on that.
@@ -160,7 +178,7 @@ for (const input of inputs) {
   try { smiles = input.startsWith("smiles:") ? input.slice(7) : opsin.parseToSmiles(input); } catch { smiles = null; }
   if (!smiles || smiles.includes("*")) continue;
   let g;
-  try { g = graphOf(withHydrogens(molOf(smiles), smiles), cipOf(smiles)); } catch { continue; }
+  try { g = graphOf(withHydrogens(molOf(smiles), smiles), cipOf(smiles), true); } catch { continue; } // with isotopes, as the app names them
   if (!g) continue;
   tried++;
   const r = iupacNameWhy(g);
@@ -182,6 +200,7 @@ for (const input of inputs) {
 console.log(`survey: ${tried} structures, ${named} named right (${(100 * named / tried).toFixed(1)}%), ${wrong.length} wrong, ${tried - named - wrong.length} unnamed`);
 if (complexes.length) console.log(`named as complexes, checked in parts by complexes.ts (${complexes.length}): ${complexes.slice(0, 40).join("; ")}`);
 if (unread.length) console.log(`names OPSIN cannot read (${unread.length}): ${unread.slice(0, 20).join("; ")}`);
+if (otherOrder) console.log(`left out, read in another atom order (${otherOrder})`);
 if (otherH.length) console.log(`left out, drawn with other hydrogen counts (${otherH.length}): ${otherH.slice(0, 6).join("; ")}`);
 for (const [k, v] of [...why].sort((a, b) => b[1].length - a[1].length)) console.log(`${String(v.length).padStart(5)}  ${k}: ${v.slice(0, 6).join("; ")}`);
 if (save) { const { writeFileSync } = await import("node:fs"); writeFileSync(save, `${right.join("\n")}\n`); writeFileSync(`${save}.wrong`, `${wrong.join("\n")}\n`); }

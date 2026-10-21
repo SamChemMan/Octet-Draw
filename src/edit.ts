@@ -494,11 +494,18 @@ const refill = (fills: Mol["fills"], map: Map<number, number>) => {
   return out?.length ? out : undefined;
 };
 
-// An atom with its multi-centre or variable attachment's atoms renumbered by map (those not in it left out).
+// An atom with its multi-centre or variable attachment's atoms renumbered by map (those not in it left out), and its
+// kept stereo configuration's neighbours (dropped when one is left out).
 export function renumberCentre(a: Atom, map: Map<number, number> | ((i: number) => number | undefined)): Atom {
-  if (!a.centre) return a;
+  if (!a.centre && !a.kept) return a;
   const to = typeof map === "function" ? map : (i: number) => map.get(i);
-  return { ...a, centre: { ...a.centre, atoms: a.centre.atoms.map(to).filter((i): i is number => i !== undefined) } };
+  const out = { ...a };
+  if (a.centre) out.centre = { ...a.centre, atoms: a.centre.atoms.map(to).filter((i): i is number => i !== undefined) };
+  if (a.kept) {
+    const atoms = a.kept.atoms.map((i) => (i < 0 ? -1 : to(i)));
+    if (atoms.every((i) => i !== undefined)) out.kept = { ...a.kept, atoms: atoms as number[] }; else delete out.kept;
+  }
+  return out;
 }
 
 // Groups nest, as ChemDraw's do. A group lists every atom and object in it (those of the groups in it too), so two
@@ -1313,7 +1320,9 @@ export function flipAtoms(m: Mol, ids: Set<number>, axis: "horizontal" | "vertic
       if (!ids.has(i)) return a;
       const loc: [number, number, number] = [a.location[0], a.location[1], mirror ? a.location[2] ?? 0 : -(a.location[2] ?? 0)];
       loc[k] = 2 * mid - loc[k];
-      return { ...a, location: loc, ...turnMarks(a, (t) => (k ? -t : 180 - t)) };
+      // A mirror inverts a configuration kept from ChemDraw too (two of its neighbours change places).
+      const kept = mirror && a.kept ? { kept: { ...a.kept, atoms: [a.kept.atoms[1], a.kept.atoms[0], ...a.kept.atoms.slice(2)] } } : {};
+      return { ...a, location: loc, ...turnMarks(a, (t) => (k ? -t : 180 - t)), ...kept };
     }),
     bonds: m.bonds.map((b) => {
       if (!ids.has(b.atoms[0]) || !ids.has(b.atoms[1])) return b;
