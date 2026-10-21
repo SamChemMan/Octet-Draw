@@ -124,9 +124,16 @@ run("species", [
   "hypochlorous acid", "chloric acid", "periodic acid", "sulfamic acid", "phosphorus trichloride", "phosphoryl trichloride",
   "thionyl chloride", "sulfuryl chloride", "phosgene", "carbonyl sulfide", "smiles:[C-]#[O+]", "hydrogen cyanide", "cyanogen bromide",
 ]);
+// Peroxides (P-63.3) and peroxy acids (P-65.1.4), with their anions.
+run("peroxides", [
+  "3-chlorobenzene-1-carboperoxoic acid", "ethaneperoxoic acid", "ethaneperoxoate", "benzenecarboperoxoate", "2-hydroperoxy-2-methylpropane",
+  "2-(tert-butylperoxy)-2-methylpropane", "6-hydroperoxycyclohex-1-en-1-olate", "4-(hydroperoxycarbonyl)benzoic acid", "methaneperoxoic acid",
+  "hydroperoxycyclohexane", "smiles:CC(=O)O[O-].[Na+]",
+]);
 // Hydrogen drawn as atoms (Sam's files, 21 October 2026): each H on one atom joins that atom's hydrogen count.
 run("explicit hydrogen", [
   "smiles:[H]O[H]", "smiles:[H]OO[H]", "smiles:C([H])(=O)C", "smiles:CC(O[H])=C", "smiles:C1([H])OC1(C)C1=CC=CC=C1",
+  "smiles:C(OO[H])(=O)C1=CC=CC(Cl)=C1", "smiles:C1C(OO[H])CCCC=1[O-]",
   "smiles:[C@]1([H])(C2C=CC=CC=2)CCCC[C@@]1([H])O", "smiles:[C@]1([H])(C2C=CC=CC=2)CCCC[C@@]1([H])[O-]",
   "smiles:[C@@]12([H])O[C@]1([H])CCCC2", "smiles:[H]N([H])C(C)=O",
 ]);

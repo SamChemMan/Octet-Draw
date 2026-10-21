@@ -27,12 +27,12 @@ const VOWEL = /^[aeiouy]/;
 // Principal characteristic groups, most senior first (P-41).
 // Carbamates are esters and ureas amides of carbonic acid (P-65.2.1, P-66.1.6); halides are acid halides.
 // Anions, then cations (aminium and the rest), are senior to every neutral group (P-41, P-72, P-73).
-type Ion = "ide" | "carboxylate" | "sulfonate" | "sulfinate" | "olate" | "aminide" | "ylium" | "iminium" | "diazonium";
-const ANION_KINDS: Ion[] = ["ide", "carboxylate", "sulfonate", "sulfinate", "olate", "aminide"];
-type Kind = Ion | "aminium" | "acid" | "sulfonic" | "anhydride" | "ester" | "carbamate" | "halide" | "sulfonylhalide" | "amide" | "urea" | "nitrile" | "aldehyde" | "ketone" | "alcohol" | "thiol" | "amine" | "imine";
-const SENIORITY: Kind[] = [...ANION_KINDS, "aminium", "ylium", "iminium", "diazonium", "acid", "sulfonic", "anhydride", "ester", "carbamate", "halide", "sulfonylhalide", "amide", "urea", "nitrile", "aldehyde", "ketone", "alcohol", "thiol", "amine", "imine"];
+type Ion = "ide" | "carboxylate" | "peroxoate" | "sulfonate" | "sulfinate" | "olate" | "aminide" | "ylium" | "iminium" | "diazonium";
+const ANION_KINDS: Ion[] = ["ide", "carboxylate", "peroxoate", "sulfonate", "sulfinate", "olate", "aminide"];
+type Kind = Ion | "aminium" | "acid" | "peroxyacid" | "sulfonic" | "anhydride" | "ester" | "carbamate" | "halide" | "sulfonylhalide" | "amide" | "urea" | "nitrile" | "aldehyde" | "ketone" | "alcohol" | "thiol" | "amine" | "imine";
+const SENIORITY: Kind[] = [...ANION_KINDS, "aminium", "ylium", "iminium", "diazonium", "acid", "peroxyacid", "sulfonic", "anhydride", "ester", "carbamate", "halide", "sulfonylhalide", "amide", "urea", "nitrile", "aldehyde", "ketone", "alcohol", "thiol", "amine", "imine"];
 // Groups whose carbon is counted in a chain name (propanoic acid) but cited as "carbo…" on a ring (cyclohexanecarboxylic acid).
-const CARBON_GROUP = new Set<Kind>(["acid", "anhydride", "ester", "halide", "amide", "nitrile", "aldehyde", "carboxylate"]);
+const CARBON_GROUP = new Set<Kind>(["acid", "anhydride", "ester", "halide", "amide", "nitrile", "aldehyde", "carboxylate", "peroxyacid", "peroxoate"]);
 const HALIDE: Record<string, string> = { F: "fluoride", Cl: "chloride", Br: "bromide", I: "iodide" };
 // Cations of salts (P-65.6.2.2) and their charges.
 const CATIONS: Record<string, [string, number]> = { Li: ["lithium", 1], Na: ["sodium", 1], K: ["potassium", 1], Rb: ["rubidium", 1], Cs: ["caesium", 1], Ag: ["silver", 1],
@@ -432,8 +432,24 @@ class Namer {
     const oMinus = (o: number) => el[o] === "O" && q[o] === -1 && !h[o] && adj[o].length === 1 && single(o);
     const terminalO = (x: number, o: number) => el[o] === "O" && !q[o] && adj[o].length === 1 && this.ord(x, o) === 2;
     const ion = (i: number, kind?: Kind, on?: number[]) => { this.ions.add(i); if (kind) this.mark(i, kind, on!); };
+    // Peroxides (P-63.3, P-65.1.4): an O-O single bond, cited as hydroperoxy or alkylperoxy, and peroxy acids C(=O)OOH
+    // (-peroxoic acid) with their anions (-peroxoate). Their O atoms are kept here, out of the alcohol and ether rules.
+    for (const [k, order] of this.bond) {
+      const [a, b] = k.split(" ").map(Number), ok = (o: number) => (!q[o] && adj[o].length + h[o] === 2) || (q[o] === -1 && !h[o] && adj[o].length === 1);
+      if (order !== 1 || el[a] !== "O" || el[b] !== "O" || this.inRing[a] || this.inRing[b] || !ok(a) || !ok(b)) continue;
+      ion(a);
+      ion(b);
+      this.ionBonds.add(k);
+      for (const [x, y] of [[a, b], [b, a]]) {
+        const c = adj[x].find((j) => j !== y);
+        if (c === undefined || el[c] !== "C" || q[c] || this.inRing[c] || this.carbonylO[c] < 0 || this.carbons(c).length > 1 || adj[c].length !== this.carbons(c).length + 2 || adj[y].length !== 1) continue;
+        this.mark(c, q[y] ? "peroxoate" : "peroxyacid", this.carbons(c));
+        this.group[x] = this.group[y] = this.group[c];
+        this.group[this.carbonylO[c]] = "ketone";
+      }
+    }
     for (let i = 0; i < this.n; i++) {
-      if (!q[i] || this.nitroAtom(i) || this.diazoAtom(i) || this.azidoAtom(i)) continue;
+      if (!q[i] || this.nitroAtom(i) || this.diazoAtom(i) || this.azidoAtom(i) || this.ions.has(i)) continue;
       const e = el[i], cs = this.carbons(i);
       if (oMinus(i)) {
         const x = adj[i][0];
@@ -561,6 +577,15 @@ class Namer {
     if (this.ions.has(x) && el === "O" && this.q[x] === -1 && this.adj[x].length === 1) return { text: "oxido", compound: false };
     if (g === "carboxylate") return { text: "carboxylato", compound: false };
     if (g === "sulfonate" || g === "sulfinate") return { text: `${g}o`, compound: false };
+    if (g === "peroxyacid" && el === "C") return { text: "hydroperoxycarbonyl", compound: true };
+    // Hydroperoxy and alkylperoxy (P-63.3): tert-butylperoxy.
+    const peroxy = el === "O" && this.ions.has(x) && !this.q[x] ? this.adj[x].find((j) => j !== from && this.el[j] === "O") : undefined;
+    if (peroxy !== undefined) {
+      if (this.h[peroxy] && this.adj[peroxy].length === 1) return { text: "hydroperoxy", compound: false };
+      const r = this.adj[peroxy].find((j) => j !== x)!;
+      if (this.el[r] !== "C") throw new Error("peroxide");
+      return { text: `${enclose(this.substituent(r, peroxy))}peroxy`, compound: true };
+    }
     if (g === "aminium" || this.onium.includes(x)) return { text: `${this.centre(x, from)}yl`, compound: this.adj[x].length > 1 };
     if ((g && (ANION_KINDS as Kind[]).includes(g)) || g === "ylium" || g === "iminium" || g === "diazonium" || (this.ions.has(x) && this.inRing[x])) throw new Error(`${g ?? "ion"} as a prefix`);
     return undefined;
@@ -1317,6 +1342,7 @@ function withSuffix(parent: string, kind: Kind | undefined, locs: string[], ring
     aminium: ["aminium", "aminium"], imine: ["imine", "imine"],
     carboxylate: ["oate", "carboxylate"], sulfonate: ["sulfonate", "sulfonate"], sulfinate: ["sulfinate", "sulfinate"], olate: ["olate", "olate"], aminide: ["aminide", "aminide"], ide: ["ide", "ide"],
     ylium: ["ylium", "ylium"], iminium: ["iminium", "iminium"], diazonium: ["diazonium", "diazonium"],
+    peroxyacid: ["peroxoic acid", "carboperoxoic acid"], peroxoate: ["peroxoate", "carboperoxoate"],
   };
   let s = own ?? base[kind!][ring ? 1 : 0];
   // The chain's own carbon carries -oic acid, -al, -nitrile and -amide, always at an end, so no locants (P-31.1.4.2.1).
