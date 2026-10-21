@@ -156,3 +156,14 @@ check("imidic", [
   ["canavanine", "(2S)-2-amino-4-(carbamimidamidooxy)butanoic acid"], "N-methylcyclohexanecarboxamide",
   "2,5-dioxopyrrolidin-1-yl acetate", "bis(2,5-dioxopyrrolidin-1-yl) carbonate", "2,5-dioxopyrrolidin-1-yl 4-azidobenzoate",
 ]);
+
+// Carboxylic acid groups on a hydrazine or diazene N take it as the parent (P-68.3.1.1.1): semicarbazide, carbazates,
+// DEAD, DIAD and TMAD.
+check("hydrazine", [
+  ["semicarbazide", "hydrazinecarboxamide"], ["carbazic acid", "hydrazinecarboxylic acid"], "tert-butyl hydrazinecarboxylate",
+  "hydrazinecarbonyl chloride", "2-phenylhydrazine-1-carboxamide", "N-phenylhydrazinecarboxamide", "2,2-dimethylhydrazine-1-carboxamide",
+  ["biurea", "hydrazine-1,2-dicarboxamide"], "hydrazine-1,2-dicarboxylic acid", "ethyl 2-acetylhydrazine-1-carboxylate",
+  "diethyl diazene-1,2-dicarboxylate", ["smiles:CCOC(=O)/N=N/C(=O)OCC", "diethyl (E)-diazene-1,2-dicarboxylate"],
+  ["dipropan-2-yl (E)-diazene-1,2-dicarboxylate", "bis(propan-2-yl) (E)-diazene-1,2-dicarboxylate"],
+  ["N,N,N',N'-tetramethyldiazene-1,2-dicarboxamide", "N1,N1,N2,N2-tetramethyldiazene-1,2-dicarboxamide"],
+]);
