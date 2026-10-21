@@ -113,6 +113,12 @@ run("salts", [
   "smiles:[Li+].[CH2-]CCC", "smiles:[Mg+2].[Br-].[CH3-]", "tropylium tetrafluoroborate", "triethyloxonium tetrafluoroborate",
   "smiles:C=[N+](C)C.[I-]", "smiles:ClC=[N+](C)C.[Cl-]", "pyridinium p-toluenesulfonate", "smiles:[Pd+2].CC(=O)[O-].CC(=O)[O-]",
   "sodium dodecyl sulfate", "smiles:OCCOS(=O)(=O)[O-].[Na+]", "smiles:CC(C)OC(=O)[O-].[K+]", "sodium hydrogen butanedioate",
+  "1-(chloromethyl)-4-fluoro-1,4-diazoniabicyclo[2.2.2]octane bis(tetrafluoroborate)",
+]);
+// Halogen and OH on a ring N (Octet's reagent list): NBS, NCS, NIS, NHS, N-hydroxyphthalimide; and an azonia ring.
+run("ring N groups", [
+  "1-bromopyrrolidine-2,5-dione", "1-chloropyrrolidine-2,5-dione", "1-iodopyrrolidine-2,5-dione", "1-hydroxypyrrolidine-2,5-dione",
+  "smiles:ON1C(=O)c2ccccc2C1=O", "1-methyl-4-aza-1-azoniabicyclo[2.2.2]octane",
 ]);
 // Simple species (IR-3, IR-6): parent hydrides, inorganic molecules and ions.
 run("species", [
@@ -141,7 +147,8 @@ run("explicit hydrogen", [
 // No wrong names from shapes that share a formula with a known species, and none for radicals or isotopes.
 // Boranuides wait for boron (element B), and must then read back right.
 for (const s of ["C(=O)O[O-]", "[NH3+][O-]", "[NH+]([O-])=O", "[O-]ON", "S(=O)(=O)([O-])S(=O)[O-]", "[C-]#[N+][O-]", "OS(=O)(=O)O[O-]", "OOS(=O)(=O)O",
-  "c1ccccc1[B-](c1ccccc1)(c1ccccc1)c1ccccc1.[Na+]", "CC[BH-](CC)CC.[Li+]"]) {
+  "c1ccccc1[B-](c1ccccc1)(c1ccccc1)c1ccccc1.[Na+]", "CC[BH-](CC)CC.[Li+]", "CC(=O)O[BH-](OC(C)=O)OC(C)=O.[Na+]", "N#C[BH3-].[Na+]",
+  "C[Si](C)(C)[N-][Si](C)(C)C.[Li+]"]) {
   const g = graphOf(molOf(s), cipOf(s)), name = g && iupacName(g), back = name && opsin.parseToSmiles(name);
   assert.ok(!name || (back && convert(back, "inchi") === convert(s, "inchi")), `${s} -> ${name}, a different structure`);
 }

@@ -448,6 +448,15 @@ class Namer {
         this.group[this.carbonylO[c]] = "ketone";
       }
     }
+    // A halogen or OH on a ring N is a prefix on the ring: 1-bromopyrrolidine-2,5-dione (NBS),
+    // 1-hydroxypyrrolidine-2,5-dione, 4-fluoro-1,4-diazoniabicyclo[2.2.2]octane (Selectfluor).
+    for (let i = 0; i < this.n; i++) {
+      const n = adj[i][0];
+      if (adj[i].length === 1 && !q[i] && el[n] === "N" && this.inRing[n] && this.ord(i, n) === 1 && (HALO[el[i]] || (el[i] === "O" && h[i] === 1))) {
+        this.ions.add(i);
+        this.ionBonds.add(this.key(i, n));
+      }
+    }
     for (let i = 0; i < this.n; i++) {
       if (!q[i] || this.nitroAtom(i) || this.diazoAtom(i) || this.azidoAtom(i) || this.ions.has(i)) continue;
       const e = el[i], cs = this.carbons(i);
@@ -492,7 +501,8 @@ class Namer {
           const acyl = (c: number) => el[c] === "C" && !q[c] && !this.inRing[c] && this.carbonylO[c] >= 0 && this.carbons(c).length <= 1 && adj[c].length === this.carbons(c).length + 2;
           const sulfonyl = (s: number) => el[s] === "S" && !q[s] && !this.inRing[s] && adj[s].length === 4 && adj[s].filter((o) => terminalO(s, o)).length === 2 && adj[s].filter(plainC).length === 1;
           const cyano = (c: number) => el[c] === "C" && !q[c] && adj[c].length === 2 && adj[c].some((n) => el[n] === "N" && !q[n] && adj[n].length === 1 && this.ord(c, n) === 3);
-          if (!adj[i].every((j) => plainC(j) || acyl(j) || sulfonyl(j) || cyano(j))) continue;
+          // Silyl groups (bis(trimethylsilyl)azanide) wait for silicon to be named.
+          if (!adj[i].every((j) => plainC(j) || acyl(j) || sulfonyl(j) || cyano(j) || el[j] === "Si")) continue;
           ion(i);
           this.azanide.push(i);
           for (const j of adj[i]) {
@@ -522,10 +532,18 @@ class Namer {
         ion(i);
         this.onium.push(i);
         for (const j of [i, ...adj[i].filter((o) => terminalO(i, o))]) this.sulfur.add(j);
-      } else if (e === "B" && q[i] === -1 && single(i) && valence(i) === 4 && cs.length === adj[i].length && cs.every(plainC)) {
-        // A boranuide (P-72.3): tetraphenylboranuide, triethylboranuide.
+      } else if (e === "B" && q[i] === -1 && single(i) && valence(i) === 4) {
+        // A boranuide (P-72.3) with carbon, cyano, alkoxy and acyloxy groups: tetraphenylboranuide, triethylboranuide,
+        // cyanoboranuide, tris(acetyloxy)boranuide.
+        const cyano = (c: number) => el[c] === "C" && !q[c] && adj[c].length === 2 && adj[c].some((n) => el[n] === "N" && !q[n] && adj[n].length === 1 && this.ord(c, n) === 3);
+        const oxy = (o: number) => el[o] === "O" && !q[o] && adj[o].length === 2 && adj[o].every((j) => j === i || (el[j] === "C" && !q[j] && !this.inRing[j]));
+        if (!adj[i].every((j) => plainC(j) || cyano(j) || oxy(j))) continue;
         ion(i);
         this.azanide.push(i);
+        for (const j of adj[i]) {
+          if (cyano(j)) { this.group[j] = "nitrile"; this.group[adj[j].find((n) => n !== i)!] = "nitrile"; }
+          if (oxy(j)) { this.ions.add(j); this.ionBonds.add(this.key(i, j)); }
+        }
       } else if (q[i] === 1 && (e === "O" || e === "S") && this.inRing[i] && adj[i].length === 2 && !h[i] && adj[i].filter((j) => this.ord(i, j) === 2).length === 1) ion(i); // pyrylium
     }
     // Oxido: an O- on an N+ (amine and ring N-oxides, nitrones) or on an onium ion.
@@ -690,7 +708,7 @@ class Namer {
   bridgedInfo(k: number): Bridged | undefined {
     const atoms = this.rings[k], sys = new Set(atoms), ring = (a: number) => this.adj[a].filter((j) => sys.has(j));
     const bonds = atoms.flatMap((a) => ring(a).filter((b) => a < b).map((b): [number, number] => [a, b]));
-    if (bonds.length !== atoms.length + 1 || atoms.some((a) => !["C", "N", "O", "S"].includes(this.el[a]) || (this.el[a] !== "C" && this.q[a]))) return undefined;
+    if (bonds.length !== atoms.length + 1 || atoms.some((a) => !["C", "N", "O", "S"].includes(this.el[a]) || (this.el[a] !== "C" && this.q[a] && !this.cationN(a)))) return undefined;
     if (bonds.some(([a, b]) => this.ord(a, b) === 3)) return undefined;
     // The atoms from `from` (not included) along `start` until `end`.
     const walk = (from: number, start: number, end: number) => {
@@ -904,9 +922,10 @@ class Namer {
     } else if (p.ring && info!.ring) parent = (info!.ring.hydrogen && (!opts.attach || opts.sulfo) ? info!.ring.hydrogen : "") + info!.ring.name;
     else if (bridged) {
       if (multiple(num).some((l) => l > 999)) throw new Error("bridgehead double bond");
-      // Replacement prefixes in front: 8-azabicyclo[3.2.1]octane, 1,4-dioxaspiro[4.5]decane.
-      const replaced = REPLACE.map(([e, word]) => {
-        const at = atoms.filter((a) => this.el[a] === e).map((a) => loc(num, a)).sort((a, b) => a - b);
+      // Replacement prefixes in front: 8-azabicyclo[3.2.1]octane, 1,4-dioxaspiro[4.5]decane, and azonia for an N+
+      // (P-73.1.2): 1,4-diazoniabicyclo[2.2.2]octane.
+      const replaced = [...REPLACE, ["N+", "azonia"]].map(([e, word]) => {
+        const at = atoms.filter((a) => (e === "N+" ? this.el[a] === "N" && this.q[a] === 1 : this.el[a] === e && !this.q[a])).map((a) => loc(num, a)).sort((a, b) => a - b);
         return at.length ? `${at.join(",")}-${MULT[at.length]}${word}` : "";
       }).filter(Boolean).join("-");
       parent = (replaced ? `${replaced}${/^\d/.test(bridged.prefix) ? "-" : ""}` : "") + bridged.prefix + chainStem(size, multiple(num, 2), multiple(num, 3), true);
@@ -914,7 +933,7 @@ class Namer {
     else parent = (p.ring ? "cyclo" : "") + chainStem(size, multiple(num, 2), multiple(num, 3), p.ring);
     // A ring cation (P-73.1.2): pyridin-1-ium, 1-methylpyridin-1-ium, acridin-10-ium; with an anion suffix,
     // 1-methylpyridin-1-ium-3-carboxylate; as a prefix, pyridin-1-ium-1-yl.
-    const ium = p.ring ? atoms.filter((a) => this.cationN(a) || (fused && this.ions.has(a) && this.q[a] === 1)) : [];
+    const ium = p.ring && !bridged ? atoms.filter((a) => this.cationN(a) || (fused && this.ions.has(a) && this.q[a] === 1)) : [];
     if (ium.length) {
       if ((kind && !(ANION_KINDS as Kind[]).includes(kind)) || opts.acyl || opts.sulfo || retained) throw new Error("ring cation");
       parent = `${(opts.attach && info?.ring?.hydrogen) || ""}${parent.replace(/e$/, "")}-${ium.map((a) => label(num, a)).sort(locOrder).join(",")}-${MULT[ium.length]}ium`;
