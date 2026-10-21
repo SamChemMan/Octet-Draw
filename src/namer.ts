@@ -1205,8 +1205,13 @@ function anionName(g: Graph, part: number[]): string | undefined {
 }
 
 export function iupacName(g: Graph): string | undefined {
+  return iupacNameWhy(g).name;
+}
+
+// The name, or why Octet cannot name the structure yet (the namer's reason, for its tests and the gap survey).
+export function iupacNameWhy(g: Graph): { name?: string; why?: string } {
   try {
-    if (!g.atoms.length) return undefined;
+    if (!g.atoms.length) return { why: "empty" };
     // Fragments: one structure, or a salt.
     const adj = g.atoms.map(() => [] as number[]);
     for (const b of g.bonds) { adj[b.a].push(b.b); adj[b.b].push(b.a); }
@@ -1218,8 +1223,9 @@ export function iupacName(g: Graph): string | undefined {
       while (stack.length) { const i = stack.pop()!; for (const j of adj[i]) if (!seen.has(j)) { seen.add(j); part.push(j); stack.push(j); } }
       parts.push(part);
     }
-    return parts.length === 1 ? new Namer(g).name() : saltName(g, parts);
-  } catch {
-    return undefined;
+    const name = parts.length === 1 ? new Namer(g).name() : saltName(g, parts);
+    return name ? { name } : { why: parts.length === 1 ? "no name" : "salt" };
+  } catch (e) {
+    return { why: e instanceof Error ? e.message : String(e) };
   }
 }
