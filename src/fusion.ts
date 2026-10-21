@@ -451,8 +451,8 @@ function retained(): Template[] {
 }
 
 // Hantzsch-Widman names (P-22.2.2) and the retained names of monocycles used in fusion names (P-25.3.2.2).
-const HW_ORDER = ["O", "S", "Se", "Te", "N", "P", "As", "Sb", "Bi", "Si", "Ge", "Sn", "Pb", "B", "Hg"];
-const HW_PREFIX: Record<string, string> = { O: "oxa", S: "thia", Se: "selena", Te: "tellura", N: "aza", P: "phospha", As: "arsa", Sb: "stiba",
+const HW_ORDER = ["F", "Cl", "Br", "I", "O", "S", "Se", "Te", "N", "P", "As", "Sb", "Bi", "Si", "Ge", "Sn", "Pb", "B", "Hg"];
+const HW_PREFIX: Record<string, string> = { F: "fluora", Cl: "chlora", Br: "broma", I: "ioda", O: "oxa", S: "thia", Se: "selena", Te: "tellura", N: "aza", P: "phospha", As: "arsa", Sb: "stiba",
   Bi: "bisma", Si: "sila", Ge: "germa", Sn: "stanna", Pb: "plumba", B: "bora", Hg: "mercura" };
 const MULT = ["", "", "di", "tri", "tetra", "penta"];
 const BIGMULT = ["", "", "di", "tri", "tetra", "penta", "hexa", "hepta", "octa", "nona", "deca"];
@@ -489,8 +489,8 @@ function monocycle(els: string[]): { name: string; prefix: string; stem: string;
   if (hetero.some(([e]) => !HW_PREFIX[e])) return undefined;
   const known = MONO[`${n}:${hetero.map(([e, k]) => e + k).join(",")}`];
   if (known) return { name: known[0], prefix: known[1], stem: known[0], nums };
-  // Six-membered rings end -inine when the last heteroatom cited is B, P, As or Sb (P-22.2.2.1.4).
-  const six = ["B", "P", "As", "Sb"].includes(hetero[hetero.length - 1]?.[0]) ? "inine" : "ine";
+  // Six-membered rings end -inine when the last heteroatom cited is B, P, As, Sb or a halogen (P-22.2.2.1.4).
+  const six = ["B", "P", "As", "Sb", "F", "Cl", "Br", "I"].includes(hetero[hetero.length - 1]?.[0]) ? "inine" : "ine";
   const stems = ["", "", "", hetero.some(([e]) => e === "N") ? "irine" : "irene", "ete", "ole", six, "epine", "ocine", "onine", "ecine"];
   if (!hetero.length) return BIG[n] ? { name: `[${n}]annulene`, prefix: `cyclo${BIG[n]}a`, stem: `[${n}]annulene`, nums } : undefined;
   if (!stems[n]) {
@@ -822,7 +822,8 @@ function describe(sys: RingSystem, root: Node): { key: number[]; name: string } 
       // dibenzo[b,d]furan; difuro[3,2-b:2',3'-d]pyridine.
       const list = group.map((g, k) => g.t.text.slice(g.n.c.prefix.length + 1, -1).replace(/^([^-]*)-/, (_, l: string) => primes(l.split(","), k).join(",") + "-"));
       const mult = /^(\[|di|tri)/.test(f.n.c.prefix) ? ["", "", "bis", "tris", "tetrakis"][group.length] : MULT[group.length];
-      text += `${/s$/.test(mult) ? `${mult}(${f.n.c.prefix})` : mult + f.n.c.prefix}[${list.join(group.some((g) => /-/.test(g.t.text)) ? ":" : ",")}]`;
+      // A prefix in brackets needs no more: bis[1,3]dioxolo[4,5-b:4',5'-d]pyran (OPSIN reads no bis([1,3]dioxolo)).
+      text += `${/s$/.test(mult) && !f.n.c.prefix.startsWith("[") ? `${mult}(${f.n.c.prefix})` : mult + f.n.c.prefix}[${list.join(group.some((g) => /-/.test(g.t.text)) ? ":" : ",")}]`;
       i += group.length;
     }
     best = { key, name: text + inFusion(base.name) };

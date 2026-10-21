@@ -131,7 +131,8 @@ run("carbonic acid derivatives", [
   "smiles:CCN(CC)C(=S)SSC(=S)N(CC)CC = bis(diethylcarbamothioyl) disulfide", "smiles:CCOC(=S)SSC(=S)OCC = bis(ethoxycarbonothioyl) disulfide",
   "smiles:CC(=O)SSC(C)=O = diacetyl disulfide", "smiles:CC(=O)SC(C)=O = diacetyl sulfide",
   "biguanidine = hydrazine-1,2-dicarboximidamide", "aminoguanidine = hydrazinecarboximidamide", "isosemicarbazide = hydrazinecarboximidic acid",
-  "carbazone = diazenecarbohydrazide", "diazenecarboxamide = diazenecarboxamide", "cyanogen azide = carbononitridic azide",
+  "carbazone = diazenecarbohydrazide", "diazenecarboxamide = diazenecarboxamide", "carbodiazone = didiazenylmethanone",
+  "smiles:O=C(N=Nc1ccccc1)NNc1ccccc1 = N',2-diphenyldiazene-1-carbohydrazide", "smiles:CC(=O)N=Nc1ccccc1 = 1-(phenyldiazenyl)ethanone", "cyanogen azide = carbononitridic azide",
   "smiles:Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CC2CCCC2C1 = N-(4-methylbenzene-1-sulfonyl)-N'-(octahydrocyclopenta[c]pyrrol-2-yl)urea",
   "smiles:Cc1cnc(cn1)C(=O)NCCc1ccc(cc1)S(=O)(=O)NC(=O)NC1CCCCC1", "smiles:COc1ccc(Cl)cc1C(=O)NCCc1ccc(cc1)S(=O)(=O)NC(=O)NC1CCCCC1",
   "smiles:CC1Cc2ccccc2N1NC(=O)c1ccc(Cl)c(c1)S(N)(=O)=O = 4-chloro-N-(2-methyl-2,3-dihydro-1H-indol-1-yl)-3-sulfamoylbenzamide",
@@ -144,6 +145,19 @@ run("ring heteroatoms", [
   "chlorazinane = 1λ³,2-chlorazinane", "chlorazinine = 2H-1λ³,2-chlorazine", "chlorazinal = 2H-1λ³,2-chlorazine-3-carbaldehyde",
   "chlorazinone = 2H-1λ⁵,2-chlorazin-1-one", "arsindolinic acid = 2,3-dihydro-1H-1-benzarsole-1-carboxylic acid",
   "phosphindolinal = 2,3-dihydro-1H-1-benzophosphole-1-carbaldehyde", "smiles:CC(=O)P1CCCC1 = 1-(phospholan-1-yl)ethanone",
+  // Hypervalent iodine in a ring with OH, O-alkyl, acyloxy and =O on it: IBA, IBX, Dess–Martin periodinane, Togni reagents.
+  "1-hydroxy-1λ3,2-benziodoxol-3(1H)-one = 1-hydroxy-3H-1λ³,2-benziodoxol-3-one", "smiles:OI1(=O)OC(=O)c2ccccc12 = 1-hydroxy-3H-1λ⁵,2-benziodoxole-1,3-dione",
+  "smiles:CC(=O)OI1(OC(C)=O)(OC(C)=O)OC(=O)c2ccccc12 = 1,1,1-tris(acetyloxy)-3H-1λ⁵,2-benziodoxol-3-one",
+  "3,3-dimethyl-1-(trifluoromethyl)-1λ3,2-benziodoxole = 3,3-dimethyl-1-(trifluoromethyl)-3H-1λ³,2-benziodoxole", "smiles:c1ccc2c(c1)[IH]c1ccccc12 = 5λ³-dibenzo[b,d]iodole",
+]);
+
+// Drugs: an amidine and a guanidine with =N-sulfonyl and =N-cyano (famotidine, cimetidine, with their E and Z), and a
+// fused parent that needs three indicated hydrogens (topiramate, written bis[1,3]dioxolo as OPSIN reads it).
+run("drugs", [
+  "smiles:NC(N)=Nc1nc(CSCC/C(N)=N/S(N)(=O)=O)cs1", "smiles:CC/C(N)=N/S(N)(=O)=O = (1Z)-N'-sulfamoylpropanimidamide",
+  "smiles:NC(N)=NS(=O)(=O)c1ccccc1 = N''-(benzenesulfonyl)guanidine", "smiles:CN/C(NCC)=N\\C#N = (E)-N''-cyano-N-ethyl-N'-methylguanidine",
+  "smiles:CN/C(NCCSCc1nc[nH]c1C)=N\\C#N", "smiles:C1OC2COC3OCOC3C2O1 = 5,5a,8a,8b-tetrahydro-2H,3aH,7H-bis[1,3]dioxolo[4,5-b:4',5'-d]pyran",
+  "smiles:CC1(C)O[C@@H]2CO[C@@]3(COS(N)(=O)=O)OC(C)(C)O[C@H]3[C@@H]2O1",
 ]);
 
 // Ring imines, as ring ketones are (with indicated and added hydrogen), and nitroso on a carbonyl carbon.
@@ -151,6 +165,7 @@ run("imines and nitroso", [
   "pyrimidoone = 2H-pyran-2-imine", "pyrrolidin-2-imine = pyrrolidin-2-imine", "pyridin-2(1H)-imine = pyridin-2(1H)-imine",
   "quinolin-2(1H)-imine = quinolin-2(1H)-imine", "acridin-9(10H)-imine = acridin-9(10H)-imine", "1H-isoindole-1,3(2H)-diimine",
   "harmanamidone = (7-methoxy-9H-pyrido[3,4-b]indol-1-yl)(nitroso)methanone", "smiles:O=NC(=O)c1ccccc1 = nitroso(phenyl)methanone",
+  "sulfoxylose = (2R,3S,4R)-2,3,4,5-tetrahydroxy-1-oxopentane-1-sulfonic acid", "smiles:CCC(=O)S(C)(=O)=O = 1-(methanesulfonyl)propan-1-one",
 ]);
 
 // No name rather than a wrong one: Indigo ranks a triple bond's duplicate atoms wrongly next to a ring triple bond, and

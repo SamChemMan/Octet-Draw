@@ -417,6 +417,8 @@ class Namer {
       // A diazene and a hydrazide N on it (carbazone): diazenecarbohydrazide.
       const dz = hz.length === 2 ? hz.filter((n) => adj[n].some((j) => el[j] === "N" && this.ord(n, j) === 2)) : [];
       if (hz.length === 1 || (dz.length === 1 && this.hydrazideN(c, hz.find((n) => n !== dz[0])!) !== undefined)) { const n = dz[0] ?? hz[0]; this.hydrazineGroup(c, n, others.find((j) => j !== n)!); continue; }
+      // Two diazenyl groups on C=O (carbodiazone): di(diazenyl)methanone, as bis(imidazol-1-yl)methanone is named.
+      if (dz.length === 2) { this.mark(c, "ketone", []); continue; }
       if (hz.length === 2) {
         // Carbonic dihydrazide (P-66.3.1.1.3), H2N-NH-CO-NH-NH2, and nothing else on it.
         if (this.n !== 6 || hz.some((n) => adj[n].length !== 2 || adj[adj[n].find((j) => el[j] === "N")!].length !== 1 || adj[n].some((j) => this.ord(n, j) !== 1))) throw new Error("carbonic acid derivative");
@@ -431,8 +433,12 @@ class Namer {
       if ((HALO[el[x]] && adj[x].length === 1) || this.prefixOnly.has(x)) { this.mark(c, "halide", cs); this.group[x] = "halide"; continue; }
       const y = el[x] === "O" && adj[x].length === 2 ? adj[x].find((j) => j !== c)! : -1;
       if (y >= 0 && el[y] === "C" && this.carbonylO[y] >= 0 && !this.inRing[y]) { this.mark(c, "anhydride", cs); this.group[x] = "anhydride"; this.anhydrideO.set(c, x); continue; }
-      // A nitro or nitroso group on a carbonyl carbon is a prefix on a ketone: 1-nitropropan-1-one, nitroso(phenyl)methanone.
-      if ((this.nitroAtom(x) || (el[x] === "N" && !q[x] && adj[x].length === 2 && adj[x].some((j) => el[j] === "O" && this.ord(x, j) === 2 && adj[j].length === 1 && !q[j]))) && cs.length === 1) { this.mark(c, "ketone", cs); continue; }
+      // A nitro or nitroso group on a carbonyl carbon is a prefix on a ketone: 1-nitropropan-1-one, nitroso(phenyl)methanone;
+      // a sulfonic acid or sulfonyl group is cited from it: 1-oxopentane-1-sulfonic acid, 1-(methanesulfonyl)propan-1-one.
+      const sulfonyl = el[x] === "S" && !q[x] && !this.inRing[x] && adj[x].length === 4 && adj[x].filter((j) => this.isOxo(x, j)).length === 2;
+      // So is a diazenyl group (P-68.3.1.3): 1-(phenyldiazenyl)ethan-1-one.
+      const diazenyl = el[x] === "N" && !q[x] && !this.inRing[x] && adj[x].length === 2 && adj[x].some((j) => el[j] === "N" && this.ord(x, j) === 2 && !q[j] && !this.inRing[j]);
+      if ((this.nitroAtom(x) || sulfonyl || diazenyl || (el[x] === "N" && !q[x] && adj[x].length === 2 && adj[x].some((j) => el[j] === "O" && this.ord(x, j) === 2 && adj[j].length === 1 && !q[j]))) && cs.length === 1) { this.mark(c, "ketone", cs); continue; }
       const peroxo = el[x] === "O" && el[o] === "O" && adj[x].length === 2 ? adj[x].find((j) => j !== c && el[j] === "O" && q[j] <= 0 && !this.inRing[j]) : undefined;
       if (peroxo !== undefined) { this.peroxyGroup(c, cs, x, peroxo); continue; }
       // -SH and -S-R in place of -OH and -O-R (P-65.1.5): thioic S-acids and S-esters.
@@ -461,7 +467,7 @@ class Namer {
       const os = adj[i].filter((j) => el[j] === "O" && this.ord(i, j) === 2 && adj[j].length === 1 && !q[j]);
       if (!os.length) continue;
       const cs = this.carbons(i), rest = adj[i].filter((j) => !os.includes(j) && !cs.includes(j));
-      if (adj[i].some((j) => this.ord(i, j) === 2 && !os.includes(j)) || cs.some((j) => this.carbonylO[j] >= 0 || this.isNitrileC(j))) throw new Error("sulfur");
+      if (adj[i].some((j) => this.ord(i, j) === 2 && !os.includes(j)) || cs.some((j) => (this.carbonylO[j] >= 0 && this.group[j] !== "ketone") || this.isNitrileC(j))) throw new Error("sulfur");
       if (os.length === 2 && cs.length === 1 && rest.length === 1 && el[rest[0]] === "O" && h[rest[0]] === 1 && adj[rest[0]].length === 1) this.mark(i, "sulfonic", cs);
       else if (os.length === 2 && cs.length === 1 && rest.length === 1 && HALO[el[rest[0]]] && adj[rest[0]].length === 1) this.mark(i, "sulfonylhalide", cs);
       else if (!(os.length <= 2 && cs.length === 2 && !rest.length)) throw new Error("sulfur");
@@ -761,6 +767,9 @@ class Namer {
     if (this.el[x] === "C" && this.carbonylO[x] < 0) return n; // N-cyano too: N''-cyanoguanidine
     if (this.el[x] === "O" && !this.q[x] && this.adj[x].length + this.h[x] === 2 && this.adj[x].every((j) => j === n || (this.el[j] === "C" && this.carbonylO[j] < 0))) return n;
     if (this.el[x] === "N" && this.inRing[x] && !this.q[x]) return n; // on a ring N: N-(piperidin-1-yl)ethanimine
+    // A sulfonyl group on the =N of an amidine or guanidine: N'-sulfamoylpropanimidamide (famotidine).
+    if (this.el[x] === "S" && !this.inRing[x] && !this.q[x] && this.adj[x].filter((o) => this.isOxo(x, o)).length === 2 && !this.inRing[c]
+      && this.adj[c].some((j) => j !== n && this.el[j] === "N" && this.ord(c, j) === 1 && !this.inRing[j])) return n;
     return undefined;
   }
 
@@ -1191,11 +1200,14 @@ class Namer {
     const byLoc = (l: number[]) => [...l].sort((a, b) => num.indexOf(a) - num.indexOf(b));
     ketones = ketones.filter((a) => f.cn.includes(a)); // a ketone on a bridge or a saturated spiro ring needs nothing
     // f.cn, not the template, counts: a ring O+ or S+ takes a double bond (phenothiazin-5-ium).
-    const indicated = f.cn.length % 2 ? 1 : f.tpl.hydrogens === 2 || !pairable(f.cn, f.ring) ? 2 : 0;
-    const lone = ketones.length % 2 ? byLoc(ketones) : [];
-    const pool = [...lone, ...byLoc(f.d.filter((a) => !lone.includes(a)))];
     // Sets of m atoms from a list, in its order.
     const sets = (l: number[], m: number): number[][] => (!m ? [[]] : l.flatMap((a, i) => sets(l.slice(i + 1), m - 1).map((r) => [a, ...r])));
+    let indicated = f.cn.length % 2 ? 1 : f.tpl.hydrogens === 2 || !pairable(f.cn, f.ring) ? 2 : 0;
+    // A parent whose atoms cannot pair up even so needs two more (P-31.1.4.2.4): the O-CH2-O carbons of
+    // bis[1,3]dioxolo[4,5-b:4',5'-d]pyran (topiramate) each take one, and the pyran a third.
+    if (indicated === 1 && f.cn.length <= 30 && !f.cn.some((a) => pairable(f.cn.filter((b) => b !== a), f.ring))) indicated = 3;
+    const lone = ketones.length % 2 ? byLoc(ketones) : [];
+    const pool = [...lone, ...byLoc(f.d.filter((a) => !lone.includes(a)))];
     for (const xs of sets(pool, indicated)) {
       const left = ketones.filter((a) => !xs.includes(a)), free = byLoc(f.d.filter((a) => !xs.includes(a) && !ketones.includes(a)));
       // The fewest added hydrogens; the parent with its indicated and added hydrogen must exist: the other C and N atoms
@@ -2121,7 +2133,9 @@ class Namer {
     const text = assemblePrefixes(prefixes.map((x) => ({ loc: ["N", "N'", "N''"][nums[0].indexOf(x.n)], name: x.name })), false);
     // Thiourea (P-66.1.6.1.2); O-alkyl carbamothioates come below.
     const thio = thioDouble(this, c);
-    if (kind === "guanidine" || (kind === "urea" && !imidic)) return `${text}${thio ? "thio" : ""}${kind}`;
+    // E or Z on a guanidine's C=N, in front: (E)-N''-cyano-N-methyl-N'-…guanidine (cimetidine).
+    const ez = kind === "guanidine" ? this.cipBond.get(this.key(c, imino!)) : undefined;
+    if (kind === "guanidine" || (kind === "urea" && !imidic)) return `${ez === "E" || ez === "Z" ? `(${ez})-` : ""}${text}${thio ? "thio" : ""}${kind}`;
     if (kind === "urea") throw new Error("imine");
     if (kind === "imine") return `${text}methanediimine`;
     // Carbamic acid, carbamates and carbamoyl halides; carbonic acid, carbonates, carbonochloridic acid and its esters,

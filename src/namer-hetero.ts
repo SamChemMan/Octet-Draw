@@ -85,6 +85,18 @@ export function thioPrefix(n: Namer, x: number, kind: string | undefined): Name 
 // carbons out of its chains. (Isocyanates and cyanates are namer.ts's pseudoGroup().)
 export function perceiveIodanes(n: Namer) {
   for (let c = 0; c < n.n; c++) if (n.el[c] === "I" && !n.inRing[c] && !n.q[c] && n.adj[c].length >= 2) iodane(n, c);
+  // OH, O-alkyl and acyloxy on a ring halogen (role "XO", with the acyl group's C and =O): hydroxy and acetyloxy
+  // prefixes on its ring (1-hydroxy-3H-1λ³,2-benziodoxol-3-one, Dess–Martin periodinane), an OH alone the suffix ol.
+  for (let x = 0; x < n.n; x++) {
+    if (!HALO[n.el[x]] || !n.inRing[x] || n.q[x]) continue;
+    for (const o of n.adj[x]) {
+      if (n.el[o] !== "O" || n.inRing[o] || n.q[o] || n.ord(x, o) !== 1) continue;
+      const r = n.adj[o].find((j) => j !== x), acyl = r !== undefined && n.carbonylO[r] >= 0;
+      if (r === undefined ? n.h[o] !== 1 : n.adj[o].length !== 2 || n.el[r] !== "C" || n.isNitrileC(r) || n.inRing[r] || (acyl && n.adj[r].some((j) => j !== o && j !== n.carbonylO[r] && n.el[j] !== "C"))) continue;
+      for (const k of acyl ? [o, r, n.carbonylO[r]] : [o]) n.het.set(k, "XO");
+      if (r === undefined) n.mark(o, "alcohol", [x]);
+    }
+  }
 }
 // Iodosyl (C-I=O), iodyl (C-I(=O)=O) and λ3-iodanyl (C-I with two O or halogen ligands) groups at x.
 function iodane(n: Namer, x: number) {
@@ -165,7 +177,8 @@ export function perceiveHetero(n: Namer) {
       if (!free(n, m) || n.ord(i, m) === 3) continue;
       const others = [...adj[i], ...adj[m]].filter((j) => j !== i && j !== m);
       if (n.ord(i, m) === 2) {
-        if (adj[i].length + h[i] === 2 && adj[m].length + h[m] === 2 && others.every((j) => plainC(n, j) && n.ord(i, j) + n.ord(m, j) === 1)) { n.het.set(i, "N=N"); n.het.set(m, "N=N"); }
+        // A ketone's carbon too: 1-(phenyldiazenyl)ethan-1-one.
+        if (adj[i].length + h[i] === 2 && adj[m].length + h[m] === 2 && others.every((j) => (plainC(n, j) || n.group[j] === "ketone") && n.ord(i, j) + n.ord(m, j) === 1)) { n.het.set(i, "N=N"); n.het.set(m, "N=N"); }
         // A triazene (P-68.3.1.4): R-N=N-NR2, the amine N with only plain carbons and H.
         const y = adj[m].find((j) => j !== i);
         if (y !== undefined && el[y] === "N" && free(n, y) && single(n, y) && adj[y].length + h[y] === 3 && adj[y].every((j) => j === m || plainC(n, j))
