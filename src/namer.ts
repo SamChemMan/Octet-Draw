@@ -12,7 +12,7 @@
 // oxa, thia and aza replacement; R/S and E/Z. Not yet: polycyclic bridged rings (adamantane), fused systems outside
 // the table, larger ring assemblies, and other charged atoms. Octet's own name tables cover some of these (naming.ts).
 import type { Graph } from "./naming.ts";
-import { amideHetero, groupVariant, heteroAmine, heteroBond, heteroCharged, heteroParentName, inorganicName, nOxideN, nOxides, oxideText, heteroPrefix, perceiveHetero, peroxyCarbonyl, sulfonamideN, sulfonateName, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
+import { amideHetero, groupVariant, heteroAmine, heteroBond, heteroCharged, heteroParentName, inorganicName, nOxideN, nOxides, oxideText, perceivePseudo, heteroPrefix, perceiveHetero, peroxyCarbonyl, sulfonamideN, sulfonateName, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
 
 type Name = { text: string; compound: boolean }; // compound: needs brackets when cited as a prefix
 
@@ -239,8 +239,9 @@ class Namer {
       if (!["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"].includes(el[i])) throw new Error(`element ${el[i]}`);
       if (q[i] && !this.nitroAtom(i) && !this.cationN(i) && !this.diazoAtom(i) && !this.azidoAtom(i) && !heteroCharged(this, i)) throw new Error("charge");
     }
+    perceivePseudo(this); // isothiocyanato, thiocyanato, λ3-iodanyl (namer-hetero.ts)
     for (let c = 0; c < this.n; c++) {
-      if (el[c] !== "C") continue;
+      if (el[c] !== "C" || this.het.has(c)) continue;
       const o = this.carbonylO[c], cs = this.carbons(c);
       const others = adj[c].filter((j) => j !== o && el[j] !== "C");
       const nitrileN = adj[c].find((j) => el[j] === "N" && this.ord(c, j) === 3 && adj[j].length === 1);
@@ -315,7 +316,7 @@ class Namer {
     }
     // Phosphanes and phosphane oxides (P-68.3.2): P with three single bonds to carbon or hydrogen, and perhaps =O.
     for (let i = 0; i < this.n; i++) {
-      if (el[i] !== "P" || this.het.has(i)) continue;
+      if (el[i] !== "P" || this.het.has(i) || (this.inRing[i] && !q[i] && adj[i].every((j) => this.inRing[j] || this.ord(i, j) === 1))) continue; // ring P: the ring's name
       const os = adj[i].filter((j) => el[j] === "O" && this.ord(i, j) === 2 && adj[j].length === 1 && !q[j]), rest = adj[i].filter((j) => !os.includes(j));
       if (this.inRing[i] || q[i] || os.length > 1 || rest.length + h[i] !== 3 || rest.some((j) => el[j] !== "C" || this.ord(i, j) !== 1 || this.carbonylO[j] >= 0) || this.cip[i]) throw new Error("phosphorus");
       this.phosphorus.add(i);
@@ -888,7 +889,7 @@ class Namer {
 
   // Acyclic carbon paths (no ring atoms) through or from `start`, not crossing `from`.
   paths(start: number, from: number, fromStart: boolean): number[][] {
-    const ok = (j: number) => this.el[j] === "C" && !this.inRing[j] && j !== from;
+    const ok = (j: number) => this.el[j] === "C" && !this.inRing[j] && j !== from && !this.het.has(j);
     const walk = (a: number, seen: Set<number>): number[][] => {
       const next = this.adj[a].filter((j) => ok(j) && !seen.has(j) && (j === start || this.carbonylO[j] < 0 || true));
       const ends = next.flatMap((j) => walk(j, new Set([...seen, j])).map((p) => [j, ...p]));
@@ -946,7 +947,7 @@ class Namer {
   }
   // Candidate parents: every acyclic carbon chain and every ring; the senior one wins (P-44).
   parentName(kind: Kind | undefined, skip = new Set<number>(), within?: Set<number>): Name | undefined {
-    const carbons = [...Array(this.n).keys()].filter((i) => this.el[i] === "C" && !this.inRing[i] && (!within || within.has(i)) && !skip.has(i));
+    const carbons = [...Array(this.n).keys()].filter((i) => this.el[i] === "C" && !this.inRing[i] && (!within || within.has(i)) && !skip.has(i) && !this.het.has(i));
     const chains: number[][] = [];
     for (const a of carbons) for (const p of this.paths(a, -1, true)) if (p.every((i) => !skip.has(i) && (!within || within.has(i)))) chains.push(p);
     const count = (atoms: number[], ring: boolean) => {
@@ -1125,6 +1126,9 @@ function assemblePrefixes(list: { loc: string; name: Name }[], noLocants: boolea
     const m = g.locs.length, multiplied = m > 1 ? (g.name.compound ? MULT_COMPLEX[m] + enclose(g.name) : MULT[m] + g.name.text) : enclose(g.name);
     return noLocants && !locs.some(isN) ? multiplied : `${locs.join(",")}-${multiplied}`;
   });
+  // Without locants, prefixes after the first go in brackets (P-16.5.1.2): bromo(chloro)fluoromethane is
+  // bromo(chloro)(fluoro)methane here, (dihydroxyamino)(phenyl)acetic acid.
+  if (noLocants) return parts.reduce((t, x, k) => (!k ? x : /^[\dN]/.test(x) ? `${t}-${x}` : /^[([{]/.test(x) ? t + x : `${t}(${x})`), "");
   return parts.join("-").replace(/-$/, "") + (parts.length && /\d$|N$/.test(parts[parts.length - 1]) ? "" : "");
 }
 // Prefixes, then the rest of the name, with a hyphen before a locant: 5-bromo-1H-indole, 1-methyl-1H-pyrrole.

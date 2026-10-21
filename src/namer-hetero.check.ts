@@ -157,6 +157,18 @@ must("N-oxides, imines", [
   "4-(propan-2-ylideneamino)phenol", "4-(cyclohexylideneamino)benzoic acid", "(2E)-2-(2-phenylhydrazinylidene)propanoic acid",
   "1-phenyl-2-[(E)-1-phenylethylidene]hydrazine",
 ]);
+// Diphosphates and triphosphates, phosphorothioates, isothiocyanates and thiocyanates, ring S-oxides, hypervalent
+// iodine and iodanium salts, hypohalites, (dihydroxyamino).
+must("more", [
+  "diphosphoric acid", "triphosphoric acid", "methyl trihydrogen diphosphate", "tetraethyl diphosphate", "3-methylbut-3-en-1-yl trihydrogen diphosphate",
+  "adenosine 5'-diphosphate", "adenosine 5'-triphosphate", "O,O-diethyl O-(4-nitrophenyl) phosphorothioate", "O,O,O-trimethyl phosphorothioate",
+  "O,O,S-trimethyl phosphorodithioate", "4-[(dimethoxyphosphorothioyl)sulfanyl]butanoic acid", "diazinon", "isothiocyanatobenzene",
+  "isothiocyanatomethane", "4-isothiocyanatobenzoic acid", "1-isothiocyanato-4-methylbenzene", "thiocyanatobenzene", "4-thiocyanatobenzoic acid",
+  "isocyanatobenzene", "cyanatobenzene", "thiolane 1,1-dioxide", "thiolane 1-oxide", "thiophene 1-oxide", "4-methylthiane 1,1-dioxide",
+  "thiolane-3-carboxylic acid 1,1-dioxide", "[bis(acetyloxy)-λ3-iodanyl]benzene", "[bis(trifluoroacetyloxy)iodo]benzene", "(dichloro-λ3-iodanyl)benzene",
+  "iodosylbenzene", "iodylbenzene", "4-iodosylbenzoic acid", "diphenyliodanium chloride", "methyl hypochlorite", "tert-butyl hypochlorite",
+  "4-(chlorooxy)butanoic acid", "4-(dihydroxyamino)benzoic acid",
+]);
 // Small molecules with no carbon (IUPAC 2005, IR-6, IR-8). Single atoms (water, HCl) are not named: a lone atom
 // drawn is ambiguous.
 must("inorganic", [
