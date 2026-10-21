@@ -181,3 +181,22 @@ for (const input of ["2H-1,3-benzodioxole", "imidazo[1,2-a]pyridine", "5-phenyl-
   const smiles = opsin.parseToSmiles(input), g = graphOf(molOf(smiles), cipOf(smiles)), name = g && iupacName(g);
   assert.ok(!name?.includes("bicyclo"), `${input} -> ${name}`);
 }
+
+// Diazo and azido groups (P-61.4, P-61.5), cited only as prefixes. Sam's prenyl diazoacetate (20 October 2026) gave
+// "Octet cannot name this structure yet". Every one must be named, and read back as the same structure.
+const n2 = [
+  "3-methylbut-2-en-1-yl diazoacetate", "ethyl diazoacetate", "diazomethane", "2-diazo-1-phenylethan-1-one",
+  "ethyl 2-diazo-3-oxobutanoate", "azidobenzene", "(azidomethyl)benzene", "1-azidobutane", "4-azidobenzoic acid",
+];
+const n2Out: string[] = [];
+for (const input of n2) {
+  const smiles = opsin.parseToSmiles(input);
+  assert.ok(smiles, `OPSIN reads ${input}`);
+  const g = graphOf(molOf(smiles), cipOf(smiles));
+  const name = g && iupacName(g);
+  assert.ok(name, `no name for ${input} (${smiles})`);
+  const back = opsin.parseToSmiles(name);
+  assert.ok(back && convert(back, "inchi") === convert(smiles, "inchi"), `${input} -> ${name}, a different structure`);
+  n2Out.push(`${input} -> ${name}`);
+}
+console.log(`namer.check: diazo and azido ${n2Out.length}/${n2.length}: ${n2Out.join("; ")}`);

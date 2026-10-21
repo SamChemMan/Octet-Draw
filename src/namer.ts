@@ -235,7 +235,7 @@ class Namer {
     const { el, h, q, adj } = this;
     for (let i = 0; i < this.n; i++) {
       if (!["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"].includes(el[i])) throw new Error(`element ${el[i]}`);
-      if (q[i] && !this.nitroAtom(i) && !this.cationN(i)) throw new Error("charge");
+      if (q[i] && !this.nitroAtom(i) && !this.cationN(i) && !this.diazoAtom(i) && !this.azidoAtom(i)) throw new Error("charge");
     }
     for (let c = 0; c < this.n; c++) {
       if (el[c] !== "C") continue;
@@ -330,7 +330,7 @@ class Namer {
         if (adj[i].length === 1 && h[i] === 1 && cs.length === 1) this.mark(i, "thiol", cs);
         else if (!(adj[i].length === 2 && cs.length === 2)) throw new Error("sulfur");
       } else if (el[i] === "N") {
-        if (this.nitroAtom(i)) continue;
+        if (this.nitroAtom(i) || this.diazoAtom(i) || this.azidoAtom(i)) continue;
         if (this.cationN(i)) {
           if (!cs.length || cs.some((j) => this.carbonylO[j] >= 0 || this.isNitrileC(j))) throw new Error("cation");
           this.mark(i, "aminium", cs);
@@ -347,7 +347,8 @@ class Namer {
       if ((this.inRing[a] && this.ringOf[a] === this.ringOf[b]) || (this.sulfur.has(a) && this.sulfur.has(b))) continue;
       const oxime = (x: number, y: number) => this.group[x] === "imine" && el[x] === "N" && el[y] === "O" && o === 1;
       const oxide = this.phosphorus.has(a) && this.phosphorus.has(b);
-      if (el[a] !== "C" && el[b] !== "C" && !this.nitroBond(a, b) && !oxime(a, b) && !oxime(b, a) && !oxide) throw new Error(`hetero bond ${el[a]}${o}${el[b]}`);
+      const n2 = (this.diazoAtom(a) && this.diazoAtom(b)) || (this.azidoAtom(a) && this.azidoAtom(b));
+      if (el[a] !== "C" && el[b] !== "C" && !this.nitroBond(a, b) && !oxime(a, b) && !oxime(b, a) && !oxide && !n2) throw new Error(`hetero bond ${el[a]}${o}${el[b]}`);
     }
   }
   mark(i: number, kind: Kind, on: number[]) { this.group[i] = kind; this.bearer.set(i, on); }
@@ -361,6 +362,33 @@ class Namer {
       && this.adj[n].length === 3 && this.carbons(n).length === 1;
   }
   nitroBond = (a: number, b: number) => this.nitroAtom(a) && this.nitroAtom(b);
+  // The N=N+ end of a diazo or azido group: N+ with a terminal =N- and one more double bond, to x.
+  private n2End(mid: number): number | undefined {
+    if (this.el[mid] !== "N" || this.q[mid] !== 1 || this.h[mid] || this.adj[mid].length !== 2) return undefined;
+    const end = this.adj[mid].find((j) => this.el[j] === "N" && this.q[j] === -1 && !this.h[j] && this.adj[j].length === 1 && this.ord(mid, j) === 2);
+    if (end === undefined) return undefined;
+    const x = this.adj[mid].find((j) => j !== end)!;
+    return this.ord(mid, x) === 2 ? x : undefined;
+  }
+  // Diazo (P-61.4): C=N+=N- on a carbon outside a ring, cited only as the prefix diazo. True for its two N.
+  diazoAtom(i: number): boolean {
+    if (this.el[i] !== "N") return false;
+    const mid = this.q[i] === 1 ? i : this.adj[i].find((j) => this.q[j] === 1);
+    const c = mid === undefined ? undefined : this.n2End(mid);
+    return c !== undefined && this.el[c] === "C" && !this.inRing[c];
+  }
+  // Azido (P-61.5): C-N=N+=N-, cited only as the prefix azido. True for its three N.
+  azidoAtom(i: number): boolean {
+    if (this.el[i] !== "N") return false;
+    const mids = this.q[i] === 1 ? [i] : this.adj[i].filter((j) => this.el[j] === "N" && this.q[j] === 1);
+    for (const mid of mids) {
+      const n = this.n2End(mid);
+      if (n === undefined || this.el[n] !== "N" || this.q[n] || this.h[n] || this.adj[n].length !== 2) continue;
+      const c = this.adj[n].find((j) => j !== mid)!;
+      if (this.el[c] === "C" && this.ord(n, c) === 1) return true;
+    }
+    return false;
+  }
   // A positive N with four bonds counting hydrogens: an aminium N (single bonds) or a ring N of an "-ium" cation.
   cationN(i: number): boolean {
     if (this.el[i] !== "N" || this.q[i] !== 1 || this.nitroAtom(i)) return false;
@@ -735,7 +763,9 @@ class Namer {
   // ——— Substituent prefixes ———
   substituent(x: number, from: number): Name {
     const el = this.el[x];
-    if (this.ord(x, from) !== 1) throw new Error("ylidene"); // =CH2 and the like are not covered
+    // Diazo is the one prefix on a double bond that Octet names (=N+=N-); =CH2 and the like are not covered.
+    if (el === "N" && this.diazoAtom(x) && this.ord(x, from) === 2) return { text: "diazo", compound: false };
+    if (this.ord(x, from) !== 1) throw new Error("ylidene");
     // Rings with a free valence, on a ring carbon or a ring nitrogen (piperidin-1-yl).
     if (this.inRing[x]) return this.nameParent({ atoms: this.rings[this.ringOf[x]], ring: true }, { attach: [x, from] });
     // Groups Octet does not yet cite as prefixes.
@@ -756,6 +786,7 @@ class Namer {
     }
     if (HALO[el]) return { text: HALO[el], compound: false };
     if (el === "N" && this.nitroAtom(x)) return { text: "nitro", compound: false };
+    if (el === "N" && this.azidoAtom(x)) return { text: "azido", compound: false };
     if (el === "O") {
       if (this.adj[x].length === 1) {
         if (this.h[x] === 1) return { text: "hydroxy", compound: false };
