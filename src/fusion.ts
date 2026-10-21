@@ -78,13 +78,6 @@ export function ringSystem(el: string[], adj: number[][]): RingSystem {
     });
   }
   const across = rings.map((r, i) => r.map((a, k) => ringsOf.get(key(a, r[(k + 1) % r.length]))!.find((s) => s !== i) ?? -1));
-  // An atom with four ring bonds lies in three rings, two of which meet only there. OPSIN draws (and numbers) such a
-  // system as this module does unless those two are both six-membered (checked on many systems).
-  for (let a = 0; a < n; a++) {
-    if (adj[a].length < 4) continue;
-    const at = [...rings.keys()].filter((r) => rings[r].includes(a));
-    if (at.some((r, i) => at.slice(i + 1).some((t) => !across[r].includes(t) && rings[r].length === 6 && rings[t].length === 6))) throw new Error("fused ring shape");
-  }
   // The periphery: the bonds in one ring only, one cycle through every atom not inside.
   const next = Array(n).fill(-1);
   rings.forEach((r, i) => r.forEach((a, k) => { if (across[i][k] < 0) { if (next[a] >= 0) throw new Error("not ortho-fused"); next[a] = r[(k + 1) % r.length]; } }));
@@ -92,6 +85,13 @@ export function ringSystem(el: string[], adj: number[][]): RingSystem {
   let len = 0;
   for (let a = start; ; ) { a = next[a]; len++; if (a === start) break; if (a < 0 || len > n) throw new Error("not ortho-fused"); }
   if (len !== next.filter((x) => x >= 0).length) throw new Error("not ortho-fused");
+  // An atom with four ring bonds lies in three rings, two of which meet only there. OPSIN draws (and numbers) such a
+  // system as this module does unless those two are both six-membered (checked on many systems).
+  for (let a = 0; a < n; a++) {
+    if (adj[a].length < 4) continue;
+    const at = [...rings.keys()].filter((r) => rings[r].includes(a));
+    if (at.some((r, i) => at.slice(i + 1).some((t) => !across[r].includes(t) && rings[r].length === 6 && rings[t].length === 6))) throw new Error("fused ring shape");
+  }
   return { n, el, adj, rings, across, next };
 }
 
@@ -815,18 +815,21 @@ const WHOLE: [string, string, string][] = [
 // The parent name and numberings of a fused system outside the namer's table, for atoms of a molecule: the name, its
 // locants in order, and each numbering (the molecule's atoms in locant order). `uncited` holds indices whose locants
 // the rules leave open (interior atoms), which a name must not cite; `hydrogens` the parent's indicated hydrogens where
-// fixed. A bridged fused system (FR-8) also gives its bridge prefixes and bridge atoms: indicated hydrogen goes between
-// them and the fused name (4,7-methano-1H-indene), and the bridge atoms take no hydro prefixes.
-type Parent = { name: string; labels: string[]; nums: number[][]; uncited: number[]; hydrogens?: number; bridges?: string; bridge?: number[] };
+// fixed. A bridged fused system (FR-8) also gives its bridge prefixes: indicated hydrogen goes between them and the
+// fused name (4,7-methano-1H-indene). `fixed` holds atoms that take no hydro prefixes (bridge atoms, spiro atoms and
+// saturated monocyclic spiro components).
+type Parent = { name: string; labels: string[]; nums: number[][]; uncited: number[]; hydrogens?: number; bridges?: string; fixed?: number[] };
 export function fusedParent(atoms: number[], el: (a: number) => string, ring: (a: number) => number[], order?: (a: number, b: number) => number): Parent {
   const at = new Map(atoms.map((a, i) => [a, i]));
   const lel = atoms.map(el), ladj = atoms.map((a) => ring(a).map((b) => at.get(b)!));
   let p: Parent;
   try { p = whole(lel, ladj) ?? ortho(lel, ladj); } catch (e) {
     if (!(e instanceof Error) || e.message !== "not ortho-fused" || !order) throw e;
-    p = bridgedFused(lel, ladj, (a, b) => order(atoms[a], atoms[b]));
+    // A spiro atom (its removal splits the rings) makes a spiro system; else bridges.
+    const ord = (a: number, b: number) => order(atoms[a], atoms[b]);
+    p = ladj.some((x) => x.length === 4) ? (() => { try { return spiroParent(lel, ladj, ord); } catch (f) { if ((f as Error).message === "not ortho-fused") return bridgedFused(lel, ladj, ord); throw f; } })() : bridgedFused(lel, ladj, ord);
   }
-  return { ...p, nums: p.nums.map((n) => n.map((i) => atoms[i])), bridge: p.bridge?.map((i) => atoms[i]) };
+  return { ...p, nums: p.nums.map((n) => n.map((i) => atoms[i])), fixed: p.fixed?.map((i) => atoms[i]) };
 }
 
 // Retained parents named only as a whole (porphyrin).
@@ -942,8 +945,93 @@ function bridgedFused(el: string[], adj: number[][], order: (a: number, b: numbe
     // The bridges' locants in order of citation as low as possible; the numberings left give the same name.
     const lowest = all.reduce((m, x) => (cmp(x.key, m) < 0 ? x.key : m), all[0].key), full = all.filter((x) => !cmp(x.key, lowest));
     if (full.some((x) => x.text !== full[0].text)) continue;
-    best = { score, parent: { name: f.name, labels: full[0].labels, nums: full.map((x) => x.order), uncited: f.uncited, hydrogens: f.hydrogens, bridges: full[0].text, bridge: [...gone] } };
+    best = { score, parent: { name: f.name, labels: full[0].labels, nums: full.map((x) => x.order), uncited: f.uncited, hydrogens: f.hydrogens, bridges: full[0].text, fixed: [...gone] } };
   }
   if (!best) throw new Error("not ortho-fused");
   return best.parent;
+}
+
+// Saturated monocycles as spiro components (P-24.5, P-22.2.2): cyclohexane, piperidine, 1,3-dioxolane, azetidine.
+const ALKANE = ["", "", "", "prop", "but", "pent", "hex", "hept", "oct", "non", "dec", "undec", "dodec"];
+const SATURATED: Record<string, string> = { "5:N1": "pyrrolidine", "5:N1,N2": "pyrazolidine", "5:N1,N3": "imidazolidine", "6:N1": "piperidine",
+  "6:N1,N4": "piperazine", "6:O1,N4": "morpholine" };
+function saturatedRing(els: string[]): { name: string; nums: number[][] } | undefined {
+  const n = els.length;
+  if (!els.some((e) => e !== "C")) {
+    const nums: number[][] = [];
+    for (let s = 0; s < n; s++) for (const d of [1, -1]) nums.push(els.map((_, k) => (s + d * k + 2 * n) % n));
+    return ALKANE[n] ? { name: `cyclo${ALKANE[n]}ane`, nums } : undefined;
+  }
+  const m = monocycle(els);
+  if (!m) return undefined;
+  const hetero = m.nums[0].flatMap((a, k): [string, number][] => (els[a] !== "C" ? [[els[a], k + 1]] : []))
+    .sort((x, y) => HW_ORDER.indexOf(x[0]) - HW_ORDER.indexOf(y[0]) || x[1] - y[1]);
+  const known = SATURATED[`${n}:${hetero.map(([e, k]) => e + k).join(",")}`];
+  if (known) return { name: known, nums: m.nums };
+  const N = hetero.some(([e]) => e === "N");
+  const six = ["O", "S", "Se", "Te", "Bi", "Hg"].includes(hetero[hetero.length - 1][0]) ? "ane" : "inane";
+  const stems = ["", "", "", N ? "iridine" : "irane", N ? "etidine" : "etane", N ? "olidine" : "olane", six, "epane", "ocane", "onane", "ecane"];
+  if (!stems[n]) return undefined;
+  const stem = (HW_ORDER.filter((e) => hetero.some(([x]) => x === e)).map((e) => MULT[hetero.filter(([x]) => x === e).length] + HW_PREFIX[e]).join("") + stems[n]).replace(/a(?=[aeiou])/g, "");
+  const unique = hetero.length >= n - 1 && new Set(hetero.map(([e]) => e)).size === 1;
+  return { name: (hetero.length > 1 && !unique ? `${hetero.map(([, k]) => k).join(",")}-` : "") + stem, nums: m.nums };
+}
+
+// A monospiro system with at least one polycyclic component (P-24.5.1): spiro[cyclohexane-1,1'-indene],
+// 9,9'-spirobi[fluorene]. Components in alphabetical order, each numbered as itself with the spiro atom as low as
+// possible, the second primed. Saturated monocyclic components and the spiro atom take no hydro prefixes; ring double
+// bonds in a monocyclic component are not covered.
+function spiroParent(el: string[], adj: number[][], order: (a: number, b: number) => number): Parent {
+  const n = el.length;
+  const parts = (s: number) => {
+    const out: number[][] = [];
+    for (const start of adj[s]) {
+      if (out.some((c) => c.includes(start))) continue;
+      const c = [start];
+      for (let i = 0; i < c.length; i++) for (const b of adj[c[i]]) if (b !== s && !c.includes(b)) c.push(b);
+      out.push(c);
+    }
+    return out;
+  };
+  const spiro = [...Array(n).keys()].filter((a) => adj[a].length === 4 && parts(a).length === 2);
+  if (spiro.length !== 1) throw new Error("not ortho-fused");
+  const s = spiro[0];
+  const comps = parts(s).map((c) => {
+    const atoms = [s, ...c], at = new Map(atoms.map((a, i) => [a, i]));
+    const cel = atoms.map((a) => el[a]), cadj = atoms.map((a) => adj[a].filter((b) => at.has(b)).map((b) => at.get(b)!));
+    const bonds = cadj.reduce((t, x) => t + x.length, 0) / 2;
+    let name: string, labels: string[], nums: number[][], uncited: string[] = [], mono = false;
+    if (bonds === atoms.length) {
+      // One ring: walk it, all single bonds.
+      const cycle = [0];
+      while (cycle.length < atoms.length) cycle.push(cadj[cycle[cycle.length - 1]].find((b) => !cycle.includes(b))!);
+      if (cycle.some((a, i) => order(atoms[a], atoms[cycle[(i + 1) % cycle.length]]) !== 1)) throw new Error("spiro ring double bond");
+      const r = saturatedRing(cycle.map((a) => cel[a]));
+      if (!r) throw new Error("spiro component");
+      name = r.name; labels = cycle.map((_, i) => String(i + 1)); nums = r.nums.map((num) => num.map((k) => atoms[cycle[k]])); mono = true;
+    } else {
+      const f = whole(cel, cadj) ?? ortho(cel, cadj);
+      name = f.name; labels = f.labels; nums = f.nums.map((num) => num.map((i) => atoms[i])); uncited = f.uncited.map((i) => f.labels[i]);
+    }
+    // The spiro atom as low as possible.
+    const low = Math.min(...nums.map((num) => num.indexOf(s)));
+    return { name, labels, nums: nums.filter((num) => num.indexOf(s) === low), uncited, mono, atoms };
+  });
+  if (comps.every((c) => c.mono)) throw new Error("not ortho-fused"); // two monocycles: von Baeyer spiro names
+  const alpha = (t: string) => t.replace(/^[\d,]+-|\[[^\]]*\]/g, "").replace(/^\d+[a-z]?H-/, "");
+  comps.sort((x, y) => alpha(x.name).localeCompare(alpha(y.name)) || x.name.localeCompare(y.name));
+  const [A, B] = comps, same = A.name === B.name, spot = (c: typeof A) => c.labels[c.nums[0].indexOf(s)];
+  const name = same ? `${spot(A)},${spot(A)}'-spirobi[${A.name}]` : `spiro[${A.name}-${spot(A)},${spot(B)}'-${B.name}]`;
+  // Locants of the whole: 1 < 1' < 2 < 2a < 2a' (the spiro atom takes the unprimed one).
+  const value = (l: string) => [locValue(l), (l.match(/'/g) ?? []).length];
+  const all: { atoms: number[]; labels: string[] }[] = [];
+  for (const [P, Q] of same ? [[A, B], [B, A]] : [[A, B]]) for (const mp of P.nums) for (const mq of Q.nums) {
+    const entries = [...mp.map((a, i) => [a, P.labels[i]] as [number, string]), ...mq.flatMap((a, i): [number, string][] => (a === s ? [] : [[a, Q.labels[i] + "'"]]))];
+    entries.sort((x, y) => cmp(value(x[1]), value(y[1])));
+    all.push({ atoms: entries.map((e) => e[0]), labels: entries.map((e) => e[1]) });
+  }
+  const labels = all[0].labels;
+  if (all.some((x) => x.labels.join() !== labels.join())) throw new Error("spiro numbering");
+  const uncited = labels.map((l, i) => (A.uncited.includes(l) || B.uncited.map((u) => u + "'").includes(l) ? i : -1)).filter((i) => i >= 0);
+  return { name, labels, nums: all.map((x) => x.atoms), uncited, fixed: [s, ...comps.filter((c) => c.mono).flatMap((c) => c.atoms)] };
 }

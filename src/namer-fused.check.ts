@@ -180,3 +180,13 @@ run("bridged fused", [
   "6,11-dimethyl-3-(3-methylbut-2-en-1-yl)-1,2,3,4,5,6-hexahydro-2,6-methano-3-benzazocin-8-ol",
   "quinolizin-5-ium", "indolizin-4-ium", "1-methyl-1H-imidazo[1,2-a]pyridin-4-ium", "pyrido[1,2-a]pyrimidin-5-ium", "2,3-dihydro-1H-pyrrolizin-4-ium",
 ]);
+// Spiro unions with a polycyclic component (P-24.5): components in alphabetical order, the second primed; identical
+// components as spirobi[...]; saturated monocyclic components by their saturated names.
+run("spiro", [
+  "spiro[cyclohexane-1,1'-indene]", "2',3'-dihydrospiro[cyclohexane-1,1'-indene]", "spiro[cyclopropane-1,3'-indol]-2'(1'H)-one",
+  "1,2-dihydrospiro[indole-3,4'-piperidine]", "3',6'-dihydroxy-3H-spiro[[2]benzofuran-1,9'-xanthen]-3-one", "9,9'-spirobi[fluorene]",
+  "3,4-dihydrospiro[1-benzopyran-2,4'-piperidine]", "1',3'-dihydrospiro[1,3-dioxolane-2,2'-indene]", "2,2'-spirobi[2H-1-benzopyran]",
+  "spiro[indene-1,4'-piperidine]", "spiro[azetidine-3,3'-indol]-2'(1'H)-one", "spiro[cyclohexane-1,1'-inden]-3'-amine",
+  "3',4'-dihydro-2'H-spiro[piperidine-4,1'-naphthalene]", "2',3'-dihydrospiro[cyclohexane-1,1'-inden]-4-one", "4-methylspiro[cyclohexane-1,1'-indene]",
+  "spirostane", "1'H-spiro[cyclohexane-1,2'-naphthalene]",
+]);

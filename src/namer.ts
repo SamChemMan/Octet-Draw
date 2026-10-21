@@ -496,11 +496,12 @@ class Namer {
     }
     // Other fused systems: retained names and fusion names (fusion.ts). A neutral fusion N (three ring bonds) has no
     // double bond in the parent and needs no hydrogen; a cationic one with a ring double bond has (quinolizin-5-ium).
-    // Bridge atoms (4,7-methanoindene) are named by their bridge and take no hydro prefixes.
+    // Bridge atoms (4,7-methanoindene), spiro atoms and saturated spiro components are named as they are and take no
+    // hydro prefixes.
     const p = fusedParent(atoms, (a) => this.el[a], ring, this.ord);
     // An atom with four bonds in the fused system (morphinans' 12b) has no double bond either.
-    const own = (a: number) => ring(a).filter((b) => !p.bridge?.includes(b)).length;
-    const sp2 = (a: number) => (this.el[a] === "C" || ring(a).length < 3 || ring(a).some((b) => this.ord(a, b) === 2)) && !p.bridge?.includes(a) && own(a) < 4;
+    const own = (a: number) => ring(a).filter((b) => !p.fixed?.includes(b)).length;
+    const sp2 = (a: number) => (this.el[a] === "C" || ring(a).length < 3 || ring(a).some((b) => this.ord(a, b) === 2)) && !p.fixed?.includes(a) && own(a) < 4;
     const tpl: Fused = { name: p.name, labels: p.labels, el: [], adj: [], order: [], bonds, formula, odd: cn.filter(sp2).length % 2 === 1, uncited: p.uncited, hydrogens: p.hydrogens, bridges: p.bridges };
     const f = { tpl, nums: p.nums, cn: cn.filter(sp2), d: d.filter(sp2), ring };
     this.fusedCache.set(k, f);
@@ -587,6 +588,7 @@ class Namer {
   // (pteridine-2,4(1H,3H)-dione). The rest are hydro prefixes, in pairs.
   saturation(f: FusedSys, num: number[], ketones: number[]): { x?: number; x2?: number; y?: number; ys: number[]; yOn?: number; hydro: number[] } {
     const byLoc = (l: number[]) => [...l].sort((a, b) => num.indexOf(a) - num.indexOf(b));
+    ketones = ketones.filter((a) => f.cn.includes(a)); // a ketone on a bridge or a saturated spiro ring needs nothing
     const indicated = f.tpl.odd ? 1 : f.tpl.hydrogens === 2 || !pairable(f.cn, f.ring) ? 2 : 0;
     const lone = ketones.length % 2 ? byLoc(ketones) : [];
     const pool = [...lone, ...byLoc(f.d.filter((a) => !lone.includes(a)))];
@@ -774,7 +776,7 @@ class Namer {
 
   // The ring or chain stem as a substituent prefix: phenyl, pyridin-3-yl, cyclohexyl, propan-2-yl, acetyl.
   substituentForm(parent: string, info: ReturnType<Namer["ringInfo"]> | undefined, at: string, ring: boolean, size: number, acyl: boolean, unsaturated: boolean): string {
-    if (info?.fused) return acyl ? `${parent}-${at}-carbonyl` : `${parent.replace(/e$/, "")}-${at}-yl`; // 1H-indol-3-yl
+    if (info?.fused) return acyl ? `${parent}-${at}-carbonyl` : `${parent.replace(/e(\]?)$/, "$1")}-${at}-yl`; // 1H-indol-3-yl
     if (acyl) {
       if (ring) return parent === "benzene" ? "benzoyl" : `${parent}-${at}-carbonyl`;
       if (size === 2 && parent === "ethane") return "acetyl";
