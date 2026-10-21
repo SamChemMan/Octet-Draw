@@ -58,6 +58,11 @@ export type Atom = {
   // (a substituent on one of these atoms, a positional isomer). The atom has no label: it sits at the centre of its
   // atoms, and a bond to it is drawn from there. Atom numbers, as in the drawing.
   centre?: { atoms: number[]; variable?: true };
+  // A stereocentre's configuration as ChemDraw keeps it (Geometry and BondOrdering in CDXML), even where the drawing's
+  // stereo bonds do not set it: the neighbours (atom numbers; -1 the hydrogen or lone pair) in an order whose first
+  // three turn clockwise seen with the fourth away, and the stereo bonds at the atom when it was read (cip.ts
+  // stereoMarks). It holds while those bonds are unchanged.
+  kept?: { atoms: number[]; marks: string };
   scale?: number; // the atom's size against the document style (decision 0007); unset is 1
 };
 // ChemDraw's atom query properties; unset is ChemDraw's default for each. subst: Substituents, as Free Sites (as drawn

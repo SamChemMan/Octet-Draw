@@ -12,10 +12,11 @@ g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
 g.window = globalThis;
 g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
-const { cipOf, parseStructure, ready, stereoFacts, stereoLabels } = await import("./chem.ts");
+const { cipOf, importStructure, parseStructure, ready, stereoFacts, stereoLabels } = await import("./chem.ts");
 const { problems } = await import("./check.ts");
 const { cipLabels } = await import("./cip.ts");
 const { DRUGS } = await import("./drugs.ts");
+const { renumberCentre } = await import("./edit.ts");
 type Mol = import("./render.ts").Mol;
 type Bond = Mol["bonds"][number];
 await ready;
@@ -147,7 +148,7 @@ assert.deepEqual(cipOf(written).atoms, ["R", undefined, undefined, undefined]);
 // (x made -x) turns R into S and keeps E and Z.
 const shuffle = (m: Mol, order: number[]): Mol => {
   const to = new Map(order.map((i, k) => [i, k]));
-  return { atoms: order.map((i) => m.atoms[i]), bonds: m.bonds.map((b) => ({ ...b, atoms: b.atoms.map((i) => to.get(i)!) as [number, number] })) };
+  return { atoms: order.map((i) => renumberCentre(m.atoms[i], to)), bonds: m.bonds.map((b) => ({ ...b, atoms: b.atoms.map((i) => to.get(i)!) as [number, number] })) };
 };
 const turned = (m: Mol, sx: number, sy: number): Mol => ({ ...m, atoms: m.atoms.map((a) => ({ ...a, location: [sx * a.location[0], sy * a.location[1], 0] as [number, number, number] })) });
 const mirrorLabel = (c?: string) => (c === "R" ? "S" : c === "S" ? "R" : c === "r" ? "s" : c === "s" ? "r" : c);
@@ -162,6 +163,57 @@ for (const [name, smiles] of Object.entries(DRUGS).filter(([, s]) => s.includes(
 // Toluene-ring Kekulé forms in 1-phenylethanol: the labels do not depend on which form is drawn.
 const kekule = (smiles: string) => { const m = parseStructure(smiles); return cipLabels(m).atoms.filter(Boolean); };
 assert.deepEqual(kekule("C[C@@H](O)C1=CC=C(C)C=C1"), kekule("C[C@@H](O)C1C=CC(C)=CC=1"));
+
+// ---- A configuration ChemDraw keeps (Geometry and BondOrdering in CDXML) ----
+// Butan-2-ol with no stereo bond: its centre's bonds in order (to O, the methyl, the ethyl; 0 the hydrogen) turn
+// clockwise seen with the hydrogen away, but are drawn anticlockwise (O up, the methyl at 8 o'clock, the ethyl at 4),
+// so the hydrogen is towards the viewer: O → ethyl → methyl turns clockwise from the front, which makes it S.
+const { fromCdxml, toCdxml } = await import("./cdxml.ts");
+const { DEFAULT_STYLE } = await import("./docstyle.ts");
+const xml = `<?xml version="1.0" encoding="UTF-8" ?><CDXML><page><fragment>
+<n id="1" p="100 100" Geometry="Tetrahedral" BondOrdering="11 12 13 0"/><n id="2" p="100 85.6" Element="8"/>
+<n id="3" p="87.53 107.2"/><n id="4" p="112.47 107.2"/><n id="5" p="124.94 100"/>
+<b id="11" B="1" E="2"/><b id="12" B="1" E="3"/><b id="13" B="1" E="4"/><b id="14" B="4" E="5"/></fragment></page></CDXML>`;
+const keptMol = fromCdxml(xml).mol;
+assert.equal(stereoLabels(keptMol)?.atoms[0], "S");
+// It survives renumbering and saving (written back as ChemDraw stores it).
+assert.equal(cipLabels(shuffle(keptMol, [4, 2, 0, 3, 1])).atoms[2], "S");
+const saved = toCdxml(keptMol, DEFAULT_STYLE);
+assert.ok(/Geometry="Tetrahedral"/.test(saved) && /BondOrdering=/.test(saved));
+assert.equal(stereoLabels(fromCdxml(saved).mol)?.atoms[0], "S");
+// Flip Horizontal keeps it, as it keeps a wedge's centre (a turn in 3D); a mirror inverts it, as it inverts a wedge's.
+const { flipAtoms } = await import("./edit.ts");
+const everything = new Set(keptMol.atoms.map((_, i) => i));
+assert.equal(stereoLabels(flipAtoms(keptMol, everything, "horizontal"))?.atoms[0], "S");
+assert.equal(stereoLabels(flipAtoms(keptMol, everything, "horizontal", true))?.atoms[0], "R");
+// A stereo bond drawn at the centre afterwards replaces it: the O on a wedge is R, and nothing is kept on saving.
+const edited: Mol = { ...keptMol, bonds: keptMol.bonds.map((b) => (b.atoms.includes(0) && b.atoms.includes(1) ? { ...b, atoms: [0, 1] as [number, number], stereo: 1 } : b)) };
+assert.equal(stereoLabels(edited)?.atoms[0], "R");
+assert.ok(!/Geometry="Tetrahedral"/.test(toCdxml(edited, DEFAULT_STYLE)));
+
+// ---- Drawn in 3D ----
+// A centre with depth round it is read from its atoms' places, whatever its wedges say: butan-2-ol with its O in front
+// (towards the viewer) and no stereo bond is R, as with the O on a wedge. A flat drawing turned in 3D (its four
+// ligands in one plane) is read from its wedges. An amine N is no centre by its places alone.
+const deep = (m: Mol, z: Record<number, number>): Mol => ({ ...m, atoms: m.atoms.map((a, i) => ({ ...a, location: [a.location[0], a.location[1], z[i] ?? 0] as [number, number, number] })) });
+assert.equal(labels(deep(butanol({}), { 1: 0.8, 2: -0.3, 4: -0.3 }))[0], "R");
+assert.equal(labels(deep(butanol({ stereo: 6 }), { 1: 0.8, 2: -0.3, 4: -0.3 }))[0], "R");
+const tilted = (m: Mol): Mol => ({ ...m, atoms: m.atoms.map((a) => ({ ...a, location: [a.location[0] * 0.6, a.location[1], a.location[0] * 0.8] as [number, number, number] })) });
+assert.equal(labels(tilted(butanol({ stereo: 1 })))[0], "R");
+const amine: Mol = { ...butanol({}), atoms: butanol({}).atoms.map((a, i) => (i === 0 ? { ...a, label: "N" } : a)) };
+assert.equal(labels(deep(amine, { 1: 0.8, 2: -0.3, 4: -0.3 }))[0], undefined);
+// A 3D molfile (as PubChem's 3D SD files are) keeps its depth, and is labelled from it with no wedge: L-alanine, its
+// N, carboxyl C, methyl C and H at alternate corners of a cube round the centre, is S, with its H drawn or not.
+const corner = (x: number, y: number, z: number, el: string) => `${x.toFixed(4).padStart(10)}${y.toFixed(4).padStart(10)}${z.toFixed(4).padStart(10)} ${el.padEnd(3)} 0  0  0  0  0  0  0  0  0  0  0  0`;
+const link = (a: number, b: number, t: number) => `${String(a).padStart(3)}${String(b).padStart(3)}${String(t).padStart(3)}  0  0  0  0`;
+for (const h of [true, false]) {
+  const atoms = [corner(0, 0, 0, "C"), corner(0.87, 0.87, 0.87, "N"), corner(0.87, -0.87, -0.87, "C"), corner(-0.87, 0.87, -0.87, "C"), corner(0.6, -2.1, -0.9, "O"), corner(1.9, -0.4, -1.4, "O"), ...(h ? [corner(-0.63, -0.63, 0.63, "H")] : [])];
+  const bonds = [link(1, 2, 1), link(1, 3, 1), link(1, 4, 1), link(3, 5, 2), link(3, 6, 1), ...(h ? [link(1, 7, 1)] : [])];
+  const file = ["alanine", "  Octet         3D", "", `${String(atoms.length).padStart(3)}${String(bonds.length).padStart(3)}  0  0  0  0  0  0  0  0999 V2000`, ...atoms, ...bonds, "M  END", ""].join("\n");
+  const m = importStructure(file);
+  assert.ok(m.atoms.some((a) => a.location[2]) && !m.bonds.some((b) => b.stereo));
+  assert.equal(stereoLabels(m)?.atoms[0], "S");
+}
 
 // ---- Names that carry their descriptors (OPSIN builds the structure) ----
 const dir = new URL("./vendor/opsin/", import.meta.url);

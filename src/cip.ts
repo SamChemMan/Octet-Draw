@@ -6,10 +6,10 @@
 // implementation does (John Mayfield's Centres, as RDKit's CIP labeller has it), so its labels match their
 // validation suite. The code is Octet's own.
 //
-// The configuration comes from the drawing as Indigo reads it (wedges and hashes from the centre, a hydrogen or lone
-// pair opposite three drawn bonds), with the other stereo bonds ChemDraw reads (stereoUnits). A structure with depth
-// and no wedge is read in 3D. Every digraph has a size and work limit: past it the centre gets no label, never a
-// guessed one.
+// The configuration comes from ChemDraw's own record where a ChemDraw file keeps one, from the atoms' places where a
+// centre is drawn in 3D, and otherwise from the drawing as Indigo reads it (wedges and hashes from the centre, a
+// hydrogen or lone pair opposite three drawn bonds) with the other stereo bonds ChemDraw reads (stereoUnits). Every
+// digraph has a size and work limit: past it the centre gets no label, never a guessed one.
 import { AROMATIC, HBOND, QUADRUPLE, hydrogens, type Mol } from "./render.ts";
 import { ELEMENTS } from "./labels.ts";
 import { kekulise } from "./rings.ts";
@@ -221,15 +221,32 @@ function pyramid(m: Mol, i: number, near: number[], dirOf: (j: number) => number
 }
 
 // A pyramid from the ligands' directions in 3D (ids: 4, the last -1 when only three are drawn; its direction is then
-// opposite theirs).
-function fromPoints(ids: number[], p: V3[]): number[] | undefined {
+// opposite theirs). Undefined when they lie nearly flat (least: the smallest volume taken).
+function fromPoints(ids: number[], p: V3[], least = 1e-3): number[] | undefined {
   const q = p.map(unit);
   if (q.some((x) => !x)) return undefined;
   const u = q as V3[];
   if (u.length === 3) u.push([-u[0][0] - u[1][0] - u[2][0], -u[0][1] - u[1][1] - u[2][1], -u[0][2] - u[1][2] - u[2][2]]);
   const vol = dot(sub(u[0], u[3]), cross(sub(u[1], u[3]), sub(u[2], u[3])));
   // A negative volume: 1 → 2 → 3 turns clockwise seen with 4 away.
-  return Math.abs(vol) < 1e-3 ? undefined : vol < 0 ? ids : [ids[0], ids[2], ids[1], ids[3]];
+  return Math.abs(vol) < least ? undefined : vol < 0 ? ids : [ids[0], ids[2], ids[1], ids[3]];
+}
+
+// The stereo bonds at atom i, towards each of the atoms given (h for a hydrogen or lone pair): what a kept
+// configuration was read with.
+export function stereoMarks(m: Mol, i: number, atoms: number[]): string {
+  return atoms.map((j) => {
+    if (j < 0) return "h";
+    const b = m.bonds.find((x) => x.type !== HBOND && x.atoms.includes(i) && x.atoms.includes(j));
+    return b ? `${b.stereo ?? 0}${b.atoms[0] === i ? ">" : "<"}${b.display ?? ""}` : "?";
+  }).join(" ");
+}
+// Whether atom i's kept configuration still holds: the same neighbours (a hydrogen or lone pair for the fourth when
+// three are drawn) and the same stereo bonds as when it was read.
+export function keptHolds(m: Mol, i: number, kept: NonNullable<Mol["atoms"][number]["kept"]>): boolean {
+  const near = new Set(m.bonds.flatMap((b) => (b.type !== HBOND && b.atoms.includes(i) ? [b.atoms[0] === i ? b.atoms[1] : b.atoms[0]] : [])));
+  const drawn = kept.atoms.filter((j) => j >= 0);
+  return kept.atoms.length === 4 && near.size === drawn.length && near.size >= 3 && drawn.every((j) => near.has(j)) && stereoMarks(m, i, kept.atoms) === kept.marks;
 }
 
 // Indigo's test of a double bond's side: 1 when neighbours nb (of beg) and ne (of end) are on the same side, -1 when
@@ -242,17 +259,22 @@ function sameSide(m: Mol, beg: number, end: number, nb: number, ne: number): num
   return Math.abs(pb) < 0.1 || Math.abs(pe) < 0.1 ? 0 : pb * pe > 0 ? 1 : -1;
 }
 
-// The drawing's stereo units: centres set by stereo bonds (or 3D places), and double bonds (and cumulenes with an odd
-// number of double bonds) between C, N, Si or Ge with a drawn substituent on each end. Stereo bonds, as ChemDraw
-// reads them: a wedge (solid or hollow) or hashed wedge from the centre; and on a centre where none starts, a wedge
-// whose wide end is on it (Indigo's bidirectional mode), a hashed or dashed bond (away from the viewer) and a bold one
-// out of a ring (towards the viewer). A bold ring bond draws a ring in perspective (a Haworth projection), not a
-// centre. Left out: a centre or double bond with a wavy bond on it, a crossed (either) double bond, and a double bond
-// in a ring of fewer than 8 atoms.
+// The drawing's stereo units: centres, and double bonds (and cumulenes with an odd number of double bonds) between C,
+// N, Si or Ge with a drawn substituent on each end. A centre's configuration, first found first:
+// - ChemDraw's kept one (Atom.kept), while its stereo bonds are as ChemDraw saved them. ChemDraw labels from it where
+//   its drawing sets nothing, and keeps it over stereo bonds it does not read.
+// - Its atoms' places, where the centre is drawn in 3D: a neighbour at least a fifth of a bond nearer or further than
+//   it, and the four ligands clearly not flat (a flat drawing turned in 3D is read from its wedges).
+// - Its stereo bonds, as ChemDraw reads them: a wedge (solid or hollow) or hashed wedge from the centre; and where none
+//   starts, a wedge whose wide end is on it (Indigo's bidirectional mode), a hashed or dashed bond (away from the
+//   viewer) and a bold one out of a ring (towards the viewer). A bold ring bond draws a ring in perspective (a Haworth
+//   projection), not a centre.
+// Left out: a centre or double bond with a wavy bond on it, a crossed (either) double bond, and a double bond in a ring
+// of fewer than 8 atoms.
 function stereoUnits(m: Mol, c: Chem): Unit[] {
   const units: Unit[] = [], n = m.atoms.length;
   const wavy = new Set(m.bonds.flatMap((b) => (b.display === "wavy" ? b.atoms : [])));
-  const threeD = !m.bonds.some((b) => b.stereo === 1 || b.stereo === 6) && m.atoms.some((a) => Math.abs(a.location[2] ?? 0) > 1e-6);
+  const depth = (i: number) => m.atoms[i].location[2] ?? 0;
   // Each stereo bond's direction (+1 towards the viewer) seen from an end ("i j": from i): wedges from their narrow
   // end, and the rest.
   const stereo = new Map<string, number>(), other = new Map<string, number>();
@@ -268,9 +290,11 @@ function stereoUnits(m: Mol, c: Chem): Unit[] {
     const el = symbol(m.atoms[i].label), q = c.q[i];
     const allowed = CENTRES.find(([e, ch, deg, dbl]) => e === el && ch === q && deg === near.length && dbl === doubles);
     if (!allowed) continue;
-    let around: number[] | undefined;
-    if (threeD) around = fromPoints([...near, -1].slice(0, 4), near.map((j) => sub(m.atoms[j].location, m.atoms[i].location)));
-    else {
+    const kept = m.atoms[i].kept;
+    let around = kept && keptHolds(m, i, kept) ? kept.atoms : undefined;
+    // An amine or amide N (three bonds and a lone pair) turns over too fast to be a centre by its places alone.
+    if (!around && !(el === "N" && allowed[4]) && near.some((j) => Math.abs(depth(j) - depth(i)) >= 0.2)) around = fromPoints([...near, -1].slice(0, 4), near.map((j) => sub(m.atoms[j].location, m.atoms[i].location)), 0.1);
+    if (!around) {
       const from = (j: number) => stereo.get(`${i} ${j}`) ?? 0;
       around = near.some((j) => from(j)) ? pyramid(m, i, near, from, allowed[4])
         // Not on an atom with a lone pair (an amine or amide N next to a stereocentre).

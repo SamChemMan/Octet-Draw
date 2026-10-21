@@ -22,6 +22,7 @@ import { fragments, groupParents, renumberCentre, tidyGroups } from "./edit.ts";
 import { altGroup, elementList, enclosed, linkNode, polymerLabel, queryLabel, readPolymer, readRgroup, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
 import { ligandEllipse } from "./render.ts";
 import { kekulise, rings } from "./rings.ts";
+import { keptHolds, stereoMarks } from "./cip.ts";
 import type { Cycle } from "./cycle.ts";
 import pkg from "../package.json" with { type: "json" };
 
@@ -567,7 +568,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const h = shown && !a.text ? a.implicitHCount ?? hydrogens(a.label, charge, used(i), a.radical === 3 ? 2 : a.radical) : link ? link.h : undefined;
     const enhanced = /^(abs|&|or)(\d*)$/.exec(a.enhanced ?? "");
     const label = shown ? labelOf(i, style.hideH ? 0 : h ?? 0) : undefined;
-    const z = a.location[2] ?? 0, aq = a.query;
+    const z = a.location[2] ?? 0, aq = a.query, kept = a.kept && keptHolds(mol, i, a.kept) ? a.kept.atoms : undefined;
     const alternatives = alts?.map((t) => opts.expand?.(t) ?? (isElement(t) ? { atoms: [{ label: t, location: [0, 0, 0] as [number, number, number] }], bonds: [] } : undefined)).filter((m): m is Mol => !!m?.atoms.length) ?? [];
     const xml = el("n", {
       id: nodeId.get(i)!, p: pt(X), Z: Z(), Visible: a.hidden ? "no" : undefined, NodeType: type, Element: element && element !== 6 ? element : undefined, Isotope: type ? undefined : a.isotope ?? (a.label === "D" ? 2 : undefined), Charge: charge || undefined,
@@ -582,7 +583,9 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       IsotopicAbundance: aq?.abundance && ABUNDANCES[aq.abundance], AbnormalValence: aq?.valence ? "yes" : undefined,
       EnhancedStereoType: enhanced ? { abs: "Absolute", "&": "And", or: "Or" }[enhanced[1]] : undefined, EnhancedStereoGroupNum: enhanced?.[2] || undefined,
       color: colour(a.colour), highlightColor: colour(a.halo), ShowAtomStereo: a.cip ? "yes" : undefined, ShowAtomNumber: a.number ? "yes" : undefined, AtomNumber: a.number, IgnoreWarnings: a.ignoreWarnings ? "yes" : undefined, xyz: z ? `${pt(X)} ${fmt(-z * B)}` : undefined, ShowPerspective: a.shade ? "yes" : undefined,
-      BondOrdering: (inner || alternatives.length) && deg > 1 ? bondsAt[i].map((k) => bondId[k]).join(" ") : undefined,
+      // A fragment's or alternative group's bonds in order; or a stereocentre's kept configuration, as ChemDraw stores it.
+      BondOrdering: (inner || alternatives.length) && deg > 1 ? bondsAt[i].map((k) => bondId[k]).join(" ") : kept ? kept.map((j) => (j < 0 ? 0 : bondId[bondsAt[i].find((k) => mol.bonds[k].atoms.includes(j))!])).join(" ") : undefined,
+      Geometry: !(inner || alternatives.length) && kept ? "Tetrahedral" : undefined,
       // A scaled atom's label size, as drawn (its own size, or the document's, times its scale), and its line width
       // (an atom with no bonds takes its scale back from it).
       LabelSize: shown && scaleOf(a) !== 1 ? fmtSize((a.size ?? style.labelSize) * scaleOf(a)) : undefined, LineWidth: scaleOf(a) !== 1 ? fmt(line * scaleOf(a)) : undefined,
@@ -1090,6 +1093,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   const brackets: { x: Xml; id: number; z: number; group?: G; ends: number[] }[] = [], properties: Xml[] = [];
   // Query and Markush objects: attachments' atoms (by node id), bracketed groups, R-Logic rows.
   const centres: { i: number; ids: number[]; variable: boolean }[] = [], bracketed: Xml[] = [], logic: Xml[] = [];
+  // Stereocentres whose configuration ChemDraw keeps (Geometry Tetrahedral, with a BondOrdering).
+  const tetra: { i: number; order: number[] }[] = [];
   const zOf = (x: Xml) => int(x.attrs.Z) ?? 0;
   let fragmentZ = -Infinity; // the highest Z of a structure read so far
   const count = () => { if (captions.length + arrows.length + shapes.length + groups.length > 4 * MAX_OBJECTS) throw new Error(TOO_BIG); };
@@ -1212,6 +1217,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     if (Object.keys(aq).length) a.query = aq;
     const i = mol.atoms.push(a) - 1;
     if (type === "MultiAttachment" || type === "VariableAttachment") centres.push({ i, ids: idList(n.attrs.Attachments).slice(0, 64), variable: type === "VariableAttachment" });
+    if (n.attrs.Geometry === "Tetrahedral" && n.attrs.BondOrdering) tetra.push({ i, order: idList(n.attrs.BondOrdering).slice(0, 4) });
     nodeIds.push(int(n.attrs.id) ?? 0);
     numH.set(i, int(n.attrs.NumHydrogens) ?? 0);
     const lw = real(n.attrs.LineWidth);
@@ -1985,6 +1991,15 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     return [{ id: c.id as number, centre: centre as P, radius: c.radius as number, clockwise: c.clockwise !== false, nodes, ...(isColour(c.colour) ? { colour: c.colour } : {}), ...(isNum(c.width, 0.05, 20) ? { width: c.width as number } : {}) }];
   });
   for (const c of captions) if (c.cycle && !cycles.some((y) => y.id === c.cycle!.cycle)) delete c.cycle;
+  // ChemDraw's kept configurations: the neighbours along each bond of the order (0 is the hydrogen or lone pair), with
+  // the stereo bonds as they are now. Show Stereochemistry labels from these first, as ChemDraw does (cip.ts).
+  if (tetra.length) {
+    const bondOf = new Map(bondIds.map((id, k) => [id, k]));
+    for (const { i, order } of tetra) {
+      const atoms = order.map((id) => { if (!id) return -1; const b = mol.bonds[bondOf.get(id) ?? -1]; return b?.atoms.includes(i) ? (b.atoms[0] === i ? b.atoms[1] : b.atoms[0]) : undefined; });
+      if (atoms.length === 4 && atoms.every((j) => j !== undefined && j !== i) && new Set(atoms).size === 4) mol.atoms[i].kept = { atoms: atoms as number[], marks: stereoMarks(mol, i, atoms as number[]) };
+    }
+  }
   // Octet's own files: atoms and bonds back in Octet's order (their ids rise in it).
   let ix = (i: number) => i;
   if (octet) {
