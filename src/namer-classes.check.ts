@@ -225,3 +225,5 @@ check("carboxy prefixes", [
   ["phthalonic acid", "2-(carboxycarbonyl)benzoic acid"], ["cystathionine", "(2S)-2-amino-4-{[(2R)-2-amino-2-carboxyethyl]sulfanyl}butanoic acid"],
   "4-[(2-chloroethyl)(methyl)amino]benzoic acid", ["triethanolamine", "2-[bis(2-hydroxyethyl)amino]ethanol"],
 ]);
+check("C=N stereo", [["smiles:C/C(=N/O)/N", "(1Z)-N'-hydroxyethanimidamide"], ["smiles:CCO/C(C)=N/c1ccccc1", "ethyl (1E)-N-phenylethanimidate"],
+  ["smiles:CC/C(Cl)=N/c1ccccc1", "(1Z)-N-phenylpropanimidoyl chloride"]]);

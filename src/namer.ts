@@ -923,6 +923,11 @@ class Namer {
     for (const a of atoms) if (this.cip[a] === "R" || this.cip[a] === "S") stereo.push({ at: loc(num, a), text: `${label(num, a)}${this.cip[a]}` });
     // E and Z on an imine's C=N, at the carbon's locant: (1E)-N-hydroxyethanimine.
     if (kind === "imine") for (const st of sites) { const c = this.cipBond.get(this.key(st.atom, this.imineN(st.atom)!)); if (c === "E" || c === "Z") stereo.push({ at: loc(num, st.atom), text: `${label(num, st.atom)}${c}` }); }
+    // Likewise on the C=N of an amidine, imidic acid, imidate or imidoyl halide that ends a chain: (1Z)-N'-hydroxyethanimidamide.
+    if (kind && ["amidine", "imidic", "imidate", "imidoylhalide"].includes(kind) && !p.ring && !p.attached) for (const st of sites) {
+      const c = this.cipBond.get(this.key(st.group, this.imineN(st.group)!));
+      if (c === "E" || c === "Z") stereo.push({ at: loc(num, st.atom), text: `${label(num, st.atom)}${c}` });
+    }
     if (fused || assembly) {
       if (atoms.some((a) => this.adj[a].some((b) => inParent.has(b) && /^[EZ]$/.test(this.cipBond.get(this.key(a, b)) ?? "")))) throw new Error("ring E/Z");
     } else if (p.hetero) {
