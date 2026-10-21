@@ -167,7 +167,7 @@ type Saturation = { x?: number; y?: number; yOn?: number; hydro: number[]; xs?: 
 // A von Baeyer or spiro ring system: its descriptor (bicyclo[2.2.1], spiro[4.5]), numberings, and ring bonds.
 type Bridged = { prefix: string; nums: number[][]; bonds: [number, number][] };
 // Replacement prefixes for ring heteroatoms (P-15.4), in order of citation.
-const REPLACE: [string, string][] = [["O", "oxa"], ["S", "thia"], ["N", "aza"]];
+const REPLACE: [string, string][] = [["O", "oxa"], ["S", "thia"], ["N", "aza"], ["P", "phospha"]];
 // A ring assembly (P-28): two identical rings and the single bond joining them.
 type Assembly = { rings: [number[], number[]]; junction: [number, number] };
 const HYDRO = [...MULT, "undeca", "dodeca", "trideca", "tetradeca"];

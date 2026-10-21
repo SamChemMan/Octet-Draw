@@ -119,6 +119,7 @@ run("ring unsaturation", [
 run("phosphorus rings", [
   "phosphinine = phosphinine", "phosphinane = phosphinane", "1H-phosphole = 1H-phosphole", "1-phenyl-1H-phosphole", "1,3,2-dioxaphospholane = 1,3,2-dioxaphospholane",
   "2-methyl-1,3,2-dioxaphospholane", "1-methylphospholane", "1,2-azaphosphinine",
+  "1-oxa-4-phosphacyclododecane = 1-oxa-4-phosphacyclododecane", "1,4,7-trioxa-10-phosphacyclododecane", "smiles:S1CN=CSNCC=CN=CC(OC)OP1",
 ]);
 
 // Substituents on a ring N: halogen, hydroxy and alkoxy as prefixes (NBS, NHS); an acyl group as a ketone or aldehyde
