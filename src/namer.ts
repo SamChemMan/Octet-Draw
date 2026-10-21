@@ -834,7 +834,7 @@ class Namer {
       if (subs.length === 1) return { text: subs[0].text === "phenyl" ? "anilino" : `${enclose(subs[0])}amino`, compound: true };
       if (subs.length === 2 && subs[0].text === subs[1].text) return { text: `di${enclose(subs[0])}amino`, compound: true };
       const [a, b] = subs.sort((s, t) => alphaKey(s.text).localeCompare(alphaKey(t.text)));
-      return { text: `${a.text}(${b.text})amino`, compound: true };
+      return { text: `${enclose(a)}${b.compound ? enclose(b) : `(${b.text})`}amino`, compound: true }; // [(carboxymethyl)(phosphonomethyl)amino]
     }
     if (el !== "C") throw new Error("substituent");
     // Functional carbons cited as prefixes.
