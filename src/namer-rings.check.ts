@@ -167,6 +167,13 @@ run("drawn hydrogen", [
   "smiles:C(=O)(C[H])C1C=CC=CC=1 = 1-phenylethanone", "smiles:[H][C@@](C)(O)CC = (2S)-butan-2-ol",
 ]);
 
+// A ring's acyl group is numbered as the ring, with its indicated hydrogen: pyrrolysine, (1H-pyrrole-2-carbonyl).
+run("ring acyl groups", [
+  "pyrrolysine = (2S)-2-amino-6-{[(2R,3R)-3-methyl-3,4-dihydro-2H-pyrrole-2-carbonyl]amino}hexanoic acid",
+  "smiles:C(=O)(C=1N=C(NC1)C(=O)O)C=1N=C(NC1)C(=O)O = 4-(2-carboxy-1H-imidazole-4-carbonyl)-1H-imidazole-2-carboxylic acid",
+  "(1H-pyrrole-2-carbonyl)glycine = [(1H-pyrrole-2-carbonyl)amino]acetic acid", "furan-2-carbonyl chloride = furan-2-carbonyl chloride",
+]);
+
 // A thione under a senior group is the prefix sulfanylidene (P-64.6.1).
 run("thiones", [
   "propylthiouracil = 6-propyl-2-sulfanylidene-2,3-dihydropyrimidin-4(1H)-one", "rhodanine = 2-sulfanylidene-1,3-thiazolidin-4-one",

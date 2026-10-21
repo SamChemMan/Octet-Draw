@@ -832,7 +832,7 @@ class Namer {
     let nums = numberings;
     if (fused) nums = this.lowest(nums, (num) => xs(sat(num)).map((a) => loc(num, a)));
     if (opts.attach) nums = this.lowest(nums, (num) => [loc(num, opts.attach![0])]);
-    if (opts.acyl) nums = nums.filter((num) => num[0] === atoms[0]);
+    if (opts.acyl && !p.ring) nums = nums.filter((num) => num[0] === atoms[0]); // a ring's acyl group is ring-carbonyl, numbered as a ring
     nums = this.lowest(nums, (num) => sites.map((s) => loc(num, s.atom)));
     if (fused) {
       nums = this.lowest(nums, (num) => ys(sat(num)).map((a) => loc(num, a)));
@@ -928,7 +928,7 @@ class Namer {
   substituentForm(parent: string, info: ReturnType<Namer["ringInfo"]> | undefined, at: string, ring: boolean, size: number, acyl: boolean, unsaturated: boolean): string {
     if (info?.fused) return acyl ? `${parent}-${at}-carbonyl` : `${parent.replace(/e$/, "")}-${at}-yl`; // 1H-indol-3-yl
     if (acyl) {
-      if (ring) return parent === "benzene" ? "benzoyl" : `${parent}-${at}-carbonyl`;
+      if (ring) return parent === "benzene" ? "benzoyl" : `${info?.ring?.hydrogen ?? ""}${parent}-${at}-carbonyl`; // 1H-pyrrole-2-carbonyl
       if (size === 2 && parent === "ethane") return "acetyl";
       return parent.replace(/e$/, "") + "oyl";
     }
