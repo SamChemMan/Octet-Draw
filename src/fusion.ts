@@ -1031,10 +1031,21 @@ function spiroParent(el: string[], adj: number[][], order: (a: number, b: number
       // One ring: walk it, all single bonds.
       const cycle = [0];
       while (cycle.length < atoms.length) cycle.push(cadj[cycle[cycle.length - 1]].find((b) => !cycle.includes(b))!);
-      if (cycle.some((a, i) => order(atoms[a], atoms[cycle[(i + 1) % cycle.length]]) !== 1)) throw new Error("spiro ring double bond");
-      const r = saturatedRing(cycle.map((a) => cel[a]));
-      if (!r) throw new Error("spiro component");
-      name = r.name; labels = cycle.map((_, i) => String(i + 1)); nums = r.nums.map((num) => num.map((k) => atoms[cycle[k]])); mono = true;
+      const double = (x: number, y: number) => order(atoms[x], atoms[y]) === 2;
+      labels = cycle.map((_, i) => String(i + 1)); mono = true;
+      if (cycle.some((a, i) => double(a, cycle[(i + 1) % cycle.length]))) {
+        // A carbocycle with double bonds, numbered from the spiro atom, double bonds as low as possible: cyclohexa-2,5-diene.
+        if (cel.some((e) => e !== "C") || !ALKANE[cycle.length]) throw new Error("spiro ring double bond");
+        const k = cycle.length, runs = [cycle, [cycle[0], ...cycle.slice(1).reverse()]];
+        const enes = (r: number[]) => r.flatMap((a, i) => (double(a, r[(i + 1) % k]) ? [i + 1] : []));
+        const lowest = runs.reduce((m, r) => (cmp(enes(r), m) < 0 ? enes(r) : m), enes(runs[0]));
+        nums = runs.filter((r) => !cmp(enes(r), lowest)).map((r) => r.map((a) => atoms[a]));
+        name = `cyclo${ALKANE[k]}${lowest.length > 1 ? "a" : ""}-${lowest.join(",")}-${MULT[lowest.length]}ene`;
+      } else {
+        const r = saturatedRing(cycle.map((a) => cel[a]));
+        if (!r) throw new Error("spiro component");
+        name = r.name; nums = r.nums.map((num) => num.map((k) => atoms[cycle[k]]));
+      }
     } else {
       const f = whole(cel, cadj) ?? ortho(cel, cadj);
       name = f.name; labels = f.labels; nums = f.nums.map((num) => num.map((i) => atoms[i])); uncited = f.uncited.map((i) => f.labels[i]);
