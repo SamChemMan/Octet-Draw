@@ -17,8 +17,8 @@ type Name = { text: string; compound: boolean }; // compound: needs brackets whe
 
 const STEMS = ["", "meth", "eth", "prop", "but", "pent", "hex", "hept", "oct", "non", "dec", "undec", "dodec", "tridec",
   "tetradec", "pentadec", "hexadec", "heptadec", "octadec", "nonadec", "icos"];
-const MULT = ["", "", "di", "tri", "tetra", "penta", "hexa", "hepta", "octa", "nona", "deca"];
-const MULT_COMPLEX = ["", "", "bis", "tris", "tetrakis", "pentakis", "hexakis", "heptakis", "octakis"];
+const MULT = ["", "", "di", "tri", "tetra", "penta", "hexa", "hepta", "octa", "nona", "deca", "undeca", "dodeca", "trideca", "tetradeca", "pentadeca", "hexadeca", "heptadeca", "octadeca", "nonadeca", "icosa"];
+const MULT_COMPLEX = ["", "", "bis", "tris", "tetrakis", "pentakis", "hexakis", "heptakis", "octakis", "nonakis", "decakis", "undecakis", "dodecakis"];
 const HALO: Record<string, string> = { F: "fluoro", Cl: "chloro", Br: "bromo", I: "iodo" };
 const VOWEL = /^[aeiouy]/;
 
@@ -972,10 +972,10 @@ class Namer {
         if (this.inRing[i] && this.ringOf[j] === this.ringOf[i]) continue; // the ring's own bonds
         if (this.ord(i, j) !== 1) throw new Error(`${el[i]} bonds`);
         if (el[j] === "C" || (CATENATE.has(el[i]) && CATENATE.has(el[j])) || (chalcogen && el[j] === el[i])) continue;
-        // N: a ring N (1-(trimethylsilyl)-1H-imidazole), azido, or an amine N on Si, Ge, Sn, Pb (silanamines).
+        // N: a ring N (1-(trimethylsilyl)-1H-imidazole), azido, an amide N, or an amine N on Si, Ge, Sn, Pb, B (silanamines, boranamines).
         if (el[j] === "N" && (this.inRing[j] || (CATENATE.has(el[i]) && this.azidoAtom(j)))) continue;
         if (el[j] === "N" && CATENATE.has(el[i]) && adj[j].some((k) => this.carbonylO[k] >= 0)) continue; // an amide N: N-(trimethylsilyl)acetamide
-        if (el[j] === "N" && CATENATE.has(el[i]) && el[i] !== "B" && !this.q[j] && adj[j].every((k) => this.ord(j, k) === 1 && (CATENATE.has(el[k]) || (el[k] === "C" && this.carbonylO[k] < 0 && !this.isNitrileC(k))))) {
+        if (el[j] === "N" && CATENATE.has(el[i]) && !this.q[j] && adj[j].every((k) => this.ord(j, k) === 1 && (CATENATE.has(el[k]) || (el[k] === "C" && this.carbonylO[k] < 0 && !this.isNitrileC(k))))) {
           this.mark(j, "amine", adj[j].filter((k) => el[k] === "C"));
           continue;
         }
@@ -1041,7 +1041,7 @@ class Namer {
     if (cn.length === 1 && [...this.bearer.keys()].every((g) => this.group[g] !== "nitrile" || g === cn[0])) {
       return { cls: 0.8, text: () => substituted(named(this.adj[i].filter((j) => j !== cn[0]))) + `${m.hydride}carbonitrile` };
     }
-    // An amine N on Si, Ge, Sn or Pb, the only amine: trimethylsilanamine, N,N,1,1,1-pentamethylsilanamine,
+    // An amine N on Si, Ge, Sn, Pb or B, the only amine: trimethylsilanamine, N,N-dimethylboranamine, N,N,1,1,1-pentamethylsilanamine,
     // 1,1,1-trimethyl-N-(trimethylsilyl)silanamine. Its N-substituents take locant N, the others 1 (P-31.1.4.2.4).
     const amines = this.adj[i].filter((j) => this.group[j] === "amine" && !this.inRing[j]);
     if (amines.length === 1 && !oh.length && [...this.bearer.keys()].every((g) => this.group[g] !== "amine" || g === amines[0])) {
