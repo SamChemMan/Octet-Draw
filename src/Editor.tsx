@@ -7,7 +7,7 @@ import {
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, FlowArrow, BracketsRound,
-  TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond,
+  TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -79,7 +79,7 @@ import { iupacName } from "./namer";
 setNamer(iupacName);
 import { loadTemplates, MY_SET, newTemplate, setName, templateKind } from "./templates";
 import { formulaRuns, isElement } from "./labels";
-import { interpretLabels } from "./edit";
+import { captionAtom, captionsToAtoms, interpretLabels, typedElement } from "./edit";
 import { bendOf, cutSides } from "./masscut";
 import { common, edited, lines as richLines, normalise, plainOf, runsOf, styleRange, styled, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
@@ -352,6 +352,10 @@ const nicknameMol = (name: string) => {
 };
 // A caption Octet can read as an atom label (NH2, OMe, CH3OH): one word, not tied to a structure, arrow or cycle.
 const labelable = (c: Caption) => { const t = c.text.trim(); return !c.on && !c.under && !c.cycle && !!t && !/\s/.test(t) && (isElement(t) || !!labelSmiles(t)); };
+// The tools that work on an atom also work on such a caption, made an atom when they press it. elementSteps names the
+// undo step each press makes.
+const ATOM_TOOLS = new Set<Tool>(["bond", "chain", "ring", "template", "symbol"]);
+let elementSteps = 0;
 // A bond's style in the tool's list, if it is one of them.
 const bondKindOf = (b: Bond) => (Object.keys(BONDS) as BondKind[]).find((k) => { const spec: BondSpec = BONDS[k].spec; return spec.type === b.type && spec.stereo === b.stereo && spec.display === b.display; });
 // The Bond Properties list, in the order of ChemDraw's Bond Type list. A hydrogen bond is in it only on a hydrogen
@@ -651,8 +655,10 @@ export default function Editor() {
   const pointer = useRef<P>(undefined);
   // Every edit clears the selection, except a move, which keeps the same atoms selected. Groups keep whole structures,
   // so atoms drawn onto a grouped structure join its group (wholeGroups).
-  // Returns the drawing as it goes in the history.
-  const set = (mol: Mol, keepSelection = false, merge?: string) => {
+  // Returns the drawing as it goes in the history. joinNext: the step that edits during the press under way join (a
+  // caption made an atom by a bond tool, then the bond drawn from it).
+  const joinNext = useRef<string>(undefined);
+  const set = (mol: Mol, keepSelection = false, merge = joinNext.current) => {
     const next = onTop(doc, wholeGroups(placeCentres(settings.warnings ? showWarnedHydrogens(mol) : mol)), fragments);
     dispatch({ type: "set", mol: next, merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
@@ -1338,7 +1344,7 @@ export default function Editor() {
     if (writing) {
       const text = writing.value.trim(), c = placed.find((x) => x.id === (writing.id ?? DRAFT)), found = text ? structureOrSuggestion(text, true) : undefined;
       // The caption is kept first, so Undo gives back the text as typed (as in ChemDraw, where the caption is there).
-      commitWriting();
+      commitWriting(false);
       if (!found || !c) return openNaming(text);
       return convertInPlace(found, writing.id !== undefined ? deleteGraphics(doc, new Set([writing.id])) : doc, [(c.box[0] + c.box[2]) / 2 / L, -(c.box[1] + c.box[3]) / 2 / L]);
     }
@@ -1678,18 +1684,13 @@ export default function Editor() {
       }
       const caps = (doc.captions ?? []).filter((c) => picked.has(c.id) && labelable(c));
       if (!caps.length) return setNotice("Select a label, or a caption that reads as a label.", "info");
-      let m = doc;
-      for (const c of caps) {
-        const p = placed.find((x) => x.id === c.id), t = c.text.trim();
-        if (!p) continue;
-        // The label's first glyph goes where the caption's was, as an atom label sits on its atom.
-        const first = measure(t[0]), k = p.size / frame.size, size = c.size ?? style.captionSize, font = c.font ?? style.captionFont;
-        const at: [number, number, number] = [(p.box[0] + (first.width * k) / 2) / L, -(p.lines[0].y - (first.ascent * k) / 2) / L, 0];
-        m = setLabel({ ...m, atoms: [...m.atoms, { label: "C", location: at, ...(size !== style.labelSize ? { size } : {}), ...(font !== style.labelFont ? { font } : {}),
-          ...(c.bold ? { bold: true as const } : {}), ...(c.italic ? { italic: true as const } : {}), ...(c.underline ? { underline: true as const } : {}), ...(c.colour ? { colour: c.colour } : {}) }] }, m.atoms.length, t);
-      }
-      setPicked(new Set());
-      return set(deleteGraphics(m, new Set(caps.map((c) => c.id))), true);
+      makeElements(caps);
+    },
+    // Make element (Sam, 21 October 2026): Interpret Chemically on the picked captions, named for what it does there.
+    make_element: () => {
+      const caps = (doc.captions ?? []).filter((c) => picked.has(c.id) && labelable(c));
+      if (!caps.length) return setNotice("Select a caption with an element or a label, such as Rh or OMe.", "info");
+      makeElements(caps);
     },
     // Contract Label (Structure menu): the selected substituent (joined to the rest by one bond) becomes one labelled
     // atom: the abbreviation it is (OMe, CO2Et, Boc, TBS), recognised whatever way it was drawn, or else its formula.
@@ -2194,6 +2195,29 @@ export default function Editor() {
     const measure = (t: string, c: Caption, r: RunStyle) => textWidth(t, ...face(c, r)), extent = (t: string, c: Caption, r: RunStyle) => textExtent(t, ...face(c, r));
     return { placed: placeCaptions(m, drawing, width, fitted, pt, style.captionSize, cycles.anchors, measure, extent), arrows: laid.current.arrows, cycleArrows: laid.current.cycles };
   }, [shown, drawing, writing, style, pt]);
+  // A caption as a lone atom labelled with its text, in the caption's size, font, style and colour. The label's first
+  // glyph goes where the caption's was, as an atom label sits on its atom.
+  const placedAtom = (c: Caption, p: Placed) => {
+    const w = whole(c), size = w.size ?? style.captionSize, first = measurer(fontStack(w.font ?? style.captionFont), frame.size, !!w.bold, !!w.italic)(c.text.trim()[0]), k = (size * pt) / frame.size;
+    return captionAtom(c, [(p.box[0] + (first.width * k) / 2) / L, -(p.lines[0].y - (first.ascent * k) / 2) / L, 0], style);
+  };
+  // Make element and Interpret Chemically on captions: each caption becomes its atom, in one undo step (merge: the step
+  // it joins). select: the new atoms are selected.
+  function makeElements(caps: Caption[], merge?: string, select = true) {
+    const made = caps.flatMap((c) => { const p = placed.find((x) => x.id === c.id); return p ? [{ id: c.id, atom: placedAtom(c, p) }] : []; });
+    if (!made.length) return undefined;
+    const m = set(captionsToAtoms(doc, made), false, merge);
+    if (select) setSelection(new Set(made.map((_, k) => doc.atoms.length + k)));
+    return m;
+  }
+  // A caption just typed that is one element symbol (Bi, Rh) becomes that atom once it is laid out, as a step of its
+  // own: Undo gives back the caption as typed.
+  const typedAtom = useRef<number>(undefined);
+  useLayoutEffect(() => {
+    const id = typedAtom.current, c = id === undefined ? undefined : doc.captions?.find((x) => x.id === id);
+    typedAtom.current = undefined;
+    if (c) makeElements([c]);
+  }, [placed]); // eslint-disable-line react-hooks/exhaustive-deps
   // The structure for the name being typed, where it will land (after the arrows and text, which landing reads).
   const ghost = useMemo(() => named && render(moveAtoms(named, new Set(named.atoms.map((_, i) => i)), landing(named)), frame, measure, L), [named, doc, frame, measure, placed, arrows]); // eslint-disable-line react-hooks/exhaustive-deps
   // Reaction conditions and a cycle's reagents print formulas with subscripts (K2CO3 as K₂CO₃).
@@ -2629,7 +2653,7 @@ export default function Editor() {
     const w = writing, at = w?.at;
     if (!w || !at) return;
     const text = w.value.replace(/\s+$/, ""), gap = (20 * pt) / L, row = tabRow.current ?? { x: [at[0]], style: [w.style], k: 0 };
-    commitWriting();
+    commitWriting(false);
     if (!text) { tabRow.current = { ...row, k: 0 }; return openWriting({ value: "", at: [row.x[0], at[1] - gap], style: { ...row.style[0] } }); }
     const size = (w.style.size ?? style.captionSize) * pt, font = fontStack(w.style.font ?? style.captionFont), align = w.style.align ?? "left";
     const wide = Math.max(...text.split("\n").map((t) => textWidth(t, size, w.style.bold, w.style.italic, font))) / L, k = row.k + 1;
@@ -2638,7 +2662,9 @@ export default function Editor() {
     tabRow.current = { ...row, k };
     openWriting({ value: "", at: [row.x[k], at[1]], style: { ...(row.style[k] ?? w.style) } });
   }
-  function commitWriting() {
+  // auto: a new caption that is one element symbol becomes that atom (typedElement); not for a quick table's cells or
+  // for text going on to Name to structure.
+  function commitWriting(auto = true) {
     const w = writing;
     if (!writingOpen.current) return;
     writingOpen.current = false;
@@ -2657,6 +2683,9 @@ export default function Editor() {
     const [mol, id] = addCaption(doc, { text, x: w.at?.[0] ?? 0, y: w.at?.[1] ?? 0, ...(w.under ? { under: w.under } : {}), ...(w.on ? { on: w.on } : {}), ...(w.cycle ? { cycle: w.cycle } : {}), ...w.style, ...(runs ? { runs } : {}) });
     set(mol);
     setPicked(new Set([id]));
+    // Text in one style all through (an atom label has one style), typed on its own, not in a quick table.
+    const one = runs && normalise(runs), plain = !one || (one.length === 1 && !one[0].script);
+    if (auto && w.at && !w.under && !w.on && !w.cycle && !tabRow.current && plain && typedElement(text)) typedAtom.current = id;
   }
   // A text style on the characters selected in the caption box (with nothing selected, on the next characters
   // typed), or on the whole of every picked caption (the caption's own bold, italic and underline go into its runs,
@@ -3181,6 +3210,7 @@ export default function Editor() {
   }
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
     stopCamera(); // what is drawn is where the press lands
+    joinNext.current = undefined;
     if (e.button !== 0) return;
     // On the Mac a Control-click is the right-click (onContextMenu): the press does nothing more, but on a resize handle.
     if (MAC && e.ctrlKey) {
@@ -3265,6 +3295,17 @@ export default function Editor() {
     // on a caption, except with the Text tool, which edits it.
     if (tool !== "erase" && selection.size && onSelection(doc, selection, p)) return startMove(p, screen, t);
     if (tool !== "erase" && tool !== "text" && t.cycle !== undefined) return pressCycle(p, t, screen);
+    // A tool that works on an atom (bond, chain, ring, template, symbol), pressed on a caption that reads as an atom
+    // label (Bi, Rh, OMe), makes it that atom and goes on from it, as one undo step. ChemDraw joins bonds to a caption
+    // it reads chemically (Interpret Chemically).
+    const asAtom = !e.shiftKey && t.caption !== undefined && ATOM_TOOLS.has(tool) ? doc.captions?.find((c) => c.id === t.caption && labelable(c)) : undefined;
+    const key = asAtom && `element ${++elementSteps}`;
+    if (asAtom && key && makeElements([asAtom], key, false)) {
+      joinNext.current = key;
+      const at: Hover = { atom: doc.atoms.length };
+      pressTool(p, at, screen, e.altKey, { meta: MOD === "⌘" ? e.metaKey : e.ctrlKey, shift: e.shiftKey });
+      return startHold(p, at, screen);
+    }
     if (tool !== "erase" && tool !== "text" && (t.caption !== undefined || t.arrow !== undefined)) return pressCaption(p, t, e.shiftKey, screen);
     // With the TLC tool, a spot or a line on a plate drags, and a click adds a spot. A hold gives Select.
     if (tool === "tlc" && plateAt(p)) {
@@ -4540,7 +4581,7 @@ export default function Editor() {
     text_bold: ["Bold", `${MOD}B`, <TextB size={18} />], text_italic: ["Italic", `${MOD}I`, <TextItalic size={18} />], text_underline: ["Underline", `${MOD}U`, <TextUnderline size={18} />],
     align_left: ["Flush left", `⇧${MOD}L`, <TextAlignLeft size={18} />], align_centre: ["Centre text", `⇧${MOD}C`, <TextAlignCenter size={18} />], align_right: ["Flush right", `⇧${MOD}R`, <TextAlignRight size={18} />],
     align_justify: ["Justified", `⇧${MOD}J`, <TextAlignJustify size={18} />], align_above: ["Stacked above", "", <CaretLineUp size={18} />], align_auto: ["Automatic label alignment", `⇧${MOD}M`, <Sparkle size={18} />],
-    interpret: ["Interpret chemically", "", <GraphIcon size={18} />],
+    interpret: ["Interpret chemically", "", <GraphIcon size={18} />], make_element: ["Make element", "", <TextTSlash size={18} />],
     font_other: ["Other font…", "", <TextAa size={18} />], size_other: ["Other size…", "", <ArrowsVertical size={18} />], line_spacing: ["Line spacing…", "", <Paragraph size={18} />],
     bring_front: ["Bring to front", `${MOD}[`, <StackSimple size={18} />], send_back: ["Send to back", `${MOD}]`, <Stack size={18} />],
     ...(settings.onlineSearch ? {
@@ -5110,6 +5151,13 @@ export default function Editor() {
   }, [dropAt]);
 
   function onPointerUp() {
+    const joined = joinNext.current;
+    release();
+    joinNext.current = undefined;
+    // A caption made an atom by this press is not a double-click's first click: Undo would take the atom away again.
+    if (joined) lastClick.current = undefined;
+  }
+  function release() {
     stopHold();
     if (spring) { setTool(spring); setSpring(undefined); }
     if (!drag) return;
