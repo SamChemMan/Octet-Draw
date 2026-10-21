@@ -1417,6 +1417,18 @@ const SPECIES = new Map(([
   ["phosphoric acid", "P", "=O", "-OH", "-OH", "-OH"], ["perchloric acid", "Cl", "=O", "=O", "=O", "-OH"], ["carbonic acid", "C", "=O", "-OH", "-OH"],
   ["nitronium", "N+", "=O", "=O"], ["nitrosonium", "N", "#O+"], ["ammonium", "NH4+"], ["oxidanium", "OH3+"], ["phosphanium", "PH4+"],
   ["sulfanium", "SH3+"], ["aminylium", "NH2+"], ["hydroxylium", "OH+"], ["azanide", "NH2-"], ["hydride", "H-"], ["bifluoride", "H-", "-F", "-F"],
+  ["hypofluorous acid", "F", "-OH"], ["periodic acid", "I", "=O", "=O", "=O", "-OH"], ["orthoperiodic acid", "I", "=O", "-OH", "-OH", "-OH", "-OH", "-OH"],
+  ...["chlor", "brom", "iod"].flatMap((x) => {
+    const X = x === "chlor" ? "Cl" : x === "brom" ? "Br" : "I";
+    return [[`hypo${x}ous acid`, X, "-OH"], [`${x}ous acid`, X, "=O", "-OH"], [`${x}ic acid`, X, "=O", "=O", "-OH"], [`per${x}ic acid`, X, "=O", "=O", "=O", "-OH"]];
+  }),
+  ["phosphonic acid", "PH", "=O", "-OH", "-OH"], ["phosphinic acid", "PH2", "=O", "-OH"], ["sulfamic acid", "S", "=O", "=O", "-NH2", "-OH"],
+  ["phosphorus trichloride", "P", "-Cl", "-Cl", "-Cl"], ["phosphorus tribromide", "P", "-Br", "-Br", "-Br"],
+  ["phosphorus pentachloride", "P", "-Cl", "-Cl", "-Cl", "-Cl", "-Cl"], ["phosphoryl trichloride", "P", "=O", "-Cl", "-Cl", "-Cl"],
+  ["thionyl dichloride", "S", "=O", "-Cl", "-Cl"], ["thionyl dibromide", "S", "=O", "-Br", "-Br"], ["sulfuryl dichloride", "S", "=O", "=O", "-Cl", "-Cl"],
+  ["sulfur hexafluoride", "S", "-F", "-F", "-F", "-F", "-F", "-F"], ["nitrosyl chloride", "N", "=O", "-Cl"], ["carbonyl dichloride", "C", "=O", "-Cl", "-Cl"],
+  ["carbonothioyl dichloride", "C", "=S", "-Cl", "-Cl"], ["carbonyl sulfide", "C", "=O", "=S"], ["carbon monoxide", "C-", "#O+"],
+  ["hydrogen cyanide", "CH", "#N"], ["cyanogen chloride", "C", "#N", "-Cl"], ["cyanogen bromide", "C", "#N", "-Br"], ["cyanamide", "C", "#N", "-NH2"],
 ] as string[][]).map(([name, centre, ...bonds]) => [`${centre}(${bonds.sort().join(",")})`, name]));
 Object.assign(ANIONS, {
   "H2N-1": "amide", "N-3": "nitride", "P-3": "phosphide", "O2-2": "peroxide", "HO2-1": "hydroperoxide", "HS-1": "sulfanide", "Se-2": "selenide",

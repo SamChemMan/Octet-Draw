@@ -115,6 +115,8 @@ run("species", [
   "hydroxylamine", "carbon dioxide", "sulfur dioxide", "sulfuric acid", "nitric acid", "phosphoric acid", "carbonic acid",
   "ammonium", "oxidanium", "azanide", "chloride", "nitrate", "sulfate", "hydrogencarbonate", "perchlorate", "nitronium", "sulfamate",
   "smiles:[Na+]", "smiles:[Fe+3]", "argon", "sodium", "gold", "smiles:[CH3-]",
+  "hypochlorous acid", "chloric acid", "periodic acid", "sulfamic acid", "phosphorus trichloride", "phosphoryl trichloride",
+  "thionyl chloride", "sulfuryl chloride", "phosgene", "carbonyl sulfide", "smiles:[C-]#[O+]", "hydrogen cyanide", "cyanogen bromide",
 ]);
 // Hydrogen drawn as atoms (Sam's files, 21 October 2026): each H on one atom joins that atom's hydrogen count.
 run("explicit hydrogen", [
