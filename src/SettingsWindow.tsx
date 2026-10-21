@@ -33,8 +33,9 @@ const MAC = navigator.platform.startsWith("Mac");
 // The picture Copy puts on the clipboard (Settings > Import and export > Copy).
 const PICTURE = MAC ? "PDF, with the structure inside" : navigator.platform.startsWith("Linux") ? "PNG and SVG" : "PNG";
 // PNG resolutions; 350 dpi by default (Sam: super high resolution).
-export const DPIS: [string, string][] = [["72", "72 dpi"], ["150", "150 dpi"], ["300", "300 dpi"], ["350", "350 dpi"], ["600", "600 dpi"], ["1200", "1200 dpi"]];
-export const DEFAULT_FILES: FilePrefs = { format: "pdf", dpi: 350, background: "transparent", margin: 4, clipboard: { pdf: true, cdx: true, cdxml: true, mol: true, smiles: true }, keepStyle: true, saveAs: "oct" };
+export const DPIS: [string, string][] = [["72", "72 dpi"], ["150", "150 dpi"], ["300", "300 dpi"], ["350", "350 dpi"], ["600", "600 dpi"], ["1200", "1200 dpi"], ["1440", "1440 dpi"]];
+// 600 dpi by default (Sam, 21 October 2026: PNGs at 350 dpi looked soft on slides); 1440 is ChemDraw's highest.
+export const DEFAULT_FILES: FilePrefs = { format: "pdf", dpi: 600, background: "transparent", margin: 4, clipboard: { pdf: true, cdx: true, cdxml: true, mol: true, smiles: true }, keepStyle: true, saveAs: "oct" };
 
 type Props = {
   module: ModuleId;

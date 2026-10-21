@@ -431,11 +431,11 @@ mod tests {
         let t = all(System::Windows);
         assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), ["PNG", DIB, "ChemDraw Interchange Format", "CDXML", "MDLCT", "SMILES", "application/x-octet+json"]);
         assert!(t[0].1.starts_with(b"\x89PNG\r\n\x1a\n"));
-        // 20 pt by 10 pt at 300 dpi: 84 by 42 pixels, as a bottom-up 24-bit bitmap on white with rows of 252 bytes.
+        // 20 pt by 10 pt at 600 dpi: 167 by 84 pixels, as a bottom-up 24-bit bitmap on white with rows of 504 bytes.
         let dib = &t[1].1;
         let int = |k: usize| i32::from_le_bytes(dib[k..k + 4].try_into().unwrap());
-        assert_eq!((int(0), int(4), int(8), dib[14]), (40, 84, 42, 24));
-        assert_eq!(dib.len(), 40 + 252 * 42);
+        assert_eq!((int(0), int(4), int(8), dib[14]), (40, 167, 84, 24));
+        assert_eq!(dib.len(), 40 + 504 * 84);
         assert_eq!(&dib[40..43], [255, 255, 255], "the bottom row is white");
         assert!(dib[40..].chunks(3).any(|c| c == [0, 0, 0]), "the bar is black");
         assert_eq!((t[4].1.clone(), t[5].1.clone()), (prefixed_lines(MOL).unwrap(), b"CO\0".to_vec()));

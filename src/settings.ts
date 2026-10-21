@@ -81,7 +81,8 @@ export function loadSettings(): Settings {
       ).filter((k: { name: string; smiles: string }) => k.name.length <= 300 && k.smiles.length <= 2000).slice(0, 50),
       curvedArrows: Array.isArray(saved.curvedArrows) ? list<string>(saved.curvedArrows, (k) => typeof k === "string") : DEFAULTS.curvedArrows,
       ...readPurposes(saved),
-      files: { ...DEFAULT_FILES, ...(typeof saved.files === "object" && saved.files ? saved.files : {}), clipboard: { ...DEFAULT_FILES.clipboard, ...(saved.files?.clipboard ?? {}) }, saveAs: saved.files?.saveAs === "cdxml" ? "cdxml" : "oct" },
+      // A saved 350 dpi is the old default, not a choice: it moves to the new default.
+      files: { ...DEFAULT_FILES, ...(typeof saved.files === "object" && saved.files ? saved.files : {}), ...(saved.files?.dpi === 350 ? { dpi: DEFAULT_FILES.dpi } : {}), clipboard: { ...DEFAULT_FILES.clipboard, ...(saved.files?.clipboard ?? {}) }, saveAs: saved.files?.saveAs === "cdxml" ? "cdxml" : "oct" },
       paletteWide: saved.paletteWide === true,
       warningTypes: Object.fromEntries(WARNING_TYPES.flatMap((w) => (typeof saved.warningTypes?.[w.id] === "boolean" ? [[w.id, saved.warningTypes[w.id]]] : []))),
       checkCopy: saved.checkCopy === true,

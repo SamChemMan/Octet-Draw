@@ -170,13 +170,13 @@ fn png_of(pixmap: &resvg::tiny_skia::Pixmap, dpi: f32) -> Result<Vec<u8>, String
     Ok(out)
 }
 
-// The picture on the clipboard on Windows and Linux, where Office pastes no PDF: a transparent PNG at 300 dpi of
+// The picture on the clipboard on Windows and Linux, where Office pastes no PDF: a transparent PNG at 600 dpi of
 // true size (lower for a large drawing, so it has at most 16 million pixels and 8,192 on a side), and with `bitmap`
 // the same on white as a Windows bitmap (a DIB), for programs that read no PNG.
 pub fn clipboard_pictures(svg: &str, bitmap: bool) -> Result<(Vec<u8>, Option<Vec<u8>>), String> {
     let tree = tree(svg)?;
     let (w, h) = (tree.size().width().max(1.0), tree.size().height().max(1.0));
-    let dpi = 300f32.min(96.0 * (16e6 / (w * h)).sqrt()).min(96.0 * 8192.0 / w.max(h));
+    let dpi = 600f32.min(96.0 * (16e6 / (w * h)).sqrt()).min(96.0 * 8192.0 / w.max(h));
     let pixmap = draw(&tree, dpi, true)?;
     Ok((png_of(&pixmap, dpi)?, bitmap.then(|| dib(&pixmap, dpi))))
 }
