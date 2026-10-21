@@ -149,7 +149,9 @@ const oxyOnN = (n: Namer, o: number, on: number) => n.el[o] === "O" && free(n, o
 export function amideHetero(n: Namer, x: number, j: number): boolean {
   if (HALO[n.el[j]] && n.adj[j].length === 1) { n.het.set(j, "NX"); return true; }
   if (oxyOnN(n, j, x)) { n.het.set(j, "ON"); return true; }
-  return false;
+  // A sulfonyl S (an N-acylsulfonamide, named as the carboxamide: N-(benzenesulfonyl)acetamide); perceiveSulfur
+  // takes the S.
+  return n.el[j] === "S" && !n.inRing[j] && !n.q[j] && oxo(n, j).length === 2 && n.adj[j].length === 4 && n.adj[j].filter((k) => n.el[k] === "C").length === 1;
 }
 
 export function perceiveHetero(n: Namer) {
@@ -287,7 +289,7 @@ function ligand(n: Namer, x: number, j: number): string | undefined {
   if (azideN(n, j) === x) return "N3";
   // An imine N on S (a sulfinimine): N-[(E)-phenylmethylidene]-2-methylpropane-2-sulfinamide.
   if (n.adj[j].length === 2 && !n.h[j]) { const c = n.adj[j].find((y) => y !== x)!; if (n.el[c] === "C" && n.ord(j, c) === 2 && n.carbonylO[c] < 0 && !n.isNitrileC(c) && n.el[x] === "S") return "N"; }
-  return single(n, j) && n.adj[j].length + n.h[j] === 3 && n.adj[j].every((y) => y === x || plainC(n, y) || (n.el[y] === "S" && !n.inRing[y] && oxo(n, y).length === 2) || nitrosoOrAmino(n, y, j) || (HALO[n.el[y]] && n.adj[y].length === 1)) ? "N" : undefined;
+  return single(n, j) && n.adj[j].length + n.h[j] === 3 && n.adj[j].every((y) => y === x || plainC(n, y) || (n.el[y] === "S" && !n.inRing[y] && oxo(n, y).length === 2) || nitrosoOrAmino(n, y, j) || (HALO[n.el[y]] && n.adj[y].length === 1) || (n.group[y] === "amide" && n.el[y] === "C")) ? "N" : undefined;
 }
 // An N on an amide N j: nitroso (N-methyl-N-nitroso), amino (a hydrazide: N-amino), or an imine N (=N-, a hydrazone).
 function nitrosoOrAmino(n: Namer, y: number, j: number): boolean {
