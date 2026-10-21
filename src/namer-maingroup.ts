@@ -207,7 +207,7 @@ export function isotopeText(n: Namer, skeleton: number[], suffix: number[], loc:
 }
 // A terminal heteroatom with isotopes cited as a prefix: (²H₁)hydroxy, (²H₂)amino, (¹⁸O)hydroxy. Undefined for others.
 export function isotopePrefix(n: Namer, x: number, from: number): { text: string; compound: boolean } | undefined {
-  if (!isotopic(n, x) || n.el[x] === "C" || n.adj[x].length !== 1 || n.inRing[x]) return undefined;
+  if (!n.isotopic || !isotopic(n, x) || n.el[x] === "C" || n.adj[x].length !== 1 || n.inRing[x]) return undefined;
   const text = isotopeText(n, [x], [], () => n.el[x]), keep = [n.iso[x], n.hx[x]];
   n.iso[x] = undefined; n.hx[x] = [];
   try { return { text: text + n.substituent(x, from).text, compound: true }; } finally { [n.iso[x], n.hx[x]] = keep as [number | undefined, number[]]; }

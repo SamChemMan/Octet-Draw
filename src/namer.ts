@@ -261,7 +261,7 @@ class Namer {
   fused: boolean[] = []; fusedCache = new Map<number, FusedSys>(); // ring systems that are not a single cycle
   carbonylO: number[]; // the =O (or =S, a thio analogue) on each carbon, or -1
   cip: (string | undefined)[]; cipBond = new Map<string, string>(); // R/S on atoms, E/Z on double bonds
-  iso: (number | undefined)[]; hx: number[][]; // isotopes: each atom's mass number, and its isotopic hydrogens' (P-82)
+  iso: (number | undefined)[]; hx: number[][]; isotopic: boolean; // isotopes: each atom's mass number, its isotopic hydrogens' (P-82)
   group: (Kind | undefined)[] = []; // the characteristic group each atom carries or is (functional carbons, O, S, N)
   bearer = new Map<number, number[]>(); // a group's atom (O, S, N or functional C) → the carbons it hangs on
   esterO = new Map<number, number>(); // ester carbon (and carbamate carbon) → its single-bonded O
@@ -298,6 +298,7 @@ class Namer {
     this.cip = g.atoms.map((a) => a.cip);
     this.iso = g.atoms.map((a) => a.iso);
     this.hx = g.atoms.map((a) => a.hx ?? []);
+    this.isotopic = g.atoms.some((a) => a.iso || a.hx?.length);
     this.inRing = this.findRings();
     this.ringOf = Array(this.n).fill(-1);
     this.rings.forEach((r, k) => r.forEach((i) => (this.ringOf[i] = k)));
@@ -1314,7 +1315,7 @@ class Namer {
       (!!opts.acyl && !p.ring && size === 2 && !multiple(num).length) || // phenylacetyl, chloroacetyl
       (single && prefixes.length + sites.length <= 1 && !opts.attach && !multiple(num).length))
       // Isotopes on the parent and its suffix's heteroatoms go after the prefixes (P-82): trichloro(²H₁)methane.
-      + (!this.hx.some((x, a) => x.length || this.iso[a]) ? "" : isotopeText(this, atoms, [...used, ...(kind && CARBON_GROUP.has(kind) ? sites.flatMap((s) => [s.group, ...this.groupHetero(s.group), this.carbonylO[s.group]]) : [])]
+      + (!this.isotopic ? "" : isotopeText(this, atoms, [...used, ...(kind && CARBON_GROUP.has(kind) ? sites.flatMap((s) => [s.group, ...this.groupHetero(s.group), this.carbonylO[s.group]]) : [])]
         .filter((a, k, all) => a >= 0 && !inParent.has(a) && all.indexOf(a) === k), (a) => label(num, a)));
     let parent: string;
     if (p.hetero) parent = p.hetero; // hydrazine, diazene
