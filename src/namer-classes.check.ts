@@ -115,3 +115,21 @@ check("carbonic", [
   "N-acetylacetamide", "N,N-diacetylacetamide", "N-benzoylbenzamide", ["N-acetylurea", "N-carbamoylacetamide"], ["tert-butyl acetylcarbamate", "tert-butyl N-acetylcarbamate"],
   "4-(diacetylamino)benzoic acid", "4-[acetyl(methyl)amino]benzoic acid",
 ]);
+
+// Amidines (P-66.4.1.1), guanidines (P-66.4.1.2.1) and carbodiimides; isocyanates, cyanates, cyanamides and
+// carbononitridic halides (P-66.5.1.1); ketenes (P-64.1.1).
+check("imines", [
+  "methanimidamide", "ethanimidamide", "N-methylethanimidamide", "N'-methylethanimidamide", "N,N-dimethylmethanimidamide", "N'-hydroxyethanimidamide",
+  "benzenecarboximidamide", "piperidine-1-carboximidamide", "4-carbamimidoylbenzoic acid", "3-amino-3-iminopropanoic acid",
+  "guanidine", "N-methylguanidine", "N''-methylguanidine", "N,N-dimethylguanidine", "N,N'-dimethylguanidine", ["agmatine", "N-(4-aminobutyl)guanidine"],
+  ["arginine", "(2S)-2-amino-5-carbamimidamidopentanoic acid"], ["smiles:NC(N)=NCCC[C@H](N)C(O)=O", "(2S)-2-amino-5-[(diaminomethylidene)amino]pentanoic acid"],
+  ["creatine", "[carbamimidoyl(methyl)amino]acetic acid"], ["biguanide", "N-carbamimidoylguanidine"],
+  ["smiles:CN(C)C(=N)NC(=N)N", "N'-carbamimidoyl-N,N-dimethylguanidine"], // metformin
+  "methanediimine", "N,N'-dicyclohexylmethanediimine", "3-{[(ethylimino)methylidene]amino}-N,N-dimethylpropan-1-amine",
+  "isocyanic acid", "isocyanatobenzene", "isothiocyanatomethane", "1,6-diisocyanatohexane", "2,4-diisocyanato-1-methylbenzene",
+  ["allyl isothiocyanate", "3-isothiocyanatoprop-1-ene"], "cyanatobenzene", "thiocyanatobenzene", "cyanic acid",
+  "cyanamide", "N,N-dimethylcyanamide", "(cyanoamino)acetic acid", ["cyanogen bromide", "carbononitridic bromide"], "carbononitridic chloride",
+  "ethenone", ["2-phenylethen-1-one", "2-phenylethenone"], ["dimethylketene", "2-methylprop-1-en-1-one"],
+  // Prefixes without locants: brackets after the first.
+  ["bromochloromethane", "bromo(chloro)methane"], ["mandelic acid", "hydroxy(phenyl)acetic acid"],
+]);
