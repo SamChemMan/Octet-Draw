@@ -1852,10 +1852,41 @@ export function normalise(m: Mol): Mol {
 }
 
 // The turn (degrees, anticlockwise) that sets a structure's bottom ring bond level with the page: of the ring bonds
-// that would end up lowest, the one needing the smallest turn. 0 for a structure without rings.
+// that would end up lowest, the one needing the smallest turn. Only bonds of six-membered rings count when there are
+// any, so a regular hexagon, and every bond at 120° to one, lies at a multiple of 30° (a five-membered ring hanging
+// lowest would tilt them 12°). For a structure without rings, the smallest turn that sets the most bonds at a multiple
+// of 30° (ChemDraw's clean up turns a structure by a multiple of 30° from its own layout, which has its bonds on that
+// grid).
 export function levelTurn(m: Mol, atoms: number[]): number {
-  const inside = new Set(atoms), inRings = ringBonds(m), ring = m.bonds.filter((b, k) => inside.has(b.atoms[0]) && inside.has(b.atoms[1]) && inRings[k]);
-  if (!ring.length) return 0;
+  const inside = new Set(atoms), inRings = ringBonds(m), rings = m.bonds.filter((b, k) => inside.has(b.atoms[0]) && inside.has(b.atoms[1]) && inRings[k]);
+  const near: number[][] = m.atoms.map(() => []);
+  for (const b of rings) { near[b.atoms[0]].push(b.atoms[1]); near[b.atoms[1]].push(b.atoms[0]); }
+  // In a six-membered ring: the shortest other path between the bond's atoms has 5 bonds.
+  const six = (b: Mol["bonds"][number]) => {
+    let front = [b.atoms[0]];
+    const seen = new Set(front);
+    for (let d = 1; d <= 5; d++) {
+      const next: number[] = [];
+      for (const x of front) for (const y of near[x]) {
+        if (d === 1 && y === b.atoms[1]) continue;
+        if (y === b.atoms[1]) return d === 5;
+        if (!seen.has(y)) { seen.add(y); next.push(y); }
+      }
+      front = next;
+    }
+    return false;
+  };
+  const hexagons = rings.filter(six), ring = hexagons.length ? hexagons : rings;
+  if (!ring.length) {
+    const dirs = m.bonds.filter((b) => inside.has(b.atoms[0]) && inside.has(b.atoms[1])).map((b) => { const p = pos(m, b.atoms[0]), q = pos(m, b.atoms[1]); return Math.atan2(q[1] - p[1], q[0] - p[0]) / deg; });
+    const off = (a: number) => (((a % 30) + 45) % 30) - 15; // degrees past the nearest multiple of 30°, in [-15, 15)
+    let best = 0, most = 0;
+    for (const a of dirs) {
+      const t = -off(a), on = dirs.filter((d) => Math.abs(off(d + t)) < 0.01).length;
+      if (on > most || (on === most && Math.abs(t) < Math.abs(best))) [best, most] = [t, on];
+    }
+    return Math.abs(best) < 1e-9 ? 0 : best;
+  }
   const mids = ring.map((b): P => { const p = pos(m, b.atoms[0]), q = pos(m, b.atoms[1]); return [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]; });
   let best = 0, found = false;
   for (const [k, b] of ring.entries()) {
@@ -1869,7 +1900,7 @@ export function levelTurn(m: Mol, atoms: number[]): number {
     if (y(mids[k]) > lowest + 0.05) continue;
     if (!found || Math.abs(t) < Math.abs(best)) { best = t; found = true; }
   }
-  return Math.abs(best) < 0.5 ? 0 : best;
+  return Math.abs(best) < 1e-9 ? 0 : best;
 }
 
 // Structure Perspective. Tilts atoms through 3D about a centre: yaw turns them about the vertical axis (a drag
