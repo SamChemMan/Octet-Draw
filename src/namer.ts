@@ -310,6 +310,7 @@ class Namer {
         else throw new Error("carbonyl");
         continue;
       }
+      if (this.ringNAcyl(c)) continue;
       // Carbonic acid derivatives (P-65.2.1): urea and its N-substituted forms, and carbamate esters.
       const plainN = (n: number) => el[n] === "N" && this.ord(c, n) === 1 && !this.inRing[n] && adj[n].every((j) => j === c || (el[j] === "C" && this.carbonylO[j] < 0 && !this.isNitrileC(j)));
       const esterOf = (x: number) => el[x] === "O" && adj[x].length === 2 && adj[x].every((j) => j === c || (el[j] === "C" && this.carbonylO[j] < 0));
@@ -362,6 +363,7 @@ class Namer {
     for (let i = 0; i < this.n; i++) {
       if (this.group[i] || this.sulfur.has(i) || this.phosphorus.has(i) || el[i] === "C" || this.inRing[i]) continue;
       const cs = this.carbons(i);
+      if (this.nSubstituent(i)) continue;
       if (HALO[el[i]]) { if (adj[i].length !== 1 || cs.length !== 1) throw new Error("halogen"); continue; }
       if (el[i] === "O" && adj[i].some((j) => this.group[j] === "imine") && adj[i].length - cs.length === 1 && adj[i].length <= 2) continue; // an oxime's O: N-hydroxy, N-alkoxy
       if (el[i] === "O") {
@@ -389,8 +391,26 @@ class Namer {
       const oxime = (x: number, y: number) => this.group[x] === "imine" && el[x] === "N" && el[y] === "O" && o === 1;
       const oxide = this.phosphorus.has(a) && this.phosphorus.has(b);
       const n2 = (this.diazoAtom(a) && this.diazoAtom(b)) || (this.azidoAtom(a) && this.azidoAtom(b));
-      if (el[a] !== "C" && el[b] !== "C" && !this.nitroBond(a, b) && !oxime(a, b) && !oxime(b, a) && !oxide && !n2) throw new Error(`hetero bond ${el[a]}${o}${el[b]}`);
+      if (el[a] !== "C" && el[b] !== "C" && !this.nitroBond(a, b) && !oxime(a, b) && !oxime(b, a) && !oxide && !n2 && !this.nSubstituent(a) && !this.nSubstituent(b)) throw new Error(`hetero bond ${el[a]}${o}${el[b]}`);
     }
+  }
+  // An acyl group on a ring N (P-66.1.1.4.5): a ketone or aldehyde with the ring as a prefix, or the ring as the parent:
+  // 1-(piperidin-1-yl)ethan-1-one, piperidine-1-carbaldehyde, di(1H-imidazol-1-yl)methanone, 3-acetyl-1,3-oxazolidin-2-one.
+  ringNAcyl(c: number): boolean {
+    const others = this.adj[c].filter((j) => j !== this.carbonylO[c] && this.el[j] !== "C"), cs = this.carbons(c);
+    if (this.inRing[c] || !others.length || !others.every((j) => this.el[j] === "N" && this.inRing[j] && this.ord(c, j) === 1 && !this.q[j]) || cs.some((j) => this.ord(c, j) !== 1)) return false;
+    if (others.length === 1 && cs.length === 1) this.mark(c, "ketone", cs);
+    else if (others.length === 1 && !cs.length && this.h[c] === 1) this.mark(c, "aldehyde", others);
+    else if (others.length === 2 && !cs.length) this.mark(c, "ketone", []);
+    else return false;
+    return true;
+  }
+  // A halogen, hydroxy or alkoxy O on a ring N, cited as a prefix: 1-bromopyrrolidine-2,5-dione, 1-hydroxypyrrolidine-2,5-dione.
+  nSubstituent(i: number): boolean {
+    const ns = this.adj[i].filter((j) => this.el[j] === "N" && this.inRing[j] && this.ord(i, j) === 1 && !this.q[j]);
+    if (ns.length !== 1 || this.q[i] || this.inRing[i]) return false;
+    if (HALO[this.el[i]]) return this.adj[i].length === 1;
+    return this.el[i] === "O" && this.adj[i].length + this.h[i] === 2 && this.adj[i].every((j) => j === ns[0] || (this.el[j] === "C" && this.carbonylO[j] < 0));
   }
   mark(i: number, kind: Kind, on: number[]) { this.group[i] = kind; this.bearer.set(i, on); }
   isNitrileC = (c: number) => this.adj[c].some((j) => this.el[j] === "N" && this.ord(c, j) === 3);
@@ -1223,6 +1243,9 @@ function assemblePrefixes(list: { loc: string; name: Name }[], noLocants: boolea
     const m = g.locs.length, multiplied = m > 1 ? (g.name.compound ? MULT_COMPLEX[m] + enclose(g.name) : MULT[m] + g.name.text) : enclose(g.name);
     return noLocants && !locs.some(isN) ? multiplied : `${locs.join(",")}-${multiplied}`;
   });
+  // Without locants, each prefix after the first goes in brackets (P-16.5.1): chloro(methoxy)methane,
+  // (4-methylpiperazin-1-yl)(phenyl)methanone.
+  if (noLocants && parts.every((t) => !/^N/.test(t))) return parts.map((t, k) => (k === 0 || /^[([{]/.test(t) ? t : `(${t})`)).join("");
   return parts.join("-").replace(/-$/, "") + (parts.length && /\d$|N$/.test(parts[parts.length - 1]) ? "" : "");
 }
 // Prefixes, then the rest of the name, with a hyphen before a locant: 5-bromo-1H-indole, 1-methyl-1H-pyrrole.

@@ -121,6 +121,17 @@ run("phosphorus rings", [
   "2-methyl-1,3,2-dioxaphospholane", "1-methylphospholane", "1,2-azaphosphinine",
 ]);
 
+// Substituents on a ring N: halogen, hydroxy and alkoxy as prefixes (NBS, NHS); an acyl group as a ketone or aldehyde
+// with the ring as a prefix (P-66.1.1.4.5), or as an acyl prefix when the ring is the parent (Sam's Evans auxiliary).
+run("ring N substituents", [
+  "1-bromopyrrolidine-2,5-dione = 1-bromopyrrolidine-2,5-dione", "1-chloropyrrolidine-2,5-dione", "1-iodopyrrolidine-2,5-dione",
+  "1-hydroxypyrrolidine-2,5-dione = 1-hydroxypyrrolidine-2,5-dione", "1-methoxypyridin-2(1H)-one", "1-hydroxypiperidine",
+  "piperidine-1-carbaldehyde = piperidine-1-carbaldehyde", "1-(piperidin-1-yl)ethan-1-one", "di(imidazol-1-yl)methanone = bis(1H-imidazol-1-yl)methanone",
+  "1-acetylpyrrolidin-2-one = 1-acetylpyrrolidin-2-one", "smiles:O1C[C@H](C2C=CC=CC=2)N(C(=O)CC2C=CC=CC=2)C1=O = (4S)-4-phenyl-3-(2-phenylacetyl)-1,3-oxazolidin-2-one",
+  "1-(morpholin-4-yl)propan-1-one", "(4-methylpiperazin-1-yl)(phenyl)methanone = (4-methylpiperazin-1-yl)(phenyl)methanone", "1H-imidazole-1-carbaldehyde",
+  "1-benzoylpiperidine-4-carboxylic acid = 1-benzoylpiperidine-4-carboxylic acid", "2,2,2-trifluoro-1-(pyrrolidin-1-yl)ethan-1-one",
+]);
+
 // Ketenes (P-64.1): the C=O carbon is a ketone at the end of a chain with a double bond.
 run("ketenes", [
   "ethenone = ethenone", "2-phenylethen-1-one", "diphenylethenone", "dimethylketene = 2-methylprop-1-en-1-one", "fulvenone",
