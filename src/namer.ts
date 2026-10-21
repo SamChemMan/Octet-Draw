@@ -1123,8 +1123,9 @@ class Namer {
     // An assembly ranks by its component ring, then above that ring alone.
     const score = (c: { atoms: number[]; ring: boolean; groups: number; assembly?: Assembly }) =>
       [-c.groups, c.ring ? 0 : 1, ...(c.ring ? [...ringRank({ atoms: c.assembly?.rings[0] ?? c.atoms }), c.assembly ? -2 : -1] : [-c.atoms.length, -multiple(c), -multiple(c, 2), 0, 0]), -subs(c)];
-    cands.sort((a, b) => compare(score(a), score(b)));
-    const best = cands.filter((c) => compare(score(c), score(cands[0])) === 0);
+    const scores = new Map(cands.map((c) => [c, score(c)]));
+    cands.sort((a, b) => compare(scores.get(a)!, scores.get(b)!));
+    const best = cands.filter((c) => compare(scores.get(c)!, scores.get(cands[0])!) === 0);
     // Equal parents: the name with the lowest locants (then first alphabetically) wins.
     const names = best.map((c) => this.nameParent(c, { kind: c.groups ? kind : undefined, skip })).map((n) => n.text);
     names.sort((a, b) => compare(locantsOf(a), locantsOf(b)) || a.localeCompare(b));
