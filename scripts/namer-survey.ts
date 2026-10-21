@@ -95,16 +95,6 @@ const inputs: string[] = [...new Set([
   ...Object.keys(DRUGS),
 ])].slice(0, limit);
 // "corpus": the structures in Sam's ChemDraw files (~/octet-research/corpus/sam), read by Indigo, one per fragment.
-// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser. It draws
-// structures for the names of complexes (complexes.ts), and reads Sam's files.
-const gl = globalThis as Record<string, unknown>;
-gl.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-gl.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-gl.window = globalThis;
-gl.self = { location: { origin: "file://" } };
-gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
-const chem = await import("../src/chem.ts");
-await chem.ready;
 const drawings = new Map<string, Mol>(); // corpus: each structure's drawing, labels expanded, by its SMILES
 if (corpus) {
   const { readdirSync } = await import("node:fs");
