@@ -20,7 +20,7 @@
 import type { Graph } from "./naming.ts";
 import { fusedParent } from "./fusion.ts";
 import { ELEMENTS, isMetal, metalName, MORE_CATIONS, METAL_ANIONS, type MetalApi } from "./metals.ts";
-import { chalcogenIonSuffix, chalcogenStem } from "./namer-maingroup.ts";
+import { chalcogenIonSuffix, chalcogenStem, mainGroupSpecies } from "./namer-maingroup.ts";
 import { amideHetero, groupVariant, heteroAmine, heteroBond, heteroCharged, heteroParentName, heteroPrefix, hydrazinyl, inorganicName, nOxideN, nOxides, oxideText, perceiveHetero, perceiveIodanes, suffixStereo, sulfonamideN, sulfonateName, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
 
 type Name = { text: string; compound: boolean }; // compound: needs brackets when cited as a prefix
@@ -2448,6 +2448,8 @@ function anionByFormula(g: Graph, formula: string): string | undefined {
 function speciesName(g: Graph): string | undefined {
   const known = shapes(g).find((s) => SPECIES.has(s));
   if (known) return SPECIES.get(known);
+  const main = mainGroupSpecies(g); // orthotelluric acid, perxenate, seleninyl dichloride (namer-maingroup.ts)
+  if (main) return main;
   const f = ionFormula(g, g.atoms.map((_, i) => i));
   const inorganic = f.includes("-") ? anionByFormula(g, f) : undefined;
   if (inorganic) return inorganic;

@@ -1,7 +1,113 @@
 // Octet's IUPAC namer, part 3: heavier main-group elements and their ions (IUPAC 2013, P-6, P-7; IUPAC 2005, IR-6,
 // IR-8). Clean room, from the published rules. namer.ts calls these at a few fixed points. Every name is still read
 // back by OPSIN before the app shows it.
+import type { Graph } from "./naming.ts";
 import type { Namer } from "./namer.ts";
+
+// ——— Inorganic molecules and ions of the heavier main-group elements (IR-6, IR-8; P-67.1) ———
+// By structure, written as SMILES without rings: every atom outside B, C, N, O, P, S and the halogens in brackets
+// with its hydrogens. The names are the ones IUPAC gives where OPSIN reads them (azinic acid, orthotelluric acid,
+// seleninyl dichloride), else the names chemists use and OPSIN reads (hypodiselenic acid, perxenate).
+const SPECIES: [string, string][] = [
+  // Se and Te oxoacids with Se-O-Se, Se-Se, and six OH; Te oxoanions.
+  ["O[Se](=O)(=O)O[Se](=O)(=O)O", "diselenic acid"], ["O[Se](=O)(=O)O[Se](=O)(=O)O[Se](=O)(=O)O", "triselenic acid"], ["O[Se](=O)O[Se](=O)O", "diselenous acid"],
+  ["O[Te](=O)(=O)O[Te](=O)(=O)O", "ditelluric acid"], ["O[Se](=O)(=O)[Se](=O)(=O)O", "hypodiselenic acid"], ["O[Te](=O)(=O)[Te](=O)(=O)O", "hypoditelluric acid"],
+  ["O[Te](O)(O)(O)(O)O", "orthotelluric acid"], ["[O-][Te](=O)(=O)[O-]", "tellurate"], ["[O-][Te](=O)[O-]", "tellurite"], ["[Se]=[Se]", "diselene"],
+  // As, Sb and P oxoacids (P-67.1.1.1, IR-8 Table).
+  ["O[As](=O)=O", "arsenenic acid"], ["O[As](=O)(O)[As](=O)(O)O", "hypodiarsoric acid"], ["O[Sb](=O)(O)[Sb](=O)(O)O", "hypodistiboric acid"],
+  ["O[PH](=O)O[PH](=O)O", "diphosphonic acid"], ["O[PH](=O)OP(=O)(O)O[PH](=O)O", "triphosphonic acid"], ["O[PH](=O)[PH](=O)O", "hypodiphosphonic acid"],
+  ["O[PH](=O)OP(=O)(O)O", "isohypophosphoric acid"], ["[O-][PH](=O)OP(=O)([O-])[O-]", "isohypophosphate"],
+  // Nitrogen oxoacids by the λ-convention drawn as ions (P-67.1.1.1: azinic, azonic, azoric acid), amine oxides.
+  ["[NH2+](O)[O-]", "azinic acid"], ["[NH+](O)(O)[O-]", "azonic acid"], ["[N+](O)(O)(O)[O-]", "azoric acid"], ["[N+]([O-])([O-])([O-])[O-]", "orthonitrate"],
+  ["[NH3+][O-]", "ammonia oxide"], ["[NH+]([O-])=O", "nitryl hydride"], ["N[N+](=O)[O-]", "nitramide"],
+  // Halogen oxoanions, silicate, xenon, hydride anions and λ⁵ hydrides.
+  ["[O-]F=O", "fluorite"], ["[O-]F(=O)=O", "fluorate"], ["[O-]F(=O)(=O)=O", "perfluorate"], ["[O-][Si]([O-])([O-])[O-]", "orthosilicate"],
+  ["O[Xe](=O)(=O)(O)(O)O", "perxenic acid"], ["[O-][Xe](=O)(=O)([O-])([O-])[O-]", "perxenate"],
+  ["[PH2-]", "phosphanide"], ["[AsH2-]", "arsanide"], ["[SbH2-]", "stibanide"], ["[SiH3-]", "silanide"], ["[GeH3-]", "germanide"], ["[SnH3-]", "stannanide"],
+  ["[GaH4-]", "tetrahydrogallate"], ["[AsH5]", "λ⁵-arsane"], ["[SbH5]", "λ⁵-stibane"], ["[BH]=[BH]", "diborene"], ["[B]#[B]", "diboryne"],
+  // Chalcogen imides by the λ-convention (P-14.1.3): sulfilimine and sulfoximine and their Se and Te analogues.
+  ["[SH2]=N", "λ⁴-sulfanimine"], ["[SeH2]=N", "λ⁴-selanimine"], ["[TeH2]=N", "λ⁴-tellanimine"],
+  ["[SH2](=O)=N", "imino-λ⁶-sulfanone"], ["[SeH2](=O)=N", "imino-λ⁶-selanone"], ["[TeH2](=O)=N", "imino-λ⁶-tellanone"],
+  // Carbon: peroxocarbonates, the cyanide pseudohalides of S and N.
+  ["[O-]OC(=O)[O-]", "peroxocarbonate"], ["[O-]C(=O)OOC(=O)[O-]", "peroxodicarbonate"], ["OSC#N", "hydroxysulfanecarbonitrile"], ["[O-]SC#N", "(cyanosulfanyl)oxidanide"],
+  ["N#CN=[N+]=[N-]", "carbononitridic azide"],
+];
+type Shape = { el: string[]; h: number[]; q: number[]; bonds: [number, number, number][] };
+// A structure's signature: each atom's element, hydrogens, charge and bonds, sorted.
+function signature({ el, h, q, bonds }: Shape): string {
+  return el.map((e, i) => `${e}${h[i]}${q[i] || ""}[${bonds.filter((b) => b[0] === i || b[1] === i).map((b) => `${b[2]}${el[b[0] === i ? b[1] : b[0]]}`).sort().join(",")}]`).sort().join(" ");
+}
+// A SMILES without rings as a shape: bracket atoms as written, the others with their usual hydrogens.
+function parse(s: string): Shape {
+  const shape: Shape = { el: [], h: [], q: [], bonds: [] }, stack: number[] = [], usual: Record<string, number> = { B: 3, C: 4, N: 3, O: 2, P: 3, S: 2, F: 1, Cl: 1, Br: 1, I: 1 };
+  let prev = -1, order = 1;
+  for (const t of s.match(/\[[^\]]+\]|Cl|Br|[BCNOPSFI]|[=#()]/g) ?? []) {
+    if (t === "=" || t === "#") { order = t === "=" ? 2 : 3; continue; }
+    if (t === "(") { stack.push(prev); continue; }
+    if (t === ")") { prev = stack.pop()!; continue; }
+    const m = /^\[([A-Z][a-z]?)(?:H(\d?))?([+-]*)\]$/.exec(t);
+    shape.el.push(m ? m[1] : t);
+    shape.q.push(m ? (m[3].includes("+") ? 1 : -1) * m[3].length : 0);
+    shape.h.push(m ? (m[2] !== undefined ? Number(m[2] || 1) : 0) : -1);
+    if (prev >= 0) shape.bonds.push([prev, shape.el.length - 1, order]);
+    prev = shape.el.length - 1; order = 1;
+  }
+  shape.h = shape.h.map((h, i) => (h >= 0 ? h : Math.max(0, usual[shape.el[i]] - shape.bonds.reduce((t, b) => t + (b[0] === i || b[1] === i ? b[2] : 0), 0))));
+  return shape;
+}
+let species: Map<string, string> | undefined;
+const shapeOf = (g: Graph): Shape => ({ el: g.atoms.map((a) => a.el), h: g.atoms.map((a) => a.h), q: g.atoms.map((a) => a.charge), bonds: g.bonds.map((b) => [b.a, b.b, b.order]) });
+// The name of a small molecule or ion of the heavier main-group elements: from the table, or one of these shapes:
+// tetrahalido anions of B, Al and Ga (tetrabromoaluminate), oxyhalides of Se and Te (seleninyl dichloride), and
+// chains of P, As or Sb with λ⁵ atoms (1λ⁵,2λ⁵-diphosphene). Undefined for the rest.
+export function mainGroupSpecies(g: Graph): string | undefined {
+  if (g.atoms.length > 16 || g.bonds.length !== g.atoms.length - 1) return undefined;
+  species ??= new Map(SPECIES.map(([s, name]) => [signature(parse(s)), name]));
+  const known = species.get(signature(shapeOf(g)));
+  if (known) return known;
+  const nbrs = (i: number) => g.bonds.flatMap((b) => (b.a === i ? [b.b] : b.b === i ? [b.a] : []));
+  const halo = (i: number) => /^(F|Cl|Br|I)$/.test(g.atoms[i].el) && !g.atoms[i].charge && !g.atoms[i].h && nbrs(i).length === 1;
+  const oxo = (c: number, i: number) => g.atoms[i].el === "O" && !g.atoms[i].charge && !g.atoms[i].h && g.bonds.some((b) => ((b.a === c && b.b === i) || (b.b === c && b.a === i)) && b.order === 2);
+  const HALO: Record<string, string> = { F: "fluor", Cl: "chlor", Br: "brom", I: "iod" }, HALIDE: Record<string, string> = { F: "fluoride", Cl: "chloride", Br: "bromide", I: "iodide" };
+  for (let c = 0; c < g.atoms.length; c++) {
+    const a = g.atoms[c], ns = nbrs(c);
+    if (ns.length !== g.atoms.length - 1) continue;
+    const xs = ns.filter(halo), os = ns.filter((i) => oxo(c, i)), x = g.atoms[xs[0]]?.el;
+    // [BX4]-, [AlX4]-, [GaX4]- (IR-8, as OPSIN reads them): tetrafluoroborate, tetrabromoaluminate.
+    if (/^(B|Al|Ga)$/.test(a.el) && a.charge === -1 && !a.h && xs.length === 4 && xs.every((i) => g.atoms[i].el === x))
+      return `tetra${HALO[x]}o${{ B: "bor", Al: "alumin", Ga: "gall" }[a.el]}ate`;
+    // SeOX2, SeO2X2, TeOX2, TeO2X2 (IR-8.3): seleninyl dichloride, selenonyl dichloride.
+    if ((a.el === "Se" || a.el === "Te") && !a.charge && !a.h && xs.length === 2 && xs.length + os.length === ns.length && (os.length === 1 || os.length === 2) && g.atoms[xs[1]].el === x)
+      return `${a.el === "Se" ? "selen" : "tellur"}${os.length === 1 ? "inyl" : "onyl"} di${HALIDE[x]}`;
+  }
+  return lambdaChain(g, nbrs);
+}
+// A chain of P, As or Sb atoms with hydrogens only, each with three bonds or five (λ⁵), with any single, double and
+// triple bonds (P-21.2.1, P-14.1.3): triphosphane, diarsene, 1λ⁵,2λ⁵-diphosphene, 1λ⁵,2λ⁵,3λ⁵,4λ⁵-tetraphosph-1-yne.
+function lambdaChain(g: Graph, nbrs: (i: number) => number[]): string | undefined {
+  const el = g.atoms[0].el, n = g.atoms.length, stem = ({ P: "phosph", As: "ars", Sb: "stib" } as Record<string, string>)[el];
+  if (!stem || n < 2 || n > 9 || g.atoms.some((a) => a.el !== el || a.charge)) return undefined;
+  const ends = g.atoms.flatMap((_, i) => (nbrs(i).length === 1 ? [i] : []));
+  if (ends.length !== 2 || g.atoms.some((_, i) => nbrs(i).length > 2)) return undefined;
+  const order = (a: number, b: number) => g.bonds.find((x) => (x.a === a && x.b === b) || (x.a === b && x.b === a))?.order ?? 0;
+  const path = [ends[0]];
+  while (path.length < n) path.push(nbrs(path[path.length - 1]).find((j) => !path.includes(j))!);
+  const valence = (i: number) => nbrs(i).reduce((t, j) => t + order(i, j), 0) + g.atoms[i].h;
+  if (path.some((i) => valence(i) !== 3 && valence(i) !== 5)) return undefined;
+  // Lowest locants to the multiple bonds, then to the λ⁵ atoms.
+  const multiple = (p: number[], o: number) => p.slice(1).flatMap((a, k) => (order(p[k], a) === o || (!o && order(p[k], a) > 1) ? [k + 1] : []));
+  const key = (p: number[]) => [...multiple(p, 0), 0, ...p.flatMap((a, k) => (valence(a) === 5 ? [k + 1] : []))];
+  const back = [...path].reverse(), kp = key(path), kb = key(back), d = kp.findIndex((v, k) => v !== kb[k]);
+  const p = d >= 0 && kb[d] < kp[d] ? back : path;
+  const lam = p.flatMap((a, k) => (valence(a) === 5 ? [`${k + 1}λ⁵`] : [])).join(",");
+  const enes = multiple(p, 2), ynes = multiple(p, 3), cite = n > 2;
+  const mult = ["", "", "di", "tri", "tetra", "penta", "hexa", "hepta", "octa", "nona"];
+  let t = mult[n] + stem + (enes.length > 1 || ynes.length > 1 ? "a" : "");
+  if (!enes.length && !ynes.length) t += "ane";
+  if (enes.length) t += (cite ? `-${enes.join(",")}-` : "") + (enes.length > 1 ? mult[enes.length] : "") + (ynes.length ? "en" : "ene");
+  if (ynes.length) t += (cite ? `-${ynes.join(",")}-` : "") + (ynes.length > 1 ? mult[ynes.length] : "") + "yne";
+  return lam ? `${lam}-${t}` : t;
+}
 
 // The stem of a chalcogen's acid names: sulfonate, selenonate, tellurinate.
 export const chalcogenStem = (el: string) => ({ S: "sulf", Se: "selen", Te: "tellur" } as Record<string, string>)[el] ?? "sulf";
