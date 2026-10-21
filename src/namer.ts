@@ -1354,8 +1354,9 @@ class Namer {
     const di = this.dicarbonate(cs) ?? (kind === "carbamate" && cs.every((c) => this.esterO.has(c)) ? this.polyolEster(cs) : undefined);
     if (di) return di;
     // Else one group names the compound and the others are prefixes: the shortest such name (N,N'-dicarbamoylurea).
-    const names = cs.flatMap((c) => { try { return [this.carbonicOne(c, kind)]; } catch { return []; } });
-    if (!names.length) throw new Error("several carbonic groups");
+    let why: unknown;
+    const names = cs.flatMap((c) => { try { return [this.carbonicOne(c, kind)]; } catch (e) { why ??= e; return []; } });
+    if (!names.length) throw why; // the reason the first one gave: unknown ring
     return names.sort((a, b) => a.length - b.length || a.localeCompare(b))[0];
   }
   // Two carbonic acid groups that share an O: dicarbonic acid and its diesters.
