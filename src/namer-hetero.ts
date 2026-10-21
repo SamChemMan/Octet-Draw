@@ -118,7 +118,7 @@ export function perceivePseudo(n: Namer) {
 // Iodosyl (C-I=O), iodyl (C-I(=O)=O) and λ3-iodanyl (C-I with two O or halogen ligands) groups at x.
 function iodane(n: Namer, x: number) {
   const cs = n.adj[x].filter((j) => n.el[j] === "C" && n.ord(x, j) === 1), dbl = oxo(n, x), lig = n.adj[x].filter((j) => !cs.includes(j) && !dbl.includes(j));
-  if (cs.length !== 1 || n.inRing[cs[0]] && n.el[cs[0]] !== "C") return;
+  if (cs.length !== 1) return;
   const acyl: number[] = [];
   const okLig = (j: number) => {
     if (n.ord(x, j) !== 1 || n.q[j] || n.inRing[j]) return false;
@@ -271,8 +271,9 @@ export function heteroBond(n: Namer, a: number, b: number): boolean {
 // The terminal =O atoms of an S or P; the terminal =S atoms of a P (phosphorothioates).
 const oxo = (n: Namer, x: number) => n.adj[x].filter((j) => n.el[j] === "O" && n.ord(x, j) === 2 && n.adj[j].length === 1 && !n.q[j]);
 const thioxo = (n: Namer, x: number) => n.adj[x].filter((j) => n.el[j] === "S" && n.ord(x, j) === 2 && n.adj[j].length === 1 && !n.q[j]);
-// A ligand of an S or P oxoacid centre x (single bond): OH, OR (ester), N (amide; NR on a ring is "Nring"), X
-// (halide), or "bridge" (an O to another S centre: an anhydride). Undefined for anything else.
+// A ligand of an S or P oxoacid centre x (single bond): "OH", "OR" (ester), "SR" (thioester), "N" (amide), "Nring" (a
+// ring N), "N3" (azide), "X" (halide), or "bridge" (an O to another S or P centre: an anhydride, a diphosphate).
+// Undefined for anything else.
 function ligand(n: Namer, x: number, j: number): string | undefined {
   if (n.ord(x, j) !== 1 || n.q[j]) return undefined;
   if (HALO[n.el[j]]) return n.adj[j].length === 1 ? "X" : undefined;
@@ -399,10 +400,12 @@ function sulfurPrefix(n: Namer, x: number, from: number): Name | undefined {
   throw new Error("sulfur");
 }
 
-// ——— Oxoacid centres of phosphorus and nitrogen, and phosphonium (P-67.1, P-65.6.3, P-73.1) ———
-// P with an O, N or halogen ligand (phosphates, phosphonates, phosphinates, phosphites, their amides and halides; P
-// bonded only to C and H is a phosphane, in namer.ts), nitrate and nitrite esters, and phosphanium cations. Roles in
-// n.het: "P" (and "P-" for its ligands), "NO3" and "NO2" (the N, its O atoms and the ester O), "P+".
+// ——— Oxoacid centres of phosphorus and nitrogen, onium cations and ylides (P-67.1, P-65.6.3, P-73.1) ———
+// P with an O, N, S or halogen ligand (phosphates, phosphonates, phosphinates, phosphites, phosphorothioates, their
+// amides and halides; P bonded only to C and H is a phosphane, in namer.ts), phosphane sulfides, phosphorus ylides,
+// nitrate, nitrite and hypohalite esters, and phosphanium, sulfanium, sulfoxonium and iodanium cations. Roles in
+// n.het: "P" (and "P-" for its ligands), "PS3", "P=C", "NO3" and "NO2" (the N, its O atoms and the ester O), "OX",
+// "P+", "S+", "I+".
 function perceiveCentres(n: Namer) {
   for (let p = 0; p < n.n; p++) {
     if (n.inRing[p] || n.cip[p] || n.het.has(p)) continue;
@@ -477,7 +480,8 @@ export function oxideText(n: Namer, oxides: number[], label: (a: number) => stri
   if (!n.inRing[oxides[0]]) return " N-oxide";
   return ` ${oxides.map(label).sort((a, b) => parseInt(a) - parseInt(b)).join(",")}-${oxides.length > 1 ? MULT[oxides.length] : ""}oxide`;
 }
-// Charged atoms Octet names here: phosphanium P+, the N+ and O- of a nitrate ester, and N-oxides.
+// Charged atoms Octet names here: onium cations (P+, S+, I+), azido groups on S or P, the N+ and O- of nitrate esters
+// and N-oxides.
 export function heteroCharged(n: Namer, i: number): boolean {
   const { el, q, adj } = n;
   if (el[i] === "I" && q[i] === 1) return !n.inRing[i] && adj[i].length === 2 && adj[i].every((j) => el[j] === "C" && n.ord(i, j) === 1); // diphenyliodanium
