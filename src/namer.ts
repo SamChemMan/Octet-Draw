@@ -383,6 +383,7 @@ class Namer {
         else if (!(adj[i].length === 2 && cs.length === 2) && !this.nitroAtom(i)) throw new Error("oxygen");
       } else if (el[i] === "S") {
         if (adj[i].length === 1 && h[i] === 1 && cs.length === 1) this.mark(i, "thiol", cs);
+        else if (this.thioxo(i)) continue;
         else if (!(adj[i].length === 2 && cs.length === 2)) throw new Error("sulfur");
       } else if (el[i] === "N") {
         if (this.nitroAtom(i) || this.diazoAtom(i) || this.azidoAtom(i)) continue;
@@ -425,6 +426,12 @@ class Namer {
     else if (this.el[x] === "N" && !this.inRing[x] && this.adj[x].every((j) => j === c || (this.el[j] === "C" && this.carbonylO[j] < 0 && !this.isNitrileC(j)))) { this.mark(c, "amide", ns); this.group[x] = "amide"; }
     else return false;
     return true;
+  }
+  // =S on a ring carbon or a carbon between carbons (P-64.6.1): a thione, cited as the prefix sulfanylidene.
+  thioxo(s: number): boolean {
+    if (this.el[s] !== "S" || this.q[s] || this.h[s] || this.adj[s].length !== 1) return false;
+    const c = this.adj[s][0];
+    return this.el[c] === "C" && this.ord(c, s) === 2 && !this.q[c] && (this.inRing[c] || this.adj[c].every((j) => j === s || (this.el[j] === "C" && this.ord(c, j) === 1)));
   }
   // =O on a ring S or P.
   ringOxide(o: number): boolean {
@@ -783,6 +790,7 @@ class Namer {
         if (CARBON_GROUP.has(kind!) && !p.ring && sites.some((s) => s.group === a) && (x === this.carbonylO[a] || this.groupHetero(a).includes(x))) continue;
         if (x === this.carbonylO[a] && !p.ring && opts.acyl && a === atoms[0]) continue; // the acyl group's own =O
         if (x === this.carbonylO[a] || (this.ord(a, x) === 2 && this.el[x] === "O")) { prefixes.push({ atom: a, name: { text: "oxo", compound: false } }); continue; }
+        if (this.thioxo(x)) { prefixes.push({ atom: a, name: { text: "sulfanylidene", compound: false } }); continue; }
         if (this.ord(a, x) === 2 && this.group[x] === "imine") { prefixes.push({ atom: a, name: this.iminoPrefix(x, a) }); continue; }
         prefixes.push({ atom: a, name: this.substituent(x, a) });
       }
@@ -1090,6 +1098,8 @@ class Namer {
     this.perceive();
     if (this.adj.some((a, i) => a.length === 0 && this.el[i] !== "C") || this.n === 0) return undefined;
     const kind = SENIORITY.find((k) => this.group.includes(k) && [...this.bearer.keys()].some((g) => this.group[g] === k));
+    // A thione is cited as sulfanylidene under a senior group; as the principal group it is not covered yet.
+    if (this.el.some((_, i) => this.thioxo(i)) && (!kind || SENIORITY.indexOf(kind) > SENIORITY.indexOf("ketone"))) throw new Error("thione");
     let text: string | undefined;
     if (kind === "ester") text = this.esterName();
     else if (kind === "anhydride") text = this.anhydrideName();

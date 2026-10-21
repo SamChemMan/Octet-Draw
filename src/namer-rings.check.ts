@@ -167,6 +167,12 @@ run("drawn hydrogen", [
   "smiles:C(=O)(C[H])C1C=CC=CC=1 = 1-phenylethanone", "smiles:[H][C@@](C)(O)CC = (2S)-butan-2-ol",
 ]);
 
+// A thione under a senior group is the prefix sulfanylidene (P-64.6.1).
+run("thiones", [
+  "propylthiouracil = 6-propyl-2-sulfanylidene-2,3-dihydropyrimidin-4(1H)-one", "rhodanine = 2-sulfanylidene-1,3-thiazolidin-4-one",
+  "2-sulfanylideneimidazolidin-4-one", "4-oxo-2-sulfanylidene-1,3-thiazolidine-3-acetic acid", "3-sulfanylidenebutanoic acid",
+]);
+
 // Ketenes (P-64.1): the C=O carbon is a ketone at the end of a chain with a double bond.
 run("ketenes", [
   "ethenone = ethenone", "2-phenylethen-1-one", "diphenylethenone", "dimethylketene = 2-methylprop-1-en-1-one", "fulvenone",
