@@ -6,16 +6,19 @@ import java.util.Map;
 
 // Octet: a name's structure as OPSIN builds it, with each atom's locants, as JSON. Octet uses the locants to find the
 // donor atoms it cites in names of coordination compounds (kappa terms). Hydrogen atoms are listed like any other.
-// {"atoms":[["C",0,0,"1"],...],"bonds":[[0,1,2],...]}: element, charge, mass number (0 when not given) and the
-// locants joined by spaces; each bond by its atoms' indexes and its order.
+// {"smiles":"...","atoms":[["C",0,0,"1"],...],"bonds":[[0,1,2],...]}: the SMILES (as parseToSmiles gives it), then
+// each atom's element, charge, mass number (0 when not given) and locants joined by spaces, then each bond by its
+// atoms' indexes and its order.
 public class OctetAtoms {
   public static String parse(NameToStructure n2s, String name) {
     OpsinResult result = n2s.parseChemicalName(name);
     if (result.getStatus() == OpsinResult.OPSIN_RESULT_STATUS.FAILURE) return null;
+    String smiles = result.getSmiles();
+    if (smiles == null) return null;
     Fragment frag = result.getStructure();
     List<Atom> atoms = frag.getAtomList();
     Map<Atom, Integer> index = new HashMap<>();
-    StringBuilder out = new StringBuilder("{\"atoms\":[");
+    StringBuilder out = new StringBuilder("{\"smiles\":\"").append(smiles.replace("\\", "\\\\").replace("\"", "\\\"")).append("\",\"atoms\":[");
     for (int k = 0; k < atoms.size(); k++) {
       Atom a = atoms.get(k);
       index.put(a, k);
