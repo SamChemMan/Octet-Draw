@@ -24,6 +24,7 @@
 import { graphOf, type Cip, type Graph } from "./naming.ts";
 import { alphaKey, assemblePrefixes, iupacNameWhy, joinPrefixes, Namer, type Name } from "./namer.ts";
 import { ELEMENTS, isMetal } from "./metals.ts";
+import { substitutively } from "./namer-multiplicative.ts";
 import type { Mol } from "./render.ts";
 
 // What the checks need from outside: OPSIN (a name's SMILES, and its atoms with their locants), InChI and CIP labels.
@@ -337,7 +338,8 @@ function nameLigand(m: Mol, g: Graph, lig: Ligand, api: ComplexApi): Named | und
   // A ring assembly of three or more pyridine rings by its own name (terpyridine), or identical anionic units on a
   // benzene ring by a multiplicative name; else the namer's.
   const reads = (n: string | undefined) => { const back = n ? opsinOf(n, api)?.smiles : undefined; return !!back && api.inchi(back) === want; };
-  const own = (!lig.charge ? assemblyName(graph) : multiplicativeName(graph, reads)) ?? undefined, name = own && reads(own) ? own : iupacNameWhy(graph).name;
+  // The namer's name without multiplication (namer-multiplicative.ts): κ cites atoms of a parent and its substituents.
+  const own = (!lig.charge ? assemblyName(graph) : multiplicativeName(graph, reads)) ?? undefined, name = own && reads(own) ? own : substitutively(() => iupacNameWhy(graph).name);
   if (!name || (name !== own && !reads(name))) return undefined;
   // An anion's ending, before any closing marks of a multiplied unit (bis(2,2-dimethylpropanoato)).
   const form = lig.charge < 0 ? (/(ate|ide|ite)[)\]}]*$/.test(name) ? name.replace(/e([)\]}]*)$/, "o$1") : undefined) : name;

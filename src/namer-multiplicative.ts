@@ -43,9 +43,19 @@ const compare = (a: number[], b: number[]) => {
 };
 const locantsOf = (name: string) => (name.match(/\d+/g) ?? []).map(Number);
 
+// Off while substitutively() runs: complexes.ts names ligands substitutively, as its κ terms cite donor atoms by the
+// locants of the parent and its substituent groups, and a multiplying group has neither.
+let on = true;
+export function substitutively<T>(f: () => T): T {
+  const was = on;
+  on = false;
+  try { return f(); } finally { on = was; }
+}
+
 // The multiplicative name of the molecule, or undefined when the substitutive name stands. kind: the principal
 // characteristic group; skip: group carbons cited as prefixes (namer.ts ionSkip).
 export function multiplicativeName(n: Namer, kind: Kind | undefined, skip = new Set<number>()): string | undefined {
+  if (!on) return undefined;
   try { return named(n, kind, skip); } catch { return undefined; }
 }
 
@@ -276,7 +286,7 @@ function linkerName(n: Namer, L: Set<number>, unitOf: Map<number, number>): { te
 // Esters of a multiplied acid (P-65.6.3.2.1): dimethyl 4,4'-oxydibenzoate, tetraethyl
 // 2,2',2'',2'''-(ethane-1,2-diyldinitrilo)tetraacetate. The alkyl groups must all be the same.
 export function multiplicativeEster(n: Namer, kind: Kind, esters: number[]): string | undefined {
-  if (kind !== "ester") return undefined;
+  if (kind !== "ester" || !on) return undefined;
   try {
     if (esters.some((c) => groupVariant(n, c))) return undefined; // thioates: S-methyl, O-methyl
     const alkyls = esters.map((c) => { const o = n.esterO.get(c)!; return n.substituent(n.adj[o].find((j) => j !== c && !n.peroxO.has(j))!, o); });
@@ -288,12 +298,13 @@ export function multiplicativeEster(n: Namer, kind: Kind, esters: number[]): str
 
 // benzene-1,4-diyl as the multiplying group of esters is 1,4-phenylene (P-13.6.2: dimethyl 1,4-phenylene
 // dipropanedioate): 2-chloro-1,4-phenylene diacetate.
-export const phenylene = (yl: string) => yl.replace(/^(.*?)benzene-(\d,\d)-diyl$/, (_, pre: string, locs: string) => joinPrefixes(pre.replace(/-$/, ""), `${locs}-phenylene`));
+export const phenylene = (yl: string) => !on ? yl : yl.replace(/^(.*?)benzene-(\d,\d)-diyl$/, (_, pre: string, locs: string) => joinPrefixes(pre.replace(/-$/, ""), `${locs}-phenylene`));
 
 // The polyol part of esters of one acid when the polyol is not named "-diol" (namer.ts polyolYl): the framework
 // without its ester O atoms (os), as a multiplying group: oxydi(ethane-2,1-diyl) diacetate,
 // ethane-1,2-diylbis(oxyethane-2,1-diyl) diacetate (P-15.3.0, P-65.6.3.2.2).
 export function polyolDiyl(n: Namer, alcohol: Set<number>, os: number[]): string | undefined {
+  if (!on) return undefined;
   try {
     const L = new Set([...alcohol].filter((a) => !os.includes(a)));
     if (os.some((o) => n.adj[o].filter((j) => L.has(j)).length !== 1)) return undefined;
