@@ -379,6 +379,7 @@ const RETAINED: [string, string, string, string?][] = [
   ["coronene", "coroneno", "C1=CC2=CC=C3C=CC4=CC=C5C=CC6=CC=C1C1=C6C5=C4C3=C21"], ["trinaphthylene", "trinaphthyleno", "C1=CC=CC2=CC=3C4=CC5=CC=CC=C5C=C4C4=CC5=CC=CC=C5C=C4C3C=C12"],
   ["heptaphene", "heptapheno", "C1=CC=CC2=CC3=CC4=CC=C5C=C6C=C7C=CC=CC7=CC6=CC5=C4C=C3C=C12"], ["heptacene", "heptaceno", "C1=CC=CC2=CC3=CC4=CC5=CC6=CC7=CC=CC=C7C=C6C=C5C=C4C=C3C=C12"],
   ["pyranthrene", "pyranthreno", "C1=CC=CC=2C3=CC4=CC=C5C=C6C=CC=CC6=C6C=C7C=CC(=CC12)C3=C7C4=C56"],
+  ["tetraphenylene", "tetraphenyleno", "C1=CC=CC=2C3=CC=CC=C3C3=CC=CC=C3C3=CC=CC=C3C12"],
   ["ovalene", "ovaleno", "C1=CC2=CC=C3C=CC4=CC5=CC=C6C=CC7=CC=C8C=C1C1=C2C3=C4C4=C5C6=C7C8=C14"],
   // Retained numbering (exceptions to FR-5.3).
   ["anthracene", "anthra", ANTHRACENE, ""], ["acridine", "acridino", ANTHRACENE, "N10"], ["xanthene", "xantheno", ANTHRACENE, "O10"],
