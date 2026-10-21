@@ -201,6 +201,20 @@ for (const name of ["ethinylestradiol", "norethisterone", "levonorgestrel"]) {
   assert.equal(cipLabels(m).atoms[c17], "R", name);
 }
 
+// ---- Drawings from a hostile file ----
+// A bond to a missing atom, a place that is not a number, a centre between two equal 450-carbon arms: no label where
+// nothing can be read, and no hang.
+assert.deepEqual(cipLabels({ atoms: [atom("C", [0, 0, 0])], bonds: [bond(0, 5, { stereo: 1 }), bond(0, 0, { type: 2 })] }).atoms, [undefined]);
+const lost = butanol({ stereo: 1 });
+lost.atoms[1] = { ...lost.atoms[1], location: [NaN, NaN, 0] };
+assert.equal(labels(lost)[0], undefined);
+const arm = (side: number) => Array.from({ length: 450 }, (_, k) => atom("C", [side * (k + 1) * 0.87, k % 2 ? 0 : -0.5, 0]));
+const long: Mol = { atoms: [atom("C", [0, 0, 0]), atom("O", [0, 1, 0]), ...arm(-1), ...arm(1)], bonds: [bond(0, 1, { stereo: 1 }), bond(0, 2), bond(0, 452)] };
+for (let k = 0; k < 449; k++) long.bonds.push(bond(2 + k, 3 + k), bond(452 + k, 453 + k));
+const t0 = performance.now();
+assert.equal(labels(long)[0], undefined);
+assert.ok(performance.now() - t0 < 500, "two long equal arms");
+
 // ---- Time ----
 // Paclitaxel (62 atoms, 11 centres) in well under 5 ms; a wedge on every CH of dodecahedrane (nothing is a centre,
 // and every digraph is a cage) ends with no labels, without stalling.

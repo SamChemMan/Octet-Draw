@@ -680,7 +680,10 @@ const LIKE5: Record<string, Rules> = Object.fromEntries(["R", "S"].map((x) => [x
 export function cipLabels(m: Mol): Cip {
   const out: Cip = { atoms: m.atoms.map(() => undefined), bonds: m.bonds.map(() => undefined) };
   if (m.atoms.length > MOST_ATOMS) return out;
-  const c = chemOf(m), units = stereoUnits(m, c), spent = { nodes: 0, calls: 0 };
+  let c: Chem, units: Unit[];
+  // A structure the rules cannot read (a bond to a missing atom, say) has no labels.
+  try { c = chemOf(m); units = stereoUnits(m, c); } catch { return out; }
+  const spent = { nodes: 0, calls: 0 };
   for (const u of units) {
     try {
       const g = new Digraph(c, u.foci[0], spent);
