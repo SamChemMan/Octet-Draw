@@ -109,6 +109,8 @@ const FUSED_NAMES: [string, string, string][] = [
   ["phenanthrene", "phenanthrene", ""], ["fluorene", "fluorene", ""], ["fluorene", "carbazole", "N9"],
   ["purine", "purine", "N1 N3 N7 N9"],
 ];
+// Ring atoms that can take a double bond in a mancude ring (C, N, and P, As, Sb, Si, Ge, Sn, B as in phosphinine).
+const DOUBLE_IN_RING = new Set(["C", "N", "P", "As", "Sb", "Si", "Ge", "Sn", "B"]);
 // Locant order: 4 < 4a < 4b < 5.
 const locOrder = (a: string, b: string) => parseInt(a) - parseInt(b) || (a < b ? -1 : a > b ? 1 : 0);
 type Fused = { name: string; labels: string[]; el: string[]; adj: number[][]; order: number[]; bonds: number; formula: string; odd: boolean; uncited?: number[]; hydrogens?: number; bridges?: string };
@@ -479,7 +481,7 @@ class Namer {
       const doubles = ring(a).filter((j) => this.ord(a, j) === 2).length;
       if (doubles > 1 || ring(a).some((j) => this.ord(a, j) === 3)) throw new Error("ring bonds");
       if (this.adj[a].some((j) => !sys.has(j) && this.ord(a, j) > 1 && j !== this.carbonylO[a])) throw new Error("exocyclic double bond");
-      if (this.el[a] === "C" || this.el[a] === "N") { cn.push(a); if (!doubles) d.push(a); }
+      if (DOUBLE_IN_RING.has(this.el[a])) { cn.push(a); if (!doubles) d.push(a); }
       else if (doubles) throw new Error("ring heteroatom double bond");
     }
     const bonds = atoms.reduce((t, a) => t + ring(a).length, 0) / 2, formula = atoms.map((a) => this.el[a]).sort().join("");

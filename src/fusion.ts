@@ -417,11 +417,13 @@ function retained(): Template[] {
 
 // Hantzsch-Widman names (P-22.2.2) and the retained names of monocycles used in fusion names (P-25.3.2.2).
 const HW_ORDER = ["O", "S", "Se", "Te", "N", "P", "As", "Sb", "Bi", "Si", "Ge", "Sn", "Pb", "B", "Hg"];
-const HW_PREFIX: Record<string, string> = { O: "oxa", S: "thia", Se: "selena", Te: "tellura", N: "aza" };
+const HW_PREFIX: Record<string, string> = { O: "oxa", S: "thia", Se: "selena", Te: "tellura", N: "aza", P: "phospha", As: "arsa", Sb: "stiba",
+  Bi: "bisma", Si: "sila", Ge: "germa", Sn: "stanna", Pb: "plumba", B: "bora", Hg: "mercura" };
 const MULT = ["", "", "di", "tri", "tetra", "penta"];
 const MONO: Record<string, [string, string]> = {
   "6:": ["benzene", "benzo"], "6:N1": ["pyridine", "pyrido"], "6:N1,N2": ["pyridazine", "pyridazino"], "6:N1,N3": ["pyrimidine", "pyrimido"],
-  "6:N1,N4": ["pyrazine", "pyrazino"], "6:O1": ["pyran", "pyrano"], "6:S1": ["thiopyran", "thiopyrano"], "5:N1": ["pyrrole", "pyrrolo"],
+  "6:N1,N4": ["pyrazine", "pyrazino"], "6:O1": ["pyran", "pyrano"], "6:S1": ["thiopyran", "thiopyrano"], "6:Se1": ["selenopyran", "selenopyrano"], "6:Te1": ["telluropyran", "telluropyrano"],
+  "5:Se1": ["selenophene", "selenopheno"], "5:Te1": ["tellurophene", "telluropheno"], "5:N1": ["pyrrole", "pyrrolo"],
   "5:N1,N2": ["pyrazole", "pyrazolo"], "5:N1,N3": ["imidazole", "imidazo"], "5:O1": ["furan", "furo"], "5:S1": ["thiophene", "thieno"],
   "5:": ["", "cyclopenta"], "4:": ["", "cyclobuta"], "3:": ["", "cyclopropa"], "7:": ["[7]annulene", "cyclohepta"], "8:": ["[8]annulene", "cycloocta"],
 };
@@ -448,7 +450,9 @@ function monocycle(els: string[]): { name: string; prefix: string; stem: string;
   if (hetero.some(([e]) => !HW_PREFIX[e])) return undefined;
   const known = MONO[`${n}:${hetero.map(([e, k]) => e + k).join(",")}`];
   if (known) return { name: known[0], prefix: known[1], stem: known[0], nums };
-  const stems = ["", "", "", hetero.some(([e]) => e === "N") ? "irine" : "irene", "ete", "ole", "ine", "epine", "ocine", "onine", "ecine"];
+  // Six-membered rings end -inine when the last heteroatom cited is B, P, As or Sb (P-22.2.2.1.4).
+  const six = ["B", "P", "As", "Sb"].includes(hetero[hetero.length - 1]?.[0]) ? "inine" : "ine";
+  const stems = ["", "", "", hetero.some(([e]) => e === "N") ? "irine" : "irene", "ete", "ole", six, "epine", "ocine", "onine", "ecine"];
   if (!hetero.length || !stems[n]) return undefined;
   const unique = hetero.length >= n - 1 && new Set(hetero.map(([e]) => e)).size === 1;
   const locs = hetero.length > 1 && !unique ? `[${hetero.map(([, k]) => k).join(",")}]` : "";
