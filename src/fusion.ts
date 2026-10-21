@@ -1,13 +1,15 @@
 // Fusion nomenclature for ring systems outside the namer's table of retained names (IUPAC 2013, P-25; the 1998
-// fused ring recommendations FR-2 to FR-5). Clean room: written from the published rules. Three parts:
+// fused ring recommendations FR-2 to FR-8). Clean room: written from the published rules. Four parts:
 //   1. Ring perception: the smallest rings of an ortho- or ortho- and peri-fused system, all walked the same way round.
 //   2. Peripheral numbering (FR-5): the system drawn on a hexagonal grid, oriented (FR-5.2: most rings in a horizontal
 //      row, then most rings up and to the right), numbered clockwise from the upper right ring (FR-5.3), and the
 //      numberings left compared by FR-5.4 (heteroatoms, fusion carbon atoms, fusion heteroatoms).
-//   3. Names (P-25.3): a base component, attached components as prefixes (pyrido, furo, benzo), fusion descriptors
-//      ([2,3-b]), and benzo names (2H-1,4-benzoxazine).
-// Every name is read back by OPSIN before the app shows it; where the rules leave the numbering open, this module
-// gives no name rather than a guess.
+//   3. Names (P-25.3): a base component, attached components as prefixes (pyrido, furo, benzo) of any order, fusion
+//      descriptors ([2,3-b], [1',2':1,6]), multi-parent names (FR-6) and benzo names (2H-1,4-benzoxazine).
+//   4. Parents of the namer (fusedParent): retained names, fusion names, bridged fused names (FR-8: 1,4-methano-
+//      naphthalene) and spiro unions with a polycyclic component (P-24.5: spiro[cyclohexane-1,1'-indene]).
+// Where the rules are open to more than one reading (drawing shapes, rows), this follows OPSIN, which reads every name
+// back before the app shows it; where the numbering is still open, this module gives no name rather than a guess.
 
 // ——— 1. Ring perception ———
 

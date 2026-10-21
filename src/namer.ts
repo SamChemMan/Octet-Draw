@@ -9,9 +9,10 @@
 // amines, imines and oximes) as suffixes; everything else as prefixes, nested to any depth; anhydrides, ureas,
 // carbamates (also as prefixes: Boc-glycine); phosphanes and their oxides; aminium and ring "-ium" cations; salts of
 // metal and ammonium cations with acid, alkoxide and inorganic anions; bicyclic von Baeyer and monospiro rings with
-// oxa, thia and aza replacement; R/S and E/Z. Fused systems outside the table get fusion names (fusion.ts). Not yet:
-// polycyclic bridged rings (adamantane), bridged fused systems, larger ring assemblies, and other charged atoms.
-// Octet's own name tables cover some of these (naming.ts).
+// oxa, thia and aza replacement, and adamantane; R/S and E/Z. Fused systems outside the table, bridged fused systems
+// and spiro unions with a polycyclic component get their names from fusion.ts. Not yet: other polycyclic von Baeyer
+// rings (cubane), larger ring assemblies, and other charged atoms. Octet's own name tables cover some of these
+// (naming.ts).
 import type { Graph } from "./naming.ts";
 import { fusedParent } from "./fusion.ts";
 
