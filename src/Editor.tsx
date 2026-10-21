@@ -75,6 +75,7 @@ import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, typ
 import { loadNames, nameToSmiles, suggestName, knownName, looksLikeSmiles } from "./names";
 import { checkedName, graphOf, setNamer } from "./naming";
 import { iupacName } from "./namer";
+import { sandwichIons } from "./metals";
 
 setNamer(iupacName);
 import { loadTemplates, MY_SET, newTemplate, setName, templateKind } from "./templates";
@@ -3806,7 +3807,9 @@ export default function Editor() {
       // A name's structure is drawn as Octet draws SMILES before its InChI is taken, so it counts hydrogens as the
       // drawing does (the P of PPh3 bonded to Pd has none).
       const inchiOf = (s: Mol | string) => { try { return toInchi(typeof s === "string" ? parseStructure(s) : s); } catch { return undefined; } };
-      try { name = checkedName(part, expandLabels(part), nameToSmiles, inchiOf, cipOf, knownName); } catch { name = undefined; }
+      // A metallocene drawn with the j key is named as its ions, as OPSIN and the standard InChI have it.
+      const p = sandwichIons(part) ?? part;
+      try { name = checkedName(p, expandLabels(p), nameToSmiles, inchiOf, cipOf, knownName); } catch { name = undefined; }
       nameCache.current.set(key, name ?? null);
     }
     return nameCache.current.get(key) ?? undefined;
