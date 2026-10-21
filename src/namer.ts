@@ -454,13 +454,16 @@ class Namer {
         if (this.inRing[i]) { if (!h[i] && adj[i].length === 2) ion(i, "ide", [i]); }
         else if (cs.length && cs.length === adj[i].length && cs.every(plainC)) ion(i, "aminide", cs);
         else {
-          // An azanide (P-72.2.2.1) with acyl and sulfonyl groups: acetyl(phenyl)azanide, bis(trifluoromethanesulfonyl)azanide.
+          // An azanide (P-72.2.2.1) with acyl, sulfonyl and cyano groups: acetyl(phenyl)azanide,
+          // bis(trifluoromethanesulfonyl)azanide, dicyanoazanide.
           const acyl = (c: number) => el[c] === "C" && !q[c] && !this.inRing[c] && this.carbonylO[c] >= 0 && this.carbons(c).length <= 1 && adj[c].length === this.carbons(c).length + 2;
           const sulfonyl = (s: number) => el[s] === "S" && !q[s] && !this.inRing[s] && adj[s].length === 4 && adj[s].filter((o) => terminalO(s, o)).length === 2 && adj[s].filter(plainC).length === 1;
-          if (!adj[i].every((j) => plainC(j) || acyl(j) || sulfonyl(j))) continue;
+          const cyano = (c: number) => el[c] === "C" && !q[c] && adj[c].length === 2 && adj[c].some((n) => el[n] === "N" && !q[n] && adj[n].length === 1 && this.ord(c, n) === 3);
+          if (!adj[i].every((j) => plainC(j) || acyl(j) || sulfonyl(j) || cyano(j))) continue;
           ion(i);
           this.azanide.push(i);
           for (const j of adj[i]) {
+            if (cyano(j)) { this.group[j] = "nitrile"; this.group[adj[j].find((n) => n !== i)!] = "nitrile"; }
             if (acyl(j)) { this.ions.add(j); this.group[this.carbonylO[j]] = "ketone"; }
             if (sulfonyl(j)) { for (const k of [j, ...adj[j].filter((o) => terminalO(j, o))]) this.sulfur.add(k); this.ionBonds.add(this.key(i, j)); }
           }
@@ -481,6 +484,15 @@ class Namer {
       } else if (q[i] === 1 && !this.inRing[i] && (e === "S" || e === "P" || e === "O") && single(i) && valence(i) === (e === "P" ? 4 : 3) && cs.length && cs.length === adj[i].length && cs.every((c) => plainC(c) || (q[c] === -1 && valence(c) === 3))) {
         ion(i);
         this.onium.push(i);
+      } else if (q[i] === 1 && e === "S" && !this.inRing[i] && adj[i].length === 4 && cs.length === 3 && adj[i].some((o) => terminalO(i, o)) && cs.every((c) => plainC(c) || (q[c] === -1 && valence(c) === 3))) {
+        // A sulfoxonium ion: trimethyl(oxo)-λ4-sulfanium.
+        ion(i);
+        this.onium.push(i);
+        for (const j of [i, ...adj[i].filter((o) => terminalO(i, o))]) this.sulfur.add(j);
+      } else if (e === "B" && q[i] === -1 && single(i) && valence(i) === 4 && cs.length === adj[i].length && cs.every(plainC)) {
+        // A boranuide (P-72.3): tetraphenylboranuide, triethylboranuide.
+        ion(i);
+        this.azanide.push(i);
       } else if (q[i] === 1 && (e === "O" || e === "S") && this.inRing[i] && adj[i].length === 2 && !h[i] && adj[i].filter((j) => this.ord(i, j) === 2).length === 1) ion(i); // pyrylium
     }
     // Oxido: an O- on an N+ (amine and ring N-oxides, nitrones) or on an onium ion.
@@ -500,8 +512,7 @@ class Namer {
     const anion = (ANION_KINDS as (Kind | undefined)[]).includes(kind);
     if (this.azanide.length) {
       if (anion || this.azanide.length > 1) throw new Error("several anions");
-      const x = this.azanide[0];
-      return `${substituted(this.adj[x].map((j) => this.substituent(j, x)))}azanide`;
+      return this.centre(this.azanide[0]);
     }
     if (anion) return undefined;
     if (this.onium.length) return this.oniumName();
@@ -525,17 +536,22 @@ class Namer {
     if (this.ions.has(x) && el === "O" && this.q[x] === -1 && this.adj[x].length === 1) return { text: "oxido", compound: false };
     if (g === "carboxylate") return { text: "carboxylato", compound: false };
     if (g === "sulfonate" || g === "sulfinate") return { text: `${g}o`, compound: false };
-    if (g === "aminium" || this.onium.includes(x)) {
-      const subs = this.adj[x].filter((j) => j !== from).map((j) => this.substituent(j, x));
-      return { text: `${substituted(subs)}${{ N: "azaniumyl", S: "sulfaniumyl", P: "phosphaniumyl", O: "oxidaniumyl" }[el]}`, compound: subs.length > 0 };
-    }
+    if (g === "aminium" || this.onium.includes(x)) return { text: `${this.centre(x, from)}yl`, compound: this.adj[x].length > 1 };
     if ((g && (ANION_KINDS as Kind[]).includes(g)) || g === "ylium" || g === "iminium" || g === "diazonium" || (this.ions.has(x) && this.inRing[x])) throw new Error(`${g ?? "ion"} as a prefix`);
     return undefined;
   }
   oniumName(): string {
     if (this.onium.length !== 1) throw new Error("several onium ions");
-    const x = this.onium[0], subs = this.adj[x].map((j) => this.substituent(j, x));
-    return `${substituted(subs)}${{ S: "sulfanium", P: "phosphanium", O: "oxidanium" }[this.el[x]]}`;
+    return this.centre(this.onium[0]);
+  }
+  // An onium, azanide or boranuide centre x as a parent, with its substituents (but not the atom `from` it hangs on):
+  // trimethylsulfanium, trimethyl(oxo)-λ4-sulfanium, tetraphenylphosphanium, acetyl(phenyl)azanide, triethylboranuide.
+  centre(x: number, from = -1): string {
+    const el = this.el[x], oxo = this.adj[x].filter((j) => this.ord(x, j) === 2 && this.el[j] === "O");
+    const subs = [...this.adj[x].filter((j) => j !== from && !oxo.includes(j)).map((j) => this.substituent(j, x)), ...oxo.map(() => ({ text: "oxo", compound: false }))];
+    const word = this.q[x] < 0 ? { N: "azanide", B: "boranuide" }[el] : oxo.length ? "-λ4-sulfanium" : { N: "azanium", S: "sulfanium", P: "phosphanium", O: "oxidanium" }[el];
+    if (!word) throw new Error("charge");
+    return substituted(subs) + word;
   }
 
   // ——— Parents ———
@@ -1304,11 +1320,11 @@ function saltName(g: Graph, parts: number[][]): string | undefined {
   const charge = (p: number[]) => p.reduce((t, i) => t + g.atoms[i].charge, 0);
   const cations = parts.filter((p) => charge(p) > 0), anions = parts.filter((p) => charge(p) < 0);
   if (!cations.length || !anions.length || cations.length + anions.length !== parts.length || parts.reduce((t, p) => t + charge(p), 0) !== 0) return undefined;
-  const cationNames = cations.map((p) => cationName(g, p)), anionNames = anions.map((p) => anionName(g, p) ?? new Namer(partOf(g, p)).name());
+  const cationNames = cations.map((p) => cationName(g, p)), anionNames = anions.map((p) => inorganicName(partOf(g, p), ionFormula(g, p)) ?? speciesName(partOf(g, p)) ?? anionName(g, p) ?? new Namer(partOf(g, p)).name());
   if (cationNames.includes(undefined) || anionNames.includes(undefined)) return undefined;
   // OPSIN reads lithium nitride but not trilithium nitride.
   const stock = cationNames.some((n) => /\([IVX]+\)$/.test(n!)) || anionNames.some((n) => n === "nitride" || n === "phosphide");
-  const times = (k: number, name: string) => (k < 2 || stock ? name : /[\d([]/.test(name) ? `${MULT_COMPLEX[k]}(${name})` : MULT[k] + name);
+  const times = (k: number, name: string) => (k < 2 || stock ? name : /[\d([]|^(di|tri|tetra|penta|hexa)/.test(name) ? `${MULT_COMPLEX[k]}(${name})` : MULT[k] + name);
   const list = (names: string[]) => [...new Set(names)].sort((a, b) => alphaKey(a).localeCompare(alphaKey(b))).map((n) => times(names.filter((x) => x === n).length, n)).join(" ");
   return `${list(cationNames as string[])} ${list(anionNames as string[])}`;
 }
@@ -1400,7 +1416,7 @@ const SPECIES = new Map(([
   ["nitric acid", "N+", "=O", "-O-", "-OH"], ["nitric acid", "N", "=O", "=O", "-OH"], ["nitrous acid", "N", "=O", "-OH"],
   ["phosphoric acid", "P", "=O", "-OH", "-OH", "-OH"], ["perchloric acid", "Cl", "=O", "=O", "=O", "-OH"], ["carbonic acid", "C", "=O", "-OH", "-OH"],
   ["nitronium", "N+", "=O", "=O"], ["nitrosonium", "N", "#O+"], ["ammonium", "NH4+"], ["oxidanium", "OH3+"], ["phosphanium", "PH4+"],
-  ["sulfanium", "SH3+"], ["aminylium", "NH2+"], ["hydroxylium", "OH+"], ["azanide", "NH2-"], ["hydride", "H-"],
+  ["sulfanium", "SH3+"], ["aminylium", "NH2+"], ["hydroxylium", "OH+"], ["azanide", "NH2-"], ["hydride", "H-"], ["bifluoride", "H-", "-F", "-F"],
 ] as string[][]).map(([name, centre, ...bonds]) => [`${centre}(${bonds.sort().join(",")})`, name]));
 Object.assign(ANIONS, {
   "H2N-1": "amide", "N-3": "nitride", "P-3": "phosphide", "O2-2": "peroxide", "HO2-1": "hydroperoxide", "HS-1": "sulfanide", "Se-2": "selenide",
@@ -1409,10 +1425,13 @@ Object.assign(ANIONS, {
   "O7P2-4": "diphosphate", "O10P3-5": "triphosphate", "O7S2-2": "disulfate", "O8S2-2": "peroxydisulfate", "O4Se-2": "selenate", "O3Se-2": "selenite",
   "CrO4-2": "chromate", "Cr2O7-2": "dichromate", "AsF6-1": "hexafluoroarsenate", "F6Sb-1": "hexafluoroantimonate", "AlCl4-1": "tetrachloroaluminate",
   "AlH4-1": "tetrahydroaluminate", "I3-1": "triiodide", "Br3-1": "tribromide", "H2NO3S-1": "sulfamate", "IO6-5": "orthoperiodate",
-  "O5S2-2": "disulfite", "O5P2-4": "diphosphite",
+  "O5S2-2": "disulfite", "O5P2-4": "diphosphite", "O13P4-6": "tetraphosphate", "O16P5-7": "pentaphosphate", "ClCrO3-1": "chlorochromate",
+  "FO-1": "hypofluorite",
 });
 // Anions of two or more centres joined by O (O3S-O-SO3), or by O-O in peroxydisulfate. The rest have one centre.
-const BRIDGED = new Set(["O7P2-4", "O10P3-5", "O7S2-2", "O8S2-2", "Cr2O7-2", "O5S2-2", "O5P2-4"]);
+const BRIDGED = new Set(["O7P2-4", "O10P3-5", "O13P4-6", "O16P5-7", "O7S2-2", "O8S2-2", "Cr2O7-2", "O5S2-2", "O5P2-4"]);
+// Anions of one centre with an O-O-, or O-OH, on it: peroxymonosulfate (Oxone's anion).
+const PEROXY: Record<string, string> = { "O5S-2": "peroxymonosulfate", "HO5S-1": "hydrogen peroxymonosulfate" };
 // Anions of two centres bonded to each other (O2S-SO2), whose formulas may also be an O-bridged anion's.
 const LINKED: Record<string, string> = { "O4S2-2": "dithionite", "O5S2-2": "metabisulfite", "O6S2-2": "dithionate", "O6P2-4": "hypodiphosphate", "O4P2-4": "hypodiphosphite" };
 // Metals with one usual charge in salts, besides CATIONS (P-65.6.2.2): named without a Stock number.
@@ -1436,6 +1455,10 @@ function inorganicName(g: Graph, formula: string): string | undefined {
   const el = (i: number) => g.atoms[i].el, o = (k: number) => g.bonds.filter((b) => (el(b.a) === "O" ? 1 : 0) + (el(b.b) === "O" ? 1 : 0) === k).length;
   if (g.bonds.length !== g.atoms.length - 1) return undefined;
   if (LINKED[formula] && o(0) === 1 && o(2) === 0) return LINKED[formula];
+  if (PEROXY[formula]) {
+    const oo = g.bonds.find((b) => el(b.a) === "O" && el(b.b) === "O"), end = oo && [oo.a, oo.b].find((i) => g.bonds.filter((b) => b.a === i || b.b === i).length === 1);
+    return !o(0) && o(2) === 1 && end !== undefined && (g.atoms[end].h === 1 || g.atoms[end].charge === -1) ? PEROXY[formula] : undefined;
+  }
   if (BRIDGED.has(formula)) return !o(0) && o(2) === (formula === "O8S2-2" ? 1 : 0) ? ANIONS[formula] : undefined;
   return ANIONS[formula] && shapes(g).some((s) => s[0] !== "O" || g.atoms.every((a) => a.el === "O")) ? ANIONS[formula] : undefined;
 }

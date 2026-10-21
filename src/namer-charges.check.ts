@@ -91,6 +91,7 @@ run("zwitterions", [
   "4-azaniumylbenzoate", "1-methylpyridin-1-ium-3-carboxylate", "pyridine N-oxide", "4-phenylpyridine 1-oxide", "trimethylamine N-oxide",
   "(3R)-3-hydroxy-4-(trimethylazaniumyl)butanoate", "2-(dimethylsulfaniumyl)acetate", "(2S)-2,6-bis(azaniumyl)hexanoate",
   "(triphenylphosphaniumyl)methanide", "(pyridin-1-ium-1-yl)acetate", "smiles:C[n+]1ccn(CC(=O)[O-])c1", "N-methylpropan-2-imine N-oxide",
+  "smiles:[CH2-][S+](C)(C)=O",
 ]);
 // Salts (IR-5): metal and organic ions, Stock numbers, hydrogen halides and water of crystallisation.
 run("salts", [
@@ -102,6 +103,10 @@ run("salts", [
   "pentasodium triphosphate", "potassium peroxydisulfate", "potassium dichromate", "benzenediazonium tetrafluoroborate", "trimethylsulfanium iodide",
   "tetraphenylphosphanium bromide", "sodium cyclopenta-2,4-dien-1-ide", "sodium 3-carboxypropanoate", "silver hexafluoroantimonate",
   "sodium dithionite", "sodium metabisulfite", "sodium disulfite", "1-butyl-3-methylimidazolium bis(trifluoromethanesulfonyl)azanide",
+  "trimethylsulfoxonium iodide", "1-butyl-3-methylimidazolium dicyanamide", "potassium bifluoride", "pyridinium chlorochromate",
+  "potassium hydrogen peroxymonosulfate", "smiles:[Sc+3].[O-]S(=O)(=O)C(F)(F)F.[O-]S(=O)(=O)C(F)(F)F.[O-]S(=O)(=O)C(F)(F)F",
+  "smiles:[Li+].[CH2-]CCC", "smiles:[Mg+2].[Br-].[CH3-]", "tropylium tetrafluoroborate", "triethyloxonium tetrafluoroborate",
+  "smiles:C=[N+](C)C.[I-]", "smiles:ClC=[N+](C)C.[Cl-]", "pyridinium p-toluenesulfonate", "smiles:[Pd+2].CC(=O)[O-].CC(=O)[O-]",
 ]);
 // Simple species (IR-3, IR-6): parent hydrides, inorganic molecules and ions.
 run("species", [
@@ -119,7 +124,9 @@ run("explicit hydrogen", [
 ]);
 
 // No wrong names from shapes that share a formula with a known species, and none for radicals or isotopes.
-for (const s of ["C(=O)O[O-]", "[NH3+][O-]", "[NH+]([O-])=O", "[O-]ON", "S(=O)(=O)([O-])S(=O)[O-]", "[C-]#[N+][O-]"]) {
+// Boranuides wait for boron (element B), and must then read back right.
+for (const s of ["C(=O)O[O-]", "[NH3+][O-]", "[NH+]([O-])=O", "[O-]ON", "S(=O)(=O)([O-])S(=O)[O-]", "[C-]#[N+][O-]", "OS(=O)(=O)O[O-]", "OOS(=O)(=O)O",
+  "c1ccccc1[B-](c1ccccc1)(c1ccccc1)c1ccccc1.[Na+]", "CC[BH-](CC)CC.[Li+]"]) {
   const g = graphOf(molOf(s), cipOf(s)), name = g && iupacName(g), back = name && opsin.parseToSmiles(name);
   assert.ok(!name || (back && convert(back, "inchi") === convert(s, "inchi")), `${s} -> ${name}, a different structure`);
 }
