@@ -214,3 +214,6 @@ check("peroxy", [
   "methaneperoxoic acid", "tert-butyl benzenecarboperoxoate", "tert-butyl ethaneperoxoate", "dibenzoyl peroxide", "diacetyl peroxide",
   "acetyl benzoyl peroxide", "bis(3,5,5-trimethylhexanoyl) peroxide",
 ]);
+
+// N-hydroxy lactams and imides (cyclic hydroxamic acids).
+check("N-hydroxy imides", ["1-hydroxypyrrolidine-2,5-dione", "1-hydroxypyrrolidin-2-one", "1-methoxypiperidin-2-one", ["isatinol", "1-hydroxy-1H-indole-2,3-dione"]]);

@@ -292,6 +292,8 @@ class Namer {
       if (this.inRing[c]) {
         if (!adj[c].every((j) => j === o || this.ringOf[j] === this.ringOf[c])) throw new Error("carbonyl");
         this.mark(c, "ketone", cs);
+        // An OH or O-alkyl on the ring N of a lactam or imide: 1-hydroxypyrrolidine-2,5-dione (N-hydroxysuccinimide).
+        for (const n of adj[c]) if (el[n] === "N" && !q[n]) for (const j of adj[n]) if (!this.inRing[j] && this.nOxy(n, j)) this.nO.add(j);
         continue;
       }
       if (others.length === 0) {
