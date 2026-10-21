@@ -219,6 +219,13 @@ check("locants", [
   ["smiles:OCCCl", "2-chloroethan-1-ol"], ["smiles:ClCC(N)=O", "2-chloroacetamide"], ["smiles:NCCS(O)(=O)=O", "2-aminoethane-1-sulfonic acid"],
 ]);
 
+// Benzyl and benzylidene are the preferred prefixes when not substituted (P-29.6.1).
+check("benzyl", [
+  "2-benzylpyridine", "2-[(4-bromophenyl)methyl]pyridine", "benzyl acetate", "benzyl carbamate", "N-benzylaniline", "4-(benzyloxy)phenol",
+  "2-benzylidenecyclohexan-1-one", "(1-chloroethyl)benzene", ["smiles:O=C1OC[C@H](Cc2ccccc2)N1", "(4S)-4-benzyl-1,3-oxazolidin-2-one"],
+  ["smiles:C[S@@](=O)OCc1ccccc1", "benzyl (S)-methanesulfinate"], "(R)-N-[(E)-benzylidene]-2-methylpropane-2-sulfinamide",
+]);
+
 // N-cyano guanidines and amidines (cimetidine); acid pseudohalides (P-65.5.3).
 check("cyano and pseudohalides", [
   "N-cyanoguanidine", ["smiles:N#CN=C(N)N", "N''-cyanoguanidine"], "N'-cyano-N,N-dimethylmethanimidamide",

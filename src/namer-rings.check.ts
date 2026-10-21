@@ -183,7 +183,7 @@ run("large rings", ["smiles:C1CCCCCCCCN(C)CC=N1", "smiles:C1CS(=O)N=NN=CC=NC=PC=
 
 // Hydrogen drawn as an atom counts on its neighbour: 15 of the 114 structures in Sam's corpus have one.
 run("drawn hydrogen", [
-  "smiles:O1C[C@H](CC2=CC=CC=C2)N([H])C1=O = (4S)-4-(phenylmethyl)-1,3-oxazolidin-2-one",
+  "smiles:O1C[C@H](CC2=CC=CC=C2)N([H])C1=O = (4S)-4-benzyl-1,3-oxazolidin-2-one",
   "smiles:C(=O)(C[H])C1C=CC=CC=1 = 1-phenylethan-1-one", "smiles:[H][C@@](C)(O)CC = (2S)-butan-2-ol",
 ]);
 

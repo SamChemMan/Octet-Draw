@@ -1470,6 +1470,10 @@ class Namer {
     else text = joinPrefixes(prefixText, withSuffix(parent, kind, sitesLoc, p.ring || !!p.attached, locantFree, !p.attached && free, thio));
     if (p.attached && size === 1) text = text.replace(/methane-1(,1)+-/, "methane"); // methanetricarboxylic acid
     text += oxideText(this, oxides, (a) => label(num, a)); // after the suffix: N,N-dimethylaniline N-oxide
+    // Benzyl, benzylidene and benzylidyne are the preferred prefixes when not substituted (P-29.6.1): 2-benzylpyridine,
+    // but 2-[(4-bromophenyl)methyl]pyridine.
+    const benzyl = !!opts.attach && /^phenylmethyl(idene|idyne)?$/.test(text);
+    if (benzyl) text = text.replace("phenylmethyl", "benzyl");
     // Stereodescriptors (P-91, P-93): R and S on the parent's atoms, E and Z on its double bonds, in locant order,
     // in front of everything they belong to.
     const stereo: { at: number; text: string }[] = [];
@@ -1499,7 +1503,7 @@ class Namer {
     stereo.push(...suffixStereo(this, sites, stereo.length)); // (R)-2-methylpropane-2-sulfinamide (namer-hetero.ts)
     if (stereo.length) text = `(${stereo.sort((x, y) => x.at - y.at).map((x) => x.text).join(",")})-${text}`;
     // A prefix needs brackets when it carries prefixes of its own or locants (P-16.5.1).
-    return { text, compound: prefixes.length > 0 || /[\d,]/.test(text) || NUCLIDE.test(text), score: [], label: (a: number) => label(num, a) }; // [(²H₃)methyl]
+    return { text, compound: (prefixes.length > 0 && !benzyl) || stereo.length > 0 || /[\d,]/.test(text) || NUCLIDE.test(text), score: [], label: (a: number) => label(num, a) }; // [(²H₃)methyl]
   }
   groupHetero = (c: number) => this.adj[c].filter((j) => j !== this.carbonylO[c] && this.el[j] !== "C");
   // The N of an amide, amidine or hydrazide on carbon c: not the ring N it may hang on (piperidine-1-carboxamide), nor
@@ -1586,7 +1590,7 @@ class Namer {
         return { text: `${enclose(acyl)}oxy`, compound: true };
       }
       const alkyl = this.substituent(r, x);
-      const simple: Record<string, string> = { methyl: "methoxy", ethyl: "ethoxy", propyl: "propoxy", butyl: "butoxy", phenyl: "phenoxy", "tert-butyl": "tert-butoxy", benzyl: "benzyloxy", phenylmethyl: "benzyloxy" };
+      const simple: Record<string, string> = { methyl: "methoxy", ethyl: "ethoxy", propyl: "propoxy", butyl: "butoxy", phenyl: "phenoxy", "tert-butyl": "tert-butoxy", benzyl: "benzyloxy" };
       if (simple[alkyl.text]) return { text: simple[alkyl.text], compound: simple[alkyl.text] === "benzyloxy" };
       // Methoxy, ethoxy, propoxy, butoxy and phenoxy keep their short form when substituted (P-63.2.2.2):
       // 2-chloroethoxy, (9H-fluoren-9-yl)methoxy, 4-nitrophenoxy.

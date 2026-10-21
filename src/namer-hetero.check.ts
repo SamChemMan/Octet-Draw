@@ -176,7 +176,7 @@ must("N-oxides, imines", [
   "pyridine 1-oxide", "4-methylmorpholine 4-oxide", "N,N-dimethylmethanamine N-oxide", "N-ethyl-N-methylethanamine N-oxide",
   "N,N-dimethylaniline N-oxide", "6-(piperidin-1-yl)pyrimidine-2,4-diamine 3-oxide", "quinoline 1-oxide", "4-nitropyridine 1-oxide",
   "pyridine-4-carboxylic acid 1-oxide", "methyl pyridine-4-carboxylate 1-oxide", "2-methylpyridine 1-oxide", "pyrazine 1,4-dioxide",
-  "N-(piperidin-1-yl)ethanimine", "4-[(phenylmethylidene)amino]benzoic acid", "4-{[(E)-phenylmethylidene]amino}benzoic acid",
+  "N-(piperidin-1-yl)ethanimine", "4-(benzylideneamino)benzoic acid", "4-{[(E)-benzylidene]amino}benzoic acid",
   "4-(propan-2-ylideneamino)phenol", "4-(cyclohexylideneamino)benzoic acid", "(2E)-2-(2-phenylhydrazinylidene)propanoic acid",
   "1-phenyl-2-[(E)-1-phenylethylidene]hydrazine",
 ]);
@@ -214,7 +214,7 @@ must("sulfenyl, thiosulfonates", [
   "(methoxysulfanyl)benzene", "1-(phenylsulfanyl)piperidine", "N-(benzenesulfonyl)-N-fluorobenzenesulfonamide",
   "3-{[bis(diisopropylamino)phosphanyl]oxy}propanenitrile", "2-cyanoethyl N,N-diisopropylchlorophosphoramidite",
   "(R)-2-methylpropane-2-sulfinamide", "(S)-2-methylpropane-2-sulfinamide", "(S)-4-methylbenzene-1-sulfinamide",
-  "(R)-N-[(E)-phenylmethylidene]-2-methylpropane-2-sulfinamide", "N-benzylidene-2-methylpropane-2-sulfinamide",
+  "(R)-N-[(E)-benzylidene]-2-methylpropane-2-sulfinamide", "N-benzylidene-2-methylpropane-2-sulfinamide",
   "methyl (R)-4-methylbenzene-1-sulfinate", "methyl (S)-4-methylbenzene-1-sulfinate", "smiles:CCO[S@@](=O)C",
   "smiles:Cc1ccc(cc1)[S@@](=O)O[C@@H]1C[C@H](C)CC[C@H]1C(C)C",
   "N-(benzenesulfonyl)acetamide", "N-(4-methylbenzene-1-sulfonyl)benzamide", "N-(methanesulfonyl)-4-nitrobenzamide",
