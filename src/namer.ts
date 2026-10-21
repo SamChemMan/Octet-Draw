@@ -1255,7 +1255,7 @@ function substituted(subs: Name[]): string {
   const groups = new Map<string, { name: Name; n: number }>();
   for (const s of subs) groups.set(s.text, { name: s, n: (groups.get(s.text)?.n ?? 0) + 1 });
   const sorted = [...groups.values()].sort((a, b) => alphaKey(a.name.text).localeCompare(alphaKey(b.name.text)));
-  const parts = sorted.map((g) => (g.n > 1 ? (g.name.compound ? MULT_COMPLEX[g.n] + enclose(g.name) : MULT[g.n] + g.name.text) : enclose(g.name)));
+  const parts = sorted.map((g) => (g.n > 1 ? (g.name.compound ? MULT_COMPLEX[g.n] + enclose(g.name) : MULT[g.n] + g.name.text.replace(/^(tert|sec)-/, "-$&")) : enclose(g.name)));
   // After the first, each substituent goes in brackets: methyl(diphenyl)phosphane, ethyl(methyl)(phenyl)phosphane.
   return parts.map((t, k) => (k === 0 || /^[([{]/.test(t) ? t : `(${t})`)).join("");
 }
@@ -1277,7 +1277,7 @@ function assemblePrefixes(list: { loc: string; name: Name }[], noLocants: boolea
     // N-locants first (N, N', N1, N4), then numerals.
     const isN = (l: string) => l[0] === "N", nKey = (l: string) => "0" + l.slice(1);
     const locs = g.locs.sort((a, b) => (isN(a) !== isN(b) ? (isN(a) ? -1 : 1) : isN(a) ? locOrder(nKey(a), nKey(b)) : locOrder(a, b)));
-    const m = g.locs.length, multiplied = m > 1 ? (g.name.compound ? MULT_COMPLEX[m] + enclose(g.name) : MULT[m] + g.name.text) : enclose(g.name);
+    const m = g.locs.length, multiplied = m > 1 ? (g.name.compound ? MULT_COMPLEX[m] + enclose(g.name) : MULT[m] + g.name.text.replace(/^(tert|sec)-/, "-$&")) : enclose(g.name); // di-tert-butyl
     return noLocants && !locs.some(isN) ? multiplied : `${locs.join(",")}-${multiplied}`;
   });
   // Without locants, each prefix after the first goes in brackets (P-16.5.1): chloro(methoxy)methane,
