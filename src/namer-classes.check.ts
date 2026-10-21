@@ -200,3 +200,10 @@ check("tricarboxylic", [
   "butane-1,2,4-tricarboxylic acid", "methanetricarboxylic acid", "triethyl methanetricarboxylate", "propane-1,2,3-tricarbonitrile",
   ["aconitic acid", "prop-1-ene-1,2,3-tricarboxylic acid"], "butanedioic acid", "2-methylbutanedioic acid",
 ]);
+
+// N-acyl lactams; a substituted acetyl group needs no locant (phenylacetyl). Sam's
+// 3-(phenylacetyl)-4-phenyl-1,3-oxazolidin-2-one waits only for the 1,3-oxazolidine ring; its pyrrolidinone analogue:
+check("acetyl", [
+  ["smiles:O=C1CC[C@H](c2ccccc2)N1C(=O)Cc1ccccc1", "(5R)-5-phenyl-1-(phenylacetyl)pyrrolidin-2-one"],
+  ["smiles:ClCC(=O)Oc1ccccc1C(O)=O", "2-[(chloroacetyl)oxy]benzoic acid"], ["smiles:O=C(C(Cl)Cl)Nc1ccccc1", "2,2-dichloro-N-phenylacetamide"],
+]);

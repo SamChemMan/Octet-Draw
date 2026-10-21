@@ -843,7 +843,9 @@ class Namer {
     const single = !p.ring ? size <= 2 && !opts.attach : !fused && !assembly && !bridged && (info?.ring?.name === "benzene" || (!info?.ring && size > 0));
     const prefixText = assemblePrefixes(prefixes.map((x) => ({ loc: x.n ? (manyN ? `N${label(num, x.atom)}` : prime.has(x) ? "N'" : "N") : label(num, x.atom), name: x.name })),
       // An amide's N is a position too: 2-chloro-N-methylacetamide (P-14.3.4).
-      (retained && !p.ring && size === 2 && !(prefixes.some((x) => x.n) && prefixes.some((x) => !x.n))) || (!p.ring && size === 1) || (single && prefixes.length + sites.length <= 1 && !opts.attach && !multiple(num).length));
+      (retained && !p.ring && size === 2 && !(prefixes.some((x) => x.n) && prefixes.some((x) => !x.n))) || (!p.ring && size === 1) ||
+      (!!opts.acyl && !p.ring && size === 2 && !multiple(num).length) || // phenylacetyl, chloroacetyl
+      (single && prefixes.length + sites.length <= 1 && !opts.attach && !multiple(num).length));
     let parent: string;
     if (p.hetero) parent = p.hetero; // hydrazine, diazene
     else if (retained) parent = retained;
