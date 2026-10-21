@@ -156,7 +156,7 @@ export function perceiveHetero(n: Namer) {
     const oxo = os.find((o) => n.ord(i, o) === 2 && adj[o].length === 1 && !n.q[o]);
     if (oxo !== undefined) {
       const r = adj[i].filter((j) => j !== oxo);
-      if (r.length === 1 && !h[i] && n.ord(i, r[0]) === 1 && (plainC(n, r[0]) || el[r[0]] === "N")) { n.het.set(i, "N=O"); n.het.set(oxo, "N=O"); }
+      if (r.length === 1 && !h[i] && n.ord(i, r[0]) === 1 && (plainC(n, r[0]) || el[r[0]] === "N" || n.group[r[0]] === "ketone")) { n.het.set(i, "N=O"); n.het.set(oxo, "N=O"); } // on a ketone: nitroso(phenyl)methanone
       continue;
     }
     // Diazenes (R-N=N-R'), hydrazones (C=N-N) and hydrazines (N-N), with only plain carbons and H otherwise.
@@ -258,7 +258,7 @@ function ligand(n: Namer, x: number, j: number): string | undefined {
   if (azideN(n, j) === x) return "N3";
   // An imine N on S (a sulfinimine): N-[(E)-phenylmethylidene]-2-methylpropane-2-sulfinamide.
   if (n.adj[j].length === 2 && !n.h[j]) { const c = n.adj[j].find((y) => y !== x)!; if (n.el[c] === "C" && n.ord(j, c) === 2 && n.carbonylO[c] < 0 && !n.isNitrileC(c) && n.el[x] === "S") return "N"; }
-  return single(n, j) && n.adj[j].length + n.h[j] === 3 && n.adj[j].every((y) => y === x || plainC(n, y) || (n.el[y] === "S" && !n.inRing[y] && oxo(n, y).length === 2) || nitrosoOrAmino(n, y, j) || (HALO[n.el[y]] && n.adj[y].length === 1) || (n.group[y] === "amide" && n.el[y] === "C")) ? "N" : undefined;
+  return single(n, j) && n.adj[j].length + n.h[j] === 3 && n.adj[j].every((y) => y === x || plainC(n, y) || (n.el[y] === "S" && !n.inRing[y] && oxo(n, y).length === 2) || nitrosoOrAmino(n, y, j) || (HALO[n.el[y]] && n.adj[y].length === 1) || (n.el[y] === "C" && (n.group[y] === "amide" || n.group[y] === "urea" || n.group[y] === "carbamate"))) ? "N" : undefined;
 }
 // An N on an amide N j: nitroso (N-methyl-N-nitroso), amino (a hydrazide: N-amino), or an imine N (=N-, a hydrazone).
 function nitrosoOrAmino(n: Namer, y: number, j: number): boolean {
