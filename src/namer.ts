@@ -11,7 +11,9 @@
 // metal and ammonium cations with acid, alkoxide and inorganic anions; bicyclic von Baeyer and monospiro rings with
 // oxa, thia and aza replacement; R/S and E/Z. Not yet: polycyclic bridged rings (adamantane), fused systems outside
 // the table, larger ring assemblies, and other charged atoms. Octet's own name tables cover some of these (naming.ts).
+// Structures with metal atoms are named in metals.ts.
 import type { Graph } from "./naming.ts";
+import { metalName, MORE_CATIONS, METAL_ANIONS, type MetalApi } from "./metals.ts";
 
 type Name = { text: string; compound: boolean }; // compound: needs brackets when cited as a prefix
 
@@ -32,14 +34,14 @@ const CARBON_GROUP = new Set<Kind>(["acid", "anhydride", "ester", "halide", "ami
 const HALIDE: Record<string, string> = { F: "fluoride", Cl: "chloride", Br: "bromide", I: "iodide" };
 // Cations of salts (P-65.6.2.2) and their charges.
 const CATIONS: Record<string, [string, number]> = { Li: ["lithium", 1], Na: ["sodium", 1], K: ["potassium", 1], Rb: ["rubidium", 1], Cs: ["caesium", 1], Ag: ["silver", 1],
-  Mg: ["magnesium", 2], Ca: ["calcium", 2], Sr: ["strontium", 2], Ba: ["barium", 2], Zn: ["zinc", 2] };
+  Mg: ["magnesium", 2], Ca: ["calcium", 2], Sr: ["strontium", 2], Ba: ["barium", 2], Zn: ["zinc", 2], ...MORE_CATIONS };
 // Inorganic anions (IUPAC 2005, IR-5 and IR-8), by their atoms (with hydrogens) and charge. Every name is read back.
 const ANIONS: Record<string, string> = {
   "F-1": "fluoride", "Cl-1": "chloride", "Br-1": "bromide", "I-1": "iodide", "H-1": "hydride", "HO-1": "hydroxide", "O-2": "oxide", "S-2": "sulfide",
   "CO3-2": "carbonate", "CHO3-1": "hydrogencarbonate", "O4S-2": "sulfate", "HO4S-1": "hydrogensulfate", "O3S-2": "sulfite", "HO3S-1": "hydrogensulfite",
   "O3S2-2": "thiosulfate", "NO3-1": "nitrate", "NO2-1": "nitrite", "O4P-3": "phosphate", "HO4P-2": "hydrogenphosphate", "H2O4P-1": "dihydrogenphosphate",
   "N3-1": "azide", "CN-1": "cyanide", "CNS-1": "thiocyanate", "ClO4-1": "perchlorate", "ClO-1": "hypochlorite", "IO4-1": "periodate",
-  "MnO4-1": "permanganate", "BF4-1": "tetrafluoroborate", "F6P-1": "hexafluorophosphate", "BH4-1": "tetrahydroborate",
+  "MnO4-1": "permanganate", "BF4-1": "tetrafluoroborate", "F6P-1": "hexafluorophosphate", "BH4-1": "tetrahydroborate", ...METAL_ANIONS,
 };
 
 // Rings Octet knows by name. key: size, then a (aromatic) or s (saturated), then heteroatoms with their lowest locants.
@@ -157,7 +159,10 @@ class Namer {
   anhydrideO = new Map<number, number>(); // anhydride carbon → its bridging O
   phosphorus = new Set<number>(); // phosphane P, with the =O of a phosphane oxide
 
-  constructor(g: Graph) {
+  // opaque: atoms that stand for a group named elsewhere (metals.ts: ferrocenyl), cited by that name and in no chain.
+  opaque: Map<number, Name>;
+  constructor(g: Graph, opaque = new Map<number, Name>()) {
+    this.opaque = opaque;
     this.n = g.atoms.length;
     this.el = g.atoms.map((a) => a.el);
     this.h = g.atoms.map((a) => a.h);
@@ -762,6 +767,8 @@ class Namer {
 
   // ——— Substituent prefixes ———
   substituent(x: number, from: number): Name {
+    const opaque = this.opaque.get(x);
+    if (opaque) return opaque;
     const el = this.el[x];
     // Diazo is the one prefix on a double bond that Octet names (=N+=N-); =CH2 and the like are not covered.
     if (el === "N" && this.diazoAtom(x) && this.ord(x, from) === 2) return { text: "diazo", compound: false };
@@ -874,7 +881,7 @@ class Namer {
 
   // Acyclic carbon paths (no ring atoms) through or from `start`, not crossing `from`.
   paths(start: number, from: number, fromStart: boolean): number[][] {
-    const ok = (j: number) => this.el[j] === "C" && !this.inRing[j] && j !== from;
+    const ok = (j: number) => this.el[j] === "C" && !this.inRing[j] && j !== from && !this.opaque.has(j);
     const walk = (a: number, seen: Set<number>): number[][] => {
       const next = this.adj[a].filter((j) => ok(j) && !seen.has(j) && (j === start || this.carbonylO[j] < 0 || true));
       const ends = next.flatMap((j) => walk(j, new Set([...seen, j])).map((p) => [j, ...p]));
@@ -928,7 +935,7 @@ class Namer {
   }
   // Candidate parents: every acyclic carbon chain and every ring; the senior one wins (P-44).
   parentName(kind: Kind | undefined, skip = new Set<number>(), within?: Set<number>): Name | undefined {
-    const carbons = [...Array(this.n).keys()].filter((i) => this.el[i] === "C" && !this.inRing[i] && (!within || within.has(i)) && !skip.has(i));
+    const carbons = [...Array(this.n).keys()].filter((i) => this.el[i] === "C" && !this.inRing[i] && (!within || within.has(i)) && !skip.has(i) && !this.opaque.has(i));
     const chains: number[][] = [];
     for (const a of carbons) for (const p of this.paths(a, -1, true)) if (p.every((i) => !skip.has(i) && (!within || within.has(i)))) chains.push(p);
     const count = (atoms: number[], ring: boolean) => {
@@ -1204,6 +1211,19 @@ function anionName(g: Graph, part: number[]): string | undefined {
   return name.replace(/ic acid$/, "ate");
 }
 
+// What metals.ts needs from the namer.
+const METAL_API: MetalApi = {
+  name: (g, opaque) => new Namer(g, opaque).name(),
+  prefix: (g, x, from) => { const n = new Namer(g); n.perceive(); return n.substituent(x, from); },
+  groups: (g) => {
+    const n = new Namer(g);
+    n.perceive();
+    const kind = SENIORITY.find((k) => [...n.bearer.keys()].some((a) => n.group[a] === k));
+    return { kind, sites: [...n.bearer].filter(([a]) => n.group[a] === kind).map(([atom, on]) => ({ atom, on })) };
+  },
+  anion: anionName, salt: saltName, cation: (el) => CATIONS[el], assemblePrefixes, alphaKey,
+};
+
 export function iupacName(g: Graph): string | undefined {
   return iupacNameWhy(g).name;
 }
@@ -1223,7 +1243,7 @@ export function iupacNameWhy(g: Graph): { name?: string; why?: string } {
       while (stack.length) { const i = stack.pop()!; for (const j of adj[i]) if (!seen.has(j)) { seen.add(j); part.push(j); stack.push(j); } }
       parts.push(part);
     }
-    const name = parts.length === 1 ? new Namer(g).name() : saltName(g, parts);
+    const name = metalName(g, parts, METAL_API) ?? (parts.length === 1 ? new Namer(g).name() : saltName(g, parts));
     return name ? { name } : { why: parts.length === 1 ? "no name" : "salt" };
   } catch (e) {
     return { why: e instanceof Error ? e.message : String(e) };
