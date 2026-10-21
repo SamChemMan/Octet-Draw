@@ -21,6 +21,7 @@ import type { Graph } from "./naming.ts";
 import { fusedParent } from "./fusion.ts";
 import { ELEMENTS, isMetal, metalName, MORE_CATIONS, METAL_ANIONS, type MetalApi } from "./metals.ts";
 import { chalcogenIonSuffix, chalcogenOne, chalcogenStem, chargeSeparated, checkChalcogenOnes, citedNuclides, isotopePrefix, isotopeSpecies, isotopeText, inorganicSpecies, NUCLIDE } from "./namer-maingroup.ts";
+import { multiplicativeName } from "./namer-multiplicative.ts";
 import { amideHetero, groupVariant, heteroAmine, heteroBond, heteroCharged, heteroParentName, heteroPrefix, hydrazinyl, nOxideN, nOxides, oxideText, perceiveHetero, perceiveIodanes, suffixStereo, sulfonamideN, sulfonateName, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
 
 type Name = { text: string; compound: boolean }; // compound: needs brackets when cited as a prefix
@@ -1194,7 +1195,7 @@ class Namer {
   // ——— Naming a parent with its suffix, prefixes and numbering ———
   // atoms: the parent's chain (in order) or ring (in cycle order). attach: for a substituent, the atom with the free
   // valence and the atom it is joined to. suffix: the principal groups expressed as a suffix.
-  nameParent(p: Parent, opts: { kind?: Kind; attach?: [number, number]; acyl?: boolean; sulfo?: string; skip?: Set<number>; tiebreak?: (nums: number[][]) => number[][] }): Name & { score: number[]; label?: (a: number) => string } {
+  nameParent(p: Parent, opts: { kind?: Kind; attach?: [number, number]; acyl?: boolean; sulfo?: string; skip?: Set<number>; tiebreak?: (nums: number[][]) => number[][]; mult?: [number, number] }): Name & { score: number[]; label?: (a: number) => string; prefixes?: number } {
     const { atoms } = p, inParent = new Set(atoms), kind = opts.kind;
     const skip = opts.skip ?? new Set<number>();
     const info = p.hetero ? ({ numberings: [atoms, [...atoms].reverse()], aromatic: false } as ReturnType<Namer["ringInfo"]>)
@@ -1226,7 +1227,7 @@ class Namer {
     const prefixes: { atom: number; name: Name; n?: boolean }[] = [];
     for (const a of atoms) {
       for (const x of this.adj[a]) {
-        if (inParent.has(x) || used.has(x) || (opts.attach && x === opts.attach[1] && a === opts.attach[0])) continue;
+        if (inParent.has(x) || used.has(x) || (opts.attach && x === opts.attach[1] && a === opts.attach[0]) || (opts.mult && x === opts.mult[1] && a === opts.mult[0])) continue;
         if (kind === "ketone" && sites.some((s) => s.atom === a) && x === this.carbonylO[a]) continue;
         if (CARBON_GROUP.has(kind!) && !p.ring && sites.some((s) => s.group === a) && (x === this.carbonylO[a] || this.groupHetero(a).includes(x))) continue;
         if (x === this.carbonylO[a] && !p.ring && opts.acyl && a === atoms[0]) continue; // the acyl group's own =O
@@ -1284,6 +1285,8 @@ class Namer {
     nums = this.lowest(nums, (num) => sites.map((s) => loc(num, s.atom)));
     // A ring's cationic centres (-ium) come next, as suffixes do (P-31.1.4.2.4): 6-methylpyrimidin-1-ium.
     if (p.ring) nums = this.lowest(nums, (num) => atoms.filter((a) => this.q[a] === 1 && (this.cationN(a) || this.ions.has(a))).map((a) => loc(num, a)));
+    // A multiplied unit's attachment comes next (namer-multiplicative.ts): 2,2'-oxydi(ethan-1-ol).
+    if (opts.mult) nums = this.lowest(nums, (num) => [loc(num, opts.mult![0])]);
     if (fused) {
       nums = this.lowest(nums, (num) => ys(sat(num)).map((a) => loc(num, a)));
       nums = this.lowest(nums, (num) => sat(num).hydro.map((a) => loc(num, a)));
@@ -1313,7 +1316,7 @@ class Namer {
       // An amide's N is a position too: 2-chloro-N-methylacetamide (P-14.3.4).
       (retained && !p.ring && size === 2 && !(prefixes.some((x) => x.n) && prefixes.some((x) => !x.n))) || (!p.ring && size === 1) ||
       (!!opts.acyl && !p.ring && size === 2 && !multiple(num).length) || // phenylacetyl, chloroacetyl
-      (single && prefixes.length + sites.length <= 1 && !opts.attach && !multiple(num).length))
+      (single && prefixes.length + sites.length <= 1 && !opts.attach && !opts.mult && !multiple(num).length))
       // Isotopes on the parent and its suffix's heteroatoms go after the prefixes (P-82): trichloro(²H₁)methane.
       + (!this.isotopic ? "" : isotopeText(this, atoms, [...used, ...(kind && CARBON_GROUP.has(kind) ? sites.flatMap((s) => [s.group, ...this.groupHetero(s.group), this.carbonylO[s.group]]) : [])]
         .filter((a, k, all) => a >= 0 && !inParent.has(a) && all.indexOf(a) === k), (a) => label(num, a)));
@@ -1359,7 +1362,7 @@ class Namer {
     }
     let text: string;
     // N-substituents need no ring locant: N-methylcyclohexanecarboxamide.
-    const locantFree = p.ring && !fused && !assembly && !bridged && (!info?.ring || info.ring.name === "benzene") && prefixes.every((x) => x.n) && !multiple(num).length;
+    const locantFree = p.ring && !fused && !assembly && !bridged && (!info?.ring || info.ring.name === "benzene") && prefixes.every((x) => x.n) && !multiple(num).length && !opts.mult;
     if (opts.sulfo) text = joinPrefixes(prefixText, withSuffix(parent, undefined, [label(num, opts.attach![0])], p.ring, locantFree, !p.ring && size <= 2, opts.sulfo));
     else if (opts.attach) text = joinPrefixes(prefixText, ium.length ? `${parent}-${label(num, opts.attach[0])}-yl` : this.substituentForm(parent, info, label(num, opts.attach[0]), p.ring, size, !!opts.acyl, multiple(num).length > 0));
     else if (retained) text = prefixText + retained; // benzoic acid, acetic acid: the suffix locant is understood
@@ -1369,7 +1372,7 @@ class Namer {
       const yl = this.substituentForm(parent, info, sitesLoc[0], p.ring, size, false, multiple(num).length > 0);
       text = joinPrefixes(prefixText, (yl === "phenyl" ? (prefixes.length ? `benzen-${sitesLoc[0]}-yl` : "benzenyl") : yl) + "ium");
     }
-    else text = joinPrefixes(prefixText, withSuffix(parent, kind, sitesLoc, p.ring || !!p.attached, locantFree, !p.ring && !p.attached && size <= 2, thio));
+    else text = joinPrefixes(prefixText, withSuffix(parent, kind, sitesLoc, p.ring || !!p.attached, locantFree, !p.ring && !p.attached && (size === 1 || (size === 2 && !opts.mult)), thio));
     if (p.attached && size === 1) text = text.replace(/methane-1(,1)+-/, "methane"); // methanetricarboxylic acid
     text += oxideText(this, oxides, (a) => label(num, a)); // after the suffix: N,N-dimethylaniline N-oxide
     // Stereodescriptors (P-91, P-93): R and S on the parent's atoms, E and Z on its double bonds, in locant order,
@@ -1401,7 +1404,7 @@ class Namer {
     stereo.push(...suffixStereo(this, sites, stereo.length)); // (R)-2-methylpropane-2-sulfinamide (namer-hetero.ts)
     if (stereo.length) text = `(${stereo.sort((x, y) => x.at - y.at).map((x) => x.text).join(",")})-${text}`;
     // A prefix needs brackets when it carries prefixes of its own or locants (P-16.5.1).
-    return { text, compound: prefixes.length > 0 || /[\d,]/.test(text) || NUCLIDE.test(text), score: [], label: (a: number) => label(num, a) }; // [(²H₃)methyl]
+    return { text, compound: prefixes.length > 0 || /[\d,]/.test(text) || NUCLIDE.test(text), score: [], label: (a: number) => label(num, a), prefixes: prefixes.length }; // [(²H₃)methyl]
   }
   groupHetero = (c: number) => this.adj[c].filter((j) => j !== this.carbonylO[c] && this.el[j] !== "C");
   // The N of an amide, amidine or hydrazide on carbon c: not the ring N it may hang on (piperidine-1-carboxamide), nor
@@ -1849,7 +1852,8 @@ class Namer {
       || (kind === "nitrile" && [...this.bearer].every(([g, on]) => this.group[g] !== "nitrile" || (!on.length && this.groupHetero(g).length === 2)))) text = this.carbonicName(kind);
     else if (!kind && this.phosphorus.size) text = this.phosphaneName();
     else {
-      text = this.parentName(kind, this.ionSkip(kind))?.text;
+      // Identical parents joined by a multiplying group (namer-multiplicative.ts): 2,2'-oxydi(ethan-1-ol).
+      text = multiplicativeName(this, kind, this.ionSkip(kind)) ?? this.parentName(kind, this.ionSkip(kind))?.text;
       // Acid halides (P-65.5.1): acetyl chloride, butanedioyl dichloride, methanesulfonyl chloride.
       if (text && (kind === "halide" || kind === "sulfonylhalide" || kind === "imidoylhalide")) {
         const xs = [...Array(this.n).keys()].filter((x) => (HALO[this.el[x]] || this.prefixOnly.has(x)) && this.adj[x].some((j) => this.group[j] === kind));
@@ -2554,5 +2558,5 @@ function nameOf(g: Graph): string | undefined {
 }
 
 // For namer-hetero.ts, which names groups built on N, O, S, P and the halogens.
-export { Namer, enclose, substituted, assemblePrefixes, alphaKey, alkylWords, times, joinPrefixes, MULT, MULT_COMPLEX, HALO, SENIORITY };
+export { Namer, enclose, substituted, assemblePrefixes, alphaKey, alkylWords, times, joinPrefixes, MULT, MULT_COMPLEX, HALO, SENIORITY, CARBON_GROUP, chainStem, citedLabels };
 export type { Name, Kind };

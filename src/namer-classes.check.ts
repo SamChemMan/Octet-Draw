@@ -241,9 +241,9 @@ check("nitro acyl, carbohydrazide", ["1-nitropropan-1-one", "nitro(phenyl)methan
 
 // Carboxy, not 2-hydroxy-2-oxoethyl; bis for compound prefixes; stereodescriptors ignored in alphanumerical order.
 check("carboxy prefixes", [
-  ["smiles:OC(=O)CN(CC(=O)O)CC(=O)O", "[bis(carboxymethyl)amino]acetic acid"], ["diglycolic acid", "(carboxymethoxy)acetic acid"],
+  ["smiles:OC(=O)CN(CC(=O)O)CC(=O)O", "2,2',2''-nitrilotriacetic acid"], ["diglycolic acid", "2,2'-oxydiacetic acid"],
   ["phthalonic acid", "2-(carboxycarbonyl)benzoic acid"], ["cystathionine", "(2S)-2-amino-4-{[(2R)-2-amino-2-carboxyethyl]sulfanyl}butanoic acid"],
-  "4-[(2-chloroethyl)(methyl)amino]benzoic acid", ["triethanolamine", "2-[bis(2-hydroxyethyl)amino]ethanol"],
+  "4-[(2-chloroethyl)(methyl)amino]benzoic acid", ["triethanolamine", "2,2',2''-nitrilotri(ethan-1-ol)"],
 ]);
 check("C=N stereo", [["smiles:C/C(=N/O)/N", "(1Z)-N'-hydroxyethanimidamide"], ["smiles:CCO/C(C)=N/c1ccccc1", "ethyl (1E)-N-phenylethanimidate"],
   ["smiles:CC/C(Cl)=N/c1ccccc1", "(1Z)-N-phenylpropanimidoyl chloride"]]);

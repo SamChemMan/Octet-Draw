@@ -190,7 +190,7 @@ run("drawn hydrogen", [
 // A ring's acyl group is numbered as the ring, with its indicated hydrogen: pyrrolysine, (1H-pyrrole-2-carbonyl).
 run("ring acyl groups", [
   "pyrrolysine = (2S)-2-amino-6-{[(2R,3R)-3-methyl-3,4-dihydro-2H-pyrrole-2-carbonyl]amino}hexanoic acid",
-  "smiles:C(=O)(C=1N=C(NC1)C(=O)O)C=1N=C(NC1)C(=O)O = 4-(2-carboxy-1H-imidazole-4-carbonyl)-1H-imidazole-2-carboxylic acid",
+  "smiles:C(=O)(C=1N=C(NC1)C(=O)O)C=1N=C(NC1)C(=O)O = 4,4'-carbonyldi(1H-imidazole-2-carboxylic acid)",
   "(1H-pyrrole-2-carbonyl)glycine = [(1H-pyrrole-2-carbonyl)amino]acetic acid", "furan-2-carbonyl chloride = furan-2-carbonyl chloride",
 ]);
 

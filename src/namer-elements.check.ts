@@ -113,7 +113,7 @@ const cases: [string, string?][] = [
   ["sodium tetraphenylboranuide"], ["lithium triethylboranuide"], ["smiles:C[N+](C)(C)C.F[B-](F)(F)c1ccccc1"],
   // Selenium and tellurium, like sulfur: selanyl prefixes, selenols, diselanes, selenoxides, Se acids, selenophene.
   ["(methylselanyl)benzene", "(methylselanyl)benzene"], ["(phenylselanyl)benzene"], ["benzeneselenol", "benzeneselenol"], ["methaneselenol"],
-  ["(phenyldiselanyl)benzene", "(phenyldiselanyl)benzene"], ["(methaneseleninyl)benzene", "(methaneseleninyl)benzene"], ["(methaneselenonyl)benzene"],
+  ["(phenyldiselanyl)benzene", "1,1'-diselanediyldibenzene"], ["(methaneseleninyl)benzene", "(methaneseleninyl)benzene"], ["(methaneselenonyl)benzene"],
   ["(chloroselanyl)benzene", "(chloroselanyl)benzene"], ["benzeneseleninic acid", "benzeneseleninic acid"], ["benzeneselenonic acid"], ["4-selenonobenzoic acid"],
   ["selenomethionine", "(2S)-2-amino-4-(methylselanyl)butanoic acid"], ["selenocysteine", "(2R)-2-amino-3-selanylpropanoic acid"], ["selenocystine"],
   ["2-(phenylselanyl)propanoic acid"], ["4-(phenylselanyl)benzoic acid"], ["(methyldiselanyl)methane"],
