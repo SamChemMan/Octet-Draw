@@ -161,6 +161,12 @@ run("ring S and P oxides", [
 // A large ring's double bond from its last atom to atom 1 takes a compound locant: 1(13).
 run("large rings", ["smiles:C1CCCCCCCCN(C)CC=N1", "smiles:C1CS(=O)N=NN=CC=NC=PC=NOS1", "4-oxa-1-azacyclotridec-1(13)-ene"]);
 
+// Hydrogen drawn as an atom counts on its neighbour: 15 of the 114 structures in Sam's corpus have one.
+run("drawn hydrogen", [
+  "smiles:O1C[C@H](CC2=CC=CC=C2)N([H])C1=O = (4S)-4-(phenylmethyl)-1,3-oxazolidin-2-one",
+  "smiles:C(=O)(C[H])C1C=CC=CC=1 = 1-phenylethanone", "smiles:[H][C@@](C)(O)CC = (2S)-butan-2-ol",
+]);
+
 // Ketenes (P-64.1): the C=O carbon is a ketone at the end of a chain with a double bond.
 run("ketenes", [
   "ethenone = ethenone", "2-phenylethen-1-one", "diphenylethenone", "dimethylketene = 2-methylprop-1-en-1-one", "fulvenone",

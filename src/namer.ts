@@ -1392,10 +1392,23 @@ export function iupacName(g: Graph): string | undefined {
   return iupacNameWhy(g).name;
 }
 
+// Hydrogen drawn as an atom (an H label, a wedged H) counts on the atom it is bonded to.
+function foldHydrogens(g: Graph): Graph {
+  const bonds = (i: number) => g.bonds.filter((b) => b.a === i || b.b === i);
+  const other = (i: number) => { const b = bonds(i)[0]; return b.a === i ? b.b : b.a; };
+  const drop = g.atoms.map((a, i) => a.el === "H" && !a.charge && !a.h && bonds(i).length === 1 && bonds(i)[0].order === 1 && g.atoms[other(i)].el !== "H");
+  if (!drop.some(Boolean)) return g;
+  const index: number[] = [], atoms: Graph["atoms"] = [];
+  g.atoms.forEach((a, i) => { if (!drop[i]) { index[i] = atoms.length; atoms.push({ ...a }); } });
+  g.atoms.forEach((_, i) => { if (drop[i]) atoms[index[other(i)]].h++; });
+  return { atoms, bonds: g.bonds.filter((b) => !drop[b.a] && !drop[b.b]).map((b) => ({ ...b, a: index[b.a], b: index[b.b] })) };
+}
+
 // The name, or why Octet cannot name the structure yet (the namer's reason, for its tests and the gap survey).
 export function iupacNameWhy(g: Graph): { name?: string; why?: string } {
   try {
     if (!g.atoms.length) return { why: "empty" };
+    g = foldHydrogens(g);
     // Fragments: one structure, or a salt.
     const adj = g.atoms.map(() => [] as number[]);
     for (const b of g.bonds) { adj[b.a].push(b.b); adj[b.b].push(b.a); }
