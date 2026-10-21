@@ -190,3 +190,10 @@ run("spiro", [
   "3',4'-dihydro-2'H-spiro[piperidine-4,1'-naphthalene]", "2',3'-dihydrospiro[cyclohexane-1,1'-inden]-4-one", "4-methylspiro[cyclohexane-1,1'-indene]",
   "spirostane", "1'H-spiro[cyclohexane-1,2'-naphthalene]",
 ]);
+// Rings of nine members or more (two fusion bonds at most, as OPSIN numbers them): [n]annulenes and replacement
+// names (benzo crown ethers).
+run("large rings", [
+  "6,7,9,10,17,18,20,21-octahydrodibenzo[b,k][1,4,7,10,13,16]hexaoxacyclooctadecine", "2,3,5,6,8,9,11,12-octahydro-1,4,7,10,13-benzopentaoxacyclopentadecine",
+  "benzo[18]annulene", "cyclododeca[b]pyridine", "benzo[10]annulene", "6,7,8,9,10,11-hexahydro-5H-benzo[9]annulene",
+  "2,3,5,6,8,9,11,12,14,15-decahydro-1,4,7,10,13,16-benzohexaoxacyclooctadecine",
+]);

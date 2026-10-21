@@ -115,7 +115,14 @@ function shapes(size: number, fused: boolean[]): (number | null)[][] {
   else if (size === 4) list = [[0, 90, 180, 270]];
   else if (size === 3) list = [[0, 120, 240]];
   else if (size === 8) list = [[0, 60, 90, 120, 180, 240, 270, 300]];
-  else throw new Error("fused ring size");
+  else if (size >= 9 && fused.filter(Boolean).length <= 2) {
+    // Larger rings, drawn as OPSIN draws them (an octagon stretched; directions counted from the entry bond); it
+    // numbers them only with two fusion bonds at most.
+    const angle: Record<number, number> = { 0: 0, 1: 60, 2: 90, 3: 120, 4: 180, [-3]: 240, [-2]: 270, [-1]: 300 }, half = Math.floor(size / 2);
+    const dir = (d: number) => (d === 1 ? -3 : d === size - 1 ? 3 : size % 2 === 0 ? (Math.abs(d - half) > 2 ? -2 * Math.sign(d - half) : d - half)
+      : d === half || d === half + 1 ? 0 : d < half ? -2 : 2);
+    list = [Array.from({ length: size }, (_, d) => (d ? (angle[dir(d)] + 180) % 360 : 0))];
+  } else throw new Error("fused ring size");
   list = list.filter((s) => s.every((o, k) => o !== null || !fused[k]));
   // Shapes that put the fusion bonds the same way are one shape.
   const seen = new Set<string>();
@@ -440,6 +447,10 @@ const HW_ORDER = ["O", "S", "Se", "Te", "N", "P", "As", "Sb", "Bi", "Si", "Ge", 
 const HW_PREFIX: Record<string, string> = { O: "oxa", S: "thia", Se: "selena", Te: "tellura", N: "aza", P: "phospha", As: "arsa", Sb: "stiba",
   Bi: "bisma", Si: "sila", Ge: "germa", Sn: "stanna", Pb: "plumba", B: "bora", Hg: "mercura" };
 const MULT = ["", "", "di", "tri", "tetra", "penta"];
+const BIGMULT = ["", "", "di", "tri", "tetra", "penta", "hexa", "hepta", "octa", "nona", "deca"];
+// Stems of rings of nine members or more, for [n]annulene, cyclonona and replacement names.
+const BIG = ["", "", "", "", "", "", "", "", "", "non", "dec", "undec", "dodec", "tridec", "tetradec", "pentadec", "hexadec", "heptadec", "octadec",
+  "nonadec", "icos", "henicos", "docos", "tricos", "tetracos"];
 const MONO: Record<string, [string, string]> = {
   "6:": ["benzene", "benzo"], "6:N1": ["pyridine", "pyrido"], "6:N1,N2": ["pyridazine", "pyridazino"], "6:N1,N3": ["pyrimidine", "pyrimido"],
   "6:N1,N4": ["pyrazine", "pyrazino"], "6:O1": ["pyran", "pyrano"], "6:S1": ["thiopyran", "thiopyrano"], "6:Se1": ["selenopyran", "selenopyrano"], "6:Te1": ["telluropyran", "telluropyrano"],
@@ -473,7 +484,14 @@ function monocycle(els: string[]): { name: string; prefix: string; stem: string;
   // Six-membered rings end -inine when the last heteroatom cited is B, P, As or Sb (P-22.2.2.1.4).
   const six = ["B", "P", "As", "Sb"].includes(hetero[hetero.length - 1]?.[0]) ? "inine" : "ine";
   const stems = ["", "", "", hetero.some(([e]) => e === "N") ? "irine" : "irene", "ete", "ole", six, "epine", "ocine", "onine", "ecine"];
-  if (!hetero.length || !stems[n]) return undefined;
+  if (!hetero.length) return BIG[n] ? { name: `[${n}]annulene`, prefix: `cyclo${BIG[n]}a`, stem: `[${n}]annulene`, nums } : undefined;
+  if (!stems[n]) {
+    // Rings of more than ten members: replacement names (P-31.1.4.2.4): [1,4,7,10,13,16]hexaoxacyclooctadecine.
+    if (!BIG[n]) return undefined;
+    const locs = `[${hetero.map(([, k]) => k).join(",")}]`;
+    const stem = HW_ORDER.filter((e) => hetero.some(([x]) => x === e)).map((e) => BIGMULT[hetero.filter(([x]) => x === e).length] + HW_PREFIX[e]).join("") + `cyclo${BIG[n]}ine`;
+    return { name: locs + stem, prefix: locs + stem.replace(/e$/, "o"), stem, nums };
+  }
   const unique = hetero.length >= n - 1 && new Set(hetero.map(([e]) => e)).size === 1;
   const locs = hetero.length > 1 && !unique ? `[${hetero.map(([, k]) => k).join(",")}]` : "";
   const stem = (HW_ORDER.filter((e) => hetero.some(([x]) => x === e)).map((e) => MULT[hetero.filter(([x]) => x === e).length] + HW_PREFIX[e]).join("") + stems[n]).replace(/a(?=[aeiou])/g, "");
