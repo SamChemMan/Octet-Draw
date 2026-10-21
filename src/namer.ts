@@ -482,7 +482,10 @@ class Namer {
     for (const a of atoms) {
       const doubles = ring(a).filter((j) => this.ord(a, j) === 2).length;
       if (doubles > 1 || ring(a).some((j) => this.ord(a, j) === 3)) throw new Error("ring bonds");
-      if (this.adj[a].some((j) => !sys.has(j) && this.ord(a, j) > 1 && j !== this.carbonylO[a])) throw new Error("exocyclic double bond");
+      // A ring carbon may also carry =C or =N (an ylidene, 5H-dibenzo[a,d][7]annulen-5-ylidene): it has no ring double
+      // bond, so indicated hydrogen or hydro prefixes cover it.
+      const ylidene = (j: number) => this.el[a] === "C" && this.ord(a, j) === 2 && (this.el[j] === "C" || this.el[j] === "N");
+      if (this.adj[a].some((j) => !sys.has(j) && this.ord(a, j) > 1 && j !== this.carbonylO[a] && !ylidene(j))) throw new Error("exocyclic double bond");
       if (DOUBLE_IN_RING.has(this.el[a]) || (this.q[a] > 0 && ["O", "S", "Se", "Te"].includes(this.el[a]))) { cn.push(a); if (!doubles) d.push(a); }
       else if (doubles) throw new Error("ring heteroatom double bond");
     }
