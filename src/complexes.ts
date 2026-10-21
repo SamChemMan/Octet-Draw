@@ -801,13 +801,22 @@ const nameOfForm = (form: string, charge: number) => (charge < 0 ? form.replace(
 
 // ——— Names of complexes ———
 // A term of a complex's name: a ligand, how many, bridging or not, and its κ.
-type Term = { form: string; sort?: string; lex: boolean; mu: boolean; kappa: string; count: number }; // sort: the name without κ in its parts
-// Ligands with names of their own go without enclosing marks, with di, tri (IR-9.2.2.2); a bridging one as
-// di-μ-chlorido- (IR-9.2.5.2). Every other ligand goes in enclosing marks, with bis, tris (IR-9.2.2.3).
+// sort: the name without κ in its parts. simple: an anion's name of one word (acetato).
+type Term = { form: string; sort?: string; lex: boolean; simple?: boolean; mu: boolean; kappa: string; count: number };
+// Ligands with names of their own, and simple anion names, go without enclosing marks, with di, tri (IR-9.2.2.2):
+// dichlorido, diacetato; a bridging one as di-μ-chlorido- (IR-9.2.5.2). Every other ligand goes in enclosing marks,
+// with bis, tris: names with locants, prefixes or κ, and neutral ones (dipyridine would read as a ring assembly).
 const termText = (t: Term) => {
+  if (t.simple) return `${t.count > 1 ? MULT[t.count] : ""}${t.form}`;
   if (t.lex && !t.kappa) return t.mu ? `${t.count > 1 ? `${MULT[t.count]}-` : ""}μ-${t.form}-` : `${t.count > 1 ? MULT[t.count] : ""}${t.form}`;
   return `${t.count > 1 ? MULTK[t.count] : ""}${enclose(`${t.mu ? "μ-" : ""}${t.form}${t.kappa ? `-${t.kappa}` : ""}`)}`;
 };
+// A simple anion name: one word of letters, one component, ending in ato, ido or ito, and not starting as a
+// multiplying prefix does (octanoato stays enclosed: dioctanoato, not octa-noato).
+const MULT_START = new RegExp(`^(?:${[...MULT.slice(2), ...MULTK.slice(2)].join("|")})`);
+const simpleName = (form: string) => /^[a-z]+(?:ato|ido|ito)$/.test(form) && !MULT_START.test(form) && !LEX_FORMS.has(form) && starts(form).length === 1;
+// Whether a ligand on one metal, cited without κ, takes its name as a simple word.
+const simpleTerm = (lig: Ligand, form: string, kappa: string) => !lig.lex && !lig.carbon && lig.charge < 0 && !kappa && simpleName(form);
 // Alike ligands counted, in alphabetical order (IR-9.2.2.1): by name, multiplying prefixes and μ aside, a bridging
 // ligand before the same ligand not bridging (IR-9.2.5.2).
 function termsOf(list: Omit<Term, "count">[]): Term[] {
@@ -844,7 +853,8 @@ function mononuclear(c: Context): string | undefined {
   for (const [k, lig] of e.ligands.entries()) {
     const kp = needsKappa(g, lig) ? kappaParts(m, g, lig, named[k], [x], api) : { parts: [""] };
     if (!kp) return undefined;
-    list.push({ form: kp.form ?? named[k].form, sort: named[k].form, lex: !!lig.lex, mu: false, kappa: kp.parts[0] ?? "" });
+    const form = kp.form ?? named[k].form, kappa = kp.parts[0] ?? "";
+    list.push({ form, sort: named[k].form, lex: !!lig.lex, simple: !kp.form && simpleTerm(lig, form, kappa), mu: false, kappa });
   }
   for (let h = 0; h < e.hydrides; h++) list.push({ form: LEX.H.form, lex: true, mu: false, kappa: "" });
   const tail = suffix(g, e);
@@ -893,7 +903,8 @@ function dinuclear(c: Context): string | undefined {
       if (!mu && lig.bonds[0].metal !== a) continue;
       const kp = needsKappa(g, lig) ? kappaParts(m, g, lig, named[k], mu ? [a, b] : [a], api) : { parts: [] };
       if (!kp) return undefined;
-      (mu ? list : unit).push({ form: kp.form ?? named[k].form, sort: named[k].form, lex: !!lig.lex, mu, kappa: kp.parts.filter(Boolean).join(":") });
+      const form = kp.form ?? named[k].form, kappa = kp.parts.filter(Boolean).join(":");
+      (mu ? list : unit).push({ form, sort: named[k].form, lex: !!lig.lex, simple: !mu && !kp.form && simpleTerm(lig, form, kappa), mu, kappa });
     }
     for (let h = 0; h < g.atoms[a].h; h++) unit.push({ form: LEX.H.form, lex: true, mu: false, kappa: "" });
     return termsOf(list).map(termText).join("") + (unit.length ? `bis${enclose(termsOf(unit).map(termText).join("") + metal)}` : `di${metal}`) + tail;
@@ -964,23 +975,27 @@ function closing(s: string, i: number): number {
 }
 // A complex's name as its terms, then the metal (with di, or bis[] round one metal's terms), the metal-metal bond and
 // the charge or oxidation number.
-function parseEntity(w: string, depth = 0): { terms: PTerm[]; central: PCentral } | undefined {
-  const terms: PTerm[] = [];
-  for (let p = 0, guard = 0; guard < 100; guard++) {
-    const rest = w.slice(p), central = parseCentral(rest, depth);
-    if (central) return { terms, central };
-    let x: RegExpExecArray | null;
-    if ((x = MU_RE.exec(rest))) { terms.push({ count: x[1] ? MULT.indexOf(x[1]) : 1, mu: true, lex: LEX_FORMS.get(x[2]) }); p += x[0].length; continue; }
-    if ((x = LEX_RE.exec(rest))) { terms.push({ count: x[1] ? MULT.indexOf(x[1]) : 1, mu: false, lex: LEX_FORMS.get(x[2]) }); p += x[0].length; continue; }
-    if ((x = ENC_RE.exec(rest))) {
-      const start = p + x[0].length, end = closing(w, start);
-      if (end < 0) return undefined;
-      const inner = w.slice(start + 1, end), mu = inner.startsWith("μ-");
-      terms.push({ count: x[1] ? MULTK.indexOf(x[1]) : 1, mu, inner: mu ? inner.slice(2) : inner });
-      p = end + 1;
-      continue;
-    }
-    return undefined;
+// A simple anion name has no mark to end it (diacetatobis(...)), so each place it could end is tried in turn.
+function parseEntity(w: string, depth = 0, budget = { calls: 0 }): { terms: PTerm[]; central: PCentral } | undefined {
+  if (++budget.calls > 400 || w.length > MOST_NAME) return undefined;
+  const central = parseCentral(w, depth);
+  if (central) return { terms: [], central };
+  const then = (t: PTerm, n: number) => { const r = parseEntity(w.slice(n), depth, budget); return r && { terms: [t, ...r.terms], central: r.central }; };
+  let x: RegExpExecArray | null;
+  if ((x = MU_RE.exec(w))) return then({ count: x[1] ? MULT.indexOf(x[1]) : 1, mu: true, lex: LEX_FORMS.get(x[2]) }, x[0].length);
+  if ((x = LEX_RE.exec(w))) { const r = then({ count: x[1] ? MULT.indexOf(x[1]) : 1, mu: false, lex: LEX_FORMS.get(x[2]) }, x[0].length); if (r) return r; }
+  if ((x = ENC_RE.exec(w))) {
+    const start = x[0].length, end = closing(w, start);
+    if (end < 0) return undefined;
+    const inner = w.slice(start + 1, end), mu = inner.startsWith("μ-");
+    return then({ count: x[1] ? MULTK.indexOf(x[1]) : 1, mu, inner: mu ? inner.slice(2) : inner }, end + 1);
+  }
+  const mult = new RegExp(`^(${MULTS})?`).exec(w)!, from = mult[0].length;
+  for (const end of w.slice(from).matchAll(/(?:ato|ido|ito)/g)) {
+    const to = from + end.index! + end[0].length, word = w.slice(from, to);
+    if (!/^[a-z]+$/.test(word) || !simpleName(word)) continue;
+    const r = then({ count: mult[1] ? MULT.indexOf(mult[1]) : 1, mu: false, inner: word }, to);
+    if (r) return r;
   }
   return undefined;
 }

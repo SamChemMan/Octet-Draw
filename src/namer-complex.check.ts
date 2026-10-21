@@ -100,8 +100,12 @@ const OTHERS: [string, string, string][] = [
   ["PtCl2(py)2", "Cl[Pt](Cl)(N1=CC=CC=C1)N1=CC=CC=C1", "dichloridobis(pyridine)platinum(II)"],
   // N-bonded nitrite (IR-9.2.4.2: nitrito-κN), drawn N+ and O-.
   ["[Co(NH3)5(NO2)]Cl2", "[O-][N+](=O)[Co+2]([NH3])([NH3])([NH3])([NH3])[NH3].[Cl-].[Cl-]", "pentaammine(nitrito-κN)cobalt(2+) chloride"],
-  // A monodentate carboxylate needs no κ (IR-9.2.4.1).
-  ["Pd(OAc)2(PPh3)2", "CC(=O)O[Pd](OC(C)=O)(P(c1ccccc1)(c1ccccc1)c1ccccc1)P(c1ccccc1)(c1ccccc1)c1ccccc1", "bis(acetato)bis(triphenylphosphane)palladium(II)"],
+  // A monodentate carboxylate needs no κ (IR-9.2.4.1). Acetato is a simple name: di, and no enclosing marks; the
+  // triphenylphosphane has a multiplying prefix of its own, so bis() (IR-9.2.2.2).
+  ["Pd(OAc)2(PPh3)2", "CC(=O)O[Pd](OC(C)=O)(P(c1ccccc1)(c1ccccc1)c1ccccc1)P(c1ccccc1)(c1ccccc1)c1ccccc1", "diacetatobis(triphenylphosphane)palladium(II)"],
+  ["Pd(OAc)Cl(PPh3)2", "CC(=O)O[Pd](Cl)(P(c1ccccc1)(c1ccccc1)c1ccccc1)P(c1ccccc1)(c1ccccc1)c1ccccc1", "acetatochloridobis(triphenylphosphane)palladium(II)"],
+  // Octanoato begins as octa does, so it is enclosed and counted with bis.
+  ["Pd(O2CC7H15)2(PPh3)2", "CCCCCCCC(=O)O[Pd](OC(=O)CCCCCCC)(P(c1ccccc1)(c1ccccc1)c1ccccc1)P(c1ccccc1)(c1ccccc1)c1ccccc1", "bis(octanoato)bis(triphenylphosphane)palladium(II)"],
   // Carboplatin: one O of each carboxylate group, O and O'' with the O atoms numbered along the name (O, O' those of
   // the first group; as the Red Book numbers edta's, IR-9.2.5.2 Example 5).
   ["carboplatin", "[NH3][Pt]1(OC(=O)C2(CCC2)C(=O)O1)[NH3]", "diammine(cyclobutane-1,1-dicarboxylato-κ2O,O'')platinum(II)"],
@@ -180,6 +184,10 @@ const wrong: [string, string[]][] = [
     "bis{2-[4-(4-methoxyphenyl)-6-(pyrimidin-2-yl)pyridin-2-yl-κN1]pyrimidine-κN1}osmium",
     "bis{2-[4-(4-methoxyphenyl)-6-(pyrimidin-2-yl-κN1)pyridin-2-yl]pyrimidine-κN1}osmium",
     "bis{2-[4-(4-methoxyphenyl-κO)-6-(pyrimidin-2-yl-κN1)pyridin-2-yl]pyrimidine-κN1}osmium",
+  ]],
+  ["CC(=O)O[Pd](OC(C)=O)(P(c1ccccc1)(c1ccccc1)c1ccccc1)P(c1ccccc1)(c1ccccc1)c1ccccc1", [
+    "triacetatobis(triphenylphosphane)palladium(II)", "diacetatobis(triphenylphosphane)palladium(0)", "dibenzoatobis(triphenylphosphane)palladium(II)",
+    "diacetatotris(triphenylphosphane)palladium(II)", "acetatobis(triphenylphosphane)palladium(II)",
   ]],
   ["[NH3][Pt]1(OC(=O)C2(CCC2)C(=O)O1)[NH3]", ["diammine(cyclobutane-1,1-dicarboxylato-κ2O,O')platinum(II)", "diammine(cyclobutane-1,1-dicarboxylato-κO)platinum(II)"]],
   [ESP, ["bis[μ-3,3'-(1,3-phenylene)bis(2,2-dimethylpropanoato-κ2O,O')]dirhodium(Rh—Rh)", "bis[μ-3,3'-(1,3-phenylene)bis(2,2-dimethylpropanoato-κO)]dirhodium(Rh—Rh)"]],
