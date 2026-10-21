@@ -117,6 +117,26 @@ run("salts", [
   "1-(chloromethyl)-4-fluoro-1,4-diazoniabicyclo[2.2.2]octane bis(tetrafluoroborate)", "tricalcium bis(phosphate)", "dialuminium tris(sulfate)",
   "smiles:COS(=O)(=O)[O-].COS(=O)(=O)[O-].[Mg+2]", "smiles:[Na+].[Na+].[O-]P(=O)([O-])OC", "diphenyliodanium trifluoromethanesulfonate",
 ]);
+// Every cation with every anion, balanced: a name may be missing (OPSIN reads iron(II) oxide as covalent FeO, so none
+// is given) but never wrong. Multiplying prefixes are where this broke (tricalcium diphosphate, diN,N,N-...).
+{
+  const cations: [string, number][] = [["[Na+]", 1], ["[NH4+]", 1], ["[Mg+2]", 2], ["[Fe+3]", 3], ["[Cu+]", 1], ["[Al+3]", 3], ["[Ag+]", 1], ["C[N+](C)(C)C", 1],
+    ["c1cc[nH+]cc1", 1], ["C[S+](C)C", 1], ["[NH3+]CC(=O)O", 1], ["N#[O+]", 1]];
+  const anions: [string, number][] = [["[Cl-]", 1], ["[Br-]", 1], ["[O-2]", 2], ["[S-2]", 2], ["[H-]", 1], ["[N-3]", 3], ["[NH2-]", 1], ["[C-]#N", 1], ["[O-]S(=O)(=O)[O-]", 2],
+    ["OS(=O)(=O)[O-]", 1], ["[O-]P(=O)([O-])[O-]", 3], ["[O-]C([O-])=O", 2], ["[O-][N+](=O)[O-]", 1], ["[O-][O-]", 2], ["CC([O-])=O", 1], ["CC(=O)[NH-]", 1],
+    ["COS([O-])(=O)=O", 1], ["COP([O-])([O-])=O", 2], ["[O-]P(=O)([O-])OP(=O)([O-])[O-]", 4], ["F[B-](F)(F)F", 1]];
+  const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+  let named = 0, tried = 0;
+  for (const [c, qc] of cations) for (const [a, qa] of anions) {
+    const l = qc * qa / gcd(qc, qa), smiles = [...Array(l / qc).fill(c), ...Array(l / qa).fill(a)].join(".");
+    const name = iupacName(graphOf(molOf(smiles))!), back = name && opsin.parseToSmiles(name);
+    tried++;
+    if (!name) continue;
+    assert.ok(back && convert(back, "inchi") === convert(smiles, "inchi"), `${smiles} -> ${name}, a different structure`);
+    named++;
+  }
+  console.log(`namer-charges.check: salts of every pair ${named}/${tried} named, none wrong`);
+}
 // Two of the same formula unit (two NaCl) have no name that keeps the count, so none is given.
 for (const s of ["[Na+].[Cl-].[Na+].[Cl-]", "[Na+].[Na+].[O-]S(=O)(=O)[O-].[O-]S(=O)(=O)[O-].[Na+].[Na+]", "[K+].[K+].[O-]S(=O)(=O)OC.[O-]S(=O)(=O)OC"])
   assert.equal(iupacName(graphOf(molOf(s))!), undefined, s);

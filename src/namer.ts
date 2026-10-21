@@ -1407,17 +1407,31 @@ function saltName(g: Graph, parts: number[][]): string | undefined {
   };
   const cationNames = cations.map((p) => cationName(g, p)), anionNames = anions.map(anion);
   if (cationNames.includes(undefined) || anionNames.includes(undefined)) return undefined;
-  // OPSIN reads lithium nitride but not trilithium nitride, and magnesium methyl sulfate but not bis(methyl sulfate):
-  // the charges give the ratio.
-  const stock = cationNames.some((n) => /\([IVX]+\)$/.test(n!)) || anionNames.some((n) => n === "nitride" || n === "phosphide" || n!.includes(" "));
   // Repeated formula units (two NaCl) have no name that keeps their count.
   const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
   if (new Set(cationNames).size === 1 && new Set(anionNames).size === 1 && gcd(cations.length, anions.length) > 1) return undefined;
-  // Two phosphates are bis(phosphate): diphosphate is another anion. So are complex and functional class names.
-  const condensed = new Set([...Object.values(ANIONS), ...Object.values(LINKED), "dicarbonate", "disilicate", "diborate"]);
-  const times = (k: number, name: string) => (k < 2 || stock ? name : /[\d([ ]|^(di|tri|tetra|penta|hexa)/.test(name) || condensed.has(MULT[k] + name) ? `${MULT_COMPLEX[k]}(${name})` : MULT[k] + name);
-  const list = (names: string[]) => [...new Set(names)].sort((a, b) => alphaKey(a).localeCompare(alphaKey(b))).map((n) => times(names.filter((x) => x === n).length, n)).join(" ");
-  return `${list(cationNames as string[])} ${list(anionNames as string[])}`;
+  // OPSIN reads a nitride only with Li, Na, K, Be, Mg, Ca or Sr, and an amide only with an s-block metal; an oxide or
+  // sulfide only with a metal that has no Stock number; a hydride or cyanide not with a Stock-numbered metal, silver or
+  // aluminium (it makes them covalent).
+  const metals = cations.map((p) => (p.length === 1 ? g.atoms[p[0]].el : ""));
+  const stockName = cationNames.some((n) => /\([IVX]+\)$/.test(n!));
+  for (const n of anionNames) {
+    if (n === "nitride" && !metals.every((e) => /^(Li|Na|K|Be|Mg|Ca|Sr)$/.test(e))) return undefined;
+    if (n === "amide" && !metals.every((e) => /^(Li|Na|K|Rb|Cs|Fr|Be|Mg|Ca|Sr|Ba|Ra)$/.test(e))) return undefined;
+    if (/^(oxide|sulfide|selenide|telluride)$/.test(n!) && (stockName || !metals.every((e) => CATIONS[e] || metal(e)))) return undefined;
+    if ((n === "hydride" || n === "cyanide") && (stockName || metals.some((e) => e === "Ag" || e === "Al"))) return undefined;
+  }
+  // Multiplying prefixes (IR-5.4): di and tri before a simple ion (sodium, chloride, acetate); bis and tris before
+  // everything else, where di could be read otherwise: oxoanions (diphosphate is another anion), hydrogen anions and
+  // substituted names (dicarboxymethanaminium). None with a Stock number or a nitride, and none before an anion with a
+  // space (magnesium methyl sulfate): OPSIN takes the ratio from the charges there.
+  const bare = stockName || anionNames.includes("nitride"), spaced = anionNames.some((n) => n!.includes(" "));
+  const oxo = new Set([...Object.values(ANIONS), ...Object.values(LINKED), ...Object.values(PEROXY)].filter((n) => /(ate|ite)$/.test(n) && n !== "thiocyanate"));
+  const simple = new Set([...Object.values(ANIONS).filter((n) => !oxo.has(n)), ...Object.values(CATIONS).map((c) => c[0]), "ammonium", "acetate", "formate", "benzoate", "phenolate"]);
+  const plain = (n: string) => simple.has(n) && !/^(di|tri|tetra|penta|hexa|hydrogen)/.test(n);
+  const times = (k: number, name: string, anion: boolean) => (k < 2 || bare || (anion && spaced) ? name : plain(name) ? MULT[k] + name : `${MULT_COMPLEX[k]}(${name})`);
+  const list = (names: string[], anion: boolean) => [...new Set(names)].sort((a, b) => alphaKey(a).localeCompare(alphaKey(b))).map((n) => times(names.filter((x) => x === n).length, n, anion)).join(" ");
+  return `${list(cationNames as string[], false)} ${list(anionNames as string[], true)}`;
 }
 // One part of a salt as a structure of its own.
 function partOf(g: Graph, part: number[]): Graph {
@@ -1521,9 +1535,12 @@ const SPECIES = new Map(([
   ["carbonothioyl dichloride", "C", "=S", "-Cl", "-Cl"], ["carbonyl sulfide", "C", "=O", "=S"], ["carbon monoxide", "C-", "#O+"],
   ["hydrogen cyanide", "CH", "#N"], ["cyanogen chloride", "C", "#N", "-Cl"], ["cyanogen bromide", "C", "#N", "-Br"], ["cyanamide", "C", "#N", "-NH2"],
   ["carbamate", "C", "=O", "-NH2", "-O-"],
+  // Lone anions that OPSIN reads only by their substitutive names (in a salt they are oxide, sulfide, nitride).
+  ["oxidanediide", "O--"], ["sulfanediide", "S--"], ["selanediide", "Se--"], ["tellanediide", "Te--"], ["azanetriide", "N---"],
+  ["dioxidanediide", "O-", "-O-"],
 ] as string[][]).map(([name, centre, ...bonds]) => [`${centre}(${bonds.sort().join(",")})`, name]));
 Object.assign(ANIONS, {
-  "H2N-1": "amide", "N-3": "nitride", "P-3": "phosphide", "O2-2": "peroxide", "HO2-1": "hydroperoxide", "HS-1": "sulfanide", "Se-2": "selenide",
+  "H2N-1": "amide", "N-3": "nitride", "O2-2": "dioxidanediide", "HO2-1": "hydroperoxide", "HS-1": "sulfanide", "Se-2": "selenide",
   "Te-2": "telluride", "ClO3-1": "chlorate", "ClO2-1": "chlorite", "BrO-1": "hypobromite", "BrO2-1": "bromite", "BrO3-1": "bromate",
   "BrO4-1": "perbromate", "IO-1": "hypoiodite", "IO2-1": "iodite", "IO3-1": "iodate", "O3P-3": "phosphite", "H2O2P-1": "phosphinate",
   "O7P2-4": "diphosphate", "O10P3-5": "triphosphate", "O7S2-2": "disulfate", "O8S2-2": "peroxydisulfate", "O4Se-2": "selenate", "O3Se-2": "selenite",
