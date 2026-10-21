@@ -114,8 +114,12 @@ run("salts", [
   "smiles:[Li+].[CH2-]CCC", "smiles:[Mg+2].[Br-].[CH3-]", "tropylium tetrafluoroborate", "triethyloxonium tetrafluoroborate",
   "smiles:C=[N+](C)C.[I-]", "smiles:ClC=[N+](C)C.[Cl-]", "pyridinium p-toluenesulfonate", "smiles:[Pd+2].CC(=O)[O-].CC(=O)[O-]",
   "sodium dodecyl sulfate", "smiles:OCCOS(=O)(=O)[O-].[Na+]", "smiles:CC(C)OC(=O)[O-].[K+]", "sodium hydrogen butanedioate",
-  "1-(chloromethyl)-4-fluoro-1,4-diazoniabicyclo[2.2.2]octane bis(tetrafluoroborate)",
+  "1-(chloromethyl)-4-fluoro-1,4-diazoniabicyclo[2.2.2]octane bis(tetrafluoroborate)", "tricalcium bis(phosphate)", "dialuminium tris(sulfate)",
+  "smiles:COS(=O)(=O)[O-].COS(=O)(=O)[O-].[Mg+2]", "smiles:[Na+].[Na+].[O-]P(=O)([O-])OC", "diphenyliodanium trifluoromethanesulfonate",
 ]);
+// Two of the same formula unit (two NaCl) have no name that keeps the count, so none is given.
+for (const s of ["[Na+].[Cl-].[Na+].[Cl-]", "[Na+].[Na+].[O-]S(=O)(=O)[O-].[O-]S(=O)(=O)[O-].[Na+].[Na+]", "[K+].[K+].[O-]S(=O)(=O)OC.[O-]S(=O)(=O)OC"])
+  assert.equal(iupacName(graphOf(molOf(s))!), undefined, s);
 // Halogen and OH on a ring N (Octet's reagent list): NBS, NCS, NIS, NHS, N-hydroxyphthalimide; and an azonia ring.
 run("ring N groups", [
   "1-bromopyrrolidine-2,5-dione", "1-chloropyrrolidine-2,5-dione", "1-iodopyrrolidine-2,5-dione", "1-hydroxypyrrolidine-2,5-dione",

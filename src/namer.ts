@@ -477,7 +477,8 @@ class Namer {
             for (const j of [x, i, ...os]) this.sulfur.add(j);
           }
         }
-        if (!this.ions.has(i) && (el[x] === "S" || el[x] === "P" || el[x] === "C") && !q[x] && !this.inRing[x] && this.esterIon?.x !== x) {
+        // One ester anion per structure: a second one's O- is left unnamed.
+        if (!this.ions.has(i) && (el[x] === "S" || el[x] === "P" || el[x] === "C") && !q[x] && !this.inRing[x] && !this.esterIon) {
           // Ester anions of inorganic acids (functional class names, IR-8): dodecyl sulfate, methyl hydrogen phosphate,
           // dimethyl phosphate, methyl carbonate. The rest of x's atoms are =O, O-, OH and O-R.
           const of = (f: (o: number) => boolean) => adj[x].filter((o) => o !== i && f(o));
@@ -1406,9 +1407,15 @@ function saltName(g: Graph, parts: number[][]): string | undefined {
   };
   const cationNames = cations.map((p) => cationName(g, p)), anionNames = anions.map(anion);
   if (cationNames.includes(undefined) || anionNames.includes(undefined)) return undefined;
-  // OPSIN reads lithium nitride but not trilithium nitride.
-  const stock = cationNames.some((n) => /\([IVX]+\)$/.test(n!)) || anionNames.some((n) => n === "nitride" || n === "phosphide");
-  const times = (k: number, name: string) => (k < 2 || stock ? name : /[\d([]|^(di|tri|tetra|penta|hexa)/.test(name) ? `${MULT_COMPLEX[k]}(${name})` : MULT[k] + name);
+  // OPSIN reads lithium nitride but not trilithium nitride, and magnesium methyl sulfate but not bis(methyl sulfate):
+  // the charges give the ratio.
+  const stock = cationNames.some((n) => /\([IVX]+\)$/.test(n!)) || anionNames.some((n) => n === "nitride" || n === "phosphide" || n!.includes(" "));
+  // Repeated formula units (two NaCl) have no name that keeps their count.
+  const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+  if (new Set(cationNames).size === 1 && new Set(anionNames).size === 1 && gcd(cations.length, anions.length) > 1) return undefined;
+  // Two phosphates are bis(phosphate): diphosphate is another anion. So are complex and functional class names.
+  const condensed = new Set([...Object.values(ANIONS), ...Object.values(LINKED), "dicarbonate", "disilicate", "diborate"]);
+  const times = (k: number, name: string) => (k < 2 || stock ? name : /[\d([ ]|^(di|tri|tetra|penta|hexa)/.test(name) || condensed.has(MULT[k] + name) ? `${MULT_COMPLEX[k]}(${name})` : MULT[k] + name);
   const list = (names: string[]) => [...new Set(names)].sort((a, b) => alphaKey(a).localeCompare(alphaKey(b))).map((n) => times(names.filter((x) => x === n).length, n)).join(" ");
   return `${list(cationNames as string[])} ${list(anionNames as string[])}`;
 }
