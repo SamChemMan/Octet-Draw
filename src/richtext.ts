@@ -61,6 +61,16 @@ export const whole = <T extends { text: string; runs?: TextRun[] }>(c: T): T & R
 export const without = (runs: TextRun[], keys: string[]): TextRun[] =>
   normalise(runs.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !keys.includes(k))) as TextRun));
 
+// A caption's colour when its text is closed: a colour every character has (its run's own, else the caption's)
+// becomes the caption's own colour (none for the document's ink), and the runs lose it, as the CDXML reader does with
+// a colour all the <s> runs share. Other colours stay on their runs. runs: none when nothing else is styled.
+export function shareColour(runs: TextRun[] | undefined, own: string | undefined, ink: string): { colour?: string; runs?: TextRun[] } {
+  const all = (runs ?? []).filter((r) => r.text).map((r) => r.colour ?? own ?? ink);
+  if (!runs || !all.length || all.some((c) => c.toLowerCase() !== all[0].toLowerCase())) return { colour: own, runs };
+  const rest = without(runs, ["colour"]);
+  return { colour: all[0].toLowerCase() === ink.toLowerCase() ? undefined : all[0], runs: styled(rest) ? rest : undefined };
+}
+
 // The runs after the text was typed to `next`: what changed is found by the longest common start and end, and
 // new characters take `pending` (a style set with nothing selected) or the style of the character before them.
 export function edited(runs: TextRun[], next: string, pending?: RunStyle): TextRun[] {
