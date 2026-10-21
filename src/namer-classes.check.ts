@@ -96,3 +96,22 @@ check("esters", [
   "methyl 4-(acetyloxy)benzoate", "4-methoxy-4-oxobutanoic acid", "2-(acetyloxy)ethyl propanoate", "methyl [(tert-butoxycarbonyl)amino]acetate",
   "methyl (1R,2R,3S,5S)-3-(benzoyloxy)-8-methyl-8-azabicyclo[3.2.1]octane-2-carboxylate", ["methyl 3,4-diacetoxybenzoate", "methyl 3,4-bis(acetyloxy)benzoate"],
 ]);
+
+// Carbonic acid and its derivatives (P-65.2.1, P-65.5.1, P-66.1.6), as the compound and as prefixes; imides
+// (P-66.2.1.1) as N-acyl amides.
+check("carbonic", [
+  "carbonic acid", "carbamic acid", ["phenylcarbamic acid", "N-phenylcarbamic acid"], "N,N-dimethylcarbamic acid", "carbonochloridic acid",
+  "dimethyl carbonate", "ethyl methyl carbonate", "diphenyl carbonate", ["triphosgene", "bis(trichloromethyl) carbonate"], "methyl hydrogen carbonate",
+  "ethyl carbonochloridate", ["diphosgene", "trichloromethyl carbonochloridate"], ["phosgene", "carbonyl dichloride"], "carbonyl difluoride",
+  "carbamoyl chloride", ["dimethylcarbamoyl chloride", "N,N-dimethylcarbamoyl chloride"], "di-tert-butyl dicarbonate", "dicarbonic acid",
+  "N-cyclohexyl-N'-phenylurea", ["biuret", "N-carbamoylurea"], ["triuret", "N,N'-dicarbamoylurea"], ["allophanic acid", "N-carbamoylcarbamic acid"],
+  ["smiles:CCCC(C)(COC(N)=O)COC(N)=O", "2-methyl-2-propylpropane-1,3-diyl dicarbamate"], ["smiles:CNC(=O)Oc1cccc2ccccc12", "naphthalen-1-yl N-methylcarbamate"],
+  ["smiles:CC(C)(C)OC(=O)NCCNC(=O)OC(C)(C)C", "tert-butyl N-{2-[(tert-butoxycarbonyl)amino]ethyl}carbamate"],
+  ["smiles:ClC(=O)OCC1c2ccccc2-c2ccccc12", "(9H-fluoren-9-yl)methyl carbonochloridate"],
+  ["smiles:CC(C)(C)OC(=O)N1CCC(CC1)C(=O)O", "1-(tert-butoxycarbonyl)piperidine-4-carboxylic acid"],
+  ["citrulline", "(2S)-2-amino-5-(carbamoylamino)pentanoic acid"], ["isatoic acid", "2-(carboxyamino)benzoic acid"], "(carbamoylamino)acetic acid",
+  "4-[(methoxycarbonyl)oxy]benzoic acid", "4-[(dimethylcarbamoyl)oxy]benzoic acid", "4-(chlorocarbonyl)benzoic acid", "4-chloro-4-oxobutanoic acid",
+  "4-[(chlorocarbonyl)amino]benzoic acid", ["oxaluric acid", "(carbamoylamino)(oxo)acetic acid"],
+  "N-acetylacetamide", "N,N-diacetylacetamide", "N-benzoylbenzamide", ["N-acetylurea", "N-carbamoylacetamide"], ["tert-butyl acetylcarbamate", "tert-butyl N-acetylcarbamate"],
+  "4-(diacetylamino)benzoic acid", "4-[acetyl(methyl)amino]benzoic acid",
+]);
