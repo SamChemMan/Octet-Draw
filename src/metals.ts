@@ -28,6 +28,7 @@ export type MetalApi = {
   cation: (el: string) => [string, number] | undefined; // a metal ion of one usual charge
   assemblePrefixes: (list: { loc: string; name: Name }[], noLocants: boolean) => string;
   alphaKey: (t: string) => string;
+  enclose: (n: Name) => string; // a name in brackets of the right level (P-16.5.4)
 };
 
 // Element names (IR-3.1), for metals here and for lone atoms and ions in namer.ts.
@@ -166,7 +167,6 @@ class Shape {
   }
 }
 const key = (a: number, b: number) => (a < b ? `${a} ${b}` : `${b} ${a}`);
-const enclose = (n: Name) => (!n.compound ? n.text : n.text.includes("[") ? `{${n.text}}` : n.text.includes("(") ? `[${n.text}]` : `(${n.text})`);
 const compare = (a: number[], b: number[]): number => {
   for (let i = 0; i < Math.max(a.length, b.length); i++) {
     if (a[i] === undefined) return -1;
@@ -417,8 +417,8 @@ function additive(s: Shape, m: number, api: MetalApi): string {
   // After the first ligand, each goes in brackets unless its multiplying prefix brings them: bromo(methyl)magnesium,
   // chloro(trimethyl)titanium, dichlorobis(cyclopenta-2,4-dien-1-yl)titanium.
   const parts = sorted.map(({ name, n }, k) => {
-    const t = n > 1 ? (name.compound ? MULT_COMPLEX[n] + enclose(name) : MULT[n] + name.text) : enclose(name);
-    return k === 0 || /^[([{]|^(bis|tris|tetrakis|pentakis|hexakis|heptakis|octakis)[([{]/.test(t) ? t : `(${t})`;
+    const t = n > 1 ? (name.compound ? MULT_COMPLEX[n] + api.enclose(name) : MULT[n] + name.text) : api.enclose(name);
+    return k === 0 || /^[([{]|^(bis|tris|tetrakis|pentakis|hexakis|heptakis|octakis)[([{]/.test(t) ? t : api.enclose({ text: t, compound: true });
   });
   return parts.join("") + ELEMENTS.get(g.atoms[m].el)!;
 }

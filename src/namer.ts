@@ -1641,12 +1641,12 @@ class Namer {
     const c = this.adj[x].find((j) => j !== from)!;
     if (this.diimine.has(c)) {
       const e = enclose(this.iminoPrefix(this.adj[c].find((j) => j !== x)!, c));
-      return { text: e.startsWith("(") ? `[${e}methylidene]amino` : `(${e}methylidene)amino`, compound: true };
+      return { text: `${enclose({ text: `${e}methylidene`, compound: true })}amino`, compound: true };
     }
     if (this.group[c] !== "guanidine") return undefined;
     if (this.ord(x, c) === 1) return plain(c) ? { text: "carbamimidamido", compound: false } : undefined;
     const subs = this.adj[c].filter((j) => j !== x).map((j) => this.substituent(j, c));
-    return { text: `(${substituted(subs)}methylidene)amino`, compound: true };
+    return { text: `${enclose({ text: `${substituted(subs)}methylidene`, compound: true })}amino`, compound: true };
   }
   // A carbon joined to the parent by a double bond (P-29.2, P-31.1.4.3.4): its substituent group with -ylidene for
   // -yl, the free valence at the lowest locant: methylidene, propan-2-ylidene, cyclohexylidene, (oxolan-3-ylidene).
@@ -2295,12 +2295,24 @@ function times(k: number, n: Name): string {
   if (k < 2) return n.text;
   return n.compound ? MULT_COMPLEX[k] + enclose(n) : MULT[k] + (/^(tert|sec)-/.test(n.text) ? "-" : "") + n.text;
 }
-// Brackets nest ( ), then [ ], then { } (P-16.5).
-// Brackets of fusion names ([1,2,4]triazolo[4,3-a]pyridine) do not count (P-16.5.4).
+// Enclosing marks nest ( ), [ ], { }, then ( ) again (P-16.5.4): {[({[( )]})]}. A name goes in the mark one level
+// above the deepest marks it holds: ({[(9H-fluoren-9-yl)methoxy]carbonyl}amino). The marks of fusion, von Baeyer,
+// spiro and ring assembly names and of added hydrogen do not count (P-16.5.4.1.1, P-16.5.4.1.2):
+// (dibenzo[b,d]furan-1-yl), (bicyclo[2.2.1]heptan-2-yl), ([1,1'-biphenyl]-4-yl), (quinolin-1(2H)-yl). Stereo,
+// isotope and compound-locant marks count (P-16.5.4.1.3). A mark next to one of its own level takes the next level
+// (P-16.5.4.1.5): [(2S)-2-{…}propanoyl], not ((2S)-2-{…}propanoyl).
+const OPEN = "([{", CLOSE = ")]}";
 function enclose(n: Name): string {
   if (!n.compound) return n.text;
-  const t = n.text.replace(/\[(?:[\d',:]+(?:-[a-z]{1,4})?|[a-z]{1,4}(?:,[a-z]{1,4})*|[\d',:-]+[a-z]{1,4}(?:[,:][\d',-]*[a-z]{1,4})*)\]/g, "");
-  return t.includes("[") ? `{${n.text}}` : t.includes("(") ? `[${n.text}]` : `(${n.text})`;
+  const t = n.text
+    .replace(/\[(?:[\d',:]+(?:-[a-z]{1,4})?|[a-z]{1,4}(?:,[a-z]{1,4})*|[\d',:-]+[a-z]{1,4}(?:[,:][\d',-]*[a-z]{1,4})*)\]/g, "") // fusion
+    .replace(/(?<=cyclo|spiro)\[[\d.,⁰¹²³⁴⁵⁶⁷⁸⁹]+\]/g, "") // von Baeyer and spiro
+    .replace(/\[(\d[\d',:]*-(?:bi|ter|quater)[^[\]]*)\]/g, "$1") // ring assembly
+    .replace(/(?<=\d[a-z]?'*)\(\d+[a-z]?'*H(?:,\d+[a-z]?'*H)*\)/g, ""); // added hydrogen
+  let depth = 0, level = 0;
+  for (const ch of t) if (OPEN.includes(ch)) level = Math.max(level, ++depth); else if (CLOSE.includes(ch)) depth--;
+  while (t[0] === OPEN[level % 3] || t[t.length - 1] === CLOSE[level % 3]) level++;
+  return OPEN[level % 3] + n.text + CLOSE[level % 3];
 }
 // Prefixes: grouped by name, multiplied (di, tri; bis, tris for compound names), ordered alphabetically.
 function assemblePrefixes(list: { loc: string; name: Name }[], noLocants: boolean): string {
@@ -2321,7 +2333,7 @@ function assemblePrefixes(list: { loc: string; name: Name }[], noLocants: boolea
   // No hyphen before a bracket: phenyl(pyrrolidin-1-yl)methanone. Without locants, each prefix after the first is in
   // brackets (P-16.5.1): trichloro(fluoro)methane, (carbamoylamino)(oxo)acetic acid.
   const bare = (t: string) => !/^N/.test(t); // no N-locant
-  return parts.map((t, k) => (!k || /^[([{]/.test(t) ? t : noLocants && bare(t) && bare(parts[k - 1]) ? `(${t})` : `-${t}`)).join("");
+  return parts.map((t, k) => (!k || /^[([{]/.test(t) ? t : noLocants && bare(t) && bare(parts[k - 1]) ? enclose({ text: t, compound: true }) : `-${t}`)).join("");
 }
 // A fused parent name with its λ-atoms (P-14.1.3): in its heteroatom locants where it starts with them
 // (1λ⁶,2-benzothiazine, 2λ⁴-benzothiophene), else in front (5λ⁴-phenothiazine, 5λ⁴-dibenzo[b,e][1,4]thiarsinine).
@@ -2501,7 +2513,7 @@ const METAL_API: MetalApi = {
     const kind = SENIORITY.find((k) => [...n.bearer.keys()].some((a) => n.group[a] === k));
     return { kind, sites: [...n.bearer].filter(([a]) => n.group[a] === kind).map(([atom, on]) => ({ atom, on })) };
   },
-  anion: anionOf, salt: saltName, cation: (el) => CATIONS[el], assemblePrefixes, alphaKey,
+  anion: anionOf, salt: saltName, cation: (el) => CATIONS[el], assemblePrefixes, alphaKey, enclose,
 };
 
 // ——— Simple species: lone atoms, parent hydrides, inorganic molecules and ions (IUPAC 2005 IR-3, IR-5, IR-6) ———

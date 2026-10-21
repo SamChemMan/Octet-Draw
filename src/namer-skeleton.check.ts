@@ -196,7 +196,8 @@ run("stereo next to triple bonds", [
   "(3R)-3-methyl-3-phenylpent-1-yne = [(3R)-3-methylpent-1-yn-3-yl]benzene",
   "smiles:C[C@]12CC[C@H]3[C@@H](CCc4cc(O)ccc34)[C@@H]1CC[C@@]2(O)C#C", // ethinylestradiol
   "smiles:CC[C@]12CC[C@H]3[C@@H](CCC4=CC(=O)CC[C@H]34)[C@@H]1CC[C@@]2(O)C#C", // levonorgestrel
-  "smiles:C[C@H](CCCC(C)C)[C@H]1CC[C@H]2/C(=C/C=C3/C[C@@H](O)CCC3=C)CCC[C@]12C", // cholecalciferol
+  // cholecalciferol, with the brackets of P-16.5.4.1.5: [(2E)-…], not ((2E)-…)
+  "smiles:C[C@H](CCCC(C)C)[C@H]1CC[C@H]2/C(=C/C=C3/C[C@@H](O)CCC3=C)CCC[C@]12C = (1S,3Z)-3-[(2E)-2-{(1R,3aS,7aR)-7a-methyl-1-[(2R)-6-methylheptan-2-yl]-2,3,3a,4,5,6,7,7a-octahydro-1H-inden-4-ylidene}ethylidene]-4-methylidenecyclohexan-1-ol",
 ]);
 
 // No name rather than a wrong one: OPSIN reads no O- or S-acid of the carbamothioic acids.

@@ -193,11 +193,19 @@ check("hydrazine", [
 check("prefixes", [
   "cyanoacetic acid", "ethyl cyanoacetate", "3-cyanopropanoic acid", "2-cyanoethyl acetate", "2-cyano-2-methylpropanoic acid",
   "ethyl cyanoformate", "2-hydroxy-2-methylpropanenitrile", "3-(2-cyanoethoxy)propanoic acid", "butanedinitrile",
-  ["smiles:OC(=O)CNC(=O)OCC1c2ccccc2-c2ccccc12", "{{[(9H-fluoren-9-yl)methoxy]carbonyl}amino}acetic acid"],
+  ["smiles:OC(=O)CNC(=O)OCC1c2ccccc2-c2ccccc12", "({[(9H-fluoren-9-yl)methoxy]carbonyl}amino)acetic acid"],
   ["smiles:CCN(CC)CC(=O)Nc1c(C)cccc1C", "2-(diethylamino)-N-(2,6-dimethylphenyl)acetamide"], ["smiles:ClCC(=O)NC", "2-chloro-N-methylacetamide"],
   ["smiles:NC(=N)NC(=O)Cc1c(Cl)cccc1Cl", "N-carbamimidoyl-2-(2,6-dichlorophenyl)acetamide"], // guanfacine
   ["N-acetyl-L-cysteine", "(2R)-2-acetamido-3-sulfanylpropanoic acid"], ["hippuric acid", "benzamidoacetic acid"],
   ["thyroxine", "(2S)-2-amino-3-[4-(4-hydroxy-3,5-diiodophenoxy)-3,5-diiodophenyl]propanoic acid"],
+]);
+
+// Enclosing marks nest {[({[( )]})]} (P-16.5.4). Fusion, von Baeyer and ring assembly brackets do not count; a mark
+// next to one of its own level takes the next level (P-16.5.4.1.5).
+check("brackets", [
+  "(3S)-2-[(2S)-2-{[(2S)-1-ethoxy-1-oxo-4-phenylbutan-2-yl]amino}propanoyl]-1,2,3,4-tetrahydroisoquinoline-3-carboxylic acid",
+  "(7,7-dimethyl-2-oxobicyclo[2.2.1]heptan-1-yl)methanesulfonic acid", "N-(dibenzo[b,d]furan-1-yl)acetamide",
+  ["smiles:N#Cc1ccc(cc1)-c1ccc(OCCCCCO)cc1", "4'-[(5-hydroxypentyl)oxy][1,1'-biphenyl]-4-carbonitrile"],
 ]);
 
 // N-cyano guanidines and amidines (cimetidine); acid pseudohalides (P-65.5.3).
