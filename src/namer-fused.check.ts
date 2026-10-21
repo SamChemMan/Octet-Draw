@@ -167,3 +167,16 @@ run("retained whole", [
   "bicyclo[4.2.0]octa-1,3,5-triene", "bicyclo[4.2.0]octa-1,3,5-trien-7-ol", "smiles:C1CC2=C1C=CC=C2", "bicyclo[4.1.0]hepta-1,3,5-triene",
   "adamantane", "adamantan-1-amine", "adamantan-2-one", "3,5-dimethyladamantan-1-amine", "2-azaadamantane", "adamantan-1-yl acetate",
 ]);
+// Bridged fused systems (FR-8, P-25.4): the fused system with the most rings and atoms, bridges named as OPSIN reads
+// them and numbered after it (CAS style: hydro prefixes count the bridgeheads); fused cations.
+run("bridged fused", [
+  "1,2,3,4-tetrahydro-1,4-methanonaphthalene", "1,4-dihydro-1,4-methanonaphthalene", "9,10-dihydro-9,10-ethanoanthracene",
+  "9,10-dihydro-9,10-ethenoanthracene", "1,4-dihydro-1,4-epoxynaphthalene", "3a,4,7,7a-tetrahydro-4,7-methano-1H-indene",
+  "octahydro-1H-4,7-methanoindene", "1,2,3,4,4a,5,6,7,8,8a-decahydro-1,4:5,8-dimethanonaphthalene", "1,2,3,4-tetrahydro-1,4-ethanonaphthalene",
+  "(4R,4aR,7S,7aR,12bS)-3-methyl-2,3,4,4a,7,7a-hexahydro-1H-4,12-methano[1]benzofuro[3,2-e]isoquinoline-7,9-diol",
+  "(4R,4aR,7S,7aR,12bS)-9-methoxy-3-methyl-2,3,4,4a,7,7a-hexahydro-1H-4,12-methano[1]benzofuro[3,2-e]isoquinolin-7-ol",
+  "(4R,4aS,7aR,12bS)-4a-hydroxy-9-methoxy-3-methyl-1,2,3,4,4a,5,6,7a-octahydro-7H-4,12-methano[1]benzofuro[3,2-e]isoquinolin-7-one",
+  "1,2,3,4,4a,9,10,10a-octahydro-10,4a-(epiminoethano)phenanthrene", "aconitane",
+  "6,11-dimethyl-3-(3-methylbut-2-en-1-yl)-1,2,3,4,5,6-hexahydro-2,6-methano-3-benzazocin-8-ol",
+  "quinolizin-5-ium", "indolizin-4-ium", "1-methyl-1H-imidazo[1,2-a]pyridin-4-ium", "pyrido[1,2-a]pyrimidin-5-ium", "2,3-dihydro-1H-pyrrolizin-4-ium",
+]);

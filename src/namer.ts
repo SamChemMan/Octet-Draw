@@ -111,7 +111,7 @@ const FUSED_NAMES: [string, string, string][] = [
 ];
 // Locant order: 4 < 4a < 4b < 5.
 const locOrder = (a: string, b: string) => parseInt(a) - parseInt(b) || (a < b ? -1 : a > b ? 1 : 0);
-type Fused = { name: string; labels: string[]; el: string[]; adj: number[][]; order: number[]; bonds: number; formula: string; odd: boolean; uncited?: number[]; hydrogens?: number };
+type Fused = { name: string; labels: string[]; el: string[]; adj: number[][]; order: number[]; bonds: number; formula: string; odd: boolean; uncited?: number[]; hydrogens?: number; bridges?: string };
 const FUSED: Fused[] = FUSED_NAMES.map(([skeleton, name, hetero]) => skeletonTemplate(SKELETONS[skeleton], name, hetero));
 // Adamantane, a retained von Baeyer name (P-23.7), numbered as tricyclo[3.3.1.1^3,7]decane; any ring atoms (*).
 const ADAMANTANE = { ...skeletonTemplate("1-2 2-3 3-4 4-5 5-6 6-7 7-8 8-1 1-9 9-5 3-10 10-7", "adamantane", ""), el: Array(10).fill("*") };
@@ -491,10 +491,14 @@ class Namer {
       this.fusedCache.set(k, f);
       return f;
     }
-    // Other fused systems: retained names and fusion names (fusion.ts). A fusion N (three ring bonds) has no double
-    // bond in the parent and needs no hydrogen.
-    const p = fusedParent(atoms, (a) => this.el[a], ring), sp2 = (a: number) => this.el[a] === "C" || ring(a).length < 3;
-    const tpl: Fused = { name: p.name, labels: p.labels, el: [], adj: [], order: [], bonds, formula, odd: cn.filter(sp2).length % 2 === 1, uncited: p.uncited, hydrogens: p.hydrogens };
+    // Other fused systems: retained names and fusion names (fusion.ts). A neutral fusion N (three ring bonds) has no
+    // double bond in the parent and needs no hydrogen; a cationic one with a ring double bond has (quinolizin-5-ium).
+    // Bridge atoms (4,7-methanoindene) are named by their bridge and take no hydro prefixes.
+    const p = fusedParent(atoms, (a) => this.el[a], ring, this.ord);
+    // An atom with four bonds in the fused system (morphinans' 12b) has no double bond either.
+    const own = (a: number) => ring(a).filter((b) => !p.bridge?.includes(b)).length;
+    const sp2 = (a: number) => (this.el[a] === "C" || ring(a).length < 3 || ring(a).some((b) => this.ord(a, b) === 2)) && !p.bridge?.includes(a) && own(a) < 4;
+    const tpl: Fused = { name: p.name, labels: p.labels, el: [], adj: [], order: [], bonds, formula, odd: cn.filter(sp2).length % 2 === 1, uncited: p.uncited, hydrogens: p.hydrogens, bridges: p.bridges };
     const f = { tpl, nums: p.nums, cn: cn.filter(sp2), d: d.filter(sp2), ring };
     this.fusedCache.set(k, f);
     return f;
@@ -727,8 +731,9 @@ class Namer {
     else if (fused) {
       // Hydro prefixes, then indicated hydrogen, in front of the parent (P-31.1.4.2.4): 2,3-dihydro-1H-indole.
       const { x, x2, hydro } = sat(num);
-      const h = !hydro.length ? "" : `${hydro.length === fused.cn.length ? "" : hydro.map((a) => label(num, a)).join(",") + "-"}${HYDRO[hydro.length]}hydro`;
-      parent = joinPrefixes(h, [...one(x), ...one(x2)].map((a) => `${label(num, a)}H`).join(",").replace(/.$/, "$&-") + fused.tpl.name);
+      const h = !hydro.length ? "" : `${hydro.length === fused.cn.length && !fused.tpl.bridges ? "" : hydro.map((a) => label(num, a)).join(",") + "-"}${HYDRO[hydro.length]}hydro`;
+      const core = [...one(x), ...one(x2)].map((a) => `${label(num, a)}H`).join(",").replace(/.$/, "$&-") + fused.tpl.name;
+      parent = joinPrefixes(h, fused.tpl.bridges ? joinPrefixes(fused.tpl.bridges, core) : core);
     } else if (assembly) {
       // 1,1'-biphenyl; in brackets before a suffix: [1,1'-biphenyl]-4-carboxylic acid.
       const junction = [...assembly.junction].sort((a, b) => loc(num, a) - loc(num, b)).map((a) => label(num, a)).join(",");

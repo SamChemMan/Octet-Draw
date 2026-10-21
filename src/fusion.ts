@@ -54,7 +54,7 @@ function smallestRings(n: number, adj: number[][]): number[][] {
 // The rings of a fused system. Throws for systems that are not ortho- or ortho- and peri-fused (bridged, spiro).
 export function ringSystem(el: string[], adj: number[][]): RingSystem {
   const n = el.length;
-  if (adj.some((a) => a.length < 2 || a.length > 3)) throw new Error("not ortho-fused");
+  if (adj.some((a) => a.length < 2 || a.length > 4)) throw new Error("not ortho-fused");
   const rings = smallestRings(n, adj);
   if (rings.length < 2) throw new Error("not ortho-fused");
   const ringsOf = new Map<number, number[]>();
@@ -187,8 +187,9 @@ export function numberSystem(sys: RingSystem): Numbering[] {
   const { n, el, adj, rings, across, next } = sys;
   const prev = Array(n).fill(-1);
   next.forEach((b, a) => { if (b >= 0) prev[b] = a; });
-  const fusion = (a: number) => adj[a].length === 3;
-  const interior = [...Array(n).keys()].filter((a) => next[a] < 0);
+  const fusion = (a: number) => adj[a].length >= 3;
+  // Interior atoms, and atoms in three rings with four ring bonds (morphinans' 12b), which OPSIN numbers with them.
+  const interior = [...Array(n).keys()].filter((a) => next[a] < 0 || adj[a].length === 4);
   // Interior atoms follow, from the one next to the highest numbered atom along the interior bonds (CAS).
   const inside = (path: number[]) => {
     const out: number[] = [], at = (a: number) => path.indexOf(a);
@@ -262,7 +263,9 @@ export function numberSystem(sys: RingSystem): Numbering[] {
     const cw = (a: number) => (mirror ? next[a] : prev[a]);
     const path = [cw(v)];
     while (path[path.length - 1] !== v) path.push(cw(path[path.length - 1]));
-    paths.push([...path, ...inside(path)]);
+    if (interior.includes(path[0])) throw new Error("fused ring numbering");
+    const outer = path.filter((a) => !interior.includes(a));
+    paths.push([...outer, ...inside(outer)]);
   }
   // FR-5.4: low locants for heteroatoms together, then by seniority, then for fusion carbon atoms, then fusion
   // heteroatoms.
@@ -787,28 +790,136 @@ const WHOLE: [string, string, string][] = [
 
 // The parent name and numberings of a fused system outside the namer's table, for atoms of a molecule: the name, its
 // locants in order, and each numbering (the molecule's atoms in locant order). `uncited` holds indices whose locants
-// the rules leave open (interior atoms), which a name must not cite.
-export function fusedParent(atoms: number[], el: (a: number) => string, ring: (a: number) => number[]): { name: string; labels: string[]; nums: number[][]; uncited: number[]; hydrogens?: number } {
+// the rules leave open (interior atoms), which a name must not cite; `hydrogens` the parent's indicated hydrogens where
+// fixed. A bridged fused system (FR-8) also gives its bridge prefixes and bridge atoms: indicated hydrogen goes between
+// them and the fused name (4,7-methano-1H-indene), and the bridge atoms take no hydro prefixes.
+type Parent = { name: string; labels: string[]; nums: number[][]; uncited: number[]; hydrogens?: number; bridges?: string; bridge?: number[] };
+export function fusedParent(atoms: number[], el: (a: number) => string, ring: (a: number) => number[], order?: (a: number, b: number) => number): Parent {
   const at = new Map(atoms.map((a, i) => [a, i]));
   const lel = atoms.map(el), ladj = atoms.map((a) => ring(a).map((b) => at.get(b)!));
+  let p: Parent;
+  try { p = whole(lel, ladj) ?? ortho(lel, ladj); } catch (e) {
+    if (!(e instanceof Error) || e.message !== "not ortho-fused" || !order) throw e;
+    p = bridgedFused(lel, ladj, (a, b) => order(atoms[a], atoms[b]));
+  }
+  return { ...p, nums: p.nums.map((n) => n.map((i) => atoms[i])), bridge: p.bridge?.map((i) => atoms[i]) };
+}
+
+// Retained parents named only as a whole (porphyrin).
+function whole(lel: string[], ladj: number[][]): Parent | undefined {
   for (const [name, bonds, hetero] of WHOLE) {
     const pairs = bonds.split(" ").map((b) => b.split("-")), labels = [...new Set(pairs.flat())].sort(locOrder);
-    if (labels.length !== atoms.length) continue;
+    if (labels.length !== lel.length) continue;
     const tel = labels.map((l) => hetero.split(" ").find((h) => h.slice(1) === l)?.[0] ?? "C"), tadj: number[][] = labels.map(() => []);
     for (const [a, b] of pairs) { tadj[labels.indexOf(a)].push(labels.indexOf(b)); tadj[labels.indexOf(b)].push(labels.indexOf(a)); }
     const nums = isomorphisms(tel, tadj, lel.map((_, i) => i), (i) => lel[i], (i) => ladj[i]);
-    if (nums.length) return { name, labels, nums: nums.map((n) => n.map((i) => atoms[i])), uncited: [], hydrogens: 2 };
+    if (nums.length) return { name, labels, nums, uncited: [], hydrogens: 2 };
   }
+  return undefined;
+}
+
+// An ortho- or ortho- and peri-fused system (local atom indices): a retained name with its own numbering, or a fusion
+// name numbered by FR-5. Fusion names need two rings of five or more members (P-25.0); else von Baeyer names.
+function ortho(lel: string[], ladj: number[][]): Parent {
   const sys = ringSystem(lel, ladj);
-  // Fusion names need two rings of five or more members (P-25.0); else von Baeyer names.
   if (sys.rings.filter((r) => r.length >= 5).length < 2) throw new Error("small fused rings");
   const inner = (labels: string[], n: number) => (n > 1 ? labels.map((_, i) => i).slice(labels.length - n) : []);
-  // A retained name for the whole system keeps its own numbering.
   for (const t of retained()) {
-    if (t.el.length !== atoms.length || t.rings !== sys.rings.length) continue;
+    if (t.el.length !== lel.length || t.rings !== sys.rings.length) continue;
     const nums = isomorphisms(t.el, t.adj, lel.map((_, i) => i), (i) => lel[i], (i) => ladj[i]);
-    if (nums.length) return { name: t.name, labels: t.labels, nums: nums.map((n) => n.map((i) => atoms[i])), uncited: inner(t.labels, t.labels.length - t.peri.length) };
+    if (nums.length) return { name: t.name, labels: t.labels, nums, uncited: inner(t.labels, t.labels.length - t.peri.length) };
   }
   const num = numberSystem(sys);
-  return { name: fusionName(sys, num[0]), labels: num[0].labels, nums: num.map((n) => n.path.map((i) => atoms[i])), uncited: inner(num[0].labels, num[0].interior.length) };
+  return { name: fusionName(sys, num[0]), labels: num[0].labels, nums: num.map((n) => n.path), uncited: inner(num[0].labels, num[0].interior.length) };
+}
+
+// Bridges (FR-8, P-25.4.2.1.4) as OPSIN reads them, by their atoms from the bridgehead cited first: alkano bridges by
+// length, and these. Composite names are in parentheses.
+const BRIDGES: Record<string, string> = {
+  "C=C": "etheno", "C=CC": "prop[1]eno", "C=CCC": "but[1]eno", "CC=CC": "but[2]eno", "C=CC=C": "buta[1,3]dieno",
+  O: "epoxy", OO: "epidioxy", S: "epithio", SS: "epidithio", N: "epimino", "N=N": "diazeno",
+  OC: "(epoxymethano)", NCC: "(epiminoethano)", CCNC: "(ethanoiminomethano)", CNCC: "[2]azabutano",
+};
+const ALKANO = ["", "methano", "ethano", "propano", "butano", "pentano", "hexano"];
+
+// A bridged fused system (FR-8): bridges are chains of atoms (each with two ring bonds) between two atoms of an ortho-
+// or peri-fused system. The fused system has the most rings, then the most atoms, then the fewest heteroatoms, then is
+// the senior (FR-8.2 a to d); then the fewest composite bridges, then the lowest bridgehead locants (FR-8.2 e, i).
+// Bridge atoms are numbered after the fused system's highest number, bridge by bridge from the one on the highest
+// numbered bridgehead, each from its end nearer that bridgehead (FR-8.6).
+function bridgedFused(el: string[], adj: number[][], order: (a: number, b: number) => number): Parent {
+  const n = el.length, deg = adj.map((a) => a.length);
+  const chains: { ends: [number, number]; inner: number[] }[] = [], seen = new Set<string>();
+  for (let u = 0; u < n; u++) if (deg[u] > 2) for (const first of adj[u]) {
+    if (deg[first] !== 2) continue;
+    const inner: number[] = [];
+    let prev = u, cur = first;
+    while (deg[cur] === 2 && inner.length <= n) { inner.push(cur); const next = adj[cur].find((x) => x !== prev)!; prev = cur; cur = next; }
+    const k = [...inner].sort((a, b) => a - b).join();
+    if (cur === u || seen.has(k)) continue;
+    seen.add(k);
+    chains.push({ ends: [u, cur], inner });
+  }
+  if (chains.length > 24) throw new Error("bridged fused ring");
+  type Pick = { score: number[]; parent: Parent };
+  let best: Pick | undefined;
+  const subsets = (from: number, m: number): number[][] => (!m ? [[]] : chains.slice(from).flatMap((_, i) => subsets(from + i + 1, m - 1).map((r) => [from + i, ...r])));
+  for (let m = 1; m <= 3 && !best; m++) for (const set of subsets(0, m)) {
+    const gone = new Set(set.flatMap((c) => chains[c].inner)), keep = [...Array(n).keys()].filter((a) => !gone.has(a));
+    const at = new Map(keep.map((a, i) => [a, i]));
+    const fel = keep.map((a) => el[a]), fadj = keep.map((a) => adj[a].filter((b) => at.has(b)).map((b) => at.get(b)!));
+    if (fadj.some((x) => x.length < 2)) continue;
+    let f: Parent;
+    try { f = whole(fel, fadj) ?? ortho(fel, fadj); } catch { continue; }
+    // The bridges: names, and the bridgehead cited first (the one the bridge's first atom is on).
+    const bridges: { name: string; first: number; second: number; atoms: number[]; sym: boolean }[] = [];
+    for (const c of set.map((i) => chains[i])) {
+      const [u, v] = c.ends, path = [u, ...c.inner, v];
+      if (order(u, c.inner[0]) !== 1 || order(c.inner[c.inner.length - 1], v) !== 1) { bridges.length = 0; break; }
+      const text = (p: number[]) => p.slice(1, -1).map((a, i) => (i && order(p[i], a) === 2 ? "=" : "") + el[a]).join("");
+      const named = (t: string) => BRIDGES[t] ?? (/^C+$/.test(t) ? ALKANO[t.length] : undefined);
+      const fwd = named(text(path)), back = named(text([...path].reverse())), sym = text(path) === text([...path].reverse());
+      if (fwd) bridges.push({ name: fwd, first: u, second: v, atoms: c.inner, sym });
+      else if (back) bridges.push({ name: back, first: v, second: u, atoms: [...c.inner].reverse(), sym });
+      else { bridges.length = 0; break; }
+    }
+    // A bridge on an interior atom whose locant the rules leave open cannot be cited.
+    if (!bridges.length || bridges.some((b) => f.nums.some((num) => [b.first, b.second].some((a) => f.uncited.includes(num.indexOf(at.get(a)!)))))) continue;
+    // Numberings of the fused system with the lowest bridgehead locants (FR-8.2 i).
+    const value = (num: number[], a: number) => locValue(f.labels[num.indexOf(at.get(a)!)]);
+    const heads = (num: number[]) => bridges.flatMap((b) => [value(num, b.first), value(num, b.second)]).sort((x, y) => x - y);
+    const low = f.nums.reduce((m, num) => (cmp(heads(num), m) < 0 ? heads(num) : m), heads(f.nums[0]));
+    const nums = f.nums.filter((num) => !cmp(heads(num), low));
+    const sizes = ringSystem(fel, fadj).rings.map((r) => r.length).sort((x, y) => y - x);
+    const keyOf = seniority(f.nums[0].map((i) => fel[i]), f.labels, sizes, f.nums[0].map((i) => fadj[i].length === 3));
+    const score = [-keep.length, keep.filter((a) => el[a] !== "C").length, ...keyOf, bridges.filter((b) => /^\(/.test(b.name)).length, ...low];
+    if (best && cmp(score, best.score) >= 0) continue;
+    // Bridge atom locants (OPSIN's reading of FR-8.6), then the name: bridges in alphabetical order, identical ones
+    // multiplied (1,4:5,8-dimethanonaphthalene).
+    const top = Math.max(...f.labels.filter((l) => /^\d+$/.test(l)).map(Number));
+    const all = nums.map((num) => {
+      const lab = (a: number) => f.labels[num.indexOf(at.get(a)!)];
+      // A symmetric bridge is cited from its lower bridgehead; bridges in alphabetical order, then by locants.
+      const flip = (b: (typeof bridges)[number]) => ({ ...b, first: b.second, second: b.first, atoms: [...b.atoms].reverse() });
+      const alpha = (t: string) => t.replace(/[()[\]\d,]/g, "");
+      const cited = bridges.map((b) => (!b.sym || locValue(lab(b.first)) <= locValue(lab(b.second)) ? b : flip(b)))
+        .sort((x, y) => alpha(x.name).localeCompare(alpha(y.name)) || locValue(lab(x.first)) - locValue(lab(y.first)));
+      const high = (b: (typeof bridges)[number]) => Math.max(parseInt(lab(b.first)), parseInt(lab(b.second)));
+      let next = top;
+      const extra: number[] = [], labels: string[] = [];
+      for (const b of [...cited].sort((x, y) => high(y) - high(x))) {
+        for (const a of parseInt(lab(b.first)) <= parseInt(lab(b.second)) ? [...b.atoms].reverse() : b.atoms) { extra.push(a); labels.push(String(++next)); }
+      }
+      const groups = new Map<string, string[]>();
+      for (const b of cited) groups.set(b.name, [...(groups.get(b.name) ?? []), `${lab(b.first)},${lab(b.second)}`]);
+      const text = [...groups].map(([name, locs]) => `${locs.join(":")}-${locs.length > 1 ? (/^[([]/.test(name) ? ["", "", "bis", "tris"][locs.length] : MULT[locs.length]) : ""}${name}`).join("-");
+      return { order: [...num.map((i) => keep[i]), ...extra], labels: [...f.labels, ...labels], text, key: cited.flatMap((b) => [locValue(lab(b.first)), locValue(lab(b.second))]) };
+    });
+    // The bridges' locants in order of citation as low as possible; the numberings left give the same name.
+    const lowest = all.reduce((m, x) => (cmp(x.key, m) < 0 ? x.key : m), all[0].key), full = all.filter((x) => !cmp(x.key, lowest));
+    if (full.some((x) => x.text !== full[0].text)) continue;
+    best = { score, parent: { name: f.name, labels: full[0].labels, nums: full.map((x) => x.order), uncited: f.uncited, hydrogens: f.hydrogens, bridges: full[0].text, bridge: [...gone] } };
+  }
+  if (!best) throw new Error("not ortho-fused");
+  return best.parent;
 }
