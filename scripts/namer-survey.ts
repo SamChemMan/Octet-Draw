@@ -51,7 +51,8 @@ const molOf = (smiles: string): Mol => {
 };
 const cipOf = (smiles: string) => { const m = parsed(smiles); return { atoms: m.atoms.map((a) => a.cip), bonds: m.bonds.map((b) => b.cip) }; };
 // The hydrogens in the input (Indigo's gross formula). A name that reads back wrong for a structure drawn with a
-// different count (a bare [C], an N with five bonds that loses its H) is not counted: the drawing is not the input.
+// different count from the input's is not counted: the drawing is not the input. withHydrogens() below gives each
+// atom its count, so this is a check on that.
 const hydrogensOf = (smiles: string) => {
   const o = new indigo.MapStringString(), sel = new indigo.VectorInt();
   try { return [...String(JSON.parse(indigo.calculate(smiles, o, sel))["gross-formula"]).matchAll(/\bH(\d*)(?![a-z])/g)].reduce((t, m) => t + Number(m[1] || 1), 0); } finally { o.delete(); sel.delete(); }
@@ -106,6 +107,26 @@ if (corpus) {
   inputs.length = 0;
   inputs.push(...[...found].map((x) => `smiles:${x}`));
 }
+// Each atom's hydrogen count as the SMILES gives it ([N] none, [PH5] five, [SbH] one), and its isotope: Indigo adds
+// the hydrogens as atoms after each fragment's own atoms. molOf alone gives every atom its usual count.
+const withHydrogens = (m: Mol, smiles: string): Mol => {
+  const o = new indigo.MapStringString();
+  o.set("output-content-type", "application/json");
+  o.set("dearomatize-on-load", "true");
+  try {
+    const frags = (ket: { root: { nodes: { $ref: string }[] }; [k: string]: unknown }) => ket.root.nodes.map(({ $ref }) => ket[$ref] as { type: string; atoms: { isotope?: number }[]; bonds: { atoms: [number, number] }[] }).filter((f) => f?.type === "molecule");
+    const before = frags(JSON.parse(JSON.parse(indigo.calculateCip(smiles, "ket", o)).struct));
+    const after = frags(JSON.parse(JSON.parse(indigo.convert_explicit_hydrogens(smiles, "unfold", "ket", o)).struct)), h: number[] = [];
+    if (before.length !== after.length) return m;
+    before.forEach((f, k) => {
+      const own = f.atoms.length, count = f.atoms.map(() => 0);
+      for (const b of after[k].bonds) if (b.atoms[1] >= own) count[b.atoms[0]]++; else if (b.atoms[0] >= own) count[b.atoms[1]]++;
+      h.push(...count);
+    });
+    const isotopes = before.flatMap((f) => f.atoms.map((a) => a.isotope));
+    return h.length === m.atoms.length ? { ...m, atoms: m.atoms.map((a, i) => ({ ...a, implicitHCount: h[i], ...(isotopes[i] ? { isotope: isotopes[i] } : {}) })) } : m;
+  } catch { return m; } finally { o.delete(); }
+};
 const why = new Map<string, string[]>(), wrong: string[] = [], right: string[] = [], otherH: string[] = [];
 let tried = 0, named = 0;
 for (const input of inputs) {
@@ -113,7 +134,7 @@ for (const input of inputs) {
   try { smiles = input.startsWith("smiles:") ? input.slice(7) : opsin.parseToSmiles(input); } catch { smiles = null; }
   if (!smiles || smiles.includes("*")) continue;
   let g;
-  try { g = graphOf(molOf(smiles), cipOf(smiles)); } catch { continue; }
+  try { g = graphOf(withHydrogens(molOf(smiles), smiles), cipOf(smiles)); } catch { continue; }
   if (!g) continue;
   tried++;
   const r = iupacNameWhy(g);

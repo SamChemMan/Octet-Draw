@@ -1,13 +1,12 @@
 // Names for structures with metal atoms (IUPAC 2005 Red Book IR-5, IR-8, IR-9, IR-10; IUPAC 2013 P-69). The namer
-// (namer.ts) calls metalName first and passes in what it needs from the namer, so neither module imports the other.
-// Every name is one OPSIN reads back as the drawn structure, so the forms are those OPSIN reads:
+// (namer.ts) calls metalName first and passes in what it needs from the namer, so this module does not import it.
+// Every name is one OPSIN reads back as the drawn structure, so the forms are those OPSIN reads. The namer names lone
+// metal atoms and ions (iron, iron(3+)), salts of lone metal ions (iron(III) chloride) and hydrates. Here:
 //
-// - A lone metal atom: sodium, iron.
 // - Metallocenes drawn as OPSIN draws them (the metal ion and two cyclopentadienide rings): ferrocene,
 //   1,1'-dimethylferrocene, ferrocenecarboxylic acid, ferrocen-1-ol, and the prefix ferrocenyl (ferrocenylmethanol).
-// - Salts of metal ions: those of one usual charge as the namer names them (calcium diacetate); the others with the
-//   oxidation number (copper(II) acetate, iron(III) chloride). A metal joined only by single bonds to halogen, O, N or
-//   S atoms is named as the salt of its ions (a drawn Cl-Fe(Cl)-Cl is iron(III) chloride, CH3COO-Na sodium acetate).
+// - Salts of cations with one metal atom (ethylzinc(1+) iodide). A metal joined only by single bonds to halogen, O, N
+//   or S atoms is named as the salt of its ions (a drawn Cl-Fe(Cl)-Cl is iron(III) chloride, CH3COO-Na sodium acetate).
 // - Any other molecule with one metal atom, by an additive name (IR-9, P-69): butyllithium, bromo(methyl)magnesium,
 //   diethylzinc, pentacarbonyliron, dichlorobis(cyclopenta-2,4-dien-1-yl)titanium; and oxoacids (chromic acid).
 //
@@ -31,21 +30,26 @@ export type MetalApi = {
   alphaKey: (t: string) => string;
 };
 
+// Element names (IR-3.1), for metals here and for lone atoms and ions in namer.ts.
+export const ELEMENTS = new Map(("H hydrogen He helium Li lithium Be beryllium B boron C carbon N nitrogen O oxygen F fluorine Ne neon Na sodium " +
+  "Mg magnesium Al aluminium Si silicon P phosphorus S sulfur Cl chlorine Ar argon K potassium Ca calcium Sc scandium Ti titanium " +
+  "V vanadium Cr chromium Mn manganese Fe iron Co cobalt Ni nickel Cu copper Zn zinc Ga gallium Ge germanium As arsenic Se selenium " +
+  "Br bromine Kr krypton Rb rubidium Sr strontium Y yttrium Zr zirconium Nb niobium Mo molybdenum Tc technetium Ru ruthenium " +
+  "Rh rhodium Pd palladium Ag silver Cd cadmium In indium Sn tin Sb antimony Te tellurium I iodine Xe xenon Cs caesium Ba barium " +
+  "La lanthanum Ce cerium Pr praseodymium Nd neodymium Pm promethium Sm samarium Eu europium Gd gadolinium Tb terbium " +
+  "Dy dysprosium Ho holmium Er erbium Tm thulium Yb ytterbium Lu lutetium Hf hafnium Ta tantalum W tungsten Re rhenium Os osmium " +
+  "Ir iridium Pt platinum Au gold Hg mercury Tl thallium Pb lead Bi bismuth Po polonium At astatine Rn radon Fr francium Ra radium " +
+  "Ac actinium Th thorium Pa protactinium U uranium Np neptunium Pu plutonium Am americium Cm curium Bk berkelium Cf californium " +
+  "Es einsteinium Fm fermium Md mendelevium No nobelium Lr lawrencium Rf rutherfordium Db dubnium Sg seaborgium Bh bohrium " +
+  "Hs hassium Mt meitnerium Ds darmstadtium Rg roentgenium Cn copernicium Nh nihonium Fl flerovium Mc moscovium Lv livermorium " +
+  "Ts tennessine Og oganesson").split(" ").flatMap((w, k, a) => (k % 2 ? [] : [[w, a[k + 1]] as [string, string]])));
 // The metals named here: groups 1 to 12 (mercury aside), the lanthanoids and the actinoids.
-const NAMES: Record<string, string> = {
-  Li: "lithium", Na: "sodium", K: "potassium", Rb: "rubidium", Cs: "caesium", Fr: "francium",
-  Be: "beryllium", Mg: "magnesium", Ca: "calcium", Sr: "strontium", Ba: "barium", Ra: "radium",
-  Sc: "scandium", Ti: "titanium", V: "vanadium", Cr: "chromium", Mn: "manganese", Fe: "iron", Co: "cobalt", Ni: "nickel", Cu: "copper", Zn: "zinc",
-  Y: "yttrium", Zr: "zirconium", Nb: "niobium", Mo: "molybdenum", Tc: "technetium", Ru: "ruthenium", Rh: "rhodium", Pd: "palladium", Ag: "silver", Cd: "cadmium",
-  Hf: "hafnium", Ta: "tantalum", W: "tungsten", Re: "rhenium", Os: "osmium", Ir: "iridium", Pt: "platinum", Au: "gold",
-  Rf: "rutherfordium", Db: "dubnium", Sg: "seaborgium", Bh: "bohrium", Hs: "hassium", Mt: "meitnerium", Ds: "darmstadtium", Rg: "roentgenium", Cn: "copernicium",
-  La: "lanthanum", Ce: "cerium", Pr: "praseodymium", Nd: "neodymium", Pm: "promethium", Sm: "samarium", Eu: "europium", Gd: "gadolinium",
-  Tb: "terbium", Dy: "dysprosium", Ho: "holmium", Er: "erbium", Tm: "thulium", Yb: "ytterbium", Lu: "lutetium",
-  Ac: "actinium", Th: "thorium", Pa: "protactinium", U: "uranium", Np: "neptunium", Pu: "plutonium", Am: "americium", Cm: "curium",
-  Bk: "berkelium", Cf: "californium", Es: "einsteinium", Fm: "fermium", Md: "mendelevium", No: "nobelium", Lr: "lawrencium",
-};
+const METALS = new Set(("Li Na K Rb Cs Fr Be Mg Ca Sr Ba Ra Sc Ti V Cr Mn Fe Co Ni Cu Zn Y Zr Nb Mo Tc Ru Rh Pd Ag Cd Hf Ta W Re Os Ir Pt Au " +
+  "Rf Db Sg Bh Hs Mt Ds Rg Cn La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr").split(" "));
 // Metal ions of one usual charge, besides those the namer has (namer.ts CATIONS).
-export const MORE_CATIONS: Record<string, [string, number]> = { Fr: ["francium", 1], Be: ["beryllium", 2], Ra: ["radium", 2], Cd: ["cadmium", 2] };
+export const MORE_CATIONS: Record<string, [string, number]> = {
+  Fr: ["francium", 1], Be: ["beryllium", 2], Ra: ["radium", 2], Cd: ["cadmium", 2], Al: ["aluminium", 3], Sc: ["scandium", 3], Y: ["yttrium", 3], La: ["lanthanum", 3],
+};
 // Anions with metals, and the amide ion (IR-8 Table, IR-11): by formula with hydrogens and charge, as namer.ts writes it.
 export const METAL_ANIONS: Record<string, string> = {
   "H2N-1": "amide", "CrO4-2": "chromate", "Cr2O7-2": "dichromate", "MnO4-2": "manganate", "O4Tc-1": "pertechnetate", "O4Re-1": "perrhenate",
@@ -61,14 +65,12 @@ const ACIDS: Record<string, string> = {
   "Tc1:4:2": "technetic acid", "Tc1:4:1": "pertechnetic acid", "Re1:4:2": "rhenic acid", "Re1:4:1": "perrhenic acid",
 };
 const HALO: Record<string, string> = { F: "fluoro", Cl: "chloro", Br: "bromo", I: "iodo" };
-const ROMAN = ["0", "I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
-const HYDRATE = ["", "monohydrate", "dihydrate", "trihydrate", "tetrahydrate", "pentahydrate", "hexahydrate", "heptahydrate", "octahydrate", "nonahydrate", "decahydrate"];
 const MULT = ["", "", "di", "tri", "tetra", "penta", "hexa", "hepta", "octa"];
 const MULT_COMPLEX = ["", "", "bis", "tris", "tetrakis", "pentakis", "hexakis", "heptakis", "octakis"];
 // The valences an atom has with no dative bond to the metal.
 const VALENCE: Record<string, number[]> = { C: [4], N: [3], O: [2], S: [2, 4, 6], P: [3, 5], F: [1], Cl: [1], Br: [1], I: [1] };
 
-export const isMetal = (el: string) => el in NAMES;
+export const isMetal = (el: string) => METALS.has(el);
 
 // A metallocene drawn with multi-centre attachments (the j key, or ChemDraw's), as OPSIN draws one and as its
 // standard InChI has it: the metal ion M2+ and two cyclopentadienide rings (C5H5-), with no attachment points.
@@ -123,16 +125,9 @@ export function sandwichIons(m: Mol): Mol | undefined {
 }
 
 export function metalName(g: Graph, parts: number[][], api: MetalApi): string | undefined {
-  if (!g.atoms.some((a) => isMetal(a.el))) return undefined;
+  // Lone atoms and ions (iron, iron(3+)) and hydrates (copper(II) sulfate pentahydrate) are the namer's.
+  if (!g.atoms.some((a) => isMetal(a.el)) || g.atoms.length === 1 || (parts.length > 1 && parts.some((p) => p.length === 1 && !g.atoms[p[0]].charge))) return undefined;
   const s = new Shape(g);
-  // Water beside a metal compound: a hydrate (IR-5.5), copper(II) sulfate pentahydrate.
-  const water = parts.filter((p) => p.length === 1 && g.atoms[p[0]].el === "O" && g.atoms[p[0]].h === 2 && !g.atoms[p[0]].charge);
-  if (water.length && water.length < parts.length) {
-    if (water.length >= HYDRATE.length) return undefined;
-    const rest = parts.filter((p) => !water.includes(p)), dry = s.build(rest.flat()), dryParts = rest.map((p) => p.map((i) => dry.at.get(i)!));
-    const name = metalName(dry.g, dryParts, api) ?? (dryParts.length > 1 ? api.salt(dry.g, dryParts) : undefined);
-    return name && `${name} ${HYDRATE[water.length]}`;
-  }
   const text = metallocene(s, api) ?? (parts.length > 1 ? salt(g, parts, api) : molecule(s, api));
   if (text === undefined) return undefined;
   // Every stereo label must be cited, as the namer requires (P-91).
@@ -338,24 +333,17 @@ function ringsOf(s: Shape): number[][] {
 }
 
 // ——— Salts ———
-// Metal ions not of one usual charge take their oxidation number (IR-5.4.2.2): copper(II) acetate, iron(III) sulfate.
 // An ion with one metal atom, which carries the charge, takes its additive name and charge number: ethylzinc(1+)
-// iodide. Ions of one usual charge are left to the namer (calcium diacetate), but for nitrides, which OPSIN reads
-// only with no multiplying prefixes (lithium nitride).
+// iodide. Salts of lone metal ions are the namer's (saltName: calcium diacetate, copper(II) acetate, lithium nitride).
 function salt(g: Graph, parts: number[][], api: MetalApi): string | undefined {
   const charge = (p: number[]) => p.reduce((t, i) => t + g.atoms[i].charge, 0);
   const cations = parts.filter((p) => charge(p) > 0), anions = parts.filter((p) => charge(p) < 0);
   if (!cations.length || !anions.length || cations.length + anions.length !== parts.length || parts.reduce((t, p) => t + charge(p), 0)) return undefined;
-  const single = (p: number[]) => p.length === 1 && isMetal(g.atoms[p[0]].el) && !g.atoms[p[0]].h;
-  const ion = g.atoms[cations[0][0]], fixed = api.cation(ion.el);
-  if (cations.every((p) => single(p) && g.atoms[p[0]].el === ion.el && g.atoms[p[0]].charge === ion.charge) && fixed?.[1] === ion.charge) {
-    if (anions.every((p) => p.length === 1 && g.atoms[p[0]].el === "N" && g.atoms[p[0]].charge === -3)) return `${fixed[0]} nitride`;
-    return api.salt(g, parts);
-  }
+  // Salts of lone metal ions are the namer's (saltName): calcium diacetate, iron(III) chloride.
+  if (cations.every((p) => p.length === 1 && !g.atoms[p[0]].h)) return api.salt(g, parts);
   const s = new Shape(g);
   const cationName = (p: number[]) => {
     const q = charge(p), ms = p.filter((i) => isMetal(g.atoms[i].el));
-    if (single(p)) return q < ROMAN.length ? `${NAMES[g.atoms[p[0]].el]}(${ROMAN[q]})` : undefined;
     if (ms.length !== 1 || g.atoms[ms[0]].charge !== q) return undefined;
     const part = s.build(p);
     return `${additive(new Shape(part.g), part.at.get(ms[0])!, api)}(${q}+)`;
@@ -368,9 +356,6 @@ function salt(g: Graph, parts: number[][], api: MetalApi): string | undefined {
 // ——— Molecules ———
 function molecule(s: Shape, api: MetalApi): string | undefined {
   const { g, adj } = s, metals = g.atoms.flatMap((a, i) => (isMetal(a.el) ? [i] : []));
-  // A lone metal atom or ion: iron, iron(3+).
-  const lone = g.atoms[0];
-  if (g.atoms.length === 1 && !lone.h && lone.charge >= 0) return NAMES[lone.el] + (lone.charge ? `(${lone.charge}+)` : "");
   // A cation with one metal atom carrying the charge: additive name and charge number (dioxouranium(2+)).
   const q = g.atoms.reduce((t, a) => t + a.charge, 0);
   if (metals.length === 1 && q > 0 && g.atoms[metals[0]].charge === q) return additive(s, metals[0], api) + `(${q}+)`;
@@ -435,5 +420,5 @@ function additive(s: Shape, m: number, api: MetalApi): string {
     const t = n > 1 ? (name.compound ? MULT_COMPLEX[n] + enclose(name) : MULT[n] + name.text) : enclose(name);
     return k === 0 || /^[([{]|^(bis|tris|tetrakis|pentakis|hexakis|heptakis|octakis)[([{]/.test(t) ? t : `(${t})`;
   });
-  return parts.join("") + NAMES[g.atoms[m].el];
+  return parts.join("") + ELEMENTS.get(g.atoms[m].el)!;
 }

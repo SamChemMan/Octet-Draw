@@ -7,9 +7,10 @@ import { hydrogens, type Mol } from "./render.ts";
 export type Graph = { atoms: { el: string; charge: number; h: number; cip?: string }[]; bonds: { a: number; b: number; order: 1 | 2 | 3; cip?: string }[] };
 export type Cip = { atoms: (string | undefined)[]; bonds: (string | undefined)[] };
 
-// A drawing (labels already expanded into atoms) as the namer's graph. Undefined for what the graph cannot hold.
+// A drawing (labels already expanded into atoms) as the namer's graph. Undefined for what the graph cannot hold:
+// text labels, radicals and isotopes.
 export function graphOf(m: Mol, cip?: Cip): Graph | undefined {
-  if (m.bonds.some((b) => b.type < 1 || b.type > 3) || m.atoms.some((a) => a.text || a.radical)) return undefined;
+  if (m.bonds.some((b) => b.type < 1 || b.type > 3) || m.atoms.some((a) => a.text || a.radical || a.isotope)) return undefined;
   const used = m.atoms.map(() => 0);
   for (const b of m.bonds) for (const i of b.atoms) used[i] += b.type;
   return {

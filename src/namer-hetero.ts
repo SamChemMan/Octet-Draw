@@ -9,7 +9,7 @@ import { alkylWords, assemblePrefixes, alphaKey, enclose, substituted, times, HA
 // (=O and -S-: thioic S-acid), "O" (=S and -O-: thioic O-acid), "SS" (dithioic acid), "=S" (=S on its own: thioamide,
 // thial, thione), "OO" (peroxol), or "".
 export function groupVariant(n: Namer, c: number): string {
-  if (n.el[c] === "S") return n.group[c] ? (oxo(n, c).length === 1 ? "S=O" : "") + (n.adj[c].some((j) => n.het.get(j) === "SSR") ? "S" : "") : ""; // sulfinic acid, sulfonothioate
+  if (n.el[c] === "S") return n.group[c] && VARIANT_SUFFIX[n.group[c]!] ? (oxo(n, c).length === 1 ? "S=O" : "") + (n.adj[c].some((j) => n.het.get(j) === "SSR") ? "S" : "") : ""; // sulfinic acid, sulfonothioate
   if (n.el[c] === "O") return n.group[c] === "alcohol" && n.adj[c].some((j) => n.el[j] === "O") ? "OO" : "";
   const d = n.carbonylO[c];
   if (d < 0) return "";
@@ -385,24 +385,21 @@ function sulfurPrefix(n: Namer, x: number, from: number): Name | undefined {
   throw new Error("sulfur");
 }
 
-// ——— Oxoacid centres of phosphorus and nitrogen, onium cations and ylides (P-67.1, P-65.6.3, P-73.1) ———
+// ——— Oxoacid centres of phosphorus and nitrogen, and ylides (P-67.1, P-65.6.3) ———
 // P with an O, N, S or halogen ligand (phosphates, phosphonates, phosphinates, phosphites, phosphorothioates, their
 // amides and halides; P bonded only to C and H is a phosphane, in namer.ts), phosphane sulfides, phosphorus ylides,
-// nitrate, nitrite and hypohalite esters, and phosphanium, sulfanium, sulfoxonium and iodanium cations. Roles in
-// n.het: "P" (and "P-" for its ligands), "PS3", "P=C", "NO3" and "NO2" (the N, its O atoms and the ester O), "OX",
-// "P+", "S+", "I+".
+// nitrate, nitrite and hypohalite esters. Roles in n.het: "P" (and "P-" for its ligands), "PS3", "P=C", "NO3" and
+// "NO2" (the N, its O atoms and the ester O), "OX". Onium cations (phosphanium, sulfanium, iodanium) are namer.ts's
+// perceiveIons().
 function perceiveCentres(n: Namer) {
   for (let p = 0; p < n.n; p++) {
     if (n.inRing[p] || n.cip[p] || n.het.has(p)) continue;
-    if (n.el[p] === "P" && n.q[p] === 1 && n.adj[p].length + n.h[p] === 4 && n.adj[p].every((j) => plainC(n, j) && n.ord(p, j) === 1)) { n.het.set(p, "P+"); continue; }
-    if (n.el[p] === "S" && n.q[p] === 1 && !n.h[p] && sulfonium(n, p)) { n.het.set(p, "S+"); for (const o of oxo(n, p)) n.het.set(o, "S+"); continue; }
     if (n.el[p] === "P" && !n.q[p] && !n.h[p] && n.adj[p].length === 4) {
       // A phosphorus ylide (P-68.3.2.3.2): R3P=CR2, triphenyl-λ5-phosphanylidene.
       const dbl = n.adj[p].filter((j) => n.ord(p, j) === 2);
       if (dbl.length === 1 && n.el[dbl[0]] === "C" && n.carbonylO[dbl[0]] < 0 && n.adj[p].every((j) => n.el[j] === "C" && (j === dbl[0] || plainC(n, j)))) { n.het.set(p, "P=C"); continue; }
     }
     if (n.el[p] === "N") { nitrate(n, p); continue; }
-    if (n.el[p] === "I" && n.q[p] === 1 && n.adj[p].length === 2 && n.adj[p].every((j) => plainC(n, j) && n.ord(p, j) === 1)) { n.het.set(p, "I+"); continue; }
     if (HALO[n.el[p]]) { hypohalite(n, p); continue; }
     if (n.el[p] !== "P" || n.q[p]) continue;
     const os = [...oxo(n, p), ...thioxo(n, p)], rest = n.adj[p].filter((j) => !os.includes(j));
@@ -419,11 +416,6 @@ function perceiveCentres(n: Namer) {
     });
   }
 }
-// A sulfanium cation (R3S+, trimethylsulfanium) or sulfoxonium cation (R3S+=O, trimethylsulfoxonium) at x.
-const sulfonium = (n: Namer, x: number) => {
-  const os = oxo(n, x), cs = n.adj[x].filter((j) => !os.includes(j));
-  return os.length <= 1 && cs.length === 3 && cs.every((j) => plainC(n, j) && n.ord(x, j) === 1);
-};
 // A hypohalite ester (R-O-X: tert-butyl hypochlorite) with its halogen at x.
 function hypohalite(n: Namer, x: number) {
   const o = n.adj[x][0];
@@ -464,12 +456,9 @@ export function oxideText(n: Namer, oxides: number[], label: (a: number) => stri
   if (!n.inRing[oxides[0]]) return " N-oxide";
   return ` ${oxides.map(label).sort((a, b) => parseInt(a) - parseInt(b)).join(",")}-${oxides.length > 1 ? MULT[oxides.length] : ""}oxide`;
 }
-// Charged atoms Octet names here: onium cations (P+, S+, I+), azido groups on S or P, the N+ and O- of nitrate esters
-// and N-oxides.
+// Charged atoms Octet names here: azido groups on S or P, the N+ and O- of nitrate esters and N-oxides.
 export function heteroCharged(n: Namer, i: number): boolean {
   const { el, q, adj } = n;
-  if (el[i] === "I" && q[i] === 1) return !n.inRing[i] && adj[i].length === 2 && adj[i].every((j) => el[j] === "C" && n.ord(i, j) === 1); // diphenyliodanium
-  if (el[i] === "S" && q[i] === 1) return !n.inRing[i] && !n.h[i] && sulfonium(n, i); // trimethylsulfanium
   if (el[i] === "N" && q[i]) { // an azido group on S or P: sulfonyl azides, phosphorazidates
     const mid = q[i] === 1 ? i : adj[i][0], first = adj[mid]?.find((j) => j !== i && !q[j]) ?? (q[i] === 1 ? adj[i].find((j) => !q[j]) : undefined);
     const on = first === undefined ? undefined : azideN(n, first);
@@ -492,7 +481,6 @@ const centreOf = (n: Namer, x: number): Centre => {
 // when it cannot be the parent (anhydrides, ring N).
 function centreClass(n: Namer, x: number): string | undefined {
   const role = n.het.get(x);
-  if (role === "P+" || role === "I+" || role === "S+") return "cation";
   if (role === "NO3" || role === "NO2" || role === "OX") return "ester";
   const c = centreOf(n, x);
   if (c.types.includes("bridge")) { const chain = phosphateChain(n, x); return !chain ? undefined : chain.oh ? "acid" : "ester"; }
@@ -565,6 +553,7 @@ function phosphateChain(n: Namer, x: number): { ps: number[]; oh: number } | und
   if (!ok(x)) return undefined;
   let end = x, prev = -1;
   for (let steps = 0; steps < 8; steps++) { const q = next(end, prev); if (!q.length) break; if (q.length > 1) return undefined; prev = end; end = q[0]; }
+  if (!ok(end)) return undefined; // isohypophosphoric acid: a P with H
   const ps = [end];
   for (let q = next(end, -1); q.length && ps.length < 8; q = next(ps[ps.length - 1], ps[ps.length - 2] ?? -1)) { if (q.length > 1 || !ok(q[0])) return undefined; ps.push(q[0]); }
   if (ps.length < 2) return undefined;
@@ -633,21 +622,16 @@ function sulfonicAnhydrideName(n: Namer): string | undefined {
   if (acids.some((a) => !a)) throw new Error("anhydride");
   return acids[0] === acids[1] ? `${acids[0]} anhydride` : `${acids.sort((a, b) => alphaKey(a!).localeCompare(alphaKey(b!))).join(" ")} anhydride`;
 }
-// A centre (S, P or N) that outranks the molecule's senior characteristic group, named as the parent; or a
-// phosphanium cation (P-73.1): methyl(triphenyl)phosphanium.
+// A centre (S, P or N) that outranks the molecule's senior characteristic group, named as the parent.
 function centreName(n: Namer, kind: string | undefined): string | undefined {
-  const centres = [...n.het].filter(([x, r]) => (r === "S" && !n.group[x]) || r === "P" || r === "P+" || r === "I+" || (r === "S+" && n.el[x] === "S") || ((r === "NO3" || r === "NO2") && n.el[x] === "N") || (r === "OX" && n.el[x] !== "O")).map(([x]) => x);
-  const order = ["cation", "acid", "ester", "halide", "amide"];
+  const centres = [...n.het].filter(([x, r]) => (r === "S" && !n.group[x]) || r === "P" || ((r === "NO3" || r === "NO2") && n.el[x] === "N") || (r === "OX" && n.el[x] !== "O")).map(([x]) => x);
+  const order = ["acid", "ester", "halide", "amide"];
   const ranked = centres.map((x) => ({ x, cls: centreClass(n, x) })).filter((c) => c.cls).sort((a, b) => order.indexOf(a.cls!) - order.indexOf(b.cls!));
   const best = ranked[0];
   if (!best) return undefined;
-  if (kind && best.cls !== "cation" && SENIORITY.indexOf(kind as never) <= SENIORITY.indexOf(OUTRANKED_BY[best.cls!] as never)) return undefined;
+  if (kind && SENIORITY.indexOf(kind as never) <= SENIORITY.indexOf(OUTRANKED_BY[best.cls!] as never)) return undefined;
   if (kind === "aminium") return undefined;
   const x = best.x, role = n.het.get(x);
-  if (role === "P+" || role === "I+" || role === "S+") {
-    const subs = n.adj[x].filter((j) => n.el[j] === "C").map((j) => n.substituent(j, x));
-    return `${substituted(subs)}${role === "P+" ? "phosphanium" : role === "I+" ? "iodanium" : oxo(n, x).length ? "sulfoxonium" : "sulfanium"}`;
-  }
   if (role === "OX") { const o = n.adj[x][0]; return `${n.substituent(n.adj[o].find((j) => j !== x)!, o).text} hypo${{ F: "fluor", Cl: "chlor", Br: "brom", I: "iod" }[n.el[x]]}ite`; }
   if (n.el[x] === "P" && centreOf(n, x).types.includes("bridge")) return phosphateChainName(n, phosphateChain(n, x)!);
   if (role === "NO3" || role === "NO2") {
@@ -667,7 +651,6 @@ function centreName(n: Namer, kind: string | undefined): string | undefined {
 function centrePrefix(n: Namer, x: number, from: number): Name | undefined {
   const role = n.het.get(x);
   if (role === "NO3" || role === "NO2") return n.el[x] === "N" ? { text: role === "NO3" ? "nitro" : "nitroso", compound: false } : undefined;
-  if (role === "P+" || role === "I+" || role === "S+") throw new Error("cation as a prefix");
   if (role === "P=C") {
     // On the ylide carbon's parent: (triphenyl-λ5-phosphanylidene); from one of its other carbons, the ylide as a
     // phosphanyl group: [methylidene(diphenyl)-λ5-phosphanyl].
@@ -848,19 +831,15 @@ function letterPrefixes(list: { loc: string; name: Name }[]): string {
 // Molecules of N, O, S, P and the halogens with no carbon, by structure, with the names chemists use: hydrogen
 // peroxide, dichlorine, chloric acid, nitric acid, sulfur dioxide. Written as SMILES without rings. Single atoms (water,
 // hydrogen chloride) are left out, as namer.ts leaves them: a lone atom drawn is ambiguous.
+// Molecules of one centre and the atoms on it (dihalogens, the halogen oxoacids, ozone, nitric acid) are namer.ts's
+// SPECIES; these are the others.
 const INORGANIC: [string, string][] = [
-  ["OO", "hydrogen peroxide"], ["SS", "disulfane"],
-  ["FF", "difluorine"], ["ClCl", "dichlorine"], ["BrBr", "dibromine"], ["II", "diiodine"], ["N#N", "dinitrogen"], ["O=O", "dioxygen"],
-  ["O=[O+][O-]", "ozone"], ["N#[N+][O-]", "nitrous oxide"], ["N=[N+]=[N-]", "hydrazoic acid"],
-  ["OF", "hypofluorous acid"], ["OF=O", "fluorous acid"], ["OF(=O)=O", "fluoric acid"], ["OF(=O)(=O)=O", "perfluoric acid"], ["OCl", "hypochlorous acid"], ["OCl=O", "chlorous acid"], ["OCl(=O)=O", "chloric acid"], ["OCl(=O)(=O)=O", "perchloric acid"],
-  ["OBr", "hypobromous acid"], ["OBr=O", "bromous acid"], ["OBr(=O)=O", "bromic acid"], ["OBr(=O)(=O)=O", "perbromic acid"],
-  ["OI", "hypoiodous acid"], ["OI=O", "iodous acid"], ["OI(=O)=O", "iodic acid"], ["OI(=O)(=O)=O", "periodic acid"], ["OI(O)(O)(O)(O)=O", "orthoperiodic acid"],
-  ["ON=O", "nitrous acid"], ["NN=O", "nitrous amide"], ["NSO", "sulfenamic acid"], ["OP(=O)=O", "phosphenic acid"], ["NS(=O)O", "amidosulfurous acid"], ["OP(=O)(O)P(=O)(O)O", "hypodiphosphoric acid"], ["O[N+](=O)[O-]", "nitric acid"], ["N=O", "azanone"], ["ClN=O", "nitrosyl chloride"],
+  ["SS", "disulfane"], ["OF=O", "fluorous acid"], ["OF(=O)=O", "fluoric acid"], ["OF(=O)(=O)=O", "perfluoric acid"],
+  ["NN=O", "nitrous amide"], ["NSO", "sulfenamic acid"], ["OP(=O)=O", "phosphenic acid"], ["NS(=O)O", "amidosulfurous acid"], ["OP(=O)(O)P(=O)(O)O", "hypodiphosphoric acid"], ["N=O", "azanone"],
   ["NF", "fluoramine"], ["NCl", "chloramine"], ["NBr", "bromamine"], ["FNF", "difluoramine"], ["ClNCl", "dichloramine"], ["BrNBr", "dibromamine"],
-  ["FN(F)F", "nitrogen trifluoride"], ["ClN(Cl)Cl", "nitrogen trichloride"],
-  ["O=S=O", "sulfur dioxide"], ["O=S(=O)=O", "sulfur trioxide"], ["OSO", "sulfoxylic acid"], ["OOS(=O)(=O)O", "peroxomonosulfuric acid"],
+  ["FN(F)F", "nitrogen trifluoride"], ["ClN(Cl)Cl", "nitrogen trichloride"], ["OSO", "sulfoxylic acid"], ["OOS(=O)(=O)O", "peroxomonosulfuric acid"],
   ["OS(=O)(=O)S(=O)(=O)O", "dithionic acid"], ["OS(=O)(=O)SS(=O)(=O)O", "trithionic acid"], ["OS(=O)(=O)SSS(=O)(=O)O", "tetrathionic acid"], ["OS(=O)(=O)SSSS(=O)(=O)O", "pentathionic acid"],
-  ["OS(=O)(=O)OS(=O)(=O)O", "disulfuric acid"], ["OS(=O)(=O)OS(=O)(=O)OS(=O)(=O)O", "trisulfuric acid"], ["FP(F)(F)(F)F", "phosphorus pentafluoride"], ["ClP(Cl)(Cl)(Cl)Cl", "phosphorus pentachloride"],
+  ["OS(=O)(=O)OS(=O)(=O)O", "disulfuric acid"], ["OS(=O)(=O)OS(=O)(=O)OS(=O)(=O)O", "trisulfuric acid"], ["FP(F)(F)(F)F", "phosphorus pentafluoride"],
 ];
 const VALENCE: Record<string, number> = { N: 3, O: 2, S: 2, P: 3, F: 1, Cl: 1, Br: 1, I: 1 };
 // A structure's signature: each atom's element, hydrogens, charge and bonds, sorted.
