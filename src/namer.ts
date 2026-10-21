@@ -524,7 +524,8 @@ class Namer {
         const c = adj[i].find((j) => this.ord(i, j) === 2);
         if (c === undefined || el[c] !== "C" || q[c] || this.carbonylO[c] >= 0 || adj[i].some((j) => j !== c && (!(plainC(j) || oMinus(j)) || this.ord(i, j) !== 1))) continue;
         ion(i, "iminium", [c]);
-      } else if (q[i] === 1 && !this.inRing[i] && (e === "S" || e === "P" || e === "O") && single(i) && valence(i) === (e === "P" ? 4 : 3) && cs.length && cs.length === adj[i].length && cs.every((c) => plainC(c) || (q[c] === -1 && valence(c) === 3))) {
+      } else if (q[i] === 1 && !this.inRing[i] && (e === "S" || e === "P" || e === "O" || HALO[e]) && single(i) && valence(i) === (e === "P" ? 4 : HALO[e] ? 2 : 3) && cs.length && cs.length === adj[i].length && cs.every((c) => plainC(c) || (q[c] === -1 && valence(c) === 3))) {
+        // Onium ions (P-73.1.1.1): trimethylsulfanium, tetraphenylphosphanium, triethyloxidanium, diphenyliodanium.
         ion(i);
         this.onium.push(i);
       } else if (q[i] === 1 && e === "S" && !this.inRing[i] && adj[i].length === 4 && cs.length === 3 && adj[i].some((o) => terminalO(i, o)) && cs.every((c) => plainC(c) || (q[c] === -1 && valence(c) === 3))) {
@@ -617,7 +618,7 @@ class Namer {
   centre(x: number, from = -1): string {
     const el = this.el[x], oxo = this.adj[x].filter((j) => this.ord(x, j) === 2 && this.el[j] === "O");
     const subs = [...this.adj[x].filter((j) => j !== from && !oxo.includes(j)).map((j) => this.substituent(j, x)), ...oxo.map(() => ({ text: "oxo", compound: false }))];
-    const word = this.q[x] < 0 ? { N: "azanide", B: "boranuide" }[el] : oxo.length ? "-λ4-sulfanium" : { N: "azanium", S: "sulfanium", P: "phosphanium", O: "oxidanium" }[el];
+    const word = this.q[x] < 0 ? { N: "azanide", B: "boranuide" }[el] : oxo.length ? "-λ4-sulfanium" : { N: "azanium", S: "sulfanium", P: "phosphanium", O: "oxidanium", I: "iodanium", Br: "bromanium", Cl: "chloranium", F: "fluoranium" }[el];
     if (!word) throw new Error("charge");
     return substituted(subs) + word;
   }

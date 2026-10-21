@@ -84,7 +84,8 @@ run("cations", [
   "trimethylsulfanium", "tetraphenylphosphanium", "triethyloxidanium", "methyl(triphenyl)phosphanium", "pyrylium",
   "2,4,6-triphenylpyrylium", "thiopyrylium", "1-methylpyridin-1-ium", "1-butyl-3-methylimidazolium", "3-carbamoyl-1-methylpyridin-1-ium",
   "smiles:C[n+]1ccccc1C=NO", "smiles:OC(=O)C[n+]1ccccc1", "smiles:C[N+](C)(C)CC(=O)O", "2-formylpyrylium",
-  "3,7-bis(dimethylamino)phenothiazin-5-ium", "flavylium", "xanthylium", "phenoxazin-5-ium",
+  "3,7-bis(dimethylamino)phenothiazin-5-ium", "flavylium", "xanthylium", "phenoxazin-5-ium", "diphenyliodanium", "dimethylbromanium",
+  "smiles:Cc1ccc([I+]c2ccccc2)cc1",
 ]);
 // Zwitterions (P-74): the anion is the suffix, the cation a prefix; N-oxides as oxido.
 run("zwitterions", [
