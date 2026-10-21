@@ -2,7 +2,40 @@
 // IR-8). Clean room, from the published rules. namer.ts calls these at a few fixed points. Every name is still read
 // back by OPSIN before the app shows it.
 import type { Graph } from "./naming.ts";
-import type { Namer } from "./namer.ts";
+import { assemblePrefixes, alphaKey, type Name, type Namer } from "./namer.ts";
+
+// ——— Azoxy compounds (P-68.3.1.3.3) ———
+// R-N(+)(O-)=N-R': the N⁺, the other N and the O⁻ of the group i is in, each N with one carbon (or H).
+export function azoxy(n: Namer, i: number): { p: number; m: number; o: number } | undefined {
+  const at = (p: number) => {
+    if (n.el[p] !== "N" || n.q[p] !== 1 || n.inRing[p] || n.adj[p].length + n.h[p] !== 3) return undefined;
+    const o = n.adj[p].find((j) => n.el[j] === "O" && n.q[j] === -1 && n.adj[j].length === 1 && !n.h[j] && n.ord(p, j) === 1);
+    const m = n.adj[p].find((j) => n.el[j] === "N" && n.ord(p, j) === 2 && !n.q[j] && !n.inRing[j] && n.adj[j].length + n.h[j] === 2);
+    const carbon = (x: number, j: number) => n.el[j] === "C" && n.ord(x, j) === 1 && n.carbonylO[j] < 0 && !n.isNitrileC(j) && !n.q[j];
+    if (o === undefined || m === undefined || !n.adj[p].every((j) => j === o || j === m || carbon(p, j)) || !n.adj[m].every((j) => j === p || carbon(m, j))) return undefined;
+    return { p, m, o };
+  };
+  if (n.el[i] === "O") return n.adj[i].length === 1 ? at(n.adj[i][0]) : undefined;
+  return n.el[i] !== "N" ? undefined : at(i) ?? (n.q[i] ? undefined : n.adj[i].map(at).find(Boolean));
+}
+const ez = (n: Namer, z: { p: number; m: number }) => { const e = n.cipBond.get(n.key(z.p, z.m)); return e === "E" || e === "Z" ? `(${e})-` : ""; };
+// An azoxy group as the parent: diazene with its N-oxide, 1,2-diphenyldiazene 1-oxide. Lowest locants to the
+// substituents, then to the one cited first, then to the oxide.
+export function azoxyName(n: Namer): string {
+  const zs = [...n.het].filter(([a, r]) => r === "azoxy" && n.q[a] === 1).map(([a]) => azoxy(n, a)!);
+  if (zs.length !== 1) throw new Error("azoxy");
+  const z = zs[0], subs = (x: number) => n.adj[x].filter((j) => j !== z.p && j !== z.m && j !== z.o).map((j) => n.substituent(j, x));
+  const options = [[z.p, z.m], [z.m, z.p]].map(([a, b]) => ({ list: [...subs(a).map((name) => ({ loc: "1", name })), ...subs(b).map((name) => ({ loc: "2", name }))], ox: a === z.p ? 1 : 2 }));
+  const key = (o: (typeof options)[number]) => [...o.list.map((x) => x.loc).sort(), "|", ...[...o.list].sort((x, y) => alphaKey(x.name.text).localeCompare(alphaKey(y.name.text))).map((x) => x.loc), "|", o.ox].join("");
+  const best = options.sort((x, y) => (key(x) < key(y) ? -1 : key(x) > key(y) ? 1 : 0))[0];
+  return `${ez(n, z)}${assemblePrefixes(best.list, false)}diazene ${best.ox}-oxide`;
+}
+// An azoxy group as a prefix from its N x: (2-methyl-2-oxidodiazen-2-ium-1-yl), (2-methyl-1-oxidodiazen-1-ium-1-yl).
+export function azoxyPrefix(n: Namer, x: number): Name {
+  const z = azoxy(n, x)!, y = x === z.p ? z.m : z.p;
+  const list = [...n.adj[y].filter((j) => j !== x && j !== z.o).map((j) => ({ loc: "2", name: n.substituent(j, y) })), { loc: x === z.p ? "1" : "2", name: { text: "oxido", compound: false } }];
+  return { text: `${ez(n, z)}${assemblePrefixes(list, false)}diazen-${x === z.p ? 1 : 2}-ium-1-yl`, compound: true };
+}
 
 // ——— Inorganic molecules and ions of the heavier main-group elements (IR-6, IR-8; P-67.1) ———
 // By structure, written as SMILES without rings: every atom outside B, C, N, O, P, S and the halogens in brackets

@@ -95,6 +95,9 @@ const cases: [string, string][] = [
   ["smiles:CN(=O)=O", "nitromethane"], ["smiles:O=N(=O)c1ccccc1", "nitrobenzene"], ["smiles:O=N1=CC=CC=C1", "pyridine 1-oxide"],
   ["smiles:CN(C)(C)=O", "N,N-dimethylmethanamine N-oxide"], ["smiles:OC(=O)CN(C)(C)=O", "[dimethyl(oxido)azaniumyl]acetic acid"],
   ["smiles:[NH2]([C@@H](CCSC)C(=O)O)=O", "(2S)-4-(methylsulfanyl)-2-(oxidoazaniumyl)butanoic acid"],
+  // Azoxy compounds (P-68.3.1.3.3): diazene oxides, and as prefixes.
+  ["azoxybenzene", "1,2-diphenyldiazene 1-oxide"], ["smiles:C/[N+]([O-])=N/c1ccccc1", "(Z)-1-methyl-2-phenyldiazene 1-oxide"],
+  ["methylazoxymethanol acetate", "[(Z)-2-methyl-2-oxidodiazen-2-ium-1-yl]methyl acetate"], ["smiles:CC(=O)OC/[N+]([O-])=N/C", "[(Z)-2-methyl-1-oxidodiazen-1-ium-1-yl]methyl acetate"],
   // Selones and tellones under a senior group; sulfoximines and sulfonimidic acids; cyanides on P.
   ["smiles:N1C(=[Se])NC=2N=CNC2C1=O", "2-selanylidene-1,2,3,7-tetrahydro-6H-purin-6-one"], ["smiles:O=C1CCC(=[Te])CC1", "4-tellanylidenecyclohexan-1-one"],
   ["smiles:CS(=O)(=N)c1ccccc1", "(methanesulfonimidoyl)benzene"], ["smiles:OC(=O)c1ccc(S(C)(=O)=N)cc1", "4-(methanesulfonimidoyl)benzoic acid"],

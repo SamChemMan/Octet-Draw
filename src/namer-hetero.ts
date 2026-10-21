@@ -2,6 +2,7 @@
 // published rules. namer.ts calls these functions at a few fixed points (perception, suffixes, prefixes and the
 // whole-molecule name); each takes the namer itself. Every name is still read back by OPSIN before the app shows it.
 import { alkylWords, assemblePrefixes, alphaKey, enclose, substituted, times, HALO, MULT, MULT_COMPLEX, SENIORITY, type Name, type Namer } from "./namer.ts";
+import { azoxy, azoxyName, azoxyPrefix } from "./namer-maingroup.ts";
 
 // ——— Variants of principal groups: thio analogues and hydroperoxides ———
 // =S and -S- in place of =O and -O- (P-65.1.5, P-65.6.3.2.3, P-66.1.4.1, P-64.6), and -OO- in place of -O- in an
@@ -128,6 +129,7 @@ export function perceiveHetero(n: Namer) {
   const { el, adj, h } = n;
   perceiveSulfur(n);
   perceiveCentres(n);
+  for (let i = 0; i < n.n; i++) { const z = el[i] === "O" ? azoxy(n, i) : undefined; if (z) for (const a of [z.p, z.m, z.o]) n.het.set(a, "azoxy"); }
   for (let i = 0; i < n.n; i++) {
     if (nOxideO(n, i)) { n.het.set(i, "NO-"); continue; }
     // Halogens on N (N-bromo, N-chloro); the N is an amine, amide or ring N.
@@ -465,6 +467,7 @@ export function oxideText(n: Namer, oxides: number[], label: (a: number) => stri
 // Charged atoms Octet names here: azido groups on S or P, the N+ and O- of nitrate esters and N-oxides.
 export function heteroCharged(n: Namer, i: number): boolean {
   const { el, q, adj } = n;
+  if (azoxy(n, i)) return true; // R-N(+)(O-)=N-R (namer-maingroup.ts)
   if (el[i] === "N" && q[i]) { // an azido group on S or P: sulfonyl azides, phosphorazidates
     const mid = q[i] === 1 ? i : adj[i][0], first = adj[mid]?.find((j) => j !== i && !q[j]) ?? (q[i] === 1 ? adj[i].find((j) => !q[j]) : undefined);
     const on = first === undefined ? undefined : azideN(n, first);
@@ -719,6 +722,7 @@ export function heteroPrefix(n: Namer, x: number, from: number): Name | undefine
     return r === undefined ? { text: word, compound: false } : { text: `${enclose(n.substituent(r, at))}${word}`, compound: true };
   }
   if (role === "N=O") return el === "N" ? { text: "nitroso", compound: false } : undefined;
+  if (role === "azoxy" && el === "N") return azoxyPrefix(n, x); // (2-methyl-2-oxidodiazen-2-ium-1-yl) (namer-maingroup.ts)
   if (role === "N=N") {
     const m = n.adj[x].find((j) => n.het.get(j) === "N=N")!, r = n.adj[m].find((j) => j !== x);
     const ez = n.cipBond.get(n.key(x, m));
@@ -790,6 +794,7 @@ export function heteroParentName(n: Namer, kind: string | undefined): string | u
   const centre = centreName(n, kind);
   if (centre || kind) return centre;
   const roles = [...n.het.values()];
+  if (roles.includes("azoxy")) return azoxyName(n); // 1,2-diphenyldiazene 1-oxide (namer-maingroup.ts)
   const ylides = [...n.het].filter(([, r]) => r === "P=C").map(([x]) => x), sulfides = [...n.het].filter(([, r]) => r === "PS3").map(([x]) => x);
   if (sulfides.length === 1 && !ylides.length) { const x = sulfides[0]; return `${substituted(n.adj[x].filter((j) => n.el[j] === "C").map((j) => n.substituent(j, x)))}phosphane sulfide`; }
   const triazenes = [...n.het].filter(([x, r]) => r === "N3" && n.adj[x].some((j) => n.het.get(j) === "N3" && n.ord(x, j) === 2) && n.adj[x].filter((j) => n.het.get(j) === "N3").length === 1).map(([x]) => x);
