@@ -596,7 +596,7 @@ class Namer {
   // ——— Naming a parent with its suffix, prefixes and numbering ———
   // atoms: the parent's chain (in order) or ring (in cycle order). attach: for a substituent, the atom with the free
   // valence and the atom it is joined to. suffix: the principal groups expressed as a suffix.
-  nameParent(p: { atoms: number[]; ring: boolean; assembly?: Assembly }, opts: { kind?: Kind; attach?: [number, number]; acyl?: boolean; sulfo?: string; skip?: Set<number> }): Name & { score: number[] } {
+  nameParent(p: { atoms: number[]; ring: boolean; assembly?: Assembly }, opts: { kind?: Kind; attach?: [number, number]; acyl?: boolean; sulfo?: string; skip?: Set<number>; tiebreak?: (nums: number[][]) => number[][] }): Name & { score: number[]; label?: (a: number) => string } {
     const { atoms } = p, inParent = new Set(atoms), kind = opts.kind;
     const skip = opts.skip ?? new Set<number>();
     const info = p.assembly ? this.assemblyInfo(p.assembly) : p.ring ? this.ringInfo(atoms) : undefined;
@@ -676,6 +676,7 @@ class Namer {
     nums = this.lowest(nums, (num) => counted.map((x) => loc(num, x.atom)));
     const alpha = [...new Set(counted.map((x) => x.name.text))].sort((a, b) => alphaKey(a).localeCompare(alphaKey(b)));
     for (const t of alpha) nums = this.lowest(nums, (num) => counted.filter((x) => x.name.text === t).map((x) => loc(num, x.atom)));
+    if (opts.tiebreak) nums = opts.tiebreak(nums);
     const num = nums[0];
 
     // Assemble (P-14, P-16): prefixes in alphabetical order, then the parent, unsaturation and suffix.
@@ -741,7 +742,7 @@ class Namer {
     }
     if (stereo.length) text = `(${stereo.sort((x, y) => x.at - y.at).map((x) => x.text).join(",")})-${text}`;
     // A prefix needs brackets when it carries prefixes of its own or locants (P-16.5.1).
-    return { text, compound: prefixes.length > 0 || /[\d,]/.test(text), score: [] };
+    return { text, compound: prefixes.length > 0 || /[\d,]/.test(text), score: [], label: (a: number) => label(num, a) };
   }
   groupHetero = (c: number) => this.adj[c].filter((j) => j !== this.carbonylO[c] && this.el[j] !== "C");
 
@@ -925,13 +926,13 @@ class Namer {
     }
     // Every stereo label must be cited (P-91): a name that drops one would be wrong, and labels other than R, S, E
     // and Z are not covered.
-    const cited = [...(text ?? "").matchAll(/\(([^()]*)\)-/g)].flatMap((m) => m[1].split(",")).filter((t) => /^\d+[a-z]?'*[RSEZ]$/.test(t)).length;
+    const cited = citedLabels(text ?? "");
     const labelled = this.cip.filter(Boolean).length + [...this.cipBond.values()].filter(Boolean).length;
     if (text && cited !== labelled) throw new Error("stereo not cited");
     return text;
   }
   // Candidate parents: every acyclic carbon chain and every ring; the senior one wins (P-44).
-  parentName(kind: Kind | undefined, skip = new Set<number>(), within?: Set<number>): Name | undefined {
+  parentName(kind: Kind | undefined, skip = new Set<number>(), within?: Set<number>): (Name & { parent?: { atoms: number[]; ring: boolean; assembly?: Assembly }; label?: (a: number) => string }) | undefined {
     const carbons = [...Array(this.n).keys()].filter((i) => this.el[i] === "C" && !this.inRing[i] && (!within || within.has(i)) && !skip.has(i));
     const chains: number[][] = [];
     for (const a of carbons) for (const p of this.paths(a, -1, true)) if (p.every((i) => !skip.has(i) && (!within || within.has(i)))) chains.push(p);
@@ -977,9 +978,10 @@ class Namer {
     cands.sort((a, b) => compare(score(a), score(b)));
     const best = cands.filter((c) => compare(score(c), score(cands[0])) === 0);
     // Equal parents: the name with the lowest locants (then first alphabetically) wins.
-    const names = best.map((c) => this.nameParent(c, { kind: c.groups ? kind : undefined, skip })).map((n) => n.text);
-    names.sort((a, b) => compare(locantsOf(a), locantsOf(b)) || a.localeCompare(b));
-    return { text: names[0], compound: true };
+    const names = best.map((c) => ({ c, n: this.nameParent(c, { kind: c.groups ? kind : undefined, skip }) }));
+    names.sort((a, b) => compare(locantsOf(a.n.text), locantsOf(b.n.text)) || a.n.text.localeCompare(b.n.text));
+    // The chosen parent and its locants, for the names that cite them (1-ethyl 4-methyl butanedioate).
+    return { text: names[0].n.text, compound: true, parent: names[0].c, label: names[0].n.label };
   }
   // Everything reachable from c without crossing o.
   side(c: number, o: number): Set<number> {
@@ -999,8 +1001,8 @@ class Namer {
   }
   // Esters (P-65.6.3): "alkyl alkanoate", the alkyl named from the ester oxygen's other side.
   esterName(): string | undefined {
-    const esters = [...this.esterO.keys()];
-    if (esters.length !== 1) throw new Error("several esters");
+    const esters = [...this.esterO.keys()].filter((c) => this.group[c] === "ester");
+    if (esters.length !== 1) return this.severalEsters(esters);
     const c = esters[0], o = this.esterO.get(c)!, r = this.adj[o].find((j) => j !== c)!;
     const alkyl = this.substituent(r, o);
     // The acid side: everything reachable from the ester carbon without crossing the ester oxygen.
@@ -1008,6 +1010,67 @@ class Namer {
     if (!acid) return undefined;
     const acidText = acid.text.replace(/oic acid$/, "oate").replace(/carboxylic acid$/, "carboxylate").replace(/ic acid$/, "ate");
     return `${alkyl.text} ${acidText}`;
+  }
+  // Several esters (P-65.6.3.2). Esters of one polyol with one acid: propane-1,2,3-triyl triacetate. Else the
+  // polyacid with the most ester groups names them, its alkyl groups in alphanumerical order, with the locants of
+  // their acid groups when they differ: dimethyl butanedioate, 1-ethyl 4-methyl butanedioate. The other esters are
+  // prefixes: methyl 4-(acetyloxy)benzoate, 4-methoxy-4-oxobutanoic acid (P-65.6.3.3).
+  severalEsters(esters: number[]): string {
+    const polyol = this.polyolEster(esters);
+    if (polyol) return polyol;
+    const p = this.parentName("ester")?.parent;
+    if (!p) throw new Error("several esters");
+    const site = (c: number) => (p.ring ? this.bearer.get(c)!.find((a) => p.atoms.includes(a)) : p.atoms.includes(c) ? c : undefined);
+    const groups = new Map<string, { name: Name; sites: number[] }>();
+    for (const c of esters) {
+      const at = site(c);
+      if (at === undefined) continue;
+      const o = this.esterO.get(c)!, r = this.adj[o].find((j) => j !== c)!;
+      if (p.atoms.some((a) => this.side(r, o).has(a))) throw new Error("cyclic ester");
+      const name = this.substituent(r, o), g = groups.get(name.text) ?? { name, sites: [] };
+      g.sites.push(at);
+      groups.set(name.text, g);
+    }
+    // Low locants go to the alkyl group cited first (3-ethyl 5-methyl pyridine-3,5-dicarboxylate).
+    const sorted = [...groups.values()].sort((a, b) => alphaKey(a.name.text).localeCompare(alphaKey(b.name.text)));
+    const tiebreak = (nums: number[][]) => sorted.reduce((best, g) => this.lowest(best, (num) => g.sites.map((a) => num.indexOf(a) + 1)), nums);
+    const acid = this.nameParent(p, { kind: "ester", tiebreak });
+    const alkyls = sorted.map((g) => (sorted.length > 1 ? `${g.sites.map(acid.label!).sort(locOrder).join(",")}-` : "") + times(g.sites.length, g.name));
+    return `${alkyls.join(" ")} ${acid.text}`;
+  }
+  // Esters of a polyol (P-65.6.3.2.2): cut at each ester's C–O bond, one part holds every ester O and no ester carbon,
+  // and the acids are all the same: ethane-1,2-diyl diacetate. The polyol's name (ethane-1,2-diol) gives the
+  // alkyl's (ethane-1,2-diyl).
+  polyolEster(esters: number[]): string | undefined {
+    const cut = new Set(esters.map((c) => this.key(c, this.esterO.get(c)!)));
+    const part = (s: number) => {
+      const seen = new Set([s]), stack = [s];
+      while (stack.length) { const i = stack.pop()!; for (const j of this.adj[i]) if (!seen.has(j) && !cut.has(this.key(i, j))) { seen.add(j); stack.push(j); } }
+      return seen;
+    };
+    const os = esters.map((c) => this.esterO.get(c)!), alcohol = part(os[0]);
+    if (!os.every((o) => alcohol.has(o)) || esters.some((c) => alcohol.has(c))) return undefined;
+    const acids = esters.map((c) => {
+      const p = part(c);
+      if (esters.some((d) => d !== c && p.has(d))) return undefined;
+      return new Namer(this.piece([...p], [], [c])).name()?.replace(/oic acid$/, "oate").replace(/carboxylic acid$/, "carboxylate").replace(/ic acid$/, "ate");
+    });
+    if (!acids[0]?.endsWith("ate") || acids.some((a) => a !== acids[0])) return undefined;
+    const diol = new Namer(this.piece([...alcohol], os)).name(), m = diol?.match(/(di|tri|tetra|penta|hexa)ol$/);
+    if (!diol || !m || MULT.indexOf(m[1]) !== esters.length) return undefined;
+    return `${diol.replace(/ol$/, "yl")} ${times(esters.length, { text: acids[0], compound: /[\d([ ]/.test(acids[0]) })}`;
+  }
+  // Some atoms as a structure of their own, with a hydrogen more on each of `addH` and an OH more on each of `addOH`.
+  // Stereo labels are kept: they describe the whole structure, as the name does.
+  piece(atoms: number[], addH: number[], addOH: number[] = []): Graph {
+    const index = new Map(atoms.map((a, k) => [a, k]));
+    const g: Graph = { atoms: atoms.map((a) => ({ el: this.el[a], charge: this.q[a], h: this.h[a] + (addH.includes(a) ? 1 : 0), ...(this.cip[a] ? { cip: this.cip[a] } : {}) })), bonds: [] };
+    for (const [k, order] of this.bond) {
+      const [a, b] = k.split(" ").map(Number), cip = this.cipBond.get(k);
+      if (index.has(a) && index.has(b)) g.bonds.push({ a: index.get(a)!, b: index.get(b)!, order: order as 1 | 2 | 3, ...(cip ? { cip } : {}) });
+    }
+    for (const c of addOH) { g.atoms.push({ el: "O", charge: 0, h: 1 }); g.bonds.push({ a: index.get(c)!, b: g.atoms.length - 1, order: 1 }); }
+    return g;
   }
   // Anhydrides (P-65.7.1): the acids' names, then "anhydride": acetic anhydride, acetic propanoic anhydride.
   anhydrideName(): string {
@@ -1069,6 +1132,22 @@ function compare(a: number[], b: number[]): number {
   return 0;
 }
 const locantsOf = (name: string) => (name.match(/\d+/g) ?? []).map(Number);
+// The stereodescriptors a name cites, (2R,3S)- and the like, each counted as often as its multiplying prefix says:
+// tris[(9Z)-octadec-9-enoate] cites three.
+function citedLabels(text: string): number {
+  const times = [1];
+  let n = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === ")" || ch === "]" || ch === "}") { times.pop(); continue; }
+    if (ch !== "(" && ch !== "[" && ch !== "{") continue;
+    const m = text.slice(0, i).match(/(bis|tris|tetrakis|pentakis|hexakis|heptakis|octakis)$/), here = times[times.length - 1];
+    const d = ch === "(" ? text.slice(i).match(/^\(([^()]*)\)-/) : null;
+    if (d) n += here * d[1].split(",").filter((t) => /^\d+[a-z]?'*[RSEZ]$/.test(t)).length;
+    times.push(here * (m ? MULT_COMPLEX.indexOf(m[1]) : 1));
+  }
+  return n;
+}
 // Alphabetical order ignores multiplying prefixes of simple substituents, locants and italic prefixes (P-14.5).
 function alphaKey(t: string): string {
   return t.replace(/^[([{]+/, "").replace(/^((tert|sec|N|\d+[a-z]?'*(,\d+[a-z]?'*)*)-)+/, "").replace(/^(\d+[a-z]?H-)+/, "").replace(/[()[\]{}]/g, "");
@@ -1081,6 +1160,11 @@ function substituted(subs: Name[]): string {
   const parts = sorted.map((g) => (g.n > 1 ? (g.name.compound ? MULT_COMPLEX[g.n] + enclose(g.name) : MULT[g.n] + g.name.text) : enclose(g.name)));
   // After the first, each substituent goes in brackets: methyl(diphenyl)phosphane, ethyl(methyl)(phenyl)phosphane.
   return parts.map((t, k) => (k === 0 || /^[([{]/.test(t) ? t : `(${t})`)).join("");
+}
+// A name multiplied (P-16.9.1): dimethyl, di-tert-butyl, bis(2-chloroethyl).
+function times(k: number, n: Name): string {
+  if (k < 2) return n.text;
+  return n.compound ? MULT_COMPLEX[k] + enclose(n) : MULT[k] + (/^(tert|sec)-/.test(n.text) ? "-" : "") + n.text;
 }
 // Brackets nest ( ), then [ ], then { } (P-16.5).
 function enclose(n: Name): string {

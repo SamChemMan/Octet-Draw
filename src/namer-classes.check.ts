@@ -82,3 +82,17 @@ check("ring N", [
   // Sam's Boc-protected azetidine (corpus).
   ["smiles:C1(O)(C)CN(C(OC(C)(C)C)=O)C1", "tert-butyl 3-hydroxy-3-methylazetidine-1-carboxylate"],
 ]);
+
+// Several esters (P-65.6.3.2): of a polyacid, alkyl groups in alphanumerical order with locants when they differ; of a
+// polyol with one acid, the polyol's "diyl" name; other esters as acyloxy and alkoxy-oxo prefixes (P-65.6.3.3).
+check("esters", [
+  // Sam's dimethyl diazomalonate.
+  ["dimethyl diazopropanedioate", "dimethyl 2-diazopropanedioate"], "diethyl propanedioate", "diethyl butanedioate", "dimethyl ethanedioate",
+  ["ethyl methyl butanedioate", "1-ethyl 4-methyl butanedioate"], "1-ethyl 4-methyl 2-hydroxybutanedioate", "4-ethyl 1-methyl 2-hydroxybutanedioate",
+  "dimethyl (2R,3R)-2,3-dihydroxybutanedioate", "dimethyl benzene-1,4-dicarboxylate", "di-tert-butyl butanedioate",
+  "3-ethyl 5-methyl 2,6-dimethylpyridine-3,5-dicarboxylate", ["triacetin", "propane-1,2,3-triyl triacetate"], "ethane-1,2-diyl diacetate",
+  "benzene-1,4-diyl diacetate", "(2R)-propane-1,2-diyl diacetate", ["tristearin", "propane-1,2,3-triyl trioctadecanoate"],
+  ["triolein", "propane-1,2,3-triyl tris[(9Z)-octadec-9-enoate]"], "ethane-1,2-diyl bis(2-methylprop-2-enoate)",
+  "methyl 4-(acetyloxy)benzoate", "4-methoxy-4-oxobutanoic acid", "2-(acetyloxy)ethyl propanoate", "methyl [(tert-butoxycarbonyl)amino]acetate",
+  "methyl (1R,2R,3S,5S)-3-(benzoyloxy)-8-methyl-8-azabicyclo[3.2.1]octane-2-carboxylate", ["methyl 3,4-diacetoxybenzoate", "methyl 3,4-bis(acetyloxy)benzoate"],
+]);
