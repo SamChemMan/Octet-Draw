@@ -5,6 +5,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { graphOf } from "./naming.ts";
 import { iupacNameWhy } from "./namer.ts";
+import { sandwichIons } from "./metals.ts";
+import { addGroupAt } from "./edit.ts";
 import type { Mol } from "./render.ts";
 
 const dir = new URL("./vendor/opsin/", import.meta.url);
@@ -140,3 +142,24 @@ for (const [input, why] of none) {
   assert.equal(r.why, why, input);
 }
 console.log(`namer-metals.check: ${none.length} complexes with no name OPSIN reads, as expected`);
+
+// A metallocene drawn with the j key (two Cp rings joined to the metal through multi-centre points) is named as its
+// ions, as OPSIN draws it and as its standard InChI has it.
+const ketInchi = (m: Mol) => convert(JSON.stringify({ root: { nodes: [{ $ref: "mol0" }] }, mol0: { type: "molecule",
+  atoms: m.atoms.map((a) => ({ label: a.label, location: a.location, ...(a.charge ? { charge: a.charge } : {}) })), bonds: m.bonds.map((b) => ({ type: b.type, atoms: b.atoms })) } }), "inchi");
+for (const [metal, want] of [["Fe", "ferrocene"], ["Ru", "ruthenocene"], ["Os", "osmocene"], ["Co", "cobaltocene"]]) {
+  let m: Mol = { atoms: [{ label: metal, location: [0, 0, 0] }], bonds: [] };
+  [m] = addGroupAt(m, 0, "cpLigand");
+  [m] = addGroupAt(m, 0, "cpLigand");
+  const ions = sandwichIons(m)!, name = iupacNameWhy(graphOf(ions)!).name;
+  assert.equal(name, want);
+  assert.equal(ketInchi(ions), convert(opsin.parseToSmiles(want), "inchi"), `${want} drawn with j`);
+}
+// Not a sandwich: one Cp ring on the metal, or an η6 arene.
+let half: Mol = { atoms: [{ label: "Fe", location: [0, 0, 0] }], bonds: [] };
+[half] = addGroupAt(half, 0, "cpLigand");
+assert.equal(sandwichIons(half), undefined);
+let arene: Mol = { atoms: [{ label: "Cr", location: [0, 0, 0] }], bonds: [] };
+[arene] = addGroupAt(arene, 0, "phenylLigand");
+assert.equal(sandwichIons(arene), undefined);
+console.log("namer-metals.check: metallocenes drawn with j named as their ions");

@@ -16,6 +16,7 @@
 // or for the 2005 ligand names (chlorido, oxido, propan-2-olato): it reads chloro, oxo and propan-2-yloxy, so the
 // additive names here use those.
 import type { Graph } from "./naming.ts";
+import type { Mol } from "./render.ts";
 
 type Name = { text: string; compound: boolean };
 // What metalName needs from the namer.
@@ -67,6 +68,58 @@ const MULT_COMPLEX = ["", "", "bis", "tris", "tetrakis", "pentakis", "hexakis", 
 const VALENCE: Record<string, number[]> = { C: [4], N: [3], O: [2], S: [2, 4, 6], P: [3, 5], F: [1], Cl: [1], Br: [1], I: [1] };
 
 export const isMetal = (el: string) => el in NAMES;
+
+// A metallocene drawn with multi-centre attachments (the j key, or ChemDraw's), as OPSIN draws one and as its
+// standard InChI has it: the metal ion M2+ and two cyclopentadienide rings (C5H5-), with no attachment points.
+// Undefined unless every multi-centre attachment in the drawing is one of two on such a metal, and nothing else.
+export function sandwichIons(m: Mol): Mol | undefined {
+  const centres = m.atoms.flatMap((a, i) => (a.centre ? [i] : []));
+  if (!centres.length) return undefined;
+  const nbrs = (i: number) => m.bonds.flatMap((b) => (b.atoms[0] === i ? [b.atoms[1]] : b.atoms[1] === i ? [b.atoms[0]] : []));
+  const bond = (a: number, b: number) => m.bonds.find((x) => (x.atoms[0] === a && x.atoms[1] === b) || (x.atoms[0] === b && x.atoms[1] === a));
+  const metals = new Map<number, number[]>();
+  for (const c of centres) {
+    const ns = nbrs(c), metal = ns[0];
+    if (m.atoms[c].centre!.variable || ns.length !== 1 || !OCENES[m.atoms[metal].label] || m.atoms[metal].text) return undefined;
+    metals.set(metal, [...(metals.get(metal) ?? []), c]);
+  }
+  const atoms = m.atoms.map((a) => ({ ...a })), types = new Map<Mol["bonds"][number], number>();
+  for (const [metal, cs] of metals) {
+    if (cs.length !== 2 || nbrs(metal).length !== 2 || m.atoms[metal].charge) return undefined;
+    atoms[metal].charge = 2;
+    for (const c of cs) {
+      // The ring in cycle order: five carbons joined round by single, double or delocalised bonds.
+      const ring = m.atoms[c].centre!.atoms, cycle = [ring[0]];
+      if (ring.length !== 5 || ring.some((i) => m.atoms[i]?.label !== "C" || m.atoms[i].charge || m.atoms[i].text)) return undefined;
+      while (cycle.length < 5) {
+        const next = nbrs(cycle[cycle.length - 1]).find((j) => ring.includes(j) && !cycle.includes(j));
+        if (next === undefined) return undefined;
+        cycle.push(next);
+      }
+      const bonds = cycle.map((a, k) => bond(a, cycle[(k + 1) % 5]));
+      if (bonds.some((b) => !b || ![1, 2, 4].includes(b.type))) return undefined;
+      // Delocalised: the charge on the first carbon, then double, single, double round the ring. Drawn with two double
+      // bonds: the charge on the carbon between two single bonds.
+      let start = 0;
+      if (bonds.some((b) => b!.type !== 4)) {
+        start = cycle.findIndex((_, k) => bonds[k]!.type === 1 && bonds[(k + 4) % 5]!.type === 1);
+        if (start < 0 || bonds.filter((b) => b!.type === 2).length !== 2) return undefined;
+      }
+      atoms[cycle[start]].charge = -1;
+      for (let k = 0; k < 5; k++) types.set(bonds[(start + k) % 5]!, k === 1 || k === 3 ? 2 : 1);
+    }
+  }
+  // The attachment points go, with their bonds.
+  const keep = atoms.map((a) => !a.centre), at: number[] = [];
+  let n = 0;
+  keep.forEach((k, i) => { if (k) at[i] = n++; });
+  return {
+    atoms: atoms.filter((_, i) => keep[i]),
+    bonds: m.bonds.filter((b) => keep[b.atoms[0]] && keep[b.atoms[1]]).map((b) => (types.has(b)
+      ? { atoms: [at[b.atoms[0]], at[b.atoms[1]]] as [number, number], type: types.get(b)! }
+      : { ...b, atoms: [at[b.atoms[0]], at[b.atoms[1]]] as [number, number] })),
+  };
+}
 
 export function metalName(g: Graph, parts: number[][], api: MetalApi): string | undefined {
   if (!g.atoms.some((a) => isMetal(a.el))) return undefined;
