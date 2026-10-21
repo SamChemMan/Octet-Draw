@@ -136,6 +136,9 @@ type Bridged = { prefix: string; nums: number[][]; bonds: [number, number][] };
 const REPLACE: [string, string][] = [["O", "oxa"], ["S", "thia"], ["N", "aza"]];
 // A ring assembly (P-28): two identical rings and the single bond joining them.
 type Assembly = { rings: [number[], number[]]; junction: [number, number] };
+// A parent: a chain or ring (or ring assembly), a hydrazine or diazene (hetero), or a chain whose carboxylic groups hang
+// on it as "carbo…" suffixes (attached: propane-1,2,3-tricarboxylic acid).
+type Parent = { atoms: number[]; ring: boolean; assembly?: Assembly; hetero?: string; attached?: boolean };
 const HYDRO = [...MULT, "undeca", "dodeca", "trideca", "tetradeca"];
 
 // Retained names used in preferred IUPAC names (P-65, P-66, P-63): parent ring or chain, principal group, name.
@@ -733,7 +736,7 @@ class Namer {
   // ——— Naming a parent with its suffix, prefixes and numbering ———
   // atoms: the parent's chain (in order) or ring (in cycle order). attach: for a substituent, the atom with the free
   // valence and the atom it is joined to. suffix: the principal groups expressed as a suffix.
-  nameParent(p: { atoms: number[]; ring: boolean; assembly?: Assembly; hetero?: string }, opts: { kind?: Kind; attach?: [number, number]; acyl?: boolean; sulfo?: string; skip?: Set<number>; tiebreak?: (nums: number[][]) => number[][] }): Name & { score: number[]; label?: (a: number) => string } {
+  nameParent(p: Parent, opts: { kind?: Kind; attach?: [number, number]; acyl?: boolean; sulfo?: string; skip?: Set<number>; tiebreak?: (nums: number[][]) => number[][] }): Name & { score: number[]; label?: (a: number) => string } {
     const { atoms } = p, inParent = new Set(atoms), kind = opts.kind;
     const skip = opts.skip ?? new Set<number>();
     const info = p.hetero ? ({ numberings: [atoms, [...atoms].reverse()], aromatic: false } as ReturnType<Namer["ringInfo"]>)
@@ -747,8 +750,8 @@ class Namer {
       for (const [g, on] of this.bearer) {
         if (this.group[g] !== kind || skip.has(g)) continue;
         if (CARBON_GROUP.has(kind)) {
-          if (inParent.has(g) && !p.ring) sites.push({ atom: g, group: g });
-          else if (p.ring && on.some((a) => inParent.has(a))) { sites.push({ atom: on.find((a) => inParent.has(a))!, group: g }); used.add(g); }
+          if (inParent.has(g) && !p.ring && !p.attached) sites.push({ atom: g, group: g });
+          else if ((p.ring || p.attached) && on.some((a) => inParent.has(a))) { sites.push({ atom: on.find((a) => inParent.has(a))!, group: g }); used.add(g); }
         } else if (kind === "ketone" || kind === "imine") { if (inParent.has(g)) { sites.push({ atom: g, group: g }); used.add(kind === "ketone" ? this.carbonylO[g] : this.imineN(g)!); } }
         else { const a = on.find((x) => inParent.has(x)); if (a !== undefined) { sites.push({ atom: a, group: g }); used.add(g); } }
       }
@@ -827,7 +830,7 @@ class Namer {
 
     // Assemble (P-14, P-16): prefixes in alphabetical order, then the parent, unsaturation and suffix.
     const size = atoms.length;
-    const retainedKey = info?.ring ? `${info.ring.name}:${kind}` : !p.ring ? `C${size}:${kind}` : "";
+    const retainedKey = info?.ring ? `${info.ring.name}:${kind}` : !p.ring && !p.attached ? `C${size}:${kind}` : "";
     let retained = kind && !opts.attach && RETAINED[retainedKey];
     // Acetic acid and the like keep their name only without multiple bonds; the suffix site is fixed.
     if (retained && !p.ring && (multiple(num).length || sites.length !== 1)) retained = undefined;
@@ -875,7 +878,8 @@ class Namer {
     if (opts.sulfo) text = joinPrefixes(prefixText, withSuffix(parent, undefined, [label(num, opts.attach![0])], p.ring, locantFree, !p.ring && size <= 2, opts.sulfo));
     else if (opts.attach) text = joinPrefixes(prefixText, this.substituentForm(parent, info, label(num, opts.attach[0]), p.ring, size, !!opts.acyl, multiple(num).length > 0));
     else if (retained) text = prefixText + retained; // benzoic acid, acetic acid: the suffix locant is understood
-    else text = joinPrefixes(prefixText, withSuffix(parent, kind, sitesLoc, p.ring, locantFree, !p.ring && size <= 2));
+    else text = joinPrefixes(prefixText, withSuffix(parent, kind, sitesLoc, p.ring || !!p.attached, locantFree, !p.ring && !p.attached && size <= 2));
+    if (p.attached && size === 1) text = text.replace(/methane-1(,1)+-/, "methane"); // methanetricarboxylic acid
     // Stereodescriptors (P-91, P-93): R and S on the parent's atoms, E and Z on its double bonds, in locant order,
     // in front of everything they belong to.
     const stereo: { at: number; text: string }[] = [];
@@ -1076,8 +1080,8 @@ class Namer {
 
   // Acyclic carbon paths (no ring atoms) through or from `start`, not crossing `from`. A nitrile's carbon is in a chain
   // only when the chain is named with the -nitrile suffix; else it is cyano (ethyl cyanoacetate, P-66.5.1.2).
-  paths(start: number, from: number, fromStart: boolean, nitrile = false): number[][] {
-    const ok = (j: number) => this.el[j] === "C" && !this.inRing[j] && j !== from && (nitrile || !this.isNitrileC(j));
+  paths(start: number, from: number, fromStart: boolean, nitrile = false, avoid?: Set<number>): number[][] {
+    const ok = (j: number) => this.el[j] === "C" && !this.inRing[j] && j !== from && (nitrile || !this.isNitrileC(j)) && !avoid?.has(j);
     const walk = (a: number, seen: Set<number>): number[][] => {
       const next = this.adj[a].filter((j) => ok(j) && !seen.has(j) && (j === start || this.carbonylO[j] < 0 || true));
       const ends = next.flatMap((j) => walk(j, new Set([...seen, j])).map((p) => [j, ...p]));
@@ -1133,7 +1137,7 @@ class Namer {
     return text;
   }
   // Candidate parents: every acyclic carbon chain and every ring; the senior one wins (P-44).
-  parentName(kind: Kind | undefined, skip = new Set<number>(), within?: Set<number>): (Name & { parent?: { atoms: number[]; ring: boolean; assembly?: Assembly; hetero?: string }; label?: (a: number) => string }) | undefined {
+  parentName(kind: Kind | undefined, skip = new Set<number>(), within?: Set<number>): (Name & { parent?: Parent; label?: (a: number) => string }) | undefined {
     const carbons = [...Array(this.n).keys()].filter((i) => this.el[i] === "C" && !this.inRing[i] && (!within || within.has(i)) && !skip.has(i) && !this.pseudo.has(i) && (kind === "nitrile" || !this.isNitrileC(i)));
     const chains: number[][] = [];
     for (const a of carbons) for (const p of this.paths(a, -1, true, kind === "nitrile")) if (p.every((i) => !skip.has(i) && (!within || within.has(i)))) chains.push(p);
@@ -1149,10 +1153,17 @@ class Namer {
       return c;
     };
     // A chain must not leave out a group carbon that it could include at its end.
-    const cands: { atoms: number[]; ring: boolean; groups: number; assembly?: Assembly; hetero?: string }[] = [
+    const cands: (Parent & { groups: number })[] = [
       ...this.rings.filter((r) => !within || r.every((a) => within.has(a))).map((r) => ({ atoms: r, ring: true, groups: count(r, true) })),
       ...chains.map((c) => ({ atoms: c, ring: false, groups: count(c, false) })),
     ];
+    // More than two carboxylic groups on a chain cannot all end it: the chain without them carries every one as a
+    // "carbo…" suffix (P-65.1.2.2.2): 2-hydroxypropane-1,2,3-tricarboxylic acid (citric acid).
+    const own = new Set([...this.bearer.keys()].filter((g) => kind && CARBON_GROUP.has(kind) && this.group[g] === kind && !skip.has(g)));
+    if (own.size > 2) for (const a of carbons) if (!own.has(a)) for (const p of this.paths(a, -1, true, false, own)) {
+      const groups = count(p, true);
+      if (groups > 2 && p.every((i) => !skip.has(i) && (!within || within.has(i)))) cands.push({ atoms: p, ring: false, attached: true, groups });
+    }
     // A hydrazine or diazene bearing carboxylic acid groups is a parent, senior to carbon (P-44.1.2): named as a ring is,
     // with "carbo…" suffixes.
     for (const a of this.hzN) for (const b of this.adj[a]) if (a < b && this.hzN.has(b) && (!within || (within.has(a) && within.has(b))))
@@ -1178,7 +1189,7 @@ class Namer {
     };
     const subs = (c: { atoms: number[] }) => c.atoms.reduce((s, a) => s + this.adj[a].filter((j) => !c.atoms.includes(j)).length, 0);
     // An assembly ranks by its component ring, then above that ring alone.
-    const score = (c: { atoms: number[]; ring: boolean; groups: number; assembly?: Assembly; hetero?: string }) =>
+    const score = (c: Parent & { groups: number }) =>
       [-c.groups, c.ring ? 0 : 1, ...(c.ring ? [...ringRank({ atoms: c.assembly?.rings[0] ?? c.atoms }), c.assembly ? -2 : -1] : [-c.atoms.length, -multiple(c), -multiple(c, 2), 0, 0]), -subs(c)];
     cands.sort((a, b) => compare(score(a), score(b)));
     const best = cands.filter((c) => compare(score(c), score(cands[0])) === 0);
@@ -1225,7 +1236,7 @@ class Namer {
     if (polyol) return polyol;
     const p = this.parentName(kind)?.parent;
     if (!p) throw new Error("several esters");
-    const site = (c: number) => (p.ring ? this.bearer.get(c)!.find((a) => p.atoms.includes(a)) : p.atoms.includes(c) ? c : undefined);
+    const site = (c: number) => (p.ring || p.attached ? this.bearer.get(c)!.find((a) => p.atoms.includes(a)) : p.atoms.includes(c) ? c : undefined);
     const groups = new Map<string, { name: Name; sites: number[] }>();
     for (const c of esters) {
       const at = site(c);

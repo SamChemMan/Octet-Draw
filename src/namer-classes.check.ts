@@ -193,3 +193,10 @@ check("anhydride prefixes", [
   "acetic benzoic anhydride", "4-methylbenzoic anhydride", "4-[(benzyloxy)carbonyl]benzoic acid",
   ["smiles:C[C@H](NC(=O)OCc1ccccc1)C(O)=O", "(2S)-2-{[(benzyloxy)carbonyl]amino}propanoic acid"],
 ]);
+
+// More than two carboxylic groups on a chain: all as "carbo…" suffixes on the chain without them (P-65.1.2.2.2).
+check("tricarboxylic", [
+  ["citric acid", "2-hydroxypropane-1,2,3-tricarboxylic acid"], "triethyl 2-hydroxypropane-1,2,3-tricarboxylate", "propane-1,2,3-tricarboxylic acid",
+  "butane-1,2,4-tricarboxylic acid", "methanetricarboxylic acid", "triethyl methanetricarboxylate", "propane-1,2,3-tricarbonitrile",
+  ["aconitic acid", "prop-1-ene-1,2,3-tricarboxylic acid"], "butanedioic acid", "2-methylbutanedioic acid",
+]);
