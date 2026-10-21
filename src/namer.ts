@@ -27,11 +27,12 @@ const VOWEL = /^[aeiouy]/;
 // Carbonic acid derivatives rank as the acids, esters, halides and amides they are, each after the carboxylic one:
 // carbonic (carbamic acid), carbamate (carbamates, carbonates), carbonylhalide (carbamoyl chloride), urea.
 // Cations (aminium) are senior to every neutral group (P-41).
-// Amidines and guanidines are amides of imidic acids (P-66.4.1), each after its oxo analogue.
-type Kind = "aminium" | "acid" | "carbonic" | "sulfonic" | "anhydride" | "ester" | "carbamate" | "halide" | "carbonylhalide" | "sulfonylhalide" | "amide" | "amidine" | "urea" | "guanidine" | "hydrazide" | "nitrile" | "aldehyde" | "ketone" | "alcohol" | "thiol" | "amine" | "imine";
-const SENIORITY: Kind[] = ["aminium", "acid", "carbonic", "sulfonic", "anhydride", "ester", "carbamate", "halide", "carbonylhalide", "sulfonylhalide", "amide", "amidine", "urea", "guanidine", "hydrazide", "nitrile", "aldehyde", "ketone", "alcohol", "thiol", "amine", "imine"];
+// Imidic acids, their esters and halides, and amidines and guanidines (amides of imidic acids, P-65.1.3.1,
+// P-66.4.1), each after its oxo analogue.
+type Kind = "aminium" | "acid" | "imidic" | "carbonic" | "sulfonic" | "anhydride" | "ester" | "imidate" | "carbamate" | "halide" | "imidoylhalide" | "carbonylhalide" | "sulfonylhalide" | "amide" | "amidine" | "urea" | "guanidine" | "hydrazide" | "nitrile" | "aldehyde" | "ketone" | "alcohol" | "thiol" | "amine" | "imine";
+const SENIORITY: Kind[] = ["aminium", "acid", "imidic", "carbonic", "sulfonic", "anhydride", "ester", "imidate", "carbamate", "halide", "imidoylhalide", "carbonylhalide", "sulfonylhalide", "amide", "amidine", "urea", "guanidine", "hydrazide", "nitrile", "aldehyde", "ketone", "alcohol", "thiol", "amine", "imine"];
 // Groups whose carbon is counted in a chain name (propanoic acid) but cited as "carbo…" on a ring (cyclohexanecarboxylic acid).
-const CARBON_GROUP = new Set<Kind>(["acid", "anhydride", "ester", "halide", "amide", "amidine", "hydrazide", "nitrile", "aldehyde"]);
+const CARBON_GROUP = new Set<Kind>(["acid", "imidic", "anhydride", "ester", "imidate", "halide", "imidoylhalide", "amide", "amidine", "hydrazide", "nitrile", "aldehyde"]);
 const HALIDE: Record<string, string> = { F: "fluoride", Cl: "chloride", Br: "bromide", I: "iodide" };
 // Cations of salts (P-65.6.2.2) and their charges.
 const CATIONS: Record<string, [string, number]> = { Li: ["lithium", 1], Na: ["sodium", 1], K: ["potassium", 1], Rb: ["rubidium", 1], Cs: ["caesium", 1], Ag: ["silver", 1],
@@ -300,7 +301,7 @@ class Namer {
       const y = el[x] === "O" && adj[x].length === 2 ? adj[x].find((j) => j !== c)! : -1;
       if (y >= 0 && el[y] === "C" && this.carbonylO[y] >= 0 && !this.inRing[y]) { this.mark(c, "anhydride", cs); this.group[x] = "anhydride"; this.anhydrideO.set(c, x); continue; }
       if (el[x] === "O" && h[x] === 1 && adj[x].length === 1) { this.mark(c, "acid", cs); this.group[x] = "acid"; }
-      else if (el[x] === "O" && adj[x].length === 2 && this.carbonylO[adj[x].find((j) => j !== c)!] < 0 && el[adj[x].find((j) => j !== c)!] === "C") {
+      else if (el[x] === "O" && adj[x].length === 2 && ((this.carbonylO[adj[x].find((j) => j !== c)!] < 0 && el[adj[x].find((j) => j !== c)!] === "C") || this.ringNO(x))) {
         this.mark(c, "ester", cs);
         this.esterO.set(c, x);
         this.group[x] = "ester";
@@ -381,7 +382,7 @@ class Namer {
       if (HALO[el[x]] && adj[x].length === 1) return "X";
       if (el[x] === "O" && adj[x].length === 1 && this.h[x] === 1) return "OH";
       const r = adj[x].find((j) => j !== c);
-      if (el[x] === "O" && adj[x].length === 2 && el[r!] === "C") return this.carbonylO[r!] < 0 ? "OR" : this.inRing[r!] ? "" : "OCO";
+      if (el[x] === "O" && adj[x].length === 2 && (el[r!] === "C" || this.ringNO(x))) return el[r!] !== "C" || this.carbonylO[r!] < 0 ? "OR" : this.inRing[r!] ? "" : "OCO";
       if (el[x] === "N" && this.ord(c, x) === 1 && !this.q[x] && adj[x].every((j) => j === c || (el[j] === "C" && !this.isNitrileC(j)) || this.nOxy(x, j))) return "N";
       return "";
     });
@@ -405,8 +406,12 @@ class Namer {
     const carbon = (n: number, not: number) => adj[n].every((j) => j === not || (el[j] === "C" && !this.isNitrileC(j)));
     return carbon(x, y) && carbon(y, x) ? y : undefined;
   }
-  // Bonds between heteroatoms that these classes allow: N-O of N-hydroxy amides, N-N of hydrazides.
-  classBond = (a: number, b: number) => this.nO.has(a) || this.nO.has(b) || (this.group[a] === "hydrazide" && this.group[b] === "hydrazide" && this.el[a] === "N" && this.el[b] === "N");
+  // An ester O on a ring N (P-65.6.3.2.3): 2,5-dioxopyrrolidin-1-yl acetate, the N-hydroxysuccinimide esters.
+  ringNO = (o: number) => this.adj[o].some((j) => this.el[j] === "N" && this.inRing[j] && !this.q[j] && this.ord(o, j) === 1);
+  // Bonds between heteroatoms that these classes allow: N-O of N-hydroxy amides and of esters on a ring N, N-N of
+  // hydrazides.
+  classBond = (a: number, b: number) => this.nO.has(a) || this.nO.has(b) || (this.group[a] === "hydrazide" && this.group[b] === "hydrazide" && this.el[a] === "N" && this.el[b] === "N")
+    || [a, b].some((o) => this.el[o] === "O" && (this.group[o] === "ester" || this.group[o] === "carbamate") && this.ringNO(o));
   // Groups cited only as prefixes (P-61.7?, P-65.2.2): N=C=O and N=C=S on N (isocyanato, isothiocyanato), N#C-O and
   // N#C-S on O or S (cyanato, thiocyanato). With H in place of the attachment, the molecule is the acid: isocyanic acid.
   pseudoGroup(c: number): boolean {
@@ -431,7 +436,8 @@ class Namer {
   // guanidines and carbodiimides (methanediimine).
   amidineGroup(c: number, n: number, cs: number[], rest: number[]) {
     const { el, adj } = this;
-    const plain = (x: number) => el[x] === "N" && this.ord(c, x) === 1 && !this.inRing[x] && !this.q[x] && adj[x].every((j) => j === c || (el[j] === "C" && !this.isNitrileC(j)));
+    const plain = (x: number) => el[x] === "N" && this.ord(c, x) === 1 && !this.inRing[x] && !this.q[x] && adj[x].every((j) => j === c || (el[j] === "C" && !this.isNitrileC(j)) || this.nOxy(x, j));
+    for (const x of rest) if (plain(x)) for (const j of adj[x]) if (this.nOxy(x, j)) this.nO.add(j); // N-hydroxyguanidine, amidoximes
     const m = rest[0];
     if (!cs.length && rest.length === 1 && el[m] === "N" && this.ord(c, m) === 2 && !this.inRing[m] && !this.q[m] && adj[m].length + this.h[m] === 2
       && adj[m].every((j) => j === c || (el[j] === "C" && this.carbonylO[j] < 0 && !this.isNitrileC(j)))) {
@@ -440,11 +446,18 @@ class Namer {
       this.diimine.add(c);
       return;
     }
-    const kind: Kind | undefined = !rest.every(plain) ? undefined : cs.length <= 1 && rest.length === 1 ? "amidine" : !cs.length && rest.length === 2 ? "guanidine" : undefined;
+    // Isoureas and other imidic carbonic acid derivatives (P-65.2.1.2): carbamimidic acid, methyl carbamimidate.
+    if (!cs.length && rest.length === 2 && !rest.every(plain)) { this.carbonicGroup(c, rest); this.group[n] = "imine"; return; }
+    // Imidic acids, imidates and imidoyl halides (P-65.1.3.1): ethanimidic acid, methyl ethanimidate.
+    const x = rest[0], r = adj[x].find((j) => j !== c);
+    const one: Kind | undefined = plain(x) ? "amidine" : el[x] === "O" && adj[x].length === 1 && this.h[x] === 1 ? "imidic"
+      : el[x] === "O" && adj[x].length === 2 && ((el[r!] === "C" && this.carbonylO[r!] < 0) || this.ringNO(x)) ? "imidate" : HALO[el[x]] && adj[x].length === 1 ? "imidoylhalide" : undefined;
+    const kind: Kind | undefined = cs.length <= 1 && rest.length === 1 ? one : !cs.length && rest.length === 2 ? "guanidine" : undefined;
     if (!kind) throw new Error("imine");
     this.mark(c, kind, cs);
     this.group[n] = "imine";
-    for (const x of rest) this.group[x] = kind;
+    for (const y of rest) this.group[y] = kind;
+    if (kind === "imidate") this.esterO.set(c, x);
   }
   // Ring N atoms single-bonded to carbon c, when c is outside a ring.
   ringN = (c: number) => (this.inRing[c] ? [] : this.adj[c].filter((j) => this.el[j] === "N" && this.inRing[j] && this.ord(c, j) === 1 && !this.q[j]));
@@ -726,7 +739,7 @@ class Namer {
     const prime = new Set<{ atom: number; name: Name; n?: boolean }>();
     for (const s of sites) {
       const amideN = this.groupHetero(s.group).find((j) => !this.inRing[j] && this.ord(s.group, j) === 1);
-      const nAtom = kind === "amide" || kind === "amidine" || kind === "hydrazide" ? amideN : kind === "amine" || kind === "aminium" ? s.group : kind === "imine" ? this.imineN(s.group) : undefined;
+      const nAtom = kind === "amide" || kind === "amidine" || kind === "hydrazide" ? amideN : kind === "amine" || kind === "aminium" ? s.group : kind === "imine" || kind === "imidic" || kind === "imidate" || kind === "imidoylhalide" ? this.imineN(s.group) : undefined;
       const second = kind === "amidine" ? this.imineN(s.group) : kind === "hydrazide" ? this.hydrazideN(s.group, nAtom!) : undefined;
       for (const a of second !== undefined ? [nAtom!, second] : nAtom === undefined ? [] : [nAtom])
         for (const x of this.adj[a]) if (x !== s.group && !inParent.has(x) && x !== s.atom && x !== second && x !== nAtom) {
@@ -823,7 +836,7 @@ class Namer {
       parent = `${parent.replace(/e$/, "")}-${ium.map((a) => label(num, a)).sort(locOrder).join(",")}-${MULT[ium.length]}ium`;
     }
     let text: string;
-    const locantFree = p.ring && !fused && !assembly && !bridged && (!info?.ring || info.ring.name === "benzene") && prefixes.length === 0;
+    const locantFree = p.ring && !fused && !assembly && !bridged && (!info?.ring || info.ring.name === "benzene") && prefixes.every((x) => x.n); // N-substituents need no ring locant: N-methylcyclohexanecarboxamide
     if (opts.sulfo) text = joinPrefixes(prefixText, withSuffix(parent, undefined, [label(num, opts.attach![0])], p.ring, locantFree, !p.ring && size <= 2, opts.sulfo));
     else if (opts.attach) text = joinPrefixes(prefixText, this.substituentForm(parent, info, label(num, opts.attach[0]), p.ring, size, !!opts.acyl, multiple(num).length > 0));
     else if (retained) text = prefixText + retained; // benzoic acid, acetic acid: the suffix locant is understood
@@ -1054,7 +1067,7 @@ class Namer {
     if (this.adj.some((a, i) => a.length === 0 && this.el[i] !== "C") || this.n === 0) return undefined;
     const kind = SENIORITY.find((k) => this.group.includes(k) && [...this.bearer.keys()].some((g) => this.group[g] === k));
     let text: string | undefined;
-    if (kind === "ester") text = this.esterName();
+    if (kind === "ester" || kind === "imidate") text = this.esterName(kind);
     else if (kind === "anhydride") text = this.anhydrideName();
     else if (this.whole && this.pseudo.size === this.n) text = this.whole;
     else if (kind === "urea" || kind === "carbamate" || kind === "carbonic" || kind === "carbonylhalide" || kind === "guanidine" || (kind === "imine" && this.diimine.size)
@@ -1063,7 +1076,7 @@ class Namer {
     else {
       text = this.parentName(kind)?.text;
       // Acid halides (P-65.5.1): acetyl chloride, butanedioyl dichloride, methanesulfonyl chloride.
-      if (text && (kind === "halide" || kind === "sulfonylhalide")) {
+      if (text && (kind === "halide" || kind === "sulfonylhalide" || kind === "imidoylhalide")) {
         const xs = [...Array(this.n).keys()].filter((x) => HALO[this.el[x]] && this.adj[x].some((j) => this.group[j] === kind));
         if (new Set(xs.map((x) => this.el[x])).size !== 1) throw new Error("mixed halides");
         text += ` ${MULT[xs.length]}${HALIDE[this.el[xs[0]]]}`;
@@ -1145,13 +1158,13 @@ class Namer {
     return names.sort((a, b) => a.length - b.length || a.localeCompare(b))[0];
   }
   // Esters (P-65.6.3): "alkyl alkanoate", the alkyl named from the ester oxygen's other side.
-  esterName(): string | undefined {
-    const esters = [...this.esterO.keys()].filter((c) => this.group[c] === "ester");
-    if (esters.length !== 1) return this.severalEsters(esters);
+  esterName(kind: Kind): string | undefined {
+    const esters = [...this.esterO.keys()].filter((c) => this.group[c] === kind);
+    if (esters.length !== 1) return this.severalEsters(esters, kind);
     const c = esters[0], o = this.esterO.get(c)!, r = this.adj[o].find((j) => j !== c)!;
     const alkyl = this.substituent(r, o);
     // The acid side: everything reachable from the ester carbon without crossing the ester oxygen.
-    const acid = this.parentName("ester", new Set(), this.side(c, o));
+    const acid = this.parentName(kind, new Set(), this.side(c, o));
     if (!acid) return undefined;
     const acidText = acid.text.replace(/oic acid$/, "oate").replace(/carboxylic acid$/, "carboxylate").replace(/ic acid$/, "ate");
     return `${alkyl.text} ${acidText}`;
@@ -1160,10 +1173,10 @@ class Namer {
   // polyacid with the most ester groups names them, its alkyl groups in alphanumerical order, with the locants of
   // their acid groups when they differ: dimethyl butanedioate, 1-ethyl 4-methyl butanedioate. The other esters are
   // prefixes: methyl 4-(acetyloxy)benzoate, 4-methoxy-4-oxobutanoic acid (P-65.6.3.3).
-  severalEsters(esters: number[]): string {
+  severalEsters(esters: number[], kind: Kind = "ester"): string {
     const polyol = this.polyolEster(esters);
     if (polyol) return polyol;
-    const p = this.parentName("ester")?.parent;
+    const p = this.parentName(kind)?.parent;
     if (!p) throw new Error("several esters");
     const site = (c: number) => (p.ring ? this.bearer.get(c)!.find((a) => p.atoms.includes(a)) : p.atoms.includes(c) ? c : undefined);
     const groups = new Map<string, { name: Name; sites: number[] }>();
@@ -1179,7 +1192,7 @@ class Namer {
     // Low locants go to the alkyl group cited first (3-ethyl 5-methyl pyridine-3,5-dicarboxylate).
     const sorted = [...groups.values()].sort((a, b) => alphaKey(a.name.text).localeCompare(alphaKey(b.name.text)));
     const tiebreak = (nums: number[][]) => sorted.reduce((best, g) => this.lowest(best, (num) => g.sites.map((a) => num.indexOf(a) + 1)), nums);
-    const acid = this.nameParent(p, { kind: "ester", tiebreak });
+    const acid = this.nameParent(p, { kind, tiebreak });
     const alkyls = sorted.map((g) => (sorted.length > 1 ? `${g.sites.map(acid.label!).sort(locOrder).join(",")}-` : "") + times(g.sites.length, g.name));
     return `${alkyls.join(" ")} ${acid.text}`;
   }
@@ -1258,7 +1271,8 @@ class Namer {
   carbonicOne(c: number, kind: Kind): string {
     if (kind === "imine" && !this.diimine.has(c)) throw new Error("imine");
     // N and N' (a guanidine's imino N is N''): lowest locants, then low locants to the prefix cited first.
-    const imino = kind === "guanidine" ? this.imineN(c)! : undefined, last = imino === undefined ? [] : [imino];
+    const imidic = this.carbonylO[c] < 0 && kind !== "imine" && kind !== "nitrile";
+    const imino = imidic ? this.imineN(c)! : undefined, last = imino === undefined ? [] : [imino];
     const ns = this.groupHetero(c).filter((j) => this.el[j] === "N" && j !== imino && (kind === "imine" || this.ord(c, j) === 1));
     const prefixes = [...ns, ...last].flatMap((n) => this.adj[n].filter((j) => j !== c).map((j) => ({ n, name: this.substituent(j, n) })));
     let nums = ns.length === 2 ? [[...ns, ...last], [ns[1], ns[0], ...last]] : [[...ns, ...last]];
@@ -1266,7 +1280,8 @@ class Namer {
     for (const t of [...new Set(prefixes.map((x) => x.name.text))].sort((a, b) => alphaKey(a).localeCompare(alphaKey(b))))
       nums = this.lowest(nums, (num) => prefixes.filter((x) => x.name.text === t).map((x) => num.indexOf(x.n) + 1));
     const text = assemblePrefixes(prefixes.map((x) => ({ loc: ["N", "N'", "N''"][nums[0].indexOf(x.n)], name: x.name })), false);
-    if (kind === "urea" || kind === "guanidine") return `${text}${kind}`;
+    if (kind === "guanidine" || (kind === "urea" && !imidic)) return `${text}${kind}`;
+    if (kind === "urea") throw new Error("imine");
     if (kind === "imine") return `${text}methanediimine`;
     // Carbamic acid, carbamates and carbamoyl halides; carbonic acid, carbonates, carbonochloridic acid and its esters,
     // and carbonyl dihalides (P-65.2.1, P-65.5.1).
@@ -1274,11 +1289,20 @@ class Namer {
     const alkyls = ls.filter((x) => this.el[x] === "O" && this.adj[x].length === 2).map((o) => this.substituent(this.adj[o].find((j) => j !== c)!, o));
     const xs = ls.filter((x) => HALO[this.el[x]]).map((x) => HALIDE[this.el[x]]).sort();
     if (kind === "nitrile") return ns.length ? `${text}cyanamide` : xs.length ? `carbononitridic ${xs[0]}` : "cyanic acid";
-    if (ns.length) return kind === "carbonic" ? `${text}carbamic acid` : kind === "carbonylhalide" ? `${text}carbamoyl ${xs[0]}` : `${alkyls[0].text} ${text}carbamate`;
-    if (xs.length) return oh ? `carbono${xs[0].slice(0, -1)}ic acid` : alkyls.length ? `${alkyls[0].text} carbono${xs[0].slice(0, -1)}ate` : xs[0] === xs[1] ? `carbonyl di${xs[0]}` : `carbonyl ${xs.join(" ")}`;
-    if (oh) return alkyls.length ? `${alkyls[0].text} hydrogen carbonate` : "carbonic acid";
-    if (alkyls[0].text === alkyls[1].text) return `${times(2, alkyls[0])} carbonate`;
-    return `${alkyls.map((a) => a.text).sort((a, b) => alphaKey(a).localeCompare(alphaKey(b))).join(" ")} carbonate`;
+    const oxo = () => {
+      if (ns.length) return kind === "carbonic" ? `${text}carbamic acid` : kind === "carbonylhalide" ? `${text}carbamoyl ${xs[0]}` : `${alkyls[0].text} ${text}carbamate`;
+      if (xs.length) return oh ? `carbono${xs[0].slice(0, -1)}ic acid` : alkyls.length ? `${alkyls[0].text} carbono${xs[0].slice(0, -1)}ate` : xs[0] === xs[1] ? `${text}carbonyl di${xs[0]}` : `${text}carbonyl ${xs.join(" ")}`;
+      if (oh) return alkyls.length ? `${alkyls[0].text} hydrogen carbonate` : "carbonic acid";
+      if (alkyls[0].text === alkyls[1].text) return `${times(2, alkyls[0])} ${text}carbonate`;
+      return `${alkyls.map((a) => a.text).sort((a, b) => alphaKey(a).localeCompare(alphaKey(b))).join(" ")} ${text}carbonate`;
+    };
+    // With =N in place of =O (P-65.2.1.2): carbamimidic acid, methyl carbamimidate, N-phenylcarbonimidoyl dichloride.
+    const word = oxo();
+    if (text && !word.includes(text)) throw new Error("imidic acid derivative");
+    if (!imidic) return word;
+    return word.replace(/carbamic acid$/, "carbamimidic acid").replace(/carbamate$/, "carbamimidate").replace(/carbamoyl /, "carbamimidoyl ")
+      .replace(/carbonyl /, "carbonimidoyl ").replace(/(carbono\w+)ic acid$/, "$1imidic acid").replace(/(carbono\w+id)ate$/, "$1imidate")
+      .replace(/carbonate$/, "carbonimidate").replace(/carbonic acid$/, "carbonimidic acid");
   }
 }
 
@@ -1398,6 +1422,7 @@ function withSuffix(parent: string, kind: Kind | undefined, locs: string[], ring
     aldehyde: ["al", "carbaldehyde"], ketone: ["one", "one"], alcohol: ["ol", "ol"], thiol: ["thiol", "thiol"], amine: ["amine", "amine"],
     aminium: ["aminium", "aminium"], imine: ["imine", "imine"], carbonic: ["", ""], carbonylhalide: ["", ""],
     amidine: ["imidamide", "carboximidamide"], guanidine: ["", ""], hydrazide: ["hydrazide", "carbohydrazide"],
+    imidic: ["imidic acid", "carboximidic acid"], imidate: ["imidate", "carboximidate"], imidoylhalide: ["imidoyl", "carboximidoyl"],
   };
   let s = own ?? base[kind!][ring ? 1 : 0];
   // The chain's own carbon carries -oic acid, -al, -nitrile and -amide, always at an end, so no locants (P-31.1.4.2.1).

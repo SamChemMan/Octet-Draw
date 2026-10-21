@@ -145,3 +145,14 @@ check("hydrazides", [
 ]);
 check("ring acyl", [["dibenzamide", "N-benzoylbenzamide"], ["tribenzamide", "N,N-dibenzoylbenzamide"], "1H-pyrrole-2-carbonyl chloride",
   ["smiles:O=C(c1ccc[nH]1)NCC(=O)O", "[(1H-pyrrole-2-carbonyl)amino]acetic acid"]]);
+
+// Imidic acids, imidates and imidoyl halides (P-65.1.3.1); isoureas and other imidic carbonic acid derivatives
+// (P-65.2.1.2); N-hydroxy guanidines and amidoximes; esters on a ring N (N-hydroxysuccinimide esters).
+check("imidic", [
+  "ethanimidic acid", "methanimidic acid", "benzenecarboximidic acid", "methyl ethanimidate", "methyl N-phenylethanimidate",
+  "methyl 2,2,2-trichloroethanimidate", "N-phenylethanimidoyl chloride", "N-phenylbenzenecarboximidoyl chloride",
+  ["isourea", "carbamimidic acid"], "methyl carbamimidate", "methyl N,N'-dicyclohexylcarbamimidate", "N-phenylcarbonimidoyl dichloride",
+  "dimethyl carbonimidate", "carbamimidoyl chloride", "N-hydroxyguanidine", "N'-hydroxybenzenecarboximidamide",
+  ["canavanine", "(2S)-2-amino-4-(carbamimidamidooxy)butanoic acid"], "N-methylcyclohexanecarboxamide",
+  "2,5-dioxopyrrolidin-1-yl acetate", "bis(2,5-dioxopyrrolidin-1-yl) carbonate", "2,5-dioxopyrrolidin-1-yl 4-azidobenzoate",
+]);
