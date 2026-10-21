@@ -12,6 +12,7 @@
 // oxa, thia and aza replacement; R/S and E/Z. Not yet: polycyclic bridged rings (adamantane), fused systems outside
 // the table, larger ring assemblies, and other charged atoms. Octet's own name tables cover some of these (naming.ts).
 import type { Graph } from "./naming.ts";
+import { thioAcyl, thioDouble, thioPrefix, thioSuffix, thioVariant } from "./namer-hetero.ts";
 
 type Name = { text: string; compound: boolean }; // compound: needs brackets when cited as a prefix
 
@@ -148,7 +149,7 @@ class Namer {
   n: number; el: string[]; h: number[]; q: number[]; adj: number[][]; bond = new Map<string, number>();
   inRing: boolean[]; rings: number[][] = []; ringOf: number[];
   fused: boolean[] = []; fusedCache = new Map<number, FusedSys>(); // ring systems that are not a single cycle
-  carbonylO: number[]; // the =O on each carbon, or -1
+  carbonylO: number[]; // the =O (or =S, a thio analogue) on each carbon, or -1
   cip: (string | undefined)[]; cipBond = new Map<string, string>(); // R/S on atoms, E/Z on double bonds
   group: (Kind | undefined)[] = []; // the characteristic group each atom carries or is (functional carbons, O, S, N)
   bearer = new Map<number, number[]>(); // a group's atom (O, S, N or functional C) → the carbons it hangs on
@@ -174,7 +175,7 @@ class Namer {
     this.ringOf = Array(this.n).fill(-1);
     this.rings.forEach((r, k) => r.forEach((i) => (this.ringOf[i] = k)));
     this.carbonylO = Array.from({ length: this.n }, (_, i) =>
-      this.el[i] === "C" ? this.adj[i].find((o) => this.el[o] === "O" && this.ord(i, o) === 2 && this.adj[o].length === 1 && !this.q[o]) ?? -1 : -1);
+      this.el[i] === "C" ? this.adj[i].find((o) => (this.el[o] === "O" || this.el[o] === "S") && this.ord(i, o) === 2 && this.adj[o].length === 1 && !this.q[o]) ?? -1 : -1);
   }
   key = (a: number, b: number) => (a < b ? `${a} ${b}` : `${b} ${a}`);
   ord = (a: number, b: number) => this.bond.get(this.key(a, b)) ?? 0;
@@ -286,8 +287,8 @@ class Namer {
       if (HALO[el[x]] && adj[x].length === 1) { this.mark(c, "halide", cs); this.group[x] = "halide"; continue; }
       const y = el[x] === "O" && adj[x].length === 2 ? adj[x].find((j) => j !== c)! : -1;
       if (y >= 0 && el[y] === "C" && this.carbonylO[y] >= 0 && !this.inRing[y]) { this.mark(c, "anhydride", cs); this.group[x] = "anhydride"; this.anhydrideO.set(c, x); continue; }
-      if (el[x] === "O" && h[x] === 1 && adj[x].length === 1) { this.mark(c, "acid", cs); this.group[x] = "acid"; }
-      else if (el[x] === "O" && adj[x].length === 2 && this.carbonylO[adj[x].find((j) => j !== c)!] < 0 && el[adj[x].find((j) => j !== c)!] === "C") {
+      if ((el[x] === "O" || el[x] === "S") && h[x] === 1 && adj[x].length === 1) { this.mark(c, "acid", cs); this.group[x] = "acid"; }
+      else if ((el[x] === "O" || el[x] === "S") && adj[x].length === 2 && this.carbonylO[adj[x].find((j) => j !== c)!] < 0 && el[adj[x].find((j) => j !== c)!] === "C") {
         this.mark(c, "ester", cs);
         this.esterO.set(c, x);
         this.group[x] = "ester";
@@ -611,6 +612,7 @@ class Namer {
         else { const a = on.find((x) => inParent.has(x)); if (a !== undefined) { sites.push({ atom: a, group: g }); used.add(g); } }
       }
     }
+    const thio = thioSuffix(this, kind, sites, used, p.ring); // ethanethioamide (namer-hetero.ts)
     // Prefixes: every neighbour outside the parent that the suffix does not use, and N-substituents of an amide or amine suffix.
     const prefixes: { atom: number; name: Name; n?: boolean }[] = [];
     for (const a of atoms) {
@@ -619,7 +621,7 @@ class Namer {
         if (kind === "ketone" && sites.some((s) => s.atom === a) && x === this.carbonylO[a]) continue;
         if (CARBON_GROUP.has(kind!) && !p.ring && sites.some((s) => s.group === a) && (x === this.carbonylO[a] || this.groupHetero(a).includes(x))) continue;
         if (x === this.carbonylO[a] && !p.ring && opts.acyl && a === atoms[0]) continue; // the acyl group's own =O
-        if (x === this.carbonylO[a] || (this.ord(a, x) === 2 && this.el[x] === "O")) { prefixes.push({ atom: a, name: { text: "oxo", compound: false } }); continue; }
+        if (x === this.carbonylO[a] || (this.ord(a, x) === 2 && this.el[x] === "O")) { prefixes.push({ atom: a, name: { text: this.el[x] === "S" ? "sulfanylidene" : "oxo", compound: false } }); continue; }
         if (this.ord(a, x) === 2 && this.group[x] === "imine") { prefixes.push({ atom: a, name: this.iminoPrefix(x, a) }); continue; }
         prefixes.push({ atom: a, name: this.substituent(x, a) });
       }
@@ -661,7 +663,7 @@ class Namer {
     let nums = numberings;
     if (fused) nums = this.lowest(nums, (num) => one(sat(num).x).map((a) => loc(num, a)));
     if (opts.attach) nums = this.lowest(nums, (num) => [loc(num, opts.attach![0])]);
-    if (opts.acyl) nums = nums.filter((num) => num[0] === atoms[0]);
+    if (opts.acyl && !p.ring) nums = nums.filter((num) => num[0] === atoms[0]); // a chain acyl: C1 is the acyl carbon
     nums = this.lowest(nums, (num) => sites.map((s) => loc(num, s.atom)));
     if (fused) {
       nums = this.lowest(nums, (num) => one(sat(num).y).map((a) => loc(num, a)));
@@ -677,7 +679,7 @@ class Namer {
     // Assemble (P-14, P-16): prefixes in alphabetical order, then the parent, unsaturation and suffix.
     const size = atoms.length;
     const retainedKey = info?.ring ? `${info.ring.name}:${kind}` : !p.ring ? `C${size}:${kind}` : "";
-    let retained = kind && !opts.attach && RETAINED[retainedKey];
+    let retained = kind && !opts.attach && !thio && RETAINED[retainedKey];
     // Acetic acid and the like keep their name only without multiple bonds; the suffix site is fixed.
     if (retained && !p.ring && (multiple(num).length || sites.length !== 1)) retained = undefined;
     if (retained && info?.ring && sites.length !== 1) retained = undefined;
@@ -722,7 +724,7 @@ class Namer {
     if (opts.sulfo) text = joinPrefixes(prefixText, withSuffix(parent, undefined, [label(num, opts.attach![0])], p.ring, locantFree, !p.ring && size <= 2, opts.sulfo));
     else if (opts.attach) text = joinPrefixes(prefixText, this.substituentForm(parent, info, label(num, opts.attach[0]), p.ring, size, !!opts.acyl, multiple(num).length > 0));
     else if (retained) text = prefixText + retained; // benzoic acid, acetic acid: the suffix locant is understood
-    else text = joinPrefixes(prefixText, withSuffix(parent, kind, sitesLoc, p.ring, locantFree, !p.ring && size <= 2));
+    else text = joinPrefixes(prefixText, withSuffix(parent, kind, sitesLoc, p.ring, locantFree, !p.ring && size <= 2, thio));
     // Stereodescriptors (P-91, P-93): R and S on the parent's atoms, E and Z on its double bonds, in locant order,
     // in front of everything they belong to.
     const stereo: { at: number; text: string }[] = [];
@@ -805,6 +807,7 @@ class Namer {
     if (el === "S") {
       if (this.adj[x].length === 1 && this.h[x] === 1) return { text: "sulfanyl", compound: false };
       const r = this.adj[x].find((j) => j !== from)!;
+      if (this.carbonylO[r] >= 0) return { text: `${this.acylName(r, x).text}sulfanyl`, compound: true }; // acetylsulfanyl
       return { text: `${enclose(this.substituent(r, x))}sulfanyl`, compound: true };
     }
     if (el === "N") {
@@ -826,6 +829,8 @@ class Namer {
     if (el !== "C") throw new Error("substituent");
     // Functional carbons cited as prefixes.
     const kind = this.group[x];
+    const thio = thioPrefix(this, x, kind); // carbamothioyl (namer-hetero.ts)
+    if (thio) return thio;
     if (kind === "acid") return { text: "carboxy", compound: false };
     if (kind === "aldehyde") return { text: "formyl", compound: false };
     if (kind === "nitrile") return { text: "cyano", compound: false };
@@ -860,16 +865,17 @@ class Namer {
     if (this.group[c] === "carbamate") {
       const o = this.esterO.get(c)!;
       if (this.el[from] !== "N" || from === o) throw new Error("carbamate as a prefix");
-      return { text: `${enclose(this.substituent(o, c))}carbonyl`.replace(/^\(([a-z-]+oxy)\)carbonyl$/, "$1carbonyl"), compound: true };
+      const carbonyl = thioDouble(this, c) ? "carbonothioyl" : "carbonyl";
+      return { text: `${enclose(this.substituent(o, c))}${carbonyl}`.replace(/^\(([a-z-]+oxy)\)(carbon[a-z]+)$/, "$1$2"), compound: true };
     }
     const r = this.carbons(c, [from]);
-    if (!r.length) return { text: "formyl", compound: false };
+    if (!r.length) return thioAcyl(this, c, { text: "formyl", compound: false });
     if (this.inRing[r[0]]) {
       const cycle = this.rings[this.ringOf[r[0]]];
-      return this.nameParent({ atoms: cycle, ring: true }, { attach: [r[0], c], acyl: true });
+      return thioAcyl(this, c, this.nameParent({ atoms: cycle, ring: true }, { attach: [r[0], c], acyl: true }));
     }
     const chain = this.bestChain(c, from, true);
-    return this.nameParent({ atoms: chain, ring: false }, { attach: [c, from], acyl: true });
+    return thioAcyl(this, c, this.nameParent({ atoms: chain, ring: false }, { attach: [c, from], acyl: true }));
   }
 
   // Acyclic carbon paths (no ring atoms) through or from `start`, not crossing `from`.
@@ -1003,12 +1009,14 @@ class Namer {
     const acid = this.parentName("ester", new Set(), this.side(c, o));
     if (!acid) return undefined;
     const acidText = acid.text.replace(/oic acid$/, "oate").replace(/carboxylic acid$/, "carboxylate").replace(/ic acid$/, "ate");
-    return `${alkyl.text} ${acidText}`;
+    // The thioate's alkyl names the atom it is on: S-methyl ethanethioate, O-methyl ethanethioate (P-65.6.3.2.3).
+    const v = thioVariant(this, c);
+    return `${v === "S" || v === "O" ? `${v}-${enclose(alkyl)}` : alkyl.text} ${acidText}`;
   }
   // Anhydrides (P-65.7.1): the acids' names, then "anhydride": acetic anhydride, acetic propanoic anhydride.
   anhydrideName(): string {
     const o = new Set(this.anhydrideO.values());
-    if (this.anhydrideO.size !== 2 || o.size !== 1) throw new Error("anhydride");
+    if (this.anhydrideO.size !== 2 || o.size !== 1 || [...this.anhydrideO.keys()].some((c) => thioVariant(this, c))) throw new Error("anhydride");
     const acids = [...this.anhydrideO.keys()].map((c) => {
       const acid = this.parentName("anhydride", new Set(), this.side(c, [...o][0]))?.text;
       if (!acid?.endsWith(" acid")) throw new Error("anhydride");
@@ -1029,9 +1037,11 @@ class Namer {
     for (const t of [...new Set(prefixes.map((x) => x.name.text))].sort((a, b) => alphaKey(a).localeCompare(alphaKey(b))))
       nums = this.lowest(nums, (num) => prefixes.filter((x) => x.name.text === t).map((x) => num.indexOf(x.n) + 1));
     const text = assemblePrefixes(prefixes.map((x) => ({ loc: nums[0].indexOf(x.n) ? "N'" : "N", name: x.name })), false);
-    if (kind === "urea") return `${text}urea`;
+    // Thiourea and O-alkyl carbamothioates (P-66.1.6.1.2, P-65.2.1.5).
+    const thio = thioDouble(this, c);
+    if (kind === "urea") return `${text}${thio ? "thio" : ""}urea`;
     const o = this.esterO.get(c)!;
-    return `${this.substituent(this.adj[o].find((j) => j !== c)!, o).text} ${text}carbamate`;
+    return `${thio ? "O-" : ""}${this.substituent(this.adj[o].find((j) => j !== c)!, o).text} ${text}${thio ? "carbamothioate" : "carbamate"}`;
   }
 }
 
@@ -1229,3 +1239,7 @@ export function iupacNameWhy(g: Graph): { name?: string; why?: string } {
     return { why: e instanceof Error ? e.message : String(e) };
   }
 }
+
+// For namer-hetero.ts, which names groups built on N, O, S, P and the halogens.
+export { Namer, enclose, substituted, assemblePrefixes, alphaKey, joinPrefixes, MULT, MULT_COMPLEX, HALO };
+export type { Name, Kind };
