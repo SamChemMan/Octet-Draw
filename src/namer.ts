@@ -765,7 +765,7 @@ class Namer {
     let nums = numberings;
     if (fused) nums = this.lowest(nums, (num) => one(sat(num).x).map((a) => loc(num, a)));
     if (opts.attach) nums = this.lowest(nums, (num) => [loc(num, opts.attach![0])]);
-    if (opts.acyl) nums = nums.filter((num) => num[0] === atoms[0]);
+    if (opts.acyl && !p.ring) nums = nums.filter((num) => num[0] === atoms[0]);
     nums = this.lowest(nums, (num) => sites.map((s) => loc(num, s.atom)));
     if (fused) {
       nums = this.lowest(nums, (num) => one(sat(num).y).map((a) => loc(num, a)));
@@ -805,7 +805,7 @@ class Namer {
       // 1,1'-biphenyl; in brackets before a suffix: [1,1'-biphenyl]-4-carboxylic acid.
       const junction = [...assembly.junction].sort((a, b) => loc(num, a) - loc(num, b)).map((a) => label(num, a)).join(",");
       parent = kind || opts.attach ? `[${junction}-${assembly.stem}]` : `${junction}-${assembly.stem}`;
-    } else if (p.ring && info!.ring) parent = (info!.ring.hydrogen && (!opts.attach || opts.sulfo) ? info!.ring.hydrogen : "") + info!.ring.name;
+    } else if (p.ring && info!.ring) parent = (info!.ring.hydrogen && (!opts.attach || opts.sulfo || opts.acyl) ? info!.ring.hydrogen : "") + info!.ring.name;
     else if (bridged) {
       if (multiple(num).some((l) => l > 999)) throw new Error("bridgehead double bond");
       // Replacement prefixes in front: 8-azabicyclo[3.2.1]octane, 1,4-dioxaspiro[4.5]decane.

@@ -143,3 +143,5 @@ check("hydrazides", [
   "N-hydroxyacetamide", "N-hydroxybenzamide", "N-hydroxy-N-phenylacetamide", "N-methoxy-N-methylbenzamide", "N-hydroxyurea", "N,N'-dihydroxyurea",
   "tert-butyl N-hydroxycarbamate", ["smiles:ONC(=O)CCCCCCC(=O)Nc1ccccc1", "N1-hydroxy-N8-phenyloctanediamide"], // vorinostat
 ]);
+check("ring acyl", [["dibenzamide", "N-benzoylbenzamide"], ["tribenzamide", "N,N-dibenzoylbenzamide"], "1H-pyrrole-2-carbonyl chloride",
+  ["smiles:O=C(c1ccc[nH]1)NCC(=O)O", "[(1H-pyrrole-2-carbonyl)amino]acetic acid"]]);
