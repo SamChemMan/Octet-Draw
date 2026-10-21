@@ -7,10 +7,12 @@
 // hydrogen and hydro prefixes; ring assemblies of two identical rings (1,1'-biphenyl); principal characteristic groups
 // (carboxylic and sulfonic acids, esters, acid halides, amides, nitriles, aldehydes, ketones, alcohols, thiols,
 // amines, imines and oximes) as suffixes; everything else as prefixes, nested to any depth; anhydrides, ureas,
-// carbamates (also as prefixes: Boc-glycine); phosphanes and their oxides; aminium and ring "-ium" cations; salts of
-// metal and ammonium cations with acid, alkoxide and inorganic anions; bicyclic von Baeyer and monospiro rings with
+// carbamates (also as prefixes: Boc-glycine); phosphanes and their oxides; anions (-oate, -olate, -ide), cations
+// (aminium, ring "-ium", -ylium, diazonium, iminium, onium, pyrylium) and zwitterions (P-7); salts, hydrates and
+// hydrochlorides; lone atoms, parent hydrides and inorganic species; bicyclic von Baeyer and monospiro rings with
 // oxa, thia and aza replacement; R/S and E/Z. Not yet: polycyclic bridged rings (adamantane), fused systems outside
-// the table, larger ring assemblies, and other charged atoms. Octet's own name tables cover some of these (naming.ts).
+// the table, larger ring assemblies, radicals and other charged atoms. Octet's own name tables cover some of these
+// (naming.ts).
 import type { Graph } from "./naming.ts";
 
 type Name = { text: string; compound: boolean }; // compound: needs brackets when cited as a prefix
@@ -24,11 +26,13 @@ const VOWEL = /^[aeiouy]/;
 
 // Principal characteristic groups, most senior first (P-41).
 // Carbamates are esters and ureas amides of carbonic acid (P-65.2.1, P-66.1.6); halides are acid halides.
-// Cations (aminium) are senior to every neutral group (P-41).
-type Kind = "aminium" | "acid" | "sulfonic" | "anhydride" | "ester" | "carbamate" | "halide" | "sulfonylhalide" | "amide" | "urea" | "nitrile" | "aldehyde" | "ketone" | "alcohol" | "thiol" | "amine" | "imine";
-const SENIORITY: Kind[] = ["aminium", "acid", "sulfonic", "anhydride", "ester", "carbamate", "halide", "sulfonylhalide", "amide", "urea", "nitrile", "aldehyde", "ketone", "alcohol", "thiol", "amine", "imine"];
+// Anions, then cations (aminium and the rest), are senior to every neutral group (P-41, P-72, P-73).
+type Ion = "carboxylate" | "sulfonate" | "olate" | "aminide" | "ide" | "ylium" | "iminium" | "diazonium";
+const ANION_KINDS: Ion[] = ["carboxylate", "sulfonate", "olate", "aminide", "ide"];
+type Kind = Ion | "aminium" | "acid" | "sulfonic" | "anhydride" | "ester" | "carbamate" | "halide" | "sulfonylhalide" | "amide" | "urea" | "nitrile" | "aldehyde" | "ketone" | "alcohol" | "thiol" | "amine" | "imine";
+const SENIORITY: Kind[] = [...ANION_KINDS, "aminium", "ylium", "iminium", "diazonium", "acid", "sulfonic", "anhydride", "ester", "carbamate", "halide", "sulfonylhalide", "amide", "urea", "nitrile", "aldehyde", "ketone", "alcohol", "thiol", "amine", "imine"];
 // Groups whose carbon is counted in a chain name (propanoic acid) but cited as "carbo…" on a ring (cyclohexanecarboxylic acid).
-const CARBON_GROUP = new Set<Kind>(["acid", "anhydride", "ester", "halide", "amide", "nitrile", "aldehyde"]);
+const CARBON_GROUP = new Set<Kind>(["acid", "anhydride", "ester", "halide", "amide", "nitrile", "aldehyde", "carboxylate"]);
 const HALIDE: Record<string, string> = { F: "fluoride", Cl: "chloride", Br: "bromide", I: "iodide" };
 // Cations of salts (P-65.6.2.2) and their charges.
 const CATIONS: Record<string, [string, number]> = { Li: ["lithium", 1], Na: ["sodium", 1], K: ["potassium", 1], Rb: ["rubidium", 1], Cs: ["caesium", 1], Ag: ["silver", 1],
@@ -76,6 +80,8 @@ const RINGS: Record<string, Ring> = {
   "3s:O1": { name: "oxirane", stem: "oxiran", aromatic: false },
   "3s:N1": { name: "aziridine", stem: "aziridin", aromatic: false },
 };
+// Ring cations named as a whole (P-73.1.1.2): an aromatic six-membered ring with O+ or S+.
+const ION_RINGS: Record<string, Ring> = { "6a:O1": { name: "pyrylium", stem: "", aromatic: true }, "6a:S1": { name: "thiopyrylium", stem: "", aromatic: true } };
 const HETERO_ORDER = ["O", "S", "N"]; // heteroatoms in order of seniority for low locants (P-31.1.4.2.4)
 
 // Fused ring parents (P-25.1, P-25.2.1). Each skeleton is its ring bonds by locant; atoms are kept in locant order
@@ -142,6 +148,7 @@ const RETAINED: Record<string, string> = {
   "C1:acid": "formic acid", "C1:ester": "formate", "C1:amide": "formamide", "C1:aldehyde": "formaldehyde",
   "benzene:anhydride": "benzoic acid", "C2:anhydride": "acetic acid", "C1:anhydride": "formic acid",
   "benzene:halide": "benzoyl", "C2:halide": "acetyl", "C1:halide": "formyl",
+  "benzene:carboxylate": "benzoate", "C2:carboxylate": "acetate", "C1:carboxylate": "formate", "benzene:olate": "phenolate", "benzene:aminide": "anilinide",
 };
 
 class Namer {
@@ -156,6 +163,7 @@ class Namer {
   sulfur = new Set<number>(); // sulfonyl and sulfinyl S, with their =O and any OH or halogen
   anhydrideO = new Map<number, number>(); // anhydride carbon → its bridging O
   phosphorus = new Set<number>(); // phosphane P, with the =O of a phosphane oxide
+  ions = new Set<number>(); ionBonds = new Set<string>(); onium: number[] = []; // charged atoms named as ions, their hetero bonds, onium S, P, O
 
   constructor(g: Graph) {
     this.n = g.atoms.length;
@@ -233,12 +241,13 @@ class Namer {
   // Characteristic groups (P-41). Throws for atoms Octet cannot yet name.
   perceive() {
     const { el, h, q, adj } = this;
+    this.perceiveIons();
     for (let i = 0; i < this.n; i++) {
       if (!["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"].includes(el[i])) throw new Error(`element ${el[i]}`);
-      if (q[i] && !this.nitroAtom(i) && !this.cationN(i) && !this.diazoAtom(i) && !this.azidoAtom(i)) throw new Error("charge");
+      if (q[i] && !this.nitroAtom(i) && !this.cationN(i) && !this.diazoAtom(i) && !this.azidoAtom(i) && !this.ions.has(i)) throw new Error("charge");
     }
     for (let c = 0; c < this.n; c++) {
-      if (el[c] !== "C") continue;
+      if (el[c] !== "C" || this.group[c]) continue;
       const o = this.carbonylO[c], cs = this.carbons(c);
       const others = adj[c].filter((j) => j !== o && el[j] !== "C");
       const nitrileN = adj[c].find((j) => el[j] === "N" && this.ord(c, j) === 3 && adj[j].length === 1);
@@ -298,7 +307,7 @@ class Namer {
     }
     // Sulfonic acids, sulfonyl halides (P-65.3), and the S of sulfoxides and sulfones (P-63.6), which are prefixes.
     for (let i = 0; i < this.n; i++) {
-      if (el[i] !== "S" || this.inRing[i]) continue;
+      if (el[i] !== "S" || this.inRing[i] || this.group[i]) continue;
       const os = adj[i].filter((j) => el[j] === "O" && this.ord(i, j) === 2 && adj[j].length === 1 && !q[j]);
       if (!os.length) continue;
       const cs = this.carbons(i), rest = adj[i].filter((j) => !os.includes(j) && !cs.includes(j));
@@ -312,14 +321,14 @@ class Namer {
     }
     // Phosphanes and phosphane oxides (P-68.3.2): P with three single bonds to carbon or hydrogen, and perhaps =O.
     for (let i = 0; i < this.n; i++) {
-      if (el[i] !== "P") continue;
+      if (el[i] !== "P" || this.ions.has(i)) continue;
       const os = adj[i].filter((j) => el[j] === "O" && this.ord(i, j) === 2 && adj[j].length === 1 && !q[j]), rest = adj[i].filter((j) => !os.includes(j));
       if (this.inRing[i] || q[i] || os.length > 1 || rest.length + h[i] !== 3 || rest.some((j) => el[j] !== "C" || this.ord(i, j) !== 1 || this.carbonylO[j] >= 0) || this.cip[i]) throw new Error("phosphorus");
       this.phosphorus.add(i);
       for (const j of os) this.phosphorus.add(j);
     }
     for (let i = 0; i < this.n; i++) {
-      if (this.group[i] || this.sulfur.has(i) || this.phosphorus.has(i) || el[i] === "C" || this.inRing[i]) continue;
+      if (this.group[i] || this.sulfur.has(i) || this.phosphorus.has(i) || el[i] === "C" || this.inRing[i] || this.ions.has(i)) continue;
       const cs = this.carbons(i);
       if (HALO[el[i]]) { if (adj[i].length !== 1 || cs.length !== 1) throw new Error("halogen"); continue; }
       if (el[i] === "O" && adj[i].some((j) => this.group[j] === "imine") && adj[i].length - cs.length === 1 && adj[i].length <= 2) continue; // an oxime's O: N-hydroxy, N-alkoxy
@@ -344,7 +353,7 @@ class Namer {
     // heteroatom bonded to another heteroatom is not covered.
     for (const [k, o] of this.bond) {
       const [a, b] = k.split(" ").map(Number);
-      if ((this.inRing[a] && this.ringOf[a] === this.ringOf[b]) || (this.sulfur.has(a) && this.sulfur.has(b))) continue;
+      if ((this.inRing[a] && this.ringOf[a] === this.ringOf[b]) || (this.sulfur.has(a) && this.sulfur.has(b)) || this.ionBonds.has(k)) continue;
       const oxime = (x: number, y: number) => this.group[x] === "imine" && el[x] === "N" && el[y] === "O" && o === 1;
       const oxide = this.phosphorus.has(a) && this.phosphorus.has(b);
       const n2 = (this.diazoAtom(a) && this.diazoAtom(b)) || (this.azidoAtom(a) && this.azidoAtom(b));
@@ -409,6 +418,99 @@ class Namer {
     return undefined;
   }
 
+  // ——— Ions (P-72 anions, P-73 cations, P-74 zwitterions) ———
+  // Charged atoms Octet names, marked before the neutral groups. Anions: carboxylates (-oate), sulfonates, alkoxides
+  // and phenoxides (-olate), amine anions (-aminide), carbanions and ring N anions (-ide). Cations: carbocations
+  // (-ylium), iminium and diazonium ions, onium ions of S, P and O (trimethylsulfanium), and the O or S of a pyrylium
+  // ring. An O- on a cation is cited as oxido (1-oxidopyridin-1-ium). Any other charged atom is left unnamed.
+  perceiveIons() {
+    const { el, h, q, adj } = this;
+    const valence = (i: number) => adj[i].reduce((t, j) => t + this.ord(i, j), 0) + h[i];
+    const single = (i: number) => adj[i].every((j) => this.ord(i, j) === 1);
+    const plainC = (c: number) => el[c] === "C" && !q[c] && this.carbonylO[c] < 0 && !this.isNitrileC(c);
+    const oMinus = (o: number) => el[o] === "O" && q[o] === -1 && !h[o] && adj[o].length === 1 && single(o);
+    const terminalO = (x: number, o: number) => el[o] === "O" && !q[o] && adj[o].length === 1 && this.ord(x, o) === 2;
+    const ion = (i: number, kind?: Kind, on?: number[]) => { this.ions.add(i); if (kind) this.mark(i, kind, on!); };
+    for (let i = 0; i < this.n; i++) {
+      if (!q[i] || this.nitroAtom(i) || this.diazoAtom(i) || this.azidoAtom(i)) continue;
+      const e = el[i], cs = this.carbons(i);
+      if (oMinus(i)) {
+        const x = adj[i][0];
+        if (el[x] === "C" && !q[x] && this.carbonylO[x] >= 0 && !this.inRing[x] && this.carbons(x).length <= 1 && adj[x].length === this.carbons(x).length + 2) {
+          ion(i);
+          this.group[i] = "carboxylate";
+          this.mark(x, "carboxylate", this.carbons(x));
+          this.group[this.carbonylO[x]] = "ketone";
+        } else if (plainC(x)) ion(i, "olate", [x]);
+        else if (el[x] === "S" && !q[x] && !this.inRing[x] && adj[x].length === 4 && !this.group[x]) {
+          const os = adj[x].filter((o) => terminalO(x, o)), c = adj[x].filter(plainC);
+          if (os.length !== 2 || c.length !== 1) continue;
+          ion(i);
+          this.mark(x, "sulfonate", c);
+          for (const j of [x, i, ...os]) this.sulfur.add(j);
+        }
+      } else if (e === "N" && q[i] === -1 && valence(i) === 2 && single(i)) {
+        if (this.inRing[i]) { if (!h[i] && adj[i].length === 2) ion(i, "ide", [i]); }
+        else if (cs.length && cs.length === adj[i].length && cs.every(plainC)) ion(i, "aminide", cs);
+      } else if (e === "C" && Math.abs(q[i]) === 1 && valence(i) === 3 && this.carbonylO[i] < 0 && !this.isNitrileC(i)) ion(i, q[i] < 0 ? "ide" : "ylium", [i]);
+      else if (e === "N" && q[i] === 1 && !this.cationN(i) && !this.inRing[i] && !h[i] && adj[i].length === 2) {
+        // Diazonium (P-73.1.1.2): C-N+≡N.
+        const n2 = adj[i].find((j) => el[j] === "N" && !q[j] && !h[j] && adj[j].length === 1 && this.ord(i, j) === 3), c = adj[i].find(plainC);
+        if (n2 === undefined || c === undefined || this.ord(i, c) !== 1) continue;
+        ion(i, "diazonium", [c]);
+        this.group[n2] = "diazonium";
+        this.ionBonds.add(this.key(i, n2));
+      } else if (e === "N" && q[i] === 1 && !this.inRing[i] && valence(i) === 4) {
+        // Iminium (P-73.1.2): C=N+, the N bearing H or carbons.
+        const c = adj[i].find((j) => this.ord(i, j) === 2);
+        if (c === undefined || el[c] !== "C" || q[c] || this.carbonylO[c] >= 0 || adj[i].some((j) => j !== c && (!plainC(j) || this.ord(i, j) !== 1))) continue;
+        ion(i, "iminium", [c]);
+      } else if (q[i] === 1 && !this.inRing[i] && (e === "S" || e === "P" || e === "O") && single(i) && valence(i) === (e === "P" ? 4 : 3) && cs.length && cs.length === adj[i].length && cs.every(plainC)) {
+        ion(i);
+        this.onium.push(i);
+      } else if (q[i] === 1 && (e === "O" || e === "S") && this.inRing[i] && adj[i].length === 2 && !h[i] && adj[i].filter((j) => this.ord(i, j) === 2).length === 1) ion(i); // pyrylium
+    }
+    // Oxido: an O- on an N+ (amine and ring N-oxides) or on an onium ion.
+    for (let i = 0; i < this.n; i++) {
+      const x = adj[i][0];
+      if (!oMinus(i) || this.ions.has(i) || this.nitroAtom(i) || !(this.cationN(x) || this.onium.includes(x))) continue;
+      ion(i);
+      this.ionBonds.add(this.key(i, x));
+    }
+  }
+  // Under an anion suffix a carboxylic acid is cited as carboxy, so its carbon stays out of the parent chain:
+  // 3-carboxypropanoate.
+  ionSkip = (kind: Kind | undefined) => ((ANION_KINDS as (Kind | undefined)[]).includes(kind) ? new Set([...this.bearer.keys()].filter((g) => this.group[g] === "acid")) : undefined);
+  // A radical (fewer bonds and hydrogens than the atom's usual valence: CH2•, O•) is not named here (P-71).
+  radicals() {
+    for (let i = 0; i < this.n; i++) {
+      const e = this.el[i], q = this.q[i], low = e === "C" ? 4 - Math.abs(q) : e === "N" || e === "P" ? 3 + q : e === "O" || e === "S" ? 2 + q : HALO[e] ? 1 + q : undefined;
+      if (low !== undefined && this.adj[i].reduce((t, j) => t + this.ord(i, j), 0) + this.h[i] < low) throw new Error("radical");
+    }
+  }
+  // The N of an aminide or iminium group g, whose other substituents are cited with N locants.
+  ionN = (kind: Kind | undefined, g: number) => (kind === "aminide" || kind === "iminium" ? g : undefined);
+  // Ions cited as prefixes (P-72.6, P-73.6): oxido, carboxylato, sulfonato, and azaniumyl, sulfaniumyl, phosphaniumyl
+  // with their substituents ((trimethylazaniumyl)acetate). Other ions are not cited as prefixes.
+  ionPrefix(x: number, from: number): Name | undefined {
+    const g = this.group[x], el = this.el[x];
+    if (this.ions.has(x) && el === "O" && this.q[x] === -1 && this.adj[x].length === 1) return { text: "oxido", compound: false };
+    if (g === "carboxylate") return { text: "carboxylato", compound: false };
+    if (g === "sulfonate") return { text: "sulfonato", compound: false };
+    if (g === "aminium" || this.onium.includes(x)) {
+      const subs = this.adj[x].filter((j) => j !== from).map((j) => this.substituent(j, x));
+      return { text: `${substituted(subs)}${{ N: "azaniumyl", S: "sulfaniumyl", P: "phosphaniumyl", O: "oxidaniumyl" }[el]}`, compound: subs.length > 0 };
+    }
+    if ((g && (ANION_KINDS as Kind[]).includes(g)) || g === "ylium" || g === "iminium" || g === "diazonium" || (this.ions.has(x) && this.inRing[x])) throw new Error(`${g ?? "ion"} as a prefix`);
+    return undefined;
+  }
+  // An onium cation as the parent (P-73.1.1.1): trimethylsulfanium, tetraphenylphosphanium, triethyloxidanium.
+  oniumName(): string {
+    if (this.onium.length !== 1) throw new Error("several onium ions");
+    const x = this.onium[0], subs = this.adj[x].map((j) => this.substituent(j, x));
+    return `${substituted(subs)}${{ S: "sulfanium", P: "phosphanium", O: "oxidanium" }[this.el[x]]}`;
+  }
+
   // ——— Parents ———
 
   // A ring's identity: retained or cyclo name, and the numberings its heteroatoms allow.
@@ -437,7 +539,7 @@ class Namer {
     for (const e of HETERO_ORDER) best = this.lowest(best, (num) => num.map((a, k) => (this.el[a] === e ? k + 1 : 0)).filter(Boolean));
     if (aromatic5) best = this.lowest(best, (num) => num.map((a, k) => (this.el[a] !== "C" && !doubles[cycle.indexOf(a)] ? k + 1 : 0)).filter(Boolean));
     const sig = best[0].map((a, k) => (this.el[a] !== "C" ? `${this.el[a]}${k + 1}` : "")).filter(Boolean).sort((x, y) => HETERO_ORDER.indexOf(x[0]) - HETERO_ORDER.indexOf(y[0]) || parseInt(x.slice(1)) - parseInt(y.slice(1)));
-    const ring = RINGS[`${size}${aromatic ? "a" : "s"}:${sig.join(",")}`];
+    const ring = RINGS[`${size}${aromatic ? "a" : "s"}:${sig.join(",")}`] ?? ION_RINGS[`${size}${aromatic ? "a" : "s"}:${sig.join(",")}`];
     if (!ring) throw new Error("unknown ring");
     return { ring, numberings: best, aromatic };
   }
@@ -611,6 +713,9 @@ class Namer {
         else { const a = on.find((x) => inParent.has(x)); if (a !== undefined) { sites.push({ atom: a, group: g }); used.add(g); } }
       }
     }
+    // A carbanion or carbocation in the parent is its suffix; a pyrylium ring is a parent with no suffix.
+    if (atoms.some((a) => (this.group[a] === "ide" || this.group[a] === "ylium") && !sites.some((s) => s.group === a))) throw new Error("ion as a prefix");
+    if (info?.ring && Object.values(ION_RINGS).includes(info.ring) && (kind || opts.attach || !atoms.some((a) => this.q[a] === 1))) throw new Error("ring cation");
     // Prefixes: every neighbour outside the parent that the suffix does not use, and N-substituents of an amide or amine suffix.
     const prefixes: { atom: number; name: Name; n?: boolean }[] = [];
     for (const a of atoms) {
@@ -626,7 +731,7 @@ class Namer {
     }
     // With several amide or amine suffixes, N-locants name their suffix's locant (N1,N4) and count for numbering.
     for (const s of sites) {
-      const nAtom = kind === "amide" ? this.groupHetero(s.group)[0] : kind === "amine" || kind === "aminium" ? s.group : kind === "imine" ? this.imineN(s.group) : undefined;
+      const nAtom = kind === "amide" ? this.groupHetero(s.group)[0] : kind === "amine" || kind === "aminium" ? s.group : kind === "imine" ? this.imineN(s.group) : this.ionN(kind, s.group);
       if (nAtom === undefined) continue;
       for (const x of this.adj[nAtom]) if (x !== s.group && !inParent.has(x) && x !== s.atom)
         prefixes.push({ atom: s.atom, name: this.substituent(x, nAtom), n: true });
@@ -714,14 +819,20 @@ class Namer {
     // A ring cation (P-73.1.2): pyridin-1-ium, 1-methylpyridin-1-ium, acridin-10-ium. Not with a suffix or as a prefix.
     const ium = p.ring ? atoms.filter((a) => this.cationN(a)) : [];
     if (ium.length) {
-      if (kind || opts.attach || retained) throw new Error("ring cation");
+      if ((kind && !(ANION_KINDS as Kind[]).includes(kind)) || opts.attach || retained) throw new Error("ring cation");
       parent = `${parent.replace(/e$/, "")}-${ium.map((a) => label(num, a)).sort(locOrder).join(",")}-${MULT[ium.length]}ium`;
     }
     let text: string;
-    const locantFree = p.ring && !fused && !assembly && !bridged && (!info?.ring || info.ring.name === "benzene") && prefixes.length === 0;
+    const locantFree = p.ring && !fused && !assembly && !bridged && (!info?.ring || info.ring.name === "benzene") && prefixes.length === 0 && !multiple(num).length;
     if (opts.sulfo) text = joinPrefixes(prefixText, withSuffix(parent, undefined, [label(num, opts.attach![0])], p.ring, locantFree, !p.ring && size <= 2, opts.sulfo));
     else if (opts.attach) text = joinPrefixes(prefixText, this.substituentForm(parent, info, label(num, opts.attach[0]), p.ring, size, !!opts.acyl, multiple(num).length > 0));
     else if (retained) text = prefixText + retained; // benzoic acid, acetic acid: the suffix locant is understood
+    else if (kind === "ylium") {
+      // Carbocations take the substituent form (P-73.2.1): methylium, propan-2-ylium, cyclohexylium, benzenylium.
+      if (sites.length !== 1) throw new Error("several ylium centres");
+      const yl = this.substituentForm(parent, info, sitesLoc[0], p.ring, size, false, multiple(num).length > 0);
+      text = joinPrefixes(prefixText, (yl === "phenyl" ? (prefixes.length ? `benzen-${sitesLoc[0]}-yl` : "benzenyl") : yl) + "ium");
+    }
     else text = joinPrefixes(prefixText, withSuffix(parent, kind, sitesLoc, p.ring, locantFree, !p.ring && size <= 2));
     // Stereodescriptors (P-91, P-93): R and S on the parent's atoms, E and Z on its double bonds, in locant order,
     // in front of everything they belong to.
@@ -768,6 +879,8 @@ class Namer {
     if (this.ord(x, from) !== 1) throw new Error("ylidene");
     // Rings with a free valence, on a ring carbon or a ring nitrogen (piperidin-1-yl).
     if (this.inRing[x]) return this.nameParent({ atoms: this.rings[this.ringOf[x]], ring: true }, { attach: [x, from] });
+    const ion = this.ionPrefix(x, from);
+    if (ion) return ion;
     // Groups Octet does not yet cite as prefixes.
     const g = this.group[x];
     if (g === "anhydride" || g === "halide" || g === "sulfonylhalide" || g === "urea" || g === "aminium" || (g === "carbamate" && el !== "N" && !(el === "O" && this.group[from] === "carbamate"))) throw new Error(`${g} as a prefix`);
@@ -903,15 +1016,17 @@ class Namer {
   // ——— The whole molecule ———
   name(): string | undefined {
     this.perceive();
+    this.radicals();
     if (this.adj.some((a, i) => a.length === 0 && this.el[i] !== "C") || this.n === 0) return undefined;
     const kind = SENIORITY.find((k) => this.group.includes(k) && [...this.bearer.keys()].some((g) => this.group[g] === k));
     let text: string | undefined;
-    if (kind === "ester") text = this.esterName();
+    if (this.onium.length && !(ANION_KINDS as (Kind | undefined)[]).includes(kind)) text = this.oniumName();
+    else if (kind === "ester") text = this.esterName();
     else if (kind === "anhydride") text = this.anhydrideName();
     else if (kind === "urea" || kind === "carbamate") text = this.carbonicName(kind);
     else if (!kind && this.phosphorus.size) text = this.phosphaneName();
     else {
-      text = this.parentName(kind)?.text;
+      text = this.parentName(kind, this.ionSkip(kind))?.text;
       // Acid halides (P-65.5.1): acetyl chloride, butanedioyl dichloride, methanesulfonyl chloride.
       if (text && (kind === "halide" || kind === "sulfonylhalide")) {
         const xs = [...Array(this.n).keys()].filter((x) => HALO[this.el[x]] && this.adj[x].some((j) => this.group[j] === kind));
@@ -1124,6 +1239,8 @@ function withSuffix(parent: string, kind: Kind | undefined, locs: string[], ring
     sulfonic: ["sulfonic acid", "sulfonic acid"], sulfonylhalide: ["sulfonyl", "sulfonyl"], urea: ["", ""], carbamate: ["", ""], ester: ["oate", "carboxylate"], amide: ["amide", "carboxamide"], nitrile: ["nitrile", "carbonitrile"],
     aldehyde: ["al", "carbaldehyde"], ketone: ["one", "one"], alcohol: ["ol", "ol"], thiol: ["thiol", "thiol"], amine: ["amine", "amine"],
     aminium: ["aminium", "aminium"], imine: ["imine", "imine"],
+    carboxylate: ["oate", "carboxylate"], sulfonate: ["sulfonate", "sulfonate"], olate: ["olate", "olate"], aminide: ["aminide", "aminide"], ide: ["ide", "ide"],
+    ylium: ["ylium", "ylium"], iminium: ["iminium", "iminium"], diazonium: ["diazonium", "diazonium"],
   };
   let s = own ?? base[kind!][ring ? 1 : 0];
   // The chain's own carbon carries -oic acid, -al, -nitrile and -amide, always at an end, so no locants (P-31.1.4.2.1).
@@ -1139,15 +1256,28 @@ function withSuffix(parent: string, kind: Kind | undefined, locs: string[], ring
 // Salts (P-65.6.2.2, P-73; IUPAC 2005 IR-5): cations, then anions, each with a multiplying prefix for the ratio:
 // sodium acetate, calcium diacetate, disodium butanedioate, sodium chloride, dipotassium carbonate, ammonium chloride,
 // N,N,N-trimethylmethanaminium chloride, pyridin-1-ium chloride.
+// Several cations or anions go in alphabetical order (IR-5.4): potassium sodium tartrate. A metal with a Stock number
+// needs no multiplying prefixes: iron(III) chloride. Hydrogen halides and water of crystallisation follow (IR-5.5):
+// aniline hydrochloride, copper(II) sulfate pentahydrate.
 function saltName(g: Graph, parts: number[][]): string | undefined {
+  const lone = (p: number[], el: string, h: number) => p.length === 1 && g.atoms[p[0]].el === el && g.atoms[p[0]].h === h && !g.atoms[p[0]].charge;
+  const adducts = ["Cl", "Br", "I", "F", "O"].map((el) => [el, parts.filter((p) => lone(p, el, el === "O" ? 2 : 1)).length] as const).filter(([, k]) => k);
+  const rest = parts.filter((p) => !["Cl", "Br", "I", "F", "O"].some((el) => lone(p, el, el === "O" ? 2 : 1)));
+  if (adducts.length && rest.length) {
+    if (adducts.some(([, k]) => k >= MULT.length)) return undefined;
+    const main = rest.length === 1 ? speciesName(partOf(g, rest[0])) ?? new Namer(partOf(g, rest[0])).name() : saltName(g, rest);
+    return main && [main, ...adducts.map(([el, k]) => el === "O" ? `${k === 1 ? "mono" : MULT[k]}hydrate` : `${MULT[k]}hydro${HALIDE[el]}`)].join(" ");
+  }
   const charge = (p: number[]) => p.reduce((t, i) => t + g.atoms[i].charge, 0);
   const cations = parts.filter((p) => charge(p) > 0), anions = parts.filter((p) => charge(p) < 0);
   if (!cations.length || !anions.length || cations.length + anions.length !== parts.length || parts.reduce((t, p) => t + charge(p), 0) !== 0) return undefined;
-  const cationNames = cations.map((p) => cationName(g, p)), anionNames = anions.map((p) => anionName(g, p));
-  const same = (names: (string | undefined)[]) => !!names[0] && names.every((n) => n === names[0]);
-  if (!same(cationNames) || !same(anionNames)) return undefined;
-  const times = (k: number, name: string) => (k < 2 ? name : /[\d([]/.test(name) ? `${MULT_COMPLEX[k]}(${name})` : MULT[k] + name);
-  return `${times(cations.length, cationNames[0]!)} ${times(anions.length, anionNames[0]!)}`;
+  const cationNames = cations.map((p) => cationName(g, p)), anionNames = anions.map((p) => anionName(g, p) ?? new Namer(partOf(g, p)).name());
+  if (cationNames.includes(undefined) || anionNames.includes(undefined)) return undefined;
+  // OPSIN reads lithium nitride but not trilithium nitride.
+  const stock = cationNames.some((n) => /\([IVX]+\)$/.test(n!)) || anionNames.some((n) => n === "nitride" || n === "phosphide");
+  const times = (k: number, name: string) => (k < 2 || stock ? name : /[\d([]/.test(name) ? `${MULT_COMPLEX[k]}(${name})` : MULT[k] + name);
+  const list = (names: string[]) => [...new Set(names)].sort((a, b) => alphaKey(a).localeCompare(alphaKey(b))).map((n) => times(names.filter((x) => x === n).length, n)).join(" ");
+  return `${list(cationNames as string[])} ${list(anionNames as string[])}`;
 }
 // One part of a salt as a structure of its own.
 function partOf(g: Graph, part: number[]): Graph {
@@ -1158,8 +1288,9 @@ function partOf(g: Graph, part: number[]): Graph {
 function cationName(g: Graph, part: number[]): string | undefined {
   const a = g.atoms[part[0]];
   if (part.length === 1 && CATIONS[a.el]) return CATIONS[a.el][1] === a.charge && !a.h ? CATIONS[a.el][0] : undefined;
+  if (part.length === 1 && metal(a.el) && !a.h) return ROMAN[a.charge] ? `${ELEMENTS.get(a.el)}(${ROMAN[a.charge]})` : undefined;
   if (part.length === 1 && a.el === "N" && a.h === 4 && a.charge === 1) return "ammonium";
-  return new Namer(partOf(g, part)).name();
+  return speciesName(partOf(g, part)) ?? new Namer(partOf(g, part)).name();
 }
 // The formula of a part, with hydrogens, and its charge: CO3-2, HO-1. Carbon first, then hydrogen, then the others
 // in alphabetical order; without carbon, all in alphabetical order.
@@ -1173,7 +1304,7 @@ function ionFormula(g: Graph, part: number[]): string {
 // every O- on carbon) must be ionised and on the parent (P-65.6.2.2): acetate, butanedioate, methanolate, phenolate.
 function anionName(g: Graph, part: number[]): string | undefined {
   const inorganic = ANIONS[ionFormula(g, part)];
-  if (inorganic) return inorganic;
+  if (inorganic && inorganicShape(partOf(g, part), ionFormula(g, part))) return inorganic;
   const { atoms, bonds } = partOf(g, part);
   const nbrs = (k: number) => bonds.flatMap((b) => (b.a === k ? [b] : b.b === k ? [{ ...b, b: b.a }] : []));
   // An acid group's OH: O on a C=O carbon, or on an S with two =O.
@@ -1204,6 +1335,100 @@ function anionName(g: Graph, part: number[]): string | undefined {
   return name.replace(/ic acid$/, "ate");
 }
 
+// ——— Simple species: lone atoms, parent hydrides, inorganic molecules and ions (IUPAC 2005 IR-3, IR-5, IR-6) ———
+const ELEMENTS = new Map(("H hydrogen He helium Li lithium Be beryllium B boron C carbon N nitrogen O oxygen F fluorine Ne neon Na sodium " +
+  "Mg magnesium Al aluminium Si silicon P phosphorus S sulfur Cl chlorine Ar argon K potassium Ca calcium Sc scandium Ti titanium " +
+  "V vanadium Cr chromium Mn manganese Fe iron Co cobalt Ni nickel Cu copper Zn zinc Ga gallium Ge germanium As arsenic Se selenium " +
+  "Br bromine Kr krypton Rb rubidium Sr strontium Y yttrium Zr zirconium Nb niobium Mo molybdenum Tc technetium Ru ruthenium " +
+  "Rh rhodium Pd palladium Ag silver Cd cadmium In indium Sn tin Sb antimony Te tellurium I iodine Xe xenon Cs caesium Ba barium " +
+  "La lanthanum Ce cerium Pr praseodymium Nd neodymium Pm promethium Sm samarium Eu europium Gd gadolinium Tb terbium " +
+  "Dy dysprosium Ho holmium Er erbium Tm thulium Yb ytterbium Lu lutetium Hf hafnium Ta tantalum W tungsten Re rhenium Os osmium " +
+  "Ir iridium Pt platinum Au gold Hg mercury Tl thallium Pb lead Bi bismuth Po polonium At astatine Rn radon Fr francium Ra radium " +
+  "Ac actinium Th thorium Pa protactinium U uranium Np neptunium Pu plutonium Am americium Cm curium Bk berkelium Cf californium " +
+  "Es einsteinium Fm fermium Md mendelevium No nobelium Lr lawrencium Rf rutherfordium Db dubnium Sg seaborgium Bh bohrium " +
+  "Hs hassium Mt meitnerium Ds darmstadtium Rg roentgenium Cn copernicium Nh nihonium Fl flerovium Mc moscovium Lv livermorium " +
+  "Ts tennessine Og oganesson").split(" ").flatMap((w, k, a) => (k % 2 ? [] : [[w, a[k + 1]] as [string, string]])));
+// Mononuclear parent hydrides (P-21.1, IR-6.2) by element and hydrogen count; water, ammonia and the hydrogen halides
+// by the names chemists use.
+const HYDRIDES: Record<string, string> = {
+  B3: "borane", Al3: "alumane", Ga3: "gallane", In3: "indigane", Tl3: "thallane", Si4: "silane", Ge4: "germane", Sn4: "stannane",
+  Pb4: "plumbane", N3: "ammonia", P3: "phosphane", As3: "arsane", Sb3: "stibane", Bi3: "bismuthane", O2: "water", S2: "hydrogen sulfide",
+  Se2: "hydrogen selenide", Te2: "hydrogen telluride", Po2: "polane", F1: "hydrogen fluoride", Cl1: "hydrogen chloride",
+  Br1: "hydrogen bromide", I1: "hydrogen iodide", At1: "astatane", P5: "λ5-phosphane",
+};
+// Inorganic molecules and ions of one central atom and the atoms bonded to it (IR-5, IR-8), by that shape: the centre,
+// then each bond and atom (atoms with their hydrogens and charge). Every name is read back by OPSIN.
+const SPECIES = new Map(([
+  ["dihydrogen", "H", "-H"], ["dinitrogen", "N", "#N"], ["dioxygen", "O", "=O"], ["difluorine", "F", "-F"], ["dichlorine", "Cl", "-Cl"],
+  ["dibromine", "Br", "-Br"], ["diiodine", "I", "-I"], ["ozone", "O+", "=O", "-O-"], ["hydrogen peroxide", "OH", "-OH"],
+  ["nitrous oxide", "N+", "#N", "-O-"], ["nitrous oxide", "N+", "=N-", "=O"], ["hydrogen azide", "N+", "=N-", "=NH"], ["hydrazine", "NH2", "-NH2"],
+  ["hydroxylamine", "NH2", "-OH"], ["carbon dioxide", "C", "=O", "=O"], ["carbon disulfide", "C", "=S", "=S"], ["sulfur dioxide", "S", "=O", "=O"],
+  ["sulfur trioxide", "S", "=O", "=O", "=O"], ["sulfuric acid", "S", "=O", "=O", "-OH", "-OH"], ["sulfurous acid", "S", "=O", "-OH", "-OH"],
+  ["nitric acid", "N+", "=O", "-O-", "-OH"], ["nitric acid", "N", "=O", "=O", "-OH"], ["nitrous acid", "N", "=O", "-OH"],
+  ["phosphoric acid", "P", "=O", "-OH", "-OH", "-OH"], ["perchloric acid", "Cl", "=O", "=O", "=O", "-OH"], ["carbonic acid", "C", "=O", "-OH", "-OH"],
+  ["nitronium", "N+", "=O", "=O"], ["nitrosonium", "N", "#O+"], ["ammonium", "NH4+"], ["oxidanium", "OH3+"], ["phosphanium", "PH4+"],
+  ["sulfanium", "SH3+"], ["aminylium", "NH2+"], ["hydroxylium", "OH+"], ["azanide", "NH2-"], ["hydride", "H-"],
+] as string[][]).map(([name, centre, ...bonds]) => [`${centre}(${bonds.sort().join(",")})`, name]));
+Object.assign(ANIONS, {
+  "H2N-1": "amide", "N-3": "nitride", "P-3": "phosphide", "O2-2": "peroxide", "HO2-1": "hydroperoxide", "HS-1": "sulfanide", "Se-2": "selenide",
+  "Te-2": "telluride", "ClO3-1": "chlorate", "ClO2-1": "chlorite", "BrO-1": "hypobromite", "BrO2-1": "bromite", "BrO3-1": "bromate",
+  "BrO4-1": "perbromate", "IO-1": "hypoiodite", "IO2-1": "iodite", "IO3-1": "iodate", "O3P-3": "phosphite", "H2O2P-1": "phosphinate",
+  "O7P2-4": "diphosphate", "O10P3-5": "triphosphate", "O7S2-2": "disulfate", "O8S2-2": "peroxydisulfate", "O4Se-2": "selenate", "O3Se-2": "selenite",
+  "CrO4-2": "chromate", "Cr2O7-2": "dichromate", "AsF6-1": "hexafluoroarsenate", "F6Sb-1": "hexafluoroantimonate", "AlCl4-1": "tetrachloroaluminate",
+  "AlH4-1": "tetrahydroaluminate", "I3-1": "triiodide", "Br3-1": "tribromide",
+});
+// Anions of two or three centres joined by O (O3S-O-SO3), or by O-O in peroxydisulfate. The rest have one centre.
+const BRIDGED = new Set(["O7P2-4", "O10P3-5", "O7S2-2", "O8S2-2", "Cr2O7-2"]);
+// Metals with one usual charge in salts, besides CATIONS (P-65.6.2.2): named without a Stock number.
+Object.assign(CATIONS, { Be: ["beryllium", 2], Al: ["aluminium", 3], Fr: ["francium", 1], Ra: ["radium", 2], Cd: ["cadmium", 2], Sc: ["scandium", 3], Y: ["yttrium", 3], La: ["lanthanum", 3] });
+const ROMAN = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
+// Metals that are not in CATIONS: named with their charge as a Stock number in salts, iron(III) chloride.
+const metal = (el: string) => ELEMENTS.has(el) && !/^(H|He|B|C|N|O|F|Ne|Si|P|S|Cl|Ar|As|Se|Br|Kr|Te|I|Xe|At|Rn)$/.test(el);
+// The shapes of a structure for SPECIES: each atom bonded to all the others as the centre.
+function shapes(g: Graph): string[] {
+  const label = (i: number) => { const a = g.atoms[i]; return `${a.el}${a.h ? `H${a.h > 1 ? a.h : ""}` : ""}${(a.charge > 0 ? "+" : "-").repeat(Math.abs(a.charge))}`; };
+  if (g.bonds.length !== g.atoms.length - 1) return [];
+  return g.atoms.flatMap((_, c) => {
+    const bonds = g.bonds.filter((b) => b.a === c || b.b === c);
+    return bonds.length === g.atoms.length - 1 ? [`${label(c)}(${bonds.map((b) => "-=#"[b.order - 1] + label(b.a === c ? b.b : b.a)).sort().join(",")})`] : [];
+  });
+}
+// Whether an inorganic anion found by formula has the expected shape: one centre (not O, unless all atoms are O),
+// or for BRIDGED, centres joined only through O.
+function inorganicShape(g: Graph, formula: string): boolean {
+  if (g.atoms.length === 1) return true;
+  const el = (i: number) => g.atoms[i].el;
+  if (BRIDGED.has(formula)) return g.bonds.length === g.atoms.length - 1 && g.bonds.every((b) => el(b.a) === "O" || el(b.b) === "O") && g.bonds.filter((b) => el(b.a) === "O" && el(b.b) === "O").length === (formula === "O8S2-2" ? 1 : 0);
+  return shapes(g).some((s) => s[0] !== "O" || g.atoms.every((a) => a.el === "O"));
+}
+
+// Hydrogen drawn as atoms: an H with one single bond to another atom becomes part of that atom's hydrogen count.
+// H2, hydride and bridging hydrogens stay as atoms.
+function foldHydrogens(g: Graph): Graph {
+  const bonds = g.atoms.map(() => [] as Graph["bonds"]);
+  for (const b of g.bonds) { bonds[b.a].push(b); bonds[b.b].push(b); }
+  const fold = g.atoms.map((a, i) => a.el === "H" && !a.charge && !a.h && bonds[i].length === 1 && bonds[i][0].order === 1 && g.atoms[bonds[i][0].a === i ? bonds[i][0].b : bonds[i][0].a].el !== "H");
+  if (!fold.includes(true)) return g;
+  const atoms = g.atoms.map((a) => ({ ...a })), index: number[] = [];
+  for (const b of g.bonds) { if (fold[b.a]) atoms[b.b].h++; if (fold[b.b]) atoms[b.a].h++; }
+  let k = 0;
+  for (let i = 0; i < atoms.length; i++) index.push(fold[i] ? -1 : k++);
+  return { atoms: atoms.filter((_, i) => !fold[i]), bonds: g.bonds.filter((b) => !fold[b.a] && !fold[b.b]).map((b) => ({ ...b, a: index[b.a], b: index[b.b] })) };
+}
+// A structure of one fragment that is a simple species: a lone atom by its element name (argon, sodium), a parent
+// hydride (ammonia, phosphane), a monatomic ion (chloride, sodium(1+)), or an inorganic molecule or ion by formula
+// (hydrogen peroxide, nitrate). Undefined for the rest, which the namer names.
+function speciesName(g: Graph): string | undefined {
+  const known = shapes(g).find((s) => SPECIES.has(s));
+  if (known) return SPECIES.get(known);
+  const f = ionFormula(g, g.atoms.map((_, i) => i));
+  if (f.includes("-") && ANIONS[f] && inorganicShape(g, f)) return ANIONS[f];
+  if (g.atoms.length !== 1) return undefined;
+  const a = g.atoms[0];
+  if (!a.charge) return a.h ? HYDRIDES[`${a.el}${a.h}`] : a.el === "H" ? undefined : ELEMENTS.get(a.el);
+  return a.charge > 0 && !a.h && a.el !== "H" && ELEMENTS.has(a.el) ? `${ELEMENTS.get(a.el)}(${a.charge}+)` : undefined;
+}
+
 export function iupacName(g: Graph): string | undefined {
   return iupacNameWhy(g).name;
 }
@@ -1212,6 +1437,7 @@ export function iupacName(g: Graph): string | undefined {
 export function iupacNameWhy(g: Graph): { name?: string; why?: string } {
   try {
     if (!g.atoms.length) return { why: "empty" };
+    g = foldHydrogens(g);
     // Fragments: one structure, or a salt.
     const adj = g.atoms.map(() => [] as number[]);
     for (const b of g.bonds) { adj[b.a].push(b.b); adj[b.b].push(b.a); }
@@ -1223,7 +1449,7 @@ export function iupacNameWhy(g: Graph): { name?: string; why?: string } {
       while (stack.length) { const i = stack.pop()!; for (const j of adj[i]) if (!seen.has(j)) { seen.add(j); part.push(j); stack.push(j); } }
       parts.push(part);
     }
-    const name = parts.length === 1 ? new Namer(g).name() : saltName(g, parts);
+    const name = parts.length === 1 ? speciesName(g) ?? new Namer(g).name() : saltName(g, parts);
     return name ? { name } : { why: parts.length === 1 ? "no name" : "salt" };
   } catch (e) {
     return { why: e instanceof Error ? e.message : String(e) };
