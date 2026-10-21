@@ -575,7 +575,7 @@ class Namer {
     for (const a of atoms) {
       const doubles = ring(a).filter((j) => this.ord(a, j) === 2).length;
       if (doubles > 1 || ring(a).some((j) => this.ord(a, j) === 3)) throw new Error("ring bonds");
-      if (this.adj[a].some((j) => !sys.has(j) && this.ord(a, j) > 1 && j !== this.carbonylO[a])) throw new Error("exocyclic double bond");
+      if (this.adj[a].some((j) => !sys.has(j) && this.ord(a, j) > 1 && j !== this.carbonylO[a] && !(this.ord(a, j) === 2 && this.el[j] === "C" && this.el[a] === "C" && !doubles))) throw new Error("exocyclic double bond");
       if (this.el[a] === "C" || this.el[a] === "N") { cn.push(a); if (!doubles) d.push(a); }
       else if (doubles) throw new Error("ring heteroatom double bond");
     }
@@ -813,6 +813,8 @@ class Namer {
       parent = (replaced ? `${replaced}${/^\d/.test(bridged.prefix) ? "-" : ""}` : "") + bridged.prefix + chainStem(size, multiple(num, 2), multiple(num, 3), true);
     }
     else parent = (p.ring ? "cyclo" : "") + chainStem(size, multiple(num, 2), multiple(num, 3), p.ring);
+    // A ring's one multiple bond needs no locant when nothing else is cited (P-31.1.4.2.4): cyclohexene, cyclooctyne.
+    if (p.ring && !info?.ring && !fused && !bridged && !assembly && multiple(num).length === 1 && !prefixes.length && !sites.length && !opts.attach) parent = parent.replace(/-1-(ene|yne)$/, "$1");
     // A ring cation (P-73.1.2): pyridin-1-ium, 1-methylpyridin-1-ium, acridin-10-ium. Not with a suffix or as a prefix.
     const ium = p.ring ? atoms.filter((a) => this.cationN(a)) : [];
     if (ium.length) {
@@ -820,7 +822,7 @@ class Namer {
       parent = `${parent.replace(/e$/, "")}-${ium.map((a) => label(num, a)).sort(locOrder).join(",")}-${MULT[ium.length]}ium`;
     }
     let text: string;
-    const locantFree = p.ring && !fused && !assembly && !bridged && (!info?.ring || info.ring.name === "benzene") && prefixes.length === 0;
+    const locantFree = p.ring && !fused && !assembly && !bridged && (!info?.ring || info.ring.name === "benzene") && prefixes.length === 0 && !multiple(num).length;
     if (opts.sulfo) text = joinPrefixes(prefixText, withSuffix(parent, undefined, [label(num, opts.attach![0])], p.ring, locantFree, !p.ring && size <= 2, opts.sulfo));
     else if (opts.attach) text = joinPrefixes(prefixText, this.substituentForm(parent, info, label(num, opts.attach[0]), p.ring, size, !!opts.acyl, multiple(num).length > 0));
     else if (retained) text = prefixText + retained; // benzoic acid, acetic acid: the suffix locant is understood
@@ -831,6 +833,12 @@ class Namer {
     for (const a of atoms) if (this.cip[a] === "R" || this.cip[a] === "S") stereo.push({ at: loc(num, a), text: `${label(num, a)}${this.cip[a]}` });
     // E and Z on an imine's C=N, at the carbon's locant: (1E)-N-hydroxyethanimine.
     if (kind === "imine") for (const st of sites) { const c = this.cipBond.get(this.key(st.atom, this.imineN(st.atom)!)); if (c === "E" || c === "Z") stereo.push({ at: loc(num, st.atom), text: `${label(num, st.atom)}${c}` }); }
+    // E and Z on an ylidene's double bond, at the parent atom's locant: (2E)-2-ethylidenecyclohexan-1-one.
+    for (const a of new Set(prefixes.filter((x) => !x.n).map((x) => x.atom))) for (const y of this.adj[a]) {
+      const free = opts.attach && a === opts.attach[0] && y === opts.attach[1]; // cited by the parent the group is on
+      const c = !inParent.has(y) && !free && this.el[y] === "C" && this.ord(a, y) === 2 ? this.cipBond.get(this.key(a, y)) : undefined;
+      if (c === "E" || c === "Z") stereo.push({ at: loc(num, a), text: `${label(num, a)}${c}` });
+    }
     if (fused || assembly) {
       if (atoms.some((a) => this.adj[a].some((b) => inParent.has(b) && /^[EZ]$/.test(this.cipBond.get(this.key(a, b)) ?? "")))) throw new Error("ring E/Z");
     } else for (let k = 0; k + 1 < num.length + (p.ring ? 1 : 0); k++) {
@@ -867,6 +875,7 @@ class Namer {
     const el = this.el[x];
     // Diazo is the one prefix on a double bond that Octet names (=N+=N-); =CH2 and the like are not covered.
     if (el === "N" && this.diazoAtom(x) && this.ord(x, from) === 2) return { text: "diazo", compound: false };
+    if (el === "C" && this.ord(x, from) === 2) return this.ylidene(x, from);
     if (this.ord(x, from) !== 1) throw new Error("ylidene");
     // Rings with a free valence, on a ring carbon or a ring nitrogen (piperidin-1-yl).
     if (this.inRing[x]) return this.nameParent({ atoms: this.rings[this.ringOf[x]], ring: true }, { attach: [x, from] });
@@ -951,6 +960,15 @@ class Namer {
     return this.nameParent({ atoms: chain, ring: false }, { attach: [x, from] });
   }
 
+  // A carbon joined to the parent by a double bond (P-29.2, P-31.1.4.3.4): its substituent group with -ylidene for
+  // -yl, the free valence at the lowest locant: methylidene, propan-2-ylidene, cyclohexylidene, (oxolan-3-ylidene).
+  ylidene(x: number, from: number): Name {
+    if (this.group[x] || this.carbonylO[x] >= 0) throw new Error("ylidene");
+    const p = this.inRing[x] ? { atoms: this.rings[this.ringOf[x]], ring: true } : { atoms: this.bestChain(x, from), ring: false };
+    const n = this.nameParent(p, { attach: [x, from] });
+    if (!n.text.endsWith("yl")) throw new Error("ylidene");
+    return { text: `${n.text}idene`, compound: n.compound };
+  }
   // The prefix for =N on a parent atom: imino, (hydroxyimino), (methylimino).
   iminoPrefix(n: number, c: number): Name {
     const x = this.adj[n].find((j) => j !== c);
@@ -1169,7 +1187,7 @@ function compare(a: number[], b: number[]): number {
 const locantsOf = (name: string) => (name.match(/\d+/g) ?? []).map(Number);
 // Alphabetical order ignores multiplying prefixes of simple substituents, locants and italic prefixes (P-14.5).
 function alphaKey(t: string): string {
-  return t.replace(/^[([{]+/, "").replace(/^((tert|sec|N|\d+[a-z]?'*(,\d+[a-z]?'*)*)-)+/, "").replace(/^(\d+[a-z]?H-)+/, "").replace(/[()[\]{}]/g, "");
+  return t.replace(/^[([{]+/, "").replace(/^(\d+[a-z]?'*[RSEZ],?)+\)-/, "").replace(/^((tert|sec|N|\d+[a-z]?'*(,\d+[a-z]?'*)*)-)+/, "").replace(/^(\d+[a-z]?H-)+/, "").replace(/[()[\]{}]/g, "");
 }
 // Substituents on a parent without locants (amino, phosphane): phenyl, diphenyl, methyl(diphenyl), in alphabetical order.
 function substituted(subs: Name[]): string {

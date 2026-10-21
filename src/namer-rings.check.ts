@@ -96,6 +96,24 @@ run("monocycles", [
   "(1,2,4-triazin-3-yl)methanol", "1-(2H-pyran-2-yl)ethan-1-one", "3,4-dihydro-2H-pyran-2-ylmethanol",
 ]);
 
+// Double-bonded substituents (P-29.2): methylidene, propan-2-ylidene, ring ylidenes, with E and Z at the parent atom.
+run("ylidene", [
+  "alpha-myrcene = 2-methyl-6-methylideneocta-1,7-diene", "beta-myrcene = 7-methyl-3-methylideneocta-1,6-diene", "beta-farnesene",
+  "beta-pinene = 6,6-dimethyl-2-methylidenebicyclo[3.1.1]heptane", "camphene", "beta-terpinene", "terpinolene = 1-methyl-4-(propan-2-ylidene)cyclohex-1-ene",
+  "fulvene = 5-methylidenecyclopenta-1,3-diene", "gamma-terpineol", "itaconic acid = 2-methylidenebutanedioic acid", "methylidenecyclohexane = methylidenecyclohexane",
+  "(2E)-2-ethylidenecyclohexan-1-one = (2E)-2-ethylidenecyclohexan-1-one", "(2Z)-2-ethylidenecyclohexan-1-one", "2-methylidenebutanoic acid",
+  "(2Z)-2-benzylidene-1-benzofuran-3(2H)-one", "4-methylidene-4H-pyran", "3-methylideneoxolan-2-one", "(propan-2-ylidene)propanedioic acid",
+  "cyclohexylidenemethanol", "(cyclohexylidene)acetic acid", "5-benzylidene-1,3-thiazolidine-2,4-dione", "2-(oxolan-3-ylidene)acetic acid",
+  "2,2-dimethyl-5-methylidene-1,3-dioxane-4,6-dione", "2-(diphenylmethylidene)propanedinitrile", "(2E)-2-[(2Z)-but-2-en-1-ylidene]cyclohexan-1-one",
+]);
+
+// Ring unsaturation: a ring's one multiple bond takes no locant on its own, and does with a suffix; ring triple bonds.
+run("ring unsaturation", [
+  "cyclohexene = cyclohexene", "cyclooctyne = cyclooctyne", "cyclohex-2-en-1-ol = cyclohex-2-en-1-ol", "cyclohex-2-ene-1-carboxylic acid = cyclohex-2-ene-1-carboxylic acid",
+  "cyclopent-2-en-1-amine = cyclopent-2-en-1-amine", "p-menthyne", "benzyne", "(1Z,5Z)-cycloocta-1,5-diene",
+  "cytidine = 4-amino-1-[(2R,3R,4S,5R)-3,4-dihydroxy-5-(hydroxymethyl)oxolan-2-yl]pyrimidin-2(1H)-one",
+]);
+
 // Chains of any length (P-14.2.1 numerical terms) and polyenes.
 run("long chains", [
   "docosanoic acid = docosanoic acid", "henicosane = henicosane", "tricosane = tricosane", "dotriacontan-1-ol = dotriacontan-1-ol",
