@@ -248,7 +248,9 @@ console.log("render.check: written labels ok");
   assert.deepEqual(parts.parts.map((p) => p.ids.length), [6, 6, 1, 4, 4], "two pyridines, H2O2, the two bonds in perspective as one, nitro");
   // Move the second pyridine: only it is drawn again.
   const move = (dx: number, dy: number): Mol => ({ ...m, atoms: m.atoms.map((a, i) => (i >= 6 && i < 12 ? { ...a, location: [a.location[0] + dx, a.location[1] + dy, a.location[2]] as [number, number, number] } : a)) });
-  const moved = move(1, 0.5), again = renderParts(moved, S, ink, S.bond, cache);
+  // (Left, clear of the nitro group: a bond end that comes within the margin and widths of another bond counts as
+  // crossing it, as in ChemDraw, and joins their drawings.)
+  const moved = move(-1, 0.5), again = renderParts(moved, S, ink, S.bond, cache);
   assert.equal(again.parts[0].drawing, parts.parts[0].drawing, "the first pyridine is not drawn again");
   assert.notEqual(again.parts[1].drawing, parts.parts[1].drawing, "the moved pyridine is drawn again");
   const near = (a: Box[], b: Box[]) => a.every((x, i) => x.every((v, j) => Math.abs(v - b[i][j]) < 1e-9));
@@ -257,7 +259,7 @@ console.log("render.check: written labels ok");
   const drag: PartCache = { parts: new WeakMap(), last: new Map() };
   const before = renderParts(m, S, ink, S.bond, drag, false), during = renderParts(moved, S, ink, S.bond, drag, false);
   assert.equal(during.parts[1].drawing, before.parts[1].drawing, "moved, not drawn again");
-  assert.ok(Math.abs(during.parts[1].at[0] - S.bond) < 1e-9 && Math.abs(during.parts[1].at[1] + 0.5 * S.bond) < 1e-9, "moved by the drag (y down)");
+  assert.ok(Math.abs(during.parts[1].at[0] + S.bond) < 1e-9 && Math.abs(during.parts[1].at[1] + 0.5 * S.bond) < 1e-9, "moved by the drag (y down)");
   assert.ok(near(during.ink, again.ink) && near([during.box], [again.box]), "ink boxes and box where the atoms are");
   const dropped = renderParts(moved, S, ink, S.bond, drag, true);
   assert.notEqual(dropped.parts[1].drawing, before.parts[1].drawing, "drawn again when still");
@@ -269,8 +271,8 @@ console.log("render.check: written labels ok");
   assert.ok(near(got.ink, fresh.ink) && near([got.box], [fresh.box]) && near(dropped.ink, again.ink), "ink boxes where a new drawing puts them");
   assert.equal(dropped.parts[0].drawing, before.parts[0].drawing, "the rest is not drawn again");
   // A scale during a drag (positions and atoms' scales together, IDEA-SCALE-3): the drawing is kept, scaled by k and
-  // moved; once still, it is drawn again.
-  const grow = (k: number): Mol => ({ ...m, atoms: m.atoms.map((a, i) => (i >= 6 && i < 12 ? { ...a, scale: k, location: [1 + (a.location[0] - 1) * k, 2 + (a.location[1] - 2) * k, (a.location[2] ?? 0) * k] as [number, number, number] } : a)) });
+  // moved; once still, it is drawn again. (About its own middle, so it stays clear of the nitro group.)
+  const grow = (k: number): Mol => ({ ...m, atoms: m.atoms.map((a, i) => (i >= 6 && i < 12 ? { ...a, scale: k, location: [4 + (a.location[0] - 4) * k, (a.location[1] ?? 0) * k, (a.location[2] ?? 0) * k] as [number, number, number] } : a)) });
   const scaling: PartCache = { parts: new WeakMap(), last: new Map() }, start = renderParts(m, S, ink, S.bond, scaling, false), big = renderParts(grow(2), S, ink, S.bond, scaling, false);
   assert.equal(big.parts[1].drawing, start.parts[1].drawing, "scaled, not drawn again");
   assert.equal(big.parts[1].k, 2);
@@ -337,10 +339,11 @@ console.log("render.check: written labels ok");
   const covered = (dr: Drawing, q: P) => dr.polygons.some((poly) => inside(poly, q));
   const dc = render(cross, S, ink, L);
   assert.ok(covered(dc, [0.5, 0]) && covered(dc, [-0.5, 0]), "the front bond (drawn later) runs through the crossing");
-  assert.ok(!covered(dc, [0, 0.5]) && !covered(dc, [0, -0.5]) && !covered(dc, [0, -3]), "the bond behind has a gap");
+  // The gap, as ChemDraw cuts it: half the front bond's width and the Margin Width each side (0.3 + 1.6 pt = 2.53 px).
+  assert.ok(!covered(dc, [0, 0.5]) && !covered(dc, [0, -0.5]) && !covered(dc, [0, -2.45]) && covered(dc, [0, -2.65]), "the bond behind has a gap");
   assert.ok(covered(dc, [0, -8]) && covered(dc, [0, 8]), "the bond behind is drawn on both sides of its gap");
   const swapped = render({ ...cross, bonds: [cross.bonds[1], cross.bonds[0]] }, S, ink, L);
-  assert.ok(covered(swapped, [0, 0.5]) && !covered(swapped, [3, 0]), "Bring to Front swaps them");
+  assert.ok(covered(swapped, [0, 0.5]) && !covered(swapped, [2.45, 0]), "Bring to Front swaps them");
   const parts = renderParts(cross, S, ink, L, { parts: new WeakMap(), last: new Map() } as PartCache);
   assert.equal(parts.parts.length, 1, "crossing structures draw together");
   console.log("render.check: crossing bonds ok");

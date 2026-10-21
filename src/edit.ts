@@ -38,22 +38,30 @@ const bondIndex = (m: Mol, i: number, j: number) =>
   m.bonds.findIndex((b) => (b.atoms[0] === i && b.atoms[1] === j) || (b.atoms[0] === j && b.atoms[1] === i));
 
 // Hit testing, in bond lengths.
-// Hidden H atoms (Toggle Hydrogen Display) and their bonds are not hit.
-export function atomAt(m: Mol, p: P, r = 0.3): number | undefined {
-  let best: number | undefined, bestD = r;
-  m.atoms.forEach((x, i) => { const d = len(sub(pos(m, i), p)); if (d < bestD && !x.hidden) { best = i; bestD = d; } });
+// Hidden H atoms (Toggle Hydrogen Display) and their bonds are not hit. Of things about as near the pointer as the
+// nearest (within TIE), the one in front is hit: in a structure turned in 3D, the atom or bond nearer the viewer, as
+// it is drawn over the one behind; where flat bonds cross, the bond drawn later (in front).
+const TIE = 0.05;
+function nearest(ds: (number | undefined)[], front: (i: number) => number): number | undefined {
+  let best: number | undefined;
+  ds.forEach((d, i) => { if (d !== undefined && (best === undefined || d < ds[best]!)) best = i; });
+  if (best === undefined) return undefined;
+  const lo = ds[best]!;
+  ds.forEach((d, i) => { if (d !== undefined && d <= lo + TIE && front(i) > front(best!) + 1e-9) best = i; });
   return best;
 }
+export function atomAt(m: Mol, p: P, r = 0.3): number | undefined {
+  return nearest(m.atoms.map((x, i) => { const d = len(sub(pos(m, i), p)); return d < r && !x.hidden ? d : undefined; }), (i) => m.atoms[i].location[2] ?? 0);
+}
 export function bondAt(m: Mol, p: P, r = 0.2): number | undefined {
-  let best: number | undefined, bestD = r;
-  m.bonds.forEach((b, i) => {
-    if (m.atoms[b.atoms[0]].hidden || m.atoms[b.atoms[1]].hidden) return;
+  const z = (i: number) => m.atoms[i].location[2] ?? 0;
+  return nearest(m.bonds.map((b) => {
+    if (m.atoms[b.atoms[0]].hidden || m.atoms[b.atoms[1]].hidden) return undefined;
     const a = pos(m, b.atoms[0]), ab = sub(pos(m, b.atoms[1]), a);
     const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1]) / (ab[0] ** 2 + ab[1] ** 2 || 1)));
     const d = len(sub(p, add(a, mul(ab, t))));
-    if (d < bestD) { best = i; bestD = d; }
-  });
-  return best;
+    return d < r ? d : undefined;
+  }), (k) => z(m.bonds[k].atoms[0]) + z(m.bonds[k].atoms[1]) + k * 1e-6);
 }
 
 // An atom's scale (decision 0007). Bonds, chains, rings and templates drawn from an atom take it, so they match the
@@ -1943,15 +1951,41 @@ export function turnAboutBond(m: Mol, ids: Set<number>, from: number, to: number
     }),
   };
 }
-// Object > Flatten: atoms keep where they are drawn and lose their depth.
+// Object > Flatten: atoms keep where they are drawn and lose their depth. As in ChemDraw, depth shading stays set (it
+// shows again if the structure is turned again).
 export const flattenAtoms = (m: Mol, ids: Set<number>): Mol =>
-  ({ ...m, atoms: m.atoms.map((a, i) => (ids.has(i) ? { ...a, location: [a.location[0], a.location[1], 0] as [number, number, number], depth: undefined } : a)) });
-// The one bond joining some atoms to the rest of their structure, as [inside atom, outside atom], if there is one.
+  ({ ...m, atoms: m.atoms.map((a, i) => (ids.has(i) ? { ...a, location: [a.location[0], a.location[1], 0] as [number, number, number] } : a)) });
+// The axis part of a structure turns about in 3D, as [atom, atom]: the one bond joining the part to the rest of its
+// structure ([inside atom, outside atom]), or, when its bonds to the rest all go to the same two atoms (a
+// carboxylate bridging a metal–metal bond, a ring fused on a bond), the line through those two. Else none.
 export function hingeOf(m: Mol, ids: Set<number>): [number, number] | undefined {
   const joins = m.bonds.filter((b) => ids.has(b.atoms[0]) !== ids.has(b.atoms[1]));
-  if (joins.length !== 1) return undefined;
-  const [a, b] = joins[0].atoms;
-  return ids.has(a) ? [a, b] : [b, a];
+  if (joins.length === 1) { const [a, b] = joins[0].atoms; return ids.has(a) ? [a, b] : [b, a]; }
+  const outside = [...new Set(joins.map((b) => (ids.has(b.atoms[0]) ? b.atoms[1] : b.atoms[0])))];
+  return outside.length === 2 ? [outside[1], outside[0]] : undefined;
+}
+// Atoms drawn onto a structure with depth (one turned in 3D) take the depth of the atoms they are drawn from, so a
+// new bond lies in the page at its first atom's depth and later turns go on as the structure's own. New atoms are those
+// past the end of prev's list that are flat (z 0); each takes the mean depth of its neighbours that have one, nearest
+// first. Atoms not joined to the drawing as it was (a paste) keep theirs. Returns the same drawing when nothing changes.
+export function carryDepth(prev: Mol, next: Mol): Mol {
+  const n = prev.atoms.length;
+  if (next.atoms.length <= n || !prev.atoms.some((a) => a.location[2])) return next;
+  const nbrs: number[][] = next.atoms.map(() => []);
+  for (const b of next.bonds) if (b.atoms[0] < next.atoms.length && b.atoms[1] < next.atoms.length) { nbrs[b.atoms[0]].push(b.atoms[1]); nbrs[b.atoms[1]].push(b.atoms[0]); }
+  // Known depths: the atoms that were there, then the new flat atoms layer by layer out from them. A new atom that
+  // came with a depth of its own (pasted from a 3D drawing) keeps it and passes none on.
+  const z = next.atoms.map((a, i) => (i < n ? a.location[2] ?? 0 : undefined)), own = (i: number) => i >= n && !!next.atoms[i].location[2];
+  const open = (i: number) => z[i] === undefined && !own(i) && nbrs[i].some((j) => z[j] !== undefined);
+  let layer = next.atoms.map((_, i) => i).filter(open);
+  while (layer.length) {
+    const found = layer.map((i) => { const known = nbrs[i].filter((j) => z[j] !== undefined); return known.reduce((t, j) => t + z[j]!, 0) / known.length; });
+    layer.forEach((i, k) => { z[i] = found[k]; });
+    layer = [...new Set(layer.flatMap((i) => nbrs[i]))].filter(open);
+  }
+  const moved = (i: number) => i >= n && z[i] !== undefined && z[i] !== (next.atoms[i].location[2] ?? 0);
+  if (!next.atoms.some((_, i) => moved(i))) return next;
+  return { ...next, atoms: next.atoms.map((a, i) => (moved(i) ? { ...a, location: [a.location[0], a.location[1], z[i]!] as [number, number, number] } : a)) };
 }
 // The atom a turn of some atoms goes about, as ChemDraw's: the one atom every bond out of them leaves from (a
 // substituent turns about the atom that joins it to the rest), else the one atom left out that every bond out of them

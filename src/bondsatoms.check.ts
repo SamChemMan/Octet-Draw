@@ -57,7 +57,8 @@ const roundTrip = (m: Mol) => fromCdxml(toCdxml(m, DEFAULT_STYLE).replace(/ Octe
 console.log("bondsatoms.check: quadruple and hydrogen bonds ok");
 
 // CD-9. Two bonds that cross in a flat drawing: the one behind has a gap where the front one passes, as wide as the
-// front bond and clear of it by a margin. The later bond is in front; in a structure with depth, the nearer one.
+// front bond and clear of it by a margin. The later bond is in front; in a structure with depth, the nearer one
+// (perspective.check.ts has more).
 {
   // One structure: a horizontal bond, a vertical bond across it, and a bond joining their ends.
   const cross: Mol = { atoms: [A("C", -0.5, 0), A("C", 0.5, 0), A("C", 0, -0.5), A("C", 0, 0.5)], bonds: [b(0, 1), b(2, 3), b(1, 3)] };
@@ -68,11 +69,12 @@ console.log("bondsatoms.check: quadruple and hydrogen bonds ok");
   const horiz = flat.filter((poly) => Math.max(...ys(poly)) - Math.min(...ys(poly)) < 1);
   assert.equal(horiz.length, 2, "the horizontal bond (behind) is in two pieces");
   const gap = Math.min(...horiz.map((poly) => Math.min(...xs(poly).map(Math.abs))));
-  assert.ok(gap >= S.line / 2 + S.margin - 1e-6 && gap < 3 * (S.line + S.margin), `gap half-width ${gap}`);
+  // As ChemDraw cuts it: half the front bond's width and the Margin Width (S.margin is the label clearance, 1.69/1.6 of it).
+  assert.ok(Math.abs(gap - (S.line / 2 + (S.margin * 1.6) / 1.69)) < 1e-6, `gap half-width ${gap}`);
   const front = pieces({ ...cross, bonds: [b(2, 3), b(0, 1), b(1, 3)] });
   assert.equal(front.filter((poly) => Math.max(...xs(poly)) - Math.min(...xs(poly)) < 1).length, 2, "the later bond is in front");
-  const raised = pieces({ ...cross, atoms: cross.atoms.map((a, i) => ({ ...a, depth: false, location: [a.location[0], a.location[1], i < 2 ? 0.2 : 0] })) });
-  assert.equal(raised.filter((poly) => Math.max(...xs(poly)) - Math.min(...xs(poly)) < 1).length, 2, "drawn flat, the nearer bond is in front");
+  const raised = pieces({ ...cross, atoms: cross.atoms.map((a, i) => ({ ...a, location: [a.location[0], a.location[1], i < 2 ? 0.2 : 0] })) });
+  assert.equal(raised.filter((poly) => Math.max(...xs(poly)) - Math.min(...xs(poly)) < 1).length, 2, "with depth, the nearer bond is in front");
   // A double bond in front cuts a gap as wide as both its lines.
   const dbl = pieces({ ...cross, bonds: [b(0, 1), b(2, 3, { type: 2, position: "left" }), b(1, 3)] }).filter((poly) => Math.max(...ys(poly)) - Math.min(...ys(poly)) < 1);
   assert.equal(dbl.length, 2);

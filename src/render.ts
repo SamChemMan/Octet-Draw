@@ -28,7 +28,10 @@ export type Atom = {
   map?: number; // a reaction atom map number: the same atom before and after
   enhanced?: string; // enhanced stereo: the stereocentre's group, "abs", "&1" (and) or "or1" (or)
   colour?: string; // #rrggbb for the atom's label and marks; unset draws in the document's ink
-  depth?: false; // a 3D structure drawn flat (Structure Perspective off); location[2] is the atom's depth, nearer is larger
+  // location[2] is the atom's depth (z, in bond lengths; nearer the viewer is larger), from a turn in 3D (Structure
+  // Perspective), 3D Clean Up or a file. shade: depth shading is on for the atom's structure (ChemDraw's Structure >
+  // Structure Perspective, ShowPerspective in CDXML): further bonds and labels are drawn fainter.
+  shade?: true;
   // The label's text style (ChemDraw's Text menu on a selected label). Unset uses the document's label font and size.
   font?: string; size?: number; bold?: true; italic?: true; underline?: true;
   ignoreWarnings?: true; // Display Warnings off for this atom (ChemDraw's IgnoreWarnings): its problems are not marked
@@ -513,7 +516,9 @@ const pieceBox = ({ pts, x, y, f }: Piece): Box => { const b = outlineBox(pts); 
 const placedPoints = (shape: Piece[]): P[] => shape.flatMap(({ pts, x, y, f }) => pts.map(([px, py]): P => [x + px * f, y + py * f]));
 
 // scale: px per input unit. By default the median bond is drawn at the style's bond length.
-export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, scale?: number): Drawing {
+// zRange: the depth range of the whole drawing for depth shading (renderParts gives it for each structure it draws);
+// by default the range of mol's own atoms.
+export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, scale?: number, zRange?: [number, number] | null): Drawing {
   const raw = mol.bonds.map((b) => len(sub(mol.atoms[b.atoms[0]].location as unknown as P, mol.atoms[b.atoms[1]].location as unknown as P)));
   const median = [...raw].sort((x, y) => x - y)[Math.floor(raw.length / 2)] || 1;
   const k = scale ?? s.bond / median;
@@ -1029,68 +1034,49 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   // Each polygon belongs to the bond it draws, so to both of its atoms' ink boxes.
   const ink: Box[] = pts.map(([x, y]) => [x, y, x, y]);
   const grow = (i: number, [x, y]: P) => { const b = ink[i]; b[0] = Math.min(b[0], x); b[1] = Math.min(b[1], y); b[2] = Math.max(b[2], x); b[3] = Math.max(b[3], y); };
-  // Structure Perspective: a structure with depth (its atoms' z) is drawn as seen, nearer bonds wider and darker,
-  // further ones thinner and fainter, and a nearer bond crossing in front of another cuts a gap in it.
-  const depth = depthOf(mol);
-  const deep = (pl: Plan) => depth[pl.a] !== undefined && depth[pl.b] !== undefined;
-  const fade = (t: number) => 0.45 + 0.55 * t, wideAt = (t: number, z: Z) => z.hw * 0.8 + (z.bold / 2 - z.hw * 0.8) * t;
-  const drawDeep = (pl: Plan) => {
-    if (pl.hidden) return;
-    const S = drawnEnd(pl, pl.a), E = drawnEnd(pl, pl.b), D = len(sub(E, S));
-    if (D < 1e-6) return;
-    const ta = depth[pl.a]!, tb = depth[pl.b]!;
-    // Gaps where a nearer bond crosses this one, as fractions along it.
-    const gaps: [number, number][] = [];
-    for (const other of plans) {
-      if (other === pl || !deep(other) || other.hidden || [other.a, other.b].some((x) => x === pl.a || x === pl.b)) continue;
-      const hit = crossing(pts[pl.a], pts[pl.b], pts[other.a], pts[other.b]);
-      if (!hit) continue;
-      const here = ta + (tb - ta) * hit[0], there = depth[other.a]! + (depth[other.b]! - depth[other.a]!) * hit[1];
-      if (there <= here + 0.02) continue;
-      const g = (wideAt(there, pl.z) + 2.5 * pl.z.hw + pl.z.margin) / pl.length;
-      gaps.push([hit[0] - g, hit[0] + g]);
-    }
-    gaps.sort((p, q) => p[0] - q[0]);
-    const offsets = pl.kind === 'none' || pl.lines.length > 1 ? pl.lines.map((l) => l.o) : [0, ...pl.lines.map((l) => l.o)];
-    const lines = offsets.length ? offsets : [0];
-    let from = pl.cut[0] / pl.length;
-    const pieces: [number, number][] = [];
-    for (const [g0, g1] of gaps) { if (g0 > from) pieces.push([from, g0]); from = Math.max(from, g1); }
-    pieces.push([from, 1 - pl.cut[1] / pl.length]);
-    for (const [f, t] of pieces) {
-      if (t - f < 1e-3) continue;
-      for (const o of lines) {
-        const at = (k: number): P => add(add(pts[pl.a], mul(pl.u, pl.length * k)), mul(pl.n, o)), w = (k: number) => wideAt(ta + (tb - ta) * k, pl.z);
-        const p = at(f), q = at(t);
-        polygons.push([add(p, mul(pl.n, -w(f))), add(p, mul(pl.n, w(f))), add(q, mul(pl.n, w(t))), add(q, mul(pl.n, -w(t)))]);
-      }
-    }
+  // A structure turned in 3D is drawn as any other, as ChemDraw draws it: each atom where its x and y put it (no
+  // vanishing point), every bond style as it is, at the document's widths. Its depth (z) decides which bond is in
+  // front where two cross. Depth shading (ChemDraw's Structure Perspective, on after 3D Clean Up or Structure >
+  // Structure Perspective) also draws objects further back paler: ChemDraw fades their colour towards the paper, as
+  // an alpha over the paper does.
+  const range = zRange === undefined ? depthRange(mol) : zRange;
+  const fade = (...atoms: number[]) => (range && atoms.some((x) => mol.atoms[x].shade) ? shadeAt(atoms.reduce((t, x) => t + (mol.atoms[x].location[2] ?? 0), 0) / atoms.length, range) : 1);
+  // Crossing bonds (ChemDraw's Bond Crossing): a section of the bond behind is cut out round the bond in front. As
+  // ChemDraw decides, the bond whose middle is nearer is in front, so Bring to Front does nothing where bonds have
+  // depth; at the same depth (a flat drawing) the bond drawn later is (Bring to Front and the f key move a bond to the
+  // end of the list). The cut is the front bond's own width (across) and, all round it, the margin of the bond
+  // behind; its axis runs on by the margin at each end. A bond whose end only nearly meets the other (within their
+  // widths and the margin) is cut too, as in ChemDraw.
+  const margin = (pl: Plan) => (pl.z.margin * 1.6) / 1.69; // Margin Width: s.margin is the label clearance, 1.69/1.6 of it (chem.ts)
+  const across = (pl: Plan) => {
+    const offs = [...(pl.kind === 'none' ? [] : [0]), ...pl.lines.map((l) => l.o)], lo = Math.min(...offs), hi = Math.max(...offs);
+    // Two lines or more: from the middle, the distance to the outer lines, and half a bold line's width.
+    const bold = Math.max(pl.kind === 'line' ? pl.half ?? 0 : 0, ...pl.lines.map((l) => l.half ?? 0));
+    if (offs.length > 1) { const h = (hi - lo) / 2 + (bold > pl.z.hw ? bold : 0); return { o: (lo + hi) / 2, ha: h, hb: h }; }
+    // A wedge: the line width at its narrow end (a), 1.5 bold widths at its wide end (b). A bold bond: the bold width.
+    if (pl.kind === 'wedge' || pl.kind === 'hash' || pl.kind === 'hollow') return { o: 0, ha: pl.z.hw, hb: pl.z.wide };
+    const h = pl.kind === 'line' && pl.half ? pl.half : pl.z.hw;
+    return { o: 0, ha: h, hb: h };
   };
-  // Crossing bonds in a flat drawing (ChemDraw's Bond Crossing): the bond drawn later is in front (Bring to Front and
-  // the f key move a bond to the end of the list), and the bond behind it has a section cut out where they cross, as
-  // wide as the front bond and clear of it by its margin.
-  const fronts: number[][] = plans.map(() => []);
-  // A structure with depth drawn flat: the nearer bond is in front, as its atoms' depth says.
-  const near = (k: number) => mol.bonds[k].atoms.reduce((t, a) => t + (mol.atoms[a].location[2] ?? 0), 0);
-  for (const [r, f] of crossingBonds(mol.bonds, (i) => pts[i], s.bond)) {
-    if (deep(plans[r]) || deep(plans[f]) || plans[r].hidden || plans[f].hidden) continue;
-    if (near(r) - near(f) > 1e-6) fronts[f].push(r); else fronts[r].push(f);
+  const cutter = (pl: Plan, m: number): P[] => {
+    const { o, ha, hb } = across(pl), A = add(add(pts[pl.a], mul(pl.n, o)), mul(pl.u, -m)), B = add(add(pts[pl.b], mul(pl.n, o)), mul(pl.u, m));
+    return [add(A, mul(pl.n, -ha - m)), add(B, mul(pl.n, -hb - m)), add(B, mul(pl.n, hb + m)), add(A, mul(pl.n, ha + m))];
+  };
+  const fronts: number[][] = plans.map(() => []), mid = (k: number) => mol.bonds[k].atoms.reduce((t, x) => t + (mol.atoms[x].location[2] ?? 0), 0) / 2;
+  for (const [r, f] of crossingBonds(mol.bonds, (i) => pts[i], s.bond, s)) {
+    const R = plans[r], F = plans[f];
+    if (R.hidden || F.hidden) continue;
+    if (mid(r) - mid(f) > 1e-6) fronts[f].push(r); else fronts[r].push(f);
   }
-  const reachOf = (pl: Plan) => Math.max(0, ...pl.lines.map((l) => Math.abs(l.o) + (l.half ?? pl.z.hw))) + (pl.kind === 'none' ? 0 : pl.kind === 'wedge' || pl.kind === 'hash' || pl.kind === 'hollow' ? pl.z.wide : half(pl));
   const cutFronts = (i: number, from: number) => {
-    for (const f of fronts[i]) {
-      const front = plans[f], g = reachOf(front) + 2.5 * plans[i].z.hw + plans[i].z.margin, o = pts[front.a];
-      const pieces = polygons.splice(from).flatMap((poly) => [clipSide(poly, o, front.n, g), clipSide(poly, o, mul(front.n, -1), g)].filter((q) => q.length));
-      polygons.push(...pieces);
-    }
+    for (const f of fronts[i]) polygons.push(...polygons.splice(from).flatMap((poly) => without(poly, cutter(plans[f], margin(plans[i])))));
   };
   // Each polygon's colour (its bond's, or for a mark, its atom's) and how strongly it is drawn (fainter further back).
   const colours: (string | undefined)[] = [], alphas: number[] = [];
-  const order = plans.map((_, i) => i).sort((i, j) => (deep(plans[i]) && deep(plans[j]) ? depth[plans[i].a]! + depth[plans[i].b]! - depth[plans[j].a]! - depth[plans[j].b]! : 0));
-  order.forEach((i) => {
-    const pl = plans[i], before = polygons.length, d = deep(pl);
-    if (d) drawDeep(pl); else { drawPlan(pl, i); cutFronts(i, before); }
-    const alpha = d ? fade((depth[pl.a]! + depth[pl.b]!) / 2) : 1;
+  plans.forEach((pl, i) => {
+    const before = polygons.length, alpha = fade(pl.a, pl.b);
+    drawPlan(pl, i);
+    cutFronts(i, before);
     for (const poly of polygons.slice(before)) { colours.push(mol.bonds[i].colour); alphas.push(alpha); for (const q of poly) { grow(pl.a, q); grow(pl.b, q); } }
   });
   // The aromatic circles, each as a ring of short bars in the line width.
@@ -1102,7 +1088,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       const a0 = (2 * Math.PI * k) / steps, a1 = (2 * Math.PI * (k + 1.05)) / steps, S = add(c, [Math.cos(a0) * radius, Math.sin(a0) * radius]), E = add(c, [Math.cos(a1) * radius, Math.sin(a1) * radius]);
       bar(S, E, perp(unit(sub(E, S))), atomZ[r[0]].hw);
     }
-    for (const poly of polygons.slice(before)) { colours.push(mol.atoms[r[0]].colour); alphas.push(1); for (const q of poly) grow(r[0], q); }
+    for (const poly of polygons.slice(before)) { colours.push(mol.atoms[r[0]].colour); alphas.push(fade(...r)); for (const q of poly) grow(r[0], q); }
   }
   // A π ligand (a ring of delocalised bonds round a multi-centre point) has an ellipse inside, sized as an aromatic
   // circle for the ring and flattened with it: its axes across and along the bond to the point.
@@ -1112,14 +1098,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const c = pts[i], { across, along, ra, rb } = ligandEllipse(r.map((x) => pts[x]), c, nbrs[i].length ? pts[nbrs[i][0]] : undefined, s.spacing / s.bond);
     const at = (t: number) => add(c, add(mul(across, Math.cos(t) * ra), mul(along, Math.sin(t) * rb))), steps = 72, before = polygons.length;
     for (let k = 0; k < steps; k++) { const S = at((2 * Math.PI * k) / steps), E = at((2 * Math.PI * (k + 1.05)) / steps); bar(S, E, perp(unit(sub(E, S))), atomZ[r[0]].hw); }
-    for (const poly of polygons.slice(before)) { colours.push(mol.atoms[r[0]].colour); alphas.push(1); for (const q of poly) grow(r[0], q); }
-  });
-  // Joints in a 3D structure: a disc at each unlabelled atom as wide as its widest bond there, so tapered bonds meet.
-  mol.atoms.forEach((_, x) => {
-    if (depth[x] === undefined || labelled[x] || !nbrs[x].length) return;
-    polygons.push(disc(pts[x], wideAt(depth[x]!, atomZ[x])));
-    colours.push(mol.atoms[x].colour);
-    alphas.push(fade(depth[x]!));
+    for (const poly of polygons.slice(before)) { colours.push(mol.atoms[r[0]].colour); alphas.push(fade(...r)); for (const q of poly) grow(r[0], q); }
   });
   // A bond's query indicators (S/D, Rng, Rxn), small, beside its middle: inside its smallest ring, else on the side with
   // more room. Where that covers a label, an atom's indicator, another bond's indicator or another bond, a little along
@@ -1160,11 +1139,12 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const labelBoxes = shapes.map((shape) => shape.map(pieceBox));
   labelBoxes.forEach((bs, i) => bs.forEach(([a, b, c, d]) => { grow(i, [a, b]); grow(i, [c, d]); }));
   marks.forEach((mark, i) => mark.forEach((q) => grow(i, q)));
-  symbols.forEach((polys, i) => polys.forEach((poly) => { polygons.push(poly); colours.push(mol.atoms[i].colour); alphas.push(depth[i] !== undefined ? fade(depth[i]!) : 1); poly.forEach((q) => grow(i, q)); }));
-  // Labels in a 3D structure fade with their atom's depth too.
+  symbols.forEach((polys, i) => polys.forEach((poly) => { polygons.push(poly); colours.push(mol.atoms[i].colour); alphas.push(fade(i)); poly.forEach((q) => grow(i, q)); }));
+  // Labels in a structure with depth shading fade with their atom's depth too.
   for (const l of labels) {
     const i = labelAtom.get(l);
-    if (i !== undefined && depth[i] !== undefined) l.alpha = fade(depth[i]!);
+    const alpha = i === undefined ? 1 : fade(i);
+    if (alpha < 1) l.alpha = alpha;
   }
 
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
@@ -1222,7 +1202,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
 
 // The same drawing as render's, made structure by structure. Each structure's drawing stays in `cache` while its
 // atoms and bonds are the same objects, so a change to one structure (a drag, an edit) draws only that structure
-// again. Structures in perspective are drawn as one, as a nearer bond cuts a gap in a bond behind it.
+// again. Structures whose bonds cross are drawn as one, as the bond in front cuts a gap in the bond behind it.
 // While something moves (still false), a structure whose atoms all moved the same way keeps its drawing, moved by
 // `at` (px); once it is still, the drawing's own points move there. A structure scaled while it moves, with its
 // atoms' scales (decision 0007), keeps its drawing too, scaled by k and then moved by `at`; once it is still, it is
@@ -1230,7 +1210,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
 // parts: each structure's own drawing, its atoms, and how far it is moved and scaled, in order of their first atom.
 // A structure's drawing as a drag shows it: scaled by k, turned by turn (degrees, as SVG's rotate, y down), then moved
 // by at (px).
-export type Part = { atoms: Atom[]; bonds: Bond[]; drawn: Atom[]; drawing: Drawing; at: P; k: number; turn: number };
+export type Part = { atoms: Atom[]; bonds: Bond[]; drawn: Atom[]; drawing: Drawing; at: P; k: number; turn: number; range?: [number, number] | null };
 export type PartCache = { parts: WeakMap<Atom, Part>; last: Map<number, Part> };
 export type Parts = Pick<Drawing, "box" | "ink" | "label" | "scale" | "electrons" | "beads" | "maps"> & { parts: { ids: number[]; drawing: Drawing; at: P; k: number; turn: number }[] };
 export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, scale: number, cache: PartCache, still = true): Parts {
@@ -1241,30 +1221,30 @@ export function renderParts(mol: Mol, s: Style, measure: (text: string, face?: F
   for (const b of mol.bonds) join(b.atoms[0], b.atoms[1]);
   // A multi-centre point is drawn with its ring (the ring's ellipse goes round it).
   mol.atoms.forEach((a, i) => { for (const j of a.centre?.atoms ?? []) if (j < mol.atoms.length) join(i, j); });
-  const depth = depthOf(mol), first = depth.findIndex((t) => t !== undefined);
-  if (first >= 0) depth.forEach((t, i) => { if (t !== undefined) join(i, first); });
-  // Structures whose bonds cross are drawn as one, so the bond behind gets its gap.
-  for (const [r, f] of crossingBonds(mol.bonds, (i) => mol.atoms[i].location as unknown as P, 1)) join(mol.bonds[r].atoms[0], mol.bonds[f].atoms[0]);
+  // Structures whose bonds cross (or nearly meet) are drawn as one, so the bond behind gets its gap. Depth shading
+  // fades over the depth range of the whole drawing, as ChemDraw's does over the page.
+  for (const [r, f] of crossingBonds(mol.bonds, (i) => mol.atoms[i].location as unknown as P, 1, s, 1 / s.bond)) join(mol.bonds[r].atoms[0], mol.bonds[f].atoms[0]);
+  const range = depthRange(mol), sameRange = (p: Part) => (p.range ?? null) === range || (!!p.range && !!range && p.range[0] === range[0] && p.range[1] === range[1]);
   const groups = new Map<number, { ids: number[]; bonds: Bond[] }>();
   mol.atoms.forEach((_, i) => { const r = find(i); let g = groups.get(r); if (!g) groups.set(r, (g = { ids: [], bonds: [] })); g.ids.push(i); });
   for (const b of mol.bonds) groups.get(find(b.atoms[0]))!.bonds.push(b);
   const out: Parts = { box: [Infinity, Infinity, -Infinity, -Infinity], ink: [], label: [], scale, electrons: [], beads: [], maps: [], parts: [] }, last = new Map<number, Part>();
   for (const { ids, bonds } of groups.values()) {
     const atoms = ids.map((i) => mol.atoms[i]);
-    const same = (p?: Part): p is Part => !!p && p.atoms.length === atoms.length && p.bonds.length === bonds.length && p.bonds.every((b, k) => b === bonds[k]);
+    const shaded = atoms.some((x) => x.shade), same = (p?: Part): p is Part => !!p && (!shaded || sameRange(p)) && p.atoms.length === atoms.length && p.bonds.length === bonds.length && p.bonds.every((b, k) => b === bonds[k]);
     let part = cache.parts.get(atoms[0]);
     if (!same(part) || part.atoms.some((a, k) => a !== atoms[k])) {
       const was = cache.last.get(ids[0]), at = !still && same(was) ? shiftOf(was.drawn, atoms, scale) ?? turnOf(was.drawn, atoms, scale) : undefined;
-      part = at && was ? { atoms, bonds, drawn: was.drawn, drawing: was.drawing, at: at.at, k: at.k, turn: at.turn ?? 0 } : undefined;
+      part = at && was ? { atoms, bonds, drawn: was.drawn, drawing: was.drawing, at: at.at, k: at.k, turn: at.turn ?? 0, range } : undefined;
     }
     // Once still, a moved structure's drawing is moved by the same numbers (render gives the same points there), as
     // drawing it again is slow when a drag moves many structures. A scaled or turned one is drawn again.
     if (part && still && (part.k !== 1 || part.turn)) part = undefined;
-    if (part && still && (part.at[0] || part.at[1])) part = { atoms, bonds, drawn: atoms, drawing: shifted(part.drawing, part.at), at: [0, 0], k: 1, turn: 0 };
+    if (part && still && (part.at[0] || part.at[1])) part = { atoms, bonds, drawn: atoms, drawing: shifted(part.drawing, part.at), at: [0, 0], k: 1, turn: 0, range };
     if (!part) {
       const local = new Map(ids.map((i, k) => [i, k]));
-      const drawing = render({ atoms: atoms.map((a) => (a.centre ? { ...a, centre: { ...a.centre, atoms: a.centre.atoms.flatMap((j) => (local.has(j) ? [local.get(j)!] : [])) } } : a)), bonds: bonds.map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] })) }, s, measure, scale);
-      part = { atoms, bonds, drawn: atoms, drawing, at: [0, 0], k: 1, turn: 0 };
+      const drawing = render({ atoms: atoms.map((a) => (a.centre ? { ...a, centre: { ...a.centre, atoms: a.centre.atoms.flatMap((j) => (local.has(j) ? [local.get(j)!] : [])) } } : a)), bonds: bonds.map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] })) }, s, measure, scale, range);
+      part = { atoms, bonds, drawn: atoms, drawing, at: [0, 0], k: 1, turn: 0, range };
     }
     cache.parts.set(atoms[0], part);
     last.set(ids[0], part);
@@ -1897,42 +1877,74 @@ export function curveBox(c: Curve): [[number, number], [number, number]] {
   return [[Math.min(...qs.map((q) => q[0])), Math.max(...qs.map((q) => q[1]))], [Math.max(...qs.map((q) => q[0])), Math.min(...qs.map((q) => q[1]))]];
 }
 
-// How near each atom of a 3D structure is, 0 (furthest) to 1 (nearest), for Structure Perspective; undefined for
-// atoms of flat structures and of structures drawn flat (depth: false).
-export function depthOf(m: Mol): (number | undefined)[] {
-  const out: (number | undefined)[] = m.atoms.map(() => undefined), seen = new Set<number>(), nbrs: number[][] = m.atoms.map(() => []);
-  for (const b of m.bonds) { nbrs[b.atoms[0]].push(b.atoms[1]); nbrs[b.atoms[1]].push(b.atoms[0]); }
-  m.atoms.forEach((_, start) => {
-    if (seen.has(start)) return;
-    const group = [start];
-    seen.add(start);
-    for (let k = 0; k < group.length; k++) for (const j of nbrs[group[k]]) if (!seen.has(j)) { seen.add(j); group.push(j); }
-    const zs = group.map((i) => m.atoms[i].location[2] ?? 0), lo = Math.min(...zs), hi = Math.max(...zs);
-    if (hi - lo < 1e-3 || group.some((i) => m.atoms[i].depth === false)) return;
-    group.forEach((i, k) => { out[i] = (zs[k] - lo) / (hi - lo); });
-  });
-  return out;
+// Depth shading (ChemDraw's Structure Perspective): the depth range of a drawing, over every atom in it (ChemDraw takes
+// every object on the page), or none when it is 5 pt or less (ChemDraw's limit; 14.4 pt to a bond length, as in ACS
+// 1996). Depth is in bond lengths, nearer the viewer larger.
+export function depthRange(m: Mol): [number, number] | null {
+  let lo = Infinity, hi = -Infinity;
+  for (const a of m.atoms) { const z = a.location[2] ?? 0; if (z < lo) lo = z; if (z > hi) hi = z; }
+  return hi - lo > 5 / 14.4 ? [lo, hi] : null;
 }
-// Bonds whose lines cross (not at an atom they share), as [behind, in front]: the one later in the list is in front.
-// Bonds are sorted into a grid of cells `cell` wide, so only near bonds are tested; the tests stop at a fixed number,
-// so a hostile file of long bonds cannot hold the drawing up (a gap is only a look).
-export function crossingBonds(bonds: Bond[], at: (i: number) => P, cell: number): [number, number][] {
+// How strongly depth shading draws something at depth z, as ChemDraw fades it: 1 at the front of the range, 0.25 at
+// the back, in hundredths.
+export const shadeAt = (z: number, [lo, hi]: [number, number]) => Math.trunc(100 * (1 - (0.75 * (hi - Math.min(hi, Math.max(lo, z)))) / (hi - lo)) + 1e-9) / 100;
+// Bonds whose lines cross (not at an atom they share), as [earlier, later] in the list. With s, also bonds whose end
+// comes within the two bonds' widths and the margin of the other bond, as ChemDraw counts crossings (at: positions in
+// px at the style's size, or in bond lengths with unit 1/s.bond). Bonds are sorted into a grid of cells `cell` wide,
+// so only near bonds are tested; the tests stop at a fixed number, so a hostile file of long bonds cannot hold the
+// drawing up (a gap is only a look).
+export function crossingBonds(bonds: Bond[], at: (i: number) => P, cell: number, s?: Style, unit = 1): [number, number][] {
+  const widths = s ? bonds.map((b) => crossWidth(b, s) * unit) : [], m = s ? ((s.margin * 1.6) / 1.69) * unit : 0, near = s ? m + 2 * Math.max(0, ...widths) : 0;
   const grid = new Map<number, number[]>(), out: [number, number][] = [], seen = new Set<number>();
   const c = (v: number) => Math.max(-1e6, Math.min(1e6, Math.floor(v / cell)));
   bonds.forEach((b, k) => {
-    const p = at(b.atoms[0]), q = at(b.atoms[1]), x0 = c(Math.min(p[0], q[0])), x1 = c(Math.max(p[0], q[0])), y0 = c(Math.min(p[1], q[1])), y1 = c(Math.max(p[1], q[1]));
+    const p = at(b.atoms[0]), q = at(b.atoms[1]), x0 = c(Math.min(p[0], q[0]) - near), x1 = c(Math.max(p[0], q[0]) + near), y0 = c(Math.min(p[1], q[1]) - near), y1 = c(Math.max(p[1], q[1]) + near);
     if ((x1 - x0 + 1) * (y1 - y0 + 1) > 4096) return; // a bond across thousands of cells (no real drawing has one)
     for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) { const key = x * 4194304 + y, list = grid.get(key); if (list) list.push(k); else grid.set(key, [k]); }
   });
   let tests = 0;
   for (const list of grid.values()) for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
     if (++tests > 2e6) return out;
-    const r = list[i], f = list[j], key = r * bonds.length + f;
+    const r = Math.min(list[i], list[j]), f = Math.max(list[i], list[j]), key = r * bonds.length + f;
     if (seen.has(key)) continue;
     seen.add(key);
     const a = bonds[r].atoms, b = bonds[f].atoms;
     if (a[0] === b[0] || a[0] === b[1] || a[1] === b[0] || a[1] === b[1]) continue;
-    if (crossing(at(a[0]), at(a[1]), at(b[0]), at(b[1]))) out.push([r, f]);
+    if (meets(at(a[0]), at(a[1]), at(b[0]), at(b[1]), s ? m + widths[r] + widths[f] : 0)) out.push([r, f]);
+  }
+  return out;
+}
+// A bond's width as ChemDraw's bond crossings take it (its "logical width"): a single bond's line width (a bold bond's
+// bold width, a wedge's 1.5 bold widths at its wide end), and for two lines or more the distance between the outer
+// lines (and a bold line's width).
+function crossWidth(b: Bond, s: Style): number {
+  if (b.type === QUADRUPLE) return 3 * s.spacing;
+  if (b.type === 3) return 2 * s.spacing;
+  if (b.type === 2 || b.type === AROMATIC) return s.spacing + (b.display === "bold" ? s.bold : 0);
+  if (b.stereo === 1 || b.stereo === 6 || b.display === "hollow") return 1.5 * s.bold;
+  return b.display === "bold" ? s.bold : s.line;
+}
+// Whether two bonds meet as ChemDraw's crossings count it: their lines cross, or (with near) an end of one lies within
+// near of the other, unless they are all but parallel.
+function meets(p1: P, p2: P, q1: P, q2: P, near: number): boolean {
+  if (crossing(p1, p2, q1, q2)) return true;
+  if (!near || Math.abs(cross(sub(p2, p1), sub(q2, q1))) < (near * near) / 2) return false;
+  const off = (p: P, a: P, b: P) => { const d = sub(b, a), l = dot(d, d), t = l ? Math.max(0, Math.min(1, dot(sub(p, a), d) / l)) : 0; return len(sub(add(a, mul(d, t)), p)); };
+  return off(p1, q1, q2) < near || off(p2, q1, q2) < near || off(q1, p1, p2) < near || off(q2, p1, p2) < near;
+}
+// A polygon less a convex polygon (`cut`, either winding): the pieces outside each of its edges in turn, so they do not
+// overlap (a faint, depth-shaded bond shows no darker seams).
+function without(poly: P[], cut: P[]): P[][] {
+  const out: P[][] = [], c = mul(cut.reduce<P>((t, q) => add(t, q), [0, 0]), 1 / cut.length);
+  let rest = poly;
+  for (let k = 0; k < cut.length && rest.length; k++) {
+    const a = cut[k], b = cut[(k + 1) % cut.length], e = sub(b, a);
+    if (len(e) < 1e-9) continue;
+    let n = unit(perp(e));
+    if (dot(sub(c, a), n) > 0) n = mul(n, -1); // n points out of the cut
+    const outside = clipSide(rest, a, n, 0);
+    if (outside.length) out.push(outside);
+    rest = clipSide(rest, a, mul(n, -1), 0);
   }
   return out;
 }
