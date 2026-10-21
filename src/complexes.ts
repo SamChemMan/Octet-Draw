@@ -204,10 +204,11 @@ function ligandMol(m: Mol, g: Graph, lig: Ligand, marks = new Map<number, number
     label: m.atoms[i].label, location: m.atoms[i].location, implicitHCount: g.atoms[i].h,
     ...((lig.q.get(i) ?? g.atoms[i].charge) ? { charge: lig.q.get(i) ?? g.atoms[i].charge } : {}), ...(marks.has(i) ? { isotope: marks.get(i) } : {}),
   }));
-  // KET's stereo 3 on a double bond: E or Z not given.
+  // A chelate's double bond as a crossed one, E or Z not given: KET's stereo 3 for InChI, display either for the CIP
+  // labels (cip.ts).
   const bonds: Mol["bonds"] = m.bonds.filter((b) => at.has(b.atoms[0]) && at.has(b.atoms[1])).map((b) => {
-    const stereo = lig.chelated?.has(key(b.atoms[0], b.atoms[1])) ? 3 : b.stereo;
-    return { type: b.type, atoms: [at.get(b.atoms[0])!, at.get(b.atoms[1])!] as [number, number], ...(stereo ? { stereo } : {}) };
+    const either = lig.chelated?.has(key(b.atoms[0], b.atoms[1])), stereo = either ? 3 : b.stereo;
+    return { type: b.type, atoms: [at.get(b.atoms[0])!, at.get(b.atoms[1])!] as [number, number], ...(stereo ? { stereo } : {}), ...(either ? { display: "either" as const } : b.display ? { display: b.display } : {}) };
   });
   if (silane) {
     const b = lig.bonds[0];
@@ -1204,8 +1205,9 @@ function drawing(m: Mol, api: ComplexApi): { c: Context; ions: Ion[] } | undefin
   if (ions.length && (Math.sign(ions[0]!.charge) !== -Math.sign(e.charge) || ions[0]!.charge * ions.length !== -e.charge)) return undefined;
   return { c: { m, g, e, named: named as Named[], api }, ions: ions as Ion[] };
 }
+// Whether a structure can have CIP labels: a wedge or a bond style cip.ts reads as one, or a double bond in no ring.
 function stereoable(m: Mol): boolean {
-  if (m.bonds.some((b) => b.stereo && b.stereo !== 3)) return true;
+  if (m.bonds.some((b) => (b.stereo && b.stereo !== 3) || ["hashed", "dashed", "bold", "hollow"].includes(b.display ?? ""))) return true;
   const adj: number[][] = m.atoms.map(() => []);
   for (const b of m.bonds) { adj[b.atoms[0]].push(b.atoms[1]); adj[b.atoms[1]].push(b.atoms[0]); }
   return m.bonds.some((b) => b.type === 2 && b.stereo !== 3 && !linked(adj, b.atoms[0], b.atoms[1], () => true));
