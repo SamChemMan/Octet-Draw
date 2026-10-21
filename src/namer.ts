@@ -305,6 +305,13 @@ class Namer {
       }
       const hz = others.length === 2 && !cs.length ? this.hydrazineN(c) : [];
       if (hz.length === 1) { this.hydrazineGroup(c, hz[0], others.find((j) => j !== hz[0])!); continue; }
+      if (hz.length === 2) {
+        // Carbonic dihydrazide (P-66.3.1.1.3), H2N-NH-CO-NH-NH2, and nothing else on it.
+        if (this.n !== 6 || hz.some((n) => adj[n].length !== 2 || adj[adj[n].find((j) => el[j] === "N")!].length !== 1 || adj[n].some((j) => this.ord(n, j) !== 1))) throw new Error("carbonic acid derivative");
+        this.whole = "carbonic dihydrazide";
+        for (const a of [c, o, ...hz, ...hz.map((n) => adj[n].find((j) => el[j] === "N")!)]) this.pseudo.add(a);
+        continue;
+      }
       if (others.length === 2 && !cs.length) { this.carbonicGroup(c, others); continue; }
       if (this.inRing[c] || others.length !== 1 || cs.length > 1) throw new Error("carbonyl");
       const x = others[0];
@@ -312,6 +319,8 @@ class Namer {
       if ((HALO[el[x]] && adj[x].length === 1) || this.prefixOnly.has(x)) { this.mark(c, "halide", cs); this.group[x] = "halide"; continue; }
       const y = el[x] === "O" && adj[x].length === 2 ? adj[x].find((j) => j !== c)! : -1;
       if (y >= 0 && el[y] === "C" && this.carbonylO[y] >= 0 && !this.inRing[y]) { this.mark(c, "anhydride", cs); this.group[x] = "anhydride"; this.anhydrideO.set(c, x); continue; }
+      // A nitro group on a carbonyl carbon is a prefix on a ketone: 1-nitropropan-1-one.
+      if (this.nitroAtom(x) && cs.length === 1) { this.mark(c, "ketone", cs); continue; }
       const peroxo = el[x] === "O" && adj[x].length === 2 ? adj[x].find((j) => j !== c && el[j] === "O" && !q[j] && !this.inRing[j]) : undefined;
       if (peroxo !== undefined) { this.peroxyGroup(c, cs, x, peroxo); continue; }
       if (el[x] === "O" && h[x] === 1 && adj[x].length === 1) { this.mark(c, "acid", cs); this.group[x] = "acid"; }
@@ -471,7 +480,7 @@ class Namer {
   ringNO = (o: number) => this.adj[o].some((j) => this.el[j] === "N" && this.inRing[j] && !this.q[j] && this.ord(o, j) === 1);
   // Bonds between heteroatoms that these classes allow: N-O of N-hydroxy amides and of esters on a ring N, N-N of
   // hydrazides.
-  classBond = (a: number, b: number) => this.nO.has(a) || this.nO.has(b) || (this.group[a] === "hydrazide" && this.group[b] === "hydrazide" && this.el[a] === "N" && this.el[b] === "N") || (this.hzN.has(a) && this.hzN.has(b)) || (this.peroxO.has(a) && this.peroxO.has(b))
+  classBond = (a: number, b: number) => this.nO.has(a) || this.nO.has(b) || (this.group[a] === "hydrazide" && this.group[b] === "hydrazide" && this.el[a] === "N" && this.el[b] === "N") || (this.hzN.has(a) && this.hzN.has(b)) || (this.peroxO.has(a) && this.peroxO.has(b)) || (this.pseudo.has(a) && this.pseudo.has(b))
     || [a, b].some((o) => this.el[o] === "O" && (this.group[o] === "ester" || this.group[o] === "carbamate") && this.ringNO(o));
   // Groups cited only as prefixes (P-61.7?, P-65.2.2): N=C=O and N=C=S on N (isocyanato, isothiocyanato), N#C-O and
   // N#C-S on O or S (cyanato, thiocyanato). With H in place of the attachment, the molecule is the acid: isocyanic acid.
