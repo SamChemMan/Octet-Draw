@@ -73,20 +73,23 @@ run("anions", [
   "2-methylpropan-2-olate", "smiles:[O-]c1ccc(C(=O)[O-])cc1", "methanesulfonate", "trifluoromethanesulfonate", "4-methylbenzene-1-sulfonate",
   "smiles:C1C=CC(=C1)[O-]", "cyclopenta-2,4-dien-1-ide", "benzenide", "phenylmethanide", "2-oxopropan-1-ide", "ethynediide",
   "1H-pyrrol-1-ide", "1H-imidazol-1-ide", "piperidin-1-ide", "9H-carbazol-9-ide", "1H-indol-1-ide", "methanaminide", "anilinide",
-  "N-methylanilinide", "(2S)-2-hydroxypropanoate",
+  "N-methylanilinide", "(2S)-2-hydroxypropanoate", "2-aminoethane-1-sulfinate", "acetylazanide", "smiles:[N-](C(=O)C)c1ccc(O)cc1",
+  "bis(trifluoromethanesulfonyl)azanide", "smiles:[O-]C1=[C-]C=CC=C1",
 ]);
 // Cations (P-73): -ylium, -diazonium, -iminium, onium ions, pyrylium, and ring -ium.
 run("cations", [
   "methylium", "2-methylpropan-2-ylium", "cyclohepta-2,4,6-trien-1-ylium", "benzenylium", "diphenylmethylium", "prop-2-en-1-ylium",
   "benzenediazonium", "4-nitrobenzene-1-diazonium", "methaniminium", "N,N-dimethylmethaniminium", "guanidinium",
   "trimethylsulfanium", "tetraphenylphosphanium", "triethyloxidanium", "methyl(triphenyl)phosphanium", "pyrylium",
-  "2,4,6-triphenylpyrylium", "thiopyrylium", "1-methylpyridin-1-ium",
+  "2,4,6-triphenylpyrylium", "thiopyrylium", "1-methylpyridin-1-ium", "1-butyl-3-methylimidazolium", "3-carbamoyl-1-methylpyridin-1-ium",
+  "smiles:C[n+]1ccccc1C=NO", "smiles:OC(=O)C[n+]1ccccc1", "smiles:C[N+](C)(C)CC(=O)O", "2-formylpyrylium",
 ]);
 // Zwitterions (P-74): the anion is the suffix, the cation a prefix; N-oxides as oxido.
 run("zwitterions", [
   "(trimethylazaniumyl)acetate", "azaniumylacetate", "(2S)-2-azaniumylpropanoate", "(2S)-2-azaniumyl-3-phenylpropanoate",
   "4-azaniumylbenzoate", "1-methylpyridin-1-ium-3-carboxylate", "pyridine N-oxide", "4-phenylpyridine 1-oxide", "trimethylamine N-oxide",
-  "(3R)-3-hydroxy-4-(trimethylazaniumyl)butanoate", "2-(dimethylsulfaniumyl)acetate",
+  "(3R)-3-hydroxy-4-(trimethylazaniumyl)butanoate", "2-(dimethylsulfaniumyl)acetate", "(2S)-2,6-bis(azaniumyl)hexanoate",
+  "(triphenylphosphaniumyl)methanide", "(pyridin-1-ium-1-yl)acetate", "smiles:C[n+]1ccn(CC(=O)[O-])c1", "N-methylpropan-2-imine N-oxide",
 ]);
 // Salts (IR-5): metal and organic ions, Stock numbers, hydrogen halides and water of crystallisation.
 run("salts", [
@@ -97,13 +100,14 @@ run("salts", [
   "lithium aluminium hydride", "potassium chlorate", "sodium iodate", "sodium nitrite", "tetrasodium diphosphate",
   "pentasodium triphosphate", "potassium peroxydisulfate", "potassium dichromate", "benzenediazonium tetrafluoroborate", "trimethylsulfanium iodide",
   "tetraphenylphosphanium bromide", "sodium cyclopenta-2,4-dien-1-ide", "sodium 3-carboxypropanoate", "silver hexafluoroantimonate",
+  "sodium dithionite", "sodium metabisulfite", "sodium disulfite", "1-butyl-3-methylimidazolium bis(trifluoromethanesulfonyl)azanide",
 ]);
 // Simple species (IR-3, IR-6): parent hydrides, inorganic molecules and ions.
 run("species", [
   "water", "ammonia", "phosphane", "hydrogen sulfide", "hydrogen chloride", "hydrogen bromide", "smiles:[H][H]",
   "smiles:N#N", "smiles:O=O", "smiles:ClCl", "ozone", "hydrogen peroxide", "nitrous oxide", "hydrogen azide", "hydrazine",
   "hydroxylamine", "carbon dioxide", "sulfur dioxide", "sulfuric acid", "nitric acid", "phosphoric acid", "carbonic acid",
-  "ammonium", "oxidanium", "azanide", "chloride", "nitrate", "sulfate", "hydrogencarbonate", "perchlorate", "nitronium",
+  "ammonium", "oxidanium", "azanide", "chloride", "nitrate", "sulfate", "hydrogencarbonate", "perchlorate", "nitronium", "sulfamate",
   "smiles:[Na+]", "smiles:[Fe+3]", "argon", "sodium", "gold", "smiles:[CH3-]",
 ]);
 // Hydrogen drawn as atoms (Sam's files, 21 October 2026): each H on one atom joins that atom's hydrogen count.
