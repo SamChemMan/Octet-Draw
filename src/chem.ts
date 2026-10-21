@@ -599,7 +599,8 @@ export function cleanUp(mol: Mol, ids?: Set<number>, pass = PASS): Mol {
       const [x, y] = out[k];
       atoms[i] = { ...atoms[i], location: [ox + (x - nx) * scale, oy + (y - ny) * scale, 0] };
     });
-    // As ChemDraw's clean up leaves it: a ring structure turned so its bottom ring bond is level.
+    // As ChemDraw's clean up leaves it: a ring structure turned so its bottom ring bond is level, and a structure
+    // without rings turned so the most bonds lie at a multiple of 30°.
     const turn = levelTurn({ ...mol, atoms }, frag);
     if (turn) {
       const c = Math.cos((turn * Math.PI) / 180), s = Math.sin((turn * Math.PI) / 180);

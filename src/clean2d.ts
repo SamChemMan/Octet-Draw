@@ -2,25 +2,27 @@
 // molecule_cleaner_2d.cpp and graph/src/biconnected_decomposer.cpp, Indigo 1.46.0).
 // Copyright (C) from 2009 to Present EPAM Systems. Licensed under the Apache License, Version 2.0
 // (http://www.apache.org/licenses/LICENSE-2.0).
-// Changed by Octet (2026): the same two passes, energy and steps as Indigo's, with three changes. Each atom's
-// energy gradient sums only the terms its move changes (Indigo sums the whole energy three times for each atom, so a
-// round cost N^3), atoms closer than a bond are found through a grid, and a pass ends when a round no longer lowers
-// the energy (every later round would leave the atoms where they are).
+// Changed by Octet (2026): the same two passes and energy as Indigo's, with these changes. Each atom's energy gradient
+// sums only the terms its move changes (Indigo sums the whole energy three times for each atom, so a round cost N^3),
+// and atoms closer than a bond are found through a grid. The output is exact (Sam, 21 October 2026: a biphenyl came
+// out a little bent): Indigo's gradient is a forward difference over 0.01 bond lengths, its angles come from a 12-term
+// series for asin, and it stops at the first round that finds nothing lower, so its atoms stop up to 2% of a bond and
+// 1° short of the lowest energy. Octet's gradient is a central difference over 1e-5 bond lengths, its angles are exact
+// (atan2), and once the atoms move less than 1% of a bond a round, its steps follow conjugate gradients. A pass ends
+// when every bond and angle is exact to about 1e-9, when a round lowers the energy by less than a part in 10^12, or
+// when a round finds nothing lower. Each ring angle aims at the angle of a regular polygon the size of its ring
+// (Indigo aims every one at 120°), so fused rings of 3 to 8 atoms (indane's five and six) come out regular.
 //
-// The first pass gives each bond its own block and turns ring angles towards 120°. The second keeps each ring as it
-// is and spreads the bonds round each atom that joins two blocks. In both, the atoms are a linear (complex) function
-// of a few base atoms, bonds are pulled to the median bond length, and atoms closer than a bond are pushed apart.
-// Each round is a gradient step, scaled to at most one bond length and halved up to 20 times to the lowest energy.
+// The first pass gives each bond its own block and turns ring angles towards their regular polygon's. The second keeps
+// each ring as it is and spreads the bonds round each atom that joins two blocks. In both, the atoms are a linear
+// (complex) function of a few base atoms, bonds are pulled to the median bond length, and atoms closer than a bond are
+// pushed apart. Each round is a step along the gradient (or the conjugate direction), scaled to at most one bond length
+// and halved up to 20 times to the lowest energy.
 
-const STEP = 0.01, ROUNDS = 1000, HALVINGS = 20;
+const ROUNDS = 1000, HALVINGS = 20;
 const SHRINK = Array.from({ length: HALVINGS + 1 }, (_, i) => (i ? 0.5 ** (i - 1) : 0));
-
-// Indigo's series for asin, which it uses for angles.
-const asinStable = (x: number) => {
-  let res = 0, y = x;
-  for (let i = 0; i < 12; i++) { res += y / (2 * i + 1); y *= (1 - 1 / (2 * i + 2)) * x * x; }
-  return res;
-};
+// The angle inside a regular polygon of s atoms; Indigo's 120° for a ring of more than 8 (a macrocycle).
+const polygon = (s: number) => (s <= 8 ? Math.PI - (2 * Math.PI) / s : (2 * Math.PI) / 3);
 
 // The biconnected blocks of a graph, each as a membership array, in the order Indigo's decomposer finds them.
 function blocks(n: number, nei: number[][]): Uint8Array[] {
@@ -191,6 +193,7 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
   const lens = bonds.map(([a, b]) => Math.hypot(xy[2 * a] - xy[2 * b], xy[2 * a + 1] - xy[2 * b + 1])).sort((p, q) => p - q);
   const T = lens.length % 2 ? lens[lens.length >> 1] : (lens[lens.length / 2] + lens[lens.length / 2 - 1]) / 2;
   if (!(T > 0)) return;
+  const H = T * 1e-5; // the gradient's step
   // Pairs of atoms in one block (they are not pushed apart), and pairs in one biconnected block (ring angles).
   const pairsOf = (comps: Uint8Array[]) => {
     const same = new Uint8Array(n * n);
@@ -201,7 +204,7 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
     }
     return same;
   };
-  const same = pairsOf(inc), ring = external ? undefined : pairsOf(blocks(n, nei));
+  const ringBlocks = external ? [] : blocks(n, nei), same = pairsOf(inc), ring = external ? undefined : pairsOf(ringBlocks);
   // The first pass's ring angles: at each joining atom, the neighbour pairs in one ring and not in one block.
   const angles: number[][] = Array.from({ length: n }, () => []);
   if (ring)
@@ -210,6 +213,50 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
         const [v1, v2] = [nei[i][a], nei[i][b]];
         if (!same[v1 * n + v2] && ring[v1 * n + v2]) angles[i].push(v1, v2);
       }
+  // Each ring angle's goal (unsigned, at most 180°): its regular polygon's. Where two rings fuse at an atom, the third
+  // angle (between the atoms not shared) takes what is left of 360°; where a small ring fuses into a macrocycle (a
+  // porphyrin's pyrroles), its two other angles share what is left. At a bridgehead, or an atom with more ring bonds,
+  // every angle keeps Indigo's 120°.
+  const goals: number[][] = angles.map(() => []);
+  if (ring) {
+    const seen = new Int32Array(n).fill(-1), queue = new Int32Array(n);
+    let stamp = 0;
+    // The atoms in the smallest ring through v1-i-v2: the shortest path from v1 to v2 that misses i, plus 2.
+    const smallest = (i: number, v1: number, v2: number) => {
+      const mark = stamp++;
+      let head = 0, tail = 0, depth = 0;
+      queue[tail++] = v1;
+      seen[v1] = seen[i] = mark;
+      for (let end = tail; head < tail && depth < 14; depth++, end = tail)
+        for (; head < end; head++)
+          for (const w of nei[queue[head]]) {
+            if (w === v2) return depth + 3;
+            if (seen[w] !== mark) { seen[w] = mark; queue[tail++] = w; }
+          }
+      return Infinity;
+    };
+    // The ring blocks with a bridgehead (or an atom with more ring bonds) keep Indigo's 120° throughout: a mix of goals
+    // in one bridged system (morphine) only strains it more.
+    const blockOf = (i: number, v: number) => ringBlocks.find((c) => c[i] && c[v])!, bridged = new Set<Uint8Array>();
+    for (let i = 0; i < n; i++)
+      for (let k = 0; k < angles[i].length; k += 2) {
+        const [v1, v2] = [angles[i][k], angles[i][k + 1]], around = nei[i].filter((w) => ring[w * n + v1]);
+        let goal = (2 * Math.PI) / 3;
+        if (around.length === 2) goal = polygon(smallest(i, v1, v2));
+        else {
+          const w = around.find((x) => x !== v1 && x !== v2)!, own = smallest(i, v1, v2), [a, b] = [smallest(i, v1, w), smallest(i, v2, w)];
+          // Fused: the largest ring of the three is the two smaller ones joined.
+          const [p, q, r] = [own, a, b].sort((x, y) => x - y), left = 2 * Math.PI - polygon(p) - polygon(q);
+          if (around.length === 3 && p <= 8 && r >= p + q - 2)
+            goal = own === p ? polygon(p) : q > 8 || q === r ? Math.PI - polygon(p) / 2 : own === q ? polygon(q) : Math.min(left, 2 * Math.PI - left);
+          else bridged.add(blockOf(i, v1));
+        }
+        goals[i].push(goal);
+      }
+    if (bridged.size)
+      for (let i = 0; i < n; i++)
+        for (let k = 0; k < angles[i].length; k += 2) if (bridged.has(blockOf(i, angles[i][k]))) goals[i][k >> 1] = (2 * Math.PI) / 3;
+  }
 
   // Positions: the base atoms move freely, and every other atom follows its coefficients.
   const pos = Float64Array.from(xy), follow: number[] = [], terms: number[][] = [];
@@ -255,22 +302,17 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
         sorted[q] = a;
       }
       sorted[deg] = sorted[0] + 2 * Math.PI;
-      const target = (2 * Math.PI) / (deg + 1); // Indigo's: the turns are equal at the lowest energy all the same
+      // Equal turns. (Indigo aims at 360° / (deg + 1): the same turns, but an energy that never reaches 0, so a pass
+      // could not tell when it had finished.)
+      const target = (2 * Math.PI) / deg;
       for (let k = 0; k < deg; k++) { const d = sorted[k + 1] - sorted[k] - target; r += d * d; }
       return r;
     }
-    const a = angles[i];
+    const a = angles[i], goal = goals[i];
     for (let k = 0; k < a.length; k += 2) {
       const x1 = pos[2 * a[k]] - ix, y1 = pos[2 * a[k] + 1] - iy, x2 = pos[2 * a[k + 1]] - ix, y2 = pos[2 * a[k + 1] + 1] - iy;
-      const dot = x1 * x2 + y1 * y2, cross = x1 * y2 - y1 * x2, sign = Math.sign(cross), l = Math.sqrt((x1 * x1 + y1 * y1) * (x2 * x2 + y2 * y2));
-      const cos = dot / l, sin = cross / l;
-      let alpha: number;
-      if (Math.abs(cos) < 0.5) alpha = (Math.PI / 2 - asinStable(cos)) * sign;
-      else {
-        alpha = asinStable(sin);
-        if (cos < 0) alpha = alpha > 0 ? Math.PI - alpha : -Math.PI - alpha;
-      }
-      const target = straight[i] ? (alpha > 0 ? Math.PI : -Math.PI) : ((2 * Math.PI) / 3) * sign;
+      const alpha = Math.atan2(x1 * y2 - y1 * x2, x1 * x2 + y1 * y2);
+      const target = straight[i] ? (alpha > 0 ? Math.PI : -Math.PI) : alpha < 0 ? -goal[k >> 1] : goal[k >> 1];
       r += (alpha - target) ** 2;
     }
     return r;
@@ -339,32 +381,46 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
   const diff = (v: number): [number, number] => {
     const m = moves.get(v)!;
     for (let k = 0; k < m.length; k += 3) { const u = m[k]; mark[u] = k; saved[2 * u] = pos[2 * u]; saved[2 * u + 1] = pos[2 * u + 1]; }
-    const e = local(v), shift = (sx: number, sy: number) => {
+    const shift = (sx: number, sy: number) => {
       for (let k = 0; k < m.length; k += 3) {
         const u = m[k];
-        pos[2 * u] = saved[2 * u] + (m[k + 1] * sx - m[k + 2] * sy) * STEP;
-        pos[2 * u + 1] = saved[2 * u + 1] + (m[k + 1] * sy + m[k + 2] * sx) * STEP;
+        pos[2 * u] = saved[2 * u] + (m[k + 1] * sx - m[k + 2] * sy) * H;
+        pos[2 * u + 1] = saved[2 * u + 1] + (m[k + 1] * sy + m[k + 2] * sx) * H;
       }
       const r = local(v);
       for (let k = 0; k < m.length; k += 3) { const u = m[k]; pos[2 * u] = saved[2 * u]; pos[2 * u + 1] = saved[2 * u + 1]; }
       return r;
     };
-    const ex = shift(1, 0), ey = shift(0, 1);
+    const dx = shift(1, 0) - shift(-1, 0), dy = shift(0, 1) - shift(0, -1);
     for (let k = 0; k < m.length; k += 3) mark[m[k]] = -1;
-    return [(ex - e) / STEP, (ey - e) / STEP];
+    return [dx / (2 * H), dy / (2 * H)];
   };
 
   const B = base.length, g = new Float64Array(2 * B), grads = new Float64Array(2 * n), start = new Float64Array(2 * n), energies = new Float64Array(HALVINGS + 1);
   const step = (by: number) => { for (let j = 0; j < B; j++) { const b = 2 * base[j]; pos[b] -= g[2 * j] * by; pos[b + 1] -= g[2 * j + 1] * by; } };
+  // Once the atoms move less than 1% of a bond a round, each step follows conjugate gradients (Polak–Ribière), as plain
+  // gradient steps creep along a long valley: the last round's gradient and direction. A conjugate step that finds
+  // nothing lower starts again from the gradient. (Conjugate steps from the start can carry a tangled drawing, such as
+  // a porphyrin with a pyrrole folded in, into a worse shape.)
+  const last = new Float64Array(2 * B), dir = new Float64Array(2 * B);
+  let lastLen = 0, settling = false;
   update();
-  for (let round = 0; round < ROUNDS; round++) {
-    collect(reach * STEP);
+  let round = 0;
+  for (; round < ROUNDS; round++) {
+    collect(reach * H);
     for (const v of uniq) [grads[2 * v], grads[2 * v + 1]] = diff(v);
-    let len = 0;
-    base.forEach((v, j) => { g[2 * j] = grads[2 * v]; g[2 * j + 1] = grads[2 * v + 1]; len += g[2 * j] ** 2 + g[2 * j + 1] ** 2; });
-    const factor = Math.min(T / Math.sqrt(len), 1);
+    let len = 0, over = 0;
+    base.forEach((v, j) => { g[2 * j] = grads[2 * v]; g[2 * j + 1] = grads[2 * v + 1]; len += g[2 * j] ** 2 + g[2 * j + 1] ** 2; over += g[2 * j] * last[2 * j] + g[2 * j + 1] * last[2 * j + 1]; });
+    const beta = settling && lastLen ? Math.max(0, (len - over) / lastLen) : 0;
+    let down = 0, size = 0;
+    for (let j = 0; j < 2 * B; j++) { dir[j] = g[j] + beta * dir[j]; down += dir[j] * g[j]; }
+    if (!(down > 0)) dir.set(g);
+    last.set(g);
+    lastLen = len;
+    for (let j = 0; j < 2 * B; j++) size += dir[j] ** 2;
+    const factor = Math.min(T / Math.sqrt(size), 1);
     if (!Number.isFinite(factor)) break;
-    for (let j = 0; j < 2 * B; j++) g[j] *= factor;
+    for (let j = 0; j < 2 * B; j++) g[j] = dir[j] * factor;
     // The longest step moves no atom further than `far`, so the pairs within T + 2 far are all the line search needs.
     start.set(pos);
     step(1);
@@ -383,10 +439,18 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
       if (energies[tried] < energies[best]) best = tried;
       if (++tried > 1 && performance.now() > deadline) break;
     }
-    if (!best) break;
+    if (!best) {
+      if (!beta) break;
+      [lastLen, round] = [0, round - 1];
+      dir.fill(0);
+      continue;
+    }
     step(SHRINK[best]);
     update();
-    if (performance.now() > deadline) break;
+    if (far * SHRINK[best] < 0.01 * T) settling = true;
+    // Finished: every bond and angle exact to about 1e-9, or the round lowered the energy by less than a part in 10^12
+    // (a strained structure creeps on for ever).
+    if (energies[best] < 1e-18 || energies[0] - energies[best] < 1e-12 * energies[0] || performance.now() > deadline) break;
   }
   update();
   xy.set(pos);

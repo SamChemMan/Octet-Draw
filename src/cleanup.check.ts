@@ -1,9 +1,11 @@
-// Run: node src/cleanup.check.ts. Fails loudly if Clean Up can stop the editor or cleans differently from Indigo.
+// Run: node src/cleanup.check.ts. Fails loudly if Clean Up can stop the editor or cleans to another shape than Indigo.
 // Indigo's clean-up took 4 s on each crowded structure and each real one of more than about 25 atoms, and minutes at
 // 1,000 atoms, so Octet runs its own port of it (src/clean2d.ts). Each drawing below must now be cleaned in under
 // BOUND ms (REAL ms for a real structure), and a structure of more than 1,000 atoms left as drawn. Small real
-// structures must come out the shape Indigo's own clean-up gives them. The structures are drawn by hand: each atom
-// is moved up to 0.3 bond lengths from where Indigo lays it out.
+// structures must come out the shape Indigo's own clean-up gives them, but exact: Indigo stops up to 2% of a bond short
+// of its lowest energy and aims every ring angle at 120° (caffeine's five-membered ring comes out irregular), and
+// Octet does neither (src/clean2d.ts, src/cleanup-geometry.check.ts). The structures are drawn by hand: each atom is
+// moved up to 0.3 bond lengths from where Indigo lays it out.
 // The structures run in a worker thread, so a clean-up that never ends stops the check instead of hanging it.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -25,7 +27,8 @@ const crowded: [string, string][] = [
   ["a carbon with 166 phenyls (997 atoms)", "C" + on(ph, 166)],
   ["a 1,000-atom chain", "C".repeat(1000)],
 ];
-// Cleaned in under REAL ms, to the shape Indigo's own clean-up gives them.
+// Cleaned in under REAL ms, to the shape Indigo's own clean-up gives them (within 0.15 bond lengths), every bond the
+// bond length (morphine, a bridged ring system, cannot have every bond and angle exact).
 const small: [string, string][] = [
   ["benzene", "c1ccccc1"],
   ["hexane", "CCCCCC"],
@@ -64,7 +67,7 @@ if (isMainThread) {
   worker.on("message", (m: { start?: string; bound?: number; done?: string; ms?: number; outcome?: string; end?: true }) => {
     if (m.start) { current = m.start; arm(m.bound!); }
     if (m.done) { clearTimeout(timer); console.log(`cleanup.check: ${m.done}: ${m.ms} ms, ${m.outcome}`); }
-    if (m.end) console.log("cleanup.check: Clean Up cannot stop the editor, and small structures are cleaned as Indigo cleans them");
+    if (m.end) console.log("cleanup.check: Clean Up cannot stop the editor, and small structures come out Indigo's shape, exact");
   });
   worker.on("error", (e) => { clearTimeout(timer); console.error(e); process.exitCode = 1; });
 } else {
@@ -150,9 +153,10 @@ if (isMainThread) {
   for (const [name, smiles] of small) {
     const mol = drawn(smiles), indigos = indigoClean(mol);
     timed(name, REAL, () => cleanUp(mol), (out) => {
-      const d = apart(mol, indigos, points(out));
-      assert.ok(d < 0.01, `${name} is cleaned as Indigo cleans it (${d.toFixed(3)} bond lengths apart)`);
-      return `as Indigo cleans it (${d.toFixed(3)} bond lengths apart)`;
+      const d = apart(mol, indigos, points(out)), e = bondError(out);
+      assert.ok(d < 0.15, `${name} comes out the shape Indigo gives it (${d.toFixed(3)} bond lengths apart)`);
+      if (name !== "morphine") assert.ok(e < 1e-4, `${name} has every bond the bond length (${e.toExponential(1)} out)`);
+      return `Indigo's shape (${d.toFixed(3)} bond lengths apart), bond lengths ${e.toExponential(1)} out`;
     });
   }
   for (const [name, smiles] of large) {
