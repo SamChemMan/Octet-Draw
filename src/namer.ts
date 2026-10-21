@@ -88,8 +88,13 @@ const RINGS: Record<string, Ring> = {
 };
 const HETERO_ORDER = ["O", "S", "N"]; // heteroatoms in order of seniority for low locants (P-31.1.4.2.4)
 // Hantzsch–Widman prefixes in order of seniority (P-22.2.2.1.1, P-22.2.2.1.3).
-const HW: Record<string, string> = { O: "oxa", S: "thia", N: "aza", P: "phospha" };
-const HW_ORDER = ["O", "S", "N", "P"];
+// A ring is named only with elements perceive() accepts.
+const HW: Record<string, string> = { O: "oxa", S: "thia", Se: "selena", Te: "tellura", N: "aza", P: "phospha", As: "arsa", Sb: "stiba", Bi: "bisma", Si: "sila", Ge: "germa", Sn: "stanna", Pb: "plumba", B: "bora", Hg: "mercura" };
+const HW_ORDER = Object.keys(HW);
+// Ring atoms with two bonds (no double bond in the mancude ring), and the six-membered ring endings by the last
+// heteroatom cited (P-22.2.2.1.2): 6A ine/ane, 6B ine/inane, the rest inine/inane.
+const DIVALENT = new Set(["O", "S", "Se", "Te"]);
+const SIX_A = new Set(["O", "S", "Se", "Te", "Bi", "Hg"]), SIX_B = new Set(["N", "Si", "Ge", "Sn", "Pb"]);
 // Retained names of monocycles not in RINGS (P-22.2.1), by size and heteroatom locants: saturated and mancude.
 const SATURATED: Record<string, string> = { "5:N1,N2": "pyrazolidine", "5:N1,N3": "imidazolidine", "5:N1": "pyrrolidine", "6:N1": "piperidine", "6:N1,N4": "piperazine", "6:O1,N4": "morpholine" };
 const MANCUDE: Record<string, string> = {
@@ -105,7 +110,7 @@ function hwName(els: string[], saturated: boolean, lam: string[] = []): string {
   const locs = present.flatMap((e) => els.flatMap((x, k) => (x === e ? [k + 1] : [])));
   const stem = present.reduce((t, e) => { const n = els.filter((x) => x === e).length; return join(t, join(MULT[n], HW[e])); }, "");
   const ends: [string, string] = size === 3 ? (hasN ? ["irine", "iridine"] : ["irene", "irane"]) : size === 4 ? ["ete", hasN ? "etidine" : "etane"]
-    : size === 5 ? ["ole", hasN ? "olidine" : "olane"] : size === 6 ? (last === "O" || last === "S" ? ["ine", "ane"] : last === "N" ? ["ine", "inane"] : ["inine", "inane"])
+    : size === 5 ? ["ole", hasN ? "olidine" : "olane"] : size === 6 ? (SIX_A.has(last) ? ["ine", "ane"] : SIX_B.has(last) ? ["ine", "inane"] : ["inine", "inane"])
     : [["epine", "epane"], ["ocine", "ocane"], ["onine", "onane"], ["ecine", "ecane"]][size - 7] as [string, string];
   // λ-atoms (P-14.1.3) carry their λ in the locants: 1λ⁶,4-thiazinane; with no locants, in front: 1λ⁶-thiolane.
   const bare = locs.length === 1 || (present.length === 1 && locs.length >= size - 1);
@@ -552,9 +557,10 @@ class Namer {
     const doubles = (a: number) => ring(a).filter((j) => this.ord(a, j) === 2).length;
     for (const a of cycle) {
       if (!doubles(a)) continue;
-      if (el(a) === "O" || el(a) === "S") throw new Error("ring heteroatom double bond");
+      if (DIVALENT.has(el(a))) throw new Error("ring heteroatom double bond");
       if (doubles(a) > 1 || this.adj[a].some((j) => !set.has(j) && this.ord(a, j) > 1)) throw new Error("ring bonds");
     }
+    if (size > 10 && cycle.some((a) => el(a) !== "C" && !REPLACE.some(([e]) => e === el(a)))) throw new Error("unknown ring");
     if (size > 10) return { numberings: nums, aromatic: false, bridged: { prefix: "cyclo", nums, bonds } };
     const key = `${size}:${HW_ORDER.flatMap((e) => els.flatMap((x, k) => (x === e ? [`${e}${k + 1}`] : []))).join(",")}`;
     if (bonds.every(([a, b]) => this.ord(a, b) === 1)) {
@@ -563,7 +569,7 @@ class Namer {
     }
     // The mancude parent: C, N and P take double bonds; it needs indicated hydrogen on one atom of each run of them
     // with an odd number of atoms (the whole ring when it has no O or S).
-    const cn = cycle.filter((a) => el(a) !== "O" && el(a) !== "S"), d = cn.filter((a) => !doubles(a));
+    const cn = cycle.filter((a) => !DIVALENT.has(el(a))), d = cn.filter((a) => !doubles(a));
     let indicated = 0;
     if (cn.length === size) indicated = size % 2;
     else for (let k = 0, s = cycle.findIndex((a) => !cn.includes(a)), run = 0; k <= size; k++) {
