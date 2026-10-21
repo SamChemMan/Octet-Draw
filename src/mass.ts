@@ -43,6 +43,14 @@ const ISOTOPES: Record<string, [number, number][]> = {
   Au: [[196.9665687, 100]],
 };
 
+// An atom's mass for CIP rule 2: the isotope's (its mass number, when the table has no such isotope), or with no mass
+// number the element's natural mean. Undefined for an element the table does not have.
+export function atomMass(el: string, massNumber?: number): number | undefined {
+  const iso = ISOTOPES[el];
+  if (massNumber) return iso?.find(([m]) => Math.round(m) === massNumber)?.[0] ?? massNumber;
+  return iso && iso.reduce((t, [m, a]) => t + m * a, 0) / iso.reduce((t, [, a]) => t + a, 0);
+}
+
 // A formula as element counts: "C8H9NO2" or Indigo's "C8 H9 N O2". Undefined if it has anything else in it.
 export function counts(formula: string): Record<string, number> | undefined {
   const out: Record<string, number> = {}, text = formula.replace(/\s+/g, "");
