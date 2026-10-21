@@ -5,6 +5,7 @@ import type { Cycle } from "./cycle.ts";
 import { anchorElement, isElement } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
+import { whole } from "./richtext.ts";
 
 export type P = [number, number];
 export const EMPTY: Mol = { atoms: [], bonds: [] };
@@ -247,6 +248,30 @@ export function interpretLabels(m: Mol, ids: Iterable<number>, on: boolean, hide
     const { chemical: _, text, ...rest } = a;
     return text === labelWords({ ...m, atoms: m.atoms.map((x, k) => (k === i ? rest : x)) }, i, hideH, used[i]) ? rest : { ...rest, text };
   }) };
+}
+// A caption typed on the canvas that Octet makes an atom at once (Sam, 21 October 2026): exactly one element symbol,
+// as written (Rh, Bi, K), whose atom alone shows only that symbol. So the page does not change. An element whose lone
+// atom shows hydrogens (O as H2O, C as CH4) stays text, and so does D, which is not an element.
+export function typedElement(text: string): boolean {
+  if (text === "D" || !isElement(text)) return false;
+  return labelWords(setLabel({ atoms: [{ label: "C", location: [0, 0, 0] }], bonds: [] }, 0, text), 0) === text;
+}
+// The atom a caption makes, at a point: labelled with its text, in the caption's size, font, style and colour (or its
+// runs', when all of its text shares them). A size or font the same as the document's labels' is left unset.
+export function captionAtom(c: Caption, at: [number, number, number], s: Pick<DocStyle, "labelFont" | "labelSize" | "captionFont" | "captionSize">): Atom {
+  const w = whole(c), size = w.size ?? s.captionSize, font = w.font ?? s.captionFont;
+  return setLabel({ atoms: [{ label: "C", location: at, ...(size !== s.labelSize ? { size } : {}), ...(font !== s.labelFont ? { font } : {}),
+    ...(w.bold ? { bold: true as const } : {}), ...(w.italic ? { italic: true as const } : {}), ...(w.underline ? { underline: true as const } : {}), ...(w.colour ? { colour: w.colour } : {}) }], bonds: [] }, 0, c.text).atoms[0];
+}
+// Captions made into atoms (Make element, Interpret Chemically): each new atom goes into the groups its caption was
+// in, and the captions go.
+export function captionsToAtoms(m: Mol, made: { id: number; atom: Atom }[]): Mol {
+  const at = new Map(made.map(({ id }, k) => [id, m.atoms.length + k]));
+  const groups = m.groups?.map((g) => {
+    const add = g.items.filter((id) => at.has(id)).map((id) => at.get(id)!);
+    return add.length ? { ...g, atoms: [...g.atoms, ...add] } : g;
+  });
+  return deleteGraphics({ ...m, atoms: [...m.atoms, ...made.map((x) => x.atom)], ...(groups ? { groups } : {}) }, new Set(at.keys()));
 }
 export const addCharge = (m: Mol, i: number, delta: number) => trimPairs(setAtom(m, i, { charge: (m.atoms[i].charge ?? 0) + delta || undefined }), i);
 
