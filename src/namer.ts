@@ -20,7 +20,7 @@
 import type { Graph } from "./naming.ts";
 import { fusedParent } from "./fusion.ts";
 import { ELEMENTS, isMetal, metalName, MORE_CATIONS, METAL_ANIONS, type MetalApi } from "./metals.ts";
-import { chalcogenIonSuffix, chalcogenStem, chargeSeparated, citedNuclides, isotopePrefix, isotopeSpecies, isotopeText, mainGroupSpecies, NUCLIDE } from "./namer-maingroup.ts";
+import { chalcogenIonSuffix, chalcogenOne, chalcogenStem, chargeSeparated, checkChalcogenOnes, citedNuclides, isotopePrefix, isotopeSpecies, isotopeText, mainGroupSpecies, NUCLIDE } from "./namer-maingroup.ts";
 import { amideHetero, groupVariant, heteroAmine, heteroBond, heteroCharged, heteroParentName, heteroPrefix, hydrazinyl, inorganicName, nOxideN, nOxides, oxideText, perceiveHetero, perceiveIodanes, suffixStereo, sulfonamideN, sulfonateName, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
 
 type Name = { text: string; compound: boolean }; // compound: needs brackets when cited as a prefix
@@ -387,6 +387,7 @@ class Namer {
           this.group[y] ??= "nitrile"; // unless the N is a guanidine's (N-cyanoguanidine, cimetidine)
           continue;
         }
+        if (!cs.length && others.length === 2 && el[others.find((j) => j !== nitrileN)!] === "P") continue; // a cyanide on P: namer-hetero.ts
         if (this.inRing[c] || cs.length > 1 || others.filter((j) => !CATENATE.has(el[j])).length !== 1 || others.length + cs.length > 2) throw new Error("nitrile"); // on C, or on Si: silanecarbonitrile
         this.mark(c, "nitrile", cs);
         this.group[nitrileN] = "nitrile";
@@ -463,14 +464,16 @@ class Namer {
       if (el[i] !== "S" || this.inRing[i] || this.het.has(i) || this.group[i] || this.sulfur.has(i)) continue;
       const os = adj[i].filter((j) => el[j] === "O" && this.ord(i, j) === 2 && adj[j].length === 1 && !q[j]);
       if (!os.length) continue;
-      const cs = this.carbons(i), rest = adj[i].filter((j) => !os.includes(j) && !cs.includes(j));
-      if (adj[i].some((j) => this.ord(i, j) === 2 && !os.includes(j)) || cs.some((j) => this.carbonylO[j] >= 0 || this.isNitrileC(j))) throw new Error("sulfur");
-      if (os.length === 2 && cs.length === 1 && rest.length === 1 && el[rest[0]] === "O" && h[rest[0]] === 1 && adj[rest[0]].length === 1) this.mark(i, "sulfonic", cs);
+      // =NH with one =O: sulfoximines (methanesulfonimidoyl) and sulfonimidic acids (P-65.3.1, P-63.6).
+      const im = os.length === 1 ? adj[i].filter((j) => el[j] === "N" && this.ord(i, j) === 2 && !this.inRing[j] && !q[j] && adj[j].length === 1 && h[j] === 1) : [];
+      const cs = this.carbons(i), rest = adj[i].filter((j) => !os.includes(j) && !cs.includes(j) && !im.includes(j));
+      if (adj[i].some((j) => this.ord(i, j) === 2 && !os.includes(j) && !im.includes(j)) || cs.some((j) => this.carbonylO[j] >= 0 || this.isNitrileC(j))) throw new Error("sulfur");
+      if (os.length + im.length === 2 && cs.length === 1 && rest.length === 1 && el[rest[0]] === "O" && h[rest[0]] === 1 && adj[rest[0]].length === 1) this.mark(i, "sulfonic", cs);
       else if (os.length === 2 && cs.length === 1 && rest.length === 1 && HALO[el[rest[0]]] && adj[rest[0]].length === 1) this.mark(i, "sulfonylhalide", cs);
-      else if (!(os.length <= 2 && cs.length === 2 && !rest.length)) throw new Error("sulfur");
-      if (this.cip[i] && !(os.length === 1 && cs.length === 2)) throw new Error("sulfur stereo"); // R/S on a sulfoxide: namer-hetero.ts
+      else if (!(os.length + im.length <= 2 && cs.length === 2 && !rest.length)) throw new Error("sulfur");
+      if (this.cip[i] && !(os.length === 1 && !im.length && cs.length === 2)) throw new Error("sulfur stereo"); // R/S on a sulfoxide: namer-hetero.ts
       this.sulfur.add(i);
-      for (const j of [...os, ...rest]) this.sulfur.add(j);
+      for (const j of [...os, ...im, ...rest]) this.sulfur.add(j);
     }
     // Phosphanes and phosphane oxides (P-68.3.2): P with three single bonds to carbon or hydrogen, and perhaps =O.
     for (let i = 0; i < this.n; i++) {
@@ -1044,7 +1047,7 @@ class Namer {
       // 2-ethylidenecyclohexan-1-one): indicated hydrogen or hydro prefixes cover it.
       const ylidene = (j: number) => this.el[a] === "C" && !doubles && this.ord(a, j) === 2 && (this.el[j] === "C" || this.el[j] === "N");
       // =O on a ring S, Se, P or As is a ketone by the λ-convention: 10H-10λ⁵-dibenzo[b,e][1,4]oxarsinin-10-one.
-      if (this.adj[a].some((j) => !sys.has(j) && this.ord(a, j) > 1 && j !== this.carbonylO[a] && !ylidene(j) && !(this.ringOxide(j) && this.lambda(a)))) throw new Error("exocyclic double bond");
+      if (this.adj[a].some((j) => !sys.has(j) && this.ord(a, j) > 1 && j !== this.carbonylO[a] && !ylidene(j) && !(this.ringOxide(j) && this.lambda(a)) && !chalcogenOne(this, j))) throw new Error("exocyclic double bond");
       // A ring O+, S+, Se+ or Te+ (pyrylium, phenothiazin-5-ium) takes a ring double bond.
       if (PI_ATOMS.has(this.el[a]) || (this.q[a] > 0 && DIVALENT.has(this.el[a]))) { cn.push(a); if (!doubles) d.push(a); }
       else if (doubles) throw new Error("ring heteroatom double bond");
@@ -1211,7 +1214,8 @@ class Namer {
     }
     // A carbanion or carbocation in the parent is its suffix; a pyrylium ring is a parent with no suffix.
     if (atoms.some((a) => (this.group[a] === "ide" || this.group[a] === "ylium") && !sites.some((s) => s.group === a))) throw new Error("ion as a prefix");
-    if (info?.ring && Object.values(ION_RINGS).includes(info.ring) && (kind || opts.attach || !atoms.some((a) => this.q[a] === 1))) throw new Error("ring cation");
+    // With a ring carbanion, an ylide: pyrylium-2-ide.
+    if (info?.ring && Object.values(ION_RINGS).includes(info.ring) && ((kind && !(kind === "ide" && sites.every((s) => inParent.has(s.atom)))) || opts.attach || !atoms.some((a) => this.q[a] === 1))) throw new Error("ring cation");
     // ethanethioamide, 2-methylpropane-2-peroxol (namer-hetero.ts), 2-aminoethane-1-selenonate (namer-maingroup.ts)
     const thio = chalcogenIonSuffix(this, kind, sites) ?? variantSuffix(this, kind, sites, used, p.ring);
     const oxides = nOxides(this, atoms, sites, kind, used, !opts.attach && !opts.sulfo); // pyridine 1-oxide (namer-hetero.ts)
@@ -1436,6 +1440,7 @@ class Namer {
     const el = this.el[x];
     // Diazo is the one prefix on a double bond that Octet names (=N+=N-); =CH2 and the like are not covered.
     if (el === "N" && this.diazoAtom(x) && this.ord(x, from) === 2) return { text: "diazo", compound: false };
+    if (chalcogenOne(this, x)) return { text: el === "Se" ? "selanylidene" : "tellanylidene", compound: false };
     if (el === "C" && this.ord(x, from) === 2) {
       if (this.group[x] || this.carbonylO[x] >= 0) throw new Error("ylidene");
       return this.ylidene(x, from);
@@ -1458,9 +1463,11 @@ class Namer {
     }
     // Sulfonic acids as sulfo; sulfoxides and sulfones as alkanesulfinyl and alkanesulfonyl (P-63.6, P-65.3.2.3).
     if (this.sulfur.has(x)) {
+      const imino = this.adj[x].some((j) => this.el[j] === "N" && this.ord(x, j) === 2);
+      if (g === "sulfonic" && imino) throw new Error("sulfonimidic acid as a prefix");
       if (g === "sulfonic") return { text: "sulfo", compound: false };
       const r = this.adj[x].find((j) => j !== from && this.el[j] === "C")!;
-      const sulfo = this.adj[x].filter((j) => this.el[j] === "O").length === 2 ? "sulfonyl" : "sulfinyl";
+      const sulfo = imino ? "sulfonimidoyl" : this.adj[x].filter((j) => this.el[j] === "O").length === 2 ? "sulfonyl" : "sulfinyl"; // methanesulfonimidoyl
       const p = this.inRing[r] ? { atoms: this.rings[this.ringOf[r]], ring: true } : { atoms: this.bestChain(r, x), ring: false };
       return { text: this.nameParent(p, { attach: [r, x], sulfo }).text, compound: true };
     }
@@ -1661,7 +1668,7 @@ class Namer {
       for (const j of adj[i]) {
         if (oxo.includes(j)) { this.main.add(j); continue; }
         if (this.inRing[i] && this.ringOf[j] === this.ringOf[i]) continue; // the ring's own bonds
-        if (this.ord(i, j) !== 1) throw new Error(`${el[i]} bonds`);
+        if (this.ord(i, j) !== 1 && !chalcogenOne(this, i)) throw new Error(`${el[i]} bonds`); // =Se: selanylidene
         // An ion's atom (the O⁻ of a selenonate, the N⁻ of bis(trimethylsilyl)azanide) or a group cited only as a prefix
         // (isocyanato(trimethyl)silane).
         if (this.ions.has(j) || this.prefixOnly.has(j)) continue;
@@ -1827,6 +1834,7 @@ class Namer {
     this.radicals();
     if (this.adj.some((a, i) => a.length === 0 && this.el[i] !== "C") || this.n === 0) return undefined;
     const kind = SENIORITY.find((k) => this.group.includes(k) && [...this.bearer.keys()].some((g) => this.group[g] === k));
+    checkChalcogenOnes(this, kind, SENIORITY); // =Se as a prefix only under a ketone or a senior group (namer-maingroup.ts)
     // An ion as the parent (trimethylsulfanium, methyl sulfate), a main-group parent (phenylboronic acid,
     // trimethyl(phenyl)silane), or a parent or acid centre built on N, O, S or P (phenylhydrazine, trimethyl phosphate).
     let text: string | undefined = this.ionParent(kind) ?? this.mainName(kind) ?? heteroParentName(this, kind);

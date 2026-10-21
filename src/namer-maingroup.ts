@@ -30,7 +30,7 @@ const SPECIES: [string, string][] = [
   ["[SH2](=O)=N", "imino-λ⁶-sulfanone"], ["[SeH2](=O)=N", "imino-λ⁶-selanone"], ["[TeH2](=O)=N", "imino-λ⁶-tellanone"],
   // Carbon: peroxocarbonates, the cyanide pseudohalides of S and N.
   ["[O-]OC(=O)[O-]", "peroxocarbonate"], ["[O-]C(=O)OOC(=O)[O-]", "peroxodicarbonate"], ["OSC#N", "hydroxysulfanecarbonitrile"], ["[O-]SC#N", "(cyanosulfanyl)oxidanide"],
-  ["N#CN=[N+]=[N-]", "carbononitridic azide"],
+  ["N#CN=[N+]=[N-]", "carbononitridic azide"], ["[NH+]#[C-]", "hydrogen isocyanide"], ["O[N+]#[C-]", "isocyanooxidane"], ["N[O-]", "aminooxidanide"],
 ];
 type Shape = { el: string[]; h: number[]; q: number[]; bonds: [number, number, number][] };
 // A structure's signature: each atom's element, hydrogens, charge and bonds, sorted.
@@ -209,6 +209,19 @@ export function citedNuclides(text: string): number {
     times.push(here * (m ? ["", "", "bis", "tris", "tetrakis", "pentakis", "hexakis", "heptakis", "octakis"].indexOf(m[1]) : 1));
   }
   return k;
+}
+
+// ——— Selones and tellones (P-64.6) ———
+// A terminal =Se or =Te on a ring carbon, or on a carbon with only carbon neighbours: cited as selanylidene or
+// tellanylidene under a ketone or a senior group (2-selanylidene-1,2,3,7-tetrahydro-6H-purin-6-one). As the principal
+// group (propane-2-selone), and on a carbon with heteroatoms (selenoic acids, selenoamides), not yet.
+export function chalcogenOne(n: Namer, x: number): boolean {
+  if ((n.el[x] !== "Se" && n.el[x] !== "Te") || n.adj[x].length !== 1 || n.h[x] || n.q[x]) return false;
+  const c = n.adj[x][0];
+  return n.el[c] === "C" && n.ord(x, c) === 2 && (n.inRing[c] || n.adj[c].every((j) => j === x || n.el[j] === "C"));
+}
+export function checkChalcogenOnes(n: Namer, kind: string | undefined, seniority: readonly string[]) {
+  if ((!kind || seniority.indexOf(kind) > seniority.indexOf("ketone")) && n.el.some((_, i) => chalcogenOne(n, i))) throw new Error("selone");
 }
 
 // The stem of a chalcogen's acid names: sulfonate, selenonate, tellurinate.
