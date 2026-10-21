@@ -15,10 +15,18 @@ import type { Graph } from "./naming.ts";
 
 type Name = { text: string; compound: boolean }; // compound: needs brackets when cited as a prefix
 
-const STEMS = ["", "meth", "eth", "prop", "but", "pent", "hex", "hept", "oct", "non", "dec", "undec", "dodec", "tridec",
-  "tetradec", "pentadec", "hexadec", "heptadec", "octadec", "nonadec", "icos"];
-const MULT = ["", "", "di", "tri", "tetra", "penta", "hexa", "hepta", "octa", "nona", "deca"];
-const MULT_COMPLEX = ["", "", "bis", "tris", "tetrakis", "pentakis", "hexakis", "heptakis", "octakis"];
+// Numerical terms (P-14.2.1), for chains and multiplying prefixes of any length: 11 undeca, 21 henicosa, 22 docosa,
+// 31 hentriaconta, 101 henhecta.
+function numeral(n: number): string {
+  if (n < 10) return ["", "mono", "di", "tri", "tetra", "penta", "hexa", "hepta", "octa", "nona"][n];
+  const u = n % 10, t = Math.floor(n / 10) % 10, h = Math.floor(n / 100) % 10;
+  const unit = u === 1 ? (t === 1 ? "un" : "hen") : u === 2 ? "do" : ["", "", "", "tri", "tetra", "penta", "hexa", "hepta", "octa", "nona"][u];
+  const ten = t === 2 ? (/[aeiou]$/.test(unit) ? "cosa" : "icosa") : ["", "deca", "", "triaconta", "tetraconta", "pentaconta", "hexaconta", "heptaconta", "octaconta", "nonaconta"][t];
+  return unit + ten + ["", "hecta", "dicta", "tricta", "tetracta", "pentacta", "hexacta", "heptacta", "octacta", "nonacta"][h];
+}
+const STEMS = Array.from({ length: 1000 }, (_, n) => (n < 5 ? ["", "meth", "eth", "prop", "but"][n] : numeral(n).replace(/a$/, "")));
+const MULT = Array.from({ length: 1000 }, (_, n) => (n < 2 ? "" : numeral(n)));
+const MULT_COMPLEX = Array.from({ length: 1000 }, (_, n) => (n < 2 ? "" : n === 2 ? "bis" : n === 3 ? "tris" : `${numeral(n)}kis`));
 const HALO: Record<string, string> = { F: "fluoro", Cl: "chloro", Br: "bromo", I: "iodo" };
 const VOWEL = /^[aeiouy]/;
 
@@ -77,6 +85,34 @@ const RINGS: Record<string, Ring> = {
   "3s:N1": { name: "aziridine", stem: "aziridin", aromatic: false },
 };
 const HETERO_ORDER = ["O", "S", "N"]; // heteroatoms in order of seniority for low locants (P-31.1.4.2.4)
+// Hantzsch–Widman prefixes in order of seniority (P-22.2.2.1.1, P-22.2.2.1.3).
+const HW: Record<string, string> = { O: "oxa", S: "thia", N: "aza", P: "phospha" };
+const HW_ORDER = ["O", "S", "N", "P"];
+// Retained names of monocycles not in RINGS (P-22.2.1), by size and heteroatom locants: saturated and mancude.
+const SATURATED: Record<string, string> = { "5:N1,N2": "pyrazolidine", "5:N1,N3": "imidazolidine", "5:N1": "pyrrolidine", "6:N1": "piperidine", "6:N1,N4": "piperazine", "6:O1,N4": "morpholine" };
+const MANCUDE: Record<string, string> = {
+  "5:N1": "pyrrole", "5:N1,N2": "pyrazole", "5:N1,N3": "imidazole", "5:O1": "furan", "5:S1": "thiophene", "6:N1": "pyridine",
+  "6:N1,N2": "pyridazine", "6:N1,N3": "pyrimidine", "6:N1,N4": "pyrazine", "6:O1": "pyran", "6:S1": "thiopyran",
+};
+// A Hantzsch–Widman name (P-22.2.2.1) from the ring's elements by locant: prefixes in order of seniority, multiplied,
+// then the ending for the ring size, the final "a" elided before a vowel. Locants are left out for one heteroatom and
+// where every atom but one is the same heteroatom (oxane, 1H-tetrazole).
+function hwName(els: string[], saturated: boolean): string {
+  const join = (a: string, b: string) => (/a$/.test(a) && /^[aeiou]/.test(b) ? a.slice(0, -1) : a) + b;
+  const present = HW_ORDER.filter((e) => els.includes(e)), size = els.length, hasN = present.includes("N"), last = present[present.length - 1];
+  const locs = present.flatMap((e) => els.flatMap((x, k) => (x === e ? [k + 1] : [])));
+  const stem = present.reduce((t, e) => { const n = els.filter((x) => x === e).length; return join(t, join(MULT[n], HW[e])); }, "");
+  const ends: [string, string] = size === 3 ? (hasN ? ["irine", "iridine"] : ["irene", "irane"]) : size === 4 ? ["ete", hasN ? "etidine" : "etane"]
+    : size === 5 ? ["ole", hasN ? "olidine" : "olane"] : size === 6 ? (last === "O" || last === "S" ? ["ine", "ane"] : last === "N" ? ["ine", "inane"] : ["inine", "inane"])
+    : [["epine", "epane"], ["ocine", "ocane"], ["onine", "onane"], ["ecine", "ecane"]][size - 7] as [string, string];
+  const bare = locs.length === 1 || (present.length === 1 && locs.length >= size - 1);
+  return (bare ? "" : `${locs.join(",")}-`) + join(stem, ends[saturated ? 1 : 0]);
+}
+// The subsets of l with k members, in order of lowest locants (l in locant order).
+function subsets(l: number[], k: number): number[][] {
+  if (!k) return [[]];
+  return l.flatMap((a, i) => subsets(l.slice(i + 1), k - 1).map((s) => [a, ...s]));
+}
 
 // Fused ring parents (P-25.1, P-25.2.1). Each skeleton is its ring bonds by locant; atoms are kept in locant order
 // (4 < 4a < 5), so index order is locant order. Each name gives its heteroatoms by locant. Indicated hydrogen is
@@ -125,7 +161,9 @@ const FUSED: Fused[] = FUSED_NAMES.map(([skeleton, name, hetero]) => {
 });
 // A fused system in a molecule: the parent's numberings (atom at each locant), its C and N atoms, those with no ring
 // double bond (d), and its ring bonds.
-type FusedSys = { tpl: Fused; nums: number[][]; cn: number[]; d: number[]; ring: (a: number) => number[] };
+type FusedSys = { tpl: Fused; nums: number[][]; cn: number[]; d: number[]; ring: (a: number) => number[]; mono?: number };
+// Indicated hydrogen (x, or xs), added hydrogen (y, or ys, cited with the ketone yOn) and hydro prefixes, in one numbering.
+type Saturation = { x?: number; y?: number; yOn?: number; hydro: number[]; xs?: number[]; ys?: number[] };
 // A von Baeyer or spiro ring system: its descriptor (bicyclo[2.2.1], spiro[4.5]), numberings, and ring bonds.
 type Bridged = { prefix: string; nums: number[][]; bonds: [number, number][] };
 // Replacement prefixes for ring heteroatoms (P-15.4), in order of citation.
@@ -427,9 +465,9 @@ class Namer {
     const aromatic6 = size === 6 && doubles.every(Boolean);
     const aromatic5 = size === 5 && ringBonds.filter((o) => o === 2).length === 2 && cycle.filter((_, k) => !doubles[k]).every((a) => this.el[a] !== "C");
     const aromatic = aromatic6 || aromatic5;
-    if (ringBonds.some((o) => o === 3)) throw new Error("ring triple bond");
+    if (ringBonds.some((o) => o === 3) && hetero.length) throw new Error("ring triple bond");
     if (!hetero.length && !aromatic6) return { numberings: allNumberings, aromatic: false };
-    if (!aromatic && ringBonds.some((o) => o === 2)) throw new Error("unsaturated heterocycle");
+    if (!aromatic && ringBonds.some((o) => o === 2)) return this.monoInfo(cycle);
     // Lowest locants to heteroatoms together, then by seniority O, S, N; then (azoles) to the N bearing hydrogen.
     const heteroLocants = (num: number[]) => num.map((a, k) => (this.el[a] !== "C" ? k + 1 : 0)).filter(Boolean);
     let best = allNumberings;
@@ -438,8 +476,72 @@ class Namer {
     if (aromatic5) best = this.lowest(best, (num) => num.map((a, k) => (this.el[a] !== "C" && !doubles[cycle.indexOf(a)] ? k + 1 : 0)).filter(Boolean));
     const sig = best[0].map((a, k) => (this.el[a] !== "C" ? `${this.el[a]}${k + 1}` : "")).filter(Boolean).sort((x, y) => HETERO_ORDER.indexOf(x[0]) - HETERO_ORDER.indexOf(y[0]) || parseInt(x.slice(1)) - parseInt(y.slice(1)));
     const ring = RINGS[`${size}${aromatic ? "a" : "s"}:${sig.join(",")}`];
-    if (!ring) throw new Error("unknown ring");
+    if (!ring) return this.monoInfo(cycle);
     return { ring, numberings: best, aromatic };
+  }
+  // Any other monocycle of C, N, O, S and P. Numbered from the senior heteroatom, then lowest locants to the
+  // heteroatoms together, then in order of seniority (P-22.2.2.1.5). Saturated rings take retained or Hantzsch–Widman
+  // names (pyrazolidine, azepane, 1,3-oxazolidine); rings with double bonds are named from the mancude ring
+  // (P-31.1.4.2.4: 2H-pyran, 1H-1,2,4-triazole) with indicated hydrogen, added hydrogen and hydro prefixes, as fused
+  // systems are. Rings of more than ten atoms take replacement names (P-22.2.3: 1-oxacyclododecane).
+  monoInfo(cycle: number[]): ReturnType<Namer["ringInfo"]> {
+    const size = cycle.length, el = (a: number) => this.el[a], set = new Set(cycle);
+    if (cycle.some((a) => !HW[el(a)] && el(a) !== "C") || size < 3) throw new Error("unknown ring");
+    let nums: number[][] = [];
+    for (let s = 0; s < size; s++) for (const dir of [1, -1]) nums.push(cycle.map((_, k) => cycle[(s + dir * k + size * 2) % size]));
+    const at = (e?: string) => (num: number[]) => num.flatMap((a, k) => ((e ? el(a) === e : el(a) !== "C") ? [k + 1] : []));
+    if (size <= 10) nums = nums.filter((num) => el(num[0]) === HW_ORDER.find((e) => cycle.some((a) => el(a) === e)));
+    nums = this.lowest(nums, at());
+    for (const e of HW_ORDER) nums = this.lowest(nums, at(e));
+    const els = nums[0].map(el), ring = (a: number) => this.adj[a].filter((j) => set.has(j));
+    const bonds = cycle.map((a, k): [number, number] => [a, cycle[(k + 1) % size]]);
+    if (bonds.some(([a, b]) => this.ord(a, b) === 3)) throw new Error("ring triple bond");
+    const doubles = (a: number) => ring(a).filter((j) => this.ord(a, j) === 2).length;
+    for (const a of cycle) {
+      if (!doubles(a)) continue;
+      if (el(a) === "O" || el(a) === "S") throw new Error("ring heteroatom double bond");
+      if (doubles(a) > 1 || this.adj[a].some((j) => !set.has(j) && this.ord(a, j) > 1)) throw new Error("ring bonds");
+    }
+    if (size > 10) return { numberings: nums, aromatic: false, bridged: { prefix: "cyclo", nums, bonds } };
+    const key = `${size}:${HW_ORDER.flatMap((e) => els.flatMap((x, k) => (x === e ? [`${e}${k + 1}`] : []))).join(",")}`;
+    if (bonds.every(([a, b]) => this.ord(a, b) === 1)) {
+      const name = SATURATED[key] ?? hwName(els, true);
+      return { ring: { name, stem: name.replace(/e$/, ""), aromatic: false }, numberings: nums, aromatic: false };
+    }
+    // The mancude parent: C, N and P take double bonds; it needs indicated hydrogen on one atom of each run of them
+    // with an odd number of atoms (the whole ring when it has no O or S).
+    const cn = cycle.filter((a) => el(a) !== "O" && el(a) !== "S"), d = cn.filter((a) => !doubles(a));
+    let indicated = 0;
+    if (cn.length === size) indicated = size % 2;
+    else for (let k = 0, s = cycle.findIndex((a) => !cn.includes(a)), run = 0; k <= size; k++) {
+      const a = cycle[(s + k) % size];
+      if (cn.includes(a) && k < size) run++;
+      else { indicated += run % 2; run = 0; }
+    }
+    const name = MANCUDE[key] ?? hwName(els, false);
+    const tpl: Fused = { name, labels: cycle.map((_, k) => String(k + 1)), el: els, adj: [], order: [], bonds: size, formula: "", odd: indicated > 0 };
+    return { numberings: nums, aromatic: true, fused: { tpl, nums, cn, d, ring, mono: indicated } };
+  }
+  // Indicated hydrogen, added hydrogen and hydro prefixes for a monocycle from its mancude parent, in one numbering
+  // (P-31.1.4.2.4, P-31.1.4.3.4). Indicated hydrogen goes where the parent allows it and leaves the least added
+  // hydrogen for the ketones (2H-pyran-2-one, 1H-pyrrole-2,5-dione), then at the lowest locants; added hydrogen at the
+  // lowest locants (pyrimidine-2,4(1H,3H)-dione); the other saturated atoms are hydro prefixes (3,4-dihydro-2H-pyran).
+  monoSaturation(f: FusedSys, num: number[], ketones: number[]): Saturation {
+    const byLoc = (l: number[]) => [...l].sort((a, b) => num.indexOf(a) - num.indexOf(b));
+    const d = byLoc(f.d), rest = (sat: number[]) => f.cn.filter((a) => !sat.includes(a));
+    let best: { xs: number[]; ys: number[] } | undefined;
+    for (const xs of subsets(d, f.mono!)) {
+      if (!pairable(rest(xs), f.ring)) continue;
+      const free = d.filter((a) => !xs.includes(a) && !ketones.includes(a));
+      for (let m = 0; m <= free.length && (!best || m < best.ys.length); m++) {
+        const ys = subsets(free, m).find((y) => pairable(rest([...xs, ...ketones, ...y]), f.ring));
+        if (ys) { best = { xs, ys }; break; }
+      }
+      if (best && !best.ys.length) break;
+    }
+    if (!best) throw new Error("indicated hydrogen");
+    const { xs, ys } = best, sat = [...xs, ...ketones, ...ys];
+    return { x: xs[0], xs, y: ys[0], ys, yOn: byLoc(ketones.filter((a) => !xs.includes(a))).pop(), hydro: d.filter((a) => !sat.includes(a)) };
   }
   // A ring that can be a ring assembly's component: benzene, a retained heterocycle without indicated hydrogen, or a
   // fused system with no saturated atoms (naphthalene, quinoline).
@@ -560,7 +662,7 @@ class Namer {
   // ketone atom (2,3-dihydro-1H-indole, 1H-indole-2,3-dione). Ketones in pairs need nothing more; a ketone left on its
   // own takes added hydrogen from the lowest free atom (naphthalen-1(2H)-one, 1H-isoindole-1,3(2H)-dione). The rest
   // are hydro prefixes, in pairs.
-  saturation(f: FusedSys, num: number[], ketones: number[]): { x?: number; y?: number; yOn?: number; hydro: number[] } {
+  saturation(f: FusedSys, num: number[], ketones: number[]): Saturation {
     const byLoc = (l: number[]) => [...l].sort((a, b) => num.indexOf(a) - num.indexOf(b));
     const xs = f.tpl.odd ? byLoc(ketones.length % 2 ? ketones : f.d) : [undefined];
     for (const x of xs) {
@@ -634,10 +736,10 @@ class Namer {
     const manyN = sites.length > 1 && prefixes.some((x) => x.n), counted = prefixes.filter((x) => !x.n || manyN);
     // Choose the numbering (P-31.1.4): indicated hydrogen, then free valence and suffixes, then added hydrogen, then
     // hydro prefixes, multiple bonds and double bonds, then all prefixes, then the prefix cited first in alphabetical order.
-    const fused = info?.fused, assembly = info?.assembly, saturation = new Map<number[], ReturnType<Namer["saturation"]>>();
+    const fused = info?.fused, assembly = info?.assembly, saturation = new Map<number[], Saturation>();
     const sat = (num: number[]) => {
       let v = saturation.get(num);
-      if (!v) saturation.set(num, (v = this.saturation(fused!, num, kind === "ketone" ? sites.map((x) => x.atom) : [])));
+      if (!v) saturation.set(num, (v = (fused!.mono === undefined ? this.saturation : this.monoSaturation).call(this, fused!, num, kind === "ketone" ? sites.map((x) => x.atom) : [])));
       return v;
     };
     const bridged = info?.bridged;
@@ -657,14 +759,14 @@ class Namer {
       const k = num.indexOf(a);
       return assembly ? assembly.labels[k >> 1] + (k & 1 ? "'" : "") : fused ? fused.tpl.labels[k] : String(k + 1);
     };
-    const one = (a?: number) => (a === undefined ? [] : [a]);
+    const one = (a?: number) => (a === undefined ? [] : [a]), xs = (s: Saturation) => s.xs ?? one(s.x), ys = (s: Saturation) => s.ys ?? one(s.y);
     let nums = numberings;
-    if (fused) nums = this.lowest(nums, (num) => one(sat(num).x).map((a) => loc(num, a)));
+    if (fused) nums = this.lowest(nums, (num) => xs(sat(num)).map((a) => loc(num, a)));
     if (opts.attach) nums = this.lowest(nums, (num) => [loc(num, opts.attach![0])]);
     if (opts.acyl) nums = nums.filter((num) => num[0] === atoms[0]);
     nums = this.lowest(nums, (num) => sites.map((s) => loc(num, s.atom)));
     if (fused) {
-      nums = this.lowest(nums, (num) => one(sat(num).y).map((a) => loc(num, a)));
+      nums = this.lowest(nums, (num) => ys(sat(num)).map((a) => loc(num, a)));
       nums = this.lowest(nums, (num) => sat(num).hydro.map((a) => loc(num, a)));
     }
     nums = this.lowest(nums, (num) => multiple(num));
@@ -684,7 +786,7 @@ class Namer {
     // Suffix locants; added hydrogen goes with its ketone: naphthalen-1(2H)-one.
     const added = fused ? sat(num) : undefined;
     const sitesLoc = sites.map((s) => s.atom).sort((a, b) => loc(num, a) - loc(num, b))
-      .map((a) => label(num, a) + (added?.y !== undefined && added.yOn === a ? `(${label(num, added.y)}H)` : ""));
+      .map((a) => label(num, a) + (added && ys(added).length && added.yOn === a ? `(${ys(added).map((y) => `${label(num, y)}H`).join(",")})` : ""));
     // Locants are left out where nothing else could be meant (P-14.3.4).
     const single = !p.ring ? size <= 2 && !opts.attach : !fused && !assembly && !bridged && (info?.ring?.name === "benzene" || (!info?.ring && size > 0));
     const prefixText = assemblePrefixes(prefixes.map((x) => ({ loc: x.n ? (manyN ? `N${label(num, x.atom)}` : "N") : label(num, x.atom), name: x.name })),
@@ -693,9 +795,9 @@ class Namer {
     if (retained) parent = retained;
     else if (fused) {
       // Hydro prefixes, then indicated hydrogen, in front of the parent (P-31.1.4.2.4): 2,3-dihydro-1H-indole.
-      const { x, hydro } = sat(num);
+      const { hydro } = sat(num), x = xs(sat(num));
       const h = !hydro.length ? "" : `${hydro.length === fused.cn.length ? "" : hydro.map((a) => label(num, a)).join(",") + "-"}${HYDRO[hydro.length]}hydro`;
-      parent = joinPrefixes(h, (x === undefined ? "" : `${label(num, x)}H-`) + fused.tpl.name);
+      parent = joinPrefixes(h, (x.length ? `${x.map((a) => `${label(num, a)}H`).join(",")}-` : "") + fused.tpl.name);
     } else if (assembly) {
       // 1,1'-biphenyl; in brackets before a suffix: [1,1'-biphenyl]-4-carboxylic acid.
       const junction = [...assembly.junction].sort((a, b) => loc(num, a) - loc(num, b)).map((a) => label(num, a)).join(",");
