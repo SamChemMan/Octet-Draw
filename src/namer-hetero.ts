@@ -2,6 +2,7 @@
 // published rules. namer.ts calls these functions at a few fixed points (perception, suffixes, prefixes and the
 // whole-molecule name); each takes the namer itself. Every name is still read back by OPSIN before the app shows it.
 import { alkylWords, assemblePrefixes, alphaKey, enclose, substituted, times, HALO, MULT, MULT_COMPLEX, SENIORITY, type Name, type Namer } from "./namer.ts";
+import { azoxy, azoxyName, azoxyPrefix } from "./namer-maingroup.ts";
 
 // ——— Variants of principal groups: thio analogues and hydroperoxides ———
 // =S and -S- in place of =O and -O- (P-65.1.5, P-65.6.3.2.3, P-66.1.4.1, P-64.6), and -OO- in place of -O- in an
@@ -9,7 +10,7 @@ import { alkylWords, assemblePrefixes, alphaKey, enclose, substituted, times, HA
 // (=O and -S-: thioic S-acid), "O" (=S and -O-: thioic O-acid), "SS" (dithioic acid), "=S" (=S on its own: thioamide,
 // thial, thione), "OO" (peroxol), or "".
 export function groupVariant(n: Namer, c: number): string {
-  if (n.el[c] === "S") return n.group[c] && VARIANT_SUFFIX[n.group[c]!] ? (oxo(n, c).length === 1 ? "S=O" : "") + (n.adj[c].some((j) => n.het.get(j) === "SSR") ? "S" : "") : ""; // sulfinic acid, sulfonothioate
+  if (n.el[c] === "S") return n.group[c] && VARIANT_SUFFIX[n.group[c]!] ? (oxo(n, c).length === 1 ? (n.adj[c].some((j) => n.el[j] === "N" && n.ord(c, j) === 2) ? "S=N" : "S=O") : "") + (n.adj[c].some((j) => n.het.get(j) === "SSR") ? "S" : "") : ""; // sulfinic acid, sulfonimidic acid, sulfonothioate
   if (n.el[c] === "O") return n.group[c] === "alcohol" && n.adj[c].some((j) => n.el[j] === "O") ? "OO" : "";
   const d = n.carbonylO[c];
   if (d < 0) return "";
@@ -25,7 +26,7 @@ const VARIANT_SUFFIX: Record<string, Record<string, [string, string]>> = {
   ester: { S: ["thioate", "carbothioate"], O: ["thioate", "carbothioate"], SS: ["dithioate", "carbodithioate"] },
   amide: { "=S": ["thioamide", "carbothioamide"] }, aldehyde: { "=S": ["thial", "carbothialdehyde"] },
   ketone: { "=S": ["thione", "thione"] }, halide: { "=S": ["thioyl", "carbothioyl"] }, alcohol: { OO: ["peroxol", "peroxol"] },
-  sulfonic: { "S=O": ["sulfinic acid", "sulfinic acid"] }, sulfonate: { "S=O": ["sulfinate", "sulfinate"], S: ["sulfonothioate", "sulfonothioate"], "S=OS": ["sulfinothioate", "sulfinothioate"] },
+  sulfonic: { "S=O": ["sulfinic acid", "sulfinic acid"], "S=N": ["sulfonimidic acid", "sulfonimidic acid"] }, sulfonate: { "S=O": ["sulfinate", "sulfinate"], S: ["sulfonothioate", "sulfonothioate"], "S=OS": ["sulfinothioate", "sulfinothioate"] },
   sulfonamide: { "S=O": ["sulfinamide", "sulfinamide"] }, sulfonylhalide: { "S=O": ["sulfinyl", "sulfinyl"] },
 };
 // The suffix for a parent's principal groups when they are variants: ethanethioamide, propane-2-thione, benzenecarbothioic
@@ -128,6 +129,7 @@ export function perceiveHetero(n: Namer) {
   const { el, adj, h } = n;
   perceiveSulfur(n);
   perceiveCentres(n);
+  for (let i = 0; i < n.n; i++) { const z = el[i] === "O" ? azoxy(n, i) : undefined; if (z) for (const a of [z.p, z.m, z.o]) n.het.set(a, "azoxy"); }
   for (let i = 0; i < n.n; i++) {
     if (nOxideO(n, i)) { n.het.set(i, "NO-"); continue; }
     // Halogens on N (N-bromo, N-chloro); the N is an amine, amide or ring N.
@@ -224,7 +226,7 @@ export function heteroAmine(n: Namer, i: number): boolean {
   if ((n.q[i] && !nOxideN(n, i)) || !single(n, i)) return false;
   const on = n.adj[i].filter((j) => plainC(n, j) || (n.el[j] === "N" && n.inRing[j] && !n.q[j]));
   const rest = n.adj[i].filter((j) => !on.includes(j));
-  if (!on.length || (!rest.length && on.every((j) => n.el[j] === "C")) || !rest.every((j) => n.het.get(j) === "NX" || n.het.get(j) === "N=O" || n.het.get(j) === "SN-" || nOxideO(n, j))) return false;
+  if (!on.length || (!rest.length && on.every((j) => n.el[j] === "C")) || !rest.every((j) => n.het.get(j) === "NX" || n.het.get(j) === "N=O" || n.het.get(j) === "SN-" || nOxideO(n, j) || n.nitroAtom(j))) return false;
   n.mark(i, "amine", on);
   return true;
 }
@@ -245,10 +247,12 @@ const thioxo = (n: Namer, x: number) => n.adj[x].filter((j) => n.el[j] === "S" &
 function ligand(n: Namer, x: number, j: number): string | undefined {
   if (n.ord(x, j) !== 1 || n.q[j]) return undefined;
   if (HALO[n.el[j]]) return n.adj[j].length === 1 ? "X" : undefined;
+  if (n.el[j] === "C") return n.el[x] === "P" && cyanide(n, j) ? "X" : undefined; // a cyanide, named as a halide
   if (n.el[j] === "O" && !n.inRing[j]) {
     if (n.adj[j].length === 1) return n.h[j] === 1 ? "OH" : undefined;
     const k = n.adj[j].find((y) => y !== x)!;
-    if (n.adj[j].length === 2 && plainC(n, k)) return "OR";
+    // On a carbon, or on Si, Ge or Sn (trimethylsilyl trifluoromethanesulfonate).
+    if (n.adj[j].length === 2 && (plainC(n, k) || (["Si", "Ge", "Sn"].includes(n.el[k]) && !n.inRing[k] && !n.q[k]))) return "OR";
     if (n.adj[j].length === 2 && ((n.el[k] === "S" && oxo(n, k).length === 2) || n.el[k] === "P") && !n.inRing[k] && !n.q[k]) return "bridge";
     return undefined;
   }
@@ -404,8 +408,8 @@ function perceiveCentres(n: Namer) {
     if (n.el[p] !== "P" || n.q[p]) continue;
     const os = [...oxo(n, p), ...thioxo(n, p)], rest = n.adj[p].filter((j) => !os.includes(j));
     if (os.length > 1 || rest.some((j) => n.ord(p, j) !== 1) || os.length + rest.length + n.h[p] !== (os.length ? 4 : 3)) continue;
-    const lig = rest.filter((j) => n.el[j] !== "C"), types = lig.map((j) => ligand(n, p, j));
-    if (rest.some((j) => n.el[j] === "C" && !plainC(n, j)) || types.some((t) => !t)) continue;
+    const lig = rest.filter((j) => n.el[j] !== "C" || cyanide(n, j)), types = lig.map((j) => ligand(n, p, j));
+    if (rest.some((j) => n.el[j] === "C" && !plainC(n, j) && !cyanide(n, j)) || types.some((t) => !t)) continue;
     if (!lig.length) { if (os.length === 1 && n.el[os[0]] === "S" && !n.h[p]) { n.het.set(p, "PS3"); n.het.set(os[0], "P-"); } continue; } // triphenylphosphane sulfide
     n.het.set(p, "P");
     for (const o of os) n.het.set(o, "P-");
@@ -413,9 +417,13 @@ function perceiveCentres(n: Namer) {
       if (types[k] === "N3") for (const a of azideAtoms(n, j)) n.het.set(a, "P-");
       else if (types[k] !== "Nring" && !n.het.has(j)) n.het.set(j, "P-");
       if (types[k] === "N") for (const y of n.adj[j]) if (y !== p && n.el[y] === "N" && !n.het.has(y)) claimNN(n, y);
+      if (cyanide(n, j)) for (const y of n.adj[j]) if (y !== p) n.het.set(y, "P-"); // its N
     });
   }
 }
+// A cyano group's carbon, as a pseudohalide ligand of a P centre (P-67.1.2.4): diethyl phosphorocyanidate, tabun.
+const cyanide = (n: Namer, c: number) => n.el[c] === "C" && !n.inRing[c] && !n.q[c] && n.adj[c].length === 2
+  && n.adj[c].some((j) => n.el[j] === "N" && n.ord(c, j) === 3 && n.adj[j].length === 1 && !n.q[j]);
 // A hypohalite ester (R-O-X: tert-butyl hypochlorite) with its halogen at x.
 function hypohalite(n: Namer, x: number) {
   const o = n.adj[x][0];
@@ -459,6 +467,7 @@ export function oxideText(n: Namer, oxides: number[], label: (a: number) => stri
 // Charged atoms Octet names here: azido groups on S or P, the N+ and O- of nitrate esters and N-oxides.
 export function heteroCharged(n: Namer, i: number): boolean {
   const { el, q, adj } = n;
+  if (azoxy(n, i)) return true; // R-N(+)(O-)=N-R (namer-maingroup.ts)
   if (el[i] === "N" && q[i]) { // an azido group on S or P: sulfonyl azides, phosphorazidates
     const mid = q[i] === 1 ? i : adj[i][0], first = adj[mid]?.find((j) => j !== i && !q[j]) ?? (q[i] === 1 ? adj[i].find((j) => !q[j]) : undefined);
     const on = first === undefined ? undefined : azideN(n, first);
@@ -474,8 +483,9 @@ export function heteroCharged(n: Namer, i: number): boolean {
 }
 type Centre = { at: number; os: number[]; cs: number[]; lig: number[]; types: string[] };
 const centreOf = (n: Namer, x: number): Centre => {
-  const os = n.el[x] === "P" ? [...oxo(n, x), ...thioxo(n, x)] : oxo(n, x), rest = n.adj[x].filter((j) => !os.includes(j)), lig = rest.filter((j) => n.el[j] !== "C");
-  return { at: x, os, cs: rest.filter((j) => n.el[j] === "C"), lig, types: lig.map((j) => ligand(n, x, j) ?? "?") };
+  const os = n.el[x] === "P" ? [...oxo(n, x), ...thioxo(n, x)] : oxo(n, x), rest = n.adj[x].filter((j) => !os.includes(j));
+  const cn = (j: number) => n.el[x] === "P" && cyanide(n, j), lig = rest.filter((j) => n.el[j] !== "C" || cn(j));
+  return { at: x, os, cs: rest.filter((j) => n.el[j] === "C" && !cn(j)), lig, types: lig.map((j) => ligand(n, x, j) ?? "?") };
 };
 // The class a centre ranks by (P-41): a cation, an acid (an OH left), an ester, an acid halide or an amide; undefined
 // when it cannot be the parent (anhydrides, ring N).
@@ -490,7 +500,7 @@ function centreClass(n: Namer, x: number): string | undefined {
 }
 // The last kind of characteristic group (SENIORITY) each class of centre is junior to.
 const OUTRANKED_BY: Record<string, string> = { acid: "tellurinic", ester: "sulfonate", halide: "sulfonylhalide", amide: "sulfonamide" };
-const HALIDE_STEM: Record<string, string> = { F: "fluorid", Cl: "chlorid", Br: "bromid", I: "iodid" };
+const HALIDE_STEM: Record<string, string> = { F: "fluorid", Cl: "chlorid", Br: "bromid", I: "iodid", C: "cyanid" };
 // The ester groups' names (from each OR ligand) and the hydrogen of the OH left: "dimethyl", "methyl dihydrogen".
 function esterPart(n: Namer, c: Centre): string {
   const ors = c.lig.filter((_, k) => c.types[k] === "OR"), oh = c.types.filter((t) => t === "OH").length;
@@ -525,9 +535,15 @@ function phosphorusName(n: Namer, c: Centre): string {
     return count("OR") ? `${esterPart(n, c)}${substituted(rs)}${stem}ate` : `${substituted(rs)}${stem}ic acid`;
   }
   if (x && !o && !nn) {
-    const hal = halideOf(n, c), word = { F: "fluoride", Cl: "chloride", Br: "bromide", I: "iodide" }[hal]!;
-    if (!five) return `${substituted([...c.lig.map((j) => ({ text: HALO[n.el[j]], compound: false })), ...rs])}phosphane`; // trichlorophosphane
+    const hal = halideOf(n, c), word = { F: "fluoride", Cl: "chloride", Br: "bromide", I: "iodide", C: "cyanide" }[hal]!;
+    if (!five) return `${substituted([...c.lig.map((j) => ({ text: HALO[n.el[j]] ?? "cyano", compound: false })), ...rs])}phosphane`; // trichlorophosphane
     return nR ? `${substituted(rs)}${base}ic ${MULT[x]}${word}` : `phosphoryl ${MULT[x]}${word}`;
+  }
+  if (nn === 1 && x === 1 && five && nR === 0 && o === count("OR")) {
+    // An amide and a halide on P (P-67.1.2.4): ethyl N,N-dimethylphosphoramidocyanidate (tabun), methyl
+    // phosphoramidochloridate.
+    const stem = `phosphoramido${HALIDE_STEM[halideOf(n, c)]}`, list = amideSubs(n, c);
+    return o ? `${esterPart(n, c)}${letterPrefixes(list)}${stem}ate` : `${letterPrefixes(list)}${stem}ic acid`;
   }
   if (nn && !x) {
     const list = [...rs.map((name) => ({ loc: "P", name })), ...amideSubs(n, c)];
@@ -706,6 +722,7 @@ export function heteroPrefix(n: Namer, x: number, from: number): Name | undefine
     return r === undefined ? { text: word, compound: false } : { text: `${enclose(n.substituent(r, at))}${word}`, compound: true };
   }
   if (role === "N=O") return el === "N" ? { text: "nitroso", compound: false } : undefined;
+  if (role === "azoxy" && el === "N") return azoxyPrefix(n, x); // (2-methyl-2-oxidodiazen-2-ium-1-yl) (namer-maingroup.ts)
   if (role === "N=N") {
     const m = n.adj[x].find((j) => n.het.get(j) === "N=N")!, r = n.adj[m].find((j) => j !== x);
     const ez = n.cipBond.get(n.key(x, m));
@@ -777,6 +794,7 @@ export function heteroParentName(n: Namer, kind: string | undefined): string | u
   const centre = centreName(n, kind);
   if (centre || kind) return centre;
   const roles = [...n.het.values()];
+  if (roles.includes("azoxy")) return azoxyName(n); // 1,2-diphenyldiazene 1-oxide (namer-maingroup.ts)
   const ylides = [...n.het].filter(([, r]) => r === "P=C").map(([x]) => x), sulfides = [...n.het].filter(([, r]) => r === "PS3").map(([x]) => x);
   if (sulfides.length === 1 && !ylides.length) { const x = sulfides[0]; return `${substituted(n.adj[x].filter((j) => n.el[j] === "C").map((j) => n.substituent(j, x)))}phosphane sulfide`; }
   const triazenes = [...n.het].filter(([x, r]) => r === "N3" && n.adj[x].some((j) => n.het.get(j) === "N3" && n.ord(x, j) === 2) && n.adj[x].filter((j) => n.het.get(j) === "N3").length === 1).map(([x]) => x);
@@ -827,46 +845,3 @@ function letterPrefixes(list: { loc: string; name: Name }[]): string {
   }).join("-");
 }
 
-// ——— Small inorganic molecules (IUPAC 2005, IR-6 and IR-8) ———
-// Molecules of N, O, S, P and the halogens with no carbon, by structure, with the names chemists use: hydrogen
-// peroxide, dichlorine, chloric acid, nitric acid, sulfur dioxide. Written as SMILES without rings. Single atoms (water,
-// hydrogen chloride) are left out, as namer.ts leaves them: a lone atom drawn is ambiguous.
-// Molecules of one centre and the atoms on it (dihalogens, the halogen oxoacids, ozone, nitric acid) are namer.ts's
-// SPECIES; these are the others.
-const INORGANIC: [string, string][] = [
-  ["SS", "disulfane"], ["OF=O", "fluorous acid"], ["OF(=O)=O", "fluoric acid"], ["OF(=O)(=O)=O", "perfluoric acid"],
-  ["NN=O", "nitrous amide"], ["NSO", "sulfenamic acid"], ["OP(=O)=O", "phosphenic acid"], ["NS(=O)O", "amidosulfurous acid"], ["OP(=O)(O)P(=O)(O)O", "hypodiphosphoric acid"], ["N=O", "azanone"],
-  ["NF", "fluoramine"], ["NCl", "chloramine"], ["NBr", "bromamine"], ["FNF", "difluoramine"], ["ClNCl", "dichloramine"], ["BrNBr", "dibromamine"],
-  ["FN(F)F", "nitrogen trifluoride"], ["ClN(Cl)Cl", "nitrogen trichloride"], ["OSO", "sulfoxylic acid"], ["OOS(=O)(=O)O", "peroxomonosulfuric acid"],
-  ["OS(=O)(=O)S(=O)(=O)O", "dithionic acid"], ["OS(=O)(=O)SS(=O)(=O)O", "trithionic acid"], ["OS(=O)(=O)SSS(=O)(=O)O", "tetrathionic acid"], ["OS(=O)(=O)SSSS(=O)(=O)O", "pentathionic acid"],
-  ["OS(=O)(=O)OS(=O)(=O)O", "disulfuric acid"], ["OS(=O)(=O)OS(=O)(=O)OS(=O)(=O)O", "trisulfuric acid"], ["FP(F)(F)(F)F", "phosphorus pentafluoride"],
-];
-const VALENCE: Record<string, number> = { N: 3, O: 2, S: 2, P: 3, F: 1, Cl: 1, Br: 1, I: 1 };
-// A structure's signature: each atom's element, hydrogens, charge and bonds, sorted.
-function signature(el: string[], h: number[], q: number[], bonds: [number, number, number][]): string {
-  return el.map((e, i) => `${e}${h[i]}${q[i] || ""}[${bonds.filter((b) => b[0] === i || b[1] === i).map((b) => `${b[2]}${el[b[0] === i ? b[1] : b[0]]}`).sort().join(",")}]`).sort().join(" ");
-}
-// The signature of a SMILES without rings (elements N, O, S, P and halogens; [X+] and [X-] for charges).
-function smilesSignature(s: string): string {
-  const el: string[] = [], q: number[] = [], bonds: [number, number, number][] = [], stack: number[] = [];
-  let prev = -1, order = 1;
-  for (const t of s.match(/\[[A-Za-z]+[+-]?\]|Cl|Br|[NOSPFI]|[=#()]/g) ?? []) {
-    if (t === "=" || t === "#") { order = t === "=" ? 2 : 3; continue; }
-    if (t === "(") { stack.push(prev); continue; }
-    if (t === ")") { prev = stack.pop()!; continue; }
-    const m = /^\[?([A-Za-z]+?)([+-]?)\]?$/.exec(t)!;
-    el.push(m[1]); q.push(m[2] === "+" ? 1 : m[2] === "-" ? -1 : 0);
-    if (prev >= 0) bonds.push([prev, el.length - 1, order]);
-    prev = el.length - 1; order = 1;
-  }
-  const h = el.map((e, i) => Math.max(0, VALENCE[e] + q[i] - bonds.reduce((t, b) => t + (b[0] === i || b[1] === i ? b[2] : 0), 0)));
-  return signature(el, h, q, bonds);
-}
-let inorganic: Map<string, string> | undefined;
-// The name of a small molecule with no carbon from the table, or undefined.
-export function inorganicName(n: Namer): string | undefined {
-  if (n.n > 16 || n.el.some((e) => !VALENCE[e])) return undefined;
-  inorganic ??= new Map(INORGANIC.map(([s, name]) => [smilesSignature(s), name]));
-  const bonds = [...n.bond].map(([k, o]): [number, number, number] => { const [a, b] = k.split(" ").map(Number); return [a, b, o]; });
-  return inorganic.get(signature(n.el, n.h, n.q, bonds));
-}

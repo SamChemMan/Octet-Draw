@@ -143,7 +143,7 @@ for (const input of inputs) {
   try { smiles = input.startsWith("smiles:") ? input.slice(7) : opsin.parseToSmiles(input); } catch { smiles = null; }
   if (!smiles || smiles.includes("*")) continue;
   let g;
-  try { g = graphOf(withHydrogens(molOf(smiles), smiles), cipOf(smiles)); } catch { continue; }
+  try { g = graphOf(withHydrogens(molOf(smiles), smiles), cipOf(smiles), true); } catch { continue; } // with isotopes, as the app names them
   if (!g) continue;
   tried++;
   const r = iupacNameWhy(g);
