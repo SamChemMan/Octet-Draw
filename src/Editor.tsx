@@ -73,12 +73,14 @@ import {
 import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
 import { dragCursor, rotateCursor, selectCursor } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
-import { loadNames, nameToSmiles, suggestName, knownName, looksLikeSmiles } from "./names";
-import { checkedName, graphOf, setNamer } from "./naming";
+import { loadNames, nameToSmiles, nameToAtoms, suggestName, knownName, looksLikeSmiles } from "./names";
+import { checkedName, graphOf, setComplexNamer, setNamer } from "./naming";
 import { iupacName } from "./namer";
 import { sandwichIons } from "./metals";
+import { complexName } from "./complexes";
 
 setNamer(iupacName);
+setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, inchi: toInchi, cip: cipOf }));
 import { loadTemplates, MY_SET, newTemplate, setName, templateKind } from "./templates";
 import { formulaRuns } from "./labels";
 import { captionAtom, captionsToAtoms, chemicalCaption, interpretLabels, labelable, withCaptionAtoms } from "./edit";

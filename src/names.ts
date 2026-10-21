@@ -54,6 +54,15 @@ function read(name: string): string | undefined {
     return undefined;
   }
 }
+// OPSIN's structure for a name with each atom's locants (JSON), for the κ checks in complexes.ts.
+export function nameToAtoms(name: string): string | undefined {
+  if (!opsin || name.length > 1000) return undefined;
+  try {
+    return opsin.parseToAtoms(name) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 // SMILES for a chemical name, or undefined if Octet cannot read it (or OPSIN has not loaded yet). Reads Octet's own
 // names first (THF, K2CO3, drug names), then the name as OPSIN reads it, then the name tidied of catalogue quirks.

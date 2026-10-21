@@ -73,6 +73,12 @@ export function anchorElement(label: string): string | undefined {
 
 // A label is a plain element when it is one element symbol and nothing else.
 export const isElement = (label: string) => ELEMENTS.has(label);
+// An element with its oxidation state written after it, Os(II), Fe(0): the element and the state.
+const ROMAN = ["0", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+export function writtenOxidation(label: string): { el: string; ox: number } | undefined {
+  const x = /^([A-Z][a-z]?)\((0|I{1,3}|IV|VI{0,3}|IX|X)\)$/.exec(label);
+  return x && ELEMENTS.has(x[1]) ? { el: x[1], ox: ROMAN.indexOf(x[2]) } : undefined;
+}
 
 // Formulas whose bonding a left-to-right reading gets wrong (CN is a nitrile, not an amine).
 const FORMULAS: Record<string, string> = {
@@ -90,6 +96,9 @@ const FORMULAS: Record<string, string> = {
 export function labelSmiles(label: string): string | undefined {
   if (GROUPS[label]) return GROUPS[label];
   if (isGeneric(label)) return undefined;
+  // An element with its oxidation state, Os(II): the element alone ((II) is not two iodine atoms, and no charge).
+  const ox = writtenOxidation(label);
+  if (ox) return `[${ox.el}]`;
   if (FORMULAS[label]) return FORMULAS[label];
   let us = units(label);
   if (!us.length) return undefined;
