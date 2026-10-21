@@ -167,3 +167,15 @@ check("hydrazine", [
   ["dipropan-2-yl (E)-diazene-1,2-dicarboxylate", "bis(propan-2-yl) (E)-diazene-1,2-dicarboxylate"],
   ["N,N,N',N'-tetramethyldiazene-1,2-dicarboxamide", "N1,N1,N2,N2-tetramethyldiazene-1,2-dicarboxamide"],
 ]);
+
+// Nitriles as prefixes: the C of a cyano group is never in the chain unless the chain is the nitrile (P-66.5.1.2).
+// Substituted methoxy to phenoxy keep their short forms (P-63.2.2.2); an amide's N counts as a position (P-14.3.4).
+check("prefixes", [
+  "cyanoacetic acid", "ethyl cyanoacetate", "3-cyanopropanoic acid", "2-cyanoethyl acetate", "2-cyano-2-methylpropanoic acid",
+  "ethyl cyanoformate", "2-hydroxy-2-methylpropanenitrile", "3-(2-cyanoethoxy)propanoic acid", "butanedinitrile",
+  ["smiles:OC(=O)CNC(=O)OCC1c2ccccc2-c2ccccc12", "{{[(9H-fluoren-9-yl)methoxy]carbonyl}amino}acetic acid"],
+  ["smiles:CCN(CC)CC(=O)Nc1c(C)cccc1C", "2-(diethylamino)-N-(2,6-dimethylphenyl)acetamide"], ["smiles:ClCC(=O)NC", "2-chloro-N-methylacetamide"],
+  ["smiles:NC(=N)NC(=O)Cc1c(Cl)cccc1Cl", "N-carbamimidoyl-2-(2,6-dichlorophenyl)acetamide"], // guanfacine
+  ["N-acetyl-L-cysteine", "(2R)-2-acetamido-3-sulfanylpropanoic acid"], ["hippuric acid", "benzamidoacetic acid"],
+  ["thyroxine", "(2S)-2-amino-3-[4-(4-hydroxy-3,5-diiodophenoxy)-3,5-diiodophenyl]propanoic acid"],
+]);

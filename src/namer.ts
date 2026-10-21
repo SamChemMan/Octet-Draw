@@ -836,7 +836,8 @@ class Namer {
     // Locants are left out where nothing else could be meant (P-14.3.4).
     const single = !p.ring ? size <= 2 && !opts.attach : !fused && !assembly && !bridged && (info?.ring?.name === "benzene" || (!info?.ring && size > 0));
     const prefixText = assemblePrefixes(prefixes.map((x) => ({ loc: x.n ? (manyN ? `N${label(num, x.atom)}` : prime.has(x) ? "N'" : "N") : label(num, x.atom), name: x.name })),
-      (retained && !p.ring && size === 2) || (!p.ring && size === 1) || (single && prefixes.length + sites.length <= 1 && !opts.attach && !multiple(num).length));
+      // An amide's N is a position too: 2-chloro-N-methylacetamide (P-14.3.4).
+      (retained && !p.ring && size === 2 && !(prefixes.some((x) => x.n) && prefixes.some((x) => !x.n))) || (!p.ring && size === 1) || (single && prefixes.length + sites.length <= 1 && !opts.attach && !multiple(num).length));
     let parent: string;
     if (p.hetero) parent = p.hetero; // hydrazine, diazene
     else if (retained) parent = retained;
@@ -958,6 +959,9 @@ class Namer {
       const alkyl = this.substituent(r, x);
       const simple: Record<string, string> = { methyl: "methoxy", ethyl: "ethoxy", propyl: "propoxy", butyl: "butoxy", phenyl: "phenoxy", "tert-butyl": "tert-butoxy", benzyl: "benzyloxy", phenylmethyl: "benzyloxy" };
       if (simple[alkyl.text]) return { text: simple[alkyl.text], compound: simple[alkyl.text] === "benzyloxy" };
+      // Methoxy, ethoxy, propoxy, butoxy and phenoxy keep their short form when substituted (P-63.2.2.2):
+      // 2-chloroethoxy, (9H-fluoren-9-yl)methoxy, 4-nitrophenoxy.
+      if (/(?<!cyclo)(meth|eth|prop|but|phen)yl$/.test(alkyl.text)) return { text: alkyl.text.replace(/yl$/, "oxy"), compound: true };
       return { text: `${enclose(alkyl)}oxy`, compound: true };
     }
     if (el === "S") {
@@ -980,7 +984,7 @@ class Namer {
         const retained: Record<string, string> = { acetyl: "acetamido", benzoyl: "benzamido", formyl: "formamido" };
         // Carbonic acyl groups keep their own brackets: carboxyamino, carbamoylamino, [(methoxycarbonyl)amino].
         const carbonic = !this.carbons(acyl[0]).length && !this.ringN(acyl[0]).length;
-        return { text: retained[a] ?? `${enclose(carbonic ? an : { text: a, compound: true })}amino`, compound: !retained[a] || true };
+        return { text: retained[a] ?? `${enclose(carbonic ? an : { text: a, compound: true })}amino`, compound: !retained[a] };
       }
       // N-acyl, N-alkyl: acetyl(methyl)amino, diacetylamino.
       const subs = others.map((j) => (this.carbonylO[j] >= 0 ? this.acylName(j, x) : this.substituent(j, x)));
@@ -1067,9 +1071,10 @@ class Namer {
     return this.nameParent({ atoms: chain, ring: false }, { attach: [c, from], acyl: true });
   }
 
-  // Acyclic carbon paths (no ring atoms) through or from `start`, not crossing `from`.
-  paths(start: number, from: number, fromStart: boolean): number[][] {
-    const ok = (j: number) => this.el[j] === "C" && !this.inRing[j] && j !== from;
+  // Acyclic carbon paths (no ring atoms) through or from `start`, not crossing `from`. A nitrile's carbon is in a chain
+  // only when the chain is named with the -nitrile suffix; else it is cyano (ethyl cyanoacetate, P-66.5.1.2).
+  paths(start: number, from: number, fromStart: boolean, nitrile = false): number[][] {
+    const ok = (j: number) => this.el[j] === "C" && !this.inRing[j] && j !== from && (nitrile || !this.isNitrileC(j));
     const walk = (a: number, seen: Set<number>): number[][] => {
       const next = this.adj[a].filter((j) => ok(j) && !seen.has(j) && (j === start || this.carbonylO[j] < 0 || true));
       const ends = next.flatMap((j) => walk(j, new Set([...seen, j])).map((p) => [j, ...p]));
@@ -1125,9 +1130,9 @@ class Namer {
   }
   // Candidate parents: every acyclic carbon chain and every ring; the senior one wins (P-44).
   parentName(kind: Kind | undefined, skip = new Set<number>(), within?: Set<number>): (Name & { parent?: { atoms: number[]; ring: boolean; assembly?: Assembly; hetero?: string }; label?: (a: number) => string }) | undefined {
-    const carbons = [...Array(this.n).keys()].filter((i) => this.el[i] === "C" && !this.inRing[i] && (!within || within.has(i)) && !skip.has(i) && !this.pseudo.has(i));
+    const carbons = [...Array(this.n).keys()].filter((i) => this.el[i] === "C" && !this.inRing[i] && (!within || within.has(i)) && !skip.has(i) && !this.pseudo.has(i) && (kind === "nitrile" || !this.isNitrileC(i)));
     const chains: number[][] = [];
-    for (const a of carbons) for (const p of this.paths(a, -1, true)) if (p.every((i) => !skip.has(i) && (!within || within.has(i)))) chains.push(p);
+    for (const a of carbons) for (const p of this.paths(a, -1, true, kind === "nitrile")) if (p.every((i) => !skip.has(i) && (!within || within.has(i)))) chains.push(p);
     const count = (atoms: number[], ring: boolean) => {
       if (!kind) return 0;
       let c = 0;
