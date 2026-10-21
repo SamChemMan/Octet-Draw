@@ -9,9 +9,11 @@
 // amines, imines and oximes) as suffixes; everything else as prefixes, nested to any depth; anhydrides, ureas,
 // carbamates (also as prefixes: Boc-glycine); phosphanes and their oxides; aminium and ring "-ium" cations; salts of
 // metal and ammonium cations with acid, alkoxide and inorganic anions; bicyclic von Baeyer and monospiro rings with
-// oxa, thia and aza replacement; R/S and E/Z. Not yet: polycyclic bridged rings (adamantane), fused systems outside
-// the table, larger ring assemblies, and other charged atoms. Octet's own name tables cover some of these (naming.ts).
+// oxa, thia and aza replacement; R/S and E/Z. Fused systems outside the table get fusion names (fusion.ts). Not yet:
+// polycyclic bridged rings (adamantane), bridged fused systems, larger ring assemblies, and other charged atoms.
+// Octet's own name tables cover some of these (naming.ts).
 import type { Graph } from "./naming.ts";
+import { fusedParent } from "./fusion.ts";
 
 type Name = { text: string; compound: boolean }; // compound: needs brackets when cited as a prefix
 
@@ -109,7 +111,7 @@ const FUSED_NAMES: [string, string, string][] = [
 ];
 // Locant order: 4 < 4a < 4b < 5.
 const locOrder = (a: string, b: string) => parseInt(a) - parseInt(b) || (a < b ? -1 : a > b ? 1 : 0);
-type Fused = { name: string; labels: string[]; el: string[]; adj: number[][]; order: number[]; bonds: number; formula: string; odd: boolean };
+type Fused = { name: string; labels: string[]; el: string[]; adj: number[][]; order: number[]; bonds: number; formula: string; odd: boolean; uncited?: number[] };
 const FUSED: Fused[] = FUSED_NAMES.map(([skeleton, name, hetero]) => {
   const pairs = SKELETONS[skeleton].split(" ").map((b) => b.split("-"));
   const labels = [...new Set(pairs.flat())].sort(locOrder);
@@ -132,7 +134,7 @@ type Bridged = { prefix: string; nums: number[][]; bonds: [number, number][] };
 const REPLACE: [string, string][] = [["O", "oxa"], ["S", "thia"], ["N", "aza"]];
 // A ring assembly (P-28): two identical rings and the single bond joining them.
 type Assembly = { rings: [number[], number[]]; junction: [number, number] };
-const HYDRO = [...MULT, "undeca", "dodeca", "trideca", "tetradeca"];
+const HYDRO = [...MULT, "undeca", "dodeca", "trideca", "tetradeca", "pentadeca", "hexadeca", "heptadeca", "octadeca", "nonadeca", "icosa", "henicosa", "docosa", "tricosa", "tetracosa"];
 
 // Retained names used in preferred IUPAC names (P-65, P-66, P-63): parent ring or chain, principal group, name.
 const RETAINED: Record<string, string> = {
@@ -486,7 +488,13 @@ class Namer {
       this.fusedCache.set(k, f);
       return f;
     }
-    throw new Error("unknown fused ring");
+    // Other fused systems: retained names and fusion names (fusion.ts). A fusion N (three ring bonds) has no double
+    // bond in the parent and needs no hydrogen.
+    const p = fusedParent(atoms, (a) => this.el[a], ring), sp2 = (a: number) => this.el[a] === "C" || ring(a).length < 3;
+    const tpl: Fused = { name: p.name, labels: p.labels, el: [], adj: [], order: [], bonds, formula, odd: cn.filter(sp2).length % 2 === 1, uncited: p.uncited };
+    const f = { tpl, nums: p.nums, cn: cn.filter(sp2), d: d.filter(sp2), ring };
+    this.fusedCache.set(k, f);
+    return f;
   }
   // Two rings that are not ortho-fused (or fused with no name in the table): a bicyclic von Baeyer system (P-23.2,
   // bicyclo[2.2.1]heptane) or a monospiro system (P-24.2, spiro[4.5]decane), with every numbering the rules allow and
@@ -560,8 +568,21 @@ class Namer {
   // ketone atom (2,3-dihydro-1H-indole, 1H-indole-2,3-dione). Ketones in pairs need nothing more; a ketone left on its
   // own takes added hydrogen from the lowest free atom (naphthalen-1(2H)-one, 1H-isoindole-1,3(2H)-dione). The rest
   // are hydro prefixes, in pairs.
-  saturation(f: FusedSys, num: number[], ketones: number[]): { x?: number; y?: number; yOn?: number; hydro: number[] } {
+  saturation(f: FusedSys, num: number[], ketones: number[]): { x?: number; x2?: number; y?: number; yOn?: number; hydro: number[] } {
     const byLoc = (l: number[]) => [...l].sort((a, b) => num.indexOf(a) - num.indexOf(b));
+    // A parent whose C and N atoms cannot all pair up into double bonds, with an even number of them, has two
+    // indicated hydrogens, at the lowest free or ketone atoms (1H,3H-naphtho[1,8-cd]pyran-1,3-dione).
+    if (!f.tpl.odd && !pairable(f.cn, f.ring)) {
+      const pool = byLoc(f.d);
+      for (const [i, x] of pool.entries()) for (const x2 of pool.slice(i + 1)) {
+        const sat = new Set([...ketones, x, x2]);
+        if (ketones.filter((a) => a !== x && a !== x2).length % 2) continue;
+        if (!pairable(f.cn.filter((a) => !sat.has(a)), f.ring)) continue;
+        const hydro = byLoc(f.d.filter((a) => !sat.has(a)));
+        if (hydro.length % 2 === 0) return { x, x2, hydro };
+      }
+      throw new Error("indicated hydrogen");
+    }
     const xs = f.tpl.odd ? byLoc(ketones.length % 2 ? ketones : f.d) : [undefined];
     for (const x of xs) {
       const left = ketones.filter((a) => a !== x);
@@ -655,11 +676,12 @@ class Namer {
     const loc = (num: number[], a: number) => num.indexOf(a) + 1;
     const label = (num: number[], a: number) => {
       const k = num.indexOf(a);
+      if (fused?.tpl.uncited?.includes(k)) throw new Error("interior locant");
       return assembly ? assembly.labels[k >> 1] + (k & 1 ? "'" : "") : fused ? fused.tpl.labels[k] : String(k + 1);
     };
     const one = (a?: number) => (a === undefined ? [] : [a]);
     let nums = numberings;
-    if (fused) nums = this.lowest(nums, (num) => one(sat(num).x).map((a) => loc(num, a)));
+    if (fused) nums = this.lowest(nums, (num) => [...one(sat(num).x), ...one(sat(num).x2)].map((a) => loc(num, a)));
     if (opts.attach) nums = this.lowest(nums, (num) => [loc(num, opts.attach![0])]);
     if (opts.acyl) nums = nums.filter((num) => num[0] === atoms[0]);
     nums = this.lowest(nums, (num) => sites.map((s) => loc(num, s.atom)));
@@ -693,9 +715,9 @@ class Namer {
     if (retained) parent = retained;
     else if (fused) {
       // Hydro prefixes, then indicated hydrogen, in front of the parent (P-31.1.4.2.4): 2,3-dihydro-1H-indole.
-      const { x, hydro } = sat(num);
+      const { x, x2, hydro } = sat(num);
       const h = !hydro.length ? "" : `${hydro.length === fused.cn.length ? "" : hydro.map((a) => label(num, a)).join(",") + "-"}${HYDRO[hydro.length]}hydro`;
-      parent = joinPrefixes(h, (x === undefined ? "" : `${label(num, x)}H-`) + fused.tpl.name);
+      parent = joinPrefixes(h, [...one(x), ...one(x2)].map((a) => `${label(num, a)}H`).join(",").replace(/.$/, "$&-") + fused.tpl.name);
     } else if (assembly) {
       // 1,1'-biphenyl; in brackets before a suffix: [1,1'-biphenyl]-4-carboxylic acid.
       const junction = [...assembly.junction].sort((a, b) => loc(num, a) - loc(num, b)).map((a) => label(num, a)).join(",");
@@ -1067,7 +1089,7 @@ function compare(a: number[], b: number[]): number {
 const locantsOf = (name: string) => (name.match(/\d+/g) ?? []).map(Number);
 // Alphabetical order ignores multiplying prefixes of simple substituents, locants and italic prefixes (P-14.5).
 function alphaKey(t: string): string {
-  return t.replace(/^[([{]+/, "").replace(/^((tert|sec|N|\d+[a-z]?'*(,\d+[a-z]?'*)*)-)+/, "").replace(/^(\d+[a-z]?H-)+/, "").replace(/[()[\]{}]/g, "");
+  return t.replace(/^[([{]+/, "").replace(/^[\d',]+\](?=[a-z])/, "").replace(/^((tert|sec|N|\d+[a-z]?'*(,\d+[a-z]?'*)*)-)+/, "").replace(/^(\d+[a-z]?H-)+/, "").replace(/[()[\]{}]/g, "");
 }
 // Substituents on a parent without locants (amino, phosphane): phenyl, diphenyl, methyl(diphenyl), in alphabetical order.
 function substituted(subs: Name[]): string {
@@ -1079,9 +1101,11 @@ function substituted(subs: Name[]): string {
   return parts.map((t, k) => (k === 0 || /^[([{]/.test(t) ? t : `(${t})`)).join("");
 }
 // Brackets nest ( ), then [ ], then { } (P-16.5).
+// Brackets of fusion names ([1,2,4]triazolo[4,3-a]pyridine) do not count (P-16.5.4).
 function enclose(n: Name): string {
   if (!n.compound) return n.text;
-  return n.text.includes("[") ? `{${n.text}}` : n.text.includes("(") ? `[${n.text}]` : `(${n.text})`;
+  const t = n.text.replace(/\[(?:[\d',:]+(?:-[a-z]{1,4})?|[a-z]{1,4}(?:,[a-z]{1,4})*|[\d',:-]+[a-z]{1,4}(?:[,:][\d',-]*[a-z]{1,4})*)\]/g, "");
+  return t.includes("[") ? `{${n.text}}` : t.includes("(") ? `[${n.text}]` : `(${n.text})`;
 }
 // Prefixes: grouped by name, multiplied (di, tri; bis, tris for compound names), ordered alphabetically.
 function assemblePrefixes(list: { loc: string; name: Name }[], noLocants: boolean): string {
