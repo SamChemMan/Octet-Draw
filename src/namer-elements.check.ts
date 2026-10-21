@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { graphOf } from "./naming.ts";
 import { iupacNameWhy } from "./namer.ts";
+import { cipLabels } from "./cip.ts";
 import type { Mol } from "./render.ts";
 
 const dir = new URL("./vendor/opsin/", import.meta.url);
@@ -48,7 +49,26 @@ const molOf = (smiles: string): Mol => {
   const m = parsed(smiles);
   return { atoms: m.atoms.map((a) => ({ label: a.label, charge: a.charge, location: [0, 0, 0] as [number, number, number] })), bonds: m.bonds.map((b) => ({ type: b.type, atoms: b.atoms })) };
 };
-const cipOf = (smiles: string) => { const m = parsed(smiles); return { atoms: m.atoms.map((a) => a.cip), bonds: m.bonds.map((b) => b.cip) }; };
+// The CIP labels Octet gives (cip.ts) the structure as Indigo lays the SMILES out (with wedges), on the atoms and bonds
+// of `parsed`. A drawn double bond always has a geometry; one the SMILES leaves open (Indigo gives it no label) has no
+// E or Z.
+const cipOf = (smiles: string) => {
+  const o = new indigo.MapStringString(), p = parsed(smiles), m: Mol = { atoms: [], bonds: [] };
+  o.set("output-content-type", "application/json");
+  o.set("dearomatize-on-load", "true");
+  try {
+    const ket = JSON.parse(JSON.parse(indigo.layout(smiles, "ket", o)).struct);
+    for (const { $ref } of ket.root.nodes) {
+      const f = ket[$ref], base = m.atoms.length;
+      if (f?.type !== "molecule") continue;
+      m.atoms.push(...f.atoms.map((a: Mol["atoms"][number]) => ({ label: a.label, location: a.location, charge: a.charge, isotope: a.isotope, ...(a.radical ? { radical: a.radical === 1 ? 3 : a.radical - 1 } : {}) })));
+      m.bonds.push(...f.bonds.map((b: Mol["bonds"][number]) => ({ type: b.type, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number], ...(b.stereo === 1 || b.stereo === 6 ? { stereo: b.stereo } : {}) })));
+    }
+  } finally { o.delete(); }
+  if (m.atoms.length !== p.atoms.length || m.bonds.length !== p.bonds.length) throw new Error(`cipOf: Indigo read ${smiles} two ways`);
+  const c = cipLabels(m);
+  return { atoms: c.atoms, bonds: p.bonds.map((b, k) => (b.cip ? c.bonds[k] : undefined)) };
+};
 
 // Input (a name OPSIN reads, or smiles:...) and, where it matters, the name Octet must give.
 const cases: [string, string?][] = [
