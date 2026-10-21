@@ -2,7 +2,9 @@
 // (Nomenclature of Organic Chemistry, P-1 to P-6). Clean room: written from the published rules. It names what it
 // understands and returns undefined for the rest; the app also checks every name by reading it back with OPSIN.
 //
-// Covered: acyclic chains; monocyclic rings (carbocycles, benzene, common heterocycles by their retained names);
+// Covered: acyclic chains of any length; monocyclic rings (carbocycles, benzene, retained names, Hantzsch–Widman and
+// replacement names for any ring of C, N, O, S and P, with indicated and added hydrogen, hydro prefixes and λ for S and
+// P oxides); ylidene prefixes;
 // fused ring systems with retained names (naphthalene, indole, quinoline and others) with indicated hydrogen, added
 // hydrogen and hydro prefixes; ring assemblies of two identical rings (1,1'-biphenyl); principal characteristic groups
 // (carboxylic and sulfonic acids, esters, acid halides, amides, nitriles, aldehydes, ketones, alcohols, thiols,
@@ -163,6 +165,7 @@ const FUSED: Fused[] = FUSED_NAMES.map(([skeleton, name, hetero]) => {
 });
 // A fused system in a molecule: the parent's numberings (atom at each locant), its C and N atoms, those with no ring
 // double bond (d), and its ring bonds.
+// A monocycle named from its mancude ring has the same shape, with mono: the number of indicated hydrogens its parent needs.
 type FusedSys = { tpl: Fused; nums: number[][]; cn: number[]; d: number[]; ring: (a: number) => number[]; mono?: number };
 // Indicated hydrogen (x, or xs), added hydrogen (y, or ys, cited with the ketone yOn) and hydro prefixes, in one numbering.
 type Saturation = { x?: number; y?: number; yOn?: number; hydro: number[]; xs?: number[]; ys?: number[] };
