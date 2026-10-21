@@ -74,7 +74,8 @@ run("anions", [
   "smiles:C1C=CC(=C1)[O-]", "cyclopenta-2,4-dien-1-ide", "benzenide", "phenylmethanide", "2-oxopropan-1-ide", "ethynediide",
   "1H-pyrrol-1-ide", "1H-imidazol-1-ide", "piperidin-1-ide", "9H-carbazol-9-ide", "1H-indol-1-ide", "methanaminide", "anilinide",
   "N-methylanilinide", "(2S)-2-hydroxypropanoate", "2-aminoethane-1-sulfinate", "acetylazanide", "smiles:[N-](C(=O)C)c1ccc(O)cc1",
-  "bis(trifluoromethanesulfonyl)azanide", "smiles:[O-]C1=[C-]C=CC=C1",
+  "bis(trifluoromethanesulfonyl)azanide", "smiles:[O-]C1=[C-]C=CC=C1", "methyl sulfate", "methyl phosphate", "methyl hydrogen phosphate",
+  "dimethyl phosphate", "smiles:CCOP(=O)([O-])OC", "smiles:COC(=O)[O-]", "carbamate", "smiles:C[N+](C)(C)CCOP(=O)([O-])[O-]",
 ]);
 // Cations (P-73): -ylium, -diazonium, -iminium, onium ions, pyrylium, and ring -ium.
 run("cations", [
@@ -107,6 +108,7 @@ run("salts", [
   "potassium hydrogen peroxymonosulfate", "smiles:[Sc+3].[O-]S(=O)(=O)C(F)(F)F.[O-]S(=O)(=O)C(F)(F)F.[O-]S(=O)(=O)C(F)(F)F",
   "smiles:[Li+].[CH2-]CCC", "smiles:[Mg+2].[Br-].[CH3-]", "tropylium tetrafluoroborate", "triethyloxonium tetrafluoroborate",
   "smiles:C=[N+](C)C.[I-]", "smiles:ClC=[N+](C)C.[Cl-]", "pyridinium p-toluenesulfonate", "smiles:[Pd+2].CC(=O)[O-].CC(=O)[O-]",
+  "sodium dodecyl sulfate", "smiles:OCCOS(=O)(=O)[O-].[Na+]", "smiles:CC(C)OC(=O)[O-].[K+]", "sodium hydrogen butanedioate",
 ]);
 // Simple species (IR-3, IR-6): parent hydrides, inorganic molecules and ions.
 run("species", [

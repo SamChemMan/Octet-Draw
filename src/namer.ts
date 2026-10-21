@@ -164,6 +164,7 @@ class Namer {
   anhydrideO = new Map<number, number>(); // anhydride carbon → its bridging O
   phosphorus = new Set<number>(); // phosphane P, with the =O of a phosphane oxide
   ions = new Set<number>(); ionBonds = new Set<string>(); onium: number[] = []; azanide: number[] = []; // atoms named as ions, their hetero bonds, onium S, P, O, azanide N
+  esterIon?: { x: number; word: string; ors: number[]; ohs: number }; // an ester anion of an inorganic acid: methyl sulfate
 
   constructor(g: Graph) {
     this.n = g.atoms.length;
@@ -445,10 +446,26 @@ class Namer {
         else if (el[x] === "S" && !q[x] && !this.inRing[x] && (adj[x].length === 4 || adj[x].length === 3) && !this.group[x]) {
           // Sulfonates and sulfinates (P-65.3): C-S(=O)2-O- and C-S(=O)-O-.
           const os = adj[x].filter((o) => terminalO(x, o)), c = adj[x].filter(plainC);
-          if (os.length !== adj[x].length - 2 || c.length !== 1) continue;
-          ion(i);
-          this.mark(x, os.length === 2 ? "sulfonate" : "sulfinate", c);
-          for (const j of [x, i, ...os]) this.sulfur.add(j);
+          if (os.length === adj[x].length - 2 && c.length === 1) {
+            ion(i);
+            this.mark(x, os.length === 2 ? "sulfonate" : "sulfinate", c);
+            for (const j of [x, i, ...os]) this.sulfur.add(j);
+          }
+        }
+        if (!this.ions.has(i) && (el[x] === "S" || el[x] === "P" || el[x] === "C") && !q[x] && !this.inRing[x] && this.esterIon?.x !== x) {
+          // Ester anions of inorganic acids (functional class names, IR-8): dodecyl sulfate, methyl hydrogen phosphate,
+          // dimethyl phosphate, methyl carbonate. The rest of x's atoms are =O, O-, OH and O-R.
+          const of = (f: (o: number) => boolean) => adj[x].filter((o) => o !== i && f(o));
+          const os = of((o) => terminalO(x, o)), minus = [i, ...of(oMinus)], ohs = of((o) => el[o] === "O" && !q[o] && h[o] === 1 && adj[o].length === 1);
+          const ors = of((o) => el[o] === "O" && !q[o] && !h[o] && adj[o].length === 2 && this.ord(x, o) === 1 && plainC(adj[o].find((j) => j !== x)!));
+          const word = el[x] === "S" ? os.length === 2 && minus.length === 1 && !ohs.length && ors.length === 1 && "sulfate"
+            : el[x] === "P" ? os.length === 1 && ors.length && adj[x].length === 4 && "phosphate" : os.length === 1 && minus.length === 1 && ors.length === 1 && !ohs.length && "carbonate";
+          if (!word || adj[x].length !== os.length + minus.length + ohs.length + ors.length) continue;
+          for (const j of [x, ...minus]) ion(j);
+          this.esterIon = { x, word, ors, ohs: ohs.length };
+          const set = el[x] === "S" ? this.sulfur : el[x] === "P" ? this.phosphorus : this.ions;
+          for (const j of [x, ...os, ...minus, ...ohs, ...ors]) set.add(j);
+          for (const o of os) this.group[o] = "ketone";
         }
       } else if (e === "N" && q[i] === -1 && valence(i) === 2 && single(i)) {
         if (this.inRing[i]) { if (!h[i] && adj[i].length === 2) ion(i, "ide", [i]); }
@@ -510,6 +527,14 @@ class Namer {
   // azanide (acetyl(phenyl)azanide), or a ring cation with neutral groups cited as prefixes (3-carbamoyl-1-methylpyridin-1-ium).
   ionParent(kind: Kind | undefined): string | undefined {
     const anion = (ANION_KINDS as (Kind | undefined)[]).includes(kind);
+    if (this.esterIon) {
+      // The alkyl groups in alphabetical order, then hydrogen: ethyl methyl phosphate, methyl hydrogen phosphate.
+      const { x, word, ors, ohs } = this.esterIon;
+      if (anion || this.azanide.length) throw new Error("several anions");
+      const alkyls = ors.map((o) => this.substituent(this.adj[o].find((j) => j !== x)!, o).text).sort((a, b) => alphaKey(a).localeCompare(alphaKey(b)));
+      const words = [...new Set(alkyls)].map((t) => { const k = alkyls.filter((a) => a === t).length; return k < 2 ? t : `${MULT[k]}${t}`; });
+      return [...words, ...(ohs ? [`${ohs > 1 ? MULT[ohs] : ""}hydrogen`] : []), word].join(" ");
+    }
     if (this.azanide.length) {
       if (anion || this.azanide.length > 1) throw new Error("several anions");
       return this.centre(this.azanide[0]);
@@ -1320,7 +1345,18 @@ function saltName(g: Graph, parts: number[][]): string | undefined {
   const charge = (p: number[]) => p.reduce((t, i) => t + g.atoms[i].charge, 0);
   const cations = parts.filter((p) => charge(p) > 0), anions = parts.filter((p) => charge(p) < 0);
   if (!cations.length || !anions.length || cations.length + anions.length !== parts.length || parts.reduce((t, p) => t + charge(p), 0) !== 0) return undefined;
-  const cationNames = cations.map((p) => cationName(g, p)), anionNames = anions.map((p) => inorganicName(partOf(g, p), ionFormula(g, p)) ?? speciesName(partOf(g, p)) ?? anionName(g, p) ?? new Namer(partOf(g, p)).name());
+  // An anion: inorganic, then by the namer (methanolate, 3-carboxypropanoate), then from its acid.
+  const anion = (p: number[]) => {
+    const part = partOf(g, p), simple = inorganicName(part, ionFormula(g, p)) ?? speciesName(part);
+    if (simple) return simple;
+    try { return new Namer(part).name(); } catch (e) {
+      let old: string | undefined;
+      try { old = anionName(g, p); } catch { old = undefined; }
+      if (old) return old;
+      throw e;
+    }
+  };
+  const cationNames = cations.map((p) => cationName(g, p)), anionNames = anions.map(anion);
   if (cationNames.includes(undefined) || anionNames.includes(undefined)) return undefined;
   // OPSIN reads lithium nitride but not trilithium nitride.
   const stock = cationNames.some((n) => /\([IVX]+\)$/.test(n!)) || anionNames.some((n) => n === "nitride" || n === "phosphide");
@@ -1429,6 +1465,7 @@ const SPECIES = new Map(([
   ["sulfur hexafluoride", "S", "-F", "-F", "-F", "-F", "-F", "-F"], ["nitrosyl chloride", "N", "=O", "-Cl"], ["carbonyl dichloride", "C", "=O", "-Cl", "-Cl"],
   ["carbonothioyl dichloride", "C", "=S", "-Cl", "-Cl"], ["carbonyl sulfide", "C", "=O", "=S"], ["carbon monoxide", "C-", "#O+"],
   ["hydrogen cyanide", "CH", "#N"], ["cyanogen chloride", "C", "#N", "-Cl"], ["cyanogen bromide", "C", "#N", "-Br"], ["cyanamide", "C", "#N", "-NH2"],
+  ["carbamate", "C", "=O", "-NH2", "-O-"],
 ] as string[][]).map(([name, centre, ...bonds]) => [`${centre}(${bonds.sort().join(",")})`, name]));
 Object.assign(ANIONS, {
   "H2N-1": "amide", "N-3": "nitride", "P-3": "phosphide", "O2-2": "peroxide", "HO2-1": "hydroperoxide", "HS-1": "sulfanide", "Se-2": "selenide",
