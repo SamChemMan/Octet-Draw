@@ -6,18 +6,21 @@
 //
 // OPSIN reads no κ, so a name here cannot be checked as naming.ts checks the namer's names, by reading it back whole.
 // It is checked in parts, and it is given only if every part agrees with the drawing:
-// 1. Each ligand, cut from the metal, is a molecule or ion of its own. Its name is the namer's, and OPSIN must read
-//    that name back as the same structure (same standard InChI, stereochemistry included). A carbon ligand is named
-//    as a substituent (methyl, phenylmethylidene), and OPSIN must read it on silane in the metal's place.
-// 2. Each κ term must cite exactly the donor atoms. A term with locants (κ2N1,N1') is checked against OPSIN's own
-//    numbering of the ligand's name: the ligand OPSIN builds, with the cited atoms marked, must be the drawn ligand
-//    with its donor atoms marked (same InChI). A term with primes only (κ2O,O') must cite every atom of its element,
-//    or one atom of an element whose atoms are all alike.
+// 1. Each ligand, cut from the metal, is a molecule or ion of its own. Its name (the namer's; a ring assembly's, as
+//    2,2':6',2''-terpyridine; or a multiplicative name, as 3,3'-(1,3-phenylene)bis(2,2-dimethylpropanoate)) must read
+//    back by OPSIN as the same structure (same standard InChI, stereochemistry included). A carbon ligand is named as
+//    a substituent (methyl, phenylmethylidene), and OPSIN must read it on silane in the metal's place.
+// 2. Each κ term must cite exactly the donor atoms. A κ term follows the part of the ligand's name that holds its atoms
+//    (the whole name, or a group in enclosing marks, IR-9.2.4.2) and cites them by OPSIN's locants there (κ2N1,N1',
+//    κO''). OPSIN reads the name with an isotope descriptor before that part's last component in place of each term
+//    ((1,1'-15N2)-2,2'-bipyridine), and the structure must be the drawn ligand with its donor atoms marked (same
+//    InChI). A term with primes counting on from none (κ2O,O') may instead cite every atom of its element, or one atom
+//    of an element whose atoms are all alike.
 // 3. The finished name is parsed again, term by term, and each part read again as in 1 and 2: the ligands with their
 //    counts and donor atoms, the metal and how many, the bridging ligands, the metal-metal bond, the counter-ions,
 //    and the charge number or oxidation number must all match the drawing.
 // Names are not given for what is not checked here: polyhedral symbols and configuration (cis, Δ), η ligands, three
-// or more metal atoms, and donor atoms in a substituent part of a ligand's name that κ cannot cite at its end.
+// or more metal atoms, two metals of different elements, and donor atoms that no κ term above can cite.
 import { graphOf, type Cip, type Graph } from "./naming.ts";
 import { alphaKey, assemblePrefixes, iupacNameWhy, joinPrefixes, Namer, type Name } from "./namer.ts";
 import { ELEMENTS, isMetal } from "./metals.ts";
@@ -177,9 +180,8 @@ function lexOf(s: Shape, part: number[], donors: number[]): string | undefined {
     const i = part[0], k = adj[i].reduce((t, j) => t + (part.includes(j) ? 0 : ord.get(key(i, j))!), 0), left = valence(s, i) - k;
     const states = NORMAL[a(i).el], fits = states ? Object.entries(states).filter(([q, vs]) => vs.includes(left) && a(i).charge - Number(q) >= 0 && a(i).charge - Number(q) <= k) : [];
     if (fits.length !== 1) return undefined;
-    const q = Number(fits[0][0]), h = a(i).h, id = `${a(i).el}${h ? `H${h > 1 ? h : ""}` : ""}`;
-    const lex = LEX[id === "OH2" ? "OH2" : id === "NH3" ? "NH3" : id === "NH2" ? "NH2" : id === "OH" ? "OH" : id];
-    return lex && lex.charge === q && !["CO", "CN", "NO", "N3"].includes(id) ? (id === "OH2" ? "OH2" : id) : undefined;
+    const h = a(i).h, id = `${a(i).el}${h ? `H${h > 1 ? h : ""}` : ""}`;
+    return LEX[id]?.charge === Number(fits[0][0]) && !["CO", "CN", "NO", "N3"].includes(id) ? id : undefined;
   }
   if (part.some((i) => a(i).h || part.length > 3)) return undefined;
   const els = part.map((i) => a(i).el).sort().join("");
@@ -213,10 +215,6 @@ function ligandMol(m: Mol, g: Graph, lig: Ligand, marks = new Map<number, number
     bonds.push({ type: b.order, atoms: [at.get(b.atom)!, atoms.length - 1] });
   }
   return { atoms, bonds };
-}
-// The same as a graph for the namer, with its CIP labels and with drawn hydrogens folded onto their atoms.
-function ligandGraph(lm: Mol, cip?: Cip): Graph | undefined {
-  return graphOf(lm, cip);
 }
 // An InChI without its stereo layers, for the checks of marked atoms (OPSIN's atoms carry no stereo).
 const flat = (inchi: string | undefined) => inchi?.split("/").filter((l, k) => k < 2 || !/^[btms]/.test(l)).join("/");
@@ -303,12 +301,16 @@ function maps(b: Built, g: Graph, atoms: number[], limit = 24): number[][] {
 }
 
 // ——— Ligand names ———
-type Named = { form: string; key: string; flat: string; charge: number; carbon?: number; kappa?: (donors: number[][]) => string | undefined };
+// A ligand's name in the complex (form), the InChI of the free ligand it names (key; for a carbon ligand, on silane),
+// its charge as a free ligand, and for a carbon ligand the order of its bond to the metal.
+type Named = { form: string; key: string; flat: string; charge: number; carbon?: number };
 const enclose = (t: string) => (t.includes("{") ? `(${t})` : t.includes("[") ? `{${t}}` : t.includes("(") ? `[${t}]` : `(${t})`);
 
 // A locant as a sort key: 1 < 1' < 2 < 4a < 10.
 const locKey = (l: string) => { const m = /^(\d+)([a-z]?)('*)$/.exec(l)!; return Number(m[1]) * 1000 + (m[2] ? m[2].charCodeAt(0) - 96 : 0) * 10 + m[3].length; };
 const primes = (k: number) => "'".repeat(k);
+// A locant cited after an element in κ, as a sort key: numerals, then primes alone (O, O', O'').
+const locScore = (l: string) => (/^\d/.test(l) ? locKey(l) : 1e6 + l.length);
 
 // The name of a ligand as a free molecule or ion, checked by OPSIN, and its form in the complex (IR-9.2.2.3): an anion's
 // -ate, -ide and -ite become -ato, -ido and -ito.
@@ -317,7 +319,7 @@ function nameLigand(m: Mol, g: Graph, lig: Ligand, api: ComplexApi): Named | und
   if (lig.carbon) {
     // A carbon ligand: the namer's prefix for the ligand on a placeholder in the metal's place (yl, ylidene).
     const b = lig.bonds[0], probe = ligandMol(m, g, lig, new Map(), true), want = api.inchi(probe);
-    const graph = ligandGraph(probe, api.cip?.(probe));
+    const graph = graphOf(probe, api.cip?.(probe));
     if (!graph || !want) return undefined;
     const si = graph.atoms.length - 1, d = lig.atoms.indexOf(b.atom);
     graph.atoms[si] = { el: "C", charge: 0, h: 0 };
@@ -328,7 +330,7 @@ function nameLigand(m: Mol, g: Graph, lig: Ligand, api: ComplexApi): Named | und
     if (!back || api.inchi(back) !== want) return undefined;
     return { form: text, key: want, flat: flat(want)!, charge: 0, carbon: b.order };
   }
-  const free = ligandMol(m, g, lig), want = api.inchi(free), graph = want && ligandGraph(free, api.cip?.(free));
+  const free = ligandMol(m, g, lig), want = api.inchi(free), graph = want && graphOf(free, api.cip?.(free));
   if (!graph) return undefined;
   // A ring assembly of three or more pyridine rings by its own name (terpyridine), or identical anionic units on a
   // benzene ring by a multiplicative name; else the namer's.
@@ -342,8 +344,8 @@ function nameLigand(m: Mol, g: Graph, lig: Ligand, api: ComplexApi): Named | und
 
 // Two identical anionic units on a benzene ring, with nothing else on the ring: a multiplicative name (P-15.3),
 // 3,3'-(1,3-phenylene)bis(2,2-dimethylpropanoate) for the ligand of Rh2(esp)2. Each unit is the namer's name for it
-// with hydrogen where it was attached; the attachment's locant is the lowest of its atom's in OPSIN's numbering of
-// that name for which the whole name reads back as the ligand (reads).
+// with hydrogen where it was attached; the attachment's locant is the lowest for which the whole name reads back as
+// the ligand (reads).
 function multiplicativeName(g0: Graph, reads: (name: string) => boolean): string | undefined {
   const { g } = fold(g0), n = g.atoms.length;
   if (n > 200 || g.atoms.some((a) => a.cip) || g.bonds.some((b) => b.cip)) return undefined;
@@ -353,7 +355,7 @@ function multiplicativeName(g0: Graph, reads: (name: string) => boolean): string
     // A benzene ring through start, in cycle order.
     const walk = (path: number[]): number[] | undefined => {
       if (path.length === 6) return adj[path[5]].includes(start) ? path : undefined;
-      for (const j of adj[path[path.length - 1]]) if (!path.includes(j) && g.atoms[j].el === "C" && !g.atoms[j].charge && (j > start || path.length === 6)) { const r = walk([...path, j]); if (r) return r; }
+      for (const j of adj[path[path.length - 1]]) if (!path.includes(j) && g.atoms[j].el === "C" && !g.atoms[j].charge && j > start) { const r = walk([...path, j]); if (r) return r; }
       return undefined;
     };
     const ring = walk([start]);
@@ -478,12 +480,12 @@ function needsKappa(g: Graph, lig: Ligand): boolean {
   if (lig.lex || lig.carbon) return false;
   const donors = [...new Set(lig.bonds.map((b) => b.atom))], potential = lig.atoms.filter((i) => DONORS.has(g.atoms[i].el));
   if (donors.length === 1 && potential.length === 1) return false;
-  return !(donors.length === 1 && potential.length === 2 && carboxylate(g, potential));
+  return !(donors.length === 1 && potential.length === 2 && carboxylate(g, lig, potential));
 }
-// The two O atoms of one carboxylate group (a C bonded to both and to one other atom).
-function carboxylate(g: Graph, os: number[]): boolean {
+// The two O atoms of one carboxylate group of the ligand (a C bonded to both and to one other atom).
+function carboxylate(g: Graph, lig: Ligand, os: number[]): boolean {
   if (os.some((o) => g.atoms[o].el !== "O")) return false;
-  const nb = (i: number) => g.bonds.filter((b) => b.a === i || b.b === i).map((b) => (b.a === i ? b.b : b.a));
+  const nb = (i: number) => g.bonds.filter((b) => (b.a === i || b.b === i) && lig.atoms.includes(b.a) && lig.atoms.includes(b.b)).map((b) => (b.a === i ? b.b : b.a));
   const c = nb(os[0]);
   return c.length === 1 && nb(os[1]).length === 1 && c[0] === nb(os[1])[0] && g.atoms[c[0]].el === "C" && nb(c[0]).length === 3;
 }
@@ -518,16 +520,19 @@ const kappaText = (cited: { el: string; loc: string }[], els: string[]) => els.f
 function numbered(m: Mol, g: Graph, lig: Ligand, named: Named, groups: number[][], els: string[], api: ComplexApi): string[] | undefined {
   const b = opsinOf(nameOfForm(named.form, named.charge), api);
   if (!b) return undefined;
-  const numeric = (i: number) => b.locs[i].find((l) => /^\d+[a-z]?'*$/.test(l));
+  // A donor atom's locant: its numeral in OPSIN's numbering (N1), else its element locant there (the primes of O''),
+  // if no other atom has it.
+  const locOf = (i: number, el: string) => b.locs[i].find((l) => /^\d+[a-z]?'*$/.test(l))
+    ?? b.locs[i].find((l) => l.startsWith(el) && /^'*$/.test(l.slice(el.length)) && b.locs.filter((x) => x.includes(l)).length === 1)?.slice(el.length);
   // Each way OPSIN's atoms map onto the drawn ligand gives the donors locants; the lowest set first (P-31.1.4).
   const options = new Map<string, { parts: string[]; score: number[] }>();
   for (const map of maps(b, free(g, lig), lig.atoms)) {
     const back = new Map(map.map((d, i) => [d, i]));
-    const cited = groups.map((ds) => ds.map((d) => ({ el: g.atoms[d].el, loc: back.has(d) ? numeric(back.get(d)!) : undefined })));
-    if (cited.flat().some((c) => !c.loc)) continue;
-    cited.forEach((cs) => cs.sort((x, y) => locKey(x.loc!) - locKey(y.loc!)));
+    const cited = groups.map((ds) => ds.map((d) => ({ el: g.atoms[d].el, loc: back.has(d) ? locOf(back.get(d)!, g.atoms[d].el) : undefined })));
+    if (cited.flat().some((c) => c.loc === undefined)) continue;
+    cited.forEach((cs) => cs.sort((x, y) => locScore(x.loc!) - locScore(y.loc!)));
     const parts = cited.map((cs) => kappaText(cs as Cited[], els));
-    options.set(parts.join(":"), { parts, score: cited.flatMap((cs) => cs.map((c) => locKey(c.loc!))) });
+    options.set(parts.join(":"), { parts, score: cited.flatMap((cs) => cs.map((c) => locScore(c.loc!))) });
   }
   const drawn = markedInchi(m, g, lig, groups, api);
   for (const o of [...options.values()].sort((x, y) => compare(x.score, y.score)).slice(0, 3)) {
@@ -1082,17 +1087,19 @@ function claimOf(t: PTerm, c: Context, at: number | undefined): Claim | undefine
   if (cited.some((x) => /\d/.test(x.loc))) return undefined;
   // Primes: counting on through the term, element by element (κO:κO', κ2N,N',κ2O,O'), and saying only how many atoms
   // of each element bond to each metal: the drawn ligand must leave no doubt which (primedOk).
+  // Primes counting on (κ2O,O') may say only how many atoms of each element bond to each metal (primedOk). Where that
+  // leaves doubt, or the primes skip (κ2O,O''), they are OPSIN's element locants (O, O', O'' in the order of the name)
+  // and the name is read with those atoms marked.
   const next = new Map<string, number>();
-  for (const a of cited) { if (a.loc.length !== (next.get(a.el) ?? 0)) return undefined; next.set(a.el, a.loc.length + 1); }
-  // Where they do leave doubt, the primes are OPSIN's element locants (O, O', O'', ... in the order of the name) and
-  // the name is read with those atoms marked.
+  let counting = true;
+  for (const a of cited) { if (a.loc.length !== (next.get(a.el) ?? 0)) counting = false; next.set(a.el, a.loc.length + 1); }
   let sig: string | undefined | null = null;
   const probe = () => (sig === null ? (sig = readKappa(inner, charge!, (el, j, y) => { const x = metalOf(y, j); return x === undefined ? undefined : MARK[el]?.[x]; }, api)) : sig);
   return { count: t.count, type, charge, carbon, test: (k, order) => {
     const lig = e.ligands[k], ds = donorGroups(lig, order);
     if (!base(k) || !ds.every((d, i) => d.length === groups.filter((x) => x.j === i).reduce((n, x) => n + x.atoms.length, 0))) return false;
     if (!groups.every((x) => [...new Set(x.atoms.map((a) => a.el))].every((el) => ds[x.j!].filter((d) => g.atoms[d].el === el).length === x.atoms.filter((a) => a.el === el).length))) return false;
-    return primedOk(c.m, g, lig, ds, api) || (!!probe() && drawn(k, order) === probe());
+    return (counting && primedOk(c.m, g, lig, ds, api)) || (!!probe() && drawn(k, order) === probe());
   } };
 }
 

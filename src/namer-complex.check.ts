@@ -95,6 +95,14 @@ const OTHERS: [string, string, string][] = [
   ["Pd(PPh3)4", "C1=CC=C(C=C1)P(C1=CC=CC=C1)(C1=CC=CC=C1)[Pd](P(C1=CC=CC=C1)(C1=CC=CC=C1)C1=CC=CC=C1)(P(C1=CC=CC=C1)(C1=CC=CC=C1)C1=CC=CC=C1)P(C1=CC=CC=C1)(C1=CC=CC=C1)C1=CC=CC=C1",
     "tetrakis(triphenylphosphane)palladium(0)"],
   ["[Cu(en)2]2+", "C1C[NH2][Cu+2]2([NH2]1)[NH2]CC[NH2]2", "bis(ethane-1,2-diamine-κ2N,N')copper(2+)"],
+  ["PtCl2(py)2", "Cl[Pt](Cl)(N1=CC=CC=C1)N1=CC=CC=C1", "dichloridobis(pyridine)platinum(II)"],
+  // N-bonded nitrite (IR-9.2.4.2: nitrito-κN), drawn N+ and O-.
+  ["[Co(NH3)5(NO2)]Cl2", "[O-][N+](=O)[Co+2]([NH3])([NH3])([NH3])([NH3])[NH3].[Cl-].[Cl-]", "pentaammine(nitrito-κN)cobalt(2+) chloride"],
+  // A monodentate carboxylate needs no κ (IR-9.2.4.1).
+  ["Pd(OAc)2(PPh3)2", "CC(=O)O[Pd](OC(C)=O)(P(c1ccccc1)(c1ccccc1)c1ccccc1)P(c1ccccc1)(c1ccccc1)c1ccccc1", "bis(acetato)bis(triphenylphosphane)palladium(II)"],
+  // Carboplatin: one O of each carboxylate group, O and O'' with the O atoms numbered along the name (O, O' those of
+  // the first group; as the Red Book numbers edta's, IR-9.2.5.2 Example 5).
+  ["carboplatin", "[NH3][Pt]1(OC(=O)C2(CCC2)C(=O)O1)[NH3]", "diammine(cyclobutane-1,1-dicarboxylato-κ2O,O'')platinum(II)"],
   // acac drawn as its enolate: 4-oxopent-2-en-2-olate, both O atoms donors.
   ["Fe(acac)3", "CC1=CC(C)=O[Fe]23(O1)(OC(C)=CC(C)=O2)OC(C)=CC(C)=O3", "tris(4-oxopent-2-en-2-olato-κ2O,O')iron(III)"],
   ["Cu(acac)2", "CC1=CC(C)=O[Cu]2(O1)OC(C)=CC(C)=O2", "bis(4-oxopent-2-en-2-olato-κ2O,O')copper(II)"],
@@ -169,6 +177,7 @@ const wrong: [string, string[]][] = [
     "bis{2-[4-(4-methoxyphenyl)-6-(pyrimidin-2-yl-κN1)pyridin-2-yl]pyrimidine-κN1}osmium(0)",
     "bis{2-[4-(4-methoxyphenyl-κO)-6-(pyrimidin-2-yl-κN1)pyridin-2-yl]pyrimidine-κN1}osmium(0)",
   ]],
+  ["[NH3][Pt]1(OC(=O)C2(CCC2)C(=O)O1)[NH3]", ["diammine(cyclobutane-1,1-dicarboxylato-κ2O,O')platinum(II)", "diammine(cyclobutane-1,1-dicarboxylato-κO)platinum(II)"]],
   [ESP, ["bis[μ-3,3'-(1,3-phenylene)bis(2,2-dimethylpropanoato-κ2O,O')]dirhodium(Rh—Rh)", "bis[μ-3,3'-(1,3-phenylene)bis(2,2-dimethylpropanoato-κO)]dirhodium(Rh—Rh)"]],
   ["[Na+].[Co-]%11%12%13%14%15[N](CC(=O)O%11)(CC(=O)O%12)CC[N]%15(CC(=O)O%13)CC(=O)O%14", [
     "sodium ({{2-[bis(carboxylatomethyl-κO)amino-κN]ethyl}(carboxylatomethyl)amino-κN}acetato-κO)cobaltate(1-)",
