@@ -115,3 +115,36 @@ must("S-S, N-X", [
   "1-bromopyrrolidine-2,5-dione", "1-chloropyrrolidine-2,5-dione", "1-iodopyrrolidine-2,5-dione", "N-chloromethanamine", "N-bromoacetamide",
   "N,N-dichloro-4-methylaniline",
 ]);
+// Sulfur oxoacids and their derivatives (P-65.3, P-66.1.1.4, P-67.1.2): sulfonamides, sulfonate esters (busulfan,
+// triflates, tosylates), sulfinic acids, sulfonic anhydrides (Tf2O), sulfonyl groups on a ring N, sulfates and
+// sulfamates, and R/S at a sulfoxide S.
+must("S oxoacids", [
+  "methanesulfonamide", "N-methylbenzenesulfonamide", "4-aminobenzene-1-sulfonamide", "N,N-diethylmethanesulfonamide",
+  "5-(dimethylamino)naphthalene-1-sulfonamide", "4-sulfamoylbenzoic acid", "4-(dimethylsulfamoyl)benzoic acid", "4-(methanesulfonamido)benzoic acid",
+  "4-[(4-methylbenzene-1-sulfonyl)amino]benzoic acid", "1,1,1-trifluoro-N-(trifluoromethanesulfonyl)methanesulfonamide",
+  "methyl methanesulfonate", "ethyl 4-methylbenzene-1-sulfonate", "methyl trifluoromethanesulfonate", "busulfan",
+  "2-[(methanesulfonyl)oxy]ethyl 4-methylbenzene-1-sulfonate", "methyl [(methanesulfonyl)oxy]acetate", "trifluoromethanesulfonic anhydride",
+  "4-methylbenzenesulfonic methanesulfonic anhydride", "ethanesulfinic acid", "2-aminoethane-1-sulfinic acid", "methyl benzenesulfinate",
+  "benzenesulfinamide", "benzenesulfinyl chloride", "4-sulfinobenzoic acid", "4-sulfinamoylbenzoic acid", "4-(methoxysulfonyl)benzoic acid",
+  "4-(chlorosulfonyl)benzoic acid", "piperidine-1-sulfonic acid", "morpholine-4-sulfonamide", "piperidine-1-sulfonyl chloride",
+  "1-(methanesulfonyl)piperidine", "4-[(piperidin-1-yl)sulfonyl]benzoic acid", "dimethyl sulfate", "ethyl hydrogen sulfate", "sulfuric acid",
+  "sulfamic acid", "phenylsulfamic acid", "methyl sulfamate", "methyl dimethylsulfamate", "sulfuric diamide", "N,N'-dimethylsulfuric diamide",
+  "dimethylsulfamoyl chloride", "methyl sulfurochloridate", "sulfuryl dichloride", "sulfurous dichloride", "dimethyl sulfite",
+  "4-(sulfooxy)benzoic acid", "4-(sulfamoyloxy)benzoic acid", "4-[(methoxysulfonyl)oxy]benzoic acid", "4-(sulfoamino)benzoic acid",
+  "(S)-(methanesulfinyl)benzene", "1-[(R)-methanesulfinyl]-4-methylbenzene", "L-methionine (S)-S-oxide", "2-[(S)-methanesulfinyl]acetic acid",
+]);
+// Phosphorus oxoacids and their esters, amides and halides (P-67.1), phosphanium salts, nitrate and nitrite esters.
+must("P oxoacids, nitrates", [
+  "phosphoric acid", "trimethyl phosphate", "triphenyl phosphate", "ethyl dimethyl phosphate", "dimethyl hydrogen phosphate", "methyl dihydrogen phosphate",
+  "pyridoxal 5'-phosphate", "inosinic acid", "O-phospho-L-serine", "methylphosphonic acid", "(2-aminoethyl)phosphonic acid", "diphenylphosphinic acid",
+  "methyl hydrogen methylphosphonate", "diethyl (2-oxopropyl)phosphonate", "ethyl (diethoxyphosphoryl)acetate", "trimethyl phosphite",
+  "dimethyl methylphosphonite", "methyl diphenylphosphinite", "phosphoryl trichloride", "methylphosphonic dichloride", "diphenylphosphinic chloride",
+  "trichlorophosphane", "chloro(diphenyl)phosphane", "dichloro(phenyl)phosphane", "phosphorodichloridic acid", "ethyl phosphorodichloridate",
+  "diethyl phosphorochloridate", "propan-2-yl methylphosphonofluoridate", "N,N,N',N',N'',N''-hexamethylphosphoric triamide",
+  "N,N,N',N',N'',N''-hexamethylphosphorous triamide", "P,P-diphenylphosphinic amide", "P-methylphosphonic diamide", "phosphoramidic acid",
+  "diethyl phosphoramidate", "diethyl N-phenylphosphoramidate", "methyl phosphorodiamidate", "4-phosphonobenzoic acid",
+  "4-(dimethoxyphosphoryl)benzoic acid", "4-[hydroxy(methyl)phosphoryl]benzoic acid", "4-(phosphonooxy)benzoic acid",
+  "4-[(diethoxyphosphoryl)oxy]benzoic acid", "4-(dimethoxyphosphanyl)benzoic acid", "4-(phosphonoamino)benzoic acid", "coenzyme A",
+  "methyl(triphenyl)phosphanium bromide", "tetraphenylphosphanium chloride", "(carboxymethyl)(triphenyl)phosphanium chloride",
+  "methyl nitrate", "propane-1,2,3-triyl trinitrate", "4-(nitrooxy)butanoic acid", "3-methylbutyl nitrite", "4-[(nitrosooxy)methyl]benzoic acid",
+]);

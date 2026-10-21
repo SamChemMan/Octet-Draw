@@ -12,7 +12,7 @@
 // oxa, thia and aza replacement; R/S and E/Z. Not yet: polycyclic bridged rings (adamantane), fused systems outside
 // the table, larger ring assemblies, and other charged atoms. Octet's own name tables cover some of these (naming.ts).
 import type { Graph } from "./naming.ts";
-import { amideHetero, groupVariant, heteroAmine, heteroBond, heteroParentName, heteroPrefix, perceiveHetero, peroxyCarbonyl, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
+import { amideHetero, groupVariant, heteroAmine, heteroBond, heteroCharged, heteroParentName, heteroPrefix, perceiveHetero, peroxyCarbonyl, sulfonamideN, sulfonateName, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
 
 type Name = { text: string; compound: boolean }; // compound: needs brackets when cited as a prefix
 
@@ -26,8 +26,8 @@ const VOWEL = /^[aeiouy]/;
 // Principal characteristic groups, most senior first (P-41).
 // Carbamates are esters and ureas amides of carbonic acid (P-65.2.1, P-66.1.6); halides are acid halides.
 // Cations (aminium) are senior to every neutral group (P-41).
-type Kind = "aminium" | "acid" | "sulfonic" | "anhydride" | "ester" | "carbamate" | "halide" | "sulfonylhalide" | "amide" | "urea" | "nitrile" | "aldehyde" | "ketone" | "alcohol" | "thiol" | "amine" | "imine";
-const SENIORITY: Kind[] = ["aminium", "acid", "sulfonic", "anhydride", "ester", "carbamate", "halide", "sulfonylhalide", "amide", "urea", "nitrile", "aldehyde", "ketone", "alcohol", "thiol", "amine", "imine"];
+type Kind = "aminium" | "acid" | "sulfonic" | "anhydride" | "ester" | "sulfonate" | "carbamate" | "halide" | "sulfonylhalide" | "amide" | "sulfonamide" | "urea" | "nitrile" | "aldehyde" | "ketone" | "alcohol" | "thiol" | "amine" | "imine";
+const SENIORITY: Kind[] = ["aminium", "acid", "sulfonic", "anhydride", "ester", "sulfonate", "carbamate", "halide", "sulfonylhalide", "amide", "sulfonamide", "urea", "nitrile", "aldehyde", "ketone", "alcohol", "thiol", "amine", "imine"];
 // Groups whose carbon is counted in a chain name (propanoic acid) but cited as "carbo…" on a ring (cyclohexanecarboxylic acid).
 const CARBON_GROUP = new Set<Kind>(["acid", "anhydride", "ester", "halide", "amide", "nitrile", "aldehyde"]);
 const HALIDE: Record<string, string> = { F: "fluoride", Cl: "chloride", Br: "bromide", I: "iodide" };
@@ -237,7 +237,7 @@ class Namer {
     const { el, h, q, adj } = this;
     for (let i = 0; i < this.n; i++) {
       if (!["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"].includes(el[i])) throw new Error(`element ${el[i]}`);
-      if (q[i] && !this.nitroAtom(i) && !this.cationN(i) && !this.diazoAtom(i) && !this.azidoAtom(i)) throw new Error("charge");
+      if (q[i] && !this.nitroAtom(i) && !this.cationN(i) && !this.diazoAtom(i) && !this.azidoAtom(i) && !heteroCharged(this, i)) throw new Error("charge");
     }
     for (let c = 0; c < this.n; c++) {
       if (el[c] !== "C") continue;
@@ -301,7 +301,7 @@ class Namer {
     perceiveHetero(this); // N-N, N-O, O-O, S-S and N-halogen links (namer-hetero.ts)
     // Sulfonic acids, sulfonyl halides (P-65.3), and the S of sulfoxides and sulfones (P-63.6), which are prefixes.
     for (let i = 0; i < this.n; i++) {
-      if (el[i] !== "S" || this.inRing[i]) continue;
+      if (el[i] !== "S" || this.inRing[i] || this.het.has(i)) continue;
       const os = adj[i].filter((j) => el[j] === "O" && this.ord(i, j) === 2 && adj[j].length === 1 && !q[j]);
       if (!os.length) continue;
       const cs = this.carbons(i), rest = adj[i].filter((j) => !os.includes(j) && !cs.includes(j));
@@ -309,13 +309,13 @@ class Namer {
       if (os.length === 2 && cs.length === 1 && rest.length === 1 && el[rest[0]] === "O" && h[rest[0]] === 1 && adj[rest[0]].length === 1) this.mark(i, "sulfonic", cs);
       else if (os.length === 2 && cs.length === 1 && rest.length === 1 && HALO[el[rest[0]]] && adj[rest[0]].length === 1) this.mark(i, "sulfonylhalide", cs);
       else if (!(os.length <= 2 && cs.length === 2 && !rest.length)) throw new Error("sulfur");
-      if (this.cip[i]) throw new Error("sulfur stereo");
+      if (this.cip[i] && !(os.length === 1 && cs.length === 2)) throw new Error("sulfur stereo"); // R/S on a sulfoxide: namer-hetero.ts
       this.sulfur.add(i);
       for (const j of [...os, ...rest]) this.sulfur.add(j);
     }
     // Phosphanes and phosphane oxides (P-68.3.2): P with three single bonds to carbon or hydrogen, and perhaps =O.
     for (let i = 0; i < this.n; i++) {
-      if (el[i] !== "P") continue;
+      if (el[i] !== "P" || this.het.has(i)) continue;
       const os = adj[i].filter((j) => el[j] === "O" && this.ord(i, j) === 2 && adj[j].length === 1 && !q[j]), rest = adj[i].filter((j) => !os.includes(j));
       if (this.inRing[i] || q[i] || os.length > 1 || rest.length + h[i] !== 3 || rest.some((j) => el[j] !== "C" || this.ord(i, j) !== 1 || this.carbonylO[j] >= 0) || this.cip[i]) throw new Error("phosphorus");
       this.phosphorus.add(i);
@@ -631,7 +631,7 @@ class Namer {
     }
     // With several amide or amine suffixes, N-locants name their suffix's locant (N1,N4) and count for numbering.
     for (const s of sites) {
-      const nAtom = kind === "amide" ? this.groupHetero(s.group)[0] : kind === "amine" || kind === "aminium" ? s.group : kind === "imine" ? this.imineN(s.group) : undefined;
+      const nAtom = kind === "amide" ? this.groupHetero(s.group)[0] : kind === "amine" || kind === "aminium" ? s.group : kind === "imine" ? this.imineN(s.group) : sulfonamideN(this, kind, s.group);
       if (nAtom === undefined) continue;
       for (const x of this.adj[nAtom]) if (x !== s.group && !inParent.has(x) && x !== s.atom)
         prefixes.push({ atom: s.atom, name: this.substituent(x, nAtom), n: true });
@@ -916,9 +916,10 @@ class Namer {
     this.perceive();
     if (this.adj.some((a, i) => a.length === 0 && this.el[i] !== "C") || this.n === 0) return undefined;
     const kind = SENIORITY.find((k) => this.group.includes(k) && [...this.bearer.keys()].some((g) => this.group[g] === k));
-    let text = kind ? undefined : heteroParentName(this); // phenylhydrazine, diphenyldiazene (namer-hetero.ts)
+    let text = heteroParentName(this, kind); // phenylhydrazine, trimethyl phosphate (namer-hetero.ts)
     if (text) { /* named */ }
     else if (kind === "ester") text = this.esterName();
+    else if (kind === "sulfonate") text = sulfonateName(this); // methyl methanesulfonate (namer-hetero.ts)
     else if (kind === "anhydride") text = this.anhydrideName();
     else if (kind === "urea" || kind === "carbamate") text = this.carbonicName(kind);
     else if (!kind && this.phosphorus.size) text = this.phosphaneName();
@@ -1141,7 +1142,7 @@ function withSuffix(parent: string, kind: Kind | undefined, locs: string[], ring
   const m = locs.length;
   const base: Record<Kind, [string, string]> = {
     acid: ["oic acid", "carboxylic acid"], anhydride: ["oic acid", "carboxylic acid"], halide: ["oyl", "carbonyl"],
-    sulfonic: ["sulfonic acid", "sulfonic acid"], sulfonylhalide: ["sulfonyl", "sulfonyl"], urea: ["", ""], carbamate: ["", ""], ester: ["oate", "carboxylate"], amide: ["amide", "carboxamide"], nitrile: ["nitrile", "carbonitrile"],
+    sulfonic: ["sulfonic acid", "sulfonic acid"], sulfonylhalide: ["sulfonyl", "sulfonyl"], sulfonate: ["sulfonate", "sulfonate"], sulfonamide: ["sulfonamide", "sulfonamide"], urea: ["", ""], carbamate: ["", ""], ester: ["oate", "carboxylate"], amide: ["amide", "carboxamide"], nitrile: ["nitrile", "carbonitrile"],
     aldehyde: ["al", "carbaldehyde"], ketone: ["one", "one"], alcohol: ["ol", "ol"], thiol: ["thiol", "thiol"], amine: ["amine", "amine"],
     aminium: ["aminium", "aminium"], imine: ["imine", "imine"],
   };
@@ -1251,5 +1252,5 @@ export function iupacNameWhy(g: Graph): { name?: string; why?: string } {
 }
 
 // For namer-hetero.ts, which names groups built on N, O, S, P and the halogens.
-export { Namer, enclose, substituted, assemblePrefixes, alphaKey, joinPrefixes, MULT, MULT_COMPLEX, HALO };
+export { Namer, enclose, substituted, assemblePrefixes, alphaKey, joinPrefixes, MULT, MULT_COMPLEX, HALO, SENIORITY };
 export type { Name, Kind };
