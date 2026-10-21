@@ -78,6 +78,13 @@ export function ringSystem(el: string[], adj: number[][]): RingSystem {
     });
   }
   const across = rings.map((r, i) => r.map((a, k) => ringsOf.get(key(a, r[(k + 1) % r.length]))!.find((s) => s !== i) ?? -1));
+  // An atom with four ring bonds lies in three rings, two of which meet only there. OPSIN draws (and numbers) such a
+  // system as this module does unless those two are both six-membered (checked on many systems).
+  for (let a = 0; a < n; a++) {
+    if (adj[a].length < 4) continue;
+    const at = [...rings.keys()].filter((r) => rings[r].includes(a));
+    if (at.some((r, i) => at.slice(i + 1).some((t) => !across[r].includes(t) && rings[r].length === 6 && rings[t].length === 6))) throw new Error("fused ring shape");
+  }
   // The periphery: the bonds in one ring only, one cycle through every atom not inside.
   const next = Array(n).fill(-1);
   rings.forEach((r, i) => r.forEach((a, k) => { if (across[i][k] < 0) { if (next[a] >= 0) throw new Error("not ortho-fused"); next[a] = r[(k + 1) % r.length]; } }));
@@ -188,13 +195,12 @@ export function numberSystem(sys: RingSystem): Numbering[] {
   const prev = Array(n).fill(-1);
   next.forEach((b, a) => { if (b >= 0) prev[b] = a; });
   const fusion = (a: number) => adj[a].length >= 3;
-  // Interior atoms, and atoms in three rings with four ring bonds (morphinans' 12b), which OPSIN numbers with them.
-  const interior = [...Array(n).keys()].filter((a) => next[a] < 0 || adj[a].length === 4);
-  // Interior atoms follow, from the one next to the highest numbered atom along the interior bonds (CAS).
+  // Atoms the walk round the rings passes by (interior atoms, and atoms in three rings with four ring bonds such as
+  // morphinans' 12b) follow, from the one next to the highest numbered atom along the interior bonds (CAS).
   const inside = (path: number[]) => {
-    const out: number[] = [], at = (a: number) => path.indexOf(a);
+    const rest = [...Array(n).keys()].filter((a) => !path.includes(a)), out: number[] = [], at = (a: number) => path.indexOf(a);
     const score = (a: number) => 1000 * Math.max(...adj[a].map((b) => out.indexOf(b) + 1)) + Math.max(...adj[a].map(at));
-    while (out.length < interior.length) out.push(interior.filter((a) => !out.includes(a)).sort((a, b) => score(b) - score(a))[0]);
+    while (out.length < rest.length) out.push(rest.filter((a) => !out.includes(a)).sort((a, b) => score(b) - score(a))[0]);
     return out;
   };
   type Pick = { pos: [number, number][]; mirror: boolean };
@@ -241,7 +247,7 @@ export function numberSystem(sys: RingSystem): Numbering[] {
   } });
   if (!picks.length) throw new Error("fused ring orientation");
   const best = picks.reduce((m, p) => (cmp(p.q, m) < 0 ? p.q : m), picks[0].q);
-  const paths: number[][] = [];
+  const paths: number[][] = [], walkedOf = new Map<number[], number>();
   for (const { pick, q } of picks) {
     if (cmp(q, best)) continue;
     const { pos, mirror } = pick;
@@ -260,12 +266,23 @@ export function numberSystem(sys: RingSystem): Numbering[] {
     const k = ks.sort((a, b) => pos[across[top][b]][1] - pos[across[top][a]][1] || pos[across[top][a]][0] - pos[across[top][b]][0])[0];
     const r = rings[top], v = mirror ? r[(k + 1) % r.length] : r[k];
     if (next[v] < 0) throw new Error("fused ring numbering");
-    const cw = (a: number) => (mirror ? next[a] : prev[a]);
-    const path = [cw(v)];
-    while (path[path.length - 1] !== v) path.push(cw(path[path.length - 1]));
-    if (interior.includes(path[0])) throw new Error("fused ring numbering");
-    const outer = path.filter((a) => !interior.includes(a));
-    paths.push([...outer, ...inside(outer)]);
+    // Walk clockwise ring by ring as OPSIN does: in each ring, from the atom it was entered at to the next bond it
+    // shares with another ring, then into that ring.
+    const cw = (q: number, a: number) => { const R = rings[q], i = R.indexOf(a); return R[(i + (mirror ? 1 : R.length - 1)) % R.length]; };
+    const over = (q: number, a: number, b: number) => { const R = rings[q], i = R.indexOf(a); return across[q][R[(i + 1) % R.length] === b ? i : R.indexOf(b)]; };
+    const path: number[] = [];
+    let ring = top, a = v;
+    for (let guard = 0; guard < 4 * n; guard++) {
+      const b = cw(ring, a), s = over(ring, a, b);
+      if (s >= 0) { ring = s; continue; }
+      if (path.includes(b)) break;
+      path.push(b);
+      a = b;
+    }
+    if (!path.includes(v)) throw new Error("fused ring numbering");
+    const full = [...path, ...inside(path)];
+    walkedOf.set(full, path.length);
+    paths.push(full);
   }
   // FR-5.4: low locants for heteroatoms together, then by seniority, then for fusion carbon atoms, then fusion
   // heteroatoms.
@@ -288,6 +305,8 @@ export function numberSystem(sys: RingSystem): Numbering[] {
   const like = (x: number[], y: number[]) => x.every((a, i) => el[a] === el[y[i]] && adj[a].every((b) => adj[y[i]].includes(y[x.indexOf(b)])));
   if (chosen.some((p) => !like(chosen[0], p))) throw new Error("fused ring numbering");
   const seen = new Set<string>();
+  const walked = walkedOf.get(chosen[0])!, interior = chosen[0].slice(walked);
+  if (chosen.some((p) => walkedOf.get(p) !== walked)) throw new Error("fused ring numbering");
   return chosen.filter((p) => !seen.has(p.join()) && !!seen.add(p.join())).map((path) => ({ path, labels: labelsOf(path, el, fusion), interior, row: longest }));
 }
 
