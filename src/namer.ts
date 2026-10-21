@@ -12,13 +12,14 @@
 // carbamates (also as prefixes: Boc-glycine); phosphanes and their oxides; anions (-oate, -olate, -ide), cations
 // (aminium, ring "-ium", -ylium, diazonium, iminium, onium, pyrylium) and zwitterions (P-7); salts, hydrates and
 // hydrochlorides; lone atoms, parent hydrides and inorganic species; bicyclic von Baeyer and monospiro rings with
-// oxa, thia and aza replacement, and adamantane; R/S and E/Z. Fused systems outside the table, bridged fused systems
-// and spiro unions with a polycyclic component get their names from fusion.ts. Not yet: other polycyclic von Baeyer
-// rings (cubane), larger ring assemblies, radicals and other charged atoms. Octet's own name tables cover some of
-// these (naming.ts). Structures with metal atoms are named in metals.ts; groups built on N, O, S, P and the halogens
-// in namer-hetero.ts.
+// oxa, thia and aza replacement, adamantane and cubane; R/S and E/Z. Fused systems outside the table, bridged fused
+// systems and spiro unions with a polycyclic component get their names from fusion.ts, other polycyclic von Baeyer
+// systems from vonbaeyer.ts. Not yet: larger ring assemblies, radicals and other charged atoms. Octet's own name
+// tables cover some of these (naming.ts). Structures with metal atoms are named in metals.ts; groups built on N, O,
+// S, P and the halogens in namer-hetero.ts.
 import type { Graph } from "./naming.ts";
 import { fusedParent } from "./fusion.ts";
+import { vonBaeyer } from "./vonbaeyer.ts";
 import { ELEMENTS, isMetal, metalName, MORE_CATIONS, METAL_ANIONS, type MetalApi } from "./metals.ts";
 import { amideHetero, groupVariant, heteroAmine, heteroBond, heteroCharged, heteroParentName, heteroPrefix, hydrazinyl, inorganicName, nOxideN, nOxides, oxideText, perceiveHetero, perceiveIodanes, suffixStereo, sulfonamideN, sulfonateName, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
 
@@ -203,7 +204,8 @@ function skeletonTemplate(skeleton: string, name: string, hetero: string): Fused
 // A fused system in a molecule: the parent's numberings (atom at each locant), its C and N atoms, those with no ring
 // double bond (d), and its ring bonds.
 // A monocycle named from its mancude ring has the same shape, with mono: the number of indicated hydrogens its parent needs.
-type FusedSys = { tpl: Fused; nums: number[][]; cn: number[]; d: number[]; ring: (a: number) => number[]; mono?: number };
+// dehydro: ring triple bonds, each a double bond of the parent made triple (didehydro).
+type FusedSys = { tpl: Fused; nums: number[][]; cn: number[]; d: number[]; ring: (a: number) => number[]; mono?: number; dehydro?: [number, number][] };
 // Indicated hydrogen (x, or xs), added hydrogen (y, or ys, cited with the ketone yOn) and hydro prefixes, in one numbering.
 type Saturation = { x?: number; y?: number; yOn?: number; hydro: number[]; xs?: number[]; ys?: number[] };
 // A von Baeyer or spiro ring system: its descriptor (bicyclo[2.2.1], spiro[4.5]), numberings, and ring bonds.
@@ -1009,12 +1011,14 @@ class Namer {
     const atoms = this.rings[k], sys = new Set(atoms);
     const ringAdj = new Map(atoms.map((a) => [a, this.adj[a].filter((j) => sys.has(j))]));
     const ring = (a: number) => ringAdj.get(a)!;
-    // Each C and N has at most one ring double bond, O and S none; no ring triple bonds; the only double bond out of
-    // the system is a ring ketone's.
-    const cn: number[] = [], d: number[] = [];
+    // Each C and N has at most one ring double bond, O and S none; the only double bond out of the system is a ring
+    // ketone's. A ring triple bond between carbons is a double bond of the parent, made triple by the prefix didehydro
+    // (P-31.1.4.2.4): 16,17-didehydro-…-cyclopenta[a]phenanthrene.
+    const cn: number[] = [], d: number[] = [], dehydro: [number, number][] = [];
     for (const a of atoms) {
-      const doubles = ring(a).filter((j) => this.ord(a, j) === 2).length;
-      if (doubles > 1 || ring(a).some((j) => this.ord(a, j) === 3)) throw new Error("ring bonds");
+      const doubles = ring(a).filter((j) => this.ord(a, j) > 1).length, triple = ring(a).find((j) => this.ord(a, j) === 3);
+      if (doubles > 1 || (triple !== undefined && (this.el[a] !== "C" || this.el[triple] !== "C"))) throw new Error("ring bonds");
+      if (triple !== undefined && a < triple) dehydro.push([a, triple]);
       // A ring carbon with no ring double bond may carry =C or =N (an ylidene: 5H-dibenzo[a,d][7]annulen-5-ylidene,
       // 2-ethylidenecyclohexan-1-one): indicated hydrogen or hydro prefixes cover it.
       const ylidene = (j: number) => this.el[a] === "C" && !doubles && this.ord(a, j) === 2 && (this.el[j] === "C" || this.el[j] === "N");
@@ -1029,7 +1033,7 @@ class Namer {
       if (tpl.el.length !== atoms.length || tpl.bonds !== bonds || tpl.formula !== formula) continue;
       const nums = this.match(tpl, atoms, ring);
       if (!nums.length) continue;
-      const f = { tpl, nums, cn, d, ring };
+      const f = { tpl, nums, cn, d, ring, dehydro };
       this.fusedCache.set(k, f);
       return f;
     }
@@ -1042,25 +1046,36 @@ class Namer {
     const own = (a: number) => ring(a).filter((b) => !p.fixed?.includes(b)).length;
     const sp2 = (a: number) => (this.el[a] === "C" || ring(a).length < 3 || ring(a).some((b) => this.ord(a, b) === 2)) && !p.fixed?.includes(a) && own(a) < 4;
     const tpl: Fused = { name: p.name, labels: p.labels, el: [], adj: [], order: [], bonds, formula, odd: cn.filter(sp2).length % 2 === 1, uncited: p.uncited, hydrogens: p.hydrogens, bridges: p.bridges };
-    const f = { tpl, nums: p.nums, cn: cn.filter(sp2), d: d.filter(sp2), ring };
+    if (dehydro.some((b) => b.some((a) => !sp2(a)))) throw new Error("ring bonds"); // in a bridge or a saturated spiro ring
+    const f = { tpl, nums: p.nums, cn: cn.filter(sp2), d: d.filter(sp2), ring, dehydro };
     this.fusedCache.set(k, f);
     return f;
   }
   // Two rings that are not ortho-fused (or fused with no name in the table): a bicyclic von Baeyer system (P-23.2,
   // bicyclo[2.2.1]heptane) or a monospiro system (P-24.2, spiro[4.5]decane), with every numbering the rules allow and
-  // then the lowest locants to heteroatoms (P-31.1.4.2.4), which are named by replacement (7-oxa, 1,4-diaza).
+  // then the lowest locants to heteroatoms (P-31.1.4.2.4), which are named by replacement (7-oxa, 1,4-diaza). Three
+  // rings or more: a polycyclic von Baeyer system (vonbaeyer.ts), or adamantane and cubane (P-23.7) with no ring
+  // multiple bond.
   bridgedInfo(k: number): Bridged | undefined {
     const atoms = this.rings[k], sys = new Set(atoms), ring = (a: number) => this.adj[a].filter((j) => sys.has(j));
     const bonds = atoms.flatMap((a) => ring(a).filter((b) => a < b).map((b): [number, number] => [a, b]));
-    if (atoms.length === 10 && bonds.length === 12 && atoms.every((a) => ["C", "N", "O", "S"].includes(this.el[a]) && (this.el[a] === "C" || !this.q[a]))) {
+    const unsaturated = bonds.some(([a, b]) => this.ord(a, b) > 1);
+    if (atoms.length === 10 && bonds.length === 12 && !unsaturated && atoms.every((a) => ["C", "N", "O", "S"].includes(this.el[a]) && (this.el[a] === "C" || !this.q[a]))) {
       let nums = this.match(ADAMANTANE, atoms, ring);
       nums = this.lowest(nums, (num) => num.map((a, i) => (this.el[a] !== "C" ? i + 1 : 0)).filter(Boolean));
       for (const e of HETERO_ORDER) nums = this.lowest(nums, (num) => num.map((a, i) => (this.el[a] === e ? i + 1 : 0)).filter(Boolean));
       if (nums.length) return { prefix: "", nums, bonds, retained: "adamantane" };
     }
-    if (bonds.length !== atoms.length + 1 || atoms.some((a) => !["C", "N", "O", "S", "Se", "Si", "Ge", "Sn", "B"].includes(this.el[a]) || (this.el[a] !== "C" && this.q[a] && !this.cationN(a)))) return undefined;
+    if (atoms.some((a) => !["C", "N", "O", "S", "Se", "Si", "Ge", "Sn", "B"].includes(this.el[a]) || (this.el[a] !== "C" && this.q[a] && !this.cationN(a)))) return undefined;
     // Triple bonds are named as -yne (bicyclo[2.2.1]hept-2-yne); an atom with two multiple bonds is not covered.
     if (atoms.some((a) => ring(a).filter((j) => this.ord(a, j) > 1).length > 1)) return undefined;
+    if (bonds.length > atoms.length + 1) {
+      let { prefix, nums } = vonBaeyer(atoms, ring);
+      nums = this.lowest(nums, (num) => num.map((a, i) => (this.el[a] !== "C" ? i + 1 : 0)).filter(Boolean));
+      for (const e of HETERO_ORDER) nums = this.lowest(nums, (num) => num.map((a, i) => (this.el[a] === e ? i + 1 : 0)).filter(Boolean));
+      const cubane = prefix === "pentacyclo[4.2.0.0²,⁵.0³,⁸.0⁴,⁷]" && !unsaturated && atoms.every((a) => this.el[a] === "C");
+      return { prefix, nums, bonds, ...(cubane ? { retained: "cubane" } : {}) };
+    }
     // The atoms from `from` (not included) along `start` until `end`.
     const walk = (from: number, start: number, end: number) => {
       const path: number[] = [];
@@ -1256,7 +1271,7 @@ class Namer {
     if (p.ring) nums = this.lowest(nums, (num) => atoms.filter((a) => this.q[a] === 1 && (this.cationN(a) || this.ions.has(a))).map((a) => loc(num, a)));
     if (fused) {
       nums = this.lowest(nums, (num) => ys(sat(num)).map((a) => loc(num, a)));
-      nums = this.lowest(nums, (num) => sat(num).hydro.map((a) => loc(num, a)));
+      nums = this.lowest(nums, (num) => [...sat(num).hydro, ...(fused.dehydro?.flat() ?? [])].map((a) => loc(num, a))); // hydro and dehydro together
     }
     nums = this.lowest(nums, (num) => multiple(num));
     nums = this.lowest(nums, (num) => multiple(num, 2));
@@ -1291,9 +1306,10 @@ class Namer {
       // Hydro prefixes, then indicated hydrogen, in front of the parent (P-31.1.4.2.4): 2,3-dihydro-1H-indole.
       const { hydro } = sat(num), x = xs(sat(num));
       const h = !hydro.length ? "" : `${hydro.length === fused.cn.length && !fused.tpl.bridges ? "" : hydro.map((a) => label(num, a)).join(",") + "-"}${HYDRO[hydro.length]}hydro`;
+      const dh = fused.dehydro?.flat().map((a) => label(num, a)).sort(locOrder) ?? [];
       // Bridges of a bridged fused system go in front of the parent: 4,7-methanoindene.
       const core = (x.length ? `${x.map((a) => `${label(num, a)}H`).join(",")}-` : "") + lambdaName(fused.tpl.name, lam.map((a) => `${label(num, a)}${this.lambda(a)}`));
-      parent = joinPrefixes(h, fused.tpl.bridges ? joinPrefixes(fused.tpl.bridges, core) : core);
+      parent = joinPrefixes(dh.length ? `${dh.join(",")}-${MULT[dh.length]}dehydro` : "", joinPrefixes(h, fused.tpl.bridges ? joinPrefixes(fused.tpl.bridges, core) : core));
     } else if (assembly) {
       // 1,1'-biphenyl; in brackets before a suffix: [1,1'-biphenyl]-4-carboxylic acid.
       const junction = [...assembly.junction].sort((a, b) => loc(num, a) - loc(num, b)).map((a) => label(num, a)).join(",");
@@ -1309,7 +1325,6 @@ class Namer {
         const at = atoms.filter((a) => (e === "N+" ? this.el[a] === "N" && this.q[a] === 1 : this.el[a] === e && !this.q[a])).map((a) => loc(num, a)).sort((a, b) => a - b).map((l) => `${l}${this.lambda(num[l - 1])}`);
         return at.length ? `${at.join(",")}-${MULT[at.length]}${word}` : "";
       }).filter(Boolean).join("-");
-      if (bridged.retained && multiple(num).length) throw new Error("adamantene");
       parent = (replaced ? `${replaced}${/^\d/.test(bridged.prefix) ? "-" : ""}` : "") + (bridged.retained ?? bridged.prefix + chainStem(size, closure(multiple(num, 2)), closure(multiple(num, 3)), true));
     }
     else parent = (p.ring ? "cyclo" : "") + chainStem(size, multiple(num, 2), multiple(num, 3), p.ring);
@@ -1814,6 +1829,10 @@ class Namer {
     const cited = citedLabels(text ?? "");
     const labelled = this.cip.filter(Boolean).length + [...this.cipBond.values()].filter(Boolean).length;
     if (text && cited !== labelled) throw new Error("stereo not cited");
+    // Indigo ranks a triple bond's duplicate atoms wrongly (it labels (3S)-3-methyl-3-phenylpent-1-yne R), so R or S
+    // next to a ring triple bond is not cited where another branch has three carbons too.
+    const tie = (x: number, y: number) => this.el[y] === "C" && this.adj[y].every((j) => j === x || this.el[j] === "C") && this.adj[y].reduce((t, j) => t + (j === x ? 0 : this.ord(y, j)), 0) === 3;
+    if (this.cip.some((c, x) => (c === "R" || c === "S") && this.adj[x].some((t) => this.inRing[t] && this.adj[t].some((j) => this.inRing[j] && this.ord(t, j) === 3)) && this.adj[x].filter((y) => tie(x, y)).length > 1)) throw new Error("triple bond stereo");
     return text;
   }
   // Candidate parents: every acyclic carbon chain and every ring; the senior one wins (P-44).
