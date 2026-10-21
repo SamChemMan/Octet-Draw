@@ -133,3 +133,13 @@ check("imines", [
   // Prefixes without locants: brackets after the first.
   ["bromochloromethane", "bromo(chloro)methane"], ["mandelic acid", "hydroxy(phenyl)acetic acid"],
 ]);
+
+// Hydrazides (P-66.3.1) and hydroxamic acids (N-hydroxy amides, P-66.1.1.4.?), Weinreb amides, hydroxyurea.
+check("hydrazides", [
+  "acetohydrazide", "benzohydrazide", "propanehydrazide", "formohydrazide", "butanedihydrazide", "N'-phenylacetohydrazide", "N-methylacetohydrazide",
+  "N',N'-dimethylbenzohydrazide", "pyridine-4-carbohydrazide", "N'-acetylacetohydrazide", "4-(hydrazinecarbonyl)benzoic acid",
+  "4-(2-acetylhydrazinyl)benzoic acid", ["semioxamazide", "hydrazinyl(oxo)acetamide"],
+  ["agaritine", "(2S)-2-amino-5-{2-[4-(hydroxymethyl)phenyl]hydrazinyl}-5-oxopentanoic acid"],
+  "N-hydroxyacetamide", "N-hydroxybenzamide", "N-hydroxy-N-phenylacetamide", "N-methoxy-N-methylbenzamide", "N-hydroxyurea", "N,N'-dihydroxyurea",
+  "tert-butyl N-hydroxycarbamate", ["smiles:ONC(=O)CCCCCCC(=O)Nc1ccccc1", "N1-hydroxy-N8-phenyloctanediamide"], // vorinostat
+]);
