@@ -175,6 +175,14 @@ must("onium, ylides", [
   "ethyl (triphenyl-λ5-phosphanylidene)acetate", "1-(triphenyl-λ5-phosphanylidene)propan-2-one", "(cyclohexylidene)(triphenyl)-λ5-phosphane",
   "triphenyl(propan-2-ylidene)-λ5-phosphane", "4-(triphenyl-λ5-phosphanylidene)butanoic acid",
 ]);
+// Sulfonyl azides and phosphorazidates, triazenes, phosphane sulfides, N-nitroso and N-amino sulfonamides.
+must("azides, triazenes", [
+  "4-methylbenzene-1-sulfonyl azide", "methanesulfonyl azide", "4-acetamidobenzenesulfonyl azide", "4-(azidosulfonyl)benzoic acid",
+  "diphenyl phosphorazidate", "3,3-dimethyl-1-phenyltriaz-1-ene", "(1E)-3,3-dimethyl-1-phenyltriaz-1-ene", "4-[(1E)-3,3-dimethyltriaz-1-en-1-yl]benzoic acid",
+  "5-[(1E)-3,3-dimethyltriaz-1-en-1-yl]-1H-imidazole-4-carboxamide", "triphenylphosphane sulfide", "4-(diphenylphosphorothioyl)benzoic acid",
+  "N-methyl-N-nitroso-4-methylbenzene-1-sulfonamide", "4-methylbenzene-1-sulfonohydrazide", "N'-(propan-2-ylidene)-4-methylbenzene-1-sulfonohydrazide",
+  "2-hydroxy-5-[(E)-{4-[(pyridin-2-yl)sulfamoyl]phenyl}diazenyl]benzoic acid",
+]);
 // Small molecules with no carbon (IUPAC 2005, IR-6, IR-8). Single atoms (water, HCl) are not named: a lone atom
 // drawn is ambiguous.
 must("inorganic", [

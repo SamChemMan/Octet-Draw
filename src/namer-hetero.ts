@@ -193,6 +193,10 @@ export function perceiveHetero(n: Namer) {
       const others = [...adj[i], ...adj[m]].filter((j) => j !== i && j !== m);
       if (n.ord(i, m) === 2) {
         if (adj[i].length + h[i] === 2 && adj[m].length + h[m] === 2 && others.every((j) => plainC(n, j) && n.ord(i, j) + n.ord(m, j) === 1)) { n.het.set(i, "N=N"); n.het.set(m, "N=N"); }
+        // A triazene (P-68.3.1.4): R-N=N-NR2, the amine N with only plain carbons and H.
+        const y = adj[m].find((j) => j !== i);
+        if (y !== undefined && el[y] === "N" && free(n, y) && single(n, y) && adj[y].length + h[y] === 3 && adj[y].every((j) => j === m || plainC(n, j))
+          && adj[i].length + h[i] === 2 && adj[m].length === 2 && adj[i].every((j) => j === m || plainC(n, j))) for (const k of [i, m, y]) n.het.set(k, "N3");
         continue;
       }
       // i = the N bonded by a double bond to C (hydrazone), m = the other.
@@ -270,7 +274,31 @@ function ligand(n: Namer, x: number, j: number): string | undefined {
   if (n.el[j] === "S" && !n.inRing[j] && n.adj[j].length === 2 && plainC(n, n.adj[j].find((y) => y !== x)!)) return "SR";
   if (n.el[j] !== "N") return undefined;
   if (n.inRing[j]) return "Nring";
-  return single(n, j) && n.adj[j].length + n.h[j] === 3 && n.adj[j].every((y) => y === x || plainC(n, y) || (n.el[y] === "S" && !n.inRing[y] && oxo(n, y).length === 2)) ? "N" : undefined;
+  if (azideN(n, j) === x) return "N3";
+  return single(n, j) && n.adj[j].length + n.h[j] === 3 && n.adj[j].every((y) => y === x || plainC(n, y) || (n.el[y] === "S" && !n.inRing[y] && oxo(n, y).length === 2) || nitrosoOrAmino(n, y, j)) ? "N" : undefined;
+}
+// An N on an amide N j: nitroso (N-methyl-N-nitroso), amino (a hydrazide: N-amino), or an imine N (=N-, a hydrazone).
+function nitrosoOrAmino(n: Namer, y: number, j: number): boolean {
+  if (n.el[y] !== "N" || n.inRing[y] || n.q[y] || n.ord(y, j) !== 1) return false;
+  const rest = n.adj[y].filter((k) => k !== j);
+  if (rest.length === 1 && n.el[rest[0]] === "O" && n.ord(y, rest[0]) === 2 && n.adj[rest[0]].length === 1) return true;
+  if (single(n, y) && n.adj[y].length + n.h[y] === 3 && rest.every((k) => plainC(n, k))) return true;
+  return rest.length === 1 && !n.h[y] && n.el[rest[0]] === "C" && n.ord(y, rest[0]) === 2 && n.carbonylO[rest[0]] < 0;
+}
+// The atom an azido group (-N=N+=N-) at its first N, i, is bonded to; undefined if i is not one.
+function azideN(n: Namer, i: number): number | undefined {
+  if (n.el[i] !== "N" || n.q[i] || n.adj[i].length !== 2) return undefined;
+  const mid = n.adj[i].find((j) => n.el[j] === "N" && n.q[j] === 1 && n.ord(i, j) === 2);
+  if (mid === undefined || n.adj[mid].length !== 2) return undefined;
+  const end = n.adj[mid].find((j) => j !== i)!;
+  if (n.el[end] !== "N" || n.q[end] !== -1 || n.adj[end].length !== 1 || n.ord(mid, end) !== 2) return undefined;
+  const x = n.adj[i].find((j) => j !== mid)!;
+  return n.ord(i, x) === 1 ? x : undefined;
+}
+// The three N of an azido group on S or P (sulfonyl azides, phosphorazidates), by the atom it hangs on.
+function azideAtoms(n: Namer, i: number): number[] {
+  const mid = n.adj[i].find((j) => n.q[j] === 1)!;
+  return [i, mid, n.adj[mid].find((j) => j !== i)!];
 }
 // S with =O and two other single bonds that namer.ts does not perceive: sulfinic acids, sulfonate and sulfinate esters,
 // sulfonamides and sulfinamides, sulfinyl halides, sulfonic anhydrides, sulfonyl groups on a ring N (on a carbon:
@@ -294,11 +322,20 @@ function perceiveSulfur(n: Namer) {
     lig.forEach((j, k) => {
       if (types[k] === "OH" || types[k] === "X") n.sulfur.add(j);
       else if (types[k] === "OR" || types[k] === "N" || types[k] === "bridge") n.het.set(j, `S${types[k]}`);
+      if (types[k] === "N3") for (const a of azideAtoms(n, j)) n.het.set(a, "SN3");
+      if (types[k] === "N") for (const y of n.adj[j]) if (y !== s && n.el[y] === "N" && !n.het.has(y)) claimNN(n, y);
     });
     if (!on.length || (t === "Nring" && cs.length)) continue; // sulfuric acid derivatives; a sulfonyl on a ring N
-    const kind = t === "OH" ? "sulfonic" : t === "X" ? "sulfonylhalide" : t === "OR" ? "sulfonate" : t === "N" ? "sulfonamide" : t === "bridge" ? "anhydride" : undefined;
+    const kind = t === "OH" ? "sulfonic" : t === "X" || t === "N3" ? "sulfonylhalide" : t === "OR" ? "sulfonate" : t === "N" ? "sulfonamide" : t === "bridge" ? "anhydride" : undefined;
     if (kind) n.mark(s, kind as never, on);
   }
+}
+// An N on a sulfonamide or phosphoramide N (nitroso, amino or imine N), with its =O: claimed so that it is named from
+// the amide N (N-nitroso, N-amino, N-[(propan-2-ylidene)amino]).
+function claimNN(n: Namer, y: number) {
+  const o = n.adj[y].find((k) => n.el[k] === "O" && n.ord(y, k) === 2);
+  n.het.set(y, o === undefined ? "NN'" : "N=O");
+  if (o !== undefined) n.het.set(o, "N=O");
 }
 // The N of a sulfonamide group (for its N-substituents as N-prefixes).
 export function sulfonamideN(n: Namer, kind: string | undefined, s: number): number | undefined {
@@ -328,6 +365,7 @@ function sulfurPrefix(n: Namer, x: number, from: number): Name | undefined {
   const t = ligand(n, x, j);
   if (t === "OH") return { text: os.length === 2 ? "sulfo" : "sulfino", compound: false };
   if (t === "X") return { text: `${HALO[n.el[j]]}${word}`, compound: true };
+  if (t === "N3") return { text: `azido${word}`, compound: true };
   if (t === "OR") return { text: `${enclose(n.substituent(j, x))}${word}`.replace(/^\(([a-z-]+oxy)\)(sulf[a-z]+)$/, "$1$2"), compound: true };
   if (t === "N") {
     const subs = n.adj[j].filter((y) => y !== x).map((y) => n.substituent(y, j)), amoyl = os.length === 2 ? "sulfamoyl" : "sulfinamoyl";
@@ -358,10 +396,15 @@ function perceiveCentres(n: Namer) {
     const os = [...oxo(n, p), ...thioxo(n, p)], rest = n.adj[p].filter((j) => !os.includes(j));
     if (os.length > 1 || rest.some((j) => n.ord(p, j) !== 1) || os.length + rest.length + n.h[p] !== (os.length ? 4 : 3)) continue;
     const lig = rest.filter((j) => n.el[j] !== "C"), types = lig.map((j) => ligand(n, p, j));
-    if (!lig.length || rest.some((j) => n.el[j] === "C" && !plainC(n, j)) || types.some((t) => !t)) continue;
+    if (rest.some((j) => n.el[j] === "C" && !plainC(n, j)) || types.some((t) => !t)) continue;
+    if (!lig.length) { if (os.length === 1 && n.el[os[0]] === "S" && !n.h[p]) { n.het.set(p, "PS3"); n.het.set(os[0], "P-"); } continue; } // triphenylphosphane sulfide
     n.het.set(p, "P");
     for (const o of os) n.het.set(o, "P-");
-    lig.forEach((j, k) => { if (types[k] !== "Nring" && !n.het.has(j)) n.het.set(j, "P-"); });
+    lig.forEach((j, k) => {
+      if (types[k] === "N3") for (const a of azideAtoms(n, j)) n.het.set(a, "P-");
+      else if (types[k] !== "Nring" && !n.het.has(j)) n.het.set(j, "P-");
+      if (types[k] === "N") for (const y of n.adj[j]) if (y !== p && n.el[y] === "N" && !n.het.has(y)) claimNN(n, y);
+    });
   }
 }
 // A sulfanium cation (R3S+, trimethylsulfanium) or sulfoxonium cation (R3S+=O, trimethylsulfoxonium) at x.
@@ -415,6 +458,11 @@ export function heteroCharged(n: Namer, i: number): boolean {
   const { el, q, adj } = n;
   if (el[i] === "I" && q[i] === 1) return !n.inRing[i] && adj[i].length === 2 && adj[i].every((j) => el[j] === "C" && n.ord(i, j) === 1); // diphenyliodanium
   if (el[i] === "S" && q[i] === 1) return !n.inRing[i] && !n.h[i] && sulfonium(n, i); // trimethylsulfanium
+  if (el[i] === "N" && q[i]) { // an azido group on S or P: sulfonyl azides, phosphorazidates
+    const mid = q[i] === 1 ? i : adj[i][0], first = adj[mid]?.find((j) => j !== i && !q[j]) ?? (q[i] === 1 ? adj[i].find((j) => !q[j]) : undefined);
+    const on = first === undefined ? undefined : azideN(n, first);
+    if (on !== undefined && (el[on] === "S" || el[on] === "P")) return true;
+  }
   if (nOxideO(n, i) || (el[i] === "N" && q[i] === 1 && adj[i].some((o) => nOxideO(n, o)))) return true;
   if (el[i] === "P" && q[i] === 1) return !n.inRing[i] && adj[i].length + n.h[i] === 4 && adj[i].every((j) => el[j] === "C" && n.ord(i, j) === 1);
   const x = el[i] === "N" ? i : el[i] === "O" && q[i] === -1 && adj[i].length === 1 ? adj[i][0] : -1;
@@ -438,7 +486,7 @@ function centreClass(n: Namer, x: number): string | undefined {
   if (c.types.includes("bridge")) { const chain = phosphateChain(n, x); return !chain ? undefined : chain.oh ? "acid" : "ester"; }
   if (c.types.some((t) => t === "Nring" || t === "?")) return undefined;
   if (c.types.includes("SR") || c.os.some((o) => n.el[o] === "S")) return c.types.every((t) => t === "OR" || t === "SR") ? "ester" : undefined;
-  return c.types.includes("OH") ? "acid" : c.types.includes("OR") ? "ester" : c.types.includes("X") ? "halide" : c.types.includes("N") ? "amide" : undefined;
+  return c.types.includes("OH") ? "acid" : c.types.includes("OR") ? "ester" : c.types.includes("X") || c.types.includes("N3") ? "halide" : c.types.includes("N") ? "amide" : undefined;
 }
 // The last kind of characteristic group (SENIORITY) each class of centre is junior to.
 const OUTRANKED_BY: Record<string, string> = { acid: "sulfonic", ester: "carbamate", halide: "sulfonylhalide", amide: "urea" };
@@ -477,6 +525,12 @@ function phosphorusName(n: Namer, c: Centre): string {
   const base = ["phosphor", "phosphon", "phosphin"][nR], count = (t: string) => c.types.filter((x) => x === t).length;
   if (count("SR") || c.os.some((o) => n.el[o] === "S")) return thiophosphateName(n, c, base, substituted(rs));
   const o = count("OH") + count("OR"), x = count("X"), nn = count("N");
+  if (count("N3")) {
+    // Phosphorazidates (diphenyl phosphorazidate): the azide in the acid's name, like a halide.
+    if (x || nn || count("N3") > 1 || !five) throw new Error("phosphorus");
+    const stem = `${base}${nR ? "o" : ""}azid`;
+    return count("OR") ? `${esterPart(n, c)}${substituted(rs)}${stem}ate` : `${substituted(rs)}${stem}ic acid`;
+  }
   if (x && !o && !nn) {
     const hal = halideOf(n, c), word = { F: "fluoride", Cl: "chloride", Br: "bromide", I: "iodide" }[hal]!;
     if (!five) return `${substituted([...c.lig.map((j) => ({ text: HALO[n.el[j]], compound: false })), ...rs])}phosphane`; // trichlorophosphane
@@ -610,7 +664,7 @@ function centrePrefix(n: Namer, x: number, from: number): Name | undefined {
     const subs = n.adj[x].filter((j) => j !== from).map((j) => (n.ord(x, j) === 2 ? ylidene(n, j, x) : n.substituent(j, x)));
     return { text: `${substituted(subs)}-λ5-phosphanyl${n.ord(x, from) === 2 ? "idene" : ""}`, compound: true };
   }
-  if (role !== "P") return undefined;
+  if (role !== "P" && role !== "PS3") return undefined;
   if (n.h[x]) throw new Error("phosphorus");
   const os = [...oxo(n, x), ...thioxo(n, x)], subs = n.adj[x].filter((j) => j !== from && !os.includes(j)).map((j) => n.substituent(j, x));
   const word = !os.length ? "phosphanyl" : n.el[os[0]] === "S" ? "phosphorothioyl" : "phosphoryl";
@@ -634,11 +688,12 @@ export function heteroPrefix(n: Namer, x: number, from: number): Name | undefine
     return { text: `${s.text === "tert-butyl" ? s.text : enclose(s)}peroxy`, compound: true };
   }
   // An imine N cited from its single bond (P-62.3.1.2): (propan-2-ylideneamino), {[(E)-phenylmethylidene]amino}.
-  if (el === "N" && !role && !n.inRing[x] && !n.q[x] && !n.h[x] && n.adj[x].length === 2 && n.ord(x, from) === 1) {
+  if (el === "N" && (!role || role === "NN'") && !n.inRing[x] && !n.q[x] && !n.h[x] && n.adj[x].length === 2 && n.ord(x, from) === 1) {
     const c = n.adj[x].find((j) => j !== from)!;
     if (n.el[c] === "C" && n.ord(x, c) === 2 && n.carbonylO[c] < 0) return { text: `${enclose(ylidene(n, c, x))}amino`, compound: true };
   }
   if (!role) return undefined;
+  if (role === "N3" && el === "N") return triazenyl(n, x);
   if (role === "NCX" && el === "N") return { text: n.adj[x].some((j) => n.adj[j].some((k) => n.el[k] === "S")) ? "isothiocyanato" : "isocyanato", compound: false };
   if (role === "XCN" && (el === "S" || el === "O")) return { text: el === "S" ? "thiocyanato" : "cyanato", compound: false };
   if (role === "I3" && el === "I") {
@@ -685,6 +740,25 @@ function hydrazinyl(n: Namer, x: number, from: number, m: number, end: string): 
   ];
   return { text: `${assemblePrefixes(list, false)}hydrazin${end}`, compound: list.length > 0 };
 }
+// A triazene, N1=N2-N3: its N atoms in order from x (an end) and the stereodescriptor of its N=N.
+function triazene(n: Namer, x: number): { ns: number[]; ez: string } {
+  const m = n.adj[x].find((j) => n.het.get(j) === "N3")!, y = n.adj[m].find((j) => j !== x)!;
+  const ns = n.ord(x, m) === 2 ? [x, m, y] : [y, m, x], ez = n.cipBond.get(n.key(ns[0], ns[1]));
+  return { ns, ez: ez === "E" || ez === "Z" ? `(1${ez})-` : "" };
+}
+// A triazenyl prefix from its N1 end: (3,3-dimethyltriaz-1-en-1-yl), [(1E)-3,3-dimethyltriaz-1-en-1-yl].
+function triazenyl(n: Namer, x: number): Name {
+  const { ns, ez } = triazene(n, x);
+  if (ns[0] !== x) throw new Error("triazene");
+  const list = n.adj[ns[2]].filter((j) => j !== ns[1]).map((j) => ({ loc: "3", name: n.substituent(j, ns[2]) }));
+  return { text: `${ez}${assemblePrefixes(list, false)}triaz-1-en-1-yl`, compound: true };
+}
+// A triazene as the parent: (1E)-3,3-dimethyl-1-phenyltriaz-1-ene.
+function triazeneName(n: Namer, x: number): string {
+  const { ns, ez } = triazene(n, x);
+  const list = [...n.adj[ns[0]].filter((j) => j !== ns[1]).map((j) => ({ loc: "1", name: n.substituent(j, ns[0]) })), ...n.adj[ns[2]].filter((j) => j !== ns[1]).map((j) => ({ loc: "3", name: n.substituent(j, ns[2]) }))];
+  return `${ez}${assemblePrefixes(list, false)}triaz-1-ene`;
+}
 // A substituent on a hydrazine N: a carbon, or the ylidene of a hydrazone.
 function hydrazineSub(n: Namer, j: number, on: number): Name {
   return n.ord(j, on) === 2 ? ylidene(n, j, on) : n.substituent(j, on);
@@ -705,10 +779,18 @@ export function ylidene(n: Namer, c: number, from: number): Name {
 // only; else undefined, and a carbon parent cites them as prefixes.
 export function heteroParentName(n: Namer, kind: string | undefined): string | undefined {
   if (kind === "anhydride") return sulfonicAnhydrideName(n);
+  if (kind === "sulfonylhalide") {
+    // A sulfonyl azide (4-methylbenzene-1-sulfonyl azide): the acid halide's name with azide.
+    const s = [...n.bearer.keys()].find((g) => n.group[g] === "sulfonylhalide" && n.adj[g].some((j) => n.het.get(j) === "SN3"));
+    if (s !== undefined) { const t = n.parentName("sulfonylhalide", new Set())?.text; return t && `${t} azide`; }
+  }
   const centre = centreName(n, kind);
   if (centre || kind) return centre;
   const roles = [...n.het.values()];
-  const ylides = [...n.het].filter(([, r]) => r === "P=C").map(([x]) => x);
+  const ylides = [...n.het].filter(([, r]) => r === "P=C").map(([x]) => x), sulfides = [...n.het].filter(([, r]) => r === "PS3").map(([x]) => x);
+  if (sulfides.length === 1 && !ylides.length) { const x = sulfides[0]; return `${substituted(n.adj[x].filter((j) => n.el[j] === "C").map((j) => n.substituent(j, x)))}phosphane sulfide`; }
+  const triazenes = [...n.het].filter(([x, r]) => r === "N3" && n.adj[x].some((j) => n.het.get(j) === "N3" && n.ord(x, j) === 2) && n.adj[x].filter((j) => n.het.get(j) === "N3").length === 1).map(([x]) => x);
+  if (triazenes.length === 1 && !ylides.length) return triazeneName(n, triazenes[0]);
   if (ylides.length === 1) { const x = ylides[0]; return `${substituted(n.adj[x].map((j) => (n.ord(x, j) === 2 ? ylidene(n, j, x) : n.substituent(j, x))))}-λ5-phosphane`; }
   const count = (r: string) => roles.filter((x) => x === r).length;
   const pair = (r: string) => { const a = [...n.het].find(([, v]) => v === r)![0]; return [a, n.adj[a].find((j) => n.het.get(j) === r)!]; };

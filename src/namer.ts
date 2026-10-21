@@ -1094,7 +1094,10 @@ function compare(a: number[], b: number[]): number {
 const locantsOf = (name: string) => (name.match(/\d+/g) ?? []).map(Number);
 // Alphabetical order ignores multiplying prefixes of simple substituents, locants and italic prefixes (P-14.5).
 function alphaKey(t: string): string {
-  return t.replace(/^[([{]+/, "").replace(/^((\d+[a-z]?'*)?[RSEZ],?)+\)-/, "").replace(/^((tert|sec|N|\d+[a-z]?'*(,\d+[a-z]?'*)*)-)+/, "").replace(/^(\d+[a-z]?H-)+/, "").replace(/[()[\]{}]/g, "");
+  // Leading brackets, stereodescriptors and locants go, as often as they come: {4-[(pyridin-2-yl)sulfamoyl]phenyl} is p.
+  let k = t, prev;
+  do { prev = k; k = k.replace(/^[([{]+/, "").replace(/^((\d+[a-z]?'*)?[RSEZ],?)+\)-/, "").replace(/^((tert|sec|N|\d+[a-z]?'*(,\d+[a-z]?'*)*)-)+/, "").replace(/^(\d+[a-z]?H-)+/, ""); } while (k !== prev);
+  return k.replace(/[()[\]{}]/g, "");
 }
 // Substituents on a parent without locants (amino, phosphane): phenyl, diphenyl, methyl(diphenyl), in alphabetical order.
 function substituted(subs: Name[]): string {
