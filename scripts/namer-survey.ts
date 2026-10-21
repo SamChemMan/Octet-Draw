@@ -50,6 +50,12 @@ const molOf = (smiles: string): Mol => {
   return { atoms: m.atoms.map((a) => ({ label: a.label, charge: a.charge, ...(a.radical ? { radical: a.radical === 1 ? 3 : a.radical - 1 } : {}), location: [0, 0, 0] as [number, number, number] })), bonds: m.bonds.map((b) => ({ type: b.type, atoms: b.atoms })) };
 };
 const cipOf = (smiles: string) => { const m = parsed(smiles); return { atoms: m.atoms.map((a) => a.cip), bonds: m.bonds.map((b) => b.cip) }; };
+// The hydrogens in the input (Indigo's gross formula). A name that reads back wrong for a structure drawn with a
+// different count (a bare [C], an N with five bonds that loses its H) is not counted: the drawing is not the input.
+const hydrogensOf = (smiles: string) => {
+  const o = new indigo.MapStringString(), sel = new indigo.VectorInt();
+  try { return [...String(JSON.parse(indigo.calculate(smiles, o, sel))["gross-formula"]).matchAll(/\bH(\d*)(?![a-z])/g)].reduce((t, m) => t + Number(m[1] || 1), 0); } finally { o.delete(); sel.delete(); }
+};
 
 
 // The gap survey (not a check): every name OPSIN knows by name (names.txt), Octet's reagent names (common.ts) and
@@ -100,7 +106,7 @@ if (corpus) {
   inputs.length = 0;
   inputs.push(...[...found].map((x) => `smiles:${x}`));
 }
-const why = new Map<string, string[]>(), wrong: string[] = [], right: string[] = [];
+const why = new Map<string, string[]>(), wrong: string[] = [], right: string[] = [], otherH: string[] = [];
 let tried = 0, named = 0;
 for (const input of inputs) {
   let smiles: string | null = null;
@@ -115,9 +121,11 @@ for (const input of inputs) {
   let back: string | null = null;
   try { back = opsin.parseToSmiles(r.name); } catch { back = null; }
   if (back && convert(back, "inchi") === convert(smiles, "inchi")) { named++; right.push(input); }
+  else if (hydrogensOf(smiles) !== g.atoms.reduce((t, a) => t + a.h + (a.el === "H" ? 1 : 0), 0)) { otherH.push(`${input} -> ${r.name}`); tried--; }
   else wrong.push(`${input} -> ${r.name}`);
 }
 console.log(`survey: ${tried} structures, ${named} named right (${(100 * named / tried).toFixed(1)}%), ${wrong.length} wrong, ${tried - named - wrong.length} unnamed`);
+if (otherH.length) console.log(`left out, drawn with other hydrogen counts (${otherH.length}): ${otherH.slice(0, 6).join("; ")}`);
 for (const [k, v] of [...why].sort((a, b) => b[1].length - a[1].length)) console.log(`${String(v.length).padStart(5)}  ${k}: ${v.slice(0, 6).join("; ")}`);
 if (save) { const { writeFileSync } = await import("node:fs"); writeFileSync(save, `${right.join("\n")}\n`); writeFileSync(`${save}.wrong`, `${wrong.join("\n")}\n`); }
 if (wrong.length) console.log(`WRONG (${wrong.length}): ${wrong.slice(0, 40).join("; ")}`);
