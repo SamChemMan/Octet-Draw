@@ -40,6 +40,7 @@ const ANIONS: Record<string, string> = {
   "O3S2-2": "thiosulfate", "NO3-1": "nitrate", "NO2-1": "nitrite", "O4P-3": "phosphate", "HO4P-2": "hydrogenphosphate", "H2O4P-1": "dihydrogenphosphate",
   "N3-1": "azide", "CN-1": "cyanide", "CNS-1": "thiocyanate", "ClO4-1": "perchlorate", "ClO-1": "hypochlorite", "IO4-1": "periodate",
   "MnO4-1": "permanganate", "BF4-1": "tetrafluoroborate", "F6P-1": "hexafluorophosphate", "BH4-1": "tetrahydroborate",
+  "AlH4-1": "tetrahydroaluminate",
 };
 
 // Rings Octet knows by name. key: size, then a (aromatic) or s (saturated), then heteroatoms with their lowest locants.
@@ -976,7 +977,8 @@ class Namer {
           this.mark(j, "amine", adj[j].filter((k) => el[k] === "C"));
           continue;
         }
-        const bridge = (k: number) => k === i || el[k] === "C" || (MAIN[el[k]] && !CHALCOGEN.has(el[k]));
+        // The far side of an O or S bridge: C, these atoms, or a sulfonyl S (silyl sulfonates, which perceive() names).
+        const bridge = (k: number) => k === i || el[k] === "C" || (MAIN[el[k]] && !CHALCOGEN.has(el[k])) || (el[k] === "S" && adj[k].filter((o) => this.isOxo(k, o)).length === 2);
         const twoBonds = (k: number) => !this.q[k] && !h[k] && !this.inRing[k] && adj[k].length === 2 && adj[k].every(bridge);
         if ((HALO[el[j]] && adj[j].length === 1) || (el[j] === "O" && (this.isOH(j) || twoBonds(j))) || (el[j] === "S" && !chalcogen && twoBonds(j))) { this.main.add(j); continue; }
         throw new Error(`${el[i]} bonds`);
@@ -1110,13 +1112,13 @@ class Namer {
     }
     return names.sort((a, b) => compare(locantsOf(a), locantsOf(b)) || a.length - b.length || a.localeCompare(b))[0];
   }
-  // A Hantzsch–Widman name (P-22.2.2) for a saturated or mancude ring of 3 to 10 atoms with Si, B, Se, As and the
-  // like: 1,3,2-dioxaborolane, silinane, 1H-silole, borinine; selenophene and tellurophene are retained (P-22.2.1).
-  // Locant 1 goes to the senior heteroatom (by HW_ORDER), then lowest locants to the heteroatoms together, then in the
-  // order of HW_ORDER, then to indicated hydrogen (P-22.2.2.1.3): 1,2,5-selenadiazole.
-  hantzsch(cycle: number[], nums: number[][], aromatic5: boolean, aromatic6: boolean, doubles: boolean[]): { ring: Ring; numberings: number[][]; aromatic: boolean } {
-    const size = cycle.length, aromatic = aromatic5 || aromatic6;
-    if (!aromatic && cycle.some((a, k) => this.ord(a, cycle[(k + 1) % size]) === 2)) throw new Error("unsaturated heterocycle");
+  // A Hantzsch–Widman name (P-22.2.2) for a ring of 3 to 10 atoms with Si, B, Se, As and the like: 1,3,2-dioxaborolane,
+  // silinane, 1H-silole, borinine; selenophene and tellurophene are retained (P-22.2.1). Locant 1 goes to the senior
+  // heteroatom (by HW_ORDER), then lowest locants to the heteroatoms together, then in the order of HW_ORDER, then to
+  // indicated hydrogen (P-22.2.2.1.3): 1,2,5-selenadiazole. A ring neither saturated nor mancude is its mancude parent
+  // with indicated hydrogen and hydro prefixes, worked out as for a fused ring: 2,5-dihydro-1H-silole, 3H-1,2-diselenole.
+  hantzsch(cycle: number[], nums: number[][], aromatic5: boolean, aromatic6: boolean, doubles: boolean[]): { ring?: Ring; numberings: number[][]; aromatic: boolean; fused?: FusedSys } {
+    const size = cycle.length, partial = !aromatic5 && !aromatic6 && doubles.some(Boolean), aromatic = aromatic5 || aromatic6 || partial;
     if (cycle.some((a) => this.el[a] !== "C" && !HW_ORDER.includes(this.el[a])) || size > 10) throw new Error("unknown ring");
     const at = (num: number[], f: (a: number) => boolean) => num.map((a, k) => (f(a) ? k + 1 : 0)).filter(Boolean);
     const senior = HW_ORDER.find((e) => cycle.some((a) => this.el[a] === e));
@@ -1127,11 +1129,19 @@ class Namer {
     best = this.lowest(best, (num) => sat.map((a) => num.indexOf(a) + 1));
     const num = best[0], present = HW_ORDER.filter((e) => num.some((a) => this.el[a] === e)), one = at(num, (a) => this.el[a] !== "C").length === 1;
     let name = "";
-    if (aromatic5 && one && CHALCOGEN.has(present[0])) name = present[0] === "Se" ? "selenophene" : "tellurophene";
+    if ((aromatic5 || (partial && size === 5)) && one && CHALCOGEN.has(present[0])) name = present[0] === "Se" ? "selenophene" : "tellurophene";
     else {
       const pieces = present.map((e) => { const n = at(num, (a) => this.el[a] === e).length; return (n > 1 ? MULT[n] : "") + (HW_A[e] ?? MAIN[e].a); });
       for (const p of [...pieces, hwStem(size, aromatic, present[present.length - 1])]) name = (name.endsWith("a") && VOWEL.test(p) ? name.slice(0, -1) : name) + p;
       if (!one) name = `${present.flatMap((e) => at(num, (a) => this.el[a] === e)).join(",")}-${name}`;
+    }
+    if (partial) {
+      // The atoms that can take a ring double bond (not O, S, Se, Te, Hg) next to another such atom, and those without one.
+      const ring = (a: number) => this.adj[a].filter((j) => this.ringOf[j] === this.ringOf[a]), pi = (a: number) => !["O", "S", "Se", "Te", "Hg"].includes(this.el[a]);
+      if (cycle.some((a) => ring(a).filter((j) => this.ord(a, j) === 2).length > 1 || (!pi(a) && doubles[cycle.indexOf(a)]))) throw new Error("ring bonds");
+      const cn = cycle.filter((a) => pi(a) && ring(a).some(pi)), d = cn.filter((a) => !doubles[cycle.indexOf(a)]);
+      const tpl: Fused = { name, labels: cycle.map((_, k) => String(k + 1)), el: [], adj: [], order: [], bonds: size, formula: "", odd: cn.length % 2 === 1 };
+      return { numberings: best, aromatic: true, fused: { tpl, nums: best, cn, d, ring } };
     }
     const indicated = sat.filter((a) => !["O", "S", "Se", "Te"].includes(this.el[a]));
     return { ring: { name, stem: name.replace(/e$/, ""), aromatic, hydrogen: indicated.length ? `${num.indexOf(indicated[0]) + 1}H-` : undefined }, numberings: best, aromatic };

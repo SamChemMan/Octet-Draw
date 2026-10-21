@@ -99,6 +99,11 @@ const cases: [string, string?][] = [
   ["selenophene", "selenophene"], ["tellurophene", "tellurophene"], ["2-methylselenophene"], ["selenophene-2-carboxylic acid"],
   ["1-(selenophen-2-yl)ethan-1-one"], ["2,2'-biselenophene"], ["1,3-selenazole", "1,3-selenazole"], ["1,2,5-selenadiazole", "1,2,5-selenadiazole"],
   ["selenane"], ["selenolane"], ["1,3-selenazolidine"],
+  // Rings neither saturated nor mancude: the mancude parent with indicated hydrogen and hydro prefixes.
+  ["1,1-dimethyl-2,5-dihydro-1H-silole", "1,1-dimethyl-2,5-dihydro-1H-silole"], ["smiles:C[Si]1(C)C=CCC1", "1,1-dimethyl-2,3-dihydro-1H-silole"],
+  ["1,2-dihydro-1,2-azaborinine", "1,2-dihydro-1,2-azaborinine"], ["3H-1,2-diselenole", "3H-1,2-diselenole"], ["4,5-dihydro-1,2-selenazole"],
+  ["2H-selenopyran", "2H-selenine"], ["4H-selenopyran", "4H-selenine"], ["3,6-dihydro-2H-1,2-oxaborinine"], ["smiles:O=C1C=C[Se]C1", "selenophen-3(2H)-one"],
+  ["2,3-dihydroselenophene", "2,3-dihydroselenophene"],
   ["(methyltellanyl)benzene"], ["(phenyltellanyl)benzene"], ["benzenetellurol"], ["benzenetelluronic acid"],
   // Benzo-fused rings with Se, Te and B: ebselen, tavaborole, crisaborole, catechol boronates.
   ["1-benzoselenophene", "1-benzoselenophene"], ["1-benzoselenophene-2-carboxylic acid"], ["1-benzotellurophene"], ["2-benzoselenophene"],
@@ -117,6 +122,7 @@ const cases: [string, string?][] = [
   ["tributyl(thiophen-2-yl)stannane"], ["tributyl(prop-2-en-1-yl)stannane"], ["hexabutyldistannane", "hexabutyldistannane"],
   ["hexabutyldistannoxane", "hexabutyldistannoxane"], ["2-(trimethylstannyl)pyridine"], ["tetraethylplumbane", "tetraethylplumbane"],
   ["triethylalumane"], ["trimethylgallane"], ["trimethylindigane"], ["1H-alumole"], ["bis(2-methylpropyl)alumane"], ["chloro(diethyl)alumane"],
+  ["lithium aluminium hydride", "lithium tetrahydroaluminate"], ["smiles:Cl[Al](Cl)Cl", "trichloroalumane"], ["smiles:Cl[Sn](Cl)(Cl)Cl", "tetrachlorostannane"],
   ["smiles:CCCC[Sn](CCCC)(CCCC)SC1=CC=CC=C1", "tributyl(phenylsulfanyl)stannane"], ["smiles:CC[Hg]Sc1ccccc1C(=O)O", "2-[(ethylmercurio)sulfanyl]benzoic acid"],
   ["dimethylmercury", "dimethylmercury"], ["chloro(methyl)mercury", "chloro(methyl)mercury"], ["diphenylmercury"],
   ["(acetyloxy)(phenyl)mercury", "(acetyloxy)(phenyl)mercury"], ["4-(chloromercurio)benzoic acid", "4-(chloromercurio)benzoic acid"],
