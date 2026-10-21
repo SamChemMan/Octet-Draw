@@ -379,18 +379,24 @@ const RETAINED: [string, string, string, string?][] = [
   ["phenothiazine", "phenothiazino", "C1=CC=CC=2SC3=CC=CC=C3NC12"], ["phenoxathiine", "phenoxathiino", "C1=CC=CC=2OC3=CC=CC=C3SC12"],
   ["thianthrene", "thianthreno", "C1=CC=CC=2SC3=CC=CC=C3SC12"], ["fluoranthene", "fluorantheno", "C1=CC=C2C=CC=C3C4=CC=CC=C4C1=C23"],
   ["acephenanthrylene", "acephenanthryleno", "C1=CC=C2C=CC3=CC4=CC=CC=C4C1=C23"], ["aceanthrylene", "aceanthryleno", "C1=CC2=CC=CC3=CC4=CC=CC=C4C1=C23"],
-  ["triphenylene", "triphenyleno", "C1=CC=CC=2C3=CC=CC=C3C3=CC=CC=C3C12"], ["pyrene", "pyreno", "C1=CC=C2C=CC3=CC=CC4=CC=C1C2=C34"],
+  ["triphenylene", "triphenyleno", "C1=CC=CC=2C3=CC=CC=C3C3=CC=CC=C3C12"], 
   ["chrysene", "chryseno", "C1=CC=CC=2C3=CC=C4C=CC=CC4=C3C=CC12"], ["tetracene", "tetraceno", "C1=CC=CC2=CC3=CC4=CC=CC=C4C=C3C=C12"],
   ["tetraphene", "tetrapheno", "C1=CC=CC2=CC=C3C=C4C=CC=CC4=CC3=C12"], ["picene", "piceno", "C1=CC=CC2=CC=C3C4=CC=C5C=CC=CC5=C4C=CC3=C21"],
-  ["perylene", "peryleno", "C1=CC=C2C=CC=C3C4=CC=CC5=CC=CC(C1=C23)=C45"], ["pentaphene", "pentapheno", "C1=CC=CC2=CC3=CC=C4C=C5C=CC=CC5=CC4=C3C=C12"],
+  ["pentaphene", "pentapheno", "C1=CC=CC2=CC3=CC=C4C=C5C=CC=CC5=CC4=C3C=C12"],
   ["pentacene", "pentaceno", "C1=CC=CC2=CC3=CC4=CC5=CC=CC=C5C=C4C=C3C=C12"], ["hexaphene", "hexapheno", "C1=CC=CC2=CC3=CC=C4C=C5C=C6C=CC=CC6=CC5=CC4=C3C=C12"],
-  ["hexacene", "hexaceno", "C1=CC=CC2=CC3=CC4=CC5=CC6=CC=CC=C6C=C5C=C4C=C3C=C12"], ["rubicene", "rubiceno", "C1=CC=C2C3=CC=CC=C3C=3C4=CC=CC=5C6=CC=CC=C6C(=C1C23)C45"],
-  ["coronene", "coroneno", "C1=CC2=CC=C3C=CC4=CC=C5C=CC6=CC=C1C1=C6C5=C4C3=C21"], ["trinaphthylene", "trinaphthyleno", "C1=CC=CC2=CC=3C4=CC5=CC=CC=C5C=C4C4=CC5=CC=CC=C5C=C4C3C=C12"],
+  ["hexacene", "hexaceno", "C1=CC=CC2=CC3=CC4=CC5=CC6=CC=CC=C6C=C5C=C4C=C3C=C12"], 
+  ["trinaphthylene", "trinaphthyleno", "C1=CC=CC2=CC=3C4=CC5=CC=CC=C5C=C4C4=CC5=CC=CC=C5C=C4C3C=C12"],
   ["heptaphene", "heptapheno", "C1=CC=CC2=CC3=CC4=CC=C5C=C6C=C7C=CC=CC7=CC6=CC5=C4C=C3C=C12"], ["heptacene", "heptaceno", "C1=CC=CC2=CC3=CC4=CC5=CC6=CC7=CC=CC=C7C=C6C=C5C=C4C=C3C=C12"],
-  ["pyranthrene", "pyranthreno", "C1=CC=CC=2C3=CC4=CC=C5C=C6C=CC=CC6=C6C=C7C=CC(=CC12)C3=C7C4=C56"],
+  
   ["tetraphenylene", "tetraphenyleno", "C1=CC=CC=2C3=CC=CC=C3C3=CC=CC=C3C3=CC=CC=C3C12"],
-  ["ovalene", "ovaleno", "C1=CC2=CC=C3C=CC4=CC5=CC=C6C=CC7=CC=C8C=C1C1=C2C3=C4C4=C5C6=C7C8=C14"],
-  // Retained numbering (exceptions to FR-5.3).
+  
+  // Retained numbering (exceptions to FR-5.3), and peri-fused parents with interior locants as OPSIN reads them.
+  ["pyrene", "pyreno", "1-2 2-3 3-3a 3a-4 4-5 5-5a 5a-6 6-7 7-8 8-8a 8a-9 9-10 10-10a 1-10a 10a-10b 3a-10b 10b-10c 5a-10c 8a-10c", ""],
+  ["perylene", "peryleno", "1-2 2-3 3-3a 3a-4 4-5 5-6 6-6a 6a-6b 6b-7 7-8 8-9 9-9a 9a-10 10-11 11-12 12-12a 12a-12b 1-12b 3a-12c 6a-12c 12b-12c 6b-12d 9a-12d 12a-12d", ""],
+  ["coronene", "coroneno", "1-2 2-2a 2a-3 3-4 4-4a 4a-5 5-6 6-6a 6a-7 7-8 8-8a 8a-9 9-10 10-10a 10a-11 11-12 12-12a 1-12a 2a-12b 12b-12c 4a-12c 12c-12d 6a-12d 12d-12e 8a-12e 12e-12f 10a-12f 12f-12g 12a-12g 12b-12g", ""],
+  ["ovalene", "ovaleno", "1-2 2-2a 2a-3 3-4 4-4a 4a-5 5-6 6-6a 6a-7 7-7a 7a-8 8-9 9-9a 9a-10 10-11 11-11a 11a-12 12-13 13-13a 13a-14 14-14a 1-14a 14a-14b 14b-14c 2a-14c 14c-14d 4a-14d 14d-14e 6a-14e 14e-14f 14f-14g 7a-14g 14g-14h 9a-14h 14h-14i 11a-14i 14i-14j 13a-14j 14j-14k 14b-14k 14f-14k", ""],
+  ["pyranthrene", "pyranthreno", "1-2 2-3 3-4 4-4a 4a-4b 4b-5 5-5a 5a-6 6-7 7-7a 7a-8 8-8a 8a-9 9-10 10-11 11-12 12-12a 8a-12a 12a-12b 12b-13 13-13a 13a-14 14-15 15-15a 15a-16 16-16a 1-16a 4a-16a 4b-15b 15a-15b 15b-15c 13a-15c 15c-15d 5a-15d 15d-15e 7a-15e 12b-15e", ""],
+  ["rubicene", "rubiceno", "1-2 2-3 3-3a 3a-3b 3b-4 4-5 5-6 6-7 7-7a 3b-7a 7a-7b 7b-7c 7c-8 8-9 9-10 10-10a 10a-10b 10b-11 11-12 12-13 13-14 14-14a 10b-14a 14a-14b 14b-14c 1-14c 3a-14d 7b-14d 14c-14d 7c-14e 10a-14e 14b-14e", ""],
   ["anthracene", "anthra", ANTHRACENE, ""], ["acridine", "acridino", ANTHRACENE, "N10"], ["xanthene", "xantheno", ANTHRACENE, "O10"],
   ["thioxanthene", "thioxantheno", ANTHRACENE, "S10"],
   ["phenanthrene", "phenanthro", "1-2 2-3 3-4 4-4a 4a-4b 4b-5 5-6 6-7 7-8 8-8a 8a-9 9-10 10-10a 10a-1 4a-10a 4b-8a", ""],
@@ -406,7 +412,7 @@ const RETAINED: [string, string, string, string?][] = [
 
 // A component as matched: its atoms in its own locant order (one array for each numbering), its locants, its periphery
 // (indices, from locant 1 towards 2), and its seniority (FR-2.3; lower is more senior).
-type Template = { name: string; prefix: string; el: string[]; adj: number[][]; labels: string[]; peri: number[]; rings: number; sizes: number[]; row: number };
+type Template = { name: string; prefix: string; el: string[]; adj: number[][]; labels: string[]; peri: number[]; rings: number; sizes: number[]; row: number; given: boolean };
 type Comp = { name: string; prefix: string; rings: number[]; nums: number[][]; labels: string[]; peri: number[]; key: number[]; carbo: boolean };
 
 const locOrder = (a: string, b: string) => parseInt(a) - parseInt(b) || (a < b ? -1 : a > b ? 1 : 0);
@@ -439,7 +445,7 @@ function retained(): Template[] {
     const sys = ringSystem(el, adj);
     let row = 0;
     try { row = numberSystem(sys)[0].row; } catch { /* no drawing: no preference by orientation */ }
-    return { name, prefix, el, adj, labels, peri, rings: sys.rings.length, sizes: sys.rings.map((r) => r.length).sort((a, b) => b - a), row };
+    return { name, prefix, el, adj, labels, peri, rings: sys.rings.length, sizes: sys.rings.map((r) => r.length).sort((a, b) => b - a), row, given: hetero !== undefined };
   });
   return templates;
 }
@@ -874,7 +880,7 @@ function ortho(lel: string[], ladj: number[][]): Parent {
   for (const t of retained()) {
     if (t.el.length !== lel.length || t.rings !== sys.rings.length) continue;
     const nums = isomorphisms(t.el, t.adj, lel.map((_, i) => i), (i) => lel[i], (i) => ladj[i]);
-    if (nums.length) return { name: t.name, labels: t.labels, nums, uncited: inner(t.labels, t.labels.length - t.peri.length) };
+    if (nums.length) return { name: t.name, labels: t.labels, nums, uncited: t.given ? [] : inner(t.labels, t.labels.length - t.peri.length) };
   }
   const num = numberSystem(sys);
   return { name: fusionName(sys, num[0]), labels: num[0].labels, nums: num.map((n) => n.path), uncited: inner(num[0].labels, num[0].interior.length) };
