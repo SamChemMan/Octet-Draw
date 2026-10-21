@@ -243,11 +243,12 @@ function sameSide(m: Mol, beg: number, end: number, nb: number, ne: number): num
 }
 
 // The drawing's stereo units: centres set by stereo bonds (or 3D places), and double bonds (and cumulenes with an odd
-// number of double bonds) between C, N, Si or Ge with a drawn substituent on each end. Stereo bonds, as ChemDraw reads them: a wedge (solid or hollow) or hashed wedge
-// from the centre; and on a centre where none starts, a wedge whose wide end is on it (Indigo's bidirectional mode),
-// a hashed or dashed bond (away from the viewer) and a bold one out of a ring (towards the viewer). A bold ring bond
-// draws a ring in perspective (a Haworth projection), not a centre. Left out: a centre or double bond with a wavy bond
-// on it, a crossed (either) double bond, and a double bond in a ring of fewer than 8 atoms.
+// number of double bonds) between C, N, Si or Ge with a drawn substituent on each end. Stereo bonds, as ChemDraw
+// reads them: a wedge (solid or hollow) or hashed wedge from the centre; and on a centre where none starts, a wedge
+// whose wide end is on it (Indigo's bidirectional mode), a hashed or dashed bond (away from the viewer) and a bold one
+// out of a ring (towards the viewer). A bold ring bond draws a ring in perspective (a Haworth projection), not a
+// centre. Left out: a centre or double bond with a wavy bond on it, a crossed (either) double bond, and a double bond
+// in a ring of fewer than 8 atoms.
 function stereoUnits(m: Mol, c: Chem): Unit[] {
   const units: Unit[] = [], n = m.atoms.length;
   const wavy = new Set(m.bonds.flatMap((b) => (b.display === "wavy" ? b.atoms : [])));
