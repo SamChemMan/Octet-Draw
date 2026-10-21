@@ -837,6 +837,8 @@ class Namer {
     if (opts.attach) nums = this.lowest(nums, (num) => [loc(num, opts.attach![0])]);
     if (opts.acyl) nums = nums.filter((num) => num[0] === atoms[0]);
     nums = this.lowest(nums, (num) => sites.map((s) => loc(num, s.atom)));
+    // A ring's cationic centres (-ium) come next, as suffixes do (P-31.1.4.2.4): 6-methylpyrimidin-1-ium.
+    if (p.ring) nums = this.lowest(nums, (num) => atoms.filter((a) => this.q[a] === 1 && (this.cationN(a) || this.ions.has(a))).map((a) => loc(num, a)));
     if (fused) {
       nums = this.lowest(nums, (num) => one(sat(num).y).map((a) => loc(num, a)));
       nums = this.lowest(nums, (num) => sat(num).hydro.map((a) => loc(num, a)));
@@ -1540,6 +1542,19 @@ function speciesName(g: Graph): string | undefined {
   return a.charge > 0 && !a.h && a.el !== "H" && ELEMENTS.has(a.el) ? `${ELEMENTS.get(a.el)}(${a.charge}+)` : undefined;
 }
 
+// An N-oxide (P-62.5): the amine or ring with one N, named without its O-, then "N-oxide": pyridine N-oxide,
+// N,N-dimethylmethanamine N-oxide, 4-methylmorpholine N-oxide. Undefined for anything else.
+function nOxideName(g: Graph): string | undefined {
+  const charged = g.atoms.flatMap((a, i) => (a.charge ? [i] : []));
+  if (charged.length !== 2 || g.atoms.filter((a) => a.el === "N").length !== 1) return undefined;
+  const o = charged.find((i) => g.atoms[i].el === "O" && g.atoms[i].charge === -1 && !g.atoms[i].h), n = charged.find((i) => g.atoms[i].el === "N" && g.atoms[i].charge === 1);
+  const bond = g.bonds.find((b) => (b.a === o && b.b === n) || (b.a === n && b.b === o));
+  if (o === undefined || n === undefined || !bond || bond.order !== 1 || g.bonds.filter((b) => b.a === o || b.b === o).length !== 1) return undefined;
+  const keep = g.atoms.map((_, i) => i).filter((i) => i !== o), index = new Map(keep.map((i, k) => [i, k]));
+  const amine: Graph = { atoms: keep.map((i) => ({ ...g.atoms[i], charge: 0 })), bonds: g.bonds.filter((b) => b !== bond).map((b) => ({ ...b, a: index.get(b.a)!, b: index.get(b.b)! })) };
+  try { const name = new Namer(amine).name(); return name && `${name} N-oxide`; } catch { return undefined; }
+}
+
 export function iupacName(g: Graph): string | undefined {
   return iupacNameWhy(g).name;
 }
@@ -1560,7 +1575,7 @@ export function iupacNameWhy(g: Graph): { name?: string; why?: string } {
       while (stack.length) { const i = stack.pop()!; for (const j of adj[i]) if (!seen.has(j)) { seen.add(j); part.push(j); stack.push(j); } }
       parts.push(part);
     }
-    const name = parts.length === 1 ? speciesName(g) ?? new Namer(g).name() : saltName(g, parts);
+    const name = parts.length === 1 ? speciesName(g) ?? nOxideName(g) ?? new Namer(g).name() : saltName(g, parts);
     return name ? { name } : { why: parts.length === 1 ? "no name" : "salt" };
   } catch (e) {
     return { why: e instanceof Error ? e.message : String(e) };

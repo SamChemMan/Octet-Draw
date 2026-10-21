@@ -92,8 +92,12 @@ run("zwitterions", [
   "4-azaniumylbenzoate", "1-methylpyridin-1-ium-3-carboxylate", "pyridine N-oxide", "4-phenylpyridine 1-oxide", "trimethylamine N-oxide",
   "(3R)-3-hydroxy-4-(trimethylazaniumyl)butanoate", "2-(dimethylsulfaniumyl)acetate", "(2S)-2,6-bis(azaniumyl)hexanoate",
   "(triphenylphosphaniumyl)methanide", "(pyridin-1-ium-1-yl)acetate", "smiles:C[n+]1ccn(CC(=O)[O-])c1", "N-methylpropan-2-imine N-oxide",
-  "smiles:[CH2-][S+](C)(C)=O",
+  "smiles:[CH2-][S+](C)(C)=O", "4-methylmorpholine N-oxide", "quinoline N-oxide", "smiles:[O-][N+]1=CC=C(N(C)C)C=C1",
+  "smiles:Cc1[nH+]cncc1",
 ]);
+// N-oxides of a structure with one N take the N-oxide name (P-62.5).
+assert.equal(iupacName(graphOf(molOf("C[N+](C)(C)[O-]"))!), "N,N-dimethylmethanamine N-oxide");
+assert.equal(iupacName(graphOf(molOf("[O-][n+]1ccccc1"))!), "pyridine N-oxide");
 // Salts (IR-5): metal and organic ions, Stock numbers, hydrogen halides and water of crystallisation.
 run("salts", [
   "smiles:[Fe+3].[Cl-].[Cl-].[Cl-]", "smiles:[Cu+2].[Cl-].[Cl-]", "iron(II) sulfate", "copper(II) sulfate pentahydrate",
