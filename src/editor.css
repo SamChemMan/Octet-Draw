@@ -183,9 +183,9 @@ circle.mark {
   user-select: text;
 }
 
-/* Captions draw in ink. The caption box sits exactly over the caption, so the text does not jump when typing starts. */
+/* Captions draw in their own colour (their fill), else in ink. The caption box sits exactly over the caption, so the
+   text does not jump when typing starts. */
 .caption {
-  fill: var(--ink);
   white-space: pre;
 }
 .canvas[data-tool="text"] {

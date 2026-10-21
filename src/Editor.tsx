@@ -83,7 +83,7 @@ import { loadTemplates, MY_SET, newTemplate, setName, templateKind } from "./tem
 import { formulaRuns, isElement } from "./labels";
 import { captionAtom, captionsToAtoms, interpretLabels, typedElement } from "./edit";
 import { bendOf, cutSides } from "./masscut";
-import { common, edited, lines as richLines, normalise, plainOf, runsOf, styleRange, styled, whole, without, type RunStyle, type TextRun } from "./richtext";
+import { common, edited, lines as richLines, normalise, plainOf, runsOf, shareColour, styleRange, styled, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
 import { Dialog } from "./Dialog";
 import { addAttachment, stepSubstituents, anyQuery, enclosed, genericSites, nextRGroup, polymerLabel, polymerTags, rNumber, USAGES, USAGE_KINDS } from "./query";
@@ -319,16 +319,19 @@ function structurePaths(d: Drawing): [string, string][] {
   return paths;
 }
 
+// A colour as drawn on the paper: black ink is white on dark paper.
+const inkOn = (dark: boolean, c: string) => (dark && /^#(000000|0f172a)$/i.test(c) ? "#FFFFFF" : c);
 // A line of rich text as tspans: each run in its style, a subscript 0.212 em down and a superscript 0.33 em up at
-// 75% size (as atom labels), each run starting from where the last one left the baseline.
-function richSpans(runs: TextRun[], size: number, PT: number) {
+// 75% size (as atom labels), each run starting from where the last one left the baseline. A run's own colour draws as
+// the rest of the drawing does on dark paper (inkOn).
+function richSpans(runs: TextRun[], size: number, PT: number, dark: boolean) {
   let shift = 0;
   return runs.map((r, k) => {
     const to = r.script === "sub" ? 0.212 * size : r.script === "super" ? -0.33 * size : 0, dy = to - shift;
     shift = to;
     const px = r.size ? r.size * PT : size;
     return (
-      <tspan key={k} dy={dy || undefined} fill={r.colour} style={{ fontSize: r.script ? px * 0.75 : px, fontWeight: r.bold ? "bold" : undefined, fontStyle: r.italic ? "italic" : undefined, fontFamily: r.font ? fontStack(r.font) : undefined, textDecoration: r.underline ? "underline" : undefined }}>
+      <tspan key={k} dy={dy || undefined} fill={r.colour && inkOn(dark, r.colour)} style={{ fontSize: r.script ? px * 0.75 : px, fontWeight: r.bold ? "bold" : undefined, fontStyle: r.italic ? "italic" : undefined, fontFamily: r.font ? fontStack(r.font) : undefined, textDecoration: r.underline ? "underline" : undefined }}>
         {r.text}
       </tspan>
     );
@@ -394,13 +397,14 @@ const formulaWidth = (text: string, size: number, bold?: boolean, italic?: boole
 const samePlaced = (a: Placed, b: Placed) => a === b || (a.id === b.id && a.size === b.size && a.bold === b.bold && a.italic === b.italic && a.underline === b.underline
   && a.colour === b.colour && a.anchor === b.anchor && a.font === b.font && a.angle === b.angle && a.lines.length === b.lines.length
   && a.lines.every((l, j) => l.text === b.lines[j].text && l.x === b.lines[j].x && l.y === b.lines[j].y && l.spacing === b.lines[j].spacing && JSON.stringify(l.runs) === JSON.stringify(b.lines[j].runs)));
-type CaptionProps = { c: Placed; fill: string; font: string; reagent: boolean; pt: number };
-const CaptionText = memo(({ c, fill, font, reagent, pt }: CaptionProps) => (
+// fill: the caption's own colour, or the drawing's ink (var(--ink)) when it has none. dark: dark paper.
+type CaptionProps = { c: Placed; fill: string; font: string; reagent: boolean; pt: number; dark: boolean };
+const CaptionText = memo(({ c, fill, font, reagent, pt, dark }: CaptionProps) => (
   <text className="caption" textAnchor={c.anchor} textDecoration={c.underline ? "underline" : undefined} fill={fill} style={{ font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${c.size}px ${font}` }}
     transform={c.angle && c.pivot ? `rotate(${-c.angle} ${c.pivot[0]} ${c.pivot[1]})` : undefined}>
-    {c.lines.map((l, j) => <tspan key={j} x={l.x} y={l.y} style={l.spacing ? { wordSpacing: l.spacing } : undefined}>{l.runs ? richSpans(l.runs, c.size, pt) : reagent ? formula(l.text, c.size) : l.text}</tspan>)}
+    {c.lines.map((l, j) => <tspan key={j} x={l.x} y={l.y} style={l.spacing ? { wordSpacing: l.spacing } : undefined}>{l.runs ? richSpans(l.runs, c.size, pt, dark) : reagent ? formula(l.text, c.size) : l.text}</tspan>)}
   </text>
-), (a: CaptionProps, b: CaptionProps) => a.fill === b.fill && a.font === b.font && a.reagent === b.reagent && a.pt === b.pt && samePlaced(a.c, b.c));
+), (a: CaptionProps, b: CaptionProps) => a.fill === b.fill && a.font === b.font && a.reagent === b.reagent && a.pt === b.pt && a.dark === b.dark && samePlaced(a.c, b.c));
 
 // The file on disk and the drawing as last saved (undoing back to it makes the drawing clean again). lost: what
 // Octet could not hold from the file, so Save asks before it writes over the file (REL-11). name: a drawing with no
@@ -588,7 +592,9 @@ export default function Editor() {
   // The atom whose label is being typed, and the text so far. all: every atom the label goes on (several selected
   // atoms, as ChemDraw's ! key labels them all); merge: the step the label joins (> adds a bond, then its label);
   // blank: the box opened empty (the ! and > keys), so closing it with nothing typed keeps the atoms as they were.
-  const [editing, setEditing] = useState<{ atom: number; value: string; all?: number[]; merge?: string; blank?: true }>();
+  // colour: a colour chosen while typing (the label takes it when the box closes, in the same step); "element": Colour
+  // by Element, the colour of the element typed.
+  const [editing, setEditing] = useState<{ atom: number; value: string; all?: number[]; merge?: string; blank?: true; colour?: string }>();
   const labelOpen = useRef(false);
   // The last label typed in a label box: the Text tool's Option-click repeats it (ChemDraw's Repeat Last Label).
   const lastLabel = useRef<string>(undefined);
@@ -2029,7 +2035,7 @@ export default function Editor() {
     return () => q.removeEventListener("change", on);
   }, []);
   const { own, paper, dark: darkPaper } = paperOf(style, systemDark);
-  const textInk = (c: string) => (darkPaper && /^#(000000|0f172a)$/i.test(c) ? "#FFFFFF" : c);
+  const textInk = (c: string) => inkOn(darkPaper, c);
   // The page outlines (mm): the page, then what the drawing's purpose needs (IDEA-SIZE-6).
   const purposeKind = purposeOf(settings, style.purpose)?.kind;
   const pages = useMemo(() => pageOutlines(style, purposeKind), [style, purposeKind]);
@@ -2700,16 +2706,18 @@ export default function Editor() {
     setWriting(undefined);
     if (!w) return;
     const text = w.value.replace(/\s+$/, "");
-    // Runs are kept only when some text has a style of its own; trailing space goes from them as from the text.
-    const runs = w.runs && styled(w.runs) ? edited(w.runs, text) : undefined;
+    // Runs are kept only when some text has a style of its own; trailing space goes from them as from the text. A colour
+    // all the text has becomes the caption's own (shareColour), so it is kept as a colour picked for the whole caption.
+    const own = "colour" in w.style ? w.style.colour : doc.captions?.find((c) => c.id === w.id)?.colour;
+    const { colour, runs } = shareColour(w.runs && styled(w.runs) ? edited(w.runs, text) : undefined, own, style.colour), st = colour !== own ? { ...w.style, colour } : w.style;
     if (w.id !== undefined) {
       const old = doc.captions?.find((c) => c.id === w.id);
       if (!text) return set(deleteGraphics(doc, new Set([w.id])));
-      if (old && (text !== old.text || Object.keys(w.style).length || JSON.stringify(runs) !== JSON.stringify(old.runs))) set(updateCaption(doc, w.id, { text, ...w.style, runs }));
+      if (old && (text !== old.text || Object.keys(st).length || JSON.stringify(runs) !== JSON.stringify(old.runs))) set(updateCaption(doc, w.id, { text, ...st, runs }));
       return setPicked(new Set([w.id]));
     }
     if (!text) return;
-    const [mol, id] = addCaption(doc, { text, x: w.at?.[0] ?? 0, y: w.at?.[1] ?? 0, ...(w.under ? { under: w.under } : {}), ...(w.on ? { on: w.on } : {}), ...(w.cycle ? { cycle: w.cycle } : {}), ...w.style, ...(runs ? { runs } : {}) });
+    const [mol, id] = addCaption(doc, { text, x: w.at?.[0] ?? 0, y: w.at?.[1] ?? 0, ...(w.under ? { under: w.under } : {}), ...(w.on ? { on: w.on } : {}), ...(w.cycle ? { cycle: w.cycle } : {}), ...st, ...(runs ? { runs } : {}) });
     set(mol);
     setPicked(new Set([id]));
     // Text in one style all through (an atom label has one style), typed on its own, not in a quick table.
@@ -3947,6 +3955,8 @@ export default function Editor() {
   const lineOf = <T extends Arrow | Shape | Cycle | Caption>(xs: T[]) => xs.find((x) => !("curve" in x && x.curve?.closed && x.fill)) ?? xs[0];
   // The colour the Actions panel shows as chosen: the first selected thing's (lineOf), for every kind of selection.
   const selectionColour = (context: Context): { value: string; tints?: boolean } | undefined => {
+    // A label being typed: its colour (the colour row is for it while its box is open).
+    if (editing && doc.atoms[editing.atom]) return { value: editing.colour && editing.colour !== "element" ? editing.colour : doc.atoms[editing.atom].colour ?? "#000000" };
     // Pictures take no colour (ChemDraw's pictures have none).
     if (context.kind === "shape" && doc.shapes?.every((x) => !picked.has(x.id) || x.kind === "picture")) return undefined;
     if (context.kind === "caption" || context.kind === "shape") return { value: context.colour, tints: context.kind === "shape" && context.shape === "highlight" };
@@ -4142,7 +4152,7 @@ export default function Editor() {
       const cs = (doc.captions ?? []).filter((c) => picked.has(c.id)), c = cs[0];
       if (c) {
         const p = placed.find((x) => x.id === c.id), w = whole(c);
-        return { kind: "caption", mode: "picked", colour: c.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some(labelable) };
+        return { kind: "caption", mode: "picked", colour: w.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some(labelable) };
       }
     }
     // A stoichiometry grid's cell picked.
@@ -4669,6 +4679,7 @@ export default function Editor() {
   // Colour by Element: the selected (or every) heteroatom label in its element's colour (the brand's element colours,
   // with the user's own from Settings > Colours); carbon and hydrogen keep the ink.
   function colourByElement() {
+    if (editing) return setEditing({ ...editing, colour: "element" }); // a label being typed: its element's colour
     const by = { ...elementColours(), ...settings.elementColours }, atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i));
     set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) && by[a.label] ? { ...a, colour: by[a.label] } : a)) }, true);
   }
@@ -4715,6 +4726,8 @@ export default function Editor() {
     if (command === "delete" && context.kind === "grid") return runAction("grid.remove");
     if (command.startsWith("colour.")) {
       const hex = command.slice(7), ink = hex.toLowerCase() === "#000000" ? undefined : hex;
+      // A label being typed takes the colour when its box closes.
+      if (editing) return setEditing({ ...editing, colour: hex });
       if (context.kind === "grid" && gridPick) return changeGrid(gridPick.arrow, () => ({ colour: ink }));
       if (context.kind === "caption" && context.mode !== "picked") return runAction(`caption.colour.${hex}`);
       if (context.kind === "spot" && spotPick) return set(editSpot(doc, spotPick.plate, spotPick.index, () => ({ colour: ink })), true);
@@ -4724,7 +4737,8 @@ export default function Editor() {
         atoms: context.kind === "bond" ? doc.atoms : doc.atoms.map((a, i) => (selection.has(i) ? { ...a, colour: ink } : a)), // a bond alone keeps its atoms' colours
         bonds: doc.bonds.map((b) => (selection.has(b.atoms[0]) && selection.has(b.atoms[1]) ? { ...b, colour: ink } : b)),
         arrows: doc.arrows?.map(pick), shapes: doc.shapes?.map(pick), cycles: doc.cycles?.map(pick),
-        captions: doc.captions?.map((c) => (picked.has(c.id) ? { ...c, colour: hex.toLowerCase() === style.colour.toLowerCase() ? undefined : hex } : c)),
+        // A whole caption takes the colour on all its characters: its runs lose their own.
+        captions: doc.captions?.map((c) => (picked.has(c.id) ? { ...c, colour: hex.toLowerCase() === style.colour.toLowerCase() ? undefined : hex, ...(c.runs ? { runs: styled(without(c.runs, ["colour"])) ? without(c.runs, ["colour"]) : undefined } : {}) } : c)),
       }, true);
     }
     // Highlight colours and ring fills, as ChemDraw's Highlight and Ring Fill colour toolbars; none takes them off. A
@@ -4973,6 +4987,12 @@ export default function Editor() {
       if (what === "size" && writing && richApi.current?.range()?.[0] !== richApi.current?.range()?.[1]) return styleText((s) => ({ ...s, size: Number(arg) }), what);
       if (what === "size") return restyle(() => ({ size: Number(arg) === style.captionSize ? undefined : Number(arg) }));
       if (what === "align" && arg !== "above" && arg !== "auto") return restyle(() => ({ align: arg as Caption["align"] }));
+      // Colour, as ChemDraw's Color menu: while typing, on the characters selected (or the next ones typed), as the
+      // other text styles; a run in the caption's own colour has none of its own. Else on whole captions.
+      if (what === "colour" && writing) {
+        const own = ("colour" in writing.style ? writing.style.colour : doc.captions?.find((c) => c.id === writing.id)?.colour) ?? style.colour;
+        return styleText((s) => ({ ...s, colour: arg.toLowerCase() === own.toLowerCase() ? undefined : arg }), what);
+      }
       if (what === "colour") return restyle(() => ({ colour: arg.toLowerCase() === style.colour.toLowerCase() ? undefined : arg }));
       const id = [...picked][0];
       if (what === "edit" && id !== undefined) return startWriting({ id });
@@ -6106,7 +6126,7 @@ export default function Editor() {
       ))}
       {labelTexts.filter((_, k) => level(shown.atoms[drawing.parts[k].ids[0]]))}
       {placed.filter(level).map((c) => c.id === (writing?.id ?? DRAFT) || c.id === DRAFT ? null : (
-        <CaptionText key={`c${c.id}`} c={c} fill={textInk(c.colour ?? style.colour)} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} />
+        <CaptionText key={`c${c.id}`} c={c} fill={c.colour ? textInk(c.colour) : "var(--ink)"} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} dark={darkPaper} />
       ))}
     </>
   ), [shown, frame, darkPaper, draggedSpot, spotPick, laneMark?.plate, laneMark?.lane, style, pt, cell?.id, cell?.r, cell?.c, drawing, markDirs, labelTexts, placed, writing?.id, reagents, settings.hideAbs]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -6128,7 +6148,7 @@ export default function Editor() {
         {isOrbital(a) ? orbitalsInk([a]) : a.curve?.closed && a.fill ? curveFill(a) : <path d={kept(arrowInks, a, lined(a.width), () => toPath(arrowShapes(a, lined(a.width), L)))} fill={a.colour ? textInk(a.colour) : "var(--ink)"} />}
       </g>
     )]);
-    for (const c of placed) if (c.order && c.id !== (writing?.id ?? DRAFT) && c.id !== DRAFT) things.push([c.order, <CaptionText key={`oc${c.id}`} c={c} fill={textInk(c.colour ?? style.colour)} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} />]);
+    for (const c of placed) if (c.order && c.id !== (writing?.id ?? DRAFT) && c.id !== DRAFT) things.push([c.order, <CaptionText key={`oc${c.id}`} c={c} fill={c.colour ? textInk(c.colour) : "var(--ink)"} font={fontStack(c.font ?? style.captionFont)} reagent={reagents.has(c.id)} pt={pt} dark={darkPaper} />]);
     things.sort((a, b) => a[0] - b[0]);
     return { back: things.filter(([o]) => o < 0).map(([, x]) => x), front: things.filter(([o]) => o > 0).map(([, x]) => x) };
   }, [shown, frame, darkPaper, draggedSpot, spotPick, laneMark?.plate, laneMark?.lane, style, pt, cell?.id, cell?.r, cell?.c, drawing, labelTexts, placed, arrows, cycleArrows, writing?.id, reagents]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -6366,11 +6386,14 @@ export default function Editor() {
       {editing && doc.atoms[editing.atom] && <Live store={views}>{(view) => {
         // The label box sits on the atom, in the label font at the size the label is drawn and the current zoom.
         const [ax, ay] = pos(doc, editing.atom), a = doc.atoms[editing.atom], drawn = (a.size ?? style.labelSize) * scaleOf(a);
-        // Enter, Escape and a click elsewhere all keep the label; only the first one counts.
+        // Enter, Escape and a click elsewhere all keep the label; only the first one counts. A colour chosen while typing
+        // goes on with the label, in one step (black is the ink: no colour of its own).
+        const ids = editing.all ?? [editing.atom], by = { ...elementColours(), ...settings.elementColours }, chosen = editing.colour;
+        const tint = (m: Mol): Mol => !chosen ? m : { ...m, atoms: m.atoms.map((x, i) => (!ids.includes(i) ? x : { ...x, colour: chosen === "element" ? by[x.label] ?? x.colour : chosen.toLowerCase() === "#000000" ? undefined : chosen })) };
         const commit = () => {
           if (!labelOpen.current) return;
           labelOpen.current = false;
-          if (editing.value.trim() || !editing.blank) set((editing.all ?? [editing.atom]).reduce((m, i) => setLabel(m, i, editing.value), doc), !!editing.all, editing.merge);
+          if (editing.value.trim() || !editing.blank) set(tint(ids.reduce((m, i) => setLabel(m, i, editing.value), doc)), !!editing.all, editing.merge);
           if (editing.value.trim()) lastLabel.current = editing.value.trim();
           setEditing(undefined);
         };
@@ -6382,7 +6405,8 @@ export default function Editor() {
             autoFocus
             spellCheck={false}
             value={editing.value}
-            style={{ left: view.x + ax * L * view.zoom, top: view.y - ay * L * view.zoom, fontSize: frame.size * (drawn / style.labelSize) * view.zoom, fontFamily: fontStack(style.labelFont) }}
+            style={{ left: view.x + ax * L * view.zoom, top: view.y - ay * L * view.zoom, fontSize: frame.size * (drawn / style.labelSize) * view.zoom, fontFamily: fontStack(style.labelFont),
+              color: (chosen === "element" ? by[editing.value.trim()] : chosen) ?? a.colour }}
             onChange={(e) => setEditing({ ...editing, value: e.target.value })}
             onFocus={(e) => e.target.select()}
             onKeyDown={(e) => {

@@ -972,7 +972,8 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         // Colour is a section of its own, titled like the sets below, and set off from the main rows.
         <Fold id="colour" title="Colour" className="colour-block" folded={folded.includes("colour")} onFold={onFold} folds={folds}>
         {/* One colour row for every kind of selection. A highlight takes a pale fill; anything else an ink colour. */}
-        <div className="swatches small" role="radiogroup" aria-label="Colour">
+        {/* A swatch pressed keeps the focus where it is, so a caption or label being typed stays open and takes the colour. */}
+        <div className="swatches small" role="radiogroup" aria-label="Colour" onMouseDown={(e) => e.preventDefault()}>
           {[...(colour.tints ? TINTS : COLOURS), ...palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => (
             <button key={`${name}${hex}`} role="radio" aria-checked={colour.value.toLowerCase() === hex.toLowerCase()} aria-label={name} data-tip={name} className="swatch" style={{ background: hex }} onClick={() => run(`colour.${hex}`)} />
           ))}
