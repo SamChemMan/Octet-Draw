@@ -12,7 +12,8 @@
 // - Linux: the picture is a PNG and an SVG, and the chemistry has its MIME types (chemical/x-cdx and so on).
 //
 // The webview keeps a page's own clipboard types in a form of its own and shows a page only text, HTML and URLs from
-// other apps, so the page cannot read these types itself: paste calls read_clipboard.
+// other apps, so the page cannot read these types itself: paste calls read_clipboard. Paste also reads a picture (a
+// screenshot, a picture copied from a browser): PNG, else the system's bitmap (TIFF on the Mac, the bitmap on Windows).
 
 pub const PDF: &str = "com.adobe.pdf";
 // ChemDraw 26.1 declares the Revvity names too (its Info.plist), and the CambridgeSoft names for the same CDX and CDXML
@@ -70,7 +71,10 @@ fn names(s: System, k: Kind) -> &'static [&'static str] {
             Smiles => &[SMILES],
             Octet => &[OCTET],
             Text => &[TEXT],
-            Png | Bitmap | Svg => &[],
+            // Read only: copy puts a PDF on the Mac.
+            Png => &["public.png"],
+            Bitmap => &["public.tiff"],
+            Svg => &[],
         },
         System::Windows => match k {
             Png => &["PNG"],
@@ -106,6 +110,7 @@ pub struct Clip {
     molfile: Option<String>, // a molfile or RXN file, with LF line ends
     smiles: Option<String>,
     text: Option<String>,    // plain text of 64 KB or less
+    picture: Option<String>, // a picture's file bytes (PNG, TIFF or BMP), base64; the page checks and decodes them
 }
 
 // ChemDraw's form of a molfile on the clipboard (MDL's MDLCT): each line as one length byte, then the line, with no
@@ -237,6 +242,9 @@ fn clip(s: System, read: impl Fn(&str) -> Option<Vec<u8>>) -> Clip {
         molfile: first(s, Kind::Molfile, &read).and_then(|b| molfile_text(&b)),
         smiles: first(s, Kind::Smiles, &read).and_then(|b| smiles_text(&b)),
         text: first(s, Kind::Text, &read).filter(|b| b.len() <= MAX_TEXT).and_then(|b| plain_text(s, b)),
+        picture: first(s, Kind::Png, &read)
+            .or_else(|| first(s, Kind::Bitmap, &read).and_then(|b| if s == System::Windows { bmp_file(&b) } else { Some(b) }))
+            .map(|b| base64::engine::general_purpose::STANDARD.encode(b)),
     };
     // The PDF's CDXML when there is no Octet JSON or CDXML type: it holds the whole drawing, arrows, text and shapes
     // too (REL-4, CH-2). ChemDraw's CDX is the page's next choice, for a copy with no PDF.
@@ -250,7 +258,28 @@ fn clip(s: System, read: impl Fn(&str) -> Option<Vec<u8>>) -> Clip {
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 fn readable(s: System) -> Vec<&'static str> {
     use Kind::*;
-    [Octet, Cdxml, Cdx, Molfile, Smiles, Pdf, Text].iter().flat_map(|k| names(s, *k).iter().copied()).collect()
+    [Octet, Cdxml, Cdx, Molfile, Smiles, Pdf, Text, Png, Bitmap].iter().flat_map(|k| names(s, *k).iter().copied()).collect()
+}
+
+// A Windows bitmap (CF_DIB: its header, colours and pixels) as a .bmp file, which the page's decoder reads: the
+// 14-byte file header goes first, with where the pixels start. None if the header is not sound.
+fn bmp_file(dib: &[u8]) -> Option<Vec<u8>> {
+    let u32_at = |k: usize| dib.get(k..k + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize);
+    let (head, bits, compression, used) = (u32_at(0)?, u16::from_le_bytes([*dib.get(14)?, *dib.get(15)?]), u32_at(16)?, u32_at(32)?);
+    let colours = if used > 0 { used } else if bits <= 8 { 1 << bits } else { 0 };
+    // A 40-byte header with BI_BITFIELDS (3) has its three colour masks after it.
+    let masks = if head == 40 && compression == 3 { 12 } else { 0 };
+    let start = head.checked_add(masks)?.checked_add(colours.checked_mul(4)?)?.checked_add(14)?;
+    if head < 40 || start > dib.len() + 14 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(dib.len() + 14);
+    out.extend_from_slice(b"BM");
+    out.extend_from_slice(&u32::try_from(dib.len() + 14).ok()?.to_le_bytes());
+    out.extend_from_slice(&[0; 4]);
+    out.extend_from_slice(&u32::try_from(start).ok()?.to_le_bytes());
+    out.extend_from_slice(dib);
+    Some(out)
 }
 
 #[cfg(target_os = "macos")]
@@ -389,6 +418,18 @@ mod tests {
         assert_eq!(clip(System::Mac, |name| (name == TEXT).then(|| vec![b'a'; MAX_TEXT + 1])).text, None);
         let utf16: Vec<u8> = "aspirin".encode_utf16().chain([0]).flat_map(u16::to_le_bytes).collect();
         assert_eq!(clip(System::Windows, |name| (name == UNICODE_TEXT).then(|| utf16.clone())).text.as_deref(), Some("aspirin"));
+        // A picture: PNG first, else the system's bitmap (on Windows made a .bmp file).
+        assert_eq!(clip(System::Mac, |n| (n == "public.tiff").then(|| b"MM\0*".to_vec())).picture.as_deref(), Some("TU0AKg=="));
+        assert_eq!(clip(System::Mac, |n| [Some("public.tiff"), Some("public.png")].contains(&Some(n)).then(|| n.as_bytes().to_vec())).picture.as_deref(), Some("cHVibGljLnBuZw=="));
+        let mut dib = vec![0u8; 40 + 4 * 2 + 8];
+        dib[0] = 40;
+        dib[14] = 1; // 1 bit a pixel: two colours, then the pixels
+        let bmp = bmp_file(&dib).unwrap();
+        assert_eq!((&bmp[..2], u32::from_le_bytes(bmp[2..6].try_into().unwrap()), u32::from_le_bytes(bmp[10..14].try_into().unwrap())), (&b"BM"[..], 70, 62));
+        assert_eq!(&bmp[14..], &dib[..]);
+        assert!(clip(System::Windows, |n| (n == DIB).then(|| dib.clone())).picture.is_some());
+        assert_eq!(bmp_file(&dib[..20]), None);
+        assert_eq!(bmp_file(&[&[40, 0, 0, 0][..], &[0; 28], &[255, 255, 255, 255], &[0; 8]].concat()), None);
         // Without it (a picture copied back out of Word), the CDXML comes out of the PDF.
         let c = clip(System::Mac, |name| (name == PDF).then(|| t[0].1.clone()));
         assert!(c.cdxml.unwrap().contains("<CDXML/>"));

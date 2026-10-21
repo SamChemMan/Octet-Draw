@@ -53,6 +53,7 @@ import { ExportButton, ExportDialog } from "./ExportDialog";
 import { FeedbackLink } from "./FeedbackLink";
 import { createPortal, flushSync } from "react-dom";
 import { copyToClipboard, exportFile, MDL, readClipboard, standaloneSvg, UI, withMargin, type ExportFormat } from "./export";
+import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { formatAmount, formulaWeight, keyColumns, parseAmount, solve, type Field } from "./stoich";
 import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
@@ -338,7 +339,7 @@ function richSpans(runs: TextRun[], size: number, PT: number) {
 const OCTET_CLIP = "application/x-octet+json";
 // A file the system asked Octet to open, or dropped on the window (src-tauri/src/open.rs). path: set when Save may
 // write over it. at: where it was dropped, in CSS pixels from the window's top left.
-type OpenedFile = { name: string; path: string | null; text: string | null; error: string | null; at: [number, number] | null };
+type OpenedFile = { name: string; path: string | null; text: string | null; picture: string | null; error: string | null; at: [number, number] | null };
 // Abbreviations Contract Label recognises, each with its InChI when capped with xenon at its attachment point
 // (worked out once, on first use): the groups chemists name, and condensed formulas they write.
 const CONTRACTED = ["OMe", "OEt", "OiPr", "OtBu", "OAc", "OBz", "OBn", "OPh", "OTs", "OMs", "OTf", "OTBS", "OTIPS", "OTBDPS", "OTMS", "OMOM", "OTHP", "OPMB",
@@ -1123,21 +1124,46 @@ export default function Editor() {
   }
   // Files the system asked Octet to open (Finder, Explorer, the Dock, a second launch) or that were dropped on the
   // window (src-tauri/src/open.rs; REL-14, CH-6). Dropped on a drawing, they go into it. Otherwise the first one opens,
-  // as File > Open opens a drawing (Home lists the other drawings), after the question about unsaved changes.
+  // as File > Open opens a drawing (Home lists the other drawings), after the question about unsaved changes. A
+  // picture opens as a new drawing of it, as ChemDraw opens a picture file.
   async function takeOpened() {
-    const insert = !home, files = await invoke<OpenedFile[]>("take_opened", { insert });
-    const read = files.filter((f) => f.text !== null);
-    for (const f of files) if (f.error) setNotice(f.error);
-    if (read.some((f) => !isDrawingText(f.text!))) await ready;
-    const dropped = read.filter((f) => f.at && insert), first = read.find((f) => !(f.at && insert));
-    if (dropped.length) dropFiles(dropped);
-    if (first) keepWork(() => load(first.path ?? undefined, first.text!, first.name.replace(/\.[^.]*$/, "")));
+    const insert = !home;
+    await takeFiles(await invoke<OpenedFile[]>("take_opened", { insert }), insert);
   }
-  // Files dropped on the drawing: their contents go in where they were dropped (the files in a column), selected, as
-  // ChemDraw's drop does. One step to undo.
-  function dropFiles(files: OpenedFile[]) {
+  async function takeFiles(files: OpenedFile[], insert: boolean) {
+    const read = files.filter((f) => f.text !== null || f.picture !== null);
+    for (const f of files) if (f.error) setNotice(f.error);
+    if (read.some((f) => f.text !== null && !isDrawingText(f.text))) await ready;
+    const dropped = read.filter((f) => f.at && insert), first = read.find((f) => !(f.at && insert));
+    if (dropped.length) await dropFiles(dropped);
+    if (first?.picture) {
+      const m = await pictureDrawing(fromBase64(first.picture), newStyle.bond, MAX_PICTURE, `Octet cannot open ${first.name}.`);
+      if (m) keepWork(() => load(undefined, { ...m, style: newStyle }, first.name.replace(/\.[^.]*$/, "")));
+    } else if (first) keepWork(() => load(first.path ?? undefined, first.text!, first.name.replace(/\.[^.]*$/, "")));
+  }
+  // A picture file's bytes as a drawing of the picture alone (picture.ts), at 1 pt per pixel for a bond of `bond` pt,
+  // when it fits in `room` bytes; otherwise a notice that starts with `failed`.
+  async function pictureDrawing(bytes: Uint8Array, bond: number, room: number, failed: string) {
+    try {
+      const r = await readPicture(bytes), m = pictureMol(r.picture, r.w, r.h, bond);
+      if (pictureBytes(m) > room) throw new Error(FULL);
+      return m;
+    } catch (e) {
+      setNotice(`${failed} ${e instanceof Error ? e.message : ""}`);
+    }
+  }
+  // Files dropped on the drawing: their contents go in where they were dropped, selected, as ChemDraw's drop does:
+  // the first centred on the drop point, the others in a column under it. One step to undo. A picture goes in at
+  // 1 pt per pixel, as ChemDraw's does.
+  async function dropFiles(files: OpenedFile[]) {
     const mols: Mol[] = [], lost: Record<string, number> = {};
     for (const f of files) {
+      if (f.picture) {
+        const room = MAX_PICTURE - pictureBytes(now.current) - mols.reduce((n, x) => n + pictureBytes(x), 0);
+        const m = await pictureDrawing(fromBase64(f.picture), style.bond, room, `Octet cannot insert ${f.name}.`);
+        if (m) mols.push(m);
+        continue;
+      }
       try {
         if (!isDrawingText(f.text!)) { mols.push(importStructure(f.text!)); continue; }
         const r = readOct(f.text!);
@@ -1147,7 +1173,7 @@ export default function Editor() {
         setNotice(`Octet cannot read the structures in ${f.name}.`);
       }
     }
-    const add = stack(mols), b = extent(add), at = toDoc(...files[0].at!);
+    const add = stack(mols), b = mols.map(extent).find(Boolean), at = toDoc(...files[0].at!);
     if (!b) return;
     // The drawing as it is now: the structure engine can take seconds to start, and the user can draw meanwhile.
     const r = insertMol(now.current, add, [at[0] - (b[0] + b[2]) / 2, at[1] - (b[1] + b[3]) / 2]);
@@ -1158,12 +1184,14 @@ export default function Editor() {
   }
   // A drawing read from a file, into the editor. With no path and a title, a recovered drawing or a file Octet cannot
   // save over: its changes are not saved yet. With neither (a starter drawing from Home) it is a new drawing. A MOL,
-  // SDF or SMILES file opens as a new drawing of its structures, in the middle.
-  function load(path: string | undefined, text: string, title?: string) {
+  // SDF or SMILES file opens as a new drawing of its structures, in the middle. A drawing made already (of a picture)
+  // comes as it is.
+  function load(path: string | undefined, text: string | Mol, title?: string) {
     drawingColours.current = [];
     try {
       let read: ReturnType<typeof readOct>;
-      if (isDrawingText(text)) read = readOct(text);
+      if (typeof text !== "string") read = { mol: text, lost: {} };
+      else if (isDrawingText(text)) read = readOct(text);
       else {
         let mol: Mol;
         try { mol = importStructure(text); } catch { throw new Error("Octet cannot read the structures in this file."); }
@@ -5405,13 +5433,26 @@ export default function Editor() {
         return false;
       }
     };
+    // A picture from the clipboard (a screenshot, a picture copied from a browser), as ChemDraw pastes one when nothing
+    // else on the clipboard pastes: centred in the window, selected, one step to undo.
+    const pastePicture = async (bytes: Uint8Array) => {
+      const m = await pictureDrawing(bytes, style.bond, MAX_PICTURE - pictureBytes(now.current), "Octet cannot paste this picture.");
+      if (!m) return;
+      const r = insertMol(now.current, m, toDoc(innerWidth / 2, innerHeight / 2));
+      set(r.mol, true);
+      setSelection(r.atoms);
+      setPicked(r.items);
+    };
+    // The picture file the webview gives a paste, if any (a browser; the app reads the clipboard itself).
+    const imageFile = (e: ClipboardEvent) => [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith("image/"));
     // Paste a SMILES string or MOL file: it goes to the right of the drawing, or in the middle of an empty canvas.
     const onPaste = (e: ClipboardEvent) => {
       if (typing() || home || modal()) return; // pasting into a label or caption, or on Home or a dialog
       // In the app: the clipboard as Octet, ChemDraw and Office put it (Octet's own copy, then CDXML, which ChemDraw
-      // hides in its pictures and Word keeps, then a molfile, then SMILES), and the plain text last.
+      // hides in its pictures and Word keeps, then a molfile, then SMILES), then plain text that names a structure,
+      // and a picture last.
       if (NATIVE_CLIP && !e.clipboardData?.getData(OCTET_CLIP)) {
-        const text = e.clipboardData?.getData("text/plain");
+        const text = e.clipboardData?.getData("text/plain"), file = imageFile(e);
         e.preventDefault();
         void readClipboard().then(async (clip) => {
           if (clip.octet) {
@@ -5435,12 +5476,15 @@ export default function Editor() {
             try { frag = asOpened(importStructure(source), source); } catch (err) { frag = undefined; if (err instanceof RangeError) refused(err.message); }
             if (frag?.atoms.length) return place(frag);
           }
-          if (!text?.trim()) return;
-          // The names engine loads only for text, so no other paste waits for it.
-          await loadNames().then(() => setNamesLoaded(true), () => {});
-          const frag = structureFromText(text, refused);
-          if (frag) return place(frag);
-          setNotice(`Octet cannot read this structure. ${why}`);
+          if (text?.trim()) {
+            // The names engine loads only for text, so no other paste waits for it.
+            await loadNames().then(() => setNamesLoaded(true), () => {});
+            const frag = structureFromText(text, refused);
+            if (frag) return place(frag);
+          }
+          const picture = clip.picture ? fromBase64(clip.picture) : file && new Uint8Array(await file.arrayBuffer());
+          if (picture) return pastePicture(picture);
+          if (text?.trim()) setNotice(`Octet cannot read this structure. ${why}`);
         }).catch((err) => setNotice(failure("Octet cannot read the clipboard.", err)));
         return;
       }
@@ -5456,15 +5500,16 @@ export default function Editor() {
         setPicked(r.items);
         return;
       }
-      const text = e.clipboardData?.getData("text/plain");
+      const text = e.clipboardData?.getData("text/plain"), file = imageFile(e), named = !!text?.trim() && loaded;
       if (text && CDXML_TEXT.test(text.slice(0, 65536)) && pasteCdxml(text)) return e.preventDefault();
-      if (!text?.trim() || !loaded) return;
+      if (!named && !file) return;
       e.preventDefault();
-      // A chemical name first, then SMILES or a MOL file.
-      void loadNames().then(() => setNamesLoaded(true), () => {}).then(() => {
+      // A chemical name first, then SMILES or a MOL file, then a picture.
+      void (named ? loadNames().then(() => setNamesLoaded(true), () => {}) : Promise.resolve()).then(async () => {
         let why = "Paste a name, a SMILES string or a MOL file.";
-        const frag = structureFromText(text, (reason) => { why = reason; });
+        const frag = named ? structureFromText(text!, (reason) => { why = reason; }) : undefined;
         if (frag) place(frag);
+        else if (file) await pastePicture(new Uint8Array(await file.arrayBuffer()));
         else setNotice(`Octet cannot read this structure. ${why}`);
       });
     };
@@ -5525,6 +5570,24 @@ export default function Editor() {
     addEventListener("copy", onCopy);
     addEventListener("cut", onCut);
     return () => { removeEventListener("keydown", onKey); removeEventListener("paste", onPaste); removeEventListener("copy", onCopy); removeEventListener("cut", onCut); };
+  });
+  // In a browser (development and the headless checks), files dropped on the page go the app's way. The app takes
+  // drops itself (src-tauri/src/open.rs), so its webview never sees them.
+  useEffect(() => {
+    if (TAURI) return;
+    const over = (e: DragEvent) => e.preventDefault();
+    const drop = (e: DragEvent) => {
+      const list = [...(e.dataTransfer?.files ?? [])], at: [number, number] = [e.clientX, e.clientY];
+      if (!list.length) return;
+      e.preventDefault();
+      void Promise.all(list.map(async (f): Promise<OpenedFile> => {
+        const b = new Uint8Array(await f.arrayBuffer()), picture = !!kindOf(b);
+        return { name: f.name, path: null, text: picture ? null : new TextDecoder().decode(b), picture: picture ? toBase64(b) : null, error: null, at };
+      })).then((files) => takeFiles(files, !home));
+    };
+    addEventListener("dragover", over);
+    addEventListener("drop", drop);
+    return () => { removeEventListener("dragover", over); removeEventListener("drop", drop); };
   });
 
   // Highlights, in px at 100% (the same frame as the drawing): the selection, then the hover on top.
