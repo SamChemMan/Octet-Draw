@@ -179,7 +179,7 @@ function drawings(sys: RingSystem): Drawing[] {
 const SENIOR = ["Hg", "Tl", "In", "Ga", "Al", "B", "Pb", "Sn", "Ge", "Si", "Bi", "Sb", "As", "P", "N", "Te", "Se", "S", "O", "I", "Br", "Cl", "F"];
 const senior = (e: string) => SENIOR.indexOf(e) + 1;
 
-export type Numbering = { path: number[]; labels: string[]; interior: number[] };
+export type Numbering = { path: number[]; labels: string[]; interior: number[]; row: number };
 
 // The peripheral numbering (FR-5.3, FR-5.4): every numbering the rules allow. All are alike up to symmetry; where the
 // rules leave a choice between numberings that are not alike, this throws.
@@ -285,7 +285,7 @@ export function numberSystem(sys: RingSystem): Numbering[] {
   const like = (x: number[], y: number[]) => x.every((a, i) => el[a] === el[y[i]] && adj[a].every((b) => adj[y[i]].includes(y[x.indexOf(b)])));
   if (chosen.some((p) => !like(chosen[0], p))) throw new Error("fused ring numbering");
   const seen = new Set<string>();
-  return chosen.filter((p) => !seen.has(p.join()) && !!seen.add(p.join())).map((path) => ({ path, labels: labelsOf(path, el, fusion), interior }));
+  return chosen.filter((p) => !seen.has(p.join()) && !!seen.add(p.join())).map((path) => ({ path, labels: labelsOf(path, el, fusion), interior, row: longest }));
 }
 
 // Locants: numbers for peripheral atoms and every heteroatom, a letter after the last number for fusion carbon atoms.
@@ -343,8 +343,7 @@ const RETAINED: [string, string, string, string?][] = [
   ["as-indacene", "as-indaceno", "C1=CC=C2C=CC3=CC=CC3=C12"], ["s-indacene", "s-indaceno", "C1=CC=C2C=C3C=CC=C3C=C12"],
   ["acenaphthylene", "acenaphtho", "C1=CC2=CC=CC3=CC=CC1=C23"], ["fluorene", "fluoreno", "C1=CC=CC=2C3=CC=CC=C3CC12"],
   ["phenalene", "phenaleno", "C1C=CC2=CC=CC3=CC=CC1=C23"], ["perimidine", "perimido", "N1C=NC2=CC=CC3=CC=CC1=C23"],
-  ["phenanthridine", "phenanthridino", "C1=CC=CC2=NC=C3C=CC=CC3=C12"], ["1,10-phenanthroline", "[1,10]phenanthrolino", "N1=CC=CC2=CC=C3C=CC=NC3=C12"],
-  ["1,7-phenanthroline", "[1,7]phenanthrolino", "N1=CC=CC2=CC=C3N=CC=CC3=C12"], ["4,7-phenanthroline", "[4,7]phenanthrolino", "C1=CC=NC2=CC=C3N=CC=CC3=C12"],
+  ["phenanthridine", "phenanthridino", "C1=CC=CC2=NC=C3C=CC=CC3=C12"], 
   ["phenazine", "phenazino", "C1=CC=CC2=NC3=CC=CC=C3N=C12"], ["phenoxazine", "phenoxazino", "C1=CC=CC=2OC3=CC=CC=C3NC12"],
   ["phenothiazine", "phenothiazino", "C1=CC=CC=2SC3=CC=CC=C3NC12"], ["phenoxathiine", "phenoxathiino", "C1=CC=CC=2OC3=CC=CC=C3SC12"],
   ["thianthrene", "thianthreno", "C1=CC=CC=2SC3=CC=CC=C3SC12"], ["fluoranthene", "fluorantheno", "C1=CC=C2C=CC=C3C4=CC=CC=C4C1=C23"],
@@ -365,13 +364,16 @@ const RETAINED: [string, string, string, string?][] = [
   ["phenanthrene", "phenanthro", "1-2 2-3 3-4 4-4a 4a-4b 4b-5 5-6 6-7 7-8 8-8a 8a-9 9-10 10-10a 10a-1 4a-10a 4b-8a", ""],
   ["carbazole", "carbazolo", "1-2 2-3 3-4 4-4a 4a-4b 4b-5 5-6 6-7 7-8 8-8a 8a-9 9-9a 9a-1 4a-9a 4b-8a", "N9"],
   ["purine", "purino", "1-2 2-3 3-4 4-5 5-6 6-1 5-7 7-8 8-9 9-4", "N1 N3 N7 N9"],
+  // Phenanthrolines: a nitrogen in each end ring, numbered as the hydrocarbon (FR-5).
+  ...["1,7", "1,8", "1,9", "1,10", "2,7", "2,8", "2,9", "3,7", "3,8", "4,7"].map((l): [string, string, string, string] =>
+    [`${l}-phenanthroline`, `[${l}]phenanthrolino`, "1-2 2-3 3-4 4-4a 4a-5 5-6 6-6a 6a-7 7-8 8-9 9-10 10-10a 10a-10b 10b-1 4a-10b 6a-10a", l.split(",").map((x) => `N${x}`).join(" ")]),
   // Steroid numbering, as OPSIN reads the name (CAS; FR-5.3 notes the difference).
   ["cyclopenta[a]phenanthrene", "", "1-2 2-3 3-4 4-5 5-6 6-7 7-8 8-14 14-15 15-16 16-17 17-13 13-12 12-11 11-9 9-10 10-1 5-10 8-9 13-14", ""],
 ];
 
 // A component as matched: its atoms in its own locant order (one array for each numbering), its locants, its periphery
 // (indices, from locant 1 towards 2), and its seniority (FR-2.3; lower is more senior).
-type Template = { name: string; prefix: string; el: string[]; adj: number[][]; labels: string[]; peri: number[]; rings: number; sizes: number[] };
+type Template = { name: string; prefix: string; el: string[]; adj: number[][]; labels: string[]; peri: number[]; rings: number; sizes: number[]; row: number };
 type Comp = { name: string; prefix: string; rings: number[]; nums: number[][]; labels: string[]; peri: number[]; key: number[]; carbo: boolean };
 
 const locOrder = (a: string, b: string) => parseInt(a) - parseInt(b) || (a < b ? -1 : a > b ? 1 : 0);
@@ -402,7 +404,9 @@ function retained(): Template[] {
       while (peri.length < sys.next.filter((x) => x >= 0).length) peri.push(step(peri[peri.length - 1]));
     }
     const sys = ringSystem(el, adj);
-    return { name, prefix, el, adj, labels, peri, rings: sys.rings.length, sizes: sys.rings.map((r) => r.length).sort((a, b) => b - a) };
+    let row = 0;
+    try { row = numberSystem(sys)[0].row; } catch { /* no drawing: no preference by orientation */ }
+    return { name, prefix, el, adj, labels, peri, rings: sys.rings.length, sizes: sys.rings.map((r) => r.length).sort((a, b) => b - a), row };
   });
   return templates;
 }
@@ -429,6 +433,10 @@ function monocycle(els: string[]): { name: string; prefix: string; stem: string;
     for (const num of nums) { const l = f(num); if (!best || cmp(l, best) < 0) best = l; }
     nums = nums.filter((num) => !cmp(f(num), best!));
   };
+  // Number 1 is the most senior heteroatom (O, S, Se, Te, N), then low locants for the heteroatoms together, then in
+  // order of seniority (P-22.2.2.1.2).
+  const top = HW_ORDER.find((e) => els.includes(e));
+  if (top) nums = nums.filter((num) => els[num[0]] === top);
   lowest((num) => num.map((a, k) => (els[a] !== "C" ? k + 1 : 0)).filter(Boolean));
   for (const e of HW_ORDER) lowest((num) => num.map((a, k) => (els[a] === e ? k + 1 : 0)).filter(Boolean));
   const hetero = nums[0].flatMap((a, k): [string, number][] => (els[a] !== "C" ? [[els[a], k + 1]] : []))
@@ -438,7 +446,8 @@ function monocycle(els: string[]): { name: string; prefix: string; stem: string;
   if (known) return { name: known[0], prefix: known[1], stem: known[0], nums };
   const stems = ["", "", "", hetero.some(([e]) => e === "N") ? "irine" : "irene", "ete", "ole", "ine", "epine", "ocine", "onine", "ecine"];
   if (!hetero.length || !stems[n]) return undefined;
-  const locs = hetero.length > 1 ? `[${hetero.map(([, k]) => k).join(",")}]` : "";
+  const unique = hetero.length >= n - 1 && new Set(hetero.map(([e]) => e)).size === 1;
+  const locs = hetero.length > 1 && !unique ? `[${hetero.map(([, k]) => k).join(",")}]` : "";
   const stem = (HW_ORDER.filter((e) => hetero.some(([x]) => x === e)).map((e) => MULT[hetero.filter(([x]) => x === e).length] + HW_PREFIX[e]).join("") + stems[n]).replace(/a(?=[aeiou])/g, "");
   return { name: locs + stem, prefix: locs + stem.replace(/e$/, "o"), stem, nums };
 }
@@ -448,11 +457,11 @@ function monocycle(els: string[]): { name: string; prefix: string; stem: string;
 // lower fusion carbon locants.
 const FR23A = ["F", "Cl", "Br", "I", "O", "S", "Se", "Te", "P", "As", "Sb", "Bi", "Si", "Ge", "Sn", "Pb", "B", "Hg"];
 const FR23F = ["F", "Cl", "Br", "I", "O", "S", "Se", "Te", "N", "P", "As", "Sb", "Bi", "Si", "Ge", "Sn", "Pb", "B", "Hg"];
-function seniority(el: string[], labels: string[], sizes: number[], fusion: boolean[]): number[] {
+function seniority(el: string[], labels: string[], sizes: number[], fusion: boolean[], row = sizes.length > 1 ? 2 : 1): number[] {
   const hetero = el.map((e, i) => (e !== "C" ? i : -1)).filter((i) => i >= 0), has = (e: string) => hetero.some((i) => el[i] === e);
   const first = has("N") ? 0 : FR23A.findIndex(has) + 1 || 99;
   const locs = (f: (i: number) => boolean) => el.map((_, i) => i).filter(f).map((i) => locValue(labels[i])).sort((a, b) => a - b);
-  return [first, -sizes.length, ...sizes.map((s) => -s), -hetero.length, -new Set(hetero.map((i) => el[i])).size, ...FR23F.map((e) => -hetero.filter((i) => el[i] === e).length),
+  return [first, -sizes.length, ...sizes.map((s) => -s), -hetero.length, -new Set(hetero.map((i) => el[i])).size, ...FR23F.map((e) => -hetero.filter((i) => el[i] === e).length), -row,
     ...locs((i) => el[i] !== "C"), ...FR23F.flatMap((e) => locs((i) => el[i] === e)), ...locs((i) => el[i] === "C" && fusion[i])];
 }
 
@@ -505,7 +514,7 @@ function components(sys: RingSystem) {
     for (const t of retained()) {
       if (t.rings !== set.length || t.el.length !== atoms.length) continue;
       const nums = isomorphisms(t.el, t.adj, atoms, (a) => el[a], nb);
-      if (nums.length && t.prefix) polys.push({ name: t.name, prefix: t.prefix, rings: set, nums, labels: t.labels, peri: t.peri, carbo: false, key: seniority(t.el, t.labels, t.sizes, t.adj.map((x) => x.length === 3)) });
+      if (nums.length && t.prefix) polys.push({ name: t.name, prefix: t.prefix, rings: set, nums, labels: t.labels, peri: t.peri, carbo: false, key: seniority(t.el, t.labels, t.sizes, t.adj.map((x) => x.length === 3), t.row) });
     }
   }
   const unit = (set: number[]): Comp | undefined => {
@@ -526,9 +535,12 @@ function components(sys: RingSystem) {
   return { monos, polys, unit };
 }
 
-// The fusion name of a system (P-25.3.1.3): the senior component as the base, the other rings as first-order attached
-// components (ortho- or peri-fused to the base), each with its fusion descriptor. `num` is the system's own numbering,
-// for benzo names (P-25.2.2.4).
+// The fusion name of a system (P-25.3.1.3, FR-3): the senior component as the base, the other rings covered by attached
+// components, each fused to one component nearer the base (first order, second order ...). Among the ways to cover
+// the rings: no higher-order components if possible, then the most first-order components, then the most senior ones
+// (FR-3.3.1, FR-3.4). Then FR-3.5: a benzo ring joins the heteromonocycle it is fused to ([1]benzofuro, [1,5]benzodiazepine),
+// which may become the base (pyrido[1,2-a]benzimidazole). `num` is the system's own numbering, for benzo names (P-25.2.2.4).
+type Node = { c: Comp; kids: Node[]; order: number };
 export function fusionName(sys: RingSystem, num: Numbering): string {
   const { rings, across, el } = sys;
   const { monos, polys, unit } = components(sys);
@@ -547,111 +559,224 @@ export function fusionName(sys: RingSystem, num: Numbering): string {
   const senior = all.reduce((m, c) => (cmp(c.key, m.key) < 0 ? c : m));
   const bases = all.filter((c) => !cmp(c.key, senior.key));
   if (new Set(bases.map((c) => c.name)).size > 1 || !senior.name) throw new Error("fused ring base component");
-  let best: { key: number[]; name: string } | undefined;
-  for (const b0 of bases) {
-    let base = b0;
-    // The other rings, in groups fused to each other; each group one component fused to the base.
-    const rest = rings.map((_, r) => r).filter((r) => !base.rings.includes(r)), groups: number[][] = [];
-    for (const r of rest) {
-      if (groups.some((g) => g.includes(r))) continue;
-      const g = [r];
-      for (let i = 0; i < g.length; i++) for (const s of across[g[i]]) if (s >= 0 && rest.includes(s) && !g.includes(s)) g.push(s);
-      groups.push(g);
+  const fusedTo = (x: Comp, y: Comp) => x.rings.some((r) => across[r].some((s) => y.rings.includes(s)));
+  const multi = multiParent(sys, bases, all, fusedTo);
+  if (multi) return multi;
+  let best: { rank: number[]; name: string } | undefined;
+  for (const b of bases) {
+    const rest = rings.map((_, r) => r).filter((r) => !b.rings.includes(r));
+    for (const cover of covers(rest, all.filter((c) => c.prefix && c.rings.every((r) => rest.includes(r))))) {
+      const tree = treeOf(b, cover, fusedTo);
+      if (!tree) continue;
+      // FR-3.3.1 b, c, f: the fewest orders, the most first-order components, the most senior ones.
+      const nodes = flat(tree), first = tree.kids.map((k) => k.c.key).sort(cmp);
+      const rank = [Math.max(...nodes.map((x) => x.order)), -tree.kids.length, ...first.flatMap((k) => [...k, 999])];
+      const final = benzoUnits(tree, unit, fusedTo);
+      if (!final) continue;
+      const named = describe(sys, final);
+      if (!named) continue;
+      const key = [...rank, -1e6, ...named.key];
+      if (!best || cmp(key, best.rank) < 0) best = { rank: key, name: named.name };
     }
-    let attached: Comp[] = [];
-    const touches = (r: number) => across[r].some((s) => base.rings.includes(s));
-    let beyond: Comp | undefined; // a ring fused to a benzo ring that is fused to the base (second order)
-    for (const g of groups) {
-      let c = g.length === 1 ? monos[g[0]] : polys.find((p) => p.rings.length === g.length && g.every((r) => p.rings.includes(r)));
-      // Benzene and a heteromonocycle: a benzo unit fused to the base by its heteroring ([1]benzofuro[3,2-b]pyridine),
-      // or a benzo ring between the base and the heteroring (furo[3,2-g][1]benzopyran).
-      if (!c && g.length === 2) {
-        const b = g.find((r) => monos[r]?.name === "benzene"), h = g.find((r) => r !== b)!;
-        if (b !== undefined && touches(h)) c = unit(g);
-        else if (b !== undefined && touches(b) && !beyond && monos[h]) { beyond = monos[h]; c = monos[b]; }
-      }
-      if (!c || !g.some(touches)) { attached = []; break; }
-      attached.push(c);
-    }
-    if (!attached.length) continue;
-    // FR-3.5: a benzo ring on a heteromonocyclic base joins it, unless benzo is multiplied (dibenzofuran).
-    const benzos = attached.filter((c) => c.name === "benzene");
-    if (base.rings.length === 1 && !base.carbo && benzos.length === 1) {
-      const u = unit([base.rings[0], benzos[0].rings[0]]);
-      if (u) { base = u; attached = attached.filter((c) => c !== benzos[0]); }
-    }
-    if (beyond) { if (base.rings.length !== 2) continue; attached.push(beyond); }
-    // A more senior attached component becomes the base (pyrido[1,2-a]benzimidazole).
-    if (attached.some((c) => cmp(c.key, base.key) < 0)) {
-      if (attached.length !== 1) continue;
-      [base, attached] = [attached[0], [base]];
-    }
-    if (!base.name) continue;
-    const named = describe(sys, base, attached);
-    if (named && (!best || cmp(named.key, best.key) < 0)) best = named;
   }
   if (!best) throw new Error("fused ring components");
   return best.name;
 }
 
-// The fusion descriptors (FR-4.3 to FR-4.6) and the name: attached prefixes in alphabetical order, then the base.
-// Letters as low as possible (as a set, then in order of citation), then the attached locants (as a set, then in order).
-function describe(sys: RingSystem, base: Comp, attached: Comp[]): { key: number[]; name: string } | undefined {
-  const { rings, across } = sys;
-  const letter = (i: number) => String.fromCharCode(97 + (i % 26)) + (i >= 26 ? String(Math.floor(i / 26)) : "");
-  const contacts = attached.map((c) => c.rings.flatMap((r) => rings[r].flatMap((a, k): [number, number][] => (base.rings.includes(across[r][k]) ? [[a, rings[r][(k + 1) % rings[r].length]]] : []))));
+// The ways to cover rings with components (each ring in one component), bounded.
+function covers(rings: number[], comps: Comp[]): Comp[][] {
+  const out: Comp[][] = [];
+  const go = (left: number[], chosen: Comp[]) => {
+    if (out.length > 200) return;
+    if (!left.length) { out.push(chosen); return; }
+    for (const c of comps) if (c.rings.includes(left[0]) && c.rings.every((r) => left.includes(r))) go(left.filter((r) => !c.rings.includes(r)), [...chosen, c]);
+  };
+  go(rings, []);
+  return out;
+}
+
+// The components as a tree from the base: each fused to exactly one component nearer the base. Undefined if the
+// components are fused in a ring (peri-fused components) or not all reached.
+function treeOf(base: Comp, comps: Comp[], fusedTo: (x: Comp, y: Comp) => boolean): Node | undefined {
+  const all = [base, ...comps];
+  let edges = 0;
+  for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) if (fusedTo(all[i], all[j])) edges++;
+  if (edges !== all.length - 1) return undefined;
+  const root: Node = { c: base, kids: [], order: 0 }, placed = new Set([base]), queue = [root];
+  while (queue.length) {
+    const n = queue.shift()!;
+    for (const c of comps) if (!placed.has(c) && fusedTo(n.c, c)) { const k = { c, kids: [], order: n.order + 1 }; n.kids.push(k); placed.add(c); queue.push(k); }
+  }
+  return placed.size === all.length ? root : undefined;
+}
+const flat = (n: Node): Node[] => [n, ...n.kids.flatMap(flat)];
+
+// FR-3.5: a benzo ring (a benzene component) fused to a heteromonocycle joins it as a benzo unit: its parent first, else
+// its one child; not where benzo is multiplied (dibenzofuran). Then the most senior component is the base.
+function benzoUnits(tree: Node, unit: (rings: number[]) => Comp | undefined, fusedTo: (x: Comp, y: Comp) => boolean): Node | undefined {
+  const comps = flat(tree).map((n) => n.c), parentOf = new Map<Comp, Comp>();
+  for (const n of flat(tree)) for (const k of n.kids) parentOf.set(k.c, n.c);
+  const hetero1 = (c?: Comp) => !!c && c.rings.length === 1 && !c.carbo;
+  let changed = false;
+  for (const bz of comps.filter((c) => c.name === "benzene")) {
+    const p = parentOf.get(bz)!, siblings = comps.filter((c) => c !== bz && c.name === "benzene" && parentOf.get(c) === p);
+    if (siblings.length) continue;
+    const kids = comps.filter((c) => parentOf.get(c) === bz && hetero1(c));
+    const partner = hetero1(p) ? p : kids.length === 1 ? kids[0] : undefined;
+    const u = partner && unit([partner.rings[0], bz.rings[0]]);
+    if (!u || !comps.includes(partner!)) continue;
+    comps.splice(comps.indexOf(bz), 1, u);
+    comps.splice(comps.indexOf(partner!), 1);
+    changed = true;
+  }
+  if (!changed) return tree;
+  const base = comps.reduce((m, c) => (cmp(c.key, m.key) < 0 ? c : m));
+  if (comps.some((c) => c !== base && !cmp(c.key, base.key) && c.name !== base.name)) return undefined;
+  return treeOf(base, comps.filter((c) => c !== base), fusedTo);
+}
+
+// Base letters: a is the side 1-2, b 2-3 ... (FR-4.1).
+const letter = (i: number) => String.fromCharCode(97 + (i % 26)) + (i >= 26 ? String(Math.floor(i / 26)) : "");
+const values = (l: string[]) => l.map(locValue);
+const primes = (l: string[], k: number) => l.map((x) => x + "'".repeat(k));
+// The bonds of x's rings shared with y's rings.
+const contactOf = (sys: RingSystem, x: Comp, y: Comp) => x.rings.flatMap((r) => sys.rings[r].flatMap((a, k): [number, number][] =>
+  (y.rings.includes(sys.across[r][k]) ? [[a, sys.rings[r][(k + 1) % sys.rings[r].length]]] : [])));
+// The sides of a component (in one numbering) along which bonds run: consecutive, perhaps across the end (mna); the
+// shared atoms in the direction of the sides.
+function run(c: Comp, m: number[], bonds: [number, number][]) {
+  const at = c.peri.map((i) => m[i]), P = at.length;
+  const sides = bonds.map(([a, b]) => at.findIndex((x, i) => (x === a && at[(i + 1) % P] === b) || (x === b && at[(i + 1) % P] === a)));
+  if (sides.some((s) => s < 0)) return undefined;
+  const start = sides.find((s) => !sides.includes((s + P - 1) % P));
+  if (start === undefined) return undefined;
+  const r = sides.map((_, i) => (start + i) % P);
+  if (r.some((s) => !sides.includes(s))) return undefined;
+  return { sides: r, atoms: [...r.map((s) => at[s]), at[(r[r.length - 1] + 1) % P]] };
+}
+// A component's locants for shared atoms (fusion carbon atoms between the ends left out, FR-4.6.2).
+function locsOf(c: Comp, m: number[], atoms: number[]) {
+  const idx = atoms.map((a) => m.indexOf(a));
+  return idx.some((i) => i < 0) ? undefined : idx.filter((i, k) => k === 0 || k === idx.length - 1 || !/[a-z]$/.test(c.labels[i])).map((i) => c.labels[i]);
+}
+
+// A multi-parent name (FR-6.1): two or more locations of the parent component fused to one interparent component, and
+// nothing else: benzo[1,2-b:4,5-b']dithiophene. Letters as low as possible, then the interparent locants.
+function multiParent(sys: RingSystem, bases: Comp[], all: Comp[], fusedTo: (x: Comp, y: Comp) => boolean): string | undefined {
+  if (bases.length < 2) return undefined;
+  for (const mid of all) {
+    if (!mid.prefix || mid.name === bases[0].name) continue;
+    const parents = bases.filter((b) => !b.rings.some((r) => mid.rings.includes(r)) && fusedTo(b, mid));
+    if (parents.length < 2 || parents.some((p, i) => parents.some((q, j) => i !== j && (p.rings.some((r) => q.rings.includes(r)) || fusedTo(p, q))))) continue;
+    if (mid.rings.length + parents.reduce((t, p) => t + p.rings.length, 0) !== sys.rings.length) continue;
+    let best: { key: number[]; name: string } | undefined;
+    for (const m of mid.nums) {
+      const parts: { letter: number; locs: string[] }[] = [];
+      for (const p of parents) {
+        let pick: { letter: number; locs: string[] } | undefined;
+        for (const pm of p.nums) {
+          const r = run(p, pm, contactOf(sys, p, mid));
+          const locs = r && r.sides.length === 1 ? locsOf(mid, m, r.atoms) : undefined;
+          if (locs && (!pick || r!.sides[0] < pick.letter || (r!.sides[0] === pick.letter && cmp(values(locs), values(pick.locs)) < 0))) pick = { letter: r!.sides[0], locs };
+        }
+        if (!pick) return undefined;
+        parts.push(pick);
+      }
+      parts.sort((x, y) => cmp(values(x.locs).sort((a, b) => a - b), values(y.locs).sort((a, b) => a - b)));
+      const key = [...parts.map((x) => x.letter).sort((a, b) => a - b), -1, ...parts.map((x) => x.letter), -1, ...parts.flatMap((x) => values(x.locs))];
+      if (best && cmp(key, best.key) >= 0) continue;
+      // A hydrocarbon parent needs no letters: benzo[1,2:4,5]di[7]annulene.
+      const base = bases[0].name, mult = /^\[\d+\]annulene|^[a-z]/.test(base) ? MULT[parts.length] : ["", "", "bis", "tris", "tetrakis"][parts.length];
+      best = { key, name: `${mid.prefix}[${parts.map((x, i) => x.locs.join(",") + (bases[0].carbo ? "" : `-${letter(x.letter)}${"'".repeat(i)}`)).join(":")}]${mult}${inFusion(base)}` };
+    }
+    if (best) return best.name;
+  }
+  return undefined;
+}
+
+// The fusion descriptors (FR-4.3 to FR-4.9) and the name: attached prefixes in alphabetical order, each after its own
+// higher-order prefixes, then the base. Base letters as low as possible (as a set, then in order of citation), then
+// first-order locants, then the locants of lower-order components for higher-order fusion, then higher-order locants.
+function describe(sys: RingSystem, root: Node): { key: number[]; name: string } | undefined {
+  const contact = (x: Comp, y: Comp) => contactOf(sys, x, y);
+  type Text = { text: string; key: number[][] }; // key: [first-order locants, lower-order locants, higher-order locants]
+  // A component's prefix with its descriptor and its own higher-order prefixes, in its best numbering; `atoms` are the
+  // atoms it shares with its parent, in the order the parent cites them; `cite` the parent's text for them.
+  const branch = (n: Node, atoms: number[], cite: string): Text | undefined => {
+    let best: Text | undefined;
+    for (const m of n.c.nums) {
+      const own = n.c.carbo && !n.kids.length && n.order > 1 ? [] : locsOf(n.c, m, atoms);
+      if (!own) return undefined;
+      const kids = twigs(n, m);
+      if (!kids) continue;
+      const desc = n.order === 1 ? (own.length && !(n.c.carbo && !n.kids.length) ? `[${own.join(",")}-${cite}]` : `[${cite}]`)
+        : n.c.carbo && !n.kids.length ? `[${cite}]` : `[${primes(own, n.order - 1).join(",")}:${cite}]`;
+      const key: number[][] = [[], [], []];
+      key[n.order === 1 ? 0 : 2].push(...values(own).sort((a, b) => a - b), ...values(own));
+      kids.key.forEach((l, i) => key[i].push(...l));
+      const t = { text: kids.text + n.c.prefix + desc, key };
+      if (!best || cmp(t.key.flat(), best.key.flat()) < 0) best = t;
+    }
+    return best;
+  };
+  // The higher-order prefixes on a component in one numbering, in alphabetical order.
+  const twigs = (n: Node, m: number[]): Text | undefined => {
+    const parts: Text[] = [], lower: number[] = [];
+    for (const k of n.kids) {
+      const r = run(n.c, m, contact(n.c, k.c));
+      if (!r) return undefined;
+      // The lower-order component's locants, as low as possible in order of citation.
+      let atoms = r.atoms, mine = locsOf(n.c, m, atoms)!;
+      if (cmp(values([...mine].reverse()), values(mine)) < 0) { atoms = [...atoms].reverse(); mine = [...mine].reverse(); }
+      const t = branch(k, atoms, primes(mine, n.order - 1).join(","));
+      if (!t) return undefined;
+      lower.push(...values(mine));
+      parts.push(t);
+    }
+    if (new Set(n.kids.map((k) => k.c.prefix)).size < n.kids.length) return undefined; // multiplied higher-order components
+    parts.sort((x, y) => alpha(x.text).localeCompare(alpha(y.text)) || x.text.localeCompare(y.text));
+    const key: number[][] = [[], [...lower].sort((a, b) => a - b).concat(lower), []];
+    for (const p of parts) p.key.forEach((l, i) => key[i].push(...l));
+    return { text: parts.map((p) => p.text).join(""), key };
+  };
+  // Alphabetical order of prefixes: without fusion descriptors and heteroatom locants, a group as one unit (FR-3.6).
+  const alpha = (t: string) => t.replace(/\[[^\]]*\]/g, "").replace(/^\(|\)/g, "").replace(/^(as|s)-/, "");
+  const base = root.c;
   let best: { key: number[]; name: string } | undefined;
   for (const m of base.nums) {
-    const P = base.peri.length, at = base.peri.map((i) => m[i]);
-    // The base sides each attached component is fused to: consecutive sides along the periphery, the shared atoms in
-    // the direction of the letters.
-    const descs: { sides: number[]; atoms: number[] }[] = [];
-    for (const bonds of contacts) {
-      const sides = bonds.map(([a, b]) => at.findIndex((x, i) => (x === a && at[(i + 1) % P] === b) || (x === b && at[(i + 1) % P] === a)));
-      if (sides.some((s) => s < 0)) return undefined;
-      const start = sides.find((s) => !sides.includes((s + P - 1) % P));
-      if (start === undefined) return undefined;
-      const run = sides.map((_, i) => (start + i) % P);
-      if (run.some((s) => !sides.includes(s))) return undefined;
-      descs.push({ sides: run, atoms: [...run.map((s) => at[s]), at[(run[run.length - 1] + 1) % P]] });
+    // First-order components: base sides as letters.
+    const firsts: { n: Node; letters: string; sides: number[]; t: Text; locs: string[] }[] = [];
+    for (const n of root.kids) {
+      const r = run(base, m, contact(n.c, base));
+      if (!r) return undefined;
+      const letters = r.sides.map(letter).join("");
+      const t = branch(n, r.atoms, letters);
+      if (!t) return undefined;
+      firsts.push({ n, letters, sides: r.sides, t, locs: [] });
     }
-    // Each attached component's locants, its numbering as low as possible; fusion carbon atoms between the ends are
-    // left out (FR-4.6.2). Hydrocarbon monocycles (benzo, cyclopenta) cite letters only.
-    const parts: { prefix: string; letters: string; sides: number[]; locs: string[]; key: number[] }[] = [];
-    for (const [j, c] of attached.entries()) {
-      const d = descs[j], letters = d.sides.map(letter).join("");
-      let locs: string[] = [], best1: number[] = [];
-      if (!c.carbo) {
-        for (const cm of c.nums) {
-          const idx = d.atoms.map((a) => cm.indexOf(a));
-          if (idx.some((i) => i < 0)) return undefined;
-          const l = idx.filter((i, k) => k === 0 || k === idx.length - 1 || !/[a-z]$/.test(c.labels[i])).map((i) => c.labels[i]);
-          const v = l.map(locValue), k = [...[...v].sort((a, b) => a - b), ...v];
-          if (!best1.length || cmp(k, best1) < 0) { locs = l; best1 = k; }
-        }
-      }
-      parts.push({ prefix: c.prefix, letters, sides: d.sides, locs, key: best1 });
-    }
-    // Citation order: alphabetical by prefix (FR-3.6), identical prefixes together, lower letters first.
-    const alpha = (t: string) => t.replace(/^\[[^\]]*\]/, "").replace(/^(as|s)-/, "");
-    parts.sort((x, y) => alpha(x.prefix).localeCompare(alpha(y.prefix)) || x.prefix.localeCompare(y.prefix) || cmp(x.sides, y.sides));
-    const key = [...parts.flatMap((p) => p.sides).sort((a, b) => a - b), -1, ...parts.flatMap((p) => p.sides), -1, ...parts.flatMap((p) => p.key)];
+    // Citation order: alphabetical (FR-3.6), identical first-order prefixes together and multiplied (FR-4.9).
+    firsts.sort((x, y) => alpha(x.t.text).localeCompare(alpha(y.t.text)) || cmp(x.sides, y.sides));
+    const key = [...firsts.flatMap((f) => f.sides).sort((a, b) => a - b), -1, ...firsts.flatMap((f) => f.sides), -1,
+      ...[0, 1, 2].flatMap((i) => [...firsts.flatMap((f) => f.t.key[i]), -1])];
     if (best && cmp(key, best.key) >= 0) continue;
     // A carbocyclic monocyclic base with one attached component needs no letters (5H-benzo[7]annulene).
-    const bare = base.carbo && base.rings.length === 1 && attached.length === 1;
+    const bare = base.carbo && base.rings.length === 1 && firsts.length === 1 && !firsts[0].n.kids.length;
     let text = "";
-    for (let i = 0; i < parts.length; ) {
-      const group = parts.filter((p) => p.prefix === parts[i].prefix);
-      const list = group.map((p, k) => (p.locs.length ? `${p.locs.map((l) => l + "'".repeat(k)).join(",")}-${p.letters}` : p.letters)).join(group.some((p) => p.locs.length) ? ":" : ",");
-      const mult = group.length > 1 ? (/^(\[|di|tri)/.test(group[0].prefix) ? ["", "", "bis", "tris", "tetrakis"][group.length] : MULT[group.length]) : "";
-      const prefix = /s$/.test(mult) ? `${mult}(${group[0].prefix})` : mult + group[0].prefix;
-      text += bare ? prefix : `${prefix}[${list}]`;
+    for (let i = 0; i < firsts.length; ) {
+      const f = firsts[i], group = firsts.filter((g) => !g.n.kids.length && !f.n.kids.length && g.n.c.prefix === f.n.c.prefix);
+      if (group.length < 2) { text += bare ? f.n.c.prefix : f.t.text; i++; continue; }
+      // dibenzo[b,d]furan; difuro[3,2-b:2',3'-d]pyridine.
+      const list = group.map((g, k) => g.t.text.slice(g.n.c.prefix.length + 1, -1).replace(/^([^-]*)-/, (_, l: string) => primes(l.split(","), k).join(",") + "-"));
+      const mult = /^(\[|di|tri)/.test(f.n.c.prefix) ? ["", "", "bis", "tris", "tetrakis"][group.length] : MULT[group.length];
+      text += `${/s$/.test(mult) ? `${mult}(${f.n.c.prefix})` : mult + f.n.c.prefix}[${list.join(group.some((g) => /-/.test(g.t.text)) ? ":" : ",")}]`;
       i += group.length;
     }
-    best = { key, name: text + base.name };
+    best = { key, name: text + inFusion(base.name) };
   }
   return best;
 }
+// A parent name with locants in front is bracketed inside a fusion name: pyrazino[2,3-f][1,10]phenanthroline.
+const inFusion = (name: string) => name.replace(/^([\d,]+)-/, "[$1]");
 
 // The parent name and numberings of a fused system outside the namer's table, for atoms of a molecule: the name, its
 // locants in order, and each numbering (the molecule's atoms in locant order). `uncited` holds indices whose locants

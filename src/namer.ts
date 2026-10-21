@@ -566,9 +566,9 @@ class Namer {
   // numbering. Every C and N with no ring double bond is accounted for. A parent with an odd number of C and N atoms
   // needs indicated hydrogen: on a lone ketone's carbon (1,3-dihydro-2H-indol-2-one), else on the lowest free or
   // ketone atom (2,3-dihydro-1H-indole, 1H-indole-2,3-dione). Ketones in pairs need nothing more; a ketone left on its
-  // own takes added hydrogen from the lowest free atom (naphthalen-1(2H)-one, 1H-isoindole-1,3(2H)-dione). The rest
-  // are hydro prefixes, in pairs.
-  saturation(f: FusedSys, num: number[], ketones: number[]): { x?: number; x2?: number; y?: number; yOn?: number; hydro: number[] } {
+  // own takes added hydrogen from the lowest free atom (naphthalen-1(2H)-one, 1H-isoindole-1,3(2H)-dione), and ketones
+  // that cannot pair take one each (pteridine-2,4(1H,3H)-dione). The rest are hydro prefixes, in pairs.
+  saturation(f: FusedSys, num: number[], ketones: number[]): { x?: number; x2?: number; y?: number; ys: number[]; yOn?: number; hydro: number[] } {
     const byLoc = (l: number[]) => [...l].sort((a, b) => num.indexOf(a) - num.indexOf(b));
     // A parent whose C and N atoms cannot all pair up into double bonds, with an even number of them, has two
     // indicated hydrogens, at the lowest free or ketone atoms (1H,3H-naphtho[1,8-cd]pyran-1,3-dione).
@@ -579,22 +579,24 @@ class Namer {
         if (ketones.filter((a) => a !== x && a !== x2).length % 2) continue;
         if (!pairable(f.cn.filter((a) => !sat.has(a)), f.ring)) continue;
         const hydro = byLoc(f.d.filter((a) => !sat.has(a)));
-        if (hydro.length % 2 === 0) return { x, x2, hydro };
+        if (hydro.length % 2 === 0) return { x, x2, ys: [], hydro };
       }
       throw new Error("indicated hydrogen");
     }
-    const xs = f.tpl.odd ? byLoc(ketones.length % 2 ? ketones : f.d) : [undefined];
+    const lone = ketones.length % 2 ? byLoc(ketones) : [];
+    const xs = f.tpl.odd ? [...lone, ...byLoc(f.d.filter((a) => !lone.includes(a)))] : [undefined];
+    // Sets of m atoms from a list, in order of their locants.
+    const sets = (l: number[], m: number): number[][] => (!m ? [[]] : l.flatMap((a, i) => sets(l.slice(i + 1), m - 1).map((r) => [a, ...r])));
     for (const x of xs) {
-      const left = ketones.filter((a) => a !== x);
-      if (left.length % 2 && left.length > 1) continue;
-      const ys = left.length % 2 ? byLoc(f.d.filter((a) => a !== x && !ketones.includes(a))) : [undefined];
-      // The parent with its indicated and added hydrogen must exist: the other C and N atoms pair up into double bonds.
-      for (const y of ys) {
-        const sat = new Set([...ketones, x, y]);
+      const left = ketones.filter((a) => a !== x), free = byLoc(f.d.filter((a) => a !== x && !ketones.includes(a)));
+      // The fewest added hydrogens; the parent with its indicated and added hydrogen must exist: the other C and N atoms
+      // pair up into double bonds.
+      for (let m = left.length % 2; m <= Math.min(left.length, 3); m += 2) for (const ys of sets(free, m)) {
+        const sat = new Set([...ketones, x, ...ys]);
         if (!pairable(f.cn.filter((a) => !sat.has(a)), f.ring)) continue;
         const hydro = byLoc(f.d.filter((a) => !sat.has(a)));
         if (hydro.length % 2) throw new Error("hydro");
-        return { x, y, yOn: y === undefined ? undefined : left[0], hydro };
+        return { x, y: ys[0], ys, yOn: ys.length === 1 ? left[0] : undefined, hydro };
       }
     }
     throw new Error("indicated hydrogen");
@@ -686,7 +688,7 @@ class Namer {
     if (opts.acyl) nums = nums.filter((num) => num[0] === atoms[0]);
     nums = this.lowest(nums, (num) => sites.map((s) => loc(num, s.atom)));
     if (fused) {
-      nums = this.lowest(nums, (num) => one(sat(num).y).map((a) => loc(num, a)));
+      nums = this.lowest(nums, (num) => sat(num).ys.map((a) => loc(num, a)));
       nums = this.lowest(nums, (num) => sat(num).hydro.map((a) => loc(num, a)));
     }
     nums = this.lowest(nums, (num) => multiple(num));
@@ -706,7 +708,7 @@ class Namer {
     // Suffix locants; added hydrogen goes with its ketone: naphthalen-1(2H)-one.
     const added = fused ? sat(num) : undefined;
     const sitesLoc = sites.map((s) => s.atom).sort((a, b) => loc(num, a) - loc(num, b))
-      .map((a) => label(num, a) + (added?.y !== undefined && added.yOn === a ? `(${label(num, added.y)}H)` : ""));
+      .map((a, i, all) => label(num, a) + (added?.y !== undefined && (added.yOn === a || (added.yOn === undefined && i === all.length - 1)) ? `(${added.ys.map((y) => `${label(num, y)}H`).join(",")})` : ""));
     // Locants are left out where nothing else could be meant (P-14.3.4).
     const single = !p.ring ? size <= 2 && !opts.attach : !fused && !assembly && !bridged && (info?.ring?.name === "benzene" || (!info?.ring && size > 0));
     const prefixText = assemblePrefixes(prefixes.map((x) => ({ loc: x.n ? (manyN ? `N${label(num, x.atom)}` : "N") : label(num, x.atom), name: x.name })),
