@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { graphOf } from "./naming.ts";
 import { iupacNameWhy } from "./namer.ts";
+import { cipLabels } from "./cip.ts";
 import type { Mol } from "./render.ts";
 
 const dir = new URL("./vendor/opsin/", import.meta.url);
@@ -32,7 +33,27 @@ const convert = (s: string, f: string) => {
 type KetAtom = { label: string; charge?: number; isotope?: number; cip?: string };
 type KetMol = { type: string; atoms: KetAtom[]; bonds: { type: number; atoms: [number, number]; cip?: string }[] };
 const molecules = (ket: { root: { nodes: { $ref: string }[] }; [k: string]: unknown }) => ket.root.nodes.map(({ $ref }) => ket[$ref] as KetMol).filter((f) => f?.type === "molecule");
-// The structure read by Indigo (Kekulé bonds): each atom with its CIP label, isotope (D and T are labels) and the
+// The CIP labels Octet gives (cip.ts) the structure as Indigo lays the SMILES out (with wedges), on the atoms and bonds
+// Indigo reads. A drawn double bond always has a geometry; one the SMILES leaves open (Indigo gives it no label) has no
+// E or Z.
+function cipOf(smiles: string, bonds: { cip?: string }[]) {
+  const o = new indigo.MapStringString(), m: Mol = { atoms: [], bonds: [] };
+  o.set("output-content-type", "application/json");
+  o.set("dearomatize-on-load", "true");
+  try {
+    const ket = JSON.parse(JSON.parse(indigo.layout(smiles, "ket", o)).struct);
+    for (const { $ref } of ket.root.nodes) {
+      const f = ket[$ref], base = m.atoms.length;
+      if (f?.type !== "molecule") continue;
+      m.atoms.push(...f.atoms.map((a: Mol["atoms"][number]) => ({ label: a.label, location: a.location, charge: a.charge, isotope: a.isotope, ...(a.radical ? { radical: a.radical === 1 ? 3 : a.radical - 1 } : {}) })));
+      m.bonds.push(...f.bonds.map((b: Mol["bonds"][number]) => ({ type: b.type, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number], ...(b.stereo === 1 || b.stereo === 6 ? { stereo: b.stereo } : {}) })));
+    }
+  } finally { o.delete(); }
+  if (m.bonds.length !== bonds.length) throw new Error(`cipOf: Indigo read ${smiles} two ways`);
+  const c = cipLabels(m);
+  return { atoms: c.atoms, bonds: bonds.map((b, k) => (b.cip ? c.bonds[k] : undefined)) };
+}
+// The structure read by Indigo (Kekulé bonds): each atom with its isotope (D and T are labels) and the
 // hydrogens the SMILES gives it ([AsH5] five, [Se] none), which Indigo adds as atoms after each fragment's own.
 function read(smiles: string): { mol: Mol; cip: { atoms: (string | undefined)[]; bonds: (string | undefined)[] } } {
   const o = new indigo.MapStringString();
@@ -50,7 +71,7 @@ function read(smiles: string): { mol: Mol; cip: { atoms: (string | undefined)[];
     });
     return {
       mol: { atoms: atoms.map((a) => ({ label: a.label, charge: a.charge, implicitHCount: a.h, ...(a.isotope ? { isotope: a.isotope } : {}), location: [0, 0, 0] as [number, number, number] })), bonds: bonds.map((b) => ({ type: b.type, atoms: b.atoms })) },
-      cip: { atoms: atoms.map((a) => a.cip), bonds: bonds.map((b) => b.cip) },
+      cip: cipOf(smiles, bonds),
     };
   } finally { o.delete(); }
 }
@@ -62,7 +83,7 @@ const cases: [string, string][] = [
   ["smiles:O=[As]1(c2ccccc2)CCCC1", "1-phenyl-1λ⁵-arsolan-1-one"], ["smiles:O=[Se]1N=CC=C1", "1λ⁴,2-selenazol-1-one"],
   ["smiles:C1=CC=CC=2OC3=CC=CC=C3[AsH](C12)=O", "10H-10λ⁵-dibenzo[b,e][1,4]oxarsinin-10-one"],
   ["smiles:C1=CC=CC=2OC3=CC=CC=C3[SbH](C12)=O", "10H-10λ⁵-dibenzo[b,e][1,4]oxastibinin-10-one"],
-  ["smiles:C1=CC=CC=2[Se](C3=CC=CC=C3[Se]C12)=O", "5λ⁴-dibenzo[b,e][1,4]diselenin-5-one"], ["smiles:N=1[Se](N=C2C=CC=CC12)=O", "2λ⁴-2,1,3-benzoselenadiazol-2-one"],
+  ["smiles:C1=CC=CC=2[Se](C3=CC=CC=C3[Se]C12)=O", "5λ⁴-dibenzo[b,e][1,4]diselenin-5-one"], ["smiles:N=1[Se](N=C2C=CC=CC12)=O", "2λ⁴,1,3-benzoselenadiazol-2-one"],
   ["smiles:C1=CC=CC=2[AsH](C3=CC=CC=C3CC12)=O", "5λ⁵-dibenzo[b,e]arsinin-5(10H)-one"], ["smiles:O=S1c2ccccc2Cc2ccccc21", "9H-10λ⁴-thioxanthen-10-one"],
   ["smiles:O=P1(c2ccccc2)c2ccccc2-c2ccccc21", "5-phenyl-5H-5λ⁵-dibenzo[b,d]phosphol-5-one"], ["smiles:OP1(=O)CCCC1", "1-hydroxy-1λ⁵-phospholan-1-one"],
   ["smiles:OP1CCCCC1", "phosphinan-1-ol"], ["smiles:P1(CCC2=CC=CC=C12)O", "2,3-dihydro-1H-1-benzophosphol-1-ol"],
