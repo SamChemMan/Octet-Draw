@@ -81,6 +81,7 @@ const names = [
   "1'-methylferrocene-1-carboxylic acid", "acetylferrocene", "1,1'-diacetylferrocene", "ferrocenylmethanol", "(2-methylferrocenyl)methanol",
   "N,N-dimethyl-1-ferrocenylmethanamine", "1,1'-bis(diphenylphosphanyl)ferrocene", "2-ferrocenylpyridine", "ferrocenylacetic acid",
   "ferrocenyl acetate", "ferrocenylmethyl acetate", "N-ferrocenylacetamide", "[1'-(hydroxymethyl)ferrocenyl]methanol",
+  "ferrocenide", "ruthenocenide", "smiles:[CH-]1C=C[C-]=C1.[CH-]1C=CC=C1.[Fe+2]",
   // Organometallic compounds by additive names (IR-9, P-69).
   "butyllithium", "sec-butyllithium", "tert-butyllithium", "methyllithium", "phenyllithium", "(4-methoxyphenyl)lithium", "ethynyllithium",
   "methylmagnesium bromide", "phenylmagnesium bromide", "ethylmagnesium chloride", "isopropylmagnesium chloride", "vinylmagnesium bromide",
@@ -121,6 +122,7 @@ const expect: [string, string][] = [
   ["copper(II) acetate", "copper(II) acetate"], ["iron(III) chloride", "iron(III) chloride"], ["titanium tetrachloride", "titanium(IV) chloride"],
   ["ethylzinc iodide", "ethylzinc(1+) iodide"], ["uranyl", "dioxouranium(2+)"], ["chromic acid", "chromic acid"], ["sodium", "sodium"],
   ["lithium nitride", "lithium nitride"], ["sodium amide", "sodium amide"], ["smiles:CC(=O)O[Na]", "sodium acetate"],
+  ["zinc trifluoromethanesulfonate", "zinc bis(trifluoromethanesulfonate)"], ["ferrocenide", "ferrocenide"],
 ];
 for (const [input, name] of expect) assert.equal(structure(input).name, name, input);
 console.log(`namer-metals.check: ${expect.length} names as expected`);

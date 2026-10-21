@@ -197,6 +197,9 @@ function metallocene(s: Shape, api: MetalApi): string | undefined {
   for (const sub of subs) if (sub.atoms.some((i) => adj[i].some((j) => unit.has(j) && (i !== sub.x || j !== sub.r)))) throw new Error("ansa-metallocene");
   if (subs.some((sub) => sub.atoms.some((i) => isMetal(g.atoms[i].el)))) throw new Error("several metals");
   const stem = OCENES[g.atoms[m].el];
+  // A ring that has lost a hydrogen ion as well (C5H4 2-): the anion ferrocenide (P-72.2), with nothing else on it.
+  const ide = rings.filter((r) => r.filter((a) => g.atoms[a].charge === -1).length === 2).length;
+  if (ide) return ide === 1 && !subs.length ? `${stem.slice(0, -1)}ide` : undefined;
   if (!subs.length) return stem;
   // The substituents with a methyl in place of their ring carbon, for their prefix names and their groups.
   const p0 = s.build(subs.flatMap((sub) => sub.atoms), subs.map((sub) => ({ el: "C", h: 3, to: sub.x })));
@@ -298,8 +301,8 @@ function turns(ring: number[]): number[][] {
   for (let s = 0; s < ring.length; s++) for (const d of [1, -1]) out.push(ring.map((_, k) => ring[(s + d * k + ring.length * 2) % ring.length]));
   return out;
 }
-// The cyclopentadienide rings (C5H5-) in cycle order: five carbons, one negative, two double bonds, and one single
-// bond to any substituent.
+// The cyclopentadienide rings (C5H5-) in cycle order: five carbons, one negative (or two, C5H4 2-), two double bonds,
+// and one single bond to any substituent.
 function ringsOf(s: Shape): number[][] {
   const size = 5;
   const { g, adj } = s, found = new Map<string, number[]>();
@@ -316,7 +319,7 @@ function ringsOf(s: Shape): number[][] {
   return [...found.values()].filter((ring) => {
     const bonds = ring.map((a, k) => s.ord(a, ring[(k + 1) % size]));
     if (bonds.filter((o) => o === 2).length !== 2 || bonds.some((o) => o > 2)) return false;
-    if (ring.filter((a) => g.atoms[a].charge === -1).length !== 1) return false;
+    if (![1, 2].includes(ring.filter((a) => g.atoms[a].charge === -1).length)) return false;
     return ring.every((a) => {
       const out = adj[a].filter((j) => !ring.includes(j));
       return out.length <= 1 && out.every((j) => s.ord(a, j) === 1) && s.valence(a) === (g.atoms[a].charge ? 3 : 4);

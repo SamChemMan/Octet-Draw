@@ -1153,7 +1153,9 @@ function saltName(g: Graph, parts: number[][]): string | undefined {
   const cationNames = cations.map((p) => cationName(g, p)), anionNames = anions.map((p) => anionName(g, p));
   const same = (names: (string | undefined)[]) => !!names[0] && names.every((n) => n === names[0]);
   if (!same(cationNames) || !same(anionNames)) return undefined;
-  const times = (k: number, name: string) => (k < 2 ? name : /[\d([]/.test(name) ? `${MULT_COMPLEX[k]}(${name})` : MULT[k] + name);
+  // bis, tris for a name with locants or brackets, or one that starts with a multiplying prefix (P-16.9.4): zinc
+  // bis(trifluoromethanesulfonate), not zinc ditrifluoromethanesulfonate.
+  const times = (k: number, name: string) => (k < 2 ? name : /[\d([]|^(di|tri|tetra|penta|hexa)/.test(name) ? `${MULT_COMPLEX[k]}(${name})` : MULT[k] + name);
   return `${times(cations.length, cationNames[0]!)} ${times(anions.length, anionNames[0]!)}`;
 }
 // One part of a salt as a structure of its own.
