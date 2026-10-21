@@ -367,6 +367,7 @@ const RETAINED: [string, string, string, string?][] = [
   // Phenanthrolines: a nitrogen in each end ring, numbered as the hydrocarbon (FR-5).
   ...["1,7", "1,8", "1,9", "1,10", "2,7", "2,8", "2,9", "3,7", "3,8", "4,7"].map((l): [string, string, string, string] =>
     [`${l}-phenanthroline`, `[${l}]phenanthrolino`, "1-2 2-3 3-4 4-4a 4a-5 5-6 6-6a 6a-7 7-8 8-9 9-10 10-10a 10a-10b 10b-1 4a-10b 6a-10a", l.split(",").map((x) => `N${x}`).join(" ")]),
+  ["pleiadene", "pleiadeno", "1-2 2-3 3-3a 3a-4 4-5 5-6 6-6a 6a-7 7-7a 7a-8 8-9 9-10 10-11 11-11a 11a-12 12-12a 12a-1 7a-11a 3a-12b 6a-12b 12a-12b", ""],
   // Steroid numbering, as OPSIN reads the name (CAS; FR-5.3 notes the difference).
   ["cyclopenta[a]phenanthrene", "", "1-2 2-3 3-4 4-5 5-6 6-7 7-8 8-14 14-15 15-16 16-17 17-13 13-12 12-11 11-9 9-10 10-1 5-10 8-9 13-14", ""],
 ];
@@ -778,12 +779,26 @@ function describe(sys: RingSystem, root: Node): { key: number[]; name: string } 
 // A parent name with locants in front is bracketed inside a fusion name: pyrazino[2,3-f][1,10]phenanthroline.
 const inFusion = (name: string) => name.replace(/^([\d,]+)-/, "[$1]");
 
+// Retained parents that are not ortho- or peri-fused, named only as a whole (P-25.2.1): porphyrin, whose parent has
+// two indicated hydrogens (21H,23H-porphyrin).
+const WHOLE: [string, string, string][] = [
+  ["porphyrin", "1-2 2-3 3-4 4-21 21-1 4-5 5-6 6-7 7-8 8-9 9-22 22-6 9-10 10-11 11-12 12-13 13-14 14-23 23-11 14-15 15-16 16-17 17-18 18-19 19-24 24-16 19-20 20-1", "N21 N22 N23 N24"],
+];
+
 // The parent name and numberings of a fused system outside the namer's table, for atoms of a molecule: the name, its
 // locants in order, and each numbering (the molecule's atoms in locant order). `uncited` holds indices whose locants
 // the rules leave open (interior atoms), which a name must not cite.
-export function fusedParent(atoms: number[], el: (a: number) => string, ring: (a: number) => number[]): { name: string; labels: string[]; nums: number[][]; uncited: number[] } {
+export function fusedParent(atoms: number[], el: (a: number) => string, ring: (a: number) => number[]): { name: string; labels: string[]; nums: number[][]; uncited: number[]; hydrogens?: number } {
   const at = new Map(atoms.map((a, i) => [a, i]));
   const lel = atoms.map(el), ladj = atoms.map((a) => ring(a).map((b) => at.get(b)!));
+  for (const [name, bonds, hetero] of WHOLE) {
+    const pairs = bonds.split(" ").map((b) => b.split("-")), labels = [...new Set(pairs.flat())].sort(locOrder);
+    if (labels.length !== atoms.length) continue;
+    const tel = labels.map((l) => hetero.split(" ").find((h) => h.slice(1) === l)?.[0] ?? "C"), tadj: number[][] = labels.map(() => []);
+    for (const [a, b] of pairs) { tadj[labels.indexOf(a)].push(labels.indexOf(b)); tadj[labels.indexOf(b)].push(labels.indexOf(a)); }
+    const nums = isomorphisms(tel, tadj, lel.map((_, i) => i), (i) => lel[i], (i) => ladj[i]);
+    if (nums.length) return { name, labels, nums: nums.map((n) => n.map((i) => atoms[i])), uncited: [], hydrogens: 2 };
+  }
   const sys = ringSystem(lel, ladj);
   // Fusion names need two rings of five or more members (P-25.0); else von Baeyer names.
   if (sys.rings.filter((r) => r.length >= 5).length < 2) throw new Error("small fused rings");
