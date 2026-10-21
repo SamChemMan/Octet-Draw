@@ -27,11 +27,22 @@ SMILES for every name in `names.txt`.
 
 ## Style
 
-- Charge number for a complex ion (ruthenium(2+), ferrate(3-)); oxidation number for a neutral complex
-  (rhodium(I), osmium(0)); none for an organometallic compound (IR-10.2.1.4) or a polynuclear one.
-- Ligands with names of their own (chlorido, ammine, aqua, carbonyl, cyanido) take di, tri; every other ligand goes
-  in enclosing marks with bis, tris.
+- Charge number for a complex ion (ruthenium(2+), ferrate(3-)). For a neutral complex, an oxidation number only
+  where the drawing fixes it: a charge on the metal or a ligand atom, an anionic ligand or a hydride (rhodium(I)
+  in Wilkinson's catalyst). With the metal and every ligand neutral, none (IR-9.2.2.4 makes it optional): Sam
+  draws his Os(II) and Ru(II) complexes with no charges, and osmium(0) would be a claim he never made. None for an
+  organometallic compound (IR-10.2.1.4) or a polynuclear one.
+- A metal label with a Roman numeral in brackets (Os(II), Ru(III), Fe(0)) is that metal with that oxidation number.
+  The atom is the metal with no charge, so the formula is what is drawn, and the name ends osmium(II). Where the
+  drawing fixes a different number (Pt(IV) on cisplatin) there is no name. How ChemDraw 26.1 reads such a label is
+  not known yet: it needs a test in ChemDraw.
+- Multiplying prefixes (IR-9.2.2.2): di, tri and no enclosing marks for ligands with names of their own (chlorido,
+  ammine, aqua, carbonyl, cyanido) and for simple anion names of one word (diacetato). Bis, tris and enclosing marks
+  for names with locants, prefixes or κ (tetrakis(triphenylphosphane), tetrakis(μ-acetato-κO:κO')), for neutral
+  organic ligands (bis(pyridine): dipyridine reads as a ring assembly), for carbon ligands (IR-10.2.2:
+  trichlorido(methyl)titanium), and for names that begin as a multiplying prefix does (bis(octanoato)).
 - κ after the part of a ligand's name that holds the donor atom, with OPSIN's locants there.
+- Names show as plain text, as every name caption does: κ3N1 with the 3 on the line, μ-acetato, no italic N or O.
 - Terpyridines as ring assemblies (2,2':6',2''-terpyridine), and two identical anionic units on a benzene ring by a
   multiplicative name (esp).
 
