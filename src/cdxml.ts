@@ -821,7 +821,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       WordWrapWidth: c.width ? Math.round(c.width * B) : undefined,
       // Line spacing as ChemDraw writes it: a text's LineHeight is auto or pt, and Variable is its caption style's.
       CaptionJustification: just, Justification: just, LineHeight: c.lineHeight === "variable" ? undefined : typeof c.lineHeight === "number" ? fmtSize(c.lineHeight) : "auto",
-      CaptionLineHeight: c.lineHeight === "variable" ? "variable" : undefined, RotationAngle: c.angle ? Math.round((((-c.angle % 360) + 360) % 360) * 65536) || undefined : undefined,
+      CaptionLineHeight: c.lineHeight === "variable" ? "variable" : undefined, InterpretChemically: c.chemical === false ? "no" : undefined, RotationAngle: c.angle ? Math.round((((-c.angle % 360) + 360) % 360) * 65536) || undefined : undefined,
       Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined,
         align: align !== own ? c.align ?? "centre" : undefined, width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined }),
     }, runs.map((r) => run(r.text, { font: r.font ?? c.font ?? style.captionFont, size: r.size ?? size, colour: r.colour ?? c.colour, face: face({ ...whole, ...r }) })).join("")), 2, box, c.id);
@@ -885,7 +885,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   const rgb = (c: string) => [1, 3, 5].map((k) => fmtColour(parseInt(c.slice(k, k + 2), 16) / 255));
   const tables = `<colortable>\n${colours.map((c) => { const [r, g, b] = rgb(c); return `<color r="${r}" g="${g}" b="${b}"/>`; }).join("\n")}\n</colortable><fonttable>\n${fonts.map((f, k) => `<font id="${k + 1}" charset="x-mac-roman" name="${escAttr(f)}"/>`).join("\n")}\n</fonttable>`;
   const root = el("CDXML", {
-    CreationProgram: PROGRAM, Name: opts.name ?? "Untitled Document", BoundingBox: boxText(all), WindowPosition: "0 0", WindowSize: "0 0", FractionalWidths: "yes", InterpretChemically: "yes",
+    CreationProgram: PROGRAM, Name: opts.name ?? "Untitled Document", BoundingBox: boxText(all), WindowPosition: "0 0", WindowSize: "0 0", FractionalWidths: "yes", InterpretChemically: style.interpret === false ? "no" : "yes",
     ShowAtomQuery: "yes", ShowAtomStereo: "no", ShowAtomEnhancedStereo: "yes", ShowAtomNumber: "no", ShowResidueID: "no", ShowBondQuery: "yes", ShowBondRxn: "yes", ShowBondStereo: "no",
     ShowTerminalCarbonLabels: style.terminalLabels ? "yes" : "no", ShowNonTerminalCarbonLabels: style.carbonLabels ? "yes" : "no", HideImplicitHydrogens: style.hideH ? "yes" : "no", LabelFont: font(style.labelFont), LabelSize: fmtSize(style.labelSize), LabelFace: 96,
     CaptionFont: font(style.captionFont), CaptionSize: fmtSize(style.captionSize), HashSpacing: fmt(style.hash), MarginWidth: fmt(style.margin), LineWidth: fmt(style.line), BoldWidth: fmt(style.bold),
@@ -1044,6 +1044,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     // ChemDraw's document background colour, when it is not white (Octet's own files say which background they have).
     ...(!octet && r.bgcolor !== undefined && colourOf(r.bgcolor) !== "#FFFFFF" ? { background: colourOf(r.bgcolor) ?? "#000000" } : {}),
     terminalLabels: yes(r.ShowTerminalCarbonLabels), carbonLabels: yes(r.ShowNonTerminalCarbonLabels), hideH: yes(r.HideImplicitHydrogens),
+    // Interpret Chemically When Possible: on when the file does not say (the spec's default).
+    interpret: r.InterpretChemically === undefined || yes(r.InterpretChemically),
     chainAngle: real(r.ChainAngle),
   });
 
@@ -1506,6 +1508,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     if (lh === "variable") c.lineHeight = "variable"; else if (fixed !== undefined && fixed >= 0.1 && fixed <= 999) c.lineHeight = fixed;
     const normal = normalise(own);
     if (styled(normal)) c.runs = normal;
+    // Interpret Chemically off on this text: it is text only.
+    if (t.attrs.InterpretChemically !== undefined && !yes(t.attrs.InterpretChemically)) c.chemical = false;
     if (p?.under) unders.push({ c, nodes: p.under });
     const cyc = p?.cycle as Record<string, unknown> | undefined;
     if (cyc && Number.isInteger(cyc.cycle) && Number.isInteger(cyc.step) && isNum(cyc.step, 0, 63) && ["in", "out", "centre"].includes(cyc.side as string)) c.cycle = { cycle: cyc.cycle as number, step: cyc.step as number, side: cyc.side as "in" };

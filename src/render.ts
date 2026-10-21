@@ -114,6 +114,9 @@ export type Caption = {
   // Line spacing (ChemDraw's Text > Line Spacing): unset is Automatic (every line as far apart as the caption's
   // largest text needs), variable (each line as far from the last as their own text needs), or fixed, in pt.
   lineHeight?: "variable" | number;
+  // Interpret Chemically off (ChemDraw's InterpretChemically="no" on the text): the caption is text only, even when
+  // it reads as chemistry (edit.ts chemicalCaption).
+  chemical?: false;
 };
 // Data Octet keeps from a ChemDraw object it does not edit: the object's attributes, and the atoms it is for.
 export type Kept = { attrs: Record<string, string>; atoms: number[] };

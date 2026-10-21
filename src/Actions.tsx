@@ -37,7 +37,9 @@ export type Context =
   | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; joinable?: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; cip?: boolean; numbers?: boolean; circles?: boolean; halo?: string; fill?: string; hydrogens?: boolean; properties?: boolean; generic?: boolean }
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
   | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
-      script?: "sub" | "super"; font?: string; fonts?: string[]; labelable?: boolean } // labelable: Octet can read a picked caption as an atom label (Make element)
+      // labelable: Octet can read a picked caption as an atom label (Make element). chemical: their Interpret chemically,
+      // shown when the document's is on and one of them reads as chemistry.
+      script?: "sub" | "super"; font?: string; fonts?: string[]; labelable?: boolean; chemical?: boolean }
   // size: the heads' palette size ("own" for a size set by hand), when the arrows have heads. ratio: an equilibrium's.
   // fillable: closed curves and block arrows, which take a fill.
   | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
@@ -606,7 +608,8 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
     shape: context.kind === "shape" && context.count > 1 ? `${context.count} shapes` : context.kind === "shape" ? SHAPES[context.shape] : "Shape",
     line: "Line",
   }[context.kind];
-  const whole = context.kind === "drawing" || context.kind === "structure";
+  // The formula and mass rows: structures, and captions that count as chemistry (the editor gives none for others).
+  const whole = context.kind === "drawing" || context.kind === "structure" || (context.kind === "caption" && context.mode === "picked");
 
   const { items, rows, sets } = arrangedActions(context, messy, hiddenWarnings, warned, grouping, layout, online);
 
@@ -681,8 +684,8 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       {problems.length > 0 && context.kind !== "empty" && (
         <div className="problems" role="status">
           {(allProblems ? problems : problems.slice(0, 2)).map((p) => {
-            // What the problem is on: an atom, a bond or a shape, as the editor's commands name it.
-            const on = p.atom !== undefined ? `a${p.atom}` : p.bond !== undefined ? `b${p.bond}` : `s${p.shape}`;
+            // What the problem is on: an atom, a bond, a shape or a caption, as the editor's commands name it.
+            const on = p.atom !== undefined ? `a${p.atom}` : p.bond !== undefined ? `b${p.bond}` : p.caption !== undefined ? `c${p.caption}` : `s${p.shape}`;
             return (
               <div key={`${on}${p.type}${p.message}`} className="problem">
                 <Warning size={16} aria-hidden />
@@ -781,6 +784,8 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           {([["left", "Flush left", <TextAlignLeft size={16} />], ["centre", "Centre text", <TextAlignCenter size={16} />], ["right", "Flush right", <TextAlignRight size={16} />], ["justify", "Justified", <TextAlignJustify size={16} />]] as const).map(([id, name, icon]) => (
             <button key={id} className="chip" aria-pressed={context.align === id} aria-label={name} data-tip={name} data-key={hint(`caption.align.${id}`)} onClick={() => run(`caption.align.${id}`)}>{icon}</button>
           ))}
+          {/* The same control as an atom label's: the caption counts as chemistry, or it is text only. */}
+          {context.chemical !== undefined && <button className="chip" aria-pressed={context.chemical} aria-label="Interpret chemically" data-tip="Interpret chemically" onClick={() => run("interpret")}><Graph size={16} /></button>}
         </div>
       )}
 

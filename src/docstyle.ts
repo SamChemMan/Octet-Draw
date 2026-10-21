@@ -57,6 +57,9 @@ export type DocStyle = {
   labelFont: string; labelSize: number; captionFont: string; captionSize: number; colour: string;
   // Atom labels (ChemDraw's Show Labels on Terminal Carbons, on Non-Terminal Carbons, and Hide Implicit Hydrogens).
   terminalLabels: boolean; carbonLabels: boolean; hideH: boolean;
+  // ChemDraw's Interpret Chemically When Possible (Document Settings > Text Captions; InterpretChemically on the
+  // document in CDXML): captions that read as chemistry count as chemistry. On for new documents.
+  interpret: boolean;
   // The named colours saved with the document (ChemDraw keeps a palette in each document): the user's own colours
   // when it was saved. Another computer shows them in the drawing's colour row.
   palette?: { name: string; hex: string }[];
@@ -86,7 +89,7 @@ export const PRESETS: Record<string, Drawn> = {
   "New Document (ChemDraw)": { bond: 30, line: 1, bold: 4, margin: 2, hash: 2.7, spacing: 12, labelFont: "Arial", labelSize: 10, captionFont: "Arial", captionSize: 12 },
   "New Slide (ChemDraw)": { bond: 30, line: 1.6, bold: 4, margin: 2, hash: 2.7, spacing: 15, labelFont: "Arial", labelSize: 12, captionFont: "Arial", captionSize: 16 },
 };
-export const DEFAULT_STYLE: DocStyle = { preset: "ACS Document 1996", page: "A4", custom: [180, 120], landscape: false, edges: true, grid: "bond", background: "white", colour: "#000000", terminalLabels: false, carbonLabels: false, hideH: false, chainAngle: 120, scale: 1, ...PRESETS["ACS Document 1996"] };
+export const DEFAULT_STYLE: DocStyle = { preset: "ACS Document 1996", page: "A4", custom: [180, 120], landscape: false, edges: true, grid: "bond", background: "white", colour: "#000000", terminalLabels: false, carbonLabels: false, hideH: false, interpret: true, chainAngle: 120, scale: 1, ...PRESETS["ACS Document 1996"] };
 // The lengths and sizes a document scale multiplies (bond spacing is a percent, so it stays).
 export const SCALED = ["bond", "line", "bold", "margin", "hash", "labelSize", "captionSize"] as const;
 // The values readStyle keeps for each of them (pt); anything else falls back to the default. Lengths reach 10 times
@@ -196,7 +199,7 @@ export function readStyle(v: unknown): DocStyle {
     labelFont: text("labelFont", fontName), labelSize: num("labelSize", ...LIMITS.labelSize),
     captionFont: text("captionFont", fontName), captionSize: num("captionSize", ...LIMITS.captionSize),
     colour: text("colour", (t) => /^#[0-9a-f]{6}$/i.test(t)),
-    terminalLabels: s.terminalLabels === true, carbonLabels: s.carbonLabels === true, hideH: s.hideH === true,
+    terminalLabels: s.terminalLabels === true, carbonLabels: s.carbonLabels === true, hideH: s.hideH === true, interpret: s.interpret !== false,
     chainAngle: num("chainAngle", 90, 179),
     scale: num("scale", 0.1, 10),
     ...(typeof s.purpose === "string" && /^[a-z0-9-]{1,40}$/.test(s.purpose) ? { purpose: s.purpose } : {}),

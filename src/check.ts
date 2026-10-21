@@ -24,10 +24,17 @@ export const WARNING_TYPES: { id: WarningType; name: string; on: boolean }[] = [
   { id: "backwards", name: "Stereobond originating from non-stereo atom", on: true },
 ];
 
-// A problem is on an atom, a bond or a shape (brackets). fix: a command that mends it, with its button's name.
-// hidden: the object's Display Warnings is off (ChemDraw's IgnoreWarnings, on atoms, bonds and brackets); Check
-// Structure still reports it.
-export type Problem = { type: WarningType; atom?: number; bond?: number; shape?: number; message: string; fix?: { label: string; command: string }; hidden?: true };
+// A problem is on an atom, a bond, a shape (brackets) or a caption that counts as chemistry (by id). fix: a command
+// that mends it, with its button's name. hidden: the object's Display Warnings is off (ChemDraw's IgnoreWarnings, on
+// atoms, bonds and brackets); Check Structure still reports it.
+export type Problem = { type: WarningType; atom?: number; bond?: number; shape?: number; caption?: number; message: string; fix?: { label: string; command: string }; hidden?: true };
+// Problems found on a drawing with its chemical captions as atoms (edit.ts withCaptionAtoms): those on a caption's
+// atom go on the caption. atoms: the drawing's own atoms; captions: the caption each later atom is.
+export const onCaptions = (list: Problem[], atoms: number, captions: number[]): Problem[] => list.map((p) => {
+  if (p.atom === undefined || p.atom < atoms) return p;
+  const { atom, ...rest } = p;
+  return { ...rest, caption: captions[atom - atoms] };
+});
 // What Indigo works out about a drawing's stereocentres (chem.ts stereoFacts), by atom: centres (atoms that can be
 // stereocentres), unset (centres whose configuration the drawing does not set), conflict (centres whose wedges and
 // hashes conflict), and atoms in structures that cannot be chiral.
