@@ -127,7 +127,7 @@ const withHydrogens = (m: Mol, smiles: string): Mol => {
     return h.length === m.atoms.length ? { ...m, atoms: m.atoms.map((a, i) => ({ ...a, implicitHCount: h[i], ...(isotopes[i] ? { isotope: isotopes[i] } : {}) })) } : m;
   } catch { return m; } finally { o.delete(); }
 };
-const why = new Map<string, string[]>(), wrong: string[] = [], right: string[] = [], otherH: string[] = [];
+const why = new Map<string, string[]>(), wrong: string[] = [], right: string[] = [], otherH: string[] = [], unread: string[] = [];
 let tried = 0, named = 0;
 for (const input of inputs) {
   let smiles: string | null = null;
@@ -143,9 +143,13 @@ for (const input of inputs) {
   try { back = opsin.parseToSmiles(r.name); } catch { back = null; }
   if (back && convert(back, "inchi") === convert(smiles, "inchi")) { named++; right.push(input); }
   else if (hydrogensOf(smiles) !== g.atoms.reduce((t, a) => t + a.h + (a.el === "H" ? 1 : 0), 0)) { otherH.push(`${input} -> ${r.name}`); tried--; }
+  // A name OPSIN cannot parse is not shown in the app (naming.ts checkedName), so it is not a wrong name. It is
+  // listed with the names OPSIN cannot read.
+  else if (!back) unread.push(`${input} -> ${r.name}`);
   else wrong.push(`${input} -> ${r.name}`);
 }
 console.log(`survey: ${tried} structures, ${named} named right (${(100 * named / tried).toFixed(1)}%), ${wrong.length} wrong, ${tried - named - wrong.length} unnamed`);
+if (unread.length) console.log(`names OPSIN cannot read (${unread.length}): ${unread.slice(0, 20).join("; ")}`);
 if (otherH.length) console.log(`left out, drawn with other hydrogen counts (${otherH.length}): ${otherH.slice(0, 6).join("; ")}`);
 for (const [k, v] of [...why].sort((a, b) => b[1].length - a[1].length)) console.log(`${String(v.length).padStart(5)}  ${k}: ${v.slice(0, 6).join("; ")}`);
 if (save) { const { writeFileSync } = await import("node:fs"); writeFileSync(save, `${right.join("\n")}\n`); writeFileSync(`${save}.wrong`, `${wrong.join("\n")}\n`); }
