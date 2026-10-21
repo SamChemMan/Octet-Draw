@@ -239,8 +239,10 @@ class Namer {
     }
     for (let c = 0; c < this.n; c++) {
       if (el[c] !== "C") continue;
-      const o = this.carbonylO[c], cs = this.carbons(c);
-      const others = adj[c].filter((j) => j !== o && el[j] !== "C");
+      // A ring N joined to a functional carbon outside its ring stands where a ring carbon would (P-66.1.1.4.3, P-64.1.2):
+      // piperidine-1-carboxylic acid, tert-butyl azetidine-1-carboxylate, 1-(piperidin-1-yl)ethan-1-one.
+      const o = this.carbonylO[c], cs = [...this.carbons(c), ...this.ringN(c)];
+      const others = adj[c].filter((j) => j !== o && !cs.includes(j));
       const nitrileN = adj[c].find((j) => el[j] === "N" && this.ord(c, j) === 3 && adj[j].length === 1);
       if (nitrileN !== undefined) {
         if (this.inRing[c] || cs.length > 1 || others.length !== 1) throw new Error("nitrile");
@@ -352,6 +354,8 @@ class Namer {
     }
   }
   mark(i: number, kind: Kind, on: number[]) { this.group[i] = kind; this.bearer.set(i, on); }
+  // Ring N atoms single-bonded to carbon c, when c is outside a ring.
+  ringN = (c: number) => (this.inRing[c] ? [] : this.adj[c].filter((j) => this.el[j] === "N" && this.inRing[j] && this.ord(c, j) === 1 && !this.q[j]));
   isNitrileC = (c: number) => this.adj[c].some((j) => this.el[j] === "N" && this.ord(c, j) === 3);
   nitroAtom(i: number): boolean {
     if (this.el[i] !== "N" && this.el[i] !== "O") return false;
@@ -795,7 +799,7 @@ class Namer {
       const r = this.adj[x].find((j) => j !== from)!;
       if (this.carbonylO[r] >= 0) {
         const acyl = this.acylName(r, x);
-        return { text: `${acyl.text}oxy`, compound: true };
+        return { text: `${enclose(acyl)}oxy`, compound: true };
       }
       const alkyl = this.substituent(r, x);
       const simple: Record<string, string> = { methyl: "methoxy", ethyl: "ethoxy", propyl: "propoxy", butyl: "butoxy", phenyl: "phenoxy", "tert-butyl": "tert-butoxy", benzyl: "benzyloxy", phenylmethyl: "benzyloxy" };
@@ -862,7 +866,7 @@ class Namer {
       if (this.el[from] !== "N" || from === o) throw new Error("carbamate as a prefix");
       return { text: `${enclose(this.substituent(o, c))}carbonyl`.replace(/^\(([a-z-]+oxy)\)carbonyl$/, "$1carbonyl"), compound: true };
     }
-    const r = this.carbons(c, [from]);
+    const r = [...this.carbons(c, [from]), ...this.ringN(c).filter((j) => j !== from)];
     if (!r.length) return { text: "formyl", compound: false };
     if (this.inRing[r[0]]) {
       const cycle = this.rings[this.ringOf[r[0]]];
@@ -1099,7 +1103,8 @@ function assemblePrefixes(list: { loc: string; name: Name }[], noLocants: boolea
     const m = g.locs.length, multiplied = m > 1 ? (g.name.compound ? MULT_COMPLEX[m] + enclose(g.name) : MULT[m] + g.name.text) : enclose(g.name);
     return noLocants && !locs.some(isN) ? multiplied : `${locs.join(",")}-${multiplied}`;
   });
-  return parts.join("-").replace(/-$/, "") + (parts.length && /\d$|N$/.test(parts[parts.length - 1]) ? "" : "");
+  // No hyphen before a bracket: phenyl(pyrrolidin-1-yl)methanone.
+  return parts.map((t, k) => (k && !/^[([{]/.test(t) ? `-${t}` : t)).join("");
 }
 // Prefixes, then the rest of the name, with a hyphen before a locant: 5-bromo-1H-indole, 1-methyl-1H-pyrrole.
 const joinPrefixes = (prefixes: string, rest: string) => (prefixes && /^\d/.test(rest) ? `${prefixes}-${rest}` : prefixes + rest);
