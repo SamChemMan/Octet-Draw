@@ -284,6 +284,8 @@ function ligand(n: Namer, x: number, j: number): string | undefined {
   if (n.el[j] !== "N") return undefined;
   if (n.inRing[j]) return "Nring";
   if (azideN(n, j) === x) return "N3";
+  // An imine N on S (a sulfinimine): N-[(E)-phenylmethylidene]-2-methylpropane-2-sulfinamide.
+  if (n.adj[j].length === 2 && !n.h[j]) { const c = n.adj[j].find((y) => y !== x)!; if (n.el[c] === "C" && n.ord(j, c) === 2 && n.carbonylO[c] < 0 && !n.isNitrileC(c) && n.el[x] === "S") return "N"; }
   return single(n, j) && n.adj[j].length + n.h[j] === 3 && n.adj[j].every((y) => y === x || plainC(n, y) || (n.el[y] === "S" && !n.inRing[y] && oxo(n, y).length === 2) || nitrosoOrAmino(n, y, j) || (HALO[n.el[y]] && n.adj[y].length === 1)) ? "N" : undefined;
 }
 // An N on an amide N j: nitroso (N-methyl-N-nitroso), amino (a hydrazide: N-amino), or an imine N (=N-, a hydrazone).
@@ -345,6 +347,14 @@ function claimNN(n: Namer, y: number) {
   const o = n.adj[y].find((k) => n.el[k] === "O" && n.ord(y, k) === 2);
   n.het.set(y, o === undefined ? "NN'" : "N=O");
   if (o !== undefined) n.het.set(o, "N=O");
+}
+// R or S at the S of a suffix (sulfinamide, sulfinate ester, sulfinic acid), cited without a locant:
+// (R)-2-methylpropane-2-sulfinamide, methyl (R)-4-methylbenzene-1-sulfinate. Only as the parent's one descriptor.
+export function suffixStereo(n: Namer, sites: { atom: number; group: number }[], others: number): { at: number; text: string }[] {
+  const s = sites.filter((x) => n.el[x.group] === "S" && (n.cip[x.group] === "R" || n.cip[x.group] === "S"));
+  // With an O on the S (sulfinate esters and acids), Indigo's and OPSIN's CIP ranks of =O and -O- differ: not cited.
+  if (s.length && (others || s.length > 1 || s.some((x) => n.adj[x.group].some((j) => n.el[j] === "O" && n.ord(x.group, j) === 1)))) throw new Error("sulfur stereo");
+  return s.map((x) => ({ at: 0, text: n.cip[x.group]! }));
 }
 // The N of a sulfonamide group (for its N-substituents as N-prefixes).
 export function sulfonamideN(n: Namer, kind: string | undefined, s: number): number | undefined {
@@ -689,6 +699,7 @@ function centrePrefix(n: Namer, x: number, from: number): Name | undefined {
 // other atoms.
 export function heteroPrefix(n: Namer, x: number, from: number): Name | undefined {
   const role = n.het.get(x), el = n.el[x];
+  if (el === "C" && n.el[from] === "N" && n.ord(x, from) === 2 && n.carbonylO[x] < 0) return ylidene(n, x, from); // N-(phenylmethylidene)
   if (el === "S" && n.sulfur.has(x) && oxo(n, x).length) return sulfurPrefix(n, x, from);
   if (el === "P" || (el === "N" && role?.startsWith("NO"))) { const c = centrePrefix(n, x, from); if (c) return c; }
   // Peroxy (also an ester's or an acid's -O-O-): hydroperoxy, (methylperoxy), tert-butylperoxy.
@@ -860,7 +871,7 @@ const INORGANIC: [string, string][] = [
   ["OF", "hypofluorous acid"], ["OCl", "hypochlorous acid"], ["OCl=O", "chlorous acid"], ["OCl(=O)=O", "chloric acid"], ["OCl(=O)(=O)=O", "perchloric acid"],
   ["OBr", "hypobromous acid"], ["OBr=O", "bromous acid"], ["OBr(=O)=O", "bromic acid"], ["OBr(=O)(=O)=O", "perbromic acid"],
   ["OI", "hypoiodous acid"], ["OI=O", "iodous acid"], ["OI(=O)=O", "iodic acid"], ["OI(=O)(=O)=O", "periodic acid"], ["OI(O)(O)(O)(O)=O", "orthoperiodic acid"],
-  ["ON=O", "nitrous acid"], ["O[N+](=O)[O-]", "nitric acid"], ["N=O", "azanone"], ["ClN=O", "nitrosyl chloride"],
+  ["ON=O", "nitrous acid"], ["NN=O", "nitrous amide"], ["NS(=O)O", "amidosulfurous acid"], ["OP(=O)(O)P(=O)(O)O", "hypodiphosphoric acid"], ["O[N+](=O)[O-]", "nitric acid"], ["N=O", "azanone"], ["ClN=O", "nitrosyl chloride"],
   ["NF", "fluoramine"], ["NCl", "chloramine"], ["NBr", "bromamine"], ["FNF", "difluoramine"], ["ClNCl", "dichloramine"], ["BrNBr", "dibromamine"],
   ["FN(F)F", "nitrogen trifluoride"], ["ClN(Cl)Cl", "nitrogen trichloride"],
   ["O=S=O", "sulfur dioxide"], ["O=S(=O)=O", "sulfur trioxide"], ["OSO", "sulfoxylic acid"], ["OOS(=O)(=O)O", "peroxomonosulfuric acid"],

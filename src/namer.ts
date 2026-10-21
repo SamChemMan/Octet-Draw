@@ -12,7 +12,7 @@
 // oxa, thia and aza replacement; R/S and E/Z. Not yet: polycyclic bridged rings (adamantane), fused systems outside
 // the table, larger ring assemblies, and other charged atoms. Octet's own name tables cover some of these (naming.ts).
 import type { Graph } from "./naming.ts";
-import { amideHetero, groupVariant, heteroAmine, heteroBond, heteroCharged, heteroParentName, inorganicName, nOxideN, nOxides, oxideText, perceivePseudo, heteroPrefix, perceiveHetero, peroxyCarbonyl, sulfonamideN, sulfonateName, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
+import { amideHetero, groupVariant, suffixStereo, heteroAmine, heteroBond, heteroCharged, heteroParentName, inorganicName, nOxideN, nOxides, oxideText, perceivePseudo, heteroPrefix, perceiveHetero, peroxyCarbonyl, sulfonamideN, sulfonateName, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
 
 type Name = { text: string; compound: boolean }; // compound: needs brackets when cited as a prefix
 
@@ -744,6 +744,7 @@ class Namer {
       const c = this.cipBond.get(this.key(num[k], num[(k + 1) % num.length]));
       if (c === "E" || c === "Z") stereo.push({ at: k + 1, text: `${k + 1}${c}` });
     }
+    stereo.push(...suffixStereo(this, sites, stereo.length)); // (R)-2-methylpropane-2-sulfinamide (namer-hetero.ts)
     if (stereo.length) text = `(${stereo.sort((x, y) => x.at - y.at).map((x) => x.text).join(",")})-${text}`;
     // A prefix needs brackets when it carries prefixes of its own or locants (P-16.5.1).
     return { text, compound: prefixes.length > 0 || /[\d,]/.test(text), score: [] };

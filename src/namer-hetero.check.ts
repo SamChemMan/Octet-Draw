@@ -189,6 +189,8 @@ must("sulfenyl, thiosulfonates", [
   "benzenesulfenyl chloride", "N-(phenylsulfanyl)phthalimide", "N-(phenylsulfanyl)aniline", "4-(hydroxysulfanyl)benzoic acid",
   "(methoxysulfanyl)benzene", "1-(phenylsulfanyl)piperidine", "N-(benzenesulfonyl)-N-fluorobenzenesulfonamide",
   "3-{[bis(diisopropylamino)phosphanyl]oxy}propanenitrile", "2-cyanoethyl N,N-diisopropylchlorophosphoramidite",
+  "(R)-2-methylpropane-2-sulfinamide", "(S)-2-methylpropane-2-sulfinamide", "(S)-4-methylbenzene-1-sulfinamide",
+  "(R)-N-[(E)-phenylmethylidene]-2-methylpropane-2-sulfinamide", "N-benzylidene-2-methylpropane-2-sulfinamide",
 ]);
 // Small molecules with no carbon (IUPAC 2005, IR-6, IR-8). Single atoms (water, HCl) are not named: a lone atom
 // drawn is ambiguous.
@@ -198,5 +200,6 @@ must("inorganic", [
   "hypoiodous acid", "iodic acid", "periodic acid", "orthoperiodic acid", "nitrous acid", "nitric acid", "nitrosyl chloride", "chloramine",
   "dichloramine", "nitrogen trichloride", "nitrogen trifluoride", "sulfur dioxide", "sulfur trioxide", "phosphorus pentachloride",
   "hydroxylamine", "hydrazine", "sulfuric acid", "phosphoric acid", "phosphoryl trichloride", "trichlorophosphane", "sulfurous dichloride",
-  "sulfoxylic acid", "peroxomonosulfuric acid", "dithionic acid", "trithionic acid", "tetrathionic acid",
+  "sulfoxylic acid", "peroxomonosulfuric acid", "dithionic acid", "trithionic acid", "tetrathionic acid", "hypodiphosphoric acid",
+  "nitrous amide", "amidosulfurous acid",
 ]);
