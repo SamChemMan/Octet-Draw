@@ -1941,10 +1941,6 @@ class Namer {
     const cited = citedLabels(text ?? "");
     const labelled = this.cip.filter(Boolean).length + [...this.cipBond.values()].filter(Boolean).length;
     if (text && cited !== labelled) throw new Error("stereo not cited");
-    // Indigo ranks a triple bond's duplicate atoms wrongly (it labels (3S)-3-methyl-3-phenylpent-1-yne R), so R or S
-    // next to a ring triple bond is not cited where another branch has three carbons too.
-    const tie = (x: number, y: number) => this.el[y] === "C" && this.adj[y].every((j) => j === x || this.el[j] === "C") && this.adj[y].reduce((t, j) => t + (j === x ? 0 : this.ord(y, j)), 0) === 3;
-    if (this.cip.some((c, x) => (c === "R" || c === "S") && this.adj[x].some((t) => this.inRing[t] && this.adj[t].some((j) => this.inRing[j] && this.ord(t, j) === 3)) && this.adj[x].filter((y) => tie(x, y)).length > 1)) throw new Error("triple bond stereo");
     return text;
   }
   // Candidate parents: every acyclic carbon chain and every ring; the senior one wins (P-44).

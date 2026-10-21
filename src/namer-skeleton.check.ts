@@ -189,10 +189,16 @@ run("imines and nitroso", [
   "sulfoxylose = (2R,3S,4R)-2,3,4,5-tetrahydroxy-1-oxopentane-1-sulfonic acid", "smiles:CCC(=O)S(C)(=O)=O = 1-(methanesulfonyl)propan-1-one",
 ]);
 
-// No name rather than a wrong one: Indigo ranks a triple bond's duplicate atoms wrongly next to a ring triple bond, and
-// OPSIN reads no O- or S-acid of the carbamothioic acids.
-for (const [input, why] of [["morphinyne", "triple bond stereo"], ["smiles:NC(=O)S", "thio acid"]]) {
-  const smiles = input.startsWith("smiles:") ? input.slice(7) : opsin.parseToSmiles(input);
-  assert.equal(iupacNameWhy(graph(smiles)!).why, why, input);
-}
-console.log("namer-skeleton.check: no name for morphinyne (stereo) and carbamothioic S-acid, as expected");
+// R and S next to a triple bond, where the triple bond's duplicate atoms decide the rank (cip.ts ranks them).
+run("stereo next to triple bonds", [
+  "morphinyne = (4aR,10R,10aR)-3,4-didehydro-1,2,4a,9,10,10a-hexahydro-10,4a-(epiminoethano)phenanthrene",
+  "diacetylmorphinyne", "gorgostyne", "(3S)-3-methyl-3-phenylpent-1-yne = [(3S)-3-methylpent-1-yn-3-yl]benzene",
+  "(3R)-3-methyl-3-phenylpent-1-yne = [(3R)-3-methylpent-1-yn-3-yl]benzene",
+  "smiles:C[C@]12CC[C@H]3[C@@H](CCc4cc(O)ccc34)[C@@H]1CC[C@@]2(O)C#C", // ethinylestradiol
+  "smiles:CC[C@]12CC[C@H]3[C@@H](CCC4=CC(=O)CC[C@H]34)[C@@H]1CC[C@@]2(O)C#C", // levonorgestrel
+  "smiles:C[C@H](CCCC(C)C)[C@H]1CC[C@H]2/C(=C/C=C3/C[C@@H](O)CCC3=C)CCC[C@]12C", // cholecalciferol
+]);
+
+// No name rather than a wrong one: OPSIN reads no O- or S-acid of the carbamothioic acids.
+assert.equal(iupacNameWhy(graph("NC(=O)S")!).why, "thio acid");
+console.log("namer-skeleton.check: no name for carbamothioic S-acid, as expected");

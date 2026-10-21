@@ -341,8 +341,8 @@ function claimNN(n: Namer, y: number) {
 // (R)-2-methylpropane-2-sulfinamide, methyl (R)-4-methylbenzene-1-sulfinate. Only as the parent's one descriptor.
 export function suffixStereo(n: Namer, sites: { atom: number; group: number }[], others: number): { at: number; text: string }[] {
   const s = sites.filter((x) => n.el[x.group] === "S" && (n.cip[x.group] === "R" || n.cip[x.group] === "S"));
-  // With an O on the S (sulfinate esters and acids), Indigo's and OPSIN's CIP ranks of =O and -O- differ: not cited.
-  if (s.length && (others || s.length > 1 || s.some((x) => n.adj[x.group].some((j) => n.el[j] === "O" && n.ord(x.group, j) === 1)))) throw new Error("sulfur stereo");
+  // A sulfinic acid's S is not a stereocentre to OPSIN (nor to InChI, which moves the H): not cited.
+  if (s.length && (others || s.length > 1 || s.some((x) => n.adj[x.group].some((j) => n.el[j] === "O" && n.ord(x.group, j) === 1 && n.h[j])))) throw new Error("sulfur stereo");
   return s.map((x) => ({ at: 0, text: n.cip[x.group]! }));
 }
 // The N of a sulfonamide group (for its N-substituents as N-prefixes).

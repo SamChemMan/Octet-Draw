@@ -215,6 +215,8 @@ must("sulfenyl, thiosulfonates", [
   "3-{[bis(diisopropylamino)phosphanyl]oxy}propanenitrile", "2-cyanoethyl N,N-diisopropylchlorophosphoramidite",
   "(R)-2-methylpropane-2-sulfinamide", "(S)-2-methylpropane-2-sulfinamide", "(S)-4-methylbenzene-1-sulfinamide",
   "(R)-N-[(E)-phenylmethylidene]-2-methylpropane-2-sulfinamide", "N-benzylidene-2-methylpropane-2-sulfinamide",
+  "methyl (R)-4-methylbenzene-1-sulfinate", "methyl (S)-4-methylbenzene-1-sulfinate", "smiles:CCO[S@@](=O)C",
+  "smiles:Cc1ccc(cc1)[S@@](=O)O[C@@H]1C[C@H](C)CC[C@H]1C(C)C",
   "N-(benzenesulfonyl)acetamide", "N-(4-methylbenzene-1-sulfonyl)benzamide", "N-(methanesulfonyl)-4-nitrobenzamide",
 ]);
 // Hydrogen drawn as atoms, as in Sam's ChemDraw files (his mCPBA is drawn with its peroxy H).
