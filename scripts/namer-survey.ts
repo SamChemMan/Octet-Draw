@@ -95,6 +95,7 @@ const inputs: string[] = [...new Set([
   ...Object.keys(DRUGS),
 ])].slice(0, limit);
 // "corpus": the structures in Sam's ChemDraw files (~/octet-research/corpus/sam), read by Indigo, one per fragment.
+const drawings = new Map<string, Mol>(); // corpus: each structure's drawing, labels expanded, by its SMILES
 if (corpus) {
   const { readdirSync } = await import("node:fs");
   const { homedir } = await import("node:os");
@@ -108,8 +109,8 @@ if (corpus) {
     for (const g of fragments(m)) {
       if (g.length < 3) continue;
       try {
-        const smiles = chem.toSmiles(chem.expandLabels(subset(m, new Set(g)))).split(" ")[0];
-        if (smiles && !smiles.includes("*") && !smiles.includes(".")) found.add(smiles);
+        const part = chem.expandLabels(subset(m, new Set(g))), smiles = chem.toSmiles(part).split(" ")[0];
+        if (smiles && !smiles.includes("*") && !smiles.includes(".")) { found.add(smiles); if (!drawings.has(smiles)) drawings.set(smiles, part); }
       } catch { /* a part Indigo cannot read */ }
     }
   }
@@ -136,7 +137,31 @@ const withHydrogens = (m: Mol, smiles: string): Mol => {
     return h.length === m.atoms.length ? { ...m, atoms: m.atoms.map((a, i) => ({ ...a, implicitHCount: h[i], ...(isotopes[i] ? { isotope: isotopes[i] } : {}) })) } : m;
   } catch { return m; } finally { o.delete(); }
 };
-const why = new Map<string, string[]>(), wrong: string[] = [], right: string[] = [], otherH: string[] = [], unread: string[] = [];
+const why = new Map<string, string[]>(), wrong: string[] = [], right: string[] = [], otherH: string[] = [], unread: string[] = [], complexes: string[] = [];
+// The name complexes.ts gives a structure with a metal atom: the corpus drawing itself, or the structure drawn from
+// SMILES with a bracket atom's hydrogens on a metal as its label (NH3), as the app draws ammine ligands.
+const { complexName } = await import("../src/complexes.ts");
+const opsinApi = {
+  read: (n: string) => { try { return opsin.parseToSmiles(n) ?? undefined; } catch { return undefined; } },
+  atoms: (n: string) => { try { return opsin.parseToAtoms(n) ?? undefined; } catch { return undefined; } },
+  inchi: chem.toInchi, cip: chem.cipOf,
+};
+const complexOf = (smiles: string): string | undefined => {
+  if (!/\[(?:Li|Na|K|Be|Mg|Ca|Sc|Ti|V|Cr|Mn|Fe|Co|Ni|Cu|Zn|Y|Zr|Nb|Mo|Tc|Ru|Rh|Pd|Ag|Cd|La|Hf|Ta|W|Re|Os|Ir|Pt|Au|U)\b/.test(smiles)) return undefined;
+  try {
+    let m = drawings.get(smiles);
+    if (!m) {
+      const d = chem.parseStructure(smiles), tokens = [...smiles.matchAll(/\[[^\]]+\]|Cl|Br|[BCNOPSFI]|[bcnops]/g)].map((t) => t[0]);
+      if (tokens.length !== d.atoms.length) return undefined;
+      const metal = (i: number) => /^\[(?!(?:H|B|C|N|O|F|Si|P|S|Cl|As|Se|Br|Te|I)\b)[A-Z]/.test(tokens[i]);
+      m = chem.expandLabels({ ...d, atoms: d.atoms.map((a, i) => {
+        const h = /^\[([A-Z][a-z]?)H(\d*)/.exec(tokens[i]);
+        return h && d.bonds.some((b) => b.atoms.includes(i) && metal(b.atoms[0] === i ? b.atoms[1] : b.atoms[0])) ? { ...a, text: `${h[1]}H${h[2]}` } : a;
+      }) });
+    }
+    return complexName(m, opsinApi);
+  } catch { return undefined; }
+};
 let tried = 0, named = 0;
 for (const input of inputs) {
   let smiles: string | null = null;
@@ -147,7 +172,12 @@ for (const input of inputs) {
   if (!g) continue;
   tried++;
   const r = iupacNameWhy(g);
-  if (!r.name) { const k = r.why ?? "?"; why.set(k, [...(why.get(k) ?? []), input]); continue; }
+  if (!r.name) {
+    // A coordination compound: named by complexes.ts, which checks its name in parts (OPSIN reads no κ).
+    const cx = complexOf(smiles);
+    if (cx) { named++; right.push(input); complexes.push(`${input} -> ${cx}`); continue; }
+    const k = r.why ?? "?"; why.set(k, [...(why.get(k) ?? []), input]); continue;
+  }
   let back: string | null = null;
   try { back = opsin.parseToSmiles(r.name); } catch { back = null; }
   if (back && convert(back, "inchi") === convert(smiles, "inchi")) { named++; right.push(input); }
@@ -158,6 +188,7 @@ for (const input of inputs) {
   else wrong.push(`${input} -> ${r.name}`);
 }
 console.log(`survey: ${tried} structures, ${named} named right (${(100 * named / tried).toFixed(1)}%), ${wrong.length} wrong, ${tried - named - wrong.length} unnamed`);
+if (complexes.length) console.log(`named as complexes, checked in parts by complexes.ts (${complexes.length}): ${complexes.slice(0, 40).join("; ")}`);
 if (unread.length) console.log(`names OPSIN cannot read (${unread.length}): ${unread.slice(0, 20).join("; ")}`);
 if (otherOrder) console.log(`left out, read in another atom order (${otherOrder})`);
 if (otherH.length) console.log(`left out, drawn with other hydrogen counts (${otherH.length}): ${otherH.slice(0, 6).join("; ")}`);

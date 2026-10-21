@@ -2,7 +2,7 @@
 import Indigo from "indigo-ketcher/binaryWasmNoRender";
 import { HBOND, hydrogens, NONMETAL, orderOf, QUADRUPLE, type Face, type Ink, type Mol } from "./render.ts";
 import { fontStack } from "./docstyle.ts";
-import { labelSmiles } from "./labels.ts";
+import { labelSmiles, writtenOxidation } from "./labels.ts";
 import { fragments, insertMol, labelPlacer, levelTurn, pickAtoms, renumberCentre, subset } from "./edit.ts";
 import { graphOf, type Graph } from "./naming.ts";
 import { clean2d } from "./clean2d.ts";
@@ -286,6 +286,14 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
       ],
     };
     out.atoms[base] = { ...out.atoms[base], charge: (out.atoms[base].charge ?? 0) + (a.charge ?? 0) || undefined };
+    // A label of one element and its hydrogens (NH3, H2O) bonded to a metal keeps the hydrogens it shows: counted by
+    // valence, the bond to the metal would leave NH2 and OH, where the drawing shows ammine and aqua ligands.
+    const hx = /^(?:([A-Z][a-z]?)H(\d*)|H(\d*)([A-Z][a-z]?))$/.exec(a.text);
+    if (hx && frag.atoms.length === 1 && frag.atoms[0].label === (hx[1] ?? hx[4]) && mol.bonds.some((b) => b.atoms.includes(i) && !NONMETAL.has(mol.atoms[b.atoms[0] === i ? b.atoms[1] : b.atoms[0]].label)))
+      out.atoms[base] = { ...out.atoms[base], implicitHCount: Number((hx[2] ?? hx[3]) || 1) };
+    // A label with an oxidation state, Os(II), is the element; the state goes with the atom for its name.
+    const ox = writtenOxidation(a.text);
+    if (ox && frag.atoms.length === 1) out.atoms[base] = { ...out.atoms[base], ox: ox.ox };
     out.atoms[i] = { ...out.atoms[i], label: "*", text: undefined, removed: true } as Mol["atoms"][number];
   });
   // Drop the label atoms that were replaced, renumbering bonds (and a kept stereo configuration's neighbours: a label's
