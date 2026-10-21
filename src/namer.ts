@@ -468,7 +468,7 @@ class Namer {
     this.peroxO.add(y);
     if (kind === "peroxyester") this.esterO.set(c, y);
   }
-  // Diacyl peroxides (P-65.7.?): dibenzoyl peroxide, acetyl benzoyl peroxide.
+  // Diacyl peroxides (P-65.7): dibenzoyl peroxide, acetyl benzoyl peroxide.
   peroxideName(): string {
     const cs = [...this.bearer.keys()].filter((g) => this.group[g] === "peroxide");
     if (cs.length !== 2) throw new Error("peroxide");
@@ -482,7 +482,7 @@ class Namer {
   // hydrazides.
   classBond = (a: number, b: number) => this.nO.has(a) || this.nO.has(b) || (this.group[a] === "hydrazide" && this.group[b] === "hydrazide" && this.el[a] === "N" && this.el[b] === "N") || (this.hzN.has(a) && this.hzN.has(b)) || (this.peroxO.has(a) && this.peroxO.has(b)) || (this.pseudo.has(a) && this.pseudo.has(b))
     || [a, b].some((o) => this.el[o] === "O" && (this.group[o] === "ester" || this.group[o] === "carbamate") && this.ringNO(o));
-  // Groups cited only as prefixes (P-61.7?, P-65.2.2): N=C=O and N=C=S on N (isocyanato, isothiocyanato), N#C-O and
+  // Groups cited only as prefixes (P-61, P-65.2.2): N=C=O and N=C=S on N (isocyanato, isothiocyanato), N#C-O and
   // N#C-S on O or S (cyanato, thiocyanato). With H in place of the attachment, the molecule is the acid: isocyanic acid.
   pseudoGroup(c: number): boolean {
     const { el, adj } = this;

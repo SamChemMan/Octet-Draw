@@ -134,7 +134,7 @@ check("imines", [
   ["bromochloromethane", "bromo(chloro)methane"], ["mandelic acid", "hydroxy(phenyl)acetic acid"],
 ]);
 
-// Hydrazides (P-66.3.1) and hydroxamic acids (N-hydroxy amides, P-66.1.1.4.?), Weinreb amides, hydroxyurea.
+// Hydrazides (P-66.3.1) and hydroxamic acids (N-hydroxy amides), Weinreb amides, hydroxyurea.
 check("hydrazides", [
   "acetohydrazide", "benzohydrazide", "propanehydrazide", "formohydrazide", "butanedihydrazide", "N'-phenylacetohydrazide", "N-methylacetohydrazide",
   "N',N'-dimethylbenzohydrazide", "pyridine-4-carbohydrazide", "N'-acetylacetohydrazide", "4-(hydrazinecarbonyl)benzoic acid",
