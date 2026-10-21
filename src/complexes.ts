@@ -91,7 +91,8 @@ type Ligand = {
   // E or Z is the chelate's, so the ligand's name does not cite it.
   chelated?: Set<string>;
 };
-type Entity = { metals: number[]; ligands: Ligand[]; hydrides: number; mm: [number, number][]; charge: number; atoms: number[] };
+// written: the oxidation state written in the metal's label (Os(II)), for a complex of one metal atom.
+type Entity = { metals: number[]; ligands: Ligand[]; hydrides: number; mm: [number, number][]; charge: number; atoms: number[]; written?: number };
 type Shape = { g: Graph; adj: number[][]; ord: Map<string, number> };
 const key = (a: number, b: number) => (a < b ? `${a} ${b}` : `${b} ${a}`);
 
@@ -825,6 +826,19 @@ function oxidation(e: Entity): number | undefined {
   const ox = e.hydrides - e.ligands.reduce((t, l) => t + l.charge, 0);
   return Math.abs(ox) < ROMAN.length ? ox : undefined;
 }
+// Whether the drawing fixes the metal's oxidation number: a charge drawn on an atom of the complex, an anionic ligand
+// or a hydride. With the metal and every ligand neutral it does not: Sam draws his Os(II) and Ru(II) complexes with
+// no charges, and osmium(0) would be a claim he never made.
+const fixes = (g: Graph, e: Entity) => e.atoms.some((i) => g.atoms[i].charge) || e.ligands.some((l) => l.charge) || e.hydrides > 0;
+// After the metal's name: the charge number of a complex ion; for a neutral complex, the oxidation number the
+// drawing fixes or its label gives (Os(II)), else none (IR-9.2.2.4 makes it optional). Undefined where the label's
+// state is not the one the drawing fixes.
+function suffix(g: Graph, e: Entity): string | undefined {
+  if (e.charge) return chargeText(e.charge);
+  const ox = fixes(g, e) ? oxidation(e) : undefined;
+  if (e.written !== undefined) return ox === undefined || ox === e.written ? oxText(e.written) : undefined;
+  return ox !== undefined ? oxText(ox) : "";
+}
 function mononuclear(c: Context): string | undefined {
   const { m, g, e, named, api } = c, x = e.metals[0], el = g.atoms[x].el, list: Omit<Term, "count">[] = [];
   for (const [k, lig] of e.ligands.entries()) {
@@ -833,8 +847,8 @@ function mononuclear(c: Context): string | undefined {
     list.push({ form: kp.form ?? named[k].form, sort: named[k].form, lex: !!lig.lex, mu: false, kappa: kp.parts[0] ?? "" });
   }
   for (let h = 0; h < e.hydrides; h++) list.push({ form: LEX.H.form, lex: true, mu: false, kappa: "" });
-  const ox = oxidation(e);
-  return termsOf(list).map(termText).join("") + (e.charge < 0 ? ateOf(el) : ELEMENTS.get(el)!) + (e.charge ? chargeText(e.charge) : ox !== undefined ? oxText(ox) : "");
+  const tail = suffix(g, e);
+  return tail === undefined ? undefined : termsOf(list).map(termText).join("") + (e.charge < 0 ? ateOf(el) : ELEMENTS.get(el)!) + tail;
 }
 // A ligand's donor atoms marked by metal (the metals in the order given), as an InChI with its name's key: alike
 // ligands bonded alike have the same.
@@ -1142,15 +1156,19 @@ function verify(name: string, c: Context, ions: Ion[]): boolean {
     return used.size === e.ligands.length && hydrides.every((h) => !h);
   });
   if (!fits) return false;
-  // The charge number, or the oxidation number from the ligands' charges as read back.
+  // The charge number; or the oxidation number, which must be the one the ligands' charges as read back give where
+  // the drawing fixes it, and the one the metal's label gives where it has one (Os(II)).
   const suffix = central.suffix;
   if (suffix === undefined) return e.charge === 0;
   const q = /^(\d+)([+-])$/.exec(suffix);
   if (q) return Number(q[1]) * (q[2] === "+" ? 1 : -1) === e.charge && e.charge !== 0;
   const ox = /^(-?)([IVX]+|0)$/.exec(suffix);
-  if (!ox || e.charge || e.metals.length !== 1 || claims.some((x) => x!.carbon || x!.charge === undefined || (x!.lex && !LEX[x!.lex].ox))) return false;
+  if (!ox || e.charge || e.metals.length !== 1) return false;
   const value = (ox[1] ? -1 : 1) * ROMAN.indexOf(ox[2]);
-  return value + claims.reduce((t, x) => t + x!.count * x!.charge!, 0) === 0;
+  const counted = !claims.some((x) => x!.carbon || x!.charge === undefined || (x!.lex && !LEX[x!.lex].ox));
+  const balances = counted && value + claims.reduce((t, x) => t + x!.count * x!.charge!, 0) === 0;
+  if (e.written !== undefined) return value === e.written && (!fixes(g, e) || !counted || balances);
+  return fixes(g, e) && balances;
 }
 
 // ——— The name ———
@@ -1203,6 +1221,7 @@ function drawing(m: Mol, api: ComplexApi): { c: Context; ions: Ion[] } | undefin
   const ions = frags.filter((p) => p !== cx[0]).map((p) => ionOf(m, g, p, api));
   if (ions.some((x) => !x) || new Set(ions.map((x) => x!.key)).size > 1) return undefined;
   if (ions.length && (Math.sign(ions[0]!.charge) !== -Math.sign(e.charge) || ions[0]!.charge * ions.length !== -e.charge)) return undefined;
+  if (e.metals.length === 1 && m.atoms[e.metals[0]].ox !== undefined) e.written = m.atoms[e.metals[0]].ox;
   return { c: { m, g, e, named: named as Named[], api }, ions: ions as Ion[] };
 }
 // Whether a structure can have CIP labels: a wedge or a bond style cip.ts reads as one, or a double bond in no ring.

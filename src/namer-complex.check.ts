@@ -38,39 +38,41 @@ const api = { read: nameToSmiles, atoms: nameToAtoms, inchi: chem.toInchi, cip: 
 // A structure drawn from SMILES, labels expanded as Structure to Name expands them. A bracket atom with hydrogens bonded
 // to a metal is drawn as its label (NH3, OH2), as Sam draws ammine and aqua ligands.
 const METALS = /^\[(?:Li|Na|K|Mg|Ca|Ti|V|Cr|Mn|Fe|Co|Ni|Cu|Zn|Zr|Mo|Ru|Rh|Pd|Ag|W|Re|Os|Ir|Pt|Au)\b/;
-function drawn(smiles: string): Mol {
+// metalText: the metals' label as drawn, Os(II).
+function drawn(smiles: string, metalText?: string): Mol {
   const m = chem.parseStructure(smiles), tokens = [...smiles.matchAll(/\[[^\]]+\]|Cl|Br|[BCNOPSFI]|[bcnops]/g)].map((t) => t[0]);
   assert.equal(tokens.length, m.atoms.length, `atoms of ${smiles}`);
   const metal = new Set(tokens.flatMap((t, i) => (METALS.test(t) ? [i] : [])));
   const atoms = m.atoms.map((a, i) => {
     const h = /^\[([A-Z][a-z]?)H(\d*)/.exec(tokens[i]);
     const onMetal = m.bonds.some((b) => b.atoms.includes(i) && metal.has(b.atoms[0] === i ? b.atoms[1] : b.atoms[0]));
-    return h && onMetal ? { ...a, text: `${h[1]}H${h[2]}` } : a;
+    return h && onMetal ? { ...a, text: `${h[1]}H${h[2]}` } : metalText && metal.has(i) ? { ...a, text: metalText } : a;
   });
   return chem.expandLabels({ ...m, atoms });
 }
 const nameOf = (smiles: string) => complexName(drawn(smiles), api);
 
-// Sam's complexes (his ChemDraw drawings, as SMILES written here). They are drawn with no charges, so the metal is in
-// oxidation state 0 as drawn (IR-9.2.2.4: Arabic zero); drawn with the 2+ charge, the names end (2+).
+// Sam's complexes (his ChemDraw drawings, as SMILES written here). They are drawn with no charges, the metal and every
+// ligand neutral, so nothing in the drawing fixes the oxidation number and the names give none (IR-9.2.2.4 makes it
+// optional). Drawn with the 2+ charge, the names end (2+); with the metal labelled Os(II), osmium(II).
 const SAM: [string, string, string][] = [
   // Os(II) bis(terpyridine) photocatalysts. Three or more identical rings in a chain are a ring assembly (P-28.2.1):
   // 2,2':6',2''-terpyridine, the rings primed in turn, each N its ring's 1; κ3N1,N1',N1'' cites all three (IR-9.2.4.2).
-  ["Os(tpy)2", "C12=N([Os]345(N6C(C7N3=C(C3C=CC=CN=34)C=CC=7)=CC=CC=6)N3=C1C=CC=C3C1N5=CC=CC=1)C=CC=C2", "bis(2,2':6',2''-terpyridine-κ3N1,N1',N1'')osmium(0)"],
+  ["Os(tpy)2", "C12=N([Os]345(N6C(C7N3=C(C3C=CC=CN=34)C=CC=7)=CC=CC=6)N3=C1C=CC=C3C1N5=CC=CC=1)C=CC=C2", "bis(2,2':6',2''-terpyridine-κ3N1,N1',N1'')osmium"],
   ["Os(MeOPh-tpy)2", "C12=N([Os]345(N6C(C7N3=C(C3C=CC=CN=34)C=C(C3C=CC(OC)=CC=3)C=7)=CC=CC=6)N3=C1C=C(C1C=CC(OC)=CC=1)C=C3C1N5=CC=CC=1)C=CC=C2",
-    "bis[4'-(4-methoxyphenyl)-2,2':6',2''-terpyridine-κ3N1,N1',N1'']osmium(0)"],
+    "bis[4'-(4-methoxyphenyl)-2,2':6',2''-terpyridine-κ3N1,N1',N1'']osmium"],
   ["Os(MeOPh-tpy)2, drawn the other way", "C1C=C2C3C=C(C4C=CC(OC)=CC=4)C=C4C5C=CC=C[N]=5[Os]56([N]7C(C8C=CC=C[N]=85)=CC(C5C=CC(OC)=CC=5)=CC=7C5=CC=CC=[N]56)([N]2=CC=1)[N]=34",
-    "bis[4'-(4-methoxyphenyl)-2,2':6',2''-terpyridine-κ3N1,N1',N1'']osmium(0)"],
+    "bis[4'-(4-methoxyphenyl)-2,2':6',2''-terpyridine-κ3N1,N1',N1'']osmium"],
   // The pyrimidinyl ligand: pyrimidine is the senior ring (P-44.2.1.2), so the namer's name has it as parent and the
   // other rings as substituents. Each donor N is cited after the part of the name that holds it (IR-9.2.4.2).
   ["Os(pym-py-pym)2", "C12=N([Os]345(N6C(C7N3=C(C3N=CC=CN=34)C=C(C3C=CC(OC)=CC=3)C=7)=NC=CC=6)N3=C1C=C(C1C=CC(OC)=CC=1)C=C3C1N5=CC=CN=1)C=CC=N2",
-    "bis{2-[4-(4-methoxyphenyl)-6-(pyrimidin-2-yl-κN1)pyridin-2-yl-κN1]pyrimidine-κN1}osmium(0)"],
+    "bis{2-[4-(4-methoxyphenyl)-6-(pyrimidin-2-yl-κN1)pyridin-2-yl-κN1]pyrimidine-κN1}osmium"],
   ["Os(pym-py-pym)2, drawn the other way", "[Os]1234([N]5C(=NC=CC=5)C5=[N]1C(=CC(C1C=CC(OC)=CC=1)=C5)C1=[N]2C=CC=N1)[N]1C(=NC=CC=1)C1=[N]3C(=CC(C2C=CC(OC)=CC=2)=C1)C1=[N]4C=CC=N1",
-    "bis{2-[4-(4-methoxyphenyl)-6-(pyrimidin-2-yl-κN1)pyridin-2-yl-κN1]pyrimidine-κN1}osmium(0)"],
-  ["Ru(bpy)3", "C12C3=CC=CC=N3[Ru]34(N5=CC=CC=C5C5N3=CC=CC=5)(N=1C=CC=C2)N1=C(C2C=CC=CN=24)C=CC=C1", "tris(2,2'-bipyridine-κ2N1,N1')ruthenium(0)"],
-  // Sam's file labels this Os "Os(II)", which Octet reads as Os with an I-I group; drawn as Os, phenanthroline's N
-  // atoms are 1 and 10 (fused ring numbering, P-25.3).
-  ["Os(phen)3", "[Os]123(N4=CC=CC5=CC=C6C=CC=N1C6=C54)(N1=CC=CC4=CC=C5C=CC=N2C5=C41)N1=CC=CC2=CC=C4C=CC=N3C4=C21", "tris(1,10-phenanthroline-κ2N1,N10)osmium(0)"],
+    "bis{2-[4-(4-methoxyphenyl)-6-(pyrimidin-2-yl-κN1)pyridin-2-yl-κN1]pyrimidine-κN1}osmium"],
+  ["Ru(bpy)3", "C12C3=CC=CC=N3[Ru]34(N5=CC=CC=C5C5N3=CC=CC=5)(N=1C=CC=C2)N1=C(C2C=CC=CN=24)C=CC=C1", "tris(2,2'-bipyridine-κ2N1,N1')ruthenium"],
+  // Sam's file labels this Os "Os(II)" (tested below); drawn as Os, the name gives no oxidation number. Phenanthroline's
+  // N atoms are 1 and 10 (fused ring numbering, P-25.3).
+  ["Os(phen)3", "[Os]123(N4=CC=CC5=CC=C6C=CC=N1C6=C54)(N1=CC=CC4=CC=C5C=CC=N2C5=C41)N1=CC=CC2=CC=C4C=CC=N3C4=C21", "tris(1,10-phenanthroline-κ2N1,N10)osmium"],
   // Jacobsen's catalyst. The salen dianion as the namer names it, with its (R,R) cyclohexane. Its C=N bonds are in the
   // chelate rings, so their E or Z is the chelate's and is not cited. All of its N and O atoms bond to Mn: κ2N,N',κ2O,O'
   // leaves no doubt (IR-9.2.4.2: primes in simple cases). Mn(III): two phenolate O and chloride, three negative charges.
@@ -93,7 +95,7 @@ const OTHERS: [string, string, string][] = [
   ["[Co(NH3)6]Cl3", "[NH3][Co+3]([NH3])([NH3])([NH3])([NH3])[NH3].[Cl-].[Cl-].[Cl-]", "hexaamminecobalt(3+) chloride"],
   ["Wilkinson's catalyst", "Cl[Rh](P(c1ccccc1)(c1ccccc1)c1ccccc1)(P(c1ccccc1)(c1ccccc1)c1ccccc1)P(c1ccccc1)(c1ccccc1)c1ccccc1", "chloridotris(triphenylphosphane)rhodium(I)"],
   ["Pd(PPh3)4", "C1=CC=C(C=C1)P(C1=CC=CC=C1)(C1=CC=CC=C1)[Pd](P(C1=CC=CC=C1)(C1=CC=CC=C1)C1=CC=CC=C1)(P(C1=CC=CC=C1)(C1=CC=CC=C1)C1=CC=CC=C1)P(C1=CC=CC=C1)(C1=CC=CC=C1)C1=CC=CC=C1",
-    "tetrakis(triphenylphosphane)palladium(0)"],
+    "tetrakis(triphenylphosphane)palladium"],
   ["[Cu(en)2]2+", "C1C[NH2][Cu+2]2([NH2]1)[NH2]CC[NH2]2", "bis(ethane-1,2-diamine-κ2N,N')copper(2+)"],
   ["PtCl2(py)2", "Cl[Pt](Cl)(N1=CC=CC=C1)N1=CC=CC=C1", "dichloridobis(pyridine)platinum(II)"],
   // N-bonded nitrite (IR-9.2.4.2: nitrito-κN), drawn N+ and O-.
@@ -170,12 +172,14 @@ const wrong: [string, string[]][] = [
     "tetrakis(μ-acetato-κO:κO')(2-methoxy-2-oxo-1-phenylethylidene)dirhodium(Rh—Rh)",
   ]],
   ["C12=N([Os]345(N6C(C7N3=C(C3C=CC=CN=34)C=CC=7)=CC=CC=6)N3=C1C=CC=C3C1N5=CC=CC=1)C=CC=C2", [
-    "bis(2,2':6',2''-terpyridine-κ2N1,N1')osmium(0)", "bis(2,2':6',2''-terpyridine-κ3N1,N1',N1'')osmium(II)",
+    // No charge on the metal or a ligand and no label: no oxidation number is right, 0 or II.
+    "bis(2,2':6',2''-terpyridine-κ2N1,N1')osmium", "bis(2,2':6',2''-terpyridine-κ3N1,N1',N1'')osmium(II)",
+    "bis(2,2':6',2''-terpyridine-κ3N1,N1',N1'')osmium(0)",
   ]],
   ["C12=N([Os]345(N6C(C7N3=C(C3N=CC=CN=34)C=C(C3C=CC(OC)=CC=3)C=7)=NC=CC=6)N3=C1C=C(C1C=CC(OC)=CC=1)C=C3C1N5=CC=CN=1)C=CC=N2", [
-    "bis{2-[4-(4-methoxyphenyl)-6-(pyrimidin-2-yl)pyridin-2-yl-κN1]pyrimidine-κN1}osmium(0)",
-    "bis{2-[4-(4-methoxyphenyl)-6-(pyrimidin-2-yl-κN1)pyridin-2-yl]pyrimidine-κN1}osmium(0)",
-    "bis{2-[4-(4-methoxyphenyl-κO)-6-(pyrimidin-2-yl-κN1)pyridin-2-yl]pyrimidine-κN1}osmium(0)",
+    "bis{2-[4-(4-methoxyphenyl)-6-(pyrimidin-2-yl)pyridin-2-yl-κN1]pyrimidine-κN1}osmium",
+    "bis{2-[4-(4-methoxyphenyl)-6-(pyrimidin-2-yl-κN1)pyridin-2-yl]pyrimidine-κN1}osmium",
+    "bis{2-[4-(4-methoxyphenyl-κO)-6-(pyrimidin-2-yl-κN1)pyridin-2-yl]pyrimidine-κN1}osmium",
   ]],
   ["[NH3][Pt]1(OC(=O)C2(CCC2)C(=O)O1)[NH3]", ["diammine(cyclobutane-1,1-dicarboxylato-κ2O,O')platinum(II)", "diammine(cyclobutane-1,1-dicarboxylato-κO)platinum(II)"]],
   [ESP, ["bis[μ-3,3'-(1,3-phenylene)bis(2,2-dimethylpropanoato-κ2O,O')]dirhodium(Rh—Rh)", "bis[μ-3,3'-(1,3-phenylene)bis(2,2-dimethylpropanoato-κO)]dirhodium(Rh—Rh)"]],
@@ -202,11 +206,18 @@ const none: [string, string][] = [
   ["with solvent", "[NH3][Pt](Cl)(Cl)[NH3].CS(C)=O"],
 ];
 for (const [label, smiles] of none) assert.equal(nameOf(smiles), undefined, label);
-// Sam's Os labelled "Os(II)": the label is not read as Os with an I-I group (labels.ts), so there is no name.
-const phen = chem.parseStructure(SAM.find((x) => x[0] === "Os(phen)3")![1]);
-const labelled = { ...phen, atoms: phen.atoms.map((a) => (a.label === "Os" ? { ...a, text: "Os(II)" } : a)) };
-assert.equal(complexName(chem.expandLabels(labelled), api), undefined, "Os(II) label");
 console.log(`namer-complex.check: ${none.length} structures with no name, as expected`);
+
+// A metal labelled with its oxidation number, as Sam labels his Os: Os(II) is osmium with oxidation number II
+// (labels.ts). The atom stays Os, with no charge, so the formula is what is drawn. A label the drawing contradicts
+// (Pt(IV) on cisplatin, whose chlorides fix II) gives no name.
+const phen = drawn(SAM.find((x) => x[0] === "Os(phen)3")![1], "Os(II)"), os = phen.atoms.find((a) => a.label === "Os")!;
+assert.ok(!os.charge && os.ox === 2, "Os(II) is Os with no charge");
+assert.equal(complexName(phen, api), "tris(1,10-phenanthroline-κ2N1,N10)osmium(II)", "Os(II) label");
+assert.equal(complexNameReads("tris(1,10-phenanthroline-κ2N1,N10)osmium(III)", phen, api), false, "Os(II) label, III");
+assert.equal(complexName(drawn("[NH3][Pt](Cl)(Cl)[NH3]", "Pt(II)"), api), "diamminedichloridoplatinum(II)", "Pt(II) label");
+assert.equal(complexName(drawn("[NH3][Pt](Cl)(Cl)[NH3]", "Pt(IV)"), api), undefined, "Pt(IV) label");
+console.log("namer-complex.check: metals labelled with an oxidation number named with it");
 
 // Speed: a complex of about 100 atoms, named with every check in under 50 ms once OPSIN and Indigo are warm (Ru
 // with three 4,4'-dialkyl-2,2'-bipyridines; each new to the namer, so nothing is kept from an earlier name).

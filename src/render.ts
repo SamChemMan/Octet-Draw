@@ -64,6 +64,7 @@ export type Atom = {
   // stereoMarks). It holds while those bonds are unchanged.
   kept?: { atoms: number[]; marks: string };
   scale?: number; // the atom's size against the document style (decision 0007); unset is 1
+  ox?: number; // the oxidation state written in its label, Os(II): set when labels are expanded (chem.ts), for names
 };
 // ChemDraw's atom query properties; unset is ChemDraw's default for each. subst: Substituents, as Free Sites (as drawn
 // plus up to n more), Up To n or Exactly n (0 to 15). noH: Implicit Hydrogens not allowed. rings: Ring Bond Count.
