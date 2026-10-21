@@ -1018,7 +1018,8 @@ class Namer {
       // A ring carbon with no ring double bond may carry =C or =N (an ylidene: 5H-dibenzo[a,d][7]annulen-5-ylidene,
       // 2-ethylidenecyclohexan-1-one): indicated hydrogen or hydro prefixes cover it.
       const ylidene = (j: number) => this.el[a] === "C" && !doubles && this.ord(a, j) === 2 && (this.el[j] === "C" || this.el[j] === "N");
-      if (this.adj[a].some((j) => !sys.has(j) && this.ord(a, j) > 1 && j !== this.carbonylO[a] && !ylidene(j))) throw new Error("exocyclic double bond");
+      // =O on a ring S or P is named by the λ-convention (P-14.1.3): 10H-5λ⁴-phenothiazin-5-one.
+      if (this.adj[a].some((j) => !sys.has(j) && this.ord(a, j) > 1 && j !== this.carbonylO[a] && !ylidene(j) && !(this.ringOxide(j) && this.lambda(a)))) throw new Error("exocyclic double bond");
       // A ring O+, S+, Se+ or Te+ (pyrylium, phenothiazin-5-ium) takes a ring double bond.
       if (PI_ATOMS.has(this.el[a]) || (this.q[a] > 0 && DIVALENT.has(this.el[a]))) { cn.push(a); if (!doubles) d.push(a); }
       else if (doubles) throw new Error("ring heteroatom double bond");
@@ -1244,6 +1245,9 @@ class Namer {
     };
     const one = (a?: number) => (a === undefined ? [] : [a]), xs = (s: Saturation) => s.xs ?? one(s.x), ys = (s: Saturation) => s.ys ?? one(s.y);
     let nums = numberings;
+    // λ-atoms, then indicated hydrogen (P-31.1.4.2.4). A monocycle's numbering has its λ-atoms already.
+    const lam = fused && fused.mono === undefined ? atoms.filter((a) => this.lambda(a)) : [];
+    if (lam.length) nums = this.lowest(nums, (num) => lam.map((a) => loc(num, a)));
     if (fused) nums = this.lowest(nums, (num) => xs(sat(num)).map((a) => loc(num, a)));
     if (opts.attach) nums = this.lowest(nums, (num) => [loc(num, opts.attach![0])]);
     if (opts.acyl && !p.ring) nums = nums.filter((num) => num[0] === atoms[0]);
@@ -1288,7 +1292,7 @@ class Namer {
       const { hydro } = sat(num), x = xs(sat(num));
       const h = !hydro.length ? "" : `${hydro.length === fused.cn.length && !fused.tpl.bridges ? "" : hydro.map((a) => label(num, a)).join(",") + "-"}${HYDRO[hydro.length]}hydro`;
       // Bridges of a bridged fused system go in front of the parent: 4,7-methanoindene.
-      const core = (x.length ? `${x.map((a) => `${label(num, a)}H`).join(",")}-` : "") + fused.tpl.name;
+      const core = (x.length ? `${x.map((a) => `${label(num, a)}H`).join(",")}-` : "") + lambdaName(fused.tpl.name, lam.map((a) => `${label(num, a)}${this.lambda(a)}`));
       parent = joinPrefixes(h, fused.tpl.bridges ? joinPrefixes(fused.tpl.bridges, core) : core);
     } else if (assembly) {
       // 1,1'-biphenyl; in brackets before a suffix: [1,1'-biphenyl]-4-carboxylic acid.
@@ -2106,11 +2110,11 @@ function citedLabels(text: string): number {
 }
 // Alphabetical order ignores multiplying prefixes of simple substituents, locants and italic prefixes (P-14.5).
 function alphaKey(t: string): string {
-  // Enclosing marks go first, then every leading locant, stereodescriptor and indicated hydrogen: (2R,3S)-3,4-dihydroxy…
+  // Enclosing marks go first, then every leading locant, stereodescriptor, λ and indicated hydrogen: (2R,3S)-3,4-dihydroxy…
   // is under d, 1H-1,2,4-triazol-1-yl under t, {2-[4-(hydroxymethyl)phenyl]hydrazinyl} under h, (E)-… after the E,
   // and a fusion name's leading locants too: [1,2,4]triazolo[4,3-a]pyridin-3-yl is under t.
   let k = t.replace(/^[([{]*\[[\d',]+\](?=[a-z])/, "").replace(/[()[\]{}]/g, "");
-  for (const lead = /^(tert|sec|N\d*'*|\d+[a-z]?'*[RSEZH]?|[RSEZ])(,(N\d*'*|\d+[a-z]?'*[RSEZH]?|[RSEZ]))*-/; lead.test(k); ) k = k.replace(lead, "");
+  for (const lead = /^(tert|sec|N\d*'*|\d+[a-z]?'*(λ[¹²³⁴⁵⁶])?[RSEZH]?|[RSEZ])(,(N\d*'*|\d+[a-z]?'*(λ[¹²³⁴⁵⁶])?[RSEZH]?|[RSEZ]))*-/; lead.test(k); ) k = k.replace(lead, "");
   return k;
 }
 // Substituents on a parent without locants (amino, phosphane): phenyl, diphenyl, methyl(diphenyl), in alphabetical order.
@@ -2161,6 +2165,16 @@ function assemblePrefixes(list: { loc: string; name: Name }[], noLocants: boolea
   // brackets (P-16.5.1): trichloro(fluoro)methane, (carbamoylamino)(oxo)acetic acid.
   const bare = (t: string) => !/^N/.test(t); // no N-locant
   return parts.map((t, k) => (!k || /^[([{]/.test(t) ? t : noLocants && bare(t) && bare(parts[k - 1]) ? `(${t})` : `-${t}`)).join("");
+}
+// A fused parent name with its λ-atoms (P-14.1.3): in its heteroatom locants where it starts with them
+// (1λ⁶,2-benzothiazine, 2λ⁴-benzothiophene), else in front (5λ⁴-phenothiazine, 5λ⁴-dibenzo[b,e][1,4]thiarsinine).
+function lambdaName(name: string, lams: string[]): string {
+  if (!lams.length) return name;
+  const m = name.match(/^(\d+[a-z]?(?:,\d+[a-z]?)*)-(?=[a-z])/);
+  if (!m) return `${lams.join(",")}-${name}`;
+  const locs = m[1].split(","), bare = (l: string) => l.replace(/λ.*/, "");
+  if (!lams.every((l) => locs.includes(bare(l)))) throw new Error("λ locant");
+  return locs.map((l) => lams.find((x) => bare(x) === l) ?? l).join(",") + name.slice(m[1].length);
 }
 // Prefixes, then the rest of the name, with a hyphen before a locant: 5-bromo-1H-indole, 1-methyl-1H-pyrrole.
 const joinPrefixes = (prefixes: string, rest: string) => (prefixes && /^\d/.test(rest) ? `${prefixes}-${rest}` : prefixes + rest);
