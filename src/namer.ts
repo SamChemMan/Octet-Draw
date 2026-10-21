@@ -12,7 +12,7 @@
 // oxa, thia and aza replacement; R/S and E/Z. Not yet: polycyclic bridged rings (adamantane), fused systems outside
 // the table, larger ring assemblies, and other charged atoms. Octet's own name tables cover some of these (naming.ts).
 import type { Graph } from "./naming.ts";
-import { thioAcyl, thioDouble, thioPrefix, thioSuffix, thioVariant } from "./namer-hetero.ts";
+import { amideHetero, groupVariant, heteroAmine, heteroBond, heteroParentName, heteroPrefix, perceiveHetero, peroxyCarbonyl, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
 
 type Name = { text: string; compound: boolean }; // compound: needs brackets when cited as a prefix
 
@@ -157,6 +157,7 @@ class Namer {
   sulfur = new Set<number>(); // sulfonyl and sulfinyl S, with their =O and any OH or halogen
   anhydrideO = new Map<number, number>(); // anhydride carbon → its bridging O
   phosphorus = new Set<number>(); // phosphane P, with the =O of a phosphane oxide
+  het = new Map<number, string>(); // atoms of groups built on N, O, S, P and the halogens, by role (namer-hetero.ts)
 
   constructor(g: Graph) {
     this.n = g.atoms.length;
@@ -292,11 +293,12 @@ class Namer {
         this.mark(c, "ester", cs);
         this.esterO.set(c, x);
         this.group[x] = "ester";
-      } else if (el[x] === "N" && this.ord(c, x) === 1 && !this.inRing[x] && adj[x].every((j) => j === c || (el[j] === "C" && this.carbonylO[j] < 0 && !this.isNitrileC(j)))) {
+      } else if (el[x] === "N" && this.ord(c, x) === 1 && !this.inRing[x] && adj[x].every((j) => j === c || (el[j] === "C" && this.carbonylO[j] < 0 && !this.isNitrileC(j)) || amideHetero(this, x, j))) {
         this.mark(c, "amide", cs);
         this.group[x] = "amide";
-      } else throw new Error("carbonyl group");
+      } else if (!peroxyCarbonyl(this, c, x, cs)) throw new Error("carbonyl group");
     }
+    perceiveHetero(this); // N-N, N-O, O-O, S-S and N-halogen links (namer-hetero.ts)
     // Sulfonic acids, sulfonyl halides (P-65.3), and the S of sulfoxides and sulfones (P-63.6), which are prefixes.
     for (let i = 0; i < this.n; i++) {
       if (el[i] !== "S" || this.inRing[i]) continue;
@@ -320,7 +322,7 @@ class Namer {
       for (const j of os) this.phosphorus.add(j);
     }
     for (let i = 0; i < this.n; i++) {
-      if (this.group[i] || this.sulfur.has(i) || this.phosphorus.has(i) || el[i] === "C" || this.inRing[i]) continue;
+      if (this.group[i] || this.sulfur.has(i) || this.phosphorus.has(i) || this.het.has(i) || el[i] === "C" || this.inRing[i]) continue;
       const cs = this.carbons(i);
       if (HALO[el[i]]) { if (adj[i].length !== 1 || cs.length !== 1) throw new Error("halogen"); continue; }
       if (el[i] === "O" && adj[i].some((j) => this.group[j] === "imine") && adj[i].length - cs.length === 1 && adj[i].length <= 2) continue; // an oxime's O: N-hydroxy, N-alkoxy
@@ -337,6 +339,7 @@ class Namer {
           this.mark(i, "aminium", cs);
           continue;
         }
+        if (heteroAmine(this, i)) continue;
         if (cs.length !== adj[i].length || adj[i].some((j) => this.ord(i, j) !== 1) || cs.some((j) => this.carbonylO[j] >= 0 || this.isNitrileC(j))) throw new Error("nitrogen");
         this.mark(i, "amine", cs);
       }
@@ -345,7 +348,7 @@ class Namer {
     // heteroatom bonded to another heteroatom is not covered.
     for (const [k, o] of this.bond) {
       const [a, b] = k.split(" ").map(Number);
-      if ((this.inRing[a] && this.ringOf[a] === this.ringOf[b]) || (this.sulfur.has(a) && this.sulfur.has(b))) continue;
+      if ((this.inRing[a] && this.ringOf[a] === this.ringOf[b]) || (this.sulfur.has(a) && this.sulfur.has(b)) || heteroBond(this, a, b)) continue;
       const oxime = (x: number, y: number) => this.group[x] === "imine" && el[x] === "N" && el[y] === "O" && o === 1;
       const oxide = this.phosphorus.has(a) && this.phosphorus.has(b);
       const n2 = (this.diazoAtom(a) && this.diazoAtom(b)) || (this.azidoAtom(a) && this.azidoAtom(b));
@@ -612,7 +615,7 @@ class Namer {
         else { const a = on.find((x) => inParent.has(x)); if (a !== undefined) { sites.push({ atom: a, group: g }); used.add(g); } }
       }
     }
-    const thio = thioSuffix(this, kind, sites, used, p.ring); // ethanethioamide (namer-hetero.ts)
+    const thio = variantSuffix(this, kind, sites, used, p.ring); // ethanethioamide, peroxoic acid (namer-hetero.ts)
     // Prefixes: every neighbour outside the parent that the suffix does not use, and N-substituents of an amide or amine suffix.
     const prefixes: { atom: number; name: Name; n?: boolean }[] = [];
     for (const a of atoms) {
@@ -764,6 +767,8 @@ class Namer {
 
   // ——— Substituent prefixes ———
   substituent(x: number, from: number): Name {
+    const het = heteroPrefix(this, x, from); // disulfanyl, peroxy, hydrazinyl, diazenyl, nitroso (namer-hetero.ts)
+    if (het) return het;
     const el = this.el[x];
     // Diazo is the one prefix on a double bond that Octet names (=N+=N-); =CH2 and the like are not covered.
     if (el === "N" && this.diazoAtom(x) && this.ord(x, from) === 2) return { text: "diazo", compound: false };
@@ -911,8 +916,9 @@ class Namer {
     this.perceive();
     if (this.adj.some((a, i) => a.length === 0 && this.el[i] !== "C") || this.n === 0) return undefined;
     const kind = SENIORITY.find((k) => this.group.includes(k) && [...this.bearer.keys()].some((g) => this.group[g] === k));
-    let text: string | undefined;
-    if (kind === "ester") text = this.esterName();
+    let text = kind ? undefined : heteroParentName(this); // phenylhydrazine, diphenyldiazene (namer-hetero.ts)
+    if (text) { /* named */ }
+    else if (kind === "ester") text = this.esterName();
     else if (kind === "anhydride") text = this.anhydrideName();
     else if (kind === "urea" || kind === "carbamate") text = this.carbonicName(kind);
     else if (!kind && this.phosphorus.size) text = this.phosphaneName();
@@ -927,7 +933,7 @@ class Namer {
     }
     // Every stereo label must be cited (P-91): a name that drops one would be wrong, and labels other than R, S, E
     // and Z are not covered.
-    const cited = [...(text ?? "").matchAll(/\(([^()]*)\)-/g)].flatMap((m) => m[1].split(",")).filter((t) => /^\d+[a-z]?'*[RSEZ]$/.test(t)).length;
+    const cited = [...(text ?? "").matchAll(/\(([^()]*)\)-/g)].flatMap((m) => m[1].split(",")).filter((t) => /^(\d+[a-z]?'*)?[RSEZ]$/.test(t)).length;
     const labelled = this.cip.filter(Boolean).length + [...this.cipBond.values()].filter(Boolean).length;
     if (text && cited !== labelled) throw new Error("stereo not cited");
     return text;
@@ -1003,27 +1009,31 @@ class Namer {
   esterName(): string | undefined {
     const esters = [...this.esterO.keys()];
     if (esters.length !== 1) throw new Error("several esters");
-    const c = esters[0], o = this.esterO.get(c)!, r = this.adj[o].find((j) => j !== c)!;
-    const alkyl = this.substituent(r, o);
+    const c = esters[0], o = this.esterO.get(c)!;
+    let r = this.adj[o].find((j) => j !== c)!, ro = o;
+    if (this.el[r] === "O") { ro = r; r = this.adj[r].find((j) => j !== o)!; } // a peroxy ester: tert-butyl benzenecarboperoxoate
+    const alkyl = this.substituent(r, ro);
     // The acid side: everything reachable from the ester carbon without crossing the ester oxygen.
     const acid = this.parentName("ester", new Set(), this.side(c, o));
     if (!acid) return undefined;
     const acidText = acid.text.replace(/oic acid$/, "oate").replace(/carboxylic acid$/, "carboxylate").replace(/ic acid$/, "ate");
     // The thioate's alkyl names the atom it is on: S-methyl ethanethioate, O-methyl ethanethioate (P-65.6.3.2.3).
-    const v = thioVariant(this, c);
+    const v = groupVariant(this, c);
     return `${v === "S" || v === "O" ? `${v}-${enclose(alkyl)}` : alkyl.text} ${acidText}`;
   }
   // Anhydrides (P-65.7.1): the acids' names, then "anhydride": acetic anhydride, acetic propanoic anhydride.
   anhydrideName(): string {
-    const o = new Set(this.anhydrideO.values());
-    if (this.anhydrideO.size !== 2 || o.size !== 1 || [...this.anhydrideO.keys()].some((c) => thioVariant(this, c))) throw new Error("anhydride");
+    // Two O bonded to each other: a peroxyanhydride, dibenzoyl peroxide (P-65.7.5).
+    const o = [...new Set(this.anhydrideO.values())], peroxy = o.length === 2 && this.ord(o[0], o[1]) === 1;
+    if (this.anhydrideO.size !== 2 || (o.length !== 1 && !peroxy) || [...this.anhydrideO.keys()].some((c) => thioDouble(this, c))) throw new Error("anhydride");
     const acids = [...this.anhydrideO.keys()].map((c) => {
-      const acid = this.parentName("anhydride", new Set(), this.side(c, [...o][0]))?.text;
+      const acid = this.parentName("anhydride", new Set(), this.side(c, this.anhydrideO.get(c)!))?.text;
       if (!acid?.endsWith(" acid")) throw new Error("anhydride");
       return acid.slice(0, -5);
     });
-    if (acids[0] === acids[1]) return `${acids[0]} anhydride`;
-    return `${acids.sort((a, b) => alphaKey(a).localeCompare(alphaKey(b))).join(" ")} anhydride`;
+    const word = peroxy ? "peroxyanhydride" : "anhydride";
+    if (acids[0] === acids[1]) return `${acids[0]} ${word}`;
+    return `${acids.sort((a, b) => alphaKey(a).localeCompare(alphaKey(b))).join(" ")} ${word}`;
   }
   // Urea and carbamates (P-66.1.6.1, P-65.2.1): N-substituents with locants N and N' (lowest locants, then N for the
   // prefix cited first), and a carbamate's ester alkyl in front: N,N'-dimethylurea, tert-butyl carbamate.
@@ -1077,7 +1087,7 @@ function compare(a: number[], b: number[]): number {
 const locantsOf = (name: string) => (name.match(/\d+/g) ?? []).map(Number);
 // Alphabetical order ignores multiplying prefixes of simple substituents, locants and italic prefixes (P-14.5).
 function alphaKey(t: string): string {
-  return t.replace(/^[([{]+/, "").replace(/^((tert|sec|N|\d+[a-z]?'*(,\d+[a-z]?'*)*)-)+/, "").replace(/^(\d+[a-z]?H-)+/, "").replace(/[()[\]{}]/g, "");
+  return t.replace(/^[([{]+/, "").replace(/^((\d+[a-z]?'*)?[RSEZ],?)+\)-/, "").replace(/^((tert|sec|N|\d+[a-z]?'*(,\d+[a-z]?'*)*)-)+/, "").replace(/^(\d+[a-z]?H-)+/, "").replace(/[()[\]{}]/g, "");
 }
 // Substituents on a parent without locants (amino, phosphane): phenyl, diphenyl, methyl(diphenyl), in alphabetical order.
 function substituted(subs: Name[]): string {

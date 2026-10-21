@@ -82,3 +82,36 @@ must("thio", [
   "sulfanylideneacetic acid", "thiourea", "N-prop-2-en-1-ylthiourea", "N,N'-diphenylthiourea", "O-methyl carbamothioate",
   "2-{[(tert-butoxy)carbonothioyl]amino}acetic acid",
 ]);
+
+// Hydrazines, hydrazones and diazenes (P-68.3.1.2, P-68.3.1.3). The amine on a ring N and the azo compound are from
+// Sam's ChemDraw files.
+must("N-N", [
+  "smiles:C1C(C)CCN(N(C2C=CC=CC=2)C2C=CC=CC=2)C1", "smiles:N(=N/CCC(C)CC(=O)C)\\C1C=CC=CC=1", "4-methyl-N,N-diphenylpiperidin-1-amine",
+  "piperidin-1-amine", "phenylhydrazine", "1,1-dimethylhydrazine", "1,2-diphenylhydrazine", "4-hydrazinylbenzoic acid", "4-(2-phenylhydrazinyl)benzoic acid",
+  "4-(2,2-dimethylhydrazinyl)benzoic acid", "4-(1-methylhydrazinyl)benzoic acid", "(propan-2-ylidene)hydrazine", "1-phenyl-2-(propan-2-ylidene)hydrazine",
+  "cyclohexylidenehydrazine", "1-benzylidene-2-phenylhydrazine", "2-(2-phenylhydrazinylidene)propanoic acid", "2-hydrazinylidenepropanoic acid",
+  "4-[2-(4-nitrophenyl)hydrazinylidene]pentanoic acid", "diphenyldiazene", "(E)-diphenyldiazene", "(Z)-diphenyldiazene", "methyl(phenyl)diazene",
+  "phenyldiazene", "4-(phenyldiazenyl)benzoic acid", "4-[(E)-phenyldiazenyl]benzoic acid", "4-[(E)-(4-hydroxyphenyl)diazenyl]benzoic acid",
+  "2-methyl-2-(phenyldiazenyl)propanenitrile",
+]);
+// Hydroxylamines, N-hydroxy and N-alkoxy amides and rings, nitroso compounds (P-68.3.1.1, P-61.5.1).
+must("N-O", [
+  "N-phenylhydroxylamine", "N,O-dimethylhydroxylamine", "O-benzylhydroxylamine", "N,N-diethylhydroxylamine", "O-methylhydroxylamine",
+  "4-(hydroxyamino)benzoic acid", "4-(aminooxy)butanoic acid", "4-[(dimethylamino)oxy]butanoic acid", "4-(methoxyamino)benzoic acid",
+  "piperidin-1-ol", "morpholin-4-ol", "1-hydroxypyrrolidine-2,5-dione", "1-methoxypiperidine", "N-methoxy-N-methylacetamide", "N-hydroxyacetamide",
+  "N-hydroxybenzamide", "N-methoxy-N-methylbenzamide", "nitrosobenzene", "N-methyl-N-nitrosomethanamine", "1-nitrosopiperidine", "4-nitrosophenol",
+]);
+// Peroxides, hydroperoxides, peroxy acids, esters and anhydrides (P-63.4.2, P-65.1.4, P-65.7.5); mCPBA, Octet's
+// reagent list.
+must("O-O", [
+  "3-chlorobenzenecarboperoxoic acid", "ethaneperoxoic acid", "methaneperoxoic acid", "4-(hydroperoxycarbonyl)benzoic acid",
+  "tert-butyl benzenecarboperoxoate", "tert-butyl ethaneperoxoate", "benzoic peroxyanhydride", "acetic peroxyanhydride", "dibenzoyl peroxide",
+  "2-methylpropane-2-peroxol", "methaneperoxol", "1-methyl-1-phenylethyl hydroperoxide", "4-hydroperoxybenzoic acid", "4-hydroperoxybutan-1-ol",
+  "(tert-butylperoxy)benzene", "2-methyl-2-(methylperoxy)propane", "di-tert-butyl peroxide", "dimethyl peroxide",
+]);
+// Disulfides and polysulfides (P-63.4.2.2), and N-halo compounds.
+must("S-S, N-X", [
+  "(methyldisulfanyl)methane", "(methyltrisulfanyl)methane", "diphenyl disulfide", "cystamine", "L-cystine", "4-disulfanylbutanoic acid",
+  "1-bromopyrrolidine-2,5-dione", "1-chloropyrrolidine-2,5-dione", "1-iodopyrrolidine-2,5-dione", "N-chloromethanamine", "N-bromoacetamide",
+  "N,N-dichloro-4-methylaniline",
+]);
