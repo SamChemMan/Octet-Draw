@@ -8,7 +8,7 @@ import { assemblePrefixes, alphaKey, enclose, substituted, HALO, MULT, MULT_COMP
 // P-63.4.2.1). The variant of a group atom: "S" (=O and -S-: thioic S-acid), "O" (=S and -O-: thioic O-acid), "SS"
 // (dithioic acid), "=S" (=S on its own: thioamide, thial, thione), "OO" (peroxoic acid, peroxoate, peroxol), or "".
 export function groupVariant(n: Namer, c: number): string {
-  if (n.el[c] === "S") return oxo(n, c).length === 1 && n.group[c] ? "S=O" : ""; // sulfinic acid, sulfinamide
+  if (n.el[c] === "S") return n.group[c] ? (oxo(n, c).length === 1 ? "S=O" : "") + (n.adj[c].some((j) => n.het.get(j) === "SSR") ? "S" : "") : ""; // sulfinic acid, sulfonothioate
   if (n.el[c] === "O") return n.group[c] === "alcohol" && n.adj[c].some((j) => n.el[j] === "O") ? "OO" : "";
   const d = n.carbonylO[c];
   if (d < 0) return "";
@@ -24,7 +24,7 @@ const VARIANT_SUFFIX: Record<string, Record<string, [string, string]>> = {
   ester: { S: ["thioate", "carbothioate"], O: ["thioate", "carbothioate"], SS: ["dithioate", "carbodithioate"], OO: ["peroxoate", "carboperoxoate"] },
   amide: { "=S": ["thioamide", "carbothioamide"] }, aldehyde: { "=S": ["thial", "carbothialdehyde"] },
   ketone: { "=S": ["thione", "thione"] }, halide: { "=S": ["thioyl", "carbothioyl"] }, alcohol: { OO: ["peroxol", "peroxol"] },
-  sulfonic: { "S=O": ["sulfinic acid", "sulfinic acid"] }, sulfonate: { "S=O": ["sulfinate", "sulfinate"] },
+  sulfonic: { "S=O": ["sulfinic acid", "sulfinic acid"] }, sulfonate: { "S=O": ["sulfinate", "sulfinate"], S: ["sulfonothioate", "sulfonothioate"], "S=OS": ["sulfinothioate", "sulfinothioate"] },
   sulfonamide: { "S=O": ["sulfinamide", "sulfinamide"] }, sulfonylhalide: { "S=O": ["sulfinyl", "sulfinyl"] },
 };
 // The suffix for a parent's principal groups when they are variants: ethanethioamide, propane-2-thione, benzenecarbothioic
@@ -216,6 +216,15 @@ export function perceiveHetero(n: Namer) {
       for (const o of os) n.het.set(o, "NO"); // N,N-dihydroxy: (dihydroxyamino)
     }
   }
+  // Sulfenyl groups (P-63.3.2): R-S-Cl (chlorosulfanyl), R-S-OH (hydroxysulfanyl), R-S-NR2 (N-(phenylsulfanyl)).
+  for (let i = 0; i < n.n; i++) {
+    if (el[i] !== "S" || n.inRing[i] || n.q[i] || h[i] || adj[i].length !== 2 || !single(n, i) || n.het.has(i) || n.group[i] || n.sulfur.has(i)) continue;
+    const c = adj[i].find((j) => el[j] === "C"), x = adj[i].find((j) => j !== c);
+    if (c === undefined || x === undefined || (!plainC(n, c) && !n.inRing[c])) continue;
+    if (HALO[el[x]] && adj[x].length === 1 && !n.het.has(x)) { n.het.set(i, "S-"); n.het.set(x, "S-"); }
+    else if (el[x] === "O" && !n.inRing[x] && (adj[x].length === 1 ? h[x] === 1 : adj[x].length === 2 && plainC(n, adj[x].find((j) => j !== i)!)) && !n.het.has(x) && !n.group[x]) { n.het.set(i, "S-"); n.het.set(x, "S-"); }
+    else if (el[x] === "N" && !n.q[x] && (n.inRing[x] || (single(n, x) && adj[x].every((j) => j === i || plainC(n, j)))) && !n.het.has(x)) n.het.set(i, "SN-");
+  }
   // Ring S with =O: thiolane 1,1-dioxide, thiophene 1-oxide (cited like N-oxides).
   for (let i = 0; i < n.n; i++) if ((el[i] === "S" || el[i] === "P") && n.inRing[i] && !n.q[i]) for (const o of oxo(n, i)) n.het.set(o, "S=O"); // phospholane 1-oxide
   // Ring N bearing OH or OR: N-hydroxy (piperidin-1-ol, 1-hydroxypyrrolidine-2,5-dione), N-alkoxy.
@@ -244,7 +253,7 @@ export function heteroAmine(n: Namer, i: number): boolean {
   if ((n.q[i] && !nOxideN(n, i)) || !single(n, i)) return false;
   const on = n.adj[i].filter((j) => plainC(n, j) || (n.el[j] === "N" && n.inRing[j] && !n.q[j]));
   const rest = n.adj[i].filter((j) => !on.includes(j));
-  if (!on.length || (!rest.length && on.every((j) => n.el[j] === "C")) || !rest.every((j) => n.het.get(j) === "NX" || n.het.get(j) === "N=O" || nOxideO(n, j))) return false;
+  if (!on.length || (!rest.length && on.every((j) => n.el[j] === "C")) || !rest.every((j) => n.het.get(j) === "NX" || n.het.get(j) === "N=O" || n.het.get(j) === "SN-" || nOxideO(n, j))) return false;
   n.mark(i, "amine", on);
   return true;
 }
@@ -275,7 +284,7 @@ function ligand(n: Namer, x: number, j: number): string | undefined {
   if (n.el[j] !== "N") return undefined;
   if (n.inRing[j]) return "Nring";
   if (azideN(n, j) === x) return "N3";
-  return single(n, j) && n.adj[j].length + n.h[j] === 3 && n.adj[j].every((y) => y === x || plainC(n, y) || (n.el[y] === "S" && !n.inRing[y] && oxo(n, y).length === 2) || nitrosoOrAmino(n, y, j)) ? "N" : undefined;
+  return single(n, j) && n.adj[j].length + n.h[j] === 3 && n.adj[j].every((y) => y === x || plainC(n, y) || (n.el[y] === "S" && !n.inRing[y] && oxo(n, y).length === 2) || nitrosoOrAmino(n, y, j) || (HALO[n.el[y]] && n.adj[y].length === 1)) ? "N" : undefined;
 }
 // An N on an amide N j: nitroso (N-methyl-N-nitroso), amino (a hydrazide: N-amino), or an imine N (=N-, a hydrazone).
 function nitrosoOrAmino(n: Namer, y: number, j: number): boolean {
@@ -310,7 +319,7 @@ function perceiveSulfur(n: Namer) {
     const os = oxo(n, s), rest = n.adj[s].filter((j) => !os.includes(j));
     if (!os.length || os.length > 2 || rest.length !== 2) continue;
     const cs = rest.filter((j) => n.el[j] === "C"), lig = rest.filter((j) => n.el[j] !== "C"), types = lig.map((j) => ligand(n, s, j));
-    if (cs.length === 2 || cs.some((j) => !plainC(n, j)) || types.some((t) => !t || t === "SR") || (n.cip[s] && !(os.length === 1 && cs.length))) continue;
+    if (cs.length === 2 || cs.some((j) => !plainC(n, j)) || types.some((t) => !t || (t === "SR" && cs.length !== 1)) || (n.cip[s] && !(os.length === 1 && cs.length))) continue;
     if (cs.length === 1 && os.length === 2 && (types[0] === "OH" || types[0] === "X")) continue; // sulfonic acids, sulfonyl halides: namer.ts
     // The atom the group hangs on: its carbon, or a ring N that takes the suffix.
     const ring = lig.filter((_, k) => types[k] === "Nring");
@@ -321,12 +330,12 @@ function perceiveSulfur(n: Namer) {
     for (const o of os) n.sulfur.add(o);
     lig.forEach((j, k) => {
       if (types[k] === "OH" || types[k] === "X") n.sulfur.add(j);
-      else if (types[k] === "OR" || types[k] === "N" || types[k] === "bridge") n.het.set(j, `S${types[k]}`);
+      else if (types[k] === "OR" || types[k] === "N" || types[k] === "bridge" || types[k] === "SR") n.het.set(j, `S${types[k]}`);
       if (types[k] === "N3") for (const a of azideAtoms(n, j)) n.het.set(a, "SN3");
       if (types[k] === "N") for (const y of n.adj[j]) if (y !== s && n.el[y] === "N" && !n.het.has(y)) claimNN(n, y);
     });
     if (!on.length || (t === "Nring" && cs.length)) continue; // sulfuric acid derivatives; a sulfonyl on a ring N
-    const kind = t === "OH" ? "sulfonic" : t === "X" || t === "N3" ? "sulfonylhalide" : t === "OR" ? "sulfonate" : t === "N" ? "sulfonamide" : t === "bridge" ? "anhydride" : undefined;
+    const kind = t === "OH" ? "sulfonic" : t === "X" || t === "N3" ? "sulfonylhalide" : t === "OR" || t === "SR" ? "sulfonate" : t === "N" ? "sulfonamide" : t === "bridge" ? "anhydride" : undefined;
     if (kind) n.mark(s, kind as never, on);
   }
 }
@@ -345,9 +354,10 @@ export function sulfonamideN(n: Namer, kind: string | undefined, s: number): num
 // methanesulfonate, 4-[(methanesulfonyl)oxy]butyl methanesulfonate (busulfan).
 export function sulfonateName(n: Namer): string | undefined {
   const s = [...n.bearer.keys()].find((g) => n.group[g] === "sulfonate")!;
-  const o = n.adj[s].find((j) => n.het.get(j) === "SOR")!, r = n.adj[o].find((j) => j !== s)!;
-  const acid = n.parentName("sulfonate" as never, new Set(), n.side(s, o));
-  return acid && `${n.substituent(r, o).text} ${acid.text}`;
+  const o = n.adj[s].find((j) => n.het.get(j) === "SOR" || n.het.get(j) === "SSR")!, r = n.adj[o].find((j) => j !== s)!;
+  const acid = n.parentName("sulfonate" as never, new Set(), n.side(s, o)), alkyl = n.substituent(r, o);
+  // A thioester names the atom its alkyl is on: S-methyl methanesulfonothioate (P-65.6.3.2.3).
+  return acid && `${n.el[o] === "S" ? `S-${enclose(alkyl)}` : alkyl.text} ${acid.text}`;
 }
 // A sulfur oxoacid centre cited as a prefix, from the atom `from`: methanesulfonyl, 4-methylbenzene-1-sulfonyl,
 // sulfo, sulfino, methoxysulfonyl, sulfamoyl, dimethylsulfamoyl, chlorosulfonyl, [(R)-methanesulfinyl] (P-65.3.2.3,
@@ -366,6 +376,7 @@ function sulfurPrefix(n: Namer, x: number, from: number): Name | undefined {
   if (t === "OH") return { text: os.length === 2 ? "sulfo" : "sulfino", compound: false };
   if (t === "X") return { text: `${HALO[n.el[j]]}${word}`, compound: true };
   if (t === "N3") return { text: `azido${word}`, compound: true };
+  if (t === "SR") return { text: `${enclose(n.substituent(j, x))}${word}`, compound: true };
   if (t === "OR") return { text: `${enclose(n.substituent(j, x))}${word}`.replace(/^\(([a-z-]+oxy)\)(sulf[a-z]+)$/, "$1$2"), compound: true };
   if (t === "N") {
     const subs = n.adj[j].filter((y) => y !== x).map((y) => n.substituent(y, j)), amoyl = os.length === 2 ? "sulfamoyl" : "sulfinamoyl";
@@ -650,7 +661,8 @@ function centreName(n: Namer, kind: string | undefined): string | undefined {
     return `${n.substituent(n.adj[o].find((j) => j !== x)!, o).text} ${role === "NO3" ? "nitrate" : "nitrite"}`;
   }
   const c = centreOf(n, x);
-  return n.el[x] === "P" ? phosphorusName(n, c) : sulfuricName(n, c);
+  // A centre this namer cannot name as the parent (a phosphoramidite) is cited as a prefix of a carbon parent instead.
+  try { return n.el[x] === "P" ? phosphorusName(n, c) : sulfuricName(n, c); } catch { return undefined; }
 }
 // A phosphorus centre cited as a prefix: phosphono, (dimethoxyphosphoryl), [hydroxy(methyl)phosphoryl],
 // (diethoxyphosphanyl) (P-67.1.4); a nitrate or nitrite N: nitro, nitroso (in nitrooxy, nitrosooxy).

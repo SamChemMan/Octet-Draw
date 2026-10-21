@@ -183,6 +183,13 @@ must("azides, triazenes", [
   "N-methyl-N-nitroso-4-methylbenzene-1-sulfonamide", "4-methylbenzene-1-sulfonohydrazide", "N'-(propan-2-ylidene)-4-methylbenzene-1-sulfonohydrazide",
   "2-hydroxy-5-[(E)-{4-[(pyridin-2-yl)sulfamoyl]phenyl}diazenyl]benzoic acid",
 ]);
+// Thiosulfonates, sulfenyl groups, N-fluoro sulfonimides (NFSI), phosphoramidites as prefixes.
+must("sulfenyl, thiosulfonates", [
+  "S-methyl methanesulfonothioate", "allicin", "4-[(methylsulfanyl)sulfonyl]benzoic acid", "1-chloro-4-(chlorosulfanyl)benzene",
+  "benzenesulfenyl chloride", "N-(phenylsulfanyl)phthalimide", "N-(phenylsulfanyl)aniline", "4-(hydroxysulfanyl)benzoic acid",
+  "(methoxysulfanyl)benzene", "1-(phenylsulfanyl)piperidine", "N-(benzenesulfonyl)-N-fluorobenzenesulfonamide",
+  "3-{[bis(diisopropylamino)phosphanyl]oxy}propanenitrile", "2-cyanoethyl N,N-diisopropylchlorophosphoramidite",
+]);
 // Small molecules with no carbon (IUPAC 2005, IR-6, IR-8). Single atoms (water, HCl) are not named: a lone atom
 // drawn is ambiguous.
 must("inorganic", [
