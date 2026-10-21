@@ -45,7 +45,13 @@ for (const record of readFileSync(file, "utf8").split("$$$$\n").filter((r) => r.
   time += performance.now() - t;
   const got = new Set<string>();
   cip.atoms.forEach((c, i) => { if (c) got.add(`${i + 1}${c}`); });
-  cip.bonds.forEach((c, k) => { if (c) for (const i of mol.bonds[k].atoms) got.add(`${i + 1}${c}`); });
+  // The suite labels a double bond on its two atoms, and a cumulene (labelled on its middle bond) on its two ends.
+  const cumulated = (i: number) => { const bs = mol.bonds.filter((b) => b.atoms.includes(i)); return bs.length === 2 && bs.every((b) => b.type === 2); };
+  const end = (i: number, from: number) => {
+    for (let guard = 0; cumulated(i) && guard < mol.atoms.length; guard++) { const b = mol.bonds.find((x) => x.atoms.includes(i) && !x.atoms.includes(from))!; from = i; i = b.atoms[0] === i ? b.atoms[1] : b.atoms[0]; }
+    return i;
+  };
+  cip.bonds.forEach((c, k) => { if (c) { const [a, b] = mol.bonds[k].atoms; for (const i of [end(a, b), end(b, a)]) got.add(`${i + 1}${c}`); } });
   const ok = got.size === want.size && [...want].every((x) => got.has(x));
   total++;
   if (ok) pass++;

@@ -131,8 +131,10 @@ type V3 = [number, number, number];
 // A tetrahedral centre: its four ligands (-1 for its hydrogen or lone pair) in the order a, b, c, d where a, b, c turn
 // clockwise seen with d away from the viewer (Indigo's pyramid).
 type Centre = { kind: "centre"; foci: [number]; around: number[] };
-// A double bond: its atoms, a carrier (substituent) on each, whether the two carriers are cis, and its bond.
-type Double = { kind: "double"; foci: [number, number]; carriers: [number, number]; cis: boolean; bond: number };
+// A double bond, or a cumulene with an odd number of double bonds (C=C=C=C): its end atoms, the atoms from end to end,
+// a carrier (substituent) on each end, whether the two carriers are cis, and the bond that takes the label (the
+// middle one).
+type Double = { kind: "double"; foci: [number, number]; chain: number[]; carriers: [number, number]; cis: boolean; bond: number };
 type Unit = (Centre | Double) & { label?: string };
 
 const EPS = 1e-3;
@@ -240,8 +242,8 @@ function sameSide(m: Mol, beg: number, end: number, nb: number, ne: number): num
   return Math.abs(pb) < 0.1 || Math.abs(pe) < 0.1 ? 0 : pb * pe > 0 ? 1 : -1;
 }
 
-// The drawing's stereo units: centres set by stereo bonds (or 3D places), and double bonds between C, N, Si or Ge with
-// a drawn substituent on each end. Stereo bonds, as ChemDraw reads them: a wedge (solid or hollow) or hashed wedge
+// The drawing's stereo units: centres set by stereo bonds (or 3D places), and double bonds (and cumulenes with an odd
+// number of double bonds) between C, N, Si or Ge with a drawn substituent on each end. Stereo bonds, as ChemDraw reads them: a wedge (solid or hollow) or hashed wedge
 // from the centre; and on a centre where none starts, a wedge whose wide end is on it (Indigo's bidirectional mode),
 // a hashed or dashed bond (away from the viewer) and a bold one out of a ring (towards the viewer). A bold ring bond
 // draws a ring in perspective (a Haworth projection), not a centre. Left out: a centre or double bond with a wavy bond
@@ -275,19 +277,38 @@ function stereoUnits(m: Mol, c: Chem): Unit[] {
     }
     if (around) units.push({ kind: "centre", foci: [i], around });
   }
+  // A cumulated atom: two double bonds and nothing else.
+  const cumulated = (i: number) => c.adj[i].length === 2 && c.adj[i].every((e) => e.order === 2);
+  const done = new Set<number>();
   m.bonds.forEach((b, k) => {
-    if (b.type !== 2 || b.display === "either") return;
-    const [f1, f2] = b.atoms;
-    if (![f1, f2].every((f) => ["C", "N", "Si", "Ge"].includes(m.atoms[f]?.label)) || wavy.has(f1) || wavy.has(f2)) return;
-    const s1 = c.adj[f1].filter((e) => e.to !== f2), s2 = c.adj[f2].filter((e) => e.to !== f1);
+    if (b.type !== 2 || b.display === "either" || done.has(k)) return;
+    // The chain of cumulated atoms through the bond, out to its two ends.
+    const chain = [...b.atoms];
+    for (const end of [0, 1]) {
+      for (let guard = 0; guard < n; guard++) {
+        const x = end ? chain[chain.length - 1] : chain[0], prev = end ? chain[chain.length - 2] : chain[1];
+        if (!cumulated(x)) break;
+        const next = c.adj[x].find((e) => e.to !== prev)!.to;
+        if (chain.includes(next)) return;
+        if (end) chain.push(next); else chain.unshift(next);
+      }
+    }
+    const bonds = chain.slice(1).map((x, j) => c.adj[x].find((e) => e.to === chain[j])!.bond);
+    bonds.forEach((j) => done.add(j));
+    // An even number of double bonds is an axis (M, P: axial.ts).
+    if (bonds.length % 2 === 0 || bonds.some((j) => m.bonds[j].display === "either")) return;
+    const f1 = chain[0], f2 = chain[chain.length - 1];
+    if (!chain.every((f) => ["C", "N", "Si", "Ge"].includes(m.atoms[f]?.label)) || wavy.has(f1) || wavy.has(f2)) return;
+    const s1 = c.adj[f1].filter((e) => e.to !== chain[1]), s2 = c.adj[f2].filter((e) => e.to !== chain[chain.length - 2]);
     if (!s1.length || !s2.length || s1.length > 2 || s2.length > 2 || [...s1, ...s2].some((e) => e.order !== 1)) return;
     if (s1.some((e) => s2.some((x) => x.to === e.to))) return;
-    // In a ring of under 8 atoms (a path of up to 6 bonds from end to end without this bond) the bond can only be cis.
+    // In a ring of under 8 atoms (a path of up to 7 - chain bonds from end to end round the ring) the bond can only be
+    // cis.
     const dist = new Map([[f1, 0]]);
     for (const queue = [f1]; queue.length;) {
       const v = queue.shift()!;
-      if (dist.get(v)! >= 6) continue;
-      for (const e of c.adj[v]) if (e.bond !== k && !dist.has(e.to)) { dist.set(e.to, dist.get(v)! + 1); queue.push(e.to); }
+      if (dist.get(v)! >= 7 - bonds.length) continue;
+      for (const e of c.adj[v]) if (!bonds.includes(e.bond) && !dist.has(e.to)) { dist.set(e.to, dist.get(v)! + 1); queue.push(e.to); }
     }
     if (dist.has(f2)) return;
     const [c1, c2] = [s1[0].to, s2[0].to];
@@ -295,7 +316,7 @@ function stereoUnits(m: Mol, c: Chem): Unit[] {
     if (s1.length === 2 ? sameSide(m, f1, f2, c1, s1[1].to) !== -1 : line(f1, f2, c1)) return;
     if (s2.length === 2 ? sameSide(m, f2, f1, c2, s2[1].to) !== -1 : line(f2, f1, c2)) return;
     const side = sameSide(m, f1, f2, c1, c2);
-    if (side) units.push({ kind: "double", foci: [f1, f2], carriers: [c1, c2], cis: side > 0, bond: k });
+    if (side) units.push({ kind: "double", foci: [f1, f2], chain, carriers: [c1, c2], cis: side > 0, bond: bonds[(bonds.length - 1) / 2] });
   });
   return units;
 }
@@ -537,15 +558,23 @@ class Digraph {
     const odd = parity(u.around, ranked);
     return odd === undefined ? "?" : odd ? (s.pseudo ? "s" : "S") : s.pseudo ? "r" : "R";
   }
-  // A double bond's label with node n1 (one of its atoms) as the root.
+  // The node of a chain's far end, walking the chain's atoms from node n (one end). Undefined when the digraph does not
+  // run along the chain from n.
+  private along(n: Node, chain: number[]): Node | undefined {
+    let p: Node | undefined = n;
+    for (const atom of chain.slice(1)) p = p && [...(p.up ? [p.up] : []), ...this.kids(p)].find((x) => x.kind === ATOM && x.atom === atom);
+    return p;
+  }
+  // A double bond's (or cumulene's) label with node n1 (one of its ends) as the root.
   double(n1: Node, u: Double, rs: Rules): string {
-    const swap = n1.atom !== u.foci[0], [f1, f2] = swap ? [u.foci[1], u.foci[0]] : u.foci, [c1, c2] = swap ? [u.carriers[1], u.carriers[0]] : u.carriers;
-    this.reroot(n1);
-    const all = this.outs(n1), n2 = all.find((x) => x.kind === ATOM && x.atom === f2), e1 = all.filter((x) => x.atom !== f2);
+    const swap = n1.atom !== u.foci[0], chain = swap ? [...u.chain].reverse() : u.chain, [c1, c2] = swap ? [u.carriers[1], u.carriers[0]] : u.carriers;
+    const n2 = this.along(n1, chain);
     if (!n2) return "?";
+    this.reroot(n1);
+    const e1 = this.outs(n1).filter((x) => x.atom !== chain[1]);
     const p1 = this.rank(n1, e1, rs);
     this.reroot(n2);
-    const e2 = this.outs(n2).filter((x) => x.atom !== f1);
+    const e2 = this.outs(n2).filter((x) => x.atom !== chain[chain.length - 2]);
     if (!e1.length || !e2.length) return "";
     const p2 = this.rank(n2, e2, rs);
     if (!p1.unique || !p2.unique) return "?";
@@ -566,10 +595,10 @@ class Digraph {
     const found: [Node, Unit][] = [];
     for (const v of units) {
       if (v === u || !v.foci.some((f) => this.seen.has(f))) continue;
+      // A double bond's descriptor sits on its end nearer the root.
       for (const n of this.nodesOf(v.foci[0])) {
-        let low = n;
-        if (v.kind === "double") for (const x of [...(n.up ? [n.up] : []), ...this.kids(n)]) if (x.kind === ATOM && x.atom === v.foci[1] && x.depth < n.depth) low = x;
-        found.push([low, v]);
+        const far = v.kind === "double" ? this.along(n, v.chain) : undefined;
+        found.push([far && far.depth < n.depth ? far : n, v]);
       }
     }
     found.sort((x, y) => y[0].depth - x[0].depth);

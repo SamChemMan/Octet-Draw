@@ -106,6 +106,13 @@ assert.equal(cipLabels({ ...butene(true), bonds: butene(true).bonds.map((b, k) =
 // C=N: acetaldehyde oxime, CH3 > H on C and OH > lone pair on N. CH3 and OH on opposite sides: E.
 const oxime: Mol = { atoms: [atom("C", [0, 0, 0]), atom("N", [1, 0, 0]), atom("C", at(120)), atom("O", at(300, 1, [1, 0]))], bonds: [bond(0, 1, { type: 2 }), bond(0, 2), bond(1, 3)] };
 assert.equal(cipLabels(oxime).bonds[0], "E");
+// A cumulene with three double bonds (hexa-2,3,4-triene) is E or Z like a double bond, on its middle bond; with two
+// (an allene) it has an axis instead (axial.ts).
+const triene = (cis: boolean): Mol => ({ atoms: [0, 1, 2, 3].map((x) => atom("C", [x, 0, 0])).concat([atom("C", at(120)), atom("C", at(cis ? 60 : 300, 1, [3, 0]))]), bonds: [bond(0, 1, { type: 2 }), bond(1, 2, { type: 2 }), bond(2, 3, { type: 2 }), bond(0, 4), bond(3, 5)] });
+assert.deepEqual(cipLabels(triene(true)).bonds, [undefined, "Z", undefined, undefined, undefined]);
+assert.deepEqual(cipLabels(triene(false)).bonds, [undefined, "E", undefined, undefined, undefined]);
+const allene: Mol = { atoms: [0, 1, 2].map((x) => atom("C", [x, 0, 0])).concat([atom("C", at(120)), atom("C", at(60, 1, [2, 0]))]), bonds: [bond(0, 1, { type: 2 }), bond(1, 2, { type: 2 }), bond(0, 3), bond(2, 4)] };
+assert.ok(!cipLabels(allene).bonds.some(Boolean));
 // A double bond in a ring under 8 atoms has no label (1,2-dimethylcyclohexene); in cyclooctene it has.
 const ring = (n: number): Mol => {
   const atoms = Array.from({ length: n }, (_, k) => atom("C", at((360 * k) / n, 1 / (2 * Math.sin(Math.PI / n)))));
