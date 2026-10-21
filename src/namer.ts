@@ -603,7 +603,8 @@ class Namer {
       const doubles = ring(a).filter((j) => this.ord(a, j) === 2).length;
       if (doubles > 1 || ring(a).some((j) => this.ord(a, j) === 3)) throw new Error("ring bonds");
       if (this.adj[a].some((j) => !sys.has(j) && this.ord(a, j) > 1 && j !== this.carbonylO[a])) throw new Error("exocyclic double bond");
-      if (this.el[a] === "C" || this.el[a] === "N") { cn.push(a); if (!doubles) d.push(a); }
+      // An O+ or S+ with a ring double bond (a pyrylium-like cation) counts as a C here.
+      if (this.el[a] === "C" || this.el[a] === "N" || (this.ions.has(a) && this.q[a] === 1)) { cn.push(a); if (!doubles) d.push(a); }
       else if (doubles) throw new Error("ring heteroatom double bond");
     }
     const bonds = atoms.reduce((t, a) => t + ring(a).length, 0) / 2, formula = atoms.map((a) => this.el[a]).sort().join("");
@@ -691,7 +692,7 @@ class Namer {
   // are hydro prefixes, in pairs.
   saturation(f: FusedSys, num: number[], ketones: number[]): { x?: number; y?: number; yOn?: number; hydro: number[] } {
     const byLoc = (l: number[]) => [...l].sort((a, b) => num.indexOf(a) - num.indexOf(b));
-    const xs = f.tpl.odd ? byLoc(ketones.length % 2 ? ketones : f.d) : [undefined];
+    const xs = f.cn.length % 2 ? byLoc(ketones.length % 2 ? ketones : f.d) : [undefined];
     for (const x of xs) {
       const left = ketones.filter((a) => a !== x);
       if (left.length % 2 && left.length > 1) continue;
@@ -845,7 +846,7 @@ class Namer {
     else parent = (p.ring ? "cyclo" : "") + chainStem(size, multiple(num, 2), multiple(num, 3), p.ring);
     // A ring cation (P-73.1.2): pyridin-1-ium, 1-methylpyridin-1-ium, acridin-10-ium; with an anion suffix,
     // 1-methylpyridin-1-ium-3-carboxylate; as a prefix, pyridin-1-ium-1-yl.
-    const ium = p.ring ? atoms.filter((a) => this.cationN(a)) : [];
+    const ium = p.ring ? atoms.filter((a) => this.cationN(a) || (fused && this.ions.has(a) && this.q[a] === 1)) : [];
     if (ium.length) {
       if ((kind && !(ANION_KINDS as Kind[]).includes(kind)) || opts.acyl || opts.sulfo || retained) throw new Error("ring cation");
       parent = `${(opts.attach && info?.ring?.hydrogen) || ""}${parent.replace(/e$/, "")}-${ium.map((a) => label(num, a)).sort(locOrder).join(",")}-${MULT[ium.length]}ium`;
