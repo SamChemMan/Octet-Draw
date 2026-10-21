@@ -179,3 +179,10 @@ check("prefixes", [
   ["N-acetyl-L-cysteine", "(2R)-2-acetamido-3-sulfanylpropanoic acid"], ["hippuric acid", "benzamidoacetic acid"],
   ["thyroxine", "(2S)-2-amino-3-[4-(4-hydroxy-3,5-diiodophenoxy)-3,5-diiodophenyl]propanoic acid"],
 ]);
+
+// N-cyano guanidines and amidines (cimetidine); acid pseudohalides (P-65.5.3).
+check("cyano and pseudohalides", [
+  "N-cyanoguanidine", ["smiles:N#CN=C(N)N", "N''-cyanoguanidine"], "N'-cyano-N,N-dimethylmethanimidamide",
+  ["smiles:CC1=C(N=CN1)CSCCNC(=NC)NC#N", "smiles:"], // cimetidine
+  "benzoyl isothiocyanate", "acetyl isocyanate", "benzoyl cyanate", "benzoyl thiocyanate", "butanedioyl diisocyanate", "4-(isothiocyanatocarbonyl)benzoic acid",
+]);

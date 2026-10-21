@@ -248,8 +248,9 @@ class Namer {
       if (!["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"].includes(el[i])) throw new Error(`element ${el[i]}`);
       if (q[i] && !this.nitroAtom(i) && !this.cationN(i) && !this.diazoAtom(i) && !this.azidoAtom(i)) throw new Error("charge");
     }
+    for (let c = 0; c < this.n; c++) if (el[c] === "C") this.pseudoGroup(c);
     for (let c = 0; c < this.n; c++) {
-      if (el[c] !== "C" || this.pseudoGroup(c)) continue;
+      if (el[c] !== "C" || this.pseudo.has(c)) continue;
       // A ring N joined to a functional carbon outside its ring stands where a ring carbon would (P-66.1.1.4.3, P-64.1.2):
       // piperidine-1-carboxylic acid, tert-butyl azetidine-1-carboxylate, 1-(piperidin-1-yl)ethan-1-one.
       const o = this.carbonylO[c], cs = [...this.carbons(c), ...this.ringN(c)];
@@ -261,7 +262,8 @@ class Namer {
         if (!cs.length && others.length === 2 && !this.inRing[c] && this.ord(c, y) === 1 && !this.q[y] && ((HALO[el[y]] && adj[y].length === 1) || (el[y] === "O" && this.h[y] === 1 && adj[y].length === 1)
           || (el[y] === "N" && !this.inRing[y] && adj[y].every((j) => j === c || (el[j] === "C" && !this.isNitrileC(j)))))) {
           this.mark(c, "nitrile", []);
-          this.group[nitrileN] = this.group[y] = "nitrile";
+          this.group[nitrileN] = "nitrile";
+          this.group[y] ??= "nitrile"; // unless the N is a guanidine's (N-cyanoguanidine, cimetidine)
           continue;
         }
         if (this.inRing[c] || cs.length > 1 || others.length !== 1) throw new Error("nitrile");
@@ -300,7 +302,8 @@ class Namer {
       if (others.length === 2 && !cs.length) { this.carbonicGroup(c, others); continue; }
       if (this.inRing[c] || others.length !== 1 || cs.length > 1) throw new Error("carbonyl");
       const x = others[0];
-      if (HALO[el[x]] && adj[x].length === 1) { this.mark(c, "halide", cs); this.group[x] = "halide"; continue; }
+      // Acid halides, and acid pseudohalides (P-65.5.3): benzoyl isothiocyanate.
+      if ((HALO[el[x]] && adj[x].length === 1) || this.prefixOnly.has(x)) { this.mark(c, "halide", cs); this.group[x] = "halide"; continue; }
       const y = el[x] === "O" && adj[x].length === 2 ? adj[x].find((j) => j !== c)! : -1;
       if (y >= 0 && el[y] === "C" && this.carbonylO[y] >= 0 && !this.inRing[y]) { this.mark(c, "anhydride", cs); this.group[x] = "anhydride"; this.anhydrideO.set(c, x); continue; }
       if (el[x] === "O" && h[x] === 1 && adj[x].length === 1) { this.mark(c, "acid", cs); this.group[x] = "acid"; }
@@ -389,7 +392,7 @@ class Namer {
       if (el[x] === "N" && this.ord(c, x) === 1 && !this.q[x] && adj[x].every((j) => j === c || (el[j] === "C" && !this.isNitrileC(j)) || this.nOxy(x, j))) return "N";
       return "";
     });
-    if (type.includes("")) throw new Error("carbonic acid derivative");
+    if (type.includes("") || ls.some((x) => this.prefixOnly.has(x))) throw new Error("carbonic acid derivative");
     const kind: Kind = type.includes("OH") ? "carbonic" : type.includes("OR") || type.includes("OCO") ? "carbamate" : type.includes("X") ? "carbonylhalide" : "urea";
     this.mark(c, kind, []);
     ls.forEach((x, k) => { this.group[x] = kind; if (type[k] === "OR" && !this.esterO.has(c)) this.esterO.set(c, x); });
@@ -465,7 +468,7 @@ class Namer {
   // guanidines and carbodiimides (methanediimine).
   amidineGroup(c: number, n: number, cs: number[], rest: number[]) {
     const { el, adj } = this;
-    const plain = (x: number) => el[x] === "N" && this.ord(c, x) === 1 && !this.inRing[x] && !this.q[x] && adj[x].every((j) => j === c || (el[j] === "C" && !this.isNitrileC(j)) || this.nOxy(x, j));
+    const plain = (x: number) => el[x] === "N" && this.ord(c, x) === 1 && !this.inRing[x] && !this.q[x] && adj[x].every((j) => j === c || el[j] === "C" || this.nOxy(x, j));
     for (const x of rest) if (plain(x)) for (const j of adj[x]) if (this.nOxy(x, j)) this.nO.add(j); // N-hydroxyguanidine, amidoximes
     const m = rest[0];
     if (!cs.length && rest.length === 1 && el[m] === "N" && this.ord(c, m) === 2 && !this.inRing[m] && !this.q[m] && adj[m].length + this.h[m] === 2
@@ -542,7 +545,7 @@ class Namer {
     const x = rest[0];
     if (x === undefined) return n;
     if (this.ord(n, x) !== 1) return undefined;
-    if (this.el[x] === "C" && this.carbonylO[x] < 0 && !this.isNitrileC(x)) return n;
+    if (this.el[x] === "C" && this.carbonylO[x] < 0) return n; // N-cyano too: N''-cyanoguanidine
     if (this.el[x] === "O" && !this.q[x] && this.adj[x].length + this.h[x] === 2 && this.adj[x].every((j) => j === n || (this.el[j] === "C" && this.carbonylO[j] < 0))) return n;
     return undefined;
   }
@@ -1054,7 +1057,7 @@ class Namer {
     // tert-butoxycarbonyl, [(benzyloxy)carbonyl], carbamoyl, dimethylcarbamoyl, chlorocarbonyl.
     const rN = this.ringN(c), y = this.groupHetero(c).find((j) => j !== from && !rN.includes(j) && this.ord(c, j) === 1);
     if (y !== undefined) {
-      if (HALO[this.el[y]]) return { text: `${HALO[this.el[y]]}carbonyl`, compound: true };
+      if (HALO[this.el[y]] || this.prefixOnly.has(y)) return { text: `${HALO[this.el[y]] ?? this.prefixOnly.get(y)}carbonyl`, compound: true };
       if (this.el[y] === "O" && this.adj[y].length === 1) return { text: "carboxy", compound: false };
       if (this.el[y] === "O") return { text: `${enclose(this.substituent(y, c))}carbonyl`.replace(/^\(([a-z-]+oxy)\)carbonyl$/, "$1carbonyl"), compound: true };
       if (this.el[y] !== "N") throw new Error("acyl");
@@ -1116,9 +1119,10 @@ class Namer {
       text = this.parentName(kind)?.text;
       // Acid halides (P-65.5.1): acetyl chloride, butanedioyl dichloride, methanesulfonyl chloride.
       if (text && (kind === "halide" || kind === "sulfonylhalide" || kind === "imidoylhalide")) {
-        const xs = [...Array(this.n).keys()].filter((x) => HALO[this.el[x]] && this.adj[x].some((j) => this.group[j] === kind));
-        if (new Set(xs.map((x) => this.el[x])).size !== 1) throw new Error("mixed halides");
-        text += ` ${MULT[xs.length]}${HALIDE[this.el[xs[0]]]}`;
+        const xs = [...Array(this.n).keys()].filter((x) => (HALO[this.el[x]] || this.prefixOnly.has(x)) && this.adj[x].some((j) => this.group[j] === kind));
+        const word = (x: number) => HALIDE[this.el[x]] ?? this.prefixOnly.get(x)!.replace(/o$/, "e"); // isothiocyanato → isothiocyanate
+        if (new Set(xs.map(word)).size !== 1) throw new Error("mixed halides");
+        text += ` ${MULT[xs.length]}${word(xs[0])}`;
       }
     }
     // Every stereo label must be cited (P-91): a name that drops one would be wrong, and labels other than R, S, E
