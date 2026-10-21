@@ -211,5 +211,5 @@ must("inorganic", [
   "dichloramine", "nitrogen trichloride", "nitrogen trifluoride", "sulfur dioxide", "sulfur trioxide", "phosphorus pentachloride",
   "hydroxylamine", "hydrazine", "sulfuric acid", "phosphoric acid", "phosphoryl trichloride", "trichlorophosphane", "sulfurous dichloride",
   "sulfoxylic acid", "peroxomonosulfuric acid", "dithionic acid", "trithionic acid", "tetrathionic acid", "hypodiphosphoric acid",
-  "nitrous amide", "amidosulfurous acid", "pentathionic acid", "disulfuric acid", "trisulfuric acid",
+  "nitrous amide", "amidosulfurous acid", "pentathionic acid", "disulfuric acid", "trisulfuric acid", "sulfenamic acid", "phosphenic acid",
 ]);
