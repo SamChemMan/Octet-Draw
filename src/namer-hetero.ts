@@ -2,7 +2,7 @@
 // published rules. namer.ts calls these functions at a few fixed points (perception, suffixes, prefixes and the
 // whole-molecule name); each takes the namer itself. Every name is still read back by OPSIN before the app shows it.
 import type { Graph } from "./naming.ts";
-import { assemblePrefixes, alphaKey, enclose, substituted, HALO, MULT, MULT_COMPLEX, SENIORITY, type Name, type Namer } from "./namer.ts";
+import { assemblePrefixes, alphaKey, enclose, substituted, HALO, MULT, MULT_COMPLEX, Namer, SENIORITY, type Name } from "./namer.ts";
 
 // ——— Variants of principal groups: thio analogues and peroxy groups ———
 // =S and -S- in place of =O and -O- (P-65.1.5, P-65.6.3.2.3, P-66.1.4.1, P-64.6), and -OO- in place of -O- (P-65.1.4,
@@ -367,11 +367,44 @@ export function sulfonamideN(n: Namer, kind: string | undefined, s: number): num
 // A sulfonate or sulfinate ester (P-65.6.3.3): the alkyl from the ester O, then the acid's name: methyl
 // methanesulfonate, 4-[(methanesulfonyl)oxy]butyl methanesulfonate (busulfan).
 export function sulfonateName(n: Namer): string | undefined {
-  const s = [...n.bearer.keys()].find((g) => n.group[g] === "sulfonate")!;
+  // Several sulfonate esters of one acid on one framework: butane-1,4-diyl dimethanesulfonate (busulfan).
+  const all = [...n.bearer.keys()].filter((g) => n.group[g] === "sulfonate"), esterO = (g: number) => n.adj[g].find((j) => n.het.get(j) === "SOR");
+  if (all.length > 1 && all.every((g) => esterO(g) !== undefined)) {
+    const acids = all.map((g) => n.parentName("sulfonate" as never, new Set(), n.side(g, esterO(g)!))?.text);
+    // di before an unsubstituted acid (dimethanesulfonate), bis() before a substituted one (bis(trifluoromethanesulfonate)).
+    const side = [...n.side(all[0], esterO(all[0])!)], plain = side.every((a) => a === all[0] || n.el[a] === "C" || oxo(n, all[0]).includes(a));
+    const poly = acids.every((a) => a && a === acids[0]) ? polyEster(n, all.map((g) => esterO(g)!), all, acids[0]!, plain) : undefined;
+    if (poly) return poly;
+  }
+  const s = all[0];
   const o = n.adj[s].find((j) => n.het.get(j) === "SOR" || n.het.get(j) === "SSR")!, r = n.adj[o].find((j) => j !== s)!;
   const acid = n.parentName("sulfonate" as never, new Set(), n.side(s, o)), alkyl = n.substituent(r, o);
   // A thioester names the atom its alkyl is on: S-methyl methanesulfonothioate (P-65.6.3.2.3).
   return acid && `${n.el[o] === "S" ? `S-${enclose(alkyl)}` : alkyl.text} ${acid.text}`;
+}
+// Identical ester groups on one framework (P-65.6.3.2.2): the framework named as its polyol, with -diyl for -diol,
+// then the acid's anion multiplied: butane-1,4-diyl dimethanesulfonate, propane-1,2,3-triyl trinitrate,
+// ethane-1,2-diyl bis(4-methylbenzene-1-sulfonate). os[k] is the ester O of the acid centre centres[k]. Undefined when
+// the polyol's name does not end in the ester groups alone (another OH, a senior group, PETN's four on two kinds).
+function polyEster(n: Namer, os: number[], centres: number[], acid: string, plain: boolean): string | undefined {
+  const seen = new Set<number>(os), stack = os.map((o, k) => n.adj[o].find((j) => j !== centres[k])!);
+  for (const a of stack) seen.add(a);
+  while (stack.length) {
+    const i = stack.pop()!;
+    for (const j of n.adj[i]) { if (seen.has(j)) continue; if (centres.includes(j)) return undefined; seen.add(j); stack.push(j); }
+  }
+  const atoms = [...seen], index = new Map(atoms.map((a, k) => [a, k]));
+  if (atoms.some((a) => n.el[a] === "O" && !os.includes(a) && n.h[a])) return undefined;
+  const g: Graph = {
+    atoms: atoms.map((a) => ({ el: n.el[a], charge: n.q[a], h: os.includes(a) ? 1 : n.h[a], ...(n.cip[a] ? { cip: n.cip[a] } : {}) })),
+    bonds: [...n.bond].flatMap(([key, order]) => {
+      const [a, b] = key.split(" ").map(Number), cip = n.cipBond.get(key);
+      return index.has(a) && index.has(b) ? [{ a: index.get(a)!, b: index.get(b)!, order: order as 1 | 2 | 3, ...(cip ? { cip } : {}) }] : [];
+    }),
+  };
+  const k = os.length, polyol = new Namer(g).name(), m = polyol?.match(new RegExp(`^(.*)-([\\d,]+)-${MULT[k]}ol$`));
+  if (!m || m[2].split(",").length !== k) return undefined;
+  return `${m[1]}-${m[2]}-${MULT[k]}yl ${!plain || /[\d ([]/.test(acid) ? `${MULT_COMPLEX[k]}(${acid})` : MULT[k] + acid}`;
 }
 // A sulfur oxoacid centre cited as a prefix, from the atom `from`: methanesulfonyl, 4-methylbenzene-1-sulfonyl,
 // sulfo, sulfino, methoxysulfonyl, sulfamoyl, dimethylsulfamoyl, chlorosulfonyl, [(R)-methanesulfinyl] (P-65.3.2.3,
@@ -683,6 +716,10 @@ function centreName(n: Namer, kind: string | undefined): string | undefined {
   if (role === "OX") { const o = n.adj[x][0]; return `${n.substituent(n.adj[o].find((j) => j !== x)!, o).text} hypo${{ F: "fluor", Cl: "chlor", Br: "brom", I: "iod" }[n.el[x]]}ite`; }
   if (n.el[x] === "P" && centreOf(n, x).types.includes("bridge")) return phosphateChainName(n, phosphateChain(n, x)!);
   if (role === "NO3" || role === "NO2") {
+    // Several on one framework: propane-1,2,3-triyl trinitrate.
+    const ns = [...n.het].filter(([y, r]) => r === role && n.el[y] === "N").map(([y]) => y), esterO = (y: number) => n.adj[y].find((j) => n.adj[j].length === 2)!;
+    const poly = ns.length > 1 ? polyEster(n, ns.map(esterO), ns, role === "NO3" ? "nitrate" : "nitrite", true) : undefined;
+    if (poly) return poly;
     const o = n.adj[x].find((j) => n.adj[j].length === 2)!;
     return `${n.substituent(n.adj[o].find((j) => j !== x)!, o).text} ${role === "NO3" ? "nitrate" : "nitrite"}`;
   }

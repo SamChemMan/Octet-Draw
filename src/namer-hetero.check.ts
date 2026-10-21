@@ -146,7 +146,9 @@ must("P oxoacids, nitrates", [
   "4-(dimethoxyphosphoryl)benzoic acid", "4-[hydroxy(methyl)phosphoryl]benzoic acid", "4-(phosphonooxy)benzoic acid",
   "4-[(diethoxyphosphoryl)oxy]benzoic acid", "4-(dimethoxyphosphanyl)benzoic acid", "4-(phosphonoamino)benzoic acid", "coenzyme A",
   "methyl(triphenyl)phosphanium bromide", "tetraphenylphosphanium chloride", "(carboxymethyl)(triphenyl)phosphanium chloride",
-  "methyl nitrate", "propane-1,2,3-triyl trinitrate", "4-(nitrooxy)butanoic acid", "3-methylbutyl nitrite", "4-[(nitrosooxy)methyl]benzoic acid",
+  "methyl nitrate", "propane-1,2,3-triyl trinitrate", "ethane-1,2-diyl dinitrate", "2-hydroxypropane-1,3-diyl dinitrate",
+  "ethane-1,2-diyl bis(4-methylbenzene-1-sulfonate)", "propane-1,3-diyl bis(trifluoromethanesulfonate)", "ethane-1,2-diyl dibenzenesulfonate",
+  "benzene-1,4-diyl dimethanesulfonate", "(2R,3R)-butane-2,3-diyl dimethanesulfonate", "2,2-bis[(nitrooxy)methyl]propane-1,3-diyl dinitrate","4-(nitrooxy)butanoic acid", "3-methylbutyl nitrite", "4-[(nitrosooxy)methyl]benzoic acid",
 ]);
 // N-oxides (P-74.2.1.2), imines on a ring N and imine N atoms cited as prefixes (P-62.3.1.2).
 must("N-oxides, imines", [
