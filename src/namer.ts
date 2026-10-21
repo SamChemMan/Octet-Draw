@@ -28,11 +28,11 @@ const VOWEL = /^[aeiouy]/;
 // carbonic (carbamic acid), carbamate (carbamates, carbonates), carbonylhalide (carbamoyl chloride), urea.
 // Cations (aminium) are senior to every neutral group (P-41).
 // Imidic acids, their esters and halides, and amidines and guanidines (amides of imidic acids, P-65.1.3.1,
-// P-66.4.1), each after its oxo analogue.
-type Kind = "aminium" | "acid" | "imidic" | "carbonic" | "sulfonic" | "anhydride" | "ester" | "imidate" | "carbamate" | "halide" | "imidoylhalide" | "carbonylhalide" | "sulfonylhalide" | "amide" | "amidine" | "urea" | "guanidine" | "hydrazide" | "nitrile" | "aldehyde" | "ketone" | "alcohol" | "thiol" | "amine" | "imine";
-const SENIORITY: Kind[] = ["aminium", "acid", "imidic", "carbonic", "sulfonic", "anhydride", "ester", "imidate", "carbamate", "halide", "imidoylhalide", "carbonylhalide", "sulfonylhalide", "amide", "amidine", "urea", "guanidine", "hydrazide", "nitrile", "aldehyde", "ketone", "alcohol", "thiol", "amine", "imine"];
+// P-66.4.1), each after its oxo analogue; peroxy acids, their esters and diacyl peroxides likewise (P-65.1.4).
+type Kind = "aminium" | "acid" | "peroxy" | "imidic" | "carbonic" | "sulfonic" | "anhydride" | "peroxide" | "ester" | "peroxyester" | "imidate" | "carbamate" | "halide" | "imidoylhalide" | "carbonylhalide" | "sulfonylhalide" | "amide" | "amidine" | "urea" | "guanidine" | "hydrazide" | "nitrile" | "aldehyde" | "ketone" | "alcohol" | "thiol" | "amine" | "imine";
+const SENIORITY: Kind[] = ["aminium", "acid", "peroxy", "imidic", "carbonic", "sulfonic", "anhydride", "peroxide", "ester", "peroxyester", "imidate", "carbamate", "halide", "imidoylhalide", "carbonylhalide", "sulfonylhalide", "amide", "amidine", "urea", "guanidine", "hydrazide", "nitrile", "aldehyde", "ketone", "alcohol", "thiol", "amine", "imine"];
 // Groups whose carbon is counted in a chain name (propanoic acid) but cited as "carbo…" on a ring (cyclohexanecarboxylic acid).
-const CARBON_GROUP = new Set<Kind>(["acid", "imidic", "anhydride", "ester", "imidate", "halide", "imidoylhalide", "amide", "amidine", "hydrazide", "nitrile", "aldehyde"]);
+const CARBON_GROUP = new Set<Kind>(["acid", "peroxy", "imidic", "anhydride", "ester", "peroxyester", "imidate", "halide", "imidoylhalide", "amide", "amidine", "hydrazide", "nitrile", "aldehyde"]);
 const HALIDE: Record<string, string> = { F: "fluoride", Cl: "chloride", Br: "bromide", I: "iodide" };
 // Cations of salts (P-65.6.2.2) and their charges.
 const CATIONS: Record<string, [string, number]> = { Li: ["lithium", 1], Na: ["sodium", 1], K: ["potassium", 1], Rb: ["rubidium", 1], Cs: ["caesium", 1], Ag: ["silver", 1],
@@ -170,6 +170,7 @@ class Namer {
   diimine = new Set<number>(); // carbodiimide carbons, R-N=C=N-R
   nO = new Set<number>(); // the O of N-hydroxy and N-alkoxy amides, ureas and carbamates
   hzN = new Set<number>(); // the N atoms of a hydrazine or diazene that is the parent of a carbonyl group on its N
+  peroxO = new Set<number>(); // the O-O of peroxy acids, their esters and diacyl peroxides
 
   constructor(g: Graph) {
     this.n = g.atoms.length;
@@ -309,6 +310,8 @@ class Namer {
       if ((HALO[el[x]] && adj[x].length === 1) || this.prefixOnly.has(x)) { this.mark(c, "halide", cs); this.group[x] = "halide"; continue; }
       const y = el[x] === "O" && adj[x].length === 2 ? adj[x].find((j) => j !== c)! : -1;
       if (y >= 0 && el[y] === "C" && this.carbonylO[y] >= 0 && !this.inRing[y]) { this.mark(c, "anhydride", cs); this.group[x] = "anhydride"; this.anhydrideO.set(c, x); continue; }
+      const peroxo = el[x] === "O" && adj[x].length === 2 ? adj[x].find((j) => j !== c && el[j] === "O" && !q[j] && !this.inRing[j]) : undefined;
+      if (peroxo !== undefined) { this.peroxyGroup(c, cs, x, peroxo); continue; }
       if (el[x] === "O" && h[x] === 1 && adj[x].length === 1) { this.mark(c, "acid", cs); this.group[x] = "acid"; }
       else if (el[x] === "O" && adj[x].length === 2 && ((this.carbonylO[adj[x].find((j) => j !== c)!] < 0 && el[adj[x].find((j) => j !== c)!] === "C") || this.ringNO(x))) {
         this.mark(c, "ester", cs);
@@ -352,7 +355,7 @@ class Namer {
       const cs = this.carbons(i);
       if (HALO[el[i]]) { if (adj[i].length !== 1 || cs.length !== 1) throw new Error("halogen"); continue; }
       if (el[i] === "O" && adj[i].some((j) => this.group[j] === "imine") && adj[i].length - cs.length === 1 && adj[i].length <= 2) continue; // an oxime's O: N-hydroxy, N-alkoxy
-      if (this.nO.has(i) || this.hzN.has(i)) continue;
+      if (this.nO.has(i) || this.hzN.has(i) || this.peroxO.has(i)) continue;
       if (el[i] === "O") {
         if (adj[i].length === 1 && h[i] === 1 && cs.length === 1) this.mark(i, "alcohol", cs);
         else if (!(adj[i].length === 2 && cs.length === 2) && !this.nitroAtom(i)) throw new Error("oxygen");
@@ -441,11 +444,32 @@ class Namer {
     this.hzN.add(n);
     this.hzN.add(adj[n].find((j) => el[j] === "N")!);
   }
+  // C(=O)-O-O (P-65.1.4.1): a peroxy acid (benzenecarboperoxoic acid), its ester (tert-butyl ethaneperoxoate), or a
+  // diacyl peroxide (dibenzoyl peroxide).
+  peroxyGroup(c: number, cs: number[], x: number, y: number) {
+    const r = this.adj[y].find((j) => j !== x);
+    const kind: Kind | undefined = r === undefined ? (this.h[y] === 1 ? "peroxy" : undefined) : this.el[r] !== "C" ? undefined
+      : this.carbonylO[r] < 0 ? "peroxyester" : this.inRing[r] ? undefined : "peroxide";
+    if (!kind || this.inRing[x] || this.adj[y].length > 2) throw new Error("carbonyl group");
+    this.mark(c, kind, cs);
+    this.group[x] = this.group[y] = kind;
+    this.peroxO.add(x);
+    this.peroxO.add(y);
+    if (kind === "peroxyester") this.esterO.set(c, y);
+  }
+  // Diacyl peroxides (P-65.7.?): dibenzoyl peroxide, acetyl benzoyl peroxide.
+  peroxideName(): string {
+    const cs = [...this.bearer.keys()].filter((g) => this.group[g] === "peroxide");
+    if (cs.length !== 2) throw new Error("peroxide");
+    const acyls = cs.map((c) => this.acylName(c, this.groupHetero(c).find((j) => this.peroxO.has(j))!));
+    if (acyls[0].text === acyls[1].text) return `${times(2, acyls[0])} peroxide`;
+    return `${acyls.map((a) => enclose(a)).sort((a, b) => alphaKey(a).localeCompare(alphaKey(b))).join(" ")} peroxide`;
+  }
   // An ester O on a ring N (P-65.6.3.2.3): 2,5-dioxopyrrolidin-1-yl acetate, the N-hydroxysuccinimide esters.
   ringNO = (o: number) => this.adj[o].some((j) => this.el[j] === "N" && this.inRing[j] && !this.q[j] && this.ord(o, j) === 1);
   // Bonds between heteroatoms that these classes allow: N-O of N-hydroxy amides and of esters on a ring N, N-N of
   // hydrazides.
-  classBond = (a: number, b: number) => this.nO.has(a) || this.nO.has(b) || (this.group[a] === "hydrazide" && this.group[b] === "hydrazide" && this.el[a] === "N" && this.el[b] === "N") || (this.hzN.has(a) && this.hzN.has(b))
+  classBond = (a: number, b: number) => this.nO.has(a) || this.nO.has(b) || (this.group[a] === "hydrazide" && this.group[b] === "hydrazide" && this.el[a] === "N" && this.el[b] === "N") || (this.hzN.has(a) && this.hzN.has(b)) || (this.peroxO.has(a) && this.peroxO.has(b))
     || [a, b].some((o) => this.el[o] === "O" && (this.group[o] === "ester" || this.group[o] === "carbamate") && this.ringNO(o));
   // Groups cited only as prefixes (P-61.7?, P-65.2.2): N=C=O and N=C=S on N (isocyanato, isothiocyanato), N#C-O and
   // N#C-S on O or S (cyanato, thiocyanato). With H in place of the attachment, the molecule is the acid: isocyanic acid.
@@ -936,7 +960,7 @@ class Namer {
     if (this.inRing[x]) return this.nameParent({ atoms: this.rings[this.ringOf[x]], ring: true }, { attach: [x, from] });
     // Groups Octet does not yet cite as prefixes.
     const g = this.group[x];
-    if (g === "sulfonylhalide" || g === "aminium") throw new Error(`${g} as a prefix`);
+    if (g === "sulfonylhalide" || g === "aminium" || this.peroxO.has(x)) throw new Error(`${g} as a prefix`);
     // A carbonyl carbon reached from its own N or O is an acyl group: N-acetyl, carbamoyl, (methoxycarbonyl)oxy.
     if (el === "C" && this.carbonylO[x] >= 0 && this.groupHetero(x).includes(from) && !this.inRing[from]) return this.acylName(x, from);
     // Phosphanyl and phosphoryl (P-68.3.2.3): diphenylphosphanyl, diphenylphosphoryl.
@@ -1115,7 +1139,8 @@ class Namer {
     if (this.adj.some((a, i) => a.length === 0 && this.el[i] !== "C") || this.n === 0) return undefined;
     const kind = SENIORITY.find((k) => this.group.includes(k) && [...this.bearer.keys()].some((g) => this.group[g] === k));
     let text: string | undefined;
-    if (kind === "ester" || kind === "imidate") text = this.esterName(kind);
+    if (kind === "ester" || kind === "imidate" || kind === "peroxyester") text = this.esterName(kind);
+    else if (kind === "peroxide") text = this.peroxideName();
     else if (kind === "anhydride") text = this.anhydrideName();
     else if (this.whole && this.pseudo.size === this.n) text = this.whole;
     else if (kind === "urea" || kind === "carbamate" || kind === "carbonic" || kind === "carbonylhalide" || kind === "guanidine" || (kind === "imine" && this.diimine.size)
@@ -1221,7 +1246,7 @@ class Namer {
   esterName(kind: Kind): string | undefined {
     const esters = [...this.esterO.keys()].filter((c) => this.group[c] === kind);
     if (esters.length !== 1) return this.severalEsters(esters, kind);
-    const c = esters[0], o = this.esterO.get(c)!, r = this.adj[o].find((j) => j !== c)!;
+    const c = esters[0], o = this.esterO.get(c)!, r = this.adj[o].find((j) => j !== c && !this.peroxO.has(j))!;
     const alkyl = this.substituent(r, o);
     // The acid side: everything reachable from the ester carbon without crossing the ester oxygen.
     const acid = this.parentName(kind, new Set(), this.side(c, o));
@@ -1243,7 +1268,7 @@ class Namer {
     for (const c of esters) {
       const at = site(c);
       if (at === undefined) continue;
-      const o = this.esterO.get(c)!, r = this.adj[o].find((j) => j !== c)!;
+      const o = this.esterO.get(c)!, r = this.adj[o].find((j) => j !== c && !this.peroxO.has(j))!;
       if (p.atoms.some((a) => this.side(r, o).has(a))) throw new Error("cyclic ester");
       const name = this.substituent(r, o), g = groups.get(name.text) ?? { name, sites: [] };
       g.sites.push(at);
@@ -1483,6 +1508,7 @@ function withSuffix(parent: string, kind: Kind | undefined, locs: string[], ring
     aminium: ["aminium", "aminium"], imine: ["imine", "imine"], carbonic: ["", ""], carbonylhalide: ["", ""],
     amidine: ["imidamide", "carboximidamide"], guanidine: ["", ""], hydrazide: ["hydrazide", "carbohydrazide"],
     imidic: ["imidic acid", "carboximidic acid"], imidate: ["imidate", "carboximidate"], imidoylhalide: ["imidoyl", "carboximidoyl"],
+    peroxy: ["peroxoic acid", "carboperoxoic acid"], peroxyester: ["peroxoate", "carboperoxoate"], peroxide: ["", ""],
   };
   let s = own ?? base[kind!][ring ? 1 : 0];
   // The chain's own carbon carries -oic acid, -al, -nitrile and -amide, always at an end, so no locants (P-31.1.4.2.1).

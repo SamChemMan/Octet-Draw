@@ -207,3 +207,10 @@ check("acetyl", [
   ["smiles:O=C1CC[C@H](c2ccccc2)N1C(=O)Cc1ccccc1", "(5R)-5-phenyl-1-(phenylacetyl)pyrrolidin-2-one"],
   ["smiles:ClCC(=O)Oc1ccccc1C(O)=O", "2-[(chloroacetyl)oxy]benzoic acid"], ["smiles:O=C(C(Cl)Cl)Nc1ccccc1", "2,2-dichloro-N-phenylacetamide"],
 ]);
+
+// Peroxy acids, their esters and diacyl peroxides (P-65.1.4): mCPBA, peracetic acid, BPO.
+check("peroxy", [
+  ["peracetic acid", "ethaneperoxoic acid"], "benzenecarboperoxoic acid", ["3-chlorobenzenecarboperoxoic acid", "3-chlorobenzene-1-carboperoxoic acid"],
+  "methaneperoxoic acid", "tert-butyl benzenecarboperoxoate", "tert-butyl ethaneperoxoate", "dibenzoyl peroxide", "diacetyl peroxide",
+  "acetyl benzoyl peroxide", "bis(3,5,5-trimethylhexanoyl) peroxide",
+]);
