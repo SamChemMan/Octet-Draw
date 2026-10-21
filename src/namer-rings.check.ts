@@ -147,6 +147,20 @@ run("prefix order", [
   "smiles:CS(=O)(=O)c1ccc(C2=C(c3ccccc3)C(=O)OC2)cc1 = 4-[4-(methanesulfonyl)phenyl]-3-phenylfuran-2(5H)-one",
 ]);
 
+// =O on a ring S or P by the λ-convention (P-14.1.3): heterones as suffixes, oxo as prefixes.
+run("ring S and P oxides", [
+  "sulfolane = 1λ⁶-thiolane-1,1-dione", "sulfolene = 2,5-dihydro-1λ⁶-thiophene-1,1-dione", "thiolane 1-oxide = 1λ⁴-thiolan-1-one",
+  "thiophene 1,1-dioxide = 1λ⁶-thiophene-1,1-dione", "2H-thiopyran 1,1-dioxide = 2H-1λ⁶-thiopyran-1,1-dione",
+  "thiomorpholine 1,1-dioxide = 1λ⁶,4-thiazinane-1,1-dione", "1,3-dithiolane 1,1-dioxide", "thietane 1,1-dioxide", "thiane-4-one 1,1-dioxide = 1λ⁶-thiane-1,1,4-trione",
+  "thiolane-3-carboxylic acid 1,1-dioxide = 1,1-dioxo-1λ⁶-thiolane-3-carboxylic acid", "(1,1-dioxidothiolan-3-yl)methanol", "1,2-thiazolidine 1,1-dioxide",
+  "1,2-thiazol-3(2H)-one 1,1-dioxide", "1-phenylphospholane 1-oxide = 1-phenyl-1λ⁵-phospholan-1-one", "1-phenyl-1H-phosphole 1-oxide",
+  "2-methyl-1,3,2-dioxaphospholane 2-oxide", "1-thiacyclododecane 1,1-dioxide", "biotin sulfone", "smiles:O=S1(=O)CCN(c2ccccc2)CC1",
+  "smiles:S1C(Cl)=COS(=O)P(=O)(C)C(C2=NN=CS2)S(=O)(=O)1", "smiles:N1=PS(=O)C=C(C(=O)O)C(=O)ONNN(C(=O)N)1",
+]);
+
+// A large ring's double bond from its last atom to atom 1 takes a compound locant: 1(13).
+run("large rings", ["smiles:C1CCCCCCCCN(C)CC=N1", "smiles:C1CS(=O)N=NN=CC=NC=PC=NOS1", "4-oxa-1-azacyclotridec-1(13)-ene"]);
+
 // Ketenes (P-64.1): the C=O carbon is a ketone at the end of a chain with a double bond.
 run("ketenes", [
   "ethenone = ethenone", "2-phenylethen-1-one", "diphenylethenone", "dimethylketene = 2-methylprop-1-en-1-one", "fulvenone",

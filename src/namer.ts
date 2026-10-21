@@ -97,7 +97,7 @@ const MANCUDE: Record<string, string> = {
 // A Hantzsch–Widman name (P-22.2.2.1) from the ring's elements by locant: prefixes in order of seniority, multiplied,
 // then the ending for the ring size, the final "a" elided before a vowel. Locants are left out for one heteroatom and
 // where every atom but one is the same heteroatom (oxane, 1H-tetrazole).
-function hwName(els: string[], saturated: boolean): string {
+function hwName(els: string[], saturated: boolean, lam: string[] = []): string {
   const join = (a: string, b: string) => (/a$/.test(a) && /^[aeiou]/.test(b) ? a.slice(0, -1) : a) + b;
   const present = HW_ORDER.filter((e) => els.includes(e)), size = els.length, hasN = present.includes("N"), last = present[present.length - 1];
   const locs = present.flatMap((e) => els.flatMap((x, k) => (x === e ? [k + 1] : [])));
@@ -105,8 +105,10 @@ function hwName(els: string[], saturated: boolean): string {
   const ends: [string, string] = size === 3 ? (hasN ? ["irine", "iridine"] : ["irene", "irane"]) : size === 4 ? ["ete", hasN ? "etidine" : "etane"]
     : size === 5 ? ["ole", hasN ? "olidine" : "olane"] : size === 6 ? (last === "O" || last === "S" ? ["ine", "ane"] : last === "N" ? ["ine", "inane"] : ["inine", "inane"])
     : [["epine", "epane"], ["ocine", "ocane"], ["onine", "onane"], ["ecine", "ecane"]][size - 7] as [string, string];
+  // λ-atoms (P-14.1.3) carry their λ in the locants: 1λ⁶,4-thiazinane; with no locants, in front: 1λ⁶-thiolane.
   const bare = locs.length === 1 || (present.length === 1 && locs.length >= size - 1);
-  return (bare ? "" : `${locs.join(",")}-`) + join(stem, ends[saturated ? 1 : 0]);
+  const cited = bare ? locs.filter((l) => lam[l - 1]) : locs;
+  return (cited.length ? `${cited.map((l) => `${l}${lam[l - 1] ?? ""}`).join(",")}-` : "") + join(stem, ends[saturated ? 1 : 0]);
 }
 // The subsets of l with k members, in order of lowest locants (l in locant order).
 function subsets(l: number[], k: number): number[][] {
@@ -353,13 +355,15 @@ class Namer {
     // Phosphanes and phosphane oxides (P-68.3.2): P with three single bonds to carbon or hydrogen, and perhaps =O.
     for (let i = 0; i < this.n; i++) {
       if (el[i] !== "P") continue;
-      // A ring P with three bonds (phosphinane, 1H-phosphole) is named with its ring (P-22.2.2).
-      if (this.inRing[i] && !q[i] && !this.cip[i] && adj[i].reduce((t, j) => t + this.ord(i, j), 0) + h[i] === 3 && adj[i].every((j) => this.ringOf[j] === this.ringOf[i] || (el[j] === "C" && this.ord(i, j) === 1))) continue;
-      const os =adj[i].filter((j) => el[j] === "O" && this.ord(i, j) === 2 && adj[j].length === 1 && !q[j]), rest = adj[i].filter((j) => !os.includes(j));
+      // A ring P with three bonds (phosphinane, 1H-phosphole), or with =O too (1λ⁵-phospholan-1-one), is named with its ring.
+      if (this.inRing[i] && !q[i] && !this.cip[i] && adj[i].reduce((t, j) => t + this.ord(i, j), 0) + h[i] === (this.lambda(i) ? 5 : 3) && adj[i].every((j) => this.ringOf[j] === this.ringOf[i] || this.ringOxide(j) || (el[j] === "C" && this.ord(i, j) === 1))) continue;
+      const os = adj[i].filter((j) => el[j] === "O" && this.ord(i, j) === 2 && adj[j].length === 1 && !q[j]), rest = adj[i].filter((j) => !os.includes(j));
       if (this.inRing[i] || q[i] || os.length > 1 || rest.length + h[i] !== 3 || rest.some((j) => el[j] !== "C" || this.ord(i, j) !== 1 || this.carbonylO[j] >= 0) || this.cip[i]) throw new Error("phosphorus");
       this.phosphorus.add(i);
       for (const j of os) this.phosphorus.add(j);
     }
+    // =O on a ring S or P is a ketone on that atom (heterones, λ-convention): 1λ⁶-thiolane-1,1-dione; oxo as a prefix.
+    for (let i = 0; i < this.n; i++) if (this.ringOxide(i) && this.lambda(this.adj[i][0])) this.mark(i, "ketone", [this.adj[i][0]]);
     for (let i = 0; i < this.n; i++) {
       if (this.group[i] || this.sulfur.has(i) || this.phosphorus.has(i) || el[i] === "C" || this.inRing[i]) continue;
       const cs = this.carbons(i);
@@ -391,7 +395,7 @@ class Namer {
       const oxime = (x: number, y: number) => this.group[x] === "imine" && el[x] === "N" && el[y] === "O" && o === 1;
       const oxide = this.phosphorus.has(a) && this.phosphorus.has(b);
       const n2 = (this.diazoAtom(a) && this.diazoAtom(b)) || (this.azidoAtom(a) && this.azidoAtom(b));
-      if (el[a] !== "C" && el[b] !== "C" && !this.nitroBond(a, b) && !oxime(a, b) && !oxime(b, a) && !oxide && !n2 && !this.nSubstituent(a) && !this.nSubstituent(b)) throw new Error(`hetero bond ${el[a]}${o}${el[b]}`);
+      if (el[a] !== "C" && el[b] !== "C" && !this.nitroBond(a, b) && !oxime(a, b) && !oxime(b, a) && !oxide && !n2 && !this.nSubstituent(a) && !this.nSubstituent(b) && this.group[a] !== "ketone" && this.group[b] !== "ketone") throw new Error(`hetero bond ${el[a]}${o}${el[b]}`);
     }
   }
   // An acyl group on a ring N (P-66.1.1.4.5): a ketone or aldehyde with the ring as a prefix, or the ring as the parent:
@@ -413,6 +417,17 @@ class Namer {
     else if (this.el[x] === "N" && !this.inRing[x] && this.adj[x].every((j) => j === c || (this.el[j] === "C" && this.carbonylO[j] < 0 && !this.isNitrileC(j)))) { this.mark(c, "amide", ns); this.group[x] = "amide"; }
     else return false;
     return true;
+  }
+  // =O on a ring S or P.
+  ringOxide(o: number): boolean {
+    if (this.el[o] !== "O" || this.q[o] || this.h[o] || this.adj[o].length !== 1) return false;
+    const a = this.adj[o][0];
+    return this.ord(a, o) === 2 && this.inRing[a] && (this.el[a] === "S" || this.el[a] === "P") && !this.q[a];
+  }
+  // The λ-convention (P-14.1.3): a ring S with one or two =O is λ⁴ or λ⁶ (1λ⁶-thiolane), a ring P with one =O λ⁵.
+  lambda(a: number): string {
+    const k = this.inRing[a] ? this.adj[a].filter((j) => this.ringOxide(j)).length : 0;
+    return !k ? "" : this.el[a] === "S" ? (k === 1 ? "λ⁴" : k === 2 ? "λ⁶" : "") : k === 1 ? "λ⁵" : "";
   }
   // A halogen, hydroxy or alkoxy O on a ring N, cited as a prefix: 1-bromopyrrolidine-2,5-dione, 1-hydroxypyrrolidine-2,5-dione.
   nSubstituent(i: number): boolean {
@@ -499,7 +514,7 @@ class Namer {
     const aromatic = aromatic6 || aromatic5;
     if (ringBonds.some((o) => o === 3) && hetero.length) throw new Error("ring triple bond");
     if (!hetero.length && !aromatic6) return { numberings: allNumberings, aromatic: false };
-    if (!aromatic && ringBonds.some((o) => o === 2)) return this.monoInfo(cycle);
+    if ((!aromatic && ringBonds.some((o) => o === 2)) || cycle.some((a) => this.lambda(a))) return this.monoInfo(cycle);
     // Lowest locants to heteroatoms together, then by seniority O, S, N; then (azoles) to the N bearing hydrogen.
     const heteroLocants = (num: number[]) => num.map((a, k) => (this.el[a] !== "C" ? k + 1 : 0)).filter(Boolean);
     let best = allNumberings;
@@ -525,7 +540,10 @@ class Namer {
     if (size <= 10) nums = nums.filter((num) => el(num[0]) === HW_ORDER.find((e) => cycle.some((a) => el(a) === e)));
     nums = this.lowest(nums, at());
     for (const e of HW_ORDER) nums = this.lowest(nums, at(e));
-    const els = nums[0].map(el), ring = (a: number) => this.adj[a].filter((j) => set.has(j));
+    nums = this.lowest(nums, (num) => num.flatMap((a, k) => (this.lambda(a) ? [k + 1] : []))); // then λ-atoms (P-31.1.4.2.4)
+    const els = nums[0].map(el), ring = (a: number) => this.adj[a].filter((j) => set.has(j)), lam = nums[0].map((a) => this.lambda(a));
+    // A retained name with its λ-atoms in front: 1λ⁶-thiophene.
+    const retained = (n?: string) => n && (lam.some(Boolean) ? `${lam.flatMap((l, k) => (l ? [`${k + 1}${l}`] : [])).join(",")}-${n}` : n);
     const bonds = cycle.map((a, k): [number, number] => [a, cycle[(k + 1) % size]]);
     if (bonds.some(([a, b]) => this.ord(a, b) === 3)) throw new Error("ring triple bond");
     const doubles = (a: number) => ring(a).filter((j) => this.ord(a, j) === 2).length;
@@ -537,7 +555,7 @@ class Namer {
     if (size > 10) return { numberings: nums, aromatic: false, bridged: { prefix: "cyclo", nums, bonds } };
     const key = `${size}:${HW_ORDER.flatMap((e) => els.flatMap((x, k) => (x === e ? [`${e}${k + 1}`] : []))).join(",")}`;
     if (bonds.every(([a, b]) => this.ord(a, b) === 1)) {
-      const name = SATURATED[key] ?? hwName(els, true);
+      const name = retained(SATURATED[key]) || hwName(els, true, lam);
       return { ring: { name, stem: name.replace(/e$/, ""), aromatic: false }, numberings: nums, aromatic: false };
     }
     // The mancude parent: C, N and P take double bonds; it needs indicated hydrogen on one atom of each run of them
@@ -550,7 +568,7 @@ class Namer {
       if (cn.includes(a) && k < size) run++;
       else { indicated += run % 2; run = 0; }
     }
-    const name = MANCUDE[key] ?? hwName(els, false);
+    const name = retained(MANCUDE[key]) || hwName(els, false, lam);
     const tpl: Fused = { name, labels: cycle.map((_, k) => String(k + 1)), el: els, adj: [], order: [], bonds: size, formula: "", odd: indicated > 0 };
     return { numberings: nums, aromatic: true, fused: { tpl, nums, cn, d, ring, mono: indicated } };
   }
@@ -573,7 +591,7 @@ class Namer {
     }
     if (!best) throw new Error("indicated hydrogen");
     const { xs, ys } = best, sat = [...xs, ...ketones, ...ys];
-    return { x: xs[0], xs, y: ys[0], ys, yOn: byLoc(ketones.filter((a) => !xs.includes(a))).pop(), hydro: d.filter((a) => !sat.includes(a)) };
+    return { x: xs[0], xs, y: ys[0], ys, yOn: byLoc(ketones.filter((a) => !xs.includes(a) && f.cn.includes(a))).pop(), hydro: d.filter((a) => !sat.includes(a)) };
   }
   // A ring that can be a ring assembly's component: benzene, a retained heterocycle without indicated hydrogen, or a
   // fused system with no saturated atoms (naphthalene, quinoline).
@@ -742,7 +760,8 @@ class Namer {
         if (CARBON_GROUP.has(kind)) {
           if (inParent.has(g) && !p.ring) sites.push({ atom: g, group: g });
           else if (p.ring && on.some((a) => inParent.has(a))) { sites.push({ atom: on.find((a) => inParent.has(a))!, group: g }); used.add(g); }
-        } else if (kind === "ketone" || kind === "imine") { if (inParent.has(g)) { sites.push({ atom: g, group: g }); used.add(kind === "ketone" ? this.carbonylO[g] : this.imineN(g)!); } }
+        } else if (kind === "ketone" && this.el[g] === "O") { if (inParent.has(on[0])) { sites.push({ atom: on[0], group: g }); used.add(g); } } // =O on a ring S or P
+        else if (kind === "ketone" || kind === "imine") { if (inParent.has(g)) { sites.push({ atom: g, group: g }); used.add(kind === "ketone" ? this.carbonylO[g] : this.imineN(g)!); } }
         else { const a = on.find((x) => inParent.has(x)); if (a !== undefined) { sites.push({ atom: a, group: g }); used.add(g); } }
       }
     }
@@ -761,7 +780,7 @@ class Namer {
     }
     // With several amide or amine suffixes, N-locants name their suffix's locant (N1,N4) and count for numbering.
     for (const s of sites) {
-      const nAtom = kind === "amide" ? this.groupHetero(s.group)[0] : kind === "amine" || kind === "aminium" ? s.group : kind === "imine" ? this.imineN(s.group) : undefined;
+      const nAtom = kind === "amide" ? this.amideN(s.group) : kind === "amine" || kind === "aminium" ? s.group : kind === "imine" ? this.imineN(s.group) : undefined;
       if (nAtom === undefined) continue;
       for (const x of this.adj[nAtom]) if (x !== s.group && !inParent.has(x) && x !== s.atom)
         prefixes.push({ atom: s.atom, name: this.substituent(x, nAtom), n: true });
@@ -837,13 +856,15 @@ class Namer {
       parent = kind || opts.attach ? `[${junction}-${assembly.stem}]` : `${junction}-${assembly.stem}`;
     } else if (p.ring && info!.ring) parent = (info!.ring.hydrogen && (!opts.attach || opts.sulfo) ? info!.ring.hydrogen : "") + info!.ring.name;
     else if (bridged) {
-      if (multiple(num).some((l) => l > 999)) throw new Error("bridgehead double bond");
+      // A large monocycle's double bond from its last atom to atom 1 takes a compound locant (P-31.1.4.2.4): 1(13).
+      const closure = (l: number[]) => l.map((x) => (x > 999 ? `${x - 1000}(${size})` : String(x))).sort((a, b) => parseInt(a) - parseInt(b));
+      if (multiple(num).some((l) => l > 999) && bridged.prefix !== "cyclo") throw new Error("bridgehead double bond");
       // Replacement prefixes in front: 8-azabicyclo[3.2.1]octane, 1,4-dioxaspiro[4.5]decane.
       const replaced = REPLACE.map(([e, word]) => {
-        const at = atoms.filter((a) => this.el[a] === e).map((a) => loc(num, a)).sort((a, b) => a - b);
+        const at = atoms.filter((a) => this.el[a] === e).map((a) => loc(num, a)).sort((a, b) => a - b).map((l) => `${l}${this.lambda(num[l - 1])}`);
         return at.length ? `${at.join(",")}-${MULT[at.length]}${word}` : "";
       }).filter(Boolean).join("-");
-      parent = (replaced ? `${replaced}${/^\d/.test(bridged.prefix) ? "-" : ""}` : "") + bridged.prefix + chainStem(size, multiple(num, 2), multiple(num, 3), true);
+      parent = (replaced ? `${replaced}${/^\d/.test(bridged.prefix) ? "-" : ""}` : "") + bridged.prefix + chainStem(size, closure(multiple(num, 2)), closure(multiple(num, 3)), true);
     }
     else parent = (p.ring ? "cyclo" : "") + chainStem(size, multiple(num, 2), multiple(num, 3), p.ring);
     // A ring's one multiple bond needs no locant when nothing else is cited (P-31.1.4.2.4): cyclohexene, cyclooctyne.
@@ -883,6 +904,8 @@ class Namer {
     return { text, compound: prefixes.length > 0 || /[\d,]/.test(text), score: [] };
   }
   groupHetero = (c: number) => this.adj[c].filter((j) => j !== this.carbonylO[c] && this.el[j] !== "C");
+  // An amide's N (not the ring N of a ring's carboxamide: piperidine-1-carboxamide).
+  amideN = (c: number) => this.groupHetero(c).find((j) => this.group[j] === "amide") ?? this.groupHetero(c)[0];
 
   // The ring or chain stem as a substituent prefix: phenyl, pyridin-3-yl, cyclohexyl, propan-2-yl, acetyl.
   substituentForm(parent: string, info: ReturnType<Namer["ringInfo"]> | undefined, at: string, ring: boolean, size: number, acyl: boolean, unsaturated: boolean): string {
@@ -974,7 +997,7 @@ class Namer {
     if (kind === "aldehyde") return { text: "formyl", compound: false };
     if (kind === "nitrile") return { text: "cyano", compound: false };
     if (kind === "amide") {
-      const nAtom = this.groupHetero(x)[0], subs = this.adj[nAtom].filter((j) => j !== x).map((j) => this.substituent(j, nAtom));
+      const nAtom = this.amideN(x), subs = this.adj[nAtom].filter((j) => j !== x).map((j) => this.substituent(j, nAtom));
       if (!subs.length) return { text: "carbamoyl", compound: false };
       const inner = subs.length === 2 && subs[0].text === subs[1].text ? `di${enclose(subs[0])}` : subs.map(enclose).join("");
       return { text: `${inner}carbamoyl`, compound: true };
@@ -1090,7 +1113,7 @@ class Namer {
       for (const [g, on] of this.bearer) {
         if (this.group[g] !== kind || skip.has(g)) continue;
         if (CARBON_GROUP.has(kind)) c += (!ring && atoms.includes(g)) || (ring && on.some((a) => atoms.includes(a))) ? 1 : 0;
-        else if (kind === "ketone" || kind === "imine") c += atoms.includes(g) ? 1 : 0;
+        else if (kind === "ketone" || kind === "imine") c += atoms.includes(this.el[g] === "O" ? on[0] : g) ? 1 : 0;
         else c += on.some((a) => atoms.includes(a)) ? 1 : 0;
       }
       return c;
@@ -1265,7 +1288,7 @@ function assemblePrefixes(list: { loc: string; name: Name }[], noLocants: boolea
 // Prefixes, then the rest of the name, with a hyphen before a locant: 5-bromo-1H-indole, 1-methyl-1H-pyrrole.
 const joinPrefixes = (prefixes: string, rest: string) => (prefixes && /^\d/.test(rest) ? `${prefixes}-${rest}` : prefixes + rest);
 // A chain or ring stem with its double and triple bonds: propane, prop-1-ene, buta-1,3-diene, pent-1-en-4-yne.
-function chainStem(size: number, enes: number[], ynes: number[], ring: boolean): string {
+function chainStem(size: number, enes: (number | string)[], ynes: (number | string)[], ring: boolean): string {
   const stem = STEMS[size];
   if (!stem) throw new Error("chain too long");
   if (!enes.length && !ynes.length) return stem + "ane";
