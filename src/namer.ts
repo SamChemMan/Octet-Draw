@@ -396,12 +396,21 @@ class Namer {
   }
   // An acyl group on a ring N (P-66.1.1.4.5): a ketone or aldehyde with the ring as a prefix, or the ring as the parent:
   // 1-(piperidin-1-yl)ethan-1-one, piperidine-1-carbaldehyde, di(1H-imidazol-1-yl)methanone, 3-acetyl-1,3-oxazolidin-2-one.
+  // With O, N or a halogen on the carbon too, it is the ring's carbon group: tert-butyl piperidine-1-carboxylate,
+  // N,N-dimethylpiperidine-1-carboxamide, morpholine-4-carbonyl chloride.
   ringNAcyl(c: number): boolean {
     const others = this.adj[c].filter((j) => j !== this.carbonylO[c] && this.el[j] !== "C"), cs = this.carbons(c);
-    if (this.inRing[c] || !others.length || !others.every((j) => this.el[j] === "N" && this.inRing[j] && this.ord(c, j) === 1 && !this.q[j]) || cs.some((j) => this.ord(c, j) !== 1)) return false;
-    if (others.length === 1 && cs.length === 1) this.mark(c, "ketone", cs);
-    else if (others.length === 1 && !cs.length && this.h[c] === 1) this.mark(c, "aldehyde", others);
-    else if (others.length === 2 && !cs.length) this.mark(c, "ketone", []);
+    const ringN = (j: number) => this.el[j] === "N" && this.inRing[j] && this.ord(c, j) === 1 && !this.q[j];
+    const ns = others.filter(ringN), x = others.find((j) => !ringN(j));
+    if (this.inRing[c] || !ns.length || cs.some((j) => this.ord(c, j) !== 1)) return false;
+    if (x === undefined && cs.length === 1) this.mark(c, "ketone", cs);
+    else if (x === undefined && ns.length === 1 && !cs.length && this.h[c] === 1) this.mark(c, "aldehyde", ns);
+    else if (x === undefined && ns.length === 2 && !cs.length) this.mark(c, "ketone", []);
+    else if (x === undefined || ns.length !== 1 || cs.length || this.ord(c, x) !== 1 || this.q[x]) return false;
+    else if (this.el[x] === "O" && this.h[x] === 1 && this.adj[x].length === 1) { this.mark(c, "acid", ns); this.group[x] = "acid"; }
+    else if (this.el[x] === "O" && this.adj[x].length === 2 && this.adj[x].every((j) => j === c || (this.el[j] === "C" && this.carbonylO[j] < 0))) { this.mark(c, "ester", ns); this.esterO.set(c, x); this.group[x] = "ester"; }
+    else if (HALO[this.el[x]] && this.adj[x].length === 1) { this.mark(c, "halide", ns); this.group[x] = "halide"; }
+    else if (this.el[x] === "N" && !this.inRing[x] && this.adj[x].every((j) => j === c || (this.el[j] === "C" && this.carbonylO[j] < 0 && !this.isNitrileC(j)))) { this.mark(c, "amide", ns); this.group[x] = "amide"; }
     else return false;
     return true;
   }
@@ -1211,7 +1220,11 @@ function compare(a: number[], b: number[]): number {
 const locantsOf = (name: string) => (name.match(/\d+/g) ?? []).map(Number);
 // Alphabetical order ignores multiplying prefixes of simple substituents, locants and italic prefixes (P-14.5).
 function alphaKey(t: string): string {
-  return t.replace(/^[([{]+/, "").replace(/^(\d+[a-z]?'*[RSEZ],?)+\)-/, "").replace(/^((tert|sec|N|\d+[a-z]?'*(,\d+[a-z]?'*)*)-)+/, "").replace(/^(\d+[a-z]?H-)+/, "").replace(/[()[\]{}]/g, "");
+  // Enclosing marks go first, then every leading locant, stereodescriptor and indicated hydrogen: (2R,3S)-3,4-dihydroxy…
+  // is under d, 1H-1,2,4-triazol-1-yl under t.
+  let k = t.replace(/[()[\]{}]/g, "");
+  for (const lead = /^(tert|sec|N\d*'*|\d+[a-z]?'*[RSEZH]?)(,(N\d*'*|\d+[a-z]?'*[RSEZH]?))*-/; lead.test(k); ) k = k.replace(lead, "");
+  return k;
 }
 // Substituents on a parent without locants (amino, phosphane): phenyl, diphenyl, methyl(diphenyl), in alphabetical order.
 function substituted(subs: Name[]): string {

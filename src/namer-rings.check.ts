@@ -130,6 +130,20 @@ run("ring N substituents", [
   "1-acetylpyrrolidin-2-one = 1-acetylpyrrolidin-2-one", "smiles:O1C[C@H](C2C=CC=CC=2)N(C(=O)CC2C=CC=CC=2)C1=O = (4S)-4-phenyl-3-(2-phenylacetyl)-1,3-oxazolidin-2-one",
   "1-(morpholin-4-yl)propan-1-one", "(4-methylpiperazin-1-yl)(phenyl)methanone = (4-methylpiperazin-1-yl)(phenyl)methanone", "1H-imidazole-1-carbaldehyde",
   "1-benzoylpiperidine-4-carboxylic acid = 1-benzoylpiperidine-4-carboxylic acid", "2,2,2-trifluoro-1-(pyrrolidin-1-yl)ethan-1-one",
+  "smiles:C1(O)(C)CN(C(OC(C)(C)C)=O)C1 = tert-butyl 3-hydroxy-3-methylazetidine-1-carboxylate", "tert-butyl piperazine-1-carboxylate = tert-butyl piperazine-1-carboxylate",
+  "(2S)-1-(tert-butoxycarbonyl)pyrrolidine-2-carboxylic acid = (2S)-1-(tert-butoxycarbonyl)pyrrolidine-2-carboxylic acid", "piperidine-1-carboxylic acid",
+  "N,N-dimethylpiperidine-1-carboxamide = N,N-dimethylpiperidine-1-carboxamide", "N-phenylmorpholine-4-carboxamide", "morpholine-4-carbonyl chloride = morpholine-4-carbonyl chloride",
+  "ethyl 4-oxopiperidine-1-carboxylate", "tert-butyl 3-oxoazetidine-1-carboxylate",
+]);
+
+// Prefixes in alphabetical order, ignoring locants, indicated hydrogen and stereodescriptors (P-14.5): fluconazole,
+// rivaroxaban.
+run("prefix order", [
+  "smiles:OC(Cn1cncn1)(Cn1cncn1)c1ccc(F)cc1F = 2-(2,4-difluorophenyl)-1,3-bis(1H-1,2,4-triazol-1-yl)propan-2-ol",
+  "smiles:O=C1N(c2ccc(N3CCOCC3=O)cc2)C[C@@H](CNC(=O)c2ccc(Cl)s2)O1 = 5-chloro-N-{{(5R)-2-oxo-3-[4-(3-oxomorpholin-4-yl)phenyl]-1,3-oxazolidin-5-yl}methyl}thiophene-2-carboxamide",
+  "smiles:CCC1(c2ccccc2)C(=O)NC(=O)NC1=O = 5-ethyl-5-phenyl-1,3-diazinane-2,4,6-trione", "smiles:O=C1NC(=O)C(c2ccccc2)(c2ccccc2)N1 = 5,5-diphenylimidazolidine-2,4-dione",
+  "smiles:CN1C=CC(=O)C=C1 = 1-methylpyridin-4(1H)-one", "smiles:CC1=NN(C)C(=O)C1 = 2,5-dimethyl-2,4-dihydro-3H-pyrazol-3-one",
+  "smiles:CS(=O)(=O)c1ccc(C2=C(c3ccccc3)C(=O)OC2)cc1 = 4-[4-(methanesulfonyl)phenyl]-3-phenylfuran-2(5H)-one",
 ]);
 
 // Ketenes (P-64.1): the C=O carbon is a ketone at the end of a chain with a double bond.
