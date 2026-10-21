@@ -73,6 +73,7 @@ const cases: [string, string?][] = [
   ["smiles:CC(C)(C)[Si](c1ccccc1)(c1ccccc1)OCCO", "2-{[tert-butyl(diphenyl)silyl]oxy}ethanol"], ["smiles:CCO[Si](CCCN)(OCC)OCC", "3-(triethoxysilyl)propan-1-amine"],
   ["smiles:C[Si](C)(C)C#N", "trimethylsilanecarbonitrile"], ["smiles:N#C[Si](C)(C)c1ccc(C(=O)O)cc1"], ["smiles:C[Si](C)(C)SC"],
   ["smiles:O=C(O[Si](C)(C)C)C(F)(F)F", "trimethylsilyl trifluoroacetate"], ["smiles:C[Si](C)(C)CC(=O)Cl"],
+  ["2,2,2-trifluoro-N-methyl-N-(trimethylsilyl)acetamide"], ["N-(trimethylsilyl)acetamide", "N-(trimethylsilyl)acetamide"], ["smiles:O=C1CCCN1[Si](C)(C)C"],
   // Boron: boronic and borinic acids, boronate esters (pinacol, neopentyl glycol), boranes, borates.
   ["phenylboronic acid", "phenylboronic acid"], ["(4-formylphenyl)boronic acid", "(4-formylphenyl)boronic acid"], ["4-boronobenzoic acid", "4-boronobenzoic acid"],
   ["(pyridin-3-yl)boronic acid", "(pyridin-3-yl)boronic acid"], ["(3-aminophenyl)boronic acid"], ["(2,4-difluorophenyl)boronic acid"], ["1,4-phenylenebis(boronic acid)"],
@@ -117,6 +118,7 @@ const cases: [string, string?][] = [
   ["4-arsonobenzoic acid", "4-arsonobenzoic acid"], ["triphenylarsane oxide", "triphenylarsane oxide"], ["phenylstibonic acid"], ["diphenylstibinic acid"],
   ["dimethylarsinous acid"], ["phenylarsonous acid"], ["dichloro(methyl)arsane"], ["chloro(diphenyl)arsane"], ["1,2-bis(diphenylarsanyl)ethane"],
   ["1H-arsole", "1H-arsole"], ["arsinine", "arsinine"], ["arsoric acid"],
+  ["tetraphenylarsonium chloride", "tetraphenylarsanium chloride"], ["methyltriphenylarsanium bromide"], ["smiles:[Br-].C[Sb+](C)(C)C", "tetramethylstibanium bromide"],
   // Germanium, tin, lead, aluminium, gallium, indium, mercury.
   ["tetraethylgermane", "tetraethylgermane"], ["tributyl(phenyl)stannane", "tributyl(phenyl)stannane"], ["tributyl(chloro)stannane"],
   ["tributyl(thiophen-2-yl)stannane"], ["tributyl(prop-2-en-1-yl)stannane"], ["hexabutyldistannane", "hexabutyldistannane"],

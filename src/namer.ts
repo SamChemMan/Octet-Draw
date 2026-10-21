@@ -274,7 +274,7 @@ class Namer {
     const { el, h, q, adj } = this;
     for (let i = 0; i < this.n; i++) {
       if (!["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"].includes(el[i]) && !MAIN[el[i]]) throw new Error(`element ${el[i]}`);
-      if (this.boranuide(i)) continue; // the anion of a salt: trifluoro(phenyl)boranuide
+      if (this.mainIon(i)) continue; // an ion of a salt: trifluoro(phenyl)boranuide, tetraphenylarsanium
       if (q[i] && !this.nitroAtom(i) && !this.cationN(i) && !this.diazoAtom(i) && !this.azidoAtom(i)) throw new Error("charge");
     }
     this.perceiveMain();
@@ -332,7 +332,7 @@ class Namer {
         this.mark(c, "ester", cs);
         this.esterO.set(c, x);
         this.group[x] = "ester";
-      } else if (el[x] === "N" && this.ord(c, x) === 1 && !this.inRing[x] && adj[x].every((j) => j === c || (el[j] === "C" && this.carbonylO[j] < 0 && !this.isNitrileC(j)))) {
+      } else if (el[x] === "N" && this.ord(c, x) === 1 && !this.inRing[x] && adj[x].every((j) => j === c || CATENATE.has(el[j]) || (el[j] === "C" && this.carbonylO[j] < 0 && !this.isNitrileC(j)))) {
         this.mark(c, "amide", cs);
         this.group[x] = "amide";
       } else if (!(el[x] === "O" && this.main.has(x))) throw new Error("carbonyl group"); // else acyloxy on B, Hg: a prefix
@@ -948,8 +948,9 @@ class Namer {
   // ——— Main-group elements (P-68, P-69): Si, Ge, Sn, Pb, B, Al, Ga, In, Tl, As, Sb, Bi, Se, Te, Hg ———
   isOH = (j: number) => this.el[j] === "O" && this.h[j] === 1 && this.adj[j].length === 1 && !this.q[j];
   isOxo = (i: number, j: number) => this.el[j] === "O" && this.ord(i, j) === 2 && this.adj[j].length === 1 && !this.h[j] && !this.q[j];
-  // B with four bonds and charge -1 (P-73.2.2.1), the only charge, outside a ring: the anion of a salt, as boranuide.
-  boranuide = (i: number) => this.el[i] === "B" && this.q[i] === -1 && !this.inRing[i] && this.q.filter(Boolean).length === 1;
+  // B with charge -1 or As, Sb with charge +1, each with four bonds (P-73.1.1.2, P-73.2.2.1), the only charge, outside a
+  // ring: an ion of a salt, as boranuide, arsanium or stibanium.
+  mainIon = (i: number) => ((this.el[i] === "B" && this.q[i] === -1) || ((this.el[i] === "As" || this.el[i] === "Sb") && this.q[i] === 1)) && !this.inRing[i] && this.q.filter(Boolean).length === 1;
   // An ester's O on Si, Ge, Sn or Pb (outside a ring): trimethylsilyl acetate.
   silylEster = (o: number) => this.adj[o].some((j) => MAIN[this.el[j]]?.valence === 4 && this.el[j] !== "Hg" && !this.inRing[j]);
 
@@ -963,8 +964,8 @@ class Namer {
       if (!m) continue;
       const chalcogen = CHALCOGEN.has(el[i]), oxo = adj[i].filter((j) => this.isOxo(i, j));
       const valence = adj[i].reduce((t, j) => t + this.ord(i, j), 0) + h[i];
-      const ok = !oxo.length ? valence === m.valence - this.q[i] : !this.inRing[i] && ((["As", "Sb"].includes(el[i]) && oxo.length === 1 && valence === 5) || (chalcogen && valence === 2 + 2 * oxo.length));
-      if (!ok || (this.q[i] && !this.boranuide(i))) throw new Error(`${el[i]} bonds`);
+      const ok = !oxo.length ? valence === m.valence + Math.abs(this.q[i]) : !this.inRing[i] && ((["As", "Sb"].includes(el[i]) && oxo.length === 1 && valence === 5) || (chalcogen && valence === 2 + 2 * oxo.length));
+      if (!ok || (this.q[i] && !this.mainIon(i))) throw new Error(`${el[i]} bonds`);
       this.main.add(i);
       for (const j of adj[i]) {
         if (oxo.includes(j)) { this.main.add(j); continue; }
@@ -973,6 +974,7 @@ class Namer {
         if (el[j] === "C" || (CATENATE.has(el[i]) && CATENATE.has(el[j])) || (chalcogen && el[j] === el[i])) continue;
         // N: a ring N (1-(trimethylsilyl)-1H-imidazole), azido, or an amine N on Si, Ge, Sn, Pb (silanamines).
         if (el[j] === "N" && (this.inRing[j] || (CATENATE.has(el[i]) && this.azidoAtom(j)))) continue;
+        if (el[j] === "N" && CATENATE.has(el[i]) && adj[j].some((k) => this.carbonylO[k] >= 0)) continue; // an amide N: N-(trimethylsilyl)acetamide
         if (el[j] === "N" && CATENATE.has(el[i]) && el[i] !== "B" && !this.q[j] && adj[j].every((k) => this.ord(j, k) === 1 && (CATENATE.has(el[k]) || (el[k] === "C" && this.carbonylO[k] < 0 && !this.isNitrileC(k))))) {
           this.mark(j, "amine", adj[j].filter((k) => el[k] === "C"));
           continue;
@@ -1019,14 +1021,15 @@ class Namer {
     const subs = others.map((j) => this.substituent(j, x));
     return { text: substituted(subs) + m.yl, compound: subs.length > 0 };
   }
-  // A main-group atom as the parent: its class and a function for its name. cls -1: a boranuide anion; 0: an acid
+  // A main-group atom as the parent: its class and a function for its name. cls -1: an ion (boranuide, arsanium); 0: an acid
   // (P-67.1: phenylboronic acid, dimethylarsinic acid); 0.5: a boron ester; 0.8: "-carbonitrile"; 1: "-ol"
   // (trimethylsilanol); 1.5: "-amine"; 2: the parent hydride (trimethyl(phenyl)silane, triphenylarsane oxide,
   // chloro(phenyl)mercury).
   mainParent(i: number): { cls: number; text: () => string } {
     const el = this.el[i], m = MAIN[el], oxo = this.adj[i].filter((j) => this.isOxo(i, j)), oh = this.adj[i].filter((j) => this.isOH(j));
     const named = (js: number[]) => js.map((j) => this.substituent(j, i));
-    if (this.q[i]) return { cls: -1, text: () => substituted(named(this.adj[i])) + "boranuide" }; // tris(acetyloxy)boranuide
+    if (this.q[i]) return { cls: -1, text: () => substituted(named(this.adj[i])) + (el === "B" ? "boranuide" : m.hydride.replace(/ane$/, "anium")) }; // tris(acetyloxy)boranuide, tetraphenylarsanium
+    if (CHALCOGEN.has(el)) return { cls: 0, text: () => `${el === "Se" ? "selen" : "tellur"}${oxo.length === 2 ? "ic" : "ous"} acid` }; // selenic acid
     // Esters of boric, boronic and borinic acids (P-67.1.3.2): trimethyl borate, dimethyl phenylboronate.
     const ors = this.adj[i].filter((j) => this.el[j] === "O" && this.adj[j].length === 2 && this.adj[j].some((k) => k !== i && this.el[k] === "C" && this.carbonylO[k] < 0));
     if (el === "B" && ors.length && this.adj[i].every((j) => ors.includes(j) || this.el[j] === "C")) {
@@ -1049,6 +1052,7 @@ class Namer {
         return (ns.length ? assemblePrefixes([...ns, ...subs], false) : substituted(subs.map((s) => s.name))) + `${m.hydride.replace(/e$/, "")}amine`;
       } };
     }
+    // Other substituents on the acids are prefixes (P-67.1.1.2): chloro(phenyl)borinic acid, (arsonooxy)arsonic acid.
     let word = m.hydride, cls = 2, used = oh;
     if (el === "B" && oh.length) [word, cls] = [["", "borinic acid", "boronic acid", "boric acid"][oh.length], 0];
     else if ((el === "As" || el === "Sb") && oxo.length) {
@@ -1066,7 +1070,9 @@ class Namer {
     const k = kind ? SENIORITY.indexOf(kind) : SENIORITY.length;
     const rank = (e: string) => (PARENT_ORDER.includes(e) ? PARENT_ORDER.indexOf(e) : PARENT_ORDER.length);
     const gate: Record<number, boolean> = { [-1]: true, 0: k >= SENIORITY.indexOf("anhydride"), 0.5: k > SENIORITY.indexOf("ester"), 1: k > SENIORITY.indexOf("alcohol"), 0.8: k >= SENIORITY.indexOf("nitrile"), 1.5: k >= SENIORITY.indexOf("amine"), 2: !kind };
-    const fit = [...this.main].filter((i) => MAIN[this.el[i]] && !this.inRing[i] && !CHALCOGEN.has(this.el[i]))
+    // Se and Te only as selenic, selenous, telluric and tellurous acid: two OH and one or two =O.
+    const oxoacid = (i: number) => this.adj[i].filter((j) => this.isOH(j)).length === 2 && this.adj[i].length > 2 && this.adj[i].every((j) => this.isOH(j) || this.isOxo(i, j));
+    const fit = [...this.main].filter((i) => MAIN[this.el[i]] && !this.inRing[i] && (!CHALCOGEN.has(this.el[i]) || oxoacid(i)))
       .map((i) => ({ i, ...this.mainParent(i) })).filter((c) => gate[c.cls]);
     if (!fit.length) return undefined;
     fit.sort((a, b) => a.cls - b.cls || rank(this.el[a.i]) - rank(this.el[b.i]));
