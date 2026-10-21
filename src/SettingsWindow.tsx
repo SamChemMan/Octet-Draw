@@ -435,6 +435,9 @@ export function SettingsWindow(p: Props) {
       d("drawing", "Stereochemistry", "Hide abs flags", "hide absolute stereo flags enhanced stereochemistry abs", <Switch on={p.drawing.hideAbs} label="Hide abs flags" onChange={(on) => p.onDrawing({ hideAbs: on })} />),
       d("document", "Text", "Captions", "caption text font typeface", <FontPick label="Caption font" font={style.captionFont} fonts={FONTS} onPick={(v) => change({ captionFont: v })} className="select-field" />),
       num("captionSize", "Caption size", "pt", "caption text font size", "Text"),
+      // ChemDraw's Interpret Chemically When Possible (Document Settings > Text Captions): captions that read as
+      // chemistry (Rh, CH3OH) count in the formula, names and warnings, and bonds join them.
+      d("document", "Text", "Interpret chemically", "interpret chemically when possible captions text chemistry formula mass analysis bonds valence", <Switch on={style.interpret} label="Interpret chemically" onChange={(on) => change({ interpret: on })} />),
       d("document", "Text", "Colour", "text colour caption", (
         <span className="swatches" role="radiogroup" aria-label="Text colour">
           {[...COLOURS, ...p.palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => (

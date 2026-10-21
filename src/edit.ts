@@ -2,7 +2,7 @@
 // Coordinates are in bond lengths with y up, the same as KET.
 import { HBOND, H_FIRST, hydrogens, lonePairs, orderOf, QUADRUPLE, settleShape, tableLayout, tableRow, type Arrow, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table } from "./render.ts";
 import type { Cycle } from "./cycle.ts";
-import { anchorElement, isElement } from "./labels.ts";
+import { anchorElement, isElement, labelSmiles } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
 import { whole } from "./richtext.ts";
@@ -249,12 +249,27 @@ export function interpretLabels(m: Mol, ids: Iterable<number>, on: boolean, hide
     return text === labelWords({ ...m, atoms: m.atoms.map((x, k) => (k === i ? rest : x)) }, i, hideH, used[i]) ? rest : { ...rest, text };
   }) };
 }
-// A caption typed on the canvas that Octet makes an atom at once (Sam, 21 October 2026): exactly one element symbol,
-// as written (Rh, Bi, K), whose atom alone shows only that symbol. So the page does not change. An element whose lone
-// atom shows hydrogens (O as H2O, C as CH4) stays text, and so does D, which is not an element.
-export function typedElement(text: string): boolean {
-  if (text === "D" || !isElement(text)) return false;
-  return labelWords(setLabel({ atoms: [{ label: "C", location: [0, 0, 0] }], bonds: [] }, 0, text), 0) === text;
+// A caption Octet can read as an atom label (Rh, NH2, OMe, CH3OH): one word, not tied to a structure, an arrow or a
+// cycle. Make element makes it an atom.
+export function labelable(c: Caption): boolean {
+  const t = c.text.trim();
+  return !c.on && !c.under && !c.cycle && !!t && !/\s/.test(t) && (isElement(t) || !!labelSmiles(t));
+}
+// A caption that counts as chemistry (ChemDraw's Interpret Chemically, Sam, 21 October 2026): the document's
+// Interpret chemically is on (on), the caption's own is not off, and the caption reads as a label. It stays a caption,
+// but it counts in the formula, the mass, the names and the warnings, and bonds join it.
+export const chemicalCaption = (c: Caption, on: boolean) => on && c.chemical !== false && labelable(c);
+// The drawing as chemistry reads it: each chemical caption as a lone atom after the drawing's atoms, at the caption's
+// place. One element symbol is that element with no hydrogens (Rh, Bi, K), as a written label has only the hydrogens
+// it shows; other text is a label (CH3OH, NaOCl). captions: the caption each of those atoms is, by id.
+export function withCaptionAtoms(m: Mol, on: boolean): { mol: Mol; captions: number[] } {
+  const caps = (m.captions ?? []).filter((c) => chemicalCaption(c, on));
+  if (!caps.length) return { mol: m, captions: [] };
+  const atoms = caps.map((c): Atom => {
+    const t = c.text.trim(), at: [number, number, number] = [c.x, c.y, 0];
+    return isElement(t) ? { label: t, location: at, implicitHCount: 0 } : { label: anchorElement(t) ?? "C", location: at, text: t };
+  });
+  return { mol: { ...m, atoms: [...m.atoms, ...atoms] }, captions: caps.map((c) => c.id) };
 }
 // The atom a caption makes, at a point: labelled with its text, in the caption's size, font, style and colour (or its
 // runs', when all of its text shares them). A size or font the same as the document's labels' is left unset.

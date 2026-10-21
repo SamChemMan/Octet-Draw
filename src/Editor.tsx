@@ -17,7 +17,7 @@ import { analyse, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, st
 import { MAX_PRINT_PAGES, MAX_PURPOSES, PURPOSES, QUICK, pagesOver, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
 import { Rulers } from "./Rulers";
-import { messy, problems, showWarnedHydrogens, WARNING_TYPES, type Problem, type WarningType } from "./check";
+import { messy, onCaptions, problems, showWarnedHydrogens, WARNING_TYPES, type Problem, type WarningType } from "./check";
 import { parse, serialize } from "./file";
 import {
   EMPTY, extent, stack, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bounds, complete, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
@@ -80,8 +80,8 @@ import { sandwichIons } from "./metals";
 
 setNamer(iupacName);
 import { loadTemplates, MY_SET, newTemplate, setName, templateKind } from "./templates";
-import { formulaRuns, isElement } from "./labels";
-import { captionAtom, captionsToAtoms, interpretLabels, typedElement } from "./edit";
+import { formulaRuns } from "./labels";
+import { captionAtom, captionsToAtoms, chemicalCaption, interpretLabels, labelable, withCaptionAtoms } from "./edit";
 import { bendOf, cutSides } from "./masscut";
 import { common, edited, lines as richLines, normalise, plainOf, runsOf, styleRange, styled, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
@@ -163,7 +163,8 @@ const itemsOf = (t: Hover) => [t.caption, t.arrow, t.cycle].filter((x): x is num
 // One pointer gesture. "working" kinds edit a copy of the drawing that commits as one undo step on release.
 type Drag =
   // alt: Option was held at the press (a click on an atom then opens its label, or the Text tool repeats the last).
-  | { kind: "bond"; from: number | P; at: P; start: [number, number]; target: Hover; to?: P; alt?: boolean }
+  // onto: a caption that counts as chemistry the bond ends on; it becomes an atom when the bond is drawn.
+  | { kind: "bond"; from: number | P; at: P; start: [number, number]; target: Hover; to?: P; alt?: boolean; onto?: number }
   | { kind: "click"; at: P; start: [number, number]; target: Hover; alt?: boolean }
   // A ring tool's press: a drag sets the ring's first bond (to). alt, meta, shift: Option, Command and Shift at the press.
   | { kind: "ring"; from: number | P; at: P; start: [number, number]; target: Hover; to?: P; alt?: boolean; meta?: boolean; shift?: boolean }
@@ -352,10 +353,8 @@ const nicknameMol = (name: string) => {
   if (!nicknameMols.has(name)) { const smiles = labelSmiles(name); try { nicknameMols.set(name, smiles ? parseStructure(smiles) : undefined); } catch { nicknameMols.set(name, undefined); } }
   return nicknameMols.get(name);
 };
-// A caption Octet can read as an atom label (NH2, OMe, CH3OH): one word, not tied to a structure, arrow or cycle.
-const labelable = (c: Caption) => { const t = c.text.trim(); return !c.on && !c.under && !c.cycle && !!t && !/\s/.test(t) && (isElement(t) || !!labelSmiles(t)); };
-// The tools that work on an atom also work on such a caption, made an atom when they press it. elementSteps names the
-// undo step each press makes.
+// The tools that work on an atom also work on a caption that counts as chemistry (edit.ts chemicalCaption), made an
+// atom when they press it. elementSteps names the undo step each press makes.
 const ATOM_TOOLS = new Set<Tool>(["bond", "chain", "ring", "template", "symbol"]);
 let elementSteps = 0;
 // A bond's style in the tool's list, if it is one of them.
@@ -826,7 +825,7 @@ export default function Editor() {
     try {
       out = (f === "cdxml" ? toCdxml(part, savedStyle(), cdxmlOptions()) : f === "oct" ? cdxml && writeOct(part, savedStyle(), cdxmlOptions(), cdxml)
         : f === "cdx" ? cdxml && toBase64(xmlToCdx(parseXml(cdxml)))
-        : part.atoms.length && loaded ? chemistryOf(part, f) : undefined) || undefined;
+        : loaded ? ((m) => (m.atoms.length ? chemistryOf(m, f) : undefined))(withCaptionAtoms(part, style.interpret).mol) : undefined) || undefined;
     } catch { out = undefined; }
     return (kept.formats[f] = out);
   }
@@ -1373,7 +1372,7 @@ export default function Editor() {
     if (writing) {
       const text = writing.value.trim(), c = placed.find((x) => x.id === (writing.id ?? DRAFT)), found = text ? structureOrSuggestion(text, true) : undefined;
       // The caption is kept first, so Undo gives back the text as typed (as in ChemDraw, where the caption is there).
-      commitWriting(false);
+      commitWriting();
       if (!found || !c) return openNaming(text);
       return convertInPlace(found, writing.id !== undefined ? deleteGraphics(doc, new Set([writing.id])) : doc, [(c.box[0] + c.box[2]) / 2 / L, -(c.box[1] + c.box[3]) / 2 / L]);
     }
@@ -1694,8 +1693,8 @@ export default function Editor() {
       set(m);
     },
     // Interpret Chemically, as ChemDraw's (on labels and captions): the selected labels become text, not chemistry, and
-    // a label with no bonds becomes a caption where it was; or they are chemistry again. A picked caption that reads as
-    // a label becomes an atom with that label.
+    // a label with no bonds becomes a caption where it was; or they are chemistry again. The picked captions turn
+    // their own Interpret Chemically off, or on again (edit.ts chemicalCaption): they stay captions.
     interpret: () => {
       const ids = [...selection].filter((i) => drawing.label[i]);
       if (ids.length) {
@@ -1711,11 +1710,12 @@ export default function Editor() {
         if (lone.length) { m = deleteAtoms(m, new Set(lone)); setSelection(new Set()); }
         return set(m, true);
       }
-      const caps = (doc.captions ?? []).filter((c) => picked.has(c.id) && labelable(c));
-      if (!caps.length) return setNotice("Select a label, or a caption that reads as a label.", "info");
-      makeElements(caps);
+      const caps = (doc.captions ?? []).filter((c) => picked.has(c.id));
+      if (!caps.length) return setNotice("Select a label or a caption.", "info");
+      const on = caps.some((c) => c.chemical === false), flag = ({ chemical: _, ...c }: Caption): Caption => (on ? c : { ...c, chemical: false });
+      return set({ ...doc, captions: doc.captions!.map((c) => (picked.has(c.id) ? flag(c) : c)) }, true);
     },
-    // Make element (Sam, 21 October 2026): Interpret Chemically on the picked captions, named for what it does there.
+    // Make element (Sam, 21 October 2026): the picked captions that read as an element or a label become atoms.
     make_element: () => {
       const caps = (doc.captions ?? []).filter((c) => picked.has(c.id) && labelable(c));
       if (!caps.length) return setNotice("Select a caption with an element or a label, such as Rh or OMe.", "info");
@@ -1922,6 +1922,11 @@ export default function Editor() {
   // A drawing with no style (from another program, with Keep ChemDraw styles off) takes the style File > New gives.
   const newStyle = useMemo(() => styleFor(settings, settings.purpose), [settings.purpose, settings.purposeStyles, settings.ownPurposes]); // eslint-disable-line react-hooks/exhaustive-deps
   const style: DocStyle = useMemo(() => readStyle(doc.style ?? newStyle), [doc.style, newStyle]);
+  // The drawing as chemistry reads it (edit.ts withCaptionAtoms): the captions that count as chemistry (ChemDraw's
+  // Interpret Chemically) as lone atoms after its own, for the formula and mass, names, copies and warnings.
+  const chem = useMemo(() => withCaptionAtoms(doc, style.interpret), [doc, style.interpret]);
+  // The atoms in chem of the picked captions that count as chemistry; undefined when no caption is picked.
+  const pickedChem = (pk: Set<number>) => (doc.captions?.some((c) => pk.has(c.id)) ? new Set(chem.captions.flatMap((id, k) => (pk.has(id) ? [doc.atoms.length + k] : []))) : undefined);
   // The Chain tool. A drag's points (snaking or straight), and how many atoms they draw: one per bond, and the first
   // atom too on empty canvas (ChemDraw's count).
   const chainPath = (d: { from: number | P; to?: P; side?: number; path?: P[] }) => d.path ?? chainPoints(doc, d.from, d.to ?? (typeof d.from === "number" ? pos(doc, d.from) : d.from), d.side ?? 1, style.chainAngle);
@@ -2239,14 +2244,6 @@ export default function Editor() {
     if (select) setSelection(new Set(made.map((_, k) => doc.atoms.length + k)));
     return m;
   }
-  // A caption just typed that is one element symbol (Bi, Rh) becomes that atom once it is laid out, as a step of its
-  // own: Undo gives back the caption as typed.
-  const typedAtom = useRef<number>(undefined);
-  useLayoutEffect(() => {
-    const id = typedAtom.current, c = id === undefined ? undefined : doc.captions?.find((x) => x.id === id);
-    typedAtom.current = undefined;
-    if (c) makeElements([c]);
-  }, [placed]); // eslint-disable-line react-hooks/exhaustive-deps
   // The structure for the name being typed, where it will land (after the arrows and text, which landing reads).
   const ghost = useMemo(() => named && render(moveAtoms(named, new Set(named.atoms.map((_, i) => i)), landing(named)), frame, measure, L), [named, doc, frame, measure, placed, arrows]); // eslint-disable-line react-hooks/exhaustive-deps
   // Reaction conditions and a cycle's reagents print formulas with subscripts (K2CO3 as K₂CO₃).
@@ -2682,7 +2679,7 @@ export default function Editor() {
     const w = writing, at = w?.at;
     if (!w || !at) return;
     const text = w.value.replace(/\s+$/, ""), gap = (20 * pt) / L, row = tabRow.current ?? { x: [at[0]], style: [w.style], k: 0 };
-    commitWriting(false);
+    commitWriting();
     if (!text) { tabRow.current = { ...row, k: 0 }; return openWriting({ value: "", at: [row.x[0], at[1] - gap], style: { ...row.style[0] } }); }
     const size = (w.style.size ?? style.captionSize) * pt, font = fontStack(w.style.font ?? style.captionFont), align = w.style.align ?? "left";
     const wide = Math.max(...text.split("\n").map((t) => textWidth(t, size, w.style.bold, w.style.italic, font))) / L, k = row.k + 1;
@@ -2691,9 +2688,7 @@ export default function Editor() {
     tabRow.current = { ...row, k };
     openWriting({ value: "", at: [row.x[k], at[1]], style: { ...(row.style[k] ?? w.style) } });
   }
-  // auto: a new caption that is one element symbol becomes that atom (typedElement); not for a quick table's cells or
-  // for text going on to Name to structure.
-  function commitWriting(auto = true) {
+  function commitWriting() {
     const w = writing;
     if (!writingOpen.current) return;
     writingOpen.current = false;
@@ -2712,9 +2707,6 @@ export default function Editor() {
     const [mol, id] = addCaption(doc, { text, x: w.at?.[0] ?? 0, y: w.at?.[1] ?? 0, ...(w.under ? { under: w.under } : {}), ...(w.on ? { on: w.on } : {}), ...(w.cycle ? { cycle: w.cycle } : {}), ...w.style, ...(runs ? { runs } : {}) });
     set(mol);
     setPicked(new Set([id]));
-    // Text in one style all through (an atom label has one style), typed on its own, not in a quick table.
-    const one = runs && normalise(runs), plain = !one || (one.length === 1 && !one[0].script);
-    if (auto && w.at && !w.under && !w.on && !w.cycle && !tabRow.current && plain && typedElement(text)) typedAtom.current = id;
   }
   // A text style on the characters selected in the caption box (with nothing selected, on the next characters
   // typed), or on the whole of every picked caption (the caption's own bold, italic and underline go into its runs,
@@ -3324,10 +3316,10 @@ export default function Editor() {
     // on a caption, except with the Text tool, which edits it.
     if (tool !== "erase" && selection.size && onSelection(doc, selection, p)) return startMove(p, screen, t);
     if (tool !== "erase" && tool !== "text" && t.cycle !== undefined) return pressCycle(p, t, screen);
-    // A tool that works on an atom (bond, chain, ring, template, symbol), pressed on a caption that reads as an atom
-    // label (Bi, Rh, OMe), makes it that atom and goes on from it, as one undo step. ChemDraw joins bonds to a caption
-    // it reads chemically (Interpret Chemically).
-    const asAtom = !e.shiftKey && t.caption !== undefined && ATOM_TOOLS.has(tool) ? doc.captions?.find((c) => c.id === t.caption && labelable(c)) : undefined;
+    // A tool that works on an atom (bond, chain, ring, template, symbol), pressed on a caption that counts as chemistry
+    // (Bi, Rh, OMe), makes it that atom and goes on from it, as one undo step. ChemDraw joins bonds to a caption it
+    // reads chemically (Interpret Chemically).
+    const asAtom = !e.shiftKey && t.caption !== undefined && ATOM_TOOLS.has(tool) ? doc.captions?.find((c) => c.id === t.caption && chemicalCaption(c, style.interpret)) : undefined;
     const key = asAtom && `element ${++elementSteps}`;
     if (asAtom && key && makeElements([asAtom], key, false)) {
       joinNext.current = key;
@@ -3449,10 +3441,13 @@ export default function Editor() {
         stopHold();
         if (drag.target.bond !== undefined && drag.target.atom === undefined) return; // dragging from a bond does nothing
         const origin = typeof drag.from === "number" ? pos(doc, drag.from) : drag.from;
-        const onto = hitAt(p).atom;
+        const onto = hitAt(p).atom, onCaption = onto === undefined ? captionAt(p) : undefined;
         // A hydrogen bond goes from an atom to another atom, never to a new one.
         if (bondKind === "hydrogen" && (typeof drag.from !== "number" || onto === undefined || onto === drag.from)) return setDrag({ ...drag, to: undefined });
-        return setDrag({ ...drag, to: onto !== undefined && onto !== drag.from ? pos(doc, onto) : fixedEnd(origin, p, e.altKey, typeof drag.from === "number" ? scaleAt(doc, drag.from) : 1) });
+        // A caption that counts as chemistry (Rh) takes the bond's end where its atom will be.
+        const c = onCaption !== undefined ? doc.captions?.find((x) => x.id === onCaption && chemicalCaption(x, style.interpret)) : undefined, cp = c && placed.find((x) => x.id === c.id);
+        if (c && cp) { const [x, y] = placedAtom(c, cp).location; return setDrag({ ...drag, to: [x, y], onto: c.id }); }
+        return setDrag({ ...drag, onto: undefined, to: onto !== undefined && onto !== drag.from ? pos(doc, onto) : fixedEnd(origin, p, e.altKey, typeof drag.from === "number" ? scaleAt(doc, drag.from) : 1) });
       }
       case "arrow": {
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
@@ -3869,8 +3864,8 @@ export default function Editor() {
   // Structure to name: a checked name for each structure in the selection (or the drawing), where there is one.
   // Structure to name runs only when asked, once per structure: names are kept by the structure's own file text.
   const nameCache = useRef(new Map<string, string | null>());
-  const nameFor = (g: number[]): string | undefined => {
-    const part = subset(doc, new Set(g)), key = serialize(part);
+  const nameFor = (g: number[], base = doc): string | undefined => {
+    const part = subset(base, new Set(g)), key = serialize(part);
     if (!nameCache.current.has(key)) {
       let name: string | undefined;
       // A name's structure is drawn as Octet draws SMILES before its InChI is taken, so it counts hydrogens as the
@@ -3884,9 +3879,9 @@ export default function Editor() {
     return nameCache.current.get(key) ?? undefined;
   };
   // The structures to name. The ions of a salt (charged pieces within 3.5 bond lengths of each other whose charges
-  // cancel) are named together, as sodium acetate rather than two names.
+  // cancel) are named together, as sodium acetate rather than two names. With only captions picked, none.
   const targets = () => {
-    const all = fragments(doc).filter((g) => g.length && (!selection.size || g.some((i) => selection.has(i))));
+    const all = fragments(doc).filter((g) => g.length && (!selection.size || g.some((i) => selection.has(i))) && (selection.size || !pickedChem(picked)));
     const charge = (g: number[]) => g.reduce((q, i) => q + (doc.atoms[i].charge ?? 0), 0);
     const ions = all.filter((g) => charge(g) !== 0), group = ions.map((_, k) => k);
     const root = (k: number): number => (group[k] === k ? k : (group[k] = root(group[k])));
@@ -3938,10 +3933,22 @@ export default function Editor() {
       if (!name) { missed++; continue; }
       if (!m.captions?.some((c) => c.text === name && c.under?.some((i) => atoms.includes(i)))) m = addCaption(m, { text: name, x: 0, y: 0, under: atoms })[0];
     }
+    // Captions that count as chemistry (Rh as rhodium): the picked ones, or all of them with nothing selected. The
+    // name goes under the caption.
+    const own = selection.size ? new Set<number>() : pickedChem(picked);
+    chem.captions.forEach((id, k) => {
+      const i = doc.atoms.length + k, c = doc.captions!.find((x) => x.id === id)!;
+      if (own && !own.has(i)) return;
+      const name = nameFor([i], chem.mol), at = belowCaption(c);
+      if (!name) { missed++; return; }
+      if (!m.captions?.some((x) => x.text === name && Math.hypot(x.x - at.x, x.y - at.y) < 1e-6)) m = addCaption(m, { text: name, ...at })[0];
+    });
     setNotice(missed === 0 ? undefined : missed === 1 ? "Octet cannot name this structure yet." : `Octet cannot name ${missed} of these structures yet.`);
     if (m !== doc) set(m, true);
   }
-  const nameable = loaded && doc.atoms.length > 0;
+  const nameable = loaded && chem.mol.atoms.length > 0;
+  // Where text for a caption goes (its name, its properties): one line under it, in the same alignment.
+  const belowCaption = (c: Caption) => ({ x: c.x, y: c.y - (1.4 * (whole(c).size ?? style.captionSize)) / style.bond, ...(c.align ? { align: c.align } : {}) });
   // Of the things picked, the first that draws a line: the Actions panel shows its colour and line width. A filled pen
   // curve's outline is only a hairline, so a flask shows its glass, not its liquid.
   const lineOf = <T extends Arrow | Shape | Cycle | Caption>(xs: T[]) => xs.find((x) => !("curve" in x && x.curve?.closed && x.fill)) ?? xs[0];
@@ -4142,7 +4149,9 @@ export default function Editor() {
       const cs = (doc.captions ?? []).filter((c) => picked.has(c.id)), c = cs[0];
       if (c) {
         const p = placed.find((x) => x.id === c.id), w = whole(c);
-        return { kind: "caption", mode: "picked", colour: c.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some(labelable) };
+        return { kind: "caption", mode: "picked", colour: c.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some(labelable),
+          // Their Interpret chemically, while the document's is on: whether each one that reads as chemistry has it on.
+          ...(style.interpret && cs.some(labelable) ? { chemical: cs.filter(labelable).every((x) => x.chemical !== false) } : {}) };
       }
     }
     // A stoichiometry grid's cell picked.
@@ -4186,10 +4195,15 @@ export default function Editor() {
   // below).
   const settled = shown === doc;
   const panelContext = useMemo(() => (writing ? undefined : contextOf()), [doc, selection, picked, writing, tool, textStyle, spotPick, lanePick, lastCell, namesLoaded, loaded, style, fontList, settled && drawing, settled && placed, gridPick, gridViews, settings.properties]); // eslint-disable-line react-hooks/exhaustive-deps
-  // The formula and mass the panel shows (of the selection, or everything): only while it is open and shows them, and
-  // only for the first three structures, as it shows no more.
-  const facts = settings.actions && (panelContext?.kind === "drawing" || panelContext?.kind === "structure");
-  const analysis = useMemo(() => (loaded && facts ? analyse(selection.size ? subset(doc, selection) : doc, 3) : undefined), [loaded, facts, doc, selection]);
+  // The formula and mass the panel shows (of the selection, the picked captions that count as chemistry, or everything
+  // with those captions): only while it is open and shows them, and only for the first three structures, as it shows
+  // no more.
+  const facts = settings.actions && (panelContext?.kind === "drawing" || panelContext?.kind === "structure" || (panelContext?.kind === "caption" && panelContext.mode === "picked"));
+  const analysis = useMemo(() => {
+    if (!loaded || !facts) return undefined;
+    const own = selection.size ? undefined : pickedChem(picked);
+    return analyse(selection.size ? subset(doc, selection) : own ? subset(chem.mol, own) : chem.mol, 3);
+  }, [loaded, facts, doc, chem, selection, picked]); // eslint-disable-line react-hooks/exhaustive-deps
   // The Properties panel's values, while it is open: for each structure in the selection (or the drawing), with
   // each structure's atoms in the drawing (for Add to drawing). While a box or lasso sweeps, the panel keeps the
   // values it has until the pointer stops for a moment or lets go, so it does not work them out on every move.
@@ -4205,8 +4219,10 @@ export default function Editor() {
   const properties = useMemo(() => {
     if (!loaded || !settings.properties) return undefined;
     if (!propertySelection) return lastProperties.current;
-    const ids = propertySelection.size ? [...propertySelection].filter((i) => i < doc.atoms.length).sort((a, b) => a - b) : doc.atoms.map((_, i) => i);
-    const base = propertySelection.size ? subset(doc, propertySelection) : doc, groups = fragments(base), found = structures(base, groups);
+    // ids: each value's atoms in chem (a caption that counts as chemistry is an atom after the drawing's).
+    const own = propertySelection.size ? undefined : pickedChem(picked);
+    const ids = propertySelection.size ? [...propertySelection].filter((i) => i < doc.atoms.length).sort((a, b) => a - b) : own ? [...own].sort((a, b) => a - b) : chem.mol.atoms.map((_, i) => i);
+    const base = propertySelection.size ? subset(doc, propertySelection) : own ? subset(chem.mol, own) : chem.mol, groups = fragments(base), found = structures(base, groups);
     if (!found) return undefined;
     const kept = groups.map((g, k) => ({ atoms: g.map((i) => ids[i]), s: found[k] })).filter((x) => x.s).slice(0, 12);
     // Octet's own calculators, once for each structure's values; pKa sites above 13 (alcohols, amides) are left out.
@@ -4215,7 +4231,7 @@ export default function Editor() {
       return calculated.get(s);
     };
     return { atoms: kept.map((x) => x.atoms), values: propertyValues(kept.map((x) => x.s!), calc, settings.decimals) };
-  }, [loaded, settings.properties, settings.decimals, doc, propertySelection]);
+  }, [loaded, settings.properties, settings.decimals, doc, chem, propertySelection, picked]); // eslint-disable-line react-hooks/exhaustive-deps
   lastProperties.current = properties;
   // The Spectrum panel's structure (the first in the selection, or the drawing's largest), its predicted spectrum
   // once the shift tables are loaded, and which drawn atom each of the prediction's atoms is.
@@ -4340,6 +4356,10 @@ export default function Editor() {
       } else if (p.shape !== undefined) {
         const sh = shown.shapes?.find((x) => x.id === p.shape), pad = 0.15;
         if (sh) mark = { key: `s${p.shape}`, x: (Math.min(sh.from[0], sh.to[0]) - pad) * L, y: -(Math.max(sh.from[1], sh.to[1]) + pad) * L, r: 0.2 * L, w: (Math.abs(sh.to[0] - sh.from[0]) + 2 * pad) * L, h: (Math.abs(sh.to[1] - sh.from[1]) + 2 * pad) * L };
+      } else if (p.caption !== undefined) {
+        // A box round the caption, as ChemDraw marks a caption with a bad valence.
+        const b = placed.find((x) => x.id === p.caption)?.box, pad = 0.1 * L;
+        if (b) mark = { key: `c${p.caption}`, x: b[0] - pad, y: b[1] - pad, r: 0.1 * L, w: b[2] - b[0] + 2 * pad, h: b[3] - b[1] + 2 * pad };
       }
       if (!mark) continue;
       const kept = at.get(mark.key);
@@ -4368,7 +4388,7 @@ export default function Editor() {
   function showProblem(p: Problem) {
     if (p.atom !== undefined) { setSelection(new Set([p.atom])); setPicked(new Set()); }
     else if (p.bond !== undefined && doc.bonds[p.bond]) { setSelection(new Set(doc.bonds[p.bond].atoms)); setPicked(new Set()); }
-    else if (p.shape !== undefined) { setSelection(new Set()); setPicked(new Set([p.shape])); }
+    else if (p.shape !== undefined || p.caption !== undefined) { setSelection(new Set()); setPicked(new Set([(p.shape ?? p.caption)!])); }
   }
   // Peak colours are the highlights of the peak's atoms, so the colours are part of the drawing: saved, undone,
   // printed and pasted with it. Colour peaks gives every signal its own colour; Add key writes the coloured shifts
@@ -4453,8 +4473,11 @@ export default function Editor() {
         void i;
       });
       if (!runs.length) return;
-      const clean = normalise(runs);
-      m = addCaption(m, { text: plainOf(clean), x: 0, y: 0, under: atoms, ...(styled(clean) ? { runs: clean } : {}) })[0];
+      const clean = normalise(runs), text = { text: plainOf(clean), ...(styled(clean) ? { runs: clean } : {}) };
+      // A caption that counts as chemistry is an atom after the drawing's (chem): its values go under the caption.
+      const c = atoms[0] >= doc.atoms.length ? doc.captions?.find((x) => x.id === chem.captions[atoms[0] - doc.atoms.length]) : undefined;
+      if (!c && atoms.some((i) => i >= doc.atoms.length)) return;
+      m = addCaption(m, c ? { ...text, ...belowCaption(c) } : { ...text, x: 0, y: 0, under: atoms })[0];
     });
     if (m !== doc) set(m);
   }
@@ -4463,11 +4486,12 @@ export default function Editor() {
   const warnOn = (t: WarningType) => settings.warningTypes[t] ?? WARNING_TYPES.find((w) => w.id === t)!.on;
   const stereoWarnings = (["unspecified", "ambiguous", "enhanced", "between", "backwards"] as const).some(warnOn);
   const stereoOf = (m: Mol) => { try { return loaded && stereoWarnings ? stereoFacts(m, warnOn("enhanced")) : undefined; } catch { return undefined; } };
-  const found = useMemo(() => (exporting || !settings.warnings ? [] : problems(doc, stereoOf(doc)).filter((p) => warnOn(p.type))), [doc, exporting, settings.warnings, settings.warningTypes, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A caption that counts as chemistry is checked as its atom (chem), and its problems are on the caption.
+  const found = useMemo(() => (exporting || !settings.warnings ? [] : onCaptions(problems(chem.mol, stereoOf(doc)), doc.atoms.length, chem.captions).filter((p) => warnOn(p.type))), [doc, chem, exporting, settings.warnings, settings.warningTypes, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
   // Every problem, those on objects with their warnings hidden too (for Check Structure), of the kinds switched on.
-  const allProblems = () => problems(doc, stereoOf(doc), true).filter((p) => warnOn(p.type));
-  // The problems on what is selected: its atoms, the bonds between them, and the picked shapes.
-  const selectedOf = (list: Problem[]) => list.filter((p) => (p.atom !== undefined ? selection.has(p.atom) : p.bond !== undefined ? doc.bonds[p.bond]?.atoms.every((i) => selection.has(i)) : picked.has(p.shape!)));
+  const allProblems = () => onCaptions(problems(chem.mol, stereoOf(doc), true), doc.atoms.length, chem.captions).filter((p) => warnOn(p.type));
+  // The problems on what is selected: its atoms, the bonds between them, and the picked shapes and captions.
+  const selectedOf = (list: Problem[]) => list.filter((p) => (p.atom !== undefined ? selection.has(p.atom) : p.bond !== undefined ? doc.bonds[p.bond]?.atoms.every((i) => selection.has(i)) : picked.has((p.shape ?? p.caption)!)));
   const subsetProblems = () => selectedOf(allProblems());
   // The drawing's own colours (a ChemDraw file's, say) join the Colour row after Octet's and the user's, as ChemDraw's
   // Color menu lists each document's colours. A colour stays in the row until another drawing opens.
@@ -4520,11 +4544,11 @@ export default function Editor() {
       const cdxml = formatOf(part, "cdxml");
       return cdxml ? copyPlain(cdxml) : setNotice("Octet cannot write this drawing as CDXML.");
     }
-    const [name, write] = COPY_AS[what];
+    const [name, write] = COPY_AS[what], mol = withCaptionAtoms(part, style.interpret).mol;
     let text = "";
-    try { text = part.atoms.length && loaded ? write(part).trimEnd() : ""; } catch { text = ""; }
+    try { text = mol.atoms.length && loaded ? write(mol).trimEnd() : ""; } catch { text = ""; }
     if (text) copyPlain(text);
-    else if (part.atoms.length) setNotice(`Octet cannot write this structure as ${name}.`);
+    else if (mol.atoms.length) setNotice(`Octet cannot write this structure as ${name}.`);
     else setNotice("There is no structure to copy.", "info");
   };
 
@@ -4746,11 +4770,13 @@ export default function Editor() {
     if (command === "paste_hint") return setNotice(`Copy a name, SMILES string or MOL file. Then press ${MOD}V here.`, "info");
     if (command.startsWith("copy_text:")) return copyPlain(command.slice(10));
     if (command.startsWith("fix:")) { const [, i, charge] = command.split(":"); return set(addCharge(doc, Number(i), Number(charge) - (doc.atoms[Number(i)].charge ?? 0)), true); }
-    // A problem's atom (a3), bond (b5) or brackets (s7): shown (selected), or its warnings hidden (the object's
-    // Display Warnings goes off, as in ChemDraw; saved as IgnoreWarnings).
+    // A problem's atom (a3), bond (b5), brackets (s7) or caption (c4): shown (selected), or its warnings hidden (the
+    // object's Display Warnings goes off, as in ChemDraw; saved as IgnoreWarnings). A caption's Interpret Chemically
+    // goes off instead, as ChemDraw's help says to do.
     if (command.startsWith("show:") || command.startsWith("hide_warning:")) {
       const what = command.slice(command.indexOf(":") + 1), n = Number(what.slice(1)), on = what[0];
-      if (command.startsWith("show:")) return showProblem(on === "b" ? { type: "misc", message: "", bond: n } : on === "s" ? { type: "misc", message: "", shape: n } : { type: "misc", message: "", atom: on === "a" ? n : Number(what) });
+      if (command.startsWith("show:")) return showProblem(on === "b" ? { type: "misc", message: "", bond: n } : on === "s" ? { type: "misc", message: "", shape: n } : on === "c" ? { type: "misc", message: "", caption: n } : { type: "misc", message: "", atom: on === "a" ? n : Number(what) });
+      if (on === "c") return doc.captions?.some((c) => c.id === n) && set({ ...doc, captions: doc.captions.map((c) => (c.id === n ? { ...c, chemical: false as const } : c)) }, true);
       if (on === "b") return doc.bonds[n] && set({ ...doc, bonds: doc.bonds.map((b, k) => (k === n ? { ...b, ignoreWarnings: true as const } : b)) }, true);
       if (on === "s") return doc.shapes?.some((x) => x.id === n) && set({ ...doc, shapes: doc.shapes.map((x) => (x.id === n ? { ...x, ignoreWarnings: true as const } : x)) }, true);
       const i = on === "a" ? n : Number(what);
@@ -5200,6 +5226,10 @@ export default function Editor() {
         const { to, from, target: t, at } = drag;
         // ChemDraw's hydrogen bond tool says so when the two atoms already have a bond.
         if (to && bondKind === "hydrogen" && typeof from === "number" && neighbours(doc, from).includes(atomAt(doc, to)!)) return setNotice("These atoms already have a bond.");
+        // A bond that ends on a caption that counts as chemistry makes the caption an atom, in the same undo step.
+        const c = to && drag.onto !== undefined ? doc.captions?.find((x) => x.id === drag.onto) : undefined, key = c && (joinNext.current ?? `element ${++elementSteps}`);
+        const made = c && key && makeElements([c], key, false);
+        if (to && made) return set(dragBond(made, from, to, bondSpec), false, key);
         if (to) return set(dragBond(doc, from, to, bondSpec));
         return click(t, at, drag.alt);
       }
@@ -6051,7 +6081,7 @@ export default function Editor() {
       {stereoMarks().map((m) => <text key={m.key} className="stereo-label" x={m.x} y={m.y} textAnchor={m.anchor} dominantBaseline="middle" fill={m.colour ?? "var(--ink)"} style={{ font: `${m.upright ? "" : "italic "}${m.size}px ${fontStack(style.captionFont)}` }}>{m.text}</text>)}
       {problemMarks()}
     </>
-  ), [shown, drawing, frame, darkPaper, arrows, pt, gridKey, gridEdit, style, stereo, ringsOf, found, doc.atoms, settings.stereoParens]); // eslint-disable-line react-hooks/exhaustive-deps
+  ), [shown, drawing, frame, darkPaper, arrows, pt, gridKey, gridEdit, style, stereo, ringsOf, found, found.some((p) => p.caption !== undefined) && placed, doc.atoms, settings.stereoParens]); // eslint-disable-line react-hooks/exhaustive-deps
   // The selection's marks, and the mark on what is under the pointer (Live: a pointer move draws only that again).
   const marks = (
     <>

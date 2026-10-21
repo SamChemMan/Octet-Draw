@@ -317,9 +317,10 @@ function ketMol(mol: Mol, wedges: boolean, keep: boolean) {
   for (const b of mol.bonds) for (const [i, j] of [b.atoms, [b.atoms[1], b.atoms[0]]]) { used[i] += orderOf(b.type); if (b.type !== HBOND && !NONMETAL.has(mol.atoms[j].label)) metalled[i] = true; }
   const valence = (i: number, a: Mol["atoms"][number]) => Math.round(used[i]) + (a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used[i], a.radical === 3 ? 2 : a.radical));
   // KET radicals: 1 a singlet, 2 one unpaired electron (doublet), 3 two (triplet). KET's stereo labels are Octet's
-  // flags ("abs", "&1", "or1").
+  // flags ("abs", "&1", "or1"). An atom with its hydrogens set (a caption read as an element, edit.ts withCaptionAtoms)
+  // goes with its valence too, so Bi stays Bi and is not BiH3.
   const atoms = mol.atoms.map((a, i) => ({ label: a.label, location: a.location, ...(a.charge ? { charge: a.charge } : {}), ...(a.radical ? { radical: a.radical === 3 ? 1 : a.radical + 1 } : {}), ...(a.isotope ? { isotope: a.isotope } : {}),
-    ...(metalled[i] && NONMETAL.has(a.label) ? { explicitValence: valence(i, a) } : {}),
+    ...((metalled[i] && NONMETAL.has(a.label)) || a.implicitHCount !== undefined ? { explicitValence: valence(i, a) } : {}),
     ...(keep && a.map ? { mapping: a.map } : {}), ...(keep && /^(abs|&\d+|or\d+)$/.test(a.enhanced ?? "") ? { stereoLabel: a.enhanced } : {}) }));
   return { type: "molecule", atoms, bonds };
 }
