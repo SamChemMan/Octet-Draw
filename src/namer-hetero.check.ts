@@ -148,6 +148,15 @@ must("P oxoacids, nitrates", [
   "methyl(triphenyl)phosphanium bromide", "tetraphenylphosphanium chloride", "(carboxymethyl)(triphenyl)phosphanium chloride",
   "methyl nitrate", "propane-1,2,3-triyl trinitrate", "4-(nitrooxy)butanoic acid", "3-methylbutyl nitrite", "4-[(nitrosooxy)methyl]benzoic acid",
 ]);
+// N-oxides (P-74.2.1.2), imines on a ring N and imine N atoms cited as prefixes (P-62.3.1.2).
+must("N-oxides, imines", [
+  "pyridine 1-oxide", "4-methylmorpholine 4-oxide", "N,N-dimethylmethanamine N-oxide", "N-ethyl-N-methylethanamine N-oxide",
+  "N,N-dimethylaniline N-oxide", "6-(piperidin-1-yl)pyrimidine-2,4-diamine 3-oxide", "quinoline 1-oxide", "4-nitropyridine 1-oxide",
+  "pyridine-4-carboxylic acid 1-oxide", "methyl pyridine-4-carboxylate 1-oxide", "2-methylpyridine 1-oxide", "pyrazine 1,4-dioxide",
+  "N-(piperidin-1-yl)ethanimine", "4-[(phenylmethylidene)amino]benzoic acid", "4-{[(E)-phenylmethylidene]amino}benzoic acid",
+  "4-(propan-2-ylideneamino)phenol", "4-(cyclohexylideneamino)benzoic acid", "(2E)-2-(2-phenylhydrazinylidene)propanoic acid",
+  "1-phenyl-2-[(E)-1-phenylethylidene]hydrazine",
+]);
 // Small molecules with no carbon (IUPAC 2005, IR-6, IR-8). Single atoms (water, HCl) are not named: a lone atom
 // drawn is ambiguous.
 must("inorganic", [

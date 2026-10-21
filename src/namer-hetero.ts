@@ -116,6 +116,7 @@ export function perceiveHetero(n: Namer) {
   perceiveSulfur(n);
   perceiveCentres(n);
   for (let i = 0; i < n.n; i++) {
+    if (nOxideO(n, i)) { n.het.set(i, "NO-"); continue; }
     // Halogens on N (N-bromo, N-chloro); the N is an amine, amide or ring N.
     if (HALO[el[i]] && adj[i].length === 1 && el[adj[i][0]] === "N" && !n.q[i] && n.ord(i, adj[i][0]) === 1) { n.het.set(i, "NX"); continue; }
     if (!free(n, i)) continue;
@@ -192,16 +193,17 @@ function sulfurChain(n: Namer, s: number): number[] | undefined {
 // An amine N with hetero neighbours: N-halo, N-nitroso, and amines on a ring N (4-methyl-N,N-diphenylpiperidin-1-amine,
 // a hydrazine with one N in a ring). Marks it as an amine borne by its carbons and ring N.
 export function heteroAmine(n: Namer, i: number): boolean {
-  if (n.q[i] || !single(n, i)) return false;
+  if ((n.q[i] && !nOxideN(n, i)) || !single(n, i)) return false;
   const on = n.adj[i].filter((j) => plainC(n, j) || (n.el[j] === "N" && n.inRing[j] && !n.q[j]));
   const rest = n.adj[i].filter((j) => !on.includes(j));
-  if (!on.length || (!rest.length && on.every((j) => n.el[j] === "C")) || !rest.every((j) => n.het.get(j) === "NX" || n.het.get(j) === "N=O")) return false;
+  if (!on.length || (!rest.length && on.every((j) => n.el[j] === "C")) || !rest.every((j) => n.het.get(j) === "NX" || n.het.get(j) === "N=O" || nOxideO(n, j))) return false;
   n.mark(i, "amine", on);
   return true;
 }
 // Bonds between heteroatoms that perception accounted for.
 export function heteroBond(n: Namer, a: number, b: number): boolean {
-  if (n.het.has(a) || n.het.has(b)) return true;
+  if (n.het.has(a) || n.het.has(b) || nOxideO(n, a) || nOxideO(n, b)) return true;
+  if ((n.group[a] === "imine" && n.inRing[b]) || (n.group[b] === "imine" && n.inRing[a])) return true; // an imine on a ring N
   return (n.group[a] === "amine" && !!n.bearer.get(a)?.includes(b)) || (n.group[b] === "amine" && !!n.bearer.get(b)?.includes(a));
 }
 
@@ -318,9 +320,34 @@ function nitrate(n: Namer, x: number) {
   if (!role || ester.some((o) => n.het.has(o) || n.group[o])) return;
   for (const a of [x, ...os]) n.het.set(a, role);
 }
-// Charged atoms Octet names here: phosphanium P+, and the N+ and O- of a nitrate ester.
+// N-oxides (P-74.2.1.2): an O- on an N+ with four bonds (pyridine 1-oxide, 4-methylmorpholine 4-oxide,
+// N,N-dimethylmethanamine N-oxide). Not nitro or nitrate groups.
+const nOxideO = (n: Namer, o: number): boolean => {
+  if (n.el[o] !== "O" || n.q[o] !== -1 || n.adj[o].length !== 1) return false;
+  const x = n.adj[o][0];
+  return n.el[x] === "N" && n.q[x] === 1 && n.adj[x].filter((j) => n.el[j] === "O").length === 1 && n.adj[x].reduce((t, j) => t + n.ord(x, j), 0) + n.h[x] === 4
+    && (n.inRing[x] || n.adj[x].every((j) => n.ord(x, j) === 1));
+};
+export const nOxideN = (n: Namer, x: number) => n.el[x] === "N" && n.adj[x].some((o) => nOxideO(n, o));
+// The N-oxides of a parent (ring N atoms, or the N of an amine suffix): their O atoms join `used` (no prefix). Throws
+// for an N-oxide the parent cannot cite (on a substituent, or with an ester or other group named after the parent).
+export function nOxides(n: Namer, atoms: number[], sites: { atom: number; group: number }[], kind: string | undefined, used: Set<number>, whole: boolean): number[] {
+  const ring = atoms.filter((a) => nOxideN(n, a)), amine = kind === "amine" ? sites.map((s) => s.group).filter((g) => nOxideN(n, g)) : [];
+  if (!ring.length && !amine.length) return [];
+  if (!whole || (kind && !["acid", "sulfonic", "ester", "amide", "sulfonamide", "nitrile", "aldehyde", "ketone", "alcohol", "thiol", "amine"].includes(kind)) || (ring.length && amine.length) || amine.length > 1) throw new Error("N-oxide");
+  for (const x of [...ring, ...amine]) for (const o of n.adj[x]) if (nOxideO(n, o)) used.add(o);
+  return [...ring, ...amine];
+}
+// The text after the name for its N-oxides: " 1-oxide", " 1,4-dioxide", " N-oxide" (P-74.2.1.2).
+export function oxideText(n: Namer, oxides: number[], label: (a: number) => string): string {
+  if (!oxides.length) return "";
+  if (!n.inRing[oxides[0]]) return " N-oxide";
+  return ` ${oxides.map(label).sort((a, b) => parseInt(a) - parseInt(b)).join(",")}-${oxides.length > 1 ? MULT[oxides.length] : ""}oxide`;
+}
+// Charged atoms Octet names here: phosphanium P+, the N+ and O- of a nitrate ester, and N-oxides.
 export function heteroCharged(n: Namer, i: number): boolean {
   const { el, q, adj } = n;
+  if (nOxideO(n, i) || (el[i] === "N" && q[i] === 1 && adj[i].some((o) => nOxideO(n, o)))) return true;
   if (el[i] === "P" && q[i] === 1) return !n.inRing[i] && adj[i].length + n.h[i] === 4 && adj[i].every((j) => el[j] === "C" && n.ord(i, j) === 1);
   const x = el[i] === "N" ? i : el[i] === "O" && q[i] === -1 && adj[i].length === 1 ? adj[i][0] : -1;
   if (x < 0 || el[x] !== "N" || q[x] !== 1 || n.inRing[x] || adj[x].length !== 3 || !adj[x].every((j) => el[j] === "O")) return false;
@@ -484,6 +511,11 @@ export function heteroPrefix(n: Namer, x: number, from: number): Name | undefine
     const s = n.substituent(r, o);
     return { text: `${s.text === "tert-butyl" ? s.text : enclose(s)}peroxy`, compound: true };
   }
+  // An imine N cited from its single bond (P-62.3.1.2): (propan-2-ylideneamino), {[(E)-phenylmethylidene]amino}.
+  if (el === "N" && !role && !n.inRing[x] && !n.q[x] && !n.h[x] && n.adj[x].length === 2 && n.ord(x, from) === 1) {
+    const c = n.adj[x].find((j) => j !== from)!;
+    if (n.el[c] === "C" && n.ord(x, c) === 2 && n.carbonylO[c] < 0) return { text: `${enclose(ylidene(n, c, x))}amino`, compound: true };
+  }
   if (!role) return undefined;
   if (role === "SS") {
     // -S-S-R: disulfanyl, methyldisulfanyl, (2-aminoethyl)disulfanyl; trisulfanyl for -S-S-S-.
@@ -507,7 +539,10 @@ export function heteroPrefix(n: Namer, x: number, from: number): Name | undefine
   if (role === "NN") return hydrazinyl(n, x, from, n.adj[x].find((j) => n.het.get(j) === "NN")!, "yl");
   if (role === "hz") {
     const m = n.adj[x].find((j) => n.het.get(j) === "hz")!;
-    if (n.ord(x, from) === 2) return hydrazinyl(n, x, from, m, "ylidene"); // =N-NR2 on a parent carbon
+    if (n.ord(x, from) === 2) { // =N-NR2 on a parent carbon, with E or Z on that bond: [(E)-2-phenylhydrazinylidene]
+      const t = hydrazinyl(n, x, from, m, "ylidene"), ez = n.cipBond.get(n.key(x, from));
+      return ez === "E" || ez === "Z" ? { text: `(${ez})-${t.text}`, compound: true } : t;
+    }
     return hydrazinyl(n, x, from, m, "yl"); // -NR-N=CR2
   }
   return undefined;
@@ -526,12 +561,13 @@ function hydrazineSub(n: Namer, j: number, on: number): Name {
   return n.ord(j, on) === 2 ? ylidene(n, j, on) : n.substituent(j, on);
 }
 // A carbon double-bonded to `from` as a substituent: propan-2-ylidene, cyclohexylidene, phenylmethylidene (P-29.2).
+// E or Z on the double bond to `from` is cited in front: (E)-(5-nitrofuran-2-yl)methylidene.
 export function ylidene(n: Namer, c: number, from: number): Name {
-  if (n.cipBond.get(n.key(c, from))) throw new Error("hydrazone stereo");
   const p = n.inRing[c] ? { atoms: n.rings[n.ringOf[c]], ring: true } : { atoms: n.bestChain(c, from), ring: false };
   const t = n.nameParent(p, { attach: [c, from] }).text;
   if (!/yl$/.test(t)) throw new Error("ylidene");
-  return { text: `${t}idene`, compound: true };
+  const ez = n.cipBond.get(n.key(c, from));
+  return { text: ez === "E" || ez === "Z" ? `(${ez})-${t}idene` : `${t}idene`, compound: true };
 }
 
 // ——— Parents ———

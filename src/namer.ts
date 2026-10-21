@@ -12,7 +12,7 @@
 // oxa, thia and aza replacement; R/S and E/Z. Not yet: polycyclic bridged rings (adamantane), fused systems outside
 // the table, larger ring assemblies, and other charged atoms. Octet's own name tables cover some of these (naming.ts).
 import type { Graph } from "./naming.ts";
-import { amideHetero, groupVariant, heteroAmine, heteroBond, heteroCharged, heteroParentName, inorganicName, heteroPrefix, perceiveHetero, peroxyCarbonyl, sulfonamideN, sulfonateName, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
+import { amideHetero, groupVariant, heteroAmine, heteroBond, heteroCharged, heteroParentName, inorganicName, nOxideN, nOxides, oxideText, heteroPrefix, perceiveHetero, peroxyCarbonyl, sulfonamideN, sulfonateName, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
 
 type Name = { text: string; compound: boolean }; // compound: needs brackets when cited as a prefix
 
@@ -395,7 +395,7 @@ class Namer {
   }
   // A positive N with four bonds counting hydrogens: an aminium N (single bonds) or a ring N of an "-ium" cation.
   cationN(i: number): boolean {
-    if (this.el[i] !== "N" || this.q[i] !== 1 || this.nitroAtom(i)) return false;
+    if (this.el[i] !== "N" || this.q[i] !== 1 || this.nitroAtom(i) || nOxideN(this, i)) return false;
     const valence = this.adj[i].reduce((t, j) => t + this.ord(i, j), 0) + this.h[i];
     return valence === 4 && (this.inRing[i] ? this.adj[i].every((j) => this.ord(i, j) === 1 || this.ringOf[j] === this.ringOf[i]) : this.adj[i].every((j) => this.ord(i, j) === 1));
   }
@@ -410,6 +410,7 @@ class Namer {
     if (this.ord(n, x) !== 1) return undefined;
     if (this.el[x] === "C" && this.carbonylO[x] < 0 && !this.isNitrileC(x)) return n;
     if (this.el[x] === "O" && !this.q[x] && this.adj[x].length + this.h[x] === 2 && this.adj[x].every((j) => j === n || (this.el[j] === "C" && this.carbonylO[j] < 0))) return n;
+    if (this.el[x] === "N" && this.inRing[x] && !this.q[x]) return n; // on a ring N: N-(piperidin-1-yl)ethanimine
     return undefined;
   }
 
@@ -616,6 +617,7 @@ class Namer {
       }
     }
     const thio = variantSuffix(this, kind, sites, used, p.ring); // ethanethioamide, peroxoic acid (namer-hetero.ts)
+    const oxides = nOxides(this, atoms, sites, kind, used, !opts.attach && !opts.sulfo); // pyridine 1-oxide (namer-hetero.ts)
     // Prefixes: every neighbour outside the parent that the suffix does not use, and N-substituents of an amide or amine suffix.
     const prefixes: { atom: number; name: Name; n?: boolean }[] = [];
     for (const a of atoms) {
@@ -633,7 +635,7 @@ class Namer {
     for (const s of sites) {
       const nAtom = kind === "amide" ? this.groupHetero(s.group)[0] : kind === "amine" || kind === "aminium" ? s.group : kind === "imine" ? this.imineN(s.group) : sulfonamideN(this, kind, s.group);
       if (nAtom === undefined) continue;
-      for (const x of this.adj[nAtom]) if (x !== s.group && !inParent.has(x) && x !== s.atom)
+      for (const x of this.adj[nAtom]) if (x !== s.group && !inParent.has(x) && x !== s.atom && !used.has(x))
         prefixes.push({ atom: s.atom, name: this.substituent(x, nAtom), n: true });
     }
     const manyN = sites.length > 1 && prefixes.some((x) => x.n), counted = prefixes.filter((x) => !x.n || manyN);
@@ -728,6 +730,7 @@ class Namer {
     else if (opts.attach) text = joinPrefixes(prefixText, this.substituentForm(parent, info, label(num, opts.attach[0]), p.ring, size, !!opts.acyl, multiple(num).length > 0));
     else if (retained) text = prefixText + retained; // benzoic acid, acetic acid: the suffix locant is understood
     else text = joinPrefixes(prefixText, withSuffix(parent, kind, sitesLoc, p.ring, locantFree, !p.ring && size <= 2, thio));
+    text += oxideText(this, oxides, (a) => label(num, a)); // after the suffix: N,N-dimethylaniline N-oxide
     // Stereodescriptors (P-91, P-93): R and S on the parent's atoms, E and Z on its double bonds, in locant order,
     // in front of everything they belong to.
     const stereo: { at: number; text: string }[] = [];
