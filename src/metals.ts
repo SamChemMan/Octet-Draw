@@ -62,6 +62,7 @@ const ACIDS: Record<string, string> = {
 };
 const HALO: Record<string, string> = { F: "fluoro", Cl: "chloro", Br: "bromo", I: "iodo" };
 const ROMAN = ["0", "I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
+const HYDRATE = ["", "monohydrate", "dihydrate", "trihydrate", "tetrahydrate", "pentahydrate", "hexahydrate", "heptahydrate", "octahydrate", "nonahydrate", "decahydrate"];
 const MULT = ["", "", "di", "tri", "tetra", "penta", "hexa", "hepta", "octa"];
 const MULT_COMPLEX = ["", "", "bis", "tris", "tetrakis", "pentakis", "hexakis", "heptakis", "octakis"];
 // The valences an atom has with no dative bond to the metal.
@@ -124,6 +125,14 @@ export function sandwichIons(m: Mol): Mol | undefined {
 export function metalName(g: Graph, parts: number[][], api: MetalApi): string | undefined {
   if (!g.atoms.some((a) => isMetal(a.el))) return undefined;
   const s = new Shape(g);
+  // Water beside a metal compound: a hydrate (IR-5.5), copper(II) sulfate pentahydrate.
+  const water = parts.filter((p) => p.length === 1 && g.atoms[p[0]].el === "O" && g.atoms[p[0]].h === 2 && !g.atoms[p[0]].charge);
+  if (water.length && water.length < parts.length) {
+    if (water.length >= HYDRATE.length) return undefined;
+    const rest = parts.filter((p) => !water.includes(p)), dry = s.build(rest.flat()), dryParts = rest.map((p) => p.map((i) => dry.at.get(i)!));
+    const name = metalName(dry.g, dryParts, api) ?? (dryParts.length > 1 ? api.salt(dry.g, dryParts) : undefined);
+    return name && `${name} ${HYDRATE[water.length]}`;
+  }
   const text = metallocene(s, api) ?? (parts.length > 1 ? salt(g, parts, api) : molecule(s, api));
   if (text === undefined) return undefined;
   // Every stereo label must be cited, as the namer requires (P-91).
@@ -367,12 +376,14 @@ function molecule(s: Shape, api: MetalApi): string | undefined {
   if (metals.some((m) => g.atoms[m].charge) || q) throw new Error("charged metal compound");
   const acid = oxoacid(s, metals);
   if (acid) return acid;
-  // A metal joined only by single bonds to halogen, O, N or S atoms (no dative bond): the salt of its ions.
-  const ionic = metals.every((m) => !g.atoms[m].h && adj[m].length && adj[m].every((x) => s.ord(m, x) === 1 && ["F", "Cl", "Br", "I", "O", "N", "S"].includes(g.atoms[x].el)
-    && !dative(s, x) && adj[x].filter((j) => isMetal(g.atoms[j].el)).length === 1));
-  if (ionic) {
-    const atoms = g.atoms.map((a) => ({ ...a })), bonds = g.bonds.filter((b) => !(isMetal(g.atoms[b.a].el) || isMetal(g.atoms[b.b].el)));
-    for (const b of g.bonds) if (!bonds.includes(b)) { const [m, x] = isMetal(g.atoms[b.a].el) ? [b.a, b.b] : [b.b, b.a]; atoms[m].charge++; atoms[x].charge--; }
+  // A metal joined only by single bonds to halogen, O, N or S atoms (no dative bond, none shared with another metal)
+  // is an ion: the salt of the ions (iron(III) chloride). The standard InChI of a drawn KO-MnO3 is not that of
+  // potassium permanganate, so it has no name.
+  const ionic = new Set(metals.filter((m) => !g.atoms[m].h && adj[m].length && adj[m].every((x) => s.ord(m, x) === 1 && ["F", "Cl", "Br", "I", "O", "N", "S"].includes(g.atoms[x].el)
+    && !dative(s, x) && adj[x].filter((j) => isMetal(g.atoms[j].el)).length === 1)));
+  if (ionic.size) {
+    const atoms = g.atoms.map((a) => ({ ...a })), bonds = g.bonds.filter((b) => !ionic.has(b.a) && !ionic.has(b.b));
+    for (const b of g.bonds) if (!bonds.includes(b)) { const [m, x] = ionic.has(b.a) ? [b.a, b.b] : [b.b, b.a]; atoms[m].charge++; atoms[x].charge--; }
     const ions: Graph = { atoms, bonds }, t = new Shape(ions), seen = new Set<number>(), parts: number[][] = [];
     for (let i = 0; i < atoms.length; i++) if (!seen.has(i)) { const p = t.reach(i, new Set()); p.forEach((j) => seen.add(j)); parts.push(p); }
     let name: string | undefined;

@@ -101,7 +101,10 @@ const names = [
   "chromic acid", "dichromic acid", "permanganic acid", "perrhenic acid", "technetic acid",
   // Drawn with bonds to the metal: named as the salt of its ions (InChI, as IUPAC, counts these bonds as ionic).
   "smiles:CC(=O)O[Na]", "smiles:CC(=O)O[Ca]OC(C)=O", "smiles:Cl[Fe](Cl)Cl", "smiles:CC(=O)O[Cu]OC(C)=O", "smiles:C[O][Na]",
-  "smiles:CC(C)O[Ti](OC(C)C)(OC(C)C)OC(C)C", "smiles:[Os](Cl)(Cl)Cl",
+  "smiles:CC(C)O[Ti](OC(C)C)(OC(C)C)OC(C)C", "smiles:[Os](Cl)(Cl)Cl", "smiles:Cl[Mg]Cl", "smiles:FC(F)(F)S(=O)(=O)O[Cu]OS(=O)(=O)C(F)(F)F",
+  // Hydrates (IR-5.5).
+  "copper(II) sulfate pentahydrate", "sodium acetate trihydrate", "iron(III) chloride hexahydrate", "magnesium sulfate heptahydrate",
+  "sodium carbonate decahydrate", "cobalt(II) chloride dihydrate", "smiles:CC(=O)O[Na].O.O.O",
   // Metallocenes with the negative charge on another ring carbon.
   "smiles:[CH-]1C=CC(C=O)=C1.[CH-]1C=CC=C1.[Fe+2]", "smiles:C1=C[C-](C)C=C1.C1=CC=C[CH-]1.[Ru+2]",
 ];
@@ -123,6 +126,7 @@ const expect: [string, string][] = [
   ["ethylzinc iodide", "ethylzinc(1+) iodide"], ["uranyl", "dioxouranium(2+)"], ["chromic acid", "chromic acid"], ["sodium", "sodium"],
   ["lithium nitride", "lithium nitride"], ["sodium amide", "sodium amide"], ["smiles:CC(=O)O[Na]", "sodium acetate"],
   ["zinc trifluoromethanesulfonate", "zinc bis(trifluoromethanesulfonate)"], ["ferrocenide", "ferrocenide"],
+  ["copper(II) sulfate pentahydrate", "copper(II) sulfate pentahydrate"],
 ];
 for (const [input, name] of expect) assert.equal(structure(input).name, name, input);
 console.log(`namer-metals.check: ${expect.length} names as expected`);
@@ -136,6 +140,8 @@ const none: [string, string][] = [
   ["smiles:C12=N([Os]345(N6C(C7N3=C(C3C=CC=CN=34)C=CC=7)=CC=CC=6)N3=C1C=CC=C3C1N5=CC=CC=1)C=CC=C2", "chelate ring"],
   ["smiles:[C@H]12[N]3[Mn]4(Cl)([N]([C@@H]1CCCC2)=CC1=CC(C(C)(C)C)=CC(C(C)(C)C)=C1O4)OC1=C(C=3)C=C(C(C)(C)C)C=C1C(C)(C)C", "chelate ring"],
   ["smiles:Cl[Pt](Cl)(N1=CC=CC=C1)N1=CC=CC=C1", "dative bond"],
+  // Two metals sharing an O: the standard InChI of a drawn KO-MnO3 is not that of potassium permanganate.
+  ["smiles:[Mn](=O)(=O)(=O)O[K]", "several metal atoms"],
   ["smiles:C1=CC=C(C=C1)P(C1=CC=CC=C1)(C1=CC=CC=C1)[Pd](P(C1=CC=CC=C1)(C1=CC=CC=C1)C1=CC=CC=C1)(P(C1=CC=CC=C1)(C1=CC=CC=C1)C1=CC=CC=C1)P(C1=CC=CC=C1)(C1=CC=CC=C1)C1=CC=CC=C1", "dative bond"],
 ];
 for (const [input, why] of none) {
