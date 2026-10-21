@@ -579,39 +579,28 @@ class Namer {
   }
   // Indicated hydrogen (P-31.1.4.2.4), added hydrogen (P-31.1.4.3.4) and hydro prefixes for a fused system in one
   // numbering. Every C and N with no ring double bond is accounted for. A parent with an odd number of C and N atoms
-  // needs indicated hydrogen: on a lone ketone's carbon (1,3-dihydro-2H-indol-2-one), else on the lowest free or
-  // ketone atom (2,3-dihydro-1H-indole, 1H-indole-2,3-dione). Ketones in pairs need nothing more; a ketone left on its
-  // own takes added hydrogen from the lowest free atom (naphthalen-1(2H)-one, 1H-isoindole-1,3(2H)-dione), and ketones
-  // that cannot pair take one each (pteridine-2,4(1H,3H)-dione). The rest are hydro prefixes, in pairs.
+  // needs indicated hydrogen, one whose atoms cannot otherwise pair up two (1H,3H-naphtho[1,8-cd]pyran-1,3-dione): on
+  // a lone ketone's carbon (1,3-dihydro-2H-indol-2-one), else on the lowest free or ketone atoms (2,3-dihydro-1H-indole,
+  // 1H-indole-2,3-dione). Ketones in pairs need nothing more; a ketone left on its own takes added hydrogen from the
+  // lowest free atom (naphthalen-1(2H)-one, 1H-isoindole-1,3(2H)-dione), and ketones that cannot pair take one each
+  // (pteridine-2,4(1H,3H)-dione). The rest are hydro prefixes, in pairs.
   saturation(f: FusedSys, num: number[], ketones: number[]): { x?: number; x2?: number; y?: number; ys: number[]; yOn?: number; hydro: number[] } {
     const byLoc = (l: number[]) => [...l].sort((a, b) => num.indexOf(a) - num.indexOf(b));
-    // A parent whose C and N atoms cannot all pair up into double bonds, with an even number of them, has two
-    // indicated hydrogens, at the lowest free or ketone atoms (1H,3H-naphtho[1,8-cd]pyran-1,3-dione).
-    if (!f.tpl.odd && (f.tpl.hydrogens === 2 || !pairable(f.cn, f.ring))) {
-      const pool = byLoc(f.d);
-      for (const [i, x] of pool.entries()) for (const x2 of pool.slice(i + 1)) {
-        const sat = new Set([...ketones, x, x2]);
-        if (ketones.filter((a) => a !== x && a !== x2).length % 2) continue;
-        if (!pairable(f.cn.filter((a) => !sat.has(a)), f.ring)) continue;
-        const hydro = byLoc(f.d.filter((a) => !sat.has(a)));
-        if (hydro.length % 2 === 0) return { x, x2, ys: [], hydro };
-      }
-      throw new Error("indicated hydrogen");
-    }
+    const indicated = f.tpl.odd ? 1 : f.tpl.hydrogens === 2 || !pairable(f.cn, f.ring) ? 2 : 0;
     const lone = ketones.length % 2 ? byLoc(ketones) : [];
-    const xs = f.tpl.odd ? [...lone, ...byLoc(f.d.filter((a) => !lone.includes(a)))] : [undefined];
-    // Sets of m atoms from a list, in order of their locants.
+    const pool = [...lone, ...byLoc(f.d.filter((a) => !lone.includes(a)))];
+    // Sets of m atoms from a list, in its order.
     const sets = (l: number[], m: number): number[][] => (!m ? [[]] : l.flatMap((a, i) => sets(l.slice(i + 1), m - 1).map((r) => [a, ...r])));
-    for (const x of xs) {
-      const left = ketones.filter((a) => a !== x), free = byLoc(f.d.filter((a) => a !== x && !ketones.includes(a)));
+    for (const xs of sets(pool, indicated)) {
+      const left = ketones.filter((a) => !xs.includes(a)), free = byLoc(f.d.filter((a) => !xs.includes(a) && !ketones.includes(a)));
       // The fewest added hydrogens; the parent with its indicated and added hydrogen must exist: the other C and N atoms
       // pair up into double bonds.
       for (let m = left.length % 2; m <= Math.min(left.length, 3); m += 2) for (const ys of sets(free, m)) {
-        const sat = new Set([...ketones, x, ...ys]);
+        const sat = new Set([...ketones, ...xs, ...ys]);
         if (!pairable(f.cn.filter((a) => !sat.has(a)), f.ring)) continue;
         const hydro = byLoc(f.d.filter((a) => !sat.has(a)));
-        if (hydro.length % 2) throw new Error("hydro");
-        return { x, y: ys[0], ys, yOn: ys.length === 1 ? left[0] : undefined, hydro };
+        if (hydro.length % 2) continue;
+        return { x: xs[0], x2: xs[1], y: ys[0], ys, yOn: ys.length === 1 ? left[0] : undefined, hydro };
       }
     }
     throw new Error("indicated hydrogen");
