@@ -284,6 +284,11 @@ export function expandWithOrigins(mol: Mol): { mol: Mol; from: number[] } {
       ],
     };
     out.atoms[base] = { ...out.atoms[base], charge: (out.atoms[base].charge ?? 0) + (a.charge ?? 0) || undefined };
+    // A label of one element and its hydrogens (NH3, H2O) bonded to a metal keeps the hydrogens it shows: counted by
+    // valence, the bond to the metal would leave NH2 and OH, where the drawing shows ammine and aqua ligands.
+    const hx = /^(?:([A-Z][a-z]?)H(\d*)|H(\d*)([A-Z][a-z]?))$/.exec(a.text);
+    if (hx && frag.atoms.length === 1 && frag.atoms[0].label === (hx[1] ?? hx[4]) && mol.bonds.some((b) => b.atoms.includes(i) && !NONMETAL.has(mol.atoms[b.atoms[0] === i ? b.atoms[1] : b.atoms[0]].label)))
+      out.atoms[base] = { ...out.atoms[base], implicitHCount: Number((hx[2] ?? hx[3]) || 1) };
     out.atoms[i] = { ...out.atoms[i], label: "*", text: undefined, removed: true } as Mol["atoms"][number];
   });
   // Drop the label atoms that were replaced, renumbering bonds.
