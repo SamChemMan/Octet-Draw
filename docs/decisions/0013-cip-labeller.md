@@ -32,10 +32,19 @@ Vainio, Yerin and Redkin set them out for machines (J. Chem. Inf. Model. 2018, 5
 - An R group or any other label Octet cannot read ranks above every element, as ChemDraw and Indigo rank it.
 - E and Z on C=C, C=N, N=N (and Si, Ge), and on cumulenes with an odd number of double bonds, on the middle bond. No
   E or Z in a ring of under 8 atoms, on a crossed double bond, or next to a wavy bond.
-- The configuration: Indigo's reading of wedges and hashes from the centre (with an implicit H or lone pair opposite
-  three drawn bonds), then ChemDraw's other stereo bonds where none starts at the centre. One wedge up and one down on
-  three bonds is read as ChemDraw reads it. A bold ring bond draws a ring in perspective, not a centre. A structure
-  with depth and no wedge is read in 3D.
+- The configuration, first found first:
+  - ChemDraw's own record, from a ChemDraw file. ChemDraw saves every centre it labels with `Geometry="Tetrahedral"`
+    and a `BondOrdering` (the centre's bonds, 0 for its H or lone pair, in an order whose first three turn clockwise
+    seen with the fourth away), and labels from it where its drawing does not set the centre. Octet keeps it on the
+    atom (`kept`), writes it back, and uses it while the centre's neighbours and stereo bonds are as ChemDraw saved
+    them. A mirror inverts it; a turn keeps it.
+  - The atoms' places, where a centre is drawn in 3D: a neighbour at least a fifth of a bond nearer or further than the
+    centre, and the ligands clearly not flat. This covers 3D molfiles and SD files (PubChem's 3D files), whose depth
+    Octet keeps, and 3D Clean Up. A flat drawing turned in 3D is read from its wedges. An amine or amide N is not a
+    centre by its places alone.
+  - Indigo's reading of wedges and hashes from the centre (with an implicit H or lone pair opposite three drawn
+    bonds), then ChemDraw's other stereo bonds where none starts at the centre. One wedge up and one down on three
+    bonds is read as ChemDraw reads it. A bold ring bond draws a ring in perspective, not a centre.
 - Every digraph has a node and work limit. Past it a centre gets no label. A wedge on every CH of dodecahedrane
   labels nothing in about 45 ms.
 
@@ -47,12 +56,15 @@ The stereochemistry warnings still come from Indigo, but a centre Octet labels i
   the steroids Indigo gets wrong, renumbering and mirror images, hostile drawings, and time.
 - `scripts/cip-suite.ts`: the validation suite (kept in `~/octet-research`, as it has no licence). 279 of 300 pass:
   all but the 20 rule 6 cases and one centre made pseudoasymmetric by an allene.
-- `scripts/cip-corpus.ts`: ChemDraw's own labels in Sam's drawings. Octet agrees on 44 of 50 centres and 4 of 4
-  double bonds. The 6 it does not are in one perspective drawing of two manganese complexes, where ChemDraw labels
-  centres with no stereo bond.
+- `scripts/cip-corpus.ts`: ChemDraw's own labels in Sam's drawings. Octet agrees on 50 of 50 centres and 4 of 4
+  double bonds, and labels nothing ChemDraw does not. Six of the 50 (in a perspective drawing of manganese complexes)
+  come from ChemDraw's kept record: four have no stereo bond, and at two ChemDraw's record differs from Octet's
+  reading of a hashed wedge. Two centres there ChemDraw leaves unsettled; Octet reads each from its hashed wedge (on
+  the outer of three bonds that lie within 180°).
 
 ## Open
 
-- The namer's checks (`src/namer*.check.ts`) still take labels from Indigo's SMILES reading. They should take them
-  from `cipLabels`.
+- Why ChemDraw leaves those two centres unsettled, and keeps its record over the hashed wedge at the other two. It
+  may not read a hashed wedge on the outer of three bonds within 180°, but other centres drawn that way carry its
+  record too, so the files cannot show it. A test in ChemDraw would settle it.
 - Rule 6, and allenes as auxiliary descriptors, if Sam wants them.
