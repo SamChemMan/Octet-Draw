@@ -1843,10 +1843,17 @@ export default function Editor() {
     if (TAURI) syncChecks();
   }, [settings]);
   useEffect(() => { if (TAURI) syncChecks(); }, [guides]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The last menu command the page ran from a Ctrl key off the Mac, so the same command from the menu does not run twice.
+  const pageRan = useRef<{ id: string; at: number }>(undefined);
   useEffect(() => {
     if (!TAURI) return;
     // Over a dialog, Settings or Home, the menu does not work on the drawing (menuRuns).
-    const off = listen<string>("menu", (e) => { if (menuRuns(e.payload, { home: homeOpen.current, modal: modal(), typing: typing() })) commands.current[e.payload]?.(); });
+    const off = listen<string>("menu", (e) => {
+      // A Ctrl shortcut the page already ran (off the Mac, below) can arrive from the menu too: run it once.
+      const ran = pageRan.current;
+      if (ran && ran.id === e.payload && performance.now() - ran.at < 600) return;
+      if (menuRuns(e.payload, { home: homeOpen.current, modal: modal(), typing: typing() })) commands.current[e.payload]?.();
+    });
     return () => { off.then((f) => f()); };
   }, []);
   // Files to open or dropped: those named before the page started, then each time the app says more came. The page
@@ -5276,6 +5283,19 @@ export default function Editor() {
   }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // On Windows and Linux a key pressed in the page can stay in the web view and never reach the native menu, so
+      // the page runs the menu's Ctrl shortcuts itself. In a text box, Undo, Redo and Select All stay the box's own.
+      if (TAURI && !MAC && !e.defaultPrevented && (e.ctrlKey || e.metaKey)) {
+        const k = keyOf(e), id = k && native(k) ? actionFor(keymap(settings.keys), k, "none") : undefined;
+        if (id?.startsWith("menu.")) {
+          const cmd = id.slice(5), over = { home, modal: modal(), typing: typing() };
+          if (over.typing && ["undo", "redo", "select_all"].includes(cmd)) return;
+          if (!menuRuns(cmd, over)) return;
+          e.preventDefault();
+          pageRan.current = { id: cmd, at: performance.now() };
+          return commands.current[cmd]?.();
+        }
+      }
       if (typing() || e.defaultPrevented) return; // typing in a label or caption box, or a box already used the key
       if (home || modal()) return; // Home and dialogs have their own keys
       if (controlTakes(e.key, document.activeElement as HTMLElement | null, keyFocus.current)) return;
