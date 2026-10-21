@@ -587,3 +587,49 @@ function letterPrefixes(list: { loc: string; name: Name }[]): string {
     return `${g.locs.sort().join(",")}-${word}`;
   }).join("-");
 }
+
+// ——— Small inorganic molecules (IUPAC 2005, IR-6 and IR-8) ———
+// Molecules of N, O, S, P and the halogens with no carbon, by structure, with the names chemists use: hydrogen
+// peroxide, dichlorine, chloric acid, nitric acid, sulfur dioxide. Written as SMILES without rings. Single atoms (water,
+// hydrogen chloride) are left out, as namer.ts leaves them: a lone atom drawn is ambiguous.
+const INORGANIC: [string, string][] = [
+  ["OO", "hydrogen peroxide"], ["SS", "disulfane"],
+  ["FF", "difluorine"], ["ClCl", "dichlorine"], ["BrBr", "dibromine"], ["II", "diiodine"], ["N#N", "dinitrogen"], ["O=O", "dioxygen"],
+  ["O=[O+][O-]", "ozone"], ["N#[N+][O-]", "nitrous oxide"], ["N=[N+]=[N-]", "hydrazoic acid"],
+  ["OF", "hypofluorous acid"], ["OCl", "hypochlorous acid"], ["OCl=O", "chlorous acid"], ["OCl(=O)=O", "chloric acid"], ["OCl(=O)(=O)=O", "perchloric acid"],
+  ["OBr", "hypobromous acid"], ["OBr=O", "bromous acid"], ["OBr(=O)=O", "bromic acid"], ["OBr(=O)(=O)=O", "perbromic acid"],
+  ["OI", "hypoiodous acid"], ["OI=O", "iodous acid"], ["OI(=O)=O", "iodic acid"], ["OI(=O)(=O)=O", "periodic acid"], ["OI(O)(O)(O)(O)=O", "orthoperiodic acid"],
+  ["ON=O", "nitrous acid"], ["O[N+](=O)[O-]", "nitric acid"], ["N=O", "azanone"], ["ClN=O", "nitrosyl chloride"],
+  ["NF", "fluoramine"], ["NCl", "chloramine"], ["NBr", "bromamine"], ["FNF", "difluoramine"], ["ClNCl", "dichloramine"], ["BrNBr", "dibromamine"],
+  ["FN(F)F", "nitrogen trifluoride"], ["ClN(Cl)Cl", "nitrogen trichloride"],
+  ["O=S=O", "sulfur dioxide"], ["O=S(=O)=O", "sulfur trioxide"], ["FP(F)(F)(F)F", "phosphorus pentafluoride"], ["ClP(Cl)(Cl)(Cl)Cl", "phosphorus pentachloride"],
+];
+const VALENCE: Record<string, number> = { N: 3, O: 2, S: 2, P: 3, F: 1, Cl: 1, Br: 1, I: 1 };
+// A structure's signature: each atom's element, hydrogens, charge and bonds, sorted.
+function signature(el: string[], h: number[], q: number[], bonds: [number, number, number][]): string {
+  return el.map((e, i) => `${e}${h[i]}${q[i] || ""}[${bonds.filter((b) => b[0] === i || b[1] === i).map((b) => `${b[2]}${el[b[0] === i ? b[1] : b[0]]}`).sort().join(",")}]`).sort().join(" ");
+}
+// The signature of a SMILES without rings (elements N, O, S, P and halogens; [X+] and [X-] for charges).
+function smilesSignature(s: string): string {
+  const el: string[] = [], q: number[] = [], bonds: [number, number, number][] = [], stack: number[] = [];
+  let prev = -1, order = 1;
+  for (const t of s.match(/\[[A-Za-z]+[+-]?\]|Cl|Br|[NOSPFI]|[=#()]/g) ?? []) {
+    if (t === "=" || t === "#") { order = t === "=" ? 2 : 3; continue; }
+    if (t === "(") { stack.push(prev); continue; }
+    if (t === ")") { prev = stack.pop()!; continue; }
+    const m = /^\[?([A-Za-z]+?)([+-]?)\]?$/.exec(t)!;
+    el.push(m[1]); q.push(m[2] === "+" ? 1 : m[2] === "-" ? -1 : 0);
+    if (prev >= 0) bonds.push([prev, el.length - 1, order]);
+    prev = el.length - 1; order = 1;
+  }
+  const h = el.map((e, i) => Math.max(0, VALENCE[e] + q[i] - bonds.reduce((t, b) => t + (b[0] === i || b[1] === i ? b[2] : 0), 0)));
+  return signature(el, h, q, bonds);
+}
+let inorganic: Map<string, string> | undefined;
+// The name of a small molecule with no carbon from the table, or undefined.
+export function inorganicName(n: Namer): string | undefined {
+  if (n.n > 7 || n.el.some((e) => !VALENCE[e])) return undefined;
+  inorganic ??= new Map(INORGANIC.map(([s, name]) => [smilesSignature(s), name]));
+  const bonds = [...n.bond].map(([k, o]): [number, number, number] => { const [a, b] = k.split(" ").map(Number); return [a, b, o]; });
+  return inorganic.get(signature(n.el, n.h, n.q, bonds));
+}

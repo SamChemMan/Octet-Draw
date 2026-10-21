@@ -148,3 +148,12 @@ must("P oxoacids, nitrates", [
   "methyl(triphenyl)phosphanium bromide", "tetraphenylphosphanium chloride", "(carboxymethyl)(triphenyl)phosphanium chloride",
   "methyl nitrate", "propane-1,2,3-triyl trinitrate", "4-(nitrooxy)butanoic acid", "3-methylbutyl nitrite", "4-[(nitrosooxy)methyl]benzoic acid",
 ]);
+// Small molecules with no carbon (IUPAC 2005, IR-6, IR-8). Single atoms (water, HCl) are not named: a lone atom
+// drawn is ambiguous.
+must("inorganic", [
+  "hydrogen peroxide", "disulfane", "dichlorine", "dibromine", "diiodine", "difluorine", "dinitrogen", "dioxygen", "ozone", "nitrous oxide",
+  "hydrazoic acid", "hypochlorous acid", "chlorous acid", "chloric acid", "perchloric acid", "hypobromous acid", "bromic acid", "perbromic acid",
+  "hypoiodous acid", "iodic acid", "periodic acid", "orthoperiodic acid", "nitrous acid", "nitric acid", "nitrosyl chloride", "chloramine",
+  "dichloramine", "nitrogen trichloride", "nitrogen trifluoride", "sulfur dioxide", "sulfur trioxide", "phosphorus pentachloride",
+  "hydroxylamine", "hydrazine", "sulfuric acid", "phosphoric acid", "phosphoryl trichloride", "trichlorophosphane", "sulfurous dichloride",
+]);

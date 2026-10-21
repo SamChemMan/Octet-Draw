@@ -12,7 +12,7 @@
 // oxa, thia and aza replacement; R/S and E/Z. Not yet: polycyclic bridged rings (adamantane), fused systems outside
 // the table, larger ring assemblies, and other charged atoms. Octet's own name tables cover some of these (naming.ts).
 import type { Graph } from "./naming.ts";
-import { amideHetero, groupVariant, heteroAmine, heteroBond, heteroCharged, heteroParentName, heteroPrefix, perceiveHetero, peroxyCarbonyl, sulfonamideN, sulfonateName, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
+import { amideHetero, groupVariant, heteroAmine, heteroBond, heteroCharged, heteroParentName, inorganicName, heteroPrefix, perceiveHetero, peroxyCarbonyl, sulfonamideN, sulfonateName, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
 
 type Name = { text: string; compound: boolean }; // compound: needs brackets when cited as a prefix
 
@@ -913,6 +913,8 @@ class Namer {
 
   // ——— The whole molecule ———
   name(): string | undefined {
+    const inorganic = inorganicName(this); // water, hydrogen chloride, chloric acid (namer-hetero.ts)
+    if (inorganic) return inorganic;
     this.perceive();
     if (this.adj.some((a, i) => a.length === 0 && this.el[i] !== "C") || this.n === 0) return undefined;
     const kind = SENIORITY.find((k) => this.group.includes(k) && [...this.bearer.keys()].some((g) => this.group[g] === k));
