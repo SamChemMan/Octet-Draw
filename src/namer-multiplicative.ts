@@ -20,7 +20,8 @@
 // pyridine-2,6-diyl. Branch components are numbered from the end nearest the unit and cite the locant towards the
 // centre first: oxybis(ethane-2,1-diyl). Where the rules leave a choice of form, the one OPSIN reads: azanylylidene
 // and methanylylidene for -N= and -CH= (salen ligands), bis(oxy) and dinitrilo.
-import { Namer, CARBON_GROUP, MULT, MULT_COMPLEX, alphaKey, assemblePrefixes, chainStem, citedLabels, enclose, joinPrefixes, substituted, type Kind, type Name } from "./namer.ts";
+import { Namer, CARBON_GROUP, MULT, MULT_COMPLEX, alphaKey, assemblePrefixes, chainStem, citedLabels, enclose, joinPrefixes, substituted, times, type Kind, type Name } from "./namer.ts";
+import { groupVariant } from "./namer-hetero.ts";
 
 type Cand = { atoms: number[]; ring: boolean; groups: number; subs: number };
 // A component of the multiplying group: a ring system, a chain of carbons, or a heteroatom group.
@@ -139,6 +140,11 @@ function attempt(n: Namer, kind: Kind | undefined, skip: Set<number>, units: Can
   if (units.reduce((t, u) => t + u.groups, 0) !== groups) return undefined; // every principal group on a unit
   const unitOf = new Map<number, number>();
   units.forEach((u, k) => u.atoms.forEach((a) => unitOf.set(a, k)));
+  // An amide unit may be joined through its N (P-15.3.2.2.1): N,N'-methylenediacetamide. Its group atoms go with it.
+  if (kind === "amide") for (const [g, on] of n.bearer) {
+    const k = n.group[g] === kind ? units.findIndex((u) => u.atoms.includes(g) || on.some((a) => u.atoms.includes(a))) : -1;
+    if (k >= 0 && units[k].groups === 1) for (const a of [g, n.carbonylO[g], n.amideN(g)]) if (a !== undefined && a >= 0) unitOf.set(a, k);
+  }
   // The rest of the molecule in connected parts: a part on one unit is that unit's substituent; the one part on every
   // unit is the multiplying group.
   const part = new Map<number, number>(), parts: { atoms: number[]; units: Set<number> }[] = [];
@@ -165,7 +171,41 @@ function attempt(n: Namer, kind: Kind | undefined, skip: Set<number>, units: Can
     if (L.has(j)) { if (attach[k] || n.ord(a, j) !== 1) return undefined; attach[k] = [a, j]; }
   }
   if (units.some((_, k) => !attach[k])) return undefined;
-  for (const a of L) if ((kind && n.group[a] === kind) || n.q[a] || n.opaque.has(a) || skip.has(a)) return undefined;
+  for (const a of L) if ((kind && n.group[a] === kind) || skip.has(a)) return undefined;
+  const centre = linkerName(n, L, unitOf);
+  if (!centre || centre.units.length !== units.length) return undefined;
+  // The units, each named with its attachment as a locant after its principal groups; an amide's N is N, N', N''.
+  const unitNames = centre.units.map((k) => {
+    const u = units[k], nm = n.nameParent({ atoms: u.atoms, ring: u.ring }, { kind: u.groups ? kind : undefined, skip, mult: attach[k] });
+    return { ...nm, at: u.atoms.includes(attach[k][0]) ? nm.label!(attach[k][0]) : "N" };
+  });
+  // Stereodescriptors of the units' own atoms go in front, primed: (2R,2'R)-2,2'-oxydipropanoic acid.
+  const front: string[][] = [], bare: string[] = [];
+  for (const u of unitNames) {
+    const m = u.text.match(/^\(([^()]*)\)-(.*)$/);
+    bare.push(m ? m[2] : u.text);
+    front.push(m ? m[1].split(",") : []);
+  }
+  if (new Set(bare).size !== 1 || new Set(unitNames.map((u) => u.at)).size !== 1 || new Set(front.map((f) => f.join(","))).size !== 1) return undefined;
+  if (front[0].some((d) => !/^\d+[a-z]?[RSEZ]$/.test(d)) || unitNames[0].text.includes(" oxide")) return undefined;
+  const primed = (loc: string, k: number) => loc + "'".repeat(k);
+  const descriptors = front.flatMap((f, k) => f.map((d) => { const [, loc, x] = d.match(/^(\d+[a-z]?)([RSEZ])$/)!; return { loc, k, text: `${primed(loc, k)}${x}` }; }))
+    .sort((a, b) => parseInt(a.loc) - parseInt(b.loc) || a.loc.localeCompare(b.loc) || a.k - b.k).map((d) => d.text);
+  const unit = bare[0], k = units.length, mono = !units[0].ring && units[0].atoms.length === 1 && !unitNames[0].prefixes && unitNames[0].at !== "N";
+  const multiplied = unitNames[0].prefixes ? MULT_COMPLEX[k] + enclose({ text: unit, compound: true }) : /[\d(]/.test(unit) ? MULT[k] + enclose({ text: unit, compound: true }) : MULT[k] + unit;
+  const linker = centre.compound ? enclose({ text: centre.text, compound: true }) : centre.text;
+  const locs = mono ? "" : `${unitNames.map((u, i) => primed(u.at, i)).join(",")}-`;
+  const text = `${descriptors.length ? `(${descriptors.join(",")})-` : ""}${locs}${linker}${multiplied}`;
+  // Every stereodescriptor of the structure must be cited, or the substitutive name stands.
+  const labelled = n.cip.filter(Boolean).length + [...n.cipBond.values()].filter(Boolean).length;
+  return citedLabels(text) === labelled ? text : undefined;
+}
+
+// The multiplying group L, joined to the units (unitOf: unit atoms by unit) by one bond each: a central component and
+// identical branches (P-15.3.1.2), named from the centre: ethane-1,2-diylbis(oxy), oxybis(ethane-2,1-diyl). units: the
+// units in the order their locants are primed. compound: the name needs enclosing marks before what follows it.
+function linkerName(n: Namer, L: Set<number>, unitOf: Map<number, number>): { text: string; units: number[]; compound: boolean } | undefined {
+  if ([...L].some((a) => n.q[a] || n.opaque.has(a))) return undefined;
   // Components of the multiplying group: ring systems, chains of carbon atoms (with their =O), S-S, O-O, Se-Se and
   // N=N, and single heteroatoms.
   const chainC = (a: number) => n.el[a] === "C" && !n.inRing[a] && !n.isNitrileC(a) && (!n.group[a] || n.group[a] === "ketone" || n.group[a] === "imine") && !n.het.has(a) && !n.pseudo.has(a);
@@ -200,7 +240,7 @@ function attempt(n: Namer, kind: Kind | undefined, skip: Set<number>, units: Can
     }
   }
   const edges = [...live].reduce((t, c) => t + [...nb[c]].filter((d) => d < 0 || live.has(d)).length, 0);
-  if (edges !== 2 * (live.size - 1) + units.length) return undefined; // a tree
+  if (edges !== 2 * (live.size - 1) + new Set(unitOf.values()).size) return undefined; // a tree
   // Valences of a live component: its bonds to live components and to units.
   const valences = (c: number): Valence[] => comps[c].atoms.flatMap((a) => n.adj[a].filter((j) => unitOf.has(j) || (L.has(j) && compOf.get(j) !== c && live.has(compOf.get(j)!))).map((j) => ({ at: a, to: j, order: n.ord(a, j) })));
   const into = (v: Valence) => (unitOf.has(v.to) ? -1 - unitOf.get(v.to)! : compOf.get(v.to)!);
@@ -224,39 +264,44 @@ function attempt(n: Namer, kind: Kind | undefined, skip: Set<number>, units: Can
     const own = more && !comp.plain ? enclose({ text: comp.text, compound: true }) : comp.text;
     return { text: `${ez ? `(${ez})-` : ""}${own}${more}`, units: kids.flatMap((k) => k!.units), plain: !ez && !!comp.plain && !!kids[0]!.unit };
   };
-  let centre: Branch | undefined, linkerCompound = false;
   for (const c of live) {
     if (valences(c).some((v) => v.order !== 1)) continue; // a centre has single bonds only (P-15.3.4.1)
     let b: Branch | undefined;
     try { b = branch(c); } catch { b = undefined; }
-    if (b) { centre = b; linkerCompound = !SIMPLE_HET.has(b.text) || live.size > 1; break; }
+    if (b) return { text: b.text, units: b.units, compound: !SIMPLE_HET.has(b.text) || live.size > 1 };
   }
-  if (!centre || centre.units.length !== units.length) return undefined;
-  // The units, each named with its attachment as a locant after its principal groups.
-  const unitNames = centre.units.map((k) => {
-    const u = units[k], nm = n.nameParent({ atoms: u.atoms, ring: u.ring }, { kind: u.groups ? kind : undefined, skip, mult: attach[k] });
-    return { ...nm, at: nm.label!(attach[k][0]) };
-  });
-  // Stereodescriptors of the units' own atoms go in front, primed: (2R,2'R)-2,2'-oxydipropanoic acid.
-  const front: string[][] = [], bare: string[] = [];
-  for (const u of unitNames) {
-    const m = u.text.match(/^\(([^()]*)\)-(.*)$/);
-    bare.push(m ? m[2] : u.text);
-    front.push(m ? m[1].split(",") : []);
-  }
-  if (new Set(bare).size !== 1 || new Set(unitNames.map((u) => u.at)).size !== 1 || new Set(front.map((f) => f.join(","))).size !== 1) return undefined;
-  if (front[0].some((d) => !/^\d+[a-z]?[RSEZ]$/.test(d)) || unitNames[0].text.includes(" oxide")) return undefined;
-  const primed = (loc: string, k: number) => loc + "'".repeat(k);
-  const descriptors = front.flatMap((f, k) => f.map((d) => { const [, loc, x] = d.match(/^(\d+[a-z]?)([RSEZ])$/)!; return { loc, k, text: `${primed(loc, k)}${x}` }; }))
-    .sort((a, b) => parseInt(a.loc) - parseInt(b.loc) || a.loc.localeCompare(b.loc) || a.k - b.k).map((d) => d.text);
-  const unit = bare[0], k = units.length, mono = !units[0].ring && units[0].atoms.length === 1 && !unitNames[0].prefixes;
-  const multiplied = unitNames[0].prefixes ? MULT_COMPLEX[k] + enclose({ text: unit, compound: true }) : /[\d(]/.test(unit) ? MULT[k] + enclose({ text: unit, compound: true }) : MULT[k] + unit;
-  const linker = linkerCompound ? enclose({ text: centre.text, compound: true }) : centre.text;
-  const locs = mono ? "" : `${unitNames.map((u, i) => primed(u.at, i)).join(",")}-`;
-  const text = `${descriptors.length ? `(${descriptors.join(",")})-` : ""}${locs}${linker}${multiplied}`;
-  // Every stereodescriptor of the structure must be cited, or the substitutive name stands.
-  const labelled = n.cip.filter(Boolean).length + [...n.cipBond.values()].filter(Boolean).length;
-  return citedLabels(text) === labelled ? text : undefined;
+  return undefined;
+}
+
+// Esters of a multiplied acid (P-65.6.3.2.1): dimethyl 4,4'-oxydibenzoate, tetraethyl
+// 2,2',2'',2'''-(ethane-1,2-diyldinitrilo)tetraacetate. The alkyl groups must all be the same.
+export function multiplicativeEster(n: Namer, kind: Kind, esters: number[]): string | undefined {
+  if (kind !== "ester") return undefined;
+  try {
+    if (esters.some((c) => groupVariant(n, c))) return undefined; // thioates: S-methyl, O-methyl
+    const alkyls = esters.map((c) => { const o = n.esterO.get(c)!; return n.substituent(n.adj[o].find((j) => j !== c && !n.peroxO.has(j))!, o); });
+    if (new Set(alkyls.map((a) => a.text)).size !== 1) return undefined;
+    const acid = named(n, kind, new Set());
+    return acid && `${times(esters.length, alkyls[0])} ${acid}`;
+  } catch { return undefined; }
+}
+
+// benzene-1,4-diyl as the multiplying group of esters is 1,4-phenylene (P-13.6.2: dimethyl 1,4-phenylene
+// dipropanedioate): 2-chloro-1,4-phenylene diacetate.
+export const phenylene = (yl: string) => yl.replace(/^(.*?)benzene-(\d,\d)-diyl$/, (_, pre: string, locs: string) => joinPrefixes(pre.replace(/-$/, ""), `${locs}-phenylene`));
+
+// The polyol part of esters of one acid when the polyol is not named "-diol" (namer.ts polyolYl): the framework
+// without its ester O atoms (os), as a multiplying group: oxydi(ethane-2,1-diyl) diacetate,
+// ethane-1,2-diylbis(oxyethane-2,1-diyl) diacetate (P-15.3.0, P-65.6.3.2.2).
+export function polyolDiyl(n: Namer, alcohol: Set<number>, os: number[]): string | undefined {
+  try {
+    const L = new Set([...alcohol].filter((a) => !os.includes(a)));
+    if (os.some((o) => n.adj[o].filter((j) => L.has(j)).length !== 1)) return undefined;
+    const g = linkerName(n, L, new Map(os.map((o, k) => [o, k])));
+    if (!g || g.units.length !== os.length) return undefined;
+    const labelled = [...L].filter((a) => n.cip[a]).length + [...n.cipBond].filter(([key, v]) => v && key.split(" ").every((x) => L.has(Number(x)))).length;
+    return citedLabels(g.text) === labelled ? g.text : undefined;
+  } catch { return undefined; }
 }
 
 // A component's name, with its valences in the order they are cited (the one back towards the centre first, then the

@@ -21,7 +21,7 @@ import type { Graph } from "./naming.ts";
 import { fusedParent } from "./fusion.ts";
 import { ELEMENTS, isMetal, metalName, MORE_CATIONS, METAL_ANIONS, type MetalApi } from "./metals.ts";
 import { chalcogenIonSuffix, chalcogenOne, chalcogenStem, chargeSeparated, checkChalcogenOnes, citedNuclides, isotopePrefix, isotopeSpecies, isotopeText, inorganicSpecies, NUCLIDE } from "./namer-maingroup.ts";
-import { multiplicativeName } from "./namer-multiplicative.ts";
+import { multiplicativeEster, multiplicativeName, phenylene, polyolDiyl } from "./namer-multiplicative.ts";
 import { amideHetero, groupVariant, heteroAmine, heteroBond, heteroCharged, heteroParentName, heteroPrefix, hydrazinyl, nOxideN, nOxides, oxideText, perceiveHetero, perceiveIodanes, suffixStereo, sulfonamideN, sulfonateName, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
 
 type Name = { text: string; compound: boolean }; // compound: needs brackets when cited as a prefix
@@ -1244,7 +1244,7 @@ class Namer {
       const nAtom = kind === "amide" || kind === "amidine" || kind === "hydrazide" ? this.amideN(s.group) : kind === "amine" || kind === "aminium" ? s.group : kind === "imine" || kind === "imidic" || kind === "imidate" || kind === "imidoylhalide" ? this.imineN(s.group) : sulfonamideN(this, kind, s.group) ?? this.ionN(kind, s.group);
       const second = kind === "amidine" ? this.imineN(s.group) : kind === "hydrazide" ? this.hydrazideN(s.group, nAtom!) : undefined;
       for (const a of second !== undefined ? [nAtom!, second] : nAtom === undefined ? [] : [nAtom])
-        for (const x of this.adj[a]) if (x !== s.group && !inParent.has(x) && x !== s.atom && x !== second && x !== nAtom && !used.has(x)) {
+        for (const x of this.adj[a]) if (x !== s.group && !inParent.has(x) && x !== s.atom && x !== second && x !== nAtom && !used.has(x) && !(opts.mult && a === opts.mult[0] && x === opts.mult[1])) {
           prefixes.push({ atom: s.atom, name: this.substituent(x, a), n: true });
           if (a !== nAtom) prime.add(prefixes[prefixes.length - 1]);
         }
@@ -1970,7 +1970,7 @@ class Namer {
   // their acid groups when they differ: dimethyl butanedioate, 1-ethyl 4-methyl butanedioate. The other esters are
   // prefixes: methyl 4-(acetyloxy)benzoate, 4-methoxy-4-oxobutanoic acid (P-65.6.3.3).
   severalEsters(esters: number[], kind: Kind = "ester"): string {
-    const polyol = this.polyolEster(esters);
+    const polyol = this.polyolEster(esters) ?? multiplicativeEster(this, kind, esters); // dimethyl 4,4'-oxydibenzoate
     if (polyol) return polyol;
     const p = this.parentName(kind)?.parent;
     if (!p) throw new Error("several esters");
@@ -2019,7 +2019,8 @@ class Namer {
     const alcohol = this.part(os[0], new Set(os.map((o, k) => this.key(o, centres[k]))));
     if (!os.every((o) => alcohol.has(o)) || centres.some((c) => alcohol.has(c)) || [...alcohol].some((a) => this.el[a] === "O" && !os.includes(a) && this.h[a])) return undefined;
     const polyol = new Namer(this.piece([...alcohol], os)).name(), m = polyol?.match(/(di|tri|tetra|penta|hexa)ol$/);
-    return polyol && m && MULT.indexOf(m[1]) === os.length ? polyol.replace(/ol$/, "yl") : undefined;
+    // Else the framework as a multiplying group (namer-multiplicative.ts): oxydi(ethane-2,1-diyl).
+    return polyol && m && MULT.indexOf(m[1]) === os.length ? phenylene(polyol.replace(/ol$/, "yl")) : polyol ? polyolDiyl(this, alcohol, os) : undefined;
   }
   // Some atoms as a structure of their own, with a hydrogen more on each of `addH` and an OH more on each of `addOH`.
   // Stereo labels are kept: they describe the whole structure, as the name does.

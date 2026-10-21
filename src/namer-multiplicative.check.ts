@@ -135,6 +135,21 @@ const cases: [string, string][] = [
   ["smiles:Oc1ccccc1/C=N/[C@@H]1CCCC[C@H]1/N=C/c1ccccc1O", "2,2'-{[(1R,2R)-cyclohexane-1,2-diyl]bis[azanylylidene(E)-methanylylidene]}diphenol"],
   // Ions and salts.
   ["smiles:[O-]C(=O)c1ccc(Oc2ccc(C([O-])=O)cc2)cc1.[Na+].[Na+]", "disodium 4,4'-oxydibenzoate"],
+  // Esters of a multiplied acid, the alkyl groups all alike (P-65.6.3.2.1).
+  ["smiles:COC(=O)c1ccc(Oc2ccc(cc2)C(=O)OC)cc1", "dimethyl 4,4'-oxydibenzoate"], ["smiles:COC(=O)COCC(=O)OC", "dimethyl 2,2'-oxydiacetate"],
+  ["smiles:CCOC(=O)CCSCCC(=O)OCC", "diethyl 3,3'-sulfanediyldipropanoate"],
+  ["smiles:CCOC(=O)CN(CC(=O)OCC)CCN(CC(=O)OCC)CC(=O)OCC", "tetraethyl 2,2',2'',2'''-(ethane-1,2-diyldinitrilo)tetraacetate"],
+  ["smiles:CCOC(=O)c1ccc(Oc2ccc(cc2)C(=O)OC)cc1", "methyl 4-[4-(ethoxycarbonyl)phenoxy]benzoate"],
+  // Esters of a polyol framed as a multiplying group (P-15.3.0, P-13.6.2): oxydi(ethane-2,1-diyl), 1,4-phenylene.
+  ["smiles:CC(=O)OCCOCCOC(C)=O", "oxydi(ethane-2,1-diyl) diacetate"], ["smiles:CC(=O)OCCOCCOCCOC(C)=O", "ethane-1,2-diylbis(oxyethane-2,1-diyl) diacetate"],
+  ["smiles:O=C(OCCOCCOC(=O)c1ccccc1)c1ccccc1", "oxydi(ethane-2,1-diyl) dibenzoate"], ["smiles:CC(=O)Oc1ccc(OC(C)=O)cc1", "1,4-phenylene diacetate"],
+  ["smiles:CC(=O)Oc1ccc(cc1)C(C)(C)c1ccc(OC(C)=O)cc1", "propane-2,2-diyldi(4,1-phenylene) diacetate"], ["smiles:CC(=O)OCC(=O)COC(C)=O", "2-oxopropane-1,3-diyl diacetate"],
+  ["smiles:CS(=O)(=O)OCCOCCOS(C)(=O)=O", "oxydi(ethane-2,1-diyl) dimethanesulfonate"], ["smiles:CC(=O)OCCOC(C)=O", "ethane-1,2-diyl diacetate"],
+  // Amides joined through their N (P-15.3.2.2.1).
+  ["smiles:CC(=O)NCNC(C)=O", "N,N'-methylenediacetamide"], ["smiles:C=CC(=O)NCNC(=O)C=C", "N,N'-methylenedi(prop-2-enamide)"],
+  ["smiles:CC(=O)NCCNC(C)=O", "N,N'-(ethane-1,2-diyl)diacetamide"], ["smiles:CC(=O)Nc1ccc(NC(C)=O)cc1", "N,N'-(1,4-phenylene)diacetamide"],
+  ["smiles:CN(C(C)=O)CN(C)C(C)=O", "N,N'-methylenebis(N-methylacetamide)"], ["smiles:NC(=O)c1ccc(cc1)NCNc1ccc(cc1)C(N)=O", "4,4'-[methylenebis(azanediyl)]dibenzamide"],
+  ["smiles:OC(=O)CCC(=O)NCCNC(=O)CCC(O)=O", "4,4'-[ethane-1,2-diylbis(azanediyl)]bis(4-oxobutanoic acid)"],
   // Substitutive names stand: acyclic hydrocarbons are never units (P-15.3.4.2), different locants (P-51.3.3),
   // unsymmetrical substitution (P-15.3.4.1), a senior parent elsewhere (P-51.3.2.3), units of different configuration.
   ["smiles:CCOCC", "ethoxyethane"], ["smiles:ClCCOCCCl", "1-chloro-2-(2-chloroethoxy)ethane"], ["smiles:CS(C)=O", "(methanesulfinyl)methane"],
