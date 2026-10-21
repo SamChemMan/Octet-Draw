@@ -22,7 +22,7 @@ import { parse, serialize } from "./file";
 import {
   EMPTY, extent, stack, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bounds, complete, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addLane, addTemplate, alignFragments, cutReaction, deleteLane, moveLane, restyleSpot, atomsInPolygon, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset,
-  addShape, addSymbol, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
+  addShape, addSymbol, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, carryDepth, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
   toFront, addChain, chainPoints, chainThrough, snake, clickBond, dragBond, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, placeCentres, pickAtoms, nextGroup,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
@@ -650,10 +650,11 @@ export default function Editor() {
   const svg = useRef<SVGSVGElement>(null);
   const pointer = useRef<P>(undefined);
   // Every edit clears the selection, except a move, which keeps the same atoms selected. Groups keep whole structures,
-  // so atoms drawn onto a grouped structure join its group (wholeGroups).
+  // so atoms drawn onto a grouped structure join its group (wholeGroups). Atoms drawn onto a structure turned in 3D
+  // take its depth (carryDepth).
   // Returns the drawing as it goes in the history.
   const set = (mol: Mol, keepSelection = false, merge?: string) => {
-    const next = onTop(doc, wholeGroups(placeCentres(settings.warnings ? showWarnedHydrogens(mol) : mol)), fragments);
+    const next = onTop(doc, wholeGroups(placeCentres(carryDepth(doc, settings.warnings ? showWarnedHydrogens(mol) : mol))), fragments);
     dispatch({ type: "set", mol: next, merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
     return next;
@@ -1179,6 +1180,8 @@ export default function Editor() {
       const b = bounds(mol) ?? extent(mol);
       setGuides(saved ?? { ...freshGuides(b && [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], readStyle(mol.style ?? newStyle)), ...(typeof kept.style?.grid === "number" ? { grid: true } : {}) });
       set(mol);
+      // As ChemDraw does, a drawing with a structure turned in 3D opens with Select as Structure Perspective, to turn it.
+      if (mol.atoms.some((a) => a.location[2])) { setSettings((s) => ({ ...s, variants: { ...s.variants, select: "perspective" } })); setTool("select"); }
       setFile(path ? { path, saved: mol, lost: Object.keys(lost).length ? lost : undefined } : title !== undefined ? { saved: EMPTY, name: title } : { saved: mol });
       setHome(false); setCoach(0); outlineFrom.current = undefined;
       sayLost(lost);
@@ -1496,16 +1499,17 @@ export default function Editor() {
       set(mol);
       setPicked(new Set([frameId]));
     }])),
-    // Structure Perspective (⌥⌘S): a 3D structure drawn with depth (nearer bonds wider and darker) or flat. Flatten
-    // (Object menu): the selected atoms lose their depth and keep where they are drawn.
+    // Structure Perspective (⌥⌘S), as ChemDraw's: depth shading on or off for the selected structures (or every one).
+    // With it on, a 3D structure's further bonds and labels are fainter. Flatten (Object menu): the selected atoms lose
+    // their depth and keep where they are drawn.
     structure_perspective: () => {
-      const atoms = selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i);
-      const off = atoms.some((i) => doc.atoms[i].depth === false);
-      set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.includes(i) ? { ...a, depth: off ? undefined : false } : a)) }, true);
+      const atoms = new Set(selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i));
+      const on = [...atoms].some((i) => doc.atoms[i].shade);
+      set({ ...doc, atoms: doc.atoms.map((a, i) => { if (!atoms.has(i)) return a; const { shade: _, ...rest } = a; return on ? rest : { ...rest, shade: true as const }; }) }, true);
     },
     flatten: () => set(flattenAtoms(doc, selection.size ? selection : new Set(doc.atoms.map((_, i) => i))), true),
-    // 3D Clean Up (⇧⌘D, Structure menu), as ChemDraw's: the selected structures (or every one) in 3D, drawn with depth,
-    // up to 500 atoms each; again to improve it. Then, as ChemDraw does, Select is Structure Perspective, to turn them.
+    // 3D Clean Up (⇧⌘D, Structure menu), as ChemDraw's: the selected structures (or every one) in 3D, with depth
+    // shading on, up to 500 atoms each; again to improve it. Then, as ChemDraw does, Select is Structure Perspective, to turn them.
     clean_3d: () => {
       const all = fragments(doc).filter((g) => !selection.size || g.some((i) => selection.has(i))), ok = all.filter((g) => g.length <= MOST_3D && g.length > 1);
       if (all.some((g) => g.length > MOST_3D)) setNotice(`Octet cannot clean up in 3D a structure of more than ${MOST_3D} atoms.`);
@@ -3466,11 +3470,17 @@ export default function Editor() {
         return setDrag({ ...drag, working: updateShape(drag.base, drag.plate, { tlc: { ...sh.tlc, ...change } }) });
       }
       case "tilt": {
-        // Half a degree per pixel: across turns about the vertical axis, up and down about the horizontal one;
-        // Shift keeps to one axis. Part of a structure joined by one bond turns about that bond.
+        // As ChemDraw's: 1.146° (0.02 radian) for each point the pointer moves on the page, so a turn is finer when
+        // zoomed in. Across turns about the vertical axis, up and down about the horizontal one, the front going with
+        // the pointer; Shift keeps to one axis. Part of a structure joined by one bond turns about that bond (and,
+        // in Octet, part joined to the same two atoms, as a bridging ligand, about the line through them), by the
+        // move across the axis; Shift turns it in steps of 15°, as the rotation handle does.
         let dx = e.clientX - drag.start[0], dy = e.clientY - drag.start[1];
-        if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
-        const working = drag.hinge ? turnAboutBond(drag.base, drag.ids, drag.hinge[1], drag.hinge[0], (dx - dy) * 0.5) : tiltAtoms(drag.base, drag.ids, drag.centre, dx * 0.5, -dy * 0.5);
+        const rate = (1.146 * 14.4) / (L * views.get().zoom);
+        if (e.shiftKey && !drag.hinge) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
+        const axis = drag.hinge && [0, 1].map((k) => drag.base.atoms[drag.hinge![0]].location[k] - drag.base.atoms[drag.hinge![1]].location[k]), along = axis ? Math.hypot(axis[0], axis[1]) || 1 : 1;
+        const about = axis ? ((dx * axis[1] + dy * axis[0]) / along) * rate : 0, step = e.shiftKey ? Math.round(about / 15) * 15 : about;
+        const working = drag.hinge ? turnAboutBond(drag.base, drag.ids, drag.hinge[1], drag.hinge[0], step) : tiltAtoms(drag.base, drag.ids, drag.centre, dx * rate, dy * rate);
         return setDrag({ ...drag, working });
       }
       case "pen":
@@ -4098,10 +4108,10 @@ export default function Editor() {
     // Its stereocentres as a whole: absolute (no flags), racemic (all &1), relative (all or1), or a mix.
     const centres = stereocentres(doc, selection), flags = new Set(centres.map((i) => doc.atoms[i].enhanced ?? ""));
     const stereo = !centres.length ? undefined : flags.size > 1 ? "mixed" : flags.has("&1") ? "racemic" : flags.has("or1") ? "relative" : flags.has("") ? "absolute" : "mixed";
-    // A 3D structure (Structure Perspective): drawn with depth, or flat.
+    // A 3D structure (Structure Perspective): depth shading on or off.
     const solid = ids.some((i) => Math.abs(doc.atoms[i].location[2] ?? 0) > 1e-3);
     return { kind: "structure", text: labelText(ids), atoms: ids.length, generic: genericSites(doc, fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat()), hydrogens: ids.some((i) => doc.atoms[i].label === "H" && !doc.atoms[i].text), structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextNumber(doc), nameable, pairs, stereo, joinable: !!joinSelection(doc, selection),
-      ...(solid ? { depth: !ids.some((i) => doc.atoms[i].depth === false) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
+      ...(solid ? { depth: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].shade) } : {}), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
       // Aromatic rings drawn with circles, so the aromatic display action can name what it shows next.
       circles: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].circle),
       // The highlight the selected atoms share, and the ring fill of the rings a fill would go in, if they share one.

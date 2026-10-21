@@ -22,7 +22,7 @@ const atoms: Atom[] = [
   A("O", 3.464, 0, { text: "OMe" }), A("C", 0.866, 1.5, { charge: 1, circled: true }), A("C", 0, -1, { partial: "+", hmark: "dot", map: 1, enhanced: "&1", cip: true }),
   A("C", -0.866, -1.5, { attach: true }), A("C", 0.866, -1.5, { bead: true }),
   // A second structure, the reaction's product.
-  A("C", 8, 0, { map: 1, enhanced: "abs", cip: true }), A("C", 8.866, 0.5, { depth: false }), A("Cl", 9.732, 0), A("C", 8, -1, { text: "Ph" }), A("D", 8.866, -1.5),
+  A("C", 8, 0, { map: 1, enhanced: "abs", cip: true }), A("C", 8.866, 0.5, { shade: true }), A("Cl", 9.732, 0), A("C", 8, -1, { text: "Ph" }), A("D", 8.866, -1.5),
   A("C", 7.134, 0.5, { text: "R1" }), A("C", 8.866, 1.5, { text: "CO2Et", hmark: "dash", enhanced: "or2" }),
   // A ring for the catalytic cycle and the bond styles.
   A("C", 20, 1), A("C", 20.866, 0.5), A("C", 20.866, -0.5), A("C", 20, -1), A("C", 19.134, -0.5), A("C", 19.134, 0.5),

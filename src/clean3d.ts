@@ -20,7 +20,8 @@ const lenV = (a: V) => Math.hypot(a[0], a[1], a[2]);
 const RADIUS: Record<string, number> = { H: 0.31, B: 0.84, C: 0.76, N: 0.71, O: 0.66, F: 0.57, Si: 1.11, P: 1.07, S: 1.05, Cl: 1.02, Br: 1.2, I: 1.39 };
 const CC = 1.52;
 
-// ids: the atoms to clean up (whole structures). Returns the drawing with those atoms in 3D, drawn with depth.
+// ids: the atoms to clean up (whole structures). Returns the drawing with those atoms in 3D, with depth shading on
+// (as ChemDraw turns it on after 3D Clean Up).
 export function clean3d(m: Mol, ids: number[]): Mol {
   const n = ids.length, local = new Map(ids.map((g, k) => [g, k]));
   if (n < 2) return m;
@@ -121,8 +122,7 @@ export function clean3d(m: Mol, ids: number[]): Mol {
     atoms: m.atoms.map((a, g) => {
       const k = local.get(g);
       if (k === undefined) return a;
-      const { depth: _, ...rest } = a;
-      return { ...rest, location: [p[k][0] + shift[0], p[k][1] + shift[1], p[k][2] + shift[2]] as V };
+      return { ...a, shade: true, location: [p[k][0] + shift[0], p[k][1] + shift[1], p[k][2] + shift[2]] as V };
     }),
   };
 }

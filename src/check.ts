@@ -1,6 +1,6 @@
 // Checks a drawing the way a chemist would at a glance: ChemDraw 26.1's chemical warnings (Check Structure and the
 // marks on the drawing), and messy geometry. Messages follow the brief's style: what is wrong, the rule, then what to do.
-import { bondedTo, bondOrders, freePairs, LARGE, neighbours, pos, type P } from "./edit.ts";
+import { bondedTo, bondOrders, fragments, freePairs, LARGE, neighbours, pos, type P } from "./edit.ts";
 import { labelSmiles, units } from "./labels.ts";
 import { HBOND, isBracket, orderOf, type Bond, type Mol } from "./render.ts";
 
@@ -173,7 +173,8 @@ export function problems(m: Mol, stereo?: StereoFacts, all = false): Problem[] {
     }
   });
   // Unlabelled atoms very close to a bond they are not part of. The atoms go in a grid (one bond length square); each
-  // bond tests the atoms in the cells its box, grown by NEAR, covers (a long bond, every atom).
+  // bond tests the atoms in the cells its box, grown by NEAR, covers (a long bond, every atom). In a structure turned
+  // in 3D the distance counts depth too: an atom that is only in line with a bond as seen (one behind it) is not close.
   const NEAR = 0.15, grid = new Map<number, number[]>(), key = (x: number, y: number) => x * 4194304 + y, xy = m.atoms.map((a) => a.location);
   m.atoms.forEach((a, i) => {
     if (a.text || a.label !== "C" || !count[i] || a.centre) return;
@@ -187,7 +188,7 @@ export function problems(m: Mol, stereo?: StereoFacts, all = false): Problem[] {
     const test = (i: number) => {
       if (i === b.atoms[0] || i === b.atoms[1]) return;
       const p = xy[i], f = l ? Math.max(0, Math.min(1, ((p[0] - s[0]) * dx + (p[1] - s[1]) * dy) / l)) : 0;
-      if (Math.hypot(s[0] + f * dx - p[0], s[1] + f * dy - p[1]) < NEAR) close.add(i);
+      if (Math.hypot(s[0] + f * dx - p[0], s[1] + f * dy - p[1], (s[2] ?? 0) + f * ((t[2] ?? 0) - (s[2] ?? 0)) - (p[2] ?? 0)) < NEAR) close.add(i);
     };
     if (x1 - x0 > 8 || y1 - y0 > 8) { for (const cell of grid.values()) cell.forEach(test); continue; }
     for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) grid.get(key(x, y))?.forEach(test);
@@ -283,9 +284,11 @@ function nearPair(ps: P[], cell: number, f: (i: number, j: number) => boolean): 
   });
 }
 
-// Messy geometry: a bond far from the standard length, or two atoms almost on top of each other.
+// Messy geometry: a bond far from the standard length, or two atoms almost on top of each other. A structure turned
+// in 3D is drawn in perspective, with short and crossing bonds by design, so it is never messy.
 export function messy(m: Mol, ids?: Set<number>): boolean {
-  const inside = (i: number) => !ids?.size || ids.has(i);
+  const solid = new Set(m.atoms.some((a) => a.location[2]) ? fragments(m).filter((g) => g.some((i) => m.atoms[i].location[2])).flat() : []);
+  const inside = (i: number) => (!ids?.size || ids.has(i)) && !solid.has(i);
   const uneven = m.bonds.some((b) => {
     if (!inside(b.atoms[0]) || !inside(b.atoms[1]) || m.atoms[b.atoms[0]].centre || m.atoms[b.atoms[1]].centre) return false;
     const [p, q] = [pos(m, b.atoms[0]), pos(m, b.atoms[1])];
