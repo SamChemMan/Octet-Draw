@@ -20,6 +20,10 @@ serialisation. They are in `js/src`:
   (BSD-3-Clause) and keeps its licence header.
 - `org.apache.logging.log4j`: a stub that logs nothing.
 
+`opsin.js` exports `parseToSmiles`, and `parseToAtoms` (Octet's `OctetAtoms`, also in `js/src`):
+the structure OPSIN builds for a name, with each atom's locants, as JSON. Structure to Name uses
+the locants to check the donor atoms it cites in names of coordination compounds (κ terms).
+
 Rebuild after changing any of them, or to move to a new OPSIN version:
 
     JAVA_HOME=/path/to/jdk-21 MVN=/path/to/mvn tools/opsin/build.sh
