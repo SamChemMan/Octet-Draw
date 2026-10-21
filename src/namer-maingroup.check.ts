@@ -80,6 +80,7 @@ const cases: [string, string][] = [
   ["lithium bis(trimethylsilyl)azanide", "lithium bis(trimethylsilyl)azanide"], ["trimethylsilyl trifluoromethanesulfonate", "trimethylsilyl trifluoromethanesulfonate"],
   ["smiles:C[Si](C)(C)OP(=O)(O[Si](C)(C)C)O[Si](C)(C)C", "tris(trimethylsilyl) phosphate"], ["smiles:C[Si](C)(C)OS(=O)(=O)O[Si](C)(C)C", "bis(trimethylsilyl) sulfate"],
   ["smiles:[N+](=O)([O-])N1CN(CN(C1)[N+](=O)[O-])[N+](=O)[O-]", "1,3,5-trinitro-1,3,5-triazinane"], ["smiles:CN(C)[N+](=O)[O-]", "N-methyl-N-nitromethanamine"],
+  ["smiles:[N-](c1ccccc1)C(=O)OC", "(methoxycarbonyl)(phenyl)azanide"], ["smiles:[Na+].[N-](C(=O)OC(C)(C)C)C(=O)OC(C)(C)C", "sodium bis(tert-butoxycarbonyl)azanide"],
   // Inorganic species (IR-6, IR-8; P-67.1.1.1).
   ["smiles:O[Se](=O)(=O)O[Se](=O)(=O)O", "diselenic acid"], ["smiles:O[Se](=O)(=O)[Se](=O)(=O)O", "hypodiselenic acid"], ["smiles:[Te](O)(O)(O)(O)(O)O", "orthotelluric acid"],
   ["smiles:[O-][Te](=O)(=O)[O-]", "tellurate"], ["smiles:[O-][Xe](=O)(=O)([O-])([O-])[O-]", "perxenate"], ["smiles:O[As](=O)(O)[As](=O)(O)O", "hypodiarsoric acid"],

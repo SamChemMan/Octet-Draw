@@ -796,7 +796,9 @@ class Namer {
         else {
           // An azanide (P-72.2.2.1) with acyl, sulfonyl and cyano groups: acetyl(phenyl)azanide,
           // bis(trifluoromethanesulfonyl)azanide, dicyanoazanide.
-          const acyl = (c: number) => el[c] === "C" && !q[c] && !this.inRing[c] && this.carbonylO[c] >= 0 && this.carbons(c).length <= 1 && adj[c].length === this.carbons(c).length + 2;
+          // Alkoxycarbonyl too: (methoxycarbonyl)(phenyl)azanide.
+          const alkoxy = (c: number) => adj[c].filter((o) => el[o] === "O" && !q[o] && adj[o].length === 2 && this.ord(c, o) === 1 && plainC(adj[o].find((k) => k !== c)!));
+          const acyl = (c: number) => el[c] === "C" && !q[c] && !this.inRing[c] && this.carbonylO[c] >= 0 && this.carbons(c).length + alkoxy(c).length <= 1 && adj[c].length === this.carbons(c).length + alkoxy(c).length + 2;
           const sulfonyl = (s: number) => el[s] === "S" && !q[s] && !this.inRing[s] && adj[s].length === 4 && adj[s].filter((o) => terminalO(s, o)).length === 2 && adj[s].filter(plainC).length === 1;
           const cyano = (c: number) => el[c] === "C" && !q[c] && adj[c].length === 2 && adj[c].some((n) => el[n] === "N" && !q[n] && adj[n].length === 1 && this.ord(c, n) === 3);
           // Silyl groups pass here, but perceiveMain() takes no N- on Si yet: bis(trimethylsilyl)azanide has no name.
