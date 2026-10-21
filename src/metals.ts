@@ -200,10 +200,11 @@ function metallocene(s: Shape, api: MetalApi): string | undefined {
   const rings = ringsOf(s);
   if (rings.length !== 2) return undefined;
   const unit = new Set([m, ...rings.flat()]);
-  if (g.atoms.some((a, i) => !unit.has(i) && a.charge)) return undefined;
+  if (g.atoms.reduce((t, a, i) => t + (unit.has(i) ? 0 : a.charge), 0)) return undefined; // a salt of a metallocene ion
   // Substituents: each hangs on one ring carbon (none bridges two: an ansa-metallocene is not named).
   const subs = rings.flat().flatMap((r) => adj[r].filter((x) => !unit.has(x)).map((x) => ({ r, x, atoms: s.reach(x, unit) })));
   for (const sub of subs) if (sub.atoms.some((i) => adj[i].some((j) => unit.has(j) && (i !== sub.x || j !== sub.r)))) throw new Error("ansa-metallocene");
+  if (subs.reduce((t, sub) => t + sub.atoms.length, 0) + unit.size !== g.atoms.length) return undefined; // with other pieces: a salt or mixture
   if (subs.some((sub) => sub.atoms.some((i) => isMetal(g.atoms[i].el)))) throw new Error("several metals");
   const stem = OCENES[g.atoms[m].el];
   // A ring that has lost a hydrogen ion as well (C5H4 2-): the anion ferrocenide (P-72.2), with nothing else on it.

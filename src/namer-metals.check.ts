@@ -81,7 +81,8 @@ const names = [
   "1'-methylferrocene-1-carboxylic acid", "acetylferrocene", "1,1'-diacetylferrocene", "ferrocenylmethanol", "(2-methylferrocenyl)methanol",
   "N,N-dimethyl-1-ferrocenylmethanamine", "1,1'-bis(diphenylphosphanyl)ferrocene", "2-ferrocenylpyridine", "ferrocenylacetic acid",
   "ferrocenyl acetate", "ferrocenylmethyl acetate", "N-ferrocenylacetamide", "[1'-(hydroxymethyl)ferrocenyl]methanol",
-  "ferrocenide", "ruthenocenide", "smiles:[CH-]1C=C[C-]=C1.[CH-]1C=CC=C1.[Fe+2]",
+  "ferrocenide", "ruthenocenide", "smiles:[CH-]1C=C[C-]=C1.[CH-]1C=CC=C1.[Fe+2]", "nitroferrocene", "1,1'-dinitroferrocene",
+  "4-ferrocenylbenzoic acid", "3-ferrocenylpropanoic acid", "ferrocenylmethyl 4-nitrobenzoate",
   // Organometallic compounds by additive names (IR-9, P-69).
   "butyllithium", "sec-butyllithium", "tert-butyllithium", "methyllithium", "phenyllithium", "(4-methoxyphenyl)lithium", "ethynyllithium",
   "methylmagnesium bromide", "phenylmagnesium bromide", "ethylmagnesium chloride", "isopropylmagnesium chloride", "vinylmagnesium bromide",
@@ -142,6 +143,8 @@ const none: [string, string][] = [
   ["smiles:Cl[Pt](Cl)(N1=CC=CC=C1)N1=CC=CC=C1", "dative bond"],
   // Two metals sharing an O: the standard InChI of a drawn KO-MnO3 is not that of potassium permanganate.
   ["smiles:[Mn](=O)(=O)(=O)O[K]", "several metal atoms"],
+  // A metallocene beside another piece is not the metallocene alone.
+  ["smiles:[CH-]1C=CC=C1.[CH-]1C=CC=C1.[Fe+2].CCO", "salt"],
   ["smiles:C1=CC=C(C=C1)P(C1=CC=CC=C1)(C1=CC=CC=C1)[Pd](P(C1=CC=CC=C1)(C1=CC=CC=C1)C1=CC=CC=C1)(P(C1=CC=CC=C1)(C1=CC=CC=C1)C1=CC=CC=C1)P(C1=CC=CC=C1)(C1=CC=CC=C1)C1=CC=CC=C1", "dative bond"],
 ];
 for (const [input, why] of none) {
