@@ -498,6 +498,14 @@ export function toInchi(drawn: Mol | string): string | undefined {
     return undefined;
   }
 }
+// Standard InChI and, on the next line, its AuxInfo (/N: InChI's atoms by the drawing's), for complexes.ts.
+export function toInchiAux(drawn: Mol): string | undefined {
+  try {
+    return convert(ketOf(drawn), "inchi-aux") || undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 // A bond's type for a layout: a hydrogen or quadruple bond as a single bond, as Indigo has no type for them.
 const shapeType = (type: number) => (type === HBOND || type === QUADRUPLE ? 1 : Math.min(type, 3));

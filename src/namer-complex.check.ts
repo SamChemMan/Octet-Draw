@@ -33,7 +33,7 @@ const { attachOpsin, nameToAtoms, nameToSmiles } = await import("./names.ts");
 attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"));
 const { complexName, complexNameReads } = await import("./complexes.ts");
 // As the app names: OPSIN through names.ts, InChI and CIP labels by Indigo through chem.ts.
-const api = { read: nameToSmiles, atoms: nameToAtoms, inchi: chem.toInchi, cip: chem.cipOf };
+const api = { read: nameToSmiles, atoms: nameToAtoms, inchi: chem.toInchi, aux: chem.toInchiAux, cip: chem.cipOf };
 
 // A structure drawn from SMILES, labels expanded as Structure to Name expands them. A bracket atom with hydrogens bonded
 // to a metal is drawn as its label (NH3, OH2), as Sam draws ammine and aqua ligands.

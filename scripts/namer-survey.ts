@@ -144,10 +144,11 @@ const { complexName } = await import("../src/complexes.ts");
 const opsinApi = {
   read: (n: string) => { try { return opsin.parseToSmiles(n) ?? undefined; } catch { return undefined; } },
   atoms: (n: string) => { try { return opsin.parseToAtoms(n) ?? undefined; } catch { return undefined; } },
-  inchi: chem.toInchi, cip: chem.cipOf,
+  inchi: chem.toInchi, aux: chem.toInchiAux, cip: chem.cipOf,
 };
 const complexOf = (smiles: string): string | undefined => {
-  if (!/\[(?:Li|Na|K|Be|Mg|Ca|Sc|Ti|V|Cr|Mn|Fe|Co|Ni|Cu|Zn|Y|Zr|Nb|Mo|Tc|Ru|Rh|Pd|Ag|Cd|La|Hf|Ta|W|Re|Os|Ir|Pt|Au|U)\b/.test(smiles)) return undefined;
+  // A metal, or a main-group atom that can be a central atom (complexes.ts MAIN).
+  if (!/\[(?:Li|Na|K|Be|Mg|Ca|Sc|Ti|V|Cr|Mn|Fe|Co|Ni|Cu|Zn|Y|Zr|Nb|Mo|Tc|Ru|Rh|Pd|Ag|Cd|La|Hf|Ta|W|Re|Os|Ir|Pt|Au|U)\b|B(?!r)|Al|Ga|In|Si|Ge|Sn|Pb|P|As|Sb/.test(smiles)) return undefined;
   try {
     let m = drawings.get(smiles);
     if (!m) {

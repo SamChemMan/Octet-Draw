@@ -19,6 +19,9 @@
 // 3. The finished name is parsed again, term by term, and each part read again as in 1 and 2: the ligands with their
 //    counts and donor atoms, the metal and how many, the bridging ligands, the metal-metal bond, the counter-ions,
 //    and the charge number or oxidation number must all match the drawing.
+// A main-group atom (P, Si, B and others) is a central atom in a chelate when the namer has no name (IR-7.1):
+// dimethanolato(5,10,15,20-tetraphenylporphyrin-21,23-diido-κ4N21,N22,N23,N24)phosphorus(1+). The E or Z that a chelate
+// ring fixes is left out of the check of a ligand's name (Ligand.fixed): a porphyrin's name cites none.
 // Names are not given for what is not checked here: polyhedral symbols and configuration (cis, Δ), η ligands, three
 // or more metal atoms, two metals of different elements, and donor atoms that no κ term above can cite.
 import { graphOf, type Cip, type Graph } from "./naming.ts";
@@ -32,6 +35,7 @@ export type ComplexApi = {
   read: (name: string) => string | undefined;
   atoms: (name: string) => string | undefined; // OPSIN's parseToAtoms JSON
   inchi: (s: Mol | string) => string | undefined;
+  aux?: (m: Mol) => string | undefined; // the InChI and its AuxInfo, for Ligand.fixed
   cip?: (m: Mol) => Cip | undefined;
 };
 
@@ -44,11 +48,16 @@ const ROMAN = ["0", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX"];
 // Central atoms in anions (IR-9.2.2, Table X): ferrate, cuprate; else -ium, -um and -ese become -ate (cobaltate).
 const ATE: Record<string, string> = {
   Fe: "ferrate", Cu: "cuprate", Ag: "argentate", Au: "aurate", Pb: "plumbate", Sn: "stannate", Hg: "mercurate", Mo: "molybdate",
-  W: "tungstate", Mn: "manganate", Sb: "antimonate",
+  W: "tungstate", Mn: "manganate", Sb: "antimonate", B: "borate", Si: "silicate", P: "phosphate", As: "arsenate",
 };
 const ateOf = (el: string) => ATE[el] ?? ELEMENTS.get(el)!.replace(/(ium|um|ese)$/, "") + "ate";
+// Main-group central atoms (IR-7.1 allows additive names for them), with their group's oxidation number. One is a
+// central atom only in a chelate, bonded by single bonds to donor atoms alone (centresOf): phosphorus in a porphyrin,
+// boron in a BODIPY dye. With a bond to carbon (a silyl ether, a boronic ester, a phosphonium salt) it is not: the
+// namer names those. Structure to Name asks this file only when the namer has no name (naming.ts).
+const GROUP: Record<string, number> = { B: 3, Al: 3, Ga: 3, In: 3, Si: 4, Ge: 4, Sn: 4, Pb: 4, P: 5, As: 5, Sb: 5 }, MAIN = new Set(Object.keys(GROUP));
 const NAMES = new Map<string, { el: string; ate: boolean }>();
-for (const [el, name] of ELEMENTS) if (isMetal(el)) { NAMES.set(name, { el, ate: false }); NAMES.set(ateOf(el), { el, ate: true }); }
+for (const [el, name] of ELEMENTS) if (isMetal(el) || MAIN.has(el)) { NAMES.set(name, { el, ate: false }); NAMES.set(ateOf(el), { el, ate: true }); }
 
 // Marks on donor atoms for the checks: an isotope no drawing needs, one set for each metal of a complex.
 const MARK: Record<string, [number, number]> = {
@@ -91,6 +100,11 @@ type Ligand = {
   // Double bonds in a chelate ring and in no ring of the ligand alone (the C=N of a salen, the C=C of an acac): their
   // E or Z is the chelate's, so the ligand's name does not cite it.
   chelated?: Set<string>;
+  // Bonds of any order in a ring of 8 or more atoms of the ligand alone and in no smaller one, but in a chelate ring
+  // of at most 7: the chelate fixes their E or Z (the meso C-C bonds of a porphyrin). InChI gives those bonds E or Z
+  // in the free ligand, single bonds too where it moves charges or hydrogens along the ring, so the check of the
+  // ligand's name leaves them out (unfixed).
+  fixed?: Set<string>;
 };
 // written: the oxidation state written in the metal's label (Os(II)), for a complex of one metal atom.
 type Entity = { metals: number[]; ligands: Ligand[]; hydrides: number; mm: [number, number][]; charge: number; atoms: number[]; written?: number };
@@ -129,12 +143,42 @@ function linked(adj: number[][], u: number, v: number, keep: (i: number) => bool
   }
   return false;
 }
+// Whether the bond u-v is in a ring of at most 7 atoms through atoms that pass keep. InChI gives E or Z only to double
+// bonds in no such ring.
+function smallRing(adj: number[][], u: number, v: number, keep: (i: number) => boolean): boolean {
+  const far = new Map([[u, 0]]);
+  for (let front = [u], d = 1; d < 7 && front.length; d++) {
+    const next: number[] = [];
+    for (const i of front) for (const j of adj[i]) {
+      if ((i === u && j === v) || far.has(j) || !keep(j)) continue;
+      if (j === v) return true;
+      far.set(j, d);
+      next.push(j);
+    }
+    front = next;
+  }
+  return false;
+}
+// The central atoms of a piece of the drawing: its metal atoms; else one main-group atom (MAIN) that a ligand
+// chelates, bonded by single bonds to donor atoms and hydrogen alone.
+function centresOf(s: Shape, atoms: number[]): number[] {
+  const { g, adj, ord } = s, metals = atoms.filter((i) => isMetal(g.atoms[i].el));
+  if (metals.length) return metals;
+  const inside = new Set(atoms), found = atoms.filter((x) => {
+    if (!MAIN.has(g.atoms[x].el) || adj[x].some((j) => ord.get(key(x, j)) !== 1 || !(DONORS.has(g.atoms[j].el) || g.atoms[j].el === "H"))) return false;
+    // A chelate: two of its neighbours joined other than through it.
+    const piece = new Map<number, number>();
+    parts(g.atoms.length, adj, (i) => inside.has(i) && i !== x).forEach((p, k) => p.forEach((i) => piece.set(i, k)));
+    return new Set(adj[x].map((j) => piece.get(j))).size < adj[x].length;
+  });
+  return found.length === 1 ? found : [];
+}
 // A complex's ligands, each with the charges its donor atoms have once the bonds to the metal are cut: a dative bond
 // leaves the donor as it was (the N of a pyridine), a covalent one leaves it negative (the O of a phenolate). Which
 // one is decided by valence: the donor must be left in a usual valence state, and only one may fit.
 function entityOf(s: Shape, atoms: number[]): Entity | undefined {
   const { g, adj, ord } = s, inside = new Set(atoms);
-  const metals = atoms.filter((i) => isMetal(g.atoms[i].el));
+  const metals = centresOf(s, atoms);
   if (!metals.length || metals.length > MOST_METALS) return undefined;
   const metal = new Set(metals), mm: [number, number][] = [];
   for (const m of metals) for (const j of adj[m]) if (metal.has(j) && m < j) mm.push([m, j]);
@@ -162,16 +206,27 @@ function entityOf(s: Shape, atoms: number[]): Entity | undefined {
       if (fits[0] !== a.charge) lig.q.set(d, fits[0]);
     }
     lig.charge = part.reduce((t, i) => t + (lig.q.get(i) ?? g.atoms[i].charge), 0);
-    const own = new Set(part), chelated = new Set<string>();
+    // Bonds whose E or Z the chelate fixes (chelated, fixed): in no ring of the ligand alone but in a chelate ring (the
+    // C=N of a salen), or in rings of 8 or more atoms of the ligand alone but in a chelate ring of fewer (the meso C-C
+    // bonds of a porphyrin, each in a six-membered ring with the central atom).
+    const own = new Set(part), chelated = new Set<string>(), fixed = new Set<string>(), mine = (i: number) => own.has(i), all = (i: number) => inside.has(i);
     for (const u of part) for (const v of adj[u]) {
-      if (u < v && own.has(v) && ord.get(key(u, v)) === 2 && !linked(adj, u, v, (i) => own.has(i)) && linked(adj, u, v, (i) => inside.has(i))) chelated.add(key(u, v));
+      if (u > v || !own.has(v) || smallRing(adj, u, v, mine)) continue;
+      const ring = smallRing(adj, u, v, all), cyclic = linked(adj, u, v, mine);
+      if (ring && cyclic) fixed.add(key(u, v));
+      if (ord.get(key(u, v)) === 2 && (ring || (!cyclic && linked(adj, u, v, all)))) chelated.add(key(u, v));
     }
     if (chelated.size) lig.chelated = chelated;
+    if (fixed.size) lig.fixed = fixed;
     ligands.push(lig);
   }
-  const hydrides = metals.reduce((t, m) => t + g.atoms[m].h, 0);
+  const hydrides = metals.reduce((t, m) => t + g.atoms[m].h, 0), charge = atoms.reduce((t, i) => t + g.atoms[i].charge, 0);
   if (!ligands.length && !hydrides) return undefined;
-  return { metals, ligands, hydrides, mm, charge: atoms.reduce((t, i) => t + g.atoms[i].charge, 0), atoms };
+  // A main-group central atom has an oxidation number its group allows: at most the group's, in steps of two
+  // (phosphorus(V) or (III), tin(IV) or (II)). Another (a charge left off the drawing) gives no name.
+  const top = GROUP[g.atoms[metals[0]].el], ox = charge + hydrides - ligands.reduce((t, l) => t + l.charge, 0);
+  if (top && (ox <= 0 || ox > top || (top - ox) % 2)) return undefined;
+  return { metals, ligands, hydrides, mm, charge, atoms };
 }
 
 // A ligand with a name of its own (LEX), by shape: one atom (by its charge once cut), water, ammonia, hydroxide,
@@ -221,6 +276,29 @@ function ligandMol(m: Mol, g: Graph, lig: Ligand, marks = new Map<number, number
 }
 // An InChI without its stereo layers, for the checks of marked atoms (OPSIN's atoms carry no stereo).
 const flat = (inchi: string | undefined) => inchi?.split("/").filter((l, k) => k < 2 || !/^[btms]/.test(l)).join("/");
+// The free ligand's InChI for the check of its name, and the bonds whose E or Z the chelate fixes (Ligand.fixed) by
+// InChI's numbering (larger number first, as in its /b layer), from the AuxInfo's /N (InChI's atoms by the ligand's).
+function fixedInchi(free: Mol, lig: Ligand, api: ComplexApi): { inchi: string; pairs: Set<string> } | undefined {
+  const text = api.aux?.(free), lines = text?.split("\n"), n = lines && /\/N:([\d,]+)(?:\/|$)/.exec(lines[1] ?? "");
+  if (!lines || !n || !lines[0].startsWith("InChI=")) return undefined;
+  const at = new Map(n[1].split(",").map((x, k) => [lig.atoms[Number(x) - 1], k + 1])), pairs = new Set<string>();
+  for (const b of lig.fixed!) {
+    const [x, y] = b.split(" ").map((i) => at.get(Number(i)));
+    if (!x || !y) return undefined;
+    pairs.add(`${Math.max(x, y)}-${Math.min(x, y)}`);
+  }
+  return { inchi: unfixed(lines[0], pairs)!, pairs };
+}
+// An InChI with no E or Z for those bonds, nor for any whose E or Z is not given (?), in its /b layers: as the name
+// cites none for them, the drawn ligand and OPSIN's structure for the name then compare. Every other E and Z counts.
+function unfixed(inchi: string | undefined, pairs?: Set<string>): string | undefined {
+  if (!inchi || !pairs) return inchi;
+  return inchi.split("/").flatMap((l, k) => {
+    if (k < 2 || l[0] !== "b") return [l];
+    const kept = l.slice(1).split(",").filter((x) => { const y = /^(\d+-\d+)([-+?])$/.exec(x); return !y || (y[2] !== "?" && !pairs.has(y[1])); });
+    return kept.length ? [`b${kept.join(",")}`] : [];
+  }).join("/");
+}
 
 // OPSIN's structure for a name, from parseToAtoms: its SMILES, its heavy atoms with hydrogen counts and locants, and
 // its bonds. Undefined for a name OPSIN does not read.
@@ -305,8 +383,9 @@ function maps(b: Built, g: Graph, atoms: number[], limit = 24): number[][] {
 
 // ——— Ligand names ———
 // A ligand's name in the complex (form), the InChI of the free ligand it names (key; for a carbon ligand, on silane),
-// its charge as a free ligand, and for a carbon ligand the order of its bond to the metal.
-type Named = { form: string; key: string; flat: string; charge: number; carbon?: number };
+// its charge as a free ligand, and for a carbon ligand the order of its bond to the metal. pairs: the bonds whose E or
+// Z the chelate fixes, left out of key and of every InChI compared with it (fixedInchi).
+type Named = { form: string; key: string; flat: string; charge: number; carbon?: number; pairs?: Set<string> };
 // Enclosing marks as the namer nests them (P-16.5.4, IR-2.2): {[({[( )]})]}.
 const enclose = (t: string) => encloseName({ text: t, compound: true });
 
@@ -334,17 +413,23 @@ function nameLigand(m: Mol, g: Graph, lig: Ligand, api: ComplexApi): Named | und
     if (!back || api.inchi(back) !== want) return undefined;
     return { form: text, key: want, flat: flat(want)!, charge: 0, carbon: b.order };
   }
-  const free = ligandMol(m, g, lig), want = api.inchi(free), graph = want && graphOf(free, api.cip?.(free));
+  const free = ligandMol(m, g, lig), fx = lig.fixed && fixedInchi(free, lig, api), want = lig.fixed ? fx?.inchi : api.inchi(free);
+  const graph = want && graphOf(free, api.cip?.(free));
   if (!graph) return undefined;
   // A ring assembly of three or more pyridine rings by its own name (terpyridine), or identical anionic units on a
   // benzene ring by a multiplicative name; else the namer's.
-  const reads = (n: string | undefined) => { const back = n ? opsinOf(n, api)?.smiles : undefined; return !!back && api.inchi(back) === want; };
+  const reads = (n: string | undefined) => { const back = n ? opsinOf(n, api)?.smiles : undefined; return !!back && unfixed(api.inchi(back), fx?.pairs) === want; };
   // The namer's name without multiplication (namer-multiplicative.ts): κ cites atoms of a parent and its substituents.
-  const own = (!lig.charge ? assemblyName(graph) : multiplicativeName(graph, reads)) ?? undefined, name = own && reads(own) ? own : substitutively(() => iupacNameWhy(graph).name);
+  const own = (!lig.charge ? assemblyName(graph) : multiplicativeName(graph, reads)) ?? undefined;
+  let name = own && reads(own) ? own : substitutively(() => iupacNameWhy(graph).name);
   if (!name || (name !== own && !reads(name))) return undefined;
+  // A porphyrin's anion as the Red Book names it (IR-9 Table VII: tpp, 5,10,15,20-tetraphenylporphyrin-21,23-diido),
+  // with no indicated hydrogen at the anionic N atoms.
+  const book = name.replace(/-?(\d+)H,(\d+)H-(porphyrin)-\1,\2-diide$/, "$3-$1,$2-diide");
+  if (book !== name && reads(book)) name = book;
   // An anion's ending, before any closing marks of a multiplied unit (bis(2,2-dimethylpropanoato)).
   const form = lig.charge < 0 ? (/(ate|ide|ite)[)\]}]*$/.test(name) ? name.replace(/e([)\]}]*)$/, "o$1") : undefined) : name;
-  return form ? { form, key: want, flat: flat(want)!, charge: lig.charge } : undefined;
+  return form ? { form, key: want, flat: flat(want)!, charge: lig.charge, ...(fx ? { pairs: fx.pairs } : {}) } : undefined;
 }
 
 // Two identical anionic units on a benzene ring, with nothing else on the ring: a multiplicative name (P-15.3),
@@ -1088,7 +1173,7 @@ function claimOf(t: PTerm, c: Context, at: number | undefined): Claim | undefine
     if (groups.flat().some((d) => !MARK[g.atoms[d].el])) return undefined;
     return flat(api.inchi(ligandMol(c.m, g, lig, new Map(groups.flatMap((ds, j) => ds.map((d) => [d, MARK[g.atoms[d].el][j]] as [number, number]))), !!lig.carbon)));
   };
-  const base = (k: number) => c.named[k].key === type && !!e.ligands[k].carbon === carbon && !e.ligands[k].lex;
+  const base = (k: number) => c.named[k].key === unfixed(type, c.named[k].pairs) && !!e.ligands[k].carbon === carbon && !e.ligands[k].lex;
   // Which metal each κ group is on: by its locant, else in turn (a bridging ligand), else the term's metal.
   const metalOf = (x: { metal?: number }, j: number) => (x.metal !== undefined ? x.metal - 1 : t.mu ? j : at);
   if (carbon) {
@@ -1193,7 +1278,8 @@ function verify(name: string, c: Context, ions: Ion[]): boolean {
 const memo = new Map<string, Named>();
 // A ligand's name, once for alike ligands (by its InChI, the names found kept between calls).
 function ligandName(m: Mol, g: Graph, lig: Ligand, api: ComplexApi): Named | undefined {
-  if (lig.lex) return nameLigand(m, g, lig, api);
+  // Not kept where the chelate fixes E or Z (Ligand.fixed): the bonds it fixes depend on the complex, not the ligand.
+  if (lig.lex || lig.fixed) return nameLigand(m, g, lig, api);
   const k = `${lig.carbon ? lig.bonds[0].order : 0} ${api.inchi(ligandMol(m, g, lig, new Map(), !!lig.carbon))}`, kept = memo.get(k);
   if (kept) return kept;
   const found = nameLigand(m, g, lig, api);
@@ -1228,9 +1314,12 @@ export function complexNameReads(name: string, m: Mol, api: ComplexApi): boolean
 function drawing(m: Mol, api: ComplexApi): { c: Context; ions: Ion[] } | undefined {
   if (m.atoms.length > MOST_ATOMS) return undefined;
   const g = graphOf(m);
-  if (!g || !g.atoms.some((a) => isMetal(a.el))) return undefined;
-  // The complex: the one piece with a metal atom bonded to something. Lone metal ions are counter-ions.
-  const s = shapeOf(g), frags = parts(g.atoms.length, s.adj, () => true), cx = frags.filter((p) => p.length > 1 && p.some((i) => isMetal(g.atoms[i].el)));
+  if (!g || !g.atoms.some((a) => isMetal(a.el) || MAIN.has(a.el))) return undefined;
+  // The complex: the one piece with a metal atom bonded to something; else the one piece with a main-group central
+  // atom (centresOf). Lone metal ions are counter-ions.
+  const s = shapeOf(g), frags = parts(g.atoms.length, s.adj, () => true);
+  let cx = frags.filter((p) => p.length > 1 && p.some((i) => isMetal(g.atoms[i].el)));
+  if (!cx.length) cx = frags.filter((p) => p.length > 1 && centresOf(s, p).length);
   if (cx.length !== 1) return undefined;
   const e = entityOf(s, cx[0]);
   if (!e) return undefined;
@@ -1263,6 +1352,7 @@ function keep(api: ComplexApi): ComplexApi {
     read: (n) => once(read, n, () => api.read(n)),
     atoms: (n) => once(atoms, n, () => api.atoms(n)),
     inchi: (s) => once(inchi, typeof s === "string" ? s : JSON.stringify(s), () => api.inchi(s)),
+    ...(api.aux ? { aux: (m: Mol) => once(inchi, `aux ${JSON.stringify(m)}`, () => api.aux!(m)) } : {}),
     // CIP labels only where there can be some: a wedge, or a double bond in no ring (E or Z by the drawing).
     ...(api.cip ? { cip: (m: Mol) => (stereoable(m) ? api.cip!(m) : undefined) } : {}),
   };
