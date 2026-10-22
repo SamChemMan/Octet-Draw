@@ -5923,7 +5923,7 @@ export default function Editor() {
   // The grid cell picked, marked as a selection is.
   const gridPickMark = () => {
     const v = gridPick && gridViews.find((x) => x.arrow === gridPick.arrow), c = v?.cols.find((x) => x.key === gridPick!.key), k = v ? v.rows.findIndex((r) => r.id === gridPick!.row) : -1;
-    return v && c && k >= 0 ? <rect className="grid-pick" x={(c.x - v.width / 2) * L} y={-(v.top - k * v.rh) * L} width={v.width * L} height={v.rh * L} /> : null;
+    return v && c && k >= 0 ? <rect className="grid-pick" aria-hidden x={(c.x - v.width / 2) * L} y={-(v.top - k * v.rh) * L} width={v.width * L} height={v.rh * L} /> : null;
   };
   // Show Reaction Interpretation: the reaction under the pointer, each part boxed and named by what it is.
   const ROLE_NAMES: Record<Role, string> = { reactant: "Reactant", product: "Product", above: "Above arrow", below: "Below arrow" };
@@ -6530,7 +6530,7 @@ export default function Editor() {
             if (drag?.kind === "resize") {
               const [sx, sy] = drag.size, a = drag.anchor, f = drag.frame, x0 = a[0] + (f[0] - a[0]) * sx, x1 = a[0] + (f[2] - a[0]) * sx, y0 = a[1] + (f[1] - a[1]) * sy, y1 = a[1] + (f[3] - a[1]) * sy;
               return (
-                <g aria-hidden>
+                <g className="frame-marks" aria-hidden>
                   <rect className="selection-frame" x={x0 * L} y={-y1 * L} width={(x1 - x0) * L} height={(y1 - y0) * L} vectorEffect="non-scaling-stroke" />
                   <text className="turn-angle" x={((x0 + x1) / 2) * L} y={(-(y0 + y1) / 2) * L} textAnchor="middle" dominantBaseline="middle" style={{ fontSize: 12 / view.zoom }}>{percentOf(drag.size)}</text>
                 </g>
@@ -6538,7 +6538,7 @@ export default function Editor() {
             }
             const b = frameBox(view.zoom), r = 3.5 / view.zoom;
             return b && (
-              <g aria-hidden>
+              <g className="frame-marks" aria-hidden>
                 {selectionFrame!.handles && <rect className="selection-frame" x={b[0] * L} y={-b[3] * L} width={(b[2] - b[0]) * L} height={(b[3] - b[1]) * L} vectorEffect="non-scaling-stroke" />}
                 {frameSides(b, view.zoom).map((side) => { const q = handlePoint(b, side); return <rect key={side} className={overResize === side ? "resize-handle hot" : "resize-handle"} x={q[0] * L - r} y={-q[1] * L - r} width={2 * r} height={2 * r} vectorEffect="non-scaling-stroke" />; })}
                 {centre}

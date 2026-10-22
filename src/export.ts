@@ -5,11 +5,11 @@
 import { invoke } from "@tauri-apps/api/core";
 
 // Octet's own layers, not part of the drawing: page marks and grid, selection (its frame and resize handles too),
-// hover, NMR shifts, problems, handles, guides, the rubber band, the eraser and the rest.
+// hover, reaction interpretation, NMR shifts, problems, handles, guides, the rubber band, the eraser and the rest.
 export const UI = [
-  "pages", "grid", "selection-marks", "selection-frame", "resize-handle", "nmr-marks", "nmr-shift", "problem-mark", "mark", "arrow-mark", "suggested",
+  "pages", "grid", "selection-marks", "frame-marks", "nmr-marks", "nmr-shift", "problem-mark", "mark", "arrow-mark", "suggested",
   "ghost", "pen-points", "mapping", "handle", "turn-handle", "turn-centre", "turn-angle", "box", "trail", "erase-marks", "brush",
-  "count", "guide", "snap-point", "spot-picked", "lane-picked", "group-frame",
+  "count", "guide", "snap-point", "spot-picked", "lane-picked", "group-frame", "grid-pick", "interpretation",
 ].map((c) => `.${c}`).join(",");
 
 // Inherited properties: written where an element's value differs from its parent's.
@@ -66,6 +66,8 @@ export function standaloneSvg(canvas: SVGSVGElement, bounds: [number, number, nu
       for (const a of [...to.attributes]) if (/^(style|class|role|tabindex|aria-|data-|on)/i.test(a.name)) to.removeAttribute(a.name);
     });
     for (const el of drop) el.remove();
+    // Groups that held only Octet's own layers (a hover mark's, for one) go too, innermost first.
+    for (const g of [...copy.querySelectorAll("g")].reverse()) if (!g.firstElementChild) g.remove();
     // The view's pan and zoom give way to px → pt.
     copy.querySelector(":scope > g")?.setAttribute("transform", `scale(${+ptPerPx.toFixed(6)})`);
     copy.setAttribute("width", `${w}pt`);
