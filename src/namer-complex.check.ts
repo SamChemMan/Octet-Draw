@@ -227,6 +227,112 @@ assert.equal(complexName(drawn("[NH3][Pt](Cl)(Cl)[NH3]", "Pt(II)"), api), "diamm
 assert.equal(complexName(drawn("[NH3][Pt](Cl)(Cl)[NH3]", "Pt(IV)"), api), undefined, "Pt(IV) label");
 console.log("namer-complex.check: metals labelled with an oxidation number named with it");
 
+// Porphyrins, and main-group central atoms in chelates (IR-7.1, IR-9). The ligand as the Red Book names it (IR-9 Table
+// VII: tpp, 5,10,15,20-tetraphenylporphyrin-21,23-diido), its four N atoms cited by OPSIN's locants. Each name must
+// also be the one Structure to Name gives, so the namer has no name of its own for these structures. The porphyrins
+// are drawn as Sam draws them: the two imine N atoms with four bonds and no charge.
+const porphyrin = (r: string) => `C12=CC=C(N1%11)C(${r})=C1C=CC(=N1%12)C(${r})=C1C=CC(N1%13)=C(${r})C=1C=CC(N1%14)=C2${r}`;
+const TPP = porphyrin("c3ccccc3"), TPP_ = "5,10,15,20-tetraphenylporphyrin-21,23-diido-κ4N21,N22,N23,N24";
+const OEP = "C12=C(CC)C(CC)=C(N1%11)C=C1C(CC)=C(CC)C(=N1%12)C=C1C(CC)=C(CC)C(N1%13)=CC=1C(CC)=C(CC)C(N1%14)=C2";
+const STYRYL = "C12=CC=C(N1%11)C(/C=C/c3ccccc3)=C1C=CC(=N1%12)C=C1C=CC(N1%13)=CC=1C=CC(N1%14)=C2";
+const MACRO: [string, string, string][] = [
+  // Sam's two P(V) porphyrins (his ChemDraw drawings, as SMILES written here). A complex ion: its charge number.
+  ["[P(TPP)(OMe)2]+", `CO[P+]%11%12%13%14OC.${TPP}`, `dimethanolato(${TPP_})phosphorus(1+)`],
+  ["[P(TMeOPP)(OMe)2]+", `CO[P+]%11%12%13%14OC.${porphyrin("c3ccc(OC)cc3")}`,
+    "dimethanolato[5,10,15,20-tetrakis(4-methoxyphenyl)porphyrin-21,23-diido-κ4N21,N22,N23,N24]phosphorus(1+)"],
+  ["[P(TPP)(OMe)2]+, drawn P- and N+", `CO[P-]%11%12%13%14OC.${TPP.replace("=N1%12", "=[N+]1%12").replace("C(N1%14)", "C([N+]1%14)")}`, `dimethanolato(${TPP_})phosphorus(1+)`],
+  ["[P(TPP)(OH)2]+", `O[P+]%11%12%13%14O.${TPP}`, `dihydroxido(${TPP_})phosphorus(1+)`],
+  ["[Sn(TPP)Cl2]", `Cl[Sn]%11%12%13%14Cl.${TPP}`, `dichlorido(${TPP_})tin(IV)`],
+  ["[Zn(TPP)]", `[Zn]%11%12%13%14.${TPP}`, `(${TPP_})zinc(II)`],
+  ["[Fe(TPP)Cl]", `Cl[Fe]%11%12%13%14.${TPP}`, `chlorido(${TPP_})iron(III)`],
+  ["[Co(TPP)]", `[Co]%11%12%13%14.${TPP}`, `(${TPP_})cobalt(II)`],
+  ["[Mg(OEP)]", `[Mg]%11%12%13%14.${OEP}`, "(2,3,7,8,12,13,17,18-octaethylporphyrin-21,23-diido-κ4N21,N22,N23,N24)magnesium(II)"],
+  // The chelate fixes the porphyrin's E and Z, so its name cites none; the styryl group's (E) still counts.
+  ["Zn styrylporphyrin", `[Zn]%11%12%13%14.${STYRYL}`, "{5-[(1E)-2-phenylethenyl]porphyrin-21,23-diido-κ4N21,N22,N23,N24}zinc(II)"],
+  // Other main-group chelates: a BODIPY dye (drawn either way), Al(acac)3 and a spiro borate.
+  ["BODIPY", "F[B-]1(F)N2C=CC=C2C=C2C=CC=[N+]12", "difluorido{2-[(2H-pyrrol-2-ylidene)methyl]-1H-pyrrol-1-ido-κ2N,N'}boron(III)"],
+  ["BODIPY, drawn with no charges", "FB1(F)N2C=CC=C2C=C2C=CC=N12", "difluorido{2-[(2H-pyrrol-2-ylidene)methyl]-1H-pyrrol-1-ido-κ2N,N'}boron(III)"],
+  ["Al(acac)3", "CC1=CC(C)=O[Al]23(O1)(OC(C)=CC(C)=O2)OC(C)=CC(C)=O3", "tris(4-oxopent-2-en-2-olato-κ2O,O')aluminium(III)"],
+  ["[B(cat)2]-", "[B-]12(Oc3ccccc3O1)Oc1ccccc1O2", "bis(benzene-1,2-diolato-κ2O,O')borate(1-)"],
+];
+for (const [label, smiles, want] of MACRO) {
+  assert.equal(nameOf(smiles), want, label);
+  assert.equal(editorName(smiles), want, `${label}, Structure to Name`);
+  assert.ok(complexNameReads(want, drawn(smiles), api), want);
+}
+// With a bond to carbon a main-group atom is not a central atom: the namer names these.
+assert.equal(editorName("CC1(C)OB(c2ccccc2)OC1(C)C"), "4,4,5,5-tetramethyl-2-phenyl-1,3,2-dioxaborolane");
+assert.equal(nameOf("CC1(C)OB(c2ccccc2)OC1(C)C"), undefined);
+assert.equal(nameOf("CC(C)(C)[Si](C)(C)OC1=CC=CC=C1"), undefined);
+// Names one term away from right.
+const P_OME = MACRO[0][1], ZN = MACRO[5][1];
+const wrongMacro: [string, string[]][] = [
+  [P_OME, [
+    `dimethanolato(${TPP_})phosphorus(2+)`, `dimethanolato(${TPP_})phosphorus`, `trimethanolato(${TPP_})phosphorus(1+)`,
+    `methanolato(${TPP_})phosphorus(1+)`, `diethanolato(${TPP_})phosphorus(1+)`, `dihydroxido(${TPP_})phosphorus(1+)`,
+    `dimethanolato(${TPP_})arsenic(1+)`, `dimethanolato(${TPP_})phosphate(1+)`, `dimethanolato(${TPP_})diphosphorus(1+)`,
+    "dimethanolato(5,10,15,20-tetraphenylporphyrin-21,23-diido-κ3N21,N22,N23)phosphorus(1+)",
+    "dimethanolato(5,10,15,20-tetraphenylporphyrin-21,23-diido-κ4N21,N22,N23,N25)phosphorus(1+)",
+    "dimethanolato(5,10,15,20-tetraphenylporphyrin-21,23-diido)phosphorus(1+)",
+    "dimethanolato(5,10,15,20-tetraphenylporphyrin-κ4N21,N22,N23,N24)phosphorus(1+)",
+    "dimethanolato(5,10,15-triphenylporphyrin-21,23-diido-κ4N21,N22,N23,N24)phosphorus(1+)",
+    "dimethanolato(2,7,12,17-tetraphenylporphyrin-21,23-diido-κ4N21,N22,N23,N24)phosphorus(1+)",
+    "dimethanolato[5,10,15,20-tetrakis(4-methoxyphenyl)porphyrin-21,23-diido-κ4N21,N22,N23,N24]phosphorus(1+)",
+  ]],
+  [ZN, [`(${TPP_})zinc(III)`, `(${TPP_})zinc(2+)`, `(${TPP_})copper(II)`, `bis(${TPP_})zinc(II)`, `chlorido(${TPP_})zinc(II)`]],
+  [MACRO[4][1], [`dichlorido(${TPP_})tin(II)`, `trichlorido(${TPP_})tin(IV)`, `dibromido(${TPP_})tin(IV)`]],
+  [`[Zn]%11%12%13%14.${STYRYL}`, [
+    "{5-[(1Z)-2-phenylethenyl]porphyrin-21,23-diido-κ4N21,N22,N23,N24}zinc(II)", "[5-(2-phenylethenyl)porphyrin-21,23-diido-κ4N21,N22,N23,N24]zinc(II)",
+  ]],
+  [MACRO[10][1], [
+    "difluorido{2-[(2H-pyrrol-2-ylidene)methyl]-1H-pyrrol-1-ido-κ2N,N'}boron(II)", "dichlorido{2-[(2H-pyrrol-2-ylidene)methyl]-1H-pyrrol-1-ido-κ2N,N'}boron(III)",
+    "difluorido{2-[(2H-pyrrol-2-ylidene)methyl]-1H-pyrrol-1-ido-κN}boron(III)", "difluorido{2-[(2H-pyrrol-2-ylidene)methyl]-1H-pyrrol-1-ido-κ2N,N'}aluminium(III)",
+  ]],
+];
+let turnedMacro = 0;
+for (const [smiles, names] of wrongMacro) {
+  const m = drawn(smiles);
+  for (const name of names) { assert.equal(complexNameReads(name, m, api), false, name); turnedMacro++; }
+}
+// No name: ligands OPSIN reads no name for (phthalocyanine, subphthalocyanine, corrole) and the namer has none for;
+// charges that give the central atom an oxidation number its group does not allow (P(VI), P(IV)) or leave an N atom
+// with no usual valence; and a porphyrin with a ring bond missing, which is not a porphyrin.
+const PC = "C12=C3C=CC=CC3=C(N1%11)N=C1C3=CC=CC=C3C(=N1%12)N=C1C3=CC=CC=C3C(N1%13)=NC=1C3=CC=CC=C3C(N1%14)=N2";
+const noMacro: [string, string][] = [
+  ["Si(Pc)(OH)2", `O[Si]%11%12%13%14O.${PC}`],
+  ["[Al(Pc)Cl]", `Cl[Al]%11%12%13%14.${PC}`],
+  ["[Ge(Pc)Cl2]", `Cl[Ge]%11%12%13%14Cl.${PC}`],
+  ["subphthalocyanine BCl", "Cl[B]%11%12%13.N%41=C1c2ccccc2C(N1%11)=NC1=C2C=CC=CC2=C(N1%12)N=C1c2ccccc2C%41=N1%13"],
+  ["Ga corrole", "[Ga]%11%12%13%14.C%21%22=CC=C(N%22%11)C(c9ccccc9)=C%23C=CC(N%23%12)=C(c9ccccc9)C%24=CC=C(N%24%13)C(c9ccccc9)=C%25C=CC%21=N%25%14"],
+  ["[P(TPP)(OMe)2]2+", `CO[P+2]%11%12%13%14OC.${TPP}`],
+  ["P(TPP)(OMe)2, no charge", `CO[P]%11%12%13%14OC.${TPP}`],
+  ["N- with four bonds", `CO[P+]%11%12%13%14OC.${TPP.replace("=N1%12", "=[N-]1%12")}`],
+  ["ring bond missing", `CO[P+]%11%12%13%14OC.${TPP.replace("C12=", "C1=").replace(/=C2c3ccccc3$/, "=Cc3ccccc3")}`],
+];
+for (const [label, smiles] of noMacro) assert.equal(editorName(smiles), undefined, label);
+// The E and Z of an ordinary large ring still count: (Z)- and (E)-cyclooctene, and a 13-membered lactone, drawn with
+// their double bond cis or trans (Indigo lays out every large ring cis, so these are drawn here).
+function ringOf(labels: string[], trans: boolean, oxo?: number): Mol {
+  const n = labels.length, c = [0.7, 0.8], p: number[][] = [[0, 0], [1.4, 0], [2.1, trans ? -1.2 : 1.2]];
+  p[n - 1] = [-0.7, 1.2];
+  const [a, r] = [Math.atan2(p[2][1] - c[1], p[2][0] - c[0]), Math.hypot(p[2][0] - c[0], p[2][1] - c[1])];
+  const [b, s] = [Math.atan2(p[n - 1][1] - c[1], p[n - 1][0] - c[0]), Math.hypot(p[n - 1][0] - c[0], p[n - 1][1] - c[1])];
+  const sweep = (b - a + 4 * Math.PI) % (2 * Math.PI);
+  for (let k = 3; k < n - 1; k++) { const t = (k - 2) / (n - 3); p[k] = [c[0] + (r + (s - r) * t) * Math.cos(a + sweep * t), c[1] + (r + (s - r) * t) * Math.sin(a + sweep * t)]; }
+  const atoms: Mol["atoms"] = labels.map((label, i) => ({ label, location: [p[i][0], p[i][1], 0] }));
+  const bonds: Mol["bonds"] = labels.map((_, i) => ({ type: i ? 1 : 2, atoms: [i, (i + 1) % n] as [number, number] }));
+  if (oxo !== undefined) { atoms.push({ label: "O", location: [2 * p[oxo][0] - c[0], 2 * p[oxo][1] - c[1], 0] }); bonds.push({ type: 2, atoms: [oxo, n] }); }
+  return { atoms, bonds };
+}
+for (const [label, labels, oxo] of [["cyclooctene", [..."CCCCCCCC"], undefined], ["1-oxacyclotridec-4-en-2-one", [..."CCCCCCCCCCOCC"], 11]] as const) {
+  const [z, e] = [false, true].map((trans) => ringOf([...labels], trans, oxo));
+  assert.notEqual(inchiOf(z), inchiOf(e), label);
+  const [nz, ne] = [z, e].map((m) => checkedName(m, m, nameToSmiles, inchiOf, chem.cipOf));
+  assert.ok(nz?.includes("Z") && nz !== ne, `${label}: ${nz}, ${ne}`);
+  assert.equal(complexName(z, api), undefined, label);
+}
+console.log(`namer-complex.check: ${MACRO.length} porphyrins and main-group chelates named, ${turnedMacro} names one term away turned down, ${noMacro.length} with no name`);
+
 // Speed: a complex of about 100 atoms, named with every check in under 50 ms once OPSIN and Indigo are warm (Ru
 // with three 4,4'-dialkyl-2,2'-bipyridines; each new to the namer, so nothing is kept from an earlier name).
 const bpy = (a: number, b: number, r: string) => `C1(${r})=CC=[N]%${a}C(=C1)C1=[N]%${b}C=CC(${r})=C1`;
