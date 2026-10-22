@@ -1,6 +1,7 @@
 # 0014: Names of coordination compounds, checked in parts
 
-Status: built 21 October 2026, for Sam's Os, Ru and Mn complexes and Rh2 paddlewheels.
+Status: built 21 October 2026, for Sam's Os, Ru and Mn complexes and Rh2 paddlewheels. Porphyrins and main-group
+central atoms added 23 October 2026.
 
 ## Problem
 
@@ -46,8 +47,29 @@ SMILES for every name in `names.txt`.
 - Terpyridines as ring assemblies (2,2':6',2''-terpyridine), and two identical anionic units on a benzene ring by a
   multiplicative name (esp).
 
+## Porphyrins and main-group central atoms
+
+Added 23 October 2026, for Sam's two P(V) porphyrins.
+
+- A main-group atom (B, Al, Ga, In, Si, Ge, Sn, Pb, P, As, Sb) is a central atom when a ligand chelates it and it
+  is bonded by single bonds to donor atoms alone (IR-7.1 allows additive names for main-group compounds). With a bond
+  to carbon it is not: silyl ethers, boronic esters and phosphonium salts keep their substitutive names. Structure to
+  Name asks `complexes.ts` only when the namer has no name, so the namer's names always come first.
+- Its oxidation number must be one its group allows: at most the group's, in steps of two (P(V), P(III), Sn(IV),
+  Sn(II)). A drawing that gives another (a charge left off, or P(VI)) gets no name.
+- Porphyrin ligands take the Red Book's form (Table VII: tpp, 5,10,15,20-tetraphenylporphyrin-21,23-diido), with
+  their four N atoms cited by OPSIN's locants:
+  `dimethanolato(5,10,15,20-tetraphenylporphyrin-21,23-diido-κ4N21,N22,N23,N24)phosphorus(1+)`.
+- InChI gives E or Z to bonds in rings of 8 or more atoms, and in a free porphyrin anion also to the single meso
+  C-C bonds, as it moves the charges along the ring. A porphyrin's name cites none. In the complex each of those bonds
+  is in a six-membered chelate ring with the central atom, which fixes it. So the check of a ligand's name leaves out
+  the E or Z of bonds that are in rings of 8 or more atoms of the ligand alone and in a chelate ring of at most 7
+  (InChI's AuxInfo gives their numbers). Every other E and Z counts: a styryl group's (E) on a porphyrin, and the E
+  or Z of an ordinary large ring (cyclooctene, a macrolide), which no central atom fixes.
+
 ## Not named yet
 
 Configuration at the metal (cis, Δ, polyhedral symbols), η ligands drawn with bonds to each atom, three or more metal
-atoms, two metals of different elements, porphyrins (InChI gives their ring double bonds E or Z from the drawing),
-and donor atoms that no κ term here can cite.
+atoms, two metals of different elements, and donor atoms that no κ term here can cite. Phthalocyanines,
+subphthalocyanines and corroles: OPSIN 2.8.0 reads no name for these ligands (phthalocyanine, corrole, nor
+tetrabenzo or tetraaza names on porphyrin), and the namer has none, so their names cannot be checked.
