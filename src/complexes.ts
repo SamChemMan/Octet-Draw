@@ -22,7 +22,7 @@
 // Names are not given for what is not checked here: polyhedral symbols and configuration (cis, Δ), η ligands, three
 // or more metal atoms, two metals of different elements, and donor atoms that no κ term above can cite.
 import { graphOf, type Cip, type Graph } from "./naming.ts";
-import { alphaKey, assemblePrefixes, iupacNameWhy, joinPrefixes, Namer, type Name } from "./namer.ts";
+import { alphaKey, assemblePrefixes, enclose as encloseName, iupacNameWhy, joinPrefixes, Namer, type Name } from "./namer.ts";
 import { ELEMENTS, isMetal } from "./metals.ts";
 import { substitutively } from "./namer-multiplicative.ts";
 import type { Mol } from "./render.ts";
@@ -307,7 +307,8 @@ function maps(b: Built, g: Graph, atoms: number[], limit = 24): number[][] {
 // A ligand's name in the complex (form), the InChI of the free ligand it names (key; for a carbon ligand, on silane),
 // its charge as a free ligand, and for a carbon ligand the order of its bond to the metal.
 type Named = { form: string; key: string; flat: string; charge: number; carbon?: number };
-const enclose = (t: string) => (t.includes("{") ? `(${t})` : t.includes("[") ? `{${t}}` : t.includes("(") ? `[${t}]` : `(${t})`);
+// Enclosing marks as the namer nests them (P-16.5.4, IR-2.2): {[({[( )]})]}.
+const enclose = (t: string) => encloseName({ text: t, compound: true });
 
 // A locant as a sort key: 1 < 1' < 2 < 4a < 10.
 const locKey = (l: string) => { const m = /^(\d+)([a-z]?)('*)$/.exec(l)!; return Number(m[1]) * 1000 + (m[2] ? m[2].charCodeAt(0) - 96 : 0) * 10 + m[3].length; };

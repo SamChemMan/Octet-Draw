@@ -81,7 +81,7 @@ const cases: [string, string][] = [
   ["smiles:N#CCCOCCC#N", "3,3'-oxydipropanenitrile"], ["smiles:NC(=O)COCC(N)=O", "2,2'-oxydiacetamide"], ["smiles:CC(=O)CCOCCC(C)=O", "4,4'-oxydi(butan-2-one)"],
   ["smiles:CC(O)COCC(C)O", "1,1'-oxydi(propan-2-ol)"], ["smiles:CC(CO)OC(C)CO", "2,2'-oxydi(propan-1-ol)"], ["smiles:OCC(O)COCC(O)CO", "3,3'-oxydi(propane-1,2-diol)"],
   ["smiles:CN(C)C(=O)CCSCCC(=O)N(C)C", "3,3'-sulfanediylbis(N,N-dimethylpropanamide)"], ["smiles:OC(=O)CCSCCSCCC(O)=O", "3,3'-[ethane-1,2-diylbis(sulfanediyl)]dipropanoic acid"],
-  ["cystamine", "2,2'-disulfanediyldi(ethan-1-amine)"], ["smiles:OC(=O)C(Cl)OC(Cl)C(O)=O", "2,2'-oxybis(chloroacetic acid)"],
+  ["cystamine", "2,2'-disulfanediyldi(ethan-1-amine)"], ["smiles:OC(=O)C(Cl)OC(Cl)C(O)=O", "2,2'-oxybis(2-chloroacetic acid)"],
   // N as the multiplying group: azanediyl, substituted azanediyl, nitrilo; ethane-1,2-diyldinitrilo (EDTA).
   ["diethanolamine", "2,2'-azanediyldi(ethan-1-ol)"], ["triethanolamine", "2,2',2''-nitrilotri(ethan-1-ol)"], ["smiles:OCCN(C)CCO", "2,2'-(methylazanediyl)di(ethan-1-ol)"],
   ["smiles:OC(=O)CNCC(O)=O", "2,2'-azanediyldiacetic acid"], ["smiles:OC(=O)CN(CC(O)=O)CC(O)=O", "2,2',2''-nitrilotriacetic acid"],
@@ -125,7 +125,7 @@ const cases: [string, string][] = [
   ["smiles:C1OC1COCC1CO1", "2,2'-[oxybis(methylene)]dioxirane"], ["smiles:c1ccnc(c1)CCc1ccccn1", "2,2'-(ethane-1,2-diyl)dipyridine"],
   // Unsymmetrical central groups (P-15.3.3.1), and the most units (P-51.3.2.1).
   ["smiles:CC(Cc1ccccc1)c1ccccc1", "1,1'-(propane-1,2-diyl)dibenzene"], ["smiles:OC(=O)c1ccc(cc1)C(c1ccc(cc1)C(O)=O)Cc1ccc(cc1)C(O)=O", "4,4',4''-(ethane-1,1,2-triyl)tribenzoic acid"],
-  ["smiles:Oc1ccc(cc1)C(c1ccc(O)cc1)c1ccc(O)cc1", "4,4',4''-methanetriyltriphenol"], ["smiles:c1ccccc1CC(Cc1ccccc1)(Cc1ccccc1)Cc1ccccc1", "1,1'-[2,2-bis(phenylmethyl)propane-1,3-diyl]dibenzene"],
+  ["smiles:Oc1ccc(cc1)C(c1ccc(O)cc1)c1ccc(O)cc1", "4,4',4''-methanetriyltriphenol"], ["smiles:c1ccccc1CC(Cc1ccccc1)(Cc1ccccc1)Cc1ccccc1", "1,1'-(2,2-dibenzylpropane-1,3-diyl)dibenzene"],
   // Stereo: descriptors of the units go in front, primed; those of the multiplying group stay with it.
   ["smiles:C[C@@H](O[C@H](C)C(O)=O)C(O)=O", "(2R,2'R)-2,2'-oxydipropanoic acid"], ["smiles:C[C@@H](O)COC[C@@H](C)O", "(2R,2'R)-1,1'-oxydi(propan-2-ol)"],
   ["L-cystine", "(2R,2'R)-3,3'-disulfanediylbis(2-aminopropanoic acid)"], ["smiles:Oc1ccc(/C=C/c2ccc(O)cc2)cc1", "4,4'-[(1E)-ethene-1,2-diyl]diphenol"],
@@ -160,7 +160,7 @@ const cases: [string, string][] = [
   ["smiles:C1CCCCC1NC1CCCCC1", "N-cyclohexylcyclohexanamine"], ["smiles:NCCNCCN", "N1-(2-aminoethyl)ethane-1,2-diamine"], ["smiles:O=C(c1ccccc1)c1ccccc1", "diphenylmethanone"],
   ["smiles:OC(=O)CC(=O)N(CC(O)=O)CC(O)=O", "3-[bis(carboxymethyl)amino]-3-oxopropanoic acid"], ["smiles:c1ccccc1/N=N/c1ccccc1", "(E)-diphenyldiazene"],
   ["smiles:C[C@@H](O[C@@H](C)C(O)=O)C(O)=O", "(2R)-2-[(1S)-1-carboxyethoxy]propanoic acid"], ["smiles:C[C@@H](O)COC[C@H](C)O", "(2R)-1-[(2S)-2-hydroxypropoxy]propan-2-ol"],
-  ["smiles:C[N+](C)(CCO)CCO", "2-hydroxy-N-(2-hydroxyethyl)-N,N-dimethylethanaminium"],
+  ["smiles:C[N+](C)(CCO)CCO", "2-hydroxy-N-(2-hydroxyethyl)-N,N-dimethylethan-1-aminium"],
 ];
 
 const out: string[] = [];

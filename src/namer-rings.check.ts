@@ -120,11 +120,11 @@ run("monocycles", [
 run("ylidene", [
   "alpha-myrcene = 2-methyl-6-methylideneocta-1,7-diene", "beta-myrcene = 7-methyl-3-methylideneocta-1,6-diene", "beta-farnesene",
   "beta-pinene = 6,6-dimethyl-2-methylidenebicyclo[3.1.1]heptane", "camphene", "beta-terpinene", "terpinolene = 1-methyl-4-(propan-2-ylidene)cyclohex-1-ene",
-  "fulvene = 5-methylidenecyclopenta-1,3-diene", "gamma-terpineol", "itaconic acid = 2-methylidenebutanedioic acid", "methylidenecyclohexane = methylidenecyclohexane",
+  "fulvene = 5-methylidenecyclopenta-1,3-diene", "gamma-terpineol", "itaconic acid = methylidenebutanedioic acid", "methylidenecyclohexane = methylidenecyclohexane",
   "(2E)-2-ethylidenecyclohexan-1-one = (2E)-2-ethylidenecyclohexan-1-one", "(2Z)-2-ethylidenecyclohexan-1-one", "2-methylidenebutanoic acid",
   "(2Z)-2-benzylidene-1-benzofuran-3(2H)-one", "4-methylidene-4H-pyran", "3-methylideneoxolan-2-one", "(propan-2-ylidene)propanedioic acid",
   "cyclohexylidenemethanol", "(cyclohexylidene)acetic acid", "5-benzylidene-1,3-thiazolidine-2,4-dione", "2-(oxolan-3-ylidene)acetic acid",
-  "2,2-dimethyl-5-methylidene-1,3-dioxane-4,6-dione", "2-(diphenylmethylidene)propanedinitrile", "(2E)-2-[(2Z)-but-2-en-1-ylidene]cyclohexan-1-one",
+  "2,2-dimethyl-5-methylidene-1,3-dioxane-4,6-dione", "(diphenylmethylidene)propanedinitrile", "(2E)-2-[(2Z)-but-2-en-1-ylidene]cyclohexan-1-one",
 ]);
 
 // Ring unsaturation: a ring's one multiple bond takes no locant on its own, and does with a suffix; ring triple bonds.
@@ -161,7 +161,7 @@ run("ring N substituents", [
 // rivaroxaban.
 run("prefix order", [
   "smiles:OC(Cn1cncn1)(Cn1cncn1)c1ccc(F)cc1F = 2-(2,4-difluorophenyl)-1,3-bis(1H-1,2,4-triazol-1-yl)propan-2-ol",
-  "smiles:O=C1N(c2ccc(N3CCOCC3=O)cc2)C[C@@H](CNC(=O)c2ccc(Cl)s2)O1 = 5-chloro-N-{{(5R)-2-oxo-3-[4-(3-oxomorpholin-4-yl)phenyl]-1,3-oxazolidin-5-yl}methyl}thiophene-2-carboxamide",
+  "smiles:O=C1N(c2ccc(N3CCOCC3=O)cc2)C[C@@H](CNC(=O)c2ccc(Cl)s2)O1 = 5-chloro-N-({(5R)-2-oxo-3-[4-(3-oxomorpholin-4-yl)phenyl]-1,3-oxazolidin-5-yl}methyl)thiophene-2-carboxamide",
   "smiles:CCC1(c2ccccc2)C(=O)NC(=O)NC1=O = 5-ethyl-5-phenyl-1,3-diazinane-2,4,6-trione", "smiles:O=C1NC(=O)C(c2ccccc2)(c2ccccc2)N1 = 5,5-diphenylimidazolidine-2,4-dione",
   "smiles:CN1C=CC(=O)C=C1 = 1-methylpyridin-4(1H)-one", "smiles:CC1=NN(C)C(=O)C1 = 2,5-dimethyl-2,4-dihydro-3H-pyrazol-3-one",
   "smiles:CS(=O)(=O)c1ccc(C2=C(c3ccccc3)C(=O)OC2)cc1 = 4-[4-(methanesulfonyl)phenyl]-3-phenylfuran-2(5H)-one",
@@ -183,8 +183,8 @@ run("large rings", ["smiles:C1CCCCCCCCN(C)CC=N1", "smiles:C1CS(=O)N=NN=CC=NC=PC=
 
 // Hydrogen drawn as an atom counts on its neighbour: 15 of the 114 structures in Sam's corpus have one.
 run("drawn hydrogen", [
-  "smiles:O1C[C@H](CC2=CC=CC=C2)N([H])C1=O = (4S)-4-(phenylmethyl)-1,3-oxazolidin-2-one",
-  "smiles:C(=O)(C[H])C1C=CC=CC=1 = 1-phenylethanone", "smiles:[H][C@@](C)(O)CC = (2S)-butan-2-ol",
+  "smiles:O1C[C@H](CC2=CC=CC=C2)N([H])C1=O = (4S)-4-benzyl-1,3-oxazolidin-2-one",
+  "smiles:C(=O)(C[H])C1C=CC=CC=1 = 1-phenylethan-1-one", "smiles:[H][C@@](C)(O)CC = (2S)-butan-2-ol",
 ]);
 
 // A ring's acyl group is numbered as the ring, with its indicated hydrogen: pyrrolysine, (1H-pyrrole-2-carbonyl).

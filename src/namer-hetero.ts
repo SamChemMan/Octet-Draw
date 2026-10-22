@@ -86,6 +86,18 @@ export function thioPrefix(n: Namer, x: number, kind: string | undefined): Name 
 // carbons out of its chains. (Isocyanates and cyanates are namer.ts's pseudoGroup().)
 export function perceiveIodanes(n: Namer) {
   for (let c = 0; c < n.n; c++) if (n.el[c] === "I" && !n.inRing[c] && !n.q[c] && n.adj[c].length >= 2) iodane(n, c);
+  // OH, O-alkyl and acyloxy on a ring halogen (role "XO", with the acyl group's C and =O): hydroxy and acetyloxy
+  // prefixes on its ring (1-hydroxy-3H-1λ³,2-benziodoxol-3-one, Dess–Martin periodinane), an OH alone the suffix ol.
+  for (let x = 0; x < n.n; x++) {
+    if (!HALO[n.el[x]] || !n.inRing[x] || n.q[x]) continue;
+    for (const o of n.adj[x]) {
+      if (n.el[o] !== "O" || n.inRing[o] || n.q[o] || n.ord(x, o) !== 1) continue;
+      const r = n.adj[o].find((j) => j !== x), acyl = r !== undefined && n.carbonylO[r] >= 0;
+      if (r === undefined ? n.h[o] !== 1 : n.adj[o].length !== 2 || n.el[r] !== "C" || n.isNitrileC(r) || n.inRing[r] || (acyl && n.adj[r].some((j) => j !== o && j !== n.carbonylO[r] && n.el[j] !== "C"))) continue;
+      for (const k of acyl ? [o, r, n.carbonylO[r]] : [o]) n.het.set(k, "XO");
+      if (r === undefined) n.mark(o, "alcohol", [x]);
+    }
+  }
 }
 // Iodosyl (C-I=O), iodyl (C-I(=O)=O) and λ3-iodanyl (C-I with two O or halogen ligands) groups at x.
 function iodane(n: Namer, x: number) {
@@ -158,7 +170,7 @@ export function perceiveHetero(n: Namer) {
     const oxo = os.find((o) => n.ord(i, o) === 2 && adj[o].length === 1 && !n.q[o]);
     if (oxo !== undefined) {
       const r = adj[i].filter((j) => j !== oxo);
-      if (r.length === 1 && !h[i] && n.ord(i, r[0]) === 1 && (plainC(n, r[0]) || el[r[0]] === "N")) { n.het.set(i, "N=O"); n.het.set(oxo, "N=O"); }
+      if (r.length === 1 && !h[i] && n.ord(i, r[0]) === 1 && (plainC(n, r[0]) || el[r[0]] === "N" || n.group[r[0]] === "ketone")) { n.het.set(i, "N=O"); n.het.set(oxo, "N=O"); } // on a ketone: nitroso(phenyl)methanone
       continue;
     }
     // Diazenes (R-N=N-R'), hydrazones (C=N-N) and hydrazines (N-N), with only plain carbons and H otherwise.
@@ -167,7 +179,8 @@ export function perceiveHetero(n: Namer) {
       if (!free(n, m) || n.ord(i, m) === 3) continue;
       const others = [...adj[i], ...adj[m]].filter((j) => j !== i && j !== m);
       if (n.ord(i, m) === 2) {
-        if (adj[i].length + h[i] === 2 && adj[m].length + h[m] === 2 && others.every((j) => plainC(n, j) && n.ord(i, j) + n.ord(m, j) === 1)) { n.het.set(i, "N=N"); n.het.set(m, "N=N"); }
+        // A ketone's carbon too: 1-(phenyldiazenyl)ethan-1-one.
+        if (adj[i].length + h[i] === 2 && adj[m].length + h[m] === 2 && others.every((j) => (plainC(n, j) || n.group[j] === "ketone") && n.ord(i, j) + n.ord(m, j) === 1)) { n.het.set(i, "N=N"); n.het.set(m, "N=N"); }
         // A triazene (P-68.3.1.4): R-N=N-NR2, the amine N with only plain carbons and H.
         const y = adj[m].find((j) => j !== i);
         if (y !== undefined && el[y] === "N" && free(n, y) && single(n, y) && adj[y].length + h[y] === 3 && adj[y].every((j) => j === m || plainC(n, j))
@@ -262,7 +275,7 @@ function ligand(n: Namer, x: number, j: number): string | undefined {
   if (azideN(n, j) === x) return "N3";
   // An imine N on S (a sulfinimine): N-[(E)-phenylmethylidene]-2-methylpropane-2-sulfinamide.
   if (n.adj[j].length === 2 && !n.h[j]) { const c = n.adj[j].find((y) => y !== x)!; if (n.el[c] === "C" && n.ord(j, c) === 2 && n.carbonylO[c] < 0 && !n.isNitrileC(c) && n.el[x] === "S") return "N"; }
-  return single(n, j) && n.adj[j].length + n.h[j] === 3 && n.adj[j].every((y) => y === x || plainC(n, y) || (n.el[y] === "S" && !n.inRing[y] && oxo(n, y).length === 2) || nitrosoOrAmino(n, y, j) || (HALO[n.el[y]] && n.adj[y].length === 1) || (n.group[y] === "amide" && n.el[y] === "C")) ? "N" : undefined;
+  return single(n, j) && n.adj[j].length + n.h[j] === 3 && n.adj[j].every((y) => y === x || plainC(n, y) || (n.el[y] === "S" && !n.inRing[y] && oxo(n, y).length === 2) || nitrosoOrAmino(n, y, j) || (HALO[n.el[y]] && n.adj[y].length === 1) || (n.el[y] === "C" && (n.group[y] === "amide" || n.group[y] === "urea" || n.group[y] === "carbamate"))) ? "N" : undefined;
 }
 // An N on an amide N j: nitroso (N-methyl-N-nitroso), amino (a hydrazide: N-amino), or an imine N (=N-, a hydrazone).
 function nitrosoOrAmino(n: Namer, y: number, j: number): boolean {
@@ -328,8 +341,8 @@ function claimNN(n: Namer, y: number) {
 // (R)-2-methylpropane-2-sulfinamide, methyl (R)-4-methylbenzene-1-sulfinate. Only as the parent's one descriptor.
 export function suffixStereo(n: Namer, sites: { atom: number; group: number }[], others: number): { at: number; text: string }[] {
   const s = sites.filter((x) => n.el[x.group] === "S" && (n.cip[x.group] === "R" || n.cip[x.group] === "S"));
-  // With an O on the S (sulfinate esters and acids), Indigo's and OPSIN's CIP ranks of =O and -O- differ: not cited.
-  if (s.length && (others || s.length > 1 || s.some((x) => n.adj[x.group].some((j) => n.el[j] === "O" && n.ord(x.group, j) === 1)))) throw new Error("sulfur stereo");
+  // A sulfinic acid's S is not a stereocentre to OPSIN (nor to InChI, which moves the H): not cited.
+  if (s.length && (others || s.length > 1 || s.some((x) => n.adj[x.group].some((j) => n.el[j] === "O" && n.ord(x.group, j) === 1 && n.h[j])))) throw new Error("sulfur stereo");
   return s.map((x) => ({ at: 0, text: n.cip[x.group]! }));
 }
 // The N of a sulfonamide group (for its N-substituents as N-prefixes).

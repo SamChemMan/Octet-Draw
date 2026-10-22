@@ -451,8 +451,8 @@ function retained(): Template[] {
 }
 
 // Hantzsch-Widman names (P-22.2.2) and the retained names of monocycles used in fusion names (P-25.3.2.2).
-const HW_ORDER = ["O", "S", "Se", "Te", "N", "P", "As", "Sb", "Bi", "Si", "Ge", "Sn", "Pb", "B", "Hg"];
-const HW_PREFIX: Record<string, string> = { O: "oxa", S: "thia", Se: "selena", Te: "tellura", N: "aza", P: "phospha", As: "arsa", Sb: "stiba",
+const HW_ORDER = ["F", "Cl", "Br", "I", "O", "S", "Se", "Te", "N", "P", "As", "Sb", "Bi", "Si", "Ge", "Sn", "Pb", "B", "Hg"];
+const HW_PREFIX: Record<string, string> = { F: "fluora", Cl: "chlora", Br: "broma", I: "ioda", O: "oxa", S: "thia", Se: "selena", Te: "tellura", N: "aza", P: "phospha", As: "arsa", Sb: "stiba",
   Bi: "bisma", Si: "sila", Ge: "germa", Sn: "stanna", Pb: "plumba", B: "bora", Hg: "mercura" };
 const MULT = ["", "", "di", "tri", "tetra", "penta"];
 const BIGMULT = ["", "", "di", "tri", "tetra", "penta", "hexa", "hepta", "octa", "nona", "deca"];
@@ -489,8 +489,8 @@ function monocycle(els: string[]): { name: string; prefix: string; stem: string;
   if (hetero.some(([e]) => !HW_PREFIX[e])) return undefined;
   const known = MONO[`${n}:${hetero.map(([e, k]) => e + k).join(",")}`];
   if (known) return { name: known[0], prefix: known[1], stem: known[0], nums };
-  // Six-membered rings end -inine when the last heteroatom cited is B, P, As or Sb (P-22.2.2.1.4).
-  const six = ["B", "P", "As", "Sb"].includes(hetero[hetero.length - 1]?.[0]) ? "inine" : "ine";
+  // Six-membered rings end -inine when the last heteroatom cited is B, P, As, Sb or a halogen (P-22.2.2.1.4).
+  const six = ["B", "P", "As", "Sb", "F", "Cl", "Br", "I"].includes(hetero[hetero.length - 1]?.[0]) ? "inine" : "ine";
   const stems = ["", "", "", hetero.some(([e]) => e === "N") ? "irine" : "irene", "ete", "ole", six, "epine", "ocine", "onine", "ecine"];
   if (!hetero.length) return BIG[n] ? { name: `[${n}]annulene`, prefix: `cyclo${BIG[n]}a`, stem: `[${n}]annulene`, nums } : undefined;
   if (!stems[n]) {
@@ -822,7 +822,8 @@ function describe(sys: RingSystem, root: Node): { key: number[]; name: string } 
       // dibenzo[b,d]furan; difuro[3,2-b:2',3'-d]pyridine.
       const list = group.map((g, k) => g.t.text.slice(g.n.c.prefix.length + 1, -1).replace(/^([^-]*)-/, (_, l: string) => primes(l.split(","), k).join(",") + "-"));
       const mult = /^(\[|di|tri)/.test(f.n.c.prefix) ? ["", "", "bis", "tris", "tetrakis"][group.length] : MULT[group.length];
-      text += `${/s$/.test(mult) ? `${mult}(${f.n.c.prefix})` : mult + f.n.c.prefix}[${list.join(group.some((g) => /-/.test(g.t.text)) ? ":" : ",")}]`;
+      // A prefix in brackets needs no more: bis[1,3]dioxolo[4,5-b:4',5'-d]pyran (OPSIN reads no bis([1,3]dioxolo)).
+      text += `${/s$/.test(mult) && !f.n.c.prefix.startsWith("[") ? `${mult}(${f.n.c.prefix})` : mult + f.n.c.prefix}[${list.join(group.some((g) => /-/.test(g.t.text)) ? ":" : ",")}]`;
       i += group.length;
     }
     best = { key, name: text + inFusion(base.name) };
@@ -833,9 +834,11 @@ function describe(sys: RingSystem, root: Node): { key: number[]; name: string } 
 const inFusion = (name: string) => name.replace(/^([\d,]+)-/, "[$1]");
 
 // Retained parents that are not ortho- or peri-fused, named only as a whole (P-25.2.1): porphyrin, whose parent has
-// two indicated hydrogens (21H,23H-porphyrin).
-const WHOLE: [string, string, string][] = [
+// two indicated hydrogens (21H,23H-porphyrin), and corrin (P-101), a parent with no mancude form: its saturated atoms
+// are listed, and a structure is corrin only where those atoms have no ring double bond.
+const WHOLE: [string, string, string, string?][] = [
   ["porphyrin", "1-2 2-3 3-4 4-21 21-1 4-5 5-6 6-7 7-8 8-9 9-22 22-6 9-10 10-11 11-12 12-13 13-14 14-23 23-11 14-15 15-16 16-17 17-18 18-19 19-24 24-16 19-20 20-1", "N21 N22 N23 N24"],
+  ["corrin", "1-2 2-3 3-4 4-21 21-1 4-5 5-6 6-7 7-8 8-9 9-22 22-6 9-10 10-11 11-12 12-13 13-14 14-23 23-11 14-15 15-16 16-17 17-18 18-19 19-24 24-16 19-1", "N21 N22 N23 N24", "1 2 3 7 8 12 13 17 18 19 24"],
 ];
 
 // The parent name and numberings of a fused system outside the namer's table, for atoms of a molecule: the name, its
@@ -849,7 +852,7 @@ export function fusedParent(atoms: number[], el: (a: number) => string, ring: (a
   const at = new Map(atoms.map((a, i) => [a, i]));
   const lel = atoms.map(el), ladj = atoms.map((a) => ring(a).map((b) => at.get(b)!));
   let p: Parent;
-  try { p = whole(lel, ladj) ?? ortho(lel, ladj); } catch (e) {
+  try { p = whole(lel, ladj, order && ((a, b) => order(atoms[a], atoms[b]))) ?? ortho(lel, ladj); } catch (e) {
     if (!(e instanceof Error) || e.message !== "not ortho-fused" || !order) throw e;
     // A spiro atom (its removal splits the rings) makes a spiro system; else bridges.
     const ord = (a: number, b: number) => order(atoms[a], atoms[b]);
@@ -858,15 +861,21 @@ export function fusedParent(atoms: number[], el: (a: number) => string, ring: (a
   return { ...p, nums: p.nums.map((n) => n.map((i) => atoms[i])), fixed: p.fixed?.map((i) => atoms[i]) };
 }
 
-// Retained parents named only as a whole (porphyrin).
-function whole(lel: string[], ladj: number[][]): Parent | undefined {
-  for (const [name, bonds, hetero] of WHOLE) {
+// Retained parents named only as a whole (porphyrin, corrin). Corrin needs the bond orders (order).
+function whole(lel: string[], ladj: number[][], order?: (a: number, b: number) => number): Parent | undefined {
+  for (const [name, bonds, hetero, saturated] of WHOLE) {
     const pairs = bonds.split(" ").map((b) => b.split("-")), labels = [...new Set(pairs.flat())].sort(locOrder);
-    if (labels.length !== lel.length) continue;
+    if (labels.length !== lel.length || (saturated && !order)) continue;
     const tel = labels.map((l) => hetero.split(" ").find((h) => h.slice(1) === l)?.[0] ?? "C"), tadj: number[][] = labels.map(() => []);
     for (const [a, b] of pairs) { tadj[labels.indexOf(a)].push(labels.indexOf(b)); tadj[labels.indexOf(b)].push(labels.indexOf(a)); }
-    const nums = isomorphisms(tel, tadj, lel.map((_, i) => i), (i) => lel[i], (i) => ladj[i]);
-    if (nums.length) return { name, labels, nums, uncited: [], hydrogens: 2 };
+    let nums = isomorphisms(tel, tadj, lel.map((_, i) => i), (i) => lel[i], (i) => ladj[i]);
+    if (!saturated) { if (nums.length) return { name, labels, nums, uncited: [], hydrogens: 2 }; continue; }
+    // The parent's saturated atoms take no hydro prefixes; they must be the same atoms in every numbering left.
+    const at = saturated.split(" ").map((l) => labels.indexOf(l)), fixed = (num: number[]) => at.map((k) => num[k]).sort((x, y) => x - y);
+    nums = nums.filter((num) => at.every((k) => ladj[num[k]].every((b) => order!(num[k], b) === 1)));
+    if (!nums.length) continue;
+    if (nums.some((num) => fixed(num).join() !== fixed(nums[0]).join())) throw new Error("corrin numbering");
+    return { name, labels, nums, uncited: [], fixed: fixed(nums[0]) };
   }
   return undefined;
 }

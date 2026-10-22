@@ -139,7 +139,7 @@ const expect: [string, string][] = [
   ["ferrocenecarbaldehyde", "ferrocenecarbaldehyde"], ["ferrocen-1-ol", "ferrocenol"], ["1'-methylferrocene-1-carboxylic acid", "1'-methylferrocene-1-carboxylic acid"],
   ["ferrocenylmethanol", "ferrocenylmethanol"], ["(2-methylferrocenyl)methanol", "(2-methylferrocenyl)methanol"],
   ["1,1'-bis(diphenylphosphanyl)ferrocene", "[1'-(diphenylphosphanyl)ferrocenyl](diphenyl)phosphane"],
-  ["acetylferrocene", "1-ferrocenylethanone"], ["methyl ferrocenecarboxylate", "methyl ferrocenecarboxylate"],
+  ["acetylferrocene", "1-ferrocenylethan-1-one"], ["methyl ferrocenecarboxylate", "methyl ferrocenecarboxylate"],
   ["butyllithium", "butyllithium"], ["methylmagnesium bromide", "bromo(methyl)magnesium"], ["isopropylmagnesium chloride", "chloro(propan-2-yl)magnesium"],
   ["diethylzinc", "diethylzinc"], ["pentacarbonyliron", "pentacarbonyliron"], ["bromopentacarbonylmanganese", "bromo(pentacarbonyl)manganese"],
   ["dichlorobis(cyclopentadienyl)titanium", "dichlorobis(cyclopenta-2,4-dien-1-yl)titanium"], ["osmium tetroxide", "tetraoxoosmium"],

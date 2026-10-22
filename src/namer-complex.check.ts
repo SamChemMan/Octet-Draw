@@ -77,7 +77,7 @@ const SAM: [string, string, string][] = [
   // chelate rings, so their E or Z is the chelate's and is not cited. All of its N and O atoms bond to Mn: κ2N,N',κ2O,O'
   // leaves no doubt (IR-9.2.4.2: primes in simple cases). Mn(III): two phenolate O and chloride, three negative charges.
   ["Jacobsen's catalyst", "[C@H]12[N]3[Mn]4(Cl)([N]([C@@H]1CCCC2)=CC1=CC(C(C)(C)C)=CC(C(C)(C)C)=C1O4)OC1=C(C=3)C=C(C(C)(C)C)C=C1C(C)(C)C",
-    "chlorido(2,4-di-tert-butyl-6-{{{(1R,2R)-2-{[(3,5-di-tert-butyl-2-oxidophenyl)methylidene]amino}cyclohexyl}imino}methyl}phenolato-κ2N,N',κ2O,O')manganese(III)"],
+    "chlorido(2,4-di-tert-butyl-6-({[(1R,2R)-2-{[(3,5-di-tert-butyl-2-oxidophenyl)methylidene]amino}cyclohexyl]imino}methyl)phenolato-κ2N,N',κ2O,O')manganese(III)"],
 ];
 const ESP = "[Rh]%10%11%12%13%14.[Rh]%10%15%16%17%18.O%11C(=O%15)C(C)(C)Cc1cccc(c1)CC(C)(C)C(O%16)=O%12.O%13C(=O%17)C(C)(C)Cc1cccc(c1)CC(C)(C)C(O%18)=O%14";
 const OTHERS: [string, string, string][] = [
@@ -115,11 +115,11 @@ const OTHERS: [string, string, string][] = [
   // edta, hexadentate: each N and one O of each carboxylate group bonds to Co. The namer's name for the ligand, each
   // donor cited after its part (IR-9.2.4.2, as the Red Book's second name for Example 8).
   ["Na[Co(edta)]", "[Na+].[Co-]%11%12%13%14%15[N](CC(=O)O%11)(CC(=O)O%12)CC[N]%15(CC(=O)O%13)CC(=O)O%14",
-    "sodium ({{2-[bis(carboxylatomethyl-κO)amino-κN]ethyl}(carboxylatomethyl-κO)amino-κN}acetato-κO)cobaltate(1-)"],
+    "sodium [({2-[bis(carboxylatomethyl-κO)amino-κN]ethyl}(carboxylatomethyl-κO)amino-κN)acetato-κO]cobaltate(1-)"],
   // Organometallic: carbon ligands as substituent prefixes (IR-10.2.2), carbenes as -ylidene (IR-10.2.4), and no
-  // oxidation number (IR-10.2.1.4). The NHC's name begins under b (bis), before chlorido.
+  // oxidation number (IR-10.2.1.4). Benzylidene (P-29.6.1) and the NHC's name, under b (bis), come before chlorido.
   ["Grubbs II", "Cl[Ru](Cl)(=CC1=CC=CC=C1)(=C1N(C2=C(C)C=C(C)C=C2C)CCN1C1=C(C)C=C(C)C=C1C)P(C1CCCCC1)(C1CCCCC1)C1CCCCC1",
-    "[1,3-bis(2,4,6-trimethylphenyl)imidazolidin-2-ylidene]dichlorido(phenylmethylidene)(tricyclohexylphosphane)ruthenium"],
+    "(benzylidene)[1,3-bis(2,4,6-trimethylphenyl)imidazolidin-2-ylidene]dichlorido(tricyclohexylphosphane)ruthenium"],
   ["Vaska's complex", "Cl[Ir](=C=O)(P(c1ccccc1)(c1ccccc1)c1ccccc1)P(c1ccccc1)(c1ccccc1)c1ccccc1", "carbonylchloridobis(triphenylphosphane)iridium"],
   // Rh2(OAc)4: four bridging acetates, each O to one Rh (IR-9.2.5.4 Example 6), and the Rh-Rh bond (IR-9.2.5.3).
   ["Rh2(OAc)4", "[Rh]%10%13%14(OC(C)=O%11)OC(C)=O%12.[Rh]%10%11%12(OC(C)=O%13)OC(C)=O%14", "tetrakis(μ-acetato-κO:κO')dirhodium(Rh—Rh)"],
@@ -192,9 +192,9 @@ const wrong: [string, string[]][] = [
   ["[NH3][Pt]1(OC(=O)C2(CCC2)C(=O)O1)[NH3]", ["diammine(cyclobutane-1,1-dicarboxylato-κ2O,O')platinum(II)", "diammine(cyclobutane-1,1-dicarboxylato-κO)platinum(II)"]],
   [ESP, ["bis[μ-3,3'-(1,3-phenylene)bis(2,2-dimethylpropanoato-κ2O,O')]dirhodium(Rh—Rh)", "bis[μ-3,3'-(1,3-phenylene)bis(2,2-dimethylpropanoato-κO)]dirhodium(Rh—Rh)"]],
   ["[Na+].[Co-]%11%12%13%14%15[N](CC(=O)O%11)(CC(=O)O%12)CC[N]%15(CC(=O)O%13)CC(=O)O%14", [
-    "sodium ({{2-[bis(carboxylatomethyl-κO)amino-κN]ethyl}(carboxylatomethyl)amino-κN}acetato-κO)cobaltate(1-)",
-    "sodium ({{2-[bis(carboxylatomethyl-κO)amino]ethyl}(carboxylatomethyl-κO)amino-κN}acetato-κO)cobaltate(1-)",
-    "sodium ({{2-[bis(carboxylatomethyl-κO)amino-κN]ethyl}(carboxylatomethyl-κO)amino-κN}acetato-κO)cobaltate(2-)",
+    "sodium [({2-[bis(carboxylatomethyl-κO)amino-κN]ethyl}(carboxylatomethyl)amino-κN)acetato-κO]cobaltate(1-)",
+    "sodium [({2-[bis(carboxylatomethyl-κO)amino]ethyl}(carboxylatomethyl-κO)amino-κN)acetato-κO]cobaltate(1-)",
+    "sodium [({2-[bis(carboxylatomethyl-κO)amino-κN]ethyl}(carboxylatomethyl-κO)amino-κN)acetato-κO]cobaltate(2-)",
   ]],
 ];
 let turned = 0;
