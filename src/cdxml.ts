@@ -596,12 +596,16 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   }
 
   // An atom's label as ChemDraw stores it: the text in formula face, any charge as a superscript run after it, and
-  // its anchor placed so the attaching glyph sits on the atom (spec 13.1). H goes where Octet draws it.
+  // its anchor placed so the attaching glyph sits on the atom (spec 13.1). H goes where Octet draws it. A label that
+  // reads right to left and has more than one glyph is right-justified, as ChemDraw writes it: its text ends half its
+  // last glyph past the atom, before any charge sign. That glyph is the attaching unit's last (r of Br, O of OMe shown
+  // as MeO, the 1 of R1), or a query label's last.
   function labelOf(i: number, h: number): { xml: string; box: Box } {
     const a = mol.atoms[i], X = page(i), size = (a.size ?? style.labelSize) * scaleOf(a), charge = a.charge ?? 0, deg = nbrs[i].length;
     const v = nbrs[i].reduce<P>((acc, j) => { const d = sub(page(j), X), l = len(d) || 1; return [acc[0] + d[0] / l, acc[1] + d[1] / l]; }, [0, 0]);
     const steep = len(v) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180), right = deg > 0 && !steep && v[0] > 1e-6;
-    let text = a.text ?? a.label, just = a.text && right ? "Right" : "Left", stack: string | undefined;
+    const sign = charge && !a.circled ? `${Math.abs(charge) > 1 ? Math.abs(charge) : ""}${charge > 0 ? "+" : "-"}` : "";
+    let text = a.text ?? a.label, just = right && (text + sign).length > 1 ? "Right" : "Left", stack: string | undefined;
     if (!a.text && h) {
       text += `H${h > 1 ? h : ""}`;
       if (deg ? right : H_FIRST.has(a.label)) just = "Right";
@@ -609,12 +613,12 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     }
     // An alignment set by hand (the node's LabelDisplay says it is).
     if (a.align) { just = a.align === "right" ? "Right" : a.align === "centre" ? "Center" : "Left"; stack = a.align === "above" ? "Above" : a.align === "below" ? "Below" : undefined; }
-    const sign = charge && !a.circled ? `${Math.abs(charge) > 1 ? Math.abs(charge) : ""}${charge > 0 ? "+" : "-"}` : "";
     // An isotope's mass number, a superscript run before the element; the element stays on the atom.
     const iso = !a.text && a.isotope && a.label !== "D" ? String(a.isotope) : "", isoW = widthOf(iso, 0.75 * size);
     const wide = (s: string) => [...s].reduce((w, ch, k) => w + advance(ch, /\d/.test(ch) && k ? 0.75 * size : size), 0);
-    const first = units(text)[0]?.text + (units(text)[0]?.count ?? ""), width = isoW + wide(text) + widthOf(sign, 0.75 * size);
-    const x = just === "Right" ? X[0] - advance(text[0], size) / 2 + wide(first) + widthOf(sign, 0.75 * size) : just === "Center" ? X[0] : X[0] - advance(text[0], size) / 2 - isoW;
+    const q = queryLabel(a.text), u = q === "list" || q === "alt" || q === "link" ? undefined : units(text)[0], tail = (u ? u.count ?? u.text : text).slice(-1);
+    const last = advance(tail, /\d/.test(tail) && (!u || u.count) ? 0.75 * size : size), width = isoW + wide(text) + widthOf(sign, 0.75 * size);
+    const x = just === "Right" ? X[0] + last / 2 + widthOf(sign, 0.75 * size) : just === "Center" ? X[0] : X[0] - advance(text[0], size) / 2 - isoW;
     const y = X[1] + (/[OSCGQ]/.test(text) ? 0.364 : 0.358) * size, left = just === "Right" ? x - width : just === "Center" ? x - width / 2 : x;
     const box: Box = [left, y - 0.716 * size, left + width, y + (/\d/.test(text) ? 0.15 * size : 0)];
     const style2 = { font: a.font ?? style.labelFont, size, colour: a.colour }, look = (a.bold ? 1 : 0) | (a.italic ? 2 : 0) | (a.underline ? 4 : 0);
