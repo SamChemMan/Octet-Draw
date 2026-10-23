@@ -607,9 +607,10 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   }
 
   // An atom's label as ChemDraw stores it: the text in formula face, any charge as a superscript run after it, and
-  // its anchor where Octet draws it (spec 13.1). H goes where Octet draws it. A label that reads right to left and has
-  // more than one glyph is right-justified, as ChemDraw writes it, with p at the right end of the label as drawn: its
-  // last glyph's ink ends as far right of the atom as its first glyph's ink starts left of it read left to right.
+  // its anchor where Octet draws the text (spec 13.1). H goes where Octet draws it. A label that reads right to left
+  // and has more than one glyph is right-justified, as ChemDraw writes it, with p at the right end of the text as drawn
+  // plus the charge sign: the glyph a bond meets centred on the atom if the label ends with it (MeO), else the text's
+  // ink ending as far right of the atom as it starts left of it read left to right (Br).
   function labelOf(i: number, h: number): { xml: string; box: Box } {
     const a = mol.atoms[i], X = page(i), size = (a.size ?? style.labelSize) * scaleOf(a), charge = a.charge ?? 0, deg = nbrs[i].length;
     const v = nbrs[i].reduce<P>((acc, j) => { const d = sub(page(j), X), l = len(d) || 1; return [acc[0] + d[0] / l, acc[1] + d[1] / l]; }, [0, 0]);
@@ -630,7 +631,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     // 1 of R1), or a query label's last.
     const q = queryLabel(a.text), u = q === "list" || q === "alt" || q === "link" ? undefined : units(text)[0], tail = (u ? u.count ?? u.text : text).slice(-1);
     const ink = (ch: string, k: number): [number, number] => { const [w, l, r] = arialGlyph(ch); return [(l * k) / 1000, ((w - r) * k) / 1000]; };
-    const end = [...text].length === 1 ? advance(text, size) / 2 : advance(text[0], size) / 2 - ink(text[0], size)[0] + ink(tail, /\d/.test(tail) && (!u || u.count) ? 0.75 * size : size)[1];
+    const end = u && !u.count && [...u.text].length === 1 ? advance(text[0], size) / 2 : advance(text[0], size) / 2 - ink(text[0], size)[0] + ink(tail, /\d/.test(tail) && (!u || u.count) ? 0.75 * size : size)[1];
     const width = isoW + wide(text) + widthOf(sign, 0.75 * size);
     const x = just === "Right" ? X[0] + end + widthOf(sign, 0.75 * size) : just === "Center" ? X[0] : X[0] - advance(text[0], size) / 2 - isoW;
     const y = X[1] + (/[OSCGQ]/.test(text) ? 0.364 : 0.358) * size, left = just === "Right" ? x - width : just === "Center" ? x - width / 2 : x;

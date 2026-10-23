@@ -1,11 +1,13 @@
 // ACS 1996 structure renderer: a KET molecule in, filled outlines and text runs out. Units are px.
 // The geometry follows ChemDraw's ACS 1996 output, measured to about 1e-5 pt on a reference drawing:
 // - Every bond line is a filled polygon. At an unlabelled atom the polygons meet in a mitred fan.
-// - Bonds stop a margin short of a box round each line of the label, with one cut per bond.
+// - Bonds stop a margin short of the letter they meet; where that letter changes with the reading direction, short of
+//   the label's box. One cut per bond.
 // - Ring double bonds keep the axis line and add an inner line, trimmed back to the ring-angle bisector.
 // - Terminal double bonds (C=O) are centred and run on until they meet the neighbouring bonds.
 // - Labels are anchored on the advance centre and half the ink height of their first glyph. Read right to left,
-//   a label's ink ends as far right of the atom as it starts left of it read left to right.
+//   that glyph stays on the atom if the label ends with it (OMe as MeO); if not (Br), the label's ink ends as far
+//   right of the atom as it starts left of it read left to right.
 
 import { units } from "./labels.ts";
 import { atomIndicator, bondIndicator, queryLabel } from "./query.ts";
@@ -594,6 +596,8 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   // mass number), its text, advance and outline; and the label's cap height. The clips below are made from them.
   type Run = { line: number; text: string; width: number; p: Piece };
   const runsAt: Run[][] = mol.atoms.map(() => []), capAt: number[] = mol.atoms.map(() => 0);
+  // The glyph a bond meets, where it is the same whichever way the label reads (O of OH and HO, C of CF3 and F3C).
+  const meets: (Run | undefined)[] = mol.atoms.map(() => undefined);
   // What a bond stops at, a margin short: boxes, and outlines (a diamond's or star's, or a glyph's).
   const clips: { boxes: Box[]; pieces: Piece[] }[] = mol.atoms.map(() => ({ boxes: [], pieces: [] }));
   const shapes: Piece[][] = mol.atoms.map((a, i) => {
@@ -624,11 +628,15 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const shape: Piece[] = [];
     capAt[i] = M('H').ascent;
     // A run of text from x on baseline y at size f, on a line of the label (-1: raised, a charge or mass number).
-    const run = (text: string, x: number, y: number, f = 1, line = 0) => {
+    const run = (text: string, x: number, y: number, f = 1, line = 0): Run | undefined => {
       labels.push({ text, x, y, size: S * f, colour: a.colour, ...look });
       labelAtom.set(labels[labels.length - 1], i);
       const m = M(text);
-      if (m.outline.length) { const p = { pts: m.outline, x, y, f }; shape.push(p); runsAt[i].push({ line, text, width: m.width, p }); }
+      if (!m.outline.length) return undefined;
+      const r = { line, text, width: m.width, p: { pts: m.outline, x, y, f } };
+      shape.push(r.p);
+      runsAt[i].push(r);
+      return r;
     };
     // A text's ink, left and right of where it starts; and how far left of the middle of a glyph its ink starts.
     const inkOf = (t: string): [number, number] => { const o = M(t).outline; if (!o.length) return [0, 0]; const b = outlineBox(o); return [b[0], b[2]]; };
@@ -636,14 +644,15 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const [x, y] = pts[i];
     // Which way the label reads: away from the bonds. Bonds on the right (within 70° of horizontal) reverse it, as a
     // right alignment set by hand does. Read left to right, its first glyph sits centred on the atom. Read right to
-    // left, its ink ends as far right of the atom as it would start left of it read left to right, so bonds from
-    // either side stop the same distance away. A label of one glyph stays centred (a charge sign is not counted).
+    // left, the glyph a bond meets stays centred if it is the same glyph (MeO, HO, F3C, a lone O); if not (Br, Ph),
+    // the label's ink ends as far right of the atom as it would start left of it read left to right, so bonds from
+    // either side stop the same distance away. A charge sign is not counted.
     const v = nbrs[i].reduce<P>((acc, j) => add(acc, dir(i, j)), [0, 0]);
     const steep = len(v) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180);
     const align = a.align, rtl = align ? align === "right" : deg(i) > 0 && !steep && v[0] > 1e-6;
     if (a.centre) {
       const m = M('*');
-      run('*', x - m.width / 2, y + m.ascent / 2);
+      meets[i] = run('*', x - m.width / 2, y + m.ascent / 2);
       return shape;
     }
     const ql = queryLabel(a.text);
@@ -667,12 +676,13 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       // sits on the atom; stacked, each unit after the first goes one line further up (or down), centred over the atom.
       const us = units(a.text);
       const width = (u: (typeof us)[number]) => M(u.text).width + (u.count ? M(u.count).width * SUB : 0);
-      const first = M(us[0].text[0]), base = y + first.ascent / 2;
+      const first = M(us[0].text[0]), base = y + first.ascent / 2, same = !us[0].count && [...us[0].text].length === 1;
       if (align === "above" || align === "below") {
         const pitch = 1.1 * M('H').ascent * (align === "above" ? -1 : 1);
         us.forEach((u, k) => {
           const ux = k ? x - width(u) / 2 : x - first.width / 2, uy = base + k * pitch;
-          run(u.text, ux, uy, 1, k);
+          const r = run(u.text, ux, uy, 1, k);
+          if (!k && same) meets[i] = r;
           if (u.count) run(u.count, ux + M(u.text).width, uy + DROP * S, SUB, k);
         });
         if (a.charge && !a.circled) run(sign(a.charge), x - first.width / 2 + width(us[0]), base - RISE * S, SUB, -1);
@@ -681,10 +691,10 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       const order = rtl ? [...us].reverse() : us, total = us.reduce((w, u) => w + width(u), 0);
       let ux = 0, right = -Infinity;
       for (const u of order) { right = Math.max(right, ux + inkOf(u.text)[1], u.count ? ux + M(u.text).width + inkOf(u.count)[1] * SUB : -Infinity); ux += width(u); }
-      const one = us.length === 1 && !us[0].count && [...us[0].text].length === 1;
-      let cx = align === "centre" ? x - total / 2 : rtl && !one ? x + near(us[0].text[0]) - right : x - first.width / 2;
+      let cx = align === "centre" ? x - total / 2 : !rtl ? x - first.width / 2 : same ? x + first.width / 2 - total : x + near(us[0].text[0]) - right;
       for (const u of order) {
-        run(u.text, cx, base);
+        const r = run(u.text, cx, base);
+        if (u === us[0] && same) meets[i] = r;
         if (u.count) run(u.count, cx + M(u.text).width, base + DROP * S, SUB);
         cx += width(u);
       }
@@ -699,9 +709,10 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const iso = a.isotope ? String(a.isotope) : '', isoW = iso ? M(iso).width * SUB : 0;
     // H goes first when the label reads right to left (HO, H2N), and on a lone atom written that way (H2O, HCl): the
     // element ends the label. Centred by hand: the element and its H together sit on the atom.
-    const back = rtl || (!align && !deg(i) && !!h && H_FIRST.has(a.label)), one = !h && [...a.label].length === 1;
-    const ox = align === "centre" && h ? x - (lw + hW + cW) / 2 : back && !one ? x + near(a.label[0]) - inkOf(a.label)[1] : x - first.width / 2, base = y + first.ascent / 2;
-    run(a.label, ox, base);
+    const back = rtl || (!align && !deg(i) && !!h && H_FIRST.has(a.label)), same = [...a.label].length === 1;
+    const ox = align === "centre" && h ? x - (lw + hW + cW) / 2 : back && !same ? x + near(a.label[0]) - inkOf(a.label)[1] : x - first.width / 2, base = y + first.ascent / 2;
+    const el = run(a.label, ox, base);
+    if (same) meets[i] = el;
     // An isotope's mass number, raised, just before the element (after an H that goes first: H₃¹³C).
     if (iso) run(iso, ox - isoW, base - RISE * S, SUB, -1);
     const hs = (hx: number, hy: number, line = 0) => { run('H', hx, hy, 1, line); if (count) run(count, hx + hW, hy + DROP * S, SUB, line); };
@@ -720,21 +731,19 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     if (charge && !a.circled) run(sign(charge), end, base - RISE * S, SUB, -1);
     return shape;
   });
-  // A bond stops a margin short of a box round each line of its label: from the cap height to the baseline (further
-  // where a glyph's ink goes), across the line's ink, so a short letter (r, e) counts as full height. Each subscript,
-  // raised charge and mass number adds its own small box. A line of one glyph (a ring's O, N or S) keeps that glyph's
-  // outline, with the outline turned over about its middle too, so bonds from either side stop the same way.
+  // Bonds stop at the letter they meet; where that letter changes with the reading direction, at the label's box.
+  // The letter (O of OH and HO, a ring's O, N or S) is its outline and that outline turned over about its middle, so
+  // bonds from either side stop alike; the rest of the label is its glyph outlines. The box runs round each line of
+  // the label, from the cap height to the baseline (further where a glyph's ink goes) and across the line's ink, so a
+  // short letter (r of Br, e of Me) counts as full height. Subscripts, charges and mass numbers keep their outlines.
   runsAt.forEach((runs, i) => {
-    const lines = new Map<number, Run[]>();
+    const at = meets[i], lines = new Map<number, Run[]>();
     for (const r of runs) {
-      if (r.line < 0 || r.p.f !== 1) clips[i].boxes.push(pieceBox(r.p));
-      if (r.line >= 0) lines.set(r.line, [...(lines.get(r.line) ?? []), r]);
+      if (at || r.p.f !== 1) clips[i].pieces.push(r.p);
+      if (!at && r.line >= 0) lines.set(r.line, [...(lines.get(r.line) ?? []), r]);
     }
+    if (at) clips[i].pieces.push({ ...at.p, pts: mirrored(at.p.pts, at.width) });
     for (const line of lines.values()) {
-      if (line.length === 1 && line[0].p.f === 1 && [...line[0].text].length === 1) {
-        clips[i].pieces.push(line[0].p, { ...line[0].p, pts: mirrored(line[0].p.pts, line[0].width) });
-        continue;
-      }
       const all = line.map((r) => pieceBox(r.p)), tall = line.filter((r) => r.p.f === 1).map((r) => pieceBox(r.p)), base = line.find((r) => r.p.f === 1)?.p.y ?? all[0][3];
       clips[i].boxes.push([Math.min(...all.map((b) => b[0])), Math.min(base - capAt[i], ...tall.map((b) => b[1])), Math.max(...all.map((b) => b[2])), Math.max(base, ...tall.map((b) => b[3]))]);
     }
