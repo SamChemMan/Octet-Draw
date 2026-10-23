@@ -610,7 +610,8 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // its anchor where Octet draws the text (spec 13.1). H goes where Octet draws it. A label that reads right to left
   // and has more than one glyph is right-justified, as ChemDraw writes it, with p at the right end of the text as drawn
   // plus the charge sign: the glyph a bond meets centred on the atom if the label ends with it (MeO), else the text's
-  // ink ending as far right of the atom as it starts left of it read left to right (Br).
+  // ink ending as far right of the atom as it starts left of it read left to right (Br). Octet draws the charge of such
+  // a label before it (⁻O); the file keeps it after the text, where ChemDraw and Octet's reader look for it.
   function labelOf(i: number, h: number): { xml: string; box: Box } {
     const a = mol.atoms[i], X = page(i), size = (a.size ?? style.labelSize) * scaleOf(a), charge = a.charge ?? 0, deg = nbrs[i].length;
     const v = nbrs[i].reduce<P>((acc, j) => { const d = sub(page(j), X), l = len(d) || 1; return [acc[0] + d[0] / l, acc[1] + d[1] / l]; }, [0, 0]);

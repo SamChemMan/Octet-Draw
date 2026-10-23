@@ -108,11 +108,12 @@ assert.ok(ester.labels[2].size < ester.labels[1].size, "2 is a subscript");
 console.log("render.check: written labels ok");
 
 // A label reads the same distance off its atom either way. Read left to right, its first glyph sits centred on the
-// atom. Read right to left, a label that ends with that glyph (HO, MeO, F3C, O⁻) keeps it centred; one that does not
+// atom. Read right to left, a label that ends with that glyph (HO, MeO, F3C, ⁻O) keeps it centred; one that does not
 // (Br, Ph, R₁) ends its ink as far right of the atom as it starts left of it the other way. Bonds stop at the glyph
 // they meet, or at the label's box where that glyph changes with the reading direction, so a bond into a label from
-// the left and its mirror image from the right show the same length. A subscript or raised sign on the bond's side (R₁
-// and O⁻ read right to left, ¹³CH₃ read left to right) still stops that bond early: those pairs are not compared. Glyphs here have Arial's advances and ink edges,
+// the left and its mirror image from the right show the same length. A charge goes before a label read right to left,
+// away from its bonds. A subscript or raised mass number on the bond's side (R₁ read right to left, ¹³CH₃ read left to
+// right) still stops that bond early: those pairs are not compared. Glyphs here have Arial's advances and ink edges,
 // capitals and tall letters at the cap height and short letters (r, e) at the x-height, each outline its ink box.
 {
   const cap = 0.716 * S.size, xh = 0.519 * S.size;
@@ -144,8 +145,8 @@ console.log("render.check: written labels ok");
     ["TMS", { label: "Si", text: "TMS" }, "TMS", false], ["SiMe3", { label: "Si", text: "SiMe3" }, "Me3Si", false], ["R1", { label: "C", text: "R1" }, "R1", false],
     ["Et", { label: "C", text: "Et" }, "Et", false], ["Ts", { label: "S", text: "Ts" }, "Ts", false],
     ["CF3", { label: "C", text: "CF3" }, "F3C", true], ["OMe", { label: "O", text: "OMe" }, "MeO", true], ["OH", { label: "O" }, "HO", true], ["NH2", { label: "N" }, "H2N", true],
-    ["CO2Me", { label: "C", text: "CO2Me" }, "MeO2C", true], ["O–", { label: "O", charge: -1 }, "O–", true],
-    ["13CH3", { label: "C", isotope: 13 }, "H313C", true], ["F", { label: "F" }, "F", true],
+    ["CO2Me", { label: "C", text: "CO2Me" }, "MeO2C", true], ["O–", { label: "O", charge: -1 }, "–O", true], ["NH3+", { label: "N", charge: 1 }, "+H3N", true],
+    ["O2–", { label: "O", charge: -2 }, "2–O", true], ["13CH3", { label: "C", isotope: 13 }, "H313C", true], ["F", { label: "F" }, "F", true],
   ];
   let mirrored = 0;
   const compared = new Map<string, number>();
@@ -177,8 +178,8 @@ console.log("render.check: written labels ok");
     mirrored++;
     compared.set(name, (compared.get(name) ?? 0) + 1);
   }
-  assert.ok(mirrored >= 70, `${mirrored} mirrored pairs compared`);
-  for (const name of ["Br", "Ph", "Me", "Cl", "SiMe3", "OH", "OMe", "NH2", "CO2Me", "CF3"]) assert.equal(compared.get(name), 5, `${name} compared at every angle`);
+  assert.ok(mirrored >= 80, `${mirrored} mirrored pairs compared`);
+  for (const name of ["Br", "Ph", "Me", "Cl", "SiMe3", "OH", "OMe", "NH2", "CO2Me", "CF3", "O–", "O2–", "NH3+"]) assert.equal(compared.get(name), 5, `${name} compared at every angle`);
   // The user's 1,3-dibromo-2,2-dimethylpropane, a zigzag with Br at both ends: both C–Br bonds show the same length
   // (10.19 and 9.17 pt in Arial before).
   const zig: [number, number][] = [[0, 0], [0.866, 0.5], [1.732, 0], [2.598, 0.5], [3.464, 0], [1.232, -0.866], [2.232, -0.866]];

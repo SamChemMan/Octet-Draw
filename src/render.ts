@@ -646,7 +646,8 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     // right alignment set by hand does. Read left to right, its first glyph sits centred on the atom. Read right to
     // left, the glyph a bond meets stays centred if it is the same glyph (MeO, HO, F3C, a lone O); if not (Br, Ph),
     // the label's ink ends as far right of the atom as it would start left of it read left to right, so bonds from
-    // either side stop the same distance away. A charge sign is not counted.
+    // either side stop the same distance away. A charge sign is not counted: it goes after a label read left to right
+    // (O⁻, H₃N⁺) and before one read right to left (⁻O, ⁺H₃N), away from the bonds.
     const v = nbrs[i].reduce<P>((acc, j) => add(acc, dir(i, j)), [0, 0]);
     const steep = len(v) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180);
     const align = a.align, rtl = align ? align === "right" : deg(i) > 0 && !steep && v[0] > 1e-6;
@@ -668,7 +669,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       const cx = rtl ? x + near(a.text[0]) - right : x - first.width / 2;
       px = cx;
       for (const p of pieces) { run(p.t, px, p.f === 1 ? base : base + DROP * S, p.f); px += M(p.t).width * p.f; }
-      if (a.charge && !a.circled) run(sign(a.charge), cx + width, base - RISE * S, SUB, -1);
+      if (a.charge && !a.circled) run(sign(a.charge), rtl ? cx - M(sign(a.charge)).width * SUB : cx + width, base - RISE * S, SUB, -1);
       return shape;
     }
     if (a.text) {
@@ -692,13 +693,14 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       let ux = 0, right = -Infinity;
       for (const u of order) { right = Math.max(right, ux + inkOf(u.text)[1], u.count ? ux + M(u.text).width + inkOf(u.count)[1] * SUB : -Infinity); ux += width(u); }
       let cx = align === "centre" ? x - total / 2 : !rtl ? x - first.width / 2 : same ? x + first.width / 2 - total : x + near(us[0].text[0]) - right;
+      const start = cx;
       for (const u of order) {
         const r = run(u.text, cx, base);
         if (u === us[0] && same) meets[i] = r;
         if (u.count) run(u.count, cx + M(u.text).width, base + DROP * S, SUB);
         cx += width(u);
       }
-      if (a.charge && !a.circled) run(sign(a.charge), cx, base - RISE * S, SUB, -1);
+      if (a.charge && !a.circled) run(sign(a.charge), rtl ? start - M(sign(a.charge)).width * SUB : cx, base - RISE * S, SUB, -1);
       return shape;
     }
     const first = M(a.label[0]), charge = a.charge ?? 0, lw = M(a.label).width;
@@ -728,7 +730,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       else if (!steep || deg(i) < 2) { hs(end, base); end += hW + cW; } // OH, NH2
       else hs(x - hW / 2, base + (v[1] > 0 ? -pitch : pitch), 1);
     }
-    if (charge && !a.circled) run(sign(charge), end, base - RISE * S, SUB, -1);
+    if (charge && !a.circled) run(sign(charge), rtl ? ox - isoW - (h ? hW + cW : 0) - M(sign(charge)).width * SUB : end, base - RISE * S, SUB, -1);
     return shape;
   });
   // Bonds stop at the letter they meet; where that letter changes with the reading direction, at the label's box.
