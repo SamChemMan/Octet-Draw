@@ -1,7 +1,7 @@
 # 0014: Names of coordination compounds, checked in parts
 
 Status: built 21 October 2026, for Sam's Os, Ru and Mn complexes and Rh2 paddlewheels. Porphyrins and main-group
-central atoms added 23 October 2026.
+central atoms added 23 October 2026, then phthalocyanines, corroles and free-base porphyrins the same day.
 
 ## Problem
 
@@ -67,9 +67,40 @@ Added 23 October 2026, for Sam's two P(V) porphyrins.
   (InChI's AuxInfo gives their numbers). Every other E and Z counts: a styryl group's (E) on a porphyrin, and the E
   or Z of an ordinary large ring (cyclooctene, a macrolide), which no central atom fixes.
 
+## Phthalocyanines, corroles and free-base porphyrins
+
+Added 23 October 2026, so that phthalocyanines (H2Pc, Zn, Cu, Si, Al and Ge), corroles (H3corrole, Ga, Mn, Fe, Co and
+Cu) and free-base porphyrins (H2TPP, H2OEP) get names.
+
+- IUPAC names these rings in the tetrapyrrole recommendations (1986): phthalocyanine in TP-1.6 (Fig. 4), corrole in
+  TP-5.3 (Fig. 11). The Red Book's Table VII has pc, phthalocyanine-29,31-diido. The 2013 Blue Book names neither
+  (porphyrin and corrin are in P-101), and gives phthalocyanine no fusion name. Subphthalocyanine and
+  naphthalocyanine are in none of them.
+- OPSIN 2.8.0 reads neither name. Octet adds both to its OPSIN data as retained parents, next to porphyrin
+  (`tools/opsin/pack/arylGroups.patch`), each with its figure's numbering and interior N locants: 29 to 32 for
+  phthalocyanine (N29 in the ring with C1 to C4, N30 with C22 to C25: the interior atoms run against the periphery),
+  21 to 24 for corrole. Phthalocyanine's fusion atoms, unnumbered in Fig. 4, take letters (FR-5.3: 4a, 28a). The
+  namer has the same parents (`fusion.ts`), with the hydrogen their names imply: 29H,31H-phthalocyanine,
+  21H,22H,23H-corrole.
+- As the parents are Octet's own data, reading a name back checks it only against that data. So
+  `src/macrocycles.check.ts` checks each parent against PubChem's InChI (phthalocyanine CID 5282330, corrole CID
+  6857582), against its figure's rings written as cycles of locants, and against derivatives drawn by hand from the
+  figure's Kekulé structure with a substituent at every position that has one.
+- Ligands: `phthalocyanine-29,31-diido-κ4N29,N30,N31,N32` as the Red Book has it, and by the same rule
+  `corrole-21,22,23-triido-κ4N21,N22,N23,N24`: dihydroxido(phthalocyanine-29,31-diido-κ4N29,N30,N31,N32)silicon(IV),
+  [5,10,15-tris(pentafluorophenyl)corrole-21,22,23-triido-κ4N21,N22,N23,N24]gallium(III).
+- Free bases. A drawn porphyrin has E or Z on its meso bonds in InChI (a ring of 8 or more can hold a trans double
+  bond), and the namer turned these down as ring E/Z. A porphyrin's name implies them: every pyrrole N points into
+  the ring. So Structure to Name (`naming.ts`) leaves out the E and Z of a macrocycle's own bonds (in a ring of 8 or
+  more and in no smaller one, with an atom in a ring of at most 7) from the namer's graph and from both InChIs, but
+  only when the drawing shows each pyrrole-type N pointing into the ring: at each such bond, on the side of the
+  macrocycle's next atom. A pyrrole drawn turned out keeps its E and Z, and an N-confused porphyrin (C21 inside, N2
+  outside) is not pyrrole-type: neither gets a name. (E)- and (Z)-cyclooctene and macrolides have no atom in a smaller
+  ring, so their E and Z always count.
+
 ## Not named yet
 
 Configuration at the metal (cis, Δ, polyhedral symbols), η ligands drawn with bonds to each atom, three or more metal
-atoms, two metals of different elements, and donor atoms that no κ term here can cite. Phthalocyanines,
-subphthalocyanines and corroles: OPSIN 2.8.0 reads no name for these ligands (phthalocyanine, corrole, nor
-tetrabenzo or tetraaza names on porphyrin), and the namer has none, so their names cannot be checked.
+atoms, two metals of different elements, and donor atoms that no κ term here can cite. Subphthalocyanines and
+naphthalocyanines: no IUPAC recommendation gives them a parent name, and OPSIN reads none, so their names cannot be
+checked. N-confused porphyrins, whose metal bonds to a C atom as well as N atoms.
