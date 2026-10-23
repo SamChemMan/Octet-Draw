@@ -1235,7 +1235,8 @@ class Namer {
     // f.cn, not the template, counts: a ring O+ or S+ takes a double bond (phenothiazin-5-ium).
     // Sets of m atoms from a list, in its order.
     const sets = (l: number[], m: number): number[][] => (!m ? [[]] : l.flatMap((a, i) => sets(l.slice(i + 1), m - 1).map((r) => [a, ...r])));
-    let indicated = f.cn.length % 2 ? 1 : f.tpl.hydrogens === 2 || !pairable(f.cn, f.ring) ? 2 : 0;
+    // A parent named as a whole has its own (21H,23H-porphyrin, 21H,22H,23H-corrole).
+    let indicated = f.tpl.hydrogens ?? (f.cn.length % 2 ? 1 : !pairable(f.cn, f.ring) ? 2 : 0);
     // A parent whose atoms cannot pair up even so needs two more (P-31.1.4.2.4): the O-CH2-O carbons of
     // bis[1,3]dioxolo[4,5-b:4',5'-d]pyran (topiramate) each take one, and the pyran a third.
     if (indicated === 1 && f.cn.length <= 30 && !f.cn.some((a) => pairable(f.cn.filter((b) => b !== a), f.ring))) indicated = 3;

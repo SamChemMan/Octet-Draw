@@ -180,10 +180,13 @@ run("scaffolds", [
   "benzo[1,2-b:4,5-c']difuran", "benzo[1,2:4,5]di[7]annulene", "benzo[1,2-d:4,5-d']bis[1,3]thiazole", "naphtho[1,2-b:5,6-b']dithiophene",
   "3,8-phenanthroline", "2,9-phenanthroline", "1,7-phenanthroline", "benzo[a]acridine", "benzo[c]acridine", "pyrido[3,2-a]phenazine",
 ]);
-// Retained parents named as a whole (porphyrin with its 21H,23H indicated hydrogen, pleiadene), benzene rings fused
-// to small rings by von Baeyer names (bicyclo[4.2.0]octa-1,3,5-triene, drawn either Kekulé way), and adamantane.
+// Retained parents named as a whole (porphyrin with its 21H,23H indicated hydrogen, phthalocyanine and corrole as
+// macrocycles.check.ts checks them, pleiadene), benzene rings fused to small rings by von Baeyer names
+// (bicyclo[4.2.0]octa-1,3,5-triene, drawn either Kekulé way), and adamantane.
 run("retained whole", [
   "21H,23H-porphyrin", "5,10,15,20-tetraphenyl-21H,23H-porphyrin", "2,3,7,8,12,13,17,18-octaethyl-21H,23H-porphyrin", "pleiadene",
+  "29H,31H-phthalocyanine", "30H,32H-phthalocyanine", "2,9,16,23-tetra-tert-butyl-29H,31H-phthalocyanine", "1,4,8,11,15,18,22,25-octabutoxy-29H,31H-phthalocyanine",
+  "21H,22H,23H-corrole", "5,10,15-triphenyl-21H,22H,23H-corrole", "5,10,15-tris(pentafluorophenyl)-21H,22H,23H-corrole", "corrin",
   "bicyclo[4.2.0]octa-1,3,5-triene", "bicyclo[4.2.0]octa-1,3,5-trien-7-ol", "smiles:C1CC2=C1C=CC=C2", "bicyclo[4.1.0]hepta-1,3,5-triene",
   "adamantane", "adamantan-1-amine", "adamantan-2-one", "3,5-dimethyladamantan-1-amine", "2-azaadamantane", "adamantan-1-yl acetate",
 ]);
