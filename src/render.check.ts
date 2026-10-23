@@ -355,9 +355,10 @@ console.log("render.check: written labels ok");
   console.log("render.check: structure by structure ok");
 }
 
-// Label cuts: a bond stops where every point of the label's outline is a margin clear of it (the largest a + √(m² − d²)
-// over the points, a along the bond and d across it), whichever way the bond comes in, however the outline's points
-// are grouped to pass over the far ones.
+// Label cuts: a bond into a label of one glyph stops where every point of the glyph's outline, and of the outline
+// turned over about the middle of the glyph, is a margin clear of it (the largest a + √(m² − d²) over the points, a
+// along the bond and d across it), whichever way the bond comes in, however the points are grouped to pass over the
+// far ones.
 {
   // An O-like outline: two rings of points, 900 in all, off-centre so no two ways in are alike.
   const ring = (r: number, n: number, cx: number): P[] => Array.from({ length: n }, (_, k) => [cx + r * Math.cos((2 * Math.PI * k) / n), -4.75 + 1.2 * r * Math.sin((2 * Math.PI * k) / n)]);
@@ -368,7 +369,7 @@ console.log("render.check: written labels ok");
     const X: P = [0, 0], u: P = [Math.cos(t), -Math.sin(t)], n: P = [-u[1], u[0]], m = S.margin + S.line / 2, first = oInk();
     const x0 = -first.width / 2, y0 = first.ascent / 2;
     let cut = 0;
-    for (const [px, py] of first.outline) {
+    for (const [px, py] of [...first.outline, ...first.outline.map(([px, py]): P => [first.width - px, py])]) {
       const q: P = [x0 + px, y0 + py], a = (q[0] - X[0]) * u[0] + (q[1] - X[1]) * u[1], c = (q[0] - X[0]) * n[0] + (q[1] - X[1]) * n[1];
       if (Math.abs(c) < m) cut = Math.max(cut, a + Math.sqrt(m * m - c * c));
     }

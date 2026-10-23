@@ -1,7 +1,7 @@
 // ACS 1996 structure renderer: a KET molecule in, filled outlines and text runs out. Units are px.
 // The geometry follows ChemDraw's ACS 1996 output, measured to about 1e-5 pt on a reference drawing:
 // - Every bond line is a filled polygon. At an unlabelled atom the polygons meet in a mitred fan.
-// - Bonds stop a margin short of the label's glyph outlines, with one cut per bond.
+// - Bonds stop a margin short of a box round each line of the label, with one cut per bond.
 // - Ring double bonds keep the axis line and add an inner line, trimmed back to the ring-angle bisector.
 // - Terminal double bonds (C=O) are centred and run on until they meet the neighbouring bonds.
 // - Labels are anchored on the advance centre and half the ink height of their first glyph.
@@ -518,6 +518,32 @@ function cellsOf(pts: P[]): Cell[] {
 }
 // A piece's box where it is drawn (the same numbers as the box of its placed points).
 const pieceBox = ({ pts, x, y, f }: Piece): Box => { const b = outlineBox(pts); return [x + b[0] * f, y + b[1] * f, x + b[2] * f, y + b[3] * f]; };
+// A glyph's outline turned over about the middle of its advance (width), found once per outline.
+const mirrors = new WeakMap<P[], P[]>();
+function mirrored(pts: P[], width: number): P[] {
+  let m = mirrors.get(pts);
+  if (!m) mirrors.set(pts, (m = pts.map(([x, y]): P => [width - x, y])));
+  return m;
+}
+// Where a line through o (along u, y down) comes within m of box b: the stretch [in, out] along it, or none. That is
+// where it crosses the box grown by m all round, with rounded corners.
+function boxSpan(o: P, u: P, b: Box, m: number): [number, number] | undefined {
+  let lo = Infinity, hi = -Infinity;
+  const slab = (p: number, d: number, a: number, c: number): [number, number] => {
+    if (Math.abs(d) < 1e-12) return p >= a && p <= c ? [-Infinity, Infinity] : [Infinity, -Infinity];
+    const t0 = (a - p) / d, t1 = (c - p) / d;
+    return t0 < t1 ? [t0, t1] : [t1, t0];
+  };
+  for (const [x0, x1, y0, y1] of [[b[0] - m, b[2] + m, b[1], b[3]], [b[0], b[2], b[1] - m, b[3] + m]]) {
+    const [a0, a1] = slab(o[0], u[0], x0, x1), [c0, c1] = slab(o[1], u[1], y0, y1), t0 = Math.max(a0, c0), t1 = Math.min(a1, c1);
+    if (t0 <= t1) { lo = Math.min(lo, t0); hi = Math.max(hi, t1); }
+  }
+  for (const c of [[b[0], b[1]], [b[2], b[1]], [b[0], b[3]], [b[2], b[3]]] as P[]) {
+    const w0 = o[0] - c[0], w1 = o[1] - c[1], h = w0 * u[0] + w1 * u[1], disc = h * h - (w0 * w0 + w1 * w1 - m * m);
+    if (disc >= 0) { lo = Math.min(lo, -h - Math.sqrt(disc)); hi = Math.max(hi, -h + Math.sqrt(disc)); }
+  }
+  return lo <= hi ? [lo, hi] : undefined;
+}
 // A label's points where they are drawn, for the few atoms with marks round them.
 const placedPoints = (shape: Piece[]): P[] => shape.flatMap(({ pts, x, y, f }) => pts.map(([px, py]): P => [x + px * f, y + py * f]));
 
@@ -563,11 +589,18 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   // Each label's size against the document's: its own size, times its atom's scale.
   const ratio = mol.atoms.map((a) => (a.size && s.labelPt ? a.size / s.labelPt : 1) * scaleOf(a));
   const grown = (m: Ink, r: number): Ink => (r === 1 ? m : { width: m.width * r, ascent: m.ascent * r, outline: m.outline.map(([px, py]) => [px * r, py * r] as P) });
+  // Each label's runs as drawn: the line each is on (0 the attaching line, 1 on for stacked lines, -1 a raised charge or
+  // mass number), its text, advance and outline; and the label's cap height. The clips below are made from them.
+  type Run = { line: number; text: string; width: number; p: Piece };
+  const runsAt: Run[][] = mol.atoms.map(() => []), capAt: number[] = mol.atoms.map(() => 0);
+  // What a bond stops at, a margin short: boxes, and outlines (a diamond's or star's, or a glyph's).
+  const clips: { boxes: Box[]; pieces: Piece[] }[] = mol.atoms.map(() => ({ boxes: [], pieces: [] }));
   const shapes: Piece[][] = mol.atoms.map((a, i) => {
     // The bond stops at a diamond or star: its outline, drawn in a margin, cuts the bond as a label does.
     if (a.attach === "diamond" || a.attach === "star") {
       const f = scaleOf(a), inset = Math.max(0.2, 1 - s.margin / pointR), edge = pointOutline(a.attach).map((q) => mul(q, f));
-      return [{ pts: edge.flatMap((q, k) => { const r = edge[(k + 1) % edge.length]; return Array.from({ length: 6 }, (_, j): P => mul(add(q, mul(sub(r, q), j / 6)), inset)); }), x: pts[i][0], y: pts[i][1], f: 1 }];
+      clips[i].pieces = [{ pts: edge.flatMap((q, k) => { const r = edge[(k + 1) % edge.length]; return Array.from({ length: 6 }, (_, j): P => mul(add(q, mul(sub(r, q), j / 6)), inset)); }), x: pts[i][0], y: pts[i][1], f: 1 }];
+      return clips[i].pieces;
     }
     // The label in its own style: measured in its face, and scaled by its size against the document's.
     const face: Face | undefined = a.font || a.bold || a.italic ? { font: a.font, bold: a.bold, italic: a.italic } : undefined;
@@ -588,11 +621,13 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     }
     const look = { ...(a.font ? { font: a.font } : {}), ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}) };
     const shape: Piece[] = [];
-    const run = (text: string, x: number, y: number, f = 1) => {
+    capAt[i] = M('H').ascent;
+    // A run of text from x on baseline y at size f, on a line of the label (-1: raised, a charge or mass number).
+    const run = (text: string, x: number, y: number, f = 1, line = 0) => {
       labels.push({ text, x, y, size: S * f, colour: a.colour, ...look });
       labelAtom.set(labels[labels.length - 1], i);
-      const outline = M(text).outline;
-      if (outline.length) shape.push({ pts: outline, x, y, f });
+      const m = M(text);
+      if (m.outline.length) { const p = { pts: m.outline, x, y, f }; shape.push(p); runsAt[i].push({ line, text, width: m.width, p }); }
     };
     const [x, y] = pts[i];
     // Which way the label reads: away from the bonds. Bonds on the right (within 70° of horizontal) reverse it, as a
@@ -619,7 +654,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       const cx = rtl ? x + end / 2 - width : x - first.width / 2;
       let px = cx;
       for (const p of pieces) { run(p.t, px, p.f === 1 ? base : base + DROP * S, p.f); px += M(p.t).width * p.f; }
-      if (a.charge && !a.circled) run(sign(a.charge), cx + width, base - RISE * S, SUB);
+      if (a.charge && !a.circled) run(sign(a.charge), cx + width, base - RISE * S, SUB, -1);
       return shape;
     }
     if (a.text) {
@@ -634,10 +669,10 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
         const pitch = 1.1 * M('H').ascent * (align === "above" ? -1 : 1);
         us.forEach((u, k) => {
           const ux = k ? x - width(u) / 2 : x - first.width / 2, uy = base + k * pitch;
-          run(u.text, ux, uy);
-          if (u.count) run(u.count, ux + M(u.text).width, uy + DROP * S, SUB);
+          run(u.text, ux, uy, 1, k);
+          if (u.count) run(u.count, ux + M(u.text).width, uy + DROP * S, SUB, k);
         });
-        if (a.charge && !a.circled) run(sign(a.charge), x - first.width / 2 + width(us[0]), base - RISE * S, SUB);
+        if (a.charge && !a.circled) run(sign(a.charge), x - first.width / 2 + width(us[0]), base - RISE * S, SUB, -1);
         return shape;
       }
       const order = rtl ? [...us].reverse() : us, total = us.reduce((w, u) => w + width(u), 0);
@@ -648,7 +683,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
         if (u.count) run(u.count, cx + M(u.text).width, base + DROP * S, SUB);
         cx += width(u);
       }
-      if (a.charge && !a.circled) run(sign(a.charge), cx, base - RISE * S, SUB);
+      if (a.charge && !a.circled) run(sign(a.charge), cx, base - RISE * S, SUB, -1);
       return shape;
     }
     const first = M(a.label[0]), charge = a.charge ?? 0, lw = M(a.label).width;
@@ -663,22 +698,41 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const ox = align === "centre" && h ? x - (lw + hW + cW) / 2 : back ? x + M(a.label.slice(-1)).width / 2 - lw : x - first.width / 2, base = y + first.ascent / 2;
     run(a.label, ox, base);
     // An isotope's mass number, raised, just before the element (after an H that goes first: H₃¹³C).
-    if (iso) run(iso, ox - isoW, base - RISE * S, SUB);
-    const hs = (hx: number, hy: number) => { run('H', hx, hy); if (count) run(count, hx + hW, hy + DROP * S, SUB); };
+    if (iso) run(iso, ox - isoW, base - RISE * S, SUB, -1);
+    const hs = (hx: number, hy: number, line = 0) => { run('H', hx, hy, 1, line); if (count) run(count, hx + hW, hy + DROP * S, SUB, line); };
     let end = ox + lw; // the charge goes here
     const pitch = 1.1 * M('H').ascent;
     if (h && align) {
       if (align === "right") hs(ox - isoW - hW - cW, base);
-      else if (align === "above" || align === "below") hs(x - hW / 2, base + (align === "above" ? -pitch : pitch));
+      else if (align === "above" || align === "below") hs(x - hW / 2, base + (align === "above" ? -pitch : pitch), 1);
       else { hs(end, base); end += hW + cW; }
     } else if (h) {
       // Sum of the bond directions: within 70° of horizontal, H goes on the far side; steeper, H stacks (indole NH).
       if (back) hs(ox - isoW - hW - cW, base); // HO, H2N
       else if (!steep || deg(i) < 2) { hs(end, base); end += hW + cW; } // OH, NH2
-      else hs(x - hW / 2, base + (v[1] > 0 ? -pitch : pitch));
+      else hs(x - hW / 2, base + (v[1] > 0 ? -pitch : pitch), 1);
     }
-    if (charge && !a.circled) run(sign(charge), end, base - RISE * S, SUB);
+    if (charge && !a.circled) run(sign(charge), end, base - RISE * S, SUB, -1);
     return shape;
+  });
+  // A bond stops a margin short of a box round each line of its label: from the cap height to the baseline (further
+  // where a glyph's ink goes), across the line's ink, so a short letter (r, e) counts as full height. Each subscript,
+  // raised charge and mass number adds its own small box. A line of one glyph (a ring's O, N or S) keeps that glyph's
+  // outline, with the outline turned over about its middle too, so bonds from either side stop the same way.
+  runsAt.forEach((runs, i) => {
+    const lines = new Map<number, Run[]>();
+    for (const r of runs) {
+      if (r.line < 0 || r.p.f !== 1) clips[i].boxes.push(pieceBox(r.p));
+      if (r.line >= 0) lines.set(r.line, [...(lines.get(r.line) ?? []), r]);
+    }
+    for (const line of lines.values()) {
+      if (line.length === 1 && line[0].p.f === 1 && [...line[0].text].length === 1) {
+        clips[i].pieces.push(line[0].p, { ...line[0].p, pts: mirrored(line[0].p.pts, line[0].width) });
+        continue;
+      }
+      const all = line.map((r) => pieceBox(r.p)), tall = line.filter((r) => r.p.f === 1).map((r) => pieceBox(r.p)), base = line.find((r) => r.p.f === 1)?.p.y ?? all[0][3];
+      clips[i].boxes.push([Math.min(...all.map((b) => b[0])), Math.min(base - capAt[i], ...tall.map((b) => b[1])), Math.max(...all.map((b) => b[2])), Math.max(base, ...tall.map((b) => b[3]))]);
+    }
   });
 
   // Marks around atoms: a circled charge, a partial charge, radical dots and lone pairs. A circled or partial
@@ -887,7 +941,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     if (pl && mol.bonds[mol.bonds.indexOf(mol.bonds.find((b) => (b.atoms[0] === x && b.atoms[1] === y) || (b.atoms[0] === y && b.atoms[1] === x))!)].type === 2) { pl.lines = []; pl.kind = 'line'; delete pl.half; }
   });
 
-  // Label cuts: the shortest cut along the axis at which every line of the bond clears the glyph outlines.
+  // Label cuts: the shortest cut along the axis at which every line of the bond clears the label's clips (above).
   // Provisional sizes for the bond styles ChemDraw's reference drawing did not include.
   const WAVE = 0.08; // wavy bond amplitude, in bond lengths
   const half = (pl: Plan) => pl.half ?? (pl.kind === 'hashbar' ? pl.z.bold / 2 : pl.kind === 'wavy' ? WAVE * pl.z.L + pl.z.hw : pl.z.hw);
@@ -895,17 +949,22 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     pl.kind === 'wedge' || pl.kind === 'hash' || pl.kind === 'hollow' ? (x === pl.a ? [pl.z.tip, pl.z.wide] : [pl.z.wide, pl.z.tip]) : [half(pl), half(pl)];
   for (const pl of plans) {
     for (const end of [0, 1] as const) {
-      const x = end ? pl.b : pl.a, shape = shapes[x];
-      if (!shape.length) continue;
+      const x = end ? pl.b : pl.a, { boxes, pieces } = clips[x];
+      if (!boxes.length && !pieces.length) continue;
       const u = end ? mul(pl.u, -1) : pl.u, w = widths(pl, x)[0], m = pl.z.margin + w;
       const offsets = [...(pl.kind === 'none' ? [] : [0]), ...pl.lines.map((l) => l.o)];
+      // A line stops where it leaves the margin round a box it meets before the bond's far end.
+      let cut = 0;
+      for (const b of boxes) for (const o of offsets) {
+        const span = boxSpan(add(pts[x], mul(pl.n, o)), u, b, m);
+        if (span && span[0] < pl.length) cut = Math.max(cut, span[1]);
+      }
       // A line from t to the bond's far end clears an outline point (a along the bond, d across from the line) when
       // the point lies off the line by the margin, or before the line's start or past its end by the rest of it.
       // So the cut is the largest a + √(m² − d²) over the points the line passes, worked out once (no search).
       // The sums are dot(q − X, u) and dot(q − X, n), written out, as this is the renderer's busiest loop.
-      let cut = 0;
       const [X0, X1] = pts[x], [u0, u1] = u, [n0, n1] = pl.n;
-      for (const { pts: outline, x: px0, y: py0, f } of shape) {
+      for (const { pts: outline, x: px0, y: py0, f } of pieces) {
         for (const cell of cellsOf(outline)) {
           // A cell no line passes within the margin of, or whose points cannot reach past the cut so far, is passed over.
           const c0 = px0 + cell.c[0] * f - X0, c1 = py0 + cell.c[1] * f - X1, r = cell.r * f + 1e-9;
