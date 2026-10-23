@@ -235,6 +235,10 @@ const porphyrin = (r: string) => `C12=CC=C(N1%11)C(${r})=C1C=CC(=N1%12)C(${r})=C
 const TPP = porphyrin("c3ccccc3"), TPP_ = "5,10,15,20-tetraphenylporphyrin-21,23-diido-κ4N21,N22,N23,N24";
 const OEP = "C12=C(CC)C(CC)=C(N1%11)C=C1C(CC)=C(CC)C(=N1%12)C=C1C(CC)=C(CC)C(N1%13)=CC=1C(CC)=C(CC)C(N1%14)=C2";
 const STYRYL = "C12=CC=C(N1%11)C(/C=C/c3ccccc3)=C1C=CC(=N1%12)C=C1C=CC(N1%13)=CC=1C=CC(N1%14)=C2";
+const PC = "C12=C3C=CC=CC3=C(N1%11)N=C1C3=CC=CC=C3C(=N1%12)N=C1C3=CC=CC=C3C(N1%13)=NC=1C3=CC=CC=C3C(N1%14)=N2";
+const PC_ = "phthalocyanine-29,31-diido-κ4N29,N30,N31,N32", COR_ = "corrole-21,22,23-triido-κ4N21,N22,N23,N24";
+const corrole = (r: string) => `C%21%22=CC=C(N%22%11)C(${r})=C%23C=CC(N%23%12)=C(${r})C%24=CC=C(N%24%13)C(${r})=C%25C=CC%21=N%25%14`;
+const PH = "c9ccccc9", F5 = "c9c(F)c(F)c(F)c(F)c9F";
 const MACRO: [string, string, string][] = [
   // Sam's two P(V) porphyrins (his ChemDraw drawings, as SMILES written here). A complex ion: its charge number.
   ["[P(TPP)(OMe)2]+", `CO[P+]%11%12%13%14OC.${TPP}`, `dimethanolato(${TPP_})phosphorus(1+)`],
@@ -249,6 +253,19 @@ const MACRO: [string, string, string][] = [
   ["[Mg(OEP)]", `[Mg]%11%12%13%14.${OEP}`, "(2,3,7,8,12,13,17,18-octaethylporphyrin-21,23-diido-κ4N21,N22,N23,N24)magnesium(II)"],
   // The chelate fixes the porphyrin's E and Z, so its name cites none; the styryl group's (E) still counts.
   ["Zn styrylporphyrin", `[Zn]%11%12%13%14.${STYRYL}`, "{5-[(1E)-2-phenylethenyl]porphyrin-21,23-diido-κ4N21,N22,N23,N24}zinc(II)"],
+  // Phthalocyanines (the Red Book's pc, phthalocyanine-29,31-diido) and corroles (corrole-21,22,23-triido), with the
+  // locants of the IUPAC tetrapyrrole figures (TP-1.6 Fig. 4, TP-5.3 Fig. 11) that Octet adds to OPSIN.
+  ["Si(Pc)(OH)2", `O[Si]%11%12%13%14O.${PC}`, `dihydroxido(${PC_})silicon(IV)`],
+  ["[Al(Pc)Cl]", `Cl[Al]%11%12%13%14.${PC}`, `chlorido(${PC_})aluminium(III)`],
+  ["[Ge(Pc)Cl2]", `Cl[Ge]%11%12%13%14Cl.${PC}`, `dichlorido(${PC_})germanium(IV)`],
+  ["[Zn(Pc)]", `[Zn]%11%12%13%14.${PC}`, `(${PC_})zinc(II)`],
+  ["[Cu(Pc)]", `[Cu]%11%12%13%14.${PC}`, `(${PC_})copper(II)`],
+  ["[Ga(tpfc)]", `[Ga]%11%12%13%14.${corrole(F5)}`, `[5,10,15-tris(pentafluorophenyl)${COR_}]gallium(III)`],
+  ["[Ga(tpfc)(py)]", `[Ga]%11%12%13%14%15.${corrole(F5)}.C1=CC=N%15C=C1`, `(pyridine)[5,10,15-tris(pentafluorophenyl)${COR_}]gallium(III)`],
+  ["[Mn(tpc)]", `[Mn]%11%12%13%14.${corrole(PH)}`, `(5,10,15-triphenyl${COR_})manganese(III)`],
+  ["[Co(tpc)(PPh3)]", `[Co]%11%12%13%14%15.${corrole(PH)}.P%15(c1ccccc1)(c1ccccc1)c1ccccc1`, `(5,10,15-triphenyl${COR_})(triphenylphosphane)cobalt(III)`],
+  ["[Fe(tpc)Cl]", `Cl[Fe]%11%12%13%14.${corrole(PH)}`, `chlorido(5,10,15-triphenyl${COR_})iron(IV)`],
+  ["[Cu(tpc)]", `[Cu]%11%12%13%14.${corrole(PH)}`, `(5,10,15-triphenyl${COR_})copper(III)`],
   // Other main-group chelates: a BODIPY dye (drawn either way), Al(acac)3 and a spiro borate.
   ["BODIPY", "F[B-]1(F)N2C=CC=C2C=C2C=CC=[N+]12", "difluorido{2-[(2H-pyrrol-2-ylidene)methyl]-1H-pyrrol-1-ido-κ2N,N'}boron(III)"],
   ["BODIPY, drawn with no charges", "FB1(F)N2C=CC=C2C=C2C=CC=N12", "difluorido{2-[(2H-pyrrol-2-ylidene)methyl]-1H-pyrrol-1-ido-κ2N,N'}boron(III)"],
@@ -265,7 +282,7 @@ assert.equal(editorName("CC1(C)OB(c2ccccc2)OC1(C)C"), "4,4,5,5-tetramethyl-2-phe
 assert.equal(nameOf("CC1(C)OB(c2ccccc2)OC1(C)C"), undefined);
 assert.equal(nameOf("CC(C)(C)[Si](C)(C)OC1=CC=CC=C1"), undefined);
 // Names one term away from right.
-const P_OME = MACRO[0][1], ZN = MACRO[5][1];
+const macro = (label: string) => MACRO.find((x) => x[0] === label)![1], P_OME = macro("[P(TPP)(OMe)2]+"), ZN = macro("[Zn(TPP)]");
 const wrongMacro: [string, string[]][] = [
   [P_OME, [
     `dimethanolato(${TPP_})phosphorus(2+)`, `dimethanolato(${TPP_})phosphorus`, `trimethanolato(${TPP_})phosphorus(1+)`,
@@ -280,30 +297,47 @@ const wrongMacro: [string, string[]][] = [
     "dimethanolato[5,10,15,20-tetrakis(4-methoxyphenyl)porphyrin-21,23-diido-κ4N21,N22,N23,N24]phosphorus(1+)",
   ]],
   [ZN, [`(${TPP_})zinc(III)`, `(${TPP_})zinc(2+)`, `(${TPP_})copper(II)`, `bis(${TPP_})zinc(II)`, `chlorido(${TPP_})zinc(II)`]],
-  [MACRO[4][1], [`dichlorido(${TPP_})tin(II)`, `trichlorido(${TPP_})tin(IV)`, `dibromido(${TPP_})tin(IV)`]],
+  [macro("[Sn(TPP)Cl2]"), [`dichlorido(${TPP_})tin(II)`, `trichlorido(${TPP_})tin(IV)`, `dibromido(${TPP_})tin(IV)`]],
   [`[Zn]%11%12%13%14.${STYRYL}`, [
     "{5-[(1Z)-2-phenylethenyl]porphyrin-21,23-diido-κ4N21,N22,N23,N24}zinc(II)", "[5-(2-phenylethenyl)porphyrin-21,23-diido-κ4N21,N22,N23,N24]zinc(II)",
   ]],
-  [MACRO[10][1], [
+  [macro("BODIPY"), [
     "difluorido{2-[(2H-pyrrol-2-ylidene)methyl]-1H-pyrrol-1-ido-κ2N,N'}boron(II)", "dichlorido{2-[(2H-pyrrol-2-ylidene)methyl]-1H-pyrrol-1-ido-κ2N,N'}boron(III)",
     "difluorido{2-[(2H-pyrrol-2-ylidene)methyl]-1H-pyrrol-1-ido-κN}boron(III)", "difluorido{2-[(2H-pyrrol-2-ylidene)methyl]-1H-pyrrol-1-ido-κ2N,N'}aluminium(III)",
   ]],
+  // The κ term cites the four interior N atoms by the figures' locants: the meso N atoms (6, 13, 20, 27), an N atom with
+  // no such locant, or three of four are refused, as are a neutral ligand, a dianion of corrole and the wrong ring.
+  [macro("Si(Pc)(OH)2"), [
+    `dihydroxido(${PC_})silicon(III)`, `dihydroxido(${PC_})germanium(IV)`, `hydroxido(${PC_})silicon(IV)`, `dichlorido(${PC_})silicon(IV)`,
+    "dihydroxido(phthalocyanine-29,31-diido-κ4N6,N13,N20,N27)silicon(IV)", "dihydroxido(phthalocyanine-29,31-diido-κ4N29,N30,N31,N33)silicon(IV)",
+    "dihydroxido(phthalocyanine-29,31-diido-κ3N29,N30,N31)silicon(IV)", "dihydroxido(phthalocyanine-κ4N29,N30,N31,N32)silicon(IV)",
+    "dihydroxido(phthalocyanine-29,31-diido)silicon(IV)", "dihydroxido(porphyrin-21,23-diido-κ4N21,N22,N23,N24)silicon(IV)",
+    "dihydroxido(2-methylphthalocyanine-29,31-diido-κ4N29,N30,N31,N32)silicon(IV)",
+  ]],
+  [macro("[Ga(tpfc)]"), [
+    `[5,10,15-tris(pentafluorophenyl)${COR_}]gallium(II)`, `[5,10,15-tris(pentafluorophenyl)${COR_}]aluminium(III)`, `(5,10,15-triphenyl${COR_})gallium(III)`,
+    `[2,10,15-tris(pentafluorophenyl)${COR_}]gallium(III)`, `[5,10,20-tris(pentafluorophenyl)${COR_}]gallium(III)`,
+    "[5,10,15-tris(pentafluorophenyl)corrole-21,22-diido-κ4N21,N22,N23,N24]gallium(III)",
+    "[5,10,15-tris(pentafluorophenyl)corrole-21,22,23-triido-κ4N21,N22,N23,N25]gallium(III)",
+    "[5,10,15-tris(pentafluorophenyl)corrole-21,22,23-triido-κ3N21,N22,N23]gallium(III)",
+    "[5,10,15,20-tetrakis(pentafluorophenyl)porphyrin-21,23-diido-κ4N21,N22,N23,N24]gallium(III)",
+  ]],
+  [macro("[Mn(tpc)]"), [`(5,10,15-triphenyl${COR_})manganese(II)`, `(5,10,15-triphenyl${COR_})manganese(IV)`, `chlorido(5,10,15-triphenyl${COR_})manganese(III)`]],
 ];
 let turnedMacro = 0;
 for (const [smiles, names] of wrongMacro) {
   const m = drawn(smiles);
   for (const name of names) { assert.equal(complexNameReads(name, m, api), false, name); turnedMacro++; }
 }
-// No name: ligands OPSIN reads no name for (phthalocyanine, subphthalocyanine, corrole) and the namer has none for;
-// charges that give the central atom an oxidation number its group does not allow (P(VI), P(IV)) or leave an N atom
-// with no usual valence; and a porphyrin with a ring bond missing, which is not a porphyrin.
-const PC = "C12=C3C=CC=CC3=C(N1%11)N=C1C3=CC=CC=C3C(=N1%12)N=C1C3=CC=CC=C3C(N1%13)=NC=1C3=CC=CC=C3C(N1%14)=N2";
+// No name: ligands that neither IUPAC's recommendations nor OPSIN name (subphthalocyanine, naphthalocyanine), an
+// N-confused porphyrin (C21 bonded to the metal: a carbon donor with N donors is not named); charges that give the
+// central atom an oxidation number its group does not allow (P(VI), P(IV)) or leave an N atom with no usual valence;
+// and a porphyrin with a ring bond missing, which is not a porphyrin.
+const NC = PC.replace("C3C=CC=CC3", "C3C=C4C=CC=CC4=CC3").replaceAll("C3=CC=CC=C3", "C3=CC4=CC=CC=C4C=C3");
 const noMacro: [string, string][] = [
-  ["Si(Pc)(OH)2", `O[Si]%11%12%13%14O.${PC}`],
-  ["[Al(Pc)Cl]", `Cl[Al]%11%12%13%14.${PC}`],
-  ["[Ge(Pc)Cl2]", `Cl[Ge]%11%12%13%14Cl.${PC}`],
   ["subphthalocyanine BCl", "Cl[B]%11%12%13.N%41=C1c2ccccc2C(N1%11)=NC1=C2C=CC=CC2=C(N1%12)N=C1c2ccccc2C%41=N1%13"],
-  ["Ga corrole", "[Ga]%11%12%13%14.C%21%22=CC=C(N%22%11)C(c9ccccc9)=C%23C=CC(N%23%12)=C(c9ccccc9)C%24=CC=C(N%24%13)C(c9ccccc9)=C%25C=CC%21=N%25%14"],
+  ["[Zn(Nc)]", `[Zn]%11%12%13%14.${NC}`],
+  ["[Ni(NCTPP)]", `[Ni]%11%12%13%14.C12NC=C(C=1%11)C(${PH})=C1C=CC(=N1%12)C(${PH})=C1C=CC(N1%13)=C(${PH})C=1C=CC(N1%14)=C2${PH}`],
   ["[P(TPP)(OMe)2]2+", `CO[P+2]%11%12%13%14OC.${TPP}`],
   ["P(TPP)(OMe)2, no charge", `CO[P]%11%12%13%14OC.${TPP}`],
   ["N- with four bonds", `CO[P+]%11%12%13%14OC.${TPP.replace("=N1%12", "=[N-]1%12")}`],

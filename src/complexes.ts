@@ -423,9 +423,10 @@ function nameLigand(m: Mol, g: Graph, lig: Ligand, api: ComplexApi): Named | und
   const own = (!lig.charge ? assemblyName(graph) : multiplicativeName(graph, reads)) ?? undefined;
   let name = own && reads(own) ? own : substitutively(() => iupacNameWhy(graph).name);
   if (!name || (name !== own && !reads(name))) return undefined;
-  // A porphyrin's anion as the Red Book names it (IR-9 Table VII: tpp, 5,10,15,20-tetraphenylporphyrin-21,23-diido),
-  // with no indicated hydrogen at the anionic N atoms.
-  const book = name.replace(/-?(\d+)H,(\d+)H-(porphyrin)-\1,\2-diide$/, "$3-$1,$2-diide");
+  // A porphyrin's anion as the Red Book names it (IR-9 Table VII: tpp, 5,10,15,20-tetraphenylporphyrin-21,23-diido;
+  // pc, phthalocyanine-29,31-diido), with no indicated hydrogen at the anionic N atoms; a corrole's the same way
+  // (corrole-21,22,23-triido).
+  const book = name.replace(/-?(\d+H(?:,\d+H)*)-(porphyrin|phthalocyanine|corrole)-([\d,]+)-((?:di|tri)ide)$/, (all, h: string, parent: string, at: string, ide: string) => (h.replace(/H/g, "") === at ? `${parent}-${at}-${ide}` : all));
   if (book !== name && reads(book)) name = book;
   // An anion's ending, before any closing marks of a multiplied unit (bis(2,2-dimethylpropanoato)).
   const form = lig.charge < 0 ? (/(ate|ide|ite)[)\]}]*$/.test(name) ? name.replace(/e([)\]}]*)$/, "o$1") : undefined) : name;
