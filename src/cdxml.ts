@@ -201,6 +201,17 @@ function advance(ch: string, size: number): number {
   return (w * size) / 1000;
 }
 const widthOf = (text: string, size: number) => [...text].reduce((w, ch) => w + advance(ch, size), 0);
+// Arial's ink, left and right (1/1000 em from the start of the advance), from the font's glyph boxes.
+const INK: Record<string, [number, number]> = {
+  A: [-1, 668], B: [73, 614], C: [50, 683], D: [77, 669], E: [79, 613], F: [82, 565], G: [53, 715], H: [80, 642], I: [93, 188], J: [27, 422], K: [73, 665], L: [73, 521], M: [74, 757],
+  N: [76, 640], O: [48, 733], P: [77, 624], Q: [43, 741], R: [79, 709], S: [45, 615], T: [23, 591], U: [79, 642], V: [4, 659], W: [12, 933], X: [4, 661], Y: [3, 659], Z: [20, 586],
+  a: [36, 514], b: [65, 515], c: [39, 491], d: [34, 484], e: [37, 515], f: [9, 313], g: [32, 489], h: [66, 488], i: [66, 154], j: [-46, 153], k: [66, 496], l: [64, 152], m: [66, 769],
+  n: [66, 487], o: [33, 519], p: [66, 516], q: [35, 484], r: [65, 347], s: [31, 461], t: [18, 271], u: [64, 484], v: [13, 488], w: [3, 714], x: [7, 493], y: [16, 491], z: [20, 479],
+  "0": [42, 508], "1": [109, 373], "2": [29, 503], "3": [42, 511], "4": [13, 508], "5": [42, 516], "6": [38, 510], "7": [47, 511], "8": [41, 512], "9": [42, 512],
+  "+": [56, 528], "-": [32, 302], "−": [56, 528], "–": [-2, 554], "(": [61, 297], ")": [61, 297], "[": [68, 262], "]": [19, 213], ".": [91, 191], ",": [83, 189], "'": [44, 144], "*": [31, 354],
+};
+// A glyph's advance and ink left and right in Arial (1/1000 em). Checks build Arial-like glyphs from it.
+export const arialGlyph = (ch: string): [number, number, number] => [advance(ch, 1000), ...(INK[ch] ?? [0, advance(ch, 1000)])];
 
 // The kind an arrow reads as from what CDXML stores: its heads, head shape, shaft spacing, no-go mark and whether it
 // is an arc. The writer keeps a kind this does not give back in Octet's own data.

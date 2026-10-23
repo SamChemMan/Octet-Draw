@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { ALL_ARROW_KINDS, SHAPE_KINDS, arrowShapes, blockOutline, ellipseArrow, fitArrows, headOfLength, headSize, lineOffsets, markAt, placeCaptions, render, renderParts, shapeInk, shapePaths, sizeOf, spotPath, tableLayout, tlcLayout, turnedWith, type Arrow, type Atom, type Bond, type Box, type Caption, type Drawing, type Ink, type Mol, type PartCache, type Shape } from "./render.ts";
 import { layoutCycles, type Cycle } from "./cycle.ts";
+import { arialGlyph } from "./cdxml.ts";
 
 type P = [number, number];
 const pt = 4 / 3;
@@ -106,54 +107,78 @@ assert.deepEqual(ester.labels.map((l) => l.text), ["Et", "O", "2", "C"]);
 assert.ok(ester.labels[2].size < ester.labels[1].size, "2 is a subscript");
 console.log("render.check: written labels ok");
 
-// The glyph on the atom, as ChemDraw places it: read left to right, the attaching unit's first; read right to left,
-// the label's last, not counting a charge sign. Glyphs here have Arial's advances, each outline its own box.
+// A label reads the same distance off its atom either way: read left to right, its first glyph sits centred on the
+// atom; read right to left, its ink ends as far right of the atom as it starts left of it the other way. Bonds stop at
+// a box round each line of the label, so a bond into a label from the left and its mirror image from the right show
+// the same length, unless a subscript or raised sign sits on the bond's side (R₁ and O⁻ read right to left, ¹³CH₃ read
+// left to right). Glyphs here have Arial's advances and ink edges, capitals and tall letters at the cap height and
+// short letters (r, e) at the x-height, each outline its ink box.
 {
-  const ADV: Record<string, number> = { B: 667, r: 333, C: 722, l: 222, P: 667, h: 556, M: 833, e: 556, T: 611, S: 667, i: 222, R: 722, F: 611, O: 778, H: 722, N: 722 };
-  const adv = (ch: string) => ((ADV[ch] ?? 556) * S.size) / 1000, cap = 0.716 * S.size;
+  const cap = 0.716 * S.size, xh = 0.519 * S.size;
+  const metrics = (ch: string) => arialGlyph(ch).map((v) => (v * S.size) / 1000);
+  const height = (ch: string): [number, number] => (/[gjpqy]/.test(ch) ? [-0.21 * S.size, xh] : /[acemnorsuvwxz]/.test(ch) ? [0, xh] : ch === "+" ? [0.11 * S.size, 0.58 * S.size] : ch === "–" ? [0.22 * S.size, 0.3 * S.size] : [0, cap]);
   const arial = (text: string): Ink => {
     const outline: P[] = [];
-    let x = 0;
-    for (const ch of text) { const w = adv(ch); for (let k = 0; k <= 20; k++) outline.push([x + (w * k) / 20, 0], [x + (w * k) / 20, -cap], [x, (-cap * k) / 20], [x + w, (-cap * k) / 20]); x += w; }
-    return { width: x, ascent: cap, outline };
+    let x = 0, top = 0;
+    for (const ch of text) {
+      const [w, l, r] = metrics(ch), [lo, hi] = height(ch);
+      for (let k = 0; k <= 20; k++) { const f = k / 20; outline.push([x + l + (r - l) * f, -lo], [x + l + (r - l) * f, -hi], [x + l, -lo - (hi - lo) * f], [x + r, -lo - (hi - lo) * f]); }
+      x += w; top = Math.max(top, hi);
+    }
+    return { width: x, ascent: top, outline };
   };
-  const width = (l: Drawing["labels"][number]) => ([...l.text].reduce((w, ch) => w + adv(ch), 0) * l.size) / S.size;
-  // Each label, its runs left to right as drawn, and the glyph on the atom when it reads right to left.
-  const cases: [Partial<Atom>, string, string][] = [
-    [{ label: "Br" }, "Br", "r"], [{ label: "Cl" }, "Cl", "l"], [{ label: "C", text: "Ph" }, "Ph", "h"], [{ label: "C", text: "Me" }, "Me", "e"],
-    [{ label: "Si", text: "TMS" }, "TMS", "S"], [{ label: "Si", text: "SiMe3" }, "Me3Si", "i"], [{ label: "C", text: "R1" }, "R1", "1"],
-    [{ label: "C", text: "CF3" }, "F3C", "C"], [{ label: "O", text: "OMe" }, "MeO", "O"], [{ label: "O" }, "HO", "O"], [{ label: "N" }, "H2N", "N"],
-    [{ label: "O", charge: -1 }, "O–", "O"], [{ label: "C", isotope: 13 }, "H313C", "C"],
-  ];
-  for (const [atom, shown, glyph] of cases) {
-    const drawn = (from: number) => [...render({ atoms: [{ label: "C", location: [from, 0, 0] }, { ...atom, label: atom.label!, location: [0, 0, 0] }], bonds: [{ type: 1, atoms: [0, 1] }] }, S, arial).labels].sort((p, q) => p.x - q.x);
-    const left = drawn(1), right = drawn(-1), name = `${atom.text ?? atom.label}${atom.charge ? "–" : ""}`;
-    assert.equal(left.map((l) => l.text).join(""), shown, `${name} on the left reads ${shown}`);
-    for (const runs of [left, right]) runs.slice(1).forEach((l, k) => assert.ok(l.x >= runs[k].x + width(runs[k]) - 1e-9, `${name}: ${l.text} clear of ${runs[k].text}`));
-    const end = left.filter((l) => !/^\d*[+–]$/.test(l.text)).pop()!;
-    assert.equal(end.text.slice(-1), glyph);
-    assert.ok(Math.abs(end.x + width(end) - (adv(glyph) * end.size) / S.size / 2) < 1e-9, `${name} on the left: its ${glyph} sits on the atom`);
-    const start = right.find((l) => l.size === S.size)!;
-    assert.ok(Math.abs(start.x + adv(start.text[0]) / 2) < 1e-9, `${name} on the right: its ${start.text[0]} sits on the atom`);
-  }
-  // The user's 1,3-dibromo-2,2-dimethylpropane, a zigzag with Br at both ends. With every glyph the same width the two
-  // labels mirror each other, so both C–Br bonds show the same length (the left Br ran over its bond before).
-  const mono = (text: string): Ink => {
-    const w = 0.6 * S.size, outline: P[] = [];
-    [...text].forEach((_, j) => { for (let k = 0; k <= 20; k++) outline.push([w * (j + k / 20), 0], [w * (j + k / 20), -cap], [w * j, (-cap * k) / 20], [w * (j + 1), (-cap * k) / 20]); });
-    return { width: w * text.length, ascent: cap, outline };
-  };
-  const zig: [number, number][] = [[0, 0], [0.866, 0.5], [1.732, 0], [2.598, 0.5], [3.464, 0], [1.232, -0.866], [2.232, -0.866]];
-  const dibromo = render({ atoms: zig.map(([x, y], k) => ({ label: k === 0 || k === 4 ? "Br" : "C", location: [x, y, 0] as [number, number, number] })), bonds: [[0, 1], [1, 2], [2, 3], [3, 4], [2, 5], [2, 6]].map((atoms) => ({ type: 1, atoms: atoms as [number, number] })) }, S, mono);
-  const shows = (i: number, j: number) => {
-    const X: P = [zig[i][0] * L, -zig[i][1] * L], Y: P = [zig[j][0] * L, -zig[j][1] * L], u: P = [(Y[0] - X[0]) / L, (Y[1] - X[1]) / L];
+  type Run = Drawing["labels"][number];
+  const k = (l: Run) => l.size / S.size, advance = (l: Run) => [...l.text].reduce((w, ch) => w + metrics(ch)[0], 0) * k(l);
+  const inkLeft = (l: Run) => l.x + metrics(l.text[0])[1] * k(l), inkRight = (l: Run) => l.x + advance(l) - (metrics(l.text.slice(-1))[0] - metrics(l.text.slice(-1))[2]) * k(l);
+  // The visible length of the bond from labelled atom X to atom Y: its polygon, along the bond.
+  const shows = (d: Drawing, X: P, Y: P) => {
+    const l = Math.hypot(Y[0] - X[0], Y[1] - X[1]), u: P = [(Y[0] - X[0]) / l, (Y[1] - X[1]) / l];
     const along = (q: P) => (q[0] - X[0]) * u[0] + (q[1] - X[1]) * u[1], across = (q: P) => Math.abs((q[0] - X[0]) * u[1] - (q[1] - X[1]) * u[0]);
-    const a = dibromo.polygons.find((poly) => poly.every((q) => across(q) < 2 && along(q) > -1 && along(q) < L + 2))!.map(along);
-    return Math.min(L, Math.max(...a)) - Math.min(...a);
+    const a = d.polygons.find((poly) => poly.every((q) => across(q) < 1.5 && along(q) > -1 && along(q) < l + 2))!.map(along);
+    return Math.min(l, Math.max(...a)) - Math.min(...a);
   };
-  const [l, r] = [shows(0, 1), shows(4, 3)];
-  assert.ok(l < L - 1 && Math.abs(l - r) < 0.1 * pt, `both C–Br bonds show the same length (${(l / pt).toFixed(2)} and ${(r / pt).toFixed(2)} pt)`);
-  console.log("render.check: label anchors ok");
+  const cases: [string, Partial<Atom> & { label: string }, string][] = [
+    ["Br", { label: "Br" }, "Br"], ["Cl", { label: "Cl" }, "Cl"], ["Ph", { label: "C", text: "Ph" }, "Ph"], ["Me", { label: "C", text: "Me" }, "Me"],
+    ["TMS", { label: "Si", text: "TMS" }, "TMS"], ["SiMe3", { label: "Si", text: "SiMe3" }, "Me3Si"], ["R1", { label: "C", text: "R1" }, "R1"],
+    ["CF3", { label: "C", text: "CF3" }, "F3C"], ["OMe", { label: "O", text: "OMe" }, "MeO"], ["OH", { label: "O" }, "HO"], ["NH2", { label: "N" }, "H2N"],
+    ["CO2Me", { label: "C", text: "CO2Me" }, "MeO2C"], ["O–", { label: "O", charge: -1 }, "O–"], ["13CH3", { label: "C", isotope: 13 }, "H313C"],
+    ["F", { label: "F" }, "F"], ["Et", { label: "C", text: "Et" }, "Et"], ["Ts", { label: "S", text: "Ts" }, "Ts"],
+  ];
+  let mirrored = 0;
+  for (const [name, atom, shown] of cases) for (const deg of [0, 30, 60, -30, -60]) {
+    // Two carbons, the label on each end, its bond deg above the horizontal: the left label reads right to left.
+    const t = (deg * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
+    const mol: Mol = { atoms: [{ label: "C", location: [-0.5, 0, 0] }, { label: "C", location: [0.5, 0, 0] }, { ...atom, location: [-0.5 - c, s, 0] }, { ...atom, location: [0.5 + c, s, 0] }], bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [0, 2] }, { type: 1, atoms: [1, 3] }] };
+    const d = render(mol, S, arial), at = (i: number): P => [mol.atoms[i].location[0] * L, -mol.atoms[i].location[1] * L];
+    const runs = (i: number) => d.labels.filter((_, j) => Math.hypot(d.labelAt[j][0] - at(i)[0], d.labelAt[j][1] - at(i)[1]) < 1e-9).sort((p, q) => p.x - q.x);
+    const [left, right] = [runs(2), runs(3)], label = `${name} at ${deg}°`;
+    assert.equal(left.map((l) => l.text).join(""), shown, `${name} on the left reads ${shown}`);
+    for (const rs of [left, right]) rs.slice(1).forEach((l, j) => assert.ok(l.x >= rs[j].x + advance(rs[j]) - 1e-9, `${label}: ${l.text} clear of ${rs[j].text}`));
+    // The line: the runs on the attaching baseline and their subscripts, not a raised charge or mass number.
+    const line = (rs: Run[]) => { const base = rs.find((l) => l.size === S.size)!.y; return rs.filter((l) => l.size === S.size || l.y > base); };
+    const one = line(left).length === 1 && line(left)[0].text.length === 1;
+    if (one) {
+      // A label of one glyph stays centred on its atom.
+      for (const [rs, i] of [[left, 2], [right, 3]] as const) assert.ok(Math.abs(rs[0].x + advance(rs[0]) / 2 - at(i)[0]) < 1e-9, `${label}: centred`);
+    } else {
+      const ends = Math.max(...line(left).map(inkRight)) - at(2)[0], starts = at(3)[0] - Math.min(...line(right).map(inkLeft));
+      assert.ok(Math.abs(ends - starts) < 1e-9, `${label}: its ink starts as far from the atom on each side (${(ends / pt).toFixed(3)} and ${(starts / pt).toFixed(3)} pt)`);
+    }
+    // A subscript or raised sign on the bond's side of either atom stops that bond early: those are not mirrors.
+    const small = (rs: Run[], i: number, side: number) => rs.some((l) => l.size < S.size && (side > 0 ? inkRight(l) > at(i)[0] : inkLeft(l) < at(i)[0]));
+    if (small(left, 2, 1) || small(right, 3, -1)) continue;
+    const [l, r] = [shows(d, at(2), at(0)), shows(d, at(3), at(1))];
+    assert.ok(l < L - 1 && Math.abs(l - r) < 0.01 * pt, `${label}: both bonds show the same length (${(l / pt).toFixed(3)} and ${(r / pt).toFixed(3)} pt)`);
+    mirrored++;
+  }
+  assert.ok(mirrored >= 70, `${mirrored} mirrored pairs compared`);
+  // The user's 1,3-dibromo-2,2-dimethylpropane, a zigzag with Br at both ends: both C–Br bonds show the same length
+  // (10.19 and 9.17 pt in Arial before).
+  const zig: [number, number][] = [[0, 0], [0.866, 0.5], [1.732, 0], [2.598, 0.5], [3.464, 0], [1.232, -0.866], [2.232, -0.866]];
+  const dibromo = render({ atoms: zig.map(([x, y], k) => ({ label: k === 0 || k === 4 ? "Br" : "C", location: [x, y, 0] as [number, number, number] })), bonds: [[0, 1], [1, 2], [2, 3], [3, 4], [2, 5], [2, 6]].map((atoms) => ({ type: 1, atoms: atoms as [number, number] })) }, S, arial);
+  const z = (i: number): P => [zig[i][0] * L, -zig[i][1] * L], [l, r] = [shows(dibromo, z(0), z(1)), shows(dibromo, z(4), z(3))];
+  assert.ok(l < L - 1 && Math.abs(l - r) < 0.01 * pt, `both C–Br bonds show the same length (${(l / pt).toFixed(3)} and ${(r / pt).toFixed(3)} pt)`);
+  console.log(`render.check: label symmetry ok (${mirrored} mirrored bonds)`);
 }
 
 // Captions: centred on the structure's ink box, baseline 15 pt below it; a second caption stacks one line down.
