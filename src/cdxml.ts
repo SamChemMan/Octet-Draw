@@ -607,10 +607,9 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   }
 
   // An atom's label as ChemDraw stores it: the text in formula face, any charge as a superscript run after it, and
-  // its anchor placed so the attaching glyph sits on the atom (spec 13.1). H goes where Octet draws it. A label that
-  // reads right to left and has more than one glyph is right-justified, as ChemDraw writes it: its text ends half its
-  // last glyph past the atom, before any charge sign. That glyph is the attaching unit's last (r of Br, O of OMe shown
-  // as MeO, the 1 of R1), or a query label's last.
+  // its anchor where Octet draws it (spec 13.1). H goes where Octet draws it. A label that reads right to left and has
+  // more than one glyph is right-justified, as ChemDraw writes it, with p at the right end of the label as drawn: its
+  // last glyph's ink ends as far right of the atom as its first glyph's ink starts left of it read left to right.
   function labelOf(i: number, h: number): { xml: string; box: Box } {
     const a = mol.atoms[i], X = page(i), size = (a.size ?? style.labelSize) * scaleOf(a), charge = a.charge ?? 0, deg = nbrs[i].length;
     const v = nbrs[i].reduce<P>((acc, j) => { const d = sub(page(j), X), l = len(d) || 1; return [acc[0] + d[0] / l, acc[1] + d[1] / l]; }, [0, 0]);
@@ -627,9 +626,13 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     // An isotope's mass number, a superscript run before the element; the element stays on the atom.
     const iso = !a.text && a.isotope && a.label !== "D" ? String(a.isotope) : "", isoW = widthOf(iso, 0.75 * size);
     const wide = (s: string) => [...s].reduce((w, ch, k) => w + advance(ch, /\d/.test(ch) && k ? 0.75 * size : size), 0);
+    // The glyph that ends the label read right to left: the attaching unit's last (r of Br, O of OMe shown as MeO, the
+    // 1 of R1), or a query label's last.
     const q = queryLabel(a.text), u = q === "list" || q === "alt" || q === "link" ? undefined : units(text)[0], tail = (u ? u.count ?? u.text : text).slice(-1);
-    const last = advance(tail, /\d/.test(tail) && (!u || u.count) ? 0.75 * size : size), width = isoW + wide(text) + widthOf(sign, 0.75 * size);
-    const x = just === "Right" ? X[0] + last / 2 + widthOf(sign, 0.75 * size) : just === "Center" ? X[0] : X[0] - advance(text[0], size) / 2 - isoW;
+    const ink = (ch: string, k: number): [number, number] => { const [w, l, r] = arialGlyph(ch); return [(l * k) / 1000, ((w - r) * k) / 1000]; };
+    const end = [...text].length === 1 ? advance(text, size) / 2 : advance(text[0], size) / 2 - ink(text[0], size)[0] + ink(tail, /\d/.test(tail) && (!u || u.count) ? 0.75 * size : size)[1];
+    const width = isoW + wide(text) + widthOf(sign, 0.75 * size);
+    const x = just === "Right" ? X[0] + end + widthOf(sign, 0.75 * size) : just === "Center" ? X[0] : X[0] - advance(text[0], size) / 2 - isoW;
     const y = X[1] + (/[OSCGQ]/.test(text) ? 0.364 : 0.358) * size, left = just === "Right" ? x - width : just === "Center" ? x - width / 2 : x;
     const box: Box = [left, y - 0.716 * size, left + width, y + (/\d/.test(text) ? 0.15 * size : 0)];
     const style2 = { font: a.font ?? style.labelFont, size, colour: a.colour }, look = (a.bold ? 1 : 0) | (a.italic ? 2 : 0) | (a.underline ? 4 : 0);

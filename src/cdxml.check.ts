@@ -4,11 +4,11 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { DAMAGED, NOT_CDXML, TOO_BIG, fmt, fmtAngle, fmtColour, fmtSize, fromCdxml, parseXml, toCdxml, type Xml } from "./cdxml.ts";
+import { DAMAGED, NOT_CDXML, TOO_BIG, arialGlyph, fmt, fmtAngle, fmtColour, fmtSize, fromCdxml, parseXml, toCdxml, type Xml } from "./cdxml.ts";
 import { DEFAULT_STYLE, PRESETS, readStyle, withScale, type DocStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
 import { fitSizes } from "./edit.ts";
-import { HIGHLIGHT, bendPoint, ellipseArrow, headOfLength, headsOf, takesHeads, tlcLayout, type Arrow, type Atom, type Bond, type Caption, type Mol, type Shape } from "./render.ts";
+import { HIGHLIGHT, bendPoint, ellipseArrow, headOfLength, headsOf, render, takesHeads, tlcLayout, type Arrow, type Atom, type Bond, type Caption, type Ink, type Mol, type Shape } from "./render.ts";
 import { layoutCycles } from "./cycle.ts";
 
 // Numbers as ChemDraw writes them (spec 1.2).
@@ -731,10 +731,10 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
   console.log("cdxml.check: grid and guides ok");
 }
 
-// Label anchors as ChemDraw writes them. A label that reads right to left (here, its bond from the right) and has more
-// than one glyph is right-justified, its p half its last glyph past the atom, plus a charge sign after it: the values
-// are ChemDraw 26.1's own where Sam's files have them (Arial 10 pt), Arial's advances where they do not. One glyph
-// stays Left, as ChemDraw writes it.
+// Label anchors where Octet draws them. A label that reads right to left (here, its bond from the right) and has more
+// than one glyph is right-justified, its p the right end of the label as Octet draws it: its ink ends as far right of
+// the atom as it starts left of it read left to right, then any charge sign. One glyph stays Left, centred. Drawn
+// here with Arial's advances and ink edges, the p written (to 0.01 pt) and the label drawn agree.
 {
   // The labelled node's text p less its own p, and the label's justification.
   const anchor = (text: string): [number, string] => {
@@ -743,27 +743,40 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
     const t = n.kids.find((k) => k.name === "t")!, p = n.attrs.p.split(" ").map(Number), q = t.attrs.p.split(" ").map(Number);
     return [q[0] - p[0], t.attrs.LabelJustification];
   };
-  const cases: [Partial<Atom>, number, string][] = [
-    [{ label: "Br" }, 1.66, "Right"], [{ label: "Cl" }, 1.11, "Right"], [{ label: "C", text: "Ph" }, 2.78, "Right"], [{ label: "C", text: "Me" }, 2.78, "Right"],
-    [{ label: "Si", text: "TMS" }, 3.335, "Right"], [{ label: "Si", text: "SiMe3" }, 1.11, "Right"], [{ label: "C", text: "R1" }, 2.09, "Right"],
-    [{ label: "C", text: "CF3" }, 3.61, "Right"], [{ label: "O", text: "OMe" }, 3.89, "Right"], [{ label: "O" }, 3.89, "Right"], [{ label: "N" }, 3.61, "Right"],
-    [{ label: "O", charge: -1 }, 6.38, "Right"], [{ label: "C", isotope: 13 }, 3.61, "Right"], [{ label: "O", implicitHCount: 0 }, -3.89, "Left"],
+  const PT = 4 / 3, S = { bond: 14.4 * PT, line: 0.6 * PT, bold: 2 * PT, spacing: 0.18 * 14.4 * PT, hash: 2.5 * PT, margin: 1.69 * PT, size: 10 * PT };
+  const glyph = (ch: string) => arialGlyph(ch).map((v) => (v * S.size) / 1000);
+  const arial = (text: string): Ink => {
+    const outline: [number, number][] = [];
+    let x = 0;
+    for (const ch of text) { const [w, l, r] = glyph(ch); for (let k = 0; k <= 4; k++) outline.push([x + l + ((r - l) * k) / 4, 0], [x + l + ((r - l) * k) / 4, -0.716 * S.size]); x += w; }
+    return { width: x, ascent: 0.716 * S.size, outline };
+  };
+  const cases: [Partial<Atom> & { label: string }, string][] = [
+    [{ label: "Br" }, "Right"], [{ label: "Cl" }, "Right"], [{ label: "C", text: "Ph" }, "Right"], [{ label: "C", text: "Me" }, "Right"],
+    [{ label: "Si", text: "TMS" }, "Right"], [{ label: "Si", text: "SiMe3" }, "Right"], [{ label: "C", text: "R1" }, "Right"], [{ label: "C", text: "CF3" }, "Right"],
+    [{ label: "O", text: "OMe" }, "Right"], [{ label: "O" }, "Right"], [{ label: "N" }, "Right"], [{ label: "C", text: "CO2Me" }, "Right"],
+    [{ label: "O", charge: -1 }, "Right"], [{ label: "C", isotope: 13 }, "Right"], [{ label: "C", text: "[N,O]" }, "Right"], [{ label: "O", implicitHCount: 0 }, "Left"],
   ];
-  for (const [atom, want, just] of cases) {
-    const [dx, j] = anchor(toCdxml({ atoms: [A(atom.label!, 0, 0, atom), A("C", 1, 0)], bonds: [b(0, 1)] }, DEFAULT_STYLE));
-    assert.ok(Math.abs(dx - want) <= 0.0201 && j === just, `${atom.text ?? atom.label}${atom.charge ? "-" : ""}: ${just} at ${want} (${j} at ${dx.toFixed(2)})`);
+  for (const [atom, just] of cases) {
+    const mol: Mol = { atoms: [A(atom.label, 0, 0, atom), A("C", 1, 0)], bonds: [b(0, 1)] };
+    const [dx, j] = anchor(toCdxml(mol, DEFAULT_STYLE)), name = `${atom.text ?? atom.label}${atom.charge ? "-" : ""}`;
+    // Octet's drawing: the label's runs (the charge sign apart, as ChemDraw sizes its own), in pt from the atom.
+    const runs = render(mol, S, arial).labels.filter((l) => !/^\d*[+–]$/.test(l.text) || !atom.charge);
+    const sign = atom.charge ? (333 * 7.5) / 1000 : 0;
+    const drawn = just === "Right" ? Math.max(...runs.map((l) => l.x + [...l.text].reduce((w, ch) => w + glyph(ch)[0], 0) * (l.size / S.size))) / PT + sign : Math.min(...runs.map((l) => l.x)) / PT;
+    assert.ok(Math.abs(dx - drawn) <= 0.0051 && j === just, `${name}: ${just} at ${drawn.toFixed(3)} as drawn (${j} at ${dx.toFixed(3)})`);
   }
-  // ChemDraw's right-justified Br opens on its atom, and Octet writes it back where ChemDraw had it.
+  // ChemDraw's right-justified Br opens on its atom, and goes back right-justified where Octet draws it.
   const cd = fromCdxml(`<CDXML BondLength="14.40"><page BoundingBox="0 0 540 720"><fragment id="1"><n id="2" p="200 200" Element="35"><t p="201.66 203.58" LabelJustification="Right" Justification="Right"><s font="3" size="10" face="96">Br</s></t></n><n id="3" p="212.47 192.8"/><b id="4" B="2" E="3"/></fragment></page></CDXML>`);
   assert.ok(Math.abs(cd.mol.atoms[0].location[0] - (200 - 270) / 14.4) < 1e-9 && Math.abs(cd.mol.atoms[0].location[1] - (360 - 200) / 14.4) < 1e-9, "the Br sits at its node");
-  const [dx, j] = anchor(toCdxml(cd.mol, cd.style));
-  assert.ok(Math.abs(dx - 1.66) <= 0.0201 && j === "Right", "and goes back right-justified at 1.66 pt");
+  const [dx, j] = anchor(toCdxml(cd.mol, cd.style)), want = (667 / 2 - arialGlyph("B")[1] + 333 - arialGlyph("r")[2]) / 100;
+  assert.ok(Math.abs(dx - want) <= 0.0051 && j === "Right", `and goes back right-justified at ${want.toFixed(3)} pt (${dx.toFixed(3)})`);
   console.log("cdxml.check: label anchors ok");
 }
 
-// Sam's corpus (on this Mac only): every label ChemDraw right-justified that Octet also writes right-justified, on the
-// same baseline, is written within 0.02 pt of ChemDraw's anchor. A label ChemDraw laid out on another baseline (a
-// superscript run, as R*, or a stale layout) is not compared.
+// Sam's corpus (on this Mac only): for every label ChemDraw right-justified that Octet also writes right-justified on
+// the same baseline, how far Octet's p is from ChemDraw's. A report, not a check: Octet places a label so a bond from
+// either side meets it at the same distance, which is not where ChemDraw puts it.
 {
   const CORPUS = join(homedir(), "octet-research/corpus/sam");
   if (!existsSync(CORPUS)) console.log("cdxml.check: no corpus here, label anchors in the corpus skipped");
@@ -779,7 +792,7 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
       if (x.name !== "n") x.kids.forEach((k) => labels(k, out));
       return out;
     };
-    let compared = 0;
+    const off = new Map<string, number[]>();
     for (const name of readdirSync(CORPUS).filter((f) => f.endsWith(".cdxml"))) {
       const text = readFileSync(join(CORPUS, name), "utf8"), read = fromCdxml(text), theirs = labels(parseXml(text)), ours = labels(parseXml(toCdxml(read.mol, read.style)));
       // Octet's page can sit elsewhere: the shift most labels share.
@@ -789,12 +802,10 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
       for (const a of theirs.filter((l) => l.just === "Right")) {
         const o = ours.find((l) => Math.abs(l.p[0] - a.p[0] - sx) < 0.02 && Math.abs(l.p[1] - a.p[1] - sy) < 0.02);
         assert.ok(o, `${name}: ${a.text} is written`);
-        if (o.just !== "Right" || Math.abs(o.d[1] - a.d[1]) > 0.021) continue;
-        compared++;
-        assert.ok(Math.abs(o.d[0] - a.d[0]) <= 0.0201, `${name}: ${a.text} at ${o.d[0].toFixed(2)} pt, ChemDraw's at ${a.d[0].toFixed(2)}`);
+        if (o.just === "Right" && Math.abs(o.d[1] - a.d[1]) <= 0.021) off.set(a.text, [...(off.get(a.text) ?? []), o.d[0] - a.d[0]]);
       }
     }
-    assert.ok(compared >= 80, `${compared} right-justified labels compared`);
-    console.log(`cdxml.check: ${compared} right-justified corpus labels where ChemDraw has them ok`);
+    const all = [...off.values()].flat(), range = (v: number[]) => `${Math.min(...v).toFixed(2)} to ${Math.max(...v).toFixed(2)}`;
+    console.log(`cdxml.check: ${all.length} right-justified corpus labels; Octet's p less ChemDraw's (pt): ${[...off].map(([t, v]) => `${t} ${range(v)}`).join(", ")}`);
   }
 }
