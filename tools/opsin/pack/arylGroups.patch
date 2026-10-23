@@ -1,0 +1,11 @@
+--- arylGroups.xml
++++ arylGroups.xml
+@@ -415,5 +415,8 @@
+ 		<token value="C12CCc(n1)cc3CCc(n3)cc4CCc(n4)cc5CCC2[nH]5" labels="1/2/3/4/21/5/6/7/8/9/22/10/11/12/13/14/23/15/16/17/18/19/24">corrin</token>
+ 		<token value="C1(=O)C=C(O)CC(O)C1">dihydrophloroglucinol</token><!--semi systematic derivative of phloroglucinol, implies specific tautomer-->
+ 		<token value="c12ccc([nH]1)cc3ccc(n3)cc4ccc([nH]4)cc5ccc(n5)c2" labels="1/2/3/4/21/5/6/7/8/9/22/10/11/12/13/14/23/15/16/17/18/19/24/20">porphyrin|porphin</token>
++		<!--Octet: retained tetrapyrrole parents of the IUPAC tetrapyrrole recommendations (1986), numbered as their figures: phthalocyanine (TP-1.6, Fig. 4; fusion atoms lettered by FR-5.3) and corrole (TP-5.3, Fig. 11)-->
++		<token value="c1cccc2c([nH]3)nc4c5ccccc5c(n4)nc4c5ccccc5c([nH]4)nc4c5ccccc5c(n4)nc3c12" labels="1/2/3/4/4a/5/29/6/7/7a/8/9/10/11/11a/12/32/13/14/14a/15/16/17/18/18a/19/31/20/21/21a/22/23/24/25/25a/26/30/27/28/28a">phthalocyanin</token>
++		<token value="c12ccc([nH]1)cc1ccc([nH]1)cc1ccc([nH]1)cc1ccc2n1" labels="1/2/3/4/21/5/6/7/8/9/22/10/11/12/13/14/23/15/16/17/18/19/24">corrol</token>
+ 	</tokenList>
+ </tokenLists>

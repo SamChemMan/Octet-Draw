@@ -13,9 +13,17 @@ trap 'rm -rf "$work"' EXIT
 cp -R "$here/pack" "$here/js" "$work/"
 
 # 1. Fetch OPSIN and build the resource pack: OPSIN's XML, and its automata re-encoded without Java serialisation.
+# Octet's changes to OPSIN's data are patches (pack/*.patch, each named for the resource it changes), applied to copies
+# of the upstream files, which then replace them in the pack.
 (cd "$work/pack" && $mvn package dependency:copy-dependencies -DoutputDirectory=target/lib)
 lib="$work/pack/target/lib"
-"$java" -cp "$work/pack/target/classes:$lib/*" dk.brics.automaton.PackBuilder "$lib/opsin-core-2.8.0.jar" "$out/opsin-data.bin"
+res="uk/ac/cam/ch/wwmm/opsin/resources"
+mkdir -p "$work/res"
+for p in "$here"/pack/*.patch; do
+  f="$res/$(basename "$p" .patch).xml"
+  (cd "$work/res" && unzip -q "$lib/opsin-core-2.8.0.jar" "$f" && patch -s "$f" < "$p")
+done
+"$java" -cp "$work/pack/target/classes:$lib/*" dk.brics.automaton.PackBuilder "$lib/opsin-core-2.8.0.jar" "$out/opsin-data.bin" "$work/res"
 
 # 2. Remove the classes Octet replaces (see js/src) from the upstream jars, and install the patched jars locally.
 cp "$lib/opsin-core-2.8.0.jar" "$work/opsin-core.jar"

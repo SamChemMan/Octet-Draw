@@ -1332,6 +1332,13 @@ corrinide
 corrinoic acid
 corrinol
 corrinone
+corrolal
+corrole
+corrolic acid
+corrolide
+corroloic acid
+corrolol
+corrolone
 coumaranal
 coumarane
 coumaranic acid
@@ -4721,6 +4728,13 @@ phthalidide
 phthalidoic acid
 phthalidol
 phthalidone
+phthalocyaninal
+phthalocyanine
+phthalocyaninic acid
+phthalocyaninide
+phthalocyaninoic acid
+phthalocyaninol
+phthalocyaninone
 phthaloic acid
 phthalonic acid
 phthalonoic acid

@@ -24,6 +24,20 @@ serialisation. They are in `js/src`:
 the structure OPSIN builds for a name, with each atom's locants, as JSON. Structure to Name uses
 the locants to check the donor atoms it cites in names of coordination compounds (κ terms).
 
+Octet adds to OPSIN's data, as patches to its resources in `pack/` (each named for the file it changes, applied by
+`build.sh` to a copy of OPSIN 2.8.0's file before packing):
+
+- `arylGroups.patch`: two retained parents of the IUPAC tetrapyrrole recommendations (1986), next to porphyrin.
+  Phthalocyanine (TP-1.6, Fig. 4; the Red Book's ligand pc is phthalocyanine-29,31-diido) and corrole (TP-5.3,
+  Fig. 11), each with the numbering of its figure, the interior N atoms included (29 to 32; 21 to 24). Fig. 4 leaves
+  phthalocyanine's fusion atoms unnumbered: they take letters as fusion atoms do (FR-5.3: 4a, 7a, 11a). Like porphyrin,
+  each name implies hydrogen on the interior N atoms of its figure (29H,31H; 21H,22H,23H), and indicated hydrogen
+  places it elsewhere (30H,32H-phthalocyanine). OPSIN 2.8.0 read no name for either ring.
+
+As these parents are Octet's own data, `src/macrocycles.check.ts` checks them against sources outside it: PubChem's
+InChI for each parent, the figures' rings as cycles of locants, and derivatives drawn by hand from the figures with a
+substituent at every position. `opsin.js` does not change with the data: only `opsin-data.bin` and `names.txt` do.
+
 Rebuild after changing any of them, or to move to a new OPSIN version:
 
     JAVA_HOME=/path/to/jdk-21 MVN=/path/to/mvn tools/opsin/build.sh
