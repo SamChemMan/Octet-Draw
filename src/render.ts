@@ -595,10 +595,12 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       if (outline.length) shape.push({ pts: outline, x, y, f });
     };
     const [x, y] = pts[i];
-    // Which way the label reads: away from the bonds. Bonds on the right (within 70° of horizontal) reverse it.
+    // Which way the label reads: away from the bonds. Bonds on the right (within 70° of horizontal) reverse it, as a
+    // right alignment set by hand does. Read right to left, the label's last glyph sits centred on the atom (a charge
+    // sign is not counted), as ChemDraw places it; read left to right, its first glyph does.
     const v = nbrs[i].reduce<P>((acc, j) => add(acc, dir(i, j)), [0, 0]);
     const steep = len(v) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180);
-    const align = a.align;
+    const align = a.align, rtl = align ? align === "right" : deg(i) > 0 && !steep && v[0] > 1e-6;
     if (a.centre) {
       const m = M('*');
       run('*', x - m.width / 2, y + m.ascent / 2);
@@ -607,24 +609,25 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const ql = queryLabel(a.text);
     if (a.text && (ql === 'list' || ql === 'alt' || ql === 'link')) {
       // An element list, alternative group or link node reads as typed, never reversed: its first glyph sits on the
-      // atom, or its last when the bonds come from the right. Counts in it (CH₂) and a link node's repeat range
-      // ([CH₂]₃₋₇) are subscript.
+      // atom, or its last when it reads right to left. Counts in it (CH₂) and a link node's repeat range ([CH₂]₃₋₇)
+      // are subscript.
       const range = ql === 'link' ? /\d{1,2}-\d{1,2}$/.exec(a.text)![0] : '', pieces: { t: string; f: number }[] = [];
       for (const t of a.text.slice(0, a.text.length - range.length).match(/\d+|\D+/g) ?? []) pieces.push({ t, f: /^\d/.test(t) && /[A-Za-z)]$/.test(pieces[pieces.length - 1]?.t ?? '') ? SUB : 1 });
       if (range) pieces.push({ t: range, f: SUB });
       const width = pieces.reduce((n, p) => n + M(p.t).width * p.f, 0), first = M(a.text[0]), base = y + first.ascent / 2, last = pieces[pieces.length - 1];
       const end = M(last.t[last.t.length - 1]).width * last.f;
-      const cx = deg(i) > 0 && !steep && v[0] > 1e-6 ? x + end / 2 - width : x - first.width / 2;
+      const cx = rtl ? x + end / 2 - width : x - first.width / 2;
       let px = cx;
       for (const p of pieces) { run(p.t, px, p.f === 1 ? base : base + DROP * S, p.f); px += M(p.t).width * p.f; }
       if (a.charge && !a.circled) run(sign(a.charge), cx + width, base - RISE * S, SUB);
       return shape;
     }
     if (a.text) {
-      // A written label: units in order, reversed when it reads right to left (OMe as MeO). The attaching
-      // unit's first glyph sits centred on the atom. Centred, the whole label sits on the atom; stacked, each unit
-      // after the first goes one line further up (or down), centred over the atom.
-      const us = units(a.text), reversed = align ? align === "right" : deg(i) > 0 && !steep && v[0] > 1e-6;
+      // A written label: units in order, reversed when it reads right to left (OMe as MeO). Its first glyph sits
+      // centred on the atom, or its last when reversed: the attaching unit's last (O of MeO, h of Ph, 1 of R₁).
+      // Centred, the whole label sits on the atom; stacked, each unit after the first goes one line further up (or
+      // down), centred over the atom.
+      const us = units(a.text);
       const width = (u: (typeof us)[number]) => M(u.text).width + (u.count ? M(u.count).width * SUB : 0);
       const first = M(us[0].text[0]), base = y + first.ascent / 2;
       if (align === "above" || align === "below") {
@@ -637,37 +640,40 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
         if (a.charge && !a.circled) run(sign(a.charge), x - first.width / 2 + width(us[0]), base - RISE * S, SUB);
         return shape;
       }
-      const order = reversed ? [...us].reverse() : us;
-      let cx = align === "centre" ? x - us.reduce((w, u) => w + width(u), 0) / 2 : x - first.width / 2 - (reversed ? order.slice(0, -1).reduce((w, u) => w + width(u), 0) : 0);
+      const order = rtl ? [...us].reverse() : us, total = us.reduce((w, u) => w + width(u), 0);
+      const tail = us[0].count ? M(us[0].count.slice(-1)).width * SUB : M(us[0].text.slice(-1)).width;
+      let cx = align === "centre" ? x - total / 2 : rtl ? x + tail / 2 - total : x - first.width / 2;
       for (const u of order) {
         run(u.text, cx, base);
         if (u.count) run(u.count, cx + M(u.text).width, base + DROP * S, SUB);
         cx += width(u);
       }
-      const right = reversed && align !== "centre" ? x - first.width / 2 + width(us[0]) : cx;
-      if (a.charge && !a.circled) run(sign(a.charge), right, base - RISE * S, SUB);
+      if (a.charge && !a.circled) run(sign(a.charge), cx, base - RISE * S, SUB);
       return shape;
     }
-    const first = M(a.label[0]), charge = a.charge ?? 0;
+    const first = M(a.label[0]), charge = a.charge ?? 0, lw = M(a.label).width;
     const used = nbrs[i].reduce((n, j) => n + orderOf(bondAt.get(key(i, j))!.type), 0);
     const h = s.hideH ? 0 : a.implicitHCount ?? hydrogens(a.label, charge, used, a.radical === 3 ? 2 : a.radical);
     const count = h > 1 ? String(h) : '';
     const hW = M('H').width, cW = count ? M(count).width * SUB : 0;
-    // Centred by hand: the element and its H together sit on the atom.
-    const ox = align === "centre" && h ? x - (M(a.label).width + hW + cW) / 2 : x - first.width / 2, base = y + first.ascent / 2;
+    const iso = a.isotope ? String(a.isotope) : '', isoW = iso ? M(iso).width * SUB : 0;
+    // H goes first when the label reads right to left (HO, H2N), and on a lone atom written that way (H2O, HCl): the
+    // element ends the label, its last glyph on the atom. Centred by hand: the element and its H together sit on it.
+    const back = rtl || (!align && !deg(i) && !!h && H_FIRST.has(a.label));
+    const ox = align === "centre" && h ? x - (lw + hW + cW) / 2 : back ? x + M(a.label.slice(-1)).width / 2 - lw : x - first.width / 2, base = y + first.ascent / 2;
     run(a.label, ox, base);
-    // An isotope's mass number, raised, just before the element.
-    if (a.isotope) { const t = String(a.isotope); run(t, ox - M(t).width * SUB, base - RISE * S, SUB); }
+    // An isotope's mass number, raised, just before the element (after an H that goes first: H₃¹³C).
+    if (iso) run(iso, ox - isoW, base - RISE * S, SUB);
     const hs = (hx: number, hy: number) => { run('H', hx, hy); if (count) run(count, hx + hW, hy + DROP * S, SUB); };
-    let end = ox + M(a.label).width; // the charge goes here
+    let end = ox + lw; // the charge goes here
     const pitch = 1.1 * M('H').ascent;
     if (h && align) {
-      if (align === "right") hs(ox - hW - cW, base);
+      if (align === "right") hs(ox - isoW - hW - cW, base);
       else if (align === "above" || align === "below") hs(x - hW / 2, base + (align === "above" ? -pitch : pitch));
       else { hs(end, base); end += hW + cW; }
     } else if (h) {
       // Sum of the bond directions: within 70° of horizontal, H goes on the far side; steeper, H stacks (indole NH).
-      if (deg(i) ? !steep && v[0] > 1e-6 : H_FIRST.has(a.label)) hs(ox - hW - cW, base); // HO, H2N
+      if (back) hs(ox - isoW - hW - cW, base); // HO, H2N
       else if (!steep || deg(i) < 2) { hs(end, base); end += hW + cW; } // OH, NH2
       else hs(x - hW / 2, base + (v[1] > 0 ? -pitch : pitch));
     }
