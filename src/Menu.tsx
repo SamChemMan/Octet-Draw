@@ -265,7 +265,12 @@ export function ContextMenu({ label, at, keyboard, groups, sub, onChoose, onClos
     return () => { removeEventListener("pointerdown", away, true); removeEventListener("wheel", gone, true); removeEventListener("blur", gone); removeEventListener("resize", gone); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useLayoutEffect(() => { (keyboard ? main.current?.querySelector<HTMLElement>(".variant") : main.current)?.focus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  useLayoutEffect(() => { if (open?.focus) side.current?.querySelector<HTMLElement>(".variant")?.focus(); }, [open]);
+  // The focus goes in a frame later, after the options' own menu has settled (it gives the focus back as it closes).
+  useLayoutEffect(() => {
+    if (!open?.focus) return;
+    const f = requestAnimationFrame(() => side.current?.querySelector<HTMLElement>(".variant")?.focus());
+    return () => cancelAnimationFrame(f);
+  }, [open]);
   const keys = (e: React.KeyboardEvent, inSide: boolean) => {
     const focused = (document.activeElement as HTMLElement | null)?.dataset.item;
     if (e.key === "Escape" || e.key === "ArrowLeft") {

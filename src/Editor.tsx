@@ -525,7 +525,7 @@ export default function Editor() {
     let n = templates.length + 1;
     while (templates.some((t) => t.name === `Template ${n}`)) n++;
     const t = addOwnTemplate(name ?? `Template ${n}`, part, set, tool);
-    showLibrary(tool, settings.templateSets.includes(set) ? set : MY_SET, t.id);
+    showLibrary(tool, set, t.id);
   };
   // What Add to templates keeps: the selection, or with one atom or bond chosen (its Actions), its whole structure.
   const templatePart = () => {
@@ -3722,7 +3722,10 @@ export default function Editor() {
       }
       case "move": {
         if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
-        markDrop(document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("[data-drop-set]") ?? undefined);
+        // Over a template set the selection stays where it is, as letting go there leaves it.
+        const into = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("[data-drop-set]") ?? undefined;
+        markDrop(into);
+        if (into) return setDrag({ ...drag, working: drag.base ?? doc, moved: true, guides: [], point: undefined });
         // Snap within 6 screen px, unless snapping is off or ⌘ is held (Option is ChemDraw's copy, at the press).
         const raw: P = [p[0] - drag.from[0], p[1] - drag.from[1]], base = drag.base ?? doc, moving = drag.atoms ?? selection;
         // Text, arrows and shapes moving without atoms snap the same way.
@@ -5284,13 +5287,16 @@ export default function Editor() {
   // a click with it would put it. Once the new tool is in hand, Octet presses there and lets go a frame later, so the
   // drop takes the same way as a click with every tool.
   const [dropAt, setDropAt] = useState<[number, number]>();
+  // A drop always puts it in, so a selection is cleared first and the press waits for that: a press away from a
+  // selection would only clear it.
   useEffect(() => {
     if (!dropAt) return;
+    if (selection.size || picked.size) { setSelection(new Set()); setPicked(new Set()); return; }
     setDropAt(undefined);
     const [clientX, clientY] = dropAt, press = (type: string) => svg.current?.dispatchEvent(new PointerEvent(type, { clientX, clientY, bubbles: true, isPrimary: true, pointerType: "mouse", buttons: type === "pointerdown" ? 1 : 0 }));
     press("pointerdown");
     requestAnimationFrame(() => press("pointerup"));
-  }, [dropAt]);
+  }, [dropAt, selection, picked]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function onPointerUp() {
     const joined = joinNext.current;
