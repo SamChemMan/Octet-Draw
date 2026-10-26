@@ -81,7 +81,7 @@ import { complexName } from "./complexes";
 
 setNamer(iupacName);
 setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, inchi: toInchi, aux: toInchiAux, cip: cipOf }));
-import { loadTemplates, MY_SET, newTemplate, setName, templateKind } from "./templates";
+import { addSet, loadTemplates, moveTemplate, newTemplate, removeSet, renameSet, templateKind } from "./templates";
 import { formulaRuns } from "./labels";
 import { captionAtom, captionsToAtoms, chemicalCaption, interpretLabels, labelable, withCaptionAtoms } from "./edit";
 import { bendOf, cutSides } from "./masscut";
@@ -522,14 +522,10 @@ export default function Editor() {
   // Template sets (the library's categories of the user's own): a new one, one renamed (its templates go with it), one
   // removed (its templates go to My templates), and a template moved to another set.
   const templateSets = {
-    add: (name: string) => setSettings((s) => (s.templateSets.includes(setName(name)) || setName(name) === MY_SET || !setName(name) ? s : { ...s, templateSets: [...s.templateSets, setName(name)] })),
-    rename: (from: string, name: string) => setSettings((s) => {
-      const to = setName(name);
-      if (!to || to === from || to === MY_SET || s.templateSets.includes(to)) return s;
-      return { ...s, templateSets: s.templateSets.map((x) => (x === from ? to : x)), templates: s.templates.map((t) => (t.set === from ? { ...t, set: to } : t)) };
-    }),
-    remove: (name: string) => setSettings((s) => ({ ...s, templateSets: s.templateSets.filter((x) => x !== name), templates: s.templates.map((t) => (t.set === name ? { ...t, set: undefined } : t)) })),
-    move: (id: string, set: string) => setSettings((s) => ({ ...s, templates: s.templates.map((t) => (t.id === id ? { ...t, set: set === MY_SET ? undefined : set } : t)) })),
+    add: (name: string) => setSettings((s) => addSet(s, name)),
+    rename: (from: string, name: string) => setSettings((s) => renameSet(s, from, name)),
+    remove: (name: string) => setSettings((s) => removeSet(s, name)),
+    move: (id: string, set: string) => setSettings((s) => moveTemplate(s, id, set)),
   };
   const selectKind = (settings.variants.select in SELECTS ? settings.variants.select : "box") as SelectKind;
   const symbolKind = (settings.variants.symbol in SYMBOLS ? settings.variants.symbol : "plus") as SymbolKind;
