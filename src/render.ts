@@ -480,8 +480,8 @@ export function signSpot(X: P, bonds: { to: P; lines: number[]; m: number }[], r
   // Whether a direction from the atom lies inside a ring: between two of its sides at the atom, in the angle under 180°.
   const inRing = (v: P) => rings.some(([p, q]) => { const a = ways[p].u, b = ways[q].u, s = cross(a, b); return s * cross(a, v) > 0 && s * cross(v, b) > 0; });
   // A corner is clear when the sign there stops no bond, sits at least 30° off every bond, and is not inside a ring.
-  const mid: P = [(x0 + x1) / 2, (y0 + y1) / 2];
-  const clear = (o: P) => { const v = sub(add(o, mid), X); return !inRing(v) && ways.every(({ d, u, lines, m, cut }) => angle(v, u) >= Math.PI / 6 && cutBy(ink, d, u, lines, m, o) <= cut + 1e-9); };
+  const mid: P = [(x0 + x1) / 2, (y0 + y1) / 2], stops = (o: P) => ways.some(({ d, u, lines, m, cut }) => cutBy(ink, d, u, lines, m, o) > cut + 1e-9);
+  const clear = (o: P) => { const v = sub(add(o, mid), X); return !inRing(v) && !stops(o) && ways.every(({ u }) => angle(v, u) >= Math.PI / 6); };
   let at = ([[first, raised], [second, raised]] as P[]).find(clear);
   if (!at) {
     // The gaps between the bonds and the parts of the label away from the atom (its H, a mass number).
@@ -494,9 +494,10 @@ export function signSpot(X: P, bonds: { to: P; lines: number[]; m: number }[], r
       const span = (k + 1 < sorted.length ? sorted[k + 1] : sorted[0] + TAU) - s, mid = s + span / 2, score = span - (inRing([Math.cos(mid), Math.sin(mid)]) ? 10 : 0);
       if (score > most + 1e-6 || (score > most - 1e-6 && fromUpRight(mid) < fromUpRight(t))) { most = score; t = mid; }
     });
-    // Out along the gap's middle until the sign's ink box clears the label's ink by a seventh of the label size.
+    // Out along the gap's middle until the sign's ink box clears the label's ink by a seventh of the label size, and
+    // the sign stops no bond.
     const d: P = [Math.cos(t), Math.sin(t)], g = 0.14 * size;
-    const fits = (o: P) => label.every((q) => q[0] <= o[0] + x0 - g || q[0] >= o[0] + x1 + g || q[1] <= o[1] + y0 - g || q[1] >= o[1] + y1 + g);
+    const fits = (o: P) => label.every((q) => q[0] <= o[0] + x0 - g || q[0] >= o[0] + x1 + g || q[1] <= o[1] + y0 - g || q[1] >= o[1] + y1 + g) && !stops(o);
     for (let r = 0; r <= 4 * size && !at; r += 0.02 * size) { const o = sub(add(X, mul(d, r)), mid); if (fits(o)) at = o; }
     at ??= sub(add(X, mul(d, 4 * size)), mid);
   }
