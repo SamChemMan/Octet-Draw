@@ -2,7 +2,7 @@
 // The geometry follows ChemDraw's ACS 1996 output, measured to about 1e-5 pt on a reference drawing:
 // - Every bond line is a filled polygon. At an unlabelled atom the polygons meet in a mitred fan.
 // - Bonds stop a margin short of the letter they meet; where that letter changes with the reading direction, short of
-//   the label's box. One cut per bond.
+//   the label's box. One cut per bond. Between two labels the margin narrows, so the bond shows a third of its length.
 // - Ring double bonds keep the axis line and add an inner line, trimmed back to the ring-angle bisector.
 // - Terminal double bonds (C=O) are centred and run on until they meet the neighbouring bonds.
 // - Labels are anchored on the advance centre and half the ink height of their first glyph. Read right to left,
@@ -1039,46 +1039,89 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const half = (pl: Plan) => pl.half ?? (pl.kind === 'hashbar' ? pl.z.bold / 2 : pl.kind === 'wavy' ? WAVE * pl.z.L + pl.z.hw : pl.z.hw);
   const widths = (pl: Plan, x: number): [number, number] =>
     pl.kind === 'wedge' || pl.kind === 'hash' || pl.kind === 'hollow' ? (x === pl.a ? [pl.z.tip, pl.z.wide] : [pl.z.wide, pl.z.tip]) : [half(pl), half(pl)];
-  for (const pl of plans) {
-    for (const end of [0, 1] as const) {
-      const x = end ? pl.b : pl.a, { boxes, pieces } = clips[x];
-      if (!boxes.length && !pieces.length) continue;
-      const u = end ? mul(pl.u, -1) : pl.u, w = widths(pl, x)[0], m = pl.z.margin + w;
-      const offsets = [...(pl.kind === 'none' ? [] : [0]), ...pl.lines.map((l) => l.o)];
-      // A line stops where it leaves the margin round a box it meets before the bond's far end.
-      let cut = 0;
-      for (const b of boxes) for (const o of offsets) {
-        const span = boxSpan(add(pts[x], mul(pl.n, o)), u, b, m);
-        if (span && span[0] < pl.length) cut = Math.max(cut, span[1]);
-      }
-      // A line from t to the bond's far end clears an outline point (a along the bond, d across from the line) when
-      // the point lies off the line by the margin, or before the line's start or past its end by the rest of it.
-      // So the cut is the largest a + √(m² − d²) over the points the line passes, worked out once (no search).
-      // The sums are dot(q − X, u) and dot(q − X, n), written out, as this is the renderer's busiest loop.
-      const [X0, X1] = pts[x], [u0, u1] = u, [n0, n1] = pl.n;
-      for (const { pts: outline, x: px0, y: py0, f } of pieces) {
-        for (const cell of cellsOf(outline)) {
-          // A cell no line passes within the margin of, or whose points cannot reach past the cut so far, is passed over.
-          const c0 = px0 + cell.c[0] * f - X0, c1 = py0 + cell.c[1] * f - X1, r = cell.r * f + 1e-9;
-          const ca = c0 * u0 + c1 * u1, cc = c0 * n0 + c1 * n1;
-          if (ca + r + m <= cut || offsets.every((o) => Math.abs(cc - o) >= m + r)) continue;
-          for (const [px, py] of cell.pts) {
-            const r0 = px0 + px * f - X0, r1 = py0 + py * f - X1, a = r0 * u0 + r1 * u1, c = r0 * n0 + r1 * n1;
-            for (const o of offsets) {
-              const d = c - o;
-              if (Math.abs(d) >= m) continue;
-              const reach = Math.sqrt(m * m - d * d);
-              if (a - reach < pl.length) cut = Math.max(cut, a + reach);
-            }
+  // The cut at one end of a bond (0 where the atom has no label), for a margin round the label.
+  const cutAt = (pl: Plan, end: 0 | 1, margin: number): number => {
+    const x = end ? pl.b : pl.a, { boxes, pieces } = clips[x];
+    if (!boxes.length && !pieces.length) return 0;
+    const u = end ? mul(pl.u, -1) : pl.u, w = widths(pl, x)[0], m = margin + w;
+    const offsets = [...(pl.kind === 'none' ? [] : [0]), ...pl.lines.map((l) => l.o)];
+    // A line stops where it leaves the margin round a box it meets before the bond's far end.
+    let cut = 0;
+    for (const b of boxes) for (const o of offsets) {
+      const span = boxSpan(add(pts[x], mul(pl.n, o)), u, b, m);
+      if (span && span[0] < pl.length) cut = Math.max(cut, span[1]);
+    }
+    // A line from t to the bond's far end clears an outline point (a along the bond, d across from the line) when
+    // the point lies off the line by the margin, or before the line's start or past its end by the rest of it.
+    // So the cut is the largest a + √(m² − d²) over the points the line passes, worked out once (no search).
+    // The sums are dot(q − X, u) and dot(q − X, n), written out, as this is the renderer's busiest loop.
+    const [X0, X1] = pts[x], [u0, u1] = u, [n0, n1] = pl.n;
+    for (const { pts: outline, x: px0, y: py0, f } of pieces) {
+      for (const cell of cellsOf(outline)) {
+        // A cell no line passes within the margin of, or whose points cannot reach past the cut so far, is passed over.
+        const c0 = px0 + cell.c[0] * f - X0, c1 = py0 + cell.c[1] * f - X1, r = cell.r * f + 1e-9;
+        const ca = c0 * u0 + c1 * u1, cc = c0 * n0 + c1 * n1;
+        if (ca + r + m <= cut || offsets.every((o) => Math.abs(cc - o) >= m + r)) continue;
+        for (const [px, py] of cell.pts) {
+          const r0 = px0 + px * f - X0, r1 = py0 + py * f - X1, a = r0 * u0 + r1 * u1, c = r0 * n0 + r1 * n1;
+          for (const o of offsets) {
+            const d = c - o;
+            if (Math.abs(d) >= m) continue;
+            const reach = Math.sqrt(m * m - d * d);
+            if (a - reach < pl.length) cut = Math.max(cut, a + reach);
           }
         }
       }
-      if (cut <= 0) continue;
-      if (cut > pl.length) { pl.hidden = true; break; }
-      pl.cut[end] = cut;
     }
+    return cut;
+  };
+  // A label's ink as points where it is drawn: its outlines, and its boxes' edges every pixel or so.
+  const inkPoints = (x: number): P[] => [...placedPoints(clips[x].pieces), ...clips[x].boxes.flatMap((b) => {
+    const n = Math.max(2, Math.ceil(Math.max(b[2] - b[0], b[3] - b[1]))), out: P[] = [];
+    for (let k = 0; k <= n; k++) { const f = k / n, x0 = b[0] + (b[2] - b[0]) * f, y0 = b[1] + (b[3] - b[1]) * f; out.push([x0, b[1]], [x0, b[3]], [b[0], y0], [b[2], y0]); }
+    return out;
+  })];
+  // A flared end clears the label at its atom by the margin along its sides too: from the cut, the drawing widens from
+  // w0 at a slope k for T. Each ink point beside that stretch moves the cut out until it is the margin off the side.
+  const flare = (pl: Plan, end: 0 | 1, cut: number, margin: number, w0: number, k: number, T: number): number => {
+    const x = end ? pl.b : pl.a, X = pts[x], u = end ? mul(pl.u, -1) : pl.u, ink = inkPoints(x), s = margin * Math.sqrt(1 + k * k);
+    for (let pass = 0, moved = true; moved && pass < 8; pass++) {
+      moved = false;
+      for (const q of ink) {
+        const r = sub(q, X), t = dot(r, u) - cut, g = (Math.abs(cross(u, r)) - w0 - s) / k;
+        if (t > 0 && t <= T && t > g) { cut += t - Math.max(g, 0); moved = true; }
+      }
+    }
+    return cut;
+  };
+  // A bond's cuts at both ends for a margin (a dative bond's head keeps the full margin). Between two labels, a wedge's
+  // narrow end and a dative bond's head are flared ends (the visible bond is short, so they widen near a label).
+  const cutsOf = (pl: Plan, margin: number): [number, number] => {
+    const { L, tip, wide, hw, margin: full } = pl.z, cut: [number, number] = [cutAt(pl, 0, margin), cutAt(pl, 1, pl.head ? full : margin)];
+    if (!labelled[pl.a] || !labelled[pl.b]) return cut;
+    for (let k = 0; k < 3 && (pl.kind === 'wedge' || pl.kind === 'hash' || pl.kind === 'hollow'); k++) {
+      const D = pl.length - cut[0] - cut[1];
+      if (D <= 0) break;
+      const w0 = pl.kind === 'hollow' ? hw : tip, slope = (wide - w0) / D;
+      cut[0] = flare(pl, 0, cut[0], margin, pl.kind === 'hash' ? w0 + slope * hw : w0, slope, D);
+    }
+    if (pl.head) cut[1] = flare(pl, 1, cut[1], full, hw, 0.4, Math.min(0.3 * L, (pl.length - cut[0] - cut[1]) / 2));
+    return cut;
+  };
+  // A bond between two labels stays readable: where it would show less than a third of its length, the margin at both
+  // ends (a dative bond's tail only) narrows, to no less than 0.3 of it (0.5 pt in ACS 1996), until it shows that much.
+  // Every line keeps the bond's cut.
+  for (const pl of plans) {
+    let cut = cutsOf(pl, pl.z.margin);
+    const shows = (c: [number, number]) => pl.length - c[0] - c[1] >= pl.length / 3;
+    if (labelled[pl.a] && labelled[pl.b] && !shows(cut)) {
+      let lo = 0.3 * pl.z.margin, hi = pl.z.margin;
+      if (shows(cutsOf(pl, lo))) for (let k = 0; k < 20; k++) { const mid = (lo + hi) / 2; if (shows(cutsOf(pl, mid))) lo = mid; else hi = mid; }
+      cut = cutsOf(pl, lo);
+    }
+    pl.cut = cut;
     // A bond whose cuts from its two ends meet or cross has nothing left to draw.
-    if (pl.cut[0] + pl.cut[1] >= pl.length) pl.hidden = true;
+    if (cut[0] + cut[1] >= pl.length) pl.hidden = true;
   }
 
   // Mitred fans at unlabelled atoms. Each end is a list of points from the -n to the +n side of the
@@ -1167,8 +1210,8 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       bar(add(right, mul(pl.n, -hw)), add(left, mul(pl.n, hw)), mul(pl.u, -1), hw);
     }
     if (pl.head) {
-      // Dative bond: an arrowhead pointing at b.
-      const E = drawnEnd(pl, pl.b), base = add(E, mul(pl.u, -0.3 * L)), w = 0.12 * L;
+      // Dative bond: an arrowhead pointing at b, 0.3 bond lengths long, or half the bond as drawn if that is less.
+      const E = drawnEnd(pl, pl.b), h = Math.min(0.3 * L, D / 2), base = add(E, mul(pl.u, -h)), w = 0.4 * h;
       polygons.push([add(base, mul(pl.n, -w)), add(base, mul(pl.n, w)), E]);
     }
     if (pl.kind === 'hash') {
