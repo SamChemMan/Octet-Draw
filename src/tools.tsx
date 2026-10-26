@@ -6,7 +6,7 @@ import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Cube, Era
 import { chairPoints, type BondSpec, type SymbolKind } from "./edit";
 import { ARROW_SIZES, curvePath, HBOND, headOfLength, QUADRUPLE, SWEEPS, type ArrowKind, type ArrowSize, type HeadSize, type Mol, type ShapeKind } from "./render";
 import { MY_SET, templateKind, type Template } from "./templates";
-import type { TemplateSetActions } from "./TemplateLibrary";
+import type { TemplateSetActions, TemplateTool } from "./TemplateLibrary";
 import { libraryItem } from "./library";
 import { LibraryPanel } from "./TemplateLibrary";
 import { columnsFor, DEFAULT_COLUMNS, Menu, menuWidth, type MenuItem } from "./Menu";
@@ -421,15 +421,17 @@ type PaletteProps = {
   canUndo: boolean;
   canRedo: boolean;
   keys: (command: string) => string | undefined; // a command's shortcut, for its tooltip
-  canAddSelection: boolean; // something is selected that could become a ring
-  renaming?: string; // a template just added, whose name is being typed
+  canAddSelection: boolean; // something is selected that could become a template
+  reveal?: { tool: TemplateTool; set: string; id?: string; n: number }; // a library to open (on a set, with a new template's name to type)
   preview: (name: string) => Mol | undefined; // the structure for a name, if it is one
   onTool: (t: Tool) => void;
   onVariant: (t: keyof Variants, kind: string) => void;
   onPinned: (pinned: string[]) => void;
   onAddName: (name: string) => boolean;
-  onAddSelection: (set?: string) => void; // the selection as a template, in a set (My templates unless named)
+  onAdd: (set: string, tool: TemplateTool) => void; // the selection into a set, or with nothing selected, a structure picked next
   onRename: (id: string, name: string) => void;
+  onCopy: (kind: string, set: string, tool: TemplateTool) => void; // a built-in template copied into a set of the user's
+  onNewSet: (then: (set: string) => void) => void; // New set…: a name for a set, then what goes in it
   onRemoveTemplate: (id: string) => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -482,15 +484,27 @@ export function Palette(p: PaletteProps) {
     return () => { watch.disconnect(); removeEventListener("resize", fit); };
   }, [wide, p.wide, carrying]);
 
-  // Close the strip on Escape or a press anywhere else.
+  // Close the strip on Escape or a press anywhere else (a menu opened from it is part of it). With a template library
+  // open, a press on the canvas may be a selection dragged onto it, so the library closes when it is let go anywhere
+  // but on a place that takes it.
+  const libraryOpen = open === "template" || (open === "ring" && library);
   useEffect(() => {
     if (!open) return;
-    const away = (e: PointerEvent) => { if (!nav.current?.contains(e.target as Node)) setOpen(undefined); };
+    const away = (e: PointerEvent) => {
+      const at = e.target as Element;
+      if (nav.current?.contains(at) || at.closest?.(".context-menu")) return;
+      if (!libraryOpen || !at.closest?.(".canvas")) return setOpen(undefined);
+      const up = (ev: PointerEvent) => {
+        removeEventListener("pointerup", up);
+        if (!document.elementFromPoint(ev.clientX, ev.clientY)?.closest("[data-drop-set]")) setOpen(undefined);
+      };
+      addEventListener("pointerup", up);
+    };
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); setOpen(undefined); } };
     addEventListener("pointerdown", away);
     addEventListener("keydown", esc);
     return () => { removeEventListener("pointerdown", away); removeEventListener("keydown", esc); };
-  }, [open]);
+  }, [open, libraryOpen]);
   useEffect(() => { if (open !== "arrow") setCurves(false); if (open !== "ring") setLibrary(false); }, [open]);
   useEffect(() => { if (arrived) { const t = setTimeout(() => setArrived(undefined), 400); return () => clearTimeout(t); } }, [arrived]);
   // Lists the user keeps in a strip: curved arrows in the Arrow strip, library templates in the Ring strip.
@@ -500,14 +514,17 @@ export function Palette(p: PaletteProps) {
   const unkeep = (tool: Strip, v: string) => setKept(tool, keptIn(tool).filter((x) => x !== v));
   // The strip whose list a dragged option can go into, if any.
   const keepable = (key: string): Strip | undefined => (key.startsWith("arrow:") && arrowVariant(key.slice(6))?.sweep ? "arrow" : key.startsWith("ring:lib:") ? "ring" : undefined);
-  // A template added from the drawing opens the ring list, with its name ready to type.
-  useEffect(() => { if (p.renaming) setOpen("ring"); }, [p.renaming]);
+  // A template added (or a pick ended) opens its library again, on its set, with a new template's name ready to type.
+  useEffect(() => { if (!p.reveal) return; setOpen(p.reveal.tool); setLibrary(p.reveal.tool === "ring"); }, [p.reveal?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const template = (kind: string) => p.templates.find((t) => templateKind(t.id) === kind);
   // The user's own templates in the library, set by set, and what the library can do with them.
   const mine = p.templates.map((x) => ({ kind: templateKind(x.id), name: x.name, category: x.set ?? MY_SET, mol: x.mol }));
-  const own = { sets: p.templateSets, onSets: p.onTemplateSets, onAddSelection: p.canAddSelection ? p.onAddSelection : undefined,
-    onRemove: (kind: string) => { const t = template(kind); if (t) p.onRemoveTemplate(t.id); } };
+  // Add with nothing selected starts a pick on the canvas: the library closes out of its way.
+  const own = (tool: TemplateTool) => ({ tool, sets: p.templateSets, onSets: p.onTemplateSets, reveal: p.reveal?.tool === tool ? p.reveal : undefined,
+    onAdd: (set: string) => { if (!p.canAddSelection) setOpen(undefined); p.onAdd(set, tool); },
+    onRename: p.onRename, onCopy: (kind: string, set: string) => p.onCopy(kind, set, tool), onNewSet: p.onNewSet,
+    onRemove: (kind: string) => { const t = template(kind); if (t) p.onRemoveTemplate(t.id); } });
   const shapeOf = (kind: string) => template(kind)?.mol ?? libraryItem(kind)?.icon ?? libraryItem(kind)?.mol;
   const nameOf = (tool: Strip, kind: string) =>
     tool === "more" ? SPECIAL_TOOLS[kind]?.name : tool === "bond" ? BONDS[kind as BondKind]?.name : tool === "template" ? (template(kind)?.name ?? libraryItem(kind)?.name) : tool === "symbol" ? SYMBOLS[kind as SymbolKind] : tool === "shape" ? shapeName(kind) : tool === "orbital" ? orbitalName(kind) : tool === "bracket" ? BRACKETS[kind] : tool === "ring" ? (RINGS[kind as RingKind]?.name ?? template(kind)?.name ?? libraryItem(kind)?.name)
@@ -676,6 +693,8 @@ export function Palette(p: PaletteProps) {
               aria-haspopup={strip ? "menu" : undefined}
               aria-expanded={strip ? open === t.id : undefined}
               data-key={p.keys(`tool.${t.id}`)}
+              // A selection dragged from the canvas onto the Ring or Template tool goes into My templates.
+              {...(t.id === "ring" || t.id === "template" ? { "data-drop-set": MY_SET, "data-drop-tool": t.id } : {})}
               onPointerDown={() => {
                 if (!strip) return;
                 clearTimeout(timer.current);
@@ -703,7 +722,7 @@ export function Palette(p: PaletteProps) {
                 onPress={(e, id) => startCarry(e, `more:${id}`)} onChoose={(id) => { if (!dragged.current) choose("more", id); }} onRelease={(id) => { if (held) choose("more", id); }} />
             )}</Exit>
             <Exit>{t.id === "template" && open === "template" && (
-              <LibraryPanel current={p.variants.template} mine={mine} {...own}
+              <LibraryPanel current={p.variants.template} mine={mine} {...own("template")}
                 onChoose={(kind) => { if (!dragged.current) choose("template", kind); }}
                 onPress={(e, kind) => startCarry(e, `template:${kind}`)} />
             )}</Exit>
@@ -719,13 +738,6 @@ export function Palette(p: PaletteProps) {
                 return {
                   key: kind, name, icon: iconOf(tool, kind), checked: p.variants[tool] === kind, arrived: arrived === kind,
                   ...(custom || kept ? { action: { icon: <X size={12} />, label: `Remove ${name}`, onClick: () => (custom ? p.onRemoveTemplate(custom.id) : unkeep(tool, kind)) } } : {}),
-                  ...(custom && p.renaming === custom.id ? {
-                    editing: (
-                      <input className="variant-input" aria-label="Name" autoFocus defaultValue={custom.name} onFocus={(e) => e.target.select()}
-                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); e.currentTarget.blur(); } }}
-                        onBlur={(e) => p.onRename(custom.id, e.target.value.trim() || custom.name)} />
-                    ),
-                  } : {}),
                 };
               };
               const groups = groupsOf(tool, strip).map((g) => g.map(item));
@@ -750,7 +762,7 @@ export function Palette(p: PaletteProps) {
                       onKeyDown={(e) => { if (e.key === "Enter") addByName(); if (e.key === "Escape") { e.preventDefault(); e.currentTarget.blur(); } }} />
                   </label>
                   {p.canAddSelection && (
-                    <button className="variant add" onClick={() => p.onAddSelection()}>
+                    <button className="variant add" onClick={() => p.onAdd(MY_SET, "ring")}>
                       <Plus size={20} />
                       <span className="variant-name">Add selection</span>
                     </button>
@@ -776,7 +788,7 @@ export function Palette(p: PaletteProps) {
                       onPress={(e, v) => startCarry(e, `arrow:${v}`)} onChoose={(v) => { if (!dragged.current) choose("arrow", v); }} />
                   )}</Exit>
                   <Exit>{tool === "ring" && library && (
-                    <LibraryPanel current={p.variants.ring} kept={p.libraryRings} dimmed={curveCarry} mine={mine} {...own}
+                    <LibraryPanel current={p.variants.ring} kept={p.libraryRings} dimmed={curveCarry} mine={mine} {...own("ring")}
                       onChoose={(kind) => { if (!dragged.current) choose("ring", kind); }}
                       onKeep={(kind, on) => (on ? keep("ring", kind) : unkeep("ring", kind))}
                       onPress={(e, kind) => startCarry(e, `ring:${kind}`)} />

@@ -3,8 +3,7 @@
 // what is wrong with it (problems, each with a fix), then its actions, likeliest first. A long list keeps its first
 // rows and folds the rest into small buttons that name themselves on hover. Every action also lives where
 // ChemDraw users expect it (menus and keys).
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   AlignCenterHorizontal, AlignCenterVertical, Flask, Palette, Table, Repeat, ArrowsInSimple, ArrowsClockwise, ArrowsDownUp, CaretDown, CaretRight, SignIn, SignOut, ArrowsLeftRight, ArrowsOutSimple, Atom, BookmarkSimple, CaretUpDown, Graph,
   AlignBottomSimple, AlignTopSimple, ArrowLineDown, ArrowLineUp, CursorText, DotsThree, DotsThreeVertical, Faders, Polygon, Rectangle, ArrowArcLeft, ArrowArcRight, ArrowsCounterClockwise, ArrowUDownLeft, CircleDashed, CornersOut, MagnifyingGlass, Swap,
@@ -17,7 +16,8 @@ import {
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
 import { GENERICS, massText, queryLabel } from "./query";
-import { listKeys, Menu, menuWidth, Pick, type MenuItem } from "./Menu";
+import { ContextMenu, Menu, Pick, type MenuItem } from "./Menu";
+import { setItems } from "./TemplateLibrary";
 import { ColourPop } from "./ColourPicker";
 import { Exit, reduced, timing } from "./motion";
 import { NumberField } from "./Fields";
@@ -294,7 +294,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
     ["frame_rounded_shadow", "Rounded with shadow", <ElementGlyph v="rounded-shadow" />]] as const).map(([command, name, icon]) => small(it(icon, name, command)));
   const objects = [rotate, scale, centre];
   const join = (context.kind === "structure" || context.kind === "selection") && context.joinable ? [it(<ArrowsMerge size={18} />, "Join", "join")] : [];
-  // Any selection as a template, with its text, arrows and shapes (CD-33).
+  // Any selection as a template, with its text, arrows and shapes (CD-33); on an atom or a bond, its whole structure.
   const keep = small(it(<BookmarkSimple size={18} />, "Add to templates", "template.add"));
   // On an atom or a bond: its whole structure (ChemDraw's Molecule > Select).
   const whole = small(it(<SelectionPlus size={18} />, "Select structure", "select_structure"));
@@ -338,12 +338,12 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
     case "atom":
       items.push(it(<CursorText size={18} />, "Type a label", "atom.label"), ...(context.repeat ? [it(<Repeat size={18} />, `Repeat ${context.repeat}`, "repeat_label")] : []), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
         ...((context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label)) && context.text?.chemical !== false && !queryLabel(context.label) ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<Faders size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"),
-        ...warnings(true), ...order, whole, del);
+        ...warnings(true), ...order, whole, keep, del);
       break;
     case "bond":
       if (context.double) items.push({ ...it(<span className="glyph-text">A</span>, "Second line placed automatically", "bond.auto"), short: "Automatic position" }, it(<span className="glyph-text">L</span>, "Second line on the left", "bond.left"), it(<span className="glyph-text">C</span>, "Centre the double bond", "bond.centre"), it(<span className="glyph-text">R</span>, "Second line on the right", "bond.right"));
       if (context.flippable) items.push(it(<ArrowUDownLeft size={18} />, "Point the other way", "bond.flip"));
-      items.push(it(<FadersHorizontal size={18} />, "Bond properties…", "bond_properties"), ...warnings(true), ...order, whole, del);
+      items.push(it(<FadersHorizontal size={18} />, "Bond properties…", "bond_properties"), ...warnings(true), ...order, whole, keep, del);
       break;
     case "caption":
       if (context.mode !== "picked") break;
@@ -1085,76 +1085,23 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
 
 // Right-click (or Control-click, or the Menu key or Shift+F10): the Actions panel as a short menu at the pointer, so
 // nothing lives only here (Sam: no options buried under right-click). Its rows come first, then each set of small
-// actions as one row that opens the set beside it, then Colour, then Delete. Up and down move along it, right opens
-// a set, left closes it, Return chooses and Escape closes.
-type MenuProps = Pick<Props, "context" | "messy" | "hiddenWarnings" | "warned" | "grouping" | "layout" | "hint" | "run" | "colour" | "palette" | "online"> & { at: { x: number; y: number }; keyboard?: boolean; onClose: () => void };
-export function ActionsMenu({ at, keyboard, context, messy, hiddenWarnings, warned, grouping, layout, hint, run, colour, palette, online, onClose }: MenuProps) {
+// actions as one row that opens the set beside it, then Add to templates (which opens My templates and the user's
+// sets), Colour and Delete.
+type MenuProps = Pick<Props, "context" | "messy" | "hiddenWarnings" | "warned" | "grouping" | "layout" | "hint" | "run" | "colour" | "palette" | "online"> & { at: { x: number; y: number }; keyboard?: boolean; templateSets: string[]; onClose: () => void };
+export function ActionsMenu({ at, keyboard, context, messy, hiddenWarnings, warned, grouping, layout, hint, run, colour, palette, online, templateSets, onClose }: MenuProps) {
   const { rows, sets } = arrangedActions(context, messy, hiddenWarnings, warned, grouping, layout, online);
-  const [sub, setSub] = useState<{ key: string; top: number; focus: boolean }>();
-  const main = useRef<HTMLDivElement>(null), side = useRef<HTMLDivElement>(null);
   const item = (i: Item): MenuItem => ({ key: i.command, name: i.short ?? i.name, icon: i.icon, hint: hint(i.command) });
+  const keep = (list: readonly Item[]) => list.filter((i) => i.command !== "template.add");
+  const kept = [...rows, ...sets.flatMap(([, list]) => list)].find((i) => i.command === "template.add");
   const del = sets.find(([s]) => s === "delete")?.[1] ?? [];
-  const groups: MenuItem[][] = [rows.map(item), sets.filter(([s]) => s !== "delete").map(([s]) => ({ key: `set:${s}`, name: SET_TITLES[s], icon: SET_ICONS[s], more: true })),
-    [...(colour ? [{ key: "set:colour", name: "Colour", icon: <Palette size={18} />, more: true }] : []), ...del.map(item)]];
-  // The open set's actions (Display and copy in its kinds' groups), or the colours.
-  const subGroups = (key: string): MenuItem[][] => {
-    if (key === "set:colour") return [[...(colour?.tints ? TINTS : COLOURS), ...palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => ({ key: `colour.${hex}`, name, icon: <span className="pick-swatch" style={{ background: hex }} />, checked: colour?.value.toLowerCase() === hex.toLowerCase() }))];
-    const list = sets.find(([s]) => `set:${s}` === key)?.[1] ?? [];
-    return key === "set:more" ? MORE_GROUPS.map((k) => list.filter((i) => kindOf(i.command) === k).map(item)) : [list.map(item)];
+  const groups: MenuItem[][] = [keep(rows).map(item), sets.filter(([s, list]) => s !== "delete" && keep(list).length).map(([s]) => ({ key: `set:${s}`, name: SET_TITLES[s], icon: SET_ICONS[s], more: true })),
+    [...(kept ? [{ key: "templates", name: kept.name, icon: kept.icon, more: true }] : []), ...(colour ? [{ key: "set:colour", name: "Colour", icon: <Palette size={18} />, more: true }] : []), ...del.map(item)]];
+  // The open set's actions (Display and copy in its kinds' groups), the sets a template can go in, or the colours.
+  const sub = (key: string) => {
+    if (key === "templates") return { label: "Add to templates", groups: setItems(templateSets, (set) => `template.add:${set}`, "template.add.new") };
+    if (key === "set:colour") return { label: "Colour", groups: [[...(colour?.tints ? TINTS : COLOURS), ...palette.map((c): [string, string] => [c.name, c.hex])].map(([name, hex]) => ({ key: `colour.${hex}`, name, icon: <span className="pick-swatch" style={{ background: hex }} />, checked: colour?.value.toLowerCase() === hex.toLowerCase() }))] };
+    const list = keep(sets.find(([s]) => `set:${s}` === key)?.[1] ?? []);
+    return { label: SET_TITLES[key.slice(4) as SetId], groups: key === "set:more" ? MORE_GROUPS.map((k) => list.filter((i) => kindOf(i.command) === k).map(item)) : [list.map(item)] };
   };
-  const width = menuWidth(1), left = Math.max(8, Math.min(at.x, innerWidth - width - 8)), subLeft = left + width + 4 + width > innerWidth - 8 ? left - width - 4 : left + width + 4;
-  const open = (key: string, focus: boolean) => {
-    const row = main.current?.querySelector<HTMLElement>(`[data-item="${CSS.escape(key)}"]`);
-    if (row) setSub({ key, top: row.getBoundingClientRect().top - 5, focus });
-  };
-  const choose = (key: string) => {
-    if (key.startsWith("set:")) return open(key, true);
-    onClose();
-    run(key);
-  };
-  // A click away, a scroll or the window losing the focus closes it.
-  useEffect(() => {
-    const away = (e: PointerEvent) => { if (!main.current?.contains(e.target as Node) && !side.current?.contains(e.target as Node)) onClose(); };
-    const gone = () => onClose();
-    addEventListener("pointerdown", away, true);
-    addEventListener("wheel", gone, true);
-    addEventListener("blur", gone);
-    addEventListener("resize", gone);
-    return () => { removeEventListener("pointerdown", away, true); removeEventListener("wheel", gone, true); removeEventListener("blur", gone); removeEventListener("resize", gone); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // Opened from the keyboard, the first option takes the focus; from the pointer, the menu does (so the arrow keys
-  // work at once). A set opened from the keyboard gives the focus to its first option.
-  useLayoutEffect(() => { (keyboard ? main.current?.querySelector<HTMLElement>(".variant") : main.current)?.focus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  useLayoutEffect(() => { if (sub?.focus) side.current?.querySelector<HTMLElement>(".variant")?.focus(); }, [sub]);
-  const keys = (e: React.KeyboardEvent, inSide: boolean) => {
-    const focused = (document.activeElement as HTMLElement | null)?.dataset.item;
-    if (e.key === "Escape" || e.key === "ArrowLeft") {
-      e.preventDefault(); e.stopPropagation();
-      if (!inSide && e.key === "Escape") return onClose();
-      if (!inSide) return;
-      const key = sub?.key;
-      setSub(undefined);
-      if (key) main.current?.querySelector<HTMLElement>(`[data-item="${CSS.escape(key)}"]`)?.focus();
-      return;
-    }
-    if (e.key === "ArrowRight" && !inSide && focused?.startsWith("set:")) { e.preventDefault(); e.stopPropagation(); return open(focused, true); }
-    if (e.key === "Tab") { e.preventDefault(); return onClose(); }
-    if (listKeys(e, (inSide ? side : main).current!)) return;
-    e.stopPropagation(); // the menu's keys are its own
-  };
-  return createPortal(
-    <>
-      <div ref={main} tabIndex={-1} className="context-menu" onKeyDown={(e) => keys(e, false)} onContextMenu={(e) => e.preventDefault()}
-        // A set opens as the pointer comes onto its row; another row closes it.
-        onPointerOver={(e) => { const key = (e.target as HTMLElement).closest<HTMLElement>("[data-item]")?.dataset.item; if (key && key !== sub?.key) { if (key.startsWith("set:")) open(key, false); else setSub(undefined); } }}>
-        <Menu label="Actions" className="list" placed columns={1} groups={groups.map((g) => g.map((i) => ({ ...i, checked: i.more && sub?.key === i.key })))} onChoose={choose}
-          style={{ position: "fixed", left, top: Math.max(8, Math.min(at.y, innerHeight - 8 - Math.min(innerHeight - 16, groups.flat().length * 32 + 24))), maxHeight: innerHeight - 16, zIndex: 30, transformOrigin: "top left" }} />
-      </div>
-      <Exit>{sub && (
-        <div ref={side} className="context-menu" onKeyDown={(e) => keys(e, true)} onContextMenu={(e) => e.preventDefault()}>
-          <Menu label={sub.key === "set:colour" ? "Colour" : SET_TITLES[sub.key.slice(4) as SetId]} className="list" placed columns={1} groups={subGroups(sub.key)} onChoose={choose}
-            style={{ position: "fixed", left: subLeft, top: Math.max(8, Math.min(sub.top, innerHeight - 8 - subGroups(sub.key).flat().length * 32 - 24)), maxHeight: innerHeight - 16, zIndex: 31, transformOrigin: subLeft < left ? "top right" : "top left" }} />
-        </div>
-      )}</Exit>
-    </>, document.body);
+  return <ContextMenu label="Actions" at={at} keyboard={keyboard} groups={groups} sub={sub} onChoose={run} onClose={onClose} />;
 }
