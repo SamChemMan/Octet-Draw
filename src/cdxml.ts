@@ -10,7 +10,7 @@
 import { FONTS, PAGES, fontName, pageSize, readGuides, readStyle, type DocStyle } from "./docstyle.ts";
 import {
   HBOND, HIGHLIGHT, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, tlcLayout, turnPoint, TABLE_PAD,
-  ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, headSize, headOfLength, marked, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, type HeadSize,
+  ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, headSize, headOfLength, marked, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, type HeadSize,
   type Annotation, type Arrow, type ArrowKind, type Kept, type Atom, type AtomQuery, type Bond, type Polymer, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape, type RingFill,
   type LineStyle, type Mol, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
@@ -471,6 +471,12 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   mol.bonds.forEach((_, k) => { bondId[k] = fresh(); });
   for (const atoms of frags) { const f = fresh(); for (const i of atoms) fragId.set(i, f); }
   const page = (i: number) => at(mol.atoms[i].location);
+  // Labels' charge signs that go to the file as symbols (labelOf), by atom: the middle of each sign's ink. The atoms
+  // bonded to each as the renderer sees them (seen: no hidden H; covalent: no hydrogen bonds), for placing a sign.
+  const signs = new Map<number, P>();
+  const bondOf = (x: number, j: number) => mol.bonds[bondsAt[x].find((k) => mol.bonds[k].atoms.includes(j))!];
+  const seen = nbrs.map((ns, x) => (mol.atoms[x].hidden ? [] : ns.filter((j) => !mol.atoms[j].hidden)));
+  const covalent = seen.map((ns, x) => ns.filter((j) => bondOf(x, j).type !== HBOND));
   // Aromatic rings drawn with a circle: ChemDraw stores their bonds as order 1.5 and the circle as an oval inside the
   // ring's fragment (its own files). Octet keeps each bond's Kekulé order in its own data, to read back exactly.
   const circled = circledRings(mol), ringBond = new Set<number>();
@@ -606,17 +612,37 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     return { xml, box: label?.box ?? [X[0], X[1], X[0], X[1]] };
   }
 
+  // Where Octet draws a labelled atom's charge sign (render.ts signSpot), worked out from Arial's metrics as the label
+  // anchors are: undefined when it is after the label, where ChemDraw puts a label's sign; else the middle of its ink.
+  // The label's attaching line (text, after a mass number isoW wide) starts left of the atom by half its first glyph,
+  // or read right to left ends at end.
+  function signAt(i: number, X: P, size: number, text: string, isoW: number, textW: number, rtl: boolean, end: number): P | undefined {
+    const a = mol.atoms[i], f = scaleOf(a), s = 0.75 * size, t = (a.charge ?? 0) > 0 ? "+" : "–", [w, l, r] = arialGlyph(t).map((n) => (n * s) / 1000);
+    const y = X[1] + (/[OSCGQ]/.test(text) ? 0.364 : 0.358) * size, left = rtl ? X[0] + end - isoW - textW : X[0] - advance(text[0], size) / 2 - isoW;
+    const edge = (b: Box): P[] => Array.from({ length: 9 }, (_, k): P[] => { const g = k / 8, x = b[0] + (b[2] - b[0]) * g, yy = b[1] + (b[3] - b[1]) * g; return [[x, b[1]], [x, b[3]], [b[0], yy], [b[2], yy]]; }).flat();
+    // The sign's ink: Arial's + is two bars 0.08 em thick, from 0.116 to 0.589 em up; its en dash one bar.
+    const c: P = [(l + r) / 2, t === "+" ? -0.3525 * s : -0.259 * s], bar = 0.04 * s;
+    const ink = t === "+" ? [...edge([l, c[1] - bar, r, c[1] + bar]), ...edge([c[0] - bar, -0.589 * s, c[0] + bar, -0.116 * s])] : edge([l, -0.294 * s, r, -0.224 * s]);
+    const z = { spacing: (style.spacing / 100) * B * f, margin: ((style.margin * 1.69) / 1.6) * f, hw: (line / 2) * f, wide: style.bold * 0.75 * f };
+    const shownAt = (j: number) => { const b = mol.atoms[j], d = seen[j].length; return !b.attach && !b.bead && !b.centre && (b.label !== "C" || !d || !!b.text || !!b.isotope || !!b.shown || (d === 1 ? style.terminalLabels : style.carbonLabels)); };
+    const { bonds, rings } = signBonds(i, seen, covalent, bondOf, shownAt, page, z);
+    const { at, after } = signSpot(X, bonds, rings, left, left + isoW + textW, y - 0.33 * size, w, ink, rtl, edge([left, y - 0.716 * size, left + isoW + textW, y]), size);
+    return after ? undefined : [at[0] + c[0], at[1] + c[1]];
+  }
+
   // An atom's label as ChemDraw stores it: the text in formula face, any charge as a superscript run after it, and
   // its anchor where Octet draws the text (spec 13.1). H goes where Octet draws it. A label that reads right to left
   // and has more than one glyph is right-justified, as ChemDraw writes it, with p at the right end of the text as drawn
   // plus the charge sign: the glyph a bond meets centred on the atom if the label ends with it (MeO), else the text's
-  // ink ending as far right of the atom as it starts left of it read left to right (Br). Octet draws the charge of such
-  // a label before it (⁻O); the file keeps it after the text, where ChemDraw and Octet's reader look for it.
+  // ink ending as far right of the atom as it starts left of it read left to right (Br). A sign Octet draws anywhere
+  // but after the label (before one read right to left, ⁻O, or moved off a bond) is not in the text: it goes to the
+  // file as a Plus or Minus symbol linked to the atom (marks), as ChemDraw keeps a sign moved off its label. A sign of
+  // 2+ or more stays after the text, as a symbol holds one charge.
   function labelOf(i: number, h: number): { xml: string; box: Box } {
     const a = mol.atoms[i], X = page(i), size = (a.size ?? style.labelSize) * scaleOf(a), charge = a.charge ?? 0, deg = nbrs[i].length;
     const v = nbrs[i].reduce<P>((acc, j) => { const d = sub(page(j), X), l = len(d) || 1; return [acc[0] + d[0] / l, acc[1] + d[1] / l]; }, [0, 0]);
     const steep = len(v) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180), right = deg > 0 && !steep && v[0] > 1e-6;
-    const sign = charge && !a.circled ? `${Math.abs(charge) > 1 ? Math.abs(charge) : ""}${charge > 0 ? "+" : "-"}` : "";
+    let sign = charge && !a.circled ? `${Math.abs(charge) > 1 ? Math.abs(charge) : ""}${charge > 0 ? "+" : "-"}` : "";
     let text = a.text ?? a.label, just = right && (text + sign).length > 1 ? "Right" : "Left", stack: string | undefined;
     if (!a.text && h) {
       text += `H${h > 1 ? h : ""}`;
@@ -633,6 +659,11 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const q = queryLabel(a.text), u = q === "list" || q === "alt" || q === "link" ? undefined : units(text)[0], tail = (u ? u.count ?? u.text : text).slice(-1);
     const ink = (ch: string, k: number): [number, number] => { const [w, l, r] = arialGlyph(ch); return [(l * k) / 1000, ((w - r) * k) / 1000]; };
     const end = u && !u.count && [...u.text].length === 1 ? advance(text[0], size) / 2 : advance(text[0], size) / 2 - ink(text[0], size)[0] + ink(tail, /\d/.test(tail) && (!u || u.count) ? 0.75 * size : size)[1];
+    if (Math.abs(charge) === 1 && sign) {
+      // The label's attaching line: a stacked label's first unit.
+      const at = signAt(i, X, size, text, isoW, wide(stack && u ? u.text + (u.count ?? "") : text), a.align ? a.align === "right" : right, end);
+      if (at) { signs.set(i, at); sign = ""; if (!a.align && (a.text || !h)) just = right && text.length > 1 ? "Right" : "Left"; }
+    }
     const width = isoW + wide(text) + widthOf(sign, 0.75 * size);
     const x = just === "Right" ? X[0] + end + widthOf(sign, 0.75 * size) : just === "Center" ? X[0] : X[0] - advance(text[0], size) / 2 - isoW;
     const y = X[1] + (/[OSCGQ]/.test(text) ? 0.364 : 0.358) * size, left = just === "Right" ? x - width : just === "Center" ? x - width / 2 : x;
@@ -706,20 +737,26 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     });
   }
 
-  // The symbols ChemDraw draws round an atom (spec 9.10): a circled charge or a skeletal carbon's charge, radical
-  // electrons and lone pairs, each in the widest gap between the atom's bonds and label.
+  // The symbols ChemDraw draws round an atom (spec 9.10): a label's sign where Octet draws it off the label (signAt), a
+  // circled charge or a skeletal carbon's charge, radical electrons and lone pairs, each in the widest gap between the
+  // atom's bonds and label.
   function marks(i: number): string {
-    const a = mol.atoms[i], X = page(i), charge = a.charge ?? 0, deg = nbrs[i].length;
+    const a = mol.atoms[i], X = page(i), charge = a.charge ?? 0, deg = nbrs[i].length, moved = signs.get(i);
     const shown = !a.attach && !a.bead && (a.label !== "C" || !deg || !!a.text || !!a.isotope || !!a.shown || (deg === 1 ? style.terminalLabels : style.carbonLabels));
+    const size = (7.5 * (a.size ?? style.labelSize) * scaleOf(a)) / 10;
+    const symbol = (c: P, type: string, represent: string[]) => el("graphic", { id: fresh(), BoundingBox: `${pt(c)} ${pt([c[0] - size, c[1]])}`, Z: Z(), color: colour(a.colour), GraphicType: "Symbol", SymbolType: type },
+      represent.map((what) => `<represent attribute="${what}" object="${nodeId.get(i)}"/>`).join(""));
+    const sign = moved ? symbol(moved, charge > 0 ? "Plus" : "Minus", ["Charge"]) : "";
     const list: [string, string[]][] = [];
     if (charge && (a.circled || !shown)) list.push([a.circled ? (charge > 0 ? "CirclePlus" : "CircleMinus") : charge > 0 ? "Plus" : "Minus", ["Charge"]]);
     // A singlet radical (carbene) is a pair of electrons that stands for the radical.
     if (a.radical === 3) list.push(["LonePair", ["Radical"]]);
     else for (let r = 0; r < Math.min(2, a.radical ?? 0); r++) list.push(["Electron", ["Radical"]]);
     for (let r = 0; r < Math.min(4, a.pairs ?? 0); r++) list.push([a.bars ? "LonePairBar" : "LonePair", []]);
-    if (!list.length) return "";
+    if (!list.length) return sign;
     const taken = nbrs[i].map((j) => { const d = sub(page(j), X); return Math.atan2(d[1], d[0]); });
     if (shown && (a.text || a.label !== "C")) taken.push(a.text && nbrs[i].length && taken.every((t) => Math.cos(t) > 0) ? Math.PI : 0);
+    if (moved) taken.push(Math.atan2(moved[1] - X[1], moved[0] - X[0]));
     // Marks moved by hand (Atom.angles, by the renderer's keys) keep their angle; the page's y is down.
     const keys = list.map(([type], k) => (type === "Electron" ? `radical${list.slice(0, k).filter(([x]) => x === "Electron").length}` : type.startsWith("LonePair") && list[k][1][0] !== "Radical" ? `pair${list.slice(0, k).filter(([x, r]) => x.startsWith("LonePair") && r[0] !== "Radical").length}` : a.circled ? "charge" : ""));
     const angles: (number | undefined)[] = keys.map((key) => (key && a.angles?.[key] !== undefined ? (-a.angles[key] * Math.PI) / 180 : undefined));
@@ -730,12 +767,8 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     for (const _ of free) gaps.reduce((best, g) => (g.size / (g.n + 1) > best.size / (best.n + 1) + 1e-6 ? g : best)).n++;
     let next = 0;
     for (const g of gaps) for (let k = 0; k < g.n; k++) angles[free[next++]] = g.start + (g.size * (k + 1)) / (g.n + 1);
-    const r = 0.5 * B * scaleOf(a), size = (7.5 * (a.size ?? style.labelSize) * scaleOf(a)) / 10;
-    return list.map(([type, represent], k) => {
-      const c: P = [X[0] + r * Math.cos(angles[k]!), X[1] + r * Math.sin(angles[k]!)];
-      return el("graphic", { id: fresh(), BoundingBox: `${pt(c)} ${pt([c[0] - size, c[1]])}`, Z: Z(), color: colour(a.colour), GraphicType: "Symbol", SymbolType: type },
-        represent.map((what) => `<represent attribute="${what}" object="${nodeId.get(i)}"/>`).join(""));
-    }).join("");
+    const r = 0.5 * B * scaleOf(a);
+    return sign + list.map(([type, represent], k) => symbol([X[0] + r * Math.cos(angles[k]!), X[1] + r * Math.sin(angles[k]!)], type, represent)).join("");
   }
 
   // Arrows: each written twice, as ChemDraw 22 does (spec 11): the arrow, and a legacy line or arc graphic that

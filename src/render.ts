@@ -454,17 +454,16 @@ function crosses(b: Box, p: P, q: P): boolean {
 
 // Where a labelled atom's charge sign goes (y down, any units). Its own place is after the label and raised (N⁺), or
 // before it for a label read right to left (⁻O). Where a bond leaves through that place (the sign would stop one of the
-// bond's lines further out than the rest of the label does), the sign takes the next corner of the label that the bonds
-// leave clear: upper right, upper left, lower right, lower left (read right to left, the left corner first in each
-// row), a lowered sign as far below the atom as a raised one is above it. With no corner clear, it goes in the middle
-// of the widest gap between the bonds and the label outside the rings (the gap nearest the upper right on a tie), just
-// clear of the label, as a circled charge does. X: the atom. bonds: each bond's far atom, its lines' offsets from its
-// axis, and how far a line stops short of ink. rings: pairs of bonds (by index) that are two sides of one ring at the
-// atom. left, right: the ends of the label's attaching line. raised: a raised sign's baseline. w, ink: the sign's
-// advance, and its ink outline from its origin. label: the label's ink outline. size: the label's size.
+// bond's lines further out than the rest of the label does), it takes the label's other upper corner if the bonds leave
+// that clear (⁺N, or N⁺ read right to left). With neither clear, it goes in the middle of the widest gap between the
+// bonds and the label outside the rings (the gap nearest the upper right on a tie), just clear of the label, as a
+// circled charge does. X: the atom. bonds: each bond's far atom, its lines' offsets from its axis, and how far a line
+// stops short of ink. rings: pairs of bonds (by index) that are two sides of one ring at the atom. left, right: the
+// ends of the label's attaching line. raised: a raised sign's baseline. w, ink: the sign's advance, and its ink outline
+// from its origin. label: the label's ink outline. size: the label's size.
 // Returns the sign's origin, and whether that is after the label and raised, where ChemDraw puts a label's sign.
 export function signSpot(X: P, bonds: { to: P; lines: number[]; m: number }[], rings: [number, number][], left: number, right: number, raised: number, w: number, ink: P[], rtl: boolean, label: P[], size: number): { at: P; after: boolean } {
-  const [x0, y0, x1, y1] = outlineBox(ink), lowered = 2 * X[1] - raised - y0 - y1, first = rtl ? left - w : right, second = rtl ? right : left - w;
+  const [x0, y0, x1, y1] = outlineBox(ink), first = rtl ? left - w : right, second = rtl ? right : left - w;
   // How far out along a bond's lines some ink (moved by o) stops them, as the label cuts below work it out.
   const cutBy = (pts: P[], d: number, u: P, lines: number[], m: number, o: P = [0, 0]) => {
     let cut = 0;
@@ -483,7 +482,7 @@ export function signSpot(X: P, bonds: { to: P; lines: number[]; m: number }[], r
   // A corner is clear when the sign there stops no bond, sits at least 30° off every bond, and is not inside a ring.
   const mid: P = [(x0 + x1) / 2, (y0 + y1) / 2];
   const clear = (o: P) => { const v = sub(add(o, mid), X); return !inRing(v) && ways.every(({ d, u, lines, m, cut }) => angle(v, u) >= Math.PI / 6 && cutBy(ink, d, u, lines, m, o) <= cut + 1e-9); };
-  let at = ([[first, raised], [second, raised], [first, lowered], [second, lowered]] as P[]).find(clear);
+  let at = ([[first, raised], [second, raised]] as P[]).find(clear);
   if (!at) {
     // The gaps between the bonds and the parts of the label away from the atom (its H, a mass number).
     const TAU = 2 * Math.PI, taken = bonds.map(({ to }) => Math.atan2(to[1] - X[1], to[0] - X[0]));

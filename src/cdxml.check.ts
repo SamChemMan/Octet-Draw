@@ -755,7 +755,7 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
     [{ label: "Br" }, "Right"], [{ label: "Cl" }, "Right"], [{ label: "C", text: "Ph" }, "Right"], [{ label: "C", text: "Me" }, "Right"],
     [{ label: "Si", text: "TMS" }, "Right"], [{ label: "Si", text: "SiMe3" }, "Right"], [{ label: "C", text: "R1" }, "Right"], [{ label: "C", text: "CF3" }, "Right"],
     [{ label: "O", text: "OMe" }, "Right"], [{ label: "O" }, "Right"], [{ label: "N" }, "Right"], [{ label: "C", text: "CO2Me" }, "Right"],
-    [{ label: "O", charge: -1 }, "Right"], [{ label: "C", isotope: 13 }, "Right"], [{ label: "C", text: "[N,O]" }, "Right"], [{ label: "O", implicitHCount: 0 }, "Left"],
+    [{ label: "O", charge: -1 }, "Left"], [{ label: "C", isotope: 13 }, "Right"], [{ label: "C", text: "[N,O]" }, "Right"], [{ label: "O", implicitHCount: 0 }, "Left"],
   ];
   for (const [atom, just] of cases) {
     const mol: Mol = { atoms: [A(atom.label, 0, 0, atom), A("C", 1, 0)], bonds: [b(0, 1)] };
@@ -772,6 +772,34 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
   const [dx, j] = anchor(toCdxml(cd.mol, cd.style)), want = (667 / 2 - arialGlyph("B")[1] + 333 - arialGlyph("r")[2]) / 100;
   assert.ok(Math.abs(dx - want) <= 0.0051 && j === "Right", `and goes back right-justified at ${want.toFixed(3)} pt (${dx.toFixed(3)})`);
   console.log("cdxml.check: label anchors ok");
+}
+
+// A label's charge sign that Octet draws anywhere but after the label goes to ChemDraw as a Plus or Minus symbol linked
+// to its atom, where Octet draws it, and the label's text has no sign (spec 9.10): a diazo group's N+ whose N=N bond
+// leaves through the place after the N (Octet draws ⁺N), and an O⁻ read right to left (⁻O). A sign with room after the
+// label stays in the text (the N⁻). Each reads back as the same charges.
+{
+  const all = (x: Xml): Xml[] => [x, ...x.kids.flatMap(all)];
+  const written = (mol: Mol) => {
+    const root = parseXml(toCdxml(mol, DEFAULT_STYLE)), nodes = all(root).filter((x) => x.name === "n");
+    const text = (n: Xml) => all(n.kids.find((k) => k.name === "t")!).map((k) => k.text ?? "").join("");
+    const symbols = all(root).filter((x) => x.name === "graphic" && x.attrs.GraphicType === "Symbol").map((g) => ({ type: g.attrs.SymbolType, at: g.attrs.BoundingBox.split(" ").slice(0, 2).map(Number), node: nodes.find((n) => n.attrs.id === g.kids.find((k) => k.name === "represent" && k.attrs.attribute === "Charge")?.attrs.object) }));
+    return { nodes, text, symbols, back: fromCdxml(toCdxml(mol, DEFAULT_STYLE)).mol };
+  };
+  // C=N+=N- going up and to the right at 60°, as Clean Up leaves Sam's diazo ester.
+  const diazo: Mol = { atoms: [A("C", 0, 0), A("N", 0.5, 0.866, { charge: 1 }), A("N", 1, 1.732, { charge: -1 }), A("C", -1, 0), A("C", 0.5, -0.866)], bonds: [b(0, 1, { type: 2 }), b(1, 2, { type: 2 }), b(0, 3), b(0, 4)] };
+  const w = written(diazo), [plus, minus] = [w.nodes[1], w.nodes[2]], p = plus.attrs.p.split(" ").map(Number);
+  assert.deepEqual([w.text(plus), w.text(minus)], ["N", "N-"], "N+ keeps no sign in its text; N- keeps its own");
+  assert.equal(w.symbols.length, 1);
+  assert.ok(w.symbols[0].type === "Plus" && w.symbols[0].node === plus && w.symbols[0].at[0] < p[0] && w.symbols[0].at[1] < p[1], "a Plus symbol for the N+, at its upper left");
+  assert.deepEqual(w.back.atoms.map((a) => a.charge), [undefined, 1, -1, undefined, undefined], "the charges read back");
+  // O- on a bond from the right reads right to left: its sign goes before it, as a Minus symbol at its upper left.
+  const oxide = written({ atoms: [A("O", 0, 0, { charge: -1 }), A("C", 1, 0)], bonds: [b(0, 1)] }), o = oxide.nodes[0].attrs.p.split(" ").map(Number);
+  assert.ok(oxide.text(oxide.nodes[0]) === "O" && oxide.symbols.length === 1 && oxide.symbols[0].type === "Minus" && oxide.symbols[0].at[0] < o[0] && oxide.symbols[0].at[1] < o[1], "-O: a Minus symbol at its upper left");
+  assert.equal(oxide.back.atoms[0].charge, -1);
+  const after = written({ atoms: [A("C", 0, 0), A("O", 1, 0, { charge: -1 })], bonds: [b(0, 1)] });
+  assert.ok(after.text(after.nodes[1]) === "O-" && !after.symbols.length, "O- read left to right keeps its sign in the text");
+  console.log("cdxml.check: moved charge signs ok");
 }
 
 // Sam's corpus (on this Mac only): for every label ChemDraw right-justified that Octet also writes right-justified on
