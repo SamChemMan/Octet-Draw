@@ -452,6 +452,72 @@ function crosses(b: Box, p: P, q: P): boolean {
   return true;
 }
 
+// Where a labelled atom's charge sign goes (y down, any units). Its own place is after the label and raised (N⁺), or
+// before it for a label read right to left (⁻O). Where a bond leaves through that place (the sign would stop one of the
+// bond's lines further out than the rest of the label does), the sign takes the next corner of the label that the bonds
+// leave clear: upper right, upper left, lower right, lower left (read right to left, the left corner first in each
+// row), a lowered sign as far below the atom as a raised one is above it. With no corner clear, it goes in the middle
+// of the widest gap between the bonds and the label outside the rings (the gap nearest the upper right on a tie), just
+// clear of the label, as a circled charge does. X: the atom. bonds: each bond's far atom, its lines' offsets from its
+// axis, and how far a line stops short of ink. rings: pairs of bonds (by index) that are two sides of one ring at the
+// atom. left, right: the ends of the label's attaching line. raised: a raised sign's baseline. w, ink: the sign's
+// advance, and its ink outline from its origin. label: the label's ink outline. size: the label's size.
+// Returns the sign's origin, and whether that is after the label and raised, where ChemDraw puts a label's sign.
+export function signSpot(X: P, bonds: { to: P; lines: number[]; m: number }[], rings: [number, number][], left: number, right: number, raised: number, w: number, ink: P[], rtl: boolean, label: P[], size: number): { at: P; after: boolean } {
+  const [x0, y0, x1, y1] = outlineBox(ink), lowered = 2 * X[1] - raised - y0 - y1, first = rtl ? left - w : right, second = rtl ? right : left - w;
+  // How far out along a bond's lines some ink (moved by o) stops them, as the label cuts below work it out.
+  const cutBy = (pts: P[], d: number, u: P, lines: number[], m: number, o: P = [0, 0]) => {
+    let cut = 0;
+    for (const q of pts) {
+      const r = sub(add(q, o), X), a = dot(r, u), c = cross(u, r);
+      for (const off of lines) { const e = Math.abs(c - off); if (e < m) { const s = Math.sqrt(m * m - e * e); if (a - s < d) cut = Math.max(cut, a + s); } }
+    }
+    return cut;
+  };
+  const ways = bonds.map(({ to, lines, m }) => {
+    const d = len(sub(to, X)), u = d > 1e-9 ? mul(sub(to, X), 1 / d) : ([1, 0] as P);
+    return { d, u, lines, m, cut: cutBy(label, d, u, lines, m) };
+  });
+  // Whether a direction from the atom lies inside a ring: between two of its sides at the atom, in the angle under 180°.
+  const inRing = (v: P) => rings.some(([p, q]) => { const a = ways[p].u, b = ways[q].u, s = cross(a, b); return s * cross(a, v) > 0 && s * cross(v, b) > 0; });
+  // A corner is clear when the sign there stops no bond, sits at least 30° off every bond, and is not inside a ring.
+  const mid: P = [(x0 + x1) / 2, (y0 + y1) / 2];
+  const clear = (o: P) => { const v = sub(add(o, mid), X); return !inRing(v) && ways.every(({ d, u, lines, m, cut }) => angle(v, u) >= Math.PI / 6 && cutBy(ink, d, u, lines, m, o) <= cut + 1e-9); };
+  let at = ([[first, raised], [second, raised], [first, lowered], [second, lowered]] as P[]).find(clear);
+  if (!at) {
+    // The gaps between the bonds and the parts of the label away from the atom (its H, a mass number).
+    const TAU = 2 * Math.PI, taken = bonds.map(({ to }) => Math.atan2(to[1] - X[1], to[0] - X[0]));
+    for (const q of label) if (len(sub(q, X)) > 0.62 * size) taken.push(Math.atan2(q[1] - X[1], q[0] - X[0]));
+    const sorted = taken.map((t) => ((t % TAU) + TAU) % TAU).sort((p, q) => p - q);
+    const fromUpRight = (t: number) => Math.abs(Math.atan2(Math.sin(t + Math.PI / 4), Math.cos(t + Math.PI / 4)));
+    let t = -Math.PI / 4, most = -Infinity;
+    sorted.forEach((s, k) => {
+      const span = (k + 1 < sorted.length ? sorted[k + 1] : sorted[0] + TAU) - s, mid = s + span / 2, score = span - (inRing([Math.cos(mid), Math.sin(mid)]) ? 10 : 0);
+      if (score > most + 1e-6 || (score > most - 1e-6 && fromUpRight(mid) < fromUpRight(t))) { most = score; t = mid; }
+    });
+    // Out along the gap's middle until the sign's ink box clears the label's ink by a seventh of the label size.
+    const d: P = [Math.cos(t), Math.sin(t)], g = 0.14 * size;
+    const fits = (o: P) => label.every((q) => q[0] <= o[0] + x0 - g || q[0] >= o[0] + x1 + g || q[1] <= o[1] + y0 - g || q[1] >= o[1] + y1 + g);
+    for (let r = 0; r <= 4 * size && !at; r += 0.02 * size) { const o = sub(add(X, mul(d, r)), mid); if (fits(o)) at = o; }
+    at ??= sub(add(X, mul(d, 4 * size)), mid);
+  }
+  return { at, after: at[0] === right && at[1] === raised };
+}
+// A labelled atom's bonds as signSpot takes them: each bond's far atom (where `at` puts it), its lines' offsets as they
+// will be drawn (a double bond to another label centred, unless a ring or a set position may move it; otherwise allowed
+// for on either side), and how far a line stops short of ink (z: the atom's lengths); and the pairs of them that are
+// two sides of one ring. nbrs: the atoms each is bonded to; covalent: by bonds that are not hydrogen bonds.
+export function signBonds(i: number, nbrs: number[][], covalent: number[][], bondOf: (i: number, j: number) => Bond, labelled: (j: number) => boolean, at: (j: number) => P, z: { spacing: number; margin: number; hw: number; wide: number }) {
+  const rings: [number, number][] = [], sp = z.spacing;
+  const bonds = nbrs[i].map((j, k) => {
+    const bd = bondOf(i, j), two = bd.type === 2 || bd.type === AROMATIC, ring = ringsThrough(i, j, covalent);
+    for (const r of ring) { const q = nbrs[i].indexOf(r[1]); if (q > k) rings.push([k, q]); }
+    const lines = bd.type === QUADRUPLE ? [-1.5, -0.5, 0.5, 1.5].map((f) => f * sp) : two && labelled(j) && !bd.position && !ring.length ? [-sp / 2, sp / 2] : two || bd.type === 3 ? [-sp, 0, sp] : [0];
+    return { to: at(j), lines, m: z.margin + (bd.stereo || bd.display ? z.wide : z.hw) };
+  });
+  return { bonds, rings };
+}
+
 // Small rings through bond a–b (simple paths from a back to b, up to 8 atoms).
 function ringsThrough(a: number, b: number, nbrs: number[][]): number[][] {
   const out: number[][] = [];
@@ -638,6 +704,15 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       runsAt[i].push(r);
       return r;
     };
+    // The charge sign, where signSpot puts it: left and right are the ends of the label's attaching line, base its
+    // baseline.
+    const charged = (left: number, right: number, base: number, rtl: boolean) => {
+      if (!a.charge || a.circled) return;
+      const t = sign(a.charge), m = M(t), ink = m.outline.length ? m.outline.map(([px, py]): P => [px * SUB, py * SUB]) : ([[0, -m.ascent * SUB], [m.width * SUB, 0]] as P[]);
+      const { bonds, rings } = signBonds(i, nbrs, covalent, (p, q) => bondAt.get(key(p, q))!, (j) => labelled[j], (j) => pts[j], atomZ[i]);
+      const { at } = signSpot(pts[i], bonds, rings, left, right, base - RISE * S, m.width * SUB, ink, rtl, placedPoints(shape), S);
+      run(t, at[0], at[1], SUB, -1);
+    };
     // A text's ink, left and right of where it starts; and how far left of the middle of a glyph its ink starts.
     const inkOf = (t: string): [number, number] => { const o = M(t).outline; if (!o.length) return [0, 0]; const b = outlineBox(o); return [b[0], b[2]]; };
     const near = (ch: string) => M(ch).width / 2 - inkOf(ch)[0];
@@ -647,7 +722,8 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     // left, the glyph a bond meets stays centred if it is the same glyph (MeO, HO, F3C, a lone O); if not (Br, Ph),
     // the label's ink ends as far right of the atom as it would start left of it read left to right, so bonds from
     // either side stop the same distance away. A charge sign is not counted: it goes after a label read left to right
-    // (O⁻, H₃N⁺) and before one read right to left (⁻O, ⁺H₃N), away from the bonds.
+    // (O⁻, H₃N⁺) and before one read right to left (⁻O, ⁺H₃N), away from the bonds, unless a bond leaves through that
+    // place (signSpot).
     const v = nbrs[i].reduce<P>((acc, j) => add(acc, dir(i, j)), [0, 0]);
     const steep = len(v) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180);
     const align = a.align, rtl = align ? align === "right" : deg(i) > 0 && !steep && v[0] > 1e-6;
@@ -669,7 +745,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       const cx = rtl ? x + near(a.text[0]) - right : x - first.width / 2;
       px = cx;
       for (const p of pieces) { run(p.t, px, p.f === 1 ? base : base + DROP * S, p.f); px += M(p.t).width * p.f; }
-      if (a.charge && !a.circled) run(sign(a.charge), rtl ? cx - M(sign(a.charge)).width * SUB : cx + width, base - RISE * S, SUB, -1);
+      charged(cx, cx + width, base, rtl);
       return shape;
     }
     if (a.text) {
@@ -686,7 +762,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
           if (!k && same) meets[i] = r;
           if (u.count) run(u.count, ux + M(u.text).width, uy + DROP * S, SUB, k);
         });
-        if (a.charge && !a.circled) run(sign(a.charge), x - first.width / 2 + width(us[0]), base - RISE * S, SUB, -1);
+        charged(x - first.width / 2, x - first.width / 2 + width(us[0]), base, false);
         return shape;
       }
       const order = rtl ? [...us].reverse() : us, total = us.reduce((w, u) => w + width(u), 0);
@@ -700,7 +776,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
         if (u.count) run(u.count, cx + M(u.text).width, base + DROP * S, SUB);
         cx += width(u);
       }
-      if (a.charge && !a.circled) run(sign(a.charge), rtl ? start - M(sign(a.charge)).width * SUB : cx, base - RISE * S, SUB, -1);
+      charged(start, cx, base, rtl);
       return shape;
     }
     const first = M(a.label[0]), charge = a.charge ?? 0, lw = M(a.label).width;
@@ -730,7 +806,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       else if (!steep || deg(i) < 2) { hs(end, base); end += hW + cW; } // OH, NH2
       else hs(x - hW / 2, base + (v[1] > 0 ? -pitch : pitch), 1);
     }
-    if (charge && !a.circled) run(sign(charge), rtl ? ox - isoW - (h ? hW + cW : 0) - M(sign(charge)).width * SUB : end, base - RISE * S, SUB, -1);
+    charged(ox - isoW - (h && (align ? align === "right" : back) ? hW + cW : 0), end, base, rtl);
     return shape;
   });
   // Bonds stop at the letter they meet; where that letter changes with the reading direction, at the label's box.
@@ -1001,6 +1077,8 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       if (cut > pl.length) { pl.hidden = true; break; }
       pl.cut[end] = cut;
     }
+    // A bond whose cuts from its two ends meet or cross has nothing left to draw.
+    if (pl.cut[0] + pl.cut[1] >= pl.length) pl.hidden = true;
   }
 
   // Mitred fans at unlabelled atoms. Each end is a list of points from the -n to the +n side of the
