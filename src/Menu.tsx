@@ -16,7 +16,6 @@ export type MenuItem = {
   checked?: boolean;
   // A small button on the option's right, shown on hover: remove it, or keep it in a list.
   action?: { icon: React.ReactNode; label: string; pressed?: boolean; onClick: () => void };
-  editing?: React.ReactNode; // in place of the name: a field to type it in
   arrived?: boolean; // it just came into the menu, so it settles in
   style?: React.CSSProperties; // the name's own look (a font's name in that font)
   more?: boolean; // it opens a sub-menu beside the menu (a caret on its right)
@@ -75,16 +74,12 @@ export function Menu(p: Props) {
         <div key={i} className="menu-group" role="group">
           {g.map((item) => (
             <div key={item.key} className={item.arrived ? "variant-cell arrived" : "variant-cell"}>
-              {item.editing ? (
-                <div className="variant" role="none">{item.icon}{item.editing}</div>
-              ) : (
-                <button role="menuitemradio" aria-checked={!!item.checked} aria-haspopup={item.more ? "menu" : undefined} className="variant" data-tip={item.name} data-tip-cut={!item.hint || undefined} data-key={item.hint} data-item={item.key}
-                  onPointerDown={(e) => p.onPress?.(e, item.key)} onClick={() => p.onChoose(item.key)} onPointerUp={() => p.onRelease?.(item.key)}>
-                  {item.icon}
-                  <span className="variant-name" style={item.style}>{item.name}</span>
-                  {item.more && <CaretRight size={12} className="submenu-caret" aria-hidden />}
-                </button>
-              )}
+              <button role="menuitemradio" aria-checked={!!item.checked} aria-haspopup={item.more ? "menu" : undefined} className="variant" data-tip={item.name} data-tip-cut={!item.hint || undefined} data-key={item.hint} data-item={item.key}
+                onPointerDown={(e) => p.onPress?.(e, item.key)} onClick={() => p.onChoose(item.key)} onPointerUp={() => p.onRelease?.(item.key)}>
+                {item.icon}
+                <span className="variant-name" style={item.style}>{item.name}</span>
+                {item.more && <CaretRight size={12} className="submenu-caret" aria-hidden />}
+              </button>
               {item.action && (
                 <button className="variant-action" aria-label={item.action.label} data-tip={item.action.label} aria-pressed={item.action.pressed} onClick={item.action.onClick}>
                   {item.action.icon}
