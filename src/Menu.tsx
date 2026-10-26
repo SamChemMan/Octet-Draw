@@ -232,3 +232,69 @@ export function Pick(p: PickProps) {
     </>
   );
 }
+
+// A right-click menu (and the Menu key's, and Shift+F10's): the menu above as one column at the pointer. An option
+// with more (a caret) opens its own options beside it as the pointer comes onto it, or with the right arrow key; left
+// closes them. Up and down move along it, Return chooses and Escape closes. A click away, a scroll or the window losing
+// the focus closes it. Opened from the keyboard, the first option takes the focus; from the pointer, the menu does (so
+// the arrow keys work at once). sub: the options an option with more opens, under its title.
+export function ContextMenu({ label, at, keyboard, groups, sub, onChoose, onClose }: {
+  label: string; at: { x: number; y: number }; keyboard?: boolean; groups: MenuItem[][];
+  sub: (key: string) => { label: string; groups: MenuItem[][] } | undefined; onChoose: (key: string) => void; onClose: () => void;
+}) {
+  const [open, setOpen] = useState<{ key: string; top: number; focus: boolean }>();
+  const main = useRef<HTMLDivElement>(null), side = useRef<HTMLDivElement>(null);
+  const opens = (key?: string) => !!key && groups.some((g) => g.some((i) => i.key === key && i.more));
+  const width = menuWidth(1), left = Math.max(8, Math.min(at.x, innerWidth - width - 8)), subLeft = left + width + 4 + width > innerWidth - 8 ? left - width - 4 : left + width + 4;
+  const show = (key: string, focus: boolean) => {
+    const row = main.current?.querySelector<HTMLElement>(`[data-item="${CSS.escape(key)}"]`);
+    if (row) setOpen({ key, top: row.getBoundingClientRect().top - 5, focus });
+  };
+  const choose = (key: string) => {
+    if (opens(key)) return show(key, true);
+    onClose();
+    onChoose(key);
+  };
+  useEffect(() => {
+    const away = (e: PointerEvent) => { if (!main.current?.contains(e.target as Node) && !side.current?.contains(e.target as Node)) onClose(); };
+    const gone = () => onClose();
+    addEventListener("pointerdown", away, true);
+    addEventListener("wheel", gone, true);
+    addEventListener("blur", gone);
+    addEventListener("resize", gone);
+    return () => { removeEventListener("pointerdown", away, true); removeEventListener("wheel", gone, true); removeEventListener("blur", gone); removeEventListener("resize", gone); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => { (keyboard ? main.current?.querySelector<HTMLElement>(".variant") : main.current)?.focus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => { if (open?.focus) side.current?.querySelector<HTMLElement>(".variant")?.focus(); }, [open]);
+  const keys = (e: React.KeyboardEvent, inSide: boolean) => {
+    const focused = (document.activeElement as HTMLElement | null)?.dataset.item;
+    if (e.key === "Escape" || e.key === "ArrowLeft") {
+      e.preventDefault(); e.stopPropagation();
+      if (!inSide && e.key === "Escape") return onClose();
+      if (!inSide) return;
+      const key = open?.key;
+      setOpen(undefined);
+      if (key) main.current?.querySelector<HTMLElement>(`[data-item="${CSS.escape(key)}"]`)?.focus();
+      return;
+    }
+    if (e.key === "ArrowRight" && !inSide && opens(focused)) { e.preventDefault(); e.stopPropagation(); return show(focused!, true); }
+    if (e.key === "Tab") { e.preventDefault(); return onClose(); }
+    if (listKeys(e, (inSide ? side : main).current!)) return;
+    e.stopPropagation(); // the menu's keys are its own
+  };
+  const inner = open && sub(open.key), rows = (list: MenuItem[][]) => list.flat().length * 32 + 24;
+  return createPortal(
+    <>
+      <div ref={main} tabIndex={-1} className="context-menu" onKeyDown={(e) => keys(e, false)} onContextMenu={(e) => e.preventDefault()}
+        onPointerOver={(e) => { const key = (e.target as HTMLElement).closest<HTMLElement>("[data-item]")?.dataset.item; if (key && key !== open?.key) { if (opens(key)) show(key, false); else setOpen(undefined); } }}>
+        <Menu label={label} className="list" placed columns={1} groups={groups.map((g) => g.map((i) => (i.more ? { ...i, checked: open?.key === i.key } : i)))} onChoose={choose}
+          style={{ position: "fixed", left, top: Math.max(8, Math.min(at.y, innerHeight - 8 - Math.min(innerHeight - 16, rows(groups)))), maxHeight: innerHeight - 16, zIndex: 30, transformOrigin: "top left" }} />
+      </div>
+      <Exit>{open && inner && (
+        <div ref={side} className="context-menu" onKeyDown={(e) => keys(e, true)} onContextMenu={(e) => e.preventDefault()}>
+          <Menu label={inner.label} className="list" placed columns={1} groups={inner.groups} onChoose={choose}
+            style={{ position: "fixed", left: subLeft, top: Math.max(8, Math.min(open.top, innerHeight - 8 - rows(inner.groups))), maxHeight: innerHeight - 16, zIndex: 31, transformOrigin: subLeft < left ? "top right" : "top left" }} />
+        </div>
+      )}</Exit>
+    </>, document.body);
+}

@@ -58,7 +58,7 @@ import { formatAmount, formulaWeight, keyColumns, parseAmount, solve, type Field
 import { logS, properties as calculate } from "./props";
 import type { Graph } from "./naming";
 import { CommandPalette, type Command } from "./CommandPalette";
-import { StructureThumb } from "./TemplateLibrary";
+import { StructureThumb, type TemplateTool } from "./TemplateLibrary";
 import { cleanUpReaction, cleanUpReactions, findReaction, gapFor, layoutRow, reactionClean, roleOf, rowOf, withStructure, type Layout, type Reaction } from "./reaction";
 import { alignByMap, clearScheme, interpret, mapScheme, rolesOf, type Part, type Role, type RoleStep } from "./interpret";
 import { SEARCHES, searchNow, searchQuery } from "./search";
@@ -81,7 +81,7 @@ import { complexName } from "./complexes";
 
 setNamer(iupacName);
 setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, inchi: toInchi, aux: toInchiAux, cip: cipOf }));
-import { addSet, loadTemplates, moveTemplate, newTemplate, removeSet, renameSet, templateKind } from "./templates";
+import { addSet, addTo, freeSetName, loadTemplates, moveTemplate, MY_SET, newTemplate, removeSet, removeTemplate, renameSet, renameTemplate, setName, templateKind } from "./templates";
 import { formulaRuns } from "./labels";
 import { captionAtom, captionsToAtoms, chemicalCaption, interpretLabels, labelable, withCaptionAtoms } from "./edit";
 import { bendOf, cutSides } from "./masscut";
@@ -497,28 +497,50 @@ export default function Editor() {
   // The user's own rings, and the one in hand (a built-in RingKind or a template's kind).
   const templates = useMemo(() => loadTemplates(settings.templates), [settings.templates]);
   const ringKind = settings.variants.ring in RINGS || templates.some((t) => templateKind(t.id) === settings.variants.ring) || libraryItem(settings.variants.ring) ? settings.variants.ring : "benzene";
-  const [renaming, setRenaming] = useState<string>();
-  function addRingTemplate(name: string, mol: Mol, set?: string) {
-    const t = newTemplate(name, mol, set);
-    setSettings((s) => ({ ...s, templates: [...s.templates, t], variants: { ...s.variants, ring: templateKind(t.id) } }));
-    setTool("ring");
+  // The library to show again after a change made away from it: the tool it is beside, the set it opens on, and a
+  // template just added, whose name is ready to type there. n: changes each time, so the same one shows again.
+  const [reveal, setReveal] = useState<{ tool: TemplateTool; set: string; id?: string; n: number }>();
+  const showLibrary = (tool: TemplateTool, set: string, id?: string) => setReveal((r) => ({ tool, set, id, n: (r?.n ?? 0) + 1 }));
+  // A template of the user's own, at the end of a set (My templates unless one is named). It is the Ring tool's (or the
+  // Template tool's, from its library) in hand now.
+  function addOwnTemplate(name: string, mol: Mol, set?: string, tool: TemplateTool = "ring") {
+    const t = newTemplate(name, mol);
+    setSettings((s) => ({ ...addTo(s, t, set), variants: { ...s.variants, [tool]: templateKind(t.id) } }));
+    setTool(tool);
     return t;
   }
   function removeRingTemplate(id: string) {
+    const kind = templateKind(id);
     setSettings((s) => ({
-      ...s,
-      templates: s.templates.filter((t) => t.id !== id),
-      pinned: s.pinned.filter((k) => k !== `ring:${templateKind(id)}`),
-      variants: s.variants.ring === templateKind(id) ? { ...s.variants, ring: "benzene" } : s.variants,
+      ...removeTemplate(s, id),
+      pinned: s.pinned.filter((k) => k !== `ring:${kind}` && k !== `template:${kind}`),
+      variants: { ...s.variants, ...(s.variants.ring === kind ? { ring: "benzene" } : {}), ...(s.variants.template === kind ? { template: "lib:Alanine" } : {}) },
     }));
   }
-  // The selection becomes a template, with everything in it (its text, arrows, shapes and look, as ChemDraw's templates
-  // keep them), in a set (My templates unless one is named); its name is typed in the Ring list straight away.
-  const addSelectionAsRing = (set?: string) => {
-    const part = selectedPart();
+  // A drawing (a selection, a structure picked, a built-in template) becomes a template of the user's own, with
+  // everything in it (its text, arrows, shapes and look, as ChemDraw's templates keep them). The library opens on its
+  // set with its name ready to type: Return keeps the name.
+  const addPart = (part: Mol | undefined, set = MY_SET, tool: TemplateTool = "ring", name?: string) => {
     if (!part) return;
-    setRenaming(addRingTemplate(`${part.atoms.length ? "Ring" : "Template"} ${templates.length + 1}`, part, set).id);
+    let n = templates.length + 1;
+    while (templates.some((t) => t.name === `Template ${n}`)) n++;
+    const t = addOwnTemplate(name ?? `Template ${n}`, part, set, tool);
+    showLibrary(tool, settings.templateSets.includes(set) ? set : MY_SET, t.id);
   };
+  // What Add to templates keeps: the selection, or with one atom or bond chosen (its Actions), its whole structure.
+  const templatePart = () => {
+    const kind = contextOf().kind;
+    if (kind !== "atom" && kind !== "bond") return selectedPart();
+    const [atoms, items] = wholeIntegral(doc, new Set(fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat()), picked);
+    return extractSelection(doc, atoms, items);
+  };
+  // Add in My templates or a set of the user's: the selection goes in at once. With nothing selected, the library gets
+  // out of the way and the next structure clicked goes in (templatePick); Escape stops it.
+  const [templatePick, setTemplatePick] = useState<{ set: string; tool: TemplateTool }>();
+  const addToSet = (set: string, tool: TemplateTool) => (selection.size || picked.size ? addPart(selectedPart(), set, tool) : setTemplatePick({ set, tool }));
+  const stopPick = () => { if (templatePick) showLibrary(templatePick.tool, templatePick.set); setTemplatePick(undefined); };
+  // New set…: the set's name first (Dialog), then what was asked for goes in it.
+  const askSet = (then: (set: string) => void) => setDialog({ kind: "templateSet", name: "", then });
   // Template sets (the library's categories of the user's own): a new one, one renamed (its templates go with it), one
   // removed (its templates go to My templates), and a template moved to another set.
   const templateSets = {
@@ -2124,7 +2146,7 @@ export default function Editor() {
     | { kind: "rlogic"; rows: { id: number; name: string; occur: string; restH: boolean; then: string }[] }
     | { kind: "font"; font: string } | { kind: "size"; size: string } | { kind: "spacing"; mode: "auto" | "variable" | "fixed"; pt: string }
     | { kind: "unsaved"; next: () => void } | { kind: "rf"; plate: number; index: number; value: string } | { kind: "chain"; from: number | P; atoms: string }
-    | { kind: "template"; name: string; from: string } | { kind: "lossy"; lost: Record<string, number>; done: (saved: boolean) => void } | { kind: "revert" }
+    | { kind: "template"; name: string; from: string } | { kind: "templateSet"; name: string; then: (set: string) => void } | { kind: "lossy"; lost: Record<string, number>; done: (saved: boolean) => void } | { kind: "revert" }
     | { kind: "discard"; entry: RecoveredEntry } | { kind: "crashed"; log: string } | { kind: "update"; version: string }>();
   // Check Structure's dialog: the problems, the one shown, and what runs after them (a copy or export that asked).
   // select: Check Structure itself, which selects each problem's objects as it shows it.
@@ -3218,6 +3240,29 @@ export default function Editor() {
   const centreMark = useMemo(() => (selectionFrame?.turns ? turnCentre() : undefined), [selectionFrame, pivot, doc]); // eslint-disable-line react-hooks/exhaustive-deps
   const onCentreMark = (p: P) => !!centreMark && Math.hypot(p[0] - centreMark[0], p[1] - centreMark[1]) * L * views.get().zoom < 8;
 
+  // What a pick for a template set takes from what is under the pointer: the whole structure (with its captions, as
+  // selecting it would), or the object, with the rest of any integral group it is in.
+  const pickOf = (h: Hover): [Set<number>, Set<number>] | undefined => {
+    const atoms = atomsOf(doc, h), items = itemsOf(h), cycle = doc.cycles?.find((c) => c.id === h.cycle);
+    if (!atoms.length && !items.length) return undefined;
+    return wholeIntegral(doc, new Set([...fragments(doc).filter((g) => g.some((i) => atoms.includes(i))).flat(), ...(cycle?.nodes.flat() ?? [])]), new Set(items));
+  };
+  // A pick stops when a press lands anywhere but the canvas.
+  useEffect(() => {
+    if (!templatePick) return;
+    const away = (e: PointerEvent) => { if (!(e.target as Element).closest?.(".canvas")) setTemplatePick(undefined); };
+    addEventListener("pointerdown", away, true);
+    return () => removeEventListener("pointerdown", away, true);
+  }, [templatePick]);
+  // Drop places for a selection dragged off the canvas (data-drop-set): the open template set in the library, a set's
+  // name there, and the Ring and Template tools. The one under the pointer shows it takes the drop.
+  const dropOver = useRef<HTMLElement>(undefined);
+  const markDrop = (el?: HTMLElement) => {
+    if (dropOver.current === el) return;
+    dropOver.current?.removeAttribute("data-over");
+    el?.setAttribute("data-over", "");
+    dropOver.current = el;
+  };
   // Right-click (Control-click on the Mac): what is under the pointer is selected, unless it is selected already, and
   // the Actions menu opens there. On a TLC plate the plate is picked, with the spot under the pointer.
   function onContextMenu(e: React.MouseEvent<SVGSVGElement>) {
@@ -3243,6 +3288,15 @@ export default function Editor() {
     stopCamera(); // what is drawn is where the press lands
     joinNext.current = undefined;
     if (e.button !== 0) return;
+    // Picking a structure for a template set (Add with nothing selected): a click on a structure or object adds it.
+    if (templatePick && !(MAC && e.ctrlKey)) {
+      const p = toDoc(e.clientX, e.clientY), t = hit(p), free = t.atom === undefined && t.bond === undefined && t.caption === undefined && t.cycle === undefined;
+      const part = pickOf(free && t.arrow === undefined ? { arrow: highlightAt(p) ?? orbitalAt(p) } : t);
+      if (!part) return;
+      setTemplatePick(undefined);
+      setHover({});
+      return addPart(extractSelection(doc, ...part), templatePick.set, templatePick.tool);
+    }
     // On the Mac a Control-click is the right-click (onContextMenu): the press does nothing more, but on a resize handle.
     if (MAC && e.ctrlKey) {
       if (!resizeAt(toDoc(e.clientX, e.clientY))) return;
@@ -3668,6 +3722,7 @@ export default function Editor() {
       }
       case "move": {
         if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
+        markDrop(document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("[data-drop-set]") ?? undefined);
         // Snap within 6 screen px, unless snapping is off or ⌘ is held (Option is ChemDraw's copy, at the press).
         const raw: P = [p[0] - drag.from[0], p[1] - drag.from[1]], base = drag.base ?? doc, moving = drag.atoms ?? selection;
         // Text, arrows and shapes moving without atoms snap the same way.
@@ -4974,7 +5029,9 @@ export default function Editor() {
         return openWriting({ value: "", on: { arrow: id, side: what }, style: { ...textStyle } });
       }
     }
-    if (command === "template.add") return addSelectionAsRing();
+    // Add to templates: into My templates (the Actions panel), into a set (the right-click menu), or into a new set.
+    if (command === "template.add" || command.startsWith("template.add:")) return addPart(templatePart(), command.slice(13) || MY_SET);
+    if (command === "template.add.new") { const part = templatePart(); return part && askSet((set) => addPart(part, set)); }
     if (command === "caption.add") {
       // A new caption under the selected structures, centred on them.
       const under = fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat();
@@ -5245,8 +5302,17 @@ export default function Editor() {
   function release() {
     stopHold();
     if (spring) { setTool(spring); setSpring(undefined); }
+    const over = dropOver.current;
+    markDrop(undefined);
     if (!drag) return;
     setDrag(undefined);
+    // A selection let go on a template set (or the Ring or Template tool) goes into it and stays where it was. Copies an
+    // Option-drag made are not kept.
+    if (drag.kind === "move" && drag.moved && over?.dataset.dropSet) {
+      const part = extractSelection(drag.base ?? doc, drag.atoms ?? selection, picked);
+      if (drag.base && drag.base !== doc) { setSelection(new Set()); setPicked(new Set()); }
+      return addPart(part, over.dataset.dropSet, over.dataset.dropTool === "template" ? "template" : "ring");
+    }
     switch (drag.kind) {
       case "crosshair":
         return setGuides((g) => ({ ...g, crosshair: drag.at }));
@@ -5435,6 +5501,8 @@ export default function Editor() {
       }
       if (typing() || e.defaultPrevented) return; // typing in a label or caption box, or a box already used the key
       if (home || modal()) return; // Home and dialogs have their own keys
+      // Escape stops a pick for a template set, and the library shows again.
+      if (templatePick && e.key === "Escape") { e.preventDefault(); return stopPick(); }
       if (controlTakes(e.key, document.activeElement as HTMLElement | null, keyFocus.current)) return;
       const mod = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
       // Drawing with the Pen: Return or Escape ends the curve; Delete takes back the last point.
@@ -5750,14 +5818,16 @@ export default function Editor() {
   // removes all of it (ChemDraw highlights the outermost integral group too). Each group's members, worked out once
   // for each drawing.
   const integrals = useMemo(() => outerGroups((doc.groups ?? []).filter((g) => g.integral)).map((g) => ({ g, atoms: new Set(g.atoms), items: new Set(g.items) })), [doc.groups]);
-  const wholeMark = (w: (typeof integrals)[number]) => (
+  // The mark on a whole: an integral group, or what a pick for a template set takes.
+  const partMark = (atoms: Set<number>, items: Set<number>) => (
     <g key="h">
-      {shown.bonds.flatMap((b, i) => (w.atoms.has(b.atoms[0]) && w.atoms.has(b.atoms[1]) ? [bondMark(i, `hb${i}`, "mark")] : []))}
-      {w.g.atoms.filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `ha${i}`, "mark"))}
-      {w.g.items.map((id) => captionMark(id, `hc${id}`, "mark") ?? arrowMark(id, `hr${id}`, "mark"))}
-      {cycleArrows.filter((a) => w.items.has(a.cycle)).map((a) => <polyline key={`hy${a.id}`} className="arrow-mark mark" points={arrowTrace(a, L).paths[0].map((q) => q.join(",")).join(" ")} strokeWidth={0.36 * L} />)}
+      {shown.bonds.flatMap((b, i) => (atoms.has(b.atoms[0]) && atoms.has(b.atoms[1]) ? [bondMark(i, `hb${i}`, "mark")] : []))}
+      {[...atoms].filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `ha${i}`, "mark"))}
+      {[...items].map((id) => captionMark(id, `hc${id}`, "mark") ?? arrowMark(id, `hr${id}`, "mark"))}
+      {cycleArrows.filter((a) => items.has(a.cycle)).map((a) => <polyline key={`hy${a.id}`} className="arrow-mark mark" points={arrowTrace(a, L).paths[0].map((q) => q.join(",")).join(" ")} strokeWidth={0.36 * L} />)}
     </g>
   );
+  const wholeMark = (w: (typeof integrals)[number]) => partMark(w.atoms, w.items);
   const integralAt = (hover: Hover) => {
     if ((tool !== "select" && tool !== "erase") || !integrals.length) return undefined;
     const ids = atomsOf(doc, hover), items = itemsOf(hover);
@@ -5798,7 +5868,8 @@ export default function Editor() {
   };
   const hovered = (hover: Hover) => { const mark = hoveredMark(hover), shown = settings.interpretation ? interpretationAt(hover) : null; return shown ? <g key="h">{shown}{mark}</g> : mark; };
   // The mark on what is under the pointer, drawn by Live as the pointer moves.
-  const hoveredMark = (hover: Hover, whole = drag ? undefined : integralAt(hover)) => drag ? null
+  const hoveredMark = (hover: Hover, whole = drag ? undefined : integralAt(hover), pick = templatePick && !drag ? pickOf(hover) : undefined) => drag ? null
+    : pick ? partMark(...pick)
     : whole ? wholeMark(whole)
     // The Reaction Atom-Atom Map tool on a mapped atom: its partners (the atoms with its number) ringed too.
     : tool === "map" && hover.atom !== undefined && shown.atoms[hover.atom]?.map ? (
@@ -6205,6 +6276,7 @@ export default function Editor() {
           ...((overCross && !drag) || drag?.kind === "crosshair" ? { cursor: "move" } : pageHover && !drag ? { cursor: "zoom-in" } : (overResize && !drag) || drag?.kind === "resize" ? { cursor: CURSORS[drag?.kind === "resize" ? drag.side : overResize!] }
             : (overTurn && !drag) || drag?.kind === "turn" ? { cursor: turnCursor ?? "grab" } : overSelection || drag?.kind === "move" ? { cursor: "move" } : tool === "select" && cursor ? { cursor } : {}),
           ...((edgeHover && !drag) || drag?.kind === "tableedge" ? { cursor: (drag?.kind === "tableedge" ? drag.axis : edgeHover) === "col" ? "col-resize" : "row-resize" } : {}),
+          ...(templatePick ? { cursor: "copy" } : {}),
           ...(darkPaper ? { "--ink": "#FFFFFF" } : {}),
           ...(own ? { "--canvas": own } : {}),
         } as React.CSSProperties}
@@ -6712,21 +6784,20 @@ export default function Editor() {
         pinned={settings.pinned}
         onPinned={(pinned) => setSettings((s) => ({ ...s, pinned }))}
         canAddSelection={selection.size > 0 || picked.size > 0}
-        renaming={renaming}
+        reveal={reveal}
         preview={(name) => structureFor(name) ?? (() => { const s = suggestName(name, false); return s ? structureFor(s) : undefined; })()}
         onAddName={(typed) => {
           // A misspelt name is added with its corrected spelling.
           const name = nameToSmiles(typed) ? typed : suggestName(typed);
           const m = name && structureFor(name);
           if (!name || !m) return false;
-          addRingTemplate(name.charAt(0).toUpperCase() + name.slice(1), m);
+          addOwnTemplate(name.charAt(0).toUpperCase() + name.slice(1), m);
           return true;
         }}
-        onAddSelection={addSelectionAsRing}
-        onRename={(id, name) => {
-          setSettings((s) => ({ ...s, templates: s.templates.map((t) => (t.id === id ? { ...t, name: name.slice(0, 80) } : t)) }));
-          setRenaming(undefined);
-        }}
+        onAdd={addToSet}
+        onRename={(id, name) => setSettings((s) => renameTemplate(s, id, name))}
+        onCopy={(kind, set, tool) => { const t = libraryItem(kind); if (t) addPart(t.mol, set, tool, t.name); }}
+        onNewSet={askSet}
         onRemoveTemplate={removeRingTemplate}
         popKey={pop?.n ?? 0}
         canUndo={h.at > 0}
@@ -6818,7 +6889,7 @@ export default function Editor() {
       <Exit>{menuAt && (() => {
         const context = panelContext ?? contextOf();
         return <ActionsMenu at={menuAt} keyboard={menuAt.keyboard} context={context} messy={untidy} hiddenWarnings={hiddenHere()} warned={selectedOf(found).length} grouping={grouping}
-          layout={settings.actionLayout} hint={hint} colour={selectionColour(context)} palette={[...settings.palette, ...docColours]} online={settings.onlineSearch} run={runAction} onClose={() => setMenuAt(undefined)} />;
+          layout={settings.actionLayout} hint={hint} colour={selectionColour(context)} palette={[...settings.palette, ...docColours]} online={settings.onlineSearch} templateSets={settings.templateSets} run={runAction} onClose={() => setMenuAt(undefined)} />;
       })()}</Exit>
       <Exit>{dialog?.kind === "rf" && (
         // Set Rf…, as ChemDraw's: the spot moves to the Rf typed.
@@ -6854,6 +6925,16 @@ export default function Editor() {
         <Coach key={coach} doc={doc} selected={selection.size} seen={seen} keys={{ clean: hint("clean_up") ?? "", copy: keyLabel("mod+c") }} low={naming !== undefined}
           onTool={setCoachTool} onSkip={() => setCoach(0)} onFinish={() => { const fresh: Mol = { ...EMPTY, style: doc.style }; setCoach(0); set(fresh); setFile({ saved: fresh }); }} />
       )}</Exit>
+      <Exit>{dialog?.kind === "templateSet" && (() => {
+        // New set… (Add to templates and Move to): the set's name, then the template goes in it.
+        const ok = freeSetName(settings, dialog.name);
+        return (
+          <Dialog title="New set" action="Add" disabled={!ok} onClose={() => setDialog(undefined)}
+            onAction={() => { if (!ok) return; const d = dialog; setDialog(undefined); setSettings((s) => addSet(s, d.name)); d.then(setName(d.name)); }}>
+            <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={dialog.name} maxLength={40} spellCheck={false} onChange={(e) => setDialog({ ...dialog, name: e.target.value })} /></span></label>
+          </Dialog>
+        );
+      })()}</Exit>
       <Exit>{dialog?.kind === "template" && (() => {
         // Custom template on Home: its name and the template it starts from. Continue saves it as a template and opens
         // its Document settings. A name must not be Quick start's or one of Octet's; the same name as one of the

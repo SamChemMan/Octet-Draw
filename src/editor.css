@@ -2852,11 +2852,62 @@ button.variant.add {
   color: var(--ink);
   font: 13px var(--font-sans);
 }
+/* Add: the first tile in My templates and each set of the user's, the size of a template, with a dashed outline where
+   the template will be. */
 .library-add {
   color: var(--ink-muted);
 }
-.library-add > svg {
-  margin: 26px;
+.library-add-mark {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  box-sizing: border-box;
+  border: 1px dashed var(--ink-faint);
+  border-radius: var(--radius-sm);
+  transition: border-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+}
+.library-add:focus-visible .library-add-mark {
+  border-color: var(--brand-bright);
+}
+/* A template's name being typed: the field sits where its name was. */
+.library-item.editing {
+  background: var(--brand-mist);
+}
+.library-rename {
+  width: 100%;
+  min-width: 0;
+  height: 18px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  border: 1px solid var(--brand-bright);
+  border-radius: 4px;
+  outline: none;
+  background: var(--canvas);
+  box-shadow: var(--shadow-focus);
+  color: var(--ink);
+  font: 11px var(--font-sans);
+  text-align: center;
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* Where a selection dragged from the canvas (or a template dragged in the library) will go: the open set, a set's name,
+   or the Ring or Template tool, tinted while the pointer is over it. */
+.library-grid,
+.library-category,
+.palette .tool {
+  transition: background var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
+}
+.library-grid[data-over] {
+  background: var(--brand-mist);
+  box-shadow: inset 0 0 0 2px var(--brand-bright);
+}
+.library-category[data-over],
+.library.dragging .library-category[data-drop-set]:hover,
+.palette .tool[data-over] {
+  background: var(--brand-mist);
+  box-shadow: inset 0 0 0 1px var(--brand-bright);
+  color: var(--link);
 }
 .library-none {
   grid-column: 1 / -1;
@@ -2865,6 +2916,12 @@ button.variant.add {
   font-size: 13px;
 }
 @media (hover: hover) and (pointer: fine) {
+  .library-add:hover {
+    color: var(--ink);
+  }
+  .library-add:hover .library-add-mark {
+    border-color: var(--ink-muted);
+  }
   .library-item:hover,
   .library-category:not([aria-pressed="true"]):hover {
     background: var(--surface-sunken);
