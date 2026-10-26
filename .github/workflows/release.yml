@@ -29,7 +29,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
+          # The Intel runner: GitHub's arm64 Mac runners stopped taking jobs on 26 October 2026 ("not acquired by
+          # Runner of type hosted even after multiple attempts"). It builds the same universal app.
+          - platform: macos-15-intel
             args: --target universal-apple-darwin
           - platform: windows-latest
             args: ""
@@ -47,15 +49,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: stable
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.platform == 'macos-15-intel' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             src-tauri/target
-          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-${{ github.job }}-cargo-
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-cargo-
       - name: Linux libraries for Tauri
         if: matrix.platform == 'ubuntu-22.04'
         run: |
