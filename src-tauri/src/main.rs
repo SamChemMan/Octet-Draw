@@ -165,8 +165,8 @@ pub const MAX_BYTES: u64 = 64 * 1024 * 1024;
 // .cdx, ChemDraw's binary file with Octet's drawing inside (decision 0009). It opens all three, and the older .octet
 // files.
 const OPEN: (&str, &[&str]) = ("Drawings", &["oct", "cdxml", "cdx", "octet"]);
-// File > Open also opens measured spectra (JCAMP-DX), which go into the drawing that is open (src/jcamp.ts).
-const OPEN_ALL: (&str, &[&str]) = ("Drawings and spectra", &["oct", "cdxml", "cdx", "octet", "jdx", "dx", "jcamp"]);
+// File > Open also opens measured spectra (JCAMP-DX and SPC), which go into the drawing that is open (src/jcamp.ts).
+const OPEN_ALL: (&str, &[&str]) = ("Drawings and spectra", &["oct", "cdxml", "cdx", "octet", "jdx", "dx", "jcamp", "spc"]);
 const SAVE: [(&str, &[&str]); 3] = [("Octet drawing", &["oct"]), ("ChemDraw drawing (CDXML)", &["cdxml"]), ("ChemDraw drawing (CDX)", &["cdx"])];
 const SAVES: [&str; 3] = ["oct", "cdxml", "cdx"];
 

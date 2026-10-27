@@ -20,12 +20,12 @@ export function serialize(mol: Mol): string {
   const atoms = mol.atoms.map((a) => ({ label: a.label, x: round(a.location[0]), y: round(a.location[1]), ...(round(a.location[2] ?? 0) ? { z: round(a.location[2]) } : {}), ...(a.shade ? { shade: true } : {}), ...(a.charge ? { charge: a.charge } : {}), ...(a.text ? { text: a.text } : {}),
     ...(a.centre ? { centre: a.centre } : {}),
     ...(a.radical ? { radical: a.radical } : {}), ...(a.isotope ? { isotope: a.isotope } : {}), ...(a.pairs ? { pairs: a.pairs } : {}), ...(a.circled ? { circled: true } : {}), ...(a.partial ? { partial: a.partial } : {}),
-    ...(a.hmark ? { hmark: a.hmark } : {}), ...(a.attach ? { attach: a.attach } : {}), ...(a.bead ? { bead: true } : {}), ...(a.map ? { map: a.map } : {}), ...(a.enhanced ? { enhanced: a.enhanced } : {}), ...(a.colour ? { colour: a.colour } : {}), ...(a.cip ? { cip: true } : {}), ...(a.halo ? { halo: a.halo } : {}), ...(a.circle ? { circle: true } : {}), ...(a.number ? { number: a.number } : {}), ...(a.shown ? { shown: true } : {}), ...(a.ignoreWarnings ? { ignoreWarnings: true } : {}), ...(a.align ? { align: a.align } : {}), ...(a.labelAngle ? { labelAngle: round(a.labelAngle) } : {}), ...(a.hidden ? { hidden: true } : {}), ...(a.bars ? { bars: true } : {}), ...(a.angles ? { angles: a.angles } : {}), ...(a.chemical === false ? { chemical: false } : {}),
+    ...(a.hmark ? { hmark: a.hmark } : {}), ...(a.attach ? { attach: a.attach } : {}), ...(a.bead ? { bead: true } : {}), ...(a.map ? { map: a.map } : {}), ...(a.enhanced ? { enhanced: a.enhanced } : {}), ...(a.colour ? { colour: a.colour } : {}), ...(a.cip ? { cip: true } : {}), ...(a.halo ? { halo: a.halo } : {}), ...(a.circle ? { circle: true } : {}), ...(a.number ? { number: a.number } : {}), ...(a.hiddenNumber ? { hiddenNumber: a.hiddenNumber } : {}), ...(a.shown ? { shown: true } : {}), ...(a.ignoreWarnings ? { ignoreWarnings: true } : {}), ...(a.align ? { align: a.align } : {}), ...(a.labelAngle ? { labelAngle: round(a.labelAngle) } : {}), ...(a.hidden ? { hidden: true } : {}), ...(a.bars ? { bars: true } : {}), ...(a.angles ? { angles: a.angles } : {}), ...(a.chemical === false ? { chemical: false } : {}),
     ...(a.font ? { font: a.font } : {}), ...(a.size ? { size: a.size } : {}), ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}), ...(a.order ? { order: a.order } : {}),
     ...(a.query ? { query: a.query } : {}), ...(a.peaks?.length ? { peaks: a.peaks } : {}), ...scaled(a) }));
   const bonds = mol.bonds.map((b) => ({ atoms: b.atoms, type: b.type, ...(b.stereo ? { stereo: b.stereo } : {}), ...(b.display ? { display: b.display } : {}), ...(b.position ? { position: b.position } : {}), ...(b.colour ? { colour: b.colour } : {}), ...(b.halo ? { halo: b.halo } : {}), ...(b.ignoreWarnings ? { ignoreWarnings: true } : {}),
     ...(b.query ? { query: b.query } : {}), ...(b.topology ? { topology: b.topology } : {}), ...(b.rxn ? { rxn: b.rxn } : {}),
-    ...(b.spacing !== undefined ? { spacing: b.spacing } : {}), ...(b.own ? { own: b.own } : {}) }));
+    ...(b.spacing !== undefined ? { spacing: b.spacing } : {}), ...(b.own ? { own: b.own } : {}), ...(b.peaks?.length ? { peaks: b.peaks } : {}) }));
   // Captions are saved in id order and arrows in their drawing order; ids are not saved. Conditions name their arrow
   // by its place in the list.
   const arrowList = [...(mol.arrows ?? [])];
@@ -168,7 +168,7 @@ export function parse(text: string): Mol {
       || (a.partial !== undefined && a.partial !== "+" && a.partial !== "-") || (a.hmark !== undefined && a.hmark !== "dot" && a.hmark !== "dash")
       || (a.attach !== undefined && typeof a.attach !== "boolean" && a.attach !== "diamond" && a.attach !== "star") || (a.bead !== undefined && typeof a.bead !== "boolean") || (a.map !== undefined && !int(a.map, 1, 9999))
       || (a.enhanced !== undefined && !(typeof a.enhanced === "string" && /^(abs|&[1-9]\d?|or[1-9]\d?)$/.test(a.enhanced))) || badColour(a.colour) || (a.z !== undefined && !num(a.z)) || (a.depth !== undefined && a.depth !== false) || (a.shade !== undefined && a.shade !== true) || (a.cip !== undefined && a.cip !== true) || badColour(a.halo) || badColour(a.fill) || (a.circle !== undefined && a.circle !== true) || (a.shown !== undefined && a.shown !== true)
-      || (a.number !== undefined && !(typeof a.number === "string" && /^[\w'′*-]{1,8}$/.test(a.number))) || !isScale(a.scale)) throw new Error("This drawing is damaged.");
+      || [a.number, a.hiddenNumber].some((x) => x !== undefined && !(typeof x === "string" && /^[\w'′*-]{1,8}$/.test(x))) || !isScale(a.scale)) throw new Error("This drawing is damaged.");
     const atom: Atom = { label: a.label, location: [a.x as number, a.y as number, (a.z as number | undefined) ?? 0] };
     // depth: false (older files: a 3D structure drawn flat) is how such a structure is drawn now.
     if (a.shade) atom.shade = true;
@@ -191,6 +191,7 @@ export function parse(text: string): Mol {
     if (a.circle) atom.circle = true;
     if (a.shown) atom.shown = true;
     if (a.number) atom.number = a.number as string;
+    if (a.hiddenNumber) atom.hiddenNumber = a.hiddenNumber as string;
     // Measured multiplets by id: kept when the drawing's spectra have them (below).
     if (Array.isArray(a.peaks) && a.peaks.length <= 64 && a.peaks.every((k) => int(k, 1, 1e9))) atom.peaks = [...new Set(a.peaks as number[])];
     if (a.ignoreWarnings === true) atom.ignoreWarnings = true;
@@ -235,6 +236,7 @@ export function parse(text: string): Mol {
     if (b.position) bond.position = b.position as Bond["position"];
     if (b.colour) bond.colour = b.colour as string;
     if (b.ignoreWarnings === true) bond.ignoreWarnings = true;
+    if (Array.isArray(b.peaks) && b.peaks.length <= 64 && b.peaks.every((k) => int(k, 1, 1e9))) bond.peaks = [...new Set(b.peaks as number[])];
     // A query bond's type; an earlier Octet file held ChemDraw's orders for it ("1 2").
     Object.assign(bond, readBondQuery({ ...b, query: ({ "1 2": "sd", "1 1.5": "sa", "2 1.5": "da" } as Record<string, string>)[b.query as string] ?? b.query }));
     out.bonds.push(bond);
@@ -345,8 +347,8 @@ export function parse(text: string): Mol {
     });
   }
   if (d.annotations !== undefined) out.annotations = readAnnotations(d.annotations);
-  // Measured spectra: up to 16, one for each key, their multiplet ids unique in the drawing. An atom's links to
-  // multiplets the drawing does not have are dropped (a copy pasted without its spectrum).
+  // Measured spectra: up to 16, one for each key, their multiplet ids unique in the drawing. An atom's or bond's links
+  // to multiplets the drawing does not have are dropped (a copy pasted without its spectrum).
   if (d.spectra !== undefined) {
     if (!Array.isArray(d.spectra) || d.spectra.length > 16) throw new Error("This drawing is damaged.");
     out.spectra = d.spectra.map(readMeasured);
@@ -354,7 +356,7 @@ export function parse(text: string): Mol {
     if (new Set(ids).size !== ids.length || new Set(out.spectra.map(keyOf)).size !== out.spectra.length) throw new Error("This drawing is damaged.");
   }
   const known = new Set((out.spectra ?? []).flatMap((s) => s.groups.map((g) => g.id)));
-  for (const a of out.atoms) if (a.peaks) { const kept = a.peaks.filter((k) => known.has(k)); if (kept.length) a.peaks = kept; else delete a.peaks; }
+  for (const a of [...out.atoms, ...out.bonds]) if (a.peaks) { const kept = a.peaks.filter((k) => known.has(k)); if (kept.length) a.peaks = kept; else delete a.peaks; }
   // Groups as an edit leaves them: each atom and object once, nested or apart, and two or more things in each.
   return tidyGroups(out);
 }

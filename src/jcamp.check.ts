@@ -2,7 +2,7 @@
 // Every file here is written by the check itself: each compression form, a peak table, NTUPLES, a compound file,
 // Bruker's processed data, and damaged and oversized files.
 import assert from "node:assert/strict";
-import { isJcamp, MAX_POINTS, readBruker, readJcamp, solventName } from "./jcamp.ts";
+import { isJcamp, isSpectrum, MAX_POINTS, readBruker, readJcamp, readSpc, readSpcText, solventName, SPC } from "./jcamp.ts";
 
 // --- Writing the forms ----------------------------------------------------------------------------------------------
 
@@ -163,6 +163,94 @@ for (let k = 0; k < 300; k++) {
   const cut = sound.slice(0, Math.floor(rand() * sound.length)), noise = Array.from({ length: 200 }, () => String.fromCharCode(32 + Math.floor(rand() * 95))).join("");
   for (const t of [cut, `##TITLE=x\n##XYDATA=(X++(Y..Y))\n${noise}`, sound.replace(/[A-Za-z%@]/, () => noise[0])]) {
     try { readJcamp(t); } catch (e) { assert.ok(e instanceof Error && e.message.length > 10 && !/undefined|TypeError|Cannot read/.test(e.message), (e as Error).message); }
+  }
+}
+
+// --- Galactic SPC ---------------------------------------------------------------------------------------------------
+
+// An SPC file by hand, as Galactic's format document lays it out: the 512-byte header (flags, version 4B or 4C,
+// experiment, exponent, points, first and last X, subfiles, X and Y units, a comment), the X values when the flags say
+// so, then each subfile's 32-byte header (its exponent and, in an XYXY file, its points) and Y values. exp -128 (0x80)
+// is floats; otherwise whole numbers of 32 bits, or 16 with TSPREC (flag 1).
+type Spc = { le?: boolean; flags?: number; exper?: number; exp?: number; xtype?: number; ytype?: number; first?: number; last?: number; ys: number[][]; xs?: number[][]; comment?: string; version?: number };
+function spcFile(o: Spc): Uint8Array {
+  const le = o.le ?? true, flags = o.flags ?? 0, exp = o.exp ?? -128, size = exp === -128 || !(flags & 1) ? 4 : 2, xy = !!(flags & 0x40);
+  const head = new DataView(new ArrayBuffer(512));
+  head.setUint8(0, flags); head.setUint8(1, o.version ?? (le ? 0x4b : 0x4c)); head.setUint8(2, o.exper ?? 0); head.setInt8(3, exp);
+  head.setUint32(4, xy ? 0 : o.ys[0].length, le); head.setFloat64(8, o.first ?? 0, le); head.setFloat64(16, o.last ?? 0, le); head.setUint32(24, o.ys.length, le);
+  head.setUint8(28, o.xtype ?? 0); head.setUint8(29, o.ytype ?? 0);
+  [...(o.comment ?? "")].forEach((c, i) => head.setUint8(88 + i, c.charCodeAt(0)));
+  const chunks = [new Uint8Array(head.buffer)];
+  const f32 = (vs: number[]) => { const d = new DataView(new ArrayBuffer(4 * vs.length)); vs.forEach((v, i) => d.setFloat32(4 * i, v, le)); return new Uint8Array(d.buffer); };
+  if (flags & 0x80 && !xy) chunks.push(f32(o.xs![0]));
+  o.ys.forEach((ys, k) => {
+    const sub = new DataView(new ArrayBuffer(32));
+    sub.setInt8(1, exp);
+    sub.setUint32(16, xy ? ys.length : 0, le);
+    chunks.push(new Uint8Array(sub.buffer));
+    if (xy) chunks.push(f32(o.xs![k]));
+    if (exp === -128) chunks.push(f32(ys));
+    else {
+      const d = new DataView(new ArrayBuffer(size * ys.length)), scale = 2 ** (exp - 8 * size);
+      ys.forEach((v, i) => (size === 2 ? d.setInt16(2 * i, Math.round(v / scale), le) : d.setInt32(4 * i, Math.round(v / scale), le)));
+      chunks.push(new Uint8Array(d.buffer));
+    }
+  });
+  const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+  chunks.reduce((at, c) => (out.set(c, at), at + c.length), 0);
+  return out;
+}
+// An FT-IR spectrum in %T, 4000 to 400 cm⁻¹ in steps of 1, with three bands.
+const irY = Array.from({ length: 3601 }, (_, i) => { const x = 4000 - i; return 100 - [[1740, 80], [1240, 60], [2980, 20]].reduce((s, [p, h]) => s + (h * 100) / ((x - p) ** 2 + 100), 0); });
+const ftir = (more: Partial<Spc> = {}) => spcFile({ exper: 4, xtype: 1, ytype: 128, first: 4000, last: 400, ys: [irY], comment: "Ethyl acetate, film", ...more });
+{
+  // Floats, little endian: the trace, its units, its kind and the comment as its title.
+  const [s] = readSpc(ftir());
+  assert.deepEqual([s.title, s.kind, s.xUnit, s.yUnit, s.first, s.last, s.y.length, s.xs], ["Ethyl acetate, film", "ir", "cm⁻¹", "%T", 4000, 400, 3601, undefined]);
+  assert.ok(s.y.every((v, i) => Math.abs(v - irY[i]) < 1e-4));
+  // Big endian (4C) with 32-bit whole numbers, and 16-bit ones (TSPREC): the same trace, to their precision.
+  for (const [more, tol] of [[{ le: false, exp: 8 }, 1e-6], [{ exp: 8, flags: 1 }, 0.004]] as [Partial<Spc>, number][]) {
+    const [t] = readSpc(ftir(more));
+    assert.ok(t.y.every((v, i) => Math.abs(v - irY[i]) < tol), JSON.stringify(more));
+  }
+  // The X values in the file (TXVALS): a UV-Vis spectrum on uneven wavelengths, read where they are.
+  const nm = [200, 210, 225, 250, 300, 400], [uv] = readSpc(spcFile({ flags: 0x80, exper: 7, xtype: 3, ytype: 2, ys: [[0.1, 0.9, 0.4, 0.2, 0.6, 0.05]], xs: [nm] }));
+  assert.deepEqual([uv.kind, uv.xUnit, uv.yUnit, [...uv.xs!], uv.first, uv.last], ["uv", "nm", "A", nm, 200, 400]);
+  // A mass spectrum with its own X values in each subfile (XYXY, several subfiles): the first, as sticks.
+  const [ms] = readSpc(spcFile({ flags: 0x04 | 0x40 | 0x80, exper: 9, xtype: 9, ys: [[100, 18, 8], [5, 5]], xs: [[43, 61, 88], [10, 20]] }));
+  assert.deepEqual([ms.kind, ms.xUnit, ms.sticks, [...ms.xs!], [...ms.y]], ["ms", "m/z", true, [43, 61, 88], [100, 18, 8]]);
+  // Several subfiles on one X axis: the first.
+  const [first] = readSpc(spcFile({ flags: 0x04, exper: 7, xtype: 3, first: 200, last: 300, ys: [[1, 2, 3], [4, 5, 6]] }));
+  assert.deepEqual([...first.y], [1, 2, 3]);
+  // NMR in ppm takes its nucleus from its width.
+  assert.equal(readSpc(spcFile({ exper: 10, xtype: 10, first: 12, last: -1, ys: [[0, 1, 0, 2]] }))[0].nucleus, "1H");
+  // As the app hands it over (src-tauri/src/spectrum.rs): its name, its bytes in base64.
+  const env = `${SPC}${JSON.stringify({ name: "film.spc", data: Buffer.from(ftir({ comment: "" })).toString("base64") })}`;
+  assert.ok(isSpectrum(env));
+  assert.equal(readSpcText(env)[0].title, "film.spc");
+  // Refused with a plain message: not SPC, the old format, cut short, too many points, an interferogram, a FID, NMR in
+  // Hz, a value that is not a number, and a damaged envelope.
+  const no = (b: Uint8Array | string, why: RegExp) => assert.throws(() => (typeof b === "string" ? readSpcText(b) : readSpc(b)), why);
+  no(new TextEncoder().encode("##TITLE=x"), /not an SPC spectrum/);
+  no(ftir({ version: 0x4d }), /old format/);
+  no(ftir().slice(0, 300), /header is cut short/);
+  no(ftir().slice(0, 600), /cut short/);
+  const huge = ftir();
+  new DataView(huge.buffer).setUint32(4, MAX_POINTS + 1, true);
+  no(huge, /2,097,153 points/);
+  no(ftir({ ytype: 1 }), /interferogram/);
+  no(spcFile({ exper: 10, xtype: 4, ys: [[1, 2]] }), /raw FID/);
+  no(spcFile({ exper: 10, xtype: 6, ys: [[1, 2]] }), /no shift scale in ppm/);
+  no(spcFile({ ys: [[1, NaN, 2]] }), /not a number/);
+  no(`${SPC}{"data": 5}`, /cannot read this SPC file/);
+  // Random bytes after a sound header, and every prefix of a sound file: refused or read, never anything but an Error.
+  const good = ftir({ exp: 8, flags: 1 });
+  for (let k = 0; k < 300; k++) {
+    const cut = good.slice(0, Math.floor(rand() * good.length)), noisy = good.slice();
+    for (let j = 0; j < 8; j++) noisy[Math.floor(rand() * 600)] = Math.floor(rand() * 256);
+    for (const b of [cut, noisy]) {
+      try { readSpc(b); } catch (e) { assert.ok(e instanceof Error && e.message.length > 10 && !/undefined|TypeError|Cannot read|RangeError|offset/.test(e.message), (e as Error).message); }
+    }
   }
 }
 console.log("jcamp.check: ok");

@@ -4166,6 +4166,11 @@ button.variant.add {
   stroke-width: 1px;
   vector-effect: non-scaling-stroke;
 }
+/* A bond linked to a measured peak: a band along it in the atoms' mist. */
+.nmr-marks line {
+  stroke: var(--brand-mist);
+  stroke-linecap: round;
+}
 /* A row of small setting buttons (the arrow's line, ends, heads, curve and fill), each opening its choices. */
 .picks {
   display: flex;

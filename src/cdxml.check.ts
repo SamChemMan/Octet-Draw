@@ -7,9 +7,10 @@ import { join } from "node:path";
 import { DAMAGED, NOT_CDXML, TOO_BIG, arialGlyph, fmt, fmtAngle, fmtColour, fmtSize, fromCdxml, parseXml, toCdxml, type Xml } from "./cdxml.ts";
 import { DEFAULT_STYLE, PRESETS, readStyle, withScale, type DocStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
-import { fitSizes } from "./edit.ts";
+import { fitSizes, insertMol } from "./edit.ts";
 import { HIGHLIGHT, bendPoint, ellipseArrow, fitArrows, headOfLength, headsOf, placeCaptions, placedAt, render, takesHeads, tlcLayout, type Arrow, type Atom, type Bond, type Caption, type Ink, type Mol, type Shape } from "./render.ts";
 import { layoutCycles } from "./cycle.ts";
+import { analyse, fromJcamp, measuredText, type Measured } from "./measured.ts";
 
 // Numbers as ChemDraw writes them (spec 1.2).
 assert.deepEqual([fmt(30), fmt(14.4), fmt(0.6), fmt(-0.001), fmt(523.2756), fmt(2)], ["30", "14.40", "0.60", "0", "523.28", "2"]);
@@ -878,6 +879,111 @@ ${label(27, 400, 200, 'Element="7" NumHydrogens="1"', "NH", "Left", "Below")}${n
   const after = written({ atoms: [A("C", 0, 0), A("O", 1, 0, { charge: -1 })], bonds: [b(0, 1)] });
   assert.ok(after.text(after.nodes[1]) === "O-" && !after.symbols.length, "O- read left to right keeps its sign in the text");
   console.log("cdxml.check: moved charge signs ok");
+}
+
+// Measured spectra as ChemDraw's spectrum object (decision 0016): written as ChemDraw 26.1 writes one, read back when
+// ChemDraw has saved over the file, and read from ChemDraw's own, with its spectrum-structure assignments.
+{
+  const N = 4000, lorentz = (x: number, lines: number[][], w: number) => lines.reduce((s, [p, h]) => s + (h * w * w) / ((x - p) ** 2 + w * w), 0);
+  const y = Float64Array.from({ length: N }, (_, i) => lorentz(10 - (12 * i) / (N - 1), [[7.26, 0.3], [4.12, 1], [1.26, 1.5]], 0.01));
+  const h1 = fromJcamp({ title: "Ethyl ester", kind: "nmr", nucleus: "1H", mhz: 400.13, solvent: "CDCl₃", xUnit: "ppm", yUnit: "", first: 10, last: -2, y }, 1);
+  const near = (m: Measured, at: number) => m.groups.find((g) => g.lo <= at && at <= g.hi)!.id;
+  const doc: Mol = { atoms: [A("C", 0, 0, { peaks: [near(h1, 4.12)] }), A("C", 1, 0, { peaks: [near(h1, 1.26)] }), A("O", 2, 0)], bonds: [b(0, 1), b(0, 2, { peaks: [near(h1, 4.12)] })], spectra: [h1] };
+  const text = toCdxml(doc, DEFAULT_STYLE), root = parseXml(text);
+  const every = (x: Xml): Xml[] => [x, ...x.kids.flatMap(every)];
+  const sp = every(root).find((x) => x.name === "spectrum")!, values = sp.text.trim().split(/\s+/).map(Number), lines = sp.text.trim().split("\n");
+  // An even grid low to high (the trace ran high to low), in the units and class ChemDraw names, 16 values a line.
+  assert.deepEqual([sp.attrs.XLow, sp.attrs.Class, sp.attrs.XType, sp.attrs.YType], ["-2", "NMR", "PartsPerMillion", "ArbitraryUnits"]);
+  assert.ok(Math.abs(Number(sp.attrs.XSpacing) - 12 / (N - 1)) < 1e-12 && values.length === N && lines.every((l, k) => l.split(" ").length === (k < lines.length - 1 ? 16 : N % 16 || 16)));
+  assert.ok(values.every((v) => Number.isInteger(v) && v >= 0 && v <= 65535));
+  // Each value times YScale plus YLow is the trace, low x first.
+  const scale = Number(sp.attrs.YScale), low = Number(sp.attrs.YLow ?? 0);
+  assert.ok(values.every((v, k) => Math.abs(v * scale + low - h1.y[N - 1 - k]) < scale), "the values are the trace");
+  // The assignment: a /CS/CD/assign tag with the multiplet's range on the atom and on the spectrum, and Octet's own tag.
+  const tags = (x: Xml, name: string) => x.kids.filter((k) => k.name === "objecttag" && k.attrs.Name === name);
+  const nodes = every(root).filter((x) => x.name === "n"), quartet = h1.groups.find((g) => g.id === near(h1, 4.12))!;
+  assert.deepEqual(tags(nodes[0], "/CS/CD/assign").map((t) => [t.attrs.TagType, t.attrs.Value]), [["String", `${+quartet.lo.toPrecision(12)}-${+quartet.hi.toPrecision(12)},`]]);
+  assert.equal(tags(nodes[2], "/CS/CD/assign").length, 0);
+  // A bond linked to a multiplet carries the same tag (as ChemDraw puts one on each atom and bond selected).
+  const bondsOut = every(root).filter((x) => x.name === "b");
+  assert.deepEqual([tags(bondsOut[0], "/CS/CD/assign").length, tags(bondsOut[1], "/CS/CD/assign")[0]?.attrs.Value], [0, tags(nodes[0], "/CS/CD/assign")[0].attrs.Value]);
+  assert.deepEqual(tags(sp, "/CS/CD/assign").map((t) => t.attrs.Value).sort(), [...nodes.slice(0, 2).map((n) => tags(n, "/CS/CD/assign")[0].attrs.Value)].sort());
+  assert.ok(/^[\x20-\x7e]+$/.test(tags(sp, "Octet spectrum")[0].attrs.Value), "Octet's tag is ASCII");
+  // ChemDraw saves over it (Octet's attributes gone, its tags kept): the spectrum comes back with its details, its
+  // multiplets, its place, and the links.
+  const resaved = text.replace(/\n Octet="[^"]*"/g, ""), back = fromCdxml(resaved), m = back.mol.spectra![0];
+  assert.deepEqual(back.lost, {});
+  assert.deepEqual([m.title, m.kind, m.nucleus, m.mhz, m.solvent, m.xUnit, m.y.length], ["Ethyl ester", "nmr", "1H", 400.13, "CDCl₃", "ppm", N]);
+  const ranges = (x: Measured) => x.groups.map((g) => [+g.lo.toFixed(9), +g.hi.toFixed(9)]).sort((p, q) => p[0] - q[0]);
+  assert.deepEqual(ranges(m), ranges(h1));
+  assert.deepEqual(back.mol.atoms.map((a) => a.peaks?.map((k) => +((m.groups.find((g) => g.id === k)!.lo + m.groups.find((g) => g.id === k)!.hi) / 2).toFixed(1))), [[4.1], [1.3], undefined]);
+  assert.deepEqual(back.mol.bonds.map((x) => x.peaks), [undefined, back.mol.atoms[0].peaks]);
+  const shifts = (x: Measured) => analyse(x).groups.map((g) => g.shift.toFixed(3)).sort();
+  assert.deepEqual(shifts(m), shifts(h1));
+  parse(serialize(back.mol));
+  // Pasted into another drawing, the file brings no spectrum, so its atoms and bonds keep no links (ids that would
+  // name the other drawing's multiplets).
+  const pasted = insertMol({ atoms: [], bonds: [], spectra: [h1] }, back.mol).mol;
+  assert.ok([...pasted.atoms, ...pasted.bonds].every((x) => !x.peaks) && pasted.spectra?.[0] === h1);
+  // Written again, it is where it was, the same object.
+  const again = toCdxml(back.mol, DEFAULT_STYLE), sp2 = every(parseXml(again)).find((x) => x.name === "spectrum")!;
+  assert.deepEqual([sp2.attrs.BoundingBox, sp2.attrs.XLow, sp2.attrs.XSpacing, sp2.text], [sp.attrs.BoundingBox, sp.attrs.XLow, sp.attrs.XSpacing, sp.text]);
+
+  // ChemDraw's own: an IR spectrum in %T as whole numbers of YScale above YLow (no Octet tag), a carbonyl band assigned
+  // to the C=O bond's carbon and oxygen by ChemDraw's peak range.
+  const ir = Array.from({ length: 1801 }, (_, i) => 100 - lorentz(400 + 2 * i, [[1740, 80], [2980, 20]], 10));
+  const lo = Math.min(...ir), sc = (Math.max(...ir) - lo) / 10000, ints = ir.map((v) => Math.round((v - lo) / sc));
+  const rows = Array.from({ length: Math.ceil(ints.length / 16) }, (_, k) => ints.slice(16 * k, 16 * k + 16).join(" ")).join("\n");
+  const tag = (v: string) => `<objecttag id="90" TagType="String" Name="/CS/CD/assign" Value="${v}"/>`;
+  const cd = `<?xml version="1.0" encoding="UTF-8" ?><CDXML BondLength="14.40"><page id="1" BoundingBox="0 0 540 720"><fragment id="2"><n id="3" p="100 100">${tag("1738.5-1741.5,")}</n><n id="4" p="114.4 100" Element="8">${tag("1738.5-1741.5,")}</n><b id="5" B="3" E="4" Order="2">${tag("1738.5-1741.5,")}</b></fragment>` +
+    `<spectrum id="6" BoundingBox="50 200 350 350" Z="9" XSpacing="2" XLow="400" XType="Wavenumbers" YType="PercentTransmittance" Class="Infrared" YLow="${lo}" YScale="${sc}">${rows}${tag("1738.5-1741.5,")}</spectrum></page></CDXML>`;
+  const read = fromCdxml(cd), s = read.mol.spectra![0];
+  assert.deepEqual(read.lost, {});
+  // ChemDraw's grid runs from 400 up; the dips are the peaks.
+  assert.deepEqual([s.kind, s.xUnit, s.yUnit, s.first, s.last, s.y.length], ["ir", "cm⁻¹", "%T", 400, 4000, 1801]);
+  assert.equal(measuredText(s, analyse(s)), "IR ν̃ 2980, 1740 cm⁻¹.");
+  const band = read.mol.atoms[0].peaks!;
+  assert.equal(band.length, 1);
+  assert.deepEqual(read.mol.atoms[1].peaks, band);
+  assert.deepEqual(read.mol.bonds[0].peaks, band);
+  assert.ok(s.groups.some((g) => g.id === band[0] && g.lo < 1740 && 1740 < g.hi && !g.manual), "the band at 1740");
+  // Written back, it is where ChemDraw had it.
+  assert.equal(every(parseXml(toCdxml(read.mol, read.style))).find((x) => x.name === "spectrum")!.attrs.BoundingBox, "50 200 350 350");
+
+  // Hostile: no grid, a word that is not a number, an endless value, too many points: each spectrum is lost alone.
+  const one = (attrs: string, body: string) => fromCdxml(`<CDXML BondLength="14.40"><page id="1" BoundingBox="0 0 540 720"><spectrum id="2" ${attrs}>${body}</spectrum><t id="3" p="10 10"><s font="3" size="10">kept</s></t></page></CDXML>`);
+  for (const [attrs, body] of [["XLow=\"0\"", "1 2 3"], ["XLow=\"0\" XSpacing=\"0\"", "1 2 3"], ["XLow=\"0\" XSpacing=\"1\"", "1 two 3"], ["XLow=\"0\" XSpacing=\"1\"", "1 1e999 3"], ["XLow=\"0\" XSpacing=\"1\"", ""], ["XLow=\"0\" XSpacing=\"1\" YScale=\"1e400\"", "1 2 3"]]) {
+    const r = one(attrs, body);
+    assert.deepEqual([r.lost, r.mol.spectra, r.mol.captions?.[0].text], [{ spectrum: 1 }, undefined, "kept"], `${attrs} ${body}`);
+  }
+  assert.deepEqual(one("XLow=\"0\" XSpacing=\"1\"", "0 ".repeat((1 << 21) + 1)).lost, { spectrum: 1 });
+  // A second spectrum of a kind Octet holds one of is lost; an assignment with no spectrum is lost.
+  const two = fromCdxml(`<CDXML BondLength="14.40"><page id="1" BoundingBox="0 0 540 720"><spectrum id="2" XLow="0" XSpacing="1" Class="Infrared">1 2 1</spectrum><spectrum id="3" XLow="0" XSpacing="1" Class="Infrared">1 3 1</spectrum><fragment id="4"><n id="5" p="10 10">${tag("1-2,")}${tag("9000-9001,")}</n></fragment></page></CDXML>`);
+  assert.deepEqual([two.mol.spectra!.length, two.lost], [1, { spectrum: 1, "spectrum assignment": 1 }]);
+  assert.equal(two.mol.atoms[0].peaks?.length, 1);
+  console.log("cdxml.check: spectra as ChemDraw's spectrum object ok");
+}
+
+// File fidelity: tritium (T) is hydrogen-3 as D is hydrogen-2; an atom number ChemDraw keeps hidden stays hidden.
+{
+  const every = (x: Xml): Xml[] => [x, ...x.kids.flatMap(every)];
+  const m: Mol = { atoms: [A("C", 0, 0, { number: "1" }), A("T", 1, 0, { hiddenNumber: "2" }), A("D", -1, 0), A("C", 0, 1, { text: "CT3" })], bonds: [b(0, 1), b(0, 2), b(0, 3)] };
+  // CT3 drawn out (as Octet expands a label it knows): its carbon and three tritium atoms.
+  const ct3: Mol = { atoms: [A("C", 0, 0), A("T", 1, 0), A("T", -1, 0), A("T", 0, 1)], bonds: [b(0, 1), b(0, 2), b(0, 3)] };
+  const nodes = every(parseXml(toCdxml(m, DEFAULT_STYLE, { expand: (t) => (t === "CT3" ? ct3 : undefined) }))).filter((x) => x.name === "n" && x.attrs.NodeType !== "ExternalConnectionPoint");
+  const text = (n: Xml) => every(n).filter((k) => k.name === "s").map((k) => k.text).join("");
+  assert.deepEqual([nodes[1].attrs.Element, nodes[1].attrs.Isotope, text(nodes[1]), nodes[2].attrs.Element, nodes[2].attrs.Isotope], ["1", "3", "T", "1", "2"]);
+  assert.deepEqual(nodes.filter((n) => n.attrs.Isotope === "3").length, 4, "T and the CT3 label's three tritium atoms");
+  assert.deepEqual([nodes[0].attrs.AtomNumber, nodes[0].attrs.ShowAtomNumber, nodes[1].attrs.AtomNumber, nodes[1].attrs.ShowAtomNumber], ["1", "yes", "2", undefined]);
+  const back = fromCdxml(toCdxml(m, DEFAULT_STYLE)).mol;
+  assert.deepEqual(back.atoms.slice(0, 3).map((a) => [a.label, a.isotope, a.number, a.hiddenNumber]), [["C", undefined, "1", undefined], ["T", undefined, undefined, "2"], ["D", undefined, undefined, undefined]]);
+  assert.equal(back.atoms[3].text, "CT3");
+  // ChemDraw's own: a T label on hydrogen-3, and AtomNumber with no ShowAtomNumber (as Name to Structure leaves them).
+  const cd = fromCdxml(`<CDXML BondLength="14.40"><page id="1"><fragment id="2"><n id="3" p="100 100" AtomNumber="0"/><n id="4" p="114.4 100" Element="1" Isotope="3" NumHydrogens="0" AtomNumber="1"><t p="111 104"><s font="3" size="10" face="96">T</s></t></n><b id="5" B="3" E="4"/></fragment></page></CDXML>`);
+  assert.deepEqual(cd.lost, {});
+  assert.deepEqual(cd.mol.atoms.map((a) => [a.label, a.text, a.isotope, a.number, a.hiddenNumber]), [["C", undefined, undefined, undefined, "0"], ["T", undefined, undefined, undefined, "1"]]);
+  assert.deepEqual(parse(serialize(cd.mol)).atoms.map((a) => a.hiddenNumber), ["0", "1"]);
+  console.log("cdxml.check: tritium and hidden atom numbers ok");
 }
 
 // Sam's corpus (on this Mac only): every text ChemDraw keeps above or below an arrow is written back where it was.

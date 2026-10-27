@@ -1130,7 +1130,7 @@ export function addGroupAt(m: Mol, i: number, g: Group): [Mol, number] {
 }
 
 // Elements that are not metals; any other element (and the generic M) is a metal.
-const NONMETALS = new Set(["H", "D", "He", "B", "C", "N", "O", "F", "Ne", "Si", "P", "S", "Cl", "Ar", "Ge", "As", "Se", "Br", "Kr", "Sb", "Te", "I", "Xe", "At", "Rn"]);
+const NONMETALS = new Set(["H", "D", "T", "He", "B", "C", "N", "O", "F", "Ne", "Si", "P", "S", "Cl", "Ar", "Ge", "As", "Se", "Br", "Kr", "Sb", "Te", "I", "Xe", "At", "Rn"]);
 const isMetal = (a: Atom) => (a.text ? a.text === "M" : isElement(a.label) && !NONMETALS.has(a.label));
 // ChemDraw's j and Shift+J keys: an η5 cyclopentadienyl (n 5) or η6 phenyl (n 6) π ligand, its ring of delocalised
 // bonds drawn in perspective across a bond to its multi-centre point. On a metal with no more than one bond the
@@ -2072,17 +2072,19 @@ export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>,
   };
 }
 // Paste: another drawing added to this one, moved by offset, with new ids for its objects. Returns the drawing, the
-// new atoms and the new objects' ids, and each old id's new one.
+// new atoms and the new objects' ids, and each old id's new one. A drawing that comes with measured spectra of its own
+// (a ChemDraw file) brings no spectrum, so its atoms and bonds let go of their links to them.
 export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
   const base = m.atoms.length, at = (i: number) => base + i;
+  const own = !!add.spectra?.length, unlink = <T extends { peaks?: number[] }>(x: T): T => { if (!own || !x.peaks) return x; const { peaks: _, ...rest } = x; return rest as T; };
   let id = nextId(m);
   const ids = new Map<number, number>();
   for (const x of [...(add.captions ?? []), ...(add.arrows ?? []), ...(add.shapes ?? []), ...(add.cycles ?? []), ...(add.groups ?? [])]) ids.set(x.id, id++);
   const by = (q: [number, number]): [number, number] => [q[0] + offset[0], q[1] + offset[1]];
   const mol: Mol = {
     ...m,
-    atoms: [...m.atoms, ...add.atoms.map((a) => renumberCentre({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }, at))],
-    bonds: [...m.bonds, ...add.bonds.map((b) => ({ ...b, atoms: [at(b.atoms[0]), at(b.atoms[1])] as [number, number] }))],
+    atoms: [...m.atoms, ...add.atoms.map((a) => renumberCentre(unlink({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }), at))],
+    bonds: [...m.bonds, ...add.bonds.map((b) => unlink({ ...b, atoms: [at(b.atoms[0]), at(b.atoms[1])] as [number, number] }))],
     arrows: [...(m.arrows ?? []), ...(add.arrows ?? []).map((a) => ({ ...a, id: ids.get(a.id)!, from: by(a.from), to: by(a.to),
       ...(a.curve ? { curve: { ...a.curve, points: a.curve.points.map((q) => ({ at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) }))],
     shapes: [...(m.shapes ?? []), ...(add.shapes ?? []).map((x) => remapKept({ ...x, id: ids.get(x.id)!, from: by(x.from), to: by(x.to) }, at))],

@@ -43,8 +43,8 @@ import { acsText, multiplicity, quality } from "./nmr";
 import { nmrReady, predict, type Nucleus } from "./nmr";
 import { spectrumFigure } from "./spectrumplot";
 import type { Show } from "./Spectrum";
-import { analyse as analyseSpectrum, defineGroup, fromJcamp, groupText, keepIds, keyOf as spectrumKeyOf, measuredFigure, measuredHead, nextGroupId, regroup, type Measured } from "./measured";
-import { BRUKER, isJcamp, isSpectrum, readBrukerText as brukerOf, readJcamp, type JcampSpectrum } from "./jcamp";
+import { analyse as analyseSpectrum, defineGroup, fromJcamp, groupText, keepIds, keyOf as spectrumKeyOf, measuredFigure, measuredHead, msPeaks, nextGroupId, regroup, type Measured } from "./measured";
+import { BRUKER, SPC, isJcamp, isSpectrum, readBrukerText as brukerOf, readJcamp, readSpcText, type JcampSpectrum } from "./jcamp";
 import { rings } from "./rings";
 import { NumberField, Segmented, Switch } from "./Fields";
 import { fromCdxml, parseXml, toCdxml, type CdxmlOptions } from "./cdxml";
@@ -1357,11 +1357,16 @@ export default function Editor() {
     set(m, true);
   }
   // Show or hide atom numbers. Each atom's number is its place in its structure, counting from 1, as ChemDraw numbers
-  // atoms in the order they were drawn. When every one of the atoms already shows its number, they are hidden.
+  // atoms in the order they were drawn, or the number it keeps hidden. When every one of the atoms already shows its
+  // number, they are hidden, and kept, as ChemDraw keeps them.
   function numberAtoms(atoms: number[]) {
     const hide = atoms.every((i) => doc.atoms[i]?.number), place = new Map<number, number>();
     for (const g of fragments(doc)) [...g].sort((p, q) => p - q).forEach((i, k) => place.set(i, k + 1));
-    set({ ...doc, atoms: doc.atoms.map((a, i) => (!atoms.includes(i) ? a : hide ? { ...a, number: undefined } : a.number ? a : { ...a, number: String(place.get(i) ?? 1) })) }, true);
+    const flip = (a: Atom, i: number): Atom => {
+      const { number, hiddenNumber, ...rest } = a;
+      return hide ? { ...rest, hiddenNumber: number } : number ? a : { ...rest, number: hiddenNumber ?? String(place.get(i) ?? 1) };
+    };
+    set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.includes(i) ? flip(a, i) : a)) }, true);
   }
   // A structure from another program's file or the clipboard, as Settings asks: MDL files' chiral flag shows as stereo
   // flags only with Stereo flags from the chiral flag on (ChemDraw's Show Stereoflags When Opening MDL Format Files);
@@ -3357,10 +3362,12 @@ export default function Editor() {
     stopCamera(); // what is drawn is where the press lands
     joinNext.current = undefined;
     if (e.button !== 0) return;
-    // Linking a measured multiplet: a click on an atom links it (or, a second time, unlinks it); anywhere else stops.
+    // Linking a measured multiplet: a click on an atom or bond links it (or, a second time, unlinks it); anywhere else
+    // stops.
     if (chosenGroup !== undefined) {
       const t = hit(toDoc(e.clientX, e.clientY));
-      if (t.atom !== undefined) return linkAtoms(chosenGroup, [t.atom]);
+      if (t.atom !== undefined) return linkTo(chosenGroup, [t.atom]);
+      if (t.bond !== undefined) return linkTo(chosenGroup, [], [t.bond]);
       setChosenGroup(undefined);
     }
     // Picking a structure for a template set (Add with nothing selected): a click on a structure or object adds it.
@@ -4395,6 +4402,8 @@ export default function Editor() {
   // The Mass spec panel (MassSpec.tsx): the structure it analyses (the one with an atom it opened on, as the drawing
   // changes). Its fragmentation lines are the drawing's cut lines.
   const msAtoms = useMemo(() => (massSpec ? fragments(doc).find((g) => g.some((i) => massSpec.includes(i))) : undefined), [doc, massSpec]);
+  // The drawing's measured mass spectrum, as Mass Spec Analysis's peak list: its ions are matched against it.
+  const msMeasured = useMemo(() => { const s = doc.spectra?.find((x) => x.kind === "ms"); return s && msPeaks(s); }, [doc.spectra]);
   function openMassSpec(atom: number) {
     const group = fragments(doc).find((g) => g.includes(atom));
     if (!group) return;
@@ -4480,12 +4489,14 @@ export default function Editor() {
   const [nmrTables, setNmrTables] = useState(false);
   const [nmrPoint, setNmrPoint] = useState<number[]>();
   // The measured spectrum shown (the drawing's, for the panel's key), how it shows beside the prediction, its analysis
-  // (peaks, multiplets, integrals), and its multiplets' atoms. groupPoint: the multiplet pointed at in the panel;
-  // chosenGroup: the one the next atoms clicked are linked to; linkAtom: the atom under a drag from a multiplet.
+  // (peaks, multiplets, integrals), and its multiplets' atoms and bonds. groupPoint: the multiplet pointed at in the
+  // panel; chosenGroup: the one the next atoms or bonds clicked are linked to; linkAtom and linkBond: the atom or bond
+  // under a drag from a multiplet.
   const [spectrumShow, setSpectrumShow] = useState<Show>("measured");
   const [groupPoint, setGroupPoint] = useState<number>();
   const [chosenGroup, setChosenGroup] = useState<number>();
   const [linkAtom, setLinkAtom] = useState<number>();
+  const [linkBond, setLinkBond] = useState<number>();
   const measured = spectrum ? doc.spectra?.find((s) => spectrumKeyOf(s) === spectrum) : undefined;
   // The solvent: the measured NMR spectrum's, so the prediction beside it is for the same solvent.
   const nmrSolvent = (measured?.kind === "nmr" && measured.solvent) || settings.nmrSolvent;
@@ -4496,28 +4507,42 @@ export default function Editor() {
     doc.atoms.forEach((a, i) => a.peaks?.forEach((k) => out.set(k, [...(out.get(k) ?? []), i])));
     return out;
   }, [doc]);
+  const linkedBonds = useMemo(() => {
+    const out = new Map<number, number[]>();
+    doc.bonds.forEach((b, k) => b.peaks?.forEach((g) => out.set(g, [...(out.get(g) ?? []), k])));
+    return out;
+  }, [doc]);
+  // A multiplet's colour: the highlight of its first linked atom, else of its first linked bond. Its ends: the atoms
+  // its links stand on (its atoms and its bonds' atoms).
+  const linkColour = (id: number) => doc.atoms[linkedAtoms.get(id)?.[0] ?? -1]?.halo ?? doc.bonds[linkedBonds.get(id)?.[0] ?? -1]?.halo;
+  const linkedEnds = (id: number) => [...(linkedAtoms.get(id) ?? []), ...(linkedBonds.get(id) ?? []).flatMap((k) => doc.bonds[k]?.atoms ?? [])];
   useEffect(() => { if (chosenGroup !== undefined && !measured?.groups.some((g) => g.id === chosenGroup)) setChosenGroup(undefined); }, [measured, chosenGroup]);
   // A measured spectrum's change, as one undo step (`merge`: a slider's steps join): it replaces the drawing's
-  // spectrum for its key, and atoms let go of multiplets that are gone.
+  // spectrum for its key, and atoms and bonds let go of multiplets that are gone.
   function setMeasured(next: Measured | undefined, key = spectrum, merge?: string) {
     const base = now.current, spectra = [...(base.spectra ?? []).filter((s) => spectrumKeyOf(s) !== key), ...(next ? [next] : [])];
-    const ids = new Set(spectra.flatMap((s) => s.groups.map((g) => g.id)));
-    const atoms = base.atoms.map((a) => (a.peaks?.some((k) => !ids.has(k)) ? withPeaks(a, a.peaks.filter((k) => ids.has(k))) : a));
-    set({ ...base, atoms, spectra: spectra.length ? spectra : undefined }, true, merge);
+    set({ ...linksKept(base, spectra), spectra: spectra.length ? spectra : undefined }, true, merge);
   }
-  const withPeaks = (a: Atom, peaks: number[]): Atom => { const { peaks: _, ...rest } = a; return peaks.length ? { ...rest, peaks } : rest; };
-  // Links atoms to a measured multiplet. toggle: atoms that all have it already let go of it (a second click).
-  function linkAtoms(id: number, atoms: number[], toggle = true) {
-    const base = now.current, ok = atoms.filter((i) => base.atoms[i]);
-    if (!ok.length) return;
-    const off = toggle && ok.every((i) => base.atoms[i].peaks?.includes(id));
-    set({ ...base, atoms: base.atoms.map((a, i) => (!ok.includes(i) ? a : withPeaks(a, off ? (a.peaks ?? []).filter((k) => k !== id) : [...new Set([...(a.peaks ?? []), id])]))) }, true);
+  const withPeaks = <T extends { peaks?: number[] }>(a: T, peaks: number[]): T => { const { peaks: _, ...rest } = a; return (peaks.length ? { ...rest, peaks } : rest) as T; };
+  // The drawing's atoms and bonds with their links to multiplets the spectra no longer have let go.
+  const linksKept = (base: Mol, spectra: Measured[]) => {
+    const ids = new Set(spectra.flatMap((s) => s.groups.map((g) => g.id))), keep = <T extends { peaks?: number[] }>(x: T) => (x.peaks?.some((k) => !ids.has(k)) ? withPeaks(x, x.peaks.filter((k) => ids.has(k))) : x);
+    return { ...base, atoms: base.atoms.map(keep), bonds: base.bonds.map(keep) };
+  };
+  // Links atoms and bonds to a measured multiplet. toggle: when they all have it already they let go of it (a second
+  // click).
+  function linkTo(id: number, atoms: number[], bonds: number[] = [], toggle = true) {
+    const base = now.current, ok = atoms.filter((i) => base.atoms[i]), okBonds = bonds.filter((k) => base.bonds[k]);
+    if (!ok.length && !okBonds.length) return;
+    const off = toggle && [...ok.map((i) => base.atoms[i]), ...okBonds.map((k) => base.bonds[k])].every((x) => x.peaks?.includes(id));
+    const flip = <T extends { peaks?: number[] }>(x: T) => withPeaks(x, off ? (x.peaks ?? []).filter((k) => k !== id) : [...new Set([...(x.peaks ?? []), id])]);
+    set({ ...base, atoms: base.atoms.map((a, i) => (ok.includes(i) ? flip(a) : a)), bonds: base.bonds.map((b, k) => (okBonds.includes(k) ? flip(b) : b)) }, true);
   }
   // Spectra from a file (JCAMP-DX, or Bruker's processed data as the app reads it) go into the drawing, each taking the
   // place of one of its kind; on Home they start a new drawing. The panel opens on the first.
   function openSpectrumText(text: string, name: string) {
     let found: JcampSpectrum[];
-    try { found = text.startsWith(BRUKER) ? [brukerOf(text)] : readJcamp(text); } catch (e) { return setNotice(failure(`Octet cannot open ${name}.`, e)); }
+    try { found = text.startsWith(BRUKER) ? [brukerOf(text)] : text.startsWith(SPC) ? readSpcText(text) : readJcamp(text); } catch (e) { return setNotice(failure(`Octet cannot open ${name}.`, e)); }
     const base = home ? EMPTY : now.current;
     let spectra = base.spectra ?? [];
     const added: Measured[] = [];
@@ -4526,8 +4551,7 @@ export default function Editor() {
       spectra = [...spectra.filter((x) => spectrumKeyOf(x) !== spectrumKeyOf(m)), m];
       added.push(m);
     }
-    const ids = new Set(spectra.flatMap((s) => s.groups.map((g) => g.id)));
-    const next = { ...base, atoms: base.atoms.map((a) => (a.peaks?.some((k) => !ids.has(k)) ? withPeaks(a, a.peaks.filter((k) => ids.has(k))) : a)), spectra };
+    const next = { ...linksKept(base, spectra), spectra };
     if (home) load(undefined, next); else set(next, true);
     const first = added[0], key = spectrumKeyOf(first);
     if (first.kind === "nmr" && first.mhz && (key === "1H" || key === "13C")) {
@@ -4553,6 +4577,7 @@ export default function Editor() {
   const nmrLit = (atom?: number) => new Set(nmr && atom !== undefined ? nmr.toDoc.flatMap((d, k) => (d === atom ? [k] : [])) : []);
   // With the atoms of the measured multiplet pointed at or being linked, and the atom under a drag from one.
   const nmrMarks = new Set([...(nmr && nmrPoint ? nmrPoint.map((k) => nmr.toDoc[k]) : []), ...[groupPoint, chosenGroup].flatMap((g) => (g === undefined ? [] : linkedAtoms.get(g) ?? [])), ...(linkAtom !== undefined ? [linkAtom] : [])]);
+  const nmrBondMarks = new Set([...[groupPoint, chosenGroup].flatMap((g) => (g === undefined ? [] : linkedBonds.get(g) ?? [])), ...(linkBond !== undefined ? [linkBond] : [])]);
   // Each drawn atom's predicted shifts, shown beside it while the panel is open.
   const nmrShifts = new Map<number, number[]>(), nmrQuality = new Map<number, string>();
   const stereo = useMemo(() => { const m = exporting ?? doc; return loaded && m.atoms.some((a) => a.cip) ? stereoLabels(m) : undefined; }, [loaded, doc, exporting]);
@@ -4718,15 +4743,16 @@ export default function Editor() {
   // dot in its colour (linked multiplets take colours first if none has one), under the structure they are linked to.
   function addMeasuredKey(ms: Measured, groups: NonNullable<typeof spectrumAnalysis>["groups"]) {
     if (!groups.length) return;
-    const linked = groups.filter((g) => linkedAtoms.get(g.id)), colourOf = (g: { id: number }) => doc.atoms[linkedAtoms.get(g.id)?.[0] ?? -1]?.halo;
+    const linked = groups.filter((g) => linkedAtoms.get(g.id) || linkedBonds.get(g.id)), colourOf = (g: { id: number }) => linkColour(g.id);
     const fresh = !linked.some(colourOf), give = new Map(linked.map((g, k) => [g.id, PEAK_COLOURS[k % PEAK_COLOURS.length]]));
-    let m: Mol = fresh ? { ...doc, atoms: doc.atoms.map((a) => { const g = a.peaks?.find((k) => give.has(k)); return g !== undefined ? { ...a, halo: give.get(g) } : a; }) } : doc;
+    const tint = <T extends { peaks?: number[]; halo?: string }>(x: T): T => { const g = x.peaks?.find((k) => give.has(k)); return g !== undefined ? { ...x, halo: give.get(g) } : x; };
+    let m: Mol = fresh ? { ...doc, atoms: doc.atoms.map(tint), bonds: doc.bonds.map(tint) } : doc;
     const head = measuredHead(ms, ms.kind === "nmr" ? nmrSolvent : undefined), runs: TextRun[] = [{ text: ms.kind === "nmr" ? `${head}, δ (${ms.xUnit})` : `${head} (${ms.xUnit})` }];
     for (const g of [...groups].sort((p, q) => q.shift - p.shift)) {
       const c = fresh ? give.get(g.id) : colourOf(g);
       runs.push({ text: "\n" }, ...(c ? [{ text: "● ", colour: c }] : []), { text: groupText(ms, g) });
     }
-    const under = [...new Set(linked.flatMap((g) => linkedAtoms.get(g.id)!))];
+    const under = [...new Set(linked.flatMap((g) => linkedEnds(g.id)))];
     m = addCaption(m, { text: plainOf(normalise(runs)), x: 0, y: 0, ...(under.length ? { under } : {}), runs: normalise(runs) })[0];
     set(m, true);
   }
@@ -4745,11 +4771,11 @@ export default function Editor() {
     const ms = measuredShown && measured && spectrumAnalysis ? measured : undefined, p = ms ? undefined : nmr?.prediction;
     if (!ms && !p) return;
     // Under the structure: the one predicted, or the atoms linked to the measured spectrum (or every atom).
-    const linked = ms ? spectrumAnalysis!.groups.flatMap((g) => linkedAtoms.get(g.id) ?? []) : [];
+    const linked = ms ? spectrumAnalysis!.groups.flatMap((g) => linkedEnds(g.id)) : [];
     const atoms = [...new Set(p ? nmr!.toDoc : linked.length ? linked : nmr?.toDoc ?? doc.atoms.map((_, i) => i))].filter((i) => doc.atoms[i]), ps = atoms.length ? atoms.map((i) => pos(doc, i)) : [[0, 0] as [number, number]];
     const f = atoms.length ? atoms.reduce((s0, i) => s0 + scaleOf(doc.atoms[i]), 0) / atoms.length : 1, labelPt = style.captionSize * 0.8 * f, em = labelPt / style.bond;
     const W = 14 * f, H = 3.5 * f, cx = (Math.min(...ps.map((q) => q[0])) + Math.max(...ps.map((q) => q[0]))) / 2;
-    const colourOf = (id: number) => doc.atoms[linkedAtoms.get(id)?.[0] ?? -1]?.halo;
+    const colourOf = linkColour;
     const fig = ms ? measuredFigure({ m: ms, a: spectrumAnalysis!, range, colour: colourOf, width: W, height: H, em })
       : spectrumFigure({ prediction: p!, nucleus: p!.nucleus, mhz: settings.nmrMhz, solvent: nmrSolvent, solventPeaks: settings.nmrSolventPeaks, range, colours: nmrColours, width: W, height: H, em });
     // The figure's top (its title's) sits one bond length under the structure, and under the text already there (the
@@ -5950,8 +5976,10 @@ export default function Editor() {
         return;
       }
       const text = e.clipboardData?.getData("text/plain"), file = imageFile(e), named = !!text?.trim() && loaded;
-      const jdx = [...(e.clipboardData?.files ?? [])].find((f) => /\.(jdx|dx|jcamp)$/i.test(f.name));
-      if (jdx || (text && isJcamp(text))) { e.preventDefault(); void (jdx ? jdx.text() : Promise.resolve(text!)).then((t) => openSpectrumText(t, jdx?.name ?? "the clipboard")); return; }
+      // A spectrum file (JCAMP-DX as text, SPC as its bytes in the app's form), or JCAMP-DX text.
+      const jdx = [...(e.clipboardData?.files ?? [])].find((f) => /\.(jdx|dx|jcamp|spc)$/i.test(f.name));
+      const spc = (f: File) => f.arrayBuffer().then((b) => `${SPC}${JSON.stringify({ name: f.name, data: toBase64(new Uint8Array(b)) })}`);
+      if (jdx || (text && isJcamp(text))) { e.preventDefault(); void (jdx ? (/\.spc$/i.test(jdx.name) ? spc(jdx) : jdx.text()) : Promise.resolve(text!)).then((t) => openSpectrumText(t, jdx?.name ?? "the clipboard")); return; }
       if (text && CDXML_TEXT.test(text.slice(0, 65536)) && pasteCdxml(text)) return e.preventDefault();
       if (!named && !file) return;
       e.preventDefault();
@@ -6466,6 +6494,7 @@ export default function Editor() {
       {gridPickMark()}
       {groupFrames}
       {msPoint && msAtoms && <g className="nmr-marks">{msPoint.filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `ms${i}`, ""))}</g>}
+      {nmrBondMarks.size > 0 && <g className="nmr-marks">{[...nmrBondMarks].filter((k) => k < shown.bonds.length).map((k) => bondMark(k, `nmrb${k}`, ""))}</g>}
       {nmrMarks.size > 0 && <g className="nmr-marks">{[...nmrMarks].filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `nmr${i}`, ""))}</g>}
       {shiftLabels().map((l) => (
         <text key={`shift${l.atom}`} className={`nmr-shift${nmrMarks.has(l.atom) ? " lit" : ""}${settings.nmrDetails && nmrQuality.has(l.atom) ? ` q-${nmrQuality.get(l.atom)}` : ""}`} x={l.x} y={l.y} textAnchor={l.anchor} dominantBaseline="middle">{l.text}</text>
@@ -7114,28 +7143,33 @@ export default function Editor() {
           analysis={spectrumAnalysis}
           show={spectrumShow}
           onShow={setSpectrumShow}
-          litGroups={new Set([hover.atom, ...(nmr && nmrPoint ? nmrPoint.map((k) => nmr.toDoc[k]) : [])].flatMap((d) => (d !== undefined ? doc.atoms[d]?.peaks ?? [] : [])))}
-          groupColour={(id) => { const a = linkedAtoms.get(id); return a ? doc.atoms[a[0]]?.halo : undefined; }}
-          linkedCount={(id) => linkedAtoms.get(id)?.length ?? 0}
+          litGroups={new Set([...[hover.atom, ...(nmr && nmrPoint ? nmrPoint.map((k) => nmr.toDoc[k]) : [])].flatMap((d) => (d !== undefined ? doc.atoms[d]?.peaks ?? [] : [])), ...(hover.bond !== undefined ? doc.bonds[hover.bond]?.peaks ?? [] : [])])}
+          groupColour={linkColour}
+          linkedCount={(id) => (linkedAtoms.get(id)?.length ?? 0) + (linkedBonds.get(id)?.length ?? 0)}
+          linkedBondCount={(id) => linkedBonds.get(id)?.length ?? 0}
           chosenGroup={chosenGroup}
           onChooseGroup={(id) => {
-            // With atoms selected, a click on a multiplet links them to it (as ChemDraw's Make Spectrum-Structure
-            // Assignment does with its selection).
-            if (id !== undefined && selection.size) { linkAtoms(id, [...selection], false); setSelection(new Set()); }
+            // With atoms selected, a click on a multiplet links them and the bonds between them to it (as ChemDraw's
+            // Make Spectrum-Structure Assignment does with its selection).
+            if (id !== undefined && selection.size) { linkTo(id, [...selection], doc.bonds.flatMap((b, k) => (selection.has(b.atoms[0]) && selection.has(b.atoms[1]) ? [k] : [])), false); setSelection(new Set()); }
             setChosenGroup(id);
           }}
           onPointGroup={setGroupPoint}
           onThreshold={(t) => measured && setMeasured(regroup(measured, t, nextGroupId(doc.spectra)), spectrum, "spectrum threshold")}
           onDefine={(lo, hi) => measured && setMeasured(defineGroup(measured, lo, hi, nextGroupId(doc.spectra)))}
           onCount={(id, n) => { const g = spectrumAnalysis?.groups.find((x) => x.id === id); if (measured && g && g.area > 0) setMeasured({ ...measured, per: g.area / n }); }}
-          onLinkHover={(at) => setLinkAtom(at ? hit(toDoc(...at)).atom : undefined)}
-          onLinkAt={(id, at) => { const a = hit(toDoc(...at)).atom; setLinkAtom(undefined); if (a !== undefined) linkAtoms(id, [a], false); }}
-          onUnlink={(id) => linkAtoms(id, linkedAtoms.get(id) ?? [], true)}
-          onGroupColour={(id, c) => { const atoms = new Set(linkedAtoms.get(id) ?? []); set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) ? { ...a, halo: c } : a)) }, true); }}
+          onLinkHover={(at) => { const t: Hover = at ? hit(toDoc(...at)) : {}; setLinkAtom(t.atom); setLinkBond(t.atom === undefined ? t.bond : undefined); }}
+          onLinkAt={(id, at) => { const t = hit(toDoc(...at)); setLinkAtom(undefined); setLinkBond(undefined); if (t.atom !== undefined) linkTo(id, [t.atom], [], false); else if (t.bond !== undefined) linkTo(id, [], [t.bond], false); }}
+          onUnlink={(id) => linkTo(id, linkedAtoms.get(id) ?? [], linkedBonds.get(id) ?? [], true)}
+          onGroupColour={(id, c) => { const atoms = new Set(linkedAtoms.get(id) ?? []), bonds = new Set(linkedBonds.get(id) ?? []); set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) ? { ...a, halo: c } : a)), bonds: doc.bonds.map((b, k) => (bonds.has(k) ? { ...b, halo: c } : b)) }, true); }}
           onGroupColourAll={(on) => {
-            const colour = new Map<number, string | undefined>();
-            (spectrumAnalysis?.groups ?? []).filter((g) => linkedAtoms.get(g.id)).forEach((g, k) => { for (const i of linkedAtoms.get(g.id)!) colour.set(i, on ? PEAK_COLOURS[k % PEAK_COLOURS.length] : undefined); });
-            set({ ...doc, atoms: doc.atoms.map((a, i) => (colour.has(i) ? { ...a, halo: colour.get(i) } : a)) }, true);
+            const colour = new Map<number, string | undefined>(), bondColour = new Map<number, string | undefined>();
+            (spectrumAnalysis?.groups ?? []).filter((g) => linkedAtoms.get(g.id) || linkedBonds.get(g.id)).forEach((g, k) => {
+              const c = on ? PEAK_COLOURS[k % PEAK_COLOURS.length] : undefined;
+              for (const i of linkedAtoms.get(g.id) ?? []) colour.set(i, c);
+              for (const b of linkedBonds.get(g.id) ?? []) bondColour.set(b, c);
+            });
+            set({ ...doc, atoms: doc.atoms.map((a, i) => (colour.has(i) ? { ...a, halo: colour.get(i) } : a)), bonds: doc.bonds.map((b, k) => (bondColour.has(k) ? { ...b, halo: bondColour.get(k) } : b)) }, true);
           }}
           onRemove={() => { setMeasured(undefined); setChosenGroup(undefined); setGroupPoint(undefined); if (!nucleusOpen) setSpectrum(undefined); }}
           inset={(() => {
@@ -7156,7 +7190,7 @@ export default function Editor() {
         />
       )}</Live>}</Exit>
       <Exit>{msAtoms && <Live store={hovers}>{(hover) => (
-        <MassSpecPanel mol={doc} atoms={msAtoms} ready={loaded} prefs={settings.massSpec} lit={hover.atom}
+        <MassSpecPanel mol={doc} atoms={msAtoms} ready={loaded} prefs={settings.massSpec} lit={hover.atom} peaks={msMeasured}
           onPrefs={(massSpec) => setSettings((s) => ({ ...s, massSpec }))} onPoint={setMsPoint} onCopy={(text) => runAction(`copy_text:${text}`)} onAdd={addMassSpec}
           onClose={() => { setMassSpec(undefined); setMsPoint(undefined); }} />
       )}</Live>}</Exit>

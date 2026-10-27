@@ -51,9 +51,9 @@ export function fullRange(p: Prediction | undefined, nucleus: Nucleus): [number,
   const shifts = p?.signals.map((s) => s.shift) ?? [], [lo, hi] = nucleus === "1H" ? [0, 10] : [0, 200], pad = nucleus === "1H" ? 0.5 : 10;
   return [Math.min(lo, ...shifts.map((x) => x - pad)), Math.max(hi, ...shifts.map((x) => x + pad))];
 }
-// Axis ticks: the first step that gives at most one label per `room` (64 px in the panel).
+// Axis ticks: the first step that gives at most one label per `room` (64 px in the panel), up to an IR range's.
 export function ticks(lo: number, hi: number, width: number, room = 64) {
-  const step = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50].find((s) => (hi - lo) / s <= width / room) ?? 100;
+  const step = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000].find((s) => (hi - lo) / s <= width / room) ?? 10000;
   const out: number[] = [];
   for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(Math.round(v / step) * step);
   return { out, places: step < 0.1 ? 2 : step < 1 ? 1 : 0 };

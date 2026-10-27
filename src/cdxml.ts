@@ -24,6 +24,7 @@ import { ligandEllipse } from "./render.ts";
 import { kekulise, rings } from "./rings.ts";
 import { keptHolds, stereoMarks } from "./cip.ts";
 import type { Cycle } from "./cycle.ts";
+import { ASSIGN, OWN_TAG, assignGroups, assignRanges, assignValue, fromSpectrumObject, keyOf, nextGroupId, spectrumObject, type Measured } from "./measured.ts";
 import pkg from "../package.json" with { type: "json" };
 
 export const TOO_BIG = "This file is too large to open.";
@@ -163,7 +164,7 @@ export const fmtSize = (n: number) => String(+n.toFixed(2));
 
 
 type P = [number, number];
-const SYMBOLS = [...ELEMENTS]; // in atomic-number order, then D
+const SYMBOLS = [...ELEMENTS]; // in atomic-number order, then D and T
 // Colour index 0 is black and 1 white; the table's first row is index 2. ChemDraw starts every table with these.
 const BASE_COLOURS = ["#FFFFFF", "#000000", "#FF0000", "#FFFF00", "#00FF00", "#00FFFF", "#0000FF", "#FF00FF"];
 const RADICALS = ["None", "Singlet", "Doublet", "Triplet"];
@@ -318,6 +319,11 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   let next = sound ? own.reduce((m, id) => Math.max(m, id), 0) + 1 : 1;
   const fresh = () => next++;
   const idOf = new Map<number, number>(own.map((id) => [id, sound ? id : fresh()]));
+  // Measured spectra, as ChemDraw's spectrum objects, and each multiplet an atom or bond is linked to as an assignment
+  // tag on it and on the spectrum (decision 0016). A selection copied takes no spectrum (pick leaves them out).
+  const spectra = mol.spectra ?? [], rangeOf = new Map(spectra.flatMap((s) => s.groups.map((g) => [g.id, assignValue(s, g)] as const)));
+  const assignTag = (id: number) => el("objecttag", { id: fresh(), TagType: "String", Name: ASSIGN, Value: rangeOf.get(id) });
+  const assignTags = (peaks?: number[]) => [...new Set(peaks ?? [])].filter((k) => rangeOf.has(k)).map(assignTag).join("");
   // R-group definitions (ChemDraw's alternative groups): the id an R label names its definition by.
   const altIds = new Map((mol.shapes ?? []).filter((sh) => sh.rgroup).map((sh) => [sh.rgroup!.name, idOf.get(sh.id)!]));
   // Polymer brackets: each pair's bracket graphics (left, right), for its bracketed group.
@@ -588,14 +594,14 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const inner = a.text && !q && !plain ? opts.expand?.(a.text) : undefined;
     const type = a.centre ? (a.centre.variable ? "VariableAttachment" : "MultiAttachment") : a.attach || a.bead ? "ExternalConnectionPoint" : named !== undefined ? "NamedAlternativeGroup"
       : q === "generic" ? "GenericNickname" : list ? "ElementList" : link ? "LinkNode" : alts ? "AnonymousAlternativeGroup" : a.text ? (inner?.atoms.length ? "Fragment" : "Unspecified") : undefined;
-    const element = link ? (link.generic ? undefined : atomicNumber(link.element)) : type ? undefined : a.label === "D" ? 1 : SYMBOLS.indexOf(a.label) + 1;
+    const element = link ? (link.generic ? undefined : atomicNumber(link.element)) : type ? undefined : atomicNumber(a.label);
     const h = shown && !a.text ? a.implicitHCount ?? hydrogens(a.label, charge, used(i), a.radical === 3 ? 2 : a.radical) : link ? link.h : undefined;
     const enhanced = /^(abs|&|or)(\d*)$/.exec(a.enhanced ?? "");
     const label = shown ? labelOf(i, style.hideH ? 0 : h ?? 0) : undefined;
     const z = a.location[2] ?? 0, aq = a.query, kept = a.kept && keptHolds(mol, i, a.kept) ? a.kept.atoms : undefined;
     const alternatives = alts?.map((t) => opts.expand?.(t) ?? (isElement(t) ? { atoms: [{ label: t, location: [0, 0, 0] as [number, number, number] }], bonds: [] } : undefined)).filter((m): m is Mol => !!m?.atoms.length) ?? [];
     const xml = el("n", {
-      id: nodeId.get(i)!, p: pt(X), Z: Z(), Visible: a.hidden ? "no" : undefined, NodeType: type, Element: element && element !== 6 ? element : undefined, Isotope: type ? undefined : a.isotope ?? (a.label === "D" ? 2 : undefined), Charge: charge || undefined,
+      id: nodeId.get(i)!, p: pt(X), Z: Z(), Visible: a.hidden ? "no" : undefined, NodeType: type, Element: element && element !== 6 ? element : undefined, Isotope: type ? undefined : a.isotope ?? (a.label === "D" ? 2 : a.label === "T" ? 3 : undefined), Charge: charge || undefined,
       Radical: a.radical ? RADICALS[a.radical === 3 ? 1 : Math.min(2, a.radical) + 1] : undefined, NumHydrogens: h, ExternalConnectionType: a.attach ? (a.attach === "diamond" ? "Diamond" : a.attach === "star" ? "Star" : "Wavy") : a.bead ? "PolymerBead" : undefined,
       NeedsClean: shown ? "yes" : undefined, GenericNickname: q === "generic" && named === undefined ? a.text : link?.generic, AltGroupID: named,
       LabelDisplay: shown && a.align ? { left: "Left", centre: "Center", right: "Right", above: "Above", below: "Below" }[a.align] : undefined,
@@ -606,7 +612,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       RxnChange: aq?.change ? "yes" : undefined, RxnStereo: aq?.stereo && { inversion: "Inversion", retention: "Retention" }[aq.stereo], Translation: aq?.translation && { broad: "Broad", narrow: "Narrow", any: "Any" }[aq.translation],
       IsotopicAbundance: aq?.abundance && ABUNDANCES[aq.abundance], AbnormalValence: aq?.valence ? "yes" : undefined,
       EnhancedStereoType: enhanced ? { abs: "Absolute", "&": "And", or: "Or" }[enhanced[1]] : undefined, EnhancedStereoGroupNum: enhanced?.[2] || undefined,
-      color: colour(a.colour), highlightColor: colour(a.halo), ShowAtomStereo: a.cip ? "yes" : undefined, ShowAtomNumber: a.number ? "yes" : undefined, AtomNumber: a.number, IgnoreWarnings: a.ignoreWarnings ? "yes" : undefined, xyz: z ? `${pt(X)} ${fmt(-z * B)}` : undefined, ShowPerspective: a.shade ? "yes" : undefined,
+      color: colour(a.colour), highlightColor: colour(a.halo), ShowAtomStereo: a.cip ? "yes" : undefined, ShowAtomNumber: a.number ? "yes" : undefined, AtomNumber: a.number ?? a.hiddenNumber, IgnoreWarnings: a.ignoreWarnings ? "yes" : undefined, xyz: z ? `${pt(X)} ${fmt(-z * B)}` : undefined, ShowPerspective: a.shade ? "yes" : undefined,
       // A fragment's or alternative group's bonds in order; or a stereocentre's kept configuration, as ChemDraw stores it.
       BondOrdering: (inner || alternatives.length) && deg > 1 ? bondsAt[i].map((k) => bondId[k]).join(" ") : kept ? kept.map((j) => (j < 0 ? 0 : bondId[bondsAt[i].find((k) => mol.bonds[k].atoms.includes(j))!])).join(" ") : undefined,
       Geometry: !(inner || alternatives.length) && kept ? "Tetrahedral" : undefined,
@@ -614,7 +620,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       // (an atom with no bonds takes its scale back from it).
       LabelSize: shown && scaleOf(a) !== 1 ? fmtSize((a.size ?? style.labelSize) * scaleOf(a)) : undefined, LineWidth: scaleOf(a) !== 1 ? fmt(line * scaleOf(a)) : undefined,
       Octet: priv({ hmark: a.hmark, partial: a.partial, map: a.map, circle: a.circle, angles: a.angles, scale: ownScale(a) }),
-    }, (inner ? nested(i, inner) : "") + alternatives.map((m) => nested(i, m)).join("") + (label?.xml ?? ""));
+    }, (inner ? nested(i, inner) : "") + alternatives.map((m) => nested(i, m)).join("") + (label?.xml ?? "") + assignTags(a.peaks));
     if (a.partial) note(a.partial === "+" ? "δ+" : "δ−", [X[0] + 0.45 * B * scaleOf(a), X[1] - 0.45 * B * scaleOf(a)] as P, (a.size ?? style.labelSize) * scaleOf(a) * 0.75, "left", a.colour);
     return { xml, box: label?.box ?? [X[0], X[1], X[0], X[1]] };
   }
@@ -659,7 +665,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     // An alignment set by hand (the node's LabelDisplay says it is).
     if (a.align) { just = a.align === "right" ? "Right" : a.align === "centre" ? "Center" : "Left"; stack = a.align === "above" ? "Above" : a.align === "below" ? "Below" : undefined; }
     // An isotope's mass number, a superscript run before the element; the element stays on the atom.
-    const iso = !a.text && a.isotope && a.label !== "D" ? String(a.isotope) : "", isoW = widthOf(iso, 0.75 * size);
+    const iso = !a.text && a.isotope && a.label !== "D" && a.label !== "T" ? String(a.isotope) : "", isoW = widthOf(iso, 0.75 * size);
     const wide = (s: string) => [...s].reduce((w, ch, k) => w + advance(ch, /\d/.test(ch) && k ? 0.75 * size : size), 0);
     // The glyph that ends the label read right to left: the attaching unit's last (r of Br, O of OMe shown as MeO, the
     // 1 of R1), or a query label's last.
@@ -699,8 +705,8 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const place = (r: P): P => [X[0] + r[0] * Math.cos(t) - r[1] * Math.sin(t), X[1] + r[0] * Math.sin(t) + r[1] * Math.cos(t)];
     const ids = inner.atoms.map(() => fresh());
     let xml = inner.atoms.map((q, k) => {
-      const e = SYMBOLS.indexOf(q.label) + 1;
-      return el("n", { id: ids[k], p: pt(place(rel(q.location))), Element: e > 0 && e !== 6 ? e : undefined, Charge: q.charge || undefined });
+      const e = atomicNumber(q.label);
+      return el("n", { id: ids[k], p: pt(place(rel(q.location))), Element: e > 0 && e !== 6 ? e : undefined, Isotope: q.label === "D" ? 2 : q.label === "T" ? 3 : undefined, Charge: q.charge || undefined });
     }).join("");
     xml += inner.bonds.map((b) => el("b", { id: fresh(), B: ids[b.atoms[0]], E: ids[b.atoms[1]], Order: b.type === 2 ? "2" : b.type === 3 ? "3" : undefined })).join("");
     for (const d of out) {
@@ -743,7 +749,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       color: colour(b.colour), highlightColor: colour(b.halo), ShowPerspective: mol.atoms[i].shade || mol.atoms[j].shade ? "yes" : undefined, ShowBondStereo: mol.atoms[i].cip && mol.atoms[j].cip ? "yes" : undefined, BondCircularOrdering: circular, IgnoreWarnings: b.ignoreWarnings ? "yes" : undefined,
       // Its own settings: from its scale, else as they came from ChemDraw; and its own double-bond spacing.
       ...(f === 1 ? b.own : undefined), ...ownBond(f), BondSpacing: b.spacing !== undefined ? num6(b.spacing) : undefined,
-    });
+    }, assignTags(b.peaks));
   }
 
   // The symbols ChemDraw draws round an atom (spec 9.10): a label's sign where Octet draws it off the label (signAt), a
@@ -942,6 +948,17 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     }).join("")));
   }
   for (const a of arrows) if (!done.has(a.id) && legacyOf.has(a.id) && captions.some((c) => c.on?.arrow === a.id)) schemes.push(el("scheme", { id: fresh() }, step(a.id, [], [])));
+
+  // Each spectrum where ChemDraw had it, or else under everything on the page, as wide as that (3 inches at least),
+  // one under another.
+  let below = union(outs.map((o) => o.box));
+  for (const s of spectra) {
+    const o = spectrumObject(s), w = below ? Math.max(216, below[2] - below[0]) : 360, x0 = below ? below[0] : cx - w / 2, y0 = below ? below[3] + 2 * B : cy - 0.2 * w;
+    const box: Box = s.box ? [...at([s.box[0], s.box[3]]), ...at([s.box[2], s.box[1]])] as Box : [x0, y0, x0 + w, y0 + 0.4 * w];
+    if (!s.box) below = box;
+    const linked = s.groups.filter((g) => [...mol.atoms, ...mol.bonds].some((a) => a.peaks?.includes(g.id))).map((g) => assignTag(g.id)).join("");
+    put(el("spectrum", { id: fresh(), BoundingBox: boxText(box), Z: Z(), ...o.attrs }, o.text + el("objecttag", { id: fresh(), TagType: "String", Name: OWN_TAG, Value: o.own }) + linked), 4.6, box);
+  }
 
   zOrder = undefined;
   // Groups hold their structures and objects, inner groups first, each in the group round it (with its own Integral).
@@ -1179,6 +1196,11 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   // Groups nest: what is in a group is in each group round it too.
   const member = (g: G | undefined, id: number) => { for (let x = g; x; x = x.parent) x.items.push(id); };
 
+  // Measured spectra (ChemDraw's spectrum objects) with the values of their assignment tags, and each atom's and bond's
+  // assignment tags, matched to them once everything is read.
+  const spectraRead: { m: Measured; values: Set<string> }[] = [], assigned: { atom?: number; bond?: number; values: string[] }[] = [];
+  const assignTagsOf = (x: Xml) => x.kids.filter((k) => k.name === "objecttag" && k.attrs.Name === ASSIGN).slice(0, 64).map((k) => k.attrs.Value ?? "");
+  let nextGroup = 1;
   const visit = (x: Xml, group?: G, atoms?: number[]) => {
     const p = priv(x);
     // Written by Octet for ChemDraw's eyes only. A catalytic cycle's arrows name their cycle, so its group is known.
@@ -1208,6 +1230,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       case "chemicalproperty": return void properties.push(x);
       case "objecttag": case "bracketattachment": case "crossingbond": case "represent": case "DocumentProperties": return;
       case "embeddedobject": return readPicture(x, group);
+      case "spectrum": return readSpectrum(x);
       default: return lose(x.name);
     }
   };
@@ -1245,12 +1268,12 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     // down), Octet's towards: older Octet files (no xyz mark at the top) wrote Octet's own.
     const xyz = reals(n.attrs.xyz, 3), [x, y] = xyz ? toOctet(xyz[0], xyz[1]) : toOctet(q[0], q[1]), depth = (xyz?.[2] ?? 0) * (octet && !top?.xyz ? 1 : -1), type = n.attrs.NodeType ?? "Element";
     const element = int(n.attrs.Element) ?? 6, isotope = int(n.attrs.Isotope);
-    const a: Atom = { label: type === "Element" ? (element === 1 && isotope === 2 ? "D" : element >= 1 && element <= 118 ? SYMBOLS[element - 1] : "C") : "C", location: [x, y, depth / B || 0] };
+    const a: Atom = { label: type === "Element" ? (element === 1 && isotope === 2 ? "D" : element === 1 && isotope === 3 ? "T" : element >= 1 && element <= 118 ? SYMBOLS[element - 1] : "C") : "C", location: [x, y, depth / B || 0] };
     const charge = int(n.attrs.Charge) ?? 0;
     if (charge && Math.abs(charge) <= 9) a.charge = charge; else if (charge) lose("charge");
     const radical = RADICALS.indexOf(n.attrs.Radical ?? "");
     if (radical > 0) a.radical = radical === 1 ? 3 : radical === 2 ? 1 : 2;
-    if (type === "Element" && isotope && !(element === 1 && isotope === 2) && isotope >= 1 && isotope <= 300) a.isotope = isotope;
+    if (type === "Element" && isotope && !(element === 1 && (isotope === 2 || isotope === 3)) && isotope >= 1 && isotope <= 300) a.isotope = isotope;
     if (type === "ExternalConnectionPoint") { const ext = n.attrs.ExternalConnectionType; if (ext === "PolymerBead") a.bead = true; else a.attach = ext === "Diamond" ? "diamond" : ext === "Star" ? "star" : true; }
     if (type === "Monomer") lose(type);
     if (n.attrs.GenericList !== undefined) lose("atom query");
@@ -1271,8 +1294,9 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     const angles = p?.angles && typeof p.angles === "object" ? Object.entries(p.angles as Record<string, unknown>).filter(([k, v]) => /^(charge|partial|radical[01]|pair[0-3])$/.test(k) && isNum(v, -360, 360)) : [];
     if (angles.length) a.angles = Object.fromEntries(angles) as Record<string, number>;
     if (isNum(p?.scale, 0.01, 100) && p!.scale !== 1) a.scale = p!.scale as number;
-    const number = yes(n.attrs.ShowAtomNumber) ? (n.attrs.AtomNumber ?? "").trim() : "";
-    if (number) { if (/^[\w'′*-]{1,8}$/.test(number)) a.number = number; else lose("atom number"); }
+    // An atom number, shown or kept hidden (Name to Structure and templates number atoms without showing them).
+    const number = (n.attrs.AtomNumber ?? "").trim();
+    if (number) { if (!/^[\w'′*-]{1,8}$/.test(number)) lose("atom number"); else if (yes(n.attrs.ShowAtomNumber)) a.number = number; else a.hiddenNumber = number; }
     if (yes(n.attrs.IgnoreWarnings)) a.ignoreWarnings = true;
     // An H hidden by Toggle Hydrogen Display.
     if (n.attrs.Visible !== undefined && !yes(n.attrs.Visible) && a.label === "H") a.hidden = true;
@@ -1301,6 +1325,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     const lw = real(n.attrs.LineWidth);
     if (lw !== undefined) nodeLines.set(i, lw);
     atomOf.set(int(n.attrs.id) ?? -1, i);
+    const tags = assignTagsOf(n);
+    if (tags.length) assigned.push({ atom: i, values: tags });
     const t = n.kids.find((k) => k.name === "t");
     // The label's own text style, where it differs from the document's: bold, italic, underline, font and size.
     const first = t?.kids.find((k) => k.name === "s");
@@ -1321,6 +1347,19 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (zs.length) labels.push({ i, text: `[${not ? "NOT " : ""}${zs.map((z) => SYMBOLS[z - 1]).join(",")}]`, type });
     }
     return i;
+  }
+
+  // A spectrum object: a measured spectrum, one of each kind (the first), with its place on the page. One Octet cannot
+  // read (no grid, a value that is not a number, too many points) is lost.
+  function readSpectrum(x: Xml) {
+    const tag = (name: string) => x.kids.filter((k) => k.name === "objecttag" && k.attrs.Name === name).map((k) => k.attrs.Value ?? "");
+    let m: Measured;
+    try { m = fromSpectrumObject(x.attrs, x.text, tag(OWN_TAG)[0], nextGroup); } catch { return lose("spectrum"); }
+    if (spectraRead.length >= 16 || spectraRead.some((r) => keyOf(r.m) === keyOf(m))) return lose("spectrum");
+    const b = reals(x.attrs.BoundingBox, 4);
+    if (b) { const [p, q] = [toOctet(b[0], b[3]), toOctet(b[2], b[1])]; m.box = [Math.min(p[0], q[0]), Math.min(p[1], q[1]), Math.max(p[0], q[0]), Math.max(p[1], q[1])]; }
+    spectraRead.push({ m, values: new Set(tag(ASSIGN)) });
+    nextGroup = nextGroupId(spectraRead.map((r) => r.m));
   }
 
   // Ring fills (ChemDraw's ColoredMolecularArea): a colour and the bonds of one ring, read as the ring's atoms in
@@ -1407,6 +1446,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       const topology = back(TOPOLOGY, b.attrs.Topology), rxn = back(RXN, b.attrs.RxnParticipation);
       if (topology) bond.topology = topology as Bond["topology"];
       if (rxn) bond.rxn = rxn as Bond["rxn"];
+      const tags = assignTagsOf(b);
+      if (tags.length) assigned.push({ bond: mol.bonds.length, values: tags });
       mol.bonds.push(bond);
       bondIds.push(int(b.attrs.id) ?? 0);
       bondSettings.push({ line: real(b.attrs.LineWidth), bold: real(b.attrs.BoldWidth), hash: real(b.attrs.HashSpacing), margin: real(b.attrs.MarginWidth), spacing: real(b.attrs.BondSpacing), attrs: b.attrs });
@@ -1559,7 +1600,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       const sign = /(\d*)([+\-−–])$/.exec(text);
       if (charge && sign && (sign[2] === "+") === charge > 0) text = text.slice(0, text.length - (sign[1] === String(Math.abs(charge)) ? sign[0].length : 1));
       if (!text || text === "\ufffc" || a.attach || a.bead) continue;
-      if (type === "Element" && !plain && (!isotope || a.label === "D" || a.isotope)) {
+      if (type === "Element" && !plain && (!isotope || a.label === "D" || a.label === "T" || a.isotope)) {
         if (a.isotope && text.startsWith(String(a.isotope))) text = text.slice(String(a.isotope).length);
         const m = new RegExp(`^(?:H(\\d*))?${a.label}(?:H(\\d*))?$`).exec(text);
         const h = m ? (m[1] === undefined ? 0 : Number(m[1] || 1)) + (m[2] === undefined ? 0 : Number(m[2] || 1)) : -1, hFirst = h > 0 ? m![1] !== undefined : undefined;
@@ -2112,6 +2153,23 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (atoms.length === 4 && atoms.every((j) => j !== undefined && j !== i) && new Set(atoms).size === 4) mol.atoms[i].kept = { atoms: atoms as number[], marks: stereoMarks(mol, i, atoms as number[]) };
     }
   }
+  // Spectrum-structure assignments: each tag's ranges in the spectrum with a tag of the same value (else the one whose
+  // range holds them), as links from the atom or bond to the multiplets they name. A tag with no spectrum is lost.
+  for (const { atom, bond, values } of assigned) {
+    const ids = new Set<number>();
+    for (const v of values) {
+      const ranges = assignRanges(v), holds = (m: Measured) => ranges.every(([lo, hi]) => (lo + hi) / 2 >= Math.min(m.first, m.last) && (lo + hi) / 2 <= Math.max(m.first, m.last));
+      const r = spectraRead.find((s) => s.values.has(v)) ?? spectraRead.find((s) => holds(s.m));
+      if (!r || !ranges.length) { lose("spectrum assignment"); continue; }
+      const got = assignGroups(r.m, ranges, nextGroup);
+      r.m = got.m;
+      nextGroup = nextGroupId(spectraRead.map((s) => s.m));
+      for (const k of got.ids) ids.add(k);
+    }
+    const on = atom !== undefined ? mol.atoms[atom] : mol.bonds[bond!];
+    if (ids.size && on) on.peaks = [...ids].slice(0, 64);
+  }
+  if (spectraRead.length) mol.spectra = spectraRead.map((s) => s.m);
   // Octet's own files: atoms and bonds back in Octet's order (their ids rise in it).
   let ix = (i: number) => i;
   if (octet) {

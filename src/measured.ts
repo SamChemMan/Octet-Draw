@@ -2,7 +2,7 @@
 // multiplets (groups of peaks), which the user links to atoms. Each atom keeps the ids of the multiplets it is
 // assigned to (Atom.peaks), so assignments move, copy and undo with the atoms. The drawing keeps the trace, quantised
 // to 16 bits, so a saved drawing opens with the spectrum, its multiplets and its assignments as they were.
-import type { JcampSpectrum, Kind } from "./jcamp.ts";
+import { MAX_POINTS, type JcampSpectrum, type Kind } from "./jcamp.ts";
 import { multiplicity } from "./nmr.ts";
 import { solventPeaks, spread, ticks, traceColumns, type Figure } from "./spectrumplot.ts";
 
@@ -11,10 +11,11 @@ import { solventPeaks, spread, ticks, traceColumns, type Figure } from "./spectr
 export type Group = { id: number; lo: number; hi: number; manual?: true };
 // y: the trace, as its 16-bit levels stand for values from lo to hi (so it saves and opens again unchanged).
 // per: the integral of one nucleus (¹H), when the user set a multiplet's count.
+// box: where ChemDraw had the spectrum on its page (bond lengths, y up, x0 y0 x1 y1), written back there.
 export type Measured = {
   title: string; kind: Kind; nucleus?: string; mhz?: number; solvent?: string; xUnit: string; yUnit: string;
   first: number; last: number; y: Float32Array; lo: number; hi: number; xs?: Float64Array; sticks?: true;
-  threshold: number; groups: Group[]; per?: number;
+  threshold: number; groups: Group[]; per?: number; box?: [number, number, number, number];
 };
 
 export const MAX_KEEP = 1 << 18; // points a drawing keeps of a spectrum (262,144); more are reduced, peaks kept
@@ -87,8 +88,8 @@ function median(y: ArrayLike<number>): number {
 export const xAt = (m: Pick<Measured, "first" | "last" | "y" | "xs">, i: number) => (m.xs ? m.xs[Math.max(0, Math.min(m.xs.length - 1, Math.round(i)))] : m.first + (i * (m.last - m.first)) / Math.max(1, m.y.length - 1));
 // The point nearest x (uniform data), clamped to the spectrum.
 const indexAt = (m: Measured, x: number) => Math.max(0, Math.min(m.y.length - 1, Math.round(((x - m.first) / (m.last - m.first || 1)) * (m.y.length - 1))));
-// Transmittance dips: an IR spectrum in %T is read upside down.
-const sign = (m: Measured) => (/%T|TRANSMIT/i.test(m.yUnit) ? -1 : 1);
+// Transmittance dips: an IR spectrum in %T (or T, from ChemDraw) is read upside down.
+const sign = (m: Measured) => (/%T|TRANSMIT|^T$/i.test(m.yUnit) ? -1 : 1);
 
 // The baseline (the median), the noise (from the median distance from it) and the tallest point above it.
 export function levels(m: Measured) {
@@ -168,6 +169,13 @@ export function autoGroups(m: Measured, peaks: Peak[]): Omit<Group, "id">[] {
   });
 }
 
+// A mass spectrum's peaks as Mass Spec Analysis takes a peak list: each peak above the threshold (each stick of a peak
+// table), its m/z and its height against the tallest as 100. At most 20,000, the tallest.
+export function msPeaks(m: Measured): { mz: number; i: number }[] {
+  const peaks = pickPeaks(m), top = peaks.reduce((t, p) => Math.max(t, p.h), 0);
+  return [...peaks].sort((p, q) => q.h - p.h).slice(0, 20000).filter((p) => p.x > 0).map((p) => ({ mz: p.x, i: top > 0 ? (p.h / top) * 100 : 100 })).sort((p, q) => p.mz - q.mz);
+}
+
 // --- Multiplets ---------------------------------------------------------------------------------------------------
 
 // A first-order multiplet's couplings from its lines (Hz and heights), by Hoye's method (J. Org. Chem. 1994, 59,
@@ -235,7 +243,9 @@ export function analyse(m: Measured, solvent = m.solvent ?? ""): Analysis {
       }
     }
     own.sort((p, q) => q.x - p.x);
-    let name = "", js: number[] = [], shift = own.reduce((s, p) => s + p.x * p.h, 0) / (own.reduce((s, p) => s + p.h, 0) || 1);
+    // The weighted middle of its peaks; a flat range (a link read from a file over no peak) by its points' or its own.
+    const weight = own.reduce((s, p) => s + p.h, 0);
+    let name = "", js: number[] = [], shift = weight ? own.reduce((s, p) => s + p.x * p.h, 0) / weight : own.length ? own.reduce((s, p) => s + p.x, 0) / own.length : (g.lo + g.hi) / 2;
     if (h1) {
       const fit = firstOrder(own.map((p) => ({ hz: p.x * mhz, h: p.h })), tol);
       if (fit) {
@@ -377,6 +387,151 @@ export function measuredFigure(o: { m: Measured; a: Analysis; range: [number, nu
   return out;
 }
 
+// --- ChemDraw's spectrum object -----------------------------------------------------------------------------------
+
+// ChemDraw keeps a spectrum on its page as a spectrum object (CDXML <spectrum>, CDX 0x8010): Y values on an even grid
+// from XLow in steps of XSpacing, its Class (the kind) and each axis's units (XType, YType). CDXML holds the values as
+// text, ChemDraw's as whole numbers of YScale above YLow, 16 to a line. A spectrum-structure assignment is an object
+// tag named /CS/CD/assign, with the same value on the spectrum and on each atom and bond assigned: the peaks' ranges,
+// each "lo-hi,". Octet's own details, which ChemDraw's object has no place for (the title, nucleus, frequency, solvent,
+// threshold and multiplets), go in an object tag of Octet's on the spectrum, as ASCII JSON.
+export const ASSIGN = "/CS/CD/assign", OWN_TAG = "Octet spectrum";
+const CLASS: Record<Kind, string | undefined> = { nmr: "NMR", ir: "Infrared", uv: "UVVis", ms: "MassSpectrum", other: undefined };
+const KIND_OF: Record<string, Kind> = { NMR: "nmr", Infrared: "ir", Raman: "ir", UVVis: "uv", MassSpectrum: "ms" };
+const X_TYPE: Record<string, string> = { ppm: "PartsPerMillion", Hz: "Hertz", "cm⁻¹": "Wavenumbers", "µm": "Microns", "m/z": "MassUnits" };
+const Y_TYPE: Record<string, string> = { "%T": "PercentTransmittance", T: "Transmittance", A: "Absorbance" };
+const flip = (o: Record<string, string>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [v, k]));
+const X_UNIT = flip(X_TYPE), Y_UNIT = flip(Y_TYPE), DEFAULT_X: Record<Kind, string> = { nmr: "ppm", ir: "cm⁻¹", uv: "nm", ms: "m/z", other: "" };
+// A number short and exact enough for an attribute or a tag.
+const short = (v: number) => String(+v.toPrecision(12));
+// The step a peak table's sticks go on: 0.1, as ChemDraw's own mass spectra, or wider for a very wide range.
+const stickStep = (m: Pick<Measured, "xs">) => { let lo = Infinity, hi = -Infinity; for (const x of m.xs ?? []) { lo = Math.min(lo, x); hi = Math.max(hi, x); } return Math.max(0.1, (hi - lo) / 65535 || 0); };
+
+// The trace on an even grid, low x to high: the points as they are (reversed when they run high to low); a peak
+// table's sticks in bins (the tallest in each); uneven points at as many even ones, by straight lines between them.
+function grid(m: Measured): { low: number; step: number; y: ArrayLike<number> } {
+  const n = m.y.length;
+  if (!m.xs) {
+    const step = n > 1 ? (m.last - m.first) / (n - 1) : 0;
+    return step < 0 ? { low: m.last, step: -step, y: Float32Array.from(m.y).reverse() } : { low: m.first, step: step || 1, y: m.y };
+  }
+  const xs = m.xs, order = Array.from(xs.keys()).sort((a, b) => xs[a] - xs[b]), lo = xs[order[0]], hi = xs[order[n - 1]];
+  if (m.sticks) {
+    const step = stickStep(m), y = new Float64Array(Math.round((hi - lo) / step) + 1);
+    for (const i of order) { const b = Math.round((xs[i] - lo) / step); y[b] = Math.max(y[b], m.y[i]); }
+    return { low: lo, step, y };
+  }
+  const step = n > 1 ? (hi - lo) / (n - 1) || 1 : 1, y = new Float64Array(n);
+  for (let j = 0, k = 0; j < n; j++) {
+    const x = lo + j * step;
+    while (k < n - 2 && xs[order[k + 1]] < x) k++;
+    const a = order[k], b = order[Math.min(n - 1, k + 1)], f = xs[b] > xs[a] ? Math.min(1, Math.max(0, (x - xs[a]) / (xs[b] - xs[a]))) : 0;
+    y[j] = m.y[a] + f * (m.y[b] - m.y[a]);
+  }
+  return { low: lo, step, y };
+}
+
+// JSON in ASCII: every other character as a \u escape, so it reads the same in any charset ChemDraw decodes it in.
+const ascii = (s: string) => s.replace(/[\u0080-￿]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+
+// The spectrum as ChemDraw's object: its attributes, its values as CDXML's text (16-bit levels of YScale above YLow,
+// 16 to a line) and the value of Octet's own tag.
+export function spectrumObject(m: Measured): { attrs: Record<string, string | undefined>; text: string; own: string } {
+  const g = grid(m);
+  let lo = m.lo, hi = m.hi;
+  if (m.xs) { lo = Infinity; hi = -Infinity; for (let i = 0; i < g.y.length; i++) { lo = Math.min(lo, g.y[i]); hi = Math.max(hi, g.y[i]); } }
+  const scale = hi > lo ? (hi - lo) / 65535 : 1, lines: string[] = [];
+  let line: number[] = [];
+  for (let i = 0; i < g.y.length; i++) {
+    line.push(Math.max(0, Math.min(65535, Math.round((g.y[i] - lo) / scale))));
+    if (line.length === 16) { lines.push(line.join(" ")); line = []; }
+  }
+  if (line.length) lines.push(line.join(" "));
+  const own = { title: m.title || undefined, nucleus: m.nucleus, mhz: m.mhz, solvent: m.solvent, threshold: m.threshold, per: m.per, groups: m.groups.map((x) => (x.manual ? [x.lo, x.hi, 1] : [x.lo, x.hi])) };
+  return {
+    attrs: {
+      XSpacing: short(g.step), XLow: short(g.low), XType: X_TYPE[m.xUnit] ?? (m.xUnit ? "Other" : undefined), YType: Y_TYPE[m.yUnit] ?? (m.kind === "nmr" || m.kind === "ms" ? "ArbitraryUnits" : m.yUnit ? "Other" : undefined),
+      Class: CLASS[m.kind], YLow: lo ? short(lo) : undefined, YScale: short(scale),
+    },
+    text: lines.join("\n"),
+    own: ascii(JSON.stringify(own)),
+  };
+}
+
+// A ChemDraw spectrum object as a measured spectrum, its multiplets numbered from `id`: its values (each times YScale
+// and plus YLow), kind and units, with Octet's own details from `own` (its tag's value) when they are there and sound.
+// A mass spectrum mostly at its lowest value is a line spectrum: its other points are sticks. Throws when the object
+// is not sound: no grid, a value that is not a number, or more points than Octet opens.
+export function fromSpectrumObject(attrs: Record<string, string | undefined>, text: string, own: string | undefined, id: number): Measured {
+  const bad = (): never => { throw new Error("This spectrum is damaged."); };
+  const real = (s?: string) => { if (s === undefined || !s.trim()) return undefined; const v = Number(s); return Number.isFinite(v) && Math.abs(v) < 1e15 ? v : bad(); };
+  const low = real(attrs.XLow), step = real(attrs.XSpacing), yLow = real(attrs.YLow) ?? 0, yScale = real(attrs.YScale) ?? 0;
+  if (low === undefined || !step || text.length > 32 * MAX_POINTS) bad();
+  const words = text.trim() ? text.trim().split(/\s+/) : [];
+  if (!words.length || words.length > MAX_POINTS) bad();
+  const f = yScale && yScale !== 1 ? yScale : 1, y = new Float64Array(words.length);
+  for (let i = 0; i < words.length; i++) { const v = Number(words[i]); if (!Number.isFinite(v)) bad(); y[i] = v * f + yLow; }
+  const kind = KIND_OF[attrs.Class ?? ""] ?? "other", n = y.length, first = low!, last = low! + step! * (n - 1);
+  let o: Record<string, unknown> = {};
+  try { const v = own === undefined ? undefined : JSON.parse(own); if (v && typeof v === "object" && !Array.isArray(v)) o = v; } catch { /* ChemDraw's object alone */ }
+  const fine = (x: unknown, most: number): x is string => typeof x === "string" && x.length <= most && !/[\u0000-\u001f]/.test(x);
+  const nucleus = kind !== "nmr" ? undefined : typeof o.nucleus === "string" && /^\d{1,3}[A-Z][a-z]?$/.test(o.nucleus) ? o.nucleus : Math.abs(last - first) > 40 ? "13C" : "1H";
+  let s: JcampSpectrum = {
+    title: fine(o.title, 200) ? o.title : "", kind, xUnit: X_UNIT[attrs.XType ?? ""] ?? DEFAULT_X[kind], yUnit: Y_UNIT[attrs.YType ?? ""] ?? "", first, last, y,
+    ...(nucleus ? { nucleus } : {}), ...(typeof o.mhz === "number" && o.mhz > 0 && o.mhz < 3000 ? { mhz: o.mhz } : {}), ...(fine(o.solvent, 40) && o.solvent ? { solvent: o.solvent } : {}),
+  };
+  if (kind === "ms") {
+    let min = Infinity;
+    for (const v of y) min = Math.min(min, v);
+    const at: number[] = [];
+    y.forEach((v, i) => { if (v > min) at.push(i); });
+    if (at.length && at.length <= n / 2) {
+      const xs = Float64Array.from(at, (i) => first + i * step!);
+      s = { ...s, xs, y: Float64Array.from(at, (i) => y[i] - min), first: xs[0], last: xs[xs.length - 1], sticks: true };
+    }
+  }
+  let m = fromJcamp(s, id);
+  const threshold = typeof o.threshold === "number" && o.threshold >= 0 && o.threshold <= 1 ? o.threshold : undefined;
+  const groups = Array.isArray(o.groups) && o.groups.length <= MAX_GROUPS ? (o.groups as unknown[]) : undefined;
+  const sound = groups?.every((g) => Array.isArray(g) && (g.length === 2 || (g.length === 3 && g[2] === 1)) && g.slice(0, 2).every((v) => typeof v === "number" && Number.isFinite(v)) && g[0] <= g[1]);
+  // Octet's multiplets as they were; a line spectrum's sticks moved onto the grid, so it picks its own.
+  if (groups && sound && !m.sticks) m = { ...m, threshold: threshold ?? m.threshold, groups: (groups as number[][]).map((g, k) => ({ id: id + k, lo: g[0], hi: g[1], ...(g[2] ? { manual: true as const } : {}) })) };
+  else if (threshold !== undefined && threshold !== m.threshold) m = regroup(m, threshold, nextGroupId([m]));
+  if (typeof o.per === "number" && Number.isFinite(o.per) && o.per > 0) m = { ...m, per: o.per };
+  return m;
+}
+
+// A multiplet's range as an assignment tag's value, "lo-hi,"; a stick's widened to its bin, as ChemDraw holds it.
+export function assignValue(m: Measured, g: Group): string {
+  const w = m.sticks ? stickStep(m) / 2 : 0;
+  return `${short(g.lo - w)}-${short(g.hi + w)},`;
+}
+// An assignment tag's value as ranges: each "lo-hi," pair, lo and hi either way round; at most 1000.
+const NUM = "[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?", PAIR = new RegExp(`^\\s*(${NUM})\\s*-\\s*(${NUM})\\s*$`);
+export function assignRanges(value: string): [number, number][] {
+  const out: [number, number][] = [];
+  for (const part of value.slice(0, 64_000).split(",").slice(0, 1000)) {
+    const p = PAIR.exec(part), a = Number(p?.[1]), b = Number(p?.[2]);
+    if (p && Number.isFinite(a) && Number.isFinite(b)) out.push([Math.min(a, b), Math.max(a, b)]);
+  }
+  return out;
+}
+// The multiplets an assignment's ranges name in a spectrum: for each range, the one its middle is in, else those it
+// overlaps (a line spectrum's within half a bin), else a new one of that range, drawn by hand so peak picking keeps it.
+// `next`: the first free id.
+export function assignGroups(m: Measured, ranges: [number, number][], next: number): { m: Measured; ids: number[] } {
+  const near = m.sticks ? stickStep(m) / 2 : 0, ids = new Set<number>();
+  let groups = m.groups;
+  for (const [lo, hi] of ranges) {
+    const mid = (lo + hi) / 2, inside = groups.find((g) => g.lo <= mid && mid <= g.hi), over = inside ? [inside] : groups.filter((g) => g.lo - near <= hi && lo <= g.hi + near);
+    if (over.length) { for (const g of over) ids.add(g.id); continue; }
+    if (groups.length >= MAX_GROUPS) continue;
+    ids.add(next);
+    groups = [...groups, { id: next++, lo, hi, manual: true as const }].sort((a, b) => b.lo - a.lo);
+  }
+  return { m: groups === m.groups ? m : { ...m, groups }, ids: [...ids] };
+}
+
 // --- The saved form ---------------------------------------------------------------------------------------------
 
 // Base64 of bytes, in chunks, and back.
@@ -405,7 +560,7 @@ export function writeMeasured(m: Measured) {
     title: m.title, kind: m.kind, ...(m.nucleus ? { nucleus: m.nucleus } : {}), ...(m.mhz ? { mhz: m.mhz } : {}), ...(m.solvent ? { solvent: m.solvent } : {}),
     xUnit: m.xUnit, yUnit: m.yUnit, first: m.first, last: m.last, n: m.y.length, lo: q.lo, hi: q.hi, y: toBase64(bytesOf(q.q)),
     ...(m.xs ? { xs: toBase64(bytesOf(m.xs)) } : {}), ...(m.sticks ? { sticks: true } : {}),
-    threshold: m.threshold, groups: m.groups.map((g) => ({ id: g.id, lo: g.lo, hi: g.hi, ...(g.manual ? { manual: true } : {}) })), ...(m.per ? { per: m.per } : {}),
+    threshold: m.threshold, groups: m.groups.map((g) => ({ id: g.id, lo: g.lo, hi: g.hi, ...(g.manual ? { manual: true } : {}) })), ...(m.per ? { per: m.per } : {}), ...(m.box ? { box: m.box } : {}),
   };
 }
 const KINDS: Kind[] = ["nmr", "ir", "uv", "ms", "other"];
@@ -418,7 +573,8 @@ export function readMeasured(v: unknown): Measured {
     || (d.lo as number) >= (d.hi as number) || !Number.isInteger(d.n) || (d.n as number) < 1 || (d.n as number) > MAX_KEEP || typeof d.y !== "string" || (d.y as string).length > ((d.n as number) * 8) / 3 + 8
     || (d.nucleus !== undefined && !(typeof d.nucleus === "string" && /^\d{1,3}[A-Z][a-z]?$/.test(d.nucleus))) || (d.mhz !== undefined && !(num(d.mhz) && (d.mhz as number) > 0 && (d.mhz as number) < 3000))
     || (d.solvent !== undefined && !text(d.solvent, 40)) || (d.sticks !== undefined && d.sticks !== true) || (d.per !== undefined && !(num(d.per) && (d.per as number) > 0))
-    || (d.threshold as number) < 0 || (d.threshold as number) > 1 || !Array.isArray(d.groups) || d.groups.length > MAX_GROUPS) bad();
+    || (d.threshold as number) < 0 || (d.threshold as number) > 1 || !Array.isArray(d.groups) || d.groups.length > MAX_GROUPS
+    || (d.box !== undefined && !(Array.isArray(d.box) && d.box.length === 4 && d.box.every((v) => num(v) && Math.abs(v as number) < 1e6)))) bad();
   const n = d.n as number;
   let raw: Uint8Array;
   try { raw = fromBase64(d.y as string); } catch { return bad(); }
@@ -445,6 +601,6 @@ export function readMeasured(v: unknown): Measured {
     title: d.title as string, kind: d.kind as Kind, xUnit: d.xUnit as string, yUnit: d.yUnit as string, first: d.first as number, last: d.last as number,
     y: dequantise({ q, lo: d.lo as number, hi: d.hi as number }), lo: d.lo as number, hi: d.hi as number, threshold: d.threshold as number, groups,
     ...(d.nucleus ? { nucleus: d.nucleus as string } : {}), ...(d.mhz ? { mhz: d.mhz as number } : {}), ...(d.solvent ? { solvent: d.solvent as string } : {}),
-    ...(xs ? { xs } : {}), ...(d.sticks ? { sticks: true as const } : {}), ...(d.per ? { per: d.per as number } : {}),
+    ...(xs ? { xs } : {}), ...(d.sticks ? { sticks: true as const } : {}), ...(d.per ? { per: d.per as number } : {}), ...(d.box ? { box: [...(d.box as number[])] as Measured["box"] } : {}),
   };
 }

@@ -44,6 +44,8 @@ assert.equal(narrow.lines.filter((l) => l.from[1] === 0 && l.to[1] === 3).length
 assert.deepEqual(lines(h1.signals[2], 400).map((l) => l.h), [0.75, 1.5, 0.75]);
 assert.equal(solventPeaks("DMSO-d₆", "1H", 400)[0].lines.length, 5);
 assert.deepEqual(ticks(0, 10, 640).out, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+// An IR range (4000 to 400 cm⁻¹) on a 480 px panel: 500 apart.
+assert.deepEqual(ticks(400, 4000, 480).out, [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000]);
 assert.deepEqual(spread([10, 10, 10], 4, 100), [10, 14, 18]);
 assert.deepEqual(spread([98, 99], 4, 100), [94, 98]);
 console.log("spectrumplot.check: ok");

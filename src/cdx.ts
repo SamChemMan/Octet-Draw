@@ -11,7 +11,7 @@ import { DAMAGED, TOO_BIG, fmt, type Xml } from "./cdxml.ts";
 export const MAGIC = "VjCD0100";
 // The magic, 04 03 02 01 and 10 reserved bytes; the document object's tag and id follow, as ChemDraw writes them.
 const HEADER = [0x56, 0x6a, 0x43, 0x44, 0x30, 0x31, 0x30, 0x30, 4, 3, 2, 1, ...new Array(10).fill(0)];
-const MAX_BYTES = 64 * 1024 * 1024, MAX_DEPTH = 64, MAX_OBJECTS = 1_000_000, MAX_POINTS = 8191;
+const MAX_BYTES = 64 * 1024 * 1024, MAX_DEPTH = 64, MAX_OBJECTS = 1_000_000, MAX_POINTS = 8191, MAX_SPECTRUM = 1 << 21;
 
 type Prop = { tag: number; name: string; kind: string; names?: Map<number, string>; values?: Map<string, number> };
 const byTag = new Map<number, Prop>(), byName = new Map<string, Prop>(), objectTag = new Map<string, number>();
@@ -218,7 +218,8 @@ export function cdxToXml(bytes: Uint8Array, exact = false): Xml {
         if (n === 2 + 8 * c) a[name] = Array.from({ length: c }, (_, k) => `${num(coord(d, 6 + 8 * k))} ${num(coord(d, 2 + 8 * k))}`).join(" ");
         return;
       }
-      case "spectrum": if (n % 8 === 0) el.text = Array.from({ length: n / 8 }, (_, k) => String(d.getFloat64(8 * k, little))).join(" "); return;
+      // A spectrum's values, each in full (CDXML's YLow and YScale do not apply to them: they are dropped below).
+      case "spectrum": if (n % 8 === 0 && n / 8 <= MAX_SPECTRUM) el.text = Array.from({ length: n / 8 }, (_, k) => String(d.getFloat64(8 * k, little))).join(" "); return;
       case "tagvalue": {
         const t = a.TagType;
         if (t === "Double" && n === 8) a[name] = String(d.getFloat64(0, little));
@@ -290,6 +291,7 @@ export function cdxToXml(bytes: Uint8Array, exact = false): Xml {
       prop(el, t, b, text);
     }
     // UTF-8 text wins over the legacy copy (as ChemDraw reads it).
+    if (el.name === "spectrum" && el.text) { delete el.attrs.YLow; delete el.attrs.YScale; }
     const runs = text.unicode?.length ? runsOf(text.unicode, true, el) : text.legacy ? runsOf(text.legacy, false, el) : [];
     el.kids = [...el.kids, ...runs, ...objects0];
     return el;
@@ -484,7 +486,15 @@ export function xmlToCdx(root: Xml): Uint8Array {
       return tagOf === undefined || !Number.isFinite(id) ? [] : [...le(4, id), ...le(2, tagOf)];
     });
     if (represent.length) put(0x000e, new Uint8Array(represent));
-    if (x.name === "spectrum" && x.text.trim()) { const v = reals(x.text); if (v.every((n) => n !== undefined)) put(0x0a86, new Uint8Array(v.flatMap((n) => [...f64(n!)]))); }
+    // A spectrum's values in full: CDXML's text times YScale (when it is not 0 or 1), plus YLow.
+    if (x.name === "spectrum" && x.text.trim()) {
+      const v = x.text.trim().split(/\s+/).map(Number), scale = Number(x.attrs.YScale ?? 0), low = Number(x.attrs.YLow ?? 0), f = Number.isFinite(scale) && scale !== 0 ? scale : 1;
+      if (v.length <= MAX_SPECTRUM && v.every(Number.isFinite) && Number.isFinite(low)) {
+        const b = new Uint8Array(8 * v.length), dv = new DataView(b.buffer);
+        v.forEach((n, k) => dv.setFloat64(8 * k, n * f + low, true));
+        put(0x0a86, b);
+      }
+    }
     const runs = x.kids.filter((k) => k.name === "s");
     if (runs.length) textProps(runs);
     for (const k of x.kids) if (!["colortable", "fonttable", "represent", "s"].includes(k.name)) object(k, depth + 1);
