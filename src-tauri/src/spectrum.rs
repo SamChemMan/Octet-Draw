@@ -1,26 +1,33 @@
-// Measured spectra the page opens (audit item CH-29): JCAMP-DX files (.jdx, .dx, .jcamp) as text, and Bruker's
-// processed data (a pdata folder with procs and 1r, or the experiment folder above it) as one envelope the page reads
-// (src/jcamp.ts, readBrukerText). The page checks what they hold; here they are only found and read, with limits.
-// They are not drawings: Octet does not save over them or list them on Home.
+// Measured spectra the page opens (audit item CH-29): JCAMP-DX files (.jdx, .dx, .jcamp) as text, Galactic SPC files
+// (.spc, binary) and Bruker's processed data (a pdata folder with procs and 1r, or the experiment folder above it) each
+// as an envelope the page reads (src/jcamp.ts, readSpcText and readBrukerText). The page checks what they hold; here
+// they are only found and read, with limits. They are not drawings: Octet does not save over them or list them on Home.
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::MAX_BYTES;
 
-pub const EXTENSIONS: [&str; 3] = ["jdx", "dx", "jcamp"];
+pub const EXTENSIONS: [&str; 4] = ["jdx", "dx", "jcamp", "spc"];
 const MAX_PARAMS: u64 = 4 << 20; // procs and acqus: text files of a few kilobytes
 
+// A spectrum file by its extension: JCAMP-DX or SPC.
 pub fn is_jcamp(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
 }
 
 // A JCAMP-DX file's text. Many instruments write Latin-1, not UTF-8: bytes that are not UTF-8 are read as Latin-1.
+// An SPC file is binary: "OCTET-SPC 1", then JSON with its name and its bytes in base64.
 pub fn read_jcamp(path: &Path, name: &str) -> Result<String, String> {
     match fs::metadata(path) {
         Err(_) => Err("This file is not where it was. It was moved or deleted.".into()),
         Ok(m) if m.len() > MAX_BYTES => Err(format!("Octet cannot open {name}. It is larger than 64 MB.")),
         Ok(_) => {
             let bytes = fs::read(path).map_err(|_| format!("Octet cannot read {name}."))?;
+            if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("spc")) {
+                use base64::Engine;
+                let json = serde_json::json!({ "name": name, "data": base64::engine::general_purpose::STANDARD.encode(bytes) });
+                return Ok(format!("OCTET-SPC 1\n{json}"));
+            }
             Ok(String::from_utf8(bytes).unwrap_or_else(|e| e.into_bytes().iter().map(|&b| b as char).collect()))
         }
     }
@@ -97,6 +104,13 @@ mod tests {
         fs::write(&jdx, b"##TITLE= 25 \xb0C\n##END=\n").unwrap();
         assert!(is_jcamp(&jdx) && !is_jcamp(&dir.join("a.mol")));
         assert_eq!(read_jcamp(&jdx, "a.JDX").unwrap(), "##TITLE= 25 °C\n##END=\n");
+        // An SPC file: its bytes in base64, with its name.
+        let spc = dir.join("b.SPC");
+        fs::write(&spc, [0u8, 0x4b, 0xff]).unwrap();
+        assert!(is_jcamp(&spc));
+        let text = read_jcamp(&spc, "b.SPC").unwrap();
+        let json: serde_json::Value = serde_json::from_str(text.strip_prefix("OCTET-SPC 1\n").unwrap()).unwrap();
+        assert_eq!((json["name"].as_str(), json["data"].as_str()), (Some("b.SPC"), Some("AEv/")));
         let big = dir.join("big.dx");
         fs::File::create(&big).unwrap().set_len(MAX_BYTES + 1).unwrap();
         assert!(read_jcamp(&big, "big.dx").unwrap_err().contains("64 MB"));

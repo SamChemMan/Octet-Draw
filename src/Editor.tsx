@@ -44,7 +44,7 @@ import { nmrReady, predict, type Nucleus } from "./nmr";
 import { spectrumFigure } from "./spectrumplot";
 import type { Show } from "./Spectrum";
 import { analyse as analyseSpectrum, defineGroup, fromJcamp, groupText, keepIds, keyOf as spectrumKeyOf, measuredFigure, measuredHead, nextGroupId, regroup, type Measured } from "./measured";
-import { BRUKER, isJcamp, isSpectrum, readBrukerText as brukerOf, readJcamp, type JcampSpectrum } from "./jcamp";
+import { BRUKER, SPC, isJcamp, isSpectrum, readBrukerText as brukerOf, readJcamp, readSpcText, type JcampSpectrum } from "./jcamp";
 import { rings } from "./rings";
 import { NumberField, Segmented, Switch } from "./Fields";
 import { fromCdxml, parseXml, toCdxml, type CdxmlOptions } from "./cdxml";
@@ -4530,7 +4530,7 @@ export default function Editor() {
   // place of one of its kind; on Home they start a new drawing. The panel opens on the first.
   function openSpectrumText(text: string, name: string) {
     let found: JcampSpectrum[];
-    try { found = text.startsWith(BRUKER) ? [brukerOf(text)] : readJcamp(text); } catch (e) { return setNotice(failure(`Octet cannot open ${name}.`, e)); }
+    try { found = text.startsWith(BRUKER) ? [brukerOf(text)] : text.startsWith(SPC) ? readSpcText(text) : readJcamp(text); } catch (e) { return setNotice(failure(`Octet cannot open ${name}.`, e)); }
     const base = home ? EMPTY : now.current;
     let spectra = base.spectra ?? [];
     const added: Measured[] = [];
@@ -5948,8 +5948,10 @@ export default function Editor() {
         return;
       }
       const text = e.clipboardData?.getData("text/plain"), file = imageFile(e), named = !!text?.trim() && loaded;
-      const jdx = [...(e.clipboardData?.files ?? [])].find((f) => /\.(jdx|dx|jcamp)$/i.test(f.name));
-      if (jdx || (text && isJcamp(text))) { e.preventDefault(); void (jdx ? jdx.text() : Promise.resolve(text!)).then((t) => openSpectrumText(t, jdx?.name ?? "the clipboard")); return; }
+      // A spectrum file (JCAMP-DX as text, SPC as its bytes in the app's form), or JCAMP-DX text.
+      const jdx = [...(e.clipboardData?.files ?? [])].find((f) => /\.(jdx|dx|jcamp|spc)$/i.test(f.name));
+      const spc = (f: File) => f.arrayBuffer().then((b) => `${SPC}${JSON.stringify({ name: f.name, data: toBase64(new Uint8Array(b)) })}`);
+      if (jdx || (text && isJcamp(text))) { e.preventDefault(); void (jdx ? (/\.spc$/i.test(jdx.name) ? spc(jdx) : jdx.text()) : Promise.resolve(text!)).then((t) => openSpectrumText(t, jdx?.name ?? "the clipboard")); return; }
       if (text && CDXML_TEXT.test(text.slice(0, 65536)) && pasteCdxml(text)) return e.preventDefault();
       if (!named && !file) return;
       e.preventDefault();

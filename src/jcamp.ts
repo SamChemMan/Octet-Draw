@@ -1,8 +1,8 @@
 // JCAMP-DX spectra (versions 4.24, 5.0 and 6.0: McDonald and Wilks 1988, Davies and Lampen 1993, Lampen et al. 1999):
 // NMR, IR, UV-Vis and mass spectra, as XYDATA in every form (AFFN, PAC, SQZ, DIF and DUP), XYPOINTS, PEAK TABLE, and
-// NTUPLES pages of a processed NMR spectrum (the real part). Also Bruker's processed data (procs and 1r). Every file
-// is hostile: sizes, point counts and nesting are limited, and a file that breaks a rule is refused with a plain
-// message, never half read.
+// NTUPLES pages of a processed NMR spectrum (the real part). Also Bruker's processed data (procs and 1r) and Galactic
+// SPC files. Every file is hostile: sizes, point counts and nesting are limited, and a file that breaks a rule is
+// refused with a plain message, never half read.
 
 export type Kind = "nmr" | "ir" | "uv" | "ms" | "other";
 // A spectrum as read: evenly spaced from `first` to `last` (x units), or at `xs` when it is not; `sticks` for a peak
@@ -333,5 +333,71 @@ export function readBrukerText(text: string): JcampSpectrum {
   try { const s = atob(d.data as string); bytes = Uint8Array.from(s, (c) => c.charCodeAt(0)); } catch { return fail("Octet cannot read this Bruker folder."); }
   return readBruker(d.procs as string, bytes, (d.acqus as string | undefined) ?? "", typeof d.name === "string" ? d.name : undefined);
 }
-// Whether a file's text is a spectrum Octet opens: JCAMP-DX, or Bruker's processed data.
-export const isSpectrum = (text: string) => text.startsWith(BRUKER) || isJcamp(text);
+
+// --- Galactic SPC -----------------------------------------------------------------------------------------------
+
+// Galactic (now Thermo) SPC files of versions 4B (little endian) and 4C (big endian), as Galactic's format document
+// gives them: a 512-byte header (flags, version, experiment, Y exponent, points, first and last X, subfiles, X and Y
+// units, a comment), then the X values when the file gives them, then each subfile: a 32-byte header and its Y values.
+// Y values are 32-bit floats (exponent 0x80), or whole numbers of 32 bits (16 with TSPREC) times 2^(exponent - 32, or
+// - 16). Octet reads the first subfile. Every count is checked against the file's length before it is read.
+const TSPREC = 0x01, TMULTI = 0x04, TXYXYS = 0x40, TXVALS = 0x80;
+const SPC_KIND: Record<number, Kind> = { 4: "ir", 5: "ir", 6: "uv", 7: "uv", 9: "ms", 10: "nmr", 11: "ir" };
+const SPC_X: Record<number, string> = { 1: "cm⁻¹", 2: "µm", 3: "nm", 4: "s", 6: "Hz", 9: "m/z", 10: "ppm", 13: "cm⁻¹" };
+const X_KIND: Record<string, Kind> = { "cm⁻¹": "ir", "µm": "ir", nm: "uv", "m/z": "ms", ppm: "nmr" };
+export function readSpc(b: Uint8Array, name = "SPC spectrum"): JcampSpectrum[] {
+  const bad = (what: string): never => fail(`This SPC file is damaged: ${what}.`);
+  if (b.length > 64 * 1024 * 1024) fail("This file is larger than 64 MB. Octet cannot open it.");
+  if (b[1] === 0x4d) fail("This SPC file is in the old format (4D). Octet opens SPC files of versions 4B and 4C.");
+  if (b.length < 2 || (b[1] !== 0x4b && b[1] !== 0x4c)) fail("This file is not an SPC spectrum.");
+  if (b.length < 512) bad("its header is cut short");
+  const d = new DataView(b.buffer, b.byteOffset, b.byteLength), le = b[1] === 0x4b, flags = b[0], xy = !!(flags & TXYXYS), multi = !!(flags & TMULTI);
+  const fexp = d.getInt8(3), npts = d.getUint32(4, le), first = d.getFloat64(8, le), last = d.getFloat64(16, le), xUnit = SPC_X[b[28]] ?? "", ytype = b[29];
+  if (b[28] === 255 || ytype === 1) fail("This SPC file holds an interferogram. Process it into a spectrum, then open it.");
+  if (multi && !d.getUint32(24, le)) bad("it has no subfiles");
+  let at = 512;
+  const count = (n: number) => { if (!n) bad("a subfile has no points"); if (n > MAX_POINTS) tooMany(n); return n; };
+  const floats = (n: number) => {
+    if (at + 4 * n > b.length) bad("its data are cut short");
+    const out = new Float64Array(n);
+    for (let i = 0; i < n; i++) out[i] = d.getFloat32(at + 4 * i, le);
+    at += 4 * n;
+    return out;
+  };
+  let xs = flags & TXVALS && !xy ? floats(count(npts)) : undefined;
+  // The first subfile: its header, its own X values (in a file whose subfiles each have their own), its Y values.
+  if (at + 32 > b.length) bad("its first subfile is cut short");
+  const subexp = d.getInt8(at + 1), n = count(xy ? d.getUint32(at + 16, le) : npts);
+  at += 32;
+  if (xy) xs = floats(n);
+  const exp = multi ? subexp : fexp, float = exp === -128 || fexp === -128, size = float || !(flags & TSPREC) ? 4 : 2, scale = 2 ** (exp - 8 * size);
+  if (at + size * n > b.length) bad("its data are cut short");
+  const y = new Float64Array(n);
+  for (let i = 0; i < n; i++) y[i] = float ? d.getFloat32(at + 4 * i, le) : size === 2 ? d.getInt16(at + 2 * i, le) * scale : d.getInt32(at + 4 * i, le) * scale;
+  if (!y.every(Number.isFinite) || (xs && !xs.every(Number.isFinite)) || !Number.isFinite(first) || !Number.isFinite(last)) bad("a value is not a number");
+  const kind = SPC_KIND[b[2]] ?? X_KIND[xUnit] ?? "other";
+  if (kind === "nmr" && xUnit === "s") fail("This file holds a raw FID. Process it into a spectrum, then open it.");
+  if (kind === "nmr" && xUnit !== "ppm") fail("This SPC file holds an NMR spectrum with no shift scale in ppm. Octet cannot open it.");
+  let comment = "";
+  for (let i = 88; i < 218 && b[i]; i++) comment += String.fromCharCode(b[i]);
+  const top = y.reduce((m, v) => Math.max(m, v), -Infinity), x0 = xs ? xs[0] : first, x1 = xs ? xs[n - 1] : last;
+  return [{
+    title: (comment.replace(/[\u0000-\u001f]/g, " ").trim() || name.replace(/[\u0000-\u001f]/g, " ")).slice(0, 200), kind, xUnit,
+    yUnit: ytype === 2 ? "A" : ytype === 128 ? (top <= 1.5 ? "T" : "%T") : ytype === 11 ? "%" : "", first: x0, last: x1, y,
+    ...(xs ? { xs } : {}), ...(kind === "ms" && xy ? { sticks: true as const } : {}), ...(kind === "nmr" ? { nucleus: Math.abs(x1 - x0) > 40 ? "13C" : "1H" } : {}),
+  }];
+}
+// An SPC file as the app hands it to the page (src-tauri/src/spectrum.rs): this line, then JSON with the file's name
+// and its bytes in base64.
+export const SPC = "OCTET-SPC 1\n";
+export function readSpcText(text: string): JcampSpectrum[] {
+  let d: { name?: unknown; data?: unknown };
+  try { d = JSON.parse(text.slice(SPC.length)); } catch { return fail("Octet cannot read this SPC file."); }
+  if (typeof d?.data !== "string") fail("Octet cannot read this SPC file.");
+  let bytes: Uint8Array;
+  try { const s = atob(d.data as string); bytes = Uint8Array.from(s, (c) => c.charCodeAt(0)); } catch { return fail("Octet cannot read this SPC file."); }
+  return readSpc(bytes, typeof d.name === "string" ? d.name : undefined);
+}
+
+// Whether a file's text is a spectrum Octet opens: JCAMP-DX, Bruker's processed data, or an SPC file.
+export const isSpectrum = (text: string) => text.startsWith(BRUKER) || text.startsWith(SPC) || isJcamp(text);

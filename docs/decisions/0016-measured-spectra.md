@@ -92,3 +92,17 @@ dependency.
 
 Bruker data opens by a drop (the pdata folder, its 1r or procs file, or the experiment folder) and by a pasted path.
 File > Open cannot pick it: its file dialog picks files by extension, and 1r and procs have none.
+
+## Galactic SPC
+
+ChemDraw 26.1 opens Galactic SPC files (its code has a Galactic reader that names the 4B style). Octet reads SPC from
+Galactic's published format, versions 4B (little endian) and 4C (big endian): the 512-byte header, X values when the
+file gives them (its own for each subfile in an XYXY file), and Y values as 32-bit floats or as 32-bit or 16-bit whole
+numbers times a power of two. It reads the first subfile of a file with several. The experiment type, else the X
+units, gives the kind (FT-IR, NIR and Raman are IR; UV-Vis; MS, with an XYXY file's points as sticks; NMR in ppm); the
+comment is the title.
+
+The limits are JCAMP's: 64 MB and 2,097,152 points, each count checked against the file's length before it is read.
+The old format (4D), an interferogram, a FID, an NMR spectrum not in ppm, and a value that is not a number are refused
+with a plain message. The app hands an SPC file to the page as its bytes in base64 (src-tauri/src/spectrum.rs), from
+File > Open, a drop or a pasted path, as for JCAMP-DX.
