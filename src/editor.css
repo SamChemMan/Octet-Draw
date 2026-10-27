@@ -4097,7 +4097,7 @@ button.variant.add {
 }
 .spectrum-int text {
   fill: var(--ink-muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 /* A drag from a multiplet to an atom: a line from the peak to the pointer, over everything. */
 .spectrum-link {
