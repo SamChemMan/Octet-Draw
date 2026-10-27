@@ -2088,6 +2088,19 @@ export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
   return { mol, atoms: new Set(add.atoms.map((_, i) => at(i))), items: new Set([...(add.captions ?? []), ...(add.arrows ?? []), ...(add.shapes ?? []), ...(add.cycles ?? [])].map((x) => ids.get(x.id)!)), ids };
 }
 
+// Structures side by side, left to right in the order given, three bond lengths apart, their middles on one line (a list
+// of names drawn by Name to Structure).
+export function inRow(mols: Mol[]): Mol {
+  let out: Mol = { atoms: [], bonds: [] }, x = 0;
+  for (const m of mols) {
+    if (!m.atoms.length) continue;
+    const xs = m.atoms.map((a) => a.location[0]), ys = m.atoms.map((a) => a.location[1]), left = Math.min(...xs);
+    out = insertMol(out, m, [x - left, -(Math.min(...ys) + Math.max(...ys)) / 2]).mol;
+    x += Math.max(...xs) - left + 3;
+  }
+  return out;
+}
+
 // Option-drag (as ChemDraw's): copies of the selection added with new ids, made as Copy and Paste make them, so the
 // copies keep their groups and the text that belongs to them (a compound number, an arrow's conditions). Picked text
 // whose structure, arrow or cycle is not copied is copied too, and the drag sets it free. Returns the drawing, the

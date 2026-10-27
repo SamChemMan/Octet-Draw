@@ -17,7 +17,7 @@ const ROLES: [&str; 3] = ["starting_material", "product", "all_reactions"];
 pub const TOO_LONG: &str = "This structure is too large for a search link. Select a smaller part.";
 
 // Every byte except a letter or a digit as %XX, so no character of the structure can end a parameter.
-fn encode(text: &str) -> String {
+pub fn encode(text: &str) -> String {
     text.bytes().map(|b| if b.is_ascii_alphanumeric() { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 

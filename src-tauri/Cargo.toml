@@ -31,6 +31,10 @@ open = { version = "5.4", features = ["shellexecute-on-windows"] }
 # Updates, only when the user allows them or asks (decision 0010). The download is signed and checked against the
 # public key in tauri.conf.json. Not the "zip" feature: Octet's updates are not zip files.
 tauri-plugin-updater = { version = "2.14", default-features = false, features = ["rustls-tls", "system-proxy"] }
+# Name to Structure's PubChem step (src/pubchem.rs, decision 0015): the updater's own HTTPS client and TLS, with the
+# same features, so nothing new is built.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 # A second launch on Windows and Linux gives its files to the Octet that runs (src/open.rs).
 [target.'cfg(any(windows, target_os = "linux"))'.dependencies]

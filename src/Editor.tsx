@@ -22,7 +22,7 @@ import { parse, serialize } from "./file";
 import {
   EMPTY, extent, stack, addArrow, addCaption, addCycle, addCharge, addRing, updateArrow, deleteGraphics, inPolygon, nextNumber, updateCaption, atomAt, atomsIn, bondAt, bounds, complete, deleteAtom, deleteAtoms, deleteBond, erase, flipBond,
   addChair, addGroup, addLane, addTemplate, alignFragments, cutReaction, deleteLane, moveLane, restyleSpot, atomsInPolygon, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset,
-  addShape, addSymbol, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, carryDepth, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
+  addShape, addSymbol, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, carryDepth, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, inRow, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
   toFront, addChain, chainPoints, chainThrough, snake, clickBond, dragBond, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, placeCentres, pickAtoms, nextGroup,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
@@ -74,6 +74,7 @@ import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, 
 import { dragCursor, rotateCursor, selectCursor } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { loadNames, nameToSmiles, nameToAtoms, suggestName, knownName, looksLikeSmiles } from "./names";
+import { casProblem, nameList } from "./dictionary";
 import { checkedName, graphOf, setComplexNamer, setNamer } from "./naming";
 import { iupacName } from "./namer";
 import { sandwichIons } from "./metals";
@@ -785,18 +786,22 @@ export default function Editor() {
   const historyMols = useRef(new Map<string, Mol | undefined>());
   const nameField = useRef<HTMLInputElement>(null);
   // A structure for a chemical name, laid out, or undefined (also until the names engine has loaded).
+  // A list of names ("benzaldehyde, aniline; acetic acid", or one a line) gives each structure in a row, in order.
   const structureFor = (name: string): Mol | undefined => {
     const smiles = loaded ? nameToSmiles(name) : undefined;
     if (!smiles) return undefined;
-    try { const m = parseStructure(smiles); return m.atoms.length ? m : undefined; } catch { return undefined; }
+    try {
+      const list = nameList(name, nameToSmiles), m = list?.join(".") === smiles ? inRow(list.map(parseStructure)) : parseStructure(smiles);
+      return m.atoms.length ? m : undefined;
+    } catch { return undefined; }
   };
   // A structure for typed or pasted text: a chemical name first (Octet's own names, drugs and formulas too), then
   // SMILES, InChI or a MOL file when the text looks like one. Indigo reads words such as "aspirin" as query atoms,
-  // so a word is never read as SMILES.
+  // so a word is never read as SMILES. Text of several lines that is not a file can be a list of names.
   // refused gets the reason when the text is over Octet's limits.
   const structureFromText = (text: string, refused?: (why: string) => void): Mol | undefined => {
     const s = text.trim(), lines = s.includes("\n");
-    const named = lines ? undefined : structureFor(s);
+    const named = lines && /V[23]000|M {2}END|\$RXN|\$RDFILE|^[<{]/.test(s) ? undefined : structureFor(s);
     if (named || !loaded || !(lines || looksLikeSmiles(s))) return named;
     // A MOL file keeps its first line, which is often blank (the name).
     try { const m = parseStructure(lines ? text.trimEnd() : s); return m.atoms.length ? asOpened(m, text) : undefined; } catch (err) { if (err instanceof RangeError) refused?.(err.message); return undefined; }
@@ -1450,17 +1455,51 @@ export default function Editor() {
       if (nameField.current?.value === t) nameField.current.select();
     });
   }
-  // Draws what the name field holds (or the recent name the arrow keys are on). False when it is not a name.
+  // Draws what the name field holds (or the recent name the arrow keys are on). False when it is not a name. Text
+  // nothing offline reads goes to PubChem (askPubChem), and true means the answer draws when it comes.
   function drawNamed(): boolean {
     if (naming === undefined) return false;
     if (recent.at >= 0 && historyRows[recent.at] !== undefined) { pickHistory(historyRows[recent.at]); return true; }
-    if (!named) return false;
+    if (!named) return askPubChem(naming);
     settleFrom.current = doc.atoms.length;
     place(named);
     if (structureFromText(naming)) { if (structureFor(naming.trim())) rememberName(naming.trim(), named); } else if (suggestion) rememberName(suggestion, named);
     setNaming(undefined);
     return true;
   }
+  // Name to Structure's last step (decision 0015): with Settings > Online search on, a name or InChIKey nothing offline
+  // reads goes to PubChem when the user presses Return. Typing never waits for the answer. It draws if the field still
+  // holds the same text, and a notice says it came from PubChem. No answer or no network: the field shakes, as it does
+  // for any text Octet cannot read.
+  const [asking, setAsking] = useState<string>();
+  const answered = useRef<(text: string, smiles: string | null | undefined, why?: string) => void>(undefined);
+  answered.current = (text, smiles, why) => {
+    setAsking(undefined);
+    if (naming?.trim() !== text) return;
+    let frag: Mol | undefined;
+    try { frag = smiles ? parseStructure(smiles) : undefined; } catch { frag = undefined; }
+    if (!frag?.atoms.length) {
+      if (why?.startsWith("PubChem")) setNotice(why, "info");
+      if (nameField.current) shake(nameField.current);
+      return;
+    }
+    settleFrom.current = doc.atoms.length;
+    place(frag);
+    rememberName(text, frag);
+    setNaming(undefined);
+    setNotice("Drawn from PubChem.", "info");
+  };
+  function askPubChem(text: string): boolean {
+    const s = text.trim();
+    if (!TAURI || !settings.onlineSearch || !namesLoaded || asking !== undefined || !s || s.length > 300 || casProblem(s) || looksLikeSmiles(s)) return false;
+    setAsking(s);
+    invoke<string | null>("pubchem_structure", { text: s }).then((smiles) => answered.current?.(s, smiles), (e) => answered.current?.(s, undefined, typeof e === "string" ? e : undefined));
+    return true;
+  }
+  // The name field shakes for text that is not a name.
+  const shake = (el: HTMLElement) => {
+    if (!reduced()) el.animate([{ transform: "translateX(0)" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "translateX(0)" }], timing("--motion-slow"));
+  };
   // The command Repeat runs again (see repeatLast).
   const lastRepeat = useRef<{ menu?: string; action?: string; rotate?: number; scale?: number }>(undefined);
   // Menu commands. New and Open go on the undo list, so they never lose work.
@@ -2228,6 +2267,8 @@ export default function Editor() {
     return () => clearTimeout(t);
   }, [naming, quick, namesLoaded]);
   const suggestion = quick ?? (thorough && thorough.typed === naming ? thorough.name : undefined);
+  // In place of a suggestion: why a CAS number is refused, or the wait for PubChem.
+  const nameNote = naming === undefined ? undefined : asking !== undefined ? "Searching PubChem" : casProblem(naming);
   const named = useMemo(
     () => (naming === undefined ? undefined : structureFromText(naming) ?? (suggestion ? structureFor(suggestion) : undefined)),
     [naming, suggestion, namesLoaded, loaded],
@@ -6648,7 +6689,11 @@ export default function Editor() {
           />
         );
       }}</Live>}
-      <Exit>{naming !== undefined && suggestion && !nameToSmiles(naming) && (() => {
+      <Exit>{naming !== undefined && nameNote && (
+        // A wrong CAS check digit, or the wait for PubChem, under the field where a suggestion shows.
+        <p className="name-suggestion" aria-live="polite"><span>{nameNote}</span></p>
+      )}</Exit>
+      <Exit>{naming !== undefined && !nameNote && suggestion && !nameToSmiles(naming) && (() => {
         // The suggested name under the field, with the letters it adds or changes marked. Tab takes it.
         const typed = naming.trim().toLowerCase(), name = suggestion;
         let a = 0, b = 0;
@@ -6663,7 +6708,7 @@ export default function Editor() {
       })()}</Exit>
       <Exit>{naming !== undefined && (historyRows.length > 0) && (
         // Names drawn before, newest first, matching what is typed. The field keeps focus while a row is clicked.
-        <div className={["name-history", suggestion && !nameToSmiles(naming) && "below", recent.all && "all"].filter(Boolean).join(" ")} role="listbox" aria-label="Recent names" onPointerDown={(e) => e.preventDefault()}>
+        <div className={["name-history", (nameNote || (suggestion && !nameToSmiles(naming))) && "below", recent.all && "all"].filter(Boolean).join(" ")} role="listbox" aria-label="Recent names" onPointerDown={(e) => e.preventDefault()}>
           {historyRows.map((entry, i) => {
             const mol = historyMol(entry), name = entry.name;
             return (
@@ -6710,8 +6755,7 @@ export default function Editor() {
             e.preventDefault();
             if (drawNamed()) return;
             // Not a name Octet can read: the field shakes.
-            if (!reduced())
-              e.currentTarget.animate([{ transform: "translateX(0)" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "translateX(0)" }], timing("--motion-slow"));
+            shake(e.currentTarget);
           }}
           onBlur={() => setNaming(undefined)}
         />
