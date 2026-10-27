@@ -7,7 +7,7 @@ import {
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, FlowArrow, BracketsRound,
-  TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash,
+  TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -78,7 +78,8 @@ import {
 import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
 import { dragCursor, rotateCursor, selectCursor } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
-import { abbreviationOf, loadNames, nameToSmiles, nameToAtoms, namesStarting, suggestName, knownName, looksLikeSmiles } from "./names";
+import { abbreviationOf, cleanOwnName, loadNames, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
+import { isTemplateFile, readTemplateFile } from "./ctp";
 import { casProblem, nameList } from "./dictionary";
 import { commonKey } from "./common";
 import { checkedName, graphOf, setComplexNamer, setNamer, withAbbreviation } from "./naming";
@@ -90,7 +91,7 @@ import { nameRuns } from "./nametype";
 
 setNamer(iupacName);
 setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, inchi: toInchi, aux: toInchiAux, cip: cipOf }));
-import { addSet, addTo, freeSetName, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, removeSet, removeTemplate, renameSet, renameTemplate, setName, templateKind } from "./templates";
+import { addSet, addSetOf, addTo, duplicateTemplate, freeSetName, hasContent, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, placeTemplate, removeSet, removeTemplate, renameSet, renameTemplate, setName, templateKind, templateToEnd, templateToStart, updateTemplate } from "./templates";
 import { formulaRuns } from "./labels";
 import { captionAtom, captionsToAtoms, chemicalCaption, interpretLabels, labelable, withCaptionAtoms } from "./edit";
 import { bendOf, crossedBonds, cutSides } from "./masscut";
@@ -123,8 +124,10 @@ const NATIVE_CLIP = TAURI;
 // Undo history: every edit pushes a new Mol; undo and redo move along the list.
 // merge: edits with the same key one after another (a slider being dragged) make one step.
 type History = { stack: Mol[]; at: number; merge?: string };
-type Action = { type: "set"; mol: Mol; merge?: string } | { type: "undo" } | { type: "redo" };
+type Action = { type: "set"; mol: Mol; merge?: string } | { type: "undo" } | { type: "redo" } | { type: "reset"; h: History };
 function history(h: History, a: Action): History {
+  // A drawing of its own with its own steps (a template opened to edit), or the drawing set aside for it, back.
+  if (a.type === "reset") return a.h;
   if (a.type === "undo") return { ...h, at: Math.max(0, h.at - 1), merge: undefined };
   if (a.type === "redo") return { ...h, at: Math.min(h.stack.length - 1, h.at + 1), merge: undefined };
   if (a.mol === h.stack[h.at]) return h;
@@ -573,6 +576,130 @@ export default function Editor() {
     remove: (name: string) => setSettings((s) => removeSet(s, name)),
     move: (id: string, set: string) => setSettings((s) => moveTemplate(s, id, set)),
   };
+  // Edit (a template's menu, CD-32): the template opens on the canvas as a drawing of its own, with its own undo steps,
+  // and the drawing in hand is set aside, as ChemDraw opens a template pane in its document window. Save (the bar, or
+  // File > Save) puts what is drawn in the template (a copy of a built-in one goes in My templates, under its name) and
+  // brings the drawing back as it was; Cancel brings it back and leaves the template. While a template is open, what
+  // would replace the drawing (New, Open, Home, Close, Quit) waits: a notice says to save or cancel first. A crash keeps
+  // the drawing set aside, not the template (rescue, recovery).
+  type TemplateEdit = { id?: string; name: string; tool: TemplateTool; saved: Mol; back: { h: History; file: FileState; view: View; guides: Guides; selection: Set<number>; picked: Set<number> } };
+  const [templateEdit, setTemplateEdit] = useState<TemplateEdit>();
+  const templateDirty = !!templateEdit && doc !== templateEdit.saved;
+  function editTemplate(kind: string, tool: TemplateTool) {
+    if (templateEdit) return setNotice("Save or cancel the template first.", "info");
+    const own = templates.find((t) => templateKind(t.id) === kind), mol = own?.mol ?? libraryItem(kind)?.mol ?? namedOf(kind);
+    if (!mol) return;
+    // The template fills a good part of the window (templates are small): up to three times the open zoom.
+    const start: Mol = { ...mol, style: newStyle }, b = bounds(start) ?? extent(start), open = openZoom(newStyle);
+    const fit = b ? 0.6 * Math.min((innerWidth - 160) / ((b[2] - b[0] + 1) * L), (innerHeight - 120) / ((b[3] - b[1] + 1) * L)) : open, zoom = Math.min(3 * open, Math.max(open, fit));
+    setTemplateEdit({ id: own?.id, name: own?.name ?? libraryItem(kind)?.name ?? kindName(kind) ?? "Template", tool, saved: start,
+      back: { h, file, view: views.get(), guides, selection, picked } });
+    dispatch({ type: "reset", h: { stack: [start], at: 0 } });
+    setFile({ saved: start, name: own?.name ?? libraryItem(kind)?.name ?? kindName(kind) });
+    setSelection(new Set());
+    setPicked(new Set());
+    setGuides(freshGuides([0, 0], newStyle));
+    setTemplatePick(undefined);
+    setView({ x: innerWidth / 2 - (b ? (b[0] + b[2]) / 2 : 0) * zoom * L, y: innerHeight / 2 + (b ? (b[1] + b[3]) / 2 : 0) * zoom * L, zoom });
+  }
+  function endTemplateEdit() {
+    const e = templateEdit;
+    if (!e) return;
+    dispatch({ type: "reset", h: e.back.h });
+    setFile(e.back.file);
+    setView(e.back.view);
+    setGuides(e.back.guides);
+    setSelection(e.back.selection);
+    setPicked(e.back.picked);
+    setTemplateEdit(undefined);
+  }
+  function saveTemplateEdit() {
+    const e = templateEdit;
+    if (!e) return;
+    const { style: _, guides: __, ...mol } = doc;
+    if (!hasContent(mol)) return setNotice("The template is empty. Draw something, or press Cancel.", "info");
+    // A template removed meanwhile (from a palette) is kept as a new one, so nothing drawn is lost.
+    const kept = !!e.id && templates.some((t) => t.id === e.id);
+    if (kept) setSettings((s) => updateTemplate(s, e.id!, mol));
+    else { const t = newTemplate(e.name, mol); setSettings((s) => addTo(s, t)); }
+    endTemplateEdit();
+    setNotice(kept ? `${e.name} is saved.` : `${e.name} is saved in My templates.`, "done");
+  }
+  // Floating palettes (View > Templates, and Keep open in the library): a set kept open beside the canvas, where it was
+  // left, until its close button closes it. A set opened again comes to the front. View > Templates lists the user's
+  // sets (My templates first), then Octet's.
+  const keepOpen = (set: string, tool: TemplateTool) => setSettings((s) => ({ ...s, palettes: openPalette(s.palettes, set, tool) }));
+  const ownSets = [MY_SET, ...settings.templateSets], octetSets = LIBRARY.map((c) => c.name), menuSets = [...ownSets, ...octetSets];
+  const setsMenu = ownSets.join("\n");
+  useEffect(() => { if (TAURI) invoke("set_template_sets", { own: ownSets, octet: octetSets }).then(syncChecks).catch(() => {}); }, [setsMenu]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A ChemDraw template file (.ctp, or .cts stationery) opened or dropped: its panes become a new set of the user's,
+  // named after the file, and the library opens on it.
+  function openTemplateFile(fileName: string, text: string) {
+    try {
+      const read = readTemplateFile(text, fileName);
+      if (!read.templates.length && read.left) return setNotice(`Octet cannot read the templates in ${fileName}.`);
+      const { set } = addSetOf(settings, read.set, read.templates);
+      if (!set) return setNotice("You have 50 template sets, the most Octet keeps. Remove a set first.");
+      setSettings((s) => addSetOf(s, read.set, read.templates).kept);
+      showLibrary("template", set);
+      const n = read.templates.length, more = read.left ? ` Octet left out ${read.left} that ${read.left > 1 ? "were" : "was"} too large or damaged.` : "";
+      setNotice(n ? `Added ${n} template${n > 1 ? "s" : ""} in the set ${set}.${more}` : `Added the empty set ${set}.${more}`, read.left ? "info" : "done");
+    } catch (e) {
+      setNotice(failure(`Octet cannot open ${fileName}.`, e));
+    }
+  }
+  // The user's own dictionary (Structure > Add Structure to Dictionary): names.ts gets the names whenever they change,
+  // and names drawn before are drawn again, so a name renamed, removed or given a new structure is never drawn from
+  // memory.
+  const ownNamesFor = useRef<OwnName[]>(undefined);
+  if (ownNamesFor.current !== settings.dictionary) {
+    ownNamesFor.current = settings.dictionary;
+    setOwnNames(settings.dictionary);
+    namedMols.clear();
+  }
+  // Add to dictionary (right-click, the Actions panel, or Structure > Add Structure to Dictionary…): the selected
+  // structure (or, with an atom or bond picked, its whole structure) is kept by a name the user gives (Dialog), with its
+  // SMILES and InChI.
+  function addToDictionary() {
+    const part = templatePart();
+    if (!part?.atoms.length) return setNotice("Select a structure first.", "info");
+    let smiles = "", inchi: string | undefined;
+    try { smiles = toSmiles(part); } catch { smiles = ""; }
+    try { inchi = toInchi(part) || undefined; } catch { inchi = undefined; }
+    if (!smiles) return setNotice("Octet cannot write this structure as SMILES.");
+    setDialog({ kind: "dictionary", name: "", smiles, inchi });
+  }
+  // Settings > Dictionary: Export… writes the dictionary as a SMILES file with names; Import… reads one (with Import a
+  // Structure's file dialog) and adds the names the user does not have. A SMILES Octet cannot read is left out.
+  async function exportNames() {
+    if (!TAURI) return;
+    try { await invoke("export_file", { export: { name: "Octet dictionary", format: "smi", smiles: ownNamesFile(settings.dictionary) } }); }
+    catch (e) { setNotice(failure("Octet cannot export the dictionary.", e)); }
+  }
+  async function importNames() {
+    if (!TAURI) return;
+    try {
+      const picked = await invoke<[string, string] | null>("import_structure");
+      if (!picked) return;
+      await ready;
+      const read = readOwnNamesFile(picked[1]).flatMap((n) => {
+        try { const m = parseStructure(n.smiles); return m.atoms.length ? [{ ...n, inchi: toInchi(m) || undefined }] : []; } catch { return []; }
+      });
+      if (!read.length) return setNotice(`There are no names in ${picked[0]}. Octet reads a SMILES file with a name after each SMILES.`);
+      const merged = mergeOwnNames(settings.dictionary, read);
+      setSettings((s) => ({ ...s, dictionary: mergeOwnNames(s.dictionary, read).list }));
+      setNotice(`Added ${merged.added} name${merged.added === 1 ? "" : "s"} to your dictionary.${merged.kept ? ` ${merged.kept} ${merged.kept === 1 ? "was" : "were"} in it already and stayed as ${merged.kept === 1 ? "it was" : "they were"}.` : ""}`, "done");
+    } catch (e) {
+      setNotice(failure("Octet cannot import this file.", e));
+    }
+  }
+  // A name from the user's own dictionary draws with the name under it, as ChemDraw's does.
+  const withOwnCaption = (name: string, frag: Mol): Mol => {
+    const own = ownName(name);
+    if (!own || !frag.atoms.length) return frag;
+    const xs = frag.atoms.map((a) => a.location[0]), ys = frag.atoms.map((a) => a.location[1]);
+    return addCaption(frag, { text: own.name, x: (Math.min(...xs) + Math.max(...xs)) / 2, y: Math.min(...ys) - 1, under: frag.atoms.map((_, i) => i) })[0];
+  };
   const selectKind = (settings.variants.select in SELECTS ? settings.variants.select : "box") as SelectKind;
   const symbolKind = (settings.variants.symbol in SYMBOLS ? settings.variants.symbol : "plus") as SymbolKind;
   // The template in hand: a library one or the user's own.
@@ -778,6 +905,9 @@ export default function Editor() {
   const saw = (k: keyof Seen) => { if (coach) setSeen((s) => ({ ...s, [k]: s[k] + 1 })); };
   const [away] = useState(() => { const last = loadSettings().lastSeen; return last ? Date.now() - last : 0; });
   const dirty = doc !== file.saved;
+  // The drawing the user has, set aside while a template is edited: what recovery keeps and what Quit asks about.
+  const mainH = templateEdit?.back.h ?? h, mainFile = templateEdit?.back.file ?? file, mainDoc = mainH.stack[mainH.at], mainDirty = mainDoc !== mainFile.saved;
+  const mainName = mainFile.path?.split(/[\\/]/).pop()?.replace(/\.(octet|oct|cdxml)$/i, "") ?? mainFile.name ?? "Untitled";
 
   useEffect(() => { ready.then(() => setLoaded(true)); }, []);
   // Name to structure loads in the background once the window has settled.
@@ -1032,7 +1162,11 @@ export default function Editor() {
   }
   // Before the drawing is replaced (New, Open, a recent drawing) or the window closes: with unsaved changes, ask to
   // save them first. stay: what runs when the drawing stays (Cancel, or a save that did not happen).
-  const keepWork = (next: () => void, stay?: () => void) => (dirty ? setDialog({ kind: "unsaved", next, stay }) : next());
+  // While a template is open on the canvas, nothing replaces the drawing: the template is saved or cancelled first.
+  const keepWork = (next: () => void, stay?: () => void) => {
+    if (templateEdit) { setNotice("Save or cancel the template first.", "info"); return stay?.(); }
+    return dirty ? setDialog({ kind: "unsaved", next, stay }) : next();
+  };
   // Close, Quit (REL-2) and Update: after the question about unsaved changes, the copy kept for recovery goes, then
   // Octet does then (closes the window, or installs the update). A quit from the Dock or a logout waits for the answer
   // (src-tauri/src/quit.rs): when the drawing stays, it stops.
@@ -1064,22 +1198,26 @@ export default function Editor() {
     return () => void off.then((f) => f());
   }, []);
   // With unsaved changes, the Dock's Quit, a logout or a restart waits and sends Quit here (src-tauri/src/quit.rs).
-  useEffect(() => { if (TAURI) invoke("set_edited", { edited: dirty }).catch(() => {}); }, [dirty]);
+  // A template open on the canvas counts too: Quit asks, and the page says to save or cancel it first.
+  const unsaved = mainDirty || !!templateEdit;
+  useEffect(() => { if (TAURI) invoke("set_edited", { edited: unsaved }).catch(() => {}); }, [unsaved]);
+  // Recovery keeps the user's drawing: while a template is edited, the drawing set aside.
   useEffect(() => {
     if (!TAURI) return;
-    if (!dirty) { if (keeper.kept) { keeper.kept = false; keep("recovery_clear").catch(() => {}); } return; }
+    if (!mainDirty) { if (keeper.kept) { keeper.kept = false; keep("recovery_clear").catch(() => {}); } return; }
     if (!keeper.timer) keeper.timer = window.setTimeout(() => { keeper.timer = 0; keeper.last = Date.now(); keeper.write(); }, Math.max(1000, keeper.last + 10_000 - Date.now()));
-  }, [doc, dirty]);
+  }, [mainDoc, mainDirty]);
   // The editor as last drawn: the copy the timer writes, and the error boundary's rescue. The copy is Octet's own
   // form of the drawing only, which readOct reads as it reads a .oct. For an 8 MB drawing with pictures it takes
   // 12 ms to make, and a whole .oct takes 0.3 s, so the editor does not stop every 10 s.
   useEffect(() => {
-    const contents = () => writeOct(doc, savedStyle(), cdxmlOptions());
+    const kept = templateEdit ? mainDoc : { ...doc, style: savedStyle() };
+    const contents = () => (templateEdit ? writeOct(mainDoc, readStyle(mainDoc.style ?? newStyle), cdxmlOptions()) : writeOct(doc, savedStyle(), cdxmlOptions()));
     keeper.write = () => {
-      if (!dirty) return;
-      try { keeper.kept = true; keep("recovery_write", { name, contents: serialize({ ...doc, style: savedStyle() }) }).catch(() => {}); } catch { /* kept at the next edit */ }
+      if (!mainDirty) return;
+      try { keeper.kept = true; keep("recovery_write", { name: mainName, contents: serialize(kept) }).catch(() => {}); } catch { /* kept at the next edit */ }
     };
-    rescue.current = { h, file, home, name, contents };
+    rescue.current = { h: mainH, file: mainFile, home, name: mainName, contents };
   });
   // After a crash, the next start offers the log (src-tauri/src/crashlog.rs), to show or to email. Nothing is sent
   // unless the user chooses.
@@ -1193,6 +1331,7 @@ export default function Editor() {
       const picked = await invoke<[string, string] | null>("open_drawing");
       if (!picked) return;
       if (isSpectrum(picked[1])) return openSpectrumText(picked[1], picked[0].split(/[\\/]/).pop() ?? "this file");
+      if (isTemplateFile(picked[0])) return openTemplateFile(picked[0].split(/[\\/]/).pop() ?? "Templates.ctp", picked[1]);
       load(picked[0], picked[1]);
     } catch (e) {
       setNotice(failure("Octet cannot open this file.", e));
@@ -1206,7 +1345,10 @@ export default function Editor() {
     const insert = !home;
     await takeFiles(await invoke<OpenedFile[]>("take_opened", { insert }), insert);
   }
-  async function takeFiles(files: OpenedFile[], insert: boolean) {
+  async function takeFiles(all: OpenedFile[], insert: boolean) {
+    // ChemDraw template files, opened or dropped anywhere: each becomes a set of templates.
+    for (const f of all) if (f.text !== null && !f.error && isTemplateFile(f.name)) openTemplateFile(f.name, f.text);
+    const files = all.filter((f) => !isTemplateFile(f.name) || f.error);
     // Spectra (on the canvas or the Spectrum panel, or opened) go into the drawing.
     for (const f of files) if (f.text !== null && isSpectrum(f.text)) openSpectrumText(f.text, f.name);
     const read = files.filter((f) => f.picture !== null || (f.text !== null && !isSpectrum(f.text)));
@@ -1483,7 +1625,7 @@ export default function Editor() {
   }
   // A structure in place of the text it was read from. A name (not SMILES) joins the names drawn before.
   function convertInPlace(found: { frag: Mol; name: string }, base: Mol, at: P) {
-    place(found.frag, base, at);
+    place(withOwnCaption(found.name, found.frag), base, at);
     if (structureFor(found.name)) rememberName(found.name, found.frag);
   }
   // The name field, with the text given; with none, the clipboard's text if Octet reads it as a structure.
@@ -1505,7 +1647,7 @@ export default function Editor() {
     if (recent.at >= 0 && historyRows[recent.at] !== undefined) { pickHistory(historyRows[recent.at]); return true; }
     if (!named) return askPubChem(naming);
     settleFrom.current = doc.atoms.length;
-    place(named);
+    place(withOwnCaption(naming.trim(), named));
     if (structureFromText(naming)) { if (structureFor(naming.trim())) rememberName(naming.trim(), named); } else if (suggestion) rememberName(suggestion, named);
     setNaming(undefined);
     return true;
@@ -1554,7 +1696,7 @@ export default function Editor() {
     ...Object.fromEntries(settings.ownPurposes.map((p, k) => [`new_own_${k}`, () => newDrawing(p.id)])),
     open: () => openDrawing(),
     opened: () => void takeOpened().catch((e) => setNotice(failure("Octet cannot open this file.", e))),
-    home: () => setHome(true),
+    home: () => (templateEdit ? setNotice("Save or cancel the template first.", "info") : setHome(true)),
     quit: () => closeWindow(),
     // File > Close Window on Linux, where GTK has no Close Window of its own (REL-18).
     close: () => closeWindow(),
@@ -1563,7 +1705,8 @@ export default function Editor() {
     report_problem: () => void invoke("open_link", { name: "issues" }).catch((e) => setNotice(failure("Octet cannot open the link.", e))),
     check_updates: () => checkUpdates(true),
     import: () => void importFile(),
-    save: () => void save(false),
+    // While a template is open on the canvas, Save keeps it in the template (as ChemDraw saves its template document).
+    save: () => (templateEdit ? saveTemplateEdit() : void save(false)),
     save_as: () => void save(true),
     // Edit > Cut, Copy and Paste on Linux, where they are Octet's own menu items (main.rs).
     cut: () => clipCommand("cut"),
@@ -1884,6 +2027,10 @@ export default function Editor() {
     stereo_or: () => enhance("or"),
     stereo_and: () => enhance("&"),
     name_to_structure: () => nameToStructure(),
+    // Structure > Add Structure to Dictionary…: a name of the user's own for the selected structure.
+    dictionary_add: () => addToDictionary(),
+    // View > Templates: a set kept open as a floating palette (the user's sets, then Octet's, as the menu lists them).
+    ...Object.fromEntries(menuSets.map((set, k) => [`templates_${k}`, () => keepOpen(set, "template")])),
     document: () => setSettingsOpen("document"),
     settings: () => setSettingsOpen(moduleOf(settings.settingsModule)),
     structure_to_name: () => nameStructures(),
@@ -2234,7 +2381,8 @@ export default function Editor() {
     | { kind: "font"; font: string } | { kind: "size"; size: string } | { kind: "spacing"; mode: "auto" | "variable" | "fixed"; pt: string }
     | { kind: "unsaved"; next: () => void; stay?: () => void } | { kind: "rf"; plate: number; index: number; value: string } | { kind: "chain"; from: number | P; atoms: string }
     | { kind: "template"; name: string; from: string } | { kind: "templateSet"; name: string; then: (set: string) => void } | { kind: "lossy"; lost: Record<string, number>; done: (saved: boolean) => void } | { kind: "revert" }
-    | { kind: "discard"; entry: RecoveredEntry } | { kind: "crashed"; log: string } | { kind: "update"; version: string }>();
+    | { kind: "discard"; entry: RecoveredEntry } | { kind: "crashed"; log: string } | { kind: "update"; version: string }
+    | { kind: "dictionary"; name: string; smiles: string; inchi?: string }>();
   // Check Structure's dialog: the problems, the one shown, and what runs after them (a copy or export that asked).
   // select: Check Structure itself, which selects each problem's objects as it shows it.
   const [checking, setChecking] = useState<{ list: Problem[]; at: number; then: () => void; select: boolean }>();
@@ -4362,7 +4510,7 @@ export default function Editor() {
     const own = selection.size ? undefined : pickedChem(picked);
     // With each structure's abbreviation, once the names engine has loaded (TREN · C6H18N4).
     return analyse(selection.size ? subset(doc, selection) : own ? subset(chem.mol, own) : chem.mol, 3, namesLoaded ? abbreviationOf : undefined);
-  }, [loaded, facts, doc, chem, selection, picked, namesLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loaded, facts, doc, chem, selection, picked, namesLoaded, settings.dictionary]); // eslint-disable-line react-hooks/exhaustive-deps
   // The Properties panel's values, while it is open: for each structure in the selection (or the drawing), with
   // each structure's atoms in the drawing (for Add to drawing). While a box or lasso sweeps, the panel keeps the
   // values it has until the pointer stops for a moment or lets go, so it does not work them out on every move.
@@ -4997,6 +5145,8 @@ export default function Editor() {
       ...variants("ring", "ring", (Object.keys(RINGS) as RingKind[]).map((k) => [k, RINGS[k].name, <RingGlyph kind={k} />]), "Rings"),
       ...LIBRARY.flatMap((c) => variants("template", "template", c.items.map((t) => [t.kind, t.name, <TemplateGlyph mol={t.icon ?? t.mol} />]), c.name, "template")),
       ...templates.map((t) => ({ id: `template:${templateKind(t.id)}`, name: t.name, group: "My templates", icon: <TemplateGlyph mol={t.mol} />, run: pick("template", ["template", templateKind(t.id)]) })),
+      // Each template set as a floating palette (View > Templates).
+      ...menuSets.map((set) => ({ id: `palette:${set}`, name: `Keep ${set} open`, group: "Templates", icon: <ArrowSquareOut size={18} />, run: () => keepOpen(set, "template") })),
       ...variants("symbol", "symbol", Object.entries(SYMBOLS).map(([k, n]) => [k, n, <SymbolGlyph kind={k as SymbolKind} />]), "Symbols"),
       ...variants("arrow", "arrow", [...STRAIGHT, ...["curved", "fishhook", "double"].flatMap((k) => SWEEPS.map((sw) => `${k}-${sw}`)), ...ELLIPSES]
         .map((k) => [k, `${arrowName(k)} arrow`, <ArrowGlyph kind={k} />]), "Arrows"),
@@ -5023,7 +5173,7 @@ export default function Editor() {
   // while typing, all of them once typing pauses (read).
   const nameCommands = (q: string, read: boolean): Command[] => (loaded && namesLoaded ? namesStarting(q, 6).filter((name) => read || namedMols.has(name)) : []).flatMap((name) => {
     const frag = namedMol(name);
-    return frag ? [{ id: `draw:${name}`, name: `Draw ${name}`, group: "Structure", icon: <TemplateGlyph mol={frag} />, run: () => { place(frag); rememberName(name, frag); } }] : [];
+    return frag ? [{ id: `draw:${name}`, name: `Draw ${name}`, group: "Structure", icon: <TemplateGlyph mol={frag} />, run: () => { place(withOwnCaption(name, frag)); rememberName(name, frag); } }] : [];
   });
 
   // Runs an action from the panel on the selected atom, bond or atoms.
@@ -5296,6 +5446,7 @@ export default function Editor() {
     // Add to templates: into My templates (the Actions panel), into a set (the right-click menu), or into a new set.
     if (command === "template.add" || command.startsWith("template.add:")) return addPart(templatePart(), command.slice(13) || MY_SET);
     if (command === "template.add.new") { const part = templatePart(); return part && askSet((set) => addPart(part, set)); }
+    if (command === "dictionary.add") return addToDictionary();
     if (command === "caption.add") {
       // A new caption under the selected structures, centred on them.
       const under = fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat();
@@ -7009,6 +7160,11 @@ export default function Editor() {
           ownTemplates={madeTemplate ? [] : settings.ownPurposes}
           onRenameTemplate={(id, name) => setSettings((s) => ({ ...s, ownPurposes: s.ownPurposes.map((x) => (x.id === id ? { ...x, name } : x)) }))}
           onRemoveTemplate={removePurpose}
+          dictionary={settings.dictionary}
+          onRenameName={(from, to) => setSettings((s) => ({ ...s, dictionary: renameOwnName(s.dictionary, from, to) }))}
+          onRemoveName={(name) => setSettings((s) => ({ ...s, dictionary: withoutOwnName(s.dictionary, name) }))}
+          onExportNames={() => void exportNames()}
+          onImportNames={() => void importNames()}
           onApplyFile={TAURI && !madeTemplate ? () => void applyStyleFile() : undefined}
           keys={settings.keys}
           onKeys={(keys) => setSettings((s) => ({ ...s, keys }))}
@@ -7081,6 +7237,15 @@ export default function Editor() {
         findNamed={findNamed}
         onNewSet={askSet}
         onRemoveTemplate={removeRingTemplate}
+        onEditTemplate={editTemplate}
+        onDuplicate={(id) => setSettings((s) => duplicateTemplate(s, id))}
+        onPlace={(id, before) => setSettings((s) => placeTemplate(s, id, before))}
+        onToStart={(id) => setSettings((s) => templateToStart(s, id))}
+        onToEnd={(id) => setSettings((s) => templateToEnd(s, id))}
+        palettes={home ? [] : settings.palettes.filter((f) => menuSets.includes(f.set))}
+        onPalettes={(change) => setSettings((s) => ({ ...s, palettes: change(s.palettes) }))}
+        onKeepOpen={keepOpen}
+        onReveal={showLibrary}
         popKey={pop?.n ?? 0}
         canUndo={h.at > 0}
         canRedo={h.at < h.stack.length - 1}
@@ -7249,6 +7414,34 @@ export default function Editor() {
           </Dialog>
         );
       })()}</Exit>
+      <Exit>{dialog?.kind === "dictionary" && (() => {
+        // Add to dictionary (ChemDraw's Add Structure to Dictionary, with its Enter Name field and Save): the name for
+        // the structure. A name in the dictionary already is replaced, as ChemDraw asks; the dialog says so first. A name
+        // Octet reads already then gives the user's structure.
+        const name = cleanOwnName(dialog.name), there = name ? ownName(name) : undefined, octets = !!name && !there && !!nameToSmiles(name);
+        const keepIt = () => {
+          if (!name) return;
+          const d = dialog;
+          setDialog(undefined);
+          setSettings((s) => ({ ...s, dictionary: withOwnName(s.dictionary, { name, smiles: d.smiles, ...(d.inchi ? { inchi: d.inchi } : {}) }) }));
+          setNotice(`${name} is in your dictionary. Type it in Name to Structure to draw it.`, "done");
+        };
+        return (
+          <Dialog title="Add to dictionary" action={there ? "Replace" : "Save"} disabled={!name} onClose={() => setDialog(undefined)} onAction={keepIt}>
+            <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={dialog.name} maxLength={80} spellCheck={false} onChange={(e) => setDialog({ ...dialog, name: e.target.value })} /></span></label>
+            {there && <p className="dialog-note">Your dictionary has “{there.name}” already. Replace gives it this structure.</p>}
+            {octets && <p className="dialog-note">Octet reads this name already. Your structure comes first.</p>}
+          </Dialog>
+        );
+      })()}</Exit>
+      <Exit>{templateEdit && (
+        // A template open on the canvas (Edit): its name, Cancel and Save. Save is also File > Save (⌘S).
+        <div className={naming !== undefined ? "template-bar low" : "template-bar"} role="region" aria-label="Template">
+          <span className="template-bar-name"><NotePencil size={16} aria-hidden />{templateEdit.id ? templateEdit.name : `Copy of ${templateEdit.name}`}</span>
+          <button className="dialog-button" onClick={endTemplateEdit}>Cancel</button>
+          <button className="dialog-button primary" data-key={hint("save")} onClick={saveTemplateEdit} disabled={!templateDirty && !!templateEdit.id}>Save</button>
+        </div>
+      )}</Exit>
       <Exit>{dialog?.kind === "template" && (() => {
         // Custom template on Home: its name and the template it starts from. Continue saves it as a template and opens
         // its Document settings. A name must not be Quick start's or one of Octet's; the same name as one of the

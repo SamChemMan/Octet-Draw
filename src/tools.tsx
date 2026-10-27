@@ -5,10 +5,10 @@ import { flushSync } from "react-dom";
 import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Cube, Eraser, Lasso, Plus, PushPin, Selection, TextT, Trash, X } from "@phosphor-icons/react";
 import { chairPoints, type BondSpec, type SymbolKind } from "./edit";
 import { ARROW_SIZES, curvePath, HBOND, headOfLength, QUADRUPLE, SWEEPS, type ArrowKind, type ArrowSize, type HeadSize, type Mol, type ShapeKind } from "./render";
-import { kindName, MY_SET, templateKind, type Template } from "./templates";
-import type { TemplateSetActions, TemplateTool } from "./TemplateLibrary";
-import { libraryItem, type LibraryItem } from "./library";
-import { LibraryPanel } from "./TemplateLibrary";
+import { closePalette, kindName, MY_SET, templateKind, type FloatingPalette, type Template } from "./templates";
+import type { TemplateActions, TemplateSetActions, TemplateTool } from "./TemplateLibrary";
+import { LIBRARY, libraryItem, type LibraryItem } from "./library";
+import { FloatingTemplates, LibraryPanel } from "./TemplateLibrary";
 import { columnsFor, DEFAULT_COLUMNS, Menu, menuWidth, type MenuItem } from "./Menu";
 import { Exit, reduced, timing } from "./motion";
 import { BracketGlyph, BRACKETS, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, SHAPE_EXTRA, SHAPE_GRID, shapeName } from "./elements";
@@ -446,6 +446,19 @@ type PaletteProps = {
   onCopy: (kind: string, set: string, tool: TemplateTool) => void; // a built-in template copied into a set of the user's
   onNewSet: (then: (set: string) => void) => void; // New set…: a name for a set, then what goes in it
   onRemoveTemplate: (id: string) => void;
+  // A template opened on the canvas to change it (one of the user's), or a copy of a built-in one to change and keep
+  // in My templates; one of the user's duplicated, or put in another place in its set (before unset: at the end).
+  onEditTemplate: (kind: string, tool: TemplateTool) => void;
+  onDuplicate: (id: string) => void;
+  onPlace: (id: string, before?: string) => void;
+  onToStart: (id: string) => void;
+  onToEnd: (id: string) => void;
+  // Floating palettes: the sets kept open beside the canvas, and a change to them (opened, moved, closed). onReveal:
+  // the library opened on a set, with a template's name ready to type (Rename, from a palette).
+  palettes: FloatingPalette[];
+  onPalettes: (change: (list: FloatingPalette[]) => FloatingPalette[]) => void;
+  onKeepOpen: (set: string, tool: TemplateTool) => void;
+  onReveal: (tool: TemplateTool, set: string, id?: string) => void;
   onUndo: () => void;
   onRedo: () => void;
   onDrop: (x: number, y: number) => void; // an option, now in hand, was let go here on the canvas (px)
@@ -533,11 +546,28 @@ export function Palette(p: PaletteProps) {
   const template = (kind: string) => p.templates.find((t) => templateKind(t.id) === kind);
   // The user's own templates in the library, set by set, and what the library can do with them.
   const mine = p.templates.map((x) => ({ kind: templateKind(x.id), name: x.name, category: x.set ?? MY_SET, mol: x.mol }));
+  // What a template's menu does, the same in the library and in a floating palette (the Ring menu pin is the Ring
+  // tool's only). Edit and Keep open close the library: the canvas, or the new palette, is where the user goes next.
+  const actions = (tool: TemplateTool): TemplateActions => ({
+    sets: p.templateSets, onSets: p.onTemplateSets, onCopy: (kind, set) => p.onCopy(kind, set, tool), onNewSet: p.onNewSet,
+    onRemove: (kind) => { const t = template(kind); if (t) p.onRemoveTemplate(t.id); },
+    onEdit: (kind) => { setOpen(undefined); p.onEditTemplate(kind, tool); }, onDuplicate: p.onDuplicate, onPlace: p.onPlace, onToStart: p.onToStart, onToEnd: p.onToEnd,
+    onKeepOpen: (set) => { setOpen(undefined); p.onKeepOpen(set, tool); },
+    ...(tool === "ring" ? { kept: p.libraryRings, onKeep: (kind: string, on: boolean) => (on ? keep("ring", kind) : unkeep("ring", kind)) } : {}),
+  });
   // Add with nothing selected starts a pick on the canvas: the library closes out of its way.
-  const own = (tool: TemplateTool) => ({ tool, sets: p.templateSets, onSets: p.onTemplateSets, reveal: p.reveal?.tool === tool ? p.reveal : undefined,
+  const own = (tool: TemplateTool) => ({ ...actions(tool), tool, reveal: p.reveal?.tool === tool ? p.reveal : undefined,
     onAdd: (set: string) => { if (!p.canAddSelection) setOpen(undefined); p.onAdd(set, tool); },
-    onRename: p.onRename, onCopy: (kind: string, set: string) => p.onCopy(kind, set, tool), onNewSet: p.onNewSet,
-    onRemove: (kind: string) => { const t = template(kind); if (t) p.onRemoveTemplate(t.id); }, find: p.findNamed });
+    onRename: p.onRename, find: p.findNamed });
+  // A floating palette's templates: a set of the user's, or one of Octet's.
+  const setTemplates = (set: string): LibraryItem[] => (set === MY_SET || p.templateSets.includes(set) ? mine.filter((t) => t.category === set) : LIBRARY.find((c) => c.name === set)?.items ?? []);
+  // Palettes closing: kept a moment, so each leaves with its motion (Exit).
+  const [closing, setClosing] = useState<FloatingPalette[]>([]);
+  const closeFloating = (f: FloatingPalette) => {
+    setClosing((c) => [...c.filter((x) => x.set !== f.set), f]);
+    p.onPalettes((list) => closePalette(list, f.set));
+    setTimeout(() => setClosing((c) => c.filter((x) => x !== f)), timing("--motion-fast").duration + 50);
+  };
   const shapeOf = (kind: string) => template(kind)?.mol ?? libraryItem(kind)?.icon ?? libraryItem(kind)?.mol ?? p.named(kind);
   // A template found by name has its name once its structure can be drawn (the names engine has loaded).
   const named = (kind: string) => (p.named(kind) ? kindName(kind) : undefined);
@@ -803,9 +833,8 @@ export function Palette(p: PaletteProps) {
                       onPress={(e, v) => startCarry(e, `arrow:${v}`)} onChoose={(v) => { if (!dragged.current) choose("arrow", v); }} />
                   )}</Exit>
                   <Exit>{tool === "ring" && library && (
-                    <LibraryPanel current={p.variants.ring} kept={p.libraryRings} dimmed={curveCarry} mine={mine} {...own("ring")}
+                    <LibraryPanel current={p.variants.ring} dimmed={curveCarry} mine={mine} {...own("ring")}
                       onChoose={(kind) => { if (!dragged.current) choose("ring", kind); }}
-                      onKeep={(kind, on) => (on ? keep("ring", kind) : unkeep("ring", kind))}
                       onPress={(e, kind) => startCarry(e, `ring:${kind}`)} />
                   )}</Exit>
                 </Menu>
@@ -861,6 +890,28 @@ export function Palette(p: PaletteProps) {
           </>
         );
       })()}
+      {(p.palettes.length > 0 || closing.length > 0) && (
+        // The sets kept open, in a stable order (a palette brought to the front keeps its place in the page and comes up by
+        // z-index alone, so a press on it is never lost). They are in the toolbar's layer, so a dialog over the window
+        // makes them inert with the toolbar.
+        <div className="floating-layer">
+          {[...p.palettes, ...closing.filter((c) => !p.palettes.some((x) => x.set === c.set))].sort((a, b) => (a.set < b.set ? -1 : a.set > b.set ? 1 : 0)).map((f) => {
+            const at = p.palettes.findIndex((x) => x.set === f.set), tool = f.tool;
+            return (
+              <Exit key={f.set}>{at >= 0 && (
+                <FloatingTemplates palette={f} items={setTemplates(f.set)} current={p.tool === tool ? p.variants[tool] : undefined} actions={actions(tool)} z={at + 1}
+                  onChoose={(kind) => { if (!dragged.current) choose(tool, kind); }}
+                  onPress={(e, kind) => startCarry(e, `${tool}:${kind}`)}
+                  onMove={(x, y) => p.onPalettes((list) => list.map((q) => (q.set === f.set ? { ...q, x, y } : q)))}
+                  onColumns={(columns) => p.onPalettes((list) => list.map((q) => (q.set === f.set ? { ...q, columns } : q)))}
+                  onFront={() => { if (at !== p.palettes.length - 1) p.onPalettes((list) => [...list.filter((q) => q.set !== f.set), ...list.filter((q) => q.set === f.set)]); }}
+                  onClose={() => closeFloating(f)}
+                  onRename={(kind) => { const t = template(kind); if (t) p.onReveal(tool, t.set ?? MY_SET, t.id); }} />
+              )}</Exit>
+            );
+          })}
+        </div>
+      )}
     </nav>
   );
 }
