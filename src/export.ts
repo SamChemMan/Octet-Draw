@@ -89,7 +89,7 @@ export const copyToClipboard = (c: { svg?: string; cdxml?: string; cdxmlType?: b
 // What paste can use from the clipboard, each null when absent: Octet's JSON; CDXML (ChemDraw's CDXML type, or
 // hidden in a pasted picture: Octet's, ChemDraw's, or either copied back out of Word); ChemDraw's CDX as base64;
 // a molfile or RXN file; SMILES. All of it comes from another program: read it as a hostile file.
-export type Clipboard = { octet: string | null; cdxml: string | null; cdx: string | null; molfile: string | null; smiles: string | null; text: string | null; picture: string | null };
+export type Clipboard = { octet: string | null; cdxml: string | null; cdx: string | null; molfile: string | null; smiles: string | null; text: string | null; picture: string | null; spectrum?: [string, string] | null };
 export const readClipboard = () => invoke<Clipboard>("read_clipboard");
 
 export type ExportFormat = "oct" | "pdf" | "svg" | "png" | "emf" | "eps" | "tif" | "jpg" | "gif" | "cdxml" | "cdx" | "mol" | "mol2000" | "sdf" | "sdf2000" | "rxn" | "rxn2000" | "rdf" | "rdf2000" | "smi" | "inchi";

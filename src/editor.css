@@ -4056,6 +4056,72 @@ button.variant.add {
 .spectrum-signal.lit text {
   fill: var(--link);
 }
+/* A measured spectrum's title beside the panel's name. */
+.spectrum-title {
+  margin-left: var(--space-2);
+  font-weight: 400;
+  color: var(--ink-muted);
+}
+/* The base line of the predicted spectrum when it is stacked over the measured one. */
+.spectrum-axis.faint {
+  stroke: var(--hairline);
+}
+/* The prediction overlaid on a measured spectrum: faint, in the brand blue. */
+.spectrum-overlay .spectrum-trace,
+.spectrum-overlay .spectrum-stick {
+  stroke: var(--brand-bright);
+  stroke-opacity: 0.5;
+}
+/* A measured peak's mark, the multiplet being linked, a Shift-drag's range and a linked multiplet's dot. */
+.spectrum-peak {
+  stroke: var(--ink-faint);
+  stroke-width: 1;
+}
+.spectrum-lit.chosen {
+  stroke: var(--brand-bright);
+  stroke-width: 1;
+}
+.spectrum-band {
+  fill: var(--brand-mist);
+  stroke: var(--brand-bright);
+  stroke-dasharray: 3 2;
+}
+.spectrum-linked {
+  fill: var(--link);
+}
+/* Each ¹H multiplet's integral, under the axis. */
+.spectrum-int path {
+  fill: none;
+  stroke: var(--ink-muted);
+  stroke-width: 1;
+}
+.spectrum-int text {
+  fill: var(--ink-muted);
+  font-size: 10px;
+}
+/* A drag from a multiplet to an atom: a line from the peak to the pointer, over everything. */
+.spectrum-link {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 50;
+  pointer-events: none;
+}
+.spectrum-link line {
+  stroke: var(--brand-bright);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+.spectrum-link circle {
+  fill: var(--brand-bright);
+}
+.spectrum-threshold {
+  width: 240px;
+}
+.spectrum-controls .unit-field {
+  width: 80px;
+}
 .spectrum-foot {
   display: flex;
   align-items: baseline;

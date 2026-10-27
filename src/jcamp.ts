@@ -321,3 +321,17 @@ export function readBruker(procs: string, data: Uint8Array, acqus = "", name = "
   const nucleus = nucleusOf(param(acqus, "NUC1") ?? param(procs, "AXNUC")) ?? "1H", solvent = solventName(param(acqus, "SOLVENT") ?? "");
   return { title: name.replace(/[\u0000-\u001f]/g, " ").slice(0, 200), kind: "nmr", nucleus, mhz: sf, ...(solvent ? { solvent } : {}), xUnit: "ppm", yUnit: "", first: offset, last: offset - ((si - 1) * sw) / sf / si, y };
 }
+
+// Bruker's processed data as the app hands it to the page (src-tauri/src/open.rs): this line, then JSON with the
+// folder's name, procs, acqus and the 1r file's bytes in base64.
+export const BRUKER = "OCTET-BRUKER 1\n";
+export function readBrukerText(text: string): JcampSpectrum {
+  let d: { name?: unknown; procs?: unknown; acqus?: unknown; data?: unknown };
+  try { d = JSON.parse(text.slice(BRUKER.length)); } catch { return fail("Octet cannot read this Bruker folder."); }
+  if (typeof d?.procs !== "string" || typeof d.data !== "string" || (d.acqus !== undefined && typeof d.acqus !== "string")) fail("Octet cannot read this Bruker folder.");
+  let bytes: Uint8Array;
+  try { const s = atob(d.data as string); bytes = Uint8Array.from(s, (c) => c.charCodeAt(0)); } catch { return fail("Octet cannot read this Bruker folder."); }
+  return readBruker(d.procs as string, bytes, (d.acqus as string | undefined) ?? "", typeof d.name === "string" ? d.name : undefined);
+}
+// Whether a file's text is a spectrum Octet opens: JCAMP-DX, or Bruker's processed data.
+export const isSpectrum = (text: string) => text.startsWith(BRUKER) || isJcamp(text);

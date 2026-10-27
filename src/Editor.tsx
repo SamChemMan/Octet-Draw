@@ -36,7 +36,9 @@ import { Actions, ActionsMenu, actionItems, FontPick, SearchGlyph, type Context 
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
 import { propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./proprows";
-import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
+import { SpectrumPanel, PEAK_COLOURS, type Show } from "./Spectrum";
+import { analyse as analyseSpectrum, defineGroup, fromJcamp, keyOf as spectrumKeyOf, nextGroupId, regroup, type Measured } from "./measured";
+import { BRUKER, isJcamp, isSpectrum, readBrukerText as brukerOf, readJcamp, type JcampSpectrum } from "./jcamp";
 import { acsText, multiplicity, quality } from "./nmr";
 import { nmrReady, predict, type Nucleus } from "./nmr";
 import { spectrumFigure } from "./spectrumplot";
@@ -1184,6 +1186,7 @@ export default function Editor() {
     try {
       const picked = await invoke<[string, string] | null>("open_drawing");
       if (!picked) return;
+      if (isSpectrum(picked[1])) return openSpectrumText(picked[1], picked[0].split(/[\\/]/).pop() ?? "this file");
       load(picked[0], picked[1]);
     } catch (e) {
       setNotice(failure("Octet cannot open this file.", e));
@@ -1198,7 +1201,9 @@ export default function Editor() {
     await takeFiles(await invoke<OpenedFile[]>("take_opened", { insert }), insert);
   }
   async function takeFiles(files: OpenedFile[], insert: boolean) {
-    const read = files.filter((f) => f.text !== null || f.picture !== null);
+    // Spectra (on the canvas or the Spectrum panel, or opened) go into the drawing.
+    for (const f of files) if (f.text !== null && isSpectrum(f.text)) openSpectrumText(f.text, f.name);
+    const read = files.filter((f) => f.picture !== null || (f.text !== null && !isSpectrum(f.text)));
     for (const f of files) if (f.error) setNotice(f.error);
     if (read.some((f) => f.text !== null && !isDrawingText(f.text))) await ready;
     const dropped = read.filter((f) => f.at && insert), first = read.find((f) => !(f.at && insert));
@@ -1279,6 +1284,8 @@ export default function Editor() {
       if (mol.atoms.some((a) => a.location[2])) { setSettings((s) => ({ ...s, variants: { ...s.variants, select: "perspective" } })); setTool("select"); }
       setFile(path ? { path, saved: mol, lost: Object.keys(lost).length ? lost : undefined } : title !== undefined ? { saved: EMPTY, name: title } : { saved: mol });
       setHome(false); setCoach(0); outlineFrom.current = undefined;
+      // A drawing with a measured spectrum opens with it in the Spectrum panel.
+      if (mol.spectra?.length) { setSpectrum(spectrumKeyOf(mol.spectra[0])); setSpectrumShow("measured"); setChosenGroup(undefined); }
       sayLost(lost);
       if (b) setView((v) => ({ ...v, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * v.zoom * L, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * v.zoom * L }));
     } catch (e) {
@@ -3359,6 +3366,12 @@ export default function Editor() {
     stopCamera(); // what is drawn is where the press lands
     joinNext.current = undefined;
     if (e.button !== 0) return;
+    // Linking a measured multiplet: a click on an atom links it (or, a second time, unlinks it); anywhere else stops.
+    if (chosenGroup !== undefined) {
+      const t = hit(toDoc(e.clientX, e.clientY));
+      if (t.atom !== undefined) return linkAtoms(chosenGroup, [t.atom]);
+      setChosenGroup(undefined);
+    }
     // Picking a structure for a template set (Add with nothing selected): a click on a structure or object adds it.
     if (templatePick && !(MAC && e.ctrlKey)) {
       const p = toDoc(e.clientX, e.clientY), t = hit(p), free = t.atom === undefined && t.bond === undefined && t.caption === undefined && t.cycle === undefined;
@@ -4385,11 +4398,13 @@ export default function Editor() {
   lastProperties.current = properties;
   // The Spectrum panel's structure (the first in the selection, or the drawing's largest), its predicted spectrum
   // once the shift tables are loaded, and which drawn atom each of the prediction's atoms is.
-  const [spectrum, setSpectrum] = useState<Nucleus>();
+  // The key: a nucleus ("1H", "13C") or a measured spectrum's kind ("ir"); only ¹H and ¹³C are predicted.
+  const [spectrum, setSpectrum] = useState<string>();
+  const nucleusOpen: Nucleus | undefined = spectrum === "1H" || spectrum === "13C" ? spectrum : undefined;
   // The structure the spectrum is of, kept from when it opened (the first selected, or the drawing's largest), so the
   // selection can go and the structure's highlights show. Edits that renumber atoms fall back to the largest.
   const [nmrTarget, setNmrTarget] = useState<number[]>();
-  function openSpectrum(nucleus: Nucleus) {
+  function openSpectrum(nucleus: string) {
     const groups = fragments(doc), pick = (selection.size ? groups.find((g) => g.some((i) => selection.has(i))) : undefined) ?? [...groups].sort((a, b) => b.length - a.length)[0];
     setNmrTarget(pick);
     setSpectrum(nucleus);
@@ -4398,17 +4413,80 @@ export default function Editor() {
   }
   const [nmrTables, setNmrTables] = useState(false);
   const [nmrPoint, setNmrPoint] = useState<number[]>();
-  useEffect(() => { if (spectrum && !nmrTables) void nmrReady().then(() => setNmrTables(true)); }, [spectrum, nmrTables]);
+  // The measured spectrum shown (the drawing's, for the panel's key), how it shows beside the prediction, its analysis
+  // (peaks, multiplets, integrals), and its multiplets' atoms. groupPoint: the multiplet pointed at in the panel;
+  // chosenGroup: the one the next atoms clicked are linked to; linkAtom: the atom under a drag from a multiplet.
+  const [spectrumShow, setSpectrumShow] = useState<Show>("measured");
+  const [groupPoint, setGroupPoint] = useState<number>();
+  const [chosenGroup, setChosenGroup] = useState<number>();
+  const [linkAtom, setLinkAtom] = useState<number>();
+  const measured = spectrum ? doc.spectra?.find((s) => spectrumKeyOf(s) === spectrum) : undefined;
+  // The solvent: the measured NMR spectrum's, so the prediction beside it is for the same solvent.
+  const nmrSolvent = (measured?.kind === "nmr" && measured.solvent) || settings.nmrSolvent;
+  const spectrumAnalysis = useMemo(() => measured && analyseSpectrum(measured, measured.kind === "nmr" ? nmrSolvent : undefined), [measured, nmrSolvent]);
+  const measuredShown = !!measured && (!nucleusOpen || spectrumShow !== "predicted");
+  const linkedAtoms = useMemo(() => {
+    const out = new Map<number, number[]>();
+    doc.atoms.forEach((a, i) => a.peaks?.forEach((k) => out.set(k, [...(out.get(k) ?? []), i])));
+    return out;
+  }, [doc]);
+  useEffect(() => { if (chosenGroup !== undefined && !measured?.groups.some((g) => g.id === chosenGroup)) setChosenGroup(undefined); }, [measured, chosenGroup]);
+  // A measured spectrum's change, as one undo step (`merge`: a slider's steps join): it replaces the drawing's
+  // spectrum for its key, and atoms let go of multiplets that are gone.
+  function setMeasured(next: Measured | undefined, key = spectrum, merge?: string) {
+    const base = now.current, spectra = [...(base.spectra ?? []).filter((s) => spectrumKeyOf(s) !== key), ...(next ? [next] : [])];
+    const ids = new Set(spectra.flatMap((s) => s.groups.map((g) => g.id)));
+    const atoms = base.atoms.map((a) => (a.peaks?.some((k) => !ids.has(k)) ? withPeaks(a, a.peaks.filter((k) => ids.has(k))) : a));
+    set({ ...base, atoms, spectra: spectra.length ? spectra : undefined }, true, merge);
+  }
+  const withPeaks = (a: Atom, peaks: number[]): Atom => { const { peaks: _, ...rest } = a; return peaks.length ? { ...rest, peaks } : rest; };
+  // Links atoms to a measured multiplet. toggle: atoms that all have it already let go of it (a second click).
+  function linkAtoms(id: number, atoms: number[], toggle = true) {
+    const base = now.current, ok = atoms.filter((i) => base.atoms[i]);
+    if (!ok.length) return;
+    const off = toggle && ok.every((i) => base.atoms[i].peaks?.includes(id));
+    set({ ...base, atoms: base.atoms.map((a, i) => (!ok.includes(i) ? a : withPeaks(a, off ? (a.peaks ?? []).filter((k) => k !== id) : [...new Set([...(a.peaks ?? []), id])]))) }, true);
+  }
+  // Spectra from a file (JCAMP-DX, or Bruker's processed data as the app reads it) go into the drawing, each taking the
+  // place of one of its kind; on Home they start a new drawing. The panel opens on the first.
+  function openSpectrumText(text: string, name: string) {
+    let found: JcampSpectrum[];
+    try { found = text.startsWith(BRUKER) ? [brukerOf(text)] : readJcamp(text); } catch (e) { return setNotice(failure(`Octet cannot open ${name}.`, e)); }
+    const base = home ? EMPTY : now.current;
+    let spectra = base.spectra ?? [];
+    const added: Measured[] = [];
+    for (const s of found) {
+      const m = fromJcamp(s, nextGroupId(spectra));
+      spectra = [...spectra.filter((x) => spectrumKeyOf(x) !== spectrumKeyOf(m)), m];
+      added.push(m);
+    }
+    const ids = new Set(spectra.flatMap((s) => s.groups.map((g) => g.id)));
+    const next = { ...base, atoms: base.atoms.map((a) => (a.peaks?.some((k) => !ids.has(k)) ? withPeaks(a, a.peaks.filter((k) => ids.has(k))) : a)), spectra };
+    if (home) load(undefined, next); else set(next, true);
+    const first = added[0], key = spectrumKeyOf(first);
+    if (first.kind === "nmr" && first.mhz && (key === "1H" || key === "13C")) {
+      const mhz = key === "1H" ? first.mhz : first.mhz / 0.25145, near = [60, 80, 90, 200, 300, 400, 500, 600, 700, 800].reduce((b, f) => (Math.abs(f - mhz) < Math.abs(b - mhz) ? f : b));
+      setSettings((s) => ({ ...s, nmrMhz: near }));
+    }
+    const groups = fragments(next);
+    setNmrTarget([...groups].sort((p, q) => q.length - p.length)[0]);
+    setSpectrum(key);
+    setSpectrumShow("measured");
+    setChosenGroup(undefined);
+    setSelection(new Set());
+    setPicked(new Set());
+  }  useEffect(() => { if (spectrum && !nmrTables) void nmrReady().then(() => setNmrTables(true)); }, [spectrum, nmrTables]);
   const nmr = useMemo(() => {
-    if (!spectrum || !loaded || !doc.atoms.length) return undefined;
+    if (!nucleusOpen || !loaded || !doc.atoms.length) return undefined;
     const groups = fragments(doc), kept = nmrTarget && groups.find((g) => g.length === nmrTarget.length && g.every((i) => nmrTarget.includes(i)));
     const pick = kept ?? [...groups].sort((a, b) => b.length - a.length)[0];
     const ids = [...pick].sort((a, b) => a - b), { mol, from } = expandWithOrigins(subset(doc, new Set(ids))), g = graphOf(mol);
-    return { prediction: g && nmrTables ? predict(g, spectrum, settings.nmrSolvent) : undefined, toDoc: from.map((i) => ids[i]) };
-  }, [spectrum, loaded, doc, nmrTarget, nmrTables, settings.nmrSolvent]);
+    return { prediction: g && nmrTables ? predict(g, nucleusOpen, nmrSolvent) : undefined, toDoc: from.map((i) => ids[i]) };
+  }, [nucleusOpen, loaded, doc, nmrTarget, nmrTables, nmrSolvent]);
   // The prediction's atoms lit by pointing at an atom on the canvas, and the drawn atoms lit from the spectrum.
   const nmrLit = (atom?: number) => new Set(nmr && atom !== undefined ? nmr.toDoc.flatMap((d, k) => (d === atom ? [k] : [])) : []);
-  const nmrMarks = new Set(nmr && nmrPoint ? nmrPoint.map((k) => nmr.toDoc[k]) : []);
+  // With the atoms of the measured multiplet pointed at or being linked, and the atom under a drag from one.
+  const nmrMarks = new Set([...(nmr && nmrPoint ? nmrPoint.map((k) => nmr.toDoc[k]) : []), ...[groupPoint, chosenGroup].flatMap((g) => (g === undefined ? [] : linkedAtoms.get(g) ?? [])), ...(linkAtom !== undefined ? [linkAtom] : [])]);
   // Each drawn atom's predicted shifts, shown beside it while the panel is open.
   const nmrShifts = new Map<number, number[]>(), nmrQuality = new Map<number, string>();
   const stereo = useMemo(() => { const m = exporting ?? doc; return loaded && m.atoms.some((a) => a.cip) ? stereoLabels(m) : undefined; }, [loaded, doc, exporting]);
@@ -4416,13 +4494,13 @@ export default function Editor() {
   // Opening the panel scrolls the canvas up if the panel would cover the structure (again once the spectrum is in,
   // as the panel grows).
   useEffect(() => {
-    if (!spectrum || !nmr) return;
+    if (!spectrum || (!nmr && !measured)) return;
     const panel = document.querySelector(".spectrum")?.getBoundingClientRect(), box = svg.current?.getBoundingClientRect();
-    const low = Math.min(...[...new Set(nmr.toDoc)].map((i) => pos(doc, i)[1]));
+    const low = Math.min(...[...new Set(nmr ? nmr.toDoc : doc.atoms.map((_, i) => i))].filter((i) => doc.atoms[i]).map((i) => pos(doc, i)[1]));
     if (!panel || !box || !Number.isFinite(low)) return;
     const view = views.get(), over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
     if (over > 0) moveView({ ...view, y: view.y - over });
-  }, [spectrum, !!nmr?.prediction, settings.nmrDetails]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [spectrum, !!nmr?.prediction, settings.nmrDetails, spectrumShow, !!measured]); // eslint-disable-line react-hooks/exhaustive-deps
   // Properties opens along the bottom too, and scrolls the canvas the same way so its structures stay in view.
   useEffect(() => {
     if (!settings.properties) return;
@@ -4432,14 +4510,16 @@ export default function Editor() {
     const view = views.get(), over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
     if (over > 0) moveView({ ...view, y: view.y - over });
   }, [settings.properties]); // eslint-disable-line react-hooks/exhaustive-deps
-  for (const s of nmr?.prediction?.signals ?? []) for (const d of new Set(s.atoms.map((k) => nmr!.toDoc[k]))) { nmrShifts.set(d, [...(nmrShifts.get(d) ?? []), s.shift]); nmrQuality.set(d, quality(s, spectrum!)); }
+  // The measured shifts of linked atoms when the measured spectrum shows; otherwise the predicted ones.
+  if (measuredShown && spectrumAnalysis) { for (const g of spectrumAnalysis.groups) for (const d of linkedAtoms.get(g.id) ?? []) nmrShifts.set(d, [...(nmrShifts.get(d) ?? []), g.shift]); }
+  else for (const s of nmr?.prediction?.signals ?? []) for (const d of new Set(s.atoms.map((k) => nmr!.toDoc[k]))) { nmrShifts.set(d, [...(nmrShifts.get(d) ?? []), s.shift]); nmrQuality.set(d, quality(s, nucleusOpen!)); }
   // Where each predicted shift goes on the canvas (px): in a gap between the atom's bonds, out of its rings (or away
   // from the atoms within two bonds), clear of its own label and of the shift labels already placed.
   function shiftLabels() {
     const out: { atom: number; x: number; y: number; anchor: "start" | "middle" | "end"; text: string }[] = [], taken: number[][] = [];
     for (const [i, shifts] of nmrShifts) {
       if (i >= shown.atoms.length) continue;
-      const text = [...shifts].sort((a, b) => b - a).map((v) => v.toFixed(spectrum === "1H" ? 2 : 1)).join(", ");
+      const text = [...shifts].sort((a, b) => b - a).map((v) => v.toFixed(spectrum === "1H" ? 2 : spectrum === "ir" || spectrum === "uv" || spectrum === "ms" ? 0 : 1)).join(", ");
       out.push({ atom: i, ...besideAtom(i, text.length * 5.2, 10, taken), text });
     }
     return out;
@@ -5715,6 +5795,8 @@ export default function Editor() {
         const text = e.clipboardData?.getData("text/plain"), file = imageFile(e);
         e.preventDefault();
         void readClipboard().then(async (clip) => {
+          if (clip.spectrum) return openSpectrumText(clip.spectrum[1], clip.spectrum[0]);
+          if (text && isJcamp(text)) return openSpectrumText(text, "the clipboard");
           if (clip.octet) {
             let add: Mol;
             try { add = parse(clip.octet); } catch { return setNotice("Octet cannot read what is on the clipboard."); }
@@ -5761,6 +5843,8 @@ export default function Editor() {
         return;
       }
       const text = e.clipboardData?.getData("text/plain"), file = imageFile(e), named = !!text?.trim() && loaded;
+      const jdx = [...(e.clipboardData?.files ?? [])].find((f) => /\.(jdx|dx|jcamp)$/i.test(f.name));
+      if (jdx || (text && isJcamp(text))) { e.preventDefault(); void (jdx ? jdx.text() : Promise.resolve(text!)).then((t) => openSpectrumText(t, jdx?.name ?? "the clipboard")); return; }
       if (text && CDXML_TEXT.test(text.slice(0, 65536)) && pasteCdxml(text)) return e.preventDefault();
       if (!named && !file) return;
       e.preventDefault();
@@ -6276,7 +6360,7 @@ export default function Editor() {
       {groupFrames}
       {nmrMarks.size > 0 && <g className="nmr-marks">{[...nmrMarks].filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `nmr${i}`, ""))}</g>}
       {shiftLabels().map((l) => (
-        <text key={`shift${l.atom}`} className={`nmr-shift${nmrMarks.has(l.atom) ? " lit" : ""}${settings.nmrDetails ? ` q-${nmrQuality.get(l.atom)}` : ""}`} x={l.x} y={l.y} textAnchor={l.anchor} dominantBaseline="middle">{l.text}</text>
+        <text key={`shift${l.atom}`} className={`nmr-shift${nmrMarks.has(l.atom) ? " lit" : ""}${settings.nmrDetails && nmrQuality.has(l.atom) ? ` q-${nmrQuality.get(l.atom)}` : ""}`} x={l.x} y={l.y} textAnchor={l.anchor} dominantBaseline="middle">{l.text}</text>
       ))}
       <Live store={hovers}>{hovered}</Live>
     </>
@@ -6912,17 +6996,46 @@ export default function Editor() {
 
       <Exit>{spectrum && <Live store={hovers}>{(hover) => (
         <SpectrumPanel
+          spectrumKey={spectrum}
+          keys={[...new Set(["1H", "13C", ...(doc.spectra ?? []).map(spectrumKeyOf)])]}
+          onKey={(k) => { setSpectrum(k); setChosenGroup(undefined); setGroupPoint(undefined); }}
           prediction={nmr?.prediction}
-          nucleus={spectrum}
           mhz={settings.nmrMhz}
-          solvent={settings.nmrSolvent}
-          lit={nmrLit(hover.atom)}
-          onNucleus={(n) => setSpectrum(n)}
+          solvent={nmrSolvent}
+          lit={new Set([hover.atom, ...(groupPoint !== undefined ? linkedAtoms.get(groupPoint) ?? [] : [])].flatMap((d) => [...nmrLit(d)]))}
           onMhz={(mhz) => setSettings((s) => ({ ...s, nmrMhz: mhz }))}
-          onSolvent={(solvent) => setSettings((s) => ({ ...s, nmrSolvent: solvent }))}
+          onSolvent={(solvent) => { setSettings((s) => ({ ...s, nmrSolvent: solvent })); if (measured?.kind === "nmr") setMeasured(regroup({ ...measured, solvent }, measured.threshold, nextGroupId(doc.spectra))); }}
           onPoint={setNmrPoint}
           onCopy={(text) => runAction(`copy_text:${text}`)}
-          onClose={() => { setSpectrum(undefined); setNmrPoint(undefined); }}
+          onClose={() => { setSpectrum(undefined); setNmrPoint(undefined); setGroupPoint(undefined); setChosenGroup(undefined); }}
+          measured={measured}
+          analysis={spectrumAnalysis}
+          show={spectrumShow}
+          onShow={setSpectrumShow}
+          litGroups={new Set([hover.atom, ...(nmr && nmrPoint ? nmrPoint.map((k) => nmr.toDoc[k]) : [])].flatMap((d) => (d !== undefined ? doc.atoms[d]?.peaks ?? [] : [])))}
+          groupColour={(id) => { const a = linkedAtoms.get(id); return a ? doc.atoms[a[0]]?.halo : undefined; }}
+          linkedCount={(id) => linkedAtoms.get(id)?.length ?? 0}
+          chosenGroup={chosenGroup}
+          onChooseGroup={(id) => {
+            // With atoms selected, a click on a multiplet links them to it (as ChemDraw's Make Spectrum-Structure
+            // Assignment does with its selection).
+            if (id !== undefined && selection.size) { linkAtoms(id, [...selection], false); setSelection(new Set()); }
+            setChosenGroup(id);
+          }}
+          onPointGroup={setGroupPoint}
+          onThreshold={(t) => measured && setMeasured(regroup(measured, t, nextGroupId(doc.spectra)), spectrum, "spectrum threshold")}
+          onDefine={(lo, hi) => measured && setMeasured(defineGroup(measured, lo, hi, nextGroupId(doc.spectra)))}
+          onCount={(id, n) => { const g = spectrumAnalysis?.groups.find((x) => x.id === id); if (measured && g && g.area > 0) setMeasured({ ...measured, per: g.area / n }); }}
+          onLinkHover={(at) => setLinkAtom(at ? hit(toDoc(...at)).atom : undefined)}
+          onLinkAt={(id, at) => { const a = hit(toDoc(...at)).atom; setLinkAtom(undefined); if (a !== undefined) linkAtoms(id, [a], false); }}
+          onUnlink={(id) => linkAtoms(id, linkedAtoms.get(id) ?? [], true)}
+          onGroupColour={(id, c) => { const atoms = new Set(linkedAtoms.get(id) ?? []); set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.has(i) ? { ...a, halo: c } : a)) }, true); }}
+          onGroupColourAll={(on) => {
+            const colour = new Map<number, string | undefined>();
+            (spectrumAnalysis?.groups ?? []).filter((g) => linkedAtoms.get(g.id)).forEach((g, k) => { for (const i of linkedAtoms.get(g.id)!) colour.set(i, on ? PEAK_COLOURS[k % PEAK_COLOURS.length] : undefined); });
+            set({ ...doc, atoms: doc.atoms.map((a, i) => (colour.has(i) ? { ...a, halo: colour.get(i) } : a)) }, true);
+          }}
+          onRemove={() => { setMeasured(undefined); setChosenGroup(undefined); setGroupPoint(undefined); if (!nucleusOpen) setSpectrum(undefined); }}
           inset={(() => {
             // The structure's box on the canvas (px, unzoomed), with room for its shift labels.
             const ps = [...new Set(nmr?.toDoc ?? [])].filter((i) => i < shown.atoms.length).map((i) => pos(shown, i));

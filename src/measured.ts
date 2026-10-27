@@ -126,14 +126,30 @@ export function pickPeaks(m: Measured, threshold = m.threshold): Peak[] {
 // Groups from peaks: for ¹H, peaks no more than MAX_J Hz apart make one multiplet; otherwise each peak is its own.
 // Each group's range reaches out from its outer peaks to where the trace meets the baseline, and twice that far
 // again for the tails, but no further than halfway to the next group.
+// The solvent's, water's and TMS's peaks where a spectrum in this solvent has them: each one's name, its lines (ppm)
+// and how near a peak must be to be one of them.
+export function marksOf(m: Measured, solvent = m.solvent ?? ""): { name: string; at: number[]; near: number }[] {
+  if (m.kind !== "nmr" || (m.nucleus !== "1H" && m.nucleus !== "13C")) return [];
+  const h1 = m.nucleus === "1H", mhz = m.mhz ? (h1 ? m.mhz : m.mhz / 0.25145) : 400;
+  return [...solventPeaks(solvent, m.nucleus, mhz).map((s) => ({ name: s.name, at: s.lines.map((x) => x.ppm), near: h1 ? (s.broad ? 0.03 : 0.004) : 0.6 })), { name: "TMS", at: [0], near: h1 ? 0.01 : 0.6 }];
+}
+
+// Groups from peaks: for ¹H, peaks no more than MAX_J Hz apart make one multiplet (the solvent's, water's and TMS's
+// lines apart, each set its own); otherwise each peak is its own.
 export function autoGroups(m: Measured, peaks: Peak[]): Omit<Group, "id">[] {
   if (!peaks.length) return [];
   const sorted = [...peaks].sort((a, b) => a.x - b.x), runs: Peak[][] = [];
   const hz = m.kind === "nmr" && m.nucleus === "1H" && m.mhz ? m.mhz : 0;
+  const marks = hz ? marksOf(m) : [], markOf = (p: Peak) => marks.findIndex((k) => k.at.some((x) => Math.abs(x - p.x) <= k.near));
+  const own = new Map<number, Peak[]>();
   for (const p of sorted) {
+    const k = markOf(p);
+    if (k >= 0) { own.set(k, [...(own.get(k) ?? []), p]); continue; }
     const run = runs[runs.length - 1];
     if (run && hz && (p.x - run[run.length - 1].x) * hz <= MAX_J) run.push(p); else runs.push([p]);
   }
+  runs.push(...own.values());
+  runs.sort((a, b) => a[0].x - b[0].x);
   if (m.sticks) return runs.map((r) => ({ lo: r[0].x, hi: r[r.length - 1].x }));
   const { v, base, noise } = levels(m), n = v.length;
   // How far the trace goes on from point i in direction d before it meets the baseline (x units).
@@ -203,8 +219,7 @@ export type Analysis = { peaks: Peak[]; groups: Analysed[]; per: number; base: n
 export function analyse(m: Measured, solvent = m.solvent ?? ""): Analysis {
   const peaks = pickPeaks(m), { v, base, noise } = levels(m), h1 = m.kind === "nmr" && m.nucleus === "1H", mhz = m.mhz ?? 0;
   const step = m.y.length > 1 ? Math.abs(m.last - m.first) / (m.y.length - 1) : 0, tol = Math.max(0.3, 0.75 * step * mhz);
-  const marks = m.kind === "nmr" && (m.nucleus === "1H" || m.nucleus === "13C") ? [...solventPeaks(solvent, m.nucleus, mhz || 400).map((s) => ({ name: s.name, at: s.lines.map((x) => x.ppm) })), { name: "TMS", at: [0] }] : [];
-  const near = m.nucleus === "13C" ? 0.6 : 0.03;
+  const marks = marksOf(m, solvent);
   const groups = m.groups.map((g): Analysed => {
     let own = peaks.filter((p) => p.x >= g.lo && p.x <= g.hi);
     let area = 0;
@@ -231,7 +246,7 @@ export function analyse(m: Measured, solvent = m.solvent ?? ""): Analysis {
       } else name = "m";
     }
     // The solvent, water or TMS: a small group (a peak, or the solvent's own few lines) where one of theirs is.
-    const other = !h1 || own.length <= 5 ? marks.find((s) => s.at.some((x) => Math.abs(x - shift) <= near))?.name : undefined;
+    const other = !h1 || own.length <= 5 ? marks.find((s) => own.every((p) => s.at.some((x) => Math.abs(x - p.x) <= Math.max(s.near, 1.5 / (mhz || 400)))))?.name : undefined;
     return { ...g, peaks: own, shift, name, js, area, n: 0, ...(other ? { other } : {}) };
   });
   const counted = groups.filter((g) => !g.other && g.area > 0);
