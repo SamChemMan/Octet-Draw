@@ -1,6 +1,9 @@
 // Name to structure, offline: OPSIN compiled to JavaScript (see tools/opsin). It loads in the background
 // soon after start-up, so the first conversion is instant; until then nameToSmiles returns undefined.
 import { COMMON, commonKey } from "./common.ts";
+// Beyond OPSIN and Octet's own tables: the dictionary (common and trade names, CAS numbers, InChIKeys), condensed
+// formulas and lists of names (dictionary.ts).
+import { beforeOpsinSmiles, completeName, dictionarySmiles, loadDictionary, nameList, nearNames } from "./dictionary.ts";
 
 type Opsin = typeof import("./vendor/opsin/opsin.js");
 let opsin: Opsin | undefined;
@@ -10,6 +13,8 @@ let loading: Promise<void> | undefined;
 
 export function loadNames(): Promise<void> {
   loading ??= (async () => {
+    // The dictionary loads alongside. Without it, names still read.
+    const dictionary = loadDictionary().catch(() => undefined);
     // The drug names and the index load with the engine, so start-up does not wait for them.
     const [mod, { default: pack }, { default: list }, { default: known }, { DRUGS }] = await Promise.all([import("./vendor/opsin/opsin.js"),
       import("./vendor/opsin/opsin-data.bin?url"), import("./vendor/opsin/names.txt?url"), import("./nameindex.json"), import("./drugs.ts")]);
@@ -26,6 +31,7 @@ export function loadNames(): Promise<void> {
     (globalThis as { opsinResource?: (name: string) => Int8Array | null }).opsinResource = (name) => files.get(name) ?? null;
     mod.init();
     attachOpsin(mod, words, known, DRUGS);
+    await dictionary;
   })();
   return loading;
 }
@@ -71,14 +77,14 @@ export function nameToAtoms(name: string): string | undefined {
 export function nameToSmiles(name: string): string | undefined {
   const s = name.trim();
   if (!opsin || !s || s.length > 1000) return undefined;
-  return one(s) ?? salt(s) ?? parts(s);
+  return one(s) ?? salt(s) ?? parts(s) ?? nameList(s, nameToSmiles)?.join(".");
 }
 
 function one(s: string): string | undefined {
   const known = common.get(commonKey(s));
   if (known) return known.startsWith("smiles:") ? known.slice(7) : read(known);
   const tidied = tidy(s);
-  return read(s) ?? (tidied !== s ? read(tidied) : undefined);
+  return beforeOpsinSmiles(s) ?? read(s) ?? (tidied !== s ? read(tidied) : undefined) ?? dictionarySmiles(s, read);
 }
 
 // Acid addition salts and hydrates of a name, as the name and the acid (or water) side by side, as PubChem draws them.
@@ -151,6 +157,8 @@ export function suggestName(typed: string, thorough = true): string | undefined 
   while (lo < hi) { const mid = (lo + hi) >> 1; if (names[mid] < lower) lo = mid + 1; else hi = mid; }
   let completion: string | undefined;
   for (let i = lo; i < names.length && names[i].startsWith(lower); i++) if (!completion || names[i].length < completion.length) completion = names[i];
+  const more = completeName(lower);
+  if (more && (!completion || more.length < completion.length)) completion = more;
   if (completion && lower.length >= 4) return completion;
   // A common name with a few mistakes: one for short names, up to three for long ones.
   const limit = lower.length <= 5 ? 1 : lower.length <= 12 ? 2 : 3;
@@ -160,6 +168,7 @@ export function suggestName(typed: string, thorough = true): string | undefined 
     const d = distance(lower, name, bestDistance);
     if (d < bestDistance) [best, bestDistance] = [name, d];
   }
+  for (const name of nearNames(lower, limit)) { const d = distance(lower, name, bestDistance); if (d < bestDistance) [best, bestDistance] = [name, d]; }
   // A common name within two mistakes beats an uncommon name one keystroke away ("phenylanaline" is
   // phenylalanine, not phenylaniline).
   if (best && bestDistance <= 2) return best;
