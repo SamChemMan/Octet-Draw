@@ -22,7 +22,7 @@ import { fusedParent } from "./fusion.ts";
 import { vonBaeyer } from "./vonbaeyer.ts";
 import { ELEMENTS, isMetal, metalName, MORE_CATIONS, METAL_ANIONS, type MetalApi } from "./metals.ts";
 import { chalcogenIonSuffix, chalcogenOne, chalcogenStem, chargeSeparated, checkChalcogenOnes, citedNuclides, isotopePrefix, isotopeSpecies, isotopeText, inorganicSpecies, NUCLIDE } from "./namer-maingroup.ts";
-import { multiplicativeEster, multiplicativeName, phenylene, polyolDiyl } from "./namer-multiplicative.ts";
+import { multiplicativeEster, multiplicativeName, multiplicativeUrea, phenylene, polyolDiyl } from "./namer-multiplicative.ts";
 import { amideHetero, groupVariant, heteroAmine, heteroBond, heteroCharged, heteroParentName, heteroPrefix, hydrazinyl, nOxideN, nOxides, oxideText, perceiveHetero, perceiveIodanes, suffixStereo, sulfonamideN, sulfonateName, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
 
 type Name = { text: string; compound: boolean }; // compound: needs brackets when cited as a prefix
@@ -1365,7 +1365,8 @@ class Namer {
     // A ring's cationic centres (-ium) come next, as suffixes do (P-31.1.4.2.4): 6-methylpyrimidin-1-ium.
     if (p.ring) nums = this.lowest(nums, (num) => atoms.filter((a) => this.q[a] === 1 && (this.cationN(a) || this.ions.has(a))).map((a) => loc(num, a)));
     // A multiplied unit's attachment comes next (namer-multiplicative.ts): 2,2'-oxydi(ethan-1-ol).
-    if (opts.mult) nums = this.lowest(nums, (num) => [loc(num, opts.mult![0])]);
+    // A unit joined through an amine N (N1,N1'-…bis(…benzene-1,4-diamine)) counts at the atom that N is on.
+    if (opts.mult) { const at = inParent.has(opts.mult[0]) ? opts.mult[0] : sites.find((s) => s.group === opts.mult![0])?.atom ?? opts.mult[0]; nums = this.lowest(nums, (num) => [loc(num, at)]); }
     if (fused) {
       nums = this.lowest(nums, (num) => ys(sat(num)).map((a) => loc(num, a)));
       nums = this.lowest(nums, (num) => [...sat(num).hydro, ...(fused.dehydro?.flat() ?? [])].map((a) => loc(num, a))); // hydro and dehydro together
@@ -2093,7 +2094,9 @@ class Namer {
     const sorted = [...groups.values()].sort((a, b) => alphaKey(a.name.text).localeCompare(alphaKey(b.name.text)));
     const tiebreak = (nums: number[][]) => sorted.reduce((best, g) => this.lowest(best, (num) => g.sites.map((a) => num.indexOf(a) + 1)), nums);
     const acid = this.nameParent(p, { kind, tiebreak });
-    const alkyls = sorted.map((g) => (sorted.length > 1 ? `${g.sites.map(acid.label!).sort(locOrder).join(",")}-` : "") + times(g.sites.length, g.name));
+    // A compound alkyl group after its locants goes in enclosing marks (P-16.5.1): 1-methyl 5-(2-methylpropyl) pentanedioate.
+    const alkyls = sorted.map((g) => (sorted.length > 1 ? `${g.sites.map(acid.label!).sort(locOrder).join(",")}-` : "")
+      + (sorted.length > 1 && g.sites.length === 1 && (g.name.compound || /^[\d(]/.test(g.name.text)) ? enclose(g.name) : times(g.sites.length, g.name)));
     return `${alkyls.join(" ")} ${acid.text}`;
   }
   // Esters of a polyol (P-65.6.3.2.2): cut at each ester's C–O bond, one part holds every ester O and no ester carbon,
@@ -2155,6 +2158,9 @@ class Namer {
   carbonicName(kind: Kind): string {
     const cs = [...this.bearer.keys()].filter((g) => this.group[g] === kind);
     if (cs.length === 1) return this.carbonicOne(cs[0], kind);
+    // Alike ureas joined by a multiplying group (namer-multiplicative.ts): N,N''-methylenediurea.
+    const multiplied = kind === "urea" ? multiplicativeUrea(this, cs) : undefined;
+    if (multiplied) return multiplied;
     // Dicarbonates (P-65.2.1.4): di-tert-butyl dicarbonate. Dicarbamates of a polyol: ethane-1,2-diyl dicarbamate.
     const di = this.dicarbonate(cs) ?? (kind === "carbamate" && cs.every((c) => this.esterO.has(c)) ? this.polyolEster(cs) : undefined);
     if (di) return di;
