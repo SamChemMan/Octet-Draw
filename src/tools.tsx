@@ -561,13 +561,21 @@ export function Palette(p: PaletteProps) {
     onRename: p.onRename, find: p.findNamed });
   // A floating palette's templates: a set of the user's, or one of Octet's.
   const setTemplates = (set: string): LibraryItem[] => (set === MY_SET || p.templateSets.includes(set) ? mine.filter((t) => t.category === set) : LIBRARY.find((c) => c.name === set)?.items ?? []);
-  // Palettes closing: kept a moment, so each leaves with its motion (Exit).
+  // Palettes closing (by their button, View > Templates, or Home opening): kept a moment, so each leaves with its motion
+  // (Exit). A palette gone from the list since the last drawing is one closing.
   const [closing, setClosing] = useState<FloatingPalette[]>([]);
-  const closeFloating = (f: FloatingPalette) => {
-    setClosing((c) => [...c.filter((x) => x.set !== f.set), f]);
-    p.onPalettes((list) => closePalette(list, f.set));
-    setTimeout(() => setClosing((c) => c.filter((x) => x !== f)), timing("--motion-fast").duration + 50);
-  };
+  const openKey = p.palettes.map((f) => f.set).join("\n"), [was, setWas] = useState({ key: openKey, list: p.palettes });
+  if (was.key !== openKey) {
+    const gone = was.list.filter((f) => !p.palettes.some((x) => x.set === f.set));
+    setWas({ key: openKey, list: p.palettes });
+    if (gone.length) setClosing((c) => [...c.filter((x) => !gone.some((g) => g.set === x.set) && !p.palettes.some((q) => q.set === x.set)), ...gone]);
+  }
+  useEffect(() => {
+    if (!closing.length) return;
+    const t = setTimeout(() => setClosing([]), timing("--motion-fast").duration + 50);
+    return () => clearTimeout(t);
+  }, [closing]);
+  const closeFloating = (f: FloatingPalette) => p.onPalettes((list) => closePalette(list, f.set));
   const shapeOf = (kind: string) => template(kind)?.mol ?? libraryItem(kind)?.icon ?? libraryItem(kind)?.mol ?? p.named(kind);
   // A template found by name has its name once its structure can be drawn (the names engine has loaded).
   const named = (kind: string) => (p.named(kind) ? kindName(kind) : undefined);

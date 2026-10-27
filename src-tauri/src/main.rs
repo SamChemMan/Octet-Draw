@@ -535,11 +535,12 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let warnings = check("warnings", "Show Chemical Warnings", "")?;
     // ChemDraw's View > Show Reaction Interpretation.
     let interpretation = check("interpretation", "Show Reaction Interpretation", "")?;
-    // View > Templates: each set opens as a floating palette (the user's sets, then Octet's). The items change with
+    // View > Templates: each set shows or hides its floating palette, ticked while it is open (ChemDraw's View > Templates
+    // toggles a palette's window). The user's sets come first, then Octet's. The items change with
     // the sets, so they are not commands with shortcuts, and Settings does not list them.
     let (own_sets, octet_sets) = app.state::<TemplateSets>().0.lock().unwrap().clone();
     let set_items = own_sets.iter().chain(octet_sets.iter()).enumerate()
-        .map(|(k, name)| MenuItem::with_id(app, format!("templates_{k}"), name, true, None::<&str>))
+        .map(|(k, name)| CheckMenuItem::with_id(app, format!("templates_{k}"), name, true, false, None::<&str>))
         .collect::<tauri::Result<Vec<_>>>()?;
     let sets_sep = sep()?;
     let mut sets_list: Vec<&dyn IsMenuItem<Wry>> = set_items.iter().take(own_sets.len()).map(|m| m as &dyn IsMenuItem<Wry>).collect();
@@ -841,7 +842,9 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     items.push(&help);
     // Commands of a menu that is not there are not listed (Settings shows no shortcuts for them).
     let listed = list.borrow().iter().filter(|c| online || c.2 != "Search").cloned().collect();
-    Ok((Menu::with_items(app, &items)?, vec![grid, rulers, crosshair, snap, snap_grid, warnings, interpretation, fixed_lengths, fixed_angles], listed))
+    let mut checks = vec![grid, rulers, crosshair, snap, snap_grid, warnings, interpretation, fixed_lengths, fixed_angles];
+    checks.extend(set_items.iter().cloned());
+    Ok((Menu::with_items(app, &items)?, checks, listed))
 }
 
 fn main() {

@@ -91,7 +91,7 @@ import { nameRuns } from "./nametype";
 
 setNamer(iupacName);
 setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, inchi: toInchi, aux: toInchiAux, cip: cipOf }));
-import { addSet, addSetOf, addTo, duplicateTemplate, freeSetName, hasContent, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, placeTemplate, removeSet, removeTemplate, renameSet, renameTemplate, setName, templateKind, templateToEnd, templateToStart, updateTemplate } from "./templates";
+import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, hasContent, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, placeTemplate, removeSet, removeTemplate, renameSet, renameTemplate, setName, templateKind, templateToEnd, templateToStart, updateTemplate } from "./templates";
 import { formulaRuns } from "./labels";
 import { captionAtom, captionsToAtoms, chemicalCaption, interpretLabels, labelable, withCaptionAtoms } from "./edit";
 import { bendOf, crossedBonds, cutSides } from "./masscut";
@@ -629,6 +629,8 @@ export default function Editor() {
   // left, until its close button closes it. A set opened again comes to the front. View > Templates lists the user's
   // sets (My templates first), then Octet's.
   const keepOpen = (set: string, tool: TemplateTool) => setSettings((s) => ({ ...s, palettes: openPalette(s.palettes, set, tool) }));
+  // View > Templates shows or hides a set's palette, as ChemDraw's does; a palette opened there is the Template tool's.
+  const togglePalette = (set: string) => setSettings((s) => ({ ...s, palettes: s.palettes.some((f) => f.set === set) ? closePalette(s.palettes, set) : openPalette(s.palettes, set, "template") }));
   const ownSets = [MY_SET, ...settings.templateSets], octetSets = LIBRARY.map((c) => c.name), menuSets = [...ownSets, ...octetSets];
   const setsMenu = ownSets.join("\n");
   useEffect(() => { if (TAURI) invoke("set_template_sets", { own: ownSets, octet: octetSets }).then(syncChecks).catch(() => {}); }, [setsMenu]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2029,8 +2031,8 @@ export default function Editor() {
     name_to_structure: () => nameToStructure(),
     // Structure > Add Structure to Dictionary…: a name of the user's own for the selected structure.
     dictionary_add: () => addToDictionary(),
-    // View > Templates: a set kept open as a floating palette (the user's sets, then Octet's, as the menu lists them).
-    ...Object.fromEntries(menuSets.map((set, k) => [`templates_${k}`, () => keepOpen(set, "template")])),
+    // View > Templates: a set's floating palette shown or hidden (the user's sets, then Octet's, as the menu lists them).
+    ...Object.fromEntries(menuSets.map((set, k) => [`templates_${k}`, () => togglePalette(set)])),
     document: () => setSettingsOpen("document"),
     settings: () => setSettingsOpen(moduleOf(settings.settingsModule)),
     structure_to_name: () => nameStructures(),
@@ -2130,7 +2132,9 @@ export default function Editor() {
   }
   // Keep the setting on disk and the View menu ticks in step with it.
   const syncChecks = () => Promise.all(([["grid", !!guides.grid], ["rulers", !!guides.rulers], ["crosshair", !!guides.crosshair], ["snap", settings.snap], ["snap_grid", settings.snapGrid],
-    ["warnings", settings.warnings], ["interpretation", settings.interpretation], ["fixed_lengths", settings.fixedLengths], ["fixed_angles", settings.fixedAngles]] as const).map(([id, checked]) => invoke("set_check", { id, checked }))).catch(() => {});
+    ["warnings", settings.warnings], ["interpretation", settings.interpretation], ["fixed_lengths", settings.fixedLengths], ["fixed_angles", settings.fixedAngles],
+    // View > Templates: a set is ticked while its floating palette is open.
+    ...menuSets.map((set, k): [string, boolean] => [`templates_${k}`, settings.palettes.some((f) => f.set === set)])] as const).map(([id, checked]) => invoke("set_check", { id, checked }))).catch(() => {});
   useEffect(() => {
     saveSettings(settings);
     if (TAURI) syncChecks();
