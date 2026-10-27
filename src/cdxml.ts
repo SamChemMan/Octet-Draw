@@ -991,7 +991,7 @@ function pick(m: Mol, sel: { atoms: Iterable<number>; items: Iterable<number> })
     const out: Caption = { ...c, under: c.under && keep(c.under), property: kept(c.property) };
     if (!out.under?.length) delete out.under;
     if (!out.property) delete out.property;
-    if (c.on && !arrows.some((a) => a.id === c.on!.arrow)) delete out.on;
+    if (c.on && !arrows.some((a) => a.id === c.on!.arrow)) { delete out.on; delete out.placed; }
     return out;
   });
   const shapes = (m.shapes ?? []).filter((s) => items.has(s.id)), ids = new Set([...arrows, ...cycles, ...captions, ...shapes].map((x) => x.id));
@@ -1107,9 +1107,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   // The document style, and the page that sets the coordinate frame: its printable area's centre is Octet's 0,0.
   const pages = root.kids.filter((k) => k.name === "page");
   const pb = reals(pages[0]?.attrs.BoundingBox, 4) ?? [0, 0, 540, 720];
-  const W = Math.max(1, pb[2] - pb[0]), H = Math.max(1, pb[3] - pb[1]), ox = pb[0] + middle(W), oy = pb[1] + middle(H);
+  const W = Math.max(1, pb[2] - pb[0]), H = Math.max(1, pb[3] - pb[1]);
   const r = root.attrs, bondPt = real(r.BondLength), B = bondPt && bondPt >= 1 && bondPt <= 200 ? bondPt : 14.4;
-  const toOctet = (x: number, y: number): P => [(x - ox) / B, (oy - y) / B];
   const mm = [((W + 72) * 25.4) / 72, ((H + 72) * 25.4) / 72];
   const paper = Object.entries(PAGES).find(([, [w, h]]) => (Math.abs(w - mm[0]) < 1 && Math.abs(h - mm[1]) < 1) || (Math.abs(h - mm[0]) < 1 && Math.abs(w - mm[1]) < 1));
   const style = readStyle({
@@ -1125,6 +1124,10 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     interpret: r.InterpretChemically === undefined || yes(r.InterpretChemically),
     chainAngle: real(r.ChainAngle),
   });
+  // Octet's 0,0 is the middle of the page it writes back (ChemDraw rounds an A4 page to 523 by 770 pt, Octet writes
+  // 523.28 by 769.89), so everything keeps its place from the page's top left corner through a save.
+  const [ow, oh] = printable(style).map((v) => Number(fmt(v))), ox = pb[0] + middle(ow), oy = pb[1] + middle(oh);
+  const toOctet = (x: number, y: number): P => [(x - ox) / B, (oy - y) / B];
 
   // Octet's own angle for a turned shape, when the shape as ChemDraw holds it agrees (to 0.1°); else the one read.
   const exact = (own: unknown, read: number) => (isNum(own, -360, 360) && Math.abs(((((own as number) - read) % 360) + 540) % 360 - 180) < 0.1 ? (own as number) : read);

@@ -431,7 +431,8 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
 <group id="8" BoundingBox="0 0 10 10" Octet='{"kind":"table","table":{"cells":"x"}}'/>
 <graphic id="9" GraphicType="Bracket" BracketType="Square" BoundingBox="0 10 0 0" Octet='{"mark":"far too long a mark","span":[1e99,0]}'/>
 </page></CDXML>`);
-  assert.deepEqual(forged.mol.atoms[0], { label: "C", location: [-270 / 14.4, 360 / 14.4, 0] });
+  // (Its page is A4, Octet's own, as the one it names is not a page: 0,0 is the middle of that page.)
+  assert.deepEqual(forged.mol.atoms[0], { label: "C", location: [-261.64 / 14.4, 384.95 / 14.4, 0] });
   assert.equal(forged.mol.cycles, undefined);
   assert.deepEqual([forged.mol.arrows?.map((a) => a.kind), forged.mol.shapes?.map((x) => x.kind)], [["orbital", "line"], ["highlight", "brackets"]]);
   assert.deepEqual([forged.mol.captions?.[0].under, forged.mol.captions?.[0].cycle, forged.style.page], [undefined, undefined, "A4"]);
@@ -753,6 +754,17 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
   assert.deepEqual(fromCdxml(toCdxml({ atoms: [], bonds: [], guides: shown }, { ...DEFAULT_STYLE, grid: 10 })).mol.guides, shown);
   assert.deepEqual(fromCdxml(toCdxml({ atoms: [], bonds: [], guides: {} }, DEFAULT_STYLE)).mol.guides, {});
   console.log("cdxml.check: grid and guides ok");
+}
+
+// ChemDraw rounds an A4 page to 523 by 770 pt. Octet writes A4 exactly (523.28 by 769.89), and everything keeps its
+// place from the page's top left corner.
+{
+  const a4 = fromCdxml(`<CDXML BondLength="14.40"><page BoundingBox="0 0 523 770"><fragment id="1"><n id="2" p="100 100"/><n id="3" p="114.40 100"/><b id="4" B="2" E="3"/></fragment></page></CDXML>`);
+  const out = toCdxml(a4.mol, a4.style);
+  assert.equal(a4.style.page, "A4");
+  assert.match(out, /<page\s+id="\d+"\s+BoundingBox="0 0 523.28 769.89"/);
+  assert.deepEqual([...out.matchAll(/<n\s+id="\d+"\s+p="([^"]+)"/g)].map((m) => m[1]), ["100 100", "114.40 100"]);
+  console.log("cdxml.check: an A4 page's objects keep their places ok");
 }
 
 // Label anchors where Octet draws them. A label that reads right to left (here, its bond from the right) and has more
