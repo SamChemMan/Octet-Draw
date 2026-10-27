@@ -43,7 +43,7 @@ import { acsText, multiplicity, quality } from "./nmr";
 import { nmrReady, predict, type Nucleus } from "./nmr";
 import { spectrumFigure } from "./spectrumplot";
 import type { Show } from "./Spectrum";
-import { analyse as analyseSpectrum, defineGroup, fromJcamp, groupText, keepIds, keyOf as spectrumKeyOf, measuredFigure, measuredHead, nextGroupId, regroup, type Measured } from "./measured";
+import { analyse as analyseSpectrum, defineGroup, fromJcamp, groupText, keepIds, keyOf as spectrumKeyOf, measuredFigure, measuredHead, msPeaks, nextGroupId, regroup, type Measured } from "./measured";
 import { BRUKER, SPC, isJcamp, isSpectrum, readBrukerText as brukerOf, readJcamp, readSpcText, type JcampSpectrum } from "./jcamp";
 import { rings } from "./rings";
 import { NumberField, Segmented, Switch } from "./Fields";
@@ -4392,6 +4392,8 @@ export default function Editor() {
   // The Mass spec panel (MassSpec.tsx): the structure it analyses (the one with an atom it opened on, as the drawing
   // changes). Its fragmentation lines are the drawing's cut lines.
   const msAtoms = useMemo(() => (massSpec ? fragments(doc).find((g) => g.some((i) => massSpec.includes(i))) : undefined), [doc, massSpec]);
+  // The drawing's measured mass spectrum, as Mass Spec Analysis's peak list: its ions are matched against it.
+  const msMeasured = useMemo(() => { const s = doc.spectra?.find((x) => x.kind === "ms"); return s && msPeaks(s); }, [doc.spectra]);
   function openMassSpec(atom: number) {
     const group = fragments(doc).find((g) => g.includes(atom));
     if (!group) return;
@@ -7162,7 +7164,7 @@ export default function Editor() {
         />
       )}</Live>}</Exit>
       <Exit>{msAtoms && <Live store={hovers}>{(hover) => (
-        <MassSpecPanel mol={doc} atoms={msAtoms} ready={loaded} prefs={settings.massSpec} lit={hover.atom}
+        <MassSpecPanel mol={doc} atoms={msAtoms} ready={loaded} prefs={settings.massSpec} lit={hover.atom} peaks={msMeasured}
           onPrefs={(massSpec) => setSettings((s) => ({ ...s, massSpec }))} onPoint={setMsPoint} onCopy={(text) => runAction(`copy_text:${text}`)} onAdd={addMassSpec}
           onClose={() => { setMassSpec(undefined); setMsPoint(undefined); }} />
       )}</Live>}</Exit>

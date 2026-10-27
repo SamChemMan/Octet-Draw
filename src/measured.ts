@@ -169,6 +169,13 @@ export function autoGroups(m: Measured, peaks: Peak[]): Omit<Group, "id">[] {
   });
 }
 
+// A mass spectrum's peaks as Mass Spec Analysis takes a peak list: each peak above the threshold (each stick of a peak
+// table), its m/z and its height against the tallest as 100. At most 20,000, the tallest.
+export function msPeaks(m: Measured): { mz: number; i: number }[] {
+  const peaks = pickPeaks(m), top = peaks.reduce((t, p) => Math.max(t, p.h), 0);
+  return [...peaks].sort((p, q) => q.h - p.h).slice(0, 20000).filter((p) => p.x > 0).map((p) => ({ mz: p.x, i: top > 0 ? (p.h / top) * 100 : 100 })).sort((p, q) => p.mz - q.mz);
+}
+
 // --- Multiplets ---------------------------------------------------------------------------------------------------
 
 // A first-order multiplet's couplings from its lines (Hz and heights), by Hoye's method (J. Org. Chem. 1994, 59,

@@ -106,3 +106,10 @@ The limits are JCAMP's: 64 MB and 2,097,152 points, each count checked against t
 The old format (4D), an interferogram, a FID, an NMR spectrum not in ppm, and a value that is not a number are refused
 with a plain message. The app hands an SPC file to the page as its bytes in base64 (src-tauri/src/spectrum.rs), from
 File > Open, a drop or a pasted path, as for JCAMP-DX.
+
+## Mass Spec Analysis
+
+A measured mass spectrum in the drawing is Mass Spec Analysis's peak list, so its ions are matched against it with no
+paste: each peak above the spectrum's threshold (each stick of a peak table), its height against the tallest as 100.
+A pasted list still takes its place. ChemDraw 26.1 matches nothing against a measured spectrum (its Mass Spec
+Analysis says it cannot open one).
