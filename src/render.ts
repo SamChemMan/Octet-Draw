@@ -15,6 +15,7 @@ import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
 import { lines as richLines, plainOf, runsOf, styleOf, wrap, type RunStyle, type TextRun } from "./richtext.ts";
 import type { DocStyle, Guides } from "./docstyle.ts";
 import type { Cycle, CycleText } from "./cycle.ts";
+import type { Measured } from "./measured.ts";
 
 type P = [number, number];
 // text: a label that is not one element (OMe, CO2Et, Ph). label then holds the element it attaches through.
@@ -42,6 +43,7 @@ export type Atom = {
   halo?: string; // #rrggbb highlight behind the atom at 40% opacity (ChemDraw's highlight colours; NMR peak colours)
   circle?: true; // Toggle Aromatic Display: an aromatic ring whose atoms all have this is drawn with a circle
   number?: string; // Show Atom Number: the number drawn beside the atom
+  peaks?: number[]; // the measured multiplets (Group ids in the drawing's spectra) the user linked this atom to
   // The label's alignment set by hand (ChemDraw's Flush Left, Centered, Flush Right and Stacked Above on a label;
   // LabelDisplay in CDXML): left reads from the atom, right ends at it (MeO, H2N), centre sits on it, above and below
   // stack the rest of the label over or under the atom's own unit. Unset is Automatic: it reads away from the bonds.
@@ -344,7 +346,8 @@ export const SHAPE_KINDS: ShapeKind[] = ["box", "rounded", "oval", "highlight", 
 export const HIGHLIGHT = "#DCE4F6";
 // Captions, arrows, shapes and cycles share one set of ids.
 // guides: what the file asks the window to show (grid, rulers, crosshair), when Octet saved it; files only.
-export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; fills?: RingFill[]; annotations?: Annotation[]; style?: DocStyle; guides?: Guides };
+// spectra: measured spectra (measured.ts), at most one for each key (¹H, ¹³C, IR and so on), shown in the Spectrum panel.
+export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; fills?: RingFill[]; annotations?: Annotation[]; style?: DocStyle; guides?: Guides; spectra?: Measured[] };
 // A ring fill (ChemDraw's Ring Fill colours, its ColoredMolecularArea): one ring, by its atoms in ring order, filled
 // with the colour at 30% opacity behind the bonds. Each ring keeps its own fill, so fused rings can differ. A fill
 // whose ring is broken is not drawn.

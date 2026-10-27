@@ -69,6 +69,36 @@ export function spread(xs: number[], gap: number, width: number): number[] {
   order.forEach((o, k) => { out[o.i] = at[k]; });
   return out;
 }
+// A measured trace as a plot draws it, `width` pixels wide: each point as [pixel, value] when the points are further
+// apart than half a pixel; otherwise, for each pixel, the lowest and highest of the points in it (in the order they
+// come), so no peak is lost between pixels. px: a point's pixel from its x. Points well outside the plot are left out.
+export function traceColumns(s: { first: number; last: number; y: ArrayLike<number>; xs?: ArrayLike<number> }, px: (x: number) => number, width: number): [number, number][] {
+  const n = s.y.length, xAt = (i: number) => (s.xs ? s.xs[i] : s.first + (i * (s.last - s.first)) / Math.max(1, n - 1));
+  let i0 = 0, i1 = n - 1;
+  if (!s.xs && n > 1) {
+    // The pixel is a straight line in the point's index: the points from 2 px left of the plot to 2 px right of it.
+    const a = px(xAt(0)), b = px(xAt(1)) - a, at = (p: number) => (b ? (p - a) / b : 0);
+    i0 = Math.max(0, Math.floor(Math.min(at(-2), at(width + 2))));
+    i1 = Math.min(n - 1, Math.ceil(Math.max(at(-2), at(width + 2))));
+  }
+  const out: [number, number][] = [];
+  if (i1 - i0 <= 2 * width) {
+    for (let i = i0; i <= i1; i++) { const p = px(xAt(i)); if (p >= -2 && p <= width + 2) out.push([p, s.y[i]]); }
+    return out;
+  }
+  let col = NaN, lo = 0, hi = 0, loAt = 0, hiAt = 0;
+  const flush = () => { if (!Number.isNaN(col)) out.push(...((loAt <= hiAt ? [[col, lo], [col, hi]] : [[col, hi], [col, lo]]) as [number, number][])); };
+  for (let i = i0; i <= i1; i++) {
+    const p = Math.round(px(xAt(i))), v = s.y[i];
+    if (p < -2 || p > width + 2) continue;
+    if (p !== col) { flush(); col = p; lo = hi = v; loAt = hiAt = i; continue; }
+    if (v < lo) { lo = v; loAt = i; }
+    if (v > hi) { hi = v; hiAt = i; }
+  }
+  flush();
+  return out;
+}
+
 // Lorentzian lines summed at each of `xs` (ppm): each line's height times its half width squared over the distance
 // squared plus the half width squared.
 export const lorentz = (xs: number[], ls: { ppm: number; h: number; w: number }[]) => xs.map((v) => ls.reduce((sum, l) => sum + (l.h * l.w * l.w) / ((v - l.ppm) ** 2 + l.w * l.w), 0));
