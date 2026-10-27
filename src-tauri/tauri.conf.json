@@ -67,6 +67,13 @@
         "role": "Editor",
         "rank": "Default",
         "mimeType": "chemical/x-cdx"
+      },
+      {
+        "ext": ["ctp", "cts"],
+        "name": "ChemDraw Templates",
+        "description": "ChemDraw template file",
+        "role": "Viewer",
+        "rank": "Alternate"
       }
     ],
     "linux": {

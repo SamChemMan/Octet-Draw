@@ -2,7 +2,7 @@
 // modules (General, Document, Keyboard shortcuts, Import and export) under a search field that is always there. With text
 // in it, every matching setting from every module shows on the right, grouped by module and ready to use.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowCounterClockwise, CaretDown, Check, FileText, Files, GearSix, Keyboard, MagnifyingGlass, PencilSimpleLine, Plus, Swatches, Warning, X } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, BookOpenText, CaretDown, Check, FileText, Files, GearSix, Keyboard, MagnifyingGlass, PencilSimpleLine, Plus, Swatches, Warning, X } from "@phosphor-icons/react";
 import { ColourPicker, ColourPop } from "./ColourPicker";
 import { Dialog, useModal } from "./Dialog";
 import { holdCursor } from "./cursor";
@@ -17,7 +17,7 @@ import { BACKGROUNDS, COLOURS, ELEMENT_COLOURS, FONTS, GRID_IN, GRID_MM, PAGE_NA
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
 import { WARNING_TYPES, type WarningType } from "./check";
 
-export type ModuleId = "general" | "document" | "drawing" | "keys" | "appearance" | "files" | "warnings";
+export type ModuleId = "general" | "document" | "drawing" | "keys" | "appearance" | "files" | "warnings" | "dictionary";
 // How the drawing tools draw (ChemDraw's Object > Fixed Lengths and Fixed Angles, and its Building/Display setting),
 // and ChemDraw's other preferences that change the drawing or what opening a file gives (settings.ts, CH-34).
 export type DrawingPrefs = {
@@ -84,6 +84,13 @@ type Props = {
   updates: boolean; // check for updates when Octet opens (decision 0010)
   onUpdates: (on: boolean) => void;
   onCheckUpdates: () => void;
+  // The user's own dictionary (Add to dictionary): each name to change or remove here, and the whole list exported or
+  // imported as a SMILES file.
+  dictionary: { name: string; smiles: string }[];
+  onRenameName: (from: string, to: string) => void;
+  onRemoveName: (name: string) => void;
+  onExportNames: () => void;
+  onImportNames: () => void;
   onClose: () => void;
 };
 
@@ -156,6 +163,31 @@ function OwnTemplates({ list, onRename, onRemove }: { list: { id: string; name: 
             onChange={(e) => setNames((n) => ({ ...n, [p.id]: e.target.value }))} onBlur={() => keep(p.id)}
             onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
           <button className="text-button" aria-label={`Remove ${p.name}`} data-tip="Remove" onClick={() => onRemove(p.id)}><X size={12} /></button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// The user's own dictionary: each name to change (it is kept when the field is left, if no other entry has it), its
+// SMILES, and its remove button, as the user's colours and templates. With no names, how to add one.
+function OwnDictionary({ list, onRename, onRemove }: { list: { name: string; smiles: string }[]; onRename: (from: string, to: string) => void; onRemove: (name: string) => void }) {
+  const [names, setNames] = useState<Record<string, string>>({});
+  const keep = (from: string) => {
+    const to = names[from];
+    if (to !== undefined) onRename(from, to);
+    setNames(({ [from]: _, ...rest }) => rest);
+  };
+  if (!list.length) return <p className="dictionary-empty">To add a name, select a structure. Then right-click it and choose Add to dictionary.</p>;
+  return (
+    <div className="palette-editor dictionary-list">
+      {list.map((n) => (
+        <div key={n.name} className="palette-line">
+          <input className="palette-name" aria-label="Name" value={names[n.name] ?? n.name} maxLength={80} spellCheck={false}
+            onChange={(e) => setNames((x) => ({ ...x, [n.name]: e.target.value }))} onBlur={() => keep(n.name)}
+            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.stopPropagation(); setNames(({ [n.name]: _, ...rest }) => rest); } }} />
+          <span className="dictionary-smiles" data-tip={n.smiles}>{n.smiles}</span>
+          <button className="text-button" aria-label={`Remove ${n.name}`} data-tip="Remove" onClick={() => onRemove(n.name)}><X size={12} /></button>
         </div>
       ))}
     </div>
@@ -285,6 +317,7 @@ const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: strin
   { id: "appearance", name: "Appearance", icon: <Swatches size={16} />, words: "appearance look actions panel side menus sections colour colours palette custom swatch named" },
   { id: "files", name: "Import and export", icon: <Files size={16} />, words: "import export file clipboard" },
   { id: "warnings", name: "Warnings", icon: <Warning size={16} />, words: "warnings chemical check structure errors problems" },
+  { id: "dictionary", name: "Dictionary", icon: <BookOpenText size={16} />, words: "dictionary names name to structure own words abbreviations add structure" },
 ];
 // The module saved last time, as a module that is there now (Actions panel and Colours became Appearance).
 export const moduleOf = (id: string): ModuleId => (id === "panel" || id === "colours" ? "appearance" : MODULES.find((m) => m.id === id)?.id ?? "document");
@@ -520,8 +553,10 @@ export function SettingsWindow(p: Props) {
       d("general", "Check Structure", "Check when copying or exporting", "check structure copy export clipboard warnings", <Switch on={p.checkCopy} label="Check when copying or exporting" onChange={p.onCheckCopy} />),
       // Off hides Search Reaxys and Search PubChem everywhere (decision 0008).
       d("files", "Online", "Online search", "online search reaxys pubchem internet web browser network privacy offline", <Switch on={p.onlineSearch} label="Online search" onChange={p.onOnlineSearch} />),
+      // ChemDraw's Add Structure to Dictionary keeps names; here they are renamed, removed, exported and imported.
+      d("dictionary", "Names", "Your names", "dictionary names name to structure own words abbreviations rename remove export import smiles", <OwnDictionary list={p.dictionary} onRename={p.onRenameName} onRemove={p.onRemoveName} />, true),
     ];
-  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.onlineSearch, p.rulerUnit, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.warnings, p.warningTypes, p.checkCopy]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.onlineSearch, p.rulerUnit, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.warnings, p.warningTypes, p.checkCopy, p.dictionary]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query) && (!p.template || def.module === "document")) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));
@@ -557,7 +592,9 @@ export function SettingsWindow(p: Props) {
       </>
     );
     return <>{sections(module, list).map((s) => <Section key={s} title={s} defs={list.filter((x) => x.module === module && x.section === s)}
-      aside={s === "Updates" ? <button className="text-button" onClick={p.onCheckUpdates}>Check Now</button> : undefined} />)}</>;
+      aside={s === "Updates" ? <button className="text-button" onClick={p.onCheckUpdates}>Check Now</button> : s === "Names" && !query ? (
+        <span className="section-buttons"><button className="text-button" onClick={p.onImportNames}>Import…</button><button className="text-button" onClick={p.onExportNames} disabled={!p.dictionary.length}>Export…</button></span>
+      ) : undefined} />)}</>;
   };
 
   return (

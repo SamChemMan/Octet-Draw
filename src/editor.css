@@ -1481,7 +1481,7 @@ button.variant.add {
 /* Overlays leave the way they came in, a little faster (motion.tsx, Exit): a fade and a small shrink toward where
    they opened. A dialog's dim only fades. With reduced motion they go at once. The page menu opened above, the
    tutorial card at the bottom and the next tip along a row have their own way in, so they are named here too. */
-:is(.strip, .library, .page-menu, .properties, .spectrum, .coach, .name-field, .name-suggestion, .name-history, .tip).leaving,
+:is(.strip, .library, .floating-templates, .page-menu, .properties, .spectrum, .coach, .name-field, .name-suggestion, .name-history, .tip).leaving,
 .page-menu.above.leaving,
 .strip.list.leaving,
 .coach.low.leaving,
@@ -2704,6 +2704,7 @@ button.variant.add {
   position: absolute;
   top: -1px;
   left: calc(100% + var(--space-2));
+  z-index: 2; /* over the floating palettes, as the strips are */
   display: grid;
   grid-template-columns: 150px 1fr;
   width: 560px;
@@ -2725,9 +2726,195 @@ button.variant.add {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-height: 0;
   padding: var(--space-2);
   border-right: 1px solid var(--hairline);
   background: var(--surface-sunken);
+}
+/* The sets scroll under the search field when there are more than the panel's height. */
+.library-sets {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  margin: 0 calc(-1 * var(--space-2));
+  padding: 0 var(--space-2);
+  overflow-y: auto;
+}
+/* The open set's name over its templates, and Keep open, which tears the set off into a floating palette. */
+.library-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.library-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 var(--space-2) 0 var(--space-3);
+}
+.library-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font: 600 13px var(--font-sans);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.library-keep {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-muted);
+  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+}
+.library-keep:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+@media (hover: hover) and (pointer: fine) {
+  .library-keep:hover {
+    background: var(--surface-sunken);
+    color: var(--ink);
+  }
+}
+/* Where a template dragged within a set of the user's will go: a bar in the gap before (or after) a template. */
+.library-cell.insert-before::before,
+.library-cell.insert-after::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--brand-bright);
+  pointer-events: none;
+}
+.library-cell.insert-before::before {
+  left: -2px;
+}
+.library-cell.insert-after::after {
+  right: -2px;
+}
+
+/* A set kept open beside the canvas: a small floating palette, as ChemDraw's template palettes. Its bar drags it, its
+   corner grip makes it wider or narrower in whole columns, and the palette pressed last is on top. The layer holds
+   them all in the toolbar's layer, above the canvas and the panels and under the toolbar's own menus and anything carried. */
+.floating-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.floating-templates {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 16px);
+  box-sizing: border-box;
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  pointer-events: auto;
+  transform-origin: top left;
+  animation: list-in var(--motion-fast) var(--ease-out);
+}
+.floating-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  height: 28px;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border-bottom: 1px solid var(--hairline);
+  cursor: grab;
+  touch-action: none;
+}
+.floating-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink-muted);
+  font: 500 11px var(--font-sans);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.floating-close {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-muted);
+  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+}
+.floating-close:focus-visible,
+.floating-item:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.floating-grid {
+  display: grid;
+  gap: 2px;
+  min-height: 0;
+  padding: 4px 4px 14px;
+  overflow-y: auto;
+}
+.floating-item {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  padding: 4px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  transition: background var(--motion-fast) var(--ease-out);
+}
+.floating-item .thumb {
+  width: 52px;
+  height: 52px;
+}
+.floating-item[aria-checked="true"] {
+  background: var(--brand-mist);
+}
+.floating-none {
+  grid-column: 1 / -1;
+  margin: var(--space-2);
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .floating-item:not([aria-checked="true"]):hover,
+  .floating-close:hover {
+    background: var(--surface-sunken);
+  }
+  .floating-close:hover {
+    color: var(--ink);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .floating-templates {
+    animation: fade-in var(--motion-fast) var(--ease-out);
+  }
 }
 .library-search {
   display: flex;
@@ -2790,7 +2977,9 @@ button.variant.add {
   grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
   align-content: start;
   gap: 2px;
-  padding: var(--space-2);
+  flex: 1;
+  min-height: 0;
+  padding: 0 var(--space-2) var(--space-2);
   overflow-y: auto;
 }
 .library-cell {
@@ -3496,6 +3685,102 @@ button.variant.add {
 .palette-editor {
   display: grid;
   gap: var(--space-2);
+}
+/* Settings > Dictionary: each name, its SMILES in Plex Mono, and its remove button; Import and Export by the title. */
+.dictionary-empty {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+.setting-control:has(> .dictionary-list) {
+  flex: 1;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.dictionary-list {
+  flex: 1;
+  min-width: 0;
+  max-width: 520px;
+}
+.dictionary-smiles {
+  flex: 0 1 45%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-muted);
+  font: 13px/18px var(--font-mono);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.section-buttons {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* A template open on the canvas (Edit): its name, Cancel and Save, at the top of the window. It moves down for the
+   name field, which opens in the same place. */
+.template-bar {
+  position: absolute;
+  top: var(--space-4);
+  left: 50%;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-float);
+  translate: -50% 0;
+  animation: bar-in var(--motion) var(--ease-out);
+  transition: top var(--motion) var(--ease-out);
+}
+.template-bar.low {
+  top: calc(var(--space-4) + 52px);
+}
+.template-bar-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 280px;
+  margin-right: var(--space-2);
+  overflow: hidden;
+  color: var(--ink);
+  font: 500 13px var(--font-sans);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.template-bar-name svg {
+  flex: none;
+  color: var(--ink-muted);
+}
+.template-bar .dialog-button {
+  min-width: 72px;
+}
+.template-bar.leaving {
+  pointer-events: none;
+  animation: bar-out var(--motion-fast) var(--ease-out) forwards;
+}
+@keyframes bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@keyframes bar-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .template-bar {
+    animation: fade-in var(--motion-fast) var(--ease-out);
+    transition: none;
+  }
+  .template-bar.leaving {
+    animation: fade-out var(--motion-fast) var(--ease-out) forwards;
+  }
 }
 .palette-line {
   display: flex;

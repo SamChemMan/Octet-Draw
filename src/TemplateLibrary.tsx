@@ -5,25 +5,38 @@
 // user's own templates come first, in named sets (CD-33, as ChemDraw's template documents): New set adds one, a
 // double-click on a set's name renames it, its × removes it (its templates go to My templates). In My templates and
 // each set of the user's, Add (always the first tile) adds the selection, or the structure clicked next. A template
-// of the user's is renamed by a double-click on its name or from its menu (right-click), which also moves and removes
-// it; a built-in template's menu copies it into the user's sets. A template dragged onto a set's name moves there (a
-// built-in one is copied), and a selection dragged from the canvas onto the open set or a set's name goes in it.
-import { useEffect, useMemo, useRef, useState } from "react";
-import { BookmarkSimple, Folders, FolderSimple, FolderSimplePlus, FolderSimpleUser, MagnifyingGlass, PencilSimple, Plus, PushPin, Trash, X } from "@phosphor-icons/react";
+// of the user's is renamed by a double-click on its name or from its menu (right-click), which also edits, duplicates,
+// moves, orders and removes it; a built-in template's menu copies it into the user's sets or edits a copy. A template
+// dragged onto a set's name moves there (a built-in one is copied), dragged within a set of the user's it takes that
+// place, and a selection dragged from the canvas onto the open set or a set's name goes in it. Keep open (the open
+// set's button, or a set's menu) tears a set off into a floating palette (FloatingTemplates, below).
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ArrowLineDownRight, ArrowLineUpLeft, ArrowSquareOut, BookmarkSimple, Copy, Folders, FolderSimple, FolderSimplePlus, FolderSimpleUser, MagnifyingGlass, NotePencil, PencilSimple, Plus, PushPin, Trash, X } from "@phosphor-icons/react";
 import { ContextMenu, type MenuItem } from "./Menu";
 import { commonKey } from "./common";
 import { measure, STYLE } from "./chem";
 import { fontStack } from "./docstyle";
 import { LIBRARY, type LibraryItem } from "./library";
 import { arrowShapes, curvePath, isOrbital, labelTurn, render, shapeInk, shapePaths, spotPath, tlcLayout, type Arrow, type Label, type Mol } from "./render";
-import { useLeaving } from "./motion";
-import { MY_SET, ownId, templateKind } from "./templates";
+import { reduced, timing, useLeaving } from "./motion";
+import { holdCursor } from "./cursor";
+import { MY_SET, ownId, templateKind, type FloatingPalette, type TemplateTool } from "./templates";
 
 // The tool a library is beside (the Ring tool's Templates row, or the Template tool): a template chosen or added there
 // is that tool's.
-export type TemplateTool = "ring" | "template";
+export type { TemplateTool };
 // What the library does with the user's sets (Editor.tsx keeps them in Settings).
 export type TemplateSetActions = { add: (name: string) => void; rename: (from: string, to: string) => void; remove: (name: string) => void; move: (id: string, set: string) => void };
+// What a template's menu (right-click, in the library or a floating palette) does. onEdit: Edit for one of the user's
+// templates, Edit a copy for a built-in one. onPlace: a template of the user's put before another of its set (before
+// unset: at the end). onKeepOpen: a set torn off into a floating palette.
+export type TemplateActions = {
+  sets?: string[]; onSets?: TemplateSetActions; kept?: string[];
+  onRemove?: (kind: string) => void; onCopy?: (kind: string, set: string) => void; onNewSet?: (then: (set: string) => void) => void;
+  onKeep?: (kind: string, keep: boolean) => void; onEdit?: (kind: string) => void; onDuplicate?: (id: string) => void;
+  onPlace?: (id: string, before?: string) => void; onToStart?: (id: string) => void; onToEnd?: (id: string) => void;
+  onKeepOpen?: (set: string) => void;
+};
 
 // The sets a template can go in, as a sub-menu: My templates, then the user's own sets, then New set… (which names one
 // first). key: each set's option; but: a set left out (the one the template is in).
@@ -33,15 +46,17 @@ export const setItems = (sets: string[], key: (set: string) => string, fresh: st
 ];
 
 const toPath = (polys: [number, number][][]) => polys.map((poly) => "M" + poly.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L") + "Z").join("");
-// Thumbnails are drawn once. Small structures keep their size (the view is at least five bonds across); big ones shrink to fit.
-const thumbs = new Map<string, { d: string; fills: { d: string; colour?: string }[]; labels: Label[]; view: string }>();
+// Thumbnails are drawn once for each structure (a template edited is a new structure, and is drawn again). Small
+// structures keep their size (the view is at least five bonds across); big ones shrink to fit.
+type Drawn = { mol: Mol; d: string; fills: { d: string; colour?: string }[]; labels: Label[]; view: string };
+const thumbs = new Map<string, Drawn>();
 const Thumb = ({ item }: { item: LibraryItem }) => <StructureThumb id={item.kind} mol={item.mol} />;
-// Any structure as a thumbnail, drawn once per id.
+// Any structure as a thumbnail, drawn once per id and structure.
 // A template's arrows, pen curves and shapes show as they draw on the page (a closed curve's fill behind the lines),
 // a highlight as its edge, an orbital as its axis, and its text as its words.
 export function StructureThumb({ id, mol }: { id: string; mol: Mol }) {
   let t = thumbs.get(id);
-  if (!t) {
+  if (!t || t.mol !== mol) {
     const L = STYLE.bond, drawing = render(mol, STYLE, measure, L), at = (q: [number, number]) => [q[0] * L, -q[1] * L];
     const filled = (a: Arrow) => !!(a.curve?.closed && a.fill), arrows = mol.arrows ?? [];
     // A TLC plate's origin and solvent front (unless hidden) and its spots, as the canvas draws them.
@@ -55,7 +70,8 @@ export function StructureThumb({ id, mol }: { id: string; mol: Mol }) {
     const points = [...ink, ...fills].flat(), xs = [...points.map((q) => q[0]), ...words.map((w) => w.x)], ys = [...points.map((q) => q[1]), ...words.map((w) => w.y)];
     const [x0, y0, x1, y1] = mol.atoms.length || !xs.length ? [Math.min(drawing.box[0], ...xs), Math.min(drawing.box[1], ...ys), Math.max(drawing.box[2], ...xs), Math.max(drawing.box[3], ...ys)] : [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
     const side = Math.max(x1 - x0, y1 - y0, 5 * L), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
-    t = { d: toPath([...drawing.polygons, ...ink]), fills: arrows.filter(filled).map((a, k) => ({ d: toPath([fills[k]]), colour: a.colour })), labels: [...drawing.labels, ...words], view: `${cx - side / 2} ${cy - side / 2} ${side} ${side}` };
+    t = { mol, d: toPath([...drawing.polygons, ...ink]), fills: arrows.filter(filled).map((a, k) => ({ d: toPath([fills[k]]), colour: a.colour })), labels: [...drawing.labels, ...words], view: `${cx - side / 2} ${cy - side / 2} ${side} ${side}` };
+    if (thumbs.size >= 3000) thumbs.clear();
     thumbs.set(id, t);
   }
   return (
@@ -65,6 +81,108 @@ export function StructureThumb({ id, mol }: { id: string; mol: Mol }) {
       {t.labels.map((l, i) => <text key={i} x={l.x} y={l.y} transform={labelTurn(l)} fill="currentColor" style={{ font: `${l.size}px ${fontStack("Arial")}` }}>{l.text}</text>)}
     </svg>
   );
+}
+
+// A template's menu, the same in the library and in a floating palette: Edit, Rename, Duplicate, Move to, Move to
+// start, Move to end and Remove for one of the user's own; Add to templates (a copy), Edit a copy and the Ring menu pin
+// for a built-in one. onRename: Rename was chosen (the library shows the name field).
+export function TemplateMenu({ item, at, keyboard, actions: a, onRename, onClose }: {
+  item: LibraryItem; at: { x: number; y: number }; keyboard?: boolean; actions: TemplateActions; onRename?: () => void; onClose: () => void;
+}) {
+  const id = ownId(item.kind), kept = !!a.kept?.includes(item.kind);
+  const groups: MenuItem[][] = id ? [
+    [...(a.onEdit ? [{ key: "edit", name: "Edit", icon: <NotePencil size={18} /> }] : []), ...(onRename ? [{ key: "rename", name: "Rename", icon: <PencilSimple size={18} /> }] : []),
+      ...(a.onDuplicate ? [{ key: "duplicate", name: "Duplicate", icon: <Copy size={18} /> }] : [])],
+    [...(a.onSets ? [{ key: "move", name: "Move to", icon: <Folders size={18} />, more: true }] : []), ...(a.onToStart ? [{ key: "start", name: "Move to start", icon: <ArrowLineUpLeft size={18} /> }] : []),
+      ...(a.onToEnd ? [{ key: "end", name: "Move to end", icon: <ArrowLineDownRight size={18} /> }] : [])],
+    a.onRemove ? [{ key: "remove", name: "Remove", icon: <Trash size={18} /> }] : [],
+  ] : [[
+    ...(a.onCopy && a.onSets ? [{ key: "copy", name: "Add to templates", icon: <BookmarkSimple size={18} />, more: true }] : []),
+    ...(a.onEdit ? [{ key: "edit", name: "Edit a copy", icon: <NotePencil size={18} /> }] : []),
+    ...(a.onKeep ? [{ key: "keep", name: "Keep in the Ring menu", icon: <PushPin size={18} />, checked: kept }] : []),
+  ]];
+  const sub = (key: string) => (key === "move" ? { label: "Move to", groups: setItems(a.sets ?? [], (s) => `move:${s}`, "move.new", item.category) }
+    : key === "copy" ? { label: "Add to templates", groups: setItems(a.sets ?? [], (s) => `copy:${s}`, "copy.new") } : undefined);
+  const choose = (key: string) => {
+    if (key === "edit") return a.onEdit?.(item.kind);
+    if (key === "rename") return onRename?.();
+    if (key === "remove") return a.onRemove?.(item.kind);
+    if (key === "keep") return a.onKeep?.(item.kind, !kept);
+    if (key.startsWith("copy:")) return a.onCopy?.(item.kind, key.slice(5));
+    if (key === "copy.new") return a.onNewSet?.((set) => a.onCopy?.(item.kind, set));
+    if (!id) return;
+    if (key === "duplicate") return a.onDuplicate?.(id);
+    if (key === "start") return a.onToStart?.(id);
+    if (key === "end") return a.onToEnd?.(id);
+    if (key.startsWith("move:")) return a.onSets?.move(id, key.slice(5));
+    if (key === "move.new") return a.onNewSet?.((set) => a.onSets?.move(id, set));
+  };
+  return <ContextMenu label={item.name} at={at} keyboard={keyboard} groups={groups.filter((g) => g.length)} sub={sub} onChoose={choose} onClose={onClose} />;
+}
+
+// A template's menu opened by the pointer (right-click) or a key (the Menu key, Shift+F10): at the pointer, or under
+// the template.
+const menuAt = (e: React.MouseEvent | React.KeyboardEvent) => {
+  if ("clientX" in e) return { at: { x: e.clientX, y: e.clientY } };
+  const r = e.currentTarget.getBoundingClientRect();
+  return { at: { x: r.left + r.width / 2, y: r.bottom - 8 }, keyboard: true };
+};
+const menuKey = (e: React.KeyboardEvent) => e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey);
+
+// The order of a set of the user's, by drag: while one of its templates is carried over the grid, a bar shows where it
+// will go (before the template under the pointer, or after it past its middle); let go on the grid, it goes there.
+// The other templates glide to their new places (none with reduced motion). glide: called with the grid just before
+// any change of order, so a move from the menu glides too.
+const DRAG_PX = 6;
+function useOrder(grid: React.RefObject<HTMLElement | null>, onPlace: ((id: string, before?: string) => void) | undefined, order: string) {
+  const [mark, setMark] = useState<{ before?: string }>(), from = useRef<Map<string, DOMRect>>(undefined);
+  const glide = () => { from.current = new Map([...grid.current?.querySelectorAll<HTMLElement>("[data-kind]") ?? []].map((el) => [el.dataset.kind!, el.getBoundingClientRect()])); };
+  useLayoutEffect(() => {
+    const was = from.current;
+    from.current = undefined;
+    if (!was || reduced()) return;
+    const how = timing();
+    for (const el of grid.current?.querySelectorAll<HTMLElement>("[data-kind]") ?? []) {
+      const a = was.get(el.dataset.kind!), b = el.getBoundingClientRect();
+      if (a && Math.abs(a.left - b.left) + Math.abs(a.top - b.top) > 0.5) el.animate([{ transform: `translate(${a.left - b.left}px, ${a.top - b.top}px)` }, { transform: "none" }], how);
+    }
+  }, [order]); // eslint-disable-line react-hooks/exhaustive-deps
+  const start = (e: React.PointerEvent, kind: string) => {
+    const id = ownId(kind);
+    if (!id || !onPlace || e.button !== 0) return;
+    const [sx, sy] = [e.clientX, e.clientY];
+    let moved = false;
+    // Where it goes for a point: undefined off the grid; before: the template it goes before (unset: the end).
+    const at = (x: number, y: number): { before?: string } | undefined => {
+      const el = document.elementFromPoint(x, y), box = grid.current;
+      if (!el || !box?.contains(el)) return undefined;
+      const kinds = [...box.querySelectorAll<HTMLElement>("[data-kind]")].map((c) => c.dataset.kind!);
+      if (el.closest(".library-add")) return { before: kinds[0] };
+      const cell = el.closest<HTMLElement>("[data-kind]");
+      if (!cell) return {};
+      const r = cell.getBoundingClientRect(), k = kinds.indexOf(cell.dataset.kind!);
+      return { before: x < r.left + r.width / 2 ? kinds[k] : kinds[k + 1] };
+    };
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < DRAG_PX) return;
+      moved = true;
+      setMark(at(ev.clientX, ev.clientY));
+    };
+    const up = (ev: PointerEvent) => {
+      removeEventListener("pointermove", move);
+      removeEventListener("pointerup", up);
+      setMark(undefined);
+      const to = moved ? at(ev.clientX, ev.clientY) : undefined;
+      if (!to || to.before === kind) return;
+      glide();
+      onPlace(id, to.before && ownId(to.before));
+    };
+    addEventListener("pointermove", move);
+    addEventListener("pointerup", up);
+  };
+  // The cell the bar is drawn by: before the one it goes before, or after the last.
+  const markOf = (kind: string, last: boolean) => (!mark ? undefined : mark.before === kind ? "insert-before" : last && !mark.before ? "insert-after" : undefined);
+  return { start, markOf, glide };
 }
 
 // The last library change shown (reveal's n): a library opened again later shows no name field.
@@ -81,12 +199,11 @@ const NAME_CLICK = 250;
 // find: structures for what is searched, by name or abbreviation (TREN), each as a built-in template: Octet's own names
 // that begin as typed and are drawn already (read false, at once), or all of them with the name as typed or its
 // suggestion (read true, once typing pauses).
-export function LibraryPanel(p: {
-  current: string; kept?: string[]; dimmed?: boolean; mine?: LibraryItem[]; sets?: string[]; onSets?: TemplateSetActions;
+export function LibraryPanel(p: TemplateActions & {
+  current: string; dimmed?: boolean; mine?: LibraryItem[];
   tool?: TemplateTool; reveal?: { set: string; id?: string; n: number }; find?: (query: string, read: boolean) => LibraryItem[];
-  onAdd?: (set: string) => void; onRemove?: (kind: string) => void; onRename?: (id: string, name: string) => void;
-  onCopy?: (kind: string, set: string) => void; onNewSet?: (then: (set: string) => void) => void;
-  onChoose: (kind: string) => void; onKeep?: (kind: string, keep: boolean) => void; onPress: (e: React.PointerEvent, kind: string) => void;
+  onAdd?: (set: string) => void; onRename?: (id: string, name: string) => void;
+  onChoose: (kind: string) => void; onPress: (e: React.PointerEvent, kind: string) => void;
 }) {
   const own = useMemo(() => [MY_SET, ...(p.sets ?? [])].map((name) => ({ name, items: (p.mine ?? []).filter((t) => t.category === name), own: true })), [p.mine, p.sets]);
   const categories = useMemo(() => [...own.filter((c) => c.items.length || p.onSets), ...LIBRARY.map((c) => ({ ...c, own: false }))], [own, p.onSets]);
@@ -96,10 +213,11 @@ export function LibraryPanel(p: {
   const [query, setQuery] = useState(""), leaving = useLeaving();
   // A set's name being typed: a new set ("" until it has one), or one being renamed.
   const [naming, setNaming] = useState<{ from?: string; value: string }>();
-  // The template whose name is being typed, and the template whose menu is open (at the pointer, or under the
-  // template when a key opened it).
+  // The template whose name is being typed, the template whose menu is open (at the pointer, or under the template
+  // when a key opened it), and the set whose menu is open.
   const [editing, setEditing] = useState(() => (fresh?.id ? templateKind(fresh.id) : undefined));
   const [menu, setMenu] = useState<{ kind: string; at: { x: number; y: number }; keyboard?: boolean }>();
+  const [setChoice, setSetChoice] = useState<{ set: string; own: boolean; at: { x: number; y: number }; keyboard?: boolean }>();
   useEffect(() => {
     if (!fresh) return;
     revealed = fresh.n;
@@ -148,6 +266,10 @@ export function LibraryPanel(p: {
     const exact = (t: LibraryItem) => commonKey(t.name) === commonKey(typed);
     return [...found.filter(exact), ...found.filter((t) => !exact(t))];
   }, [open, typed, categories, named]);
+  // A set of the user's is in the order the user gives it: by drag, or Move to start and Move to end.
+  const ordering = !query && open.own;
+  const order = useOrder(grid, ordering ? p.onPlace : undefined, shown.map((t) => t.kind).join("\n"));
+  const actions: TemplateActions = { ...p, onToStart: p.onToStart && ((id) => { order.glide(); p.onToStart!(id); }), onToEnd: p.onToEnd && ((id) => { order.glide(); p.onToEnd!(id); }) };
   const done = (keep: boolean) => {
     const n = naming;
     setNaming(undefined);
@@ -163,31 +285,19 @@ export function LibraryPanel(p: {
   // Where a canvas selection dragged here goes (the Editor reads these as it is let go): the open set of the user's,
   // or one of their sets' names.
   const drop = (set: string) => (p.onSets && p.tool ? { "data-drop-set": set, "data-drop-tool": p.tool } : {});
-  // A template's menu: Rename, Move to and Remove for the user's own; Add to templates (a copy) and the Ring menu pin
-  // for a built-in one.
-  const item = menu && [...categories.flatMap((c) => c.items), ...named].find((t) => t.kind === menu.kind), id = menu && ownId(menu.kind);
-  const kept = !!item && !!p.kept?.includes(item.kind);
-  const menuGroups: MenuItem[][] = !item ? [] : id ? [
-    [...(p.onRename ? [{ key: "rename", name: "Rename", icon: <PencilSimple size={18} /> }] : []), ...(p.onSets ? [{ key: "move", name: "Move to", icon: <Folders size={18} />, more: true }] : [])],
-    p.onRemove ? [{ key: "remove", name: "Remove", icon: <Trash size={18} /> }] : [],
-  ] : [[
-    ...(p.onCopy && p.onSets ? [{ key: "copy", name: "Add to templates", icon: <BookmarkSimple size={18} />, more: true }] : []),
-    ...(p.onKeep ? [{ key: "keep", name: "Keep in the Ring menu", icon: <PushPin size={18} />, checked: kept }] : []),
-  ]];
-  const menuSub = (key: string) => (key === "move" ? { label: "Move to", groups: setItems(p.sets ?? [], (s) => `move:${s}`, "move.new", item?.category) }
-    : key === "copy" ? { label: "Add to templates", groups: setItems(p.sets ?? [], (s) => `copy:${s}`, "copy.new") } : undefined);
-  const menuChoose = (key: string) => {
-    if (!item) return;
-    if (key === "rename") return setEditing(item.kind);
-    if (key === "remove") return p.onRemove?.(item.kind);
-    if (key === "keep") return p.onKeep?.(item.kind, !kept);
-    if (key.startsWith("move:") && id) return p.onSets?.move(id, key.slice(5));
-    if (key.startsWith("copy:")) return p.onCopy?.(item.kind, key.slice(5));
-    if (key === "move.new" && id) return p.onNewSet?.((set) => p.onSets?.move(id, set));
-    if (key === "copy.new") return p.onNewSet?.((set) => p.onCopy?.(item.kind, set));
-  };
+  const item = menu && [...categories.flatMap((c) => c.items), ...named].find((t) => t.kind === menu.kind);
   // A click on a name of the user's waits for a second one (a double-click renames it); a click elsewhere chooses at once.
   const onName = (e: React.MouseEvent) => !!(e.target as Element).closest(".library-name");
+  // A set's menu: Keep open for every set; Rename and Remove for the user's own (not My templates).
+  const setGroups = (s: { set: string; own: boolean }): MenuItem[][] => [
+    p.onKeepOpen ? [{ key: "keepopen", name: "Keep open", icon: <ArrowSquareOut size={18} /> }] : [],
+    s.own && s.set !== MY_SET && p.onSets ? [{ key: "rename", name: "Rename", icon: <PencilSimple size={18} /> }, { key: "remove", name: "Remove", icon: <Trash size={18} /> }] : [],
+  ].filter((g) => g.length);
+  const chooseSet = (s: { set: string }, key: string) => {
+    if (key === "keepopen") return p.onKeepOpen?.(s.set);
+    if (key === "rename") return setNaming({ from: s.set, value: s.set });
+    if (key === "remove") { p.onSets?.remove(s.set); if (category === s.set) setCategory(MY_SET); }
+  };
   return (
     <div className={["library", p.dimmed && "carrying", dragging && "dragging", leaving && "leaving"].filter(Boolean).join(" ")} role="dialog" aria-label="Templates" inert={leaving}>
       <div className="library-side">
@@ -196,97 +306,190 @@ export function LibraryPanel(p: {
           <input placeholder="Search" aria-label="Search templates" spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Escape" && query) { e.stopPropagation(); setQuery(""); } }} />
         </label>
-        {categories.map((c, k) => (
-          <div key={c.name} className={c.own && !categories[k + 1]?.own && p.onSets ? "library-set last" : "library-set"}>
-            {naming?.from === c.name ? nameField : (
-              <button className="library-category" aria-pressed={!query && category === c.name} onClick={() => { setCategory(c.name); setQuery(""); }} {...(c.own ? drop(c.name) : {})}
-                onDoubleClick={() => { if (c.own && c.name !== MY_SET && p.onSets) setNaming({ from: c.name, value: c.name }); }}
-                onPointerUp={() => {
-                  const kind = carried.current, id = kind && ownId(kind);
-                  if (!kind || !c.own || !p.onSets) return;
-                  if (id) p.onSets.move(id, c.name); else p.onCopy?.(kind, c.name);
-                }}>
-                {c.name}<span>{c.items.length}</span>
-              </button>
-            )}
-            {c.own && c.name !== MY_SET && p.onSets && naming?.from !== c.name && (
-              <button className="variant-action" aria-label={`Remove the set ${c.name}`} data-tip="Remove the set" onClick={() => { p.onSets!.remove(c.name); if (category === c.name) setCategory(MY_SET); }}>
-                <X size={12} />
-              </button>
-            )}
-            {c.own && !categories[k + 1]?.own && p.onSets && (naming && !naming.from ? nameField : (
-              <button className="library-category library-new" onClick={() => setNaming({ value: "" })}><Plus size={12} aria-hidden />New set</button>
-            ))}
-          </div>
-        ))}
-      </div>
-      <div ref={grid} className="library-grid" role="menu" aria-label={query ? "Results" : category} {...(!query && open.own ? drop(open.name) : {})}>
-        {!query && open.own && p.onAdd && (
-          <div className="library-cell">
-            <button role="menuitem" className="library-item library-add" aria-label={`Add a structure to ${open.name}`} onClick={() => p.onAdd!(open.name)}>
-              <span className="library-add-mark" aria-hidden><Plus size={20} /></span>
-              <span className="library-name">Add</span>
-            </button>
-          </div>
-        )}
-        {shown.map((t) => {
-          const kept = !!p.kept?.includes(t.kind), mine = !!ownId(t.kind);
-          if (editing === t.kind) return (
-            <div key={t.kind} className="library-cell">
-              <div className="library-item editing">
-                <Thumb item={t} />
-                <input className="library-rename" aria-label="Template name" autoFocus defaultValue={t.name} maxLength={80} spellCheck={false} onFocus={(e) => e.target.select()}
-                  onKeyDown={(e) => {
-                    if (e.key !== "Enter" && e.key !== "Escape") return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (e.key === "Escape") e.currentTarget.value = t.name;
-                    refocus.current = t.kind;
-                    e.currentTarget.blur();
-                  }}
-                  onBlur={(e) => { setEditing(undefined); p.onRename?.(ownId(t.kind)!, e.target.value); }} />
-              </div>
-            </div>
-          );
-          return (
-            <div key={t.kind} className="library-cell">
-              <button role="menuitemradio" aria-checked={p.current === t.kind} className="library-item" data-tip={t.name} data-tip-cut data-kind={t.kind}
-                onPointerDown={(e) => { if (e.button === 0) { carried.current = t.kind; setDragging(true); } p.onPress(e, t.kind); }}
-                onClick={(e) => {
-                  clearTimeout(timer.current);
-                  if (mine && p.onRename && onName(e)) timer.current = window.setTimeout(() => p.onChoose(t.kind), NAME_CLICK);
-                  else p.onChoose(t.kind);
-                }}
-                onDoubleClick={(e) => { if (mine && p.onRename && onName(e)) { clearTimeout(timer.current); setEditing(t.kind); } }}
-                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ kind: t.kind, at: { x: e.clientX, y: e.clientY } }); }}
-                onKeyDown={(e) => {
-                  if (e.key !== "ContextMenu" && !(e.key === "F10" && e.shiftKey)) return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  const r = e.currentTarget.getBoundingClientRect();
-                  setMenu({ kind: t.kind, at: { x: r.left + r.width / 2, y: r.bottom - 8 }, keyboard: true });
-                }}>
-                <Thumb item={t} />
-                <span className="library-name">{t.name}</span>
-              </button>
-              {mine && p.onRemove ? (
-                <button className="variant-action" aria-label={`Remove ${t.name}`} data-tip="Remove" onClick={() => p.onRemove!(t.kind)}>
-                  <X size={12} />
-                </button>
-              ) : p.onKeep && !mine && (
-                <button className="variant-action" aria-pressed={kept} aria-label={`Keep ${t.name} in the Ring menu`} data-tip={kept ? "In the Ring menu" : "Keep in the Ring menu"} onClick={() => p.onKeep!(t.kind, !kept)}>
-                  <PushPin size={12} />
+        <div className="library-sets">
+          {categories.map((c, k) => (
+            <div key={c.name} className={c.own && !categories[k + 1]?.own && p.onSets ? "library-set last" : "library-set"}>
+              {naming?.from === c.name ? nameField : (
+                <button className="library-category" aria-pressed={!query && category === c.name} onClick={() => { setCategory(c.name); setQuery(""); }} {...(c.own ? drop(c.name) : {})}
+                  onDoubleClick={() => { if (c.own && c.name !== MY_SET && p.onSets) setNaming({ from: c.name, value: c.name }); }}
+                  onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setSetChoice({ set: c.name, own: c.own, ...menuAt(e) }); }}
+                  onKeyDown={(e) => { if (!menuKey(e)) return; e.preventDefault(); e.stopPropagation(); setSetChoice({ set: c.name, own: c.own, ...menuAt(e) }); }}
+                  onPointerUp={() => {
+                    const kind = carried.current, id = kind && ownId(kind);
+                    if (!kind || !c.own || !p.onSets) return;
+                    if (id) p.onSets.move(id, c.name); else p.onCopy?.(kind, c.name);
+                  }}>
+                  {c.name}<span>{c.items.length}</span>
                 </button>
               )}
+              {c.own && c.name !== MY_SET && p.onSets && naming?.from !== c.name && (
+                <button className="variant-action" aria-label={`Remove the set ${c.name}`} data-tip="Remove the set" onClick={() => { p.onSets!.remove(c.name); if (category === c.name) setCategory(MY_SET); }}>
+                  <X size={12} />
+                </button>
+              )}
+              {c.own && !categories[k + 1]?.own && p.onSets && (naming && !naming.from ? nameField : (
+                <button className="library-category library-new" onClick={() => setNaming({ value: "" })}><Plus size={12} aria-hidden />New set</button>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="library-main">
+        <div className="library-head">
+          <h3 className="library-title">{query ? "Results" : open.name}</h3>
+          {!query && p.onKeepOpen && (
+            <button className="library-keep" aria-label={`Keep ${open.name} open`} data-tip="Keep open" onClick={() => p.onKeepOpen!(open.name)}>
+              <ArrowSquareOut size={16} />
+            </button>
+          )}
+        </div>
+        <div ref={grid} className="library-grid" role="menu" aria-label={query ? "Results" : category} {...(!query && open.own ? drop(open.name) : {})}>
+          {!query && open.own && p.onAdd && (
+            <div className="library-cell">
+              <button role="menuitem" className="library-item library-add" aria-label={`Add a structure to ${open.name}`} onClick={() => p.onAdd!(open.name)}>
+                <span className="library-add-mark" aria-hidden><Plus size={20} /></span>
+                <span className="library-name">Add</span>
+              </button>
+            </div>
+          )}
+          {shown.map((t, k) => {
+            const kept = !!p.kept?.includes(t.kind), mine = !!ownId(t.kind), mark = ordering ? order.markOf(t.kind, k === shown.length - 1) : undefined;
+            if (editing === t.kind) return (
+              <div key={t.kind} className="library-cell">
+                <div className="library-item editing">
+                  <Thumb item={t} />
+                  <input className="library-rename" aria-label="Template name" autoFocus defaultValue={t.name} maxLength={80} spellCheck={false} onFocus={(e) => e.target.select()}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter" && e.key !== "Escape") return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (e.key === "Escape") e.currentTarget.value = t.name;
+                      refocus.current = t.kind;
+                      e.currentTarget.blur();
+                    }}
+                    onBlur={(e) => { setEditing(undefined); p.onRename?.(ownId(t.kind)!, e.target.value); }} />
+                </div>
+              </div>
+            );
+            return (
+              <div key={t.kind} className={mark ? `library-cell ${mark}` : "library-cell"}>
+                <button role="menuitemradio" aria-checked={p.current === t.kind} className="library-item" data-tip={t.name} data-tip-cut data-kind={t.kind}
+                  onPointerDown={(e) => { if (e.button === 0) { carried.current = t.kind; setDragging(true); if (ordering) order.start(e, t.kind); } p.onPress(e, t.kind); }}
+                  onClick={(e) => {
+                    clearTimeout(timer.current);
+                    if (mine && p.onRename && onName(e)) timer.current = window.setTimeout(() => p.onChoose(t.kind), NAME_CLICK);
+                    else p.onChoose(t.kind);
+                  }}
+                  onDoubleClick={(e) => { if (mine && p.onRename && onName(e)) { clearTimeout(timer.current); setEditing(t.kind); } }}
+                  onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ kind: t.kind, ...menuAt(e) }); }}
+                  onKeyDown={(e) => { if (!menuKey(e)) return; e.preventDefault(); e.stopPropagation(); setMenu({ kind: t.kind, ...menuAt(e) }); }}>
+                  <Thumb item={t} />
+                  <span className="library-name">{t.name}</span>
+                </button>
+                {mine && p.onRemove ? (
+                  <button className="variant-action" aria-label={`Remove ${t.name}`} data-tip="Remove" onClick={() => p.onRemove!(t.kind)}>
+                    <X size={12} />
+                  </button>
+                ) : p.onKeep && !mine && (
+                  <button className="variant-action" aria-pressed={kept} aria-label={`Keep ${t.name} in the Ring menu`} data-tip={kept ? "In the Ring menu" : "Keep in the Ring menu"} onClick={() => p.onKeep!(t.kind, !kept)}>
+                    <PushPin size={12} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          {!shown.length && query && <p className="library-none">No template called “{query.trim()}”. Type its name in the Ring list to add it.</p>}
+        </div>
+      </div>
+      {menu && item && (
+        <TemplateMenu item={item} at={menu.at} keyboard={menu.keyboard} actions={{ ...actions, onPlace: undefined, ...(ordering && ownId(item.kind) ? {} : { onToStart: undefined, onToEnd: undefined }) }}
+          onRename={p.onRename ? () => setEditing(item.kind) : undefined}
+          onClose={() => { const k = menu.kind; setMenu(undefined); if (menu.keyboard) grid.current?.querySelector<HTMLElement>(`[data-kind="${CSS.escape(k)}"]`)?.focus(); }} />
+      )}
+      {setChoice && setGroups(setChoice).length > 0 && (
+        <ContextMenu label={setChoice.set} at={setChoice.at} keyboard={setChoice.keyboard} groups={setGroups(setChoice)} sub={() => undefined} onChoose={(key) => chooseSet(setChoice, key)} onClose={() => setSetChoice(undefined)} />
+      )}
+    </div>
+  );
+}
+
+// A set kept open beside the canvas (ChemDraw's floating template palettes): its name on a bar that drags it, its
+// close button, and its templates as thumbnails, each named by its tooltip. A click uses one (with the tool the palette
+// was opened for); a drag puts one on the canvas or the toolbar; right-click gives the template's menu, as in the
+// library; a set of the user's is ordered by drag here too. The corner grip makes it wider or narrower in whole
+// columns. Thumbnails are drawn once (StructureThumb). onFront: it was pressed, so it comes in front of the others.
+export const PALETTE_CELL = 60, PALETTE_GAP = 2, PALETTE_PAD = 4; // px: a template's square, the gap, the padding
+const paletteWidth = (columns: number) => columns * PALETTE_CELL + (columns - 1) * PALETTE_GAP + 2 * PALETTE_PAD + 2;
+export function FloatingTemplates({ palette, items, current, actions, z, onChoose, onPress, onMove, onColumns, onClose, onFront, onRename }: {
+  palette: FloatingPalette; items: LibraryItem[]; current?: string; actions: TemplateActions; z: number;
+  onChoose: (kind: string) => void; onPress: (e: React.PointerEvent, kind: string) => void;
+  onMove: (x: number, y: number) => void; onColumns: (columns: number) => void; onClose: () => void; onFront: () => void; onRename?: (kind: string) => void;
+}) {
+  const box = useRef<HTMLElement>(null), grid = useRef<HTMLDivElement>(null), leaving = useLeaving();
+  const [menu, setMenu] = useState<{ kind: string; at: { x: number; y: number }; keyboard?: boolean }>();
+  // While it is dragged or resized, it follows the pointer here; the settings get the place when it is let go.
+  const [live, setLive] = useState<{ x: number; y: number; columns: number }>();
+  const ordering = items.some((t) => ownId(t.kind));
+  const order = useOrder(grid, ordering ? actions.onPlace : undefined, items.map((t) => t.kind).join("\n"));
+  const columns = live?.columns ?? palette.columns, width = paletteWidth(columns);
+  // It stays on the screen: a window made smaller brings it back in, and a tall set scrolls inside the room below it.
+  const [, resized] = useState(0);
+  useEffect(() => { const r = () => resized((n) => n + 1); addEventListener("resize", r); return () => removeEventListener("resize", r); }, []);
+  const x = Math.max(0, Math.min(live?.x ?? palette.x, innerWidth - width)), y = Math.max(0, Math.min(live?.y ?? palette.y, innerHeight - 40));
+  const drag = (e: React.PointerEvent, how: "move" | "size") => {
+    if (e.button !== 0 || (e.target as Element).closest("button")) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    holdCursor(e.currentTarget);
+    const [sx, sy, x0, y0, c0] = [e.clientX, e.clientY, x, y, columns];
+    let now = { x: x0, y: y0, columns: c0 };
+    const move = (ev: PointerEvent) => {
+      now = how === "move" ? { x: x0 + ev.clientX - sx, y: y0 + ev.clientY - sy, columns: c0 }
+        : { x: x0, y: y0, columns: Math.max(1, Math.min(8, Math.round((paletteWidth(c0) + ev.clientX - sx - 2 * PALETTE_PAD - 2 + PALETTE_GAP) / (PALETTE_CELL + PALETTE_GAP)))) };
+      setLive(now);
+    };
+    const up = () => {
+      removeEventListener("pointermove", move);
+      removeEventListener("pointerup", up);
+      setLive(undefined);
+      if (how === "move" && (now.x !== x0 || now.y !== y0)) onMove(Math.max(0, Math.min(now.x, innerWidth - width)), Math.max(0, Math.min(now.y, innerHeight - 40)));
+      if (how === "size" && now.columns !== c0) onColumns(now.columns);
+    };
+    addEventListener("pointermove", move);
+    addEventListener("pointerup", up);
+  };
+  const item = menu && items.find((t) => t.kind === menu.kind);
+  return (
+    <section ref={box} className={leaving ? "floating-templates leaving" : "floating-templates"} role="dialog" aria-label={palette.set} inert={leaving}
+      style={{ left: x, top: y, width, zIndex: z, maxHeight: Math.max(120, innerHeight - y - 8) }} onPointerDownCapture={onFront}>
+      <header className="floating-head" onPointerDown={(e) => drag(e, "move")}>
+        <h3 className="floating-title">{palette.set}</h3>
+        <button className="floating-close" aria-label={`Close ${palette.set}`} data-tip="Close" onClick={onClose}><X size={12} /></button>
+      </header>
+      <div ref={grid} className="floating-grid" role="menu" aria-label={palette.set} style={{ gridTemplateColumns: `repeat(${columns}, ${PALETTE_CELL}px)` }}>
+        {items.map((t, k) => {
+          const mark = order.markOf(t.kind, k === items.length - 1);
+          return (
+            <div key={t.kind} className={mark ? `library-cell ${mark}` : "library-cell"}>
+              <button role="menuitemradio" aria-checked={current === t.kind} aria-label={t.name} className="floating-item" data-tip={t.name} data-kind={t.kind}
+                onPointerDown={(e) => { if (ordering) order.start(e, t.kind); onPress(e, t.kind); }}
+                onClick={() => onChoose(t.kind)}
+                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ kind: t.kind, ...menuAt(e) }); }}
+                onKeyDown={(e) => { if (!menuKey(e)) return; e.preventDefault(); e.stopPropagation(); setMenu({ kind: t.kind, ...menuAt(e) }); }}>
+                <StructureThumb id={t.kind} mol={t.mol} />
+              </button>
             </div>
           );
         })}
-        {!shown.length && query && <p className="library-none">No template called “{query.trim()}”. Type its name in the Ring list to add it.</p>}
+        {!items.length && <p className="floating-none">This set is empty.</p>}
       </div>
+      <span className="grip" role="separator" aria-label="Drag to resize" data-tip="Drag to resize" onPointerDown={(e) => drag(e, "size")} />
       {menu && item && (
-        <ContextMenu label={item.name} at={menu.at} keyboard={menu.keyboard} groups={menuGroups} sub={menuSub} onChoose={menuChoose}
+        <TemplateMenu item={item} at={menu.at} keyboard={menu.keyboard}
+          actions={{ ...actions, onPlace: undefined, onToStart: actions.onToStart && ((id) => { order.glide(); actions.onToStart!(id); }), onToEnd: actions.onToEnd && ((id) => { order.glide(); actions.onToEnd!(id); }) }}
+          onRename={onRename && (() => onRename(item.kind))}
           onClose={() => { const k = menu.kind; setMenu(undefined); if (menu.keyboard) grid.current?.querySelector<HTMLElement>(`[data-kind="${CSS.escape(k)}"]`)?.focus(); }} />
       )}
-    </div>
+    </section>
   );
 }

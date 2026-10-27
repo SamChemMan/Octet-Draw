@@ -160,13 +160,38 @@ fn set_purposes(app: AppHandle, held: State<'_, Purposes>, names: Vec<String>, c
     rebuild(&app)
 }
 
+// View > Templates (ChemDraw's View > Templates): the template sets a floating palette opens for, the user's own
+// (My templates first) and then Octet's, each as an item "templates_<k>" in that order. The page sends both lists (at
+// most 80 sets, names cut to 40 characters) and opens the palette for the item chosen.
+#[derive(Default)]
+struct TemplateSets(Mutex<(Vec<String>, Vec<String>)>);
+
+#[tauri::command]
+fn set_template_sets(app: AppHandle, held: State<'_, TemplateSets>, own: Vec<String>, octet: Vec<String>) -> Result<(), String> {
+    let clean = |list: Vec<String>| list.into_iter().take(80).map(|n| n.chars().filter(|c| !c.is_control()).take(40).collect::<String>()).collect::<Vec<_>>();
+    let next = (clean(own), clean(octet));
+    {
+        let mut held = held.0.lock().unwrap();
+        if *held == next {
+            return Ok(());
+        }
+        *held = next;
+    }
+    rebuild(&app)
+}
+
 pub const MAX_BYTES: u64 = 64 * 1024 * 1024;
 // Octet saves .oct, a CDXML file with Octet's drawing inside (decision 0004), or .cdxml, which is the same file, or
 // .cdx, ChemDraw's binary file with Octet's drawing inside (decision 0009). It opens all three, and the older .octet
 // files.
 const OPEN: (&str, &[&str]) = ("Drawings", &["oct", "cdxml", "cdx", "octet"]);
-// File > Open also opens measured spectra (JCAMP-DX and SPC), which go into the drawing that is open (src/jcamp.ts).
-const OPEN_ALL: (&str, &[&str]) = ("Drawings and spectra", &["oct", "cdxml", "cdx", "octet", "jdx", "dx", "jcamp", "spc"]);
+// File > Open also opens measured spectra (JCAMP-DX and SPC), which go into the drawing that is open (src/jcamp.ts),
+// and ChemDraw template files (.ctp, and .cts stationery), whose panes become a set of templates (src/ctp.ts).
+const OPEN_ALL: (&str, &[&str]) = ("Drawings, spectra and templates", &["oct", "cdxml", "cdx", "octet", "jdx", "dx", "jcamp", "spc", "ctp", "cts"]);
+// A ChemDraw template file: read, but never a drawing Octet saves over or lists on Home.
+pub fn is_template_file(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("ctp") || e.eq_ignore_ascii_case("cts"))
+}
 const SAVE: [(&str, &[&str]); 3] = [("Octet drawing", &["oct"]), ("ChemDraw drawing (CDXML)", &["cdxml"]), ("ChemDraw drawing (CDX)", &["cdx"])];
 const SAVES: [&str; 3] = ["oct", "cdxml", "cdx"];
 
@@ -215,8 +240,11 @@ async fn open_drawing(app: AppHandle, picked: State<'_, Picked>) -> Result<Optio
         return Err("This file is larger than 64 MB. Octet cannot open it.".into());
     }
     let text = read_text_or_cdx(&path).map_err(|e| e.to_string())?;
-    picked.0.lock().unwrap().insert(path.clone());
-    recent::note(&app, &path);
+    // A template file's panes become templates: it is not a drawing to save over or to list on Home.
+    if !is_template_file(&path) {
+        picked.0.lock().unwrap().insert(path.clone());
+        recent::note(&app, &path);
+    }
     Ok(Some((path.to_string_lossy().into_owned(), text)))
 }
 
@@ -507,6 +535,20 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let warnings = check("warnings", "Show Chemical Warnings", "")?;
     // ChemDraw's View > Show Reaction Interpretation.
     let interpretation = check("interpretation", "Show Reaction Interpretation", "")?;
+    // View > Templates: each set shows or hides its floating palette, ticked while it is open (ChemDraw's View > Templates
+    // toggles a palette's window). The user's sets come first, then Octet's. The items change with
+    // the sets, so they are not commands with shortcuts, and Settings does not list them.
+    let (own_sets, octet_sets) = app.state::<TemplateSets>().0.lock().unwrap().clone();
+    let set_items = own_sets.iter().chain(octet_sets.iter()).enumerate()
+        .map(|(k, name)| CheckMenuItem::with_id(app, format!("templates_{k}"), name, true, false, None::<&str>))
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let sets_sep = sep()?;
+    let mut sets_list: Vec<&dyn IsMenuItem<Wry>> = set_items.iter().take(own_sets.len()).map(|m| m as &dyn IsMenuItem<Wry>).collect();
+    if !own_sets.is_empty() && !octet_sets.is_empty() {
+        sets_list.push(&sets_sep);
+    }
+    sets_list.extend(set_items.iter().skip(own_sets.len()).map(|m| m as &dyn IsMenuItem<Wry>));
+    let templates = Submenu::with_items(app, "Templates", !set_items.is_empty(), &sets_list)?;
     let view = Submenu::with_items(app, "View", true, &[
         // ChemDraw's keys: Magnify, Reduce and Fit to Window.
         &item("zoom_actual", "Actual Size", "CmdOrCtrl+\\")?,
@@ -526,6 +568,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &interpretation,
         &item("actions", "Show or Hide Actions", "")?,
         &item("properties", "Show or Hide Properties", "")?,
+        &templates,
         // Not ⌘K, which is ChemDraw's Scale.
         &item("command_palette", "Command Palette…", "CmdOrCtrl+Shift+A")?,
     ])?;
@@ -569,6 +612,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("predict_1h", "Predict ¹H-NMR Shifts", "")?,
         &item("predict_13c", "Predict ¹³C-NMR Shifts", "")?,
         &sep()?,
+        // ChemDraw's Add Structure to Dictionary…: a name of the user's own for the selected structure.
+        &item("dictionary_add", "Add Structure to Dictionary…", "")?,
         &item("name_to_structure", "Convert Name to Structure", "CmdOrCtrl+Shift+N")?,
         &item("structure_to_name", "Convert Structure to Name", "Alt+CmdOrCtrl+N")?,
     ])?;
@@ -797,7 +842,9 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     items.push(&help);
     // Commands of a menu that is not there are not listed (Settings shows no shortcuts for them).
     let listed = list.borrow().iter().filter(|c| online || c.2 != "Search").cloned().collect();
-    Ok((Menu::with_items(app, &items)?, vec![grid, rulers, crosshair, snap, snap_grid, warnings, interpretation, fixed_lengths, fixed_angles], listed))
+    let mut checks = vec![grid, rulers, crosshair, snap, snap_grid, warnings, interpretation, fixed_lengths, fixed_angles];
+    checks.extend(set_items.iter().cloned());
+    Ok((Menu::with_items(app, &items)?, checks, listed))
 }
 
 fn main() {
@@ -822,7 +869,8 @@ fn main() {
         .manage(search::Online(Mutex::new(true)))
         .manage(TextLists::default())
         .manage(Purposes::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened])
+        .manage(TemplateSets::default())
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened])
         .setup(|app| {
             let handle = app.handle();
             // Files named when Octet starts (Explorer and file managers pass them as arguments).

@@ -104,7 +104,7 @@ fn read(path: &Path, name: &str) -> Result<String, String> {
     match fs::metadata(path) {
         Err(_) => Err("This file is not where it was. It was moved or deleted.".into()),
         Ok(m) if m.len() > MAX_BYTES => Err("This file is larger than 64 MB. Octet cannot open it.".into()),
-        Ok(_) => crate::read_text_or_cdx(path).map_err(|_| format!("Octet cannot open {name}. It opens Octet and ChemDraw drawings (CDX and CDXML), MOL, SDF, RXN, SMILES and InChI files, JCAMP-DX spectra, and pictures.")),
+        Ok(_) => crate::read_text_or_cdx(path).map_err(|_| format!("Octet cannot open {name}. It opens Octet and ChemDraw drawings (CDX and CDXML), ChemDraw template files, MOL, SDF, RXN, SMILES and InChI files, JCAMP-DX spectra, and pictures.")),
     }
 }
 

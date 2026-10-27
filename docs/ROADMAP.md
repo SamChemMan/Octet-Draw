@@ -17,7 +17,7 @@ default (decision 0010).
 | Check the Revvity claims in the LinkedIn draft | Done: ~/octet-research/notes/revvity-claims-and-products.md |
 | ChemDraw session: the 13 checks in ~/octet-research/notes/chemdraw-checks-pending.md | Waiting for Sam to allow full-screen control |
 | Reaxys: reproduce what fails in the built app, then fix | Waiting for the ChemDraw session |
-| Template features ChemDraw has: edit in place, rows and columns, floating palettes, .ctp files, a user dictionary | Next, after the template library |
+| Template features ChemDraw has: edit in place, rows and columns, floating palettes, .ctp files, a user dictionary | Done (decision 0018): Edit, order by drag, floating palettes, .ctp and .cts files, the user's dictionary; next: write .ctp |
 | Launch: the website on Cloudflare Pages | Next; needs Sam's Cloudflare sign-in |
 | Signing and notarisation | Parked: needs Sam's keys |
 
