@@ -260,6 +260,13 @@ const num6 = (v: number) => String(+v.toFixed(6));
 export const spotType = (x: Spot) => (x.style === "hollow" || x.dashed ? 0 : 128) | (x.style === "shaded" ? 256 : 0) | (x.dashed ? 2 : 0) | (x.bold ? 4 : 0) | (x.doubled ? 512 : 0);
 const union = (boxes: Box[]): Box | undefined => (boxes.length ? [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))] : undefined);
 const boxOf = (qs: P[], pad = 0): Box => [Math.min(...qs.map((q) => q[0])) - pad, Math.min(...qs.map((q) => q[1])) - pad, Math.max(...qs.map((q) => q[0])) + pad, Math.max(...qs.map((q) => q[1])) + pad];
+// A text's box turned anticlockwise by degrees about its p (page points, y down): the box round it.
+function turnedBox(b: Box, p: P, degrees = 0): Box {
+  const r = (degrees * Math.PI) / 180;
+  return r ? boxOf(([[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]] as P[]).map(([qx, qy]) => [p[0] + (qx - p[0]) * Math.cos(r) + (qy - p[1]) * Math.sin(r), p[1] - (qx - p[0]) * Math.sin(r) + (qy - p[1]) * Math.cos(r)] as P)) : b;
+}
+// A text's RotationAngle: degrees clockwise on the page, times 65536; Octet's turns are anticlockwise.
+const rotationAngle = (degrees?: number) => (degrees ? Math.round((((-degrees % 360) + 360) % 360) * 65536) || undefined : undefined);
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
 const len = (a: P) => Math.hypot(a[0], a[1]);
 const cross = (a: P, b: P) => a[0] * b[1] - a[1] * b[0];
@@ -667,12 +674,14 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const width = isoW + wide(text) + widthOf(sign, 0.75 * size);
     const x = just === "Right" ? X[0] + end + widthOf(sign, 0.75 * size) : just === "Center" ? X[0] : X[0] - advance(text[0], size) / 2 - isoW;
     const y = X[1] + (/[OSCGQ]/.test(text) ? 0.364 : 0.358) * size, left = just === "Right" ? x - width : just === "Center" ? x - width / 2 : x;
-    const box: Box = [left, y - 0.716 * size, left + width, y + (/\d/.test(text) ? 0.15 * size : 0)];
+    // A turned label turns about p, as a caption does.
+    const box = turnedBox([left, y - 0.716 * size, left + width, y + (/\d/.test(text) ? 0.15 * size : 0)], [x, y], a.labelAngle);
     const style2 = { font: a.font ?? style.labelFont, size, colour: a.colour }, look = (a.bold ? 1 : 0) | (a.italic ? 2 : 0) | (a.underline ? 4 : 0);
     // A link node's repeat range ([CH2]3-7) is subscript, apart from the formula before it.
     const range = linkNode(text) ? /\d{1,2}-\d{1,2}$/.exec(text)![0] : "";
     return {
-      xml: el("t", { p: pt([x, y]), BoundingBox: boxText(box), color: colour(a.colour), LabelJustification: just, Justification: just === "Left" ? undefined : just, LabelAlignment: stack, InterpretChemically: a.chemical === false ? "no" : undefined },
+      xml: el("t", { p: pt([x, y]), BoundingBox: boxText(box), color: colour(a.colour), LabelJustification: just, Justification: just === "Left" ? undefined : just, LabelAlignment: stack, InterpretChemically: a.chemical === false ? "no" : undefined,
+        RotationAngle: rotationAngle(a.labelAngle) },
         (iso ? run(iso, { ...style2, face: 0x40 | look }) : "") + run(text.slice(0, text.length - range.length), { ...style2, face: 0x60 | look }) + (range ? run(range, { ...style2, face: 0x20 | look }) : "")
         + (sign ? run(sign, { ...style2, face: 0x40 | look }) : "")),
       box,
@@ -881,16 +890,15 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const p = at([x, y]), runs = runsOf(c), whole: RunStyle = { bold: c.bold || undefined, italic: c.italic || undefined, underline: c.underline || undefined };
     const width = Math.max(...c.text.split("\n").map((l) => widthOf(l, size))), left = align === "left" ? p[0] : align === "right" ? p[0] - width : p[0] - width / 2;
     const level: Box = [left, p[1] - 0.716 * size, left + width, p[1] + (lines - 1) * 1.15 * size + 0.212 * size];
-    // A turned caption (RotationAngle: degrees clockwise on the page, times 65536) turns about p; its box goes round it.
-    const r = ((c.angle ?? 0) * Math.PI) / 180, box: Box = r ? boxOf(([[level[0], level[1]], [level[2], level[1]], [level[2], level[3]], [level[0], level[3]]] as P[])
-      .map(([qx, qy]) => [p[0] + (qx - p[0]) * Math.cos(r) + (qy - p[1]) * Math.sin(r), p[1] - (qx - p[0]) * Math.sin(r) + (qy - p[1]) * Math.cos(r)] as P)) : level;
+    // A turned caption turns about p; its box goes round it.
+    const box = turnedBox(level, p, c.angle);
     const just = c.align === "justify" && align === own ? "Full" : align === "centre" ? "Center" : align === "right" ? "Right" : undefined, cf = face(whole);
     put(el("t", {
       id: idOf.get(c.id)!, p: pt(p), BoundingBox: boxText(box), Z: Z(), color: colour(c.colour), CaptionFont: c.font ? font(c.font) : undefined, CaptionSize: c.size, CaptionFace: cf || undefined,
       WordWrapWidth: c.width ? Math.round(c.width * B) : undefined,
       // Line spacing as ChemDraw writes it: a text's LineHeight is auto or pt, and Variable is its caption style's.
       CaptionJustification: just, Justification: just, LineHeight: c.lineHeight === "variable" ? undefined : typeof c.lineHeight === "number" ? fmtSize(c.lineHeight) : "auto",
-      CaptionLineHeight: c.lineHeight === "variable" ? "variable" : undefined, InterpretChemically: c.chemical === false ? "no" : undefined, RotationAngle: c.angle ? Math.round((((-c.angle % 360) + 360) % 360) * 65536) || undefined : undefined,
+      CaptionLineHeight: c.lineHeight === "variable" ? "variable" : undefined, InterpretChemically: c.chemical === false ? "no" : undefined, RotationAngle: rotationAngle(c.angle),
       Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined, placed: hand ? 1 : undefined,
         align: align !== own ? c.align ?? "centre" : undefined, width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined }),
     }, runs.map((r) => run(r.text, { font: r.font ?? c.font ?? style.captionFont, size: r.size ?? size, colour: r.colour ?? c.colour, face: face({ ...whole, ...r }) })).join("")), 2, box, c.id);
@@ -1153,7 +1161,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   // Each bond's own drawing settings (ChemDraw's per-object settings, pt), and each label's size as written.
   const bondSettings: { line?: number; bold?: number; hash?: number; margin?: number; spacing?: number; attrs: Record<string, string> }[] = [], labelSizes = new Map<number, number>(), nodeLines = new Map<number, number>();
   const atomOf = new Map<number, number>(), objectOf = new Map<number, number>(), arrowOfGraphic = new Map<number, number>();
-  const labels: { i: number; text: string; type: string; isotope?: number; plain?: boolean }[] = [];
+  // Each label: its node, text, node type and isotope, Interpret Chemically off, and its text's justification, stacking and turn.
+  const labels: { i: number; text: string; type: string; isotope?: number; plain?: boolean; just?: string; stack?: string; turn?: string }[] = [];
   const numH = new Map<number, number>(), delocalised: { k: number; order?: 1 | 2 }[] = [], ovals: { id: number; c: P; r: number }[] = [];
   const bondsToRead: Xml[] = [], symbols: { x: Xml; atoms: number[]; group?: G }[] = [], steps: Xml[] = [], unders: { c: Caption; nodes: unknown }[] = [], anchors = new Map<number, P>();
   const brackets: { x: Xml; id: number; z: number; group?: G; ends: number[] }[] = [], properties: Xml[] = [];
@@ -1300,7 +1309,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (font && font !== style.labelFont) a.font = font;
       if (size && size >= 0.1 && size <= 999) { labelSizes.set(i, size); if (Math.abs(size - style.labelSize) > 0.01) a.size = size; }
     }
-    if (t) labels.push({ i, text: t.kids.filter((k) => k.name === "s").map((k) => k.text).join(""), type, isotope, plain: t.attrs.InterpretChemically !== undefined && !yes(t.attrs.InterpretChemically) });
+    if (t) labels.push({ i, text: t.kids.filter((k) => k.name === "s").map((k) => k.text).join(""), type, isotope, plain: t.attrs.InterpretChemically !== undefined && !yes(t.attrs.InterpretChemically),
+      just: t.attrs.LabelJustification ?? t.attrs.Justification, stack: t.attrs.LabelAlignment, turn: t.attrs.RotationAngle });
     else if (type === "GenericNickname" && n.attrs.GenericNickname) labels.push({ i, text: n.attrs.GenericNickname, type });
     else if (type === "ElementList" && n.attrs.ElementList) {
       // An element list with no label text: its label from its atomic numbers.
@@ -1512,10 +1522,36 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
 
   // Ph, CO2Et), less any charge the node already holds (spec 9.10).
   function readLabels() {
-    const used = mol.atoms.map(() => 0), degree = mol.atoms.map(() => 0);
+    const used = mol.atoms.map(() => 0), degree = mol.atoms.map(() => 0), towards = mol.atoms.map((): P => [0, 0]);
     for (const b of mol.bonds) for (const i of b.atoms) { used[i] += orderOf(b.type); degree[i]++; }
-    for (const { i, text: raw, type, isotope, plain } of labels) {
-      const a = mol.atoms[i], charge = a.charge ?? 0;
+    // Each atom's bonds as one direction: the sum of their unit vectors (as render.ts reads a label's way).
+    for (const { atoms: [i, j] } of mol.bonds) {
+      if (mol.atoms[i].hidden || mol.atoms[j].hidden) continue;
+      const p = mol.atoms[i].location, q = mol.atoms[j].location, d = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, u: P = [(q[0] - p[0]) / d, (q[1] - p[1]) / d];
+      towards[i] = [towards[i][0] + u[0], towards[i][1] + u[1]];
+      towards[j] = [towards[j][0] - u[0], towards[j][1] - u[1]];
+    }
+    // The alignment ChemDraw drew a label with (its text's LabelJustification, or LabelAlignment for a stacked one),
+    // where Octet's automatic one would draw it another way and nothing is set by hand on the node: it is kept as set
+    // by hand (Atom.align), so the label opens as ChemDraw showed it. hFirst: an element's hydrogens come first in the
+    // text (H3C); undefined when it has none. A label of one glyph looks the same every way, so it stays automatic.
+    // ChemDraw reverses a right-justified label (OH shows as HO), as Octet does.
+    // A label's turn (RotationAngle: degrees clockwise on the page, times 65536) is kept too, anticlockwise as Octet turns.
+    const keep = (l: (typeof labels)[number], hFirst?: boolean) => {
+      const a = mol.atoms[l.i], h = hFirst !== undefined, glyphs = (a.text ?? a.label).length + (h ? 1 : 0) + (a.isotope ? 1 : 0);
+      const turn = ((-(int(l.turn) ?? 0) / 65536) % 360 + 540) % 360 - 180;
+      if (Number.isFinite(turn) && Math.abs(turn) > 1e-6) a.labelAngle = Math.round(turn * 1e6) / 1e6;
+      const file = l.stack === "Above" ? "above" : l.stack === "Below" ? "below" : ({ Center: "centre", Right: "right", Left: "left" } as Record<string, NonNullable<Atom["align"]>>)[l.just ?? ""];
+      if (octet || a.align || glyphs < 2 || !file) return;
+      const v = towards[l.i], deg = degree[l.i], steep = Math.hypot(v[0], v[1]) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180), right = deg > 0 && !steep && v[0] > 1e-6;
+      // As each draws it: an element's H before it (right) or after it (left), or stacked; a text's units reversed or not.
+      const stacked = file === "above" || file === "below", single = !h && (!a.text || units(a.text).length < 2);
+      const drawn = stacked ? (single ? "left" : file) : h && file !== "centre" ? (hFirst !== (file === "right") ? "right" : "left") : file;
+      const auto = h ? (right || (!deg && H_FIRST.has(a.label)) ? "right" : !steep || deg < 2 ? "left" : v[1] < 0 ? "above" : "below") : right ? "right" : "left";
+      if (drawn !== auto) a.align = drawn;
+    };
+    for (const l of labels) {
+      const { i, text: raw, type, isotope, plain } = l, a = mol.atoms[i], charge = a.charge ?? 0;
       let text = cleanText(raw).replace(/\n/g, "").trim();
       const sign = /(\d*)([+\-−–])$/.exec(text);
       if (charge && sign && (sign[2] === "+") === charge > 0) text = text.slice(0, text.length - (sign[1] === String(Math.abs(charge)) ? sign[0].length : 1));
@@ -1523,16 +1559,17 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (type === "Element" && !plain && (!isotope || a.label === "D" || a.isotope)) {
         if (a.isotope && text.startsWith(String(a.isotope))) text = text.slice(String(a.isotope).length);
         const m = new RegExp(`^(?:H(\\d*))?${a.label}(?:H(\\d*))?$`).exec(text);
-        const h = m ? (m[1] === undefined ? 0 : Number(m[1] || 1)) + (m[2] === undefined ? 0 : Number(m[2] || 1)) : -1;
-        if (m && (a.label !== "C" || !degree[i] || a.isotope || (degree[i] === 1 ? style.terminalLabels : style.carbonLabels)) && h === hydrogens(a.label, charge, used[i], a.radical === 3 ? 2 : a.radical)) continue;
+        const h = m ? (m[1] === undefined ? 0 : Number(m[1] || 1)) + (m[2] === undefined ? 0 : Number(m[2] || 1)) : -1, hFirst = h > 0 ? m![1] !== undefined : undefined;
+        if (m && (a.label !== "C" || !degree[i] || a.isotope || (degree[i] === 1 ? style.terminalLabels : style.carbonLabels)) && h === hydrogens(a.label, charge, used[i], a.radical === 3 ? 2 : a.radical)) { keep(l, hFirst); continue; }
         // A carbon shown with its own hydrogens (CH3 at a chain end): a shown carbon, which keeps its hydrogens right.
-        if (m && a.label === "C" && h === hydrogens("C", charge, used[i], a.radical === 3 ? 2 : a.radical)) { a.shown = true; continue; }
+        if (m && a.label === "C" && h === hydrogens("C", charge, used[i], a.radical === 3 ? 2 : a.radical)) { a.shown = true; keep(l, hFirst); continue; }
       } else if (isotope) lose("isotope");
       if (text.length > MAX_LABEL || /[<>]/.test(text)) { lose("label text"); text = text.replace(/[<>]/g, "").slice(0, MAX_LABEL); }
       if (isElement(text) && !plain) a.label = text;
       else { a.text = text; a.label = anchorElement(text) ?? "C"; }
       // Interpret Chemically off on the label: its text, not chemistry.
       if (plain) a.chemical = false;
+      keep(l);
     }
   }
 

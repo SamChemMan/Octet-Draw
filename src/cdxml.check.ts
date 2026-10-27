@@ -796,6 +796,48 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
   const [dx, j] = anchor(toCdxml(cd.mol, cd.style)), want = (667 / 2 - arialGlyph("B")[1] + 333 - arialGlyph("r")[2]) / 100;
   assert.ok(Math.abs(dx - want) <= 0.0051 && j === "Right", `and goes back right-justified at ${want.toFixed(3)} pt (${dx.toFixed(3)})`);
   console.log("cdxml.check: label anchors ok");
+
+  // ChemDraw's own justification wins where Octet's automatic one would draw the label another way: a centred Mn
+  // between bonds both sides, Ph left-justified on a bond from the right, OH right-justified (HO) on a steep bond, NH
+  // stacked above on bonds going up. Where both draw it alike it stays automatic: a lone N, OMe read left to right,
+  // H3C (its H first either way), and NH stacked below its bonds as Octet stacks it.
+  const label = (id: number, x: number, y: number, more: string, text: string, just: string, stack = "") =>
+    `<n id="${id}" p="${x} ${y}" ${more}><t p="${x} ${y}" LabelJustification="${just}"${stack && ` LabelAlignment="${stack}"`}><s font="3" size="10" face="96">${text}</s></t></n>`;
+  const node = (id: number, x: number, y: number) => `<n id="${id}" p="${x} ${y}"/>`, bond = (id: number, p: number, q: number) => `<b id="${id}" B="${p}" E="${q}"/>`;
+  const justified = fromCdxml(`<CDXML BondLength="14.40"><page BoundingBox="0 0 540 720"><fragment id="1">
+${label(2, 100, 100, 'Element="25" NumHydrogens="0"', "Mn", "Center")}${node(3, 85.6, 100)}${node(4, 114.4, 100)}${bond(5, 2, 3)}${bond(6, 2, 4)}
+${label(7, 200, 100, "", "Ph", "Left", "Left")}${node(8, 214.4, 100)}${bond(9, 7, 8)}
+${label(10, 300, 100, 'Element="8" NumHydrogens="1"', "OH", "Right", "Right")}${node(11, 303, 114.1)}${bond(12, 10, 11)}
+${label(13, 400, 100, 'Element="7" NumHydrogens="1"', "NH", "Left", "Above")}${node(14, 387.5, 92.8)}${node(15, 412.5, 92.8)}${bond(16, 13, 14)}${bond(17, 13, 15)}
+${label(18, 100, 200, 'Element="7" NumHydrogens="2"', "N", "Left")}${node(19, 114.4, 200)}${bond(20, 18, 19)}
+${label(21, 200, 200, "", "OMe", "Left")}${node(22, 185.6, 200)}${bond(23, 21, 22)}
+${label(24, 300, 200, 'NumHydrogens="3"', "H3C", "Left")}${node(25, 314.4, 200)}${bond(26, 24, 25)}
+${label(27, 400, 200, 'Element="7" NumHydrogens="1"', "NH", "Left", "Below")}${node(28, 387.5, 192.8)}${node(29, 412.5, 192.8)}${bond(30, 27, 28)}${bond(31, 27, 29)}
+</fragment></page></CDXML>`);
+  const aligned = (m: Mol) => m.atoms.map((a, i) => [a.text ?? a.label, a.align]).filter((_, i) => [0, 3, 5, 7, 10, 12, 14, 16].includes(i));
+  assert.deepEqual(aligned(justified.mol), [["Mn", "centre"], ["Ph", "left"], ["O", "right"], ["N", "above"], ["N", undefined], ["OMe", undefined], ["C", undefined], ["N", undefined]]);
+  const written = toCdxml(justified.mol, justified.style), back = fromCdxml(written);
+  assert.deepEqual(aligned(back.mol), aligned(justified.mol), "kept through Octet's file");
+  assert.match(written, /LabelDisplay="Center"[^>]*>[^]*?LabelJustification="Center"/);
+  // Drawn centred: the Mn's two letters sit either side of its atom.
+  const drawn = render(justified.mol, S, arial), mn = drawn.labels.find((l) => l.text === "Mn")!;
+  assert.ok(Math.abs(mn.x + arial("Mn").width / 2 - drawn.labelAt[drawn.labels.indexOf(mn)][0]) < 1e-9, "Mn centred on its atom");
+  console.log("cdxml.check: label justification from ChemDraw ok");
+
+  // A turned label (RotationAngle, 359° clockwise: 1° anticlockwise) keeps its turn: read, drawn turned about its
+  // anchor, written back and kept in Octet's own file.
+  const turnedFile = fromCdxml(`<CDXML BondLength="14.40"><page BoundingBox="0 0 540 720"><fragment id="1">
+<n id="2" p="100 100" Element="76" NumHydrogens="0"><t p="100.06 103.58" LabelJustification="Center" RotationAngle="23527424"><s font="3" size="10" face="96">Os</s></t></n>${node(3, 85.6, 100)}${node(4, 114.4, 100)}${bond(5, 2, 3)}${bond(6, 2, 4)}
+</fragment></page></CDXML>`);
+  assert.deepEqual([turnedFile.mol.atoms[0].labelAngle, turnedFile.mol.atoms[0].align], [1, "centre"]);
+  const os = toCdxml(turnedFile.mol, turnedFile.style);
+  assert.match(os, /RotationAngle="23527424"/);
+  assert.equal(fromCdxml(os).mol.atoms[0].labelAngle, 1);
+  assert.equal(parse(serialize(turnedFile.mol)).atoms[0].labelAngle, 1);
+  const turnedDrawing = render(turnedFile.mol, S, arial), osLabel = turnedDrawing.labels.find((l) => l.text === "Os")!;
+  assert.ok(osLabel.angle === 1 && Math.abs(osLabel.pivot![0] - turnedDrawing.labelAt[turnedDrawing.labels.indexOf(osLabel)][0]) < 1e-9, "drawn turned about the middle of its line");
+  assert.equal(render({ ...turnedFile.mol, atoms: turnedFile.mol.atoms.map((a) => ({ ...a, labelAngle: undefined })) }, S, arial).labels.find((l) => l.text === "Os")!.angle, undefined);
+  console.log("cdxml.check: label turns ok");
 }
 
 // A label's charge sign that Octet draws anywhere but after the label goes to ChemDraw as a Plus or Minus symbol linked
@@ -853,29 +895,39 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
 
 // Sam's corpus (on this Mac only): for every label ChemDraw right-justified that Octet also writes right-justified on
 // the same baseline, how far Octet's p is from ChemDraw's. A report, not a check: Octet places a label so a bond from
-// either side meets it at the same distance, which is not where ChemDraw puts it.
+// either side meets it at the same distance, which is not where ChemDraw puts it. And a check: every label of more
+// than one glyph is written with ChemDraw's justification and stacking, but for an element whose hydrogens come first
+// in its text (H3C, H2O), which Octet writes as CH3 right-justified: it reads the same.
 {
   const CORPUS = join(homedir(), "octet-research/corpus/sam");
   if (!existsSync(CORPUS)) console.log("cdxml.check: no corpus here, label anchors in the corpus skipped");
   else {
-    type L = { p: number[]; d: number[]; text: string; just?: string };
+    type L = { p: number[]; d: number[]; text: string; just?: string; stack?: string };
     // Each atom label outside an abbreviation: its node's p, its text p less that, its text and justification.
     const labels = (x: Xml, out: L[] = []): L[] => {
       const t = x.name === "n" ? x.kids.find((k) => k.name === "t") : undefined;
       if (t && x.attrs.p && t.attrs.p) {
         const p = x.attrs.p.split(" ").map(Number), q = t.attrs.p.split(" ").map(Number);
-        out.push({ p, d: [q[0] - p[0], q[1] - p[1]], text: t.kids.map((k) => k.text).join(""), just: t.attrs.LabelJustification });
+        out.push({ p, d: [q[0] - p[0], q[1] - p[1]], text: t.kids.map((k) => k.text).join(""), just: t.attrs.LabelJustification, stack: t.attrs.LabelAlignment });
       }
       if (x.name !== "n") x.kids.forEach((k) => labels(k, out));
       return out;
     };
-    const off = new Map<string, number[]>();
+    const off = new Map<string, number[]>(), stacked = (l: L) => (l.stack === "Above" || l.stack === "Below" ? l.stack : "");
+    let justified = 0;
     for (const name of readdirSync(CORPUS).filter((f) => f.endsWith(".cdxml"))) {
       const text = readFileSync(join(CORPUS, name), "utf8"), read = fromCdxml(text), theirs = labels(parseXml(text)), ours = labels(parseXml(toCdxml(read.mol, read.style)));
       // Octet's page can sit elsewhere: the shift most labels share.
       const shifts = new Map<string, number>();
       for (const a of theirs) for (const o of ours) if (a.text === o.text) { const k = `${(o.p[0] - a.p[0]).toFixed(2)} ${(o.p[1] - a.p[1]).toFixed(2)}`; shifts.set(k, (shifts.get(k) ?? 0) + 1); }
       const [sx, sy] = ([...shifts].sort((p, q) => q[1] - p[1])[0]?.[0] ?? "0 0").split(" ").map(Number);
+      for (const a of theirs.filter((l) => l.text.replace(/[+-]$/, "").length > 1)) {
+        const o = ours.find((l) => Math.abs(l.p[0] - a.p[0] - sx) < 0.02 && Math.abs(l.p[1] - a.p[1] - sy) < 0.02);
+        assert.ok(o, `${name}: ${a.text} is written`);
+        const same = a.just === o.just && stacked(a) === stacked(o), hFirst = /^H\d*[A-Z]/.test(a.text) && a.just === "Left" && o.just === "Right";
+        assert.ok(same || hFirst, `${name}: ${a.text} keeps ChemDraw's ${a.just} ${stacked(a)} (Octet: ${o.just} ${stacked(o)})`);
+        justified++;
+      }
       for (const a of theirs.filter((l) => l.just === "Right")) {
         const o = ours.find((l) => Math.abs(l.p[0] - a.p[0] - sx) < 0.02 && Math.abs(l.p[1] - a.p[1] - sy) < 0.02);
         assert.ok(o, `${name}: ${a.text} is written`);
@@ -883,6 +935,7 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
       }
     }
     const all = [...off.values()].flat(), range = (v: number[]) => `${Math.min(...v).toFixed(2)} to ${Math.max(...v).toFixed(2)}`;
+    console.log(`cdxml.check: ${justified} corpus labels of more than one glyph keep ChemDraw's justification`);
     console.log(`cdxml.check: ${all.length} right-justified corpus labels; Octet's p less ChemDraw's (pt): ${[...off].map(([t, v]) => `${t} ${range(v)}`).join(", ")}`);
   }
 }

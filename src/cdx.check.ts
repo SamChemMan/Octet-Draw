@@ -195,5 +195,14 @@ const kept: Mol = {
   const read = fromCdxml(cdxToXml(xmlToCdx(strip(tree))));
   assert.deepEqual(read.lost, {});
   assert.deepEqual([read.mol.captions?.[0].angle, read.mol.shapes?.[0].width, read.mol.bonds[0].spacing, read.mol.bonds[0].own], [-90, 2, 12, { BondLength: "30", HashSpacing: "2.70" }]);
+  // A turned, centred label, and conditions placed by hand, keep their turn, alignment and place as CDX.
+  const placed: Mol = {
+    atoms: [{ ...A("Os", 0, 0), align: "centre" as const, labelAngle: 30 }, A("C", -1, 0), A("C", 1, 0)], bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [0, 2] }],
+    arrows: [{ id: 1, kind: "reaction", from: [3, 0], to: [6, 0] }], captions: [{ id: 2, text: "rt", x: 0, y: 0, align: "left", on: { arrow: 1, side: "above" }, placed: { at: [-1, 0.5], arrow: [3, 0] } }],
+  };
+  for (const back of [fromCdxml(cdxToXml(xmlToCdx(parseXml(toCdxml(placed, DEFAULT_STYLE))))), fromCdxml(cdxToXml(xmlToCdx(strip(parseXml(toCdxml(placed, DEFAULT_STYLE))))))]) {
+    assert.deepEqual([back.mol.atoms[0].labelAngle, back.mol.atoms[0].align], [30, "centre"]);
+    assert.deepEqual(back.mol.captions![0].placed!.at.map((v) => +v.toFixed(3)), [-1, 0.5]);
+  }
   console.log("cdx.check: turned text, bold shapes and a bond's own settings ok");
 }

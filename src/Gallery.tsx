@@ -1,7 +1,7 @@
 // Dev preview: test molecules at 200% (?gallery), or one molecule (?smiles=…). Used to check the renderer.
 import { useEffect, useState } from "react";
 import { parseStructure, ready, STYLE, measure } from "./chem";
-import { render, type Mol } from "./render";
+import { labelTurn, render, type Mol } from "./render";
 
 const GALLERY: [string, string][] = [
   ["Caffeine", "CN1C=NC2=C1C(=O)N(C(=O)N2C)C"],
@@ -42,7 +42,7 @@ function Structure({ smiles, text }: { smiles: string; text?: string }) {
     <svg viewBox={`${x0} ${y0} ${x1 - x0} ${y1 - y0}`} width={(x1 - x0) * ZOOM} height={(y1 - y0) * ZOOM} style={{ display: "block" }}>
       <path d={d.polygons.map((poly) => "M" + poly.map(([x, y]) => `${x.toFixed(3)} ${y.toFixed(3)}`).join("L") + "Z").join("")} fill="var(--ink)" />
       {d.labels.map((l, i) => (
-        <text key={i} x={l.x} y={l.y} fill="var(--ink)" style={{ font: `${l.size}px var(--atom-label-font)` }}>
+        <text key={i} x={l.x} y={l.y} transform={labelTurn(l)} fill="var(--ink)" style={{ font: `${l.size}px var(--atom-label-font)` }}>
           {l.text}
         </text>
       ))}

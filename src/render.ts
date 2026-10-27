@@ -46,6 +46,9 @@ export type Atom = {
   // LabelDisplay in CDXML): left reads from the atom, right ends at it (MeO, H2N), centre sits on it, above and below
   // stack the rest of the label over or under the atom's own unit. Unset is Automatic: it reads away from the bonds.
   align?: "left" | "centre" | "right" | "above" | "below";
+  // The label turned anticlockwise about its anchor (the start, middle or end of its first line, by its alignment), in
+  // degrees: ChemDraw's RotationAngle on a label, kept from a file.
+  labelAngle?: number;
   hidden?: true; // Toggle Hydrogen Display: an explicit H that is not drawn, nor its bond (it still counts in the formula)
   // Marks moved round the atom by hand (Shift-drag): each mark's angle in degrees, anticlockwise from the right, by its
   // key: charge (a circled one), partial, radical0, radical1, pair0 to pair3. Marks without one go in the widest gaps.
@@ -371,7 +374,10 @@ export type Group = { id: number; atoms: number[]; items: number[]; integral?: t
 export type Style = { bond: number; line: number; bold: number; spacing: number; hash: number; margin: number; size: number; labelPt?: number; terminal?: boolean; carbons?: boolean; hideH?: boolean };
 // width: advance; ascent: ink top above the baseline; outline: glyph edge points relative to the text origin (y down).
 export type Ink = { width: number; ascent: number; outline: P[] };
-export type Label = { text: string; x: number; y: number; size: number; colour?: string; alpha?: number; font?: string; bold?: boolean; italic?: boolean; underline?: boolean };
+// angle: a turned label's turn, anticlockwise in degrees about pivot (px), as its atom's labelAngle.
+export type Label = { text: string; x: number; y: number; size: number; colour?: string; alpha?: number; font?: string; bold?: boolean; italic?: boolean; underline?: boolean; angle?: number; pivot?: P };
+// The SVG transform that turns a label as drawn.
+export const labelTurn = (l: Label) => (l.angle && l.pivot ? `rotate(${-l.angle} ${l.pivot[0]} ${l.pivot[1]})` : undefined);
 // A label's face, for measuring it: its own font, bold and italic.
 export type Face = { font?: string; bold?: boolean; italic?: boolean };
 export type Box = [number, number, number, number];
@@ -799,9 +805,9 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const hW = M('H').width, cW = count ? M(count).width * SUB : 0;
     const iso = a.isotope ? String(a.isotope) : '', isoW = iso ? M(iso).width * SUB : 0;
     // H goes first when the label reads right to left (HO, H2N), and on a lone atom written that way (H2O, HCl): the
-    // element ends the label. Centred by hand: the element and its H together sit on the atom.
+    // element ends the label. Centred by hand: the element (Os) or the element and its H together sit on the atom.
     const back = rtl || (!align && !deg(i) && !!h && H_FIRST.has(a.label)), same = [...a.label].length === 1;
-    const ox = align === "centre" && h ? x - (lw + hW + cW) / 2 : back && !same ? x + near(a.label[0]) - inkOf(a.label)[1] : x - first.width / 2, base = y + first.ascent / 2;
+    const ox = align === "centre" ? x - (lw + (h ? hW + cW : 0)) / 2 : back && !same ? x + near(a.label[0]) - inkOf(a.label)[1] : x - first.width / 2, base = y + first.ascent / 2;
     const el = run(a.label, ox, base);
     if (same) meets[i] = el;
     // An isotope's mass number, raised, just before the element (after an H that goes first: H₃¹³C).
@@ -822,12 +828,26 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     charged(ox - isoW - (h && (align ? align === "right" : back) ? hW + cW : 0), end, base, rtl);
     return shape;
   });
+  // A turned label (labelAngle) turns about its anchor, as ChemDraw turns a text about its p: the middle of its first
+  // line when centred, else the end of its first line that the atom is nearer (where it starts, or ends read right to
+  // left). Its glyph outlines turn with it.
+  const turned = mol.atoms.map((a, i) => {
+    const runs = runsAt[i];
+    if (!a.labelAngle || !runs.length) return false;
+    const line = runs.filter((r) => r.line <= 0), x = pts[i][0], start = Math.min(...line.map((r) => r.p.x)), end = Math.max(...line.map((r) => r.p.x + r.width * r.p.f));
+    const pivot: P = [a.align === "centre" ? x : x - start <= end - x ? start : end, runs.find((r) => r.line === 0 && r.p.f === 1)?.p.y ?? runs[0].p.y];
+    for (const { p } of runs) Object.assign(p, { pts: p.pts.map(([px, py]) => turnPx([p.x + px * p.f, p.y + py * p.f], pivot, a.labelAngle!)), x: 0, y: 0, f: 1 });
+    for (const l of labels) if (labelAtom.get(l) === i) Object.assign(l, { angle: a.labelAngle, pivot });
+    return true;
+  });
   // Bonds stop at the letter they meet; where that letter changes with the reading direction, at the label's box.
   // The letter (O of OH and HO, a ring's O, N or S) is its outline and that outline turned over about its middle, so
   // bonds from either side stop alike; the rest of the label is its glyph outlines. The box runs round each line of
   // the label, from the cap height to the baseline (further where a glyph's ink goes) and across the line's ink, so a
   // short letter (r of Br, e of Me) counts as full height. Subscripts, charges and mass numbers keep their outlines.
+  // Bonds stop at a turned label's glyph outlines.
   runsAt.forEach((runs, i) => {
+    if (turned[i]) return void clips[i].pieces.push(...runs.map((r) => r.p));
     const at = meets[i], lines = new Map<number, Run[]>();
     for (const r of runs) {
       if (at || r.p.f !== 1) clips[i].pieces.push(r.p);
@@ -1495,7 +1515,7 @@ function shifted(d: Drawing, [x, y]: P): Drawing {
   return {
     ...d, box: box(d.box), ink: d.ink.map(box), label: d.label.map((b) => b && box(b)),
     polygons: d.polygons.map((poly) => poly.map(([px, py]): P => [px + x, py + y])),
-    labels: d.labels.map((l) => ({ ...l, x: l.x + x, y: l.y + y })),
+    labels: d.labels.map((l) => ({ ...l, x: l.x + x, y: l.y + y, ...(l.pivot ? { pivot: [l.pivot[0] + x, l.pivot[1] + y] as P } : {}) })),
     electrons: d.electrons.map((e) => ({ ...e, at: [e.at[0] + x, e.at[1] + y] })),
     maps: d.maps.map((n) => ({ ...n, at: [n.at[0] + x, n.at[1] + y] })),
     beads: d.beads.map((b) => ({ ...b, at: [b.at[0] + x, b.at[1] + y] })),
