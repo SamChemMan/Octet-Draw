@@ -37,6 +37,8 @@ import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
 import { propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./proprows";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
+import { MassSpecPanel, type MsAdd } from "./MassSpec";
+import { chemRuns, msFigure } from "./msanalysis";
 import { acsText, multiplicity, quality } from "./nmr";
 import { nmrReady, predict, type Nucleus } from "./nmr";
 import { spectrumFigure } from "./spectrumplot";
@@ -86,7 +88,7 @@ setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, 
 import { addSet, addTo, freeSetName, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, removeSet, removeTemplate, renameSet, renameTemplate, setName, templateKind } from "./templates";
 import { formulaRuns } from "./labels";
 import { captionAtom, captionsToAtoms, chemicalCaption, interpretLabels, labelable, withCaptionAtoms } from "./edit";
-import { bendOf, cutSides } from "./masscut";
+import { bendOf, crossedBonds, cutSides } from "./masscut";
 import { common, edited, lines as richLines, normalise, plainOf, runsOf, shareColour, styleRange, styled, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
 import { Dialog } from "./Dialog";
@@ -2049,6 +2051,7 @@ export default function Editor() {
     if (drag?.kind === "chain" && drag.to) return chainThrough(doc, drag.from, chainPath(drag)).mol;
     if (drag?.kind === "ring" && drag.to) return ringDrop(drag);
     if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "resize" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "lane" || drag?.kind === "tableedge" || drag?.kind === "mark") return placeCentres(drag.working);
+    if (drag?.kind === "arrow" && drag.to && tool === "massspec") return addArrow(doc, { kind: "cut", from: drag.from, to: drag.to })[0];
     if (drag?.kind === "arrow" && drag.to && drag.make?.kind === "cut") return massCut(drag, true).mol;
     if (drag?.kind === "arrow" && drag.to) return addArrow(doc, newArrow(drag.from, drag.to, drag.side, drag.make))[0];
     if (drag?.kind === "shape" && drag.to) { const sh = shapeFrom(drag.from, drag.to); return sh ? addShape(doc, sh)[0] : doc; }
@@ -2390,28 +2393,8 @@ export default function Editor() {
   }, [drawing, darkPaper, style.labelFont, settling]); // eslint-disable-line react-hooks/exhaustive-deps
   // Where each stereo flag goes, worked out once per change of the atoms or bonds.
   const markDirs = useMemo(() => markDirections(shown, shown.atoms.flatMap((a, i) => (a.enhanced ? [i] : []))), [shown.atoms, shown.bonds]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Mass fragmentation: the bonds each cut line crosses, and the pieces they leave, labelled at the line's ends
-  // on each piece's side with its formula and exact mass.
-  const cutLabels = useMemo(() => {
-    if (!loaded) return [];
-    const cross = (a: P, b: P, c: P, d: P) => {
-      const r = (p: P, q: P, x: P) => (q[0] - p[0]) * (x[1] - p[1]) - (q[1] - p[1]) * (x[0] - p[0]);
-      return r(a, b, c) * r(a, b, d) < 0 && r(c, d, a) * r(c, d, b) < 0;
-    };
-    return arrows.filter((a) => a.kind === "cut").flatMap((a) => {
-      const cut = shown.bonds.flatMap((b, k) => (cross(a.from, a.to, pos(shown, b.atoms[0]), pos(shown, b.atoms[1])) ? [k] : []));
-      const pieces = cut.length ? fragmentMasses(shown, cut) : undefined;
-      if (!pieces) return [];
-      const u: P = [a.to[0] - a.from[0], a.to[1] - a.from[1]], len = Math.hypot(...u) || 1, n: P = [-u[1] / len, u[0] / len];
-      return pieces.map((piece, k) => {
-        const ps = piece.atoms.map((i) => pos(shown, i)), c: P = [ps.reduce((s0, q) => s0 + q[0], 0) / (ps.length || 1), ps.reduce((s0, q) => s0 + q[1], 0) / (ps.length || 1)];
-        const side = Math.sign((c[0] - a.from[0]) * n[0] + (c[1] - a.from[1]) * n[1]) || (k ? -1 : 1);
-        // The left-hand piece is labelled at the start of the line, the right-hand one at its end.
-        const end = side > 0 ? a.from : a.to, f = scaleOf(a), at: P = [end[0] + n[0] * side * 0.25 * f, end[1] + n[1] * side * 0.25 * f];
-        return { key: `${a.id}-${k}`, at, anchor: (n[0] * side >= 0 ? "start" : "end") as "start" | "end", formula: piece.formula, exact: piece.exact, f };
-      });
-    });
-  }, [arrows, shown, loaded]);
+  // The Mass spec panel's structure (see openMassSpec), and the atoms lit from it.
+  const [massSpec, setMassSpec] = useState<number[]>(), [msPoint, setMsPoint] = useState<number[]>();
   // A cut with the Mass fragmentation tool (ChemDraw's): one caption for each side, its pieces' formula (counts as
   // subscripts) and exact mass added up, beside the cut's end on that side (the left side's at its start). The
   // captions move, change and delete as any caption does. The cut line goes when the pointer is released; with Option
@@ -3503,7 +3486,7 @@ export default function Editor() {
     }
     if (tool === "shape" || tool === "bracket" || tool === "tlc" || tool === "table") return setDrag({ kind: "shape", from: p, start: screen, target: t });
     if (tool === "map" && t.atom !== undefined) return setDrag({ kind: "map", atom: t.atom, start: screen });
-    if (tool === "fragment" || tool === "synthesis" || tool === "retro") return setDrag({ kind: "arrow", from: p, start: screen, target: t, make: { kind: "cut" } });
+    if (tool === "fragment" || tool === "massspec" || tool === "synthesis" || tool === "retro") return setDrag({ kind: "arrow", from: p, start: screen, target: t, make: { kind: "cut" } });
     // An orbital grows from the atom pressed (or the point) towards the pointer.
     if (tool === "orbital") return setDrag({ kind: "arrow", from: t.atom !== undefined ? pos(doc, t.atom) : p, start: screen, target: t, make: { kind: "orbital", orbital: orbitalSpec(orbitalChoice)! } });
     if (tool === "erase") return setDrag({ kind: "erase", trail: [p], bonds: new Set(), atoms: new Set(), captions: new Set(), start: screen, target: t, moved: false });
@@ -4383,6 +4366,75 @@ export default function Editor() {
     return { atoms: kept.map((x) => x.atoms), values: propertyValues(kept.map((x) => x.s!), calc, settings.decimals) };
   }, [loaded, settings.properties, settings.decimals, doc, chem, propertySelection, picked]); // eslint-disable-line react-hooks/exhaustive-deps
   lastProperties.current = properties;
+  // The Mass spec panel (MassSpec.tsx): the structure it analyses (the one with an atom it opened on, as the drawing
+  // changes). Its fragmentation lines are the drawing's cut lines.
+  const msAtoms = useMemo(() => (massSpec ? fragments(doc).find((g) => g.some((i) => massSpec.includes(i))) : undefined), [doc, massSpec]);
+  function openMassSpec(atom: number) {
+    const group = fragments(doc).find((g) => g.includes(atom));
+    if (!group) return;
+    setSpectrum(undefined);
+    setMassSpec(group);
+  }
+  function massSpecLine(from: P, to: P | undefined, target: Hover) {
+    const bond = target.bond ?? bondAt(doc, from, 0.3), one = target.atom ?? atomAt(doc, from, 0.5) ?? (bond !== undefined ? doc.bonds[bond]?.atoms[0] : undefined);
+    if (!to || Math.hypot(to[0] - from[0], to[1] - from[1]) < 0.2) return one !== undefined && one < doc.atoms.length ? openMassSpec(one) : setNotice("Drag the line across one or more bonds.", "info");
+    const crossed = crossedBonds(doc, [from, to]);
+    if (!crossed.length) return setNotice("Drag the line across one or more bonds.", "info");
+    set(addArrow(doc, { kind: "cut", from, to })[0]);
+    openMassSpec(doc.bonds[crossed[0].bond].atoms[0]);
+  }
+  // Opening the panel scrolls the canvas up if the panel would cover the structure, as the Spectrum panel does, and
+  // again as the panel grows (its rows come in, a peak list opens).
+  useEffect(() => {
+    const el = document.querySelector(".massspec");
+    if (!massSpec || !el) return;
+    const fit = () => {
+      const atoms = (msAtoms ?? []).filter((i) => doc.atoms[i]), panel = el.getBoundingClientRect(), box = svg.current?.getBoundingClientRect();
+      const low = Math.min(...atoms.map((i) => pos(doc, i)[1]));
+      if (!box || !Number.isFinite(low) || el.classList.contains("expanded")) return;
+      const view = views.get(), over = view.y - low * L * view.zoom + 2 * L * view.zoom - (panel.top - box.top);
+      if (over > 0) moveView({ ...view, y: view.y - over });
+    };
+    const watch = new ResizeObserver(fit);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [massSpec]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Add to drawing from the Mass spec panel: the spectrum under the structure (lines and captions, picked as one), each
+  // fragment's ion and m/z beside it, or the HRMS line under the structure.
+  function addMassSpec(a: MsAdd) {
+    const atoms = (msAtoms ?? []).filter((i) => doc.atoms[i]), ps = atoms.map((i) => pos(doc, i));
+    if (!ps.length) return;
+    const f = atoms.reduce((s0, i) => s0 + scaleOf(doc.atoms[i]), 0) / atoms.length, labelPt = style.captionSize * 0.8 * f, size = Math.round(labelPt * 10) / 10;
+    let m = doc;
+    const items: number[] = [], keep = ([next, id]: [Mol, number]) => { m = next; items.push(id); };
+    if (a.what === "hrms") { const runs = normalise(chemRuns(a.text)); if (a.text) keep(addCaption(m, { text: plainOf(runs), x: 0, y: 0, under: atoms, runs })); }
+    else if (a.what === "label") {
+      // Beside the fragment, away from the structure's middle; the molecule's under it.
+      const r = a.row, qs = r.atoms.filter((i) => doc.atoms[i]).map((i) => pos(doc, i));
+      const cx = ps.reduce((s0, q) => s0 + q[0], 0) / ps.length, cy = ps.reduce((s0, q) => s0 + q[1], 0) / ps.length;
+      const fx = qs.reduce((s0, q) => s0 + q[0], 0) / (qs.length || 1), fy = qs.reduce((s0, q) => s0 + q[1], 0) / (qs.length || 1), d = Math.hypot(fx - cx, fy - cy);
+      const runs = normalise([...chemRuns(r.ion.label).map((x) => ({ ...x, colour: r.colour })), { text: "\n" }, ...chemRuns(`${r.ion.label.includes(r.ion.formula) ? "" : `${r.ion.formula} `}${a.mz.toFixed(4)}`)]);
+      if (!qs.length) return;
+      if (qs.length === ps.length || d < 0.3) keep(addCaption(m, { text: plainOf(runs), x: 0, y: 0, under: atoms, runs }));
+      else {
+        const reach = Math.max(...qs.map((q) => Math.hypot(q[0] - fx, q[1] - fy))) + 0.8, at: P = [fx + ((fx - cx) / d) * reach, fy + ((fy - cy) / d) * reach];
+        keep(addCaption(m, { text: plainOf(runs), x: at[0], y: at[1], size, align: at[0] >= cx ? "left" : "right", runs }));
+      }
+    } else {
+      const em = labelPt / style.bond, W = 14 * f, H = 3.5 * f, cx = (Math.min(...ps.map((q) => q[0])) + Math.max(...ps.map((q) => q[0]))) / 2;
+      const fig = msFigure({ ions: a.rows.map((r) => ({ ion: r.ion, colour: r.colour })), range: a.range, width: W, height: H, em, label: a.label });
+      const ink = withCaptions(atoms), low = Math.min(Math.min(...ps.map((q) => q[1])) - 1, ink ? -ink[3] / L - 0.5 : Infinity);
+      const top = H + 0.45 + 1.6 * em, x0 = cx - W / 2, y0 = low - 1.4 * em - top, at = (q: [number, number]): [number, number] => [x0 + q[0], y0 + q[1]];
+      for (const l of fig.lines) keep(addArrow(m, { kind: "line", from: at(l.from), to: at(l.to), ...(l.colour ? { colour: l.colour } : {}) }));
+      for (const t of fig.texts) keep(addCaption(m, { text: t.text, x: at(t.at)[0], y: at(t.at)[1], size: Math.round(labelPt * t.size * 10) / 10, align: t.align, ...(t.colour ? { colour: t.colour } : {}) }));
+      const grouped = groupSelection(m, new Set(), new Set(items));
+      if (grouped) m = { ...grouped[0], groups: grouped[0].groups?.map((g) => (g.id === grouped[1] ? { ...g, integral: true as const } : g)) };
+    }
+    if (m === doc) return;
+    set(m);
+    setSelection(new Set());
+    setPicked(new Set(items));
+  }
   // The Spectrum panel's structure (the first in the selection, or the drawing's largest), its predicted spectrum
   // once the shift tables are loaded, and which drawn atom each of the prediction's atoms is.
   const [spectrum, setSpectrum] = useState<Nucleus>();
@@ -4392,6 +4444,7 @@ export default function Editor() {
   function openSpectrum(nucleus: Nucleus) {
     const groups = fragments(doc), pick = (selection.size ? groups.find((g) => g.some((i) => selection.has(i))) : undefined) ?? [...groups].sort((a, b) => b.length - a.length)[0];
     setNmrTarget(pick);
+    setMassSpec(undefined);
     setSpectrum(nucleus);
     setSelection(new Set());
     setPicked(new Set());
@@ -5425,6 +5478,9 @@ export default function Editor() {
           setNotice(r.aromatic ? `${r.aromatic === 1 ? "One bond" : `${r.aromatic} bonds`} in aromatic rings stayed whole.` : undefined, "info");
           return set(m);
         }
+        // Mass spec analysis (ChemDraw's): the line stays as a fragmentation line, and the Mass spec panel opens on the
+        // structure it crosses. A click on a structure opens the panel on it.
+        if (tool === "massspec") return massSpecLine(drag.from, drag.to, drag.target);
         if (drag.make?.kind === "cut") {
           if (!drag.to) return;
           const { mol, items } = massCut(drag, !!drag.alt);
@@ -6274,6 +6330,7 @@ export default function Editor() {
       <g key={copied?.page === false ? `copied${copied.n}` : undefined} className={copied?.page === false ? "selection-marks copied" : "selection-marks"}>{selected}</g>
       {gridPickMark()}
       {groupFrames}
+      {msPoint && msAtoms && <g className="nmr-marks">{msPoint.filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `ms${i}`, ""))}</g>}
       {nmrMarks.size > 0 && <g className="nmr-marks">{[...nmrMarks].filter((i) => i < shown.atoms.length).map((i) => atomMark(i, `nmr${i}`, ""))}</g>}
       {shiftLabels().map((l) => (
         <text key={`shift${l.atom}`} className={`nmr-shift${nmrMarks.has(l.atom) ? " lit" : ""}${settings.nmrDetails ? ` q-${nmrQuality.get(l.atom)}` : ""}`} x={l.x} y={l.y} textAnchor={l.anchor} dominantBaseline="middle">{l.text}</text>
@@ -6297,14 +6354,8 @@ export default function Editor() {
       )}
       {structureInk.map(([id, key, path, move, first]) => { const [colour, alpha] = key.split("|"); return <path key={`s${id}`} className={first >= settling ? "settle" : undefined} d={path} transform={move} fill={colour ? textInk(colour) : "var(--ink)"} fillOpacity={Number(alpha) < 1 ? Number(alpha) : undefined} />; })}
       {arrowInk.map(([colour, d]) => <path key={`a${colour}`} d={d} fill={colour ? textInk(colour) : "var(--ink)"} />)}
-      {cutLabels.map((c) => (
-        <text key={c.key} x={c.at[0] * L} y={-c.at[1] * L} textAnchor={c.anchor} fill="var(--ink)" style={{ font: `${style.captionSize * pt * 0.9 * c.f}px ${fontStack(style.captionFont)}` }}>
-          {c.formula.split(/(\d+)/).map((part, i) => (/^\d+$/.test(part) ? <tspan key={i} baselineShift="sub" fontSize="75%">{part}</tspan> : <tspan key={i}>{part}</tspan>))}
-          <tspan dx={4}>{c.exact.toFixed(4)}</tspan>
-        </text>
-      ))}
     </>
-  ), [drawing.beads, structureInk, arrowInk, darkPaper, cutLabels, style, pt, settling]); // eslint-disable-line react-hooks/exhaustive-deps
+  ), [drawing.beads, structureInk, arrowInk, darkPaper, style, pt, settling]); // eslint-disable-line react-hooks/exhaustive-deps
   const draggedSpot = drag?.kind === "spot" ? `${drag.plate} ${drag.index}` : undefined;
   const over = useMemo(() => (
     <>
@@ -6939,6 +6990,11 @@ export default function Editor() {
           onAdd={(what, range) => (what === "key" ? addKey() : what === "shifts" ? addShifts() : addSpectrum(range))}
           onSolventPeaks={(on) => setSettings((s) => ({ ...s, nmrSolventPeaks: on }))}
         />
+      )}</Live>}</Exit>
+      <Exit>{msAtoms && <Live store={hovers}>{(hover) => (
+        <MassSpecPanel mol={doc} atoms={msAtoms} ready={loaded} prefs={settings.massSpec} lit={hover.atom}
+          onPrefs={(massSpec) => setSettings((s) => ({ ...s, massSpec }))} onPoint={setMsPoint} onCopy={(text) => runAction(`copy_text:${text}`)} onAdd={addMassSpec}
+          onClose={() => { setMassSpec(undefined); setMsPoint(undefined); }} />
       )}</Live>}</Exit>
       <Exit>{settings.properties && properties && (
         <Properties

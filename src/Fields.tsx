@@ -36,7 +36,9 @@ export function NumberField({ value, unit, label, onChange, min = 0.001, max = 1
           if (lazy && (e.key === "Enter" || e.key === "Escape")) { e.preventDefault(); cancel.current = e.key === "Escape"; e.currentTarget.blur(); return; }
           if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
           e.preventDefault();
-          const by = e.shiftKey ? step * 10 : step, n = Math.max(min, Math.min(max, Math.round(((value ?? (min > 0 ? min : 0)) + (e.key === "ArrowUp" ? by : -by)) * 100) / 100));
+          // Rounded to the step's places (two at least), so a finer step keeps its places.
+          const by = e.shiftKey ? step * 10 : step, k = 10 ** Math.max(2, (String(step).split(".")[1] ?? "").length);
+          const n = Math.max(min, Math.min(max, Math.round(((value ?? (min > 0 ? min : 0)) + (e.key === "ArrowUp" ? by : -by)) * k) / k));
           setText(String(n));
           onChange(n);
         }}

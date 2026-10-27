@@ -153,7 +153,7 @@ export type Kept = { attrs: Record<string, string>; atoms: number[] };
 // line and arc are drawing elements with no head; they share the arrows' handles. style: how the shaft is drawn
 // (dashed suits a proposed step; wavy and bold are for lines).
 // orbital: an atomic or hybrid orbital drawn from its nucleus (from) to the tip of its main lobe (to).
-// cut: a mass-fragmentation line across bonds; the pieces it makes are labelled with their formula and mass.
+// cut: a fragmentation line across bonds (the Mass spec analysis tool's), whose pieces the Mass spec panel analyses.
 // nogo and hash: a reaction arrow crossed out, or struck through with two slashes (ChemDraw's No-Go Cross and Hash).
 // dipole: an arrow with a bar across its tail. block: a hollow block arrow (a wide shaft and head drawn as an outline).
 export type ArrowKind = "reaction" | "equilibrium" | "resonance" | "retro" | "nogo" | "hash" | "dipole" | "block" | "curved" | "fishhook" | "double" | "line" | "arc" | "orbital" | "cut" | "curve";

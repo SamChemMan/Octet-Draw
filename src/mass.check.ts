@@ -16,7 +16,11 @@ assert.ok(Math.abs(ph[2].rel - 32.5) < 1, JSON.stringify(ph));
 // Dibromide: 1:2:1.
 const br = isotopePattern("CH2Br2")!.filter((p) => p.rel > 10);
 assert.deepEqual(br.map((p) => Math.round(p.rel / 10)), [5, 10, 5]);
-// An element without isotope data gives no pattern.
-assert.equal(isotopePattern("C2H6Hg"), undefined);
+// Every element with a natural abundance has a pattern (mercury's seven isotopes); one with none (technetium) has none.
+assert.equal(isotopePattern("C2H6Hg")!.filter((p) => p.rel > 30).length, 5);
+assert.equal(isotopePattern("C2H6Tc"), undefined);
+// D and T, and a bracketed isotope, count as the pure isotope.
+assert.equal(isotopePattern({ C: 1, D: 3, H: 1, O: 1 })![0].mz.toFixed(4), "35.0450");
+assert.equal(isotopePattern({ "[13C]": 1, H: 4 })![0].mz.toFixed(4), "17.0347");
 assert.equal(elementalAnalysis("C 63.56 H 6.00 N 9.27 O 21.17"), "C, 63.56; H, 6.00; N, 9.27; O, 21.17");
 console.log("mass.check: ok");
