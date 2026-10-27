@@ -242,3 +242,62 @@ if (wrong.length) console.log(`wrong: ${wrong.join("; ")}`);
 console.log(`names.check: ${right}/${Object.keys(WANT).length} common names give the right structure (${ms.toFixed(1)} ms each with layout); ${entries.length} table entries read`);
 assert.equal(Object.keys(WANT).length, 200);
 assert.equal(wrong.length, 0);
+
+// ——— The user's own dictionary (ChemDraw's Structure > Add Structure to Dictionary) ———
+// A structure drawn and named by the user (here a sulfonamide no table has, as "Cat-7"), kept with its SMILES and
+// InChI as Add to Dictionary keeps it. The name then reads in Name to Structure (any case, spaces or hyphens), in
+// mixtures, completes in the library's search and the command palette (namesStarting), and names the structure when
+// it is drawn (abbreviationOf, as the Structure panel shows an abbreviation).
+{
+  const { cleanOwnName, mergeOwnNames, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, withOwnName, withoutOwnName, MOST_OWN_NAMES } = await import("./names.ts");
+  const cat = "Cc1ccc(cc1)S(=O)(=O)NC1CCCCC1", catInchi = inchi(cat)!;
+  assert.equal(nameToSmiles("Cat-7"), undefined, "not a name before it is added");
+  assert.equal(abbreviationOf(catInchi), undefined);
+  let mine = withOwnName([], { name: "  Cat-7 \u0007", smiles: cat, inchi: catInchi });
+  assert.deepEqual(mine, [{ name: "Cat-7", smiles: cat, inchi: catInchi }], "the name is cleaned");
+  setOwnNames(mine);
+  for (const typed of ["Cat-7", "cat 7", "CAT7"]) assert.equal(nameToSmiles(typed), cat, typed);
+  assert.equal(ownName("cat7")?.name, "Cat-7");
+  assert.equal(namesStarting("ca", 3)[0], "Cat-7", "first in the search and the command palette");
+  assert.ok(namesStarting("ca", 3).length <= 3);
+  assert.equal(abbreviationOf(catInchi), "Cat-7", "a drawn Cat-7 is named");
+  assert.deepEqual(partKeys(nameToSmiles("Cat-7 and water") ?? ""), partKeys(`${cat}.O`), "in a mixture");
+  // A name of the user's reads first: their THF is theirs, until they remove it.
+  mine = withOwnName(mine, { name: "THF", smiles: "C1CCCO1C", inchi: inchi("C1CCCO1C") });
+  setOwnNames(mine);
+  assert.equal(nameToSmiles("THF"), "C1CCCO1C");
+  assert.equal(abbreviationOf(inchi("C1CCOC1")), "THF", "oxolane is still THF");
+  // The same name again replaces its entry (Add to Dictionary asks first).
+  mine = withOwnName(mine, { name: "cat-7", smiles: "CC", inchi: inchi("CC") });
+  assert.equal(mine.length, 2);
+  assert.equal(mine[0].smiles, "CC");
+  mine = withOwnName(mine, { name: "Cat-7", smiles: cat, inchi: catInchi });
+  // Settings > Dictionary: rename (not to another entry's name, not to nothing), remove.
+  assert.equal(renameOwnName(mine, "Cat-7", "thf"), mine, "two entries cannot share a name");
+  assert.equal(renameOwnName(mine, "Cat-7", "  "), mine);
+  mine = renameOwnName(mine, "Cat-7", "Catalyst 7");
+  setOwnNames(mine);
+  assert.equal(nameToSmiles("Cat-7"), undefined, "the old name is gone");
+  assert.equal(nameToSmiles("catalyst 7"), cat);
+  assert.equal(abbreviationOf(catInchi), "Catalyst 7");
+  mine = withoutOwnName(mine, "THF");
+  setOwnNames(mine);
+  assert.equal(nameToSmiles("THF"), nameToSmiles("oxolane"), "THF is Octet's again");
+  // Export and import: a SMILES file with names. Read back, it is the same list; a file's damaged lines are left out,
+  // and a name the user has keeps the user's structure.
+  const file = ownNamesFile(mine);
+  assert.equal(file, `${cat}\tCatalyst 7`);
+  assert.deepEqual(readOwnNamesFile(file), [{ name: "Catalyst 7", smiles: cat }]);
+  const from = readOwnNamesFile(["CCO\tmy ethanol", "", "CCN", "# a comment", `${"C".repeat(5000)}\tlong`, "c1ccccc1 Benzene, my  way\u0000", "CCC\tMY ETHANOL", "CCCl\tCatalyst 7"].join("\r\n"));
+  assert.deepEqual(from, [{ name: "my ethanol", smiles: "CCO" }, { name: "Benzene, my way", smiles: "c1ccccc1" }, { name: "Catalyst 7", smiles: "CCCl" }]);
+  const merged = mergeOwnNames(mine, from);
+  assert.deepEqual([merged.added, merged.kept], [2, 1]);
+  assert.equal(merged.list.find((n) => n.name === "Catalyst 7")?.smiles, cat, "the user's own stays");
+  assert.equal(readOwnNamesFile(Array.from({ length: MOST_OWN_NAMES + 10 }, (_, k) => `C\tn${k}`).join("\n")).length, MOST_OWN_NAMES);
+  assert.equal(cleanOwnName("a\tb\nc"), "a b c");
+  // An empty dictionary: back to Octet's names alone.
+  setOwnNames([]);
+  assert.equal(nameToSmiles("catalyst 7"), undefined);
+  assert.equal(abbreviationOf(catInchi), undefined);
+  console.log("names.check: the user's own dictionary (add, read, search, recognise, rename, remove, export, import) ok");
+}

@@ -17,11 +17,11 @@ import { fontStack } from "./docstyle";
 import { LIBRARY, type LibraryItem } from "./library";
 import { arrowShapes, curvePath, isOrbital, labelTurn, render, shapeInk, shapePaths, spotPath, tlcLayout, type Arrow, type Label, type Mol } from "./render";
 import { useLeaving } from "./motion";
-import { MY_SET, ownId, templateKind } from "./templates";
+import { MY_SET, ownId, templateKind, type TemplateTool } from "./templates";
 
 // The tool a library is beside (the Ring tool's Templates row, or the Template tool): a template chosen or added there
 // is that tool's.
-export type TemplateTool = "ring" | "template";
+export type { TemplateTool };
 // What the library does with the user's sets (Editor.tsx keeps them in Settings).
 export type TemplateSetActions = { add: (name: string) => void; rename: (from: string, to: string) => void; remove: (name: string) => void; move: (id: string, set: string) => void };
 

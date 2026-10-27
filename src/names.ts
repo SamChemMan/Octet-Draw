@@ -60,11 +60,82 @@ export const knownName = (inchi: string): string | undefined => index[inchi];
 // The abbreviation Octet cites for a structure, by its standard InChI (TREN, Et3N): the first key listed for it in
 // common.ts that is citable (tools/names/index.mjs). A structure drawn with stereochemistry also takes the abbreviation
 // of an entry drawn with none, as (R)-BINAP is BINAP. Undefined until the names engine has loaded.
+// A name of the user's own dictionary comes first: it is the name the user gave that structure.
 let cited: Record<string, string> = {};
 export function abbreviationOf(inchi: string | undefined): string | undefined {
   if (!inchi) return undefined;
   const flat = inchi.split("/").filter((layer, k) => k < 2 || !/^[btms]/.test(layer)).join("/");
-  return cited[inchi] ?? (flat !== inchi ? cited[flat] : undefined);
+  return ownByInchi.get(inchi) ?? (flat !== inchi ? ownByInchi.get(flat) : undefined) ?? cited[inchi] ?? (flat !== inchi ? cited[flat] : undefined);
+}
+
+// ——— The user's own dictionary ———
+// ChemDraw's Structure > Add Structure to Dictionary: a name the user gives a structure, kept with its SMILES (and its
+// standard InChI, to know the structure when it is drawn). A name of the user's reads first, before Octet's own names
+// and OPSIN, so it means what the user made it mean. It works wherever Octet's own names work: Name to Structure, the
+// template library's search and the command palette (namesStarting), and a drawn structure shows it as it shows an
+// abbreviation (abbreviationOf). Editor.tsx keeps the list in the settings and gives it here.
+export type OwnName = { name: string; smiles: string; inchi?: string };
+export const MOST_OWN_NAMES = 2000, OWN_NAME_LENGTH = 80, OWN_SMILES_LENGTH = 4000;
+let own = new Map<string, OwnName>(), ownByInchi = new Map<string, string>();
+export function setOwnNames(list: OwnName[]) {
+  const names = new Map<string, OwnName>(), byInchi = new Map<string, string>();
+  for (const n of list.slice(0, MOST_OWN_NAMES)) {
+    const k = commonKey(n.name);
+    if (!k || names.has(k)) continue;
+    names.set(k, n);
+    if (n.inchi && !byInchi.has(n.inchi)) byInchi.set(n.inchi, n.name);
+  }
+  [own, ownByInchi] = [names, byInchi];
+}
+// The entry of the user's own dictionary with this name (compared as keys are), if there is one.
+export const ownName = (name: string): OwnName | undefined => own.get(commonKey(name));
+// A name as the dictionary keeps it: no control characters, spaces collapsed, at most 80 characters. "" when there is
+// nothing left.
+export const cleanOwnName = (name: string) => name.replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, OWN_NAME_LENGTH);
+// The dictionary's changes, as Add to Dictionary and Settings > Dictionary make them. Each gives the list back unchanged
+// when it cannot be made. An entry added with the name of one there already takes its place (Add to Dictionary asks
+// first, as ChemDraw does).
+export const withOwnName = (list: OwnName[], entry: OwnName): OwnName[] => {
+  const name = cleanOwnName(entry.name), k = commonKey(name);
+  if (!k || !entry.smiles || entry.smiles.length > OWN_SMILES_LENGTH) return list;
+  const at = list.findIndex((n) => commonKey(n.name) === k), next = { ...entry, name };
+  return at >= 0 ? list.map((n, i) => (i === at ? next : n)) : list.length < MOST_OWN_NAMES ? [...list, next] : list;
+};
+// A new name for an entry: not empty, and not another entry's name.
+export const renameOwnName = (list: OwnName[], from: string, to: string): OwnName[] => {
+  const name = cleanOwnName(to), k = commonKey(name);
+  if (!k || list.some((n) => n.name !== from && commonKey(n.name) === k) || !list.some((n) => n.name === from && n.name !== name)) return list;
+  return list.map((n) => (n.name === from ? { ...n, name } : n));
+};
+export const withoutOwnName = (list: OwnName[], name: string) => list.filter((n) => n.name !== name);
+// Entries from a file, after the user's: a name the user has already keeps the user's structure.
+export const mergeOwnNames = (list: OwnName[], more: OwnName[]): { list: OwnName[]; added: number; kept: number } => {
+  let next = list, added = 0, kept = 0;
+  for (const n of more) {
+    if (next.some((x) => commonKey(x.name) === commonKey(n.name))) { kept++; continue; }
+    const after = withOwnName(next, n);
+    if (after !== next) added++;
+    next = after;
+  }
+  return { list: next, added, kept };
+};
+// The dictionary as a file of its own, to export and import: a SMILES file (.smi), one entry a line, the SMILES, a tab
+// and the name, as other chemistry programs read SMILES files with names.
+export const ownNamesFile = (list: OwnName[]) => list.map((n) => `${n.smiles}\t${n.name}`).join("\n");
+// A SMILES file read as entries: the SMILES, then (after a tab or spaces) the name. A line with no name, a SMILES or
+// name past Octet's limits, or a name met before, is left out. The caller checks that each SMILES reads.
+export function readOwnNamesFile(text: string): OwnName[] {
+  const seen = new Set<string>(), out: OwnName[] = [];
+  for (const line of text.split(/\r\n?|\n/).slice(0, 100_000)) {
+    const m = /^\s*(\S+)\s+(.+?)\s*$/.exec(line);
+    if (!m || m[1].length > OWN_SMILES_LENGTH || m[1].startsWith("#")) continue;
+    const name = cleanOwnName(m[2]), key = commonKey(name);
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ name, smiles: m[1] });
+    if (out.length >= MOST_OWN_NAMES) break;
+  }
+  return out;
 }
 
 // Octet's own names (common.ts, and drugs.ts once the engine loads), by key. Drug names map to SMILES.
@@ -74,9 +145,15 @@ const searchable: [string, string, string][] = Object.entries(COMMON).map(([k, v
 
 // Octet's own names that begin as typed (common.ts, and drugs.ts once the engine has loaded), compared as keys are:
 // one name for each structure, the one typed first, then the shortest. "TR" gives TREN, Tris, trien. At most most.
+// The user's own names come first, the one typed first, then the shortest.
 export function namesStarting(typed: string, most = 8): string[] {
   const q = commonKey(typed.trim());
   if (!q) return [];
+  const mine = [...own].filter(([k]) => k.startsWith(q)).sort(([a], [b]) => Number(b === q) - Number(a === q) || a.length - b.length).map(([, n]) => n.name).slice(0, most);
+  return [...mine, ...octetStarting(typed, q, most - mine.length).filter((n) => !own.has(commonKey(n)))];
+}
+function octetStarting(typed: string, q: string, most: number): string[] {
+  if (most <= 0) return [];
   const found = searchable.filter(([k]) => k.startsWith(q)).sort(([a], [b]) => Number(b === q) - Number(a === q) || a.length - b.length || (a < b ? -1 : a > b ? 1 : 0));
   const seen = new Set<string>(), out: string[] = [];
   for (const [, name, value] of found) {
@@ -109,13 +186,19 @@ export function nameToAtoms(name: string): string | undefined {
 // names first (THF, K2CO3, drug names), then the name as OPSIN reads it, then the name tidied of catalogue quirks.
 // A name that does not read whole can be read in parts: a salt of a name Octet has ("sertraline hydrochloride"), an
 // adduct or hydrate ("Et3N·HCl", "CuSO4·5H2O"), or a mixture ("ethanol and water (2:1)").
+// A name of the user's own reads even before OPSIN has loaded.
 export function nameToSmiles(name: string): string | undefined {
   const s = name.trim();
-  if (!opsin || !s || s.length > 1000) return undefined;
+  if (!s || s.length > 1000) return undefined;
+  const mine = own.get(commonKey(s));
+  if (mine) return mine.smiles;
+  if (!opsin) return undefined;
   return one(s) ?? salt(s) ?? parts(s) ?? nameList(s, nameToSmiles)?.join(".");
 }
 
 function one(s: string): string | undefined {
+  const mine = own.get(commonKey(s));
+  if (mine) return mine.smiles;
   const known = common.get(commonKey(s));
   if (known) return known.startsWith("smiles:") ? known.slice(7) : read(known);
   const tidied = tidy(s);

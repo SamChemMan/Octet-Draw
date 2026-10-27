@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { addCaption, extractSelection } from "./edit.ts";
 import type { Atom, Bond, Mol } from "./render.ts";
-import { addSet, addTo, freeSetName, loadTemplates, moveTemplate, MY_SET, newTemplate, ownId, removeSet, removeTemplate, renameSet, renameTemplate, templateKind, type Kept } from "./templates.ts";
+import { addSet, addSetOf, addTo, changePalette, closePalette, duplicateTemplate, freeSetName, loadTemplates, MOST_PALETTES, moveTemplate, MY_SET, newTemplate, openPalette, ownId, PALETTE_COLUMNS, placeTemplate,
+  readPalettes, removeSet, removeTemplate, renameSet, renameTemplate, templateKind, templateToEnd, templateToStart, updateTemplate, type Kept } from "./templates.ts";
 
 const atom = (label: string, x: number, y: number, more: Partial<Atom> = {}): Atom => ({ label, location: [x, y, 0], ...more });
 const bond = (a: number, b: number, type = 1, more: Partial<Bond> = {}): Bond => ({ atoms: [a, b], type, ...more });
@@ -112,6 +113,152 @@ assert.deepEqual(loadTemplates([null, 3, { id: "a", name: "b", file: "not a file
 assert.deepEqual(loadTemplates("nothing"), []);
 
 console.log("templates: ok");
+
+// ——— Order, Edit and Duplicate (CD-32) ———
+// Five templates: A, B and C in a set, D and E in My templates, mixed in the list as they were added.
+let o: Kept = addSet(empty, "Rings");
+const made: Record<string, string> = {};
+for (const [name, set] of [["A", "Rings"], ["D", MY_SET], ["B", "Rings"], ["E", MY_SET], ["C", "Rings"]]) {
+  const t = newTemplate(name, ring);
+  made[name] = t.id;
+  o = addTo(o, t, set);
+}
+const order = (k: Kept, set?: string) => k.templates.filter((t) => t.set === set).map((t) => t.name).join("");
+assert.equal(order(o, "Rings"), "ABC");
+assert.equal(order(o), "DE");
+// Dragged before another template of its set; dragged to the end; Move to start and Move to end.
+o = placeTemplate(o, made.C, made.A);
+assert.equal(order(o, "Rings"), "CAB");
+assert.equal(order(o), "DE", "the other set keeps its order");
+o = placeTemplate(o, made.C);
+assert.equal(order(o, "Rings"), "ABC");
+o = templateToStart(o, made.B);
+assert.equal(order(o, "Rings"), "BAC");
+o = templateToEnd(o, made.B);
+assert.equal(order(o, "Rings"), "ACB");
+assert.equal(templateToStart(o, made.A), o, "the first stays first, and nothing changes");
+assert.equal(templateToEnd(o, made.B), o, "the last stays last");
+assert.equal(placeTemplate(o, made.A, made.D), o, "a template goes before one of its own set only");
+assert.equal(placeTemplate(o, "nobody", made.A), o);
+assert.deepEqual(back(o).filter((t) => t.set === "Rings").map((t) => t.name), ["A", "C", "B"], "the order is kept in the settings");
+// A template moved to another set goes at its end.
+o = moveTemplate(o, made.A, MY_SET);
+assert.equal(order(o), "DEA");
+o = moveTemplate(o, made.A, "Rings");
+assert.equal(order(o, "Rings"), "CBA");
+
+// Edit, then Save: the template's drawing changes; its id, name, set and place stay. An empty drawing changes nothing.
+const chain: Mol = { atoms: [atom("C", 0, 0), atom("C", 0.87, 0.5), atom("N", 1.73, 0)], bonds: [bond(0, 1), bond(1, 2, 3)] };
+const before = o.templates.map((t) => t.id);
+const edited = updateTemplate(o, made.C, chain);
+assert.deepEqual(edited.templates.map((t) => t.id), before);
+const c = back(edited).find((t) => t.id === made.C)!;
+assert.equal(c.name, "C");
+assert.equal(c.set, "Rings");
+assert.deepEqual(c.mol.atoms.map((a) => a.label), ["C", "C", "N"]);
+assert.equal(c.mol.bonds[1].type, 3);
+assert.equal(updateTemplate(o, made.C, { atoms: [], bonds: [] }), o, "an empty drawing does not replace a template");
+assert.equal(updateTemplate(o, "nobody", chain), o);
+// A drawing edited at another size and place is kept at bond length 1, centred, as every template is.
+const big: Mol = { atoms: chain.atoms.map((a) => ({ ...a, location: [a.location[0] * 3 + 40, a.location[1] * 3 - 7, 0] as [number, number, number] })), bonds: chain.bonds };
+const norm = back(updateTemplate(o, made.C, big)).find((t) => t.id === made.C)!.mol;
+assert.ok(Math.abs(Math.hypot(norm.atoms[1].location[0] - norm.atoms[0].location[0], norm.atoms[1].location[1] - norm.atoms[0].location[1]) - 1) < 1e-3, "bond length 1");
+assert.ok(Math.abs(Math.min(...norm.atoms.map((a) => a.location[0])) + Math.max(...norm.atoms.map((a) => a.location[0]))) < 1e-3, "centred");
+// The same file text gives the same structure, so a thumbnail is drawn once; an edited template is a new structure.
+assert.equal(back(o).find((t) => t.id === made.B)!.mol, back(o).find((t) => t.id === made.B)!.mol);
+assert.notEqual(back(edited).find((t) => t.id === made.C)!.mol, back(o).find((t) => t.id === made.C)!.mol);
+// Duplicate: a copy just after the template, in its set, with an id of its own.
+const dup = duplicateTemplate(o, made.B);
+assert.equal(dup.templates.filter((t) => t.set === "Rings").map((t) => t.name).join(","), "C,B,B copy,A");
+const copy = dup.templates.find((t) => t.name === "B copy")!;
+assert.notEqual(copy.id, made.B);
+assert.equal(copy.set, "Rings");
+assert.equal(duplicateTemplate(o, "nobody"), o);
+console.log("templates: order, Edit and Duplicate ok");
+
+// ——— Floating palettes ———
+// Opened, brought to the front, moved, made wider, closed; kept in the settings (JSON) and read back with checks.
+let pals = openPalette([], "Aromatics", "template");
+assert.deepEqual(pals, [{ set: "Aromatics", tool: "template", x: 80, y: 96, columns: PALETTE_COLUMNS }]);
+pals = openPalette(pals, "Rings", "ring");
+assert.deepEqual(pals.map((p) => [p.set, p.x, p.y]), [["Aromatics", 80, 96], ["Rings", 104, 120]], "a new palette opens down and right of the last");
+pals = openPalette(pals, "Aromatics", "template");
+assert.deepEqual(pals.map((p) => p.set), ["Rings", "Aromatics"], "opened again: to the front, not twice");
+pals = changePalette(pals, "Rings", { x: 900.4, y: -50, columns: 20 });
+assert.deepEqual(pals[0], { set: "Rings", tool: "ring", x: 900, y: 0, columns: 8 }, "moved, kept on the screen and in Octet's limits");
+const keptPals = readPalettes(JSON.parse(JSON.stringify(pals)));
+assert.deepEqual(keptPals, pals, "the palettes and their places come back after a launch");
+assert.deepEqual(readPalettes([null, 4, { set: "" }, { set: "X", tool: "pen", x: "1" }, { set: "X" }]), [{ set: "X", tool: "template", x: 80, y: 96, columns: PALETTE_COLUMNS }], "damaged entries are dropped or mended");
+assert.equal(readPalettes(Array.from({ length: 40 }, (_, k) => ({ set: `S${k}` }))).length, MOST_PALETTES);
+assert.deepEqual(closePalette(pals, "Rings").map((p) => p.set), ["Aromatics"]);
+// A set of the user's renamed takes its palette with it; removed, its palette closes.
+let withPal: Kept = { ...addSet(empty, "Rings"), palettes: pals };
+withPal = renameSet(withPal, "Rings", "My rings");
+assert.deepEqual(withPal.palettes!.map((p) => p.set), ["My rings", "Aromatics"]);
+withPal = removeSet(withPal, "My rings");
+assert.deepEqual(withPal.palettes!.map((p) => p.set), ["Aromatics"]);
+console.log("templates: floating palettes ok");
+
+// ——— ChemDraw template files (.ctp, .cts) ———
+// A small template document made here with Octet's own writer (nothing from ChemDraw): a 2 × 3 grid of panes, five
+// with structures (two named by a Name annotation, as ChemDraw's Annotate keeps it) and one empty, as CDX and as CDXML.
+const { readTemplateFile, isTemplateFile, MOST_PANES, NOT_TEMPLATES } = await import("./ctp.ts");
+const { toCdxml, parseXml } = await import("./cdxml.ts");
+const { xmlToCdx, toBase64 } = await import("./cdx.ts");
+const { DEFAULT_STYLE } = await import("./docstyle.ts");
+type X = ReturnType<typeof parseXml>;
+const docOf = (m: Mol) => parseXml(toCdxml(m, DEFAULT_STYLE));
+const note = (content: string): X => ({ name: "annotation", attrs: { Keyword: "Name", Content: content }, kids: [], text: "" });
+const pagesOf = (m: Mol) => docOf(m).kids.filter((k) => k.name === "page");
+const panes = [ring, chain, { atoms: [atom("O", 0, 0)], bonds: [] }, undefined, ring, chain];
+const names = ["Furan", undefined, "Water\u0007 \n  drop", undefined, undefined, undefined];
+const templateDoc = (count = panes.length): X => {
+  const head = docOf(ring);
+  const pages = Array.from({ length: count }, (_, k) => {
+    const m = panes[k % panes.length], page = m ? pagesOf(m)[0] : { name: "page", attrs: {}, kids: [], text: "" };
+    return names[k] ? { ...page, kids: [...page.kids, note(names[k]!)] } : page;
+  });
+  return { ...head, kids: [...head.kids.filter((k) => k.name !== "page"), { name: "templategrid", attrs: { NumRows: "2", NumColumns: "3", extent: "2.75 2.75" }, kids: [], text: "" }, ...pages] };
+};
+const bytes = xmlToCdx(templateDoc());
+for (const [what, file] of [["CDX bytes", bytes], ["CDX in base64, as the app reads it", toBase64(bytes)]] as const) {
+  const r = readTemplateFile(file, "My rings.ctp");
+  assert.equal(r.set, "My rings", what);
+  assert.deepEqual(r.templates.map((t) => t.name), ["Furan", "My rings 2", "Water drop", "My rings 4", "My rings 5"], `${what}: names from annotations, else the set and place; the empty pane left out`);
+  assert.deepEqual(r.templates.map((t) => t.mol.atoms.map((a) => a.label).join("")), ["OCCCC", "CCN", "O", "OCCCC", "CCN"], `${what}: each pane's structure, in order`);
+  assert.equal(r.templates[0].mol.bonds.filter((b) => b.type === 2).length, 2, `${what}: bond orders`);
+  assert.equal(r.left, 0);
+  assert.ok(!r.templates.some((t) => t.mol.annotations?.some((a) => a.keyword === "Name")), "the Name annotation is the template's name, not kept in it");
+}
+// As CDXML text, and as a set of the user's: a new set named after the file, with a number when the name is taken.
+const asXml = (x: X): string => `<${x.name}${Object.entries(x.attrs).map(([k, v]) => ` ${k}="${String(v).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;")}"`).join("")}>${x.kids.map(asXml).join("")}${x.text.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</${x.name}>`;
+const fromText = readTemplateFile(`<?xml version="1.0"?>\n${asXml(templateDoc())}`, "Rings.CTS");
+assert.equal(fromText.set, "Rings");
+assert.equal(fromText.templates.length, 5, "CDXML text reads as CDX does");
+let sets: Kept = addSet(empty, "Rings");
+const { kept: withFile, set: madeSet } = addSetOf(sets, fromText.set, fromText.templates);
+assert.equal(madeSet, "Rings 2");
+assert.deepEqual(withFile.templateSets, ["Rings", "Rings 2"]);
+assert.deepEqual(back(withFile).filter((t) => t.set === "Rings 2").map((t) => t.name), ["Furan", "Rings 2", "Water drop", "Rings 4", "Rings 5"]);
+sets = { ...sets, templateSets: Array.from({ length: 50 }, (_, k) => `S${k}`) };
+assert.equal(addSetOf(sets, "One more", fromText.templates).set, undefined, "no set past Octet's 50");
+// Hostile files: not a template file, damaged, cut short, too many panes, a pane too big.
+assert.ok(isTemplateFile("a.ctp") && isTemplateFile("New Templates.CTS") && !isTemplateFile("a.cdx"));
+assert.throws(() => readTemplateFile(xmlToCdx(docOf(ring)), "plain.ctp"), { message: NOT_TEMPLATES }, "a drawing with no template grid");
+assert.throws(() => readTemplateFile(bytes.subarray(0, bytes.length - 40), "cut.ctp"), "a file cut short");
+assert.throws(() => readTemplateFile(new Uint8Array([1, 2, 3]), "junk.ctp"));
+assert.throws(() => readTemplateFile("<CDXML><page>", "junk.ctp"));
+const many = readTemplateFile(xmlToCdx(templateDoc(MOST_PANES + 30)), "Many.ctp");
+assert.equal(many.templates.length, Math.round((MOST_PANES * 5) / 6), "at most MOST_PANES panes are read");
+assert.equal(many.left, 30);
+const huge: Mol = { atoms: Array.from({ length: 8000 }, (_, k) => atom("C", k % 90, Math.floor(k / 90))), bonds: [] };
+const withHuge = templateDoc();
+withHuge.kids.push(...pagesOf(huge));
+const r2 = readTemplateFile(xmlToCdx(withHuge), "Big.ctp");
+assert.equal(r2.templates.length, 5);
+assert.equal(r2.left, 1, "a pane too big for a template is left out and counted");
+assert.equal(readTemplateFile(xmlToCdx({ ...templateDoc(), kids: templateDoc().kids.filter((k) => k.name !== "page") }), "New Templates.cts").templates.length, 0, "blank stationery has no templates");
+console.log("templates: ChemDraw template files (.ctp, .cts) ok");
 
 // ——— Octet's own template library (library.json, built by tools/library/build.mjs) ———
 // Every built-in template parses, has a name of its own, has the CIP labels of the compound it is meant to be, gets
