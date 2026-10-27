@@ -11,7 +11,7 @@ default (decision 0010).
 | ChemDraw file fidelity: hand-placed conditions, set label justification, turned labels, the 12 failing round trips | Done: 68 of 68 CDXML round trips |
 | Template and clip-art library (CD-32), paddlewheels and ligands | In progress |
 | Measured spectra from JCAMP-DX, with peak assignment (CH-29) | In progress |
-| Naming gaps: mixtures with ratios, mixed-metal and cluster complexes, configuration at metals, η drawn with bonds, typography of names | In progress |
+| Naming gaps: mixtures with ratios, mixed-metal and cluster complexes, configuration at metals, η drawn with bonds, typography of names | Done: 6855 of 6924 named right, 0 wrong |
 | Platform: Linux Edit menu, Mac Quit from the Dock, pictures in EMF and EPS, Windows and Linux test runs on CI | In progress |
 | Mass Spec Analysis (CH-40), with isotope patterns and the HRMS line | Done |
 | Check the Revvity claims in the LinkedIn draft | Done: ~/octet-research/notes/revvity-claims-and-products.md |
@@ -76,7 +76,6 @@ Sam wanted these in 1.0. They are not done yet.
   - Done: all 68 of Sam's CDXML files write and read back unchanged.
   - Arrowhead sizes and hollow block arrows are done.
   - Not done: a node label of more than one line (Octet's labels are one line), invisible atom numbers (`AtomNumber` without `ShowAtomNumber`), and tritium typed as T (read as the text T).
-- Mixtures as ChemDraw 26.1 names them: Structure to Name gives one name with the component ratios for a grouped mixture, fractional ratios too. Name to Structure already reads these names.
 - Linux: Cut, Copy and Paste in the Edit menu as Octet's own items, as Close Window is.
 
 ### Platform limits

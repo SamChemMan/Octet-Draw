@@ -150,6 +150,22 @@ const cases: [string, string][] = [
   ["smiles:CC(=O)NCCNC(C)=O", "N,N'-(ethane-1,2-diyl)diacetamide"], ["smiles:CC(=O)Nc1ccc(NC(C)=O)cc1", "N,N'-(1,4-phenylene)diacetamide"],
   ["smiles:CN(C(C)=O)CN(C)C(C)=O", "N,N'-methylenebis(N-methylacetamide)"], ["smiles:NC(=O)c1ccc(cc1)NCNc1ccc(cc1)C(N)=O", "4,4'-[methylenebis(azanediyl)]dibenzamide"],
   ["smiles:OC(=O)CCC(=O)NCCNC(=O)CCC(O)=O", "4,4'-[ethane-1,2-diylbis(azanediyl)]bis(4-oxobutanoic acid)"],
+  // Ureas joined through an N, as amides are (P-15.3.2.2.1): each unit's N locants run N, N', then N'', N'''.
+  ["smiles:NC(=O)NCNC(=O)N", "N,N''-methylenediurea"], ["smiles:NC(=O)NCCNC(=O)N", "N,N''-(ethane-1,2-diyl)diurea"],
+  ["smiles:CNC(=O)NCNC(=O)NC", "N,N''-methylenebis(N'-methylurea)"], ["smiles:CN(C)C(=O)NCNC(=O)N(C)C", "N,N''-methylenebis(N',N'-dimethylurea)"],
+  ["smiles:NC(=O)Nc1ccc(cc1)Cc1ccc(cc1)NC(=O)N", "N,N''-[methylenedi(4,1-phenylene)]diurea"],
+  // Thioureas stay substitutive: OPSIN reads the multiplicative name as another structure.
+  ["smiles:NC(=S)NCCNC(=S)N", "[2-(carbamothioylamino)ethyl]thiourea"],
+  // Amine units joined through an amine N: N, or N with its carbon's locant where the unit has more than one amine.
+  ["smiles:Nc1ccc(N(C)CCN(C)c2ccc(N)cc2)cc1", "N1,N1'-(ethane-1,2-diyl)bis(N1-methylbenzene-1,4-diamine)"],
+  ["smiles:NCCN(C)CCN(C)CCN", "N1,N1'-(ethane-1,2-diyl)bis(N1-methylethane-1,2-diamine)"],
+  // Ring assemblies as units (P-28): the second unit's locants primed past the first's own primes.
+  ["smiles:c1ccc(cc1)-c1ccc(Oc2ccc(cc2)-c2ccccc2)cc1", "4,4''-oxydi(1,1'-biphenyl)"], ["smiles:c1ccc(cc1)-c1ccccc1Oc1ccccc1-c1ccccc1", "2,2''-oxydi(1,1'-biphenyl)"],
+  ["smiles:c1ccc(cc1)-c1ccc(OCCOc2ccc(cc2)-c2ccccc2)cc1", "4,4''-[ethane-1,2-diylbis(oxy)]di(1,1'-biphenyl)"],
+  ["smiles:OC(=O)c1ccc(cc1)-c1ccc(Cc2ccc(cc2)-c2ccc(cc2)C(O)=O)cc1", "4',4'''-methylenedi([1,1'-biphenyl]-4-carboxylic acid)"],
+  // Esters of different alkyl groups: a compound alkyl group after its locant in enclosing marks (P-16.5.1).
+  ["smiles:O=C(OC)CCCC(=O)OCC(C)C", "1-methyl 5-(2-methylpropyl) pentanedioate"], ["smiles:CCOC(=O)CCC(=O)OC(C)C", "1-ethyl 4-(propan-2-yl) butanedioate"],
+  ["smiles:CCOC(=O)CC(=O)OC", "1-ethyl 3-methyl propanedioate"],
   // Substitutive names stand: acyclic hydrocarbons are never units (P-15.3.4.2), different locants (P-51.3.3),
   // unsymmetrical substitution (P-15.3.4.1), a senior parent elsewhere (P-51.3.2.3), units of different configuration.
   ["smiles:CCOCC", "ethoxyethane"], ["smiles:ClCCOCCCl", "1-chloro-2-(2-chloroethoxy)ethane"], ["smiles:CS(C)=O", "(methanesulfinyl)methane"],

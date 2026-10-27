@@ -43,7 +43,9 @@ SMILES for every name in `names.txt`.
   organic ligands (bis(pyridine): dipyridine reads as a ring assembly), for carbon ligands (IR-10.2.2:
   trichlorido(methyl)titanium), and for names that begin as a multiplying prefix does (bis(octanoato)).
 - κ after the part of a ligand's name that holds the donor atom, with OPSIN's locants there.
-- Names show as plain text, as every name caption does: κ3N1 with the 3 on the line, μ-acetato, no italic N or O.
+- Convert Structure to Name sets a name's caption as IUPAC prints it (nametype.ts, 27 October 2026): κ³N¹ with the
+  count and the locant raised and the N italic, μ₃, η⁶, italic cis, fac, (SP-4-2), (Re—Co) and triangulo. The text stays
+  the same characters (κ3N1), so a copied name reads back.
 - Terpyridines as ring assemblies (2,2':6',2''-terpyridine), and two identical anionic units on a benzene ring by a
   multiplicative name (esp).
 
@@ -98,9 +100,37 @@ Cu) and free-base porphyrins (H2TPP, H2OEP) get names.
   outside) is not pyrrole-type: neither gets a name. (E)- and (Z)-cyclooctene and macrolides have no atom in a smaller
   ring, so their E and Z always count.
 
+## Configuration, unlike metals, clusters and η ligands
+
+Added 27 October 2026.
+
+- Configuration at the metal (IR-9.3.3) where the drawing fixes it. A d8 metal (Ni, Pd, Pt, Rh, Ir, Au) with four donor
+  atoms drawn flat as a cross is square planar (SP-4). Six donor atoms drawn with a wedge or hash on at least two bonds
+  are octahedral (OC-6). [Ma2b2] and [Ma2b4] take cis or trans, [Ma3b3] fac or mer, and other complexes of monodentate
+  ligands the polyhedral symbol and configuration index: cis-diamminedichloridoplatinum(II),
+  (SP-4-3)-carbonylchloridobis(triphenylphosphane)iridium, (OC-6-43)-bis(acetonitrile)dicarbonylnitrosyl(...)chromium(1+).
+  The donors' priorities come from their atomic numbers, then the atoms they are bonded to; where that cannot tell two
+  unlike ligands apart, or a chelate needs the priming convention, there is no index. A chelate that fixes cis by itself
+  ([PtCl2(en)]) gets none. A flat drawing of six donors is not read as an octahedron.
+- Unlike metals and clusters of three to six metals (IR-9.2.5.5 to IR-9.2.5.7). The central atoms are cited and numbered
+  by Table VI, the element met later first (rheniumcobalt, cobaltgold), then by IR-9.2.5.6's rules b to d; the numbering
+  of a central structural unit runs round its rings first (octahedro: 1 and 6 opposite). Of the numberings the rules
+  leave, the name with the lowest locants. Every ligand cites its metals (nonacarbonyl-1κ5C,2κ4C), bridging ones by
+  metal sets (di-μ-carbonyl-1:2κ4C, tetra-μ3-carbonyl-1:2:3κ3C;...), and the metal-metal bonds are counted ((3 Os—Os))
+  or, without a central structural unit, given by locants ((Os1—Os3)). Named: Fe3(CO)12, Ru3(CO)12, Os3(CO)12,
+  Rh6(CO)16, [(OC)5ReCo(CO)4]. The check reads every term back against the drawing under a numbering the rules allow.
+- η ligands drawn with a bond to each bonded atom (IR-10.2.5.1), with the hydrogens the drawing gives them: η and the
+  count go before the part of the ligand's name that holds the bonded atoms, (η6-benzene)tricarbonylchromium,
+  tricarbonyl(methyl-η6-benzene)chromium, potassium trichlorido(η2-ethene)platinate(1-). That part, read by OPSIN alone,
+  must have the bonded atoms' elements joined as drawn. No oxidation number with an η ligand (organometallic).
+
 ## Not named yet
 
-Configuration at the metal (cis, Δ, polyhedral symbols), η ligands drawn with bonds to each atom, three or more metal
-atoms, two metals of different elements, and donor atoms that no κ term here can cite. Subphthalocyanines and
-naphthalocyanines: no IUPAC recommendation gives them a parent name, and OPSIN reads none, so their names cannot be
-checked. N-confused porphyrins, whose metal bonds to a C atom as well as N atoms.
+Δ and Λ (the skew-lines convention); polyhedra other than square planar and octahedral; configuration indexes that need
+the priming convention or CIP ranks past the donor's neighbours ((SP-4-1)-(acetonitrile)dichlorido(pyridine)platinum(II));
+η ligands bonded through only some atoms of a part of their name ((1,2,3,4-η)-cycloocta-1,3,5,7-tetraene) or through two
+runs (η2:η2-cycloocta-1,5-diene); carbon ligands and bridging ligands without names of their own in complexes of unlike
+metals or three or more; anions of unlike metals ((dimolybdenumdiiron)ate); and donor atoms that no κ term here can
+cite. Subphthalocyanines and naphthalocyanines: no IUPAC recommendation gives them a parent name, and OPSIN reads none,
+so they stay unnamed. Octet does not invent a parent name for them. N-confused porphyrins, whose metal bonds to a C atom
+as well as N atoms.

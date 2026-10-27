@@ -22,7 +22,7 @@ import { fusedParent } from "./fusion.ts";
 import { vonBaeyer } from "./vonbaeyer.ts";
 import { ELEMENTS, isMetal, metalName, MORE_CATIONS, METAL_ANIONS, type MetalApi } from "./metals.ts";
 import { chalcogenIonSuffix, chalcogenOne, chalcogenStem, chargeSeparated, checkChalcogenOnes, citedNuclides, isotopePrefix, isotopeSpecies, isotopeText, inorganicSpecies, NUCLIDE } from "./namer-maingroup.ts";
-import { multiplicativeEster, multiplicativeName, phenylene, polyolDiyl } from "./namer-multiplicative.ts";
+import { multiplicativeEster, multiplicativeName, multiplicativeUrea, phenylene, polyolDiyl } from "./namer-multiplicative.ts";
 import { amideHetero, groupVariant, heteroAmine, heteroBond, heteroCharged, heteroParentName, heteroPrefix, hydrazinyl, nOxideN, nOxides, oxideText, perceiveHetero, perceiveIodanes, suffixStereo, sulfonamideN, sulfonateName, thioAcyl, thioDouble, thioPrefix, variantSuffix } from "./namer-hetero.ts";
 
 type Name = { text: string; compound: boolean }; // compound: needs brackets when cited as a prefix
@@ -306,8 +306,11 @@ class Namer {
     this.inRing = this.findRings();
     this.ringOf = Array(this.n).fill(-1);
     this.rings.forEach((r, k) => r.forEach((i) => (this.ringOf[i] = k)));
+    // =Se and =Te too on an acid carbon, C(=Se)OH (P-65.1.5.1: selenoic O-acids); name() names those only as the
+    // principal groups.
+    const oh = (i: number) => this.adj[i].some((o) => this.el[o] === "O" && this.h[o] === 1 && this.adj[o].length === 1 && this.ord(i, o) === 1 && !this.q[o]);
     this.carbonylO = Array.from({ length: this.n }, (_, i) =>
-      this.el[i] === "C" ? this.adj[i].find((o) => (this.el[o] === "O" || this.el[o] === "S") && this.ord(i, o) === 2 && this.adj[o].length === 1 && !this.q[o]) ?? -1 : -1);
+      this.el[i] === "C" ? this.adj[i].find((o) => (this.el[o] === "O" || this.el[o] === "S" || ((this.el[o] === "Se" || this.el[o] === "Te") && this.adj[i].length === 3 && oh(i) && !this.h[o])) && this.ord(i, o) === 2 && this.adj[o].length === 1 && !this.q[o]) ?? -1 : -1);
   }
   key = (a: number, b: number) => (a < b ? `${a} ${b}` : `${b} ${a}`);
   ord = (a: number, b: number) => this.bond.get(this.key(a, b)) ?? 0;
@@ -1365,7 +1368,8 @@ class Namer {
     // A ring's cationic centres (-ium) come next, as suffixes do (P-31.1.4.2.4): 6-methylpyrimidin-1-ium.
     if (p.ring) nums = this.lowest(nums, (num) => atoms.filter((a) => this.q[a] === 1 && (this.cationN(a) || this.ions.has(a))).map((a) => loc(num, a)));
     // A multiplied unit's attachment comes next (namer-multiplicative.ts): 2,2'-oxydi(ethan-1-ol).
-    if (opts.mult) nums = this.lowest(nums, (num) => [loc(num, opts.mult![0])]);
+    // A unit joined through an amine N (N1,N1'-…bis(…benzene-1,4-diamine)) counts at the atom that N is on.
+    if (opts.mult) { const at = inParent.has(opts.mult[0]) ? opts.mult[0] : sites.find((s) => s.group === opts.mult![0])?.atom ?? opts.mult[0]; nums = this.lowest(nums, (num) => [loc(num, at)]); }
     if (fused) {
       nums = this.lowest(nums, (num) => ys(sat(num)).map((a) => loc(num, a)));
       nums = this.lowest(nums, (num) => [...sat(num).hydro, ...(fused.dehydro?.flat() ?? [])].map((a) => loc(num, a))); // hydro and dehydro together
@@ -1778,7 +1782,7 @@ class Namer {
       for (const j of adj[i]) {
         if (oxo.includes(j)) { this.main.add(j); continue; }
         if (this.inRing[i] && this.ringOf[j] === this.ringOf[i]) continue; // the ring's own bonds
-        if (this.ord(i, j) !== 1 && !chalcogenOne(this, i)) throw new Error(`${el[i]} bonds`); // =Se: selanylidene
+        if (this.ord(i, j) !== 1 && !chalcogenOne(this, i) && this.carbonylO[j] !== i) throw new Error(`${el[i]} bonds`); // =Se: selanylidene
         // An ion's atom (the O⁻ of a selenonate, the N⁻ of bis(trimethylsilyl)azanide) or a group cited only as a prefix
         // (isocyanato(trimethyl)silane).
         if (this.ions.has(j) || this.prefixOnly.has(j)) continue;
@@ -1943,6 +1947,12 @@ class Namer {
     if (this.adj.some((a, i) => a.length === 0 && this.el[i] !== "C") || this.n === 0) return undefined;
     const kind = SENIORITY.find((k) => this.group.includes(k) && [...this.bearer.keys()].some((g) => this.group[g] === k));
     checkChalcogenOnes(this, kind, SENIORITY); // =Se as a prefix only under a ketone or a senior group (namer-maingroup.ts)
+    // Selenoic and telluroic O-acids only as the principal groups, all of one element: 2-amino-4-sulfobutaneselenoic O-acid.
+    const seAcids = this.carbonylO.flatMap((d, c) => (d >= 0 && (this.el[d] === "Se" || this.el[d] === "Te") ? [c] : []));
+    if (seAcids.length) {
+      const acids = [...this.bearer.keys()].filter((g) => this.group[g] === "acid");
+      if (kind !== "acid" || seAcids.some((c) => !acids.includes(c)) || new Set(acids.map((c) => this.el[this.carbonylO[c]])).size !== 1) throw new Error("seleno acid");
+    }
     // An ion as the parent (trimethylsulfanium, methyl sulfate), a main-group parent (phenylboronic acid,
     // trimethyl(phenyl)silane), or a parent or acid centre built on N, O, S or P (phenylhydrazine, trimethyl phosphate).
     let text: string | undefined = this.ionParent(kind) ?? this.mainName(kind) ?? heteroParentName(this, kind);
@@ -2093,7 +2103,9 @@ class Namer {
     const sorted = [...groups.values()].sort((a, b) => alphaKey(a.name.text).localeCompare(alphaKey(b.name.text)));
     const tiebreak = (nums: number[][]) => sorted.reduce((best, g) => this.lowest(best, (num) => g.sites.map((a) => num.indexOf(a) + 1)), nums);
     const acid = this.nameParent(p, { kind, tiebreak });
-    const alkyls = sorted.map((g) => (sorted.length > 1 ? `${g.sites.map(acid.label!).sort(locOrder).join(",")}-` : "") + times(g.sites.length, g.name));
+    // A compound alkyl group after its locants goes in enclosing marks (P-16.5.1): 1-methyl 5-(2-methylpropyl) pentanedioate.
+    const alkyls = sorted.map((g) => (sorted.length > 1 ? `${g.sites.map(acid.label!).sort(locOrder).join(",")}-` : "")
+      + (sorted.length > 1 && g.sites.length === 1 && (g.name.compound || /^[\d(]/.test(g.name.text)) ? enclose(g.name) : times(g.sites.length, g.name)));
     return `${alkyls.join(" ")} ${acid.text}`;
   }
   // Esters of a polyol (P-65.6.3.2.2): cut at each ester's C–O bond, one part holds every ester O and no ester carbon,
@@ -2155,6 +2167,9 @@ class Namer {
   carbonicName(kind: Kind): string {
     const cs = [...this.bearer.keys()].filter((g) => this.group[g] === kind);
     if (cs.length === 1) return this.carbonicOne(cs[0], kind);
+    // Alike ureas joined by a multiplying group (namer-multiplicative.ts): N,N''-methylenediurea.
+    const multiplied = kind === "urea" ? multiplicativeUrea(this, cs) : undefined;
+    if (multiplied) return multiplied;
     // Dicarbonates (P-65.2.1.4): di-tert-butyl dicarbonate. Dicarbamates of a polyol: ethane-1,2-diyl dicarbamate.
     const di = this.dicarbonate(cs) ?? (kind === "carbamate" && cs.every((c) => this.esterO.has(c)) ? this.polyolEster(cs) : undefined);
     if (di) return di;

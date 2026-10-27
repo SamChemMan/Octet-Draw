@@ -23,7 +23,7 @@
 import { Namer, CARBON_GROUP, MULT, MULT_COMPLEX, alphaKey, assemblePrefixes, chainStem, citedLabels, enclose, joinPrefixes, substituted, times, type Kind, type Name } from "./namer.ts";
 import { groupVariant } from "./namer-hetero.ts";
 
-type Cand = { atoms: number[]; ring: boolean; groups: number; subs: number };
+type Cand = { atoms: number[]; ring: boolean; groups: number; subs: number; assembly?: { rings: [number[], number[]]; junction: [number, number] } };
 // A component of the multiplying group: a ring system, a chain of carbons, or a heteroatom group.
 type Comp = { atoms: number[]; type: "ring" | "chain" | "het" };
 // A bond from a component to the next one (or to a unit): the atom in the component, the atom beyond, the order.
@@ -84,6 +84,14 @@ function named(n: Namer, kind: Kind | undefined, skip: Set<number>): string | un
   };
   const outside = (atoms: number[]) => atoms.reduce((s, a) => s + n.adj[a].filter((j) => !atoms.includes(j)).length, 0);
   const cands: Cand[] = n.rings.map((r) => ({ atoms: r, ring: true, groups: kind ? count(r, true) : 0, subs: outside(r) }));
+  // Ring assemblies of two alike rings (P-28) as units: 4,4''-oxydi(1,1'-biphenyl). An assembly ranks above its ring.
+  for (const a of n.rings.keys()) for (const x of n.rings[a]) for (const y of n.adj[x]) {
+    if (!n.inRing[y] || n.ringOf[y] <= a || n.ord(x, y) !== 1) continue;
+    const ra = n.rings[a], rb = n.rings[n.ringOf[y]], name = n.assemblyComponent(ra);
+    if (!name || name !== n.assemblyComponent(rb)) continue;
+    const atoms = [...ra, ...rb];
+    cands.push({ atoms, ring: true, groups: kind ? count(atoms, true) : 0, subs: outside(atoms), assembly: { rings: [ra, rb], junction: [x, y] } });
+  }
   if (kind) {
     const carbons = [...Array(n.n).keys()].filter((i) => n.el[i] === "C" && !n.inRing[i] && !skip.has(i) && !n.pseudo.has(i) && !n.het.has(i) && (kind === "nitrile" || !n.isNitrileC(i)));
     const seen = new Set<string>();
@@ -106,14 +114,14 @@ function named(n: Namer, kind: Kind | undefined, skip: Set<number>): string | un
     const bonds = atoms.reduce((t, a) => t + n.adj[a].filter((j) => set.has(j)).length, 0) / 2;
     return [has("N") ? 0 : has("O") ? 1 : has("S") ? 2 : hetero.length ? 3 : 4, atoms.length - 1 - bonds, -atoms.length, -hetero.length];
   };
-  const score = (c: Cand) => [-c.groups, c.ring ? 0 : 1, ...(c.ring ? ringRank(c.atoms) : [-c.atoms.length, -multiple(c), -multiple(c, 2), 0])];
+  const score = (c: Cand) => [-c.groups, c.ring ? 0 : 1, ...(c.ring ? [...ringRank(c.assembly?.rings[0] ?? c.atoms), c.assembly ? -2 : -1] : [-c.atoms.length, -multiple(c), -multiple(c, 2), 0, 0])];
   const scores = new Map(cands.map((c) => [c, score(c)]));
   const best = cands.reduce((b, c) => (compare(scores.get(c)!, scores.get(b)!) < 0 ? c : b));
   if (kind && !best.groups) return undefined;
   const top = cands.filter((c) => compare(scores.get(c)!, scores.get(best)!) === 0);
   if (top.length < 2) return undefined;
   // Two senior rings joined by a bond are a ring assembly (1,1'-biphenyl), senior to either ring.
-  if (top.some((c) => c.ring && c.atoms.some((a) => n.adj[a].some((j) => n.inRing[j] && n.ringOf[j] !== n.ringOf[a] && top.some((d) => d.ring && d.atoms.includes(j)))))) return undefined;
+  if (top.some((c) => c.ring && !c.assembly && c.atoms.some((a) => n.adj[a].some((j) => n.inRing[j] && n.ringOf[j] !== n.ringOf[a] && top.some((d) => d.ring && d.atoms.includes(j)))))) return undefined;
   // Families of disjoint, alike candidates, the largest first (P-51.3.2.1); then the units with the most
   // substituents (P-45.2.1), then the lowest locants, then alphabetical order.
   const bySig = new Map<string, Cand[]>();
@@ -155,6 +163,12 @@ function attempt(n: Namer, kind: Kind | undefined, skip: Set<number>, units: Can
     const k = n.group[g] === kind ? units.findIndex((u) => u.atoms.includes(g) || on.some((a) => u.atoms.includes(a))) : -1;
     if (k >= 0 && units[k].groups === 1) for (const a of [g, n.carbonylO[g], n.amideN(g)]) if (a !== undefined && a >= 0) unitOf.set(a, k);
   }
+  // An amine unit may be joined through one of its amine N atoms, as an amide unit is: N1,N1'-(ethane-1,2-diyl)bis
+  // (N1-methylbenzene-1,4-diamine), N,N'-(ethane-1,2-diyl)dianiline. Its amine N atoms go with it.
+  if (kind === "amine") for (const [g, on] of n.bearer) {
+    const k = n.group[g] === kind ? units.findIndex((u) => on.some((a) => u.atoms.includes(a))) : -1;
+    if (k >= 0 && !unitOf.has(g)) unitOf.set(g, k);
+  }
   // The rest of the molecule in connected parts: a part on one unit is that unit's substituent; the one part on every
   // unit is the multiplying group.
   const part = new Map<number, number>(), parts: { atoms: number[]; units: Set<number> }[] = [];
@@ -186,8 +200,10 @@ function attempt(n: Namer, kind: Kind | undefined, skip: Set<number>, units: Can
   if (!centre || centre.units.length !== units.length) return undefined;
   // The units, each named with its attachment as a locant after its principal groups; an amide's N is N, N', N''.
   const unitNames = centre.units.map((k) => {
-    const u = units[k], nm = n.nameParent({ atoms: u.atoms, ring: u.ring }, { kind: u.groups ? kind : undefined, skip, mult: attach[k] });
-    return { ...nm, at: u.atoms.includes(attach[k][0]) ? nm.label!(attach[k][0]) : "N" };
+    const u = units[k], nm = n.nameParent({ atoms: u.atoms, ring: u.ring, ...(u.assembly ? { assembly: u.assembly } : {}) }, { kind: u.groups ? kind : undefined, skip, mult: attach[k] });
+    const a = attach[k][0], amineN = kind === "amine" && !u.atoms.includes(a);
+    // An amine N is N, or N with its carbon's locant where the unit has more than one amine group (N1).
+    return { ...nm, at: u.atoms.includes(a) ? nm.label!(a) : amineN && u.groups > 1 ? `N${nm.label!(n.adj[a].find((j) => u.atoms.includes(j))!)}` : "N" };
   });
   // Stereodescriptors of the units' own atoms go in front, primed: (2R,2'R)-2,2'-oxydipropanoic acid.
   const front: string[][] = [], bare: string[] = [];
@@ -198,7 +214,10 @@ function attempt(n: Namer, kind: Kind | undefined, skip: Set<number>, units: Can
   }
   if (new Set(bare).size !== 1 || new Set(unitNames.map((u) => u.at)).size !== 1 || new Set(front.map((f) => f.join(","))).size !== 1) return undefined;
   if (front[0].some((d) => !/^\d+[a-z]?[RSEZ]$/.test(d)) || unitNames[0].text.includes(" oxide")) return undefined;
-  const primed = (loc: string, k: number) => loc + "'".repeat(k);
+  // Each unit's locants primed on from the last unit's: an assembly's second ring is already primed, so the next
+  // assembly's locants take two more primes (4, 4'').
+  const span = units[0].assembly ? 2 : 1, primed = (loc: string, k: number) => loc + "'".repeat(k * span);
+  if (units[0].assembly && front.some((f) => f.length)) return undefined;
   const descriptors = front.flatMap((f, k) => f.map((d) => { const [, loc, x] = d.match(/^(\d+[a-z]?)([RSEZ])$/)!; return { loc, k, text: `${primed(loc, k)}${x}` }; }))
     .sort((a, b) => parseInt(a.loc) - parseInt(b.loc) || a.loc.localeCompare(b.loc) || a.k - b.k).map((d) => d.text);
   const unit = bare[0], k = units.length, mono = !units[0].ring && units[0].atoms.length === 1 && !unitNames[0].prefixes && unitNames[0].at !== "N";
@@ -281,6 +300,62 @@ function linkerName(n: Namer, L: Set<number>, unitOf: Map<number, number>): { te
     if (b) return { text: b.text, units: b.units, compound: !SIMPLE_HET.has(b.text) || live.size > 1 };
   }
   return undefined;
+}
+
+// Ureas joined by a multiplying group through an N (P-15.3.2.2.1, P-66.1.6.1.1, as amides are): N,N''-methylenediurea,
+// N,N''-(ethane-1,2-diyl)bis(N'-methylurea). Each unit is a urea group, its C, its =O and its two N
+// atoms, with its own substituents; the attachment N of each unit is N, so the units' N locants run N, N', then N'',
+// N''' and so on. The units must be alike, and the rest of the molecule one multiplying group.
+export function multiplicativeUrea(n: Namer, cs: number[]): string | undefined {
+  if (!on || cs.length < 2 || cs.length > 4) return undefined;
+  try { return ureaUnits(n, cs); } catch { return undefined; }
+}
+function ureaUnits(n: Namer, cs: number[]): string | undefined {
+  if (n.isotopic || n.opaque.size || n.cip.some(Boolean) || [...n.cipBond.values()].some(Boolean)) return undefined;
+  const unitOf = new Map<number, number>(), ns: number[][] = [];
+  for (const [k, c] of cs.entries()) {
+    const o = n.carbonylO[c], nn = n.adj[c].filter((j) => n.el[j] === "N" && n.ord(c, j) === 1);
+    if (o < 0 || nn.length !== 2 || n.adj[c].length !== 3) return undefined;
+    for (const a of [c, o, ...nn]) { if (unitOf.has(a)) return undefined; unitOf.set(a, k); }
+    ns.push(nn);
+  }
+  // The rest in connected parts: one part on every unit (the multiplying group), the others each on one unit.
+  const part = new Map<number, number>(), parts: { atoms: number[]; units: Set<number> }[] = [];
+  for (let s = 0; s < n.n; s++) {
+    if (unitOf.has(s) || part.has(s)) continue;
+    const p = { atoms: [s], units: new Set<number>() }, stack = [s];
+    part.set(s, parts.length);
+    while (stack.length) {
+      const i = stack.pop()!;
+      for (const j of n.adj[i]) {
+        if (unitOf.has(j)) p.units.add(unitOf.get(j)!);
+        else if (!part.has(j)) { part.set(j, parts.length); p.atoms.push(j); stack.push(j); }
+      }
+    }
+    parts.push(p);
+  }
+  const linkers = parts.filter((p) => p.units.size > 1);
+  if (linkers.length !== 1 || linkers[0].units.size !== cs.length) return undefined;
+  const L = new Set(linkers[0].atoms), attach: [number, number][] = [];
+  for (const [a, k] of unitOf) for (const j of n.adj[a]) {
+    if (unitOf.has(j) && unitOf.get(j) !== k) return undefined;
+    if (L.has(j)) { if (attach[k] || n.el[a] !== "N" || n.ord(a, j) !== 1) return undefined; attach[k] = [a, j]; }
+  }
+  if (cs.some((_, k) => !attach[k])) return undefined;
+  const centre = linkerName(n, L, unitOf);
+  if (!centre || centre.units.length !== cs.length) return undefined;
+  // Each unit: N at its attachment, N' at its other N.
+  const units = cs.map((c, k) => {
+    const [at, to] = attach[k], other = ns[k].find((x) => x !== at)!;
+    const prefixes = [at, other].flatMap((x, j) => n.adj[x].filter((y) => y !== c && !(x === at && y === to)).map((y) => ({ loc: j ? "N'" : "N", name: n.substituent(y, x) })));
+    // Thioureas stay substitutive: OPSIN reads N,N''-(ethane-1,2-diyl)dithiourea as another structure.
+    return { text: assemblePrefixes(prefixes, false) + (n.el[n.carbonylO[c]] === "O" ? "urea" : "?"), prefixed: prefixes.length > 0 };
+  });
+  if (new Set(units.map((u) => u.text)).size !== 1 || units[0].text.endsWith("?")) return undefined;
+  const k = cs.length, unit = units[0].text;
+  const multiplied = units[0].prefixed ? MULT_COMPLEX[k] + enclose({ text: unit, compound: true }) : MULT[k] + unit;
+  const locs = centre.units.map((_, i) => `N${"''".repeat(i)}`).join(",");
+  return `${locs}-${centre.compound ? enclose({ text: centre.text, compound: true }) : centre.text}${multiplied}`;
 }
 
 // Esters of a multiplied acid (P-65.6.3.2.1): dimethyl 4,4'-oxydibenzoate, tetraethyl
