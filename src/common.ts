@@ -262,9 +262,32 @@ export const COMMON: Record<string, string> = {
 // parts read as "·" ("Et3N.HCl" is "Et3N·HCl").
 export const commonKey = (name: string) => name.toLowerCase().replace(/[\s‐-―'’ʼ-]/g, "").replace(/[.•∙⋅]/g, "·");
 
-// A key Octet can cite after a structure's name, as "N1,N1-bis(2-aminoethyl)ethane-1,2-diamine (TREN)": not a drug's
-// name, and not a formula of element symbols alone (CH2Cl2, NaCl, K2CO3, (COCl)2). In a formula, Ac and Ts are acetyl
-// and tosyl (AcOH, TsCl), so those are cited.
-const FORMULA = /^(?:[A-Z][a-z]?\d*|[()[\]·]\d*)+$/, DRUG_KEYS = new Set(Object.keys(DRUG_NAMES));
-export const citable = (key: string) =>
-  !DRUG_KEYS.has(key) && !(FORMULA.test(key) && (key.match(/[A-Z][a-z]?/g) ?? []).every((s) => ELEMENTS.has(s) && s !== "Ac" && s !== "Ts"));
+// Whether Octet can cite a key after its structure's name, as "N1,N1-bis(2-aminoethyl)ethane-1,2-diamine (TREN)": not
+// a drug's name, and not the structure's own formula in element symbols (CH2Cl2, NaCl, K2CO3, (COCl)2). An acronym
+// whose letters happen to be element symbols (NBS, DIOP, DBU) is cited, and so is a formula written with groups (Et3N,
+// AcOH). counts: the structure's elements, as its formula has them.
+const DRUG_KEYS = new Set(Object.keys(DRUG_NAMES));
+export function citable(key: string, counts: Record<string, number>): boolean {
+  if (DRUG_KEYS.has(key)) return false;
+  const spelt = formulaOf(key);
+  return !spelt || Object.keys({ ...spelt, ...counts }).some((el) => (spelt[el] ?? 0) !== (counts[el] ?? 0));
+}
+// The elements a key spells out as a formula of element symbols alone, D and T counted as H: CH2Cl2, NaCl, (COCl)2,
+// CuSO4·5H2O. Undefined for a key that is not one (Et3N, nBuLi, DMSO-d6).
+function formulaOf(key: string): Record<string, number> | undefined {
+  const total: Record<string, number> = {};
+  for (const part of key.split("·")) {
+    const lead = /^\d*/.exec(part)![0], stack: Record<string, number>[] = [{}];
+    const add = (into: Record<string, number>, el: string, n: number) => { into[el] = (into[el] ?? 0) + n; };
+    for (const t of part.slice(lead.length).match(/[A-Z][a-z]?\d*|\)\d*|./g) ?? []) {
+      const top = stack[stack.length - 1], element = /^([A-Z][a-z]?)(\d*)$/.exec(t);
+      if (t === "(") stack.push({});
+      else if (t[0] === ")" && stack.length > 1) { stack.pop(); for (const [el, n] of Object.entries(top)) add(stack[stack.length - 1], el, n * Number(t.slice(1) || 1)); }
+      else if (element && (ELEMENTS.has(element[1]) || element[1] === "T")) add(top, /^[DT]$/.test(element[1]) ? "H" : element[1], Number(element[2] || 1));
+      else return undefined;
+    }
+    if (stack.length !== 1 || !part.slice(lead.length)) return undefined;
+    for (const [el, n] of Object.entries(stack[0])) add(total, el, n * Number(lead || 1));
+  }
+  return total;
+}

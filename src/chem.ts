@@ -729,10 +729,11 @@ export function structures(mol: Mol, groups = fragments(mol)): (Structure | unde
 
 // Formula and masses for the drawing or a selection, one entry for each structure in it (the first limit of them),
 // with written labels counted as their atoms. Each structure is worked out on its own and kept by its content.
-// Undefined while Indigo is loading or if it cannot read any structure.
-export type Analysis = { formula: string; weight: number; exact: number; repeat?: Repeat }[];
-const analysed = new Map<string, Analysis | undefined>();
-export function analyse(mol: Mol, limit = Infinity): Analysis | undefined {
+// Undefined while Indigo is loading or if it cannot read any structure. cite: the abbreviation for a structure's
+// standard InChI (names.ts abbreviationOf), given as each structure's abbreviation (TREN).
+export type Analysis = { formula: string; weight: number; exact: number; repeat?: Repeat; abbreviation?: string }[];
+const analysed = new Map<string, Analysis | undefined>(), inchis = new Map<string, string | undefined>();
+export function analyse(mol: Mol, limit = Infinity, cite?: (inchi: string | undefined) => string | undefined): Analysis | undefined {
   if (!indigo || !mol.atoms.length) return undefined;
   const out: Analysis = [];
   for (const part of pieces(mol)) {
@@ -740,12 +741,13 @@ export function analyse(mol: Mol, limit = Infinity): Analysis | undefined {
     const polymer = mol.shapes?.some((sh) => sh.polymer) ? polymerValues({ ...part, shapes: mol.shapes }) : undefined;
     if (polymer) { out.push(polymer); continue; }
     const entries = remembered(analysed, contentOf(part), () => analyseAll(part)) ?? [];
+    const abbreviation = cite && entries.length === 1 ? cite(remembered(inchis, contentOf(part), () => toInchi(part))) : undefined;
     // A structure held together by multi-centre attachments (ferrocene) is one compound, not its pieces.
     if (entries.length > 1 && part.atoms.some((a) => a.centre)) {
       const total: Record<string, number> = {};
       for (const e of entries) for (const [el, n] of Object.entries(counts(e.formula) ?? {})) total[el] = (total[el] ?? 0) + n;
       out.push({ formula: hill(total), weight: entries.reduce((t, e) => t + e.weight, 0), exact: entries.reduce((t, e) => t + e.exact, 0) });
-    } else out.push(...entries);
+    } else out.push(...(abbreviation ? [{ ...entries[0], abbreviation }] : entries));
   }
   return out.length ? out.slice(0, limit) : undefined;
 }

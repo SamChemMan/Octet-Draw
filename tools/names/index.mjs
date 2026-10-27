@@ -2,6 +2,8 @@
 // name, by standard InChI. From common.ts the systematic name each abbreviation stands for (DBU), or the key where it is
 // a name (Wilkinson's catalyst, tetrakis(triphenylphosphine)palladium(0)); from drugs.ts every drug name (not "=name"
 // entries) and the KNOWN names.
+// Also builds src/abbreviations.json: for each structure in common.ts, by standard InChI, the first key listed for it
+// that Octet can cite (citable), for Structure to Name and the Structure panel.
 // Run after changing common.ts or drugs.ts: node tools/names/index.mjs (src/names.check.ts fails until then).
 import { readFileSync, writeFileSync } from "node:fs";
 const src = new URL("../../src/", import.meta.url), dir = new URL("vendor/opsin/", src);
@@ -18,7 +20,7 @@ globalThis.opsinResource = (name) => files.get(name) ?? null;
 const opsin = await import(new URL("opsin.js", dir));
 opsin.init();
 const indigo = await (await import(new URL("../node_modules/indigo-ketcher/indigo-ketcher-norender.js", src))).default();
-const { COMMON } = await import(new URL("common.ts", src));
+const { COMMON, citable } = await import(new URL("common.ts", src));
 const { DRUGS, KNOWN } = await import(new URL("drugs.ts", src));
 const { hydrogens, NONMETAL, orderOf } = await import(new URL("render.ts", src));
 // The structure as the app draws SMILES (Indigo's layout, Kekulé bonds) and counts its hydrogens: an atom bonded to
@@ -61,8 +63,30 @@ export function build() {
   }
   return index;
 }
+// A structure's elements from its standard InChI: the formula layer, with the protons the /p layer adds or takes away.
+export function countsOf(inchi) {
+  const counts = {}, p = /\/p([+-]\d+)/.exec(inchi);
+  for (const part of inchi.split("/")[1].split(".")) {
+    const [, times, formula] = /^(\d*)(.*)$/.exec(part);
+    for (const [, el, n] of formula.matchAll(/([A-Z][a-z]?)(\d*)/g)) counts[el] = (counts[el] ?? 0) + Number(times || 1) * Number(n || 1);
+  }
+  if (p) counts.H = (counts.H ?? 0) + Number(p[1]);
+  if (counts.H === 0) delete counts.H;
+  return counts;
+}
+export function abbreviations() {
+  const out = {};
+  for (const [k, v] of Object.entries(COMMON)) {
+    const w = v.startsWith("=") ? COMMON[v.slice(1)] : v, smiles = w.startsWith("smiles:") ? w.slice(7) : opsin.parseToSmiles(w);
+    const inchi = smiles && inchiOf(smiles);
+    if (inchi && !(inchi in out) && citable(k, countsOf(inchi))) out[inchi] = k;
+  }
+  return out;
+}
+const write = (file, index) => writeFileSync(new URL(file, src), JSON.stringify(index, null, 0).replace(/","/g, '",\n"') + "\n");
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const index = build();
-  writeFileSync(new URL("nameindex.json", src), JSON.stringify(index, null, 0).replace(/","/g, '",\n"') + "\n");
-  console.log(`nameindex: ${Object.keys(index).length} names`);
+  const index = build(), cited = abbreviations();
+  write("nameindex.json", index);
+  write("abbreviations.json", cited);
+  console.log(`nameindex: ${Object.keys(index).length} names; abbreviations: ${Object.keys(cited).length}`);
 }

@@ -73,8 +73,8 @@ import {
 import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
 import { dragCursor, rotateCursor, selectCursor } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
-import { loadNames, nameToSmiles, nameToAtoms, suggestName, knownName, looksLikeSmiles } from "./names";
-import { checkedName, graphOf, setComplexNamer, setNamer } from "./naming";
+import { abbreviationOf, loadNames, nameToSmiles, nameToAtoms, suggestName, knownName, looksLikeSmiles } from "./names";
+import { checkedName, graphOf, setComplexNamer, setNamer, withAbbreviation } from "./naming";
 import { iupacName } from "./namer";
 import { sandwichIons } from "./metals";
 import { complexName } from "./complexes";
@@ -3948,6 +3948,8 @@ export default function Editor() {
       // A metallocene drawn with the j key is named as its ions, as OPSIN and the standard InChI have it.
       const p = sandwichIons(part) ?? part;
       try { name = checkedName(p, expandLabels(p), nameToSmiles, inchiOf, cipOf, knownName); } catch { name = undefined; }
+      // The abbreviation follows the checked name, as in an experimental section: "... (TREN)".
+      if (name) name = withAbbreviation(name, abbreviationOf(inchiOf(p)));
       nameCache.current.set(key, name ?? null);
     }
     return nameCache.current.get(key) ?? undefined;
@@ -4278,8 +4280,9 @@ export default function Editor() {
   const analysis = useMemo(() => {
     if (!loaded || !facts) return undefined;
     const own = selection.size ? undefined : pickedChem(picked);
-    return analyse(selection.size ? subset(doc, selection) : own ? subset(chem.mol, own) : chem.mol, 3);
-  }, [loaded, facts, doc, chem, selection, picked]); // eslint-disable-line react-hooks/exhaustive-deps
+    // With each structure's abbreviation, once the names engine has loaded (TREN · C6H18N4).
+    return analyse(selection.size ? subset(doc, selection) : own ? subset(chem.mol, own) : chem.mol, 3, namesLoaded ? abbreviationOf : undefined);
+  }, [loaded, facts, doc, chem, selection, picked, namesLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
   // The Properties panel's values, while it is open: for each structure in the selection (or the drawing), with
   // each structure's atoms in the drawing (for Add to drawing). While a box or lasso sweeps, the panel keeps the
   // values it has until the pointer stops for a moment or lets go, so it does not work them out on every move.

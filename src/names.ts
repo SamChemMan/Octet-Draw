@@ -11,8 +11,9 @@ let loading: Promise<void> | undefined;
 export function loadNames(): Promise<void> {
   loading ??= (async () => {
     // The drug names and the index load with the engine, so start-up does not wait for them.
-    const [mod, { default: pack }, { default: list }, { default: known }, { DRUGS }] = await Promise.all([import("./vendor/opsin/opsin.js"),
-      import("./vendor/opsin/opsin-data.bin?url"), import("./vendor/opsin/names.txt?url"), import("./nameindex.json"), import("./drugs.ts")]);
+    const [mod, { default: pack }, { default: list }, { default: known }, { DRUGS }, { default: cites }] = await Promise.all([import("./vendor/opsin/opsin.js"),
+      import("./vendor/opsin/opsin-data.bin?url"), import("./vendor/opsin/names.txt?url"), import("./nameindex.json"), import("./drugs.ts"),
+      import("./abbreviations.json")]);
     const [data, words] = await Promise.all([fetch(pack).then((r) => r.arrayBuffer()), fetch(list).then((r) => r.text())]);
     // The pack: [name length (u16), name (latin1), size (i32), bytes] repeated, ending with a zero length.
     const view = new DataView(data), files = new Map<string, Int8Array>(), latin1 = new TextDecoder("latin1");
@@ -25,16 +26,21 @@ export function loadNames(): Promise<void> {
     }
     (globalThis as { opsinResource?: (name: string) => Int8Array | null }).opsinResource = (name) => files.get(name) ?? null;
     mod.init();
-    attachOpsin(mod, words, known, DRUGS);
+    attachOpsin(mod, words, known, DRUGS, cites);
   })();
   return loading;
 }
 
-// OPSIN, once its data is in place, the list of names it reads (one a line) and the index of Octet's own names. The
-// checks call this directly.
-export function attachOpsin(mod: Opsin, words: string, known: Record<string, string> = {}, drugs: Record<string, string> = {}) {
+// OPSIN, once its data is in place, the list of names it reads (one a line), the index of Octet's own names and the
+// index of abbreviations. The checks call this directly.
+export function attachOpsin(mod: Opsin, words: string, known: Record<string, string> = {}, drugs: Record<string, string> = {}, cites: Record<string, string> = {}) {
   index = known;
-  for (const [k, v] of Object.entries(drugs)) common.set(commonKey(k), `smiles:${v.startsWith("=") ? drugs[v.slice(1)] : v}`);
+  cited = cites;
+  for (const [k, v] of Object.entries(drugs)) {
+    const smiles = `smiles:${v.startsWith("=") ? drugs[v.slice(1)] : v}`;
+    if (!common.has(commonKey(k))) searchable.push([commonKey(k), k, smiles]);
+    common.set(commonKey(k), smiles);
+  }
   // Long common names (methylene blue, Eosin Y) and drug names join the list for completion; abbreviations match exactly only.
   const own = [...Object.keys(COMMON).filter((k) => k.length >= 7), ...Object.keys(drugs).filter((k) => k.length >= 5)];
   names = [...words.split("\n").filter(Boolean), ...own.map((k) => k.toLowerCase())].sort();
@@ -45,8 +51,36 @@ export function attachOpsin(mod: Opsin, words: string, known: Record<string, str
 // no name (morphine, DBU, imatinib).
 export const knownName = (inchi: string): string | undefined => index[inchi];
 
+// The abbreviation Octet cites for a structure, by its standard InChI (TREN, Et3N): the first key listed for it in
+// common.ts that is citable (tools/names/index.mjs). A structure drawn with stereochemistry also takes the abbreviation
+// of an entry drawn with none, as (R)-BINAP is BINAP. Undefined until the names engine has loaded.
+let cited: Record<string, string> = {};
+export function abbreviationOf(inchi: string | undefined): string | undefined {
+  if (!inchi) return undefined;
+  const flat = inchi.split("/").filter((layer, k) => k < 2 || !/^[btms]/.test(layer)).join("/");
+  return cited[inchi] ?? (flat !== inchi ? cited[flat] : undefined);
+}
+
 // Octet's own names (common.ts, and drugs.ts once the engine loads), by key. Drug names map to SMILES.
 const common = new Map(Object.entries(COMMON).map(([k, v]) => [commonKey(k), v.startsWith("=") ? COMMON[v.slice(1)] : v]));
+// The same names for searching: each one's key, its spelling and what it stands for.
+const searchable: [string, string, string][] = Object.entries(COMMON).map(([k, v]) => [commonKey(k), k, v.startsWith("=") ? COMMON[v.slice(1)] : v]);
+
+// Octet's own names that begin as typed (common.ts, and drugs.ts once the engine has loaded), compared as keys are:
+// one name for each structure, the one typed first, then the shortest. "TR" gives TREN, Tris, trien. At most most.
+export function namesStarting(typed: string, most = 8): string[] {
+  const q = commonKey(typed.trim());
+  if (!q) return [];
+  const found = searchable.filter(([k]) => k.startsWith(q)).sort(([a], [b]) => Number(b === q) - Number(a === q) || a.length - b.length || (a < b ? -1 : a > b ? 1 : 0));
+  const seen = new Set<string>(), out: string[] = [];
+  for (const [, name, value] of found) {
+    if (seen.has(value)) continue;
+    seen.add(value);
+    out.push(name);
+    if (out.length >= most) break;
+  }
+  return out;
+}
 function read(name: string): string | undefined {
   try {
     return opsin!.parseToSmiles(name) ?? undefined;
