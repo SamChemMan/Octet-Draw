@@ -51,4 +51,5 @@ the picture change from system to system (`src-tauri/src/clipboard.rs`).
   as Close Window is. They take Ctrl+X, C and V, and the page runs them: in a text field on its text through the
   app's clipboard, elsewhere as the drawing's cut, copy and paste. The Reaxys window has no menu bar on Linux, so its
   page keeps those keys. Windows keeps the system's items: muda presses Ctrl+X, C and V there with SendInput, which
-  reaches WebView2 as the keys do.
+  reaches WebView2 as the keys do. `.github/workflows/platforms.yml` tries both on GitHub's Windows and Linux
+  machines.

@@ -1,0 +1,92 @@
+# Octet on Windows and Linux machines (GitHub's own, free for a public repository): builds the app and drives it as a
+# person would, through its window, its menus, its keys and the system clipboard (scripts/drive/drive.mjs). Neither
+# the clipboard nor the menus had run on Windows or Linux before. The log and a screenshot of a failed step are the
+# run's artifacts. Runs on each push to main, and from Actions > Windows and Linux > Run workflow.
+name: Windows and Linux
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drive:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 60
+    env:
+      OCTET_FEEDBACK: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/tauri-driver
+            ~/.cargo/bin/tauri-driver.exe
+            src-tauri/target
+          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ github.job }}-cargo-
+
+      - name: Linux libraries for Tauri, and the tools that drive it
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf fonts-liberation \
+            webkit2gtk-driver xvfb xclip xdotool at-spi2-core libatk-adaptor python3-pyatspi dbus-x11
+      - run: npm ci
+      - name: Build Octet (a debug build, no installer)
+        run: npm run tauri build -- --debug --no-bundle
+      - name: tauri-driver (WebDriver for Tauri apps)
+        shell: bash
+        run: command -v tauri-driver || cargo install tauri-driver --locked
+
+      - name: Edge WebDriver for this machine's WebView2
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $version = (Get-ItemProperty $key).pv
+          Write-Output "WebView2 $version"
+          $dir = Join-Path $env:RUNNER_TEMP edgedriver
+          try {
+            Invoke-WebRequest "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile "$dir.zip"
+            Expand-Archive "$dir.zip" $dir
+            "OCTET_NATIVE_DRIVER=$dir\msedgedriver.exe" >> $env:GITHUB_ENV
+          } catch {
+            Write-Output "No Edge WebDriver $version to download, so the runner's own: $env:EDGEWEBDRIVER"
+            "OCTET_NATIVE_DRIVER=$env:EDGEWEBDRIVER\msedgedriver.exe" >> $env:GITHUB_ENV
+          }
+
+      # A session bus of its own, so GTK puts the menus on the accessibility bus (AT-SPI) for the script to click. The
+      # virtual screen has no GPU: WebKit draws without DMA-BUF.
+      - name: Drive Octet (Linux, on a virtual screen)
+        if: runner.os == 'Linux'
+        env:
+          GNOME_ACCESSIBILITY: "1"
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+        run: dbus-run-session -- xvfb-run -a -s "-screen 0 1600x1000x24" node scripts/drive/drive.mjs
+      - name: Drive Octet (Windows)
+        if: runner.os == 'Windows'
+        run: node scripts/drive/drive.mjs
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: drive-${{ runner.os }}
+          path: drive-out/
+          if-no-files-found: ignore

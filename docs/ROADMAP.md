@@ -57,7 +57,8 @@ Sam wanted these in 1.0. They are not done yet.
 
 Octet cannot test these on Sam's Mac.
 
-- Windows and Linux: the clipboard and the menus have never run on a real Windows or Linux machine.
+- Windows and Linux: the clipboard and the menus have never run on a real Windows or Linux machine. The workflow
+  `.github/workflows/platforms.yml` drives them on GitHub's machines (docs/release.md, Checks); it has not run yet.
 - The build pipeline (`.github/workflows/release.yml`) has never run on GitHub.
 - Updates cannot be tested until the first release is published.
 - Signing and notarisation wait for Sam's Apple and Windows keys.

@@ -1,0 +1,214 @@
+// Drives Octet on Windows and Linux as a person would: its window (through tauri-driver and WebDriver), its menus
+// and keys (through the system: AT-SPI and xdotool on Linux, UI Automation and SendKeys on Windows), and the system
+// clipboard (xclip, or .NET's Clipboard). .github/workflows/platforms.yml runs it on GitHub's machines, after
+// `npm run tauri build -- --debug --no-bundle`; on Linux inside dbus-run-session and xvfb-run. Writes its log and
+// screenshots to drive-out/. No dependencies: Node's fetch speaks WebDriver.
+//
+//   node scripts/drive/drive.mjs           drive Octet (Windows or Linux)
+//   node scripts/drive/drive.mjs --dry     print the steps and the commands each platform runs, and run nothing
+import { execFileSync, spawn } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const DRY = process.argv.includes("--dry");
+const WIN = process.platform === "win32";
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const OUT = path.resolve("drive-out");
+const APP = path.resolve("src-tauri/target/debug", WIN ? "octet.exe" : "octet");
+const PORT = 4444;
+mkdirSync(OUT, { recursive: true });
+const log = (s) => { console.log(s); writeFileSync(path.join(OUT, "log.txt"), s + "\n", { flag: "a" }); };
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+
+// What Copy puts on each system's clipboard with Settings as they start (src-tauri/src/clipboard.rs).
+const FORMATS = WIN
+  ? ["PNG", "DeviceIndependentBitmap", "ChemDraw Interchange Format", "CDXML", "MDLCT", "SMILES", "application/x-octet+json"]
+  : ["image/png", "image/svg+xml", "chemical/x-cdx", "chemical/x-cdxml", "chemical/x-mdl-molfile", "chemical/x-daylight-smiles", "application/x-octet+json"];
+const SMILES = WIN ? "SMILES" : "chemical/x-daylight-smiles";
+const OCTET = "application/x-octet+json";
+
+// ---- The system: commands run outside the window ----
+
+// A command's output (a Buffer). In a dry run, the command is printed and nothing runs.
+function run(cmd, args, input) {
+  if (DRY) { log(`    $ ${cmd} ${args.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(" ")}`); return Buffer.alloc(0); }
+  return execFileSync(cmd, args, { input, timeout: 30_000, maxBuffer: 64 << 20 });
+}
+const ps = (...args) => run("powershell.exe", ["-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", path.join(HERE, "windows.ps1"), ...args]);
+
+const system = WIN
+  ? {
+      setText: (text) => ps("clip-set", text),
+      formats: () => ps("clip-formats").toString().split(/\r?\n/).filter(Boolean),
+      read: (format) => Buffer.from(ps("clip-get", format).toString().trim(), "base64"),
+      menu: (...names) => ps("menu", ...names),
+      key: (keys) => ps("keys", { "ctrl+v": "^v" }[keys] ?? keys),
+      running: () => ps("running").toString().trim() === "yes",
+    }
+  : {
+      // xclip stays to serve the clipboard, so it is not waited for.
+      setText: (text) => {
+        if (DRY) return void run("xclip", ["-selection", "clipboard", "-i"]);
+        const x = spawn("xclip", ["-selection", "clipboard", "-i"], { stdio: ["pipe", "ignore", "ignore"], detached: true });
+        x.stdin.end(text);
+        x.unref();
+      },
+      formats: () => run("xclip", ["-selection", "clipboard", "-o", "-t", "TARGETS"]).toString().split("\n").filter(Boolean),
+      read: (format) => run("xclip", ["-selection", "clipboard", "-o", "-t", format]),
+      menu: (...names) => run("python3", [path.join(HERE, "linux-menu.py"), pid(), ...names]),
+      // Real key presses (XTEST), to Octet's window, which takes the focus first.
+      key: (keys) => {
+        run("xdotool", ["search", "--sync", "--onlyvisible", "--pid", pid(), "windowfocus", "--sync"]);
+        return run("xdotool", ["key", "--clearmodifiers", keys]);
+      },
+      running: () => pid() !== "",
+    };
+// Octet's process on Linux ("" when there is none).
+function pid() {
+  if (DRY) return "PID";
+  try { return execFileSync("pgrep", ["-f", "target/debug/octet"]).toString().split("\n")[0].trim(); } catch { return ""; }
+}
+
+// ---- WebDriver (tauri-driver on port 4444) ----
+
+let session;
+async function wd(method, url, body) {
+  const r = await fetch(`http://127.0.0.1:${PORT}${url}`, { method, headers: { "content-type": "application/json" }, body: body && JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`${method} ${url}: ${JSON.stringify(j.value ?? j).slice(0, 500)}`);
+  return j.value;
+}
+// A script in the page; its result.
+const page = async (script, ...args) => (DRY ? undefined : wd("POST", `/session/${session}/execute/sync`, { script, args }));
+async function until(what, test, ms = 20_000) {
+  if (DRY) return;
+  const end = Date.now() + ms;
+  for (;;) {
+    let last;
+    try { if (await test()) return; } catch (e) { last = e; }
+    if (Date.now() > end) throw new Error(`waited ${ms / 1000} s for ${what}${last ? `: ${last.message}` : ""}`);
+    await sleep(250);
+  }
+}
+async function screenshot(name) {
+  if (DRY || !session) return;
+  try { writeFileSync(path.join(OUT, `${name}.png`), Buffer.from(await wd("GET", `/session/${session}/screenshot`), "base64")); } catch { /* the window is gone */ }
+}
+
+// The O atoms the drawing shows: one per ethanol pasted (each label's text in the canvas).
+const oxygens = () => page("return [...document.querySelectorAll('svg.canvas text')].map((t) => t.textContent).join('').split('O').length - 1");
+const pasted = (n) => until(`${n} ethanol in the drawing`, async () => (await oxygens()) === n);
+const nameField = "input.name-field";
+// The name field's value, after its text is set (as typing does) and all of it selected.
+const fill = (text) => page(`const el = document.querySelector(arguments[0]); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, arguments[1]);
+  el.dispatchEvent(new Event("input", { bubbles: true })); el.focus(); el.select(); return el.value`, nameField, text);
+const fieldValue = () => page("return document.querySelector(arguments[0])?.value", nameField);
+const clipText = () => system.read(WIN ? "UnicodeText" : "UTF8_STRING").toString("utf8").replace(/\0+$/, "");
+
+// ---- The steps ----
+
+const steps = [
+  ["Octet starts and shows Home", async () => {
+    await until("the page", () => page("return document.readyState === 'complete' && !!document.querySelector('#root > *')"), 60_000);
+    // A new profile asks for a name, offers the tutorial and checks for updates: these are set, so Home shows.
+    await page(`const k = "octet.settings", s = JSON.parse(localStorage.getItem(k) || "{}");
+      localStorage.setItem(k, JSON.stringify({ ...s, userName: "Test", tutorialDone: true, updates: false })); setTimeout(() => location.reload(), 50);`);
+    await sleep(1000);
+    await until("Home", () => page("return !!document.querySelector('main.home .home-tile.new')"), 30_000);
+  }],
+  ["Home's Quick start opens a new drawing", async () => {
+    await page("document.querySelector('main.home .home-tile.new').click()");
+    await until("the drawing", () => page("return !document.querySelector('main.home') && !!document.querySelector('svg.canvas')"));
+    await sleep(5000); // the chemistry engine (WebAssembly) loads
+  }],
+  ["Edit > Paste pastes SMILES text from the clipboard", async () => {
+    system.setText("CCO");
+    await sleep(500);
+    system.menu("Edit", "Paste");
+    await pasted(1);
+  }],
+  ["Edit > Select All, then Edit > Copy puts Octet's formats on the clipboard", async () => {
+    system.menu("Edit", "Select All");
+    system.menu("Edit", "Copy");
+    await until(`${OCTET} on the clipboard`, () => system.formats().includes(OCTET), 10_000);
+    const have = system.formats(), missing = FORMATS.filter((f) => !have.includes(f));
+    log(`    clipboard: ${have.join(", ")}`);
+    if (!DRY && missing.length) throw new Error(`not on the clipboard: ${missing.join(", ")}`);
+    const smiles = system.read(SMILES).toString("latin1").replace(/\0+$/, "");
+    if (!DRY && !/^(CCO|OCC)$/.test(smiles.trim())) throw new Error(`SMILES on the clipboard: ${JSON.stringify(smiles)}`);
+    if (!DRY) JSON.parse(system.read(OCTET).toString("utf8"));
+  }],
+  ["Edit > Paste brings Octet's copy back", async () => {
+    system.menu("Edit", "Paste");
+    await pasted(2);
+  }],
+  ["Ctrl+V pastes it again", async () => {
+    system.key("ctrl+v");
+    await pasted(3);
+  }],
+  ["Edit > Undo takes the last paste back", async () => {
+    system.menu("Edit", "Undo");
+    await pasted(2);
+  }],
+  ["Edit > Copy, Cut and Paste work on a text field", async () => {
+    system.menu("Structure", "Convert Name to Structure");
+    await until("the name field", () => page("return document.activeElement?.matches(arguments[0])", nameField));
+    await fill("benzene");
+    system.menu("Edit", "Copy");
+    await until("the name on the clipboard", () => clipText() === "benzene", 10_000);
+    await fill("benzene");
+    system.menu("Edit", "Cut");
+    await until("the name field empty", async () => (await fieldValue()) === "");
+    system.menu("Edit", "Paste");
+    await until("the name pasted back", async () => (await fieldValue()) === "benzene");
+    await page("document.querySelector(arguments[0]).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))", nameField);
+    await until("the name field closed", async () => !(await page("return !!document.querySelector(arguments[0])", nameField)));
+  }],
+  ["File > New asks about the unsaved drawing, and Don't Save opens a new one", async () => {
+    system.menu("File", "New*");
+    const dontSave = "[...document.querySelectorAll('button')].find((b) => /Don.t Save/.test(b.textContent))";
+    await until("the question", () => page(`return !!${dontSave}`));
+    await page(`${dontSave}.click()`);
+    await pasted(0);
+  }],
+  ["File > Exit ends Octet", async () => {
+    system.menu("File", "Exit");
+    await until("Octet to end", () => !system.running(), 15_000);
+    session = undefined;
+  }],
+];
+
+// ---- Run ----
+
+let driver, failed = 0;
+try {
+  log(`Octet on ${process.platform}: ${APP}`);
+  if (!DRY) {
+    const args = ["--port", String(PORT)];
+    if (WIN && process.env.OCTET_NATIVE_DRIVER) args.push("--native-driver", process.env.OCTET_NATIVE_DRIVER);
+    driver = spawn("tauri-driver", args, { stdio: ["ignore", "inherit", "inherit"] });
+    await until("tauri-driver", () => fetch(`http://127.0.0.1:${PORT}/status`).then((r) => r.ok), 30_000);
+    session = (await wd("POST", "/session", { capabilities: { alwaysMatch: { browserName: "wry", "tauri:options": { application: APP } } } })).sessionId;
+  }
+  for (const [k, [name, act]] of steps.entries()) {
+    log(`${k + 1}. ${name}`);
+    try {
+      await act();
+      log("   ok");
+    } catch (e) {
+      failed++;
+      log(`   FAILED: ${e.message}`);
+      await screenshot(`step-${k + 1}`);
+      break; // each step needs the one before
+    }
+  }
+} catch (e) {
+  failed++;
+  log(`FAILED before the steps: ${e.message}`);
+} finally {
+  if (session) await wd("DELETE", `/session/${session}`).catch(() => {});
+  driver?.kill();
+}
+log(failed ? "Octet failed on this system." : DRY ? "Dry run: nothing ran." : "Every step passed.");
+process.exit(failed ? 1 : 0);
