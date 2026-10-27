@@ -4,7 +4,7 @@
 // to 16 bits, so a saved drawing opens with the spectrum, its multiplets and its assignments as they were.
 import type { JcampSpectrum, Kind } from "./jcamp.ts";
 import { multiplicity } from "./nmr.ts";
-import { solventPeaks } from "./spectrumplot.ts";
+import { solventPeaks, spread, ticks, traceColumns, type Figure } from "./spectrumplot.ts";
 
 // A multiplet (for ¹H) or a peak: its range in x units, lo to hi. manual: the user drew its range (Shift-drag), so new
 // peak picking keeps it.
@@ -306,16 +306,7 @@ export const nextGroupId = (spectra: Measured[] | undefined) => Math.max(0, ...(
 export function measuredText(m: Measured, a: Analysis, solvent = m.solvent ?? ""): string {
   const gs = a.groups.filter((g) => !g.other).sort((p, q) => q.shift - p.shift);
   if (!gs.length) return "";
-  const mhz = m.mhz ? `${Math.round(m.mhz)} MHz` : "", head = [mhz, solvent].filter(Boolean).join(", ");
-  if (m.kind === "nmr" && m.nucleus === "1H") {
-    const one = (g: Analysed) => {
-      const n = `${Math.max(1, Math.round(g.n))}H`;
-      if (g.name === "m" && g.peaks.length > 1) return `${g.peaks[0].x.toFixed(2)}–${g.peaks[g.peaks.length - 1].x.toFixed(2)} (m, ${n})`;
-      return `${g.shift.toFixed(2)} (${g.name}${g.js.length ? `, J = ${g.js.map((j) => j.toFixed(1)).join(", ")} Hz` : ""}, ${n})`;
-    };
-    return `${nameOf("1H")} (${head}) δ ${gs.map(one).join(", ")}.`;
-  }
-  if (m.kind === "nmr") return `${nameOf(m.nucleus ?? "13C")}${head ? ` (${head})` : ""} δ ${gs.map((g) => g.shift.toFixed(1)).join(", ")}.`;
+  if (m.kind === "nmr") return `${measuredHead(m, solvent)} δ ${gs.map((g) => groupText(m, g)).join(", ")}.`;
   if (m.kind === "ir") return `IR ν̃ ${gs.map((g) => Math.round(g.shift)).join(", ")} cm⁻¹.`;
   if (m.kind === "uv") return `UV-Vis λmax ${gs.sort((p, q) => p.shift - q.shift).map((g) => Math.round(g.shift)).join(", ")} nm.`;
   if (m.kind === "ms") {
@@ -324,6 +315,54 @@ export function measuredText(m: Measured, a: Analysis, solvent = m.solvent ?? ""
     return `MS m/z ${shown.map((g) => `${whole ? Math.round(g.shift) : g.shift.toFixed(4)} (${Math.round((100 * (g.peaks[0]?.h ?? 0)) / (top || 1))})`).join(", ")}.`;
   }
   return "";
+}
+
+// The text line's start for an NMR spectrum: "¹H NMR (400 MHz, CDCl₃)"; otherwise the spectrum's name.
+export function measuredHead(m: Measured, solvent = m.solvent ?? ""): string {
+  const head = m.kind === "nmr" ? [m.mhz ? `${Math.round(m.mhz)} MHz` : "", solvent].filter(Boolean).join(", ") : "";
+  return `${nameOf(keyOf(m))}${head ? ` (${head})` : ""}`;
+}
+// One multiplet as the text line gives it: ¹H "7.26 (d, J = 8.0 Hz, 2H)" or "7.35–7.20 (m, 5H)"; otherwise its shift.
+export function groupText(m: Measured, g: Analysed): string {
+  if (m.kind !== "nmr") return g.shift.toFixed(m.kind === "ms" && Math.abs(g.shift - Math.round(g.shift)) >= 0.05 ? 1 : 0);
+  if (m.nucleus !== "1H") return g.shift.toFixed(1);
+  const n = `${Math.max(1, Math.round(g.n))}H`;
+  if (g.name === "m" && g.peaks.length > 1) return `${g.peaks[0].x.toFixed(2)}–${g.peaks[g.peaks.length - 1].x.toFixed(2)} (m, ${n})`;
+  return `${g.shift.toFixed(2)} (${g.name}${g.js.length ? `, J = ${g.js.map((j) => j.toFixed(1)).join(", ")} Hz` : ""}, ${n})`;
+}
+
+// The measured spectrum as a figure for the page (Add to drawing > Spectrum), as spectrumFigure draws a predicted one:
+// the axis and its ticks, the trace (each of 480 columns' lowest and highest point, so it stays one curve) or the
+// sticks, the solvent and TMS named in grey, and each multiplet's label in its colour, over the range shown.
+export function measuredFigure(o: { m: Measured; a: Analysis; range: [number, number]; colour: (id: number) => string | undefined; width: number; height: number; em: number }): Figure {
+  const { m, a, width: W, height: H, em } = o, [lo, hi] = o.range, rev = reversed(m), h1 = m.kind === "nmr" && m.nucleus === "1H";
+  const x = (v: number) => ((rev ? hi - v : v - lo) / (hi - lo)) * W, shown = (v: number) => v >= lo && v <= hi, N = 480;
+  const { v, base } = levels(m), out: Figure = { lines: [], curves: [], texts: [] };
+  // Scaled to the tallest point in range that is not the solvent's; taller ones are cut at the top.
+  const others = a.groups.filter((g) => g.other);
+  let top = 0;
+  for (let i = 0; i < v.length; i++) { const xv = xAt(m, i); if (shown(xv) && !others.some((g) => xv >= g.lo && xv <= g.hi)) top = Math.max(top, v[i] - base); }
+  top = top > 0 ? top * 1.05 : 1;
+  const y = (val: number) => Math.max(-0.05 * H, Math.min(H, ((val - base) / top) * H));
+  out.lines.push({ from: [0, 0], to: [W, 0] });
+  const { out: tickAt, places } = ticks(lo, hi, W, 4 * em);
+  for (const t of tickAt) { out.lines.push({ from: [x(t), 0], to: [x(t), -0.15] }); out.texts.push({ text: t.toFixed(places), at: [x(t), -0.15 - 0.85 * em], align: "centre", size: 0.9 }); }
+  out.texts.push({ text: m.xUnit, at: [W, -0.15 - 1.9 * em], align: "right", size: 0.9 });
+  if (m.sticks) v.forEach((val, i) => { const xv = xAt(m, i); if (shown(xv)) out.lines.push({ from: [x(xv), 0], to: [x(xv), y(val)] }); });
+  else out.curves.push({ points: traceColumns({ first: m.first, last: m.last, y: v, xs: m.xs }, (xv) => (x(xv) / W) * N, N).filter(([c]) => c >= 0 && c <= N).map(([c, val]) => [(c / N) * W, y(val)]) });
+  const peakTop = (g: Analysed) => y(base + Math.max(...g.peaks.map((p) => p.h)));
+  for (const g of others) if (shown(g.shift)) out.texts.push({ text: g.other!, at: [x(g.shift), Math.min(H, peakTop(g)) + 0.2], align: "centre", size: 0.8, grey: true });
+  const own = a.groups.filter((g) => !g.other && shown(g.shift)), dp = h1 ? 2 : m.kind === "nmr" ? 1 : 0;
+  const label = (g: Analysed) => (h1 ? `${g.name}, ${Math.max(1, Math.round(g.n))}H` : "");
+  const gap = em * 0.6 * Math.max(4, ...own.map((g) => label(g).length * 0.8)) + 0.2, placed = spread(own.map((g) => x(g.shift)), gap, W), lb = H + 0.45;
+  own.forEach((g, i) => {
+    const lx = placed[i], c = o.colour(g.id), second = label(g), tip = peakTop(g);
+    out.lines.push({ from: [lx, lb], to: [lx, lb - 0.12], colour: c });
+    out.lines.push({ from: [lx, lb - 0.12], to: [x(g.shift), Math.max(tip + 0.08, Math.min(lb - 0.3, tip + 0.4))], colour: c });
+    if (second) out.texts.push({ text: second, at: [lx, lb + 0.3 * em], align: "centre", size: 0.8, colour: c });
+    out.texts.push({ text: g.shift.toFixed(dp), at: [lx, lb + (second ? 1.25 : 0.3) * em], align: "centre", size: 1, colour: c });
+  });
+  return out;
 }
 
 // --- The saved form ---------------------------------------------------------------------------------------------

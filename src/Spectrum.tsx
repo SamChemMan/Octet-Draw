@@ -233,7 +233,7 @@ export function SpectrumPanel(p: Props) {
         {chosenM && h1M && !chosenM.other && <NumberField label="Hydrogens" unit="H" value={Math.round(chosenM.n * 100) / 100} min={0.01} max={1000} step={1} lazy onChange={(n) => p.onCount(chosenM.id, n)} />}
         {chosenM && p.linkedCount(chosenM.id) > 0 && <button className="spectrum-button" onClick={() => p.onUnlink(chosenM.id)} data-tip="Unlink this peak from its atoms"><LinkBreak size={16} /> Unlink</button>}
         <button className="spectrum-button" onClick={() => (showM ? p.onGroupColourAll(!anyColour) : p.onColourAll(!anyColour))} disabled={showM ? !(a?.groups ?? []).some((g) => p.linkedCount(g.id)) : !signals.length}>{anyColour ? "Clear colours" : "Colour peaks"}</button>
-        <Pick label="Add to drawing" value="" className="spectrum-button" title="Put the spectrum, the shifts or the key on the page" disabled={!signals.length || showM}
+        <Pick label="Add to drawing" value="" className="spectrum-button" title="Put the spectrum, the shifts or the key on the page" disabled={showM ? !ownGroups.length : !signals.length}
           groups={[[{ key: "spectrum", name: "Spectrum", icon: <ChartLine size={18} /> }, { key: "shifts", name: "Shifts beside atoms", icon: <Tag size={18} /> }, { key: "key", name: "Key", icon: <ListBullets size={18} /> }]]}
           onPick={(what) => p.onAdd(what as "spectrum" | "shifts" | "key", [lo, hi])}>
           Add to drawing

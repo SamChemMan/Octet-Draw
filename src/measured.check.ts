@@ -2,7 +2,7 @@
 // assignments go wrong, or do not survive saving and opening again. The spectra are made here from known lines.
 import assert from "node:assert/strict";
 import { readJcamp } from "./jcamp.ts";
-import { analyse, defineGroup, firstOrder, fromJcamp, keyOf, measuredText, nameOf, nextGroupId, pickPeaks, readMeasured, regroup, writeMeasured, type Measured } from "./measured.ts";
+import { analyse, defineGroup, firstOrder, fromJcamp, keyOf, measuredFigure, measuredHead, measuredText, nameOf, nextGroupId, pickPeaks, readMeasured, regroup, writeMeasured, type Measured } from "./measured.ts";
 import { parse, serialize } from "./file.ts";
 import type { Mol } from "./render.ts";
 
@@ -74,6 +74,7 @@ for (const [x] of multiplet(4.12, 2, [[7.1, 3]])) assert.ok(peaks.some((p) => Ma
 
 // The multiplets, their names, Js and integrals; the solvent and TMS found and left out.
 const a = analyse(m);
+const q0 = a.groups.find((g) => Math.abs(g.shift - 4.12) < 0.02)!.id;
 const at = (shift: number) => a.groups.find((g) => Math.abs(g.shift - shift) < 0.02)!;
 assert.equal(at(6.5).name, "dd");
 assert.deepEqual(at(6.5).js.map((j) => j.toFixed(1)), ["10.0", "4.0"]);
@@ -119,7 +120,7 @@ assert.equal(drawn.groups.length, m.groups.length);
 
 // Two carbons whose hydrogens are the quartet and the triplet, linked to them; the drawing saves and opens with the
 // spectrum, its multiplets and the links, and gives the same text line.
-const q = at(4.12).id, t = at(1.26).id;
+const q = q0, t = at(1.26).id;
 const doc: Mol = { atoms: [{ label: "C", location: [0, 0, 0], peaks: [q] }, { label: "C", location: [1, 0, 0], peaks: [t] }], bonds: [{ type: 1, atoms: [0, 1] }], spectra: [m] };
 const back = parse(serialize(doc));
 assert.deepEqual(back.atoms.map((x) => x.peaks), [[q], [t]]);
@@ -142,6 +143,23 @@ assert.throws(damaged((s) => { (s.groups as unknown[]).push((s.groups as unknown
 assert.throws(damaged((s) => { s.title = "a\u0000b"; }), /damaged/);
 assert.throws(() => { const d = JSON.parse(serialize(doc)); d.spectra = Array(17).fill(d.spectra[0]); parse(JSON.stringify(d)); }, /damaged/);
 assert.throws(() => readMeasured({ ...writeMeasured(m), lo: 5, hi: 5 }), /damaged/);
+
+// A doublet beside CDCl₃'s line stays a doublet: the solvent's line is a group of its own, left out of the text.
+const near = fromJcamp(readJcamp(jdx(trace([...multiplet(7.24, 2, [[8.2, 1]]), [7.26, 0.6], ...multiplet(2.05, 3, [])])))[0], 1), an = analyse(near);
+assert.equal(an.groups.find((g) => Math.abs(g.shift - 7.24) < 0.01)?.name, "d");
+assert.equal(an.groups.find((g) => Math.abs(g.shift - 7.26) < 0.003)?.other, "CDCl₃");
+assert.match(measuredText(near, an), /δ 7\.24 \(d, J = 8\.2 Hz, 2H\), 2\.05 \(s, 3H\)\.$/);
+
+// The figure for the page: one curve of at most 1000 points (a pen curve's limit) inside its box, each multiplet's
+// label in its colour above it, the solvent in grey, and the unit under the axis.
+const fig = measuredFigure({ m, a, range: [-0.5, 8], colour: (id) => (id === q0 ? "#2F6FED" : undefined), width: 14, height: 3.5, em: 0.55 });
+assert.equal(fig.curves.length, 1);
+assert.ok(fig.curves[0].points.length <= 1000 && fig.curves[0].points.length > 400);
+assert.ok(fig.curves[0].points.every(([px, py]) => px >= 0 && px <= 14 && py <= 3.5 + 1e-9));
+assert.equal(fig.texts.find((t) => t.text === "4.12")?.colour, "#2F6FED");
+assert.ok(fig.texts.some((t) => t.text === "q, 2H") && fig.texts.some((t) => t.text === "TMS" && t.grey) && fig.texts.some((t) => t.text === "ppm"));
+assert.ok(fig.texts.find((t) => t.text === "4.12")!.at[0] < fig.texts.find((t) => t.text === "1.26")!.at[0]);
+assert.equal(measuredHead(m), "¹H NMR (400 MHz, CDCl₃)");
 
 // --- ¹³C, IR and MS ----------------------------------------------------------------------------------------------
 

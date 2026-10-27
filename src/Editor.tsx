@@ -37,7 +37,7 @@ import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
 import { propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./proprows";
 import { SpectrumPanel, PEAK_COLOURS, type Show } from "./Spectrum";
-import { analyse as analyseSpectrum, defineGroup, fromJcamp, keyOf as spectrumKeyOf, nextGroupId, regroup, type Measured } from "./measured";
+import { analyse as analyseSpectrum, defineGroup, fromJcamp, groupText, keyOf as spectrumKeyOf, measuredFigure, measuredHead, nextGroupId, regroup, type Measured } from "./measured";
 import { BRUKER, isJcamp, isSpectrum, readBrukerText as brukerOf, readJcamp, type JcampSpectrum } from "./jcamp";
 import { acsText, multiplicity, quality } from "./nmr";
 import { nmrReady, predict, type Nucleus } from "./nmr";
@@ -4632,12 +4632,13 @@ export default function Editor() {
   };
   const haloSignals = (colour: (k: number) => string | undefined, only?: number) => set(withHalos(doc, colour, only), true);
   function addKey() {
+    if (measuredShown && measured && spectrumAnalysis) return addMeasuredKey(measured, spectrumAnalysis.groups.filter((g) => !g.other));
     const p = nmr?.prediction;
     if (!p) return;
     const coloured = p.signals.map((s, k) => ({ s, c: nmrColours[k] })).filter((x) => x.c);
     const rows = coloured.length ? coloured : p.signals.map((s, k) => ({ s, c: PEAK_COLOURS[k % PEAK_COLOURS.length] }));
     let m = coloured.length ? doc : withHalos(doc, (k) => PEAK_COLOURS[k % PEAK_COLOURS.length]);
-    const head = acsText({ ...p, signals: [] }, settings.nmrMhz, settings.nmrSolvent).replace(/ δ \.$/, ", δ (ppm)");
+    const head = acsText({ ...p, signals: [] }, settings.nmrMhz, nmrSolvent).replace(/ δ \.$/, ", δ (ppm)");
     const runs: TextRun[] = [{ text: head }];
     for (const { s, c } of [...rows].sort((a, b) => b.s.shift - a.s.shift)) {
       runs.push({ text: "\n" }, { text: "● ", colour: c });
@@ -4645,6 +4646,22 @@ export default function Editor() {
     }
     const atoms = [...new Set(nmr!.toDoc)];
     m = addCaption(m, { text: plainOf(normalise(runs)), x: 0, y: 0, under: atoms, runs: normalise(runs) })[0];
+    set(m, true);
+  }
+  // The key of a measured spectrum: its multiplets high to low as the text line gives them, each linked one after a
+  // dot in its colour (linked multiplets take colours first if none has one), under the structure they are linked to.
+  function addMeasuredKey(ms: Measured, groups: NonNullable<typeof spectrumAnalysis>["groups"]) {
+    if (!groups.length) return;
+    const linked = groups.filter((g) => linkedAtoms.get(g.id)), colourOf = (g: { id: number }) => doc.atoms[linkedAtoms.get(g.id)?.[0] ?? -1]?.halo;
+    const fresh = !linked.some(colourOf), give = new Map(linked.map((g, k) => [g.id, PEAK_COLOURS[k % PEAK_COLOURS.length]]));
+    let m: Mol = fresh ? { ...doc, atoms: doc.atoms.map((a) => { const g = a.peaks?.find((k) => give.has(k)); return g !== undefined ? { ...a, halo: give.get(g) } : a; }) } : doc;
+    const head = measuredHead(ms, ms.kind === "nmr" ? nmrSolvent : undefined), runs: TextRun[] = [{ text: ms.kind === "nmr" ? `${head}, δ (${ms.xUnit})` : `${head} (${ms.xUnit})` }];
+    for (const g of [...groups].sort((p, q) => q.shift - p.shift)) {
+      const c = fresh ? give.get(g.id) : colourOf(g);
+      runs.push({ text: "\n" }, ...(c ? [{ text: "● ", colour: c }] : []), { text: groupText(ms, g) });
+    }
+    const under = [...new Set(linked.flatMap((g) => linkedAtoms.get(g.id)!))];
+    m = addCaption(m, { text: plainOf(normalise(runs)), x: 0, y: 0, ...(under.length ? { under } : {}), runs: normalise(runs) })[0];
     set(m, true);
   }
   // Add to drawing > Shifts beside atoms: each predicted shift as a caption where the panel shows it, so it saves,
@@ -4659,13 +4676,16 @@ export default function Editor() {
   // lines, a curve and captions under the structure, picked as one (an integral group), with the line that names it
   // and the notice the nmrshiftdb2 licence asks a published prediction to carry.
   function addSpectrum(range: [number, number]) {
-    const p = nmr?.prediction;
-    if (!p) return;
-    const atoms = [...new Set(nmr!.toDoc)].filter((i) => doc.atoms[i]), ps = atoms.map((i) => pos(doc, i));
-    if (!ps.length) return;
-    const f = atoms.reduce((s0, i) => s0 + scaleOf(doc.atoms[i]), 0) / atoms.length, labelPt = style.captionSize * 0.8 * f, em = labelPt / style.bond;
+    const ms = measuredShown && measured && spectrumAnalysis ? measured : undefined, p = ms ? undefined : nmr?.prediction;
+    if (!ms && !p) return;
+    // Under the structure: the one predicted, or the atoms linked to the measured spectrum (or every atom).
+    const linked = ms ? spectrumAnalysis!.groups.flatMap((g) => linkedAtoms.get(g.id) ?? []) : [];
+    const atoms = [...new Set(p ? nmr!.toDoc : linked.length ? linked : nmr?.toDoc ?? doc.atoms.map((_, i) => i))].filter((i) => doc.atoms[i]), ps = atoms.length ? atoms.map((i) => pos(doc, i)) : [[0, 0] as [number, number]];
+    const f = atoms.length ? atoms.reduce((s0, i) => s0 + scaleOf(doc.atoms[i]), 0) / atoms.length : 1, labelPt = style.captionSize * 0.8 * f, em = labelPt / style.bond;
     const W = 14 * f, H = 3.5 * f, cx = (Math.min(...ps.map((q) => q[0])) + Math.max(...ps.map((q) => q[0]))) / 2;
-    const fig = spectrumFigure({ prediction: p, nucleus: p.nucleus, mhz: settings.nmrMhz, solvent: settings.nmrSolvent, solventPeaks: settings.nmrSolventPeaks, range, colours: nmrColours, width: W, height: H, em });
+    const colourOf = (id: number) => doc.atoms[linkedAtoms.get(id)?.[0] ?? -1]?.halo;
+    const fig = ms ? measuredFigure({ m: ms, a: spectrumAnalysis!, range, colour: colourOf, width: W, height: H, em })
+      : spectrumFigure({ prediction: p!, nucleus: p!.nucleus, mhz: settings.nmrMhz, solvent: nmrSolvent, solventPeaks: settings.nmrSolventPeaks, range, colours: nmrColours, width: W, height: H, em });
     // The figure's top (its title's) sits one bond length under the structure, and under the text already there (the
     // key, the properties), so it covers none of it.
     const ink = withCaptions(atoms), low = Math.min(Math.min(...ps.map((q) => q[1])) - 1, ink ? -ink[3] / L - 0.5 : Infinity);
@@ -4677,8 +4697,10 @@ export default function Editor() {
     for (const l of fig.lines) keep(addArrow(m, { kind: "line", from: at(l.from), to: at(l.to), ...(l.colour || l.grey ? { colour: l.colour ?? GREY } : {}) }));
     for (const c of fig.curves) { const pts = c.points.map(at); keep(addArrow(m, { kind: "curve", from: pts[0], to: pts[pts.length - 1], curve: { points: pts.map((q) => ({ at: q })) }, ...(c.grey ? { colour: GREY } : {}) })); }
     for (const t of fig.texts) keep(addCaption(m, { text: t.text, x: at(t.at)[0], y: at(t.at)[1], size: Math.round(labelPt * t.size * 10) / 10, align: t.align, ...(t.colour || t.grey ? { colour: t.colour ?? GREY } : {}) }));
-    keep(addCaption(m, { text: `${acsText({ ...p, signals: [] }, settings.nmrMhz, settings.nmrSolvent).replace(/ δ \.$/, "")}, predicted`, x: x0, y: y0 + top + 0.4 * em, size: Math.round(labelPt * 10) / 10, align: "left" }));
-    keep(addCaption(m, { text: "Contains information from nmrshiftdb2 (www.nmrshiftdb.org)", x: x0, y: y0 - 0.15 - 1.9 * em, size: Math.round(labelPt * 0.7 * 10) / 10, align: "left", colour: GREY }));
+    // Its title; a prediction also carries the notice nmrshiftdb2's licence asks for.
+    const title = ms ? measuredHead(ms, ms.kind === "nmr" ? nmrSolvent : undefined) : `${acsText({ ...p!, signals: [] }, settings.nmrMhz, nmrSolvent).replace(/ δ \.$/, "")}, predicted`;
+    keep(addCaption(m, { text: title, x: x0, y: y0 + top + 0.4 * em, size: Math.round(labelPt * 10) / 10, align: "left" }));
+    if (p) keep(addCaption(m, { text: "Contains information from nmrshiftdb2 (www.nmrshiftdb.org)", x: x0, y: y0 - 0.15 - 1.9 * em, size: Math.round(labelPt * 0.7 * 10) / 10, align: "left", colour: GREY }));
     const grouped = groupSelection(m, new Set(), new Set(items));
     if (grouped) m = { ...grouped[0], groups: grouped[0].groups?.map((g) => (g.id === grouped[1] ? { ...g, integral: true as const } : g)) };
     set(m);
