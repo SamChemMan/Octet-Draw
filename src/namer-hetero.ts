@@ -16,7 +16,7 @@ export function groupVariant(n: Namer, c: number): string {
   if (d < 0) return "";
   const x = n.esterO.get(c) ?? n.adj[c].find((j) => j !== d && n.group[j] === "acid" && n.el[j] !== "C");
   if (x !== undefined && n.el[x] === "O" && n.adj[x].some((j) => j !== c && n.el[j] === "O")) return n.el[d] === "O" ? "" : "?";
-  const dbl = n.el[d] === "S", single = x !== undefined && n.el[x] === "S";
+  const dbl = n.el[d] === "S" || n.el[d] === "Se" || n.el[d] === "Te", single = x !== undefined && n.el[x] === "S";
   return dbl && single ? "SS" : dbl && x !== undefined ? "O" : single ? "S" : dbl ? "=S" : "";
 }
 // Whether the group carbon's double bond is to S (C=S).
@@ -45,6 +45,12 @@ export function variantSuffix(n: Namer, kind: string | undefined, sites: { atom:
   }
   const t = VARIANT_SUFFIX[kind]?.[v[0]];
   if (!t || v.some((x) => x !== v[0]) || (sites.length > 1 && (kind === "acid" || kind === "ester"))) throw new Error("thio");
+  // =Se or =Te on an O-acid's carbon: selenoic O-acid, telluroic O-acid (P-65.1.5.1).
+  const x = n.el[n.carbonylO[sites[0].group]];
+  if (x === "Se" || x === "Te") {
+    if (kind !== "acid" || v[0] !== "O" || sites.some((s) => n.el[n.carbonylO[s.group]] !== x)) throw new Error("seleno");
+    return t[ring ? 1 : 0].replace("thio", x === "Se" ? "seleno" : "telluro");
+  }
   return t[ring ? 1 : 0];
 }
 // An acyl prefix with =S: ethanethioyl, benzenecarbothioyl, cyclohexanecarbothioyl, methanethioyl (P-65.1.7.3.2).

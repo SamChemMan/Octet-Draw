@@ -306,8 +306,11 @@ class Namer {
     this.inRing = this.findRings();
     this.ringOf = Array(this.n).fill(-1);
     this.rings.forEach((r, k) => r.forEach((i) => (this.ringOf[i] = k)));
+    // =Se and =Te too on an acid carbon, C(=Se)OH (P-65.1.5.1: selenoic O-acids); name() names those only as the
+    // principal groups.
+    const oh = (i: number) => this.adj[i].some((o) => this.el[o] === "O" && this.h[o] === 1 && this.adj[o].length === 1 && this.ord(i, o) === 1 && !this.q[o]);
     this.carbonylO = Array.from({ length: this.n }, (_, i) =>
-      this.el[i] === "C" ? this.adj[i].find((o) => (this.el[o] === "O" || this.el[o] === "S") && this.ord(i, o) === 2 && this.adj[o].length === 1 && !this.q[o]) ?? -1 : -1);
+      this.el[i] === "C" ? this.adj[i].find((o) => (this.el[o] === "O" || this.el[o] === "S" || ((this.el[o] === "Se" || this.el[o] === "Te") && this.adj[i].length === 3 && oh(i) && !this.h[o])) && this.ord(i, o) === 2 && this.adj[o].length === 1 && !this.q[o]) ?? -1 : -1);
   }
   key = (a: number, b: number) => (a < b ? `${a} ${b}` : `${b} ${a}`);
   ord = (a: number, b: number) => this.bond.get(this.key(a, b)) ?? 0;
@@ -1779,7 +1782,7 @@ class Namer {
       for (const j of adj[i]) {
         if (oxo.includes(j)) { this.main.add(j); continue; }
         if (this.inRing[i] && this.ringOf[j] === this.ringOf[i]) continue; // the ring's own bonds
-        if (this.ord(i, j) !== 1 && !chalcogenOne(this, i)) throw new Error(`${el[i]} bonds`); // =Se: selanylidene
+        if (this.ord(i, j) !== 1 && !chalcogenOne(this, i) && this.carbonylO[j] !== i) throw new Error(`${el[i]} bonds`); // =Se: selanylidene
         // An ion's atom (the O⁻ of a selenonate, the N⁻ of bis(trimethylsilyl)azanide) or a group cited only as a prefix
         // (isocyanato(trimethyl)silane).
         if (this.ions.has(j) || this.prefixOnly.has(j)) continue;
@@ -1944,6 +1947,12 @@ class Namer {
     if (this.adj.some((a, i) => a.length === 0 && this.el[i] !== "C") || this.n === 0) return undefined;
     const kind = SENIORITY.find((k) => this.group.includes(k) && [...this.bearer.keys()].some((g) => this.group[g] === k));
     checkChalcogenOnes(this, kind, SENIORITY); // =Se as a prefix only under a ketone or a senior group (namer-maingroup.ts)
+    // Selenoic and telluroic O-acids only as the principal groups, all of one element: 2-amino-4-sulfobutaneselenoic O-acid.
+    const seAcids = this.carbonylO.flatMap((d, c) => (d >= 0 && (this.el[d] === "Se" || this.el[d] === "Te") ? [c] : []));
+    if (seAcids.length) {
+      const acids = [...this.bearer.keys()].filter((g) => this.group[g] === "acid");
+      if (kind !== "acid" || seAcids.some((c) => !acids.includes(c)) || new Set(acids.map((c) => this.el[this.carbonylO[c]])).size !== 1) throw new Error("seleno acid");
+    }
     // An ion as the parent (trimethylsulfanium, methyl sulfate), a main-group parent (phenylboronic acid,
     // trimethyl(phenyl)silane), or a parent or acid centre built on N, O, S or P (phenylhydrazine, trimethyl phosphate).
     let text: string | undefined = this.ionParent(kind) ?? this.mainName(kind) ?? heteroParentName(this, kind);

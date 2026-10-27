@@ -101,6 +101,10 @@ must("thio", [
   "4-(cyclohexanecarbothioyl)benzoic acid", "4-(ethanethioyloxy)benzoic acid", "4-sulfanylidenecyclohexan-1-one", "3-amino-3-sulfanylidenepropanamide",
   "sulfanylideneacetic acid", "thiourea", "prop-2-en-1-ylthiourea", "N,N'-diphenylthiourea", "O-methyl carbamothioate",
   "2-{[(tert-butoxy)carbonothioyl]amino}acetic acid",
+  // Selenoic and telluroic O-acids as the principal group (P-65.1.5.1), as OPSIN builds seleno- and tellurohomocysteic
+  // acid.
+  "ethaneselenoic O-acid", "ethanetelluroic O-acid", "benzenecarboselenoic O-acid", "smiles:N[C@@H](CCS(=O)(O)=O)C(=[Se])O",
+  "smiles:N[C@@H](CCS(=O)(O)=O)C(=[Te])O", "2-oxobutaneselenoic O-acid",
 ]);
 
 // Hydrazines, hydrazones and diazenes (P-68.3.1.2, P-68.3.1.3). The amine on a ring N and the azo compound are from
