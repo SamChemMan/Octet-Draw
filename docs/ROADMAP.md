@@ -77,7 +77,8 @@ Sam wanted these in 1.0. They are not done yet.
   - Done: a label's `RotationAngle` is kept, drawn and written back.
   - Done: all 68 of Sam's CDXML files write and read back unchanged.
   - Arrowhead sizes and hollow block arrows are done.
-  - Not done: a node label of more than one line (Octet's labels are one line), invisible atom numbers (`AtomNumber` without `ShowAtomNumber`), and tritium typed as T (read as the text T).
+  - Done (`spectra-parity` branch, 27 October 2026; ChemDraw check 23): tritium typed as T is hydrogen-3, as D is hydrogen-2, in the formula's weight, CDXML and MOL; an atom number ChemDraw keeps hidden (`AtomNumber` without `ShowAtomNumber`) is kept and written back without showing.
+  - Not done: a node label of more than one line (2 corpus labels). Octet's labels are one line in drawing, bond clipping, label boxes, hit testing and the CDXML writer, so keeping the break needs a label model of lines.
 - Linux: Cut, Copy and Paste in the Edit menu as Octet's own items, as Close Window is.
 
 ### Platform limits

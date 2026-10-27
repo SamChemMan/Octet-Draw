@@ -43,6 +43,7 @@ export type Atom = {
   halo?: string; // #rrggbb highlight behind the atom at 40% opacity (ChemDraw's highlight colours; NMR peak colours)
   circle?: true; // Toggle Aromatic Display: an aromatic ring whose atoms all have this is drawn with a circle
   number?: string; // Show Atom Number: the number drawn beside the atom
+  hiddenNumber?: string; // a number the atom keeps but does not show (ChemDraw's AtomNumber with Show Atom Number off)
   peaks?: number[]; // the measured multiplets (Group ids in the drawing's spectra) the user linked this atom to
   // The label's alignment set by hand (ChemDraw's Flush Left, Centered, Flush Right and Stacked Above on a label;
   // LabelDisplay in CDXML): left reads from the atom, right ends at it (MeO, H2N), centre sits on it, above and below
@@ -417,7 +418,7 @@ const TIP = 0.0165; // wedge half-width at the stereocentre, as a fraction of th
 const MAX_TRIM = 0.67; // an inner-line trim longer than this (times the bond length) is skipped
 export const H_FIRST = new Set(['O', 'F', 'S', 'Cl', 'Se', 'Br', 'Te', 'I']); // H2O, HCl; but NH3, CH4
 // Elements that are not metals. A bond to a metal does not change the hydrogens Octet draws on an atom (chem.ts).
-export const NONMETAL = new Set(["H", "D", "He", "B", "C", "N", "O", "F", "Ne", "Si", "P", "S", "Cl", "Ar", "Ge", "As", "Se", "Br", "Kr", "Sb", "Te", "I", "Xe", "At", "Rn", "*", "R"]);
+export const NONMETAL = new Set(["H", "D", "T", "He", "B", "C", "N", "O", "F", "Ne", "Si", "P", "S", "Cl", "Ar", "Ge", "As", "Se", "Br", "Kr", "Sb", "Te", "I", "Xe", "At", "Rn", "*", "R"]);
 const VALENCE: Record<string, number> = { C: 4, Si: 4, N: 3, P: 3, As: 3, B: 3, Al: 3, O: 2, S: 2, Se: 2, Te: 2, F: 1, Cl: 1, Br: 1, I: 1 };
 
 // A ring's aromatic circle, as ChemDraw sizes it (Toggle Aromatic Display): the ring's inradius for its shortest bond

@@ -10,12 +10,12 @@ import { aromaticAtoms, rings } from "./rings.ts";
 
 type V3 = [number, number, number];
 const SYMBOLS = [...ELEMENTS];
-// Atomic number; D is hydrogen.
-const atomicNumber = (label: string) => (label === "D" ? 1 : SYMBOLS.indexOf(label) + 1);
-// Rule 2: a ligand's mass, the isotope's when one is given (D is 2), else the element's natural mass, near enough to
+// Atomic number; D and T are hydrogen.
+const atomicNumber = (label: string) => (label === "D" || label === "T" ? 1 : SYMBOLS.indexOf(label) + 1);
+// Rule 2: a ligand's mass, the isotope's when one is given (D is 2, T 3), else the element's natural mass, near enough to
 // sort isotopes of one element (12C ranks below natural carbon, 13C above).
 const NATURAL: Record<number, number> = { 1: 1.008, 6: 12.011, 7: 14.007, 8: 15.999, 9: 18.998, 16: 32.06, 17: 35.45, 35: 79.904, 53: 126.9 };
-const massOf = (label: string, isotope?: number) => isotope ?? (label === "D" ? 2 : NATURAL[atomicNumber(label)] ?? atomicNumber(label) * 2 + 0.5);
+const massOf = (label: string, isotope?: number) => isotope ?? (label === "D" ? 2 : label === "T" ? 3 : NATURAL[atomicNumber(label)] ?? atomicNumber(label) * 2 + 0.5);
 
 // The graph CIP ranking walks: each atom's neighbours (with bond order), hydrogens, atomic number and mass, whether it
 // is aromatic, and its rings. A bond between two aromatic atoms in a ring counts as single; each aromatic atom has

@@ -93,4 +93,16 @@ const cml = importStructure(`<?xml version="1.0"?><cml><molecule><atomArray><ato
 assert.equal(cml.atoms.length, 2);
 assert.equal(Math.round(cml.atoms[1].location[0] - cml.atoms[0].location[0]), 1, "scaled to one bond length, as drawn");
 
+// Tritium typed as T is hydrogen-3, as D is hydrogen-2: MOL out and in (V3000 and V2000, and the query writer's H with
+// MASS=3), and its mass in the formula's weight.
+const tritiated: Mol = { atoms: [A("C", 0, 0), A("T", 1, 0), A("D", -1, 0)], bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [0, 2] }] };
+for (const text of [toMolfile(tritiated), toMolfile(tritiated, true)]) assert.deepEqual(importStructure(text).atoms.map((a) => [a.label, a.isotope]), [["C", undefined], ["T", undefined], ["D", undefined]], text);
+const { writeV3000, readV3000 } = await import("./molv3.ts");
+const query = writeV3000(tritiated);
+assert.match(query, /^M {2}V30 2 H [-\d. ]+ 0 MASS=3$/m);
+assert.deepEqual(readV3000(query).atoms.map((a) => a.label), ["C", "T", "D"]);
+const { analyse } = await import("./chem.ts");
+const weight = (mol: Mol) => analyse(mol)![0].weight;
+assert.equal(weight(tritiated), weight({ ...tritiated, atoms: [A("C", 0, 0), A("H", 1, 0, { isotope: 3 }), A("H", -1, 0, { isotope: 2 })] }));
+
 console.log("mdl ok");

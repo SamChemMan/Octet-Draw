@@ -115,7 +115,7 @@ function ctab(m: Mol, shapes: Shape[], member = false): string[] {
       // A link node joins two atoms: its repeats sit between them.
       if (nbrs[i].length === 2) links.push(`LINKNODE ${l.low} ${l.high} 2 ${index[i]} ${index[nbrs[i][0]]} ${index[i]} ${index[nbrs[i][1]]}`);
     } else if (a.text) type = a.text.replace(/\s+/g, "");
-    else if (a.label === "D") { type = "H"; extra.push("MASS=2"); }
+    else if (a.label === "D" || a.label === "T") { type = "H"; extra.push(`MASS=${a.label === "D" ? 2 : 3}`); }
     if (a.charge) extra.push(`CHG=${a.charge}`);
     if (a.radical) extra.push(`RAD=${RAD_OUT[a.radical]}`);
     if (a.isotope && !a.text) extra.push(`MASS=${a.isotope}`);
@@ -386,7 +386,7 @@ function atomOf(type: string, location: [number, number, number], map: number, k
   const chg = Number(kv.CHG), rad = Number(kv.RAD), mass = Number(kv.MASS);
   if (Number.isInteger(chg) && chg && Math.abs(chg) <= 9) a.charge = chg;
   if (RAD_IN[rad]) a.radical = RAD_IN[rad];
-  if (Number.isInteger(mass) && mass >= 1 && mass <= 300 && !a.text) { if (a.label === "H" && mass === 2) a.label = "D"; else a.isotope = mass; }
+  if (Number.isInteger(mass) && mass >= 1 && mass <= 300 && !a.text) { if (a.label === "H" && (mass === 2 || mass === 3)) a.label = mass === 2 ? "D" : "T"; else a.isotope = mass; }
   if (Number.isInteger(map) && map > 0 && map <= 9999) a.map = map;
   const q: AtomQuery = {}, subst = Number(kv.SUBST), rb = Number(kv.RBCNT);
   if (kv.HCOUNT === "-1") q.noH = true;

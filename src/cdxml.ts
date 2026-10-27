@@ -164,7 +164,7 @@ export const fmtSize = (n: number) => String(+n.toFixed(2));
 
 
 type P = [number, number];
-const SYMBOLS = [...ELEMENTS]; // in atomic-number order, then D
+const SYMBOLS = [...ELEMENTS]; // in atomic-number order, then D and T
 // Colour index 0 is black and 1 white; the table's first row is index 2. ChemDraw starts every table with these.
 const BASE_COLOURS = ["#FFFFFF", "#000000", "#FF0000", "#FFFF00", "#00FF00", "#00FFFF", "#0000FF", "#FF00FF"];
 const RADICALS = ["None", "Singlet", "Doublet", "Triplet"];
@@ -594,14 +594,14 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const inner = a.text && !q && !plain ? opts.expand?.(a.text) : undefined;
     const type = a.centre ? (a.centre.variable ? "VariableAttachment" : "MultiAttachment") : a.attach || a.bead ? "ExternalConnectionPoint" : named !== undefined ? "NamedAlternativeGroup"
       : q === "generic" ? "GenericNickname" : list ? "ElementList" : link ? "LinkNode" : alts ? "AnonymousAlternativeGroup" : a.text ? (inner?.atoms.length ? "Fragment" : "Unspecified") : undefined;
-    const element = link ? (link.generic ? undefined : atomicNumber(link.element)) : type ? undefined : a.label === "D" ? 1 : SYMBOLS.indexOf(a.label) + 1;
+    const element = link ? (link.generic ? undefined : atomicNumber(link.element)) : type ? undefined : atomicNumber(a.label);
     const h = shown && !a.text ? a.implicitHCount ?? hydrogens(a.label, charge, used(i), a.radical === 3 ? 2 : a.radical) : link ? link.h : undefined;
     const enhanced = /^(abs|&|or)(\d*)$/.exec(a.enhanced ?? "");
     const label = shown ? labelOf(i, style.hideH ? 0 : h ?? 0) : undefined;
     const z = a.location[2] ?? 0, aq = a.query, kept = a.kept && keptHolds(mol, i, a.kept) ? a.kept.atoms : undefined;
     const alternatives = alts?.map((t) => opts.expand?.(t) ?? (isElement(t) ? { atoms: [{ label: t, location: [0, 0, 0] as [number, number, number] }], bonds: [] } : undefined)).filter((m): m is Mol => !!m?.atoms.length) ?? [];
     const xml = el("n", {
-      id: nodeId.get(i)!, p: pt(X), Z: Z(), Visible: a.hidden ? "no" : undefined, NodeType: type, Element: element && element !== 6 ? element : undefined, Isotope: type ? undefined : a.isotope ?? (a.label === "D" ? 2 : undefined), Charge: charge || undefined,
+      id: nodeId.get(i)!, p: pt(X), Z: Z(), Visible: a.hidden ? "no" : undefined, NodeType: type, Element: element && element !== 6 ? element : undefined, Isotope: type ? undefined : a.isotope ?? (a.label === "D" ? 2 : a.label === "T" ? 3 : undefined), Charge: charge || undefined,
       Radical: a.radical ? RADICALS[a.radical === 3 ? 1 : Math.min(2, a.radical) + 1] : undefined, NumHydrogens: h, ExternalConnectionType: a.attach ? (a.attach === "diamond" ? "Diamond" : a.attach === "star" ? "Star" : "Wavy") : a.bead ? "PolymerBead" : undefined,
       NeedsClean: shown ? "yes" : undefined, GenericNickname: q === "generic" && named === undefined ? a.text : link?.generic, AltGroupID: named,
       LabelDisplay: shown && a.align ? { left: "Left", centre: "Center", right: "Right", above: "Above", below: "Below" }[a.align] : undefined,
@@ -612,7 +612,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       RxnChange: aq?.change ? "yes" : undefined, RxnStereo: aq?.stereo && { inversion: "Inversion", retention: "Retention" }[aq.stereo], Translation: aq?.translation && { broad: "Broad", narrow: "Narrow", any: "Any" }[aq.translation],
       IsotopicAbundance: aq?.abundance && ABUNDANCES[aq.abundance], AbnormalValence: aq?.valence ? "yes" : undefined,
       EnhancedStereoType: enhanced ? { abs: "Absolute", "&": "And", or: "Or" }[enhanced[1]] : undefined, EnhancedStereoGroupNum: enhanced?.[2] || undefined,
-      color: colour(a.colour), highlightColor: colour(a.halo), ShowAtomStereo: a.cip ? "yes" : undefined, ShowAtomNumber: a.number ? "yes" : undefined, AtomNumber: a.number, IgnoreWarnings: a.ignoreWarnings ? "yes" : undefined, xyz: z ? `${pt(X)} ${fmt(-z * B)}` : undefined, ShowPerspective: a.shade ? "yes" : undefined,
+      color: colour(a.colour), highlightColor: colour(a.halo), ShowAtomStereo: a.cip ? "yes" : undefined, ShowAtomNumber: a.number ? "yes" : undefined, AtomNumber: a.number ?? a.hiddenNumber, IgnoreWarnings: a.ignoreWarnings ? "yes" : undefined, xyz: z ? `${pt(X)} ${fmt(-z * B)}` : undefined, ShowPerspective: a.shade ? "yes" : undefined,
       // A fragment's or alternative group's bonds in order; or a stereocentre's kept configuration, as ChemDraw stores it.
       BondOrdering: (inner || alternatives.length) && deg > 1 ? bondsAt[i].map((k) => bondId[k]).join(" ") : kept ? kept.map((j) => (j < 0 ? 0 : bondId[bondsAt[i].find((k) => mol.bonds[k].atoms.includes(j))!])).join(" ") : undefined,
       Geometry: !(inner || alternatives.length) && kept ? "Tetrahedral" : undefined,
@@ -665,7 +665,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     // An alignment set by hand (the node's LabelDisplay says it is).
     if (a.align) { just = a.align === "right" ? "Right" : a.align === "centre" ? "Center" : "Left"; stack = a.align === "above" ? "Above" : a.align === "below" ? "Below" : undefined; }
     // An isotope's mass number, a superscript run before the element; the element stays on the atom.
-    const iso = !a.text && a.isotope && a.label !== "D" ? String(a.isotope) : "", isoW = widthOf(iso, 0.75 * size);
+    const iso = !a.text && a.isotope && a.label !== "D" && a.label !== "T" ? String(a.isotope) : "", isoW = widthOf(iso, 0.75 * size);
     const wide = (s: string) => [...s].reduce((w, ch, k) => w + advance(ch, /\d/.test(ch) && k ? 0.75 * size : size), 0);
     // The glyph that ends the label read right to left: the attaching unit's last (r of Br, O of OMe shown as MeO, the
     // 1 of R1), or a query label's last.
@@ -705,8 +705,8 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const place = (r: P): P => [X[0] + r[0] * Math.cos(t) - r[1] * Math.sin(t), X[1] + r[0] * Math.sin(t) + r[1] * Math.cos(t)];
     const ids = inner.atoms.map(() => fresh());
     let xml = inner.atoms.map((q, k) => {
-      const e = SYMBOLS.indexOf(q.label) + 1;
-      return el("n", { id: ids[k], p: pt(place(rel(q.location))), Element: e > 0 && e !== 6 ? e : undefined, Charge: q.charge || undefined });
+      const e = atomicNumber(q.label);
+      return el("n", { id: ids[k], p: pt(place(rel(q.location))), Element: e > 0 && e !== 6 ? e : undefined, Isotope: q.label === "D" ? 2 : q.label === "T" ? 3 : undefined, Charge: q.charge || undefined });
     }).join("");
     xml += inner.bonds.map((b) => el("b", { id: fresh(), B: ids[b.atoms[0]], E: ids[b.atoms[1]], Order: b.type === 2 ? "2" : b.type === 3 ? "3" : undefined })).join("");
     for (const d of out) {
@@ -1268,12 +1268,12 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     // down), Octet's towards: older Octet files (no xyz mark at the top) wrote Octet's own.
     const xyz = reals(n.attrs.xyz, 3), [x, y] = xyz ? toOctet(xyz[0], xyz[1]) : toOctet(q[0], q[1]), depth = (xyz?.[2] ?? 0) * (octet && !top?.xyz ? 1 : -1), type = n.attrs.NodeType ?? "Element";
     const element = int(n.attrs.Element) ?? 6, isotope = int(n.attrs.Isotope);
-    const a: Atom = { label: type === "Element" ? (element === 1 && isotope === 2 ? "D" : element >= 1 && element <= 118 ? SYMBOLS[element - 1] : "C") : "C", location: [x, y, depth / B || 0] };
+    const a: Atom = { label: type === "Element" ? (element === 1 && isotope === 2 ? "D" : element === 1 && isotope === 3 ? "T" : element >= 1 && element <= 118 ? SYMBOLS[element - 1] : "C") : "C", location: [x, y, depth / B || 0] };
     const charge = int(n.attrs.Charge) ?? 0;
     if (charge && Math.abs(charge) <= 9) a.charge = charge; else if (charge) lose("charge");
     const radical = RADICALS.indexOf(n.attrs.Radical ?? "");
     if (radical > 0) a.radical = radical === 1 ? 3 : radical === 2 ? 1 : 2;
-    if (type === "Element" && isotope && !(element === 1 && isotope === 2) && isotope >= 1 && isotope <= 300) a.isotope = isotope;
+    if (type === "Element" && isotope && !(element === 1 && (isotope === 2 || isotope === 3)) && isotope >= 1 && isotope <= 300) a.isotope = isotope;
     if (type === "ExternalConnectionPoint") { const ext = n.attrs.ExternalConnectionType; if (ext === "PolymerBead") a.bead = true; else a.attach = ext === "Diamond" ? "diamond" : ext === "Star" ? "star" : true; }
     if (type === "Monomer") lose(type);
     if (n.attrs.GenericList !== undefined) lose("atom query");
@@ -1294,8 +1294,9 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     const angles = p?.angles && typeof p.angles === "object" ? Object.entries(p.angles as Record<string, unknown>).filter(([k, v]) => /^(charge|partial|radical[01]|pair[0-3])$/.test(k) && isNum(v, -360, 360)) : [];
     if (angles.length) a.angles = Object.fromEntries(angles) as Record<string, number>;
     if (isNum(p?.scale, 0.01, 100) && p!.scale !== 1) a.scale = p!.scale as number;
-    const number = yes(n.attrs.ShowAtomNumber) ? (n.attrs.AtomNumber ?? "").trim() : "";
-    if (number) { if (/^[\w'′*-]{1,8}$/.test(number)) a.number = number; else lose("atom number"); }
+    // An atom number, shown or kept hidden (Name to Structure and templates number atoms without showing them).
+    const number = (n.attrs.AtomNumber ?? "").trim();
+    if (number) { if (!/^[\w'′*-]{1,8}$/.test(number)) lose("atom number"); else if (yes(n.attrs.ShowAtomNumber)) a.number = number; else a.hiddenNumber = number; }
     if (yes(n.attrs.IgnoreWarnings)) a.ignoreWarnings = true;
     // An H hidden by Toggle Hydrogen Display.
     if (n.attrs.Visible !== undefined && !yes(n.attrs.Visible) && a.label === "H") a.hidden = true;
@@ -1599,7 +1600,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       const sign = /(\d*)([+\-−–])$/.exec(text);
       if (charge && sign && (sign[2] === "+") === charge > 0) text = text.slice(0, text.length - (sign[1] === String(Math.abs(charge)) ? sign[0].length : 1));
       if (!text || text === "\ufffc" || a.attach || a.bead) continue;
-      if (type === "Element" && !plain && (!isotope || a.label === "D" || a.isotope)) {
+      if (type === "Element" && !plain && (!isotope || a.label === "D" || a.label === "T" || a.isotope)) {
         if (a.isotope && text.startsWith(String(a.isotope))) text = text.slice(String(a.isotope).length);
         const m = new RegExp(`^(?:H(\\d*))?${a.label}(?:H(\\d*))?$`).exec(text);
         const h = m ? (m[1] === undefined ? 0 : Number(m[1] || 1)) + (m[2] === undefined ? 0 : Number(m[2] || 1)) : -1, hFirst = h > 0 ? m![1] !== undefined : undefined;

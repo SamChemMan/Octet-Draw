@@ -1130,7 +1130,7 @@ export function addGroupAt(m: Mol, i: number, g: Group): [Mol, number] {
 }
 
 // Elements that are not metals; any other element (and the generic M) is a metal.
-const NONMETALS = new Set(["H", "D", "He", "B", "C", "N", "O", "F", "Ne", "Si", "P", "S", "Cl", "Ar", "Ge", "As", "Se", "Br", "Kr", "Sb", "Te", "I", "Xe", "At", "Rn"]);
+const NONMETALS = new Set(["H", "D", "T", "He", "B", "C", "N", "O", "F", "Ne", "Si", "P", "S", "Cl", "Ar", "Ge", "As", "Se", "Br", "Kr", "Sb", "Te", "I", "Xe", "At", "Rn"]);
 const isMetal = (a: Atom) => (a.text ? a.text === "M" : isElement(a.label) && !NONMETALS.has(a.label));
 // ChemDraw's j and Shift+J keys: an η5 cyclopentadienyl (n 5) or η6 phenyl (n 6) π ligand, its ring of delocalised
 // bonds drawn in perspective across a bond to its multi-centre point. On a metal with no more than one bond the

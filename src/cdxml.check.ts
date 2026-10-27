@@ -960,6 +960,28 @@ ${label(27, 400, 200, 'Element="7" NumHydrogens="1"', "NH", "Left", "Below")}${n
   console.log("cdxml.check: spectra as ChemDraw's spectrum object ok");
 }
 
+// File fidelity: tritium (T) is hydrogen-3 as D is hydrogen-2; an atom number ChemDraw keeps hidden stays hidden.
+{
+  const every = (x: Xml): Xml[] => [x, ...x.kids.flatMap(every)];
+  const m: Mol = { atoms: [A("C", 0, 0, { number: "1" }), A("T", 1, 0, { hiddenNumber: "2" }), A("D", -1, 0), A("C", 0, 1, { text: "CT3" })], bonds: [b(0, 1), b(0, 2), b(0, 3)] };
+  // CT3 drawn out (as Octet expands a label it knows): its carbon and three tritium atoms.
+  const ct3: Mol = { atoms: [A("C", 0, 0), A("T", 1, 0), A("T", -1, 0), A("T", 0, 1)], bonds: [b(0, 1), b(0, 2), b(0, 3)] };
+  const nodes = every(parseXml(toCdxml(m, DEFAULT_STYLE, { expand: (t) => (t === "CT3" ? ct3 : undefined) }))).filter((x) => x.name === "n" && x.attrs.NodeType !== "ExternalConnectionPoint");
+  const text = (n: Xml) => every(n).filter((k) => k.name === "s").map((k) => k.text).join("");
+  assert.deepEqual([nodes[1].attrs.Element, nodes[1].attrs.Isotope, text(nodes[1]), nodes[2].attrs.Element, nodes[2].attrs.Isotope], ["1", "3", "T", "1", "2"]);
+  assert.deepEqual(nodes.filter((n) => n.attrs.Isotope === "3").length, 4, "T and the CT3 label's three tritium atoms");
+  assert.deepEqual([nodes[0].attrs.AtomNumber, nodes[0].attrs.ShowAtomNumber, nodes[1].attrs.AtomNumber, nodes[1].attrs.ShowAtomNumber], ["1", "yes", "2", undefined]);
+  const back = fromCdxml(toCdxml(m, DEFAULT_STYLE)).mol;
+  assert.deepEqual(back.atoms.slice(0, 3).map((a) => [a.label, a.isotope, a.number, a.hiddenNumber]), [["C", undefined, "1", undefined], ["T", undefined, undefined, "2"], ["D", undefined, undefined, undefined]]);
+  assert.equal(back.atoms[3].text, "CT3");
+  // ChemDraw's own: a T label on hydrogen-3, and AtomNumber with no ShowAtomNumber (as Name to Structure leaves them).
+  const cd = fromCdxml(`<CDXML BondLength="14.40"><page id="1"><fragment id="2"><n id="3" p="100 100" AtomNumber="0"/><n id="4" p="114.4 100" Element="1" Isotope="3" NumHydrogens="0" AtomNumber="1"><t p="111 104"><s font="3" size="10" face="96">T</s></t></n><b id="5" B="3" E="4"/></fragment></page></CDXML>`);
+  assert.deepEqual(cd.lost, {});
+  assert.deepEqual(cd.mol.atoms.map((a) => [a.label, a.text, a.isotope, a.number, a.hiddenNumber]), [["C", undefined, undefined, undefined, "0"], ["T", undefined, undefined, undefined, "1"]]);
+  assert.deepEqual(parse(serialize(cd.mol)).atoms.map((a) => a.hiddenNumber), ["0", "1"]);
+  console.log("cdxml.check: tritium and hidden atom numbers ok");
+}
+
 // Sam's corpus (on this Mac only): every text ChemDraw keeps above or below an arrow is written back where it was.
 {
   const CORPUS = join(homedir(), "octet-research/corpus/sam");

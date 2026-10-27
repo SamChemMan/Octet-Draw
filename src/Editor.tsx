@@ -1356,11 +1356,16 @@ export default function Editor() {
     set(m, true);
   }
   // Show or hide atom numbers. Each atom's number is its place in its structure, counting from 1, as ChemDraw numbers
-  // atoms in the order they were drawn. When every one of the atoms already shows its number, they are hidden.
+  // atoms in the order they were drawn, or the number it keeps hidden. When every one of the atoms already shows its
+  // number, they are hidden, and kept, as ChemDraw keeps them.
   function numberAtoms(atoms: number[]) {
     const hide = atoms.every((i) => doc.atoms[i]?.number), place = new Map<number, number>();
     for (const g of fragments(doc)) [...g].sort((p, q) => p - q).forEach((i, k) => place.set(i, k + 1));
-    set({ ...doc, atoms: doc.atoms.map((a, i) => (!atoms.includes(i) ? a : hide ? { ...a, number: undefined } : a.number ? a : { ...a, number: String(place.get(i) ?? 1) })) }, true);
+    const flip = (a: Atom, i: number): Atom => {
+      const { number, hiddenNumber, ...rest } = a;
+      return hide ? { ...rest, hiddenNumber: number } : number ? a : { ...rest, number: hiddenNumber ?? String(place.get(i) ?? 1) };
+    };
+    set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.includes(i) ? flip(a, i) : a)) }, true);
   }
   // A structure from another program's file or the clipboard, as Settings asks: MDL files' chiral flag shows as stereo
   // flags only with Stereo flags from the chiral flag on (ChemDraw's Show Stereoflags When Opening MDL Format Files);
