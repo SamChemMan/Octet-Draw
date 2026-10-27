@@ -1,5 +1,26 @@
 # Roadmap
 
+## Now (Sam, 27 October 2026: "everything other than the signing keys is tractable. Get to work, methodically")
+
+Parked by Sam: signing keys (they cost money), institutional features, the other Octet apps. Updates are on by
+default (decision 0010).
+
+| Work | Status |
+|---|---|
+| Updates on by default | Done (71dab94) |
+| ChemDraw file fidelity: hand-placed conditions, set label justification, turned labels, the 12 failing round trips | In progress |
+| Template and clip-art library (CD-32), paddlewheels and ligands | In progress |
+| Measured spectra from JCAMP-DX, with peak assignment (CH-29) | In progress |
+| Naming gaps: mixtures with ratios, mixed-metal and cluster complexes, configuration at metals, η drawn with bonds, typography of names | In progress |
+| Platform: Linux Edit menu, Mac Quit from the Dock, pictures in EMF and EPS, Windows and Linux test runs on CI | In progress |
+| Mass Spec Analysis (CH-40), with isotope patterns and the HRMS line | In progress |
+| Check the Revvity claims in the LinkedIn draft | In progress |
+| ChemDraw session: the 13 checks in ~/octet-research/notes/chemdraw-checks-pending.md | Waiting for Sam to allow full-screen control |
+| Reaxys: reproduce what fails in the built app, then fix | Waiting for the ChemDraw session |
+| Template features ChemDraw has: edit in place, rows and columns, floating palettes, .ctp files, a user dictionary | Next, after the template library |
+| Launch: the website on Cloudflare Pages | Next; needs Sam's Cloudflare sign-in |
+| Signing and notarisation | Parked: needs Sam's keys |
+
 ## Version 1.1.0: next steps
 
 Sam moved these three features from 1.0 to 1.1.0 on 18 October 2026. They are the next steps after 1.0.0. Build them in this order.
