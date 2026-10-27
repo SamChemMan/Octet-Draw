@@ -50,7 +50,7 @@ const NAMED = {
   ],
   "Nucleobases": [["Adenine"], ["Guanine"], ["Cytosine"], ["Thymine"], ["Uracil"]],
   "Stereocentres": [
-    ["(R)-Bromochlorofluoromethane", "smiles:F[C@@H](Cl)Br", "CHBrClF"], ["(S)-Bromochlorofluoromethane", "smiles:F[C@H](Cl)Br", "CHBrClF"],
+    ["(R)-Bromochlorofluoromethane", "(1R)-bromo(chloro)(fluoro)methane", "CHBrClF"], ["(S)-Bromochlorofluoromethane", "(1S)-bromo(chloro)(fluoro)methane", "CHBrClF"],
     ["(R)-Butan-2-ol", "(2R)-butan-2-ol", "2-butanol"], ["(S)-Butan-2-ol", "(2S)-butan-2-ol", "2-butanol"],
     ["(R)-Lactic acid", "(2R)-2-hydroxypropanoic acid", "D-lactic acid"], ["(S)-Lactic acid", "(2S)-2-hydroxypropanoic acid", "L-lactic acid"],
     ["(R)-Glyceraldehyde", "(2R)-2,3-dihydroxypropanal", "D-glyceraldehyde"], ["(S)-Glyceraldehyde", "(2S)-2,3-dihydroxypropanal", "L-glyceraldehyde"],
@@ -105,13 +105,13 @@ const NAMED = {
 };
 // Functional groups: [name, SMILES with the R atom first, more words].
 const GROUPS = [
-  ["Alkene", "C=C", "vinyl"], ["Alkyne", "CC#C", "ethynyl"], ["Halide", "CX", "alkyl halide, halogen"], ["Alcohol", "CO", "hydroxy"],
+  ["Alkene", "CC=C", "vinyl"], ["Alkyne", "CC#C", "ethynyl"], ["Halide", "CX", "alkyl halide, halogen"], ["Alcohol", "CO", "hydroxy"],
   ["Ether", "COC", "methoxy"], ["Aldehyde", "CC=O", "formyl"], ["Ketone", "CC(C)=O", "carbonyl"], ["Carboxylic acid", "CC(=O)O", "carboxy, COOH"],
   ["Ester", "CC(=O)OC", "carboxylate"], ["Amide", "CC(N)=O", "carboxamide"], ["Weinreb amide", "CC(=O)N(C)OC"], ["Acid chloride", "CC(Cl)=O", "acyl chloride"],
   ["Anhydride", "CC(=O)OC(C)=O", "acid anhydride"], ["Imide", "CC(=O)NC(C)=O"], ["Thioester", "CC(=O)SC"], ["Nitrile", "CC#N", "cyano"],
   ["Primary amine", "CN", "amino"], ["Secondary amine", "CNC", "amino"], ["Tertiary amine", "CN(C)C", "amino"], ["Imine", "C/C=N/C", "Schiff base"],
   ["Oxime", "C/C=N/O"], ["Hydrazone", "C/C=N/N"], ["Nitro", "C[N+](=O)[O-]"], ["Nitroso", "CN=O"], ["Azide", "CN=[N+]=[N-]"],
-  ["Diazo", "C=[N+]=[N-]"], ["Isocyanate", "CN=C=O"], ["Isothiocyanate", "CN=C=S"], ["Carbamate", "CNC(=O)OC", "urethane"],
+  ["Diazo", "CC=[N+]=[N-]"], ["Isocyanate", "CN=C=O"], ["Isothiocyanate", "CN=C=S"], ["Carbamate", "CNC(=O)OC", "urethane"],
   ["Urea", "CNC(N)=O"], ["Guanidine", "CNC(N)=N"], ["Carbonate", "COC(=O)OC"], ["Acetal", "CC(OC)OC"], ["Thiol", "CS", "sulfanyl, mercaptan"],
   ["Sulfide", "CSC", "thioether"], ["Disulfide", "CSSC"], ["Sulfoxide", "CS(C)=O"], ["Sulfone", "CS(C)(=O)=O"], ["Sulfonic acid", "CS(=O)(=O)O"],
   ["Sulfonamide", "CS(N)(=O)=O"], ["Sulfonate ester", "CS(=O)(=O)OC", "mesylate, tosylate"], ["Phosphate", "COP(=O)(O)O"],
@@ -149,16 +149,20 @@ function laidOut(smiles) {
   const cx = atoms.reduce((s, a) => s + a.x, 0) / atoms.length, cy = atoms.reduce((s, a) => s + a.y, 0) / atoms.length;
   return { atoms: atoms.map((a) => ({ ...a, x: r3((a.x - cx) * k), y: r3((a.y - cy) * k) })), bonds };
 }
+// KET's radical (1 a singlet, as a carbene's lone pair; 2 one unpaired electron; 3 two) as Octet keeps it (render.ts
+// Atom.radical: 1 a doublet, 2 a triplet, 3 a singlet).
+const octetRadical = (r) => (r === 1 ? 3 : r - 1);
 // A laid-out structure in the library's short form: [label, x, y, charge, radical] and [a, b, type, stereo].
 const compact = ({ atoms, bonds }) => ({
-  atoms: atoms.map((a) => [a.label, a.x, a.y, ...(a.charge || a.radical ? [a.charge ?? 0] : []), ...(a.radical ? [a.radical - 1] : [])]), bonds,
+  atoms: atoms.map((a) => [a.label, a.x, a.y, ...(a.charge || a.radical ? [a.charge ?? 0] : []), ...(a.radical ? [octetRadical(a.radical)] : [])]), bonds,
 });
 // The same as a Mol, for structures the short form cannot hold (a written label).
 const asMol = ({ atoms, bonds }) => ({
-  atoms: atoms.map((a) => ({ label: a.label, location: [a.x, a.y, 0], ...(a.charge ? { charge: a.charge } : {}), ...(a.radical ? { radical: a.radical - 1 } : {}) })),
+  atoms: atoms.map((a) => ({ label: a.label, location: [a.x, a.y, 0], ...(a.charge ? { charge: a.charge } : {}), ...(a.radical ? { radical: octetRadical(a.radical) } : {}) })),
   bonds: bonds.map(([a, b, type, stereo]) => ({ type, atoms: [a, b], ...(stereo ? { stereo } : {}) })),
 });
 const entry = (name, also, body) => ({ name, ...(also ? { also } : {}), ...body });
+
 
 // The way (of several drawings) that is the named compound: its InChI, stereochemistry included, is the name's.
 function picker(name) {
@@ -173,6 +177,8 @@ function picker(name) {
 const fail = (what) => { throw new Error(what); };
 
 const out = [];
+// Bridged rings (norbornane, adamantane) stay flat, as Indigo lays them out: drawn in 3D, their bridgeheads read as
+// stereocentres, and Structure to Name gives them no name.
 const named = (category) => NAMED[category].flatMap(([shown, source = shown, also]) => {
   const smiles = smilesOf(source);
   if (!smiles) { failed.push(shown); return []; }
@@ -220,6 +226,8 @@ out.push({ name: "Functional groups", items: GROUPS.map(([name, smiles, also]) =
   // The first atom is R, where the group joins; X is any halogen.
   m.atoms[0] = { ...m.atoms[0], label: "C", text: "R" };
   if (smiles.includes("X")) m.atoms[1] = { ...m.atoms[1], label: "C", text: "X" };
+  // A carbon between two double bonds (N=C=O) shows its C, or the two bonds read as one long one.
+  m.atoms.forEach((a, i) => { if (a.label === "C" && !a.text && m.bonds.filter((b) => b.type === 2 && b.atoms.includes(i)).length === 2) m.atoms[i] = { ...a, shown: true }; });
   return entry(name, also, { mol: m });
 }) });
 out.push({ name: "Ligands", items: [...named("Ligands"), DPPF] });

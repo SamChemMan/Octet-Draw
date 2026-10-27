@@ -268,7 +268,8 @@ function column() {
 function heatingMantle() {
   const R = 1.2, r = 1.0, rim = 0.2, foot = rim - R;
   return item("Heating mantle", "heating, reflux", [
-    closed([...new Path(-R, rim).a(0, rim, 270).a(0, rim, 360).p, ...reverse(new Path(-r, rim).a(0, rim, 270).a(0, rim, 360).p)]),
+    // Round the bottom: from the left (180°) down to the foot (270°), then from the foot (-90°) up to the right (0°).
+    closed([...new Path(-R, rim).a(0, rim, 270).a(0, rim, 0).p, ...reverse(new Path(-r, rim).a(0, rim, 270).a(0, rim, 0).p)]),
     closed(new Path(-1.45, foot - 0.5).l(1.45, foot - 0.5).l(1.45, foot).l(-1.45, foot).p),
     detail(closed(new Path(1.05, foot - 0.37).a(1.05, foot - 0.25, 270).p)),
     ...[-0.5, 0, 0.5].map((x) => detail(open(new Path(x - 0.12, -0.45).c(x - 0.04, -0.33, x + 0.04, -0.57, x + 0.12, -0.45).p))),

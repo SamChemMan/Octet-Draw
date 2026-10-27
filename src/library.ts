@@ -5,8 +5,8 @@
 // curves and lines in one integral group, tools/library/lab.mjs). A template's variant name in the Ring tool's list
 // is "lib:" and its name. also: more words the library search finds it by. icon: the part of a Lab item its 20 px icon
 // draws.
-import data from "./library.json";
-import type { Arrow, Group, Mol } from "./render";
+import data from "./library.json" with { type: "json" };
+import type { Arrow, Group, Mol } from "./render.ts";
 
 export type LibraryItem = { kind: string; name: string; category: string; mol: Mol; also?: string; icon?: Mol };
 type Raw = { name: string; items: { name: string; also?: string; atoms?: (string | number)[][]; bonds?: number[][]; arrows?: Arrow[]; groups?: Group[]; icon?: number[]; mol?: Mol }[] }[];
