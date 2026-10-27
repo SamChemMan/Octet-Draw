@@ -23,10 +23,12 @@ Give every item a name, so the library search finds it. Each item must look righ
 
 ### 2. Measured spectra (audit item CH-29)
 
-Octet predicts ¹H and ¹³C spectra. It cannot open a measured spectrum.
+Built 27 October 2026 for Sam to review (decision 0016). Octet opens JCAMP-DX and Bruker spectra into the Spectrum panel, picks peaks and multiplets, and links them to atoms.
 
 - Read JCAMP-DX files (with size and nesting limits, as for every opened file) into a spectrum in the Spectrum panel.
 - Let the user link each measured peak to its atoms, with the peak and atom lighting Octet already uses for predicted peaks.
+
+Still to do: write and read ChemDraw's CDXML spectrum object, link peaks to bonds as ChemDraw does, and read Galactic SPC files.
 
 ### 3. Mass Spec Analysis (audit item CH-40)
 
