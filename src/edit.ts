@@ -2038,12 +2038,16 @@ export function pivotOf(m: Mol, ids: Set<number>): number | undefined {
 
 // Copy: the selected atoms (with the bonds between them) and picked objects as a drawing of their own, with the
 // text that belongs to them (captions under the copied atoms, conditions on copied arrows, labels of copied cycles),
-// the groups wholly inside and the stoichiometry grids of copied arrows. Ids stay as they were; insertMol gives new ones.
-export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>): Mol {
+// the groups wholly inside and the stoichiometry grids of copied arrows. A picked caption whose atoms, arrow or cycle
+// stay behind comes as free text at `at` (where it is drawn). Ids stay as they were; insertMol gives new ones.
+export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>, at?: (c: Caption) => P | undefined): Mol {
   const sel = [...atoms].filter((i) => i < m.atoms.length).sort((p, q) => p - q), map = new Map(sel.map((i, k) => [i, k]));
   const arrows = (m.arrows ?? []).filter((a) => items.has(a.id)), cycles = (m.cycles ?? []).filter((c) => items.has(c.id) && c.nodes.every((n) => n.every((i) => map.has(i))));
   const keep = new Set([...items, ...arrows.map((a) => a.id), ...cycles.map((c) => c.id)]);
-  const captions = (m.captions ?? []).filter((c) => (c.under ? c.under.every((i) => map.has(i)) : c.on ? keep.has(c.on.arrow) : c.cycle ? keep.has(c.cycle.cycle) : keep.has(c.id)));
+  // A caption tied to atoms, an arrow or a cycle comes with them, or on its own when it is picked: then it is free text
+  // where it was, since what it was tied to stays behind.
+  const tied = (c: Caption) => (c.under ? c.under.every((i) => map.has(i)) : c.on ? keep.has(c.on.arrow) : c.cycle ? keep.has(c.cycle.cycle) : false);
+  const captions = (m.captions ?? []).filter((c) => tied(c) || keep.has(c.id));
   const ids = new Set([...keep, ...captions.map((c) => c.id)]);
   // Kept ChemDraw data comes with its caption only when all its atoms come too.
   const copied = <T extends Caption | Shape>(x: T): T => {
@@ -2053,7 +2057,11 @@ export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>)
   return {
     atoms: sel.map((i) => renumberCentre({ ...m.atoms[i] }, map)),
     bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] as [number, number] })),
-    captions: captions.map((c) => copied({ ...c, ...(c.under ? { under: c.under.map((i) => map.get(i)!) } : {}) })),
+    captions: captions.map((c) => {
+      if (tied(c)) return copied({ ...c, ...(c.under ? { under: c.under.map((i) => map.get(i)!) } : {}) });
+      const { under: _u, on: _o, cycle: _c, ...free } = c, [x, y] = at?.(c) ?? [c.x, c.y];
+      return copied({ ...free, x, y });
+    }),
     arrows, shapes: (m.shapes ?? []).filter((x) => items.has(x.id)).map(copied),
     cycles: cycles.map((c) => ({ ...c, nodes: c.nodes.map((n) => n.map((i) => map.get(i)!)) })),
     groups: (m.groups ?? []).filter((g) => g.atoms.every((i) => map.has(i)) && g.items.every((id) => ids.has(id))).map((g) => ({ ...g, atoms: g.atoms.map((i) => map.get(i)!) })),

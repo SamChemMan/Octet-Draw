@@ -532,7 +532,7 @@ export default function Editor() {
     const kind = contextOf().kind;
     if (kind !== "atom" && kind !== "bond") return selectedPart();
     const [atoms, items] = wholeIntegral(doc, new Set(fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat()), picked);
-    return extractSelection(doc, atoms, items);
+    return extractSelection(doc, atoms, items, drawnAt);
   };
   // Add in My templates or a set of the user's: the selection goes in at once. With nothing selected, the library gets
   // out of the way and the next structure clicked goes in (templatePick); Escape stops it.
@@ -918,11 +918,13 @@ export default function Editor() {
   }
   // The selection as a drawing of its own, kept while the drawing and the selection stay the same.
   const partKept = useRef<{ doc: Mol; selection: Set<number>; picked: Set<number>; part: Mol }>(undefined);
+  // Where a caption is drawn: a picked caption copied without its structure, arrow or cycle goes there as free text.
+  const drawnAt = (c: Caption) => { const q = placed.find((x) => x.id === c.id); return q && anchorOf(q); };
   const selectedPart = () => {
     if (!selection.size && !picked.size) return undefined;
     const s = partKept.current;
     if (s?.doc === doc && s.selection === selection && s.picked === picked) return s.part;
-    return (partKept.current = { doc, selection, picked, part: extractSelection(doc, selection, picked) }).part;
+    return (partKept.current = { doc, selection, picked, part: extractSelection(doc, selection, picked, drawnAt) }).part;
   };
   // Export… (⌃⌘E, and the Export button): the settings first, with the whole drawing's picture and, when something is
   // selected, the selection's. The chosen format is made when the dialog shows it. Then the Save dialog for that format.
@@ -3295,7 +3297,7 @@ export default function Editor() {
       if (!part) return;
       setTemplatePick(undefined);
       setHover({});
-      return addPart(extractSelection(doc, ...part), templatePick.set, templatePick.tool);
+      return addPart(extractSelection(doc, ...part, drawnAt), templatePick.set, templatePick.tool);
     }
     // On the Mac a Control-click is the right-click (onContextMenu): the press does nothing more, but on a resize handle.
     if (MAC && e.ctrlKey) {
@@ -5315,7 +5317,7 @@ export default function Editor() {
     // A selection let go on a template set (or the Ring or Template tool) goes into it and stays where it was. Copies an
     // Option-drag made are not kept.
     if (drag.kind === "move" && drag.moved && over?.dataset.dropSet) {
-      const part = extractSelection(drag.base ?? doc, drag.atoms ?? selection, picked);
+      const part = extractSelection(drag.base ?? doc, drag.atoms ?? selection, picked, drawnAt);
       if (drag.base && drag.base !== doc) { setSelection(new Set()); setPicked(new Set()); }
       return addPart(part, over.dataset.dropSet, over.dataset.dropTool === "template" ? "template" : "ring");
     }
