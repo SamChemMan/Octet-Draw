@@ -45,6 +45,7 @@ export function serialize(mol: Mol): string {
     ...(c.size ? { size: c.size } : {}), ...(c.align ? { align: c.align } : {}), ...(c.under ? { under: c.under } : {}), ...(c.colour ? { colour: c.colour } : {}),
     ...(c.font ? { font: c.font } : {}), ...(c.runs ? { runs: c.runs } : {}), ...(c.property ? { property: c.property } : {}), ...(c.angle ? { angle: round(c.angle) } : {}), ...(c.order ? { order: c.order } : {}), ...(c.lineHeight ? { lineHeight: c.lineHeight } : {}), ...(c.width ? { width: round(c.width) } : {}), ...(c.chemical === false ? { chemical: false } : {}),
     ...(c.on ? { on: { arrow: arrowList.findIndex((a) => a.id === c.on!.arrow), side: c.on.side } } : {}),
+    ...(c.on && c.placed ? { placed: { at: c.placed.at.map(round), arrow: c.placed.arrow.map(round) } } : {}),
     ...(c.cycle ? { cycle: { cycle: cycleList.findIndex((x) => x.id === c.cycle!.cycle), step: c.cycle.step, side: c.cycle.side } } : {}),
   }));
   // Groups name their objects by kind and place in the lists above: c caption, a arrow, s shape, y cycle.
@@ -357,7 +358,8 @@ function readCaptions(raw: unknown, out: Mol, num: (v: unknown) => boolean, int:
   if (!Array.isArray(d.captions) || d.captions.length > MAX_CAPTIONS) throw new Error("This drawing is damaged.");
   out.captions = (d.captions as Record<string, unknown>[]).map((c, k) => {
     const under = c?.under as unknown[] | undefined, on = c?.on as { arrow?: unknown; side?: unknown } | undefined;
-    const cyc = c?.cycle as { cycle?: unknown; step?: unknown; side?: unknown } | undefined;
+    const cyc = c?.cycle as { cycle?: unknown; step?: unknown; side?: unknown } | undefined, placed = c?.placed as { at?: unknown; arrow?: unknown } | undefined;
+    const pair = (v: unknown) => Array.isArray(v) && v.length === 2 && v.every(num);
     if (typeof c?.text !== "string" || c.text.length > MAX_TEXT || /[\u0000-\u0009\u000b-\u001f]/.test(c.text) || !num(c.x) || !num(c.y)
       || (c.bold !== undefined && typeof c.bold !== "boolean") || (c.italic !== undefined && typeof c.italic !== "boolean") || (c.underline !== undefined && typeof c.underline !== "boolean")
       || (c.size !== undefined && !isSize(c.size))
@@ -366,6 +368,7 @@ function readCaptions(raw: unknown, out: Mol, num: (v: unknown) => boolean, int:
       || (under !== undefined && (!Array.isArray(under) || !under.length || under.length > out.atoms.length || !under.every((i) => int(i, 0, out.atoms.length - 1))))
       || (on !== undefined && (!int(on?.arrow, 0, (out.arrows?.length ?? 0) - 1) || (on.side !== "above" && on.side !== "below")))
       || (cyc !== undefined && (!int(cyc?.cycle, 0, (out.cycles?.length ?? 0) - 1) || !int(cyc.step, 0, 63) || !["in", "out", "centre"].includes(cyc.side as string)))
+      || (placed !== undefined && (on === undefined || !pair(placed?.at) || !pair(placed.arrow)))
       || (c.font !== undefined && !fontName(c.font)) || (c.runs !== undefined && readRuns(c.runs, c.text) === undefined)
       || (c.angle !== undefined && !(num(c.angle) && Math.abs(c.angle as number) <= 360))
       || (c.property !== undefined && !readKept(c.property, PROPERTY_ATTRS, out.atoms.length))) throw new Error("This drawing is damaged.");
@@ -388,6 +391,7 @@ function readCaptions(raw: unknown, out: Mol, num: (v: unknown) => boolean, int:
     if (c.chemical === false) caption.chemical = false;
     if (under) caption.under = under as number[];
     if (on) caption.on = { arrow: out.arrows![on.arrow as number].id, side: on.side as "above" | "below" };
+    if (placed) caption.placed = { at: placed.at as [number, number], arrow: placed.arrow as [number, number] };
     if (cyc) caption.cycle = { cycle: out.cycles![cyc.cycle as number].id, step: cyc.step as number, side: cyc.side as "in" | "out" | "centre" };
     return caption;
   });

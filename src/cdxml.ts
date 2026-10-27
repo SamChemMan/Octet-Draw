@@ -10,7 +10,7 @@
 import { FONTS, PAGES, fontName, pageSize, readGuides, readStyle, type DocStyle } from "./docstyle.ts";
 import {
   HBOND, HIGHLIGHT, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, tlcLayout, turnPoint, TABLE_PAD,
-  ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, headSize, headOfLength, marked, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, type HeadSize,
+  ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, placedAt, headSize, headOfLength, marked, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, type HeadSize,
   type Annotation, type Arrow, type ArrowKind, type Kept, type Atom, type AtomQuery, type Bond, type Polymer, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape, type RingFill,
   type LineStyle, type Mol, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
@@ -830,16 +830,28 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   for (const a of opts.derived ?? []) { zOrder = a.order; if (a.kind !== "orbital" && a.kind !== "curve") arrowOut(a, true); }
 
   // Captions: style runs (spec 8.1), the caption's own style as the text's caption style, and the anchor by its
-  // alignment. Captions Octet places itself (under a structure, on an arrow) are written where Octet would put them.
+  // alignment. Captions Octet places itself (under a structure, on an arrow) are written where Octet would put them;
+  // conditions placed by hand where they are, marked so Octet keeps them there.
   const captions = [...(mol.captions ?? [])].sort((p, q) => p.id - q.id);
   const stacked = new Map<string, number>(), kept: string[] = [];
   // A live property's basis: its atoms' nodes and the bonds between them.
   const basis = (atoms: Set<number>) => [...[...atoms].sort((p, q) => p - q).map((i) => nodeId.get(i)), ...mol.bonds.flatMap((b, n) => (atoms.has(b.atoms[0]) && atoms.has(b.atoms[1]) ? [bondId[n]] : []))].join(" ");
-  // Conditions stack away from their arrow in the order Octet draws them (placeCaptions): compound numbers first, then
-  // by id. Each one's distance (pt) past the gap.
+  // Conditions placed by hand stay where they are (placedAt), and the others on their side stack out past them. Those
+  // stack away from their arrow in the order Octet draws them (placeCaptions): compound numbers first, then by id.
+  // Each one's distance (pt) past the gap.
   const besides = new Map<string, number>(), further = new Map<number, number>();
+  for (const c of captions) {
+    const arrow = c.on && mol.arrows?.find((a) => a.id === c.on!.arrow), hand = placedAt(c, mol.arrows);
+    if (!arrow || !hand) continue;
+    // How far it reaches from the arrow on its side, as placeCaptions measures it.
+    const size = c.size ?? style.captionSize, q = at(hand), S = at(arrow.from), T = at(arrow.to), mid: P = [(S[0] + T[0]) / 2, (S[1] + T[1]) / 2], d = sub(T, S), above = c.on!.side === "above";
+    const w = Math.max(...c.text.split("\n").map((l) => widthOf(l, size))), offs = lineOffsets(c, size, 1), own = c.align === "justify" ? "left" : c.align ?? "centre";
+    const left = own === "left" ? q[0] : own === "right" ? q[0] - w : q[0] - w / 2, key = `${arrow.id} ${c.on!.side}`;
+    const reach = Math.abs(d[0]) >= 0.5 * len(d) ? (above ? mid[1] - (q[1] - ASCENT * size) : q[1] + offs[offs.length - 1] + DESCENT * size - mid[1]) : above ? mid[0] - left : left + w - mid[0];
+    besides.set(key, Math.max(besides.get(key) ?? 0, reach + 0.2 * size - GAP_ARROW_PT * scaleOf(arrow)));
+  }
   for (const c of [...captions].sort((p, q) => Number(isNumber(q)) - Number(isNumber(p)) || p.id - q.id)) {
-    if (!c.on || !mol.arrows?.some((a) => a.id === c.on!.arrow)) continue;
+    if (!c.on || !mol.arrows?.some((a) => a.id === c.on!.arrow) || placedAt(c, mol.arrows)) continue;
     const size = c.size ?? style.captionSize, key = `${c.on.arrow} ${c.on.side}`, used = besides.get(key) ?? 0;
     further.set(c.id, used);
     const offs = lineOffsets(c, size, 1);
@@ -849,9 +861,10 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     zOrder = c.order;
     const size = c.size ?? style.captionSize, own = c.align === "justify" ? "left" : c.align ?? "centre", lines = c.text.split("\n").length;
     let [x, y] = [c.x, c.y], align = own;
-    const arrow = c.on && mol.arrows?.find((a) => a.id === c.on!.arrow);
+    const arrow = c.on && mol.arrows?.find((a) => a.id === c.on!.arrow), hand = arrow && placedAt(c, mol.arrows);
     const atoms = (c.under ?? []).filter((i) => i < mol.atoms.length);
-    if (atoms.length) {
+    if (hand) [x, y] = hand;
+    else if (atoms.length) {
       const xs = atoms.map((i) => mol.atoms[i].location[0]), key = [...atoms].sort((p, q) => p - q).join(" "), k = stacked.get(key) ?? 0;
       stacked.set(key, k + lines);
       x = align === "left" ? Math.min(...xs) - 0.3 : align === "right" ? Math.max(...xs) + 0.3 : (Math.min(...xs) + Math.max(...xs)) / 2;
@@ -878,7 +891,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       // Line spacing as ChemDraw writes it: a text's LineHeight is auto or pt, and Variable is its caption style's.
       CaptionJustification: just, Justification: just, LineHeight: c.lineHeight === "variable" ? undefined : typeof c.lineHeight === "number" ? fmtSize(c.lineHeight) : "auto",
       CaptionLineHeight: c.lineHeight === "variable" ? "variable" : undefined, InterpretChemically: c.chemical === false ? "no" : undefined, RotationAngle: c.angle ? Math.round((((-c.angle % 360) + 360) % 360) * 65536) || undefined : undefined,
-      Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined,
+      Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined, placed: hand ? 1 : undefined,
         align: align !== own ? c.align ?? "centre" : undefined, width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined }),
     }, runs.map((r) => run(r.text, { font: r.font ?? c.font ?? style.captionFont, size: r.size ?? size, colour: r.colour ?? c.colour, face: face({ ...whole, ...r }) })).join("")), 2, box, c.id);
     if (c.property) {
@@ -1142,7 +1155,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   const atomOf = new Map<number, number>(), objectOf = new Map<number, number>(), arrowOfGraphic = new Map<number, number>();
   const labels: { i: number; text: string; type: string; isotope?: number; plain?: boolean }[] = [];
   const numH = new Map<number, number>(), delocalised: { k: number; order?: 1 | 2 }[] = [], ovals: { id: number; c: P; r: number }[] = [];
-  const bondsToRead: Xml[] = [], symbols: { x: Xml; atoms: number[]; group?: G }[] = [], steps: Xml[] = [], unders: { c: Caption; nodes: unknown }[] = [];
+  const bondsToRead: Xml[] = [], symbols: { x: Xml; atoms: number[]; group?: G }[] = [], steps: Xml[] = [], unders: { c: Caption; nodes: unknown }[] = [], anchors = new Map<number, P>();
   const brackets: { x: Xml; id: number; z: number; group?: G; ends: number[] }[] = [], properties: Xml[] = [];
   // Query and Markush objects: attachments' atoms (by node id), bracketed groups, R-Logic rows.
   const centres: { i: number; ids: number[]; variable: boolean }[] = [], bracketed: Xml[] = [], logic: Xml[] = [];
@@ -1572,6 +1585,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     // Interpret Chemically off on this text: it is text only.
     if (t.attrs.InterpretChemically !== undefined && !yes(t.attrs.InterpretChemically)) c.chemical = false;
     if (p?.under) unders.push({ c, nodes: p.under });
+    // Where the file puts it, for conditions placed by hand (every one in a ChemDraw file; in Octet's, those it marks).
+    if (!octet || p?.placed === 1) anchors.set(c.id, toOctet(q[0], q[1]));
     const cyc = p?.cycle as Record<string, unknown> | undefined;
     if (cyc && Number.isInteger(cyc.cycle) && Number.isInteger(cyc.step) && isNum(cyc.step, 0, 63) && ["in", "out", "centre"].includes(cyc.side as string)) c.cycle = { cycle: cyc.cycle as number, step: cyc.step as number, side: cyc.side as "in" };
     captions.push(c);
@@ -1988,7 +2003,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
 
   // Steps: conditions above and below an arrow become that arrow's conditions (straight arrows, or any in Octet's
   // own files), and atom-map pairs give both atoms one map number (spec 14). Turned text stays where the file puts
-  // it, as Octet lays conditions out level.
+  // it, as Octet lays conditions out level. A ChemDraw file's conditions keep the places ChemDraw gave them, by their
+  // arrow (Caption.placed), as do those Octet's own file marks.
   function readSteps() {
     let maps = mol.atoms.reduce((m, a) => Math.max(m, a.map ?? 0), 0);
     for (const s of steps) {
@@ -1996,7 +2012,10 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (arrow && (octet || straightArrow(arrow))) for (const side of ["above", "below"] as const) {
         for (const cid of idList(s.attrs[side === "above" ? "ReactionStepObjectsAboveArrow" : "ReactionStepObjectsBelowArrow"])) {
           const c = captions.find((x) => x.id === objectOf.get(cid));
-          if (c && !c.cycle && !c.on && !c.angle && !unders.some((u) => u.c === c)) c.on = { arrow: arrow.id, side };
+          if (!c || c.cycle || c.on || c.angle || unders.some((u) => u.c === c)) continue;
+          c.on = { arrow: arrow.id, side };
+          const q = anchors.get(c.id), d: P = [arrow.to[0] - arrow.from[0], arrow.to[1] - arrow.from[1]];
+          if (q) c.placed = { at: [q[0] - (arrow.from[0] + arrow.to[0]) / 2, q[1] - (arrow.from[1] + arrow.to[1]) / 2], arrow: d };
         }
       }
       for (const key of ["ReactionStepAtomMap", "ReactionStepAtomMapManual", "ReactionStepAtomMapAuto"]) {

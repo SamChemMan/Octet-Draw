@@ -129,7 +129,20 @@ export type Caption = {
   // Interpret Chemically off (ChemDraw's InterpretChemically="no" on the text): the caption is text only, even when
   // it reads as chemistry (edit.ts chemicalCaption).
   chemical?: false;
+  // Conditions placed by hand, as a ChemDraw file has them: the anchor's offset from the middle of the arrow (bond
+  // lengths, y up), and the arrow's end less its start when they were placed. The text keeps its place, and its own
+  // alignment, while the arrow keeps that length and direction (it moves with the arrow, and keeps its place when
+  // edited, as ChemDraw keeps a text's anchor). Once the arrow is lengthened, shortened or turned, or Clean Up
+  // Reaction runs, Octet lays the text out (placedAt).
+  placed?: { at: [number, number]; arrow: [number, number] };
 };
+// Where conditions placed by hand go (their anchor, bond lengths): undefined when they are not placed by hand, or
+// their arrow has changed length or direction since.
+export function placedAt(c: Pick<Caption, "placed" | "on">, arrows?: Arrow[]): [number, number] | undefined {
+  const a = c.placed && c.on && arrows?.find((x) => x.id === c.on!.arrow), p = c.placed;
+  if (!a || !p || Math.abs(a.to[0] - a.from[0] - p.arrow[0]) > 2e-3 || Math.abs(a.to[1] - a.from[1] - p.arrow[1]) > 2e-3) return undefined;
+  return [(a.from[0] + a.to[0]) / 2 + p.at[0], (a.from[1] + a.to[1]) / 2 + p.at[1]];
+}
 // Data Octet keeps from a ChemDraw object it does not edit: the object's attributes, and the atoms it is for.
 export type Kept = { attrs: Record<string, string>; atoms: number[] };
 // An arrow from one point to another (drawing coordinates). bend: how far a curved arrow's middle sits off the
@@ -1571,7 +1584,12 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
   const k = d.scale, below = new Map<string, number>(); // the next free baseline under each structure
   const beside = new Map<string, number>(); // how far the conditions on each side of each arrow already reach
   const order = (c: Caption) => (isNumber(c) ? 0 : 1);
-  return [...(mol.captions ?? [])].sort((a, b) => order(a) - order(b) || a.id - b.id).flatMap((given) => {
+  // Conditions placed by hand go first: the others on their side of the arrow stack out past them.
+  const sorted = [...(mol.captions ?? [])].sort((a, b) => order(a) - order(b) || a.id - b.id), done = new Map<number, Placed[]>();
+  for (const c of sorted) if (placedAt(c, mol.arrows)) done.set(c.id, place(c));
+  for (const c of sorted) if (!done.has(c.id)) done.set(c.id, place(c));
+  return sorted.flatMap((c) => done.get(c.id)!);
+  function place(given: Caption): Placed[] {
     // A caption with a width wraps to it: its soft breaks become lines here, and the lines they end are justified.
     const wrapped = given.width && measure ? wrap(runsOf(given), given.width * k, (t, s) => measure(t, given, s)) : undefined;
     const c = wrapped?.soft.length ? { ...given, text: plainOf(wrapped.runs), ...(given.runs ? { runs: wrapped.runs } : {}) } : given;
@@ -1590,12 +1608,14 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
     const offs = lineOffsets(c, size, pt, ink);
     const anchor = align === "left" || align === "justify" ? "start" : align === "right" ? "end" : "middle";
     let x: number, y: number, anchorOverride: Placed["anchor"] | undefined;
-    const arrow = c.on && arrows.find((a) => a.id === c.on!.arrow);
+    const arrow = c.on && arrows.find((a) => a.id === c.on!.arrow), hand = placedAt(c, mol.arrows);
     if (c.on && !arrow) return [];
     const pinned = fixed.get(c.id);
     if (c.cycle && !pinned) return [];
     if (pinned) {
       [x, y, anchorOverride] = [pinned.x, pinned.y - offs[offs.length - 1] * (pinned.anchor === "middle" ? 0.5 : 0), pinned.anchor];
+    } else if (arrow && hand) {
+      [x, y] = [hand[0] * k, -hand[1] * k];
     } else if (arrow) {
       // Conditions: centred on the arrow's middle, GAP_ARROW_PT (times the arrow's scale) clear of it, stacking away from it.
       const [s, t] = [[arrow.from[0] * k, -arrow.from[1] * k], [arrow.to[0] * k, -arrow.to[1] * k]];
@@ -1632,6 +1652,14 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
     // A justified line (one a soft break ends) spreads its spaces to fill the width.
     const spacing = (j: number) => { const gaps = lines[j].split(" ").length - 1; return full && softLines.has(j) && gaps ? { spacing: (full - widths[j]) / gaps } : {}; };
     const frame: Box = [left, y - ASCENT * size, left + w, y + offs[offs.length - 1] + DESCENT * size];
+    if (arrow && hand) {
+      // How far it reaches from the arrow on its side: up (above) or down (below) from a level arrow, left (above) or
+      // right (below) of a steep one. Conditions laid out on that side start a line's gap past it.
+      const s: P = [arrow.from[0] * k, -arrow.from[1] * k], t: P = [arrow.to[0] * k, -arrow.to[1] * k], mid = [(s[0] + t[0]) / 2, (s[1] + t[1]) / 2], above = c.on!.side === "above";
+      const reach = Math.abs(t[0] - s[0]) >= 0.5 * Math.hypot(t[0] - s[0], t[1] - s[1]) ? (above ? mid[1] - frame[1] : frame[3] - mid[1]) : above ? mid[0] - frame[0] : frame[2] - mid[0];
+      const key = `${arrow.id} ${c.on!.side}`;
+      beside.set(key, Math.max(beside.get(key) ?? 0, reach + 0.2 * size - GAP_ARROW_PT * scaleOf(arrow) * pt));
+    }
     const turned = c.angle ? ([[frame[0], frame[1]], [frame[2], frame[1]], [frame[2], frame[3]], [frame[0], frame[3]]] as P[]).map((q) => turnPx(q, [x, y], c.angle!)) : undefined;
     return [{
       id: c.id, size, bold: c.bold, italic: c.italic, underline: c.underline, colour: c.colour, anchor: at, font: c.font, ...(c.order ? { order: c.order } : {}),
@@ -1639,16 +1667,17 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
       box: turned ? [Math.min(...turned.map((q) => q[0])), Math.min(...turned.map((q) => q[1])), Math.max(...turned.map((q) => q[0])), Math.max(...turned.map((q) => q[1]))] : frame,
       ...(turned ? { angle: c.angle, pivot: [x, y] as P, frame } : {}),
     }];
-  });
+  }
 }
 
 // Arrows grow to fit their conditions: a straight arrow is lengthened about its middle until the widest
-// conditions text has ARROW_MARGIN_PT clear at each end. Curved arrows keep their shape.
+// conditions text has ARROW_MARGIN_PT clear at each end. Curved arrows keep their shape. Text placed by hand
+// (placedAt) does not count: it keeps its place by the arrow as drawn.
 const ARROW_MARGIN_PT = 6;
 export function fitArrows(mol: Mol, scale: number, width: (c: Caption) => number, pt = 4 / 3): Arrow[] {
   return (mol.arrows ?? []).map((a) => {
     if (curved(a)) return a;
-    const widest = Math.max(0, ...(mol.captions ?? []).filter((c) => c.on?.arrow === a.id).map(width));
+    const widest = Math.max(0, ...(mol.captions ?? []).filter((c) => c.on?.arrow === a.id && !placedAt(c, mol.arrows)).map(width));
     const need = (widest + 2 * ARROW_MARGIN_PT * scaleOf(a) * pt) / scale, len = Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]);
     if (!widest || len >= need || !len) return a;
     const grow = (need - len) / 2 / len, d = [(a.to[0] - a.from[0]) * grow, (a.to[1] - a.from[1]) * grow];

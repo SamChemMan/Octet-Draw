@@ -2877,7 +2877,7 @@ export default function Editor() {
       captions: m.captions?.map((c) => {
         const from = captions.get(c.id);
         if (!from) return c;
-        const { under: _u, on: _o, cycle: _c, ...free } = c;
+        const { under: _u, on: _o, cycle: _c, placed: _p, ...free } = c;
         return { ...free, x: from[0] + d[0], y: from[1] + d[1] };
       }),
     };

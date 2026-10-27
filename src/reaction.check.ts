@@ -59,6 +59,16 @@ for (const id of [first, second]) {
   assert.equal(fragments(done).length, 4);
 }
 
+// Conditions placed by hand (from a ChemDraw file) are laid out by Clean Up Reaction, as ChemDraw's lays them out; a
+// reaction with them is not clean until then.
+{
+  const a = arrowOf(mol, first), [withText, cond] = addCaption(mol, { text: "rt", x: 0, y: 0, on: { arrow: first, side: "above" }, placed: { at: [1, 2], arrow: [a.to[0] - a.from[0], a.to[1] - a.from[1]] } });
+  const r = find(withText, first), done = clean(withText, r);
+  assert.equal(done.captions!.find((c) => c.id === cond)!.placed, undefined, "laid out from now on");
+  assert.ok(reactionClean(done, find(done, first), done.arrows!, layout(done)), "clean now");
+  assert.ok(!reactionClean({ ...done, captions: done.captions!.map((c) => (c.id === cond ? { ...c, placed: { at: [1, 2], arrow: [0, 0] } } : c)) }, find(done, first), done.arrows!, layout(done)), "not clean with text placed by hand");
+}
+
 // Reagents written as text (H2O) stand in the row: Clean up keeps them before the arrow and the product after it.
 {
   let t: Mol = EMPTY;

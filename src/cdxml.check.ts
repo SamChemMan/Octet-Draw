@@ -8,7 +8,7 @@ import { DAMAGED, NOT_CDXML, TOO_BIG, arialGlyph, fmt, fmtAngle, fmtColour, fmtS
 import { DEFAULT_STYLE, PRESETS, readStyle, withScale, type DocStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
 import { fitSizes } from "./edit.ts";
-import { HIGHLIGHT, bendPoint, ellipseArrow, headOfLength, headsOf, render, takesHeads, tlcLayout, type Arrow, type Atom, type Bond, type Caption, type Ink, type Mol, type Shape } from "./render.ts";
+import { HIGHLIGHT, bendPoint, ellipseArrow, fitArrows, headOfLength, headsOf, placeCaptions, placedAt, render, takesHeads, tlcLayout, type Arrow, type Atom, type Bond, type Caption, type Ink, type Mol, type Shape } from "./render.ts";
 import { layoutCycles } from "./cycle.ts";
 
 // Numbers as ChemDraw writes them (spec 1.2).
@@ -704,14 +704,37 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
 <arrow id="11" ArrowheadHead="Full" ArrowheadType="Solid" Head3D="400 300 0" Tail3D="400 200 0"/>
 <t id="12" p="210 190"><s size="10">first</s></t><t id="13" p="210 180"><s size="10">second</s></t><t id="14" p="380 250"><s size="10">steep</s></t>
 <scheme id="20"><step id="21" ReactionStepArrows="10" ReactionStepObjectsAboveArrow="12 13"/><step id="22" ReactionStepArrows="11" ReactionStepObjectsAboveArrow="14"/></scheme></page></CDXML>`;
-  const s = fromCdxml(steps), out = toCdxml(s.mol, s.style), ts = out.match(/<t\s[^>]*>/g)!;
+  const s = fromCdxml(steps), texts = (x: string) => x.match(/<t\s[^>]*>/g)!;
   assert.deepEqual(s.mol.captions!.map((c) => [c.on?.side, c.align]), [["above", "left"], ["above", "left"], ["above", "left"]]);
   const at = (t: string) => t.match(/ p="([^"]+)"/)![1].split(" ").map(Number), just = (t: string) => t.match(/ Justification="([^"]+)"/)?.[1];
-  const [first, second, steep] = ts.map(at);
-  assert.deepEqual([first[0], second[0], ts.slice(0, 2).map(just)], [250, 250, ["Center", "Center"]], "centred over the level arrow's middle");
+  // ChemDraw placed them by hand: they keep their places and alignment through Octet, and in Octet's own file.
+  const kept = toCdxml(s.mol, s.style);
+  assert.deepEqual(texts(kept).map(at), [[210, 190], [210, 180], [380, 250]], "each where ChemDraw put it");
+  assert.deepEqual(texts(kept).map(just), [undefined, undefined, undefined], "left-justified, as in the file");
+  assert.deepEqual(fromCdxml(kept).mol.captions, s.mol.captions, "read back the same, still placed by hand");
+  const four = (c: Caption) => c.placed && [...c.placed.at, ...c.placed.arrow].map((v) => Math.round(v * 1e4) / 1e4 + 0);
+  assert.deepEqual(parse(serialize(s.mol)).captions!.map(four), s.mol.captions!.map(four), "Octet's own file keeps them");
+  // Moved with their arrows, they keep their places by them.
+  const moved = { ...s.mol, arrows: s.mol.arrows!.map((a) => ({ ...a, from: [a.from[0] + 1, a.from[1] - 2] as [number, number], to: [a.to[0] + 1, a.to[1] - 2] as [number, number] })) };
+  assert.deepEqual(texts(toCdxml(moved, s.style)).map(at), [[224.4, 218.8], [224.4, 208.8], [394.4, 278.8]], "they go with their arrows");
+  // Lengthened or turned, the arrows lay their conditions out as Octet draws them.
+  const grown = { ...s.mol, arrows: s.mol.arrows!.map((a) => ({ ...a, to: [a.to[0] + 0.5 * Math.sign(a.to[0] - a.from[0]), a.to[1] - 0.5 * Math.sign(a.from[1] - a.to[1])] as [number, number] })) };
+  const ts = texts(toCdxml(grown, s.style)), [first, second, steep] = ts.map(at);
+  assert.deepEqual([first[0], second[0], ts.slice(0, 2).map(just)], [253.6, 253.6, ["Center", "Center"]], "centred over the level arrow's middle");
   assert.ok(second[1] < first[1] - 10, "the second sits a line above the first");
-  assert.ok(steep[0] < 400 && just(ts[2]) === "Right" && Math.abs(steep[1] - 250) < 5, "ends left of the steep arrow, level with its middle");
-  assert.deepEqual(fromCdxml(out).mol.captions!.map((c) => c.align), ["left", "left", "left"], "the conditions' own alignment comes back");
+  assert.ok(steep[0] < 400 && just(ts[2]) === "Right" && Math.abs(steep[1] - 253.6) < 5, "ends left of the steep arrow, level with its middle");
+  const again = fromCdxml(toCdxml(grown, s.style)).mol.captions!;
+  assert.deepEqual([again.map((c) => c.align), again.map((c) => c.placed)], [["left", "left", "left"], [undefined, undefined, undefined]], "the conditions' own alignment comes back, laid out");
+  // A new condition on the level arrow stacks past the two placed above it; one below starts at the arrow.
+  const added = { ...s.mol, captions: [...s.mol.captions!, { id: 30, text: "new", x: 0, y: 0, on: { arrow: s.mol.arrows![0].id, side: "above" as const } }, { id: 31, text: "under", x: 0, y: 0, on: { arrow: s.mol.arrows![0].id, side: "below" as const } }] };
+  const [, , , above, under] = texts(toCdxml(added, s.style)).map(at);
+  assert.ok(above[0] === 250 && above[1] < 180 - 10 && under[1] > 200, "new text clears the text placed by hand");
+  // Placed beside its arrow (render.ts placeCaptions): at its own place and alignment, and the arrow keeps its length.
+  const one = (t: string) => t.length * 5, [drawn] = placeCaptions(s.mol, { ink: [], scale: 14.4 }, one, s.mol.arrows, 1, 10);
+  assert.deepEqual([drawn.anchor, drawn.lines[0].x, drawn.lines[0].y].map((v) => (typeof v === "number" ? +v.toFixed(6) : v)), ["start", 210 - 270, 190 - 360]);
+  const long = { ...s.mol, captions: [{ ...s.mol.captions![0], text: "a much longer line of conditions than the arrow" }] };
+  assert.deepEqual(fitArrows(long, 14.4, (c) => c.text.length * 5, 1), long.arrows, "text placed by hand does not lengthen its arrow");
+  assert.equal(placedAt(s.mol.captions![0], grown.arrows), undefined);
   console.log("cdxml.check: rounded corners, shadow depths and conditions as drawn ok");
 }
 
@@ -801,6 +824,31 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
   const after = written({ atoms: [A("C", 0, 0), A("O", 1, 0, { charge: -1 })], bonds: [b(0, 1)] });
   assert.ok(after.text(after.nodes[1]) === "O-" && !after.symbols.length, "O- read left to right keeps its sign in the text");
   console.log("cdxml.check: moved charge signs ok");
+}
+
+// Sam's corpus (on this Mac only): every text ChemDraw keeps above or below an arrow is written back where it was.
+{
+  const CORPUS = join(homedir(), "octet-research/corpus/sam");
+  if (!existsSync(CORPUS)) console.log("cdxml.check: no corpus here, conditions in the corpus skipped");
+  else {
+    const plain = (t: Xml) => t.kids.map((k) => k.text).join("").replace(/\s+/g, ""), xy = (t: Xml) => t.attrs.p.split(" ").map(Number);
+    const texts = (x: Xml, out: Xml[] = []): Xml[] => { if (x.name === "t") out.push(x); else if (x.name !== "n") x.kids.forEach((k) => texts(k, out)); return out; };
+    let n = 0;
+    for (const name of readdirSync(CORPUS).filter((f) => f.endsWith(".cdxml"))) {
+      const text = readFileSync(join(CORPUS, name), "utf8"), read = fromCdxml(text), theirs = texts(parseXml(text)), ours = texts(parseXml(toCdxml(read.mol, read.style)));
+      // Octet's page can sit elsewhere: the shift most texts share.
+      const shifts = new Map<string, number>();
+      for (const a of theirs) for (const o of ours) if (plain(a) === plain(o)) { const k = xy(o).map((v, j) => (v - xy(a)[j]).toFixed(2)).join(" "); shifts.set(k, (shifts.get(k) ?? 0) + 1); }
+      const shift = ([...shifts].sort((p, q) => q[1] - p[1])[0]?.[0] ?? "0 0").split(" ").map(Number);
+      for (const c of (read.mol.captions ?? []).filter((x) => x.placed)) {
+        const t = ours.find((x) => x.attrs.id === String(c.id))!, p = xy(t);
+        assert.ok(theirs.some((x) => plain(x) === plain(t) && xy(x).every((v, k) => Math.abs(v + shift[k] - p[k]) < 0.011)), `${name}: ${c.text} stays where ChemDraw put it`);
+        n++;
+      }
+    }
+    assert.ok(n > 0);
+    console.log(`cdxml.check: ${n} corpus conditions written where ChemDraw put them`);
+  }
 }
 
 // Sam's corpus (on this Mac only): for every label ChemDraw right-justified that Octet also writes right-justified on
