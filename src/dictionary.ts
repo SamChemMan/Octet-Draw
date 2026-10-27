@@ -8,8 +8,9 @@ import { condensedSmiles } from "./condensed.ts";
 // as another compound than the one Wikidata and PubChem give (tropicamide), marked "!" in the table.
 let smiles: string[] = [];
 let byName = new Map<string, number>(), beforeOpsin = new Map<string, number>(), byCas = new Map<string, number>(), byKey = new Map<string, number>();
-// The names, lower case, and the names with each trigram (for completion and spelling mistakes), by index.
-let lower: string[] = [];
+// The names as written and in lower case, each one's compound, and the names with each trigram (for completion,
+// search and spelling mistakes), by index.
+let written: string[] = [], lower: string[] = [], compound: number[] = [];
 let grams = new Map<string, number[]>();
 
 // Loads the table (once), gzipped next to the app. names.ts starts it with OPSIN.
@@ -29,7 +30,8 @@ export function loadDictionary(): Promise<void> {
 // reads (for suggestions only), tab-separated.
 // sliced: read 2,000 lines at a time with a pause between, so typing and drawing never wait. The checks read it whole.
 export async function attachDictionary(text: string, sliced = false) {
-  const next: string[] = [], names = new Map<string, number>(), first = new Map<string, number>(), cas = new Map<string, number>(), keys = new Map<string, number>(), shown = new Set<string>();
+  const next: string[] = [], names = new Map<string, number>(), first = new Map<string, number>(), cas = new Map<string, number>(), keys = new Map<string, number>();
+  const shown = new Map<string, [string, number]>(), show = (name: string, n: number) => { const l = name.toLowerCase(); if (!shown.has(l)) shown.set(l, [name, n]); };
   const lines = text.split("\n");
   for (let i = 0; i < lines.length; i++) {
     if (sliced && i % 2000 === 1999) await pause();
@@ -39,18 +41,19 @@ export async function attachDictionary(text: string, sliced = false) {
     for (const raw of ns ? ns.split("|") : []) {
       const name = raw.replace(/^!/, ""), k = commonKey(name);
       if (raw !== name) first.set(k, n);
-      if (k && !names.has(k)) { names.set(k, n); shown.add(name.toLowerCase()); }
+      if (k && !names.has(k)) { names.set(k, n); show(name, n); }
     }
     for (const c of cs ? cs.split("|") : []) if (!cas.has(c)) cas.set(c, n);
     if (key && !keys.has(key)) keys.set(key, n);
-    for (const name of read ? read.split("|") : []) shown.add(name.toLowerCase());
+    for (const name of read ? read.split("|") : []) show(name, n);
   }
   const all = [...shown], index = new Map<string, number[]>();
   for (let i = 0; i < all.length; i++) {
     if (sliced && i % 4000 === 3999) await pause();
-    for (const g of trigrams(all[i])) { const list = index.get(g); if (list) list.push(i); else index.set(g, [i]); }
+    for (const g of trigrams(all[i][0])) { const list = index.get(g); if (list) list.push(i); else index.set(g, [i]); }
   }
-  [smiles, byName, beforeOpsin, byCas, byKey, lower, grams] = [next, names, first, cas, keys, all, index];
+  [smiles, byName, beforeOpsin, byCas, byKey, grams] = [next, names, first, cas, keys, index];
+  [lower, written, compound] = [all.map(([l]) => l), all.map(([, [w]]) => w), all.map(([, [, n]]) => n)];
 }
 const pause = () => new Promise((ok) => setTimeout(ok, 0));
 
@@ -160,6 +163,22 @@ export function completeName(typed: string): string | undefined {
   let best: string | undefined;
   if (typed.length >= 2) for (const i of grams.get(` ${typed.slice(0, 2)}`) ?? []) if (lower[i].startsWith(typed) && (!best || lower[i].length < best.length)) best = lower[i];
   return best;
+}
+// Dictionary names, as written, that begin as typed (compared as keys are, so "acetyl salicylic" finds acetylsalicylic
+// acid): one for each compound, the shortest first. At most most. For the template library's search and the command
+// palette, after Octet's own names (names.ts namesStarting).
+export function dictionaryStarting(typed: string, most: number): string[] {
+  const q = commonKey(typed.trim()), head = typed.trim().toLowerCase().slice(0, 2);
+  if (q.length < 2 || head.length < 2 || most <= 0) return [];
+  const found = (grams.get(` ${head}`) ?? []).filter((i) => commonKey(lower[i]).startsWith(q)).sort((a, b) => lower[a].length - lower[b].length || (lower[a] < lower[b] ? -1 : 1));
+  const seen = new Set<number>(), out: string[] = [];
+  for (const i of found) {
+    if (seen.has(compound[i])) continue;
+    seen.add(compound[i]);
+    out.push(written[i]);
+    if (out.length >= most) break;
+  }
+  return out;
 }
 // Dictionary names that could be what was typed (lower case) with up to `most` mistakes: those sharing enough of its
 // trigrams. A mistake changes at most three trigrams.

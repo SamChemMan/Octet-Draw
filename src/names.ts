@@ -3,7 +3,7 @@
 import { COMMON, commonKey } from "./common.ts";
 // Beyond OPSIN and Octet's own tables: the dictionary (common and trade names, CAS numbers, InChIKeys), condensed
 // formulas and lists of names (dictionary.ts).
-import { beforeOpsinSmiles, completeName, dictionarySmiles, loadDictionary, nameList, nearNames } from "./dictionary.ts";
+import { beforeOpsinSmiles, completeName, dictionarySmiles, dictionaryStarting, loadDictionary, nameList, nearNames } from "./dictionary.ts";
 
 type Opsin = typeof import("./vendor/opsin/opsin.js");
 let opsin: Opsin | undefined;
@@ -85,7 +85,8 @@ export function namesStarting(typed: string, most = 8): string[] {
     out.push(name);
     if (out.length >= most) break;
   }
-  return out;
+  // Then the dictionary's names (dictionary.ts).
+  return [...out, ...dictionaryStarting(typed, most - out.length).filter((n) => !out.some((o) => commonKey(o) === commonKey(n)))];
 }
 function read(name: string): string | undefined {
   try {
