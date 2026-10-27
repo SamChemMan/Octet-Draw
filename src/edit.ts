@@ -1846,14 +1846,17 @@ export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: numb
     f = (q) => add(to, sub(q, c));
   }
   const ids: number[] = [];
+  // How much f grows the template. One drawn in perspective (a chair, a Newman projection) keeps its depth, grown as
+  // much; mirrored, it turns over in 3D, so its depth changes sign and its stereochemistry is kept.
+  const kz =(target.bond !== undefined && edge ? len(sub(f([1, 0]), f([0, 0]))) : scale) * (mirrored ? -1 : 1);
   for (const [k, p] of at0.map(f).entries()) {
     const before = m.atoms.length;
     let id: number;
     [m, id] = atomOrNew(m, p, scale);
     if (id >= before) {
       // A new atom takes the template atom's label, marks and look; its place and size are the drawing's.
-      const { location: _, scale: __, order: ___, ...own } = t.atoms[k];
-      m = { ...m, atoms: m.atoms.map((x, n) => (n === id ? { ...x, ...own } : x)) };
+      const { location: [, , z = 0], scale: __, order: ___, ...own } = t.atoms[k];
+      m = { ...m, atoms: m.atoms.map((x, n) => (n === id ? { ...x, ...own, ...(z ? { location: [x.location[0], x.location[1], z * kz] as [number, number, number] } : {}) } : x)) };
     }
     ids.push(id);
   }
@@ -1870,8 +1873,7 @@ export function addTemplate(m: Mol, t: Mol, target: { bond?: number; atom?: numb
     const k = m.bonds.findIndex((x) => x.atoms.includes(i) && x.atoms.includes(j)), { colour, halo, position } = b;
     if (k >= 0 && (colour || halo || position)) m = { ...m, bonds: m.bonds.map((x, n) => (n === k ? { ...x, ...(colour ? { colour } : {}), ...(halo ? { halo } : {}), ...(position ? { position: mirrored && position !== "centre" ? (position === "left" ? "right" : "left") : position } : {}) } : x)) };
   }
-  const k = target.bond !== undefined && edge ? len(sub(f([1, 0]), f([0, 0]))) : scale;
-  return withObjects(m, t, ids, f, k, mirrored);
+  return withObjects(m, t, ids, f, Math.abs(kz), mirrored);
 }
 // A template's objects (text, arrows, shapes, cycles, groups) and ring fills added to the drawing with new ids, its
 // atoms as ids gives them, moved by f (k: how much f grows them).

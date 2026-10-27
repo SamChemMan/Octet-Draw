@@ -2,7 +2,7 @@
 // to a set, naming, renaming, moving, removing, the sets themselves, built-in templates kept apart, a built-in copied
 // into My templates, and every kind of structure coming back whole from the settings.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { addCaption, extractSelection } from "./edit.ts";
 import type { Atom, Bond, Mol } from "./render.ts";
 import { addSet, addTo, freeSetName, loadTemplates, moveTemplate, MY_SET, newTemplate, ownId, removeSet, removeTemplate, renameSet, renameTemplate, templateKind, type Kept } from "./templates.ts";
@@ -112,3 +112,183 @@ assert.deepEqual(loadTemplates([null, 3, { id: "a", name: "b", file: "not a file
 assert.deepEqual(loadTemplates("nothing"), []);
 
 console.log("templates: ok");
+
+// ——— Octet's own template library (library.json, built by tools/library/build.mjs) ———
+// Every built-in template parses, has a name of its own, has the CIP labels of the compound it is meant to be, gets
+// the name Structure to Name gives it as the editor runs it (read back to the same structure), and survives Clean Up:
+// one drawn in perspective or with a π ligand is left exactly as drawn, any other keeps its structure and stereo.
+const { LIBRARY, libraryItem } = await import("./library.ts");
+const items = LIBRARY.flatMap((c) => c.items);
+assert.equal(new Set(items.map((t) => t.kind)).size, items.length, "every template has a name of its own");
+assert.equal(new Set(items.map((t) => t.name.toLowerCase())).size, items.length, "and not the same name in other capitals");
+// The sets the roadmap (CD-32) asks for, and those Octet had.
+for (const set of ["Stereocentres", "Conformers", "Cycloalkanes", "Aromatics", "Bicyclics", "Hexoses", "Functional groups", "Cp and arene rings", "Metallocenes", "Paddlewheels", "Lab", "Ligands", "Amino acids", "Sugars", "Nucleobases", "Heterocycles"])
+  assert.ok(LIBRARY.find((c) => c.name === set)?.items.length, `the ${set} set`);
+// Abbreviations are named as common.ts keys them, so the library's search shows the library's own drawing.
+const { COMMON, commonKey } = await import("./common.ts");
+const keys = new Set(Object.keys(COMMON).map(commonKey));
+for (const name of ["PPh3", "dppe", "dppf", "bpy", "phen", "tpy", "Cp", "Cp*", "acacH", "salen", "BOX", "PyBOX", "H2TPP", "Rh2(OAc)4", "Rh2(TFA)4", "Rh2(piv)4", "Rh2(oct)4"]) {
+  assert.ok(libraryItem(`lib:${name}`), `${name} is a template`);
+  assert.ok(keys.has(commonKey(name)), `${name} is a common.ts key`);
+}
+// Templates renamed to those keys are still found by their old names (one kept in the Ring strip stays).
+assert.equal(libraryItem("lib:bipy")?.name, "bpy");
+assert.equal(libraryItem("lib:pybox")?.name, "PyBOX");
+// Each parses back from Octet's own file text as it was: labels, places in 3D, multi-centre points and bond styles.
+const { parse, serialize } = await import("./file.ts");
+for (const t of items) {
+  const back = parse(serialize(t.mol)), look = (m: Mol) => [m.atoms.map((a) => [a.label, a.text, a.charge ?? 0, a.location.map((v) => Math.round(v * 1000)), a.centre?.atoms]), m.bonds.map((b) => [b.atoms, b.type, b.stereo ?? 0, b.display])];
+  assert.deepEqual(look(back), look(t.mol), `${t.name} parses`);
+  assert.equal((back.arrows ?? []).length + (back.shapes ?? []).length, (t.mol.arrows ?? []).length + (t.mol.shapes ?? []).length, `${t.name}: every object parses`);
+}
+console.log(`templates: ${items.length} built-in templates in ${LIBRARY.length} sets parse, each with its own name ok`);
+
+// Labels drawn clear: each template drawn by the app's renderer at the default document style with Arial's metrics
+// (tools/library/clashes.mjs). No two labels' ink overlaps, and no bond's line runs through a label but those of its
+// own atoms. Every template is checked; none is let off.
+const { clashes } = await import("../tools/library/clashes.mjs");
+const clashing = items.filter((t) => t.mol.atoms.length).flatMap((t) => { const c = clashes(t.mol); return c.length ? [`${t.name}: ${c.join("; ")}`] : []; });
+assert.deepEqual(clashing, [], "labels clear of each other and of other atoms' bonds");
+console.log(`templates: the labels of all ${items.filter((t) => t.mol.atoms.length).length} structure templates are clear of each other and of other bonds ok`);
+
+const dir = new URL("./vendor/opsin/", import.meta.url);
+if (!existsSync(new URL("opsin.js", dir))) { console.log("templates: chemistry skipped (no OPSIN build)"); process.exit(0); }
+// chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.
+const gl = globalThis as Record<string, unknown>;
+gl.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
+gl.getComputedStyle = () => ({ getPropertyValue: () => "10" });
+gl.window = globalThis;
+gl.self = { location: { origin: "file://" } };
+gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+const chem = await import("./chem.ts");
+await chem.ready;
+const pack = readFileSync(new URL("opsin-data.bin", dir)), files = new Map<string, Int8Array>();
+for (let p = 0; ; ) {
+  const n = pack.readUInt16BE(p); p += 2;
+  if (!n) break;
+  const name = pack.toString("latin1", p, p + n); p += n;
+  const size = pack.readInt32BE(p); p += 4;
+  files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
+}
+gl.opsinResource = (name: string) => files.get(name) ?? null;
+const opsin = await import(new URL("opsin.js", dir).href);
+opsin.init();
+const json = (file: string) => JSON.parse(readFileSync(new URL(file, import.meta.url), "utf8"));
+const { DRUGS } = await import("./drugs.ts");
+const { abbreviationOf, attachOpsin, knownName, nameToAtoms, nameToSmiles } = await import("./names.ts");
+attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"), json("./nameindex.json"), DRUGS, json("./abbreviations.json"));
+const { checkedName, setComplexNamer, setNamer, withAbbreviation, withoutRingEZ } = await import("./naming.ts");
+const { iupacName } = await import("./namer.ts");
+const { complexName } = await import("./complexes.ts");
+const { sandwichIons } = await import("./metals.ts");
+const { messy } = await import("./check.ts");
+setNamer(iupacName);
+setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, inchi: chem.toInchi, aux: chem.toInchiAux, cip: chem.cipOf }));
+// As the editor takes them (Editor.tsx nameFor): a name's structure drawn as Octet draws SMILES, and a metallocene
+// drawn with π ligands named as its ions.
+const inchiOf = (s: Mol | string) => { try { return chem.toInchi(typeof s === "string" ? chem.parseStructure(s) : s); } catch { return undefined; } };
+const nameFor = (m: Mol) => { const p = sandwichIons(m) ?? m, name = checkedName(p, chem.expandLabels(p), nameToSmiles, inchiOf, chem.cipOf, knownName); return name && withAbbreviation(name, abbreviationOf(inchiOf(p))); };
+const labels = (m: Mol) => { const c = chem.cipOf(m); return [...c.atoms, ...c.bonds].filter(Boolean).sort().join(""); };
+const molecular = items.filter((t) => t.mol.atoms.length);
+
+// Stereo: each template with R, S, E or Z labels is the compound it is meant to be. Its labels (Octet's CIP labeller,
+// read from wedges, or from the atoms' places in 3D for chairs, Haworth and Fischer projections) are the reference
+// structure's, drawn from its name; and where there is no R group, its InChI is the reference's, stereo included.
+const STEREO: Record<string, string> = {
+  "α-D-Glucopyranose": "alpha-D-glucopyranose", "β-D-Glucopyranose": "beta-D-glucopyranose", "β-D-Galactopyranose": "beta-D-galactopyranose",
+  "α-D-Mannopyranose": "alpha-D-mannopyranose", "β-D-Fructofuranose": "beta-D-fructofuranose", "β-D-Ribofuranose": "beta-D-ribofuranose",
+  "2-Deoxy-β-D-ribofuranose": "2-deoxy-beta-D-ribofuranose", "D-Glucose (open chain)": "D-glucose",
+  "(R)-Bromochlorofluoromethane": "(1R)-bromo(chloro)(fluoro)methane", "(S)-Bromochlorofluoromethane": "(1S)-bromo(chloro)(fluoro)methane",
+  "(R)-Butan-2-ol": "(2R)-butan-2-ol", "(S)-Butan-2-ol": "(2S)-butan-2-ol", "(R)-Lactic acid": "(2R)-2-hydroxypropanoic acid",
+  "(S)-Lactic acid": "(2S)-2-hydroxypropanoic acid", "(R)-Glyceraldehyde": "D-glyceraldehyde", "(S)-Glyceraldehyde": "L-glyceraldehyde",
+  "(R,R)-Tartaric acid": "(2R,3R)-2,3-dihydroxybutanedioic acid", "(S,S)-Tartaric acid": "(2S,3S)-2,3-dihydroxybutanedioic acid",
+  "meso-Tartaric acid": "(2R,3S)-2,3-dihydroxybutanedioic acid", "trans-Cyclohexane-1,2-diol": "(1R,2R)-cyclohexane-1,2-diol",
+  "cis-Cyclohexane-1,2-diol": "(1R,2S)-cyclohexane-1,2-diol", "D-Glyceraldehyde (Fischer)": "D-glyceraldehyde",
+  "L-Glyceraldehyde (Fischer)": "L-glyceraldehyde", "L-Alanine (Fischer)": "L-alanine", "D-Ribose (Fischer)": "D-ribose", "D-Glucose (Fischer)": "D-glucose",
+  "Cyclooctene": "(Z)-cyclooctene", "Cyclooctatetraene": "cycloocta-1,3,5,7-tetraene", "cis-Decalin": "cis-decahydronaphthalene",
+  "trans-Decalin": "trans-decahydronaphthalene", "cod": "(1Z,5Z)-cycloocta-1,5-diene", "dba": "(1E,4E)-1,5-diphenylpenta-1,4-dien-3-one",
+  "salen": "salen", "Porphyrin": "21H,23H-porphine", "H2TPP": "H2TPP", "Phthalocyanine": "29H,31H-phthalocyanine",
+  // An R group ranks above any element, as a methyl ranks above H: the E of R-CH=N-Me is MeCH=NMe's.
+  "Imine": "(E)-N-methylethanimine", "Oxime": "(E)-N-hydroxyethanimine", "Hydrazone": "(E)-ethylidenehydrazine",
+};
+const reference = (t: (typeof items)[number]) => t.category === "Amino acids" ? (t.name === "Glycine" ? undefined : `L-${t.name.toLowerCase()}`)
+  : t.category === "Hexoses" ? t.name.replace(/ \((Haworth|chair)\)$/, "").replace(/^α-D-(.)/, (_, c) => `alpha-D-${c.toLowerCase()}`).replace(/^β-D-(.)/, (_, c) => `beta-D-${c.toLowerCase()}`)
+  : STEREO[t.name];
+let stereo = 0;
+for (const t of molecular) {
+  const own = labels(t.mol), ref = reference(t);
+  if (!own) { assert.equal(ref, undefined, `${t.name} has no stereo labels`); continue; }
+  assert.ok(ref, `${t.name} (${own}) has a reference compound`);
+  const smiles = nameToSmiles(ref!) ?? assert.fail(`${ref} is read`), drawn = chem.parseStructure(smiles);
+  assert.equal(own, labels(drawn), `${t.name}: its CIP labels are ${ref}'s`);
+  if (!t.mol.atoms.some((a) => a.text === "R")) assert.equal(withoutRingEZ(inchiOf(t.mol)), withoutRingEZ(inchiOf(smiles)), `${t.name} is ${ref}`);
+  stereo++;
+}
+// The hexoses as every textbook draws them: β-D-glucopyranose's chair has every group equatorial, the D sugars'
+// Haworth projections have CH2OH up, and the anomers' OH is down (α) or up (β) in a Haworth projection.
+{
+  const mol = (name: string) => libraryItem(`lib:${name}`)!.mol;
+  const glc = mol("β-D-Glucopyranose (chair)"), up = (m: Mol, label: string) => m.atoms.filter((a) => (a.text ?? a.label) === label);
+  const ring = new Set(glc.bonds.filter((b) => glc.atoms[b.atoms[0]].label !== "O" || glc.atoms[b.atoms[1]].label !== "O").flatMap((b) => b.atoms));
+  // Equatorial: no substituent bond is upright (axial bonds are vertical).
+  const upright = glc.bonds.filter((b) => { const [p, q] = b.atoms.map((i) => glc.atoms[i].location); return Math.abs(p[0] - q[0]) < 1e-3; });
+  assert.equal(upright.length, 0, "β-D-glucopyranose: every group equatorial");
+  assert.ok(ring.size);
+  for (const sugar of ["α-D-Glucopyranose", "β-D-Glucopyranose", "α-D-Galactopyranose", "β-D-Mannopyranose"]) {
+    const m = mol(`${sugar} (Haworth)`), c6 = up(m, "CH2OH")[0], c5 = m.atoms[m.bonds.find((b) => b.atoms.includes(m.atoms.indexOf(c6)))!.atoms.find((i) => m.atoms[i] !== c6)!];
+    assert.ok(c6.location[1] > c5.location[1], `${sugar}: CH2OH up`);
+    const o5 = m.atoms.findIndex((a) => a.label === "O" && m.bonds.filter((b) => b.atoms.includes(m.atoms.indexOf(a))).length === 2);
+    const c1 = m.bonds.flatMap((b) => (b.atoms.includes(o5) ? b.atoms : [])).find((i) => i !== o5 && m.atoms[i] !== c5)!;
+    const oh = m.bonds.flatMap((b) => (b.atoms.includes(c1) ? b.atoms : [])).find((i) => m.atoms[i].label === "O" && i !== o5)!;
+    assert.equal(m.atoms[oh].location[1] > m.atoms[c1].location[1], sugar.startsWith("β"), `${sugar}: the anomeric OH ${sugar.startsWith("β") ? "up" : "down"}`);
+  }
+}
+console.log(`templates: ${stereo} templates with stereocentres or E/Z bonds are their compounds, by CIP label and InChI ok`);
+
+// Names: Structure to Name as the editor runs it. Each name is read back to the template's own structure, and the
+// templates no name is given to are these (an R group, M or L; a carbene; a metal the namer leaves; r and s centres;
+// a cage). Lab items have no structure.
+const UNNAMED = new Set(["cis-Decalin", "trans-Decalin", "Cubane", "IMes", "IPr", "Cp2TiCl2", "Cp2ZrCl2", "(Benzene)Cr(CO)3", "CpMn(CO)3", "Bis(benzene)chromium",
+  "Rh2(O2CR)4", "Rh2(O2CR)4L2", "Mo2(OAc)4", ...LIBRARY.filter((c) => c.name === "Functional groups" || c.name === "Cp and arene rings").flatMap((c) => c.items.map((t) => t.name))]);
+let named = 0;
+for (const t of molecular) {
+  const name = nameFor(t.mol);
+  if (UNNAMED.has(t.name)) { assert.equal(name, undefined, `${t.name} is not named`); continue; }
+  assert.ok(name, `${t.name} is named`);
+  // The name without its cited abbreviation, read back by OPSIN, is the template's structure.
+  const plain = name!.replace(/ \([^()]*(\([^()]*\)[^()]*)*\)$/, (s) => (nameToSmiles(name!.slice(0, -s.length)) ? "" : s));
+  const p = sandwichIons(t.mol) ?? t.mol, smiles = nameToSmiles(plain);
+  named++;
+  // A coordination compound's name with κ, which OPSIN does not read, was checked in parts (complexes.ts).
+  if (!smiles && /κ/.test(name!)) continue;
+  assert.equal(withoutRingEZ(inchiOf(smiles!)), withoutRingEZ(inchiOf(p)), `${t.name}: "${name}" is its structure`);
+}
+for (const [name, want] of [["Ferrocene", "ferrocene"], ["Decamethylferrocene", "1,1',2,2',3,3',4,4',5,5'-decamethylferrocene"], ["Rh2(OAc)4", "tetrakis(μ-acetato-κO:κO')dirhodium(Rh—Rh)"],
+  ["Newman projection, gauche", "butane"], ["Cyclohexane chair", "cyclohexane"], ["β-D-Glucopyranose (chair)", "(2R,3R,4S,5S,6R)-6-(hydroxymethyl)oxane-2,3,4,5-tetraol"],
+  ["D-Glucose (Fischer)", "(2R,3S,4R,5R)-2,3,4,5,6-pentahydroxyhexanal"], ["dppf", "[1'-(diphenylphosphanyl)ferrocenyl](diphenyl)phosphane (dppf)"]])
+  assert.equal(nameFor(libraryItem(`lib:${name}`)!.mol), want, name);
+console.log(`templates: ${named} templates named by Structure to Name, each name read back to its structure ok`);
+
+// Clean Up: a structure drawn in perspective (with depth: chairs, Newman, sawhorse and Haworth projections, Fischer
+// projections, paddlewheels, cubane) or with a π ligand (metallocenes) is left exactly where it is. Any other comes out
+// with the same structure and stereo, and tidy (not marked for Clean Up), but for these: bridged rings and crowded
+// biaryl phosphines, whose short or crossing bonds no flat drawing avoids. (Drawn in 3D, a bridged ring's bridgeheads
+// read as stereocentres and Structure to Name gives it no name, so they stay flat.)
+const CROWDED = new Set(["Bicyclo[1.1.1]pentane", "Bicyclo[2.1.1]hexane", "Bicyclo[3.1.1]heptane", "Norbornane", "Norbornene", "Norbornadiene", "Bicyclo[2.2.2]octane",
+  "Bicyclo[3.2.1]octane", "Bicyclo[3.3.1]nonane", "Adamantane", "DABCO", "BINAP", "Xantphos", "XPhos", "SPhos"]);
+let kept = 0, cleaned = 0;
+for (const t of molecular) {
+  const after = chem.cleanUp(t.mol);
+  if (t.mol.atoms.some((a) => a.location[2] || a.centre)) {
+    assert.deepEqual(after.atoms.map((a) => a.location), t.mol.atoms.map((a) => a.location), `${t.name} is left as drawn`);
+    kept++;
+    continue;
+  }
+  assert.equal(labels(after), labels(t.mol), `${t.name} keeps its stereo labels`);
+  if (!t.mol.atoms.some((a) => a.text === "R" || a.text === "X")) assert.equal(inchiOf(after), inchiOf(t.mol), `${t.name} keeps its structure`);
+  assert.equal(messy(after), CROWDED.has(t.name), `${t.name} is ${CROWDED.has(t.name) ? "crowded (listed)" : "tidy"} after Clean Up`);
+  cleaned++;
+}
+for (const name of ["Cyclohexane chair", "Newman projection, anti", "Sawhorse projection, anti", "α-D-Glucopyranose (Haworth)", "β-D-Glucopyranose (chair)", "D-Glucose (Fischer)", "Rh2(OAc)4", "Ferrocene", "Cubane"])
+  assert.ok(libraryItem(`lib:${name}`)!.mol.atoms.some((a) => a.location[2] || a.centre), `${name} is drawn in perspective`);
+console.log(`templates: Clean Up leaves ${kept} perspective and π templates as drawn and keeps ${cleaned} others whole ok`);

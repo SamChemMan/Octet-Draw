@@ -206,4 +206,94 @@ function led() {
   ]);
 }
 
-export const LAB = [lightBulb(), led(), roundBottomFlask(), beaker(), conicalFlask(), refluxCondenser(), separatoryFunnel(), testTube()];
+// Schlenk flask: a round-bottom flask with a side arm off its neck, a stopcock on the arm and a hose barb at its end.
+function schlenkFlask() {
+  const R = 0.95, neck = 0.2, top = 2.15, s = (68 * Math.PI) / 180, sx = R * Math.cos(s), sy = R * Math.sin(s), arm = 1.45, w = 0.07, end = 1.15, cock = 0.62;
+  const half = new Path(0, -R).a(0, 0, 68).c(sx - 0.1 * Math.sin(s), sy + 0.1 * Math.cos(s), neck, 0.98, neck, 1.1).lip(neck, top, 1).p;
+  return item("Schlenk flask", "Schlenk tube, inert atmosphere", [
+    fill(both(between(half, -R, -0.25))),
+    // The left wall whole; the right wall broken where the arm leaves it.
+    open(reverse(mirror(half))), open(between(half, -R, arm - w)), open(between(half, arm + w, top + 0.1)),
+    open(new Path(neck, arm + w).l(cock - 0.13, arm + w).p), open(new Path(neck, arm - w).l(cock - 0.13, arm - w).p),
+    // The stopcock's barrel across the arm, its handle, and the arm on to a barb.
+    closed(new Path(cock - 0.13, arm - 0.17).l(cock + 0.13, arm - 0.17).l(cock + 0.13, arm + 0.17).l(cock - 0.13, arm + 0.17).p),
+    detail(line(cock, arm + 0.17, cock, arm + 0.36)),
+    open(new Path(cock + 0.13, arm + w).l(end, arm + w).l(end + 0.12, arm + 0.12).p), open(new Path(cock + 0.13, arm - w).l(end, arm - w).l(end + 0.12, arm - 0.12).p),
+  ]);
+}
+// Vial: a short tube with a flat bottom and a screw cap with grip ridges.
+function vial() {
+  const w = 0.36, bottom = -1, top = 0.6, cap = 0.42;
+  const right = new Path(0, bottom).corner(w, bottom, w, top, 0.08).l(w, top).p;
+  return item("Vial", "sample vial, screw cap", [
+    fill(join(reverse(mirror(between(right, bottom, -0.2))), between(right, bottom, -0.2))),
+    open(join(reverse(mirror(right)), right)),
+    closed(new Path(-w - 0.05, top).l(w + 0.05, top).l(w + 0.05, top + cap).l(-w - 0.05, top + cap).p),
+    ...[-0.2, 0, 0.2].map((x) => detail(line(x, top + 0.08, x, top + cap - 0.08))),
+  ]);
+}
+// Syringe: a barrel with finger flanges and graduations, a plunger with a thumb rest, and a needle on a hub.
+function syringe() {
+  const w = 0.24, b0 = -0.9, b1 = 1.1, rod = 1.75;
+  return item("Syringe", "needle, plunger", [
+    fill(new Path(-w, b0).l(w, b0).l(w, 0.2).l(-w, 0.2).p),
+    closed(new Path(-w, b0).l(w, b0).l(w, b1).l(-w, b1).p),
+    line(-w - 0.22, b1, w + 0.22, b1),
+    // The plunger: its seal at the top of the liquid, the rod, and the thumb rest.
+    closed(new Path(-w, 0.2).l(w, 0.2).l(w, 0.32).l(-w, 0.32).p),
+    line(0, 0.32, 0, rod), line(-0.2, rod, 0.2, rod),
+    // The hub and the needle.
+    open(new Path(-0.1, b0).l(-0.05, b0 - 0.2).l(0.05, b0 - 0.2).l(0.1, b0).p),
+    line(0, b0 - 0.2, 0, -2.3),
+    ...[-0.65, -0.4, -0.15, 0.1, 0.35, 0.6, 0.85].map((y, k) => detail(line(w - (k % 2 ? 0.08 : 0.14), y, w, y))),
+  ]);
+}
+// Chromatography column: a long tube with a lip, silica in its lower part under a layer of solvent, a band on the
+// silica, and a stopcock and tip at the foot.
+function column() {
+  const w = 0.22, foot = -1.9, top = 2.3, silica = 0.6, solvent = 1.2, stem = 0.05, cock = -2.2;
+  const tube = new Path(stem, cock + 0.06).l(stem, foot - 0.12).c(0.1, foot - 0.04, w, foot - 0.02, w, foot + 0.1).lip(w, top, 1).p;
+  return item("Chromatography column", "flash column, silica", [
+    fill(both(between(tube, foot + 0.1, silica)), LIQUID_LIGHT),
+    fill(both(between(tube, silica, solvent))),
+    open(both(tube)),
+    detail(line(-w, -0.2, w, -0.2)), detail(line(-w, -0.32, w, -0.32)),
+    open(new Path(-stem, cock + 0.06).l(-0.22, cock + 0.06).l(-0.22, cock - 0.06).l(0.22, cock - 0.06).l(0.22, cock + 0.06).l(stem, cock + 0.06).p),
+    open(new Path(-stem, cock - 0.06).l(-stem, -2.7).l(stem, -2.62).l(stem, cock - 0.06).p),
+    detail(line(-0.22, cock, -0.34, cock)),
+  ]);
+}
+// Heating mantle: a bowl that a round-bottom flask sits in (its well and outer wall joined at the rim), on a base
+// with a dial, and three heating marks in the well.
+function heatingMantle() {
+  const R = 1.2, r = 1.0, rim = 0.2, foot = rim - R;
+  return item("Heating mantle", "heating, reflux", [
+    // Round the bottom: from the left (180°) down to the foot (270°), then from the foot (-90°) up to the right (0°).
+    closed([...new Path(-R, rim).a(0, rim, 270).a(0, rim, 0).p, ...reverse(new Path(-r, rim).a(0, rim, 270).a(0, rim, 0).p)]),
+    closed(new Path(-1.45, foot - 0.5).l(1.45, foot - 0.5).l(1.45, foot).l(-1.45, foot).p),
+    detail(closed(new Path(1.05, foot - 0.37).a(1.05, foot - 0.25, 270).p)),
+    ...[-0.5, 0, 0.5].map((x) => detail(open(new Path(x - 0.12, -0.45).c(x - 0.04, -0.33, x + 0.04, -0.57, x + 0.12, -0.45).p))),
+  ]);
+}
+// Stirrer bar: a capsule with a band round its middle, about a third of a flask across.
+function stirrerBar() {
+  const w = 0.6, h = 0.16;
+  return item("Stirrer bar", "stir bar, magnetic stirring", [
+    closed(new Path(-w + h, -h).l(w - h, -h).a(w - h, 0, 90).l(-w + h, h).a(-w + h, 0, 270).p),
+    detail(line(-0.05, -h, -0.05, h)), detail(line(0.05, -h, 0.05, h)),
+  ]);
+}
+// Hotplate stirrer: a flat plate on a body with two dials.
+function hotplate() {
+  return item("Hotplate stirrer", "stirrer, heating, magnetic stirring", [
+    closed(new Path(-1.5, 0.35).l(1.5, 0.35).l(1.5, 0.5).l(-1.5, 0.5).p),
+    open(new Path(-1.3, 0.35).l(-1.3, -0.75).l(1.3, -0.75).l(1.3, 0.35).p),
+    ...[-0.55, 0.55].map((x) => closed(new Path(x, -0.42).a(x, -0.2, 270).p)),
+    ...[-0.55, 0.55].map((x) => detail(line(x, -0.2, x, -0.05))),
+  ]);
+}
+
+export const LAB = [lightBulb(), led(), roundBottomFlask(), beaker(), conicalFlask(), refluxCondenser(), separatoryFunnel(), testTube(),
+  schlenkFlask(), vial(), syringe(), column(), heatingMantle(), hotplate(), stirrerBar()];
+// TLC plate: Octet's own TLC object (the TLC tool's), three lanes (starting material, co-spot, product).
+export const TLC = { name: "TLC plate", also: "thin-layer chromatography, Rf", mol: { atoms: [], bonds: [], shapes: [{ id: 1, kind: "tlc", from: [-1.5, -2.1], to: [1.5, 2.1], tlc: { lanes: 3, spots: [{ lane: 0, rf: 0.62 }, { lane: 1, rf: 0.62 }, { lane: 1, rf: 0.3 }, { lane: 2, rf: 0.3 }] } }] } };

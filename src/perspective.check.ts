@@ -141,6 +141,27 @@ console.log("perspective.check: the pointer takes what is in front ok");
 }
 console.log("perspective.check: warnings in perspective ok");
 
+// A bond seen end on (a Newman projection): not drawn, and the atom behind is a circle 0.4 bond lengths across that its
+// other bonds start from. The front and back bonds meet at the middle but do not cut each other.
+{
+  const r = 1.25, out = (t: number, z: number): [number, number, number] => [r * Math.sin((t * Math.PI) / 180), r * Math.cos((t * Math.PI) / 180), z];
+  const m: Mol = { atoms: [A("C", 0, 0, 0.5), A("C", 0, 0, -0.5), ...[0, 120, 240].map((t) => ({ label: "C", location: out(t, 0.85) })), ...[60, 180, 300].map((t) => ({ label: "C", location: out(t, -0.85) }))],
+    bonds: [b(0, 1), b(0, 2), b(0, 3), b(0, 4), b(1, 5), b(1, 6), b(1, 7)] };
+  const d = render(m, S, ink), all = d.polygons.flat();
+  assert.ok(all.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y)), "no point is lost");
+  // Ink all the way round at the circle's radius (every 10° of it).
+  const ring = all.filter(([x, y]) => Math.abs(Math.hypot(x, y) - 0.4 * S.bond) <= S.line / 2 + 0.05);
+  assert.equal(new Set(ring.map(([x, y]) => Math.floor(((Math.atan2(y, x) * 180) / Math.PI + 360) / 10) % 36)).size, 36, "the back carbon is a circle");
+  // A back bond starts at the circle: nothing drawn along it nearer the middle than the circle's inner edge.
+  const along = (t: number) => [Math.sin((t * Math.PI) / 180), -Math.cos((t * Math.PI) / 180)];
+  const [ux, uy] = along(180), near = all.filter(([x, y]) => Math.abs(x * uy - y * ux) < 0.2 && x * ux + y * uy > 0.5 && x * ux + y * uy < 0.4 * S.bond - S.line);
+  assert.equal(near.length, 0, "the back bond starts at the circle");
+  // Turned a little away from end on, it is an ordinary bond again.
+  const tilted = { ...m, atoms: m.atoms.map((a, i) => (i === 1 ? { ...a, location: [0.4, 0, -0.5] as [number, number, number] } : a)) };
+  assert.ok(render(tilted, S, ink).polygons.length < d.polygons.length - 40, "no circle (its 48 pieces)");
+}
+console.log("perspective.check: Newman projections ok");
+
 // Files keep depth and depth shading: Octet's own, and CDXML as ChemDraw writes it (xyz on atoms with depth, its z
 // pointing away from the viewer; ShowPerspective on the shaded atoms and bonds). Older Octet CDXML wrote Octet's z.
 {

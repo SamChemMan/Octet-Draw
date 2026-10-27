@@ -599,8 +599,11 @@ export const MOST_CLEAN = MOST_ATOMS;
 export function cleanUp(mol: Mol, ids?: Set<number>, pass = PASS): Mol {
   const atoms = mol.atoms.map((a) => ({ ...a }));
   // Structures joined by bonds alone; one with a multi-centre or variable attachment keeps its place (the attachment
-  // sits at the centre of its atoms).
-  const groups = fragments(mol, false).filter((frag) => frag.length > 1 && frag.length <= MOST_CLEAN && (!ids?.size || frag.some((i) => ids.has(i))) && !frag.some((i) => mol.atoms[i].centre));
+  // sits at the centre of its atoms), and so does its ring (a π ligand drawn in perspective, not bonded to the point),
+  // and so does one drawn in perspective (with depth: a chair, a Newman projection, a paddlewheel), as it is never
+  // messy (check.ts). Flatten first to clean one up.
+  const pi = new Set(mol.atoms.flatMap((a) => a.centre?.atoms ?? []));
+  const groups = fragments(mol, false).filter((frag) => frag.length > 1 && frag.length <= MOST_CLEAN && (!ids?.size || frag.some((i) => ids.has(i))) && !frag.some((i) => mol.atoms[i].centre || mol.atoms[i].location[2] || pi.has(i)));
   for (const frag of groups) {
     const local = new Map(frag.map((i, k) => [i, k]));
     const bonds = mol.bonds.filter((b) => local.has(b.atoms[0]) && local.has(b.atoms[1]));

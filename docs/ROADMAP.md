@@ -9,7 +9,7 @@ default (decision 0010).
 |---|---|
 | Updates on by default | Done (71dab94) |
 | ChemDraw file fidelity: hand-placed conditions, set label justification, turned labels, the 12 failing round trips | Done: 68 of 68 CDXML round trips |
-| Template and clip-art library (CD-32), paddlewheels and ligands | In progress |
+| Template and clip-art library (CD-32), paddlewheels and ligands | Done: 292 templates in 16 sets, no label clashes |
 | Measured spectra from JCAMP-DX, with peak assignment (CH-29) | Done; next: ChemDraw's CDXML spectrum object, peaks linked to bonds, SPC files |
 | Naming gaps: mixtures with ratios, mixed-metal and cluster complexes, configuration at metals, η drawn with bonds, typography of names | Done: 6855 of 6924 named right, 0 wrong |
 | Platform: Linux Edit menu, Mac Quit from the Dock, pictures in EMF and EPS, Windows and Linux test runs on CI | Done; the CI runs are new: watch their first results |
@@ -27,7 +27,7 @@ Sam moved these three features from 1.0 to 1.1.0 on 18 October 2026. They are th
 
 ### 1. Template and clip-art library (audit item CD-32)
 
-Octet has 106 templates in 7 groups: amino acids, sugars, nucleobases, heterocycles, polycyclics, ligands and lab. ChemDraw ships 29 template sets. Octet must draw its own sets and must not copy ChemDraw's art or data.
+Built on 27 October 2026 for Sam to review (decision 0017): 292 templates in 16 sets, with the eight sets below, more ligands, paddlewheels and seven more lab items. ChemDraw ships 29 template sets; decision 0017 lists which Octet covers. Octet must draw its own sets and must not copy ChemDraw's art or data.
 
 Draw Octet's own sets in this order:
 
