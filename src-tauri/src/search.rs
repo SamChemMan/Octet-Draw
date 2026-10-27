@@ -77,7 +77,12 @@ fn reaxys_window(app: &AppHandle, url: &str) -> Result<(), String> {
             NewWindowResponse::Deny
         })
         .build()
-        .map(|_| ())
+        .map(|_w| {
+            // Linux: no menu bar here. Octet's own Cut, Copy and Paste (main.rs) would take Ctrl+X, C and V from the
+            // Reaxys page and copy the drawing; with no menu the page keeps its keys.
+            #[cfg(target_os = "linux")]
+            let _ = _w.remove_menu();
+        })
         .map_err(|e| e.to_string())
 }
 

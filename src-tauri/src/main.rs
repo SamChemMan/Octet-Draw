@@ -361,7 +361,8 @@ async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<St
 }
 
 // File and Edit menus. Custom items send their id to the page as a "menu" event; Cut, Copy and Paste
-// stay native so the page gets ordinary clipboard events. Select All selects the drawing, not the page.
+// stay native on the Mac and Windows so the page gets ordinary clipboard events. Select All selects the drawing, not
+// the page.
 fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), overrides: &HashMap<String, String>, online: bool) -> tauri::Result<Built> {
     // Every command goes through here: it is listed (with the menu it is in) and takes the user's shortcut if they
     // set one, else its default ("" for none).
@@ -459,15 +460,22 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("copy_mol_v2000", "MOL V2000 Text", "Alt+Shift+CmdOrCtrl+O")?,
     ])?;
     section.replace("Edit".into());
+    // Cut, Copy and Paste: the system's items on the Mac, and on Windows, where they press the keys in the window.
+    // GTK's items press the keys only with libxdo, which Octet does not use, so on Linux they are Octet's own, as Close
+    // Window is: the page runs them on the drawing or on the text field that has the focus (Editor.tsx).
+    #[cfg(not(target_os = "linux"))]
+    let (cut, copy, paste) = (PredefinedMenuItem::cut(app, None)?, PredefinedMenuItem::copy(app, None)?, PredefinedMenuItem::paste(app, None)?);
+    #[cfg(target_os = "linux")]
+    let (cut, copy, paste) = (item("cut", "Cut", "CmdOrCtrl+X")?, item("copy", "Copy", "CmdOrCtrl+C")?, item("paste", "Paste", "CmdOrCtrl+V")?);
     let edit = Submenu::with_items(app, "Edit", true, &[
         &item("undo", "Undo", "CmdOrCtrl+Z")?,
         &item("redo", "Redo", "CmdOrCtrl+Y")?,
         // ChemDraw's Repeat: the last turn, flip, scale or style again. Redo's ⌘Y repeats when there is nothing to redo.
         &item("repeat", "Repeat", "")?,
         &sep()?,
-        &PredefinedMenuItem::cut(app, None)?,
-        &PredefinedMenuItem::copy(app, None)?,
-        &PredefinedMenuItem::paste(app, None)?,
+        &cut,
+        &copy,
+        &paste,
         &item("select_all", "Select All", "CmdOrCtrl+A")?,
         &item("invert_selection", "Invert Selection", "CmdOrCtrl+Shift+I")?,
         &sep()?,

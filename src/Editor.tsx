@@ -1553,6 +1553,10 @@ export default function Editor() {
     import: () => void importFile(),
     save: () => void save(false),
     save_as: () => void save(true),
+    // Edit > Cut, Copy and Paste on Linux, where they are Octet's own menu items (main.rs).
+    cut: () => clipCommand("cut"),
+    copy: () => clipCommand("copy"),
+    paste: () => clipCommand("paste"),
     // While a label or caption is being typed, the Edit menu works on its text.
     undo: () => (typing() ? void document.execCommand("undo") : undo()),
     redo: () => (typing() ? void document.execCommand("redo") : h.at < h.stack.length - 1 ? undo(true) : repeatLast()),
@@ -4681,6 +4685,19 @@ export default function Editor() {
     copyText.current = undefined;
     void (navigator.clipboard?.writeText(text) ?? Promise.reject()).then(() => setNotice("Copied.", "done"), () => setNotice("Octet cannot copy this."));
   };
+  // Edit > Cut, Copy and Paste on Linux, where they are Octet's own menu items (main.rs) and GTK gives them Ctrl+X, C
+  // and V before the page. In a text field they work on its text through the app's clipboard, as copyPlain does (the
+  // webview lets a page use the clipboard only during a click or a key). Elsewhere they are the drawing's own cut, copy
+  // and paste: the clipboard events below, which do nothing on Home or over a dialog.
+  const clipCommand = (id: "cut" | "copy" | "paste") => {
+    const el = document.activeElement;
+    if (!typing()) return void dispatchEvent(new ClipboardEvent(id, { cancelable: true }));
+    if (id === "paste") return void readClipboard().then((c) => { if (c.text) document.execCommand("insertText", false, c.text); }, (err) => setNotice(failure("Octet cannot read the clipboard.", err)));
+    const field = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement ? el : undefined;
+    // A number field has no selection to read: its whole value.
+    const text = field ? (field.selectionStart === null ? field.value : field.value.slice(field.selectionStart, field.selectionEnd ?? field.selectionStart)) : getSelection()?.toString() ?? "";
+    if (text) void copyToClipboard({ text }).then(() => { if (id === "cut") document.execCommand("delete"); }, (err) => setNotice(failure("Octet cannot copy this.", err)));
+  };
   // Edit > Copy As (CH-7, CH-26): the selected structures, or every structure, as text, as ChemDraw's does. SMILES
   // (⌥⌘C), InChI, InChIKey, CDXML Text (⌘D, the selection's whole drawing), MOL Text (⌥⌘O, V3000 as in ChemDraw
   // 26.1) and MOL V2000 Text (⇧⌥⌘O).
@@ -5579,7 +5596,8 @@ export default function Editor() {
         const k = keyOf(e), id = k && native(k) ? actionFor(keymap(settings.keys), k, "none") : undefined;
         if (id?.startsWith("menu.")) {
           const cmd = id.slice(5), over = { home, modal: modal(), typing: typing() };
-          if (over.typing && ["undo", "redo", "select_all"].includes(cmd)) return;
+          // In a text box these are the box's own. A menu command that follows from the same key does not run again.
+          if (over.typing && ["undo", "redo", "select_all", "cut", "copy", "paste"].includes(cmd)) { pageRan.current = { id: cmd, at: performance.now() }; return; }
           if (!menuRuns(cmd, over)) return;
           e.preventDefault();
           pageRan.current = { id: cmd, at: performance.now() };
@@ -5713,9 +5731,11 @@ export default function Editor() {
       // hides in its pictures and Word keeps, then a molfile, then SMILES), then plain text that names a structure,
       // and a picture last.
       if (NATIVE_CLIP && !e.clipboardData?.getData(OCTET_CLIP)) {
-        const text = e.clipboardData?.getData("text/plain"), file = imageFile(e);
+        const given = e.clipboardData?.getData("text/plain"), file = imageFile(e);
         e.preventDefault();
         void readClipboard().then(async (clip) => {
+          // Edit > Paste on Linux sends a paste with no data (clipCommand): the text is the app's.
+          const text = given || clip.text || undefined;
           if (clip.octet) {
             let add: Mol;
             try { add = parse(clip.octet); } catch { return setNotice("Octet cannot read what is on the clipboard."); }

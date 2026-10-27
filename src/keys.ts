@@ -182,10 +182,12 @@ export function toAccelerator(key: string): string {
 // Whether a menu command runs now. Over a dialog or Settings only Undo, Redo and Select All run, on the text in its
 // fields, as a Mac app's menu does over a sheet. Home covers the drawing in the same way: there only the commands that
 // start or open a drawing (Open Recent too), or open Settings, About, the tutorial or the Help menu's items, run. Quit
-// and Close Window run everywhere: they ask about unsaved changes over any dialog (src-tauri/src/quit.rs).
+// and Close Window run everywhere: they ask about unsaved changes over any dialog (src-tauri/src/quit.rs). Cut, Copy and
+// Paste (Octet's own items on Linux) run everywhere too: they work on the text being typed, and the drawing takes them
+// only when nothing covers it.
 const HOME_COMMANDS = ["home", "new", "open", "settings", "about", "tutorial", "shortcuts", "report_problem", "check_updates"];
 export function menuRuns(id: string, over: { home: boolean; modal: boolean; typing: boolean }) {
-  if (id === "quit" || id === "close") return true;
+  if (["quit", "close", "cut", "copy", "paste"].includes(id)) return true;
   if (over.typing && ["undo", "redo", "select_all"].includes(id)) return true;
   if (over.modal) return false;
   return !over.home || HOME_COMMANDS.includes(id) || id.startsWith("new_") || id.startsWith("recent_");

@@ -52,7 +52,6 @@ Sam wanted these in 1.0. They are not done yet.
   - Label turns: a label's `RotationAngle` is kept. Now Octet keeps it on captions only.
   - Arrowhead sizes and hollow block arrows are done.
 - Mixtures as ChemDraw 26.1 names them: Structure to Name gives one name with the component ratios for a grouped mixture, fractional ratios too. Name to Structure already reads these names.
-- Linux: Cut, Copy and Paste in the Edit menu as Octet's own items, as Close Window is.
 
 ### Platform limits
 
