@@ -13,7 +13,7 @@ import { columnsFor, DEFAULT_COLUMNS, Menu, menuWidth, type MenuItem } from "./M
 import { Exit, reduced, timing } from "./motion";
 import { BracketGlyph, BRACKETS, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, SHAPE_EXTRA, SHAPE_GRID, shapeName } from "./elements";
 
-export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "shape" | "bracket" | "tlc" | "table" | "fragment" | "synthesis" | "retro" | "map" | "text" | "erase";
+export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "shape" | "bracket" | "tlc" | "table" | "fragment" | "massspec" | "synthesis" | "retro" | "map" | "text" | "erase";
 
 export const BONDS = {
   single: { name: "Single", spec: { type: 1 } },
@@ -108,7 +108,7 @@ export type SelectKind = keyof typeof SELECTS;
 // template: a library template ("lib:name") or one of the user's own ("custom:id").
 export type Variants = { select: SelectKind; bond: BondKind; ring: string; template: string; symbol: SymbolKind; orbital: string; arrow: string; shape: string; bracket: string; more: string };
 // Specialist tools share one slot at the bottom of the toolbar, which shows the one last used.
-const SPECIAL: Tool[] = ["tlc", "table", "fragment", "synthesis", "retro", "map"];
+const SPECIAL: Tool[] = ["tlc", "table", "fragment", "massspec", "synthesis", "retro", "map"];
 type Strip = "select" | "bond" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "shape" | "bracket" | "more";
 const isStrip = (t: Tool): t is Exclude<Strip, "more"> => t === "select" || t === "bond" || t === "ring" || t === "template" || t === "symbol" || t === "orbital" || t === "arrow" || t === "shape" || t === "bracket";
 // Strips laid out as a grid of icons (named on hover): each row a shape across its styles.
@@ -301,6 +301,16 @@ export const FragmentGlyph = () => (
   </Icon>
 );
 
+// Mass spec analysis: the cut chain over the sticks of a mass spectrum.
+export const MassSpecGlyph = () => (
+  <Icon>
+    <polyline points="32,104 80,56 128,104 176,56 224,104" />
+    <line x1={148} y1={24} x2={116} y2={136} strokeWidth={12} strokeDasharray="16 14" />
+    <line x1={32} y1={224} x2={224} y2={224} />
+    <path d="M64,224V176M104,224V196M152,224V160M192,224V204" />
+  </Icon>
+);
+
 // Synthesis and Retrosynthesis: the cut chain under the arrow each draws (a reaction arrow, or a retrosynthetic one).
 export const SynthesisGlyph = ({ retro }: { retro?: boolean }) => (
   <Icon>
@@ -312,6 +322,7 @@ export const SynthesisGlyph = ({ retro }: { retro?: boolean }) => (
 
 // The specialist tools' names and icons.
 const SPECIAL_TOOLS: Record<string, { name: string; icon: React.ReactNode }> = { tlc: { name: "TLC plate", icon: <TlcGlyph /> }, table: { name: "Table", icon: <TableGlyph /> }, fragment: { name: "Mass fragmentation", icon: <FragmentGlyph /> },
+  massspec: { name: "Mass spec analysis", icon: <MassSpecGlyph /> },
   synthesis: { name: "Synthesis", icon: <SynthesisGlyph /> }, retro: { name: "Retrosynthesis", icon: <SynthesisGlyph retro /> }, map: { name: "Atom map", icon: <MapGlyph /> } };
 
 // A curved arrow's icon: its arc at its true sweep, bulging up, with a head at the right-hand end (both ends for a
