@@ -12,7 +12,8 @@ From the 26.1 help (Importing, ChemNMR) and the strings of `ChemDrawBase`:
 - Assignment: select atoms and bonds, Shift-click peaks, then Structure > Make Spectrum-Structure Assignment.
   Clear Spectrum-Structure Assignment removes it. With Lasso or Marquee, pointing at a peak lights its atoms.
 - The spectrum object's menu: Center on Page, Bring to Front, Send to Back, Flip, Scale, and Mass Spec Analysis.
-- Nothing in the help or the strings shows peak picking, multiplets, J values, integrals or a text line.
+- The code picks peaks (for NMR, IR, UV-Vis and MS) so they can be Shift-clicked. Nothing in the help, the strings or
+  the code's names shows multiplets, J values, integrals or a text line.
 
 Open questions for a run of 26.1 are item 19 in `~/octet-research/notes/chemdraw-checks-pending.md`.
 
@@ -42,8 +43,39 @@ Open questions for a run of 26.1 are item 19 in `~/octet-research/notes/chemdraw
 - Multiplets have ids. Each atom keeps the ids of the multiplets it is linked to (`Atom.peaks`), as it keeps its
   highlight. So links move, copy, undo and delete with their atoms. A link to an id the drawing does not have is
   dropped when a file or a paste is read.
-- The .oct, .cdxml and .cdx files keep the spectrum inside Octet's drawing. ChemDraw does not see it: Octet writes
-  no CDXML spectrum object yet.
+- The .oct, .cdxml and .cdx files keep the spectrum inside Octet's drawing, and also as ChemDraw's spectrum object
+  (below), so ChemDraw shows it and Octet reads it back after ChemDraw saves the file.
+
+## ChemDraw's spectrum object
+
+From the public CDX spec (the Spectrum object, 0x8010, and its properties) and the 26.1 code (format facts only,
+decision 0005):
+
+- CDXML `<spectrum>` has a BoundingBox, XLow and XSpacing (an even grid), XType (Wavenumbers, Microns, Hertz,
+  MassUnits, PartsPerMillion, Other), YType (Absorbance, Transmittance, PercentTransmittance, Other, ArbitraryUnits),
+  Class (Infrared, UVVis, MassSpectrum, NMR, Raman and others), YLow and YScale. Its text is the Y values. ChemDraw
+  writes each as a whole number of YScale above YLow, 16 a line (YScale is the range over 10,000 when the file sets
+  none), and reads each as a number, times YScale when YScale is not 0 or 1, plus YLow. In CDX the values are 64-bit
+  floats in full (0x0A86).
+- Structure > Make Spectrum-Structure Assignment puts an object tag on the spectrum and on every atom and bond
+  selected: Name `/CS/CD/assign`, TagType String, its value the selected peaks' ranges as `lo-hi,` pairs. Pointing at
+  a peak lights each object with a range that overlaps the peak.
+
+What Octet does:
+
+- Each measured spectrum is written as a spectrum object, where ChemDraw had it or else under the drawing. The grid
+  runs from low x to high. A peak table's sticks go on a 0.1 grid, as ChemDraw's own mass spectra do. Uneven points
+  are put on an even grid. The values are 16-bit levels (YScale is the range over 65,535), so the trace comes back
+  as Octet saved it.
+- Each multiplet linked to atoms is an assignment tag with the multiplet's range, on the atoms and on the spectrum.
+- Octet's own details (the title, nucleus, frequency, solvent, threshold, integral and multiplets) go in an object tag
+  named `Octet spectrum` on the spectrum, as JSON in ASCII. ChemDraw's object has no place for them.
+- A ChemDraw spectrum reads as one spectrum of each kind. Without Octet's tag, an NMR spectrum's nucleus comes from
+  its width (more than 40 ppm is ¹³C) and it has no frequency, so ¹H peaks are not grouped into multiplets. A mass
+  spectrum that is at its lowest value at most of its points reads as sticks. Each assignment range links to the
+  multiplet its middle is in, else to those it overlaps, else to a new multiplet of that range, as if drawn by hand.
+- A spectrum with no grid, a value that is not a number, or more than 2,097,152 values is not read, and Octet counts
+  it in what it could not open. So is a second spectrum of a kind, and an assignment with no spectrum.
 
 ## Why Octet's own reader
 

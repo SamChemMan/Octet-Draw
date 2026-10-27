@@ -24,6 +24,7 @@ import { ligandEllipse } from "./render.ts";
 import { kekulise, rings } from "./rings.ts";
 import { keptHolds, stereoMarks } from "./cip.ts";
 import type { Cycle } from "./cycle.ts";
+import { ASSIGN, OWN_TAG, assignGroups, assignRanges, assignValue, fromSpectrumObject, keyOf, nextGroupId, spectrumObject, type Measured } from "./measured.ts";
 import pkg from "../package.json" with { type: "json" };
 
 export const TOO_BIG = "This file is too large to open.";
@@ -318,6 +319,11 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   let next = sound ? own.reduce((m, id) => Math.max(m, id), 0) + 1 : 1;
   const fresh = () => next++;
   const idOf = new Map<number, number>(own.map((id) => [id, sound ? id : fresh()]));
+  // Measured spectra, as ChemDraw's spectrum objects, and each multiplet an atom is linked to as an assignment tag on
+  // the atom and the spectrum (decision 0016). A selection copied takes no spectrum (pick leaves them out).
+  const spectra = mol.spectra ?? [], rangeOf = new Map(spectra.flatMap((s) => s.groups.map((g) => [g.id, assignValue(s, g)] as const)));
+  const assignTag = (id: number) => el("objecttag", { id: fresh(), TagType: "String", Name: ASSIGN, Value: rangeOf.get(id) });
+  const assignTags = (peaks?: number[]) => [...new Set(peaks ?? [])].filter((k) => rangeOf.has(k)).map(assignTag).join("");
   // R-group definitions (ChemDraw's alternative groups): the id an R label names its definition by.
   const altIds = new Map((mol.shapes ?? []).filter((sh) => sh.rgroup).map((sh) => [sh.rgroup!.name, idOf.get(sh.id)!]));
   // Polymer brackets: each pair's bracket graphics (left, right), for its bracketed group.
@@ -614,7 +620,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       // (an atom with no bonds takes its scale back from it).
       LabelSize: shown && scaleOf(a) !== 1 ? fmtSize((a.size ?? style.labelSize) * scaleOf(a)) : undefined, LineWidth: scaleOf(a) !== 1 ? fmt(line * scaleOf(a)) : undefined,
       Octet: priv({ hmark: a.hmark, partial: a.partial, map: a.map, circle: a.circle, angles: a.angles, scale: ownScale(a) }),
-    }, (inner ? nested(i, inner) : "") + alternatives.map((m) => nested(i, m)).join("") + (label?.xml ?? ""));
+    }, (inner ? nested(i, inner) : "") + alternatives.map((m) => nested(i, m)).join("") + (label?.xml ?? "") + assignTags(a.peaks));
     if (a.partial) note(a.partial === "+" ? "δ+" : "δ−", [X[0] + 0.45 * B * scaleOf(a), X[1] - 0.45 * B * scaleOf(a)] as P, (a.size ?? style.labelSize) * scaleOf(a) * 0.75, "left", a.colour);
     return { xml, box: label?.box ?? [X[0], X[1], X[0], X[1]] };
   }
@@ -943,6 +949,17 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   }
   for (const a of arrows) if (!done.has(a.id) && legacyOf.has(a.id) && captions.some((c) => c.on?.arrow === a.id)) schemes.push(el("scheme", { id: fresh() }, step(a.id, [], [])));
 
+  // Each spectrum where ChemDraw had it, or else under everything on the page, as wide as that (3 inches at least),
+  // one under another.
+  let below = union(outs.map((o) => o.box));
+  for (const s of spectra) {
+    const o = spectrumObject(s), w = below ? Math.max(216, below[2] - below[0]) : 360, x0 = below ? below[0] : cx - w / 2, y0 = below ? below[3] + 2 * B : cy - 0.2 * w;
+    const box: Box = s.box ? [...at([s.box[0], s.box[3]]), ...at([s.box[2], s.box[1]])] as Box : [x0, y0, x0 + w, y0 + 0.4 * w];
+    if (!s.box) below = box;
+    const linked = s.groups.filter((g) => mol.atoms.some((a) => a.peaks?.includes(g.id))).map((g) => assignTag(g.id)).join("");
+    put(el("spectrum", { id: fresh(), BoundingBox: boxText(box), Z: Z(), ...o.attrs }, o.text + el("objecttag", { id: fresh(), TagType: "String", Name: OWN_TAG, Value: o.own }) + linked), 4.6, box);
+  }
+
   zOrder = undefined;
   // Groups hold their structures and objects, inner groups first, each in the group round it (with its own Integral).
   const RANKED = (list: Out[]) => [...list].sort((p, q) => p.rank - q.rank);
@@ -1179,6 +1196,10 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   // Groups nest: what is in a group is in each group round it too.
   const member = (g: G | undefined, id: number) => { for (let x = g; x; x = x.parent) x.items.push(id); };
 
+  // Measured spectra (ChemDraw's spectrum objects) with the values of their assignment tags, and each atom's assignment
+  // tags, matched to them once everything is read.
+  const spectraRead: { m: Measured; values: Set<string> }[] = [], assigned: { atom: number; values: string[] }[] = [];
+  let nextGroup = 1;
   const visit = (x: Xml, group?: G, atoms?: number[]) => {
     const p = priv(x);
     // Written by Octet for ChemDraw's eyes only. A catalytic cycle's arrows name their cycle, so its group is known.
@@ -1208,6 +1229,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       case "chemicalproperty": return void properties.push(x);
       case "objecttag": case "bracketattachment": case "crossingbond": case "represent": case "DocumentProperties": return;
       case "embeddedobject": return readPicture(x, group);
+      case "spectrum": return readSpectrum(x);
       default: return lose(x.name);
     }
   };
@@ -1301,6 +1323,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     const lw = real(n.attrs.LineWidth);
     if (lw !== undefined) nodeLines.set(i, lw);
     atomOf.set(int(n.attrs.id) ?? -1, i);
+    const tags = n.kids.filter((k) => k.name === "objecttag" && k.attrs.Name === ASSIGN).slice(0, 64).map((k) => k.attrs.Value ?? "");
+    if (tags.length) assigned.push({ atom: i, values: tags });
     const t = n.kids.find((k) => k.name === "t");
     // The label's own text style, where it differs from the document's: bold, italic, underline, font and size.
     const first = t?.kids.find((k) => k.name === "s");
@@ -1321,6 +1345,19 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (zs.length) labels.push({ i, text: `[${not ? "NOT " : ""}${zs.map((z) => SYMBOLS[z - 1]).join(",")}]`, type });
     }
     return i;
+  }
+
+  // A spectrum object: a measured spectrum, one of each kind (the first), with its place on the page. One Octet cannot
+  // read (no grid, a value that is not a number, too many points) is lost.
+  function readSpectrum(x: Xml) {
+    const tag = (name: string) => x.kids.filter((k) => k.name === "objecttag" && k.attrs.Name === name).map((k) => k.attrs.Value ?? "");
+    let m: Measured;
+    try { m = fromSpectrumObject(x.attrs, x.text, tag(OWN_TAG)[0], nextGroup); } catch { return lose("spectrum"); }
+    if (spectraRead.length >= 16 || spectraRead.some((r) => keyOf(r.m) === keyOf(m))) return lose("spectrum");
+    const b = reals(x.attrs.BoundingBox, 4);
+    if (b) { const [p, q] = [toOctet(b[0], b[3]), toOctet(b[2], b[1])]; m.box = [Math.min(p[0], q[0]), Math.min(p[1], q[1]), Math.max(p[0], q[0]), Math.max(p[1], q[1])]; }
+    spectraRead.push({ m, values: new Set(tag(ASSIGN)) });
+    nextGroup = nextGroupId(spectraRead.map((r) => r.m));
   }
 
   // Ring fills (ChemDraw's ColoredMolecularArea): a colour and the bonds of one ring, read as the ring's atoms in
@@ -2112,6 +2149,22 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (atoms.length === 4 && atoms.every((j) => j !== undefined && j !== i) && new Set(atoms).size === 4) mol.atoms[i].kept = { atoms: atoms as number[], marks: stereoMarks(mol, i, atoms as number[]) };
     }
   }
+  // Spectrum-structure assignments: each tag's ranges in the spectrum with a tag of the same value (else the one whose
+  // range holds them), as links from the atom to the multiplets they name. A tag with no spectrum is lost.
+  for (const { atom, values } of assigned) {
+    const ids = new Set<number>();
+    for (const v of values) {
+      const ranges = assignRanges(v), holds = (m: Measured) => ranges.every(([lo, hi]) => (lo + hi) / 2 >= Math.min(m.first, m.last) && (lo + hi) / 2 <= Math.max(m.first, m.last));
+      const r = spectraRead.find((s) => s.values.has(v)) ?? spectraRead.find((s) => holds(s.m));
+      if (!r || !ranges.length) { lose("spectrum assignment"); continue; }
+      const got = assignGroups(r.m, ranges, nextGroup);
+      r.m = got.m;
+      nextGroup = nextGroupId(spectraRead.map((s) => s.m));
+      for (const k of got.ids) ids.add(k);
+    }
+    if (ids.size) mol.atoms[atom].peaks = [...ids].slice(0, 64);
+  }
+  if (spectraRead.length) mol.spectra = spectraRead.map((s) => s.m);
   // Octet's own files: atoms and bonds back in Octet's order (their ids rise in it).
   let ix = (i: number) => i;
   if (octet) {

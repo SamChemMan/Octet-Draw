@@ -2,7 +2,7 @@
 // assignments go wrong, or do not survive saving and opening again. The spectra are made here from known lines.
 import assert from "node:assert/strict";
 import { readJcamp } from "./jcamp.ts";
-import { analyse, defineGroup, firstOrder, fromJcamp, keepIds, keyOf, measuredFigure, measuredHead, measuredText, nameOf, nextGroupId, pickPeaks, readMeasured, regroup, writeMeasured, type Measured } from "./measured.ts";
+import { analyse, assignGroups, assignRanges, assignValue, defineGroup, firstOrder, fromJcamp, fromSpectrumObject, keepIds, keyOf, measuredFigure, measuredHead, measuredText, nameOf, nextGroupId, pickPeaks, readMeasured, regroup, spectrumObject, writeMeasured, type Measured } from "./measured.ts";
 import { parse, serialize } from "./file.ts";
 import type { Mol } from "./render.ts";
 
@@ -176,4 +176,29 @@ assert.equal(measuredText(msm, analyse(msm)), "MS m/z 88 (8), 61 (15), 45 (18), 
 // IR in transmittance: the dips are the peaks.
 const irm = fromJcamp({ title: "ir", kind: "ir", xUnit: "cm⁻¹", yUnit: "%T", first: 4000, last: 400, y: Float64Array.from({ length: 3601 }, (_, i) => { const x = 4000 - i; return 100 - [[1740, 80], [1240, 60], [2980, 20]].reduce((s, [p, h]) => s + (h * 100) / ((x - p) ** 2 + 100), 0); }) }, 1);
 assert.equal(measuredText(irm, analyse(irm)), "IR ν̃ 2980, 1740, 1240 cm⁻¹.");
+
+// --- ChemDraw's spectrum object ------------------------------------------------------------------------------------
+
+// Assignment tags' values: ChemDraw's "lo-hi," pairs, negative shifts and exponents too; anything else is skipped.
+assert.deepEqual(assignRanges("7.3-7.2,1.25-1.27,"), [[7.2, 7.3], [1.25, 1.27]]);
+assert.deepEqual(assignRanges("-0.5--0.3,1e-05-2e-05,"), [[-0.5, -0.3], [1e-5, 2e-5]]);
+assert.deepEqual(assignRanges("x-1,1-,,7"), []);
+// A mass spectrum's sticks go on a 0.1 grid (ChemDraw's own step) and come back as sticks; a link made to a stick
+// that moved onto the grid finds it within half a bin.
+const mso = spectrumObject(msm), back88 = fromSpectrumObject(mso.attrs, mso.text, mso.own, 1);
+assert.deepEqual([mso.attrs.Class, mso.attrs.XType, mso.attrs.XSpacing, mso.attrs.XLow], ["MassSpectrum", "MassUnits", "0.1", "29"]);
+assert.deepEqual([back88.sticks, [...back88.xs!].map((x) => Math.round(x * 10) / 10), back88.title], [true, [29, 43, 45, 61, 88], "Ethyl acetate"]);
+assert.equal(measuredText(back88, analyse(back88)), measuredText(msm, analyse(msm)));
+const hrms = fromJcamp({ title: "", kind: "ms", xUnit: "m/z", yUnit: "", first: 301.1412, last: 302.1446, y: Float64Array.of(100, 18), xs: Float64Array.of(301.1412, 302.1446), sticks: true }, 1);
+const ho = spectrumObject(hrms), hb = fromSpectrumObject(ho.attrs, ho.text, ho.own, 1);
+const linked = assignGroups(hb, assignRanges(assignValue(hrms, hrms.groups[0])), 9);
+assert.deepEqual([linked.ids.length, linked.m.groups.length], [1, 2]);
+assert.ok(Math.abs(hb.groups.find((g) => g.id === linked.ids[0])!.lo - 301.1) < 0.06);
+// A range over no multiplet becomes one drawn by hand; one over a multiplet takes it.
+const own = assignGroups(m, [[9.5, 9.6], [4.11, 4.13]], 900);
+assert.deepEqual(own.ids, [900, q0]);
+assert.ok(own.m.groups.some((g) => g.id === 900 && g.manual));
+// Where ChemDraw had the spectrum is saved with the drawing; a bad place is refused.
+assert.deepEqual(readMeasured(writeMeasured({ ...m, box: [1, -8, 16, -2] })).box, [1, -8, 16, -2]);
+assert.throws(() => readMeasured({ ...writeMeasured(m), box: [1, 2, 3] }), /damaged/);
 console.log("measured.check: ok");

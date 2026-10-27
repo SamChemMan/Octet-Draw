@@ -9,6 +9,7 @@ import { parse, serialize } from "./file.ts";
 import { deleteAtoms, extractSelection, insertMol } from "./edit.ts";
 import { isDrawingText, readCdx, readOct, writeCdx } from "./oct.ts";
 import type { Mol } from "./render.ts";
+import { analyse, fromJcamp, measuredText } from "./measured.ts";
 import pkg from "../package.json" with { type: "json" };
 
 // A CDX file by hand: the header, then objects and properties as [tag, bytes] in little-endian order.
@@ -205,4 +206,37 @@ const kept: Mol = {
     assert.deepEqual(back.mol.captions![0].placed!.at.map((v) => +v.toFixed(3)), [-1, 0.5]);
   }
   console.log("cdx.check: turned text, bold shapes and a bond's own settings ok");
+}
+
+// A measured spectrum and its assignment as CDX (decision 0016): a spectrum object (0x8010) with its values in full as
+// 64-bit floats (YScale and YLow applied), the assignment tags (0x8011) on the atoms and the spectrum, and back as the
+// same spectrum with the same links, as ChemDraw reads Octet's CDX and as Octet reads ChemDraw's.
+{
+  const y = Float64Array.from({ length: 2000 }, (_, i) => { const x = 4000 - 1.8 * i; return 100 - (80 * 100) / ((x - 1740) ** 2 + 100) - (30 * 100) / ((x - 2980) ** 2 + 100); });
+  const ir = fromJcamp({ title: "Acetone", kind: "ir", xUnit: "cm⁻¹", yUnit: "%T", first: 4000, last: 4000 - 1.8 * 1999, y }, 1);
+  const band = ir.groups.find((g) => g.lo < 1740 && 1740 < g.hi)!.id;
+  const m: Mol = { atoms: [{ ...A("C", 0, 0), peaks: [band] }, { ...A("O", 1, 0), peaks: [band] }], bonds: [{ type: 2, atoms: [0, 1] }], spectra: [ir] };
+  const strip = (x: Xml): Xml => ({ ...x, attrs: Object.fromEntries(Object.entries(x.attrs).filter(([k]) => k !== "Octet")), kids: x.kids.map(strip) });
+  const tree = cdxToXml(xmlToCdx(strip(parseXml(toCdxml(m, DEFAULT_STYLE)))));
+  const every = (x: Xml): Xml[] => [x, ...x.kids.flatMap(every)], sp = every(tree).find((x) => x.name === "spectrum")!;
+  // The values are the trace itself, low x first; CDX holds no YLow or YScale for them.
+  const values = sp.text.split(" ").map(Number);
+  assert.equal(values.length, 2000);
+  assert.ok(values.every((v, k) => Math.abs(v - ir.y[1999 - k]) < 1e-3), "the values in full");
+  assert.deepEqual([sp.attrs.YLow, sp.attrs.YScale, sp.attrs.Class, sp.attrs.XType, sp.attrs.YType], [undefined, undefined, "Infrared", "Wavenumbers", "PercentTransmittance"]);
+  const tags = (x: Xml) => x.kids.filter((k) => k.name === "objecttag" && k.attrs.Name === "/CS/CD/assign").map((k) => [k.attrs.TagType, k.attrs.Value]);
+  const nodes = every(tree).filter((x) => x.name === "n");
+  assert.deepEqual(tags(nodes[0]), tags(sp));
+  assert.deepEqual(tags(nodes[1]), tags(sp));
+  const back = fromCdxml(tree), s = back.mol.spectra![0];
+  assert.deepEqual(back.lost, {});
+  assert.deepEqual([s.title, s.kind, s.xUnit, s.yUnit, s.y.length], ["Acetone", "ir", "cm⁻¹", "%T", 2000]);
+  const ranges = (x: typeof ir) => x.groups.map((g) => [g.lo, g.hi].map((v) => v.toFixed(6))).sort();
+  assert.deepEqual(ranges(s), ranges(ir));
+  const id = s.groups.find((g) => g.lo < 1740 && 1740 < g.hi)!.id;
+  assert.deepEqual(back.mol.atoms.map((a) => a.peaks), [[id], [id]]);
+  assert.equal(measuredText(s, analyse(s)), measuredText(ir, analyse(ir)));
+  // ChemDraw's CDX read and written again keeps its values.
+  assert.equal(every(cdxToXml(xmlToCdx(tree))).find((x) => x.name === "spectrum")!.text, sp.text);
+  console.log("cdx.check: spectra as ChemDraw's spectrum object ok");
 }
