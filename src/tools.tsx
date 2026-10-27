@@ -5,9 +5,9 @@ import { flushSync } from "react-dom";
 import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Cube, Eraser, Lasso, Plus, PushPin, Selection, TextT, Trash, X } from "@phosphor-icons/react";
 import { chairPoints, type BondSpec, type SymbolKind } from "./edit";
 import { ARROW_SIZES, curvePath, HBOND, headOfLength, QUADRUPLE, SWEEPS, type ArrowKind, type ArrowSize, type HeadSize, type Mol, type ShapeKind } from "./render";
-import { MY_SET, templateKind, type Template } from "./templates";
+import { kindName, MY_SET, templateKind, type Template } from "./templates";
 import type { TemplateSetActions, TemplateTool } from "./TemplateLibrary";
-import { libraryItem } from "./library";
+import { libraryItem, type LibraryItem } from "./library";
 import { LibraryPanel } from "./TemplateLibrary";
 import { columnsFor, DEFAULT_COLUMNS, Menu, menuWidth, type MenuItem } from "./Menu";
 import { Exit, reduced, timing } from "./motion";
@@ -424,6 +424,8 @@ type PaletteProps = {
   canAddSelection: boolean; // something is selected that could become a template
   reveal?: { tool: TemplateTool; set: string; id?: string; n: number }; // a library to open (on a set, with a new template's name to type)
   preview: (name: string) => Mol | undefined; // the structure for a name, if it is one
+  named: (kind: string) => Mol | undefined; // the structure of a "name:" kind (a name or abbreviation the library found)
+  findNamed: (query: string, read: boolean) => LibraryItem[]; // names and abbreviations for the library's search
   onTool: (t: Tool) => void;
   onVariant: (t: keyof Variants, kind: string) => void;
   onPinned: (pinned: string[]) => void;
@@ -513,7 +515,7 @@ export function Palette(p: PaletteProps) {
   const keep = (tool: Strip, v: string) => { if (!keptIn(tool).includes(v)) setKept(tool, [...keptIn(tool), v]); setArrived(v); };
   const unkeep = (tool: Strip, v: string) => setKept(tool, keptIn(tool).filter((x) => x !== v));
   // The strip whose list a dragged option can go into, if any.
-  const keepable = (key: string): Strip | undefined => (key.startsWith("arrow:") && arrowVariant(key.slice(6))?.sweep ? "arrow" : key.startsWith("ring:lib:") ? "ring" : undefined);
+  const keepable = (key: string): Strip | undefined => (key.startsWith("arrow:") && arrowVariant(key.slice(6))?.sweep ? "arrow" : key.startsWith("ring:lib:") || key.startsWith("ring:name:") ? "ring" : undefined);
   // A template added (or a pick ended) opens its library again, on its set, with a new template's name ready to type.
   useEffect(() => { if (!p.reveal) return; setOpen(p.reveal.tool); setLibrary(p.reveal.tool === "ring"); }, [p.reveal?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -524,10 +526,12 @@ export function Palette(p: PaletteProps) {
   const own = (tool: TemplateTool) => ({ tool, sets: p.templateSets, onSets: p.onTemplateSets, reveal: p.reveal?.tool === tool ? p.reveal : undefined,
     onAdd: (set: string) => { if (!p.canAddSelection) setOpen(undefined); p.onAdd(set, tool); },
     onRename: p.onRename, onCopy: (kind: string, set: string) => p.onCopy(kind, set, tool), onNewSet: p.onNewSet,
-    onRemove: (kind: string) => { const t = template(kind); if (t) p.onRemoveTemplate(t.id); } });
-  const shapeOf = (kind: string) => template(kind)?.mol ?? libraryItem(kind)?.icon ?? libraryItem(kind)?.mol;
+    onRemove: (kind: string) => { const t = template(kind); if (t) p.onRemoveTemplate(t.id); }, find: p.findNamed });
+  const shapeOf = (kind: string) => template(kind)?.mol ?? libraryItem(kind)?.icon ?? libraryItem(kind)?.mol ?? p.named(kind);
+  // A template found by name has its name once its structure can be drawn (the names engine has loaded).
+  const named = (kind: string) => (p.named(kind) ? kindName(kind) : undefined);
   const nameOf = (tool: Strip, kind: string) =>
-    tool === "more" ? SPECIAL_TOOLS[kind]?.name : tool === "bond" ? BONDS[kind as BondKind]?.name : tool === "template" ? (template(kind)?.name ?? libraryItem(kind)?.name) : tool === "symbol" ? SYMBOLS[kind as SymbolKind] : tool === "shape" ? shapeName(kind) : tool === "orbital" ? orbitalName(kind) : tool === "bracket" ? BRACKETS[kind] : tool === "ring" ? (RINGS[kind as RingKind]?.name ?? template(kind)?.name ?? libraryItem(kind)?.name)
+    tool === "more" ? SPECIAL_TOOLS[kind]?.name : tool === "bond" ? BONDS[kind as BondKind]?.name : tool === "template" ? (template(kind)?.name ?? libraryItem(kind)?.name ?? named(kind)) : tool === "symbol" ? SYMBOLS[kind as SymbolKind] : tool === "shape" ? shapeName(kind) : tool === "orbital" ? orbitalName(kind) : tool === "bracket" ? BRACKETS[kind] : tool === "ring" ? (RINGS[kind as RingKind]?.name ?? template(kind)?.name ?? libraryItem(kind)?.name ?? named(kind))
       : tool === "arrow" ? arrowName(kind) : SELECTS[kind as SelectKind]?.name;
   const iconOf = (tool: Strip, kind: string) => {
     if (tool === "more") return SPECIAL_TOOLS[kind]?.icon;
@@ -543,7 +547,7 @@ export function Palette(p: PaletteProps) {
     return mol ? <TemplateGlyph mol={mol} /> : <RingGlyph kind={kind as RingKind} />;
   };
   const options = (tool: Strip) =>
-    tool === "bond" ? Object.keys(BONDS) : tool === "template" ? [p.variants.template] : tool === "symbol" ? Object.keys(SYMBOLS) : tool === "shape" ? [...SHAPE_GRID.flat(), ...SHAPE_EXTRA] : tool === "orbital" ? ORBITAL_GRID.flat() : tool === "bracket" ? Object.keys(BRACKETS) : tool === "select" ? Object.keys(SELECTS) : tool === "arrow" ? [...STRAIGHT.map((k) => (!arrowSize || (k === "block" && arrowSize === "small") ? k : withSize(k, arrowSize))), ...p.curvedArrows.filter((v) => arrowVariant(v)?.sweep)] : [...Object.keys(RINGS), ...p.templates.map((t) => templateKind(t.id)), ...p.libraryRings.filter((k) => libraryItem(k))];
+    tool === "bond" ? Object.keys(BONDS) : tool === "template" ? [p.variants.template] : tool === "symbol" ? Object.keys(SYMBOLS) : tool === "shape" ? [...SHAPE_GRID.flat(), ...SHAPE_EXTRA] : tool === "orbital" ? ORBITAL_GRID.flat() : tool === "bracket" ? Object.keys(BRACKETS) : tool === "select" ? Object.keys(SELECTS) : tool === "arrow" ? [...STRAIGHT.map((k) => (!arrowSize || (k === "block" && arrowSize === "small") ? k : withSize(k, arrowSize))), ...p.curvedArrows.filter((v) => arrowVariant(v)?.sweep)] : [...Object.keys(RINGS), ...p.templates.map((t) => templateKind(t.id)), ...p.libraryRings.filter((k) => libraryItem(k) || p.named(k))];
   // A menu's groups: shapes across their styles, then lines, arcs and the rest; each orbital across its phases;
   // one group for everything else.
   // The Arrow strip's last group: the sizes of the straight arrow in hand, as ChemDraw's Large, Medium and Small rows.
@@ -734,7 +738,7 @@ export function Palette(p: PaletteProps) {
                   return { key: kind, name: SIZE_NAMES[size], icon: <ArrowGlyph kind={v} />, checked: arrowSize === size };
                 }
                 const name = nameOf(tool, kind)!, custom = template(kind);
-                const kept = (tool === "arrow" && !!arrowVariant(kind)?.sweep) || (tool === "ring" && !!libraryItem(kind));
+                const kept = (tool === "arrow" && !!arrowVariant(kind)?.sweep) || (tool === "ring" && (!!libraryItem(kind) || !!kindName(kind)));
                 return {
                   key: kind, name, icon: iconOf(tool, kind), checked: p.variants[tool] === kind, arrived: arrived === kind,
                   ...(custom || kept ? { action: { icon: <X size={12} />, label: `Remove ${name}`, onClick: () => (custom ? p.onRemoveTemplate(custom.id) : unkeep(tool, kind)) } } : {}),

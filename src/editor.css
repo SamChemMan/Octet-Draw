@@ -1628,6 +1628,22 @@ button.variant.add {
 .facts:active {
   transform: scale(0.98);
 }
+/* The abbreviation Octet knows for the structure (TREN), then its formula: cut short with an ellipsis, never the mass. */
+.facts-what {
+  min-width: 0;
+  margin-right: var(--space-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.facts-what + span {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.facts-abbreviation {
+  color: var(--ink);
+  font-weight: 500;
+}
 /* Every formula in the panels uses the formula token (text-formula): IBM Plex Mono, 13 px, weight 500. */
 .facts .formula,
 .prop-value.formula {

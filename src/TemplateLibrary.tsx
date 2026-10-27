@@ -1,5 +1,6 @@
 // The template library beside the Ring strip (and the Template tool's): categories down the side, a search that looks
-// in all of them, and each template drawn as it will look on the page. Click one to use it; pin it (or drag it onto
+// in all of them and also finds structures by name or abbreviation (TREN, dppf, a name OPSIN reads), each one a
+// template like the library's own, and each template drawn as it will look on the page. Click one to use it; pin it (or drag it onto
 // the Ring strip) to keep it there; drag it onto the toolbar for a shortcut, or onto the canvas to place it. The
 // user's own templates come first, in named sets (CD-33, as ChemDraw's template documents): New set adds one, a
 // double-click on a set's name renames it, its × removes it (its templates go to My templates). In My templates and
@@ -10,6 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BookmarkSimple, Folders, FolderSimple, FolderSimplePlus, FolderSimpleUser, MagnifyingGlass, PencilSimple, Plus, PushPin, Trash, X } from "@phosphor-icons/react";
 import { ContextMenu, type MenuItem } from "./Menu";
+import { commonKey } from "./common";
 import { measure, STYLE } from "./chem";
 import { fontStack } from "./docstyle";
 import { LIBRARY, type LibraryItem } from "./library";
@@ -71,9 +73,12 @@ const NAME_CLICK = 250;
 // onAdd: Add in My templates or a set of the user's (the selection goes in, or a structure is picked next).
 // reveal: a set to open on, and a template just added whose name is ready to type. onRename, onRemove: one of the
 // user's templates. onCopy: a built-in template copied into a set of the user's. onNewSet: New set…, then what goes in.
+// find: structures for what is searched, by name or abbreviation (TREN), each as a built-in template: Octet's own names
+// that begin as typed and are drawn already (read false, at once), or all of them with the name as typed or its
+// suggestion (read true, once typing pauses).
 export function LibraryPanel(p: {
   current: string; kept?: string[]; dimmed?: boolean; mine?: LibraryItem[]; sets?: string[]; onSets?: TemplateSetActions;
-  tool?: TemplateTool; reveal?: { set: string; id?: string; n: number };
+  tool?: TemplateTool; reveal?: { set: string; id?: string; n: number }; find?: (query: string, read: boolean) => LibraryItem[];
   onAdd?: (set: string) => void; onRemove?: (kind: string) => void; onRename?: (id: string, name: string) => void;
   onCopy?: (kind: string, set: string) => void; onNewSet?: (then: (set: string) => void) => void;
   onChoose: (kind: string) => void; onKeep?: (kind: string, keep: boolean) => void; onPress: (e: React.PointerEvent, kind: string) => void;
@@ -113,10 +118,31 @@ export function LibraryPanel(p: {
     refocus.current = undefined;
   }, [editing]);
   const open = categories.find((c) => c.name === category) ?? categories[0];
+  // Structures found by name: the ones already drawn at once, all of them once typing pauses (drawing takes a moment).
+  const typed = query.trim();
+  const quick = useMemo(() => (typed && p.find ? p.find(typed, false) : []), [typed, p.find]);
+  const [read, setRead] = useState<{ typed: string; items: LibraryItem[] }>();
+  useEffect(() => {
+    if (!typed || !p.find) return;
+    const t = setTimeout(() => setRead({ typed, items: p.find!(typed, true) }), 150);
+    return () => clearTimeout(t);
+  }, [typed, p.find]);
+  const named = read?.typed === typed ? read.items : quick;
+  // The library's templates whose name, category or other words have what is typed in them, then the structures found by
+  // name (the library's own template where it has one by that name, as P(t-Bu)3 for P(tBu)3); the one named exactly as
+  // typed first.
   const shown = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return q ? categories.flatMap((c) => c.items).filter((t) => t.name.toLowerCase().includes(q) || t.category.toLowerCase().includes(q) || !!t.also?.toLowerCase().includes(q)) : open.items;
-  }, [open, query, categories]);
+    const q = typed.toLowerCase();
+    if (!q) return open.items;
+    const all = categories.flatMap((c) => c.items);
+    const found = all.filter((t) => t.name.toLowerCase().includes(q) || t.category.toLowerCase().includes(q) || !!t.also?.toLowerCase().includes(q));
+    for (const t of named) {
+      const item = all.find((x) => commonKey(x.name) === commonKey(t.name)) ?? t;
+      if (!found.some((x) => x.kind === item.kind || commonKey(x.name) === commonKey(item.name))) found.push(item);
+    }
+    const exact = (t: LibraryItem) => commonKey(t.name) === commonKey(typed);
+    return [...found.filter(exact), ...found.filter((t) => !exact(t))];
+  }, [open, typed, categories, named]);
   const done = (keep: boolean) => {
     const n = naming;
     setNaming(undefined);
@@ -134,7 +160,7 @@ export function LibraryPanel(p: {
   const drop = (set: string) => (p.onSets && p.tool ? { "data-drop-set": set, "data-drop-tool": p.tool } : {});
   // A template's menu: Rename, Move to and Remove for the user's own; Add to templates (a copy) and the Ring menu pin
   // for a built-in one.
-  const item = menu && categories.flatMap((c) => c.items).find((t) => t.kind === menu.kind), id = menu && ownId(menu.kind);
+  const item = menu && [...categories.flatMap((c) => c.items), ...named].find((t) => t.kind === menu.kind), id = menu && ownId(menu.kind);
   const kept = !!item && !!p.kept?.includes(item.kind);
   const menuGroups: MenuItem[][] = !item ? [] : id ? [
     [...(p.onRename ? [{ key: "rename", name: "Rename", icon: <PencilSimple size={18} /> }] : []), ...(p.onSets ? [{ key: "move", name: "Move to", icon: <Folders size={18} />, more: true }] : [])],

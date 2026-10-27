@@ -1,6 +1,12 @@
 // Structure to name. Octet's namer writes a name from the molecular graph, and the name is only shown if OPSIN
 // reads it back as the same structure (same standard InChI, stereochemistry included), so a wrong name never shows.
 import { hydrogens, type Mol } from "./render.ts";
+import { commonKey } from "./common.ts";
+
+// A checked name with the abbreviation chemists cite after it in an experimental section, "N1,N1-bis(2-aminoethyl)
+// ethane-1,2-diamine (TREN)". The name alone where it is the abbreviation (Wilkinson's catalyst) or there is none.
+export const withAbbreviation = (name: string, abbreviation?: string) =>
+  abbreviation && commonKey(abbreviation) !== commonKey(name) ? `${name} (${abbreviation})` : name;
 
 // The namer's input: Kekulé bonds and explicit hydrogen counts, with CIP labels (R, S on atoms; E, Z on double
 // bonds) where the drawing has stereochemistry. iso: an atom's mass number (13 for ¹³C, 2 for a D atom); hx: the
