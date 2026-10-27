@@ -8,7 +8,7 @@ default (decision 0010).
 | Work | Status |
 |---|---|
 | Updates on by default | Done (71dab94) |
-| ChemDraw file fidelity: hand-placed conditions, set label justification, turned labels, the 12 failing round trips | In progress |
+| ChemDraw file fidelity: hand-placed conditions, set label justification, turned labels, the 12 failing round trips | Done: 68 of 68 CDXML round trips |
 | Template and clip-art library (CD-32), paddlewheels and ligands | In progress |
 | Measured spectra from JCAMP-DX, with peak assignment (CH-29) | In progress |
 | Naming gaps: mixtures with ratios, mixed-metal and cluster complexes, configuration at metals, η drawn with bonds, typography of names | In progress |
