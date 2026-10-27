@@ -217,7 +217,7 @@ export function LibraryPanel(p: TemplateActions & {
   // when a key opened it), and the set whose menu is open.
   const [editing, setEditing] = useState(() => (fresh?.id ? templateKind(fresh.id) : undefined));
   const [menu, setMenu] = useState<{ kind: string; at: { x: number; y: number }; keyboard?: boolean }>();
-  const [setMenu_, setSetMenu] = useState<{ set: string; own: boolean; at: { x: number; y: number }; keyboard?: boolean }>();
+  const [setChoice, setSetChoice] = useState<{ set: string; own: boolean; at: { x: number; y: number }; keyboard?: boolean }>();
   useEffect(() => {
     if (!fresh) return;
     revealed = fresh.n;
@@ -312,8 +312,8 @@ export function LibraryPanel(p: TemplateActions & {
               {naming?.from === c.name ? nameField : (
                 <button className="library-category" aria-pressed={!query && category === c.name} onClick={() => { setCategory(c.name); setQuery(""); }} {...(c.own ? drop(c.name) : {})}
                   onDoubleClick={() => { if (c.own && c.name !== MY_SET && p.onSets) setNaming({ from: c.name, value: c.name }); }}
-                  onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setSetMenu({ set: c.name, own: c.own, ...menuAt(e) }); }}
-                  onKeyDown={(e) => { if (!menuKey(e)) return; e.preventDefault(); e.stopPropagation(); setSetMenu({ set: c.name, own: c.own, ...menuAt(e) }); }}
+                  onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setSetChoice({ set: c.name, own: c.own, ...menuAt(e) }); }}
+                  onKeyDown={(e) => { if (!menuKey(e)) return; e.preventDefault(); e.stopPropagation(); setSetChoice({ set: c.name, own: c.own, ...menuAt(e) }); }}
                   onPointerUp={() => {
                     const kind = carried.current, id = kind && ownId(kind);
                     if (!kind || !c.own || !p.onSets) return;
@@ -406,8 +406,8 @@ export function LibraryPanel(p: TemplateActions & {
           onRename={p.onRename ? () => setEditing(item.kind) : undefined}
           onClose={() => { const k = menu.kind; setMenu(undefined); if (menu.keyboard) grid.current?.querySelector<HTMLElement>(`[data-kind="${CSS.escape(k)}"]`)?.focus(); }} />
       )}
-      {setMenu_ && setGroups(setMenu_).length > 0 && (
-        <ContextMenu label={setMenu_.set} at={setMenu_.at} keyboard={setMenu_.keyboard} groups={setGroups(setMenu_)} sub={() => undefined} onChoose={(key) => chooseSet(setMenu_, key)} onClose={() => setSetMenu(undefined)} />
+      {setChoice && setGroups(setChoice).length > 0 && (
+        <ContextMenu label={setChoice.set} at={setChoice.at} keyboard={setChoice.keyboard} groups={setGroups(setChoice)} sub={() => undefined} onChoose={(key) => chooseSet(setChoice, key)} onClose={() => setSetChoice(undefined)} />
       )}
     </div>
   );
@@ -432,7 +432,7 @@ export function FloatingTemplates({ palette, items, current, actions, z, onChoos
   const ordering = items.some((t) => ownId(t.kind));
   const order = useOrder(grid, ordering ? actions.onPlace : undefined, items.map((t) => t.kind).join("\n"));
   const columns = live?.columns ?? palette.columns, width = paletteWidth(columns);
-  // It stays on the screen: a window made smaller brings it back in.
+  // It stays on the screen: a window made smaller brings it back in, and a tall set scrolls inside the room below it.
   const [, resized] = useState(0);
   useEffect(() => { const r = () => resized((n) => n + 1); addEventListener("resize", r); return () => removeEventListener("resize", r); }, []);
   const x = Math.max(0, Math.min(live?.x ?? palette.x, innerWidth - width)), y = Math.max(0, Math.min(live?.y ?? palette.y, innerHeight - 40));
@@ -461,7 +461,7 @@ export function FloatingTemplates({ palette, items, current, actions, z, onChoos
   const item = menu && items.find((t) => t.kind === menu.kind);
   return (
     <section ref={box} className={leaving ? "floating-templates leaving" : "floating-templates"} role="dialog" aria-label={palette.set} inert={leaving}
-      style={{ left: x, top: y, width, zIndex: z }} onPointerDownCapture={onFront}>
+      style={{ left: x, top: y, width, zIndex: z, maxHeight: Math.max(120, innerHeight - y - 8) }} onPointerDownCapture={onFront}>
       <header className="floating-head" onPointerDown={(e) => drag(e, "move")}>
         <h3 className="floating-title">{palette.set}</h3>
         <button className="floating-close" aria-label={`Close ${palette.set}`} data-tip="Close" onClick={onClose}><X size={12} /></button>

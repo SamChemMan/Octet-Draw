@@ -224,7 +224,7 @@ const bytes = xmlToCdx(templateDoc());
 for (const [what, file] of [["CDX bytes", bytes], ["CDX in base64, as the app reads it", toBase64(bytes)]] as const) {
   const r = readTemplateFile(file, "My rings.ctp");
   assert.equal(r.set, "My rings", what);
-  assert.deepEqual(r.templates.map((t) => t.name), ["Furan", "My rings 2", "Water drop", "My rings 4", "My rings 5"], `${what}: names from annotations, else the set and place; the empty pane left out`);
+  assert.deepEqual(r.templates.map((t) => t.name), ["Furan", "Template 2", "Water drop", "Template 4", "Template 5"], `${what}: names from annotations, else the place in the set; the empty pane left out`);
   assert.deepEqual(r.templates.map((t) => t.mol.atoms.map((a) => a.label).join("")), ["OCCCC", "CCN", "O", "OCCCC", "CCN"], `${what}: each pane's structure, in order`);
   assert.equal(r.templates[0].mol.bonds.filter((b) => b.type === 2).length, 2, `${what}: bond orders`);
   assert.equal(r.left, 0);
@@ -239,7 +239,7 @@ let sets: Kept = addSet(empty, "Rings");
 const { kept: withFile, set: madeSet } = addSetOf(sets, fromText.set, fromText.templates);
 assert.equal(madeSet, "Rings 2");
 assert.deepEqual(withFile.templateSets, ["Rings", "Rings 2"]);
-assert.deepEqual(back(withFile).filter((t) => t.set === "Rings 2").map((t) => t.name), ["Furan", "Rings 2", "Water drop", "Rings 4", "Rings 5"]);
+assert.deepEqual(back(withFile).filter((t) => t.set === "Rings 2").map((t) => t.name), ["Furan", "Template 2", "Water drop", "Template 4", "Template 5"]);
 sets = { ...sets, templateSets: Array.from({ length: 50 }, (_, k) => `S${k}`) };
 assert.equal(addSetOf(sets, "One more", fromText.templates).set, undefined, "no set past Octet's 50");
 // Hostile files: not a template file, damaged, cut short, too many panes, a pane too big.

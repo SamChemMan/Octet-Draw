@@ -65,7 +65,7 @@ Format facts, from reading ChemDraw's 30 bundled files with Octet's own CDX read
    toolbar's layer, so a dialog makes them inert with the toolbar. Thumbnails are drawn once for each structure.
 4. ChemDraw template files. File > Open and a drop read .ctp and .cts (src/ctp.ts) as a new set of the user's,
    named after the file (with a number when the name is taken), and the library opens on it. A pane's name is its
-   annotation, else the set's name and its place ("Aromatics 7"). The file is hostile: the CDX and CDXML readers cap
+   annotation, else its place in the set ("Template 7"). The file is hostile: the CDX and CDXML readers cap
    size, depth and objects; here at most 500 panes are read, a template is at most 256 KB and the set 2 MB (the
    settings live in the app's own storage). A template file is never a drawing Octet saves over or lists on Home.
    Octet does not write .ctp files yet.

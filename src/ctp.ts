@@ -4,9 +4,9 @@
 // name is its page's Name annotation (ChemDraw's Document Annotations > Name), which ChemDraw shows as its tooltip.
 // Format facts: decision 0018.
 // Each pane with something in it becomes a template of the user's, in a new set named after the file, in the panes'
-// order, named by its annotation or else by the set and its place ("Aromatics 7"). Empty panes are left out (Octet's
-// sets have no gaps). The file is hostile until read: cdx.ts and cdxml.ts cap
-// its size, depth and objects; here the number of panes and the size of each template and of the set are capped too.
+// order, named by its annotation or else by its place in the set ("Template 7"; the library's search finds a set by
+// its name). Empty panes are left out (Octet's sets have no gaps). The file is hostile until read: cdx.ts and cdxml.ts
+// cap its size, depth and objects; here the number of panes and the size of each template and of the set are capped too.
 import { cdxToXml, BASE64_MAGIC, fromBase64 } from "./cdx.ts";
 import { fromCdxml, parseXml, type Xml } from "./cdxml.ts";
 import { serialize } from "./file.ts";
@@ -44,7 +44,7 @@ export function readTemplateFile(contents: string | Uint8Array, fileName: string
       const n = serialize(mol).length;
       if (n > MOST_TEMPLATE || size + n > MOST_SET) { left++; return; }
       size += n;
-      templates.push({ name: cleanName(named ?? "") || `${set} ${templates.length + 1}`, mol });
+      templates.push({ name: cleanName(named ?? "") || `Template ${templates.length + 1}`, mol });
     } catch {
       left++;
     }
