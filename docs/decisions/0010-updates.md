@@ -1,18 +1,16 @@
-# 0010: Octet asks on first launch whether to check for updates
+# 0010: Octet checks for updates by default
 
-Status: built for plan item REL-10 on stream/release, 18 October 2026. Sam must still confirm the answer to brief
-section 11, question 5 ("Auto-update: on by default, or ask on first launch?"). Octet asks, because Octet goes
-online only when the user says so. For checks on by default, `updates` starts as true and the question goes.
+Status: built for plan item REL-10 on stream/release, 18 October 2026, as a question on first launch. Sam answered
+brief section 11, question 5 on 27 October 2026: "Updates should be on by default." `updates` now starts as true and
+the first-launch question is gone.
 
 ## Decision
 
-- On first launch, after the name, Octet asks one question: "Check for updates automatically?", with Check
-  Automatically and Don't Check. Escape is Don't Check. A user who already has a name gets the question once,
-  the next time Octet opens.
-- Octet keeps the answer. Settings > General > Updates changes it, and Check Now checks at once.
-- Octet checks nothing before the user answers. With Don't Check, Octet goes online only when the user
-  chooses Check for Updates… (Octet menu on the Mac, Help menu on Windows and Linux) or Check Now.
-- With Check Automatically, Octet checks 5 seconds after it opens. With no network the check fails quietly,
+- Octet checks for updates when it opens, unless the user turns checks off in Settings > General > Updates.
+  A user who never answered the old first-launch question has checks on. A user who chose Don't Check keeps it.
+- With checks off, Octet goes online for updates only when the user chooses Check for Updates… (Octet menu on the
+  Mac, Help menu on Windows and Linux) or Check Now.
+- With checks on, Octet checks 5 seconds after it opens. With no network the check fails quietly,
   and a check with no answer stops after 30 seconds. Drawing never waits for it.
 - An update found asks before it installs: "Update to Octet 1.0.1?" with Update and Cancel. Update asks to
   save unsaved changes first, then installs and starts Octet again. Cancel asks again at the next start. The
@@ -36,4 +34,4 @@ has the same menu item.
   (`.github/workflows/release.yml`). macOS gets the universal app, Windows the NSIS installer, Linux the
   AppImage. Not yet checked: how an Octet installed from the .deb or .rpm package updates. Test it on a
   Linux machine before 1.0.0.
-- The answer is `updates` in Octet's settings (`src/settings.ts`): null until the user answers.
+- The setting is `updates` in Octet's settings (`src/settings.ts`): true unless the user turned it off.

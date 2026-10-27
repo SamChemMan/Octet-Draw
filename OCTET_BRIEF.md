@@ -193,6 +193,6 @@ Ask Sam these when they block you. Do not guess.
 
 1. ~~Linux support in version 1, or later?~~ Answered 14 October 2026: Linux in version 1.
 2. ~~Open source the app, or keep it closed source but free?~~ Answered 14 October 2026: open source, Apache-2.0.
-3. Which funding route comes first (grants, sponsorship, donations, institutional tier)? This decides whether to build accounts and sync early.
+3. Which funding route comes first (grants, sponsorship, donations, institutional tier)? This decides whether to build accounts and sync early. Parked by Sam on 27 October 2026: no institutional features for now.
 4. Final logo and app icon: when will they arrive? Use the drafts until then.
-5. Auto-update: on by default, or ask on first launch? Built as "ask on first launch", with signed updates (decision 0010). Sam to confirm.
+5. ~~Auto-update: on by default, or ask on first launch?~~ Answered 27 October 2026: on by default (decision 0010).

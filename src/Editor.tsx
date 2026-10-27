@@ -46,7 +46,7 @@ import { fromCdxml, parseXml, toCdxml, type CdxmlOptions } from "./cdxml";
 import { isDrawingText, lostText, readCdx, readOct, writeCdx, writeOct } from "./oct";
 import { BASE64_MAGIC, fromBase64, hexToBase64, toBase64, xmlToCdx } from "./cdx";
 import { About } from "./About";
-import { Home, NameBox, UpdatesBox, type RecentEntry, type RecoveredEntry } from "./Home";
+import { Home, NameBox, type RecentEntry, type RecoveredEntry } from "./Home";
 import { Coach, NOTHING_SEEN, type Seen } from "./Coach";
 import { Feedback } from "./Feedback";
 import { ExportButton, ExportDialog } from "./ExportDialog";
@@ -5990,8 +5990,8 @@ export default function Editor() {
     return gs.length || count >= 2 ? { grouped: gs.length > 0, integral: gs.length > 0 && gs.every((g) => g.integral), group } : undefined;
   }, [doc, selection, picked]);
   // Home stays on screen while it fades out, so going to a drawing (or the tutorial) is one smooth move.
-  const [homeLeaving, setHomeLeaving] = useState(false), [wasHome, setWasHome] = useState(home), homeKind = useRef<"name" | "updates" | "home">("home");
-  if (home) homeKind.current = settings.userName === null ? "name" : settings.updates === null ? "updates" : "home";
+  const [homeLeaving, setHomeLeaving] = useState(false), [wasHome, setWasHome] = useState(home), homeKind = useRef<"name" | "home">("home");
+  if (home) homeKind.current = settings.userName === null ? "name" : "home";
   if (wasHome !== home) { setWasHome(home); setHomeLeaving(wasHome); }
   useEffect(() => {
     if (!homeLeaving) return;
@@ -7008,9 +7008,7 @@ export default function Editor() {
         </Dialog>
       )}</Exit>
       {(home || homeLeaving) && (homeKind.current === "name"
-        ? <NameBox leaving={!home} onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone && settings.updates !== null) startTutorial(); }} />
-        : homeKind.current === "updates"
-        ? <UpdatesBox leaving={!home} onDone={(updates) => { setSettings((s) => ({ ...s, updates })); if (!settings.tutorialDone) startTutorial(); }} />
+        ? <NameBox leaving={!home} onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone) startTutorial(); }} />
         : <Home leaving={!home} name={settings.userName ?? ""} first={welcomed} away={away} recents={recents} newKey={keyLabel("enter")} openKey={hint("open")}
             recovered={recovered} onRecovered={openRecovered} onDiscard={(entry) => setDialog({ kind: "discard", entry })}
             purposes={purposeList} onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent} onStarter={(text) => keepWork(() => load(undefined, text))}
