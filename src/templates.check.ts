@@ -143,6 +143,14 @@ for (const t of items) {
 }
 console.log(`templates: ${items.length} built-in templates in ${LIBRARY.length} sets parse, each with its own name ok`);
 
+// Labels drawn clear: each template drawn by the app's renderer at the default document style with Arial's metrics
+// (tools/library/clashes.mjs). No two labels' ink overlaps, and no bond's line runs through a label but those of its
+// own atoms. Every template is checked; none is let off.
+const { clashes } = await import("../tools/library/clashes.mjs");
+const clashing = items.filter((t) => t.mol.atoms.length).flatMap((t) => { const c = clashes(t.mol); return c.length ? [`${t.name}: ${c.join("; ")}`] : []; });
+assert.deepEqual(clashing, [], "labels clear of each other and of other atoms' bonds");
+console.log(`templates: the labels of all ${items.filter((t) => t.mol.atoms.length).length} structure templates are clear of each other and of other bonds ok`);
+
 const dir = new URL("./vendor/opsin/", import.meta.url);
 if (!existsSync(new URL("opsin.js", dir))) { console.log("templates: chemistry skipped (no OPSIN build)"); process.exit(0); }
 // chem.ts reads the drawing tokens and loads Indigo's wasm as a browser does; these stand in for the browser.

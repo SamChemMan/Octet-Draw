@@ -1,4 +1,4 @@
-# 0016: Octet's own template sets (CD-32)
+# 0017: Octet's own template sets (CD-32)
 
 Status: built 27 October 2026 for Sam to review. Roadmap 1.1.0 item 1.
 
@@ -38,13 +38,21 @@ Conformers 12, Cycloalkanes 17, Aromatics 25, Bicyclics 24, Heterocycles 29, Fun
 arene rings 6, Metallocenes 11, Paddlewheels 8, Lab 16. Polycyclics is split into Aromatics and Bicyclics.
 `tools/library/build.mjs` builds them all.
 
-- Structures with a name are drawn from it (OPSIN, then Indigo's layout), as before.
+- Structures with a name are drawn from it (OPSIN, then Indigo's layout), as before. Where Indigo's layout runs a bond
+  through a label (a porphyrin's NH), Octet's Clean Up lays it out again: porphyrin, H2TPP, phthalocyanine and XPhos.
 - Conformers, hexoses, Fischer projections, paddlewheels and cubane are drawn in perspective: each atom keeps its depth
   (decision 0012), worked out from simple geometry (`tools/library/perspective.mjs`). Octet reads their
   stereochemistry from the atoms' places (decision 0013), so a chair or Haworth projection has R and S, names right
   and is the right isomer. Where a group goes up or down, the build tries each way and keeps the one whose InChI is
   the named compound's. A chair has the Ring tool's textbook shape with real depths; a Haworth ring is a real ring seen
-  from above, drawn 1.3 times as wide. Groups whose labels would collide are drawn a little longer or shorter.
+  from 35° above, drawn 1.3 times as wide, its substituents straight up and down. A sugar's rings are drawn larger
+  than one bond length (Haworth 1.45, chair 1.3), as textbooks draw them, so the labels fit inside and round them.
+- No label overlaps another, and no bond runs through a label but its own atom's, as the app draws the template at
+  the default style with Arial's metrics (`tools/library/clashes.mjs`). The build places substituents by that test:
+  each takes the length (0.65 to 2.1 times its own) and, on an upright bond, the reading (OH or HO) that clears its
+  label, one at a time and then two at a time, and never one that changes the compound. A paddlewheel takes the
+  smallest size and nearest view in which every label is clear. Decamethylferrocene's rings sit 0.45 bond lengths
+  further from the iron, so their methyls clear each other.
 - A Fischer projection is drawn plain, as chemists draw it: its across groups lie a bond length nearer the viewer, so
   the stereochemistry is in the drawing. No wedges are needed.
 - A bond seen end on (its atoms within a tenth of its length on the page) is a Newman projection: the bond is not
@@ -74,7 +82,8 @@ arene rings 6, Metallocenes 11, Paddlewheels 8, Lab 16. Polycyclics is split int
 
 ## Checks
 
-`src/templates.check.ts`: every built-in template parses back from Octet's file text, has a name of its own, has the
-CIP labels and InChI of its reference compound (74 with stereo), gets a name from Structure to Name that reads back
-to its structure (213 named), and survives Clean Up (60 kept as drawn, 216 kept whole). `src/lab.check.ts` covers the
+`src/templates.check.ts`: every built-in template parses back from Octet's file text, has a name of its own, has
+clear labels (all 276 with atoms, none let off), has the CIP labels and InChI of its reference compound (74 with
+stereo), gets a name from Structure to Name that reads back to its structure (213 named), and survives Clean Up (60
+kept as drawn, 216 kept whole). `src/lab.check.ts` covers the
 Lab group, and `src/perspective.check.ts` the Newman circle.

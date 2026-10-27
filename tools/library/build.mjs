@@ -9,6 +9,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { LAB, TLC } from "./lab.mjs";
 import { conformers, cube, fischerWays, FRUCTOSES, hexose, HEXOSES, paddlewheel, PADDLEWHEELS } from "./perspective.mjs";
+import { clashes } from "./clashes.mjs";
 import { CP_RINGS, DPPF, METALLOCENES } from "./organometallics.mjs";
 
 const root = new URL("../../", import.meta.url);
@@ -162,6 +163,7 @@ const asMol = ({ atoms, bonds }) => ({
   bonds: bonds.map(([a, b, type, stereo]) => ({ type, atoms: [a, b], ...(stereo ? { stereo } : {}) })),
 });
 const entry = (name, also, body) => ({ name, ...(also ? { also } : {}), ...body });
+const rounded = (m) => ({ ...m, atoms: m.atoms.map((a) => ({ ...a, location: a.location.map(r3) })) });
 
 
 // The way (of several drawings) that is the named compound: its InChI, stereochemistry included, is the name's.
@@ -178,11 +180,14 @@ const fail = (what) => { throw new Error(what); };
 
 const out = [];
 // Bridged rings (norbornane, adamantane) stay flat, as Indigo lays them out: drawn in 3D, their bridgeheads read as
-// stereocentres, and Structure to Name gives them no name.
+// stereocentres, and Structure to Name gives them no name. Where Indigo's layout runs a bond through a label (a
+// porphyrin's NH), Octet's Clean Up lays it out again, and the clearer of the two is kept.
 const named = (category) => NAMED[category].flatMap(([shown, source = shown, also]) => {
   const smiles = smilesOf(source);
   if (!smiles) { failed.push(shown); return []; }
-  return [entry(shown, also, compact(laidOut(smiles)))];
+  const flat = laidOut(smiles), crowded = clashes(asMol(flat)).length;
+  if (crowded) { const again = rounded(chem.cleanUp(asMol(flat))); if (clashes(again).length < crowded) return [entry(shown, also, { mol: again })]; }
+  return [entry(shown, also, compact(flat))];
 });
 // A hexose's two drawings: in a chair, the one with more substituents equatorial; and the substituents placed must be
 // the textbook's (all equatorial in β-D-glucopyranose's 4C1 chair, the D sugars' CH2OH up in a Haworth projection).

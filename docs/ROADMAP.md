@@ -6,7 +6,7 @@ Sam moved these three features from 1.0 to 1.1.0 on 18 October 2026. They are th
 
 ### 1. Template and clip-art library (audit item CD-32)
 
-Built on 27 October 2026 for Sam to review (decision 0016): 292 templates in 16 sets, with the eight sets below, more ligands, paddlewheels and seven more lab items. ChemDraw ships 29 template sets; decision 0016 lists which Octet covers. Octet must draw its own sets and must not copy ChemDraw's art or data.
+Built on 27 October 2026 for Sam to review (decision 0017): 292 templates in 16 sets, with the eight sets below, more ligands, paddlewheels and seven more lab items. ChemDraw ships 29 template sets; decision 0017 lists which Octet covers. Octet must draw its own sets and must not copy ChemDraw's art or data.
 
 Draw Octet's own sets in this order:
 

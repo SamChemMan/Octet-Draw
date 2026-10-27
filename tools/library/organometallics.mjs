@@ -42,6 +42,14 @@ function done(m) {
 }
 
 const sandwich = (el, n = 5) => ligand(ligand(metal(el), n), n);
+// Each ring moved out from the metal along its bond by d bond lengths: room for the methyls of a Cp*2M between them.
+function apart(m, d) {
+  for (const { point, ring } of ringsOf(m)) {
+    const u = mul(unit(pos(m, point)), d), ids = new Set([point, ...ring]);
+    m = { ...m, atoms: m.atoms.map((a, i) => (ids.has(i) ? { ...a, location: [a.location[0] + u[0], a.location[1] + u[1], 0] } : a)) };
+  }
+  return m;
+}
 // The ring atom furthest along d (a substituent's place).
 const furthest = (m, ring, d) => ring.reduce((a, b) => (pos(m, a)[0] * d[0] + pos(m, a)[1] * d[1] >= pos(m, b)[0] * d[0] + pos(m, b)[1] * d[1] ? a : b));
 
@@ -82,7 +90,7 @@ export const METALLOCENES = [
   { name: "Osmocene", also: "Cp2Os, sandwich", mol: done(sandwich("Os")) },
   { name: "Cobaltocene", also: "Cp2Co, sandwich", mol: done(sandwich("Co")) },
   { name: "Nickelocene", also: "Cp2Ni, sandwich", mol: done(sandwich("Ni")) },
-  { name: "Decamethylferrocene", also: "Cp*2Fe, sandwich", mol: done((() => { let m = sandwich("Fe"); for (const L of ringsOf(m)) m = methyls(m, L); return m; })()) },
+  { name: "Decamethylferrocene", also: "Cp*2Fe, sandwich", mol: done((() => { let m = apart(sandwich("Fe"), 0.45); for (const L of ringsOf(m)) m = methyls(m, L); return m; })()) },
   { name: "Cp2TiCl2", also: "titanocene dichloride, bent metallocene", mol: done(bent("Ti")) },
   { name: "Cp2ZrCl2", also: "zirconocene dichloride, bent metallocene", mol: done(bent("Zr")) },
   { name: "(Benzene)Cr(CO)3", also: "benzenechromium tricarbonyl, arene, piano stool", mol: done(carbonyls(ligand(metal("Cr"), 6), [90, 140, 40])) },

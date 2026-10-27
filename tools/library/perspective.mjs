@@ -8,6 +8,7 @@
 // one whose InChI is the named compound's (pick, from build.mjs), so the drawing cannot be the wrong isomer.
 import { chairPoints } from "../../src/edit.ts";
 import { isElement } from "../../src/labels.ts";
+import { clashes } from "./clashes.mjs";
 
 const deg = Math.PI / 180;
 const add = (a, b) => a.map((v, k) => v + b[k]), sub = (a, b) => a.map((v, k) => v - b[k]), mul = (a, s) => a.map((v) => v * s);
@@ -19,60 +20,37 @@ const r3 = (v) => Math.round(v * 1000) / 1000 + 0;
 
 // A structure being drawn: atoms (an element, or a written label such as CH2OH) at [x, y, z], and bonds.
 export class Drawing {
-  constructor() { this.atoms = []; this.bonds = []; }
+  constructor() { this.atoms = []; this.bonds = []; this.pairs = []; }
   atom(label, at, more = {}) {
     const element = isElement(label);
     this.atoms.push({ label: element ? label : "C", location: [at[0], at[1], at[2] ?? 0], ...(element ? {} : { text: label }), ...more });
     return this.atoms.length - 1;
   }
   bond(a, b, type = 1, more = {}) { this.bonds.push({ type, atoms: [a, b], ...more }); return this; }
-  // Substituents whose labels would run into each other (or onto a bond or another label) drawn longer or shorter
-  // along their own bonds: each of the [atom, substituent] pairs given takes 0.8, 1, 1.3 or 1.6 times its length, and
-  // an OH on an upright bond may read the other way (HO), whichever overlaps least (then changes least). A label's box is about half a
-  // bond length high, half a bond length a letter wide (a subscript digit a third), read away from its bond. Only
-  // lengths change, so the stereochemistry stays. An option is its length, negative when the OH reads the other way.
-  spread(pairs) {
+  // Substituents whose labels would clash (clashes.mjs: with each other, or with a bond that is not their own, as the
+  // app draws them) drawn longer or shorter along their own bonds, and a label on an upright bond read the other way
+  // (HO for OH), whichever clashes least, then changes least. Each substituent in turn, a few rounds. Only lengths
+  // change, so the stereochemistry stays; keep(mol) also turns down a change that a reader of 3D places (Indigo's
+  // InChI) would read otherwise. The substituents: the [atom, substituent] pairs noted as they were drawn.
+  spread(keep = () => true, pairs = this.pairs) {
     const base = pairs.map(([c, s]) => sub(this.atoms[s].location, this.atoms[c].location));
-    // Only an OH on a bond near upright may read either way; on any other bond the label reads away from it.
-    const turns = (k) => this.atoms[pairs[k][1]].label === "O" && !this.atoms[pairs[k][1]].text && Math.abs(base[k][0]) < 0.3 * Math.abs(base[k][1]);
-    const text = (a) => a.text ?? (a.label === "O" ? "OH" : a.label === "N" ? "NH2" : a.label === "C" && !a.shown ? "" : a.label);
-    const way = (a, c) => Math.sign(a.location[0] - c[0]) || 1; // 1: the label reads to the right
-    const box = (a, c, flip = false) => {
-      const t = text(a);
-      if (!t) return undefined;
-      const w = t.replace(/\d/g, "").length * 0.5 + (t.match(/\d/g)?.length ?? 0) * 0.33, x = a.location[0] + (flip ? -1 : 1) * way(a, c) * (w / 2 - 0.25);
-      return [x - w / 2, a.location[1] - 0.27, x + w / 2, a.location[1] + 0.27];
-    };
-    const moving = new Set(pairs.map(([, s]) => s)), at = (i, fs) => { const k = pairs.findIndex(([, s]) => s === i); return k < 0 ? this.atoms[i].location : add(this.atoms[pairs[k][0]].location, mul(base[k], Math.abs(fs[k]))); };
-    // The other labels (a ring O) as boxes too, and points along every bond, which a label should not sit on.
-    const still = this.atoms.flatMap((a, i) => (moving.has(i) || a.label === "C" ? [] : [[box(a, a.location), 0]]));
-    const overlap = (b, o) => Math.max(0, Math.min(b[2], o[2]) - Math.max(b[0], o[0])) * Math.max(0, Math.min(b[3], o[3]) - Math.max(b[1], o[1]));
-    const cost = (fs) => {
-      const boxes = pairs.map(([c, s], k) => box({ ...this.atoms[s], location: at(s, fs) }, this.atoms[c].location, fs[k] < 0));
-      let t = 0;
-      boxes.forEach((b, k) => {
-        if (!b) return;
-        for (const o of [...boxes.slice(k + 1), ...still.map(([x]) => x)]) if (o) t += overlap(b, o);
-        // A bond through the label (not its own bond): each point along it inside the box.
-        for (const bd of this.bonds) {
-          if (bd.atoms.includes(pairs[k][1])) continue;
-          const [p, q] = bd.atoms.map((i) => at(i, fs));
-          for (let j = 1; j < 6; j++) { const x = p[0] + ((q[0] - p[0]) * j) / 6, y = p[1] + ((q[1] - p[1]) * j) / 6; if (x > b[0] && x < b[2] && y > b[1] && y < b[3]) t += 0.03; }
-        }
-      });
-      return t + fs.filter((f) => f !== 1).length * 1e-3;
-    };
-    let best = pairs.map(() => 1), most = cost(best);
-    // Each one in turn, a few rounds (the pairs are few).
-    for (let round = 0; round < 4; round++) pairs.forEach((_, k) => {
-      for (const f of [1, 0.8, 1.3, 1.6].flatMap((f) => (turns(k) ? [f, -f] : [f]))) { const fs = best.map((x, j) => (j === k ? f : x)), c = cost(fs); if (c < most - 1e-9) { best = fs; most = c; } }
-    });
-    pairs.forEach(([c, s], k) => {
+    const upright = (k) => Math.abs(base[k][0]) < 0.3 * Math.abs(base[k][1]);
+    const away = (k) => Math.sign(base[k][0]) || 1; // 1: the label reads to the right
+    const set = (fs) => pairs.forEach(([c, s], k) => {
       const a = this.atoms[s];
-      a.location = add(this.atoms[c].location, mul(base[k], Math.abs(best[k])));
-      // Read the other way: HO ends at the O (right-aligned), OH starts at it.
-      if (best[k] < 0) a.align = way(a, this.atoms[c].location) > 0 ? "right" : "left";
+      a.location = add(this.atoms[c].location, mul(base[k], Math.abs(fs[k])));
+      // Read the other way: HO ends at its O (right-aligned), OH starts at it.
+      if (fs[k] < 0) a.align = away(k) > 0 ? "right" : "left"; else delete a.align;
     });
+    const cost = (fs) => { set(fs); const m = this.done(); return keep(m) ? clashes(m).length + fs.filter((f) => f !== 1).length * 1e-3 : Infinity; };
+    const options = (k) => [1, 0.8, 1.25, 0.65, 1.5, 1.8, 2.1].flatMap((f) => (upright(k) ? [f, -f] : [f]));
+    let best = pairs.map(() => 1), most = cost(best);
+    const better = (fs) => { const c = cost(fs); if (c < most - 1e-9) { best = fs; most = c; } };
+    for (let round = 0; round < 3 && most >= 1; round++) pairs.forEach((_, k) => { for (const f of options(k)) better(best.map((x, j) => (j === k ? f : x))); });
+    // Two at a time, where one at a time leaves a clash (a label that must move out of the way of another's bond).
+    for (let k = 0; k < pairs.length && most >= 1; k++) for (let j = k + 1; j < pairs.length && most >= 1; j++)
+      for (const f of options(k)) for (const g of options(j)) better(best.map((x, i) => (i === k ? f : i === j ? g : x)));
+    set(best);
     return this;
   }
   // The drawing centred on its atoms (x and y on the middle of their box, z on their mean), rounded.
@@ -113,13 +91,13 @@ export function chair(flipped = false) {
   });
 }
 // A chair with a substituent (or none) in each atom's axial and equatorial places: subs[k] = [axial, equatorial].
-function chairWith(ring, subs, flipped = false, ringBonds) {
-  const d = new Drawing(), at = chair(flipped);
+// size: the ring's bonds this many bond lengths (a sugar's chair is drawn larger, to leave room for its labels).
+function chairWith(ring, subs, flipped = false, size = 1) {
+  const d = new Drawing(), at = chair(flipped).map((p) => ({ ...p, at: mul(p.at, size) }));
   const ids = at.map((p, k) => d.atom(ring[k], p.at));
-  for (let k = 0; k < 6; k++) d.bond(ids[k], ids[(k + 1) % 6], ringBonds?.[k] ?? 1);
-  const pairs = [];
-  at.forEach((p, k) => (subs[k] ?? []).forEach((label, w) => { if (label) { const s = d.atom(label, add(p.at, w ? p.equatorial : p.axial)); d.bond(ids[k], s); pairs.push([ids[k], s]); } }));
-  return d.spread(pairs);
+  for (let k = 0; k < 6; k++) d.bond(ids[k], ids[(k + 1) % 6]);
+  at.forEach((p, k) => (subs[k] ?? []).forEach((label, w) => { if (label) { const s = d.atom(label, add(p.at, w ? p.equatorial : p.axial)); d.bond(ids[k], s); d.pairs.push([ids[k], s]); } }));
+  return d;
 }
 
 // ——— Newman and sawhorse projections ———
@@ -147,8 +125,8 @@ export function conformers() {
   return [
     { name: "Cyclohexane chair", also: "conformer", mol: chairWith(Array(6).fill("C"), []).done() },
     { name: "Cyclohexane chair (flipped)", also: "conformer, ring flip", mol: chairWith(Array(6).fill("C"), [], true).done() },
-    { name: "Chair, axial and equatorial H", also: "cyclohexane chair, conformer", mol: chairWith(Array(6).fill("C"), Array(6).fill(["H", "H"])).done() },
-    { name: "Chair, axial and equatorial H (flipped)", also: "cyclohexane chair, conformer, ring flip", mol: chairWith(Array(6).fill("C"), Array(6).fill(["H", "H"]), true).done() },
+    { name: "Chair, axial and equatorial H", also: "cyclohexane chair, conformer", mol: chairWith(Array(6).fill("C"), Array(6).fill(["H", "H"])).spread().done() },
+    { name: "Chair, axial and equatorial H (flipped)", also: "cyclohexane chair, conformer, ring flip", mol: chairWith(Array(6).fill("C"), Array(6).fill(["H", "H"]), true).spread().done() },
     { name: "Newman projection, staggered", also: "ethane, conformer", mol: ethane(H3(STAGGERED[0]), H3(STAGGERED[1])) },
     { name: "Newman projection, eclipsed", also: "ethane, conformer", mol: ethane(H3(ECLIPSED[0]), H3(ECLIPSED[1]), { reach: 1.9 }) },
     { name: "Newman projection, anti", also: "butane, staggered, conformer", mol: ethane(H3(STAGGERED[0], "CH3"), H3([180, 300, 60], "CH3")) },
@@ -162,24 +140,25 @@ export function conformers() {
 }
 
 // ——— Hexoses ———
-// A ring in a Haworth projection: a regular ring flat in its plane, drawn 1.3 times as wide (as a Haworth ring is,
-// which leaves room for its labels; a stretch keeps the stereochemistry) and seen from 35° above, the ring O at the
-// back right and the three front bonds bold. Substituents go straight up or down, 0.85 bond lengths.
+// A ring in a Haworth projection: a regular ring flat in its plane, its bonds 1.45 bond lengths and drawn 1.3 times as
+// wide (as a Haworth ring is, which leaves room for the labels inside it; a stretch keeps the stereochemistry), seen
+// from 35° above, the ring O at the back right and the three front bonds bold. Substituents go straight up or down,
+// 1.2 bond lengths (spread then fits each one's length).
 function haworth(ring, subs, choice) {
-  const n = ring.length, R = 1 / (2 * Math.sin(Math.PI / n)), e = 35 * deg;
+  const n = ring.length, R = 1.45 / (2 * Math.sin(Math.PI / n)), e = 35 * deg;
   // The ring O (atom 0) at the back right, then round clockwise as seen from above: right, front right, front left...
   const start = n === 6 ? 60 : 90, at = ring.map((_, k) => rotX([1.3 * R * Math.cos((start - (360 / n) * k) * deg), 0, -R * Math.sin((start - (360 / n) * k) * deg)], e));
   const d = new Drawing(), ids = ring.map((l, k) => d.atom(l, at[k]));
   // The front bonds: those with neither atom at the back of the ring.
   for (let k = 0; k < n; k++) { const j = (k + 1) % n, front = Math.min(at[k][2], at[j][2]) > -0.5 * R * Math.cos(e); d.bond(ids[k], ids[j], 1, front ? { display: "bold" } : {}); }
-  const up = rotX([0, 0.85, 0], e), pairs = [];
-  subs.forEach((s, k) => s.forEach((label, w) => { if (label) { const a = d.atom(label, add(at[k], mul(up, (choice[k] ^ w) ? -1 : 1))); d.bond(ids[k], a); pairs.push([ids[k], a]); } }));
-  return d.spread(pairs);
+  const up = rotX([0, 1.2, 0], e);
+  subs.forEach((s, k) => s.forEach((label, w) => { if (label) { const a = d.atom(label, add(at[k], mul(up, (choice[k] ^ w) ? -1 : 1))); d.bond(ids[k], a); d.pairs.push([ids[k], a]); } }));
+  return d;
 }
 // A hexose in a chair: subs[k] the substituents of ring atom k, and choice[k] whether the first goes axial.
 function sugarChair(ring, subs, choice, flipped) {
   const place = subs.map((s, k) => (s.length ? (choice[k] ? [s[0], s[1]] : [s[1], s[0]]) : []));
-  return chairWith(ring, place, flipped);
+  return chairWith(ring, place, flipped, 1.3);
 }
 // Each way of placing the substituents (one bit per ring atom with any), as a list of choices.
 const ways = (subs) => {
@@ -199,19 +178,20 @@ const toChair = (list) => { const out = Array(6); CHAIR_ORDER.forEach((p, k) => 
 // A hexose's drawing, its Haworth projection or its chair (of the two chairs, the one with more of its substituents
 // equatorial), and how many substituents are equatorial. pick(list, mol) keeps the drawing that is the named compound.
 export function hexose(form, pick, kind) {
+  // The labels are spread on the drawing kept (spreading changes no stereochemistry).
   if (kind === "haworth") {
-    const mol = pick(ways(form.subs).map((c) => haworth(form.ring, form.subs, c).done()));
-    return mol && { mol };
+    const d = pick(ways(form.subs).map((c) => haworth(form.ring, form.subs, c)), (x) => x.done());
+    return d && { mol: d.spread((m) => !!pick([m])).done() };
   }
   const subs = toChair(form.subs), ring = toChair(form.ring);
   let best;
   for (const flipped of [false, true]) {
-    const found = pick(ways(subs).map((c) => ({ c, mol: sugarChair(ring, subs, c, flipped).done() })), (x) => x.mol);
+    const found = pick(ways(subs).map((c) => ({ c, d: sugarChair(ring, subs, c, flipped) })), (x) => x.d.done());
     // Equatorial places taken by a substituent other than H.
     const equatorial = found && subs.reduce((t, s, k) => t + (s.length && (found.c[k] ? s[1] : s[0]) ? 1 : 0), 0);
-    if (found && (!best || equatorial > best.equatorial)) best = { equatorial, mol: found.mol };
+    if (found && (!best || equatorial > best.equatorial)) best = { equatorial, d: found.d };
   }
-  return best;
+  return best && { equatorial: best.equatorial, mol: best.d.spread((m) => !!pick([m])).done() };
 }
 export const HEXOSES = [
   ["α-D-Glucopyranose", "alpha-D-glucopyranose", PYRANOSE, "glucose"], ["β-D-Glucopyranose", "beta-D-glucopyranose", PYRANOSE, "glucose"],
@@ -261,18 +241,27 @@ export function cube() {
 // with R on each carboxylate C. Turned 45° about the axis and seen from 30° above, so two blades lean out on each
 // side and none lies across the M-M bond: a lantern, as an organometallic chemist draws one. order: the M-M bond's
 // type (14 quadruple for Mo2). axial: a ligand on each metal, out along the axis.
-export function paddlewheel(metal, r, { order = 1, axial, spin = 45, tilt = 30, mm = 1.5 } = {}) {
-  const d = new Drawing(), view = (p) => rotX(rotY(p, spin * deg), tilt * deg);
-  const m1 = d.atom(metal, view([0, mm / 2, 0])), m2 = d.atom(metal, view([0, -mm / 2, 0]));
-  d.bond(m1, m2, order);
-  const c = 0.5 + Math.sqrt(1 - (0.866 - mm / 2) ** 2), o1 = [c - 0.5, 0.866];
-  for (let k = 0; k < 4; k++) {
-    const t = (90 * k) * deg, at = ([rr, y]) => view([rr * Math.cos(t), y, rr * Math.sin(t)]);
-    const a = d.atom("O", at(o1)), b = d.atom("O", at([o1[0], -o1[1]])), cc = d.atom("C", at([c, 0])), g = d.atom(r, at([c + 1, 0]));
-    d.bond(m1, a).bond(m2, b).bond(a, cc).bond(cc, b, 2).bond(cc, g);
+// size: every length times this. Of the views and sizes tried (smallest first, then nearest 45° and 30°), the first
+// whose labels are all clear (clashes.mjs) is kept.
+export function paddlewheel(metal, r, { order = 1, axial } = {}) {
+  const drawn = (spin, tilt, mm, size) => {
+    const d = new Drawing(), view = (p) => rotX(rotY(mul(p, size), spin * deg), tilt * deg);
+    const m1 = d.atom(metal, view([0, mm / 2, 0])), m2 = d.atom(metal, view([0, -mm / 2, 0]));
+    d.bond(m1, m2, order);
+    const c = 0.5 + Math.sqrt(1 - (0.866 - mm / 2) ** 2), o1 = [c - 0.5, 0.866];
+    for (let k = 0; k < 4; k++) {
+      const t = (90 * k) * deg, at = ([rr, y]) => view([rr * Math.cos(t), y, rr * Math.sin(t)]);
+      const a = d.atom("O", at(o1)), b = d.atom("O", at([o1[0], -o1[1]])), cc = d.atom("C", at([c, 0])), g = d.atom(r, at([c + 1, 0]));
+      d.bond(m1, a).bond(m2, b).bond(a, cc).bond(cc, b, 2).bond(cc, g);
+    }
+    if (axial) d.bond(m1, d.atom(axial, view([0, mm / 2 + 1, 0]))).bond(m2, d.atom(axial, view([0, -mm / 2 - 1, 0])));
+    return d.done();
+  };
+  for (const size of [1, 1.15, 1.3, 1.45, 1.6]) for (const mm of [1.5, 1.8]) for (const tilt of [30, 25, 35, 40, 20, 45]) for (const spin of [45, 40, 50, 35, 55, 30, 60]) {
+    const mol = drawn(spin, tilt, mm, size);
+    if (!clashes(mol).length) return mol;
   }
-  if (axial) d.bond(m1, d.atom(axial, view([0, mm / 2 + 1, 0]))).bond(m2, d.atom(axial, view([0, -mm / 2 - 1, 0])));
-  return d.done();
+  throw new Error(`no clear view of the ${metal}2 paddlewheel`);
 }
 export const PADDLEWHEELS = [
   ["Rh2(OAc)4", "Rh", "C", { also: "rhodium(II) acetate, dirhodium tetraacetate" }],
