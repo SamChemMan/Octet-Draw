@@ -211,10 +211,57 @@ for (const [smiles, names] of wrong) {
 for (const [, smiles, want] of [...SAM, ...OTHERS]) assert.ok(complexNameReads(want, drawn(smiles), api), want);
 console.log(`namer-complex.check: ${turned} names one term away from right turned down`);
 
-// No name for these: η ligands, three metal atoms, two complexes in one drawing, a complex with a solvent molecule.
+// Unlike metals, and three or more (IR-9.2.5.5 to IR-9.2.5.7): the central atoms in the order of Table VI and numbered
+// by IR-9.2.5.6's rules, every ligand citing its metals, the central structural unit and the metal-metal bonds. The
+// first, second and fourth are the Red Book's own examples.
+const CO = "=C=O", co = (n: number) => `(${CO})`.repeat(n);
+// Rh6(CO)16: an octahedron of Rh atoms (1 at the top, 2 to 5 round the middle, 6 at the bottom), two carbonyls on
+// each, and four carbonyls each on a face, on alternate faces.
+const rh6 = (() => {
+  const edges = [[1, 2], [1, 3], [1, 4], [1, 5], [2, 3], [3, 4], [4, 5], [5, 2], [6, 2], [6, 3], [6, 4], [6, 5]], faces = [[1, 2, 3], [1, 4, 5], [6, 3, 4], [6, 5, 2]];
+  let n = 10;
+  const rings: string[][] = [[], [], [], [], [], [], []], caps: string[] = [];
+  for (const [a, b] of edges) { rings[a].push(`%${n}`); rings[b].push(`%${n++}`); }
+  for (const f of faces) { const ids = f.map(() => `%${n++}`); f.forEach((x, k) => rings[x].push(ids[k])); caps.push(`C${ids.join("")}=O`); }
+  return [...[1, 2, 3, 4, 5, 6].map((x) => `[Rh]${rings[x].join("")}${co(2)}`), ...caps].join(".");
+})();
+const POLY: [string, string, string][] = [
+  ["[(OC)5ReCo(CO)4]", `[Re]${co(5)}[Co]${co(4)}`, "nonacarbonyl-1κ5C,2κ4C-rheniumcobalt(Re—Co)"],
+  ["[(OC)5ReMn(CO)5]", `[Mn]${co(5)}[Re]${co(5)}`, "decacarbonyl-1κ5C,2κ5C-rheniummanganese(Re—Mn)"],
+  ["[(Ph3P)AuCo(CO)4]", `[Au](P(c1ccccc1)(c1ccccc1)c1ccccc1)[Co]${co(4)}`, "tetracarbonyl-1κ4C-(triphenylphosphane-2κP)cobaltgold(Co—Au)"],
+  ["Ru3(CO)12", `[Ru]1${co(4)}[Ru]${co(4)}[Ru]1${co(4)}`, "dodecacarbonyl-1κ4C,2κ4C,3κ4C-triangulo-triruthenium(3 Ru—Ru)"],
+  ["Os3(CO)12", `[Os]1${co(4)}[Os]${co(4)}[Os]1${co(4)}`, "dodecacarbonyl-1κ4C,2κ4C,3κ4C-triangulo-triosmium(3 Os—Os)"],
+  // Fe3(CO)12: two carbonyls bridge Fe1 and Fe2, which have more donor atoms than Fe3 (rule b).
+  ["Fe3(CO)12", `[Fe]1%10%12${co(3)}C(=O)[Fe]%11%12${co(3)}C1=O.[Fe]%10%11${co(4)}`, "di-μ-carbonyl-1:2κ4C-decacarbonyl-1κ3C,2κ3C,3κ4C-triangulo-triiron(3 Fe—Fe)"],
+  ["Rh6(CO)16", rh6, "tetra-μ3-carbonyl-1:2:3κ3C;1:4:5κ3C;2:5:6κ3C;3:4:6κ3C-dodecacarbonyl-1κ2C,2κ2C,3κ2C,4κ2C,5κ2C,6κ2C-octahedro-hexarhodium(12 Rh—Rh)"],
+  // A chain of three: no central structural unit, so each bond by its atoms' locants. The end atoms have more donor
+  // atoms (rule b), so they are 1 and 2.
+  ["[Os3(CO)12Cl2], a chain", `Cl[Os]${co(4)}[Os]${co(4)}[Os]${co(4)}Cl`, "dodecacarbonyl-1κ4C,2κ4C,3κ4C-dichlorido-1κCl,2κCl-triosmium(Os1—Os3)(Os2—Os3)"],
+];
+for (const [label, smiles, want] of POLY) {
+  assert.equal(nameOf(smiles), want, label);
+  assert.equal(editorName(smiles), want, `${label}, Structure to Name`);
+}
+const poly = (label: string) => drawn(POLY.find((x) => x[0] === label)![1]);
+const wrongPoly: [string, string[]][] = [
+  // Numbered against Table VI (Co first) reads as the same structure, but is not the rule's numbering.
+  ["[(OC)5ReCo(CO)4]", ["nonacarbonyl-1κ4C,2κ5C-cobaltrhenium(Co—Re)", "nonacarbonyl-1κ5C,2κ4C-rheniumcobalt", "nonacarbonyl-1κ4C,2κ5C-rheniumcobalt(Re—Co)",
+    "octacarbonyl-1κ4C,2κ4C-rheniumcobalt(Re—Co)", "nonacarbonyl-1κ5C,2κ4C-dirhenium(Re—Re)", "nonacarbonyl-1κ5C,2κ4C-rheniumcobalt(Re—Co)(1+)"]],
+  ["Fe3(CO)12", ["di-μ-carbonyl-1:2κ4C-decacarbonyl-1κ4C,2κ3C,3κ3C-triangulo-triiron(3 Fe—Fe)", "di-μ-carbonyl-1:3κ4C-decacarbonyl-1κ3C,2κ3C,3κ4C-triangulo-triiron(3 Fe—Fe)",
+    "di-μ-carbonyl-1:2κ4C-decacarbonyl-1κ3C,2κ3C,3κ4C-triiron(3 Fe—Fe)", "di-μ-carbonyl-1:2κ4C-decacarbonyl-1κ3C,2κ3C,3κ4C-triangulo-triiron(2 Fe—Fe)",
+    "dodecacarbonyl-1κ4C,2κ4C,3κ4C-triangulo-triiron(3 Fe—Fe)", "di-μ-carbonyl-1:2κ4C-decacarbonyl-1κ3C,2κ3C,3κ4C-triangulo-triruthenium(3 Ru—Ru)"]],
+  ["Rh6(CO)16", ["tetra-μ3-carbonyl-1:2:3κ3C;1:3:4κ3C;2:5:6κ3C;3:4:6κ3C-dodecacarbonyl-1κ2C,2κ2C,3κ2C,4κ2C,5κ2C,6κ2C-octahedro-hexarhodium(12 Rh—Rh)",
+    "tetra-μ3-carbonyl-1:2:3κ3C;1:4:5κ3C;2:5:6κ3C;3:4:6κ3C-dodecacarbonyl-1κ2C,2κ2C,3κ2C,4κ2C,5κ2C,6κ2C-hexarhodium(12 Rh—Rh)"]],
+  ["[Os3(CO)12Cl2], a chain", ["dodecacarbonyl-1κ4C,2κ4C,3κ4C-dichlorido-1κCl,3κCl-triosmium(Os1—Os2)(Os2—Os3)", "dodecacarbonyl-1κ4C,2κ4C,3κ4C-dichlorido-1κCl,2κCl-triosmium(2 Os—Os)",
+    "dodecacarbonyl-1κ4C,2κ4C,3κ4C-dichlorido-1κCl,2κCl-triangulo-triosmium(3 Os—Os)"]],
+];
+let turnedPoly = 0;
+for (const [label, names] of wrongPoly) for (const name of names) { assert.equal(complexNameReads(name, poly(label), api), false, name); turnedPoly++; }
+console.log(`namer-complex.check: ${POLY.length} complexes of unlike metals or three or more named, ${turnedPoly} names one term away turned down`);
+
+// No name for these: η ligands, two complexes in one drawing, a complex with a solvent molecule.
 const none: [string, string][] = [
   ["η2 ethene", "C1=C[Pt]1(Cl)(Cl)Cl"],
-  ["Os3(CO)12", "O=C=[Os]1(=C=O)(=C=O)(=C=O)[Os](=C=O)(=C=O)(=C=O)(=C=O)[Os]1(=C=O)(=C=O)(=C=O)=C=O"],
   ["[Pt(NH3)4][PtCl4]", "[NH3][Pt+2]([NH3])([NH3])[NH3].Cl[Pt-2](Cl)(Cl)Cl"],
   ["with solvent", "[NH3][Pt](Cl)(Cl)[NH3].CS(C)=O"],
 ];

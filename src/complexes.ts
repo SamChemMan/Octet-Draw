@@ -40,7 +40,7 @@ export type ComplexApi = {
 };
 
 // Limits, as every opened file is hostile: atoms in the drawing, metal atoms in one complex, enclosing marks deep.
-const MOST_ATOMS = 600, MOST_METALS = 2, MOST_DEPTH = 24, MOST_NAME = 3000;
+const MOST_ATOMS = 600, MOST_METALS = 6, MOST_DEPTH = 24, MOST_NAME = 3000;
 
 const MULT = ["", "", "di", "tri", "tetra", "penta", "hexa", "hepta", "octa", "nona", "deca", "undeca", "dodeca"];
 const MULTK = ["", "", "bis", "tris", "tetrakis", "pentakis", "hexakis", "heptakis", "octakis", "nonakis", "decakis", "undecakis", "dodecakis"];
@@ -1333,11 +1333,28 @@ function claimOf(t: PTerm, c: Context, at: number | undefined): Claim | undefine
   } };
 }
 
+// A name's words: split at spaces outside enclosing marks ((3 Os—Os) is part of its word).
+function topWords(name: string): string[] {
+  const out = [""];
+  let depth = 0;
+  for (const ch of name) {
+    if ("([{".includes(ch)) depth++;
+    else if (")]}".includes(ch)) depth--;
+    if (ch === " " && !depth) out.push(""); else out[out.length - 1] += ch;
+  }
+  return out;
+}
 // The check: the finished name read back must say what the drawing shows.
 function verify(name: string, c: Context, ions: Ion[]): boolean {
-  const { g, e, api } = c, words = name.split(" ");
+  const { g, e, api } = c, words = topWords(name);
   // Cations come first (IR-5.4): a complex anion follows its counter-ion.
-  const at = ions.length && e.charge < 0 ? 1 : 0, config = /^(?:cis-|trans-|fac-|mer-|\((?:SP-4-\d|OC-6-\d\d)\)-)/.exec(words[at] ?? "")?.[0] ?? "";
+  const at = ions.length && e.charge < 0 ? 1 : 0;
+  if (isPoly(c)) {
+    if (words.length !== (ions.length ? 2 : 1)) return false;
+    if (ions.length) { const ion = readIon(words[1 - at], api); if (!ion?.key || ion.key !== ions[0].key || ion.charge * ions.length !== -e.charge) return false; }
+    return verifyPoly(words[at], c);
+  }
+  const config = /^(?:cis-|trans-|fac-|mer-|\((?:SP-4-\d|OC-6-\d\d)\)-)/.exec(words[at] ?? "")?.[0] ?? "";
   // The configuration at the metal must be the one the drawing fixes (none where it fixes none).
   if (config !== configuration(c)) return false;
   const parsed = parseEntity(words[at].slice(config.length));
@@ -1388,6 +1405,284 @@ function verify(name: string, c: Context, ions: Ion[]): boolean {
   return fixes(g, e) && balances;
 }
 
+// ——— Polynuclear complexes: unlike metals, and three or more (IR-9.2.5.5 to IR-9.2.5.7) ———
+// The central atoms are cited in the order of Table VI, the element met later first, and numbered in that order: within
+// an element, the atom with more donor atoms first (IR-9.2.5.6 rule b), then by the ligands in the order of the name
+// (rule c: the atom with more of the first ligand spread unevenly first), then by the atoms each is bonded to (rule d).
+// Numberings the rules cannot tell apart must give the same name, else there is none. Every ligand cites its metals:
+// nonacarbonyl-1κ5C,2κ4C-rheniumcobalt(Re—Co), di-μ-carbonyl-1:2κ4C-decacarbonyl-1κ3C,2κ3C,3κ4C-triangulo-triiron(3 Fe—Fe).
+// Named here: ligands with names of their own, on one metal or bridging (μ, μ3); and other ligands on one metal each,
+// (triphenylphosphane-3κP). Not named: other bridging ligands and carbon ligands with three or more metals or unlike
+// metals, and anions of unlike metals ((dimolybdenumdiiron)ate).
+const SEQUENCE = "F Cl Br I At O S Se Te Po N P As Sb Bi H C Si Ge Sn Pb B Al Ga In Tl Zn Cd Hg Cu Ag Au Ni Pd Pt Co Rh Ir Fe Ru Os Mn Tc Re Cr Mo W V Nb Ta Ti Zr Hf Sc Y La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Ac Th Pa U Np Pu Be Mg Ca Sr Ba Ra Li Na K Rb Cs Fr He Ne Ar Kr Xe Rn".split(" ");
+const later = (el: string) => SEQUENCE.indexOf(el);
+// The central structural unit of three or more metal atoms, where the metal-metal bonds draw one (IR-9.2.5.7).
+function unitOf(n: number, mm: [number, number][], metals: number[]): string {
+  const deg = metals.map((x) => mm.filter((b) => b.includes(x)).length);
+  if (n === 3 && mm.length === 3) return "triangulo";
+  if (n === 4 && mm.length === 6) return "tetrahedro";
+  if (n === 4 && mm.length === 4 && deg.every((d) => d === 2)) return "quadro";
+  // An octahedron: each atom bonded to all but one, its opposite.
+  if (n === 6 && mm.length === 12 && deg.every((d) => d === 4)) return "octahedro";
+  return "";
+}
+const MU_SIMPLE = (n: number) => (n > 2 ? `μ${n}` : "μ");
+type PolyTerm = { sort: string; mu: number; text: string; hyphen: boolean };
+// The terms of the name for one numbering of the metals (order: metal atoms by locant). Undefined where a ligand is not
+// one named here.
+function polyTerms(c: Context, order: number[], kappas: Map<number, string>): PolyTerm[] | undefined {
+  const { g, e, named } = c, loc = new Map(order.map((x, j) => [x, j + 1])), terms: PolyTerm[] = [];
+  const lexTerminal = new Map<string, { el: string; at: number[] }>(), lexBridge = new Map<string, { el: string; mu: number; sets: string[] }>();
+  const enclosed = new Map<string, { sort: string; count: number }>();
+  for (const [k, lig] of e.ligands.entries()) {
+    const ms = [...new Set(lig.bonds.map((b) => b.metal))];
+    if (lig.lex) {
+      if (lig.bonds.length !== ms.length) return undefined;
+      const el = g.atoms[lig.bonds[0].atom].el;
+      if (ms.length === 1) { const t = lexTerminal.get(lig.lex) ?? { el, at: [] }; t.at.push(loc.get(ms[0])!); lexTerminal.set(lig.lex, t); continue; }
+      const key = `${lig.lex} ${ms.length}`, t = lexBridge.get(key) ?? { el, mu: ms.length, sets: [] };
+      t.sets.push(ms.map((x) => loc.get(x)!).sort((p, q) => p - q).join(":"));
+      lexBridge.set(key, t);
+      continue;
+    }
+    if (ms.length !== 1 || lig.carbon || !kappas.has(k)) return undefined;
+    const j = loc.get(ms[0])!, kappa = kappas.get(k)!.replace(/(^|,)κ/g, `$1${j}κ`), text = `${named[k].form}-${kappa}`;
+    const t = enclosed.get(text) ?? { sort: named[k].form, count: 0 };
+    t.count++;
+    enclosed.set(text, t);
+  }
+  // Hydrides: the metal's own hydrogens, cited as hydrido on each metal.
+  for (const x of order) if (g.atoms[x].h) { const t = lexTerminal.get("H") ?? { el: "H", at: [] }; for (let h = 0; h < g.atoms[x].h; h++) t.at.push(loc.get(x)!); lexTerminal.set("H", t); }
+  const kappaOf = (counts: Map<string, number>, el: string, sep: string) => [...counts].sort(([a], [b]) => compare(a.split(":").map(Number), b.split(":").map(Number))).map(([at, n]) => `${at}κ${n > 1 ? n : ""}${el}`).join(sep);
+  const tally = (xs: string[], per = 1) => { const m = new Map<string, number>(); for (const x of xs) m.set(x, (m.get(x) ?? 0) + per); return m; };
+  for (const [lex, t] of lexTerminal) {
+    const n = t.at.length, form = LEX[lex].form;
+    if (n > 12) return undefined;
+    terms.push({ sort: form, mu: 0, text: `${MULT[n]}${form}-${kappaOf(tally(t.at.map(String)), t.el, ",")}`, hyphen: true });
+  }
+  for (const [key, t] of lexBridge) {
+    const form = LEX[key.split(" ")[0]].form, n = t.sets.length;
+    if (n > 12) return undefined;
+    // With two metals a bridging ligand needs no κ (di-μ-hydroxido); with more, its metals and donor atoms (1:2κ2C).
+    const kappa = order.length > 2 ? `-${kappaOf(tally(t.sets, t.mu), t.el, ";")}` : "";
+    terms.push({ sort: form, mu: t.mu, text: `${n > 1 ? `${MULT[n]}-` : ""}${MU_SIMPLE(t.mu)}-${form}${kappa}`, hyphen: true });
+  }
+  for (const [text, t] of enclosed) {
+    if (t.count > 12) return undefined;
+    terms.push({ sort: t.sort, mu: 0, text: `${t.count > 1 ? MULTK[t.count] : ""}${enclose(text)}`, hyphen: false });
+  }
+  return terms.sort((a, b) => alphaKey(a.sort).localeCompare(alphaKey(b.sort)) || b.mu - a.mu || a.text.localeCompare(b.text));
+}
+// The name for one numbering: the terms, hyphens round those ending in κ or holding μ (IR-9.2.5.5 examples), the
+// central structural unit, the central atoms, their bonds and the charge.
+function polyText(c: Context, order: number[], kappas: Map<number, string>): string | undefined {
+  const { g, e } = c, terms = polyTerms(c, order, kappas);
+  if (!terms) return undefined;
+  let text = "";
+  for (const t of terms) text += (text && !text.endsWith("-") && t.mu ? "-" : "") + t.text + (t.hyphen ? "-" : "");
+  const unit = unitOf(order.length, e.mm, order);
+  if (unit) text += (text && !text.endsWith("-") ? "-" : "") + `${unit}-`;
+  // The central atoms, alike ones in a row counted (diironplatinum).
+  const els = order.map((x) => g.atoms[x].el), runs: [string, number][] = [];
+  for (const el of els) { if (runs.length && runs[runs.length - 1][0] === el) runs[runs.length - 1][1]++; else runs.push([el, 1]); }
+  if (e.charge < 0 && runs.length > 1) return undefined;
+  text += runs.map(([el, n]) => `${n > 1 ? MULT[n] : ""}${e.charge < 0 ? ateOf(el) : ELEMENTS.get(el)!}`).join("");
+  return text + mmText(c, order, !!unit) + (e.charge ? chargeText(e.charge) : "");
+}
+// The metal-metal bonds (IR-9.2.5.3): for each pair of elements, in the order of the name, their number ((3 Os—Os));
+// where that leaves doubt (not all such pairs bonded, and no central structural unit), each bond by its atoms'
+// locants ((Os1—Os3)).
+function mmText(c: Context, order: number[], unit: boolean): string {
+  const { g, e } = c, loc = new Map(order.map((x, j) => [x, j + 1])), el = (x: number) => g.atoms[x].el;
+  const bonds = e.mm.map(([a, b]) => (loc.get(a)! < loc.get(b)! ? [a, b] : [b, a])).sort((p, q) => compare(p.map((x) => loc.get(x)!), q.map((x) => loc.get(x)!)));
+  const pairs = new Map<string, number[][]>();
+  for (const b of bonds) { const k = `${el(b[0])}—${el(b[1])}`; pairs.set(k, [...(pairs.get(k) ?? []), b]); }
+  let out = "";
+  for (const [k, bs] of pairs) {
+    const [a, b] = k.split("—"), na = order.filter((x) => el(x) === a).length, nb = order.filter((x) => el(x) === b).length;
+    const all = a === b ? (na * (na - 1)) / 2 : na * nb;
+    if (unit || bs.length === all) out += `(${bs.length > 1 ? `${bs.length} ` : ""}${k})`;
+    else out += bs.map(([x, y]) => `(${el(x)}${na > 1 ? loc.get(x) : ""}—${el(y)}${nb > 1 ? loc.get(y) : ""})`).join("");
+  }
+  return out;
+}
+// The numberings the rules allow (IR-9.2.5.6 rules a to d), as lists of metal atoms by locant.
+function numberings(c: Context, kappas: Map<number, string>): number[][] {
+  const { g, e } = c;
+  const cn = (x: number) => e.ligands.reduce((t, l) => t + l.bonds.filter((b) => b.metal === x).length, 0) + g.atoms[x].h;
+  // Rules a and b: classes in order.
+  const sorted = [...e.metals].sort((x, y) => later(g.atoms[y].el) - later(g.atoms[x].el) || cn(y) - cn(x));
+  const classes: number[][] = [];
+  for (const x of sorted) { const last = classes[classes.length - 1]; if (last && g.atoms[last[0]].el === g.atoms[x].el && cn(last[0]) === cn(x)) last.push(x); else classes.push([x]); }
+  // Every order within the classes (at most 720). A central structural unit is numbered round its rings first
+  // (IR-9.2.5.7): quadro 1 to 4 round the square; octahedro 1 and 6 opposite, 2 to 5 round the middle.
+  let all: number[][] = [[]];
+  for (const cl of classes) {
+    const perms = permutations(cl);
+    all = all.flatMap((p) => perms.map((q) => [...p, ...q]));
+    if (all.length > 720) return [];
+  }
+  const unit = unitOf(e.metals.length, e.mm, e.metals), bonded = (x: number, y: number) => e.mm.some((b) => b.includes(x) && b.includes(y));
+  const round = (o: number[], ring: number[]) => ring.every((x, k) => bonded(o[x], o[ring[(k + 1) % ring.length]]));
+  if (unit === "quadro") all = all.filter((o) => round(o, [0, 1, 2, 3]));
+  if (unit === "octahedro") all = all.filter((o) => !bonded(o[0], o[5]) && round(o, [1, 2, 3, 4]));
+  if (!all.length) return [];
+  // Rule c: through the terms in name order, each term's donor atoms on each locant, more on lower locants first. Rule
+  // d: each atom's metal neighbours' locants, lower first.
+  const terms = polyTerms(c, sorted, kappas);
+  if (!terms) return [];
+  const score = (order: number[]) => {
+    const loc = new Map(order.map((x, j) => [x, j])), out: number[] = [];
+    for (const t of terms) {
+      const counts = order.map(() => 0);
+      for (const lig of e.ligands) {
+        const form = lig.lex ? LEX[lig.lex].form : c.named[e.ligands.indexOf(lig)].form, mu = new Set(lig.bonds.map((b) => b.metal)).size;
+        if (form !== t.sort || (mu > 1 ? mu : 0) !== t.mu) continue;
+        for (const b of lig.bonds) counts[loc.get(b.metal)!]++;
+      }
+      if (t.sort === LEX.H.form && !t.mu) order.forEach((x, j) => (counts[j] += g.atoms[x].h));
+      out.push(...counts.map((n) => -n));
+    }
+    for (const x of order) out.push(...e.mm.filter((b) => b.includes(x)).map((b) => loc.get(b[0] === x ? b[1] : b[0])!).sort((p, q) => p - q), 99);
+    return out;
+  };
+  const scored = all.map((o) => ({ o, s: score(o) })), best = scored.reduce((m, x) => (compare(x.s, m) < 0 ? x.s : m), scored[0].s);
+  return scored.filter((x) => compare(x.s, best) === 0).map((x) => x.o);
+}
+function permutations(xs: number[]): number[][] {
+  if (xs.length <= 1) return [xs];
+  return xs.flatMap((x, i) => permutations([...xs.slice(0, i), ...xs.slice(i + 1)]).map((p) => [x, ...p]));
+}
+// Each ligand on one metal (not a ligand with a name of its own): its κ for that metal, "" where it needs none, as
+// the name cites it in the polynuclear name: κ by element alone where it needs none (triphenylphosphane-1κP).
+function polyKappas(c: Context): Map<number, string> | undefined {
+  const { m, g, e, named, api } = c, out = new Map<number, string>();
+  for (const [k, lig] of e.ligands.entries()) {
+    if (lig.lex) continue;
+    const ms = [...new Set(lig.bonds.map((b) => b.metal))];
+    if (ms.length !== 1 || lig.carbon) return undefined;
+    if (!needsKappa(g, lig)) { out.set(k, `κ${g.atoms[lig.bonds[0].atom].el}`); continue; }
+    const kp = kappaParts(m, g, lig, named[k], ms, api);
+    if (!kp || kp.form || !kp.parts[0]) return undefined;
+    out.set(k, kp.parts[0]);
+  }
+  return out;
+}
+// Three or more metal atoms, or two of different elements.
+const isPoly = (c: Context) => c.e.metals.length > 2 || (c.e.metals.length === 2 && c.g.atoms[c.e.metals[0]].el !== c.g.atoms[c.e.metals[1]].el);
+function polynuclear(c: Context): string | undefined {
+  if (c.e.metals.length > 6) return undefined;
+  const kappas = polyKappas(c);
+  if (!kappas) return undefined;
+  // Of the numberings the rules allow, the one whose name has the lowest locants, in the order cited.
+  const names = numberings(c, kappas).map((o) => polyText(c, o, kappas));
+  if (!names.length || names.some((n) => !n)) return undefined;
+  const nums = (n: string) => [...n.matchAll(/\d+/g)].map((x) => Number(x[0]));
+  return names.reduce((best, n) => (compare(nums(n!), nums(best!)) < 0 ? n : best));
+}
+// The check of a polynuclear name: read term by term, each term must account for its ligands on the metals its κ
+// cites, under a numbering the rules allow; the central structural unit, the central atoms, their bonds and the
+// charge must be the drawing's.
+const KGROUP = "\\d(?::\\d)*κ\\d*[A-Z][a-z]?";
+const POLY_MU = new RegExp(`^(?:(${MULTS})-)?μ(\\d?)-(${FORMS})(?:-(${KGROUP}(?:;${KGROUP})*))?(?:-|(?=\\(|$))`);
+const POLY_LEX = new RegExp(`^(${MULTS})?(${FORMS})-(\\dκ\\d*[A-Z][a-z]?(?:,\\dκ\\d*[A-Z][a-z]?)*)-`);
+function verifyPoly(word: string, c: Context): boolean {
+  const { g, e } = c, kappas = polyKappas(c);
+  if (!kappas || word.length > MOST_NAME) return false;
+  // Terms.
+  type PClaim = { lex?: string; mu: number; groups: Map<string, number>; el?: string; enclosed?: { count: number; inner: string; at: number } };
+  const claims: PClaim[] = [];
+  let w = word, x: RegExpExecArray | null;
+  for (let guard = 0; guard < 40; guard++) {
+    if ((x = POLY_MU.exec(w))) {
+      const n = x[1] ? MULT.indexOf(x[1]) : 1, mu = x[2] ? Number(x[2]) : 2, groups = new Map<string, number>();
+      for (const k of (x[4] ?? "").split(";").filter(Boolean)) { const y = /^([\d:]+)κ(\d*)([A-Z][a-z]?)$/.exec(k)!; groups.set(y[1], Number(y[2] || 1)); if (y[1].split(":").length !== mu) return false; }
+      if (!x[4] && e.metals.length !== 2) return false;
+      claims.push({ lex: LEX_FORMS.get(x[3]), mu, groups: x[4] ? groups : new Map([["1:2", 2 * n]]), el: x[4] ? /[A-Z][a-z]?$/.exec(x[4])![0] : undefined });
+      w = w.slice(x[0].length);
+      continue;
+    }
+    if ((x = POLY_LEX.exec(w))) {
+      const groups = new Map<string, number>();
+      for (const k of x[3].split(",")) { const y = /^(\d)κ(\d*)([A-Z][a-z]?)$/.exec(k)!; groups.set(y[1], Number(y[2] || 1)); }
+      const els = new Set(x[3].split(",").map((k) => /[A-Z][a-z]?$/.exec(k)![0]));
+      if (els.size !== 1 || [...groups.values()].reduce((t, v) => t + v, 0) !== (x[1] ? MULT.indexOf(x[1]) : 1)) return false;
+      claims.push({ lex: LEX_FORMS.get(x[2]), mu: 0, groups, el: [...els][0] });
+      w = w.slice(x[0].length);
+      continue;
+    }
+    const enc = ENC_RE.exec(w);
+    if (enc && "([{".includes(w[enc[0].length] ?? "")) {
+      const start = enc[0].length, end = closing(w, start);
+      if (end < 0) return false;
+      const inner = w.slice(start + 1, end), locs = [...inner.matchAll(/(?:^|[,:-])(\d)κ/g)].map((y) => Number(y[1]));
+      if (!locs.length || new Set(locs).size !== 1 || /(?:^|[,:-])κ/.test(inner)) return false;
+      claims.push({ mu: 0, groups: new Map(), enclosed: { count: enc[1] ? MULTK.indexOf(enc[1]) : 1, inner: inner.replace(/(^|[,:-])\dκ/g, "$1κ"), at: locs[0] } });
+      w = w.slice(end + 1);
+      if (w.startsWith("-")) w = w.slice(1);
+      continue;
+    }
+    break;
+  }
+  // The central structural unit, the central atoms, their bonds, the charge.
+  const unit = /^(triangulo|quadro|tetrahedro|octahedro)-/.exec(w)?.[1] ?? "";
+  w = w.slice(unit ? unit.length + 1 : 0);
+  const cited: string[] = [];
+  let ate = false;
+  for (let guard = 0; guard < 12 && w && !w.startsWith("("); guard++) {
+    const mult = new RegExp(`^(${MULTS})?`).exec(w)!, name = METAL_NAMES.find((y) => w.startsWith(y, mult[0].length));
+    if (!name) return false;
+    const it = NAMES.get(name)!;
+    ate ||= it.ate;
+    for (let k = 0; k < (mult[1] ? MULT.indexOf(mult[1]) : 1); k++) cited.push(it.el);
+    w = w.slice(mult[0].length + name.length);
+  }
+  const charge = /\((\d+)([+-])\)$/.exec(w), q = charge ? Number(charge[1]) * (charge[2] === "+" ? 1 : -1) : 0;
+  if (q !== e.charge || ate !== e.charge < 0) return false;
+  const mmPart = charge ? w.slice(0, -charge[0].length) : w;
+  if (cited.length !== e.metals.length) return false;
+  // Under a numbering the rules allow: the elements by locant, the unit, the bonds and every ligand.
+  return numberings(c, kappas).some((order) => {
+    if (order.some((x, j) => g.atoms[x].el !== cited[j])) return false;
+    if (unitOf(order.length, e.mm, order) !== unit || mmText(c, order, !!unit) !== mmPart) return false;
+    const loc = new Map(order.map((y, j) => [y, j + 1])), used = new Set<number>();
+    const hydrides = order.map((y) => g.atoms[y].h);
+    for (const cl of claims) {
+      if (cl.enclosed) {
+        const metal = order[cl.enclosed.at - 1], claim = metal === undefined ? undefined : claimOf({ count: cl.enclosed.count, mu: false, inner: cl.enclosed.inner }, c, 0);
+        if (!claim) return false;
+        for (let n = 0; n < cl.enclosed.count; n++) {
+          const k = e.ligands.findIndex((lig, i) => !used.has(i) && !lig.lex && lig.bonds.every((b) => b.metal === metal) && claim.test(i, [metal]));
+          if (k < 0) return false;
+          used.add(k);
+        }
+        continue;
+      }
+      // A ligand with a name of its own: each group of metals, as many donor atoms as it says.
+      for (const [set, n] of cl.groups) {
+        const ms = set.split(":").map((y) => order[Number(y) - 1]);
+        if (ms.some((y) => y === undefined)) return false;
+        // Hydrido: drawn H atoms on that metal, then the metal's own hydrogens.
+        if (cl.lex === "H" && !cl.mu) {
+          if (ms.length !== 1 || cl.el !== "H") return false;
+          for (let k = 0; k < n; k++) {
+            const i = e.ligands.findIndex((lig, i) => !used.has(i) && lig.lex === "H" && lig.bonds.length === 1 && lig.bonds[0].metal === ms[0]);
+            if (i >= 0) used.add(i); else hydrides[loc.get(ms[0])! - 1]--;
+          }
+          continue;
+        }
+        if (n % ms.length) return false;
+        for (let k = 0; k < n / ms.length; k++) {
+          const i = e.ligands.findIndex((lig, i) => !used.has(i) && lig.lex === cl.lex && lig.bonds.length === ms.length && ms.every((y) => lig.bonds.some((b) => b.metal === y)) && (!cl.el || lig.bonds.every((b) => g.atoms[b.atom].el === cl.el)));
+          if (i < 0) return false;
+          used.add(i);
+        }
+      }
+    }
+    return used.size === e.ligands.length && hydrides.every((h) => h === 0);
+  });
+}
+
 // ——— The name ———
 const memo = new Map<string, Named>();
 // A ligand's name, once for alike ligands (by its InChI, the names found kept between calls).
@@ -1407,7 +1702,7 @@ export function complexName(m: Mol, api: ComplexApi): string | undefined {
     const d = drawing(m, keep(api));
     if (!d) return undefined;
     const { c, ions } = d, e = c.e;
-    const text = e.metals.length === 1 ? mononuclear(c) : dinuclear(c), ion = ions[0];
+    const text = e.metals.length === 1 ? mononuclear(c) : isPoly(c) ? polynuclear(c) : dinuclear(c), ion = ions[0];
     if (!text || text.length > MOST_NAME) return undefined;
     const name = !ion ? text : e.charge > 0 ? `${text} ${ion.name}` : `${ion.name} ${text}`;
     return verify(name, c, ions) ? name : undefined;
