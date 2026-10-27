@@ -947,7 +947,7 @@ function mononuclear(c: Context): string | undefined {
   }
   for (let h = 0; h < e.hydrides; h++) list.push({ form: LEX.H.form, lex: true, mu: false, kappa: "" });
   const tail = suffix(g, e);
-  return tail === undefined ? undefined : termsOf(list).map(termText).join("") + (e.charge < 0 ? ateOf(el) : ELEMENTS.get(el)!) + tail;
+  return tail === undefined ? undefined : configuration(c) + termsOf(list).map(termText).join("") + (e.charge < 0 ? ateOf(el) : ELEMENTS.get(el)!) + tail;
 }
 // A ligand's donor atoms marked by metal (the metals in the order given), as an InChI with its name's key: alike
 // ligands bonded alike have the same.
@@ -1013,6 +1013,116 @@ function dinuclear(c: Context): string | undefined {
   }
   for (const [j, x] of order.entries()) for (let h = 0; h < g.atoms[x].h; h++) list.push({ form: LEX.H.form, lex: true, mu: false, kappa: `${j + 1}κH` });
   return termsOf(list).map(termText).join("") + `di${metal}` + tail;
+}
+
+// ——— Configuration at the metal (IR-9.3) ———
+// Where the drawing fixes the arrangement of the donor atoms round a metal of one metal atom, the name begins with it:
+// cis or trans for [Ma2b2] (square planar) and [Ma2b4] (octahedral), fac or mer for [Ma3b3], else the polyhedral
+// symbol with its configuration index, (SP-4-3) or (OC-6-43) (IR-9.3.3.3, IR-9.3.3.4). The drawing fixes it when:
+// - square planar (SP-4): four donor atoms in the plane of the drawing round a metal that is square planar when it has
+//   four (Ni, Pd, Pt, Rh, Ir, Au: d8), drawn as a cross, each bond opposite one other (within 25°) and at about a right
+//   angle to the other two (within 25°). A cross with a wedge or hash on it is not a square.
+// - octahedral (OC-6): six donor atoms drawn in 3D, with a wedge or hash on at least two of their bonds (or the atoms'
+//   own depths), each bond pointing away from exactly one other.
+// The configuration index needs the donor atoms' CIP priorities. Octet ranks them by atomic number, then by the atoms
+// they are bonded to (multiple bonds duplicated, the metal left out); unlike ligands that this cannot tell apart, or
+// any chelate ligand, give no index. A complex of one kind of ligand, [Ma3b] or [Ma5b], has no stereoisomers and no
+// descriptor. Δ and Λ, and the other polyhedra (T-4, TBPY-5, SPY-5), are not given.
+const SQUARE = new Set(["Ni", "Pd", "Pt", "Rh", "Ir", "Au"]);
+type Site = { d: number; lig: number; v: [number, number, number] };
+// The donor atoms round metal x, each with its bond's direction from the metal (unit vector, depth from a wedge or
+// hash as cip.ts reads them), and whether any is out of the plane.
+function sitesOf(c: Context, x: number): { sites: Site[]; deep: boolean } | undefined {
+  const { m, e } = c, sites: Site[] = [], at = (i: number) => m.atoms[i].location;
+  let deep = m.atoms.some((a) => Math.abs(a.location[2] ?? 0) > 1e-6);
+  for (const [k, lig] of e.ligands.entries()) for (const b of lig.bonds) {
+    if (b.metal !== x) continue;
+    const bond = m.bonds.find((y) => y.atoms.includes(x) && y.atoms.includes(b.atom));
+    if (!bond) return undefined;
+    const dx = at(b.atom)[0] - at(x)[0], dy = at(b.atom)[1] - at(x)[1], len = Math.hypot(dx, dy);
+    if (len < 1e-6) return undefined;
+    const from = bond.atoms[0] === x ? 1 : -1;
+    const wedge = bond.stereo === 1 || bond.display === "hollow" ? from : bond.stereo === 6 ? -from : bond.display === "hashed" || bond.display === "dashed" ? -1 : bond.display === "bold" ? 1 : 0;
+    if (wedge) deep = true;
+    const dz = (at(b.atom)[2] ?? 0) - (at(x)[2] ?? 0) || wedge * 0.8 * len, n = Math.hypot(dx, dy, dz);
+    sites.push({ d: b.atom, lig: k, v: [dx / n, dy / n, dz / n] });
+  }
+  return { sites, deep };
+}
+const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+// Each site's trans partner (by index), where every site points away from exactly one other: its most opposite site,
+// mutually, with the cosine of their angle below `opposite`, and every other pair passing `other`. Undefined otherwise.
+function transPairs(sites: Site[], opposite: number, other: (cos: number) => boolean): number[] | undefined {
+  const most = sites.map((s, i) => { let best = -1; sites.forEach((t, j) => { if (j !== i && (best < 0 || dot(s.v, t.v) < dot(s.v, sites[best].v))) best = j; }); return best; });
+  if (most.some((j, i) => most[j] !== i || dot(sites[i].v, sites[j].v) > opposite)) return undefined;
+  for (let i = 0; i < sites.length; i++) for (let j = i + 1; j < sites.length; j++) if (most[i] !== j && !other(dot(sites[i].v, sites[j].v))) return undefined;
+  return most;
+}
+// The polyhedron the drawing fixes round the complex's only metal atom, with each site's trans partner.
+function polyhedron(c: Context): { shape: "SP-4" | "OC-6"; sites: Site[]; trans: number[] } | undefined {
+  const { g, e } = c;
+  if (e.metals.length !== 1 || e.hydrides || e.ligands.some((l) => l.carbon && l.bonds.length !== 1)) return undefined;
+  const x = e.metals[0], s = sitesOf(c, x);
+  if (!s || new Set(s.sites.map((t) => t.d)).size !== s.sites.length) return undefined;
+  if (s.sites.length === 4 && !s.deep && SQUARE.has(g.atoms[x].el)) {
+    // A cross: opposite within 25° (cos < -0.9), the others at right angles within 25° (|cos| < 0.42).
+    const trans = transPairs(s.sites, -0.9, (cos) => Math.abs(cos) < 0.42);
+    return trans && { shape: "SP-4", sites: s.sites, trans };
+  }
+  if (s.sites.length === 6 && s.deep) {
+    const trans = transPairs(s.sites, -0.5, (cos) => cos > -0.45);
+    return trans && { shape: "OC-6", sites: s.sites, trans };
+  }
+  return undefined;
+}
+// A donor atom's rank for CIP priority: its atomic number, then its neighbours' (the metal left out; a double or triple
+// bond's partner counted two or three times, hydrogens as 1), highest first.
+const ZOF = new Map([...ELEMENTS.keys()].map((el, i) => [el, i + 1])), Z = (el: string) => ZOF.get(el) ?? 0;
+function donorRank(c: Context, d: number, x: number): number[] {
+  const { g } = c, near: number[] = Array<number>(g.atoms[d].h).fill(1);
+  for (const b of g.bonds) {
+    const j = b.a === d ? b.b : b.b === d ? b.a : -1;
+    if (j < 0 || j === x) continue;
+    for (let k = 0; k < b.order; k++) near.push(Z(g.atoms[j].el));
+  }
+  return [Z(g.atoms[d].el), ...near.sort((p, q) => q - p)];
+}
+// The configuration the drawing fixes, as it begins the name ("cis-", "(OC-6-43)-"), "" for none.
+function configuration(c: Context): string {
+  const p = polyhedron(c);
+  if (!p) return "";
+  const { e } = c, x = e.metals[0], { sites, trans } = p;
+  // Kinds of donor: alike ligands (same name and charge), and the donor's element.
+  const kind = sites.map((s) => `${c.named[s.lig].key}|${c.g.atoms[s.d].el}`), kinds = [...new Set(kind)];
+  if (kinds.length < 2) return "";
+  const mono = (i: number) => new Set(e.ligands[sites[i].lig].bonds.map((b) => b.atom)).size === 1 && e.ligands[sites[i].lig].bonds.length === 1;
+  const count = (k: string) => kind.filter((y) => y === k).length;
+  const of = (k: string) => sites.flatMap((_, i) => (kind[i] === k ? [i] : []));
+  // [Ma2b2] (no chelate: one fixes cis), [Ma2b4] and [Ma3b3]: the a sites (of monodentate ligands) adjacent or opposite.
+  if (kinds.length === 2) {
+    const [a, b] = kinds.map(of).sort((u, v) => u.length - v.length);
+    if (p.shape === "SP-4" && a.length === 2 && [...a, ...b].every(mono)) return trans[a[0]] === a[1] ? "trans-" : "cis-";
+    if (p.shape === "OC-6" && a.length === 2 && a.every(mono)) return trans[a[0]] === a[1] ? "trans-" : "cis-";
+    if (p.shape === "OC-6" && a.length === 3 && [...a, ...b].every(mono)) return a.some((i) => a.includes(trans[i])) ? "mer-" : "fac-";
+    if (a.length === 1) return "";
+  }
+  if (p.shape === "SP-4" && kinds.some((k) => count(k) === 3)) return "";
+  if (p.shape === "OC-6" && kinds.some((k) => count(k) === 5)) return "";
+  // The configuration index: CIP priority numbers, alike donors alike, unlike ones told apart.
+  if (!sites.every((_, i) => mono(i))) return "";
+  const ranks = kinds.map((k) => donorRank(c, sites[of(k)[0]].d, x)), key = (r: number[]) => r.join(",");
+  if (new Set(ranks.map(key)).size !== kinds.length) return "";
+  const order = [...ranks].sort((r, s) => { for (let i = 0; i < Math.max(r.length, s.length); i++) { const d = (s[i] ?? 0) - (r[i] ?? 0); if (d) return d; } return 0; }).map(key);
+  const pri = sites.map((_, i) => order.indexOf(key(ranks[kinds.indexOf(kind[i])])) + 1);
+  const firsts = sites.flatMap((_, i) => (pri[i] === 1 ? [i] : [])), first = Math.max(...firsts.map((i) => pri[trans[i]]));
+  if (p.shape === "SP-4") return `(SP-4-${first})-`;
+  // The reference axis: a priority 1 site with the highest priority number trans to it; then in the plane at right
+  // angles, the highest number trans to the most preferred site there (trans maximum difference, IR-9.3.3.4).
+  const second = Math.max(...firsts.filter((i) => pri[trans[i]] === first).map((ax) => {
+    const plane = sites.map((_, i) => i).filter((i) => i !== ax && i !== trans[ax]), top = Math.min(...plane.map((i) => pri[i]));
+    return Math.max(...plane.filter((i) => pri[i] === top).map((i) => pri[trans[i]]));
+  }));
+  return `(OC-6-${first}${second})-`;
 }
 
 // ——— Counter-ions ———
@@ -1227,7 +1337,10 @@ function claimOf(t: PTerm, c: Context, at: number | undefined): Claim | undefine
 function verify(name: string, c: Context, ions: Ion[]): boolean {
   const { g, e, api } = c, words = name.split(" ");
   // Cations come first (IR-5.4): a complex anion follows its counter-ion.
-  const at = ions.length && e.charge < 0 ? 1 : 0, parsed = parseEntity(words[at]);
+  const at = ions.length && e.charge < 0 ? 1 : 0, config = /^(?:cis-|trans-|fac-|mer-|\((?:SP-4-\d|OC-6-\d\d)\)-)/.exec(words[at] ?? "")?.[0] ?? "";
+  // The configuration at the metal must be the one the drawing fixes (none where it fixes none).
+  if (config !== configuration(c)) return false;
+  const parsed = parseEntity(words[at].slice(config.length));
   if (!parsed || words.length !== (ions.length ? 2 : 1)) return false;
   // The counter-ion: one kind, as many as the charges need.
   if (ions.length) {
