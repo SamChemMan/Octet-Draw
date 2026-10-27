@@ -37,7 +37,7 @@ import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
 import { propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./proprows";
 import { SpectrumPanel, PEAK_COLOURS, type Show } from "./Spectrum";
-import { analyse as analyseSpectrum, defineGroup, fromJcamp, groupText, keyOf as spectrumKeyOf, measuredFigure, measuredHead, nextGroupId, regroup, type Measured } from "./measured";
+import { analyse as analyseSpectrum, defineGroup, fromJcamp, groupText, keepIds, keyOf as spectrumKeyOf, measuredFigure, measuredHead, nextGroupId, regroup, type Measured } from "./measured";
 import { BRUKER, isJcamp, isSpectrum, readBrukerText as brukerOf, readJcamp, type JcampSpectrum } from "./jcamp";
 import { acsText, multiplicity, quality } from "./nmr";
 import { nmrReady, predict, type Nucleus } from "./nmr";
@@ -4456,7 +4456,7 @@ export default function Editor() {
     let spectra = base.spectra ?? [];
     const added: Measured[] = [];
     for (const s of found) {
-      const m = fromJcamp(s, nextGroupId(spectra));
+      const fresh = fromJcamp(s, nextGroupId(spectra)), m = keepIds(fresh, spectra.find((x) => spectrumKeyOf(x) === spectrumKeyOf(fresh)), nextGroupId([...spectra, fresh]));
       spectra = [...spectra.filter((x) => spectrumKeyOf(x) !== spectrumKeyOf(m)), m];
       added.push(m);
     }

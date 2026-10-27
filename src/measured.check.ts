@@ -2,7 +2,7 @@
 // assignments go wrong, or do not survive saving and opening again. The spectra are made here from known lines.
 import assert from "node:assert/strict";
 import { readJcamp } from "./jcamp.ts";
-import { analyse, defineGroup, firstOrder, fromJcamp, keyOf, measuredFigure, measuredHead, measuredText, nameOf, nextGroupId, pickPeaks, readMeasured, regroup, writeMeasured, type Measured } from "./measured.ts";
+import { analyse, defineGroup, firstOrder, fromJcamp, keepIds, keyOf, measuredFigure, measuredHead, measuredText, nameOf, nextGroupId, pickPeaks, readMeasured, regroup, writeMeasured, type Measured } from "./measured.ts";
 import { parse, serialize } from "./file.ts";
 import type { Mol } from "./render.ts";
 
@@ -112,6 +112,9 @@ const ids = new Map(a.groups.map((g) => [Math.round(g.shift * 100), g.id]));
 const high = regroup(m, 0.2, nextGroupId([m]));
 assert.ok(high.groups.length < m.groups.length && high.groups.length >= 3);
 for (const g of analyse(high).groups) if (ids.has(Math.round(g.shift * 100))) assert.equal(g.id, ids.get(Math.round(g.shift * 100)));
+// The same spectrum opened again keeps its multiplets' ids.
+const again = keepIds(fromJcamp(read, 500), m, 600);
+assert.deepEqual(again.groups.map((g) => g.id), m.groups.map((g) => g.id));
 const drawn = defineGroup(m, 1.2, 1.32, 99);
 assert.ok(drawn.groups.some((g) => g.manual && g.id === at(1.26).id));
 assert.equal(drawn.groups.length, m.groups.length);
@@ -166,6 +169,8 @@ assert.equal(measuredHead(m), "¹H NMR (400 MHz, CDCl₃)");
 const c13: Measured = fromJcamp({ title: "c", kind: "nmr", nucleus: "13C", mhz: 100.6, solvent: "CDCl₃", xUnit: "ppm", yUnit: "", first: 220, last: -10,
   y: Float64Array.from({ length: 16384 }, (_, i) => { const x = 220 - (230 * i) / 16383; return [[171.1, 0.5], [60.5, 1], [21.0, 0.9], [14.2, 1], [77.48, 0.6], [77.16, 0.6], [76.84, 0.6]].reduce((s, [p, h]) => s + (h * 0.0004) / ((x - p) ** 2 + 0.0004), 0); }) }, 1);
 assert.equal(measuredText(c13, analyse(c13)), "¹³C NMR (101 MHz, CDCl₃) δ 171.1, 60.5, 21.0, 14.2.");
+// CDCl₃'s triplet is one group, named once.
+assert.equal(analyse(c13).groups.filter((g) => g.other === "CDCl₃").length, 1);
 const msm = fromJcamp(readJcamp(`##TITLE=Ethyl acetate\n##DATA TYPE=MASS SPECTRUM\n##XUNITS=M/Z\n##YUNITS=RELATIVE ABUNDANCE\n##PEAK TABLE=(XY..XY)\n43,100 45,18\n61,15 88,8 29,1\n##END=`)[0], 1);
 assert.equal(measuredText(msm, analyse(msm)), "MS m/z 88 (8), 61 (15), 45 (18), 43 (100).");
 // IR in transmittance: the dips are the peaks.

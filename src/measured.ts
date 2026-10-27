@@ -131,16 +131,16 @@ export function pickPeaks(m: Measured, threshold = m.threshold): Peak[] {
 export function marksOf(m: Measured, solvent = m.solvent ?? ""): { name: string; at: number[]; near: number }[] {
   if (m.kind !== "nmr" || (m.nucleus !== "1H" && m.nucleus !== "13C")) return [];
   const h1 = m.nucleus === "1H", mhz = m.mhz ? (h1 ? m.mhz : m.mhz / 0.25145) : 400;
-  return [...solventPeaks(solvent, m.nucleus, mhz).map((s) => ({ name: s.name, at: s.lines.map((x) => x.ppm), near: h1 ? (s.broad ? 0.03 : 0.004) : 0.6 })), { name: "TMS", at: [0], near: h1 ? 0.01 : 0.6 }];
+  return [...solventPeaks(solvent, m.nucleus, mhz).map((s) => ({ name: s.name, at: s.lines.map((x) => x.ppm), near: h1 ? (s.broad ? 0.03 : 0.004) : 0.2 })), { name: "TMS", at: [0], near: h1 ? 0.01 : 0.2 }];
 }
 
-// Groups from peaks: for ¹H, peaks no more than MAX_J Hz apart make one multiplet (the solvent's, water's and TMS's
-// lines apart, each set its own); otherwise each peak is its own.
+// Groups from peaks: for ¹H, peaks no more than MAX_J Hz apart make one multiplet; otherwise each peak is its own.
+// In NMR the solvent's, water's and TMS's lines are apart, each set one group (CDCl₃'s ¹³C triplet is one).
 export function autoGroups(m: Measured, peaks: Peak[]): Omit<Group, "id">[] {
   if (!peaks.length) return [];
   const sorted = [...peaks].sort((a, b) => a.x - b.x), runs: Peak[][] = [];
   const hz = m.kind === "nmr" && m.nucleus === "1H" && m.mhz ? m.mhz : 0;
-  const marks = hz ? marksOf(m) : [], markOf = (p: Peak) => marks.findIndex((k) => k.at.some((x) => Math.abs(x - p.x) <= k.near));
+  const marks = m.kind === "nmr" ? marksOf(m) : [], markOf = (p: Peak) => marks.findIndex((k) => k.at.some((x) => Math.abs(x - p.x) <= k.near));
   const own = new Map<number, Peak[]>();
   for (const p of sorted) {
     const k = markOf(p);
@@ -287,6 +287,18 @@ export function regroup(m: Measured, threshold: number, next: number): Measured 
     return { ...g, id: old ? old.id : next++ };
   });
   return { ...m, threshold, groups: [...manual, ...groups].sort((a, b) => b.lo - a.lo) };
+}
+// A spectrum opened over one of its kind keeps the old one's ids for the multiplets it still has (an old multiplet's
+// middle inside a new one's range), so its atoms stay linked. `next`: the first free id.
+export function keepIds(fresh: Measured, old: Measured | undefined, next: number): Measured {
+  if (!old) return fresh;
+  const used = new Set<number>();
+  const groups = fresh.groups.map((g) => {
+    const o = old.groups.find((x) => !used.has(x.id) && (x.lo + x.hi) / 2 >= g.lo && (x.lo + x.hi) / 2 <= g.hi);
+    if (o) used.add(o.id);
+    return { ...g, id: o ? o.id : next++ };
+  });
+  return { ...fresh, groups };
 }
 // A group the user drew from lo to hi: it takes the place of the groups it overlaps, and the id of the first of them.
 export function defineGroup(m: Measured, lo: number, hi: number, next: number): Measured {
