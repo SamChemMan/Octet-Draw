@@ -106,6 +106,7 @@ export type Bond = {
   query?: "any" | "sd" | "sa" | "da"; topology?: "ring" | "chain" | "either"; rxn?: "centre" | "makebreak" | "change" | "makechange" | "not" | "nochange" | "unmapped";
   spacing?: number; // a double bond's own spacing (% of the bond length, as ChemDraw's BondSpacing); unset is the document's
   own?: Record<string, string>; // ChemDraw's own settings on the bond that Octet does not turn into a scale, written back as they came
+  peaks?: number[]; // the measured multiplets the user linked this bond to, as an atom's (an IR band to its C=O)
 };
 // Bond types: 1 to 3 by order, 4 aromatic and 10 a hydrogen bond (KET's numbers), and 14 a quadruple bond (KET has
 // none; 14 keeps clear of KET's types). A hydrogen bond is drawn dotted and adds nothing to an atom's valence.

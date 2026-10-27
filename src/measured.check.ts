@@ -124,9 +124,11 @@ assert.equal(drawn.groups.length, m.groups.length);
 // Two carbons whose hydrogens are the quartet and the triplet, linked to them; the drawing saves and opens with the
 // spectrum, its multiplets and the links, and gives the same text line.
 const q = q0, t = at(1.26).id;
-const doc: Mol = { atoms: [{ label: "C", location: [0, 0, 0], peaks: [q] }, { label: "C", location: [1, 0, 0], peaks: [t] }], bonds: [{ type: 1, atoms: [0, 1] }], spectra: [m] };
+const doc: Mol = { atoms: [{ label: "C", location: [0, 0, 0], peaks: [q] }, { label: "C", location: [1, 0, 0], peaks: [t] }], bonds: [{ type: 1, atoms: [0, 1], peaks: [q, t] }], spectra: [m] };
 const back = parse(serialize(doc));
 assert.deepEqual(back.atoms.map((x) => x.peaks), [[q], [t]]);
+// A bond keeps its links as an atom does (an IR band linked to its C=O).
+assert.deepEqual(back.bonds[0].peaks, [q, t]);
 assert.deepEqual(back.spectra![0].groups, m.groups);
 assert.deepEqual([...back.spectra![0].y], [...m.y]);
 assert.equal(measuredText(back.spectra![0], analyse(back.spectra![0])), line);
@@ -134,9 +136,12 @@ assert.equal(measuredText(back.spectra![0], analyse(back.spectra![0])), line);
 assert.equal(serialize(parse(serialize(back))), serialize(back));
 // A copy pasted without its spectrum keeps no links; a link to a multiplet the drawing does not have is dropped.
 assert.equal(parse(serialize({ ...doc, spectra: undefined })).atoms[0].peaks, undefined);
+assert.equal(parse(serialize({ ...doc, spectra: undefined })).bonds[0].peaks, undefined);
 const saved = JSON.parse(serialize(doc));
 saved.structure.atoms[0].peaks = [q, 12345];
+saved.structure.bonds[0].peaks = [12345, t];
 assert.deepEqual(parse(JSON.stringify(saved)).atoms[0].peaks, [q]);
+assert.deepEqual(parse(JSON.stringify(saved)).bonds[0].peaks, [t]);
 // A damaged spectrum is refused as the whole drawing is: a short trace, a bad kind, ids twice, too many spectra.
 const damaged = (change: (s: Record<string, unknown>) => void) => { const d = JSON.parse(serialize(doc)); change(d.spectra[0]); return () => parse(JSON.stringify(d)); };
 assert.throws(damaged((s) => { s.y = (s.y as string).slice(0, 100); }), /damaged/);

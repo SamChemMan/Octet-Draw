@@ -1,4 +1,4 @@
-# 0016: Measured spectra, and links from their peaks to atoms
+# 0016: Measured spectra, and links from their peaks to atoms and bonds
 
 Status: built 27 October 2026 for Sam to review (roadmap 1.1.0 step 2, audit item CH-29).
 
@@ -40,9 +40,13 @@ Open questions for a run of 26.1 are item 19 in `~/octet-research/notes/chemdraw
   trace as 16-bit levels in base64 with the range they stand for, at most 262,144 points (a longer trace keeps the
   largest point of each run, so no peak is lost). A drawing opens with the same trace, so peak picking gives the
   same peaks after saving.
-- Multiplets have ids. Each atom keeps the ids of the multiplets it is linked to (`Atom.peaks`), as it keeps its
-  highlight. So links move, copy, undo and delete with their atoms. A link to an id the drawing does not have is
-  dropped when a file or a paste is read.
+- Multiplets have ids. Each atom and bond keeps the ids of the multiplets it is linked to (`Atom.peaks`,
+  `Bond.peaks`), as it keeps its highlight. So links move, copy, undo and delete with their atoms and bonds. A link to
+  an id the drawing does not have is dropped when a file or a paste is read.
+- A bond links as an atom does, as ChemDraw's assignment takes atoms and bonds (an IR band to its C=O): click the
+  multiplet, then the bond, or drag the multiplet to the bond. A multiplet clicked with atoms selected links them and
+  every bond between two of them. Pointing at the multiplet lights its bonds as a band along each; pointing at a bond
+  lights its multiplets; Colour peaks colours the bonds' highlights too.
 - The .oct, .cdxml and .cdx files keep the spectrum inside Octet's drawing, and also as ChemDraw's spectrum object
   (below), so ChemDraw shows it and Octet reads it back after ChemDraw saves the file.
 
@@ -67,7 +71,8 @@ What Octet does:
   runs from low x to high. A peak table's sticks go on a 0.1 grid, as ChemDraw's own mass spectra do. Uneven points
   are put on an even grid. The values are 16-bit levels (YScale is the range over 65,535), so the trace comes back
   as Octet saved it.
-- Each multiplet linked to atoms is an assignment tag with the multiplet's range, on the atoms and on the spectrum.
+- Each multiplet linked to atoms or bonds is an assignment tag with the multiplet's range, on the atoms, the bonds and
+  the spectrum.
 - Octet's own details (the title, nucleus, frequency, solvent, threshold, integral and multiplets) go in an object tag
   named `Octet spectrum` on the spectrum, as JSON in ASCII. ChemDraw's object has no place for them.
 - A ChemDraw spectrum reads as one spectrum of each kind. Without Octet's tag, an NMR spectrum's nucleus comes from

@@ -25,7 +25,7 @@ export function serialize(mol: Mol): string {
     ...(a.query ? { query: a.query } : {}), ...(a.peaks?.length ? { peaks: a.peaks } : {}), ...scaled(a) }));
   const bonds = mol.bonds.map((b) => ({ atoms: b.atoms, type: b.type, ...(b.stereo ? { stereo: b.stereo } : {}), ...(b.display ? { display: b.display } : {}), ...(b.position ? { position: b.position } : {}), ...(b.colour ? { colour: b.colour } : {}), ...(b.halo ? { halo: b.halo } : {}), ...(b.ignoreWarnings ? { ignoreWarnings: true } : {}),
     ...(b.query ? { query: b.query } : {}), ...(b.topology ? { topology: b.topology } : {}), ...(b.rxn ? { rxn: b.rxn } : {}),
-    ...(b.spacing !== undefined ? { spacing: b.spacing } : {}), ...(b.own ? { own: b.own } : {}) }));
+    ...(b.spacing !== undefined ? { spacing: b.spacing } : {}), ...(b.own ? { own: b.own } : {}), ...(b.peaks?.length ? { peaks: b.peaks } : {}) }));
   // Captions are saved in id order and arrows in their drawing order; ids are not saved. Conditions name their arrow
   // by its place in the list.
   const arrowList = [...(mol.arrows ?? [])];
@@ -235,6 +235,7 @@ export function parse(text: string): Mol {
     if (b.position) bond.position = b.position as Bond["position"];
     if (b.colour) bond.colour = b.colour as string;
     if (b.ignoreWarnings === true) bond.ignoreWarnings = true;
+    if (Array.isArray(b.peaks) && b.peaks.length <= 64 && b.peaks.every((k) => int(k, 1, 1e9))) bond.peaks = [...new Set(b.peaks as number[])];
     // A query bond's type; an earlier Octet file held ChemDraw's orders for it ("1 2").
     Object.assign(bond, readBondQuery({ ...b, query: ({ "1 2": "sd", "1 1.5": "sa", "2 1.5": "da" } as Record<string, string>)[b.query as string] ?? b.query }));
     out.bonds.push(bond);
@@ -345,8 +346,8 @@ export function parse(text: string): Mol {
     });
   }
   if (d.annotations !== undefined) out.annotations = readAnnotations(d.annotations);
-  // Measured spectra: up to 16, one for each key, their multiplet ids unique in the drawing. An atom's links to
-  // multiplets the drawing does not have are dropped (a copy pasted without its spectrum).
+  // Measured spectra: up to 16, one for each key, their multiplet ids unique in the drawing. An atom's or bond's links
+  // to multiplets the drawing does not have are dropped (a copy pasted without its spectrum).
   if (d.spectra !== undefined) {
     if (!Array.isArray(d.spectra) || d.spectra.length > 16) throw new Error("This drawing is damaged.");
     out.spectra = d.spectra.map(readMeasured);
@@ -354,7 +355,7 @@ export function parse(text: string): Mol {
     if (new Set(ids).size !== ids.length || new Set(out.spectra.map(keyOf)).size !== out.spectra.length) throw new Error("This drawing is damaged.");
   }
   const known = new Set((out.spectra ?? []).flatMap((s) => s.groups.map((g) => g.id)));
-  for (const a of out.atoms) if (a.peaks) { const kept = a.peaks.filter((k) => known.has(k)); if (kept.length) a.peaks = kept; else delete a.peaks; }
+  for (const a of [...out.atoms, ...out.bonds]) if (a.peaks) { const kept = a.peaks.filter((k) => known.has(k)); if (kept.length) a.peaks = kept; else delete a.peaks; }
   // Groups as an edit leaves them: each atom and object once, nested or apart, and two or more things in each.
   return tidyGroups(out);
 }

@@ -215,7 +215,7 @@ const kept: Mol = {
   const y = Float64Array.from({ length: 2000 }, (_, i) => { const x = 4000 - 1.8 * i; return 100 - (80 * 100) / ((x - 1740) ** 2 + 100) - (30 * 100) / ((x - 2980) ** 2 + 100); });
   const ir = fromJcamp({ title: "Acetone", kind: "ir", xUnit: "cm⁻¹", yUnit: "%T", first: 4000, last: 4000 - 1.8 * 1999, y }, 1);
   const band = ir.groups.find((g) => g.lo < 1740 && 1740 < g.hi)!.id;
-  const m: Mol = { atoms: [{ ...A("C", 0, 0), peaks: [band] }, { ...A("O", 1, 0), peaks: [band] }], bonds: [{ type: 2, atoms: [0, 1] }], spectra: [ir] };
+  const m: Mol = { atoms: [{ ...A("C", 0, 0), peaks: [band] }, { ...A("O", 1, 0), peaks: [band] }], bonds: [{ type: 2, atoms: [0, 1], peaks: [band] }], spectra: [ir] };
   const strip = (x: Xml): Xml => ({ ...x, attrs: Object.fromEntries(Object.entries(x.attrs).filter(([k]) => k !== "Octet")), kids: x.kids.map(strip) });
   const tree = cdxToXml(xmlToCdx(strip(parseXml(toCdxml(m, DEFAULT_STYLE)))));
   const every = (x: Xml): Xml[] => [x, ...x.kids.flatMap(every)], sp = every(tree).find((x) => x.name === "spectrum")!;
@@ -228,13 +228,14 @@ const kept: Mol = {
   const nodes = every(tree).filter((x) => x.name === "n");
   assert.deepEqual(tags(nodes[0]), tags(sp));
   assert.deepEqual(tags(nodes[1]), tags(sp));
+  assert.deepEqual(tags(every(tree).find((x) => x.name === "b")!), tags(sp));
   const back = fromCdxml(tree), s = back.mol.spectra![0];
   assert.deepEqual(back.lost, {});
   assert.deepEqual([s.title, s.kind, s.xUnit, s.yUnit, s.y.length], ["Acetone", "ir", "cm⁻¹", "%T", 2000]);
   const ranges = (x: typeof ir) => x.groups.map((g) => [g.lo, g.hi].map((v) => v.toFixed(6))).sort();
   assert.deepEqual(ranges(s), ranges(ir));
   const id = s.groups.find((g) => g.lo < 1740 && 1740 < g.hi)!.id;
-  assert.deepEqual(back.mol.atoms.map((a) => a.peaks), [[id], [id]]);
+  assert.deepEqual([...back.mol.atoms, ...back.mol.bonds].map((a) => a.peaks), [[id], [id], [id]]);
   assert.equal(measuredText(s, analyse(s)), measuredText(ir, analyse(ir)));
   // ChemDraw's CDX read and written again keeps its values.
   assert.equal(every(cdxToXml(xmlToCdx(tree))).find((x) => x.name === "spectrum")!.text, sp.text);

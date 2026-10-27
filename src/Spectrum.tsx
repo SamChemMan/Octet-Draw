@@ -1,10 +1,10 @@
 // The Spectrum panel: the predicted ¹H or ¹³C NMR spectrum of a structure, and a measured spectrum opened from a file
 // (JCAMP-DX or Bruker: NMR, IR, UV-Vis, MS), docked under the canvas (ChemDraw opens a new window; here the structure
 // stays in view). Predicted and measured show alone, one above the other, or overlaid. Pointing at a peak lights its
-// atoms on the canvas and pointing at an atom lights its peak. A measured multiplet is linked to atoms by a click on
-// it and then on the atoms, or by a drag from it to an atom. The wheel zooms the shift axis, a drag pans it, a
-// Shift-drag makes one multiplet of the peaks it covers, and a double-click shows all of it. Expanded, the panel fills
-// the canvas with the structure beside the spectrum (the canvas's own drawing, shown again).
+// atoms on the canvas and pointing at an atom lights its peak. A measured multiplet is linked to atoms and bonds (an IR
+// band to its C=O) by a click on it and then on them, or by a drag from it to one. The wheel zooms the shift axis, a
+// drag pans it, a Shift-drag makes one multiplet of the peaks it covers, and a double-click shows all of it. Expanded,
+// the panel fills the canvas with the structure beside the spectrum (the canvas's own drawing, shown again).
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowsIn, ArrowsOut, ChartLine, CopySimple, LinkBreak, ListBullets, Tag, Trash, X } from "@phosphor-icons/react";
@@ -45,9 +45,9 @@ type Props = {
   onMhz: (mhz: number) => void; onSolvent: (s: string) => void; onSolventPeaks: (on: boolean) => void;
   onPoint: (atoms?: number[]) => void; onCopy: (text: string) => void; onClose: () => void;
   // The measured spectrum and its analysis, how the two show, and its multiplets: those lit from the canvas, each
-  // one's colour (its atoms' highlight) and number of linked atoms, and the one being linked.
+  // one's colour (its atoms' highlight), number of linked atoms and bonds and of bonds alone, and the one being linked.
   measured?: Measured; analysis?: Analysis; show: Show; onShow: (s: Show) => void;
-  litGroups: Set<number>; groupColour: (id: number) => string | undefined; linkedCount: (id: number) => number;
+  litGroups: Set<number>; groupColour: (id: number) => string | undefined; linkedCount: (id: number) => number; linkedBondCount: (id: number) => number;
   chosenGroup?: number; onChooseGroup: (id?: number) => void; onPointGroup: (id?: number) => void;
   onThreshold: (t: number) => void; onDefine: (lo: number, hi: number) => void; onCount: (id: number, n: number) => void;
   onLinkHover: (at?: [number, number]) => void; onLinkAt: (id: number, at: [number, number]) => void; onUnlink: (id: number) => void;
@@ -140,6 +140,11 @@ export function SpectrumPanel(p: Props) {
   const labels: number[] = [];
   inRange.forEach((k, i) => { labels[k] = placed[i]; });
   const on = (s: Signal, k: number) => pointed === k || s.atoms.some((atom) => p.lit.has(atom));
+  // What a measured multiplet is linked to, in words: "2 atoms and 1 bond".
+  const linkedWords = (id: number) => {
+    const bonds = p.linkedBondCount(id), atoms = p.linkedCount(id) - bonds, words = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+    return [atoms ? words(atoms, "atom") : "", bonds ? words(bonds, "bond") : ""].filter(Boolean).join(" and ");
+  };
 
   // --- The measured spectrum ---------------------------------------------------------------------------------------
   // Its trace (each pixel's highest and lowest point), scaled so the tallest peak in view that is not the solvent's
@@ -231,7 +236,7 @@ export function SpectrumPanel(p: Props) {
           </span>
         )}
         {chosenM && h1M && !chosenM.other && <NumberField label="Hydrogens" unit="H" value={Math.round(chosenM.n * 100) / 100} min={0.01} max={1000} step={1} lazy onChange={(n) => p.onCount(chosenM.id, n)} />}
-        {chosenM && p.linkedCount(chosenM.id) > 0 && <button className="spectrum-button" onClick={() => p.onUnlink(chosenM.id)} data-tip="Unlink this peak from its atoms"><LinkBreak size={16} /> Unlink</button>}
+        {chosenM && p.linkedCount(chosenM.id) > 0 && <button className="spectrum-button" onClick={() => p.onUnlink(chosenM.id)} data-tip="Unlink this peak from its atoms and bonds"><LinkBreak size={16} /> Unlink</button>}
         <button className="spectrum-button" onClick={() => (showM ? p.onGroupColourAll(!anyColour) : p.onColourAll(!anyColour))} disabled={showM ? !(a?.groups ?? []).some((g) => p.linkedCount(g.id)) : !signals.length}>{anyColour ? "Clear colours" : "Colour peaks"}</button>
         <Pick label="Add to drawing" value="" className="spectrum-button" title="Put the spectrum, the shifts or the key on the page" disabled={showM ? !ownGroups.length : !signals.length}
           groups={[[{ key: "spectrum", name: "Spectrum", icon: <ChartLine size={18} /> }, { key: "shifts", name: "Shifts beside atoms", icon: <Tag size={18} /> }, { key: "key", name: "Key", icon: <ListBullets size={18} /> }]]}
@@ -275,7 +280,7 @@ export function SpectrumPanel(p: Props) {
             setPoint(g === undefined ? signalAt(px, py) : undefined, g);
           }}
           // A click (no drag) picks the peak under the pointer, or lets go of it. A measured multiplet picked is the one
-          // the next atoms clicked are linked to.
+          // the next atoms and bonds clicked are linked to.
           onPointerUp={(e) => {
             const d = drag.current;
             drag.current = undefined;
@@ -382,7 +387,7 @@ export function SpectrumPanel(p: Props) {
                 const tip = Math.max(laneM.top - 4, yM(lv.base + Math.max(...g.peaks.map((q) => q.h))) - 10), label = g.shift.toFixed(dp);
                 return (
                   <g key={g.id} className={`spectrum-signal${groupOn(g.id) ? " lit" : ""}${p.chosenGroup === g.id ? " chosen" : ""}`} style={c ? { fill: c } : undefined}
-                    data-tip={`${h1M && g.name === "m" && g.peaks.length > 1 ? `${g.peaks[0].x.toFixed(2)}–${g.peaks[g.peaks.length - 1].x.toFixed(2)}` : label} ${m.xUnit}${h1M ? `, ${g.name}${g.js.length ? `, J = ${g.js.map((j) => j.toFixed(1)).join(", ")} Hz` : ""}, ${g.n.toFixed(2)}H` : ""}${linked ? `, linked to ${p.linkedCount(g.id)} ${p.linkedCount(g.id) === 1 ? "atom" : "atoms"}` : ""}`}>
+                    data-tip={`${h1M && g.name === "m" && g.peaks.length > 1 ? `${g.peaks[0].x.toFixed(2)}–${g.peaks[g.peaks.length - 1].x.toFixed(2)}` : label} ${m.xUnit}${h1M ? `, ${g.name}${g.js.length ? `, J = ${g.js.map((j) => j.toFixed(1)).join(", ")} Hz` : ""}, ${g.n.toFixed(2)}H` : ""}${linked ? `, linked to ${linkedWords(g.id)}` : ""}`}>
                     <path className="spectrum-leader" d={`M${lx} ${ly + (h1M ? 17 : 5)}L${lx} ${ly + (h1M ? 21 : 9)}L${x(g.shift)} ${Math.max(ly + (h1M ? 22 : 10), tip)}`} />
                     {linked && <circle className="spectrum-linked" cx={lx - label.length * 3.1 - 6} cy={ly - 4} r={2.5} style={c ? { fill: c } : undefined} />}
                     <text x={lx} y={ly} textAnchor="middle">{label}</text>
