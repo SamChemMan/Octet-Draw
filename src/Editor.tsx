@@ -6640,10 +6640,15 @@ export default function Editor() {
               if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); commitWriting(); }
               if (e.key === "Tab" && !e.shiftKey && writing.at && writing.id === undefined) { e.preventDefault(); tabCaption(); }
               if (e.key === "Escape") { e.preventDefault(); commitWriting(); } // Escape keeps the text, as a click elsewhere does
-              // ChemDraw's text keys, in the browser (the desktop app's Text menu has them too).
-              if (!TAURI && (e.metaKey || e.ctrlKey)) {
+              // ChemDraw's text keys. The text box takes them first (in the app too: the web view gets the keystroke before
+              // the Text menu does), and marks them so the same command from the menu does not run twice.
+              if (TAURI ? (MAC ? e.metaKey : e.ctrlKey) : e.metaKey || e.ctrlKey) {
                 const k = e.key.toLowerCase(), command = e.shiftKey && k === "n" ? "name_to_structure" : { b: "caption.bold", i: "caption.italic", u: "caption.underline", t: "caption.plain", f: "caption.formula", "-": "caption.sub", "=": "caption.super", "+": "caption.super" }[k];
-                if (command) { e.preventDefault(); runAction(command); }
+                if (command) {
+                  e.preventDefault();
+                  if (TAURI) pageRan.current = { id: command.startsWith("caption.") ? `text_${command.slice(8)}` : command, at: performance.now() };
+                  runAction(command);
+                }
               }
             }}
             onBlur={() => commitWriting()}
