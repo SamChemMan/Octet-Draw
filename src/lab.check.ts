@@ -9,10 +9,16 @@ import { addRing, addTemplate, EMPTY } from "./edit.ts";
 import { readOct, writeOct } from "./oct.ts";
 import type { Arrow, Group, Mol } from "./render.ts";
 
-type Item = { name: string; also?: string; atoms: unknown[]; bonds: unknown[]; arrows: Arrow[]; groups: Group[]; icon: number[] };
+type Item = { name: string; also?: string; atoms: unknown[]; bonds: unknown[]; arrows: Arrow[]; groups: Group[]; icon: number[]; mol?: Mol };
 const library: { name: string; items: Item[] }[] = JSON.parse(readFileSync(new URL("./library.json", import.meta.url), "utf8"));
-const lab = library.find((c) => c.name === "Lab")!;
-assert.deepEqual(lab.items.map((t) => t.name), ["Light bulb", "LED", "Round-bottom flask", "Beaker", "Conical flask", "Reflux condenser", "Separatory funnel", "Test tube"]);
+const all = library.find((c) => c.name === "Lab")!;
+assert.deepEqual(all.items.map((t) => t.name), ["Light bulb", "LED", "Round-bottom flask", "Beaker", "Conical flask", "Reflux condenser", "Separatory funnel", "Test tube",
+  "Schlenk flask", "Vial", "Syringe", "Chromatography column", "Heating mantle", "Hotplate stirrer", "Stirrer bar", "TLC plate"]);
+// The TLC plate is Octet's own TLC object (the TLC tool's), so its lanes and spots stay editable.
+const plate = all.items.find((t) => t.name === "TLC plate")!.mol!;
+assert.deepEqual(plate.shapes?.map((x) => [x.kind, x.tlc?.lanes]), [["tlc", 3]]);
+assert.equal(plate.atoms.length + (plate.arrows?.length ?? 0), 0);
+const lab = { items: all.items.filter((t) => !t.mol) };
 
 const box = (arrows: Arrow[]) => {
   const qs = arrows.flatMap((a) => (a.curve ? a.curve.points.map((p) => p.at) : [a.from, a.to])), xs = qs.map((q) => q[0]), ys = qs.map((q) => q[1]);
@@ -39,7 +45,8 @@ for (const t of lab.items) {
   assert.deepEqual(t.groups.map((g) => [g.atoms.length, [...g.items].sort((x, y) => x - y), g.integral]), [[0, t.arrows.map((a) => a.id).sort((x, y) => x - y), true]], t.name);
   const [x0, y0, x1, y1] = box(t.arrows);
   assert.ok(near((x0 + x1) / 2, 0, 0.002) && near((y0 + y1) / 2, 0, 0.002), `${t.name} is centred`);
-  assert.ok(y1 - y0 >= 2 && y1 - y0 <= 5.5, `${t.name} is ${y1 - y0} bond lengths tall`);
+  // Sized against each other: a flask 2 to 5.5 bond lengths tall, a stirrer bar a third of one across.
+  assert.ok(Math.max(x1 - x0, y1 - y0) >= 1.2 && y1 - y0 <= 5.5, `${t.name} is ${x1 - x0} by ${y1 - y0} bond lengths`);
   // One line width: no object sets its own, so every line takes the document's. Fills are closed curves; lines are ink.
   assert.ok(t.arrows.every((a) => a.width === undefined && a.scale === undefined), t.name);
   assert.ok(t.arrows.every((a) => !a.fill || (a.curve?.closed && a.fill === "solid")), t.name);
