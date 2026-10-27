@@ -81,6 +81,7 @@ import { iupacName } from "./namer";
 import { sandwichIons } from "./metals";
 import { complexName } from "./complexes";
 import { mixtureName, mixturesOf, withSalts, type Mixture } from "./mixtures";
+import { nameRuns } from "./nametype";
 
 setNamer(iupacName);
 setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, inchi: toInchi, aux: toInchiAux, cip: cipOf }));
@@ -4068,6 +4069,8 @@ export default function Editor() {
     const m = toFront(reorder(doc, fragments(doc).filter((g) => g.some((i) => selection.has(i) || inCycle.has(i))), picked, front), selection, !front);
     if (m !== doc) set(m, true);
   }
+  // A name's italic and raised characters as IUPAC prints them (nametype.ts), as runs; the text stays the same.
+  const typeset = (name: string): { runs?: TextRun[] } => { const runs = nameRuns(name); return styled(runs) ? { runs } : {}; };
   // Structure to name: each named structure gets its name centred underneath (after its compound number).
   function nameStructures() {
     if (!namesLoaded) { void loadNames().then(() => setNamesLoaded(true)).catch(() => {}); return setNotice("Loading names. Try again in a moment.", "info"); }
@@ -4077,12 +4080,12 @@ export default function Editor() {
     for (const mix of mixtures) {
       const name = mixtureNameFor(mix), atoms = mix.atoms;
       if (!name) { missed++; continue; }
-      if (!m.captions?.some((c) => c.text === name && c.under?.some((i) => atoms.includes(i)))) m = addCaption(m, { text: name, x: 0, y: 0, under: atoms })[0];
+      if (!m.captions?.some((c) => c.text === name && c.under?.some((i) => atoms.includes(i)))) m = addCaption(m, { text: name, ...typeset(name), x: 0, y: 0, under: atoms })[0];
     }
     for (const atoms of all.filter((t) => !t.some((i) => inMixture.has(i)))) {
       const name = nameFor(atoms);
       if (!name) { missed++; continue; }
-      if (!m.captions?.some((c) => c.text === name && c.under?.some((i) => atoms.includes(i)))) m = addCaption(m, { text: name, x: 0, y: 0, under: atoms })[0];
+      if (!m.captions?.some((c) => c.text === name && c.under?.some((i) => atoms.includes(i)))) m = addCaption(m, { text: name, ...typeset(name), x: 0, y: 0, under: atoms })[0];
     }
     // Captions that count as chemistry (Rh as rhodium): the picked ones, or all of them with nothing selected. The
     // name goes under the caption.
@@ -4092,7 +4095,7 @@ export default function Editor() {
       if (own && !own.has(i)) return;
       const name = nameFor([i], chem.mol), at = belowCaption(c);
       if (!name) { missed++; return; }
-      if (!m.captions?.some((x) => x.text === name && Math.hypot(x.x - at.x, x.y - at.y) < 1e-6)) m = addCaption(m, { text: name, ...at })[0];
+      if (!m.captions?.some((x) => x.text === name && Math.hypot(x.x - at.x, x.y - at.y) < 1e-6)) m = addCaption(m, { text: name, ...typeset(name), ...at })[0];
     });
     setNotice(missed === 0 ? undefined : missed === 1 ? "Octet cannot name this structure yet." : `Octet cannot name ${missed} of these structures yet.`);
     if (m !== doc) set(m, true);

@@ -43,7 +43,9 @@ SMILES for every name in `names.txt`.
   organic ligands (bis(pyridine): dipyridine reads as a ring assembly), for carbon ligands (IR-10.2.2:
   trichlorido(methyl)titanium), and for names that begin as a multiplying prefix does (bis(octanoato)).
 - κ after the part of a ligand's name that holds the donor atom, with OPSIN's locants there.
-- Names show as plain text, as every name caption does: κ3N1 with the 3 on the line, μ-acetato, no italic N or O.
+- Convert Structure to Name sets a name's caption as IUPAC prints it (nametype.ts, 27 October 2026): κ³N¹ with the
+  count and the locant raised and the N italic, μ₃, η⁶, italic cis, fac, (SP-4-2), (Re—Co) and triangulo. The text stays
+  the same characters (κ3N1), so a copied name reads back.
 - Terpyridines as ring assemblies (2,2':6',2''-terpyridine), and two identical anionic units on a benzene ring by a
   multiplicative name (esp).
 
