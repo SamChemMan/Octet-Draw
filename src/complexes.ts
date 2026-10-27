@@ -22,8 +22,12 @@
 // A main-group atom (P, Si, B and others) is a central atom in a chelate when the namer has no name (IR-7.1):
 // dimethanolato(5,10,15,20-tetraphenylporphyrin-21,23-diido-κ4N21,N22,N23,N24)phosphorus(1+). The E or Z that a chelate
 // ring fixes is left out of the check of a ligand's name (Ligand.fixed): a porphyrin's name cites none.
-// Names are not given for what is not checked here: polyhedral symbols and configuration (cis, Δ), η ligands, three
-// or more metal atoms, two metals of different elements, and donor atoms that no κ term above can cite.
+// Also named and checked here: the configuration the drawing fixes at one metal (cis, trans, fac, mer, (SP-4-3),
+// (OC-6-43)); complexes of unlike metals and of three to six metals (rheniumcobalt(Re—Co), triangulo-triosmium); and η
+// ligands drawn with a bond to each bonded atom ((η6-benzene)tricarbonylchromium).
+// Names are not given for what is not checked here: Δ and Λ, polyhedra other than square planar and octahedral,
+// configuration indexes that need the priming convention or CIP rules past the donor's neighbours, η ligands bonded
+// through only some atoms of a part of their name ((1,2,3,4-η)), and donor atoms that no κ term above can cite.
 import { graphOf, type Cip, type Graph } from "./naming.ts";
 import { alphaKey, assemblePrefixes, enclose as encloseName, iupacNameWhy, joinPrefixes, Namer, type Name } from "./namer.ts";
 import { ELEMENTS, isMetal } from "./metals.ts";
@@ -105,6 +109,7 @@ type Ligand = {
   // in the free ligand, single bonds too where it moves charges or hydrogens along the ring, so the check of the
   // ligand's name leaves them out (unfixed).
   fixed?: Set<string>;
+  eta?: number; // an η ligand: how many contiguous atoms bond to the metal
 };
 // written: the oxidation state written in the metal's label (Os(II)), for a complex of one metal atom.
 type Entity = { metals: number[]; ligands: Ligand[]; hydrides: number; mm: [number, number][]; charge: number; atoms: number[]; written?: number };
@@ -188,8 +193,16 @@ function entityOf(s: Shape, atoms: number[]): Entity | undefined {
     if (!bonds.length) return undefined; // a piece of the complex not bonded to a metal cannot be
     const lig: Ligand = { atoms: part, q: new Map(), bonds, charge: 0 };
     const donors = [...new Set(bonds.map((b) => b.atom))];
-    // η ligands (two donor atoms bonded to each other) are not named here.
-    if (donors.some((d) => adj[d].some((j) => donors.includes(j)))) return undefined;
+    // An η ligand (IR-10.2.5.1): two or more donor atoms bonded to each other, all to one metal, each once, joined
+    // through the ligand into one run of atoms. It is the drawn molecule or ion with the bonds to the metal cut, its
+    // hydrogens as drawn.
+    if (donors.some((d) => adj[d].some((j) => donors.includes(j)))) {
+      const run = parts(g.atoms.length, adj, (i) => donors.includes(i));
+      if (run.length !== 1 || bonds.length !== donors.length || new Set(bonds.map((b) => b.metal)).size !== 1 || bonds.some((b) => b.order !== 1) || donors.length > 8) return undefined;
+      Object.assign(lig, { eta: donors.length, charge: part.reduce((t, i) => t + g.atoms[i].charge, 0) });
+      ligands.push(lig);
+      continue;
+    }
     const lex = lexOf(s, part, donors);
     if (lex) { Object.assign(lig, { lex, charge: LEX[lex].charge }); ligands.push(lig); continue; }
     if (donors.some((d) => g.atoms[d].el === "C")) {
@@ -560,6 +573,43 @@ function fold(g: Graph): { g: Graph; index: number[] } {
   return { g: { atoms, bonds: g.bonds.filter((b) => !drop[b.a] && !drop[b.b]).map((b) => ({ ...b, a: index[b.a], b: index[b.b] })) }, index };
 }
 
+// ——— η ligands (IR-10.2.5.1) ———
+// An η ligand's name with η before the part of the name that holds its bonded atoms: η6-benzene, η2-ethene,
+// 1,2,3,4,5-pentamethyl-η5-cyclopenta-2,4-dien-1-ido. Only where the bonded atoms are all the atoms of that part (no
+// locants such as (1,2,3,4-η) are given).
+function etaForm(c: Context, k: number): string | undefined {
+  const form = c.named[k].form, n = c.e.ligands[k].eta!;
+  for (const p of starts(form)) {
+    const part = form.slice(p);
+    if (etaPart(c, k, part)) return p === 0 ? `η${n}-${form}` : `${form.slice(0, p)}${form[p - 1] === "-" ? "" : "-"}η${n}-${part}`;
+  }
+  return undefined;
+}
+// Whether a part of an η ligand's name, read by OPSIN alone, has as many atoms other than hydrogen as the ligand has
+// bonded atoms, of the same elements joined the same way.
+function etaPart(c: Context, k: number, part: string): boolean {
+  const { g, e, api } = c, lig = e.ligands[k], donors = [...new Set(lig.bonds.map((b) => b.atom))];
+  const b = opsinOf(nameOfForm(part, /(ato|ido|ito)[)\]}]*$/.test(part) ? -1 : 0), api);
+  if (!b || !lig.eta || donors.length !== lig.eta) return false;
+  const heavy = b.el.flatMap((el, i) => (el === "H" ? [] : [i]));
+  if (heavy.length !== donors.length) return false;
+  const nb = (i: number) => g.bonds.flatMap((x) => (x.a === i ? [x.b] : x.b === i ? [x.a] : [])).filter((j) => donors.includes(j));
+  const to = new Map<number, number>(), used = new Set<number>();
+  const go = (t: number): boolean => {
+    if (t === heavy.length) return true;
+    const i = heavy[t];
+    for (const d of donors) {
+      if (used.has(d) || g.atoms[d].el !== b.el[i] || nb(d).length !== b.adj[i].filter((j) => b.el[j] !== "H").length) continue;
+      if (b.adj[i].some((j) => to.has(j) && !nb(d).includes(to.get(j)!))) continue;
+      to.set(i, d); used.add(d);
+      if (go(t + 1)) return true;
+      to.delete(i); used.delete(d);
+    }
+    return false;
+  };
+  return go(0);
+}
+
 // ——— κ terms ———
 // A ligand's donor atoms to each metal, in the order of the metals given.
 const donorGroups = (lig: Ligand, metals: number[]) => metals.map((x) => [...new Set(lig.bonds.filter((b) => b.metal === x).map((b) => b.atom))]);
@@ -568,7 +618,7 @@ const donorGroups = (lig: Ligand, metals: number[]) => metals.map((x) => [...new
 // triphenylphosphane), nor for one O of a carboxylate group whose two O atoms are the only atoms that could be
 // (acetato), nor for ligands with names of their own or carbon ligands, whose names say how they bond.
 function needsKappa(g: Graph, lig: Ligand): boolean {
-  if (lig.lex || lig.carbon) return false;
+  if (lig.lex || lig.carbon || lig.eta) return false;
   const donors = [...new Set(lig.bonds.map((b) => b.atom))], potential = lig.atoms.filter((i) => DONORS.has(g.atoms[i].el));
   if (donors.length === 1 && potential.length === 1) return false;
   return !(donors.length === 1 && potential.length === 2 && carboxylate(g, lig, potential));
@@ -920,7 +970,7 @@ type Context = { m: Mol; g: Graph; e: Entity; named: Named[]; api: ComplexApi };
 // The oxidation number of the metal in a neutral complex with one metal atom (IR-9.2.2.4), from its ligands' charges
 // as free ligands. None for organometallic compounds (IR-10.2.1.4), nor with nitrosyl or carbonyl ligands.
 function oxidation(e: Entity): number | undefined {
-  if (e.charge || e.metals.length !== 1 || e.ligands.some((l) => l.carbon || (l.lex && !LEX[l.lex].ox))) return undefined;
+  if (e.charge || e.metals.length !== 1 || e.ligands.some((l) => l.carbon || l.eta || (l.lex && !LEX[l.lex].ox))) return undefined;
   const ox = e.hydrides - e.ligands.reduce((t, l) => t + l.charge, 0);
   return Math.abs(ox) < ROMAN.length ? ox : undefined;
 }
@@ -942,7 +992,9 @@ function mononuclear(c: Context): string | undefined {
   for (const [k, lig] of e.ligands.entries()) {
     const kp = needsKappa(g, lig) ? kappaParts(m, g, lig, named[k], [x], api) : { parts: [""] };
     if (!kp) return undefined;
-    const form = kp.form ?? named[k].form, kappa = kp.parts[0] ?? "";
+    const eta = lig.eta ? etaForm(c, k) : undefined;
+    if (lig.eta && !eta) return undefined;
+    const form = eta ?? kp.form ?? named[k].form, kappa = kp.parts[0] ?? "";
     list.push({ form, sort: named[k].form, lex: !!lig.lex, simple: !kp.form && simpleTerm(lig, form, kappa), mu: false, kappa });
   }
   for (let h = 0; h < e.hydrides; h++) list.push({ form: LEX.H.form, lex: true, mu: false, kappa: "" });
@@ -981,6 +1033,7 @@ function alikeMetals(c: Context): boolean | undefined {
 }
 function dinuclear(c: Context): string | undefined {
   const { m, g, e, named, api } = c, [a, b] = e.metals, el = g.atoms[a].el;
+  if (e.ligands.some((l) => l.eta)) return undefined;
   if (g.atoms[b].el !== el || e.mm.length > 1) return undefined;
   const symmetric = alikeMetals(c);
   if (symmetric === undefined) return undefined;
@@ -1061,7 +1114,7 @@ function transPairs(sites: Site[], opposite: number, other: (cos: number) => boo
 // The polyhedron the drawing fixes round the complex's only metal atom, with each site's trans partner.
 function polyhedron(c: Context): { shape: "SP-4" | "OC-6"; sites: Site[]; trans: number[] } | undefined {
   const { g, e } = c;
-  if (e.metals.length !== 1 || e.hydrides || e.ligands.some((l) => l.carbon && l.bonds.length !== 1)) return undefined;
+  if (e.metals.length !== 1 || e.hydrides || e.ligands.some((l) => l.eta || (l.carbon && l.bonds.length !== 1))) return undefined;
   const x = e.metals[0], s = sitesOf(c, x);
   if (!s || new Set(s.sites.map((t) => t.d)).size !== s.sites.length) return undefined;
   if (s.sites.length === 4 && !s.deep && SQUARE.has(g.atoms[x].el)) {
@@ -1257,9 +1310,12 @@ function claimOf(t: PTerm, c: Context, at: number | undefined): Claim | undefine
       return lig.lex === lex && (t.mu ? groups.every((n) => n === 1) && order.length === 2 : at !== undefined && groups.every((n, j) => n === (j === at ? 1 : 0)));
     } };
   }
+  // An η ligand: η before the part of its name that holds its bonded atoms; read without it.
+  const etaAt = /(?:^|-)η(\d)-/.exec(t.inner!), etaN = etaAt ? Number(etaAt[1]) : 0, etaPartName = etaAt ? t.inner!.slice(etaAt.index + etaAt[0].length) : "";
+  if (etaAt && /η/.test(etaPartName)) return undefined;
   // The ligand's name without its κ terms; a term at the end cites the whole name's atoms, others a part's.
-  const inner = t.inner!, kt = kappaTerms(inner);
-  if (!kt) return undefined;
+  const inner = etaAt ? t.inner!.slice(0, etaAt.index) + etaPartName : t.inner!, kt = kappaTerms(inner);
+  if (!kt || (etaAt && kt.terms.length)) return undefined;
   const form = kt.plain, rootTerm = kt.terms.find((x) => x.at === form.length), parts = kt.terms.filter((x) => x !== rootTerm);
   const kappa = rootTerm?.groups;
   if (LEX_FORMS.has(form)) {
@@ -1284,7 +1340,8 @@ function claimOf(t: PTerm, c: Context, at: number | undefined): Claim | undefine
     if (groups.flat().some((d) => !MARK[g.atoms[d].el])) return undefined;
     return flat(api.inchi(ligandMol(c.m, g, lig, new Map(groups.flatMap((ds, j) => ds.map((d) => [d, MARK[g.atoms[d].el][j]] as [number, number]))), !!lig.carbon)));
   };
-  const base = (k: number) => c.named[k].key === unfixed(type, c.named[k].pairs) && !!e.ligands[k].carbon === carbon && !e.ligands[k].lex;
+  const base = (k: number) => c.named[k].key === unfixed(type, c.named[k].pairs) && !!e.ligands[k].carbon === carbon && !e.ligands[k].lex
+    && (e.ligands[k].eta ?? 0) === etaN && (!etaN || etaPart(c, k, etaPartName));
   // Which metal each κ group is on: by its locant, else in turn (a bridging ligand), else the term's metal.
   const metalOf = (x: { metal?: number }, j: number) => (x.metal !== undefined ? x.metal - 1 : t.mu ? j : at);
   if (carbon) {
@@ -1560,7 +1617,7 @@ function polyKappas(c: Context): Map<number, string> | undefined {
   for (const [k, lig] of e.ligands.entries()) {
     if (lig.lex) continue;
     const ms = [...new Set(lig.bonds.map((b) => b.metal))];
-    if (ms.length !== 1 || lig.carbon) return undefined;
+    if (ms.length !== 1 || lig.carbon || lig.eta) return undefined;
     if (!needsKappa(g, lig)) { out.set(k, `κ${g.atoms[lig.bonds[0].atom].el}`); continue; }
     const kp = kappaParts(m, g, lig, named[k], ms, api);
     if (!kp || kp.form || !kp.parts[0]) return undefined;

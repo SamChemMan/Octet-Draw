@@ -259,7 +259,27 @@ let turnedPoly = 0;
 for (const [label, names] of wrongPoly) for (const name of names) { assert.equal(complexNameReads(name, poly(label), api), false, name); turnedPoly++; }
 console.log(`namer-complex.check: ${POLY.length} complexes of unlike metals or three or more named, ${turnedPoly} names one term away turned down`);
 
-// No name for these: η ligands, two complexes in one drawing, a complex with a solvent molecule.
+// η ligands drawn with a bond to each bonded atom (IR-10.2.5.1), their hydrogens as drawn: η and the number of atoms
+// before the part of the name that holds them. The part, read alone, must have those atoms joined as drawn.
+const ETA: [string, string, string][] = [
+  ["Zeise's salt", "[K+].[CH2]1=[CH2][Pt-]1(Cl)(Cl)Cl", "potassium trichlorido(η2-ethene)platinate(1-)"],
+  ["(η6-C6H6)Cr(CO)3", "[Cr]%11%12%13%14%15%16(=C=O)(=C=O)=C=O.[CH]%11=1[CH]%12=[CH]%13[CH]%14=[CH]%15[CH]%16=1", "(η6-benzene)tricarbonylchromium"],
+  ["Cr(η6-C6H6)2", "[Cr]%11%12%13%14%15%16%21%22%23%24%25%26.[CH]%11=1[CH]%12=[CH]%13[CH]%14=[CH]%15[CH]%16=1.[CH]%21=1[CH]%22=[CH]%23[CH]%24=[CH]%25[CH]%26=1", "bis(η6-benzene)chromium"],
+  ["(η6-toluene)Cr(CO)3", "[Cr]%11%12%13%14%15%16(=C=O)(=C=O)=C=O.C[C]%11=1[CH]%12=[CH]%13[CH]%14=[CH]%15[CH]%16=1", "tricarbonyl(methyl-η6-benzene)chromium"],
+  ["[CpMn(CO)3]-, the ring drawn as an anion", "[Mn]%11%12%13%14%15(=C=O)(=C=O)=C=O.[CH-]1%11[CH]%12=[CH]%13[CH]%14=[CH]1%15", "tricarbonyl(η5-cyclopenta-2,4-dien-1-ido)manganate(1-)"],
+];
+for (const [label, smiles, want] of ETA) { assert.equal(nameOf(smiles), want, label); assert.equal(editorName(smiles), want, `${label}, Structure to Name`); }
+const wrongEta: [number, string[]][] = [
+  [0, ["potassium trichlorido(ethene)platinate(1-)", "potassium trichlorido(η1-ethene)platinate(1-)", "potassium trichlorido(η2-ethyne)platinate(1-)"]],
+  [1, ["(η5-benzene)tricarbonylchromium", "(benzene)tricarbonylchromium", "(η6-cyclohexane)tricarbonylchromium"]],
+  [3, ["tricarbonyl(η6-methylbenzene)chromium", "tricarbonyl(η7-methylbenzene)chromium", "tricarbonyl(methyl-η5-benzene)chromium"]],
+];
+let turnedEta = 0;
+for (const [k, names] of wrongEta) for (const name of names) { assert.equal(complexNameReads(name, drawn(ETA[k][1]), api), false, name); turnedEta++; }
+console.log(`namer-complex.check: ${ETA.length} complexes of η ligands named, ${turnedEta} names one term away turned down`);
+
+// No name for these: an η ligand drawn with too few hydrogens (each C has one: not ethene), two complexes in one
+// drawing, a complex with a solvent molecule.
 const none: [string, string][] = [
   ["η2 ethene", "C1=C[Pt]1(Cl)(Cl)Cl"],
   ["[Pt(NH3)4][PtCl4]", "[NH3][Pt+2]([NH3])([NH3])[NH3].Cl[Pt-2](Cl)(Cl)Cl"],
