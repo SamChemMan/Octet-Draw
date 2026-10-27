@@ -735,8 +735,19 @@ export type Analysis = { formula: string; weight: number; exact: number; repeat?
 const analysed = new Map<string, Analysis | undefined>(), inchis = new Map<string, string | undefined>();
 export function analyse(mol: Mol, limit = Infinity, cite?: (inchi: string | undefined) => string | undefined): Analysis | undefined {
   if (!indigo || !mol.atoms.length) return undefined;
-  const out: Analysis = [];
-  for (const part of pieces(mol)) {
+  const out: Analysis = [], parts = pieces(mol);
+  // Pieces that are one compound together, as a salt ([Ru(bpy)3]Cl2), a complex with its ligands apart (Ni(cod)2) or
+  // ferrocene's ions (dppf), are one entry when they are all there is and have an abbreviation.
+  if (cite && parts.length > 1 && parts.length <= 12 && mol.atoms.length <= 300 && !mol.shapes?.some((sh) => sh.polymer)) {
+    const abbreviation = cite(remembered(inchis, contentOf(mol), () => toInchi(mol)));
+    const entries = abbreviation ? parts.flatMap((part) => remembered(analysed, contentOf(part), () => analyseAll(part)) ?? []) : [];
+    if (abbreviation && entries.length) {
+      const total: Record<string, number> = {};
+      for (const e of entries) for (const [el, n] of Object.entries(counts(e.formula) ?? {})) total[el] = (total[el] ?? 0) + n;
+      return [{ formula: hill(total), weight: entries.reduce((t, e) => t + e.weight, 0), exact: entries.reduce((t, e) => t + e.exact, 0), abbreviation }];
+    }
+  }
+  for (const part of parts) {
     if (out.length >= limit) break;
     const polymer = mol.shapes?.some((sh) => sh.polymer) ? polymerValues({ ...part, shapes: mol.shapes }) : undefined;
     if (polymer) { out.push(polymer); continue; }

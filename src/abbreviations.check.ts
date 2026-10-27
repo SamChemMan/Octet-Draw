@@ -60,6 +60,12 @@ assert.equal(chem.analyse(drawn("TREN"), 3)?.[0].abbreviation, undefined);
 // Each structure in a drawing has its own.
 const two = drawn("TREN"), more = drawn("cyclam"), both = { atoms: [...two.atoms, ...more.atoms.map((a) => ({ ...a, location: [a.location[0] + 20, a.location[1], 0] as [number, number, number] }))], bonds: [...two.bonds, ...more.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + two.atoms.length, b.atoms[1] + two.atoms.length] as [number, number] }))] };
 assert.deepEqual(chem.analyse(both, 3, abbreviationOf)?.map((a) => a.abbreviation), ["TREN", "cyclam"]);
+// Pieces that make one compound, and are all there is, are one line: a salt, ferrocene's ions, ligands drawn apart.
+assert.equal(header(drawn("dppf")), "dppf · C34H28FeP2");
+assert.equal(header(drawn("[Ru(bpy)3]Cl2")), "[Ru(bpy)3]Cl2 · C30H24Cl2N6Ru");
+assert.equal(header(drawn("Ni(cod)2")), "Ni(cod)2 · C16H24Ni");
+assert.equal(chem.analyse(drawn("dppf"), 3)?.length, 3, "without abbreviations, each piece");
+assert.equal(chem.analyse(drawn("NaCl"), 3, abbreviationOf)?.length, 2, "a salt with no abbreviation stays in pieces");
 
 // The name caption.
 assert.equal(caption(drawn("TREN")), "N1,N1-bis(2-aminoethyl)ethane-1,2-diamine (TREN)");
@@ -69,6 +75,8 @@ assert.equal(caption(drawn("TEA")), "N,N-diethylethanamine (Et3N)", "one abbrevi
 assert.equal(caption(drawn("water")), "water");
 assert.equal(caption(drawn("NaCl")), "sodium chloride");
 assert.equal(caption(drawn("ethanol")), "ethanol (EtOH)");
+assert.match(caption(drawn("dppf")) ?? "", / \(dppf\)$/);
+assert.match(caption(drawn("[Ru(bpy)3]Cl2")) ?? "", / \(\[Ru\(bpy\)3\]Cl2\)$/);
 assert.equal(withAbbreviation("Wilkinson's catalyst", "Wilkinson's catalyst"), "Wilkinson's catalyst", "never the name twice");
 assert.equal(withAbbreviation("pyridine"), "pyridine");
 console.log("abbreviations.check: the Structure panel and Structure to Name cite TREN, Et3N, DCM and the rest; formulas and drug names are not cited");
