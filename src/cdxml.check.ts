@@ -272,9 +272,10 @@ console.log("cdxml.check: every object kind round trips");
   assert.deepEqual([one.text, one.bold, one.italic, one.font, one.align], ["1", true, true, undefined, undefined]);
   assert.deepEqual(solvent.runs?.map((r) => [r.text, r.script]), [["CH", undefined], ["2", "sub"], ["Cl", undefined], ["2", "sub"]]);
   assert.deepEqual([conditions.text, conditions.align, conditions.runs?.[1]], ["rt, 24\nh", "left", { text: "24\nh", colour: "#FF0000" }]);
-  // Arrows in drawing order (by Z): the reaction arrow, the legacy graphics on their own, the orbital, the curve, the arc.
-  assert.deepEqual(mol.arrows!.map((a) => a.kind), ["reaction", "equilibrium", "curved", "orbital", "curve", "curved"]);
-  const [reaction, equilibrium, legacyArc, orbital, curve, arc] = mol.arrows!;
+  // Arrows in drawing order: the orbital and the filled curve (Octet draws them behind the structures), then by Z the
+  // reaction arrow, the legacy graphics on their own and the arc.
+  assert.deepEqual(mol.arrows!.map((a) => a.kind), ["orbital", "curve", "reaction", "equilibrium", "curved", "curved"]);
+  const [orbital, curve, reaction, equilibrium, legacyArc, arc] = mol.arrows!;
   assert.deepEqual([solvent.on, conditions.on], [{ arrow: reaction.id, side: "above" }, { arrow: reaction.id, side: "below" }]);
   assert.deepEqual([reaction.from, reaction.to], [[30 / 14.4, 0], [110 / 14.4, 0]]);
   assert.deepEqual([equilibrium.from, equilibrium.to].map((p) => p.map((v) => +v.toFixed(3))), [[-90 / 14.4, 60 / 14.4].map((v) => +v.toFixed(3)), [-70 / 14.4, 60 / 14.4].map((v) => +v.toFixed(3))]);
@@ -432,7 +433,7 @@ ${head(8, 'ArrowheadHead="Full" AngularSize="-270" HeadSize="800" ArrowheadCente
 </page></CDXML>`);
   assert.deepEqual(forged.mol.atoms[0], { label: "C", location: [-270 / 14.4, 360 / 14.4, 0] });
   assert.equal(forged.mol.cycles, undefined);
-  assert.deepEqual([forged.mol.arrows?.map((a) => a.kind), forged.mol.shapes?.map((x) => x.kind)], [["line", "orbital"], ["highlight", "brackets"]]);
+  assert.deepEqual([forged.mol.arrows?.map((a) => a.kind), forged.mol.shapes?.map((x) => x.kind)], [["orbital", "line"], ["highlight", "brackets"]]);
   assert.deepEqual([forged.mol.captions?.[0].under, forged.mol.captions?.[0].cycle, forged.style.page], [undefined, undefined, "A4"]);
   assert.deepEqual(forged.lost, { table: 1 });
   parse(serialize(forged.mol));

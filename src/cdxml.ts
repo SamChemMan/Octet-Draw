@@ -2067,9 +2067,13 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   const byZ = <T extends { z: number }>(list: T[]) => list.map((x, k) => [x, k] as const).sort((p, q) => p[0].z - q[0].z || p[1] - q[1]).map(([x]) => { const out = { ...x } as Partial<T>; delete out.z; return out as Omit<T, "z">; });
   // Captions and arrows in id order (Octet draws them by kind); shapes in drawing order, which Octet keeps.
   if (captions.length) mol.captions = byZ(captions).sort((p, q) => p.id - q.id);
-  if (arrows.length) mol.arrows = byZ(arrows); // in drawing order (Bring to front and Send to back)
-  // ChemDraw's filled shapes drawn above every structure are in front of them, as Octet's Bring to Front puts them.
-  if (!octet) for (const sh of shapes) if ((sh.fill || sh.kind === "highlight") && turns(sh) && sh.z > fragmentZ && fragmentZ > -Infinity && !sh.order) sh.order = 1;
+  // Arrows in drawing order (Bring to front and Send to back). Octet draws filled curves and orbitals behind the
+  // structures and the other arrows in front, so those come first, as the writer puts them.
+  const behind = (a: Arrow) => !a.order && (a.kind === "orbital" || !!(a.curve?.closed && a.fill));
+  if (arrows.length) mol.arrows = byZ(arrows).sort((p, q) => Number(behind(q)) - Number(behind(p)));
+  // Filled shapes drawn above every structure are in front of them, as Octet's Bring to Front puts them (in Octet's own
+  // files too: a shape it wrote there was brought to the front).
+  for (const sh of shapes) if ((sh.fill || sh.kind === "highlight") && turns(sh) && sh.z > fragmentZ && fragmentZ > -Infinity && !sh.order) sh.order = 1;
   if (shapes.length) mol.shapes = byZ(shapes);
   if (cycles.length) mol.cycles = cycles;
   if (grids.length) mol.grids = grids;
