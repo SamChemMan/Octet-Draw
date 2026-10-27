@@ -10,7 +10,7 @@ default (decision 0010).
 | Updates on by default | Done (71dab94) |
 | ChemDraw file fidelity: hand-placed conditions, set label justification, turned labels, the 12 failing round trips | Done: 68 of 68 CDXML round trips |
 | Template and clip-art library (CD-32), paddlewheels and ligands | In progress |
-| Measured spectra from JCAMP-DX, with peak assignment (CH-29) | Done; next: ChemDraw's CDXML spectrum object, peaks linked to bonds, SPC files |
+| Measured spectra from JCAMP-DX, with peak assignment (CH-29) | Done, with ChemDraw's spectrum object in CDXML and CDX, peaks linked to bonds, and SPC files (`spectra-parity` branch) |
 | Naming gaps: mixtures with ratios, mixed-metal and cluster complexes, configuration at metals, η drawn with bonds, typography of names | Done: 6855 of 6924 named right, 0 wrong |
 | Platform: Linux Edit menu, Mac Quit from the Dock, pictures in EMF and EPS, Windows and Linux test runs on CI | In progress |
 | Mass Spec Analysis (CH-40), with isotope patterns and the HRMS line | Done |
@@ -49,7 +49,7 @@ Built 27 October 2026 for Sam to review (decision 0016). Octet opens JCAMP-DX an
 - Read JCAMP-DX files (with size and nesting limits, as for every opened file) into a spectrum in the Spectrum panel.
 - Let the user link each measured peak to its atoms, with the peak and atom lighting Octet already uses for predicted peaks.
 
-Still to do: write and read ChemDraw's CDXML spectrum object, link peaks to bonds as ChemDraw does, and read Galactic SPC files.
+Done on the `spectra-parity` branch (27 October 2026, decision 0016): ChemDraw's spectrum object and its spectrum-structure assignments are written and read in CDXML and CDX, peaks link to bonds as ChemDraw's assignment does, and Galactic SPC files open. ChemDraw checks 19 (h) to (l) wait in `~/octet-research/notes/chemdraw-checks-pending.md`.
 
 ### 3. Mass Spec Analysis (audit item CH-40)
 
@@ -57,7 +57,7 @@ The Synthesis and Retrosynthesis cut tools (audit item CD-39) are built in 1.0, 
 
 - A Mass Spec Analysis mode beside Mass Fragmentation: built on 27 October 2026 (the Mass spec analysis tool and panel, `src/MassSpec.tsx` and `src/msanalysis.ts`).
 - Still missing against ChemDraw 26.1: a fragmentation line with corners (ChemDraw adds a corner when a key is pressed during the drag), and dragging from a line's end to make it longer. Octet's lines are straight; draw a second line instead.
-- When the measured spectra reader is in, pass its MS peak list to the Mass spec panel (`peaks`).
+- Done (`spectra-parity` branch): a measured mass spectrum in the drawing is the Mass spec panel's peak list (`peaks`).
 
 ### Search Reaxys needs fixing
 

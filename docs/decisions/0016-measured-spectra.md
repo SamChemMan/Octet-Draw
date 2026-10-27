@@ -111,5 +111,5 @@ File > Open, a drop or a pasted path, as for JCAMP-DX.
 
 A measured mass spectrum in the drawing is Mass Spec Analysis's peak list, so its ions are matched against it with no
 paste: each peak above the spectrum's threshold (each stick of a peak table), its height against the tallest as 100.
-A pasted list still takes its place. ChemDraw 26.1 matches nothing against a measured spectrum (its Mass Spec
-Analysis says it cannot open one).
+A pasted list still takes its place. ChemDraw 26.1 matches nothing against measured data: opening a JCAMP mass
+spectrum there says mass spectra are not supported.
