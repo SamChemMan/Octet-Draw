@@ -46,6 +46,9 @@ export type Atom = {
   // LabelDisplay in CDXML): left reads from the atom, right ends at it (MeO, H2N), centre sits on it, above and below
   // stack the rest of the label over or under the atom's own unit. Unset is Automatic: it reads away from the bonds.
   align?: "left" | "centre" | "right" | "above" | "below";
+  // The label turned anticlockwise about its anchor (the start, middle or end of its first line, by its alignment), in
+  // degrees: ChemDraw's RotationAngle on a label, kept from a file.
+  labelAngle?: number;
   hidden?: true; // Toggle Hydrogen Display: an explicit H that is not drawn, nor its bond (it still counts in the formula)
   // Marks moved round the atom by hand (Shift-drag): each mark's angle in degrees, anticlockwise from the right, by its
   // key: charge (a circled one), partial, radical0, radical1, pair0 to pair3. Marks without one go in the widest gaps.
@@ -129,7 +132,20 @@ export type Caption = {
   // Interpret Chemically off (ChemDraw's InterpretChemically="no" on the text): the caption is text only, even when
   // it reads as chemistry (edit.ts chemicalCaption).
   chemical?: false;
+  // Conditions placed by hand, as a ChemDraw file has them: the anchor's offset from the middle of the arrow (bond
+  // lengths, y up), and the arrow's end less its start when they were placed. The text keeps its place, and its own
+  // alignment, while the arrow keeps that length and direction (it moves with the arrow, and keeps its place when
+  // edited, as ChemDraw keeps a text's anchor). Once the arrow is lengthened, shortened or turned, or Clean Up
+  // Reaction runs, Octet lays the text out (placedAt).
+  placed?: { at: [number, number]; arrow: [number, number] };
 };
+// Where conditions placed by hand go (their anchor, bond lengths): undefined when they are not placed by hand, or
+// their arrow has changed length or direction since.
+export function placedAt(c: Pick<Caption, "placed" | "on">, arrows?: Arrow[]): [number, number] | undefined {
+  const a = c.placed && c.on && arrows?.find((x) => x.id === c.on!.arrow), p = c.placed;
+  if (!a || !p || Math.abs(a.to[0] - a.from[0] - p.arrow[0]) > 2e-3 || Math.abs(a.to[1] - a.from[1] - p.arrow[1]) > 2e-3) return undefined;
+  return [(a.from[0] + a.to[0]) / 2 + p.at[0], (a.from[1] + a.to[1]) / 2 + p.at[1]];
+}
 // Data Octet keeps from a ChemDraw object it does not edit: the object's attributes, and the atoms it is for.
 export type Kept = { attrs: Record<string, string>; atoms: number[] };
 // An arrow from one point to another (drawing coordinates). bend: how far a curved arrow's middle sits off the
@@ -358,7 +374,10 @@ export type Group = { id: number; atoms: number[]; items: number[]; integral?: t
 export type Style = { bond: number; line: number; bold: number; spacing: number; hash: number; margin: number; size: number; labelPt?: number; terminal?: boolean; carbons?: boolean; hideH?: boolean };
 // width: advance; ascent: ink top above the baseline; outline: glyph edge points relative to the text origin (y down).
 export type Ink = { width: number; ascent: number; outline: P[] };
-export type Label = { text: string; x: number; y: number; size: number; colour?: string; alpha?: number; font?: string; bold?: boolean; italic?: boolean; underline?: boolean };
+// angle: a turned label's turn, anticlockwise in degrees about pivot (px), as its atom's labelAngle.
+export type Label = { text: string; x: number; y: number; size: number; colour?: string; alpha?: number; font?: string; bold?: boolean; italic?: boolean; underline?: boolean; angle?: number; pivot?: P };
+// The SVG transform that turns a label as drawn.
+export const labelTurn = (l: Label) => (l.angle && l.pivot ? `rotate(${-l.angle} ${l.pivot[0]} ${l.pivot[1]})` : undefined);
 // A label's face, for measuring it: its own font, bold and italic.
 export type Face = { font?: string; bold?: boolean; italic?: boolean };
 export type Box = [number, number, number, number];
@@ -786,9 +805,9 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const hW = M('H').width, cW = count ? M(count).width * SUB : 0;
     const iso = a.isotope ? String(a.isotope) : '', isoW = iso ? M(iso).width * SUB : 0;
     // H goes first when the label reads right to left (HO, H2N), and on a lone atom written that way (H2O, HCl): the
-    // element ends the label. Centred by hand: the element and its H together sit on the atom.
+    // element ends the label. Centred by hand: the element (Os) or the element and its H together sit on the atom.
     const back = rtl || (!align && !deg(i) && !!h && H_FIRST.has(a.label)), same = [...a.label].length === 1;
-    const ox = align === "centre" && h ? x - (lw + hW + cW) / 2 : back && !same ? x + near(a.label[0]) - inkOf(a.label)[1] : x - first.width / 2, base = y + first.ascent / 2;
+    const ox = align === "centre" ? x - (lw + (h ? hW + cW : 0)) / 2 : back && !same ? x + near(a.label[0]) - inkOf(a.label)[1] : x - first.width / 2, base = y + first.ascent / 2;
     const el = run(a.label, ox, base);
     if (same) meets[i] = el;
     // An isotope's mass number, raised, just before the element (after an H that goes first: H₃¹³C).
@@ -809,12 +828,26 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     charged(ox - isoW - (h && (align ? align === "right" : back) ? hW + cW : 0), end, base, rtl);
     return shape;
   });
+  // A turned label (labelAngle) turns about its anchor, as ChemDraw turns a text about its p: the middle of its first
+  // line when centred, else the end of its first line that the atom is nearer (where it starts, or ends read right to
+  // left). Its glyph outlines turn with it.
+  const turned = mol.atoms.map((a, i) => {
+    const runs = runsAt[i];
+    if (!a.labelAngle || !runs.length) return false;
+    const line = runs.filter((r) => r.line <= 0), x = pts[i][0], start = Math.min(...line.map((r) => r.p.x)), end = Math.max(...line.map((r) => r.p.x + r.width * r.p.f));
+    const pivot: P = [a.align === "centre" ? x : x - start <= end - x ? start : end, runs.find((r) => r.line === 0 && r.p.f === 1)?.p.y ?? runs[0].p.y];
+    for (const { p } of runs) Object.assign(p, { pts: p.pts.map(([px, py]) => turnPx([p.x + px * p.f, p.y + py * p.f], pivot, a.labelAngle!)), x: 0, y: 0, f: 1 });
+    for (const l of labels) if (labelAtom.get(l) === i) Object.assign(l, { angle: a.labelAngle, pivot });
+    return true;
+  });
   // Bonds stop at the letter they meet; where that letter changes with the reading direction, at the label's box.
   // The letter (O of OH and HO, a ring's O, N or S) is its outline and that outline turned over about its middle, so
   // bonds from either side stop alike; the rest of the label is its glyph outlines. The box runs round each line of
   // the label, from the cap height to the baseline (further where a glyph's ink goes) and across the line's ink, so a
   // short letter (r of Br, e of Me) counts as full height. Subscripts, charges and mass numbers keep their outlines.
+  // Bonds stop at a turned label's glyph outlines.
   runsAt.forEach((runs, i) => {
+    if (turned[i]) return void clips[i].pieces.push(...runs.map((r) => r.p));
     const at = meets[i], lines = new Map<number, Run[]>();
     for (const r of runs) {
       if (at || r.p.f !== 1) clips[i].pieces.push(r.p);
@@ -1482,7 +1515,7 @@ function shifted(d: Drawing, [x, y]: P): Drawing {
   return {
     ...d, box: box(d.box), ink: d.ink.map(box), label: d.label.map((b) => b && box(b)),
     polygons: d.polygons.map((poly) => poly.map(([px, py]): P => [px + x, py + y])),
-    labels: d.labels.map((l) => ({ ...l, x: l.x + x, y: l.y + y })),
+    labels: d.labels.map((l) => ({ ...l, x: l.x + x, y: l.y + y, ...(l.pivot ? { pivot: [l.pivot[0] + x, l.pivot[1] + y] as P } : {}) })),
     electrons: d.electrons.map((e) => ({ ...e, at: [e.at[0] + x, e.at[1] + y] })),
     maps: d.maps.map((n) => ({ ...n, at: [n.at[0] + x, n.at[1] + y] })),
     beads: d.beads.map((b) => ({ ...b, at: [b.at[0] + x, b.at[1] + y] })),
@@ -1571,7 +1604,12 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
   const k = d.scale, below = new Map<string, number>(); // the next free baseline under each structure
   const beside = new Map<string, number>(); // how far the conditions on each side of each arrow already reach
   const order = (c: Caption) => (isNumber(c) ? 0 : 1);
-  return [...(mol.captions ?? [])].sort((a, b) => order(a) - order(b) || a.id - b.id).flatMap((given) => {
+  // Conditions placed by hand go first: the others on their side of the arrow stack out past them.
+  const sorted = [...(mol.captions ?? [])].sort((a, b) => order(a) - order(b) || a.id - b.id), done = new Map<number, Placed[]>();
+  for (const c of sorted) if (placedAt(c, mol.arrows)) done.set(c.id, place(c));
+  for (const c of sorted) if (!done.has(c.id)) done.set(c.id, place(c));
+  return sorted.flatMap((c) => done.get(c.id)!);
+  function place(given: Caption): Placed[] {
     // A caption with a width wraps to it: its soft breaks become lines here, and the lines they end are justified.
     const wrapped = given.width && measure ? wrap(runsOf(given), given.width * k, (t, s) => measure(t, given, s)) : undefined;
     const c = wrapped?.soft.length ? { ...given, text: plainOf(wrapped.runs), ...(given.runs ? { runs: wrapped.runs } : {}) } : given;
@@ -1590,12 +1628,14 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
     const offs = lineOffsets(c, size, pt, ink);
     const anchor = align === "left" || align === "justify" ? "start" : align === "right" ? "end" : "middle";
     let x: number, y: number, anchorOverride: Placed["anchor"] | undefined;
-    const arrow = c.on && arrows.find((a) => a.id === c.on!.arrow);
+    const arrow = c.on && arrows.find((a) => a.id === c.on!.arrow), hand = placedAt(c, mol.arrows);
     if (c.on && !arrow) return [];
     const pinned = fixed.get(c.id);
     if (c.cycle && !pinned) return [];
     if (pinned) {
       [x, y, anchorOverride] = [pinned.x, pinned.y - offs[offs.length - 1] * (pinned.anchor === "middle" ? 0.5 : 0), pinned.anchor];
+    } else if (arrow && hand) {
+      [x, y] = [hand[0] * k, -hand[1] * k];
     } else if (arrow) {
       // Conditions: centred on the arrow's middle, GAP_ARROW_PT (times the arrow's scale) clear of it, stacking away from it.
       const [s, t] = [[arrow.from[0] * k, -arrow.from[1] * k], [arrow.to[0] * k, -arrow.to[1] * k]];
@@ -1632,6 +1672,14 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
     // A justified line (one a soft break ends) spreads its spaces to fill the width.
     const spacing = (j: number) => { const gaps = lines[j].split(" ").length - 1; return full && softLines.has(j) && gaps ? { spacing: (full - widths[j]) / gaps } : {}; };
     const frame: Box = [left, y - ASCENT * size, left + w, y + offs[offs.length - 1] + DESCENT * size];
+    if (arrow && hand) {
+      // How far it reaches from the arrow on its side: up (above) or down (below) from a level arrow, left (above) or
+      // right (below) of a steep one. Conditions laid out on that side start a line's gap past it.
+      const s: P = [arrow.from[0] * k, -arrow.from[1] * k], t: P = [arrow.to[0] * k, -arrow.to[1] * k], mid = [(s[0] + t[0]) / 2, (s[1] + t[1]) / 2], above = c.on!.side === "above";
+      const reach = Math.abs(t[0] - s[0]) >= 0.5 * Math.hypot(t[0] - s[0], t[1] - s[1]) ? (above ? mid[1] - frame[1] : frame[3] - mid[1]) : above ? mid[0] - frame[0] : frame[2] - mid[0];
+      const key = `${arrow.id} ${c.on!.side}`;
+      beside.set(key, Math.max(beside.get(key) ?? 0, reach + 0.2 * size - GAP_ARROW_PT * scaleOf(arrow) * pt));
+    }
     const turned = c.angle ? ([[frame[0], frame[1]], [frame[2], frame[1]], [frame[2], frame[3]], [frame[0], frame[3]]] as P[]).map((q) => turnPx(q, [x, y], c.angle!)) : undefined;
     return [{
       id: c.id, size, bold: c.bold, italic: c.italic, underline: c.underline, colour: c.colour, anchor: at, font: c.font, ...(c.order ? { order: c.order } : {}),
@@ -1639,16 +1687,17 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
       box: turned ? [Math.min(...turned.map((q) => q[0])), Math.min(...turned.map((q) => q[1])), Math.max(...turned.map((q) => q[0])), Math.max(...turned.map((q) => q[1]))] : frame,
       ...(turned ? { angle: c.angle, pivot: [x, y] as P, frame } : {}),
     }];
-  });
+  }
 }
 
 // Arrows grow to fit their conditions: a straight arrow is lengthened about its middle until the widest
-// conditions text has ARROW_MARGIN_PT clear at each end. Curved arrows keep their shape.
+// conditions text has ARROW_MARGIN_PT clear at each end. Curved arrows keep their shape. Text placed by hand
+// (placedAt) does not count: it keeps its place by the arrow as drawn.
 const ARROW_MARGIN_PT = 6;
 export function fitArrows(mol: Mol, scale: number, width: (c: Caption) => number, pt = 4 / 3): Arrow[] {
   return (mol.arrows ?? []).map((a) => {
     if (curved(a)) return a;
-    const widest = Math.max(0, ...(mol.captions ?? []).filter((c) => c.on?.arrow === a.id).map(width));
+    const widest = Math.max(0, ...(mol.captions ?? []).filter((c) => c.on?.arrow === a.id && !placedAt(c, mol.arrows)).map(width));
     const need = (widest + 2 * ARROW_MARGIN_PT * scaleOf(a) * pt) / scale, len = Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]);
     if (!widest || len >= need || !len) return a;
     const grow = (need - len) / 2 / len, d = [(a.to[0] - a.from[0]) * grow, (a.to[1] - a.from[1]) * grow];

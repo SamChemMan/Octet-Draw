@@ -67,11 +67,13 @@ Sam, 18 October 2026: the Reaxys integration needs fixing. Fix it first in 1.1.0
 
 Sam wanted these in 1.0. They are not done yet.
 
-- ChemDraw file fidelity:
-  - Conditions keep their text positions from a ChemDraw file. Now Octet lays out the conditions of an arrow again, so text that ChemDraw placed by hand moves.
-  - Centred labels: a label with `LabelJustification="Center"` keeps it. Now Octet reads and writes the justification it works out itself.
-  - Label turns: a label's `RotationAngle` is kept. Now Octet keeps it on captions only.
+- ChemDraw file fidelity (done on the `file-fidelity` branch, 27 October 2026; ChemDraw checks 15 to 18 wait in `~/octet-research/notes/chemdraw-checks-pending.md`):
+  - Done: conditions keep their text positions from a ChemDraw file, by their arrow, until the arrow changes length or direction or Clean Up Reaction runs.
+  - Done: a label keeps the justification its file gives it (centred, left, right, stacked) where Octet's automatic one would draw it another way.
+  - Done: a label's `RotationAngle` is kept, drawn and written back.
+  - Done: all 68 of Sam's CDXML files write and read back unchanged.
   - Arrowhead sizes and hollow block arrows are done.
+  - Not done: a node label of more than one line (Octet's labels are one line), invisible atom numbers (`AtomNumber` without `ShowAtomNumber`), and tritium typed as T (read as the text T).
 - Mixtures as ChemDraw 26.1 names them: Structure to Name gives one name with the component ratios for a grouped mixture, fractional ratios too. Name to Structure already reads these names.
 - Linux: Cut, Copy and Paste in the Edit menu as Octet's own items, as Close Window is.
 

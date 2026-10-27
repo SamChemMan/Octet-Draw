@@ -15,7 +15,7 @@ import { commonKey } from "./common";
 import { measure, STYLE } from "./chem";
 import { fontStack } from "./docstyle";
 import { LIBRARY, type LibraryItem } from "./library";
-import { arrowShapes, curvePath, isOrbital, render, shapeInk, shapePaths, type Arrow, type Label, type Mol } from "./render";
+import { arrowShapes, curvePath, isOrbital, labelTurn, render, shapeInk, shapePaths, type Arrow, type Label, type Mol } from "./render";
 import { useLeaving } from "./motion";
 import { MY_SET, ownId, templateKind } from "./templates";
 
@@ -57,7 +57,7 @@ export function StructureThumb({ id, mol }: { id: string; mol: Mol }) {
     <svg className="thumb" viewBox={t.view} aria-hidden>
       {t.fills.map((f, i) => <path key={i} d={f.d} fill={f.colour ?? "currentColor"} />)}
       <path d={t.d} fill="currentColor" stroke="currentColor" strokeWidth={STYLE.line} />
-      {t.labels.map((l, i) => <text key={i} x={l.x} y={l.y} fill="currentColor" style={{ font: `${l.size}px ${fontStack("Arial")}` }}>{l.text}</text>)}
+      {t.labels.map((l, i) => <text key={i} x={l.x} y={l.y} transform={labelTurn(l)} fill="currentColor" style={{ font: `${l.size}px ${fontStack("Arial")}` }}>{l.text}</text>)}
     </svg>
   );
 }

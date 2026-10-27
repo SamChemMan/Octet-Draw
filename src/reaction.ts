@@ -443,7 +443,11 @@ export function cleanUpReaction(m: Mol, r: Reaction, arrows: Arrow[], o: Layout,
   return {
     ...out,
     atoms: out.atoms.map((x, i) => { const dv = atomBy.get(i); return dv ? { ...x, location: [x.location[0] + dv[0], x.location[1] + dv[1], x.location[2] ?? 0] } : x; }),
-    captions: out.captions?.map((x) => { const dv = captionBy.get(x.id); return dv ? { ...x, x: x.x + dv[0], y: x.y + dv[1] } : x; }),
+    // Conditions placed by hand are laid out from now on, as ChemDraw's Clean Up Reaction lays them out.
+    captions: out.captions?.map((x) => {
+      const dv = captionBy.get(x.id), { placed: _p, ...auto } = x, y = x.placed && x.on && r.arrows.includes(x.on.arrow) ? auto : x;
+      return dv ? { ...y, x: y.x + dv[0], y: y.y + dv[1] } : y;
+    }),
     arrows: out.arrows?.map((x) => {
       const at = arrowAt.get(x.id), dv = arrowBy.get(x.id), e = endBy.get(x.id);
       if (at) return { ...x, from: at[0], to: at[1] };
@@ -543,7 +547,7 @@ export function reactionClean(m: Mol, r: Reaction, arrows: Arrow[], o: Layout): 
   const near = (p: number[], q: number[]) => Math.abs(p[0] - q[0]) < 0.02 && Math.abs(p[1] - q[1]) < 0.02;
   return r.atoms.every((i) => near(m.atoms[i].location, after.atoms[i].location))
     && (m.arrows ?? []).every((a, k) => near(a.from, after.arrows![k].from) && near(a.to, after.arrows![k].to))
-    && (m.captions ?? []).every((c, k) => { const x = after.captions![k]; return near([c.x, c.y], [x.x, x.y]) && c.on?.arrow === x.on?.arrow && c.on?.side === x.on?.side; });
+    && (m.captions ?? []).every((c, k) => { const x = after.captions![k]; return near([c.x, c.y], [x.x, x.y]) && c.on?.arrow === x.on?.arrow && c.on?.side === x.on?.side && !c.placed === !x.placed; });
 }
 
 // Several structures as Clean up sees them: a row to lay out when they overlap, or when a plus sign stands among

@@ -10,7 +10,7 @@
 import { FONTS, PAGES, fontName, pageSize, readGuides, readStyle, type DocStyle } from "./docstyle.ts";
 import {
   HBOND, HIGHLIGHT, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, tlcLayout, turnPoint, TABLE_PAD,
-  ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, headSize, headOfLength, marked, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, type HeadSize,
+  ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, placedAt, headSize, headOfLength, marked, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, type HeadSize,
   type Annotation, type Arrow, type ArrowKind, type Kept, type Atom, type AtomQuery, type Bond, type Polymer, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape, type RingFill,
   type LineStyle, type Mol, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
@@ -260,6 +260,13 @@ const num6 = (v: number) => String(+v.toFixed(6));
 export const spotType = (x: Spot) => (x.style === "hollow" || x.dashed ? 0 : 128) | (x.style === "shaded" ? 256 : 0) | (x.dashed ? 2 : 0) | (x.bold ? 4 : 0) | (x.doubled ? 512 : 0);
 const union = (boxes: Box[]): Box | undefined => (boxes.length ? [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))] : undefined);
 const boxOf = (qs: P[], pad = 0): Box => [Math.min(...qs.map((q) => q[0])) - pad, Math.min(...qs.map((q) => q[1])) - pad, Math.max(...qs.map((q) => q[0])) + pad, Math.max(...qs.map((q) => q[1])) + pad];
+// A text's box turned anticlockwise by degrees about its p (page points, y down): the box round it.
+function turnedBox(b: Box, p: P, degrees = 0): Box {
+  const r = (degrees * Math.PI) / 180;
+  return r ? boxOf(([[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]] as P[]).map(([qx, qy]) => [p[0] + (qx - p[0]) * Math.cos(r) + (qy - p[1]) * Math.sin(r), p[1] - (qx - p[0]) * Math.sin(r) + (qy - p[1]) * Math.cos(r)] as P)) : b;
+}
+// A text's RotationAngle: degrees clockwise on the page, times 65536; Octet's turns are anticlockwise.
+const rotationAngle = (degrees?: number) => (degrees ? Math.round((((-degrees % 360) + 360) % 360) * 65536) || undefined : undefined);
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
 const len = (a: P) => Math.hypot(a[0], a[1]);
 const cross = (a: P, b: P) => a[0] * b[1] - a[1] * b[0];
@@ -667,12 +674,14 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const width = isoW + wide(text) + widthOf(sign, 0.75 * size);
     const x = just === "Right" ? X[0] + end + widthOf(sign, 0.75 * size) : just === "Center" ? X[0] : X[0] - advance(text[0], size) / 2 - isoW;
     const y = X[1] + (/[OSCGQ]/.test(text) ? 0.364 : 0.358) * size, left = just === "Right" ? x - width : just === "Center" ? x - width / 2 : x;
-    const box: Box = [left, y - 0.716 * size, left + width, y + (/\d/.test(text) ? 0.15 * size : 0)];
+    // A turned label turns about p, as a caption does.
+    const box = turnedBox([left, y - 0.716 * size, left + width, y + (/\d/.test(text) ? 0.15 * size : 0)], [x, y], a.labelAngle);
     const style2 = { font: a.font ?? style.labelFont, size, colour: a.colour }, look = (a.bold ? 1 : 0) | (a.italic ? 2 : 0) | (a.underline ? 4 : 0);
     // A link node's repeat range ([CH2]3-7) is subscript, apart from the formula before it.
     const range = linkNode(text) ? /\d{1,2}-\d{1,2}$/.exec(text)![0] : "";
     return {
-      xml: el("t", { p: pt([x, y]), BoundingBox: boxText(box), color: colour(a.colour), LabelJustification: just, Justification: just === "Left" ? undefined : just, LabelAlignment: stack, InterpretChemically: a.chemical === false ? "no" : undefined },
+      xml: el("t", { p: pt([x, y]), BoundingBox: boxText(box), color: colour(a.colour), LabelJustification: just, Justification: just === "Left" ? undefined : just, LabelAlignment: stack, InterpretChemically: a.chemical === false ? "no" : undefined,
+        RotationAngle: rotationAngle(a.labelAngle) },
         (iso ? run(iso, { ...style2, face: 0x40 | look }) : "") + run(text.slice(0, text.length - range.length), { ...style2, face: 0x60 | look }) + (range ? run(range, { ...style2, face: 0x20 | look }) : "")
         + (sign ? run(sign, { ...style2, face: 0x40 | look }) : "")),
       box,
@@ -830,16 +839,28 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   for (const a of opts.derived ?? []) { zOrder = a.order; if (a.kind !== "orbital" && a.kind !== "curve") arrowOut(a, true); }
 
   // Captions: style runs (spec 8.1), the caption's own style as the text's caption style, and the anchor by its
-  // alignment. Captions Octet places itself (under a structure, on an arrow) are written where Octet would put them.
+  // alignment. Captions Octet places itself (under a structure, on an arrow) are written where Octet would put them;
+  // conditions placed by hand where they are, marked so Octet keeps them there.
   const captions = [...(mol.captions ?? [])].sort((p, q) => p.id - q.id);
   const stacked = new Map<string, number>(), kept: string[] = [];
   // A live property's basis: its atoms' nodes and the bonds between them.
   const basis = (atoms: Set<number>) => [...[...atoms].sort((p, q) => p - q).map((i) => nodeId.get(i)), ...mol.bonds.flatMap((b, n) => (atoms.has(b.atoms[0]) && atoms.has(b.atoms[1]) ? [bondId[n]] : []))].join(" ");
-  // Conditions stack away from their arrow in the order Octet draws them (placeCaptions): compound numbers first, then
-  // by id. Each one's distance (pt) past the gap.
+  // Conditions placed by hand stay where they are (placedAt), and the others on their side stack out past them. Those
+  // stack away from their arrow in the order Octet draws them (placeCaptions): compound numbers first, then by id.
+  // Each one's distance (pt) past the gap.
   const besides = new Map<string, number>(), further = new Map<number, number>();
+  for (const c of captions) {
+    const arrow = c.on && mol.arrows?.find((a) => a.id === c.on!.arrow), hand = placedAt(c, mol.arrows);
+    if (!arrow || !hand) continue;
+    // How far it reaches from the arrow on its side, as placeCaptions measures it.
+    const size = c.size ?? style.captionSize, q = at(hand), S = at(arrow.from), T = at(arrow.to), mid: P = [(S[0] + T[0]) / 2, (S[1] + T[1]) / 2], d = sub(T, S), above = c.on!.side === "above";
+    const w = Math.max(...c.text.split("\n").map((l) => widthOf(l, size))), offs = lineOffsets(c, size, 1), own = c.align === "justify" ? "left" : c.align ?? "centre";
+    const left = own === "left" ? q[0] : own === "right" ? q[0] - w : q[0] - w / 2, key = `${arrow.id} ${c.on!.side}`;
+    const reach = Math.abs(d[0]) >= 0.5 * len(d) ? (above ? mid[1] - (q[1] - ASCENT * size) : q[1] + offs[offs.length - 1] + DESCENT * size - mid[1]) : above ? mid[0] - left : left + w - mid[0];
+    besides.set(key, Math.max(besides.get(key) ?? 0, reach + 0.2 * size - GAP_ARROW_PT * scaleOf(arrow)));
+  }
   for (const c of [...captions].sort((p, q) => Number(isNumber(q)) - Number(isNumber(p)) || p.id - q.id)) {
-    if (!c.on || !mol.arrows?.some((a) => a.id === c.on!.arrow)) continue;
+    if (!c.on || !mol.arrows?.some((a) => a.id === c.on!.arrow) || placedAt(c, mol.arrows)) continue;
     const size = c.size ?? style.captionSize, key = `${c.on.arrow} ${c.on.side}`, used = besides.get(key) ?? 0;
     further.set(c.id, used);
     const offs = lineOffsets(c, size, 1);
@@ -849,9 +870,10 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     zOrder = c.order;
     const size = c.size ?? style.captionSize, own = c.align === "justify" ? "left" : c.align ?? "centre", lines = c.text.split("\n").length;
     let [x, y] = [c.x, c.y], align = own;
-    const arrow = c.on && mol.arrows?.find((a) => a.id === c.on!.arrow);
+    const arrow = c.on && mol.arrows?.find((a) => a.id === c.on!.arrow), hand = arrow && placedAt(c, mol.arrows);
     const atoms = (c.under ?? []).filter((i) => i < mol.atoms.length);
-    if (atoms.length) {
+    if (hand) [x, y] = hand;
+    else if (atoms.length) {
       const xs = atoms.map((i) => mol.atoms[i].location[0]), key = [...atoms].sort((p, q) => p - q).join(" "), k = stacked.get(key) ?? 0;
       stacked.set(key, k + lines);
       x = align === "left" ? Math.min(...xs) - 0.3 : align === "right" ? Math.max(...xs) + 0.3 : (Math.min(...xs) + Math.max(...xs)) / 2;
@@ -868,17 +890,16 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const p = at([x, y]), runs = runsOf(c), whole: RunStyle = { bold: c.bold || undefined, italic: c.italic || undefined, underline: c.underline || undefined };
     const width = Math.max(...c.text.split("\n").map((l) => widthOf(l, size))), left = align === "left" ? p[0] : align === "right" ? p[0] - width : p[0] - width / 2;
     const level: Box = [left, p[1] - 0.716 * size, left + width, p[1] + (lines - 1) * 1.15 * size + 0.212 * size];
-    // A turned caption (RotationAngle: degrees clockwise on the page, times 65536) turns about p; its box goes round it.
-    const r = ((c.angle ?? 0) * Math.PI) / 180, box: Box = r ? boxOf(([[level[0], level[1]], [level[2], level[1]], [level[2], level[3]], [level[0], level[3]]] as P[])
-      .map(([qx, qy]) => [p[0] + (qx - p[0]) * Math.cos(r) + (qy - p[1]) * Math.sin(r), p[1] - (qx - p[0]) * Math.sin(r) + (qy - p[1]) * Math.cos(r)] as P)) : level;
+    // A turned caption turns about p; its box goes round it.
+    const box = turnedBox(level, p, c.angle);
     const just = c.align === "justify" && align === own ? "Full" : align === "centre" ? "Center" : align === "right" ? "Right" : undefined, cf = face(whole);
     put(el("t", {
       id: idOf.get(c.id)!, p: pt(p), BoundingBox: boxText(box), Z: Z(), color: colour(c.colour), CaptionFont: c.font ? font(c.font) : undefined, CaptionSize: c.size, CaptionFace: cf || undefined,
       WordWrapWidth: c.width ? Math.round(c.width * B) : undefined,
       // Line spacing as ChemDraw writes it: a text's LineHeight is auto or pt, and Variable is its caption style's.
       CaptionJustification: just, Justification: just, LineHeight: c.lineHeight === "variable" ? undefined : typeof c.lineHeight === "number" ? fmtSize(c.lineHeight) : "auto",
-      CaptionLineHeight: c.lineHeight === "variable" ? "variable" : undefined, InterpretChemically: c.chemical === false ? "no" : undefined, RotationAngle: c.angle ? Math.round((((-c.angle % 360) + 360) % 360) * 65536) || undefined : undefined,
-      Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined,
+      CaptionLineHeight: c.lineHeight === "variable" ? "variable" : undefined, InterpretChemically: c.chemical === false ? "no" : undefined, RotationAngle: rotationAngle(c.angle),
+      Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined, placed: hand ? 1 : undefined,
         align: align !== own ? c.align ?? "centre" : undefined, width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined }),
     }, runs.map((r) => run(r.text, { font: r.font ?? c.font ?? style.captionFont, size: r.size ?? size, colour: r.colour ?? c.colour, face: face({ ...whole, ...r }) })).join("")), 2, box, c.id);
     if (c.property) {
@@ -970,7 +991,7 @@ function pick(m: Mol, sel: { atoms: Iterable<number>; items: Iterable<number> })
     const out: Caption = { ...c, under: c.under && keep(c.under), property: kept(c.property) };
     if (!out.under?.length) delete out.under;
     if (!out.property) delete out.property;
-    if (c.on && !arrows.some((a) => a.id === c.on!.arrow)) delete out.on;
+    if (c.on && !arrows.some((a) => a.id === c.on!.arrow)) { delete out.on; delete out.placed; }
     return out;
   });
   const shapes = (m.shapes ?? []).filter((s) => items.has(s.id)), ids = new Set([...arrows, ...cycles, ...captions, ...shapes].map((x) => x.id));
@@ -1086,9 +1107,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   // The document style, and the page that sets the coordinate frame: its printable area's centre is Octet's 0,0.
   const pages = root.kids.filter((k) => k.name === "page");
   const pb = reals(pages[0]?.attrs.BoundingBox, 4) ?? [0, 0, 540, 720];
-  const W = Math.max(1, pb[2] - pb[0]), H = Math.max(1, pb[3] - pb[1]), ox = pb[0] + middle(W), oy = pb[1] + middle(H);
+  const W = Math.max(1, pb[2] - pb[0]), H = Math.max(1, pb[3] - pb[1]);
   const r = root.attrs, bondPt = real(r.BondLength), B = bondPt && bondPt >= 1 && bondPt <= 200 ? bondPt : 14.4;
-  const toOctet = (x: number, y: number): P => [(x - ox) / B, (oy - y) / B];
   const mm = [((W + 72) * 25.4) / 72, ((H + 72) * 25.4) / 72];
   const paper = Object.entries(PAGES).find(([, [w, h]]) => (Math.abs(w - mm[0]) < 1 && Math.abs(h - mm[1]) < 1) || (Math.abs(h - mm[0]) < 1 && Math.abs(w - mm[1]) < 1));
   const style = readStyle({
@@ -1104,6 +1124,10 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     interpret: r.InterpretChemically === undefined || yes(r.InterpretChemically),
     chainAngle: real(r.ChainAngle),
   });
+  // Octet's 0,0 is the middle of the page it writes back (ChemDraw rounds an A4 page to 523 by 770 pt, Octet writes
+  // 523.28 by 769.89), so everything keeps its place from the page's top left corner through a save.
+  const [ow, oh] = printable(style).map((v) => Number(fmt(v))), ox = pb[0] + middle(ow), oy = pb[1] + middle(oh);
+  const toOctet = (x: number, y: number): P => [(x - ox) / B, (oy - y) / B];
 
   // Octet's own angle for a turned shape, when the shape as ChemDraw holds it agrees (to 0.1°); else the one read.
   const exact = (own: unknown, read: number) => (isNum(own, -360, 360) && Math.abs(((((own as number) - read) % 360) + 540) % 360 - 180) < 0.1 ? (own as number) : read);
@@ -1140,9 +1164,10 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   // Each bond's own drawing settings (ChemDraw's per-object settings, pt), and each label's size as written.
   const bondSettings: { line?: number; bold?: number; hash?: number; margin?: number; spacing?: number; attrs: Record<string, string> }[] = [], labelSizes = new Map<number, number>(), nodeLines = new Map<number, number>();
   const atomOf = new Map<number, number>(), objectOf = new Map<number, number>(), arrowOfGraphic = new Map<number, number>();
-  const labels: { i: number; text: string; type: string; isotope?: number; plain?: boolean }[] = [];
+  // Each label: its node, text, node type and isotope, Interpret Chemically off, and its text's justification, stacking and turn.
+  const labels: { i: number; text: string; type: string; isotope?: number; plain?: boolean; just?: string; stack?: string; turn?: string }[] = [];
   const numH = new Map<number, number>(), delocalised: { k: number; order?: 1 | 2 }[] = [], ovals: { id: number; c: P; r: number }[] = [];
-  const bondsToRead: Xml[] = [], symbols: { x: Xml; atoms: number[]; group?: G }[] = [], steps: Xml[] = [], unders: { c: Caption; nodes: unknown }[] = [];
+  const bondsToRead: Xml[] = [], symbols: { x: Xml; atoms: number[]; group?: G }[] = [], steps: Xml[] = [], unders: { c: Caption; nodes: unknown }[] = [], anchors = new Map<number, P>();
   const brackets: { x: Xml; id: number; z: number; group?: G; ends: number[] }[] = [], properties: Xml[] = [];
   // Query and Markush objects: attachments' atoms (by node id), bracketed groups, R-Logic rows.
   const centres: { i: number; ids: number[]; variable: boolean }[] = [], bracketed: Xml[] = [], logic: Xml[] = [];
@@ -1287,7 +1312,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (font && font !== style.labelFont) a.font = font;
       if (size && size >= 0.1 && size <= 999) { labelSizes.set(i, size); if (Math.abs(size - style.labelSize) > 0.01) a.size = size; }
     }
-    if (t) labels.push({ i, text: t.kids.filter((k) => k.name === "s").map((k) => k.text).join(""), type, isotope, plain: t.attrs.InterpretChemically !== undefined && !yes(t.attrs.InterpretChemically) });
+    if (t) labels.push({ i, text: t.kids.filter((k) => k.name === "s").map((k) => k.text).join(""), type, isotope, plain: t.attrs.InterpretChemically !== undefined && !yes(t.attrs.InterpretChemically),
+      just: t.attrs.LabelJustification ?? t.attrs.Justification, stack: t.attrs.LabelAlignment, turn: t.attrs.RotationAngle });
     else if (type === "GenericNickname" && n.attrs.GenericNickname) labels.push({ i, text: n.attrs.GenericNickname, type });
     else if (type === "ElementList" && n.attrs.ElementList) {
       // An element list with no label text: its label from its atomic numbers.
@@ -1499,10 +1525,36 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
 
   // Ph, CO2Et), less any charge the node already holds (spec 9.10).
   function readLabels() {
-    const used = mol.atoms.map(() => 0), degree = mol.atoms.map(() => 0);
+    const used = mol.atoms.map(() => 0), degree = mol.atoms.map(() => 0), towards = mol.atoms.map((): P => [0, 0]);
     for (const b of mol.bonds) for (const i of b.atoms) { used[i] += orderOf(b.type); degree[i]++; }
-    for (const { i, text: raw, type, isotope, plain } of labels) {
-      const a = mol.atoms[i], charge = a.charge ?? 0;
+    // Each atom's bonds as one direction: the sum of their unit vectors (as render.ts reads a label's way).
+    for (const { atoms: [i, j] } of mol.bonds) {
+      if (mol.atoms[i].hidden || mol.atoms[j].hidden) continue;
+      const p = mol.atoms[i].location, q = mol.atoms[j].location, d = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, u: P = [(q[0] - p[0]) / d, (q[1] - p[1]) / d];
+      towards[i] = [towards[i][0] + u[0], towards[i][1] + u[1]];
+      towards[j] = [towards[j][0] - u[0], towards[j][1] - u[1]];
+    }
+    // The alignment ChemDraw drew a label with (its text's LabelJustification, or LabelAlignment for a stacked one),
+    // where Octet's automatic one would draw it another way and nothing is set by hand on the node: it is kept as set
+    // by hand (Atom.align), so the label opens as ChemDraw showed it. hFirst: an element's hydrogens come first in the
+    // text (H3C); undefined when it has none. A label of one glyph looks the same every way, so it stays automatic.
+    // ChemDraw reverses a right-justified label (OH shows as HO), as Octet does.
+    // A label's turn (RotationAngle: degrees clockwise on the page, times 65536) is kept too, anticlockwise as Octet turns.
+    const keep = (l: (typeof labels)[number], hFirst?: boolean) => {
+      const a = mol.atoms[l.i], h = hFirst !== undefined, glyphs = (a.text ?? a.label).length + (h ? 1 : 0) + (a.isotope ? 1 : 0);
+      const turn = ((-(int(l.turn) ?? 0) / 65536) % 360 + 540) % 360 - 180;
+      if (Number.isFinite(turn) && Math.abs(turn) > 1e-6) a.labelAngle = Math.round(turn * 1e6) / 1e6;
+      const file = l.stack === "Above" ? "above" : l.stack === "Below" ? "below" : ({ Center: "centre", Right: "right", Left: "left" } as Record<string, NonNullable<Atom["align"]>>)[l.just ?? ""];
+      if (octet || a.align || glyphs < 2 || !file) return;
+      const v = towards[l.i], deg = degree[l.i], steep = Math.hypot(v[0], v[1]) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180), right = deg > 0 && !steep && v[0] > 1e-6;
+      // As each draws it: an element's H before it (right) or after it (left), or stacked; a text's units reversed or not.
+      const stacked = file === "above" || file === "below", single = !h && (!a.text || units(a.text).length < 2);
+      const drawn = stacked ? (single ? "left" : file) : h && file !== "centre" ? (hFirst !== (file === "right") ? "right" : "left") : file;
+      const auto = h ? (right || (!deg && H_FIRST.has(a.label)) ? "right" : !steep || deg < 2 ? "left" : v[1] < 0 ? "above" : "below") : right ? "right" : "left";
+      if (drawn !== auto) a.align = drawn;
+    };
+    for (const l of labels) {
+      const { i, text: raw, type, isotope, plain } = l, a = mol.atoms[i], charge = a.charge ?? 0;
       let text = cleanText(raw).replace(/\n/g, "").trim();
       const sign = /(\d*)([+\-−–])$/.exec(text);
       if (charge && sign && (sign[2] === "+") === charge > 0) text = text.slice(0, text.length - (sign[1] === String(Math.abs(charge)) ? sign[0].length : 1));
@@ -1510,16 +1562,17 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (type === "Element" && !plain && (!isotope || a.label === "D" || a.isotope)) {
         if (a.isotope && text.startsWith(String(a.isotope))) text = text.slice(String(a.isotope).length);
         const m = new RegExp(`^(?:H(\\d*))?${a.label}(?:H(\\d*))?$`).exec(text);
-        const h = m ? (m[1] === undefined ? 0 : Number(m[1] || 1)) + (m[2] === undefined ? 0 : Number(m[2] || 1)) : -1;
-        if (m && (a.label !== "C" || !degree[i] || a.isotope || (degree[i] === 1 ? style.terminalLabels : style.carbonLabels)) && h === hydrogens(a.label, charge, used[i], a.radical === 3 ? 2 : a.radical)) continue;
+        const h = m ? (m[1] === undefined ? 0 : Number(m[1] || 1)) + (m[2] === undefined ? 0 : Number(m[2] || 1)) : -1, hFirst = h > 0 ? m![1] !== undefined : undefined;
+        if (m && (a.label !== "C" || !degree[i] || a.isotope || (degree[i] === 1 ? style.terminalLabels : style.carbonLabels)) && h === hydrogens(a.label, charge, used[i], a.radical === 3 ? 2 : a.radical)) { keep(l, hFirst); continue; }
         // A carbon shown with its own hydrogens (CH3 at a chain end): a shown carbon, which keeps its hydrogens right.
-        if (m && a.label === "C" && h === hydrogens("C", charge, used[i], a.radical === 3 ? 2 : a.radical)) { a.shown = true; continue; }
+        if (m && a.label === "C" && h === hydrogens("C", charge, used[i], a.radical === 3 ? 2 : a.radical)) { a.shown = true; keep(l, hFirst); continue; }
       } else if (isotope) lose("isotope");
       if (text.length > MAX_LABEL || /[<>]/.test(text)) { lose("label text"); text = text.replace(/[<>]/g, "").slice(0, MAX_LABEL); }
       if (isElement(text) && !plain) a.label = text;
       else { a.text = text; a.label = anchorElement(text) ?? "C"; }
       // Interpret Chemically off on the label: its text, not chemistry.
       if (plain) a.chemical = false;
+      keep(l);
     }
   }
 
@@ -1572,6 +1625,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     // Interpret Chemically off on this text: it is text only.
     if (t.attrs.InterpretChemically !== undefined && !yes(t.attrs.InterpretChemically)) c.chemical = false;
     if (p?.under) unders.push({ c, nodes: p.under });
+    // Where the file puts it, for conditions placed by hand (every one in a ChemDraw file; in Octet's, those it marks).
+    if (!octet || p?.placed === 1) anchors.set(c.id, toOctet(q[0], q[1]));
     const cyc = p?.cycle as Record<string, unknown> | undefined;
     if (cyc && Number.isInteger(cyc.cycle) && Number.isInteger(cyc.step) && isNum(cyc.step, 0, 63) && ["in", "out", "centre"].includes(cyc.side as string)) c.cycle = { cycle: cyc.cycle as number, step: cyc.step as number, side: cyc.side as "in" };
     captions.push(c);
@@ -1988,7 +2043,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
 
   // Steps: conditions above and below an arrow become that arrow's conditions (straight arrows, or any in Octet's
   // own files), and atom-map pairs give both atoms one map number (spec 14). Turned text stays where the file puts
-  // it, as Octet lays conditions out level.
+  // it, as Octet lays conditions out level. A ChemDraw file's conditions keep the places ChemDraw gave them, by their
+  // arrow (Caption.placed), as do those Octet's own file marks.
   function readSteps() {
     let maps = mol.atoms.reduce((m, a) => Math.max(m, a.map ?? 0), 0);
     for (const s of steps) {
@@ -1996,7 +2052,10 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (arrow && (octet || straightArrow(arrow))) for (const side of ["above", "below"] as const) {
         for (const cid of idList(s.attrs[side === "above" ? "ReactionStepObjectsAboveArrow" : "ReactionStepObjectsBelowArrow"])) {
           const c = captions.find((x) => x.id === objectOf.get(cid));
-          if (c && !c.cycle && !c.on && !c.angle && !unders.some((u) => u.c === c)) c.on = { arrow: arrow.id, side };
+          if (!c || c.cycle || c.on || c.angle || unders.some((u) => u.c === c)) continue;
+          c.on = { arrow: arrow.id, side };
+          const q = anchors.get(c.id), d: P = [arrow.to[0] - arrow.from[0], arrow.to[1] - arrow.from[1]];
+          if (q) c.placed = { at: [q[0] - (arrow.from[0] + arrow.to[0]) / 2, q[1] - (arrow.from[1] + arrow.to[1]) / 2], arrow: d };
         }
       }
       for (const key of ["ReactionStepAtomMap", "ReactionStepAtomMapManual", "ReactionStepAtomMapAuto"]) {
@@ -2067,9 +2126,13 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   const byZ = <T extends { z: number }>(list: T[]) => list.map((x, k) => [x, k] as const).sort((p, q) => p[0].z - q[0].z || p[1] - q[1]).map(([x]) => { const out = { ...x } as Partial<T>; delete out.z; return out as Omit<T, "z">; });
   // Captions and arrows in id order (Octet draws them by kind); shapes in drawing order, which Octet keeps.
   if (captions.length) mol.captions = byZ(captions).sort((p, q) => p.id - q.id);
-  if (arrows.length) mol.arrows = byZ(arrows); // in drawing order (Bring to front and Send to back)
-  // ChemDraw's filled shapes drawn above every structure are in front of them, as Octet's Bring to Front puts them.
-  if (!octet) for (const sh of shapes) if ((sh.fill || sh.kind === "highlight") && turns(sh) && sh.z > fragmentZ && fragmentZ > -Infinity && !sh.order) sh.order = 1;
+  // Arrows in drawing order (Bring to front and Send to back). Octet draws filled curves and orbitals behind the
+  // structures and the other arrows in front, so those come first, as the writer puts them.
+  const behind = (a: Arrow) => !a.order && (a.kind === "orbital" || !!(a.curve?.closed && a.fill));
+  if (arrows.length) mol.arrows = byZ(arrows).sort((p, q) => Number(behind(q)) - Number(behind(p)));
+  // Filled shapes drawn above every structure are in front of them, as Octet's Bring to Front puts them (in Octet's own
+  // files too: a shape it wrote there was brought to the front).
+  for (const sh of shapes) if ((sh.fill || sh.kind === "highlight") && turns(sh) && sh.z > fragmentZ && fragmentZ > -Infinity && !sh.order) sh.order = 1;
   if (shapes.length) mol.shapes = byZ(shapes);
   if (cycles.length) mol.cycles = cycles;
   if (grids.length) mol.grids = grids;

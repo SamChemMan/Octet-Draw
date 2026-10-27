@@ -70,7 +70,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, ELLIPSES, HOLD_MS, Palette, pickHead, RingGlyph, RINGS, SELECTS, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
+import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
 import { dragCursor, rotateCursor, selectCursor } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, loadNames, nameToSmiles, nameToAtoms, namesStarting, suggestName, knownName, looksLikeSmiles } from "./names";
@@ -2259,7 +2259,7 @@ export default function Editor() {
       <div className={`style-preview paper-${paper}`} data-theme={dark ? "dark" : "light"} style={own ? ({ "--canvas": own } as React.CSSProperties) : undefined} aria-hidden>
         <svg width={(box[2] - box[0]) * scale} height={(box[3] - box[1]) * scale} viewBox={`${box[0]} ${box[1]} ${box[2] - box[0]} ${box[3] - box[1]}`}>
           <path d={toPath(d.polygons)} fill={ink("#000000")} />
-          {d.labels.map((l, i) => <text key={i} x={l.x} y={l.y} fill={ink("#000000")} textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l, s.labelFont) }}>{l.text}</text>)}
+          {d.labels.map((l, i) => <text key={i} x={l.x} y={l.y} transform={labelTurn(l)} fill={ink("#000000")} textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l, s.labelFont) }}>{l.text}</text>)}
           <text x={cap.lines[0].x} y={cap.lines[0].y} textAnchor="middle" fill={ink(s.colour)} style={{ font: `bold ${cap.size}px ${fontStack(s.captionFont)}` }}>1</text>
         </svg>
       </div>
@@ -2378,7 +2378,7 @@ export default function Editor() {
       let texts = cache.get(d);
       if (!texts) {
         texts = d.labels.map((l, i) => (
-          <text key={i} x={l.x} y={l.y} fill={l.colour ? textInk(l.colour) : "var(--ink)"} fillOpacity={l.alpha} textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>
+          <text key={i} x={l.x} y={l.y} transform={labelTurn(l)} fill={l.colour ? textInk(l.colour) : "var(--ink)"} fillOpacity={l.alpha} textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>
             {l.text}
           </text>
         ));
@@ -2877,7 +2877,7 @@ export default function Editor() {
       captions: m.captions?.map((c) => {
         const from = captions.get(c.id);
         if (!from) return c;
-        const { under: _u, on: _o, cycle: _c, ...free } = c;
+        const { under: _u, on: _o, cycle: _c, placed: _p, ...free } = c;
         return { ...free, x: from[0] + d[0], y: from[1] + d[1] };
       }),
     };
@@ -6486,7 +6486,7 @@ export default function Editor() {
           {ghost && (
             <g className="ghost" aria-hidden>
               <path d={toPath(ghost.polygons)} />
-              {ghost.labels.map((l, i) => <text key={i} x={l.x} y={l.y} textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>{l.text}</text>)}
+              {ghost.labels.map((l, i) => <text key={i} x={l.x} y={l.y} transform={labelTurn(l)} textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>{l.text}</text>)}
             </g>
           )}
           {(() => {

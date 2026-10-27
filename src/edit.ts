@@ -2059,7 +2059,7 @@ export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>,
     bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] as [number, number] })),
     captions: captions.map((c) => {
       if (tied(c)) return copied({ ...c, ...(c.under ? { under: c.under.map((i) => map.get(i)!) } : {}) });
-      const { under: _u, on: _o, cycle: _c, ...free } = c, [x, y] = at?.(c) ?? [c.x, c.y];
+      const { under: _u, on: _o, cycle: _c, placed: _p, ...free } = c, [x, y] = at?.(c) ?? [c.x, c.y];
       return copied({ ...free, x, y });
     }),
     arrows, shapes: (m.shapes ?? []).filter((x) => items.has(x.id)).map(copied),
