@@ -22,7 +22,8 @@ pub struct Waiting(Mutex<Vec<(PathBuf, Option<(f64, f64)>)>>);
 
 // Files to open, or (with `at`) files dropped on the window. For files to open, the window comes to the front.
 pub fn offer(app: &AppHandle, paths: impl IntoIterator<Item = PathBuf>, at: Option<(f64, f64)>) {
-    let paths: Vec<PathBuf> = paths.into_iter().filter(|p| p.is_file()).take(MOST).collect();
+    // Files, and the folders of Bruker's processed spectra.
+    let paths: Vec<PathBuf> = paths.into_iter().filter(|p| p.is_file() || crate::spectrum::bruker_folder(p).is_some()).take(MOST).collect();
     if paths.is_empty() {
         return;
     }
@@ -68,6 +69,13 @@ pub async fn take_opened(app: AppHandle, picked: State<'_, Picked>, insert: bool
         .map(|(path, at)| {
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+            // A measured spectrum (JCAMP-DX, or a Bruker folder or its 1r file): the page puts it in the drawing.
+            let bruker = crate::spectrum::bruker_folder(&path);
+            if bruker.is_some() || crate::spectrum::is_jcamp(&path) {
+                let read = match &bruker { Some(d) => crate::spectrum::read_bruker(d), None => crate::spectrum::read_jcamp(&path, &name) };
+                let (text, error) = match read { Ok(t) => (Some(t), None), Err(e) => (None, Some(e)) };
+                return OpenedFile { name, path: None, text, picture: None, error, at };
+            }
             if PICTURES.contains(&ext.as_str()) {
                 let (picture, error) = match picture(&path, &name) {
                     Ok(b) => (Some(b), None),
@@ -96,7 +104,7 @@ fn read(path: &Path, name: &str) -> Result<String, String> {
     match fs::metadata(path) {
         Err(_) => Err("This file is not where it was. It was moved or deleted.".into()),
         Ok(m) if m.len() > MAX_BYTES => Err("This file is larger than 64 MB. Octet cannot open it.".into()),
-        Ok(_) => crate::read_text_or_cdx(path).map_err(|_| format!("Octet cannot open {name}. It opens Octet and ChemDraw drawings (CDX and CDXML), MOL, SDF, RXN, SMILES and InChI files, and pictures.")),
+        Ok(_) => crate::read_text_or_cdx(path).map_err(|_| format!("Octet cannot open {name}. It opens Octet and ChemDraw drawings (CDX and CDXML), MOL, SDF, RXN, SMILES and InChI files, JCAMP-DX spectra, and pictures.")),
     }
 }
 

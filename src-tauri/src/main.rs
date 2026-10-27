@@ -24,6 +24,7 @@ mod quit;
 mod recent;
 mod recovery;
 mod search;
+mod spectrum;
 mod update;
 mod vector;
 
@@ -164,6 +165,8 @@ pub const MAX_BYTES: u64 = 64 * 1024 * 1024;
 // .cdx, ChemDraw's binary file with Octet's drawing inside (decision 0009). It opens all three, and the older .octet
 // files.
 const OPEN: (&str, &[&str]) = ("Drawings", &["oct", "cdxml", "cdx", "octet"]);
+// File > Open also opens measured spectra (JCAMP-DX), which go into the drawing that is open (src/jcamp.ts).
+const OPEN_ALL: (&str, &[&str]) = ("Drawings and spectra", &["oct", "cdxml", "cdx", "octet", "jdx", "dx", "jcamp"]);
 const SAVE: [(&str, &[&str]); 3] = [("Octet drawing", &["oct"]), ("ChemDraw drawing (CDXML)", &["cdxml"]), ("ChemDraw drawing (CDX)", &["cdx"])];
 const SAVES: [&str; 3] = ["oct", "cdxml", "cdx"];
 
@@ -198,10 +201,15 @@ pub fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
 
 #[tauri::command]
 async fn open_drawing(app: AppHandle, picked: State<'_, Picked>) -> Result<Option<(String, String)>, String> {
-    let Some(file) = app.dialog().file().add_filter(OPEN.0, OPEN.1).blocking_pick_file() else {
+    let Some(file) = app.dialog().file().add_filter(OPEN_ALL.0, OPEN_ALL.1).blocking_pick_file() else {
         return Ok(None);
     };
     let path = file.into_path().map_err(|e| e.to_string())?;
+    // A spectrum is not a drawing: Octet does not save over it or list it on Home.
+    if spectrum::is_jcamp(&path) {
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        return spectrum::read_jcamp(&path, &name).map(|t| Some((path.to_string_lossy().into_owned(), t)));
+    }
     let size = fs::metadata(&path).map_err(|e| e.to_string())?.len();
     if size > MAX_BYTES {
         return Err("This file is larger than 64 MB. Octet cannot open it.".into());

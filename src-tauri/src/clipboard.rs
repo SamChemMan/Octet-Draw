@@ -28,6 +28,8 @@ pub const TEXT: &str = "public.utf8-plain-text";
 // Octet's own type. A UTI under the app's identifier: macOS refuses MIME-style names such as
 // application/x-octet+json on the pasteboard. Windows and Linux use that name.
 pub const OCTET: &str = "io.github.samchemman.octet.json";
+// A copied file, on the Mac.
+pub const FILE_URL: &str = "public.file-url";
 // The Windows bitmap and text are standard formats (CF_DIB, CF_UNICODETEXT), not registered names.
 pub const DIB: &str = "CF_DIB";
 pub const UNICODE_TEXT: &str = "CF_UNICODETEXT";
@@ -56,6 +58,7 @@ enum Kind {
     Smiles,
     Octet,
     Text,
+    FileUrl, // read only: a copied file, for a spectrum (spectrum.rs)
 }
 
 // Each system's names for a kind, in the order copy writes them; paste reads the first one there. Empty: that system's
@@ -74,6 +77,7 @@ fn names(s: System, k: Kind) -> &'static [&'static str] {
             // Read only: copy puts a PDF on the Mac.
             Png => &["public.png"],
             Bitmap => &["public.tiff"],
+            FileUrl => &[FILE_URL],
             Svg => &[],
         },
         System::Windows => match k {
@@ -85,7 +89,7 @@ fn names(s: System, k: Kind) -> &'static [&'static str] {
             Smiles => &["SMILES"],
             Octet => &["application/x-octet+json"],
             Text => &[UNICODE_TEXT],
-            Pdf | Svg => &[],
+            Pdf | Svg | FileUrl => &[],
         },
         System::Linux => match k {
             Png => &["image/png"],
@@ -96,6 +100,7 @@ fn names(s: System, k: Kind) -> &'static [&'static str] {
             Smiles => &["chemical/x-daylight-smiles"],
             Octet => &["application/x-octet+json"],
             Text => &["text/plain;charset=utf-8", "UTF8_STRING", "text/plain"],
+            FileUrl => &["text/uri-list"],
             Pdf | Bitmap => &[],
         },
     }
@@ -111,6 +116,7 @@ pub struct Clip {
     smiles: Option<String>,
     text: Option<String>,    // plain text of 64 KB or less
     picture: Option<String>, // a picture's file bytes (PNG, TIFF or BMP), base64; the page checks and decodes them
+    spectrum: Option<(String, String)>, // a spectrum file copied, or its path pasted: its name and text (spectrum.rs)
 }
 
 // ChemDraw's form of a molfile on the clipboard (MDL's MDLCT): each line as one length byte, then the line, with no
@@ -245,7 +251,9 @@ fn clip(s: System, read: impl Fn(&str) -> Option<Vec<u8>>) -> Clip {
         picture: first(s, Kind::Png, &read)
             .or_else(|| first(s, Kind::Bitmap, &read).and_then(|b| if s == System::Windows { bmp_file(&b) } else { Some(b) }))
             .map(|b| base64::engine::general_purpose::STANDARD.encode(b)),
+        spectrum: None,
     };
+    c.spectrum = crate::spectrum::from_clipboard(first(s, Kind::FileUrl, &read).and_then(text_of).as_deref(), c.text.as_deref());
     // The PDF's CDXML when there is no Octet JSON or CDXML type: it holds the whole drawing, arrows, text and shapes
     // too (REL-4, CH-2). ChemDraw's CDX is the page's next choice, for a copy with no PDF.
     if c.octet.is_none() && c.cdxml.is_none() {
@@ -258,7 +266,7 @@ fn clip(s: System, read: impl Fn(&str) -> Option<Vec<u8>>) -> Clip {
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 fn readable(s: System) -> Vec<&'static str> {
     use Kind::*;
-    [Octet, Cdxml, Cdx, Molfile, Smiles, Pdf, Text, Png, Bitmap].iter().flat_map(|k| names(s, *k).iter().copied()).collect()
+    [Octet, Cdxml, Cdx, Molfile, Smiles, Pdf, Text, Png, Bitmap, FileUrl].iter().flat_map(|k| names(s, *k).iter().copied()).collect()
 }
 
 // A Windows bitmap (CF_DIB: its header, colours and pixels) as a .bmp file, which the page's decoder reads: the
@@ -287,7 +295,7 @@ mod mac {
     use objc2::rc::{autoreleasepool, Retained};
     use objc2::runtime::ProtocolObject;
     use objc2_app_kit::{NSPasteboard, NSPasteboardItem};
-    use objc2_foundation::{NSArray, NSData, NSString};
+    use objc2_foundation::{NSArray, NSData, NSString, NSURL};
 
     pub fn write(pb: &NSPasteboard, types: &[(&str, Vec<u8>)]) -> Result<(), String> {
         autoreleasepool(|_| {
@@ -312,6 +320,11 @@ mod mac {
                     return None;
                 }
                 let data = pb.dataForType(&NSString::from_str(t))?;
+                // A file Finder copied comes as a file reference (file:///.file/id=…): its path instead.
+                if t == super::FILE_URL {
+                    let u = NSURL::URLWithString(&NSString::from_str(std::str::from_utf8(&data.to_vec()).ok()?))?;
+                    return Some(u.filePathURL()?.path()?.to_string().into_bytes());
+                }
                 (data.len() <= super::MAX_TYPE).then(|| data.to_vec())
             })
         })
