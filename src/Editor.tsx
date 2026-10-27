@@ -64,7 +64,7 @@ import { alignByMap, clearScheme, interpret, mapScheme, rolesOf, type Part, type
 import { SEARCHES, searchNow, searchQuery } from "./search";
 import { moduleOf, SettingsWindow, type ModuleId } from "./SettingsWindow";
 import { layoutCycles, orderAround, spreadCycle, type Cycle, type CycleText } from "./cycle";
-import { LIBRARY, libraryItem } from "./library";
+import { LIBRARY, libraryItem, type LibraryItem } from "./library";
 import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
 import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, ELLIPSES, HOLD_MS, Palette, pickHead, RingGlyph, RINGS, SELECTS, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
@@ -73,7 +73,8 @@ import {
 import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
 import { dragCursor, rotateCursor, selectCursor } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
-import { abbreviationOf, loadNames, nameToSmiles, nameToAtoms, suggestName, knownName, looksLikeSmiles } from "./names";
+import { abbreviationOf, loadNames, nameToSmiles, nameToAtoms, namesStarting, suggestName, knownName, looksLikeSmiles } from "./names";
+import { commonKey } from "./common";
 import { checkedName, graphOf, setComplexNamer, setNamer, withAbbreviation } from "./naming";
 import { iupacName } from "./namer";
 import { sandwichIons } from "./metals";
@@ -81,7 +82,7 @@ import { complexName } from "./complexes";
 
 setNamer(iupacName);
 setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, inchi: toInchi, aux: toInchiAux, cip: cipOf }));
-import { addSet, addTo, freeSetName, loadTemplates, moveTemplate, MY_SET, newTemplate, removeSet, removeTemplate, renameSet, renameTemplate, setName, templateKind } from "./templates";
+import { addSet, addTo, freeSetName, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, removeSet, removeTemplate, renameSet, renameTemplate, setName, templateKind } from "./templates";
 import { formulaRuns } from "./labels";
 import { captionAtom, captionsToAtoms, chemicalCaption, interpretLabels, labelable, withCaptionAtoms } from "./edit";
 import { bendOf, cutSides } from "./masscut";
@@ -358,6 +359,21 @@ const nicknameMol = (name: string) => {
   if (!nicknameMols.has(name)) { const smiles = labelSmiles(name); try { nicknameMols.set(name, smiles ? parseStructure(smiles) : undefined); } catch { nicknameMols.set(name, undefined); } }
   return nicknameMols.get(name);
 };
+// Structures for names and abbreviations (TREN, dppf, a name OPSIN reads), laid out once each: the template library's
+// results for them, and the Ring or Template tool holding one ("name:" kinds). Undefined until Indigo and the names
+// engine have loaded, and then kept.
+const namedMols = new Map<string, Mol>();
+const namedMol = (name: string): Mol | undefined => {
+  if (namedMols.has(name)) return namedMols.get(name);
+  const smiles = nameToSmiles(name);
+  let m: Mol | undefined;
+  try { m = smiles ? parseStructure(smiles) : undefined; } catch { m = undefined; }
+  if (!m?.atoms.length) return undefined;
+  if (namedMols.size >= 500) namedMols.clear();
+  namedMols.set(name, m);
+  return m;
+};
+const namedOf = (kind: string) => { const name = kindName(kind); return name ? namedMol(name) : undefined; };
 // The tools that work on an atom also work on a caption that counts as chemistry (edit.ts chemicalCaption), made an
 // atom when they press it. elementSteps names the undo step each press makes.
 const ATOM_TOOLS = new Set<Tool>(["bond", "chain", "ring", "template", "symbol"]);
@@ -496,7 +512,7 @@ export default function Editor() {
   const bondKind = (settings.variants.bond in BONDS ? settings.variants.bond : "single") as BondKind;
   // The user's own rings, and the one in hand (a built-in RingKind or a template's kind).
   const templates = useMemo(() => loadTemplates(settings.templates), [settings.templates]);
-  const ringKind = settings.variants.ring in RINGS || templates.some((t) => templateKind(t.id) === settings.variants.ring) || libraryItem(settings.variants.ring) ? settings.variants.ring : "benzene";
+  const ringKind = settings.variants.ring in RINGS || templates.some((t) => templateKind(t.id) === settings.variants.ring) || libraryItem(settings.variants.ring) || namedOf(settings.variants.ring) ? settings.variants.ring : "benzene";
   // The library to show again after a change made away from it: the tool it is beside, the set it opens on, and a
   // template just added, whose name is ready to type there. n: changes each time, so the same one shows again.
   const [reveal, setReveal] = useState<{ tool: TemplateTool; set: string; id?: string; n: number }>();
@@ -552,7 +568,7 @@ export default function Editor() {
   const selectKind = (settings.variants.select in SELECTS ? settings.variants.select : "box") as SelectKind;
   const symbolKind = (settings.variants.symbol in SYMBOLS ? settings.variants.symbol : "plus") as SymbolKind;
   // The template in hand: a library one or the user's own.
-  const templateMol = (kind: string) => templates.find((x) => templateKind(x.id) === kind)?.mol ?? libraryItem(kind)?.mol;
+  const templateMol = (kind: string) => templates.find((x) => templateKind(x.id) === kind)?.mol ?? libraryItem(kind)?.mol ?? namedOf(kind);
   const templateVariant = templateMol(settings.variants.template) ? settings.variants.template : "lib:Alanine";
   // The Shape and Bracket tools' choices. A line or arc from the Shape tool is drawn like an arrow, with no head.
   const shapeChoice = shapeSpec(settings.variants.shape) ? settings.variants.shape : "box-plain";
@@ -801,6 +817,18 @@ export default function Editor() {
     // A MOL file keeps its first line, which is often blank (the name).
     try { const m = parseStructure(lines ? text.trimEnd() : s); return m.atoms.length ? asOpened(m, text) : undefined; } catch (err) { if (err instanceof RangeError) refused?.(err.message); return undefined; }
   };
+  // Octet's own names that begin as typed (TREN and Tris for "TR"). Drawing one takes a few milliseconds, so while typing
+  // (read false) only the ones drawn before come; once typing pauses (read true), all of them and the name as typed, or
+  // Octet's suggestion for it.
+  const namesFor = (q: string, read: boolean, most: number) => {
+    const names = namesStarting(q, most).filter((name) => read || namedMols.has(name)), typed = read ? (nameToSmiles(q) ? q.trim() : suggestName(q, false)) : undefined;
+    return typed && !names.some((n) => commonKey(n) === commonKey(typed)) ? [...names, typed] : names;
+  };
+  // The template library's results for names (LibraryPanel), each a template.
+  const findNamed = useMemo(() => (q: string, read: boolean): LibraryItem[] => !loaded || !namesLoaded ? [] : namesFor(q, read, 8).flatMap((name) => {
+    const mol = namedMol(name);
+    return mol ? [{ kind: namedKind(name), name, category: "Names", mol }] : [];
+  }), [loaded, namesLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
   // A structure for a name typed with a slip in it: the name as typed, or else Octet's suggestion (thorough: from every
   // name one keystroke away too, 30 to 90 ms).
   const structureOrSuggestion = (text: string, thorough = false): { frag: Mol; name: string } | undefined => {
@@ -4767,6 +4795,12 @@ export default function Editor() {
     const { frag, name: shown } = found;
     return { id: `draw:${shown}`, name: `Draw ${shown}`, group: "Structure", icon: <TemplateGlyph mol={frag} />, run: () => { place(frag); if (structureFor(shown)) rememberName(shown, frag); } };
   };
+  // Octet's own names that begin as typed (TREN and Tris for "TR"), each as a command that draws it: the ones drawn before
+  // while typing, all of them once typing pauses (read).
+  const nameCommands = (q: string, read: boolean): Command[] => (loaded && namesLoaded ? namesStarting(q, 6).filter((name) => read || namedMols.has(name)) : []).flatMap((name) => {
+    const frag = namedMol(name);
+    return frag ? [{ id: `draw:${name}`, name: `Draw ${name}`, group: "Structure", icon: <TemplateGlyph mol={frag} />, run: () => { place(frag); rememberName(name, frag); } }] : [];
+  });
 
   // Runs an action from the panel on the selected atom, bond or atoms.
   // Colour by Element: the selected (or every) heteroatom label in its element's colour (the brand's element colours,
@@ -5269,8 +5303,8 @@ export default function Editor() {
       return mol ? set(addTemplate(doc, mol, { ...(t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : {}), point: at })) : undefined;
     }
     if (tool === "ring") {
-      const custom = templates.find((x) => templateKind(x.id) === ringKind) ?? libraryItem(ringKind);
-      if (custom) return set(addTemplate(doc, custom.mol, { ...(t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : {}), point: at }));
+      const custom = templates.find((x) => templateKind(x.id) === ringKind)?.mol ?? libraryItem(ringKind)?.mol ?? namedOf(ringKind);
+      if (custom) return set(addTemplate(doc, custom, { ...(t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : {}), point: at }));
       const r: { n: number; aromatic: boolean; chair?: 1 | 2 } = RINGS[ringKind as RingKind];
       if (r.chair) return set(addChair(doc, r.chair, t.bond !== undefined ? { bond: t.bond } : { point: at }));
       // As in ChemDraw: a click on an atom makes a spiro ring, and Option-click sprouts the ring on a new bond (the
@@ -6805,7 +6839,9 @@ export default function Editor() {
         }}
         onAdd={addToSet}
         onRename={(id, name) => setSettings((s) => renameTemplate(s, id, name))}
-        onCopy={(kind, set, tool) => { const t = libraryItem(kind); if (t) addPart(t.mol, set, tool, t.name); }}
+        onCopy={(kind, set, tool) => { const m = libraryItem(kind)?.mol ?? namedOf(kind); if (m) addPart(m, set, tool, libraryItem(kind)?.name ?? kindName(kind)); }}
+        named={namedOf}
+        findNamed={findNamed}
         onNewSet={askSet}
         onRemoveTemplate={removeRingTemplate}
         popKey={pop?.n ?? 0}
@@ -7291,7 +7327,7 @@ export default function Editor() {
           {explaining.map((p, k) => <p key={k} className="dialog-note">{p.message}</p>)}
         </Dialog>
       )}</Exit>
-      {commandsOpen && <CommandPalette commands={paletteCommands()} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}
+      {commandsOpen && <CommandPalette commands={paletteCommands()} named={nameCommands} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}
       <Exit>{notice && <NoticeBar notice={notice} onGone={() => showNotice(undefined)} />}</Exit>
       <Tooltips />
     </div>
