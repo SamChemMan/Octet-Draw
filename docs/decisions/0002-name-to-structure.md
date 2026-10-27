@@ -40,3 +40,6 @@ and checked the same way.
 Paste, the name field and the command palette read text as a name first (Octet's tables, then OPSIN), and as SMILES
 only when the text looks like SMILES. Indigo reads some words as SMILES or SMARTS ("aspirin" as a chain of S, P and
 query atoms), so a word is never read as SMILES.
+
+Decision 0015 adds to this order: a dictionary from Wikidata (common and trade names, CAS numbers, InChIKeys),
+condensed formulas, peptide sequences, lists of names and, online, PubChem.
