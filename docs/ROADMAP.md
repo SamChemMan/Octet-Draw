@@ -62,4 +62,6 @@ Octet cannot test these on Sam's Mac.
 - The build pipeline (`.github/workflows/release.yml`) has never run on GitHub.
 - Updates cannot be tested until the first release is published.
 - Signing and notarisation wait for Sam's Apple and Windows keys.
-- The Dock's Quit (`src-tauri/src/quit.rs`) was tried only in a probe. Try it in a built Octet with unsaved changes.
+- The Dock's Quit (`src-tauri/src/quit.rs`) was tried on 27 October 2026 in a built Octet with a quit Apple Event, as the Dock
+  sends: with no changes Octet ends at once; with unsaved changes the question shows and the quit waits; Cancel stops it
+  and Don't Save ends Octet. Not tried: a real logout or restart, and Save from that question on a new drawing.
