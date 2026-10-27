@@ -1,6 +1,6 @@
 // The command palette (⌘K): every command, tool, template and setting by name, with its shortcut. A chemical
-// name or SMILES that is typed can be drawn straight away. It opens and closes at once, without animation: it is
-// used too often for motion to help.
+// name, abbreviation (TREN, and the ones that begin as typed) or SMILES that is typed can be drawn straight away. It
+// opens and closes at once, without animation: it is used too often for motion to help.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MagnifyingGlass } from "@phosphor-icons/react";
 import { useModal } from "./Dialog";
@@ -34,15 +34,25 @@ function score(query: string, c: Command): number {
   return i === q.length ? 10 + (10 * points) / (3 * q.length) - 0.2 * (last - first) : 0;
 }
 
-export function CommandPalette({ commands, draw, onClose }: { commands: Command[]; draw: (query: string) => Command | undefined; onClose: () => void }) {
+// named: commands that draw Octet's own names beginning as typed (TREN, Tris): while typing, the ones drawn before;
+// once typing pauses (read), all of them. draw: a command that draws the name or SMILES typed, read once typing pauses
+// (OPSIN takes a moment). Return reads what is typed at once.
+export function CommandPalette({ commands, named, draw, onClose }: { commands: Command[]; named: (query: string, read: boolean) => Command[]; draw: (query: string) => Command | undefined; onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const list = useRef<HTMLDivElement>(null), backdrop = useRef<HTMLDivElement>(null);
   useModal(backdrop);
-  // Reading a name is slow next to a keystroke, so each query is read once.
+  // Reading a name is slow next to a keystroke, so each query is read once, and only when typing pauses.
   const drawn = useRef(new Map<string, Command | undefined>());
   const drawFor = (q: string) => { if (!drawn.current.has(q)) drawn.current.set(q, draw(q)); return drawn.current.get(q); };
-  const results = useMemo(() => {
+  const [read, setRead] = useState<string>();
+  useEffect(() => {
+    const q = query.trim();
+    if (!q || drawn.current.has(q)) return setRead(q);
+    const t = setTimeout(() => setRead(q), 150);
+    return () => clearTimeout(t);
+  }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
+  const listFor = (query: string, done: boolean) => {
     if (!query.trim()) {
       // Nothing typed: recent commands, then the actions for what is selected, then the rest.
       const seen = recent(), byId = new Map(commands.map((c) => [c.id, c]));
@@ -50,10 +60,14 @@ export function CommandPalette({ commands, draw, onClose }: { commands: Command[
       return [...first, ...commands.filter((c) => !seen.includes(c.id))].slice(0, 60);
     }
     const found = commands.map((c) => ({ c, s: score(query, c) + (recent().includes(c.id) ? 3 : 0) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s).map((x) => x.c);
-    // A name or SMILES that draws a structure goes first unless a command matches it closely.
-    const structure = drawFor(query.trim());
-    return (structure && !(found[0] && score(query, found[0]) >= 70) ? [structure, ...found] : structure ? [...found, structure] : found).slice(0, 60);
-  }, [query, commands]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Structures by name: Octet's own names, then the name as typed. They go first unless a command matches closely,
+    // and come before commands that match only loosely.
+    const own = named(query.trim(), done), structure = done ? drawFor(query.trim()) : undefined;
+    const draws = [...own, ...(structure && !own.some((c) => c.id.toLowerCase() === structure.id.toLowerCase()) ? [structure] : [])];
+    const strong = found.filter((c) => score(query, c) >= 40), loose = found.filter((c) => score(query, c) < 40);
+    return (found[0] && score(query, found[0]) >= 70 ? [...strong, ...draws, ...loose] : [...draws, ...strong, ...loose]).slice(0, 60);
+  };
+  const results = useMemo(() => listFor(query, read === query.trim()), [query, read, commands]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => setActive(0), [query]);
   useEffect(() => { list.current?.querySelector(`[data-i="${active}"]`)?.scrollIntoView({ block: "nearest" }); }, [active]);
 
@@ -85,7 +99,12 @@ export function CommandPalette({ commands, draw, onClose }: { commands: Command[
                 const n = results.length || 1;
                 setActive((i) => (i + (e.key === "ArrowDown" ? 1 : -1) + n) % n);
               }
-              if (e.key === "Enter") { e.preventDefault(); go(results[active]); }
+              // Return before the name has been read reads it now.
+              if (e.key === "Enter") {
+                e.preventDefault();
+                const now = read === query.trim() ? results : listFor(query, true);
+                go(now[Math.min(active, now.length - 1)]);
+              }
               // The search field keeps the focus (the list follows it), so Escape still closes the palette and no key
               // reaches the drawing behind it.
               if (e.key === "Tab") e.preventDefault();

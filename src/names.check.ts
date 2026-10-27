@@ -5,9 +5,9 @@
 // H3NPS) and 129 none.
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
-import { COMMON, commonKey } from "./common.ts";
+import { citable, COMMON, commonKey } from "./common.ts";
 import { DRUGS } from "./drugs.ts";
-import { attachOpsin, knownName, looksLikeSmiles, nameToSmiles } from "./names.ts";
+import { abbreviationOf, attachOpsin, knownName, looksLikeSmiles, nameToSmiles, namesStarting } from "./names.ts";
 
 const dir = new URL("./vendor/opsin/", import.meta.url);
 if (!existsSync(new URL("opsin.js", dir))) { console.log("names.check: skipped (no OPSIN build)"); process.exit(0); }
@@ -24,12 +24,15 @@ for (let p = 0; ; ) {
 const opsin = await import(new URL("opsin.js", dir).href);
 opsin.init();
 const index: Record<string, string> = JSON.parse(readFileSync(new URL("./nameindex.json", import.meta.url), "utf8"));
-attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"), index, DRUGS);
+const cites: Record<string, string> = JSON.parse(readFileSync(new URL("./abbreviations.json", import.meta.url), "utf8"));
+// Before the engine loads, the search has common.ts alone.
+assert.deepEqual(namesStarting("tren"), ["TREN"]);
+attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"), index, DRUGS, cites);
 const indigo = await (await import(new URL("../node_modules/indigo-ketcher/indigo-ketcher-norender.js", import.meta.url).href)).default();
 const options = (kv: Record<string, string> = {}) => { const o = new indigo.MapStringString(); for (const [k, v] of Object.entries(kv)) o.set(k, v); return o; };
 // What the app draws for SMILES, and its standard InChI (tools/names/index.mjs: Indigo's layout, and an atom bonded
 // to a metal keeps the hydrogens Octet draws).
-const { build, drawnKet: drawn, inchiOf } = await import(new URL("../tools/names/index.mjs", import.meta.url).href);
+const { abbreviations, build, countsOf, drawnKet: drawn, inchiOf } = await import(new URL("../tools/names/index.mjs", import.meta.url).href);
 const inchiKey = (s: string) => { const o = options(); try { return indigo.convert(s, "inchi-key", o).trim() as string; } catch { return undefined; } finally { o.delete(); } };
 const keyOf = (smiles: string) => inchiKey(drawn(smiles));
 const partKeys = (smiles: string) => smiles.split(".").map(keyOf).sort();
@@ -82,6 +85,47 @@ const inchi = (smiles: string) => inchiOf(smiles) as string | undefined;
 for (const [key, name] of Object.entries(index)) assert.equal(inchi(nameToSmiles(name) ?? ""), key, `${name} reads back`);
 assert.equal(knownName(inchi(DRUGS.imatinib)), "imatinib");
 assert.equal(knownName(inchi(opsin.parseToSmiles(COMMON.DBU))), COMMON.DBU);
+
+// Literature abbreviations. TREN is tris(2-aminoethyl)amine, whatever its case, spaces or hyphens.
+const tren = inchi(opsin.parseToSmiles("tris(2-aminoethyl)amine"));
+for (const name of ["TREN", "tren", "Tren", "T-REN"]) assert.equal(inchi(nameToSmiles(name) ?? ""), tren, name);
+assert.equal(inchi(nameToSmiles("[Ru(bpy)3]Cl2") ?? ""), inchi(nameToSmiles("Ru(bpy)3Cl2") ?? ""));
+// The search: Octet's own names that begin as typed, the exact one first, then the shortest, one per structure.
+assert.deepEqual(namesStarting("TR").slice(0, 4), ["Trp", "TREN", "Tris", "trien"]);
+assert.deepEqual(namesStarting("TRE").slice(0, 1), ["TREN"]);
+assert.equal(namesStarting("en")[0], "en");
+assert.equal(namesStarting("dppb")[0], "dppb");
+assert.ok(namesStarting("dppb").includes("dppbz"));
+assert.deepEqual(namesStarting("Et3N"), ["Et3N", "Et3N·HCl"]);
+assert.ok(!namesStarting("TE").includes("Et3N") && namesStarting("TE").includes("TEA"));
+assert.ok(namesStarting("tris").filter((n) => n.toLowerCase().startsWith("tris(hydroxymethyl)") || n === "Tris").length === 1, "Tris once");
+assert.deepEqual(namesStarting("sertral"), ["sertraline"], "drug names once the engine has loaded");
+assert.equal(namesStarting("x".repeat(30)).length, 0);
+assert.ok(namesStarting("p", 8).length === 8);
+
+// What can be cited after a name: not the structure's formula in element symbols, not a drug's name. An acronym whose
+// letters are element symbols (NBS, DIOP) is cited.
+const counts = (k: string) => countsOf(inchi(nameToSmiles(k) ?? "") ?? "InChI=1S/");
+for (const k of ["CH2Cl2", "NaCl", "K2CO3", "(COCl)2", "H2O", "D2O", "CDCl3", "PdCl2", "LiAlH4", "NaOH", "KCN", "CuSO4", "FeCl3", "Mn(CO)5Br", "aspirin", "naproxen"]) assert.ok(!citable(k, counts(k)), k);
+for (const k of ["TREN", "Et3N", "AcOH", "TsCl", "PPh3", "Pd(OAc)2", "CuTC", "LAH", "DMSO-d6", "IMes·HCl", "Wilkinson's catalyst", "NBS", "DIOP", "DBU", "HFIP", "PCC"]) assert.ok(citable(k, counts(k)), k);
+assert.ok(!citable("CuSO4·5H2O", { Cu: 1, S: 1, O: 9, H: 10 }));
+// The abbreviations by InChI are up to date, and each is the first citable key listed for its structure.
+assert.deepEqual(abbreviations(), cites, "src/abbreviations.json is out of date: run node tools/names/index.mjs");
+assert.equal(abbreviationOf(tren), "TREN");
+assert.equal(abbreviationOf(inchi("CCN(CC)CC")), "Et3N");
+assert.equal(abbreviationOf(inchi("ClCCl")), "DCM");
+assert.equal(abbreviationOf(inchi(nameToSmiles("LiAlH4") ?? "")), "LAH");
+assert.equal(abbreviationOf(inchi("CC(=O)CC(C)=O")), "acacH");
+assert.equal(abbreviationOf(inchi("O")), undefined, "water");
+assert.equal(abbreviationOf(inchi("[Na+].[Cl-]")), undefined, "NaCl");
+assert.equal(abbreviationOf(inchi("CC(=O)Oc1ccccc1C(O)=O")), undefined, "aspirin is a name");
+assert.equal(abbreviationOf(inchi("C[C@H](N)C(O)=O")), "Ala");
+assert.equal(abbreviationOf(inchi("C[C@@H](N)C(O)=O")), undefined, "D-alanine is not Ala");
+// An entry drawn with no stereochemistry also names a drawing with it: (R,R)-DIOP is DIOP.
+const diop = inchi("CC1(C)O[C@H](CP(c2ccccc2)c2ccccc2)[C@@H](CP(c2ccccc2)c2ccccc2)O1");
+assert.ok(diop?.includes("/t"));
+assert.equal(abbreviationOf(diop), "DIOP");
+assert.equal(abbreviationOf(undefined), undefined);
 
 // 200 common drug and reagent names, with the standard InChIKey of the structure each should give. PCC and
 // Wilkinson's catalyst are drawn as Octet draws them (pyridinium chlorochromate as an ion pair, Rh bonded to Cl),

@@ -675,8 +675,11 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       </header>
 
       {facts.current && whole && facts.current.slice(0, 3).map((a, k) => (
-        <button key={k} className="facts" onClick={() => run(`copy_text:${a.formula}, ${massText(a, "weight", 2)} g/mol`)} data-tip={`${Number.isFinite(a.exact) ? `Exact mass ${massText(a, "exact", 4)}. ` : ""}Click to copy.`}>
-          <span className="formula">{formula(a.formula)}</span>
+        <button key={k} className="facts" onClick={() => run(`copy_text:${a.abbreviation ? `${a.abbreviation}, ` : ""}${a.formula}, ${massText(a, "weight", 2)} g/mol`)} data-tip={`${Number.isFinite(a.exact) ? `Exact mass ${massText(a, "exact", 4)}. ` : ""}Click to copy.`}>
+          <span className="facts-what">
+            {a.abbreviation && <><span className="facts-abbreviation">{a.abbreviation}</span><span aria-hidden> · </span></>}
+            <span className="formula">{formula(a.formula)}</span>
+          </span>
           <span>{massText(a, "weight", 2)} g/mol</span>
         </button>
       ))}

@@ -324,6 +324,13 @@ console.log("edit.check: align ok");
   assert.equal(withGrid.grids?.length, 2);
   assert.deepEqual(withGrid.grids![1], { arrow: withGrid.arrows![1].id, typed: { r0: { mass: 0.5 } }, limiting: "r0" });
   assert.deepEqual(extractSelection(gridded, new Set([0, 1, 2]), new Set()).grids, []);
+  // A caption tied to a structure or an arrow, picked on its own, copies as free text where it is drawn (Sam, 27 October
+  // 2026: text tied to a molecule would not copy). Picked with its structure, it stays tied.
+  const at = (c: { id: number }) => (c.id === 12 ? [5, -2] as [number, number] : c.id === 11 ? [4, 1] as [number, number] : undefined);
+  const alone = extractSelection(m, new Set(), new Set([11, 12]), at);
+  assert.deepEqual(alone.captions?.map((c) => [c.text, c.x, c.y, c.under, c.on, c.bold]), [["heat", 4, 1, undefined, undefined, undefined], ["1", 5, -2, undefined, undefined, true]]);
+  assert.equal(insertMol(m, alone, [1, 0]).mol.captions?.length, 4, "the free copies paste");
+  assert.deepEqual(extractSelection(m, new Set([0, 1, 2]), new Set([12]), at).captions?.map((c) => c.under), [[0, 1, 2]]);
   console.log("edit.check: copy and paste ok");
 }
 

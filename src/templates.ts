@@ -14,6 +14,10 @@ export const MY_SET = "My templates";
 export const templateKind = (id: string) => `custom:${id}`;
 // The id of one of the user's templates from its kind, or undefined for a built-in one.
 export const ownId = (kind: string) => (kind.startsWith("custom:") ? kind.slice(7) : undefined);
+// A structure the library's search found by name or abbreviation (TREN, a name OPSIN reads), as a template: its kind,
+// and the name from a kind (undefined for any other kind).
+export const namedKind = (name: string) => `name:${name}`;
+export const kindName = (kind: string) => (kind.startsWith("name:") ? kind.slice(5) : undefined);
 // A set's name as it is kept: trimmed, at most 40 characters.
 export const setName = (name: string) => name.trim().slice(0, 40);
 

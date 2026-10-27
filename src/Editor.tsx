@@ -64,7 +64,7 @@ import { alignByMap, clearScheme, interpret, mapScheme, rolesOf, type Part, type
 import { SEARCHES, searchNow, searchQuery } from "./search";
 import { moduleOf, SettingsWindow, type ModuleId } from "./SettingsWindow";
 import { layoutCycles, orderAround, spreadCycle, type Cycle, type CycleText } from "./cycle";
-import { LIBRARY, libraryItem } from "./library";
+import { LIBRARY, libraryItem, type LibraryItem } from "./library";
 import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
 import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, ELLIPSES, HOLD_MS, Palette, pickHead, RingGlyph, RINGS, SELECTS, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
@@ -73,16 +73,17 @@ import {
 import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
 import { dragCursor, rotateCursor, selectCursor } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
-import { loadNames, nameToSmiles, nameToAtoms, suggestName, knownName, looksLikeSmiles } from "./names";
+import { abbreviationOf, loadNames, nameToSmiles, nameToAtoms, namesStarting, suggestName, knownName, looksLikeSmiles } from "./names";
 import { casProblem, nameList } from "./dictionary";
-import { checkedName, graphOf, setComplexNamer, setNamer } from "./naming";
+import { commonKey } from "./common";
+import { checkedName, graphOf, setComplexNamer, setNamer, withAbbreviation } from "./naming";
 import { iupacName } from "./namer";
 import { sandwichIons } from "./metals";
 import { complexName } from "./complexes";
 
 setNamer(iupacName);
 setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, inchi: toInchi, aux: toInchiAux, cip: cipOf }));
-import { addSet, addTo, freeSetName, loadTemplates, moveTemplate, MY_SET, newTemplate, removeSet, removeTemplate, renameSet, renameTemplate, setName, templateKind } from "./templates";
+import { addSet, addTo, freeSetName, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, removeSet, removeTemplate, renameSet, renameTemplate, setName, templateKind } from "./templates";
 import { formulaRuns } from "./labels";
 import { captionAtom, captionsToAtoms, chemicalCaption, interpretLabels, labelable, withCaptionAtoms } from "./edit";
 import { bendOf, cutSides } from "./masscut";
@@ -359,6 +360,21 @@ const nicknameMol = (name: string) => {
   if (!nicknameMols.has(name)) { const smiles = labelSmiles(name); try { nicknameMols.set(name, smiles ? parseStructure(smiles) : undefined); } catch { nicknameMols.set(name, undefined); } }
   return nicknameMols.get(name);
 };
+// Structures for names and abbreviations (TREN, dppf, a name OPSIN reads), laid out once each: the template library's
+// results for them, and the Ring or Template tool holding one ("name:" kinds). Undefined until Indigo and the names
+// engine have loaded, and then kept.
+const namedMols = new Map<string, Mol>();
+const namedMol = (name: string): Mol | undefined => {
+  if (namedMols.has(name)) return namedMols.get(name);
+  const smiles = nameToSmiles(name);
+  let m: Mol | undefined;
+  try { m = smiles ? parseStructure(smiles) : undefined; } catch { m = undefined; }
+  if (!m?.atoms.length) return undefined;
+  if (namedMols.size >= 500) namedMols.clear();
+  namedMols.set(name, m);
+  return m;
+};
+const namedOf = (kind: string) => { const name = kindName(kind); return name ? namedMol(name) : undefined; };
 // The tools that work on an atom also work on a caption that counts as chemistry (edit.ts chemicalCaption), made an
 // atom when they press it. elementSteps names the undo step each press makes.
 const ATOM_TOOLS = new Set<Tool>(["bond", "chain", "ring", "template", "symbol"]);
@@ -497,7 +513,7 @@ export default function Editor() {
   const bondKind = (settings.variants.bond in BONDS ? settings.variants.bond : "single") as BondKind;
   // The user's own rings, and the one in hand (a built-in RingKind or a template's kind).
   const templates = useMemo(() => loadTemplates(settings.templates), [settings.templates]);
-  const ringKind = settings.variants.ring in RINGS || templates.some((t) => templateKind(t.id) === settings.variants.ring) || libraryItem(settings.variants.ring) ? settings.variants.ring : "benzene";
+  const ringKind = settings.variants.ring in RINGS || templates.some((t) => templateKind(t.id) === settings.variants.ring) || libraryItem(settings.variants.ring) || namedOf(settings.variants.ring) ? settings.variants.ring : "benzene";
   // The library to show again after a change made away from it: the tool it is beside, the set it opens on, and a
   // template just added, whose name is ready to type there. n: changes each time, so the same one shows again.
   const [reveal, setReveal] = useState<{ tool: TemplateTool; set: string; id?: string; n: number }>();
@@ -533,7 +549,7 @@ export default function Editor() {
     const kind = contextOf().kind;
     if (kind !== "atom" && kind !== "bond") return selectedPart();
     const [atoms, items] = wholeIntegral(doc, new Set(fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat()), picked);
-    return extractSelection(doc, atoms, items);
+    return extractSelection(doc, atoms, items, drawnAt);
   };
   // Add in My templates or a set of the user's: the selection goes in at once. With nothing selected, the library gets
   // out of the way and the next structure clicked goes in (templatePick); Escape stops it.
@@ -553,7 +569,7 @@ export default function Editor() {
   const selectKind = (settings.variants.select in SELECTS ? settings.variants.select : "box") as SelectKind;
   const symbolKind = (settings.variants.symbol in SYMBOLS ? settings.variants.symbol : "plus") as SymbolKind;
   // The template in hand: a library one or the user's own.
-  const templateMol = (kind: string) => templates.find((x) => templateKind(x.id) === kind)?.mol ?? libraryItem(kind)?.mol;
+  const templateMol = (kind: string) => templates.find((x) => templateKind(x.id) === kind)?.mol ?? libraryItem(kind)?.mol ?? namedOf(kind);
   const templateVariant = templateMol(settings.variants.template) ? settings.variants.template : "lib:Alanine";
   // The Shape and Bracket tools' choices. A line or arc from the Shape tool is drawn like an arrow, with no head.
   const shapeChoice = shapeSpec(settings.variants.shape) ? settings.variants.shape : "box-plain";
@@ -806,6 +822,18 @@ export default function Editor() {
     // A MOL file keeps its first line, which is often blank (the name).
     try { const m = parseStructure(lines ? text.trimEnd() : s); return m.atoms.length ? asOpened(m, text) : undefined; } catch (err) { if (err instanceof RangeError) refused?.(err.message); return undefined; }
   };
+  // Octet's own names that begin as typed (TREN and Tris for "TR"). Drawing one takes a few milliseconds, so while typing
+  // (read false) only the ones drawn before come; once typing pauses (read true), all of them and the name as typed, or
+  // Octet's suggestion for it.
+  const namesFor = (q: string, read: boolean, most: number) => {
+    const names = namesStarting(q, most).filter((name) => read || namedMols.has(name)), typed = read ? (nameToSmiles(q) ? q.trim() : suggestName(q, false)) : undefined;
+    return typed && !names.some((n) => commonKey(n) === commonKey(typed)) ? [...names, typed] : names;
+  };
+  // The template library's results for names (LibraryPanel), each a template.
+  const findNamed = useMemo(() => (q: string, read: boolean): LibraryItem[] => !loaded || !namesLoaded ? [] : namesFor(q, read, 8).flatMap((name) => {
+    const mol = namedMol(name);
+    return mol ? [{ kind: namedKind(name), name, category: "Names", mol }] : [];
+  }), [loaded, namesLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
   // A structure for a name typed with a slip in it: the name as typed, or else Octet's suggestion (thorough: from every
   // name one keystroke away too, 30 to 90 ms).
   const structureOrSuggestion = (text: string, thorough = false): { frag: Mol; name: string } | undefined => {
@@ -923,11 +951,13 @@ export default function Editor() {
   }
   // The selection as a drawing of its own, kept while the drawing and the selection stay the same.
   const partKept = useRef<{ doc: Mol; selection: Set<number>; picked: Set<number>; part: Mol }>(undefined);
+  // Where a caption is drawn: a picked caption copied without its structure, arrow or cycle goes there as free text.
+  const drawnAt = (c: Caption) => { const q = placed.find((x) => x.id === c.id); return q && anchorOf(q); };
   const selectedPart = () => {
     if (!selection.size && !picked.size) return undefined;
     const s = partKept.current;
     if (s?.doc === doc && s.selection === selection && s.picked === picked) return s.part;
-    return (partKept.current = { doc, selection, picked, part: extractSelection(doc, selection, picked) }).part;
+    return (partKept.current = { doc, selection, picked, part: extractSelection(doc, selection, picked, drawnAt) }).part;
   };
   // Export… (⌃⌘E, and the Export button): the settings first, with the whole drawing's picture and, when something is
   // selected, the selection's. The chosen format is made when the dialog shows it. Then the Save dialog for that format.
@@ -3336,7 +3366,7 @@ export default function Editor() {
       if (!part) return;
       setTemplatePick(undefined);
       setHover({});
-      return addPart(extractSelection(doc, ...part), templatePick.set, templatePick.tool);
+      return addPart(extractSelection(doc, ...part, drawnAt), templatePick.set, templatePick.tool);
     }
     // On the Mac a Control-click is the right-click (onContextMenu): the press does nothing more, but on a resize handle.
     if (MAC && e.ctrlKey) {
@@ -3989,6 +4019,8 @@ export default function Editor() {
       // A metallocene drawn with the j key is named as its ions, as OPSIN and the standard InChI have it.
       const p = sandwichIons(part) ?? part;
       try { name = checkedName(p, expandLabels(p), nameToSmiles, inchiOf, cipOf, knownName); } catch { name = undefined; }
+      // The abbreviation follows the checked name, as in an experimental section: "... (TREN)".
+      if (name) name = withAbbreviation(name, abbreviationOf(inchiOf(p)));
       nameCache.current.set(key, name ?? null);
     }
     return nameCache.current.get(key) ?? undefined;
@@ -4319,8 +4351,9 @@ export default function Editor() {
   const analysis = useMemo(() => {
     if (!loaded || !facts) return undefined;
     const own = selection.size ? undefined : pickedChem(picked);
-    return analyse(selection.size ? subset(doc, selection) : own ? subset(chem.mol, own) : chem.mol, 3);
-  }, [loaded, facts, doc, chem, selection, picked]); // eslint-disable-line react-hooks/exhaustive-deps
+    // With each structure's abbreviation, once the names engine has loaded (TREN · C6H18N4).
+    return analyse(selection.size ? subset(doc, selection) : own ? subset(chem.mol, own) : chem.mol, 3, namesLoaded ? abbreviationOf : undefined);
+  }, [loaded, facts, doc, chem, selection, picked, namesLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
   // The Properties panel's values, while it is open: for each structure in the selection (or the drawing), with
   // each structure's atoms in the drawing (for Add to drawing). While a box or lasso sweeps, the panel keeps the
   // values it has until the pointer stops for a moment or lets go, so it does not work them out on every move.
@@ -4805,6 +4838,12 @@ export default function Editor() {
     const { frag, name: shown } = found;
     return { id: `draw:${shown}`, name: `Draw ${shown}`, group: "Structure", icon: <TemplateGlyph mol={frag} />, run: () => { place(frag); if (structureFor(shown)) rememberName(shown, frag); } };
   };
+  // Octet's own names that begin as typed (TREN and Tris for "TR"), each as a command that draws it: the ones drawn before
+  // while typing, all of them once typing pauses (read).
+  const nameCommands = (q: string, read: boolean): Command[] => (loaded && namesLoaded ? namesStarting(q, 6).filter((name) => read || namedMols.has(name)) : []).flatMap((name) => {
+    const frag = namedMol(name);
+    return frag ? [{ id: `draw:${name}`, name: `Draw ${name}`, group: "Structure", icon: <TemplateGlyph mol={frag} />, run: () => { place(frag); rememberName(name, frag); } }] : [];
+  });
 
   // Runs an action from the panel on the selected atom, bond or atoms.
   // Colour by Element: the selected (or every) heteroatom label in its element's colour (the brand's element colours,
@@ -5307,8 +5346,8 @@ export default function Editor() {
       return mol ? set(addTemplate(doc, mol, { ...(t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : {}), point: at })) : undefined;
     }
     if (tool === "ring") {
-      const custom = templates.find((x) => templateKind(x.id) === ringKind) ?? libraryItem(ringKind);
-      if (custom) return set(addTemplate(doc, custom.mol, { ...(t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : {}), point: at }));
+      const custom = templates.find((x) => templateKind(x.id) === ringKind)?.mol ?? libraryItem(ringKind)?.mol ?? namedOf(ringKind);
+      if (custom) return set(addTemplate(doc, custom, { ...(t.bond !== undefined ? { bond: t.bond } : t.atom !== undefined ? { atom: t.atom } : {}), point: at }));
       const r: { n: number; aromatic: boolean; chair?: 1 | 2 } = RINGS[ringKind as RingKind];
       if (r.chair) return set(addChair(doc, r.chair, t.bond !== undefined ? { bond: t.bond } : { point: at }));
       // As in ChemDraw: a click on an atom makes a spiro ring, and Option-click sprouts the ring on a new bond (the
@@ -5356,7 +5395,7 @@ export default function Editor() {
     // A selection let go on a template set (or the Ring or Template tool) goes into it and stays where it was. Copies an
     // Option-drag made are not kept.
     if (drag.kind === "move" && drag.moved && over?.dataset.dropSet) {
-      const part = extractSelection(drag.base ?? doc, drag.atoms ?? selection, picked);
+      const part = extractSelection(drag.base ?? doc, drag.atoms ?? selection, picked, drawnAt);
       if (drag.base && drag.base !== doc) { setSelection(new Set()); setPicked(new Set()); }
       return addPart(part, over.dataset.dropSet, over.dataset.dropTool === "template" ? "template" : "ring");
     }
@@ -6679,10 +6718,15 @@ export default function Editor() {
               if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); commitWriting(); }
               if (e.key === "Tab" && !e.shiftKey && writing.at && writing.id === undefined) { e.preventDefault(); tabCaption(); }
               if (e.key === "Escape") { e.preventDefault(); commitWriting(); } // Escape keeps the text, as a click elsewhere does
-              // ChemDraw's text keys, in the browser (the desktop app's Text menu has them too).
-              if (!TAURI && (e.metaKey || e.ctrlKey)) {
+              // ChemDraw's text keys. The text box takes them first (in the app too: the web view gets the keystroke before
+              // the Text menu does), and marks them so the same command from the menu does not run twice.
+              if (TAURI ? (MAC ? e.metaKey : e.ctrlKey) : e.metaKey || e.ctrlKey) {
                 const k = e.key.toLowerCase(), command = e.shiftKey && k === "n" ? "name_to_structure" : { b: "caption.bold", i: "caption.italic", u: "caption.underline", t: "caption.plain", f: "caption.formula", "-": "caption.sub", "=": "caption.super", "+": "caption.super" }[k];
-                if (command) { e.preventDefault(); runAction(command); }
+                if (command) {
+                  e.preventDefault();
+                  if (TAURI) pageRan.current = { id: command.startsWith("caption.") ? `text_${command.slice(8)}` : command, at: performance.now() };
+                  runAction(command);
+                }
               }
             }}
             onBlur={() => commitWriting()}
@@ -6846,7 +6890,9 @@ export default function Editor() {
         }}
         onAdd={addToSet}
         onRename={(id, name) => setSettings((s) => renameTemplate(s, id, name))}
-        onCopy={(kind, set, tool) => { const t = libraryItem(kind); if (t) addPart(t.mol, set, tool, t.name); }}
+        onCopy={(kind, set, tool) => { const m = libraryItem(kind)?.mol ?? namedOf(kind); if (m) addPart(m, set, tool, libraryItem(kind)?.name ?? kindName(kind)); }}
+        named={namedOf}
+        findNamed={findNamed}
         onNewSet={askSet}
         onRemoveTemplate={removeRingTemplate}
         popKey={pop?.n ?? 0}
@@ -7332,7 +7378,7 @@ export default function Editor() {
           {explaining.map((p, k) => <p key={k} className="dialog-note">{p.message}</p>)}
         </Dialog>
       )}</Exit>
-      {commandsOpen && <CommandPalette commands={paletteCommands()} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}
+      {commandsOpen && <CommandPalette commands={paletteCommands()} named={nameCommands} draw={drawCommand} onClose={() => setCommandsOpen(false)} />}
       <Exit>{notice && <NoticeBar notice={notice} onGone={() => showNotice(undefined)} />}</Exit>
       <Tooltips />
     </div>
