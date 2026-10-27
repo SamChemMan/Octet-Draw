@@ -7,10 +7,10 @@ import { condensedSmiles } from "./condensed.ts";
 // Each compound's SMILES, and the compound for each name key, CAS number and InChIKey. beforeOpsin: names OPSIN reads
 // as another compound than the one Wikidata and PubChem give (tropicamide), marked "!" in the table.
 let smiles: string[] = [];
-const byName = new Map<string, number>(), beforeOpsin = new Map<string, number>(), byCas = new Map<string, number>(), byKey = new Map<string, number>();
-// The names, lower case, sorted (for completion), and their trigrams (for spelling mistakes).
+let byName = new Map<string, number>(), beforeOpsin = new Map<string, number>(), byCas = new Map<string, number>(), byKey = new Map<string, number>();
+// The names, lower case, and the names with each trigram (for completion and spelling mistakes), by index.
 let lower: string[] = [];
-let grams = new Map<string, Int32Array>();
+let grams = new Map<string, number[]>();
 
 // Loads the table (once), gzipped next to the app. names.ts starts it with OPSIN.
 let loading: Promise<void> | undefined;
@@ -27,12 +27,12 @@ export function loadDictionary(): Promise<void> {
 
 // The table: a compound a line, its SMILES, names (| between), CAS numbers (| between), InChIKey, and names OPSIN
 // reads (for suggestions only), tab-separated.
-// sliced: read 4,000 lines at a time with a pause between, so typing and drawing never wait. The checks read it whole.
+// sliced: read 2,000 lines at a time with a pause between, so typing and drawing never wait. The checks read it whole.
 export async function attachDictionary(text: string, sliced = false) {
   const next: string[] = [], names = new Map<string, number>(), first = new Map<string, number>(), cas = new Map<string, number>(), keys = new Map<string, number>(), shown = new Set<string>();
   const lines = text.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    if (sliced && i % 4000 === 3999) await pause();
+    if (sliced && i % 2000 === 1999) await pause();
     const [s, ns, cs, key, read] = lines[i].split("\t");
     if (!s || s.length > 4000) continue;
     const n = next.push(s) - 1;
@@ -45,15 +45,12 @@ export async function attachDictionary(text: string, sliced = false) {
     if (key && !keys.has(key)) keys.set(key, n);
     for (const name of read ? read.split("|") : []) shown.add(name.toLowerCase());
   }
-  const sorted = [...shown].sort(), index = new Map<string, number[]>();
-  for (let i = 0; i < sorted.length; i++) {
-    if (sliced && i % 8000 === 7999) await pause();
-    for (const g of trigrams(sorted[i])) { const list = index.get(g); if (list) list.push(i); else index.set(g, [i]); }
+  const all = [...shown], index = new Map<string, number[]>();
+  for (let i = 0; i < all.length; i++) {
+    if (sliced && i % 4000 === 3999) await pause();
+    for (const g of trigrams(all[i])) { const list = index.get(g); if (list) list.push(i); else index.set(g, [i]); }
   }
-  smiles = next;
-  for (const [m, from] of [[byName, names], [beforeOpsin, first], [byCas, cas], [byKey, keys]] as const) { m.clear(); for (const [k, v] of from) m.set(k, v); }
-  lower = sorted;
-  grams = new Map([...index].map(([g, list]) => [g, Int32Array.from(list)]));
+  [smiles, byName, beforeOpsin, byCas, byKey, lower, grams] = [next, names, first, cas, keys, all, index];
 }
 const pause = () => new Promise((ok) => setTimeout(ok, 0));
 
@@ -158,10 +155,10 @@ export function nameList(text: string, read: (name: string) => string | undefine
 
 // ——— Suggestions ———
 // The shortest dictionary name that starts with what was typed (lower case).
+// The names that start with it all start with its first trigram (a space and its first two letters).
 export function completeName(typed: string): string | undefined {
-  let lo = 0, hi = lower.length, best: string | undefined;
-  while (lo < hi) { const mid = (lo + hi) >> 1; if (lower[mid] < typed) lo = mid + 1; else hi = mid; }
-  for (let i = lo; i < lower.length && lower[i].startsWith(typed); i++) if (!best || lower[i].length < best.length) best = lower[i];
+  let best: string | undefined;
+  if (typed.length >= 2) for (const i of grams.get(` ${typed.slice(0, 2)}`) ?? []) if (lower[i].startsWith(typed) && (!best || lower[i].length < best.length)) best = lower[i];
   return best;
 }
 // Dictionary names that could be what was typed (lower case) with up to `most` mistakes: those sharing enough of its

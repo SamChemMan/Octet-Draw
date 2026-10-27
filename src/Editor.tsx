@@ -2268,7 +2268,7 @@ export default function Editor() {
   }, [naming, quick, namesLoaded]);
   const suggestion = quick ?? (thorough && thorough.typed === naming ? thorough.name : undefined);
   // In place of a suggestion: why a CAS number is refused, or the wait for PubChem.
-  const nameNote = naming === undefined ? undefined : asking !== undefined ? "Searching PubChem" : casProblem(naming);
+  const nameNote = naming === undefined ? undefined : asking === naming.trim() ? "Searching PubChem" : casProblem(naming);
   const named = useMemo(
     () => (naming === undefined ? undefined : structureFromText(naming) ?? (suggestion ? structureFor(suggestion) : undefined)),
     [naming, suggestion, namesLoaded, loaded],

@@ -43,7 +43,11 @@ pub async fn pubchem_structure(app: AppHandle, text: String) -> Result<Option<St
     if !*app.state::<crate::search::Online>().0.lock().unwrap() {
         return Err("Online search is off in Settings.".into());
     }
-    let text = text.trim();
+    lookup(text.trim(), &app.package_info().version.to_string()).await
+}
+
+// PubChem's structure for a name or InChIKey. version: Octet's, for the user agent.
+async fn lookup(text: &str, version: &str) -> Result<Option<String>, String> {
     if text.is_empty() || text.len() > MOST_TEXT || text.chars().any(char::is_control) {
         return Ok(None);
     }
@@ -52,7 +56,7 @@ pub async fn pubchem_structure(app: AppHandle, text: String) -> Result<Option<St
         let _ = rustls::crypto::ring::default_provider().install_default();
     }
     let client = reqwest::Client::builder()
-        .user_agent(format!("Octet Draw {}", app.package_info().version))
+        .user_agent(format!("Octet Draw {version}"))
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(10))
         .build()
@@ -100,5 +104,16 @@ mod tests {
         assert_eq!(structure_of("CCO\nCCCO\n").unwrap_err(), SEVERAL);
         assert_eq!(structure_of("<script>alert(1)</script>").unwrap_err(), UNREACHED);
         assert_eq!(structure_of(&"C".repeat(MOST_SMILES + 1)).unwrap_err(), UNREACHED);
+    }
+
+    // Asks PubChem itself, so it runs only when asked: cargo test pubchem -- --ignored
+    #[test]
+    #[ignore]
+    fn pubchem_answers() {
+        let ask = |t: &str| tauri::async_runtime::block_on(lookup(t, "test"));
+        assert_eq!(ask("aspirin").unwrap().as_deref(), Some("CC(=O)OC1=CC=CC=C1C(=O)O"));
+        assert_eq!(ask("Tylenol / paracetamol & co").unwrap(), None);
+        assert_eq!(ask("BSYNRYMUTXBXSQ-UHFFFAOYSA-N").unwrap().as_deref(), Some("CC(=O)OC1=CC=CC=C1C(=O)O"));
+        assert_eq!(ask("qwertyuiopasdf").unwrap(), None);
     }
 }
