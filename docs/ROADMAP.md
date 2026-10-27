@@ -32,7 +32,9 @@ Octet predicts ¹H and ¹³C spectra. It cannot open a measured spectrum.
 
 The Synthesis and Retrosynthesis cut tools (audit item CD-39) are built in 1.0, so only Mass Spec Analysis stays in this step.
 
-- A Mass Spec Analysis mode beside Mass Fragmentation.
+- A Mass Spec Analysis mode beside Mass Fragmentation: built on 27 October 2026 (the Mass spec analysis tool and panel, `src/MassSpec.tsx` and `src/msanalysis.ts`).
+- Still missing against ChemDraw 26.1: a fragmentation line with corners (ChemDraw adds a corner when a key is pressed during the drag), and dragging from a line's end to make it longer. Octet's lines are straight; draw a second line instead.
+- When the measured spectra reader is in, pass its MS peak list to the Mass spec panel (`peaks`).
 
 ### Search Reaxys needs fixing
 

@@ -26,8 +26,9 @@ const HEIGHT = 184, TOP = 40, BASE = 26, PAD = 14; // px: the plot, room for lab
 // Each fragment's colour: the Spectrum panel's peak colours, in its order.
 export const FRAGMENT_COLOURS = ["Blue", "Orange", "Green", "Red", "Purple", "Teal", "Pink", "Gold", "Brown", "Slate"].map((name) => HIGHLIGHT_COLOURS.find(([n]) => n === name)![1]);
 export type MsRow = { ion: IonOf; atoms: number[]; colour: string };
-// Add to drawing: the spectrum (the m/z range shown), each chosen fragment's label, or the HRMS line.
-export type MsAdd = { what: "spectrum"; rows: MsRow[]; range: [number, number] } | { what: "labels"; rows: MsRow[] } | { what: "hrms"; text: string; atoms: number[] };
+// Add to drawing: the spectrum (the m/z range shown, labelled at the calculated m/z), the chosen fragment's label (its
+// ion, formula and calculated m/z), or the HRMS line.
+export type MsAdd = { what: "spectrum"; rows: MsRow[]; range: [number, number]; label: "mono" | "top" } | { what: "label"; row: MsRow; mz: number } | { what: "hrms"; text: string };
 
 type Props = {
   mol: Mol; atoms: number[]; ready: boolean; prefs: MsPrefs; lit?: number; // the drawing, the structure's atoms, Indigo loaded, the atom pointed at
@@ -115,9 +116,9 @@ export function MassSpecPanel(p: Props) {
   })].join("\n");
   const pattern = (r: MsRow) => (r.ion.pattern ?? []).filter((q) => q.rel >= 1).map((q) => `${q.mz.toFixed(d)} (${q.rel.toFixed(q.rel >= 10 ? 0 : 1)})`).join(", ");
 
-  // Labels over each ion's most intense peak, spread apart.
-  const shown = rows.map((r, k) => (r.ion.top !== undefined && r.ion.top >= lo && r.ion.top <= hi ? k : -1)).filter((k) => k >= 0);
-  const places = hi - lo < 30 ? 4 : hi - lo < 300 ? 2 : 1, placed = spread(shown.map((k) => x(rows[k].ion.top!)), places > 2 ? 64 : 48, width), labelAt: number[] = [];
+  // Each ion labelled at its calculated m/z (monoisotopic or most intense, as chosen), the labels spread apart.
+  const shown = rows.map((r, k) => { const m = calc(r); return m !== undefined && m >= lo && m <= hi ? k : -1; }).filter((k) => k >= 0);
+  const places = hi - lo < 30 ? 4 : hi - lo < 300 ? 2 : 1, placed = spread(shown.map((k) => x(calc(rows[k])!)), places > 2 ? 64 : 48, width), labelAt: number[] = [];
   shown.forEach((k, i) => { labelAt[k] = placed[i]; });
   const ticks = mzTicks(lo, hi, width - 2 * PAD), tickPlaces = ticks.length > 1 && ticks[1] - ticks[0] < 1 ? 2 : 0;
 
@@ -136,11 +137,10 @@ export function MassSpecPanel(p: Props) {
         <Segmented label="Charge" value={ionKey === "M" ? "" : String(p.prefs.z)} options={[1, 2, 3, 4].map((z) => [String(z), `${z}`, `Charge ${z}`, ionKey === "M"])} onChange={(z) => set({ z: Number(z) })} />
         <Segmented label="Calculated m/z" value={p.prefs.calc} options={[["mono", "Monoisotopic"], ["top", "Most intense"]]} onChange={(calc) => set({ calc })} />
         <button className="spectrum-button" aria-pressed={pasting} onClick={() => setPasting(!pasting)}>Peak list</button>
-        {mirror && <Select label="Tolerance" value={p.prefs.tolerance} options={TOLERANCES} onChange={(tolerance) => set({ tolerance })} />}
         <span className="spectrum-gap" />
-        <Pick label="Add to drawing" value="" className="spectrum-button" title="Put the spectrum, the fragment labels or the HRMS line on the page" disabled={!rows.length}
-          groups={[[{ key: "spectrum", name: "Spectrum", icon: <ChartBar size={18} /> }, { key: "labels", name: "Fragment labels", icon: <Tag size={18} /> }, { key: "hrms", name: "HRMS line", icon: <Article size={18} /> }]]}
-          onPick={(what) => p.onAdd(what === "spectrum" ? { what, rows, range: [lo, hi] } : what === "labels" ? { what, rows: rows.length > 1 ? rows.slice(1) : rows } : { what: "hrms", text: line, atoms: molecule?.atoms ?? [] })}>
+        <Pick label="Add to drawing" value="" className="spectrum-button" title="Put the spectrum, the chosen fragment's label or the HRMS line on the page" disabled={!rows.length}
+          groups={[[{ key: "spectrum", name: "Spectrum", icon: <ChartBar size={18} /> }, { key: "label", name: "Fragment label", icon: <Tag size={18} /> }, { key: "hrms", name: "HRMS line", icon: <Article size={18} /> }]]}
+          onPick={(what) => (what === "spectrum" ? p.onAdd({ what, rows, range: [lo, hi], label: p.prefs.calc }) : what === "label" ? one && oneCalc !== undefined && p.onAdd({ what, row: one, mz: oneCalc }) : p.onAdd({ what: "hrms", text: line }))}>
           Add to drawing
         </Pick>
         <Pick label="Copy" value="" className="spectrum-button" title="Copy the HRMS line, the table or the isotope pattern" disabled={!rows.length}
@@ -150,8 +150,11 @@ export function MassSpecPanel(p: Props) {
         </Pick>
       </div>
       {pasting && (
-        <textarea className="massspec-peaks" value={pasted} rows={3} maxLength={2_000_000} spellCheck={false} aria-label="Peak list"
-          placeholder="m/z  intensity" onChange={(e) => setPasted(e.target.value)} />
+        <div className="massspec-peaks-row">
+          <textarea className="massspec-peaks" value={pasted} rows={3} maxLength={2_000_000} spellCheck={false} aria-label="Peak list"
+            placeholder="m/z  intensity" onChange={(e) => setPasted(e.target.value)} />
+          <Select label="Tolerance" value={p.prefs.tolerance} options={TOLERANCES} onChange={(tolerance) => set({ tolerance })} />
+        </div>
       )}
       <div className="spectrum-body">
         <div ref={box} className="spectrum-plot">
@@ -193,8 +196,8 @@ export function MassSpecPanel(p: Props) {
               const r = rows[k], tip = mirror ? axis : up(100), ly = TOP - 18;
               return (
                 <g key={`l${k}`} className={`massspec-label${lit(k) ? " lit" : ""}${chosen === k ? " chosen" : ""}`} style={{ fill: r.colour }} data-tip={`${r.ion.label} ${r.ion.formula}`}>
-                  <path className="spectrum-leader" d={`M${labelAt[k]} ${ly + 4}L${labelAt[k]} ${ly + 8}L${x(r.ion.top!)} ${Math.max(ly + 9, tip - 3)}`} />
-                  <text x={labelAt[k]} y={ly} textAnchor="middle">{r.ion.top!.toFixed(places)}</text>
+                  <path className="spectrum-leader" d={`M${labelAt[k]} ${ly + 4}L${labelAt[k]} ${ly + 8}L${x(calc(r)!)} ${Math.max(ly + 9, tip - 3)}`} />
+                  <text x={labelAt[k]} y={ly} textAnchor="middle">{calc(r)!.toFixed(places)}</text>
                 </g>
               );
             })}
@@ -227,7 +230,7 @@ export function MassSpecPanel(p: Props) {
         <span className="spectrum-gap" />
         <Select label="Source" value={p.prefs.source} options={SOURCES.map((s) => [s, s])} onChange={(source) => set({ source })} />
         <label className="massspec-found">Found
-          <NumberField label="Found m/z" value={foundMz} min={0.0001} max={100000} step={0.0001} placeholder="m/z" onChange={setTyped} onClear={() => setTyped(undefined)} lazy />
+          <NumberField label="Found m/z" value={foundMz} min={0.0001} max={100000} step={0.0001} placeholder="m/z" onChange={setTyped} onClear={() => setTyped(undefined)} />
         </label>
         <span className="massspec-ppm" aria-live="polite">{foundMz !== undefined && oneCalc ? `${ppm(foundMz, oneCalc) >= 0 ? "+" : "−"}${Math.abs(ppm(foundMz, oneCalc)).toFixed(1)} ppm` : ""}</span>
       </footer>

@@ -145,6 +145,10 @@ for (const [smiles, n] of [["O=[Os](=O)(=O)=O", 4], ["Cl[Ir]", 2], ["N[Pt](N)(Cl
 assert.equal(ms.hrmsLine({ source: "ESI", label: "[M+H]+", formula: "C10H13O2", calcd: mh.mono!, found: 165.0912 }), "HRMS (ESI) m/z: [M+H]+ calcd for C10H13O2 165.0910; found 165.0912.");
 assert.equal(ms.hrmsLine({ source: "EI", label: mdot.label, formula: mdot.formula, calcd: mdot.mono! }), "HRMS (EI) m/z: [M]+• calcd for C8H8O 120.0570.");
 near(ms.ppm(165.0912, mh.mono!), 1.18, 0.01, "ppm");
+// As a caption: the charge a superscript, a formula's counts subscripts, and a count of adducts left as it is.
+assert.deepEqual(ms.chemRuns("[M−C10H8N2]2+"), [{ text: "[M−C" }, { text: "10", script: "sub" }, { text: "H" }, { text: "8", script: "sub" }, { text: "N" }, { text: "2", script: "sub" }, { text: "]" }, { text: "2+", script: "super" }]);
+assert.deepEqual(ms.chemRuns("[M+2H]2+"), [{ text: "[M+2H" }, { text: "]" }, { text: "2+", script: "super" }]);
+assert.equal(ms.chemRuns("HRMS (ESI) m/z: [M+H]+ calcd for C10H13O2 165.0910.").filter((r) => r.script).map((r) => `${r.script}:${r.text}`).join(" "), "super:+ sub:10 sub:13 sub:2");
 
 // Peak lists: one to a line with words and headers skipped, JCAMP-DX pairs, scaled to 100.
 assert.deepEqual(ms.parsePeaks("m/z  intensity\n165.0912\t2000\n166.0945 220\nnoise\n"), [{ mz: 165.0912, i: 100 }, { mz: 166.0945, i: 11 }]);

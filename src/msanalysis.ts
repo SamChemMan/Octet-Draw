@@ -181,6 +181,21 @@ export function ionName(key: IonKey, z: number, charge = 0): string {
   return `[M${ion.add ? "+" : MINUS}${n > 1 ? n : ""}${ion.text}]${chargeText(ion.sign * n, false)}`;
 }
 
+// Text as a caption takes it: an ion's charge (after "]") as a superscript, and a formula's counts (digits after a
+// letter or a closing bracket) as subscripts. "[M−C10H8N2]2+" is [M−C₁₀H₈N₂]²⁺; "[M+2H]2+" keeps its 2H.
+export function chemRuns(text: string): { text: string; script?: "sub" | "super" }[] {
+  const out: { text: string; script?: "sub" | "super" }[] = [];
+  let at = 0;
+  for (const m of text.matchAll(/\](\d*[+\u2212]\u2022?)|(?<=[A-Za-z)])\d+/g)) {
+    if (m.index > at) out.push({ text: text.slice(at, m.index) });
+    if (m[1]) out.push({ text: "]" }, { text: m[1], script: "super" });
+    else out.push({ text: m[0], script: "sub" });
+    at = m.index + m[0].length;
+  }
+  if (at < text.length) out.push({ text: text.slice(at) });
+  return out;
+}
+
 // Ionisation sources as experimental sections name them.
 export const SOURCES = ["ESI", "APCI", "APPI", "EI", "CI", "MALDI", "FAB", "ASAP", "DART", "FI"];
 // The HRMS line: "HRMS (ESI) m/z: [M+H]+ calcd for C10H13O2 165.0910; found 165.0912." Without a found value it ends
@@ -255,9 +270,9 @@ export function mzRange(mzs: number[]): [number, number] {
 }
 
 // The stick spectrum as a figure for the page (as spectrumFigure's): an axis with m/z ticks, each ion's isotope
-// peaks over 1% as sticks in its colour, and its most intense peak labelled with its m/z. width and height in bond
-// lengths; em: the labels' size in bond lengths.
-export function msFigure(o: { ions: { ion: IonOf; colour?: string }[]; range: [number, number]; width: number; height: number; em: number; decimals?: number }): Figure {
+// peaks over 1% as sticks in its colour, and each labelled with its monoisotopic m/z (or its most intense peak's, with
+// label "top"). width and height in bond lengths; em: the labels' size in bond lengths.
+export function msFigure(o: { ions: { ion: IonOf; colour?: string }[]; range: [number, number]; width: number; height: number; em: number; label?: "mono" | "top"; decimals?: number }): Figure {
   const [lo, hi] = o.range, W = o.width, H = o.height, em = o.em, x = (mz: number) => ((mz - lo) / (hi - lo)) * W;
   const out: Figure = { lines: [{ from: [0, 0], to: [W, 0] }], curves: [], texts: [] };
   for (const v of mzTicks(lo, hi, W, 4 * em)) {
@@ -268,7 +283,8 @@ export function msFigure(o: { ions: { ion: IonOf; colour?: string }[]; range: [n
   const tops: { at: number; mz: number; colour?: string }[] = [];
   for (const { ion, colour } of o.ions) {
     for (const p of ion.pattern ?? []) if (p.rel >= 1 && p.mz >= lo && p.mz <= hi) out.lines.push({ from: [x(p.mz), 0], to: [x(p.mz), (p.rel / 100) * H], colour });
-    if (ion.top !== undefined && ion.top >= lo && ion.top <= hi) tops.push({ at: x(ion.top), mz: ion.top, colour });
+    const m = o.label === "top" ? ion.top : ion.mono;
+    if (m !== undefined && m >= lo && m <= hi) tops.push({ at: x(m), mz: m, colour });
   }
   // Labels over the peaks, spread apart, each on a leader to its peak.
   const gap = em * 0.6 * 8, order = tops.map((t, i) => ({ t, i })).sort((a, b) => a.t.at - b.t.at), placed: number[] = [];
