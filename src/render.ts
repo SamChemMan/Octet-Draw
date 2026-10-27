@@ -624,10 +624,19 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   const median = [...raw].sort((x, y) => x - y)[Math.floor(raw.length / 2)] || 1;
   const k = scale ?? s.bond / median;
   const pts: P[] = mol.atoms.map((a) => [a.location[0] * k, -a.location[1] * k]); // KET y points up
-  // The neighbours in view: an H hidden by Toggle Hydrogen Display is not one. A carbon with all its H hidden is
-  // then labelled as a lone carbon is (CH4), and a labelled carbon counts its hidden H in its label (CH3).
+  // A bond seen end on (a structure in perspective looked at down a bond: a Newman projection): its atoms less than a
+  // tenth of its length apart on the page. It is not drawn, and the atom behind, when it has no label, is a circle
+  // its other bonds start from (endOn: the atom behind, by bond).
+  const endOn = new Map<Bond, number>();
+  for (const b of mol.bonds) {
+    const [p, q] = b.atoms.map((i) => mol.atoms[i].location), flat = Math.hypot(p[0] - q[0], p[1] - q[1]), deep = Math.abs((p[2] ?? 0) - (q[2] ?? 0));
+    if (deep > 0.3 && flat < 0.1 * Math.hypot(flat, deep)) endOn.set(b, (p[2] ?? 0) < (q[2] ?? 0) ? b.atoms[0] : b.atoms[1]);
+  }
+  // The neighbours in view: an H hidden by Toggle Hydrogen Display is not one, nor the atom at the far end of a bond seen
+  // end on. A carbon with all its H hidden is then labelled as a lone carbon is (CH4), and a labelled carbon counts its
+  // hidden H in its label (CH3).
   const nbrs: number[][] = mol.atoms.map(() => []);
-  mol.bonds.forEach((b) => { if (!mol.atoms[b.atoms[0]].hidden && !mol.atoms[b.atoms[1]].hidden) { nbrs[b.atoms[0]].push(b.atoms[1]); nbrs[b.atoms[1]].push(b.atoms[0]); } });
+  mol.bonds.forEach((b) => { if (!mol.atoms[b.atoms[0]].hidden && !mol.atoms[b.atoms[1]].hidden && !endOn.has(b)) { nbrs[b.atoms[0]].push(b.atoms[1]); nbrs[b.atoms[1]].push(b.atoms[0]); } });
   const bondAt = new Map<string, Bond>();
   const key = (i: number, j: number) => (i < j ? `${i} ${j}` : `${j} ${i}`);
   mol.bonds.forEach((b) => bondAt.set(key(b.atoms[0], b.atoms[1]), b));
@@ -647,6 +656,9 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   // Labels. Heteroatoms and lone carbons get one; skeletal carbons don't, even when charged.
   // A multi-centre or variable attachment shows only as an asterisk, until a bond is drawn to it.
   const labelled = mol.atoms.map((a, i) => (a.centre ? !deg(i) : !a.attach && !a.bead && !a.hidden && (a.label !== 'C' || !deg(i) || !!a.text || !!a.isotope || !!a.shown || (deg(i) === 1 ? !!s.terminal : !!s.carbons))));
+  // The circle of an atom behind a bond seen end on (a Newman projection's back carbon): its radius, 0.4 bond lengths.
+  const newman = new Map<number, number>();
+  for (const back of endOn.values()) if (!labelled[back]) newman.set(back, 0.4 * zOf(scaleOf(mol.atoms[back])).L);
   const labels: Label[] = [], labelAtom = new Map<Label, number>();
   const marks: P[][] = mol.atoms.map(() => []); // ink that is not a label shape (a skeletal carbon's charge)
   const sign = (c: number) => `${Math.abs(c) > 1 ? Math.abs(c) : ''}${c > 0 ? '+' : '–'}`;
@@ -667,6 +679,13 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
   // What a bond stops at, a margin short: boxes, and outlines (a diamond's or star's, or a glyph's).
   const clips: { boxes: Box[]; pieces: Piece[] }[] = mol.atoms.map(() => ({ boxes: [], pieces: [] }));
   const shapes: Piece[][] = mol.atoms.map((a, i) => {
+    // A Newman projection's back carbon: its bonds start at its circle (the margin and the line's half width inside it).
+    const R = newman.get(i);
+    if (R) {
+      const { margin, hw } = atomZ[i], r = Math.max(0.05 * R, R - margin - hw);
+      clips[i].pieces = [{ pts: Array.from({ length: 48 }, (_, j): P => [r * Math.cos((2 * Math.PI * j) / 48), r * Math.sin((2 * Math.PI * j) / 48)]), x: pts[i][0], y: pts[i][1], f: 1 }];
+      return clips[i].pieces;
+    }
     // The bond stops at a diamond or star: its outline, drawn in a margin, cuts the bond as a label does.
     if (a.attach === "diamond" || a.attach === "star") {
       const f = scaleOf(a), inset = Math.max(0.2, 1 - s.margin / pointR), edge = pointOutline(a.attach).map((q) => mul(q, f));
@@ -943,6 +962,11 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     }
     if (a.bead) { beads.push({ at: X, r: 0.3 * L }); for (const q of [add(X, [-0.3 * L, -0.3 * L]), add(X, [0.3 * L, 0.3 * L])]) marks[i].push(q); }
   });
+  // A Newman projection's back carbon: a circle in the line width.
+  for (const [i, R] of newman) {
+    const X = pts[i], hw = atomZ[i].hw, at = (r: number, j: number): P => add(X, [r * Math.cos((2 * Math.PI * j) / 48), r * Math.sin((2 * Math.PI * j) / 48)]);
+    for (let j = 0; j < 48; j++) symbols[i].push(wound([at(R - hw, j), at(R + hw, j), at(R + hw, j + 1.02), at(R - hw, j + 1.02)]));
+  }
 
   const plans: Plan[] = mol.bonds.map((bond) => {
     const [a, b] = bond.atoms, p = pts[a], q = pts[b];
@@ -950,6 +974,7 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     // A bond with its own double-bond spacing (from ChemDraw) keeps it.
     const z0 = zOf((scaleOf(mol.atoms[a]) + scaleOf(mol.atoms[b])) / 2), z = bond.spacing === undefined ? z0 : { ...z0, spacing: (bond.spacing / 100) * z0.L }, { L, hw } = z;
     const plan: Plan = { a, b, u, n, length, kind: 'line', lines: [], cut: [0, 0], z, ...(mol.atoms[a].hidden || mol.atoms[b].hidden ? { hidden: true } : {}) };
+    if (endOn.has(bond)) return { ...plan, u: [1, 0] as P, n: [0, 1] as P, hidden: true };
     const side = (j: number) => Math.sign(dot(sub(pts[j], p), n));
     // Angles at x from the bond to x's other neighbours on one side, smallest first.
     const near = (x: number, y: number, sd: number) =>
@@ -1271,9 +1296,11 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     return [add(A, mul(pl.n, -ha - m)), add(B, mul(pl.n, -hb - m)), add(B, mul(pl.n, hb + m)), add(A, mul(pl.n, ha + m))];
   };
   const fronts: number[][] = plans.map(() => []), mid = (k: number) => mol.bonds[k].atoms.reduce((t, x) => t + (mol.atoms[x].location[2] ?? 0), 0) / 2;
+  // The front and back carbons' bonds in a Newman projection start at its middle, but do not cross.
+  const axis = new Set([...endOn.keys()].map((b) => key(b.atoms[0], b.atoms[1])));
   for (const [r, f] of crossingBonds(mol.bonds, (i) => pts[i], s.bond, s)) {
     const R = plans[r], F = plans[f];
-    if (R.hidden || F.hidden) continue;
+    if (R.hidden || F.hidden || (axis.size && mol.bonds[r].atoms.some((x) => mol.bonds[f].atoms.some((y) => axis.has(key(x, y)))))) continue;
     if (mid(r) - mid(f) > 1e-6) fronts[f].push(r); else fronts[r].push(f);
   }
   const cutFronts = (i: number, from: number) => {
