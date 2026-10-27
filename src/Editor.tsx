@@ -80,6 +80,7 @@ import { checkedName, graphOf, setComplexNamer, setNamer, withAbbreviation } fro
 import { iupacName } from "./namer";
 import { sandwichIons } from "./metals";
 import { complexName } from "./complexes";
+import { mixtureName, mixturesOf, withSalts, type Mixture } from "./mixtures";
 
 setNamer(iupacName);
 setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, inchi: toInchi, aux: toInchiAux, cip: cipOf }));
@@ -4008,37 +4009,33 @@ export default function Editor() {
 
   // Structure to name: a checked name for each structure in the selection (or the drawing), where there is one.
   // Structure to name runs only when asked, once per structure: names are kept by the structure's own file text.
-  const nameCache = useRef(new Map<string, string | null>());
-  const nameFor = (g: number[], base = doc): string | undefined => {
+  const nameCache = useRef(new Map<string, { name?: string; bare?: string; mol: Mol }>());
+  // A name's structure is drawn as Octet draws SMILES before its InChI is taken, so it counts hydrogens as the
+  // drawing does (the P of PPh3 bonded to Pd has none).
+  const inchiOf = (s: Mol | string) => { try { return toInchi(typeof s === "string" ? parseStructure(s) : s); } catch { return undefined; } };
+  // The checked name (bare), the name shown (with its abbreviation) and the structure named.
+  const namedPart = (g: number[], base = doc) => {
     const part = subset(base, new Set(g)), key = serialize(part);
     if (!nameCache.current.has(key)) {
-      let name: string | undefined;
-      // A name's structure is drawn as Octet draws SMILES before its InChI is taken, so it counts hydrogens as the
-      // drawing does (the P of PPh3 bonded to Pd has none).
-      const inchiOf = (s: Mol | string) => { try { return toInchi(typeof s === "string" ? parseStructure(s) : s); } catch { return undefined; } };
+      let bare: string | undefined;
       // A metallocene drawn with the j key is named as its ions, as OPSIN and the standard InChI have it.
       const p = sandwichIons(part) ?? part;
-      try { name = checkedName(p, expandLabels(p), nameToSmiles, inchiOf, cipOf, knownName); } catch { name = undefined; }
+      try { bare = checkedName(p, expandLabels(p), nameToSmiles, inchiOf, cipOf, knownName); } catch { bare = undefined; }
       // The abbreviation follows the checked name, as in an experimental section: "... (TREN)".
-      if (name) name = withAbbreviation(name, abbreviationOf(inchiOf(p)));
-      nameCache.current.set(key, name ?? null);
+      nameCache.current.set(key, { bare, name: bare && withAbbreviation(bare, abbreviationOf(inchiOf(p))), mol: p });
     }
-    return nameCache.current.get(key) ?? undefined;
+    return nameCache.current.get(key)!;
+  };
+  const nameFor = (g: number[], base = doc): string | undefined => namedPart(g, base).name;
+  // A grouped mixture's name (mixtures.ts): its components' checked names with their ratio, read back whole.
+  const mixtureNameFor = (mix: Mixture): string | undefined => {
+    const parts = mix.parts.map((p) => { const n = namedPart(p.atoms); return { name: n.bare ?? "", mol: n.mol, count: p.count }; });
+    try { return mixtureName(parts, nameToSmiles, inchiOf); } catch { return undefined; }
   };
   // The structures to name. The ions of a salt (charged pieces within 3.5 bond lengths of each other whose charges
   // cancel) are named together, as sodium acetate rather than two names. With only captions picked, none.
   const targets = () => {
-    const all = fragments(doc).filter((g) => g.length && (!selection.size || g.some((i) => selection.has(i))) && (selection.size || !pickedChem(picked)));
-    const charge = (g: number[]) => g.reduce((q, i) => q + (doc.atoms[i].charge ?? 0), 0);
-    const ions = all.filter((g) => charge(g) !== 0), group = ions.map((_, k) => k);
-    const root = (k: number): number => (group[k] === k ? k : (group[k] = root(group[k])));
-    const near = (g: number[], h: number[]) => g.some((i) => h.some((j) => Math.hypot(pos(doc, i)[0] - pos(doc, j)[0], pos(doc, i)[1] - pos(doc, j)[1]) < 3.5));
-    ions.forEach((g, k) => ions.forEach((h, j) => { if (j > k && near(g, h)) group[root(j)] = root(k); }));
-    const salts = new Map<number, number[][]>();
-    ions.forEach((g, k) => salts.set(root(k), [...(salts.get(root(k)) ?? []), g]));
-    const merged = [...salts.values()].filter((gs) => gs.length > 1 && gs.reduce((q, g) => q + charge(g), 0) === 0);
-    const inSalt = new Set(merged.flat());
-    return [...all.filter((g) => !inSalt.has(g)), ...merged.map((gs) => gs.flat())];
+    return withSalts(doc, fragments(doc).filter((g) => g.length && (!selection.size || g.some((i) => selection.has(i))) && (selection.size || !pickedChem(picked))));
   };
   // Search Reaxys and Search PubChem (decision 0008): the selection, or the whole drawing when nothing is selected
   // (as Copy), opens in the user's browser. Structures on one side of a reaction search Reaxys's reactions for them
@@ -4075,7 +4072,14 @@ export default function Editor() {
   function nameStructures() {
     if (!namesLoaded) { void loadNames().then(() => setNamesLoaded(true)).catch(() => {}); return setNotice("Loading names. Try again in a moment.", "info"); }
     let m = doc, missed = 0;
-    for (const atoms of targets()) {
+    // A grouped mixture has one name, with its components' ratio (ChemDraw 26.1).
+    const all = targets(), mixtures = mixturesOf(doc, all), inMixture = new Set(mixtures.flatMap((x) => x.atoms));
+    for (const mix of mixtures) {
+      const name = mixtureNameFor(mix), atoms = mix.atoms;
+      if (!name) { missed++; continue; }
+      if (!m.captions?.some((c) => c.text === name && c.under?.some((i) => atoms.includes(i)))) m = addCaption(m, { text: name, x: 0, y: 0, under: atoms })[0];
+    }
+    for (const atoms of all.filter((t) => !t.some((i) => inMixture.has(i)))) {
       const name = nameFor(atoms);
       if (!name) { missed++; continue; }
       if (!m.captions?.some((c) => c.text === name && c.under?.some((i) => atoms.includes(i)))) m = addCaption(m, { text: name, x: 0, y: 0, under: atoms })[0];
@@ -7257,7 +7261,8 @@ export default function Editor() {
               <label className="dialog-row"><span>{u === "sru" ? "SRU label" : "Label"}</span><span className="unit-field text"><input aria-label="Label" value={d.label} placeholder={u === "sru" ? "n" : "n, 3 or 2-5"} onFocus={(e) => e.target.select()} onChange={(e) => setDialog({ ...d, label: e.target.value.slice(0, 20) })} /></span></label>
             )}
             {u === "param" && <label className="dialog-row"><span>Mw or Mn</span><NumberField label="Mw or Mn" min={0.01} max={1e8} step={1} value={d.mw ? Number(d.mw) : undefined} placeholder="None" onChange={(v) => setDialog({ ...d, mw: String(v) })} onClear={() => setDialog({ ...d, mw: "" })} /></label>}
-            {u === "mult" && <label className="dialog-row"><span>Repeat count</span><NumberField label="Repeat count" min={1} max={1e6} step={1} value={Number(d.count) || 2} onChange={(v) => setDialog({ ...d, count: String(Math.max(1, Math.round(v))) })} /></label>}
+            {/* A fractional count too, as ChemDraw's stoichiometry and mixture ratios take (0.5 HCl, 0.72/0.28). */}
+            {u === "mult" && <label className="dialog-row"><span>Repeat count</span><NumberField label="Repeat count" min={0.001} max={1e6} step={1} value={Number(d.count) || 2} onChange={(v) => setDialog({ ...d, count: String(Math.max(0.001, Math.round(v * 1000) / 1000)) })} /></label>}
             {u === "c" && <label className="dialog-row"><span>Order</span><NumberField label="Component order" min={0} max={999} step={1} value={Number(d.order) || 0} onChange={(v) => setDialog({ ...d, order: String(Math.round(v)) })} /></label>}
             {repeats && (
               <div className="dialog-row"><span>Repeat pattern</span>
