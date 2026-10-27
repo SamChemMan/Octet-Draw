@@ -10,7 +10,7 @@ default (decision 0010).
 | Updates on by default | Done (71dab94) |
 | ChemDraw file fidelity: hand-placed conditions, set label justification, turned labels, the 12 failing round trips | Done: 68 of 68 CDXML round trips |
 | Template and clip-art library (CD-32), paddlewheels and ligands | In progress |
-| Measured spectra from JCAMP-DX, with peak assignment (CH-29) | In progress |
+| Measured spectra from JCAMP-DX, with peak assignment (CH-29) | Done; next: ChemDraw's CDXML spectrum object, peaks linked to bonds, SPC files |
 | Naming gaps: mixtures with ratios, mixed-metal and cluster complexes, configuration at metals, η drawn with bonds, typography of names | Done: 6855 of 6924 named right, 0 wrong |
 | Platform: Linux Edit menu, Mac Quit from the Dock, pictures in EMF and EPS, Windows and Linux test runs on CI | In progress |
 | Mass Spec Analysis (CH-40), with isotope patterns and the HRMS line | Done |
