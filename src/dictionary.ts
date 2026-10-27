@@ -47,13 +47,15 @@ export async function attachDictionary(text: string, sliced = false) {
     if (key && !keys.has(key)) keys.set(key, n);
     for (const name of read ? read.split("|") : []) show(name, n);
   }
-  const all = [...shown], index = new Map<string, number[]>();
-  for (let i = 0; i < all.length; i++) {
-    if (sliced && i % 4000 === 3999) await pause();
-    for (const g of trigrams(all[i][0])) { const list = index.get(g); if (list) list.push(i); else index.set(g, [i]); }
+  const index = new Map<string, number[]>(), l: string[] = [], w: string[] = [], c: number[] = [];
+  for (const [low, [name, n]] of shown) {
+    const i = l.push(low) - 1;
+    w.push(name);
+    c.push(n);
+    if (sliced && i % 3000 === 2999) await pause();
+    for (const g of trigrams(low)) { const list = index.get(g); if (list) list.push(i); else index.set(g, [i]); }
   }
-  [smiles, byName, beforeOpsin, byCas, byKey, grams] = [next, names, first, cas, keys, index];
-  [lower, written, compound] = [all.map(([l]) => l), all.map(([, [w]]) => w), all.map(([, [, n]]) => n)];
+  [smiles, byName, beforeOpsin, byCas, byKey, grams, lower, written, compound] = [next, names, first, cas, keys, index, l, w, c];
 }
 const pause = () => new Promise((ok) => setTimeout(ok, 0));
 
@@ -183,12 +185,17 @@ export function dictionaryStarting(typed: string, most: number): string[] {
 // Dictionary names that could be what was typed (lower case) with up to `most` mistakes: those sharing enough of its
 // trigrams. A mistake changes at most three trigrams.
 export function nearNames(typed: string, most: number): string[] {
-  const mine = trigrams(typed), need = Math.max(1, mine.length - 3 * most), counts = new Map<number, number>();
-  for (const g of new Set(mine)) for (const i of grams.get(g) ?? []) counts.set(i, (counts.get(i) ?? 0) + 1);
-  const out: string[] = [];
-  for (const [i, n] of counts) if (n >= need && Math.abs(lower[i].length - typed.length) <= most) out.push(lower[i]);
+  const mine = trigrams(typed), need = Math.max(1, mine.length - 3 * most), touched: number[] = [], out: string[] = [];
+  if (counts.length < lower.length) counts = new Uint8Array(lower.length);
+  for (const g of new Set(mine)) for (const i of grams.get(g) ?? []) if (counts[i]++ === 0) touched.push(i);
+  for (const i of touched) {
+    if (counts[i] >= need && Math.abs(lower[i].length - typed.length) <= most) out.push(lower[i]);
+    counts[i] = 0;
+  }
   return out;
 }
+// Shared trigram counts for nearNames, back to zero after each use.
+let counts = new Uint8Array(0);
 function trigrams(s: string): string[] {
   const t = ` ${s} `, out: string[] = [];
   for (let i = 0; i + 3 <= t.length; i++) out.push(t.slice(i, i + 3));

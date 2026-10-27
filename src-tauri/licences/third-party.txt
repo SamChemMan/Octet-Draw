@@ -7139,7 +7139,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-rustls-webpki 0.103.15 (ISC)
+rustls-webpki 0.103.16 (ISC)
 ================================================================================
 
 Except as otherwise noted, this project is licensed under the following
@@ -13342,6 +13342,17 @@ these additional rights are granted in this License in order to meet the
 terms of this License.
 
 ================================================================================
+Wikidata data
+================================================================================
+
+Wikidata
+https://www.wikidata.org
+
+Name to Structure's dictionary (data/names/dictionary.tsv.gz) holds names, CAS registry numbers and structures of
+chemical compounds from Wikidata, read on 27 October 2026. Wikidata's data is under Creative Commons CC0 1.0
+(https://creativecommons.org/publicdomain/zero/1.0/): no rights reserved. Octet names Wikidata as the source.
+
+================================================================================
 PubChem data
 ================================================================================
 
@@ -13351,6 +13362,8 @@ https://pubchem.ncbi.nlm.nih.gov
 
 Octet's drug and reagent names (Name to Structure and Structure to Name) give Octet's own structures, checked
 against PubChem's records read on 17 October 2026. A few complex structures (tetracyclines, steroids, paclitaxel,
-strychnine) follow PubChem's SMILES. NCBI places no restrictions on the use or distribution of PubChem data.
-Octet names PubChem as the source of these records.
+strychnine) follow PubChem's SMILES. Name to Structure's dictionary is from Wikidata; PubChem's records, read on
+27 October 2026, decided which compound a shared or doubtful name keeps. With Online search on, Name to Structure asks
+PubChem for a name or InChIKey Octet cannot read offline. NCBI places no restrictions on the use or distribution of
+PubChem data. Octet names PubChem as the source of these records.
 

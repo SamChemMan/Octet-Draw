@@ -26,7 +26,7 @@ the Insert Structure sheet reads SMILES, InChI, a CAS number or several names at
 1. Octet's own tables (`src/common.ts`, `src/drugs.ts`).
 2. Names OPSIN misreads, from the dictionary (see below).
 3. OPSIN: systematic names, many trivial names, CAS index names ("Benzoic acid, 2-hydroxy-").
-4. The dictionary: common, trivial and trade names, CAS numbers (the check digit is checked; a wrong one shows
+4. The dictionary: common, trivial, German and trade names, CAS numbers (the check digit is checked; a wrong one shows
    "Not a CAS number. The last digit must be 5." under the field) and InChIKeys.
 5. Condensed formulas: CH3CH2OH, PhCH2OH, Me3SiCl, PhB(OH)2, (CH3)3COH, CH3COOEt, HC≡CCH2OH, BnNH2. The reading
    uses the units of an atom label (`src/labels.ts`) and must use every valence once, so a molecular formula
@@ -41,24 +41,31 @@ the Insert Structure sheet reads SMILES, InChI, a CAS number or several names at
 A name Octet cannot read gets a suggestion under the field, from OPSIN's names, Octet's tables and the dictionary
 (a trigram index): "acetaminophin" gives acetaminophen, "benzaldehide" benzaldehyde.
 
+The template library's search and the command palette find the dictionary's names after Octet's own
+(`namesStarting`): "tylen" gives Tylenol, with its tile and Draw entry. Whatever the name field reads (a CAS number,
+a condensed formula, a list) they read too.
+
 ## The dictionary
 
 `data/names/dictionary.tsv.gz`, built by `scripts/build-dictionary.ts` from Wikidata (CC0) on 27 October 2026; see
 `data/names/README.md`. The compounds are those with a SMILES and an article in one of ten large Wikipedias: the
-compounds chemists name, not all of Wikidata's million. Each gives its English label and aliases, the names of
-brands with it as their one active ingredient, its CAS numbers and its InChIKey.
+compounds chemists name, not all of Wikidata's million. Each gives its English and German labels and aliases, the
+names of brands with it as their one active ingredient, its CAS numbers and its InChIKey.
 
 PubChem referees the names:
 
 - A name OPSIN reads as the same compound needs no entry. Its label stays, for suggestions only.
 - A name OPSIN reads as a compound with other bonds than Wikidata's goes to PubChem. Where PubChem has Wikidata's
   compound, the dictionary reads the name before OPSIN ("tropicamide", which OPSIN read as an amide of tropic acid).
+  Never for a compound with a metal: OPSIN draws those as Octet does (sec-butyllithium bonded, not as ions).
   Where OPSIN differs only in stereo or charge, OPSIN keeps the name: it reads what the name says.
 - A name easily meant as something else (a code of up to eight capitals and digits, any name of up to five
   characters, an English word or its plural) stays only where PubChem gives the same compound for it.
 - A name or CAS number two compounds share stays with the one PubChem gives for it, or with neither.
 
-Size and agreement: see `data/names/README.md`.
+The table has 28,880 compounds, 67,602 names (2,208 read before OPSIN) and 27,031 CAS numbers: 1.63 MB gzipped.
+Of 200 random names PubChem knows, 181 give PubChem's structure exactly, 9 the same compound with other stereo, 6 the
+same compound as a salt or its parent, and 4 another tautomer. Details in `data/names/README.md`.
 
 ## PubChem online
 
@@ -76,9 +83,10 @@ Size and agreement: see `data/names/README.md`.
 
 ## Speed
 
-- The dictionary loads with OPSIN, in slices, so no step blocks the window for more than about 13 ms.
-- A lookup takes a few microseconds; a suggestion takes about a millisecond (`src/dictionary.check.ts` measures
-  both and fails over 50 µs and 5 ms).
+- The dictionary loads with OPSIN, in slices: about 0.3 s in all, and no step blocks the window for more than about
+  17 ms (measured in Node).
+- A lookup takes under 1 µs. A suggestion as typing makes it takes 1.4 ms on average and under 4 ms at most, OPSIN's
+  try included (`src/dictionary.check.ts` measures both and fails over 50 µs and 5 ms).
 
 ## Open questions
 

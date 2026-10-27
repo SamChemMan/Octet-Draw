@@ -22,11 +22,27 @@ Wikidata's data is under CC0 1.0 (no rights reserved). `NOTICE.txt` names the so
 - Names in `src/common.ts` and `src/drugs.ts` (asked first).
 - Names OPSIN reads as the same compound. The compound's label stays for spelling suggestions only.
 - Names OPSIN reads as a compound with other bonds: where PubChem's compound for the name has Wikidata's bonds and
-  not OPSIN's, the name stays, marked to be read before OPSIN. Otherwise OPSIN keeps it.
+  not OPSIN's, the name stays, marked to be read before OPSIN. Otherwise OPSIN keeps it, and always for a compound
+  with a metal or a bare bracket atom ([B]), which OPSIN draws as Octet draws them (sec-butyllithium bonded).
+- SMILES with a CXSMILES part: Name to Structure joins structures with "." for salts and lists.
 - Names easily meant as something else (a code of up to eight capitals and digits, any name of up to five
   characters, an English word or its plural: "TEN", "salt", "beans"): kept only where PubChem gives the same
   compound for the name (or its salt or parent).
 - A name or CAS number that two compounds share stays with the one PubChem gives for it, or with neither.
+
+## Size and agreement (27 October 2026)
+
+- 28,880 compounds, 67,602 names (2,208 of them read before OPSIN), 27,031 CAS numbers, an InChIKey for each, and
+  names OPSIN reads kept for suggestions. 4.05 MB of text, 1.63 MB gzipped.
+- Of 29,227 compounds Wikidata gave, 106 had no SMILES Indigo reads and 207 had SMILES that disagree with their own
+  InChIKey; those are left out.
+- 4,940 names OPSIN reads as another compound went to PubChem; 2,215 are read from the dictionary first. 7,911
+  names easily meant as something else went to PubChem; 5,676 stay. 322 names two compounds share went to PubChem;
+  231 stay with one compound.
+- Check (`--check 200`): of 200 random names PubChem knows (72 more it does not know were skipped), 181 give
+  PubChem's structure exactly, 9 the same compound with other stereo, 6 the same compound as a salt where the other
+  has the parent (or the reverse), and 4 a different tautomer (three tetracyclines and epacadostat, drawn as keto or
+  enol forms). None is another compound.
 
 ## Format
 

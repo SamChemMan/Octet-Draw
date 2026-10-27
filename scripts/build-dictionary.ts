@@ -18,6 +18,7 @@ import { COMMON, commonKey } from "../src/common.ts";
 import { DRUGS } from "../src/drugs.ts";
 import { looksLikeSmiles } from "../src/names.ts";
 import { ELEMENTS } from "../src/labels.ts";
+import { NONMETAL } from "../src/render.ts";
 import { casValid } from "../src/dictionary.ts";
 
 const [cacheDir, flag, count] = process.argv.slice(2);
@@ -186,14 +187,16 @@ type Entry = { id: string; smiles: string; key: string; names: string[]; cas: st
 const entries: Entry[] = [];
 let noStructure = 0, conflicting = 0;
 for (const it of items.values()) {
-  const tried = [...new Set([...it.isomeric, ...it.canonical])].filter((s) => s.length <= 2000).map((s) => ({ s, key: convert(s, "inchi-key") })).filter((t) => t.key);
+  const tried = [...new Set([...it.isomeric, ...it.canonical])].map((s) => s.trim()).filter((s) => s.length <= 2000 && !/\s/.test(s)).map((s) => ({ s, key: convert(s, "inchi-key") })).filter((t) => t.key);
   if (!tried.length) { noStructure++; continue; }
   const wanted = it.keys.filter((k) => /^[A-Z]{14}-[A-Z]{10}-[A-Z]$/.test(k));
   let pick = wanted.length ? tried.find((t) => wanted.includes(t.key!)) ?? tried.find((t) => wanted.some((k) => k.slice(0, 14) === t.key!.slice(0, 14))) : tried[0];
   if (!wanted.length && new Set(tried.map((t) => t.key!.slice(0, 14))).size > 1) pick = undefined;
   if (!pick) { conflicting++; continue; }
-  const smiles = convert(pick.s, "smiles");
-  if (!smiles) { noStructure++; continue; }
+  // Wikidata's own SMILES, which Indigo has read. Plain SMILES only: Name to Structure joins structures with "." (a
+  // salt, a list), so a CXSMILES part (" |c:13|") cannot go in.
+  const smiles = pick.s.trim();
+  if (/\s/.test(smiles)) { noStructure++; continue; }
   entries.push({ id: it.id, smiles, key: pick.key!, names: [it.label ?? "", ...it.aliases, ...it.german].filter(Boolean), cas: [...new Set(it.cas.filter(casValid))], suggest: [] });
 }
 console.log(`structures: ${entries.length} (${noStructure} unreadable, ${conflicting} with SMILES that disagree with their InChIKey)`);
@@ -241,8 +244,9 @@ for (const e of entries) {
       if (key === e.key) opsinSame++;
       else if (key.slice(0, 14) === e.key.slice(0, 14)) opsinStereo++;
       else differs.push({ name, e, opsin: key });
-      // The compound's own name, when OPSIN reads it, is kept for suggestions only ("benzaldehide" to benzaldehyde).
-      if (name === label && name.length <= 40) e.suggest.push(name);
+      // The compound's own name, and a short name without locants, when OPSIN reads it as this compound, is kept for
+      // suggestions only ("benzaldehide" to benzaldehyde, "acetylsalicilic acid" to acetylsalicylic acid).
+      if ((name === label && name.length <= 40) || (key === e.key && name.length <= 30 && !/[\d(),[\]]/.test(name))) e.suggest.push(name);
       continue;
     }
     if (risky(name)) { doubtful.push({ name, e }); continue; }
@@ -253,11 +257,15 @@ for (const e of entries) {
 console.log(`names: ${opsinSame} read by OPSIN as the same structure, ${opsinStereo} the same but for stereo or charge (OPSIN reads what the name says), ${differs.length} as another; ${doubtful.length} to confirm; ${ownShadow} in common.ts or drugs.ts`);
 // Where OPSIN reads a name as another compound, PubChem decides. Where PubChem's compound has Wikidata's bonds and
 // not OPSIN's, the name is read from the dictionary before OPSIN ("!" before it in the table). Otherwise OPSIN keeps it.
+// A compound with a metal, or with an atom Wikidata draws bare in brackets (a radical, or a hydride without its H:
+// pinacolborane as [B]), is not overruled: OPSIN draws it as Octet draws such compounds (sec-butyllithium bonded, not
+// as ions), which is a drawing of the same compound.
+const metal = (smiles: string) => [...smiles.matchAll(/\[([A-Z][a-z]?)/g)].some(([, el]) => !NONMETAL.has(el)) || /\[(B|C|N|O|Si|P|S)\]/.test(smiles);
 const overruled: string[] = [];
 const differAnswers = await pubchemAll(differs.map((d) => d.name), (n) => process.stdout.write(`\rOPSIN's other readings: ${n} of ${differs.length} asked`));
 for (const [i, d] of differs.entries()) {
   const a = differAnswers[i];
-  if (a && agrees(a, d.e) && a.key.slice(0, 14) !== d.opsin.slice(0, 14)) {
+  if (a && agrees(a, d.e) && a.key.slice(0, 14) !== d.opsin.slice(0, 14) && !metal(d.e.smiles)) {
     d.e.names.push(`!${d.name}`);
     overruled.push(`${d.name}\t${d.e.id}\twikidata ${d.e.key}\tpubchem ${a.key}\topsin ${d.opsin}`);
   }
