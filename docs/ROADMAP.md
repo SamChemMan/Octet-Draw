@@ -13,8 +13,8 @@ default (decision 0010).
 | Measured spectra from JCAMP-DX, with peak assignment (CH-29) | In progress |
 | Naming gaps: mixtures with ratios, mixed-metal and cluster complexes, configuration at metals, η drawn with bonds, typography of names | In progress |
 | Platform: Linux Edit menu, Mac Quit from the Dock, pictures in EMF and EPS, Windows and Linux test runs on CI | In progress |
-| Mass Spec Analysis (CH-40), with isotope patterns and the HRMS line | In progress |
-| Check the Revvity claims in the LinkedIn draft | In progress |
+| Mass Spec Analysis (CH-40), with isotope patterns and the HRMS line | Done |
+| Check the Revvity claims in the LinkedIn draft | Done: ~/octet-research/notes/revvity-claims-and-products.md |
 | ChemDraw session: the 13 checks in ~/octet-research/notes/chemdraw-checks-pending.md | Waiting for Sam to allow full-screen control |
 | Reaxys: reproduce what fails in the built app, then fix | Waiting for the ChemDraw session |
 | Template features ChemDraw has: edit in place, rows and columns, floating palettes, .ctp files, a user dictionary | Next, after the template library |
