@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 .claude/worktrees/
+
+# scripts/drive/drive.mjs
+drive-out/

@@ -12,7 +12,7 @@ default (decision 0010).
 | Template and clip-art library (CD-32), paddlewheels and ligands | In progress |
 | Measured spectra from JCAMP-DX, with peak assignment (CH-29) | Done; next: ChemDraw's CDXML spectrum object, peaks linked to bonds, SPC files |
 | Naming gaps: mixtures with ratios, mixed-metal and cluster complexes, configuration at metals, η drawn with bonds, typography of names | Done: 6855 of 6924 named right, 0 wrong |
-| Platform: Linux Edit menu, Mac Quit from the Dock, pictures in EMF and EPS, Windows and Linux test runs on CI | In progress |
+| Platform: Linux Edit menu, Mac Quit from the Dock, pictures in EMF and EPS, Windows and Linux test runs on CI | Done; the CI runs are new: watch their first results |
 | Mass Spec Analysis (CH-40), with isotope patterns and the HRMS line | Done |
 | Check the Revvity claims in the LinkedIn draft | Done: ~/octet-research/notes/revvity-claims-and-products.md |
 | ChemDraw session: the 13 checks in ~/octet-research/notes/chemdraw-checks-pending.md | Waiting for Sam to allow full-screen control |
@@ -78,14 +78,16 @@ Sam wanted these in 1.0. They are not done yet.
   - Done: all 68 of Sam's CDXML files write and read back unchanged.
   - Arrowhead sizes and hollow block arrows are done.
   - Not done: a node label of more than one line (Octet's labels are one line), invisible atom numbers (`AtomNumber` without `ShowAtomNumber`), and tritium typed as T (read as the text T).
-- Linux: Cut, Copy and Paste in the Edit menu as Octet's own items, as Close Window is.
 
 ### Platform limits
 
 Octet cannot test these on Sam's Mac.
 
-- Windows and Linux: the clipboard and the menus have never run on a real Windows or Linux machine.
+- Windows and Linux: the clipboard and the menus have never run on a real Windows or Linux machine. The workflow
+  `.github/workflows/platforms.yml` drives them on GitHub's machines (docs/release.md, Checks); it has not run yet.
 - The build pipeline (`.github/workflows/release.yml`) has never run on GitHub.
 - Updates cannot be tested until the first release is published.
 - Signing and notarisation wait for Sam's Apple and Windows keys.
-- The Dock's Quit (`src-tauri/src/quit.rs`) was tried only in a probe. Try it in a built Octet with unsaved changes.
+- The Dock's Quit (`src-tauri/src/quit.rs`) was tried on 27 October 2026 in a built Octet with a quit Apple Event, as the Dock
+  sends: with no changes Octet ends at once; with unsaved changes the question shows and the quit waits; Cancel stops it
+  and Don't Save ends Octet. Not tried: a real logout or restart, and Save from that question on a new drawing.

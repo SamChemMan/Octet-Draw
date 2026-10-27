@@ -129,6 +129,9 @@ for (const id of ["select_all", "flip_h", "mirror_v", "clean_up", "zoom_in", "ex
 for (const id of ["new", "new_quick", "new_paper", "new_own_0", "open", "settings", "about", "tutorial", "home", "recent_0", "recent_clear", "check_updates", "quit"]) assert.equal(menuRuns(id, onHome), true, id);
 // Quit and Close Window ask about unsaved changes over any dialog (the Dock's Quit too).
 for (const id of ["quit", "close"]) assert.equal(menuRuns(id, { home: false, modal: true, typing: false }), true, id);
+// Cut, Copy and Paste (Octet's own on Linux) run everywhere: on a field's text, or on the drawing, which takes them only
+// when nothing covers it.
+for (const id of ["cut", "copy", "paste"]) for (const over of [onHome, { home: false, modal: true, typing: true }, { home: false, modal: false, typing: false }]) assert.equal(menuRuns(id, over), true, id);
 assert.equal(menuRuns("select_all", { ...onHome, typing: true }), true);
 assert.equal(menuRuns("flip_h", { ...onHome, typing: true }), false);
 // A dialog blocks every command but the text ones; with no dialog and no Home, every command runs.

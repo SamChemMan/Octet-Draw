@@ -2,7 +2,8 @@
 // (export.rs). Both are vector: every shape is a path, filled or stroked in one colour. Text is drawn as its glyph
 // outlines (usvg's flattened text), so the file needs no fonts. Neither format has transparency: a colour drawn at
 // part opacity is blended with white, as it shows on white paper, and a gradient (a shaded shape) takes the mean of its
-// stops' colours.
+// stops' colours. A picture in the drawing (an image it holds) goes in as pixels, on white, in the same place and at
+// the same size as in the PDF.
 
 use svg2pdf::usvg::{self, tiny_skia_path::{PathSegment, Point, Transform}, Node, Paint};
 
@@ -25,6 +26,18 @@ struct Shape {
     segs: Vec<Seg>,
     fill: Option<([u8; 3], bool)>, // colour, even-odd
     stroke: Option<Stroke>,
+}
+// A picture: its pixels as RGB rows from the top, on white, and where its pixel grid goes (pixel x, y to pt).
+struct Picture {
+    width: u32,
+    height: u32,
+    rgb: Vec<u8>,
+    place: Transform,
+}
+// What the drawing paints, in order.
+enum Mark {
+    Shape(Shape),
+    Picture(Picture),
 }
 
 // A paint's colour on white paper at `opacity` (0 to 1).
@@ -49,17 +62,19 @@ fn mean(stops: &[usvg::Stop], opacity: f32) -> ([f32; 3], f32) {
     ([sum[0] / n, sum[1] / n, sum[2] / n], opacity * sum[3] / n)
 }
 
-// Every visible path in the tree, in drawing order, in pt. usvg measures in CSS px (96 to the inch); pt are 72.
-fn shapes(tree: &usvg::Tree) -> Vec<Shape> {
+// Every visible path and picture in the tree, in drawing order, in pt. usvg measures in CSS px (96 to the inch); pt
+// are 72.
+fn marks(tree: &usvg::Tree) -> Vec<Mark> {
     let mut out = Vec::new();
     walk(tree.root(), 1.0, &mut out);
     out
 }
-fn walk(g: &usvg::Group, opacity: f32, out: &mut Vec<Shape>) {
+fn walk(g: &usvg::Group, opacity: f32, out: &mut Vec<Mark>) {
     for node in g.children() {
         match node {
             Node::Group(c) => walk(c, opacity * c.opacity().get(), out),
             Node::Text(t) => walk(t.flattened(), opacity, out),
+            Node::Image(img) if img.is_visible() => out.extend(picture(node, img, opacity).map(Mark::Picture)),
             Node::Image(_) => {}
             Node::Path(p) if p.is_visible() => {
                 let t = p.abs_transform().post_scale(0.75, 0.75);
@@ -99,11 +114,33 @@ fn walk(g: &usvg::Group, opacity: f32, out: &mut Vec<Shape>) {
                     join: match s.linejoin() { usvg::LineJoin::Round => 1, usvg::LineJoin::Bevel => 2, _ => 0 },
                     dash: s.dasharray().map(|d| d.iter().map(|v| v * k).collect()).unwrap_or_default(),
                 });
-                out.push(Shape { segs, fill, stroke });
+                out.push(Mark::Shape(Shape { segs, fill, stroke }));
             }
             Node::Path(_) => {}
         }
     }
+}
+
+// A picture's pixels: its own (a PNG's, a JPEG's), but no more than 300 dpi of the size it is drawn at and 16 million
+// in all, drawn on white at its opacity. None if it has no size or cannot be drawn.
+fn picture(node: &Node, img: &usvg::Image, opacity: f32) -> Option<Picture> {
+    let to_pt = img.abs_transform().post_scale(0.75, 0.75);
+    let (w, h) = (img.size().width(), img.size().height());
+    // Its drawn size in pt along each of its sides.
+    let (dw, dh) = (w * to_pt.sx.hypot(to_pt.ky), h * to_pt.kx.hypot(to_pt.sy));
+    let (pw, ph) = (w.min(dw * 300.0 / 72.0), h.min(dh * 300.0 / 72.0));
+    let k = (16e6 / (pw * ph)).sqrt().min(1.0);
+    let (pw, ph) = ((pw * k).round().max(1.0), (ph * k).round().max(1.0));
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(pw as u32, ph as u32)?;
+    // resvg draws an image node in its own units (0 to its size), after taking its box's corner to the origin.
+    let bbox = node.abs_layer_bounding_box()?;
+    resvg::render_node(node, Transform::from_scale(pw / w, ph / h).pre_translate(bbox.x(), bbox.y()), &mut pixmap.as_mut())?;
+    // Premultiplied colour on white: each channel at the opacity, plus the white the picture leaves.
+    let rgb = pixmap.pixels().iter().flat_map(|p| {
+        let white = 255.0 - f32::from(p.alpha()) * opacity;
+        [p.red(), p.green(), p.blue()].map(|c| (f32::from(c) * opacity + white).round().clamp(0.0, 255.0) as u8)
+    }).collect();
+    Some(Picture { width: pw as u32, height: ph as u32, rgb, place: to_pt.pre_scale(w / pw, h / ph) })
 }
 // How much a transform scales lengths (the square root of its area scale).
 fn scale(t: &Transform) -> f32 {
@@ -125,7 +162,24 @@ pub fn make_eps(tree: &usvg::Tree) -> Vec<u8> {
         "%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 {} {}\n%%HiResBoundingBox: 0 0 {} {}\n%%Creator: Octet\n%%LanguageLevel: 2\n%%Pages: 1\n%%EndComments\n%%BeginProlog\n%%EndProlog\n%%Page: 1 1\ngsave\n0 {} translate 1 -1 scale\n",
         w.ceil(), h.ceil(), n(w), n(h), n(h)
     );
-    for sh in shapes(tree) {
+    for mark in marks(tree) {
+        let sh = match mark {
+            Mark::Shape(sh) => sh,
+            Mark::Picture(p) => {
+                // The pixel grid placed in pt, then the pixels in hex, 64 to a line.
+                let t = p.place;
+                s += &format!(
+                    "gsave\n[{} {} {} {} {} {}] concat\n/DeviceRGB setcolorspace\n<< /ImageType 1 /Width {} /Height {} /BitsPerComponent 8 /Decode [0 1 0 1 0 1] /ImageMatrix [1 0 0 1 0 0] /DataSource currentfile /ASCIIHexDecode filter >> image\n",
+                    n(t.sx), n(t.ky), n(t.kx), n(t.sy), n(t.tx), n(t.ty), p.width, p.height
+                );
+                for line in p.rgb.chunks(64) {
+                    s.extend(line.iter().map(|b| format!("{b:02X}")));
+                    s.push('\n');
+                }
+                s += ">\ngrestore\n";
+                continue;
+            }
+        };
         let mut path = String::from("newpath\n");
         for seg in &sh.segs {
             match *seg {
@@ -165,12 +219,19 @@ struct Emf {
 }
 impl Emf {
     fn record(&mut self, kind: u32, body: &[i32]) {
-        let size = 8 + 4 * body.len() as u32;
+        self.record_with(kind, body, &[]);
+    }
+    // A record whose body ends in bytes (a bitmap), padded to whole 4-byte words.
+    fn record_with(&mut self, kind: u32, body: &[i32], bytes: &[u8]) {
+        let pad = (4 - bytes.len() % 4) % 4;
+        let size = 8 + 4 * body.len() as u32 + (bytes.len() + pad) as u32;
         self.out.extend_from_slice(&kind.to_le_bytes());
         self.out.extend_from_slice(&size.to_le_bytes());
         for v in body {
             self.out.extend_from_slice(&v.to_le_bytes());
         }
+        self.out.extend_from_slice(bytes);
+        self.out.extend(std::iter::repeat_n(0, pad));
         self.records += 1;
     }
 }
@@ -178,6 +239,49 @@ const COLORREF: fn([u8; 3]) -> i32 = |c| i32::from(c[0]) | (i32::from(c[1]) << 8
 // Stock objects: NULL_BRUSH and NULL_PEN.
 const NULL_BRUSH: i32 = 0x8000_0005u32 as i32;
 const NULL_PEN: i32 = 0x8000_0008u32 as i32;
+
+// A picture as GDI draws one: the world transform takes its pixel grid to its place in logical units, StretchDIBits
+// draws its pixels (a 24-bit bitmap, bottom row first), and the transform goes back. `device`: device px per pt, for
+// the record's bounds.
+fn picture_record(e: &mut Emf, p: &Picture, device: (f32, f32)) {
+    let t = p.place;
+    e.record(21, &[4]); // EMR_SETSTRETCHBLTMODE HALFTONE: smooth when drawn smaller than its pixels
+    // EMR_SETWORLDTRANSFORM: eM11, eM12, eM21, eM22, eDx, eDy.
+    e.record(35, &[t.sx, t.ky, t.kx, t.sy, t.tx, t.ty].map(|v| (v * UNIT).to_bits() as i32));
+    let (w, h) = (p.width as usize, p.height as usize);
+    let row = (w * 3 + 3) & !3;
+    let mut bits = Vec::with_capacity(40 + row * h);
+    for v in [40, w as i32, h as i32] {
+        bits.extend(v.to_le_bytes());
+    }
+    bits.extend(1u16.to_le_bytes()); // planes
+    bits.extend(24u16.to_le_bytes()); // bits per pixel
+    bits.extend([0u8; 24]); // BI_RGB, image size, resolutions, colours used, colours important
+    for y in (0..h).rev() {
+        let start = bits.len();
+        for c in p.rgb[y * w * 3..(y + 1) * w * 3].chunks_exact(3) {
+            bits.extend([c[2], c[1], c[0]]);
+        }
+        bits.resize(start + row, 0);
+    }
+    // Bounds in device px: round the corners of its place.
+    let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
+    for (x, y) in [(0, 0), (w, 0), (0, h), (w, h)] {
+        let mut q = Point::from_xy(x as f32, y as f32);
+        t.map_point(&mut q);
+        let q = [q.x * device.0, q.y * device.1];
+        (lo, hi) = ([lo[0].min(q[0]), lo[1].min(q[1])], [hi[0].max(q[0]), hi[1].max(q[1])]);
+    }
+    let (w, h) = (w as i32, h as i32);
+    // EMR_STRETCHDIBITS: bounds; destination x, y; source x, y, width, height; where the bitmap's header and bits are
+    // in the record, and their sizes; DIB_RGB_COLORS; SRCCOPY; destination width, height; then the bitmap.
+    let head = [lo[0].floor() as i32, lo[1].floor() as i32, hi[0].ceil() as i32, hi[1].ceil() as i32, 0, 0, 0, 0, w, h, 80, 40, 120, row as i32 * h, 0, 0x00CC_0020, w, h];
+    e.record_with(81, &head, &bits);
+    // EMR_MODIFYWORLDTRANSFORM with MWT_IDENTITY: back to no transform.
+    let mut back = [1.0f32, 0.0, 0.0, 1.0, 0.0, 0.0].map(|v| v.to_bits() as i32).to_vec();
+    back.push(1);
+    e.record(36, &back);
+}
 
 // An EMF of the SVG at true size: its frame (which Word, PowerPoint and Keynote place it by) is the picture's size.
 pub fn make_emf(tree: &usvg::Tree) -> Vec<u8> {
@@ -198,7 +302,14 @@ pub fn make_emf(tree: &usvg::Tree) -> Vec<u8> {
     e.record(12, &[0, 0]); // EMR_SETVIEWPORTORGEX
     e.record(18, &[1]); // EMR_SETBKMODE TRANSPARENT
     let at = |v: f32| (v * UNIT).round() as i32;
-    for sh in shapes(tree) {
+    for mark in marks(tree) {
+        let sh = match mark {
+            Mark::Shape(sh) => sh,
+            Mark::Picture(p) => {
+                picture_record(&mut e, &p, (dw as f32 / w, dh as f32 / h));
+                continue;
+            }
+        };
         // The outline as a GDI path, with its bounds.
         let path = |e: &mut Emf| {
             e.record(59, &[]); // EMR_BEGINPATH
@@ -253,7 +364,7 @@ pub fn make_emf(tree: &usvg::Tree) -> Vec<u8> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn tree(svg: &str) -> usvg::Tree {
@@ -291,5 +402,51 @@ mod tests {
         assert_eq!(at, emf.len());
         assert_eq!(count, u(52));
         assert_eq!(last, 14);
+    }
+
+    // A picture as standaloneSvg writes one (src/export.ts): a red PNG of 4 by 2 px, drawn 36 by 18 pt at (18, 9) on a
+    // page of 72 by 36 pt.
+    pub(crate) fn picture_svg() -> String {
+        use base64::Engine;
+        let mut png = Vec::new();
+        let mut enc = png::Encoder::new(&mut png, 4, 2);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.write_header().unwrap().write_image_data(&[255, 0, 0, 255].repeat(8)).unwrap();
+        let png = base64::engine::general_purpose::STANDARD.encode(png);
+        format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="36pt" viewBox="0 0 72 36"><g transform="scale(1)"><image href="data:image/png;base64,{png}" x="18" y="9" width="36" height="18" preserveAspectRatio="none"/></g></svg>"#)
+    }
+
+    #[test]
+    fn pictures_go_in_eps_and_emf_where_the_pdf_has_them() {
+        let svg = picture_svg();
+        // EPS: the 4 by 2 pixels, 9 pt each, from (18, 9) pt; all red.
+        let eps = String::from_utf8(make_eps(&tree(&svg))).unwrap();
+        assert!(eps.contains("[9 0 0 9 18 9] concat\n"), "{eps}");
+        assert!(eps.contains("/Width 4 /Height 2 /BitsPerComponent 8"));
+        assert!(eps.contains(&format!("image\n{}\n>\ngrestore\n", "FF0000".repeat(8))), "{eps}");
+        // EMF: the world transform takes the pixels there in 1/20 pt; StretchDIBits draws 4 by 2, bottom row first, BGR.
+        let emf = make_emf(&tree(&svg));
+        let u = |at: usize| u32::from_le_bytes(emf[at..at + 4].try_into().unwrap());
+        let f = |at: usize| f32::from_bits(u(at));
+        let (mut at, mut seen) = (0, Vec::new());
+        while at < emf.len() {
+            seen.push(u(at));
+            if u(at) == 35 {
+                assert_eq!((8..32).step_by(4).map(|k| f(at + k)).collect::<Vec<_>>(), [180.0, 0.0, 0.0, 180.0, 360.0, 180.0]);
+            }
+            if u(at) == 81 {
+                // Source and destination 4 by 2, SRCCOPY, a 40-byte header at 80, and the bits at 120: 12 bytes a row.
+                assert_eq!((u(at + 40), u(at + 44), u(at + 48), u(at + 52), u(at + 56), u(at + 60)), (4, 2, 80, 40, 120, 24));
+                assert_eq!((u(at + 68), u(at + 72), u(at + 76)), (0x00CC_0020, 4, 2));
+                assert_eq!((u(at + 84), u(at + 88)), (4, 2));
+                assert_eq!(&emf[at + 120..at + 126], &[0, 0, 255, 0, 0, 255]);
+                assert_eq!(u(at + 4) as usize, 120 + 24);
+            }
+            at += u(at + 4) as usize;
+        }
+        assert_eq!((at, u(48) as usize, u(52) as usize), (emf.len(), emf.len(), seen.len()));
+        let k = seen.iter().position(|&r| r == 81).expect("a StretchDIBits record");
+        assert_eq!(&seen[k - 2..k + 2], &[21, 35, 81, 36]);
     }
 }

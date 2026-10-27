@@ -46,5 +46,10 @@ the picture change from system to system (`src-tauri/src/clipboard.rs`).
   `gtk` 0.18, and the formats were checked by `cargo test` (`windows_and_linux_copy_the_same`). Check on a
   Windows and a Linux computer: a copy into Word, PowerPoint, LibreOffice and ChemDraw for Windows; a paste from
   ChemDraw for Windows; a copy and paste between two Octet windows.
-- Edit > Cut, Copy and Paste from the menu on Linux do nothing when clicked (the keys work). Tauri's menu sends
-  them only with libxdo, which Octet does not use. Separate from this decision.
+- Edit > Cut, Copy and Paste from the menu on Linux did nothing when clicked (the keys worked): GTK's own items
+  press the keys only with libxdo, which Octet does not use. Since 27 October 2026 they are Octet's own items there,
+  as Close Window is. They take Ctrl+X, C and V, and the page runs them: in a text field on its text through the
+  app's clipboard, elsewhere as the drawing's cut, copy and paste. The Reaxys window has no menu bar on Linux, so its
+  page keeps those keys. Windows keeps the system's items: muda presses Ctrl+X, C and V there with SendInput, which
+  reaches WebView2 as the keys do. `.github/workflows/platforms.yml` tries both on GitHub's Windows and Linux
+  machines.

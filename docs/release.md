@@ -123,6 +123,15 @@ internet, but it is much larger. The brief asks for a small download, so the sma
 - `npm audit` and `cargo audit` (REL-26). `src-tauri/.cargo/audit.toml` leaves out RUSTSEC-2024-0429 (see
   below).
 
+`.github/workflows/platforms.yml` (Actions > Windows and Linux) runs on each push to main, and from Run workflow. On
+GitHub's Windows and Linux machines it builds Octet (a debug build) and drives it with `scripts/drive/drive.mjs`:
+tauri-driver for the window, UI Automation (Windows) or AT-SPI and xdotool (Linux, on a virtual screen) for the
+menus and keys, and the system's clipboard. It checks that Octet starts on Home, opens a new drawing, pastes SMILES
+from Edit > Paste, puts its formats on the clipboard with Edit > Copy, pastes its own copy back with Edit > Paste and
+Ctrl+V, undoes with Edit > Undo, cuts, copies and pastes in a text field, asks about unsaved changes at File > New,
+and ends with File > Exit. The run's artifacts hold the log and a screenshot of a step that failed.
+`node scripts/drive/drive.mjs --dry` prints the steps and the commands each one runs, with nothing run.
+
 ## Licence notices
 
 `node scripts/licences.mjs` writes `src-tauri/licences/third-party.txt`: the licence of every Rust crate and

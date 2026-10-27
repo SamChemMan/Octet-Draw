@@ -1031,16 +1031,17 @@ export default function Editor() {
     }
   }
   // Before the drawing is replaced (New, Open, a recent drawing) or the window closes: with unsaved changes, ask to
-  // save them first.
-  const keepWork = (next: () => void) => (dirty ? setDialog({ kind: "unsaved", next }) : next());
+  // save them first. stay: what runs when the drawing stays (Cancel, or a save that did not happen).
+  const keepWork = (next: () => void, stay?: () => void) => (dirty ? setDialog({ kind: "unsaved", next, stay }) : next());
   // Close, Quit (REL-2) and Update: after the question about unsaved changes, the copy kept for recovery goes, then
-  // Octet does then (closes the window, or installs the update).
+  // Octet does then (closes the window, or installs the update). A quit from the Dock or a logout waits for the answer
+  // (src-tauri/src/quit.rs): when the drawing stays, it stops.
   const leave = (then: () => Promise<unknown>) => keepWork(() => {
     clearTimeout(keeper.timer);
     keeper.timer = 0;
     keeper.kept = false;
     void keep("recovery_clear").catch(() => {}).then(then).catch((e) => setNotice(failure("Octet cannot do this.", e)));
-  });
+  }, () => { if (TAURI) invoke("quit_answer", { quit: false }).catch(() => {}); });
   const closeWindow = () => leave(() => getCurrentWindow().destroy());
   // Updates (decision 0010, src-tauri/src/update.rs): a check when Octet opens, only if the user said yes to it, and
   // Check for Updates…. An update found asks before it installs, but never over another question: then it asks at the
@@ -1062,7 +1063,7 @@ export default function Editor() {
     const off = getCurrentWindow().onCloseRequested((e) => { e.preventDefault(); commands.current.quit(); });
     return () => void off.then((f) => f());
   }, []);
-  // With unsaved changes, the Dock's Quit, a logout or a shutdown stops and sends Quit here (src-tauri/src/quit.rs).
+  // With unsaved changes, the Dock's Quit, a logout or a restart waits and sends Quit here (src-tauri/src/quit.rs).
   useEffect(() => { if (TAURI) invoke("set_edited", { edited: dirty }).catch(() => {}); }, [dirty]);
   useEffect(() => {
     if (!TAURI) return;
@@ -1564,6 +1565,10 @@ export default function Editor() {
     import: () => void importFile(),
     save: () => void save(false),
     save_as: () => void save(true),
+    // Edit > Cut, Copy and Paste on Linux, where they are Octet's own menu items (main.rs).
+    cut: () => clipCommand("cut"),
+    copy: () => clipCommand("copy"),
+    paste: () => clipCommand("paste"),
     // While a label or caption is being typed, the Edit menu works on its text.
     undo: () => (typing() ? void document.execCommand("undo") : undo()),
     redo: () => (typing() ? void document.execCommand("redo") : h.at < h.stack.length - 1 ? undo(true) : repeatLast()),
@@ -2227,7 +2232,7 @@ export default function Editor() {
     | { kind: "bracket"; shape: number; usage: string; label: string; count: string; order: string; mw: string; pattern: string; flip: string; flippable: boolean }
     | { kind: "rlogic"; rows: { id: number; name: string; occur: string; restH: boolean; then: string }[] }
     | { kind: "font"; font: string } | { kind: "size"; size: string } | { kind: "spacing"; mode: "auto" | "variable" | "fixed"; pt: string }
-    | { kind: "unsaved"; next: () => void } | { kind: "rf"; plate: number; index: number; value: string } | { kind: "chain"; from: number | P; atoms: string }
+    | { kind: "unsaved"; next: () => void; stay?: () => void } | { kind: "rf"; plate: number; index: number; value: string } | { kind: "chain"; from: number | P; atoms: string }
     | { kind: "template"; name: string; from: string } | { kind: "templateSet"; name: string; then: (set: string) => void } | { kind: "lossy"; lost: Record<string, number>; done: (saved: boolean) => void } | { kind: "revert" }
     | { kind: "discard"; entry: RecoveredEntry } | { kind: "crashed"; log: string } | { kind: "update"; version: string }>();
   // Check Structure's dialog: the problems, the one shown, and what runs after them (a copy or export that asked).
@@ -4843,6 +4848,19 @@ export default function Editor() {
     copyText.current = undefined;
     void (navigator.clipboard?.writeText(text) ?? Promise.reject()).then(() => setNotice("Copied.", "done"), () => setNotice("Octet cannot copy this."));
   };
+  // Edit > Cut, Copy and Paste on Linux, where they are Octet's own menu items (main.rs) and GTK gives them Ctrl+X, C
+  // and V before the page. In a text field they work on its text through the app's clipboard, as copyPlain does (the
+  // webview lets a page use the clipboard only during a click or a key). Elsewhere they are the drawing's own cut, copy
+  // and paste: the clipboard events below, which do nothing on Home or over a dialog.
+  const clipCommand = (id: "cut" | "copy" | "paste") => {
+    const el = document.activeElement;
+    if (!typing()) return void dispatchEvent(new ClipboardEvent(id, { cancelable: true }));
+    if (id === "paste") return void readClipboard().then((c) => { if (c.text) document.execCommand("insertText", false, c.text); }, (err) => setNotice(failure("Octet cannot read the clipboard.", err)));
+    const field = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement ? el : undefined;
+    // A number field has no selection to read: its whole value.
+    const text = field ? (field.selectionStart === null ? field.value : field.value.slice(field.selectionStart, field.selectionEnd ?? field.selectionStart)) : getSelection()?.toString() ?? "";
+    if (text) void copyToClipboard({ text }).then(() => { if (id === "cut") document.execCommand("delete"); }, (err) => setNotice(failure("Octet cannot copy this.", err)));
+  };
   // Edit > Copy As (CH-7, CH-26): the selected structures, or every structure, as text, as ChemDraw's does. SMILES
   // (⌥⌘C), InChI, InChIKey, CDXML Text (⌘D, the selection's whole drawing), MOL Text (⌥⌘O, V3000 as in ChemDraw
   // 26.1) and MOL V2000 Text (⇧⌥⌘O).
@@ -5744,7 +5762,8 @@ export default function Editor() {
         const k = keyOf(e), id = k && native(k) ? actionFor(keymap(settings.keys), k, "none") : undefined;
         if (id?.startsWith("menu.")) {
           const cmd = id.slice(5), over = { home, modal: modal(), typing: typing() };
-          if (over.typing && ["undo", "redo", "select_all"].includes(cmd)) return;
+          // In a text box these are the box's own. A menu command that follows from the same key does not run again.
+          if (over.typing && ["undo", "redo", "select_all", "cut", "copy", "paste"].includes(cmd)) { pageRan.current = { id: cmd, at: performance.now() }; return; }
           if (!menuRuns(cmd, over)) return;
           e.preventDefault();
           pageRan.current = { id: cmd, at: performance.now() };
@@ -5878,9 +5897,11 @@ export default function Editor() {
       // hides in its pictures and Word keeps, then a molfile, then SMILES), then plain text that names a structure,
       // and a picture last.
       if (NATIVE_CLIP && !e.clipboardData?.getData(OCTET_CLIP)) {
-        const text = e.clipboardData?.getData("text/plain"), file = imageFile(e);
+        const given = e.clipboardData?.getData("text/plain"), file = imageFile(e);
         e.preventDefault();
         void readClipboard().then(async (clip) => {
+          // Edit > Paste on Linux sends a paste with no data (clipCommand): the text is the app's.
+          const text = given || clip.text || undefined;
           if (clip.spectrum) return openSpectrumText(clip.spectrum[1], clip.spectrum[0]);
           if (text && isJcamp(text)) return openSpectrumText(text, "the clipboard");
           if (clip.octet) {
@@ -7244,9 +7265,9 @@ export default function Editor() {
         );
       })()}</Exit>
       <Exit>{dialog?.kind === "unsaved" && (
-        <Dialog title={`Save changes to “${name}”?`} action="Save" onClose={() => setDialog(undefined)}
+        <Dialog title={`Save changes to “${name}”?`} action="Save" onClose={() => { const d = dialog; setDialog(undefined); d.stay?.(); }}
           alt={{ label: "Don’t Save", onClick: () => { const d = dialog; setDialog(undefined); d.next(); } }}
-          onAction={() => { const d = dialog; setDialog(undefined); void save(false).then((ok) => { if (ok) d.next(); }); }}>
+          onAction={() => { const d = dialog; setDialog(undefined); void save(false).then((ok) => (ok ? d.next() : d.stay?.())); }}>
           <p className="dialog-note">If you do not save, your changes are lost.</p>
         </Dialog>
       )}</Exit>

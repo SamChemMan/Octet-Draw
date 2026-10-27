@@ -369,7 +369,8 @@ async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<St
 }
 
 // File and Edit menus. Custom items send their id to the page as a "menu" event; Cut, Copy and Paste
-// stay native so the page gets ordinary clipboard events. Select All selects the drawing, not the page.
+// stay native on the Mac and Windows so the page gets ordinary clipboard events. Select All selects the drawing, not
+// the page.
 fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), overrides: &HashMap<String, String>, online: bool) -> tauri::Result<Built> {
     // Every command goes through here: it is listed (with the menu it is in) and takes the user's shortcut if they
     // set one, else its default ("" for none).
@@ -467,15 +468,22 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("copy_mol_v2000", "MOL V2000 Text", "Alt+Shift+CmdOrCtrl+O")?,
     ])?;
     section.replace("Edit".into());
+    // Cut, Copy and Paste: the system's items on the Mac, and on Windows, where they press the keys in the window.
+    // GTK's items press the keys only with libxdo, which Octet does not use, so on Linux they are Octet's own, as Close
+    // Window is: the page runs them on the drawing or on the text field that has the focus (Editor.tsx).
+    #[cfg(not(target_os = "linux"))]
+    let (cut, copy, paste) = (PredefinedMenuItem::cut(app, None)?, PredefinedMenuItem::copy(app, None)?, PredefinedMenuItem::paste(app, None)?);
+    #[cfg(target_os = "linux")]
+    let (cut, copy, paste) = (item("cut", "Cut", "CmdOrCtrl+X")?, item("copy", "Copy", "CmdOrCtrl+C")?, item("paste", "Paste", "CmdOrCtrl+V")?);
     let edit = Submenu::with_items(app, "Edit", true, &[
         &item("undo", "Undo", "CmdOrCtrl+Z")?,
         &item("redo", "Redo", "CmdOrCtrl+Y")?,
         // ChemDraw's Repeat: the last turn, flip, scale or style again. Redo's ⌘Y repeats when there is nothing to redo.
         &item("repeat", "Repeat", "")?,
         &sep()?,
-        &PredefinedMenuItem::cut(app, None)?,
-        &PredefinedMenuItem::copy(app, None)?,
-        &PredefinedMenuItem::paste(app, None)?,
+        &cut,
+        &copy,
+        &paste,
         &item("select_all", "Select All", "CmdOrCtrl+A")?,
         &item("invert_selection", "Invert Selection", "CmdOrCtrl+Shift+I")?,
         &sep()?,
@@ -814,7 +822,7 @@ fn main() {
         .manage(search::Online(Mutex::new(true)))
         .manage(TextLists::default())
         .manage(Purposes::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, open::take_opened])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened])
         .setup(|app| {
             let handle = app.handle();
             // Files named when Octet starts (Explorer and file managers pass them as arguments).
@@ -868,11 +876,14 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("error while running Octet")
-        .run(|_app, _event| {
+        .run(|_app, event| match event {
             // Files opened from Finder or the Dock (a double-click, Open With, a drop on the Dock icon).
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Opened { urls } = _event {
-                open::offer(_app, urls.into_iter().filter_map(|u| u.to_file_path().ok()), None);
-            }
+            tauri::RunEvent::Opened { urls } => open::offer(_app, urls.into_iter().filter_map(|u| u.to_file_path().ok()), None),
+            // A quit from the Dock or a logout that waited (quit.rs): the page closed the drawing's window after its
+            // question, so the quit goes on. AppKit ends Octet, so Tauri does not end it first.
+            tauri::RunEvent::WindowEvent { label, event: WindowEvent::Destroyed, .. } if label == "main" => quit::answer(true),
+            tauri::RunEvent::ExitRequested { api, .. } if quit::ending() => api.prevent_exit(),
+            _ => {}
         });
 }
