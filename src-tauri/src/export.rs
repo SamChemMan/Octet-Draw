@@ -967,6 +967,14 @@ mod tests {
             let k = ((h / 2) * w + w / 2) as usize * 4;
             assert!(rgba[k] > 200 && rgba[k + 1] < 60 && rgba[k + 3] > 200, "{mime}: {:?}", &rgba[k..k + 4]);
             assert!(find(&make_pdf(&svg, None).unwrap(), b"/Subtype /Image").is_some(), "{mime}");
+            // The clipboard's PNG on Windows and Linux, and EMF and EPS (vector.rs, which checks where they go).
+            let mut reader = png::Decoder::new(std::io::Cursor::new(clipboard_pictures(&svg, false).unwrap().0)).read_info().unwrap();
+            let mut buf = vec![0; reader.output_buffer_size()];
+            let info = reader.next_frame(&mut buf).unwrap();
+            let k = ((info.height / 2) * info.width + info.width / 2) as usize * 4;
+            assert!(buf[k] > 200 && buf[k + 1] < 60 && buf[k + 3] > 200, "{mime}: {:?}", &buf[k..k + 4]);
+            assert!(String::from_utf8(crate::vector::make_eps(&tree(&svg).unwrap())).unwrap().contains(" image\n"), "{mime}");
+            assert!(find(&crate::vector::make_emf(&tree(&svg).unwrap()), &[81, 0, 0, 0]).is_some(), "{mime}");
         }
     }
 
