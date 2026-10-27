@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { DAMAGED, NOT_CDXML, TOO_BIG, arialGlyph, fmt, fmtAngle, fmtColour, fmtSize, fromCdxml, parseXml, toCdxml, type Xml } from "./cdxml.ts";
 import { DEFAULT_STYLE, PRESETS, readStyle, withScale, type DocStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
-import { fitSizes } from "./edit.ts";
+import { fitSizes, insertMol } from "./edit.ts";
 import { HIGHLIGHT, bendPoint, ellipseArrow, fitArrows, headOfLength, headsOf, placeCaptions, placedAt, render, takesHeads, tlcLayout, type Arrow, type Atom, type Bond, type Caption, type Ink, type Mol, type Shape } from "./render.ts";
 import { layoutCycles } from "./cycle.ts";
 import { analyse, fromJcamp, measuredText, type Measured } from "./measured.ts";
@@ -921,6 +921,10 @@ ${label(27, 400, 200, 'Element="7" NumHydrogens="1"', "NH", "Left", "Below")}${n
   const shifts = (x: Measured) => analyse(x).groups.map((g) => g.shift.toFixed(3)).sort();
   assert.deepEqual(shifts(m), shifts(h1));
   parse(serialize(back.mol));
+  // Pasted into another drawing, the file brings no spectrum, so its atoms and bonds keep no links (ids that would
+  // name the other drawing's multiplets).
+  const pasted = insertMol({ atoms: [], bonds: [], spectra: [h1] }, back.mol).mol;
+  assert.ok([...pasted.atoms, ...pasted.bonds].every((x) => !x.peaks) && pasted.spectra?.[0] === h1);
   // Written again, it is where it was, the same object.
   const again = toCdxml(back.mol, DEFAULT_STYLE), sp2 = every(parseXml(again)).find((x) => x.name === "spectrum")!;
   assert.deepEqual([sp2.attrs.BoundingBox, sp2.attrs.XLow, sp2.attrs.XSpacing, sp2.text], [sp.attrs.BoundingBox, sp.attrs.XLow, sp.attrs.XSpacing, sp.text]);
