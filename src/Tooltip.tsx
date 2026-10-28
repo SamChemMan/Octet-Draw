@@ -101,7 +101,8 @@ export function Tooltips() {
   return (
     <Exit>{tip && (
       <span ref={box} className={tip.instant ? "tip instant" : "tip"} role="tooltip">
-        {tip.text}
+        {/* A long place (a drawing's file) breaks after a slash before it breaks inside a name. */}
+        <span className="tip-text">{tip.text.split("/").flatMap((part, k) => (k ? ["/", <wbr key={k} />, part] : [part]))}</span>
         {tip.key && <kbd>{tip.key}</kbd>}
       </span>
     )}</Exit>

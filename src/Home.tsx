@@ -1,34 +1,43 @@
 // Home (decision 0003): where Octet opens. The lockup, a greeting by name and time of day, then four sections, each
 // under its own heading and hairline: New (Quick start: a seamless canvas with no page, focused when Home opens, so
-// Return starts it), Templates beside it (purposes, IDEA-SIZE-1: Paper, Thesis, Slides and Poster, then the user's
-// own, then Custom template), Recent (the recent drawings as pictures, or three example drawings before there are any,
-// with Open), and Projects. One click starts or opens a drawing. On first launch Home asks the user's name first, in
-// the dotted frame a selected group gets. Nothing here needs an account.
-// A project is a list in Octet that points at drawings, as an album in Photos does (src/projects.ts). A drawing goes in
-// by a drag onto the project, by Add to Project in its menu, or by a drop of files from Finder; the project opens in
-// Home's place, with Home to go back. Each tile has a right-click menu (the Menu key and Shift+F10 open it too), and a
-// drawing or project can have a thumbnail of the user's own.
-// Keys: the arrow keys move between tiles, across sections. Tab goes from section to section (one stop each, the tile
-// last focused there), and each section is a region named by its heading, for screen readers.
+// Return starts it), Templates (purposes, IDEA-SIZE-1: Paper, Thesis, Slides and Poster, then the user's own, then
+// Custom template), Recent (the recent drawings as pictures, or three example drawings before there are any, with
+// Open), and Projects. One click starts or opens a drawing. On first launch Home asks the user's name first, in the
+// dotted frame a selected group gets. Nothing here needs an account.
+// The sections are modules: a drag by the heading moves one up or down, a click on the heading folds it to the heading
+// and back, and the heading's menu has Move up, Move down and Collapse or Expand. New and Templates sit side by side
+// when they are next to each other. Settings keeps the order and the folded sections (src/homeLayout.ts).
+// A project is a list in Octet that points at drawings, as an album in Photos does (src/projects.ts), drawn as a folder
+// in the project's colour. A drawing goes in by a drag onto the folder, by Add to Project in its menu, by a drop of
+// files from Finder, or by the project's dot under the drawing's tile (filled when the drawing is in it; a click puts
+// it in or takes it out, as a tag in Finder). The project opens in Home's place, with Home to go back. Each tile has a
+// right-click menu (the Menu key and Shift+F10 open it too), and a drawing or project can have a thumbnail of the
+// user's own: Set thumbnail…, or a picture dropped on its tile.
+// Keys: the arrow keys move between tiles, across sections. Tab goes from section to section (its heading, then one
+// stop for its tiles, the tile last focused there), and each section is a region named by its heading, for screen
+// readers. A project's dots are not Tab stops (the tile's menu does the same), but screen readers reach them.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
 import {
-  ArrowCounterClockwise, ArrowLeft, DotsThree, FilePlus, FolderOpen, FolderPlus, FolderSimple, FolderSimpleMinus, FolderSimplePlus, ImageSquare,
-  MagnifyingGlass, MinusCircle, PencilSimple, Plus, Trash, X,
+  ArrowCounterClockwise, ArrowDown, ArrowLeft, ArrowUp, ArrowsInLineVertical, ArrowsOutLineVertical, CaretDown, DotsThree, FilePlus, FolderOpen, FolderPlus,
+  FolderSimple, FolderSimpleMinus, FolderSimplePlus, ImageSquare, MagnifyingGlass, MinusCircle, Palette, PencilSimple, Plus, Trash, X,
 } from "@phosphor-icons/react";
-import { QUICK, outlines, type DocStyle, type PurposeKind } from "./docstyle";
+import { COLOURS, QUICK, outlines, type DocStyle, type PurposeKind } from "./docstyle";
 import mark from "../brand/logos/octet-mark.svg";
 import markSmall from "../brand/logos/octet-mark-small.svg";
 import markWhite from "../brand/logos/octet-mark-white.svg";
 import lockup from "../brand/logos/octet-lockup.svg";
 import lockupWhite from "../brand/logos/octet-lockup-white.svg";
+import { ColourPop } from "./ColourPicker";
 import { Dialog, useModal } from "./Dialog";
 import { tileTo } from "./keys";
 import { ContextMenu, menuAt, menuKey, type MenuItem } from "./Menu";
-import { Exit } from "./motion";
-import { mosaic, projectOf, UNTITLED, type Project } from "./projects";
-import type { HomeLibrary, TilePicture } from "./homeLibrary";
+import { Exit, reduced, timing } from "./motion";
+import { colourOf, dotsFor, folderTones, projectOf, PROJECT_COLOUR, tilde, UNTITLED, type Project } from "./projects";
+import { moveSection, rowsOf, type HomeLayout, type SectionId } from "./homeLayout";
+import { MAX_INPUT } from "./thumbs";
+import type { HomeLibrary, ThumbTarget, TilePicture } from "./homeLibrary";
 import { STARTERS } from "./starters";
 
 export type RecentEntry = { path: string; name: string; at: number; thumb?: string; found: boolean };
@@ -109,27 +118,53 @@ function DrawingPicture({ name, picture }: { name: string; picture?: TilePicture
   );
 }
 
-// A project's picture: its own thumbnail, else a mosaic of its first drawings (one, two side by side, or up to four),
-// else an empty folder. Behind it, the edge of a second sheet: a project holds more than one drawing.
-function ProjectPicture({ thumb, cells }: { thumb?: string; cells: TilePicture[] }) {
-  if (thumb) return <span className="home-thumb stack" data-theme="light"><img className="fill" src={thumb} alt="" draggable={false} /></span>;
-  if (!cells.length) return <span className="home-thumb stack empty"><FolderSimple size={20} aria-hidden /></span>;
+// A project's folder, in Phosphor's folder shape (a back with a tab, and a front), in the project's colour. Its first
+// three drawings peek out of the top as pages, the first in front. The project's own thumbnail sits on the front,
+// faint and in the folder's colour, as a symbol on a macOS folder does. On hover the front tips open and the pages
+// lift; with a drawing carried over it, it opens wider (editor.css).
+const FOLDER_BACK = "M0 8a8 8 0 0 1 8-8h40c6 0 6 10 14 10h90a8 8 0 0 1 8 8v94a8 8 0 0 1-8 8H8a8 8 0 0 1-8-8z";
+const FAN = [{ x: "0%", r: "-2deg", lift: "-12%" }, { x: "8%", r: "4deg", lift: "-17%" }, { x: "-8%", r: "-6deg", lift: "-14%" }];
+function Folder({ colour, papers, emboss }: { colour: string; papers: (TilePicture | undefined)[]; emboss?: string }) {
+  const t = folderTones(colour);
   return (
-    <span className={`home-thumb stack mosaic n${cells.length}`} data-theme="light">
-      {cells.map((c, k) => <span key={k} className="cell"><img className={c.fill ? "fill" : undefined} src={c.src} alt="" draggable={false} /></span>)}
+    <span className="folder" data-dark={t.dark || undefined} style={{ "--folder": t.front, "--folder-back": t.back, "--folder-lip": t.lip } as React.CSSProperties} aria-hidden>
+      <svg className="folder-back" viewBox="0 0 160 120" preserveAspectRatio="none"><path d={FOLDER_BACK} vectorEffect="non-scaling-stroke" /></svg>
+      {papers.slice(0, 3).map((picture, k) => (
+        <span key={k} className="paper" data-theme="light" style={{ "--x": FAN[k].x, "--r": FAN[k].r, "--lift": FAN[k].lift, "--k": k, zIndex: 3 - k } as React.CSSProperties}>
+          {picture && <img className={picture.fill ? "fill" : undefined} src={picture.src} alt="" draggable={false} />}
+        </span>
+      ))}
+      <span className="folder-front">{emboss && <img src={emboss} alt="" draggable={false} />}</span>
+    </span>
+  );
+}
+// New project: an empty folder in outline, dashed, with a plus.
+function EmptyFolder() {
+  return (
+    <span className="folder outline" aria-hidden>
+      <svg className="folder-lines" viewBox="0 0 160 120" preserveAspectRatio="none">
+        <path d="M0.5 36V8.5a8 8 0 0 1 8-8h39.5c6 0 6 10 14 10h89.5a8 8 0 0 1 8 8V36" vectorEffect="non-scaling-stroke" />
+        <rect x="0.5" y="36" width="159" height="83.5" rx="8" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <Plus size={20} />
     </span>
   );
 }
 
-// A section of Home: its heading (and an action beside it), then its tiles.
-function Section({ id, title, action, className, children }: { id: string; title: string; action?: React.ReactNode; className?: string; children: React.ReactNode }) {
+// A section of Home: its heading (a button that folds it, which a drag moves; its menu moves it too), an action beside
+// it, then its tiles. The open project's section has a plain heading.
+type Heading = { folded: boolean; lifted: boolean; unfolding: boolean; props: React.ButtonHTMLAttributes<HTMLButtonElement> };
+function Section({ id, title, action, className, heading, children }: { id: string; title: string; action?: React.ReactNode; className?: string; heading?: Heading; children: React.ReactNode }) {
+  const cls = ["home-section", className, heading?.folded && "folded", heading?.lifted && "lifted", heading?.unfolding && "unfolding"].filter(Boolean).join(" ");
   return (
-    <section className={`home-section${className ? ` ${className}` : ""}`} data-section={id} aria-labelledby={`${id}-title`}>
+    <section className={cls} data-section={id} aria-labelledby={`${id}-title`}>
       <div className="home-row">
-        <h2 id={`${id}-title`}>{title}</h2>
+        <h2 id={`${id}-title`}>
+          {heading ? <button className="home-heading" data-heading={id} aria-expanded={!heading.folded} {...heading.props}>{title}<CaretDown size={12} aria-hidden /></button> : title}
+        </h2>
         {action}
       </div>
-      {children}
+      {!heading?.folded && <div className="home-body">{children}</div>}
     </section>
   );
 }
@@ -145,16 +180,19 @@ type Props = {
   onCustom?: () => void; // makes a template of the user's own; unset when they have as many as Octet keeps
   onStarter: (text: string) => void; // opens an example drawing as a new drawing
   lib: HomeLibrary; // the projects and thumbnails
-  drops?: boolean; // files from Finder can be dropped on a project (the app; not the UI-only preview)
+  drops?: boolean; // files from Finder can be dropped on a tile (the app; the UI-only preview takes pictures by the browser's drop)
+  palette?: { name: string; hex: string }[]; // the user's own colours, after Octet's, as in every colour row
+  layout: HomeLayout; onLayout: (layout: HomeLayout) => void; // the sections' order and the folded ones (settings)
 };
 
-// What a right-click menu is for.
+// What a right-click menu is for. add: the drawing's Add to project list alone (its More dot).
 type MenuFor = { at: { x: number; y: number }; keyboard?: boolean } & (
-  | { kind: "drawing"; path: string; name: string; found: boolean; recent?: RecentEntry; project?: string }
+  | { kind: "drawing"; path: string; name: string; found: boolean; recent?: RecentEntry; project?: string; add?: boolean }
   | { kind: "project"; id: string }
   | { kind: "purpose"; id: string; name: string; own?: boolean }
   | { kind: "recovered"; entry: RecoveredEntry }
   | { kind: "starter"; text: string; name: string }
+  | { kind: "section"; id: SectionId; name: string }
 );
 
 // The first time Home shows (not when a drawing closes back to it), its tiles arrive one after another (FEEL-44): the
@@ -162,6 +200,9 @@ type MenuFor = { at: { x: number; y: number }; keyboard?: boolean } & (
 let arrived = false;
 const arrive = (k: number) => ({ "--i": Math.min(k, 7) }) as React.CSSProperties;
 const drawings = (n: number) => `${n} ${n === 1 ? "drawing" : "drawings"}`;
+const TITLES: Record<SectionId, string> = { new: "New", templates: "Templates", recent: "Recent", projects: "Projects" };
+const DOTS = 6; // a drawing tile's project dots, More counted: they fit the narrowest tile (196 px), with the plus
+const PICTURE = /\.(png|jpe?g|gif|bmp|tiff?|webp)$/i;
 
 export function Home(p: Props) {
   const grid = useRef<HTMLDivElement>(null), page = useRef<HTMLElement>(null), now = new Date(), lib = p.lib;
@@ -171,16 +212,21 @@ export function Home(p: Props) {
   // A project being named: a new one (with the drawings it takes when it is made), or one being renamed.
   const [naming, setNaming] = useState<{ id?: string; value: string; then?: { path: string; name?: string }[] }>();
   const [deleting, setDeleting] = useState<Project>();
+  // A project's colour being picked freely (Custom colour…): shown on its folder as it changes, kept when it closes.
+  const [picking, setPicking] = useState<{ id: string; hex: string; anchor: DOMRect; keep: HTMLElement | null }>();
   const open = projectOf(lib.store, lib.open);
   const n = 1 + p.purposes.length + (p.onCustom ? 1 : 0); // the New tiles: Quick start, the templates, Custom template
   // Home covers the editor, which takes no keys or clicks until Home goes.
   useModal(page, !p.leaving);
+  // Quick start has the focus when Home opens, wherever its section is, without a scroll to it.
+  useEffect(() => { page.current?.querySelector<HTMLElement>('[data-tile="new"]')?.focus({ preventScroll: true }); }, []);
 
-  // One Tab stop for each section (roving): the tile last focused there, else its first. The arrow keys go to the rest.
+  // One Tab stop for each section's tiles (roving): the tile last focused there, else its first. The arrow keys go to
+  // the rest.
   const roving = useRef<Record<string, string>>({});
   const rove = () => {
     for (const section of page.current?.querySelectorAll<HTMLElement>("[data-section]") ?? []) {
-      const tiles = [...section.querySelectorAll<HTMLElement>("button.home-tile")], stop = tiles.find((t) => t.dataset.key === roving.current[section.dataset.section!]) ?? tiles[0];
+      const tiles = [...section.querySelectorAll<HTMLElement>("button.home-tile")], stop = tiles.find((t) => t.dataset.tile === roving.current[section.dataset.section!]) ?? tiles[0];
       for (const t of tiles) t.tabIndex = t === stop ? 0 : -1;
     }
   };
@@ -188,20 +234,27 @@ export function Home(p: Props) {
   const focused = (e: React.FocusEvent) => {
     const tile = (e.target as HTMLElement).closest<HTMLElement>(".home-tile"), section = tile?.closest<HTMLElement>("[data-section]");
     if (!tile || !section) return;
-    roving.current[section.dataset.section!] = tile.dataset.key!;
+    roving.current[section.dataset.section!] = tile.dataset.tile!;
     rove();
   };
 
   // Return starts Quick start (as decision 0003 asks) unless a tile or a button has the focus; arrow keys move between
-  // tiles, up and down to the nearest tile in the row there (tileTo). Escape goes back from a project. A dialog over
-  // Home (Save changes) makes Home inert and keeps the keys.
+  // tiles, up and down to the nearest tile in the row there (tileTo); down from a heading goes into its section.
+  // Escape goes back from a project. A dialog over Home (Save changes) makes Home inert and keeps the keys.
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (p.leaving || page.current?.inert || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || menu || deleting) return;
+      if (p.leaving || page.current?.inert || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || menu || deleting || picking) return;
       if (e.target instanceof HTMLInputElement) return;
       const tiles = [...(grid.current?.querySelectorAll<HTMLElement>("button.home-tile") ?? [])], at = tiles.indexOf(document.activeElement as HTMLElement);
       if (e.key === "Enter" && at < 0 && !(document.activeElement instanceof HTMLButtonElement)) { e.preventDefault(); p.onNew(QUICK); return; }
       if (e.key === "Escape" && open) { e.preventDefault(); back(); return; }
+      const heading = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>("[data-heading]");
+      if (heading) {
+        if (e.key !== "ArrowDown") return;
+        e.preventDefault();
+        heading.closest("[data-section]")?.querySelector<HTMLElement>('button.home-tile[tabindex="0"]')?.focus();
+        return;
+      }
       const to = tileTo(e.key, at, tiles.map((t) => t.getBoundingClientRect()));
       if (to !== undefined) { e.preventDefault(); tiles[to].focus(); }
     };
@@ -212,7 +265,7 @@ export function Home(p: Props) {
   const back = () => {
     const id = lib.open;
     lib.setOpen(undefined);
-    requestAnimationFrame(() => page.current?.querySelector<HTMLElement>(`.home-tile[data-key="project:${CSS.escape(id ?? "")}"]`)?.focus());
+    requestAnimationFrame(() => page.current?.querySelector<HTMLElement>(`.home-tile[data-tile="project:${CSS.escape(id ?? "")}"]`)?.focus());
   };
   const openProject = (id: string) => {
     lib.setOpen(id);
@@ -220,7 +273,8 @@ export function Home(p: Props) {
     requestAnimationFrame(() => page.current?.querySelector<HTMLElement>("[data-section='project'] .home-tile")?.focus());
   };
 
-  // The project under a point, tinted as the template library tints where a drop goes (data-over).
+  // The tile under a point, tinted (or a folder opened) where a drop goes, as the template library tints a set
+  // (data-over).
   const over = useRef<HTMLElement | null>(null);
   const mark = (el: HTMLElement | null) => {
     if (el === over.current) return;
@@ -229,24 +283,68 @@ export function Home(p: Props) {
     over.current = el;
   };
   const projectAt = (x: number, y: number) => document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-project]") ?? null;
-  // Files from Finder over the window (the app sends where the pointer is): the project under them is tinted, and
-  // the one they are let go on is where they go (Editor's takeOpened reads it).
+  // A drop taken: the folder (or the drawing's picture) gives a small settle.
+  const settle = (tile: HTMLElement | null | undefined) => {
+    const el = tile?.querySelector<HTMLElement>(".folder, .home-thumb");
+    if (el && !reduced()) el.animate([{ transform: "none" }, { transform: "translateY(2px) scale(0.98)", offset: 0.35 }, { transform: "none" }], timing("--motion-slow"));
+  };
+  const targetOf = (el: HTMLElement | null | undefined): ThumbTarget | undefined => (el?.dataset.project ? { project: el.dataset.project } : el?.dataset.drawing ? { path: el.dataset.drawing } : undefined);
+  // Files from Finder over the window (the app sends where the pointer is): the tile under them is marked, and the one
+  // they are let go on is where they go (Editor's takeOpened reads it). Drawings go in a project; pictures alone can
+  // go on any drawing or project, as its thumbnail.
   useEffect(() => {
     if (!p.drops) return;
     const scale = /Windows/.test(navigator.userAgent) ? devicePixelRatio : 1; // WebView2 gives device pixels
-    type At = { payload: { position: { x: number; y: number } } };
-    const at = (e: At) => projectAt(e.payload.position.x / scale, e.payload.position.y / scale);
+    type At = { payload: { position: { x: number; y: number }; paths?: string[] } };
+    let pictures = false;
+    const at = (e: At) => {
+      const el = document.elementFromPoint(e.payload.position.x / scale, e.payload.position.y / scale);
+      return el?.closest<HTMLElement>(pictures ? "[data-project], [data-drawing]" : "[data-project]") ?? null;
+    };
     const offs = [
-      listen("tauri://drag-enter", (e: At) => mark(at(e))),
+      listen("tauri://drag-enter", (e: At) => { pictures = !!e.payload.paths?.length && e.payload.paths.every((x) => PICTURE.test(x)); mark(at(e)); }),
       listen("tauri://drag-over", (e: At) => mark(at(e))),
       listen("tauri://drag-leave", () => mark(null)),
-      listen("tauri://drag-drop", (e: At) => { lib.dropTarget.current = at(e)?.dataset.project; mark(null); }),
+      listen("tauri://drag-drop", (e: At) => { const el = at(e); lib.dropTarget.current = targetOf(el); mark(null); settle(el); }),
     ];
     return () => { for (const off of offs) void off.then((f) => f()); };
   }, [p.drops]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A picture dropped on a tile in the UI-only preview (the browser's own drop; the app takes files as above): it
+  // becomes the tile's thumbnail. Only the first 32 MB and a byte are read, so a larger file is refused unread.
+  const pictureDrop = (target: ThumbTarget) => (p.drops ? {} : {
+    onDragOver: (e: React.DragEvent<HTMLElement>) => {
+      if (![...e.dataTransfer.items].some((i) => i.kind === "file" && i.type.startsWith("image/"))) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      mark(e.currentTarget.querySelector<HTMLElement>(".home-tile"));
+    },
+    onDragLeave: (e: React.DragEvent<HTMLElement>) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) mark(null); },
+    onDrop: (e: React.DragEvent<HTMLElement>) => {
+      const file = [...e.dataTransfer.files].find((f) => f.type.startsWith("image/") || PICTURE.test(f.name)), tile = over.current;
+      mark(null);
+      if (!file) return;
+      e.preventDefault();
+      e.stopPropagation(); // the tile takes it; the window's drop (Editor) would open it as a drawing
+      settle(tile);
+      void file.slice(0, MAX_INPUT + 1).arrayBuffer().then((b) => lib.pictureThumb(target, new Uint8Array(b)));
+    },
+  });
 
-  // A drawing carried onto a project: press a tile and move; the project under the pointer is tinted, and the drawing
-  // goes in when it is let go there. Near the window's top or bottom edge Home scrolls. Escape puts it back.
+  // Home scrolls while a drag is near the window's top or bottom edge. Gives the function that stops it.
+  const edgeScroll = (y: () => number, then?: () => void) => {
+    let frame = 0;
+    const step = () => {
+      const el = page.current, edge = 56, at = y();
+      if (el) el.scrollTop += at < edge ? -(edge - at) / 4 : at > innerHeight - edge ? (at - innerHeight + edge) / 4 : 0;
+      then?.();
+      frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  };
+
+  // A drawing carried onto a project: press a tile and move; the folder under the pointer opens, and the drawing goes
+  // in when it is let go there. Escape puts it back.
   const ghost = useRef<HTMLDivElement>(null), stray = useRef(false), pointer = useRef({ x: 0, y: 0 });
   const [carried, setCarried] = useState<{ name: string; picture?: TilePicture }>();
   const place = () => { if (ghost.current) ghost.current.style.transform = `translate(${pointer.current.x + 12}px, ${pointer.current.y + 12}px)`; };
@@ -254,16 +352,11 @@ export function Home(p: Props) {
   const press = (e: React.PointerEvent, d: { path: string; name: string; picture?: TilePicture }) => {
     if (e.button !== 0 || open || !lib.store.projects.length) return;
     const x0 = e.clientX, y0 = e.clientY;
-    let on = false, frame = 0;
-    const scroll = () => {
-      const el = page.current, edge = 56, y = pointer.current.y;
-      if (el) el.scrollTop += y < edge ? -(edge - y) / 4 : y > innerHeight - edge ? (y - innerHeight + edge) / 4 : 0;
-      frame = requestAnimationFrame(scroll);
-    };
+    let on = false, stop = () => {};
     const move = (ev: PointerEvent) => {
       pointer.current = { x: ev.clientX, y: ev.clientY };
       if (!on && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 5) return;
-      if (!on) { on = true; setCarried({ name: d.name, picture: d.picture }); frame = requestAnimationFrame(scroll); }
+      if (!on) { on = true; setCarried({ name: d.name, picture: d.picture }); stop = edgeScroll(() => pointer.current.y); }
       place();
       mark(projectAt(ev.clientX, ev.clientY));
     };
@@ -272,16 +365,103 @@ export function Home(p: Props) {
       removeEventListener("pointerup", up);
       removeEventListener("keydown", escape, true);
       removeEventListener("blur", away);
-      cancelAnimationFrame(frame);
-      const target = over.current?.dataset.project;
+      stop();
+      const tile = over.current, target = tile?.dataset.project;
       mark(null);
       if (!on) return;
       stray.current = true; // the click that ends the drag does not open the drawing
       setTimeout(() => (stray.current = false));
       setCarried(undefined);
-      if (drop && target) void lib.add(target, [{ path: d.path, name: d.name }]);
+      if (drop && target) { settle(tile); void lib.add(target, [{ path: d.path, name: d.name }]); }
     };
     const up = () => end(true), away = () => end(false); // the window losing the focus puts it back too
+    const escape = (ev: KeyboardEvent) => { if (ev.key === "Escape" && on) { ev.preventDefault(); ev.stopPropagation(); end(false); } };
+    addEventListener("pointermove", move);
+    addEventListener("pointerup", up);
+    addEventListener("keydown", escape, true);
+    addEventListener("blur", away);
+  };
+
+  // ——— The sections as modules ———
+  // While a section is dragged, the order it would drop in; the sections it passes slide out of its way.
+  const [drag, setDrag] = useState<{ id: SectionId; order: SectionId[] }>();
+  const [unfolded, setUnfolded] = useState<SectionId>(); // the section just opened, whose tiles fade in
+  const layout: HomeLayout = { ...p.layout, order: drag?.order ?? p.layout.order };
+  const isFolded = (id: SectionId) => layout.folded.includes(id);
+  const sectionEls = () => [...(grid.current?.querySelectorAll<HTMLElement>("[data-section]") ?? [])];
+  const sectionEl = (id: string) => grid.current?.querySelector<HTMLElement>(`[data-section="${id}"]`) ?? null;
+  // The sections slide from where they were to where they are (FLIP): remember() before a change, then each moves from
+  // its old place after the change. The section being dragged follows the pointer instead.
+  const flip = useRef<Map<string, DOMRect>>(undefined), dragging = useRef<{ id: SectionId; grab: number; y: number; shift: number }>(undefined);
+  const remember = () => { flip.current = new Map(sectionEls().map((el) => [el.dataset.section!, el.getBoundingClientRect()])); };
+  const follow = () => {
+    const d = dragging.current, el = d && sectionEl(d.id);
+    if (!d || !el) return;
+    d.shift = d.y - d.grab - (el.getBoundingClientRect().top - d.shift);
+    el.style.transform = `translateY(${d.shift}px)`;
+  };
+  useLayoutEffect(() => {
+    const before = flip.current;
+    flip.current = undefined;
+    follow();
+    if (!before || reduced()) return;
+    for (const el of sectionEls()) {
+      const id = el.dataset.section!, was = before.get(id);
+      if (!was || id === dragging.current?.id) continue;
+      for (const a of el.getAnimations()) a.cancel();
+      const now = el.getBoundingClientRect(), dx = was.left - now.left, dy = was.top - now.top;
+      if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], timing("--motion"));
+    }
+  });
+  const relayout = (next: Partial<HomeLayout>, focus?: SectionId) => {
+    remember();
+    p.onLayout({ ...p.layout, ...next });
+    if (focus) requestAnimationFrame(() => grid.current?.querySelector<HTMLElement>(`[data-heading="${focus}"]`)?.focus({ preventScroll: true }));
+  };
+  const fold = (id: SectionId) => {
+    const was = p.layout.folded.includes(id);
+    setUnfolded(was ? id : undefined);
+    relayout({ folded: was ? p.layout.folded.filter((s) => s !== id) : [...p.layout.folded, id] }, id);
+  };
+  // A press on a heading that moves 5 px becomes a drag of its section: it lifts and follows the pointer, and drops in
+  // the place it is over when let go. Escape, or the window losing the focus, puts it back.
+  const headingPress = (e: React.PointerEvent, id: SectionId) => {
+    const el = sectionEl(id);
+    if (e.button !== 0 || !el) return;
+    const x0 = e.clientX, y0 = e.clientY, grab = y0 - el.getBoundingClientRect().top;
+    let on = false, order = p.layout.order, stop = () => {};
+    const step = () => {
+      const d = dragging.current, view = grid.current;
+      if (!d || !view) return;
+      follow();
+      const y = d.y - view.getBoundingClientRect().top, others = order.filter((s) => s !== id);
+      const at = others.filter((s) => { const o = sectionEl(s); return !!o && o.offsetTop + o.offsetHeight / 2 < y; }).length;
+      const next = [...others.slice(0, at), id, ...others.slice(at)];
+      if (next.join() !== order.join()) { order = next; remember(); setDrag({ id, order }); }
+    };
+    const move = (ev: PointerEvent) => {
+      if (!on && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 5) return;
+      if (!on) { on = true; dragging.current = { id, grab, y: ev.clientY, shift: 0 }; setDrag({ id, order }); stop = edgeScroll(() => dragging.current?.y ?? 0, step); }
+      dragging.current!.y = ev.clientY;
+      step();
+    };
+    const end = (drop: boolean) => {
+      removeEventListener("pointermove", move);
+      removeEventListener("pointerup", up);
+      removeEventListener("keydown", escape, true);
+      removeEventListener("blur", away);
+      stop();
+      if (!on) return;
+      stray.current = true; // the click that ends the drag does not fold the section
+      setTimeout(() => (stray.current = false));
+      remember(); // where the dragged section is now, so it settles into its place from there
+      const s = sectionEl(id);
+      if (s) s.style.transform = "";
+      dragging.current = undefined;
+      setDrag(undefined);
+      if (drop && order.join() !== p.layout.order.join()) p.onLayout({ ...p.layout, order });
+    };
+    const up = () => end(true), away = () => end(false);
     const escape = (ev: KeyboardEvent) => { if (ev.key === "Escape" && on) { ev.preventDefault(); ev.stopPropagation(); end(false); } };
     addEventListener("pointermove", move);
     addEventListener("pointerup", up);
@@ -295,8 +475,13 @@ export function Home(p: Props) {
     onKeyDown: (e: React.KeyboardEvent) => { if (!menuKey(e)) return; e.preventDefault(); e.stopPropagation(); setMenu({ ...f(), ...menuAt(e) } as MenuFor); },
   });
   const item = (key: string, name: string, icon: React.ReactNode, more?: boolean, checked?: boolean): MenuItem => ({ key, name, icon, more, checked });
+  const swatch = (hex: string) => <span className="pick-swatch" style={{ background: hex }} />;
+  // Add to project: every project (ticked where the drawing is already), then a new one.
+  const addGroups = (path: string, except?: string) => [lib.store.projects.filter((x) => x.id !== except).map((x) => item(`add:${x.id}`, x.name, <FolderSimple size={18} />, false, x.drawings.some((d) => d.path === path))),
+    [item("add:new", "New project…", <FolderSimplePlus size={18} />)]].filter((g) => g.length);
   const menuGroups = (m: MenuFor): MenuItem[][] => {
     if (m.kind === "drawing") {
+      if (m.add) return addGroups(m.path, m.project);
       const own = !!lib.pictureFor(m.path)?.own;
       return [
         [m.found ? item("open", "Open", <FolderOpen size={18} />) : item("locate", "Locate…", <MagnifyingGlass size={18} />)],
@@ -308,20 +493,35 @@ export function Home(p: Props) {
       const own = !!projectOf(lib.store, m.id)?.thumb;
       return [
         [item("open", "Open", <FolderOpen size={18} />), item("add-files", "Add drawings…", <FilePlus size={18} />)],
-        [item("rename", "Rename", <PencilSimple size={18} />), item("thumb", "Set thumbnail…", <ImageSquare size={18} />), ...(own ? [item("auto", "Use automatic thumbnail", <ArrowCounterClockwise size={18} />)] : [])],
+        [item("rename", "Rename", <PencilSimple size={18} />), item("colour", "Colour", <Palette size={18} />, true), item("thumb", "Set thumbnail…", <ImageSquare size={18} />),
+          ...(own ? [item("auto", "Use automatic thumbnail", <ArrowCounterClockwise size={18} />)] : [])],
         [item("delete", "Delete project…", <Trash size={18} />)],
+      ];
+    }
+    if (m.kind === "section") {
+      const at = layout.order.indexOf(m.id);
+      return [
+        [...(at > 0 ? [item("up", "Move up", <ArrowUp size={18} />)] : []), ...(at < layout.order.length - 1 ? [item("down", "Move down", <ArrowDown size={18} />)] : [])],
+        [isFolded(m.id) ? item("fold", "Expand", <ArrowsOutLineVertical size={18} />) : item("fold", "Collapse", <ArrowsInLineVertical size={18} />)],
       ];
     }
     if (m.kind === "purpose") return [[item("new", "New drawing", <FilePlus size={18} />)], m.own ? [item("remove", "Remove template", <MinusCircle size={18} />)] : []];
     if (m.kind === "recovered") return [[item("open", "Open", <FolderOpen size={18} />)], [item("discard", "Discard", <Trash size={18} />)]];
     return [[item("open", "Open", <FolderOpen size={18} />)]];
   };
-  // Add to project: every project (ticked where the drawing is already), then a new one.
+  // The options an option with more opens: a drawing's Add to project, and a project's colours (the document's colours,
+  // then the user's own, then Custom colour…, as the Actions panel's colour row has them).
   const sub = (key: string) => {
-    if (key !== "add" || menu?.kind !== "drawing") return undefined;
-    const path = menu.path, others = lib.store.projects.filter((x) => x.id !== menu.project);
-    return { label: "Add to project", groups: [others.map((x) => item(`add:${x.id}`, x.name, <FolderSimple size={18} />, false, x.drawings.some((d) => d.path === path))), [item("add:new", "New project…", <FolderSimplePlus size={18} />)]].filter((g) => g.length) };
+    if (key === "add" && menu?.kind === "drawing") return { label: "Add to project", groups: addGroups(menu.path, menu.project) };
+    if (key !== "colour" || menu?.kind !== "project") return undefined;
+    const x = projectOf(lib.store, menu.id), now = x ? colourOf(x) : PROJECT_COLOUR;
+    const list = [...COLOURS, ...(p.palette ?? []).map((c): [string, string] => [c.name, c.hex])], known = list.some(([, hex]) => hex.toUpperCase() === now);
+    return { label: "Colour", groups: [
+      [...list.map(([name, hex]) => item(`colour:${hex}`, name, swatch(hex), false, hex.toUpperCase() === now)), ...(known ? [] : [item(`colour:${now}`, "Custom", swatch(now), false, true)])],
+      [item("colour:custom", "Custom colour…", <Palette size={18} />)],
+    ] };
   };
+  const tileOf = (id: string) => page.current?.querySelector<HTMLElement>(`.home-tile[data-tile="project:${CSS.escape(id)}"]`) ?? page.current?.querySelector<HTMLElement>(".home-title-row") ?? null;
   const choose = (key: string) => {
     const m = menu;
     if (!m) return;
@@ -342,6 +542,16 @@ export function Home(p: Props) {
       if (key === "thumb") return void lib.chooseThumb({ project: m.id });
       if (key === "auto") return void lib.resetThumb({ project: m.id });
       if (key === "delete") return setDeleting(projectOf(lib.store, m.id));
+      if (key === "colour:custom") {
+        const x = projectOf(lib.store, m.id), tile = tileOf(m.id);
+        if (x && tile) setPicking({ id: x.id, hex: colourOf(x), anchor: tile.getBoundingClientRect(), keep: tile });
+        return;
+      }
+      if (key.startsWith("colour:")) return void lib.colour(m.id, key.slice(7));
+    }
+    if (m.kind === "section") {
+      if (key === "fold") return fold(m.id);
+      return relayout({ order: moveSection(p.layout.order, m.id, key === "up" ? -1 : 1, true) }, m.id);
     }
     if (m.kind === "purpose") return key === "new" ? p.onNew(m.id) : p.onRemovePurpose(m.id);
     if (m.kind === "recovered") return key === "open" ? p.onRecovered(m.entry) : p.onDiscard(m.entry);
@@ -352,15 +562,16 @@ export function Home(p: Props) {
   // does not. A project being renamed takes the name the same way.
   const startNaming = (then?: { path: string; name?: string }[]) => {
     if (open) lib.setOpen(undefined);
+    if (isFolded("projects")) relayout({ folded: p.layout.folded.filter((s) => s !== "projects") });
     setNaming({ value: "", then });
-    requestAnimationFrame(() => page.current?.querySelector("[data-section='projects']")?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+    requestAnimationFrame(() => page.current?.querySelector("[data-section='projects']")?.scrollIntoView({ block: "nearest", behavior: reduced() ? "auto" : "smooth" }));
   };
   const named = (keep: boolean) => {
     const it = naming;
     setNaming(undefined);
     if (!it || !keep) return;
     if (it.id) void lib.rename(it.id, it.value);
-    else void lib.create(it.value || UNTITLED, it.then).then((id) => requestAnimationFrame(() => page.current?.querySelector<HTMLElement>(`.home-tile[data-key="project:${CSS.escape(id)}"]`)?.focus()));
+    else void lib.create(it.value || UNTITLED, it.then).then((id) => requestAnimationFrame(() => page.current?.querySelector<HTMLElement>(`.home-tile[data-tile="project:${CSS.escape(id)}"]`)?.focus()));
   };
   const nameField = (
     <input className="home-name-field" autoFocus aria-label="Project name" placeholder={UNTITLED} spellCheck={false} maxLength={60} value={naming?.value ?? ""}
@@ -368,12 +579,35 @@ export function Home(p: Props) {
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); e.stopPropagation(); named(e.key === "Enter"); } }} />
   );
 
+  // A drawing's projects as dots under its tile, each in its project's colour: filled when the drawing is in it, a ring
+  // when not, and a click puts it in or takes it out. More opens Add to project for the projects with no dot here, and
+  // the plus makes a new project with the drawing in it. The dots always show; More and the plus with the pointer on
+  // the tile, or the focus in it.
+  const dots = (d: { path: string; name: string; found: boolean; recent?: RecentEntry; project?: string }) => {
+    const { projects, more } = dotsFor(lib.store, d.path, DOTS);
+    return (
+      <div className="home-dots" role="group" aria-label={`Projects for ${d.name}`}>
+        {projects.map((x) => (
+          <button key={x.id} className="home-dot" tabIndex={-1} aria-pressed={x.drawings.some((y) => y.path === d.path)} aria-label={x.name} data-tip={x.name}
+            style={{ "--dot": picking?.id === x.id ? picking.hex : colourOf(x) } as React.CSSProperties} onClick={() => void lib.toggle(x.id, { path: d.path, name: d.name })}><span /></button>
+        ))}
+        {more && (
+          <button className="home-dot others" tabIndex={-1} aria-label="Add to project" aria-haspopup="menu" data-tip="Add to project"
+            onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setMenu({ kind: "drawing", ...d, add: true, at: { x: r.left, y: r.bottom + 4 }, keyboard: e.detail === 0 }); }}>
+            <DotsThree size={12} aria-hidden />
+          </button>
+        )}
+        <button className="home-dot new" tabIndex={-1} aria-label="New project" data-tip="New project" onClick={() => startNaming([{ path: d.path, name: d.name }])}><Plus size={12} aria-hidden /></button>
+      </div>
+    );
+  };
+
   // A drawing's tile, in Recent or in a project. A drawing that was moved or deleted shows so, and Locate… finds it.
   const drawingTile = (d: { path: string; name: string; found: boolean; recent?: RecentEntry; project?: string; when: string }, k: number) => {
     const picture = lib.pictureFor(d.path), key = `drawing:${d.path}`;
     return (
-      <div key={key} className={d.found ? "home-slot" : "home-slot missing"} style={arrive(k)}>
-        <button className="home-tile" data-key={key} data-tip={d.path} onClick={() => (d.found ? p.onRecent({ path: d.path }) : lib.locate(d.path))}
+      <div key={key} className={d.found ? "home-slot" : "home-slot missing"} style={arrive(k)} {...pictureDrop({ path: d.path })}>
+        <button className="home-tile" data-tile={key} data-drawing={d.path} data-tip={tilde(d.path, lib.home)} onClick={() => (d.found ? p.onRecent({ path: d.path }) : lib.locate(d.path))}
           onPointerDown={(e) => press(e, { path: d.path, name: d.name, picture })} {...menuProps(() => ({ kind: "drawing", path: d.path, name: d.name, found: d.found, recent: d.recent, project: d.project }))}>
           <DrawingPicture name={d.name} picture={picture} />
           <span className="home-caption">
@@ -381,17 +615,18 @@ export function Home(p: Props) {
             <span className="home-when">{d.found ? d.when : "Moved or deleted"}</span>
           </span>
         </button>
+        {dots(d)}
         {d.recent && <button className="home-remove" tabIndex={-1} onClick={() => p.onRemove(d.recent!)} aria-label={`Remove ${d.name} from Home`} data-tip="Remove from Home"><X size={12} /></button>}
       </div>
     );
   };
   const projectTile = (x: Project, k: number) => {
-    const key = `project:${x.id}`, cells = mosaic(x, lib.pictureFor), lost = x.drawings.filter((d) => lib.missing.has(d.path)).length;
+    const key = `project:${x.id}`, lost = x.drawings.filter((d) => lib.missing.has(d.path)).length;
     return (
-      <div key={key} className="home-slot" style={arrive(k)}>
-        <button className="home-tile project" data-key={key} data-project={x.id} onClick={() => openProject(x.id)} {...menuProps(() => ({ kind: "project", id: x.id }))}
+      <div key={key} className="home-slot" style={arrive(k)} {...pictureDrop({ project: x.id })}>
+        <button className="home-tile project" data-tile={key} data-project={x.id} onClick={() => openProject(x.id)} {...menuProps(() => ({ kind: "project", id: x.id }))}
           aria-label={`${x.name}, ${drawings(x.drawings.length)}`}>
-          <ProjectPicture thumb={x.thumb && lib.urls[x.thumb]} cells={cells} />
+          <Folder colour={picking?.id === x.id ? picking.hex : colourOf(x)} papers={x.drawings.slice(0, 3).map((d) => lib.pictureFor(d.path))} emboss={x.thumb && lib.urls[x.thumb]} />
           <span className="home-caption">
             {naming?.id === x.id ? <span className="home-name" /> : <span className="home-name">{x.name}</span>}
             <span className="home-when">{x.drawings.length ? drawings(x.drawings.length) : "No drawings"}{lost ? `, ${lost} missing` : ""}</span>
@@ -404,7 +639,7 @@ export function Home(p: Props) {
 
   const recentTiles = !p.recents.length && !p.recovered.length ? STARTERS.map((s, k) => (
     <div key={s.name} className="home-slot" style={arrive(n + k)}>
-      <button className="home-tile" data-key={`starter:${s.name}`} onClick={() => p.onStarter(s.text)} {...menuProps(() => ({ kind: "starter", text: s.text, name: s.name }))}>
+      <button className="home-tile" data-tile={`starter:${s.name}`} onClick={() => p.onStarter(s.text)} {...menuProps(() => ({ kind: "starter", text: s.text, name: s.name }))}>
         <span className="home-thumb" data-theme="light"><img src={s.picture} alt="" draggable={false} /></span>
         <span className="home-caption">
           <span className="home-name">{s.name}</span>
@@ -416,7 +651,7 @@ export function Home(p: Props) {
     // Recovered drawings first, with a dashed frame as New's tiles have: their changes are not saved yet.
     ...p.recovered.map((r, k) => (
       <div key={r.id} className="home-slot" style={arrive(n + k)}>
-        <button className="home-tile recovered" data-key={`recovered:${r.id}`} onClick={() => p.onRecovered(r)} {...menuProps(() => ({ kind: "recovered", entry: r }))}>
+        <button className="home-tile recovered" data-tile={`recovered:${r.id}`} onClick={() => p.onRecovered(r)} {...menuProps(() => ({ kind: "recovered", entry: r }))}>
           <span className="home-thumb"><span className="home-initial" aria-hidden>{r.name.slice(0, 1).toUpperCase()}</span></span>
           <span className="home-caption">
             <span className="home-name">{r.name}</span>
@@ -429,69 +664,79 @@ export function Home(p: Props) {
     ...p.recents.map((r, k) => drawingTile({ path: r.path, name: r.name, found: r.found, recent: r, when: when(r.at, now) }, n + p.recovered.length + k)),
   ];
 
+  // Each section's tiles.
+  const bodies: Record<SectionId, () => React.ReactNode> = {
+    new: () => (
+      <div className="home-slot home-quick" style={arrive(0)}>
+        <button className="home-tile new" data-tile="new" onClick={() => p.onNew(QUICK)} {...menuProps(() => ({ kind: "purpose", id: QUICK, name: "Quick start" }))}>
+          <span className="home-thumb"><QuickPicture /></span>
+          <span className="home-caption">
+            <span className="home-name">Quick start</span>
+            <kbd>{p.newKey}</kbd>
+          </span>
+        </button>
+      </div>
+    ),
+    templates: () => (
+      <div className="home-grid purposes">
+        {p.purposes.map((t, k) => (
+          <div key={t.id} className="home-slot" style={arrive(1 + k)}>
+            <button className="home-tile new" data-tile={`purpose:${t.id}`} onClick={() => p.onNew(t.id)} {...menuProps(() => ({ kind: "purpose", id: t.id, name: t.name, own: t.own }))}>
+              <span className="home-thumb"><PurposePicture style={t.style} kind={t.kind} /></span>
+              <span className="home-caption"><span className="home-name">{t.name}</span></span>
+            </button>
+            {t.own && <button className="home-remove" tabIndex={-1} onClick={() => p.onRemovePurpose(t.id)} aria-label={`Remove ${t.name}`} data-tip="Remove template"><X size={12} /></button>}
+          </div>
+        ))}
+        {p.onCustom && (
+          <div className="home-slot" style={arrive(n - 1)}>
+            <button className="home-tile new custom" data-tile="custom" onClick={p.onCustom}>
+              <span className="home-thumb"><span className="custom-sheet" aria-hidden><Plus size={20} /></span></span>
+              <span className="home-caption"><span className="home-name">Custom template</span></span>
+            </button>
+          </div>
+        )}
+      </div>
+    ),
+    recent: () => <div className="home-grid">{recentTiles}</div>,
+    projects: () => (
+      <div className="home-grid">
+        {lib.store.projects.map((x, k) => projectTile(x, n + p.recents.length + k))}
+        {naming && !naming.id ? (
+          <div className="home-slot">
+            <div className="home-tile project naming" aria-hidden>
+              <Folder colour={PROJECT_COLOUR} papers={[]} />
+              <span className="home-caption"><span className="home-name" /><span className="home-when">No drawings</span></span>
+            </div>
+            <div className="home-naming">{nameField}</div>
+          </div>
+        ) : (
+          <div className="home-slot" style={arrive(n + p.recents.length + lib.store.projects.length)}>
+            <button className="home-tile project new-project" data-tile="new-project" onClick={() => startNaming()}>
+              <EmptyFolder />
+              <span className="home-caption"><span className="home-name">New project</span></span>
+            </button>
+          </div>
+        )}
+      </div>
+    ),
+  };
+  const titleOf = (id: SectionId) => (id === "recent" && !p.recents.length && !p.recovered.length ? "Examples" : TITLES[id]);
+  const section = (id: SectionId) => (
+    <Section key={id} id={id} title={titleOf(id)}
+      action={id === "recent" && <button className="home-open" onClick={p.onOpen}><FolderOpen size={16} aria-hidden />Open…{p.openKey && <kbd>{p.openKey}</kbd>}</button>}
+      heading={{ folded: isFolded(id), lifted: drag?.id === id, unfolding: unfolded === id,
+        props: { onClick: () => fold(id), onPointerDown: (e) => headingPress(e, id), ...menuProps(() => ({ kind: "section", id, name: titleOf(id) })) } }}>
+      {bodies[id]()}
+    </Section>
+  );
   const main = (
     <>
       <h1 className="home-greeting">{greeting(p.name, now, p.first, p.away)}</h1>
-      {/* New and Templates side by side, each its own section. */}
-      <div className="home-band">
-        <Section id="new" title="New">
-          <div className="home-slot home-quick" style={arrive(0)}>
-            <button className="home-tile new" data-key="new" onClick={() => p.onNew(QUICK)} autoFocus {...menuProps(() => ({ kind: "purpose", id: QUICK, name: "Quick start" }))}>
-              <span className="home-thumb"><QuickPicture /></span>
-              <span className="home-caption">
-                <span className="home-name">Quick start</span>
-                <kbd>{p.newKey}</kbd>
-              </span>
-            </button>
-          </div>
-        </Section>
-        <Section id="templates" title="Templates" className="home-templates">
-          <div className="home-grid purposes">
-            {p.purposes.map((t, k) => (
-              <div key={t.id} className="home-slot" style={arrive(1 + k)}>
-                <button className="home-tile new" data-key={`purpose:${t.id}`} onClick={() => p.onNew(t.id)} {...menuProps(() => ({ kind: "purpose", id: t.id, name: t.name, own: t.own }))}>
-                  <span className="home-thumb"><PurposePicture style={t.style} kind={t.kind} /></span>
-                  <span className="home-caption"><span className="home-name">{t.name}</span></span>
-                </button>
-                {t.own && <button className="home-remove" tabIndex={-1} onClick={() => p.onRemovePurpose(t.id)} aria-label={`Remove ${t.name}`} data-tip="Remove template"><X size={12} /></button>}
-              </div>
-            ))}
-            {p.onCustom && (
-              <div className="home-slot" style={arrive(n - 1)}>
-                <button className="home-tile new custom" data-key="custom" onClick={p.onCustom}>
-                  <span className="home-thumb"><span className="custom-sheet" aria-hidden><Plus size={20} /></span></span>
-                  <span className="home-caption"><span className="home-name">Custom template</span></span>
-                </button>
-              </div>
-            )}
-          </div>
-        </Section>
-      </div>
-      <Section id="recent" title={p.recents.length || p.recovered.length ? "Recent" : "Examples"}
-        action={<button className="home-open" onClick={p.onOpen}><FolderOpen size={16} aria-hidden />Open…{p.openKey && <kbd>{p.openKey}</kbd>}</button>}>
-        <div className="home-grid">{recentTiles}</div>
-      </Section>
-      <Section id="projects" title="Projects">
-        <div className="home-grid">
-          {lib.store.projects.map((x, k) => projectTile(x, n + p.recents.length + k))}
-          {naming && !naming.id ? (
-            <div className="home-slot">
-              <div className="home-tile project naming" aria-hidden>
-                <ProjectPicture cells={[]} />
-                <span className="home-caption"><span className="home-name" /><span className="home-when">No drawings</span></span>
-              </div>
-              <div className="home-naming">{nameField}</div>
-            </div>
-          ) : (
-            <div className="home-slot" style={arrive(n + p.recents.length + lib.store.projects.length)}>
-              <button className="home-tile new custom" data-key="new-project" onClick={() => startNaming()}>
-                <span className="home-thumb"><span className="custom-folder" aria-hidden><FolderSimplePlus size={20} /></span></span>
-                <span className="home-caption"><span className="home-name">New project</span></span>
-              </button>
-            </div>
-          )}
-        </div>
-      </Section>
+      {/* New and Templates side by side when they are next to each other, each its own section. */}
+      {rowsOf(layout.order, layout.folded).map((row) => (row.length === 2
+        ? <div key="band" className={row[0] === "new" ? "home-band" : "home-band flip"}>{row.map(section)}</div>
+        : section(row[0])))}
     </>
   );
 
@@ -515,7 +760,7 @@ export function Home(p: Props) {
         <div className="home-grid" data-project={open.id}>
           {open.drawings.map((d, k) => drawingTile({ path: d.path, name: d.name, found: !lib.missing.has(d.path), project: open.id, when: opened(d.path, d.added) }, k))}
           <div className="home-slot">
-            <button className="home-tile new custom" data-key="add-files" onClick={() => lib.addPicked(open.id)}>
+            <button className="home-tile new custom" data-tile="add-files" onClick={() => lib.addPicked(open.id)}>
               <span className="home-thumb"><span className="custom-sheet" aria-hidden><Plus size={20} /></span></span>
               <span className="home-caption"><span className="home-name">Add drawings…</span></span>
             </button>
@@ -526,8 +771,9 @@ export function Home(p: Props) {
   );
 
   const deleteName = deleting?.name;
+  const menuLabel = (m: MenuFor) => (m.kind === "project" ? projectOf(lib.store, m.id)?.name ?? "Project" : m.kind === "drawing" && m.add ? "Add to project" : "name" in m ? m.name : "entry" in m ? m.entry.name : "Drawing");
   return (
-    <main ref={page} className={[p.leaving ? "home leaving" : "home", carried && "carrying"].filter(Boolean).join(" ")} aria-label="Home" inert={p.leaving}
+    <main ref={page} className={[p.leaving ? "home leaving" : "home", carried && "carrying", drag && "sorting"].filter(Boolean).join(" ")} aria-label="Home" inert={p.leaving}
       onFocus={focused} onClickCapture={(e) => { if (stray.current) { e.preventDefault(); e.stopPropagation(); } }}>
       <div className="home-inner">
         {/* The lockup file as it is (brand/logos/README.md), so the wordmark's weight, size and gap match the logo. */}
@@ -545,8 +791,11 @@ export function Home(p: Props) {
         <div ref={ghost} className="home-carry" aria-hidden>
           <DrawingPicture name={carried.name} picture={carried.picture} />
         </div>, document.body)}
-      {menu && <ContextMenu label={menu.kind === "project" ? projectOf(lib.store, menu.id)?.name ?? "Project" : "name" in menu ? menu.name : "entry" in menu ? menu.entry.name : "Drawing"}
-        at={menu.at} keyboard={menu.keyboard} groups={menuGroups(menu).filter((g) => g.length)} sub={sub} onChoose={choose} onClose={() => setMenu(undefined)} />}
+      {menu && <ContextMenu label={menuLabel(menu)} at={menu.at} keyboard={menu.keyboard} groups={menuGroups(menu).filter((g) => g.length)} sub={sub} onChoose={choose} onClose={() => setMenu(undefined)} />}
+      <Exit>{picking && (
+        <ColourPop anchor={picking.anchor} keep={picking.keep} label="Project colour" value={picking.hex} onChange={(hex) => setPicking((x) => x && { ...x, hex })}
+          onClose={() => { void lib.colour(picking.id, picking.hex); setPicking(undefined); }} />
+      )}</Exit>
       <Exit>{deleting && (
         <Dialog title={`Delete “${deleteName}”?`} action="Delete" onClose={() => setDeleting(undefined)} onAction={() => { const id = deleting.id; setDeleting(undefined); void lib.remove(id); }}>
           <p className="dialog-note">The drawings stay where they are. Octet removes only the project.</p>

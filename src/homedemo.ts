@@ -1,5 +1,5 @@
 // The UI-only preview's answers to Home's calls (npm run dev, then ?demo): made-up drawings with the starter drawings'
-// pictures, three projects, and photos for thumbnails drawn on the page. Nothing is saved; a reload starts again.
+// pictures, seven projects, and photos for thumbnails drawn on the page. Nothing is saved; a reload starts again.
 // Never in a build (homeApi.ts loads it only in the dev server).
 import structure from "./starters/structure.svg?raw";
 import reaction from "./starters/reaction.svg?raw";
@@ -8,12 +8,14 @@ import { STARTERS } from "./starters";
 import { STORE_VERSION, type HomeStore } from "./projects";
 
 const t = Math.floor(Date.now() / 1000), day = 86400, dir = "/Users/sam/Documents";
+// A drawing deep in folders, so its tooltip shows how a long place wraps.
+const tamiflu = `${dir}/Group meeting/2026 autumn/Shikimic acid route to oseltamivir, revised after the meeting/tamiflu route.oct`;
 type Recent = { path: string; name: string; at: number; thumb?: string; found: boolean };
 let recents: Recent[] = [
   { path: `${dir}/Thesis/oseltamivir.oct`, name: "Oseltamivir", at: t - 600, thumb: structure, found: true },
   { path: `${dir}/Thesis/suzuki scheme.cdxml`, name: "Suzuki scheme", at: t - 3 * 3600, thumb: reaction, found: true },
   { path: `${dir}/Thesis/suzuki cycle.oct`, name: "Suzuki cycle", at: t - day, thumb: cycle, found: true },
-  { path: `${dir}/Group meeting/tamiflu route.oct`, name: "Tamiflu route", at: t - 3 * day, thumb: reaction, found: true },
+  { path: tamiflu, name: "Tamiflu route", at: t - 3 * day, thumb: reaction, found: true },
   { path: `${dir}/Teaching/aldol mechanism.cdx`, name: "Aldol mechanism", at: t - 9 * day, thumb: cycle, found: true },
   { path: `${dir}/Desktop/old scheme.cdx`, name: "Old scheme", at: t - 40 * day, found: false },
 ];
@@ -43,6 +45,8 @@ function photo(kind: "notebook" | "plate", type = "image/jpeg"): string {
   return c.toDataURL(type, 0.9);
 }
 
+// Seven projects in the document colours, so a drawing's tile shows five dots and More. Group meeting has a photo of
+// its own, Outreach is empty, and the recent drawings are in some of them.
 function first(): HomeStore {
   const notebook = id(), auto = id(), own = id();
   thumbs.set(notebook, photo("notebook"));
@@ -52,11 +56,15 @@ function first(): HomeStore {
   return {
     version: STORE_VERSION,
     projects: [
-      { id: "thesis", name: "Thesis chapter 2", made: t - 30 * day, drawings: [d(`${dir}/Thesis/oseltamivir.oct`, "Oseltamivir"), d(`${dir}/Thesis/suzuki scheme.cdxml`, "Suzuki scheme"), d(`${dir}/Thesis/suzuki cycle.oct`, "Suzuki cycle"), d(`${dir}/Thesis/route b.oct`, "Route B"), d(`${dir}/Desktop/old scheme.cdx`, "Old scheme")] },
-      { id: "group", name: "Group meeting", made: t - 10 * day, thumb: notebook, drawings: [d(`${dir}/Group meeting/tamiflu route.oct`, "Tamiflu route"), d(`${dir}/Thesis/suzuki scheme.cdxml`, "Suzuki scheme")] },
-      { id: "teaching", name: "Teaching", made: t - 5 * day, drawings: [d(`${dir}/Teaching/aldol mechanism.cdx`, "Aldol mechanism")] },
+      { id: "thesis", name: "Thesis chapter 2", made: t - 30 * day, used: t - day, drawings: [d(`${dir}/Thesis/oseltamivir.oct`, "Oseltamivir"), d(`${dir}/Thesis/suzuki scheme.cdxml`, "Suzuki scheme"), d(`${dir}/Thesis/suzuki cycle.oct`, "Suzuki cycle"), d(`${dir}/Thesis/route b.oct`, "Route B"), d(`${dir}/Desktop/old scheme.cdx`, "Old scheme")] },
+      { id: "group", name: "Group meeting", made: t - 10 * day, used: t - 2 * day, colour: "#22775B", thumb: notebook, drawings: [d(tamiflu, "Tamiflu route"), d(`${dir}/Thesis/suzuki scheme.cdxml`, "Suzuki scheme")] },
+      { id: "teaching", name: "Teaching", made: t - 5 * day, colour: "#8B4E18", drawings: [d(`${dir}/Teaching/aldol mechanism.cdx`, "Aldol mechanism")] },
+      { id: "suzuki", name: "Suzuki paper", made: t - 20 * day, used: t - 3 * day, colour: "#B42323", drawings: [d(`${dir}/Thesis/suzuki cycle.oct`, "Suzuki cycle"), d(`${dir}/Thesis/suzuki scheme.cdxml`, "Suzuki scheme")] },
+      { id: "outreach", name: "Outreach", made: t - 4 * day, colour: "#3F6BFF", drawings: [] },
+      { id: "posters", name: "Posters", made: t - 60 * day, colour: "#0F172A", drawings: [d(`${dir}/Thesis/oseltamivir.oct`, "Oseltamivir")] },
+      { id: "archive", name: "Archive", made: t - 90 * day, colour: "#000000", drawings: [d(`${dir}/Teaching/aldol mechanism.cdx`, "Aldol mechanism")] },
     ],
-    pictures: { [`${dir}/Thesis/route b.oct`]: { auto }, [`${dir}/Group meeting/tamiflu route.oct`]: { own } },
+    pictures: { [`${dir}/Thesis/route b.oct`]: { auto }, [tamiflu]: { own } },
   };
 }
 
@@ -73,7 +81,7 @@ export async function answer(cmd: string, args: Record<string, unknown> = {}): P
     }
     case "home_read": {
       const paths = store.projects.flatMap((p) => p.drawings.map((d) => d.path));
-      return { text: JSON.stringify(store), damaged: false, missing: paths.filter((p) => p.includes("Desktop")) };
+      return { text: JSON.stringify(store), damaged: false, missing: paths.filter((p) => p.includes("Desktop")), home: "/Users/sam" };
     }
     case "home_write": store = JSON.parse(String(args.text)); return null;
     case "home_pick_drawings": return args.many ? [`${dir}/Downloads/heck scheme.cdxml`] : [`${dir}/Archive/old scheme.cdx`];

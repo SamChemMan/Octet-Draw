@@ -65,7 +65,7 @@ export function CanvasAccess<T>({ items, hover, hotOf, views, scale, paper, ring
   useLayoutEffect(() => {
     const box = layer.current;
     if (!box) return;
-    const by = (key?: string) => (key ? box.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`) : null);
+    const by = (key?: string) => (key ? box.querySelector<HTMLElement>(`[data-object="${CSS.escape(key)}"]`) : null);
     if (want.current && by(want.current)) {
       by(want.current)!.focus({ preventScroll: true });
       want.current = undefined;
@@ -97,7 +97,7 @@ export function CanvasAccess<T>({ items, hover, hotOf, views, scale, paper, ring
 const Items = memo(({ items, scale, roving, onFocusItem }: { items: Item[]; scale: number; roving?: string; onFocusItem: (key: string) => void }) => (
   <>
     {items.map((x) => x.box && (
-      <div key={x.key} data-key={x.key} role="img" aria-roledescription={x.role} aria-label={x.name} aria-description={x.more}
+      <div key={x.key} data-object={x.key} role="img" aria-roledescription={x.role} aria-label={x.name} aria-description={x.more}
         tabIndex={x.key === roving ? 0 : -1} style={place(x.box, scale)} onFocus={() => onFocusItem(x.key)} />
     ))}
   </>
@@ -112,5 +112,5 @@ function Hot<T>({ hover, hotOf, scale, inside }: { hover: Store<T>; hotOf: (h: T
 function HotElement({ h, scale, inside }: { h: HotItem; scale: number; inside: MutableRefObject<boolean> }) {
   const el = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => { if (inside.current) el.current?.focus({ preventScroll: true }); }, [inside]);
-  return <div ref={el} data-key={h.key} role="img" aria-roledescription={h.role} aria-label={h.name} tabIndex={-1} style={place(h.box, scale, h.turn)} />;
+  return <div ref={el} data-object={h.key} role="img" aria-roledescription={h.role} aria-label={h.name} tabIndex={-1} style={place(h.box, scale, h.turn)} />;
 }

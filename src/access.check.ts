@@ -222,7 +222,7 @@ for (let r = 0; r <= 255; r += 51) for (let g = 0; g <= 255; g += 51) for (let b
   assert.ok(contrast(ring, page) >= 3, `the focus ring on ${page} is ${contrast(ring, page).toFixed(2)}:1`);
 }
 // The ring on the canvas is the brand's focus ring, shows in forced colours, and does not move or fade in.
-const css = readFileSync(new URL("./editor.css", import.meta.url), "utf8"), rule = /\.canvas-access \[data-key\]:focus \{([^}]*)\}/.exec(css)?.[1] ?? "";
+const css = readFileSync(new URL("./editor.css", import.meta.url), "utf8"), rule = /\.canvas-access \[data-object\]:focus \{([^}]*)\}/.exec(css)?.[1] ?? "";
 assert.match(rule, /box-shadow: var\(--shadow-focus\)/);
 assert.match(rule, /outline: 2px solid transparent/);
 assert.ok(!/canvas-access[^{]*\{[^}]*(transition|animation)/.test(css), "no motion on the canvas's focus");

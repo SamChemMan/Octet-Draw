@@ -56,7 +56,7 @@ body {
   left: 0;
   top: 0;
 }
-.canvas-access [data-key] {
+.canvas-access [data-object] {
   position: absolute;
   left: calc(var(--x) * var(--zoom) * 1px - var(--space-1));
   top: calc(var(--y) * var(--zoom) * 1px - var(--space-1));
@@ -66,16 +66,16 @@ body {
   rotate: var(--turn, 0deg);
 }
 /* The outline is clear, so it shows only in forced colours (Windows contrast themes), which drop the shadow. */
-.canvas-access [data-key]:focus {
+.canvas-access [data-object]:focus {
   outline: 2px solid transparent;
   box-shadow: var(--shadow-focus);
 }
 /* On a page the focus blue does not stand out from (access.ts ringOn): white on engineering paper, and the colour
    worked out for a page of the user's own colour. */
-.canvas-access.paper-blueprint [data-key]:focus {
+.canvas-access.paper-blueprint [data-object]:focus {
   box-shadow: 0 0 0 2px #FFFFFF;
 }
-.canvas-access.own-ring [data-key]:focus {
+.canvas-access.own-ring [data-object]:focus {
   box-shadow: 0 0 0 2px var(--focus-ring);
 }
 /* Text for screen readers only (the live region that says what an edit changed). */
@@ -1480,6 +1480,9 @@ button.variant.add {
 }
 .tip.instant {
   animation: none;
+}
+.tip-text {
+  min-width: 0;
 }
 .tip kbd {
   flex: none;
@@ -4887,11 +4890,16 @@ button.variant.add {
   letter-spacing: -0.025em;
   text-wrap: balance;
 }
-/* Home's sections (New, Templates, Recent, Projects): each starts under a hairline, with its heading in ink and its
-   action (Open…) on the right. New and Templates share one band, side by side, a hairline between them. */
+/* Home's sections (New, Templates, Recent, Projects): each starts under a hairline, with its heading in ink (the
+   headline size) and its action (Open…) on the right. New and Templates share one band when they are next to each
+   other, side by side, a hairline between them. */
+.home-view {
+  position: relative;
+  --new-tile: max(148px, (100cqw - 2 * var(--space-8) - 1px - 4 * var(--space-4)) / 6);
+}
 .home-section,
 .home-band {
-  margin-top: 40px;
+  margin-top: var(--space-12);
   padding-top: var(--space-6);
   border-top: 1px solid var(--hairline);
 }
@@ -4905,14 +4913,91 @@ button.variant.add {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  min-height: 28px;
+  min-height: 32px;
   margin: 0 0 var(--space-4);
 }
 .home-row h2 {
   margin: 0;
   color: var(--ink);
-  font: 600 15px/20px var(--font-sans);
-  letter-spacing: -0.01em;
+  font: 600 20px/26px var(--font-sans);
+  letter-spacing: -0.015em;
+}
+/* A section's heading is a button: a click folds the section to its heading, a drag moves it. Its caret shows with the
+   pointer on it or the focus in it, and always on a folded section, turned to the side. */
+.home-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 0 calc(-1 * var(--space-2));
+  padding: 3px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: grab;
+  transition: background-color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+}
+.home-heading svg {
+  color: var(--ink-muted);
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .home-heading:hover {
+    background: var(--surface-sunken);
+  }
+}
+.home-heading:hover svg,
+.home-heading:focus-visible svg,
+.home-section.folded .home-heading svg {
+  opacity: 1;
+}
+.home-section.folded .home-heading svg {
+  transform: rotate(-90deg);
+}
+.home-heading:active {
+  transform: scale(0.98);
+}
+.home-heading:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+/* A folded section is its heading alone. */
+.home-section.folded .home-row {
+  margin-bottom: 0;
+}
+/* A section being dragged by its heading lifts off the page, a card on the raised surface, and follows the pointer.
+   The others slide out of its way (Home.tsx). */
+.home.sorting,
+.home.sorting * {
+  cursor: grabbing;
+  user-select: none;
+}
+.home-section.lifted {
+  position: relative;
+  z-index: 2;
+  border-top-color: transparent;
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: 0 0 0 var(--space-4) var(--surface-raised), 0 0 0 calc(var(--space-4) + 1px) var(--hairline);
+}
+.home-section.lifted::after {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--space-4));
+  z-index: -1;
+  border-radius: calc(var(--radius-lg) + var(--space-4));
+  box-shadow: var(--shadow-float);
+  pointer-events: none;
+}
+.home-section.lifted .home-tile {
+  pointer-events: none;
+}
+/* A section opened again: its tiles come in with the short fade a view has. */
+.home-section.unfolding > .home-body {
+  animation: view-in var(--motion) var(--ease-out);
 }
 .home-open {
   display: inline-flex;
@@ -5023,18 +5108,24 @@ button.variant.add {
   align-items: baseline;
   justify-content: space-between;
 }
-/* New: Quick start, then the templates beside it, each under its own heading. Every New tile has one width, so the
-   pictures and names line up: six to a row (Quick start and five templates) fill the page's width. On a narrow window
-   they stay 148 px, and the templates go on to a second row. */
+/* New: Quick start, then the templates beside it, each under its own heading. Every New tile has one width (--new-tile,
+   on .home-view), so the pictures and names line up: six to a row (Quick start and five templates) fill the page's
+   width. On a narrow window they stay 148 px, and the templates go on to a second row. Templates moved above New puts
+   it on the left. */
 .home-band {
-  --new-tile: max(148px, (100cqw - 2 * var(--space-8) - 1px - 4 * var(--space-4)) / 6);
   display: grid;
   grid-template-columns: var(--new-tile) minmax(0, 1fr);
   column-gap: var(--space-8);
 }
-.home-templates {
+.home-band.flip {
+  grid-template-columns: minmax(0, 1fr) calc(var(--new-tile) + var(--space-8) + 1px);
+}
+.home-band > .home-section + .home-section {
   padding-left: var(--space-8);
   border-left: 1px solid var(--hairline);
+}
+.home-quick {
+  width: var(--new-tile);
 }
 /* A template's tile is smaller than a recent drawing's. Its picture is its page, white on the sunken ground, with its
    outlines and a small scheme at its true size on that page. */
@@ -5162,58 +5253,256 @@ button.variant.add {
   height: 100%;
   object-fit: cover;
 }
-/* A project: the edge of a second sheet behind its picture, as a project holds more than one drawing. Its picture is
-   its own thumbnail, a mosaic of its first drawings (one, two, three or four), or an empty folder. */
-.home-tile.project {
+/* A project: a folder in its colour (Home.tsx, Folder), with the back and its tab behind, its first drawings as pages
+   in it, and the front over them. The colours come from the project (--folder, --folder-back, --folder-lip); the edge
+   is the swatches' edge, so a Black or Ink folder keeps a clear outline on the dark theme. */
+.folder {
   position: relative;
+  display: block;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-md);
 }
-.home-tile.project::before {
+.folder-back {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.folder-back path {
+  fill: var(--folder-back);
+  stroke: var(--swatch-edge);
+  stroke-width: 1;
+}
+.folder .paper {
+  position: absolute;
+  top: 9%;
+  right: 17%;
+  bottom: 6%;
+  left: 17%;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-xs);
+  background: var(--canvas);
+  transform: translate(var(--x), 0) rotate(var(--r));
+  transform-origin: 50% 100%;
+}
+.folder .paper img {
+  position: absolute;
+  top: 6%;
+  left: 10%;
+  width: 80%;
+  height: 52%;
+  object-fit: contain;
+  object-position: center top;
+}
+.folder .paper img.fill {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.folder-front {
+  position: absolute;
+  inset: 36% 0 0;
+  z-index: 4;
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: var(--radius-md);
+  background: var(--folder);
+  box-shadow: inset 0 1px 0 var(--folder-lip), 0 0 0 1px var(--swatch-edge);
+  transform: perspective(600px) rotateX(0deg);
+  transform-origin: 50% 100%;
+}
+/* The project's own thumbnail on the front, pressed into it as the symbol on a macOS folder is: in grey, multiplied
+   into the folder's colour (its dark parts a darker shade of the folder; screened, and lighter, on a folder near black),
+   faint, with soft edges. */
+.folder-front img {
+  position: absolute;
+  top: 14%;
+  left: 18%;
+  width: 64%;
+  height: 72%;
+  object-fit: cover;
+  filter: grayscale(1) contrast(1.4);
+  mix-blend-mode: multiply;
+  opacity: 0.6;
+  -webkit-mask-image: linear-gradient(to right, transparent, black 18%, black 82%, transparent), linear-gradient(transparent, black 18%, black 82%, transparent);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to right, transparent, black 18%, black 82%, transparent), linear-gradient(transparent, black 18%, black 82%, transparent);
+  mask-composite: intersect;
+}
+.folder[data-dark] .folder-front img {
+  mix-blend-mode: screen;
+  opacity: 0.35;
+}
+/* Hover (or the focus) tips the front open and lifts the pages; a drawing carried over the folder (data-over) opens it
+   wider. A drop settles it (Home.tsx). Reduced motion: the folder stays still, and a ring shows where a drop goes. */
+@media (prefers-reduced-motion: no-preference) {
+  .folder-front,
+  .folder .paper {
+    transition: transform var(--motion) var(--ease-out);
+  }
+  .folder .paper {
+    transition-delay: calc(var(--k) * 20ms);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .home-tile.project:hover .folder-front {
+      transform: perspective(600px) rotateX(-18deg);
+    }
+    .home-tile.project:hover .paper {
+      transform: translate(var(--x), var(--lift)) rotate(var(--r));
+    }
+  }
+  .home-tile.project:focus-visible .folder-front {
+    transform: perspective(600px) rotateX(-18deg);
+  }
+  .home-tile.project:focus-visible .paper {
+    transform: translate(var(--x), var(--lift)) rotate(var(--r));
+  }
+  .home-tile.project[data-over] .folder-front {
+    transform: perspective(600px) rotateX(-34deg);
+  }
+  .home-tile.project[data-over] .paper {
+    transform: translate(var(--x), calc(var(--lift) * 1.7)) rotate(calc(var(--r) * 1.8));
+  }
+}
+.home-tile.project:focus-visible .folder {
+  box-shadow: var(--shadow-focus);
+}
+.home-tile.project[data-over] .folder {
+  box-shadow: 0 0 0 2px var(--brand-bright);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .home-tile.project[data-over] .folder {
+    box-shadow: none;
+  }
+}
+/* New project: an empty folder in outline, dashed as New's tiles are, with a plus in the brand blue. */
+.folder.outline {
+  display: grid;
+  place-items: center;
+  color: var(--brand);
+}
+.folder-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.folder-lines :is(path, rect) {
+  fill: none;
+  stroke: var(--outline);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  transition: stroke var(--motion-fast) var(--ease-out);
+}
+.folder.outline > svg:last-child {
+  position: relative;
+  margin-top: 14%;
+}
+@media (hover: hover) and (pointer: fine) {
+  .home-tile.new-project:hover .folder-lines :is(path, rect) {
+    stroke: var(--brand-bright);
+  }
+}
+.home-tile.new-project:focus-visible .folder {
+  box-shadow: var(--shadow-focus);
+}
+
+/* A drawing's projects, as dots under its tile (Home.tsx): each in its project's colour (--dot), filled when the
+   drawing is in it, a dashed ring when not. All of them always show; More and New project only with the
+   pointer on the tile or the focus in it. A dot fills and empties with a short scale. Each is 24 px to press, the
+   dot 14 px in it. */
+.home-dots {
+  display: flex;
+  height: 24px;
+  margin: 2px 0 0 -5px;
+}
+.home-dot {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--ink-muted);
+  transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+}
+.home-dot::before,
+.home-dot > span {
   content: "";
   position: absolute;
-  top: -5px;
-  left: var(--space-2);
-  right: var(--space-2);
-  height: var(--space-2);
-  border: 1px solid var(--hairline);
-  border-bottom: 0;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  background: var(--surface-sunken);
+  inset: 5px;
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
 }
-.home-thumb.mosaic {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  place-items: stretch;
-  gap: 1px;
-  background: var(--hairline);
+/* An empty dot's edge is dashed, so it never looks filled, even in a colour close to the page's (Ink on the dark
+   theme). */
+.home-dot::before {
+  border: 1px dashed var(--swatch-edge);
+  box-shadow: inset 0 0 0 2px var(--dot);
 }
-.home-thumb.mosaic .cell {
+.home-dot > span {
+  background: var(--dot);
+  box-shadow: inset 0 0 0 1px var(--swatch-edge);
+  opacity: 0;
+  transform: scale(0.4);
+  transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+}
+.home-dot[aria-pressed="true"] > span {
+  opacity: 1;
+  transform: none;
+}
+.home-dot.others::before,
+.home-dot.new::before {
+  border: 1px solid var(--outline);
+  box-shadow: none;
+}
+.home-dot svg {
   position: relative;
-  overflow: hidden;
-  background: var(--canvas);
+  width: 10px;
+  height: 10px;
 }
-.home-thumb.mosaic.n1 .cell {
-  grid-area: 1 / 1 / 3 / 3;
+/* Rings show at all times; More and the plus with the pointer on the tile or the focus in it. */
+.home-dot.others,
+.home-dot.new {
+  opacity: 0;
 }
-.home-thumb.mosaic.n2 .cell,
-.home-thumb.mosaic.n3 .cell:first-child {
-  grid-row: 1 / 3;
+.home-slot:hover .home-dot,
+.home-slot:focus-within .home-dot {
+  opacity: 1;
 }
-.home-thumb.mosaic:not(.n1) .cell img:not(.fill) {
-  inset: 12%;
-  width: 76%;
-  height: 76%;
+@media (hover: hover) and (pointer: fine) {
+  .home-dot[aria-pressed="false"]:hover > span {
+    opacity: 0.45;
+    transform: scale(0.6);
+  }
+  .home-dot.others:hover,
+  .home-dot.new:hover {
+    color: var(--ink);
+  }
 }
-.home-thumb.empty {
-  background: var(--surface-sunken);
-  color: var(--ink-muted);
+.home-dot:active {
+  transform: scale(0.85);
 }
-/* An empty project's folder and New project's: the size of Custom template's plus. */
-.home-thumb.empty > svg,
-.custom-folder svg {
-  position: static;
-  width: 32px;
-  height: 32px;
+.home-dot:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-dot,
+  .home-dot > span {
+    transition: opacity var(--motion-fast) var(--ease-out);
+  }
+  .home-dot:active {
+    transform: none;
+  }
 }
 /* Where a drawing carried on Home (or files from Finder) will go: the project under the pointer, tinted as the
    template library tints a set. In an open project, its whole grid. */
@@ -5356,8 +5645,13 @@ button.variant.add {
 }
 @media (prefers-reduced-motion: reduce) {
   .home-view:not(.home-arrive),
-  .home-carry {
+  .home-carry,
+  .home-section.unfolding > .home-body {
     animation: none;
+  }
+  .home-heading,
+  .home-heading svg {
+    transition: none;
   }
 }
 
