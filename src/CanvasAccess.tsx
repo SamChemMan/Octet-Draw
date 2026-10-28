@@ -32,6 +32,10 @@ const place = (b: Box, k: number, turn = 0): CSSProperties =>
 
 export function CanvasAccess<T>({ items, hover, hotOf, views, scale, paper, ring, current, inside, want, rescue, onFocusItem, layer }: Props<T>) {
   const moving = useRef<HTMLDivElement>(null);
+  // The objects draw again only when they change: the focus handler reaches them through a ref, not a new prop.
+  const onFocus = useRef(onFocusItem);
+  onFocus.current = onFocusItem;
+  const focusItem = useRef((key: string) => onFocus.current(key)).current;
   // The view moves the layer: its pan in the transform, its zoom in --zoom.
   useLayoutEffect(() => {
     const show = () => {
@@ -82,7 +86,7 @@ export function CanvasAccess<T>({ items, hover, hotOf, views, scale, paper, ring
       tabIndex={items.length ? -1 : 0}
     >
       <div ref={moving} className="canvas-access-layer">
-        <Items items={items} scale={scale} roving={roving} onFocusItem={onFocusItem} />
+        <Items items={items} scale={scale} roving={roving} onFocusItem={focusItem} />
         <Hot hover={hover} hotOf={hotOf} scale={scale} inside={inside} />
       </div>
     </div>

@@ -145,6 +145,8 @@ page = addCaption(page, { text: "1", x: 0.8, y: -1.4, under: first })[0];
 page = addCaption(page, { text: "Title", x: 3, y: 4 })[0];
 assert.deepEqual(said(page).map(([, name]) => name), ["Title", "C2H6O, no rings", "1", "C2H4O, no rings", "Notes"]);
 assert.deepEqual(readingOrder([[0, 0, 1, 1], undefined, [2, 0.2, 3, 0.8], [0, -3, 1, -2]]), [0, 2, 3, 1], "a box level with a row joins it; one with no box goes last");
+assert.deepEqual(readingOrder([[4, -1, 6, 1.2], [0, -1, 2, 1], [2.5, 0, 3.5, 0]]), [1, 2, 0], "a level arrow, with no height, joins the row it is in");
+assert.deepEqual(readingOrder([[0, -1, 2, 1], [0, -2, 2, -2]]), [0, 1], "a flat box under a row starts its own");
 
 // ——— The hotspot: what it says, and where each arrow key takes it (edit.ts walkHot, as ChemDraw's) ———
 // Ethanol drawn as a zig-zag: carbon 1 at the origin, carbon 2 up and right, oxygen 1 down and right.
@@ -205,6 +207,8 @@ assert.equal(changeText(etoh, arrowed), "Added a reaction arrow.");
 assert.equal(changeText(arrowed, etoh), "Deleted a reaction arrow.");
 const [texted, tid] = addCaption(etoh, { text: "THF", x: 0, y: -2 });
 assert.equal(changeText(etoh, texted), "Added text THF.");
+assert.equal(changeText(etoh, addCaption(etoh, { text: "+", x: 3, y: 0 })[0]), "Added a plus sign.");
+assert.equal(changeText(etoh, addCaption(arrowed, { text: "+", x: 3, y: 0 })[0]), "Added two objects.", "a paste of several objects counts them");
 assert.equal(changeText(texted, { ...texted, captions: texted.captions!.map((c) => (c.id === tid ? { ...c, text: "THF, 0 °C" } : c)) }), "Text now reads THF, 0 °C.");
 assert.equal(changeText(arrowed, { ...arrowed, arrows: arrowed.arrows!.map((a) => (a.id === aid ? { ...a, from: [3, 1], to: [5, 1] } : a)) }), "Moved 14.4 pt up.");
 assert.equal(changeText(etoh, etoh), "");

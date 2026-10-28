@@ -192,7 +192,7 @@ export function readingOrder(boxes: (Box | undefined)[]): number[] {
   const rows: { lo: number; hi: number; ids: number[] }[] = [];
   for (const k of ids) {
     const [, lo, , hi] = boxes[k]!;
-    const row = rows.find((r) => Math.min(hi, r.hi) - Math.max(lo, r.lo) >= 0.5 * Math.max(1e-6, Math.min(hi - lo, r.hi - r.lo)));
+    const row = rows.find((r) => Math.min(hi, r.hi) - Math.max(lo, r.lo) >= 0.5 * Math.min(hi - lo, r.hi - r.lo) - 1e-9);
     if (row) { row.ids.push(k); row.lo = Math.min(row.lo, lo); row.hi = Math.max(row.hi, hi); }
     else rows.push({ lo, hi, ids: [k] });
   }
@@ -310,17 +310,20 @@ export function changeText(was: Mol, now: Mol): string {
       if (minus.length) out.push(`Deleted ${minus.join(" and ")}`);
     }
   }
-  const g0 = graphics(was), g1 = graphics(now);
+  // Objects added or deleted: one by what it is ("Added text THF", "Added a plus sign"), more by how many.
+  const g0 = graphics(was), g1 = graphics(now), added = [...g1.keys()].filter((id) => !g0.has(id)), gone = [...g0.keys()].filter((id) => !g1.has(id));
+  const one = (m: Mol, id: number) => { const x = graphics(m).get(id) as { text?: string }, t = plain(x?.text ?? ""); return t === "+" ? "a plus sign" : `${an(nounOf(m, id) ?? "object")}${t ? ` ${t}` : ""}`; };
+  if (added.length) out.push(`Added ${added.length === 1 ? one(now, added[0]) : count(added.length, "object")}`);
+  if (gone.length) out.push(`Deleted ${gone.length === 1 ? one(was, gone[0]) : count(gone.length, "object")}`);
   for (const [id, x] of g1) {
     const y = g0.get(id);
-    if (!y) { out.push(`Added ${an(nounOf(now, id) ?? "object")}${"text" in x && typeof x.text === "string" && x.text.trim() ? ` ${plain(x.text)}` : ""}`); continue; }
+    if (!y) continue;
     if (x === y) continue;
     const p = at(x), q = at(y), d: P | undefined = p && q ? [p[0] - q[0], p[1] - q[1]] : undefined;
     if (d && Math.hypot(...d) > 1e-6) { moves.push(d); objects++; }
     if ("text" in x && "text" in y && x.text !== y.text) out.push(`Text now reads ${plain(String(x.text))}`);
     else if (without(x, ["from", "to", "x", "y", "centre", "curve", "placed"]) !== without(y, ["from", "to", "x", "y", "centre", "curve", "placed"])) out.push(`Changed the ${nounOf(now, id) ?? "object"}`);
   }
-  for (const id of g0.keys()) if (!g1.has(id)) out.push(`Deleted ${an(nounOf(was, id) ?? "object")}`);
   // A move that took everything the same way is said as how far ("Moved 1 pt right"); others by what moved.
   if (moves.length && !out.some((t) => /^(Added|Deleted)/.test(t))) {
     const d = moves[0], one = moves.every((e) => Math.hypot(e[0] - d[0], e[1] - d[1]) < 1e-6);

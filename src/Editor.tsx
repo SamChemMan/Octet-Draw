@@ -4232,7 +4232,13 @@ export default function Editor() {
       return known.current.get(key);
     };
     const items = describe(doc, {
-      box: (atoms, items) => { const b = drawnBox(atoms, new Set(items)); return b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L]; },
+      // As drawn, at least 0.3 bond lengths each way (a level arrow's line has no height), so its focus ring is a box.
+      box: (atoms, items) => {
+        const b = drawnBox(atoms, new Set(items));
+        if (!b) return undefined;
+        const [x0, y0, x1, y1] = [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L], dx = Math.max(0, 0.3 - (x1 - x0)) / 2, dy = Math.max(0, 0.3 - (y1 - y0)) / 2;
+        return [x0 - dx, y0 - dy, x1 + dx, y1 + dy];
+      },
       formula: (atoms) => factOf(atoms)?.formula || undefined,
       name: (atoms) => factOf(atoms)?.name,
       reaction: reactionOf,
@@ -4268,9 +4274,17 @@ export default function Editor() {
     setAccess({ doc, items });
     return items;
   };
-  // The keyboard hotspot's element: what its atom or bond is, while the keyboard's focus is on the canvas.
+  // The keyboard hotspot's element: what its atom or bond is, while the keyboard's focus is on the canvas. Kept for each
+  // drawing and hotspot, as the canvas draws again many times between two keys.
+  const hotSaid = useRef(new WeakMap<Mol, Map<string, HotItem | undefined>>());
   const hotItem = (h: Hover): HotItem | undefined => {
     if (!h.key || !accessIn.current) return undefined;
+    const key = `${h.atom}|${h.bond}`, mine = hotSaid.current.get(doc) ?? new Map<string, HotItem | undefined>();
+    hotSaid.current.set(doc, mine);
+    if (!mine.has(key)) mine.set(key, hotAt(h));
+    return mine.get(key);
+  };
+  const hotAt = (h: Hover): HotItem | undefined => {
     if (h.atom !== undefined && doc.atoms[h.atom]) {
       // A square on the atom; a written label (OMe) as wide as its ink.
       const i = h.atom, ink = doc.atoms[i].text ? drawing.ink[i] : undefined, [x, y] = pos(doc, i), r = 0.3;
