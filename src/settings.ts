@@ -25,6 +25,7 @@ export type Settings = {
   folded: string[];
   panelMenus: boolean; // the Actions panel's sets of small actions as titled rows that open menus, not sections of buttons
   captionOptionReturn: boolean; // ChemDraw's "Require Option+Return to create new line in Captions": Return then closes the box
+  labelReturnNewLine?: boolean; // ChemDraw's "Require Option+Return to create new line in Atom labels" off: Return makes a new line (unset: Option-Return)
   // Home: the user's name (null until asked; "" when they skipped it), whether the tutorial was seen, and when Octet
   // was last opened (ms), for "Welcome back".
   userName: string | null; tutorialDone: boolean; lastSeen: number;
@@ -123,6 +124,7 @@ export function loadSettings(): Settings {
       folded: list<string>(saved.folded, (k) => typeof k === "string" && k.length <= 20).slice(0, 40),
       panelMenus: saved.panelMenus === true,
       captionOptionReturn: saved.captionOptionReturn === true,
+      labelReturnNewLine: saved.labelReturnNewLine === true,
       userName: typeof saved.userName === "string" ? saved.userName.slice(0, 40) : null,
       tutorialDone: saved.tutorialDone === true,
       updates: typeof saved.updates === "boolean" ? saved.updates : true,

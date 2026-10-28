@@ -213,12 +213,16 @@ circle.mark {
   stroke-width: 1;
 }
 
-/* Typing an atom label: a small box centred on the atom, in the label font. */
+/* Typing an atom label: a small box centred on the atom, in the label font. Its first line is on the atom; more lines
+   (Option-Return) go below it. */
 .label-box {
   position: absolute;
-  width: 7em;
+  min-width: 7em;
+  width: max-content;
   padding: 1px 4px;
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
+  line-height: 1.2;
+  white-space: pre;
   font-family: var(--atom-label-font);
   color: var(--ink);
   background: var(--canvas);

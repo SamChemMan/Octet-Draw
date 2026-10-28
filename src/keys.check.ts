@@ -1,6 +1,6 @@
 // Run: node src/keys.check.ts. Fails loudly if shortcut lookup breaks.
 import assert from "node:assert/strict";
-import { actionFor, clashes, controlTakes, feedbackChord, keyOf, keymap, menuRuns, textEntry, tileTo } from "./keys.ts";
+import { actionFor, clashes, controlTakes, feedbackChord, keyOf, keymap, menuRuns, textEntry, textKey, tileTo } from "./keys.ts";
 
 const press = (key: string, mods: Partial<{ shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean }> = {}) =>
   keyOf({ key, shiftKey: false, altKey: false, metaKey: false, ctrlKey: false, ...mods });
@@ -94,6 +94,17 @@ for (const type of ["range", "checkbox", "radio", "button", "color", "submit"]) 
 assert.equal(textEntry({ tagName: "TEXTAREA" }), true);
 assert.equal(textEntry({ tagName: "DIV", isContentEditable: true }), true);
 assert.equal(textEntry({ tagName: "DIV", isContentEditable: false }), false);
+// ChemDraw's text keys in a caption or label box (⌘B, ⌘I, ⌘U, ⌘T and so on): a label takes the style keys, as a
+// caption does, but not Formula, Subscript or Superscript (its counts are subscripts already); ⇧⌘N in either.
+for (const [key, command] of [["b", "caption.bold"], ["I", "caption.italic"], ["u", "caption.underline"], ["t", "caption.plain"]]) {
+  assert.equal(textKey({ key, shiftKey: false }, true), command, key);
+  assert.equal(textKey({ key, shiftKey: false }, false), command, key);
+}
+for (const [key, command] of [["f", "caption.formula"], ["-", "caption.sub"], ["=", "caption.super"], ["+", "caption.super"]]) {
+  assert.equal(textKey({ key, shiftKey: false }, false), command, key);
+  assert.equal(textKey({ key, shiftKey: false }, true), undefined, key);
+}
+assert.deepEqual([textKey({ key: "N", shiftKey: true }, true), textKey({ key: "n", shiftKey: true }, false), textKey({ key: "c", shiftKey: false }, false)], ["name_to_structure", "name_to_structure", undefined]);
 assert.equal(textEntry({ tagName: "BUTTON" }), false);
 assert.equal(textEntry(null), false);
 // Home's tiles: the New row (six narrow tiles) over the recent drawings (four wide tiles to a row, ten in all, so the

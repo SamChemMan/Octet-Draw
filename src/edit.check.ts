@@ -727,6 +727,12 @@ console.log("edit.check: align ok");
   assert.equal(setElement(keyElement(chain, 0, "C"), 0, "C").atoms[0].shown, undefined);
   assert.deepEqual([keyElement(chain, 0, "N").atoms[0].label, keyElement(chain, 0, "N").atoms[0].shown], ["N", undefined]);
   console.log("edit.check: shown carbons ok");
+  // A label typed on more than one line (Option-Return) keeps its lines, each trimmed, empty ones left out; one line
+  // left is a label as before.
+  assert.equal(setLabel(chain, 0, " Direct, \n\n No ISC \n").atoms[0].text, "Direct,\nNo ISC");
+  assert.deepEqual([setLabel(chain, 0, "\nN\n").atoms[0].label, setLabel(chain, 0, "\nN\n").atoms[0].text], ["N", undefined]);
+  assert.equal(setLabel(chain, 0, "OMe\n").atoms[0].text, "OMe");
+  console.log("edit.check: labels of more than one line ok");
 }
 
 // Ring tools as ChemDraw's: a drag sets the first bond and the ring lies on its left; Shift makes the first bond

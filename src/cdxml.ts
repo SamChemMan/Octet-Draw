@@ -15,7 +15,7 @@ import {
   type LineStyle, type Mol, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
 import { ELEMENTS, anchorElement, formulaRuns, isElement, units } from "./labels.ts";
-import { normalise, runsOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
+import { labelStyle, normalise, plainOf, runsOf, styleOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
 import { findReaction } from "./reaction.ts";
 import { readGrid } from "./stoich.ts";
 import { fragments, groupParents, renumberCentre, tidyGroups } from "./edit.ts";
@@ -369,6 +369,18 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     return `<s font="${font(s.font)}" size="${fmtSize(s.size)}"${c !== undefined ? ` color="${c}"` : ""}${s.face ? ` face="${s.face}"` : ""}>${escText(text)}</s>`;
   };
   const face = (s: RunStyle) => (s.bold ? 1 : 0) | (s.italic ? 2 : 0) | (s.underline ? 4 : 0) | (s.script === "sub" ? 0x20 : s.script === "super" ? 0x40 : 0);
+  // A written label's text from place at, split where its characters' own bold, italic and underline change (its runs,
+  // as ChemDraw's label <s> runs), each run with the label's face besides.
+  const labelText = (a: Atom, text: string, at: number, s: { font: string; size: number; colour?: string; face: number }) => {
+    const per = a.text && a.runs && plainOf(a.runs) === a.text ? a.runs.flatMap((r) => r.text.split("").map(() => r)) : undefined;
+    if (!per) return run(text, s);
+    let out = "";
+    for (let k = 0, e = 1; k < text.length; k = e, e = k + 1) {
+      while (e < text.length && per[at + e] === per[at + k]) e++;
+      out += run(text.slice(k, e), { ...s, face: s.face | face(per[at + k] ?? {}) });
+    }
+    return out;
+  };
   // A caption-styled text object written for ChemDraw only (a bracket's mark, a partial charge, a table cell).
   const note = (text: string, p: P, size: number, align: "left" | "centre" | "right", c?: string, item?: number) => {
     const w = widthOf(text, size), left = align === "left" ? p[0] : align === "right" ? p[0] - w : p[0] - w / 2, just = align === "centre" ? "Center" : align === "right" ? "Right" : undefined;
@@ -466,7 +478,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const qs = c.points.flatMap((q) => [q.c1 ?? q.at, q.at, q.c2 ?? q.at]).map(at), heads = start !== "none" || end !== "none";
     put(el("curve", { id: idOf.get(a.id)!, Z: Z(), color: colour(a.colour), FillType: a.fill === "solid" ? "Solid" : a.fill ? "Shaded" : undefined, CurveType: bits || undefined, ...ownLines(scaleOf(a), a.width),
       ArrowheadHead: HEADS[end], ArrowheadTail: HEADS[start], ArrowheadType: HEAD_SHAPES[a.head ?? "solid"], HeadSize: heads ? Math.round(headSize(a).length * 100) : undefined, ArrowheadCenterSize: heads ? Math.round(headSize(a).centre * 100) : undefined, ArrowheadWidth: heads ? Math.round(headSize(a).width * 100) : undefined,
-      Closed: c.closed ? "yes" : undefined, CurvePoints: qs.map(pt).join(" "), Octet: priv({ fill: a.fill === "faded" ? "faded" : undefined, style: a.style === "wavy" ? "wavy" : undefined, scale: ownScale(a) }) }), 4, boxOf(qs), a.id);
+      Closed: c.closed ? "yes" : undefined, CurvePoints: qs.map(pt).join(" "), Octet: priv({ kind: a.kind === "cut" ? "cut" : undefined, fill: a.fill === "faded" ? "faded" : undefined, style: a.style === "wavy" ? "wavy" : undefined, scale: ownScale(a) }) }), 4, boxOf(qs), a.id);
   };
   for (const a of mol.arrows ?? []) {
     zOrder = a.order;
@@ -662,6 +674,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const v = nbrs[i].reduce<P>((acc, j) => { const d = sub(page(j), X), l = len(d) || 1; return [acc[0] + d[0] / l, acc[1] + d[1] / l]; }, [0, 0]);
     const steep = len(v) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180), right = deg > 0 && !steep && v[0] > 1e-6;
     let sign = charge && !a.circled ? `${Math.abs(charge) > 1 ? Math.abs(charge) : ""}${charge > 0 ? "+" : "-"}` : "";
+    if (a.text?.includes("\n")) return labelLines(i, size, right, sign);
     let text = a.text ?? a.label, just = right && (text + sign).length > 1 ? "Right" : "Left", stack: string | undefined;
     if (!a.text && h) {
       text += `H${h > 1 ? h : ""}`;
@@ -694,8 +707,46 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     return {
       xml: el("t", { p: pt([x, y]), BoundingBox: boxText(box), color: colour(a.colour), LabelJustification: just, Justification: just === "Left" ? undefined : just, LabelAlignment: stack, InterpretChemically: a.chemical === false ? "no" : undefined,
         RotationAngle: rotationAngle(a.labelAngle) },
-        (iso ? run(iso, { ...style2, face: 0x40 | look }) : "") + run(text.slice(0, text.length - range.length), { ...style2, face: 0x60 | look }) + (range ? run(range, { ...style2, face: 0x20 | look }) : "")
+        (iso ? run(iso, { ...style2, face: 0x40 | look }) : "") + labelText(a, text.slice(0, text.length - range.length), 0, { ...style2, face: 0x60 | look }) + (range ? run(range, { ...style2, face: 0x20 | look }) : "")
         + (sign ? run(sign, { ...style2, face: 0x40 | look }) : "")),
+      box,
+    };
+  }
+
+  // A label of more than one line, where render.ts draws it: one text with a line break after each line but the last
+  // and LineStarts (where each line ends, as ChemDraw writes it), justified as its lines line up (centred when
+  // centred or stacked; Right when it reads right to left), and p at the first line's baseline: its start, middle or
+  // end. The attaching line (the first, or the last stacked above) sits on the atom. A charge sign Octet draws after
+  // the attaching line goes there in the text; drawn anywhere else, it is a symbol (as labelOf's).
+  function labelLines(i: number, size: number, right: boolean, sign: string): { xml: string; box: Box } {
+    const a = mol.atoms[i], X = page(i), rows = a.text!.split("\n"), k0 = a.align === "above" ? rows.length - 1 : 0, own = rows[k0] || "H", pitch = LINE * size;
+    const just = a.align === "centre" || a.align === "above" || a.align === "below" ? "Center" : a.align === "right" || (!a.align && right) ? "Right" : "Left";
+    const wide = (t: string) => units(t).reduce((w, u) => w + widthOf(u.text, size) + (u.count ? widthOf(u.count, 0.75 * size) : 0), 0), ws = rows.map(wide);
+    const tail = units(own)[units(own).length - 1], start = X[0] - advance(own[0], size) / 2, end = X[0] + (tail?.count ? advance(tail.count.slice(-1), 0.75 * size) : advance(own[own.length - 1], size)) / 2;
+    const from = (j: number) => (just === "Center" ? X[0] - ws[j] / 2 : just === "Right" ? end - ws[j] : start);
+    const base = X[1] + (/[OSCGQ]/.test(own[0]) ? 0.364 : 0.358) * size, y0 = base - k0 * pitch;
+    if (sign && Math.abs(a.charge ?? 0) === 1) {
+      const at = signAt(i, X, size, own, 0, ws[k0], just === "Right", end - X[0]);
+      if (at) { signs.set(i, at); sign = ""; }
+    }
+    const x = just === "Center" ? X[0] : just === "Right" ? end : start, last = rows[rows.length - 1];
+    const box = turnedBox([Math.min(...rows.map((_, j) => from(j))), y0 - 0.716 * size, Math.max(...rows.map((_, j) => from(j) + ws[j] + (j === k0 ? widthOf(sign, 0.75 * size) : 0))),
+      y0 + (rows.length - 1) * pitch + (/\d/.test(last) ? 0.15 * size : 0)], [x, y0], a.labelAngle);
+    const style2 = { font: a.font ?? style.labelFont, size, colour: a.colour }, look = (a.bold ? 1 : 0) | (a.italic ? 2 : 0) | (a.underline ? 4 : 0);
+    // Each part: its text, face, and place in the label's text (none for the sign).
+    const parts: [string, number, number?][] = [];
+    let place = 0;
+    rows.forEach((t, j) => {
+      parts.push([t, 0x60 | look, place]);
+      place += t.length + 1;
+      if (j === k0 && sign) parts.push([sign, 0x40 | look]);
+      if (j < rows.length - 1) parts[parts.length - 1][0] += "\n";
+    });
+    const text = parts.map(([t]) => t).join(""), ends = [...[...text.matchAll(/\n/g)].map((m) => m.index! + 1), text.length];
+    return {
+      xml: el("t", { p: pt([x, y0]), BoundingBox: boxText(box), color: colour(a.colour), LabelJustification: just, Justification: just === "Left" ? undefined : just, LabelAlignment: a.align === "above" ? "Above" : a.align === "below" ? "Below" : undefined,
+        InterpretChemically: a.chemical === false ? "no" : undefined, RotationAngle: rotationAngle(a.labelAngle), LineStarts: ends.join(" ") },
+        parts.filter(([t]) => t).map(([t, face, at]) => (at === undefined ? run(t, { ...style2, face }) : labelText(a, t, at, { ...style2, face }))).join("")),
       box,
     };
   }
@@ -845,7 +896,8 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   };
   for (const a of mol.arrows ?? []) {
     zOrder = a.order;
-    if (a.kind === "curve" && a.curve) { if (!(a.curve.closed && a.fill)) curveOut(a); }
+    // A pen curve, or a fragmentation line with corners (a curve of straight runs, with Octet's kind).
+    if ((a.kind === "curve" || a.kind === "cut") && a.curve) { if (!(a.curve.closed && a.fill)) curveOut(a); }
     else if (a.kind !== "orbital") arrowOut(a, false);
   }
   for (const a of opts.derived ?? []) { zOrder = a.order; if (a.kind !== "orbital" && a.kind !== "curve") arrowOut(a, true); }
@@ -1188,7 +1240,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   const bondSettings: { line?: number; bold?: number; hash?: number; margin?: number; spacing?: number; attrs: Record<string, string> }[] = [], labelSizes = new Map<number, number>(), nodeLines = new Map<number, number>();
   const atomOf = new Map<number, number>(), objectOf = new Map<number, number>(), arrowOfGraphic = new Map<number, number>();
   // Each label: its node, text, node type and isotope, Interpret Chemically off, and its text's justification, stacking and turn.
-  const labels: { i: number; text: string; type: string; isotope?: number; plain?: boolean; just?: string; stack?: string; turn?: string }[] = [];
+  // runs: the label's <s> runs as bold, italic and underline (face bits), for a written label whose characters differ.
+  const labels: { i: number; text: string; type: string; isotope?: number; plain?: boolean; just?: string; stack?: string; turn?: string; runs?: TextRun[] }[] = [];
   const numH = new Map<number, number>(), delocalised: { k: number; order?: 1 | 2 }[] = [], ovals: { id: number; c: P; r: number }[] = [];
   const bondsToRead: Xml[] = [], symbols: { x: Xml; atoms: number[]; group?: G }[] = [], steps: Xml[] = [], unders: { c: Caption; nodes: unknown }[] = [], anchors = new Map<number, P>();
   const brackets: { x: Xml; id: number; z: number; group?: G; ends: number[] }[] = [], properties: Xml[] = [];
@@ -1344,8 +1397,9 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (font && font !== style.labelFont) a.font = font;
       if (size && size >= 0.1 && size <= 999) { labelSizes.set(i, size); if (Math.abs(size - style.labelSize) > 0.01) a.size = size; }
     }
+    const runs = t?.kids.filter((k) => k.name === "s").map((k): TextRun => { const f = int(k.attrs.face) ?? 0; return { text: k.text, ...(f & 1 ? { bold: true } : {}), ...(f & 2 ? { italic: true } : {}), ...(f & 4 ? { underline: true } : {}) }; });
     if (t) labels.push({ i, text: t.kids.filter((k) => k.name === "s").map((k) => k.text).join(""), type, isotope, plain: t.attrs.InterpretChemically !== undefined && !yes(t.attrs.InterpretChemically),
-      just: t.attrs.LabelJustification ?? t.attrs.Justification, stack: t.attrs.LabelAlignment, turn: t.attrs.RotationAngle });
+      just: t.attrs.LabelJustification ?? t.attrs.Justification, stack: t.attrs.LabelAlignment, turn: t.attrs.RotationAngle, runs });
     else if (type === "GenericNickname" && n.attrs.GenericNickname) labels.push({ i, text: n.attrs.GenericNickname, type });
     else if (type === "ElementList" && n.attrs.ElementList) {
       // An element list with no label text: its label from its atomic numbers.
@@ -1602,9 +1656,16 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     };
     for (const l of labels) {
       const { i, text: raw, type, isotope, plain } = l, a = mol.atoms[i], charge = a.charge ?? 0;
-      let text = cleanText(raw).replace(/\n/g, "").trim();
-      const sign = /(\d*)([+\-−–])$/.exec(text);
-      if (charge && sign && (sign[2] === "+") === charge > 0) text = text.slice(0, text.length - (sign[1] === String(Math.abs(charge)) ? sign[0].length : 1));
+      // A label of more than one line keeps its lines (each trimmed, empty ones left out); an element's label is read
+      // without them (ChemDraw's stacked NH can be typed N, Option-Return, H).
+      // The node's charge sign after the label (after its first or last line) is not text.
+      const rows = cleanText(raw).split("\n").map((t) => t.trim()).filter(Boolean);
+      for (const k of new Set([0, rows.length - 1])) {
+        const sign = /(\d*)([+\-−–])$/.exec(rows[k] ?? "");
+        if (charge && sign && (sign[2] === "+") === charge > 0) { rows[k] = rows[k].slice(0, rows[k].length - (sign[1] === String(Math.abs(charge)) ? sign[0].length : 1)).trim(); break; }
+      }
+      const lined = rows.filter(Boolean).join("\n");
+      let text = lined.replace(/\n/g, "");
       if (!text || text === "\ufffc" || a.attach || a.bead) continue;
       if (type === "Element" && !plain && (!isotope || a.label === "D" || a.label === "T" || a.isotope)) {
         if (a.isotope && text.startsWith(String(a.isotope))) text = text.slice(String(a.isotope).length);
@@ -1614,9 +1675,19 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
         // A carbon shown with its own hydrogens (CH3 at a chain end): a shown carbon, which keeps its hydrogens right.
         if (m && a.label === "C" && h === hydrogens("C", charge, used[i], a.radical === 3 ? 2 : a.radical)) { a.shown = true; keep(l, hFirst); continue; }
       } else if (isotope) lose("isotope");
-      if (text.length > MAX_LABEL || /[<>]/.test(text)) { lose("label text"); text = text.replace(/[<>]/g, "").slice(0, MAX_LABEL); }
+      if (lined.includes("\n")) text = lined;
+      if (text.length > MAX_LABEL || /[<>]/.test(text)) { lose("label text"); text = text.replace(/[<>]/g, "").slice(0, MAX_LABEL).trim(); }
       if (isElement(text) && !plain) a.label = text;
-      else { a.text = text; a.label = anchorElement(text) ?? "C"; }
+      else {
+        a.text = text;
+        a.label = anchorElement(text) ?? "C";
+        // Characters bold, italic or underlined where others are not: each character of the text takes the style of
+        // its run (the text is the runs' text less what reading left out: spaces, empty lines, a charge sign).
+        const per = (l.runs ?? []).flatMap((r) => cleanText(r.text).split("").map((ch) => ({ ch, r })));
+        let j = 0;
+        const st = labelStyle(normalise(text.split("").map((ch): TextRun => { while (j < per.length && per[j].ch !== ch) j++; const r = per[j++]?.r; return { ...(r ? styleOf(r) : {}), text: ch }; })));
+        if (st.runs) { delete a.bold; delete a.italic; delete a.underline; Object.assign(a, st); }
+      }
       // Interpret Chemically off on the label: its text, not chemistry.
       if (plain) a.chemical = false;
       keep(l);
@@ -1862,7 +1933,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     const v = raw as number[], q = (k: number) => toOctet(v[2 * k], v[2 * k + 1]), same = (j: number, k: number) => v[2 * j] === v[2 * k] && v[2 * j + 1] === v[2 * k + 1];
     const points: CurvePoint[] = Array.from({ length: v.length / 6 }, (_, k) => ({ at: q(3 * k + 1), ...(same(3 * k, 3 * k + 1) ? {} : { c1: q(3 * k) }), ...(same(3 * k + 2, 3 * k + 1) ? {} : { c2: q(3 * k + 2) }) }));
     const bits = int(x.attrs.CurveType) ?? 0, p = priv(x), closed = !!(bits & 1) || yes(x.attrs.Closed), colour = colourOf(x.attrs.color);
-    const a: Arrow & { z: number } = { id: newId(x), kind: "curve", from: points[0].at, to: points[points.length - 1].at, curve: { points, ...(closed ? { closed: true } : {}) }, z: zOf(x) };
+    const a: Arrow & { z: number } = { id: newId(x), kind: p?.kind === "cut" ? "cut" : "curve", from: points[0].at, to: points[points.length - 1].at, curve: { points, ...(closed ? { closed: true } : {}) }, z: zOf(x) };
     const fill: CurveFill | undefined = p?.fill === "faded" ? "faded" : bits & 128 || x.attrs.FillType === "Solid" ? "solid" : bits & 256 || x.attrs.FillType === "Shaded" ? "shaded" : undefined;
     if (fill) a.fill = fill;
     const style: LineStyle | undefined = p?.style === "wavy" ? "wavy" : bits & 512 ? "doubled" : bits & 2 ? "dashed" : bits & 4 ? "bold" : undefined;

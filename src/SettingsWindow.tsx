@@ -61,6 +61,8 @@ type Props = {
   onDrawing: (patch: Partial<DrawingPrefs>) => void;
   captionOptionReturn: boolean; // captions: Option-Return for a new line, Return closes the box
   onCaptionOptionReturn: (on: boolean) => void;
+  labelReturnNewLine: boolean; // atom labels: Return makes a new line (else Option-Return does, and Return closes the box)
+  onLabelReturnNewLine: (on: boolean) => void;
   panelMenus: boolean; // the Actions panel's sets as menus, not sections
   onPanelMenus: (menus: boolean) => void;
   onlineSearch: boolean; // Search Reaxys and Search PubChem are offered (decision 0008)
@@ -508,6 +510,10 @@ export function SettingsWindow(p: Props) {
       d("keys", "Typing", "New line in captions", "caption text new line return enter option", (
         <Select label="New line in captions" value={p.captionOptionReturn ? "option" : "return"} options={[["return", "Return"], ["option", "⌥ Return"]]} onChange={(v) => p.onCaptionOptionReturn(v === "option")} />
       )),
+      // The same for atom labels, where ChemDraw asks for Option-Return unless told otherwise.
+      d("keys", "Typing", "New line in labels", "atom label text new line return enter option", (
+        <Select label="New line in labels" value={p.labelReturnNewLine ? "return" : "option"} options={[["option", "⌥ Return"], ["return", "Return"]]} onChange={(v) => p.onLabelReturnNewLine(v === "return")} />
+      )),
       // The menu commands' shortcuts, as the menus show them (fixed, as ChemDraw's), so a search finds them here too.
       ...p.menuKeys.map(([name, keys]) => d("keys", "Menu commands", name, `${name} menu command shortcut ${keys}`, <kbd className="menu-key">{keys}</kbd>)),
       ...ACTIONS.map((a) => d("keys", a.group, a.name, `${a.id} ${a.group} shortcut ${(map[a.id] ?? []).join(" ")}`, (
@@ -556,7 +562,7 @@ export function SettingsWindow(p: Props) {
       // ChemDraw's Add Structure to Dictionary keeps names; here they are renamed, removed, exported and imported.
       d("dictionary", "Names", "Your names", "dictionary names name to structure own words abbreviations rename remove export import smiles", <OwnDictionary list={p.dictionary} onRename={p.onRenameName} onRemove={p.onRemoveName} />, true),
     ];
-  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.onlineSearch, p.rulerUnit, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.warnings, p.warningTypes, p.checkCopy, p.dictionary]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.rulerUnit, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.warnings, p.warningTypes, p.checkCopy, p.dictionary]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query) && (!p.template || def.module === "document")) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));

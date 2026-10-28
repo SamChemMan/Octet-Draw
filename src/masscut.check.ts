@@ -1,7 +1,7 @@
 // Run: node src/masscut.check.ts. Fails loudly if a mass-fragmentation cut finds the wrong bonds, sides or sums.
 import assert from "node:assert/strict";
 import type { Mol } from "./render.ts";
-import { addFormulas, bendOf, crossedBonds, cutSides, type Piece } from "./masscut.ts";
+import { addFormulas, bendOf, crossedBonds, cutEndAt, cutPoints, cutSides, cutThrough, extendCut, type Piece } from "./masscut.ts";
 
 // Pentane drawn left to right: C0–C1–C2–C3–C4.
 const pentane: Mol = { atoms: [0, 1, 2, 3, 4].map((i) => ({ label: "C", location: [i * 0.866, i % 2 ? 0.5 : 0, 0] })), bonds: [0, 1, 2, 3].map((i) => ({ type: 1, atoms: [i, i + 1] })) };
@@ -48,4 +48,25 @@ assert.equal(bendOf([[0, 0], [1, 0.01], [2, 0]]), 0);
 assert.ok(Math.abs(bendOf([[0, 0], [1, 0.5], [2, 0]]) - 0.25) < 1e-9);
 assert.ok(bendOf([[0, 0], [1, -0.5], [2, 0]]) < 0);
 assert.equal(bendOf([[0, 0], [1, 5], [2, 0]]), 0.5);
+
+// Mass Spec Analysis lines with corners (a key pressed during the drag): a curve of straight runs through them, its ends
+// the line's ends. A corner on the point before it (a key pressed before the pointer moved) is left out.
+assert.deepEqual(cutThrough([[0, 0], [1, 0]]), { from: [0, 0], to: [1, 0] });
+const corner = cutThrough([[0.4, -1], [0.4, 1], [0.4, 1], [3.1, 1], [3.1, -1]]);
+assert.deepEqual(corner.from, [0.4, -1]);
+assert.deepEqual(corner.to, [3.1, -1]);
+assert.deepEqual(cutPoints(corner), [[0.4, -1], [0.4, 1], [3.1, 1], [3.1, -1]]);
+// The bent line crosses bonds 0 and 3, as the path does.
+assert.deepEqual(crossedBonds(pentane, cutPoints(corner)).map((c) => c.bond), [0, 3]);
+// A drag from an end makes the line longer from that end: a straight line gains a corner where it ended.
+const straight = { kind: "cut", from: [1.3, 2] as [number, number], to: [1.3, -2] as [number, number] };
+assert.deepEqual(cutPoints(extendCut(straight, "to", [], [2.2, -2])), [[1.3, 2], [1.3, -2], [2.2, -2]]);
+assert.deepEqual(cutPoints(extendCut(straight, "from", [[2, 3]], [2.2, 2])), [[1.3, -2], [1.3, 2], [2, 3], [2.2, 2]]);
+assert.deepEqual(cutPoints(extendCut(corner, "to", [], [4, -1])).slice(-2), [[3.1, -1], [4, -1]]);
+// Only a fragmentation line's ends are taken, within reach; the line drawn last wins.
+const lines = [straight, { kind: "line", from: [1.3, 2] as [number, number], to: [5, 5] as [number, number] }, { ...straight, to: [1.35, -2] as [number, number] }];
+assert.equal(cutEndAt(lines, [1.32, -2.01], 0.1)?.line, lines[2]);
+assert.equal(cutEndAt(lines, [1.3, 2.05], 0.1)?.end, "from");
+assert.equal(cutEndAt(lines, [5, 5], 0.1), undefined);
+assert.equal(cutEndAt(lines, [1.3, 0], 0.1), undefined);
 console.log("masscut.check: ok");

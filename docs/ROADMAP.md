@@ -13,7 +13,7 @@ default (decision 0010).
 | Measured spectra from JCAMP-DX, with peak assignment (CH-29) | Done, with ChemDraw's spectrum object in CDXML and CDX, peaks linked to bonds, and SPC files |
 | Naming gaps: mixtures with ratios, mixed-metal and cluster complexes, configuration at metals, η drawn with bonds, typography of names | Done: 6855 of 6924 named right, 0 wrong |
 | Platform: Linux Edit menu, Mac Quit from the Dock, pictures in EMF and EPS, Windows and Linux test runs on CI | Done: Windows and Linux runs pass every step |
-| Windows: screen readers could not open Octet's menus (found by the CI run, 28 October) | Done: the menu bar was in UI Automation all along, but MSAA and UI Automation open a menu by pressing Alt and its access key, which WebView2 kept from the window. Each menu now has an access key, and `access_keys.rs` passes Alt and the key to the menu bar. The Windows run opens each menu through UI Automation |
+| Windows: screen readers could not open Octet's menus (found by the CI run, 28 October) | Done: the menu bar was in UI Automation all along, but MSAA and UI Automation open a menu by pressing Alt and its access key, which WebView2 kept from the window. Each menu now has an access key, and `access_keys.rs` passes Alt and the key to the menu bar. The Windows run opens each menu through UI Automation. The Reaxys window has the same handler (28 October); the Windows run does not open that window yet |
 | Mac: check VoiceOver's view of a dev build with the AX API | Waiting for Sam to allow accessibility access |
 | Screen readers on the canvas: the drawing is one image to VoiceOver and Narrator; structures need a text equivalent and keyboard navigation | Done (decision 0019); next: a real VoiceOver, Narrator and NVDA session |
 | Mass Spec Analysis (CH-40), with isotope patterns and the HRMS line | Done |
@@ -59,7 +59,7 @@ Done on the `spectra-parity` branch (27 October 2026, decision 0016): ChemDraw's
 The Synthesis and Retrosynthesis cut tools (audit item CD-39) are built in 1.0, so only Mass Spec Analysis stays in this step.
 
 - A Mass Spec Analysis mode beside Mass Fragmentation: built on 27 October 2026 (the Mass spec analysis tool and panel, `src/MassSpec.tsx` and `src/msanalysis.ts`).
-- Still missing against ChemDraw 26.1: a fragmentation line with corners (ChemDraw adds a corner when a key is pressed during the drag), and dragging from a line's end to make it longer. Octet's lines are straight; draw a second line instead.
+- Done (28 October 2026, `drawing-loose-ends` branch): a fragmentation line with corners (any key pressed during the drag adds one where the pointer is), dragging from a line's end to make it longer, and Tab (Shift+Tab back) through the fragments of the atom or bond under the pointer. ChemDraw check 26 waits in `~/octet-research/notes/chemdraw-checks-pending.md`.
 - Done (`spectra-parity` branch): a measured mass spectrum in the drawing is the Mass spec panel's peak list (`peaks`).
 
 ### Search Reaxys needs fixing
@@ -81,7 +81,7 @@ Sam wanted these in 1.0. They are not done yet.
   - Done: all 68 of Sam's CDXML files write and read back unchanged.
   - Arrowhead sizes and hollow block arrows are done.
   - Done (27 October 2026; ChemDraw check 23): tritium typed as T is hydrogen-3, as D is hydrogen-2, in the formula's weight, CDXML and MOL; an atom number ChemDraw keeps hidden (`AtomNumber` without `ShowAtomNumber`) is kept and written back without showing.
-  - Not done: a node label of more than one line (2 corpus labels). Octet's labels are one line in drawing, bond clipping, label boxes, hit testing and the CDXML writer, so keeping the break needs a label model of lines.
+  - Done (28 October 2026, `drawing-loose-ends` branch): a node label of more than one line ("Direct,\nNo ISC" in the corpus). Option-Return in the label box starts a new line (Settings > Typing > New line in labels can make it Return, as ChemDraw's preference). The attaching line sits on the atom as a one-line label does; the other lines go a caption's line apart, lined up with it. Bonds stop at each line's box. CDXML and CDX keep the break and write LineStarts. ChemDraw check 26 waits in `~/octet-research/notes/chemdraw-checks-pending.md`.
 
 ### Platform limits
 

@@ -225,6 +225,17 @@ type Focus = { tagName: string; type?: string; isContentEditable?: boolean } | n
 const TEXT_INPUTS = ["text", "search", "number", "email", "url", "tel", "password"];
 export const textEntry = (el: Focus) => !!el && (el.tagName === "TEXTAREA" || el.isContentEditable === true || (el.tagName === "INPUT" && TEXT_INPUTS.includes(el.type ?? "text")));
 
+// ChemDraw's text keys with ⌘ (Ctrl on Windows and Linux) in a caption or atom label box: the command each runs. A label
+// takes Bold, Italic, Underline and Plain (its counts are subscripts already); a caption takes Formula, Subscript and
+// Superscript too. ⇧⌘N in either is Convert Name to Structure.
+const TEXT_KEYS: Record<string, string> = { b: "caption.bold", i: "caption.italic", u: "caption.underline", t: "caption.plain", f: "caption.formula", "-": "caption.sub", "=": "caption.super", "+": "caption.super" };
+export function textKey(e: { key: string; shiftKey: boolean }, label: boolean): string | undefined {
+  const k = e.key.toLowerCase();
+  if (e.shiftKey && k === "n") return "name_to_structure";
+  const command = TEXT_KEYS[k];
+  return label && command && !["b", "i", "u", "t"].includes(k) ? undefined : command;
+}
+
 // A control the keyboard moved to (Tab) keeps the keys it uses: Space and Return press a button, and the arrow keys,
 // Home, End, Page Up and Page Down move a slider. After a click they stay the drawing's: Windows focuses a clicked
 // button, and then counts that focus as the keyboard's at the next key, so :focus-visible cannot tell.

@@ -31,7 +31,7 @@ import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
 import { loadSettings, RULER_UNITS, saveSettings } from "./settings";
 import { Menu, menuWidth } from "./Menu";
-import { ACTIONS, actionFor, controlTakes, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, textEntry, toAccelerator } from "./keys";
+import { ACTIONS, actionFor, controlTakes, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, textEntry, textKey, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
@@ -96,8 +96,8 @@ setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, 
 import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, hasContent, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, placeTemplate, removeSet, removeTemplate, renameSet, renameTemplate, setName, templateKind, templateToEnd, templateToStart, updateTemplate } from "./templates";
 import { formulaRuns } from "./labels";
 import { captionAtom, captionsToAtoms, chemicalCaption, interpretLabels, labelable, withCaptionAtoms } from "./edit";
-import { bendOf, crossedBonds, cutSides } from "./masscut";
-import { common, edited, lines as richLines, normalise, plainOf, runsOf, shareColour, styleRange, styled, whole, without, type RunStyle, type TextRun } from "./richtext";
+import { bendOf, crossedBonds, cutEndAt, cutPoints, cutSides, cutThrough, extendCut } from "./masscut";
+import { common, edited, labelStyle, lines as richLines, normalise, plainOf, runsOf, shareColour, styleRange, styled, trimLines, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
 import { Dialog } from "./Dialog";
 import { addAttachment, stepSubstituents, anyQuery, enclosed, genericSites, nextRGroup, polymerLabel, polymerTags, rNumber, USAGES, USAGE_KINDS } from "./query";
@@ -198,7 +198,9 @@ type Drag =
   // snap: the boxes snapping uses, made at the first move (a click does not need them) and kept for the drag.
   | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; snap: () => { moving: number[]; targets: number[][] } | undefined; base?: Mol; atoms?: Set<number> }
   // Drawing an arrow, and dragging one of a picked arrow's handles (an end, or the middle of a curved one).
-  | { kind: "arrow"; from: P; start: [number, number]; target: Hover; to?: P; trail?: P[]; side?: number; make?: Make; alt?: boolean }
+  // corners: a Mass spec analysis line's corners so far (a key pressed during the drag adds one where the pointer is);
+  // longer: the line whose end the drag started from, which it makes longer.
+  | { kind: "arrow"; from: P; start: [number, number]; target: Hover; to?: P; trail?: P[]; side?: number; make?: Make; alt?: boolean; corners?: P[]; longer?: { id: number; end: "from" | "to" } }
   // Drawing a shape from corner to corner.
   | { kind: "shape"; from: P; start: [number, number]; target: Hover; to?: P }
   | { kind: "handle"; id: number; which: Corner; working: Mol }
@@ -790,7 +792,12 @@ export default function Editor() {
   // blank: the box opened empty (the ! and > keys), so closing it with nothing typed keeps the atoms as they were.
   // colour: a colour chosen while typing (the label takes it when the box closes, in the same step); "element": Colour
   // by Element, the colour of the element typed.
-  const [editing, setEditing] = useState<{ atom: number; value: string; all?: number[]; merge?: string; blank?: true; colour?: string }>();
+  // runs, version, caret and pending: as the caption box's (Writing below): the text in styled runs (bold, italic,
+  // underline), and a style set with nothing selected for the next characters typed. font and size: a font or size
+  // chosen while typing, for the whole label.
+  type Editing = { atom: number; value: string; all?: number[]; merge?: string; blank?: true; colour?: string; runs?: TextRun[]; version?: number; caret?: [number, number]; pending?: RunStyle; font?: string; size?: number };
+  const [editing, setEditing] = useState<Editing>();
+  const labelApi = useRef<RichApi>(undefined);
   const labelOpen = useRef(false);
   // The last label typed in a label box: the Text tool's Option-click repeats it (ChemDraw's Repeat Last Label).
   const lastLabel = useRef<string>(undefined);
@@ -799,10 +806,21 @@ export default function Editor() {
   // Select's last click on an atom or bond: a second click on it soon after is a double-click. The browser sends no
   // double-click when the first click drew the selection over what the second click presses.
   const lastPick = useRef<{ on: string; time: number }>(undefined);
+  // A label's own bold, italic and underline, as a run style (undefined when it has none).
+  const ownStyle = (a: Atom): RunStyle | undefined => (a.bold || a.italic || a.underline ? { ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}) } : undefined);
   const editLabel = (atom: number) => {
-    const a = doc.atoms[atom];
+    const a = doc.atoms[atom], value = a.text ?? (a.label === "C" ? "" : a.label), own = ownStyle(a);
+    // The label's own style goes on each run, so the box shows it and it can come off a part.
     labelOpen.current = true;
-    setEditing({ atom, value: a.text ?? (a.label === "C" ? "" : a.label) });
+    setEditing({ atom, value, runs: (a.text && a.runs && plainOf(a.runs) === a.text ? a.runs : [{ text: value }]).map((r) => ({ ...own, ...r })) });
+  };
+  // Bold, italic, underline and Plain on the label being typed (ChemDraw's Text menu as it is typed): on the characters
+  // selected, else on the next ones typed, as in a caption.
+  const styleLabel = (patch: (s: RunStyle, all: RunStyle) => RunStyle) => {
+    if (!editing) return;
+    const runs = editing.runs ?? [{ text: editing.value }], [s, e] = labelApi.current?.range() ?? [editing.value.length, editing.value.length], all = common(runs, s, e);
+    if (s === e) return setEditing({ ...editing, runs, pending: patch({ ...(editing.pending ?? all) }, editing.pending ?? all), version: (editing.version ?? 0) + 1, caret: [s, e] });
+    setEditing({ ...editing, runs: styleRange(runs, s, e, (st) => patch(st, all)), version: (editing.version ?? 0) + 1, caret: [s, e] });
   };
   // The caption being typed: an existing one (id), or a new one at a point or under a structure, with its style.
   // runs: the text in styled runs as it is typed; version and caret: the box is built again (a style was applied)
@@ -2253,7 +2271,7 @@ export default function Editor() {
     if (drag?.kind === "chain" && drag.to) return chainThrough(doc, drag.from, chainPath(drag)).mol;
     if (drag?.kind === "ring" && drag.to) return ringDrop(drag);
     if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "resize" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "lane" || drag?.kind === "tableedge" || drag?.kind === "mark") return placeCentres(drag.working);
-    if (drag?.kind === "arrow" && drag.to && tool === "massspec") return addArrow(doc, { kind: "cut", from: drag.from, to: drag.to })[0];
+    if (drag?.kind === "arrow" && drag.to && tool === "massspec") return msLine(drag, drag.to)[0];
     if (drag?.kind === "arrow" && drag.to && drag.make?.kind === "cut") return massCut(drag, true).mol;
     if (drag?.kind === "arrow" && drag.to) return addArrow(doc, newArrow(drag.from, drag.to, drag.side, drag.make))[0];
     if (drag?.kind === "shape" && drag.to) { const sh = shapeFrom(drag.from, drag.to); return sh ? addShape(doc, sh)[0] : doc; }
@@ -2598,6 +2616,8 @@ export default function Editor() {
   const markDirs = useMemo(() => markDirections(shown, shown.atoms.flatMap((a, i) => (a.enhanced ? [i] : []))), [shown.atoms, shown.bonds]); // eslint-disable-line react-hooks/exhaustive-deps
   // The Mass spec panel's structure (see openMassSpec), and the atoms lit from it.
   const [massSpec, setMassSpec] = useState<number[]>(), [msPoint, setMsPoint] = useState<number[]>();
+  // Tab on an atom or bond with Mass spec analysis: the atom or bond, its atoms, and how many times Tab was pressed on it.
+  const [msTab, setMsTab] = useState<{ atom?: number; bond?: number; atoms: number[]; n: number }>();
   // A cut with the Mass fragmentation tool (ChemDraw's): one caption for each side, its pieces' formula (counts as
   // subscripts) and exact mass added up, beside the cut's end on that side (the left side's at its start). The
   // captions move, change and delete as any caption does. The cut line goes when the pointer is released; with Option
@@ -3431,8 +3451,8 @@ export default function Editor() {
     const near = (q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) * L * views.get().zoom < 8;
     const wh = widthHandle();
     if (wh && near(wh.at)) return { id: wh.id, which: "width" };
-    // A picked pen curve's anchors, then their handles.
-    if (a?.kind === "curve" && a.curve) {
+    // A picked pen curve's anchors, then their handles; a fragmentation line's corners and ends.
+    if ((a?.kind === "curve" || a?.kind === "cut") && a.curve) {
       const i = a.curve.points.findIndex((q) => near(q.at));
       if (i >= 0) return { id: a.id, which: `p${i}:at` };
       for (const [k, q] of a.curve.points.entries()) for (const part of ["c1", "c2"] as const) { const h = q[part]; if (h && near(h)) return { id: a.id, which: `p${k}:${part}` }; }
@@ -3656,7 +3676,9 @@ export default function Editor() {
       pressTool(p, at, screen, e.altKey, { meta: MOD === "⌘" ? e.metaKey : e.ctrlKey, shift: e.shiftKey });
       return startHold(p, at, screen);
     }
-    if (tool !== "erase" && tool !== "text" && (t.caption !== undefined || t.arrow !== undefined)) return pressCaption(p, t, e.shiftKey, screen);
+    // Mass spec analysis: a press on an end of a fragmentation line makes the line longer (pressTool), not moves it.
+    const lineEnd = tool === "massspec" && cutEndAt(doc.arrows ?? [], p, 8 / L / views.get().zoom);
+    if (tool !== "erase" && tool !== "text" && !lineEnd && (t.caption !== undefined || t.arrow !== undefined)) return pressCaption(p, t, e.shiftKey, screen);
     // With the TLC tool, a spot or a line on a plate drags, and a click adds a spot. A hold gives Select.
     if (tool === "tlc" && plateAt(p)) {
       const sh = plateAt(p)!;
@@ -3697,6 +3719,9 @@ export default function Editor() {
     }
     if (tool === "shape" || tool === "bracket" || tool === "tlc" || tool === "table") return setDrag({ kind: "shape", from: p, start: screen, target: t });
     if (tool === "map" && t.atom !== undefined) return setDrag({ kind: "map", atom: t.atom, start: screen });
+    // Mass spec analysis: a press on an end of a fragmentation line makes that line longer (ChemDraw's).
+    const end = tool === "massspec" ? cutEndAt(doc.arrows ?? [], p, 8 / L / views.get().zoom) : undefined;
+    if (end) return setDrag({ kind: "arrow", from: end.line[end.end], start: screen, target: t, make: { kind: "cut" }, longer: { id: end.line.id, end: end.end } });
     if (tool === "fragment" || tool === "massspec" || tool === "synthesis" || tool === "retro") return setDrag({ kind: "arrow", from: p, start: screen, target: t, make: { kind: "cut" } });
     // An orbital grows from the atom pressed (or the point) towards the pointer.
     if (tool === "orbital") return setDrag({ kind: "arrow", from: t.atom !== undefined ? pos(doc, t.atom) : p, start: screen, target: t, make: { kind: "orbital", orbital: orbitalSpec(orbitalChoice)! } });
@@ -3797,8 +3822,9 @@ export default function Editor() {
           const side = Math.abs(area / 2) > 0.05 * chord * chord ? (area < 0 ? 1 : -1) : (drag.side ?? 1);
           return setDrag({ ...drag, to, trail, side });
         }
-        const far = Math.hypot(p[0] - drag.from[0], p[1] - drag.from[1]), raw = Math.atan2(p[1] - drag.from[1], p[0] - drag.from[0]);
-        const a = e.altKey || !settings.fixedAngles ? raw : Math.round(raw / SNAP) * SNAP, to: P = [drag.from[0] + far * Math.cos(a), drag.from[1] + far * Math.sin(a)];
+        // A line with corners steps from its last corner.
+        const o = drag.corners?.[drag.corners.length - 1] ?? drag.from, far = Math.hypot(p[0] - o[0], p[1] - o[1]), raw = Math.atan2(p[1] - o[1], p[0] - o[0]);
+        const a = e.altKey || !settings.fixedAngles ? raw : Math.round(raw / SNAP) * SNAP, to: P = [o[0] + far * Math.cos(a), o[1] + far * Math.sin(a)];
         // Snap to Grid: a level or upright arrow ends on a grid line too (other angles keep their 15° steps).
         const turn = ((Math.round(a / SNAP) % 12) + 12) % 12, g = toGrid(to, e.metaKey || e.altKey), stepped = a !== raw || raw % SNAP === 0;
         return setDrag({ ...drag, ...cut, to: stepped && turn === 0 ? [g[0], to[1]] : stepped && turn === 6 ? [to[0], g[1]] : to });
@@ -4076,7 +4102,7 @@ export default function Editor() {
     if (kind === "group") return each((m, i) => addGroupAt(m, i, arg as Group)[0], atoms), true;
     if (id === "atom.attach") { const on = atoms.some((i) => !doc.atoms[i].attach); return each((m, i) => setAtomMarks(m, i, { attach: on || undefined }), atoms), true; }
     if (id === "atom.number") return numberAtoms(atoms), true;
-    if (id === "atom.newlabel") { labelOpen.current = true; return setEditing({ atom: atoms[0], value: "", all: atoms, blank: true }), true; }
+    if (id === "atom.newlabel") { labelOpen.current = true; return setEditing({ atom: atoms[0], value: "", all: atoms, blank: true, pending: ownStyle(doc.atoms[atoms[0]]) }), true; }
     if (id === "atom.sproutlabel") return sproutLabel(atoms), true;
     if (kind === "bond" && arg in BONDS) return each((m, k) => setBondSpec(m, k, BONDS[arg as BondKind].spec), bonds), true;
     if (kind === "bond" && (arg === "left" || arg === "centre" || arg === "right")) return each((m, k) => (m.bonds[k].type === 2 ? setPosition(m, k, arg) : m), bonds), true;
@@ -4127,7 +4153,7 @@ export default function Editor() {
     if (kind === "label" && atom !== undefined) return set(setLabel(doc, atom, arg));
     if (id === "atom.label" && atom !== undefined) return editLabel(atom);
     // ! asks for a new label for the atom; > adds a bond and asks for the label of its new end (ChemDraw's ? hotkeys).
-    if (id === "atom.newlabel" && atom !== undefined) { labelOpen.current = true; return setEditing({ atom, value: "", blank: true }); }
+    if (id === "atom.newlabel" && atom !== undefined) { labelOpen.current = true; return setEditing({ atom, value: "", blank: true, pending: ownStyle(doc.atoms[atom]) }); }
     if (id === "atom.sproutlabel" && atom !== undefined) return sproutLabel([atom]);
     if (id === "charge.plus" && atom !== undefined) return set(addCharge(doc, atom, 1));
     if (id === "charge.minus" && atom !== undefined) return set(addCharge(doc, atom, -1));
@@ -4778,12 +4804,21 @@ export default function Editor() {
     setSpectrum(undefined);
     setMassSpec(group);
   }
-  function massSpecLine(from: P, to: P | undefined, target: Hover) {
+  // The line a Mass spec analysis drag makes, and its id: a new line through the drag's corners to the pointer, or the
+  // line the drag started from, made longer.
+  function msLine(d: Extract<Drag, { kind: "arrow" }>, to: P): [Mol, number] {
+    const old = d.longer && doc.arrows?.find((a) => a.id === d.longer!.id);
+    if (old && d.longer) return [updateArrow(doc, old.id, { curve: undefined, ...extendCut(old, d.longer.end, d.corners ?? [], to) }), old.id];
+    return addArrow(doc, { kind: "cut", ...cutThrough([d.from, ...(d.corners ?? []), to]) });
+  }
+  function massSpecLine(d: Extract<Drag, { kind: "arrow" }>) {
+    const { from, to, target } = d;
     const bond = target.bond ?? bondAt(doc, from, 0.3), one = target.atom ?? atomAt(doc, from, 0.5) ?? (bond !== undefined ? doc.bonds[bond]?.atoms[0] : undefined);
-    if (!to || Math.hypot(to[0] - from[0], to[1] - from[1]) < 0.2) return one !== undefined && one < doc.atoms.length ? openMassSpec(one) : setNotice("Drag the line across one or more bonds.", "info");
-    const crossed = crossedBonds(doc, [from, to]);
+    if (d.longer && (!to || Math.hypot(to[0] - from[0], to[1] - from[1]) < 0.2)) return;
+    if (!to || (Math.hypot(to[0] - from[0], to[1] - from[1]) < 0.2 && !d.corners?.length)) return one !== undefined && one < doc.atoms.length ? openMassSpec(one) : setNotice("Drag the line across one or more bonds.", "info");
+    const [next, id] = msLine(d, to), line = next.arrows!.find((a) => a.id === id)!, crossed = crossedBonds(doc, cutPoints(line));
     if (!crossed.length) return setNotice("Drag the line across one or more bonds.", "info");
-    set(addArrow(doc, { kind: "cut", from, to })[0]);
+    set(next);
     openMassSpec(doc.bonds[crossed[0].bond].atoms[0]);
   }
   // Opening the panel scrolls the canvas up if the panel would cover the structure, as the Spectrum panel does, and
@@ -5702,6 +5737,18 @@ export default function Editor() {
     }
     if (command.startsWith("caption.")) {
       const [, what, ...rest] = command.split("."), arg = rest.join(".");
+      // The label being typed: Bold, Italic, Underline and Plain on its characters (as a caption's), a font or size on
+      // all of it (a label has one).
+      const toggles: Record<string, ((s: RunStyle, all: RunStyle) => RunStyle) | undefined> = {
+        bold: (s, all) => ({ ...s, bold: all.bold ? undefined : true }), italic: (s, all) => ({ ...s, italic: all.italic ? undefined : true }),
+        underline: (s, all) => ({ ...s, underline: all.underline ? undefined : true }), plain: (s) => ({ ...s, bold: undefined, italic: undefined, underline: undefined }),
+      };
+      if (editing && labelOpen.current) {
+        if (toggles[what]) return styleLabel(toggles[what]!);
+        if (what === "font") return setEditing({ ...editing, font: arg });
+        if (what === "size" && Number(arg) > 0) return setEditing({ ...editing, size: Number(arg) });
+        return;
+      }
       // On selected atoms, the Text menu and the label style buttons style their labels, as in ChemDraw.
       const labelled = !writing && !picked.size ? [...selection].filter((i) => drawing.label[i]) : [];
       if (labelled.length && ["bold", "italic", "underline", "plain", "font", "size", "align"].includes(what)) {
@@ -5710,9 +5757,11 @@ export default function Editor() {
           : what === "align" ? { align: arg === "auto" ? undefined : (arg as Atom["align"]) }
           : what === "font" ? { font: arg === style.labelFont ? undefined : arg }
           : { [what]: first[what as "bold" | "italic" | "underline"] ? undefined : true };
-        // A size is the size drawn: the label's own size is it over the atom's scale.
+        // A size is the size drawn: the label's own size is it over the atom's scale. A style set on the whole label
+        // comes off the characters that had it of their own (its runs), as on a caption.
         const own = (a: Atom) => { const v = Math.round((Number(arg) / scaleOf(a)) * 100) / 100; return Math.abs(v - style.labelSize) < 0.01 ? undefined : v; };
-        return set({ ...doc, atoms: doc.atoms.map((a, k) => (ids.has(k) ? { ...a, ...(what === "size" ? { size: own(a) } : change) } : a)) }, true);
+        const runs = (a: Atom) => { if (!a.runs || what === "size" || what === "font" || what === "align") return {}; const r = without(a.runs, what === "plain" ? ["bold", "italic", "underline"] : [what]); return { runs: styled(r) ? r : undefined }; };
+        return set({ ...doc, atoms: doc.atoms.map((a, k) => (ids.has(k) ? { ...a, ...(what === "size" ? { size: own(a) } : change), ...runs(a) } : a)) }, true);
       }
       // On picked tables and TLC plates, the same styles set their text (the cells, or the Rf values), as in ChemDraw.
       const texts = !writing && !selection.size ? (doc.shapes ?? []).filter((x) => picked.has(x.id) && (x.kind === "table" || x.kind === "tlc")) : [];
@@ -6006,7 +6055,7 @@ export default function Editor() {
         }
         // Mass spec analysis (ChemDraw's): the line stays as a fragmentation line, and the Mass spec panel opens on the
         // structure it crosses. A click on a structure opens the panel on it.
-        if (tool === "massspec") return massSpecLine(drag.from, drag.to, drag.target);
+        if (tool === "massspec") return massSpecLine(drag);
         if (drag.make?.kind === "cut") {
           if (!drag.to) return;
           const { mol, items } = massCut(drag, !!drag.alt);
@@ -6170,6 +6219,22 @@ export default function Editor() {
       }
       if (typing() || e.defaultPrevented) return; // typing in a label or caption box, or a box already used the key
       if (home || modal()) return; // Home and dialogs have their own keys
+      // Mass spec analysis (ChemDraw's): a key pressed while a line is dragged puts a corner in it where the pointer is.
+      if (drag?.kind === "arrow" && tool === "massspec" && drag.to && e.key !== "Escape") {
+        e.preventDefault();
+        if (!e.repeat) setDrag({ ...drag, corners: [...(drag.corners ?? []), drag.to] });
+        return;
+      }
+      // Tab with an atom or bond of the analysed structure under the pointer goes to the next fragment it is in, and
+      // Shift+Tab back (ChemDraw's).
+      if (e.key === "Tab" && tool === "massspec" && msAtoms && !e.altKey) {
+        const h = hovers.get(), atoms = h.atom !== undefined ? [h.atom] : h.bond !== undefined ? doc.bonds[h.bond]?.atoms : undefined;
+        if (atoms?.every((i) => msAtoms.includes(i))) {
+          e.preventDefault();
+          const again = msTab && msTab.atom === h.atom && msTab.bond === h.bond;
+          return setMsTab({ atom: h.atom, bond: h.bond, atoms: [...atoms], n: again ? msTab.n + (e.shiftKey ? -1 : 1) : 0 });
+        }
+      }
       // Escape stops a pick for a template set, and the library shows again.
       if (templatePick && e.key === "Escape") { e.preventDefault(); return stopPick(); }
       if (controlTakes(e.key, document.activeElement as HTMLElement | null, keyFocus.current)) return;
@@ -7082,8 +7147,9 @@ export default function Editor() {
             // A picked arrow's handles: its ends, and the middle of a curved one.
             const ids = [...picked], a = ids.length === 1 && !selection.size && drag?.kind !== "move" ? arrows.find((x) => x.id === ids[0]) : undefined;
             const wh = drag?.kind === "move" ? undefined : widthHandle();
-            if (a?.kind === "curve" && a.curve && !wh) {
-              // A picked pen curve: every anchor as a small square, and each handle as a dot on a line from its anchor.
+            if ((a?.kind === "curve" || a?.kind === "cut") && a.curve && !wh) {
+              // A picked pen curve (or fragmentation line with corners): every anchor as a small square, and each handle
+              // as a dot on a line from its anchor.
               const r = 3.5 / view.zoom, c = a.curve;
               return (
                 <g className="pen-points" aria-hidden>
@@ -7180,30 +7246,57 @@ export default function Editor() {
         // goes on with the label, in one step (black is the ink: no colour of its own).
         const ids = editing.all ?? [editing.atom], by = { ...elementColours(), ...settings.elementColours }, chosen = editing.colour;
         const tint = (m: Mol): Mol => !chosen ? m : { ...m, atoms: m.atoms.map((x, i) => (!ids.includes(i) ? x : { ...x, colour: chosen === "element" ? by[x.label] ?? x.colour : chosen.toLowerCase() === "#000000" ? undefined : chosen })) };
+        // The text as kept (each line trimmed), and its styles: what all of it has is the label's own bold, italic and
+        // underline, the rest its runs (a label that is an element has no runs). A font or size chosen while typing goes
+        // on all of it; a size is the size drawn, kept over the atom's scale.
+        const typed = trimLines(editing.runs ?? [{ text: editing.value }]), text = plainOf(typed), st = labelStyle(typed);
+        const ownSize = (x: Atom) => { const v = Math.round(((editing.size ?? 0) / scaleOf(x)) * 100) / 100; return Math.abs(v - style.labelSize) < 0.01 ? undefined : v; };
+        const dress = (m: Mol): Mol => ({ ...m, atoms: m.atoms.map((x, i) => {
+          if (!ids.includes(i)) return x;
+          const { bold: _b, italic: _i, underline: _u, runs: _r, ...rest } = x;
+          return { ...rest, ...(st.bold ? { bold: true } : {}), ...(st.italic ? { italic: true } : {}), ...(st.underline ? { underline: true } : {}), ...(x.text && st.runs ? { runs: st.runs } : {}),
+            ...(editing.font ? { font: editing.font === style.labelFont ? undefined : editing.font } : {}), ...(editing.size ? { size: ownSize(x) } : {}) };
+        }) });
         const commit = () => {
           if (!labelOpen.current) return;
           labelOpen.current = false;
-          if (editing.value.trim() || !editing.blank) set(tint(ids.reduce((m, i) => setLabel(m, i, editing.value), doc)), !!editing.all, editing.merge);
-          if (editing.value.trim()) lastLabel.current = editing.value.trim();
+          if (text || !editing.blank) set(dress(tint(ids.reduce((m, i) => setLabel(m, i, text), doc))), !!editing.all, editing.merge);
+          if (text) lastLabel.current = text;
           setEditing(undefined);
         };
+        // The box opens with the label selected; its first line is on the atom (half a line above it to half below), and
+        // Option-Return (or Return, as Settings ask) starts another line under it, as ChemDraw's labels do.
+        const size = frame.size * ((editing.size ?? drawn) / style.labelSize) * view.zoom;
         return (
-          <input
+          <RichBox
             className="label-box"
-            data-theme="light"
-            aria-label="Atom label"
-            autoFocus
-            spellCheck={false}
-            value={editing.value}
-            style={{ left: view.x + ax * L * view.zoom, top: view.y - ay * L * view.zoom, fontSize: frame.size * (drawn / style.labelSize) * view.zoom, fontFamily: fontStack(style.labelFont),
+            label="Atom label"
+            returnNewLine={settings.labelReturnNewLine}
+            runs={editing.runs ?? [{ text: editing.value }]}
+            version={editing.version ?? 0}
+            caret={editing.caret ?? [0, editing.value.length]}
+            pending={editing.pending}
+            api={labelApi}
+            look={(r) => ({ fontWeight: r.bold ? "bold" : "", fontStyle: r.italic ? "italic" : "", textDecoration: r.underline ? "underline" : "" })}
+            style={{ left: view.x + ax * L * view.zoom, top: view.y - ay * L * view.zoom - 0.6 * size - 2, fontSize: size, fontFamily: fontStack(editing.font ?? a.font ?? style.labelFont),
               color: (chosen === "element" ? by[editing.value.trim()] : chosen) ?? a.colour }}
-            onChange={(e) => setEditing({ ...editing, value: e.target.value })}
-            onFocus={(e) => e.target.select()}
+            onRuns={(runs, rebuild) => setEditing((w) => w && { ...w, runs, value: plainOf(runs), ...(rebuild ? { version: (w.version ?? 0) + 1, caret: rebuild, pending: undefined } : {}) })}
             onKeyDown={(e) => {
-              if (e.key === "Enter") commit();
+              // Return reaches here only when it does not make a new line.
+              if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); commit(); }
               if (e.key === "Escape") { e.preventDefault(); commit(); }
               // ⇧⌘N in the browser (the app's menu does it there): the label's text as a name.
               if (!TAURI && (e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "n") { e.preventDefault(); commands.current.name_to_structure(); }
+              // ChemDraw's text keys, as in a caption: the box takes them first, and marks them so the Text menu's own
+              // command from the same key does not run again.
+              else if (TAURI ? (MAC ? e.metaKey : e.ctrlKey) : e.metaKey || e.ctrlKey) {
+                const command = textKey(e, true);
+                if (command?.startsWith("caption.")) {
+                  e.preventDefault();
+                  if (TAURI) pageRan.current = { id: `text_${command.slice(8)}`, at: performance.now() };
+                  runAction(command);
+                }
+              }
             }}
             onBlur={commit}
           />
@@ -7315,7 +7408,7 @@ export default function Editor() {
               // ChemDraw's text keys. The text box takes them first (in the app too: the web view gets the keystroke before
               // the Text menu does), and marks them so the same command from the menu does not run twice.
               if (TAURI ? (MAC ? e.metaKey : e.ctrlKey) : e.metaKey || e.ctrlKey) {
-                const k = e.key.toLowerCase(), command = e.shiftKey && k === "n" ? "name_to_structure" : { b: "caption.bold", i: "caption.italic", u: "caption.underline", t: "caption.plain", f: "caption.formula", "-": "caption.sub", "=": "caption.super", "+": "caption.super" }[k];
+                const command = textKey(e, false);
                 if (command) {
                   e.preventDefault();
                   if (TAURI) pageRan.current = { id: command.startsWith("caption.") ? `text_${command.slice(8)}` : command, at: performance.now() };
@@ -7431,6 +7524,8 @@ export default function Editor() {
           onDrawing={(patch) => setSettings((s) => ({ ...s, ...patch }))}
           captionOptionReturn={settings.captionOptionReturn}
           onCaptionOptionReturn={(captionOptionReturn) => setSettings((s) => ({ ...s, captionOptionReturn }))}
+          labelReturnNewLine={!!settings.labelReturnNewLine}
+          onLabelReturnNewLine={(labelReturnNewLine) => setSettings((s) => ({ ...s, labelReturnNewLine }))}
           panelMenus={settings.panelMenus}
           onPanelMenus={(panelMenus) => setSettings((s) => ({ ...s, panelMenus }))}
           onlineSearch={settings.onlineSearch}
@@ -7587,6 +7682,7 @@ export default function Editor() {
       )}</Live>}</Exit>
       <Exit>{msAtoms && <Live store={hovers}>{(hover) => (
         <MassSpecPanel mol={doc} atoms={msAtoms} ready={loaded} prefs={settings.massSpec} lit={hover.atom} peaks={msMeasured}
+          tab={msTab && tool === "massspec" && msTab.atom === hover.atom && msTab.bond === hover.bond ? msTab : undefined}
           onPrefs={(massSpec) => setSettings((s) => ({ ...s, massSpec }))} onPoint={setMsPoint} onCopy={(text) => runAction(`copy_text:${text}`)} onAdd={addMassSpec}
           onClose={() => { setMassSpec(undefined); setMsPoint(undefined); }} />
       )}</Live>}</Exit>
