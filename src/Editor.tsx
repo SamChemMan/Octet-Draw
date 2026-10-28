@@ -7501,7 +7501,7 @@ export default function Editor() {
           onDrawing={(patch) => setSettings((s) => ({ ...s, ...patch }))}
           captionOptionReturn={settings.captionOptionReturn}
           onCaptionOptionReturn={(captionOptionReturn) => setSettings((s) => ({ ...s, captionOptionReturn }))}
-          labelReturnNewLine={settings.labelReturnNewLine}
+          labelReturnNewLine={!!settings.labelReturnNewLine}
           onLabelReturnNewLine={(labelReturnNewLine) => setSettings((s) => ({ ...s, labelReturnNewLine }))}
           panelMenus={settings.panelMenus}
           onPanelMenus={(panelMenus) => setSettings((s) => ({ ...s, panelMenus }))}
