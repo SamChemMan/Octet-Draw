@@ -2899,6 +2899,8 @@ button.variant.add {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* The template size button and the close button: small round buttons on the bar. */
+.floating-size,
 .floating-close {
   display: grid;
   place-items: center;
@@ -2911,6 +2913,7 @@ button.variant.add {
   color: var(--ink-muted);
   transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
 }
+.floating-size:focus-visible,
 .floating-close:focus-visible,
 .floating-item:focus-visible {
   outline: none;
@@ -2923,11 +2926,12 @@ button.variant.add {
   padding: 4px 4px 14px;
   overflow-y: auto;
 }
+/* A template's square: its thumbnail (--thumb, the palette's template size) and 4 px round it. */
 .floating-item {
   display: grid;
   place-items: center;
-  width: 60px;
-  height: 60px;
+  width: calc(var(--thumb, 52px) + 8px);
+  height: calc(var(--thumb, 52px) + 8px);
   padding: 4px;
   box-sizing: border-box;
   border: 0;
@@ -2937,8 +2941,8 @@ button.variant.add {
   transition: background var(--motion-fast) var(--ease-out);
 }
 .floating-item .thumb {
-  width: 52px;
-  height: 52px;
+  width: var(--thumb, 52px);
+  height: var(--thumb, 52px);
 }
 .floating-item[aria-checked="true"] {
   background: var(--brand-mist);
@@ -2951,9 +2955,11 @@ button.variant.add {
 }
 @media (hover: hover) and (pointer: fine) {
   .floating-item:not([aria-checked="true"]):hover,
+  .floating-size:hover,
   .floating-close:hover {
     background: var(--surface-sunken);
   }
+  .floating-size:hover,
   .floating-close:hover {
     color: var(--ink);
   }
@@ -3019,9 +3025,10 @@ button.variant.add {
   outline: none;
   box-shadow: var(--shadow-focus);
 }
+/* The templates at the library's template size (--thumb, a thumbnail's side), as many across as fit. */
 .library-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--thumb, 72px) + 20px), 1fr));
   align-content: start;
   gap: 2px;
   flex: 1;
@@ -3046,8 +3053,8 @@ button.variant.add {
   color: var(--ink);
 }
 .library-item .thumb {
-  width: 72px;
-  height: 72px;
+  width: var(--thumb, 72px);
+  height: var(--thumb, 72px);
 }
 .library-name {
   max-width: 100%;
@@ -3112,8 +3119,8 @@ button.variant.add {
 .library-add-mark {
   display: grid;
   place-items: center;
-  width: 72px;
-  height: 72px;
+  width: var(--thumb, 72px);
+  height: var(--thumb, 72px);
   box-sizing: border-box;
   border: 1px dashed var(--ink-faint);
   border-radius: var(--radius-sm);

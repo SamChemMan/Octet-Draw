@@ -251,6 +251,10 @@ export type CdxmlOptions = {
   derived?: Arrow[]; // arrows Octet draws from other objects (a catalytic cycle's), written so ChemDraw shows them too
   expand?: (text: string) => Mol | undefined; // a written label's atoms (atom 0 attaches), for ChemDraw's abbreviation
   name?: string; // the document's name
+  // Several drawings written into one document, one after another (a template file's panes): ids from firstId up, and
+  // one colour and font table that each drawing adds its own to (the last one written has them all).
+  firstId?: number;
+  tables?: { colours: string[]; fonts: string[] };
 };
 // The one version is package.json's (REL-9).
 const PROGRAM = `Octet ${pkg.version}`;
@@ -289,13 +293,14 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   const at = (q: readonly number[]): P => [cx + q[0] * B, cy - q[1] * B];
   const pt = (q: P) => `${fmt(q[0])} ${fmt(q[1])}`, pt3 = (q: P, z = 0) => `${pt(q)} ${fmt(z)}`;
   const boxText = (b: Box) => `${fmt(b[0])} ${fmt(b[1])} ${fmt(b[2])} ${fmt(b[3])}`;
-  const colours = [...BASE_COLOURS];
+  const colours = opts.tables?.colours ?? [...BASE_COLOURS];
+  if (!colours.length) colours.push(...BASE_COLOURS);
   const colour = (c?: string) => {
     if (!c) return undefined;
     const u = c.toUpperCase();
     return u === "#000000" ? 0 : u === "#FFFFFF" ? 1 : (colours.includes(u) ? colours.indexOf(u) : colours.push(u) - 1) + 2;
   };
-  const fonts: string[] = [];
+  const fonts = opts.tables?.fonts ?? [];
   const font = (name: string) => (fonts.includes(name) ? fonts.indexOf(name) : fonts.push(name) - 1) + 1;
   font(style.labelFont);
   font(style.captionFont);
@@ -316,9 +321,10 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // Ids: Octet's own object ids where they are sound, everything else from one counter above them (spec 2).
   const own = [...(mol.captions ?? []), ...(mol.arrows ?? []), ...(mol.shapes ?? []), ...(mol.cycles ?? []), ...(mol.groups ?? [])].map((x) => x.id);
   const sound = own.every((id) => Number.isInteger(id) && id > 0 && id < 2 ** 30) && new Set(own).size === own.length;
-  let next = sound ? own.reduce((m, id) => Math.max(m, id), 0) + 1 : 1;
+  const base = Math.max(0, (opts.firstId ?? 1) - 1);
+  let next = base + (sound ? own.reduce((m, id) => Math.max(m, id), 0) + 1 : 1);
   const fresh = () => next++;
-  const idOf = new Map<number, number>(own.map((id) => [id, sound ? id : fresh()]));
+  const idOf = new Map<number, number>(own.map((id) => [id, sound ? base + id : fresh()]));
   // Measured spectra, as ChemDraw's spectrum objects, and each multiplet an atom or bond is linked to as an assignment
   // tag on it and on the spectrum (decision 0016). A selection copied takes no spectrum (pick leaves them out).
   const spectra = mol.spectra ?? [], rangeOf = new Map(spectra.flatMap((s) => s.groups.map((g) => [g.id, assignValue(s, g)] as const)));

@@ -1,6 +1,7 @@
 # 0018: Edit, order and float template sets, ChemDraw template files, and a dictionary of the user's own names
 
-Status: built 27 October 2026 for Sam to review (roadmap: template features ChemDraw has).
+Status: built 27 October 2026 for Sam to review (roadmap: template features ChemDraw has). Template sizes and saving a
+set as a ChemDraw template file added 28 October 2026 (items 6 and 7).
 
 ## ChemDraw 26.1
 
@@ -37,6 +38,15 @@ Format facts, from reading ChemDraw's 30 bundled files with Octet's own CDX read
   Templates.cts) is the same with every page empty: the blank sheet a new template document starts from.
 - Octet reads all 30: 827 templates, 277 of them named, in 0.3 s at most for a file. 46 panes, most of them large
   pictures (Animals 25, Anatomy 9), are past Octet's limits and are left out, with a notice that says how many.
+- The 29 .ctp files (written by ChemDraw 25.1) hold, in order: the colour table, the font table, the pages, then the
+  TemplateGrid with no id (the CDX spec asks for id 0 and says every TemplateGrid property is required). Every object
+  id is unique in the whole document, across pages. Each page has the attributes of a drawing's page (BoundingBox
+  "0 0 540 720" or A4's "0 0 523 770", header and footer at 36, one page each way). Empty panes are trailing pages with
+  the same attributes and nothing in them. A Name annotation is the page's last child (a GUID annotation can follow).
+- The pane size (extent) runs from 2.25 to 7.5 in ChemDraw's files; 2.75 × 2.75 is the most common, 2.5 and 2.25 are
+  next, and New Templates.cts is 2.75 wide. PaneHeight is a raw 32-bit number, the window's height in the same units
+  × 65536: rows × pane height when the whole grid shows (Animals, Amino Acids), less when the window scrolls (Anatomy),
+  and never under 8.75 (every one- to three-row file). The unit itself is not known; ChemDraw has to show it.
 
 ## Decision
 
@@ -68,7 +78,6 @@ Format facts, from reading ChemDraw's 30 bundled files with Octet's own CDX read
    annotation, else its place in the set ("Template 7"). The file is hostile: the CDX and CDXML readers cap
    size, depth and objects; here at most 500 panes are read, a template is at most 256 KB and the set 2 MB (the
    settings live in the app's own storage). A template file is never a drawing Octet saves over or lists on Home.
-   Octet does not write .ctp files yet.
 5. A dictionary of the user's own names. Add to dictionary… (right-click a structure, the Actions panel, or
    Structure > Add Structure to Dictionary…) asks for a name, as ChemDraw does, and says first when the name is in
    the dictionary already (the button reads Replace) or when Octet reads the name already. The entry keeps the name,
@@ -80,6 +89,29 @@ Format facts, from reading ChemDraw's 30 bundled files with Octet's own CDX read
    that drew something else would be a surprise. Settings > Dictionary renames and removes entries, and exports and
    imports them as a SMILES file (one entry a line: the SMILES, a tab, the name), which other programs read. An
    import keeps the user's own entry where a name is in both, and leaves out a SMILES Octet cannot read.
+
+6. Template size. ChemDraw's palette corner makes its panes bigger; Octet's grip gives whole columns (item 3), so the
+   pane size is a choice of its own: Small, Medium and Large, from a button by the set's name in the library and on
+   each palette's bar (its glyph is a square as large as the size). Medium is the size each had before. A palette
+   keeps its columns, so it grows or shrinks. Each palette keeps its own size with its place and columns; the library
+   has one size, for the Ring and Template tools' libraries alike. Thumbnails are drawn once for each structure and
+   size; where a line would show thinner than a pixel (a small size, or a big structure shrunk to fit) the thumbnail
+   is drawn again with lines a pixel wide, so it stays dark and sharp. Three sizes, not a slider: a thumbnail is drawn
+   for each size, and three sizes are three drawings.
+7. Save for ChemDraw. A set's menu (right-click its name in the library, or a palette's bar), File > Save Templates
+   for ChemDraw (each set, as View > Templates lists them) and the command palette save a set, the user's or Octet's,
+   through the Save dialog as ChemDraw Template (.ctp) or ChemDraw Template Style Sheet (.cts). The menu's name is
+   short ("Save for ChemDraw…") so it fits the menu's cell. The file is CDX, laid out as ChemDraw's own (above): each
+   template written as Octet writes a drawing, in the default style (ACS Document 1996), on a page of its own with its
+   name as the Name annotation; the grid as many columns as the set's palette shows, or ChemDraw's five when it is not
+   open (never more than the set has), and as many rows as it needs; the panes after the last template empty; the pane
+   size 2.25, 2.75 or 3.5 for Small, Medium and Large (sizes ChemDraw's own files use); the window as tall as the grid,
+   six rows at most and 8.75 at least. The CTS file is the same file: ChemDraw's stationery opens as a new, untitled
+   template document, so a set saved as .cts is a template set others start from. A blank .cts would only be ChemDraw's
+   own New Templates sheet again, so Octet does not write one. Octet's own drawing data (the JSON a .cdx file holds) is
+   left out, as Export as CDX leaves it out; read back, a set has the same templates, names and order, with places to
+   0.01 pt. The writer keeps to the reader's limits (500 panes, 256 KB a template, 2 MB a set): a template past them
+   is left out, and the notice says how many.
 
 ## ChemDraw's options and Octet's
 
@@ -95,10 +127,10 @@ Format facts, from reading ChemDraw's 30 bundled files with Octet's own CDX read
 | View > Templates (toggle a palette) | View > Templates, ticked while open |
 | Template tool pop-out of palettes | The Template tool's library |
 | A floating palette, its resize corner | Keep open; the grip sets its columns |
-| Pane size (the resize corner makes panes bigger) | Missing: a palette's thumbnails have one size |
+| Pane size (the resize corner makes panes bigger) | Small, Medium and Large for each palette and the library |
 | Templates keep text, colours, shapes, curves, pictures, groups, integral groups | The same (decision 0017) |
 | Open CTP and CTS | Yes, as a set |
-| Save CTP and CTS | Missing |
+| Save CTP and CTS | Save for ChemDraw… (a set's menu), File > Save Templates for ChemDraw |
 | The 26.1 Template editor window (storyboard) | Waits for the run of 26.1 (item 11) |
 | Add Structure to Dictionary…, Enter Name, Save, the replace question | Yes, with the question shown in the dialog |
 | The name drawn with its caption | Yes |
@@ -111,6 +143,10 @@ drawing changes, the id, name, set and place stay, an empty drawing changes noth
 length 1 and centred); Duplicate; floating palettes opened, brought to the front, moved, widened, closed, read back
 from the settings and mended when damaged, renamed and closed with their set; a template document made with Octet's
 own writer (CDX bytes, base64 and CDXML text) read pane by pane, with names from annotations, the empty pane left out,
-and hostile files (no grid, cut short, junk, too many panes, a pane too big, blank stationery).
+and hostile files (no grid, cut short, junk, too many panes, a pane too big, blank stationery); template sizes kept for
+each palette, read back and mended; a set saved as a template file (CDX, ChemDraw's order, the grid, pane size and
+window, names row by row, empty panes after the last, every id its own) and read back with the same names, structures
+and places, saved again unchanged, a template too big and templates past 500 left out and counted, and four of
+Octet's own sets read back whole.
 `src/names.check.ts`: the user's dictionary end to end (add, read in any case and in mixtures, search, recognise by
 InChI, a name of Octet's taken over and given back, replace, rename, remove, export, import with damaged lines).

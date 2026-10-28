@@ -9,9 +9,10 @@
 // moves, orders and removes it; a built-in template's menu copies it into the user's sets or edits a copy. A template
 // dragged onto a set's name moves there (a built-in one is copied), dragged within a set of the user's it takes that
 // place, and a selection dragged from the canvas onto the open set or a set's name goes in it. Keep open (the open
-// set's button, or a set's menu) tears a set off into a floating palette (FloatingTemplates, below).
+// set's button, or a set's menu) tears a set off into a floating palette (FloatingTemplates, below). The library and
+// each palette have a template size (SizeChoice), and a set's menu saves it as a ChemDraw template file.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowLineDownRight, ArrowLineUpLeft, ArrowSquareOut, BookmarkSimple, Copy, Folders, FolderSimple, FolderSimplePlus, FolderSimpleUser, MagnifyingGlass, NotePencil, PencilSimple, Plus, PushPin, Trash, X } from "@phosphor-icons/react";
+import { ArrowLineDownRight, ArrowLineUpLeft, ArrowSquareOut, BookmarkSimple, Copy, FileArrowUp, Folders, FolderSimple, FolderSimplePlus, FolderSimpleUser, MagnifyingGlass, NotePencil, PencilSimple, Plus, PushPin, Trash, X } from "@phosphor-icons/react";
 import { ContextMenu, type MenuItem } from "./Menu";
 import { commonKey } from "./common";
 import { measure, STYLE } from "./chem";
@@ -20,7 +21,7 @@ import { LIBRARY, type LibraryItem } from "./library";
 import { arrowShapes, curvePath, isOrbital, labelTurn, render, shapeInk, shapePaths, spotPath, tlcLayout, type Arrow, type Label, type Mol } from "./render";
 import { reduced, timing, useLeaving } from "./motion";
 import { holdCursor } from "./cursor";
-import { MY_SET, ownId, templateKind, type FloatingPalette, type TemplateTool } from "./templates";
+import { MY_SET, ownId, TEMPLATE_SIZES, templateKind, type FloatingPalette, type TemplateSize, type TemplateTool } from "./templates";
 
 // The tool a library is beside (the Ring tool's Templates row, or the Template tool): a template chosen or added there
 // is that tool's.
@@ -35,8 +36,43 @@ export type TemplateActions = {
   onRemove?: (kind: string) => void; onCopy?: (kind: string, set: string) => void; onNewSet?: (then: (set: string) => void) => void;
   onKeep?: (kind: string, keep: boolean) => void; onEdit?: (kind: string) => void; onDuplicate?: (id: string) => void;
   onPlace?: (id: string, before?: string) => void; onToStart?: (id: string) => void; onToEnd?: (id: string) => void;
-  onKeepOpen?: (set: string) => void;
+  onKeepOpen?: (set: string) => void; onSaveSet?: (set: string) => void;
 };
+// A set's menu item that saves it as a ChemDraw template file (.ctp), in the library's set menu and a palette's bar.
+const SAVE_SET: MenuItem = { key: "saveset", name: "Save for ChemDraw…", icon: <FileArrowUp size={18} /> };
+
+// The template sizes, as a thumbnail's side (px): in the library, and in a floating palette (whose squares are 8 px
+// more). Medium is the size each had before there was a choice.
+export const LIBRARY_THUMB: Record<TemplateSize, number> = { small: 52, medium: 72, large: 100 };
+export const PALETTE_THUMB: Record<TemplateSize, number> = { small: 40, medium: 52, large: 76 };
+const SIZE_NAMES: Record<TemplateSize, string> = { small: "Small", medium: "Medium", large: "Large" };
+// A template size's glyph, in Phosphor's style: a square as large as the size.
+function SizeGlyph({ size, px = 18 }: { size: TemplateSize; px?: number }) {
+  const s = { small: 96, medium: 144, large: 192 }[size], o = (256 - s) / 2;
+  return <svg width={px} height={px} viewBox="0 0 256 256" fill="none" stroke="currentColor" strokeWidth={16} strokeLinejoin="round" aria-hidden><rect x={o} y={o} width={s} height={s} rx={16} /></svg>;
+}
+// The template size: a button whose glyph is the size chosen, which opens a menu of the three sizes.
+function SizeChoice({ size, onSize, className, px }: { size: TemplateSize; onSize: (size: TemplateSize) => void; className: string; px: number }) {
+  const [menu, setMenu] = useState<{ x: number; y: number; keyboard: boolean }>(), button = useRef<HTMLButtonElement>(null), wasOpen = useRef(false);
+  return (
+    <>
+      <button ref={button} className={className} aria-label={`Template size: ${SIZE_NAMES[size]}`} aria-haspopup="menu" aria-expanded={!!menu} data-tip="Template size"
+        // A press on the button while its menu is open closes the menu, and the click does not open it again.
+        onPointerDown={() => { wasOpen.current = !!menu; }}
+        onClick={(e) => {
+          if (wasOpen.current) { wasOpen.current = false; return; }
+          const r = e.currentTarget.getBoundingClientRect();
+          setMenu({ x: r.left, y: r.bottom + 4, keyboard: e.detail === 0 });
+        }}>
+        <SizeGlyph size={size} px={px} />
+      </button>
+      {menu && (
+        <ContextMenu label="Template size" at={menu} keyboard={menu.keyboard} groups={[TEMPLATE_SIZES.map((s) => ({ key: s, name: SIZE_NAMES[s], icon: <SizeGlyph size={s} />, checked: s === size }))]}
+          sub={() => undefined} onChoose={(key) => onSize(key as TemplateSize)} onClose={() => { setMenu(undefined); if (menu.keyboard) button.current?.focus(); }} />
+      )}
+    </>
+  );
+}
 
 // The sets a template can go in, as a sub-menu: My templates, then the user's own sets, then New set… (which names one
 // first). key: each set's option; but: a set left out (the one the template is in).
@@ -46,38 +82,47 @@ export const setItems = (sets: string[], key: (set: string) => string, fresh: st
 ];
 
 const toPath = (polys: [number, number][][]) => polys.map((poly) => "M" + poly.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L") + "Z").join("");
-// Thumbnails are drawn once for each structure (a template edited is a new structure, and is drawn again). Small
-// structures keep their size (the view is at least five bonds across); big ones shrink to fit.
-type Drawn = { mol: Mol; d: string; fills: { d: string; colour?: string }[]; labels: Label[]; view: string };
+// Thumbnails are drawn once for each structure and size (a template edited is a new structure, and is drawn again).
+// Small structures keep their size (the view is at least five bonds across); big ones shrink to fit.
+type Drawn = { mol: Mol; d: string; fills: { d: string; colour?: string }[]; labels: Label[]; view: string; side: number; line: number };
 const thumbs = new Map<string, Drawn>();
-const Thumb = ({ item }: { item: LibraryItem }) => <StructureThumb id={item.kind} mol={item.mol} />;
-// Any structure as a thumbnail, drawn once per id and structure.
+const Thumb = ({ item, px }: { item: LibraryItem; px?: number }) => <StructureThumb id={item.kind} mol={item.mol} px={px} />;
+// A structure drawn as a thumbnail in a style (STYLE, or STYLE with heavier lines).
 // A template's arrows, pen curves and shapes show as they draw on the page (a closed curve's fill behind the lines),
 // a highlight as its edge, an orbital as its axis, and its text as its words.
-export function StructureThumb({ id, mol }: { id: string; mol: Mol }) {
-  let t = thumbs.get(id);
+function drawThumb(mol: Mol, style: typeof STYLE): Drawn {
+  const L = style.bond, drawing = render(mol, style, measure, L), at = (q: [number, number]) => [q[0] * L, -q[1] * L];
+  const filled = (a: Arrow) => !!(a.curve?.closed && a.fill), arrows = mol.arrows ?? [];
+  // A TLC plate's origin and solvent front (unless hidden) and its spots, as the canvas draws them.
+  const plates = (mol.shapes ?? []).filter((x) => x.kind === "tlc").map(tlcLayout), w = style.line / 2;
+  const level = (x0: number, x1: number, y: number): [number, number][] => [at([x0, y]), at([x1, y])].flatMap(([x, y]) => [[x, y - w], [x, y + w]] as [number, number][]);
+  const across = (mol.shapes ?? []).filter((x) => x.kind === "tlc").flatMap((x, k) => (["origin", "front"] as const).filter((h) => !x.tlc?.hide?.includes(h)).map((h) => { const t = plates[k], q = level(t.x0, t.x1, t[h]); return [q[0], q[2], q[3], q[1]]; }));
+  const spots = (mol.shapes ?? []).filter((x) => x.kind === "tlc").flatMap((x, k) => (x.tlc?.spots ?? []).map((s) => spotPath(plates[k], s).map(at) as [number, number][]));
+  const ink = [...arrows.filter((a) => !filled(a)).flatMap((a) => (isOrbital(a) ? [[at(a.from), at(a.to)] as [number, number][]] : arrowShapes(a, style, L))), ...(mol.shapes ?? []).flatMap((x) => (x.kind === "highlight" ? shapePaths(x, L) : shapeInk(x, style, L))), ...across, ...spots];
+  const fills = arrows.filter(filled).map((a) => curvePath(a.curve!, L));
+  const words: Label[] = (mol.captions ?? []).filter((c) => !c.under && !c.on).map((c) => { const [x, y] = at([c.x, c.y]); return { text: c.text, x, y, size: (c.size ?? 10) * (4 / 3) }; });
+  const points = [...ink, ...fills].flat(), xs = [...points.map((q) => q[0]), ...words.map((w) => w.x)], ys = [...points.map((q) => q[1]), ...words.map((w) => w.y)];
+  const [x0, y0, x1, y1] = mol.atoms.length || !xs.length ? [Math.min(drawing.box[0], ...xs), Math.min(drawing.box[1], ...ys), Math.max(drawing.box[2], ...xs), Math.max(drawing.box[3], ...ys)] : [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  const side = Math.max(x1 - x0, y1 - y0, 5 * L), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  return { mol, d: toPath([...drawing.polygons, ...ink]), fills: arrows.filter(filled).map((a, k) => ({ d: toPath([fills[k]]), colour: a.colour })), labels: [...drawing.labels, ...words], view: `${cx - side / 2} ${cy - side / 2} ${side} ${side}`, side, line: style.line };
+}
+// Any structure as a thumbnail, drawn once per id, structure and size. px: the side it is shown at. A line is its fill
+// and its outline, so it shows twice its width; at a size where that is under a pixel (a small size, or a big structure
+// shrunk to fit), it is drawn again with lines a pixel wide, so it stays sharp and dark at every size.
+export function StructureThumb({ id, mol, px }: { id: string; mol: Mol; px?: number }) {
+  const key = px ? `${id}\n${px}` : id;
+  let t = thumbs.get(key);
   if (!t || t.mol !== mol) {
-    const L = STYLE.bond, drawing = render(mol, STYLE, measure, L), at = (q: [number, number]) => [q[0] * L, -q[1] * L];
-    const filled = (a: Arrow) => !!(a.curve?.closed && a.fill), arrows = mol.arrows ?? [];
-    // A TLC plate's origin and solvent front (unless hidden) and its spots, as the canvas draws them.
-    const plates = (mol.shapes ?? []).filter((x) => x.kind === "tlc").map(tlcLayout), w = STYLE.line / 2;
-    const level = (x0: number, x1: number, y: number): [number, number][] => [at([x0, y]), at([x1, y])].flatMap(([x, y]) => [[x, y - w], [x, y + w]] as [number, number][]);
-    const across = (mol.shapes ?? []).filter((x) => x.kind === "tlc").flatMap((x, k) => (["origin", "front"] as const).filter((h) => !x.tlc?.hide?.includes(h)).map((h) => { const t = plates[k], q = level(t.x0, t.x1, t[h]); return [q[0], q[2], q[3], q[1]]; }));
-    const spots = (mol.shapes ?? []).filter((x) => x.kind === "tlc").flatMap((x, k) => (x.tlc?.spots ?? []).map((s) => spotPath(plates[k], s).map(at) as [number, number][]));
-    const ink = [...arrows.filter((a) => !filled(a)).flatMap((a) => (isOrbital(a) ? [[at(a.from), at(a.to)] as [number, number][]] : arrowShapes(a, STYLE, L))), ...(mol.shapes ?? []).flatMap((x) => (x.kind === "highlight" ? shapePaths(x, L) : shapeInk(x, STYLE, L))), ...across, ...spots];
-    const fills = arrows.filter(filled).map((a) => curvePath(a.curve!, L));
-    const words: Label[] = (mol.captions ?? []).filter((c) => !c.under && !c.on).map((c) => { const [x, y] = at([c.x, c.y]); return { text: c.text, x, y, size: (c.size ?? 10) * (4 / 3) }; });
-    const points = [...ink, ...fills].flat(), xs = [...points.map((q) => q[0]), ...words.map((w) => w.x)], ys = [...points.map((q) => q[1]), ...words.map((w) => w.y)];
-    const [x0, y0, x1, y1] = mol.atoms.length || !xs.length ? [Math.min(drawing.box[0], ...xs), Math.min(drawing.box[1], ...ys), Math.max(drawing.box[2], ...xs), Math.max(drawing.box[3], ...ys)] : [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
-    const side = Math.max(x1 - x0, y1 - y0, 5 * L), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
-    t = { mol, d: toPath([...drawing.polygons, ...ink]), fills: arrows.filter(filled).map((a, k) => ({ d: toPath([fills[k]]), colour: a.colour })), labels: [...drawing.labels, ...words], view: `${cx - side / 2} ${cy - side / 2} ${side} ${side}` };
+    t = drawThumb(mol, STYLE);
+    const line = px ? t.side / (2 * px) : 0;
+    if (line > STYLE.line) t = drawThumb(mol, { ...STYLE, line });
     if (thumbs.size >= 3000) thumbs.clear();
-    thumbs.set(id, t);
+    thumbs.set(key, t);
   }
   return (
     <svg className="thumb" viewBox={t.view} aria-hidden>
       {t.fills.map((f, i) => <path key={i} d={f.d} fill={f.colour ?? "currentColor"} />)}
-      <path d={t.d} fill="currentColor" stroke="currentColor" strokeWidth={STYLE.line} />
+      <path d={t.d} fill="currentColor" stroke="currentColor" strokeWidth={t.line} />
       {t.labels.map((l, i) => <text key={i} x={l.x} y={l.y} transform={labelTurn(l)} fill="currentColor" style={{ font: `${l.size}px ${fontStack("Arial")}` }}>{l.text}</text>)}
     </svg>
   );
@@ -198,9 +243,9 @@ const NAME_CLICK = 250;
 // user's templates. onCopy: a built-in template copied into a set of the user's. onNewSet: New set…, then what goes in.
 // find: structures for what is searched, by name or abbreviation (TREN), each as a built-in template: Octet's own names
 // that begin as typed and are drawn already (read false, at once), or all of them with the name as typed or its
-// suggestion (read true, once typing pauses).
+// suggestion (read true, once typing pauses). size and onSize: the template size (the settings keep it).
 export function LibraryPanel(p: TemplateActions & {
-  current: string; dimmed?: boolean; mine?: LibraryItem[];
+  current: string; dimmed?: boolean; mine?: LibraryItem[]; size?: TemplateSize; onSize?: (size: TemplateSize) => void;
   tool?: TemplateTool; reveal?: { set: string; id?: string; n: number }; find?: (query: string, read: boolean) => LibraryItem[];
   onAdd?: (set: string) => void; onRename?: (id: string, name: string) => void;
   onChoose: (kind: string) => void; onPress: (e: React.PointerEvent, kind: string) => void;
@@ -288,18 +333,22 @@ export function LibraryPanel(p: TemplateActions & {
   const item = menu && [...categories.flatMap((c) => c.items), ...named].find((t) => t.kind === menu.kind);
   // A click on a name of the user's waits for a second one (a double-click renames it); a click elsewhere chooses at once.
   const onName = (e: React.MouseEvent) => !!(e.target as Element).closest(".library-name");
-  // A set's menu: Keep open for every set; Rename and Remove for the user's own (not My templates).
+  const size = p.size ?? "medium", px = LIBRARY_THUMB[size];
+  // A set's menu: Keep open for every set, and Save for ChemDraw… for one with templates; Rename and Remove for
+  // the user's own (not My templates).
   const setGroups = (s: { set: string; own: boolean }): MenuItem[][] => [
-    p.onKeepOpen ? [{ key: "keepopen", name: "Keep open", icon: <ArrowSquareOut size={18} /> }] : [],
+    [...(p.onKeepOpen ? [{ key: "keepopen", name: "Keep open", icon: <ArrowSquareOut size={18} /> }] : []), ...(p.onSaveSet && categories.find((c) => c.name === s.set)?.items.length ? [SAVE_SET] : [])],
     s.own && s.set !== MY_SET && p.onSets ? [{ key: "rename", name: "Rename", icon: <PencilSimple size={18} /> }, { key: "remove", name: "Remove", icon: <Trash size={18} /> }] : [],
   ].filter((g) => g.length);
   const chooseSet = (s: { set: string }, key: string) => {
     if (key === "keepopen") return p.onKeepOpen?.(s.set);
+    if (key === SAVE_SET.key) return p.onSaveSet?.(s.set);
     if (key === "rename") return setNaming({ from: s.set, value: s.set });
     if (key === "remove") { p.onSets?.remove(s.set); if (category === s.set) setCategory(MY_SET); }
   };
   return (
-    <div className={["library", p.dimmed && "carrying", dragging && "dragging", leaving && "leaving"].filter(Boolean).join(" ")} role="dialog" aria-label="Templates" inert={leaving}>
+    <div className={["library", p.dimmed && "carrying", dragging && "dragging", leaving && "leaving"].filter(Boolean).join(" ")} role="dialog" aria-label="Templates" inert={leaving}
+      style={{ "--thumb": `${px}px` } as React.CSSProperties}>
       <div className="library-side">
         <label className="library-search">
           <MagnifyingGlass size={16} aria-hidden />
@@ -337,6 +386,7 @@ export function LibraryPanel(p: TemplateActions & {
       <div className="library-main">
         <div className="library-head">
           <h3 className="library-title">{query ? "Results" : open.name}</h3>
+          {p.onSize && <SizeChoice className="library-keep" px={16} size={size} onSize={p.onSize} />}
           {!query && p.onKeepOpen && (
             <button className="library-keep" aria-label={`Keep ${open.name} open`} data-tip="Keep open" onClick={() => p.onKeepOpen!(open.name)}>
               <ArrowSquareOut size={16} />
@@ -357,7 +407,7 @@ export function LibraryPanel(p: TemplateActions & {
             if (editing === t.kind) return (
               <div key={t.kind} className="library-cell">
                 <div className="library-item editing">
-                  <Thumb item={t} />
+                  <Thumb item={t} px={px} />
                   <input className="library-rename" aria-label="Template name" autoFocus defaultValue={t.name} maxLength={80} spellCheck={false} onFocus={(e) => e.target.select()}
                     onKeyDown={(e) => {
                       if (e.key !== "Enter" && e.key !== "Escape") return;
@@ -383,7 +433,7 @@ export function LibraryPanel(p: TemplateActions & {
                   onDoubleClick={(e) => { if (mine && p.onRename && onName(e)) { clearTimeout(timer.current); setEditing(t.kind); } }}
                   onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ kind: t.kind, ...menuAt(e) }); }}
                   onKeyDown={(e) => { if (!menuKey(e)) return; e.preventDefault(); e.stopPropagation(); setMenu({ kind: t.kind, ...menuAt(e) }); }}>
-                  <Thumb item={t} />
+                  <Thumb item={t} px={px} />
                   <span className="library-name">{t.name}</span>
                 </button>
                 {mine && p.onRemove ? (
@@ -417,21 +467,25 @@ export function LibraryPanel(p: TemplateActions & {
 // close button, and its templates as thumbnails, each named by its tooltip. A click uses one (with the tool the palette
 // was opened for); a drag puts one on the canvas or the toolbar; right-click gives the template's menu, as in the
 // library; a set of the user's is ordered by drag here too. The corner grip makes it wider or narrower in whole
-// columns. Thumbnails are drawn once (StructureThumb). onFront: it was pressed, so it comes in front of the others.
-export const PALETTE_CELL = 60, PALETTE_GAP = 2, PALETTE_PAD = 4; // px: a template's square, the gap, the padding
-const paletteWidth = (columns: number) => columns * PALETTE_CELL + (columns - 1) * PALETTE_GAP + 2 * PALETTE_PAD + 2;
-export function FloatingTemplates({ palette, items, current, actions, z, onChoose, onPress, onMove, onColumns, onClose, onFront, onRename }: {
+// columns, and the size button sets its template size (the columns stay, so it grows or shrinks). Right-click on its
+// bar gives the set's menu (Save for ChemDraw…). Thumbnails are drawn once for each size (StructureThumb).
+// onFront: it was pressed, so it comes in front of the others.
+export const PALETTE_GAP = 2, PALETTE_PAD = 4; // px: the gap between templates, the padding round them
+const paletteWidth = (columns: number, cell: number) => columns * cell + (columns - 1) * PALETTE_GAP + 2 * PALETTE_PAD + 2;
+export function FloatingTemplates({ palette, items, current, actions, z, onChoose, onPress, onMove, onColumns, onSize, onClose, onFront, onRename }: {
   palette: FloatingPalette; items: LibraryItem[]; current?: string; actions: TemplateActions; z: number;
   onChoose: (kind: string) => void; onPress: (e: React.PointerEvent, kind: string) => void;
-  onMove: (x: number, y: number) => void; onColumns: (columns: number) => void; onClose: () => void; onFront: () => void; onRename?: (kind: string) => void;
+  onMove: (x: number, y: number) => void; onColumns: (columns: number) => void; onSize: (size: TemplateSize) => void; onClose: () => void; onFront: () => void; onRename?: (kind: string) => void;
 }) {
   const box = useRef<HTMLElement>(null), grid = useRef<HTMLDivElement>(null), leaving = useLeaving();
   const [menu, setMenu] = useState<{ kind: string; at: { x: number; y: number }; keyboard?: boolean }>();
+  const [setMenuAt, setSetMenuAt] = useState<{ x: number; y: number }>();
+  const thumb = PALETTE_THUMB[palette.size], cell = thumb + 8;
   // While it is dragged or resized, it follows the pointer here; the settings get the place when it is let go.
   const [live, setLive] = useState<{ x: number; y: number; columns: number }>();
   const ordering = items.some((t) => ownId(t.kind));
   const order = useOrder(grid, ordering ? actions.onPlace : undefined, items.map((t) => t.kind).join("\n"));
-  const columns = live?.columns ?? palette.columns, width = paletteWidth(columns);
+  const columns = live?.columns ?? palette.columns, width = paletteWidth(columns, cell);
   // It stays on the screen: a window made smaller brings it back in, and a tall set scrolls inside the room below it.
   const [, resized] = useState(0);
   useEffect(() => { const r = () => resized((n) => n + 1); addEventListener("resize", r); return () => removeEventListener("resize", r); }, []);
@@ -445,7 +499,7 @@ export function FloatingTemplates({ palette, items, current, actions, z, onChoos
     let now = { x: x0, y: y0, columns: c0 };
     const move = (ev: PointerEvent) => {
       now = how === "move" ? { x: x0 + ev.clientX - sx, y: y0 + ev.clientY - sy, columns: c0 }
-        : { x: x0, y: y0, columns: Math.max(1, Math.min(8, Math.round((paletteWidth(c0) + ev.clientX - sx - 2 * PALETTE_PAD - 2 + PALETTE_GAP) / (PALETTE_CELL + PALETTE_GAP)))) };
+        : { x: x0, y: y0, columns: Math.max(1, Math.min(8, Math.round((paletteWidth(c0, cell) + ev.clientX - sx - 2 * PALETTE_PAD - 2 + PALETTE_GAP) / (cell + PALETTE_GAP)))) };
       setLive(now);
     };
     const up = () => {
@@ -461,12 +515,14 @@ export function FloatingTemplates({ palette, items, current, actions, z, onChoos
   const item = menu && items.find((t) => t.kind === menu.kind);
   return (
     <section ref={box} className={leaving ? "floating-templates leaving" : "floating-templates"} role="dialog" aria-label={palette.set} inert={leaving}
-      style={{ left: x, top: y, width, zIndex: z, maxHeight: Math.max(120, innerHeight - y - 8) }} onPointerDownCapture={onFront}>
-      <header className="floating-head" onPointerDown={(e) => drag(e, "move")}>
+      style={{ left: x, top: y, width, zIndex: z, maxHeight: Math.max(120, innerHeight - y - 8), "--thumb": `${thumb}px` } as React.CSSProperties} onPointerDownCapture={onFront}>
+      <header className="floating-head" onPointerDown={(e) => drag(e, "move")}
+        onContextMenu={(e) => { e.preventDefault(); if (actions.onSaveSet && items.length) setSetMenuAt({ x: e.clientX, y: e.clientY }); }}>
         <h3 className="floating-title">{palette.set}</h3>
+        <SizeChoice className="floating-size" px={12} size={palette.size} onSize={onSize} />
         <button className="floating-close" aria-label={`Close ${palette.set}`} data-tip="Close" onClick={onClose}><X size={12} /></button>
       </header>
-      <div ref={grid} className="floating-grid" role="menu" aria-label={palette.set} style={{ gridTemplateColumns: `repeat(${columns}, ${PALETTE_CELL}px)` }}>
+      <div ref={grid} className="floating-grid" role="menu" aria-label={palette.set} style={{ gridTemplateColumns: `repeat(${columns}, ${cell}px)` }}>
         {items.map((t, k) => {
           const mark = order.markOf(t.kind, k === items.length - 1);
           return (
@@ -476,7 +532,7 @@ export function FloatingTemplates({ palette, items, current, actions, z, onChoos
                 onClick={() => onChoose(t.kind)}
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ kind: t.kind, ...menuAt(e) }); }}
                 onKeyDown={(e) => { if (!menuKey(e)) return; e.preventDefault(); e.stopPropagation(); setMenu({ kind: t.kind, ...menuAt(e) }); }}>
-                <StructureThumb id={t.kind} mol={t.mol} />
+                <StructureThumb id={t.kind} mol={t.mol} px={thumb} />
               </button>
             </div>
           );
@@ -489,6 +545,9 @@ export function FloatingTemplates({ palette, items, current, actions, z, onChoos
           actions={{ ...actions, onPlace: undefined, onToStart: actions.onToStart && ((id) => { order.glide(); actions.onToStart!(id); }), onToEnd: actions.onToEnd && ((id) => { order.glide(); actions.onToEnd!(id); }) }}
           onRename={onRename && (() => onRename(item.kind))}
           onClose={() => { const k = menu.kind; setMenu(undefined); if (menu.keyboard) grid.current?.querySelector<HTMLElement>(`[data-kind="${CSS.escape(k)}"]`)?.focus(); }} />
+      )}
+      {setMenuAt && (
+        <ContextMenu label={palette.set} at={setMenuAt} groups={[[SAVE_SET]]} sub={() => undefined} onChoose={() => actions.onSaveSet?.(palette.set)} onClose={() => setSetMenuAt(undefined)} />
       )}
     </section>
   );

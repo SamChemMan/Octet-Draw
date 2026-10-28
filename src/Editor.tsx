@@ -1,7 +1,7 @@
 import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, Graph as GraphIcon, SelectionInverse, Cube, Flask, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom,
-  AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen, FrameCorners,
+  AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FileArrowUp, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen, FrameCorners,
   GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa,
   TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table,
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
@@ -79,7 +79,7 @@ import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, 
 import { dragCursor, rotateCursor, selectCursor } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
-import { isTemplateFile, readTemplateFile } from "./ctp";
+import { isTemplateFile, readTemplateFile, writeTemplateFile } from "./ctp";
 import { casProblem, nameList } from "./dictionary";
 import { commonKey } from "./common";
 import { checkedName, graphOf, setComplexNamer, setNamer, withAbbreviation } from "./naming";
@@ -652,6 +652,26 @@ export default function Editor() {
       setNotice(n ? `Added ${n} template${n > 1 ? "s" : ""} in the set ${set}.${more}` : `Added the empty set ${set}.${more}`, read.left ? "info" : "done");
     } catch (e) {
       setNotice(failure(`Octet cannot open ${fileName}.`, e));
+    }
+  }
+  // Save for ChemDraw… (a set's menu in the library or on a palette's bar, File > Save Templates for ChemDraw, the
+  // command palette): a set, the user's or Octet's, as a ChemDraw template file through the Save dialog (.ctp, or .cts
+  // stationery: the same file). Its grid is as many columns as the set's palette shows (ChemDraw's five when it is not
+  // open), and its panes are the palette's template size (or the library's).
+  async function saveTemplateSet(set: string) {
+    if (!TAURI) return;
+    const list = set === MY_SET || settings.templateSets.includes(set) ? templates.filter((t) => (t.set ?? MY_SET) === set) : LIBRARY.find((c) => c.name === set)?.items ?? [];
+    if (!list.length) return setNotice(`The set ${set} has no templates.`, "info");
+    const palette = settings.palettes.find((f) => f.set === set);
+    try {
+      const file = writeTemplateFile(list, set, palette?.columns, palette?.size ?? settings.librarySize);
+      if (!file.written) return setNotice(`Octet cannot save the templates in ${set} as a ChemDraw template. They are too large.`);
+      const path = await invoke<string | null>("export_file", { export: { name: set, ctp: toBase64(file.bytes) } });
+      if (!path) return;
+      const more = file.left ? ` Octet left out ${file.left} that ${file.left > 1 ? "were" : "was"} too large for a template file.` : "";
+      setNotice(`Saved ${file.written} template${file.written > 1 ? "s" : ""} from ${set} as a ChemDraw template.${more}`, file.left ? "info" : "done");
+    } catch (e) {
+      setNotice(failure(`Octet cannot save ${set} as a ChemDraw template.`, e));
     }
   }
   // The user's own dictionary (Structure > Add Structure to Dictionary): names.ts gets the names whenever they change,
@@ -2047,6 +2067,8 @@ export default function Editor() {
     dictionary_add: () => addToDictionary(),
     // View > Templates: a set's floating palette shown or hidden (the user's sets, then Octet's, as the menu lists them).
     ...Object.fromEntries(menuSets.map((set, k) => [`templates_${k}`, () => togglePalette(set)])),
+    // File > Save Templates for ChemDraw: a set as a ChemDraw template file (the sets in View > Templates' order).
+    ...Object.fromEntries(menuSets.map((set, k) => [`ctp_${k}`, () => saveTemplateSet(set)])),
     document: () => setSettingsOpen("document"),
     settings: () => setSettingsOpen(moduleOf(settings.settingsModule)),
     structure_to_name: () => nameStructures(),
@@ -5371,6 +5393,7 @@ export default function Editor() {
       ...templates.map((t) => ({ id: `template:${templateKind(t.id)}`, name: t.name, group: "My templates", icon: <TemplateGlyph mol={t.mol} />, run: pick("template", ["template", templateKind(t.id)]) })),
       // Each template set as a floating palette (View > Templates).
       ...menuSets.map((set) => ({ id: `palette:${set}`, name: `Keep ${set} open`, group: "Templates", icon: <ArrowSquareOut size={18} />, run: () => keepOpen(set, "template") })),
+      ...(TAURI ? menuSets.map((set) => ({ id: `ctp:${set}`, name: `Save ${set} for ChemDraw…`, group: "Templates", icon: <FileArrowUp size={18} />, run: () => saveTemplateSet(set) })) : []),
       ...variants("symbol", "symbol", Object.entries(SYMBOLS).map(([k, n]) => [k, n, <SymbolGlyph kind={k as SymbolKind} />]), "Symbols"),
       ...variants("arrow", "arrow", [...STRAIGHT, ...["curved", "fishhook", "double"].flatMap((k) => SWEEPS.map((sw) => `${k}-${sw}`)), ...ELLIPSES]
         .map((k) => [k, `${arrowName(k)} arrow`, <ArrowGlyph kind={k} />]), "Arrows"),
@@ -7480,6 +7503,9 @@ export default function Editor() {
         onPalettes={(change) => setSettings((s) => ({ ...s, palettes: change(s.palettes) }))}
         onKeepOpen={keepOpen}
         onReveal={showLibrary}
+        librarySize={settings.librarySize}
+        onLibrarySize={(librarySize) => setSettings((s) => ({ ...s, librarySize }))}
+        onSaveSet={saveTemplateSet}
         popKey={pop?.n ?? 0}
         canUndo={h.at > 0}
         canRedo={h.at < h.stack.length - 1}

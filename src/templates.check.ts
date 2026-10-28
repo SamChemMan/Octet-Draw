@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { addCaption, extractSelection } from "./edit.ts";
 import type { Atom, Bond, Mol } from "./render.ts";
 import { addSet, addSetOf, addTo, changePalette, closePalette, duplicateTemplate, freeSetName, loadTemplates, MOST_PALETTES, moveTemplate, MY_SET, newTemplate, openPalette, ownId, PALETTE_COLUMNS, placeTemplate,
-  readPalettes, removeSet, removeTemplate, renameSet, renameTemplate, templateKind, templateToEnd, templateToStart, updateTemplate, type Kept } from "./templates.ts";
+  readPalettes, readSize, removeSet, removeTemplate, renameSet, renameTemplate, TEMPLATE_SIZES, templateKind, templateToEnd, templateToStart, updateTemplate, type Kept, type TemplateSize } from "./templates.ts";
 
 const atom = (label: string, x: number, y: number, more: Partial<Atom> = {}): Atom => ({ label, location: [x, y, 0], ...more });
 const bond = (a: number, b: number, type = 1, more: Partial<Bond> = {}): Bond => ({ atoms: [a, b], type, ...more });
@@ -179,16 +179,26 @@ console.log("templates: order, Edit and Duplicate ok");
 // ——— Floating palettes ———
 // Opened, brought to the front, moved, made wider, closed; kept in the settings (JSON) and read back with checks.
 let pals = openPalette([], "Aromatics", "template");
-assert.deepEqual(pals, [{ set: "Aromatics", tool: "template", x: 80, y: 96, columns: PALETTE_COLUMNS }]);
+assert.deepEqual(pals, [{ set: "Aromatics", tool: "template", x: 80, y: 96, columns: PALETTE_COLUMNS, size: "medium" }]);
 pals = openPalette(pals, "Rings", "ring");
 assert.deepEqual(pals.map((p) => [p.set, p.x, p.y]), [["Aromatics", 80, 96], ["Rings", 104, 120]], "a new palette opens down and right of the last");
 pals = openPalette(pals, "Aromatics", "template");
 assert.deepEqual(pals.map((p) => p.set), ["Rings", "Aromatics"], "opened again: to the front, not twice");
 pals = changePalette(pals, "Rings", { x: 900.4, y: -50, columns: 20 });
-assert.deepEqual(pals[0], { set: "Rings", tool: "ring", x: 900, y: 0, columns: 8 }, "moved, kept on the screen and in Octet's limits");
+assert.deepEqual(pals[0], { set: "Rings", tool: "ring", x: 900, y: 0, columns: 8, size: "medium" }, "moved, kept on the screen and in Octet's limits");
 const keptPals = readPalettes(JSON.parse(JSON.stringify(pals)));
 assert.deepEqual(keptPals, pals, "the palettes and their places come back after a launch");
-assert.deepEqual(readPalettes([null, 4, { set: "" }, { set: "X", tool: "pen", x: "1" }, { set: "X" }]), [{ set: "X", tool: "template", x: 80, y: 96, columns: PALETTE_COLUMNS }], "damaged entries are dropped or mended");
+assert.deepEqual(readPalettes([null, 4, { set: "" }, { set: "X", tool: "pen", x: "1" }, { set: "X" }]), [{ set: "X", tool: "template", x: 80, y: 96, columns: PALETTE_COLUMNS, size: "medium" }], "damaged entries are dropped or mended");
+// The template size: each palette has its own (medium when it opens), changed and kept in the settings, so it comes back
+// after a launch; a size Octet does not have reads as medium. The library's size (Settings.librarySize) reads the same way.
+const sized = changePalette(pals, "Aromatics", { size: "large" });
+assert.deepEqual(sized.map((p) => [p.set, p.size, p.columns]), [["Rings", "medium", 8], ["Aromatics", "large", PALETTE_COLUMNS]], "each palette its own size; the columns stay");
+assert.deepEqual(readPalettes(JSON.parse(JSON.stringify(sized))), sized, "sizes come back after a launch");
+assert.deepEqual(changePalette(sized, "Rings", { size: "small" }).map((p) => p.size), ["small", "large"]);
+assert.equal(changePalette(sized, "Rings", { size: "huge" as TemplateSize })[0].size, "medium", "a size Octet does not have is mended");
+assert.deepEqual(readPalettes([{ set: "A", size: "huge" }, { set: "B", size: 3 }, { set: "C", size: "small" }, { set: "D", size: "large" }]).map((p) => p.size), ["medium", "medium", "small", "large"]);
+assert.deepEqual(TEMPLATE_SIZES.map(readSize), TEMPLATE_SIZES);
+assert.deepEqual([undefined, null, "Large", 2, {}].map(readSize), ["medium", "medium", "medium", "medium", "medium"], "damaged library sizes read as medium");
 assert.equal(readPalettes(Array.from({ length: 40 }, (_, k) => ({ set: `S${k}` }))).length, MOST_PALETTES);
 assert.deepEqual(closePalette(pals, "Rings").map((p) => p.set), ["Aromatics"]);
 // A set of the user's renamed takes its palette with it; removed, its palette closes.
@@ -197,7 +207,7 @@ withPal = renameSet(withPal, "Rings", "My rings");
 assert.deepEqual(withPal.palettes!.map((p) => p.set), ["My rings", "Aromatics"]);
 withPal = removeSet(withPal, "My rings");
 assert.deepEqual(withPal.palettes!.map((p) => p.set), ["Aromatics"]);
-console.log("templates: floating palettes ok");
+console.log("templates: floating palettes and template sizes ok");
 
 // ——— ChemDraw template files (.ctp, .cts) ———
 // A small template document made here with Octet's own writer (nothing from ChemDraw): a 2 × 3 grid of panes, five
@@ -259,6 +269,74 @@ assert.equal(r2.templates.length, 5);
 assert.equal(r2.left, 1, "a pane too big for a template is left out and counted");
 assert.equal(readTemplateFile(xmlToCdx({ ...templateDoc(), kids: templateDoc().kids.filter((k) => k.name !== "page") }), "New Templates.cts").templates.length, 0, "blank stationery has no templates");
 console.log("templates: ChemDraw template files (.ctp, .cts) ok");
+
+// ——— A set saved as a ChemDraw template file (writeTemplateFile) ———
+// CDX, as ChemDraw writes its template files: the colours and fonts, one page for each pane, row by row, then the
+// TemplateGrid (no id). The grid is the columns given (no wider than the set) and as many rows as it needs; the panes
+// after the last template are empty pages; the pane size is the template size's; each pane's name is its page's Name
+// annotation; every object's id is its own in the document. Read back, it gives the same templates, names and order.
+const { writeTemplateFile, PANE_EXTENT, MOST_TEMPLATE } = await import("./ctp.ts");
+const { cdxToXml, isCdx } = await import("./cdx.ts");
+const { normalise } = await import("./edit.ts");
+const { serialize: write } = await import("./file.ts");
+const { LIBRARY: SETS } = await import("./library.ts");
+const inSet = (name: string, m: Mol) => ({ name, mol: back(addTo(empty, newTemplate(name, m)))[0].mol }); // as a set keeps it
+const mine = [inSet("Salt", whole), ...fromText.templates.map((t) => inSet(t.name, t.mol)), inSet("Odd\u0007 \n name", chain)];
+const saved = writeTemplateFile(mine, "Salts", 4, "large");
+assert.deepEqual([saved.written, saved.left], [7, 0]);
+assert.ok(isCdx(saved.bytes), "CDX, as ChemDraw writes template files");
+const tree = cdxToXml(saved.bytes, true), gridOut = tree.kids.find((k) => k.name === "templategrid")!, pagesOut = tree.kids.filter((k) => k.name === "page");
+assert.deepEqual(tree.kids.map((k) => k.name).filter((n, k, a) => a[k - 1] !== n), ["colortable", "fonttable", "page", "templategrid"], "ChemDraw's order");
+assert.deepEqual({ ...gridOut.attrs }, { PaneHeight: String(Math.round(8.75 * 65536)), NumRows: "2", NumColumns: "4", extent: `${PANE_EXTENT.large} ${PANE_EXTENT.large}` }, "the grid, the pane size and the window; id 0");
+assert.equal(pagesOut.length, 8, "rows × columns pages");
+assert.deepEqual(pagesOut.map((pg) => pg.kids.find((x) => x.name === "annotation" && x.attrs.Keyword === "Name")?.attrs.Content ?? null),
+  ["Salt", "Furan", "Template 2", "Water drop", "Template 4", "Template 5", "Odd name", null], "each pane's name, row by row");
+assert.equal(pagesOut[7].kids.length, 0, "the pane after the last template is empty");
+const idsOut: string[] = [];
+const walkIds = (x: X) => { if (x.attrs.id && x.name !== "font") idsOut.push(x.attrs.id); x.kids.forEach(walkIds); };
+walkIds(tree);
+assert.equal(new Set(idsOut).size, idsOut.length, "every object's id is its mine in the document");
+const readBack = readTemplateFile(saved.bytes, "Salts.ctp");
+assert.equal(readBack.left, 0);
+assert.deepEqual(readBack.templates.map((x) => x.name), ["Salt", "Furan", "Template 2", "Water drop", "Template 4", "Template 5", "Odd name"], "the same names, in order");
+// The same structures: labels, typed labels, charges, wedges and bond orders, places to 0.01 of a bond length (CDX keeps
+// points to 0.01 pt), and the caption under the salt.
+const shape = (m: Mol) => { const n = normalise(m); return { atoms: n.atoms.map((a) => [a.label, a.text ?? "", a.charge ?? 0]), bonds: n.bonds.map((b) => [b.atoms, b.type, b.stereo ?? 0]), captions: (n.captions ?? []).map((c) => c.text) }; };
+readBack.templates.forEach((x, k) => {
+  assert.deepEqual(shape(x.mol), shape(mine[k].mol), `${x.name}: the same structure`);
+  const a = normalise(x.mol), b = normalise(mine[k].mol);
+  assert.ok(a.atoms.every((at, i) => Math.hypot(at.location[0] - b.atoms[i].location[0], at.location[1] - b.atoms[i].location[1]) < 0.01), `${x.name}: atoms in their places`);
+});
+assert.equal(readBack.templates[0].mol.captions?.[0]?.text, "salt", "the caption stays");
+// Saved again from what was read, it reads back the same (a round trip changes nothing more).
+const again = readTemplateFile(writeTemplateFile(readBack.templates, "Salts").bytes, "Salts.ctp");
+assert.deepEqual(again.templates.map((x) => [x.name, shape(x.mol)]), readBack.templates.map((x) => [x.name, shape(x.mol)]));
+// The grid is never wider than the set; medium panes are ChemDraw's 2.75; the window at least ChemDraw's smallest and
+// at most six rows tall.
+const three = cdxToXml(writeTemplateFile(mine.slice(0, 3), "Three").bytes, true).kids.find((k) => k.name === "templategrid")!;
+assert.deepEqual([three.attrs.NumRows, three.attrs.NumColumns, three.attrs.extent], ["1", "3", "2.75 2.75"]);
+const tall = cdxToXml(writeTemplateFile(Array.from({ length: 40 }, (_, k) => inSet(`R${k}`, ring)), "Tall", 2, "small").bytes, true).kids.find((k) => k.name === "templategrid")!;
+assert.deepEqual([tall.attrs.NumRows, tall.attrs.NumColumns, tall.attrs.extent, tall.attrs.PaneHeight], ["20", "2", "2.25 2.25", String(Math.round(6 * 2.25 * 65536))]);
+// Within the reader's limits: a template too big for a template file is left out and counted, and so is every template
+// past MOST_PANES; the rest read back, all of them. A set with nothing written is still a template file (one empty pane).
+const hugeT = { name: "Huge", mol: huge };
+assert.ok(write(hugeT.mol).length > MOST_TEMPLATE);
+const withBig = writeTemplateFile([mine[1], hugeT, mine[2]], "Big");
+assert.deepEqual([withBig.written, withBig.left], [2, 1]);
+assert.deepEqual(readTemplateFile(withBig.bytes, "Big.ctp").templates.map((x) => x.name), ["Furan", "Template 2"]);
+const tooMany = writeTemplateFile(Array.from({ length: MOST_PANES + 3 }, (_, k) => ({ name: `O${k}`, mol: { atoms: [atom("O", 0, 0)], bonds: [] } as Mol })), "Many");
+assert.deepEqual([tooMany.written, tooMany.left], [MOST_PANES, 3]);
+const manyBack = readTemplateFile(tooMany.bytes, "Many.ctp");
+assert.deepEqual([manyBack.templates.length, manyBack.left], [MOST_PANES, 0], "every template written reads back");
+const none = writeTemplateFile([hugeT], "None");
+assert.deepEqual([none.written, none.left, readTemplateFile(none.bytes, "None.cts").templates.length], [0, 1, 0]);
+// Octet's mine sets, saved and read back whole (in order, by name).
+for (const set of SETS.filter((c) => ["Aromatics", "Metallocenes", "Lab", "Conformers"].includes(c.name))) {
+  const r = readTemplateFile(writeTemplateFile(set.items, set.name).bytes, `${set.name}.ctp`);
+  assert.deepEqual(r.templates.map((x) => x.name), set.items.map((x) => x.name), `${set.name} saved and read back`);
+  r.templates.forEach((x, k) => assert.deepEqual(shape(x.mol), shape(set.items[k].mol), `${set.name}: ${x.name}`));
+}
+console.log("templates: a set saved as a ChemDraw template file and read back ok");
 
 // ——— Octet's own template library (library.json, built by tools/library/build.mjs) ———
 // Every built-in template parses, has a name of its own, has the CIP labels of the compound it is meant to be, gets
