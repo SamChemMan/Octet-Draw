@@ -86,6 +86,37 @@ fn colours_ok(text: &str) -> bool {
     projects.iter().all(|p| p.get("colour").is_none_or(|c| c.as_str().is_some_and(ok)))
 }
 
+// The project each drawing belongs to: a drawing is in one folder at most. In a store from before that rule, the one
+// used last (its "used", else its "made"; the first of them on a tie). Index of the project, by path.
+fn owners(projects: &[serde_json::Value]) -> HashMap<String, usize> {
+    let last = |p: &serde_json::Value| ["made", "used"].iter().filter_map(|k| p.get(*k).and_then(|v| v.as_f64())).fold(0.0, f64::max);
+    let mut owner: HashMap<String, usize> = HashMap::new();
+    for (i, p) in projects.iter().enumerate() {
+        for d in p.get("drawings").and_then(|d| d.as_array()).into_iter().flatten() {
+            let Some(path) = d.get("path").and_then(|p| p.as_str()) else { continue };
+            if owner.get(path).is_none_or(|&j| last(p) > last(&projects[j])) {
+                owner.insert(path.to_string(), i);
+            }
+        }
+    }
+    owner
+}
+
+// A store with each drawing in one folder only (see owners), or None when it is so already or is not a store.
+fn one_folder(text: &str) -> Option<String> {
+    let mut v: serde_json::Value = serde_json::from_str(text).ok()?;
+    let projects = v.get_mut("projects")?.as_array_mut()?;
+    let owner = owners(projects);
+    let mut changed = false;
+    for (i, p) in projects.iter_mut().enumerate() {
+        let Some(list) = p.get_mut("drawings").and_then(|d| d.as_array_mut()) else { continue };
+        let before = list.len();
+        list.retain(|d| d.get("path").and_then(|p| p.as_str()).is_none_or(|path| owner.get(path) == Some(&i)));
+        changed |= list.len() != before;
+    }
+    changed.then(|| v.to_string())
+}
+
 #[derive(Serialize)]
 pub struct HomeRead {
     text: Option<String>, // home.json, or None when there is none yet
@@ -97,7 +128,7 @@ pub struct HomeRead {
 #[tauri::command]
 pub fn home_read(app: AppHandle) -> HomeRead {
     let (text, damaged) = match load(&app) {
-        Ok(t) => (t, false),
+        Ok(t) => (t.map(|t| one_folder(&t).unwrap_or(t)), false),
         Err(()) => (None, true),
     };
     let parsed = text.as_deref().and_then(parse);
@@ -110,12 +141,12 @@ pub fn home_read(app: AppHandle) -> HomeRead {
 
 // Why a store cannot be written over the one there now (`before`), or None. allowed: drawings Octet may open already.
 fn refuse(text: &str, before: Option<&(u64, HashSet<String>)>, allowed: impl Fn(&str) -> bool) -> Option<String> {
-    let Some((version, paths)) = parse(text) else { return Some("Octet cannot save your projects.".into()) };
+    let Some((version, paths)) = parse(text) else { return Some("Octet cannot save your folders.".into()) };
     if before.is_some_and(|b| b.0 > version) || version > VERSION {
-        return Some("A newer Octet saved your projects. Update Octet to change them.".into());
+        return Some("A newer Octet saved your folders. Update Octet to change them.".into());
     }
-    if paths.len() > MAX_DRAWINGS || paths.iter().any(|p| p.len() >= 4096 || !is_drawing(p)) || !colours_ok(text) {
-        return Some("Octet cannot save your projects.".into());
+    if paths.len() > MAX_DRAWINGS || paths.iter().any(|p| p.len() >= 4096 || !is_drawing(p)) || !colours_ok(text) || one_folder(text).is_some() {
+        return Some("Octet cannot save your folders.".into());
     }
     paths.iter().filter(|p| !before.is_some_and(|b| b.1.contains(*p))).find(|p| !allowed(p)).map(|_| "Octet can only add a drawing that you opened, saved or dropped on Octet.".into())
 }
@@ -125,9 +156,9 @@ fn refuse(text: &str, before: Option<&(u64, HashSet<String>)>, allowed: impl Fn(
 #[tauri::command]
 pub fn home_write(app: AppHandle, picked: State<'_, Picked>, text: String) -> Result<(), String> {
     if text.len() as u64 > MAX_STORE {
-        return Err("You have too many projects for Octet to save. Remove some drawings from them.".into());
+        return Err("You have too many folders for Octet to save. Remove some drawings from them.".into());
     }
-    let dir = data_dir(&app).ok_or("Octet cannot save your projects.")?;
+    let dir = data_dir(&app).ok_or("Octet cannot save your folders.")?;
     let now = load(&app);
     let before = now.as_ref().ok().and_then(|t| t.as_deref().map(parse));
     if now.is_err() || before.as_ref().is_some_and(|b| b.is_none()) {
@@ -305,6 +336,31 @@ mod tests {
         // Each project is checked, not only the first.
         let two = r##"{"version":1,"projects":[{"id":"a","name":"A","colour":"#213C99","drawings":[]},{"id":"b","name":"B","colour":"url(x)","drawings":[]}],"pictures":{}}"##;
         assert!(!colours_ok(two));
+    }
+
+    #[test]
+    fn a_drawing_is_in_one_folder() {
+        // From before one folder at a time: a.oct in all three. It stays in the one used last (b, used 90).
+        let old = r##"{"version":1,"projects":[
+            {"id":"a","name":"A","made":5,"used":20,"drawings":[{"path":"/d/a.oct"},{"path":"/d/x.oct"}]},
+            {"id":"b","name":"B","made":1,"used":90,"drawings":[{"path":"/d/a.oct"}]},
+            {"id":"c","name":"C","made":30,"drawings":[{"path":"/d/a.oct"},{"path":"/d/y.oct"}]}],"pictures":{}}"##;
+        let fixed: serde_json::Value = serde_json::from_str(&one_folder(old).unwrap()).unwrap();
+        let paths = |i: usize| fixed["projects"][i]["drawings"].as_array().unwrap().iter().map(|d| d["path"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+        assert_eq!(paths(0), ["/d/x.oct"]);
+        assert_eq!(paths(1), ["/d/a.oct"]);
+        assert_eq!(paths(2), ["/d/y.oct"], "the other drawings stay where they are");
+        assert_eq!(fixed["projects"][0]["name"], "A", "nothing else changes");
+        // On a tie, the first project keeps it. A store that is right already is left as it is.
+        let tie = r#"{"version":1,"projects":[{"id":"a","name":"A","made":1,"drawings":[{"path":"/d/a.oct"}]},{"id":"b","name":"B","made":1,"drawings":[{"path":"/d/a.oct"}]}]}"#;
+        let tie: serde_json::Value = serde_json::from_str(&one_folder(tie).unwrap()).unwrap();
+        assert_eq!(tie["projects"][0]["drawings"].as_array().unwrap().len(), 1);
+        assert_eq!(tie["projects"][1]["drawings"].as_array().unwrap().len(), 0);
+        assert!(one_folder(STORE).is_none());
+        assert!(one_folder("{not json").is_none());
+        // The page may not write a drawing into two folders.
+        assert!(refuse(old, None, |_| true).is_some());
+        assert!(refuse(STORE, None, |_| true).is_none());
     }
 
     #[test]

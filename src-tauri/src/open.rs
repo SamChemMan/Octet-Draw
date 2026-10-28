@@ -74,7 +74,7 @@ pub async fn take_opened(app: AppHandle, picked: State<'_, Picked>, insert: bool
             let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
             if project == Some(true) && at.is_some() && !PICTURES.contains(&ext.as_str()) {
                 let error = match fs::metadata(&path) {
-                    _ if !DRAWINGS.contains(&ext.as_str()) => Some(format!("{name} is not a drawing. A project holds Octet and ChemDraw drawings.")),
+                    _ if !DRAWINGS.contains(&ext.as_str()) => Some(format!("{name} is not a drawing. A folder holds Octet and ChemDraw drawings.")),
                     Err(_) => Some("This file is not where it was. It was moved or deleted.".into()),
                     Ok(m) if m.len() > MAX_BYTES => Some("This file is larger than 64 MB. Octet cannot open it.".into()),
                     Ok(_) => None,
