@@ -228,6 +228,15 @@ export function Pick(p: PickProps) {
   );
 }
 
+// Where a right-click menu opens: at the pointer for a right-click, or under the middle of the thing for the Menu key
+// or Shift+F10 (menuKey), with its first option focused.
+export const menuAt = (e: React.MouseEvent | React.KeyboardEvent) => {
+  if ("clientX" in e) return { at: { x: e.clientX, y: e.clientY } };
+  const r = e.currentTarget.getBoundingClientRect();
+  return { at: { x: r.left + r.width / 2, y: r.bottom - 8 }, keyboard: true };
+};
+export const menuKey = (e: React.KeyboardEvent) => e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey);
+
 // A right-click menu (and the Menu key's, and Shift+F10's): the menu above as one column at the pointer. An option
 // with more (a caret) opens its own options beside it as the pointer comes onto it, or with the right arrow key; left
 // closes them. Up and down move along it, Return chooses and Escape closes. A click away, a scroll or the window losing

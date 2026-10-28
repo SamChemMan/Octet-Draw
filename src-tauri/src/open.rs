@@ -61,14 +61,28 @@ pub struct OpenedFile {
 
 // The files waiting, read as text. insert: the page puts dropped files into the drawing that is open; otherwise they
 // open. A drawing that opens can be saved over, as one picked in Open can, and goes on Home's list of recent drawings.
+// project: the files were dropped on a project on Home. Each drawing dropped is only checked (it is there, 64 MB at
+// most) and named, so the page can put it in the project (home.rs); it does not open. Other files are refused.
 #[tauri::command]
-pub async fn take_opened(app: AppHandle, picked: State<'_, Picked>, insert: bool) -> Result<Vec<OpenedFile>, String> {
+pub async fn take_opened(app: AppHandle, picked: State<'_, Picked>, insert: bool, project: Option<bool>) -> Result<Vec<OpenedFile>, String> {
     let list = std::mem::take(&mut *app.state::<Waiting>().0.lock().unwrap());
     Ok(list
         .into_iter()
         .map(|(path, at)| {
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+            if project == Some(true) && at.is_some() {
+                let error = match fs::metadata(&path) {
+                    _ if !DRAWINGS.contains(&ext.as_str()) => Some(format!("{name} is not a drawing. A project holds Octet and ChemDraw drawings.")),
+                    Err(_) => Some("This file is not where it was. It was moved or deleted.".into()),
+                    Ok(m) if m.len() > MAX_BYTES => Some("This file is larger than 64 MB. Octet cannot open it.".into()),
+                    Ok(_) => None,
+                };
+                if error.is_none() {
+                    picked.0.lock().unwrap().insert(path.clone());
+                }
+                return OpenedFile { name, path: error.is_none().then(|| path.to_string_lossy().into_owned()), text: None, picture: None, error, at };
+            }
             // A measured spectrum (JCAMP-DX, or a Bruker folder or its 1r file): the page puts it in the drawing.
             let bruker = crate::spectrum::bruker_folder(&path);
             if bruker.is_some() || crate::spectrum::is_jcamp(&path) {

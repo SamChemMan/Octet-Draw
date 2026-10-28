@@ -58,3 +58,43 @@ something (what we had before). It should be the default left hand side selectio
   used last. File > New For lists Quick start first, then the templates, as Home does. Use for new documents on a drawing with no template keeps the style for Quick start.
 - ChemDraw: File > New Document uses the default stationery; File > New from Stationery lists the pads; a pad of the
   user's own is a document whose settings are saved with File > Save As Stationery.
+
+## Projects, sections and thumbnails (28 October 2026)
+
+Sam: "Make it so we can make folders on the welcome screen. Make New, Templates, Recents, Projects (the name of this new
+folder section) a bit more clearly separated. Allow custom thumbnails as well."
+
+- Home has four sections, in this order: New, Templates, Recent, Projects. Each has a heading in ink under a hairline.
+  New and Templates share one band, with a hairline between them. Open… is on Recent's heading row, as it opens a
+  drawing that is not on the list.
+- A project is a list in Octet that points at drawings, as an album in Photos does. It is not a folder on disk: the
+  files stay where they are, and Delete project… never deletes a drawing (it asks first, and says so).
+- A drawing can be in more than one project. This is simpler than one project for each drawing: Add to project only
+  adds, so there is no Move, and nothing comes out of another project first. Albums, playlists and tags work this way,
+  so people expect it. The Add to project menu ticks the projects that have the drawing already.
+- A drawing goes in a project by a drag from Recent onto the project (the project under the pointer is tinted, as a set
+  in the template library is), by Add to project in the drawing's menu, by Add drawings… in the project (the Open
+  dialog), or by a drop of .oct, .cdxml or .cdx files from Finder on the project. Octet refuses other files dropped on
+  a project, with a notice.
+- A project opens in Home's place, with Home (or Escape) to go back. A drawing that was moved or deleted shows "Moved or
+  deleted". A click on it, or Locate…, picks its new place, and every project takes the new place.
+- File access: a drawing in a project opens without the file dialog, as a recent drawing does. A project takes only a
+  drawing Octet may open already: one on the recent list, one in a project already, or one the user picked or dropped
+  this session (src-tauri/src/home.rs). The Tauri file scope does not change.
+- Thumbnails: Set thumbnail… in the menu of a drawing or a project picks a picture file. Octet checks its size (32 MB)
+  and pixel count (40 million) first, and only the webview decodes it. Octet keeps a 512 by 384 JPEG of its middle on
+  white (twice the largest tile), and the app decodes that again with the image crate, within limits, before it keeps
+  it. Octet never keeps the original. Use automatic thumbnail goes back. In a drawing, Use selection as thumbnail (the
+  command palette) takes a picture of the selection. A project with no thumbnail of its own shows a mosaic of its first
+  four drawings.
+- Storage: home.json in the app's data folder (version 1) and the thumbnails in thumbs/, each named by 16 hex digits.
+  A damaged home.json reads as no projects, with a notice, and Octet keeps it as home-damaged.json at the next change.
+  Octet does not read or write over a home.json from a later version.
+- Sync, for later: the store is one small versioned JSON document. Projects have ids, drawings have paths, and the
+  thumbnails are separate files by id, so a sync can send the document and the pictures apart. Paths differ between
+  computers, so sync needs a file id or a path inside a synced folder; version 2 of the store can add it.
+- Keys: the arrow keys move between tiles, across sections. Tab goes from section to section: one stop each, the tile
+  last used there. Each section is a region named by its heading, for screen readers. The Menu key or Shift+F10 opens a
+  tile's menu, which is ContextMenu (src/Menu.tsx).
+- ChemDraw 26.1 has nothing to match: File > Open Recent and Clear Menu, with no thumbnails and no folders (its help,
+  Documents).

@@ -41,7 +41,8 @@ export function useModal(ref: React.RefObject<HTMLElement | null>, on = true): (
     restack();
     const tab = (e: KeyboardEvent) => {
       if (e.key !== "Tab" || open[open.length - 1] !== ref) return;
-      const all = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => !x.matches(":disabled") && !x.closest("[inert]") && x.getClientRects().length);
+      // Tab stops only: a button that takes the focus by the arrow keys alone (tabindex -1, Home's tiles) is not one.
+      const all = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => !x.matches(":disabled") && x.tabIndex >= 0 && !x.closest("[inert]") && x.getClientRects().length);
       const at = all.indexOf(document.activeElement as HTMLElement);
       if (!all.length || (e.shiftKey ? at <= 0 : at < 0 || at === all.length - 1)) {
         e.preventDefault();

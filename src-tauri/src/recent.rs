@@ -1,6 +1,7 @@
 // Recent drawings, for Home and File > Open Recent: each drawing opened or saved, newest first (24 at most), kept in
 // the app's data folder with a small picture of it. A recent drawing opens again without the file dialog; only files
 // the user picked before are on the list, and the page never names any other path.
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -55,6 +56,11 @@ fn save_list(app: &AppHandle, list: &[Recent]) {
     if let Ok(text) = serde_json::to_string(list) {
         let _ = write_atomic(&path, text.as_bytes());
     }
+}
+
+// The drawings on the list, by path (a project can take any of them: home.rs).
+pub fn paths(app: &AppHandle) -> HashSet<String> {
+    with_list(app, |list| list.iter().map(|r| r.path.clone()).collect())
 }
 
 // The menu's names for the drawings in File > Open Recent: each file's name, in the list's order.
@@ -141,10 +147,11 @@ pub fn recent_remove(app: AppHandle, path: String) {
     menu_changed(&app, &before);
 }
 
-// Opens a drawing from the list (only a path on the list), as Open does after its dialog.
+// Opens a drawing from the list or from a project on Home (only a path on the list or in a project), as Open does
+// after its dialog.
 #[tauri::command]
 pub async fn open_recent(app: AppHandle, picked: State<'_, Picked>, path: String) -> Result<(String, String), String> {
-    if !with_list(&app, |list| list.iter().any(|r| r.path == path)) {
+    if !with_list(&app, |list| list.iter().any(|r| r.path == path)) && !crate::home::has(&app, &path) {
         return Err("Octet cannot open this drawing from Home. Open it with File > Open.".into());
     }
     let p = PathBuf::from(&path);

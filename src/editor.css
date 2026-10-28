@@ -4887,16 +4887,32 @@ button.variant.add {
   letter-spacing: -0.025em;
   text-wrap: balance;
 }
+/* Home's sections (New, Templates, Recent, Projects): each starts under a hairline, with its heading in ink and its
+   action (Open…) on the right. New and Templates share one band, side by side, a hairline between them. */
+.home-section,
+.home-band {
+  margin-top: 40px;
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--hairline);
+}
+.home-band > .home-section {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
 .home-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 40px 0 var(--space-3);
+  gap: var(--space-4);
+  min-height: 28px;
+  margin: 0 0 var(--space-4);
 }
-.home-row :is(h2, h3) {
+.home-row h2 {
   margin: 0;
-  color: var(--ink-muted);
-  font: 600 13px/18px var(--font-sans);
+  color: var(--ink);
+  font: 600 15px/20px var(--font-sans);
+  letter-spacing: -0.01em;
 }
 .home-open {
   display: inline-flex;
@@ -5010,11 +5026,15 @@ button.variant.add {
 /* New: Quick start, then the templates beside it, each under its own heading. Every New tile has one width, so the
    pictures and names line up: six to a row (Quick start and five templates) fill the page's width. On a narrow window
    they stay 148 px, and the templates go on to a second row. */
-.home-new {
-  --new-tile: max(148px, (100cqw - var(--space-8) - 4 * var(--space-4)) / 6);
+.home-band {
+  --new-tile: max(148px, (100cqw - 2 * var(--space-8) - 1px - 4 * var(--space-4)) / 6);
   display: grid;
   grid-template-columns: var(--new-tile) minmax(0, 1fr);
   column-gap: var(--space-8);
+}
+.home-templates {
+  padding-left: var(--space-8);
+  border-left: 1px solid var(--hairline);
 }
 /* A template's tile is smaller than a recent drawing's. Its picture is its page, white on the sunken ground, with its
    outlines and a small scheme at its true size on that page. */
@@ -5134,6 +5154,211 @@ button.variant.add {
 .home-remove:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
+}
+/* A thumbnail of the user's own (a photo) fills its tile; a drawing's picture sits inside it. */
+.home-thumb img.fill {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* A project: the edge of a second sheet behind its picture, as a project holds more than one drawing. Its picture is
+   its own thumbnail, a mosaic of its first drawings (one, two, three or four), or an empty folder. */
+.home-tile.project {
+  position: relative;
+}
+.home-tile.project::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: var(--space-2);
+  right: var(--space-2);
+  height: var(--space-2);
+  border: 1px solid var(--hairline);
+  border-bottom: 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: var(--surface-sunken);
+}
+.home-thumb.mosaic {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  place-items: stretch;
+  gap: 1px;
+  background: var(--hairline);
+}
+.home-thumb.mosaic .cell {
+  position: relative;
+  overflow: hidden;
+  background: var(--canvas);
+}
+.home-thumb.mosaic.n1 .cell {
+  grid-area: 1 / 1 / 3 / 3;
+}
+.home-thumb.mosaic.n2 .cell,
+.home-thumb.mosaic.n3 .cell:first-child {
+  grid-row: 1 / 3;
+}
+.home-thumb.mosaic:not(.n1) .cell img:not(.fill) {
+  inset: 12%;
+  width: 76%;
+  height: 76%;
+}
+.home-thumb.empty {
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+}
+/* An empty project's folder and New project's: the size of Custom template's plus. */
+.home-thumb.empty > svg,
+.custom-folder svg {
+  position: static;
+  width: 32px;
+  height: 32px;
+}
+/* Where a drawing carried on Home (or files from Finder) will go: the project under the pointer, tinted as the
+   template library tints a set. In an open project, its whole grid. */
+.home-thumb::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--selection);
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-out);
+  pointer-events: none;
+}
+.home-tile[data-over] .home-thumb {
+  border-color: var(--brand-bright);
+  box-shadow: inset 0 0 0 1px var(--brand-bright);
+}
+.home-tile[data-over] .home-thumb::after {
+  opacity: 1;
+}
+.home-grid[data-project] {
+  border-radius: var(--radius-md);
+  transition: background-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
+}
+.home-grid[data-project][data-over] {
+  background: var(--brand-mist);
+  box-shadow: 0 0 0 var(--space-3) var(--brand-mist), 0 0 0 calc(var(--space-3) + 2px) var(--brand-bright);
+}
+/* The drawing being carried: a small copy of its picture under the pointer. */
+.home.carrying {
+  cursor: grabbing;
+  user-select: none;
+}
+.home-carry {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  width: 132px;
+  pointer-events: none;
+  animation: carry-in var(--motion-fast) var(--ease-out);
+}
+.home-carry .home-thumb {
+  box-shadow: var(--shadow-float);
+}
+@keyframes carry-in {
+  from {
+    opacity: 0;
+  }
+}
+/* A project's name being typed: a field over its caption. */
+.home-naming {
+  position: absolute;
+  right: -5px;
+  bottom: 13px;
+  left: -5px;
+}
+.home-name-field {
+  box-sizing: border-box;
+  width: 100%;
+  height: 26px;
+  padding: 0 4px;
+  border: 1px solid var(--brand-bright);
+  border-radius: var(--radius-sm);
+  outline: none;
+  background: var(--canvas);
+  box-shadow: var(--shadow-focus);
+  color: var(--ink);
+  font: 500 13px/18px var(--font-sans);
+}
+.home-name-field::placeholder {
+  color: var(--ink-faint);
+}
+/* An open project, in Home's place: Home to go back, then its name and its options. Each view comes in with a short
+   fade as it takes the other's place. */
+.home-view:not(.home-arrive) {
+  animation: view-in var(--motion) var(--ease-out);
+}
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.home-back,
+.home-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink-muted);
+  font: 500 13px var(--font-sans);
+  transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+}
+.home-back {
+  margin: var(--space-12) 0 0 calc(-1 * var(--space-2));
+}
+.home-more {
+  flex: none;
+  justify-content: center;
+  width: 32px;
+  padding: 0;
+}
+@media (hover: hover) and (pointer: fine) {
+  .home-back:hover,
+  .home-more:hover {
+    background: var(--surface-sunken);
+    color: var(--ink);
+  }
+}
+.home-back:active,
+.home-more:active {
+  transform: scale(0.97);
+}
+.home-back:focus-visible,
+.home-more:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.home-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.home-title-row .home-greeting {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-project h2 {
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-view:not(.home-arrive),
+  .home-carry {
+    animation: none;
+  }
 }
 
 /* First launch: the name, in the dotted frame Octet draws round a selected group. */

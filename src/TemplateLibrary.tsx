@@ -13,7 +13,7 @@
 // each palette have a template size (SizeChoice), and a set's menu saves it as a ChemDraw template file.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowLineDownRight, ArrowLineUpLeft, ArrowSquareOut, BookmarkSimple, Copy, FileArrowUp, Folders, FolderSimple, FolderSimplePlus, FolderSimpleUser, MagnifyingGlass, NotePencil, PencilSimple, Plus, PushPin, Trash, X } from "@phosphor-icons/react";
-import { ContextMenu, type MenuItem } from "./Menu";
+import { ContextMenu, menuAt, menuKey, type MenuItem } from "./Menu";
 import { commonKey } from "./common";
 import { measure, STYLE } from "./chem";
 import { fontStack } from "./docstyle";
@@ -164,15 +164,6 @@ export function TemplateMenu({ item, at, keyboard, actions: a, onRename, onClose
   };
   return <ContextMenu label={item.name} at={at} keyboard={keyboard} groups={groups.filter((g) => g.length)} sub={sub} onChoose={choose} onClose={onClose} />;
 }
-
-// A template's menu opened by the pointer (right-click) or a key (the Menu key, Shift+F10): at the pointer, or under
-// the template.
-const menuAt = (e: React.MouseEvent | React.KeyboardEvent) => {
-  if ("clientX" in e) return { at: { x: e.clientX, y: e.clientY } };
-  const r = e.currentTarget.getBoundingClientRect();
-  return { at: { x: r.left + r.width / 2, y: r.bottom - 8 }, keyboard: true };
-};
-const menuKey = (e: React.KeyboardEvent) => e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey);
 
 // The order of a set of the user's, by drag: while one of its templates is carried over the grid, a bar shows where it
 // will go (before the template under the pointer, or after it past its middle); let go on the grid, it goes there.
