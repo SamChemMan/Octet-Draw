@@ -4208,9 +4208,9 @@ export default function Editor() {
 
   // ——— The canvas for screen readers and the keyboard (access.ts, CanvasAccess.tsx) ———
   // Each object's role and name, in reading order, worked out 300 ms after the drawing last changed, so typing and
-  // drawing never wait for it. A structure's formula and checked name come from known, kept by its content wherever it
-  // is drawn, and filled a few at a time after that with the window free between them (structures of up to
-  // MOST_NAMED atoms are named).
+  // drawing never wait for it. A structure's formula and checked name come from a cache (known) kept by its content
+  // wherever it is drawn, filled a few at a time after that with the window free between them (structures of up to
+  // MOST_NAMED atoms are named), and cleared when it grows large.
   const [access, setAccess] = useState<{ doc: Mol; items: AccessItem[] }>({ doc: EMPTY, items: [] });
   const [factsAdded, setFactsAdded] = useState(0);
   const known = useRef(new Map<string, { formula?: string; name?: string; named?: boolean }>());
@@ -4246,6 +4246,7 @@ export default function Editor() {
     return { items, wanted };
   }
   function fillFact(key: string, atoms: number[], base: Mol) {
+    if (known.current.size >= 2000) known.current.clear();
     const f = known.current.get(key) ?? {};
     if (loaded && f.formula === undefined) { try { f.formula = analyse(subset(base, new Set(atoms)), 1)?.[0]?.formula ?? ""; } catch { f.formula = ""; } }
     if (namesLoaded && !f.named) { f.name = atoms.length <= MOST_NAMED ? namedPart(atoms, base).name : undefined; f.named = true; }
