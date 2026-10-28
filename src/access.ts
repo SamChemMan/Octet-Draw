@@ -260,7 +260,7 @@ const nounOf = (m: Mol, id: number): string | undefined => {
   return m.cycles?.some((c) => c.id === id) ? "catalytic cycle" : undefined;
 };
 const graphics = (m: Mol) => new Map<number, object>([...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? [])].map((x) => [x.id, x]));
-const at = (x: object): P | undefined => ("from" in x ? (x.from as P) : "x" in x ? [x.x as number, x.y as number] : "centre" in x ? (x.centre as P) : undefined);
+const at = (x: object): P | undefined => { const o = x as { from?: P; x?: number; y?: number; centre?: P }; return o.from ?? (o.x !== undefined ? [o.x, o.y ?? 0] : o.centre); };
 const without = (x: object, drop: string[]) => JSON.stringify(Object.fromEntries(Object.entries(x).filter(([k]) => !drop.includes(k))));
 const fmt = (v: number) => String(Math.round(v * 10) / 10);
 // A move as words: "1 pt right", "10 pt left and 10 pt up".
