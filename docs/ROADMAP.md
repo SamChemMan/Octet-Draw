@@ -12,7 +12,8 @@ default (decision 0010).
 | Template and clip-art library (CD-32), paddlewheels and ligands | Done: 292 templates in 16 sets, no label clashes |
 | Measured spectra from JCAMP-DX, with peak assignment (CH-29) | Done, with ChemDraw's spectrum object in CDXML and CDX, peaks linked to bonds, and SPC files |
 | Naming gaps: mixtures with ratios, mixed-metal and cluster complexes, configuration at metals, η drawn with bonds, typography of names | Done: 6855 of 6924 named right, 0 wrong |
-| Platform: Linux Edit menu, Mac Quit from the Dock, pictures in EMF and EPS, Windows and Linux test runs on CI | Done; the CI runs are new: watch their first results |
+| Platform: Linux Edit menu, Mac Quit from the Dock, pictures in EMF and EPS, Windows and Linux test runs on CI | Done: Windows and Linux runs pass every step |
+| Windows: UI Automation and MSAA cannot reach Octet's menu bar, so Narrator may not read it (found by the CI run, 28 October) | Next: investigate |
 | Mass Spec Analysis (CH-40), with isotope patterns and the HRMS line | Done |
 | Check the Revvity claims in the LinkedIn draft | Done: ~/octet-research/notes/revvity-claims-and-products.md |
 | ChemDraw session: the 13 checks in ~/octet-research/notes/chemdraw-checks-pending.md | Waiting for Sam to allow full-screen control |
