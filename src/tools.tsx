@@ -6,7 +6,7 @@ import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Cube, Era
 import { chairPoints, type SymbolKind } from "./edit";
 import { ARROW_SIZES, curvePath, headOfLength, SWEEPS, type ArrowKind, type ArrowSize, type HeadSize, type Mol, type ShapeKind } from "./render";
 import { ARROWS, BONDS, SHAPES, type BondKind } from "./kinds";
-import { closePalette, kindName, MY_SET, templateKind, type FloatingPalette, type Template } from "./templates";
+import { closePalette, kindName, MY_SET, templateKind, type FloatingPalette, type Template, type TemplateSize } from "./templates";
 import type { TemplateActions, TemplateSetActions, TemplateTool } from "./TemplateLibrary";
 import { LIBRARY, libraryItem, type LibraryItem } from "./library";
 import { FloatingTemplates, LibraryPanel } from "./TemplateLibrary";
@@ -434,6 +434,10 @@ type PaletteProps = {
   onPalettes: (change: (list: FloatingPalette[]) => FloatingPalette[]) => void;
   onKeepOpen: (set: string, tool: TemplateTool) => void;
   onReveal: (tool: TemplateTool, set: string, id?: string) => void;
+  // The template library's template size (each palette keeps its own), and a set saved as a ChemDraw template file.
+  librarySize: TemplateSize;
+  onLibrarySize: (size: TemplateSize) => void;
+  onSaveSet: (set: string) => void;
   onUndo: () => void;
   onRedo: () => void;
   onDrop: (x: number, y: number) => void; // an option, now in hand, was let go here on the canvas (px)
@@ -527,11 +531,11 @@ export function Palette(p: PaletteProps) {
     sets: p.templateSets, onSets: p.onTemplateSets, onCopy: (kind, set) => p.onCopy(kind, set, tool), onNewSet: p.onNewSet,
     onRemove: (kind) => { const t = template(kind); if (t) p.onRemoveTemplate(t.id); },
     onEdit: (kind) => { setOpen(undefined); p.onEditTemplate(kind, tool); }, onDuplicate: p.onDuplicate, onPlace: p.onPlace, onToStart: p.onToStart, onToEnd: p.onToEnd,
-    onKeepOpen: (set) => { setOpen(undefined); p.onKeepOpen(set, tool); },
+    onKeepOpen: (set) => { setOpen(undefined); p.onKeepOpen(set, tool); }, onSaveSet: p.onSaveSet,
     ...(tool === "ring" ? { kept: p.libraryRings, onKeep: (kind: string, on: boolean) => (on ? keep("ring", kind) : unkeep("ring", kind)) } : {}),
   });
   // Add with nothing selected starts a pick on the canvas: the library closes out of its way.
-  const own = (tool: TemplateTool) => ({ ...actions(tool), tool, reveal: p.reveal?.tool === tool ? p.reveal : undefined,
+  const own = (tool: TemplateTool) => ({ ...actions(tool), tool, reveal: p.reveal?.tool === tool ? p.reveal : undefined, size: p.librarySize, onSize: p.onLibrarySize,
     onAdd: (set: string) => { if (!p.canAddSelection) setOpen(undefined); p.onAdd(set, tool); },
     onRename: p.onRename, find: p.findNamed });
   // A floating palette's templates: a set of the user's, or one of Octet's.
@@ -887,6 +891,7 @@ export function Palette(p: PaletteProps) {
                   onPress={(e, kind) => startCarry(e, `${tool}:${kind}`)}
                   onMove={(x, y) => p.onPalettes((list) => list.map((q) => (q.set === f.set ? { ...q, x, y } : q)))}
                   onColumns={(columns) => p.onPalettes((list) => list.map((q) => (q.set === f.set ? { ...q, columns } : q)))}
+                  onSize={(size) => p.onPalettes((list) => list.map((q) => (q.set === f.set ? { ...q, size } : q)))}
                   onFront={() => { if (at !== p.palettes.length - 1) p.onPalettes((list) => [...list.filter((q) => q.set !== f.set), ...list.filter((q) => q.set === f.set)]); }}
                   onClose={() => closeFloating(f)}
                   onRename={(kind) => { const t = template(kind); if (t) p.onReveal(tool, t.set ?? MY_SET, t.id); }} />
