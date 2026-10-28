@@ -136,6 +136,19 @@ Added 27 October 2026.
   count go before the part of the ligand's name that holds the bonded atoms, (η6-benzene)tricarbonylchromium,
   tricarbonyl(methyl-η6-benzene)chromium, potassium trichlorido(η2-ethene)platinate(1-). That part, read by OPSIN alone,
   must have the bonded atoms' elements joined as drawn. No oxidation number with an η ligand (organometallic).
+- Added 28 October 2026: η ligands bonded through only some of their atoms, or through separate runs (IR-10.2.5.1). Where
+  the bonded atoms are all the ligand's unsaturated atoms (in a multiple bond, or charged) and contiguous, η and the
+  count go before the name, after its stereodescriptors, as the Red Book's (E)-η2-but-2-enal: (η4-cyclohexa-1,3-diene),
+  [(2Z)-η2-but-2-ene]. Otherwise the locants of the bonded atoms in OPSIN's numbering of the name go before η in
+  parentheses, a run of more than two consecutive locants as a range: [(1,2,5,6-η)-(1Z,5Z)-cycloocta-1,5-diene],
+  [(3–6-η)-(3E)-hexa-3,5-dienal]. The Red Book gives cycloocta-1,5-diene bonded through both C=C bonds two ways
+  (IR-10.2.5.1, Example 31): (η2,η2-cycloocta-1,5-diene) or [(1,2,5,6-η)-cycloocta-1,5-diene]; Octet gives the second,
+  the form its rule text prescribes, because it cites the bonded atoms. η4 would say four contiguous atoms, and η2:η2
+  (with a colon) is the form for a ligand bridging two metals. The check reads the name with the cited atoms marked,
+  as a κ term is read, and must find the ligand marked at its bonded atoms. A complex of two alike metals takes η
+  ligands in each metal's unit: di-μ-chlorido-bis{[(1,2,5,6-η)-(1Z,5Z)-cycloocta-1,5-diene]rhodium}. A ring of eight or
+  more atoms now carries its drawn E or Z into the ligand's name (cyclooctene, cod), as InChI gives one; the bonds whose
+  E or Z a chelate fixes (Ligand.fixed) still carry none.
 
 ## Not named yet
 
@@ -144,8 +157,8 @@ in a chiral arrangement the name gives the index alone, which tells diastereoiso
 Λ for bis(bidentate) complexes (IR-9.3.4.13; Octet gives cis there), and for chelates with unlike donor atoms, which
 also have fac and mer isomers that need the priming convention; polyhedra other than SP-4, T-4, TBPY-5, SPY-5 and OC-6;
 configuration indexes that need the priming convention or CIP ranks past the donor's neighbours ((SP-4-1)-(acetonitrile)dichlorido(pyridine)platinum(II));
-η ligands bonded through only some atoms of a part of their name ((1,2,3,4-η)-cycloocta-1,3,5,7-tetraene) or through two
-runs (η2:η2-cycloocta-1,5-diene); carbon ligands and bridging ligands without names of their own in complexes of unlike
+η ligands that bridge metals (μ-η2:η2), and those drawn as a radical (a neutral η3-allyl), which the namer does not
+name; carbon ligands and bridging ligands without names of their own in complexes of unlike
 metals or three or more; anions of unlike metals ((dimolybdenumdiiron)ate); and donor atoms that no κ term here can
 cite. Subphthalocyanines and naphthalocyanines: no IUPAC recommendation gives them a parent name, and OPSIN reads none,
 so they stay unnamed. Octet does not invent a parent name for them. N-confused porphyrins, whose metal bonds to a C atom

@@ -267,12 +267,31 @@ const ETA: [string, string, string][] = [
   ["Cr(η6-C6H6)2", "[Cr]%11%12%13%14%15%16%21%22%23%24%25%26.[CH]%11=1[CH]%12=[CH]%13[CH]%14=[CH]%15[CH]%16=1.[CH]%21=1[CH]%22=[CH]%23[CH]%24=[CH]%25[CH]%26=1", "bis(η6-benzene)chromium"],
   ["(η6-toluene)Cr(CO)3", "[Cr]%11%12%13%14%15%16(=C=O)(=C=O)=C=O.C[C]%11=1[CH]%12=[CH]%13[CH]%14=[CH]%15[CH]%16=1", "tricarbonyl(methyl-η6-benzene)chromium"],
   ["[CpMn(CO)3]-, the ring drawn as an anion", "[Mn]%11%12%13%14%15(=C=O)(=C=O)=C=O.[CH-]1%11[CH]%12=[CH]%13[CH]%14=[CH]1%15", "tricarbonyl(η5-cyclopenta-2,4-dien-1-ido)manganate(1-)"],
+  // Bonded through two separate runs of atoms: the locants of the bonded atoms before η (IR-10.2.5.1, Example 31:
+  // [(1,2,5,6-η)-cycloocta-1,5-diene]). η4 would say four contiguous atoms. The ring's double bonds are drawn cis, so
+  // its name cites Z as cycloocta-1,5-diene's own name does.
+  ["Ni(cod)2", "[Ni]%11%12%13%14%21%22%23%24.[CH]1%11=[CH]%12CC[CH]%13=[CH]%14CC1.[CH]1%21=[CH]%22CC[CH]%23=[CH]%24CC1", "bis[(1,2,5,6-η)-(1Z,5Z)-cycloocta-1,5-diene]nickel"],
+  ["[Rh(cod)Cl]2", "[Rh]%11%12%13%14%31%32.[Rh]%21%22%23%24%33%34.[CH]1%11=[CH]%12CC[CH]%13=[CH]%14CC1.[CH]1%21=[CH]%22CC[CH]%23=[CH]%24CC1.Cl%31%33.Cl%32%34",
+    "di-μ-chlorido-bis{[(1,2,5,6-η)-(1Z,5Z)-cycloocta-1,5-diene]rhodium}"],
+  ["PtCl2(cod)", "Cl[Pt]%11%12%13%14Cl.[CH]1%11=[CH]%12CC[CH]%13=[CH]%14CC1", "dichlorido[(1,2,5,6-η)-(1Z,5Z)-cycloocta-1,5-diene]platinum"],
+  // Bonded through all its unsaturated atoms: η alone, after the name's stereodescriptors (Example 19: (E)-η2-but-2-enal).
+  ["(η4-cyclohexa-1,3-diene)Fe(CO)3", "[Fe]%11%12%13%14(=C=O)(=C=O)=C=O.[CH]1%11=[CH]%12[CH]%13=[CH]%14CC1", "tricarbonyl(η4-cyclohexa-1,3-diene)iron"],
+  ["K[PtCl3(but-2-ene)]", "[K+].[Pt-]%11%12(Cl)(Cl)Cl.C[CH]%11=[CH]%12C", "potassium [(2Z)-η2-but-2-ene]trichloridoplatinate(1-)"],
+  ["(η3-allyl)PdCl(PPh3), the allyl drawn as an anion", "Cl[Pd+]%11%12%13P(c1ccccc1)(c1ccccc1)c1ccccc1.[CH2-]%11[CH]%12=[CH2]%13", "chlorido(η3-prop-2-en-1-ido)(triphenylphosphane)palladium"],
+  // Not bonded through all of them (the C=O is not): locants, a run of more than two as a range (Example 14).
+  ["(hexa-3,5-dienal)Fe(CO)3", "[Fe]%11%12%13%14(=C=O)(=C=O)=C=O.O=CC[CH]%11=[CH]%12[CH]%13=[CH2]%14", "tricarbonyl[(3–6-η)-(3E)-hexa-3,5-dienal]iron"],
 ];
 for (const [label, smiles, want] of ETA) { assert.equal(nameOf(smiles), want, label); assert.equal(editorName(smiles), want, `${label}, Structure to Name`); }
 const wrongEta: [number, string[]][] = [
   [0, ["potassium trichlorido(ethene)platinate(1-)", "potassium trichlorido(η1-ethene)platinate(1-)", "potassium trichlorido(η2-ethyne)platinate(1-)"]],
   [1, ["(η5-benzene)tricarbonylchromium", "(benzene)tricarbonylchromium", "(η6-cyclohexane)tricarbonylchromium"]],
   [3, ["tricarbonyl(η6-methylbenzene)chromium", "tricarbonyl(η7-methylbenzene)chromium", "tricarbonyl(methyl-η5-benzene)chromium"]],
+  [5, ["bis(η4-cycloocta-1,5-diene)nickel", "bis[(1Z,5Z)-η4-cycloocta-1,5-diene]nickel", "bis[(1,2,3,4-η)-(1Z,5Z)-cycloocta-1,5-diene]nickel",
+    "bis[(1,2,5,6-η)-(1Z,5E)-cycloocta-1,5-diene]nickel", "bis[(1,2,5,6-η)-(1Z,5Z)-cycloocta-1,5-diene]palladium", "[(1,2,5,6-η)-(1Z,5Z)-cycloocta-1,5-diene]nickel"]],
+  [6, ["di-μ-chlorido-bis{[(1,2,5,6-η)-(1Z,5Z)-cycloocta-1,5-diene]iridium}", "di-μ-chlorido-bis{[(1,2,6-η)-(1Z,5Z)-cycloocta-1,5-diene]rhodium}"]],
+  [8, ["tricarbonyl[(1–4-η)-cyclohexa-1,3-diene]iron", "tricarbonyl(η6-cyclohexa-1,3-diene)iron", "tricarbonyl(η3-cyclohexa-1,3-diene)iron"]],
+  [11, ["tricarbonyl[(3E)-η4-hexa-3,5-dienal]iron", "tricarbonyl[(3,4,5,6-η)-(3E)-hexa-3,5-dienal]iron", "tricarbonyl[(2–5-η)-(3E)-hexa-3,5-dienal]iron",
+    "tricarbonyl[(3–6-η)-(3Z)-hexa-3,5-dienal]iron"]],
 ];
 let turnedEta = 0;
 for (const [k, names] of wrongEta) for (const name of names) { assert.equal(complexNameReads(name, drawn(ETA[k][1]), api), false, name); turnedEta++; }
