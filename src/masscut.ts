@@ -79,3 +79,28 @@ export function bendOf(trail: P[]): number {
   const bend = far / len;
   return Math.abs(bend) < 0.04 ? 0 : Math.max(-0.5, Math.min(0.5, bend));
 }
+
+// Mass Spec Analysis's fragmentation lines (ChemDraw's): a line has a corner where a key was pressed during the drag,
+// and a drag from either end of a line makes it longer. A line with corners keeps them as a curve of straight runs.
+type CutLine = { from: P; to: P; curve?: { points: { at: P }[] } };
+// The points a line goes through, end to end.
+export const cutPoints = (a: CutLine): P[] => (a.curve ? a.curve.points.map((q) => q.at) : [a.from, a.to]);
+// A line through these points: its ends, and its corners (a curve) when it has any. A point on the one before it
+// (a key pressed before the pointer moved on) is left out.
+export function cutThrough(points: P[]): CutLine {
+  const ps = points.filter((q, k) => !k || Math.hypot(q[0] - points[k - 1][0], q[1] - points[k - 1][1]) > 1e-9);
+  return { from: ps[0], to: ps[ps.length - 1], ...(ps.length > 2 ? { curve: { points: ps.map((at) => ({ at })) } } : {}) };
+}
+// The line made longer from one end, through the corners added, to the pointer.
+export function extendCut(a: CutLine, end: "from" | "to", corners: P[], to: P): CutLine {
+  const old = cutPoints(a);
+  return cutThrough([...(end === "to" ? old : old.reverse()), ...corners, to]);
+}
+// The end of a line within reach of p (drawing units): the line, and which end. The line drawn last wins.
+export function cutEndAt<T extends CutLine & { kind: string }>(lines: T[], p: P, reach: number): { line: T; end: "from" | "to" } | undefined {
+  for (const line of [...lines].reverse()) {
+    if (line.kind !== "cut") continue;
+    for (const end of ["to", "from"] as const) if (Math.hypot(line[end][0] - p[0], line[end][1] - p[1]) <= reach) return { line, end };
+  }
+  return undefined;
+}

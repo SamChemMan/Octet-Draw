@@ -106,6 +106,26 @@ assert.deepEqual(sizes("simultaneous"), [6, 2, 2, 2]);
 assert.deepEqual(sizes("sequential"), [6, 4, 4, 2, 2]);
 assert.deepEqual(sizes("combinatorial"), [6, 4, 4, 2, 2, 2]);
 assert.deepEqual(hex.frags("combinatorial").find((f) => f.atoms.join() === "2,3")!.lines, [0, 1]);
+// Tab on an atom (ChemDraw's): its fragments smallest first, the molecule last, round again; Shift+Tab goes back. On a
+// bond, the fragments with both its atoms.
+const comb = hex.frags("combinatorial");
+const tabs = [0, 1, 2, 3].map((n) => comb[ms.fragmentWith(comb, [2], n)!].atoms.join());
+assert.deepEqual(tabs, ["2,3", "2,3,4,5", "0,1,2,3", "0,1,2,3,4,5"]);
+assert.equal(ms.fragmentWith(comb, [2], 4), ms.fragmentWith(comb, [2], 0));
+assert.equal(ms.fragmentWith(comb, [2], -1), 0);
+assert.deepEqual([0, 1].map((n) => comb[ms.fragmentWith(comb, [1, 2], n)!].atoms.join()), ["0,1,2,3", "0,1,2,3,4,5"]);
+assert.equal(ms.fragmentWith(comb, [9], 0), undefined);
+assert.equal(ms.fragmentWith(comb, [], 0), undefined);
+// A line with corners (the panel takes each line's points) cuts every bond it crosses: hexane's bonds 1 and 3 by one
+// line that goes across, along and back, as two straight lines would.
+{
+  const m = hex.mol, mid = (k: number) => { const [a, b] = m.bonds[k].atoms.map((i) => m.atoms[i].location); return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; };
+  const [p, q] = [mid(1), mid(3)], top = Math.max(...m.atoms.map((a) => a.location[1])) + 1;
+  const bent: [number, number][] = [[p[0], p[1] - 0.5], [p[0], top], [q[0], top], [q[0], q[1] - 0.5]];
+  const s = ms.structureOf(m, m.atoms.map((_, i) => i), expandWithOrigins(subset(m, new Set(m.atoms.map((_, i) => i)))), [bent]);
+  assert.deepEqual(s.lines, [[1, 3]]);
+  assert.deepEqual(ms.fragmentsOf({ ...s, mode: "simultaneous" }).map((f) => f.atoms.length), sizes("simultaneous"));
+}
 // A cut through one ring bond alone leaves the molecule whole: only the molecule.
 assert.equal(load("C1CCCCC1", [[0]]).frags().length, 1);
 

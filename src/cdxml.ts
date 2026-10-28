@@ -460,7 +460,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const qs = c.points.flatMap((q) => [q.c1 ?? q.at, q.at, q.c2 ?? q.at]).map(at), heads = start !== "none" || end !== "none";
     put(el("curve", { id: idOf.get(a.id)!, Z: Z(), color: colour(a.colour), FillType: a.fill === "solid" ? "Solid" : a.fill ? "Shaded" : undefined, CurveType: bits || undefined, ...ownLines(scaleOf(a), a.width),
       ArrowheadHead: HEADS[end], ArrowheadTail: HEADS[start], ArrowheadType: HEAD_SHAPES[a.head ?? "solid"], HeadSize: heads ? Math.round(headSize(a).length * 100) : undefined, ArrowheadCenterSize: heads ? Math.round(headSize(a).centre * 100) : undefined, ArrowheadWidth: heads ? Math.round(headSize(a).width * 100) : undefined,
-      Closed: c.closed ? "yes" : undefined, CurvePoints: qs.map(pt).join(" "), Octet: priv({ fill: a.fill === "faded" ? "faded" : undefined, style: a.style === "wavy" ? "wavy" : undefined, scale: ownScale(a) }) }), 4, boxOf(qs), a.id);
+      Closed: c.closed ? "yes" : undefined, CurvePoints: qs.map(pt).join(" "), Octet: priv({ kind: a.kind === "cut" ? "cut" : undefined, fill: a.fill === "faded" ? "faded" : undefined, style: a.style === "wavy" ? "wavy" : undefined, scale: ownScale(a) }) }), 4, boxOf(qs), a.id);
   };
   for (const a of mol.arrows ?? []) {
     zOrder = a.order;
@@ -839,7 +839,8 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   };
   for (const a of mol.arrows ?? []) {
     zOrder = a.order;
-    if (a.kind === "curve" && a.curve) { if (!(a.curve.closed && a.fill)) curveOut(a); }
+    // A pen curve, or a fragmentation line with corners (a curve of straight runs, with Octet's kind).
+    if ((a.kind === "curve" || a.kind === "cut") && a.curve) { if (!(a.curve.closed && a.fill)) curveOut(a); }
     else if (a.kind !== "orbital") arrowOut(a, false);
   }
   for (const a of opts.derived ?? []) { zOrder = a.order; if (a.kind !== "orbital" && a.kind !== "curve") arrowOut(a, true); }
@@ -1856,7 +1857,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     const v = raw as number[], q = (k: number) => toOctet(v[2 * k], v[2 * k + 1]), same = (j: number, k: number) => v[2 * j] === v[2 * k] && v[2 * j + 1] === v[2 * k + 1];
     const points: CurvePoint[] = Array.from({ length: v.length / 6 }, (_, k) => ({ at: q(3 * k + 1), ...(same(3 * k, 3 * k + 1) ? {} : { c1: q(3 * k) }), ...(same(3 * k + 2, 3 * k + 1) ? {} : { c2: q(3 * k + 2) }) }));
     const bits = int(x.attrs.CurveType) ?? 0, p = priv(x), closed = !!(bits & 1) || yes(x.attrs.Closed), colour = colourOf(x.attrs.color);
-    const a: Arrow & { z: number } = { id: newId(x), kind: "curve", from: points[0].at, to: points[points.length - 1].at, curve: { points, ...(closed ? { closed: true } : {}) }, z: zOf(x) };
+    const a: Arrow & { z: number } = { id: newId(x), kind: p?.kind === "cut" ? "cut" : "curve", from: points[0].at, to: points[points.length - 1].at, curve: { points, ...(closed ? { closed: true } : {}) }, z: zOf(x) };
     const fill: CurveFill | undefined = p?.fill === "faded" ? "faded" : bits & 128 || x.attrs.FillType === "Solid" ? "solid" : bits & 256 || x.attrs.FillType === "Shaded" ? "shaded" : undefined;
     if (fill) a.fill = fill;
     const style: LineStyle | undefined = p?.style === "wavy" ? "wavy" : bits & 512 ? "doubled" : bits & 2 ? "dashed" : bits & 4 ? "bold" : undefined;

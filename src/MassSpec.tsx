@@ -2,7 +2,8 @@
 // structure make, in ChemDraw's three modes, each as an ion with its formula and m/z for the chosen adduct and charge
 // state, its isotope pattern drawn as sticks, and the HRMS line for the chosen one. A pasted peak list (or a JCAMP-DX
 // peak table) is drawn under the sticks, mirrored, and each ion is matched to its peaks. Docked as the Spectrum panel
-// is; pointing at a row or a peak lights its fragment's atoms, and pointing at an atom lights its fragments.
+// is; pointing at a row or a peak lights its fragment's atoms, and pointing at an atom lights its fragments (Tab goes
+// from one to the next).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowsIn, ArrowsOut, ChartBar, CopySimple, Article, Tag, Table, X } from "@phosphor-icons/react";
 import type { Mol } from "./render";
@@ -16,8 +17,9 @@ import { holdCursor } from "./cursor";
 import { useLeaving } from "./motion";
 import { HIGHLIGHT_COLOURS } from "./docstyle";
 import { spread } from "./spectrumplot";
+import { cutPoints } from "./masscut";
 import {
-  fragmentsOf, hrmsLine, ionChoices, ionName, ionOf, MODES, mzRange, mzTicks, nearest, parsePeaks, patternMatch, ppm, SOURCES, structureOf, TOLERANCES,
+  fragmentsOf, fragmentWith, hrmsLine, ionChoices, ionName, ionOf, MODES, mzRange, mzTicks, nearest, parsePeaks, patternMatch, ppm, SOURCES, structureOf, TOLERANCES,
   type IonOf, type MsPrefs, type Peak,
 } from "./msanalysis";
 import "./massspec.css";
@@ -33,6 +35,7 @@ export type MsAdd = { what: "spectrum"; rows: MsRow[]; range: [number, number]; 
 type Props = {
   mol: Mol; atoms: number[]; ready: boolean; prefs: MsPrefs; lit?: number; // the drawing, the structure's atoms, Indigo loaded, the atom pointed at
   peaks?: Peak[]; // a measured peak list from elsewhere (an opened spectrum); a pasted one takes its place
+  tab?: { atoms: number[]; n: number }; // Tab pressed n + 1 times on the canvas, on these atoms (an atom, or a bond's two)
   onPrefs: (p: MsPrefs) => void; onPoint: (atoms?: number[]) => void; onCopy: (text: string) => void; onAdd: (a: MsAdd) => void; onClose: () => void;
 };
 
@@ -61,7 +64,7 @@ export function MassSpecPanel(p: Props) {
     if (!p.ready || !p.atoms.length) return undefined;
     const ids = p.atoms.filter((i) => p.mol.atoms[i]).sort((a, b) => a - b);
     try {
-      const cuts = (p.mol.arrows ?? []).filter((a) => a.kind === "cut").map((a): [[number, number], [number, number]] => [a.from, a.to]);
+      const cuts = (p.mol.arrows ?? []).filter((a) => a.kind === "cut").map(cutPoints);
       return structureOf(p.mol, ids, expandWithOrigins(subset(p.mol, new Set(ids))), cuts);
     } catch { return undefined; }
   }, [p.mol, p.atoms, p.ready]);
@@ -95,8 +98,18 @@ export function MassSpecPanel(p: Props) {
   const [pointed, setPointed] = useState<number>(), [chosen, setChosen] = useState(0);
   useLayoutEffect(() => setChosen(0), [p.prefs.mode, structure]);
   const point = (k?: number) => { if (k !== pointed) { setPointed(k); p.onPoint(k === undefined ? undefined : rows[k]?.atoms); } };
-  // Rows lit from the canvas: the fragments with the atom pointed at (the molecule only when it is the only one).
-  const lit = (k: number) => pointed === k || (p.lit !== undefined && rows[k].atoms.includes(p.lit) && (k > 0 || rows.length === 1));
+  // Tab on the canvas (ChemDraw's): the fragments with the atom or bond pointed at, one after another. The one reached
+  // is chosen, and lit here and on the canvas.
+  const tabbed = p.tab ? fragmentWith(rows, p.tab.atoms, p.tab.n) : undefined, tabbing = useRef(false);
+  useLayoutEffect(() => {
+    if (!p.tab && !tabbing.current) return;
+    tabbing.current = !!p.tab;
+    if (tabbed !== undefined) setChosen(tabbed);
+    p.onPoint(tabbed === undefined ? undefined : rows[tabbed].atoms);
+  }, [p.tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Rows lit from the canvas: the fragments with the atom pointed at (the molecule only when it is the only one), or
+  // the one Tab reached.
+  const lit = (k: number) => pointed === k || (tabbed !== undefined ? k === tabbed : p.lit !== undefined && rows[k].atoms.includes(p.lit) && (k > 0 || rows.length === 1));
   const drag = useRef<{ from: number; range: [number, number]; moved: boolean }>(undefined);
   // The ion whose sticks are nearest the pointer, within 6 px.
   const rowAt = (px: number) => {

@@ -80,6 +80,8 @@ const arrows: Arrow[] = [
   arrow(135, "orbital", [30, -24], [30.8, -24], { orbital: { shape: "p", phase: "plain" }, style: "dashed" }),
   arrow(136, "orbital", [32, -24], [32.8, -24], { orbital: { shape: "s", phase: "plain" }, style: "bold" }),
   arrow(137, "reaction", [22, -20], [25, -20], { width: 1.5 }), arrow(138, "curve", [26, -20], [27, -20], { curve: { points: [{ at: [26, -20] }, { at: [27, -20] }] }, width: 0.3 }),
+  // A Mass Spec Analysis line with corners: a curve of straight runs, kept as a fragmentation line.
+  arrow(139, "cut", [14, -16], [17, -16], { curve: { points: [{ at: [14, -16] }, { at: [15, -14] }, { at: [16, -14] }, { at: [17, -16] }] } }),
 ];
 const shapes: Shape[] = [
   { id: 201, kind: "highlight", from: [-1, -1], to: [3.5, 1.5] },

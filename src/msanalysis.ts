@@ -64,9 +64,10 @@ const oddElectrons = (c: Counts, charge: number) => {
 // (indices into links); each drawn atom's element counts (with its hydrogens and its label's atoms) and charge; and
 // the drawn atoms whose label is no element (a query atom, R). mol: the drawing. ids: the structure's atoms.
 // expanded: expandWithOrigins of subset(mol, ids), whose drawn atoms are ids in order. Hydrogens are counted as
-// fragmentMasses counts them: each atom keeps its own, so a cut is homolytic.
+// fragmentMasses counts them: each atom keeps its own, so a cut is homolytic. cuts: each line's points, end to end
+// (two for a straight line, more for one with corners).
 export type Structure = { atoms: number[]; links: [number, number][]; lines: number[][]; counts: Map<number, Counts>; charges: Map<number, number>; unknown: Set<number> };
-export function structureOf(mol: Mol, ids: number[], expanded: { mol: Mol; from: number[] }, cuts: [P, P][]): Structure {
+export function structureOf(mol: Mol, ids: number[], expanded: { mol: Mol; from: number[] }, cuts: P[][]): Structure {
   const atoms = [...new Set(ids)].filter((i) => mol.atoms[i]).sort((a, b) => a - b), own = new Set(atoms);
   const { mol: x, from } = expanded, used = x.atoms.map(() => 0), counts = new Map<number, Counts>(), charges = new Map<number, number>(), unknown = new Set<number>();
   x.bonds.forEach((b) => { if (b.type !== HBOND) b.atoms.forEach((i) => (used[i] += orderOf(b.type))); });
@@ -123,6 +124,15 @@ export function fragmentsOf(o: { atoms: number[]; links: [number, number][]; lin
   }
   const m = (f: Fragment) => monoisotopic(f.counts) ?? 0;
   return [out[0], ...out.slice(1).sort((a, b) => m(b) - m(a))];
+}
+
+// Tab on an atom or bond (ChemDraw's): the fragments with all these atoms in them, smallest first and the molecule
+// last, and the nth of them (Tab after Tab goes round; n below 0 goes back). Indices into fragments; undefined when
+// none has them.
+export function fragmentWith(fragments: { atoms: number[] }[], atoms: number[], n: number): number | undefined {
+  const all = fragments.map((f, k) => ({ k, size: f.atoms.length })).filter(({ k }) => atoms.length && atoms.every((i) => fragments[k].atoms.includes(i)));
+  all.sort((a, b) => (a.k === 0 ? 1 : 0) - (b.k === 0 ? 1 : 0) || a.size - b.size || a.k - b.k);
+  return all.length ? all[((n % all.length) + all.length) % all.length].k : undefined;
 }
 
 // The ions: an adduct (taken n times for charge state n), or a loss (a hydrogen or a chloride), the radical ions

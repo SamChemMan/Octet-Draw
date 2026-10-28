@@ -268,7 +268,8 @@ export function parse(text: string): Mol {
         || (a.style !== undefined && !["dashed", "bold", "wavy", "doubled"].includes(a.style as string))
         || (a.start !== undefined && !HEADS.includes(a.start as Head)) || (a.end !== undefined && !HEADS.includes(a.end as Head))
         || (a.head !== undefined && !["solid", "hollow", "angled"].includes(a.head as string)) || (a.fill !== undefined && !["solid", "shaded", "faded"].includes(a.fill as string))
-        || ((a.kind === "curve") !== (a.curve !== undefined)) || (a.curve !== undefined && !readCurve(a.curve))
+        // A pen curve has points; so may a fragmentation line (its corners), and nothing else.
+        || (a.kind === "curve" && a.curve === undefined) || (a.curve !== undefined && a.kind !== "curve" && a.kind !== "cut") || (a.curve !== undefined && !readCurve(a.curve))
         || (orb !== undefined && (!ORBITAL_SHAPES.includes(orb?.shape as OrbitalShape) || !PHASES.includes(orb?.phase as Phase))) || ((a.kind === "orbital") !== (orb !== undefined)) || badColour(a.colour) || badWidth(a.width)
         || (a.headSize !== undefined && !readHead(a.headSize)) || (a.ratio !== undefined && !(num(a.ratio) && (a.ratio as number) > 0 && (a.ratio as number) <= 100))
         || (a.shaft !== undefined && !(num(a.shaft) && (a.shaft as number) > 0 && (a.shaft as number) <= 500)) || (a.point !== undefined && a.point !== true) || !isScale(a.scale)) throw new Error("This drawing is damaged.");

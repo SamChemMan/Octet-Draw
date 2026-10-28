@@ -1747,7 +1747,8 @@ export function bendPoint(a: Arrow): [number, number] {
 // An arrow's path in px (y down): two points for a straight arrow, a sampled arc for a curved one. The arc is
 // the circle through both ends and the middle point, which is how CDXML stores curved arrows too.
 export function arrowPath(a: Arrow, k: number): P[] {
-  if (a.kind === "curve" && a.curve) return curvePath(a.curve, k);
+  // A pen curve, or a fragmentation line with corners.
+  if ((a.kind === "curve" || a.kind === "cut") && a.curve) return curvePath(a.curve, k);
   const S: P = [a.from[0] * k, -a.from[1] * k], T: P = [a.to[0] * k, -a.to[1] * k];
   if (!a.bend || (!curved(a) && !a.point)) return [S, T];
   const m = bendPoint(a), M: P = [m[0] * k, -m[1] * k];

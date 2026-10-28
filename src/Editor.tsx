@@ -96,7 +96,7 @@ setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, 
 import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, hasContent, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, placeTemplate, removeSet, removeTemplate, renameSet, renameTemplate, setName, templateKind, templateToEnd, templateToStart, updateTemplate } from "./templates";
 import { formulaRuns } from "./labels";
 import { captionAtom, captionsToAtoms, chemicalCaption, interpretLabels, labelable, withCaptionAtoms } from "./edit";
-import { bendOf, crossedBonds, cutSides } from "./masscut";
+import { bendOf, crossedBonds, cutEndAt, cutPoints, cutSides, cutThrough, extendCut } from "./masscut";
 import { common, edited, lines as richLines, normalise, plainOf, runsOf, shareColour, styleRange, styled, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
 import { Dialog } from "./Dialog";
@@ -198,7 +198,9 @@ type Drag =
   // snap: the boxes snapping uses, made at the first move (a click does not need them) and kept for the drag.
   | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; snap: () => { moving: number[]; targets: number[][] } | undefined; base?: Mol; atoms?: Set<number> }
   // Drawing an arrow, and dragging one of a picked arrow's handles (an end, or the middle of a curved one).
-  | { kind: "arrow"; from: P; start: [number, number]; target: Hover; to?: P; trail?: P[]; side?: number; make?: Make; alt?: boolean }
+  // corners: a Mass spec analysis line's corners so far (a key pressed during the drag adds one where the pointer is);
+  // longer: the line whose end the drag started from, which it makes longer.
+  | { kind: "arrow"; from: P; start: [number, number]; target: Hover; to?: P; trail?: P[]; side?: number; make?: Make; alt?: boolean; corners?: P[]; longer?: { id: number; end: "from" | "to" } }
   // Drawing a shape from corner to corner.
   | { kind: "shape"; from: P; start: [number, number]; target: Hover; to?: P }
   | { kind: "handle"; id: number; which: Corner; working: Mol }
@@ -2231,7 +2233,7 @@ export default function Editor() {
     if (drag?.kind === "chain" && drag.to) return chainThrough(doc, drag.from, chainPath(drag)).mol;
     if (drag?.kind === "ring" && drag.to) return ringDrop(drag);
     if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "resize" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "lane" || drag?.kind === "tableedge" || drag?.kind === "mark") return placeCentres(drag.working);
-    if (drag?.kind === "arrow" && drag.to && tool === "massspec") return addArrow(doc, { kind: "cut", from: drag.from, to: drag.to })[0];
+    if (drag?.kind === "arrow" && drag.to && tool === "massspec") return msLine(drag, drag.to)[0];
     if (drag?.kind === "arrow" && drag.to && drag.make?.kind === "cut") return massCut(drag, true).mol;
     if (drag?.kind === "arrow" && drag.to) return addArrow(doc, newArrow(drag.from, drag.to, drag.side, drag.make))[0];
     if (drag?.kind === "shape" && drag.to) { const sh = shapeFrom(drag.from, drag.to); return sh ? addShape(doc, sh)[0] : doc; }
@@ -2576,6 +2578,8 @@ export default function Editor() {
   const markDirs = useMemo(() => markDirections(shown, shown.atoms.flatMap((a, i) => (a.enhanced ? [i] : []))), [shown.atoms, shown.bonds]); // eslint-disable-line react-hooks/exhaustive-deps
   // The Mass spec panel's structure (see openMassSpec), and the atoms lit from it.
   const [massSpec, setMassSpec] = useState<number[]>(), [msPoint, setMsPoint] = useState<number[]>();
+  // Tab on an atom or bond with Mass spec analysis: the atom or bond, its atoms, and how many times Tab was pressed on it.
+  const [msTab, setMsTab] = useState<{ atom?: number; bond?: number; atoms: number[]; n: number }>();
   // A cut with the Mass fragmentation tool (ChemDraw's): one caption for each side, its pieces' formula (counts as
   // subscripts) and exact mass added up, beside the cut's end on that side (the left side's at its start). The
   // captions move, change and delete as any caption does. The cut line goes when the pointer is released; with Option
@@ -3409,8 +3413,8 @@ export default function Editor() {
     const near = (q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) * L * views.get().zoom < 8;
     const wh = widthHandle();
     if (wh && near(wh.at)) return { id: wh.id, which: "width" };
-    // A picked pen curve's anchors, then their handles.
-    if (a?.kind === "curve" && a.curve) {
+    // A picked pen curve's anchors, then their handles; a fragmentation line's corners and ends.
+    if ((a?.kind === "curve" || a?.kind === "cut") && a.curve) {
       const i = a.curve.points.findIndex((q) => near(q.at));
       if (i >= 0) return { id: a.id, which: `p${i}:at` };
       for (const [k, q] of a.curve.points.entries()) for (const part of ["c1", "c2"] as const) { const h = q[part]; if (h && near(h)) return { id: a.id, which: `p${k}:${part}` }; }
@@ -3634,7 +3638,9 @@ export default function Editor() {
       pressTool(p, at, screen, e.altKey, { meta: MOD === "⌘" ? e.metaKey : e.ctrlKey, shift: e.shiftKey });
       return startHold(p, at, screen);
     }
-    if (tool !== "erase" && tool !== "text" && (t.caption !== undefined || t.arrow !== undefined)) return pressCaption(p, t, e.shiftKey, screen);
+    // Mass spec analysis: a press on an end of a fragmentation line makes the line longer (pressTool), not moves it.
+    const lineEnd = tool === "massspec" && cutEndAt(doc.arrows ?? [], p, 8 / L / views.get().zoom);
+    if (tool !== "erase" && tool !== "text" && !lineEnd && (t.caption !== undefined || t.arrow !== undefined)) return pressCaption(p, t, e.shiftKey, screen);
     // With the TLC tool, a spot or a line on a plate drags, and a click adds a spot. A hold gives Select.
     if (tool === "tlc" && plateAt(p)) {
       const sh = plateAt(p)!;
@@ -3675,6 +3681,9 @@ export default function Editor() {
     }
     if (tool === "shape" || tool === "bracket" || tool === "tlc" || tool === "table") return setDrag({ kind: "shape", from: p, start: screen, target: t });
     if (tool === "map" && t.atom !== undefined) return setDrag({ kind: "map", atom: t.atom, start: screen });
+    // Mass spec analysis: a press on an end of a fragmentation line makes that line longer (ChemDraw's).
+    const end = tool === "massspec" ? cutEndAt(doc.arrows ?? [], p, 8 / L / views.get().zoom) : undefined;
+    if (end) return setDrag({ kind: "arrow", from: end.line[end.end], start: screen, target: t, make: { kind: "cut" }, longer: { id: end.line.id, end: end.end } });
     if (tool === "fragment" || tool === "massspec" || tool === "synthesis" || tool === "retro") return setDrag({ kind: "arrow", from: p, start: screen, target: t, make: { kind: "cut" } });
     // An orbital grows from the atom pressed (or the point) towards the pointer.
     if (tool === "orbital") return setDrag({ kind: "arrow", from: t.atom !== undefined ? pos(doc, t.atom) : p, start: screen, target: t, make: { kind: "orbital", orbital: orbitalSpec(orbitalChoice)! } });
@@ -3775,8 +3784,9 @@ export default function Editor() {
           const side = Math.abs(area / 2) > 0.05 * chord * chord ? (area < 0 ? 1 : -1) : (drag.side ?? 1);
           return setDrag({ ...drag, to, trail, side });
         }
-        const far = Math.hypot(p[0] - drag.from[0], p[1] - drag.from[1]), raw = Math.atan2(p[1] - drag.from[1], p[0] - drag.from[0]);
-        const a = e.altKey || !settings.fixedAngles ? raw : Math.round(raw / SNAP) * SNAP, to: P = [drag.from[0] + far * Math.cos(a), drag.from[1] + far * Math.sin(a)];
+        // A line with corners steps from its last corner.
+        const o = drag.corners?.[drag.corners.length - 1] ?? drag.from, far = Math.hypot(p[0] - o[0], p[1] - o[1]), raw = Math.atan2(p[1] - o[1], p[0] - o[0]);
+        const a = e.altKey || !settings.fixedAngles ? raw : Math.round(raw / SNAP) * SNAP, to: P = [o[0] + far * Math.cos(a), o[1] + far * Math.sin(a)];
         // Snap to Grid: a level or upright arrow ends on a grid line too (other angles keep their 15° steps).
         const turn = ((Math.round(a / SNAP) % 12) + 12) % 12, g = toGrid(to, e.metaKey || e.altKey), stepped = a !== raw || raw % SNAP === 0;
         return setDrag({ ...drag, ...cut, to: stepped && turn === 0 ? [g[0], to[1]] : stepped && turn === 6 ? [to[0], g[1]] : to });
@@ -4756,12 +4766,21 @@ export default function Editor() {
     setSpectrum(undefined);
     setMassSpec(group);
   }
-  function massSpecLine(from: P, to: P | undefined, target: Hover) {
+  // The line a Mass spec analysis drag makes, and its id: a new line through the drag's corners to the pointer, or the
+  // line the drag started from, made longer.
+  function msLine(d: Extract<Drag, { kind: "arrow" }>, to: P): [Mol, number] {
+    const old = d.longer && doc.arrows?.find((a) => a.id === d.longer!.id);
+    if (old && d.longer) return [updateArrow(doc, old.id, { curve: undefined, ...extendCut(old, d.longer.end, d.corners ?? [], to) }), old.id];
+    return addArrow(doc, { kind: "cut", ...cutThrough([d.from, ...(d.corners ?? []), to]) });
+  }
+  function massSpecLine(d: Extract<Drag, { kind: "arrow" }>) {
+    const { from, to, target } = d;
     const bond = target.bond ?? bondAt(doc, from, 0.3), one = target.atom ?? atomAt(doc, from, 0.5) ?? (bond !== undefined ? doc.bonds[bond]?.atoms[0] : undefined);
-    if (!to || Math.hypot(to[0] - from[0], to[1] - from[1]) < 0.2) return one !== undefined && one < doc.atoms.length ? openMassSpec(one) : setNotice("Drag the line across one or more bonds.", "info");
-    const crossed = crossedBonds(doc, [from, to]);
+    if (d.longer && (!to || Math.hypot(to[0] - from[0], to[1] - from[1]) < 0.2)) return;
+    if (!to || (Math.hypot(to[0] - from[0], to[1] - from[1]) < 0.2 && !d.corners?.length)) return one !== undefined && one < doc.atoms.length ? openMassSpec(one) : setNotice("Drag the line across one or more bonds.", "info");
+    const [next, id] = msLine(d, to), line = next.arrows!.find((a) => a.id === id)!, crossed = crossedBonds(doc, cutPoints(line));
     if (!crossed.length) return setNotice("Drag the line across one or more bonds.", "info");
-    set(addArrow(doc, { kind: "cut", from, to })[0]);
+    set(next);
     openMassSpec(doc.bonds[crossed[0].bond].atoms[0]);
   }
   // Opening the panel scrolls the canvas up if the panel would cover the structure, as the Spectrum panel does, and
@@ -5983,7 +6002,7 @@ export default function Editor() {
         }
         // Mass spec analysis (ChemDraw's): the line stays as a fragmentation line, and the Mass spec panel opens on the
         // structure it crosses. A click on a structure opens the panel on it.
-        if (tool === "massspec") return massSpecLine(drag.from, drag.to, drag.target);
+        if (tool === "massspec") return massSpecLine(drag);
         if (drag.make?.kind === "cut") {
           if (!drag.to) return;
           const { mol, items } = massCut(drag, !!drag.alt);
@@ -6147,6 +6166,22 @@ export default function Editor() {
       }
       if (typing() || e.defaultPrevented) return; // typing in a label or caption box, or a box already used the key
       if (home || modal()) return; // Home and dialogs have their own keys
+      // Mass spec analysis (ChemDraw's): a key pressed while a line is dragged puts a corner in it where the pointer is.
+      if (drag?.kind === "arrow" && tool === "massspec" && drag.to && e.key !== "Escape") {
+        e.preventDefault();
+        if (!e.repeat) setDrag({ ...drag, corners: [...(drag.corners ?? []), drag.to] });
+        return;
+      }
+      // Tab with an atom or bond of the analysed structure under the pointer goes to the next fragment it is in, and
+      // Shift+Tab back (ChemDraw's).
+      if (e.key === "Tab" && tool === "massspec" && msAtoms && !e.altKey) {
+        const h = hovers.get(), atoms = h.atom !== undefined ? [h.atom] : h.bond !== undefined ? doc.bonds[h.bond]?.atoms : undefined;
+        if (atoms?.every((i) => msAtoms.includes(i))) {
+          e.preventDefault();
+          const again = msTab && msTab.atom === h.atom && msTab.bond === h.bond;
+          return setMsTab({ atom: h.atom, bond: h.bond, atoms: [...atoms], n: again ? msTab.n + (e.shiftKey ? -1 : 1) : 0 });
+        }
+      }
       // Escape stops a pick for a template set, and the library shows again.
       if (templatePick && e.key === "Escape") { e.preventDefault(); return stopPick(); }
       if (controlTakes(e.key, document.activeElement as HTMLElement | null, keyFocus.current)) return;
@@ -7059,8 +7094,9 @@ export default function Editor() {
             // A picked arrow's handles: its ends, and the middle of a curved one.
             const ids = [...picked], a = ids.length === 1 && !selection.size && drag?.kind !== "move" ? arrows.find((x) => x.id === ids[0]) : undefined;
             const wh = drag?.kind === "move" ? undefined : widthHandle();
-            if (a?.kind === "curve" && a.curve && !wh) {
-              // A picked pen curve: every anchor as a small square, and each handle as a dot on a line from its anchor.
+            if ((a?.kind === "curve" || a?.kind === "cut") && a.curve && !wh) {
+              // A picked pen curve (or fragmentation line with corners): every anchor as a small square, and each handle
+              // as a dot on a line from its anchor.
               const r = 3.5 / view.zoom, c = a.curve;
               return (
                 <g className="pen-points" aria-hidden>
@@ -7561,6 +7597,7 @@ export default function Editor() {
       )}</Live>}</Exit>
       <Exit>{msAtoms && <Live store={hovers}>{(hover) => (
         <MassSpecPanel mol={doc} atoms={msAtoms} ready={loaded} prefs={settings.massSpec} lit={hover.atom} peaks={msMeasured}
+          tab={msTab && tool === "massspec" && msTab.atom === hover.atom && msTab.bond === hover.bond ? msTab : undefined}
           onPrefs={(massSpec) => setSettings((s) => ({ ...s, massSpec }))} onPoint={setMsPoint} onCopy={(text) => runAction(`copy_text:${text}`)} onAdd={addMassSpec}
           onClose={() => { setMassSpec(undefined); setMsPoint(undefined); }} />
       )}</Live>}</Exit>
