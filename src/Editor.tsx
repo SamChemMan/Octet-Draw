@@ -3396,11 +3396,12 @@ export default function Editor() {
   }
 
   function pressSelect(p: P, t: Hover, shift: boolean, screen: [number, number], copy = false) {
-    const ids = atomsOf(doc, t);
-    // A press on any part of an integral group picks the whole (outermost) group (Shift adds it) and moves it.
-    const whole = outermost(groupsOf(doc, new Set(ids), new Set(itemsOf(t))).filter((g) => g.integral));
-    if (whole && selectKind !== "perspective") {
-      const atoms = new Set([...(shift ? selection : []), ...whole.atoms]), picks = new Set([...(shift ? picked : []), ...whole.items]);
+    const ids = atomsOf(doc, t), its = itemsOf(t);
+    // Sam (28 October 2026): a press on any part of a group picks the whole (outermost) group (Shift adds it) and
+    // moves it; a press on a part already picked (by a double-click, pickPart) moves that part within its group.
+    if (selectKind !== "perspective" && groupsOf(doc, new Set(ids), new Set(its)).length) {
+      if (!shift && ids.every((i) => selection.has(i)) && its.every((x) => picked.has(x))) return startMove(p, screen, t, picked, selection, copy);
+      const [ga, gi] = withGroups(new Set(ids), new Set(its)), atoms = new Set([...(shift ? selection : []), ...ga]), picks = new Set([...(shift ? picked : []), ...gi]);
       setSelection(atoms);
       setPicked(picks);
       return startMove(p, screen, t, picks, atoms, copy);
@@ -3423,6 +3424,14 @@ export default function Editor() {
       setSelection(atoms);
       setPicked(picks);
       return startMove(p, screen, t, picks, atoms, copy);
+    }
+    // A press anywhere inside the frame of a selected group moves the whole group.
+    const f = frameBox(views.get().zoom);
+    if (!shift && f && p[0] >= f[0] && p[0] <= f[2] && p[1] >= f[1] && p[1] <= f[3] && groupsOf(doc, selection, picked).length) {
+      const [ga, gi] = withGroups(selection, picked);
+      setSelection(ga);
+      setPicked(gi);
+      return startMove(p, screen, t, gi, ga, copy);
     }
     const base = shift ? selection : new Set<number>(), picks = shift ? picked : new Set<number>();
     setSelection(base);
@@ -5894,12 +5903,13 @@ export default function Editor() {
     if (alt) return addChainOf(from, chainLength.current);
     setDialog({ kind: "chain", from, atoms: String(chainLength.current) });
   }
-  // Select's double-click on an atom or bond, as ChemDraw's: the whole of the outermost group it is in, else its whole
-  // structure.
+  // Select's double-click on an atom or bond: its whole structure. In a group (not an integral one) that is the part
+  // the double-click picks, to move within the group (Sam, 28 October 2026); a click picks the whole group.
   function pickWhole(t: Hover) {
     const g = outermost(groupsOf(doc, new Set(atomsOf(doc, t)), new Set(itemsOf(t)))), one = atomsOf(doc, t)[0];
-    setPicked(new Set(g?.items ?? []));
-    setSelection(new Set(g?.atoms ?? fragments(doc).find((x) => x.includes(one)) ?? [one]));
+    if (g?.integral) { setPicked(new Set(g.items)); return setSelection(new Set(g.atoms)); }
+    setPicked(new Set());
+    setSelection(new Set(fragments(doc).find((x) => x.includes(one)) ?? [one]));
   }
   // What a click does with each tool in hand. alt, more: Option, and Command and Shift, were held.
   function click(t: Hover, at: P, alt = false, more: { meta?: boolean; shift?: boolean } = {}) {
@@ -5938,6 +5948,7 @@ export default function Editor() {
       const on = t.atom !== undefined ? `atom ${t.atom}` : t.bond !== undefined ? `bond ${t.bond}` : undefined, was = lastPick.current, now = performance.now();
       lastPick.current = on === undefined ? undefined : { on, time: now };
       if (on !== undefined && was?.on === on && now - was.time < DOUBLE_MS) { lastPick.current = undefined; return pickWhole(t); }
+      if (groupsOf(doc, new Set(atomsOf(doc, t)), new Set(itemsOf(t))).length) return; // the press picked the group, or the part picked before
       return choose(atomsOf(doc, t), itemsOf(t));
     }
     if ((t.caption !== undefined || t.cycle !== undefined) && tool !== "text") return; // a caption or cycle was picked, not drawn on
@@ -7069,10 +7080,12 @@ export default function Editor() {
           // A double-click on a resize handle opens Scale…, and on the rotation handle Rotate…, as in ChemDraw.
           if (resizeAt(toDoc(e.clientX, e.clientY))) return commands.current.scale_dialog?.();
           if (tool !== "erase" && onTurnHandle(toDoc(e.clientX, e.clientY))) return commands.current.rotate_dialog?.();
-          // With Select, a double-click on any part of a group picks the whole of its outermost group (as ChemDraw's).
+          // With Select, a double-click on part of a group picks that part alone, to move it within the group (an
+          // integral group stays whole). A double-click on a part already picked goes on (a caption's text opens).
           if (tool === "select") {
-            const h = hit(toDoc(e.clientX, e.clientY)), g = outermost(groupsOf(doc, new Set(atomsOf(doc, h)), new Set(itemsOf(h))));
-            if (g) { setSelection(new Set(g.atoms)); setPicked(new Set(g.items)); return; }
+            const h = hit(toDoc(e.clientX, e.clientY)), ids = atomsOf(doc, h), its = itemsOf(h), g = outermost(groupsOf(doc, new Set(ids), new Set(its)));
+            if (g && (g.integral || ids.length)) return pickWhole(h);
+            if (g && !(its.every((x) => picked.has(x)) && picked.size === its.length && !selection.size)) { setSelection(new Set()); setPicked(new Set(its)); return; }
           }
           // With Select, double-click an atom to type its label (other tools would draw on each click).
           // Double-click a caption with any tool to type into it.
