@@ -15,7 +15,7 @@ import {
   type LineStyle, type Mol, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
 import { ELEMENTS, anchorElement, formulaRuns, isElement, units } from "./labels.ts";
-import { normalise, runsOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
+import { labelStyle, normalise, plainOf, runsOf, styleOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
 import { findReaction } from "./reaction.ts";
 import { readGrid } from "./stoich.ts";
 import { fragments, groupParents, renumberCentre, tidyGroups } from "./edit.ts";
@@ -363,6 +363,18 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     return `<s font="${font(s.font)}" size="${fmtSize(s.size)}"${c !== undefined ? ` color="${c}"` : ""}${s.face ? ` face="${s.face}"` : ""}>${escText(text)}</s>`;
   };
   const face = (s: RunStyle) => (s.bold ? 1 : 0) | (s.italic ? 2 : 0) | (s.underline ? 4 : 0) | (s.script === "sub" ? 0x20 : s.script === "super" ? 0x40 : 0);
+  // A written label's text from place at, split where its characters' own bold, italic and underline change (its runs,
+  // as ChemDraw's label <s> runs), each run with the label's face besides.
+  const labelText = (a: Atom, text: string, at: number, s: { font: string; size: number; colour?: string; face: number }) => {
+    const per = a.text && a.runs && plainOf(a.runs) === a.text ? a.runs.flatMap((r) => r.text.split("").map(() => r)) : undefined;
+    if (!per) return run(text, s);
+    let out = "";
+    for (let k = 0, e = 1; k < text.length; k = e, e = k + 1) {
+      while (e < text.length && per[at + e] === per[at + k]) e++;
+      out += run(text.slice(k, e), { ...s, face: s.face | face(per[at + k] ?? {}) });
+    }
+    return out;
+  };
   // A caption-styled text object written for ChemDraw only (a bracket's mark, a partial charge, a table cell).
   const note = (text: string, p: P, size: number, align: "left" | "centre" | "right", c?: string, item?: number) => {
     const w = widthOf(text, size), left = align === "left" ? p[0] : align === "right" ? p[0] - w : p[0] - w / 2, just = align === "centre" ? "Center" : align === "right" ? "Right" : undefined;
@@ -689,7 +701,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     return {
       xml: el("t", { p: pt([x, y]), BoundingBox: boxText(box), color: colour(a.colour), LabelJustification: just, Justification: just === "Left" ? undefined : just, LabelAlignment: stack, InterpretChemically: a.chemical === false ? "no" : undefined,
         RotationAngle: rotationAngle(a.labelAngle) },
-        (iso ? run(iso, { ...style2, face: 0x40 | look }) : "") + run(text.slice(0, text.length - range.length), { ...style2, face: 0x60 | look }) + (range ? run(range, { ...style2, face: 0x20 | look }) : "")
+        (iso ? run(iso, { ...style2, face: 0x40 | look }) : "") + labelText(a, text.slice(0, text.length - range.length), 0, { ...style2, face: 0x60 | look }) + (range ? run(range, { ...style2, face: 0x20 | look }) : "")
         + (sign ? run(sign, { ...style2, face: 0x40 | look }) : "")),
       box,
     };
@@ -715,9 +727,12 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const box = turnedBox([Math.min(...rows.map((_, j) => from(j))), y0 - 0.716 * size, Math.max(...rows.map((_, j) => from(j) + ws[j] + (j === k0 ? widthOf(sign, 0.75 * size) : 0))),
       y0 + (rows.length - 1) * pitch + (/\d/.test(last) ? 0.15 * size : 0)], [x, y0], a.labelAngle);
     const style2 = { font: a.font ?? style.labelFont, size, colour: a.colour }, look = (a.bold ? 1 : 0) | (a.italic ? 2 : 0) | (a.underline ? 4 : 0);
-    const parts: [string, number][] = [];
+    // Each part: its text, face, and place in the label's text (none for the sign).
+    const parts: [string, number, number?][] = [];
+    let place = 0;
     rows.forEach((t, j) => {
-      parts.push([t, 0x60 | look]);
+      parts.push([t, 0x60 | look, place]);
+      place += t.length + 1;
       if (j === k0 && sign) parts.push([sign, 0x40 | look]);
       if (j < rows.length - 1) parts[parts.length - 1][0] += "\n";
     });
@@ -725,7 +740,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     return {
       xml: el("t", { p: pt([x, y0]), BoundingBox: boxText(box), color: colour(a.colour), LabelJustification: just, Justification: just === "Left" ? undefined : just, LabelAlignment: a.align === "above" ? "Above" : a.align === "below" ? "Below" : undefined,
         InterpretChemically: a.chemical === false ? "no" : undefined, RotationAngle: rotationAngle(a.labelAngle), LineStarts: ends.join(" ") },
-        parts.filter(([t]) => t).map(([t, face]) => run(t, { ...style2, face })).join("")),
+        parts.filter(([t]) => t).map(([t, face, at]) => (at === undefined ? run(t, { ...style2, face }) : labelText(a, t, at, { ...style2, face }))).join("")),
       box,
     };
   }
@@ -1219,7 +1234,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   const bondSettings: { line?: number; bold?: number; hash?: number; margin?: number; spacing?: number; attrs: Record<string, string> }[] = [], labelSizes = new Map<number, number>(), nodeLines = new Map<number, number>();
   const atomOf = new Map<number, number>(), objectOf = new Map<number, number>(), arrowOfGraphic = new Map<number, number>();
   // Each label: its node, text, node type and isotope, Interpret Chemically off, and its text's justification, stacking and turn.
-  const labels: { i: number; text: string; type: string; isotope?: number; plain?: boolean; just?: string; stack?: string; turn?: string }[] = [];
+  // runs: the label's <s> runs as bold, italic and underline (face bits), for a written label whose characters differ.
+  const labels: { i: number; text: string; type: string; isotope?: number; plain?: boolean; just?: string; stack?: string; turn?: string; runs?: TextRun[] }[] = [];
   const numH = new Map<number, number>(), delocalised: { k: number; order?: 1 | 2 }[] = [], ovals: { id: number; c: P; r: number }[] = [];
   const bondsToRead: Xml[] = [], symbols: { x: Xml; atoms: number[]; group?: G }[] = [], steps: Xml[] = [], unders: { c: Caption; nodes: unknown }[] = [], anchors = new Map<number, P>();
   const brackets: { x: Xml; id: number; z: number; group?: G; ends: number[] }[] = [], properties: Xml[] = [];
@@ -1375,8 +1391,9 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (font && font !== style.labelFont) a.font = font;
       if (size && size >= 0.1 && size <= 999) { labelSizes.set(i, size); if (Math.abs(size - style.labelSize) > 0.01) a.size = size; }
     }
+    const runs = t?.kids.filter((k) => k.name === "s").map((k): TextRun => { const f = int(k.attrs.face) ?? 0; return { text: k.text, ...(f & 1 ? { bold: true } : {}), ...(f & 2 ? { italic: true } : {}), ...(f & 4 ? { underline: true } : {}) }; });
     if (t) labels.push({ i, text: t.kids.filter((k) => k.name === "s").map((k) => k.text).join(""), type, isotope, plain: t.attrs.InterpretChemically !== undefined && !yes(t.attrs.InterpretChemically),
-      just: t.attrs.LabelJustification ?? t.attrs.Justification, stack: t.attrs.LabelAlignment, turn: t.attrs.RotationAngle });
+      just: t.attrs.LabelJustification ?? t.attrs.Justification, stack: t.attrs.LabelAlignment, turn: t.attrs.RotationAngle, runs });
     else if (type === "GenericNickname" && n.attrs.GenericNickname) labels.push({ i, text: n.attrs.GenericNickname, type });
     else if (type === "ElementList" && n.attrs.ElementList) {
       // An element list with no label text: its label from its atomic numbers.
@@ -1655,7 +1672,16 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (lined.includes("\n")) text = lined;
       if (text.length > MAX_LABEL || /[<>]/.test(text)) { lose("label text"); text = text.replace(/[<>]/g, "").slice(0, MAX_LABEL).trim(); }
       if (isElement(text) && !plain) a.label = text;
-      else { a.text = text; a.label = anchorElement(text) ?? "C"; }
+      else {
+        a.text = text;
+        a.label = anchorElement(text) ?? "C";
+        // Characters bold, italic or underlined where others are not: each character of the text takes the style of
+        // its run (the text is the runs' text less what reading left out: spaces, empty lines, a charge sign).
+        const per = (l.runs ?? []).flatMap((r) => cleanText(r.text).split("").map((ch) => ({ ch, r })));
+        let j = 0;
+        const st = labelStyle(normalise(text.split("").map((ch): TextRun => { while (j < per.length && per[j].ch !== ch) j++; const r = per[j++]?.r; return { ...(r ? styleOf(r) : {}), text: ch }; })));
+        if (st.runs) { delete a.bold; delete a.italic; delete a.underline; Object.assign(a, st); }
+      }
       // Interpret Chemically off on the label: its text, not chemistry.
       if (plain) a.chemical = false;
       keep(l);

@@ -97,6 +97,12 @@ export function RichBox(p: Props) {
     sel.addRange(r);
   };
   useLayoutEffect(() => { build(p.caret); box.current?.focus(); }, [p.version]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Text with a line break goes in through the runs, and the box is built again: the break is a newline in the text,
+  // never a block the browser makes (which the places in the box would not count), so a selection after it is right.
+  const insert = (text: string) => {
+    const r = p.api.current?.range(), old = plainOf(runs.current);
+    if (r) p.onRuns(edited(runs.current, old.slice(0, r[0]) + text + old.slice(r[1]), p.pending), [r[0] + text.length, r[0] + text.length]);
+  };
   useEffect(() => {
     p.api.current = {
       range: () => {
@@ -129,13 +135,14 @@ export function RichBox(p: Props) {
       onPaste={(e) => {
         e.preventDefault();
         const text = e.clipboardData.getData("text/plain").replace(/\r\n?/g, "\n");
-        if (text) document.execCommand("insertText", false, text);
+        if (text.includes("\n")) insert(text);
+        else if (text) document.execCommand("insertText", false, text);
       }}
       onDrop={(e) => e.preventDefault()}
       onKeyDown={(e) => {
         // A new line with Return (as ChemDraw's captions, unless its preference asks for Option-Return), and always with
         // Option- or Shift-Return; the browser's own bold, italic and underline are not used (Octet's are).
-        if (e.key === "Enter" && (e.shiftKey || e.altKey || p.returnNewLine)) { e.preventDefault(); document.execCommand("insertText", false, "\n"); return; }
+        if (e.key === "Enter" && (e.shiftKey || e.altKey || p.returnNewLine)) { e.preventDefault(); insert("\n"); return; }
         if ((e.metaKey || e.ctrlKey) && ["b", "i", "u"].includes(e.key.toLowerCase())) e.preventDefault();
         p.onKeyDown(e);
       }}

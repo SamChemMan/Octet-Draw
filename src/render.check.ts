@@ -1,6 +1,6 @@
 // Run: node src/render.check.ts. Fails loudly if the ACS drawing rules break.
 import assert from "node:assert/strict";
-import { ALL_ARROW_KINDS, SHAPE_KINDS, arrowShapes, blockOutline, ellipseArrow, fitArrows, headOfLength, headSize, lineOffsets, markAt, placeCaptions, render, renderParts, shapeInk, shapePaths, sizeOf, spotPath, tableLayout, tlcLayout, turnedWith, type Arrow, type Atom, type Bond, type Box, type Caption, type Drawing, type Ink, type Mol, type PartCache, type Shape } from "./render.ts";
+import { ALL_ARROW_KINDS, SHAPE_KINDS, arrowShapes, blockOutline, ellipseArrow, fitArrows, headOfLength, headSize, lineOffsets, markAt, placeCaptions, render, renderParts, shapeInk, shapePaths, sizeOf, spotPath, tableLayout, tlcLayout, turnedWith, type Arrow, type Atom, type Bond, type Box, type Caption, type Drawing, type Face, type Ink, type Mol, type PartCache, type Shape } from "./render.ts";
 import { layoutCycles, type Cycle } from "./cycle.ts";
 import { arialGlyph } from "./cdxml.ts";
 
@@ -221,6 +221,28 @@ console.log("render.check: written labels ok");
   const charged = lined("NMe3\nsalt", [-1, 0], { label: "N", charge: 1 });
   assert.ok(charged.d.labels.some((l) => l.text === "+" && l.y < charged.rows[0][0].y && l.x > charged.rows[0][0].x), "the sign by the first line");
   console.log("render.check: labels of more than one line ok");
+
+  // A written label with some characters bold (its runs, styled as it is typed): each piece is drawn in its own style
+  // and measured in it (bold here is 10% wider), so what follows a bold piece moves along by its bold width. Read right
+  // to left (MeO), each unit keeps its own style, and the O still sits on the atom. On two lines, the same.
+  const wider = (text: string, face?: Face): Ink => { const m = arial(text), f = face?.bold ? 1.1 : 1; return { width: m.width * f, ascent: m.ascent, outline: m.outline.map(([px, py]): P => [px * f, py]) }; };
+  const styledAt = (text: string, to: P, runs: Atom["runs"]) => {
+    const dd = render({ atoms: [{ label: "O", text, runs, location: [0, 0, 0] }, { label: "C", location: [to[0], to[1], 0] }], bonds: [{ type: 1, atoms: [0, 1] }] }, S, wider);
+    return dd.labels.filter((_, j) => Math.hypot(dd.labelAt[j][0], dd.labelAt[j][1]) < 1e-9).sort((p, q) => p.y - q.y || p.x - q.x);
+  };
+  const ltr = styledAt("OMe", [-1, 0], [{ text: "O", bold: true }, { text: "Me" }]);
+  assert.deepEqual(ltr.map((l) => [l.text, !!l.bold]), [["O", true], ["Me", false]]);
+  assert.ok(Math.abs(ltr[1].x - ltr[0].x - 1.1 * metrics("O")[0]) < 1e-9, "Me starts after the bold O's bold width");
+  const rtl = styledAt("OMe", [1, 0], [{ text: "O", bold: true }, { text: "Me" }]);
+  assert.deepEqual(rtl.map((l) => [l.text, !!l.bold]), [["Me", false], ["O", true]]);
+  assert.ok(Math.abs(rtl[1].x + (1.1 * metrics("O")[0]) / 2) < 1e-9, "the bold O centred on the atom");
+  // Inside a unit (Me with only the e bold) the unit is drawn in two pieces.
+  assert.deepEqual(styledAt("OMe", [-1, 0], [{ text: "OM" }, { text: "e", bold: true }]).map((l) => [l.text, !!l.bold]), [["O", false], ["M", false], ["e", true]]);
+  // Runs that do not spell the text (left from an older edit) are not used.
+  assert.deepEqual(styledAt("OMe", [-1, 0], [{ text: "OH", bold: true }]).map((l) => [l.text, !!l.bold]), [["O", false], ["Me", false]]);
+  const two = styledAt("OMe\nCH2Cl2", [-1, 0], [{ text: "OMe\n" }, { text: "CH2", bold: true }, { text: "Cl2" }]);
+  assert.deepEqual(two.filter((l) => l.bold).map((l) => l.text).sort(), ["2", "C", "H"], "C, H and the first 2 bold on the second line");
+  console.log("render.check: labels with styled characters ok");
 }
 
 // Captions: centred on the structure's ink box, baseline 15 pt below it; a second caption stacks one line down.

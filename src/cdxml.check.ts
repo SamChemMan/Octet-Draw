@@ -1035,6 +1035,29 @@ No</s><s font="3" size="10" color="4" face="3"> ISC</s></t></n></fragment><fragm
   console.log("cdxml.check: labels of more than one line ok");
 }
 
+// A label with some characters bold, italic or underlined (typed so, or ChemDraw's label runs, as Sam's "OR" with a
+// bold R): written as <s> runs with those face bits besides the formula face, read back as the same runs, through CDX
+// too. A label's own style stays its own.
+{
+  const every = (x: Xml): Xml[] => [x, ...x.kids.flatMap(every)];
+  const m: Mol = { atoms: [A("O", 0, 0, { text: "OMe", runs: [{ text: "O", bold: true }, { text: "Me" }] }), A("C", 1, 0), A("C", 3, 0, { text: "OMe\nCH3", italic: true, runs: [{ text: "OMe\n" }, { text: "CH3", underline: true }] })], bonds: [b(0, 1)] };
+  const xml = toCdxml(m, DEFAULT_STYLE), ts = every(parseXml(xml)).filter((x) => x.name === "t");
+  const runs = (t: Xml) => t.kids.filter((k) => k.name === "s").map((k) => [k.text, Number(k.attrs.face)]);
+  assert.deepEqual(runs(ts[0]), [["O", 0x61], ["Me", 0x60]]);
+  assert.deepEqual(runs(ts[1]), [["OMe\n", 0x62], ["CH3", 0x66]]);
+  for (const back of [fromCdxml(xml).mol, fromCdxml(cdxToXml(xmlToCdx(parseXml(xml)))).mol, parse(serialize(fromCdxml(xml).mol))]) {
+    assert.deepEqual([back.atoms[0].runs, back.atoms[0].bold], [[{ text: "O", bold: true }, { text: "Me" }], undefined]);
+    assert.deepEqual([back.atoms[2].runs, back.atoms[2].italic], [[{ text: "OMe\n" }, { text: "CH3", underline: true }], true]);
+  }
+  // Runs in Octet's own file must spell the label's text, with only bold, italic and underline.
+  const bad = JSON.parse(serialize(m));
+  for (const r of [[{ text: "OH", bold: true }], [{ text: "OMe", script: "sub" }], [{ text: "OMe", colour: "#ff0000" }]]) { bad.structure.atoms[0].runs = r; assert.throws(() => parse(JSON.stringify(bad)), /damaged/, JSON.stringify(r)); }
+  // ChemDraw's own: OR with a bold R, and a label all bold (its own bold, no runs).
+  const cd = fromCdxml(`<CDXML BondLength="14.40"><page id="1"><fragment id="2"><n id="3" p="100 100" NodeType="Unspecified"><t p="97 104"><s font="3" size="10" face="96">O</s><s font="3" size="10" face="97">R</s></t></n><n id="4" p="200 100" NodeType="Unspecified"><t p="197 104"><s font="3" size="10" face="97">O</s><s font="3" size="10" face="97">Me</s></t></n></fragment></page></CDXML>`);
+  assert.deepEqual(cd.mol.atoms.map((a) => [a.text, a.bold, a.runs]), [["OR", undefined, [{ text: "O" }, { text: "R", bold: true }]], ["OMe", true, undefined]]);
+  console.log("cdxml.check: labels with styled characters ok");
+}
+
 // Sam's corpus (on this Mac only): every text ChemDraw keeps above or below an arrow is written back where it was.
 {
   const CORPUS = join(homedir(), "octet-research/corpus/sam");

@@ -1,6 +1,6 @@
 // Run: node src/richtext.check.ts. Fails loudly if rich text editing breaks.
 import assert from "node:assert/strict";
-import { common, edited, lines, normalise, plainOf, styleRange, whole, without, wrap, type TextRun } from "./richtext.ts";
+import { common, edited, labelStyle, lines, normalise, plainOf, styleRange, trimLines, whole, without, wrap, type TextRun } from "./richtext.ts";
 
 const base: TextRun[] = [{ text: "H2O and CO2" }];
 // Subscript the 2 in H2O: three runs, the middle one subscripted.
@@ -43,5 +43,16 @@ assert.deepEqual(normalise([{ text: "" }]), [{ text: "" }]);
   assert.deepEqual(without(c.runs, ["bold"]), [{ text: "Hello", font: "Georgia" }]);
   assert.deepEqual(without(part.runs, ["bold"]), [{ text: "Hello" }]);
   assert.deepEqual(without(part.runs, ["align"]), part.runs);
+}
+// An atom label typed with styles: each line trimmed and empty lines left out, each character keeping its style; what
+// every character has is the label's own, the rest its runs (bold, italic and underline only).
+{
+  const typed: TextRun[] = [{ text: " O", bold: true }, { text: "Me \n\n" }, { text: "CH", italic: true }, { text: "3 ", italic: true, colour: "#ff0000" }];
+  assert.deepEqual(trimLines(typed), [{ text: "O", bold: true }, { text: "Me\n" }, { text: "CH", italic: true }, { text: "3", italic: true, colour: "#ff0000" }]);
+  assert.equal(plainOf(trimLines(typed)), "OMe\nCH3");
+  assert.deepEqual(labelStyle(trimLines(typed)), { runs: [{ text: "O", bold: true }, { text: "Me\n" }, { text: "CH3", italic: true }] });
+  assert.deepEqual(labelStyle([{ text: "OM", bold: true, underline: true }, { text: "e", bold: true }]), { bold: true, runs: [{ text: "OM", underline: true }, { text: "e" }] });
+  assert.deepEqual(labelStyle([{ text: "OMe", italic: true, script: "sub" }]), { italic: true });
+  assert.deepEqual(labelStyle([{ text: "OMe" }]), {});
 }
 console.log("richtext.check: ok");

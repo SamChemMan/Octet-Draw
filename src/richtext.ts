@@ -71,6 +71,31 @@ export function shareColour(runs: TextRun[] | undefined, own: string | undefined
   return { colour: all[0].toLowerCase() === ink.toLowerCase() ? undefined : all[0], runs: styled(rest) ? rest : undefined };
 }
 
+// The runs with each line trimmed and empty lines left out, as an atom label keeps its text (edit.ts setLabel); each
+// character keeps its style.
+export function trimLines(runs: TextRun[]): TextRun[] {
+  const chars = runs.flatMap((r) => r.text.split("").map((ch) => ({ ...styleOf(r), text: ch }))), out: TextRun[] = [];
+  let line: TextRun[] = [];
+  const end = () => {
+    let a = 0, b = line.length;
+    while (a < b && /\s/.test(line[a].text)) a++;
+    while (b > a && /\s/.test(line[b - 1].text)) b--;
+    if (a < b) out.push(...(out.length ? [{ text: "\n" }] : []), ...line.slice(a, b));
+    line = [];
+  };
+  for (const c of chars) { if (c.text === "\n") end(); else line.push(c); }
+  end();
+  return normalise(out);
+}
+
+// An atom label's text styles from its runs as typed: bold, italic and underline only. What every character has is the
+// label's own; the rest stays in runs (none when no character differs). A label is never partly another font or size.
+export function labelStyle(runs: TextRun[]): { bold?: true; italic?: true; underline?: true; runs?: TextRun[] } {
+  const only = normalise(runs.map((r) => ({ text: r.text, ...(r.bold ? { bold: true as const } : {}), ...(r.italic ? { italic: true as const } : {}), ...(r.underline ? { underline: true as const } : {}) })));
+  const all = common(only, 0, plainOf(only).length) as { bold?: true; italic?: true; underline?: true }, rest = without(only, Object.keys(all));
+  return { ...all, ...(styled(rest) ? { runs: rest } : {}) };
+}
+
 // The runs after the text was typed to `next`: what changed is found by the longest common start and end, and
 // new characters take `pending` (a style set with nothing selected) or the style of the character before them.
 export function edited(runs: TextRun[], next: string, pending?: RunStyle): TextRun[] {

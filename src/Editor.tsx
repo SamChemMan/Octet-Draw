@@ -31,7 +31,7 @@ import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
 import { loadSettings, RULER_UNITS, saveSettings } from "./settings";
 import { Menu, menuWidth } from "./Menu";
-import { ACTIONS, actionFor, controlTakes, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, textEntry, toAccelerator } from "./keys";
+import { ACTIONS, actionFor, controlTakes, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, textEntry, textKey, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
@@ -97,7 +97,7 @@ import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, 
 import { formulaRuns } from "./labels";
 import { captionAtom, captionsToAtoms, chemicalCaption, interpretLabels, labelable, withCaptionAtoms } from "./edit";
 import { bendOf, crossedBonds, cutEndAt, cutPoints, cutSides, cutThrough, extendCut } from "./masscut";
-import { common, edited, lines as richLines, normalise, plainOf, runsOf, shareColour, styleRange, styled, whole, without, type RunStyle, type TextRun } from "./richtext";
+import { common, edited, labelStyle, lines as richLines, normalise, plainOf, runsOf, shareColour, styleRange, styled, trimLines, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
 import { Dialog } from "./Dialog";
 import { addAttachment, stepSubstituents, anyQuery, enclosed, genericSites, nextRGroup, polymerLabel, polymerTags, rNumber, USAGES, USAGE_KINDS } from "./query";
@@ -772,8 +772,11 @@ export default function Editor() {
   // blank: the box opened empty (the ! and > keys), so closing it with nothing typed keeps the atoms as they were.
   // colour: a colour chosen while typing (the label takes it when the box closes, in the same step); "element": Colour
   // by Element, the colour of the element typed.
-  // runs, version and caret: as the caption box's (Writing below), for a label of more than one line (Option-Return).
-  const [editing, setEditing] = useState<{ atom: number; value: string; all?: number[]; merge?: string; blank?: true; colour?: string; runs?: TextRun[]; version?: number; caret?: [number, number] }>();
+  // runs, version, caret and pending: as the caption box's (Writing below): the text in styled runs (bold, italic,
+  // underline), and a style set with nothing selected for the next characters typed. font and size: a font or size
+  // chosen while typing, for the whole label.
+  type Editing = { atom: number; value: string; all?: number[]; merge?: string; blank?: true; colour?: string; runs?: TextRun[]; version?: number; caret?: [number, number]; pending?: RunStyle; font?: string; size?: number };
+  const [editing, setEditing] = useState<Editing>();
   const labelApi = useRef<RichApi>(undefined);
   const labelOpen = useRef(false);
   // The last label typed in a label box: the Text tool's Option-click repeats it (ChemDraw's Repeat Last Label).
@@ -783,10 +786,21 @@ export default function Editor() {
   // Select's last click on an atom or bond: a second click on it soon after is a double-click. The browser sends no
   // double-click when the first click drew the selection over what the second click presses.
   const lastPick = useRef<{ on: string; time: number }>(undefined);
+  // A label's own bold, italic and underline, as a run style (undefined when it has none).
+  const ownStyle = (a: Atom): RunStyle | undefined => (a.bold || a.italic || a.underline ? { ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}) } : undefined);
   const editLabel = (atom: number) => {
-    const a = doc.atoms[atom];
+    const a = doc.atoms[atom], value = a.text ?? (a.label === "C" ? "" : a.label), own = ownStyle(a);
+    // The label's own style goes on each run, so the box shows it and it can come off a part.
     labelOpen.current = true;
-    setEditing({ atom, value: a.text ?? (a.label === "C" ? "" : a.label) });
+    setEditing({ atom, value, runs: (a.text && a.runs && plainOf(a.runs) === a.text ? a.runs : [{ text: value }]).map((r) => ({ ...own, ...r })) });
+  };
+  // Bold, italic, underline and Plain on the label being typed (ChemDraw's Text menu as it is typed): on the characters
+  // selected, else on the next ones typed, as in a caption.
+  const styleLabel = (patch: (s: RunStyle, all: RunStyle) => RunStyle) => {
+    if (!editing) return;
+    const runs = editing.runs ?? [{ text: editing.value }], [s, e] = labelApi.current?.range() ?? [editing.value.length, editing.value.length], all = common(runs, s, e);
+    if (s === e) return setEditing({ ...editing, runs, pending: patch({ ...(editing.pending ?? all) }, editing.pending ?? all), version: (editing.version ?? 0) + 1, caret: [s, e] });
+    setEditing({ ...editing, runs: styleRange(runs, s, e, (st) => patch(st, all)), version: (editing.version ?? 0) + 1, caret: [s, e] });
   };
   // The caption being typed: an existing one (id), or a new one at a point or under a structure, with its style.
   // runs: the text in styled runs as it is typed; version and caret: the box is built again (a style was applied)
@@ -4066,7 +4080,7 @@ export default function Editor() {
     if (kind === "group") return each((m, i) => addGroupAt(m, i, arg as Group)[0], atoms), true;
     if (id === "atom.attach") { const on = atoms.some((i) => !doc.atoms[i].attach); return each((m, i) => setAtomMarks(m, i, { attach: on || undefined }), atoms), true; }
     if (id === "atom.number") return numberAtoms(atoms), true;
-    if (id === "atom.newlabel") { labelOpen.current = true; return setEditing({ atom: atoms[0], value: "", all: atoms, blank: true }), true; }
+    if (id === "atom.newlabel") { labelOpen.current = true; return setEditing({ atom: atoms[0], value: "", all: atoms, blank: true, pending: ownStyle(doc.atoms[atoms[0]]) }), true; }
     if (id === "atom.sproutlabel") return sproutLabel(atoms), true;
     if (kind === "bond" && arg in BONDS) return each((m, k) => setBondSpec(m, k, BONDS[arg as BondKind].spec), bonds), true;
     if (kind === "bond" && (arg === "left" || arg === "centre" || arg === "right")) return each((m, k) => (m.bonds[k].type === 2 ? setPosition(m, k, arg) : m), bonds), true;
@@ -4117,7 +4131,7 @@ export default function Editor() {
     if (kind === "label" && atom !== undefined) return set(setLabel(doc, atom, arg));
     if (id === "atom.label" && atom !== undefined) return editLabel(atom);
     // ! asks for a new label for the atom; > adds a bond and asks for the label of its new end (ChemDraw's ? hotkeys).
-    if (id === "atom.newlabel" && atom !== undefined) { labelOpen.current = true; return setEditing({ atom, value: "", blank: true }); }
+    if (id === "atom.newlabel" && atom !== undefined) { labelOpen.current = true; return setEditing({ atom, value: "", blank: true, pending: ownStyle(doc.atoms[atom]) }); }
     if (id === "atom.sproutlabel" && atom !== undefined) return sproutLabel([atom]);
     if (id === "charge.plus" && atom !== undefined) return set(addCharge(doc, atom, 1));
     if (id === "charge.minus" && atom !== undefined) return set(addCharge(doc, atom, -1));
@@ -5700,6 +5714,18 @@ export default function Editor() {
     }
     if (command.startsWith("caption.")) {
       const [, what, ...rest] = command.split("."), arg = rest.join(".");
+      // The label being typed: Bold, Italic, Underline and Plain on its characters (as a caption's), a font or size on
+      // all of it (a label has one).
+      const toggles: Record<string, ((s: RunStyle, all: RunStyle) => RunStyle) | undefined> = {
+        bold: (s, all) => ({ ...s, bold: all.bold ? undefined : true }), italic: (s, all) => ({ ...s, italic: all.italic ? undefined : true }),
+        underline: (s, all) => ({ ...s, underline: all.underline ? undefined : true }), plain: (s) => ({ ...s, bold: undefined, italic: undefined, underline: undefined }),
+      };
+      if (editing && labelOpen.current) {
+        if (toggles[what]) return styleLabel(toggles[what]!);
+        if (what === "font") return setEditing({ ...editing, font: arg });
+        if (what === "size" && Number(arg) > 0) return setEditing({ ...editing, size: Number(arg) });
+        return;
+      }
       // On selected atoms, the Text menu and the label style buttons style their labels, as in ChemDraw.
       const labelled = !writing && !picked.size ? [...selection].filter((i) => drawing.label[i]) : [];
       if (labelled.length && ["bold", "italic", "underline", "plain", "font", "size", "align"].includes(what)) {
@@ -5708,9 +5734,11 @@ export default function Editor() {
           : what === "align" ? { align: arg === "auto" ? undefined : (arg as Atom["align"]) }
           : what === "font" ? { font: arg === style.labelFont ? undefined : arg }
           : { [what]: first[what as "bold" | "italic" | "underline"] ? undefined : true };
-        // A size is the size drawn: the label's own size is it over the atom's scale.
+        // A size is the size drawn: the label's own size is it over the atom's scale. A style set on the whole label
+        // comes off the characters that had it of their own (its runs), as on a caption.
         const own = (a: Atom) => { const v = Math.round((Number(arg) / scaleOf(a)) * 100) / 100; return Math.abs(v - style.labelSize) < 0.01 ? undefined : v; };
-        return set({ ...doc, atoms: doc.atoms.map((a, k) => (ids.has(k) ? { ...a, ...(what === "size" ? { size: own(a) } : change) } : a)) }, true);
+        const runs = (a: Atom) => { if (!a.runs || what === "size" || what === "font" || what === "align") return {}; const r = without(a.runs, what === "plain" ? ["bold", "italic", "underline"] : [what]); return { runs: styled(r) ? r : undefined }; };
+        return set({ ...doc, atoms: doc.atoms.map((a, k) => (ids.has(k) ? { ...a, ...(what === "size" ? { size: own(a) } : change), ...runs(a) } : a)) }, true);
       }
       // On picked tables and TLC plates, the same styles set their text (the cells, or the Rf values), as in ChemDraw.
       const texts = !writing && !selection.size ? (doc.shapes ?? []).filter((x) => picked.has(x.id) && (x.kind === "table" || x.kind === "tlc")) : [];
@@ -7195,16 +7223,27 @@ export default function Editor() {
         // goes on with the label, in one step (black is the ink: no colour of its own).
         const ids = editing.all ?? [editing.atom], by = { ...elementColours(), ...settings.elementColours }, chosen = editing.colour;
         const tint = (m: Mol): Mol => !chosen ? m : { ...m, atoms: m.atoms.map((x, i) => (!ids.includes(i) ? x : { ...x, colour: chosen === "element" ? by[x.label] ?? x.colour : chosen.toLowerCase() === "#000000" ? undefined : chosen })) };
+        // The text as kept (each line trimmed), and its styles: what all of it has is the label's own bold, italic and
+        // underline, the rest its runs (a label that is an element has no runs). A font or size chosen while typing goes
+        // on all of it; a size is the size drawn, kept over the atom's scale.
+        const typed = trimLines(editing.runs ?? [{ text: editing.value }]), text = plainOf(typed), st = labelStyle(typed);
+        const ownSize = (x: Atom) => { const v = Math.round(((editing.size ?? 0) / scaleOf(x)) * 100) / 100; return Math.abs(v - style.labelSize) < 0.01 ? undefined : v; };
+        const dress = (m: Mol): Mol => ({ ...m, atoms: m.atoms.map((x, i) => {
+          if (!ids.includes(i)) return x;
+          const { bold: _b, italic: _i, underline: _u, runs: _r, ...rest } = x;
+          return { ...rest, ...(st.bold ? { bold: true } : {}), ...(st.italic ? { italic: true } : {}), ...(st.underline ? { underline: true } : {}), ...(x.text && st.runs ? { runs: st.runs } : {}),
+            ...(editing.font ? { font: editing.font === style.labelFont ? undefined : editing.font } : {}), ...(editing.size ? { size: ownSize(x) } : {}) };
+        }) });
         const commit = () => {
           if (!labelOpen.current) return;
           labelOpen.current = false;
-          if (editing.value.trim() || !editing.blank) set(tint(ids.reduce((m, i) => setLabel(m, i, editing.value), doc)), !!editing.all, editing.merge);
-          if (editing.value.trim()) lastLabel.current = editing.value.trim();
+          if (text || !editing.blank) set(dress(tint(ids.reduce((m, i) => setLabel(m, i, text), doc))), !!editing.all, editing.merge);
+          if (text) lastLabel.current = text;
           setEditing(undefined);
         };
         // The box opens with the label selected; its first line is on the atom (half a line above it to half below), and
         // Option-Return (or Return, as Settings ask) starts another line under it, as ChemDraw's labels do.
-        const size = frame.size * (drawn / style.labelSize) * view.zoom;
+        const size = frame.size * ((editing.size ?? drawn) / style.labelSize) * view.zoom;
         return (
           <RichBox
             className="label-box"
@@ -7213,17 +7252,28 @@ export default function Editor() {
             runs={editing.runs ?? [{ text: editing.value }]}
             version={editing.version ?? 0}
             caret={editing.caret ?? [0, editing.value.length]}
+            pending={editing.pending}
             api={labelApi}
-            look={() => ({})}
-            style={{ left: view.x + ax * L * view.zoom, top: view.y - ay * L * view.zoom - 0.6 * size - 2, fontSize: size, fontFamily: fontStack(style.labelFont),
+            look={(r) => ({ fontWeight: r.bold ? "bold" : "", fontStyle: r.italic ? "italic" : "", textDecoration: r.underline ? "underline" : "" })}
+            style={{ left: view.x + ax * L * view.zoom, top: view.y - ay * L * view.zoom - 0.6 * size - 2, fontSize: size, fontFamily: fontStack(editing.font ?? a.font ?? style.labelFont),
               color: (chosen === "element" ? by[editing.value.trim()] : chosen) ?? a.colour }}
-            onRuns={(runs, rebuild) => setEditing((w) => w && { ...w, runs, value: plainOf(runs), ...(rebuild ? { version: (w.version ?? 0) + 1, caret: rebuild } : {}) })}
+            onRuns={(runs, rebuild) => setEditing((w) => w && { ...w, runs, value: plainOf(runs), ...(rebuild ? { version: (w.version ?? 0) + 1, caret: rebuild, pending: undefined } : {}) })}
             onKeyDown={(e) => {
               // Return reaches here only when it does not make a new line.
               if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); commit(); }
               if (e.key === "Escape") { e.preventDefault(); commit(); }
               // ⇧⌘N in the browser (the app's menu does it there): the label's text as a name.
               if (!TAURI && (e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "n") { e.preventDefault(); commands.current.name_to_structure(); }
+              // ChemDraw's text keys, as in a caption: the box takes them first, and marks them so the Text menu's own
+              // command from the same key does not run again.
+              else if (TAURI ? (MAC ? e.metaKey : e.ctrlKey) : e.metaKey || e.ctrlKey) {
+                const command = textKey(e, true);
+                if (command?.startsWith("caption.")) {
+                  e.preventDefault();
+                  if (TAURI) pageRan.current = { id: `text_${command.slice(8)}`, at: performance.now() };
+                  runAction(command);
+                }
+              }
             }}
             onBlur={commit}
           />
@@ -7335,7 +7385,7 @@ export default function Editor() {
               // ChemDraw's text keys. The text box takes them first (in the app too: the web view gets the keystroke before
               // the Text menu does), and marks them so the same command from the menu does not run twice.
               if (TAURI ? (MAC ? e.metaKey : e.ctrlKey) : e.metaKey || e.ctrlKey) {
-                const k = e.key.toLowerCase(), command = e.shiftKey && k === "n" ? "name_to_structure" : { b: "caption.bold", i: "caption.italic", u: "caption.underline", t: "caption.plain", f: "caption.formula", "-": "caption.sub", "=": "caption.super", "+": "caption.super" }[k];
+                const command = textKey(e, false);
                 if (command) {
                   e.preventDefault();
                   if (TAURI) pageRan.current = { id: command.startsWith("caption.") ? `text_${command.slice(8)}` : command, at: performance.now() };

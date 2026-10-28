@@ -38,6 +38,10 @@ export type Atom = {
   shade?: true;
   // The label's text style (ChemDraw's Text menu on a selected label). Unset uses the document's label font and size.
   font?: string; size?: number; bold?: true; italic?: true; underline?: true;
+  // A written label's characters that are bold, italic or underlined where the rest are not (styled as it is typed, as
+  // ChemDraw's label runs): its text in runs, each with only those styles; text is always their text joined. The label's
+  // own bold, italic and underline go on all of it.
+  runs?: TextRun[];
   ignoreWarnings?: true; // Display Warnings off for this atom (ChemDraw's IgnoreWarnings): its problems are not marked
   cip?: true; // Show Stereochemistry is on for this atom's structure: its R/S (and its double bonds' E/Z) labels show
   halo?: string; // #rrggbb highlight behind the atom at 40% opacity (ChemDraw's highlight colours; NMR peak colours)
@@ -736,11 +740,41 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     const look = { ...(a.font ? { font: a.font } : {}), ...(a.bold ? { bold: true } : {}), ...(a.italic ? { italic: true } : {}), ...(a.underline ? { underline: true } : {}) };
     const shape: Piece[] = [];
     capAt[i] = M('H').ascent;
-    // A run of text from x on baseline y at size f, on a line of the label (-1: raised, a charge or mass number).
-    const run = (text: string, x: number, y: number, f = 1, line = 0): Run | undefined => {
-      labels.push({ text, x, y, size: S * f, colour: a.colour, ...look });
-      labelAtom.set(labels[labels.length - 1], i);
-      const m = M(text);
+    // A written label with some characters bold, italic or underlined (its runs): each character's style, by its place
+    // in the text. Text from place at is measured and drawn piece by piece, each piece in its own style.
+    const styled = a.text && a.runs && plainOf(a.runs) === a.text ? a.runs.flatMap((x) => x.text.split("").map(() => x)) : undefined;
+    const stylePieces = (text: string, at?: number): { text: string; look: typeof look; m: Ink }[] => {
+      if (!styled || at === undefined) return [{ text, look, m: M(text) }];
+      const out: { text: string; look: typeof look }[] = [];
+      for (let k = 0; k < text.length; k++) {
+        const st = styled[at + k], last = out[out.length - 1];
+        if (last && k && styled[at + k - 1] === st) { last.text += text[k]; continue; }
+        out.push({ text: text[k], look: { ...look, ...(st?.bold ? { bold: true } : {}), ...(st?.italic ? { italic: true } : {}), ...(st?.underline ? { underline: true } : {}) } });
+      }
+      return out.map((p) => {
+        const fc = p.look.font || p.look.bold || p.look.italic ? { font: p.look.font, bold: p.look.bold, italic: p.look.italic } : undefined;
+        return { ...p, m: !fc && r === 1 ? measure(p.text) : grown(measure(p.text, fc), r) };
+      });
+    };
+    // Text measured as drawn: from place at in a written label, each piece in its own style.
+    const Mx = (text: string, at?: number): Ink => {
+      const ps = stylePieces(text, at);
+      if (ps.length === 1) return ps[0].m;
+      let x = 0;
+      const outline: P[] = [];
+      for (const p of ps) { for (const [px, py] of p.m.outline) outline.push([x + px, py]); x += p.m.width; }
+      return { width: x, ascent: Math.max(...ps.map((p) => p.m.ascent)), outline };
+    };
+    // A run of text from x on baseline y at size f, on a line of the label (-1: raised, a charge or mass number). at: its
+    // place in a written label's text, for the style of each character.
+    const run = (text: string, x: number, y: number, f = 1, line = 0, at?: number): Run | undefined => {
+      let px = x;
+      for (const p of stylePieces(text, at)) {
+        labels.push({ text: p.text, x: px, y, size: S * f, colour: a.colour, ...p.look });
+        labelAtom.set(labels[labels.length - 1], i);
+        px += p.m.width * f;
+      }
+      const m = Mx(text, at);
       if (!m.outline.length) return undefined;
       const r = { line, text, width: m.width, p: { pts: m.outline, x, y, f } };
       shape.push(r.p);
@@ -798,17 +832,22 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       // The other lines go a caption's automatic line spacing apart, lined up with it: the same start, the same end
       // read right to left, centred on the atom when centred or stacked. Bonds stop at the box round each line.
       const rows = a.text.split("\n"), k0 = align === "above" ? rows.length - 1 : 0, own = rows[k0] || "H", us = rows.map((t) => units(t));
-      const wide = (u: (typeof us)[number][number]) => M(u.text).width + (u.count ? M(u.count).width * SUB : 0);
+      // Each unit's place in the text, for its style.
+      const at = new Map<(typeof us)[number][number], number>();
+      let place = 0;
+      us.forEach((line) => { for (const u of line) { at.set(u, place); place += u.text.length + (u.count?.length ?? 0); } place++; });
+      const wide = (u: (typeof us)[number][number]) => Mx(u.text, at.get(u)).width + (u.count ? Mx(u.count, at.get(u)! + u.text.length).width * SUB : 0);
       const widths = us.map((line) => line.reduce((w, u) => w + wide(u), 0)), tail = us[k0][us[k0].length - 1];
       const just = align === "centre" || align === "above" || align === "below" ? "centre" : align === "right" || (!align && rtl) ? "right" : "left";
-      const first = M(own[0]), base = y + first.ascent / 2, start = x - first.width / 2, end = x + (tail?.count ? M(tail.count.slice(-1)).width * SUB : M(own[own.length - 1]).width) / 2;
+      const o = rows.slice(0, k0).reduce((n, t) => n + t.length + 1, 0), last = o + own.length - 1;
+      const first = Mx(own[0], o), base = y + first.ascent / 2, start = x - first.width / 2, end = x + (tail?.count ? Mx(tail.count.slice(-1), last).width * SUB : Mx(own[own.length - 1], last).width) / 2;
       const from = (j: number) => (just === "centre" ? x - widths[j] / 2 : just === "right" ? end - widths[j] : start);
       us.forEach((line, j) => {
         let ux = from(j);
         const uy = base + (j - k0) * LINE * S, n = j === k0 ? 0 : j + 1;
         for (const u of line) {
-          run(u.text, ux, uy, 1, n);
-          if (u.count) run(u.count, ux + M(u.text).width, uy + DROP * S, SUB, n);
+          run(u.text, ux, uy, 1, n, at.get(u));
+          if (u.count) run(u.count, ux + Mx(u.text, at.get(u)).width, uy + DROP * S, SUB, n, at.get(u)! + u.text.length);
           ux += wide(u);
         }
       });
@@ -818,29 +857,32 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
     if (a.text) {
       // A written label: units in order, reversed when it reads right to left (OMe as MeO). Centred, the whole label
       // sits on the atom; stacked, each unit after the first goes one line further up (or down), centred over the atom.
-      const us = units(a.text);
-      const width = (u: (typeof us)[number]) => M(u.text).width + (u.count ? M(u.count).width * SUB : 0);
-      const first = M(us[0].text[0]), base = y + first.ascent / 2, same = !us[0].count && [...us[0].text].length === 1;
+      const us = units(a.text), at = new Map<(typeof us)[number], number>();
+      // Each unit's place in the text, for its style (a label's runs).
+      us.reduce((n, u) => { at.set(u, n); return n + u.text.length + (u.count?.length ?? 0); }, 0);
+      const W = (u: (typeof us)[number]) => Mx(u.text, at.get(u)).width, count = (u: (typeof us)[number]) => at.get(u)! + u.text.length;
+      const width = (u: (typeof us)[number]) => W(u) + (u.count ? Mx(u.count, count(u)).width * SUB : 0);
+      const first = Mx(us[0].text[0], 0), base = y + first.ascent / 2, same = !us[0].count && [...us[0].text].length === 1;
       if (align === "above" || align === "below") {
         const pitch = 1.1 * M('H').ascent * (align === "above" ? -1 : 1);
         us.forEach((u, k) => {
           const ux = k ? x - width(u) / 2 : x - first.width / 2, uy = base + k * pitch;
-          const r = run(u.text, ux, uy, 1, k);
+          const r = run(u.text, ux, uy, 1, k, at.get(u));
           if (!k && same) meets[i] = r;
-          if (u.count) run(u.count, ux + M(u.text).width, uy + DROP * S, SUB, k);
+          if (u.count) run(u.count, ux + W(u), uy + DROP * S, SUB, k, count(u));
         });
         charged(x - first.width / 2, x - first.width / 2 + width(us[0]), base, false);
         return shape;
       }
       const order = rtl ? [...us].reverse() : us, total = us.reduce((w, u) => w + width(u), 0);
       let ux = 0, right = -Infinity;
-      for (const u of order) { right = Math.max(right, ux + inkOf(u.text)[1], u.count ? ux + M(u.text).width + inkOf(u.count)[1] * SUB : -Infinity); ux += width(u); }
+      for (const u of order) { right = Math.max(right, ux + inkOf(u.text)[1], u.count ? ux + W(u) + inkOf(u.count)[1] * SUB : -Infinity); ux += width(u); }
       let cx = align === "centre" ? x - total / 2 : !rtl ? x - first.width / 2 : same ? x + first.width / 2 - total : x + near(us[0].text[0]) - right;
       const start = cx;
       for (const u of order) {
-        const r = run(u.text, cx, base);
+        const r = run(u.text, cx, base, 1, 0, at.get(u));
         if (u === us[0] && same) meets[i] = r;
-        if (u.count) run(u.count, cx + M(u.text).width, base + DROP * S, SUB);
+        if (u.count) run(u.count, cx + W(u), base + DROP * S, SUB, 0, count(u));
         cx += width(u);
       }
       charged(start, cx, base, rtl);
