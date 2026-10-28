@@ -17,7 +17,7 @@ gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u
 const chem = await import("./chem.ts");
 await chem.ready;
 const { FOCUS, atomText, bondText, changeText, contrast, describe, readingOrder, ringOn } = await import("./access.ts");
-const { addArrow, addCaption, addShape, deleteAtom, fragments, groupSelection, insertMol, jumpHot, moveAtoms, setBondSpec, setElement, subset, walkHot } = await import("./edit.ts");
+const { addArrow, addCaption, addShape, deleteAtom, flipAtoms, fragments, groupSelection, insertMol, jumpHot, moveAtoms, rotateAtoms, setBondSpec, setElement, subset, walkHot } = await import("./edit.ts");
 const { findReaction } = await import("./reaction.ts");
 const { ACTIONS, actionFor, DEFAULT_KEYS, keymap, keyOf } = await import("./keys.ts");
 
@@ -196,6 +196,9 @@ const all = new Set([0, 1, 2]);
 assert.equal(changeText(etoh, moveAtoms(etoh, all, [1 / 14.4, 0])), "Moved 1 pt right.");
 assert.equal(changeText(etoh, moveAtoms(etoh, all, [-10 / 14.4, 10 / 14.4])), "Moved 10 pt left and 10 pt up.");
 assert.equal(changeText(etoh, { ...etoh, atoms: etoh.atoms.map((a, i) => ({ ...a, location: [a.location[0] * 1.1, a.location[1] + i * 0.1, 0] })) }), "Moved two atoms.", "a clean up moves atoms by different amounts");
+assert.equal(changeText(etoh, rotateAtoms(etoh, all, 15)), "Turned 15° anticlockwise.", "Option+Up");
+assert.equal(changeText(etoh, rotateAtoms(etoh, all, -1)), "Turned 1° clockwise.", "Option+Right");
+assert.equal(changeText(etoh, flipAtoms(etoh, all, "horizontal")), "Turned over.", "Rotate 180° horizontal");
 assert.equal(changeText(etoh, deleteAtom(etoh, 2)), "Deleted one atom and one bond.");
 const [arrowed, aid] = addArrow(etoh, { kind: "reaction", from: [3, 0], to: [5, 0] });
 assert.equal(changeText(etoh, arrowed), "Added a reaction arrow.");

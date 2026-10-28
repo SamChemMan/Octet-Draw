@@ -271,15 +271,17 @@ export function changeText(was: Mol, now: Mol): string {
   if (was === now) return "";
   const out: string[] = [], moves: P[] = [];
   let moved = 0, objects = 0;
+  let turned = "";
   if (was.atoms.length === now.atoms.length && was.bonds.length === now.bonds.length) {
-    const changed: number[] = [];
+    const changed: number[] = [], shifted: number[] = [];
     now.atoms.forEach((a, i) => {
       const b = was.atoms[i];
       if (a === b) return;
       const d: P = [a.location[0] - b.location[0], a.location[1] - b.location[1]];
-      if (Math.hypot(...d) > 1e-6) { moves.push(d); moved++; }
+      if (Math.hypot(...d) > 1e-6) { moves.push(d); moved++; shifted.push(i); }
       if (without(a, ["location"]) !== without(b, ["location"])) changed.push(i);
     });
+    turned = turnText(was, now, shifted);
     if (changed.length === 1) {
       const i = changed[0], a = now.atoms[i], b = was.atoms[i];
       if (what(a) !== what(b)) out.push(`${upper(what(b))} changed to ${what(a)}`);
@@ -322,9 +324,24 @@ export function changeText(was: Mol, now: Mol): string {
   // A move that took everything the same way is said as how far ("Moved 1 pt right"); others by what moved.
   if (moves.length && !out.some((t) => /^(Added|Deleted)/.test(t))) {
     const d = moves[0], one = moves.every((e) => Math.hypot(e[0] - d[0], e[1] - d[1]) < 1e-6);
-    out.unshift(one ? `Moved ${moveText(d)}` : `Moved ${[moved && count(moved, "atom"), objects && count(objects, "object")].filter(Boolean).join(" and ")}`);
+    out.unshift(one ? `Moved ${moveText(d)}` : turned || `Moved ${[moved && count(moved, "atom"), objects && count(objects, "object")].filter(Boolean).join(" and ")}`);
   }
   return out.length ? `${out.slice(0, 3).join(". ")}.` : "";
+}
+// Structures that moved as rigid pieces, turned in the page or turned over: "Turned 15° anticlockwise", "Turned over".
+// The atoms that did not move count too (a flip leaves those on its axis). Empty when they moved otherwise (a clean
+// up, a turn in 3D, part of a structure dragged).
+function turnText(was: Mol, now: Mol, moved: number[]): string {
+  if (moved.length < 2) return "";
+  const set = new Set(moved), ids = fragments(now).filter((f) => f.some((i) => set.has(i))).flat();
+  const at = (m: Mol, i: number) => m.atoms[i].location, gap = (m: Mol, i: number, j: number) => Math.hypot(at(m, j)[0] - at(m, i)[0], at(m, j)[1] - at(m, i)[1]);
+  if (!ids.every((i, k) => Math.abs(gap(was, ids[0], i) - gap(now, ids[0], i)) < 1e-6 && (k === 0 || Math.abs(gap(was, ids[k - 1], i) - gap(now, ids[k - 1], i)) < 1e-6))) return "";
+  const area = (m: Mol, i: number, j: number, k: number) => (at(m, j)[0] - at(m, i)[0]) * (at(m, k)[1] - at(m, i)[1]) - (at(m, j)[1] - at(m, i)[1]) * (at(m, k)[0] - at(m, i)[0]);
+  const third = ids.find((k) => Math.abs(area(was, ids[0], ids[1], k)) > 1e-6);
+  if (third !== undefined && Math.sign(area(was, ids[0], ids[1], third)) !== Math.sign(area(now, ids[0], ids[1], third))) return "Turned over";
+  const v = (m: Mol): P => [at(m, ids[1])[0] - at(m, ids[0])[0], at(m, ids[1])[1] - at(m, ids[0])[1]], [p, q] = [v(was), v(now)];
+  const deg = Math.round(((Math.atan2(p[0] * q[1] - p[1] * q[0], p[0] * q[0] + p[1] * q[1]) * 180) / Math.PI) * 10) / 10;
+  return deg ? `Turned ${Math.abs(deg)}° ${deg > 0 ? "anticlockwise" : "clockwise"}` : "";
 }
 
 // ——— The focus ring ———
