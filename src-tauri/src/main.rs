@@ -451,6 +451,19 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         new_for_items.extend(own_items.iter().map(|m| m as &dyn IsMenuItem<Wry>));
     }
     let new_for = Submenu::with_items(app, "New For", true, &new_for_items)?;
+    // File > Save Templates for ChemDraw: each template set (as View > Templates lists them, "ctp_<k>") saved as a
+    // ChemDraw template file. The items change with the sets, so they are not commands with shortcuts.
+    let (own_sets, octet_sets) = app.state::<TemplateSets>().0.lock().unwrap().clone();
+    let ctp_items = own_sets.iter().chain(octet_sets.iter()).enumerate()
+        .map(|(k, name)| MenuItem::with_id(app, format!("ctp_{k}"), name, true, None::<&str>))
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let ctp_sep = sep()?;
+    let mut ctp_list: Vec<&dyn IsMenuItem<Wry>> = ctp_items.iter().take(own_sets.len()).map(|m| m as &dyn IsMenuItem<Wry>).collect();
+    if !own_sets.is_empty() && !octet_sets.is_empty() {
+        ctp_list.push(&ctp_sep);
+    }
+    ctp_list.extend(ctp_items.iter().skip(own_sets.len()).map(|m| m as &dyn IsMenuItem<Wry>));
+    let save_ctp = Submenu::with_items(app, "Save Templates for ChemDraw", !ctp_items.is_empty(), &ctp_list)?;
     section.replace("File".into());
     let new_name = if current.is_empty() { "New".to_string() } else { format!("New {current}") };
     let file = Submenu::with_items(app, "&File", true, &[
@@ -467,6 +480,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         // ChemDraw's key: ⌃⌘E.
         // ⌃⌘E on the Mac; Ctrl+Shift+E elsewhere, where Control and Command are both Ctrl.
         &item("export", "Export…", if cfg!(target_os = "macos") { "Ctrl+CmdOrCtrl+E" } else { "CmdOrCtrl+Shift+E" })?,
+        &save_ctp,
         &sep()?,
         &item("page_setup", "Page Setup…", "CmdOrCtrl+Shift+P")?,
         &item("print", "Print…", "CmdOrCtrl+P")?,
@@ -543,7 +557,6 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     // View > Templates: each set shows or hides its floating palette, ticked while it is open (ChemDraw's View > Templates
     // toggles a palette's window). The user's sets come first, then Octet's. The items change with
     // the sets, so they are not commands with shortcuts, and Settings does not list them.
-    let (own_sets, octet_sets) = app.state::<TemplateSets>().0.lock().unwrap().clone();
     let set_items = own_sets.iter().chain(octet_sets.iter()).enumerate()
         .map(|(k, name)| CheckMenuItem::with_id(app, format!("templates_{k}"), name, true, false, None::<&str>))
         .collect::<tauri::Result<Vec<_>>>()?;
