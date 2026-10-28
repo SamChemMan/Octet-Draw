@@ -7,7 +7,7 @@ import {
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, FlowArrow, BracketsRound,
-  TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut,
+  TreeStructure, StarFour, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -52,6 +52,8 @@ import { isDrawingText, lostText, readCdx, readOct, writeCdx, writeOct } from ".
 import { BASE64_MAGIC, fromBase64, hexToBase64, toBase64, xmlToCdx } from "./cdx";
 import { About } from "./About";
 import { Home, NameBox, type RecentEntry, type RecoveredEntry } from "./Home";
+import { useHomeLibrary } from "./homeLibrary";
+import { call as homeCall, HOME_API } from "./homeApi";
 import { Coach, NOTHING_SEEN, type Seen } from "./Coach";
 import { Feedback } from "./Feedback";
 import { ExportButton, ExportDialog } from "./ExportDialog";
@@ -1352,21 +1354,25 @@ export default function Editor() {
     setDialog({ kind: "revert" });
   };
   const revert = () => void invoke<string>("revert_drawing", { path: file.path }).then((text) => load(file.path, text)).catch((e) => setNotice(failure("Octet cannot revert this drawing.", e)));
-  const openRecent = (r: RecentEntry) => keepWork(() => void invoke<[string, string]>("open_recent", { path: r.path }).then((picked) => load(picked[0], picked[1]))
+  // A drawing on the recent list or in a project on Home (only those open without the file dialog).
+  const openRecent = (r: { path: string }) => keepWork(() => void homeCall<[string, string]>("open_recent", { path: r.path }).then((picked) => load(picked[0], picked[1]))
     .catch((e) => { setNotice(failure("Octet cannot open this drawing.", e)); refreshRecents(); }));
   // A recovered drawing opens with its changes unsaved; its kept copy becomes this window's.
   const openRecovered = (r: RecoveredEntry) => keepWork(() => void keep<[string, string]>("recovery_open", { id: r.id }).then(([title, text]) => { keeper.kept = true; load(undefined, text, title); })
     .catch((e) => { setNotice(failure("Octet cannot open this drawing.", e)); refreshRecents(); }));
   const refreshRecents = () => {
-    if (!TAURI) return;
-    invoke<RecentEntry[]>("recent_list").then(setRecents).catch(() => {});
-    invoke<RecoveredEntry[]>("recovery_list").then(setRecovered).catch(() => {});
+    if (!HOME_API) return;
+    homeCall<RecentEntry[]>("recent_list").then(setRecents).catch(() => {});
+    homeCall<RecoveredEntry[]>("recovery_list").then(setRecovered).catch(() => {});
   };
   useEffect(() => { if (home) refreshRecents(); }, [home]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Opened or saved: the drawing's picture goes to its Home tile.
+  // Home's projects and thumbnails (src/projects.ts).
+  const library = useHomeLibrary({ active: home, recents, notice: (text, kind) => setNotice(text, kind) });
+  // Opened or saved: the drawing's picture goes to its Home tile, and to Octet's copy for a drawing in a project.
   useEffect(() => {
     if (!TAURI || !file.path) return;
-    const t = window.setTimeout(() => { const svg = pictureOf(file.saved); if (svg) invoke("recent_thumb", { path: file.path, svg }).catch(() => {}); }, 0);
+    const path = file.path;
+    const t = window.setTimeout(() => { const svg = pictureOf(file.saved); if (svg) { invoke("recent_thumb", { path, svg }).catch(() => {}); library.autoSvg(path, svg); } }, 0);
     return () => clearTimeout(t);
   }, [file]); // eslint-disable-line react-hooks/exhaustive-deps
   // When Octet was last opened, for the next "Welcome back".
@@ -1387,8 +1393,18 @@ export default function Editor() {
   // as File > Open opens a drawing (Home lists the other drawings), after the question about unsaved changes. A
   // picture opens as a new drawing of it, as ChemDraw opens a picture file.
   async function takeOpened() {
-    const insert = !home;
-    await takeFiles(await invoke<OpenedFile[]>("take_opened", { insert }), insert);
+    const insert = !home, into = home ? library.dropTarget.current : undefined;
+    library.dropTarget.current = undefined;
+    const all = await invoke<OpenedFile[]>("take_opened", { insert, project: !!into });
+    // Dropped on a project on Home: the drawings go in it, and do not open.
+    if (into) {
+      const dropped = all.filter((f) => f.at);
+      for (const f of dropped) if (f.error) setNotice(f.error);
+      const paths = dropped.flatMap((f) => (f.path ? [{ path: f.path }] : []));
+      if (paths.length) void library.add(into, paths);
+      return takeFiles(all.filter((f) => !f.at), insert);
+    }
+    await takeFiles(all, insert);
   }
   async function takeFiles(all: OpenedFile[], insert: boolean) {
     // ChemDraw template files, opened or dropped anywhere: each becomes a set of templates.
@@ -5417,6 +5433,9 @@ export default function Editor() {
       ...acts.map((i) => ({ id: `action:${i.command}`, name: i.name, group: "Actions", icon: i.icon, keys: hint(i.command), words: WORDS[i.command], run: () => runAction(i.command) })),
       ...Object.entries(MENU_NAMES).filter(([id]) => commands.current[id] && !acted.has(id)).map(([id, [name, , icon]]) => ({ id: `menu:${id}`, name, group: "Commands", keys: hint(id), icon, words: WORDS[id], run: () => commands.current[id]() })),
       { id: `new:${QUICK}`, name: "Quick start", group: "Commands", words: "new drawing canvas", icon: <FilePlus size={18} />, run: () => newDrawing(QUICK) },
+      // The selection's picture as the drawing's thumbnail on Home (Home's Set Thumbnail… takes a picture file).
+      ...(TAURI && file.path && (selection.size || picked.size) ? [{ id: "home-thumb", name: "Use selection as thumbnail", group: "Commands", words: "home picture preview", icon: <ImageSquare size={18} />,
+        run: () => { const path = file.path, part = selectedPart(), svg = part && pictureOf(part); if (path && svg) library.ownSvg(path, svg); } }] : []),
       ...purposeList.map((p) => ({ id: `new:${p.id}`, name: `New ${p.name}`, group: "Commands", words: "new drawing template", icon: <FilePlus size={18} />, run: () => newDrawing(p.id) })),
       ...purposeList.map((p) => ({ id: `for:${p.id}`, name: `For ${p.name}`, group: "Document", words: "template size page scale", icon: <FileText size={18} />, run: () => applyPurpose(p.id) })),
       { id: "tool:select", name: "Select", group: "Tools", keys: toolKey("tool.select"), icon: <Selection size={18} />, run: pick("select", ["select", "box"]) },
@@ -7760,7 +7779,8 @@ export default function Editor() {
             purposes={purposeList} onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent} onStarter={(text) => keepWork(() => load(undefined, text))}
             onRemovePurpose={removePurpose}
             onCustom={settings.ownPurposes.length < MAX_PURPOSES ? () => setDialog({ kind: "template", name: "", from: purposeOf(settings, settings.purpose) ? settings.purpose : "paper" }) : undefined}
-            onRemove={(r) => void invoke("recent_remove", { path: r.path }).then(refreshRecents).catch(() => {})} />)}
+            onRemove={(r) => void homeCall("recent_remove", { path: r.path }).then(() => { refreshRecents(); void library.forget(r.path); }).catch(() => {})}
+            lib={library} drops={TAURI} />)}
       <Exit>{coach > 0 && !home && (
         <Coach key={coach} doc={doc} selected={selection.size} seen={seen} keys={{ clean: hint("clean_up") ?? "", copy: keyLabel("mod+c") }} low={naming !== undefined}
           onTool={setCoachTool} onSkip={() => setCoach(0)} onFinish={() => { const fresh: Mol = { ...EMPTY, style: doc.style }; setCoach(0); set(fresh); setFile({ saved: fresh }); }} />
