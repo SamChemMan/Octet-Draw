@@ -62,7 +62,8 @@ pub struct OpenedFile {
 // The files waiting, read as text. insert: the page puts dropped files into the drawing that is open; otherwise they
 // open. A drawing that opens can be saved over, as one picked in Open can, and goes on Home's list of recent drawings.
 // project: the files were dropped on a project on Home. Each drawing dropped is only checked (it is there, 64 MB at
-// most) and named, so the page can put it in the project (home.rs); it does not open. Other files are refused.
+// most) and named, so the page can put it in the project (home.rs); it does not open. A picture comes back as a
+// picture, which the page makes the project's thumbnail (src/thumbs.ts). Other files are refused.
 #[tauri::command]
 pub async fn take_opened(app: AppHandle, picked: State<'_, Picked>, insert: bool, project: Option<bool>) -> Result<Vec<OpenedFile>, String> {
     let list = std::mem::take(&mut *app.state::<Waiting>().0.lock().unwrap());
@@ -71,7 +72,7 @@ pub async fn take_opened(app: AppHandle, picked: State<'_, Picked>, insert: bool
         .map(|(path, at)| {
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
-            if project == Some(true) && at.is_some() {
+            if project == Some(true) && at.is_some() && !PICTURES.contains(&ext.as_str()) {
                 let error = match fs::metadata(&path) {
                     _ if !DRAWINGS.contains(&ext.as_str()) => Some(format!("{name} is not a drawing. A project holds Octet and ChemDraw drawings.")),
                     Err(_) => Some("This file is not where it was. It was moved or deleted.".into()),

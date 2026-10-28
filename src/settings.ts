@@ -16,6 +16,7 @@ import { QUICK, readPurposes, type DocStyle, type OwnPurpose, type PurposeKind }
 import { DEFAULT_FILES, type FilePrefs } from "./SettingsWindow";
 import { WARNING_TYPES, type WarningType } from "./check";
 import { MS_DEFAULTS, readMsPrefs, type MsPrefs } from "./msanalysis";
+import { readLayout, type HomeLayout } from "./homeLayout";
 
 export type Settings = {
   snap: boolean; snapGrid: boolean; guides: { grid: boolean; rulers: boolean; crosshair: boolean }; rulerUnit: RulerUnit; eraser: number; keys: Record<string, string[]>; variants: { select: string; bond: string; ring: string; template: string; symbol: string; orbital: string; arrow: string; shape: string; bracket: string; more: string };
@@ -27,8 +28,9 @@ export type Settings = {
   captionOptionReturn: boolean; // ChemDraw's "Require Option+Return to create new line in Captions": Return then closes the box
   labelReturnNewLine?: boolean; // ChemDraw's "Require Option+Return to create new line in Atom labels" off: Return makes a new line (unset: Option-Return)
   // Home: the user's name (null until asked; "" when they skipped it), whether the tutorial was seen, and when Octet
-  // was last opened (ms), for "Welcome back".
-  userName: string | null; tutorialDone: boolean; lastSeen: number;
+  // was last opened (ms), for "Welcome back". homeLayout: Home's sections in the user's order, and those folded to
+  // their heading (src/homeLayout.ts).
+  userName: string | null; tutorialDone: boolean; lastSeen: number; homeLayout: HomeLayout;
   updates: boolean; // check for updates when Octet opens: on unless the user turns it off in Settings (decision 0010)
   warnings: boolean; // View > Show Chemical Warnings: problems marked on the drawing and listed in Actions
   warningTypes: Partial<Record<WarningType, boolean>>; // Settings > Warnings: each kind switched on or off (unset: its default)
@@ -70,7 +72,7 @@ export type Settings = {
 export type Swatch = { name: string; hex: string };
 export type RulerUnit = "mm" | "cm" | "in" | "pt" | "pc";
 export const RULER_UNITS: [RulerUnit, string][] = [["mm", "Millimetres"], ["cm", "Centimetres"], ["in", "Inches"], ["pt", "Points"], ["pc", "Picas"]];
-const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, updates: true, warnings: true, warningTypes: {}, checkCopy: false, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], palettes: [], librarySize: "medium", dictionary: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, fixedLengths: true, fixedAngles: true, sproutRings: false, interpretation: false, autoMap: true, stereoParens: true, hideAbs: false, mdlFlags: false, aromaticOnOpen: "" };
+const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, homeLayout: readLayout([], []), updates: true, warnings: true, warningTypes: {}, checkCopy: false, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], palettes: [], librarySize: "medium", dictionary: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, fixedLengths: true, fixedAngles: true, sproutRings: false, interpretation: false, autoMap: true, stereoParens: true, hideAbs: false, mdlFlags: false, aromaticOnOpen: "" };
 const KEY = "octet.settings";
 
 export function loadSettings(): Settings {
@@ -127,6 +129,7 @@ export function loadSettings(): Settings {
       labelReturnNewLine: saved.labelReturnNewLine === true,
       userName: typeof saved.userName === "string" ? saved.userName.slice(0, 40) : null,
       tutorialDone: saved.tutorialDone === true,
+      homeLayout: readLayout(saved.homeLayout?.order, saved.homeLayout?.folded),
       updates: typeof saved.updates === "boolean" ? saved.updates : true,
       lastSeen: typeof saved.lastSeen === "number" && Number.isFinite(saved.lastSeen) ? saved.lastSeen : 0,
     };

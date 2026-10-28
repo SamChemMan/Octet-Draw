@@ -1,13 +1,16 @@
 // Run: node src/projects.check.ts. Fails loudly if Home's projects store loses or mixes up a project, keeps a drawing
 // twice, takes a drawing with a project that goes, leaves a thumbnail file behind, reads a damaged or newer store as
-// anything but empty, or takes a picture for a thumbnail that is too large; or if Home's sections or keys change.
+// anything but empty, keeps a colour that is not #RRGGBB, or takes a picture for a thumbnail that is too large; if a
+// drawing's project dots move or lose the projects it is in; if Home's sections lose one, read back wrong or stop
+// pairing New and Templates; or if Home's keys, tooltips or menus change.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  addDrawings, cleanName, createProject, deleteProject, drawingName, emptyStore, forget, freeName, MAX_IN_PROJECT, MAX_NAME, MAX_PROJECTS, mosaic,
-  projectOf, projectsWith, readStore, relocate, removeDrawing, renameProject, resetPicture, setPicture, setProjectThumb, STORE_VERSION, thumbIds,
-  UNTITLED, writeStore, type HomeStore,
+  addDrawings, cleanName, colourOf, createProject, deleteProject, dotsFor, drawingName, emptyStore, folderTones, forget, freeName, MAX_IN_PROJECT, MAX_NAME,
+  MAX_PROJECTS, PROJECT_COLOUR, projectOf, projectsWith, readStore, relocate, removeDrawing, renameProject, resetPicture, setPicture, setProjectColour,
+  setProjectThumb, STORE_VERSION, thumbIds, tilde, UNTITLED, writeStore, type HomeStore,
 } from "./projects.ts";
+import { moveSection, readLayout, rowsOf, SECTIONS } from "./homeLayout.ts";
 import { cover, inputProblem, INPUT_TOO_LARGE, MAX_INPUT, sizeProblem, THUMB_H, THUMB_W } from "./thumbs.ts";
 import { NOT_PICTURE, TOO_MANY_PIXELS } from "./picture.ts";
 import { tileTo } from "./keys.ts";
@@ -42,6 +45,7 @@ let r = addDrawings(s, "p1", [{ path: A }, { path: B, name: "Scheme 1" }, { path
 assert.equal(r.added, 2, "a drawing goes in once");
 s = r.store;
 assert.deepEqual(projectOf(s, "p1")!.drawings, [{ path: A, name: "aspirin", added: 200 }, { path: B, name: "Scheme 1", added: 200 }]);
+assert.equal(projectOf(s, "p1")!.used, 200, "a project with a drawing just put in is used");
 r = addDrawings(s, "p1", [{ path: A }], 201);
 assert.equal(r.added, 0);
 assert.equal(r.store, s, "a drawing in the project already changes nothing");
@@ -66,6 +70,8 @@ d = removeDrawing(d.store, "p2", A);
 assert.deepEqual(d.drop, [T1], "in no project: its picture goes");
 assert.equal(d.store.pictures[A], undefined);
 assert.deepEqual(projectOf(d.store, "p1")!.drawings.map((x) => x.path), [B], "the other drawings stay");
+assert.equal(projectOf(removeDrawing(s, "p1", A, 300).store, "p1")!.used, 300, "taking a drawing out uses the project too");
+assert.equal(removeDrawing(s, "p3", A, 300).store, s, "a drawing not in the project: nothing changes");
 
 // Delete a project: no drawing goes with it, only thumbnails nothing else uses.
 s = setProjectThumb(s, "p2", T3).store;
@@ -104,16 +110,69 @@ assert.deepEqual(resetPicture(t.store, B), { store: t.store, drop: [] }, "no thu
 assert.equal(setPicture(s, B, "own", "../../x").store, s, "a thumbnail is named by 16 hex digits only");
 let pt = setProjectThumb(s, "p1", T1);
 pt = setProjectThumb(pt.store, "p1", undefined);
-assert.deepEqual(pt.drop, [T1], "a project's own thumbnail goes back to its mosaic");
+assert.deepEqual(pt.drop, [T1], "Use automatic thumbnail: the folder goes back to plain");
 assert.equal(projectOf(pt.store, "p1")!.thumb, undefined);
 assert.deepEqual(new Set(thumbIds(setProjectThumb(s, "p1", T2).store)), new Set([T1, T2, T3, T4]), "every thumbnail the store uses, to load");
 // Remove from Home: a drawing in no project takes its thumbnails with it.
 const lone = setPicture(emptyStore(), "/d/lone.oct", "own", T3).store;
 assert.deepEqual(forget(lone, "/d/lone.oct"), { store: { ...lone, pictures: {} }, drop: [T3] });
 assert.deepEqual(forget(s, A).drop, [], "in a project: it keeps them");
-// The mosaic: the first four drawings with a picture.
-const four = addDrawings(createProject(emptyStore(), "M", "m", 0), "m", ["/a.oct", "/b.oct", "/c.oct", "/d.oct", "/e.oct", "/f.oct"].map((path) => ({ path })), 0).store;
-assert.deepEqual(mosaic(projectOf(four, "m")!, (p) => (p === "/b.oct" ? undefined : p)), ["/a.oct", "/c.oct", "/d.oct", "/e.oct"]);
+assert.equal(projectOf(setProjectThumb(setProjectColour(s, "p1", "#22775B"), "p1", T2).store, "p1")!.colour, "#22775B", "a new thumbnail keeps the colour");
+
+// ——— Colours: a project's folder and dots ———
+assert.equal(colourOf(projectOf(s, "p1")!), PROJECT_COLOUR, "no colour: Octet Blue");
+let c = setProjectColour(s, "p1", "#b42323");
+assert.equal(projectOf(c, "p1")!.colour, "#B42323", "kept in capitals");
+assert.equal(setProjectColour(c, "p1", "#B42323"), c, "the same colour changes nothing");
+assert.equal(projectOf(setProjectColour(c, "p1", PROJECT_COLOUR), "p1")!.colour, undefined, "Octet Blue goes back to no colour");
+for (const bad of ["red", "#FFF", "#21 C99", "#213C99;x", "url(x)", "#GGGGGG", ""]) assert.equal(setProjectColour(s, "p1", bad), s, bad);
+assert.equal(setProjectColour(s, "nope", "#000000"), s);
+c = readStore(writeStore(c)).store;
+assert.equal(projectOf(c, "p1")!.colour, "#B42323", "a colour reads back");
+const odd = readStore(JSON.stringify({ version: 1, projects: [{ id: "a", name: "A", colour: "#0f172a", drawings: [] }, { id: "b", name: "B", colour: "red; background:url(x)", drawings: [] }, { id: "c", name: "C", colour: 7, drawings: [] }] }));
+assert.deepEqual(odd.store.projects.map((p) => p.colour), ["#0F172A", undefined, undefined], "only #RRGGBB is read; anything else is Octet Blue");
+// A folder near black has a lighter back, so its two parts show; others a darker one.
+assert.deepEqual(folderTones("#000000"), { front: "#000000", back: "#383838", lip: "#525252", dark: true });
+assert.equal(folderTones("#213C99").dark, false);
+assert.ok(parseInt(folderTones("#213C99").back.slice(1), 16) < parseInt("213C99", 16), "Octet Blue's back is darker");
+assert.equal(folderTones("nonsense").front, PROJECT_COLOUR);
+
+// ——— A drawing's dots: every project when they fit; else the ones it is in and those used last, in Home's order ———
+let dots = emptyStore();
+for (let k = 0; k < 8; k++) dots = createProject(dots, `P${k}`, `d${k}`, k);
+const P = "/d/x.oct";
+dots = addDrawings(dots, "d0", [{ path: P }], 50).store; // in the first project, made first
+dots = addDrawings(dots, "d2", [{ path: "/d/y.oct" }], 60).store; // used most lately
+const shown = dotsFor(dots, P, 6);
+assert.equal(shown.more, true);
+assert.deepEqual(shown.projects.map((p) => p.id), ["d0", "d2", "d5", "d6", "d7"], "the one it is in, then the four used last, in Home's order");
+// Taking it out of d0 keeps d0's dot where it is (d0 is used now), so a second click finds the same dot.
+dots = removeDrawing(dots, "d0", P, 70).store;
+assert.deepEqual(dotsFor(dots, P, 6).projects.map((p) => p.id), ["d0", "d2", "d5", "d6", "d7"]);
+assert.deepEqual(dotsFor(createProject(createProject(emptyStore(), "A", "a", 0), "B", "b", 0), P, 6).projects.map((p) => p.id), ["a", "b"], "few projects: all of them");
+
+// ——— A drawing's place in its tooltip: the home folder as ~ ———
+assert.equal(tilde("/Users/sam/Documents/a.oct", "/Users/sam"), "~/Documents/a.oct");
+assert.equal(tilde("/Users/sam/Documents/a.oct", "/Users/sam/"), "~/Documents/a.oct");
+assert.equal(tilde("/Users/samuel/a.oct", "/Users/sam"), "/Users/samuel/a.oct", "only the home folder itself");
+assert.equal(tilde("/Users/Shared/a.oct", "/Users/sam"), "/Users/Shared/a.oct");
+assert.equal(tilde("C:\\Users\\sam\\a.oct", "C:\\Users\\sam"), "C:\\Users\\sam\\a.oct", "Windows keeps the full place");
+assert.equal(tilde("/Users/sam/a.oct"), "/Users/sam/a.oct", "no home folder known");
+
+// ——— Home's sections: all four once, in the order saved; New and Templates side by side when next to each other ———
+assert.deepEqual(SECTIONS, ["new", "templates", "recent", "projects"], "New, Templates, Recent, then Projects for a new user");
+assert.deepEqual(readLayout(undefined, undefined), { order: [...SECTIONS], folded: [] });
+assert.deepEqual(readLayout(["projects", "recent"], ["templates"]), { order: ["projects", "recent", "new", "templates"], folded: ["templates"] }, "sections the save does not name follow in Octet's order");
+assert.deepEqual(readLayout(["recent", "recent", "bogus", 7, null, "new"], "templates"), { order: ["recent", "new", "templates", "projects"], folded: [] }, "duplicates and unknown names go");
+assert.deepEqual(readLayout({ length: 2 }, [["new"]]), readLayout([], []), "not a list: Octet's order");
+assert.deepEqual(moveSection([...SECTIONS], "recent", -1, true), ["new", "recent", "templates", "projects"]);
+assert.deepEqual(moveSection([...SECTIONS], "projects", 1, true), [...SECTIONS], "the last cannot go down");
+assert.deepEqual(moveSection([...SECTIONS], "new", -1, true), [...SECTIONS], "the first cannot go up");
+assert.deepEqual(moveSection([...SECTIONS], "projects", 0), ["projects", "new", "templates", "recent"], "a drag drops it in a place");
+assert.deepEqual(rowsOf([...SECTIONS], []), [["new", "templates"], ["recent"], ["projects"]]);
+assert.deepEqual(rowsOf(["templates", "new", "recent", "projects"], []), [["templates", "new"], ["recent"], ["projects"]]);
+assert.deepEqual(rowsOf(["new", "recent", "templates", "projects"], []), [["new"], ["recent"], ["templates"], ["projects"]]);
+assert.deepEqual(rowsOf([...SECTIONS], ["templates"]), [["new"], ["templates"], ["recent"], ["projects"]], "a folded section has its own row");
 
 // ——— Reading and writing: version, damage ———
 const text = writeStore(s);
@@ -162,17 +221,23 @@ assert.deepEqual(cover(4000, 3000), { sx: 0, sy: 0, sw: 4000, sh: 3000 });
 assert.deepEqual(cover(1600, 900), { sx: 200, sy: 0, sw: 1200, sh: 900 }, "wide: its middle");
 assert.deepEqual(cover(900, 1600), { sx: 0, sy: 462.5, sw: 900, sh: 675 }, "tall: its middle");
 
-// ——— Home: its sections in order, each a landmark with its heading, and its keys ———
+// ——— Home: its sections, each a landmark with its heading, and its keys ———
 const home = readFileSync(new URL("./Home.tsx", import.meta.url), "utf8");
-const order = [...home.matchAll(/<Section id="(\w+)"/g)].map((m) => m[1]);
-assert.deepEqual(order, ["new", "templates", "recent", "projects", "project"], "New, Templates, Recent, then Projects; an open project in their place");
-assert.match(home, /<Section id="projects" title="Projects">/);
-assert.match(home, /<section className=\{?["`]home-section/, "each section is a <section>");
-assert.match(home, /aria-labelledby=\{`\$\{id\}-title`\}/, "named by its heading, so screen readers list it as a region");
-assert.match(home, /e\.key === "Enter" && at < 0/, "Return starts Quick start (decision 0003)");
-assert.match(home, /roving/, "one Tab stop for each section");
+assert.match(home, /const bodies: Record<SectionId,/, "every section has its tiles");
+assert.match(home, /TITLES: Record<SectionId, string> = \{ new: "New", templates: "Templates", recent: "Recent", projects: "Projects" \}/);
+assert.match(home, /<section className=\{cls\} data-section=\{id\} aria-labelledby=\{`\$\{id\}-title`\}>/, "each section is a <section> named by its heading, so screen readers list it as a region");
+assert.match(home, /aria-expanded=\{!heading\.folded\}/, "a heading says whether its section is open");
+assert.match(home, /e\.key === "Enter" && at < 0/, "Return starts Quick start (decision 0003), wherever New is");
+assert.match(home, /querySelector<HTMLElement>\('\[data-tile="new"\]'\)\?\.focus\(\{ preventScroll: true \}\)/, "Quick start has the focus when Home opens");
+assert.match(home, /roving/, "one Tab stop for each section's tiles");
 assert.ok(!/<Menu\b|className="strip|role="menu"/.test(home.replace(/import[^;]+;/g, "")), "Home's menus are ContextMenu (src/Menu.tsx), not menus of its own");
 assert.match(home, /ContextMenu/);
+assert.match(home, /<ColourPop /, "Custom colour… is the colour picker the Actions panel uses (src/ColourPicker.tsx)");
+// A tile's id is data-tile: data-key is a control's shortcut, which the tooltip shows as a key (src/Tooltip.tsx).
+assert.ok(!/data-key|dataset\.key/.test(home), "no data-key on Home");
+assert.match(home, /data-tip=\{tilde\(d\.path, lib\.home\)\}/, "a drawing's tooltip is its place");
+// A project's dots: named, pressed or not, kept out of the arrow keys' order, and not Tab stops.
+assert.match(home, /className="home-dot" tabIndex=\{-1\} aria-pressed=\{[^}]+\} aria-label=\{x\.name\} data-tip=\{x\.name\}/);
 // The arrow keys move between tiles across sections: the New row, then a section of four wide tiles under it.
 const rect = (x: number, y: number, w = 150, h = 140) => ({ x, y, width: w, height: h });
 const tiles = [rect(0, 0), rect(200, 0), rect(350, 0), rect(500, 0), rect(0, 300, 230, 200), rect(250, 300, 230, 200), rect(500, 300, 230, 200), rect(0, 600, 230, 200)];

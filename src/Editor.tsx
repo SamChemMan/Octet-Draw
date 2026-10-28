@@ -1395,14 +1395,19 @@ export default function Editor() {
   async function takeOpened() {
     const insert = !home, into = home ? library.dropTarget.current : undefined;
     library.dropTarget.current = undefined;
-    const all = await invoke<OpenedFile[]>("take_opened", { insert, project: !!into });
-    // Dropped on a project on Home: the drawings go in it, and do not open.
+    const all = await invoke<OpenedFile[]>("take_opened", { insert, project: !!into && "project" in into });
+    // Dropped on a tile on Home: a picture becomes its thumbnail, and drawings dropped on a project go in it. Neither
+    // opens.
     if (into) {
-      const dropped = all.filter((f) => f.at);
-      for (const f of dropped) if (f.error) setNotice(f.error);
-      const paths = dropped.flatMap((f) => (f.path ? [{ path: f.path }] : []));
-      if (paths.length) void library.add(into, paths);
-      return takeFiles(all.filter((f) => !f.at), insert);
+      const dropped = all.filter((f) => f.at), picture = dropped.find((f) => f.picture);
+      if (picture) void library.pictureThumb(into, fromBase64(picture.picture!));
+      if ("project" in into) {
+        for (const f of dropped) if (f.error) setNotice(f.error);
+        const paths = dropped.flatMap((f) => (f.path ? [{ path: f.path }] : []));
+        if (paths.length) void library.add(into.project, paths);
+        return takeFiles(all.filter((f) => !f.at), insert);
+      }
+      return takeFiles(all.filter((f) => !f.picture || !f.at), insert);
     }
     await takeFiles(all, insert);
   }
@@ -4378,7 +4383,7 @@ export default function Editor() {
     accessIn.current = true;
     accessQuiet.current = true;
     queueMicrotask(() => { accessQuiet.current = false; });
-    const el = accessEl.current?.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`);
+    const el = accessEl.current?.querySelector<HTMLElement>(`[data-object="${CSS.escape(key)}"]`);
     if (el) el.focus({ preventScroll: true });
     else accessWant.current = key;
   };
@@ -4417,7 +4422,7 @@ export default function Editor() {
       to = items.findIndex((x) => x.atoms.includes(i));
     } else {
       // From the object with the focus (one not selected is selected where it is), else from the selection.
-      const key = inLayer ? (el as HTMLElement).dataset.key : undefined, chosen = (x: AccessItem) => x.atoms.some((i) => selection.has(i)) || x.items.some((i) => picked.has(i));
+      const key = inLayer ? (el as HTMLElement).dataset.object : undefined, chosen = (x: AccessItem) => x.atoms.some((i) => selection.has(i)) || x.items.some((i) => picked.has(i));
       let at = key ? items.findIndex((x) => x.key === key) : -1;
       if (at >= 0 && !chosen(items[at])) to = at;
       else {
@@ -7791,7 +7796,8 @@ export default function Editor() {
             onRemovePurpose={removePurpose}
             onCustom={settings.ownPurposes.length < MAX_PURPOSES ? () => setDialog({ kind: "template", name: "", from: purposeOf(settings, settings.purpose) ? settings.purpose : "paper" }) : undefined}
             onRemove={(r) => void homeCall("recent_remove", { path: r.path }).then(() => { refreshRecents(); void library.forget(r.path); }).catch(() => {})}
-            lib={library} drops={TAURI} />)}
+            lib={library} drops={TAURI} palette={settings.palette}
+            layout={settings.homeLayout} onLayout={(homeLayout) => setSettings((s) => ({ ...s, homeLayout }))} />)}
       <Exit>{coach > 0 && !home && (
         <Coach key={coach} doc={doc} selected={selection.size} seen={seen} keys={{ clean: hint("clean_up") ?? "", copy: keyLabel("mod+c") }} low={naming !== undefined}
           onTool={setCoachTool} onSkip={() => setCoach(0)} onFinish={() => { const fresh: Mol = { ...EMPTY, style: doc.style }; setCoach(0); set(fresh); setFile({ saved: fresh }); }} />

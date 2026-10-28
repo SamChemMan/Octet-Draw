@@ -98,3 +98,40 @@ folder section) a bit more clearly separated. Allow custom thumbnails as well."
   tile's menu, which is ContextMenu (src/Menu.tsx).
 - ChemDraw 26.1 has nothing to match: File > Open Recent and Clear Menu, with no thumbnails and no folders (its help,
   Documents).
+
+## Folders, project dots and movable sections (28 October 2026)
+
+Sam asked for a larger heading on each section, small project buttons under each drawing, sections the user can move
+and fold, and projects drawn as folders that are fun to use. This replaces the mosaic above.
+
+- Headings are the headline size (20 px, brand/tokens.css). The gap between sections went from 40 px to 48 px.
+- A project is a folder in Phosphor's folder shape: a back with a tab, its first three drawings as pages in it, and a
+  front over them. It is Octet Blue (#213C99) until the user picks a colour: Colour in the project's menu lists the
+  document colours (docstyle.ts COLOURS), then the user's own, then Custom colour… (ColourPop, as the Actions panel
+  uses). The project's own thumbnail sits on the front in grey, multiplied into the folder's colour, as the symbol on a
+  macOS folder does. A folder near black has a lighter back and shows the picture lighter. Every folder has the
+  swatches' edge, so a Black or Ink folder shows on the dark theme.
+- Motion: on hover or focus the front tips open (180 ms) and the pages lift. A drawing carried over a folder opens it
+  wider, and a drop gives a 200 ms settle. Reduced motion: the folder stays still, and a ring shows where a drop goes.
+- Dots: under each drawing tile (Recent and in a project), a dot for each project in its colour, filled when the
+  drawing is in the project and a dashed ring when not. A click puts the drawing in or takes it out, with no notice.
+  The dots always show; More and the plus show with the pointer on the tile or the focus in it. With
+  more than six projects, five dots show (the projects the drawing is in, then those used last, in Home's order) and
+  More opens Add to project. The plus makes a new project with the drawing in it. Taking a drawing out counts as a
+  use, so its dot stays where it was for a second click. The dots are not Tab stops (the tile's menu does the same),
+  but each is a pressed or unpressed button named by its project, so a screen reader reaches it.
+- A picture dropped on a drawing or a project becomes its thumbnail, through the same checks as Set thumbnail…. In
+  the app the drop comes from Tauri (open.rs gives a picture dropped on a project back as a picture); in the browser
+  preview, from the browser's drop.
+- Sections are modules. A click on a heading folds the section to its heading. A drag by the heading moves it up or
+  down (it lifts as a card, and the other sections slide out of its way); Escape puts it back. The heading's menu (the
+  Menu key or Shift+F10 too) has Move up, Move down and Collapse or Expand. New and Templates sit side by side when they
+  are next to each other and open. Settings keeps the order and the folded sections (homeLayout), as it keeps the
+  Actions panel's folded sections. Quick start still has the focus when Home opens, and Return still starts it,
+  wherever New is or if it is folded.
+- Storage: each project in home.json can have a colour (#RRGGBB) and used (seconds since 1970). The store is still
+  version 1: an older Octet reads it and drops the two. home.rs refuses a store with a colour that is not "#" and six
+  hex digits.
+- Tooltips: a tile's id is data-tile. Tooltip.tsx reads data-key as a shortcut, so the old data-key on Home's tiles
+  showed the id as a key and squeezed the path to one letter a line. A drawing's tooltip shows its place with the home
+  folder as ~, and breaks a long place after a slash.

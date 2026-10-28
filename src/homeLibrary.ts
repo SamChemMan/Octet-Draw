@@ -8,7 +8,7 @@ import { call, HOME_API } from "./homeApi";
 import { makeThumb } from "./thumbs";
 import {
   addDrawings, createProject, deleteProject, drawingName, emptyStore, forget, newId, projectOf, projectsWith, readStore, relocate, removeDrawing, renameProject,
-  resetPicture, setPicture, setProjectThumb, thumbIds, writeStore, type HomeStore, type StoreProblem,
+  resetPicture, setPicture, setProjectColour, setProjectThumb, thumbIds, writeStore, type HomeStore, type StoreProblem,
 } from "./projects";
 
 export type RecentLike = { path: string; name: string; thumb?: string };
@@ -27,18 +27,21 @@ export function useHomeLibrary({ active, recents, notice }: { active: boolean; r
   const [open, setOpen] = useState<string>(); // the project Home shows, if one is open
   const held = useRef(store), queue = useRef(Promise.resolve()), problemRef = useRef(problem);
   problemRef.current = problem;
-  const dropTarget = useRef<string>(undefined); // the project files from Finder were dropped on (Home sets it)
+  // The tile files from Finder were dropped on (Home sets it): a project takes drawings, and a picture as its
+  // thumbnail; a drawing takes a picture as its thumbnail.
+  const dropTarget = useRef<ThumbTarget>(undefined);
+  const [home, setHome] = useState<string>(); // the user's home folder, shown as ~
 
   // Read when Home shows. A damaged or newer store says so once.
   useEffect(() => {
     if (!active || !HOME_API) return;
     let gone = false;
-    void call<{ text: string | null; damaged: boolean; missing: string[] }>("home_read").then((r) => {
+    void call<{ text: string | null; damaged: boolean; missing: string[]; home?: string | null }>("home_read").then((r) => {
       if (gone) return;
       const read = r.damaged ? { store: emptyStore(), problem: "damaged" as const } : readStore(r.text);
       if (read.problem && read.problem !== problemRef.current) notice(read.problem === "newer" ? "A newer Octet saved your projects. Update Octet to see them." : "Octet cannot read your projects. Octet kept a copy of the file and starts with no projects.");
       held.current = read.store;
-      setStore(read.store); setProblem(read.problem); setMissing(new Set(r.missing));
+      setStore(read.store); setProblem(read.problem); setMissing(new Set(r.missing)); setHome(r.home ?? undefined);
     }).catch(() => {});
     return () => { gone = true; };
   }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -97,13 +100,11 @@ export function useHomeLibrary({ active, recents, notice }: { active: boolean; r
     });
   };
 
-  // A new thumbnail from a picture file the user picks, for a drawing or a project.
-  const chooseThumb = async (target: ThumbTarget) => {
+  // A picture file's bytes as the thumbnail of a drawing or a project: Set thumbnail…, or a picture dropped on a tile.
+  const pictureThumb = async (target: ThumbTarget, bytes: Uint8Array) => {
     try {
-      const b64 = await call<string | null>("home_pick_picture");
-      if (!b64) return;
       let jpeg: string;
-      try { jpeg = await makeThumb(fromBase64(b64)); } catch (e) { return notice(`Octet cannot use this picture. ${e instanceof Error ? e.message : ""}`.trim()); }
+      try { jpeg = await makeThumb(bytes); } catch (e) { return notice(`Octet cannot use this picture. ${e instanceof Error ? e.message : ""}`.trim()); }
       const id = await call<string>("thumb_save", { jpeg });
       setUrls((u) => ({ ...u, [id]: `data:image/jpeg;base64,${jpeg}` }));
       await commit((s) => ("path" in target ? setPicture(s, target.path, "own", id) : setProjectThumb(s, target.project, id)));
@@ -111,9 +112,21 @@ export function useHomeLibrary({ active, recents, notice }: { active: boolean; r
       notice(failure("Octet cannot set this thumbnail.", e));
     }
   };
+  const chooseThumb = (target: ThumbTarget) => call<string | null>("home_pick_picture").then((b64) => { if (b64) return pictureThumb(target, fromBase64(b64)); })
+    .catch((e) => notice(failure("Octet cannot set this thumbnail.", e)));
 
   return {
-    store, problem, missing, urls, open, setOpen, dropTarget, pictureFor,
+    store, problem, missing, urls, open, setOpen, dropTarget, pictureFor, pictureThumb, home,
+    colour: (id: string, colour: string) => commit((s) => ({ store: setProjectColour(s, id, colour) })),
+    // A project's dot on a drawing's tile: the drawing goes in, or comes out. No notice: the dot shows it.
+    toggle: (id: string, d: { path: string; name: string }) => {
+      let added = false;
+      return commit((s) => {
+        if (projectOf(s, id)?.drawings.some((x) => x.path === d.path)) return removeDrawing(s, id, d.path, now());
+        added = true;
+        return addDrawings(s, id, [d], now());
+      }).then(() => { const svg = recentOf(d.path)?.thumb; if (added && svg && !held.current.pictures[d.path]?.auto) void keepAuto(d.path, svg).catch(() => {}); });
+    },
     create: (name: string, then?: { path: string; name?: string }[]) => {
       const id = newId();
       return commit((s) => ({ store: createProject(s, name, id, now()) })).then(() => { if (then?.length && projectOf(held.current, id)) return add(id, then); }).then(() => id);
@@ -124,7 +137,7 @@ export function useHomeLibrary({ active, recents, notice }: { active: boolean; r
     // Add Drawings… in a project: the Open dialog for drawings.
     addPicked: (id: string) => void call<string[]>("home_pick_drawings", { many: true }).then((paths) => { if (paths.length) return add(id, paths.map((path) => ({ path }))); })
       .catch((e) => notice(failure("Octet cannot add these drawings.", e))),
-    removeDrawing: (id: string, path: string) => commit((s) => removeDrawing(s, id, path)),
+    removeDrawing: (id: string, path: string) => commit((s) => removeDrawing(s, id, path, now())),
     // Locate…: the drawing's new place, picked in the Open dialog, in every project.
     locate: (path: string) => void call<string[]>("home_pick_drawings", { many: false }).then(async ([to]) => {
       if (!to || !(await commit((s) => relocate(s, path, to)))) return;

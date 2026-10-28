@@ -78,11 +78,20 @@ fn is_drawing(path: &str) -> bool {
     Path::new(path).extension().and_then(|e| e.to_str()).is_some_and(|e| ["oct", "cdxml", "cdx", "octet"].iter().any(|d| e.eq_ignore_ascii_case(d)))
 }
 
+// A project's colour, when it has one: "#" and six hex digits, nothing else (the page draws its folder with it).
+fn colours_ok(text: &str) -> bool {
+    let ok = |c: &str| c.len() == 7 && c.starts_with('#') && c[1..].bytes().all(|b| b.is_ascii_hexdigit());
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(text) else { return false };
+    let projects = v.get("projects").and_then(|p| p.as_array()).map(Vec::as_slice).unwrap_or_default();
+    projects.iter().all(|p| p.get("colour").is_none_or(|c| c.as_str().is_some_and(ok)))
+}
+
 #[derive(Serialize)]
 pub struct HomeRead {
     text: Option<String>, // home.json, or None when there is none yet
     damaged: bool,        // there is a home.json, but Octet cannot read it
     missing: Vec<String>, // drawings in projects that are not where they were
+    home: Option<String>, // the user's home folder, which Home shows as ~ in a drawing's place
 }
 
 #[tauri::command]
@@ -95,7 +104,8 @@ pub fn home_read(app: AppHandle) -> HomeRead {
     let paths = parsed.as_ref().map(|p| p.1.clone()).unwrap_or_default();
     let missing = paths.iter().filter(|p| !Path::new(p.as_str()).is_file()).cloned().collect();
     *app.state::<Home>().0.lock().unwrap() = Some(paths);
-    HomeRead { damaged: damaged || (text.is_some() && parsed.is_none()), text, missing }
+    let home = app.path().home_dir().ok().map(|h| h.to_string_lossy().into_owned());
+    HomeRead { damaged: damaged || (text.is_some() && parsed.is_none()), text, missing, home }
 }
 
 // Why a store cannot be written over the one there now (`before`), or None. allowed: drawings Octet may open already.
@@ -104,7 +114,7 @@ fn refuse(text: &str, before: Option<&(u64, HashSet<String>)>, allowed: impl Fn(
     if before.is_some_and(|b| b.0 > version) || version > VERSION {
         return Some("A newer Octet saved your projects. Update Octet to change them.".into());
     }
-    if paths.len() > MAX_DRAWINGS || paths.iter().any(|p| p.len() >= 4096 || !is_drawing(p)) {
+    if paths.len() > MAX_DRAWINGS || paths.iter().any(|p| p.len() >= 4096 || !is_drawing(p)) || !colours_ok(text) {
         return Some("Octet cannot save your projects.".into());
     }
     paths.iter().filter(|p| !before.is_some_and(|b| b.1.contains(*p))).find(|p| !allowed(p)).map(|_| "Octet can only add a drawing that you opened, saved or dropped on Octet.".into())
@@ -278,6 +288,23 @@ mod tests {
         let script = STORE.replace("/d/b.cdxml", "/d/run.sh");
         assert!(refuse(&script, None, |_| true).is_some());
         assert!(refuse("{not json", None, |_| true).is_some());
+    }
+
+    #[test]
+    fn a_project_colour_is_a_hex_colour_only() {
+        let with = |c: &str| STORE.replace("\"made\":1,", &format!("\"made\":1,\"colour\":{c},"));
+        assert!(refuse(STORE, None, |_| true).is_none(), "no colour: Octet Blue");
+        for good in ["\"#213C99\"", "\"#3f6bff\"", "\"#000000\""] {
+            assert!(colours_ok(&with(good)), "{good}");
+            assert!(refuse(&with(good), None, |_| true).is_none(), "{good}");
+        }
+        for bad in ["\"red\"", "\"#FFF\"", "\"#21 C99\"", "\"#213C99;background:url(x)\"", "\"#GGGGGG\"", "\"213C990\"", "42", "null", "[\"#213C99\"]"] {
+            assert!(!colours_ok(&with(bad)), "{bad}");
+            assert!(refuse(&with(bad), None, |_| true).is_some(), "{bad} is refused");
+        }
+        // Each project is checked, not only the first.
+        let two = r##"{"version":1,"projects":[{"id":"a","name":"A","colour":"#213C99","drawings":[]},{"id":"b","name":"B","colour":"url(x)","drawings":[]}],"pictures":{}}"##;
+        assert!(!colours_ok(two));
     }
 
     #[test]
