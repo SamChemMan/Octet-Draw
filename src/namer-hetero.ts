@@ -10,6 +10,7 @@ import { azoxy, azoxyName, azoxyPrefix } from "./namer-maingroup.ts";
 // (=O and -S-: thioic S-acid), "O" (=S and -O-: thioic O-acid), "SS" (dithioic acid), "=S" (=S on its own: thioamide,
 // thial, thione), "OO" (peroxol), or "".
 export function groupVariant(n: Namer, c: number): string {
+  if (n.el[c] === "S" && n.group[c] === "ketone" && n.adj[c].length === 1) return "=S"; // =S on a ring P: 1λ⁵-phospholane-1-thione
   if (n.el[c] === "S") return n.group[c] && VARIANT_SUFFIX[n.group[c]!] ? (oxo(n, c).length === 1 ? (n.adj[c].some((j) => n.el[j] === "N" && n.ord(c, j) === 2) ? "S=N" : "S=O") : "") + (n.adj[c].some((j) => n.het.get(j) === "SSR") ? "S" : "") : ""; // sulfinic acid, sulfonimidic acid, sulfonothioate
   if (n.el[c] === "O") return n.group[c] === "alcohol" && n.adj[c].some((j) => n.el[j] === "O") ? "OO" : "";
   const d = n.carbonylO[c];

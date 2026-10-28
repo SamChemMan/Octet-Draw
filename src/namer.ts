@@ -109,6 +109,8 @@ const RINGS: Record<string, Ring> = {
 const ION_RINGS: Record<string, Ring> = { "6a:O1": { name: "pyrylium", stem: "", aromatic: true }, "6a:S1": { name: "thiopyrylium", stem: "", aromatic: true },
   "6a:Se1": { name: "selenopyrylium", stem: "", aromatic: true }, "6a:Te1": { name: "telluropyrylium", stem: "", aromatic: true } };
 const HETERO_ORDER = ["O", "S", "N"]; // heteroatoms in order of seniority for low locants (P-31.1.4.2.4)
+// The same for von Baeyer and spiro systems, which may hold P and As too (the cage of P4O10): O > S > N > P > As.
+const BRIDGE_ORDER = [...HETERO_ORDER, "P", "As"];
 // Hantzsch–Widman prefixes in order of seniority (P-22.2.2.1.1, P-22.2.2.1.3).
 // A ring is named only with elements perceive() accepts.
 // They are also the replacement prefixes of von Baeyer and large rings (P-15.4), in the same order.
@@ -442,9 +444,14 @@ class Namer {
         for (const a of [c, o, ...hz, ...hz.map((n) => adj[n].find((j) => el[j] === "N")!)]) this.pseudo.add(a);
         continue;
       }
-      if (others.length === 2 && !cs.length) { this.carbonicGroup(c, others); continue; }
-      if (this.inRing[c] || others.length !== 1 || cs.length > 1) throw new Error("carbonyl");
-      const x = others[0];
+      // A nitro or nitroso group on formic acid's carbon is a prefix (P-65.1.8.2, which allows substituents other than those
+      // P-65.1.8.1 lists): nitroformic acid, methyl nitroformate, sodium nitroformate. Not on formamide: OPSIN reads
+      // nitroformamide as N-nitroformamide.
+      const nitro = others.length === 2 && !cs.length && others.some((j) => el[j] === "O") ? others.find((j) => this.nitroAtom(j) || this.nitrosoAtom(j)) : undefined;
+      if (others.length === 2 && !cs.length && nitro === undefined) { this.carbonicGroup(c, others); continue; }
+      const xs = others.filter((j) => j !== nitro);
+      if (this.inRing[c] || xs.length !== 1 || cs.length > 1) throw new Error("carbonyl");
+      const x = xs[0];
       // Acid halides, and acid pseudohalides (P-65.5.3): benzoyl isothiocyanate.
       if ((HALO[el[x]] && adj[x].length === 1) || this.prefixOnly.has(x)) { this.mark(c, "halide", cs); this.group[x] = "halide"; continue; }
       const y = el[x] === "O" && adj[x].length === 2 ? adj[x].find((j) => j !== c)! : -1;
@@ -454,7 +461,7 @@ class Namer {
       const sulfonyl = el[x] === "S" && !q[x] && !this.inRing[x] && adj[x].length === 4 && adj[x].filter((j) => this.isOxo(x, j)).length === 2;
       // So is a diazenyl group (P-68.3.1.3): 1-(phenyldiazenyl)ethan-1-one.
       const diazenyl = el[x] === "N" && !q[x] && !this.inRing[x] && adj[x].length === 2 && adj[x].some((j) => el[j] === "N" && this.ord(x, j) === 2 && !q[j] && !this.inRing[j]);
-      if ((this.nitroAtom(x) || sulfonyl || diazenyl || (el[x] === "N" && !q[x] && adj[x].length === 2 && adj[x].some((j) => el[j] === "O" && this.ord(x, j) === 2 && adj[j].length === 1 && !q[j]))) && cs.length === 1) { this.mark(c, "ketone", cs); continue; }
+      if ((this.nitroAtom(x) || sulfonyl || diazenyl || this.nitrosoAtom(x)) && cs.length === 1) { this.mark(c, "ketone", cs); continue; }
       const peroxo = el[x] === "O" && el[o] === "O" && adj[x].length === 2 ? adj[x].find((j) => j !== c && el[j] === "O" && q[j] <= 0 && !this.inRing[j]) : undefined;
       if (peroxo !== undefined) { this.peroxyGroup(c, cs, x, peroxo); continue; }
       // -SH and -S-R in place of -OH and -O-R (P-65.1.5): thioic S-acids and S-esters.
@@ -547,10 +554,11 @@ class Namer {
       if (el[a] !== "C" && el[b] !== "C" && !this.nitroBond(a, b) && !oxime(a, b) && !oxime(b, a) && !oxide && !n2 && !this.classBond(a, b) && this.group[a] !== "ketone" && this.group[b] !== "ketone") throw new Error(`hetero bond ${el[a]}${o}${el[b]}`);
     }
   }
-  // =O on a ring S, Se, Te, P, As, Sb, Bi or halogen.
+  // =O on a ring S, Se, Te, P, As, Sb, Bi or halogen, or =S on a ring P, As, Sb or Bi (a λ⁵ thione: the cage of P4S10).
   ringOxide(o: number): boolean {
-    if (this.el[o] !== "O" || this.q[o] || this.h[o] || this.adj[o].length !== 1) return false;
+    if ((this.el[o] !== "O" && this.el[o] !== "S") || this.q[o] || this.h[o] || this.adj[o].length !== 1) return false;
     const a = this.adj[o][0];
+    if (this.el[o] === "S" && !["P", "As", "Sb", "Bi"].includes(this.el[a])) return false;
     return this.ord(a, o) === 2 && this.inRing[a] && (LAMBDA.has(this.el[a]) || !!HALO[this.el[a]]) && !this.q[a];
   }
   // The λ-convention (P-14.1.3): a ring S, Se or Te with one or two =O is λ⁴ or λ⁶ (1λ⁶-thiolane, 1λ⁴-selenophen-1-one),
@@ -609,6 +617,8 @@ class Namer {
     }
     return false;
   }
+  // A nitroso group's N: N=O, the O bearing nothing else, neither charged.
+  nitrosoAtom = (x: number) => this.el[x] === "N" && !this.q[x] && this.adj[x].length === 2 && this.adj[x].some((j) => this.el[j] === "O" && this.ord(x, j) === 2 && this.adj[j].length === 1 && !this.q[j]);
   // An OH or O-alkyl on an amide-like N (N-hydroxy, N-methoxy: hydroxamic acids, Weinreb amides, hydroxyurea).
   nOxy(n: number, o: number): boolean {
     return this.el[o] === "O" && this.ord(n, o) === 1 && !this.q[o] && !this.inRing[o]
@@ -1151,19 +1161,19 @@ class Namer {
     const atoms = this.rings[k], sys = new Set(atoms), ring = (a: number) => this.adj[a].filter((j) => sys.has(j));
     const bonds = atoms.flatMap((a) => ring(a).filter((b) => a < b).map((b): [number, number] => [a, b]));
     const unsaturated = bonds.some(([a, b]) => this.ord(a, b) > 1);
-    if (atoms.length === 10 && bonds.length === 12 && !unsaturated && atoms.every((a) => ["C", "N", "O", "S"].includes(this.el[a]) && (this.el[a] === "C" || !this.q[a]))) {
+    if (atoms.length === 10 && bonds.length === 12 && !unsaturated && atoms.every((a) => ["C", "N", "O", "S", "P", "As"].includes(this.el[a]) && (this.el[a] === "C" || !this.q[a]))) {
       let nums = this.match(ADAMANTANE, atoms, ring);
       nums = this.lowest(nums, (num) => num.map((a, i) => (this.el[a] !== "C" ? i + 1 : 0)).filter(Boolean));
-      for (const e of HETERO_ORDER) nums = this.lowest(nums, (num) => num.map((a, i) => (this.el[a] === e ? i + 1 : 0)).filter(Boolean));
+      for (const e of BRIDGE_ORDER) nums = this.lowest(nums, (num) => num.map((a, i) => (this.el[a] === e ? i + 1 : 0)).filter(Boolean));
       if (nums.length) return { prefix: "", nums, bonds, retained: "adamantane" };
     }
-    if (atoms.some((a) => !["C", "N", "O", "S", "Se", "Si", "Ge", "Sn", "B"].includes(this.el[a]) || (this.el[a] !== "C" && this.q[a] && !this.cationN(a)))) return undefined;
+    if (atoms.some((a) => !["C", "N", "O", "S", "Se", "Si", "Ge", "Sn", "B", "P", "As"].includes(this.el[a]) || (this.el[a] !== "C" && this.q[a] && !this.cationN(a)))) return undefined;
     // Triple bonds are named as -yne (bicyclo[2.2.1]hept-2-yne); an atom with two multiple bonds is not covered.
     if (atoms.some((a) => ring(a).filter((j) => this.ord(a, j) > 1).length > 1)) return undefined;
     if (bonds.length > atoms.length + 1) {
       let { prefix, nums } = vonBaeyer(atoms, ring);
       nums = this.lowest(nums, (num) => num.map((a, i) => (this.el[a] !== "C" ? i + 1 : 0)).filter(Boolean));
-      for (const e of HETERO_ORDER) nums = this.lowest(nums, (num) => num.map((a, i) => (this.el[a] === e ? i + 1 : 0)).filter(Boolean));
+      for (const e of BRIDGE_ORDER) nums = this.lowest(nums, (num) => num.map((a, i) => (this.el[a] === e ? i + 1 : 0)).filter(Boolean));
       const cubane = prefix === "pentacyclo[4.2.0.0²,⁵.0³,⁸.0⁴,⁷]" && !unsaturated && atoms.every((a) => this.el[a] === "C");
       return { prefix, nums, bonds, ...(cubane ? { retained: "cubane" } : {}) };
     }
@@ -1201,7 +1211,7 @@ class Namer {
       for (const f of firsts) for (const r1 of [loops[f], [...loops[f]].reverse()]) for (const r2 of [loops[1 - f], [...loops[1 - f]].reverse()]) nums.push([...r1, s, ...r2]);
     } else return undefined;
     nums = this.lowest(nums, (num) => num.map((a, i) => (this.el[a] !== "C" ? i + 1 : 0)).filter(Boolean));
-    for (const e of HETERO_ORDER) nums = this.lowest(nums, (num) => num.map((a, i) => (this.el[a] === e ? i + 1 : 0)).filter(Boolean));
+    for (const e of BRIDGE_ORDER) nums = this.lowest(nums, (num) => num.map((a, i) => (this.el[a] === e ? i + 1 : 0)).filter(Boolean));
     return { prefix, nums, bonds };
   }
   // Every map of the skeleton onto the ring system that keeps elements and bonds, as numberings (the atom at each
@@ -1289,7 +1299,7 @@ class Namer {
         if (CARBON_GROUP.has(kind)) {
           if (inParent.has(g) && !p.ring && !p.attached) sites.push({ atom: g, group: g });
           else if ((p.ring || p.attached) && on.some((a) => inParent.has(a))) { sites.push({ atom: on.find((a) => inParent.has(a))!, group: g }); used.add(g); }
-        } else if (kind === "ketone" && this.el[g] === "O") { if (inParent.has(on[0])) { sites.push({ atom: on[0], group: g }); used.add(g); } } // =O on a ring S or P
+        } else if (kind === "ketone" && (this.el[g] === "O" || this.el[g] === "S")) { if (inParent.has(on[0])) { sites.push({ atom: on[0], group: g }); used.add(g); } } // =O on a ring S or P, =S on a ring P
         else if (kind === "ketone" || kind === "imine") { if (inParent.has(g)) { sites.push({ atom: g, group: g }); used.add(kind === "ketone" ? this.carbonylO[g] : this.imineN(g)!); } }
         else { const a = on.find((x) => inParent.has(x)); if (a !== undefined) { sites.push({ atom: a, group: g }); used.add(g); } }
       }
@@ -1514,7 +1524,7 @@ class Namer {
     // A prefix needs brackets when it carries prefixes of its own or locants (P-16.5.1).
     return { text, compound: (prefixes.length > 0 && !benzyl) || stereo.length > 0 || /[\d,]/.test(text) || NUCLIDE.test(text), score: [], label: (a: number) => label(num, a), prefixes: prefixes.length }; // [(²H₃)methyl]
   }
-  groupHetero = (c: number) => this.adj[c].filter((j) => j !== this.carbonylO[c] && this.el[j] !== "C");
+  groupHetero = (c: number) => this.adj[c].filter((j) => j !== this.carbonylO[c] && this.el[j] !== "C" && !this.nitroAtom(j) && !this.nitrosoAtom(j)); // a nitro group is a prefix: nitroformic acid
   // The N of an amide, amidine or hydrazide on carbon c: not the ring N it may hang on (piperidine-1-carboxamide), nor
   // an amidine's =N.
   amideN = (c: number) => this.groupHetero(c).find((j) => !this.inRing[j] && this.ord(c, j) === 1 && !this.bearer.get(c)?.includes(j));
@@ -1996,7 +2006,7 @@ class Namer {
       for (const [g, on] of this.bearer) {
         if (this.group[g] !== kind || skip.has(g)) continue;
         if (CARBON_GROUP.has(kind)) c += (!ring && atoms.includes(g)) || (ring && on.some((a) => atoms.includes(a))) ? 1 : 0;
-        else if (kind === "ketone" || kind === "imine") c += atoms.includes(this.el[g] === "O" ? on[0] : g) ? 1 : 0;
+        else if (kind === "ketone" || kind === "imine") c += atoms.includes(this.el[g] === "O" || this.el[g] === "S" ? on[0] : g) ? 1 : 0;
         else c += on.some((a) => atoms.includes(a)) ? 1 : 0;
       }
       return c;

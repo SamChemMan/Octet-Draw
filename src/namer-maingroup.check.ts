@@ -88,6 +88,12 @@ const cases: [string, string][] = [
   ["smiles:O=P1(c2ccccc2)c2ccccc2-c2ccccc21", "5-phenyl-5H-5λ⁵-dibenzo[b,d]phosphol-5-one"], ["smiles:OP1(=O)CCCC1", "1-hydroxy-1λ⁵-phospholan-1-one"],
   ["smiles:OP1CCCCC1", "phosphinan-1-ol"], ["smiles:P1(CCC2=CC=CC=C12)O", "2,3-dihydro-1H-1-benzophosphol-1-ol"],
   ["smiles:O=[As]c1ccccc1", "oxo(phenyl)arsane"], ["smiles:Cl[Bi]=O", "chloro(oxo)bismuthane"],
+  // =S on a ring P is a λ⁵ thione as =O is a λ⁵ one. Cages of P and O or S are named on adamantane by replacement
+  // (P-23.7, P-15.4): P4O6, P4O10, P4S10 (phosphorus pentasulfide).
+  ["smiles:S=P1(C)CCCC1", "1-methyl-1λ⁵-phospholane-1-thione"], ["smiles:S=P1(C)C=CC=C1", "1-methyl-1H-1λ⁵-phosphole-1-thione"],
+  ["smiles:P12OP3OP(OP(O1)O3)O2", "2,4,6,8,9,10-hexaoxa-1,3,5,7-tetraphosphaadamantane"],
+  ["smiles:P12(=O)OP3(=O)OP(=O)(O1)OP(=O)(O2)O3", "2,4,6,8,9,10-hexaoxa-1λ⁵,3λ⁵,5λ⁵,7λ⁵-tetraphosphaadamantane-1,3,5,7-tetraone"],
+  ["phosphorus pentasulfide", "2,4,6,8,9,10-hexathia-1λ⁵,3λ⁵,5λ⁵,7λ⁵-tetraphosphaadamantane-1,3,5,7-tetrathione"],
   // Ring anions of P, As, Sb and Si; their parent hydride anions; Se and Te ring cations; ylides (P-72, P-73).
   ["smiles:[P-]1C=CC2=CC=CC=C12", "1H-1-benzophosphol-1-ide"], ["smiles:C1=CC=CC=2OC3=CC=CC=C3[As-]C12", "10H-dibenzo[b,e][1,4]oxarsinin-10-ide"],
   ["smiles:C1=CC=CC=2OC3=CC=CC=C3[SiH-]C12", "10H-dibenzo[b,e][1,4]oxasilin-10-ide"], ["smiles:c1ccccc1[P-]c1ccccc1", "diphenylphosphanide"],
