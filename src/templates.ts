@@ -141,11 +141,18 @@ export const addSetOf = <S extends Kept>(s: S, name: string, list: { name: strin
   return { kept: { ...added, templates: [...added.templates, ...list.map((t) => newTemplate(t.name, t.mol, set))] }, set };
 };
 
+// The size templates are shown at, in the library and in each floating palette (ChemDraw's pane size, which a template
+// palette's corner sets). Anything else read from the settings is medium.
+export type TemplateSize = "small" | "medium" | "large";
+export const TEMPLATE_SIZES: TemplateSize[] = ["small", "medium", "large"];
+export const readSize = (v: unknown): TemplateSize => (v === "small" || v === "large" ? v : "medium");
+
 // ——— Floating palettes ———
 // A set torn off into a small palette that stays open beside the canvas, as ChemDraw's template palettes: the set (one
 // of Octet's or the user's), the tool its templates go to, where its top left corner is (px from the window's top
-// left) and how many columns it shows. Kept in the settings, so open palettes come back where they were.
-export type FloatingPalette = { set: string; tool: TemplateTool; x: number; y: number; columns: number };
+// left), how many columns it shows and its template size. Kept in the settings, so open palettes come back where they
+// were.
+export type FloatingPalette = { set: string; tool: TemplateTool; x: number; y: number; columns: number; size: TemplateSize };
 export const PALETTE_COLUMNS = 3, MOST_PALETTES = 12;
 const whole = (n: unknown, lo: number, hi: number, or: number) => (typeof n === "number" && Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : or);
 export function readPalettes(v: unknown): FloatingPalette[] {
@@ -154,7 +161,7 @@ export function readPalettes(v: unknown): FloatingPalette[] {
   return v.flatMap((p: Partial<FloatingPalette> | null): FloatingPalette[] => {
     if (!p || typeof p !== "object" || typeof p.set !== "string" || !setName(p.set) || seen.has(setName(p.set))) return [];
     seen.add(setName(p.set));
-    return [{ set: setName(p.set), tool: p.tool === "ring" ? "ring" : "template", x: whole(p.x, 0, 10000, 80), y: whole(p.y, 0, 10000, 96), columns: whole(p.columns, 1, 8, PALETTE_COLUMNS) }];
+    return [{ set: setName(p.set), tool: p.tool === "ring" ? "ring" : "template", x: whole(p.x, 0, 10000, 80), y: whole(p.y, 0, 10000, 96), columns: whole(p.columns, 1, 8, PALETTE_COLUMNS), size: readSize(p.size) }];
   }).slice(-MOST_PALETTES);
 }
 // A set's palette opened (at `at`, or a little down and right of the last one), or brought to the front when it is open
@@ -163,9 +170,9 @@ export const openPalette = (list: FloatingPalette[], set: string, tool: Template
   const open = list.find((p) => p.set === set);
   if (open) return [...list.filter((p) => p !== open), at ? { ...open, ...at } : open];
   const last = list[list.length - 1], place = at ?? (last ? { x: last.x + 24, y: last.y + 24 } : { x: 80, y: 96 });
-  return readPalettes([...list, { set, tool, ...place, columns: PALETTE_COLUMNS }]);
+  return readPalettes([...list, { set, tool, ...place, columns: PALETTE_COLUMNS, size: "medium" }]);
 };
 export const closePalette = (list: FloatingPalette[], set: string) => list.filter((p) => p.set !== set);
-// A palette moved (x, y) or made wider or narrower (columns), within Octet's limits.
-export const changePalette = (list: FloatingPalette[], set: string, change: Partial<Pick<FloatingPalette, "x" | "y" | "columns">>) =>
+// A palette moved (x, y), made wider or narrower (columns) or given another template size, within Octet's limits.
+export const changePalette = (list: FloatingPalette[], set: string, change: Partial<Pick<FloatingPalette, "x" | "y" | "columns" | "size">>) =>
   list.map((p) => (p.set === set ? readPalettes([{ ...p, ...change }])[0] ?? p : p));
