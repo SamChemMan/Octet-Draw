@@ -1,7 +1,7 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
 import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, extent, stack, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot, transformParts, splitCurve, nearestOnCurve, moveCurvePoint, removeCurvePoint, appendCurvePoint, nextGroup, setEnhanced } from "./edit.ts";
-import { curvePath, inShape, settleShape, shapeBounds, shapeCorners, tableLayout, type Mol, type Shape } from "./render.ts";
+import { curvePath, inDrawn, inShape, settleShape, shapeBounds, shapeCorners, tableLayout, type Mol, type Shape } from "./render.ts";
 import { distToPath } from "./hit.ts";
 const sub = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1]], cross = (a: number[], b: number[]) => a[0] * b[1] - a[1] * b[0];
 
@@ -792,6 +792,10 @@ console.log("edit.check: align ok");
   const turned: Shape = { ...box, angle: 30 }, c = shapeCorners(turned);
   assert.ok(near(c.from, [2 - 2 * Math.cos(Math.PI / 6) - Math.sin(Math.PI / 6), 1 - 2 * Math.sin(Math.PI / 6) + Math.cos(Math.PI / 6)]));
   assert.ok(inShape(turned, [2, 1]) && !inShape(turned, [4, 0]) && inShape(box, [4, 0]));
+  // A press inside a filled oval picks it: inside the ellipse, not in the corners of its box.
+  const oval: Shape = { id: 9, kind: "oval", from: [0, 0], to: [4, 2] };
+  assert.ok(inDrawn(oval, [2, 1]) && inDrawn(oval, [3.9, 1]) && !inDrawn(oval, [0.2, 0.1]) && inShape(oval, [0.2, 0.1]));
+  assert.ok(inDrawn({ ...oval, angle: 90 }, [2, 2.9]) && !inDrawn({ ...oval, angle: 90 }, [3.9, 1]), "a turned oval by its own axes");
   const b = shapeBounds(turned);
   assert.ok(b[0] < 0 && b[2] > 4, "the box round a turned shape is wider than the shape");
   // The selection's handles and Scale…: a turned box scaled about its "from" corner keeps that corner and its angle,

@@ -77,7 +77,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, ELLIPSES, HOLD_MS, Palette, pickHead, RingGlyph, RINGS, SELECTS, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
+import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
 import { dragCursor, rotateCursor, selectCursor } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
@@ -2676,7 +2676,9 @@ export default function Editor() {
     const q: P = [p[0] * L, -p[1] * L], near = (sh: Shape) => 5 / views.get().zoom + frame.line * 2 * scaleOf(sh);
     return [...(shown.shapes ?? [])].reverse().find((sh) => (sh.kind === "table" ? tableAt(p)?.id === sh.id : nearTrace(q, shapeTrace(sh, L, frame.bond), near(sh))))?.id;
   };
-  const highlightAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => (sh.kind === "highlight" || sh.kind === "picture") && inShape(sh, p))?.id;
+  // A highlight, picture or filled shape a point is inside, as drawn: a press anywhere on it picks it (Sam, 28 October
+  // 2026: a shaded circle drags from its middle, as from its line).
+  const highlightAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => (sh.kind === "highlight" || sh.kind === "picture" || !!sh.fill) && inDrawn(sh, p))?.id;
   // The TLC plate a point is on, and a click on it: a spot in that lane at that height, or off again if one is there.
   const plateAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => sh.kind === "tlc"
     && p[0] >= Math.min(sh.from[0], sh.to[0]) && p[0] <= Math.max(sh.from[0], sh.to[0]) && p[1] >= Math.min(sh.from[1], sh.to[1]) && p[1] <= Math.max(sh.from[1], sh.to[1]));
@@ -2911,7 +2913,7 @@ export default function Editor() {
   const hit = (p: P): Hover => {
     // With Select, a filled shape or highlight brought to the front (order.ts) covers what is under it, so a click
     // there picks it unless what is under is in front of it too.
-    const cover = tool === "select" ? (shown.shapes ?? []).filter((sh) => (sh.order ?? 0) > 0 && (sh.kind === "highlight" || sh.fill) && inShape(sh, p))
+    const cover = tool === "select" ? (shown.shapes ?? []).filter((sh) => (sh.order ?? 0) > 0 && (sh.kind === "highlight" || sh.fill) && inDrawn(sh, p))
       .sort((a, b) => b.order! - a.order!)[0] : undefined;
     if (cover) {
       const under = hitBelow(p), id = under.caption ?? under.arrow, x = under.atom !== undefined ? doc.atoms[under.atom] : under.bond !== undefined ? doc.atoms[doc.bonds[under.bond].atoms[0]] : id !== undefined ? [...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? [])].find((y) => y.id === id) : undefined;
@@ -3179,11 +3181,18 @@ export default function Editor() {
     for (const sh of doc.shapes ?? []) if (picked.has(sh.id)) add([], [sh.id], shapeBounds(sh));
     return out;
   }
+  // The selected atoms and picked objects with the whole of each group they reach into (the outermost, when groups
+  // nest). Sam (28 October 2026): a group turns, flips and scales as one, whatever part of it is selected.
+  const withGroups = (atoms: Set<number>, items: Set<number>): [Set<number>, Set<number>] => {
+    const gs = outerGroups(groupsOf(doc, atoms, items));
+    return gs.length ? [new Set([...atoms, ...gs.flatMap((g) => g.atoms)]), new Set([...items, ...gs.flatMap((g) => g.items)])] : [atoms, items];
+  };
   // What Rotate…, Scale…, the flips, the Turn keys and the selection's handles act on: the selected atoms and picked
-  // objects, or the whole drawing when nothing is selected. whole: it is the whole drawing (nothing selected, or all).
+  // objects with their groups, or the whole drawing when nothing is selected. whole: it is the whole drawing (nothing
+  // selected, or all).
   const chosen = () => {
     const none = !selection.size && !picked.size, objects = [...(doc.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])];
-    const atoms = none ? new Set(doc.atoms.map((_, i) => i)) : selection, items = none ? new Set([...(doc.captions ?? []), ...objects].map((x) => x.id)) : picked;
+    const [atoms, items] = none ? [new Set(doc.atoms.map((_, i) => i)), new Set([...(doc.captions ?? []), ...objects].map((x) => x.id))] : withGroups(selection, picked);
     return { atoms, items, whole: none || (atoms.size === doc.atoms.length && objects.every((x) => items.has(x.id))) };
   };
   // Text alone (captions and nothing else). Scale… and the handles always scale its size, as ChemDraw scales the text
@@ -3248,7 +3257,7 @@ export default function Editor() {
     if (pivot) return pivot;
     const last = lastTurn.current;
     if (last && last.mol === doc && last.selection === selection && last.picked === picked) return last.centre;
-    const k = selection.size ? pivotOf(doc, selection) : undefined;
+    const k = selection.size ? pivotOf(doc, chosen().atoms) : undefined;
     return k !== undefined ? pos(doc, k) : selectionMiddle();
   };
   const turnTo = (mol: Mol, centre: P) => { lastTurn.current = { mol, selection, picked, centre }; set(mol, true); };
@@ -3497,7 +3506,7 @@ export default function Editor() {
   const pointable = (a: Arrow) => (straightArrow(a) || a.kind === "line") && a.kind !== "block" && a.kind !== "retro";
   // The frame round the selection (px, y down) with its resize handles (resize.ts) and its rotation handle, by one
   // rule for every kind of selection: atoms, text, arrows, shapes, cycles, groups or a mix, as ChemDraw's selection
-  // frame. It holds what is chosen as drawn (drawnBox), as a group's frame does. A lone straight arrow keeps its own
+  // frame. It holds what is chosen as drawn (drawnBox), part of a group with the whole group. A lone straight arrow keeps its own
   // end handles and shows only the rotation handle (handles: false), and one atom of a structure gets none. corners:
   // text alone has corner handles only, as a stretch does not change text. turns: two or more things (a group is its
   // parts), or one arrow, curve or shape that can turn; one caption, table, TLC plate or atom alone does not turn.
@@ -3506,11 +3515,13 @@ export default function Editor() {
   const framing = !drag || drag.kind === "pivot";
   const selectionFrame = useMemo(() => {
     if (!framing) return undefined;
-    const ids = [...picked], arrow = ids.length === 1 && !selection.size ? arrows.find((x) => x.id === ids[0]) : undefined;
-    if (!picked.size && (!selection.size || (selection.size === 1 && neighbours(doc, [...selection][0]).length))) return undefined;
-    const box = drawnBox(selection, new Set(ids.filter((id) => id !== DRAFT)));
-    const turning = selection.size + ids.length >= 2 || !!arrow || !!doc.shapes?.some((x) => x.id === ids[0] && turns(x));
-    return box && { box, handles: !arrow || arrow.kind === "curve", corners: textAlone(), turns: turning };
+    // The frame holds what its handles turn and scale: the selection with its groups (chosen).
+    const [atoms, items] = withGroups(selection, new Set([...picked].filter((id) => id !== DRAFT))), ids = [...items], grown = atoms.size + items.size > selection.size + picked.size;
+    const arrow = ids.length === 1 && !atoms.size ? arrows.find((x) => x.id === ids[0]) : undefined;
+    if (!items.size && (!atoms.size || (atoms.size === 1 && neighbours(doc, [...atoms][0]).length))) return undefined;
+    const box = drawnBox(atoms, items);
+    const turning = atoms.size + ids.length >= 2 || !!arrow || !!doc.shapes?.some((x) => x.id === ids[0] && turns(x));
+    return box && { box, handles: !arrow || arrow.kind === "curve", corners: !grown && textAlone(), turns: turning };
   }, [framing, selection, picked, drawing, placed, arrows, cycleArrows, shown.shapes]); // eslint-disable-line react-hooks/exhaustive-deps
   // The frame in drawing units (y up), 4 px clear of what it holds at this zoom, and the handles it shows: the side
   // handles only when that side is long enough on screen to hold them apart.

@@ -330,6 +330,12 @@ export function inShape(sh: Pick<Shape, "from" | "to" | "angle">, p: [number, nu
   const q = sh.angle ? turnPoint(p, middleOf(sh), -sh.angle) : p;
   return q[0] >= Math.min(sh.from[0], sh.to[0]) && q[0] <= Math.max(sh.from[0], sh.to[0]) && q[1] >= Math.min(sh.from[1], sh.to[1]) && q[1] <= Math.max(sh.from[1], sh.to[1]);
 }
+// Whether a point (drawing units) is inside a shape as drawn: an oval by its ellipse, any other shape by its box.
+export function inDrawn(sh: Pick<Shape, "from" | "to" | "angle" | "kind">, p: [number, number]): boolean {
+  if (!inShape(sh, p) || sh.kind !== "oval") return inShape(sh, p);
+  const c = middleOf(sh), q = sh.angle ? turnPoint(p, c, -sh.angle) : p, rx = Math.abs(sh.to[0] - sh.from[0]) / 2, ry = Math.abs(sh.to[1] - sh.from[1]) / 2;
+  return ((q[0] - c[0]) / rx) ** 2 + ((q[1] - c[1]) / ry) ** 2 <= 1;
+}
 // A shape after a turn or flip, with its angle in (-90, 90] (or none): a shape turned a half is the same shape with
 // its corners swapped (one bracket alone then faces the other way), and a box, oval or highlight turned a quarter
 // takes its height for its width. So a shape stays upright whenever it can, and its corners go where the turn took them.
