@@ -54,6 +54,8 @@ const pairs: [need: number, fgs: string[], bgs: string[]][] = [
   [4.5, ["on-tooltip"], ["tooltip"]],
   // Control edges and tracks (switches, check boxes), and the focus ring, against the surfaces they sit on.
   [3, ["outline", "brand-bright"], ["surface", "surface-raised"]],
+  // The focus ring round objects on the canvas (CanvasAccess.tsx; other page colours: access.ts ringOn).
+  [3, ["brand-bright"], ["canvas"]],
 ];
 for (const [name, theme] of [["light", light], ["dark", dark]] as const)
   for (const [need, fgs, bgs] of pairs)

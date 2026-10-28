@@ -3,8 +3,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Cube, Eraser, Lasso, Plus, PushPin, Selection, TextT, Trash, X } from "@phosphor-icons/react";
-import { chairPoints, type BondSpec, type SymbolKind } from "./edit";
-import { ARROW_SIZES, curvePath, HBOND, headOfLength, QUADRUPLE, SWEEPS, type ArrowKind, type ArrowSize, type HeadSize, type Mol, type ShapeKind } from "./render";
+import { chairPoints, type SymbolKind } from "./edit";
+import { ARROW_SIZES, curvePath, headOfLength, SWEEPS, type ArrowKind, type ArrowSize, type HeadSize, type Mol, type ShapeKind } from "./render";
+import { ARROWS, BONDS, SHAPES, type BondKind } from "./kinds";
 import { closePalette, kindName, MY_SET, templateKind, type FloatingPalette, type Template } from "./templates";
 import type { TemplateActions, TemplateSetActions, TemplateTool } from "./TemplateLibrary";
 import { LIBRARY, libraryItem, type LibraryItem } from "./library";
@@ -15,26 +16,8 @@ import { BracketGlyph, BRACKETS, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbit
 
 export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "shape" | "bracket" | "tlc" | "table" | "fragment" | "massspec" | "synthesis" | "retro" | "map" | "text" | "erase";
 
-export const BONDS = {
-  single: { name: "Single", spec: { type: 1 } },
-  double: { name: "Double", spec: { type: 2 } },
-  triple: { name: "Triple", spec: { type: 3 } },
-  quadruple: { name: "Quadruple", spec: { type: QUADRUPLE } },
-  bolddouble: { name: "Bold double", spec: { type: 2, display: "bold" } },
-  dasheddouble: { name: "Dashed double", spec: { type: 2, display: "dashed" } },
-  aromaticdouble: { name: "Aromatic double", spec: { type: 2, display: "aromatic" } },
-  eitherdouble: { name: "Double either", spec: { type: 2, display: "either" } },
-  wedge: { name: "Wedge", spec: { type: 1, stereo: 1 } },
-  hashwedge: { name: "Hashed wedge", spec: { type: 1, stereo: 6 } },
-  hollow: { name: "Hollow wedge", spec: { type: 1, display: "hollow" } },
-  bold: { name: "Bold", spec: { type: 1, display: "bold" } },
-  hashed: { name: "Hashed", spec: { type: 1, display: "hashed" } },
-  dashed: { name: "Dashed", spec: { type: 1, display: "dashed" } },
-  wavy: { name: "Wavy", spec: { type: 1, display: "wavy" } },
-  dative: { name: "Dative", spec: { type: 1, display: "dative" } },
-  hydrogen: { name: "Hydrogen bond", spec: { type: HBOND } },
-} satisfies Record<string, { name: string; spec: BondSpec }>;
-export type BondKind = keyof typeof BONDS;
+// The bond, arrow and shape kinds' names are in kinds.ts, so the canvas for screen readers (access.ts) shares them.
+export { ARROWS, BONDS, SHAPES, type BondKind };
 
 export const RINGS = {
   "3": { name: "Cyclopropane", n: 3, aromatic: false },
@@ -50,10 +33,6 @@ export const RINGS = {
 } satisfies Record<string, { name: string; n: number; aromatic: boolean; chair?: 1 | 2 }>;
 export type RingKind = keyof typeof RINGS;
 
-export const ARROWS: Record<ArrowKind, string> = {
-  reaction: "Reaction", equilibrium: "Equilibrium", resonance: "Resonance", retro: "Retrosynthetic",
-  nogo: "No reaction", hash: "No reaction, hashed", dipole: "Dipole", block: "Block", curved: "Curved", fishhook: "Fishhook", double: "Double-headed", line: "Line", arc: "Arc", orbital: "Orbital", cut: "Fragmentation line", curve: "Curve",
-};
 // Curved arrows come in four sweeps. Their variants are "kind-sweep", for example "fishhook-180"; a bare kind is 120°.
 // ChemDraw's elliptical arcs are "ellipse-cw" and "ellipse-ccw": 270° round an ellipse 0.4 times as wide as it is long.
 const CURVED: ArrowKind[] = ["curved", "fishhook", "double"];
@@ -91,10 +70,6 @@ export const withSize = (v: string, size: ArrowSize) => {
 };
 
 export const SELECTS = { box: { name: "Box" }, lasso: { name: "Lasso" }, perspective: { name: "Structure perspective" } };
-
-export const SHAPES: Record<ShapeKind, string> = {
-  box: "Box", rounded: "Rounded box", oval: "Oval", highlight: "Highlight", brackets: "Brackets", parens: "Parentheses", braces: "Braces", tlc: "TLC plate", table: "Table", picture: "Picture",
-};
 
 // Marks the Symbols tool puts on an atom.
 export const SYMBOLS: Record<SymbolKind, string> = {

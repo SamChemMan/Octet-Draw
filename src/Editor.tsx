@@ -88,6 +88,8 @@ import { sandwichIons } from "./metals";
 import { complexName } from "./complexes";
 import { mixtureName, mixturesOf, withSalts, type Mixture } from "./mixtures";
 import { nameRuns } from "./nametype";
+import { atomText, bondText, changeText, describe, ringOn, type Item as AccessItem } from "./access";
+import { CanvasAccess, type HotItem } from "./CanvasAccess";
 
 setNamer(iupacName);
 setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, inchi: toInchi, aux: toInchiAux, cip: cipOf }));
@@ -136,6 +138,8 @@ function history(h: History, a: Action): History {
 }
 
 const L = STYLE.bond; // px per bond length at 100%
+// The largest structure the canvas for screen readers names (access.ts): naming a larger one could hold up the window.
+const MOST_NAMED = 120;
 // The drawing's origin is the middle of the page. The canvas opens at 125% of true size at the purpose's scale: 10 pt
 // labels on Paper read like body text, and a structure fills a good part of the window without crowding it. Every
 // purpose opens with bonds the same length on screen (IDEA-SIZE-7): Slides and Poster show their page smaller round
@@ -888,6 +892,7 @@ export default function Editor() {
   const undo = (redo = false) => {
     const step = redo ? h.stack[h.at + 1] : h.at > 0 ? h.stack[h.at] : undefined, r = step && zoomedBy.current.get(step);
     if (r) setView((v) => ({ ...v, zoom: clampZoom(redo ? v.zoom * r : v.zoom / r) }));
+    sayAfter(redo ? "Redo" : "Undo");
     dispatch({ type: redo ? "redo" : "undo" });
     setSelection(new Set());
     setPicked(new Set());
@@ -1755,6 +1760,7 @@ export default function Editor() {
     clean_up: () => {
       if (!loaded || !doc.atoms.length) return;
       saw("clean");
+      sayAfter(selection.size ? "Cleaned up the selection." : "Cleaned up the drawing.");
       const ids = selection.size ? selection : undefined;
       let m = cleanUp(doc, ids);
       if (fragments(doc).some((g) => g.length > MOST_CLEAN && (!ids || g.some((i) => ids.has(i))))) setNotice(`Octet cannot clean up a structure of more than ${MOST_CLEAN.toLocaleString("en-GB")} atoms.`);
@@ -1810,6 +1816,7 @@ export default function Editor() {
       const all = fragments(doc).filter((g) => !selection.size || g.some((i) => selection.has(i))), ok = all.filter((g) => g.length <= MOST_3D && g.length > 1);
       if (all.some((g) => g.length > MOST_3D)) setNotice(`Octet cannot clean up in 3D a structure of more than ${MOST_3D} atoms.`);
       if (!ok.length) return;
+      sayAfter("Cleaned up in 3D.");
       // Each structure on its own, so the time grows with the structures and not with all their atoms squared.
       set(ok.reduce((m, g) => clean3d(m, g), doc), true);
       setSettings((s) => ({ ...s, variants: { ...s.variants, select: "perspective" } }));
@@ -1868,7 +1875,9 @@ export default function Editor() {
       const items = new Set(picked), atoms = selection, any = !items.size && !atoms.size;
       const laid = cleanReactions(doc, (r) => r.arrows.some((id) => items.has(id)) || (withStructure(r) && (any || r.atoms.some((i) => atoms.has(i)) || r.captions.some((id) => items.has(id)))));
       if (!laid.count) return setNotice(laid.kept ? "Octet leaves the reaction as drawn. A new layout would move it on to, or away from, the rest of the drawing." : "Octet finds no reaction to clean up. Draw a straight arrow with a structure on each side.", "info");
-      if (!sameLayout(doc, laid.mol)) glideTo(laid.mol); // nothing to undo when it was clean already
+      if (sameLayout(doc, laid.mol)) return; // nothing to undo when it was clean already
+      sayAfter(laid.count === 1 ? "Cleaned up the reaction." : `Cleaned up ${laid.count} reactions.`);
+      glideTo(laid.mol);
     },
     // Augmented Clean Up Reaction (ChemDraw's): each product turned to lie as the reactant it came from, by the atom
     // map (mapped for this and the map taken off again when the reaction had none), then Clean Up Reaction.
@@ -3716,6 +3725,9 @@ export default function Editor() {
         page: edgePage(p, t)?.[0], cross: onCrosshair(p, t),
         join: tool === "arrow" && e.shiftKey ? joinAt(p) : undefined,
       });
+      // While the keyboard's focus is on the canvas (CanvasAccess), the pointer does not take the keys: VoiceOver can move
+      // it to follow its cursor, and the keys act on the hotspot or the selection. A click gives the keys back to it.
+      if (accessIn.current) return;
       // A keyboard hotspot stays until the pointer moves on to something other than what it was over.
       if (hovers.get().key) {
         if (nothing(t)) keyFrom.current = {};
@@ -3998,6 +4010,7 @@ export default function Editor() {
   };
   // Puts the keyboard hotspot on an atom or bond of mol, and keeps it with mol for undo.
   const keyHot = (hot: Hot, mol = doc) => {
+    lastHot.current = hot.atom ?? (hot.bond !== undefined ? mol.bonds[hot.bond]?.atoms[0] : undefined);
     keyFrom.current = pointer.current ? hit(pointer.current) : {};
     hotOf.current.set(mol, hot);
     setHover({ ...hot, key: true });
@@ -4131,7 +4144,10 @@ export default function Editor() {
     // With nothing selected, the arrow keys walk the hotspot atom to bond to atom; Shift jumps about three bonds.
     if (kind === "nudge" && !selection.size && !picked.size && (atom !== undefined || bond !== undefined)) {
       const dir: P = arg.startsWith("left") ? [-1, 0] : arg.startsWith("right") ? [1, 0] : arg.startsWith("up") ? [0, 1] : [0, -1];
-      return keyHot((arg.endsWith("10") ? jumpHot : walkHot)(doc, { atom, bond }, dir));
+      const next = (arg.endsWith("10") ? jumpHot : walkHot)(doc, { atom, bond }, dir);
+      // A screen reader hears the next atom or bond as it takes the focus (CanvasAccess); with none that way, it hears so.
+      if (next.atom === atom && next.bond === bond) say(arg.endsWith("10") ? "No atom that way." : "No bond that way.");
+      return keyHot(next);
     }
     if (kind === "nudge" && (selection.size || picked.size)) {
       // 1 pt is 1/14.4 of a bond (ACS 1996). Up is +y in the drawing.
@@ -4189,6 +4205,184 @@ export default function Editor() {
     return nameCache.current.get(key)!;
   };
   const nameFor = (g: number[], base = doc): string | undefined => namedPart(g, base).name;
+
+  // ——— The canvas for screen readers and the keyboard (access.ts, CanvasAccess.tsx) ———
+  // Each object's role and name, in reading order, worked out 300 ms after the drawing last changed, so typing and
+  // drawing never wait for it. A structure's formula and checked name come from a cache (known) kept by its content
+  // wherever it is drawn, filled a few at a time after that with the window free between them (structures of up to
+  // MOST_NAMED atoms are named), and cleared when it grows large.
+  const [access, setAccess] = useState<{ doc: Mol; items: AccessItem[] }>({ doc: EMPTY, items: [] });
+  const [factsAdded, setFactsAdded] = useState(0);
+  const known = useRef(new Map<string, { formula?: string; name?: string; named?: boolean }>());
+  const accessEl = useRef<HTMLDivElement>(null), accessIn = useRef(false), accessWant = useRef<string>(undefined), accessKey = useRef<string>(undefined);
+  const accessAt = useRef(0), accessQuiet = useRef(false), lastHot = useRef<number>(undefined);
+  function accessItems(): { items: AccessItem[]; wanted: [string, number[]][] } {
+    const near: number[][] = doc.atoms.map(() => []), keys = new Map<number[], string>(), wanted: [string, number[]][] = [];
+    doc.bonds.forEach((b, k) => near[b.atoms[0]]?.push(k));
+    const factOf = (atoms: number[]) => {
+      let key = keys.get(atoms);
+      if (key === undefined) {
+        const at = new Map(atoms.map((i, k) => [i, k])), [x0, y0] = pos(doc, atoms[0]), r = (v: number) => Math.round(v * 1000);
+        key = JSON.stringify([atoms.map((i) => { const a = doc.atoms[i]; return [a.label, a.text, a.charge, a.isotope, a.radical, a.implicitHCount, !!a.centre, r(a.location[0] - x0), r(a.location[1] - y0), r(a.location[2] ?? 0)]; }),
+          atoms.flatMap((i) => near[i].map((k) => { const b = doc.bonds[k]; return [b.type, b.stereo, b.display, at.get(b.atoms[0]), at.get(b.atoms[1])]; }))]);
+        keys.set(atoms, key);
+        const f = known.current.get(key);
+        if ((loaded && f?.formula === undefined) || (namesLoaded && !f?.named)) wanted.push([key, atoms]);
+      }
+      return known.current.get(key);
+    };
+    const items = describe(doc, {
+      // As drawn, at least 0.3 bond lengths each way (a level arrow's line has no height), so its focus ring is a box.
+      box: (atoms, items) => {
+        const b = drawnBox(atoms, new Set(items));
+        if (!b) return undefined;
+        const [x0, y0, x1, y1] = [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L], dx = Math.max(0, 0.3 - (x1 - x0)) / 2, dy = Math.max(0, 0.3 - (y1 - y0)) / 2;
+        return [x0 - dx, y0 - dy, x1 + dx, y1 + dy];
+      },
+      formula: (atoms) => factOf(atoms)?.formula || undefined,
+      name: (atoms) => factOf(atoms)?.name,
+      reaction: reactionOf,
+    });
+    return { items, wanted };
+  }
+  function fillFact(key: string, atoms: number[], base: Mol) {
+    if (known.current.size >= 2000) known.current.clear();
+    const f = known.current.get(key) ?? {};
+    if (loaded && f.formula === undefined) { try { f.formula = analyse(subset(base, new Set(atoms)), 1)?.[0]?.formula ?? ""; } catch { f.formula = ""; } }
+    if (namesLoaded && !f.named) { f.name = atoms.length <= MOST_NAMED ? namedPart(atoms, base).name : undefined; f.named = true; }
+    known.current.set(key, f);
+  }
+  useEffect(() => {
+    if (home) return;
+    let timer = window.setTimeout(() => {
+      const { items, wanted } = accessItems(), base = doc;
+      setAccess({ doc: base, items });
+      let k = 0;
+      const fill = () => {
+        const t0 = performance.now();
+        while (k < wanted.length && performance.now() - t0 < 8) { const [key, atoms] = wanted[k++]; fillFact(key, atoms, base); }
+        if (k < wanted.length) timer = window.setTimeout(fill, 0);
+        else setFactsAdded((n) => n + 1);
+      };
+      if (wanted.length) timer = window.setTimeout(fill, 0);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [doc, drawing, placed, arrows, cycleArrows, loaded, namesLoaded, factsAdded, home]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The objects as the drawing is now: those worked out, or worked out at once when the drawing changed since.
+  const accessNow = () => {
+    if (access.doc === doc) return access.items;
+    const { items } = accessItems();
+    setAccess({ doc, items });
+    return items;
+  };
+  // The keyboard hotspot's element: what its atom or bond is, while the keyboard's focus is on the canvas. Kept for each
+  // drawing and hotspot, as the canvas draws again many times between two keys.
+  const hotSaid = useRef(new WeakMap<Mol, Map<string, HotItem | undefined>>());
+  const hotItem = (h: Hover): HotItem | undefined => {
+    if (!h.key || !accessIn.current) return undefined;
+    const key = `${h.atom}|${h.bond}`, mine = hotSaid.current.get(doc) ?? new Map<string, HotItem | undefined>();
+    hotSaid.current.set(doc, mine);
+    if (!mine.has(key)) mine.set(key, hotAt(h));
+    return mine.get(key);
+  };
+  const hotAt = (h: Hover): HotItem | undefined => {
+    if (h.atom !== undefined && doc.atoms[h.atom]) {
+      // A square on the atom; a written label (OMe) as wide as its ink.
+      const i = h.atom, ink = doc.atoms[i].text ? drawing.ink[i] : undefined, [x, y] = pos(doc, i), r = 0.3;
+      const b: Box = ink ? [Math.min(ink[0] / L, x - r), y - r, Math.max(ink[2] / L, x + r), y + r] : [x - r, y - r, x + r, y + r];
+      return { key: `h${i}`, role: "atom", name: atomText(doc, i), box: b };
+    }
+    if (h.bond !== undefined && doc.bonds[h.bond]) {
+      const [p, q] = doc.bonds[h.bond].atoms.map((i) => pos(doc, i)), c = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2], half = Math.hypot(q[0] - p[0], q[1] - p[1]) / 2;
+      return { key: `hb${h.bond}`, role: "bond", name: bondText(doc, h.bond), box: [c[0] - half, c[1] - 0.2, c[0] + half, c[1] + 0.2], turn: (Math.atan2(q[1] - p[1], q[0] - p[0]) * 180) / Math.PI };
+    }
+    return undefined;
+  };
+  // Focus Octet gives an object (Tab, which has selected it already, or a rescue) changes no selection.
+  const accessFocus = (key: string) => {
+    accessIn.current = true;
+    accessQuiet.current = true;
+    queueMicrotask(() => { accessQuiet.current = false; });
+    const el = accessEl.current?.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`);
+    if (el) el.focus({ preventScroll: true });
+    else accessWant.current = key;
+  };
+  // An object took the focus. When Tab brought it from a control outside the canvas, the selection follows it.
+  const accessFocused = (key: string) => {
+    const at = access.items.findIndex((x) => x.key === key), x = access.items[at];
+    accessKey.current = key;
+    if (at >= 0) accessAt.current = at;
+    if (accessQuiet.current || !x) return;
+    setHover({});
+    choose(x.atoms, x.items);
+  };
+  // Where the focus goes when its element went: the structure the hotspot was on, selected (Escape goes up from the
+  // atom to its structure, as in Figma); else the object it was on, else the one now in its place (after a delete), not
+  // selected, so a second Delete does not take it too.
+  const accessRescue = () => {
+    const items = access.items, hot = lastHot.current, of = hot !== undefined && !hovers.get().key ? items.find((x) => x.atoms.includes(hot)) : undefined;
+    lastHot.current = undefined;
+    if (of) choose(of.atoms, of.items);
+    const to = of ?? items.find((x) => x.key === accessKey.current) ?? items[Math.min(accessAt.current, items.length - 1)];
+    if (to) { accessQuiet.current = true; queueMicrotask(() => { accessQuiet.current = false; }); }
+    return to?.key;
+  };
+  // Tab and Shift+Tab (ChemDraw's: with Select, the next or previous structure): the next or previous object on the
+  // canvas in reading order, with any tool, and the selection follows. With a keyboard hotspot, Tab selects its
+  // structure, as ChemDraw's does. With the focus on the canvas, Tab past the last object (or Shift+Tab before the
+  // first) leaves it for the controls around it; from no control, it comes round. False when Tab is not the canvas's.
+  function stepAccess(back: boolean): boolean {
+    const el = document.activeElement, inLayer = !!accessEl.current?.contains(el);
+    if (!inLayer && el && el !== document.body && el !== svg.current) return false;
+    const items = accessNow(), hot = hovers.get();
+    if (!items.length) return false;
+    let to: number;
+    if (hot.key && (hot.atom !== undefined || hot.bond !== undefined)) {
+      const i = hot.atom ?? doc.bonds[hot.bond!]?.atoms[0];
+      to = items.findIndex((x) => x.atoms.includes(i));
+    } else {
+      // From the object with the focus (one not selected is selected where it is), else from the selection.
+      const key = inLayer ? (el as HTMLElement).dataset.key : undefined, chosen = (x: AccessItem) => x.atoms.some((i) => selection.has(i)) || x.items.some((i) => picked.has(i));
+      let at = key ? items.findIndex((x) => x.key === key) : -1;
+      if (at >= 0 && !chosen(items[at])) to = at;
+      else {
+        if (at < 0) at = items.findIndex(chosen);
+        to = at < 0 ? (back ? items.length - 1 : 0) : at + (back ? -1 : 1);
+        if (to < 0 || to >= items.length) {
+          if (inLayer) return false;
+          to = (to + items.length) % items.length;
+        }
+      }
+    }
+    const x = items[to];
+    if (!x) return false;
+    setHover({}); // the hotspot, or what the pointer was over: the keys now act on what Tab selected
+    choose(x.atoms, x.items);
+    accessKey.current = x.key;
+    accessAt.current = to;
+    lastHot.current = undefined;
+    accessFocus(x.key);
+    return true;
+  }
+  // What an edit changed, said once in the live region (access.ts changeText), 400 ms after the last change: a key held
+  // down, or a nudge pressed ten times, says one sentence. A new or opened drawing says nothing. sayNext: what a command
+  // says in place of the change (Clean Up), or before it (Undo).
+  const [said, setSaid] = useState("");
+  const say = (text: string) => setSaid((was) => (was === text ? `${text} ` : text));
+  const spoken = useRef(doc), sayNext = useRef<{ text: string; at: number }>(undefined);
+  const sayAfter = (text: string) => { sayNext.current = { text, at: performance.now() }; };
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const from = spoken.current;
+      spoken.current = doc;
+      if (home || from === doc || !h.stack.includes(from)) return;
+      const note = sayNext.current && performance.now() - sayNext.current.at < 2000 ? sayNext.current.text : undefined;
+      sayNext.current = undefined;
+      const text = note === "Undo" || note === "Redo" ? `${note}. ${changeText(from, doc)}` : note ?? changeText(from, doc);
+      if (text) say(text);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps
   // A grouped mixture's name (mixtures.ts): its components' checked names with their ratio, read back whole.
   const mixtureNameFor = (mix: Mixture): string | undefined => {
     const parts = mix.parts.map((p) => { const n = namedPart(p.atoms); return { name: n.bare ?? "", mol: n.mol, count: p.count }; });
@@ -6026,6 +6220,8 @@ export default function Editor() {
         setSelection(new Set());
         return setPicked(new Set([id]));
       }
+      // Otherwise Tab and Shift+Tab step through the objects on the canvas (stepAccess).
+      if (e.key === "Tab" && !e.altKey && stepAccess(e.shiftKey)) { e.preventDefault(); return; }
       // Everything else goes through the shortcut table (keys.ts), so every key can be changed.
       const pressed = keyOf(e), many = pressed ? manyTarget() : undefined;
       if (pressed && many) {
@@ -6736,8 +6932,8 @@ export default function Editor() {
           ...(darkPaper ? { "--ink": "#FFFFFF" } : {}),
           ...(own ? { "--canvas": own } : {}),
         } as React.CSSProperties}
-        role="img"
-        aria-label="Drawing canvas"
+        // Screen readers read the canvas through CanvasAccess, over it: each object, atom and bond on its own.
+        aria-hidden
         onPointerDown={onPointerDown}
         onContextMenu={onContextMenu}
         onPointerMove={onPointerMove}
@@ -6945,7 +7141,12 @@ export default function Editor() {
         </g>
       </svg>
       )}</Live>}</Live>
-      {guides.rulers && !home && <Live store={views}>{(view) => <Live store={pointers}>{(at) => (
+      {!home && (
+        <CanvasAccess items={access.items} hover={hovers} hotOf={hotItem} views={views} scale={L} paper={paper} ring={own && ringOn(own)} current={accessKey.current}
+          inside={accessIn} want={accessWant} rescue={accessRescue} onFocusItem={accessFocused} layer={accessEl} />
+      )}
+      <div className="visually-hidden" role="status">{said}</div>
+      {guides.rulers && !home &&<Live store={views}>{(view) => <Live store={pointers}>{(at) => (
         <Rulers view={view} scale={L} mm={mm} origin={corner} unit={settings.rulerUnit} pointer={at} extent={rulerExtent}
           onUnit={() => setSettings((s) => ({ ...s, rulerUnit: RULER_UNITS[(RULER_UNITS.findIndex(([u]) => u === s.rulerUnit) + 1) % RULER_UNITS.length][0] }))} />
       )}</Live>}</Live>}

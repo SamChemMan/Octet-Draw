@@ -41,6 +41,53 @@ body {
   text-rendering: geometricPrecision;
 }
 
+/* The canvas for screen readers and the keyboard (access.ts, CanvasAccess.tsx): an element over each object, where
+   the object is drawn, so the screen reader's cursor, the system's zoom and the focus ring follow it. The elements
+   take no pointer events. The layer moves with the view (pan in its transform, zoom in --zoom); each element's box
+   is in drawing px. The focus ring shows at once, with no motion: Tab and the arrow keys move it many times a minute. */
+.canvas-access {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.canvas-access-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+.canvas-access [data-key] {
+  position: absolute;
+  left: calc(var(--x) * var(--zoom) * 1px - var(--space-1));
+  top: calc(var(--y) * var(--zoom) * 1px - var(--space-1));
+  width: calc(var(--w) * var(--zoom) * 1px + 2 * var(--space-1));
+  height: calc(var(--h) * var(--zoom) * 1px + 2 * var(--space-1));
+  border-radius: var(--radius-sm);
+  rotate: var(--turn, 0deg);
+}
+/* The outline is clear, so it shows only in forced colours (Windows contrast themes), which drop the shadow. */
+.canvas-access [data-key]:focus {
+  outline: 2px solid transparent;
+  box-shadow: var(--shadow-focus);
+}
+/* On a page the focus blue does not stand out from (access.ts ringOn): white on engineering paper, and the colour
+   worked out for a page of the user's own colour. */
+.canvas-access.paper-blueprint [data-key]:focus {
+  box-shadow: 0 0 0 2px #FFFFFF;
+}
+.canvas-access.own-ring [data-key]:focus {
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+/* Text for screen readers only (the live region that says what an edit changed). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* The Eraser shows its real size instead of a pointer, like a brush in Photoshop. [ and ] resize it. */
 .canvas[data-tool="erase"] {
   cursor: none;
