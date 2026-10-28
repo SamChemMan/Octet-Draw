@@ -82,6 +82,10 @@ fn reaxys_window(app: &AppHandle, url: &str) -> Result<(), String> {
             // Reaxys page and copy the drawing; with no menu the page keeps its keys.
             #[cfg(target_os = "linux")]
             let _ = _w.remove_menu();
+            // Windows: the window has the main window's menu bar, so Alt and a menu's access key open its menus here
+            // too, and a screen reader can open them (access_keys.rs).
+            #[cfg(windows)]
+            crate::access_keys::install(&_w);
         })
         .map_err(|e| e.to_string())
 }

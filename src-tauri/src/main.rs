@@ -402,7 +402,7 @@ async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<St
 // File and Edit menus. Custom items send their id to the page as a "menu" event; Cut, Copy and Paste
 // stay native on the Mac and Windows so the page gets ordinary clipboard events. Select All selects the drawing, not
 // the page. Each menu in the bar has its own access key (the letter after &): Alt and the letter open it on Windows
-// (access_keys.rs) and Linux, and a screen reader on Windows opens it the same way (MSAA and UI Automation press the
+// (access_keys.rs, in the main window and the Reaxys window) and Linux, and a screen reader on Windows opens it the same way (MSAA and UI Automation press the
 // access key). The Mac shows no &.
 fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), overrides: &HashMap<String, String>, online: bool) -> tauri::Result<Built> {
     // Every command goes through here: it is listed (with the menu it is in) and takes the user's shortcut if they
