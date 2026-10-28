@@ -27,8 +27,16 @@ Vainio, Yerin and Redkin set them out for machines (J. Chem. Inf. Model. 2018, 5
 - Rules 1a, 1b, 2, 3, 4a, 4b, 4c and 5, with auxiliary descriptors for rules 3 to 5. Rule 1b compares ring closures
   only, as Hanson et al. read it: applied to a multiple bond's duplicates it makes a label depend on the Kekulé form
   drawn.
-- Rule 6 (Hanson et al.'s proposal for the most symmetric cages and spiranes) is not in the 2013 rules and is left
-  out: those centres get no label.
+- Rule 6 (Hanson et al.'s proposal for the most symmetric cages and spiranes, added 28 October 2026): an undifferentiated
+  reference node ranks above any other undifferentiated node. Where four ligands still tie after rule 5 in two sets
+  (a a' b b', a a' a'' b), the second ranked is the reference and the ligands are ranked again; where all four tie, the
+  first and then the second ranked are taken as the reference in turn, and two rankings that differ by an odd
+  permutation give no label. A decision by rule 6 counts as one by rule 5 (lower case where it is the only one). It is
+  not in the 2013 rules, but it settles every rule 6 case in the validation suite and changes no other label there or
+  in Sam's drawings.
+- An allene's axis (M or P) counts as an auxiliary descriptor for rules 4 and 5 (M with R, P with S), worked out at the
+  allene's middle atom in the digraph of the centre being labelled, as Centres does. Its handedness comes from the
+  wedges at its end atoms, as axial.ts reads them. The labels shown for allenes still come from axial.ts.
 - An R group or any other label Octet cannot read ranks above every element, as ChemDraw and Indigo rank it.
 - E and Z on C=C, C=N, N=N (and Si, Ge), and on cumulenes with an odd number of double bonds, on the middle bond. No
   E or Z in a ring of under 8 atoms, on a crossed double bond, or next to a wavy bond.
@@ -54,8 +62,8 @@ The stereochemistry warnings still come from Indigo, but a centre Octet labels i
 
 - `src/cip.check.ts`: hand-drawn centres and double bonds (worked out by hand), names with descriptors read by OPSIN,
   the steroids Indigo gets wrong, renumbering and mirror images, hostile drawings, and time.
-- `scripts/cip-suite.ts`: the validation suite (kept in `~/octet-research`, as it has no licence). 279 of 300 pass:
-  all but the 20 rule 6 cases and one centre made pseudoasymmetric by an allene.
+- `scripts/cip-suite.ts`: the validation suite (kept in `~/octet-research`, as it has no licence). 300 of 300 pass
+  (279 before rule 6 and allene auxiliary descriptors).
 - `scripts/cip-corpus.ts`: ChemDraw's own labels in Sam's drawings. Octet agrees on 50 of 50 centres and 4 of 4
   double bonds, and labels nothing ChemDraw does not. Six of the 50 (in a perspective drawing of manganese complexes)
   come from ChemDraw's kept record: four have no stereo bond, and at two ChemDraw's record differs from Octet's
@@ -67,4 +75,5 @@ The stereochemistry warnings still come from Indigo, but a centre Octet labels i
 - Why ChemDraw leaves those two centres unsettled, and keeps its record over the hashed wedge at the other two. It
   may not read a hashed wedge on the outer of three bonds within 180°, but other centres drawn that way carry its
   record too, so the files cannot show it. A test in ChemDraw would settle it.
-- Rule 6, and allenes as auxiliary descriptors, if Sam wants them.
+- What ChemDraw 26.1 gives the rule 6 cases (spiro[4.4]nonane-1,6-dione, the suite's VS280 cage) and the allene case:
+  its help names no rule 6, so it may leave them unlabelled. Listed for a test in ChemDraw.

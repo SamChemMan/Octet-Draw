@@ -265,6 +265,26 @@ for (const name of ["ethinylestradiol", "norethisterone", "levonorgestrel"]) {
   assert.equal(cipLabels(m).atoms[c17], "R", name);
 }
 
+// ---- Rule 6, and allenes as auxiliary descriptors ----
+// Rule 6 (Hanson et al.'s proposal) settles the most symmetric centres, with the validation suite's labels (by SMILES
+// atom): spiro[4.4]nonane-1,6-dione and its mirror image, a spiro ketal, and a dichlorinated spiro[3.3]heptane.
+for (const [smiles, want] of [["O=C1[C@@]2(CCCC2=O)CCC1", "3S"], ["O=C1[C@]2(CCCC2=O)CCC1", "3R"], ["C1[C@@]2(OCC1)OCCC2", "2R"], ["Cl[C@H]1C[C@]2(C1)C[C@H](C2)Cl", "2R 4S 7R"]]) {
+  const got = cipLabels(parseStructure(smiles)).atoms.flatMap((x, i) => (x ? [`${i + 1}${x}`] : []));
+  assert.equal(got.join(" "), want, smiles);
+}
+// An allene's M or P counts as an auxiliary descriptor. The ring CH of 1-ethyl-4-(prop-1-en-1-ylidene)cyclohexane is
+// pseudoasymmetric: its two ring branches differ only in how they see the allene (the suite's VS231, drawn as the
+// suite draws it, the allene's CH3 on a hash and its H implied). With the ethyl turned from a hash to a wedge: r.
+const ylidene = (wedge: number): Mol => {
+  const xy = [[2.4093, -0.3335], [-2.5511, 1.0926], [-0.0662, 1.0888], [-0.0767, -0.34], [-0.8912, 1.0948], [-0.9016, -0.334], [1.1668, 0.3756], [1.9927, 0.3797], [-2.1347, 0.3794], [0.341, 0.3714], [-1.3088, 0.3835]];
+  return {
+    atoms: xy.map(([x, y]) => atom("C", [x, y, 0])),
+    bonds: [bond(9, 2), bond(9, 3), bond(9, 6, { type: 2 }), bond(2, 4), bond(3, 5), bond(4, 10), bond(5, 10), bond(6, 7, { type: 2 }), bond(7, 0, { stereo: 6 }), bond(8, 1), bond(10, 8, { stereo: wedge })],
+  };
+};
+assert.equal(labels(ylidene(6))[10], "s");
+assert.equal(labels(ylidene(1))[10], "r");
+
 // ---- Drawings from a hostile file ----
 // A bond to a missing atom, a place that is not a number, a centre between two equal 450-carbon arms: no label where
 // nothing can be read, and no hang.
