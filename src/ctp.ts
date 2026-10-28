@@ -75,7 +75,8 @@ export const CTP_COLUMNS = 5;
 // smallest (8.75).
 // The writer keeps to the reader's limits: a template the reader would leave out (too big, or past MOST_PANES and
 // MOST_SET) is left out here and counted, so every template written reads back. The same file saved as .cts is
-// stationery that opens as a new, untitled template document.
+// stationery (ChemDraw opens stationery as a new, untitled document; for template documents that waits for a run of
+// ChemDraw, item 24 in the checks pending).
 export function writeTemplateFile(list: { name: string; mol: Mol }[], set: string, columns = CTP_COLUMNS, size: TemplateSize = "medium"): { bytes: Uint8Array; written: number; left: number } {
   const tables = { colours: [] as string[], fonts: [] as string[] }, pages: Xml[] = [];
   let root: Xml | undefined, id = 1, total = 0, left = 0;
