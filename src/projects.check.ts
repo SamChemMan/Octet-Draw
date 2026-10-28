@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  addDrawings, cleanName, colourOf, createProject, deleteProject, dotsFor, drawingName, emptyStore, folderTones, forget, freeName, MAX_IN_PROJECT, MAX_NAME,
+  addDrawings, cleanName, colourOf, createProject, deleteProject, drawingName, emptyStore, folderOf, folderTones, forget, freeName, lastUsed, MAX_IN_PROJECT, MAX_NAME,
   MAX_PROJECTS, PROJECT_COLOUR, projectOf, projectsWith, readStore, relocate, removeDrawing, renameProject, resetPicture, setPicture, setProjectColour,
   setProjectThumb, STORE_VERSION, thumbIds, tilde, UNTITLED, writeStore, type HomeStore,
 } from "./projects.ts";
@@ -24,8 +24,8 @@ s = createProject(s, "  Thesis\tchapter 2 ", "p1", 100);
 assert.deepEqual(s.projects, [{ id: "p1", name: "Thesis chapter 2", made: 100, drawings: [] }], "a name is tidied");
 s = createProject(s, "", "p2", 101);
 assert.equal(projectOf(s, "p2")!.name, UNTITLED, "no name: Untitled project");
-s = createProject(s, "untitled PROJECT", "p3", 102);
-assert.equal(projectOf(s, "p3")!.name, "untitled PROJECT 2", "a name another project has (letter case aside) takes the next number");
+s = createProject(s, "untitled FOLDER", "p3", 102);
+assert.equal(projectOf(s, "p3")!.name, "untitled FOLDER 2", "a name another project has (letter case aside) takes the next number");
 assert.equal(createProject(s, "Again", "p1", 103), s, "an id in use makes nothing");
 assert.deepEqual(s.projects.map((p) => p.id), ["p1", "p2", "p3"], "new projects go after the others");
 assert.equal(freeName(s, "x".repeat(200)).length, MAX_NAME);
@@ -40,63 +40,79 @@ let many = emptyStore();
 for (let k = 0; k < MAX_PROJECTS + 5; k++) many = createProject(many, `P${k}`, `m${k}`, k);
 assert.equal(many.projects.length, MAX_PROJECTS, "projects stop at the most Octet keeps");
 
-// ——— Add and remove drawings ———
+// ——— Add and remove drawings: one folder at a time ———
 let r = addDrawings(s, "p1", [{ path: A }, { path: B, name: "Scheme 1" }, { path: A }], 200);
 assert.equal(r.added, 2, "a drawing goes in once");
+assert.equal(r.moved, 0);
 s = r.store;
 assert.deepEqual(projectOf(s, "p1")!.drawings, [{ path: A, name: "aspirin", added: 200 }, { path: B, name: "Scheme 1", added: 200 }]);
 assert.equal(projectOf(s, "p1")!.used, 200, "a project with a drawing just put in is used");
 r = addDrawings(s, "p1", [{ path: A }], 201);
 assert.equal(r.added, 0);
 assert.equal(r.store, s, "a drawing in the project already changes nothing");
-s = addDrawings(s, "p2", [{ path: A }, { path: C }], 202).store;
-assert.deepEqual(projectsWith(s, A).map((p) => p.id), ["p1", "p2"], "a drawing can be in more than one project");
+r = addDrawings(s, "p2", [{ path: A }, { path: C }], 202);
+s = r.store;
+assert.deepEqual([r.added, r.moved], [2, 1], "A moved from Thesis; C was in no folder");
+assert.deepEqual(projectsWith(s, A).map((p) => p.id), ["p2"], "one folder at a time: putting a drawing in a folder takes it out of the other");
+assert.deepEqual(projectOf(s, "p1")!.drawings.map((x) => x.path), [B], "the folder it left keeps its other drawings");
+assert.equal(projectOf(s, "p1")!.used, 202, "the folder it left counts as used");
+assert.equal(folderOf(s, A)!.id, "p2");
+assert.equal(folderOf(s, "/not/in/any.oct"), undefined);
 assert.equal(drawingName(C), "cycle");
 assert.equal(addDrawings(s, "p1", [{ path: "" }, { path: "x".repeat(5000) }], 1).added, 0, "no empty or overlong paths");
 assert.equal(addDrawings(s, "nope", [{ path: A }], 1).added, 0);
+assert.equal(addDrawings(s, "nope", [{ path: A }], 1).store, s, "no such folder: the drawing stays where it is");
 const full = addDrawings(emptyStore(), "x", [], 0);
 assert.equal(full.added, 0);
 let big = createProject(emptyStore(), "Big", "big", 0);
 big = addDrawings(big, "big", Array.from({ length: MAX_IN_PROJECT + 10 }, (_, k) => ({ path: `/d/${k}.oct` })), 0).store;
 assert.equal(projectOf(big, "big")!.drawings.length, MAX_IN_PROJECT, "a project stops at the most Octet keeps");
 
-// Automatic pictures: a copy for each drawing in a project. Out of its last project, the copy goes.
+// Automatic pictures: a copy for each drawing in a folder. A move keeps it; out of its folder, the copy goes.
 s = setPicture(s, A, "auto", T1).store;
 s = setPicture(s, C, "auto", T2).store;
-let d = removeDrawing(s, "p1", A);
-assert.deepEqual(d.drop, [], "still in Group meeting: the picture stays");
-assert.equal(d.store.pictures[A].auto, T1);
-d = removeDrawing(d.store, "p2", A);
-assert.deepEqual(d.drop, [T1], "in no project: its picture goes");
+const back = addDrawings(s, "p1", [{ path: A }], 210).store;
+assert.equal(back.pictures[A].auto, T1, "moved to another folder: the picture stays");
+assert.deepEqual(projectsWith(back, A).map((p) => p.id), ["p1"]);
+let d = removeDrawing(s, "p2", A);
+assert.deepEqual(d.drop, [T1], "in no folder: its picture goes");
 assert.equal(d.store.pictures[A], undefined);
-assert.deepEqual(projectOf(d.store, "p1")!.drawings.map((x) => x.path), [B], "the other drawings stay");
-assert.equal(projectOf(removeDrawing(s, "p1", A, 300).store, "p1")!.used, 300, "taking a drawing out uses the project too");
+assert.deepEqual(projectOf(d.store, "p2")!.drawings.map((x) => x.path), [C], "the other drawings stay");
+assert.equal(projectOf(removeDrawing(s, "p2", A, 300).store, "p2")!.used, 300, "taking a drawing out uses the project too");
 assert.equal(removeDrawing(s, "p3", A, 300).store, s, "a drawing not in the project: nothing changes");
 
 // Delete a project: no drawing goes with it, only thumbnails nothing else uses.
 s = setProjectThumb(s, "p2", T3).store;
 const del = deleteProject(s, "p2");
 assert.deepEqual(del.store.projects.map((p) => p.id), ["p1", "p3"]);
-assert.deepEqual(del.drop.sort(), [T2, T3].sort(), "its own thumbnail, and C's picture (in no other project); A is still in Thesis");
-assert.equal(del.store.pictures[A].auto, T1);
+assert.deepEqual(del.drop.sort(), [T1, T2, T3].sort(), "its own thumbnail, and the pictures of its drawings (in no other folder now)");
+assert.equal(del.store.pictures[A], undefined);
 assert.equal(del.store.pictures[C], undefined);
 assert.deepEqual(deleteProject(s, "nope"), { store: s, drop: [] });
 
-// ——— Missing files: Locate… moves a drawing in every project, with its thumbnails ———
+// ——— Missing files: Locate… moves a drawing in its folder, with its thumbnails ———
 const moved = "/Users/sam/Archive/aspirin.oct";
 s = setPicture(s, A, "own", T4).store;
 const loc = relocate(s, A, moved);
 assert.ok(loc.store.projects.every((p) => !p.drawings.some((x) => x.path === A)));
-assert.deepEqual(projectsWith(loc.store, moved).map((p) => p.id), ["p1", "p2"]);
-assert.equal(projectOf(loc.store, "p1")!.drawings[0].path, moved, "it keeps its place in the project");
+assert.deepEqual(projectsWith(loc.store, moved).map((p) => p.id), ["p2"]);
+assert.equal(projectOf(loc.store, "p2")!.drawings[0].path, moved, "it keeps its place in the folder");
 assert.deepEqual(loc.store.pictures[moved], { own: T4, auto: T1 });
 assert.equal(loc.store.pictures[A], undefined);
 assert.deepEqual(loc.drop, []);
-// Located onto a drawing a project has already: that project keeps one entry.
+// Located onto a drawing another folder has already: it stays in one, the folder used last (the first on a tie).
 const onto = relocate(s, A, B);
 assert.deepEqual(projectOf(onto.store, "p1")!.drawings.map((x) => x.path), [B]);
-assert.deepEqual(projectOf(onto.store, "p2")!.drawings.map((x) => x.path), [B, C]);
+assert.deepEqual(projectOf(onto.store, "p2")!.drawings.map((x) => x.path), [C]);
 assert.equal(relocate(s, A, A).store, s);
+// A store from before one folder at a time: each drawing stays in the folder used last; others keep their drawings.
+const old = readStore(JSON.stringify({ version: 1, projects: [
+  { id: "a", name: "A", made: 5, used: 20, drawings: [{ path: A }, { path: "/d/x.oct" }] },
+  { id: "b", name: "B", made: 1, used: 90, drawings: [{ path: A }] },
+  { id: "c", name: "C", made: 30, drawings: [{ path: A }, { path: "/d/y.oct" }] },
+] })).store;
+assert.deepEqual(old.projects.map((p) => p.drawings.map((x) => x.path)), [["/d/x.oct"], [A], ["/d/y.oct"]], "as home.rs does (one_folder)");
+assert.equal(lastUsed(old.projects[2]), 30, "made, when it was never used");
 
 // ——— Thumbnails: set, replace and reset ———
 let t = setPicture(s, B, "own", T1);
@@ -136,20 +152,6 @@ assert.deepEqual(folderTones("#000000"), { front: "#000000", back: "#383838", li
 assert.equal(folderTones("#213C99").dark, false);
 assert.ok(parseInt(folderTones("#213C99").back.slice(1), 16) < parseInt("213C99", 16), "Octet Blue's back is darker");
 assert.equal(folderTones("nonsense").front, PROJECT_COLOUR);
-
-// ——— A drawing's dots: every project when they fit; else the ones it is in and those used last, in Home's order ———
-let dots = emptyStore();
-for (let k = 0; k < 8; k++) dots = createProject(dots, `P${k}`, `d${k}`, k);
-const P = "/d/x.oct";
-dots = addDrawings(dots, "d0", [{ path: P }], 50).store; // in the first project, made first
-dots = addDrawings(dots, "d2", [{ path: "/d/y.oct" }], 60).store; // used most lately
-const shown = dotsFor(dots, P, 6);
-assert.equal(shown.more, true);
-assert.deepEqual(shown.projects.map((p) => p.id), ["d0", "d2", "d5", "d6", "d7"], "the one it is in, then the four used last, in Home's order");
-// Taking it out of d0 keeps d0's dot where it is (d0 is used now), so a second click finds the same dot.
-dots = removeDrawing(dots, "d0", P, 70).store;
-assert.deepEqual(dotsFor(dots, P, 6).projects.map((p) => p.id), ["d0", "d2", "d5", "d6", "d7"]);
-assert.deepEqual(dotsFor(createProject(createProject(emptyStore(), "A", "a", 0), "B", "b", 0), P, 6).projects.map((p) => p.id), ["a", "b"], "few projects: all of them");
 
 // ——— A drawing's place in its tooltip: the home folder as ~ ———
 assert.equal(tilde("/Users/sam/Documents/a.oct", "/Users/sam"), "~/Documents/a.oct");
@@ -224,7 +226,7 @@ assert.deepEqual(cover(900, 1600), { sx: 0, sy: 462.5, sw: 900, sh: 675 }, "tall
 // ——— Home: its sections, each a landmark with its heading, and its keys ———
 const home = readFileSync(new URL("./Home.tsx", import.meta.url), "utf8");
 assert.match(home, /const bodies: Record<SectionId,/, "every section has its tiles");
-assert.match(home, /TITLES: Record<SectionId, string> = \{ new: "New", templates: "Templates", recent: "Recent", projects: "Projects" \}/);
+assert.match(home, /TITLES: Record<SectionId, string> = \{ new: "New", templates: "Templates", recent: "Recent", projects: "Folders" \}/);
 assert.match(home, /<section className=\{cls\} data-section=\{id\} aria-labelledby=\{`\$\{id\}-title`\}>/, "each section is a <section> named by its heading, so screen readers list it as a region");
 assert.match(home, /aria-expanded=\{!heading\.folded\}/, "a heading says whether its section is open");
 assert.match(home, /e\.key === "Enter" && at < 0/, "Return starts Quick start (decision 0003), wherever New is");
@@ -236,8 +238,12 @@ assert.match(home, /<ColourPop /, "Custom colour… is the colour picker the Act
 // A tile's id is data-tile: data-key is a control's shortcut, which the tooltip shows as a key (src/Tooltip.tsx).
 assert.ok(!/data-key|dataset\.key/.test(home), "no data-key on Home");
 assert.match(home, /data-tip=\{tilde\(d\.path, lib\.home\)\}/, "a drawing's tooltip is its place");
-// A project's dots: named, pressed or not, kept out of the arrow keys' order, and not Tab stops.
-assert.match(home, /className="home-dot" tabIndex=\{-1\} aria-pressed=\{[^}]+\} aria-label=\{x\.name\} data-tip=\{x\.name\}/);
+// Under each tile, real buttons with words, always on show: Add to folder and Change thumbnail under a drawing,
+// Thumbnail, Colour and Rename under a folder. No project dots any more.
+for (const name of [">Add to folder<", ">Change thumbnail<", ">Thumbnail<", "Colour\n", ">Rename<"]) assert.ok(home.includes(name), name);
+assert.ok(!/home-dot|dotsFor/.test(home), "no project dots");
+assert.match(home, /b\.closest\(".home-slot"\) === stop\.closest\(".home-slot"\) \? 0 : -1/, "only the Tab stop tile's buttons are Tab stops");
+assert.match(home, /TITLES: Record<SectionId, string> = \{[^}]*projects: "Folders" \}/);
 // The arrow keys move between tiles across sections: the New row, then a section of four wide tiles under it.
 const rect = (x: number, y: number, w = 150, h = 140) => ({ x, y, width: w, height: h });
 const tiles = [rect(0, 0), rect(200, 0), rect(350, 0), rect(500, 0), rect(0, 300, 230, 200), rect(250, 300, 230, 200), rect(500, 300, 230, 200), rect(0, 600, 230, 200)];

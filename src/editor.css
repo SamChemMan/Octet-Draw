@@ -5269,10 +5269,12 @@ button.variant.add {
   height: 100%;
   overflow: visible;
 }
+/* A new colour crossfades into the folder (and its dot on a drawing's button), with reduced motion too. */
 .folder-back path {
   fill: var(--folder-back);
   stroke: var(--swatch-edge);
   stroke-width: 1;
+  transition: fill var(--motion) var(--ease-out);
 }
 .folder .paper {
   position: absolute;
@@ -5313,6 +5315,7 @@ button.variant.add {
   box-shadow: inset 0 1px 0 var(--folder-lip), 0 0 0 1px var(--swatch-edge);
   transform: perspective(600px) rotateX(0deg);
   transform-origin: 50% 100%;
+  transition: background-color var(--motion) var(--ease-out), box-shadow var(--motion) var(--ease-out);
 }
 /* The project's own thumbnail on the front, pressed into it as the symbol on a macOS folder is: in grey, multiplied
    into the folder's colour (its dark parts a darker shade of the folder; screened, and lighter, on a folder near black),
@@ -5339,9 +5342,11 @@ button.variant.add {
 /* Hover (or the focus) tips the front open and lifts the pages; a drawing carried over the folder (data-over) opens it
    wider. A drop settles it (Home.tsx). Reduced motion: the folder stays still, and a ring shows where a drop goes. */
 @media (prefers-reduced-motion: no-preference) {
-  .folder-front,
   .folder .paper {
     transition: transform var(--motion) var(--ease-out);
+  }
+  .folder-front {
+    transition: transform var(--motion) var(--ease-out), background-color var(--motion) var(--ease-out), box-shadow var(--motion) var(--ease-out);
   }
   .folder .paper {
     transition-delay: calc(var(--k) * 20ms);
@@ -5411,96 +5416,74 @@ button.variant.add {
   box-shadow: var(--shadow-focus);
 }
 
-/* A drawing's projects, as dots under its tile (Home.tsx): each in its project's colour (--dot), filled when the
-   drawing is in it, a dashed ring when not. All of them always show; More and New project only with the
-   pointer on the tile or the focus in it. A dot fills and empties with a short scale. Each is 24 px to press, the
-   dot 14 px in it. */
-.home-dots {
+/* The buttons under a tile (Home.tsx): a drawing's folder and Change thumbnail, a folder's Thumbnail, Colour and
+   Rename. Always on show, small and quiet, as Open… on Recent's heading is. A drawing in a folder shows the folder's
+   colour and name; a long name is cut short. A press scales the button down a little. */
+.home-acts {
   display: flex;
-  height: 24px;
-  margin: 2px 0 0 -5px;
+  gap: var(--space-1);
+  min-width: 0;
+  margin-top: 6px;
 }
-.home-dot {
-  position: relative;
-  display: grid;
-  place-items: center;
+.home-act {
+  display: inline-flex;
   flex: none;
-  width: 24px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   height: 24px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: none;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
   color: var(--ink-muted);
-  transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+  font: 500 11px/14px var(--font-sans);
+  white-space: nowrap;
+  transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
 }
-.home-dot::before,
-.home-dot > span {
-  content: "";
-  position: absolute;
-  inset: 5px;
-  box-sizing: border-box;
+.home-act.in {
+  flex: 0 1 auto;
+}
+.home-act-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-act-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
   border-radius: var(--radius-pill);
-}
-/* An empty dot's edge is dashed, so it never looks filled, even in a colour close to the page's (Ink on the dark
-   theme). */
-.home-dot::before {
-  border: 1px dashed var(--swatch-edge);
-  box-shadow: inset 0 0 0 2px var(--dot);
-}
-.home-dot > span {
   background: var(--dot);
-  box-shadow: inset 0 0 0 1px var(--swatch-edge);
-  opacity: 0;
-  transform: scale(0.4);
-  transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
-}
-.home-dot[aria-pressed="true"] > span {
-  opacity: 1;
-  transform: none;
-}
-.home-dot.others::before,
-.home-dot.new::before {
-  border: 1px solid var(--outline);
-  box-shadow: none;
-}
-.home-dot svg {
-  position: relative;
-  width: 10px;
-  height: 10px;
-}
-/* Rings show at all times; More and the plus with the pointer on the tile or the focus in it. */
-.home-dot.others,
-.home-dot.new {
-  opacity: 0;
-}
-.home-slot:hover .home-dot,
-.home-slot:focus-within .home-dot {
-  opacity: 1;
+  box-shadow: 0 0 0 1px var(--swatch-edge);
+  transition: background-color var(--motion) var(--ease-out);
 }
 @media (hover: hover) and (pointer: fine) {
-  .home-dot[aria-pressed="false"]:hover > span {
-    opacity: 0.45;
-    transform: scale(0.6);
-  }
-  .home-dot.others:hover,
-  .home-dot.new:hover {
+  .home-act:hover {
+    background: var(--surface-sunken);
     color: var(--ink);
   }
 }
-.home-dot:active {
-  transform: scale(0.85);
+.home-act:active {
+  transform: scale(0.97);
 }
-.home-dot:focus-visible {
+.home-act:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
 }
+/* A drawing on its way into a folder: a copy of its picture, over everything, that flies to the folder (Home.tsx). */
+.home-fly {
+  position: fixed;
+  z-index: 40;
+  margin: 0;
+  box-shadow: var(--shadow-float);
+  pointer-events: none;
+  transform-origin: center;
+}
 @media (prefers-reduced-motion: reduce) {
-  .home-dot,
-  .home-dot > span {
-    transition: opacity var(--motion-fast) var(--ease-out);
+  .home-act {
+    transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
   }
-  .home-dot:active {
+  .home-act:active {
     transform: none;
   }
 }
@@ -5559,6 +5542,25 @@ button.variant.add {
   right: -5px;
   bottom: 13px;
   left: -5px;
+}
+/* Over a folder's name, above its buttons. The field grows out of the name: a short fade and scale from its left. */
+.home-acts ~ .home-naming {
+  bottom: 43px;
+}
+.home-naming .home-name-field {
+  transform-origin: left center;
+  animation: name-in var(--motion-fast) var(--ease-out);
+}
+@keyframes name-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-naming .home-name-field {
+    animation: fade-in var(--motion-fast) var(--ease-out);
+  }
 }
 .home-name-field {
   box-sizing: border-box;

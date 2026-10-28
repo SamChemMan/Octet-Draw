@@ -135,3 +135,29 @@ and fold, and projects drawn as folders that are fun to use. This replaces the m
 - Tooltips: a tile's id is data-tile. Tooltip.tsx reads data-key as a shortcut, so the old data-key on Home's tiles
   showed the id as a key and squeezed the path to one letter a line. A drawing's tooltip shows its place with the home
   folder as ~, and breaks a long place after a slash.
+
+## One folder at a time, and buttons under each tile (28 October 2026)
+
+Sam: "the buttons below each recent should be 'Add to folder' and 'Change Thumbnail'. This current circle logic sucks.
+one folder at a time. Under a folder, we need 'Thumbnail, colour' and 'Rename'. Not hidden behind a right click."
+This replaces the project dots above, and the rule that a drawing can be in more than one project.
+
+- A drawing is in one folder at most. Putting it in a folder (Add to folder, a drag onto a folder, a drop from
+  Finder) takes it out of the folder it was in, and the notice says "Moved … to …". A store from before this rule keeps
+  each drawing in the folder used last (its used time, else when it was made; the first on a tie). The page
+  (projects.ts) and the app (home.rs, one_folder) both do this, and home.rs refuses a store with a drawing in two
+  folders.
+- In the interface a project is a folder: the section is Folders, and the words are Add to folder, Move to folder,
+  Remove from folder, New folder and Delete folder…. The code and home.json keep the name project.
+- Under each drawing, always on show: Add to folder (or, in a folder, its colour and name, which opens the same list to
+  move it) and Change thumbnail. Add to folder lists the folders in their colours, the current one ticked, then New
+  folder… and Remove from folder. Change thumbnail picks a picture; with a picture of the user's own it opens Choose
+  picture… and Use automatic thumbnail.
+- Under each folder, always on show: Thumbnail, Colour (the colour list and Custom colour…) and Rename (the name turns
+  into a field in its place).
+- The right-click menus keep every option, and nothing is only there.
+- Keys: the buttons of a section's Tab stop tile follow it in the Tab order (tile, its buttons, the next section). Left
+  and right move along a row of buttons; up goes back to the tile. Screen readers reach every button.
+- Motion: the lists scale in from their button (150 ms). A press scales a button to 0.97. A drawing put in a visible
+  folder from its tile flies into it (200 ms) and the folder settles. A new colour crossfades (180 ms). The rename field
+  grows from the name. Reduced motion: no flight and no scale; colours still crossfade.

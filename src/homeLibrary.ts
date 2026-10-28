@@ -39,7 +39,7 @@ export function useHomeLibrary({ active, recents, notice }: { active: boolean; r
     void call<{ text: string | null; damaged: boolean; missing: string[]; home?: string | null }>("home_read").then((r) => {
       if (gone) return;
       const read = r.damaged ? { store: emptyStore(), problem: "damaged" as const } : readStore(r.text);
-      if (read.problem && read.problem !== problemRef.current) notice(read.problem === "newer" ? "A newer Octet saved your projects. Update Octet to see them." : "Octet cannot read your projects. Octet kept a copy of the file and starts with no projects.");
+      if (read.problem && read.problem !== problemRef.current) notice(read.problem === "newer" ? "A newer Octet saved your folders. Update Octet to see them." : "Octet cannot read your folders. Octet kept a copy of the file and starts with no folders.");
       held.current = read.store;
       setStore(read.store); setProblem(read.problem); setMissing(new Set(r.missing)); setHome(r.home ?? undefined);
     }).catch(() => {});
@@ -53,9 +53,9 @@ export function useHomeLibrary({ active, recents, notice }: { active: boolean; r
 
   // A change to the store: made on the newest store, written, then shown. Thumbnails it no longer uses go. Gives
   // whether it was written.
-  const commit = (f: (s: HomeStore) => Change, failed = "Octet cannot change your projects."): Promise<boolean> => {
+  const commit = (f: (s: HomeStore) => Change, failed = "Octet cannot change your folders."): Promise<boolean> => {
     const done = queue.current.then(async () => {
-      if (problemRef.current === "newer") { notice("A newer Octet saved your projects. Update Octet to change them."); return false; }
+      if (problemRef.current === "newer") { notice("A newer Octet saved your folders. Update Octet to change them."); return false; }
       const r = f(held.current);
       if (r.store !== held.current) {
         await call("home_write", { text: writeStore(r.store) });
@@ -88,15 +88,17 @@ export function useHomeLibrary({ active, recents, notice }: { active: boolean; r
     await commit((s) => (projectsWith(s, path).length ? setPicture(s, path, "auto", id) : { store: s, drop: [id] }));
   };
 
-  // Drawings into a project, with a notice that says what went in. Each takes a copy of its picture with it.
+  // Drawings into a folder (out of the one each was in), with a notice that says what went in, which a screen reader
+  // reads. Each takes a copy of its picture with it. Gives how many went in.
   const add = (id: string, drawings: { path: string; name?: string }[]) => {
-    let added = 0;
-    return commit((s) => { const r = addDrawings(s, id, drawings, now()); added = r.added; return r; }).then((ok) => {
+    let added = 0, moved = 0;
+    return commit((s) => { const r = addDrawings(s, id, drawings, now()); added = r.added; moved = r.moved; return r; }).then((ok) => {
       const p = projectOf(held.current, id);
-      if (!ok || !p || !drawings.length) return;
+      if (!ok || !p || !drawings.length) return 0;
       const what = added === 1 && drawings.length === 1 ? drawings[0].name || drawingName(drawings[0].path) : `${added} ${added === 1 ? "drawing" : "drawings"}`;
-      notice(added ? `Added ${what} to ${p.name}.` : `${p.name} has ${drawings.length === 1 ? "this drawing" : "these drawings"} already.`, added ? "done" : "info");
+      notice(added ? `${moved ? "Moved" : "Added"} ${what} to ${p.name}.` : `${p.name} has ${drawings.length === 1 ? "this drawing" : "these drawings"} already.`, added ? "done" : "info");
       for (const d of drawings) { const svg = recentOf(d.path)?.thumb; if (svg && !held.current.pictures[d.path]?.auto) void keepAuto(d.path, svg).catch(() => {}); }
+      return added;
     });
   };
 
@@ -118,26 +120,21 @@ export function useHomeLibrary({ active, recents, notice }: { active: boolean; r
   return {
     store, problem, missing, urls, open, setOpen, dropTarget, pictureFor, pictureThumb, home,
     colour: (id: string, colour: string) => commit((s) => ({ store: setProjectColour(s, id, colour) })),
-    // A project's dot on a drawing's tile: the drawing goes in, or comes out. No notice: the dot shows it.
-    toggle: (id: string, d: { path: string; name: string }) => {
-      let added = false;
-      return commit((s) => {
-        if (projectOf(s, id)?.drawings.some((x) => x.path === d.path)) return removeDrawing(s, id, d.path, now());
-        added = true;
-        return addDrawings(s, id, [d], now());
-      }).then(() => { const svg = recentOf(d.path)?.thumb; if (added && svg && !held.current.pictures[d.path]?.auto) void keepAuto(d.path, svg).catch(() => {}); });
-    },
     create: (name: string, then?: { path: string; name?: string }[]) => {
       const id = newId();
       return commit((s) => ({ store: createProject(s, name, id, now()) })).then(() => { if (then?.length && projectOf(held.current, id)) return add(id, then); }).then(() => id);
     },
     rename: (id: string, name: string) => commit((s) => ({ store: renameProject(s, id, name) })),
-    remove: (id: string) => { if (open === id) setOpen(undefined); return commit((s) => deleteProject(s, id), "Octet cannot delete this project."); },
+    remove: (id: string) => { if (open === id) setOpen(undefined); return commit((s) => deleteProject(s, id), "Octet cannot delete this folder."); },
     add,
     // Add Drawings… in a project: the Open dialog for drawings.
     addPicked: (id: string) => void call<string[]>("home_pick_drawings", { many: true }).then((paths) => { if (paths.length) return add(id, paths.map((path) => ({ path }))); })
       .catch((e) => notice(failure("Octet cannot add these drawings.", e))),
-    removeDrawing: (id: string, path: string) => commit((s) => removeDrawing(s, id, path, now())),
+    // Remove from folder: the drawing stays where it is on disk and on Home's recent list.
+    removeDrawing: (id: string, path: string) => {
+      const p = projectOf(held.current, id), name = p?.drawings.find((d) => d.path === path)?.name ?? drawingName(path);
+      return commit((s) => removeDrawing(s, id, path, now())).then((ok) => { if (ok && p) notice(`Removed ${name} from ${p.name}.`, "done"); });
+    },
     // Locate…: the drawing's new place, picked in the Open dialog, in every project.
     locate: (path: string) => void call<string[]>("home_pick_drawings", { many: false }).then(async ([to]) => {
       if (!to || !(await commit((s) => relocate(s, path, to)))) return;

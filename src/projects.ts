@@ -1,17 +1,18 @@
-// Projects on Home (decision 0003): a project is a list in Octet that points at drawings, as an album in Photos points
-// at photos. The files stay where they are, a drawing can be in more than one project, and a project that goes takes
-// no drawing with it. The store also keeps the thumbnails the user chose (src/thumbs.ts) and, for drawings in
+// Projects on Home (decision 0003), shown as folders: a project is a list in Octet that points at drawings. The files
+// stay where they are, and a project that goes takes no drawing with it. A drawing is in one folder at most, as a file
+// is: putting it in a folder takes it out of the one it was in. The store also keeps the thumbnails the user chose (src/thumbs.ts) and, for drawings in
 // projects, a copy of their automatic picture (a recent drawing's picture goes when it leaves the recent list).
 // The app keeps the store's text in home.json (src-tauri/src/home.rs), which lets a project take only drawings Octet
 // may open already. Every function here gives a new store and never changes the one it is given.
 // The store has a version. A later Octet that changes its shape reads version 1 and writes its own; this one reads
 // nothing from a later version (and the app does not let it write over one).
-// A project has a colour (its folder and its dots on Home; Octet Blue unless the user picks another) and the time a
-// drawing last went in or came out (used), so a drawing's tile shows the dots of the projects used last.
+// A project has a colour (its folder on Home; Octet Blue unless the user picks another) and the time a drawing last
+// went in or came out (used). A store from before one folder at a time (a drawing in several projects) keeps each
+// drawing in the project used last (home.rs does the same).
 
 export const STORE_VERSION = 1;
 export const MAX_PROJECTS = 200, MAX_IN_PROJECT = 1000, MAX_NAME = 60, MAX_PATH = 4096;
-export const UNTITLED = "Untitled project";
+export const UNTITLED = "Untitled folder";
 export const PROJECT_COLOUR = "#213C99"; // Octet Blue
 const COLOUR = /^#[0-9a-f]{6}$/i;
 
@@ -76,15 +77,26 @@ export function readStore(text: string | null | undefined): { store: HomeStore; 
     const own = thumbId(v.own), auto = thumbId(v.auto);
     if (own || auto) pictures[path] = { ...(own ? { own } : {}), ...(auto ? { auto } : {}) };
   }
-  return { store: { version: STORE_VERSION, projects: projects.slice(0, MAX_PROJECTS), pictures } };
+  return { store: { version: STORE_VERSION, projects: oneFolder(projects.slice(0, MAX_PROJECTS)), pictures } };
+}
+
+// When a project was last used: a drawing went in or came out, else when it was made.
+export const lastUsed = (p: Project) => Math.max(p.made, p.used ?? 0);
+// Each drawing in one project only: the one used last (the first of them on a tie).
+function oneFolder(projects: Project[]): Project[] {
+  const home = new Map<string, Project>();
+  for (const p of projects) for (const d of p.drawings) { const was = home.get(d.path); if (!was || lastUsed(p) > lastUsed(was)) home.set(d.path, p); }
+  return projects.map((p) => (p.drawings.every((d) => home.get(d.path) === p) ? p : { ...p, drawings: p.drawings.filter((d) => home.get(d.path) === p) }));
 }
 
 export const writeStore = (store: HomeStore) => JSON.stringify({ ...store, version: STORE_VERSION });
 
 const change = (store: HomeStore, id: string, f: (p: Project) => Project): HomeStore => ({ ...store, projects: store.projects.map((p) => (p.id === id ? f(p) : p)) });
 export const projectOf = (store: HomeStore, id: string | undefined) => store.projects.find((p) => p.id === id);
-// The projects a drawing is in.
+// The projects a drawing is in (one at most, but a list keeps the callers simple).
 export const projectsWith = (store: HomeStore, path: string) => store.projects.filter((p) => p.drawings.some((d) => d.path === path));
+// The folder a drawing is in, if any.
+export const folderOf = (store: HomeStore, path: string): Project | undefined => projectsWith(store, path)[0];
 export const canCreate = (store: HomeStore) => store.projects.length < MAX_PROJECTS;
 
 // A new project, after the others. With no name, or a name another project has, it takes a free one.
@@ -117,21 +129,32 @@ export function deleteProject(store: HomeStore, id: string): { store: HomeStore;
   return { store: next, drop };
 }
 
-// Drawings into a project, after those in it; one in it already stays where it is. added: how many went in.
-export function addDrawings(store: HomeStore, id: string, drawings: { path: string; name?: string }[], now: number): { store: HomeStore; added: number } {
+// Drawings into a project, after those in it; one in it already stays where it is. A drawing in another project moves:
+// it comes out of that one (which counts as used). added: how many went in; moved: how many of those came from another.
+export function addDrawings(store: HomeStore, id: string, drawings: { path: string; name?: string }[], now: number): { store: HomeStore; added: number; moved: number } {
   const p = projectOf(store, id);
-  if (!p) return { store, added: 0 };
+  if (!p) return { store, added: 0, moved: 0 };
   const have = new Set(p.drawings.map((d) => d.path)), fresh: ProjectDrawing[] = [];
   for (const d of drawings) {
     if (!pathOk(d.path) || have.has(d.path) || p.drawings.length + fresh.length >= MAX_IN_PROJECT) continue;
     have.add(d.path);
     fresh.push({ path: d.path, name: d.name || drawingName(d.path), added: now });
   }
-  return { store: fresh.length ? change(store, id, (x) => ({ ...x, used: now, drawings: [...x.drawings, ...fresh] })) : store, added: fresh.length };
+  if (!fresh.length) return { store, added: 0, moved: 0 };
+  const going = new Set(fresh.map((d) => d.path));
+  let moved = 0;
+  const projects = store.projects.map((x) => {
+    if (x.id === id) return { ...x, used: now, drawings: [...x.drawings, ...fresh] };
+    const kept = x.drawings.filter((d) => !going.has(d.path));
+    if (kept.length === x.drawings.length) return x;
+    moved += x.drawings.length - kept.length;
+    return { ...x, used: now, drawings: kept };
+  });
+  return { store: { ...store, projects }, added: fresh.length, moved };
 }
 
 // A drawing out of a project (the file stays). drop: its automatic picture, when no other project has the drawing.
-// now: when, so the project counts as used (its dot stays where it is on the drawing's tile).
+// now: when, so the project counts as used.
 export function removeDrawing(store: HomeStore, id: string, path: string, now = 0): { store: HomeStore; drop: string[] } {
   if (!projectOf(store, id)?.drawings.some((d) => d.path === path)) return { store, drop: [] };
   const next = change(store, id, (p) => ({ ...p, ...(now ? { used: now } : {}), drawings: p.drawings.filter((d) => d.path !== path) }));
@@ -147,15 +170,15 @@ const withPictures = (all: Record<string, Pictures>, path: string, p: Pictures) 
   return next;
 };
 
-// A drawing that moved (Locate…): its new place in every project, with its thumbnails. A project that has the new
-// place already keeps that one entry.
+// A drawing that moved (Locate…): its new place in its folder, with its thumbnails. A project that has the new place
+// already keeps that one entry; when another folder has it, it stays in the folder used last.
 export function relocate(store: HomeStore, from: string, to: string): { store: HomeStore; drop: string[] } {
   if (from === to || !pathOk(to)) return { store, drop: [] };
-  const projects = store.projects.map((p) => {
+  const projects = oneFolder(store.projects.map((p) => {
     if (!p.drawings.some((d) => d.path === from)) return p;
     const there = p.drawings.some((d) => d.path === to);
     return { ...p, drawings: there ? p.drawings.filter((d) => d.path !== from) : p.drawings.map((d) => (d.path === from ? { ...d, path: to, name: drawingName(to) } : d)) };
-  });
+  }));
   const old = store.pictures[from], kept = store.pictures[to];
   if (!old) return { store: { ...store, projects }, drop: [] };
   const merged = { ...old, ...kept }, drop = [old.own, old.auto].filter((t) => t && t !== merged.own && t !== merged.auto) as string[];
@@ -193,15 +216,6 @@ export function setProjectColour(store: HomeStore, id: string, colour: string): 
   return change(store, id, ({ colour: _, ...x }) => (next === PROJECT_COLOUR ? x : { ...x, colour: next }));
 }
 export const colourOf = (p: Project) => p.colour ?? PROJECT_COLOUR;
-
-// The projects whose dots a drawing's tile shows, in Home's order: every project when there are no more than room;
-// else room - 1 of them (the ones the drawing is in, then those used last), and more, a dot for the rest.
-export function dotsFor(store: HomeStore, path: string, room: number): { projects: Project[]; more: boolean } {
-  if (store.projects.length <= room) return { projects: store.projects, more: false };
-  const has = (p: Project) => p.drawings.some((d) => d.path === path), last = (p: Project) => Math.max(p.made, p.used ?? 0);
-  const picked = new Set([...store.projects].sort((a, b) => Number(has(b)) - Number(has(a)) || last(b) - last(a)).slice(0, room - 1));
-  return { projects: store.projects.filter((p) => picked.has(p)), more: true };
-}
 
 // A folder's colours from its project's: the front, the back (darker, or lighter for a colour near black so the two
 // parts still show) and the lip along the front's top edge. dark: a colour near black, on which a picture shows
