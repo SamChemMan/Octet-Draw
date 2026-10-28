@@ -73,7 +73,9 @@ The objects' names and order are worked out 300 ms after the drawing last change
 names come from a cache kept by each structure's content (wherever it is drawn), filled a few at a time with the
 window free between them; structures of more than 120 atoms are not named. The view moves the elements' layer, so a
 pan or zoom draws none of them again. `access.check.ts` holds the time on 500 atoms under a budget and checks that it
-grows with the drawing, not its square; `scripts/canvas-a11y.mjs` measures keys in the app.
+grows with the drawing, not its square; `scripts/canvas-a11y.mjs` measures keys in the app. On 28 October, on about
+500 atoms with the CPU slowed 4 times, walking the hotspot and adding bonds took 9.0 ms a key at the median (36.9 ms at
+the 90th percentile) with the canvas's keyboard focus on, and 8.4 ms (33.7 ms) with it off.
 
 ## Not done
 
