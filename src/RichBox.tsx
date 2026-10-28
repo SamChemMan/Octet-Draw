@@ -1,4 +1,4 @@
-// The box a caption is typed in: rich text, each run in its own style, over the caption on the canvas.
+// The box a caption or an atom label is typed in: rich text, each run in its own style, over the text on the canvas.
 // Security: the box is built from text nodes and spans made here (textContent, never HTML), styles are read back from
 // each span's own data, and paste inserts plain text only.
 import { useEffect, useLayoutEffect, useRef } from "react";
@@ -18,6 +18,8 @@ type Props = {
   onKeyDown: (e: React.KeyboardEvent) => void;
   onBlur: () => void;
   returnNewLine?: boolean; // Return makes a new line (ChemDraw's default for captions); else only Option- or Shift-Return
+  className?: string; // the box's look: a caption's (the default) or an atom label's
+  label?: string; // its name for screen readers (Caption by default)
 };
 
 // Character offsets in the box, counting each span's text and each line break.
@@ -109,10 +111,10 @@ export function RichBox(p: Props) {
   return (
     <div
       ref={box}
-      className="caption-box rich"
+      className={p.className ?? "caption-box rich"}
       data-theme="light"
       role="textbox"
-      aria-label="Caption"
+      aria-label={p.label ?? "Caption"}
       aria-multiline
       contentEditable
       suppressContentEditableWarning

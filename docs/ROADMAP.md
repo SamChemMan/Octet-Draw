@@ -81,7 +81,7 @@ Sam wanted these in 1.0. They are not done yet.
   - Done: all 68 of Sam's CDXML files write and read back unchanged.
   - Arrowhead sizes and hollow block arrows are done.
   - Done (27 October 2026; ChemDraw check 23): tritium typed as T is hydrogen-3, as D is hydrogen-2, in the formula's weight, CDXML and MOL; an atom number ChemDraw keeps hidden (`AtomNumber` without `ShowAtomNumber`) is kept and written back without showing.
-  - Not done: a node label of more than one line (2 corpus labels). Octet's labels are one line in drawing, bond clipping, label boxes, hit testing and the CDXML writer, so keeping the break needs a label model of lines.
+  - Done (28 October 2026, `drawing-loose-ends` branch): a node label of more than one line ("Direct,\nNo ISC" in the corpus). Option-Return in the label box starts a new line (Settings > Typing > New line in labels can make it Return, as ChemDraw's preference). The attaching line sits on the atom as a one-line label does; the other lines go a caption's line apart, lined up with it. Bonds stop at each line's box. CDXML and CDX keep the break and write LineStarts. ChemDraw check 26 waits in `~/octet-research/notes/chemdraw-checks-pending.md`.
 
 ### Platform limits
 

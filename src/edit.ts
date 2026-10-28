@@ -234,7 +234,8 @@ export const keyElement = (m: Mol, i: number, label: string) => (label === "C" ?
 // Sets what an atom reads as. One element symbol makes it that element; anything else (OMe, CO2Et, Ph) is a
 // written label attached through its first element, or through carbon for a group. Empty text clears it to carbon.
 export function setLabel(m: Mol, i: number, text: string): Mol {
-  const t = text.trim();
+  // A label of more than one line (Option-Return as it is typed) keeps its lines, each trimmed, empty ones left out.
+  const t = text.split("\n").map((s) => s.trim()).filter(Boolean).join("\n");
   if (!t) return setElement(m, i, "C");
   if (t === "C") return showCarbon(m, i);
   if (isElement(t)) return setElement(m, i, t);

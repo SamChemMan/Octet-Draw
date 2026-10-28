@@ -187,6 +187,40 @@ console.log("render.check: written labels ok");
   const z = (i: number): P => [zig[i][0] * L, -zig[i][1] * L], [l, r] = [shows(dibromo, z(0), z(1)), shows(dibromo, z(4), z(3))];
   assert.ok(l < L - 1 && Math.abs(l - r) < 0.01 * pt, `both C–Br bonds show the same length (${(l / pt).toFixed(3)} and ${(r / pt).toFixed(3)} pt)`);
   console.log(`render.check: label symmetry ok (${mirrored} mirrored bonds)`);
+
+  // A label of more than one line (ChemDraw's Option-Return in a label, as Sam's "Direct,\nNo ISC"): the attaching line
+  // sits on the atom as that line alone would start (its first glyph centred), the next line 1.2 em below (a caption's
+  // automatic spacing), each line read as typed. Bonds stop at the box round each line, so a bond down from the atom
+  // stops below the second line. Right to left the lines end together, the attaching line's last glyph centred on the
+  // atom; centred, each line is centred on it; stacked above, the last line is the attaching one.
+  const lined = (text: string, to: P, more: Partial<Atom> = {}) => {
+    const m: Mol = { atoms: [{ label: "C", text, location: [0, 0, 0], ...more }, { label: "C", location: [to[0], to[1], 0] }], bonds: [{ type: 1, atoms: [0, 1] }] };
+    const dd = render(m, S, arial), runs = dd.labels.filter((_, j) => Math.hypot(dd.labelAt[j][0], dd.labelAt[j][1]) < 1e-9);
+    const rows = [...new Set(runs.filter((l) => l.size === S.size).map((l) => l.y))].sort((p, q) => p - q).map((y) => runs.filter((l) => Math.abs(l.y - y) < 1e-9 || (l.size < S.size && l.y > y && l.y - y < 0.3 * S.size)).sort((p, q) => p.x - q.x));
+    return { d: dd, rows, text: rows.map((r) => r.map((l) => l.text).join("")) };
+  };
+  const left = lined("Direct,\nNo ISC", [0, -1]);
+  assert.deepEqual(left.text, ["Direct,", "No ISC"]);
+  assert.ok(Math.abs(left.rows[0][0].x + metrics("D")[0] / 2) < 1e-9, "the first glyph centred on the atom");
+  assert.ok(Math.abs(left.rows[1][0].x - left.rows[0][0].x) < 1e-9, "the second line starts where the first does");
+  assert.ok(Math.abs(left.rows[1][0].y - left.rows[0][0].y - 1.2 * S.size) < 1e-9, "the second line 1.2 em below");
+  const lowest = Math.max(...left.rows[1].map((l) => l.y));
+  const bondTop = Math.min(...left.d.polygons.flat().map((q) => q[1]));
+  assert.ok(bondTop > lowest + S.margin - 0.01, `the bond down from the atom stops below the second line (${bondTop.toFixed(2)} px, line at ${lowest.toFixed(2)})`);
+  assert.deepEqual(left.d.label[0]![3] >= lowest - 1e-9 && left.d.label[0]![1] < left.rows[0][0].y - 0.7 * S.size, true, "the label's box holds both lines");
+  // Counts are subscripts on every line.
+  assert.deepEqual(lined("OMe\nCH2Cl2", [0, -1]).rows[1].map((l) => [l.text, l.size < S.size]), [["C", false], ["H", false], ["2", true], ["Cl", false], ["2", true]]);
+  const right = lined("Ab\nCde", [1, 0]), end = (row: Run[]) => row[row.length - 1].x + advance(row[row.length - 1]);
+  assert.deepEqual(right.text, ["Ab", "Cde"], "never reversed");
+  assert.ok(Math.abs(end(right.rows[0]) - metrics("b")[0] / 2) < 1e-9 && Math.abs(end(right.rows[1]) - end(right.rows[0])) < 1e-9, "right to left, the lines end together");
+  const mid = lined("Ab\nCde", [1, 0], { align: "centre" });
+  for (const row of mid.rows) assert.ok(Math.abs(row[0].x + end(row) - 0) < 1e-9, "centred lines");
+  const up = lined("Ab\nCde", [0, -1], { align: "above" });
+  assert.ok(Math.abs(up.rows[1][0].y - (up.rows[0][0].y + 1.2 * S.size)) < 1e-9 && up.text[1] === "Cde" && up.rows[1][0].y > 0, "stacked above, the last line on the atom");
+  // A charge goes after the attaching line.
+  const charged = lined("NMe3\nsalt", [-1, 0], { label: "N", charge: 1 });
+  assert.ok(charged.d.labels.some((l) => l.text === "+" && l.y < charged.rows[0][0].y && l.x > charged.rows[0][0].x), "the sign by the first line");
+  console.log("render.check: labels of more than one line ok");
 }
 
 // Captions: centred on the structure's ink box, baseline 15 pt below it; a second caption stacks one line down.

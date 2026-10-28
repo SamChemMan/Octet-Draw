@@ -656,6 +656,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const v = nbrs[i].reduce<P>((acc, j) => { const d = sub(page(j), X), l = len(d) || 1; return [acc[0] + d[0] / l, acc[1] + d[1] / l]; }, [0, 0]);
     const steep = len(v) > 1e-6 && Math.abs(v[1]) > Math.abs(v[0]) * Math.tan((70 * Math.PI) / 180), right = deg > 0 && !steep && v[0] > 1e-6;
     let sign = charge && !a.circled ? `${Math.abs(charge) > 1 ? Math.abs(charge) : ""}${charge > 0 ? "+" : "-"}` : "";
+    if (a.text?.includes("\n")) return labelLines(i, size, right, sign);
     let text = a.text ?? a.label, just = right && (text + sign).length > 1 ? "Right" : "Left", stack: string | undefined;
     if (!a.text && h) {
       text += `H${h > 1 ? h : ""}`;
@@ -690,6 +691,41 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
         RotationAngle: rotationAngle(a.labelAngle) },
         (iso ? run(iso, { ...style2, face: 0x40 | look }) : "") + run(text.slice(0, text.length - range.length), { ...style2, face: 0x60 | look }) + (range ? run(range, { ...style2, face: 0x20 | look }) : "")
         + (sign ? run(sign, { ...style2, face: 0x40 | look }) : "")),
+      box,
+    };
+  }
+
+  // A label of more than one line, where render.ts draws it: one text with a line break after each line but the last
+  // and LineStarts (where each line ends, as ChemDraw writes it), justified as its lines line up (centred when
+  // centred or stacked; Right when it reads right to left), and p at the first line's baseline: its start, middle or
+  // end. The attaching line (the first, or the last stacked above) sits on the atom. A charge sign Octet draws after
+  // the attaching line goes there in the text; drawn anywhere else, it is a symbol (as labelOf's).
+  function labelLines(i: number, size: number, right: boolean, sign: string): { xml: string; box: Box } {
+    const a = mol.atoms[i], X = page(i), rows = a.text!.split("\n"), k0 = a.align === "above" ? rows.length - 1 : 0, own = rows[k0] || "H", pitch = LINE * size;
+    const just = a.align === "centre" || a.align === "above" || a.align === "below" ? "Center" : a.align === "right" || (!a.align && right) ? "Right" : "Left";
+    const wide = (t: string) => units(t).reduce((w, u) => w + widthOf(u.text, size) + (u.count ? widthOf(u.count, 0.75 * size) : 0), 0), ws = rows.map(wide);
+    const tail = units(own)[units(own).length - 1], start = X[0] - advance(own[0], size) / 2, end = X[0] + (tail?.count ? advance(tail.count.slice(-1), 0.75 * size) : advance(own[own.length - 1], size)) / 2;
+    const from = (j: number) => (just === "Center" ? X[0] - ws[j] / 2 : just === "Right" ? end - ws[j] : start);
+    const base = X[1] + (/[OSCGQ]/.test(own[0]) ? 0.364 : 0.358) * size, y0 = base - k0 * pitch;
+    if (sign && Math.abs(a.charge ?? 0) === 1) {
+      const at = signAt(i, X, size, own, 0, ws[k0], just === "Right", end - X[0]);
+      if (at) { signs.set(i, at); sign = ""; }
+    }
+    const x = just === "Center" ? X[0] : just === "Right" ? end : start, last = rows[rows.length - 1];
+    const box = turnedBox([Math.min(...rows.map((_, j) => from(j))), y0 - 0.716 * size, Math.max(...rows.map((_, j) => from(j) + ws[j] + (j === k0 ? widthOf(sign, 0.75 * size) : 0))),
+      y0 + (rows.length - 1) * pitch + (/\d/.test(last) ? 0.15 * size : 0)], [x, y0], a.labelAngle);
+    const style2 = { font: a.font ?? style.labelFont, size, colour: a.colour }, look = (a.bold ? 1 : 0) | (a.italic ? 2 : 0) | (a.underline ? 4 : 0);
+    const parts: [string, number][] = [];
+    rows.forEach((t, j) => {
+      parts.push([t, 0x60 | look]);
+      if (j === k0 && sign) parts.push([sign, 0x40 | look]);
+      if (j < rows.length - 1) parts[parts.length - 1][0] += "\n";
+    });
+    const text = parts.map(([t]) => t).join(""), ends = [...[...text.matchAll(/\n/g)].map((m) => m.index! + 1), text.length];
+    return {
+      xml: el("t", { p: pt([x, y0]), BoundingBox: boxText(box), color: colour(a.colour), LabelJustification: just, Justification: just === "Left" ? undefined : just, LabelAlignment: a.align === "above" ? "Above" : a.align === "below" ? "Below" : undefined,
+        InterpretChemically: a.chemical === false ? "no" : undefined, RotationAngle: rotationAngle(a.labelAngle), LineStarts: ends.join(" ") },
+        parts.filter(([t]) => t).map(([t, face]) => run(t, { ...style2, face })).join("")),
       box,
     };
   }
@@ -1597,9 +1633,16 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     };
     for (const l of labels) {
       const { i, text: raw, type, isotope, plain } = l, a = mol.atoms[i], charge = a.charge ?? 0;
-      let text = cleanText(raw).replace(/\n/g, "").trim();
-      const sign = /(\d*)([+\-−–])$/.exec(text);
-      if (charge && sign && (sign[2] === "+") === charge > 0) text = text.slice(0, text.length - (sign[1] === String(Math.abs(charge)) ? sign[0].length : 1));
+      // A label of more than one line keeps its lines (each trimmed, empty ones left out); an element's label is read
+      // without them (ChemDraw's stacked NH can be typed N, Option-Return, H).
+      // The node's charge sign after the label (after its first or last line) is not text.
+      const rows = cleanText(raw).split("\n").map((t) => t.trim()).filter(Boolean);
+      for (const k of new Set([0, rows.length - 1])) {
+        const sign = /(\d*)([+\-−–])$/.exec(rows[k] ?? "");
+        if (charge && sign && (sign[2] === "+") === charge > 0) { rows[k] = rows[k].slice(0, rows[k].length - (sign[1] === String(Math.abs(charge)) ? sign[0].length : 1)).trim(); break; }
+      }
+      const lined = rows.filter(Boolean).join("\n");
+      let text = lined.replace(/\n/g, "");
       if (!text || text === "\ufffc" || a.attach || a.bead) continue;
       if (type === "Element" && !plain && (!isotope || a.label === "D" || a.label === "T" || a.isotope)) {
         if (a.isotope && text.startsWith(String(a.isotope))) text = text.slice(String(a.isotope).length);
@@ -1609,7 +1652,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
         // A carbon shown with its own hydrogens (CH3 at a chain end): a shown carbon, which keeps its hydrogens right.
         if (m && a.label === "C" && h === hydrogens("C", charge, used[i], a.radical === 3 ? 2 : a.radical)) { a.shown = true; keep(l, hFirst); continue; }
       } else if (isotope) lose("isotope");
-      if (text.length > MAX_LABEL || /[<>]/.test(text)) { lose("label text"); text = text.replace(/[<>]/g, "").slice(0, MAX_LABEL); }
+      if (lined.includes("\n")) text = lined;
+      if (text.length > MAX_LABEL || /[<>]/.test(text)) { lose("label text"); text = text.replace(/[<>]/g, "").slice(0, MAX_LABEL).trim(); }
       if (isElement(text) && !plain) a.label = text;
       else { a.text = text; a.label = anchorElement(text) ?? "C"; }
       // Interpret Chemically off on the label: its text, not chemistry.

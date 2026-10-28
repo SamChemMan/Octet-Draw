@@ -772,7 +772,9 @@ export default function Editor() {
   // blank: the box opened empty (the ! and > keys), so closing it with nothing typed keeps the atoms as they were.
   // colour: a colour chosen while typing (the label takes it when the box closes, in the same step); "element": Colour
   // by Element, the colour of the element typed.
-  const [editing, setEditing] = useState<{ atom: number; value: string; all?: number[]; merge?: string; blank?: true; colour?: string }>();
+  // runs, version and caret: as the caption box's (Writing below), for a label of more than one line (Option-Return).
+  const [editing, setEditing] = useState<{ atom: number; value: string; all?: number[]; merge?: string; blank?: true; colour?: string; runs?: TextRun[]; version?: number; caret?: [number, number] }>();
+  const labelApi = useRef<RichApi>(undefined);
   const labelOpen = useRef(false);
   // The last label typed in a label box: the Text tool's Option-click repeats it (ChemDraw's Repeat Last Label).
   const lastLabel = useRef<string>(undefined);
@@ -7200,20 +7202,25 @@ export default function Editor() {
           if (editing.value.trim()) lastLabel.current = editing.value.trim();
           setEditing(undefined);
         };
+        // The box opens with the label selected; its first line is on the atom (half a line above it to half below), and
+        // Option-Return (or Return, as Settings ask) starts another line under it, as ChemDraw's labels do.
+        const size = frame.size * (drawn / style.labelSize) * view.zoom;
         return (
-          <input
+          <RichBox
             className="label-box"
-            data-theme="light"
-            aria-label="Atom label"
-            autoFocus
-            spellCheck={false}
-            value={editing.value}
-            style={{ left: view.x + ax * L * view.zoom, top: view.y - ay * L * view.zoom, fontSize: frame.size * (drawn / style.labelSize) * view.zoom, fontFamily: fontStack(style.labelFont),
+            label="Atom label"
+            returnNewLine={settings.labelReturnNewLine}
+            runs={editing.runs ?? [{ text: editing.value }]}
+            version={editing.version ?? 0}
+            caret={editing.caret ?? [0, editing.value.length]}
+            api={labelApi}
+            look={() => ({})}
+            style={{ left: view.x + ax * L * view.zoom, top: view.y - ay * L * view.zoom - 0.6 * size - 2, fontSize: size, fontFamily: fontStack(style.labelFont),
               color: (chosen === "element" ? by[editing.value.trim()] : chosen) ?? a.colour }}
-            onChange={(e) => setEditing({ ...editing, value: e.target.value })}
-            onFocus={(e) => e.target.select()}
+            onRuns={(runs, rebuild) => setEditing((w) => w && { ...w, runs, value: plainOf(runs), ...(rebuild ? { version: (w.version ?? 0) + 1, caret: rebuild } : {}) })}
             onKeyDown={(e) => {
-              if (e.key === "Enter") commit();
+              // Return reaches here only when it does not make a new line.
+              if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); commit(); }
               if (e.key === "Escape") { e.preventDefault(); commit(); }
               // ⇧⌘N in the browser (the app's menu does it there): the label's text as a name.
               if (!TAURI && (e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "n") { e.preventDefault(); commands.current.name_to_structure(); }
@@ -7444,6 +7451,8 @@ export default function Editor() {
           onDrawing={(patch) => setSettings((s) => ({ ...s, ...patch }))}
           captionOptionReturn={settings.captionOptionReturn}
           onCaptionOptionReturn={(captionOptionReturn) => setSettings((s) => ({ ...s, captionOptionReturn }))}
+          labelReturnNewLine={settings.labelReturnNewLine}
+          onLabelReturnNewLine={(labelReturnNewLine) => setSettings((s) => ({ ...s, labelReturnNewLine }))}
           panelMenus={settings.panelMenus}
           onPanelMenus={(panelMenus) => setSettings((s) => ({ ...s, panelMenus }))}
           onlineSearch={settings.onlineSearch}

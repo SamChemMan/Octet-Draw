@@ -5,6 +5,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { DAMAGED, NOT_CDXML, TOO_BIG, arialGlyph, fmt, fmtAngle, fmtColour, fmtSize, fromCdxml, parseXml, toCdxml, type Xml } from "./cdxml.ts";
+import { cdxToXml, xmlToCdx } from "./cdx.ts";
 import { DEFAULT_STYLE, PRESETS, readStyle, withScale, type DocStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
 import { fitSizes, insertMol } from "./edit.ts";
@@ -986,6 +987,52 @@ ${label(27, 400, 200, 'Element="7" NumHydrogens="1"', "NH", "Left", "Below")}${n
   assert.deepEqual(cd.mol.atoms.map((a) => [a.label, a.text, a.isotope, a.number, a.hiddenNumber]), [["C", undefined, undefined, undefined, "0"], ["T", undefined, undefined, undefined, "1"]]);
   assert.deepEqual(parse(serialize(cd.mol)).atoms.map((a) => a.hiddenNumber), ["0", "1"]);
   console.log("cdxml.check: tritium and hidden atom numbers ok");
+}
+
+// Labels of more than one line (ChemDraw's Option-Return in a label): one text with the line break in it, LineStarts
+// where each line ends (as ChemDraw writes "8 14" for "Direct,\nNo ISC"), justified as Octet lines them up, and read
+// back with their lines. A charge goes after the attaching line. ChemDraw's own reads the same, and a stacked NH typed
+// with a break (N, Option-Return, H) is still N with its hydrogen.
+{
+  const every = (x: Xml): Xml[] => [x, ...x.kids.flatMap(every)];
+  const m: Mol = { atoms: [A("C", 0, 0, { text: "Direct,\nNo ISC", align: "centre" }), A("C", 1, 0), A("N", 3, 0, { text: "NMe3\nsalt", charge: 1 }), A("C", 4, 0), A("C", 6, 0, { text: "Ab\nCd", align: "above" })], bonds: [b(0, 1), b(2, 3)] };
+  const xml = toCdxml(m, DEFAULT_STYLE), ts = every(parseXml(xml)).filter((x) => x.name === "n").map((n) => n.kids.find((k) => k.name === "t")!);
+  const text = (t: Xml) => t.kids.filter((k) => k.name === "s").map((k) => k.text).join("");
+  assert.deepEqual([text(ts[0]), ts[0].attrs.LineStarts, ts[0].attrs.LabelJustification, ts[0].attrs.Justification], ["Direct,\nNo ISC", "8 14", "Center", "Center"]);
+  const box = ts[0].attrs.BoundingBox.split(" ").map(Number);
+  assert.ok(box[3] - box[1] > 1.2 * 10 + 7, `the box holds both lines (${box[3] - box[1]} pt)`);
+  // p is on the first line's baseline, a line above the second.
+  assert.ok(Number(ts[0].attrs.p.split(" ")[1]) < box[1] + 10, "p on the first baseline");
+  // NMe3, then salt: the bond comes from the right, so the lines end together, right-justified, and the sign Octet
+  // draws before the first line is a symbol, as for a one-line label read right to left.
+  assert.deepEqual([text(ts[2]), ts[2].attrs.LineStarts, ts[2].attrs.LabelJustification], ["NMe3\nsalt", "5 9", "Right"]);
+  // Read left to right, the sign follows the first line in the text.
+  const plus = toCdxml({ atoms: [A("N", 3, 0, { text: "NMe3\nsalt", charge: 1 }), A("C", 2, 0)], bonds: [b(0, 1)] }, DEFAULT_STYLE);
+  assert.equal(text(every(parseXml(plus)).find((x) => x.name === "t")!), "NMe3+\nsalt");
+  assert.deepEqual([fromCdxml(plus).mol.atoms[0].text, fromCdxml(plus).mol.atoms[0].charge], ["NMe3\nsalt", 1]);
+  assert.deepEqual([text(ts[4]), ts[4].attrs.LabelAlignment, ts[4].attrs.LabelJustification], ["Ab\nCd", "Above", "Center"]);
+  const back = fromCdxml(xml);
+  assert.deepEqual(back.lost, {});
+  assert.deepEqual([0, 2, 4].map((i) => [back.mol.atoms[i].text, back.mol.atoms[i].align, back.mol.atoms[i].charge]), [["Direct,\nNo ISC", "centre", undefined], ["NMe3\nsalt", undefined, 1], ["Ab\nCd", "above", undefined]]);
+  // Through CDX (where a line break is a carriage return) and Octet's own file.
+  const viaCdx = fromCdxml(cdxToXml(xmlToCdx(parseXml(xml)))).mol;
+  assert.deepEqual([0, 2, 4].map((i) => viaCdx.atoms[i].text), ["Direct,\nNo ISC", "NMe3\nsalt", "Ab\nCd"]);
+  assert.deepEqual(parse(serialize(back.mol)).atoms[0].text, "Direct,\nNo ISC");
+  const bad = JSON.parse(serialize(back.mol));
+  for (const t of ["\nA", "A\n", "A\n\nB", "A\rB"]) { bad.structure.atoms[0].text = t; assert.throws(() => parse(JSON.stringify(bad)), /damaged/, JSON.stringify(t)); }
+  // ChemDraw's own: the corpus label's text and runs (two colours), and a stacked NH typed with a break.
+  const cd = fromCdxml(`<CDXML BondLength="14.40"><colortable><color r="1" g="1" b="1"/><color r="0" g="0" b="0"/><color r="1" g="0" b="0"/></colortable><page id="1"><fragment id="2"><n id="3" p="221.96 317.74" NodeType="Unspecified" LabelDisplay="Center"><t p="221.96 313.25" LabelJustification="Center" LabelAlignment="Left" LineStarts="8 14"><s font="3" size="10" color="3" face="3">Direct,
+No</s><s font="3" size="10" color="4" face="3"> ISC</s></t></n></fragment><fragment id="4"><n id="5" p="300 300" Element="7" NumHydrogens="1"/><n id="6" p="314.4 300"/><n id="7" p="285.6 300"/><b id="8" B="5" E="6"/><b id="9" B="5" E="7"/></fragment></page></CDXML>`.replace('<n id="5" p="300 300" Element="7" NumHydrogens="1"/>', '<n id="5" p="300 300" Element="7" NumHydrogens="1"><t p="297 303" LabelJustification="Left" LabelAlignment="Below"><s font="3" size="10" face="96">N\nH</s></t></n>'));
+  assert.deepEqual([cd.mol.atoms[0].text, cd.mol.atoms[0].bold, cd.mol.atoms[0].italic, cd.mol.atoms[0].align], ["Direct,\nNo ISC", true, true, "centre"]);
+  assert.deepEqual([cd.mol.atoms[1].label, cd.mol.atoms[1].text], ["N", undefined]);
+  const CORPUS = join(homedir(), "octet-research/corpus/sam"), rovis = join(CORPUS, "Rovis catalyst - showing excitation directly to T1 rather than via S1.cdxml");
+  if (existsSync(rovis)) {
+    const r = fromCdxml(readFileSync(rovis, "utf8")).mol, i = r.atoms.findIndex((a) => a.text?.startsWith("Direct"));
+    assert.equal(r.atoms[i]?.text, "Direct,\nNo ISC");
+    const again = fromCdxml(toCdxml(r, DEFAULT_STYLE)).mol;
+    assert.ok(again.atoms.some((a) => a.text === "Direct,\nNo ISC"), "the corpus label keeps its break through Octet's CDXML");
+  }
+  console.log("cdxml.check: labels of more than one line ok");
 }
 
 // Sam's corpus (on this Mac only): every text ChemDraw keeps above or below an arrow is written back where it was.

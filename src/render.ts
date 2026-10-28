@@ -791,6 +791,30 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
       charged(cx, cx + width, base, rtl);
       return shape;
     }
+    if (a.text?.includes("\n")) {
+      // A label of more than one line (Option-Return as it is typed, as in ChemDraw): each line reads as typed (never
+      // reversed), its counts subscript. The attaching line (the first; the last when stacked above) sits on the atom:
+      // its first glyph centred on it, or read right to left its last glyph, or centred (or stacked), the whole line.
+      // The other lines go a caption's automatic line spacing apart, lined up with it: the same start, the same end
+      // read right to left, centred on the atom when centred or stacked. Bonds stop at the box round each line.
+      const rows = a.text.split("\n"), k0 = align === "above" ? rows.length - 1 : 0, own = rows[k0] || "H", us = rows.map((t) => units(t));
+      const wide = (u: (typeof us)[number][number]) => M(u.text).width + (u.count ? M(u.count).width * SUB : 0);
+      const widths = us.map((line) => line.reduce((w, u) => w + wide(u), 0)), tail = us[k0][us[k0].length - 1];
+      const just = align === "centre" || align === "above" || align === "below" ? "centre" : align === "right" || (!align && rtl) ? "right" : "left";
+      const first = M(own[0]), base = y + first.ascent / 2, start = x - first.width / 2, end = x + (tail?.count ? M(tail.count.slice(-1)).width * SUB : M(own[own.length - 1]).width) / 2;
+      const from = (j: number) => (just === "centre" ? x - widths[j] / 2 : just === "right" ? end - widths[j] : start);
+      us.forEach((line, j) => {
+        let ux = from(j);
+        const uy = base + (j - k0) * LINE * S, n = j === k0 ? 0 : j + 1;
+        for (const u of line) {
+          run(u.text, ux, uy, 1, n);
+          if (u.count) run(u.count, ux + M(u.text).width, uy + DROP * S, SUB, n);
+          ux += wide(u);
+        }
+      });
+      charged(from(k0), from(k0) + widths[k0], base, just === "right");
+      return shape;
+    }
     if (a.text) {
       // A written label: units in order, reversed when it reads right to left (OMe as MeO). Centred, the whole label
       // sits on the atom; stacked, each unit after the first goes one line further up (or down), centred over the atom.
