@@ -12,6 +12,9 @@ use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem,
 use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WindowEvent, Wry};
 use tauri_plugin_dialog::DialogExt;
 
+// Alt and a menu's access key on Windows, from the web view to the menu bar.
+#[cfg(windows)]
+mod access_keys;
 mod clipboard;
 mod crashlog;
 mod export;
@@ -398,7 +401,9 @@ async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<St
 
 // File and Edit menus. Custom items send their id to the page as a "menu" event; Cut, Copy and Paste
 // stay native on the Mac and Windows so the page gets ordinary clipboard events. Select All selects the drawing, not
-// the page.
+// the page. Each menu in the bar has its own access key (the letter after &): Alt and the letter open it on Windows
+// (access_keys.rs) and Linux, and a screen reader on Windows opens it the same way (MSAA and UI Automation press the
+// access key). The Mac shows no &.
 fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), overrides: &HashMap<String, String>, online: bool) -> tauri::Result<Built> {
     // Every command goes through here: it is listed (with the menu it is in) and takes the user's shortcut if they
     // set one, else its default ("" for none).
@@ -448,7 +453,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let new_for = Submenu::with_items(app, "New For", true, &new_for_items)?;
     section.replace("File".into());
     let new_name = if current.is_empty() { "New".to_string() } else { format!("New {current}") };
-    let file = Submenu::with_items(app, "File", true, &[
+    let file = Submenu::with_items(app, "&File", true, &[
         &item("home", "Home", "")?,
         &item("new", &new_name, "CmdOrCtrl+N")?,
         &new_for,
@@ -503,7 +508,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let (cut, copy, paste) = (PredefinedMenuItem::cut(app, None)?, PredefinedMenuItem::copy(app, None)?, PredefinedMenuItem::paste(app, None)?);
     #[cfg(target_os = "linux")]
     let (cut, copy, paste) = (item("cut", "Cut", "CmdOrCtrl+X")?, item("copy", "Copy", "CmdOrCtrl+C")?, item("paste", "Paste", "CmdOrCtrl+V")?);
-    let edit = Submenu::with_items(app, "Edit", true, &[
+    let edit = Submenu::with_items(app, "&Edit", true, &[
         &item("undo", "Undo", "CmdOrCtrl+Z")?,
         &item("redo", "Redo", "CmdOrCtrl+Y")?,
         // ChemDraw's Repeat: the last turn, flip, scale or style again. Redo's ⌘Y repeats when there is nothing to redo.
@@ -549,7 +554,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     }
     sets_list.extend(set_items.iter().skip(own_sets.len()).map(|m| m as &dyn IsMenuItem<Wry>));
     let templates = Submenu::with_items(app, "Templates", !set_items.is_empty(), &sets_list)?;
-    let view = Submenu::with_items(app, "View", true, &[
+    let view = Submenu::with_items(app, "&View", true, &[
         // ChemDraw's keys: Magnify, Reduce and Fit to Window.
         &item("zoom_actual", "Actual Size", "CmdOrCtrl+\\")?,
         &item("zoom_fit", "Fit to Window", "CmdOrCtrl+/")?,
@@ -582,7 +587,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     ])?;
     // Structure commands keep ChemDraw's shortcuts.
     section.replace("Structure".into());
-    let structure = Submenu::with_items(app, "Structure", true, &[
+    let structure = Submenu::with_items(app, "&Structure", true, &[
         &item("check_structure", "Check Structure", "")?,
         &item("clean_up", "Clean Up Structure", "CmdOrCtrl+Shift+K")?,
         &item("clean_reaction", "Clean Up Reaction", "CmdOrCtrl+Shift+X")?,
@@ -648,7 +653,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     // 15° step.
     let fixed_lengths = check("fixed_lengths", "Fixed Lengths", "CmdOrCtrl+L")?;
     let fixed_angles = check("fixed_angles", "Fixed Angles", "CmdOrCtrl+E")?;
-    let object = Submenu::with_items(app, "Object", true, &[
+    let object = Submenu::with_items(app, "&Object", true, &[
         &align,
         &distribute,
         &item("centre_page", "Centre on Page", "")?,
@@ -702,7 +707,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     font_items.extend([&font_sep as &dyn IsMenuItem<Wry>, &font_other]);
     let font = Submenu::with_items(app, "Font", true, &font_items)?;
     section.replace("Text".into());
-    let text = Submenu::with_items(app, "Text", true, &[
+    let text = Submenu::with_items(app, "&Text", true, &[
         &font,
         &sep()?,
         &item("text_plain", "Plain", "CmdOrCtrl+T")?,
@@ -726,7 +731,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     ])?;
     // Curves, as ChemDraw's Curves menu: the line, a head at either end (again takes it off), and a closed curve's fill.
     section.replace("Curves".into());
-    let curves = Submenu::with_items(app, "Curves", true, &[
+    let curves = Submenu::with_items(app, "&Curves", true, &[
         &item("curves_plain", "Plain", "")?,
         &item("curves_dashed", "Dashed", "")?,
         &item("curves_bold", "Bold", "")?,
@@ -777,11 +782,11 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     colour_items.push(&ringfill);
     colour_items.push(&sep3);
     colour_items.push(&edit_colours);
-    let colour = Submenu::with_items(app, "Colour", true, &colour_items)?;
+    let colour = Submenu::with_items(app, "Co&lour", true, &colour_items)?;
     // Search, after Colour, as ChemDraw's Search menu (Search Reaxys…). Each search is one press, with no dialog.
     // Not ⌥⌘R or ⌥⌘P, which are ChemDraw's (Re-run Script, Paste SMILES).
     section.replace("Search".into());
-    let search = Submenu::with_items(app, "Search", true, &[
+    let search = Submenu::with_items(app, "Se&arch", true, &[
         &item("search_reaxys", "Search Reaxys", "Alt+CmdOrCtrl+F")?,
         &item("search_reaxys_exact", "Search Reaxys for Exact Structure", "Alt+Shift+CmdOrCtrl+F")?,
         &sep()?,
@@ -791,13 +796,13 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     // Window: what the system supports. GTK on Linux has neither item, so Linux has no Window menu; Windows has no
     // full screen item.
     section.replace("Window".into());
-    let window = Submenu::with_items(app, "Window", true, &[&PredefinedMenuItem::minimize(app, None)?])?;
+    let window = Submenu::with_items(app, "&Window", true, &[&PredefinedMenuItem::minimize(app, None)?])?;
     #[cfg(target_os = "macos")]
     window.append(&PredefinedMenuItem::fullscreen(app, None)?)?;
     // Help on every platform, as ChemDraw's (REL-18). On the Mac, set_bar makes it the system's Help menu, with its
     // search field.
     section.replace("Help".into());
-    let help = Submenu::with_id_and_items(app, "help", "Help", true, &[
+    let help = Submenu::with_id_and_items(app, "help", "&Help", true, &[
         &item("tutorial", "Tutorial", "")?,
         &item("shortcuts", "Keyboard Shortcuts", "")?,
         &sep()?,
@@ -881,6 +886,10 @@ fn main() {
             app.manage(recovery::start(handle));
             let (bar, checks, list) = menu(handle, &[], &Default::default(), &HashMap::new(), true)?;
             set_bar(handle, bar)?;
+            #[cfg(windows)]
+            if let Some(main) = app.get_webview_window("main") {
+                access_keys::install(&main);
+            }
             app.manage(Checks(Mutex::new(checks)));
             *app.state::<MenuList>().0.lock().unwrap() = list;
             // With the Reaxys window in front, Undo, Redo and Select All act on its page. Every other command goes

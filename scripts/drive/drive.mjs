@@ -37,11 +37,12 @@ const OCTET = "application/x-octet+json";
 // ---- The system: commands run outside the window ----
 
 // A command's output (a Buffer). In a dry run, the command is printed and nothing runs.
-function run(cmd, args, input) {
+function run(cmd, args, input, timeout = 30_000) {
   if (DRY) { log(`    $ ${cmd} ${args.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(" ")}`); return Buffer.alloc(0); }
-  return execFileSync(cmd, args, { input, timeout: 30_000, maxBuffer: 64 << 20 });
+  return execFileSync(cmd, args, { input, timeout, maxBuffer: 64 << 20 });
 }
-const ps = (...args) => run("powershell.exe", ["-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", path.join(HERE, "windows.ps1"), ...args]);
+const PS = ["-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", path.join(HERE, "windows.ps1")];
+const ps = (...args) => run("powershell.exe", [...PS, ...args]);
 
 const system = WIN
   ? {
@@ -51,6 +52,10 @@ const system = WIN
       menu: (...names) => ps("menu", ...names),
       key: (keys) => ps("keys", { "ctrl+v": "^v" }[keys] ?? keys),
       running: () => ps("running").toString().trim() === "yes",
+      menuNames: () => ps("menu-names").toString().split(/\r?\n/).filter(Boolean),
+      uiaMenu: () => ps("uia-menu").toString().split(/\r?\n/).filter(Boolean),
+      // Each menu opens and closes in turn: up to about 3 s a menu.
+      uiaOpen: () => run("powershell.exe", [...PS, "uia-open"], undefined, 90_000).toString().split(/\r?\n/).filter(Boolean),
     }
   : {
       // xclip stays to serve the clipboard, so it is not waited for.
@@ -126,6 +131,16 @@ const steps = [
     await sleep(1000);
     await until("Home", () => page("return !!document.querySelector('main.home .home-tile.new')"), 30_000);
   }],
+  // Narrator and other screen readers find the menu bar through UI Automation: every menu of the window's menu bar
+  // must be there, by name, and open when the screen reader opens it.
+  ...(WIN ? [["The menu bar and each of its menus are in UI Automation, and each opens, as a screen reader finds them", async () => {
+    const menus = system.menuNames(), found = system.uiaMenu();
+    log(`    UI Automation: ${found.join(", ")}`);
+    if (!DRY && (menus.length < 5 || found.join("|") !== menus.join("|"))) throw new Error(`UI Automation's menu bar has ${found.join(", ") || "nothing"}; the window's menu bar has ${menus.join(", ")}`);
+    const opened = system.uiaOpen(), shut = opened.filter((l) => !/ opened /.test(l));
+    for (const l of opened) log(`    ${l}`);
+    if (!DRY && (shut.length || opened.length !== menus.length)) throw new Error(`through UI Automation: ${shut.join("; ") || `${opened.length} of ${menus.length} menus tried`}`);
+  }]] : []),
   ["Home's Quick start opens a new drawing", async () => {
     await page("document.querySelector('main.home .home-tile.new').click()");
     await until("the drawing", () => page("return !document.querySelector('main.home') && !!document.querySelector('svg.canvas')"));

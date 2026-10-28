@@ -13,7 +13,8 @@ default (decision 0010).
 | Measured spectra from JCAMP-DX, with peak assignment (CH-29) | Done, with ChemDraw's spectrum object in CDXML and CDX, peaks linked to bonds, and SPC files |
 | Naming gaps: mixtures with ratios, mixed-metal and cluster complexes, configuration at metals, η drawn with bonds, typography of names | Done: 6855 of 6924 named right, 0 wrong |
 | Platform: Linux Edit menu, Mac Quit from the Dock, pictures in EMF and EPS, Windows and Linux test runs on CI | Done: Windows and Linux runs pass every step |
-| Windows: UI Automation and MSAA cannot reach Octet's menu bar, so Narrator may not read it (found by the CI run, 28 October) | Next: investigate |
+| Windows: screen readers could not open Octet's menus (found by the CI run, 28 October) | Done: the menu bar was in UI Automation all along, but MSAA and UI Automation open a menu by pressing Alt and its access key, which WebView2 kept from the window. Each menu now has an access key, and `access_keys.rs` passes Alt and the key to the menu bar. The Windows run opens each menu through UI Automation |
+| Mac: check VoiceOver's view of a dev build with the AX API | Waiting for Sam to allow accessibility access |
 | Mass Spec Analysis (CH-40), with isotope patterns and the HRMS line | Done |
 | Check the Revvity claims in the LinkedIn draft | Done: ~/octet-research/notes/revvity-claims-and-products.md |
 | ChemDraw session: the 13 checks in ~/octet-research/notes/chemdraw-checks-pending.md | Waiting for Sam to allow full-screen control |

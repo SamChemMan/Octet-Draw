@@ -26,7 +26,8 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | objc2, objc2-foundation, objc2-app-kit (Rust) | 0.6, 0.3, 0.3 | MIT; MIT; Zlib OR Apache-2.0 OR MIT | The macOS clipboard (NSPasteboard). Already used by Tauri |
 | dispatch2 (Rust) | 0.3 | Zlib OR Apache-2.0 OR MIT | Quit from the Dock answers AppKit on the main queue (macOS). Already used by Tauri's dialogs (rfd) |
 | objc2-web-kit, block2 (Rust) | 0.3, 0.6 | Zlib OR Apache-2.0 OR MIT; MIT | Feedback's picture of the window (WKWebView snapshot), for testers: not in the public release (REL-8). Already used by Tauri |
-| windows-sys (Rust, Microsoft) | 0.61 | MIT OR Apache-2.0 | The Windows clipboard (copy and paste). Already used by Tauri |
+| windows-sys (Rust, Microsoft) | 0.61 | MIT OR Apache-2.0 | The Windows clipboard (copy and paste), and the menu bar's access keys. Already used by Tauri |
+| webview2-com (Rust, Bill Avery) | 0.39 | MIT | Alt and a menu's access key on Windows, from the web view to the menu bar (WebView2's AcceleratorKeyPressed). Already used by Tauri |
 | gtk (Rust, gtk-rs project) | 0.18 | MIT | The Linux clipboard (copy and paste, through GTK). Already used by Tauri |
 | open (Rust, Byron) | 5.4 | MIT | Opens web addresses (Search Reaxys, Search PubChem, links) and the feedback draft in the user's own programs. On Windows it calls ShellExecuteExW, not cmd.exe |
 | is-wsl, is-docker (Rust) | 0.4, 0.2 | MIT | Used by open on Linux |

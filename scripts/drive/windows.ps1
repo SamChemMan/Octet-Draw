@@ -8,9 +8,13 @@
 #                                     first item whose name starts with New and that is not a submenu
 #   windows.ps1 keys ^v               press keys (SendKeys) in Octet's window
 #   windows.ps1 running               yes while Octet runs
+#   windows.ps1 menu-names            the menus in Octet's menu bar (Win32), one a line
+#   windows.ps1 uia-menu              the items in Octet's menu bar as UI Automation shows them to a screen reader
+#   windows.ps1 uia-open              open each menu through UI Automation, as a screen reader does: one line a
+#                                     menu, "File opened (120 ms)" or "File did not open"
 #
-# The menu is found through Win32 (GetMenu), not UI Automation: UI Automation in .NET shows Octet's window with no
-# menu bar or title bar, and MSAA's default action on a menu bar item fails.
+# The menu command clicks with the mouse, and finds the menu through Win32 (GetMenu). uia-menu and uia-open use native
+# UI Automation (UIAutomationCore), as Narrator does.
 param([Parameter(Mandatory)][string]$Command, [Parameter(ValueFromRemainingArguments)][string[]]$Rest)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
@@ -51,6 +55,9 @@ public static class Menus {
         }
         return items;
     }
+
+    // The names in the window's menu bar.
+    public static string[] Bar(IntPtr window) { return Items(GetMenu(window)).Select(i => i.Item1).ToArray(); }
 
     static int Pick(List<Tuple<string, bool>> items, string want, bool leaf) {
         for (int i = 0; i < items.Count; i++) {
@@ -104,6 +111,123 @@ public static class Menus {
 }
 '@
 
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Threading;
+
+// Native UI Automation (UIAutomationCore), as Narrator reads a window. Only the calls used here are named; the other
+// slots keep each interface's order. .NET's System.Windows.Automation is not used: it shows no window's title bar or
+// menu bar, not even Notepad's.
+[ComImport, Guid("ff48dba4-60ef-4201-aa87-54103eef594e")] class CUIAutomation { }
+
+[ComImport, Guid("30cbe57d-d9d0-452a-ab13-7ac5ac4825ee"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IUIAutomation {
+    void _0(); void _1(); void _2();
+    IUIAutomationElement ElementFromHandle(IntPtr hwnd);
+    void _4(); void _5(); void _6(); void _7(); void _8(); void _9(); void _10(); void _11(); void _12();
+    IUIAutomationTreeWalker RawViewWalker();
+}
+
+[ComImport, Guid("4042c624-389c-4afc-a630-9df854a541fc"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IUIAutomationTreeWalker {
+    void _0();
+    IUIAutomationElement GetFirstChildElement(IUIAutomationElement element);
+    void _2();
+    IUIAutomationElement GetNextSiblingElement(IUIAutomationElement element);
+}
+
+[ComImport, Guid("d22108aa-8ac5-49a5-837b-37bbb3d7591e"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IUIAutomationElement {
+    void _0(); void _1(); void _2(); void _3(); void _4(); void _5(); void _6(); void _7(); void _8(); void _9();
+    void _10(); void _11(); void _12();
+    [return: MarshalAs(UnmanagedType.IUnknown)] object GetCurrentPattern(int pattern);
+    void _14(); void _15(); void _16(); void _17();
+    int CurrentControlType();
+    void _19();
+    [return: MarshalAs(UnmanagedType.BStr)] string CurrentName();
+}
+
+[ComImport, Guid("619be086-1f4e-4ee4-bafa-210128738730"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IUIAutomationExpandCollapsePattern { void Expand(); void Collapse(); }
+
+public static class Uia {
+    const int MenuBarType = 50010, MenuItemType = 50011, ExpandCollapse = 10005;
+    [StructLayout(LayoutKind.Sequential)] struct GUITHREADINFO { public int cbSize, flags; public IntPtr active, focus, capture, menuOwner, moveSize, caret; public int left, top, right, bottom; }
+    [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint thread, ref GUITHREADINFO info);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string name);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+
+    static List<IUIAutomationElement> Children(IUIAutomationTreeWalker walker, IUIAutomationElement parent) {
+        var list = new List<IUIAutomationElement>();
+        for (var c = walker.GetFirstChildElement(parent); c != null; c = walker.GetNextSiblingElement(c)) list.Add(c);
+        return list;
+    }
+
+    // The items of the window's menu bar (not the title bar's System menu).
+    static List<IUIAutomationElement> Items(IntPtr window) {
+        var uia = (IUIAutomation)new CUIAutomation();
+        var walker = uia.RawViewWalker();
+        var items = new List<IUIAutomationElement>();
+        foreach (var bar in Children(walker, uia.ElementFromHandle(window)))
+            if (bar.CurrentControlType() == MenuBarType)
+                foreach (var item in Children(walker, bar))
+                    if (item.CurrentControlType() == MenuItemType) items.Add(item);
+        return items;
+    }
+
+    // Each item's name, and whether it can open its menu.
+    public static List<string> MenuBarItems(IntPtr window) {
+        var names = new List<string>();
+        foreach (var item in Items(window))
+            names.Add(item.CurrentName() + (item.GetCurrentPattern(ExpandCollapse) is IUIAutomationExpandCollapsePattern ? "" : " (cannot open)"));
+        return names;
+    }
+
+    // Whether a menu of the window's process is open, and whether the window's thread is in menu mode.
+    static bool MenuOpen(IntPtr window) {
+        uint pid, owner;
+        GetWindowThreadProcessId(window, out pid);
+        for (IntPtr h = FindWindowEx(IntPtr.Zero, IntPtr.Zero, "#32768", null); h != IntPtr.Zero; h = FindWindowEx(IntPtr.Zero, h, "#32768", null)) {
+            GetWindowThreadProcessId(h, out owner);
+            if (owner == pid && IsWindowVisible(h)) return true;
+        }
+        return false;
+    }
+    static bool InMenuMode(IntPtr window) {
+        uint pid;
+        var info = new GUITHREADINFO { cbSize = Marshal.SizeOf(typeof(GUITHREADINFO)) };
+        return GetGUIThreadInfo(GetWindowThreadProcessId(window, out pid), ref info) && (info.flags & 4) != 0;
+    }
+
+    // Opens each menu of the menu bar as a screen reader does (UI Automation's Expand), then closes it with Escape.
+    // One line a menu: "File opened (120 ms)", or "File did not open" and why.
+    public static List<string> OpenEach(IntPtr window) {
+        var lines = new List<string>();
+        foreach (var item in Items(window)) {
+            string name = item.CurrentName(), problem = null;
+            SetForegroundWindow(window);
+            Thread.Sleep(300);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            try { ((IUIAutomationExpandCollapsePattern)item.GetCurrentPattern(ExpandCollapse)).Expand(); }
+            catch (Exception e) { problem = e.Message.Trim(); }
+            while (problem == null && !MenuOpen(window) && clock.ElapsedMilliseconds < 2000) Thread.Sleep(20);
+            lines.Add(problem == null && MenuOpen(window) ? name + " opened (" + clock.ElapsedMilliseconds + " ms)" : name + " did not open" + (problem != null ? ": " + problem : ""));
+            for (int i = 0; i < 4 && (MenuOpen(window) || InMenuMode(window)); i++) {
+                keybd_event(0x1B, 0, 0, UIntPtr.Zero);
+                keybd_event(0x1B, 0, 2, UIntPtr.Zero);
+                Thread.Sleep(250);
+            }
+        }
+        return lines;
+    }
+}
+'@
+
 function Octet-Process { Get-Process octet -ErrorAction SilentlyContinue | Select-Object -First 1 }
 
 # Octet's main window, once it has its menu bar.
@@ -145,5 +269,8 @@ switch ($Command) {
         [System.Windows.Forms.SendKeys]::SendWait($Rest[0])
     }
     'running' { if (Octet-Process) { 'yes' } else { 'no' } }
+    'menu-names' { [Menus]::Bar((Octet-Window)) }
+    'uia-menu' { [Uia]::MenuBarItems((Octet-Window)) }
+    'uia-open' { [Uia]::OpenEach((Octet-Window)) }
     default { throw "unknown command $Command" }
 }
