@@ -276,12 +276,10 @@ function sameSide(m: Mol, beg: number, end: number, nb: number, ne: number): num
 //   projection), not a centre.
 // Left out: a centre or double bond with a wavy bond on it, a crossed (either) double bond, and a double bond in a ring
 // of fewer than 8 atoms.
-function stereoUnits(m: Mol, c: Chem): Unit[] {
-  const units: Unit[] = [], n = m.atoms.length;
-  const wavy = new Set(m.bonds.flatMap((b) => (b.display === "wavy" ? b.atoms : [])));
-  const depth = (i: number) => m.atoms[i].location[2] ?? 0;
-  // Each stereo bond's direction (+1 towards the viewer) seen from an end ("i j": from i): wedges from their narrow
-  // end, and the rest.
+// Each stereo bond's direction (+1 towards the viewer) seen from an end ("i j": from i): wedges from their narrow end
+// (stereo), and the rest (other).
+type Dirs = { stereo: Map<string, number>; other: Map<string, number> };
+function dirsOf(m: Mol, c: Chem): Dirs {
   const stereo = new Map<string, number>(), other = new Map<string, number>();
   m.bonds.forEach((b, k) => {
     const [i, j] = b.atoms, wedge = b.stereo === 1 || b.display === "hollow" ? 1 : b.stereo === 6 ? -1 : 0;
@@ -289,22 +287,43 @@ function stereoUnits(m: Mol, c: Chem): Unit[] {
     const flat = b.type === 1 && (b.display === "hashed" || b.display === "dashed" ? -1 : b.display === "bold" && !c.ring[k] ? 1 : 0);
     if (flat) { other.set(`${i} ${j}`, flat); other.set(`${j} ${i}`, flat); }
   });
+  return { stereo, other };
+}
+// The arrangement of atom i's ligands (near: three or four atoms; lone: a lone pair, not a hydrogen, is the fourth when
+// three are drawn) as the drawing gives it, first found first: ChemDraw's kept record, the atoms' places in 3D (not
+// for an amine, which turns over too fast), the stereo bonds from i, then the other stereo bonds (not with a lone pair).
+function arrangement(m: Mol, i: number, near: number[], lone: boolean, amine: boolean, d: Dirs): number[] | undefined {
+  const kept = m.atoms[i].kept, depth = (j: number) => m.atoms[j].location[2] ?? 0;
+  if (kept && keptHolds(m, i, kept)) return kept.atoms;
+  if (!amine && near.some((j) => Math.abs(depth(j) - depth(i)) >= 0.2)) {
+    const p = fromPoints([...near, -1].slice(0, 4), near.map((j) => sub(m.atoms[j].location, m.atoms[i].location)), 0.1);
+    if (p) return p;
+  }
+  const from = (j: number) => d.stereo.get(`${i} ${j}`) ?? 0;
+  return near.some((j) => from(j)) ? pyramid(m, i, near, from, lone) : lone ? undefined : pyramid(m, i, near, (j) => d.other.get(`${i} ${j}`) ?? 0, false);
+}
+// R or S at atom i of any element (a tetrahedral metal centre: complexes.ts), its four neighbours ranked highest first,
+// from the drawing as a stereocentre's configuration is read. Undefined where the drawing sets none.
+export function handOf(m: Mol, i: number, ranked: number[]): "R" | "S" | undefined {
+  try {
+    const c = chemOf(m), near = c.adj[i].map((e) => e.to);
+    if (near.length !== 4 || new Set(near).size !== 4 || m.bonds.some((b) => b.display === "wavy" && b.atoms.includes(i))) return undefined;
+    const around = arrangement(m, i, near, false, false, dirsOf(m, c)), odd = around && parity(around, ranked);
+    return odd === undefined ? undefined : odd ? "S" : "R";
+  } catch { return undefined; }
+}
+
+function stereoUnits(m: Mol, c: Chem): Unit[] {
+  const units: Unit[] = [], n = m.atoms.length;
+  const wavy = new Set(m.bonds.flatMap((b) => (b.display === "wavy" ? b.atoms : [])));
+  const dirs = dirsOf(m, c);
   for (let i = 0; i < n; i++) {
     const near = c.adj[i].map((e) => e.to), doubles = c.adj[i].filter((e) => e.order === 2).length;
     if (wavy.has(i) || near.length < 3 || near.length > 4 || c.adj[i].some((e) => e.order > 2)) continue;
     const el = symbol(m.atoms[i].label), q = c.q[i];
     const allowed = CENTRES.find(([e, ch, deg, dbl]) => e === el && ch === q && deg === near.length && dbl === doubles);
     if (!allowed) continue;
-    const kept = m.atoms[i].kept;
-    let around = kept && keptHolds(m, i, kept) ? kept.atoms : undefined;
-    // An amine or amide N (three bonds and a lone pair) turns over too fast to be a centre by its places alone.
-    if (!around && !(el === "N" && allowed[4]) && near.some((j) => Math.abs(depth(j) - depth(i)) >= 0.2)) around = fromPoints([...near, -1].slice(0, 4), near.map((j) => sub(m.atoms[j].location, m.atoms[i].location)), 0.1);
-    if (!around) {
-      const from = (j: number) => stereo.get(`${i} ${j}`) ?? 0;
-      around = near.some((j) => from(j)) ? pyramid(m, i, near, from, allowed[4])
-        // Not on an atom with a lone pair (an amine or amide N next to a stereocentre).
-        : allowed[4] ? undefined : pyramid(m, i, near, (j) => other.get(`${i} ${j}`) ?? 0, false);
-    }
+    const around = arrangement(m, i, near, allowed[4], el === "N" && allowed[4], dirs);
     if (around) units.push({ kind: "centre", foci: [i], around });
   }
   // A cumulated atom: two double bonds and nothing else.

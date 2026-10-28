@@ -48,8 +48,11 @@ export function nameRuns(name: string): TextRun[] {
     if (!parts.every((p) => /^(?:\d+'*(?:,\d+'*)*-)?[a-z]'*(?:,[a-z]'*)*$/.test(p))) return;
     for (const l of m[1].matchAll(/[a-z]/g)) add(m.index + 1 + l.index!, m.index + 2 + l.index!, { italic: true });
   });
-  // Polyhedral symbols: (SP-4-2), (OC-6-43), (T-4).
-  each(/\((SP|OC|T|TBPY|SPY|TPR|PBPY)-\d+(?:-\d+)?\)/g, (m) => add(m.index + 1, m.index + 1 + m[1].length, { italic: true }));
+  // Polyhedral symbols, and the chirality symbol after one: (SP-4-2), (OC-6-43), (T-4), (T-4-R), (TBPY-5-12).
+  each(/\((SP|OC|T|TBPY|SPY|TPR|PBPY)-\d+(?:-\d+)?(?:-([RSCA]))?\)/g, (m) => {
+    add(m.index + 1, m.index + 1 + m[1].length, { italic: true });
+    if (m[2]) add(m.index + m[0].length - 2, m.index + m[0].length - 1, { italic: true });
+  });
   // Metal-metal bonds: (Re—Co), (3 Os—Os), (Os1—Os3).
   each(/\((?:\d+ )?([A-Z][a-z]?)(\d*)—([A-Z][a-z]?)(\d*)\)/g, (m) => {
     let at = m.index + 1 + (m[0].match(/^\((\d+ )?/)![1]?.length ?? 0);
