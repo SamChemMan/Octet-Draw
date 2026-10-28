@@ -62,17 +62,20 @@ export function bondKind(b: Bond): string {
 }
 // A wedge starts narrow at its first atom.
 const wedged = (b: Bond) => b.stereo === 1 || b.stereo === 6 || b.display === "hollow";
-// The smallest rings (rings.ts, from the bonds alone), kept with the bond list.
-const ringLists = new WeakMap<Mol["bonds"], number[][]>();
-function ringsOf(m: Mol): number[][] {
-  let found = ringLists.get(m.bonds);
+// The smallest rings of a structure (rings.ts, from its bonds alone, by drawing atom numbers), kept with the bond list.
+const ringLists = new WeakMap<Mol["bonds"], Map<number, number[][]>>();
+function ringsOf(m: Mol, frag: number[]): number[][] {
+  const mine = ringLists.get(m.bonds) ?? new Map<number, number[][]>(), key = Math.min(...frag);
+  ringLists.set(m.bonds, mine);
+  let found = mine.get(key);
   if (!found) {
-    const bonds = m.bonds.filter((b) => b.type !== HBOND).map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const }));
-    ringLists.set(m.bonds, (found = rings({ atoms: m.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds })));
+    const at = new Map(frag.map((i, k) => [i, k]));
+    const bonds = m.bonds.filter((b) => b.type !== HBOND && at.has(b.atoms[0]) && at.has(b.atoms[1])).map((b) => ({ a: at.get(b.atoms[0])!, b: at.get(b.atoms[1])!, order: 1 as const }));
+    mine.set(key, (found = rings({ atoms: frag.map(() => ({ el: "C", charge: 0, h: 0 })), bonds }).map((r) => r.map((k) => frag[k]))));
   }
   return found;
 }
-const smallest = (m: Mol, has: (ring: number[]) => boolean) => Math.min(Infinity, ...ringsOf(m).filter(has).map((r) => r.length));
+const smallest = (m: Mol, frag: number[], has: (ring: number[]) => boolean) => Math.min(Infinity, ...ringsOf(m, frag).filter(has).map((r) => r.length));
 const ringBond = (r: number[], p: number, q: number) => r.some((x, k) => { const y = r[(k + 1) % r.length]; return (x === p && y === q) || (x === q && y === p); });
 
 // What the hotspot says on an atom: "Carbon 3, no hydrogens, in a 6-membered ring. Double bond to oxygen 1 at 12
@@ -87,7 +90,7 @@ export function atomText(m: Mol, i: number): string {
     const used = mine.reduce((s, k) => s + orderOf(m.bonds[k].type), 0);
     out.push(count(a.implicitHCount ?? hydrogens(a.label, charge, used, a.radical === 3 ? 2 : a.radical ?? 0), "hydrogen"));
   }
-  const ring = smallest(m, (r) => r.includes(i));
+  const ring = smallest(m, frag, (r) => r.includes(i));
   if (ring < Infinity) out.push(`in a ${ring}-membered ring`);
   const turn = (q: P) => ((((90 - (Math.atan2(q[1] - here[1], q[0] - here[0]) * 180) / Math.PI) % 360) + 360) % 360);
   const ways = mine.map((k) => { const b = m.bonds[k], j = b.atoms[0] === i ? b.atoms[1] : b.atoms[0]; return { b, j, at: pos(m, j) }; }).sort((p, q) => turn(p.at) - turn(q.at));
@@ -98,7 +101,7 @@ export function atomText(m: Mol, i: number): string {
 export function bondText(m: Mol, k: number): string {
   const b = m.bonds[k], [p, q] = b.atoms, frag = fragmentOf(m, p), out = [`${bondKind(b)}, ${callAtom(m, p, frag)} to ${callAtom(m, q, frag)}`];
   if (wedged(b)) out.push(`narrow end at ${callAtom(m, p, frag)}`);
-  const ring = smallest(m, (r) => ringBond(r, p, q));
+  const ring = smallest(m, frag, (r) => ringBond(r, p, q));
   if (ring < Infinity) out.push(`in a ${ring}-membered ring`);
   return `${out.join(", ")}.`;
 }
