@@ -1,5 +1,5 @@
 // Drives Octet on Windows and Linux as a person would: its window (through tauri-driver and WebDriver), its menus
-// and keys (through the system: AT-SPI and xdotool on Linux, UI Automation and SendKeys on Windows), and the system
+// and keys (through the system: AT-SPI and xdotool on Linux, the mouse and SendKeys on Windows), and the system
 // clipboard (xclip, or .NET's Clipboard). .github/workflows/platforms.yml runs it on GitHub's machines, after
 // `npm run tauri build -- --debug --no-bundle`; on Linux inside dbus-run-session and xvfb-run. Writes its log and
 // screenshots to drive-out/. No dependencies: Node's fetch speaks WebDriver.
@@ -7,7 +7,7 @@
 //   node scripts/drive/drive.mjs           drive Octet (Windows or Linux)
 //   node scripts/drive/drive.mjs --dry     print the steps and the commands each platform runs, and run nothing
 import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -20,6 +20,12 @@ const PORT = 4444;
 mkdirSync(OUT, { recursive: true });
 const log = (s) => { console.log(s); writeFileSync(path.join(OUT, "log.txt"), s + "\n", { flag: "a" }); };
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+// On GitHub's machines, a failure is also an error on the run's page, titled with the step that failed.
+const esc = (s) => s.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+const fail = (title, message) => {
+  log(`   FAILED: ${message}`);
+  if (process.env.GITHUB_ACTIONS) console.log(`::error title=${esc(title).replace(/:/g, "%3A").replace(/,/g, "%2C")}::${esc(message)}`);
+};
 
 // What Copy puts on each system's clipboard with Settings as they start (src-tauri/src/clipboard.rs).
 const FORMATS = WIN
@@ -57,9 +63,11 @@ const system = WIN
       formats: () => run("xclip", ["-selection", "clipboard", "-o", "-t", "TARGETS"]).toString().split("\n").filter(Boolean),
       read: (format) => run("xclip", ["-selection", "clipboard", "-o", "-t", format]),
       menu: (...names) => run("python3", [path.join(HERE, "linux-menu.py"), pid(), ...names]),
-      // Real key presses (XTEST), to Octet's window, which takes the focus first.
+      // Real key presses (XTEST), to Octet's window, which takes the focus first. The search runs on its own: xdotool
+      // reads the word after --pid as a name to look for, so a chained command would be taken as one.
       key: (keys) => {
-        run("xdotool", ["search", "--sync", "--onlyvisible", "--pid", pid(), "windowfocus", "--sync"]);
+        const win = run("xdotool", ["search", "--sync", "--onlyvisible", "--pid", pid()]).toString().split("\n")[0].trim();
+        run("xdotool", ["windowfocus", "--sync", win || "WINDOW"]);
         return run("xdotool", ["key", "--clearmodifiers", keys]);
       },
       running: () => pid() !== "",
@@ -74,7 +82,8 @@ function pid() {
 
 let session;
 async function wd(method, url, body) {
-  const r = await fetch(`http://127.0.0.1:${PORT}${url}`, { method, headers: { "content-type": "application/json" }, body: body && JSON.stringify(body) });
+  // Two minutes at most, so a page that stops answering fails the step instead of holding the run.
+  const r = await fetch(`http://127.0.0.1:${PORT}${url}`, { method, headers: { "content-type": "application/json" }, body: body && JSON.stringify(body), signal: AbortSignal.timeout(120_000) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(`${method} ${url}: ${JSON.stringify(j.value ?? j).slice(0, 500)}`);
   return j.value;
@@ -198,17 +207,20 @@ try {
       log("   ok");
     } catch (e) {
       failed++;
-      log(`   FAILED: ${e.message}`);
+      fail(`Step ${k + 1} failed: ${name}`, e.message);
       await screenshot(`step-${k + 1}`);
       break; // each step needs the one before
     }
   }
 } catch (e) {
   failed++;
-  log(`FAILED before the steps: ${e.message}`);
+  fail("Octet did not start under WebDriver", e.message);
 } finally {
   if (session) await wd("DELETE", `/session/${session}`).catch(() => {});
   driver?.kill();
 }
 log(failed ? "Octet failed on this system." : DRY ? "Dry run: nothing ran." : "Every step passed.");
+// Each step and how it went, on the run's page.
+const summary = process.env.GITHUB_STEP_SUMMARY;
+if (summary) appendFileSync(summary, `### Octet on ${WIN ? "Windows" : "Linux"}\n\n\`\`\`\n${readFileSync(path.join(OUT, "log.txt"), "utf8")}\`\`\`\n`);
 process.exit(failed ? 1 : 0);

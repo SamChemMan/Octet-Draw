@@ -12,8 +12,15 @@ on:
 permissions:
   contents: read
 
+# One run at a time on each branch. A push to main while a run is going stops that run, so only the newest commit is
+# checked.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   drive:
+    name: ${{ startsWith(matrix.platform, 'windows') && 'Windows' || 'Linux' }}
     strategy:
       fail-fast: false
       matrix:
@@ -55,10 +62,17 @@ jobs:
         shell: bash
         run: command -v tauri-driver || cargo install tauri-driver --locked
 
+      # GitHub's Windows machines run each job as an administrator, and WebView2 then ignores the browser arguments
+      # Edge WebDriver gives it in WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, so the page never opens for remote debugging
+      # and the session times out ("DevToolsActivePort file doesn't exist"). The machine-wide policy for octet.exe
+      # still counts, so it opens the port. Only this throwaway machine has the policy.
       - name: Edge WebDriver for this machine's WebView2
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $policy = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
+          New-Item -Force $policy | Out-Null
+          New-ItemProperty -Force -Path $policy -Name octet.exe -Value '--remote-debugging-port=0' | Out-Null
           $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
           $version = (Get-ItemProperty $key).pv
           Write-Output "WebView2 $version"
@@ -73,15 +87,18 @@ jobs:
           }
 
       # A session bus of its own, so GTK puts the menus on the accessibility bus (AT-SPI) for the script to click. The
-      # virtual screen has no GPU: WebKit draws without DMA-BUF.
+      # bus starts inside the virtual screen, so the services it starts for Octet (the desktop portal) have a display.
+      # The virtual screen has no GPU: WebKit draws without DMA-BUF. A drive that hangs fails after 15 minutes.
       - name: Drive Octet (Linux, on a virtual screen)
         if: runner.os == 'Linux'
+        timeout-minutes: 15
         env:
           GNOME_ACCESSIBILITY: "1"
           WEBKIT_DISABLE_DMABUF_RENDERER: "1"
-        run: dbus-run-session -- xvfb-run -a -s "-screen 0 1600x1000x24" node scripts/drive/drive.mjs
+        run: xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- node scripts/drive/drive.mjs
       - name: Drive Octet (Windows)
         if: runner.os == 'Windows'
+        timeout-minutes: 15
         run: node scripts/drive/drive.mjs
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
