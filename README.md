@@ -1,4 +1,4 @@
-# Octet
+# Octet Draw
 
 Developed by [Sam Ellis](https://www.linkedin.com/in/sam-ellis-132781206/) and our mate Claude.
 
@@ -8,7 +8,8 @@ Developed by [Sam Ellis](https://www.linkedin.com/in/sam-ellis-132781206/) and o
 Please hmu on LinkedIn if you have questions or urgent requests.
 
 A chemical structure drawing app for the 21st century.
-Octet is a free, offline desktop app for Mac, Windows, and Linux.
+Octet Draw is a free, offline desktop app for Mac, Windows, and Linux.
+Part of the Open-source Chemistry Toolkit for Experiment & Theory
 
 ## Download
 
