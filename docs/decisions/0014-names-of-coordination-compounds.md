@@ -112,6 +112,19 @@ Added 27 October 2026.
   The donors' priorities come from their atomic numbers, then the atoms they are bonded to; where that cannot tell two
   unlike ligands apart, or a chelate needs the priming convention, there is no index. A chelate that fixes cis by itself
   ([PtCl2(en)]) gets none. A flat drawing of six donors is not read as an octahedron.
+- Added 28 October 2026: the other common polyhedra and Δ and Λ. Four donor atoms drawn in 3D with no two opposite are
+  tetrahedral (T-4): with four unlike donors the name gives R or S (IR-9.3.4.2), read from the drawing as a
+  stereocentre's configuration is (cip.ts handOf): (T-4-R)-bromidochlorido(pyridine)(triphenylphosphane)zinc(II). Five
+  drawn in 3D are a trigonal bipyramid (TBPY-5: one opposite pair, the other three at right angles to it) or a square
+  pyramid (SPY-5: two opposite pairs at right angles, and an apex at right angles to all four), with their configuration
+  indexes (IR-9.3.3.5, IR-9.3.3.6): (TBPY-5-11)-tricarbonylbis(triphenylphosphane)iron,
+  (SPY-5-12)-dibromidotris[di-tert-butyl(phenyl)phosphane]palladium(II). An octahedral tris(bidentate) complex whose
+  chelates each bond through two alike donor atoms takes Δ or Λ by the skew-lines convention (IR-9.3.4.11, IR-9.3.4.12):
+  two chelates' donor-donor lines define a helix, right-handed for Δ, and all three pairs must agree.
+  Δ-tris(2,2'-bipyridine-κ2N1,N1')ruthenium(2+). Such a complex has no other stereoisomers, so Δ or Λ is the whole
+  descriptor. The Red Book places C, A and R, S after the configuration index in the polyhedral symbol ((OC-6-24-A),
+  T-4-S) but shows no name with Δ or Λ; Octet sets Δ or Λ before the name as cis and fac are set, and its checks are
+  drawn as the Red Book's delta and lambda figures are (the octahedron seen down its threefold axis).
 - Unlike metals and clusters of three to six metals (IR-9.2.5.5 to IR-9.2.5.7). The central atoms are cited and numbered
   by Table VI, the element met later first (rheniumcobalt, cobaltgold), then by IR-9.2.5.6's rules b to d; the numbering
   of a central structural unit runs round its rings first (octahedro: 1 and 6 opposite). Of the numberings the rules
@@ -123,13 +136,29 @@ Added 27 October 2026.
   count go before the part of the ligand's name that holds the bonded atoms, (η6-benzene)tricarbonylchromium,
   tricarbonyl(methyl-η6-benzene)chromium, potassium trichlorido(η2-ethene)platinate(1-). That part, read by OPSIN alone,
   must have the bonded atoms' elements joined as drawn. No oxidation number with an η ligand (organometallic).
+- Added 28 October 2026: η ligands bonded through only some of their atoms, or through separate runs (IR-10.2.5.1). Where
+  the bonded atoms are all the ligand's unsaturated atoms (in a multiple bond, or charged) and contiguous, η and the
+  count go before the name, after its stereodescriptors, as the Red Book's (E)-η2-but-2-enal: (η4-cyclohexa-1,3-diene),
+  [(2Z)-η2-but-2-ene]. Otherwise the locants of the bonded atoms in OPSIN's numbering of the name go before η in
+  parentheses, a run of more than two consecutive locants as a range: [(1,2,5,6-η)-(1Z,5Z)-cycloocta-1,5-diene],
+  [(3–6-η)-(3E)-hexa-3,5-dienal]. The Red Book gives cycloocta-1,5-diene bonded through both C=C bonds two ways
+  (IR-10.2.5.1, Example 31): (η2,η2-cycloocta-1,5-diene) or [(1,2,5,6-η)-cycloocta-1,5-diene]; Octet gives the second,
+  the form its rule text prescribes, because it cites the bonded atoms. η4 would say four contiguous atoms, and η2:η2
+  (with a colon) is the form for a ligand bridging two metals. The check reads the name with the cited atoms marked,
+  as a κ term is read, and must find the ligand marked at its bonded atoms. A complex of two alike metals takes η
+  ligands in each metal's unit: di-μ-chlorido-bis{[(1,2,5,6-η)-(1Z,5Z)-cycloocta-1,5-diene]rhodium}. A ring of eight or
+  more atoms now carries its drawn E or Z into the ligand's name (cyclooctene, cod), as InChI gives one; the bonds whose
+  E or Z a chelate fixes (Ligand.fixed) still carry none.
 
 ## Not named yet
 
-Δ and Λ (the skew-lines convention); polyhedra other than square planar and octahedral; configuration indexes that need
-the priming convention or CIP ranks past the donor's neighbours ((SP-4-1)-(acetonitrile)dichlorido(pyridine)platinum(II));
-η ligands bonded through only some atoms of a part of their name ((1,2,3,4-η)-cycloocta-1,3,5,7-tetraene) or through two
-runs (η2:η2-cycloocta-1,5-diene); carbon ligands and bridging ligands without names of their own in complexes of unlike
+The chirality symbols C and A (IR-9.3.4.4 to IR-9.3.4.8: for an octahedron, a bipyramid or a pyramid with unlike donors
+in a chiral arrangement the name gives the index alone, which tells diastereoisomers apart but not mirror images); Δ and
+Λ for bis(bidentate) complexes (IR-9.3.4.13; Octet gives cis there), and for chelates with unlike donor atoms, which
+also have fac and mer isomers that need the priming convention; polyhedra other than SP-4, T-4, TBPY-5, SPY-5 and OC-6;
+configuration indexes that need the priming convention or CIP ranks past the donor's neighbours ((SP-4-1)-(acetonitrile)dichlorido(pyridine)platinum(II));
+η ligands that bridge metals (μ-η2:η2), and those drawn as a radical (a neutral η3-allyl), which the namer does not
+name; carbon ligands and bridging ligands without names of their own in complexes of unlike
 metals or three or more; anions of unlike metals ((dimolybdenumdiiron)ate); and donor atoms that no κ term here can
 cite. Subphthalocyanines and naphthalocyanines: no IUPAC recommendation gives them a parent name, and OPSIN reads none,
 so they stay unnamed. Octet does not invent a parent name for them. N-confused porphyrins, whose metal bonds to a C atom

@@ -14,6 +14,7 @@ import { AROMATIC, HBOND, QUADRUPLE, hydrogens, type Mol } from "./render.ts";
 import { ELEMENTS } from "./labels.ts";
 import { kekulise } from "./rings.ts";
 import { atomMass } from "./mass.ts";
+import { handedness } from "./axial.ts";
 
 export type Cip = { atoms: (string | undefined)[]; bonds: (string | undefined)[] };
 
@@ -135,7 +136,11 @@ type Centre = { kind: "centre"; foci: [number]; around: number[] };
 // a carrier (substituent) on each end, whether the two carriers are cis, and the bond that takes the label (the
 // middle one).
 type Double = { kind: "double"; foci: [number, number]; chain: number[]; carriers: [number, number]; cis: boolean; bond: number };
-type Unit = (Centre | Double) & { label?: string };
+// An allene's axis (a cumulene with an even number of double bonds), used only as an auxiliary descriptor (M, P) for
+// the centres round it: axial.ts gives the labels shown. foci: its middle atom; place: where each end's ligands are
+// (from the wedges at the end atoms, as axial.ts reads them), and h, each end's hydrogen where it has one.
+type Axis = { kind: "axis"; foci: [number]; chain: number[]; place: Map<number, V3>; h: [V3 | undefined, V3 | undefined] };
+type Unit = (Centre | Double | Axis) & { label?: string };
 
 const EPS = 1e-3;
 const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], (a[2] ?? 0) - (b[2] ?? 0)];
@@ -271,12 +276,10 @@ function sameSide(m: Mol, beg: number, end: number, nb: number, ne: number): num
 //   projection), not a centre.
 // Left out: a centre or double bond with a wavy bond on it, a crossed (either) double bond, and a double bond in a ring
 // of fewer than 8 atoms.
-function stereoUnits(m: Mol, c: Chem): Unit[] {
-  const units: Unit[] = [], n = m.atoms.length;
-  const wavy = new Set(m.bonds.flatMap((b) => (b.display === "wavy" ? b.atoms : [])));
-  const depth = (i: number) => m.atoms[i].location[2] ?? 0;
-  // Each stereo bond's direction (+1 towards the viewer) seen from an end ("i j": from i): wedges from their narrow
-  // end, and the rest.
+// Each stereo bond's direction (+1 towards the viewer) seen from an end ("i j": from i): wedges from their narrow end
+// (stereo), and the rest (other).
+type Dirs = { stereo: Map<string, number>; other: Map<string, number> };
+function dirsOf(m: Mol, c: Chem): Dirs {
   const stereo = new Map<string, number>(), other = new Map<string, number>();
   m.bonds.forEach((b, k) => {
     const [i, j] = b.atoms, wedge = b.stereo === 1 || b.display === "hollow" ? 1 : b.stereo === 6 ? -1 : 0;
@@ -284,22 +287,43 @@ function stereoUnits(m: Mol, c: Chem): Unit[] {
     const flat = b.type === 1 && (b.display === "hashed" || b.display === "dashed" ? -1 : b.display === "bold" && !c.ring[k] ? 1 : 0);
     if (flat) { other.set(`${i} ${j}`, flat); other.set(`${j} ${i}`, flat); }
   });
+  return { stereo, other };
+}
+// The arrangement of atom i's ligands (near: three or four atoms; lone: a lone pair, not a hydrogen, is the fourth when
+// three are drawn) as the drawing gives it, first found first: ChemDraw's kept record, the atoms' places in 3D (not
+// for an amine, which turns over too fast), the stereo bonds from i, then the other stereo bonds (not with a lone pair).
+function arrangement(m: Mol, i: number, near: number[], lone: boolean, amine: boolean, d: Dirs): number[] | undefined {
+  const kept = m.atoms[i].kept, depth = (j: number) => m.atoms[j].location[2] ?? 0;
+  if (kept && keptHolds(m, i, kept)) return kept.atoms;
+  if (!amine && near.some((j) => Math.abs(depth(j) - depth(i)) >= 0.2)) {
+    const p = fromPoints([...near, -1].slice(0, 4), near.map((j) => sub(m.atoms[j].location, m.atoms[i].location)), 0.1);
+    if (p) return p;
+  }
+  const from = (j: number) => d.stereo.get(`${i} ${j}`) ?? 0;
+  return near.some((j) => from(j)) ? pyramid(m, i, near, from, lone) : lone ? undefined : pyramid(m, i, near, (j) => d.other.get(`${i} ${j}`) ?? 0, false);
+}
+// R or S at atom i of any element (a tetrahedral metal centre: complexes.ts), its four neighbours ranked highest first,
+// from the drawing as a stereocentre's configuration is read. Undefined where the drawing sets none.
+export function handOf(m: Mol, i: number, ranked: number[]): "R" | "S" | undefined {
+  try {
+    const c = chemOf(m), near = c.adj[i].map((e) => e.to);
+    if (near.length !== 4 || new Set(near).size !== 4 || m.bonds.some((b) => b.display === "wavy" && b.atoms.includes(i))) return undefined;
+    const around = arrangement(m, i, near, false, false, dirsOf(m, c)), odd = around && parity(around, ranked);
+    return odd === undefined ? undefined : odd ? "S" : "R";
+  } catch { return undefined; }
+}
+
+function stereoUnits(m: Mol, c: Chem): Unit[] {
+  const units: Unit[] = [], n = m.atoms.length;
+  const wavy = new Set(m.bonds.flatMap((b) => (b.display === "wavy" ? b.atoms : [])));
+  const dirs = dirsOf(m, c);
   for (let i = 0; i < n; i++) {
     const near = c.adj[i].map((e) => e.to), doubles = c.adj[i].filter((e) => e.order === 2).length;
     if (wavy.has(i) || near.length < 3 || near.length > 4 || c.adj[i].some((e) => e.order > 2)) continue;
     const el = symbol(m.atoms[i].label), q = c.q[i];
     const allowed = CENTRES.find(([e, ch, deg, dbl]) => e === el && ch === q && deg === near.length && dbl === doubles);
     if (!allowed) continue;
-    const kept = m.atoms[i].kept;
-    let around = kept && keptHolds(m, i, kept) ? kept.atoms : undefined;
-    // An amine or amide N (three bonds and a lone pair) turns over too fast to be a centre by its places alone.
-    if (!around && !(el === "N" && allowed[4]) && near.some((j) => Math.abs(depth(j) - depth(i)) >= 0.2)) around = fromPoints([...near, -1].slice(0, 4), near.map((j) => sub(m.atoms[j].location, m.atoms[i].location)), 0.1);
-    if (!around) {
-      const from = (j: number) => stereo.get(`${i} ${j}`) ?? 0;
-      around = near.some((j) => from(j)) ? pyramid(m, i, near, from, allowed[4])
-        // Not on an atom with a lone pair (an amine or amide N next to a stereocentre).
-        : allowed[4] ? undefined : pyramid(m, i, near, (j) => other.get(`${i} ${j}`) ?? 0, false);
-    }
+    const around = arrangement(m, i, near, allowed[4], el === "N" && allowed[4], dirs);
     if (around) units.push({ kind: "centre", foci: [i], around });
   }
   // A cumulated atom: two double bonds and nothing else.
@@ -320,9 +344,10 @@ function stereoUnits(m: Mol, c: Chem): Unit[] {
     }
     const bonds = chain.slice(1).map((x, j) => c.adj[x].find((e) => e.to === chain[j])!.bond);
     bonds.forEach((j) => done.add(j));
-    // An even number of double bonds is an axis (M, P: axial.ts).
-    if (bonds.length % 2 === 0 || bonds.some((j) => m.bonds[j].display === "either")) return;
     const f1 = chain[0], f2 = chain[chain.length - 1];
+    // An even number of double bonds is an axis (M, P: axial.ts), here an auxiliary descriptor only.
+    if (bonds.length % 2 === 0) { const a = axisOf(m, c, chain); if (a) units.push(a); return; }
+    if (bonds.some((j) => m.bonds[j].display === "either")) return;
     if (!chain.every((f) => ["C", "N", "Si", "Ge"].includes(m.atoms[f]?.label)) || wavy.has(f1) || wavy.has(f2)) return;
     const s1 = c.adj[f1].filter((e) => e.to !== chain[1]), s2 = c.adj[f2].filter((e) => e.to !== chain[chain.length - 2]);
     if (!s1.length || !s2.length || s1.length > 2 || s2.length > 2 || [...s1, ...s2].some((e) => e.order !== 1)) return;
@@ -344,6 +369,30 @@ function stereoUnits(m: Mol, c: Chem): Unit[] {
     if (side) units.push({ kind: "double", foci: [f1, f2], chain, carriers: [c1, c2], cis: side > 0, bond: bonds[(bonds.length - 1) / 2] });
   });
   return units;
+}
+
+// An allene's axis as axial.ts reads it: depth +1 at a wedge's wide end and -1 at a hash's, on bonds from the end atoms;
+// an end's hydrogen opposite its one drawn ligand, turned half a turn about the axis. Undefined where the drawing sets no
+// handedness.
+function axisOf(m: Mol, c: Chem, chain: number[]): Axis | undefined {
+  const ends = [chain[0], chain[chain.length - 1]], inner = [chain[1], chain[chain.length - 2]];
+  if (ends[0] === ends[1] || chain.some((x, k) => k && k < chain.length - 1 && c.adj[x].length !== 2)) return undefined;
+  const z = new Map<number, number>();
+  for (const b of m.bonds) if ((b.stereo === 1 || b.stereo === 6) && ends.includes(b.atoms[0])) z.set(b.atoms[1], (z.get(b.atoms[1]) ?? 0) + (b.stereo === 1 ? 1 : -1));
+  const at = (i: number): V3 => [m.atoms[i].location[0], m.atoms[i].location[1], z.get(i) ?? 0], place = new Map<number, V3>(), h: Axis["h"] = [undefined, undefined];
+  for (const [k, t] of ends.entries()) {
+    const others = c.adj[t].filter((e) => e.to !== inner[k]).map((e) => e.to);
+    if (others.length + c.h[t] !== 2 || !others.length) return undefined;
+    for (const o of others) place.set(o, at(o));
+    if (others.length === 1) {
+      const p = at(others[0]), q = at(t), u = unit(sub(q, at(inner[k]))), v = sub(p, q);
+      if (!u) return undefined;
+      const along = dot(v, u);
+      h[k] = [q[0] + 2 * along * u[0] - v[0], q[1] + 2 * along * u[1] - v[1], q[2] + 2 * along * u[2] - v[2]];
+    }
+  }
+  if (![...place.keys()].some((i) => z.get(i))) return undefined;
+  return { kind: "axis", foci: [chain[(chain.length - 1) / 2]], chain, place, h };
 }
 
 // ---- The hierarchical digraph ----
@@ -377,6 +426,8 @@ class Digraph {
   private spent: Spent;
   private toward = new Map<Node, Node | undefined>();
   private epoch = 0;
+  // Rule 6's reference atom (-1 when none is chosen): see centre.
+  ref6 = -1;
   readonly c: Chem;
   constructor(c: Chem, atom: number, spent: Spent) {
     this.c = c;
@@ -469,7 +520,11 @@ class Digraph {
   }
   // Two ligands of `from` by each rule in turn, each explored through the whole digraph before the next.
   compare(from: Node, a: Node, b: Node, rs: Rules): number {
-    for (const rule of rs.rules) { const d = this.explore(rule, from, a, b); if (d) return d; }
+    for (const rule of rs.rules) {
+      if (rule === R6 && this.ref6 < 0) break; // rule 6 decides nothing until centre chooses its reference
+      const d = this.explore(rule, from, a, b);
+      if (d) return d;
+    }
     return 0;
   }
   // One rule through the digraph, sphere by sphere (P-92.1.4): the two nodes, then their substituent sets in order,
@@ -576,7 +631,22 @@ class Digraph {
     this.reroot(n);
     const edges = this.outs(n);
     if (edges.length < 3) return "";
-    const s = this.rank(n, edges, rs);
+    let s = this.rank(n, edges, rs);
+    // Rule 6 (Hanson et al.'s proposal): where four ligands still tie in two sets (a a' b b', a a' a'' b), one of the
+    // tied ones (the second ranked) is taken as the reference, which ranks above every node it does not duplicate,
+    // and the ligands are ranked again. Where all four tie, a reference is taken twice, the first ranked and then the
+    // second; if the two rankings differ by an odd permutation there is no label.
+    if (!s.unique && edges.length === 4 && rs === ALL) {
+      const groups = this.groups(n, s.list, rs).length, real = (x: Node) => (x.kind === ATOM ? x.atom : -1);
+      const by = (ref: number, list: Node[]) => { this.ref6 = ref; this.changed(); try { return this.rank(n, list, rs); } finally { this.ref6 = -1; this.changed(); } };
+      if (groups === 2 && real(s.list[1]) >= 0) s = by(real(s.list[1]), s.list);
+      else if (groups === 1 && real(s.list[0]) >= 0) {
+        const first = by(real(s.list[0]), s.list);
+        if (real(first.list[1]) < 0) return "?";
+        s = by(real(first.list[1]), first.list);
+        if (parity(first.list.map((x) => x.id), s.list.map((x) => x.id))) return "?";
+      }
+    }
     if (!s.unique) return "?";
     const ranked = s.list.filter((x) => x.kind !== BOND && x.kind !== HYDROGEN).map((x) => x.atom);
     while (ranked.length < 4) ranked.push(-1);
@@ -609,9 +679,30 @@ class Digraph {
     const pseudo = p1.pseudo !== p2.pseudo;
     return cis ? (pseudo ? "c" : "Z") : pseudo ? "t" : "E";
   }
+  // An allene's axial descriptor with node n (its middle atom) as the root, as Centres gives it: each end's ligands
+  // ranked with the end as the root, then M or P by the handedness of the ends' ligands, higher first (P-93.5.1.3:
+  // Ra is M); m or p where only one end's ranking is pseudoasymmetric.
+  axis(n: Node, u: Axis, rs: Rules): string {
+    const mid = (u.chain.length - 1) / 2, ends = [this.along(n, u.chain.slice(0, mid + 1).reverse()), this.along(n, u.chain.slice(mid))];
+    const inner = [u.chain[1], u.chain[u.chain.length - 2]], ranked: Sorted[] = [];
+    for (const [k, e] of ends.entries()) {
+      if (!e) return "";
+      this.reroot(e);
+      const subs = this.outs(e).filter((x) => (x.kind === ATOM || x.kind === HYDROGEN) && x.atom !== inner[k]);
+      if (!subs.length || subs.length > 2) return "";
+      const s = this.rank(e, subs, rs);
+      if (!s.unique) return "?";
+      ranked.push(s);
+    }
+    const place = (x: Node | undefined, k: number) => (!x ? u.h[k] : x.kind === HYDROGEN ? u.h[k] : u.place.get(x.atom));
+    const ps = ranked.flatMap((s, k) => [place(s.list[0], k), place(s.list[1], k)]);
+    if (ps.some((p) => !p)) return "?";
+    const hand = handedness(...(ps as [V3, V3, V3, V3])), pseudo = ranked[0].pseudo !== ranked[1].pseudo;
+    return !hand ? "?" : hand === "R" ? (pseudo ? "m" : "M") : pseudo ? "p" : "P";
+  }
   label(u: Unit, rs: Rules): string {
     this.reroot(this.origin);
-    return u.kind === "centre" ? this.centre(this.origin, u, rs) : this.double(this.origin, u, rs);
+    return u.kind === "centre" ? this.centre(this.origin, u, rs) : u.kind === "double" ? this.double(this.origin, u, rs) : "";
   }
   // Auxiliary descriptors (as Hanson et al. set them out): every other stereo unit met in this digraph is labelled as
   // the digraph has it, from the farthest in; units at one distance all see the labels of those farther out only.
@@ -632,7 +723,7 @@ class Digraph {
     let prev = Infinity;
     for (const [n, v] of found) {
       if (n.depth < prev) { flush(); prev = n.depth; }
-      queue.set(n, v.kind === "centre" ? this.centre(n, v, ALL) : this.double(n, v, ALL));
+      queue.set(n, v.kind === "centre" ? this.centre(n, v, ALL) : v.kind === "double" ? this.double(n, v, ALL) : this.axis(n, v, ALL));
     }
     flush();
   }
@@ -684,7 +775,10 @@ const R4A = rule((_, a, b) => sign((ORD4A[a.aux] ?? 0) - (ORD4A[b.aux] ?? 0)));
 const RULE4B = rule((g, a, b, atRoot) => (atRoot ? g.rule4b(a, b) : 0), true);
 const R4C = rule((_, a, b) => sign((ORD4C[a.aux] ?? 0) - (ORD4C[b.aux] ?? 0)));
 const R5 = rule((g, a, b, atRoot) => (atRoot ? g.rule5(a, b) : 0), true);
-const MAIN = [R1A, R1B, R2, R3, R4A, RULE4B, R4C, R5];
+// Rule 6 (proposed by Hanson et al. for the most symmetric cages and spiranes): the reference atom chosen in centre
+// ranks above any other node. It comes after rule 5, so a decision by it makes the centre pseudoasymmetric (2).
+const R6 = rule((g, a, b) => (g.ref6 < 0 || (a.atom === g.ref6) === (b.atom === g.ref6) ? 0 : a.atom === g.ref6 ? 2 : -2));
+const MAIN = [R1A, R1B, R2, R3, R4A, RULE4B, R4C, R5, R6];
 MAIN.forEach((r, i) => { r.sorter = { rules: MAIN.slice(0, i + 1), aux: i > 2 }; });
 const CONSTITUTIONAL: Rules = { rules: [R1A, R1B, R2], aux: false }, ALL: Rules = { rules: MAIN, aux: true };
 // Below the root, rules 4b and 5 rank by likeness to a reference descriptor: both nodes need a descriptor, and the one
@@ -710,6 +804,7 @@ export function cipLabels(m: Mol): Cip {
   try { c = chemOf(m); units = stereoUnits(m, c); } catch { return out; }
   const spent = { nodes: 0, calls: 0 };
   for (const u of units) {
+    if (u.kind === "axis") continue;
     try {
       const g = new Digraph(c, u.foci[0], spent);
       u.label = g.label(u, CONSTITUTIONAL);

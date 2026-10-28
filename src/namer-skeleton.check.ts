@@ -157,6 +157,10 @@ run("carbonic acid derivatives", [
   "smiles:Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CC2CCCC2C1 = N-(4-methylbenzene-1-sulfonyl)-N'-(octahydrocyclopenta[c]pyrrol-2-yl)urea",
   "smiles:Cc1cnc(cn1)C(=O)NCCc1ccc(cc1)S(=O)(=O)NC(=O)NC1CCCCC1", "smiles:COc1ccc(Cl)cc1C(=O)NCCc1ccc(cc1)S(=O)(=O)NC(=O)NC1CCCCC1",
   "smiles:CC1Cc2ccccc2N1NC(=O)c1ccc(Cl)c(c1)S(N)(=O)=O = 4-chloro-N-(2-methyl-2,3-dihydro-1H-indol-1-yl)-3-sulfamoylbenzamide",
+  // Formic acid takes a nitro prefix (P-65.1.8.2: O2N-COOH nitroformic acid, PIN); halogens, -CN, -N3, -NH2 and the like
+  // make carbonic acid derivatives instead (P-65.1.8.1).
+  "nitroformic acid = nitroformic acid", "smiles:COC(=O)[N+](=O)[O-] = methyl nitroformate", "smiles:[Na+].[O-]C(=O)[N+](=O)[O-] = sodium nitroformate",
+  "chloroformic acid = carbonochloridic acid",
 ]);
 
 // Rings with halogen atoms (Hantzsch–Widman fluora, chlora, broma, ioda, P-22.2.2.1.1), always with λ; acyl groups on a

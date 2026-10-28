@@ -267,12 +267,31 @@ const ETA: [string, string, string][] = [
   ["Cr(η6-C6H6)2", "[Cr]%11%12%13%14%15%16%21%22%23%24%25%26.[CH]%11=1[CH]%12=[CH]%13[CH]%14=[CH]%15[CH]%16=1.[CH]%21=1[CH]%22=[CH]%23[CH]%24=[CH]%25[CH]%26=1", "bis(η6-benzene)chromium"],
   ["(η6-toluene)Cr(CO)3", "[Cr]%11%12%13%14%15%16(=C=O)(=C=O)=C=O.C[C]%11=1[CH]%12=[CH]%13[CH]%14=[CH]%15[CH]%16=1", "tricarbonyl(methyl-η6-benzene)chromium"],
   ["[CpMn(CO)3]-, the ring drawn as an anion", "[Mn]%11%12%13%14%15(=C=O)(=C=O)=C=O.[CH-]1%11[CH]%12=[CH]%13[CH]%14=[CH]1%15", "tricarbonyl(η5-cyclopenta-2,4-dien-1-ido)manganate(1-)"],
+  // Bonded through two separate runs of atoms: the locants of the bonded atoms before η (IR-10.2.5.1, Example 31:
+  // [(1,2,5,6-η)-cycloocta-1,5-diene]). η4 would say four contiguous atoms. The ring's double bonds are drawn cis, so
+  // its name cites Z as cycloocta-1,5-diene's own name does.
+  ["Ni(cod)2", "[Ni]%11%12%13%14%21%22%23%24.[CH]1%11=[CH]%12CC[CH]%13=[CH]%14CC1.[CH]1%21=[CH]%22CC[CH]%23=[CH]%24CC1", "bis[(1,2,5,6-η)-(1Z,5Z)-cycloocta-1,5-diene]nickel"],
+  ["[Rh(cod)Cl]2", "[Rh]%11%12%13%14%31%32.[Rh]%21%22%23%24%33%34.[CH]1%11=[CH]%12CC[CH]%13=[CH]%14CC1.[CH]1%21=[CH]%22CC[CH]%23=[CH]%24CC1.Cl%31%33.Cl%32%34",
+    "di-μ-chlorido-bis{[(1,2,5,6-η)-(1Z,5Z)-cycloocta-1,5-diene]rhodium}"],
+  ["PtCl2(cod)", "Cl[Pt]%11%12%13%14Cl.[CH]1%11=[CH]%12CC[CH]%13=[CH]%14CC1", "dichlorido[(1,2,5,6-η)-(1Z,5Z)-cycloocta-1,5-diene]platinum"],
+  // Bonded through all its unsaturated atoms: η alone, after the name's stereodescriptors (Example 19: (E)-η2-but-2-enal).
+  ["(η4-cyclohexa-1,3-diene)Fe(CO)3", "[Fe]%11%12%13%14(=C=O)(=C=O)=C=O.[CH]1%11=[CH]%12[CH]%13=[CH]%14CC1", "tricarbonyl(η4-cyclohexa-1,3-diene)iron"],
+  ["K[PtCl3(but-2-ene)]", "[K+].[Pt-]%11%12(Cl)(Cl)Cl.C[CH]%11=[CH]%12C", "potassium [(2Z)-η2-but-2-ene]trichloridoplatinate(1-)"],
+  ["(η3-allyl)PdCl(PPh3), the allyl drawn as an anion", "Cl[Pd+]%11%12%13P(c1ccccc1)(c1ccccc1)c1ccccc1.[CH2-]%11[CH]%12=[CH2]%13", "chlorido(η3-prop-2-en-1-ido)(triphenylphosphane)palladium"],
+  // Not bonded through all of them (the C=O is not): locants, a run of more than two as a range (Example 14).
+  ["(hexa-3,5-dienal)Fe(CO)3", "[Fe]%11%12%13%14(=C=O)(=C=O)=C=O.O=CC[CH]%11=[CH]%12[CH]%13=[CH2]%14", "tricarbonyl[(3–6-η)-(3E)-hexa-3,5-dienal]iron"],
 ];
 for (const [label, smiles, want] of ETA) { assert.equal(nameOf(smiles), want, label); assert.equal(editorName(smiles), want, `${label}, Structure to Name`); }
 const wrongEta: [number, string[]][] = [
   [0, ["potassium trichlorido(ethene)platinate(1-)", "potassium trichlorido(η1-ethene)platinate(1-)", "potassium trichlorido(η2-ethyne)platinate(1-)"]],
   [1, ["(η5-benzene)tricarbonylchromium", "(benzene)tricarbonylchromium", "(η6-cyclohexane)tricarbonylchromium"]],
   [3, ["tricarbonyl(η6-methylbenzene)chromium", "tricarbonyl(η7-methylbenzene)chromium", "tricarbonyl(methyl-η5-benzene)chromium"]],
+  [5, ["bis(η4-cycloocta-1,5-diene)nickel", "bis[(1Z,5Z)-η4-cycloocta-1,5-diene]nickel", "bis[(1,2,3,4-η)-(1Z,5Z)-cycloocta-1,5-diene]nickel",
+    "bis[(1,2,5,6-η)-(1Z,5E)-cycloocta-1,5-diene]nickel", "bis[(1,2,5,6-η)-(1Z,5Z)-cycloocta-1,5-diene]palladium", "[(1,2,5,6-η)-(1Z,5Z)-cycloocta-1,5-diene]nickel"]],
+  [6, ["di-μ-chlorido-bis{[(1,2,5,6-η)-(1Z,5Z)-cycloocta-1,5-diene]iridium}", "di-μ-chlorido-bis{[(1,2,6-η)-(1Z,5Z)-cycloocta-1,5-diene]rhodium}"]],
+  [8, ["tricarbonyl[(1–4-η)-cyclohexa-1,3-diene]iron", "tricarbonyl(η6-cyclohexa-1,3-diene)iron", "tricarbonyl(η3-cyclohexa-1,3-diene)iron"]],
+  [11, ["tricarbonyl[(3E)-η4-hexa-3,5-dienal]iron", "tricarbonyl[(3,4,5,6-η)-(3E)-hexa-3,5-dienal]iron", "tricarbonyl[(2–5-η)-(3E)-hexa-3,5-dienal]iron",
+    "tricarbonyl[(3–6-η)-(3Z)-hexa-3,5-dienal]iron"]],
 ];
 let turnedEta = 0;
 for (const [k, names] of wrongEta) for (const name of names) { assert.equal(complexNameReads(name, drawn(ETA[k][1]), api), false, name); turnedEta++; }
@@ -321,6 +340,12 @@ function placed(smiles: string, spots: Spot[]): Mol {
   return chem.expandLabels({ ...m, atoms, bonds });
 }
 const NH3 = "[NH3]", EN = "[NH2]CC[NH2]";
+// A direction at an angle (degrees, anticlockwise from the right), on a wedge (1) or hash (6).
+const hex = (deg: number, wedge?: 1 | 6): Spot => [Math.cos((deg * Math.PI) / 180), Math.sin((deg * Math.PI) / 180), ...(wedge ? [wedge] : [])] as Spot;
+const EN3 = "[Co+3]%11%12%13%14%15%16.[NH2]%11CC[NH2]%12.[NH2]%13CC[NH2]%14.[NH2]%15CC[NH2]%16";
+const BPY3 = "[Ru+2]%11%12%13%14%15%16.C1=CC=[N]%11C(=C1)C1=[N]%12C=CC=C1.C1=CC=[N]%13C(=C1)C1=[N]%14C=CC=C1.C1=CC=[N]%15C(=C1)C1=[N]%16C=CC=C1";
+const PH3P = "P(c1ccccc1)(c1ccccc1)c1ccccc1", TBP = "P(c1ccccc1)(C(C)(C)C)C(C)(C)C";
+const ZN4 = `[Zn](Br)(Cl)(${PH3P})N1=CC=CC=C1`, FE5 = `[Fe](${PH3P})(${PH3P})(=C=O)(=C=O)=C=O`, PD5 = `Br[Pd](Br)(${TBP})(${TBP})${TBP}`;
 const configs: [string, Mol, string][] = [
   // Square planar [Ma2b2], [Ma2bc] (SP-4).
   ["cisplatin by hand", placed(`[Pt](${NH3})(${NH3})(Cl)Cl`, [N_, E_, S_, W_]), "cis-diamminedichloridoplatinum(II)"],
@@ -336,12 +361,36 @@ const configs: [string, Mol, string][] = [
   // it), the acetonitrile N 3, C 4. CO is trans to P; in the plane NO is trans to MeCN.
   ["[Cr(CO)2(MeCN)2(NO)(PPh3)]+", placed("[Cr+](P(c1ccccc1)(c1ccccc1)c1ccccc1)(=C=O)(=C=O)(N=O)(N#CC)N#CC", [UP, DOWN, RB, RF, LF, LB]),
     "(OC-6-43)-bis(acetonitrile)dicarbonylnitrosyl(triphenylphosphane)chromium(1+)"],
+  // Δ and Λ (the skew-lines convention, IR-9.3.4.11): the octahedron seen down its threefold axis, as the Red Book draws
+  // its delta and lambda examples, the near triangle on wedges and the far one on hashes. In Δ each chelate runs from a
+  // near donor to the far donor 60° clockwise of it; in Λ, anticlockwise. Turned in the plane, the same; mirrored, the
+  // other.
+  ["Δ-[Co(en)3]3+", placed(EN3, [hex(90, 1), hex(30, 6), hex(210, 1), hex(150, 6), hex(330, 1), hex(270, 6)]), "Δ-tris(ethane-1,2-diamine-κ2N,N')cobalt(3+)"],
+  ["Λ-[Co(en)3]3+", placed(EN3, [hex(90, 1), hex(150, 6), hex(210, 1), hex(270, 6), hex(330, 1), hex(30, 6)]), "Λ-tris(ethane-1,2-diamine-κ2N,N')cobalt(3+)"],
+  ["Δ-[Co(en)3]3+, turned", placed(EN3, [hex(130, 1), hex(70, 6), hex(250, 1), hex(190, 6), hex(10, 1), hex(310, 6)]), "Δ-tris(ethane-1,2-diamine-κ2N,N')cobalt(3+)"],
+  ["Δ-[Co(en)3]3+, mirrored", placed(EN3, [hex(90, 1), hex(150, 6), hex(330, 1), hex(30, 6), hex(210, 1), hex(270, 6)].map(([x, y, w]) => [-x, y, w] as Spot)), "Δ-tris(ethane-1,2-diamine-κ2N,N')cobalt(3+)"],
+  ["Λ-[Ru(bpy)3]2+", placed(BPY3, [hex(90, 1), hex(150, 6), hex(210, 1), hex(270, 6), hex(330, 1), hex(30, 6)]), "Λ-tris(2,2'-bipyridine-κ2N1,N1')ruthenium(2+)"],
+  ["Δ-[Ru(bpy)2(phen)]2+", placed("[Ru+2]%11%12%13%14%15%16.C1=CC=[N]%11C(=C1)C1=[N]%12C=CC=C1.C1=CC=[N]%13C(=C1)C1=[N]%14C=CC=C1.C1=CC2=CC=C3C=CC=[N]%16C3=C2[N]%15=C1",
+    [hex(90, 1), hex(30, 6), hex(210, 1), hex(150, 6), hex(270, 6), hex(330, 1)]), "Δ-bis(2,2'-bipyridine-κ2N1,N1')(1,10-phenanthroline-κ2N1,N10)ruthenium(2+)"],
+  // R or S at a tetrahedral metal with four unlike donors (IR-9.3.4.2): Br > Cl > P > N. Br and Cl in the plane, P on
+  // a hash and the pyridine N on a wedge: Br → Cl → P turns anticlockwise as drawn, with N towards the viewer: R.
+  ["(T-4-R)-[ZnBrCl(py)(PPh3)]", placed(ZN4, [hex(210), hex(330), hex(60, 6), hex(120, 1)]), "(T-4-R)-bromidochlorido(pyridine)(triphenylphosphane)zinc(II)"],
+  ["(T-4-S)-[ZnBrCl(py)(PPh3)]", placed(ZN4, [hex(210), hex(330), hex(60, 1), hex(120, 6)]), "(T-4-S)-bromidochlorido(pyridine)(triphenylphosphane)zinc(II)"],
+  // A trigonal bipyramid (IR-9.3.3.6): the priority numbers of the axial donors, lower first. P is 1, C 2 (the Red
+  // Book's Example 1 has both PPh3 axial).
+  ["Fe(CO)3(PPh3)2, both P axial", placed(FE5, [UP, DOWN, W_, RF, RB]), "(TBPY-5-11)-tricarbonylbis(triphenylphosphane)iron"],
+  ["Fe(CO)3(PPh3)2, one P axial", placed(FE5, [UP, W_, DOWN, RF, RB]), "(TBPY-5-12)-tricarbonylbis(triphenylphosphane)iron"],
+  ["Fe(CO)3(PPh3)2, both P equatorial", placed(FE5, [W_, RF, UP, DOWN, RB]), "(TBPY-5-22)-tricarbonylbis(triphenylphosphane)iron"],
+  // A square pyramid (IR-9.3.3.5): the apex's priority number, then the one trans to the most preferred basal donor.
+  // The Red Book's Example 2: Br (1) at the apex, the other Br trans to P (2).
+  ["[PdBr2(PPhtBu2)3]", placed(PD5, [UP, LF, RB, RF, LB]), "(SPY-5-12)-dibromidotris[di-tert-butyl(phenyl)phosphane]palladium(II)"],
+  ["[PdBr2(PPhtBu2)3], P at the apex", placed(PD5, [LF, RB, UP, RF, LB]), "(SPY-5-21)-dibromidotris[di-tert-butyl(phenyl)phosphane]palladium(II)"],
 ];
 for (const [label, m, want] of configs) {
   assert.equal(complexName(m, api), want, label);
   // Each other descriptor, and none, is turned down.
-  const bare = want.replace(/^(?:cis-|trans-|fac-|mer-|\([A-Z]+-\d-\d+\)-)/, "");
-  for (const other of ["", "cis-", "trans-", "fac-", "mer-", "(SP-4-1)-", "(SP-4-2)-", "(OC-6-12)-", "(OC-6-34)-"].map((d) => d + bare).filter((n) => n !== want)) assert.equal(complexNameReads(other, m, api), false, other);
+  const bare = want.replace(/^(?:cis-|trans-|fac-|mer-|Δ-|Λ-|\([A-Z]+-\d-(?:\d+|[RS])\)-)/, "");
+  for (const other of ["", "cis-", "trans-", "fac-", "mer-", "Δ-", "Λ-", "(SP-4-1)-", "(SP-4-2)-", "(OC-6-12)-", "(OC-6-34)-", "(T-4-R)-", "(T-4-S)-", "(TBPY-5-11)-", "(TBPY-5-12)-", "(SPY-5-12)-", "(SPY-5-21)-"].map((d) => d + bare).filter((n) => n !== want)) assert.equal(complexNameReads(other, m, api), false, other);
 }
 // No configuration where the drawing fixes none: a square with a wedge in it, a metal that is not square planar with
 // four, an octahedron drawn flat, and a chelate that fixes cis by itself.
@@ -350,6 +399,14 @@ assert.equal(complexName(flatCo, api), "tetraamminedichloridocobalt(1+)", "flat 
 assert.equal(complexName(placed(`[Pt](${NH3})(${NH3})(Cl)Cl`, [N_, [1, 0, 1], S_, W_]), api), "diamminedichloridoplatinum(II)", "wedge in a square");
 assert.equal(complexName(placed(`[Zn](${NH3})(${NH3})(Cl)Cl`, [N_, E_, S_, W_]), api), "diamminedichloridozinc(II)", "zinc");
 assert.equal(complexName(placed("[Pt]1(Cl)(Cl)[NH2]CC[NH2]1", [N_, E_, S_, W_]), api), "dichlorido(ethane-1,2-diamine-κ2N,N')platinum(II)", "chelate");
+// No Δ or Λ for chelates whose two donor atoms are unlike (glycinate: fac and mer isomers too, not given), nor for a
+// tris(bidentate) complex drawn flat.
+const gly = complexName(placed("[Co]%11%12%13%14%15%16.[NH2]%11CC(=O)O%12.[NH2]%13CC(=O)O%14.[NH2]%15CC(=O)O%16", [hex(90, 1), hex(30, 6), hex(210, 1), hex(150, 6), hex(330, 1), hex(270, 6)]), api);
+assert.ok(gly && !/^[ΔΛ(]/.test(gly), `glycinate: ${gly}`);
+assert.equal(complexName(placed(EN3, [0, 60, 120, 180, 240, 300].map((d) => hex(d))), api), "tris(ethane-1,2-diamine-κ2N,N')cobalt(3+)", "flat tris(en)");
+// No polyhedron where five donors are drawn as neither a bipyramid nor a pyramid, nor four as a flattened tetrahedron.
+assert.equal(complexName(placed(FE5, [UP, DOWN, W_, E_, RB]), api), "tricarbonylbis(triphenylphosphane)iron", "five, no polyhedron");
+assert.equal(complexName(placed(ZN4, [hex(180), hex(0), hex(90, 6), hex(270, 1)]), api), "bromidochlorido(pyridine)(triphenylphosphane)zinc(II)", "four in a cross with wedges");
 console.log(`namer-complex.check: ${configs.length} configurations at the metal named as drawn, the others turned down`);
 
 // Porphyrins, and main-group central atoms in chelates (IR-7.1, IR-9). The ligand as the Red Book names it (IR-9 Table

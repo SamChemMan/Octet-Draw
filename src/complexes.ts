@@ -23,15 +23,17 @@
 // dimethanolato(5,10,15,20-tetraphenylporphyrin-21,23-diido-κ4N21,N22,N23,N24)phosphorus(1+). The E or Z that a chelate
 // ring fixes is left out of the check of a ligand's name (Ligand.fixed): a porphyrin's name cites none.
 // Also named and checked here: the configuration the drawing fixes at one metal (cis, trans, fac, mer, (SP-4-3),
-// (OC-6-43)); complexes of unlike metals and of three to six metals (rheniumcobalt(Re—Co), triangulo-triosmium); and η
-// ligands drawn with a bond to each bonded atom ((η6-benzene)tricarbonylchromium).
-// Names are not given for what is not checked here: Δ and Λ, polyhedra other than square planar and octahedral,
-// configuration indexes that need the priming convention or CIP rules past the donor's neighbours, η ligands bonded
-// through only some atoms of a part of their name ((1,2,3,4-η)), and donor atoms that no κ term above can cite.
+// (OC-6-43), (T-4-R), (TBPY-5-12), (SPY-5-12), and Δ or Λ for a tris(bidentate) complex); complexes of unlike metals
+// and of three to six metals (rheniumcobalt(Re—Co), triangulo-triosmium); and η ligands drawn with a bond to each
+// bonded atom ((η6-benzene)tricarbonylchromium, [(1,2,5,6-η)-(1Z,5Z)-cycloocta-1,5-diene]).
+// Names are not given for what is not checked here: the chirality symbols C and A, other polyhedra, configuration
+// indexes that need the priming convention or CIP rules past the donor's neighbours, η ligands that bridge metals, and
+// donor atoms that no κ term above can cite.
 import { graphOf, type Cip, type Graph } from "./naming.ts";
 import { alphaKey, assemblePrefixes, enclose as encloseName, iupacNameWhy, joinPrefixes, Namer, type Name } from "./namer.ts";
 import { ELEMENTS, isMetal } from "./metals.ts";
 import { substitutively } from "./namer-multiplicative.ts";
+import { handOf } from "./cip.ts";
 import type { Mol } from "./render.ts";
 
 // What the checks need from outside: OPSIN (a name's SMILES, and its atoms with their locants), InChI and CIP labels.
@@ -194,11 +196,11 @@ function entityOf(s: Shape, atoms: number[]): Entity | undefined {
     const lig: Ligand = { atoms: part, q: new Map(), bonds, charge: 0 };
     const donors = [...new Set(bonds.map((b) => b.atom))];
     // An η ligand (IR-10.2.5.1): two or more donor atoms bonded to each other, all to one metal, each once, joined
-    // through the ligand into one run of atoms. It is the drawn molecule or ion with the bonds to the metal cut, its
-    // hydrogens as drawn.
+    // through the ligand into runs of at least two atoms (one run, as in benzene; or several, as the two C=C bonds of
+    // cycloocta-1,5-diene). It is the drawn molecule or ion with the bonds to the metal cut, its hydrogens as drawn.
     if (donors.some((d) => adj[d].some((j) => donors.includes(j)))) {
-      const run = parts(g.atoms.length, adj, (i) => donors.includes(i));
-      if (run.length !== 1 || bonds.length !== donors.length || new Set(bonds.map((b) => b.metal)).size !== 1 || bonds.some((b) => b.order !== 1) || donors.length > 8) return undefined;
+      const runs = parts(g.atoms.length, adj, (i) => donors.includes(i));
+      if (runs.some((r) => r.length < 2) || bonds.length !== donors.length || new Set(bonds.map((b) => b.metal)).size !== 1 || bonds.some((b) => b.order !== 1) || donors.length > 8) return undefined;
       Object.assign(lig, { eta: donors.length, charge: part.reduce((t, i) => t + g.atoms[i].charge, 0) });
       ligands.push(lig);
       continue;
@@ -427,7 +429,9 @@ function nameLigand(m: Mol, g: Graph, lig: Ligand, api: ComplexApi): Named | und
     return { form: text, key: want, flat: flat(want)!, charge: 0, carbon: b.order };
   }
   const free = ligandMol(m, g, lig), fx = lig.fixed && fixedInchi(free, lig, api), want = lig.fixed ? fx?.inchi : api.inchi(free);
-  const graph = want && graphOf(free, api.cip?.(free));
+  // The CIP labels of the free ligand, but none on the bonds whose E or Z the chelate fixes (Ligand.fixed).
+  const cip = api.cip?.(free), at = (k: number) => key(lig.atoms[free.bonds[k].atoms[0]], lig.atoms[free.bonds[k].atoms[1]]);
+  const graph = want && graphOf(free, cip && lig.fixed ? { ...cip, bonds: cip.bonds.map((l, k) => (lig.fixed!.has(at(k)) ? undefined : l)) } : cip);
   if (!graph) return undefined;
   // A ring assembly of three or more pyridine rings by its own name (terpyridine), or identical anionic units on a
   // benzene ring by a multiplicative name; else the namer's.
@@ -575,15 +579,82 @@ function fold(g: Graph): { g: Graph; index: number[] } {
 
 // ——— η ligands (IR-10.2.5.1) ———
 // An η ligand's name with η before the part of the name that holds its bonded atoms: η6-benzene, η2-ethene,
-// 1,2,3,4,5-pentamethyl-η5-cyclopenta-2,4-dien-1-ido. Only where the bonded atoms are all the atoms of that part (no
-// locants such as (1,2,3,4-η) are given).
+// 1,2,3,4,5-pentamethyl-η5-cyclopenta-2,4-dien-1-ido, where the bonded atoms are all the atoms of that part; else η
+// before the whole name, or the bonded atoms' locants before η (etaLocants).
 function etaForm(c: Context, k: number): string | undefined {
   const form = c.named[k].form, n = c.e.ligands[k].eta!;
   for (const p of starts(form)) {
     const part = form.slice(p);
     if (etaPart(c, k, part)) return p === 0 ? `η${n}-${form}` : `${form.slice(0, p)}${form[p - 1] === "-" ? "" : "-"}η${n}-${part}`;
   }
+  // Bonded through all its unsaturated atoms, in one run: η before the name, after its stereodescriptors
+  // ((2Z)-η2-but-2-ene, as the Red Book's (E)-η2-but-2-enal).
+  const stereo = STEREO_PREFIX.exec(form)?.[0] ?? "";
+  if (etaWhole(c, k)) return `${stereo}η${n}-${form.slice(stereo.length)}`;
+  return etaLocants(c, k);
+}
+const STEREO_PREFIX = /^\((?:\d*[EZRS])(?:,\d*[EZRS])*\)-/;
+// Whether an η ligand's bonded atoms are exactly its unsaturated atoms (in a multiple bond in the ligand, or
+// with a charge) and form one run: IR-10.2.5.1 then needs no locants.
+function etaWhole(c: Context, k: number): boolean {
+  const { g, e } = c, lig = e.ligands[k], own = new Set(lig.atoms), donors = new Set(lig.bonds.map((b) => b.atom));
+  const unsaturated = lig.atoms.filter((i) => g.atoms[i].charge || g.bonds.some((b) => b.order > 1 && (b.a === i || b.b === i) && own.has(b.a) && own.has(b.b)));
+  if (unsaturated.length !== donors.size || unsaturated.some((i) => !donors.has(i))) return false;
+  const adj = g.atoms.map(() => [] as number[]);
+  for (const b of g.bonds) { adj[b.a].push(b.b); adj[b.b].push(b.a); }
+  return parts(g.atoms.length, adj, (i) => donors.has(i)).length === 1;
+}
+// An η ligand bonded through only some of its atoms, or through atoms that are not contiguous: the locants of the bonded
+// atoms in the ligand's name, then η, in parentheses before the name (IR-10.2.5.1): [(1,2,5,6-η)-cycloocta-1,5-diene],
+// [(1–4-η)-cyclohexa-1,3-diene]. A run of more than two atoms with consecutive locants is cited as a range (1–4).
+// Of the locant sets OPSIN's numbering gives the bonded atoms, the lowest that reads back: the name with each cited atom
+// marked must be the ligand marked at its bonded atoms.
+function etaLocants(c: Context, k: number): string | undefined {
+  const { m, g, e, api } = c, lig = e.ligands[k], named = c.named[k], donors = [...new Set(lig.bonds.map((b) => b.atom))];
+  const b = opsinOf(nameOfForm(named.form, named.charge), api), drawn = markedInchi(m, g, lig, [donors], api);
+  if (!b || !drawn) return undefined;
+  const options = new Map<string, number[]>();
+  for (const map of maps(b, free(g, lig), lig.atoms)) {
+    const back = new Map(map.map((d, i) => [d, i])), locs = donors.map((d) => (back.has(d) ? b.locs[back.get(d)!].find((l) => /^\d+[a-z]?'*$/.test(l)) : undefined));
+    if (locs.some((l) => !l)) continue;
+    const sorted = (locs as string[]).sort((x, y) => locKey(x) - locKey(y));
+    options.set(sorted.join(","), sorted.map(locKey));
+  }
+  for (const [text] of [...options].sort((x, y) => compare(x[1], y[1])).slice(0, 3)) {
+    const locs = text.split(","), cited = etaCited(b, locs);
+    if (cited && readKappa(`${named.form}-${kappaText(cited, [...new Set(cited.map((x) => x.el))].sort())}`, named.charge, (el) => MARK[el]?.[0], api) === drawn) return `(${etaRange(b, locs)}-η)-${named.form}`;
+  }
   return undefined;
+}
+// Each locant's atom in OPSIN's structure for a name (exactly one atom with it), as a cited atom for κ.
+function etaCited(b: Built, locs: string[]): Cited[] | undefined {
+  const out: Cited[] = [];
+  for (const l of locs) {
+    const at = b.locs.flatMap((ls, i) => (ls.includes(l) ? [i] : []));
+    if (at.length !== 1) return undefined;
+    out.push({ el: b.el[at[0]], loc: l });
+  }
+  return out;
+}
+// Locants in order, a run of three or more consecutive numbers whose atoms are bonded in turn as a range (1–4).
+function etaRange(b: Built, locs: string[]): string {
+  const at = (l: string) => b.locs.findIndex((ls) => ls.includes(l)), out: string[][] = [];
+  for (const l of locs) {
+    const run = out[out.length - 1], last = run?.[run.length - 1];
+    if (last && /^\d+$/.test(l) && /^\d+$/.test(last) && Number(l) === Number(last) + 1 && b.adj[at(last)].includes(at(l))) run.push(l); else out.push([l]);
+  }
+  return out.map((r) => (r.length > 2 ? `${r[0]}–${r[r.length - 1]}` : r.join(","))).join(",");
+}
+// The locants of an η term ((1–4,6-η)): each range written out.
+function etaLocs(t: string): string[] | undefined {
+  const out: string[] = [];
+  for (const x of t.split(",")) {
+    const r = /^(\d+)–(\d+)$/.exec(x);
+    if (r) { const [a, z] = [Number(r[1]), Number(r[2])]; if (z - a < 2 || z - a > 12) return undefined; for (let n = a; n <= z; n++) out.push(String(n)); }
+    else if (/^\d+[a-z]?'*$/.test(x)) out.push(x);
+    else return undefined;
+  }
+  return out.length >= 2 && out.length <= 8 && new Set(out).size === out.length ? out : undefined;
 }
 // Whether a part of an η ligand's name, read by OPSIN alone, has as many atoms other than hydrogen as the ligand has
 // bonded atoms, of the same elements joined the same way.
@@ -1033,7 +1104,6 @@ function alikeMetals(c: Context): boolean | undefined {
 }
 function dinuclear(c: Context): string | undefined {
   const { m, g, e, named, api } = c, [a, b] = e.metals, el = g.atoms[a].el;
-  if (e.ligands.some((l) => l.eta)) return undefined;
   if (g.atoms[b].el !== el || e.mm.length > 1) return undefined;
   const symmetric = alikeMetals(c);
   if (symmetric === undefined) return undefined;
@@ -1044,15 +1114,17 @@ function dinuclear(c: Context): string | undefined {
       const mu = bridging(lig);
       if (!mu && lig.bonds[0].metal !== a) continue;
       const kp = needsKappa(g, lig) ? kappaParts(m, g, lig, named[k], mu ? [a, b] : [a], api) : { parts: [] };
-      if (!kp) return undefined;
-      const form = kp.form ?? named[k].form, kappa = kp.parts.filter(Boolean).join(":");
+      // An η ligand on each metal, in the unit (di-μ-chlorido-bis{[(1,2,5,6-η)-cycloocta-1,5-diene]rhodium}).
+      const eta = lig.eta ? etaForm(c, k) : undefined;
+      if (!kp || (lig.eta && !eta)) return undefined;
+      const form = eta ?? kp.form ?? named[k].form, kappa = kp.parts.filter(Boolean).join(":");
       (mu ? list : unit).push({ form, sort: named[k].form, lex: !!lig.lex, simple: !mu && !kp.form && simpleTerm(lig, form, kappa), mu, kappa });
     }
     for (let h = 0; h < g.atoms[a].h; h++) unit.push({ form: LEX.H.form, lex: true, mu: false, kappa: "" });
     return termsOf(list).map(termText).join("") + (unit.length ? `bis${enclose(termsOf(unit).map(termText).join("") + metal)}` : `di${metal}`) + tail;
   }
   const first = firstMetal(c);
-  if (first === undefined) return undefined;
+  if (first === undefined || e.ligands.some((l) => l.eta)) return undefined;
   const order = first === a ? [a, b] : [b, a];
   for (const [k, lig] of e.ligands.entries()) {
     const mu = bridging(lig), groups = donorGroups(lig, order);
@@ -1071,16 +1143,26 @@ function dinuclear(c: Context): string | undefined {
 // ——— Configuration at the metal (IR-9.3) ———
 // Where the drawing fixes the arrangement of the donor atoms round a metal of one metal atom, the name begins with it:
 // cis or trans for [Ma2b2] (square planar) and [Ma2b4] (octahedral), fac or mer for [Ma3b3], else the polyhedral
-// symbol with its configuration index, (SP-4-3) or (OC-6-43) (IR-9.3.3.3, IR-9.3.3.4). The drawing fixes it when:
+// symbol with its configuration index, (SP-4-3), (OC-6-43), (TBPY-5-12) or (SPY-5-12) (IR-9.3.3.3 to IR-9.3.3.6); R or
+// S at a tetrahedral metal with four unlike donors, (T-4-R) (IR-9.3.4.2); and Δ or Λ for an octahedral tris(bidentate)
+// complex (the skew-lines convention, IR-9.3.4.11 and IR-9.3.4.12). The drawing fixes it when:
 // - square planar (SP-4): four donor atoms in the plane of the drawing round a metal that is square planar when it has
 //   four (Ni, Pd, Pt, Rh, Ir, Au: d8), drawn as a cross, each bond opposite one other (within 25°) and at about a right
 //   angle to the other two (within 25°). A cross with a wedge or hash on it is not a square.
+// - tetrahedral (T-4): four donor atoms drawn in 3D (a wedge or hash on a bond, or the atoms' own depths), no two of them
+//   opposite, read as a stereocentre's ligands are (cip.ts handOf).
+// - trigonal bipyramidal (TBPY-5): five donor atoms drawn in 3D, two of them opposite (the axis, within 25°) and the
+//   other three at about a right angle to it, none of them opposite another.
+// - square pyramidal (SPY-5): five donor atoms drawn in 3D, four in two opposite pairs at about a right angle to each
+//   other, and the fifth (on the axis) at about a right angle to all four.
 // - octahedral (OC-6): six donor atoms drawn in 3D, with a wedge or hash on at least two of their bonds (or the atoms'
 //   own depths), each bond pointing away from exactly one other.
 // The configuration index needs the donor atoms' CIP priorities. Octet ranks them by atomic number, then by the atoms
 // they are bonded to (multiple bonds duplicated, the metal left out); unlike ligands that this cannot tell apart, or
-// any chelate ligand, give no index. A complex of one kind of ligand, [Ma3b] or [Ma5b], has no stereoisomers and no
-// descriptor. Δ and Λ, and the other polyhedra (T-4, TBPY-5, SPY-5), are not given.
+// any chelate ligand, give no index. A complex of one kind of ligand, [Ma3b] or [Ma5b] (and [Ma4b] in a square or an
+// octahedron), has no stereoisomers and no descriptor. Δ or Λ is given for three bidentate ligands whose two donor atoms
+// are alike (bpy, phen, en, acac): such a complex has no other stereoisomers. Not given: the chirality symbols C and A
+// (IR-9.3.4.4 to IR-9.3.4.8), Δ and Λ for bis(bidentate) complexes, and other polyhedra.
 const SQUARE = new Set(["Ni", "Pd", "Pt", "Rh", "Ir", "Au"]);
 type Site = { d: number; lig: number; v: [number, number, number] };
 // The donor atoms round metal x, each with its bond's direction from the metal (unit vector, depth from a wedge or
@@ -1103,6 +1185,8 @@ function sitesOf(c: Context, x: number): { sites: Site[]; deep: boolean } | unde
   return { sites, deep };
 }
 const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a: number[], b: number[]) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const minus = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 // Each site's trans partner (by index), where every site points away from exactly one other: its most opposite site,
 // mutually, with the cosine of their angle below `opposite`, and every other pair passing `other`. Undefined otherwise.
 function transPairs(sites: Site[], opposite: number, other: (cos: number) => boolean): number[] | undefined {
@@ -1111,8 +1195,25 @@ function transPairs(sites: Site[], opposite: number, other: (cos: number) => boo
   for (let i = 0; i < sites.length; i++) for (let j = i + 1; j < sites.length; j++) if (most[i] !== j && !other(dot(sites[i].v, sites[j].v))) return undefined;
   return most;
 }
-// The polyhedron the drawing fixes round the complex's only metal atom, with each site's trans partner.
-function polyhedron(c: Context): { shape: "SP-4" | "OC-6"; sites: Site[]; trans: number[] } | undefined {
+// Five sites as a trigonal bipyramid or a square pyramid: each site's trans partner (-1 for none), within 25° of
+// opposite, and every other pair that must be at about a right angle within 25°. Undefined for any other shape.
+function fivefold(sites: Site[]): { shape: "TBPY-5" | "SPY-5"; trans: number[] } | undefined {
+  const cos = (i: number, j: number) => dot(sites[i].v, sites[j].v), trans = sites.map(() => -1);
+  for (let i = 0; i < 5; i++) for (let j = i + 1; j < 5; j++) if (cos(i, j) < -0.9) { if (trans[i] >= 0 || trans[j] >= 0) return undefined; trans[i] = j; trans[j] = i; }
+  const right = (i: number, j: number) => Math.abs(cos(i, j)) < 0.42, all = [0, 1, 2, 3, 4];
+  const pairs = all.filter((i) => trans[i] > i), lone = all.filter((i) => trans[i] < 0);
+  // TBPY-5: the axis and three sites round it, none opposite another (checked above).
+  if (pairs.length === 1) return lone.every((i) => right(i, pairs[0]) && right(i, trans[pairs[0]])) ? { shape: "TBPY-5", trans } : undefined;
+  // SPY-5: two opposite pairs at right angles, and the apex at right angles to all four.
+  if (pairs.length === 2) {
+    const base = [pairs[0], trans[pairs[0]], pairs[1], trans[pairs[1]]];
+    return base.every((i) => right(i, lone[0])) && [0, 1].every((u) => [2, 3].every((w) => right(base[u], base[w]))) ? { shape: "SPY-5", trans } : undefined;
+  }
+  return undefined;
+}
+type Poly = { shape: "SP-4" | "T-4" | "TBPY-5" | "SPY-5" | "OC-6"; sites: Site[]; trans: number[] };
+// The polyhedron the drawing fixes round the complex's only metal atom, with each site's trans partner (-1 for none).
+function polyhedron(c: Context): Poly | undefined {
   const { g, e } = c;
   if (e.metals.length !== 1 || e.hydrides || e.ligands.some((l) => l.eta || (l.carbon && l.bonds.length !== 1))) return undefined;
   const x = e.metals[0], s = sitesOf(c, x);
@@ -1122,6 +1223,9 @@ function polyhedron(c: Context): { shape: "SP-4" | "OC-6"; sites: Site[]; trans:
     const trans = transPairs(s.sites, -0.9, (cos) => Math.abs(cos) < 0.42);
     return trans && { shape: "SP-4", sites: s.sites, trans };
   }
+  // A tetrahedron: no two bonds within 35° of opposite (cos > -0.8).
+  if (s.sites.length === 4 && s.deep && s.sites.every((a, i) => s.sites.every((b, j) => i === j || dot(a.v, b.v) > -0.8))) return { shape: "T-4", sites: s.sites, trans: [-1, -1, -1, -1] };
+  if (s.sites.length === 5 && s.deep) { const f = fivefold(s.sites); return f && { ...f, sites: s.sites }; }
   if (s.sites.length === 6 && s.deep) {
     const trans = transPairs(s.sites, -0.5, (cos) => cos > -0.45);
     return trans && { shape: "OC-6", sites: s.sites, trans };
@@ -1140,10 +1244,31 @@ function donorRank(c: Context, d: number, x: number): number[] {
   }
   return [Z(g.atoms[d].el), ...near.sort((p, q) => q - p)];
 }
-// The configuration the drawing fixes, as it begins the name ("cis-", "(OC-6-43)-"), "" for none.
+// Δ or Λ for an octahedral tris(bidentate) complex (IR-9.3.4.12): each ligand bonded through two alike donor atoms
+// (IR-9.3.4.11 holds them to define a line each), cis to each other. Two such lines, skew, define a helix: right-handed
+// is Δ. With directions a and b and the vector w from a point of the first to a point of the second, the helix is
+// right-handed when (a·b)((a×b)·w) is negative (one line the axis of a cylinder, the other a tangent to it on their
+// common normal). Every pair of chelates must agree. Undefined for any other complex.
+function skewLines(c: Context, p: Poly): string | undefined {
+  if (p.shape !== "OC-6") return undefined;
+  const ligs = [...new Set(p.sites.map((s) => s.lig))], at = (k: number) => p.sites.flatMap((s, i) => (s.lig === k ? [i] : []));
+  if (ligs.length !== 3 || ligs.some((k) => at(k).length !== 2 || p.trans[at(k)[0]] === at(k)[1])) return undefined;
+  if (ligs.some((k) => !alike(c.m, c.g, c.e.ligands[k], at(k).map((i) => p.sites[i].d), c.api))) return undefined;
+  const hands = new Set<number>();
+  for (let u = 0; u < 3; u++) for (let w = u + 1; w < 3; w++) {
+    const [a1, a2] = at(ligs[u]).map((i) => p.sites[i].v), [b1, b2] = at(ligs[w]).map((i) => p.sites[i].v);
+    const a = minus(a2, a1), b = minus(b2, b1), turn = dot(a, b) * dot(cross(a, b), minus(b1, a1));
+    if (Math.abs(turn) < 1e-3) return undefined;
+    hands.add(Math.sign(turn));
+  }
+  return hands.size === 1 ? (hands.has(-1) ? "Δ-" : "Λ-") : undefined;
+}
+// The configuration the drawing fixes, as it begins the name ("cis-", "(OC-6-43)-", "Δ-"), "" for none.
 function configuration(c: Context): string {
   const p = polyhedron(c);
   if (!p) return "";
+  const helix = skewLines(c, p);
+  if (helix) return helix;
   const { e } = c, x = e.metals[0], { sites, trans } = p;
   // Kinds of donor: alike ligands (same name and charge), and the donor's element.
   const kind = sites.map((s) => `${c.named[s.lig].key}|${c.g.atoms[s.d].el}`), kinds = [...new Set(kind)];
@@ -1152,7 +1277,7 @@ function configuration(c: Context): string {
   const count = (k: string) => kind.filter((y) => y === k).length;
   const of = (k: string) => sites.flatMap((_, i) => (kind[i] === k ? [i] : []));
   // [Ma2b2] (no chelate: one fixes cis), [Ma2b4] and [Ma3b3]: the a sites (of monodentate ligands) adjacent or opposite.
-  if (kinds.length === 2) {
+  if (kinds.length === 2 && (p.shape === "SP-4" || p.shape === "OC-6")) {
     const [a, b] = kinds.map(of).sort((u, v) => u.length - v.length);
     if (p.shape === "SP-4" && a.length === 2 && [...a, ...b].every(mono)) return trans[a[0]] === a[1] ? "trans-" : "cis-";
     if (p.shape === "OC-6" && a.length === 2 && a.every(mono)) return trans[a[0]] === a[1] ? "trans-" : "cis-";
@@ -1167,6 +1292,19 @@ function configuration(c: Context): string {
   if (new Set(ranks.map(key)).size !== kinds.length) return "";
   const order = [...ranks].sort((r, s) => { for (let i = 0; i < Math.max(r.length, s.length); i++) { const d = (s[i] ?? 0) - (r[i] ?? 0); if (d) return d; } return 0; }).map(key);
   const pri = sites.map((_, i) => order.indexOf(key(ranks[kinds.indexOf(kind[i])])) + 1);
+  // T-4: R or S (IR-9.3.4.2), with four unlike donors; the drawing read as a stereocentre is.
+  if (p.shape === "T-4") {
+    if (kinds.length !== 4) return "";
+    const hand = handOf(c.m, x, [1, 2, 3, 4].map((n) => sites[pri.indexOf(n)].d));
+    return hand ? `(T-4-${hand})-` : "";
+  }
+  // TBPY-5: the priority numbers of the two axial donors, lower first (IR-9.3.3.6).
+  if (p.shape === "TBPY-5") { const axis = sites.map((_, i) => i).filter((i) => trans[i] >= 0).map((i) => pri[i]).sort((u, v) => u - v); return `(TBPY-5-${axis.join("")})-`; }
+  // SPY-5: the apex's priority number, then the highest number trans to the most preferred basal donor (IR-9.3.3.5).
+  if (p.shape === "SPY-5") {
+    const apex = trans.indexOf(-1), base = sites.map((_, i) => i).filter((i) => i !== apex), top = Math.min(...base.map((i) => pri[i]));
+    return `(SPY-5-${pri[apex]}${Math.max(...base.filter((i) => pri[i] === top).map((i) => pri[trans[i]]))})-`;
+  }
   const firsts = sites.flatMap((_, i) => (pri[i] === 1 ? [i] : [])), first = Math.max(...firsts.map((i) => pri[trans[i]]));
   if (p.shape === "SP-4") return `(SP-4-${first})-`;
   // The reference axis: a priority 1 site with the highest priority number trans to it; then in the plane at right
@@ -1310,11 +1448,16 @@ function claimOf(t: PTerm, c: Context, at: number | undefined): Claim | undefine
       return lig.lex === lex && (t.mu ? groups.every((n) => n === 1) && order.length === 2 : at !== undefined && groups.every((n, j) => n === (j === at ? 1 : 0)));
     } };
   }
+  // An η ligand bonded through some of its atoms: the locants of those atoms before η ((1,2,5,6-η)-cycloocta-1,5-diene).
+  const etaLoc = /^\(([^()]+)-η\)-(.+)$/.exec(t.inner!);
+  if (etaLoc) return etaClaim(t, c, at, etaLoc[1], etaLoc[2]);
   // An η ligand: η before the part of its name that holds its bonded atoms; read without it.
   const etaAt = /(?:^|-)η(\d)-/.exec(t.inner!), etaN = etaAt ? Number(etaAt[1]) : 0, etaPartName = etaAt ? t.inner!.slice(etaAt.index + etaAt[0].length) : "";
   if (etaAt && /η/.test(etaPartName)) return undefined;
+  // Before η: the rest of the name, or the name's stereodescriptors alone (then η cites all its unsaturated atoms).
+  const front = etaAt ? t.inner!.slice(0, etaAt.index) : "", whole = !!etaAt && (!front || STEREO_PREFIX.test(`${front}-`));
   // The ligand's name without its κ terms; a term at the end cites the whole name's atoms, others a part's.
-  const inner = etaAt ? t.inner!.slice(0, etaAt.index) + etaPartName : t.inner!, kt = kappaTerms(inner);
+  const inner = etaAt ? front + (front && whole ? "-" : "") + etaPartName : t.inner!, kt = kappaTerms(inner);
   if (!kt || (etaAt && kt.terms.length)) return undefined;
   const form = kt.plain, rootTerm = kt.terms.find((x) => x.at === form.length), parts = kt.terms.filter((x) => x !== rootTerm);
   const kappa = rootTerm?.groups;
@@ -1341,7 +1484,7 @@ function claimOf(t: PTerm, c: Context, at: number | undefined): Claim | undefine
     return flat(api.inchi(ligandMol(c.m, g, lig, new Map(groups.flatMap((ds, j) => ds.map((d) => [d, MARK[g.atoms[d].el][j]] as [number, number]))), !!lig.carbon)));
   };
   const base = (k: number) => c.named[k].key === unfixed(type, c.named[k].pairs) && !!e.ligands[k].carbon === carbon && !e.ligands[k].lex
-    && (e.ligands[k].eta ?? 0) === etaN && (!etaN || etaPart(c, k, etaPartName));
+    && (e.ligands[k].eta ?? 0) === etaN && (!etaN || etaPart(c, k, etaPartName) || (whole && etaWhole(c, k) && etaForm(c, k) === t.inner));
   // Which metal each κ group is on: by its locant, else in turn (a bridging ligand), else the term's metal.
   const metalOf = (x: { metal?: number }, j: number) => (x.metal !== undefined ? x.metal - 1 : t.mu ? j : at);
   if (carbon) {
@@ -1390,6 +1533,22 @@ function claimOf(t: PTerm, c: Context, at: number | undefined): Claim | undefine
   } };
 }
 
+// An η term with locants read back: the locants, written as etaRange writes them, must cite in OPSIN's structure for the
+// name exactly the ligand's bonded atoms (the name read with them marked is the ligand marked at them), on the term's
+// metal; and the ligand must be one that needs locants (etaForm gives this form).
+function etaClaim(t: PTerm, c: Context, at: number | undefined, text: string, form: string): Claim | undefined {
+  const { g, e, api } = c, locs = etaLocs(text);
+  if (!locs || /[ηκ]/.test(form) || t.mu || at === undefined) return undefined;
+  const b = opsinOf(nameOfForm(form, /(ato|ido|ito)[)\]}]*$/.test(form) ? -1 : 0), api), type = b && api.inchi(b.smiles), cited = b && etaCited(b, locs);
+  if (!b || !type || !cited || etaRange(b, locs) !== text) return undefined;
+  const charge = smilesCharge(b.smiles), sig = readKappa(`${form}-${kappaText(cited, [...new Set(cited.map((x) => x.el))].sort())}`, charge, (el) => MARK[el]?.[at], api);
+  return sig ? { count: t.count, type, charge, carbon: false, test: (k, order) => {
+    const lig = e.ligands[k], groups = donorGroups(lig, order);
+    if (c.named[k].key !== unfixed(type, c.named[k].pairs) || lig.eta !== locs.length || groups.some((ds, i) => (i === at) !== ds.length > 0) || etaForm(c, k) !== t.inner) return false;
+    return flat(api.inchi(ligandMol(c.m, g, lig, new Map(groups.flatMap((ds, j) => ds.map((d) => [d, MARK[g.atoms[d].el][j]] as [number, number])))))) === sig;
+  } } : undefined;
+}
+
 // A name's words: split at spaces outside enclosing marks ((3 Os—Os) is part of its word).
 function topWords(name: string): string[] {
   const out = [""];
@@ -1411,7 +1570,7 @@ function verify(name: string, c: Context, ions: Ion[]): boolean {
     if (ions.length) { const ion = readIon(words[1 - at], api); if (!ion?.key || ion.key !== ions[0].key || ion.charge * ions.length !== -e.charge) return false; }
     return verifyPoly(words[at], c);
   }
-  const config = /^(?:cis-|trans-|fac-|mer-|\((?:SP-4-\d|OC-6-\d\d)\)-)/.exec(words[at] ?? "")?.[0] ?? "";
+  const config = /^(?:cis-|trans-|fac-|mer-|Δ-|Λ-|\((?:SP-4-\d|OC-6-\d\d|T-4-[RS]|TBPY-5-\d\d|SPY-5-\d\d)\)-)/.exec(words[at] ?? "")?.[0] ?? "";
   // The configuration at the metal must be the one the drawing fixes (none where it fixes none).
   if (config !== configuration(c)) return false;
   const parsed = parseEntity(words[at].slice(config.length));
@@ -1797,12 +1956,14 @@ function drawing(m: Mol, api: ComplexApi): { c: Context; ions: Ion[] } | undefin
   if (e.metals.length === 1 && m.atoms[e.metals[0]].ox !== undefined) e.written = m.atoms[e.metals[0]].ox;
   return { c: { m, g, e, named: named as Named[], api }, ions: ions as Ion[] };
 }
-// Whether a structure can have CIP labels: a wedge or a bond style cip.ts reads as one, or a double bond in no ring.
+// Whether a structure can have CIP labels: a wedge or a bond style cip.ts reads as one, or a double bond in no ring of
+// under 8 atoms.
 function stereoable(m: Mol): boolean {
   if (m.bonds.some((b) => (b.stereo && b.stereo !== 3) || ["hashed", "dashed", "bold", "hollow"].includes(b.display ?? ""))) return true;
   const adj: number[][] = m.atoms.map(() => []);
   for (const b of m.bonds) { adj[b.atoms[0]].push(b.atoms[1]); adj[b.atoms[1]].push(b.atoms[0]); }
-  return m.bonds.some((b) => b.type === 2 && b.stereo !== 3 && !linked(adj, b.atoms[0], b.atoms[1], () => true));
+  // A double bond in no ring of under 8 atoms: InChI gives E or Z to one in a larger ring (cyclooctene).
+  return m.bonds.some((b) => b.type === 2 && b.stereo !== 3 && !smallRing(adj, b.atoms[0], b.atoms[1], () => true));
 }
 // The API with OPSIN's readings and InChIs kept for one name: the check reads many names and structures twice. At most
 // 150 readings and 600 InChIs for one name, so that no drawing can keep it busy: past that, nothing reads, and no
