@@ -236,7 +236,9 @@ assert.ok(!/<Menu\b|className="strip|role="menu"/.test(home.replace(/import[^;]+
 assert.match(home, /ContextMenu/);
 assert.match(home, /<ColourPop /, "Custom colour… is the colour picker the Actions panel uses (src/ColourPicker.tsx)");
 // A tile's id is data-tile: data-key is a control's shortcut, which the tooltip shows as a key (src/Tooltip.tsx).
-assert.ok(!/data-key|dataset\.key/.test(home), "no data-key on Home");
+assert.ok(!/data-key|dataset\.key/.test(home.replace("data-key={p.back.key}", "")), "no data-key on Home but the back button's Esc");
+// Home opened over a drawing goes back to it: a button in the head, and Escape.
+assert.match(home, /e\.key === "Escape" && p\.back/, "Escape goes back to the drawing");
 assert.match(home, /data-tip=\{tilde\(d\.path, lib\.home\)\}/, "a drawing's tooltip is its place");
 // Under each tile, real buttons with words, always on show: Add to folder and Change thumbnail under a drawing,
 // Thumbnail, Colour and Rename under a folder. No project dots any more.

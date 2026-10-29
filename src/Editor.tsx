@@ -978,6 +978,8 @@ export default function Editor() {
   // tutorial then, or from Help > Tutorial. Recent drawings come from the app (src-tauri/src/recent.rs), and drawings
   // a crash took from src-tauri/src/recovery.rs.
   const [home, setHome] = useState(() => rescue.current?.home ?? !new URLSearchParams(location.search).has("editor"));
+  // Home opened over a drawing (Home in the File menu) offers to go back to it; Home at the start has nothing to go back to.
+  const [overDrawing, setOverDrawing] = useState(false);
   const homeOpen = useRef(home); // for the menu listener, which is set up once
   homeOpen.current = home;
   const [welcomed, setWelcomed] = useState(false), [recents, setRecents] = useState<RecentEntry[]>([]), [recovered, setRecovered] = useState<RecoveredEntry[]>([]);
@@ -1389,7 +1391,7 @@ export default function Editor() {
   };
   const revert = () => void invoke<string>("revert_drawing", { path: file.path }).then((text) => load(file.path, text)).catch((e) => setNotice(failure("Octet cannot revert this drawing.", e)));
   // A drawing on the recent list or in a project on Home (only those open without the file dialog).
-  const openRecent = (r: { path: string }) => keepWork(() => void homeCall<[string, string]>("open_recent", { path: r.path }).then((picked) => load(picked[0], picked[1]))
+  const openRecent = (r: { path: string }) => r.path === file.path && overDrawing ? setHome(false) : keepWork(() => void homeCall<[string, string]>("open_recent", { path: r.path }).then((picked) => load(picked[0], picked[1]))
     .catch((e) => { setNotice(failure("Octet cannot open this drawing.", e)); refreshRecents(); }));
   // A recovered drawing opens with its changes unsaved; its kept copy becomes this window's.
   const openRecovered = (r: RecoveredEntry) => keepWork(() => void keep<[string, string]>("recovery_open", { id: r.id }).then(([title, text]) => { keeper.kept = true; load(undefined, text, title); })
@@ -1801,7 +1803,7 @@ export default function Editor() {
     ...Object.fromEntries(settings.ownPurposes.map((p, k) => [`new_own_${k}`, () => newDrawing(p.id)])),
     open: () => openDrawing(),
     opened: () => void takeOpened().catch((e) => setNotice(failure("Octet cannot open this file.", e))),
-    home: () => (templateEdit ? setNotice("Save or cancel the template first.", "info") : setHome(true)),
+    home: () => (templateEdit ? setNotice("Save or cancel the template first.", "info") : (setHome(true), setOverDrawing(true))),
     quit: () => closeWindow(),
     // File > Close Window on Linux, where GTK has no Close Window of its own (REL-18).
     close: () => closeWindow(),
@@ -7858,6 +7860,7 @@ export default function Editor() {
       {(home || homeLeaving) && (homeKind.current === "name"
         ? <NameBox leaving={!home} onDone={(userName) => { setSettings((s) => ({ ...s, userName })); setWelcomed(true); if (!settings.tutorialDone) startTutorial(); }} />
         : <Home leaving={!home} name={settings.userName ?? ""} first={welcomed} away={away} recents={recents} newKey={keyLabel("enter")} openKey={hint("open")}
+            back={overDrawing ? { name, key: keyLabel("escape"), go: () => setHome(false) } : undefined}
             recovered={recovered} onRecovered={openRecovered} onDiscard={(entry) => setDialog({ kind: "discard", entry })}
             purposes={purposeList} onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent} onStarter={(text) => keepWork(() => load(undefined, text))}
             onRemovePurpose={removePurpose}

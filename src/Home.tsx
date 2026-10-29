@@ -173,6 +173,7 @@ export type PurposeTile = { id: string; name: string; kind: PurposeKind; style: 
 type Props = {
   leaving?: boolean; // fading out as a drawing opens
   name: string; first: boolean; away: number; recents: RecentEntry[]; newKey: string; openKey?: string;
+  back?: { name: string; key: string; go: () => void }; // the drawing Home was opened over, to go back to
   recovered: RecoveredEntry[]; onRecovered: (r: RecoveredEntry) => void; onDiscard: (r: RecoveredEntry) => void;
   purposes: PurposeTile[]; // the templates: Octet's, then the user's own
   onNew: (purpose: string) => void; onOpen: () => void; onRecent: (r: { path: string }) => void; onRemove: (r: RecentEntry) => void;
@@ -249,6 +250,7 @@ export function Home(p: Props) {
       const tiles = [...(grid.current?.querySelectorAll<HTMLElement>("button.home-tile") ?? [])], at = tiles.indexOf(document.activeElement as HTMLElement);
       if (e.key === "Enter" && at < 0 && !(document.activeElement instanceof HTMLButtonElement)) { e.preventDefault(); p.onNew(QUICK); return; }
       if (e.key === "Escape" && open) { e.preventDefault(); back(); return; }
+      if (e.key === "Escape" && p.back) { e.preventDefault(); p.back.go(); return; }
       // In a tile's buttons: left and right go along them, up goes back to the tile.
       const act = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>(".home-act");
       if (act) {
@@ -831,6 +833,7 @@ export function Home(p: Props) {
             <source srcSet={lockupWhite} media="(prefers-color-scheme: dark)" />
             <img src={lockup} alt="Octet" height={96} draggable={false} />
           </picture>
+          {p.back && <button className="home-back home-resume" data-tip={`Back to ${p.back.name}`} data-key={p.back.key} onClick={p.back.go}><ArrowLeft size={16} aria-hidden /><span>{p.back.name}</span></button>}
         </header>
         <div ref={grid} key={open ? `project:${open.id}` : "home"} className={["home-view", first && !open && "home-arrive"].filter(Boolean).join(" ")}>
           {project || main}

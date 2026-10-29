@@ -4884,6 +4884,22 @@ button.variant.add {
 .name-box img {
   display: block;
 }
+.home-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.home-back.home-resume {
+  margin: 0;
+  min-width: 0;
+  max-width: 40%;
+}
+.home-resume span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .home-greeting {
   margin: var(--space-16) 0 0;
   font: 600 32px/38px var(--font-sans);
