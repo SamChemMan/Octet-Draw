@@ -29,6 +29,7 @@ const REACH = 3.5; // the widest gap (bond lengths) between neighbours in one re
 const NEAR = 3; // how far (bond lengths) conditions sit from their arrow at most
 const CLOSE = 1; // how far (bond lengths) from a part of the row what it carries sits at most
 const YIELD = 1.5; // how far (bond lengths) from its structure a yield sits at most
+const NAMED = 2; // how far (bond lengths) under or over a part of the row its text (a name, a CAS number) sits at most
 // Text that is a yield, line by line: a percentage, in brackets or not, with yield, ee, de, dr or conversion by it.
 const isYield = (text: string) => !!text.trim() && text.split("\n").every((t) => /^\(?\s*(yield:?\s*)?\d+([.,]\d+)?\s*%(\s*(yield|ee|de|dr|conv\.?|conversion))?\s*\)?$/i.test(t.trim()));
 
@@ -120,19 +121,29 @@ export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (ato
   const fenced = (it: Item) => frames.some(([, f, box]) => box && inside(it.step.box, f) && !inside(arrowBox, f));
   const span = new Map(items.map((it) => [it, { lo: it.lo, hi: it.hi }]));
   for (const [t, s] of clings) if (t.step.kind === "text") { const w = span.get(s)!; w.lo = Math.min(w.lo, t.lo); w.hi = Math.max(w.hi, t.hi); }
-  const lo = (it: Item) => span.get(it)!.lo, hi = (it: Item) => span.get(it)!.hi;
+  // An arrow's text over and under it reaches past its ends when the arrow is too short for it: the gap to the next
+  // part counts from there.
+  const wide = new Map<Item, { lo: number; hi: number }>();
+  for (const it of items) {
+    if (it.step.kind !== "text" || !overArrow(it)) continue;
+    const x = shafts.find((s) => (it.lo + it.hi) / 2 > s.lo && (it.lo + it.hi) / 2 < s.hi);
+    if (x) { const w = wide.get(x) ?? { lo: x.lo, hi: x.hi }; wide.set(x, { lo: Math.min(w.lo, it.lo), hi: Math.max(w.hi, it.hi) }); }
+  }
+  const lo = (it: Item) => span.get(it)!.lo, hi = (it: Item) => span.get(it)!.hi, mid = (it: Item) => (lo(it) + hi(it)) / 2;
   const inLine = items.filter((it) => !clings.has(it) && !fenced(it) && !overArrow(it) && Math.abs(it.off) < it.half + 0.4);
   const start = inLine.find((it) => it.step.kind === "arrow" && it.step.id === arrowId);
   if (!start) return undefined;
   const row = [start];
   // Walk out both ways, taking the nearest thing each time, while the gap stays small.
   for (const dir of [-1, 1]) {
-    let edge = dir < 0 ? lo(start) : hi(start);
+    let at = start;
     for (;;) {
-      const next = inLine.filter((it) => !row.includes(it) && (dir < 0 ? hi(it) <= edge + 0.3 : lo(it) >= edge - 0.3)).sort((p, q) => (dir < 0 ? hi(q) - hi(p) : lo(p) - lo(q)))[0];
-      if (!next || against.has(next) || (dir < 0 ? edge - hi(next) : lo(next) - edge) > REACH) break;
+      const edge = dir < 0 ? lo(at) : hi(at), far = dir < 0 ? Math.min(edge, wide.get(at)?.lo ?? edge) : Math.max(edge, wide.get(at)?.hi ?? edge);
+      // Next: what starts past the edge, or overlaps it with its middle past it (a product drawn under the arrowhead).
+      const next = inLine.filter((it) => !row.includes(it) && (dir < 0 ? hi(it) <= edge + 0.3 || mid(it) < edge : lo(it) >= edge - 0.3 || mid(it) > edge)).sort((p, q) => (dir < 0 ? hi(q) - hi(p) : lo(p) - lo(q)))[0];
+      if (!next || against.has(next) || (dir < 0 ? far - hi(next) : lo(next) - far) > REACH) break;
       row.push(next);
-      edge = dir < 0 ? lo(next) : hi(next);
+      at = next;
     }
   }
   row.sort((p, q) => lo(p) - lo(q));
@@ -169,7 +180,7 @@ export function findReaction(m: Mol, arrowId: number, arrows: Arrow[], ink: (ato
     reach.set(r, item({ kind: "text", id: -1, box: union([w, f]) }));
   }
   // What is close over or under a part, and not in a frame the part is not in.
-  const close = (it: Item, x: Item) => { const w = reach.get(x)!; return Math.max(0, Math.abs(it.off - w.off) - it.half - w.half) <= CLOSE && !frames.some(([, f]) => inside(it.step.box, f) && !inside(x.step.box, f)); };
+  const close = (it: Item, x: Item) => { const w = reach.get(x)!; return Math.max(0, Math.abs(it.off - w.off) - it.half - w.half) <= (it.step.kind === "text" ? NAMED : CLOSE) && !frames.some(([, f]) => inside(it.step.box, f) && !inside(x.step.box, f)); };
   const owner = (it: Item): Part | undefined => {
     const x = parts.find((r) => it.lo >= reach.get(r)!.lo - 0.75 && it.hi <= reach.get(r)!.hi + 0.75);
     return x && close(it, x) ? (x.step as Part) : undefined;

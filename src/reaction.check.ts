@@ -371,6 +371,27 @@ for (const under of [false, true]) {
   const again = cleanAll(out, withStructure).mol, p = points(out), q = points(again);
   assert.ok(p.length === q.length && p.every((x, k) => Math.hypot(x[0] - q[k][0], x[1] - q[k][1]) < 1e-6), `${how}: a second clean-up moves nothing`);
 }
+// Sam's scheme as a friend drew it before tidying (29 Oct 2026): the arrow shorter than its conditions and more than
+// REACH from the reactants, the product drawn so far left that its box runs under the arrowhead, and the CAS number
+// and price 1.7 bond lengths under their structure. The whole row is still found, and the text under the structure
+// goes with it.
+{
+  let t: Mol = addRing(EMPTY, 6, true, { point: [0, 0.2] });
+  let arrow: number, cas: number, price: number;
+  [t] = addCaption(t, { text: "+", x: 2.3, y: 0, align: "centre" });
+  t = addRing(t, 6, false, { point: [4.4, 0.3] });
+  [t, cas] = addCaption(t, { text: "CAS 100-63-0", x: 4.4, y: -2.4, align: "centre" });
+  [t, price] = addCaption(t, { text: "£24 / 10g", x: 4.4, y: -3.3, align: "centre" });
+  [t, arrow] = addArrow(t, { kind: "reaction", from: [10.6, 0], to: [13.8, 0] });
+  for (const [k, text] of ["[PdCl(allyl)]2 (1 mol%)", "t-BuXPhos (4 mol%)"].entries()) [t] = addCaption(t, { text, x: 12.2, y: 1.4 - 0.85 * k, align: "centre" });
+  for (const [k, text] of ["Cs2CO3 (2 eq.)", "H2O (2 eq.)", "DME, 90°C, 15h", "O2 (1 atm)"].entries()) [t] = addCaption(t, { text, x: 12.2, y: -0.9 - 0.85 * k, align: "centre" });
+  t = addRing(t, 6, true, { point: [14.1, -0.6] });
+  const r = findReaction(t, arrow, drawn(t).arrows, drawn(t).ink, drawn(t).captionBox)!;
+  assert.deepEqual(r.steps.map((s) => s.kind), ["structure", "plus", "structure", "arrow", "structure"], "drawn before tidying: the whole row");
+  const done = cleanAll(t, withStructure), out = done.mol, { d, boxes } = laidOut(out), second = fragments(out)[1];
+  assert.deepEqual(overlaps(boxes), [], "drawn before tidying: nothing overlaps");
+  for (const id of [cas, price]) assert.ok(d.captionBox(id)![3] < d.ink(second)![1] && Math.abs(midOf(d.captionBox(id)!) - midOf(d.ink(second)!)) < 0.3, "drawn before tidying: the CAS number and price stay under their structure");
+}
 // The same scheme typed as one caption for each block (lines kept in one text): laid out the same way.
 {
   let t: Mol = addRing(EMPTY, 6, true, { point: [0, 0.2] });
