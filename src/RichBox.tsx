@@ -1,8 +1,9 @@
 // The box a caption or an atom label is typed in: rich text, each run in its own style, over the text on the canvas.
 // Security: the box is built from text nodes and spans made here (textContent, never HTML), styles are read back from
-// each span's own data, and paste inserts plain text only.
+// each span's own data, and paste inserts plain text only (a citation's formatting can follow, from its runs: richpaste.ts).
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { edited, normalise, plainOf, styleOf, type RunStyle, type TextRun } from "./richtext";
+import { offerFor } from "./richpaste.ts";
 
 export type RichApi = { range: () => [number, number] | undefined; select: (start: number, end: number) => void };
 
@@ -20,6 +21,7 @@ type Props = {
   returnNewLine?: boolean; // Return makes a new line (ChemDraw's default for captions); else only Option- or Shift-Return
   className?: string; // the box's look: a caption's (the default) or an atom label's
   label?: string; // its name for screen readers (Caption by default)
+  onOffer?: (start: number, plain: string, runs: TextRun[]) => void; // a citation was pasted plain: its formatted runs
 };
 
 // Character offsets in the box, counting each span's text and each line break.
@@ -134,9 +136,11 @@ export function RichBox(p: Props) {
       }}
       onPaste={(e) => {
         e.preventDefault();
-        const text = e.clipboardData.getData("text/plain").replace(/\r\n?/g, "\n");
+        const text = e.clipboardData.getData("text/plain").replace(/\r\n?/g, "\n"), start = p.api.current?.range()?.[0];
         if (text.includes("\n")) insert(text);
         else if (text) document.execCommand("insertText", false, text);
+        const runs = p.onOffer && start !== undefined ? offerFor(text, e.clipboardData.getData("text/html")) : undefined;
+        if (runs) p.onOffer!(start!, text, runs);
       }}
       onDrop={(e) => e.preventDefault()}
       onKeyDown={(e) => {

@@ -830,6 +830,29 @@ export default function Editor() {
   type Writing = { id?: number; value: string; at?: P; under?: number[]; on?: Caption["on"]; cycle?: CycleText; style: Partial<Caption>;
     runs?: TextRun[]; version?: number; caret?: [number, number]; pending?: RunStyle };
   const [writing, setWriting] = useState<Writing>();
+  // A citation just pasted plain into the caption (richpaste.ts): where it went and its formatted runs. A bar under the
+  // box offers Plain text or Keep formatting until the next key or the box closes.
+  const [pasteOffer, setPasteOffer] = useState<{ start: number; plain: string; runs: TextRun[] }>();
+  useEffect(() => { if (!writing) setPasteOffer(undefined); }, [writing]);
+  const keepFormatting = () => {
+    setPasteOffer(undefined);
+    if (!writing || !pasteOffer) return;
+    const runs = writing.runs ?? [{ text: writing.value }], old = plainOf(runs), at = pasteOffer.start, text = plainOf(pasteOffer.runs);
+    if (old.slice(at, at + pasteOffer.plain.length) !== pasteOffer.plain) return;
+    let next = styleRange(edited(runs, old.slice(0, at) + text + old.slice(at + pasteOffer.plain.length)), at, at + text.length, (st) => {
+      const keep = { ...st };
+      delete keep.bold; delete keep.italic; delete keep.underline; delete keep.script;
+      return keep;
+    });
+    let k = at;
+    for (const r of pasteOffer.runs) {
+      const own: RunStyle = { ...(r.bold ? { bold: true as const } : {}), ...(r.italic ? { italic: true as const } : {}), ...(r.underline ? { underline: true as const } : {}), ...(r.script ? { script: r.script } : {}) };
+      next = styleRange(next, k, k + r.text.length, (st) => ({ ...st, ...own }));
+      k += r.text.length;
+    }
+    next = normalise(next);
+    setWriting({ ...writing, runs: next, value: plainOf(next), version: (writing.version ?? 0) + 1, caret: [k, k], pending: undefined });
+  };
   // True while the caption box is open. Enter, Escape and blur all close it; only the first one counts.
   const writingOpen = useRef(false);
   // The style new text starts with, set from the Actions panel while the Text tool is in hand.
@@ -874,9 +897,20 @@ export default function Editor() {
   // selection changes.
   const [pivot, setPivot] = useState<P>();
   useEffect(() => setPivot(undefined), [selection, picked]);
+  useEffect(() => {
+    const was = before.current;
+    before.current = doc;
+    if (!was || was === doc) return;
+    const ids = new Set([...(was.captions ?? []), ...(was.arrows ?? []), ...(was.shapes ?? []), ...(was.cycles ?? [])].map((x) => x.id));
+    const item = [...(doc.captions ?? []), ...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].filter((x) => !ids.has(x.id)).pop();
+    const at: Hover | undefined = doc.atoms.length > was.atoms.length ? { atom: doc.atoms.length - 1 } : item ? (doc.cycles?.some((c) => c.id === item.id) ? { cycle: item.id } : doc.captions?.some((c) => c.id === item.id) ? { caption: item.id } : { arrow: item.id }) : undefined;
+    added.current = at ? { mol: doc, at } : undefined;
+  }, [doc]);
   const hold = useRef<number>(undefined);
   const svg = useRef<SVGSVGElement>(null);
   const pointer = useRef<P>(undefined);
+  // What the last edit added (its first new atom, or else its last new object), for Space.
+  const added = useRef<{ mol: Mol; at: Hover }>(undefined), before = useRef<Mol>(undefined);
   // Every edit clears the selection, except a move, which keeps the same atoms selected. Groups keep whole structures,
   // so atoms drawn onto a grouped structure join its group (wholeGroups). Atoms drawn onto a structure turned in 3D
   // take its depth (carryDepth).
@@ -4178,9 +4212,13 @@ export default function Editor() {
     const hover = hovers.get();
     if (id === "tool.select") {
       setTool("select");
-      const one = hover.atom ?? (hover.bond !== undefined ? doc.bonds[hover.bond].atoms[0] : undefined);
+      // Right after a bond or shape is drawn the pointer has not moved, so nothing is hovered yet: what is under the
+      // pointer counts, and else what was drawn last, so Space picks what was just drawn, ready to move (as in ChemDraw).
+      let under = Object.values(hover).some((v) => v !== undefined) || !pointer.current ? hover : hit(pointer.current);
+      if (!Object.values(under).some((v) => v !== undefined) && added.current?.mol === doc) under = added.current.at;
+      const one = under.atom ?? (under.bond !== undefined ? doc.bonds[under.bond].atoms[0] : undefined);
       if (one !== undefined) choose(fragments(doc).find((g) => g.includes(one)) ?? [one], []);
-      else if (hover.caption !== undefined || hover.arrow !== undefined) choose([], [(hover.caption ?? hover.arrow)!]);
+      else if (under.caption !== undefined || under.arrow !== undefined || under.cycle !== undefined) choose([], [(under.caption ?? under.arrow ?? under.cycle)!]);
       return;
     }
     if (id === "atom.attach" && atom !== undefined) return set(setAtomMarks(doc, atom, { attach: !doc.atoms[atom].attach || undefined }));
@@ -7422,6 +7460,7 @@ export default function Editor() {
         const x0 = !wrapAt ? b[0] : c.anchor === "end" ? c.lines[0].x - wrapAt : c.anchor === "middle" ? c.lines[0].x - wrapAt / 2 : c.lines[0].x;
         const left = view.x + x0 * z - slack, top = view.y + (c.lines[0].y - lead) * z;
         return (
+          <>
           <RichBox
             key={writing.at ? writing.at.join(" ") : undefined} // a new box for each caption Tab starts
             returnNewLine={!settings.captionOptionReturn}
@@ -7448,7 +7487,13 @@ export default function Editor() {
               textAlign: (writing.style.align ?? own?.align) === "justify" ? "justify" : c.anchor === "start" ? "left" : c.anchor === "end" ? "right" : "center",
             }}
             onRuns={(runs, rebuild) => setWriting((w) => w && { ...w, runs, value: plainOf(runs), ...(rebuild ? { version: (w.version ?? 0) + 1, caret: rebuild, pending: undefined } : {}) })}
+            onOffer={(start, plain, runs) => setPasteOffer({ start, plain, runs })}
             onKeyDown={(e) => {
+              // With a citation just pasted: ⇧⌘V keeps its formatting; any other key goes on with it plain.
+              if (pasteOffer) {
+                if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "v") { e.preventDefault(); return keepFormatting(); }
+                if (!["Shift", "Meta", "Control", "Alt"].includes(e.key)) setPasteOffer(undefined);
+              }
               // Return reaches here only when it does not make a new line (Settings: Option-Return for a new line).
               if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); commitWriting(); }
               if (e.key === "Tab" && !e.shiftKey && writing.at && writing.id === undefined) { e.preventDefault(); tabCaption(); }
@@ -7466,6 +7511,15 @@ export default function Editor() {
             }}
             onBlur={() => commitWriting()}
           />
+          {pasteOffer && (
+            <div className="paste-offer" style={{ left: left + slack, top: top + c.lines.length * gap * z + 8 }} onPointerDown={(e) => e.preventDefault()}>
+              <div className="segmented" role="radiogroup" aria-label="Paste">
+                <button type="button" role="radio" aria-checked="true" tabIndex={-1} data-tip="" onClick={() => setPasteOffer(undefined)}>Plain text</button>
+                <button type="button" role="radio" aria-checked="false" tabIndex={-1} data-tip="Keep formatting" data-key={`⇧${MOD}V`} onClick={keepFormatting}>Keep formatting</button>
+              </div>
+            </div>
+          )}
+          </>
         );
       }}</Live>}
       <Exit>{naming !== undefined && nameNote && (

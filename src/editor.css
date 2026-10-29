@@ -6024,3 +6024,25 @@ button.variant.add {
   outline: none;
   box-shadow: var(--shadow-focus);
 }
+
+/* The choice after a citation is pasted into a caption: plain (as it went in) or with its formatting. It rises in from
+   the caption box, quickly, and only fades with reduced motion. */
+.paste-offer {
+  position: absolute;
+  z-index: 5;
+  padding: 3px;
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-float);
+  transform-origin: top left;
+  animation: paste-offer-in 160ms var(--ease-out);
+}
+.paste-offer .segmented { border: 0; background: transparent; }
+.paste-offer .segmented button { font: 500 13px/18px var(--font-sans); }
+@keyframes paste-offer-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.96); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .paste-offer { animation: paste-offer-fade 120ms linear; }
+  @keyframes paste-offer-fade { from { opacity: 0; } }
+}
