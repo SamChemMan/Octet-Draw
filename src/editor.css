@@ -6035,7 +6035,7 @@ button.variant.add {
   background: var(--surface-raised);
   box-shadow: var(--shadow-float);
   transform-origin: top left;
-  animation: paste-offer-in 160ms var(--ease-out);
+  animation: paste-offer-in var(--motion-fast) var(--ease-out);
 }
 .paste-offer .segmented { border: 0; background: transparent; }
 .paste-offer .segmented button { font: 500 13px/18px var(--font-sans); }
@@ -6043,6 +6043,6 @@ button.variant.add {
   from { opacity: 0; transform: translateY(-4px) scale(0.96); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .paste-offer { animation: paste-offer-fade 120ms linear; }
+  .paste-offer { animation: paste-offer-fade var(--motion-fast) linear; }
   @keyframes paste-offer-fade { from { opacity: 0; } }
 }
