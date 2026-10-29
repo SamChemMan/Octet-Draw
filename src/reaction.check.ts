@@ -253,7 +253,7 @@ for (const id of [first, second]) {
 }
 
 // A name under a structure, wider than it, goes with it: the structure does not move away from its name. The name takes
-// no room in the row. A second clean-up changes nothing.
+// room in the row, so nothing beside it runs into it. A second clean-up changes nothing.
 {
   let t: Mol = addRing(EMPTY, 6, false, { point: [0, 0.4] }); // above the arrow's line, so it moves
   let arrow: number, name: number;
@@ -264,7 +264,7 @@ for (const id of [first, second]) {
   const dv = [0, 1].map((k) => pos(done, ring[0])[k] - pos(t, ring[0])[k]), was = t.captions!.find((c) => c.id === name)!, now = done.captions!.find((c) => c.id === name)!;
   assert.ok(Math.abs(dv[1]) > 0.1, "the ring moves to the level line");
   assert.ok(Math.abs(now.x - was.x - dv[0]) < 1e-9 && Math.abs(now.y - was.y - dv[1]) < 1e-9, "its name goes with it");
-  assert.ok(Math.abs(Math.min(a.from[0], a.to[0]) - ink(done)(ring)[2] - gap) < 1e-6, "the arrow is a gap after the ring, not after the name");
+  assert.ok(Math.abs(Math.min(a.from[0], a.to[0]) - capBox(done)(name)![2] - gap) < 1e-6, "the arrow is a gap after the name");
   assert.deepEqual(clean(done, find(done, arrow)), done, "a second clean-up changes nothing");
 }
 
@@ -284,33 +284,165 @@ for (const id of [first, second]) {
   assert.deepEqual(clean(done, find(done, arrow)), done, "a second clean-up changes nothing");
 }
 
+// Clean Up Reaction on the whole drawing as the editor runs it (Editor.tsx cleanReactions): structures drawn, arrows
+// grown to fit their text, and captions placed and measured as the renderer places them. Node has no fonts, so text is
+// measured roughly here (0.55 of its size a letter, labels 0.6); the editor measures it in its font.
+const L = 19.2, toDoc = (b: Box): Box => [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L];
+const drawn = (m: Mol) => {
+  const style = readStyle(m.style ?? {}), frame = frameStyle(style, L), pt = (4 / 3) * frame.k;
+  const measure = (text: string) => { const s = frame.size, w = 0.6 * s * text.length; return { width: w, ascent: 0.72 * s, outline: [[0, -0.72 * s], [w, -0.72 * s], [w, 0.2 * s], [0, 0.2 * s]] as [number, number][] }; };
+  const width = (text: string, c: { size?: number }) => 0.55 * (c.size ?? style.captionSize) * pt * text.length;
+  const drawing = render(m, frame, measure, L), arrows = fitArrows(m, L, (c) => Math.max(...c.text.split("\n").map((x) => width(x, c))), pt);
+  const placed = placeCaptions(m, drawing, width, arrows, pt, style.captionSize);
+  const captionBox = (id: number) => { const c = placed.find((x) => x.id === id); return c && toDoc(c.box); };
+  const inkOf = (mol: Mol) => {
+    const d = mol === m ? drawing : render(mol, frame, measure, L);
+    return (atoms: number[]): Box | undefined => { const bs = atoms.flatMap((i) => (d.ink[i] ? [d.ink[i]] : [])); return bs.length ? toDoc([Math.min(...bs.map((b) => b[0])), Math.min(...bs.map((b) => b[1])), Math.max(...bs.map((b) => b[2])), Math.max(...bs.map((b) => b[3]))]) : undefined; };
+  };
+  const size = (style.captionSize * pt) / L, w = width("+", {}) / L;
+  const o: Layout = { gap: gapFor(style.captionSize, style.bond), width: ((pageSize(style)[0] * 72) / 25.4 - 72) / style.bond, captionBox, plusBox: [-w / 2, -DESCENT * size, w / 2, ASCENT * size], captionPt: style.captionSize, bondPt: style.bond };
+  return { arrows, captionBox, ink: inkOf(m), inkOf, o };
+};
+const cleanAll = (m: Mol, pick: (r: Reaction) => boolean) => { const d = drawn(m); return cleanUpReactions(m, d.arrows, d.inkOf, d.o, pick); };
+const points = (m: Mol) => [
+  ...m.atoms.map((a) => a.location.slice(0, 2)), ...(m.captions ?? []).map((c) => [c.x, c.y]), ...(m.shapes ?? []).flatMap((x) => [x.from, x.to]),
+  ...(m.arrows ?? []).flatMap((a) => [a.from, a.to, ...(a.curve?.points.map((q) => q.at) ?? [])]),
+];
+// Everything as drawn after a clean-up: each structure's ink, each caption's box and each straight arrow's shaft.
+const laidOut = (m: Mol) => {
+  const d = drawn(m), arrows = d.arrows.filter((a) => straightArrow(a));
+  const boxes: [string, Box][] = [
+    ...fragments(m).map((g, k): [string, Box] => [`structure ${k}`, d.ink(g)!]),
+    ...(m.captions ?? []).map((c): [string, Box] => [c.text, d.captionBox(c.id)!]),
+    ...arrows.map((a): [string, Box] => [`arrow ${a.id}`, [Math.min(a.from[0], a.to[0]), Math.min(a.from[1], a.to[1]) - 0.05, Math.max(a.from[0], a.to[0]), Math.max(a.from[1], a.to[1]) + 0.05]]),
+  ];
+  return { d, arrows, boxes };
+};
+const overlaps = (boxes: [string, Box][]) => boxes.flatMap(([p, a], k) => boxes.slice(k + 1).flatMap(([q, b]) => (a[0] < b[2] - 1e-6 && b[0] < a[2] - 1e-6 && a[1] < b[3] - 1e-6 && b[1] < a[3] - 1e-6 ? [`${p} / ${q}`] : [])));
+const widthOf = (b: Box) => b[2] - b[0];
+const midOf = (b: Box) => (b[0] + b[2]) / 2;
+
+// Sam's scheme (29 Oct 2026): two reactants with a plus sign, a CAS number and a price under the second, two lines of
+// conditions above a straight arrow and four below, each a caption of its own, one product and its yield beside it (or
+// under it). Clean up lays it out as Sam laid it out by hand: the arrow as long as its widest line with a gap each end,
+// the lines centred on it in the order drawn, the text under a structure kept under it and spaced round, the yield
+// kept with the product (no plus sign before it), everything level on the arrow's line, nothing overlapping.
+for (const under of [false, true]) {
+  let t: Mol = addRing(EMPTY, 6, true, { point: [0, 0.2] });
+  let arrow: number, cas: number, price: number, yld: number;
+  [t] = addCaption(t, { text: "+", x: 2.3, y: -0.3, align: "centre" });
+  t = addRing(t, 6, false, { point: [4.4, 0.5] });
+  [t, cas] = addCaption(t, { text: "CAS 100-63-0", x: 4.6, y: -1.9, align: "centre" });
+  [t, price] = addCaption(t, { text: "£24 / 10g", x: 4.4, y: -2.75, align: "centre" });
+  [t, arrow] = addArrow(t, { kind: "reaction", from: [7.4, 0.1], to: [17, 0] });
+  const above = ["[PdCl(allyl)]2 (1 mol%)", "t-BuXPhos (4 mol%)"], below = ["Cs2CO3 (2 eq.)", "H2O (2 eq.)", "DME, 90°C, 15h", "O2 (1 atm)"];
+  const lines: number[] = [];
+  for (const [k, text] of above.entries()) { let id: number; [t, id] = addCaption(t, { text, x: 12.4 - 0.4 * k, y: 1.5 - 0.85 * k, align: "centre" }); lines.push(id); }
+  for (const [k, text] of below.entries()) { let id: number; [t, id] = addCaption(t, { text, x: 11.9 + 0.3 * (k % 2), y: -0.9 - 0.85 * k, align: "centre" }); lines.push(id); }
+  t = addRing(t, 6, true, { point: [19.6, -0.3] });
+  [t, yld] = addCaption(t, { text: "35%", ...(under ? { x: 19.6, y: -2.2 } : { x: 21.5, y: -0.4 }), align: "centre" });
+  const how = under ? "yield under" : "yield beside";
+  const r = findReaction(t, arrow, drawn(t).arrows, drawn(t).ink, drawn(t).captionBox)!;
+  assert.deepEqual(r.steps.map((s) => s.kind), ["structure", "plus", "structure", "arrow", "structure"], `${how}: the yield is not a product`);
+  assert.deepEqual([r.conditions.get(arrow)!.above.length, r.conditions.get(arrow)!.below.length], [2, 4], `${how}: two lines above, four below`);
+  const done = cleanAll(t, withStructure);
+  assert.equal(done.count, 1, `${how}: one reaction laid out`);
+  const out = done.mol, { d, boxes } = laidOut(out), a = d.arrows.find((x) => x.id === arrow)!, g = gapFor(10, 14.4);
+  assert.deepEqual(overlaps(boxes), [], `${how}: nothing overlaps`);
+  assert.equal(out.captions!.filter((c) => c.text === "+").length, 1, `${how}: no plus sign before the yield`);
+  // The conditions: kept on the arrow, centred on it, in the order drawn, and the arrow long enough for the widest.
+  const box = (id: number) => d.captionBox(id)!, byText = (text: string) => out.captions!.find((c) => c.text === text)!;
+  for (const id of lines) assert.ok(out.captions!.find((c) => c.id === id)!.on?.arrow === arrow, `${how}: each line is kept on the arrow`);
+  const mid = (a.from[0] + a.to[0]) / 2, widest = Math.max(...lines.map((id) => widthOf(box(id))));
+  for (const id of lines) assert.ok(Math.abs(midOf(box(id)) - mid) < 1e-6, `${how}: each line centred on the arrow`);
+  assert.ok(Math.abs(a.to[0] - a.from[0]) >= widest + 2 * g - 1e-6 && a.from[1] === a.to[1], `${how}: the arrow is level and reaches a gap past its widest line`);
+  const ys = (texts: string[]) => texts.map((x) => box(byText(x).id)[1]);
+  assert.ok(ys(above).every((y, k, all) => !k || y < all[k - 1]) && ys(above).every((y) => y > a.from[1]), `${how}: the lines above, in the order drawn`);
+  assert.ok(ys(below).every((y, k, all) => !k || y < all[k - 1]) && ys(below).every((y) => y < a.from[1]), `${how}: the lines below, in the order drawn`);
+  // The structures: level on the arrow's line, with what goes under or beside them moved with them.
+  const [, second, product] = fragments(t), shift = (atoms: number[]) => [0, 1].map((k) => pos(out, atoms[0])[k] - pos(t, atoms[0])[k]);
+  for (const s of fragments(out)) assert.ok(Math.abs((d.ink(s)![1] + d.ink(s)![3]) / 2 - a.from[1]) < 1e-6, `${how}: each structure centred on the arrow's line`);
+  const moved = (id: number) => { const p = t.captions!.find((c) => c.id === id)!, q = out.captions!.find((c) => c.id === id)!; return [q.x - p.x, q.y - p.y]; };
+  for (const id of [cas, price]) {
+    assert.ok(moved(id).every((v, k) => Math.abs(v - shift(second)[k]) < 1e-9), `${how}: ${t.captions!.find((c) => c.id === id)!.text} moves with its structure`);
+    assert.ok(box(id)[3] < d.ink(second)![1] && midOf(box(id)) > d.ink(second)![0] && midOf(box(id)) < d.ink(second)![2], `${how}: and stays under it`);
+  }
+  assert.ok(moved(yld).every((v, k) => Math.abs(v - shift(product)[k]) < 1e-9), `${how}: the yield moves with the product`);
+  const again = cleanAll(out, withStructure).mol, p = points(out), q = points(again);
+  assert.ok(p.length === q.length && p.every((x, k) => Math.hypot(x[0] - q[k][0], x[1] - q[k][1]) < 1e-6), `${how}: a second clean-up moves nothing`);
+}
+// The same scheme typed as one caption for each block (lines kept in one text): laid out the same way.
+{
+  let t: Mol = addRing(EMPTY, 6, true, { point: [0, 0.2] });
+  let arrow: number, note: number, up: number, down: number;
+  [t] = addCaption(t, { text: "+", x: 2.3, y: -0.3, align: "centre" });
+  t = addRing(t, 6, false, { point: [4.4, 0.5] });
+  [t, note] = addCaption(t, { text: "CAS 100-63-0\n£24 / 10g", x: 4.6, y: -1.9, align: "centre" });
+  [t, arrow] = addArrow(t, { kind: "reaction", from: [7.4, 0.1], to: [14.4, 0] });
+  [t, up] = addCaption(t, { text: "[PdCl(allyl)]2 (1 mol%)\nt-BuXPhos (4 mol%)", x: 10.4, y: 1.4, align: "centre" });
+  [t, down] = addCaption(t, { text: "Cs2CO3 (2 eq.)\nH2O (2 eq.)\nDME, 90°C, 15h\nO2 (1 atm)", x: 9.4, y: -0.9, align: "centre" });
+  t = addRing(t, 6, true, { point: [16.6, -0.3] });
+  [t] = addCaption(t, { text: "35%", x: 18.5, y: -0.4, align: "centre" });
+  const done = cleanAll(t, withStructure), out = done.mol, { d, boxes } = laidOut(out), a = d.arrows.find((x) => x.id === arrow)!, mid = (a.from[0] + a.to[0]) / 2;
+  assert.equal(done.count, 1, "one caption a block: laid out");
+  assert.deepEqual(overlaps(boxes), [], "one caption a block: nothing overlaps");
+  assert.deepEqual([up, down].map((id) => out.captions!.find((c) => c.id === id)!.on?.side), ["above", "below"], "one caption a block: kept on the arrow");
+  for (const id of [up, down]) assert.ok(Math.abs(midOf(d.captionBox(id)!) - mid) < 1e-6, "one caption a block: centred on the arrow");
+  assert.ok(Math.abs(a.to[0] - a.from[0]) >= Math.max(widthOf(d.captionBox(up)!), widthOf(d.captionBox(down)!)) + 2 * gapFor(10, 14.4) - 1e-6, "one caption a block: the arrow reaches a gap past its widest line");
+  const second = d.ink(fragments(out)[1])!;
+  assert.ok(d.captionBox(note)![3] < second[1] && Math.abs(midOf(d.captionBox(note)!) - midOf(second)) < 0.3, "one caption a block: the note stays under its structure");
+  assert.equal(out.captions!.filter((c) => c.text === "+").length, 1, "one caption a block: no plus sign before the yield");
+}
+
+// Conditions only below an arrow, and only above the next, in a scheme of two steps (A → B → C), each line a caption of
+// its own: each arrow fits its own lines, which are centred on it in the order drawn, and nothing overlaps.
+{
+  let t: Mol = addRing(EMPTY, 6, false, { point: [0, 0] });
+  let first: number, second: number;
+  [t, first] = addArrow(t, { kind: "reaction", from: [2, 0.2], to: [5, 0] });
+  const [t1, nah] = addCaption(t, { text: "NaH, THF", x: 3.4, y: -0.9, align: "centre" });
+  const [t2, temp] = addCaption(t1, { text: "0 °C to rt, 2 h", x: 3.7, y: -1.75, align: "centre" });
+  t = addRing(t2, 5, false, { point: [8, 0.4] });
+  [t, second] = addArrow(t, { kind: "reaction", from: [10, 0], to: [13, 0.1] });
+  const [t3, h2] = addCaption(t, { text: "H2, Pd/C", x: 11.6, y: 0.7, align: "centre" });
+  t = addRing(t3, 6, true, { point: [15.5, -0.2] });
+  const done = cleanAll(t, withStructure), out = done.mol, { d, boxes } = laidOut(out), g = gapFor(10, 14.4);
+  assert.equal(done.count, 1, "one scheme of two steps");
+  assert.deepEqual(overlaps(boxes), [], "nothing overlaps");
+  for (const [arrow, ids, side] of [[first, [nah, temp], "below"], [second, [h2], "above"]] as const) {
+    const a = d.arrows.find((x) => x.id === arrow)!, mid = (a.from[0] + a.to[0]) / 2;
+    for (const id of ids) {
+      assert.deepEqual(out.captions!.find((c) => c.id === id)!.on, { arrow, side }, "kept on its arrow, on its side");
+      assert.ok(Math.abs(midOf(d.captionBox(id)!) - mid) < 1e-6, "centred on it");
+    }
+    assert.ok(Math.abs(a.to[0] - a.from[0]) >= Math.max(...ids.map((id) => widthOf(d.captionBox(id)!))) + 2 * g - 1e-6, "the arrow reaches a gap past its text");
+    for (const s of fragments(out)) assert.ok(Math.abs((d.ink(s)![1] + d.ink(s)![3]) / 2 - a.from[1]) < 1e-6, "one level line");
+  }
+  assert.ok(d.captionBox(nah)![1] > d.captionBox(temp)![1], "the lines below in the order drawn");
+}
+
+// One word above the arrow, as Clean Up Reaction laid it out before text under structures and stacks of lines were
+// read (to 1e-6 bond lengths).
+{
+  let t: Mol = addRing(EMPTY, 6, false, { point: [0, 0.3] });
+  let arrow: number;
+  [t, arrow] = addArrow(t, { kind: "reaction", from: [2.2, 0], to: [5.6, 0.2] });
+  [t] = addCaption(t, { text: "heat", x: 4.1, y: 0.7, align: "centre" });
+  t = addRing(t, 5, false, { point: [8, -0.3] });
+  const done = cleanAll(t, withStructure).mol, round = (v: number) => Math.round(v * 1e6) / 1e6 + 0;
+  const a = done.arrows!.find((x) => x.id === arrow)!;
+  const ONE_WORD = { arrow: [1.928525, 0.1, 5.539637, 0.1], atoms: [[0, 1.1], [-0.866025, 0.6], [-0.866025, -0.4], [0, -0.9], [0.866025, -0.4], [0.866025, 0.6], [7.414811, 0.866962], [6.605794, 0.279177], [6.914811, -0.67188], [7.914811, -0.67188], [8.223828, 0.279177]] };
+  assert.deepEqual([...a.from, ...a.to].map(round), ONE_WORD.arrow, "the arrow as before");
+  assert.deepEqual(done.atoms.map((x) => [round(x.location[0]), round(x.location[1])]), ONE_WORD.atoms, "the structures as before");
+  assert.deepEqual(done.captions!.map((c) => [c.text, c.on?.side ?? ""]), [["heat", "above"]], "the word kept on the arrow, above it");
+}
+
 // Sam's corpus (on this Mac only): Clean Up Reaction on the whole drawing, as the editor runs it, is a fixed point. On
 // each file with a straight arrow, a second clean-up changes no coordinate, with nothing selected (reactions with a
-// structure) and with everything selected (every reaction, a spectrum's arrows and labels too). Node has no fonts, so
-// text is measured roughly here (0.6 of its size a letter); the editor measures it in its font.
+// structure) and with everything selected (every reaction, a spectrum's arrows and labels too).
 const CORPUS = join(homedir(), "octet-research/corpus/sam");
 if (!existsSync(CORPUS)) console.log("reaction.check: no corpus here, corpus part skipped");
 else {
-  const L = 19.2, toDoc = (b: Box): Box => [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L];
-  const cleanAll = (m: Mol, pick: (r: Reaction) => boolean) => {
-    const style = readStyle(m.style ?? {}), frame = frameStyle(style, L), pt = (4 / 3) * frame.k;
-    const measure = (text: string) => { const s = frame.size, w = 0.6 * s * text.length; return { width: w, ascent: 0.72 * s, outline: [[0, -0.72 * s], [w, -0.72 * s], [w, 0.2 * s], [0, 0.2 * s]] as [number, number][] }; };
-    const width = (text: string, c: { size?: number }) => 0.55 * (c.size ?? style.captionSize) * pt * text.length;
-    const drawing = render(m, frame, measure, L), arrows = fitArrows(m, L, (c) => Math.max(...c.text.split("\n").map((x) => width(x, c))), pt);
-    const placed = placeCaptions(m, drawing, width, arrows, pt, style.captionSize);
-    const captionBox = (id: number) => { const c = placed.find((x) => x.id === id); return c && toDoc(c.box); };
-    const inkOf = (mol: Mol) => {
-      const d = mol === m ? drawing : render(mol, frame, measure, L);
-      return (atoms: number[]): Box | undefined => { const bs = atoms.flatMap((i) => (d.ink[i] ? [d.ink[i]] : [])); return bs.length ? toDoc([Math.min(...bs.map((b) => b[0])), Math.min(...bs.map((b) => b[1])), Math.max(...bs.map((b) => b[2])), Math.max(...bs.map((b) => b[3]))]) : undefined; };
-    };
-    const size = (style.captionSize * pt) / L, w = width("+", {}) / L;
-    const o: Layout = { gap: gapFor(style.captionSize, style.bond), width: ((pageSize(style)[0] * 72) / 25.4 - 72) / style.bond, captionBox, plusBox: [-w / 2, -DESCENT * size, w / 2, ASCENT * size], captionPt: style.captionSize, bondPt: style.bond };
-    return cleanUpReactions(m, arrows, inkOf, o, pick);
-  };
-  const points = (m: Mol) => [
-    ...m.atoms.map((a) => a.location.slice(0, 2)), ...(m.captions ?? []).map((c) => [c.x, c.y]), ...(m.shapes ?? []).flatMap((x) => [x.from, x.to]),
-    ...(m.arrows ?? []).flatMap((a) => [a.from, a.to, ...(a.curve?.points.map((q) => q.at) ?? [])]),
-  ];
   let files = 0, laid = 0;
   for (const f of readdirSync(CORPUS).filter((x) => x.endsWith(".cdxml")).sort()) {
     const start = wholeGroups(readOct(readFileSync(join(CORPUS, f), "utf8")).mol);
