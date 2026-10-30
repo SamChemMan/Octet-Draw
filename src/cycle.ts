@@ -12,10 +12,16 @@ export type Cycle = { id: number; centre: [number, number]; radius: number; cloc
 // A cycle's caption: its centre label, or the reagent coming in or product going out on a step (node k to k + 1).
 // at: where along its step a side arrow's outer end is (0 at the step's start, 1 at its end); reach: how far that end
 // is from the circle, in bond lengths (less than 0 is inside it). Unset, a reagent's end is 0.18 along and a
-// product's 0.82, 1.1 bond lengths outside. Dragging the text sets them.
-export type CycleText = { cycle: number; step: number; side: "in" | "out" | "centre"; at?: number; reach?: number };
+// product's 0.82, 1.1 bond lengths outside (see sideAt for one that passes through). Dragging the text sets them.
+// through: the side arrow passes through the cycle (it touches the arc and goes out again) instead of ending at it. A
+// reagent and a product on the same step that both pass through are one arrow, from the reagent to the product.
+export type CycleText = { cycle: number; step: number; side: "in" | "out" | "centre"; at?: number; reach?: number; through?: boolean };
 export const sideAt = (t: CycleText) => t.at ?? (t.side === "in" ? 0.18 : 0.82);
 export const sideReach = (t: CycleText) => t.reach ?? 1.1;
+// A pass-through arrow's ends, unset, are THROUGH bond lengths along the arc either side of where it touches (the
+// middle of its step for a reagent and product together; 0.4 along for a reagent alone, 0.6 for a product), so it
+// makes the same tight swoop on any size of circle.
+const THROUGH = 1.3;
 
 type P = [number, number];
 const GAP_PT = 6; // clear space between an arc's ends and an intermediate's ink, in pt
@@ -24,7 +30,8 @@ const GAP_PT = 6; // clear space between an arc's ends and an intermediate's ink
 const DERIVED = -1_000_000;
 
 export type CycleLayout = {
-  arrows: (Arrow & { cycle: number; step: number; caption?: number })[]; // caption: a side arrow's text
+  // caption and captionEnd: a side arrow's text at its start (a reagent's) and at its end (a product's).
+  arrows: (Arrow & { cycle: number; step: number; caption?: number; captionEnd?: number })[];
   // Each step's arc as drawn: px, y down. It runs from angle a0 + dir * from to a0 + dir * to about centre.
   spans: { cycle: number; step: number; centre: P; R: number; a0: number; dir: number; from: number; to: number }[];
   anchors: Map<number, { x: number; y: number; anchor: "start" | "middle" | "end" }>; // caption id → anchor (px)
@@ -59,18 +66,42 @@ export function layoutCycles(m: Mol, k: number, pt: number, ink: (atoms: number[
       if (to - from < 0.05) continue;
       out.spans.push({ cycle: c.id, step: s, centre, R, a0, dir, from, to });
       const A = at(a0 + dir * from), B = at(a0 + dir * to), mid = at(a0 + dir * (from + to) / 2);
-      out.arrows.push({ id: next--, kind: "curved", from: toDoc(A), to: toDoc(B), bend: bendFor(A, B, mid), cycle: c.id, step: s, ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}), ...own, ...(c.width ? { width: c.width } : {}) });
+      const style = { cycle: c.id, step: s, ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}), ...own, ...(c.width ? { width: c.width } : {}) };
+      out.arrows.push({ id: next--, kind: "curved", from: toDoc(A), to: toDoc(B), bend: bendFor(A, B, mid), ...style });
       // Side arrows: a reagent joins the arc before its middle; a product leaves after it.
-      for (const cap of m.captions ?? []) {
-        const on = cap.cycle;
-        if (!on || on.cycle !== c.id || on.step !== s || on.side === "centre") continue;
-        // The arrow meets the arc 0.2 of the step on from its outer end (back from it, for a product), and no more than
-        // 0.6 radians on, so it stays short on a step most of the way round (one with fewer than two nodes).
-        const g = sideAt(on), reach = sideReach(on), w = Math.min(0.2, 0.6 / (to - from)), fa = Math.min(0.95, Math.max(0.05, on.side === "in" ? g + w : g - w));
-        const onArc = at(a0 + dir * (from + (to - from) * fa)), away = at(a0 + dir * (from + (to - from) * g), R + reach * f * k);
-        const [p, q] = on.side === "in" ? [away, onArc] : [onArc, away];
-        const bulge = at(a0 + dir * (from + (to - from) * (fa + g) / 2), R + reach * (0.75 / 1.1) * f * k);
-        out.arrows.push({ id: next--, kind: "curved", from: toDoc(p), to: toDoc(q), bend: bendFor(p, q, bulge) * 0.6, cycle: c.id, step: s, caption: cap.id, ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}), ...own, ...(c.width ? { width: c.width } : {}) });
+      const sides = (m.captions ?? []).filter((x) => x.cycle && x.cycle.cycle === c.id && x.cycle.step === s && x.cycle.side !== "centre");
+      // A reagent and a product that both pass through are one arrow.
+      const pairIn = sides.find((x) => x.cycle!.side === "in" && x.cycle!.through), pairOut = sides.find((x) => x.cycle!.side === "out" && x.cycle!.through);
+      const paired = !!pairIn && !!pairOut;
+      const w = Math.min(0.2, 0.6 / (to - from)), along = (g: number, r = R) => at(a0 + dir * (from + (to - from) * g), r);
+      // Where along the step a side arrow's end is: its own place, or for one passing through, THROUGH from its touch.
+      const half = Math.min(0.45, (THROUGH * f * k) / (R * (to - from)));
+      const gOf = (on: CycleText) => on.at ?? (!on.through ? sideAt(on) : on.side === "in" ? (paired ? 0.5 : 0.4) - half : (paired ? 0.5 : 0.6) + half);
+      const endOf = (on: CycleText) => along(gOf(on), R + sideReach(on) * f * k);
+      // A pass-through arrow: from one outer end, touching the arc halfway between, to the other. One with text at
+      // one end only has its other end mirrored: it touches the arc where a side arrow would meet it.
+      const through = (start: number, end: number, ga: number, gb: number, ids: { caption?: number; captionEnd?: number }) => {
+        const A = along(ga, R + start * f * k), B = along(gb, R + end * f * k), T = along((ga + gb) / 2);
+        out.arrows.push({ id: next--, kind: "curved", from: toDoc(A), to: toDoc(B), bend: bendFor(A, B, T), ...style, ...ids });
+      };
+      if (pairIn && pairOut) through(sideReach(pairIn.cycle!), sideReach(pairOut.cycle!), gOf(pairIn.cycle!), gOf(pairOut.cycle!), { caption: pairIn.id, captionEnd: pairOut.id });
+      for (const cap of sides) {
+        const on = cap.cycle!;
+        const g = gOf(on), reach = sideReach(on), away = endOf(on);
+        // The pair's arrow is drawn above; each other side arrow is its own.
+        if (paired && (cap === pairIn || cap === pairOut)) {
+          // drawn above
+        } else if (on.through) {
+          const other = Math.min(0.98, Math.max(0.02, on.side === "in" ? g + 2 * (on.at === undefined ? half : w) : g - 2 * (on.at === undefined ? half : w)));
+          if (on.side === "in") through(reach, reach, g, other, { caption: cap.id }); else through(reach, reach, other, g, { captionEnd: cap.id });
+        } else {
+          // The arrow meets the arc 0.2 of the step on from its outer end (back from it, for a product), and no more
+          // than 0.6 radians on, so it stays short on a step most of the way round (one with fewer than two nodes).
+          const fa = Math.min(0.95, Math.max(0.05, on.side === "in" ? g + w : g - w)), onArc = along(fa);
+          const [p, q] = on.side === "in" ? [away, onArc] : [onArc, away];
+          const bulge = along((fa + g) / 2, R + reach * (0.75 / 1.1) * f * k);
+          out.arrows.push({ id: next--, kind: "curved", from: toDoc(p), to: toDoc(q), bend: bendFor(p, q, bulge) * 0.6, ...style, ...(on.side === "in" ? { caption: cap.id } : { captionEnd: cap.id }) });
+        }
         // The text sits beyond the outer end of the side arrow.
         const outward = Math.atan2(away[1] - centre[1], away[0] - centre[0]), textAt = at(outward, R + reach * f * k + Math.sign(reach || 1) * gap);
         const anchor = Math.cos(outward) > 0.35 ? "start" : Math.cos(outward) < -0.35 ? "end" : "middle";

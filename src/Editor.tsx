@@ -3168,6 +3168,7 @@ export default function Editor() {
         // The text stays where it is (a placed one), and its arrow turns round.
         if (what === "side.swap") return { ...t, side: t.side === "in" ? "out" : "in" };
         // Inside, the end stays no nearer the middle than a fifth of the radius.
+        if (what === "side.through") return { ...t, through: !t.through };
         if (what === "side.inside") { const r = doc.cycles?.find((y) => y.id === t.cycle)?.radius ?? 3; return { ...t, reach: sideReach(t) > 0 ? -Math.min(sideReach(t), 0.8 * r) : -sideReach(t) }; }
         const { at: _a, reach: _r, ...rest } = t;
         return rest;
@@ -3199,7 +3200,7 @@ export default function Editor() {
     if (what === "centre" || what === "in" || what === "out") {
       setPicked(new Set());
       setSelection(new Set());
-      return openWriting({ value: "", cycle: { cycle: c.id, step: what === "centre" ? 0 : cycleStep, side: what }, style: { ...textStyle } });
+      return openWriting({ value: "", cycle: { cycle: c.id, step: what === "centre" ? 0 : cycleStep, side: what, ...(what !== "centre" ? { through: true } : {}) }, style: { ...textStyle } });
     }
   }
   // The Cycle tool. A new cycle drawn from its centre out to a point, turning clockwise, with no nodes yet.
@@ -3219,7 +3220,7 @@ export default function Editor() {
       setSelection(new Set());
       setPicked(new Set());
       if (there) return openWriting({ id: there.id, value: there.text, runs: runsOf(there).map((x) => ({ ...x })), version: 0, style: {} });
-      return openWriting({ value: "", cycle: { cycle: c.id, step, side }, style: { ...textStyle } });
+      return openWriting({ value: "", cycle: { cycle: c.id, step, side, through: true }, style: { ...textStyle } });
     }
     if (!to && c) {
       const a = angleAbout(c, from), gap = breakAt(doc, c, a, 10 / (c.radius * L * views.get().zoom));
@@ -3420,8 +3421,9 @@ export default function Editor() {
       const c = placed.find((x) => x.id === (original.get(caption.id) ?? caption.id));
       const follows = (caption.under && caption.under.every((i) => atoms.has(i))) || (caption.on && arrowIds.has(caption.on.arrow)) || (caption.cycle && cycleIds.has(caption.cycle.cycle));
       // A cycle's reagent or product moves by its arrow's outer end, where it is at the press.
-      const side = caption.cycle && caption.cycle.side !== "centre" ? cycleArrows.find((a) => a.caption === caption.id) : undefined;
-      if (c && picks.has(caption.id) && !follows) captions.set(caption.id, side ? (caption.cycle!.side === "in" ? side.from : side.to) : anchorOf(c));
+      // (A reagent's text is at its arrow's start, a product's at its end.)
+      const start = cycleArrows.find((a) => a.caption === caption.id), end = cycleArrows.find((a) => a.captionEnd === caption.id);
+      if (c && picks.has(caption.id) && !follows) captions.set(caption.id, start ? start.from : end ? end.to : anchorOf(c));
     }
     return { captions, arrowIds, cycleIds };
   };
@@ -4853,7 +4855,7 @@ export default function Editor() {
       if (c) {
         const p = placed.find((x) => x.id === c.id), w = whole(c);
         return { kind: "caption", mode: "picked", colour: w.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some(labelable),
-          ...(cs.length === 1 && c.cycle && c.cycle.side !== "centre" ? { cycleSide: { side: c.cycle.side, moved: c.cycle.at !== undefined || c.cycle.reach !== undefined, inside: sideReach(c.cycle) < 0 } } : {}),
+          ...(cs.length === 1 && c.cycle && c.cycle.side !== "centre" ? { cycleSide: { side: c.cycle.side, moved: c.cycle.at !== undefined || c.cycle.reach !== undefined, inside: sideReach(c.cycle) < 0, through: !!c.cycle.through } } : {}),
           // Their Interpret chemically, while the document's is on: whether each one that reads as chemistry has it on.
           ...(style.interpret && cs.some(labelable) ? { chemical: cs.filter(labelable).every((x) => x.chemical !== false) } : {}) };
       }

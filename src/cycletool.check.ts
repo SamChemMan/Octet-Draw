@@ -106,4 +106,27 @@ assert.equal(empty.cycles?.[0]?.nodes.length, 0);
   assert.deepEqual([kept.captions![0].cycle!.at, kept.captions![0].cycle!.reach], [0.4, -0.9]);
 }
 
+// Passing through: a reagent's arrow touches the arc and goes out again (its head outside the circle); a reagent and
+// a product on the same step that both pass through are one arrow from one to the other. Saved and opened again.
+{
+  let s: Mol, sid: number;
+  [s, sid] = addCycle(EMPTY, { centre: [0, 0], radius: 3, clockwise: true, nodes: [], at: [] });
+  s = addStop(addStop(s, sid, right, []), sid, left, []);
+  const lay = (x: Mol) => layoutCycles(x, L, 1, ink(x)), r = (q: [number, number]) => Math.hypot(...q);
+  let rid: number, pid: number;
+  [s, rid] = addCaption(s, { text: "H2", x: 0, y: 0, cycle: { cycle: sid, step: 1, side: "in", through: true } });
+  let a = lay(s).arrows.find((x) => x.caption === rid)!;
+  assert.ok(r(a.from) > 3.5 && r(a.to) > 3.5, "both ends outside");
+  [s, pid] = addCaption(s, { text: "H2O", x: 0, y: 0, cycle: { cycle: sid, step: 1, side: "out", through: true } });
+  const sides = lay(s).arrows.filter((x) => x.caption !== undefined || x.captionEnd !== undefined);
+  assert.equal(sides.length, 1);
+  a = sides[0];
+  assert.ok(a.caption === rid && a.captionEnd === pid);
+  // Stopping at the cycle again: two arrows, each ending on the arc.
+  const stop = { ...s, captions: s.captions!.map((c) => ({ ...c, cycle: { ...c.cycle!, through: false } })) };
+  assert.equal(lay(stop).arrows.filter((x) => x.caption !== undefined || x.captionEnd !== undefined).length, 2);
+  const kept = readOct(writeOct(s, DEFAULT_STYLE)).mol;
+  assert.ok(kept.captions!.every((c) => c.cycle?.through === true));
+}
+
 console.log("cycle tool ok");

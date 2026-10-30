@@ -10,7 +10,7 @@ import {
   ClipboardText, CopySimple, IdentificationBadge, Key, Target, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
   TextAlignJustify, TextAlignRight, TextB, TextItalic, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, Copy, ListDashes, Percent,
-  EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle,
+  EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight,
   Question, EyeClosed, ArrowsInLineVertical, BracketsRound, TreeStructure, Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, StarFour, TextTSlash,
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
@@ -42,7 +42,7 @@ export type Context =
       script?: "sub" | "super"; font?: string; fonts?: string[]; labelable?: boolean; chemical?: boolean;
       // cycleSide: one picked caption that is a cycle's reagent (in) or product (out): moved from where Octet puts it,
       // and inside the circle.
-      cycleSide?: { side: "in" | "out"; moved: boolean; inside: boolean } }
+      cycleSide?: { side: "in" | "out"; moved: boolean; inside: boolean; through: boolean } }
   // size: the heads' palette size ("own" for a size set by hand), when the arrows have heads. ratio: an equilibrium's.
   // fillable: closed curves and block arrows, which take a fill.
   | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
@@ -359,7 +359,8 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       if (context.cycleSide) {
         const c = context.cycleSide;
         items.push(it(<Shuffle size={18} />, c.side === "in" ? "Make it a product" : "Make it a reagent", "cycle.side.swap"),
-          it(<CircleHalf size={18} />, c.inside ? "Put outside the cycle" : "Put inside the cycle", "cycle.side.inside"));
+          it(<CircleHalf size={18} />, c.inside ? "Put outside the cycle" : "Put inside the cycle", "cycle.side.inside"),
+          it(<ArrowBendDownRight size={18} />, c.through ? "Stop at the cycle" : "Pass through the cycle", "cycle.side.through"));
         if (c.moved) items.push(it(<ClockCounterClockwise size={18} />, "Reset position", "cycle.side.reset"));
       }
       if (context.attached) items.push(it(<LinkBreak size={18} />, "Un-tie from structure", "caption.detach"));
