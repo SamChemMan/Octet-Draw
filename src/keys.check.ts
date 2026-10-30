@@ -46,6 +46,19 @@ assert.equal(actionFor(map, press(">", { shiftKey: true }) ?? "", "atom"), "atom
 assert.equal(press("ArrowLeft", { altKey: true, shiftKey: true }), "alt+shift+arrowleft");
 assert.equal(actionFor(map, "alt+shift+arrowleft", "none"), "tilt.left");
 assert.equal(actionFor(map, "alt+arrowup", "none"), "rotate.ccw15");
+// Shift with Command (Ctrl) and a symbol key records the physical key and keeps Shift, as a menu shortcut is
+// written: ⇧⌘- (Reduce) is mod+shift+-, though the key types _. ⌘; and Option with a symbol are their keys too.
+const held = (key: string, code: string, shift = false) => keyOf({ key, code, shiftKey: shift, altKey: false, metaKey: true, ctrlKey: false });
+assert.equal(held("_", "Minus", true), "mod+shift+-");
+assert.equal(held("+", "Equal", true), "mod+shift+=");
+assert.equal(held(";", "Semicolon"), "mod+;");
+assert.equal(held("!", "Digit1", true), "mod+shift+1");
+assert.equal(keyOf({ key: "≠", code: "Equal", shiftKey: false, altKey: true, metaKey: false, ctrlKey: false }), "alt+=");
+// View > Magnify (⇧⌘+) and Reduce (⇧⌘-): the keys pressed find the menu's commands, so the page runs them when the
+// menu does not (registerMenu below puts the menu back as other checks need it).
+registerMenu([["zoom_in", "Magnify", "View", "CmdOrCtrl+Shift+="], ["zoom_out", "Reduce", "View", "CmdOrCtrl+Shift+-"]]);
+assert.equal(actionFor(keymap({}), held("+", "Equal", true)!, "none"), "menu.zoom_in");
+assert.equal(actionFor(keymap({}), held("_", "Minus", true)!, "none"), "menu.zoom_out");
 // The menu's commands join the list; one no longer in the menu (Online search off removes the Search menu) leaves it.
 
 registerMenu([["clean_up", "Clean Up Structure", "Structure", "CmdOrCtrl+Shift+K"], ["search_reaxys", "Search Reaxys", "Search", "Alt+CmdOrCtrl+F"]]);

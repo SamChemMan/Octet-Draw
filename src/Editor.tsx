@@ -5524,7 +5524,7 @@ export default function Editor() {
     arrange_middle: ["Align top-bottom centres", `⌥⇧${MOD}M`, <AlignCenterVertical size={18} />], arrange_bottom: ["Align bottom edges", `⌥⇧${MOD}B`, <AlignBottom size={18} />],
     arrange_across: ["Distribute horizontally", `⌥⇧${MOD}H`, <ArrowsOutLineHorizontal size={18} />], arrange_down: ["Distribute vertically", `⌥⇧${MOD}V`, <ArrowsOutLineVertical size={18} />], select_all: ["Select all", `${MOD}A`, <SelectionAll size={18} />],
     clean_up: ["Clean up structure", `⇧${MOD}K`, <MagicWand size={18} />], flip_h: ["Rotate 180° horizontal", `⇧${MOD}H`, <ArrowsLeftRight size={18} />], flip_v: ["Rotate 180° vertical", `⇧${MOD}V`, <ArrowsDownUp size={18} />],
-    zoom_in: ["Magnify", `⇧${MOD}>`, <MagnifyingGlassPlus size={18} />], zoom_out: ["Reduce", `⇧${MOD}<`, <MagnifyingGlassMinus size={18} />],
+    zoom_in: ["Magnify", `⇧${MOD}+`, <MagnifyingGlassPlus size={18} />], zoom_out: ["Reduce", `⇧${MOD}−`, <MagnifyingGlassMinus size={18} />],
     zoom_actual: ["Actual size", `${MOD}\\`, <FrameCorners size={18} />], zoom_fit: ["Fit to window", `${MOD}/`, <CornersOut size={18} />], show_page: ["Show page", "", <PageIcon size={18} />],
     name_to_structure: ["Convert name to structure", `⇧${MOD}N`, <AtomIcon size={18} />],
     check_structure: ["Check structure", "", <CheckCircle size={18} />], stereo_clear: ["Clear enhanced stereochemistry", "", <Prohibit size={18} />],
@@ -6356,8 +6356,12 @@ export default function Editor() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // On Windows and Linux a key pressed in the page can stay in the web view and never reach the native menu, so
-      // the page runs the menu's Ctrl shortcuts itself. In a text box, Undo, Redo and Select All stay the box's own.
-      if (TAURI && !MAC && !e.defaultPrevented && (e.ctrlKey || e.metaKey)) {
+      // the page runs the menu's Ctrl shortcuts itself. On the Mac it runs those with Shift and a symbol key (⇧⌘-,
+      // ⇧⌘=): a Mac menu can miss them, as Shift changes the character the key types. When the menu takes the key the
+      // page never sees it, and when both run it, pageRan runs it once. In a text box, Undo, Redo and Select All stay
+      // the box's own.
+      const shiftedSymbol = (k: string) => /(^|\+)shift\+[^a-z0-9]$/.test(k);
+      if (TAURI && !e.defaultPrevented && (e.ctrlKey || e.metaKey) && (!MAC || shiftedSymbol(keyOf(e) ?? ""))) {
         const k = keyOf(e), id = k && native(k) ? actionFor(keymap(settings.keys), k, "none") : undefined;
         if (id?.startsWith("menu.")) {
           const cmd = id.slice(5), over = { home, modal: modal(), typing: typing() };

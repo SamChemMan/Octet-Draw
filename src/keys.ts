@@ -121,12 +121,16 @@ export type Keymap = Record<string, string[]>;
 export const keymap = (changes: Keymap = {}): Keymap => ({ ...DEFAULT_KEYS, ...changes });
 
 // One key press as a string: "n", "shift+n", "+", "shift+arrowup", "alt+arrowleft". Letters and named keys keep
-// Shift; symbols such as + are already shifted. Option changes the letter a key types on a Mac, so the
-// physical key (e.code) is used whenever Option is held.
+// Shift; on their own, symbols such as + are already shifted. Option changes the letter a key types on a Mac, so the
+// physical key (e.code) is used whenever Option is held. With Command, Ctrl or Option, a symbol or digit key is its
+// physical key and keeps Shift (⇧⌘- is "mod+shift+-", not ⌘_), as menu shortcuts are written.
+const SYMBOL_CODES: Record<string, string> = { Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]", Backslash: "\\", Semicolon: ";", Quote: "'", Comma: ",", Period: ".", Slash: "/", Backquote: "`" };
 export function keyOf(e: { key: string; code?: string; shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean }): string | undefined {
   if (["Shift", "Alt", "Meta", "Control", "CapsLock", "Dead"].includes(e.key)) return undefined;
   let key = e.key === " " ? "space" : e.key.toLowerCase();
   if (e.altKey && e.code?.startsWith("Key")) key = e.code.slice(3).toLowerCase();
+  const held = e.metaKey || e.ctrlKey || e.altKey, base = e.code && (SYMBOL_CODES[e.code] ?? (/^Digit\d$/.test(e.code) ? e.code.slice(5) : undefined));
+  if (held && base) return [(MAC ? e.metaKey : e.metaKey || e.ctrlKey) && "mod", MAC && e.ctrlKey && "ctrl", e.altKey && "alt", e.shiftKey && "shift", base].filter(Boolean).join("+");
   const named = key.length > 1;
   // On the Mac, Command is mod and Control its own key (⌃⌘E is not ⌘E); elsewhere Ctrl is mod.
   const mods = [(MAC ? e.metaKey : e.metaKey || e.ctrlKey) && "mod", MAC && e.ctrlKey && "ctrl", e.altKey && "alt", e.shiftKey && (/^[a-z]$/.test(key) || named) && "shift"].filter(Boolean);

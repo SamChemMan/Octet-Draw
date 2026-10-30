@@ -569,13 +569,14 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     sets_list.extend(set_items.iter().skip(own_sets.len()).map(|m| m as &dyn IsMenuItem<Wry>));
     let templates = Submenu::with_items(app, "Templates", !set_items.is_empty(), &sets_list)?;
     let view = Submenu::with_items(app, "&View", true, &[
-        // ChemDraw's keys: Magnify, Reduce and Fit to Window.
+        // ChemDraw's keys: Actual Size and Fit to Window.
         &item("zoom_actual", "Actual Size", "CmdOrCtrl+\\")?,
         &item("zoom_fit", "Fit to Window", "CmdOrCtrl+/")?,
         // ChemDraw's Show Document: the whole page.
         &item("show_page", "Show Page", "")?,
-        &item("zoom_in", "Magnify", "CmdOrCtrl+Shift+.")?,
-        &item("zoom_out", "Reduce", "CmdOrCtrl+Shift+,")?,
+        // Sam's keys (31 October 2026), not ChemDraw's ⇧⌘> and ⇧⌘<: ⇧⌘+ and ⇧⌘-.
+        &item("zoom_in", "Magnify", "CmdOrCtrl+Shift+=")?,
+        &item("zoom_out", "Reduce", "CmdOrCtrl+Shift+-")?,
         &sep()?,
         &grid,
         &crosshair,
