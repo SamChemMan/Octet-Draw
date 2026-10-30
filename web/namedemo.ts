@@ -46,18 +46,22 @@ function kindOf(s: string): string {
 }
 
 // The structure as SVG, in the page's text colour: filled bond outlines and atom labels.
-function svgOf(mol: Mol): string {
-  const d = render(mol, STYLE, measure);
+function svgOf(mol: Mol, scale?: number): string {
+  const d = render(mol, STYLE, measure, scale);
   const [x0, y0, x1, y1] = d.box, pad = 4;
-  const path = d.polygons.map((p) => "M" + p.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join("L") + "Z").join("");
+  // One path per colour: the ink, and any atom colours (a colour is #rrggbb, so it is safe in an attribute).
+  const inks = new Map<string, string>();
+  d.polygons.forEach((p, i) => { const c = d.colours[i] ?? ""; inks.set(c, (inks.get(c) ?? "") + "M" + p.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join("L") + "Z"); });
+  const hex = (c?: string) => (c && /^#[0-9a-f]{6}$/i.test(c) ? ` fill="${c}"` : "");
+  const path = [...inks].map(([c, d]) => `<path${hex(c)} d="${d}"/>`).join("");
   const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
   const labels = d.labels.map((l) => {
     const turn = labelTurn(l);
     // Presentation attributes, not a style attribute: the website's CSP allows no inline styles.
     const face = `font-family="${esc(l.font ?? "Arial, Helvetica, sans-serif").replace(/"/g, "'")}" font-size="${l.size}"${l.bold ? ' font-weight="bold"' : ""}${l.italic ? ' font-style="italic"' : ""}`;
-    return `<text x="${l.x.toFixed(2)}" y="${l.y.toFixed(2)}"${turn ? ` transform="${turn}"` : ""} ${face}>${esc(l.text)}</text>`;
+    return `<text x="${l.x.toFixed(2)}" y="${l.y.toFixed(2)}"${turn ? ` transform="${turn}"` : ""}${hex(l.colour)} ${face}>${esc(l.text)}</text>`;
   }).join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x0 - pad} ${y0 - pad} ${x1 - x0 + 2 * pad} ${y1 - y0 + 2 * pad}" fill="currentColor" role="img"><path d="${path}"/>${labels}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x0 - pad} ${y0 - pad} ${x1 - x0 + 2 * pad} ${y1 - y0 + 2 * pad}" fill="currentColor" role="img">${path}${labels}</svg>`;
 }
 
 const inchiOf = (s: Mol | string) => { try { return toInchi(typeof s === "string" ? parseStructure(s) : s); } catch { return undefined; } };
@@ -83,4 +87,29 @@ export function lookup(text: string): Result | { problem: string; suggestion?: s
   let name: string | undefined;
   try { name = checkedName(mol, expandLabels(mol), nameToSmiles, inchiOf, cipOf, knownName); } catch { name = undefined; }
   return { kind: corrected ? "Spelling fixed" : kindOf(typed), shown, corrected, smiles, svg: svgOf(sandwich(mol)), formula: w?.formula, weight: w?.weight, name };
+}
+
+// The website's feature demos draw with the same renderer. A plain structure: each atom's label and place (bond
+// lengths, y up) and each bond's atoms, type and stereo, so the page can build a structure a step at a time.
+export type Plain = { atoms: { label: string; x: number; y: number; charge?: number; colour?: string }[]; bonds: [number, number, number?, number?][] };
+
+// A structure laid out from SMILES, as plain atoms and bonds.
+export function layout(smiles: string): Plain {
+  const mol = parseStructure(smiles.slice(0, 300));
+  return {
+    atoms: mol.atoms.map((a) => ({ label: a.label, x: a.location[0], y: a.location[1], ...(a.charge ? { charge: a.charge } : {}) })),
+    bonds: mol.bonds.map((b) => [b.atoms[0], b.atoms[1], b.type, b.stereo ?? 0]),
+  };
+}
+
+// A plain structure drawn at one bond length to STYLE.bond, in a fixed frame (bond lengths, y up: left, bottom,
+// right, top), with each atom's place in the SVG's own units, so the page can mark atoms and bonds over it.
+export function sketch(p: Plain, frame: [number, number, number, number]): { svg: string; points: [number, number][] } {
+  const mol: Mol = {
+    atoms: p.atoms.slice(0, 200).map((a) => ({ label: a.label, location: [a.x, a.y, 0], ...(a.charge ? { charge: a.charge } : {}), ...(a.colour && /^#[0-9a-f]{6}$/i.test(a.colour) ? { colour: a.colour } : {}) })),
+    bonds: p.bonds.slice(0, 250).map(([i, j, type = 1, stereo = 0]) => ({ type, atoms: [i, j], ...(stereo ? { stereo } : {}) })),
+  };
+  const k = STYLE.bond, [l, b, r, t] = frame;
+  const svg = svgOf(mol, k).replace(/viewBox="[^"]*"/, `viewBox="${l * k} ${-t * k} ${(r - l) * k} ${(t - b) * k}"`);
+  return { svg, points: mol.atoms.map((a) => [a.location[0] * k, -a.location[1] * k]) };
 }

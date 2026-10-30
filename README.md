@@ -13,14 +13,17 @@ Part of the Open-source Chemistry Toolkit for Experiment & Theory
 
 ## Download
 
-Get the latest version from the [Releases page](https://github.com/SamChemMan/Octet-Draw/releases/latest).
-No release is out yet. Until then, run Octet from source (below).
+Get the latest version from [octet.software](https://octet.software) or the
+[Releases page](https://github.com/SamChemMan/Octet-Draw/releases/latest).
 
 | Computer | File |
 | -------- | ---- |
-| Mac | `Octet_<version>_universal.dmg` |
-| Windows | `Octet_<version>_x64-setup.exe`. For a PC with no internet: `Octet_<version>_x64-offline-setup.exe` |
-| Linux | `.deb` (Ubuntu, Debian), `.rpm` (Fedora) or `.AppImage` |
+| Mac | `Octet-Draw-mac.dmg` (Apple silicon and Intel) |
+| Windows | `Octet-Draw-windows.exe`. For a PC with no internet: `Octet.Draw_<version>_x64-offline-setup.exe` |
+| Linux | `.deb` (Ubuntu, Debian), `.rpm` (Fedora) or `Octet-Draw-linux.AppImage` |
+
+To uninstall: on a Mac, drag Octet Draw from Applications to the Bin. On Windows, Settings > Apps > Installed
+apps > Octet Draw > Uninstall. On Linux, remove the package with your package manager, or delete the AppImage.
 
 ## System requirements
 
@@ -73,15 +76,31 @@ or, for chemistry, Spe29[at]cam.ac.uk
 
 ## Privacy
 
-Octet works with no network and sends nothing on its own: no account, no telemetry.
-Two commands send a structure off your computer, and only when you press them:
+Octet works with no network: no account, no licence check, no analytics, no crash reporting.
+It goes online only in these cases:
 
-- **Search Reaxys** opens Reaxys (Elsevier) in your browser with the selected structure in the address.
-- **Search PubChem** opens PubChem (the US National Library of Medicine) in your browser with the selected structure in the address.
+- **Update check.** When it opens, Octet asks GitHub whether a newer version exists. It sends no drawings,
+  files or personal details. Turn it off in Settings > General > Updates. See
+  [decision 0010](docs/decisions/0010-updates.md).
+- **Search Reaxys** opens Reaxys (Elsevier) in your browser with the selected structure in the address, only
+  when you press it.
+- **Search PubChem** opens PubChem (the US National Library of Medicine) in your browser with the selected
+  structure in the address, only when you press it.
 
-The structure stays in your browser's history. To hide both commands, turn off
+The structure stays in your browser's history. To hide both searches, turn off
 Settings > Import and export > Online search. See
 [decision 0008](docs/decisions/0008-online-search.md).
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
+[SignPath Foundation](https://signpath.org/). This covers the Windows installers, which GitHub Actions builds
+from this repository. Each release is signed only after a person approves it.
+
+- Committers and reviewers: [Sam Ellis (SamChemMan)](https://github.com/SamChemMan)
+- Approvers: [Sam Ellis (SamChemMan)](https://github.com/SamChemMan)
+
+Privacy: see above. The policy is also at [octet.software/code-signing.html](https://octet.software/code-signing.html).
 
 ## Licence
 
