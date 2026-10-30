@@ -203,6 +203,13 @@ console.log("bondsatoms.check: hidden hydrogens ok");
   const dots = render(water(), S, ink).polygons.length, bars = render(water({ bars: true }), S, ink).polygons.length;
   assert.equal(dots - bars, 2, "two bars for four dots");
   assert.deepEqual([addSymbol(water(), 0, "pair", true).atoms[0].bars, addSymbol(water({ bars: true }), 0, "pair", true).atoms[0].bars], [true, undefined], "Option-click switches the lone pairs' style");
+  // Circled negative clicked twice: a circled 2− (Sam's imidophosphorane, 31 October 2026). The ring holds the
+  // number and sign as text; a circled 1− keeps its drawn bar and no text.
+  const nitrogen = (): Mol => ({ atoms: [A("N", 0, 0), A("C", 1, 0)], bonds: [b(0, 1)] });
+  const twice = addSymbol(addSymbol(nitrogen(), 0, "circledMinus"), 0, "circledMinus");
+  assert.deepEqual([twice.atoms[0].charge, twice.atoms[0].circled], [-2, true]);
+  assert.ok(render(twice, S, ink).labels.some((l) => l.text === "2−"), "2− inside the ring");
+  assert.ok(!render(addSymbol(nitrogen(), 0, "circledMinus"), S, ink).labels.some((l) => /−/.test(l.text)), "a circled 1− has no text");
   // Diamond and star: the bond stops at the shape, which is drawn as an outline.
   const point = (attach: Atom["attach"]): Mol => ({ atoms: [A("C", 0, 0), A("C", 1, 0, { attach })], bonds: [b(0, 1)] });
   const reach = (m: Mol) => Math.max(...render(m, S, ink).polygons[0].map((q) => q[0]));

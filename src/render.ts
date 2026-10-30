@@ -1025,9 +1025,18 @@ export function render(mol: Mol, s: Style, measure: (text: string, face?: Face) 
           const a0 = (TAU * j) / 40, a1 = (TAU * (j + 1)) / 40, ro = R + hw, ri = R - hw;
           symbols[i].push(wound([add(c, [ri * Math.cos(a0), ri * Math.sin(a0)]), add(c, [ro * Math.cos(a0), ro * Math.sin(a0)]), add(c, [ro * Math.cos(a1), ro * Math.sin(a1)]), add(c, [ri * Math.cos(a1), ri * Math.sin(a1)])]));
         }
-        const arm = 0.58 * R, bar = (u: P) => symbols[i].push(wound([add(c, add(mul(u, -arm), mul(perp(u), -hw))), add(c, add(mul(u, -arm), mul(perp(u), hw))), add(c, add(mul(u, arm), mul(perp(u), hw))), add(c, add(mul(u, arm), mul(perp(u), -hw)))]));
-        bar([1, 0]);
-        if ((a.charge ?? 0) > 0) bar([0, 1]);
+        // A charge of 2 or more (Circled negative clicked again) shows its number and sign inside the ring: 2−, 3+.
+        const q = Math.abs(a.charge ?? 0);
+        if (q > 1) {
+          const sign = `${q}${a.charge! > 0 ? '+' : '−'}`, m = grown(measure(sign), ratio[i]), size = Math.min(SUB, (1.35 * R) / m.width, (1.1 * R) / m.ascent);
+          const x = c[0] - (m.width * size) / 2, y = c[1] + (m.ascent * size) / 2;
+          labels.push({ text: sign, x, y, size: z * size, colour: a.colour });
+          labelAtom.set(labels[labels.length - 1], i);
+        } else {
+          const arm = 0.58 * R, bar = (u: P) => symbols[i].push(wound([add(c, add(mul(u, -arm), mul(perp(u), -hw))), add(c, add(mul(u, -arm), mul(perp(u), hw))), add(c, add(mul(u, arm), mul(perp(u), hw))), add(c, add(mul(u, arm), mul(perp(u), -hw)))]));
+          bar([1, 0]);
+          if ((a.charge ?? 0) > 0) bar([0, 1]);
+        }
       }
       if (ink) {
         const x = c[0] - (ink.width * SUB) / 2, y = c[1] + (ink.ascent * SUB) / 2;
