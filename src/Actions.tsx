@@ -228,16 +228,16 @@ export type Item = { icon: React.ReactNode; name: string; command: string; accen
 // The small actions fall into sets, each a section of small buttons under a small title (Sam, 17 October 2026):
 // the object's own edits (a table's, a plate's, a cycle's); Analyse; Search (Reaxys and PubChem, when Online search is
 // on); Turn and flip (every turn, rotation and flip); Display and copy (what is shown on the structure, the rest, the
-// clipboard and library); Arrange, Add frame, File and View when they apply. Delete is the last small button in every panel,
-// with no title.
-const SETS = ["table", "plate", "cycle", "analysis", "search", "turn", "more", "arrange", "frame", "file", "view", "delete"] as const;
+// clipboard and library); Arrange, Group (Group, Ungroup and Pick as one, as ChemDraw's right-click Group menu), Add frame,
+// File and View when they apply. Delete is the last small button in every panel, with no title.
+const SETS = ["table", "plate", "cycle", "analysis", "search", "turn", "more", "arrange", "group", "frame", "file", "view", "delete"] as const;
 type SetId = (typeof SETS)[number];
-const SET_TITLES: Record<SetId, string> = { table: "Table", plate: "Plate", cycle: "Cycle", analysis: "Analyse", search: "Search", turn: "Turn and flip", more: "Display and copy", arrange: "Arrange", frame: "Add frame", file: "File", view: "View", delete: "Delete" };
+const SET_TITLES: Record<SetId, string> = { table: "Table", plate: "Plate", cycle: "Cycle", analysis: "Analyse", search: "Search", turn: "Turn and flip", more: "Display and copy", arrange: "Arrange", group: "Group", frame: "Add frame", file: "File", view: "View", delete: "Delete" };
 // Each set's icon, for its row when the sets show as menus.
 const SET_ICONS: Record<SetId, React.ReactNode> = { table: <Table size={18} />, plate: <TlcGlyph />, cycle: <ArrowsClockwise size={18} />, analysis: <Flask size={18} />, search: <MagnifyingGlass size={18} />, turn: <ArrowArcRight size={18} />, more: <Eye size={18} />,
-  arrange: <AlignCenterHorizontal size={18} />, frame: <BracketGlyph v="brackets" />, file: <FileArrowDown size={18} />, view: <CornersOut size={18} />, delete: <Trash size={18} /> };
+  arrange: <AlignCenterHorizontal size={18} />, group: <BoundingBox size={18} />, frame: <BracketGlyph v="brackets" />, file: <FileArrowDown size={18} />, view: <CornersOut size={18} />, delete: <Trash size={18} /> };
 // Each action's kind. Kinds make up the sets; the kinds in Display and copy keep this order within it.
-const SET_FOR: Record<string, SetId> = { table: "table", plate: "plate", cycle: "cycle", analysis: "analysis", search: "search", arrange: "arrange", frame: "frame", file: "file", view: "view", turn: "turn", marks: "more", other: "more", library: "more", delete: "delete" };
+const SET_FOR: Record<string, SetId> = { table: "table", plate: "plate", cycle: "cycle", analysis: "analysis", search: "search", arrange: "arrange", group: "group", frame: "frame", file: "file", view: "view", turn: "turn", marks: "more", other: "more", library: "more", delete: "delete" };
 const MORE_GROUPS = ["marks", "other", "library"];
 const KIND_OF: Record<string, string> = {
   select_all: "view", zoom_fit: "view", import: "file", select_structure: "view",
@@ -247,7 +247,7 @@ const KIND_OF: Record<string, string> = {
   search_reaxys: "search", search_reaxys_exact: "search", search_pubchem: "search", search_pubchem_sub: "search",
   "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "turn", flatten: "turn", clean_3d: "turn", clean_reaction_augmented: "turn", rotate_dialog: "turn", scale_dialog: "turn",
   pairs: "marks", number: "marks", atom_numbers: "marks", show_warnings: "marks", explain_warning: "marks", "caption.add": "marks", colour_by_element: "marks", aromatic_display: "marks", hydrogen_display: "marks", contract_label: "marks",
-  "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "arrange", ungroup: "arrange", group_integral: "arrange",
+  "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "group", ungroup: "group", group_integral: "group",
   arrange_left: "arrange", arrange_centre: "arrange", arrange_right: "arrange", arrange_top: "arrange", arrange_middle: "arrange", arrange_bottom: "arrange",
   arrange_across: "arrange", arrange_down: "arrange", bring_front: "arrange", send_back: "arrange", centre_page: "arrange", join: "arrange",
   frame_brackets: "frame", frame_parens: "frame", frame_braces: "frame", frame_box: "frame", frame_rounded: "frame", frame_box_shadow: "frame", frame_rounded_shadow: "frame",
