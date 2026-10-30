@@ -97,7 +97,7 @@ setNamer(iupacName);
 setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, inchi: toInchi, aux: toInchiAux, cip: cipOf }));
 import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, hasContent, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, placeTemplate, removeSet, removeTemplate, renameSet, renameTemplate, setName, templateKind, templateToEnd, templateToStart, updateTemplate } from "./templates";
 import { formulaRuns } from "./labels";
-import { captionAtom, captionsToAtoms, chemicalCaption, interpretLabels, labelable, withCaptionAtoms } from "./edit";
+import { captionAtom, captionsToAtoms, chemicalCaption, interpretLabels, labelable, sandwich, withCaptionAtoms } from "./edit";
 import { bendOf, crossedBonds, cutEndAt, cutPoints, cutSides, cutThrough, extendCut } from "./masscut";
 import { common, edited, labelStyle, lines as richLines, normalise, plainOf, runsOf, shareColour, styleRange, styled, trimLines, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
@@ -386,7 +386,7 @@ const namedMol = (name: string): Mol | undefined => {
   if (namedMols.has(name)) return namedMols.get(name);
   const smiles = nameToSmiles(name);
   let m: Mol | undefined;
-  try { m = smiles ? parseStructure(smiles) : undefined; } catch { m = undefined; }
+  try { m = smiles ? sandwich(parseStructure(smiles)) : undefined; } catch { m = undefined; }
   if (!m?.atoms.length) return undefined;
   if (namedMols.size >= 500) namedMols.clear();
   namedMols.set(name, m);
@@ -1027,7 +1027,8 @@ export default function Editor() {
     const smiles = loaded ? nameToSmiles(name) : undefined;
     if (!smiles) return undefined;
     try {
-      const list = nameList(name, nameToSmiles), m = list?.join(".") === smiles ? inRow(list.map(parseStructure)) : parseStructure(smiles);
+      // A metallocene (ferrocene) is drawn as a sandwich, not as the ions the name gives.
+      const list = nameList(name, nameToSmiles), m = list?.join(".") === smiles ? inRow(list.map((t) => sandwich(parseStructure(t)))) : sandwich(parseStructure(smiles));
       return m.atoms.length ? m : undefined;
     } catch { return undefined; }
   };

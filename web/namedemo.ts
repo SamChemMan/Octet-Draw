@@ -6,6 +6,7 @@ import { condensedSmiles } from "../src/condensed.ts";
 import { COMMON, commonKey } from "../src/common.ts";
 import { cipOf, expandLabels, measure, parseStructure, ready, smilesWeight, STYLE, toInchi } from "../src/chem.ts";
 import { labelTurn, render, type Mol } from "../src/render.ts";
+import { sandwich } from "../src/edit.ts";
 import { checkedName, setNamer } from "../src/naming.ts";
 import { iupacName } from "../src/namer.ts";
 
@@ -81,5 +82,5 @@ export function lookup(text: string): Result | { problem: string; suggestion?: s
   const w = smilesWeight(smiles);
   let name: string | undefined;
   try { name = checkedName(mol, expandLabels(mol), nameToSmiles, inchiOf, cipOf, knownName); } catch { name = undefined; }
-  return { kind: corrected ? "Spelling fixed" : kindOf(typed), shown, corrected, smiles, svg: svgOf(mol), formula: w?.formula, weight: w?.weight, name };
+  return { kind: corrected ? "Spelling fixed" : kindOf(typed), shown, corrected, smiles, svg: svgOf(sandwich(mol)), formula: w?.formula, weight: w?.weight, name };
 }

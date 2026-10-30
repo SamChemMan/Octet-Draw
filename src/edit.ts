@@ -6,6 +6,7 @@ import { anchorElement, isElement, labelSmiles } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
 import { whole } from "./richtext.ts";
+import { OCENES } from "./metals.ts";
 
 export type P = [number, number];
 export const EMPTY: Mol = { atoms: [], bonds: [] };
@@ -1163,8 +1164,76 @@ function ligand(m: Mol, i: number, n: 5 | 6): [Mol, number] {
   m = setAtom(m, point, { label: "C", text: undefined, charge: undefined, centre: { atoms: ring } });
   return [m, metal ? i : anchor];
 }
+// A metallocene as OPSIN and the dictionary give it (a lone M2+ and two C5H5- rings, metals.ts sandwichIons) drawn as
+// the j key draws it: the metal between two Cp rings joined through multi-centre points. Each ring's substituents
+// keep their shape and turn with their ring atom; the first substituted atom of a ring goes to its right-hand side.
+// m unchanged unless there is one such metal and two such rings, no other charged atom, and nothing joining a ring to
+// the other or to a metal.
+const TILT = 45;
+export function sandwich(m: Mol): Mol {
+  const near = bondedTo(m), carbon = (i: number) => m.atoms[i].label === "C" && !m.atoms[i].text && !m.atoms[i].centre;
+  const metals = m.atoms.flatMap((a, i) => (OCENES[a.label] && !a.text && a.charge === 2 && !near[i].length ? [i] : []));
+  // Each C- with a five-carbon cycle through it, in cycle order, its other atoms uncharged.
+  const rings = m.atoms.flatMap((a, i) => {
+    if (a.charge !== -1 || !carbon(i)) return [];
+    const walk = (path: number[]): number[] | undefined => {
+      if (path.length === 5) return near[path[4]].includes(i) ? path : undefined;
+      for (const j of near[path[path.length - 1]]) if (!path.includes(j) && carbon(j) && !m.atoms[j].charge) { const r = walk([...path, j]); if (r) return r; }
+      return undefined;
+    };
+    const ring = walk([i]);
+    return ring ? [ring] : [];
+  });
+  if (metals.length !== 1 || rings.length !== 2 || rings[0].some((i) => rings[1].includes(i))) return m;
+  // Other ions stay as drawn (titanocene dichloride's Cl- would be left loose), so then the whole stays as ions.
+  if (m.atoms.filter((a) => a.charge).length !== 3) return m;
+  const metal = metals[0];
+  // Each substituent: the ring atom, its first atom and the atoms beyond it.
+  const subs = rings.map((ring, r) => ring.flatMap((at) => near[at].filter((j) => !ring.includes(j)).map((first) => {
+    const part = new Set([first]), todo = [first];
+    while (todo.length) for (const j of near[todo.pop()!]) if (j !== at && !part.has(j)) { part.add(j); todo.push(j); }
+    return { at, first, part, bad: part.has(metal) || ring.some((i) => part.has(i)) || rings[1 - r].some((i) => part.has(i)) };
+  })));
+  if (subs.some((s) => s.some((x) => x.bad))) return m;
+  let out: Mol = setAtom(m, metal, { charge: undefined });
+  for (const ring of rings) for (const i of ring) out = setAtom(out, i, { charge: undefined });
+  const made: number[][] = [];
+  for (let r = 0; r < 2; r++) {
+    const base = out.atoms.length;
+    out = addGroupAt(out, metal, "cpLigand")[0];
+    made.push(out.atoms[base].centre!.atoms);
+  }
+  // The new ring atom for each old one: the cycle turned so the first substituted atom lands on the right.
+  const map = new Map<number, number>();
+  rings.forEach((ring, r) => {
+    const ps = made[r].map((i) => pos(out, i)), c = mul(ps.reduce(add), 1 / 5), away = unit(sub(c, pos(out, metal)));
+    const score = (k: number) => { const u = unit(sub(ps[k], c)); return u[0] + 0.5 * dot(u, away); };
+    const right = [0, 1, 2, 3, 4].reduce((a, b) => (score(b) > score(a) ? b : a));
+    const first = subs[r].length ? ring.indexOf(subs[r][0].at) : 0;
+    ring.forEach((old, k) => map.set(old, made[r][(right + k - first + 5) % 5]));
+  });
+  // Substituents move with their ring atom, turned to point out from the ring's middle and TILT degrees away from the
+  // metal, so the two rings' groups (dppf's phenyl rings) keep apart.
+  const atoms = [...out.atoms];
+  subs.forEach((list, r) => {
+    const c = mul(made[r].map((i) => pos(out, i)).reduce(add), 1 / 5), away = sub(c, pos(out, metal));
+    for (const s of list) {
+      const from = pos(out, s.at), to = pos(out, map.get(s.at)!), was = sub(pos(out, s.first), from), out0 = unit(sub(to, c));
+      const dir = rot(out0, Math.sign(cross(out0, away)) * TILT * deg);
+      const t = Math.atan2(dir[1], dir[0]) - Math.atan2(was[1], was[0]);
+      for (const j of s.part) { const q = add(to, rot(sub(pos(out, j), from), t)); atoms[j] = { ...atoms[j], location: [q[0], q[1], 0] }; }
+    }
+  });
+  const bonds = out.bonds.flatMap((b) => {
+    const [a, c] = b.atoms.map((i) => map.get(i) ?? i);
+    // Old ring bonds go with the old ring; the new ring has its own.
+    return map.has(b.atoms[0]) && map.has(b.atoms[1]) ? [] : [{ ...b, atoms: [a, c] as [number, number] }];
+  });
+  return deleteAtoms({ ...out, atoms, bonds }, new Set(map.keys()));
+}
 // Each multi-centre or variable attachment where the middle of its atoms is now (after they moved, or turned in 3D).
 export function placeCentres(m: Mol): Mol {
+
   let atoms: Atom[] | undefined;
   m.atoms.forEach((a, i) => {
     const ps = (a.centre?.atoms ?? []).filter((j) => j < m.atoms.length).map((j) => m.atoms[j].location);

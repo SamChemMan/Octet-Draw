@@ -56,7 +56,7 @@ export const METAL_ANIONS: Record<string, string> = {
   "H2N-1": "amide", "CrO4-2": "chromate", "Cr2O7-2": "dichromate", "MnO4-2": "manganate", "O4Tc-1": "pertechnetate", "O4Re-1": "perrhenate",
 };
 // Metallocenes (IR-10.2.6): bis(η5-cyclopentadienyl) sandwiches, drawn as M2+ and two C5H5- rings.
-const OCENES: Record<string, string> = {
+export const OCENES: Record<string, string> = {
   V: "vanadocene", Cr: "chromocene", Fe: "ferrocene", Co: "cobaltocene", Ni: "nickelocene", Ru: "ruthenocene", Os: "osmocene",
   Rh: "rhodocene", Ti: "titanocene", Zr: "zirconocene", Mo: "molybdocene", Nb: "niobocene",
 };

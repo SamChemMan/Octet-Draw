@@ -2,7 +2,7 @@
 // are joined through, stop working: drawing, deleting, copying, CDXML and chemistry.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { EMPTY, addGroupAt, deleteAtoms, extractSelection, fragments, insertMol, moveAtoms, neighbours, placeCentres, pos, sprout } from "./edit.ts";
+import { EMPTY, addGroupAt, deleteAtoms, extractSelection, fragments, insertMol, moveAtoms, neighbours, placeCentres, pos, sandwich, sprout } from "./edit.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
@@ -119,10 +119,40 @@ g.getComputedStyle = () => ({ getPropertyValue: () => "10" });
 g.window = globalThis;
 g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
-const { analyse, expandLabels, ready } = await import("./chem.ts");
+const { analyse, expandLabels, parseStructure, ready, toInchi } = await import("./chem.ts");
+const { sandwichIons } = await import("./metals.ts");
 await ready;
 assert.equal(expandLabels(ferrocene).atoms.length, ferrocene.atoms.length - 2);
 assert.equal(expandLabels(ferrocene).bonds.length, ferrocene.bonds.length - 2);
 const formulas = analyse(ferrocene)?.map((a) => a.formula).sort();
 assert.deepEqual(formulas, ["C10H10Fe"]);
 console.log("ligand.check: chemistry ok");
+
+// Name to Structure: a metallocene's ions (OPSIN's ferrocene) are drawn as the j key draws it, the same compound.
+for (const [smiles, formula] of [["[Fe+2].[cH-]1cccc1.[cH-]1cccc1", "C10H10Fe"], ["[Ni+2].[CH-]1C=CC=C1.[CH-]1C=CC=C1", "C10H10Ni"],
+  ["[Fe+2].OC(=O)[c-]1cccc1.[cH-]1cccc1", "C11H10FeO2"], ["[Fe+2].P(c1ccccc1)(c1ccccc1)[c-]1cccc1.P(c1ccccc1)(c1ccccc1)[c-]1cccc1", "C34H28FeP2"]]) {
+  const ions = parseStructure(smiles), drawn = sandwich(ions), metal = drawn.atoms.findIndex((a) => a.label === "Fe" || a.label === "Ni");
+  assert.equal(centres(drawn).length, 2, smiles);
+  assert.deepEqual(neighbours(drawn, metal).sort((x, y) => x - y), centres(drawn), "the metal is bonded to the two points");
+  assert.ok(drawn.atoms.every((a) => !a.charge), "no charges");
+  assert.equal(fragments(drawn).length, 1);
+  assert.deepEqual(analyse(drawn)?.map((a) => a.formula), [formula]);
+  assert.equal(toInchi(sandwichIons(drawn)!), toInchi(ions), "named as the same ions");
+  // One point above the metal, one below, as the j key puts them.
+  assert.deepEqual(centres(drawn).map((c) => Math.sign(pos(drawn, c)[1] - pos(drawn, metal)[1])).sort(), [-1, 1]);
+}
+// dppf's substituents point away from the metal: no two atoms of different rings' groups closer than a bond.
+const dppf = sandwich(parseStructure("[Fe+2].P(c1ccccc1)(c1ccccc1)[c-]1cccc1.P(c1ccccc1)(c1ccccc1)[c-]1cccc1"));
+const ps = dppf.atoms.flatMap((a, i) => (a.label === "P" ? [i] : []));
+// Each P and what hangs on it, short of its ring.
+const ringAtoms = new Set(centres(dppf).flatMap((c) => dppf.atoms[c].centre!.atoms));
+const side = (p: number) => { const seen = new Set([p]), todo = [p]; while (todo.length) for (const j of neighbours(dppf, todo.pop()!)) if (!seen.has(j) && !ringAtoms.has(j)) { seen.add(j); todo.push(j); } return [...seen]; };
+const [a, b] = ps.map(side);
+assert.ok(a.every((i) => b.every((j) => Math.hypot(pos(dppf, i)[0] - pos(dppf, j)[0], pos(dppf, i)[1] - pos(dppf, j)[1]) > 1)), "dppf's phenyl rings apart");
+// Left as ions: a lone ring, three rings, other ions (OPSIN's titanocene dichloride), and rings joined to each other
+// through another metal (Pd(dppf)Cl2).
+for (const smiles of ["[Fe+2].[cH-]1cccc1", "[Fe+2].[cH-]1cccc1.[cH-]1cccc1.[cH-]1cccc1", "[Cl-].[Cl-].[CH-]1C=CC=C1.[CH-]1C=CC=C1.[Ti+2]", "Cl[Pd]1(Cl)P(C2=CC=CC=C2)(C2=CC=CC=C2)[C-]2C=CC=C2.[C-]2(C=CC=C2)P1(C1=CC=CC=C1)C1=CC=CC=C1.[Fe+2]"]) {
+  const m = parseStructure(smiles);
+  assert.equal(sandwich(m), m, smiles);
+}
+console.log("ligand.check: metallocene names ok");
