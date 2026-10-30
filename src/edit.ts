@@ -1,6 +1,6 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { HBOND, H_FIRST, hydrogens, lonePairs, orderOf, QUADRUPLE, settleShape, tableLayout, tableRow, type Arrow, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table } from "./render.ts";
+import { AROMATIC, HBOND, H_FIRST, hydrogens, lonePairs, orderOf, QUADRUPLE, settleShape, tableLayout, tableRow, type Arrow, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table } from "./render.ts";
 import { keepAngles, type Cycle } from "./cycle.ts";
 import { anchorElement, isElement, labelSmiles } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
@@ -363,6 +363,13 @@ export const cycleBond = (m: Mol, i: number) => {
   return b.type === HBOND ? m : respec(m, i, { type: b.type === QUADRUPLE ? 1 : b.stereo || b.display ? 2 : (b.type % 3) + 1 });
 };
 export const setBond = (m: Mol, i: number, type: number, stereo?: number) => respec(m, i, { type, stereo });
+// Delete or Backspace over a bond of more than one line (Sam, 31 October 2026): one line fewer, so a double becomes a
+// single and a triple a double. An aromatic or delocalised bond becomes a single. Undefined for a single bond (or a
+// hydrogen bond), which Delete takes away.
+export function lowerBond(m: Mol, i: number): Mol | undefined {
+  const t = m.bonds[i].type, to = t === QUADRUPLE ? 3 : t === 2 || t === 3 ? t - 1 : t === AROMATIC ? 1 : undefined;
+  return to === undefined ? undefined : respec(m, i, { type: to });
+}
 // No bond becomes a hydrogen bond, as in ChemDraw: the hydrogen bond tool only joins two atoms.
 export const setBondSpec = (m: Mol, i: number, spec: BondSpec) => (spec.type === HBOND && m.bonds[i].type !== HBOND ? m : respec(m, i, spec));
 // A double bond's second line on one side, centred, or (unset) placed automatically.

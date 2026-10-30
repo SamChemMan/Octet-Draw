@@ -5,7 +5,7 @@ import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { DEFAULT_STYLE, darkColour, readStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
 import { problems, showWarnedHydrogens } from "./check.ts";
-import { addSymbol, atomAt, bondAt, bondOrders, cycleBond, deleteAtoms, flipAtoms, interpretLabels, labelWords, rotateAtoms, toFront, setBondSpec, setPosition, toggleHydrogens } from "./edit.ts";
+import { addSymbol, lowerBond, atomAt, bondAt, bondOrders, cycleBond, deleteAtoms, flipAtoms, interpretLabels, labelWords, rotateAtoms, toFront, setBondSpec, setPosition, toggleHydrogens } from "./edit.ts";
 import { HBOND, QUADRUPLE, render, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
 
 type P = [number, number];
@@ -203,6 +203,17 @@ console.log("bondsatoms.check: hidden hydrogens ok");
   const dots = render(water(), S, ink).polygons.length, bars = render(water({ bars: true }), S, ink).polygons.length;
   assert.equal(dots - bars, 2, "two bars for four dots");
   assert.deepEqual([addSymbol(water(), 0, "pair", true).atoms[0].bars, addSymbol(water({ bars: true }), 0, "pair", true).atoms[0].bars], [true, undefined], "Option-click switches the lone pairs' style");
+  // Delete or Backspace over a bond takes a line off: triple to double to single, aromatic to single, keeping its
+  // colour; a single bond goes (lowerBond gives nothing, so Delete removes it).
+  const pair = (type: number, more: Partial<Bond> = {}): Mol => ({ atoms: [A("C", 0, 0), A("C", 1, 0)], bonds: [{ ...b(0, 1), type, ...more }] });
+  assert.equal(lowerBond(pair(2), 0)!.bonds[0].type, 1);
+  assert.equal(lowerBond(pair(3), 0)!.bonds[0].type, 2);
+  assert.equal(lowerBond(pair(QUADRUPLE), 0)!.bonds[0].type, 3);
+  assert.equal(lowerBond(pair(4), 0)!.bonds[0].type, 1);
+  assert.equal(lowerBond(pair(2, { display: "dashed", colour: "#c00" }), 0)!.bonds[0].display, undefined);
+  assert.equal(lowerBond(pair(2, { colour: "#c00" }), 0)!.bonds[0].colour, "#c00");
+  assert.equal(lowerBond(pair(1), 0), undefined);
+  assert.equal(lowerBond(pair(HBOND), 0), undefined);
   // Circled negative clicked twice: a circled 2− (Sam's imidophosphorane, 31 October 2026). The ring holds the
   // number and sign as text; a circled 1− keeps its drawn bar and no text.
   const nitrogen = (): Mol => ({ atoms: [A("N", 0, 0), A("C", 1, 0)], bonds: [b(0, 1)] });
