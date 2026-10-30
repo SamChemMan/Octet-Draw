@@ -1,7 +1,7 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
 import { HBOND, H_FIRST, hydrogens, lonePairs, orderOf, QUADRUPLE, settleShape, tableLayout, tableRow, type Arrow, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table } from "./render.ts";
-import type { Cycle } from "./cycle.ts";
+import { keepAngles, type Cycle } from "./cycle.ts";
 import { anchorElement, isElement, labelSmiles } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
@@ -480,8 +480,10 @@ function removeAtoms(m: Mol, gone: Set<number>): Mol {
     const under = c.under.filter((i) => map.has(i)).map((i) => map.get(i)!);
     return under.length ? [kept({ ...c, under })] : [];
   });
-  // A cycle keeps the intermediates that still have atoms; with fewer than two it is no longer a cycle.
+  // A cycle keeps the intermediates that still have atoms; with fewer than two it is no longer a cycle. A cycle drawn
+  // with the Cycle tool keeps every node: one whose atoms all went is a break where it was.
   const cycles = m.cycles?.flatMap((c) => {
+    if (c.at) return [{ ...keepAngles(m, c), nodes: c.nodes.map((n) => n.filter((i) => map.has(i)).map((i) => map.get(i)!)) }];
     const nodes = c.nodes.map((n) => n.filter((i) => map.has(i)).map((i) => map.get(i)!)).filter((n) => n.length);
     return nodes.length >= 2 ? [{ ...c, nodes }] : [];
   });
@@ -1231,9 +1233,9 @@ export function sandwich(m: Mol): Mol {
   });
   return deleteAtoms({ ...out, atoms, bonds }, new Set(map.keys()));
 }
+
 // Each multi-centre or variable attachment where the middle of its atoms is now (after they moved, or turned in 3D).
 export function placeCentres(m: Mol): Mol {
-
   let atoms: Atom[] | undefined;
   m.atoms.forEach((a, i) => {
     const ps = (a.centre?.atoms ?? []).filter((j) => j < m.atoms.length).map((j) => m.atoms[j].location);
@@ -1605,7 +1607,7 @@ export function transformParts(m: Mol, atoms: Set<number>, items: Set<number>, f
       const table = x.table && grows ? { ...x.table, ...(x.table.widths ? { widths: x.table.widths.map((w) => w * size[0]) } : {}), ...(x.table.heights ? { heights: x.table.heights.map((h) => h * size[1]) } : {}) } : x.table;
       return settleShape({ ...x, from: sub(to, half), to: add(to, half), ...(table ? { table } : {}), ...(mirror === "across" && x.side ? { side: x.side === "left" ? "right" as const : "left" as const } : {}), angle });
     }),
-    cycles: m.cycles?.map((c) => (items.has(c.id) ? { ...c, centre: f(c.centre), radius: c.radius * both, ...(mirror ? { clockwise: !c.clockwise } : {}) } : c)),
+    cycles: m.cycles?.map((c) => (items.has(c.id) ? { ...c, centre: f(c.centre), radius: c.radius * both, ...(mirror ? { clockwise: !c.clockwise } : {}), ...(c.at ? { at: c.at.map((x) => { const o = f(c.centre), q = f([c.centre[0] + Math.cos(x), c.centre[1] + Math.sin(x)]); return Math.atan2(q[1] - o[1], q[0] - o[0]); }) } : {}) } : c)),
   };
 }
 // The median bond length (bond lengths) among bonds whose two atoms are both chosen; undefined when there is none.

@@ -30,7 +30,7 @@ export function serialize(mol: Mol): string {
   // by its place in the list.
   const arrowList = [...(mol.arrows ?? [])];
   const cycleList = [...(mol.cycles ?? [])].sort((a, b) => a.id - b.id);
-  const cycles = cycleList.map((c) => ({ x: round(c.centre[0]), y: round(c.centre[1]), radius: round(c.radius), ...(c.clockwise ? {} : { anticlockwise: true }), nodes: c.nodes, ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}), ...(c.width ? { width: c.width } : {}), ...scaled(c) }));
+  const cycles = cycleList.map((c) => ({ x: round(c.centre[0]), y: round(c.centre[1]), radius: round(c.radius), ...(c.clockwise ? {} : { anticlockwise: true }), nodes: c.nodes, ...(c.at ? { at: c.at.map(round) } : {}), ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}), ...(c.width ? { width: c.width } : {}), ...scaled(c) }));
   const arrows = arrowList.map((a) => ({ kind: a.kind, x1: round(a.from[0]), y1: round(a.from[1]), x2: round(a.to[0]), y2: round(a.to[1]), ...(a.bend ? { bend: round(a.bend) } : {}),
     ...(a.style ? { style: a.style } : {}), ...(a.orbital ? { orbital: a.orbital } : {}), ...(a.colour ? { colour: a.colour } : {}),
     ...(a.start ? { start: a.start } : {}), ...(a.end ? { end: a.end } : {}), ...(a.head ? { head: a.head } : {}), ...(a.curve ? { curve: a.curve } : {}), ...(a.fill ? { fill: a.fill } : {}), ...(a.order ? { order: a.order } : {}), ...(a.width ? { width: a.width } : {}),
@@ -287,10 +287,11 @@ export function parse(text: string): Mol {
   if (d.cycles !== undefined) {
     if (!Array.isArray(d.cycles) || d.cycles.length > MAX_CAPTIONS) throw new Error("This drawing is damaged.");
     out.cycles = (d.cycles as Record<string, unknown>[]).map((c, k) => {
-      const nodes = c?.nodes as unknown[];
-      if (!num(c?.x) || !num(c.y) || !num(c.radius) || (c.radius as number) <= 0 || !Array.isArray(nodes) || nodes.length < 2 || nodes.length > 64
-        || !nodes.every((n) => Array.isArray(n) && n.length > 0 && n.every((i) => int(i, 0, out.atoms.length - 1))) || badColour(c.colour) || badWidth(c.width) || !isScale(c.scale)) throw new Error("This drawing is damaged.");
-      return { id: captionCount + (out.arrows?.length ?? 0) + k + 1, centre: [c.x as number, c.y as number], radius: c.radius as number, clockwise: c.anticlockwise !== true, nodes: nodes as number[][], ...(c.colour ? { colour: c.colour as string } : {}), ...orderOf(c.order), ...(c.width ? { width: c.width as number } : {}), ...scaled(c as { scale?: number }) };
+      // A cycle drawn with the Cycle tool saves each node's angle, and can have breaks (empty nodes) and fewer than two.
+      const nodes = c?.nodes as unknown[], at = Array.isArray(c?.at) && c.at.length === nodes?.length && c.at.every(num) ? (c.at as number[]) : undefined;
+      if (!num(c?.x) || !num(c.y) || !num(c.radius) || (c.radius as number) <= 0 || !Array.isArray(nodes) || (!at && nodes.length < 2) || nodes.length > 64
+        || !nodes.every((n) => Array.isArray(n) && (at || n.length > 0) && n.every((i) => int(i, 0, out.atoms.length - 1))) || badColour(c.colour) || badWidth(c.width) || !isScale(c.scale)) throw new Error("This drawing is damaged.");
+      return { id: captionCount + (out.arrows?.length ?? 0) + k + 1, centre: [c.x as number, c.y as number], radius: c.radius as number, clockwise: c.anticlockwise !== true, nodes: nodes as number[][], ...(at ? { at } : {}), ...(c.colour ? { colour: c.colour as string } : {}), ...orderOf(c.order), ...(c.width ? { width: c.width as number } : {}), ...scaled(c as { scale?: number }) };
     });
   }
   // Shapes take ids after the cycles'.

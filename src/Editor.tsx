@@ -70,11 +70,11 @@ import { cleanUpReaction, cleanUpReactions, findReaction, gapFor, layoutRow, rea
 import { alignByMap, clearScheme, interpret, mapScheme, rolesOf, type Part, type Role, type RoleStep } from "./interpret";
 import { SEARCHES, searchNow, searchQuery } from "./search";
 import { moduleOf, SettingsWindow, type ModuleId } from "./SettingsWindow";
-import { layoutCycles, orderAround, spreadCycle, type Cycle, type CycleText } from "./cycle";
+import { addStop, angleAbout, breakAt, joinCycles, layoutCycles, orderAround, removeStop, spreadCycle, stepAt, type Cycle, type CycleText } from "./cycle";
 import { LIBRARY, libraryItem, type LibraryItem } from "./library";
 import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
 import {
-  ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, ELLIPSES, HOLD_MS, Palette, pickHead, RingGlyph, RINGS, SELECTS, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
+  ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, Palette, pickHead, RingGlyph, RINGS, SELECTS, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
 import { arrowPath, arrowShapes, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, isBracket, isLine, isOrbital, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, ASCENT, DESCENT } from "./render";
@@ -205,6 +205,8 @@ type Drag =
   | { kind: "arrow"; from: P; start: [number, number]; target: Hover; to?: P; trail?: P[]; side?: number; make?: Make; alt?: boolean; corners?: P[]; longer?: { id: number; end: "from" | "to" } }
   // Drawing a shape from corner to corner.
   | { kind: "shape"; from: P; start: [number, number]; target: Hover; to?: P }
+  // The Cycle tool: a circle drawn out from its centre, or a click on a circle.
+  | { kind: "cycle"; from: P; start: [number, number]; target: Hover; to?: P }
   | { kind: "handle"; id: number; which: Corner; working: Mol }
   // Placing a pen point: where it was pressed, and its outgoing handle if the press was dragged.
   | { kind: "pen"; at: P; start: [number, number]; out?: P }
@@ -738,6 +740,7 @@ export default function Editor() {
   // The Shape and Bracket tools' choices. A line or arc from the Shape tool is drawn like an arrow, with no head.
   const shapeChoice = shapeSpec(settings.variants.shape) ? settings.variants.shape : "box-plain";
   const bracketChoice = bracketSpec(settings.variants.bracket) ? settings.variants.bracket : "brackets";
+  const cycleChoice = settings.variants.cycle && CYCLES[settings.variants.cycle] ? settings.variants.cycle : "circle";
   const shapePick = shapeSpec(shapeChoice)!, bracketPick = bracketSpec(bracketChoice)!;
   const editCurve = tool === "shape" && "edit" in shapePick; // Edit curve in hand
   const orbitalChoice = orbitalSpec(settings.variants.orbital) ? settings.variants.orbital : "p-shaded";
@@ -918,7 +921,10 @@ export default function Editor() {
   // caption made an atom by a bond tool, then the bond drawn from it).
   const joinNext = useRef<string>(undefined);
   const set = (mol: Mol, keepSelection = false, merge = joinNext.current) => {
-    const next = onTop(doc, wholeGroups(placeCentres(carryDepth(doc, settings.warnings ? showWarnedHydrogens(mol) : mol))), fragments);
+    // A structure an edit moves or adds onto a catalytic cycle's circle joins the cycle (joinCycles).
+    const moved = (m: Mol) => (i: number) => { const a = doc.atoms[i]?.location, b = m.atoms[i].location; return !a || a[0] !== b[0] || a[1] !== b[1]; };
+    const fitted = placeCentres(carryDepth(doc, settings.warnings ? showWarnedHydrogens(mol) : mol));
+    const next = onTop(doc, wholeGroups(fitted.cycles?.length ? joinCycles(fitted, fragments(fitted), moved(fitted)) : fitted), fragments);
     dispatch({ type: "set", mol: next, merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
     return next;
@@ -2333,6 +2339,7 @@ export default function Editor() {
     if (drag?.kind === "arrow" && drag.to && drag.make?.kind === "cut") return massCut(drag, true).mol;
     if (drag?.kind === "arrow" && drag.to) return addArrow(doc, newArrow(drag.from, drag.to, drag.side, drag.make))[0];
     if (drag?.kind === "shape" && drag.to) { const sh = shapeFrom(drag.from, drag.to); return sh ? addShape(doc, sh)[0] : doc; }
+    if (drag?.kind === "cycle" && drag.to) return addCycle(doc, newCycle(drag.from, drag.to))[0];
     if (pen || drag?.kind === "pen") {
       // The curve so far, with the point being placed (or a straight run to the pointer).
       const now = drag?.kind === "pen" ? penPoint(drag.at, drag.out) : penAt ? { at: penAt } : undefined, points = [...(pen ?? []), ...(now ? [now] : [])];
@@ -3151,10 +3158,12 @@ export default function Editor() {
   // Catalytic cycles: make one from the selected structures, tidy it, turn it the other way, label it, or ungroup it.
   function cycleAction(what: string) {
     const ink = (atoms: number[]) => inkOf(atoms);
+    // Breaks go round evenly with the intermediates. A circle with no structures on it stays as it is.
     const spread = (m: Mol, c: Cycle) => {
-      const { shifts, radius } = spreadCycle(c, L, ink);
+      if (!c.nodes.some((n) => n.length)) return m;
+      const { shifts, radius } = spreadCycle(c, L, ink), even = c.nodes.map((_, i) => Math.PI / 2 - ((c.clockwise ? 1 : -1) * 2 * Math.PI * i) / c.nodes.length);
       c.nodes.forEach((n, i) => { m = moveAtoms(m, new Set(n), shifts[i]); });
-      return { ...m, cycles: m.cycles?.map((x) => (x.id === c.id ? { ...x, radius } : x)) };
+      return { ...m, cycles: m.cycles?.map((x) => (x.id === c.id ? { ...x, radius, ...(x.at ? { at: even } : {}) } : x)) };
     };
     if (what === "make") {
       const groups = fragments(doc).filter((g) => g.some((i) => selection.has(i)));
@@ -3175,6 +3184,33 @@ export default function Editor() {
       setSelection(new Set());
       return openWriting({ value: "", cycle: { cycle: c.id, step: what === "centre" ? 0 : cycleStep, side: what }, style: { ...textStyle } });
     }
+  }
+  // The Cycle tool. A new cycle drawn from its centre out to a point, turning clockwise, with no nodes yet.
+  function newCycle(centre: P, to: P): Omit<Cycle, "id"> {
+    return { centre, radius: Math.max(0.5, Math.hypot(to[0] - centre[0], to[1] - centre[1])), clockwise: true, nodes: [], at: [] };
+  }
+  // The cycle whose circle passes within a few px of a point.
+  const circleAt = (p: P) => (doc.cycles ?? []).find((c) => Math.abs(Math.hypot(p[0] - c.centre[0], p[1] - c.centre[1]) - c.radius) * L * views.get().zoom < 8);
+  // A drag draws a circle, and structures already on it join it. A click on a circle breaks it there (or joins it up
+  // again at a break); a click away from any circle draws one three bond lengths across. Reagent in and Product out:
+  // a click on a step of a circle adds the text coming in or going out there, or edits the text already there.
+  function releaseCycle(from: P, to?: P) {
+    const c = circleAt(from);
+    if (cycleChoice !== "circle") {
+      if (!c) return setNotice("Click a catalytic cycle's circle.", "info");
+      const side = cycleChoice as "in" | "out", step = stepAt(doc, c, angleAbout(c, from)), there = doc.captions?.find((x) => x.cycle?.cycle === c.id && x.cycle.step === step && x.cycle.side === side);
+      setSelection(new Set());
+      setPicked(new Set());
+      if (there) return openWriting({ id: there.id, value: there.text, runs: runsOf(there).map((x) => ({ ...x })), version: 0, style: {} });
+      return openWriting({ value: "", cycle: { cycle: c.id, step, side }, style: { ...textStyle } });
+    }
+    if (!to && c) {
+      const a = angleAbout(c, from), gap = breakAt(doc, c, a, 10 / (c.radius * L * views.get().zoom));
+      return set(gap !== undefined ? removeStop(doc, c.id, gap) : addStop(doc, c.id, a, []), true);
+    }
+    const [m, id] = addCycle(doc, newCycle(from, to ?? [from[0] + 3, from[1]]));
+    set(joinCycles(m, fragments(m)));
+    setPicked(new Set([id]));
   }
   // Numbers the structures in the selection, left to right, skipping any that already have a number.
   function numberStructures() {
@@ -3742,6 +3778,7 @@ export default function Editor() {
     // With something selected, a press on it (or inside it) grabs it, whatever tool is in hand. So does a press
     // on a caption, except with the Text tool, which edits it.
     if (tool !== "erase" && selection.size && onSelection(doc, selection, p)) return startMove(p, screen, t);
+    if (tool === "cycle") { setDrag({ kind: "cycle", from: p, start: screen, target: t }); return startHold(p, t, screen); }
     if (tool !== "erase" && tool !== "text" && t.cycle !== undefined) return pressCycle(p, t, screen);
     // A tool that works on an atom (bond, chain, ring, template, symbol), pressed on a caption that counts as chemistry
     // (Bi, Rh, OMe), makes it that atom and goes on from it, as one undo step. ChemDraw joins bonds to a caption it
@@ -4003,6 +4040,11 @@ export default function Editor() {
         const lines = drag.labels !== e.ctrlKey;
         if (size[0] === drag.size[0] && size[1] === drag.size[1] && anchor[0] === drag.anchor[0] && anchor[1] === drag.anchor[1] && lines === drag.lines) return;
         return setDrag({ ...drag, size, anchor, lines, working: drag.whole && lines && size[0] === size[1] ? doc : scaledParts(doc, drag.atoms, drag.items, size, anchor, lines, drag.middles) });
+      }
+      case "cycle": {
+        if (cycleChoice !== "circle" || (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4)) return;
+        stopHold();
+        return setDrag({ ...drag, to: p });
       }
       case "shape": {
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
@@ -6157,6 +6199,8 @@ export default function Editor() {
         set(mol);
         return setPicked(new Set([id]));
       }
+      case "cycle":
+        return releaseCycle(drag.from, drag.to);
       case "shape": {
         // Too small to be a shape is a click. A circle needs only a radius; anything else both a width and a height.
         const round = tool === "shape" && "circle" in shapePick && shapePick.circle;
@@ -7666,7 +7710,7 @@ export default function Editor() {
       <Palette
         tool={tool}
         coach={coachTool}
-        variants={{ select: selectKind, bond: bondKind, ring: ringKind, template: templateVariant, symbol: symbolKind, orbital: orbitalChoice, shape: shapeChoice, bracket: bracketChoice, more: settings.variants.more ?? "tlc", arrow: arrowVariant(settings.variants.arrow) ? settings.variants.arrow : "reaction" }}
+        variants={{ select: selectKind, bond: bondKind, ring: ringKind, template: templateVariant, symbol: symbolKind, orbital: orbitalChoice, shape: shapeChoice, bracket: bracketChoice, cycle: cycleChoice, more: settings.variants.more ?? "tlc", arrow: arrowVariant(settings.variants.arrow) ? settings.variants.arrow : "reaction" }}
         curvedArrows={settings.curvedArrows}
         onCurvedArrows={(curvedArrows) => setSettings((s) => ({ ...s, curvedArrows }))}
         libraryRings={settings.libraryRings}

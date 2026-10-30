@@ -23,7 +23,7 @@ import { altGroup, elementList, enclosed, linkNode, polymerLabel, queryLabel, re
 import { ligandEllipse } from "./render.ts";
 import { kekulise, rings } from "./rings.ts";
 import { keptHolds, stereoMarks } from "./cip.ts";
-import type { Cycle } from "./cycle.ts";
+import { keepAngles, type Cycle } from "./cycle.ts";
 import { ASSIGN, OWN_TAG, assignGroups, assignRanges, assignValue, fromSpectrumObject, keyOf, nextGroupId, spectrumObject, type Measured } from "./measured.ts";
 import pkg from "../package.json" with { type: "json" };
 
@@ -1029,7 +1029,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     outs.push({ xml: el("group", { id: idOf.get(g.id)!, BoundingBox: boxText(box), Z: Z(), Integral: g.integral ? "yes" : undefined }, RANKED(kids).map((o) => o.xml).join("") + notes(g.annotations)), rank: 0, box, group: parent === undefined ? undefined : groups[parent].id });
   }
   const top = outs.filter((o) => o.group !== -1), all = union(top.map((o) => o.box)) ?? [0, 0, 0, 0];
-  const cycles = (mol.cycles ?? []).map((c: Cycle) => ({ id: idOf.get(c.id), centre: c.centre, radius: c.radius, clockwise: c.clockwise, nodes: c.nodes.map((n) => n.map((i) => nodeId.get(i)).filter((v) => v !== undefined)), colour: c.colour, width: c.width }));
+  const cycles = (mol.cycles ?? []).map((c: Cycle) => ({ id: idOf.get(c.id), centre: c.centre, radius: c.radius, clockwise: c.clockwise, nodes: c.nodes.map((n) => n.map((i) => nodeId.get(i)).filter((v) => v !== undefined)), at: c.at, colour: c.colour, width: c.width }));
   const pageXml = el("page", { id: fresh(), BoundingBox: `0 0 ${fmt(W)} ${fmt(H)}`, HeaderPosition: 36, FooterPosition: 36, PrintTrimMarks: "yes", HeightPages: 1, WidthPages: 1 }, RANKED(top).map((o) => o.xml).join("") + schemes.join("") + kept.join("") + notes(mol.annotations));
   const doc = colour(style.colour) ?? 0, bg = style.background.startsWith("#") ? colour(style.background)! : 1;
   // The document's palette goes in its colour table, as ChemDraw keeps a document's colours there.
@@ -1059,7 +1059,7 @@ function pick(m: Mol, sel: { atoms: Iterable<number>; items: Iterable<number> })
   const atoms = new Set([...sel.atoms].filter((i) => i >= 0 && i < m.atoms.length)), items = new Set(sel.items), map = new Map<number, number>();
   m.atoms.forEach((_, i) => { if (atoms.has(i)) map.set(i, map.size); });
   const keep = (ids: number[]) => ids.filter((i) => map.has(i)).map((i) => map.get(i)!);
-  const arrows = (m.arrows ?? []).filter((a) => items.has(a.id)), cycles = (m.cycles ?? []).filter((c) => items.has(c.id)).map((c) => ({ ...c, nodes: c.nodes.map(keep).filter((n) => n.length) })).filter((c) => c.nodes.length >= 2);
+  const arrows = (m.arrows ?? []).filter((a) => items.has(a.id)), cycles = (m.cycles ?? []).filter((c) => items.has(c.id)).map((c) => (c.at ? { ...keepAngles(m, c), nodes: c.nodes.map(keep) } : { ...c, nodes: c.nodes.map(keep).filter((n) => n.length) })).filter((c) => c.at || c.nodes.length >= 2);
   // Kept data goes with its object only when its atoms all come too.
   const kept = (k?: Kept) => (k && k.atoms.every((i) => map.has(i)) ? { ...k, atoms: keep(k.atoms) } : undefined);
   const captions = (m.captions ?? []).filter((c) => items.has(c.id) && (!c.cycle || cycles.some((y) => y.id === c.cycle!.cycle))).map((c) => {
@@ -2216,9 +2216,11 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     if (under.length) c.under = under;
   }
   const cycles: Cycle[] = cycleData.flatMap((c) => {
-    const centre = c?.centre, nodes = Array.isArray(c?.nodes) ? (c.nodes as unknown[]).slice(0, 64).map((n) => (Array.isArray(n) ? n.map((id) => atomOf.get(Number.isInteger(id) ? id : -1)).filter((i): i is number => i !== undefined) : [])).filter((n) => n.length) : [];
-    if (!Array.isArray(centre) || centre.length !== 2 || !centre.every((v) => isNum(v, -1e6, 1e6)) || !isNum(c.radius, 1e-6, 1e6) || nodes.length < 2 || !Number.isInteger(c.id)) return [];
-    return [{ id: c.id as number, centre: centre as P, radius: c.radius as number, clockwise: c.clockwise !== false, nodes, ...(isColour(c.colour) ? { colour: c.colour } : {}), ...(isNum(c.width, 0.05, 20) ? { width: c.width as number } : {}) }];
+    // A cycle drawn with the Cycle tool has each node's angle, and keeps its breaks (empty nodes).
+    const centre = c?.centre, all = Array.isArray(c?.nodes) ? (c.nodes as unknown[]).slice(0, 64).map((n) => (Array.isArray(n) ? n.map((id) => atomOf.get(Number.isInteger(id) ? id : -1)).filter((i): i is number => i !== undefined) : [])) : [];
+    const at = Array.isArray(c?.at) && c.at.length === all.length && c.at.every((v) => isNum(v, -10, 10)) ? (c.at as number[]) : undefined, nodes = at ? all : all.filter((n) => n.length);
+    if (!Array.isArray(centre) || centre.length !== 2 || !centre.every((v) => isNum(v, -1e6, 1e6)) || !isNum(c.radius, 1e-6, 1e6) || (!at && nodes.length < 2) || !Number.isInteger(c.id)) return [];
+    return [{ id: c.id as number, centre: centre as P, radius: c.radius as number, clockwise: c.clockwise !== false, nodes, ...(at ? { at } : {}), ...(isColour(c.colour) ? { colour: c.colour } : {}), ...(isNum(c.width, 0.05, 20) ? { width: c.width as number } : {}) }];
   });
   for (const c of captions) if (c.cycle && !cycles.some((y) => y.id === c.cycle!.cycle)) delete c.cycle;
   // ChemDraw's kept configurations: the neighbours along each bond of the order (0 is the hydrogen or lone pair), with

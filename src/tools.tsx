@@ -14,7 +14,7 @@ import { columnsFor, DEFAULT_COLUMNS, Menu, menuWidth, type MenuItem } from "./M
 import { Exit, reduced, timing } from "./motion";
 import { BracketGlyph, BRACKETS, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, SHAPE_EXTRA, SHAPE_GRID, shapeName } from "./elements";
 
-export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "shape" | "bracket" | "tlc" | "table" | "fragment" | "massspec" | "synthesis" | "retro" | "map" | "text" | "erase";
+export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "shape" | "bracket" | "tlc" | "table" | "fragment" | "massspec" | "synthesis" | "retro" | "map" | "text" | "erase";
 
 // The bond, arrow and shape kinds' names are in kinds.ts, so the canvas for screen readers (access.ts) shares them.
 export { ARROWS, BONDS, SHAPES, type BondKind };
@@ -69,6 +69,9 @@ export const withSize = (v: string, size: ArrowSize) => {
   return base === "block" ? (size === "large" ? "block" : "block medium") : size === "small" ? base : `${base} ${size}`;
 };
 
+// The Cycle tool: draw a cycle's circle (and break it into steps), or add a reagent coming in or a product going out.
+export const CYCLES: Record<string, string> = { circle: "Catalytic cycle", in: "Reagent in", out: "Product out" };
+
 export const SELECTS = { box: { name: "Box" }, lasso: { name: "Lasso" }, perspective: { name: "Structure perspective" } };
 
 // Marks the Symbols tool puts on an atom.
@@ -81,11 +84,11 @@ export type SelectKind = keyof typeof SELECTS;
 
 // ring is a RingKind, or a template's kind (custom:id).
 // template: a library template ("lib:name") or one of the user's own ("custom:id").
-export type Variants = { select: SelectKind; bond: BondKind; ring: string; template: string; symbol: SymbolKind; orbital: string; arrow: string; shape: string; bracket: string; more: string };
+export type Variants = { select: SelectKind; bond: BondKind; ring: string; template: string; symbol: SymbolKind; orbital: string; arrow: string; cycle: string; shape: string; bracket: string; more: string };
 // Specialist tools share one slot at the bottom of the toolbar, which shows the one last used.
 const SPECIAL: Tool[] = ["tlc", "table", "fragment", "massspec", "synthesis", "retro", "map"];
-type Strip = "select" | "bond" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "shape" | "bracket" | "more";
-const isStrip = (t: Tool): t is Exclude<Strip, "more"> => t === "select" || t === "bond" || t === "ring" || t === "template" || t === "symbol" || t === "orbital" || t === "arrow" || t === "shape" || t === "bracket";
+type Strip = "select" | "bond" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "shape" | "bracket" | "more";
+const isStrip = (t: Tool): t is Exclude<Strip, "more"> => t === "select" || t === "bond" || t === "ring" || t === "template" || t === "symbol" || t === "orbital" || t === "arrow" || t === "cycle" || t === "shape" || t === "bracket";
 // Strips laid out as a grid of icons (named on hover): each row a shape across its styles.
 // One hold time for every press and hold (FEEL-37): a tool pressed this long opens its strip, and on the canvas Select
 // takes over from a drawing tool.
@@ -236,6 +239,23 @@ export function ShapeGlyph({ kind }: { kind: ShapeKind }) {
     default: return <Icon><rect x={40} y={64} width={176} height={128} /></Icon>;
   }
 }
+
+// The Cycle tool's icons: a circle of arrows broken in three places, and that circle with a side arrow coming in or
+// going out at the top.
+export const CycleGlyph = ({ v }: { v: string }) => {
+  const arc = (a0: number, a1: number, r = 80, cx = 128, cy = 136) => { const p = (a: number) => [cx + r * Math.cos(a), cy + r * Math.sin(a)].map((x) => x.toFixed(1)).join(","); return `M${p(a0)} A${r},${r} 0 0 1 ${p(a1)}`; };
+  const head = (a: number, r = 80, cx = 128, cy = 136) => { const t = [cx + r * Math.cos(a), cy + r * Math.sin(a)], u = [-Math.sin(a), Math.cos(a)], n = [Math.cos(a), Math.sin(a)];
+    return [[t[0] - 30 * u[0] + 22 * n[0], t[1] - 30 * u[1] + 22 * n[1]], t, [t[0] - 30 * u[0] - 22 * n[0], t[1] - 30 * u[1] - 22 * n[1]]].map((q) => q.map((x) => x.toFixed(1)).join(",")).join(" "); };
+  const d = Math.PI / 180, stops = [-90, 30, 150];
+  return (
+    <Icon>
+      {stops.map((s) => <path key={s} d={arc((s + 16) * d, (s + 104) * d)} />)}
+      {stops.map((s) => <polyline key={s} points={head((s + 104) * d)} />)}
+      {v === "in" && <><path d="M44,28 Q84,28 104,52" /><polyline points="76,44 104,52 100,22" /></>}
+      {v === "out" && <><path d="M152,52 Q172,28 212,28" /><polyline points="186,10 212,28 188,48" /></>}
+    </Icon>
+  );
+};
 
 // A TLC plate: its outline, origin, dashed front and two spots.
 export const TlcGlyph = () => (
@@ -559,7 +579,7 @@ export function Palette(p: PaletteProps) {
   // A template found by name has its name once its structure can be drawn (the names engine has loaded).
   const named = (kind: string) => (p.named(kind) ? kindName(kind) : undefined);
   const nameOf = (tool: Strip, kind: string) =>
-    tool === "more" ? SPECIAL_TOOLS[kind]?.name : tool === "bond" ? BONDS[kind as BondKind]?.name : tool === "template" ? (template(kind)?.name ?? libraryItem(kind)?.name ?? named(kind)) : tool === "symbol" ? SYMBOLS[kind as SymbolKind] : tool === "shape" ? shapeName(kind) : tool === "orbital" ? orbitalName(kind) : tool === "bracket" ? BRACKETS[kind] : tool === "ring" ? (RINGS[kind as RingKind]?.name ?? template(kind)?.name ?? libraryItem(kind)?.name ?? named(kind))
+    tool === "more" ? SPECIAL_TOOLS[kind]?.name : tool === "bond" ? BONDS[kind as BondKind]?.name : tool === "template" ? (template(kind)?.name ?? libraryItem(kind)?.name ?? named(kind)) : tool === "symbol" ? SYMBOLS[kind as SymbolKind] : tool === "shape" ? shapeName(kind) : tool === "orbital" ? orbitalName(kind) : tool === "bracket" ? BRACKETS[kind] : tool === "cycle" ? CYCLES[kind] : tool === "ring" ? (RINGS[kind as RingKind]?.name ?? template(kind)?.name ?? libraryItem(kind)?.name ?? named(kind))
       : tool === "arrow" ? arrowName(kind) : SELECTS[kind as SelectKind]?.name;
   const iconOf = (tool: Strip, kind: string) => {
     if (tool === "more") return SPECIAL_TOOLS[kind]?.icon;
@@ -571,11 +591,12 @@ export function Palette(p: PaletteProps) {
     if (tool === "shape") return <ElementGlyph v={kind} />;
     if (tool === "orbital") return <OrbitalGlyph v={kind} />;
     if (tool === "bracket") return <BracketGlyph v={kind} />;
+    if (tool === "cycle") return <CycleGlyph v={kind} />;
     const mol = shapeOf(kind);
     return mol ? <TemplateGlyph mol={mol} /> : <RingGlyph kind={kind as RingKind} />;
   };
   const options = (tool: Strip) =>
-    tool === "bond" ? Object.keys(BONDS) : tool === "template" ? [p.variants.template] : tool === "symbol" ? Object.keys(SYMBOLS) : tool === "shape" ? [...SHAPE_GRID.flat(), ...SHAPE_EXTRA] : tool === "orbital" ? ORBITAL_GRID.flat() : tool === "bracket" ? Object.keys(BRACKETS) : tool === "select" ? Object.keys(SELECTS) : tool === "arrow" ? [...STRAIGHT.map((k) => (!arrowSize || (k === "block" && arrowSize === "small") ? k : withSize(k, arrowSize))), ...p.curvedArrows.filter((v) => arrowVariant(v)?.sweep)] : [...Object.keys(RINGS), ...p.templates.map((t) => templateKind(t.id)), ...p.libraryRings.filter((k) => libraryItem(k) || p.named(k))];
+    tool === "bond" ? Object.keys(BONDS) : tool === "template" ? [p.variants.template] : tool === "symbol" ? Object.keys(SYMBOLS) : tool === "shape" ? [...SHAPE_GRID.flat(), ...SHAPE_EXTRA] : tool === "orbital" ? ORBITAL_GRID.flat() : tool === "bracket" ? Object.keys(BRACKETS) : tool === "cycle" ? Object.keys(CYCLES) : tool === "select" ? Object.keys(SELECTS) : tool === "arrow" ? [...STRAIGHT.map((k) => (!arrowSize || (k === "block" && arrowSize === "small") ? k : withSize(k, arrowSize))), ...p.curvedArrows.filter((v) => arrowVariant(v)?.sweep)] : [...Object.keys(RINGS), ...p.templates.map((t) => templateKind(t.id)), ...p.libraryRings.filter((k) => libraryItem(k) || p.named(k))];
   // A menu's groups: shapes across their styles, then lines, arcs and the rest; each orbital across its phases;
   // one group for everything else.
   // The Arrow strip's last group: the sizes of the straight arrow in hand, as ChemDraw's Large, Medium and Small rows.
@@ -601,6 +622,7 @@ export function Palette(p: PaletteProps) {
     { id: "orbital", name: orbitalName(p.variants.orbital) ?? "Orbital", icon: <OrbitalGlyph v={p.variants.orbital} /> },
     { id: "symbol", name: SYMBOLS[p.variants.symbol], icon: <SymbolGlyph kind={p.variants.symbol} /> },
     { id: "arrow", name: `${arrowName(p.variants.arrow) ?? "Reaction"} arrow`, icon: <ArrowGlyph kind={p.variants.arrow} /> },
+    { id: "cycle", name: CYCLES[p.variants.cycle] ?? "Catalytic cycle", icon: <CycleGlyph v={p.variants.cycle} /> },
     { id: "shape", name: shapeName(p.variants.shape) ?? "Shape", icon: <ElementGlyph v={p.variants.shape} /> },
     { id: "bracket", name: BRACKETS[p.variants.bracket] ?? "Brackets", icon: <BracketGlyph v={p.variants.bracket} /> },
     { id: "text", name: "Text", icon: <TextT size={20} /> },
