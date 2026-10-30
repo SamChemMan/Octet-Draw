@@ -2,7 +2,7 @@
 // structure on the circle joins it (taking a break's place), a deleted intermediate leaves a break, reagents and
 // products keep their steps, and all of it survives a save.
 import assert from "node:assert/strict";
-import { addStop, breakAt, joinCycles, layoutCycles, removeStop, stepAt } from "./cycle.ts";
+import { addStop, breakAt, joinCycles, layoutCycles, removeStop, sideFor, stepAt } from "./cycle.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
 import { addCaption, addCycle, addRing, deleteAtoms, EMPTY, fragments } from "./edit.ts";
 import { readOct, writeOct } from "./oct.ts";
@@ -78,5 +78,32 @@ assert.equal(back.captions!.find((x) => x.cycle)?.cycle?.step, 1);
 // An empty circle is saved and opened as one.
 const empty = readOct(writeOct(addCycle(EMPTY, { centre: [1, 1], radius: 2, clockwise: false, nodes: [], at: [] })[0], DEFAULT_STYLE)).mol;
 assert.equal(empty.cycles?.[0]?.nodes.length, 0);
+
+// A side arrow's place: unset is where Octet has always put it, and a drag to its outer end reads back as the same
+// place (inside the circle too). The text goes beyond that end.
+{
+  let s: Mol, sid: number;
+  [s, sid] = addCycle(EMPTY, { centre: [0, 0], radius: 3, clockwise: true, nodes: [], at: [] });
+  s = addStop(addStop(s, sid, right, []), sid, left, []);
+  const lay = (x: Mol) => layoutCycles(x, L, 1, ink(x));
+  const side = (x: Mol) => lay(x).arrows.find((a) => a.caption !== undefined)!;
+  let cap: number;
+  [s, cap] = addCaption(s, { text: "H2", x: 0, y: 0, cycle: { cycle: sid, step: 1, side: "in" } });
+  const before = side(s), end: [number, number] = [before.from[0] * L, -before.from[1] * L];
+  // Default: 0.18 along the top step from the left, 1.1 bond lengths out.
+  const back = sideFor(lay(s), s.captions![0].cycle!, end, L)!;
+  assert.ok(Math.abs(back.at - 0.18) < 0.02 && Math.abs(back.reach - 1.1) < 0.02, JSON.stringify(back));
+  for (const want of [{ at: 0.5, reach: 2 }, { at: 0.8, reach: -1 }, { at: 0.1, reach: 0.6 }]) {
+    const t = { ...s.captions![0].cycle!, ...want }, moved = { ...s, captions: s.captions!.map((c) => (c.id === cap ? { ...c, cycle: t } : c)) };
+    const a = side(moved), got = sideFor(lay(moved), t, [a.from[0] * L, -a.from[1] * L], L)!;
+    assert.ok(Math.abs(got.at - want.at) < 0.02 && Math.abs(got.reach - want.reach) < 0.02, JSON.stringify({ want, got }));
+    // Inside, the text anchor is nearer the middle than the arrow's end.
+    const anchor = lay(moved).anchors.get(cap)!, r = Math.hypot(anchor.x, anchor.y), e = Math.hypot(a.from[0] * L, a.from[1] * L);
+    assert.ok(want.reach < 0 ? r < e : r > e);
+  }
+  // Saved and opened again.
+  const t = { ...s.captions![0].cycle!, at: 0.4, reach: -0.9 }, kept = readOct(writeOct({ ...s, captions: s.captions!.map((c) => ({ ...c, cycle: t })) }, DEFAULT_STYLE)).mol;
+  assert.deepEqual([kept.captions![0].cycle!.at, kept.captions![0].cycle!.reach], [0.4, -0.9]);
+}
 
 console.log("cycle tool ok");

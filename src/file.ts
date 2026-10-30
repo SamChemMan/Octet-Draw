@@ -47,7 +47,7 @@ export function serialize(mol: Mol): string {
     ...(c.font ? { font: c.font } : {}), ...(c.runs ? { runs: c.runs } : {}), ...(c.property ? { property: c.property } : {}), ...(c.angle ? { angle: round(c.angle) } : {}), ...(c.order ? { order: c.order } : {}), ...(c.lineHeight ? { lineHeight: c.lineHeight } : {}), ...(c.width ? { width: round(c.width) } : {}), ...(c.chemical === false ? { chemical: false } : {}),
     ...(c.on ? { on: { arrow: arrowList.findIndex((a) => a.id === c.on!.arrow), side: c.on.side } } : {}),
     ...(c.on && c.placed ? { placed: { at: c.placed.at.map(round), arrow: c.placed.arrow.map(round) } } : {}),
-    ...(c.cycle ? { cycle: { cycle: cycleList.findIndex((x) => x.id === c.cycle!.cycle), step: c.cycle.step, side: c.cycle.side } } : {}),
+    ...(c.cycle ? { cycle: { cycle: cycleList.findIndex((x) => x.id === c.cycle!.cycle), step: c.cycle.step, side: c.cycle.side, ...(c.cycle.at !== undefined ? { at: c.cycle.at } : {}), ...(c.cycle.reach !== undefined ? { reach: c.cycle.reach } : {}) } } : {}),
   }));
   // Groups name their objects by kind and place in the lists above: c caption, a arrow, s shape, y cycle.
   const captionList = [...(mol.captions ?? [])].sort((a, b) => a.id - b.id), shapeList = mol.shapes ?? [];
@@ -379,7 +379,7 @@ function readCaptions(raw: unknown, out: Mol, num: (v: unknown) => boolean, int:
   if (!Array.isArray(d.captions) || d.captions.length > MAX_CAPTIONS) throw new Error("This drawing is damaged.");
   out.captions = (d.captions as Record<string, unknown>[]).map((c, k) => {
     const under = c?.under as unknown[] | undefined, on = c?.on as { arrow?: unknown; side?: unknown } | undefined;
-    const cyc = c?.cycle as { cycle?: unknown; step?: unknown; side?: unknown } | undefined, placed = c?.placed as { at?: unknown; arrow?: unknown } | undefined;
+    const cyc = c?.cycle as { cycle?: unknown; step?: unknown; side?: unknown; at?: unknown; reach?: unknown } | undefined, placed = c?.placed as { at?: unknown; arrow?: unknown } | undefined;
     const pair = (v: unknown) => Array.isArray(v) && v.length === 2 && v.every(num);
     if (typeof c?.text !== "string" || c.text.length > MAX_TEXT || /[\u0000-\u0009\u000b-\u001f]/.test(c.text) || !num(c.x) || !num(c.y)
       || (c.bold !== undefined && typeof c.bold !== "boolean") || (c.italic !== undefined && typeof c.italic !== "boolean") || (c.underline !== undefined && typeof c.underline !== "boolean")
@@ -413,7 +413,7 @@ function readCaptions(raw: unknown, out: Mol, num: (v: unknown) => boolean, int:
     if (under) caption.under = under as number[];
     if (on) caption.on = { arrow: out.arrows![on.arrow as number].id, side: on.side as "above" | "below" };
     if (placed) caption.placed = { at: placed.at as [number, number], arrow: placed.arrow as [number, number] };
-    if (cyc) caption.cycle = { cycle: out.cycles![cyc.cycle as number].id, step: cyc.step as number, side: cyc.side as "in" | "out" | "centre" };
+    if (cyc) caption.cycle = { cycle: out.cycles![cyc.cycle as number].id, step: cyc.step as number, side: cyc.side as "in" | "out" | "centre", ...(num(cyc.at) && (cyc.at as number) >= 0 && (cyc.at as number) <= 1 ? { at: cyc.at as number } : {}), ...(num(cyc.reach) && Math.abs(cyc.reach as number) <= 1000 ? { reach: cyc.reach as number } : {}) };
     return caption;
   });
   return out;

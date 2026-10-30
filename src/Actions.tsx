@@ -10,7 +10,7 @@ import {
   ClipboardText, CopySimple, IdentificationBadge, Key, Target, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
   TextAlignJustify, TextAlignRight, TextB, TextItalic, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, Copy, ListDashes, Percent,
-  EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent,
+  EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle,
   Question, EyeClosed, ArrowsInLineVertical, BracketsRound, TreeStructure, Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, StarFour, TextTSlash,
 } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
@@ -39,7 +39,10 @@ export type Context =
   | { kind: "caption"; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
       // labelable: Octet can read a picked caption as an atom label (Make element). chemical: their Interpret chemically,
       // shown when the document's is on and one of them reads as chemistry.
-      script?: "sub" | "super"; font?: string; fonts?: string[]; labelable?: boolean; chemical?: boolean }
+      script?: "sub" | "super"; font?: string; fonts?: string[]; labelable?: boolean; chemical?: boolean;
+      // cycleSide: one picked caption that is a cycle's reagent (in) or product (out): moved from where Octet puts it,
+      // and inside the circle.
+      cycleSide?: { side: "in" | "out"; moved: boolean; inside: boolean } }
   // size: the heads' palette size ("own" for a size set by hand), when the arrows have heads. ratio: an equilibrium's.
   // fillable: closed curves and block arrows, which take a fill.
   | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
@@ -353,6 +356,12 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       if (context.labelable) items.push(it(<TextTSlash size={18} />, "Make element", "make_element"));
       if (context.convertible) items.push(toStructure);
       if (context.count === 1) items.push(it(<PencilSimpleLine size={18} />, "Edit text", "caption.edit"));
+      if (context.cycleSide) {
+        const c = context.cycleSide;
+        items.push(it(<Shuffle size={18} />, c.side === "in" ? "Make it a product" : "Make it a reagent", "cycle.side.swap"),
+          it(<CircleHalf size={18} />, c.inside ? "Put outside the cycle" : "Put inside the cycle", "cycle.side.inside"));
+        if (c.moved) items.push(it(<ClockCounterClockwise size={18} />, "Reset position", "cycle.side.reset"));
+      }
       if (context.attached) items.push(it(<LinkBreak size={18} />, "Un-tie from structure", "caption.detach"));
       else if (context.attachable) items.push(it(<LinkSimple size={18} />, "Tie to structure", "caption.attach"));
       items.push(small(it(<Paragraph size={18} />, "Line spacing…", "line_spacing")), ...turnings, rotate, centre, ...order, keep, del);

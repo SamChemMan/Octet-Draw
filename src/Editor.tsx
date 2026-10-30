@@ -70,7 +70,7 @@ import { cleanUpReaction, cleanUpReactions, findReaction, gapFor, layoutRow, rea
 import { alignByMap, clearScheme, interpret, mapScheme, rolesOf, type Part, type Role, type RoleStep } from "./interpret";
 import { SEARCHES, searchNow, searchQuery } from "./search";
 import { moduleOf, SettingsWindow, type ModuleId } from "./SettingsWindow";
-import { addStop, angleAbout, breakAt, joinCycles, layoutCycles, orderAround, removeStop, spreadCycle, stepAt, type Cycle, type CycleText } from "./cycle";
+import { addStop, angleAbout, breakAt, joinCycles, layoutCycles, orderAround, removeStop, sideFor, sideReach, spreadCycle, stepAt, type Cycle, type CycleLayout, type CycleText } from "./cycle";
 import { LIBRARY, libraryItem, type LibraryItem } from "./library";
 import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
 import {
@@ -2596,7 +2596,7 @@ export default function Editor() {
   // Arrows grow to fit their conditions, including conditions being typed. The arrow lists stay the same lists while
   // their arrows do not change (most typing), so nothing drawn from them is made again.
   const laid = useRef<{ arrows: Arrow[]; cycles: ReturnType<typeof layoutCycles>["arrows"] }>({ arrows: [], cycles: [] });
-  const { placed, arrows, cycleArrows } = useMemo(() => {
+  const { placed, arrows, cycleArrows, cycleLayout } = useMemo(() => {
     let m = shown;
     const runs = writing?.runs && styled(writing.runs) && plainOf(writing.runs) ? writing.runs : undefined;
     if (writing?.id !== undefined) m = updateCaption(m, writing.id, { text: writing.value || " ", ...writing.style, runs });
@@ -2617,7 +2617,7 @@ export default function Editor() {
     // above and below the baseline, for Variable line spacing.
     const face = (c: Caption, r: RunStyle) => [(r.size ? r.size * pt : (c.size ?? style.captionSize) * pt) * (r.script ? 0.75 : 1), r.bold ?? c.bold, r.italic ?? c.italic, fontStack(r.font ?? c.font ?? style.captionFont)] as const;
     const measure = (t: string, c: Caption, r: RunStyle) => textWidth(t, ...face(c, r)), extent = (t: string, c: Caption, r: RunStyle) => textExtent(t, ...face(c, r));
-    return { placed: placeCaptions(m, drawing, width, fitted, pt, style.captionSize, cycles.anchors, measure, extent), arrows: laid.current.arrows, cycleArrows: laid.current.cycles };
+    return { placed: placeCaptions(m, drawing, width, fitted, pt, style.captionSize, cycles.anchors, measure, extent), arrows: laid.current.arrows, cycleArrows: laid.current.cycles, cycleLayout: cycles as CycleLayout };
   }, [shown, drawing, writing, style, pt]);
   // A caption as a lone atom labelled with its text, in the caption's size, font, style and colour. The label's first
   // glyph goes where the caption's was, as an atom label sits on its atom.
@@ -3150,6 +3150,11 @@ export default function Editor() {
       captions: m.captions?.map((c) => {
         const from = captions.get(c.id);
         if (!from) return c;
+        // A cycle's reagent or product stays on its cycle: its arrow's outer end (from) goes where it is dragged.
+        if (c.cycle && c.cycle.side !== "centre") {
+          const f = doc.cycles?.find((y) => y.id === c.cycle!.cycle)?.scale ?? 1, to = sideFor(cycleLayout, c.cycle, [(from[0] + d[0]) * L, -(from[1] + d[1]) * L], L, f);
+          return to ? { ...c, cycle: { ...c.cycle, ...to } } : c;
+        }
         const { under: _u, on: _o, cycle: _c, placed: _p, ...free } = c;
         return { ...free, x: from[0] + d[0], y: from[1] + d[1] };
       }),
@@ -3157,6 +3162,18 @@ export default function Editor() {
   }
   // Catalytic cycles: make one from the selected structures, tidy it, turn it the other way, label it, or ungroup it.
   function cycleAction(what: string) {
+    // A picked reagent or product: make it the other, put it inside or outside the circle, or back where Octet puts it.
+    if (what.startsWith("side.")) {
+      const change = (t: CycleText): CycleText => {
+        // The text stays where it is (a placed one), and its arrow turns round.
+        if (what === "side.swap") return { ...t, side: t.side === "in" ? "out" : "in" };
+        // Inside, the end stays no nearer the middle than a fifth of the radius.
+        if (what === "side.inside") { const r = doc.cycles?.find((y) => y.id === t.cycle)?.radius ?? 3; return { ...t, reach: sideReach(t) > 0 ? -Math.min(sideReach(t), 0.8 * r) : -sideReach(t) }; }
+        const { at: _a, reach: _r, ...rest } = t;
+        return rest;
+      };
+      return set({ ...doc, captions: doc.captions?.map((c) => (picked.has(c.id) && c.cycle && c.cycle.side !== "centre" ? { ...c, cycle: change(c.cycle) } : c)) }, true);
+    }
     const ink = (atoms: number[]) => inkOf(atoms);
     // Breaks go round evenly with the intermediates. A circle with no structures on it stays as it is.
     const spread = (m: Mol, c: Cycle) => {
@@ -3208,9 +3225,9 @@ export default function Editor() {
       const a = angleAbout(c, from), gap = breakAt(doc, c, a, 10 / (c.radius * L * views.get().zoom));
       return set(gap !== undefined ? removeStop(doc, c.id, gap) : addStop(doc, c.id, a, []), true);
     }
-    const [m, id] = addCycle(doc, newCycle(from, to ?? [from[0] + 3, from[1]]));
+    // The new cycle is not picked, so the next clicks on its circle break it (and do not land on its frame's handles).
+    const [m] = addCycle(doc, newCycle(from, to ?? [from[0] + 3, from[1]]));
     set(joinCycles(m, fragments(m)));
-    setPicked(new Set([id]));
   }
   // Numbers the structures in the selection, left to right, skipping any that already have a number.
   function numberStructures() {
@@ -3402,7 +3419,9 @@ export default function Editor() {
     for (const caption of base.captions ?? []) {
       const c = placed.find((x) => x.id === (original.get(caption.id) ?? caption.id));
       const follows = (caption.under && caption.under.every((i) => atoms.has(i))) || (caption.on && arrowIds.has(caption.on.arrow)) || (caption.cycle && cycleIds.has(caption.cycle.cycle));
-      if (c && picks.has(caption.id) && !follows) captions.set(caption.id, anchorOf(c));
+      // A cycle's reagent or product moves by its arrow's outer end, where it is at the press.
+      const side = caption.cycle && caption.cycle.side !== "centre" ? cycleArrows.find((a) => a.caption === caption.id) : undefined;
+      if (c && picks.has(caption.id) && !follows) captions.set(caption.id, side ? (caption.cycle!.side === "in" ? side.from : side.to) : anchorOf(c));
     }
     return { captions, arrowIds, cycleIds };
   };
@@ -4833,6 +4852,7 @@ export default function Editor() {
       if (c) {
         const p = placed.find((x) => x.id === c.id), w = whole(c);
         return { kind: "caption", mode: "picked", colour: w.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some(labelable),
+          ...(cs.length === 1 && c.cycle && c.cycle.side !== "centre" ? { cycleSide: { side: c.cycle.side, moved: c.cycle.at !== undefined || c.cycle.reach !== undefined, inside: sideReach(c.cycle) < 0 } } : {}),
           // Their Interpret chemically, while the document's is on: whether each one that reads as chemistry has it on.
           ...(style.interpret && cs.some(labelable) ? { chemical: cs.filter(labelable).every((x) => x.chemical !== false) } : {}) };
       }

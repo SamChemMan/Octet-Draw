@@ -10,7 +10,12 @@ import type { Arrow, Box, Caption, Mol } from "./render.ts";
 // have any number of nodes (none is a whole circle).
 export type Cycle = { id: number; centre: [number, number]; radius: number; clockwise: boolean; nodes: number[][]; at?: number[]; colour?: string; order?: number; scale?: number; width?: number };
 // A cycle's caption: its centre label, or the reagent coming in or product going out on a step (node k to k + 1).
-export type CycleText = { cycle: number; step: number; side: "in" | "out" | "centre" };
+// at: where along its step a side arrow's outer end is (0 at the step's start, 1 at its end); reach: how far that end
+// is from the circle, in bond lengths (less than 0 is inside it). Unset, a reagent's end is 0.18 along and a
+// product's 0.82, 1.1 bond lengths outside. Dragging the text sets them.
+export type CycleText = { cycle: number; step: number; side: "in" | "out" | "centre"; at?: number; reach?: number };
+export const sideAt = (t: CycleText) => t.at ?? (t.side === "in" ? 0.18 : 0.82);
+export const sideReach = (t: CycleText) => t.reach ?? 1.1;
 
 type P = [number, number];
 const GAP_PT = 6; // clear space between an arc's ends and an intermediate's ink, in pt
@@ -19,13 +24,15 @@ const GAP_PT = 6; // clear space between an arc's ends and an intermediate's ink
 const DERIVED = -1_000_000;
 
 export type CycleLayout = {
-  arrows: (Arrow & { cycle: number; step: number })[];
+  arrows: (Arrow & { cycle: number; step: number; caption?: number })[]; // caption: a side arrow's text
+  // Each step's arc as drawn: px, y down. It runs from angle a0 + dir * from to a0 + dir * to about centre.
+  spans: { cycle: number; step: number; centre: P; R: number; a0: number; dir: number; from: number; to: number }[];
   anchors: Map<number, { x: number; y: number; anchor: "start" | "middle" | "end" }>; // caption id → anchor (px)
 };
 
 // k: px per bond length; pt: px per point. ink: an intermediate's ink box in px (y down).
 export function layoutCycles(m: Mol, k: number, pt: number, ink: (atoms: number[]) => Box | undefined): CycleLayout {
-  const out: CycleLayout = { arrows: [], anchors: new Map() };
+  const out: CycleLayout = { arrows: [], anchors: new Map(), spans: [] };
   let next = DERIVED;
   for (const c of m.cycles ?? []) {
     const f = c.scale ?? 1, own = f !== 1 ? { scale: f } : {}, centre: P = [c.centre[0] * k, -c.centre[1] * k], R = c.radius * k, dir = c.clockwise ? 1 : -1;
@@ -50,19 +57,22 @@ export function layoutCycles(m: Mol, k: number, pt: number, ink: (atoms: number[
       while (from < span / 2 && inside(at(a0 + dir * from), boxes[s])) from += step;
       while (to > span / 2 && inside(at(a0 + dir * to), boxes[t])) to -= step;
       if (to - from < 0.05) continue;
+      out.spans.push({ cycle: c.id, step: s, centre, R, a0, dir, from, to });
       const A = at(a0 + dir * from), B = at(a0 + dir * to), mid = at(a0 + dir * (from + to) / 2);
       out.arrows.push({ id: next--, kind: "curved", from: toDoc(A), to: toDoc(B), bend: bendFor(A, B, mid), cycle: c.id, step: s, ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}), ...own, ...(c.width ? { width: c.width } : {}) });
       // Side arrows: a reagent joins the arc before its middle; a product leaves after it.
       for (const cap of m.captions ?? []) {
         const on = cap.cycle;
         if (!on || on.cycle !== c.id || on.step !== s || on.side === "centre") continue;
-        const fa = on.side === "in" ? 0.38 : 0.62, g = on.side === "in" ? 0.18 : 0.82;
-        const onArc = at(a0 + dir * (from + (to - from) * fa)), away = at(a0 + dir * (from + (to - from) * g), R + 1.1 * f * k);
+        // The arrow meets the arc 0.2 of the step on from its outer end (back from it, for a product), and no more than
+        // 0.6 radians on, so it stays short on a step most of the way round (one with fewer than two nodes).
+        const g = sideAt(on), reach = sideReach(on), w = Math.min(0.2, 0.6 / (to - from)), fa = Math.min(0.95, Math.max(0.05, on.side === "in" ? g + w : g - w));
+        const onArc = at(a0 + dir * (from + (to - from) * fa)), away = at(a0 + dir * (from + (to - from) * g), R + reach * f * k);
         const [p, q] = on.side === "in" ? [away, onArc] : [onArc, away];
-        const bulge = at(a0 + dir * (from + (to - from) * (fa + g) / 2), R + 0.75 * f * k);
-        out.arrows.push({ id: next--, kind: "curved", from: toDoc(p), to: toDoc(q), bend: bendFor(p, q, bulge) * 0.6, cycle: c.id, step: s, ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}), ...own, ...(c.width ? { width: c.width } : {}) });
+        const bulge = at(a0 + dir * (from + (to - from) * (fa + g) / 2), R + reach * (0.75 / 1.1) * f * k);
+        out.arrows.push({ id: next--, kind: "curved", from: toDoc(p), to: toDoc(q), bend: bendFor(p, q, bulge) * 0.6, cycle: c.id, step: s, caption: cap.id, ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}), ...own, ...(c.width ? { width: c.width } : {}) });
         // The text sits beyond the outer end of the side arrow.
-        const outward = Math.atan2(away[1] - centre[1], away[0] - centre[0]), textAt = at(outward, R + 1.1 * f * k + gap);
+        const outward = Math.atan2(away[1] - centre[1], away[0] - centre[0]), textAt = at(outward, R + reach * f * k + Math.sign(reach || 1) * gap);
         const anchor = Math.cos(outward) > 0.35 ? "start" : Math.cos(outward) < -0.35 ? "end" : "middle";
         out.anchors.set(cap.id, { x: textAt[0], y: textAt[1] + (Math.sin(outward) > 0.35 ? 10 : Math.sin(outward) < -0.35 ? -2 : 3.5) * f * pt, anchor });
       }
@@ -178,4 +188,18 @@ export function joinCycles(m: Mol, frags: number[][], moved?: (i: number) => boo
     f.forEach((i) => taken.add(i));
   }
   return m;
+}
+
+// Where a side arrow's text dragged to p (px, y down) puts its outer end: how far along its step and how far from the
+// circle (CycleText at and reach). Undefined when the step is not drawn.
+export function sideFor(layout: CycleLayout, t: CycleText, p: P, k: number, f = 1): { at: number; reach: number } | undefined {
+  const s = layout.spans.find((x) => x.cycle === t.cycle && x.step === t.step);
+  if (!s) return undefined;
+  let travel = (s.dir * (Math.atan2(p[1] - s.centre[1], p[0] - s.centre[0]) - s.a0)) % (2 * Math.PI);
+  if (travel < 0) travel += 2 * Math.PI;
+  // Past the end of the step is its end; before its start (the rest of the way round) is its start.
+  const past = travel > s.to + (2 * Math.PI - s.to + s.from) / 2 ? 0 : Math.min(1, Math.max(0, (travel - s.from) / (s.to - s.from)));
+  const reach = (Math.hypot(p[0] - s.centre[0], p[1] - s.centre[1]) - s.R) / (f * k);
+  // The end stays a little away from the circle, and inside it no nearer the middle than a fifth of the radius.
+  return { at: Math.round(past * 100) / 100, reach: Math.round(Math.max(-0.8 * s.R / (f * k), Math.abs(reach) < 0.4 ? Math.sign(reach || 1) * 0.4 : reach) * 100) / 100 };
 }
