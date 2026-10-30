@@ -4175,7 +4175,8 @@ export default function Editor() {
           const b = grabbed !== undefined && moving.has(grabbed) ? undefined : drag.snap()?.moving;
           const points: P[] = grabbed !== undefined && moving.has(grabbed) ? [pos(base, grabbed)] : b ? [b[0], (b[0] + b[2]) / 2, b[2]].flatMap((x) => [b[1], (b[1] + b[3]) / 2, b[3]].map((y): P => [x, y])) : [];
           const nudge = gridNudge(snapGrid, points.map((q) => [q[0] + snapped.d[0], q[1] + snapped.d[1]]), views.get().zoom * L, 6);
-          const free = (axis: "x" | "y") => !snapped.guides.some((g) => g.axis === axis);
+          // A spacing mark across a horizontal space is a snap on x, though it is drawn as a horizontal line.
+          const free = (axis: "x" | "y") => !snapped.guides.some((g) => (g.gap ? (g.axis === "x" ? "y" : "x") : g.axis) === axis);
           snapped.d = [snapped.d[0] + (free("x") ? nudge[0] ?? 0 : 0), snapped.d[1] + (free("y") ? nudge[1] ?? 0 : 0)];
         }
         return setDrag({ ...drag, working: moveAll(base, snapped.d, drag.captions, drag.arrows, drag.cycles, moving), moved: true, guides: snapped.guides, point: snapped.point });
@@ -7375,9 +7376,15 @@ export default function Editor() {
             );
           })()}
           <Live store={brushes}>{(brush) => tool === "erase" && brush && <circle className="brush" cx={brush[0] * L} cy={-brush[1] * L} r={settings.eraser * L} vectorEffect="non-scaling-stroke" />}</Live>
-          {drag?.kind === "move" && drag.guides.map((g, i) => g.axis === "x"
-            ? <line key={i} className="guide" x1={g.at * L} x2={g.at * L} y1={-g.from * L} y2={-g.to * L} vectorEffect="non-scaling-stroke" />
-            : <line key={i} className="guide" y1={-g.at * L} y2={-g.at * L} x1={g.from * L} x2={g.to * L} vectorEffect="non-scaling-stroke" />)}
+          {drag?.kind === "move" && drag.guides.map((g, i) => {
+            // A space made equal: a line across it with a tick at each end.
+            const tick = 4 / view.zoom, ends = g.gap ? [g.from, g.to] : [];
+            return g.axis === "x"
+              ? <g key={i}><line className="guide" x1={g.at * L} x2={g.at * L} y1={-g.from * L} y2={-g.to * L} vectorEffect="non-scaling-stroke" />
+                {ends.map((e) => <line key={e} className="guide" x1={g.at * L - tick} x2={g.at * L + tick} y1={-e * L} y2={-e * L} vectorEffect="non-scaling-stroke" />)}</g>
+              : <g key={i}><line className="guide" y1={-g.at * L} y2={-g.at * L} x1={g.from * L} x2={g.to * L} vectorEffect="non-scaling-stroke" />
+                {ends.map((e) => <line key={e} className="guide" y1={-g.at * L - tick} y2={-g.at * L + tick} x1={e * L} x2={e * L} vectorEffect="non-scaling-stroke" />)}</g>;
+          })}
           {drag?.kind === "move" && drag.point && <circle key={drag.point.join()} className="snap-point" cx={drag.point[0] * L} cy={-drag.point[1] * L} r={0.22 * L} vectorEffect="non-scaling-stroke" />}
           </g>
         </g>

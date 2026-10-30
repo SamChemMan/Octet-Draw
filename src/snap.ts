@@ -5,8 +5,9 @@
 import { fragments, pos, type P } from "./edit.ts";
 import type { Mol } from "./render";
 
-// A guide line to draw: at x (axis "x", a vertical line) or y, running from `from` to `to` on the other axis.
-export type Guide = { axis: "x" | "y"; at: number; from: number; to: number };
+// A guide line to draw: at x (axis "x", a vertical line) or y, running from `from` to `to` on the other axis. gap: a
+// mark across a space between two things, one of the spaces the move made equal.
+export type Guide = { axis: "x" | "y"; at: number; from: number; to: number; gap?: true };
 type Line = { at: number; lo: number; hi: number }; // a snap line and the extent of what it belongs to
 
 const box = (ps: P[]) => {
@@ -59,6 +60,30 @@ function linesOf(boxes: number[][]): [Lines, Lines] {
   }
   return sets;
 }
+// Each pair of boxes in line on an axis (they overlap across it) with nothing in line between them: the space
+// between them, and where across it they overlap. Made once for each set of boxes.
+type Gap = { lo: number; hi: number; across: number };
+const gapSets = new WeakMap<number[][], [Gap[], Gap[]]>();
+const inLine = (a: number[], b: number[], o: number) => a[o] <= b[o + 2] && b[o] <= a[o + 2];
+function gapsOf(boxes: number[][]): [Gap[], Gap[]] {
+  let sets = gapSets.get(boxes);
+  if (!sets) {
+    const axis = (k: 0 | 1): Gap[] => {
+      const o = 1 - k, out: Gap[] = [];
+      for (const a of boxes) {
+        // a's nearest neighbour after it, in line.
+        let next: number[] | undefined;
+        for (const b of boxes) if (b !== a && b[k] > a[k + 2] && inLine(a, b, o) && (!next || b[k] < next[k])) next = b;
+        if (next) out.push({ lo: a[k + 2], hi: next[k], across: (Math.max(a[o], next[o]) + Math.min(a[o + 2], next[o + 2])) / 2 });
+      }
+      return out;
+    };
+    sets = [axis(0), axis(1)];
+    gapSets.set(boxes, sets);
+  }
+  return sets;
+}
+
 // The first place in ats (in order) at or past x, or past x when after is set.
 function seek(ats: Float64Array, x: number, after = false): number {
   let lo = 0, hi = ats.length;
@@ -129,7 +154,8 @@ export function snapBoxes(moving: number[], boxes: number[][], d: P, tol: number
   const mb = moving.map((v, k) => v + d[k % 2]);
   const axis = (k: 0 | 1) => {
     const refs = [mb[k], (mb[k] + mb[k + 2]) / 2, mb[k + 2]], { lines, order, ats } = linesOf(boxes)[k];
-    let pick: { diff: number; line: Line } | undefined;
+    // size and next: a spacing snap's space and the neighbour it is measured from.
+    let pick: { diff: number; line: Line; size?: number; next?: number[] } | undefined;
     // Only the lines within tol can snap; they are taken in their own order, as a pass over every line would.
     for (const [n, r] of refs.entries()) for (const i of order.slice(seek(ats, r - tol - 1e-9), seek(ats, r + tol + 1e-9, true)).sort((p, q) => p - q)) {
       const t = lines[i], diff = t.at - r;
@@ -137,12 +163,36 @@ export function snapBoxes(moving: number[], boxes: number[][], d: P, tol: number
       const weight = n === 1 ? 0.7 : 1;
       if (Math.abs(diff) < tol && (!pick || Math.abs(diff) * weight < Math.abs(pick.diff))) pick = { diff, line: t };
     }
+    // Equal spacing (as Figma's and Photoshop's smart guides): the space between the moving box and its neighbour in
+    // line, on either side, the same as a space between two other things in line. It wins over a line as near.
+    const o = 1 - k, gaps = gapsOf(boxes)[k];
+    for (const t of boxes) {
+      if (!inLine(t, mb, o)) continue;
+      for (const g of gaps) {
+        const size = g.hi - g.lo;
+        for (const diff of [t[k + 2] + size - mb[k], t[k] - size - mb[k + 2]]) {
+          if (!(Math.abs(diff) < tol) || (pick && Math.abs(diff) > Math.abs(pick.diff))) continue;
+          // t must be the moving box's neighbour there: nothing in line between them.
+          const [from, to] = diff === t[k + 2] + size - mb[k] ? [t[k + 2], mb[k] + diff] : [mb[k + 2] + diff, t[k]];
+          if (boxes.some((x) => x !== t && inLine(x, mb, o) && x[k] < to && x[k + 2] > from)) continue;
+          pick = { diff, line: { at: NaN, lo: from, hi: to }, size, next: t };
+        }
+      }
+    }
     return pick;
   };
   const sx = axis(0), sy = axis(1);
   const out: P = [d[0] + (sx?.diff ?? 0), d[1] + (sy?.diff ?? 0)];
   const fb = moving.map((v, k) => v + out[k % 2]), guides: Guide[] = [];
-  if (sx) guides.push({ axis: "x", at: sx.line.at, from: Math.min(fb[1], sx.line.lo) - 0.3, to: Math.max(fb[3], sx.line.hi) + 0.3 });
-  if (sy) guides.push({ axis: "y", at: sy.line.at, from: Math.min(fb[0], sy.line.lo) - 0.3, to: Math.max(fb[2], sy.line.hi) + 0.3 });
+  // A spacing snap marks the new space and every space of the same size in line.
+  const spaced = (k: 0 | 1, s: NonNullable<typeof sx>) => {
+    const o = 1 - k, size = s.size!, t = s.next!, axisOf = k === 0 ? "y" : "x";
+    guides.push({ axis: axisOf, at: (Math.max(fb[o], t[o]) + Math.min(fb[o + 2], t[o + 2])) / 2, from: s.line.lo, to: s.line.hi, gap: true });
+    for (const g of gapsOf(boxes)[k]) if (Math.abs(g.hi - g.lo - size) < 1e-6) guides.push({ axis: axisOf, at: g.across, from: g.lo, to: g.hi, gap: true });
+  };
+  if (sx?.size !== undefined) spaced(0, sx);
+  else if (sx) guides.push({ axis: "x", at: sx.line.at, from: Math.min(fb[1], sx.line.lo) - 0.3, to: Math.max(fb[3], sx.line.hi) + 0.3 });
+  if (sy?.size !== undefined) spaced(1, sy);
+  else if (sy) guides.push({ axis: "y", at: sy.line.at, from: Math.min(fb[0], sy.line.lo) - 0.3, to: Math.max(fb[2], sy.line.hi) + 0.3 });
   return { d: out, guides };
 }

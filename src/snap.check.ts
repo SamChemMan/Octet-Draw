@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { EMPTY, fragments, merge, pos, sprout, type P } from "./edit.ts";
 import type { Mol } from "./render.ts";
-import { snapBoxes, snapMove } from "./snap.ts";
+import { type Guide, snapBoxes, snapMove } from "./snap.ts";
 
 // Two ethanes side by side. Moving the second (atoms 2, 3) a little off line snaps it back level.
 const a = sprout(EMPTY, [0, 0]), m = merge(a, a, [3, 0.04]);
@@ -49,17 +49,39 @@ function plainBoxes(moving: number[], boxes: number[][], d: P, tol: number) {
       if (p === q || p[k + 2] >= q[k] || p[o] > q[o + 2] || q[o] > p[o + 2]) continue;
       targets.push({ at: (p[k + 2] + q[k]) / 2, lo: Math.min(p[o], q[o]), hi: Math.max(p[o + 2], q[o + 2]) });
     }
-    let pick: { diff: number; line: { at: number; lo: number; hi: number } } | undefined;
+    let pick: { diff: number; line: { at: number; lo: number; hi: number }; size?: number; next?: number[] } | undefined;
     for (const [n, r] of refs.entries()) for (const t of targets) {
       const diff = t.at - r, weight = n === 1 ? 0.7 : 1;
       if (Math.abs(diff) < tol && (!pick || Math.abs(diff) * weight < Math.abs(pick.diff))) pick = { diff, line: t };
     }
+    // Equal spacing: every space between a box and its nearest neighbour after it in line, put beside each box in line
+    // with the moving one, where nothing in line comes between.
+    const line = (a: number[], b: number[]) => a[o] <= b[o + 2] && b[o] <= a[o + 2];
+    const sizes = boxes.flatMap((a) => {
+      const after = boxes.filter((b) => b !== a && b[k] > a[k + 2] && line(a, b)).sort((p, q) => p[k] - q[k])[0];
+      return after ? [after[k] - a[k + 2]] : [];
+    });
+    for (const t of boxes) if (line(t, mb)) for (const size of sizes) for (const diff of [t[k + 2] + size - mb[k], t[k] - size - mb[k + 2]]) {
+      if (!(Math.abs(diff) < tol) || (pick && Math.abs(diff) > Math.abs(pick.diff))) continue;
+      const [from, to] = diff === t[k + 2] + size - mb[k] ? [t[k + 2], mb[k] + diff] : [mb[k + 2] + diff, t[k]];
+      if (!boxes.some((x) => x !== t && line(x, mb) && x[k] < to && x[k + 2] > from)) pick = { diff, line: { at: NaN, lo: from, hi: to }, size, next: t };
+    }
     return pick;
   };
   const sx = axis(0), sy = axis(1), out: P = [d[0] + (sx?.diff ?? 0), d[1] + (sy?.diff ?? 0)];
-  const fb = moving.map((v, k) => v + out[k % 2]), guides = [];
-  if (sx) guides.push({ axis: "x", at: sx.line.at, from: Math.min(fb[1], sx.line.lo) - 0.3, to: Math.max(fb[3], sx.line.hi) + 0.3 });
-  if (sy) guides.push({ axis: "y", at: sy.line.at, from: Math.min(fb[0], sy.line.lo) - 0.3, to: Math.max(fb[2], sy.line.hi) + 0.3 });
+  const fb = moving.map((v, k) => v + out[k % 2]), guides: Guide[] = [];
+  const marks = (k: 0 | 1, s: NonNullable<typeof sx>) => {
+    const o = 1 - k, t = s.next!, axisOf = k === 0 ? "y" as const : "x" as const;
+    guides.push({ axis: axisOf, at: (Math.max(fb[o], t[o]) + Math.min(fb[o + 2], t[o + 2])) / 2, from: s.line.lo, to: s.line.hi, gap: true });
+    for (const a of boxes) {
+      const after = boxes.filter((b) => b !== a && b[k] > a[k + 2] && a[o] <= b[o + 2] && b[o] <= a[o + 2]).sort((p, q) => p[k] - q[k])[0];
+      if (after && Math.abs(after[k] - a[k + 2] - s.size!) < 1e-6) guides.push({ axis: axisOf, at: (Math.max(a[o], after[o]) + Math.min(a[o + 2], after[o + 2])) / 2, from: a[k + 2], to: after[k], gap: true });
+    }
+  };
+  if (sx?.size !== undefined) marks(0, sx);
+  else if (sx) guides.push({ axis: "x", at: sx.line.at, from: Math.min(fb[1], sx.line.lo) - 0.3, to: Math.max(fb[3], sx.line.hi) + 0.3 });
+  if (sy?.size !== undefined) marks(1, sy);
+  else if (sy) guides.push({ axis: "y", at: sy.line.at, from: Math.min(fb[0], sy.line.lo) - 0.3, to: Math.max(fb[2], sy.line.hi) + 0.3 });
   return { d: out, guides };
 }
 let seed = 11;
@@ -87,4 +109,18 @@ for (let n = 0; n < 400; n++) {
 // Broken boxes (no number, or infinite) snap nothing, and the rest snap as before.
 const broken = [[NaN, 0, 1, 1], [0, Infinity, 2, Infinity], [3, 3, 4, 4], [-Infinity, 1, 0.5, 2]];
 for (const d of [[0, 0], [2.95, 2.97], [0.4, -0.1], [NaN, 1]] as P[]) assert.deepEqual(snapBoxes([0, 0, 1, 1], broken, d, 0.1), plainBoxes([0, 0, 1, 1], broken, d, 0.1), `broken boxes, d ${d}`);
+// Equal spacing, as in Sam's slide (31 October 2026): three wide boxes in a column, the top two 0.5 apart. The third,
+// dragged to 0.55 below the second, snaps to 0.5 below it, and both spaces are marked.
+{
+  const column = [[0, 10, 20, 14], [0, 5.5, 20, 9.5]], third = [0, 0, 20, 4];
+  const got = snapBoxes(third, column, [0.3, 0.95], 0.1);
+  assert.ok(Math.abs(got.d[1] - 1) < 1e-9, `spaced: ${got.d}`);
+  const marks = got.guides.filter((g) => g.gap);
+  assert.equal(marks.length, 2);
+  assert.ok(marks.every((g) => g.axis === "x" && Math.abs(g.to - g.from - 0.5) < 1e-9));
+  // The same across, and a box with something in line between it and the other is not spaced from it.
+  const row = [[0, 0, 2, 2], [3, 0, 5, 2]];
+  assert.ok(Math.abs(snapBoxes([0, 0, 2, 2], row, [6.05, 0.5], 0.1).d[0] - 6) < 1e-9);
+  assert.ok(!snapBoxes([0, 0, 2, 2], [...row, [5.3, 0, 5.6, 2]], [6.05, 0.5], 0.1).guides.some((g) => g.gap));
+}
 console.log("snap.check: ok");
