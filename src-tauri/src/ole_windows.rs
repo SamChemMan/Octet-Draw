@@ -973,16 +973,16 @@ fn disconnect_later() {
     for (unknown, locked) in list {
         // SAFETY: live objects on the main thread, their own apartment.
         unsafe {
-            if locked {
-                let _ = CoLockObjectExternal(&unknown, false, true);
-            }
-            let _ = CoDisconnectObject(&unknown, None);
+            let unlocked = if locked { Some(CoLockObjectExternal(&unknown, false, true).is_ok()) } else { None };
+            let cut = CoDisconnectObject(&unknown, None);
+            log(&format!("diagnostic: disconnected an object, unlocked {unlocked:?}, {cut:?}"));
         }
     }
 }
 
 impl Drop for Drawing {
     fn drop(&mut self) {
+        log(&format!("diagnostic: object {} released", self.id));
         WATCHED.lock().unwrap().remove(&self.id);
         if let Some(h) = self.container.take() {
             // SAFETY: the handle note_caller opened.
@@ -1033,12 +1033,14 @@ impl IOleObject_Impl for Drawing_Impl {
         // Whether Word got the window's newest drawing. If not (NOSAVE with changes not sent), the window stays open
         // and keeps the drawing, as when Word goes away.
         let sent = *option != OLECLOSE_NOSAVE || self.latest.borrow().is_none();
+        log(&format!("diagnostic: Close object {id}, option {}, sent {sent}", option.0));
         if *option == OLECLOSE_NOSAVE {
             self.latest.borrow_mut().take();
         } else {
             Drawing::flush(&self.to_object());
         }
         let shown = OPEN.with(|m| m.borrow_mut().remove(&id)).is_some();
+        log(&format!("diagnostic: Close object {id}, window shown {shown}"));
         self.closed_notices();
         Drawing::disconnect(&self.to_object());
         if shown {
