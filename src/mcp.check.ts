@@ -758,7 +758,8 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
 {
   const listed = (await send("tools/list")).result.tools as { name: string; description: string; inputSchema: object }[];
   const json = JSON.stringify(listed.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema })));
-  assert.ok(json.length < 36_000, `the tools as an AI app gives them to its model: ${json.length} characters`);
+  // (R7 took it from 35,000 to 50,000: every command and every object property, read once per session.)
+  assert.ok(json.length < 52_000, `the tools as an AI app gives them to its model: ${json.length} characters`);
   assert.ok(!/"(maxLength|maxItems|minItems|minimum|maximum)"/.test(json));
   fresh();
   const long = await call("add_text", { text: "x".repeat(2001) });
@@ -829,6 +830,156 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.ok(!r.isError, text(r));
   const cap = m.captions!.find((c) => c.text === "M = Ce")!, num = m.captions!.find((c) => c.text === "1")!;
   assert.ok(cap.under && cap.under.join() === num.under!.join() && cap.id < num.id, JSON.stringify(m.captions));
+}
+
+// R7: every object property and every command a chemist has, through edit, add_text, add_arrow, add_shape and
+// run_command (6 November 2026: an AI app drew circles for highlights and free text for conditions, as it had no way
+// to do what the Actions panel does).
+{
+  fresh();
+  r = await call("draw_structures", { structures: [{ text: "toluene" }, { text: "phenol" }] });
+  const made = (r as any).structuredContent.made as string[], [s1, s2] = made;
+  // Highlights: an atom's halo (the disc behind its label), a bond's, and a structure's on every atom and bond; none takes them off.
+  r = await call("edit", { ids: [`${s1}.1`, `${s1}.2-3`], highlight: "#FFD6A5" });
+  assert.ok(!r.isError, text(r));
+  assert.equal(m.atoms[0].halo, "#FFD6A5");
+  assert.equal(m.bonds.find((b) => b.atoms.includes(1) && b.atoms.includes(2))!.halo, "#FFD6A5");
+  r = await call("edit", { ids: [s2], highlight: "#D9E1F2" });
+  const g2 = fragments(m)[1];
+  assert.ok(g2.every((i) => m.atoms[i].halo === "#D9E1F2"));
+  assert.ok(m.bonds.filter((b) => g2.includes(b.atoms[0])).every((b) => b.halo === "#D9E1F2"));
+  assert.ok(!(await call("edit", { ids: [s2], highlight: "none" })).isError);
+  assert.ok(g2.every((i) => !m.atoms[i].halo));
+  assert.match(text(await call("edit", { ids: [s2], highlight: "red" })), /#rrggbb or none/);
+  // Ring fill and scale run as the Actions panel does them, on the ids selected.
+  commands.length = 0;
+  r = await call("edit", { ids: [s1], ring_fill: "#CFE8E4", scale: 120 });
+  assert.ok(!r.isError, text(r));
+  assert.deepEqual(commands, ["scale.120", "ringfill.#CFE8E4"]);
+  // The rest of an atom's, a bond's and a structure's properties.
+  r = await call("edit", { ids: [`${s2}.1`], atom_number: "7", hidden: false, bars: true, label_angle: 30, bold: true, size: 12, query: { substituents: "upto", n: 2, rings: "simple" } });
+  assert.ok(!r.isError, text(r));
+  const a1 = m.atoms[g2[0]];
+  assert.equal(a1.number, "7"); assert.equal(a1.bars, true); assert.equal(a1.labelAngle, 30); assert.equal(a1.bold, true); assert.equal(a1.size, 12);
+  assert.deepEqual(a1.query, { subst: { kind: "upto", n: 2 }, rings: "simple" });
+  r = await call("edit", { ids: [`${s2}.1-2`], position: "left", spacing: 20, topology: "ring", reaction_centre: "change" });
+  assert.ok(!r.isError, text(r));
+  const b1 = m.bonds.find((b) => b.atoms.includes(g2[0]) && b.atoms.includes(g2[1]))!;
+  assert.equal(b1.position, "left"); assert.equal(b1.spacing, 20); assert.equal(b1.topology, "ring"); assert.equal(b1.rxn, "change");
+  const wasX = m.atoms[g2[0]].location[0];
+  r = await call("edit", { ids: [s2], rotate: 90, perspective: true, stereo_labels: true, atom_numbers: true, aromatic_circles: true });
+  assert.ok(!r.isError, text(r));
+  assert.notEqual(m.atoms[g2[0]].location[0], wasX);
+  assert.ok(g2.every((i) => m.atoms[i].shade), "perspective"); assert.ok(g2.every((i) => m.atoms[i].cip), "stereo labels"); assert.ok(g2.every((i) => m.atoms[i].circle), "aromatic circles");
+  assert.deepEqual(g2.map((i) => m.atoms[i].number).sort(), g2.map((_, k) => String(k + 1)).sort(), "atom numbers");
+  assert.match(text(await call("edit", { ids: [s2], charge: 1 })), /takes no charge/);
+  // Text: conditions on an arrow (Add conditions above), kept on it; freed again with arrow none.
+  fresh();
+  r = await call("draw_reaction", { start: [{ text: "toluene" }], steps: [{ products: [{ text: "phenol" }] }] });
+  const made2 = ((r as any).structuredContent.made as string[]).filter((x) => x.startsWith("s")), arrow = `a${m.arrows![0].id}`;
+  r = await call("add_text", { text: "KOH, 300 °C", arrow, side: "above", italic: true, colour: "#7F7F7F" });
+  assert.ok(!r.isError, text(r));
+  let c = m.captions!.find((x) => x.text === "KOH, 300 °C")!;
+  assert.deepEqual(c.on, { arrow: m.arrows![0].id, side: "above" });
+  assert.equal(c.italic, true); assert.equal(c.colour, "#7F7F7F");
+  r = await call("edit", { ids: [`t${c.id}`], side: "below", font: "Helvetica", width: 6, line_height: "variable" });
+  assert.ok(!r.isError, text(r));
+  c = m.captions!.find((x) => x.id === c.id)!;
+  assert.equal(c.on!.side, "below"); assert.equal(c.font, "Helvetica"); assert.equal(c.width, 6); assert.equal(c.lineHeight, "variable");
+  r = await call("edit", { ids: [`t${c.id}`], arrow: "none" });
+  assert.ok(!r.isError, text(r));
+  assert.equal(m.captions!.find((x) => x.id === c.id)!.on, undefined);
+  r = await call("add_text", { text: "x", arrow: "a999", side: "above" });
+  assert.ok(r.isError);
+  // Arrows: an orbital, and every property of a block arrow.
+  r = await call("add_arrow", { kind: "orbital", from: `${made2[0]}.1`, to: [5, 5], orbital_shape: "p", orbital_phase: "phased", line_width: 1.5 });
+  assert.ok(!r.isError, text(r));
+  const orb = m.arrows!.find((x) => x.kind === "orbital")!;
+  assert.deepEqual(orb.orbital, { shape: "p", phase: "phased" }); assert.equal(orb.width, 1.5);
+  r = await call("add_arrow", { kind: "block", from: [0, -8], to: [6, -8], head_size: "medium", shaft: 4, fill: "shaded" });
+  assert.ok(!r.isError, text(r));
+  const blk = m.arrows!.find((x) => x.kind === "block")!;
+  assert.equal(blk.shaft, 4); assert.equal(blk.fill, "shaded"); assert.equal(blk.headSize!.length, 6);
+  r = await call("edit", { ids: [`a${blk.id}`], ratio: 2, rotate: 90, head_size: { length: 10, centre: 8, width: 3 } });
+  assert.ok(!r.isError, text(r));
+  const turned = m.arrows!.find((x) => x.id === blk.id)!;
+  assert.equal(turned.ratio, 2); assert.deepEqual(turned.headSize, { length: 10, centre: 8, width: 3 });
+  assert.ok(Math.abs(turned.from[0] - turned.to[0]) < 1e-6, "turned upright");
+  assert.match(text(await call("add_arrow", { kind: "reaction", from: [0, -12], to: [5, -12], orbital_shape: "p" })), /go on an orbital/);
+  // Shapes: a highlight (behind the rest), one round an atom's label alone, a TLC plate, a table, a picture, brackets.
+  r = await call("add_shape", { kind: "highlight", around: [made2[0]] });
+  assert.ok(!r.isError, text(r));
+  assert.equal(m.shapes![0].kind, "highlight");
+  r = await call("add_shape", { kind: "oval", around: [`${made2[0]}.1`] });
+  assert.ok(!r.isError, text(r));
+  const disc = m.shapes!.find((x) => x.kind === "oval")!, l = m.atoms[fragments(m)[0][0]].location;
+  assert.ok(Math.abs(disc.to[0] - disc.from[0]) < 2 && Math.abs((disc.from[0] + disc.to[0]) / 2 - l[0]) < 0.1, `round the atom, not the structure: ${JSON.stringify(disc)}`);
+  r = await call("add_shape", { kind: "tlc", box: [10, 0, 14, 5], tlc: { lanes: 3, spots: [{ lane: 0, rf: 0.4 }, { lane: 2, rf: 0.7, style: "hollow", tail: 0.3 }], rf: true, ticks: true } });
+  assert.ok(!r.isError, text(r));
+  const plate = m.shapes!.find((x) => x.kind === "tlc")!;
+  assert.equal(plate.tlc!.lanes, 3); assert.equal(plate.tlc!.spots.length, 2); assert.equal(plate.tlc!.spots[1].style, "hollow"); assert.equal(plate.tlc!.rf, true); assert.equal(plate.tlc!.ticks, true);
+  r = await call("add_shape", { kind: "table", box: [10, -8, 18, -2], table: { cells: [["Entry", "Yield"], ["1", "90%"]], lines: "grid", align: ["left", "right"] } });
+  assert.ok(!r.isError, text(r));
+  const table = m.shapes!.find((x) => x.kind === "table")!;
+  assert.deepEqual(table.table!.cells, [["Entry", "Yield"], ["1", "90%"]]); assert.deepEqual(table.table!.lines, ["top", "bottom", "left", "right", "header", "rows", "cols"]);
+  r = await call("edit", { ids: [`b${table.id}`], bold: true, size: 8, table: { lines: "journal" } });
+  assert.ok(!r.isError, text(r));
+  assert.equal(m.shapes!.find((x) => x.id === table.id)!.bold, true); assert.deepEqual(m.shapes!.find((x) => x.id === table.id)!.table!.lines, ["top", "header", "bottom"]);
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]).toString("base64");
+  r = await call("add_shape", { kind: "picture", box: [20, 0, 24, 3], png });
+  assert.ok(!r.isError, text(r));
+  assert.equal(m.shapes!.find((x) => x.kind === "picture")!.picture!.PNG, "89504E470D0A1A0A00000000");
+  assert.match(text(await call("add_shape", { kind: "picture", box: [20, 0, 24, 3], png: "aGVsbG8=" })), /not a PNG/);
+  assert.match(text(await call("add_shape", { kind: "picture", box: [20, 0, 24, 3] })), /needs png/);
+  r = await call("add_shape", { kind: "brackets", around: [made2[1]], usage: "sru", bracket_label: "n", bracket_side: "right", line_width: 2, angle: 15 });
+  assert.ok(!r.isError, text(r));
+  const br = m.shapes!.find((x) => x.kind === "brackets")!;
+  assert.deepEqual(br.polymer, { usage: "sru", label: "n" }); assert.equal(br.side, "right"); assert.equal(br.width, 2); assert.equal(br.angle, 15);
+  r = await call("edit", { ids: [`b${br.id}`], kind: "oval", radius: 0.5, shade_depth: 0.3, shadow: true, rotate: 10 });
+  assert.ok(!r.isError, text(r));
+  const ov = m.shapes!.find((x) => x.id === br.id)!;
+  assert.equal(ov.kind, "oval"); assert.equal(ov.radius, 0.5); assert.equal(ov.shade!.depth, 0.3); assert.equal(ov.shadow, true); assert.equal(ov.angle, 25);
+  assert.match(text(await call("edit", { ids: [`b${ov.id}`], table: { cells: [["x"]] } })), /goes on a table/);
+  // read_drawing reports highlights, and every shape with its kind.
+  const seen = await call("read_drawing", { atoms: true });
+  const sum = JSON.parse(text(seen));
+  assert.ok(sum.shapes.some((x: { kind: string }) => x.kind === "tlc") && sum.shapes.some((x: { kind: string }) => x.kind === "picture"));
+  // run_command: a menu command, an action with ids (selected first), and one Octet does not have.
+  commands.length = 0;
+  r = await call("run_command", { command: "halo.#FF0000", ids: [made2[0]] });
+  assert.ok(!r.isError, text(r));
+  assert.deepEqual([...picked.atoms].sort((p, q) => p - q), [...fragments(m)[0]].sort((p, q) => p - q));
+  assert.deepEqual(commands, ["halo.#FF0000"]);
+  r = await call("run_command", { command: "bring_front" });
+  assert.ok(!r.isError, text(r));
+  assert.ok(commands.includes("bring_front"));
+  assert.match(text(await call("run_command", { command: "rotate_dialog" })), /dialog/);
+  r = await call("run_command", { command: "shape.kind.hexagon" });
+  assert.ok(r.isError); assert.match(text(r), /no command/);
+  assert.ok((await call("run_command", { command: "halo.#FF0000", ids: ["s99"] })).isError);
+  // The scheme reads the same way round throughout: each product turned to lie as its starting material (Augmented
+  // Clean Up Reaction), unless keep_orientation is false; like turns a structure as one drawn.
+  const ringAngle = (g: number[]) => { const [p, q] = m.bonds.find((b) => g.includes(b.atoms[0]) && g.includes(b.atoms[1]) && m.atoms[b.atoms[0]].label === "C" && m.atoms[b.atoms[1]].label === "C")!.atoms.map((i) => m.atoms[i].location); return ((Math.atan2(q[1] - p[1], q[0] - p[0]) * 180) / Math.PI + 360) % 60; };
+  fresh();
+  r = await call("draw_reaction", { start: [{ text: "Cc1ccccc1", rotate: 17 }], steps: [{ products: [{ text: "Oc1ccccc1" }] }], keep_orientation: false });
+  assert.ok(!r.isError, text(r));
+  let [ga, gb] = fragments(m);
+  assert.ok(Math.abs(ringAngle(ga) - ringAngle(gb)) > 2, "unaligned, as a check of the check");
+  fresh();
+  r = await call("draw_reaction", { start: [{ text: "Cc1ccccc1", rotate: 17 }], steps: [{ products: [{ text: "Oc1ccccc1" }] }, { products: [{ text: "Oc1ccc(Br)cc1" }] }] });
+  assert.ok(!r.isError, text(r));
+  [ga, gb] = fragments(m);
+  const gc = fragments(m)[2];
+  assert.ok(Math.abs(ringAngle(ga) - ringAngle(gb)) < 1, `product as its reactant: ${ringAngle(ga)} vs ${ringAngle(gb)}`);
+  assert.ok(Math.abs(ringAngle(ga) - ringAngle(gc)) < 1, `the next step too: ${ringAngle(ga)} vs ${ringAngle(gc)}`);
+  fresh();
+  r = await call("draw_structures", { structures: [{ text: "Cc1ccccc1", rotate: 17 }] });
+  const ref = (r as any).structuredContent.made[0];
+  r = await call("draw_structures", { structures: [{ text: "Clc1ccccc1", like: ref }] });
+  assert.ok(!r.isError, text(r));
+  [ga, gb] = fragments(m);
+  assert.ok(Math.abs(ringAngle(ga) - ringAngle(gb)) < 1, `like: ${ringAngle(ga)} vs ${ringAngle(gb)}`);
+  assert.match(text(await call("draw_structures", { structures: [{ text: "benzene", like: "s99" }] })), /no structure s99/);
 }
 
 console.log("mcp: protocol, argument checks and tools pass.");

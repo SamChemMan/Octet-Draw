@@ -199,22 +199,22 @@ const PLACE_AT: Schema = { anyOf: [str(40), POINT], description: "an id (s3, t5,
 // set them. edit takes them all; add_text, add_arrow and add_shape take their kind's.
 const COLOUR_OR_NONE = str(7, "#rrggbb, or none");
 const QUERY = obj({ substituents: pick(["free", "upto", "exactly"]), n: int(0, 15), no_h: yes(), rings: pick(["none", "drawn", "simple", "fusion", "spiro"]), unsaturation: pick(["absent", "present"]), change: yes(), stereo: pick(["inversion", "retention"]), valence: yes() });
-const TABLE_IN = obj({ cells: { ...list(list(str(200), 20), 50, 1), description: "Rows of cells; the first row is the header" }, lines: pick(["journal", "grid", "box", "none"]), align: list(pick(["left", "centre", "right"]), 20), weight: num(0.1, 10, "The rules' width, pt") });
-const SPOT = obj({ lane: int(0, 49, "From 0"), rf: num(0, 1), colour: str(7), style: pick(["filled", "hollow", "shaded"]), dashed: yes(), bold: yes(), doubled: yes(), width: num(0.05, 5), height: num(0.05, 5), tail: num(0, 5, "A smear below the spot, bond lengths"), show_rf: yes() }, ["lane", "rf"]);
-const TLC_IN = obj({ lanes: int(1, 50), spots: list(SPOT, 200), rf: yes("Rf values shown"), origin: num(0, 0.5, "The origin's height, as a fraction of the plate"), front: num(0, 0.5, "The solvent front's depth, as a fraction"), hide: list(pick(["origin", "front", "border"]), 3), ticks: yes("Rf ticks along the sides"), transparent: yes() });
-const HEAD_SIZE: Schema = { anyOf: [pick(["large", "medium", "small"]), obj({ length: num(1, 100), centre: num(0, 100), width: num(0, 50) }, ["length", "centre", "width"])], description: "large, medium or small (ChemDraw's), or {length, centre, width} in line widths" };
+const TABLE_IN = obj({ cells: { ...list(list(str(200), 20), 50, 1), description: "Rows; the first is the header" }, lines: pick(["journal", "grid", "box", "none"]), align: list(pick(["left", "centre", "right"]), 20), weight: num(0.1, 10, "pt") });
+const SPOT = obj({ lane: int(0, 49), rf: num(0, 1), colour: str(7), style: pick(["filled", "hollow", "shaded"]), dashed: yes(), bold: yes(), doubled: yes(), width: num(0.05, 5), height: num(0.05, 5), tail: num(0, 5), show_rf: yes() }, ["lane", "rf"]);
+const TLC_IN = obj({ lanes: int(1, 50), spots: list(SPOT, 200), rf: yes(), origin: num(0, 0.5), front: num(0, 0.5), hide: list(pick(["origin", "front", "border"]), 3), ticks: yes(), transparent: yes() });
+const HEAD_SIZE: Schema = { anyOf: [pick(["large", "medium", "small"]), obj({ length: num(1, 100), centre: num(0, 100), width: num(0, 50) }, ["length", "centre", "width"])], description: "large, medium, small, or {length, centre, width} in line widths" };
 const LINE_HEIGHT: Schema = { anyOf: [pick(["auto", "variable"]), num(1, 200)], description: "auto, variable, or pt" };
 const USAGES: BracketUsage[] = ["sru", "mon", "mer", "co", "alt", "ran", "blk", "xl", "grf", "mod", "c", "mix", "f", "mult", "gen", "anyp", "param"];
-const TEXT_STYLE = { bold: { type: "boolean" }, italic: { type: "boolean" }, underline: { type: "boolean" }, size: num(1, 200, "pt"), font: str(40), colour: COLOUR_OR_NONE } as const;
+const TEXT_STYLE = { bold: { type: "boolean" }, italic: { type: "boolean" }, underline: { type: "boolean" }, size: num(1, 200), font: str(40), colour: COLOUR_OR_NONE } as const;
 const ARROW_PROPS = {
   kind: pick([...["reaction", "equilibrium", "resonance", "retro", "nogo", "hash", "dipole", "block", "curved", "fishhook", "double", "line", "arc", "orbital", "cut"]]), style: pick(["plain", "dashed", "bold", "wavy", "doubled"]), start: pick(["none", "full", "left", "right"]), end: pick(["none", "full", "left", "right"]), head: pick(["solid", "hollow", "angled"]),
-  head_size: HEAD_SIZE, bend: num(-2, 2), ratio: num(0.1, 10, "An equilibrium's forward arrow against its back arrow"), shaft: num(0.1, 100, "A block arrow's shaft width, in line widths"), line_width: num(0.1, 20, "The line width, pt"), fill: pick(["none", "solid", "shaded", "faded"], "A block arrow's or a closed curve's fill"),
+  head_size: HEAD_SIZE, bend: num(-2, 2), ratio: num(0.1, 10, "An equilibrium's back arrow against its forward one"), shaft: num(0.1, 100, "A block arrow's, in line widths"), line_width: num(0.1, 20, "pt"), fill: pick(["none", "solid", "shaded", "faded"]),
   orbital_shape: pick(ORBITAL_SHAPES), orbital_phase: pick(PHASES),
 } as const;
 const SHAPE_PROPS = {
-  dashed: { type: "boolean" }, bold: { type: "boolean", description: "The outline in the bold line width" }, fill: pick(["solid", "shaded", "faded", "none"]), shadow: { type: "boolean" }, mark: str(12, "A sign at a bracket's top right: ‡, n, 2+"), radius: num(0, 20, "A rounded box's corner radius, bond lengths"),
-  line_width: num(0.1, 20, "The line width, pt"), bracket_side: pick(["left", "right", "both"], "One bracket only"), usage: pick(USAGES, "A pair of brackets' meaning (Bracket Properties): sru is a repeating unit, mult a multiple group, and the rest as ChemDraw names them"), bracket_label: str(20, "A bracket's label (an SRU's n, a count or a range)"),
-  shade_depth: num(0, 5, "A shadow's fall, bond lengths"), shade_blur: num(0, 5), shade_opacity: num(0, 1), table: TABLE_IN, tlc: TLC_IN, png: str(3_500_000, "A picture's PNG, base64"), rgroup: str(20, "An R-group definition's name (R1): the box holds the fragments it stands for"),
+  dashed: { type: "boolean" }, bold: { type: "boolean" }, fill: pick(["solid", "shaded", "faded", "none"]), shadow: { type: "boolean" }, mark: str(12), radius: num(0, 20, "bond lengths"),
+  line_width: num(0.1, 20, "pt"), bracket_side: pick(["left", "right", "both"]), usage: pick(USAGES, "Bracket Properties: sru a repeating unit, mult a multiple group, the rest as ChemDraw names them"), bracket_label: str(20),
+  shade_depth: num(0, 5), shade_blur: num(0, 5), shade_opacity: num(0, 1), table: TABLE_IN, tlc: TLC_IN, png: str(3_500_000, "base64"), rgroup: str(20, "An R-group definition's name (R1)"),
 } as const;
 const BOX: Schema = { ...list(num(-1000, 1000), 4, 4), description: "[x0, y0, x1, y1], bond lengths, y up" };
 const SIZES = { small: 600, medium: 1000, large: 1568 };
@@ -283,8 +283,8 @@ const TOOLS: Tool[] = [
         reagents: list(str(MAX_TEXT), 10), catalysts: list(str(MAX_TEXT), 6), solvents: list(str(MAX_TEXT), 4),
         temperature: str(60), time: str(60), atmosphere: str(40), yield: str(40),
         above: list(condition, 6), below: list(condition, 6),
-        align: yes("Turn each product to lie as its starting material, by the atoms they share (Augmented Clean Up Reaction), so a scheme reads the same way round throughout; true unless set false"),
       }, ["products"]), 20, 1),
+      keep_orientation: yes("Turn each product to lie as its starting material, by the atoms they share (Augmented Clean Up Reaction), so a scheme reads the same way round throughout; true unless set false"),
       ...placing("at"),
     }, ["start", "steps"]),
     run: drawReaction, place: true,
@@ -739,7 +739,7 @@ function stepLines(st: StepIn): { above: [string, StepFacts?][]; below: [string,
   };
 }
 
-async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[]; align?: boolean } & Placement, ctx: Ctx): Promise<Result> {
+async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[]; keep_orientation?: boolean } & Placement, ctx: Ctx): Promise<Result> {
   // Every compound read first, so nothing is drawn when one of them cannot be.
   const structured = (t: string) => /^structure:/i.test(t);
   const lines = a.steps.map(stepLines);
@@ -787,7 +787,7 @@ async function drawReaction(host: Host, a: { start: CompoundIn[]; steps: StepIn[
     // Each product turned to lie as the reactant it shares most atoms with (Augmented Clean Up Reaction, as a chemist
     // copies a structure and changes a group), so the scheme reads the same way round throughout. The map that turns
     // it is taken off again.
-    if (a.align !== false && k === a.steps.length - 1) {
+    if (a.keep_orientation !== false && k === a.steps.length - 1) {
       const mapped = mapScheme(m, laid, host.map, (atoms) => pickPart(m, atoms));
       if (mapped) m = clearScheme(alignByMap(mapped, laid), new Set(laid.flatMap((s) => [...s.reactants, ...s.products].flat())));
     }
@@ -1556,9 +1556,10 @@ function boxOfIds(host: Host, m: Mol, ids: string[], pad = 0): Box | undefined {
   // An atom named on its own (s3.2) is its label as drawn (a bare carbon, a small box on its place), not its structure.
   const alone = ids.flatMap((id) => (/\.\d+(?::pair)?$/.test(id) ? [atomOf(m, id, host)] : [])).filter((i): i is number => i !== undefined);
   for (const i of alone) { const l = m.atoms[i].location; boxes.push(host.labelBox(i) ?? [l[0] - 0.25, l[1] - 0.25, l[0] + 0.25, l[1] + 0.25]); }
-  const rest = [...atoms].filter((i) => !alone.includes(i)), ink = rest.length ? host.ink(rest) : undefined;
+  const rest = [...atoms].filter((i) => !alone.includes(i)), ink = rest.length ? host.ink(rest) : undefined, whole = new Set(rest);
   if (ink) boxes.push(ink);
-  for (const c of m.captions ?? []) if (items.has(c.id) || c.under?.some((i) => atoms.has(i)) || (c.on && items.has(c.on.arrow))) { const b = host.textBox(c.id); if (b) boxes.push(b); }
+  // A structure's number and captions go with it, not with one of its atoms named alone.
+  for (const c of m.captions ?? []) if (items.has(c.id) || c.under?.some((i) => whole.has(i)) || (c.on && items.has(c.on.arrow))) { const b = host.textBox(c.id); if (b) boxes.push(b); }
   for (const x of m.arrows ?? []) if (items.has(x.id)) boxes.push(arrowBox(x));
   for (const x of m.shapes ?? []) if (items.has(x.id)) boxes.push(corners([x.from, x.to]));
   for (const c of m.cycles ?? []) if (items.has(c.id)) boxes.push([c.centre[0] - c.radius, c.centre[1] - c.radius, c.centre[0] + c.radius, c.centre[1] + c.radius]);

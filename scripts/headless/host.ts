@@ -7,7 +7,7 @@
 // writes it.
 import "./browser.ts";
 import { readFileSync } from "node:fs";
-import { analyse, smilesWeight, cipOf, cleanUp, expandLabels, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, chiralFlagOnly, type RxnStep } from "../../src/chem.ts";
+import { analyse, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, chiralFlagOnly, type RxnStep } from "../../src/chem.ts";
 import { onCaptions, problems, showWarnedHydrogens, WARNING_TYPES } from "../../src/check.ts";
 import { toBase64, xmlToCdx } from "../../src/cdx.ts";
 import { fromCdxml, parseXml, toCdxml } from "../../src/cdxml.ts";
@@ -235,6 +235,8 @@ export function drawing(purpose = "paper", title = "Untitled") {
     cleanReactions: (ids) => cleanReactions((r) => r.arrows.some((id) => ids.has(id))),
     tidyCycle: (id) => { const c = doc.cycles?.find((x) => x.id === id); if (c) set(spread(doc, c)); },
     command: (id) => COMMANDS[id]?.() ?? false,
+    act: (id) => COMMANDS[id]?.() ?? false, // the Actions panel's actions need the editor: a menu command here, else nothing
+    map: (reactants, products) => mapReaction(reactants, products),
     newWindow: () => false,
     reaction: (id) => { const d = drawn(doc); return findReaction(doc, id, d.arrows, d.ink, d.captionBox); },
     ink: (atoms) => drawn(doc).ink(atoms), textBox: (id) => drawn(doc).captionBox(id),
