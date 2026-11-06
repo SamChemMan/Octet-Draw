@@ -216,11 +216,14 @@ fn revoke() {
 // object window. The class object goes first, so a new activation starts a new Octet. One thread (the STA), so no
 // activation can come in between.
 pub fn maybe_exit(app: &AppHandle) {
-    if !EMBEDDING.load(SeqCst) || LIVE.load(SeqCst) > 0 || LOCKS.load(SeqCst) > 0 || OPEN.with(|m| !m.borrow().is_empty()) {
+    if !EMBEDDING.load(SeqCst) {
         return;
     }
-    let shown = app.webview_windows().iter().any(|(l, w)| (l.starts_with("draw-") || l.starts_with("object-")) || (l == "main" && w.is_visible().unwrap_or(false)));
-    if shown {
+    let (live, locks, open) = (LIVE.load(SeqCst), LOCKS.load(SeqCst), OPEN.with(|m| m.borrow().len()));
+    let shown: Vec<String> = app.webview_windows().into_iter().filter(|(l, w)| (l.starts_with("draw-") || l.starts_with("object-")) || (l == "main" && w.is_visible().unwrap_or(false))).map(|(l, _)| l).collect();
+    if live > 0 || locks > 0 || open > 0 || !shown.is_empty() {
+        // What keeps an Octet that Windows started for Word running, for the CI log (Office objects' log).
+        log(&format!("still running: {live} objects, {locks} locks, {open} open, windows {shown:?}"));
         return;
     }
     revoke();
