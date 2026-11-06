@@ -27,7 +27,7 @@
   "bundle": {
     "active": true,
     "resources": { "../src/vendor/opsin/NOTICES.txt": "licences/opsin.txt", "../data/nmr/LICENCE.txt": "licences/nmrshiftdb2.txt", "licences/third-party.txt": "licences/third-party.txt" },
-    "targets": "all",
+    "targets": ["app", "dmg", "nsis", "deb", "rpm", "appimage"],
     "publisher": "Sam Ellis",
     "copyright": "© 2026 Sam Ellis",
     "category": "Education",
@@ -87,7 +87,8 @@
     "windows": {
       "digestAlgorithm": "sha256",
       "timestampUrl": "http://timestamp.digicert.com",
-      "tsp": true
+      "tsp": true,
+      "nsis": { "installerHooks": "windows/hooks.nsh" }
     }
   },
   "plugins": {

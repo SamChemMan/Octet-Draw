@@ -35,6 +35,10 @@ tauri-plugin-updater = { version = "2.14", default-features = false, features = 
 # same features, so nothing new is built.
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+# The key AI apps connect with (src/mcp.rs, decision 0021): the system's random numbers. Already in the build.
+getrandom = "0.3"
+# The Claude Desktop bundle's zip (src/mcp.rs): its checksums. Already in the build through png.
+crc32fast = "1"
 
 # A second launch on Windows and Linux gives its files to the Octet that runs (src/open.rs).
 [target.'cfg(any(windows, target_os = "linux"))'.dependencies]
@@ -45,6 +49,12 @@ tauri-plugin-single-instance = "2"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_UI_WindowsAndMessaging"] }
 webview2-com = "0.39"
+# Octet Drawing objects in Office (src/ole_windows.rs, decision 0023): Microsoft's COM bindings and the #[implement]
+# macro for the server's interfaces (IOleObject, IDataObject, IPersistStorage, IClassFactory), the OLE clipboard and
+# the registry (Win32_Security for its calls; Win32_Media_Audio is where the bindings put IMessageFilter). MIT or
+# Apache-2.0. The same versions are already in the build through webview2-com.
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Media_Audio", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Registry", "Win32_System_Rpc", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_Security", "Win32_UI_WindowsAndMessaging"] }
+windows-core = "0.62"
 
 # Copy and paste on Linux: GTK's clipboard (src/clipboard_linux.rs). Already in the build through Tauri.
 [target.'cfg(target_os = "linux")'.dependencies]

@@ -172,6 +172,18 @@ for (const id of [first, second]) {
   assert.ok(levels.every((y, k) => !k || y < levels[k - 1]), "each line below the one before");
 }
 
+// One step too wide for the page (A + B + C → D): it stays on one line, as a line of starting materials alone would
+// read as no reaction; a line breaks only after the first arrow.
+{
+  let t: Mol = EMPTY, x = 0, arrow = 0;
+  for (let k = 0; k < 3; k++) { t = addRing(t, 6, false, { point: [x, 0] }); x += 4; }
+  [t, arrow] = addArrow(t, { kind: "reaction", from: [x - 1.4, 0], to: [x + 1.4, 0] });
+  t = addRing(t, 6, false, { point: [x + 4, 0] });
+  const done = clean(t, find(t, arrow), 12), levels = new Set(fragments(done).map((g) => Math.round(middle(ink(done)(g))[1] * 100) / 100));
+  assert.equal(levels.size, 1, "one line");
+  assert.equal(find(done, arrow)?.steps[0].kind, "structure", "it still starts with its starting materials");
+}
+
 // Two reactions that share a structure (C ← A → B): laid out one after the other, A stays where the first put it.
 {
   let t: Mol = addRing(EMPTY, 6, false, { point: [0, 0] });
@@ -492,5 +504,37 @@ else {
   assert.equal(roleOf(all, [a, d]), "mixed", "both sides: a reaction search");
   assert.equal(roleOf([], [a]), undefined, "in no reaction: a substance search");
   assert.equal(roleOf([], [a, b]), undefined);
+}
+// A scheme of three steps too wide for the page (an AI app's, decision 0021), each arrow with two lines kept above it
+// and a yield below: it wraps after the first step, and the second line runs on from its first arrow, every part a
+// gap after the one before (the pieces of a wrapped reaction read as reactions of their own, and are not laid out
+// again). A second Clean Up Reaction moves nothing.
+{
+  let t: Mol = { ...EMPTY, style: readStyle({}) }, x = 0;
+  const ids: number[] = [];
+  for (let k = 0; k < 4; k++) {
+    const ring = t.atoms.length;
+    t = addRing(t, 6, true, { point: [x, 0] });
+    t = addCaption(t, { text: String(k + 1), x: 0, y: 0, bold: true, under: [0, 1, 2, 3, 4, 5].map((i) => ring + i) })[0];
+    x += 2.5;
+    if (k === 3) break;
+    let id: number;
+    [t, id] = addArrow(t, { kind: "reaction", from: [x, 0], to: [x + 6, 0] });
+    ids.push(id);
+    for (const [text, side] of [["MeNO2, NH4OAc", "above"], ["AcOH, reflux, 4 h", "above"], ["78%", "below"]] as const) t = addCaption(t, { text, x: x + 3, y: 0, align: "centre", on: { arrow: id, side } })[0];
+    x += 8.5;
+  }
+  const once = cleanAll(t, () => true).mol, d = drawn(once), rings = fragments(once).map((g) => d.ink(g)!), heads = ids.map((id) => d.arrows.find((a) => a.id === id)!);
+  assert.ok(rings[2][1] < rings[0][1] - 1, "the scheme wraps");
+  for (const k of [1, 2]) {
+    const before = rings[k], arrow = heads[k], after = rings[k + 1];
+    if (Math.abs((before[1] + before[3]) / 2 - arrow.from[1]) > 0.5) continue;
+    assert.ok(Math.abs(Math.min(arrow.from[0], arrow.to[0]) - before[2] - gap) < 0.3, `arrow ${k} a gap after the structure before it`);
+    assert.ok(Math.abs(after[0] - Math.max(arrow.from[0], arrow.to[0]) - gap) < 0.3, `the structure after arrow ${k} a gap after it`);
+  }
+  // It reads as one reaction of three steps from an arrow on any line (D4), not as one reaction a line.
+  for (const id of ids) assert.deepEqual(findReaction(once, id, d.arrows, d.ink, d.captionBox)?.arrows, ids, `one reaction from arrow ${id}`);
+  const twice = cleanAll(once, () => true).mol;
+  assert.deepEqual(twice.atoms.map((a) => a.location.map((v) => Math.round(v * 1000))), once.atoms.map((a) => a.location.map((v) => Math.round(v * 1000))), "a second clean-up moves nothing");
 }
 console.log("reaction.check: ok");

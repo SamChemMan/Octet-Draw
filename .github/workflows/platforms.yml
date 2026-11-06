@@ -101,9 +101,145 @@ jobs:
         timeout-minutes: 15
         run: node scripts/drive/drive.mjs
 
+      # AI apps (decision 0021): the same debug build with its MCP server on, and an AI app that starts Octet's relay
+      # (Octet Draw --mcp) and Claude Desktop's bundle server, as acceptance case 18 does on the Mac.
+      - name: AI apps through the relay (Linux)
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        env:
+          OCTET_MCP: "1"
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+        run: xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- bash -c 'src-tauri/target/debug/octet & node scripts/mcp-acceptance.mjs 18'
+      - name: AI apps through the relay (Windows)
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        shell: bash
+        env:
+          OCTET_MCP: "1"
+        run: src-tauri/target/debug/octet.exe & node scripts/mcp-acceptance.mjs 18
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: drive-${{ runner.os }}
           path: drive-out/
+          if-no-files-found: ignore
+
+  # Octet Drawing objects in Office (decision 0023): Octet's COM server, driven from another process as Word drives it
+  # (src-tauri/tests/ole_container.rs), and the installer's keys. Windows only. No Office on GitHub's machines: Word
+  # itself is checked by hand (docs/testing/ole-manual.md).
+  #
+  # GitHub's Windows machines run each job as an administrator, elevated. Windows ignores per-user (HKCU) local
+  # servers for an elevated program, so the harness's first test says whether HKCU works here, and the others copy
+  # Octet's keys to HKLM on this throwaway machine when it does not. People's computers use HKCU, as the installer
+  # writes it.
+  office-objects:
+    name: Office objects (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      OCTET_FEEDBACK: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ github.job }}-cargo-
+      - run: npm ci
+      - name: The object's own tests (storages in memory, the data objects, the clipboard's order)
+        run: cargo test --manifest-path src-tauri/Cargo.toml --bin octet ole
+      - name: Build Octet with its page, and keep a copy for the harness
+        shell: pwsh
+        run: |
+          npm run tauri build -- --debug --bundles nsis
+          $dir = Join-Path $env:RUNNER_TEMP octet-ole
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item src-tauri/target/debug/octet.exe $dir
+          "OCTET_EXE=$dir\octet.exe" >> $env:GITHUB_ENV
+      - name: The container harness (OleCreate, OleRun, DoVerb, OleSave, OleLoad, hostile storages)
+        timeout-minutes: 15
+        run: cargo test --manifest-path src-tauri/Cargo.toml --test ole_container -- --ignored --test-threads=1 --nocapture
+      - name: The installer writes the keys and the uninstaller removes them (silent, per user, no UAC)
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem src-tauri/target/debug/bundle/nsis/*-setup.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $clsid = 'HKCU:\Software\Classes\CLSID\{211EF98F-E45E-42C8-9D49-A10D2D394DB2}'
+          $server = (Get-ItemProperty "$clsid\LocalServer32").'(default)'
+          Write-Output "LocalServer32: $server"
+          if (-not $server.EndsWith('octet.exe"')) { throw "LocalServer32 does not name octet.exe" }
+          foreach ($k in 'OctetDraw.Drawing\CurVer', 'OctetDraw.Drawing.1\Insertable', 'Octet Drawing\CLSID') {
+            if (-not (Test-Path "HKCU:\Software\Classes\$k")) { throw "missing $k" }
+          }
+          if (Test-Path 'HKLM:\Software\Classes\OctetDraw.Drawing') { throw "the installer wrote HKLM" }
+          # The installer is 32-bit: the class must also be in the 32-bit view, where 32-bit Office reads it.
+          $clsid32 = 'HKCU\Software\Classes\CLSID\{211EF98F-E45E-42C8-9D49-A10D2D394DB2}\LocalServer32'
+          reg query $clsid32 /ve /reg:32
+          if ($LASTEXITCODE -ne 0) { throw "no 32-bit LocalServer32" }
+          $uninstall = Join-Path $env:LOCALAPPDATA 'Octet Draw\uninstall.exe'
+          Start-Process $uninstall -ArgumentList '/S' -Wait
+          Start-Sleep -Seconds 5
+          foreach ($k in $clsid, 'HKCU:\Software\Classes\OctetDraw.Drawing', 'HKCU:\Software\Classes\OctetDraw.Drawing.1') {
+            if (Test-Path $k) { throw "left after uninstall: $k" }
+          }
+          reg query $clsid32 /ve /reg:32
+          if ($LASTEXITCODE -eq 0) { throw "left after uninstall: the 32-bit view" }
+          $global:LASTEXITCODE = 0
+      # A copy of 1.1.0 (no Office objects) updated as the updater does it: the new installer with /P /UPDATE, over
+      # the old one. The keys must be there after the update alone, before Octet starts.
+      - name: An update from 1.1.0 writes the keys
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $old = Join-Path $env:RUNNER_TEMP old
+          gh release download v1.1.0 -R $env:GITHUB_REPOSITORY -p '*_x64-setup.exe' -D $old
+          $oldSetup = Get-ChildItem "$old\*_x64-setup.exe" | Select-Object -First 1
+          Start-Process $oldSetup.FullName -ArgumentList '/S' -Wait
+          $exe = Join-Path $env:LOCALAPPDATA 'Octet Draw\octet.exe'
+          if (-not (Test-Path $exe)) { throw "1.1.0 did not install" }
+          $clsid = 'HKCU:\Software\Classes\CLSID\{211EF98F-E45E-42C8-9D49-A10D2D394DB2}'
+          if (Test-Path $clsid) { throw "keys before the update" }
+          $setup = Get-ChildItem src-tauri/target/debug/bundle/nsis/*-setup.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/P', '/UPDATE' -Wait
+          $server = (Get-ItemProperty "$clsid\LocalServer32").'(default)'
+          Write-Output "LocalServer32 after the update: $server"
+          if ($server -ne "`"$exe`"") { throw "LocalServer32 is not the updated Octet: $server" }
+          reg query 'HKCU\Software\Classes\CLSID\{211EF98F-E45E-42C8-9D49-A10D2D394DB2}\LocalServer32' /ve /reg:32
+          if ($LASTEXITCODE -ne 0) { throw "no 32-bit LocalServer32 after the update" }
+          Start-Process (Join-Path $env:LOCALAPPDATA 'Octet Draw\uninstall.exe') -ArgumentList '/S' -Wait
+          Start-Sleep -Seconds 5
+          if (Test-Path $clsid) { throw "left after uninstall" }
+      # A release build for the tests in Word by hand (docs/testing/ole-manual.md). A debug build differs: it never
+      # repairs the keys and offers objects only when Windows starts it. Unsigned.
+      - name: A release installer for the tests in Word
+        run: npm run tauri build -- --bundles nsis
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: octet-office-objects-installer
+          path: src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+      # Octet's crash log, where the server writes what it refused and why.
+      - name: Octet's log
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force ole-logs | Out-Null
+          Copy-Item -Recurse -ErrorAction SilentlyContinue (Join-Path $env:LOCALAPPDATA 'io.github.samchemman.octet-draw\logs\*') ole-logs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: office-objects-log
+          path: ole-logs/
           if-no-files-found: ignore

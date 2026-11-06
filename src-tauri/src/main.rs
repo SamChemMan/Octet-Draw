@@ -22,6 +22,9 @@ mod export;
 #[cfg(feedback)]
 mod feedback;
 mod home;
+// Octet Drawing objects in Office for Windows (decision 0023). The COM server builds on Windows only (ole_windows.rs).
+mod ole;
+mod mcp;
 mod open;
 mod pubchem;
 mod quit;
@@ -122,16 +125,52 @@ fn rebuild(app: &AppHandle) -> Result<(), String> {
     let keys = app.state::<MenuKeys>().0.lock().unwrap().clone();
     let online = *app.state::<search::Online>().0.lock().unwrap();
     let text = app.state::<TextLists>().0.lock().unwrap().clone();
-    let (bar, checks, list) = menu(app, &names, &text, &keys, online).or_else(|_| menu(app, &names, &text, &HashMap::new(), online)).map_err(|e| e.to_string())?;
-    if let Some(old) = app.try_state::<Checks>() {
-        for (c, was) in checks.iter().filter_map(|c| old.0.lock().unwrap().iter().find(|o| o.id() == c.id()).map(|o| (c, o.is_checked()))) {
-            let _ = c.set_checked(was.unwrap_or(true));
+    let (bar, mut checks, list) = menu(app, &names, &text, &keys, online, None).or_else(|_| menu(app, &names, &text, &HashMap::new(), online, None)).map_err(|e| e.to_string())?;
+    // An object window (decision 0023) has a menu bar of its own, with its own File menu: it is built again too.
+    let mut objects = Vec::new();
+    for (label, host) in windows::object_hosts(app) {
+        if let Ok((m, c, _)) = menu(app, &names, &text, &keys, online, Some(&host)).or_else(|_| menu(app, &names, &text, &HashMap::new(), online, Some(&host))) {
+            checks.extend(c);
+            objects.push((label, m));
         }
     }
+    keep_ticks(app, &checks);
     set_bar(app, bar).map_err(|e| e.to_string())?;
+    for (label, m) in objects {
+        if let Some(w) = app.get_webview_window(&label) {
+            let _ = w.set_menu(m);
+        }
+    }
     *app.state::<Checks>().0.lock().unwrap() = checks;
     *app.state::<MenuList>().0.lock().unwrap() = list;
     Ok(())
+}
+
+// New tick items take the ticks the old ones had.
+fn keep_ticks(app: &AppHandle, checks: &[CheckMenuItem<Wry>]) {
+    if let Some(old) = app.try_state::<Checks>() {
+        let old = old.0.lock().unwrap();
+        for (c, was, on) in checks.iter().filter_map(|c| old.iter().find(|o| o.id() == c.id()).map(|o| (c, o.is_checked(), o.is_enabled()))) {
+            let _ = c.set_checked(was.unwrap_or(true));
+            let _ = c.set_enabled(on.unwrap_or(true));
+        }
+    }
+}
+
+// The menu bar of an object window (decision 0023): the same menus, with File's Save, Save As and Close for the
+// object in the document `host`. Its ticks join the others, so the page sets them as it sets the rest.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn object_menu(app: &AppHandle, host: &str) -> tauri::Result<Menu<Wry>> {
+    let names = app.state::<Palette>().0.lock().unwrap().clone();
+    let keys = app.state::<MenuKeys>().0.lock().unwrap().clone();
+    let online = *app.state::<search::Online>().0.lock().unwrap();
+    let text = app.state::<TextLists>().0.lock().unwrap().clone();
+    let (bar, checks, _) = menu(app, &names, &text, &keys, online, Some(host)).or_else(|_| menu(app, &names, &text, &HashMap::new(), online, Some(host)))?;
+    keep_ticks(app, &checks);
+    if let Some(all) = app.try_state::<Checks>() {
+        all.0.lock().unwrap().extend(checks);
+    }
+    Ok(bar)
 }
 
 #[tauri::command]
@@ -170,11 +209,24 @@ fn set_online_search(app: AppHandle, on: bool) -> Result<(), String> {
     rebuild(&app)
 }
 
+// A tick, and (enabled) whether the item can be chosen: Curves > Solid, Hollow and Angled Arrowhead follow the selection.
 #[tauri::command]
-fn set_check(checks: State<'_, Checks>, id: String, checked: bool) -> Result<(), String> {
+fn set_check(checks: State<'_, Checks>, id: String, checked: bool, enabled: Option<bool>) -> Result<(), String> {
     let checks = checks.0.lock().unwrap();
-    let item = checks.iter().find(|c| c.id().0 == id).ok_or("no such menu item")?;
-    item.set_checked(checked).map_err(|e| e.to_string())
+    let items: Vec<_> = checks.iter().filter(|c| c.id().0 == id).collect();
+    if items.is_empty() {
+        return Err("no such menu item".into());
+    }
+    // An object window's items can outlive its window until the menus are built again: those fail, and do not count.
+    let mut answer = Err(String::new());
+    for c in items {
+        match c.set_checked(checked).and_then(|_| enabled.map_or(Ok(()), |on| c.set_enabled(on))) {
+            Ok(()) => answer = Ok(()),
+            Err(e) if answer.is_err() => answer = Err(e.to_string()),
+            Err(_) => {}
+        }
+    }
+    answer
 }
 
 // The user's own colours (20 at most), then the drawing's own (24 at most), by name, in the Colour menu: the menu
@@ -469,7 +521,10 @@ async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<St
 // the page. Each menu in the bar has its own access key (the letter after &): Alt and the letter open it on Windows
 // (access_keys.rs, in the main window and the Reaxys window) and Linux, and a screen reader on Windows opens it the same way (MSAA and UI Automation press the
 // access key). The Mac shows no &.
-fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), overrides: &HashMap<String, String>, online: bool) -> tauri::Result<Built> {
+// object: the document's name, for an object window's menu bar (decision 0023): File's Save becomes "Update <document>"
+// (Ctrl+S), Save As "Save Copy As…", Close "Close and Return to <document>", and Revert to Saved goes, as Windows'
+// guidelines for objects opened in a window give them.
+fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), overrides: &HashMap<String, String>, online: bool, object: Option<&str>) -> tauri::Result<Built> {
     // Every command goes through here: it is listed (with the menu it is in) and takes the user's shortcut if they
     // set one, else its default ("" for none).
     let (list, section) = (RefCell::new(Vec::new()), RefCell::new(String::new()));
@@ -532,6 +587,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let save_ctp = Submenu::with_items(app, "Save Templates for ChemDraw", !ctp_items.is_empty(), &ctp_list)?;
     section.replace("File".into());
     let new_name = if current.is_empty() { "New".to_string() } else { format!("New {current}") };
+    let revert = item("revert", "Revert to Saved", "")?;
     let file = Submenu::with_items(app, "&File", true, &[
         &item("home", "Home", "")?,
         &item("new", &new_name, "CmdOrCtrl+N")?,
@@ -540,9 +596,9 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &open_recent,
         &item("import", "Import a Structure…", "")?,
         &sep()?,
-        &item("save", "Save", "CmdOrCtrl+S")?,
-        &item("save_as", "Save As…", "CmdOrCtrl+Shift+S")?,
-        &item("revert", "Revert to Saved", "")?,
+        &item("save", &object.map_or("Save".into(), |h| format!("Update {h}")), "CmdOrCtrl+S")?,
+        &item("save_as", if object.is_some() { "Save Copy As…" } else { "Save As…" }, "CmdOrCtrl+Shift+S")?,
+        &revert,
         // ChemDraw's key: ⌃⌘E.
         // ⌃⌘E on the Mac; Ctrl+Shift+E elsewhere, where Control and Command are both Ctrl.
         &item("export", "Export…", if cfg!(target_os = "macos") { "Ctrl+CmdOrCtrl+E" } else { "CmdOrCtrl+Shift+E" })?,
@@ -560,10 +616,17 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     // Close Window: the system's item on the Mac and Windows, Octet's own on Linux, where GTK has none. Windows and
     // Linux end Octet from File > Exit, as their apps do (REL-18); on the Mac it is Octet Draw > Quit Octet Draw. Not the
     // system's quit, which closes Octet at once: the page asks to save unsaved changes first.
+    if object.is_some() {
+        file.remove(&revert)?;
+    }
+    let close_text = object.map(|h| format!("Close and Return to {h}"));
     #[cfg(not(target_os = "linux"))]
-    file.append(&PredefinedMenuItem::close_window(app, None)?)?;
+    file.append(&match close_text.as_deref() {
+        None => PredefinedMenuItem::close_window(app, None)?,
+        Some(t) => PredefinedMenuItem::close_window(app, Some(t))?,
+    })?;
     #[cfg(target_os = "linux")]
-    file.append(&item("close", "Close Window", "CmdOrCtrl+W")?)?;
+    file.append(&item("close", close_text.as_deref().unwrap_or("Close Window"), "CmdOrCtrl+W")?)?;
     #[cfg(not(target_os = "macos"))]
     {
         file.append(&sep()?)?;
@@ -637,6 +700,9 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         // ChemDraw's keys: Actual Size and Fit to Window.
         &item("zoom_actual", "Actual Size", "CmdOrCtrl+\\")?,
         &item("zoom_fit", "Fit to Window", "CmdOrCtrl+/")?,
+        // The selection (or the whole drawing) in the middle of the window, at the same zoom. ChemDraw has no such item; its
+        // Magnify keeps the selection in view.
+        &item("centre_view", "Centre in Window", "Alt+CmdOrCtrl+/")?,
         // ChemDraw's Show Document: the whole page.
         &item("show_page", "Show Page", "")?,
         // Sam's keys (31 October 2026), not ChemDraw's ⇧⌘> and ⇧⌘<: ⇧⌘+ and ⇧⌘-.
@@ -700,6 +766,10 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         // ChemDraw's Add Structure to Dictionary…: a name of the user's own for the selected structure.
         &item("dictionary_add", "Add Structure to Dictionary…", "")?,
         &item("name_to_structure", "Convert Name to Structure", "CmdOrCtrl+Shift+N")?,
+        // One-letter peptide, RNA and DNA codes, drawn through Name to Structure (issue 27).
+        &item("insert_peptide", "Insert Peptide…", "")?,
+        &item("insert_rna", "Insert RNA…", "")?,
+        &item("insert_dna", "Insert DNA…", "")?,
         &item("structure_to_name", "Convert Structure to Name", "Alt+CmdOrCtrl+N")?,
     ])?;
     // Align and Distribute, as ChemDraw's (lined up on the highest thing; spaced out between the two at the ends).
@@ -799,6 +869,9 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("text_formula", "Formula", "CmdOrCtrl+F")?,
         // Octet's own: *italic*, **bold**, LaTeX's \textit{…} and $^{13}$C in the text become rich text (experiment.ts).
         &item("text_markup", "Apply Markup", "")?,
+        // As ChemDraw's Character Map window: Greek, arrows and signs typed where the caret is (CharMap.tsx).
+        // ⇧⌘Space (Ctrl+Shift+Space): from any text box. The Mac's ⌃⌘Space stays the system's Emoji & Symbols.
+        &item("char_map", "Character Map", "CmdOrCtrl+Shift+Space")?,
         &sep()?,
         &item("align_left", "Flush Left", "CmdOrCtrl+Shift+L")?,
         &item("align_centre", "Centre", "CmdOrCtrl+Shift+C")?,
@@ -812,7 +885,12 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("line_spacing", "Line Spacing…", "")?,
     ])?;
     // Curves, as ChemDraw's Curves menu: the line, a head at either end (again takes it off), and a closed curve's fill.
+    // Then the heads' shape, as ChemDraw's arrow context menu has it (Solid, Hollow and Angled Arrowhead): ticked for
+    // the selection, and only on for arrows and catalytic cycles whose heads take a shape (the page sets both).
     section.replace("Curves".into());
+    let heads = [("solid", "Solid Arrowhead"), ("hollow", "Hollow Arrowhead"), ("angled", "Angled Arrowhead")].iter()
+        .map(|(id, name)| check(&format!("curves_head_{id}"), name, "").and_then(|c| c.set_enabled(false).map(|_| c)))
+        .collect::<tauri::Result<Vec<_>>>()?;
     let curves = Submenu::with_items(app, "&Curves", true, &[
         &item("curves_plain", "Plain", "")?,
         &item("curves_dashed", "Dashed", "")?,
@@ -825,6 +903,10 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("curves_start_right", "Half Arrowhead at Start, Right", "")?,
         &item("curves_end_left", "Half Arrowhead at End, Left", "")?,
         &item("curves_end_right", "Half Arrowhead at End, Right", "")?,
+        &sep()?,
+        &heads[0],
+        &heads[1],
+        &heads[2],
         &sep()?,
         &item("curves_closed", "Closed", "")?,
         &item("curves_solid", "Filled", "")?,
@@ -931,17 +1013,62 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let listed = list.borrow().iter().filter(|c| online || c.2 != "Search").cloned().collect();
     let mut checks = vec![grid, rulers, crosshair, snap, snap_grid, warnings, interpretation, fixed_lengths, fixed_angles];
     checks.extend(set_items.iter().cloned());
+    checks.extend(heads.iter().cloned());
     Ok((Menu::with_items(app, &items)?, checks, listed))
 }
 
+// The folder Tauri's app_data_dir names, for the AI apps relay, which runs without Tauri (mcp.rs).
+fn data_dir() -> Option<std::path::PathBuf> {
+    let id = "io.github.samchemman.octet-draw";
+    #[cfg(not(windows))]
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    #[cfg(target_os = "macos")]
+    return home.map(|h| h.join("Library/Application Support").join(id));
+    #[cfg(windows)]
+    return std::env::var_os("APPDATA").map(|d| std::path::PathBuf::from(d).join(id));
+    #[cfg(target_os = "linux")]
+    return std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from).or(home.map(|h| h.join(".local/share"))).map(|d| d.join(id));
+}
+
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--mcp") {
+        return mcp::relay(data_dir());
+    }
+    // octet.exe --register-ole and --unregister-ole write and remove this user's keys for Octet Drawing objects, for
+    // this program, and end (the CI harness, and a copy with no installer). The installer writes the same keys.
+    #[cfg(windows)]
+    for a in std::env::args_os().skip(1) {
+        match a.to_str() {
+            Some("--register-ole") => std::process::exit(match std::env::current_exe() { Ok(me) if ole::win::register(&me) => 0, _ => 1 }),
+            Some("--unregister-ole") => {
+                ole::win::unregister();
+                std::process::exit(0)
+            }
+            _ => {}
+        }
+    }
+    // Started by Windows for Word (-Embedding, decision 0023): Octet serves an Octet Drawing object and opens no Home.
+    let embedding = cfg!(windows) && ole::embedding(std::env::args_os());
+    // Started for Word, Home's window is made hidden. Every other start (and the Mac and Linux) is as in 1.1.1: Home
+    // is made visible by tauri.conf.json, so no start can leave Octet with no window.
+    let mut context = tauri::generate_context!();
+    if embedding {
+        for w in context.config_mut().app.windows.iter_mut().filter(|w| w.label == "main") {
+            w.visible = false;
+        }
+    }
     let builder = tauri::Builder::default();
     // Windows and Linux start a second Octet for each file opened from Explorer or a file manager. It gives its files
-    // to the Octet that runs, and ends. (On the Mac the system sends them to the running Octet itself.)
+    // to the Octet that runs, and ends. (On the Mac the system sends them to the running Octet itself.) An Octet that
+    // Windows started for Word never hands over and ends: Word waits for that process.
     #[cfg(any(windows, target_os = "linux"))]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
-        open::offer(app, open::from_args(args.into_iter().map(std::ffi::OsString::from), Path::new(&cwd)), None)
-    }));
+    let builder = if embedding {
+        builder
+    } else {
+        builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            open::offer(app, open::from_args(args.into_iter().map(std::ffi::OsString::from), Path::new(&cwd)), None)
+        }))
+    };
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -961,18 +1088,30 @@ fn main() {
         .manage(TextLists::default())
         .manage(Purposes::default())
         .manage(TemplateSets::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home])
-        .setup(|app| {
+        .manage(mcp::Mcp::default())
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, #[cfg(windows)] ole::win::ole_update, #[cfg(windows)] ole::win::ole_close, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_target, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_changed, mcp::mcp_bundle])
+        .setup(move |app| {
             let handle = app.handle();
+            // Octet Drawing objects: the class object goes up first, before any window shows, so Word's wait for an
+            // Octet it started is short (decision 0023).
+            #[cfg(windows)]
+            ole::win::start(handle, embedding);
             // Files named when Octet starts (Explorer and file managers pass them as arguments).
             let cwd = std::env::current_dir().unwrap_or_default();
-            open::offer(handle, open::from_args(std::env::args_os(), &cwd), None);
+            if !embedding {
+                open::offer(handle, open::from_args(std::env::args_os(), &cwd), None);
+            }
             crashlog::install(handle);
             #[cfg(feature = "smoke")]
             smoke::start(handle.clone());
             quit::install(handle);
             app.manage(recovery::start(handle));
-            let (bar, checks, list) = menu(handle, &[], &Default::default(), &HashMap::new(), true)?;
+            // A dev build started with OCTET_MCP=1 lets AI apps in at once, for testing the tools (decision 0021).
+            #[cfg(debug_assertions)]
+            if std::env::var_os("OCTET_MCP").is_some() {
+                let _ = mcp::mcp_set(handle.clone(), app.state::<mcp::Mcp>(), true, None);
+            }
+            let (bar, checks, list) = menu(handle, &[], &Default::default(), &HashMap::new(), true, None)?;
             set_bar(handle, bar)?;
             #[cfg(windows)]
             if let Some(main) = app.get_webview_window("main") {
@@ -1026,7 +1165,7 @@ fn main() {
                 open::offer(window.app_handle(), paths.clone(), Some((window.label().to_string(), position.x, position.y)));
             }
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while running Octet")
         .run(|_app, event| match event {
             // Files opened from Finder or the Dock (a double-click, Open With, a drop on the Dock icon).
@@ -1037,8 +1176,12 @@ fn main() {
             tauri::RunEvent::WindowEvent { label, event: WindowEvent::Destroyed, .. } => {
                 windows::closed(_app, &label);
                 quit::closed(_app, &label);
+                mcp::closed(_app, &label);
             }
             tauri::RunEvent::ExitRequested { api, .. } if quit::ending() => api.prevent_exit(),
+            // Each open object tells Word it closed, and the class object goes (decision 0023).
+            #[cfg(windows)]
+            tauri::RunEvent::Exit => ole::win::shutdown(),
             _ => {}
         });
 }

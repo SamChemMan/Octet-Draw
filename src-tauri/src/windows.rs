@@ -42,11 +42,13 @@ impl Info {
 pub struct Windows {
     starts: Mutex<HashMap<String, serde_json::Value>>,
     open: Mutex<Vec<Info>>,
+    hosts: Mutex<HashMap<String, String>>, // each object window's document (decision 0023)
 }
 
-// Octet's own windows: Home and the drawing windows (not the Reaxys window).
+// Octet's own windows: Home, the drawing windows and the windows of objects in Office documents (decision 0023),
+// not the Reaxys window.
 pub fn ours(label: &str) -> bool {
-    label == "main" || label.starts_with("draw-")
+    label == "main" || label.starts_with("draw-") || label.starts_with("object-")
 }
 
 pub fn focused(label: &str) {
@@ -79,7 +81,8 @@ fn changed(app: &AppHandle) {
 // The commands that make or show windows are async: on Windows, making a window in a synchronous command (which runs
 // on the main thread) deadlocks, and the app hangs with a white window.
 #[tauri::command]
-pub async fn open_window(app: AppHandle, windows: State<'_, Windows>, start: serde_json::Value) -> Result<(), String> {
+// Gives the new window's label, so an AI app's new_drawing goes to the window it opened (two at once each get their own).
+pub async fn open_window(app: AppHandle, windows: State<'_, Windows>, start: serde_json::Value) -> Result<String, String> {
     if start.to_string().len() as u64 > MAX_BYTES + 4096 {
         return Err("This drawing is larger than 64 MB. Octet cannot open it.".into());
     }
@@ -96,6 +99,11 @@ pub async fn open_window(app: AppHandle, windows: State<'_, Windows>, start: ser
     } else {
         builder = builder.center();
     }
+    // With AI apps on, a drawing behind other windows answers at once: WebKit otherwise slows a hidden page's work,
+    // and a call to it waited seconds. macOS 14 and later; elsewhere nothing changes.
+    if crate::mcp::on(&app) {
+        builder = builder.background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
+    }
     let window = builder.build().map_err(|e| {
         windows.starts.lock().unwrap().remove(&label);
         e.to_string()
@@ -103,13 +111,61 @@ pub async fn open_window(app: AppHandle, windows: State<'_, Windows>, start: ser
     #[cfg(windows)]
     crate::access_keys::install(&window);
     let _ = window.set_focus();
+    // In front from now, as far as Octet is concerned, even when another app has the focus (an AI app opened it).
+    focused(&label);
+    Ok(label)
+}
+
+// The window of an Octet Drawing object in an Office document (decision 0023, ole_windows.rs): a drawing window with
+// the label object-N, a title from Word ("Octet Drawing in Document1") and a File menu of its own (Update Document1,
+// Save Copy As…, Close and Return to Document1). Made from the async runtime, never in a call from Word.
+#[cfg(windows)]
+pub async fn open_object(app: AppHandle, label: String, start: serde_json::Value, host: String) -> Result<(), String> {
+    let title = start.get("title").and_then(|t| t.as_str()).unwrap_or("Octet Drawing").to_string();
+    app.state::<Windows>().starts.lock().unwrap().insert(label.clone(), start);
+    app.state::<Windows>().hosts.lock().unwrap().insert(label.clone(), host.clone());
+    let menu = crate::object_menu(&app, &host).map_err(|e| e.to_string())?;
+    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html?window".into()))
+        .title(title)
+        .menu(menu)
+        .inner_size(1200.0, 800.0)
+        .min_inner_size(800.0, 620.0)
+        .center()
+        .build()
+        .map_err(|e| {
+            app.state::<Windows>().starts.lock().unwrap().remove(&label);
+            e.to_string()
+        })?;
+    crate::access_keys::install(&window);
+    let _ = window.set_focus();
     Ok(())
+}
+
+// Word named the document again (Save As in Word): the window's menu says the new name.
+#[cfg(windows)]
+pub fn object_host(app: &AppHandle, label: &str, host: &str) {
+    app.state::<Windows>().hosts.lock().unwrap().insert(label.to_string(), host.to_string());
+    if let (Some(w), Ok(menu)) = (app.get_webview_window(label), crate::object_menu(app, host)) {
+        let _ = w.set_menu(menu);
+    }
+}
+
+// The object windows and their documents' names, for building their menus again.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn object_hosts(app: &AppHandle) -> Vec<(String, String)> {
+    let hosts = app.state::<Windows>().hosts.lock().unwrap().clone();
+    hosts.into_iter().filter(|(l, _)| app.get_webview_window(l).is_some()).collect()
 }
 
 // Close closes the window. On Linux the menu bar comes off first: muda keeps each GTK window's menu bar under the
 // window's address and never lets it go, so a new window made at the same address got no menu bar (issue 4).
+// home: Windows and Linux, where closing the last drawing window opens Home, so Octet is not left running with no
+// window (issue 38).
 #[tauri::command]
-pub async fn close_window(window: Window) -> Result<(), String> {
+pub async fn close_window(app: AppHandle, window: Window, home: Option<bool>) -> Result<(), String> {
+    if home == Some(true) && last(app.webview_windows().keys().map(String::as_str), window.label()) {
+        self::home(&app).map_err(|e| e.to_string())?;
+    }
     #[cfg(target_os = "linux")]
     let _ = window.remove_menu();
     window.destroy().map_err(|e| e.to_string())
@@ -163,6 +219,7 @@ pub async fn window_show(app: AppHandle, label: String) -> Result<(), String> {
     let _ = window.unminimize();
     let _ = window.show();
     window.set_focus().map_err(|e| e.to_string())?;
+    focused(&label);
     if label == "main" {
         let _ = app.emit_to("main", "show-drawing", ());
     }
@@ -197,10 +254,24 @@ pub fn home(app: &AppHandle) -> tauri::Result<()> {
     window.set_focus()
 }
 
+// Whether a window is the last of Octet's windows open.
+fn last<'a>(labels: impl Iterator<Item = &'a str>, label: &str) -> bool {
+    !labels.into_iter().any(|l| ours(l) && l != label)
+}
+
 // A closed window leaves Home's list.
 pub fn closed(app: &AppHandle, label: &str) {
     let windows = app.state::<Windows>();
     windows.starts.lock().unwrap().remove(label);
+    windows.hosts.lock().unwrap().remove(label);
+    #[cfg(windows)]
+    {
+        if let Some(id) = crate::ole::win::id_of(label) {
+            crate::ole::win::closed(id);
+        }
+        // An Octet that Windows started for Word ends when its last window closes and Word holds no object.
+        crate::ole::win::maybe_exit(app);
+    }
     let before = {
         let mut open = windows.open.lock().unwrap();
         let n = open.len();
@@ -218,7 +289,16 @@ mod tests {
 
     #[test]
     fn octets_windows_only() {
-        assert!(ours("main") && ours("draw-3"));
+        assert!(ours("main") && ours("draw-3") && ours("object-2"));
         assert!(!ours("reaxys") && !ours("drawing"));
+    }
+
+    // Closing the last drawing window opens Home; with Home or another drawing window open, nothing opens.
+    #[test]
+    fn the_last_window_closed_opens_home() {
+        assert!(last(["draw-2"].into_iter(), "draw-2"));
+        assert!(last(["draw-2", "reaxys"].into_iter(), "draw-2"));
+        assert!(!last(["draw-2", "main"].into_iter(), "draw-2"));
+        assert!(!last(["draw-2", "draw-5"].into_iter(), "draw-2"));
     }
 }
