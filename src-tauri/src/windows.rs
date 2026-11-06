@@ -157,8 +157,10 @@ pub fn object_hosts(app: &AppHandle) -> Vec<(String, String)> {
     hosts.into_iter().filter(|(l, _)| app.get_webview_window(l).is_some()).collect()
 }
 
-// Close closes the window. On Linux the menu bar comes off first: muda keeps each GTK window's menu bar under the
-// window's address and never lets it go, so a new window made at the same address got no menu bar (issue 4).
+// Close closes the window. The menu bar comes off first. On Linux muda keeps each GTK window's menu bar under the
+// window's address and never lets it go, so a new window made at the same address got no menu bar (issue 4). On
+// Windows every window shows the one menu muda made, and DestroyWindow frees a window's menu with it, so the windows
+// left open had a menu bar with nothing in it.
 // home: Windows and Linux, where closing the last drawing window opens Home, so Octet is not left running with no
 // window (issue 38).
 #[tauri::command]
@@ -166,7 +168,6 @@ pub async fn close_window(app: AppHandle, window: Window, home: Option<bool>) ->
     if home == Some(true) && last(app.webview_windows().keys().map(String::as_str), window.label()) {
         self::home(&app).map_err(|e| e.to_string())?;
     }
-    #[cfg(target_os = "linux")]
     let _ = window.remove_menu();
     window.destroy().map_err(|e| e.to_string())
 }

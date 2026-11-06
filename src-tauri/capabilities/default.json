@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Only what the page uses (REL-20): menu and close events, the window title, and closing the window. Octet's own commands need no permission. Home is the window main; each drawing has a window draw-1, draw-2 and on.",
+  "description": "Only what the page uses (REL-20): menu and close events, the window title, and closing the window. Octet's own commands need no permission. Home is the window main; each drawing has a window draw-1, draw-2 and on; each Octet Drawing object opened from an Office document has a window object-1, object-2 and on (decision 0023).",
   "windows": [
     "main",
     "draw-*",

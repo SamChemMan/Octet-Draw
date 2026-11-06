@@ -1424,6 +1424,8 @@ pub async fn ole_update(app: AppHandle, window: tauri::Window, oct: String, svg:
 pub async fn ole_close(app: AppHandle, window: tauri::Window) -> std::result::Result<(), String> {
     let id = id_of(window.label()).ok_or("This window holds no object.")?;
     on_main(&app, move || closed(id)).await?;
+    // The menu bar comes off first, as in close_window (windows.rs).
+    let _ = window.remove_menu();
     window.destroy().map_err(|e| e.to_string())?;
     let a = app.clone();
     on_main(&app, move || maybe_exit(&a)).await
