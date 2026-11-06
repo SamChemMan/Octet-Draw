@@ -554,7 +554,7 @@ fn check(asked: *const FORMATETC, offered: &[FORMATETC]) -> Result<FORMATETC> {
 }
 
 // The list of formats, for EnumFormatEtc.
-#[implement(IEnumFORMATETC)]
+#[implement(IEnumFORMATETC, Agile = false)]
 struct Formats {
     list: Vec<FORMATETC>,
     at: Cell<usize>,
@@ -597,7 +597,10 @@ impl IEnumFORMATETC_Impl for Formats_Impl {
 // ---------------------------------------------------------------------------------------------------------------
 // The class factory
 
-#[implement(IClassFactory)]
+// Agile = false on every object Word calls: the windows crate makes an object agile by default (free-threaded), and
+// COM then runs Word's calls on its own worker threads. Not agile, they come to the main thread, an STA, where OPEN,
+// LATER and the windows are.
+#[implement(IClassFactory, Agile = false)]
 struct Factory;
 
 impl IClassFactory_Impl for Factory_Impl {
@@ -657,8 +660,8 @@ fn waiting<T>(f: impl FnOnce() -> T) -> T {
 // The object
 
 // One Octet Drawing object. Word's default handler holds it while it runs; OPEN holds it while its window is open.
-// Methods run on the main thread only (an STA), so plain Cells and RefCells are enough.
-#[implement(IOleObject, IDataObject, IPersistStorage, IPersistFile)]
+// Methods run on the main thread only (an STA, as the object is not agile), so plain Cells and RefCells are enough.
+#[implement(IOleObject, IDataObject, IPersistStorage, IPersistFile, Agile = false)]
 struct Drawing {
     id: u64,
     site: RefCell<Option<IOleClientSite>>,
@@ -1465,7 +1468,7 @@ enum Payload {
     Storage(String, (i32, i32)),
 }
 
-#[implement(IDataObject)]
+#[implement(IDataObject, Agile = false)]
 struct Clip {
     items: Vec<(FORMATETC, Payload)>,
 }
