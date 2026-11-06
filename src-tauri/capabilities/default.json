@@ -4,7 +4,8 @@
   "description": "Only what the page uses (REL-20): menu and close events, the window title, and closing the window. Octet's own commands need no permission. Home is the window main; each drawing has a window draw-1, draw-2 and on.",
   "windows": [
     "main",
-    "draw-*"
+    "draw-*",
+    "object-*"
   ],
   "permissions": [
     "core:event:allow-listen",
