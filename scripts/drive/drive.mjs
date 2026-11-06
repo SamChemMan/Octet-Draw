@@ -353,8 +353,14 @@ const steps = [
       document.execCommand("insertText", false, arguments[0])`, LABEL);
     await page("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
     await until("the text box closed", () => page("return !document.querySelector('.caption-box')"));
+    // Diagnostic (CI run for step 13): what is picked after the text box closes, and after Colour > Red.
+    const shape = (m) => JSON.stringify({ captions: m.captions?.map((c) => [c.text, c.colour ?? null]), arrows: m.arrows?.length ?? 0, atoms: m.structure?.atoms?.length ?? 0 });
+    log(`    after Escape: ${shape(await copied())}`);
+    log(`    panel: ${await page("return [...document.querySelectorAll('h2')].map((h) => h.textContent).join(' | ')")}`);
     system.menu("Colour", "Red");
+    log(`    panel after Colour > Red: ${await page("return [...document.querySelectorAll('h2')].map((h) => h.textContent).join(' | ')")}`);
     got = await copied();
+    log(`    after Colour > Red: ${shape(got)}`);
     check(got.captions?.length === 1 && got.captions[0].text === LABEL && got.captions[0].colour === RED && Math.abs(got.captions[0].x - x1) < 0.001, `the label: ${JSON.stringify(got.captions)}`);
     // The spectrum alone, picked by a click, and its frame's right handle dragged 200 px: the plot grows, every caption
     // keeps the document's size, and the edited label keeps its text and colour. Undo takes it back in one step.
