@@ -136,6 +136,9 @@ fn registered(name: &str) -> u16 {
 // build only when COM started it: a debug build the user starts never takes over Word's objects.
 pub fn start(app: &AppHandle, embedding: bool) {
     let _ = APP.set(app.clone());
+    if embedding {
+        log(&format!("diagnostic: start on thread {:?}", std::thread::current().id()));
+    }
     EMBEDDING.store(embedding, SeqCst);
     // SAFETY: called on the main thread once; OLE stays on for the life of the process.
     if let Err(e) = unsafe { OleInitialize(None) } {
@@ -223,7 +226,7 @@ pub fn maybe_exit(app: &AppHandle) {
     let shown: Vec<String> = app.webview_windows().into_iter().filter(|(l, w)| (l.starts_with("draw-") || l.starts_with("object-")) || (l == "main" && w.is_visible().unwrap_or(false))).map(|(l, _)| l).collect();
     if live > 0 || locks > 0 || open > 0 || !shown.is_empty() {
         // What keeps an Octet that Windows started for Word running, for the CI log (Office objects' log).
-        log(&format!("still running: {live} objects, {locks} locks, {open} open, windows {shown:?}"));
+        log(&format!("still running: {live} objects, {locks} locks, {open} open, windows {shown:?}, thread {:?}", std::thread::current().id()));
         return;
     }
     revoke();
@@ -827,6 +830,7 @@ impl Drawing {
 
     // Edit or Open: the window opens (from the async runtime, never in this call), or comes to the front.
     fn show(this: &windows_core::ComObject<Drawing>) {
+        log(&format!("diagnostic: show object {} on thread {:?}", this.id, std::thread::current().id()));
         OPEN.with(|m| m.borrow_mut().insert(this.id, this.clone()));
         if !this.locked.get() {
             let unknown: IUnknown = this.to_interface();
@@ -876,6 +880,7 @@ impl Drawing {
     // from Word (Close). That is allowed: CoDisconnectObject waits for calls in progress to return.
     // https://learn.microsoft.com/windows/win32/api/combaseapi/nf-combaseapi-codisconnectobject
     fn disconnect(this: &windows_core::ComObject<Drawing>) {
+        log(&format!("diagnostic: disconnect object {} on thread {:?}", this.id, std::thread::current().id()));
         LATER.with(|l| l.borrow_mut().push((this.to_interface(), this.locked.replace(false))));
         match app() {
             Some(a) => {
@@ -970,6 +975,7 @@ impl Drawing {
 
 fn disconnect_later() {
     let list = LATER.with(|l| std::mem::take(&mut *l.borrow_mut()));
+    log(&format!("diagnostic: disconnect_later on thread {:?} with {} objects", std::thread::current().id(), list.len()));
     for (unknown, locked) in list {
         // SAFETY: live objects on the main thread, their own apartment.
         unsafe {
@@ -1033,7 +1039,7 @@ impl IOleObject_Impl for Drawing_Impl {
         // Whether Word got the window's newest drawing. If not (NOSAVE with changes not sent), the window stays open
         // and keeps the drawing, as when Word goes away.
         let sent = *option != OLECLOSE_NOSAVE || self.latest.borrow().is_none();
-        log(&format!("diagnostic: Close object {id}, option {}, sent {sent}", option.0));
+        log(&format!("diagnostic: Close object {id}, option {}, sent {sent}, thread {:?}", option.0, std::thread::current().id()));
         if *option == OLECLOSE_NOSAVE {
             self.latest.borrow_mut().take();
         } else {
