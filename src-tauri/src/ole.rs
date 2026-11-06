@@ -361,7 +361,8 @@ mod tests {
     // The installer's hooks write the same keys as Octet's own repair, and remove the same roots.
     #[test]
     fn keys_match_the_installer() {
-        let nsh = include_str!("../windows/hooks.nsh");
+        // Git on Windows checks the file out with CRLF line ends.
+        let nsh = &include_str!("../windows/hooks.nsh").replace("\r\n", "\n");
         for e in keys(Path::new(r"$INSTDIR\${MAINBINARYNAME}.exe")) {
             let key = e.key.replace(CLSID, "${OCTET_CLSID}");
             let line = match &e.value {
