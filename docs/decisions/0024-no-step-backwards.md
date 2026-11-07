@@ -72,8 +72,11 @@ So:
   6 frames. At 60 frames a second the glide takes its 180 ms. Only when one frame takes longer than 30 ms (a drawing
   of hundreds of atoms on a slow computer) does it last longer, never a jump.
 - The glide's first frame is the drawing it starts from, which is drawn already, so it costs nothing.
-- Reduced motion, which the user chose in the system's settings, moves the drawing at once. This is the one case,
-  and it is the user's own choice (accessibility).
+- Two cases move at once. Reduced motion, which the user chose in the system's settings (accessibility). And an AI
+  app's call (Sam, 7 November 2026): the MCP server is not for people, and its only goal is the best work in the
+  least time, so nothing it does glides, settles or animates, and any rule about look or feel gives way to speed
+  there. In 1.2 one check, `noMotion()` in `src/Editor.tsx`, covers both, at every motion: glides, the view, the page
+  outlines, the shake and the settle.
 
 Measured from a real click (`scripts/experience.mjs`, this computer, which is about 3 times slower than an M1):
 
@@ -124,9 +127,6 @@ Rules for the checks themselves:
 
 ## Open
 
-- 1.2 has no glide while an AI app's call runs (`mcpCalling` in `src/Editor.tsx`): the app's tools measure the drawing
-  on screen, and waiting for each glide made every call slower. That goes against "every glide shows". Sam decides:
-  keep it, or let the tools measure the drawing as it will be, so the glide shows to the person watching.
 - Issue #55: 1.1.1 pastes into Word 7.5 times too large on Windows (the EMF's 720 dpi reference). That is another
   step backwards from 1.1.0. Its check belongs in `src-tauri/src/vector.rs`: the frame and the bounds of the
   clipboard's EMF give the same size.
