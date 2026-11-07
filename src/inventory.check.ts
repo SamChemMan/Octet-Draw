@@ -43,9 +43,21 @@ function inventory(read: Read, ref?: string) {
   const code = sources.filter(([f]) => !f.endsWith(".css")).map(([, t]) => t).join("\n"), css = sources.filter(([f]) => f.endsWith(".css")).map(([, t]) => t).join("\n");
   // The menus, with each item's shortcut (src-tauri/src/main.rs).
   const menus = read("src-tauri/src/main.rs") ?? "";
-  for (const m of menus.matchAll(/\b(?:item|check)\("([\w:.-]+)", "([^"]*)", "([^"]*)"/g)) {
+  // Each item("id", label, "shortcut") and check(…): its brackets matched, so a label made in code (1.2's
+  // `&object.map_or("Save".into(), …)`) is read too. The shortcut is the call's last text.
+  for (const m of menus.matchAll(/\b(?:item|check)\("([\w:.-]+)",/g)) {
+    let depth = 1, k = m.index! + m[0].length, inText = false;
+    for (; k < menus.length && depth; k++) {
+      const c = menus[k];
+      if (inText) { if (c === "\\") k++; else if (c === '"') inText = false; }
+      else if (c === '"') inText = true;
+      else if (c === "(") depth++;
+      else if (c === ")") depth--;
+    }
+    const texts = [...menus.slice(m.index! + m[0].length, k - 1).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((t) => t[1]);
     add("menu", m[1]);
-    if (m[3]) add("shortcut", `${m[1]}=${m[3]}`);
+    const key = texts.length >= 2 ? texts[texts.length - 1] : "";
+    if (key) add("shortcut", `${m[1]}=${key}`);
   }
   // The Actions panel's commands.
   for (const m of (read("src/Actions.tsx") ?? "").matchAll(/\bit\(<[^>]*\/?>(?:[^<]*<\/\w+>)?, "[^"]*", "([\w:.-]+)"/g)) add("action", m[1]);

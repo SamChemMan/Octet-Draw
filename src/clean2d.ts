@@ -416,7 +416,7 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
   // The energy's exact gradient for every atom (ga), in one sweep over the terms: the same as moving each atom a
   // little each way and measuring (diff), with no step to choose. Then each base atom's gradient: its group moves with
   // it, each atom turned and scaled by its coefficients.
-  const ga = new Float64Array(2 * n), turns = new Float64Array(n + 1), turnAtoms = new Int32Array(n + 1);
+  const ga = new Float64Array(2 * n), turns = new Float64Array(n + 1), turnAtoms = new Int32Array(n + 1), pulls = new Float64Array(n + 1);
   const turnOf = (ix: number, iy: number, w: number, k: number) => {
     // d(angle of w seen from i) / d(position of w), times k, onto w and (negated) onto i.
     const x = pos[2 * w] - ix, y = pos[2 * w + 1] - iy, r2 = x * x + y * y;
@@ -463,7 +463,15 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
           turns[q] = a; turnAtoms[q] = w;
         }
         const target = (2 * Math.PI) / deg, gap = (k: number) => (k === deg - 1 ? turns[0] + 2 * Math.PI : turns[k + 1]) - turns[k] - target;
-        for (let k = 0; k < deg; k++) push(i, turnAtoms[k], 2 * gap((k + deg - 1) % deg) - 2 * gap(k));
+        for (let k = 0; k < deg; k++) pulls[k] = 2 * gap((k + deg - 1) % deg) - 2 * gap(k);
+        // Bonds at exactly one angle could be sorted either way: each takes the mean of their pulls, as a measured
+        // gradient finds, so a symmetric drawing stays so.
+        for (let k = 0; k < deg; ) {
+          let e = k + 1, sum = pulls[k];
+          for (; e < deg && turns[e] === turns[k]; e++) sum += pulls[e];
+          for (let q = k; q < e; q++) push(i, turnAtoms[q], sum / (e - k));
+          k = e;
+        }
         continue;
       }
       const a = angles[i], goal = goals[i];
@@ -471,7 +479,9 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
         const v1 = a[k], v2 = a[k + 1], x1 = pos[2 * v1] - ix, y1 = pos[2 * v1 + 1] - iy, x2 = pos[2 * v2] - ix, y2 = pos[2 * v2 + 1] - iy;
         const alpha = Math.atan2(x1 * y2 - y1 * x2, x1 * x2 + y1 * y2);
         const target = straight[i] ? (alpha > 0 ? Math.PI : -Math.PI) : alpha < 0 ? -goal[k >> 1] : goal[k >> 1];
-        const c = 2 * (alpha - target);
+        // At exactly 0 (two atoms on one point) the target flips between +goal and -goal: the push is the mean of both
+        // sides, none, as a measured gradient finds, so a drawing laid out symmetrically stays so ([Rh(cod)Cl]2).
+        const c = alpha === 0 ? 0 : 2 * (alpha - target);
         push(i, v2, c); push(i, v1, -c);
       }
     }
