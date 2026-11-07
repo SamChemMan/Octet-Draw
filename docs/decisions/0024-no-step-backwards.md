@@ -124,6 +124,9 @@ Rules for the checks themselves:
 
 ## Open
 
+- 1.2 has no glide while an AI app's call runs (`mcpCalling` in `src/Editor.tsx`): the app's tools measure the drawing
+  on screen, and waiting for each glide made every call slower. That goes against "every glide shows". Sam decides:
+  keep it, or let the tools measure the drawing as it will be, so the glide shows to the person watching.
 - Issue #55: 1.1.1 pastes into Word 7.5 times too large on Windows (the EMF's 720 dpi reference). That is another
   step backwards from 1.1.0. Its check belongs in `src-tauri/src/vector.rs`: the frame and the bounds of the
   clipboard's EMF give the same size.
