@@ -19,6 +19,9 @@ const arg = (name) => { const i = process.argv.indexOf(`--${name}`); return i > 
 const repo = resolve(new URL("..", import.meta.url).pathname);
 const git = (...a) => execFileSync("git", a, { cwd: repo, encoding: "utf8" }).trim();
 const plan = JSON.parse(readFileSync(join(repo, "scripts/experience.json"), "utf8"));
+// --only <name,…> runs those scenarios, and --runs <n> sets the runs of each (for a quick look; CI runs them all).
+if (arg("only")) plan.scenarios = plan.scenarios.filter((x) => arg("only").split(",").includes(x.name));
+if (arg("runs")) plan.runs = +arg("runs");
 const work = mkdtempSync(join(tmpdir(), "octet-experience-"));
 const out = arg("out") ?? join(work, "report");
 mkdirSync(out, { recursive: true });
@@ -118,22 +121,37 @@ const once = async (url, scenario, rate) => {
     const dt = new DataTransfer(); dt.setData('application/x-octet+json', ${JSON.stringify(drawing(scenario.drawing))});
     dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, cancelable: true }));
     await new Promise((r) => setTimeout(r, 1500));`);
-  await call("Emulation.setCPUThrottlingRate", { rate });
-  return run(`
+  const at = await run(`
     const name = ${JSON.stringify(scenario.button)};
     const button = document.querySelector('[aria-label="' + name + '"]') ?? [...document.querySelectorAll('button')].find((b) => b.textContent.trim().startsWith(name));
-    if (!button) return { missing: true };
+    if (!button) return undefined;
+    const b = button.getBoundingClientRect();
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };`);
+  if (!at) return { missing: true };
+  // A real click, as a user's: the browser runs it at the start of a frame, which is where 1.1.1 lost its glides
+  // (button.click() from a script runs between frames, and hid the loss).
+  await call("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y });
+  await sleep(400);
+  await call("Emulation.setCPUThrottlingRate", { rate });
+  await run(`
     const canvas = document.querySelector('svg.canvas');
     let changed = false;
     const seen = new MutationObserver(() => { changed = true; });
     seen.observe(canvas, { subtree: true, childList: true, attributes: true, characterData: true });
-    const frames = [], t0 = performance.now();
-    await new Promise((done) => {
-      const tick = () => { const t = performance.now() - t0; frames.push([Math.round(t), changed]); changed = false; t < 2500 ? requestAnimationFrame(tick) : done(); };
+    const frames = [];
+    let t0;
+    addEventListener('pointerdown', () => { t0 = performance.now(); changed = false; }, { capture: true, once: true });
+    window.__frames = new Promise((done) => {
+      const tick = () => {
+        if (t0 !== undefined) frames.push([Math.round(performance.now() - t0), changed]);
+        changed = false;
+        t0 === undefined || performance.now() - t0 < 2500 ? requestAnimationFrame(tick) : (seen.disconnect(), done(frames));
+      };
       requestAnimationFrame(tick);
-      button.click();
-    });
-    seen.disconnect();
+    });`);
+  for (const type of ["mousePressed", "mouseReleased"]) await call("Input.dispatchMouseEvent", { type, x: at.x, y: at.y, button: "left", clickCount: 1 });
+  return run(`
+    const frames = await window.__frames;
     // The answer is the first frame that changed; the glide is the changed frames that follow it (a frame or two
     // the same in between is a slow frame, not the end).
     const first = frames.findIndex((f) => f[1]);
