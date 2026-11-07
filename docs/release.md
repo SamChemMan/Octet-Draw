@@ -123,7 +123,7 @@ internet, but it is much larger. The brief asks for a small download, so the sma
 - `cargo test` for the Rust code.
 - `npm audit` and `cargo audit` (REL-26). `src-tauri/.cargo/audit.toml` leaves out RUSTSEC-2024-0429 (see
   below).
-- Nothing users had in the last release is lost or made worse (decision 0023). `src/inventory.check.ts` (in
+- Nothing users had in the last release is lost or made worse (decision 0024). `src/inventory.check.ts` (in
   `npm test`) finds every menu item, shortcut, Actions command, setting, template, animation and glide of the last
   release tag. The Experience job (`scripts/experience.mjs`) builds the last release and this commit, and runs the
   scenarios in `scripts/experience.json` in headless Chrome, as they are and with the computer 4 times slower: each

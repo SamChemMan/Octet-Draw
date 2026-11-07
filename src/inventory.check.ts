@@ -1,5 +1,5 @@
 // Run: node src/inventory.check.ts. Fails loudly if this commit takes away something users had in the last release
-// (decision 0023): a menu item or its shortcut, an Actions panel command, a setting, a template, an animation, an
+// (decision 0024): a menu item or its shortcut, an Actions panel command, a setting, a template, an animation, an
 // overlay's exit motion, or a glide. Each is read from the source of the last release tag (git) and of this tree.
 // Something may go only when docs/removals.md names it (`inventory:<kind>:<name>`) with the reason and "Approved by
 // Sam". Set OCTET_BASE and OCTET_HEAD to compare two tags (OCTET_BASE=v1.1.0 OCTET_HEAD=v1.1.1).
@@ -79,7 +79,7 @@ assert.ok(after.glides >= 5, "inventory.check found no glides in this tree: fix 
 
 if (gone.length) {
   console.error(`inventory.check: ${gone.length} thing(s) users had in ${base} are gone from ${head ?? "this tree"}:\n${gone.map((g) => `  ${g}`).join("\n")}\n` +
-    "Put each back, or ask Sam to approve it in docs/removals.md (decision 0023).");
+    "Put each back, or ask Sam to approve it in docs/removals.md (decision 0024).");
   process.exit(1);
 }
 const count = [...after.items.values()].reduce((n, s) => n + s.size, 0);

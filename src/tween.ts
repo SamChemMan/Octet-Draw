@@ -2,7 +2,7 @@
 // motion's easing, once a frame, and 1 last. The returned function stops it.
 // The clock is the computer's, from the first frame that runs. The page's animation timeline keeps the time its frame
 // began, so a glide started after a 150 ms Clean Up counted those 150 ms and showed only the last 30 ms of its 180 ms:
-// in 1.1.1, where Clean Up got slower, most glides were gone (decision 0023). The Animation only gives the easing.
+// in 1.1.1, where Clean Up got slower, most glides were gone (decision 0024). The Animation only gives the easing.
 export function frames(step: (t: number) => void, at: { duration: number; easing: string }) {
   const motion = new Animation(new KeyframeEffect(null, null, at));
   let frame = 0, start: number | undefined;

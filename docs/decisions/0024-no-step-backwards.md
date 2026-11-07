@@ -1,4 +1,4 @@
-# 0023: No step backwards
+# 0024: No step backwards
 
 Status: proposed 7 November 2026, after 1.1.1. Sam approves it.
 

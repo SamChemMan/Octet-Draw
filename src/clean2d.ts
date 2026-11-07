@@ -19,7 +19,7 @@
 // pushed apart. Each round is a step along the gradient (or the conjugate direction), scaled to at most one bond length
 // and halved up to 20 times to the lowest energy.
 
-const ROUNDS = 1000, HALVINGS = 20;
+const ROUNDS = 1000, HALVINGS = 20, MEMORY = 8;
 const SHRINK = Array.from({ length: HALVINGS + 1 }, (_, i) => (i ? 0.5 ** (i - 1) : 0));
 // The angle inside a regular polygon of s atoms; Indigo's 120° for a ring of more than 8 (a macrocycle).
 const polygon = (s: number) => (s <= 8 ? Math.PI - (2 * Math.PI) / s : (2 * Math.PI) / 3);
@@ -391,7 +391,7 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
   // n² for the setup above. An angle of the second pass at an atom of d bonds costs d + d²/4 (its bonds are sorted by
   // angle). Fitted to the times of src/cleanup.check.ts's and src/cleanup-geometry.check.ts's structures, a unit took
   // 6 to 13 ns on an M1 Pro. The exact gradient (gradient, after 1.1.1) and a line search that stops at its lowest point
-  // make a unit about twice as quick, and the count is kept, so a pass stops where it did.
+  // make a unit about twice as quick, and L-BFGS needs fewer rounds; the count is kept as the budget's measure.
   const angleCost = (i: number) => (external ? nei[i].length * (1 + nei[i].length / 4) : angles[i].length / 2);
   const shared = new Float64Array(n);
   let fixed = 2 * n, evalCost = n + E;
@@ -475,26 +475,43 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
 
   const B = base.length, g = new Float64Array(2 * B), grads = new Float64Array(2 * n), start = new Float64Array(2 * n), energies = new Float64Array(HALVINGS + 1);
   const step = (by: number) => { for (let j = 0; j < B; j++) { const b = 2 * base[j]; pos[b] -= g[2 * j] * by; pos[b + 1] -= g[2 * j + 1] * by; } };
-  // Once the atoms move less than 1% of a bond a round, each step follows conjugate gradients (Polak–Ribière), as plain
-  // gradient steps creep along a long valley: the last round's gradient and direction. A conjugate step that finds
-  // nothing lower starts again from the gradient. (Conjugate steps from the start can carry a tangled drawing, such as
-  // a porphyrin with a pyrrole folded in, into a worse shape.)
-  const last = new Float64Array(2 * B), dir = new Float64Array(2 * B);
-  let lastLen = 0, settling = false;
+  // Once the atoms move less than 1% of a bond a round, each step follows L-BFGS: the last MEMORY steps and how the
+  // gradient changed over each give the valley's shape, so a step goes along a long valley where plain gradient
+  // steps creep. A step that finds nothing lower forgets them and starts again from the gradient. (Such steps from the
+  // start can carry a tangled drawing, such as a porphyrin with a pyrrole folded in, into a worse shape.)
+  const dir = new Float64Array(2 * B), was = new Float64Array(2 * B), moved = new Float64Array(2 * B), alphas = new Float64Array(MEMORY);
+  const memory: { s: Float64Array; y: Float64Array; rho: number }[] = [];
+  let settling = false, curved = false, known = false;
+  const dot = (a: Float64Array, b: Float64Array) => { let r = 0; for (let j = 0; j < a.length; j++) r += a[j] * b[j]; return r; };
+  // Whether the close pairs (collect) still hold every pair within a bond: the line search's list does, after a step no
+  // longer than the one it was made for, so a round needs only that one search.
+  let paired = false;
   update();
   let work = n * n;
   for (let round = 0; round < rounds; round++) {
-    collect(reach * H);
+    if (!paired) collect(reach * H);
     work += gradWork();
     gradient();
-    let len = 0, over = 0;
-    base.forEach((v, j) => { g[2 * j] = grads[2 * v]; g[2 * j + 1] = grads[2 * v + 1]; len += g[2 * j] ** 2 + g[2 * j + 1] ** 2; over += g[2 * j] * last[2 * j] + g[2 * j + 1] * last[2 * j + 1]; });
-    const beta = settling && lastLen ? Math.max(0, (len - over) / lastLen) : 0;
-    let down = 0, size = 0;
-    for (let j = 0; j < 2 * B; j++) { dir[j] = g[j] + beta * dir[j]; down += dir[j] * g[j]; }
-    if (!(down > 0)) dir.set(g);
-    last.set(g);
-    lastLen = len;
+    base.forEach((v, j) => { g[2 * j] = grads[2 * v]; g[2 * j + 1] = grads[2 * v + 1]; });
+    // The last step and how the gradient changed over it.
+    if (settling && known) {
+      const y = new Float64Array(2 * B);
+      for (let j = 0; j < 2 * B; j++) y[j] = g[j] - was[j];
+      const sy = dot(moved, y);
+      if (sy > 1e-30) { memory.push({ s: Float64Array.from(moved), y, rho: 1 / sy }); if (memory.length > MEMORY) memory.shift(); }
+    }
+    was.set(g);
+    known = true;
+    dir.set(g);
+    curved = settling && memory.length > 0;
+    if (curved) {
+      for (let k = memory.length - 1; k >= 0; k--) { const { s, y, rho } = memory[k]; const a = rho * dot(s, dir); alphas[k] = a; for (let j = 0; j < 2 * B; j++) dir[j] -= a * y[j]; }
+      const { s, y } = memory[memory.length - 1], scale = dot(s, y) / dot(y, y);
+      for (let j = 0; j < 2 * B; j++) dir[j] *= scale;
+      for (let k = 0; k < memory.length; k++) { const { s, y, rho } = memory[k]; const b = rho * dot(y, dir); for (let j = 0; j < 2 * B; j++) dir[j] += (alphas[k] - b) * s[j]; }
+      if (!(dot(dir, g) > 0)) { dir.set(g); curved = false; memory.length = 0; }
+    }
+    let size = 0;
     for (let j = 0; j < 2 * B; j++) size += dir[j] ** 2;
     const factor = Math.min(T / Math.sqrt(size), 1);
     if (!Number.isFinite(factor)) break;
@@ -507,6 +524,7 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
     for (let v = 0; v < n; v++) far = Math.max(far, Math.hypot(pos[2 * v] - start[2 * v], pos[2 * v + 1] - start[2 * v + 1]));
     pos.set(start);
     collect(far * (1 + 1e-9));
+    paired = true;
     // A pass that has done its work (or reaches the deadline) stops its search with the best step yet.
     let tried = 0, best = 0;
     while (tried <= HALVINGS) {
@@ -520,11 +538,13 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
       if (++tried > 1 && (work > budget || performance.now() > deadline)) break;
     }
     if (!best) {
-      if (!beta) break;
-      [lastLen, round] = [0, round - 1];
-      dir.fill(0);
+      if (!curved) break;
+      memory.length = 0;
+      known = false;
+      round--;
       continue;
     }
+    for (let j = 0; j < 2 * B; j++) moved[j] = -g[j] * SHRINK[best];
     step(SHRINK[best]);
     update();
     if (far * SHRINK[best] < 0.01 * T) settling = true;

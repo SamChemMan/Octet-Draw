@@ -1,7 +1,7 @@
 # Checks on every push and pull request, and before each release (release.yml): the type check, every check file,
 # the Rust tests, and the npm and cargo audits (REL-7, REL-26). The smoke test starts the real app on Windows, Linux
 # and the Mac and opens a drawing window (src-tauri/src/smoke.rs). The experience check compares this commit with the
-# last release, and nothing users had may be lost or made worse (decision 0023). The checks need the release tags.
+# last release, and nothing users had may be lost or made worse (decision 0024). The checks need the release tags.
 name: Check
 
 on:

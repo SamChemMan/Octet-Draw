@@ -41,7 +41,7 @@ Octet draws structures itself as SVG. The app icon source is
   Users can change the style. Export matches the page exactly.
 - When a question in section 11 of the brief blocks you, ask Sam. Don't
   guess.
-- No step backwards (decision 0023). An update never takes away or makes
+- No step backwards (decision 0024). An update never takes away or makes
   worse something users had in the last release: a feature, a menu item,
   a shortcut, a setting, an animation, or speed. This includes losses by
   side effect, such as a slower command that eats a glide. The checks

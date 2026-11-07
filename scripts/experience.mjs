@@ -1,4 +1,4 @@
-// The experience check (decision 0023): nothing a user had in the last release gets worse in this one. It builds the
+// The experience check (decision 0024): nothing a user had in the last release gets worse in this one. It builds the
 // last release and this commit on the same computer, opens each in headless Chrome, runs the scenarios in
 // scripts/experience.json, and fails if a glide that should show does not, or if a command is slower than it was.
 // Each scenario runs as it is and with the computer 4 times slower (Chrome's CPU throttling), as many users have a

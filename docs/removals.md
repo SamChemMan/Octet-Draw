@@ -1,6 +1,6 @@
 # Removals
 
-Each thing a release takes away from users, or makes worse, with the reason (decision 0023). The checks
+Each thing a release takes away from users, or makes worse, with the reason (decision 0024). The checks
 (`src/inventory.check.ts`, `scripts/experience.mjs`) fail on anything lost unless a line here names its key in
 backticks and says "Approved by Sam". The checks read only the lines under "Approved". Only Sam writes
 those.

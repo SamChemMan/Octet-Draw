@@ -1,5 +1,5 @@
 // Run: node src/tween.check.ts. Fails loudly if a glide (Clean Up, Rotate 180°, Flip, Align: FEEL-38) can lose its
-// motion to the work done before it starts (decision 0023). In 1.1.1 the glide's clock was the page's animation
+// motion to the work done before it starts (decision 0024). In 1.1.1 the glide's clock was the page's animation
 // timeline, which keeps the time its frame began: a Clean Up of 150 ms used up 150 ms of the 180 ms glide before its
 // first frame, and on a slower computer the whole glide. Here the first frame comes late, and the glide must still
 // take its whole time, start at 0 and end at 1.
@@ -54,7 +54,7 @@ const stop = frames(() => {}, { duration: DURATION, easing: "ease-out" });
 stop();
 assert.equal(queue.length, 0, "a stopped glide asks for no more frames");
 
-// Every glide goes through this clock: no motion between two drawings keeps its own (decision 0023).
+// Every glide goes through this clock: no motion between two drawings keeps its own (decision 0024).
 const { readdirSync, readFileSync } = await import("node:fs");
 for (const f of readdirSync(new URL(".", import.meta.url)).filter((x) => /\.tsx?$/.test(x) && !x.endsWith(".check.ts") && x !== "tween.ts")) {
   const text = readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
