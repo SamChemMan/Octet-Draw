@@ -78,7 +78,8 @@ update key.
 1. Set the version: `npm version 1.0.0 --no-git-tag-version`. It changes `package.json` and
    `package-lock.json`. Everything else reads the version from `package.json` (REL-9): the app, the
    installers, About and the CreationProgram in CDXML files. Do this only for a release.
-2. In `CHANGELOG.md`, change "(not released yet)" to the date, and list what changed.
+2. In `CHANGELOG.md`, change "(not released yet)" to the date, and list what changed. List each entry added to
+   `docs/removals.md` since the last release too: users must not find a loss by surprise.
 3. Commit, tag and push: `git tag v1.0.0` and `git push origin main v1.0.0`. The tag must be `v` followed
    by the version in `package.json`, or the workflow stops.
 4. Actions > Release runs the checks, then builds on macOS, Windows and Linux. It makes a draft release with
@@ -122,6 +123,12 @@ internet, but it is much larger. The brief asks for a small download, so the sma
 - `cargo test` for the Rust code.
 - `npm audit` and `cargo audit` (REL-26). `src-tauri/.cargo/audit.toml` leaves out RUSTSEC-2024-0429 (see
   below).
+- Nothing users had in the last release is lost or made worse (decision 0023). `src/inventory.check.ts` (in
+  `npm test`) finds every menu item, shortcut, Actions command, setting, template, animation and glide of the last
+  release tag. The Experience job (`scripts/experience.mjs`) builds the last release and this commit, and runs the
+  scenarios in `scripts/experience.json` in headless Chrome, as they are and with the computer 4 times slower: each
+  glide must show, and no command may be slower. Its report is the run's `experience-report` artifact. Run it on a
+  Mac before a tag: `node scripts/experience.mjs`. A loss Sam accepts goes in `docs/removals.md`.
 
 `.github/workflows/platforms.yml` (Actions > Windows and Linux) runs on each push to main, and from Run workflow. On
 GitHub's Windows and Linux machines it builds Octet (a debug build) and drives it with `scripts/drive/drive.mjs`:

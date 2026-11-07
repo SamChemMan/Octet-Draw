@@ -41,6 +41,15 @@ Octet draws structures itself as SVG. The app icon source is
   Users can change the style. Export matches the page exactly.
 - When a question in section 11 of the brief blocks you, ask Sam. Don't
   guess.
+- No step backwards (decision 0023). An update never takes away or makes
+  worse something users had in the last release: a feature, a menu item,
+  a shortcut, a setting, an animation, or speed. This includes losses by
+  side effect, such as a slower command that eats a glide. The checks
+  `src/inventory.check.ts`, `src/tween.check.ts` and
+  `scripts/experience.mjs` compare each commit with the last release tag.
+  Never weaken a check or remove a scenario to make it pass. A new
+  feature adds its scenario to `scripts/experience.json`. Only Sam
+  approves a loss, in `docs/removals.md`.
 - Cross-check ChemDraw for every feature, before you build it and again
   before you show it. List every option ChemDraw gives that tool or object:
   its palette, the Object, Curves, Color and Text menus, the context menu,
