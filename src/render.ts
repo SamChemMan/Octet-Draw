@@ -488,6 +488,9 @@ export type Box = [number, number, number, number];
 export type MapNumber = { atom: number; text: string; at: P; size: number; h: number };
 export type Drawing = {
   sides?: number[]; // each bond's second line as drawn, for a double bond: -1 left, 1 right of its first atom to its second on screen, 0 centred
+  // What drew each polygon: a bond's index, or below zero an aromatic circle (-1 - k), a π ligand's ellipse
+  // (-100000 - atom) or an atom's symbol (-200000 - atom). The fast glide (glideplan.ts) slides each one's polygons.
+  owners?: number[];
   polygons: P[][]; colours: (string | undefined)[]; alphas: number[]; labels: Label[]; box: Box; ink: Box[]; label: (Box | undefined)[]; scale: number;
   electrons: { atom: number; at: P; key?: string }[]; beads: { at: P; r: number }[]; labelAt: P[]; maps: MapNumber[];
 };
@@ -1565,15 +1568,15 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
     for (const f of fronts[i]) polygons.push(...polygons.splice(from).flatMap((poly) => without(poly, cutter(plans[f], margin(plans[i])))));
   };
   // Each polygon's colour (its bond's, or for a mark, its atom's) and how strongly it is drawn (fainter further back).
-  const colours: (string | undefined)[] = [], alphas: number[] = [];
+  const colours: (string | undefined)[] = [], alphas: number[] = [], owners: number[] = [];
   plans.forEach((pl, i) => {
     const before = polygons.length, alpha = fade(pl.a, pl.b);
     drawPlan(pl, i);
     cutFronts(i, before);
-    for (const poly of polygons.slice(before)) { colours.push(mol.bonds[i].colour); alphas.push(alpha); for (const q of poly) { grow(pl.a, q); grow(pl.b, q); } }
+    for (const poly of polygons.slice(before)) { colours.push(mol.bonds[i].colour); alphas.push(alpha); owners.push(i); for (const q of poly) { grow(pl.a, q); grow(pl.b, q); } }
   });
   // The aromatic circles, each as a ring of short bars in the line width.
-  for (const r of circled) {
+  circled.forEach((r, ring) => {
     const c = mul(r.reduce<P>((m, i) => add(m, pts[i]), [0, 0]), 1 / r.length);
     const edge = Math.min(...r.map((x, k) => len(sub(pts[r[(k + 1) % r.length]], pts[x]))));
     const radius = ringCircleRadius(r.length, edge, s.spacing / s.bond), steps = 72, before = polygons.length;
@@ -1581,8 +1584,8 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
       const a0 = (2 * Math.PI * k) / steps, a1 = (2 * Math.PI * (k + 1.05)) / steps, S = add(c, [Math.cos(a0) * radius, Math.sin(a0) * radius]), E = add(c, [Math.cos(a1) * radius, Math.sin(a1) * radius]);
       bar(S, E, perp(unit(sub(E, S))), atomZ[r[0]].hw);
     }
-    for (const poly of polygons.slice(before)) { colours.push(mol.atoms[r[0]].colour); alphas.push(fade(...r)); for (const q of poly) grow(r[0], q); }
-  }
+    for (const poly of polygons.slice(before)) { colours.push(mol.atoms[r[0]].colour); alphas.push(fade(...r)); owners.push(-1 - ring); for (const q of poly) grow(r[0], q); }
+  });
   // A π ligand (a ring of delocalised bonds round a multi-centre point) has an ellipse inside, sized as an aromatic
   // circle for the ring and flattened as the ring is (ligandEllipse).
   mol.atoms.forEach((a, i) => {
@@ -1591,7 +1594,7 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
     const c = pts[i], { across, along, ra, rb } = ligandEllipse(r.map((x) => pts[x]), c, nbrs[i].length ? pts[nbrs[i][0]] : undefined, s.spacing / s.bond);
     const at = (t: number) => add(c, add(mul(across, Math.cos(t) * ra), mul(along, Math.sin(t) * rb))), steps = 72, before = polygons.length;
     for (let k = 0; k < steps; k++) { const S = at((2 * Math.PI * k) / steps), E = at((2 * Math.PI * (k + 1.05)) / steps); bar(S, E, perp(unit(sub(E, S))), atomZ[r[0]].hw); }
-    for (const poly of polygons.slice(before)) { colours.push(mol.atoms[r[0]].colour); alphas.push(fade(...r)); for (const q of poly) grow(r[0], q); }
+    for (const poly of polygons.slice(before)) { colours.push(mol.atoms[r[0]].colour); alphas.push(fade(...r)); owners.push(-100000 - i); for (const q of poly) grow(r[0], q); }
   });
   // A bond's query indicators (S/D, Rng, Rxn), small, beside its middle: inside its smallest ring, else on the side with
   // more room. Where that covers a label, an atom's indicator, another bond's indicator or another bond, a little along
@@ -1632,7 +1635,7 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
   const labelBoxes = shapes.map((shape) => shape.map(pieceBox));
   labelBoxes.forEach((bs, i) => bs.forEach(([a, b, c, d]) => { grow(i, [a, b]); grow(i, [c, d]); }));
   marks.forEach((mark, i) => mark.forEach((q) => grow(i, q)));
-  symbols.forEach((polys, i) => polys.forEach((poly) => { polygons.push(poly); colours.push(mol.atoms[i].colour); alphas.push(fade(i)); poly.forEach((q) => grow(i, q)); }));
+  symbols.forEach((polys, i) => polys.forEach((poly) => { polygons.push(poly); colours.push(mol.atoms[i].colour); alphas.push(fade(i)); owners.push(-200000 - i); poly.forEach((q) => grow(i, q)); }));
   // Labels in a structure with depth shading fade with their atom's depth too.
   for (const l of labels) {
     const i = labelAtom.get(l);
@@ -1688,7 +1691,7 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
     for (const q of [[at[0] - w / 2, at[1] - h / 2], [at[0] + w / 2, at[1] + h / 2]] as P[]) { grow(i, q); take(q[0], q[1]); }
   });
   const labelAt = labels.map((l): P => pts[labelAtom.get(l) ?? -1] ?? [l.x, l.y]);
-  return { polygons, colours, alphas, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad], ink, label, scale: k, electrons, beads, labelAt, maps, sides: plans.map((pl) => pl.side ?? 0) };
+  return { polygons, colours, alphas, labels, box: [x0 - pad, y0 - pad, x1 + pad, y1 + pad], ink, label, scale: k, electrons, beads, labelAt, maps, sides: plans.map((pl) => pl.side ?? 0), owners };
 }
 
 // The same drawing as render's, made structure by structure. Each structure's drawing stays in `cache` while its

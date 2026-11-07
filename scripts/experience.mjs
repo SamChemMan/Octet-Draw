@@ -191,6 +191,9 @@ try {
     if (scenario.glide) {
       const least = plan.glide.frames[rate] ?? 2;
       if (now.span < plan.glide.span || now.frames < least) fail("glide", `the glide showed ${now.frames} frames over ${now.span} ms (at least ${least} over ${plan.glide.span} ms)`);
+      // Smooth on a cheap laptop: frames a second over the glide (decision 0024: 60 is smooth, under about 12 jerks).
+      const fps = now.span ? (1000 * now.frames) / now.span : 0, floor = plan.glide.fps?.[rate];
+      if (floor && now.span >= plan.glide.span && fps < floor) fail("smooth", `the glide ran at ${Math.round(fps)} frames a second (at least ${floor})`);
     }
     if (!was.missing && was.latency !== undefined && now.latency > was.latency * plan.slower.ratio + plan.slower.ms)
       fail("speed", `the canvas answered in ${now.latency} ms, ${base} in ${was.latency} ms (allowed: ${Math.round(was.latency * plan.slower.ratio + plan.slower.ms)} ms)`);

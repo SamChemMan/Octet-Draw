@@ -2,7 +2,7 @@
   "about": "Scenarios for scripts/experience.mjs (decision 0024). clicks: presses of the button, gap ms apart (a key held down). Add one for each motion or command a user would miss. Never remove one: a scenario that cannot run any more is a feature gone.",
   "runs": 3,
   "rates": [1, 4],
-  "glide": { "span": 120, "frames": { "1": 3, "4": 2 } },
+  "glide": { "span": 120, "frames": { "1": 3, "4": 2 }, "fps": { "1": 40, "4": 18 } },
   "slower": { "ratio": 1.25, "ms": 30 },
   "scenarios": [
     { "name": "clean-up-chain", "drawing": "chain:8", "button": "Clean up structure", "glide": true },
