@@ -340,28 +340,34 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
   const centres: number[] = [], centre = new Uint8Array(n);
   for (let i = 0; i < n; i++) if (art[i] && (external || angles[i].length)) { centres.push(i); centre[i] = 1; }
   // The atoms (not in one block) that could come closer than a bond while each atom moves up to `by`: for atom i,
-  // partners[starts[i]] to partners[starts[i + 1] - 1].
-  const grid = new Grid(n), found = new Int32Array(n), starts = new Int32Array(n + 1);
+  // partners[starts[i]] to partners[starts[i + 1] - 1], each pair once (j > i). paired[i]: how many pairs atom i is in,
+  // and pairs: how many in all, both ways (for the work count).
+  const grid = new Grid(n), found = new Int32Array(n), starts = new Int32Array(n + 1), pairCount = new Int32Array(n);
+  let pairs = 0;
   let partners = new Int32Array(16 * n);
   const collect = (by: number) => {
     const r = T + 2 * by;
     grid.fill(pos, n, r);
     let k = 0;
+    pairCount.fill(0);
     for (let i = 0; i < n; i++) {
       starts[i] = k;
       const c = grid.near(i, found);
       if (k + c > partners.length) partners = Int32Array.from({ length: 2 * (k + c) }, (_, q) => partners[q] ?? 0);
       for (let q = 0; q < c; q++) {
-        const j = found[q], dx = pos[2 * i] - pos[2 * j], dy = pos[2 * i + 1] - pos[2 * j + 1];
-        if (j !== i && !same[i * n + j] && dx * dx + dy * dy < r * r) partners[k++] = j;
+        const j = found[q];
+        if (j <= i || same[i * n + j]) continue;
+        const dx = pos[2 * i] - pos[2 * j], dy = pos[2 * i + 1] - pos[2 * j + 1];
+        if (dx * dx + dy * dy < r * r) { partners[k++] = j; pairCount[i]++; pairCount[j]++; }
       }
     }
     starts[n] = k;
+    pairs = 2 * k;
   };
   const energy = () => {
     let r = 0;
     for (let e = 0; e < E; e++) r += edgeTerm(e);
-    for (let i = 0; i < n; i++) for (let q = starts[i]; q < starts[i + 1]; q++) if (partners[q] > i) r += pairTerm(i, partners[q]);
+    for (let i = 0; i < n; i++) for (let q = starts[i]; q < starts[i + 1]; q++) r += pairTerm(i, partners[q]);
     for (const i of centres) r += angleTerm(i);
     return r;
   };
@@ -404,13 +410,13 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
   for (const t of terms) evalCost += t.length / 3;
   const gradWork = () => {
     let r = fixed;
-    for (let u = 0; u < n; u++) r += shared[u] * (starts[u + 1] - starts[u]);
+    for (let u = 0; u < n; u++) r += shared[u] * pairCount[u];
     return r;
   };
   // The energy's exact gradient for every atom (ga), in one sweep over the terms: the same as moving each atom a
   // little each way and measuring (diff), with no step to choose. Then each base atom's gradient: its group moves with
   // it, each atom turned and scaled by its coefficients.
-  const ga = new Float64Array(2 * n);
+  const ga = new Float64Array(2 * n), turns = new Float64Array(n + 1), turnAtoms = new Int32Array(n + 1);
   const turnOf = (ix: number, iy: number, w: number, k: number) => {
     // d(angle of w seen from i) / d(position of w), times k, onto w and (negated) onto i.
     const x = pos[2 * w] - ix, y = pos[2 * w + 1] - iy, r2 = x * x + y * y;
@@ -427,7 +433,6 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
     for (let i = 0; i < n; i++)
       for (let q = starts[i]; q < starts[i + 1]; q++) {
         const j = partners[q];
-        if (j <= i) continue;
         const dx = pos[2 * i] - pos[2 * j], dy = pos[2 * i + 1] - pos[2 * j + 1], d2 = dx * dx + dy * dy;
         if (d2 >= T * T || !d2) continue;
         const l = Math.sqrt(d2), k = (2 * (l - T)) / (T * T * l);
@@ -450,10 +455,15 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
           push(i, w, k); push(i, v, -k);
           continue;
         }
-        const order = nei[i].map((w) => [Math.atan2(pos[2 * w + 1] - iy, pos[2 * w] - ix), w]).sort((a, b) => a[0] - b[0]);
-        const target = (2 * Math.PI) / deg, gap = (k: number) => (k === deg - 1 ? order[0][0] + 2 * Math.PI : order[k + 1][0]) - order[k][0] - target;
-        // Each angle starts one gap and ends the one before it.
-        for (let k = 0; k < deg; k++) push(i, order[k][1], 2 * gap((k + deg - 1) % deg) - 2 * gap(k));
+        // The bonds by angle (as angleTerm sorts them), then each angle starts one gap and ends the one before it.
+        for (let k = 0; k < deg; k++) {
+          const w = nei[i][k], a = Math.atan2(pos[2 * w + 1] - iy, pos[2 * w] - ix);
+          let q = k;
+          for (; q > 0 && turns[q - 1] > a; q--) { turns[q] = turns[q - 1]; turnAtoms[q] = turnAtoms[q - 1]; }
+          turns[q] = a; turnAtoms[q] = w;
+        }
+        const target = (2 * Math.PI) / deg, gap = (k: number) => (k === deg - 1 ? turns[0] + 2 * Math.PI : turns[k + 1]) - turns[k] - target;
+        for (let k = 0; k < deg; k++) push(i, turnAtoms[k], 2 * gap((k + deg - 1) % deg) - 2 * gap(k));
         continue;
       }
       const a = angles[i], goal = goals[i];
@@ -479,8 +489,11 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
   // gradient changed over each give the valley's shape, so a step goes along a long valley where plain gradient
   // steps creep. A step that finds nothing lower forgets them and starts again from the gradient. (Such steps from the
   // start can carry a tangled drawing, such as a porphyrin with a pyrrole folded in, into a worse shape.)
-  const dir = new Float64Array(2 * B), was = new Float64Array(2 * B), moved = new Float64Array(2 * B), alphas = new Float64Array(MEMORY);
-  const memory: { s: Float64Array; y: Float64Array; rho: number }[] = [];
+  const dir = new Float64Array(2 * B), was = new Float64Array(2 * B), moved = new Float64Array(2 * B), change = new Float64Array(2 * B), alphas = new Float64Array(MEMORY);
+  // The steps (ms) and gradient changes (my), MEMORY of each in a ring: the oldest is at `oldest`, `held` in all.
+  const ms = Array.from({ length: MEMORY }, () => new Float64Array(2 * B)), my = Array.from({ length: MEMORY }, () => new Float64Array(2 * B)), rhos = new Float64Array(MEMORY);
+  let oldest = 0, held = 0;
+  const slot = (k: number) => (oldest + k) % MEMORY;
   let settling = false, curved = false, known = false;
   const dot = (a: Float64Array, b: Float64Array) => { let r = 0; for (let j = 0; j < a.length; j++) r += a[j] * b[j]; return r; };
   // Whether the close pairs (collect) still hold every pair within a bond: the line search's list does, after a step no
@@ -495,21 +508,26 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
     base.forEach((v, j) => { g[2 * j] = grads[2 * v]; g[2 * j + 1] = grads[2 * v + 1]; });
     // The last step and how the gradient changed over it.
     if (settling && known) {
-      const y = new Float64Array(2 * B);
-      for (let j = 0; j < 2 * B; j++) y[j] = g[j] - was[j];
-      const sy = dot(moved, y);
-      if (sy > 1e-30) { memory.push({ s: Float64Array.from(moved), y, rho: 1 / sy }); if (memory.length > MEMORY) memory.shift(); }
+      let sy = 0;
+      for (let j = 0; j < 2 * B; j++) { change[j] = g[j] - was[j]; sy += moved[j] * change[j]; }
+      if (sy > 1e-30) {
+        const at = held < MEMORY ? slot(held) : oldest;
+        ms[at].set(moved);
+        my[at].set(change);
+        rhos[at] = 1 / sy;
+        if (held < MEMORY) held++; else oldest = (oldest + 1) % MEMORY;
+      }
     }
     was.set(g);
     known = true;
     dir.set(g);
-    curved = settling && memory.length > 0;
+    curved = settling && held > 0;
     if (curved) {
-      for (let k = memory.length - 1; k >= 0; k--) { const { s, y, rho } = memory[k]; const a = rho * dot(s, dir); alphas[k] = a; for (let j = 0; j < 2 * B; j++) dir[j] -= a * y[j]; }
-      const { s, y } = memory[memory.length - 1], scale = dot(s, y) / dot(y, y);
+      for (let k = held - 1; k >= 0; k--) { const at = slot(k), s = ms[at], y = my[at], a = rhos[at] * dot(s, dir); alphas[k] = a; for (let j = 0; j < 2 * B; j++) dir[j] -= a * y[j]; }
+      const newest = slot(held - 1), scale = dot(ms[newest], my[newest]) / dot(my[newest], my[newest]);
       for (let j = 0; j < 2 * B; j++) dir[j] *= scale;
-      for (let k = 0; k < memory.length; k++) { const { s, y, rho } = memory[k]; const b = rho * dot(y, dir); for (let j = 0; j < 2 * B; j++) dir[j] += (alphas[k] - b) * s[j]; }
-      if (!(dot(dir, g) > 0)) { dir.set(g); curved = false; memory.length = 0; }
+      for (let k = 0; k < held; k++) { const at = slot(k), s = ms[at], y = my[at], b = rhos[at] * dot(y, dir); for (let j = 0; j < 2 * B; j++) dir[j] += (alphas[k] - b) * s[j]; }
+      if (!(dot(dir, g) > 0)) { dir.set(g); curved = false; held = oldest = 0; }
     }
     let size = 0;
     for (let j = 0; j < 2 * B; j++) size += dir[j] ** 2;
@@ -531,7 +549,7 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
       step(SHRINK[tried]);
       update();
       energies[tried] = energy();
-      work += 1.5 * evalCost + 0.5 * starts[n];
+      work += 1.5 * evalCost + 0.5 * pairs;
       pos.set(start);
       if (energies[tried] < energies[best]) best = tried;
       else if (best && tried > best) break; // past the lowest point: smaller steps only climb back
@@ -539,7 +557,7 @@ function pass(xy: Float64Array, bonds: readonly (readonly [number, number, numbe
     }
     if (!best) {
       if (!curved) break;
-      memory.length = 0;
+      held = oldest = 0;
       known = false;
       round--;
       continue;

@@ -1075,6 +1075,15 @@ export default function Editor() {
   };
 
   useEffect(() => { ready.then(() => setLoaded(true)); }, []);
+  // Clean Up's code is made ready soon after start (the browser compiles it as it runs): a few small clean-ups that
+  // change nothing, a moment apart, so the first Clean Up is as quick as the next (decision 0024).
+  useEffect(() => {
+    if (!loaded) return;
+    const warm = parseStructure("CC(C)Cc1ccc(cc1)C(C)C(=O)OC1CCN(C)CC1");
+    const messy = { ...warm, atoms: warm.atoms.map((a, i) => ({ ...a, location: [a.location[0] + 0.3 * Math.sin(i * 12.9898), a.location[1] + 0.3 * Math.cos(i * 78.233), 0] as [number, number, number] })) };
+    const timers = [0, 1, 2, 3, 4].map((k) => setTimeout(() => { try { cleanUp(messy); } catch { /* only a warm-up */ } }, 2000 + 300 * k));
+    return () => timers.forEach(clearTimeout);
+  }, [loaded]);
   // Name to structure loads in the background once the window has settled.
   const [namesLoaded, setNamesLoaded] = useState(false);
   // The names engine loads in the background soon after start, so Structure to name is ready when first asked. Its

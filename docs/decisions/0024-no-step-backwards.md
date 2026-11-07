@@ -26,7 +26,29 @@ release with the one before it.
 `src/tween.ts` measures the glide with the computer's clock, from the first frame that runs. The work before a glide
 no longer shortens it. Each glide shows all its 180 ms, whatever Clean Up took.
 
-Clean Up being slower on slow computers is still open: see "Open" below.
+Clean Up is as quick as in 1.1.0 again, or quicker, and still gives the same result each time (`src/clean2d.ts`):
+
+- The gradient is worked out exactly in one sweep, not measured by moving each group of atoms four ways.
+- The line search stops once the energy climbs again, not after all 21 step sizes.
+- Once a structure settles, each step follows L-BFGS, not conjugate gradients, so far fewer rounds are needed.
+- A round makes one list of close pairs, each pair once.
+- The editor runs a few small clean-ups that nobody sees soon after start, so the browser has Clean Up's code
+  compiled before the first click.
+
+In the app, from a real click, against 1.1.0 (headless Chrome, as `scripts/experience.mjs` measures):
+
+| Clean Up | 1.1.0 | Now |
+| --- | --- | --- |
+| Cholesterol | 146 ms, glide 70 ms | 45 ms, glide 210 ms |
+| Taxol | 235 ms, glide 16 ms | 81 ms, glide 212 ms |
+| A 245-atom peptide | 228 ms, glide 22 ms | 193 ms, glide 199 ms |
+| Cholesterol, computer 4 times slower | 309 ms | 191 ms |
+| Taxol, computer 4 times slower | 365 ms | 390 ms |
+| The peptide, computer 4 times slower | 526 ms | 672 ms |
+
+On a slow computer 1.1.0 stopped each pass after 100 ms, so its large structures came out less tidy, and differently
+from run to run. A large structure on a very slow computer is the one case still slower than 1.1.0 (within the
+experience check's 25%), and it now glides.
 
 ## Decision
 
@@ -65,10 +87,6 @@ Rules for the checks themselves:
 
 ## Open
 
-- Clean Up is slower in 1.1.1 on slow computers (cholesterol 381 to 678 ms at 4 times slower). The glide now shows
-  after that wait, but the wait is longer than in 1.1.0. Options for Sam: run Clean Up in a worker so the window
-  never waits; or a smaller work budget for each pass, checked against `src/cleanup.check.ts` and
-  `src/cleanup-geometry.check.ts`.
 - Issue #55: 1.1.1 pastes into Word 7.5 times too large on Windows (the EMF's 720 dpi reference). That is another
   step backwards from 1.1.0. Its check belongs in `src-tauri/src/vector.rs`: the frame and the bounds of the
   clipboard's EMF give the same size.
