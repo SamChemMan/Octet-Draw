@@ -52,7 +52,7 @@ pub fn start(app: AppHandle) {
         });
         // Edit > Paste in Home's window, which holds the first drawing, pastes into that drawing.
         let edited = |app: &AppHandle| crate::windows::window_list(app.state()).iter().any(|i| i.label() == "main" && i.edited());
-        let _ = tauri::async_runtime::block_on(crate::clipboard::copy_to_clipboard(app.clone(), None, None, None, None, None, None, None, None, Some("CCO".into())));
+        let _ = tauri::async_runtime::block_on(crate::clipboard::copy_to_clipboard(app.clone(), None, None, None, None, None, None, None, None, Some("CCO".into()), None));
         let _ = app.emit_to("main", "menu", "paste");
         wait("Edit > Paste pastes into the drawing in Home's window", 30, || edited(&app));
         alive(&app, "Edit > Paste");
