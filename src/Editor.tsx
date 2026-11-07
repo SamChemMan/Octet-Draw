@@ -514,6 +514,10 @@ export default function Editor() {
   now.current = doc;
   // AI apps (decision 0021): what the tools wait for to be drawn, the drawing set or a change after this many renders.
   const mcpHost = useRef<McpHost & { rendered: Mol; loaded: boolean; gliding: boolean }>(undefined), mcpWait = useRef<{ mol?: Mol; after?: number }>({}), mcpRenders = useRef(0), mcpCalling = useRef(false);
+  // No motion: with reduced motion (the user's own setting), and during an AI app's call. The app is not a person
+  // watching: its only aim is the best work in the least time, so nothing it does glides, settles or animates (Sam,
+  // 7 November 2026, decision 0024).
+  const noMotion = () => reduced() || mcpCalling.current;
   const mcpWorking = useRef<number>(undefined);
   mcpRenders.current++;
   const [tool, setTool] = useState<Tool>("bond");
@@ -994,16 +998,15 @@ export default function Editor() {
   const zoomedBy = useRef(new WeakMap<Mol, number>());
   // Clean up, Rotate 180°, Flip, every turn, Align, Distribute, Line up, and a catalytic cycle made or tidied glide into
   // place (FEEL-38). The drawing changes at once, as one undo step. Only the picture on screen moves to it (glide).
-  // Every such change glides, however large the drawing (decision 0024), except with reduced motion, which the user
-  // chose in the system's settings, and during an AI app's call (mcpCalling): its tools measure what is on screen, and
-  // waiting for each glide made every call slower (open with Sam, decision 0024). A command that comes again before the
+  // Every such change glides, however large the drawing (decision 0024), except when noMotion(): reduced motion, which the
+  // user chose in the system's settings, and an AI app's call, which wants only speed. A command that comes again before the
   // last glide is over (a key held down) glides on from the picture on screen. path: the way there when it is not a
   // straight line (a turn).
   const [glide, setGlide] = useState<{ to: Mol; mol: Mol }>();
   const glideNext = useRef<{ from: Mol; path?: (t: number) => Mol | undefined }>(undefined), glideShown = useRef<Mol>(undefined);
   const glideTo = (mol: Mol, path?: (t: number) => Mol) => {
     const from = glideShown.current ?? doc;
-    if (!reduced() && !mcpCalling.current && moving(from, mol)) glideNext.current = { from, path: from === doc ? path : undefined };
+    if (!noMotion() && moving(from, mol)) glideNext.current = { from, path: from === doc ? path : undefined };
     set(mol, true);
   };
   // The glide starts before the new drawing is first painted, from where the atoms were.
@@ -1030,7 +1033,7 @@ export default function Editor() {
   useLayoutEffect(() => {
     const from = settleFrom.current;
     settleFrom.current = undefined;
-    if (from !== undefined) setSettle({ doc, from });
+    if (from !== undefined && !noMotion()) setSettle({ doc, from });
     else if (settle) setSettle(undefined); // so a redo to the same drawing does not settle again
   }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps
   const undo = (redo = false) => {
@@ -2120,7 +2123,7 @@ export default function Editor() {
   }
   // The name field shakes for text that is not a name.
   const shake = (el: HTMLElement) => {
-    if (!reduced()) el.animate([{ transform: "translateX(0)" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "translateX(0)" }], timing("--motion-slow"));
+    if (!noMotion()) el.animate([{ transform: "translateX(0)" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "translateX(0)" }], timing("--motion-slow"));
   };
   // The command Repeat runs again (see repeatLast).
   const lastRepeat = useRef<{ menu?: string; action?: string; rotate?: number; scale?: number }>(undefined);
@@ -2962,7 +2965,7 @@ export default function Editor() {
   useEffect(() => {
     const now = pages[0][1] * mm, was = outlineFrom.current;
     outlineFrom.current = now;
-    if (was === undefined || Math.abs(was / now - 1) < 1e-3 || reduced()) return;
+    if (was === undefined || Math.abs(was / now - 1) < 1e-3 || noMotion()) return;
     pagesEl.current?.animate([{ transform: `scale(${was / now})` }, { transform: "scale(1)" }], timing("--motion-slow"));
   }, [pages, mm]);
   // The page whose edge is under a point (drawing coordinates), within a few screen px. With page edges off, none.
@@ -3126,7 +3129,7 @@ export default function Editor() {
     const m = now && now !== "none" ? new DOMMatrix(now) : undefined, from: View = m ? { x: m.e, y: m.f, zoom: m.a } : views.get();
     stopCamera();
     setView(to);
-    if (!g || reduced() || (from.x === to.x && from.y === to.y && from.zoom === to.zoom)) return;
+    if (!g || noMotion() || (from.x === to.x && from.y === to.y && from.zoom === to.zoom)) return;
     const at = (v: View) => ({ transform: `translate(${v.x}px, ${v.y}px) scale(${v.zoom})` });
     g.animate([at(from), at(to)], timing());
   }

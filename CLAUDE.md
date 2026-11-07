@@ -43,7 +43,8 @@ Octet draws structures itself as SVG. The app icon source is
   guess.
 - No step backwards (decision 0024). An update never takes away or makes
   worse something users had in the last release: a feature, a menu item,
-  a shortcut, a setting, an animation, or speed. This includes losses by
+  a shortcut, a setting, an animation, or speed. Every glide shows (only
+  reduced motion and AI apps move at once). This includes losses by
   side effect, such as a slower command that eats a glide. The checks
   `src/inventory.check.ts`, `src/tween.check.ts` and
   `scripts/experience.mjs` compare each commit with the last release tag.
@@ -79,6 +80,12 @@ motion rules in `brand/`), better looking than ChemDraw, with better
 features and good templates. It caters for everyone. It isn't daunting at
 first sight, but it has a huge depth of features for people who go looking.
 Final Cut Pro is the model for this.
+
+AI apps (the MCP server, decision 0021) are not people. Their only goal
+is the best work in the least time. Nothing an AI app does glides, settles
+or animates, and any rule about how Octet looks or feels to a person gives
+way to speed there (decision 0024). Correct chemistry, data safety and
+security still hold.
 
 Sam's additions to the brief (14 October 2026), in no strict order:
 
@@ -160,9 +167,11 @@ better, modern way to do it. This repository is public.
   files in this repository. Write our own code.
 - Learn what a feature does, never how ChemDraw codes it, and design
   Octet's own way.
-- Use only files Sam created as test files. Some of Sam's corpus files
-  contain ChemDraw template clip art or third-party pictures: never commit
-  those. Keep corpus tests that need them local.
+- Use as test files only files Sam created, and files Prof. Stefan
+  Schramm made and gave Sam the right to use (they reproduce the problems
+  he reported). Some corpus files contain ChemDraw template clip art or
+  third-party pictures: never commit those. Keep corpus tests that need
+  them local.
 
 ## ChemDraw on Sam's Mac
 
