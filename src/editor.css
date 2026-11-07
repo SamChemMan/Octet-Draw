@@ -4284,6 +4284,12 @@ button.variant.add {
   padding-top: var(--space-1);
   border-top: 1px solid var(--hairline);
 }
+.prop-heading {
+  margin: 0;
+  padding: 0 var(--space-1);
+  font: 600 11px/18px var(--font-sans);
+  color: var(--ink);
+}
 .prop-row {
   display: grid;
   grid-template-columns: 16px auto 1fr;

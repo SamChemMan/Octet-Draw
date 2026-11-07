@@ -37,7 +37,7 @@ import { ACTIONS, actionFor, addsToSelection, controlTakes, copyDrag, feedbackCh
 import { Actions, ActionsMenu, actionItems, FontPick, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
-import { propertyValues, PROPERTY_ROWS, type Calculated, type PropertyValues } from "./proprows";
+import { propertyValues, PROPERTY_ROWS, rowLabel, type Calculated, type PropertyValues } from "./proprows";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { MassSpecPanel, type MsAdd } from "./MassSpec";
 import { chemRuns, msFigure } from "./msanalysis";
@@ -1088,6 +1088,15 @@ export default function Editor() {
   };
 
   useEffect(() => { ready.then(() => setLoaded(true)); }, []);
+  // Clean Up's code is made ready soon after start (the browser compiles it as it runs): a few small clean-ups that
+  // change nothing, a moment apart, so the first Clean Up is as quick as the next (decision 0024).
+  useEffect(() => {
+    if (!loaded) return;
+    const warm = parseStructure("CC(C)Cc1ccc(cc1)C(C)C(=O)OC1CCN(C)CC1");
+    const messy = { ...warm, atoms: warm.atoms.map((a, i) => ({ ...a, location: [a.location[0] + 0.3 * Math.sin(i * 12.9898), a.location[1] + 0.3 * Math.cos(i * 78.233), 0] as [number, number, number] })) };
+    const timers = [0, 1, 2, 3, 4].map((k) => setTimeout(() => { try { cleanUp(messy); } catch { /* only a warm-up */ } }, 2000 + 300 * k));
+    return () => timers.forEach(clearTimeout);
+  }, [loaded]);
   // Name to structure loads in the background once the window has settled.
   const [namesLoaded, setNamesLoaded] = useState(false);
   // The names engine loads in the background soon after start, so Structure to name is ready when first asked. Its
@@ -2383,7 +2392,6 @@ export default function Editor() {
         // A residue label (its bonds say which kept atom each joins) is its kept group, even when its text is P.
         const inner = m.atoms[i].inner, ported = !!inner?.atoms.length && m.bonds.some((b) => b.ports && b.atoms.some((k, e) => k === i && b.ports![e] >= 0));
         const smiles = ported ? undefined : labelSmiles(chemicalText(doc.atoms[i].text, doc.atoms[i].runs)!);
-
         if (!smiles && !inner?.atoms.length) { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); continue; }
         try { m = expandLabel(m, i, smiles ? parseStructure(smiles) : inner!); } catch { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); }
       }
@@ -2431,7 +2439,6 @@ export default function Editor() {
         const keep = group.has(links[0].atoms[0]) ? links[0].atoms[0] : links[0].atoms[1];
         return setDialog({ kind: "contract", text: residueName(doc, group, toInchi) ?? analyse(subset(doc, group))?.[0]?.formula ?? "R", keep, group: [...group] });
       }
-
       const keep = group.has(links[0].atoms[0]) ? links[0].atoms[0] : links[0].atoms[1], outside = links[0].atoms[0] === keep ? links[0].atoms[1] : links[0].atoms[0];
       // The group with xenon in place of the rest of the structure, as an InChI, against each abbreviation's.
       const capped = subset({ ...doc, atoms: doc.atoms.map((a, i) => (i === outside ? { ...a, label: "Xe", text: undefined, charge: undefined } : a)) }, new Set([...group, outside]));
@@ -6405,7 +6412,7 @@ export default function Editor() {
         const v = r.values[k];
         if (v === undefined) return;
         if (runs.length) runs.push({ text: "\n" });
-        runs.push({ text: `${r.name}: ` });
+        runs.push({ text: `${rowLabel(r)}: ` });
         if (r.key === "formula") for (const [, letters, digits] of v.matchAll(/(\D*)(\d*)/g)) { if (letters) runs.push({ text: letters }); if (digits) runs.push({ text: digits, script: "sub" }); }
         else runs.push({ text: v });
         void i;
