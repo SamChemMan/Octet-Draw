@@ -123,7 +123,7 @@ import { Select } from "./Select";
 import { expandGeneric, layoutGrid, MOST } from "./expand";
 import { NoticeBar, type Notice } from "./NoticeBar";
 import { Exit, reduced, timing, tween } from "./motion";
-import { between, moving } from "./glide";
+import { between, moving, squeezed } from "./glide";
 import { glidePlan, type GlidePart, type PartIn } from "./glideplan";
 import { GlideLayer } from "./GlideLayer";
 import { copyOf, domTween, type DomTween } from "./domtween";
@@ -1006,7 +1006,7 @@ export default function Editor() {
   const glideNext = useRef<{ from: Mol; path?: (t: number) => Mol | undefined; turn?: { centre: P; degrees: number }; before?: SVGGElement }>(undefined), glideShown = useRef<Mol>(undefined);
   // The fast glide (glideplan.ts, GlideLayer.tsx): when only structures move, their frames slide the ink already drawn,
   // and the editor draws the drawing twice in all (where it starts and where it ends), not once a frame.
-  const [fast, setFast] = useState<{ to: Mol; plan: GlidePart[]; dom?: DomTween; n: number }>(), fastNow = useRef<{ from: Mol; to: Mol; t: number }>(undefined), fastCount = useRef(0), glidingNow = useRef(false), fastDom = useRef<DomTween>(undefined);
+  const [fast, setFast] = useState<{ to: Mol; plan: GlidePart[]; dom?: DomTween; squeeze: (t: number) => boolean; n: number }>(), fastNow = useRef<{ from: Mol; to: Mol; t: number }>(undefined), fastCount = useRef(0), glidingNow = useRef(false), fastDom = useRef<DomTween>(undefined);
   // turn: a turn's centre (drawing) and degrees, so its fast glide goes round, not across.
   const glideTo = (mol: Mol, path?: (t: number) => Mol, turn?: { centre: P; degrees: number }) => {
     const f = fastNow.current, from = glideShown.current ?? (f && between(f.from, f.to, f.t)) ?? doc, world = document.getElementById("world");
@@ -1031,7 +1031,7 @@ export default function Editor() {
         fastNow.current = { from: next.from, to, t: 0 };
         const dom = next.before && domTween(next.before, world);
         fastDom.current = dom;
-        setFast({ to, plan, dom, n: ++fastCount.current });
+        setFast({ to, plan, dom, squeeze: squeezed(next.from, to), n: ++fastCount.current });
         return () => { fastNow.current = undefined; fastDom.current = undefined; setFast(undefined); };
       }
     }
@@ -8453,7 +8453,7 @@ export default function Editor() {
                   {x.drawing.labels.map((l, i) => <text key={i} x={l.x} y={l.y} transform={labelTurn(l)} fill={l.colour ? textInk(l.colour) : "var(--ink)"} fillOpacity={l.alpha} textDecoration={l.underline ? "underline" : undefined} style={{ font: labelFont(l) }}>{l.text}</text>)}
                 </g>
               )}
-              skip={(t) => { const f = fastNow.current; return !!f && !between(f.from, f.to, t); }}
+              skip={fast.squeeze}
               onFrame={(t) => { if (fastNow.current) fastNow.current.t = t; }} onDone={() => { fastNow.current = undefined; fastDom.current = undefined; setFast(undefined); }} />
           )}
           {(pen || drag?.kind === "pen") && (() => {
